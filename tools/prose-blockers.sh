@@ -181,9 +181,9 @@ scan_file() {
     function commands_abort(lc) {
       return (lc ~ /(never|not|must|do not|don'"'"'t|will|then|→|->) abort/)
     }
-    function stops(lc) {
+    function stops(lc, raw) {
       if (lc ~ /refus(e|es|ed|ing|al|als)/) return 1
-      if (commands_abort(lc) || text_has_caps_abort) return 1
+      if (commands_abort(lc) || raw ~ /ABORT/) return 1
       if (lc ~ /hard[- ]stop|hard stop/) return 1
       if (lc ~ /(is a blocker|are blockers|itself a blocker|counts as a blocker|is a hard blocker)/) return 1
       if (lc ~ /(is a reject|reject-and-stop|strict reject|reject at intake)/) return 1
@@ -206,10 +206,9 @@ scan_file() {
       }
       return 0
     }
-    function is_construct(text,   lc, text_has_caps_abort) {
+    function is_construct(text,   lc) {
       lc = tolower(text)
-      text_has_caps_abort = (text ~ /ABORT/)
-      if (stops(lc)) return 1
+      if (stops(lc, text)) return 1
       if (tier != "stop" && bold_prohibits(text)) return 1
       if (tier == "all" && prohibits(lc)) return 1
       return 0
@@ -308,7 +307,7 @@ check() {
   tmp_rows=$(mktemp) || die "mktemp failed"
   # shellcheck disable=SC2064
   trap "rm -f '$tmp_census' '$tmp_rows'" EXIT
-  census >"$tmp_census"
+  (census) >"$tmp_census" || exit $?
 
   local bad
   bad=$(awk -F'\t' '
@@ -347,6 +346,17 @@ check() {
     "$(awk 'END {print NR}' "$tmp_census")" \
     "$(corpus_files | awk 'END {print NR}')" \
     "$(awk 'END {print NR}' "$tmp_rows")"
+
+  # The stop tier is narrow by design, so what it declines to call blocking is reported
+  # here rather than left to a reader who would have to run two more commands to find out. The
+  # tiers nest - every stop construct is a bold one and every bold one is an all one - so the
+  # difference against all is exactly what the default excludes.
+  local n_stop n_bold n_all
+  n_stop=$(awk 'END {print NR}' "$tmp_census")
+  n_bold=$(census --tier bold | awk 'END {print NR}')
+  n_all=$(census --tier all | awk 'END {print NR}')
+  printf '[prose-blockers] tiers: stop=%s (default), bold=%s, all=%s - the default excludes %s wider construct(s).\n' \
+    "$n_stop" "$n_bold" "$n_all" "$((n_all - n_stop))"
 
   if [ -n "$undispositioned" ]; then
     printf '[prose-blockers] UNDISPOSITIONED — in the tree, absent from %s:\n%s\n' "$record" "$undispositioned" >&2

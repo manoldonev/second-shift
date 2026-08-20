@@ -69,6 +69,12 @@ Independent retrospective for a completed (or aborted) run. An abort is a real c
 1. First step, whose continuation line
    mentions that the gate refuses a stale patch id.
 5b. A separately numbered step that hands back on an all-dark panel.
+
+ABORT the run and record the reason.
+
+A refusal at the intake boundary is recorded in the ledger.
+
+The excerpt boundary: this construct refuses at length, and it runs well past the one hundred and sixty characters the default census truncates at, so the whole form and the cut form differ.
 EOF
 
 skill other gamma <<'EOF'
@@ -103,6 +109,10 @@ grep -q 'never looks at the tree' <<<"$STOP" \
   || ok "a descriptive never is not a construct"
 grep -q 'ABORT with the stderr reason' <<<"$STOP" \
   && ok "a commanded ABORT is a stop" || bad "a commanded ABORT is a stop" "absent"
+grep -q 'ABORT the run and record the reason' <<<"$STOP" \
+  && ok "a bare shouted ABORT is a stop" || bad "a bare shouted ABORT is a stop" "absent"
+grep -q 'A refusal at the intake boundary' <<<"$STOP" \
+  && ok "the NOUN form of refusal is a stop" || bad "the NOUN form of refusal is a stop" "absent"
 grep -q 'completed (or aborted) run' <<<"$STOP" \
   && bad "an aborted RUN is a state, not a stop" "censused" \
   || ok "an aborted RUN is a state, not a stop"
@@ -133,6 +143,15 @@ grep -q 'never the local cache values' <<<"$ALL" \
   && bad "an elliptical contrast binds no action" "censused even at --tier all" \
   || ok "an elliptical contrast binds no action"
 run census --tier bogus >/dev/null 2>&1; is "an unknown tier is a usage error" "$?" "2"
+
+echo "== --full against the default excerpt =="
+LONG_CUT=$(PROSE_BLOCKERS_ROOT="$WORK" bash "$TOOL" census 2>/dev/null \
+  | grep -F 'The excerpt boundary' | cut -f3)
+LONG_WHOLE=$(PROSE_BLOCKERS_ROOT="$WORK" bash "$TOOL" census --full 2>/dev/null \
+  | grep -F 'The excerpt boundary' | cut -f3)
+is "the default cuts a long construct at 160 characters" "${#LONG_CUT}" "160"
+[ "${#LONG_WHOLE}" -gt 160 ] && ok "--full emits the construct whole" \
+  || bad "--full emits the construct whole" "got ${#LONG_WHOLE} char(s), want more than 160"
 
 echo "== the census unit =="
 is "a bullet's continuation lines are one construct" \
@@ -167,6 +186,17 @@ is "differing sites under one anchor are ONE construct" \
 printf '%s' "$ANCHORED" | grep -q 'alpha' && printf '%s' "$ANCHORED" | grep -q 'gamma' \
   && ok "the anchored construct carries both sites" \
   || bad "the anchored construct carries both sites" "$ANCHORED"
+
+echo "== the root derives from the script's own location =="
+# Every case above hands the tool a PROSE_BLOCKERS_ROOT, which is exactly what leaves the
+# fallback unexercised. A copy of the tool INSIDE the fixture tree makes the derived root the
+# fixture root, so what answers here is the derivation rather than the override.
+mkdir -p "$WORK/tools"
+cp "$TOOL" "$WORK/tools/prose-blockers.sh"
+DERIVED=$(env -u PROSE_BLOCKERS_ROOT bash "$WORK/tools/prose-blockers.sh" census 2>/dev/null \
+  | cut -f1 | tr '\n' ' ')
+OVERRIDDEN=$(PROSE_BLOCKERS_ROOT="$WORK" bash "$TOOL" census 2>/dev/null | cut -f1 | tr '\n' ' ')
+is "an unset root derives the tree from the script's own parent" "$DERIVED" "$OVERRIDDEN"
 
 echo "== check =="
 REC="$WORK/docs/rec.tsv"
@@ -215,6 +245,21 @@ printf '# only a comment\n\npb-2\tdeleted\tprose-deleted\ta:1\t-\twas never a co
 run check docs/rec.tsv >/dev/null 2>&1; is "comments and blanks are skipped, deleted needs no enforcer" "$?" "3"
 
 run check docs/nope.tsv >/dev/null 2>&1; is "an absent record is a usage error" "$?" "2"
+
+echo "== check reports what the default tier excludes =="
+PROSE_BLOCKERS_ROOT="$WORK" bash "$TOOL" census 2>/dev/null \
+  | awk -F'\t' '{print $1 "\tgate-backed\tpointer-kept\t" $2 "\tguard.sh::x\tcovered"}' >"$REC"
+TIERS=$(run check docs/rec.tsv | grep 'tiers:')
+[ -n "$TIERS" ] && ok "check reports the stop, bold and all counts" \
+  || bad "check reports the stop, bold and all counts" "no tiers line in check's output"
+num_after() { local v="${TIERS##*"$1"}"; v="${v%%[!0-9]*}"; printf '%s' "$v"; }
+is "the reported stop count is the default census" "$(num_after 'stop=')" "$(ids | wc -l | tr -d ' ')"
+is "the reported bold count is the bold census" \
+  "$(num_after 'bold=')" "$(ids --tier bold | wc -l | tr -d ' ')"
+is "the reported all count is the all census" \
+  "$(num_after 'all=')" "$(ids --tier all | wc -l | tr -d ' ')"
+is "the excluded count is all minus stop" "$(num_after 'excludes ')" \
+  "$(( $(num_after 'all=') - $(num_after 'stop=') ))"
 
 echo "== the shipped record =="
 PROSE_BLOCKERS_ROOT="$SELF_DIR/.." bash "$TOOL" check >/dev/null 2>&1

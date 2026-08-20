@@ -85,8 +85,8 @@ tools/fixture-stamp.sh	64	61	41	672
 tools/install-topology-selftest.sh	312	284	112	394
 tools/mutation-sweep-selftest.sh	2048	1975	461	233
 tools/mutation-sweep.sh	1912	1802	700	388
-tools/prose-blockers-selftest.sh	210	172	19	110
-tools/prose-blockers.sh	359	343	128	373
+tools/prose-blockers-selftest.sh	269	223	23	103
+tools/prose-blockers.sh	386	368	138	375
 tools/reap-lean-fixtures-selftest.sh	320	281	86	306
 tools/reap-lean-fixtures.sh	199	185	80	432
 tools/run-selftests-selftest.sh	889	803	252	314

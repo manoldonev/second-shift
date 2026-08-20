@@ -247,7 +247,7 @@ it is a tracker **read**, not a write, so it does not touch the never-write-to-G
   label is already being built — that one is worth naming explicitly. Record your judgment as a
   Decision Ledger row per candidate. **Never close anything.**
 <!-- LOCKSTEP-BEGIN dup-scan-rc2 -->
-- **`2`** — the scan could not run. Hard-stop: report the rc and the reason, and hand nothing off.
+- **`2`** — the scan could not run. Hard-stop: report the rc and the reason.
 <!-- LOCKSTEP-END dup-scan-rc2 -->
   Emit the draft anyway, and tell the user it is unscanned so they do not file it as if it were.
 

@@ -404,7 +404,7 @@ Three exit codes, three different obligations:
   if they touch the same files, because a candidate carrying the *claimed* label is already
   being built), or unrelated. **Never close a ticket on this output.**
 <!-- LOCKSTEP-BEGIN dup-scan-rc2 -->
-- **`2`** — the scan could not run. Hard-stop: report the rc and the reason, and hand nothing off.
+- **`2`** — the scan could not run. Hard-stop: report the rc and the reason.
 <!-- LOCKSTEP-END dup-scan-rc2 -->
   Do not apply the queue label; exit non-zero and let the operator fix it and re-run intake.
   A proceed-with-a-flag variant is not available: the flag lands in a local receipt the next
@@ -489,7 +489,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/skills/plan-interview/tools/dup-scan.sh" \
    a ledger row, and on `2`:
 
    <!-- LOCKSTEP-BEGIN dup-scan-rc2 -->
-   - **`2`** — the scan could not run. Hard-stop: report the rc and the reason, and hand nothing off.
+   - **`2`** — the scan could not run. Hard-stop: report the rc and the reason.
    <!-- LOCKSTEP-END dup-scan-rc2 -->
 
    Create nothing and label nothing. The cost is an operator re-run; proceeding mints up to five
