@@ -1,123 +1,161 @@
 # lean review verdict — #565
 
-verdict=approve
-run_id: review-565-1
-session_id: 6768b6f9-2e14-418f-8141-de44a93bdca7
-rounds: 1
+verdict=needs-work
+run_id: review-565-2
+session_id: b430f288-a8e2-4240-b05b-652a6d4decd6
+rounds: 2
 pr: #603
-reviewed_head: 1e802984e9ea91c4e8b6791726b6c80ef7d1b649
-reviewed_patch_id: ea3675e7844a6f6a86e3fdc2414b691a4fb32352
-inherited_patch_id: none
-inherited_from_verdict: none
+reviewed_head: fe8334e40cfed71d90871ce1ee62bb4a8be17e99
+reviewed_patch_id: 21e1b5cc7e479f4447c87959899b908775f7fd07
+inherited_patch_id: ea3675e7844a6f6a86e3fdc2414b691a4fb32352
+inherited_from_verdict: 201784e8c3d6c0b19e4a64773f7ae0b616bfd2a9
 fidelity: not-applicable
-model: opus
+model: unknown
 capabilities: pr-marker
 
-# Review round 1 — PR #603 (issue #565)
+# Review round 2 — PR #603 (issue #565)
 
-**Verdict: approve.** No blockers. Range read: `06e48be..1e80298` (root round, whole branch
-diff — the gate printed FULL, nothing verifiable to inherit). Panel: 7 reviewers selected, 7
-returned; none dark. Scope-completeness gate: PASS.
+**Verdict: needs-work.** One blocker (B1), from the scope-completeness gate, verified
+independently before being adopted. Range read: `201784e..HEAD` — the base merge, inheriting
+patch `ea3675e7844a`. Panel: 4 reviewers selected, 4 returned; none dark.
 
-The change does what it claims and the two things the PR body asked to be read carefully both
-hold up under independent checking. `corpus` and `open-prs` are structurally untouched — the
-only shared surface the diff enters is the `SUB` case, the `--help` window, and the header
-comment, so AC-16's byte-stability is a property of the diff's shape, not just of a passing
-fixture. AC-2c is the strongest part of the change: it pins a case the ticket left undefined,
-it narrows the implementation rather than excusing it, and the `914` fixture reproduces
-`109-lean-progress.md`'s stamps to the second — I ran the tool against the real record and got
-the same vector the fixture asserts (`1=81,2=-58,3=14,4=42`, wall `81`), including the floor
-(`-58`, not the `-57` a truncating `/` would give).
+## What this round actually is
+
+Round 1 predicted this round would be a **re-stamp of an already-approved diff** "unless the
+resolution touches more than the manifest append". It does not, and I measured that rather than
+assuming it:
+
+- `git diff 8ba330c fe8334e` (contribution on top of main) and `git diff 06e48be 201784e`
+  (pre-merge contribution) are both 9 files / 980 insertions / 30 deletions.
+- Their **added-line sets and removed-line sets hash identically**
+  (`695b7e09…` / `3039307742e6…`). The only textual difference between the two diffs is the
+  `lockstep-manifest.tsv` hunk header and one leading context line, because main appended a
+  `tier-alphabet-parse` row above ours. `patch-id --stable` hashes context, which is exactly why
+  the re-stamp is unavoidable for a zero-contribution-delta resolution.
+
+So no new branch code exists. The blocker below is **not** new code — it is a contract-integrity
+defect that was present in round 1 and that round 1's scope gate passed over. Round 2 finding it
+is inheritance working as specified: the delta bounds what I read, never what I must find.
 
 ## Findings
 
 | # | Sev | Site | Finding |
 | --- | --- | --- | --- |
-| W1 | Warning | `plugins/dev-pipeline/skills/perf-retro/SKILL.md` (Step 2 table, `no-chronology` row) | The row says the flag excludes a run from "**everything**". AC-19 requires Step 2 to state that `no-chronology` "exclude[s] a run from wall-clock aggregates while its spans remain usable". The doc's statement is the *correct* one — a `no-chronology` record has no parseable timestamped row, so `milestone_ts` matches nothing and `spans` is `{}` by construction — but it is an undeclared divergence from the committed spec. This build amended the spec three times (AC-2c, AC-7d, AC-18b) for exactly this reason; the fourth case was left unrecorded. Fix by adding an AC-19b noting the clause is vacuous, not by weakening the doc. |
-| W2 | Warning | `plugins/dev-pipeline/skills/perf-retro/SKILL.md` (Step 3, "Review rounds" bullet); `retro-corpus.sh` `rounds` | `rounds` is null on every current-grammar record in the live corpus. 11 of 63 records carry a `round=` token and **all 11 are old-grammar** — the token only ever appeared on the pre-`started`/`concluded` `milestone-4 \| verdict=approve \| round=N` row. `timing --window 8` returns `-` for `rounds` on all eight recent runs. AC-10/AC-11 are satisfied (the derivation is right and the null is documented), but Step 3's "a round count above one is the first thing to check" is unreachable on any run the lane writes today — the same shape of defect this PR exists to remove from Step 2 (`pauseSpans[]`, `pipelineSessions[]`). Either say so at the bullet, or route it to OR-2's follow-up alongside record truncation. |
-| W3 | Warning | `plugins/dev-pipeline/tools/retro-corpus.sh:340-360`; SKILL.md Step 3 "Re-verification churn" | `reverifyMin` can exceed `wallClockMin`, and does on the live corpus: `575` reports reverify `82` against wall `40`; `141` reports `169` against `79`. A `milestone-4 \| concluded` row that follows `milestone-4 \| satisfied` lands entirely **after** the run's defined end (AC-4), so it measures the same close-out bookkeeping AC-7d excludes milestone 5 for. AC-7 is met literally, and Step 3 correctly says the value is never summed with spans — but a reader seeing `reverify 82 / wall 40` will read it as an arithmetic error. One sentence in the Step 3 bullet stating it can exceed the wall-clock, and why, closes it. |
-| S1 | Suggestion | `plugins/dev-pipeline/tools/retro-corpus.sh:346` | Comment cites `(AC-7d/AC-8b)`. `AC-7d` exists in the committed spec; `AC-8b` does not. |
-| S2 | Suggestion | `docs/plans/acme-303.md:109` | The annotation opens "The row above stays as written", but the row directly above it is D-49; D-36 is at `:94`, fifteen rows up. AC-21 is satisfied — the row is annotated and not rewritten, and the bold lead names D-36 — but the deictic points at the wrong row. |
-| S3 | Suggestion | `plugins/dev-pipeline/tools/retro-corpus-selftest.sh:772` | The AC-1 window case asserts `KEYS = "914,912"` but its `fail` message reads `expected 912,911`. Only surfaces on a red, which is when it is least helpful to be wrong. |
-| S4 | Suggestion | `plugins/dev-pipeline/skills/perf-retro/SKILL.md:24` | Still resolves the corpus "the way the state helper resolves it". No state helper exists in the tree — same dead-reference class this PR removes from Step 2. AC-18b declares one Step 1 edit, so this is out of the change's stated scope; noting it so it is not lost. |
-| S5 | Suggestion | `plugins/dev-pipeline/skills/perf-retro/SKILL.md:131` | The report template heading still reads `## Profile (trusted runs only)` while the text under it now says runs with a null wall-clock still appear with their spans and flags. |
-| S6 | Suggestion | `plugins/dev-pipeline/tools/retro-corpus.sh:318,~350` | The `\|\| continue` arms on `iso_to_epoch` are unexercised — every fixture stamp matches `TS_RE` and converts. Defensive rather than live, since `milestone_ts` gates the input, but a mutant dropping either arm survives. (Raised by the mutation reviewer; I agree it is not blocker-class.) |
+| B1 | **Blocker** | `plugins/dev-pipeline/tools/retro-corpus.sh:350`; `docs/plans/second-shift-565-lean.md` AC-7d | **AC-8 is narrowed relative to the ticket by a spec amendment authored in the implementation commit.** Issue #565's AC-8 reads "WHEN **any** `\| milestone-N \| started` or `\| milestone-N \| concluded` row is timestamped after that milestone's `satisfied` row THEN the run is flagged `re-run`", unbounded. The implementation scans `for n in 1 2 3 4`. The AC that authorizes that bound — AC-7d — appears **nowhere in the issue body**; it was added to the committed spec in `d7a78cb`, *the same commit that added the code it authorizes*. The pre-implementation spec (`fc812f4`) carried AC-8 unbounded, identical to the ticket. review-lean names this shape a blocker in its own right: "a spec amended after the fact to match the diff is itself a blocker." |
+| W4 | Warning | `tools/mutation-slow-suites.tsv` | New, and caused by this PR: `mutation-sweep-pr` warns `retro-corpus-selftest.sh` measured **14s** (≥ the 5s bar) with no row recording it, so the PR lane keeps sweeping its guard. Benign in direction (more coverage, more cost — never less), and the file's own header says membership drift "is a PRECHECK warn, never red; this committed copy updates by ordinary PR". Not a blocker; noting it because this PR is what pushed the suite over the bar (+415 lines). |
+| W5 | Warning | `plugins/dev-pipeline/tools/pipeline-cost-block.sh:187,195,451` | #565's Dependencies note predicted the overlap with #546 would be "one comment hunk in one file". The diff carries **three** comment hunks — the D-36 annotation plus the `LOCKSTEP-BEGIN/END iso-to-epoch` markers AC-25 requires. AC-22 is still satisfied (every changed line is a comment; verified). Worth telling #546's author to expect the wider surface. |
 
-## Merge state — read this before acting on the approval
+### Carried forward from round 1, unchanged
 
-The branch is `CONFLICTING` against `origin/main`, which has moved to `602b0f0` (`#598`, `#596`)
-since the branch point. The conflict is `scripts/lockstep-manifest.tsv`: both sides appended
-rows to the end of the file. It is a mechanical resolution with no code content.
+The contribution is byte-identical, so none of round 1's findings were addressed and none were
+re-introduced — they simply persist. W1 (`no-chronology` row overstates exclusion as
+"everything"), W2 (`rounds` is null on every current-grammar record, so the Step 3 bullet
+consuming it is unreachable on the live corpus), W3 (`reverifyMin` can exceed `wallClockMin`),
+and S1–S6 all still stand as written in the round-1 record. S1 is the same defect B1 points at
+from the other side: the code comment cites `(AC-7d/AC-8b)` and **`AC-8b` does not exist** in any
+artifact — the ticket, the spec, or the tree.
 
-The consequence is procedural, not technical. This record is patch-bound to `1e80298`, and the
-rebase that resolves the conflict will change lines and void it. The next round is therefore a
-**re-stamp of an already-approved diff**, not a re-review — unless the resolution touches more
-than the manifest append, in which case the delta is genuinely new and should be read as such.
+## Why B1 is a blocker and not a warning — and what I checked before saying so
 
-## AC scoring — 27 of 27 satisfied
+I did not take the gate's word for it. Three independent checks, all confirming:
+
+1. **Issue body.** `gh issue view 565` — AC-8 is unbounded. AC-2b bounds only `spans`; AC-14
+   bounds only `over-24h`. There is no AC-7d and no milestone-5 bound on `re-run`/`reverifyMin`.
+2. **Commit archaeology.** `git show fc812f4:…second-shift-565-lean.md` has **no** AC-7d;
+   `d7a78cb` — the implementation commit — introduces it. The spec did not lead the code here.
+3. **Live-corpus measurement.** In an isolated probe (`/tmp`, never the reviewed tree) I widened
+   *only* line 350 to `for n in 1 2 3 4 5` and ran both variants against the real 63-record
+   corpus. Output is **identical on all 63 records** — same `re-run` flag (19/63 either way),
+   same `reverifyMin`. 28 records carry milestone-5 rows, but none carries a
+   `milestone-5 | satisfied` followed by a later `started`/`concluded`, so the widened arm is
+   never exercised.
+
+Check 3 is the fair-minded half, and it cuts **for** the change on the merits: the narrowing is
+provably inert, and AC-2b/AC-14 in the ticket already twice establish that milestone 5 sits
+outside the measured run, so AC-7d extends a pre-ratified principle rather than inventing cover
+for a bug. That is a genuinely strong argument, and it is why this is stated as a
+contract-integrity blocker rather than a behavioral one.
+
+It is still a blocker. The rule exists to stop the shape where the implementation defines the
+contract, and here the implementation commit literally authored the AC that permits it, on a
+repo whose product *is* enforcement integrity. Inertness bears on impact, not on whether the
+divergence happened; discounting a verified blocker because it is cheap is the softening
+review-lean forbids. It also cost real accuracy: the code comment cites a nonexistent `AC-8b`,
+which is what an amendment written in a hurry looks like.
+
+**There is a code remedy, and check 3 proves it is safe.** Widening line 350 to `1 2 3 4 5`
+makes the implementation match the ticket's AC-8 literally with a measured-zero blast radius
+across the whole corpus (and AC-7d then comes out of the spec, or is restated as applying to
+`reverifyMin` only). The alternative — amending #565's body to bound AC-8 to milestones 1–4 and
+fixing the `AC-8b` citation — is the operator's call, not an agent's: editing a ticket's
+acceptance criteria is a human-authority action. Either closes B1. I have deliberately not
+picked for you.
+
+## AC scoring — 33 of 34 satisfied, 1 unsatisfied
+
+Scored against the **committed spec**, every AC every round. Unchanged from round 1 except AC-8,
+which I am scoring differently on evidence round 1 did not surface. Round 1's bases for the other
+33 were re-checked against this head and still hold; the ones I re-verified mechanically this
+round are marked.
 
 | AC | Score | Basis |
 | --- | --- | --- |
-| AC-1 | satisfied | Structural `verdict_record:` selection (never a filename literal); `--window`/`--json`/`--state-dir` share `corpus`'s parser verbatim; missing state dir exits 2; newest-first sort precedes the slice. Verified live and by suite cases. |
-| AC-2 | satisfied | `for n in 1 2 3 4`; `base_e` walks the most recent lower satisfied, falling back to the first timestamped row; unsatisfied milestone `continue`s and is absent, not zero; each span floored independently. |
-| AC-2c | satisfied | **Verified against the real record.** `109-lean-progress.md` → `2=-58`, emitted, floored toward negative infinity, unclamped. The `914` fixture reproduces the stamps and pins the floor/truncate distinction explicitly. |
-| AC-2b | satisfied | The span loop's bound is the literal `1 2 3 4`; no milestone-5 path exists to disable. |
-| AC-3 | satisfied | `milestone_ts \| head -n1`; no "latest"/"last" selection anywhere. Suite case drives a duplicated `satisfied` row. |
-| AC-4 | satisfied | `wall = floor_min(sat4_e - sa_e)`, gated on both being present. |
-| AC-5 | satisfied | Null wall and null reverify; spans still emitted; `unterminated` when a `milestone-4` row exists (matched anywhere on the line, so an un-timestamped one still counts as "got there"), `truncated-record` when none does. Both suite-covered. |
-| AC-6 | satisfied | No merge-time, approval-time, git-metadata, mtime or last-row path exists in `cmd_timing`. Suite case asserts null despite later rows and despite `concluded` rows. |
-| AC-7 | satisfied | Per milestone, `satisfied` → the last following `concluded`; contributes nothing where none follows; documented and rendered as a diagnostic outside every sum. See W3 for the consequence. |
-| AC-7b | satisfied | `rev` is set only when a timestamped `concluded` row exists, so every `old-grammar` record reads null; stated in the SKILL.md flag table and in the code comment. |
-| AC-7c | satisfied | No field or line claims the equality; Step 3 states the opposite explicitly and gives the reason (independent flooring). |
-| AC-7d | satisfied | Both the reverify loop and the `re-run` scan are bounded `1 2 3 4`. |
-| AC-8 | satisfied | `re-run` set on any `started`/`concluded` strictly greater than `satisfied`; the flag is written after the span loop has already closed, so no span can move as a result. |
-| AC-9 | satisfied | `old-grammar` keyed on the absence of any `started`/`concluded` row; suite case yields wall 65 and spans with reverify null. No gate-call-latency field exists for any run. |
-| AC-10 | satisfied | `grep -oE 'round=[0-9]+' \| sort -n \| tail -n1`, matched anywhere on the line; null when absent. Suite covers the un-timestamped row and the no-token case. (W2 is a property of the corpus, not of the derivation.) |
-| AC-11 | satisfied | No `attempt`/`started`/`verdict=` counting path exists. |
-| AC-12 | satisfied | Globs `<state-dir>/{issue}-lean-spawn-*.log` in the same resolved dir. Suite covers present and absent. |
-| AC-13 | satisfied | The string `manual` is never assigned; `orch` initialises to `indeterminate` and only ever moves to `orchestrated`. Suite asserts it. |
-| AC-14 | satisfied | `-gt 86400` on `sat4_e - sa_e`, not on the record's extent. Suite distinguishes a 27-hour run from a 41-minute run carrying a next-day milestone-5. |
-| AC-15 | satisfied | Grepped the whole `cmd_timing` range for vendor tokens (`claude\|sonnet\|opus\|haiku\|gpt\|anthropic`) — none. `model` rides through unmapped; `unknown-model` flagged; not used to bucket or filter. |
-| AC-16 | satisfied | **Structural, not just fixture-based.** The diff's five hunks are the header, the `SUB` guard, the `--help` window, the new `cmd_timing`, and the dispatch arm — `cmd_corpus` and `cmd_open_prs` bodies have zero changed lines, so byte-stability cannot be broken by this diff. Suite case additionally pins the 4-column TSV and the exact JSON key set. |
-| AC-17 | satisfied | `--help` prints `Usage:`, includes `retro-corpus.sh timing`, and stops inside the header (the leak check confirms `set -uo pipefail` never appears). |
-| AC-17b | satisfied, with a correction to the AC | Window `2,40p`→`2,56p` (+16, exactly the header's growth), `HELP_LINES` bound moved to `≤ 55` (the window prints 55 lines), and the `! grep -qF 'set -uo pipefail'` leak check is intact and unweakened. **The AC's parenthetical is wrong about the tree:** line 57 is a header comment, not `set -uo pipefail` — and line 41 was likewise a comment before the change. The invariant that actually holds, and that the assertion actually guards, is "the printed window stops inside the header", which is what the selftest's own comment says. No regression; the AC misdescribes, the code does not. |
-| AC-18 | satisfied | Grepped the whole file: Step 2 names none of `pauseSpans[]`, `pipelineSessions[]`, or `.mode`. |
-| AC-18b | satisfied | Step 1 now names `session_id:` plus the `| session |` rows; the sole surviving `pipelineSessions[]` mention is the parenthetical explaining why it is gone, which is in Step 1 and is historical. Era enumeration untouched. |
-| AC-19 | satisfied in substance | The per-flag exclusion table is present; `over-24h` reads exactly as the AC requires; `re-run` is explicitly "**neither**" with the idempotence rationale; Step 3 sources per-run time from `retro-corpus.sh timing`; the hard rule no longer credits "the state helper". One clause diverges — see W1. |
-| AC-20 | satisfied | Step 3 states an artifact-only corpus is a normal input producing a populated table, and names both "not applicable" and an empty table as wrong answers. |
-| AC-21 | satisfied | Five sites, all annotated: `cost-tracking-setup.md` ×2, the two D-36 comments in `pipeline-cost-block.sh`, and `acme-303.md` — the last annotated adjacent to the ledger and explicitly **not rewritten**. D-25 records the four-vs-five discrepancy honestly. See S2 for the deictic. |
-| AC-22 | satisfied | **Verified mechanically.** Filtering the `pipeline-cost-block.sh` diff to non-comment changed lines returns nothing. The header stays line-count-neutral: `set -uo pipefail` is line 66 on both sides, so the `sed -n '2,64p'` window is untouched. `cost-block-selftest.sh` is absent from the diff and runs 28 passed / 0 failed at this head. |
-| AC-23 | satisfied | The changed-file list names nothing under `skills/build-lean/`, `skills/review-lean/`, `skills/run-lean/`, or `lean-gate.sh`. |
-| AC-24 | satisfied | **Ran both lanes.** 41 passed / 0 failed under bash 5, and 41 passed / 0 failed under stock `/bin/bash 3.2.57(1)-release`. The suite additionally asserts the tool carries no `declare -A`, no case-modification expansion and no `mapfile`/`readarray`. |
-| AC-25 | satisfied | The `-u` is present on the BSD arm and the copy is verbatim; `scripts/lockstep-manifest.tsv` carries the `iso-to-epoch` row and `check-lockstep-pairs.sh` reports 23 pairs, 0 failed, naming this pair. |
-| AC-26 | satisfied | 41 cases. Fixtures cover both grammar generations, truncated, unterminated, re-run, over-24h, no-chronology, spawn-log present and absent, and an un-timestamped `round=N` row — plus `914`, the out-of-order record AC-2c added. |
-| AC-27 (doc) | satisfied | `docs/testing.md` is absent from the diff, and correctly so: cases added to an existing per-tool suite and one row in an existing lockstep manifest, both tiers already described there. No new cache row is claimed. |
+| AC-8 | **unsatisfied** | The committed spec's AC-8 is satisfied only by reading it through AC-7d, and AC-7d is the after-the-fact amendment B1 describes. Against the contract as it stood when the code was written — and against the ticket today — the scan is narrower than the AC. Behaviorally inert (0/63 records differ), which is why it is a contract blocker rather than a defect report. |
+| AC-7d | satisfied, but see B1 | Both the reverify loop and the `re-run` scan are bounded `1 2 3 4`, exactly as AC-7d states. The AC's *provenance* is the finding, not its implementation. |
+| AC-23 | satisfied | **Re-verified on the merged tree.** The contribution diff (`8ba330c..fe8334e`) names nothing under `skills/build-lean/`, `skills/review-lean/`, `skills/run-lean/`, or `lean-gate.sh`. Note this AC must be scored against the *contribution* diff, not the merge range — the merge range does contain `lean-gate.sh` (#599) and both lean SKILL.mds, all of them main's, none of them this branch's. |
+| AC-25 | satisfied | **Re-verified after the conflict resolution.** `scripts/lockstep-manifest.tsv` carries the `iso-to-epoch` row intact, and the resolution correctly kept *both* it and main's `tier-alphabet-parse` row. The `-u` is present on the BSD arm. |
+| AC-15 | satisfied | **Re-checked against #596.** No vendor model token in `retro-corpus.sh`. `check-model-tiers.sh` (the gate #596 landed) exits 0 on this tree; its surface is the `.mjs` tier tables, so a passthrough `model` field in a shell tool is correctly out of its scope — no collision. |
+| AC-22 | satisfied | Every changed line in `pipeline-cost-block.sh` is a comment. See W5 on the hunk count vs. the Dependencies prediction. |
+| AC-24 | satisfied | CI `selftests (macos, bash 3.2)` passes at this head; no `declare -A`/`mapfile`/case-modification in the tool. |
+| AC-26 | satisfied | CI `lint-and-selftests` passes at this head. |
+| AC-1, AC-2, AC-2b, AC-2c, AC-3, AC-4, AC-5, AC-6, AC-7, AC-7b, AC-7c, AC-9 … AC-14, AC-16 … AC-21, AC-27 | satisfied | Bases as recorded in the round-1 record over the byte-identical contribution; inherited by reference to patch `ea3675e7844a` and spot-re-checked on this head. |
 
-## Verification run at this head
+## Merge-state and CI — the first real build signal this PR has had
 
-- `retro-corpus-selftest.sh`: 41 passed, 0 failed — bash 5 **and** stock `/bin/bash` 3.2.57.
-- `cost-block-selftest.sh`: 28 passed, 0 failed (unmodified, per AC-22).
-- `check-lockstep-pairs.sh`: 23 pairs, 0 failed.
-- `shellcheck -e SC1091,SC2015,SC2181` on `retro-corpus.sh`, `retro-corpus-selftest.sh`,
-  `pipeline-cost-block.sh`: clean.
-- `retro-corpus.sh timing` against the live 63-record corpus: 8-row window renders, and `109`'s
-  negative span reproduces the fixture exactly.
-- `tools/mutation-catalog.tsv` carries no row anchored on `retro-corpus.sh`, so the guard edits
-  in this diff incur no re-anchor obligation.
-- `Changelog:` trailer present on the branch.
+Round 1 approved a PR that had **zero** CI: it was `CONFLICTING` from birth, so `pr-gates` had
+never evaluated it. The base merge fixed that, and the results are in — this is new information
+round 1 could not have had, and it is clean:
+
+- `lint-and-selftests` — pass · `selftests (macos, bash 3.2)` — pass
+- `mutation-sweep-pr` — pass, and **not vacuously**: 21 verdicts computed by running a paired
+  suite, both changed guards swept (`pipeline-cost-block.sh` 10 applied/6 killed/4 survived;
+  `retro-corpus.sh` 9/7/2). All six survivors have baseline rows; `catalog::cost-block-cache-numerator`
+  was already baselined on main pre-#565 ("seeded by the canonical seed run").
+- `pr-gates` — fails on **exactly one** arm, the verdict-record freshness one
+  (`ea3675e7844a` → `21e1b5cc7e47`), which is the re-stamp this round exists to perform.
+
+**No re-anchor obligation.** `tools/mutation-catalog.tsv` carries no row anchored on
+`retro-corpus.sh`, and both `pipeline-cost-block.sh` catalog anchors
+(`cost-block-cache-numerator`, `cost-block-tier-unknown-fallback`) still match literally in this
+tree, so this PR's guard edits disarm nothing.
+
+**No collision from main's five arriving commits.** #596 — checked above (AC-15). #599 — changed
+`lean-gate.sh`; touches nothing this branch owns, though it is why a detached review checkout no
+longer works, so this round ran the gate from the lane worktree by name. #600/#602 — no
+capability-parity row and no catalog/register row is owed by this diff; #602's new CLAUDE.md rule
+scopes earn-your-keep to catalog rows and execution surfaces, and this PR adds neither. #598 — the
+all-deferred guard is what makes the green sweep above meaningful rather than vacuous.
 
 ## Panel
 
 | Reviewer | Verdict | Findings |
 | --- | --- | --- |
-| Scope completeness | Pass | 2 minor/nit (both adopted above as W1, S1) |
-| Security | Pass | 0 (2 suppressed, <80) |
-| Performance | Pass | 0 |
-| Complexity | Pass | 0 |
-| Maintainability | Pass | 0 (1 suppressed, <80) |
+| Scope completeness | **Fail** | 1 blocker (adopted as B1, after independent verification), 1 minor (adopted as W5), 2 suppressed <80 |
 | Test coverage | Pass | 0 |
-| Unit-test mutation | Pass | 2 minor (S6 adopted; the AC-16 "no mutant in this diff" observation is correct but the case is a deliberate byte-stability guard, so it stays) |
+| Maintainability | Pass | 0 |
+| Complexity | Pass | 0 |
 
-`a11y-reviewer` and the design-fidelity dimension were not routed: no changed path matched
-`stageParams.webComponentGlobs` (unset → default `apps/web/**/*.{tsx,jsx}`). Not a coverage gap —
-this is a shell/markdown diff. No reviewer went dark.
+Reduced round-2 lineup per the prior-round-context rule: round 1 had no blockers and the
+contribution delta is zero, so security/performance/unit-test-mutation were not re-spawned over
+byte-identical code they already passed. `a11y-reviewer` and the design-fidelity dimension were
+not routed — no changed path matched `stageParams.webComponentGlobs` (unset → default
+`apps/web/**/*.{tsx,jsx}`); this is a shell/markdown diff. Not a coverage gap. No reviewer went
+dark.
+
+## Verification run at this head
+
+- Contribution-delta byte-identity across the merge: added/removed line sets hash-equal (above).
+- Isolated widened-scan probe over the live 63-record corpus: 0 records differ.
+- `check-model-tiers.sh`: exit 0.
+- Catalog anchors for `pipeline-cost-block.sh`: both still match.
+- CI at `fe8334e`: 3 jobs green, `pr-gates` red on the freshness arm only.
