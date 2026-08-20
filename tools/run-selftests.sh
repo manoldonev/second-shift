@@ -236,8 +236,8 @@ fi
 # ---- the lean lane's store (#563) ------------------------------------------------------
 # The SECOND activation path, and the only one that is not argv. lean-gate.sh milestone 3 cannot
 # rewrite the `test` command it runs — that string lives in a consumer's config, gitignored here
-# — so it hands the store down the one channel it does own, exactly as it already hands down
-# This is the reading end of that coupling.
+# — so it hands the store down the one channel it does own: an env assignment prepended to the
+# lane's invocation. This is the reading end of that coupling.
 #
 # ARGV WINS, and this sits AFTER the parse and after the --cache-write check so that stays true
 # in both directions: an explicit --cache-dir is never overridden, and a lone --cache-write is

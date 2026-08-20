@@ -242,12 +242,9 @@
 #                            and writing no `satisfied` line. `cmd_all`'s cheap pre-pass uses it,
 #                            and so does the scheduler's verdict read: reading a verdict must not
 #                            charge the build role for a milestone the reader did not fail.
-#                            milestone 3's lane children INHERIT it — and in this repo those
-#                            children are lean-gate.sh. An operator who exports a short ceiling to
-#                            debug gets spurious `rc=7` out of the nested suite's own milestone-3
-#                            calls. Export it for one call rather than for a shell. The register
-#                            is a `subset-of` lockstep row against preflight.sh (which carries
-#                            the superset) and is not widenable from this side alone.
+#                            NOT IN `SEAM_SCRUB`, so a verify lane the gate runs inherits it. The
+#                            register is a `subset-of` lockstep row against preflight.sh (which
+#                            carries the superset) and is not widenable from this side alone.
 #   LEAN_GATE_TEST_STALL_DIR #528: TEST-ONLY, never set in CI or by an operator — the loop it
 #                            gates is otherwise unreachable. Pauses append_satisfied/
 #                            heal_progress_run_id between their absence check and their write,
@@ -266,7 +263,7 @@
 #                            bare-`git init` fixture trees, over many issue keys and three branch
 #                            prefixes, and one tree cannot be on nine lane branches at once. A run
 #                            that wants a different tree graded should move, not disarm.
-#                            NOT IN `SEAM_SCRUB`, exactly like the two seams above.
+#                            NOT IN `SEAM_SCRUB`, exactly like `LEAN_GATE_OBSERVE` above.
 #
 # bash 3.2 compatible (macOS ships it, and CI has a bash-3.2 lane).
 set -uo pipefail
@@ -372,7 +369,7 @@ while [ $# -gt 0 ]; do
     --infra)         PROGRESS_INFRA=1; shift ;;
     --obligations)   PROGRESS_OBLIGATIONS=1; shift ;;
     --arm)           STALENESS_ARM="${2:-}"; shift 2 ;;
-    -h|--help)       sed -n '2,271p' "$0"; exit 0 ;;
+    -h|--help)       sed -n '2,268p' "$0"; exit 0 ;;
     -*)              envfail "unknown option: $1" ;;
     *)
       if [ "$POSITIONAL" -eq 0 ]; then SUB="$1"; POSITIONAL=1
@@ -4401,8 +4398,9 @@ run_milestone() {
   # from an interrupted one — accepted, because the posture below is announce-not-refuse and
   # reaching the budget would need five simultaneous calls on one milestone.
   unclosed="$(unclosed_count "$n")"
-  # #527 D-7: milestone 3's own, larger bound. Resolved once, here, so the announce, the observe
-  # prediction and the refusal below cannot disagree about which budget this milestone is on.
+  # ONE bound for all five milestones since #566 retired milestone 3's larger one (see
+  # INTERRUPTED_BUDGET above). Still resolved once, here, so the announce, the observe prediction
+  # and the refusal below cannot disagree about which budget this milestone is on.
   budget="$INTERRUPTED_BUDGET"
   if [ "$unclosed" -gt 0 ]; then
     # ANNOUNCE, NEVER REFUSE (D-4). An interrupted milestone is precisely the one a resuming

@@ -1223,8 +1223,8 @@ if [ "$rc" -eq 4 ] && grep -q 'interrupted-exhausted' "$prog" \
 else fail "(ib1) expected rc=4 at 5 unclosed on milestone 1, got rc=$rc: $out"; fi
 
 # #566 RETIRED MILESTONE 3'S SEPARATE BOUND. This case asserted the inverse — that the SAME
-# count which exhausts milestone 1 leaves milestone 3 running, on its own INTERRUPTED_BUDGET_M3
-# of 8. #527 D-7 gave it that larger bound because milestone 3 ran DETACHED and was the only
+# count which exhausts milestone 1 leaves milestone 3 running, on a separate bound of its own
+# set to 8. #527 D-7 gave it that larger bound because milestone 3 ran DETACHED and was the only
 # milestone long enough to be killed by a turn boundary, so re-spawns piled up unclosed rows
 # faster than anywhere else. The evaluation is inline and turn-bounded now, so milestone 3 is
 # exactly as exposed as the other four and takes the same 5 — which is what this asserts.

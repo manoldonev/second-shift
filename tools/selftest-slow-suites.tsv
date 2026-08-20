@@ -2,8 +2,9 @@
 #
 # WHAT THIS BUYS. lean-gate.sh milestone 3 runs the sweep as a single blocking call inside the
 # harness turn, which reaps at roughly 120s. Before #566 the lane paid for that with a detached
-# runner, a marker/rejoin protocol, INTERRUPTED_BUDGET_M3 and a lane registry — ~1,300 lines of
-# supervision, guards included, whose only job was surviving a bound this table stays under.
+# runner, a marker/rejoin protocol, a milestone-3-only interrupted budget and a lane registry —
+# ~1,300 lines of supervision, guards included, whose only job was surviving a bound this table
+# stays under.
 #
 # THE BOUND IS NOT COSMETIC. With nothing detached, a reaped milestone-3 call leaves an unclosed
 # `started` row and loses its work; five of those exhaust the interrupted budget and hard-stop the

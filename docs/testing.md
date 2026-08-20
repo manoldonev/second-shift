@@ -11,10 +11,16 @@ carries the reasoning and the operator-run adversarial recipe.
 One script owns it, locally and in CI:
 
 ```bash
-SKIP_STRESS=1 bash tools/run-selftests.sh
+SKIP_STRESS=1 bash tools/run-selftests.sh --full
 ```
 
-`tools/run-selftests.sh` discovers every `*-selftest.sh` under the repo, runs `SELFTEST_JOBS`
+**`--full` is what makes that a full sweep.** Since #566 the bare invocation is the *bounded
+quick check*: it applies `tools/selftest-slow-suites.tsv` as exclusions by default, which is the
+form `lean-gate.sh` milestone 3 gets. Every caller that wants the whole set — both CI selftest
+jobs, both nightly wholesale lanes, and the local recipe in [`CLAUDE.md`](../CLAUDE.md) — passes
+`--full`. See [the slow-suite table](#the-slow-suite-table) below.
+
+`tools/run-selftests.sh --full` discovers every `*-selftest.sh` under the repo, runs `SELFTEST_JOBS`
 (default 4) at a time, and replays each suite's captured output inside `::group::`/`::endgroup::`
 framing, in worklist order. Ordering by worklist rather than by completion is what makes the log
 identical at `SELFTEST_JOBS=1` and `SELFTEST_JOBS=4` — a diff of the two runs' group headers is a
@@ -57,7 +63,7 @@ double-running it.
 
 `lean-gate.sh` milestone 3 runs the sweep as a **single blocking call inside the harness turn**,
 which reaps at roughly 120s. Until #566 the lane paid for that bound with a detached runner, a
-marker/rejoin protocol, an `INTERRUPTED_BUDGET_M3` and a lane registry — ~1,300 lines of
+marker/rejoin protocol, a milestone-3-only interrupted budget and a lane registry — ~1,300 lines of
 supervision, guards included, whose only job was surviving a limit it is cheaper to stay under.
 
 `tools/selftest-slow-suites.tsv` is what replaced all of it. It is a committed cost record —

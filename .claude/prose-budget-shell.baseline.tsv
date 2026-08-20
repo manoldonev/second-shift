@@ -5,11 +5,11 @@ plugins/dev-pipeline/skills/build-lean/branch-prefix-selftest.sh	274	242	80	331
 plugins/dev-pipeline/skills/build-lean/branch-prefix.sh	150	137	64	467
 plugins/dev-pipeline/skills/build-lean/lean-evidence-selftest.sh	853	769	252	328
 plugins/dev-pipeline/skills/build-lean/lean-evidence.sh	901	848	419	494
-plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	6535	6022	1935	321
-plugins/dev-pipeline/skills/build-lean/lean-gate.sh	4672	4425	2367	535
+plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	6243	5733	1823	318
+plugins/dev-pipeline/skills/build-lean/lean-gate.sh	4678	4431	2372	535
 plugins/dev-pipeline/skills/build-lean/lean-reconcile-selftest.sh	728	660	215	326
 plugins/dev-pipeline/skills/build-lean/lean-reconcile.sh	501	471	217	461
-plugins/dev-pipeline/skills/build-lean/scenario-liveness-selftest.sh	2954	2763	954	345
+plugins/dev-pipeline/skills/build-lean/scenario-liveness-selftest.sh	2175	2054	724	352
 plugins/dev-pipeline/skills/run-lean/orchestrate-lean-selftest.sh	1498	1370	425	310
 plugins/dev-pipeline/skills/run-lean/orchestrate-lean.sh	922	872	520	596
 plugins/dev-pipeline/tools/bot-commit-selftest.sh	361	331	88	266
