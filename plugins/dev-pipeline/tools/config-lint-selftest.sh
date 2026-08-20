@@ -173,8 +173,10 @@ expect_violation invalid-removed-commands-build.json "commands.<repo>.build was 
 # probing the tree INTRINSICALLY — never by an environment variable a harness could export,
 # which would drain the signal for the consumer who runs this suite straight from their own
 # install, the exact case the skip exists for. The `ROOT=` up-count is this suite's own walk
-# to its artifact; the marker test below is byte-shared with the review-toolkit copy
-# (scripts/lockstep-manifest.tsv, pair `monorepo-probe`).
+# to its artifact; the marker test below is byte-shared with the review-toolkit copy under the
+# `monorepo-probe` LOCKSTEP markers. The differing `ROOT=` assignment sits ABOVE them on purpose,
+# so only the shared test is inside the block — a widened or renamed marker on one side alone is
+# exactly the drift that would let one suite skip where the other still fails.
 ROOT="$HERE/../../.."
 # LOCKSTEP-BEGIN monorepo-probe
 if [[ -f "$ROOT/.claude-plugin/marketplace.json" && -d "$ROOT/plugins" ]]; then

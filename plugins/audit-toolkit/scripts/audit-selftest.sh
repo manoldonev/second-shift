@@ -202,8 +202,8 @@ fi
 
 # Test 9 — the emitted key set is exactly the documented row schema (AC-4).
 # This is the mechanical anchor for the HOOK side of the row-schema contract: the two
-# doc copies are held to each other by a lockstep row (scripts/lockstep-manifest.tsv,
-# pair `audit-row-fields`), and this assertion holds the hook's actual output to the
+# doc copies are held to each other by the `audit-row-fields` LOCKSTEP group
+# (scripts/check-lockstep-pairs.sh), and this assertion holds the hook's actual output to the
 # same field list. Adding or renaming a field without updating the docs fails here.
 echo "Test 9 — emitted key set matches the documented row schema"
 keys=$(jq -r 'select(.tool == "TodoWrite") | keys_unsorted | join(",")' "$LEDGERS/$TSID.jsonl" | tail -1)

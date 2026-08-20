@@ -216,8 +216,10 @@ ALPHABET_DOC="$DEV_PIPELINE_ROOT/model-tiering.md"
 # elsewhere in the doc cannot silently extend the alphabet. The header row ('Tier') and
 # the separator row (dashes) fail the lowercase-token patterns and drop out.
 # The parse itself is duplicated in dev-pipeline's config-lint.sh, which needs the same
-# alphabet to judge a modelOverrides value. Pinned as `tier-alphabet-parse` in
-# scripts/lockstep-manifest.tsv — the block between the markers is compared verbatim.
+# alphabet to judge a modelOverrides value. Two copies rather than one import: config-lint.sh is
+# in a DIFFERENT PLUGIN, where a sibling `source` is a hop-count path that breaks under the
+# version-keyed install cache. Held by the `tier-alphabet-parse` LOCKSTEP markers — the block
+# between them is compared verbatim by scripts/check-lockstep-pairs.sh. Edit one, edit both.
 parse_default_tier_map() { # parse_default_tier_map <doc-path>
     [ -f "$1" ] || return 0
 # LOCKSTEP-BEGIN tier-alphabet-parse

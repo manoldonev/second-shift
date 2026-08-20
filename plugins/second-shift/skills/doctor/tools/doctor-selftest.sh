@@ -37,8 +37,15 @@ check() { if [[ "$2" -eq 0 ]]; then echo "  ✓ $1"; else echo "  ✗ $1"; FAILS
 # ROOT. The anchor is THIS PLUGIN'S ROOT, passed as a parameter rather than read from this
 # file's own directory variable:
 # that was the only thing separating this copy from preflight-selftest.sh's, whose hop
-# constants are identical, and passing it in makes the two blocks byte-identical so
-# scripts/lockstep-manifest.tsv can pin them instead of leaving them held by prose.
+# constants are identical, and passing it in makes the two blocks byte-identical so the
+# `cross-plugin-sibling-plugin-root` LOCKSTEP markers can hold them instead of prose.
+#
+# WHY A COPY AT ALL: this suite and preflight-selftest.sh live in different plugins, three
+# levels under their respective roots, and a sibling `source` across that boundary is a path
+# resolved by hop count — the trap #469 was filed for, which breaks under the version-keyed
+# install cache. The related copy in check-model-tiers.sh is NOT held to these: it sits one
+# level under its plugin root and uses two and three hops where these use four and five, and
+# the hop constants ARE the contract. See docs/testing.md for that reasoning.
 # LOCKSTEP-BEGIN cross-plugin-sibling-plugin-root
 resolve_sibling_plugin_root() {
   local anchor="$1" name="$2" marker="$3" cand

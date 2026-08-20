@@ -167,6 +167,8 @@ envfail() { echo "[lean-evidence] $1" >&2; exit 2; }
 violations=0
 note_violation() { echo "[lean-evidence]   ✗ $1" >&2; violations=$((violations + 1)); }
 
+# LOCKSTEP: held verbatim to scripts/check-lean-chain.sh, the canonical side, which carries the
+# reasoning. Nothing may sit between the markers — `verbatim` compares the whole block.
 # LOCKSTEP-BEGIN lean-output-dispositions
 LEAN_OUTPUT_DISPOSITIONS='not-applicable reduced-strength postdated inert'
 # LOCKSTEP-END lean-output-dispositions
@@ -209,7 +211,7 @@ inapplicable() { # inapplicable <arm> <disposition> <reason>
 # under the other OS and would need a runtime split this file must not carry (bash 3.2).
 # `PR_CREATED_AT` arrives already UTC from `github.event.pull_request.created_at`; the gate's
 # sibling comparator normalizes a git author date instead, which is why the two are not one
-# shared helper (see scripts/lockstep-manifest.tsv, DROPPED).
+# shared helper — see docs/testing.md, `lean ARM CUTOFFS` under *Couplings considered and declined*.
 CUTOFF_RE='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$'
 
 # Echo the usable cutoff, or nothing when there is none to compare against. OR-1: a value that

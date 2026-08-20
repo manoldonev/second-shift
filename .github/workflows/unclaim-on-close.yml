@@ -10,9 +10,9 @@
 # This repo is the canary, so the job runs the SHIPPED template script in place rather
 # than a committed copy under .claude/tools/ — one script, and what runs here is exactly
 # what a consumer receives. The two workflow FILES are still a copy pair, so the three
-# blocks they must not drift on carry LOCKSTEP markers; the rows live in
-# scripts/lockstep-manifest.tsv. Everything outside them (name, checkout pin, script path)
-# is free to differ.
+# blocks they must not drift on carry LOCKSTEP markers, which scripts/check-lockstep-pairs.sh
+# discovers and compares — there is no register to also list them in. Everything outside them
+# (name, checkout pin, script path) is free to differ.
 #
 # Model-free: no API-billed model calls, just jq + gh (both preinstalled on
 # ubuntu-latest; gh authenticates via the job token).
@@ -24,6 +24,8 @@
 # merges. If a close is ever seen with no run, the reversal is additive: add
 # `pull_request: [closed]` as a second trigger and resolve the issue number from the pr body.
 name: unclaim on close
+# LOCKSTEP with the shipped template. A file that fires on a different event is a different
+# workflow, and the consumer would inherit behavior this canary never exercised.
 # LOCKSTEP-BEGIN unclaim-workflow-trigger
 on:
   issues:
@@ -35,6 +37,10 @@ on:
 # supplies the script. Never widen either. Note a `permissions:` block only NARROWS the
 # repo maximum — with Actions workflow permissions set to read-only this grant is refused
 # and the removal 403s, which the script surfaces as a red run rather than a silent pass.
+#
+# LOCKSTEP with the shipped template — the entire blast radius. A widening on one side that the
+# other does not carry is the drift with real consequences here; nothing else in these two files
+# has any. The pair is allowed to differ in `name:`, the checkout pin and the script path.
 # LOCKSTEP-BEGIN unclaim-workflow-permissions
 permissions:
   contents: read
@@ -50,6 +56,11 @@ jobs:
 
       # The issue number rides in the environment, never spliced into the run body — the
       # same injection discipline ci.yml applies to BASE_REF and the PR_* set.
+      #
+      # LOCKSTEP with the shipped template: the token source and the injection discipline.
+      # `${{ }}` reaching a `run:` body on one side only is exactly the divergence a reader
+      # would not see. `verbatim` collapses whitespace, so this block's deeper indentation
+      # against its two top-level siblings is not part of the contract; the tokens are.
       - name: release the run-state labels
         # LOCKSTEP-BEGIN unclaim-workflow-env
         env:

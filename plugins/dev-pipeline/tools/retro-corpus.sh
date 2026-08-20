@@ -181,7 +181,8 @@ cmd_corpus() {
   #
   # Same dedup rule applied in awk over the TSV rows, re-implemented
   # here rather than shared: sharing would mean round-tripping these JSON rows out to TSV and
-  # back. scripts/lockstep-manifest.tsv records the coupling and names both behavioral guards.
+  # back. docs/testing.md records the coupling under *Couplings considered and declined* and names
+  # both behavioral guards.
   #
   # era: "artifact" rows pass through untouched. An artifact stem is `{issue}-lean-progress`
   # and can never equal its ticketKey, so a cross-era key would DELETE the lean row whenever a

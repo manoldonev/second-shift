@@ -189,6 +189,18 @@ done
 fail()    { echo "[lean-chain] ✗ $1" >&2; exit 1; }
 envfail() { echo "[lean-chain] $1" >&2; exit 2; }
 
+# LOCKSTEP, canonical side (#443). `LEAN_OUTPUT_DISPOSITIONS` is the closed vocabulary a
+# class-(b) line ("this arm could not evaluate") may name. Both merge-boundary gates declare
+# their own copy: this file cannot source the payload it delegates to (it fetches it at a pinned
+# ref in a consumer, and resolves it from the repo root here), and lean-evidence.sh must stand
+# alone in a consumer's CI where this file does not exist at all.
+# WHY IT MUST NOT DRIFT, and why a READER is the injured party rather than a writer: both files
+# emit into class (b), and the disposition is the token their readers branch on. A vocabulary
+# that gained a word on one side alone would have that word reach a reader with no rule for it —
+# a silently weakened boundary, the exact class this gate exists to make loud. Neither file can
+# see the other's spelling. `verbatim` compares the ENTIRE block, which is why both sides declare
+# the literal under the same variable name with no comments between the markers — the emitter
+# that consumes it, and this prose, sit deliberately OUTSIDE.
 # LOCKSTEP-BEGIN lean-output-dispositions
 LEAN_OUTPUT_DISPOSITIONS='not-applicable reduced-strength postdated inert'
 # LOCKSTEP-END lean-output-dispositions
@@ -227,7 +239,13 @@ LEAN_CAPABILITY_KEY='capabilities'
 LEAN_CAPABILITIES='pr-marker'
 # LOCKSTEP-END lean-producer-capabilities
 
-# LOCKSTEP-BEGIN lean-chain-artifact-patterns
+# SINGLE-SITED, and not for want of a counterpart: lean-evidence.sh pins its own name table,
+# but the two sets are deliberately DIFFERENT — `-lean-renders.md` belongs only here and
+# `-lean-intent-gap.md` only there — so no relation over them is honest. It carried LOCKSTEP
+# markers with no row until #604, which reads as coverage this file never had. Guarded
+# end-to-end instead: check-lean-chain-selftest.sh's (A) and (S0)-(S4) drive a real fixture
+# tree, so a diverged suffix stops locating the artifact. Re-add markers on both sides only
+# if the sets ever converge.
 # The lean-marked name shapes, suffix-anchored. `*-lean.md` must never match the verdict
 # record (`*-lean-verdict.md`) — that is why both are anchored at the END of the filename
 # rather than matched as substrings. lean-gate.sh derives the same two names from config;
@@ -243,7 +261,6 @@ LEAN_CAPABILITIES='pr-marker'
 LEAN_SPEC_SUFFIX='-lean.md'
 LEAN_VERDICT_SUFFIX='-lean-verdict.md'
 LEAN_RENDER_SUFFIX='-lean-renders.md'
-# LOCKSTEP-END lean-chain-artifact-patterns
 
 # Fixture paths are lean-shaped ON PURPOSE (the selftests below need lean-looking files), so
 # they must never make a PR applicable. Anything under a fixtures dir is out of the scan.
@@ -263,6 +280,10 @@ record_key_at() { # record_key_at <key> <commit> <path>
     | grep -oE "$1:[[:space:]]*[A-Za-z0-9._-]+" 2>/dev/null | head -n1 | sed -E "s/^$1:[[:space:]]*//"
 }
 
+# LOCKSTEP: this awk program is held byte-identical to lean-gate.sh (the canonical side, which
+# both writes the record and reads it back) and to lean-reconcile.sh. The reasoning lives at the
+# canonical side. Note this file's own chain-WALK loop around it is deliberately NOT a member —
+# it must scope `git log` to $PR_HEAD_SHA, which the other two must not.
 # LOCKSTEP-BEGIN lean-inherited-key
 # Any key of the verdict record, read from its HEADER BLOCK only. Record on stdin; prints
 # nothing when the key is absent from that block.
@@ -322,6 +343,10 @@ inherited_key_at() { # inherited_key_at <commit> <path>
   git -C "$REPO_ROOT" show "$1:$2" 2>/dev/null | inherited_key
 }
 
+# LOCKSTEP: held verbatim to lean-gate.sh, the canonical side, which carries the reasoning.
+# Only the NARROW arming decision is shared: the gate ANDs it against config `design.provider`,
+# which this file cannot — the config is gitignored on every consumer and never reaches a CI
+# checkout — so the boundary runs the predicate alone.
 # LOCKSTEP-BEGIN lean-design-armed
 # Armed-ness exactly as the COMMITTED SPEC declares it. Spec on stdin; prints `armed`, or
 # nothing at all.

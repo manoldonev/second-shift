@@ -100,6 +100,8 @@ If every token row checks out, the analog fits, every transition is wired, and f
 
 ## Reviewer baseline
 
+<!-- LOCKSTEP: held verbatim to figma-faithful-spec-reviewer.md, the canonical side; the
+     reasoning lives there. -->
 <!-- LOCKSTEP-BEGIN artifact-reviewer-baseline-deltas -->
 `review-toolkit:reviewer-baseline` loads automatically via the `skills:` frontmatter (by name, not path — no relative path resolves in both the repo and installed-cache layouts). Take its **Grounding Verdicts**, **Confidence Scoring**, **Tool Discipline**, and per-finding evidence discipline. Two deltas apply, because this agent grades an **artifact before implementation**, not a diff before merge:
 

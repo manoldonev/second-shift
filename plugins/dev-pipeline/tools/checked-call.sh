@@ -18,8 +18,11 @@
 #
 # LOCKSTEP. `plugins/second-shift/skills/onboard/tools/detect.sh` needs the same function and
 # lives in a DIFFERENT PLUGIN, where a sibling `source` would be a cross-plugin path resolved by
-# hop count — the trap #469 was filed for. So it carries a byte-identical inline copy, pinned by
-# the `checked-call` row in scripts/lockstep-manifest.tsv. Edit one, edit both.
+# hop count — the trap #469 was filed for. So it carries a byte-identical inline copy, held by the
+# `checked-call` LOCKSTEP markers on both sides. `verbatim` covers the WHOLE block, comments
+# included: the comments are what tell the next reader that rc 2 means UNKNOWN and must not be
+# folded into a caller's `else`. A copy that kept the code and dropped that paragraph would be
+# the fail-open this idiom exists to remove, reintroduced one call site at a time.
 #
 # bash-3.2-safe: indexed arrays only, no `declare -A`, no `${arr[@]}` expansion while empty.
 

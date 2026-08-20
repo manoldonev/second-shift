@@ -76,6 +76,16 @@ OUTCOME="ok"
 # The failure path is today's path, never a hard error: this script must not block a
 # session (see the masthead), and lean-gate.sh's `entry` already fails closed on the
 # resulting absent ledger, which is where the refusal is actionable.
+#
+# LOCKSTEP, and this WRITER is the canonical side; audit-history.sh (the sweeper) holds the
+# identical block. Both must land on `--git-common-dir/..`, because the lean readers
+# (lean-gate.sh's `entry`, lean-reconcile.sh) all do, and the writer disagreeing with them
+# produced two opposite failures: an honest worktree run refused at `entry` for a ledger it had
+# just written, and a verdict record naming a session reconcile could not resolve — which reads
+# as forgery. TWO COPIES rather than one sourced helper on purpose: this hook fires on every
+# tool call and stays dependency-free (no `source`, no PATH assumption, nothing to resolve at
+# hook time), and audit-history.sh is a standalone slash-command script. lean-gate.sh's
+# MAIN_ROOT is a third site and deliberately not a member — see docs/testing.md.
 # LOCKSTEP-BEGIN audit-ledger-dir
 audit_ledger_dir() { # audit_ledger_dir <base-dir> — the main checkout's .claude/audit
   local base="$1" common="" root=""

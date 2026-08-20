@@ -353,6 +353,11 @@ above with one admission difference: the two slices are not both filed in this r
 
 **Run-cost bias (applies to BOTH sub-issue flavors).** A pipeline run is expensive — a full intake, plan, review, and verify cycle per slice. Weigh that cost when choosing slice boundaries:
 
+<!-- LOCKSTEP: this skill owns the verdict, so it is the CANONICAL side. decomposition-reviewer
+     mirrors the block below because it reviews splits against the same standard and must not
+     drift into a softer one. Two live copies rather than a cross-reference: each skill is
+     loaded on its own, into a session that has not read the other, so a pointer would resolve
+     to nothing at the moment the rule is needed. Edit one, edit both. -->
 <!-- LOCKSTEP-BEGIN decomposition-economy -->
 Prefer fewer, fuller slices: as many as the work genuinely needs, and no more. A slice that cannot justify its own full pipeline run — because it is too thin to review on its own, or has no consumer until a later slice lands — merges into its neighbor. Splitting for the sake of splitting is a cost, not a virtue; every slice must be a logical, coherent unit of work that earns its own run.
 <!-- LOCKSTEP-END decomposition-economy -->

@@ -13,8 +13,8 @@
 # one that is not github, makes the script a stated no-op.
 #
 # This file and the marketplace repo's own .github/workflows/unclaim-on-close.yml are a
-# copy pair. The three blocks below that must not drift apart carry LOCKSTEP markers and
-# are pinned in that repo's scripts/lockstep-manifest.tsv.
+# copy pair. The three blocks below that must not drift apart carry LOCKSTEP markers, which
+# that repo's scripts/check-lockstep-pairs.sh discovers and compares.
 #
 # Model-free: no API-billed model calls, just jq + gh (both preinstalled on
 # ubuntu-latest; gh authenticates via the built-in github.token).

@@ -182,9 +182,9 @@ count_glob_matches() { # $1.. globs → prints the number of tracked files match
 #
 # The DEFAULTS below are the RUNTIME-resolved literals — the jq fallback the consuming stage
 # actually applies — never the JSON Schema `default`, which nothing injects into a config.
-# Their coupling to the source sites is recorded as a DROPPED entry in
-# scripts/lockstep-manifest.tsv: the webComponentGlobs literal alone is restated at seven
-# sites across two plugins, which file-to-file anchored pairs cannot express.
+# Their coupling to the source sites is recorded as declined in docs/testing.md: the
+# webComponentGlobs literal alone is restated at seven sites across two plugins, and one
+# canonical against seven scattered restatements is not a group any relation can express.
 t2_key() { # $1 id, $2 key, $3 jq expr yielding the configured globs (empty when unset),
            # $4 benefit sentence; DEFAULT_GLOBS[], CANDIDATES[] and PROBE_GLOBS[] must be set by
            # the caller — PROBE_GLOBS EVERY time, empty for a universal row, or the previous

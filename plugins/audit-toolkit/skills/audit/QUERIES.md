@@ -15,7 +15,14 @@ The audit ledger is JSONL — one row per harness event. Each row has a flat sha
 }
 ```
 
-Field list (kept in lockstep with the audit `SETUP.md`; pair `audit-row-fields`):
+Field list, held verbatim to the audit `SETUP.md` by the `audit-row-fields` LOCKSTEP markers.
+This pair is the reason the ledger drifted: for months this card documented queries against
+`.args_excerpt.command` / `.args_excerpt.file_path`, a shape the hook never emitted, and told
+readers to "re-add tool_input capture" — a reader following the card got empty output and no
+signal the card was wrong. The identical one-line list reads naturally in each document (a
+schema note here, a field list in the setup bullet), so `verbatim` holds without contorting
+either. The hook's own jq object literal is a THIRD copy and deliberately not a member — see
+`docs/testing.md`; `audit-selftest.sh` Test 9 holds it instead.
 
 <!-- LOCKSTEP-BEGIN audit-row-fields -->
 `ts`, `session_id`, `event`, `tool`, `subagent`, `command_name`, `target`, `outcome`

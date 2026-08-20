@@ -26,6 +26,7 @@ The hook adds a small per-tool-call cost (~1–2 ms). In plugin mode it's on for
 
 - **Ledger** at `<main checkout>/.claude/audit/{session_id}.jsonl` (gitignored, in the consumer repo). The directory is resolved as `--git-common-dir/..`, so one repo family has **one** ledger directory and a session working in a linked worktree writes there too — the same anchor every reader uses. (When that resolution yields nothing — a non-git project directory — the hook falls back to `$CLAUDE_PROJECT_DIR/.claude/audit` rather than blocking the session.) One JSON row per tool call, with these fields (kept in lockstep with `QUERIES.md`; pair `audit-row-fields`):
 
+  <!-- LOCKSTEP: held verbatim to the audit QUERIES.md field list, which carries the reasoning. -->
   <!-- LOCKSTEP-BEGIN audit-row-fields -->
   `ts`, `session_id`, `event`, `tool`, `subagent`, `command_name`, `target`, `outcome`
   <!-- LOCKSTEP-END audit-row-fields -->

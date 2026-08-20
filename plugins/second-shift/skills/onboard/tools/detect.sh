@@ -12,8 +12,8 @@ set -uo pipefail
 # The three-outcome checked-call idiom. CANONICAL TEXT:
 # plugins/dev-pipeline/tools/checked-call.sh — a DIFFERENT PLUGIN, where a sibling
 # `source` would be a cross-plugin path resolved by hop count (the trap #469 was filed for), so
-# this copy is inline and pinned byte-identical by the `checked-call` row in
-# scripts/lockstep-manifest.tsv. Edit one, edit both.
+# this copy is inline and pinned byte-identical by the `checked-call` LOCKSTEP markers, which
+# scripts/check-lockstep-pairs.sh discovers and compares. Edit one, edit both.
 # LOCKSTEP-BEGIN checked-call
 # checked_match — run a producer and match its stdout, with THREE outcomes.
 #
