@@ -49,7 +49,11 @@ affected the PR's own changes. **On any doubt, the verdict stands.**
   NO review spawned and NO re-stamp needed.
 - **AC-6:** WHEN the contribution comparison itself cannot be computed THEN the verdict STANDS and
   the gate line NAMES the fail-open and its reason, so the declared exposure (OR-1) is visible in
-  the log of every run it fires on rather than inferable only from the code.
+  the log of every run it fires on rather than inferable only from the code — and BOTH routes into
+  that class are driven by a case: a `reviewed_head` this checkout cannot read, and both sides
+  computing with one contribution coming out EMPTY. The second is the one with teeth, since an
+  unguarded reader compares the empty side against the full one and INVALIDATES; a guard covering
+  only the first route reads as complete while the second stays dark.
 - **AC-7:** WHEN `build-lean`'s and `review-lean`'s prose state that a later commit reopens
   milestone 4 while a rebase does not THEN they also state the base-merge case this change adds,
   because this change makes that prose stale.

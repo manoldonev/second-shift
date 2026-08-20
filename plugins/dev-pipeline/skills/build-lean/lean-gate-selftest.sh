@@ -2791,6 +2791,28 @@ if [ "$rc" -eq 0 ] && grep -q 'FAILED OPEN' <<<"$out" && grep -q 'OR-1' <<<"$out
   pass "(vb3) AC-6/OR-1: an uncomputable comparison passes rather than reds, and the line names the fail-open and its reason"
 else fail "(vb3) expected rc=0 with a named fail-open, got $rc: $out"; fi
 
+# (vb4) The SAME fail-open, reached by the OTHER route — and this gate carries the byte-identical
+# `contribution-compare` block, so the route left dark here is left dark in both copies at once.
+# `contribution_delta` reds to rc=2 two ways: a reviewed_head this checkout cannot read, which is
+# (vb3) above and returns from `contribution_lines` before the empty-contribution guard is reached,
+# and both sides computing fine with ONE OF THEM EMPTY. The second is the one with teeth: strip its
+# guard and an empty side `cmp`s as DIFFERENT from a full one, so the arm enumerates a line the
+# branch never moved and reds — a false invalidation in exactly the case OR-1 exists to let stand.
+reset_progress
+vb4_head="$(git -C "$TREE" rev-parse refs/remotes/origin/main)"
+perl -i -pe "s/^reviewed_head:.*\$/reviewed_head: $vb4_head/" "$VERDICT"
+commit_tree "the record names a readable head whose own contribution is empty"
+vb4_own="$(git -C "$TREE" diff --name-only "$(git -C "$TREE" merge-base refs/remotes/origin/main "$vb4_head" 2>/dev/null)" "$vb4_head" 2>/dev/null)"
+vb4_new="$(git -C "$TREE" diff --name-only "$(git -C "$TREE" merge-base refs/remotes/origin/main HEAD 2>/dev/null)" HEAD 2>/dev/null)"
+if git -C "$TREE" cat-file -e "$vb4_head^{commit}" 2>/dev/null && [ -z "$vb4_own" ] && [ -n "$vb4_new" ]; then
+  pass "(vb4a) the fixture drives the OTHER rc=2 route: reviewed_head IS readable here, and its own contribution is empty where this head's is not"
+else fail "(vb4a) the fixture did not reproduce the empty-contribution shape (own='$vb4_own', new='$vb4_new') — (vb4) would only re-assert (vb3)'s route"; fi
+
+out="$(gate 4 7)"; rc=$?
+if [ "$rc" -eq 0 ] && grep -q 'FAILED OPEN' <<<"$out" && grep -q 'OR-1' <<<"$out"; then
+  pass "(vb4) AC-6/OR-1: an EMPTY contribution on one side fails open too, rather than comparing empty against full and invalidating"
+else fail "(vb4) expected rc=0 with a named fail-open, got $rc: $out"; fi
+
 # Housekeeping: the (w)/(x) blocks below reason about a branch with no shared.txt and no vb-base.
 rm -f "$TREE/shared.txt"; commit_tree "remove the (vb) shared fixture file"
 git -C "$TREE" branch -D vb-base >/dev/null 2>&1

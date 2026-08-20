@@ -456,6 +456,29 @@ if [ "$rc" -eq 0 ] && grep -q 'freshness: reduced-strength' <<<"$out" && grep -q
   pass "(s3) AC-6/OR-1: an uncomputable comparison passes rather than reds, on the reduced-strength channel, naming the fail-open"
 else fail "(s3) expected rc=0 with a named fail-open, got $rc: $out"; fi
 
+# (s4) AC-6/OR-1 again, by the OTHER route into it — the one that was dark. `contribution_delta`
+# reaches rc=2 two ways, and (s3) drives only the first: a reviewed_head this checkout cannot read,
+# which returns from `contribution_lines` before the empty-contribution guard is ever reached. The
+# second is both sides computing fine and ONE OF THEM COMING OUT EMPTY, and it is the dangerous
+# one: an unguarded reader `cmp`s the empty side against the full one, finds them different, and
+# INVALIDATES — in precisely the case OR-1 exists to let stand. Two cases over one route read as
+# covered for as long as nothing drove the other. Here a readable reviewed_head that is an ancestor
+# of the base measures its own contribution as empty, which is the shape a record inherited across
+# a re-point produces.
+s4_head="$(git -C "$TREE" rev-parse refs/remotes/origin/main)"
+perl -i -pe "s/^reviewed_head:.*\$/reviewed_head: $s4_head/" "$VREC"
+commit_tree "the record names a readable head whose own contribution is empty"
+s4_own="$(git -C "$TREE" diff --name-only "$(git -C "$TREE" merge-base refs/remotes/origin/main "$s4_head" 2>/dev/null)" "$s4_head" 2>/dev/null)"
+s4_new="$(git -C "$TREE" diff --name-only "$(git -C "$TREE" merge-base refs/remotes/origin/main HEAD 2>/dev/null)" HEAD 2>/dev/null)"
+if git -C "$TREE" cat-file -e "$s4_head^{commit}" 2>/dev/null && [ -z "$s4_own" ] && [ -n "$s4_new" ]; then
+  pass "(s4a) the fixture drives the OTHER rc=2 route: reviewed_head IS readable here, and its own contribution is empty where this head's is not"
+else fail "(s4a) the fixture did not reproduce the empty-contribution shape (own='$s4_own', new='$s4_new') — (s4) would only re-assert (s3)'s route"; fi
+
+out="$(ev "claude/acme-42" "$WORK/markers-good.json" "$WORK/diff-lean.txt")"; rc=$?
+if [ "$rc" -eq 0 ] && grep -q 'freshness: reduced-strength' <<<"$out" && grep -q 'OR-1' <<<"$out"; then
+  pass "(s4) AC-6/OR-1: an EMPTY contribution on one side fails open too, rather than comparing empty against full and invalidating"
+else fail "(s4) expected rc=0 with a named fail-open, got $rc: $out"; fi
+
 # Housekeeping, and origin/main is the load-bearing half. The live-git classify cases below
 # (bb2a) measure `diff origin/main HEAD`, so leaving the ref advanced past the spec's own commit
 # would make the spec invisible to them and report applicable=0 for a reason this block invented.
