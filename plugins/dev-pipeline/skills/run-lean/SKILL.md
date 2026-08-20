@@ -27,10 +27,10 @@ rescue path, and the fallback if headless sessions ever leave the subscription.
    `4` hard stop, budget spent · `5` the review half produced no verdict usable against this head,
    twice · `6` the verdict was authored by the build run or build session (P10) · `7` the run's
    premise expired mid-flight — the ticket closed, or the base moved into this branch's files.
-5. On `3`, run `/intake-toolkit:intake` yourself, then re-launch — attended, record the decision the
-   reject printed instead of re-labelling. On `2`, fix what preflight named. On `5`, run
-   `/dev-pipeline:review-lean <pr>` by hand: a rebuild fixes nothing. On `7`, rebase and re-launch
-   or abandon the ticket; without one it re-fires. On `4`/`6`, **stop** — re-entry is from the top.
+5. On `3`, run `/intake-toolkit:intake` yourself and re-launch — or, watching, `operator-override.sh
+   attend` first and the reject prints how to record the decision instead of re-labelling. On `2`,
+   fix what preflight named. On `5`, run `/dev-pipeline:review-lean <pr>` by hand: a rebuild fixes
+   nothing. On `7`, rebase and re-launch, or abandon. On `4`/`6`, **stop** — re-entry is from the top.
 
 ## Rules that are not negotiable
 
