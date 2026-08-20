@@ -51,11 +51,14 @@ comes from `{issue}-lean-progress.md` records already on disk.
   record — and this is stated in the field's own documentation rather than left as a silent zero.
 - **AC-7c:** No field asserts an exact equality between `sum(spans)` and `wallClockMin`.
 - **AC-8:** WHEN any `| milestone-N | started` or `| milestone-N | concluded` row is timestamped
-  strictly after that milestone's `satisfied` row THEN the run is flagged `re-run`, and no span
-  changes as a result.
+  strictly after that milestone's `satisfied` row THEN the run is flagged `re-run`, bounded by
+  AC-7d, and no span changes as a result.
 - **AC-7d:** `reverifyMin` and the `re-run` flag scan milestones **1–4**, the same bound `spans`
   uses. Milestone 5 follows the run's defined end (AC-4), so its churn is close-out bookkeeping
-  and not re-verification of the run.
+  and not re-verification of the run. **Ratified in the ticket body** by the operator at
+  2026-08-20T15:40:54Z, which added this AC verbatim and amended the ticket's own AC-8 to read
+  "bounded by AC-7d" — see D-26. Until then it existed only here, having been written in the
+  implementation commit, which is what round 2's B1 flagged.
 - **AC-9:** WHEN a record uses only the pre-`started`/`concluded` grammar THEN AC-2 and AC-4
   still produce values while AC-7 yields null (AC-7b), the run is flagged `old-grammar`, and no
   gate-call-latency field is emitted for any run.
@@ -164,6 +167,7 @@ flags. A null scalar, an empty `spans` and an empty `fidelity` all render as `-`
 | D-20 | Help-window contract | Window, header block and the line bound move together; the invariant is that the next line is `set -uo pipefail` | codebase-derived |
 | D-24 | `model` normalisation | Passed through verbatim, never mapped — AC-15 forbids a vendor model string in the implementation, and a mapping table is one | codebase-derived |
 | D-25 | AC-21's site count | The ticket named four sites by stale line number; the tree carries five (two D-36 comments in `pipeline-cost-block.sh`). All five are annotated — leaving one asserting a superseded claim is the defect AC-21 exists to close | codebase-derived |
+| D-26 | AC-7d's provenance (round-2 B1) | The milestone-1–4 bound on `reverifyMin`/`re-run` was written in the implementation commit and appeared in no version of the ticket. Ratified by the operator's 2026-08-20T15:40:54Z edit to issue #565, which added AC-7d verbatim and bounded the ticket's AC-8 by it; the code remains unchanged because the widened variant is measured identical on all 63 corpus records | user-answered |
 
 ## Open Regions
 

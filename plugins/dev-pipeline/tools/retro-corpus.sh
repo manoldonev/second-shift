@@ -343,7 +343,7 @@ cmd_timing() {
 
     # ---- reverifyMin and the re-run flag. Both scan milestones 1-4, the same bound spans use:
     # milestone 5 follows the run's defined end, so its churn is close-out bookkeeping and not
-    # re-verification of the run (AC-7d/AC-8b). reverifyMin is a DIAGNOSTIC and enters no sum
+    # re-verification of the run (AC-7d/AC-8). reverifyMin is a DIAGNOSTIC and enters no sum
     # with spans; it is null on any record carrying no `concluded` row (AC-7b), where it would
     # otherwise read as a measured zero.
     local rev_secs=0 rerun=false c last_c
