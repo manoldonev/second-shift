@@ -106,6 +106,14 @@ Hydrated verbatim from the pre-flight ledger at
 | D-48 | Verdict reconciliation | Operator-side `lean-reconcile.sh` before merge (audit-ledger dispatch presence, timestamp order, RUN_ID consistency); lean-scoped forerunner that defers to #292 when it lands | user-answered |
 | D-49 | Claim contract | Two bot-wrapper writes: label swap + `lean-claimed`/`run_id` marker comment (lean-distinct marker to avoid pipeline family-selection pollution) | user-answered |
 
+**D-36 — corpus half superseded (#565).** The row above stays as written: it is a ratified
+`user-answered` record of what was decided in this interview, not a live policy statement, and
+rewriting it would erase the history. Only one of its two halves is still in force. The
+*no-`cost-log.jsonl`-row* half is live and guarded by `cost-block-selftest.sh`'s AC-8. The
+*"lean runs excluded from retro/eval/perf corpora"* half died in code with #347 (which made
+`retro-corpus.sh` enumerate lean records) and is retired in prose by #565, which derives the
+lean timing profile from those same records via `retro-corpus.sh timing`.
+
 ### Intake-resolved gaps (settled; carried as design constraints)
 
 | Gap | Resolution adopted here |
