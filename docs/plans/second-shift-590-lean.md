@@ -90,10 +90,14 @@ them without moving them means nobody performs them.
   never becomes met, the run stops under `closeout-incomplete`, and no terminal write lands
   (D-11).
 
-- **AC-13** — `orchestrate-lean-selftest.sh`'s close-out cases re-key to the new terminal, the
-  new spawn count and the exit-code read; `lean-gate-selftest.sh` gains behavioral cases for
-  `close-out` — the three obligations, the skip degradation, teardown-only-after-green, and both
-  refusals from AC-1.
+- **AC-13** — `orchestrate-lean-selftest.sh`'s close-out cases re-key to the new terminal, the new
+  spawn count and the exit-code read. The `close-out` command's own coverage splits by what each
+  tier can reach: `lean-gate-selftest.sh` owns the parts a composed run cannot exercise — both
+  refusals from AC-1, the bounded PR-description replacement in all four of its shapes, and the
+  cost-log read-back — while the three obligations, the skip degradation and AC-5's
+  teardown-only-after-green land on the composed leg AC-12 already cuts, where a real lane
+  produces them. The skip does not port to the unit tier at all: it is what a host with no OTel
+  collector yields, and asserting it against a stub would be asserting the stub.
 
 - **AC-14** — The PR body reports **measured** net LOC over the whole change, naming what was
   deleted against what was added. "It removes a session" does not discharge the deletion
