@@ -92,7 +92,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 [[ -n "$HERE" ]] || { echo "[lockstep] FATAL: cannot resolve this script's own directory" >&2; exit 99; }
 ROOT="${1:-$(cd "$HERE/.." && pwd)}"
 
-[[ -n "$ROOT" && -d "$ROOT" ]] || { echo "[lockstep] FATAL: root not found: ${ROOT:-<empty>}" >&2; exit 99; }
+[[ -n "$ROOT" && -d "$ROOT" ]] || { echo "[lockstep] FATAL: root is not a directory: '$ROOT'" >&2; exit 99; }
 
 # --- Discovery scope -------------------------------------------------------------------
 #
@@ -189,8 +189,9 @@ while IFS=$'\t' read -r kind a b c d; do
     UNCLOSED)  bad "$a:$b: LOCKSTEP-BEGIN '$c' is never closed" ;;
     ORPHANEND) bad "$a:$b: LOCKSTEP-END '$c' has no matching BEGIN" ;;
     MISMATCH)  bad "$a:$b: LOCKSTEP-END '$d' closes an open '$c'" ;;
+    SITE)      ;;   # a well-formed site: grouped and compared below, nothing structural to say
   esac
-done < <(grep -v '^SITE	' "$SITES" || true)
+done < "$SITES"
 
 # --- Group and compare -------------------------------------------------------------------
 
