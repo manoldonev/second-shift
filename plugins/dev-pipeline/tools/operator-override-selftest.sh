@@ -266,6 +266,50 @@ if [ "$rc" -eq 2 ] && grep -q 'a condition rather than a clock' <<<"$out"; then
   pass "(m5) a date-shaped expiry is refused — the grammar is a condition, deliberately"
 else fail "(m5) expected the grammar refusal, got rc=$rc: $out"; fi
 
+# ---- (s) the root resolution the PRODUCTION callers actually take -------------------------
+# Every case above pins SECOND_SHIFT_REPO_ROOT, because every case above is about something
+# else. Nothing in production sets it: both consumers call this tool from inside a checkout and
+# it resolves the shared root through `git rev-parse --git-common-dir`. Unasserted, that path is
+# where the token silently lands somewhere nobody reads it — and a mutation sweep confirmed it,
+# surviving both a wrong-default mutant on the override branch and an inverted `&&` on the
+# resolution itself. The assertion is the EXACT path, not merely rc 0: both mutants still exit 0
+# while writing the token elsewhere or nowhere.
+GITREPO="$WORK/gitrepo"
+mkdir -p "$GITREPO/.claude"
+cp "$REPO/.claude/second-shift.config.json" "$GITREPO/.claude/"
+git -C "$GITREPO" init -q 2>/dev/null
+if [ -d "$GITREPO/.git" ]; then
+  ( cd "$GITREPO" && env -u SECOND_SHIFT_REPO_ROOT RUN_ID=gr-run CLAUDE_CODE_SESSION_ID=gr-sess \
+      bash "$TOOL" attend ) >/dev/null 2>&1
+  rc=$?
+  if [ "$rc" -eq 0 ] && [ -f "$GITREPO/.claude/pipeline-state/attend-gr-sess.token" ]; then
+    pass "(s1) with no root override the shared root resolves through the git common dir, and the token lands there"
+  else fail "(s1) attend rc=$rc and the token is not at \$GITREPO/.claude/pipeline-state/attend-gr-sess.token: $(ls -1 "$GITREPO/.claude/pipeline-state" 2>&1)"; fi
+
+  # ...and it reads back as attended from that same resolution, which is what a consumer's gate
+  # actually asks. A token written to the right path but read from a different one is the same
+  # defect wearing the other hat.
+  out="$( cd "$GITREPO" && env -u SECOND_SHIFT_REPO_ROOT RUN_ID=gr-run CLAUDE_CODE_SESSION_ID=gr-sess \
+      bash "$TOOL" state 2>&1 )"
+  if [ "$out" = "attended" ]; then
+    pass "(s2) the reader resolves the same root the writer did"
+  else fail "(s2) expected 'attended' from the git-common-dir resolution, got: $out"; fi
+else
+  fail "(s0) the fixture git repo could not be created — (s1)/(s2) would assert nothing"
+fi
+
+# ---- (t) --help prints the header, and only the header ------------------------------------
+# `sed -n '2,Np'` is a hand-maintained line number: growing the header silently truncates the
+# help text, and this repo has been burned by exactly that. Two assertions, because either
+# direction is a real failure — the LAST header line must be present (the range did not fall
+# short) and the first line of code must not be (it did not over-reach).
+out="$(bash "$TOOL" --help 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] \
+   && grep -qF 'macOS ships bash 3.2' <<<"$out" \
+   && ! grep -qF 'set -uo pipefail' <<<"$out"; then
+  pass "(t) --help prints through the last header line and stops before the code"
+else fail "(t) --help did not print exactly the header, rc=$rc: $out"; fi
+
 # ---- (m6) the register that ships in THIS repo, and the one SUITE-DECLARED SKIP ------------
 # The register documents the schema by example, so a malformed one here is inherited by every
 # consumer reading it. It is also a consumer-repo artifact that ships inside no plugin, which
