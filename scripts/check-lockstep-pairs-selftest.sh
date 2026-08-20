@@ -104,7 +104,7 @@ d=$(tree c)
 sh_block "$d/a.sh" demo "" "VALUE='x|y'"
 sh_block "$d/b.sh" demo "" "VALUE='x|z'"
 rc=$(run "$d")
-if [[ "$rc" -ne 0 ]] && out | grep -q 'DRIFTED'; then
+if [[ "$rc" -ne 0 ]] && grep -q 'DRIFTED' "$TMP/out"; then
   ok "(c) verbatim: a one-token drift goes RED (rc=$rc)"
 else
   bad "(c) verbatim drift NOT caught — the guard cannot fail"
@@ -141,7 +141,7 @@ sh_block "$d/a.sh" demo "" "VALUE='x|y'"
 sh_block "$d/b.sh" demo "" "VALUE='x|y'"
 sh_block "$d/c.sh" demo "" "VALUE='x|WRONG'"
 rc=$(run "$d")
-if [[ "$rc" -ne 0 ]] && out | grep -q 'c\.sh'; then
+if [[ "$rc" -ne 0 ]] && grep -q 'c\.sh' "$TMP/out"; then
   ok "(d) a third site joins the group and its drift is caught"
 else
   bad "(d) the third member of a group was not compared"
@@ -152,7 +152,7 @@ fi
 d=$(tree e)
 sh_block "$d/lonely.sh" orphan-anchor "" "VALUE='x|y'"
 rc=$(run "$d")
-if [[ "$rc" -ne 0 ]] && out | grep -q 'orphan-anchor' && out | grep -q 'lonely\.sh'; then
+if [[ "$rc" -ne 0 ]] && grep -q 'orphan-anchor' "$TMP/out" && grep -q 'lonely\.sh' "$TMP/out"; then
   ok "(e) a size-1 anchor FAILS, naming both the anchor and the file (rc=$rc)"
 else
   bad "(e) a size-1 anchor did not fail, or failed without naming the site"
@@ -186,7 +186,7 @@ d=$(tree h)
 sh_block "$d/wide.sh"   enum superset "VALUE='a|b|c'"
 sh_block "$d/narrow.sh" enum subset   "VALUE='a|INVENTED'"
 rc=$(run "$d")
-if [[ "$rc" -ne 0 ]] && out | grep -q 'INVENTED'; then
+if [[ "$rc" -ne 0 ]] && grep -q 'INVENTED' "$TMP/out"; then
   ok "(h) subset-of: a token absent from the superset goes RED (rc=$rc)"
 else
   bad "(h) subset-of violation NOT caught"
@@ -208,7 +208,7 @@ d=$(tree j)
 sh_block "$d/a.sh" enum superset "VALUE='a|b'"
 sh_block "$d/b.sh" enum ""       "VALUE='a|b'"
 rc=$(run "$d")
-if [[ "$rc" -ne 0 ]] && out | grep -qi 'DISAGREE'; then
+if [[ "$rc" -ne 0 ]] && grep -qi 'DISAGREE' "$TMP/out"; then
   ok "(j) a group whose members disagree about the relation FAILS (rc=$rc)"
 else
   bad "(j) a mixed-relation group was accepted"
@@ -232,7 +232,7 @@ d=$(tree k)
 sh_block "$d/a.sh" enum subst "VALUE='a|b'"
 sh_block "$d/b.sh" enum ""    "VALUE='a|b'"
 rc=$(run "$d")
-if [[ "$rc" -ne 0 ]] && out | grep -q 'subst'; then
+if [[ "$rc" -ne 0 ]] && grep -q 'subst' "$TMP/out"; then
   ok "(k) an unrecognised relation token FAILS, naming it (rc=$rc)"
 else
   bad "(k) an unrecognised relation silently fell back to verbatim"
@@ -284,7 +284,7 @@ sh_block "$d/a.sh" demo "" "VALUE='x|y'"
 sh_block "$d/b.sh" demo "" "VALUE='x|y'"
 printf '# %s demo verbatim -- see the note above\nX=1\n# %s demo\n' "$B" "$E" > "$d/c.sh"
 rc=$(run "$d")
-if [[ "$rc" -ne 0 ]] && out | grep -qi 'grammar'; then
+if [[ "$rc" -ne 0 ]] && grep -qi 'grammar' "$TMP/out"; then
   ok "(m2) a marker line with trailing text is MALFORMED, not skipped (rc=$rc)"
 else
   bad "(m2) a malformed marker line was silently skipped"
@@ -296,7 +296,7 @@ d=$(tree n)
 sh_block "$d/a.sh" demo "" "VALUE='x|y'"
 printf '# %s demo\nX=1\n' "$B" > "$d/b.sh"
 rc=$(run "$d")
-if [[ "$rc" -ne 0 ]] && out | grep -qi 'never closed'; then
+if [[ "$rc" -ne 0 ]] && grep -qi 'never closed' "$TMP/out"; then
   ok "(n) a BEGIN with no END FAILS (rc=$rc)"
 else
   bad "(n) an unclosed BEGIN was not reported"
@@ -345,7 +345,7 @@ rc=$(run "$d")
 d=$(tree r)
 cp "$HERE/check-lockstep-pairs-selftest.sh" "$d/copy.sh"
 rc=$(run "$d")
-if [[ "$rc" -eq 0 ]] && out | grep -q '0 anchor(s) checked'; then
+if [[ "$rc" -eq 0 ]] && grep -q '0 anchor(s) checked' "$TMP/out"; then
   ok "(r) this file yields ZERO discovery sites — fixtures assemble their markers at runtime"
 else
   bad "(r) this file is itself a discovery site; a fixture marker was written literally"
