@@ -79,9 +79,15 @@ make_dp_variant() {
   local key="$2" model="$3" dst="$TMP/$1"
   cp -R "$DP" "$dst"
   cat > "$dst/workflows/code-review.mjs" <<MJS
+const DEFAULT_TIER_MAP = {
+  reasoning: 'opus',
+  code: 'sonnet',
+  emit: 'haiku',
+}
+
 const REVIEWER_MODEL = {
   '$key': '$model',
-  'performance-reviewer': 'sonnet',
+  'performance-reviewer': 'code',
 }
 MJS
   printf '%s' "$dst"
@@ -109,8 +115,8 @@ echo "check-model-tiers selftest"
 run_cli "$DP"
 [ $? -eq 0 ] && ok "agreement: table == frontmatter -> exit 0" || fail "agreement expected exit 0 (stderr: $(cat "$TMP/.stderr"))"
 
-# frontmatter mismatch — code-review says 'sonnet' for security-reviewer (frontmatter opus)
-DRIFT=$(make_dp_variant driftmap "security-reviewer" "sonnet")
+# frontmatter mismatch — code-review says tier 'code' (resolves sonnet) for security-reviewer (frontmatter opus)
+DRIFT=$(make_dp_variant driftmap "security-reviewer" "code")
 run_cli "$DRIFT"
 if [ $? -eq 0 ]; then fail "frontmatter mismatch expected exit 1"; else
   grep -q "MISMATCH: 'security-reviewer'" "$TMP/.stderr" && ok "frontmatter mismatch -> exit 1 + MISMATCH names agent" \
@@ -123,7 +129,7 @@ run_cli "$DRIFT" "$CFG_RECONCILE"
 [ $? -eq 0 ] && ok "override reconciles: modelOverride matches table -> exit 0" \
   || fail "override reconciles expected exit 0 (stderr: $(cat "$TMP/.stderr"))"
 
-# override differs — clean table ('opus' == frontmatter default), modelOverride says
+# override differs — clean table (tier 'reasoning' -> opus == frontmatter default), modelOverride says
 # 'sonnet'. This is the per-repo tiering feature (same plugin-shipped table + agent,
 # a different tier per consumer): the table keeps the plugin default and the .mjs
 # applies the override at dispatch (modelOverrides[...] || TABLE[...]). Legal.
@@ -132,7 +138,7 @@ run_cli "$DP" "$CFG_DIFFERS"
 [ $? -eq 0 ] && ok "override differs: table keeps plugin default, override wins at dispatch -> exit 0" \
   || fail "override differs expected exit 0 (stderr: $(cat "$TMP/.stderr"))"
 
-# override three-way mismatch — drifted table ('sonnet'), frontmatter 'opus',
+# override three-way mismatch — drifted table (tier 'code' -> sonnet), frontmatter 'opus',
 # modelOverride 'haiku': the table matches neither the override nor the
 # frontmatter default -> genuine drift, mismatch.
 CFG_THREEWAY=$(make_override_config "security-reviewer" "haiku")
@@ -143,7 +149,7 @@ if [ $? -eq 0 ]; then fail "override three-way expected exit 1"; else
 fi
 
 # qualified name — table key is plugin:-qualified; compared on the bare name
-QUAL=$(make_dp_variant qualmap "review-toolkit:security-reviewer" "opus")
+QUAL=$(make_dp_variant qualmap "review-toolkit:security-reviewer" "reasoning")
 run_cli "$QUAL"
 [ $? -eq 0 ] && ok "qualified name: 'review-toolkit:security-reviewer' parsed bare -> exit 0" \
   || fail "qualified name expected exit 0 (stderr: $(cat "$TMP/.stderr"))"
@@ -201,8 +207,14 @@ make_dp_map_inline_variant() {
   local dst="$TMP/$1" inline="$2"
   cp -R "$DP" "$dst"
   cat > "$dst/workflows/code-review.mjs" <<MJS
+const DEFAULT_TIER_MAP = {
+  reasoning: 'opus',
+  code: 'sonnet',
+  emit: 'haiku',
+}
+
 const REVIEWER_MODEL = {
-  'security-reviewer': 'opus',
+  'security-reviewer': 'reasoning',
 }
 const emit = { agentType: 'review-toolkit:structured-emitter', model: '$inline', label: 'x' }
 MJS
@@ -222,7 +234,7 @@ fi
 # loop's lockstep check (the MAP grep can't see it; the scalar loop's inline handling
 # never iterates the MAP files) — only OUT-OF-ENUM tokens were caught, by
 # scan_unknown_inline_literals. This fixture uses 'opus', a KNOWN tier, against
-# structured-emitter's 'haiku' frontmatter, with an otherwise-clean map entry, so
+# structured-emitter's 'haiku' frontmatter ('reasoning' resolves to opus), so
 # UNKNOWN-MODEL cannot fire and the pre-fix script is genuinely silent (exit 0) —
 # reverting the guard turns this case green again.
 # Args: <dest_name> <inline-model> -> prints the root path
@@ -230,15 +242,21 @@ make_dp_map_inline_mismatch_variant() {
   local dst="$TMP/$1" inline="$2"
   cp -R "$DP" "$dst"
   cat > "$dst/workflows/code-review.mjs" <<MJS
+const DEFAULT_TIER_MAP = {
+  reasoning: 'opus',
+  code: 'sonnet',
+  emit: 'haiku',
+}
+
 const REVIEWER_MODEL = {
-  'security-reviewer': 'opus',
+  'security-reviewer': 'reasoning',
 }
 const emit = { agentType: 'review-toolkit:structured-emitter', model: '$inline', label: 'x' }
 MJS
   printf '%s' "$dst"
 }
 
-MAP_INLINE_MISMATCH=$(make_dp_map_inline_mismatch_variant map-inline-mismatch "opus")
+MAP_INLINE_MISMATCH=$(make_dp_map_inline_mismatch_variant map-inline-mismatch "reasoning")
 run_cli "$MAP_INLINE_MISMATCH"
 if [ $? -eq 0 ]; then fail "MAP-file inline literal mismatch expected exit 1"; else
   grep -q "MISMATCH: 'structured-emitter'" "$TMP/.stderr" \
@@ -271,6 +289,170 @@ cp "$DP/model-tiering.md" "$CACHE_MKT/dev-pipeline/0.0.10/model-tiering.md"
 )
 [ $? -eq 0 ] && ok "cache layout: versioned-sibling dev-pipeline root resolves -> exit 0" \
   || fail "cache layout expected exit 0 (stderr: $(cat "$TMP/.stderr"))"
+
+# --- #351: the alphabet is PARSED, so it is variable ---------------------------
+# Every case below would pass vacuously against a guard with a hardcoded
+# opus|sonnet|haiku constant, because that guard never reads the doc at all. Each is
+# written so breaking the specific new mechanism it names turns it red.
+
+# Build a dev-pipeline root on a CUSTOM alphabet: the doc table and both engines'
+# inline maps agree on tier names that are not the shipped ones.
+# Args: <dest_name> <tierA> <tierB> <tierC> -> prints the root path
+make_dp_custom_alphabet() {
+  local dst="$TMP/$1" a="$2" b="$3" c="$4"
+  cp -R "$DP" "$dst"
+  cat > "$dst/model-tiering.md" <<DOC
+# fixture (custom alphabet)
+
+## Tier alphabet
+
+| Tier | Dispatch token | Model | Rationale |
+| ---- | -------------- | ----- | --------- |
+| $a | opus | claude-opus-4-8 | deep |
+| $b | sonnet | claude-sonnet-4-6 | fast |
+| $c | haiku | claude-haiku-4-5 | sink |
+DOC
+  cat > "$dst/workflows/code-review.mjs" <<MJS
+const DEFAULT_TIER_MAP = {
+  $a: 'opus',
+  $b: 'sonnet',
+  $c: 'haiku',
+}
+
+const REVIEWER_MODEL = {
+  'security-reviewer': '$a',
+  'performance-reviewer': '$b',
+}
+MJS
+  cat > "$dst/workflows/intake-review.mjs" <<MJS
+const DEFAULT_TIER_MAP = {
+  $a: 'opus',
+  $b: 'sonnet',
+  $c: 'haiku',
+}
+
+const INTAKE_MODEL = {
+  'spec-reviewer': '$a',
+}
+MJS
+  printf '%s' "$dst"
+}
+
+# Write a config carrying a single reviewers.tierMap entry.
+# Args: <tier> <dispatch-token> -> prints the config path
+make_tiermap_config() {
+  local tier="$1" token="$2" path="$TMP/tiermap-$1-$2.json"
+  cat > "$path" <<JSON
+{
+  "configVersion": 2,
+  "tracker": { "type": "github" },
+  "topology": { "type": "standalone", "repos": { "app": { "path": ".", "baseBranch": "main" } } },
+  "commands": { "app": {} },
+  "reviewers": { "tierMap": { "$tier": "$token" } }
+}
+JSON
+  printf '%s' "$path"
+}
+
+# custom alphabet — tier names the shipped guard never heard of, resolving to the same
+# models the frontmatter declares. Red if the alphabet is hardcoded anywhere.
+CUSTOM=$(make_dp_custom_alphabet customalpha deep fast sink)
+run_cli "$CUSTOM"
+[ $? -eq 0 ] && ok "custom alphabet: parsed tier names lockstep against frontmatter -> exit 0" \
+  || fail "custom alphabet expected exit 0 (stderr: $(cat "$TMP/.stderr"))"
+
+# counter-scan NON-VACUITY under a custom alphabet. The unrestricted scans must judge
+# against the PARSED alphabet, not a constant: 'sonnet' is a legal dispatch token and was
+# a legal tier before this change, so a guard still holding the old constant reports
+# nothing here.
+CUSTOM_BAD=$(make_dp_custom_alphabet customalpha-bad deep fast sink)
+cat > "$CUSTOM_BAD/workflows/code-review.mjs" <<'MJS'
+const DEFAULT_TIER_MAP = {
+  deep: 'opus',
+  fast: 'sonnet',
+  sink: 'haiku',
+}
+
+const REVIEWER_MODEL = {
+  'security-reviewer': 'sonnet',
+}
+MJS
+run_cli "$CUSTOM_BAD"
+if [ $? -eq 0 ]; then fail "out-of-alphabet token under a custom alphabet expected exit 1"; else
+  grep -q "UNKNOWN-MODEL: code-review.mjs declares 'security-reviewer' => 'sonnet'" "$TMP/.stderr" \
+    && ok "counter-scan judges against the PARSED alphabet, not a constant -> exit 1 + UNKNOWN-MODEL" \
+    || fail "custom-alphabet counter-scan: exit 1 but no UNKNOWN-MODEL line (stderr: $(cat "$TMP/.stderr"))"
+fi
+
+# a consumer tierMap is NEVER drift (D-18). Clean shipped tables, frontmatter 'opus',
+# and a config retargeting 'reasoning' to haiku. Lockstep is held against the SHIPPED
+# default, so this must stay silent — a guard resolving the table through the EFFECTIVE
+# map reports MISMATCH here and makes tierMap unusable.
+CFG_TIERMAP=$(make_tiermap_config "reasoning" "haiku")
+run_cli "$DP" "$CFG_TIERMAP"
+if [ $? -eq 0 ]; then
+  ok "consumer tierMap retargeting a tier is not drift -> exit 0"
+else
+  fail "consumer tierMap must not MISMATCH (stderr: $(cat "$TMP/.stderr"))"
+fi
+
+# TIER-MAP-DRIFT (value): an engine's inlined copy disagrees with the authority. This is
+# the check that makes "one authority" true while the sandbox forbids deleting the copies.
+DRIFT_MAP=$(make_dp_variant tiermapdrift "security-reviewer" "reasoning")
+cat > "$DRIFT_MAP/workflows/code-review.mjs" <<'MJS'
+const DEFAULT_TIER_MAP = {
+  reasoning: 'opus',
+  code: 'haiku',
+  emit: 'haiku',
+}
+
+const REVIEWER_MODEL = {
+  'security-reviewer': 'reasoning',
+}
+MJS
+run_cli "$DRIFT_MAP"
+if [ $? -eq 0 ]; then fail "inline tier-map drift expected exit 1"; else
+  grep -q "TIER-MAP-DRIFT: code-review.mjs inlines 'code' => 'haiku'" "$TMP/.stderr" \
+    && ok "inline DEFAULT_TIER_MAP held against the authority -> exit 1 + TIER-MAP-DRIFT" \
+    || fail "tier-map drift: exit 1 but no TIER-MAP-DRIFT line (stderr: $(cat "$TMP/.stderr"))"
+fi
+
+# TIER-MAP-DRIFT (omission): a tier the authority declares but the engine omits would
+# fall through to the engine's own default at dispatch, silently. Absence is drift too,
+# and a value-only comparison passes this fixture.
+OMIT_MAP=$(make_dp_variant tiermapomit "security-reviewer" "reasoning")
+cat > "$OMIT_MAP/workflows/code-review.mjs" <<'MJS'
+const DEFAULT_TIER_MAP = {
+  reasoning: 'opus',
+  code: 'sonnet',
+}
+
+const REVIEWER_MODEL = {
+  'security-reviewer': 'reasoning',
+}
+MJS
+run_cli "$OMIT_MAP"
+if [ $? -eq 0 ]; then fail "omitted tier expected exit 1"; else
+  grep -q "TIER-MAP-DRIFT: .* declares tier 'emit' but code-review.mjs's DEFAULT_TIER_MAP omits it" "$TMP/.stderr" \
+    && ok "a tier the authority declares and an engine omits -> exit 1 + TIER-MAP-DRIFT" \
+    || fail "tier-map omission: exit 1 but no omission line (stderr: $(cat "$TMP/.stderr"))"
+fi
+
+# UNPARSEABLE-ALPHABET: without the table there is no map, and every table entry would be
+# unresolvable. Fail loud rather than falling back to a hardcoded alphabet that would
+# reintroduce exactly the drift this ticket removes.
+NOALPHA=$(make_dp_variant noalpha "security-reviewer" "reasoning")
+cat > "$NOALPHA/model-tiering.md" <<'DOC'
+# fixture with no alphabet table
+
+Prose only.
+DOC
+run_cli "$NOALPHA"
+if [ $? -eq 0 ]; then fail "missing alphabet table expected exit 1"; else
+  grep -q "UNPARSEABLE-ALPHABET" "$TMP/.stderr" \
+    && ok "no '## Tier alphabet' table -> exit 1 + UNPARSEABLE-ALPHABET" \
+    || fail "missing alphabet: exit 1 but no UNPARSEABLE-ALPHABET line (stderr: $(cat "$TMP/.stderr"))"
+fi
 
 echo
 echo "[check-model-tiers-selftest] $PASS passed, $FAIL failed"

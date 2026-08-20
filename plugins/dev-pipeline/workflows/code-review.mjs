@@ -18,19 +18,37 @@ export const meta = {
 // Its qualified keys are ALSO the resolution source for the bare-name normalization
 // below — so a key removed from here stops normalizing that reviewer as well as
 // stopping its tier from resolving.
+// Tier -> dispatch token. INLINED because the Workflow sandbox forbids imports; the
+// authority is the `## Tier alphabet` table in ../model-tiering.md, and
+// check-model-tiers.sh holds this copy against it (TIER-MAP-DRIFT) so the duplication
+// is checked rather than merely regretted. Keys are UNQUOTED deliberately: the guard's
+// entry scans match a quoted key followed by a quoted value, so quoting these would make
+// every tier read as a dispatch-table entry and be reported DANGLING. (Writing that shape
+// out here would itself trip the scan — a comment quoting a matched shape is an instance
+// of it.)
+const DEFAULT_TIER_MAP = {
+  reasoning: 'opus',
+  code: 'sonnet',
+  emit: 'haiku',
+}
+
 const REVIEWER_MODEL = {
-  'review-toolkit:security-reviewer': 'opus',
-  'review-toolkit:performance-reviewer': 'sonnet',
-  'review-toolkit:maintainability-reviewer': 'sonnet',
-  'review-toolkit:complexity-reviewer': 'sonnet',
-  'review-toolkit:test-coverage-reviewer': 'sonnet',
-  'review-toolkit:unit-test-mutation-reviewer': 'sonnet',
-  'review-toolkit:db-reviewer': 'sonnet',
-  'review-toolkit:pipeline-reviewer': 'sonnet',
-  'review-toolkit:scope-completeness-reviewer': 'opus',
-  'review-toolkit:a11y-reviewer': 'sonnet',
-  'design-toolkit:design-faithful-reviewer': 'sonnet',
-  'design-toolkit:figma-faithful-reviewer': 'sonnet',
+  'review-toolkit:security-reviewer': 'reasoning',
+  'review-toolkit:performance-reviewer': 'code',
+  'review-toolkit:maintainability-reviewer': 'code',
+  'review-toolkit:complexity-reviewer': 'code',
+  'review-toolkit:test-coverage-reviewer': 'code',
+  'review-toolkit:unit-test-mutation-reviewer': 'code',
+  'review-toolkit:db-reviewer': 'code',
+  'review-toolkit:pipeline-reviewer': 'code',
+  'review-toolkit:scope-completeness-reviewer': 'reasoning',
+  'review-toolkit:a11y-reviewer': 'code',
+  'design-toolkit:design-faithful-reviewer': 'code',
+  'design-toolkit:figma-faithful-reviewer': 'code',
+  // The transcription sink dispatches through this table like every other agent (#351).
+  // It used to carry a hardcoded inline `model: 'haiku'`, which no consumer could
+  // retarget or override — the one governed-set gap this ticket closes.
+  'review-toolkit:structured-emitter': 'emit',
 }
 
 // Bare (unqualified) agent name — tolerant of both `plugin:agent` and bare forms.
@@ -132,6 +150,17 @@ const a = typeof args === 'string' ? JSON.parse(args) : args || {}
 const { worktree, base, head, issue, reviewers = [], changedFiles = [], prContext = '', config = {} } = a
 // Per-reviewer model-tier overrides from the consumer config (bare-keyed).
 const modelOverrides = (config && config.reviewers && config.reviewers.modelOverrides) || {}
+// Consumer tier retargeting, MERGED per tier over the shipped default (#351): a config
+// naming one tier leaves the rest alone, so a config that sets none dispatches exactly
+// as it did before this seam existed.
+const tierMap = { ...DEFAULT_TIER_MAP, ...((config && config.reviewers && config.reviewers.tierMap) || {}) }
+// One resolution path for EVERY dispatch in this file. An override or table value that
+// names a tier resolves through the map; anything else is already a raw dispatch token
+// (the closed union config-lint enforces) and passes through untouched.
+const modelFor = (agentType) => {
+  const declared = modelOverrides[bare(agentType)] || REVIEWER_MODEL[agentType] || 'code'
+  return tierMap[declared] || declared
+}
 if (!worktree || !base || !head) {
   throw new Error('code-review workflow: args.worktree, args.base and args.head are required')
 }
@@ -240,7 +269,7 @@ const emitStructured = (text, opts) =>
     'Convert this completed review into the required structured object. Transcribe EXACTLY' +
       ' what the review states — never invent, drop, merge, soften or upgrade findings.' +
       '\n\n---REVIEW---\n' + String(text) + '\n---END---',
-    { agentType: 'review-toolkit:structured-emitter', model: 'haiku', label: `${opts.label} (emit)`, phase: 'Review', schema: opts.schema },
+    { agentType: 'review-toolkit:structured-emitter', model: modelFor('review-toolkit:structured-emitter'), label: `${opts.label} (emit)`, phase: 'Review', schema: opts.schema },
   )
 
 const FINDINGS_EPILOGUE =
@@ -363,7 +392,7 @@ const dispatchReviewer = async (requested) => {
   // Override (bare-keyed) wins over the table's per-agent default, else 'sonnet'. Keyed on
   // the RESOLVED name, so normalization recovers the reviewer's declared tier too — a bare
   // security-reviewer that fell through to 'sonnet' is a silently downgraded review.
-  const model = modelOverrides[bare(dispatched)] || REVIEWER_MODEL[dispatched] || 'sonnet'
+  const model = modelFor(dispatched)
   let prompt
   if (bare(dispatched) === 'scope-completeness-reviewer') {
     // Independence rule (review-lead): evidence ONLY — issue/ticket ref + branch/base.
