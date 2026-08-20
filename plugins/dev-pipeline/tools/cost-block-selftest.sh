@@ -404,5 +404,339 @@ grep -q 'skip(zero-datapoints)' <<<"$R" \
   || bad "(#432) expected skip(zero-datapoints), got: $R"
 
 echo
+echo "=== #546: the fence and the session set are DERIVED, not improvised ==="
+#
+# The defect this section guards is not "the block was empty" — it is "the block was
+# well-formed and wrong". A run whose close-out session guessed the fence published 43 min
+# and one session for a 98-minute, three-session run, and every assertion anyone could have
+# written about the RENDER would have passed. So each case below pins the derived answer
+# against a DIFFERENT, plausible hand-supplied one over the same fixture: a mode that quietly
+# ignored the record and kept taking the caller's word would render the wrong number here and
+# fail, which greping the block for "Pipeline Cost" never could.
+#
+# FIXTURE GEOMETRY ($RT, a throwaway git repo so the REAL resolution ladder runs — main-checkout
+# anchor, config defaults, state dir, and the branch-relative verdict-record path — instead of a
+# stub that would agree with anything):
+#   progress record 900   fence rows 10:00 → 11:30, header session S1, `| session |` row S2
+#   verdict record        header session S3 (the review's)
+#   metrics               S1 @ 09:00 $9.00  ← BEFORE the fence: the decoy an unfenced or
+#                                             wrongly-opened window inhales
+#                         S1 @ 10:10 $1.00 (opus)
+#                         S2 @ 11:10 $2.00 (sonnet)
+#                         S3 @ 11:20 $0.50 (haiku)
+# So: derived build-only = $3.00. Derived with review = $3.50. The published-figure bug's own
+# shape (fence [10:00,10:30], sessions S1) = $1.00. Three distinguishable totals, one fixture.
+
+S1="c0510001-1111-4111-8111-aaaaaaaaaaaa"
+S2="c0510002-2222-4222-8222-bbbbbbbbbbbb"
+S3="c0510003-3333-4333-8333-cccccccccccc"
+
+# mk_cost_metrics <file> <sid:iso:value:model>… — like mk_metrics above, but the model id is
+# per-datapoint (the tier split is not what these cases are about; the attribution is).
+mk_cost_metrics() {
+  local out="$1"; shift
+  local dps="" spec sid rest iso val model
+  for spec in "$@"; do
+    sid="${spec%%:*}"; rest="${spec#*:}"
+    model="${rest##*:}"; rest="${rest%:*}"
+    val="${rest##*:}"; iso="${rest%:*}"
+    dps="$dps$(jq -nc --arg sid "$sid" --arg t "$(iso2ep "$iso")000000000" \
+      --argjson v "$val" --arg m "$model" \
+      '{attributes:[{key:"session.id",value:{stringValue:$sid}},
+                    {key:"model",value:{stringValue:$m}}],
+        timeUnixNano:$t, asDouble:$v}'),"
+  done
+  printf '{"resourceMetrics":[{"resource":{"attributes":[]},"scopeMetrics":[{"metrics":[{"name":"claude_code.cost.usage","sum":{"dataPoints":[%s]}}]}]}]}\n' \
+    "${dps%,}" > "$out"
+}
+
+RT="$TMP/lean-repo"
+mkdir -p "$RT/.claude/pipeline-state" "$RT/docs/plans" "$RT/metrics"
+git -C "$RT" init -q 2>/dev/null
+PROG="$RT/.claude/pipeline-state/900-lean-progress.md"
+VREC="$RT/docs/plans/acme-900-lean-verdict.md"
+cat > "$PROG" <<PROGEOF
+# lean run — issue 900
+
+run_id: run-900-alpha
+session_id: $S1
+issue: 900
+branch: claude/acme-900
+spec: docs/plans/acme-900-lean.md
+verdict_record: docs/plans/acme-900-lean-verdict.md
+model: opus
+
+2026-07-02T10:00:00Z | entry | ledger=/dev/null | lines=3 | telemetry=on | session=$S1
+2026-07-02T10:20:00Z | milestone-1 | satisfied
+2026-07-02T11:00:00Z | session | $S2
+2026-07-02T11:30:00Z | milestone-3 | concluded | rc=0
+PROGEOF
+
+MET="$RT/metrics/metrics.jsonl"
+mk_cost_metrics "$MET" \
+  "$S1:2026-07-02T09:00:00Z:9.00:claude-opus-4-7" \
+  "$S1:2026-07-02T10:10:00Z:1.00:claude-opus-4-7" \
+  "$S2:2026-07-02T11:10:00Z:2.00:claude-sonnet-4-6" \
+  "$S3:2026-07-02T11:20:00Z:0.50:claude-haiku-4-5-20251001"
+
+# issue_block <out-file> <extra args…> — the full render path, run from inside $RT so the
+# script resolves the record the way a lane session does.
+issue_block() {
+  local out="$1"; shift
+  ( cd "$RT" && OTEL_METRICS_FILE="$MET" COST_BLOCK_SKIP_FLUSH=1 \
+      bash "$SCRIPT" --stateless --issue 900 --out "$out" "$@" ) >/dev/null 2>&1
+}
+block_total() { grep -oE '\$[0-9]+\.[0-9]{2} \|$' "$1" | tr -d '$ |'; }
+# The same invocation, keeping STDERR instead of the render: the derivation summary is the
+# only place the resolution ladder and the review union are observable from outside.
+issue_stderr() { # issue_stderr <issue> [extra args…]
+  local n="$1"; shift
+  # shellcheck disable=SC2069 # deliberate: keep STDERR (the summary), discard stdout
+  ( cd "$RT" && OTEL_METRICS_FILE="$MET" COST_BLOCK_SKIP_FLUSH=1 \
+      bash "$SCRIPT" --stateless --issue "$n" --out /dev/null "$@" 2>&1 >/dev/null )
+}
+
+# --- AC-1/AC-2: the derived fence and session set ----------------------------
+D_OUT="$TMP/derived.md"
+issue_block "$D_OUT"
+[[ "$(block_total "$D_OUT")" == "3.00" ]] \
+  && ok "(AC-1/AC-2) --issue derives fence [10:00,11:30] and sessions {S1,S2}: \$3.00" \
+  || bad "(AC-1/AC-2) derived total expected 3.00, got '$(block_total "$D_OUT")' — the 09:00 decoy or a session was mis-attributed"
+
+# The published-figure bug, reproduced by hand over the same fixture. It is the CONTRAST that
+# makes the case above an assertion about derivation rather than about arithmetic.
+W_OUT="$TMP/improvised.md"
+OTEL_METRICS_FILE="$MET" COST_BLOCK_SKIP_FLUSH=1 \
+  bash "$SCRIPT" --stateless --sessions "$S1" \
+    --start 2026-07-02T10:00:00Z --end 2026-07-02T10:30:00Z --out "$W_OUT" >/dev/null 2>&1
+[[ "$(block_total "$W_OUT")" == "1.00" ]] \
+  && ok "(AC-1) a hand-supplied fence+set over the same fixture renders a DIFFERENT, well-formed \$1.00" \
+  || bad "(AC-1) the improvised-fence contrast expected 1.00, got '$(block_total "$W_OUT")'"
+
+grep -q 'Sessions: 2' "$D_OUT" \
+  && ok "(AC-2) the derived block reports 2 sessions, not the header's one" \
+  || bad "(AC-2) expected 'Sessions: 2' in the derived block"
+
+# --- AC-3/AC-4: the review session, and the title that must move with it -----
+grep -qE '^\| Session total \(lean run' "$D_OUT" \
+  && ok "(AC-4) with no verdict record the row keeps the build-only title" \
+  || bad "(AC-4) pre-review block should read 'Session total (lean run …)'"
+
+# The derivation summary's `(review included)` suffix is the ONLY operator-visible signal that
+# the union fired, and AC-3 makes the degrade deliberately silent: a close-out accidentally run
+# from the main checkout — where the branch-committed verdict record does not exist — renders a
+# build-only figure that is well-formed and wrong, which is this ticket's own defect class. The
+# suffix is what tells the two apart, so it is asserted in BOTH directions rather than read.
+PRE_ERR="$(issue_stderr 900)"
+{ grep -q '2 session(s)' <<<"$PRE_ERR" && ! grep -q 'review included' <<<"$PRE_ERR"; } \
+  && ok "(AC-3) with no verdict record the summary reports 2 sessions and claims no review" \
+  || bad "(AC-3) pre-review summary should be '2 session(s)' with no suffix, got: $PRE_ERR"
+
+cat > "$VREC" <<VRECEOF
+# lean verdict — issue 900
+
+run_id: run-900-alpha
+session_id: $S3
+verdict=approve
+pr: 901
+VRECEOF
+R_OUT="$TMP/with-review.md"
+issue_block "$R_OUT"
+[[ "$(block_total "$R_OUT")" == "3.50" ]] \
+  && ok "(AC-3) the verdict record's session is unioned in: \$3.50" \
+  || bad "(AC-3) with-review total expected 3.50, got '$(block_total "$R_OUT")'"
+
+grep -qE '^\| Run total \(build \+ review' "$R_OUT" \
+  && ok "(AC-4) a set that counts review is titled 'Run total (build + review …)'" \
+  || bad "(AC-4) expected the retitled row; got: $(grep 'total (' "$R_OUT")"
+
+grep -q 'Sessions: 3' "$R_OUT" \
+  && ok "(AC-3) the review session is counted, not merely priced" \
+  || bad "(AC-3) expected 'Sessions: 3' once the verdict record exists"
+
+POST_ERR="$(issue_stderr 900)"
+grep -q '3 session(s) (review included)' <<<"$POST_ERR" \
+  && ok "(AC-3) the summary SAYS the union fired — the silent degrade is distinguishable" \
+  || bad "(AC-3) expected '3 session(s) (review included)', got: $POST_ERR"
+
+# --- AC-5: explicit arguments override, INDIVIDUALLY -------------------------
+O_OUT="$TMP/override-start.md"
+issue_block "$O_OUT" --start 2026-07-02T11:00:00Z
+[[ "$(block_total "$O_OUT")" == "2.50" ]] \
+  && ok "(AC-5) --start overrides its derived half while --end and the set stay derived: \$2.50" \
+  || bad "(AC-5) --start override expected 2.50, got '$(block_total "$O_OUT")'"
+
+OS_OUT="$TMP/override-sessions.md"
+issue_block "$OS_OUT" --sessions "$S1"
+[[ "$(block_total "$OS_OUT")" == "1.00" ]] \
+  && ok "(AC-5) --sessions overrides the derived set while the fence stays derived: \$1.00" \
+  || bad "(AC-5) --sessions override expected 1.00, got '$(block_total "$OS_OUT")'"
+
+grep -qE '^\| Session total \(lean run' "$OS_OUT" \
+  && ok "(AC-4/AC-5) a hand-supplied set drops the review title with it" \
+  || bad "(AC-4/AC-5) an overridden set must not keep claiming build + review"
+
+# --- AC-6: an underivable fence is a refusal, not a plausible default --------
+# shellcheck disable=SC2069 # deliberate: keep STDERR (the refusal), discard stdout
+MISS_OUT="$( cd "$RT" && OTEL_METRICS_FILE="$MET" COST_BLOCK_SKIP_FLUSH=1 \
+  bash "$SCRIPT" --stateless --issue 902 2>&1 >/dev/null )"; MISS_RC=$?
+{ [[ "$MISS_RC" -eq 2 ]] && grep -q '902-lean-progress.md' <<<"$MISS_OUT"; } \
+  && ok "(AC-6) an absent progress record exits 2 naming the resolved path" \
+  || bad "(AC-6) absent record: rc=$MISS_RC, stderr: $MISS_OUT"
+
+printf '# lean run — issue 903\n\nrun_id: run-903\nsession_id: %s\n' "$S1" \
+  > "$RT/.claude/pipeline-state/903-lean-progress.md"
+# shellcheck disable=SC2069 # deliberate: keep STDERR (the refusal), discard stdout
+NOTS_OUT="$( cd "$RT" && OTEL_METRICS_FILE="$MET" COST_BLOCK_SKIP_FLUSH=1 \
+  bash "$SCRIPT" --stateless --issue 903 2>&1 >/dev/null )"; NOTS_RC=$?
+{ [[ "$NOTS_RC" -eq 2 ]] && grep -q 'underivable' <<<"$NOTS_OUT"; } \
+  && ok "(AC-6) a record with no timestamped row exits 2 rather than rendering a default" \
+  || bad "(AC-6) stampless record: rc=$NOTS_RC, stderr: $NOTS_OUT"
+
+# --- AC-6: WHICH record --issue reads — the config ladder, driven -------------
+# Every fixture above lands on the built-in `.claude/pipeline-state` default, so the whole
+# CONFIG → cfg() → state_dir() ladder — the code that decides which record a run derives from —
+# would answer identically if it were deleted. These two repos are the only inputs that
+# separate it from its default. `SECOND_SHIFT_CONFIG` is unset deliberately: the ladder under
+# test is the one an unconfigured lane session actually takes.
+mk_lean_repo() { # mk_lean_repo <root> <state-subdir> <issue> — a throwaway repo + record
+  mkdir -p "$1/$2" "$1/.claude"
+  git -C "$1" init -q 2>/dev/null
+  printf '# lean run — issue %s\n\nrun_id: run-%s\nsession_id: %s\n\n%s | entry | telemetry=on\n%s | milestone-3 | concluded | rc=0\n' \
+    "$3" "$3" "$S1" "2026-07-02T10:00:00Z" "2026-07-02T11:30:00Z" > "$1/$2/$3-lean-progress.md"
+}
+issue_stderr_at() { # issue_stderr_at <root> <issue> — the summary, from inside <root>
+  # shellcheck disable=SC2069 # deliberate: keep STDERR (the summary), discard stdout
+  ( cd "$1" && env -u SECOND_SHIFT_CONFIG OTEL_METRICS_FILE="$MET" COST_BLOCK_SKIP_FLUSH=1 \
+      bash "$SCRIPT" --stateless --issue "$2" --out /dev/null 2>&1 >/dev/null )
+}
+
+# A config that MOVES the state dir. Ignore it — read the default dir instead — and the record
+# is not there at all, so the run refuses rather than deriving a fence from the wrong run.
+RT2="$TMP/lean-repo-cfgdir"
+mk_lean_repo "$RT2" "custom-state" 910
+printf '{"configVersion":2,"paths":{"pipelineStateDir":"custom-state"}}\n' \
+  > "$RT2/.claude/second-shift.config.json"
+CFG_ERR="$(issue_stderr_at "$RT2" 910)"; CFG_RC=$?
+{ [[ "$CFG_RC" -eq 0 ]] && grep -q "custom-state/910-lean-progress.md" <<<"$CFG_ERR"; } \
+  && ok "(AC-6) a configured pipelineStateDir is where --issue looks for the record" \
+  || bad "(AC-6) configured state dir: rc=$CFG_RC, stderr: $CFG_ERR"
+
+# A config that EXISTS but omits the key. `jq -r` yields the literal string "null" there, which
+# is the only input on which cfg()'s two guards disagree: keep the "null" and the run resolves a
+# state dir literally named `null`. So this repo, not the config-less ones above, is what makes
+# the `!= "null"` half load-bearing.
+RT3="$TMP/lean-repo-cfgnull"
+mk_lean_repo "$RT3" ".claude/pipeline-state" 920
+printf '{"configVersion":2,"tracker":{"type":"github"}}\n' > "$RT3/.claude/second-shift.config.json"
+NUL_ERR="$(issue_stderr_at "$RT3" 920)"; NUL_RC=$?
+{ [[ "$NUL_RC" -eq 0 ]] && grep -q ".claude/pipeline-state/920-lean-progress.md" <<<"$NUL_ERR"; } \
+  && ok "(AC-6) a config missing the key falls back to the default dir, not to a dir named 'null'" \
+  || bad "(AC-6) absent config key: rc=$NUL_RC, stderr: $NUL_ERR"
+
+echo
+echo "=== #546: the cost-log row is back, and only the close-out writes it ==="
+CL="$TMP/cost-log.jsonl"
+
+# --- AC-7: no flag, no row --------------------------------------------------
+COST_LOG_FILE="$CL" issue_block "$TMP/norow.md"
+[[ ! -s "$CL" ]] \
+  && ok "(AC-7) the step-7 snapshot writes no cost-log row" \
+  || bad "(AC-7) a row was written without --close-out: $(cat "$CL")"
+
+# --- AC-8: the row's key set is cross-era readable --------------------------
+COST_LOG_FILE="$CL" issue_block "$TMP/row1.md" --close-out --prs "https://x/pull/901"
+ROW_KEYS="$(jq -r 'keys | join(",")' < "$CL" 2>/dev/null | tail -n1)"
+[[ "$ROW_KEYS" == "at,byTier,cacheHitRate,durationMin,models,prs,runId,sessionIds,ticketKey,totalUsd" ]] \
+  && ok "(AC-8) the row carries every cross-era key plus runId and byTier" \
+  || bad "(AC-8) unexpected row keys: '$ROW_KEYS'"
+
+# byLabel's ABSENCE is the era discriminator — no marker field was added, so a reader that
+# cannot tell the eras apart is a reader this assertion is protecting.
+{ jq -e 'has("byLabel") | not' < "$CL" >/dev/null 2>&1 \
+  && [[ "$(jq -r '.byTier | length' < "$CL")" -ge 1 ]]; } \
+  && ok "(AC-8) byTier is present and byLabel is absent — the era split needs no marker field" \
+  || bad "(AC-8) the row must carry byTier and no byLabel"
+
+[[ "$(jq -r '.totalUsd' < "$CL")" == "3.5" && "$(jq -r '.sessionIds | length' < "$CL")" == "3" ]] \
+  && ok "(AC-8) the row records the same derived total and session set the block renders" \
+  || bad "(AC-8) row totalUsd/sessionIds disagree with the rendered block"
+
+# --- AC-11: --prs, present and absent ---------------------------------------
+[[ "$(jq -r '.prs | join(",")' < "$CL")" == "https://x/pull/901" ]] \
+  && ok "(AC-11) --prs lands on the row" \
+  || bad "(AC-11) prs expected the supplied url, got '$(jq -r '.prs|join(",")' < "$CL")'"
+
+# --- AC-9: REPLACE on (ticketKey, runId), APPEND on a new run id ------------
+COST_LOG_FILE="$CL" issue_block "$TMP/row2.md" --close-out
+[[ "$(wc -l < "$CL" | tr -d ' ')" == "1" ]] \
+  && ok "(AC-9) a re-entered close-out REPLACES its own row (still 1 row)" \
+  || bad "(AC-9) re-entry should replace, log has $(wc -l < "$CL" | tr -d ' ') rows"
+
+[[ "$(jq -r '.prs | length' < "$CL")" == "0" ]] \
+  && ok "(AC-9/AC-11) the replacement is the new row, not a merge of the old one" \
+  || bad "(AC-9) the replaced row kept the first invocation's prs"
+
+sed -i.bak 's/^run_id: run-900-alpha$/run_id: run-900-beta/' "$PROG" && rm -f "$PROG.bak"
+COST_LOG_FILE="$CL" issue_block "$TMP/row3.md" --close-out
+{ [[ "$(wc -l < "$CL" | tr -d ' ')" == "2" ]] \
+  && [[ "$(jq -rs '[.[].runId] | join(",")' < "$CL")" == "run-900-alpha,run-900-beta" ]]; } \
+  && ok "(AC-9) a retry under a NEW run id APPENDS — aborted runs stay in the corpus" \
+  || bad "(AC-9) expected 2 rows keyed alpha,beta; got $(jq -rs '[.[].runId]|join(",")' < "$CL")"
+
+# --- AC-7: --close-out without --issue has no identity to key on ------------
+# shellcheck disable=SC2069 # deliberate: keep STDERR (the refusal), discard stdout
+CO_OUT="$( OTEL_METRICS_FILE="$MET" COST_BLOCK_SKIP_FLUSH=1 \
+  bash "$SCRIPT" --stateless --close-out --sessions "$S1" \
+    --start 2026-07-02T10:00:00Z --end 2026-07-02T11:30:00Z 2>&1 >/dev/null )"; CO_RC=$?
+{ [[ "$CO_RC" -eq 2 ]] && grep -q 'requires --issue' <<<"$CO_OUT"; } \
+  && ok "(AC-7) --close-out without --issue is a usage error, not a row with an empty key" \
+  || bad "(AC-7) --close-out alone: rc=$CO_RC, stderr: $CO_OUT"
+
+# --- AC-10: no rollup, no row ------------------------------------------------
+# The fence is derivable and the sessions are real; there is simply no cost inside it. The
+# writer sits past every skip(…) exit, so this is structural — but a future edit that moved it
+# above them would publish a $0.00 row for every collector outage, and only this case would say so.
+EMPTY_MET="$RT/metrics/empty-window.jsonl"
+mk_cost_metrics "$EMPTY_MET" "$S1:2026-07-03T20:10:00Z:1.00:claude-opus-4-7"
+CL2="$TMP/cost-log-skip.jsonl"
+SKIP_STDERR="$( cd "$RT" && OTEL_METRICS_FILE="$EMPTY_MET" COST_LOG_FILE="$CL2" COST_BLOCK_SKIP_FLUSH=1 \
+  bash "$SCRIPT" --stateless --issue 900 --close-out 2>&1 >/dev/null )"
+{ grep -q 'skip(' <<<"$SKIP_STDERR" && [[ ! -s "$CL2" ]]; } \
+  && ok "(AC-10) a skip(…) verdict writes no row, even under --close-out" \
+  || bad "(AC-10) a skip path wrote a row or produced no verdict: $SKIP_STDERR"
+
+# --- AC-13: the no-readable-metrics branch, driven ---------------------------
+# The deleted `record` call sat on ONE branch — the belt-and-braces exit taken when every
+# metrics candidate's mtime became unreadable — and `set -uo pipefail` renders a call to a
+# retired function as one stderr line and a continue. A guard that never enters that branch
+# cannot fail on a revert of it, so the branch is entered here rather than reasoned about:
+# an empty live file beside a non-empty rotated backup gets past the telemetry-off check,
+# and a `stat` that refuses makes both mtime passes come up empty. Its own diagnostic is
+# asserted first, so this can never pass by not reaching the code it exists to cover.
+STUB="$TMP/stub-bin"; mkdir -p "$STUB"
+printf '#!/bin/sh\nexit 1\n' > "$STUB/stat"; chmod +x "$STUB/stat"
+UNREAD="$RT/unreadable"; mkdir -p "$UNREAD"
+: > "$UNREAD/metrics.jsonl"
+mk_cost_metrics "$UNREAD/metrics-2026-07-02T09-00-00.000-size.jsonl" \
+  "$S1:2026-07-02T10:10:00Z:1.00:claude-opus-4-7"
+# shellcheck disable=SC2069 # deliberate: keep STDERR (the diagnostic), discard stdout
+UNREAD_STDERR="$( cd "$RT" && PATH="$STUB:$PATH" OTEL_METRICS_FILE="$UNREAD/metrics.jsonl" \
+  COST_BLOCK_SKIP_FLUSH=1 bash "$SCRIPT" --stateless --issue 900 --close-out --out /dev/null 2>&1 >/dev/null )"
+grep -q 'no readable metrics file could be selected' <<<"$UNREAD_STDERR" \
+  && ok "(AC-13) the no-readable-metrics branch is entered, not merely present" \
+  || bad "(AC-13) the branch was not reached, so the guard below proves nothing: $UNREAD_STDERR"
+
+# With that branch driven alongside the skip and close-out paths, this asserts the CLASS: any
+# surviving call to something that no longer exists shows up as an interpreter complaint.
+ALL_STDERR="$SKIP_STDERR
+$UNREAD_STDERR
+$( cd "$RT" && COST_LOG_FILE="$CL2" OTEL_METRICS_FILE="$MET" COST_BLOCK_SKIP_FLUSH=1 \
+     bash "$SCRIPT" --stateless --issue 900 --close-out --out /dev/null 2>&1 >/dev/null )"
+grep -qE 'command not found|not found$' <<<"$ALL_STDERR" \
+  && bad "(AC-13) a driven path calls something that does not exist: $ALL_STDERR" \
+  || ok "(AC-13) no driven path emits a shell diagnostic for a retired helper"
+
+echo
 echo "Result: $PASS passed, $FAIL failed"
 [[ "$FAIL" -eq 0 ]] && exit 0 || exit 1

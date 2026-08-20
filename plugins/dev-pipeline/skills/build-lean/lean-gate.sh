@@ -1429,6 +1429,12 @@ unclosed_count() { # unclosed_count <milestone>
 # 'unset' and the empty string are NOT members. cmd_mark's compare would otherwise pass an unset
 # ambient session against an unset recorded one — two unverifiable values agreeing — and write
 # `session_id: unset` onto the marker. "Unverifiable" must never resolve to "fine".
+# Held verbatim by plugins/dev-pipeline/tools/pipeline-cost-block.sh, whose --issue mode derives
+# the published cost figure's session set from this same record (#546). The two must not diverge:
+# a cost block counting a wider or narrower set than `mark` refuses on is a figure that reads
+# correct while attributing a run's money to the wrong number of sessions — the exact defect that
+# mode exists to close, and one no green run can surface.
+# LOCKSTEP-BEGIN lean-session-set
 build_session_set() { # one build session id per line, deduped; never empty, never 'unset'
   local hdr
   [ -f "$PROGRESS_FILE" ] || return 0
@@ -1441,6 +1447,7 @@ build_session_set() { # one build session id per line, deduped; never empty, nev
   } | awk '$0 != "" && $0 != "unset" && !seen[$0]++'
   return 0
 }
+# LOCKSTEP-END lean-session-set
 
 session_in_build_set() { # session_in_build_set <session-id>
   local want="$1" have

@@ -2,12 +2,14 @@
 # pipeline-cost-block.sh — compute a session-window OTel cost block for a lean run.
 # Invoked explicitly by the caller (this is NOT a Stop hook).
 #
-# Usage:  pipeline-cost-block.sh --stateless --sessions <id[,id…]> \
+# Usage:  pipeline-cost-block.sh --stateless --issue <n> [--close-out]
+#                                [--prs <ref[,ref…]>] [--out <file>]
+#         pipeline-cost-block.sh --stateless --sessions <id[,id…]> \
 #                                --start <iso> --end <iso> [--out <file>]
 # Exit:   0 = ran, or logged a documented skip (no metrics, no collector, rotated-out,
-#         …). 2 = usage error. The caller (build-lean checklist step 7) invokes this
-#         without checking rc, so a non-zero exit surfaces in the run summary but never
-#         blocks completion.
+#         …). 2 = usage error. The caller (build-lean checklist steps 7 and 9) invokes
+#         this without checking rc, so a non-zero exit surfaces in the run summary but
+#         never blocks completion.
 #
 # STATE-LESS ONLY (#574). The per-stage STATEFUL branch — bucketing cost rows into
 # stage windows read from a staged state file, the cost-log.jsonl writer and the
@@ -15,10 +17,50 @@
 # lane (no lane wrote the state files it read), and was retired with #574. The
 # `--stateless` flag is kept REQUIRED so the surviving caller's invocation shape is
 # unchanged; a positional-issue invocation now errors with this pointer instead of
-# resolving a state file nothing writes. The two required inputs arrive as ARGUMENTS
-# (the session-id set and a [start, end] time fence, both carried by the lean progress
-# file); the block is emitted to stdout or --out, no PR body is amended, and no
-# cost-log.jsonl row is written (D-36's live half; its perf-corpus half is retired by #565).
+# resolving a state file nothing writes. The block is emitted to stdout or --out and no
+# PR body is amended — the lean session pastes it into the PR description and the closing
+# comment itself, so re-adding the retired bot-identity amend ladder would buy access to a
+# body the caller already owns.
+#
+# DERIVED INPUTS (#546). The two inputs — the session-id set and a [start, end] time fence
+# — used to arrive ONLY as arguments, which made every published figure as good as the
+# reconstruction of the one session least able to make it: the close-out one, which by
+# construction did not watch the run begin and does not know how many sessions preceded it.
+# One shipped run published "43 min · Sessions: 1" for a 98-minute, three-session run, and
+# nothing caught it — a wrong fence renders a block as well-formed as a right one.
+#
+# `--issue <n>` reads both off the run's own append-only progress record instead:
+#   fence     its FIRST timestamped row → its LAST, at invocation time.
+#   sessions  build_session_set() below — header `session_id:` ∪ every `| session |` row —
+#             UNIONED with the verdict record's `session_id:` when that record exists, so a
+#             close-out counts the review session it really paid for. A pre-review or
+#             aborted invocation finds no verdict record and degrades to the build set.
+# `--sessions`, `--start` and `--end` each still override their derived counterpart, and
+# without `--issue` the contract is exactly what it was: both required, rc=2 by name.
+# A record that is absent, unreadable, or carries no timestamped row is a rc=2 USAGE ERROR
+# — rendering a plausible default is the whole defect this mode exists to close.
+#
+# THE COST-LOG ROW (#546). `--close-out` appends or updates one row per run in
+# ${COST_LOG_FILE:-<stateDir>/cost-log.jsonl}, restoring the cross-run cost corpus that
+# ended on 2026-07-31 when the lean era began — cost-effectiveness is one of the two
+# ratified goal axes and had nothing left to be measured against. This supersedes the live
+# half of D-36 (its perf-corpus half was already retired by #565).
+#
+# The row is written ONLY under --close-out, so the step-7 snapshot — taken before review
+# has happened, over a fence that has not finished — leaves the corpus untouched. Verdict
+# record presence cannot serve as the trigger: it is true from the moment milestone 4
+# passes, which is not the close-out.
+#
+# Its identity is (`ticketKey`, `runId`): a write REPLACES a row carrying the same pair and
+# APPENDS otherwise, so a re-entered close-out updates its own row while an abort→retry
+# under a new run id appends — aborted runs are real cost and stay in the corpus.
+#
+# Schema: every key a staged-era row carried (`at`, `ticketKey`, `sessionIds`, `totalUsd`,
+# `durationMin`, `models`, `cacheHitRate`, `prs`) plus `runId`, and `byTier` where staged
+# rows had `byLabel`. There is no `byLabel` and no era-marker field: which of the two keys
+# is PRESENT is the discriminator, and a reader that wants the flat tier list has
+# `[byTier[].tier] | unique`. No rollup means no row — every skip(…) exit below records its
+# stderr verdict and writes nothing, which is what the retired writer did.
 #
 # TIER BUCKETING. Cost is bucketed by (stage label, TIER), not by stage label alone. The
 # tier comes from each datapoint's `model` telemetry attribute through $TIER_FAMILY_MAP
@@ -79,6 +121,9 @@ ARG_SESSIONS=""
 ARG_START=""
 ARG_END=""
 ARG_OUT=""
+ARG_ISSUE=""
+ARG_PRS=""
+CLOSE_OUT=0
 POSITIONAL_ARGS=()
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -87,7 +132,10 @@ while [ $# -gt 0 ]; do
     --start)     ARG_START="${2:-}"; shift 2 ;;
     --end)       ARG_END="${2:-}"; shift 2 ;;
     --out)       ARG_OUT="${2:-}"; shift 2 ;;
-    -h|--help)   sed -n '2,64p' "$0"; exit 0 ;;
+    --issue)     ARG_ISSUE="${2:-}"; shift 2 ;;
+    --prs)       ARG_PRS="${2:-}"; shift 2 ;;
+    --close-out) CLOSE_OUT=1; shift ;;
+    -h|--help)   sed -n '2,106p' "$0"; exit 0 ;;
     -*)          log "unknown option: $1"; exit 2 ;;
     *)           POSITIONAL_ARGS+=("$1"); shift ;;
   esac
@@ -98,9 +146,132 @@ if [ "$STATELESS" -ne 1 ]; then
   log "stateful mode was retired in #574 — the staged state files it read have had no writer since #348. Invoke with --stateless --sessions <id[,id…]> --start <iso> --end <iso>."
   exit 2
 fi
-[ -n "$ARG_SESSIONS" ] || { log "--stateless requires --sessions <id[,id…]>"; exit 2; }
+
+# ────────────────────────────────────────────────────────────────────────────
+# Derivation from the run's own record (#546). See DERIVED INPUTS in the header.
+# ────────────────────────────────────────────────────────────────────────────
+# The MAIN checkout, not the worktree: the progress record lives there so it survives
+# worktree teardown. Same --git-common-dir anchor lean-gate.sh and retro-corpus.sh use.
+# The VERDICT record is the other way round — it is a committed artifact of the branch, so
+# it is resolved against the cwd's toplevel, which during close-out is the lane worktree.
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
+_common="$(git rev-parse --git-common-dir 2>/dev/null)"
+case "$_common" in /*) : ;; '') _common="" ;; *) _common="$REPO_ROOT/$_common" ;; esac
+MAIN_ROOT=""
+[ -n "$_common" ] && MAIN_ROOT="$(cd "$_common/.." 2>/dev/null && pwd)"
+
+CONFIG="${SECOND_SHIFT_CONFIG:-$MAIN_ROOT/.claude/second-shift.config.json}"
+cfg() { # cfg <jq-filter> <default>
+  local v
+  if [ -f "$CONFIG" ]; then
+    v="$(jq -r "$1" "$CONFIG" 2>/dev/null)"
+    if [ -n "$v" ] && [ "$v" != "null" ]; then echo "$v"; return 0; fi
+  fi
+  echo "$2"
+}
+
+state_dir() {
+  if [ -n "${STATECTL_STATE_DIR:-}" ]; then printf '%s\n' "$STATECTL_STATE_DIR"; return 0; fi
+  printf '%s\n' "$MAIN_ROOT/$(cfg '.paths.pipelineStateDir' '.claude/pipeline-state')"
+}
+
+# The record's key:value header reader. This is retro-corpus.sh's variant, not lean-gate.sh's:
+# the character class allows `/` because `verdict_record:` carries a repo-relative PATH, and
+# lean-gate.sh's narrower class truncates one at the first slash (never triggered there, since
+# it re-derives that path from config instead of reading it back — both readers here do read
+# it back). Held to that copy by the markers, so the two path-reading readers cannot drift.
+# LOCKSTEP-BEGIN lean-record-key
+record_key() { # record_key <key> <file>
+  [ -f "$2" ] || return 0
+  grep -oE "$1:[[:space:]]*[A-Za-z0-9._/-]+" "$2" 2>/dev/null | head -n1 | sed -E "s/^$1:[[:space:]]*//"
+}
+# LOCKSTEP-END lean-record-key
+
+# What counts as a timestamped row, and therefore what the fence is measured between. Held
+# byte-identical to retro-corpus.sh, which derives the lean TIMING profile from the same rows
+# (#565): a record whose stamp shape moved would silently give one reader a fence and the other
+# a span, and both would keep reporting confident numbers about different windows.
+# LOCKSTEP-BEGIN lean-progress-ts-re
+TS_RE='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z'
+# LOCKSTEP-END lean-progress-ts-re
+
+# ---------------------------------------------------------------- the build-session SET (#446)
+# A verbatim copy of lean-gate.sh's, held by the markers rather than extracted — it is the
+# definition the `mark` refusal already uses, and #546's whole point is that this reader must
+# not invent a second one. `record_key` above is the wider variant; for `session_id`, whose
+# values are UUIDs, the two classes cannot disagree.
+# LOCKSTEP-BEGIN lean-session-set
+build_session_set() { # one build session id per line, deduped; never empty, never 'unset'
+  local hdr
+  [ -f "$PROGRESS_FILE" ] || return 0
+  # The header via record_key, NOT a second extraction: two readers of one schema that disagreed
+  # about what a key looks like would be a silent divergence, not a loud one.
+  hdr="$(record_key session_id "$PROGRESS_FILE")"
+  {
+    [ -n "$hdr" ] && printf '%s\n' "$hdr"
+    sed -n 's/^.*| session | \([A-Za-z0-9._-][A-Za-z0-9._-]*\)[[:space:]]*$/\1/p' "$PROGRESS_FILE"
+  } | awk '$0 != "" && $0 != "unset" && !seen[$0]++'
+  return 0
+}
+# LOCKSTEP-END lean-session-set
+
+PROGRESS_FILE=""
+RUN_ID_VALUE=""
+REVIEW_SESSION_INCLUDED=0
+
+if [ -n "$ARG_ISSUE" ]; then
+  case "$ARG_ISSUE" in
+    ''|*[!0-9]*) log "--issue takes an issue number, got '$ARG_ISSUE'"; exit 2 ;;
+  esac
+  [ -n "$MAIN_ROOT" ] \
+    || { log "--issue $ARG_ISSUE: not in a git repo, so the lean progress record is unresolvable — pass --sessions/--start/--end instead"; exit 2; }
+  PROGRESS_FILE="${LEAN_PROGRESS_FILE:-$(state_dir)/$ARG_ISSUE-lean-progress.md}"
+  [ -r "$PROGRESS_FILE" ] \
+    || { log "--issue $ARG_ISSUE: no readable lean progress record at $PROGRESS_FILE — nothing to derive a fence or a session set from"; exit 2; }
+
+  # The fence. First timestamped row to last; the record is append-only, so those are also
+  # the earliest and the latest. An empty answer is a refusal, never a rendered default.
+  DERIVED_START="$(grep -oE "$TS_RE" "$PROGRESS_FILE" 2>/dev/null | head -n1)"
+  DERIVED_END="$(grep -oE "$TS_RE" "$PROGRESS_FILE" 2>/dev/null | tail -n1)"
+  { [ -n "$DERIVED_START" ] && [ -n "$DERIVED_END" ]; } \
+    || { log "--issue $ARG_ISSUE: $PROGRESS_FILE carries no timestamped row, so its fence is underivable"; exit 2; }
+
+  RUN_ID_VALUE="$(record_key run_id "$PROGRESS_FILE")"
+  [ "$RUN_ID_VALUE" = "unset" ] && RUN_ID_VALUE=""
+
+  # The session set, plus the review session when its record exists. `verdict_record:` is a
+  # repo-relative path into the BRANCH's worktree, which is why REPO_ROOT and not MAIN_ROOT.
+  DERIVED_SESSIONS="$(build_session_set)"
+  _vrec="$(record_key verdict_record "$PROGRESS_FILE")"
+  if [ -n "$_vrec" ] && [ -n "$REPO_ROOT" ] && [ -r "$REPO_ROOT/$_vrec" ]; then
+    _vsid="$(record_key session_id "$REPO_ROOT/$_vrec")"
+    if [ -n "$_vsid" ] && [ "$_vsid" != "unset" ] \
+       && ! printf '%s\n' "$DERIVED_SESSIONS" | grep -qx -- "$_vsid"; then
+      DERIVED_SESSIONS="$DERIVED_SESSIONS
+$_vsid"
+      REVIEW_SESSION_INCLUDED=1
+    fi
+  fi
+
+  # Explicit arguments win, INDIVIDUALLY. A caller re-running one bound by hand keeps the
+  # other two derived rather than being pushed back to supplying all three.
+  [ -n "$ARG_START" ]    || ARG_START="$DERIVED_START"
+  [ -n "$ARG_END" ]      || ARG_END="$DERIVED_END"
+  if [ -n "$ARG_SESSIONS" ]; then
+    # A hand-supplied set is the whole set; the review union described a DERIVED one.
+    REVIEW_SESSION_INCLUDED=0
+  else
+    ARG_SESSIONS="$DERIVED_SESSIONS"
+  fi
+  log "derived from $PROGRESS_FILE: fence [$ARG_START, $ARG_END], $(printf '%s\n' "$ARG_SESSIONS" | awk 'NF' | wc -l | tr -d ' ') session(s)$([ "$REVIEW_SESSION_INCLUDED" -eq 1 ] && printf ' (review included)')"
+elif [ "$CLOSE_OUT" -eq 1 ]; then
+  log "--close-out writes a cost-log row keyed on (ticketKey, runId) and so requires --issue <n>"
+  exit 2
+fi
+
+[ -n "$ARG_SESSIONS" ] || { log "--stateless requires --sessions <id[,id…]> (or --issue <n> to derive it)"; exit 2; }
 [ -n "$ARG_START" ] && [ -n "$ARG_END" ] \
-  || { log "--stateless requires both --start <iso> and --end <iso> (the time fence)"; exit 2; }
+  || { log "--stateless requires both --start <iso> and --end <iso> (the time fence), or --issue <n> to derive them"; exit 2; }
 
 # Session set: HANDED to this mode by its caller (comma- or whitespace-separated);
 # the lean progress file is its carrier, which is why AC-14's reconciliation keys are
@@ -236,7 +407,6 @@ select_metrics_files
 # is only reachable if every candidate's mtime became unreadable between the two calls.
 if [ ${#METRICS_FILES[@]} -eq 0 ]; then
   log "no readable metrics file could be selected under $METRICS_DIR — treating as telemetry off"
-  record '"skipped-telemetry-off"'
   exit 0
 fi
 [ ${#METRICS_FILES[@]} -gt 1 ] && log "fence spans a rotation — reading ${#METRICS_FILES[@]} metrics files"
@@ -403,12 +573,23 @@ render_block() {
     fence_lo_hm="${FENCE_LO:11:5}"
     fence_hi_hm="${FENCE_HI:11:5}"
   fi
-  # The session-total row's parenthetical. The absence of a per-stage breakdown is not
+  # The total row's scope and parenthetical. The absence of a per-stage breakdown is not
   # a defect to apologize for — lean has no stages by construction — so the honest
   # label says that instead of implying the run failed to record timestamps.
+  #
+  # The SCOPE moves with the set (#546). Once the review session is unioned in, the row is no
+  # longer one session's spend and must not keep saying so: "Session total (lean run)" over a
+  # build+review set is precisely the class of confidently-wrong figure this mode exists to
+  # stop, just one field over from the fence.
   local total_note="lean run — no stage windows by design"
+  local total_scope="Session total"
+  if [ "$REVIEW_SESSION_INCLUDED" -eq 1 ]; then
+    total_scope="Run total"
+    total_note="build + review — no stage windows by design"
+  fi
   jq -r --arg dur "$DURATION_MIN" \
         --arg totalNote "$total_note" \
+        --arg totalScope "$total_scope" \
         --argjson tierOrder "$TIER_ORDER" \
         --arg fenceLoHm "$fence_lo_hm" --arg fenceHiHm "$fence_hi_hm" '
     def fmt(x):
@@ -429,7 +610,7 @@ render_block() {
         "",
         "| Scope | Tiers | Models | Cost (USD) |",
         "|-------|-------|--------|-----------:|",
-        "| Session total (" + $totalNote + ") | " + ($all_tiers | join(", ")) + " | " + ($all_models | join(", ")) + " | " + fmt(.totals.cost_usd) + " |"
+        "| " + $totalScope + " (" + $totalNote + ") | " + ($all_tiers | join(", ")) + " | " + ($all_models | join(", ")) + " | " + fmt(.totals.cost_usd) + " |"
       ]
       +
       [
@@ -447,11 +628,54 @@ render_block() {
 COST_BLOCK=$(render_block)
 
 # ────────────────────────────────────────────────────────────────────────────
-# Emit. No PR body is amended (the lean session posts the block itself, in its one
-# closing comment) and NO cost-log.jsonl row is written — a row here would quietly
-# contaminate cross-run analytics with a harness that has no stages. This is the LIVE
-# half of D-36; its "lean runs are out of the perf corpus" half is superseded by #565,
-# which derives the lean timing profile from the progress records themselves.
+# The cost-log row (#546). See THE COST-LOG ROW in the header for why it is back and why
+# --close-out is its only trigger. Reached only from here, past every skip(…) exit above,
+# which is what makes "no rollup, no row" structural rather than a rule to remember.
+# ────────────────────────────────────────────────────────────────────────────
+write_cost_log_row() {
+  local out="${COST_LOG_FILE:-$(state_dir)/cost-log.jsonl}"
+  local dur="${DURATION_MIN:-?}" tmp row prs_json
+  prs_json=$(printf '%s' "$ARG_PRS" | tr ',' '\n' | tr ' ' '\n' | awk 'NF' \
+    | jq -R -s 'split("\n") | map(select(length > 0))')
+  mkdir -p "$(dirname "$out")" 2>/dev/null
+  [ -f "$out" ] || : > "$out"
+
+  row=$(jq -n -c --arg issue "$ARG_ISSUE" --arg runId "$RUN_ID_VALUE" --arg dur "$dur" \
+    --argjson sids "$SIDS_JSON" --argjson rollup "$ROLLUP" --argjson prs "$prs_json" '
+    { at: (now | todate),
+      ticketKey: $issue,
+      runId: $runId,
+      sessionIds: $sids,
+      totalUsd: $rollup.totals.cost_usd,
+      durationMin: ($dur | tonumber? // null),
+      models: ([$rollup.byTier[].models[]] | unique | sort),
+      byTier: $rollup.byTier,
+      cacheHitRate: $rollup.totals.cache_hit_rate,
+      prs: $prs }
+  ') || { log "could not render a cost-log row for #$ARG_ISSUE — the log is unchanged"; return 1; }
+
+  # REPLACE on (ticketKey, runId), APPEND otherwise. A log that does not parse as JSONL is
+  # carried through unchanged rather than rewritten: losing a corpus to a salvage attempt is
+  # strictly worse than carrying one duplicate pair.
+  tmp="$out.$$.tmp"
+  if ! jq -c --arg k "$ARG_ISSUE" --arg r "$RUN_ID_VALUE" \
+        'select((.ticketKey != $k) or ((.runId // "") != $r))' "$out" > "$tmp" 2>/dev/null; then
+    log "cost-log at $out does not parse as JSONL — appending without replacing this run's row"
+    cp "$out" "$tmp" || { rm -f "$tmp"; return 1; }
+  fi
+  printf '%s\n' "$row" >> "$tmp"
+  mv "$tmp" "$out" || { rm -f "$tmp"; log "could not replace $out"; return 1; }
+  log "cost-log row written to $out (ticketKey=$ARG_ISSUE, runId=${RUN_ID_VALUE:-<none>})"
+}
+
+if [ "$CLOSE_OUT" -eq 1 ]; then
+  write_cost_log_row || true
+fi
+
+# ────────────────────────────────────────────────────────────────────────────
+# Emit. No PR body is amended — the lean session pastes the block into the PR description
+# at step 7 and into its one closing comment at step 9, where it also replaces the earlier
+# snapshot in the body (keyed on the marker line below).
 # ────────────────────────────────────────────────────────────────────────────
 if [ -n "$ARG_OUT" ]; then
   printf '%s\n' "$COST_BLOCK" > "$ARG_OUT" || { log "could not write --out '$ARG_OUT'"; exit 2; }
