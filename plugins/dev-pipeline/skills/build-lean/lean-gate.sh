@@ -827,6 +827,124 @@ render_patch_id() { # render_patch_id <head-ish>
   printf '%s' "$id"
 }
 
+# LOCKSTEP-BEGIN contribution-compare
+# THE BRANCH'S OWN CONTRIBUTION, AS LINES (#597, D-2/D-3/D-4). The escape hatch both freshness
+# readers — this milestone's arms and the merge boundary's — consult when their naive check reds.
+#
+# WHY A HASH CANNOT ANSWER THIS. A patch identity is computed over `diff(merge-base(base, head),
+# head)`, so MERGING THE BASE IN advances the merge-base and moves the id even when the branch
+# alters not one line. On #583 the resolution was a pure union — no new branch line — and the id
+# still moved from 1decd12550cd to 86daf57fb18e, because the CONTEXT lines around the branch's own
+# additions in CLAUDE.md and docs/testing.md had changed underneath them. That cost a review round
+# against an unmoved head and a hand re-stamp.
+#
+# THE COMPARISON THAT CAN. Take the `+`/`-` lines only, per file, each side measured against ITS
+# OWN merge-base, and compare them. Context is excluded on purpose: a base merge moves context, and
+# context is not something a review approves. This is AC-4's "nine-file hash comparison,
+# mechanized" — the one the ticket ran by hand to prove the branch's contribution was identical.
+#
+# THE STATE MACHINE IS ANCHORED ON COLUMN 0, and that is what makes it unambiguous rather than
+# heuristic: inside a hunk EVERY line carries a ' ', '+', '-' or '\' prefix, so a body line reading
+# `diff --git …` or `@@ …` at column 0 cannot exist. A naive `/^[+-]/` over the whole diff would
+# have eaten the `---`/`+++` file headers and — the failure that actually bites in a repo full of
+# markdown and shell — read a removed line beginning `-- ` as one of them.
+contribution_lines() { # contribution_lines <repo-root> <base-ref> <head-ish> <exclude-path>
+  local base
+  git -C "$1" cat-file -e "$3^{commit}" 2>/dev/null || return 1
+  base="$(git -C "$1" merge-base "$2" "$3" 2>/dev/null)" || return 1
+  [ -n "$base" ] || return 1
+  git -C "$1" diff "$base" "$3" -- . ":(exclude)$4" 2>/dev/null | awk '
+    /^diff --git /        { inbody = 0; f = ""; next }
+    !inbody && /^--- /    { p = substr($0, 5); if (p != "/dev/null") { sub(/^a\//, "", p); f = p } next }
+    !inbody && /^\+\+\+ / { p = substr($0, 5); if (p != "/dev/null") { sub(/^b\//, "", p); f = p } next }
+    !inbody && /^@@/      { inbody = 1; next }
+    inbody && /^[+-]/     { print f "\t" $0 }
+  '
+}
+
+# DID THE CONTRIBUTION MOVE — rc 0 identical, 1 moved, 2 not computable.
+#
+# rc=1 prints the ENUMERATION D-6 requires, one `path<TAB>count<TAB>first-offending-line` row per
+# affected file, `LC_ALL=C sort`ed so two runs over one tree cannot disagree about order. The
+# enumeration is the invalidation's PRECONDITION, not its decoration: a caller that cannot name an
+# affected line has the doubt case, and AC-3 says the verdict stands there.
+#
+# rc=2 ON AN EMPTY CONTRIBUTION, either side, and that guard is load-bearing rather than defensive
+# — it is the same one `branch_patch_id`'s header states for `git patch-id`: two failed
+# computations compare EQUAL, so an unguarded reader prints its ✓ having compared nothing. An
+# unresolvable merge-base, a head absent from this checkout's history and an empty measured range
+# all surface here as the same refusal to answer, which is correct: they are all "no comparison
+# was made", and splitting them produces an arm no case can kill.
+#
+# THE CALLER OWNS THE rc=2 POLICY, not this function. D-5 points the two live callers at
+# fail-OPEN — the verdict stands, and the line says so — against every other unreadable-input path
+# in these two tools, which fail closed. That reversal is OR-1, and keeping it in the callers is
+# what makes it a one-line flip rather than a rewrite.
+contribution_delta() { # contribution_delta <repo-root> <base-ref> <old-head> <new-head> <exclude-path>
+  local d rc=0
+  d="$(mktemp -d 2>/dev/null)" || return 2
+  contribution_lines "$1" "$2" "$3" "$5" > "$d/old" 2>/dev/null || rc=2
+  contribution_lines "$1" "$2" "$4" "$5" > "$d/new" 2>/dev/null || rc=2
+  if [ "$rc" -eq 0 ] && { [ ! -s "$d/old" ] || [ ! -s "$d/new" ]; }; then rc=2; fi
+  if [ "$rc" -eq 0 ] && ! cmp -s "$d/old" "$d/new"; then
+    rc=1
+    awk -F'\t' '
+      NR == FNR { n1[$1]++; L1[$1 SUBSEP n1[$1]] = $2; next }
+                { n2[$1]++; L2[$1 SUBSEP n2[$1]] = $2 }
+      END {
+        for (f in n1) seen[f] = 1
+        for (f in n2) seen[f] = 1
+        for (f in seen) {
+          a = (f in n1) ? n1[f] : 0
+          b = (f in n2) ? n2[f] : 0
+          m = (a > b) ? a : b
+          c = 0; first = ""
+          for (i = 1; i <= m; i++) {
+            x = L1[f SUBSEP i]; y = L2[f SUBSEP i]
+            if (x != y) { c++; if (first == "") first = (y != "") ? y : x }
+          }
+          if (c > 0) print f "\t" c "\t" first
+        }
+      }
+    ' "$d/old" "$d/new" | LC_ALL=C sort
+  fi
+  rm -rf "$d"
+  return "$rc"
+}
+
+# The enumeration, as ONE line an operator reads in a single pass. Stdin is contribution_delta's
+# rc=1 output; the shape mirrors the existing arms' `(e.g. X)` style rather than inventing a
+# second one. NO SILENT CAP: past the third file it says how many more there are.
+contribution_summary() { # contribution_summary  (delta rows on stdin)
+  awk -F'\t' '
+    NF == 0 { next }
+    { n++; total += $2; if (n <= 3) { parts = parts (parts == "" ? "" : "; ") $1 ": " $2 " line(s) (e.g. " $3 ")" } }
+    END {
+      if (n == 0) { print "no affected line could be named"; exit }
+      if (n > 3) parts = parts "; and " (n - 3) " more file(s)"
+      print total " reviewed line(s) across " n " file(s) — " parts
+    }
+  '
+}
+# LOCKSTEP-END contribution-compare
+
+# THE GATE-SIDE BINDING (#597 D-3), memoized. Both freshness arms in milestone 4 ask the SAME
+# question — "did the branch's own contribution move between the head the record names and this
+# one" — so they ask it through ONE call site. Two implementations of that question is precisely
+# the drift the lockstep markers exist to prevent, and a second computation could only disagree
+# with the first.
+#
+# The old head is the record's own `reviewed_head` (D-2): no new record key, no schema change, and
+# every in-flight and already-merged record stays readable with no re-stamp obligation.
+CONTRIB_RC=""
+CONTRIB_DETAIL=""
+contribution_state() { # contribution_state <old-head> <new-head> — sets CONTRIB_RC/CONTRIB_DETAIL
+  [ -n "$CONTRIB_RC" ] && return 0
+  CONTRIB_DETAIL="$(contribution_delta "$REPO_ROOT" "origin/$BASE_BRANCH" "$1" "$2" "$VERDICT_REL")"
+  CONTRIB_RC=$?
+  return 0
+}
+
 # ---------------------------------------------------------------- the inheritance chain (#375)
 # The same extraction record_key does, against a COMMITTED version of the record instead of the
 # working-tree file. It is the only way to read a PRIOR round: the path holds one round at a
@@ -4230,7 +4348,7 @@ cmd_3() {
 # mtime-identical across a full `all` sweep.
 cmd_4() {
   local rec="$REPO_ROOT/$VERDICT_REL" v_val v_run v_sess b_prog_run b_prog_sess b_cached cand
-  local v_commit v_short stale n_stale v_head v_head_short declared n_declared v_pid cur_pid
+  local v_commit v_short stale n_stale v_head v_head_short declared n_declared v_pid cur_pid v_fresh
   local v_inh v_chain v_coverage
   # The handoff moment, and so the one place the P9 reminder is contextual rather than noise.
   # It lives here rather than as another SKILL.md line for the reason the cap exists: stderr is
@@ -4346,12 +4464,22 @@ cmd_4() {
     esac
   fi
 
+  # THE ESCAPE HATCH (#597, D-3). The file list this arm reads is the one a BASE MERGE moves most:
+  # `git diff <verdict-commit> HEAD` counts every file the merge brought in, so on #583 it saw 23
+  # files and redded before the patch-id arm below was ever reached. A fix confined to patch-id
+  # would have satisfied nothing. The question the arm MEANS to ask — did the reviewed content move
+  # — is asked of `contribution_state` when it reds, and only its answer decides.
   stale="$(git -C "$REPO_ROOT" diff --name-only "$v_commit" HEAD 2>/dev/null | grep -vxF "$VERDICT_REL")"
   if [ -n "$stale" ]; then
     v_short="$(git -C "$REPO_ROOT" rev-parse --short "$v_commit" 2>/dev/null)"
     n_stale="$(printf '%s\n' "$stale" | wc -l | tr -d ' ')"
-    fail_milestone 4 "verdict record $VERDICT_REL approves $v_short, but $n_stale file(s) changed after it (e.g. $(printf '%s' "$stale" | head -n1)) — a verdict does not cover code it never saw. Get a new review round on the current head: '/dev-pipeline:review-lean <pr>'." 5
-    return $?
+    contribution_state "$v_head" HEAD
+    case "$CONTRIB_RC" in
+      1) fail_milestone 4 "verdict record $VERDICT_REL approves $v_short, but the branch's own diff has moved since: $(printf '%s\n' "$CONTRIB_DETAIL" | contribution_summary) — a verdict does not cover code it never saw. Get a new review round on the current head: '/dev-pipeline:review-lean <pr>'." 5
+         return $? ;;
+      0) say "milestone-4: $n_stale file(s) differ between $v_short and this head, but every one of the branch's own +/- lines is unchanged since reviewed_head $(printf '%.12s' "$v_head") — a base advance alone is enough to move that file list, and it altered no reviewed line, so the verdict stands (#597 AC-1)." ;;
+      *) say "milestone-4: $n_stale file(s) differ between $v_short and this head and the +/- comparison could NOT be computed (unresolvable merge-base, a reviewed_head absent from this checkout, or an empty measured range). FAILING OPEN — the verdict stands, per the operator constraint that invalidation requires certainty (#597 D-5/OR-1). This is the one unreadable-input path in this gate that does not fail closed; reverse it by treating rc=2 as an invalidation here and at the merge boundary." ;;
+    esac
   fi
 
   # DESIGN FIDELITY (#394, D-7/D-10). Placed AFTER the inferred freshness arm and before the
@@ -4420,11 +4548,21 @@ cmd_4() {
       fail_milestone 4 "cannot compute this branch's patch identity against origin/$BASE_BRANCH, so there is nothing to compare $VERDICT_REL's reviewed_patch_id against — and a freshness check that cannot run must not report a pass. Fetch origin/$BASE_BRANCH and re-run." 2
       return $?
     fi
+    v_fresh="covering the current head (patch-id $(printf '%.12s' "$v_pid"))"
+    # THE SAME ESCAPE HATCH (#597, D-3), asked through the SAME call site as the inferred arm above
+    # so the two cannot answer differently. `branch_patch_id`'s input INCLUDES the merge-base, so
+    # merging the base in moves the id even when the branch alters not one line — the #583 re-stamp,
+    # `1decd12550cd -> 86daf57fb18e`, over a resolution that introduced no new branch line.
     if [ "$v_pid" != "$cur_pid" ]; then
-      fail_milestone 4 "verdict record $VERDICT_REL reviewed patch $(printf '%.12s' "$v_pid"), but this branch's diff against origin/$BASE_BRANCH now hashes to $(printf '%.12s' "$cur_pid") — content changed after the review, so the verdict does not cover it. Get a new review round: '/dev-pipeline:review-lean <pr>'." 5
-      return $?
+      contribution_state "$v_head" HEAD
+      case "$CONTRIB_RC" in
+        1) fail_milestone 4 "verdict record $VERDICT_REL reviewed patch $(printf '%.12s' "$v_pid"), but this branch's diff against origin/$BASE_BRANCH now hashes to $(printf '%.12s' "$cur_pid") and the branch's own lines moved with it: $(printf '%s\n' "$CONTRIB_DETAIL" | contribution_summary) — content changed after the review, so the verdict does not cover it. Get a new review round: '/dev-pipeline:review-lean <pr>'." 5
+           return $? ;;
+        0) v_fresh="covering the current head — the recorded patch identity $(printf '%.12s' "$v_pid") and this head's $(printf '%.12s' "$cur_pid") differ, which a base advance alone is enough to cause, and every one of the branch's own +/- lines is unchanged since reviewed_head $(printf '%.12s' "$v_head"), so no reviewed line was altered (#597 AC-1)" ;;
+        *) v_fresh="covering the current head — the patch identity moved from $(printf '%.12s' "$v_pid") to $(printf '%.12s' "$cur_pid") and the +/- comparison could NOT be computed, so this milestone FAILED OPEN and the verdict stands (#597 D-5/OR-1)" ;;
+      esac
     fi
-    pass_milestone 4 "$VERDICT_REL reads verdict=approve, authored by review run $v_run, covering the current head (patch-id $(printf '%.12s' "$v_pid")), $v_coverage"
+    pass_milestone 4 "$VERDICT_REL reads verdict=approve, authored by review run $v_run, $v_fresh, $v_coverage"
     return $?
   fi
 
