@@ -1,0 +1,47 @@
+# gate-ablation-classes.tsv — the reason-class map (#609 AC-1).
+#
+# Each row IS a gate decision point. The generator scores a firing by walking the rows whose
+# milestone matches and taking the first whose ERE matches the recorded reason; a reason no row
+# matches is a HARD FAILURE naming the record, never an `other` bucket (#609 D-c). A row that
+# never matches anything is not dead weight — it is how a point that has never fired still gets
+# enumerated with a count of zero, which is most of what the report has to say.
+#
+# Columns: gate_point <TAB> milestone <TAB> obligation <TAB> ERE over the reason <TAB> label
+# `obligation` is "-" where the gate writes no obligation row for the point.
+#
+# Order is significant WITHIN a milestone (first match wins) and is the render order of the
+# decision-points table. Patterns are anchored where the gate message is anchored.
+
+m1/spec-absent	1	-	^no committed spec at 	the run has not written its spec yet
+m1/spec-no-ac	1	-	carries no numbered AC-n criterion	the spec declares no AC-n
+m1/ledger-lint	1	-	Decision Ledger fails ledger-lint	the spec's Decision Ledger is malformed
+m1/preflight-reconcile	1	-	does not reconcile with the pre-flight ledger	the spec drops or re-decides a bound receipt row
+m1/pause-and-ask	1	-	declares region .* dispositioned pause-and-ask	an Open Region needs an operator answer first
+m1/design-form	1	-	(## Design|design render lane|Design: none)	the spec's Design section is neither armed nor disarmed
+m2/frozen-files	2	-	^check-frozen-files\.sh failed	the PR edits a release-owned file
+m2/changelog-trailer	2	-	^check-changelog-trailer\.sh failed	a plugins PR carries no Changelog trailer
+m3/lint	3	-	^lint failed \(rc=	the configured lint lane is red
+m3/typecheck	3	-	^typecheck failed \(rc=	the configured typecheck lane is red
+m3/test	3	-	^test failed \(rc=	the configured test lane is red
+m3/extra-lane	3	-	^(mutation sweep|extra lane) 	a configured extra verifying lane is red
+m3/setup-lane	3	-	^(setup lane|lane ')	a configured setup lane is red or malformed
+m3/no-verify-lane	3	-	^no verifying lane configured	the repo configures nothing that verifies
+m3/design-render	3	-	(render |liveRender|RS-n|render receipt)	the armed design render lane could not produce a receipt
+m4/verdict-absent	4	-	^no committed verdict record at 	the review has not been handed off yet
+m4/verdict-not-approve	4	-	reads verdict=.*, not verdict=approve	the review returned needs-work
+m4/verdict-keys	4	-	carries no [a-z_]+ (reconciliation key|key,)	the verdict record is missing a required header key
+m4/verdict-uncommitted	4	-	(exists but was never committed|has uncommitted changes)	the verdict record is not on the branch
+m4/identity	4	-	(carries the BUILD run's identity|names the BUILD session)	the build session authored its own verdict
+m4/chain-break	4	-	inherited_patch_id	the round chain does not reach back to a committed record
+m4/patch-stale	4	-	(file\(s\) changed after it|now hashes to|own diff has moved since)	content moved after the review
+m4/head-missing	4	-	is not a commit in this branch's history	the reviewed commit no longer exists on the branch
+m4/head-tree-diff	4	-	differ between that commit and the current head	the review read a different tree
+m4/fidelity	4	-	fidelity=	an armed ticket's design fidelity is unscored or stale
+m5/progress-current	5	-	^progress file is not current	an earlier milestone left no satisfied record
+m5/exit-artifacts:no-open-pr	5	exit-artifacts	^(no open PR found for branch|could not list PRs for)	no open PR for the lane branch
+m5/exit-artifacts:draft	5	exit-artifacts	is still a draft	the PR is still a draft
+m5/exit-artifacts:closes	5	exit-artifacts	carries no 'Closes	the PR body does not close the issue
+m5/exit-artifacts:spec-link	5	exit-artifacts	does not link the committed spec	the PR body does not link the spec
+m5/verdict-reference:closing-comment	5	verdict-reference	^(no closing comment on|could not fetch the comment trail)	no closing comment references the verdict record
+m5/verdict-reference:body-ref	5	verdict-reference	does not reference the verdict record	the PR body does not reference the verdict record
+m5/identity-stamp	5	-	^could not stamp the build identity	the PR carries no build identity marker
