@@ -816,9 +816,40 @@ while :; do
   # EVERY OTHER CLASS ROUTES EXACTLY AS BEFORE — including 5, whose bounded retry is below, and
   # 4 and 6, which now hard-stop one spawn EARLIER. That is strictly better: neither is something a
   # review could clear, so spawning one to produce a record the gate will refuse is pure cost.
+  #
+  # #597 D-1/F1. THE CANNOT-ANSWER CODES MOVE AHEAD OF THE SPAWN TOO. #531's header above claims 4
+  # and 6 "now hard-stop one spawn EARLIER"; 3 was listed with them and was NOT, because the `else`
+  # arm below spawns on EVERY non-zero rc and the `case` that routes 3 reads only afterwards. On
+  # #583 that cost a whole review session: `verdict_rc` is anchored in the LANE WORKTREE, the
+  # close-out had already run teardown, so it returned 3 without ever reaching the gate — and a
+  # REVIEW was spawned against a head that had not moved in five and a half hours. Its two siblings
+  # `staleness_rc` and `inflight_rc` are anchored at MAIN_ROOT for exactly this reason; this one was
+  # never converted, and D-1 declines to ref-parameterize the gate (that surface belongs to #141),
+  # so the fix is to stop spawning a review that cannot possibly clear the condition.
+  #
+  # rc=3 IS NOT AN ERROR BY ITSELF. The worktree is ABSENT because teardown removed it, which is
+  # what a finished lane looks like. `progress --satisfied 5` — a token this script already reads on
+  # both sides of the close-out spawn — separates the two: a satisfied milestone 5 means the lane
+  # finished, and the run ends COMPLETE. Unsatisfied keeps the pre-existing `worktree-missing` stop.
   verdict_rc; rc=$?
   if [ "$rc" -eq 0 ]; then
     say "terminal-vocabulary: review-skipped-approved — the current head already carries an approve verdict, so no REVIEW is spawned against it and no competing record can be authored for it. Falling into the close-out."
+  elif [ "$rc" -eq 3 ]; then
+    # STILL TWO TOKENS COMPARED FOR EQUALITY, never parsed — the invariant progress_token's header
+    # states, and the reason this does not read `progress-v1:0`. Milestone 0 does not exist, so its
+    # satisfied-count is the ZERO token by construction; milestone 5 equal to it means no
+    # `| milestone-5 | satisfied` row was ever written. A format read here would couple this
+    # scheduler to the gate's token grammar with nothing enforcing the pair.
+    m5_tok="$(progress_token --satisfied 5)" \
+      || terminal verdict-progress-unreadable 1 "no lane worktree for '$BRANCH', and the run's progress record could not be read through '$GATE' either — whether the lane finished is unknown, and neither guess is worth a REVIEW spawn."
+    m5_zero="$(progress_token --satisfied 0)" \
+      || terminal verdict-progress-unreadable 1 "no lane worktree for '$BRANCH', and the zero-baseline progress read failed through '$GATE' — the comparison that decides whether the lane finished cannot be made, so no REVIEW is spawned on a guess."
+    if [ "$m5_tok" = "$m5_zero" ]; then
+      terminal worktree-missing 1 "cannot locate a worktree for '$BRANCH', and the run's record carries no satisfied milestone 5 — the BUILD session did not leave one. No REVIEW spawned: a review cannot produce a worktree."
+    fi
+    terminal lane-closed-out 0 "done — #$ISSUE closed out on PR #$PR. The lane worktree is gone because teardown removed it and milestone 5 is satisfied, which is a FINISHED run, not a missing one. No REVIEW spawned against an unmoved head (#597 AC-2)."
+  elif [ "$rc" -eq 2 ]; then
+    terminal verdict-gate-unreadable 2 "the verdict gate could not run against '$BRANCH' (exit 2) — an environment refusal, not a verdict. No REVIEW spawned: a review round cannot clear a gate that never evaluated one."
   else
     review_retries=0
     while :; do
@@ -917,7 +948,8 @@ while :; do
     1) say "verdict: needs-work." ;;
     6) terminal verdict-self-authored 6 "HARD STOP: the verdict record is authored by the build run or the build session (P10) — generation may not author its own evaluation, and that is not something a retry can clear. No round spent, nothing re-spawned. The merge boundary refuses this record too; produce one from a separate review session." ;;
     4) terminal verdict-budget-spent 4 "HARD STOP: the verdict gate exhausted its fix budget. No rescue attempt — re-entry is from the top." ;;
-    3) terminal worktree-missing 1 "cannot locate a worktree for '$BRANCH' — the BUILD session did not leave one." ;;
+    # 2 and 3 are deliberately absent here: #597 D-1 routes both AHEAD of the REVIEW spawn above,
+    # where they hard-stop, so an arm for either could only be dead code claiming to be a route.
     *) terminal verdict-gate-failed 1 "the verdict gate could not run (exit $rc)." ;;
   esac
 
