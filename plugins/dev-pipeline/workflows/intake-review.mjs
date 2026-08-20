@@ -11,9 +11,26 @@ export const meta = {
 // tier regardless of how agent() resolves an omitted model. Change a sub-agent's tier
 // in its agent frontmatter AND here, in lockstep. Keys are QUALIFIED (namespaces.md);
 // args.config.reviewers.modelOverrides (bare-keyed) wins per agent.
+// Tier -> dispatch token. INLINED because the Workflow sandbox forbids imports; the
+// authority is the `## Tier alphabet` table in ../model-tiering.md, and
+// check-model-tiers.sh holds this copy against it (TIER-MAP-DRIFT) so the duplication
+// is checked rather than merely regretted. Keys are UNQUOTED deliberately: the guard's
+// entry scans match a quoted key followed by a quoted value, so quoting these would make
+// every tier read as a dispatch-table entry and be reported DANGLING. (Writing that shape
+// out here would itself trip the scan — a comment quoting a matched shape is an instance
+// of it.)
+const DEFAULT_TIER_MAP = {
+  reasoning: 'opus',
+  code: 'sonnet',
+  emit: 'haiku',
+}
+
 const INTAKE_MODEL = {
-  'review-toolkit:spec-reviewer': 'opus',
-  'review-toolkit:codebase-explorer': 'sonnet',
+  'review-toolkit:spec-reviewer': 'reasoning',
+  'review-toolkit:codebase-explorer': 'code',
+  // See code-review.mjs: the sink joins the governed table instead of carrying an
+  // un-overridable inline literal (#351).
+  'review-toolkit:structured-emitter': 'emit',
 }
 
 // Bare (unqualified) agent name — tolerant of both `plugin:agent` and bare forms.
@@ -131,6 +148,13 @@ const {
   config = {},
 } = a
 const modelOverrides = (config && config.reviewers && config.reviewers.modelOverrides) || {}
+// Consumer tier retargeting, MERGED per tier over the shipped default (#351) — same
+// contract as code-review.mjs.
+const tierMap = { ...DEFAULT_TIER_MAP, ...((config && config.reviewers && config.reviewers.tierMap) || {}) }
+const modelFor = (agentType) => {
+  const declared = modelOverrides[bare(agentType)] || INTAKE_MODEL[agentType] || 'code'
+  return tierMap[declared] || declared
+}
 if (!issue) {
   throw new Error('intake-review workflow: args.issue (GitHub issue number) is required')
 }
@@ -240,7 +264,7 @@ const emitStructured = (text, opts) =>
     'Convert this completed review into the required structured object. Transcribe EXACTLY' +
       ' what the review states — never invent, drop, merge, soften or upgrade findings.' +
       '\n\n---REVIEW---\n' + String(text) + '\n---END---',
-    { agentType: 'review-toolkit:structured-emitter', model: 'haiku', label: `${opts.label} (emit)`, phase: 'Intake', schema: opts.schema },
+    { agentType: 'review-toolkit:structured-emitter', model: modelFor('review-toolkit:structured-emitter'), label: `${opts.label} (emit)`, phase: 'Intake', schema: opts.schema },
   )
 
 
@@ -338,7 +362,7 @@ if (selected.length === 0) {
 const dispatchIntake = async (d) => {
   const opts = {
     agentType: d.agentType,
-    model: modelOverrides[bare(d.agentType)] || INTAKE_MODEL[d.agentType] || 'sonnet',
+    model: modelFor(d.agentType),
     label: d.agentType,
     phase: 'Intake',
     // bounded-exploration-optout: validator-reference -- pass-through of the per-descriptor

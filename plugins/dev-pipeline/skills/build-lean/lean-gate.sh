@@ -201,6 +201,14 @@
 #           EVALUATED, and a scheduler that could not tell "there is uncollected work" from "I
 #           could not look" would either stop every run whose fetch flaked or review a head missing
 #           everything the build session just did.
+#       9 = WRONG TREE (#141): a milestone-evaluation or review-role subcommand — `1`..`5`, `all`,
+#           `delta`, `verdict` — was invoked from a checkout that is not on this run's lane branch.
+#           NOTHING WAS EVALUATED. The refusal fires before the first read, so no record is
+#           written, no budget is spent and no fix attempt is charged. Its own integer rather than
+#           2 because the remedy is POSITIONAL — re-run from the lane worktree — not an
+#           environment repair, and because this is the one failure mode that otherwise does not
+#           fail at all: every answer here is derived from the tree the process happens to be in,
+#           so from the wrong one the gate reports a confident verdict about the wrong branch.
 #
 # THE RESERVED VERIFY-LANE INPUT CODE (#527). Exit 3 from a configured verify lane — the fixed
 # `lint`/`typecheck`/`test` keys, or any `extraLanes` entry — means "I failed for reasons that are
@@ -278,6 +286,18 @@
 #                            above: a lane child is not turn-bound and has nothing to escape from,
 #                            and leaving it inheritable would make the sweep's own shape depend on
 #                            an ambient variable.
+#   LEAN_GATE_ANY_TREE=1     #141: DISARM THE LANE-TREE ASSERTION — let `1`..`5`, `all`, `delta`
+#                            and `verdict` grade whatever checkout they are invoked from. It
+#                            ANNOUNCES on stderr every time it disarms a call, naming the branch
+#                            found and the lane branch expected: a guard nobody can see disarmed
+#                            is a guard nobody can audit, and the precedent is this file's own
+#                            unconditional config-path announcement.
+#                            Its consumer is a SUITE, not an operator — lean-gate-selftest.sh and
+#                            scenario-liveness-selftest.sh drive the guarded subcommands against
+#                            bare-`git init` fixture trees, over many issue keys and three branch
+#                            prefixes, and one tree cannot be on nine lane branches at once. A run
+#                            that wants a different tree graded should move, not disarm.
+#                            NOT IN `SEAM_SCRUB`, exactly like the two seams above.
 #
 # WHAT MILESTONE 3'S RUNNER INHERITS, and why it is an ARGV SUBCOMMAND rather than an env var.
 # The first shape of the "you are the runner" handshake was an inherited `LEAN_GATE_M3_RUNNER=1`
@@ -416,7 +436,7 @@ while [ $# -gt 0 ]; do
     --obligations)   PROGRESS_OBLIGATIONS=1; shift ;;
     --m3-token)      M3_RUN_TOKEN="${2:-}"; shift 2 ;;
     --arm)           STALENESS_ARM="${2:-}"; shift 2 ;;
-    -h|--help)       sed -n '2,297p' "$0"; exit 0 ;;
+    -h|--help)       sed -n '2,317p' "$0"; exit 0 ;;
     -*)              envfail "unknown option: $1" ;;
     *)
       if [ "$POSITIONAL" -eq 0 ]; then SUB="$1"; POSITIONAL=1
@@ -5180,6 +5200,56 @@ branch_start_utc() { # branch_start_utc <merge-base>
     --format=%ad "$1..HEAD" 2>/dev/null | sed -n '1p'
 }
 
+# ---------------------------------------------------------------- the LANE-TREE ASSERTION (#141)
+# WHAT THIS CLOSES: every answer below is derived from $REPO_ROOT, and $REPO_ROOT is resolved from
+# the invoking shell's cwd and nothing else. From the shared checkout the gate grades `main` and
+# reports it in the same words a real green uses — "nothing to sweep" on a guard-ADDING diff, a
+# selftest count one short of the branch's. `cmd_delta` has the same shape on the review side:
+# from the main checkout it prints the FULL range over an EMPTY diff and the round reads nothing.
+# A check that runs, passes and proves nothing is the defect class #141 was filed about, and this
+# file was its last live instance.
+#
+# BRANCH-NAME EQUALITY, not worktree-set membership (D-2). A shared checkout that HAS the lane
+# branch checked out is grading the right tree, and this guard is about the TREE, not the
+# directory. A detached HEAD reads back the literal `HEAD`, matches nothing, and so refuses — the
+# fail-closed posture this file takes everywhere else, and the right one here: `gh pr checkout` on
+# a same-repo PR names the local branch after headRefName, so an honest review checkout passes,
+# while a detached one is a tree whose identity nothing on disk asserts.
+#
+# BEFORE require_entry_attested (D-7), and that ordering is the point. The entry refusal's own
+# message already ends "Re-run from the build worktree before handing this back" — so until now a
+# wrong-tree call surfaced as a missing-attestation failure naming the wrong primary cause.
+require_lane_tree() {
+  local head paths
+  head="$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null)" || head=""
+  [ -n "$head" ] || head="<unresolvable>"
+
+  # ANNOUNCED UNCONDITIONALLY when it disarms, on the config-path announcement's precedent: a
+  # guard nobody can see disarmed is a guard nobody can audit, and the whole failure mode here is
+  # a plausible answer about the wrong tree.
+  if [ "${LEAN_GATE_ANY_TREE:-0}" = "1" ]; then
+    # The wording avoids the token `ARMED` deliberately: milestone 1's design-arming cases grep
+    # the merged output for it, and `DISARMED` is a substring match away from reding them.
+    warn "note: $SUB: LEAN_GATE_ANY_TREE=1 — the lane-tree assertion is OFF for this call. Grading $REPO_ROOT, which is on '$head'; this run's lane branch is '$LEAN_BRANCH'."
+    return 0
+  fi
+
+  [ "$head" = "$LEAN_BRANCH" ] && return 0
+
+  warn "✗ $SUB: WRONG TREE — $REPO_ROOT is on '$head', not this run's lane branch '$LEAN_BRANCH'."
+  warn "  Nothing was evaluated: no record was written, no budget was spent and no fix attempt was charged. Every answer this subcommand gives is derived from the checkout it runs in, so from here it would grade the wrong branch and report a confident verdict about it (#141)."
+  paths="$(lean_worktrees_for_branch "$LEAN_BRANCH")" || paths=""
+  if [ -n "$paths" ]; then
+    warn "  Re-run from a checkout on '$LEAN_BRANCH':"
+    printf '%s\n' "$paths" | sed 's/^/[lean-gate]     /' >&2
+  else
+    warn "  No worktree on '$LEAN_BRANCH' is registered in this clone. Cut one:"
+    warn "    git -C '$MAIN_ROOT' worktree add <path> '$LEAN_BRANCH'"
+  fi
+  warn "  A detached HEAD reads back as 'HEAD' and refuses here for the same reason — check the branch out by NAME. On a fork-origin PR \`gh pr checkout\` names the local branch <owner>-<branch>, which also refuses; \`git switch -c '$LEAN_BRANCH'\` makes it checkable."
+  exit 9
+}
+
 require_entry_attested() {
   entry_row_present && return 0
 
@@ -5222,6 +5292,13 @@ require_entry_attested() {
 
 # LIBRARY MODE stops here (#439): helpers are defined, nothing is attested, nothing dispatches.
 [ -n "${LEAN_GATE_LIB:-}" ] && return 0
+
+# #141, and FIRST: a wrong-tree call must report the wrong tree, not whatever the tree it landed
+# in happens to be missing. `verdict` joins this set although it is outside the one below —
+# review-lean owns it, and its record names a patch identity computed from THIS checkout's diff.
+case "$SUB" in
+  1|2|3|4|5|all|delta|verdict) require_lane_tree ;;
+esac
 
 case "$SUB" in
   claim|delta|all|1|2|3|4|5) require_entry_attested ;;

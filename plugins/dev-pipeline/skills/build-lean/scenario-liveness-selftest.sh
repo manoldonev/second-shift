@@ -44,6 +44,15 @@
 #     itself. Reversing it means an operator-run end to end, which is not a CI
 #     artifact, so this is a contract boundary rather than debt.
 #
+#   - The #141 lane-tree assertion's REFUSE path. Exit 9 stops the run before any
+#     downstream component observes it, so there is no composed verdict path for a
+#     scenario to reach a terminal write along — a scenario for it would be a
+#     per-tool case in scenario clothing (lean-gate-selftest.sh's (lt*) block owns
+#     it). Its PASS direction is composed here for free and not by accident: the
+#     (lean-reentry) and (lean-closeout) legs below define `g()` as a subshell that
+#     cds into a REAL worktree on `claude/acme-<key>`, so a wrong predicate in that
+#     guard reds them.
+#
 # (B) Uncovered, TRACKED — reachable today; absence here is debt, not a decision:
 #   - Production Workflow .mjs dispatch ladders. Those belong on the runtime shim
 #     (workflows/runtime-shim-selftest.mjs), not here.
@@ -66,6 +75,15 @@
 # its own passing cases.
 set -uo pipefail
 unset SECOND_SHIFT_CONFIG SECOND_SHIFT_REPO_ROOT SECOND_SHIFT_EXTENSION_MANIFEST BRANCH_PREFIX
+
+# #141: the lane-tree assertion, DISARMED for the legs whose fixture is a bare `git init` tree and
+# re-armed for the three that are not. Most legs here compose the gate against a plain repo on its
+# default branch, over several issue keys — one tree cannot be on four lane branches — so an export
+# is what keeps them driving the composed path this file exists to drive. The (lean-reentry),
+# (lean-infrakill) and (lean-closeout) legs are the exception: each cuts a REAL `git worktree` on
+# `claude/acme-<key>` and unsets this again inside its own `g()`, which is where the guard's PASS
+# direction is composed rather than merely tolerated (#141 D-5).
+export LEAN_GATE_ANY_TREE=1
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -1359,7 +1377,7 @@ REGH
 n=$(( $(cat "$RE_DIR/spawns" 2>/dev/null || echo 0) + 1 ))
 echo "$n" > "$RE_DIR/spawns"
 echo "spawn $n: $*" >> "$RE_DIR/session.log"
-g() { ( cd "$RE_WT" && bash "$RE_GATE" "$@" ) >> "$RE_DIR/session.log" 2>&1; }
+g() { ( unset LEAN_GATE_ANY_TREE; cd "$RE_WT" && bash "$RE_GATE" "$@" ) >> "$RE_DIR/session.log" 2>&1; }
 case "$*" in
   *review-lean*)
     # A DISTINCT identity on BOTH axes, or milestone 4 refuses the record on authorship (P10)
@@ -1563,7 +1581,7 @@ IKC
 n=$(( $(cat "$IK_DIR/spawns" 2>/dev/null || echo 0) + 1 ))
 echo "$n" > "$IK_DIR/spawns"
 echo "spawn $n: $*" >> "$IK_DIR/session.log"
-g() { ( cd "$IK_WT" && SECOND_SHIFT_CONFIG="$IK_CFG" bash "$IK_GATE" "$@" ) >> "$IK_DIR/session.log" 2>&1; }
+g() { ( unset LEAN_GATE_ANY_TREE; cd "$IK_WT" && SECOND_SHIFT_CONFIG="$IK_CFG" bash "$IK_GATE" "$@" ) >> "$IK_DIR/session.log" 2>&1; }
 case "$*" in
   *review-lean*)
     export CLAUDE_CODE_SESSION_ID=sess-lean-ik-review RUN_ID=r-lean-ik-review
@@ -1598,7 +1616,7 @@ case "$*" in
       # leg is about would never form. The lane self-terminates on a short bound, so a kill that
       # somehow misses cannot wedge the suite.
       set -m
-      ( cd "$IK_WT" && SECOND_SHIFT_CONFIG="$IK_CFG_BLOCK" bash "$IK_GATE" 3 "$IK_KEY" \
+      ( unset LEAN_GATE_ANY_TREE; cd "$IK_WT" && SECOND_SHIFT_CONFIG="$IK_CFG_BLOCK" bash "$IK_GATE" 3 "$IK_KEY" \
           >> "$IK_DIR/session.log" 2>&1 ) &
       kpg=$!
       set +m
@@ -1759,7 +1777,7 @@ COC
 n=$(( $(cat "$CO_DIR/spawns" 2>/dev/null || echo 0) + 1 ))
 echo "$n" > "$CO_DIR/spawns"
 echo "spawn $n: $*" >> "$CO_DIR/session.log"
-g() { ( cd "$CO_WT" && bash "$CO_GATE" "$@" ) >> "$CO_DIR/session.log" 2>&1; }
+g() { ( unset LEAN_GATE_ANY_TREE; cd "$CO_WT" && bash "$CO_GATE" "$@" ) >> "$CO_DIR/session.log" 2>&1; }
 case "$*" in
   *review-lean*)
     export CLAUDE_CODE_SESSION_ID=sess-lean-co-review RUN_ID=r-lean-co-review

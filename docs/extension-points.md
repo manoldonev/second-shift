@@ -175,17 +175,29 @@ Failures: registry entry with no agent file (either root); consumer agent file r
 Asserts the `.mjs` workflow model tables ↔ agent frontmatter agreement, now with a third input: config `reviewers.modelOverrides`. Precedence: `modelOverrides` > agent frontmatter default. The observed need: security-reviewer runs `opus` in one repo and `sonnet` in another from the same plugin-shipped agent file.
 
 **EP-4 covers named workflow agents too, not just panel reviewers.** `modelOverrides` keys
-accept any agent the `.mjs` dispatch tables model — including `mutation-executor` (the
-mutation gate's executor tier), not only `<name>-reviewer` entries. The schema description
-says "per-reviewer" as the common case, not as a constraint; `check-model-tiers.sh`
-validates whatever key you override against the actual tables.
+accept any agent the `.mjs` dispatch tables model — including the `structured-emitter`
+transcription sink, which joined the tables in #351, not only `<name>-reviewer` entries. (The
+`mutation-executor` key this section used to name left with its engine in #574.) The schema
+description says "per-reviewer" as the common case, not as a constraint;
+`check-model-tiers.sh` validates whatever key you override against the actual tables.
 
-**Accepted values are `haiku | sonnet | opus | fable`, and `fable` is override-only** — the
-shipped tables and agent frontmatter stay tri-value, so a consumer without Fable access sees
-no change; the same script raises `UNKNOWN-MODEL` on any token outside `opus|sonnet|haiku`
-appearing in a shipped MAP entry or an inline `model:` literal, which is what mechanically
-keeps `fable` in config and out of plugin code. A tier your subscription cannot dispatch
-surfaces as a dead reviewer and the gate fails closed.
+**An override value may name a dispatch model (`haiku`, `sonnet`, `opus`, `fable`) or a
+TIER** (`reasoning`, `code`, `emit` as shipped). Those two sets are the closed union
+`config-lint.sh` enforces — a token in neither is a lint error, which is what catches a typo
+now that the schema half asserts only "string" (the union is a cross-field constraint JSON
+Schema cannot express). A tier your subscription cannot dispatch surfaces as a dead reviewer
+and the gate fails closed.
+
+**`fable` is override-only.** Shipped dispatch tables name tiers, never vendor tokens, so
+`fable` cannot appear in one by construction: `check-model-tiers.sh` raises `UNKNOWN-MODEL`
+on any token outside the parsed tier alphabet in a shipped MAP entry or inline `model:`
+literal. That is what mechanically keeps it in config and out of plugin code.
+
+**To retarget a whole tier rather than one agent, set `reviewers.tierMap`** — e.g.
+`{ "code": "haiku" }`. It merges per tier over the shipped alphabet in
+[`model-tiering.md`](../plugins/dev-pipeline/model-tiering.md), so unnamed tiers keep their
+defaults and a config that sets none dispatches exactly as before. This is the seam a
+consumer whose subscription lacks a model class uses instead of forking the plugin.
 
 ### `check-extensions.sh` (manifest lint — EP-3)
 

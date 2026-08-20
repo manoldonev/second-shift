@@ -507,6 +507,20 @@ will not parse is a harness artifact — skipped and logged, never red. Catalog 
 applies, or yields invalid output, is **anchor drift = red** — the
 `check-lockstep-pairs-selftest.sh` convention.
 
+**The earn-your-keep rule, scoped.** A register row survives only if it names the regression
+class it — and nothing else already in the corpus — catches. It binds **catalog rows and
+execution surfaces**: every `tools/mutation-catalog.tsv` `note` states what a survivor would
+mean (or, for a timeout-kill row, what a lapse would cost), and a row that cannot say this has
+no reason to exist. It does **not** bind baseline rows that record "unkillable by construction"
+— a comment site or a structurally-inert flip that no fixture, and no fixture that could exist,
+would ever kill. Applying the rule to those deletes the row that exists to *accept* a permanent
+survivor, which reds the next sweep on exactly the site the row was baselined to explain. That
+class shrinks by removing the site from enumeration (comment exclusion, above), never by
+deleting the row that documents an accepted one. Read literally — "with a dated incident" — the
+rule would also fail most of today's catalog, which names its regression class in prose without
+citing when it was found; read as written above, it does not, and #581 re-verified all 66
+catalog rows against it without deleting any.
+
 **A comment line is not a site.** Generic enumeration drops every matched line matching
 `^[[:space:]]*#` before the ordinal counter, so a comment contributes no mutant *and consumes no
 ordinal* — adding or deleting one re-keys nothing. The reason is that a comment flip changes no
@@ -841,6 +855,13 @@ single fast suite; everything paired to a slow or multi-suite killer (`lean-gate
 Edit one of those and any new survivor surfaces at 03:17 UTC, on someone else's morning. If your
 diff touches a deferred guard, expect to learn about it from the nightly rather than from your PR —
 though content keying means only a site you actually *wrote* can produce one.
+
+**All-deferred is not silently green (#582).** When every in-scope guard defers — 23% of
+guard-touching PRs, measured by the #567 audit, concentrated on `lean-gate.sh` — the job still
+exits 0, but it no longer reads the same as "swept your guards, found no new survivors". It prints
+an unmissable `WARN:` line naming the count and the reason(s), and, on real CI, a `::warning::`
+check-surface annotation plus a job-summary block when `GITHUB_STEP_SUMMARY` is set. Sweeping at
+least one guard is unchanged — the warn fires only when the graded count is exactly zero.
 
 ## Adversarial tier (operator-run, never CI)
 

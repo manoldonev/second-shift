@@ -137,7 +137,7 @@ Ask AT MOST one AskUserQuestion batch, containing ONLY (skip any that detection 
      every review panel; `remove` stops a shipped reviewer whose findings you always dismiss
      from spending a slot** (docs/extending.md §3.3).
      (`reviewers.add` for repo-local reviewer agents, `.remove` for shipped
-     reviewers that don't fit — e.g. db-reviewer in an FE repo —, `.modelOverrides`).
+     reviewers that don't fit — e.g. db-reviewer in an FE repo —, `.modelOverrides`, `.tierMap`).
      Recommended default: none. Emit the `reviewers` key ONLY when the answer is non-empty.
   7. **github tracker only — the first-run wall, absorbed here:**
      a. Bot identity: "Use a GitHub-App bot identity for pipeline writes? (Needs an App +

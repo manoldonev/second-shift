@@ -48,6 +48,16 @@ unset LEAN_RUN_MODEL
 # Unset it once here rather than at each call site; every case that needs a value sets one.
 unset RUN_ID
 
+# #141: DISARM THE LANE-TREE ASSERTION SUITE-WIDE, and unset it again inside the cases that test
+# it. This suite drives the guarded subcommands (`1`..`5`, `all`, `delta`, `verdict`) against bare
+# `git init` fixture trees, over many issue keys and three branch prefixes — one tree cannot be on
+# nine lane branches at once, and checking a branch out per case would rewrite hundreds of call
+# sites to test nothing this file is about. EXPORTED rather than pinned per call for the same
+# reason `unset RUN_ID` above is: the seam has to reach every invocation, including the dozen that
+# bypass `gate()`. The (wt*) block below unsets it in its own subshells, which is what keeps the
+# guard covered here rather than merely tolerated.
+export LEAN_GATE_ANY_TREE=1
+
 # Ownership stamp for tools/reap-lean-fixtures.sh (#528): this process's pid, plus its start
 # time. A suite killed by a signal leaves WORK behind with no trap to run; the stamp is what
 # lets the reaper tell a dead run's leftovers from a live one's without guessing from age alone.
@@ -6969,6 +6979,146 @@ out3="$(pgprog)"
 if ! grep -q 'config:' <<<"$out3"; then
   pass "(rc7) the config announcement does not fire on 'progress' — its answer stays bare"
 else fail "(rc7) 'progress' output was polluted by the config announcement: $out3"; fi
+
+# ---- (lt) #141: THE LANE-TREE ASSERTION ------------------------------------------------------
+# Every case here `unset LEAN_GATE_ANY_TREE` in its own subshell, undoing the suite-wide export at
+# the top of this file. That export is what lets the other ~200 guarded calls run against fixture
+# trees at all; these are the cases the guard is actually covered by, so leaving it set here would
+# make the whole block vacuous.
+#
+# ITS OWN MAIN CHECKOUT, not $TREE. The refusal's remedy arm reads `git worktree list` from the
+# resolved MAIN_ROOT, so the fixture needs a real registered worktree — which means a repo this
+# block owns, since adding one to $TREE would put a second branch into 200 unrelated cases' view.
+LT_MAIN="$WORK/wt-main"
+LT_LANE="$WORK/wt-lane"
+LT_PROG="$WORK/wt-progress.md"
+mkdir -p "$LT_MAIN/docs/plans" "$LT_MAIN/.claude/audit"
+git -C "$LT_MAIN" init -q
+git -C "$LT_MAIN" config user.email t@example.invalid
+git -C "$LT_MAIN" config user.name t
+printf '.claude/\n' > "$LT_MAIN/.gitignore"
+git -C "$LT_MAIN" add -A >/dev/null 2>&1
+git -C "$LT_MAIN" commit -q -m "wt fixture" >/dev/null 2>&1
+git -C "$LT_MAIN" update-ref refs/remotes/origin/main HEAD
+# The lane worktree for issue 31, on the branch $CFG's prefix derives. Issue 32 deliberately gets
+# none, which is the fallback arm's fixture.
+git -C "$LT_MAIN" worktree add -q -b claude/acme-31 "$LT_LANE" >/dev/null 2>&1
+LT_OFF="$(git -C "$LT_MAIN" rev-parse --abbrev-ref HEAD)"
+
+# <tree> <issue> <args...> — run the gate with the assertion ARMED, merging both streams.
+# GH is pinned to the dead stub for the same reason the rest of this file is zero-network: the two
+# unguarded subcommands reached here (`entry`, `inflight`) look a PR state up, and an unseamed one
+# would send a selftest to the live API. A refused lookup removes nothing and is reported, which
+# is exactly the state these cases want — none of them is about the sweep.
+ltgate() { local t="$1" i="$2"; shift 2
+  ( unset RUN_ID CLAUDE_CODE_SESSION_ID GH_BOT LEAN_GATE_ANY_TREE
+    cd "$t" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$LT_PROG" GH="$WORK/gh-dead.sh" \
+    bash "$GATE" --issue-file "$ISSUE_NOREGIONS" "$@" "$i" 2>&1 )
+}
+
+# (lt1) EVERY guarded subcommand refuses from a tree that is not on the lane branch. Enumerated
+# rather than sampled: the dispatch arm is a `case` list, and a list is exactly the thing a
+# one-member probe cannot tell from a complete one.
+rm -f "$LT_PROG"
+lt1_bad=""
+for sub in 1 2 3 4 5 all delta verdict; do
+  out="$(ltgate "$LT_MAIN" 31 "$sub")"; rc=$?
+  [ "$rc" -eq 9 ] || lt1_bad="$lt1_bad $sub(rc=$rc)"
+  grep -q 'WRONG TREE' <<<"$out" || lt1_bad="$lt1_bad $sub(no-message)"
+done
+if [ -z "$lt1_bad" ]; then
+  pass "(lt1) all eight guarded subcommands refuse with exit 9 from a tree on '$LT_OFF' instead of the lane branch"
+else fail "(lt1) not refused:$lt1_bad"; fi
+
+# (lt1a) ...and the refusal EVALUATED NOTHING. The progress file is the only thing a milestone
+# call writes, and a guard that refused after recording would be worse than none: the run's record
+# would carry a milestone row derived from the wrong tree.
+if [ ! -f "$LT_PROG" ]; then
+  pass "(lt1a) a refused call writes no progress record at all — nothing was evaluated"
+else fail "(lt1a) the refusal left a progress file: $(cat "$LT_PROG")"; fi
+
+# (lt2) The unguarded set is genuinely unguarded. These are the roles whose tree IS the main
+# checkout — SKILL.md steps 1-2 run before the worktree exists, and the scheduler reads the run's
+# state from the clone it owns. A guard that caught them would make the lane unstartable.
+lt2_bad=""
+for sub in entry progress teardown inflight staleness; do
+  out="$(ltgate "$LT_MAIN" 31 "$sub")"; rc=$?
+  [ "$rc" -eq 9 ] && lt2_bad="$lt2_bad $sub(rc=9)"
+  grep -q 'WRONG TREE' <<<"$out" && lt2_bad="$lt2_bad $sub(message)"
+done
+if [ -z "$lt2_bad" ]; then
+  pass "(lt2) entry/progress/teardown/inflight/staleness are NOT guarded — they run from the main checkout by role"
+else fail "(lt2) wrongly refused:$lt2_bad"; fi
+rm -f "$LT_PROG"
+
+# (lt3) THE PASS DIRECTION, and it must reach real evaluation rather than merely not exiting 9.
+# Attested first, so milestone 1 gets past the entry precondition and returns its own answer:
+# `absent` for a spec that is not written yet, which is a milestone verdict only the guarded body
+# can produce.
+# The audit ledger has to land in the MAIN checkout, not the lane worktree: `entry` resolves it
+# from the git COMMON dir, which a linked worktree shares with $LT_MAIN. attest_at seeds it beside
+# the tree it is handed, so the linked-worktree case needs the main copy planted by hand.
+mkdir -p "$LT_MAIN/.claude/audit"
+printf '{"tool":"Bash"}\n' > "$LT_MAIN/.claude/audit/$ENTRY_SID.jsonl"
+( export GH="$WORK/gh-dead.sh"; attest_at "$LT_LANE" "$CFG" "$LT_PROG" 31 )
+out="$(ltgate "$LT_LANE" 31 1)"; rc=$?
+if [ "$rc" -eq 1 ] && ! grep -q 'WRONG TREE' <<<"$out" && grep -q 'no committed spec' <<<"$out"; then
+  pass "(lt3) on the lane branch the guard passes THROUGH to the milestone body — milestone 1 returns its own absent-spec answer"
+else fail "(lt3) expected milestone 1's own answer, rc=$rc: $out"; fi
+
+# (lt4) A DETACHED HEAD refuses. `rev-parse --abbrev-ref HEAD` reads back the literal `HEAD`, so
+# the equality fails — and it must, because a detached tree's identity is asserted by nothing on
+# disk. This is the shape a review session lands in when it cuts its checkout with `--detach`.
+git -C "$LT_LANE" checkout -q --detach
+out="$(ltgate "$LT_LANE" 31 1)"; rc=$?
+if [ "$rc" -eq 9 ] && grep -q "is on 'HEAD'" <<<"$out"; then
+  pass "(lt4) a DETACHED head refuses — it reads back as 'HEAD' and matches no lane branch"
+else fail "(lt4) expected the detached refusal, rc=$rc: $out"; fi
+git -C "$LT_LANE" checkout -q claude/acme-31
+
+# (lt5) The refusal names all three things an operator needs: the branch found, the branch
+# expected, and where to go. A refusal that says only "wrong tree" costs the round it saved.
+out="$(ltgate "$LT_MAIN" 31 1)"
+if grep -q "is on '$LT_OFF'" <<<"$out" && grep -q "claude/acme-31" <<<"$out" \
+   && grep -qF "$LT_LANE" <<<"$out"; then
+  pass "(lt5) the refusal names the branch found, the lane branch expected, and the registered lane worktree's path"
+else fail "(lt5) refusal is missing one of the three: $out"; fi
+
+# (lt5a) ...and with NO worktree registered on the lane branch it prints the command that cuts
+# one, rather than naming nothing. Issue 32 has no worktree; issue 31 does.
+out="$(ltgate "$LT_MAIN" 32 1)"
+if grep -qF "worktree add" <<<"$out" && grep -qF "$LT_MAIN" <<<"$out" \
+   && grep -q "claude/acme-32" <<<"$out" && ! grep -qF "$LT_LANE" <<<"$out"; then
+  pass "(lt5b) with no worktree on the lane branch the refusal falls back to the 'git worktree add' command"
+else fail "(lt5b) expected the worktree-add fallback for an unregistered lane branch: $out"; fi
+
+# (lt6) THE GUARD FIRES FIRST (D-7). Same call, but the run has no entry attestation either. Both
+# refusals are real, and the one reported must be the tree — the entry refusal's own text ends
+# "Re-run from the build worktree", which sends the operator to fix the second-order symptom.
+rm -f "$LT_PROG"
+out="$(ltgate "$LT_MAIN" 31 1)"; rc=$?
+if [ "$rc" -eq 9 ] && grep -q 'WRONG TREE' <<<"$out" && ! grep -q 'no entry attestation' <<<"$out"; then
+  pass "(lt6) a wrong-tree call with no attestation reports the TREE, not the missing entry row"
+else fail "(lt6) the entry precondition preempted the tree guard, rc=$rc: $out"; fi
+
+# (lt7) The opt-out disarms, and ANNOUNCES that it did. A guard nobody can see disarmed is a guard
+# nobody can audit — the announcement is the seam's whole safety property.
+out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID GH_BOT
+        cd "$LT_MAIN" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$LT_PROG" \
+        GH="$WORK/gh-dead.sh" LEAN_GATE_ANY_TREE=1 bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 1 31 2>&1 )"; rc=$?
+if [ "$rc" -ne 9 ] && grep -q 'LEAN_GATE_ANY_TREE=1' <<<"$out" \
+   && grep -q "is on '$LT_OFF'" <<<"$out" && grep -q "claude/acme-31" <<<"$out"; then
+  pass "(lt7) LEAN_GATE_ANY_TREE=1 disarms the assertion and announces it, naming both the branch found and the one expected"
+else fail "(lt7) expected an announced disarm, rc=$rc: $out"; fi
+
+# (lt7a) The announcement is a DIAGNOSTIC and rides stderr, like every other one this file emits.
+# Same reasoning as (rc5a): the machine-read answer is stdout, and a note there is a parse hazard.
+lt7_stdout="$( unset RUN_ID CLAUDE_CODE_SESSION_ID GH_BOT
+               cd "$LT_MAIN" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$LT_PROG" \
+               GH="$WORK/gh-dead.sh" LEAN_GATE_ANY_TREE=1 bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 1 31 2>/dev/null )"
+if ! grep -q 'LEAN_GATE_ANY_TREE' <<<"$lt7_stdout"; then
+  pass "(lt7a) the disarm announcement goes to stderr and never to stdout"
+else fail "(lt7a) the disarm note polluted stdout: $lt7_stdout"; fi
 
 echo "[lean-gate-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 exit "$FAILS"
