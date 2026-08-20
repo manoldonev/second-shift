@@ -1931,11 +1931,21 @@ COSESS
   printf '{"tool":"Bash"}\n' > "$TE_TREE/.claude/audit/$TE_SID.jsonl"
   TE_PROG="$TE_DIR/progress.md"
 
-  te_gate() { # te_gate <config> <args...>
+  te_gate() { # te_gate <config> <args...> — stderr MERGED, for reading the gate's report
     local cfg="$1"; shift
     ( cd "$TE_TREE" && env -u RUN_ID -u GH_BOT CLAUDE_CODE_SESSION_ID="$TE_SID" \
         SECOND_SHIFT_CONFIG="$cfg" LEAN_PROGRESS_FILE="$TE_PROG" \
         bash "$LEAN_GATE" --issue-file "$LEAN_ISSUE_NOREGIONS" "$@" 2>&1 )
+  }
+  # THE TOKEN VARIANT, stderr DROPPED. `progress --infra` prints an opaque token on stdout and its
+  # diagnostic on stderr precisely so a caller can compare the token as an exact string; merging
+  # them makes every comparison a two-line one that can never match. Same split as
+  # lean-gate-selftest.sh's gate_ir / gate_ir_e, and for the same reason.
+  te_token() { # te_token <config> <args...>
+    local cfg="$1"; shift
+    ( cd "$TE_TREE" && env -u RUN_ID -u GH_BOT CLAUDE_CODE_SESSION_ID="$TE_SID" \
+        SECOND_SHIFT_CONFIG="$cfg" LEAN_PROGRESS_FILE="$TE_PROG" \
+        bash "$LEAN_GATE" --issue-file "$LEAN_ISSUE_NOREGIONS" "$@" 2>/dev/null )
   }
 
   # ---- the happy path: an inline evaluation concludes, and the read says "no death" ---------
@@ -1944,7 +1954,7 @@ COSESS
   rm -f "$TE_PROG"
   te_gate "$TE_CFG_OK" entry "$TE_KEY" >/dev/null 2>&1
   te_ok_out="$(te_gate "$TE_CFG_OK" 3 "$TE_KEY")"; te_ok_rc=$?
-  te_ok_tok="$(te_gate "$TE_CFG_OK" progress "$TE_KEY" --infra 2>/dev/null)"
+  te_ok_tok="$(te_token "$TE_CFG_OK" progress "$TE_KEY" --infra)"
   # The started/concluded PAIR is the half a join used to break deliberately (#511 D-9: "a join
   # writes nothing"). With no join arm left, every evaluation that begins must also close.
   if [[ "$te_ok_rc" -eq 0 && "$te_ok_tok" == "m3infra-v3:0" ]] \
@@ -1983,7 +1993,7 @@ COSESS
   if kill -0 -"$te_kpg" 2>/dev/null; then
     fail "(lean-inline-m3-nv) a lane child outlived the gate's process group — milestone 3 detached"
   else
-    te_nv_tok="$(te_gate "$TE_CFG_BLOCK" progress "$TE_KEY" --infra 2>/dev/null)"
+    te_nv_tok="$(te_token "$TE_CFG_BLOCK" progress "$TE_KEY" --infra)"
     if [[ "$te_nv_tok" == "m3infra-v3:1" \
        && "$(re_count "$TE_PROG" '| milestone-3 | started |')" -eq 1 \
        && "$(re_count "$TE_PROG" '| milestone-3 | concluded |')" -eq 0 ]]; then

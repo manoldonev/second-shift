@@ -2,25 +2,48 @@
 #
 # WHAT THIS BUYS. lean-gate.sh milestone 3 runs the sweep as a single blocking call inside the
 # harness turn, which reaps at roughly 120s. Before #566 the lane paid for that with a detached
-# runner, a marker/rejoin protocol and a lane registry — ~560 lines of supervision whose only
-# job was surviving a bound this table simply stays under.
+# runner, a marker/rejoin protocol, INTERRUPTED_BUDGET_M3 and a lane registry — ~1,300 lines of
+# supervision, guards included, whose only job was surviving a bound this table stays under.
 #
-# APPLIED BY DEFAULT; `--full` opts out. The sweeps of record pass `--full`: both CI selftest
-# jobs, the nightly wholesale leg, and the CLAUDE.md contributor recipe. A row here therefore
-# narrows the LOCAL pre-PR check only — nothing listed stops being a merge requirement, because
-# CI still sweeps everything and the merge boundary still blocks on CI.
+# THE BOUND IS NOT COSMETIC. With nothing detached, a reaped milestone-3 call leaves an unclosed
+# `started` row and loses its work; five of those exhaust the interrupted budget and hard-stop the
+# run at rc=4. An unbounded sweep would make milestone 3 UNPASSABLE in an autonomous lane, not
+# merely slow. The pass cache does not rescue it either — it is opt-in per suite via
+# tools/selftest-cache-inputs.tsv, and a measured warm re-run of this sweep served 1 of 66.
 #
-# A ROW COSTS SIGNAL LATENCY, NEVER SOUNDNESS. The worst case for a deferred suite is that its
-# regression is caught at PR CI instead of before the push. That is the trade #566 accepted;
-# it is not a licence to defer a suite merely because it is inconvenient.
+# APPLIED BY DEFAULT; `--full` opts out, and every sweep of record passes it: both CI selftest
+# jobs, both nightly wholesale lanes, and the CLAUDE.md contributor recipe. A row here narrows
+# the LOCAL pre-PR check ONLY. Nothing listed stops being a merge requirement — CI still sweeps
+# everything and the merge boundary still blocks on CI — so a row costs signal latency, never
+# soundness.
+#
+# THE MEMBERSHIP RULE IS A MEASUREMENT, NOT A JUDGMENT: every suite in this tree was timed alone
+# on 2026-08-20 (67 suites, 603s serial), and every suite at or above 9s is listed. That leaves
+# 98s serial with a longest single suite of 8s, which is what makes the bound reachable. The
+# threshold is the whole rule — do not hand-pick around it, and re-measure when you change what a
+# listed suite does.
+#
+# THIS IS A LOT OF DEFERRAL, and it should be read as a finding rather than a detail: on this tree
+# twelve suites carry 84% of the sweep's cost, and they are disproportionately the LANE'S OWN
+# guards. Their regressions now surface at PR CI instead of before the push. The durable fix is to
+# widen tools/selftest-cache-inputs.tsv so a re-run is cheap, which shrinks this table by making
+# repeat sweeps free; that is separate work and is deliberately not attempted here.
 #
 # A row naming no discovered suite is a HARD ERROR — the same stale-row posture --exclude,
 # install-topology-known-red.tsv and mutation-baseline.tsv already carry. A suite ABSENT from
 # this file is treated as fast.
 #
-# seconds is a MEASUREMENT, not a budget: what the suite cost alone, on the machine and date
-# named in the row. Re-measure when you change what a listed suite does.
-#
 # selftest<TAB>seconds<TAB>reason
-tools/install-topology-selftest.sh	584	re-runs every shipped suite from a staged install cache, so its cost is the whole suite set a second time; 319/438/584s over three runs of one unchanged tree. Already nightly-only on the CI side (nightly-guards.yml), so this row aligns the local check with a deferral CI had already made.
-plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	147	the tree largest suite, and alone it exceeds the reap the quick check exists to fit; measured 2026-08-14 by the mutation sweep unmutated precheck (tools/mutation-slow-suites.tsv). Deferring it is the single row that makes the bound reachable: without it no table membership fits.
+tools/install-topology-selftest.sh	584	re-runs every shipped suite from a staged install cache, so it costs the whole suite set twice; 319/438/584s over three runs. Already nightly-only in CI, so this row aligns the local check with a deferral CI had made.
+plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	141	measured 141s alone on 2026-08-20 — at or above the 9s threshold this table applies.
+tools/mutation-sweep-selftest.sh	135	measured 135s alone on 2026-08-20 — at or above the 9s threshold this table applies.
+plugins/dev-pipeline/skills/build-lean/scenario-liveness-selftest.sh	68	measured 68s alone on 2026-08-20 — at or above the 9s threshold this table applies.
+scripts/check-lean-chain-selftest.sh	35	measured 35s alone on 2026-08-20 — at or above the 9s threshold this table applies.
+plugins/dev-pipeline/skills/run-lean/orchestrate-lean-selftest.sh	28	measured 28s alone on 2026-08-20 — at or above the 9s threshold this table applies.
+plugins/dev-pipeline/tools/retro-corpus-selftest.sh	22	measured 22s alone on 2026-08-20 — at or above the 9s threshold this table applies.
+plugins/second-shift/skills/onboard/tools/config-grill-selftest.sh	17	measured 17s alone on 2026-08-20 — at or above the 9s threshold this table applies.
+plugins/dev-pipeline/tools/preflight-selftest.sh	15	measured 15s alone on 2026-08-20 — at or above the 9s threshold this table applies.
+plugins/second-shift/skills/doctor/tools/doctor-selftest.sh	13	measured 13s alone on 2026-08-20 — at or above the 9s threshold this table applies.
+tools/run-selftests-selftest.sh	11	measured 11s alone on 2026-08-20 — at or above the 9s threshold this table applies.
+plugins/dev-pipeline/skills/build-lean/lean-evidence-selftest.sh	11	measured 11s alone on 2026-08-20 — at or above the 9s threshold this table applies.
+plugins/dev-pipeline/skills/build-lean/lean-reconcile-selftest.sh	9	measured 9s alone on 2026-08-20 — at or above the 9s threshold this table applies.

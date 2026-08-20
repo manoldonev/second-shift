@@ -34,7 +34,8 @@ The ticket's four spec defects, found at intake and binding here:
 
 - **AC-1**: WHEN milestone 3 is evaluated THEN it runs as a single blocking call with no detached
   runner and no rejoin. `lean-gate.sh` spawns nothing for milestone 3; `cmd_3` is reached
-  directly from the milestone dispatch.
+  directly from `run_milestone`'s dispatch. The reap fit is a measured property stated in the PR,
+  not a fixture assertion: **50s** end to end on this tree (see OR-1).
 
 - **AC-2**: The supervision stratum is gone. A repo-wide grep for `m3-run`, `--m3-token`,
   `M3_RUN_TOKEN`, `m3_run_detached`, `m3_joinable`, `m3_launch_or_join`, `m3_wait`,
@@ -132,9 +133,33 @@ Carried from the pre-flight receipt.
 | OR-2 | Whether the infra-death class still earns its keep once milestone 3 cannot outlive a turn | pause-and-ask |
 | OR-3 | The deferred-suite line format on `run-selftests.sh` stdout | reversible-default-and-flag |
 
-**OR-1.** Default: measure, then table whatever does not fit the reap. Every excluded suite still
-runs in CI, so a wrong call costs signal latency and nothing else. The PR states measured
-per-suite costs and the resulting membership.
+**OR-1 — RESOLVED BY MEASUREMENT during the build, and the answer was larger than expected.**
+Every suite was timed alone on 2026-08-20: 67 suites, **603s serial**. The membership rule is a
+threshold, not a hand-picked list — **every suite at or above 9s is deferred**, which is 12 suites
+plus `install-topology`. That leaves 98s serial with a longest single suite of 8s.
+
+Measured outcome, `bash G 3 566` end to end (lint lane included):
+
+| Table | Milestone 3 wall clock |
+| --- | --- |
+| 3 rows (only the suites above 40s) | 214s — **over the reap** |
+| 3 rows, re-run with a warm cache | 213s — the cache served 1 of 66 |
+| the same sweep at `--jobs 10` | 166s sweep alone; parallelism is saturated at 10 cores |
+| **13 rows (the 9s threshold)** | **50s — fits, with margin** |
+
+Two findings the PR must carry, because neither was visible at intake:
+
+1. **The bound is not cosmetic.** With nothing detached, a reaped milestone-3 call leaves an
+   unclosed `started` row and loses its work. Five of those exhaust the interrupted budget and
+   hard-stop at `rc=4` — so an unbounded sweep would make milestone 3 *unpassable* in an
+   autonomous lane, not merely slow. That is why D-4's "grow the table until it fits" was applied
+   to its conclusion rather than stopped at a comfortable-looking three rows.
+2. **Twelve suites carry 84% of the sweep's cost, and they are disproportionately the lane's own
+   guards** — `lean-gate` (141s), `mutation-sweep` (135s), `scenario-liveness` (68s),
+   `check-lean-chain` (35s), `orchestrate-lean` (28s). Their regressions now surface at PR CI
+   rather than before the push. The durable fix is widening
+   `tools/selftest-cache-inputs.tsv` so repeat sweeps are free, which would shrink this table;
+   that is separate work and is deliberately not attempted here.
 
 **OR-2.** `pause-and-ask`, and **not taken inside this run**. AC-9 keeps the class alive at a
 narrowed basis, which is the conservative call. If `unclosed_count 3` provably can no longer move,
