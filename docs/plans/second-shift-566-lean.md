@@ -68,9 +68,13 @@ The ticket's four spec defects, found at intake and binding here:
 
 - **AC-7** *(amended — #583's content-keying voided the ordinal obligation)*: in the same diff —
   (a) every `tools/mutation-baseline.tsv` row whose guard no longer resolves is dropped;
-  (b) the **six** `tools/mutation-catalog.tsv` rows anchored to deleted code are **deleted**, not
+  (b) the **seven** `tools/mutation-catalog.tsv` rows anchored to deleted code are **deleted**, not
   re-anchored: `lane-registry-recycled-pid`, `lane-join-entry-dropped`, `lean-gate-m3-no-join`,
-  `lean-gate-m3-stale-marker`, `lean-gate-m3-death-blind`, `lean-gate-m3-samelaunch-join`;
+  `lean-gate-m3-stale-marker`, `lean-gate-m3-death-blind`, `lean-gate-m3-samelaunch-join`, and
+  `lean-gate-m3-pid-outlives`. The seventh was **missed at intake and found by a scoped sweep**,
+  not by reading: its id carries no identifier the deletion grep matched, and its anchor is the
+  runner's `rm -f "$M3_PID"`. Catalog anchor drift is a hard red, and the PR lane defers this
+  guard — so leaving it would have redded nightly, not this PR;
   (c) **VOID, corrected during the build.** This clause required removing the `LEAN_JOB_CEILING`
   writer↔reader row from `scripts/lockstep-manifest.tsv`. That file does not exist: #606
   (`80276e7`, this branch's own base) deleted all 744 lines of it and made
