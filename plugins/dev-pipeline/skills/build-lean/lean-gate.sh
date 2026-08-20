@@ -319,6 +319,10 @@ set -uo pipefail
 
 GH_CLI="${GH:-gh}"
 CURL_CLI="${CURL:-curl}"
+# #613. The attendance/override mechanism, a same-plugin sibling two hops up — a plain relative
+# path, not the resolve-sibling ladder, which exists for CROSS-plugin hops. The seam exists so a
+# selftest can drive the third resolution artifact without minting a token on the machine.
+OVERRIDE_TOOL="${LEAN_OVERRIDE_TOOL:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../tools" && pwd)/operator-override.sh}"
 PR_FILE=""
 COMMENTS_FILE=""
 ISSUE_FILE=""
@@ -2879,19 +2883,49 @@ pause_and_ask_ids() { # stdin: the issue body
   '
 }
 
-# A pause-and-ask region's resolution artifact: a non-bot issue comment naming the region id
-# (word-bounded, so "OR-1" cannot match inside "OR-10"), or a committed intent-gap record whose
-# OWN `region:` key names THIS id and whose `ratified:` key reads `yes` — a record ratified for
-# a different region cannot clear this one.
+# A pause-and-ask region's resolution artifact. THREE of them now:
+#
+#   1. a committed intent-gap record whose OWN `region:` key names THIS id and whose `ratified:`
+#      key reads `yes` — a record ratified for a different region cannot clear this one;
+#   2. #613: a committed operator-override record for the `spec-open-region` gate naming this
+#      region. Where the intent-gap record routes a decision back to the human OUT OF BAND and
+#      waits, this one carries the answer a present operator already gave, quoted verbatim. It is
+#      the yield half of affordance-plus-record: the attendance token alone reaches only the
+#      affordance this refusal prints, never this acceptance;
+#   3. a non-bot issue comment naming the region id (word-bounded, so "OR-1" cannot match inside
+#      "OR-10") — the original route, unchanged, and the only one under a tracker whose comments
+#      this gate can read but whose files it cannot.
+#
+# RETURN CODES are check_pause_and_ask's own vocabulary, not a boolean: 0 resolved, 1 not,
+# 2 the answer is UNKNOWN. A malformed override record is not "no override" — reading it as one
+# would let a record the merge boundary is about to reject wave the region through here.
 region_resolved() { # region_resolved <id> <comments-json>
-  local id="$1" comments="$2" n gap
+  local id="$1" comments="$2" n gap orc
   gap="$REPO_ROOT/$INTENT_GAP_REL"
   if [ -f "$gap" ] && [ "$(record_key region "$gap")" = "$id" ] && [ "$(record_key ratified "$gap")" = "yes" ]; then
     return 0
   fi
+  bash "$OVERRIDE_TOOL" check --gate spec-open-region --issue "$ISSUE" --region "$id" --repo-root "$REPO_ROOT" >/dev/null 2>&1
+  orc=$?
+  [ "$orc" -eq 1 ] || return "$orc"
   n="$(printf '%s' "$comments" | jq -r --arg pat "(^|[^A-Za-z0-9-])${id}([^A-Za-z0-9-]|\$)" \
     '[ .[] | select((.user.type // "") != "Bot") | select((.body // "") | test($pat)) ] | length' 2>/dev/null)"
   [ "${n:-0}" -ge 1 ]
+}
+
+# The affordance, and ONLY the affordance (#613). An attended session gets the exact command that
+# would record the operator's answer; it does not get the yield, which is the record itself. A
+# forged token therefore buys a longer refusal message and nothing else.
+#
+# Silent on stderr and defaulting to headless: this decorates a refusal, and a mechanism that
+# could not answer must not turn a milestone-1 red into an environment error.
+override_affordance() { # override_affordance <region-ids>
+  local st first
+  st="$(bash "$OVERRIDE_TOOL" state 2>/dev/null)" || st=""
+  [ "$st" = "attended" ] || return 0
+  first="${1%%,*}"
+  printf '\n  This session is attended, so there is a third route: record the operator'"'"'s own answer and re-run. One command per region, and the answer is quoted VERBATIM — paraphrasing it is the fabrication the record exists to prevent:\n    bash %s record --gate spec-open-region --scope open-region-resolution --issue %s --region %s --decision '"'"'<what the operator decided, one line>'"'"' --answer '"'"'<their answer, verbatim>'"'"'\n' \
+    "$OVERRIDE_TOOL" "$ISSUE" "$first"
 }
 
 # #533. The OTHER declared source: intake's plan-interview writes pause-and-ask regions into
@@ -2981,14 +3015,25 @@ check_pause_and_ask() { # prints a reason on stdout; the vocabulary above says w
   # Every unresolved region, not just the first — the same ergonomic the `all` pre-pass owes
   # (AC-3): an operator clearing two regions must not pay two round-trips to discover the
   # second. The label stays singular for one so the refusal reads as prose either way.
-  local unresolved="" label="region"
+  local unresolved="" label="region" rrc
   while IFS= read -r id; do
     [ -n "$id" ] || continue
-    region_resolved "$id" "$comments" || unresolved="${unresolved:+$unresolved, }$id"
+    region_resolved "$id" "$comments"; rrc=$?
+    case "$rrc" in
+      0) : ;;
+      1) unresolved="${unresolved:+$unresolved, }$id" ;;
+      # #613. The override record exists and could not be read as a clean answer. Same rc-2 arm
+      # the two gh reads take, and for the same reason: no edit to the spec fixes it, so it must
+      # not spend a fix attempt.
+      *) echo "region $id's operator-override record exists but could not be read as a clean answer — that is not the same fact as 'no override', and is not treated as one. Fix or remove the record (bash $OVERRIDE_TOOL lint --record …), then re-run."; return 2 ;;
+    esac
   done <<< "$ids"
   [ -n "$unresolved" ] || return 0
   case "$unresolved" in *,*) label="regions" ;; esac
-  echo "$label $unresolved dispositioned pause-and-ask with no resolution artifact — neither a non-bot comment naming each nor a ratified intent-gap record ($INTENT_GAP_REL) exists. Resolve with an operator comment, or a ratified intent-gap record, before continuing."
+  # The sentence below is UNCHANGED, byte for byte: a headless run — which is every scheduler
+  # payload, this gate's normal case — must read exactly what it read before. The affordance is
+  # APPENDED, and only when a token resolves.
+  echo "$label $unresolved dispositioned pause-and-ask with no resolution artifact — neither a non-bot comment naming each nor a ratified intent-gap record ($INTENT_GAP_REL) exists. Resolve with an operator comment, or a ratified intent-gap record, before continuing.$(override_affordance "$unresolved")"
 }
 
 # ---------------------------------------------------------------- the design axis: arming
@@ -3309,7 +3354,7 @@ cmd_2() {
 # (preflight.sh runs this repo's own configured lane commands the same way), and the only
 # shape `env` can scrub ahead of.
 # LOCKSTEP-BEGIN seam-scrub subset
-SEAM_SCRUB='SECOND_SHIFT_CONFIG|SECOND_SHIFT_REPO_ROOT|SECOND_SHIFT_EXTENSION_MANIFEST|SECOND_SHIFT_PLUGIN_ROOT|SECOND_SHIFT_REVIEW_TOOLKIT_ROOT|SECOND_SHIFT_DEV_PIPELINE_ROOT|SECOND_SHIFT_DESIGN_TOOLKIT_ROOT|SECOND_SHIFT_SECTION_CATALOG|STATECTL_STATE_DIR|STATECTL_WRITER|DEV_PIPELINE_MODE|BRANCH_PREFIX|KEY_PATTERN'
+SEAM_SCRUB='SECOND_SHIFT_CONFIG|SECOND_SHIFT_REPO_ROOT|SECOND_SHIFT_EXTENSION_MANIFEST|SECOND_SHIFT_PLUGIN_ROOT|SECOND_SHIFT_REVIEW_TOOLKIT_ROOT|SECOND_SHIFT_DEV_PIPELINE_ROOT|SECOND_SHIFT_DESIGN_TOOLKIT_ROOT|SECOND_SHIFT_SECTION_CATALOG|STATECTL_STATE_DIR|STATECTL_WRITER|DEV_PIPELINE_MODE|BRANCH_PREFIX|KEY_PATTERN|LEAN_ATTEND_MODE'
 # LOCKSTEP-END seam-scrub
 declare -a SEAM_SCRUB_ENV=()
 IFS='|' read -r -a _seam_scrub_toks <<< "$SEAM_SCRUB"

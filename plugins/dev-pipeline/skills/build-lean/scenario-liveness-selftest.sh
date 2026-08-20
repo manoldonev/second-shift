@@ -747,6 +747,74 @@ $ba_all_out"
 
   lean_seed_progress r-lean-1 sess-lean-build
 
+  # ---- leg 3f: the attended-operator override, composed (#613) --------------
+  # CLAUDE.md's obligation again: a new gate contract extends this scenario for every verdict
+  # path it touches, and #613 gives milestone 1 a THIRD way to clear a pause-and-ask region.
+  #
+  # What only a composed leg can show is the SPLIT the mechanism is built on. The per-tool suites
+  # each see one side: operator-override-selftest.sh proves the tool with no gate, and
+  # lean-gate-selftest.sh's (yo*) block proves the gate against records it writes itself. Neither
+  # can show the real sequence, which crosses a session boundary — an ATTENDED operator records
+  # the answer, and a HEADLESS payload later reads it. `lean_gate` unsets RUN_ID, so every call
+  # below resolves headless without being told to; that is not a convenience, it is the leg.
+  #
+  # The pass direction is what makes this a liveness scenario rather than a refusal test: after
+  # the override the run walks on to a satisfied milestone 1, so the chain the fix budget and the
+  # later milestones hang off is intact.
+  LEAN_OVT="$HERE/../../tools/operator-override.sh"
+  LEAN_ISSUE_PAA="$TMP/lean-issue-paa.json"
+  printf '{"body": "# issue\\n\\n## Open Regions\\n\\n| ID | Region | Disposition |\\n| --- | --- | --- |\\n| OR-1 | Ordering guarantee | pause-and-ask |\\n"}' > "$LEAN_ISSUE_PAA"
+  echo '[]' > "$TMP/lean-comments-empty.json"
+  ov_gate() { lean_gate "$@" --issue-file "$LEAN_ISSUE_PAA" --comments-file "$TMP/lean-comments-empty.json"; }
+
+  if [[ ! -f "$LEAN_OVT" ]]; then
+    fail "(lean-override) the override mechanism at $LEAN_OVT is absent — this leg would pass vacuously"
+  else
+    lean_seed_progress r-lean-1 sess-lean-build
+    ovl_before=$(lean_count '| milestone-1 | attempt |')
+    ovl_refuse_out="$(ov_gate 1 77 2>&1)"; ovl_refuse=$?
+    ovl_after=$(lean_count '| milestone-1 | attempt |')
+
+    # The operator's side: a REAL attended session, minting a real token and writing a real
+    # record through the real tool. Its run and session ids are the operator's, deliberately
+    # unrelated to the build run's — which is what the gate must not care about at read time.
+    ( cd "$LEAN_TREE" && env RUN_ID=r-operator CLAUDE_CODE_SESSION_ID=sess-operator \
+        SECOND_SHIFT_CONFIG="$LEAN_CFG" bash "$LEAN_OVT" attend ) >/dev/null 2>&1
+    ( cd "$LEAN_TREE" && env RUN_ID=r-operator CLAUDE_CODE_SESSION_ID=sess-operator \
+        SECOND_SHIFT_CONFIG="$LEAN_CFG" bash "$LEAN_OVT" record \
+        --gate spec-open-region --scope open-region-resolution --issue 77 --region OR-1 \
+        --decision 'append-only ordering, per the operator' \
+        --answer 'Append-only is fine. Go.' --repo-root "$LEAN_TREE" ) >/dev/null 2>&1
+    git -C "$LEAN_TREE" add -A >/dev/null 2>&1
+    git -C "$LEAN_TREE" commit -q -m "operator override for OR-1" >/dev/null 2>&1
+
+    ovl_yield_out="$(ov_gate 1 77 2>&1)"; ovl_yield=$?
+    ovl_state="$( cd "$LEAN_TREE" && env -u RUN_ID -u CLAUDE_CODE_SESSION_ID \
+        SECOND_SHIFT_CONFIG="$LEAN_CFG" bash "$LEAN_OVT" state 2>&1 )"
+
+    [[ "$ovl_refuse" -eq 1 && "$ovl_after" -eq $((ovl_before + 1)) && "$ovl_yield" -eq 0 ]] \
+      && grep -q 'region OR-1' <<< "$ovl_refuse_out" \
+      && ! grep -q 'record --gate spec-open-region' <<< "$ovl_refuse_out" \
+      && [[ "$ovl_state" != "attended" ]] \
+      && pass "(lean-override) an operator override recorded in an ATTENDED session clears milestone 1 for a HEADLESS build run — and the refusal it replaces named the region without offering the affordance" \
+      || fail "(lean-override) refuse=$ovl_refuse (want 1) attempts $ovl_before->$ovl_after yield=$ovl_yield (want 0) build-state='$ovl_state' (want headless). refuse-out=$ovl_refuse_out yield-out=$ovl_yield_out"
+
+    # NON-VACUITY, the same shape (lean-nv) uses for the spec: remove the record and the identical
+    # call must red again. Without it, a gate that had stopped checking regions at all would pass
+    # the leg above.
+    rm -f "$LEAN_TREE/docs/plans/acme-77-lean-override.md"
+    git -C "$LEAN_TREE" add -A >/dev/null 2>&1
+    git -C "$LEAN_TREE" commit -q -m "drop the operator override" >/dev/null 2>&1
+    lean_seed_progress r-lean-1 sess-lean-build
+    ov_gate 1 77 >/dev/null 2>&1; ovl_nv=$?
+    [[ "$ovl_nv" -ne 0 ]] \
+      && pass "(lean-override-nv) non-vacuity: the same call reds once the record is gone" \
+      || fail "(lean-override-nv) milestone 1 passed with the override record removed — the leg is vacuous"
+    rm -rf "$LEAN_TREE/.claude/pipeline-state/attend-sess-operator.token"
+  fi
+
+  lean_seed_progress r-lean-1 sess-lean-build
+
   # ---- leg 3d: an interrupted evaluation, composed (#497) -------------------
   # Same CLAUDE.md obligation: the interrupted budget's rc=4 is a new verdict path. The per-tool
   # suite proves the pair and the bound against one milestone in isolation, including the real

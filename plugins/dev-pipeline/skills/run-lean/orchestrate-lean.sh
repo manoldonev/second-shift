@@ -201,6 +201,7 @@
 #   LEAN_SPAWN_BIN               the session binary (default `claude`)
 #   LEAN_SPAWN_PERMISSION_MODE   passed as --permission-mode (default `auto`)
 #   LEAN_GATE                    the milestone gate (default: the sibling build-lean skill)
+#   LEAN_OVERRIDE_TOOL           the attendance/override mechanism (default: the sibling tool)
 #   ${GH:-gh}                    the tracker/code-host CLI, read-only here
 #   SECOND_SHIFT_CONFIG          override the resolved config path
 #
@@ -214,6 +215,12 @@
 #       REVIEW retry; 6 = an integrity refusal (P10) — terminal, never retried; 7 = the run's
 #       premise expired mid-flight (#515) — the ticket closed, or the base moved into this
 #       branch's files.
+#
+#       3 = the RESUMABLE preflight reject (#613): the ticket is unintaken and that was the ONLY
+#       failing probe. Distinguished from 2 because the two need different next actions and a
+#       wrapper should not have to parse prose to tell them apart — 2 means fix the environment,
+#       3 means pay off intake (in-session, then a recorded override, or a queue label) and
+#       re-launch the same command.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -221,6 +228,10 @@ GH_CLI="${GH:-gh}"
 SPAWN_BIN="${LEAN_SPAWN_BIN:-claude}"
 PERM_MODE="${LEAN_SPAWN_PERMISSION_MODE:-auto}"
 GATE="${LEAN_GATE:-$SCRIPT_DIR/../build-lean/lean-gate.sh}"
+# #613. Same-plugin sibling, so a plain relative path — no resolve-sibling ladder, which exists
+# for CROSS-plugin hops. The seam is here for the selftest, which must drive the third accepting
+# state without a real attendance token on the machine running it.
+OVERRIDE_TOOL="${LEAN_OVERRIDE_TOOL:-$SCRIPT_DIR/../../tools/operator-override.sh}"
 
 ISSUE=""
 BUILD_MODEL=""
@@ -286,7 +297,7 @@ while [ $# -gt 0 ]; do
     --max-rounds)         MAX_ROUNDS="${2:-}"; shift 2 ;;
     --max-continuations)  MAX_CONTINUATIONS="${2:-}"; shift 2 ;;
     --dry-run)            DRY_RUN=1; shift ;;
-    -h|--help)            sed -n '2,216p' "$0"; exit 0 ;;
+    -h|--help)            sed -n '2,223p' "$0"; exit 0 ;;
     -*)                   envfail usage-unknown-option "unknown option: $1" ;;
     *)                    [ -z "$ISSUE" ] && ISSUE="$1" || envfail usage-unexpected-argument "unexpected argument: $1"; shift ;;
   esac
@@ -443,8 +454,38 @@ probe_intake() {
     echo "FAIL intake: #$ISSUE carries '$CLAIMED_LABEL' but no bot-authored '$CLAIM_MARKER_TAG' marker, so nothing shows this lane ever claimed it — the label alone is not evidence intake was paid off. Run intake yourself (/intake-toolkit:intake) and re-launch."
     return 1
   fi
+  # #613 AC-3: the THIRD accepting state, and the last one tried. It costs a LOCAL file read and
+  # no tracker round-trip, so the ordinary unintaken reject below is unchanged in cost as well as
+  # in wording — the same property the claimed-label arm above was ordered for.
+  #
+  # This is the yield half of affordance-plus-record. The attendance token alone reaches only the
+  # affordance printed in the reject; what accepts here is the RECORD, which quotes the operator's
+  # own answer and lands in the PR for a reviewer to repudiate.
+  local orc oreason
+  bash "$OVERRIDE_TOOL" check --gate intake-unqueued --issue "$ISSUE" --repo-root "$MAIN_ROOT" 2>&1
+  orc=$?
+  if [ "$orc" -eq 0 ]; then
+    echo "ok intake: #$ISSUE carries no queue label, and a recorded operator override for the unintaken-ticket gate accepts it. Intake was paid off in-session; nothing is re-labelled."
+    return 0
+  fi
+  # rc 2 is UNKNOWN, never a negative (checked-call.sh's vocabulary): a malformed or expired
+  # override is not the same fact as "no override", and preflight is exactly where fail-closed is
+  # cheapest. NOT the resumable reject either — the remedy is fixing the record, not paying off
+  # intake.
+  if [ "$orc" -ne 1 ]; then
+    echo "FAIL intake: #$ISSUE carries no queue label and its override record could not be read as a clean answer (override check exit $orc). Refusing rather than guessing."
+    return 1
+  fi
+  # The message text below is UNCHANGED, deliberately: AC-3 binds the headless decision AND its
+  # wording, so the attendance line and the affordance are ADDITIONAL lines rather than a rewrite.
   echo "FAIL intake: #$ISSUE does not carry '$QUEUE_LABEL' — run intake yourself (/intake-toolkit:intake) and re-launch. This lane does not spawn an intake session."
-  return 1
+  oreason="$(bash "$OVERRIDE_TOOL" state 2>/dev/null)" || oreason="unresolved"
+  echo "   attendance: $oreason"
+  if [ "$oreason" = "attended" ]; then
+    echo "   attended, so this is resumable: run intake in-session, then record the decision and re-launch WITHOUT re-labelling —"
+    echo "   bash $OVERRIDE_TOOL record --gate intake-unqueued --scope intake-attestation --issue $ISSUE --region none --decision '<what you decided>' --answer '<your answer, verbatim>'"
+  fi
+  return 3
 }
 
 # #515 D-4/D-6. The TICKET arm only, and the asymmetry is deliberate: the base arm belongs to the
@@ -501,6 +542,12 @@ wait "$p4"; r4=$?
 for f in 1 2 3 4; do
   while IFS= read -r line; do say "  $line"; done < "$PROBE_DIR/$f"
 done
+# #613 AC-3. The resumable exit is claimed ONLY when the unintaken-ticket probe is the sole
+# failure: a run that also cannot find its gate is not resumable by paying off intake, and a code
+# that meant "at least one of these is resumable" would be worth nothing to the caller reading it.
+if [ "$r1" -eq 3 ] && [ "$r2" -eq 0 ] && [ "$r3" -eq 0 ] && [ "$r4" -eq 0 ]; then
+  terminal preflight-rejected-resumable 3 "preflight rejected, resumable — #$ISSUE is unintaken and nothing was spawned. The attended remedy is in-session intake (/intake-toolkit:intake) plus a recorded override; the unattended one is the '$QUEUE_LABEL' label. Re-launch this same command after either."
+fi
 if [ "$r1" -ne 0 ] || [ "$r2" -ne 0 ] || [ "$r3" -ne 0 ] || [ "$r4" -ne 0 ]; then
   terminal preflight-rejected 2 "preflight rejected — nothing was spawned."
 fi
@@ -578,7 +625,12 @@ spawn() { # spawn <role> <model> <prompt>
   else
     say "  payload transcript: $log"
   fi
-  env -u RUN_ID -u LEAN_RUN_MODEL LEAN_RUN_MODEL="$model" \
+  # #613. POSITIVELY marked headless, not merely left unattended. The token binds to a session id
+  # and a spawned `claude -p` child gets a fresh one, so a payload could not read the operator's
+  # token as its own anyway — this is the independent second belt, and it is the one that holds if
+  # a future harness ever makes session ids inheritable. It also makes `attend` REFUSE inside a
+  # payload, which is what stops a spawned session from minting its own attendance.
+  env -u RUN_ID -u LEAN_RUN_MODEL LEAN_RUN_MODEL="$model" LEAN_ATTEND_MODE=headless \
     "$SPAWN_BIN" --permission-mode "$PERM_MODE" --model "$model" -p "$prompt" 2>&1 \
     | tee -a "$log" >&2
   rc=${PIPESTATUS[0]}
