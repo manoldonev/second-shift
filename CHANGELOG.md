@@ -4,6 +4,80 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v10.0.1
+
+### `audit-toolkit` 4.0.0 → 4.0.1
+
+- **Lockstep pairs are discovered from their markers, not declared twice (#606)** (#606)
+  lockstep contract blocks are now discovered from their LOCKSTEP markers
+  rather than listed in scripts/lockstep-manifest.tsv, which is deleted. An anchor
+  with only one site is now a failure. A marker must occupy its whole line, and a
+  subset-of relation is declared on the marker as `superset`/`subset`.
+  Migration: none for consumers — the checker is repo-level and ships in no plugin.
+  check-lockstep-pairs.sh now refuses loudly when it cannot resolve its own
+  directory or its repo root, instead of walking nowhere and reporting a green check.
+  Migration: none.
+
+### `design-toolkit` 4.0.0 → 4.0.1
+
+- **Lockstep pairs are discovered from their markers, not declared twice (#606)** (#606)
+  lockstep contract blocks are now discovered from their LOCKSTEP markers
+  rather than listed in scripts/lockstep-manifest.tsv, which is deleted. An anchor
+  with only one site is now a failure. A marker must occupy its whole line, and a
+  subset-of relation is declared on the marker as `superset`/`subset`.
+  Migration: none for consumers — the checker is repo-level and ships in no plugin.
+  check-lockstep-pairs.sh now refuses loudly when it cannot resolve its own
+  directory or its repo root, instead of walking nowhere and reporting a green check.
+  Migration: none.
+
+### `dev-pipeline` 10.0.0 → 10.0.1
+
+- **Lockstep pairs are discovered from their markers, not declared twice (#606)** (#606)
+  lockstep contract blocks are now discovered from their LOCKSTEP markers
+  rather than listed in scripts/lockstep-manifest.tsv, which is deleted. An anchor
+  with only one site is now a failure. A marker must occupy its whole line, and a
+  subset-of relation is declared on the marker as `superset`/`subset`.
+  Migration: none for consumers — the checker is repo-level and ships in no plugin.
+  check-lockstep-pairs.sh now refuses loudly when it cannot resolve its own
+  directory or its repo root, instead of walking nowhere and reporting a green check.
+  Migration: none.
+
+### `intake-toolkit` 4.1.0 → 4.1.1
+
+- **Lockstep pairs are discovered from their markers, not declared twice (#606)** (#606)
+  lockstep contract blocks are now discovered from their LOCKSTEP markers
+  rather than listed in scripts/lockstep-manifest.tsv, which is deleted. An anchor
+  with only one site is now a failure. A marker must occupy its whole line, and a
+  subset-of relation is declared on the marker as `superset`/`subset`.
+  Migration: none for consumers — the checker is repo-level and ships in no plugin.
+  check-lockstep-pairs.sh now refuses loudly when it cannot resolve its own
+  directory or its repo root, instead of walking nowhere and reporting a green check.
+  Migration: none.
+
+### `review-toolkit` 7.2.0 → 7.2.1
+
+- **Lockstep pairs are discovered from their markers, not declared twice (#606)** (#606)
+  lockstep contract blocks are now discovered from their LOCKSTEP markers
+  rather than listed in scripts/lockstep-manifest.tsv, which is deleted. An anchor
+  with only one site is now a failure. A marker must occupy its whole line, and a
+  subset-of relation is declared on the marker as `superset`/`subset`.
+  Migration: none for consumers — the checker is repo-level and ships in no plugin.
+  check-lockstep-pairs.sh now refuses loudly when it cannot resolve its own
+  directory or its repo root, instead of walking nowhere and reporting a green check.
+  Migration: none.
+
+### `second-shift` 8.0.0 → 8.0.1
+
+- **Lockstep pairs are discovered from their markers, not declared twice (#606)** (#606)
+  lockstep contract blocks are now discovered from their LOCKSTEP markers
+  rather than listed in scripts/lockstep-manifest.tsv, which is deleted. An anchor
+  with only one site is now a failure. A marker must occupy its whole line, and a
+  subset-of relation is declared on the marker as `superset`/`subset`.
+  Migration: none for consumers — the checker is repo-level and ships in no plugin.
+  check-lockstep-pairs.sh now refuses loudly when it cannot resolve its own
+  directory or its repo root, instead of walking nowhere and reporting a green check.
+  Migration: none.
+
 ## v10.0.0
 
 ### `dev-pipeline` 9.0.1 → 10.0.0
