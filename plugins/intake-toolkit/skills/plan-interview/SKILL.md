@@ -74,9 +74,10 @@ bash "${CLAUDE_PLUGIN_ROOT}/skills/plan-interview/tools/dup-scan.sh" --issue <is
   candidate: the same work, overlapping but distinct (sequence it if they touch the same files —
   a candidate carrying the *claimed* label is already being built), or unrelated. The scan
   proposes; you and the engineer decide. **Never close a ticket on its output.**
-- **`2`** — the scan could not run. **Hard-stop**: report the rc and the reason and do not hand
-  the ledger off. A ticket that reaches the queue unscanned is the defect this exists to
-  prevent, so "could not look" must never pass for "looked and found nothing".
+<!-- LOCKSTEP-BEGIN dup-scan-rc2 -->
+- **`2`** — the scan could not run. Hard-stop: report the rc and the reason, and hand nothing off.
+<!-- LOCKSTEP-END dup-scan-rc2 -->
+  The ledger does not go with it.
 
 Under `tracker.type: jira` it prints a not-applicable line and exits `0` — no queue label, no
 corpus. The ad-hoc / plan-mode path above scans nothing: there is no ticket to be a duplicate of.

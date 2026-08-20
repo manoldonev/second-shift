@@ -37,8 +37,8 @@ Run: `bash "${CLAUDE_PLUGIN_ROOT}/skills/onboard/tools/detect.sh"` and parse the
 ## Step 2 — Resolve the pin
 Run: `bash "${CLAUDE_PLUGIN_ROOT}/skills/onboard/tools/pin-resolve.sh" manoldonev/second-shift dev-pipeline review-toolkit intake-toolkit audit-toolkit second-shift` — add `design-toolkit` if (and only if) the design question below is answered yes.
 `audit-toolkit` is not an optional bundle member alongside `dev-pipeline`: it ships the hook that
-writes the per-session audit ledger, and the lean lane's entry gate refuses to start without a
-live one. State that on the review screen, so the human knows why this one has no opt-out.
+writes the per-session audit ledger, which the lean lane's entry gate requires. State that on the
+review screen, so the human knows why this one has no opt-out.
 `refSource == "tag-fallback"` → include one line in the review screen: "(pinned to tag
 <ref>; this marketplace has not cut a GitHub Release yet)". Resolution failure → ABORT
 with the stderr reason (likely offline or gh unauthenticated).
@@ -129,8 +129,7 @@ Ask AT MOST one AskUserQuestion batch, containing ONLY (skip any that detection 
      the FE repo's package.json (or a script whose usage names `--route`/`--out`). Detected →
      offer `design.liveRender` pre-filled (`command: "yarn render:verify --route {route} --state {state} --out {out}"`,
      `cwd: <fe repo id>`); the operator may add `readyProbe`, and may drop `{state}` if the
-     harness cannot drive one — the lean lane then refuses any ticket declaring a non-default
-     render state. Undetected or declined → omit the `liveRender` key (a ticket cannot arm its
+     harness cannot drive one. Undetected or declined → omit the `liveRender` key (a ticket cannot arm its
      design lane at all: the green gate renders each declared route into a committed receipt,
      and there is nothing to render; docs/live-render.md).
   6. reviewer deltas — **what they buy: `add` puts a reviewer that knows this repo's domain on
@@ -159,14 +158,12 @@ Ask AT MOST one AskUserQuestion batch, containing ONLY (skip any that detection 
      "Authoring the review-context surface"). **The offer default is "later"** —
      onboarding stays green without it. Hard rules if accepted:
      - Emit **only sections whose content the human confirmed in this batch** — never a
-       TODO-bodied heading (`scaffold-review-context.sh` refuses empty bodies; a present-but-
-       hollow section is a fake policy reviewers quote back).
+       TODO-bodied heading: a present-but-hollow section is a fake policy reviewers quote back.
      - **Never scaffold `## Maturity stage` with example text** — a maturity declaration is a
        severity waiver; write it only from the human's real posture, else omit it.
      - `detect.sh` detects tracker/topology/pkg-manager/lanes — **not** stack/ORM — so every
        section body is elicited, not auto-filled; a value you can only guess goes in as a
        pointer line, not a fabricated fact.
-     - Never regenerate: the tool refuses when the file already exists.
      Section names + readers come from the catalog (`docs/extension-points.md` "Authoring the
      review-context surface"). To write it, pipe confirmed H2 blocks to
      `bash "<installPath>/skills/onboard/tools/scaffold-review-context.sh" <repo-root> --title "<repo>"`,
@@ -303,8 +300,8 @@ Target state in `.claude/settings.json` (MERGE — never clobber unrelated keys)
     (+ "design-toolkit@second-shift": true when accepted)
 `audit-toolkit@second-shift` is written unconditionally, so onboard itself has no opt-out path to
 close. What it cannot stop is a later hand edit flipping it to `false` (or a `settings.local.json`
-overriding it): that breaks the lean lane outright — its entry gate refuses to start without a
-live audit ledger — and `/second-shift:doctor` FAILs on the combination rather than warning.
+overriding it): that breaks the lean lane outright, and `/second-shift:doctor` FAILs on the
+combination rather than warning.
 If the existing file already carries that `false`, do not silently preserve it: flag it on the
 review screen and merge the `true` in.
 Mechanics: read the existing file (or start from `{}`), apply

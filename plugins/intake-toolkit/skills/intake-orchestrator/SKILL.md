@@ -403,13 +403,12 @@ Three exit codes, three different obligations:
   (fold this ticket into it, and say so), overlapping but distinct (queue it — and sequence it
   if they touch the same files, because a candidate carrying the *claimed* label is already
   being built), or unrelated. **Never close a ticket on this output.**
-- **`2`** — the scan could not run (unauthenticated, offline, rate-limited, unparseable
-  config). **Hard-stop.** Do not apply the queue label, hand nothing off, report the rc and the
-  reason, exit non-zero. The operator fixes it and re-runs intake. This is what keeps
-  "queue-labeled ⇒ scanned" a true invariant: a proceed-with-a-flag variant leaves a ticket
-  reaching the queue unscanned, which is the exact defect this rung exists to prevent, and the
-  flag would land in a local receipt the next claimant never reads while the queue label still
-  advertises the ticket as eligible.
+<!-- LOCKSTEP-BEGIN dup-scan-rc2 -->
+- **`2`** — the scan could not run. Hard-stop: report the rc and the reason, and hand nothing off.
+<!-- LOCKSTEP-END dup-scan-rc2 -->
+  Do not apply the queue label; exit non-zero and let the operator fix it and re-run intake.
+  A proceed-with-a-flag variant is not available: the flag lands in a local receipt the next
+  claimant never reads, while the queue label still advertises the ticket as eligible.
 
 Under `tracker.type: jira` the tool prints an explicit not-applicable line and exits `0`: that
 adapter has no queue label and no claimed label, so there is no corpus of eligible tickets.
@@ -487,9 +486,14 @@ bash "${CLAUDE_PLUGIN_ROOT}/skills/plan-interview/tools/dup-scan.sh" \
 ```
 
    Same three obligations as Step 5.5 — `0` record nothing, `10` judge each candidate and write
-   a ledger row, **`2` hard-stop**: create nothing, label nothing, report the rc and the reason.
-   Hard-stopping here costs an operator re-run; proceeding mints up to five queue-labeled
-   tickets that nothing ever looked at, which is the defect this rung exists to prevent.
+   a ledger row, and on `2`:
+
+   <!-- LOCKSTEP-BEGIN dup-scan-rc2 -->
+   - **`2`** — the scan could not run. Hard-stop: report the rc and the reason, and hand nothing off.
+   <!-- LOCKSTEP-END dup-scan-rc2 -->
+
+   Create nothing and label nothing. The cost is an operator re-run; proceeding mints up to five
+   queue-labeled tickets that nothing ever looked at.
 
    Scan the blocked successors too, not just the queued first slice. Promotion at merge time is
    a bare label edit by an operator who runs no scan, so creation is the only point where a

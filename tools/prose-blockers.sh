@@ -41,30 +41,39 @@
 #
 # ## The predicate, and why it is this one
 #
-# Two marker families, and a construct needs only one of them:
+# A blocking construct must NAME A STOP. That is the whole default (`--tier stop`):
 #
-#   REFUSAL   refus{e,es,ing,al}, abort, HARD STOP, blocker, reject, hand back
-#             — anywhere in the block. These name the stop outright.
-#   PROHIBITION  must not / may not / must never / not optional / not negotiable
-#             anywhere; plus `never` and `do not` in CLAUSE-INITIAL position.
+#   refus{e,es,ed,ing,al}   abort (commanded, forbidden, or shouted)   hard-stop
+#   is/are a blocker        is a reject / reject-and-stop              hand back
+#   not negotiable / not optional / not skippable
 #
-# The clause-initial restriction on `never` is what separates a control from a description.
-# "Never copy plugin content" is a rule the reader must obey. "the lint never looks at the
-# tree" and "a capability that is off simply never runs" are statements about the world,
-# and pruning them would damage prose that was never a blocker. A bare grep for `never`
-# cannot tell those apart and lands near 240 lines against this predicate's ~100 — most of
-# the difference is that class.
+# A bare prohibition is deliberately NOT enough. "Do not pad with `no issues found`" is
+# guidance: nothing stops if you read past it, and pruning that class would strip working
+# instruction under a triage that was never about it. `abort` is narrowed the same way — a run
+# that WAS aborted is a state, not a stop, so `aborted runs are in scope` is not a blocker while
+# `-> ABORT with:` is.
 #
-# A clause-initial `never` must also be followed by something other than a determiner or a
-# preposition. "renders names, never versions" is an elliptical contrast, not a prohibition
-# on an action: nothing stops if you read past it. Requiring a verb-ish next word drops
-# that class without needing a list of exceptions.
+# The wider tiers exist so the narrow default is a stated choice rather than a hidden one:
 #
-# There is deliberately NO exclusion list. A hand-maintained roster of "lines that look
-# like blockers but are not" is the centrally-registered prose census the intake rejected:
-# it conflicts on every PR that appends to it, and it goes blind to whatever it never named.
-# The predicate over-including a handful of elliptical contrasts is the accepted cost.
+#   --tier stop   (default)  names a stop
+#   --tier bold              + prohibitions inside a bold span (this repo marks a rule that way)
+#   --tier all               + every clause-initial `never` / `do not` / `don't`
 #
+# The clause-initial restriction on the prohibition tiers is what separates a control from a
+# description. "Never copy plugin content" is a rule; "the lint never looks at the tree" is a
+# statement about the world. A clause-initial marker must also bind an ACTION — "renders names,
+# never the local cache values" is an elliptical noun-phrase contrast — a determiner or a
+# preposition after the marker — and nothing stops if you read past it either.
+#
+# There is deliberately NO exclusion list. A hand-maintained roster of "lines that look like
+# blockers but are not" is the centrally-registered prose census the intake rejected: it conflicts
+# on every PR that appends to it, and it goes blind to whatever it never named. The cost — a
+# block that carries a stop word inside a larger instruction — is accepted, and such a block
+# triages on its merits like any other.
+#
+# Fenced code and blockquotes are not prose the reader is told to obey: a command that refuses IS
+# the gate, and a blockquote is quoted payload (a message the skill emits, a tracker-delta
+# callout). Both are skipped, as is YAML frontmatter.
 #
 # ## Corpus
 #
@@ -75,20 +84,28 @@
 #
 #
 # Usage:
-#   bash tools/prose-blockers.sh corpus            # the in-census files, one per line
-#   bash tools/prose-blockers.sh census            # TSV: id, sites, excerpt
-#   bash tools/prose-blockers.sh check [record]    # census vs the triage record
+#   bash tools/prose-blockers.sh corpus                    # the in-census files, one per line
+#   bash tools/prose-blockers.sh census [--tier T] [--full] # TSV: id, sites, excerpt
+#   bash tools/prose-blockers.sh check [record]             # census vs the triage record
 #
-# check exits 3 naming every construct in the tree with no row in the record
-# (UNDISPOSITIONED), and every row dispositioned `deleted` whose construct is still in the
-# tree (UNPRUNED). It exits 4 on a malformed record. Nothing wires it into CI in this
-# slice: the living coverage guard belongs to the classification register.
+# check exits 3 on any of three disagreements, naming every row involved:
+#   UNDISPOSITIONED  a construct in the tree with no row in the record
+#   UNPRUNED         a `prose-deleted` row whose construct is still in the tree
+#   STALE            a surviving-action row (pointer-kept, lockstep-pinned, guard-added, filed)
+#                    whose construct is no longer in the tree
+#   UNRESOLVED       an enforcer path the tree does not carry. It does NOT verify that the named
+#                    gate enforces that rule — that is a reading, and this command claims no
+#                    judgment it does not have.
+# It exits 4 on a malformed record. Nothing wires it into CI in this slice: the living coverage
+# guard belongs to the classification register, which will key on gates rather than on prose.
 
 set -uo pipefail
 
 SELF_DIR=$(cd -- "$(dirname -- "$0")" && pwd)
 ROOT=${PROSE_BLOCKERS_ROOT:-$(cd -- "$SELF_DIR/.." && pwd)}
 DEFAULT_RECORD="docs/prose-blocker-triage.tsv"
+TIER=${PROSE_BLOCKERS_TIER:-stop}
+FULL=${PROSE_BLOCKERS_FULL:-}
 
 die() {
   printf '[prose-blockers] %s\n' "$*" >&2
@@ -115,7 +132,7 @@ corpus_files() {
 # Emit one record per matching block: path \t line \t anchor \t normalized-text.
 # Anchor is the enclosing LOCKSTEP anchor, or "-" when the block is not inside one.
 scan_file() {
-  awk -v path="$1" -v tier="${PROSE_BLOCKERS_TIER:-stop}" '
+  awk -v path="$1" -v tier="$TIER" '
     function trim(s) {
       sub(/^[[:space:]]+/, "", s); sub(/[[:space:]]+$/, "", s); return s
     }
@@ -138,7 +155,7 @@ scan_file() {
       return 0
     }
     # A prohibition binds an ACTION. A determiner or preposition after the marker means an
-    # elliptical contrast ("pinned ref, never local cache values"), which stops nothing.
+    # elliptical noun-phrase contrast ("pinned ref, never the local cache values"): nothing stops.
     function binds_action(rest,   w) {
       w = rest
       sub(/^[[:space:]]+/, "", w)
@@ -158,9 +175,15 @@ scan_file() {
     # instruction: nothing stops if you read past it. What makes a construct BLOCKING is a
     # stop consequence — stated outright, or carried by the bold emphasis this repo uses to
     # mark a rule as non-negotiable.
+    # A run that WAS aborted is a state, not a stop demanded of the reader. `abort` counts only
+    # where the prose commands or forbids one — or shouts it, which is how the skills write the
+    # imperative ("-> ABORT with: ...").
+    function commands_abort(lc) {
+      return (lc ~ /(never|not|must|do not|don'"'"'t|will|then|→|->) abort/)
+    }
     function stops(lc) {
       if (lc ~ /refus(e|es|ed|ing|al|als)/) return 1
-      if (lc ~ /abort/) return 1
+      if (commands_abort(lc) || text_has_caps_abort) return 1
       if (lc ~ /hard[- ]stop|hard stop/) return 1
       if (lc ~ /(is a blocker|are blockers|itself a blocker|counts as a blocker|is a hard blocker)/) return 1
       if (lc ~ /(is a reject|reject-and-stop|strict reject|reject at intake)/) return 1
@@ -183,8 +206,9 @@ scan_file() {
       }
       return 0
     }
-    function is_construct(text,   lc) {
+    function is_construct(text,   lc, text_has_caps_abort) {
       lc = tolower(text)
+      text_has_caps_abort = (text ~ /ABORT/)
       if (stops(lc)) return 1
       if (tier != "stop" && bold_prohibits(text)) return 1
       if (tier == "all" && prohibits(lc)) return 1
@@ -217,6 +241,7 @@ scan_file() {
     infence { next }
     /^[[:space:]]*$/ { flush(); next }
     /^[[:space:]]*#/ { flush(); next }
+    /^[[:space:]]*>/ { flush(); next }
     # A new list item or table row ends the previous block, whatever its indent: a nested
     # bullet is its own rule, and merging it into its parent would hide one of the two.
     /^[[:space:]]*([-*+][[:space:]]|[0-9]+[a-z]?[.)][[:space:]])/ || /^[[:space:]]*\|/ {
@@ -231,6 +256,14 @@ scan_file() {
 # normalized text, are one construct — so a duplicated rule is counted once and carries
 # both of its addresses.
 census() {
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --tier) [ $# -ge 2 ] || die "--tier needs a value"; TIER=$2; shift 2 ;;
+      --full) FULL=1; shift ;;
+      *) die "census: unknown option: $1" ;;
+    esac
+  done
+  case "$TIER" in stop|bold|all) ;; *) die "--tier must be stop, bold or all (got '$TIER')" ;; esac
   local tmp
   tmp=$(mktemp) || die "mktemp failed"
   # shellcheck disable=SC2064
@@ -258,7 +291,7 @@ census() {
     else
       id="pb-$(printf '%s' "$raw" | hash_stdin | cut -c1-8)"
     fi
-    if [ -n "${PROSE_BLOCKERS_FULL:-}" ]; then
+    if [ -n "$FULL" ]; then
       printf '%s\t%s\t%s\n' "$id" "$sites" "$text"
     else
       printf '%s\t%s\t%s\n' "$id" "$sites" "$(printf '%s' "$text" | cut -c1-160)"
@@ -270,50 +303,74 @@ check() {
   local record=${1:-$DEFAULT_RECORD}
   [ -f "$ROOT/$record" ] || die "no triage record at $record"
 
-  local tmp_census tmp_ids
+  local tmp_census tmp_rows
   tmp_census=$(mktemp) || die "mktemp failed"
-  tmp_ids=$(mktemp) || die "mktemp failed"
+  tmp_rows=$(mktemp) || die "mktemp failed"
   # shellcheck disable=SC2064
-  trap "rm -f '$tmp_census' '$tmp_ids'" EXIT
+  trap "rm -f '$tmp_census' '$tmp_rows'" EXIT
   census >"$tmp_census"
 
-  # Record shape: id, disposition, action, sites, enforcer, note — comments and blanks skipped.
   local bad
   bad=$(awk -F'\t' '
     /^#/ || /^[[:space:]]*$/ { next }
-    NF != 6 { printf "line %d: %d fields, want 6\n", FNR, NF; next }
-    $2 !~ /^(gate-backed|promoted|deleted)$/ { printf "line %d: unknown disposition %s\n", FNR, $2 }
+    NF != 6 { printf "line %d: %d field(s), want 6\n", FNR, NF; next }
+    $2 !~ /^(gate-backed|promoted|deleted)$/ { printf "line %d: unknown disposition \"%s\"\n", FNR, $2 }
+    $3 !~ /^(prose-deleted|pointer-kept|lockstep-pinned|guard-added|filed)$/ { printf "line %d: unknown action \"%s\"\n", FNR, $3 }
+    $2 != "deleted" && $5 == "-" { printf "line %d: %s row names no enforcer\n", FNR, $2 }
   ' "$ROOT/$record")
   if [ -n "$bad" ]; then
     printf '[prose-blockers] MALFORMED record %s:\n%s\n' "$record" "$bad" >&2
     exit 4
   fi
 
-  awk -F'\t' '!/^#/ && NF == 6 { print $1 "\t" $2 }' "$ROOT/$record" >"$tmp_ids"
+  # AC-3, mechanically: a named gate must EXIST. The check cannot verify that the gate enforces
+  # that particular rule — that is a reading — but a row pointing at a path the tree does not
+  # carry is a claim nothing backs, and it is the shape a rename leaves behind.
+  local unresolved
+  unresolved=$(awk -F'\t' '!/^#/ && NF == 6 && $5 != "-" && $5 !~ /^#[0-9]+$/ {
+      p = $5; sub(/::.*$/, "", p); print $1 "\t" p
+    }' "$ROOT/$record" | while IFS=$'\t' read -r id path; do
+      [ -e "$ROOT/$path" ] || printf '  %s  %s\n' "$id" "$path"
+    done)
 
-  local rc=0 undispositioned unpruned
-  undispositioned=$(awk -F'\t' 'NR == FNR { seen[$1] = 1; next } !($1 in seen) { print "  " $1 "  " $2 "  " $3 }' "$tmp_ids" "$tmp_census")
-  unpruned=$(awk -F'\t' 'NR == FNR { live[$1] = $2; next } $2 == "deleted" && ($1 in live) { print "  " $1 "  " live[$1] }' "$tmp_census" "$tmp_ids")
+  awk -F'\t' '!/^#/ && NF == 6 { print $1 "\t" $3 }' "$ROOT/$record" >"$tmp_rows"
 
-  local n
-  n=$(awk 'END {print NR}' "$tmp_census")
-  printf '[prose-blockers] census: %s construct(s) over %s file(s).\n' "$n" "$(corpus_files | awk 'END {print NR}')"
+  # FILENAME, not NR == FNR: either side can legitimately be empty — a tree with no constructs
+  # left, a record with no rows yet — and awk skips an empty file entirely, which makes the
+  # NR == FNR idiom read the SECOND file as if it were the first and report nothing at all.
+  local rc=0 undispositioned unpruned stale
+  undispositioned=$(awk -F'\t' -v R="$tmp_rows" 'FILENAME == R { seen[$1] = 1; next } !($1 in seen) { print "  " $1 "  " $2 }' "$tmp_rows" "$tmp_census")
+  unpruned=$(awk -F'\t' -v C="$tmp_census" 'FILENAME == C { live[$1] = $2; next } $2 == "prose-deleted" && ($1 in live) { print "  " $1 "  " live[$1] }' "$tmp_census" "$tmp_rows")
+  stale=$(awk -F'\t' -v C="$tmp_census" 'FILENAME == C { live[$1] = 1; next } $2 != "prose-deleted" && !($1 in live) { print "  " $1 "  (" $2 ")" }' "$tmp_census" "$tmp_rows")
+
+  printf '[prose-blockers] census: %s construct(s) over %s file(s); record: %s row(s).\n' \
+    "$(awk 'END {print NR}' "$tmp_census")" \
+    "$(corpus_files | awk 'END {print NR}')" \
+    "$(awk 'END {print NR}' "$tmp_rows")"
 
   if [ -n "$undispositioned" ]; then
     printf '[prose-blockers] UNDISPOSITIONED — in the tree, absent from %s:\n%s\n' "$record" "$undispositioned" >&2
     rc=3
   fi
   if [ -n "$unpruned" ]; then
-    printf '[prose-blockers] UNPRUNED — recorded `deleted`, still in the tree:\n%s\n' "$unpruned" >&2
+    printf '[prose-blockers] UNPRUNED — recorded prose-deleted, still in the tree:\n%s\n' "$unpruned" >&2
     rc=3
   fi
-  [ "$rc" -eq 0 ] && printf '[prose-blockers] ✓ every censused construct carries a disposition.\n'
+  if [ -n "$unresolved" ]; then
+    printf '[prose-blockers] UNRESOLVED — the row names a gate the tree does not carry:\n%s\n' "$unresolved" >&2
+    rc=3
+  fi
+  if [ -n "$stale" ]; then
+    printf '[prose-blockers] STALE — the row expects a surviving construct, the tree has none:\n%s\n' "$stale" >&2
+    rc=3
+  fi
+  [ "$rc" -eq 0 ] && printf '[prose-blockers] ✓ zero undispositioned constructs.\n'
   return "$rc"
 }
 
 case "${1:-census}" in
   corpus) corpus_files ;;
-  census) census ;;
+  census) shift; census "$@" ;;
   check) shift; check "$@" ;;
-  *) die "usage: prose-blockers.sh {corpus|census|check [record]}" ;;
+  *) die "usage: prose-blockers.sh {corpus | census [--tier stop|bold|all] [--full] | check [record]}" ;;
 esac

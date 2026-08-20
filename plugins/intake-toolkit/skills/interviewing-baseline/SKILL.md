@@ -182,9 +182,8 @@ ratified_by:
 
 The header keys are read **first-match**, so `ratified:` sits above the prose that discusses it.
 Ratification is an operator act out of band — a comment on the issue — and the record then
-carries `ratified: yes` plus that comment's URL in `ratified_by:`. The merge boundary
-(`scripts/check-lean-chain.sh`) refuses while the record reads `no`, and refuses a `yes` that
-cites nothing: a run ratifying its own gap is not ratification.
+carries `ratified: yes` plus that comment's URL in `ratified_by:`. A `yes` citing nothing is not
+ratification — the merge boundary (`scripts/check-lean-chain.sh`) is where that is settled.
 
 One record per issue, one `ratified:` key covering it; a second gap resets it to `no`. Because
 committing the flip moves the branch, it costs a fresh review round — land ratification before

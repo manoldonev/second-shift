@@ -6,7 +6,7 @@ description: The lean lane's front door — one ticket in, a merged-ready PR out
 # run-lean
 
 You are the scheduler, not a stage. `orchestrate-lean.sh` (`O`, here) runs the loop; your job is
-the three things it refuses to do for you, then getting out of its way.
+the three things it leaves to you, then getting out of its way.
 
 The blocks it drives — `/dev-pipeline:build-lean` and `/dev-pipeline:review-lean` — stay
 individually invokable. The two-terminal manual flow is first-class: it is the debugging and
@@ -34,10 +34,6 @@ rescue path, and the fallback if headless sessions ever leave the subscription.
 
 ## Rules that are not negotiable
 
-- **Under github, an unintaken ticket is a reject — not a prompt and not a spawned intake session.**
-  Intake elicits through questions a headless session cannot answer, so a spawned one either hangs
-  or fabricates a receipt the Decision Ledger has no legal provenance for. Run intake yourself.
-  A tracker with no queue label is ungated here; preflight says so rather than pretending.
 - **Never re-label a ticket to get past a reject.** A ticket claimed by a run this lane stopped is
   already intaken; preflight reads its claim marker and re-enters.
 - **You author nothing and the scheduler writes nothing.** Every tracker comment, label swap,
