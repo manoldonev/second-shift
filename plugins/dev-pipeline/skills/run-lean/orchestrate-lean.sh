@@ -473,7 +473,7 @@ probe_intake() {
   # cheapest. NOT the resumable reject either — the remedy is fixing the record, not paying off
   # intake.
   if [ "$orc" -ne 1 ]; then
-    echo "FAIL intake: #$ISSUE carries no queue label and its override record could not be read as a clean answer (override check exit $orc). Refusing rather than guessing."
+    echo "FAIL intake: #$ISSUE carries no queue label and its override record could not be read as a clean answer (override check exit $orc; 127 means the mechanism is missing from this install, not that a record is malformed). Refusing rather than guessing."
     return 1
   fi
   # The message text below is UNCHANGED, deliberately: AC-3 binds the headless decision AND its

@@ -3025,7 +3025,7 @@ check_pause_and_ask() { # prints a reason on stdout; the vocabulary above says w
       # #613. The override record exists and could not be read as a clean answer. Same rc-2 arm
       # the two gh reads take, and for the same reason: no edit to the spec fixes it, so it must
       # not spend a fix attempt.
-      *) echo "region $id's operator-override record exists but could not be read as a clean answer — that is not the same fact as 'no override', and is not treated as one. Fix or remove the record (bash $OVERRIDE_TOOL lint --record …), then re-run."; return 2 ;;
+      *) echo "region $id's operator-override record could not be read as a clean answer (override check exit $rrc; 127 means the mechanism is missing from this install rather than a record being malformed) — that is not the same fact as 'no override', and is not treated as one. Fix or remove the record (bash $OVERRIDE_TOOL lint --record …), then re-run."; return 2 ;;
     esac
   done <<< "$ids"
   [ -n "$unresolved" ] || return 0
