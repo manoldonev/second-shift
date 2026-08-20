@@ -102,6 +102,20 @@ The ticket's four spec defects, found at intake and binding here:
   runs before and after, THEN every suite's verdict is unchanged except the suites this diff
   deliberately edits or deletes.
 
+## Decision Ledger
+
+Carried forward from the pre-flight receipt `.claude/pipeline-state/566-ledger.md` (gitignored).
+These are the rows a human ratified; they are binding and are not re-decided here.
+
+| ID | Decision | Resolution | Provenance |
+| --- | --- | --- | --- |
+| D-1 | Where the bounded quick check lives — the ticket says "the gate builds the `--exclude` list up front", which is not reachable | REPO-SIDE. The committed slow-suite table and the exclusion logic live entirely in `tools/run-selftests.sh`; `lean-gate.sh`'s diff is PURE DELETION with no new shipped mass. AC-1 and AC-4 are amended: the `--exclude` set and the deferred-suite listing become claims about `run-selftests.sh`, whose stdout the gate replays | user-answered |
+| D-2 | Deleting the stratum kills `m3_runner_records`, half of `infra_token`'s basis, which the scheduler reads | Re-version to `m3infra-v3:`, basis = `unclosed_count 3` alone; drop the `"N runner record(s), M live"` diagnostic. `orchestrate-lean.sh`'s own `infra_token()` is UNCHANGED — it only string-compares (`:785`) and never parses — so the sole scheduler diff is the stale prose at `:677`. AC-5 is amended to admit it | user-answered |
+| D-3 | How far the lane-registry deletion goes, given it reverses #526's shipped outcome | FULL. `lane-registry.sh`, `lane-registry-selftest.sh`, `lane_register`, `lane_deregister`, `lane_apply_job_ceiling`, `LEAN_JOB_CEILING` **and its reading end in `tools/run-selftests.sh`** all go. Grounding: #525 and #526 are both closed, the ceiling sized a multi-minute sweep's core share, and a check bounded to a 120s reap does not meaningfully contend | user-answered |
+| D-4 | What happens if the measured quick check does NOT fit the ~120s harness reap | GROW THE TABLE until it fits — whatever does not fit gets a row and defers to CI. Safe by construction: CI still sweeps everything, so a larger table costs signal latency, never soundness. AC-1's reap fit becomes an outcome the table guarantees, not a hope | user-answered |
+| D-5 | What selects the quick check, given the dogfood config is gitignored | DEFAULT-ON. `run-selftests.sh` applies the table unless `--full` is passed; `ci.yml` (2 sites) and `nightly-guards.yml` (2 sites) pass `--full`. The change is atomic and reviewable in one diff with no dependency on an untracked file. AC-5 is narrowed to its intent — `check-lean-chain.sh` and `pr-gates` carry no diff, so the merge boundary is untouched | user-answered |
+| D-6 | Whether `needs-spec-work` was live, and what clears it | LIVE — the in-body `spec-review: verdict=implementable blockers=0` marker over-claimed. The four amendments (D-1, D-2, D-3/D-9, D-5) are the unpaid work. This receipt plus the ticket amendments discharge it; swap `needs-spec-work` for `ready-for-dev` | user-answered |
+
 ## Open Regions
 
 Carried from the pre-flight receipt.
