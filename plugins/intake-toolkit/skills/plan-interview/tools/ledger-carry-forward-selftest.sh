@@ -225,5 +225,19 @@ else
   fail "(cf-h) missing=$rc_missing option=$rc_opt none=$rc_none"
 fi
 
+# (cf-m) --help prints the header contract and STOPS there. The assertion that it does
+#        not reach `set -euo pipefail` is the load-bearing half: a broken line range
+#        either prints nothing or prints the whole script, and both read as "help works"
+#        to a check that only looks for the usage line.
+run_cf --help
+if [[ "$RC" -eq 0 ]] \
+  && grep -qF 'Usage: ledger-carry-forward.sh <receipt-path>' "$TMP/stdout" \
+  && grep -qF 'Exit: 0 clean' "$TMP/stdout" \
+  && ! grep -qF 'set -euo pipefail' "$TMP/stdout"; then
+  pass "(cf-m) --help prints the header contract and nothing below it"
+else
+  fail "(cf-m) rc=$RC lines=$(wc -l < "$TMP/stdout")"
+fi
+
 echo "[ledger-carry-forward-selftest] $PASS passed, $FAIL failed"
 exit "$FAIL"
