@@ -74,6 +74,8 @@ const range = `${base}..${head}`
 
 // Copied verbatim from code-review.mjs / stall-probe.mjs so the probe dispatch is
 // identical to production. (Permissive: only severity/description/confidence required.)
+// The `findings-schema` LOCKSTEP markers hold this to code-review.mjs's copy verbatim;
+// the reasoning lives there, at the canonical side.
 // LOCKSTEP-BEGIN findings-schema
 const FINDINGS_SCHEMA = {
   type: 'object',

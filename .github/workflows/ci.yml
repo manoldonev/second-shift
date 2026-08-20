@@ -134,10 +134,12 @@ jobs:
           path: ${{ runner.temp }}/selftest-cache
           key: selftest-pass-${{ runner.os }}-${{ github.run_id }}
 
-      # Contract pairs duplicated across files (an agent's inline copy of a rule, a schema
+      # Contract blocks duplicated across files (an agent's inline copy of a rule, a schema
       # three Workflow scripts each redeclare) where prose alone said "keep verbatim".
       # Replaces the deleted prose-presence guards: byte-parity beats token presence.
-      - name: contract lockstep pairs (scripts/lockstep-manifest.tsv)
+      # The markers in the files are the whole declaration — the checker discovers and groups
+      # them, so this step takes no register argument and an anchor with ONE site fails (#604).
+      - name: contract lockstep blocks (discovered from LOCKSTEP markers)
         run: bash scripts/check-lockstep-pairs.sh
 
       # No vendor model identity in the runnable eval surface under plugins/*/evals/**. The
@@ -238,8 +240,8 @@ jobs:
     # plugins/second-shift/templates/consumer/second-shift-ci.yml needs the same scope, and
     # without it every adopting repo's lean PRs red on an environment error. If it lives only in
     # check-lean-chain.sh, the template must NOT get it — an unused scope there is a standing
-    # escalation for a job that executes a fetched script. Reasoned out in
-    # scripts/lockstep-manifest.tsv (the `lean evidence TOKEN SCOPES` entry).
+    # escalation for a job that executes a fetched script. Reasoned out in docs/testing.md
+    # (the `lean evidence TOKEN SCOPES` entry under *Couplings considered and declined*).
     permissions:
       contents: read
       issues: read

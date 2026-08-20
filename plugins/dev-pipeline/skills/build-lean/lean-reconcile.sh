@@ -184,6 +184,7 @@ extract_key_at() { # extract_key_at <key> <commit>
     | grep -oE "$1:[[:space:]]*[A-Za-z0-9._-]+" 2>/dev/null | head -n1 | sed -E "s/^$1:[[:space:]]*//"
 }
 
+# LOCKSTEP: held byte-identical to lean-gate.sh, the canonical side, which carries the reasoning.
 # LOCKSTEP-BEGIN lean-inherited-key
 # Any key of the verdict record, read from its HEADER BLOCK only. Record on stdin; prints
 # nothing when the key is absent from that block.

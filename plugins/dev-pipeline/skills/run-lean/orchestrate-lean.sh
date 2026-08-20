@@ -348,8 +348,8 @@ QUEUE_LABEL="$(cfg '.tracker.labels.queue' 'ready-for-dev')"
 # silently stop matching, which is why both resolve from the same config key.
 CLAIMED_LABEL="$(cfg '.tracker.labels.claimed' 'in-progress')"
 # The claim marker's stage tag. A FOURTH copy of lean-gate.sh's LEAN_CLAIM_MARKER_TAG, and
-# deliberately NOT a lockstep row — see scripts/lockstep-manifest.tsv's lean-producer-capabilities
-# comment, which records this and lean-reconcile.sh as the two non-rows. Drift here fails CLOSED
+# deliberately NOT a LOCKSTEP site — see docs/testing.md, which records this and lean-reconcile.sh
+# as the two unbound copies under *Couplings considered and declined*. Drift here fails CLOSED
 # (re-entry stops being recognized, loudly, on the next stopped run) rather than silently
 # weakening a merge boundary, which is what earns a row.
 CLAIM_MARKER_TAG='lean-claimed'

@@ -104,6 +104,14 @@ If the spec satisfies every row, return `pass` with zero findings. Do not invent
 
 ## Reviewer baseline
 
+<!-- LOCKSTEP, canonical side. Both artifact reviewers adopt review-toolkit:reviewer-baseline
+     but must override the same two things the same way: the merge-gating
+     Critical/Warning/Pre-existing ladder does not apply to an artifact graded BEFORE
+     implementation, and their dispatchers ran them schema-free, so the baseline's Output Mode
+     StructuredOutput instruction is wrong for them. Two live copies rather than a
+     cross-reference: each agent is loaded alone, into a context that has not read the other,
+     so a pointer would resolve to nothing at the moment the override is needed. A one-sided
+     edit re-opens the drift #258 closed. -->
 <!-- LOCKSTEP-BEGIN artifact-reviewer-baseline-deltas -->
 `review-toolkit:reviewer-baseline` loads automatically via the `skills:` frontmatter (by name, not path — no relative path resolves in both the repo and installed-cache layouts). Take its **Grounding Verdicts**, **Confidence Scoring**, **Tool Discipline**, and per-finding evidence discipline. Two deltas apply, because this agent grades an **artifact before implementation**, not a diff before merge:
 

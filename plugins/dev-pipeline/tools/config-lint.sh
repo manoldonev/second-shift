@@ -18,8 +18,9 @@ jq empty "$CONFIG" 2>/dev/null || { echo "config-lint: not valid JSON: $CONFIG" 
 # The shipped tier alphabet (#351). A reviewers.modelOverrides value may name a TIER as
 # well as a raw dispatch model, so this lint needs the same alphabet check-model-tiers.sh
 # parses — from the same authority, ../model-tiering.md, rather than a second hardcoded
-# copy that would drift from it. The parse block below is pinned to that script's copy as
-# `tier-alphabet-parse` in scripts/lockstep-manifest.tsv.
+# copy that would drift from it. The parse block below is pinned to that script's copy by the
+# `tier-alphabet-parse` LOCKSTEP markers, which scripts/check-lockstep-pairs.sh discovers and
+# compares verbatim. Edit one, edit both.
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 TIER_DOC="${SECOND_SHIFT_TIER_DOC:-$SCRIPT_DIR/../model-tiering.md}"
 parse_tier_alphabet() { # parse_tier_alphabet <doc-path>

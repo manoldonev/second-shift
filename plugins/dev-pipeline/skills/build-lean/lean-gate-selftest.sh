@@ -1147,8 +1147,8 @@ else fail "(ic8) expected infra=7 / ordinary=4 with an unmoved record, got $rc /
 
 # AC-1 ↔ AC-2 COMPOSED, and this is the case that makes the reserved code a contract rather than
 # two files agreeing by coincidence. The writer (tools/run-selftests.sh) and the reader (this
-# gate) share a NUMBER, not an anchorable block, so a lockstep row cannot hold them — see the
-# DROPPED entry in scripts/lockstep-manifest.tsv. What holds them is this: the real runner, over
+# gate) share a NUMBER, not an anchorable block, so a LOCKSTEP group cannot hold them — see
+# docs/testing.md, *Couplings considered and declined*. What holds them is this: the real runner, over
 # a fixture tree whose every suite dies without a verdict, wired into `commands.acme.test` exactly
 # as a consumer would wire it. A one-sided change of the number reds here.
 #
@@ -6141,8 +6141,8 @@ else fail "(jc4) expected an announced single-lane fallback reaching the child, 
 #
 # What CANNOT be asserted here is that a suite is then skipped: that is the runner's contract and
 # tools/run-selftests-selftest.sh's #563 cases own it, driven through this very variable. The
-# coupling between the two sides is a variable NAME, which scripts/lockstep-manifest.tsv records
-# as a DROPPED row for LEAN_JOB_CEILING and which this case pins the same way: behaviorally, from
+# coupling between the two sides is a variable NAME, which docs/testing.md records as declined
+# under LEAN_JOB_CEILING and LEAN_SELFTEST_CACHE_DIR, and which this case pins the same way: behaviorally, from
 # the writer's side, so a rename here leaves a child reporting `unset`.
 sc_xdg="$WORK/sc-xdg"
 # The single quotes are the assertion: $LEAN_SELFTEST_CACHE_DIR must expand in the CHILD the gate

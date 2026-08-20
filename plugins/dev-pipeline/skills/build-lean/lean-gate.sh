@@ -954,6 +954,17 @@ record_key_at() { # record_key_at <key> <commit>
     | grep -oE "$1:[[:space:]]*[A-Za-z0-9._-]+" 2>/dev/null | head -n1 | sed -E "s/^$1:[[:space:]]*//"
 }
 
+# LOCKSTEP, canonical side (#375). This awk program is held byte-identical by the record's two
+# other readers — scripts/check-lean-chain.sh and lean-reconcile.sh — because all three parse
+# the SAME literal in a file-format-neutral form that needs no adaptation to the host dialect.
+# There was nothing to invent, so declining to check it would only have been declining to check.
+# The coupling is one-directional in the dangerous way: a reader that kept the OLD first-match
+# extraction still parses every correct record identically and diverges only on the adversarial
+# one, so drift here is invisible to every green run — and it is not hypothetical, since the
+# three-reader agreement is what made the pre-fix blind spot uniform rather than caught.
+# Behavioral guards sit under it at each reader and compose writer-to-reader: lean-gate-selftest.sh
+# (z1)/(z2)/(z3), check-lean-chain-selftest.sh (V6)/(V6b), lean-reconcile-selftest.sh (N7)/(N7b).
+# The markers catch what those cannot — a fourth reader added later with a hand-copied extraction.
 # LOCKSTEP-BEGIN lean-inherited-key
 # Any key of the verdict record, read from its HEADER BLOCK only. Record on stdin; prints
 # nothing when the key is absent from that block.
@@ -2974,6 +2985,16 @@ check_pause_and_ask() { # prints a reason on stdout; the vocabulary above says w
 }
 
 # ---------------------------------------------------------------- the design axis: arming
+# LOCKSTEP, canonical side (#394). `design_armed` is held verbatim by scripts/check-lean-chain.sh,
+# which gates the merge on it. The coupling is unusually sharp because the two readers have
+# DIFFERENT INPUTS and must still agree: this gate ANDs the predicate against config
+# `design.provider`, the boundary cannot (the config never reaches a CI checkout) and so runs it
+# alone. Divergence is invisible from either side — a boundary reading arming more narrowly waves
+# an armed PR through with no render evidence, one reading it more widely reds honest unarmed
+# work, and in both cases the OTHER site stays green and says so. Only the NARROW decision is
+# shared: the richer form validation below (handoff link, the neither-armed-nor-disarmed refusal,
+# the reason required on a disarm) is authoring feedback given at milestone 1, so a spec failing
+# it never reaches a merge and the boundary needs no opinion about it.
 # LOCKSTEP-BEGIN lean-design-armed
 # Armed-ness exactly as the COMMITTED SPEC declares it. Spec on stdin; prints `armed`, or
 # nothing at all.
@@ -3161,7 +3182,8 @@ cmd_1() {
   # consumer, this repo included, so check-lean-chain.sh in CI cannot read the receipt at all.
   #
   # Same seam as the #562 lint above, and the same reason: the provenance enum stays single-sited
-  # in ledger-lint.sh rather than gaining a third parser here (lockstep-manifest.tsv:370).
+  # in ledger-lint.sh rather than gaining a third parser here (docs/testing.md, the
+  # `intake-receipt vocabulary` entry under *Couplings considered and declined*).
   # `resolve_ledger_lint` is re-used only when the branch above did not already resolve it.
   receipt="$(pause_and_ask_ledger_path)"
   if [ -f "$receipt" ]; then
@@ -3274,12 +3296,12 @@ cmd_2() {
 # repo (dogfooding), so it must not inherit the gate's own pipeline-seam env: an ambient
 # SECOND_SHIFT_CONFIG/STATECTL_STATE_DIR silently re-roots or re-states it, the same class
 # #34 found in the previous verify runner, which held this denylist until #348. This file is
-# now its canonical carrier, with preflight.sh's superset pinned against it
-# (scripts/lockstep-manifest.tsv) — lean-gate needs nothing narrower or wider. `eval "$cmd"`
+# now the SUBSET side of the `seam-scrub` group, with preflight.sh declared its `superset`
+# (it also scrubs PREFLIGHT_DOCTOR_CMD) — lean-gate needs nothing narrower or wider. `eval "$cmd"`
 # becomes `env <scrub> bash -c "$cmd"`: functionally identical for a shell command string
 # (preflight.sh runs this repo's own configured lane commands the same way), and the only
 # shape `env` can scrub ahead of.
-# LOCKSTEP-BEGIN seam-scrub
+# LOCKSTEP-BEGIN seam-scrub subset
 SEAM_SCRUB='SECOND_SHIFT_CONFIG|SECOND_SHIFT_REPO_ROOT|SECOND_SHIFT_EXTENSION_MANIFEST|SECOND_SHIFT_PLUGIN_ROOT|SECOND_SHIFT_REVIEW_TOOLKIT_ROOT|SECOND_SHIFT_DEV_PIPELINE_ROOT|SECOND_SHIFT_DESIGN_TOOLKIT_ROOT|SECOND_SHIFT_SECTION_CATALOG|STATECTL_STATE_DIR|STATECTL_WRITER|DEV_PIPELINE_MODE|BRANCH_PREFIX|KEY_PATTERN'
 # LOCKSTEP-END seam-scrub
 declare -a SEAM_SCRUB_ENV=()
@@ -3884,15 +3906,16 @@ md_table_prettier() {
 # Two rungs, and the omission of a third is the design. The previous ladder
 # ended in `npx --yes prettier@x`; that rung was deliberately NOT carried here, because a gate
 # call must not reach the network. #348 deleted that ladder, leaving this file the sole carrier
-# of the two rungs — scripts/lockstep-manifest.tsv records the paired row as DROPPED for exactly
-# that reason, so nothing outside this file holds them now.
+# of the two rungs, so nothing outside this file holds them now.
 #
 # `commands.<repo>.format` cannot supply this: in at least one consumer it is bound to the
 # CHECK variant (`yarn format:check`), and the shipped config-lint fixture carries exactly
 # that. No new config key either — this resolver needs no consumer onboarding to work.
 lean_resolve_prettier() {
   local wt="$REPO_ROOT" mr="$MAIN_ROOT"
-  # LOCKSTEP-BEGIN prettier-local-rungs
+  # SINGLE-SITED: the header above says it — nothing outside this file holds these rungs now.
+  # The markers outlived their counterpart and were removed in #604; a marker with no second
+  # site reads as a pair and is not one.
   if [[ -x "$wt/node_modules/.bin/prettier" ]]; then
     printf '%s\n' "$wt/node_modules/.bin/prettier"
     return 0
@@ -3901,7 +3924,6 @@ lean_resolve_prettier() {
     printf '%s\n' "$mr/node_modules/.bin/prettier"
     return 0
   fi
-  # LOCKSTEP-END prettier-local-rungs
   return 1
 }
 

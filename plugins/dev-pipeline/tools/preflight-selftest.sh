@@ -58,8 +58,8 @@ PREFLIGHT="$SCRIPT_DIR/preflight.sh"
 # ROOT. The anchor is THIS PLUGIN'S ROOT, passed as a parameter rather than read from this
 # file's own directory variable:
 # that was the only thing separating this copy from doctor-selftest.sh's, whose hop
-# constants are identical, and passing it in makes the two blocks byte-identical so
-# scripts/lockstep-manifest.tsv can pin them instead of leaving them held by prose.
+# constants are identical, and passing it in makes the two blocks byte-identical so the
+# `cross-plugin-sibling-plugin-root` LOCKSTEP markers can hold them instead of prose.
 # LOCKSTEP-BEGIN cross-plugin-sibling-plugin-root
 resolve_sibling_plugin_root() {
   local anchor="$1" name="$2" marker="$3" cand

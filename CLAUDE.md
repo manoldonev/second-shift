@@ -142,10 +142,11 @@ scenario in `plugins/dev-pipeline/skills/build-lean/scenario-liveness-selftest.s
 with all 42 selftests green because every one of them checked a component against itself.
 
 **No prose-presence guards.** Grepping a literal out of a markdown file asserts only that prose
-contains words — it cannot fail for a reason a reader of the diff would not already see. Pin the
-contract in `scripts/lockstep-manifest.tsv` instead, which compares the two copies. When a coupling
-is real but not byte-anchorable, record it in that manifest as a **DROPPED** entry with the
-reasoning, so the decision is visible rather than forgotten.
+contains words — it cannot fail for a reason a reader of the diff would not already see. Wrap the
+two copies in `LOCKSTEP-BEGIN <anchor>` markers instead — `scripts/check-lockstep-pairs.sh`
+discovers them and compares the blocks, and an anchor with only ONE site fails. When a coupling
+is real but not byte-anchorable, record it in [`docs/testing.md`](docs/testing.md)'s *Couplings
+considered and declined* with the reasoning, so the decision is visible rather than forgotten.
 
 **No mirror harnesses.** Never test a hand-maintained *copy* of production logic. A copy cannot
 fail on a production edit, so it converges on green while the real code drifts away underneath it
@@ -173,7 +174,7 @@ binds newly added guards.
 | If you are guarding… | Write it as | Lives in |
 | --- | --- | --- |
 | one script's behavior against fixtures | a per-tool behavioral selftest | `*-selftest.sh` next to the tool |
-| two copies of one contract staying identical | a lockstep row | `scripts/lockstep-manifest.tsv` |
+| two copies of one contract staying identical | a `LOCKSTEP-BEGIN <anchor>` marker on **each** copy — they are discovered and grouped, never registered | the files themselves |
 | a composed verdict path reaching a terminal write | a scenario | `skills/build-lean/scenario-liveness-selftest.sh` |
 | a production Workflow `.mjs` dispatch ladder | a shim case | `workflows/runtime-shim-selftest.mjs` |
 | whether an existing suite actually catches a regression | a mutation-catalog row | `tools/mutation-catalog.tsv` |

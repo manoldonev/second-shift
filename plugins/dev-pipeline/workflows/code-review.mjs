@@ -95,6 +95,13 @@ const ATLASSIAN_MCP_TOOLSEARCH =
 
 // Findings contract. Kept permissive (only severity/description/confidence required)
 // so reviewers don't burn retries on over-strict shapes; file/line/title are optional.
+//
+// LOCKSTEP, and this file is the CANONICAL side. stall-probe.mjs and tool-discipline-probe.mjs
+// each declare their own copy because the Workflow runtime gives them no `import`. Those two
+// exist to reproduce production dispatch EXACTLY, which is worthless if their schema has
+// drifted from this one — a probe that measures a different contract measures nothing.
+// (design-sync.mjs referenced the schema only in a comment, was never a member, and retired
+// with #574.) Edit here, edit all three.
 // LOCKSTEP-BEGIN findings-schema
 const FINDINGS_SCHEMA = {
   type: 'object',
@@ -311,6 +318,11 @@ const BOUNDED_EXPLORATION =
 // This does NOT weaken the dark path (#175's stated non-fix): nothing transcribes partial text
 // and no parser changes — the AGENT emits a well-formed block, and a missing sentinel is still
 // dark. parseReviewResult() is already last-match-wins, which is what makes re-emission free.
+//
+// LOCKSTEP, canonical side (#283, narrowed from a triple in #348). Same cannot-`import` class
+// as FINDINGS_SCHEMA above: intake-review.mjs declares its own copy of this nudge for its
+// exhaustive-class reviewer, and a copy that drifts silently re-opens the #175/#183
+// turn-cap-death class one file at a time.
 // LOCKSTEP-BEGIN progressive-emit
 const PROGRESSIVE_EMIT =
   ' EMIT AS YOU GO — do NOT save your result for the end. As soon as you have enumerated your' +

@@ -130,14 +130,13 @@ fi
 VIOLATIONS=0
 violate() { echo "ledger-lint: VIOLATION: $1" >&2; VIOLATIONS=$((VIOLATIONS + 1)); }
 
-# mirror of interviewing-baseline provenance enum — keep verbatim.
-# Mechanical canonical of TWO lockstep pairs (scripts/lockstep-manifest.tsv):
-# This file is the canonical carrier of the enum; the prose mirrors
-# is a subset of it. Nothing may sit between the markers below — verbatim compares the
-# whole block.
-# LOCKSTEP-BEGIN provenance-enum
+# Mechanical canonical of the interviewing-baseline provenance enum.
+# SINGLE-SITED, and deliberately: this file holds the only MACHINE copy of the enum. The
+# prose mirrors in interviewing-baseline are a markdown table, which neither relation can
+# compare against a shell assignment, and #517/#562 both declined to give lean-gate.sh a
+# second parser for exactly this reason. Guarded behaviorally by ledger-lint-selftest.sh.
+# The LOCKSTEP markers here named two pairs that no longer exist; removed in #604.
 PROVENANCE_ENUM='user-answered|user-delegated|codebase-derived|deferred|ticket-sourced'
-# LOCKSTEP-END provenance-enum
 EMPTY_FORM='No material decisions — all choices codebase-derived.'
 
 # Receipt-mode vocabulary. Single-sited on purpose: nothing else copies these, so

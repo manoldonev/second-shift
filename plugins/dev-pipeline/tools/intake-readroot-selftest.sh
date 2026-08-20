@@ -70,7 +70,7 @@ fi
 #   - the two `intake-pin-` prose anchors (1-intake.md / 10-cleanup.md) were the banned
 #     prose-presence class: independent greps, not a comparison, so a consistent rename
 #     across both files false-passes and an inconsistent one is visible in the diff. The
-#     coupling is recorded in scripts/lockstep-manifest.tsv as a DROPPED entry.
+#     coupling is recorded in docs/testing.md under *Couplings considered and declined*.
 # What remains above is the sanctioned exception: token pins on a Workflow-runtime .mjs
 # seam that can be neither executed nor node --check'ed.
 

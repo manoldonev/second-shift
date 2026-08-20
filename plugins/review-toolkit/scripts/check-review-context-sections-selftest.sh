@@ -24,7 +24,7 @@ CATALOG="$HERE/section-catalog.txt"
 # harness could export, which would drain the signal for the consumer who runs this suite
 # straight from their own install, the exact case the skip exists for. The `ROOT=` up-count is
 # this suite's own walk to its artifact; the marker test below is byte-shared with the
-# dev-pipeline copy (scripts/lockstep-manifest.tsv, pair `monorepo-probe`).
+# dev-pipeline copy by the `monorepo-probe` LOCKSTEP markers.
 ROOT="$HERE/../../.."
 # LOCKSTEP-BEGIN monorepo-probe
 if [[ -f "$ROOT/.claude-plugin/marketplace.json" && -d "$ROOT/plugins" ]]; then

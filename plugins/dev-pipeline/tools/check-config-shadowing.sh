@@ -28,8 +28,8 @@ fails=0
 #
 # Keys whose reader is in a SIBLING plugin are deliberately absent: this validator is anchored
 # at $DP and cannot see review-toolkit or second-shift. `stageParams.webComponentGlobs` (read
-# by review-lead/SKILL.md) is one, as are the two above; scripts/lockstep-manifest.tsv and
-# config-grill.sh's own key list carry those pairings instead.
+# by review-lead/SKILL.md) is one, as are the two above; docs/testing.md's declined-couplings
+# list and config-grill.sh's own key list carry those pairings instead.
 #
 # form: "<relative-file>|<config-key-reference>|<label>"
 CHECKS=(

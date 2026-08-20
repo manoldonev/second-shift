@@ -228,7 +228,7 @@ pyramid, plus one tier that is honest about being outside CI.
 | Classic tier | Here | Status |
 | --- | --- | --- |
 | Unit | Per-tool behavioral selftests — execute one script against tempdir fixtures, assert exit code / output / state | Established |
-| Contract | `scripts/lockstep-manifest.tsv` + registry and schema lints (config-lint ↔ schema, model tiers, text-contract carriers) | Established |
+| Contract | `check-lockstep-pairs.sh` — `LOCKSTEP` marker groups discovered from the tree and compared; + registry and schema lints (config-lint ↔ schema, model tiers, text-contract carriers) | Established |
 | Integration | `scenario-liveness-selftest.sh` — composed verdict paths through real scripts to a terminal write | Established, extending |
 | Runtime | `workflows/runtime-shim-selftest.mjs` — executes real Workflow `.mjs` bodies with injected fakes | Established (#214) |
 | Mutation | Repo-level sweep: canned mutants applied to guarded scripts, paired selftest must go red | Planned |
@@ -395,16 +395,338 @@ etc.: an ambient value silently re-roots the child, producing spurious failures 
 the code under review (#34's ~20 of them). Both files carry the scrub independently — one
 `SEAM_SCRUB` denylist, `env -u`'d at every child-invocation site — because they reach that lane
 shape via two different code paths (the lean gate's milestone-3 sweep vs preflight's one-pass
-doctor sweep), kept honest by a `scripts/lockstep-manifest.tsv` `subset-of` row rather than a
-shared import (neither is importable by the other).
+doctor sweep), kept honest by a `subset-of` LOCKSTEP group rather than a shared import (neither
+is importable by the other).
 
-The single row asserts `preflight ⊇ lean-gate` directly.
+The relation is declared at the two sites — `superset` on preflight, `subset` on the gate — and
+asserts `preflight ⊇ lean-gate` directly.
 
 This is a different concern from the `unset SECOND_SHIFT_CONFIG …` lines at the top of several
 *direct-invocation* selftests (`preflight-selftest.sh`, `scenario-liveness-selftest.sh`, etc.):
 those defend against a seam var poisoning the selftest's OWN process when the operator sweep or
 CI's `find *-selftest.sh` glob runs it directly — a path the configured-lane scrub above never
 touches — so both defenses stay, in depth, rather than either replacing the other.
+
+## Lockstep blocks: discovered, never declared twice
+
+`scripts/check-lockstep-pairs.sh` enforces contracts that exist in two or three copies by
+necessity — an agent whose independence contract forbids reading pipeline docs keeps an inline
+copy of a rule; three Workflow scripts each declare the same schema because the runtime gives them
+no import; a template file ships a near-twin of this repo's own workflow. Prose at those sites says
+"keep verbatim", and without this guard nothing checks it. It is the replacement for the
+prose-presence class: byte-parity beats token presence.
+
+**The markers are the whole declaration.** The checker walks the tree, groups every
+`LOCKSTEP-BEGIN <anchor>` site by its anchor, and compares all members of the group. There is no
+manifest. Until #604 there was one, and it declared every pair a second time: 729 lines carrying
+24 lines of data, appended-to at EOF by every feature PR — so two concurrent PRs conflicted there
+every time, over a resolution that was always "keep both".
+
+**A group of size 1 is a failure.** That is the property a central register could not have. It
+catches a marker whose row never existed, where the register only ever caught a row whose marker
+vanished — and six anchors were sitting in exactly that blind spot when #604 found them, three of
+them cited in plan documents as proof that copies "still match byte-for-byte". They did not match;
+nothing was comparing them.
+
+### Writing a marker
+
+    <indent> [# | // | <!--] LOCKSTEP-BEGIN <anchor> [<relation>] [-->]
+    <indent> [# | // | <!--] LOCKSTEP-END   <anchor>              [-->]
+
+The marker must occupy its whole line. That rule is load-bearing, not tidiness: a marker NAME
+appears in ordinary prose and ordinary code — a doc sentence citing an anchor, a selftest passing
+the token to `sed` — and a substring search would enrol those as sites, adding phantom members that
+red a correct tree. A line that begins with the token but does not satisfy the grammar fails as
+MALFORMED rather than being skipped, because the alternative is a site that silently vanishes.
+
+The optional third token on a BEGIN states the relation, at the site, where the person editing the
+block reads it. Omitted means `verbatim` — every member equal after collapsing whitespace runs.
+`superset` and `subset` spell the narrowing relation and its direction: the subset's first
+single-quoted `'...|...'` literal must be a subset of the superset's. A group whose members
+disagree fails; so does an unrecognised token, rather than degrading to the default.
+
+Rationale for a coupling lives at its anchor site. Because `verbatim` compares the whole block,
+that prose goes immediately ABOVE the BEGIN marker, never between the markers.
+
+### Two things to know before you edit
+
+- **Deleting BOTH markers of a live pair silently drops it.** The old manifest would have kept an
+  orphaned row and reded; discovery has nothing left to notice. It is a visible diff, and the
+  blocks stay covered by their own behavioral suites, but the loss is real. This is the trade
+  #604 accepted in exchange for closing the size-1 blind spot, which was the larger hole.
+- **A whole-line marker inside a selftest heredoc is a real site.** Fixture trees under `mktemp`
+  are outside the walk, but the selftest's own source is not. Build such a line at runtime from a
+  variable — `check-lockstep-pairs-selftest.sh` does, and carries a live-corpus case that would
+  catch a future paste.
+
+`docs/plans/**` is excluded from the walk, stated as data in the script with its reason: plan
+documents quote locksteped blocks verbatim as evidence for a decision, are never edited afterwards,
+and are SUPPOSED to drift from the block they quote. Five of them quote a live block today.
+
+### Couplings considered and declined
+
+Moved here from the manifest by #604. Each is a real duplication someone reasoned about and chose
+not to mechanize, with the reason and — in almost every case — the behavioral guard that carries it
+instead. A coupling recorded as declined is a decision that stays visible; one merely omitted is a
+decision that gets re-litigated. CLAUDE.md sanctions exactly this: record a real but unanchorable
+coupling rather than mechanizing it into a guard that cannot fail.
+
+**Unanchorable — no literal the two sides could share.**
+
+- **preflight ↔ gate zero-verifying-lane predicate.** Real against `lean-gate.sh` milestone 3,
+  which reds naming the opt-out where `preflight.sh` only warns. preflight computes an aggregated
+  VERIFYING count inline; the gate reads `allowUnverified`/`lanes`/`extraLanes` into separate
+  variables under a different jq arg name. Reaching a byte-identical block means restructuring
+  working code for the benefit of its own guard. Intent is declared in prose at preflight's
+  VERIFYING comment.
+- **`args.config` subset** — the six Workflow dispatch sites' `config:` args and their explaining
+  comments ↔ the `config.` reads inside the dispatched `.mjs`. It has already failed in both
+  directions: passing the whole parsed config killed a dispatch outright, and the practiced
+  `{ reviewers: {} }` recovery serialized cleanly while silently disabling every model override.
+  The caller side is six differently-worded prose comments inside six differently-shaped args
+  objects across four files and two plugins; the callee side is an expression whose shape varies
+  per key. Forcing a shared literal would mean writing dispatch prose to satisfy a grep.
+  **Behaviorally guarded**, not reviewer-guarded: `runtime-shim-selftest.mjs` Case H executes the
+  real `code-review.mjs` body under the documented subset alone — H1 that a `modelOverrides` value
+  reaches the dispatched model, H2b/H3b that `tracker.type` still branches the scope-completeness
+  fetch. Both mutation-verified. #351's `reviewers.tierMap` extends this same entry and gets none
+  of its own: it lands inside the `reviewers` subset already covered. The tier ALPHABET is a
+  different coupling and IS anchorable — that one is a live `tier-alphabet-parse` group.
+- **Test-tier map** (CLAUDE.md's "Where a new test goes" ↔ this document's "Why a tier map at all").
+  Two representations of one routing contract, deliberately NOT parallel: one is a three-column
+  router keyed by what you are guarding, the other a status table keyed by the classic pyramid
+  tier, carrying different row sets on purpose. Forcing a shared literal would collapse a router
+  and a status board into one table serving neither reader. Reviewer-guarded: both tables are
+  short, sit in the two files every contributor reads first, and a new tier lands with its own
+  suite in the same PR.
+- **`LEAN_JOB_CEILING`, writer ↔ reader (#526).** `lean-gate.sh` exports the name into every
+  milestone-3 lane child; `tools/run-selftests.sh` reads it. A one-sided rename breaks it in the
+  INVISIBLE direction — the runner sees no ceiling and every lane sizes itself to the whole machine
+  again, which reds nothing. The two sites share a token, not a block, and pinning a variable name
+  in two places is the presence check this repo bans. Guard: `lean-gate-selftest.sh` (jc1) — a real
+  extraLane child echoes `${LEAN_JOB_CEILING:-unset}` and its value must equal the announced ceiling.
+- **`LEAN_SELFTEST_CACHE_DIR`, writer ↔ reader (#563).** The same coupling one ticket later,
+  declined for the same reason. The invisible direction is sharper: a one-sided rename just means
+  no lean sweep ever serves from cache again, which looks exactly like a cache that is working and
+  never hitting. Guarded on BOTH sides — `lean-gate-selftest.sh` (sc1)-(sc3) spawn a real lane child
+  that must report the announced store, and `run-selftests-selftest.sh`'s #563 cases drive the
+  runner through the variable rather than the flag.
+- **The reserved verify-lane INFRASTRUCTURE exit code (#527), writer ↔ reader.**
+  `tools/run-selftests.sh` raises 3 when every failing suite is its no-verdict class; `lean-gate.sh`
+  milestone 3 reads 3 from any verify lane as "nothing was evaluated" and charges no fix attempt.
+  The two sites share a NUMBER, not a block. Not left reviewer-guarded, which is where this differs
+  from the ceiling above: `lean-gate-selftest.sh` (ic6)/(ic7) COMPOSE the pair — the real runner,
+  over a fixture tree whose every suite dies without a verdict, wired into `commands.acme.test`
+  exactly as a consumer would wire it — so a one-sided change reds in both polarities. The ends are
+  pinned alone too: `run-selftests-selftest.sh`'s AC-1 cases on the writer, (ic1)-(ic5) on the reader.
+- **lean verdict-record key schema** — one writer (`lean-gate.sh`'s `verdict`) and three readers
+  (`lean-gate.sh` milestone 4, `check-lean-chain.sh`, `lean-reconcile.sh`). Dropping a key on the
+  writer silently un-satisfies all three; a reader-side requirement the writer never emits reds
+  every lean PR. The writer spells keys as `echo` lines and the readers as grep/jq patterns.
+  Guarded behaviorally, and the guard COMPOSES across sites: `lean-gate-selftest.sh` (p5)/(p7) feed
+  the writer's output to the milestone-4 reader in the same run; (j3)/(j3b)/(u1) pin each key's
+  absence as its own refusal; `check-lean-chain-selftest.sh` (N2)/(N3)/(R1) and
+  `lean-reconcile-selftest.sh` (J3)/(K1) do the same at the other two readers.
+  `reviewed_head:` and `reviewed_patch_id:` are the DERIVED keys — the readers recompute rather than
+  extract, so a writer that stamped a short sha would extract cleanly everywhere and then fail every
+  comparison. `reviewed_patch_id:` is tighter still: both sides must agree on the base, the diff
+  range AND the excluded path. Composed instead — `lean-gate-selftest.sh` (u3) and the (v) block
+  drive writer-to-reader end to end, and `scenario-liveness-selftest.sh`'s (lean-declared) and
+  (lean-patch-id) legs compose each arm against a record whose INFERRED freshness is green.
+  `verdict=` is read FIRST-MATCH at every reader, never counted: the writer appends reviewer prose
+  below the keys and review prose quotes verdict values, so a count-anywhere reader passes a record
+  whose authoritative first line says needs-work — `lean-gate-selftest.sh` (s) and
+  `check-lean-chain-selftest.sh` (P) drive exactly that record. `fidelity:` (#394) is guarded the
+  same composed way, and its VALUE is armed-ness-relative, which no literal can pin. Revisit if a
+  fourth reader lands, or if any site starts parsing the record as structured data.
+- **The chain-WALK loop** around the `lean-inherited-key` extraction, which each reader also copies.
+  The three are not one literal and cannot be made into one without harm: each phrases its own
+  diagnostic, each uses its host's list idiom, and `check-lean-chain.sh` must additionally scope
+  `git log` to `$PR_HEAD_SHA` because CI's checkout carries base-side history the PR never authored.
+  Forcing them verbatim would delete the differences, which are the point. Guarded from three sides:
+  `lean-gate-selftest.sh` (x6)/(x7)/(y2), `check-lean-chain-selftest.sh` (V3)/(V3b)/(V4)/(V5),
+  `lean-reconcile-selftest.sh` (N3)/(N6).
+- **intake-receipt vocabulary** (Kind enum, open-region and surface disposition enums, the two
+  explicit empty forms, the intent-gap record schema). `interviewing-baseline/SKILL.md` states it in
+  prose and tables; `ledger-lint.sh` holds the only machine copies; `check-lean-chain.sh` reads the
+  record's `ratified:`/`ratified_by:` keys. A Kind value added to the doc and not the lint is a
+  value the receipt gate rejects with a message naming the enum the author just read. The doc side
+  is a markdown table of prose descriptions, not a quoted literal. The empty forms ARE quoted
+  literals on the lint side but sit inside fenced code blocks on the doc side, where neither
+  relation reaches. Guarded by `ledger-lint-selftest.sh` (ll-o)-(ll-as) and
+  `check-lean-chain-selftest.sh` (R0)-(R4). **Note the deliberate NON-coupling:** the chain gate
+  checks ratification ONLY and does not re-validate `disposition:` — a second copy in CI would
+  create exactly the pair this entry declines to create. **The SKILL layer is a caller class of its
+  own:** `intake-orchestrator/SKILL.md` Step 5.5 prescribes the receipt shape and then runs
+  `ledger-lint.sh --receipt` on what it just prescribed, and `intake-interviewer/SKILL.md`
+  prescribes the same shape. Neither is an automated caller, so no CI lane reds when the lint
+  tightens past what they describe — the exit gate simply becomes unpassable at agent runtime,
+  where nobody is watching. A change that adds or tightens a mandated section MUST move both, and
+  the check is empirical: build a receipt verbatim to the prose and lint it.
+- **`ticketTag` semantics** — three sites state it: `docs/config-schema.md`'s topology row, the
+  schema's own `description` (which renders in every consumer's editor), and `run-lean/SKILL.md`,
+  the lane that reads it. The lane's reading is advisory only, and the docs must describe it that
+  way. Markdown prose, a JSON string and SKILL prose share no quoted literal. Guarded by
+  `check-config-shadowing.sh`, which pins `run-lean/SKILL.md` to `ticketTag`. Revisit if a fourth
+  site restates the semantics.
+- **schema `planFilePattern` default ↔ preflight.sh's hardcoded copy.** Real — the copy is the
+  fallback used when a consumer sets no override, so a one-sided edit resolves a path the schema no
+  longer publishes. Unanchorable BY CONSTRUCTION rather than merely awkward: the canonical side is
+  `schema/second-shift.config.schema.json`, and JSON has no comment syntax, so a marker cannot be
+  placed there at all. Guarded behaviorally: preflight resolves the pattern through the same
+  substitution the stages use and PRINTS the result, and `preflight-selftest.sh` run 18 asserts on
+  that printed line — both the unmigrated-override case and the migrated-pattern over-match negative.
+  Printing alone would not have been coverage; the assertions are.
+- **lean artifact discriminator** — `lean-evidence.sh`'s `classify()` ↔ `retro-corpus.sh`'s
+  `open-prs` (#413). Both decide "is this PR lean" the same way, and a one-sided edit leaves the
+  retro corpus silently reporting live lean PRs as verdict-less. NOT delegable, which is why the
+  copy exists: the gates classify the PR they are running ON, from a PR context that lets
+  `classify()` resolve one key and diff one range; `open-prs` classifies a LIST of other PRs from a
+  single `gh pr list --json files` call, where an open PR's spec is committed on its own branch, so
+  a working-tree file test would reject every candidate it exists to find. One side spells the test
+  as shell `case` patterns over a `find` walk, the other as a `grep -v` chain plus a `grep -qE` over
+  a JSON array. Guarded on both sides against the same two mistakes: `lean-evidence-selftest.sh`
+  (d)/(z2) pin the key match, and `retro-corpus-selftest.sh` (AC-5b) drives `open-prs` over a
+  fixture PR array carrying another ticket's spec and a fixture-pathed spec and asserts neither
+  casts a vote — with (AC-5) as the non-vacuity side. Revisit if the `-lean.md` suffix is ever
+  hoisted into the config schema.
+- **lean ARTIFACT-NAME suffixes (#359)** — `check-lean-chain.sh`'s name table ↔ `lean-evidence.sh`'s.
+  The two sets are deliberately DIFFERENT: `-lean-renders.md` belongs only to the chain gate and
+  `-lean-intent-gap.md` only to the payload, so `verbatim` would compare unlike sets and fail on a
+  correct tree, while `subset-of` reads a lone suffix rather than an enum and would assert nothing.
+  Guarded end to end: `check-lean-chain-selftest.sh`'s (A) happy path and (S0)-(S4) drive a real
+  fixture tree, so a suffix that diverged stops locating the artifact. The VERDICT suffix alone DOES
+  carry markers (#542) — not a reversal, but a third holder with a different transport: the consumer
+  delta guard is COMMITTED INTO a consumer repo rather than fetched at the pinned ref, so no
+  end-to-end run in this tree can observe that pair. Revisit the rest if OR-1 lands and the sets
+  converge.
+- **lean ARM CUTOFFS (#444)** — the two `since:` comparators, and NOT for want of an anchor. They
+  are not one contract: the payload compares an already-UTC `PR_CREATED_AT` supplied by the
+  workflow, while the gate normalizes a git author date carrying an arbitrary offset through
+  `TZ=UTC git log --date=format-local`. The `since:` values are MEANT to differ — each anchors to
+  the merge that made its own arm binding. The duplication is forced by deployment shape: a
+  consumer's CI checkout has `lean-evidence.sh` and nothing else. Guarded by
+  `lean-evidence-selftest.sh` (ac1)-(ac6), `lean-gate-selftest.sh` (eb1)-(eb7) including two non-UTC
+  offsets in both directions, `check-lean-chain-selftest.sh` (Z1)/(Z2), and this repo's own
+  `pr-gates` executing the payload on every PR. Revisit if a shared normalization helper is ever
+  hoisted into a file both can reach.
+- **lean evidence TOKEN SCOPES (#359)** — the `permissions:` block in this repo's `ci.yml`
+  (`pr-gates`) ↔ `templates/consumer/second-shift-ci.yml`. Declined NOT for want of an anchor: the
+  two blocks do collapse to the same string today. They are not one contract. The host job
+  additionally runs `check-lean-chain.sh`'s issue-side claim arm, which a read-only tracker has no
+  counterpart for, so the sets coincide by present need, not by definition. A `verbatim` relation
+  would bind them in the wrong direction — a scope the HOST later needs would become a scope every
+  consumer's workflow is forced to grant, the standing escalation the template's own comment
+  refuses. Guarded ASYMMETRICALLY, because the sides have unequal signals: the template has no live
+  signal, so `second-shift-ci-check-selftest.sh` pins all three scopes against the block itself (not
+  the file, so a commented-out scope cannot satisfy it) plus the no-write-scope rule; the host side
+  executes that read on every PR, where an assertion would restate what CI already proves. Revisit
+  if the host's block gains a scope — check whether the arm needing it lives in the payload (then
+  the template needs it too) or only in `check-lean-chain.sh` (then it must not).
+- **`config-grill.sh`'s restated RUNTIME-resolved defaults** ↔ the stages that resolve them.
+  Quoting the SCHEMA default would be a lie the consumer cannot act on: nothing injects schema
+  defaults into a config, so the value in force is the fallback in the stage. `webComponentGlobs`'s
+  literal alone is restated at seven sites, and a pair cannot express one canonical against seven
+  scattered restatements — picking one arbitrarily would leave the other six free to drift while
+  the row stayed green. Nor is a marker block placeable: they sit inside prose sentences and a jq
+  expression. Guarded by `config-grill-selftest.sh`, which asserts each default fires a zero-match
+  finding on a fixture tree containing no matching path, so the literal is exercised rather than
+  merely present — a check on the checker's copy, not on the two staying equal. The asymmetry is
+  the point. Revisit if the fallbacks are hoisted into one shared resolver.
+- **`onboard/SKILL.md`'s benefit clauses** ↔ the docs that own the worked examples. Real — a
+  capability whose behavior changes leaves a clause promising something the tool no longer does, and
+  onboard is precisely where a human decides on that promise. No literal on either side: the clause
+  is a summary IN a sentence, the authority a multi-paragraph worked example. Wrapping markers
+  around them would pin only that some text exists between the markers, and CLAUDE.md forbids the
+  grep alternative outright. What holds it instead: the clause is a POINTER plus one sentence,
+  deliberately short enough that the authoritative text stays in exactly one place. Revisit if the
+  benefit text is ever hoisted into a data file both sites read.
+- **The dup-scan exit taxonomy.** `dup-scan.sh`'s 0 / 10 / 2 contract is restated in four SKILL
+  blocks — intake-orchestrator twice, intake-interviewer, plan-interview — and nothing couples them
+  to the tool. Each states the obligation in the vocabulary of its own exit (what "hard-stop" means
+  differs per exit: do not label, do not hand off, do not create), so a `verbatim` block would force
+  four prose passages into one wording they do not share, or degrade to a bare-number grep.
+  `dup-scan-selftest.sh` pins each arm's rc AND the message it names, so a taxonomy change reds
+  there before any SKILL copy can be silently wrong. The SKILL copies can still drift into
+  describing an arm the tool no longer has; that drift is visible in the diff of any change to the
+  taxonomy, which necessarily touches the tool and its suite.
+- **The audit ledger's THIRD copy** — the hook's jq object literal in `audit-tool-calls.sh`, beside
+  the live `audit-row-fields` group. A jq construction expression and a prose field list share no
+  anchorable bytes. Not reviewer-guarded either: `audit-selftest.sh` Test 9 asserts a real emitted
+  row's `keys_unsorted` equals the documented field list exactly, so a field added, renamed or
+  reordered in the hook without the docs following fails the suite. Mechanical on both legs, by two
+  mechanisms.
+- **The audit ledger dir's THIRD site** — `lean-gate.sh` derives `MAIN_ROOT` for many purposes
+  beyond the ledger, so it shares no anchorable bytes with the `audit-ledger-dir` block. Held by
+  fixtures instead: `lean-gate-selftest.sh` and `lean-reconcile-selftest.sh` each drive the REAL
+  hook from a linked worktree and assert their reader finds the result, so a writer-side drift reds
+  a reader's suite.
+- **The unbound `lean-producer-capabilities` TAG copies** in `lean-reconcile.sh` and
+  `run-lean/orchestrate-lean.sh`. Neither is a merge-boundary gate, and drift in either fails CLOSED
+  and loudly instead of silently weakening a boundary — which is what earns a marker in the first
+  place. A drifted tag in the scheduler's #500 re-entry probe stops re-entry being recognized, so
+  the operator meets a preflight reject on the next stopped run, never a green PR.
+
+**Retired — the subject itself is gone.**
+
+- **GH_BOT config-dir basename** (`install-gh-bot.sh` ↔ `claim-issue.sh`): retired by #92 — both
+  call `tools/gh-bot.sh`; one ladder remains, so there is no pair.
+- **figma node-resolution discipline** (`figma-faithful/SKILL.md` ↔ `figma-faithful-spec/SKILL.md`).
+  The coupling was REMOVED rather than guarded: figma-faithful is now the canonical home and the
+  spec skill carries the operative one-liner plus a by-name pointer, so there is no second copy to
+  anchor. The deltas that remain are genuine divergences, not copies — it also uses
+  `get_code_connect_map`, its terminal sentence forbids transcribing from a static image, and it
+  deliberately omits the parent-frame capture. A `verbatim` relation would fail on the first
+  legitimate edit to either side.
+- **lean branch prefix** (#413) — `ci.yml`'s `LEAN_BRANCH_PREFIX` ↔ `lean-gate.sh`'s runtime
+  derivation of a `lean/` namespace. Recorded rather than silently dropped, because the reasoning
+  that justified dropping it became load-bearing. It was declined as non-byte-anchorable, and what
+  made that SAFE was that `check-lean-chain.sh` did not classify on the prefix alone. That
+  compensating control is now the whole rule: the lane cuts `<branchPrefix><key>`, there is no
+  second prefix, and applicability is the key-matched lean spec in the PR's diff and nothing else.
+  Both sides ceased to exist, along with the mutual non-prefix-match property they asserted.
+- **lean branch-prefix DERIVATION (#359)** — deleted with its subject in #413. It pinned
+  `lean_branch_prefix()` across `lean-gate.sh` and `lean-evidence.sh`; both copies are gone.
+- **per-ticket corpus dedup (#289).** `retro-corpus.sh` is the sole carrier of the
+  basename-equals-ticketKey supersedes rule. Its behavior stays guarded by
+  `retro-corpus-selftest.sh` (289 AC-1)/(AC-2)/(AC-3) — live-supersedes-snapshot,
+  orphan-snapshots-are-distinct, dedup-before-window.
+- **cross-plugin sibling-resolution ladder (#419).** `resolve_sibling()` in
+  `plugins/dev-pipeline/tools/resolve-sibling.sh` is the canonical side. The hand-maintained `.mjs`
+  mirror beside it was retired with its suite in #574, which also retired the two-language drift
+  risk and the lexicographic-vs-numeric version-ordering divergence it tracked. Still declined as a
+  group: one implementation left, nothing to compare. The RUNG ORDER remains the contract — the last
+  rung is what hits in a real install, where plugins carry independent versions. Guarded by
+  `pipeline-doctor-selftest.sh` (rs1)/(rs3), which drive the ladder against a fabricated cache at
+  BOTH bash consumers' real depths, lifting each caller's hop arithmetic by sentinel rather than
+  injecting its results — because a fixture that supplies `PLUGIN_DIR`/`PLUGINS_DIR` covers the
+  ladder and no caller, which is how a structurally dead rung 2 shipped on one consumer while
+  reading as shared. Three further copies were each considered and declined for a reason the copy
+  supplies: `preflight-selftest.sh` and `doctor-selftest.sh` RE-DERIVE `resolve_sibling_plugin_root`
+  against `check-model-tiers.sh` rather than copying it (that copy lives one level under its plugin
+  root and uses two and three hops; these live three levels under theirs and use four and five —
+  the hop constants ARE the contract and legitimately differ). Against EACH OTHER they do not
+  differ, which is why that pair IS pinned, and is a live group today. `doctor-selftest.sh`'s
+  `resolve_sibling_file` has the same divergence keyed on a file rather than a marker dir.
+  `check-emit-deadline.sh` shares a directory with `check-model-tiers.sh` so the hop constants do
+  transfer, but it walks an unbounded set of plugin names instead of resolving one and unions both
+  layout shapes rather than taking the first that hits — pinning it would mean carrying a dead copy
+  purely to be compared. All three now run under `tools/install-topology-selftest.sh` from a staged
+  cache, and `check-emit-deadline-selftest.sh`'s B6-B9 drive the real script from staged monorepo
+  and cache shapes. Revisit if a SIXTH site grows the ladder, or if any further pair converges on
+  identical hop constants.
+- **`check-pipeline-chain.sh`'s `REQUIRED_MARKERS`.** The generated `case` region and the schema
+  table that held the other copies are both gone, so there is no pair to express. It kept its
+  markers after that, on the reasoning that a future row would then be cheap; #604 removed them,
+  because under discovery a marker with no counterpart reads as a pair and is not one.
+  `check-pipeline-chain-selftest.sh` asserts the list parses non-empty, so a rename fails loudly.
+
+**What does NOT belong in a lockstep group**, from the manifest's own header and kept here: a pair
+already mechanically enforced elsewhere — model tiers (`check-model-tiers.sh`), the reviewer
+registry, the section catalog, the text-contract carriers, config-lint ↔ schema (the
+`modelOverrides` tier enum is driven from both sides in `config-lint-selftest.sh`: every
+schema-declared tier must be accepted, and config-lint's rejection message must name exactly the
+schema's enum). Duplicate machinery is worse than none.
 
 ## The runtime shim
 

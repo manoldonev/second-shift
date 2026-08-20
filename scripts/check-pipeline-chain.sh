@@ -76,7 +76,12 @@ done
 fail()  { echo "[pipeline-chain] ✗ $1" >&2; exit 1; }
 envfail() { echo "[pipeline-chain] $1" >&2; exit 2; }
 
-# LOCKSTEP-BEGIN pipeline-chain-required-markers
+# SINGLE-SITED: this is the SOLE carrier of the marker list — the generated `case` region and
+# the schema table that held the other copies are both gone. It kept LOCKSTEP markers after
+# that, on the reasoning that a future row would then be cheap; #604 removes them, because a
+# marker with no counterpart now reads as a pair and is not one. check-pipeline-chain-
+# selftest.sh asserts the list parses non-empty, so a rename fails loudly rather than on an
+# empty set. Re-add markers on both sides if a second carrier ever appears.
 # The markers required at PR-open time. A deliberate NARROWING of the marker vocabulary:
 # `plan-review` and `verify` are conditional
 # (verify emits on the failure path only), and `pr` is out of reach — it is posted AFTER the PR
@@ -87,7 +92,6 @@ envfail() { echo "[pipeline-chain] $1" >&2; exit 2; }
 # `standalone` topology. A conditional leg would be self-satisfying and would contribute zero
 # tamper-evidence against exactly the dark-reviewer class this program targets.
 REQUIRED_MARKERS='claimed|intake|plan|doc-update|code-review'
-# LOCKSTEP-END pipeline-chain-required-markers
 
 # ---- (1) env constants: fail closed, never "exempt" -------------------------------------
 # An unresolvable prefix must never degrade into "non-pipeline, not applicable" — a vacuous

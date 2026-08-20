@@ -29,7 +29,6 @@ catalog::gh-bot-wrapperpath	seeded by the canonical seed run
 catalog::intake-namespaces-unlocatable	seeded by the canonical seed run
 catalog::is-inert-claude-anchor	seeded by the canonical seed run
 catalog::ledger-lint-empty-decision	seeded by the canonical seed run
-catalog::lockstep-normalize	seeded by the canonical seed run
 catalog::pin-resolve-numeric-sort	seeded by the canonical seed run
 catalog::pin-resolve-ref	seeded by the canonical seed run
 catalog::preflight-queue-label	seeded by the canonical seed run
@@ -136,10 +135,6 @@ scripts/check-configversion-migration-doc.sh::cmp-z::6b9614dedb1f	seeded by the 
 scripts/check-configversion-migration-doc.sh::logic::e364e1b75ad8	seeded by the canonical seed run
 scripts/check-frozen-files.sh::cmp-z::74a82be0e465	seeded by the canonical seed run
 scripts/check-lean-chain.sh::default::1b0909258639	CARRIED THROUGH #579, which stopped enumerating the comment line above this site, and #583, which made ids content-derived so no neighbouring edit can re-key this row. Same site, same accepted verdict — seeded for #303 from a local advisory sweep (macOS); confirm at the first nightly
-scripts/check-lockstep-pairs.sh::default::8302fa8568cc	seeded by the canonical seed run
-scripts/check-lockstep-pairs.sh::fail-open::c46cf1b98eba	seeded by the canonical seed run
-scripts/check-lockstep-pairs.sh::logic::18c61fbf5010	seeded by the canonical seed run
-scripts/check-lockstep-pairs.sh::logic::cf0176c048d1	seeded by the canonical seed run
 scripts/check-pipeline-chain.sh::cmp-z::22751a192f78	seeded by the canonical seed run
 scripts/check-pipeline-chain.sh::default::1b0909258639	CARRIED THROUGH #579, which stopped enumerating the comment line above this site, and #583, which made ids content-derived so no neighbouring edit can re-key this row. Same site, same accepted verdict — seeded by the canonical seed run
 scripts/check-plugin-version-bumps.sh::cmp-z::50ccdcc2fe4a	seeded by the canonical seed run

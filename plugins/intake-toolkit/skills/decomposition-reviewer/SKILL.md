@@ -167,6 +167,8 @@ If no issues are found for a section, omit it entirely. Do not pad with "no issu
 
 **Run-cost bias.** Judge the split against the same economy rule the orchestrator applies — it is the standard a too-thin slice is over-decomposed *against*, so review it here rather than only at decomposition time:
 
+<!-- LOCKSTEP: held verbatim to intake-orchestrator/SKILL.md, the canonical side; the reasoning
+     lives there. -->
 <!-- LOCKSTEP-BEGIN decomposition-economy -->
 Prefer fewer, fuller slices: as many as the work genuinely needs, and no more. A slice that cannot justify its own full pipeline run — because it is too thin to review on its own, or has no consumer until a later slice lands — merges into its neighbor. Splitting for the sake of splitting is a cost, not a virtue; every slice must be a logical, coherent unit of work that earns its own run.
 <!-- LOCKSTEP-END decomposition-economy -->

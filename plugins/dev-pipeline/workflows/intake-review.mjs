@@ -274,7 +274,7 @@ const emitStructured = (text, opts) =>
 // BOUNDED_EXPLORATION-style "explore less" nudges do not cure (that framing REPLACED a
 // BOUNDED_SPEC_GROUNDING nudge here, which was already in place during #273's death and did not
 // prevent it). Verbatim-shared with code-review.mjs (workflows cannot `import`)
-// — kept honest by scripts/lockstep-manifest.tsv. Belt-and-suspenders half of the same pair as
+// — kept honest by the `progressive-emit` LOCKSTEP markers. Belt-and-suspenders half of the same pair as
 // spec-reviewer.md's own turn-numbered emit deadline (see check-emit-deadline.sh enrollment).
 // LOCKSTEP-BEGIN progressive-emit
 const PROGRESSIVE_EMIT =
