@@ -125,10 +125,12 @@ fi
 # and `spec:` carry repo-relative PATHS, and lean-gate.sh's own character class truncates
 # at the first slash (never triggered there, since it re-derives those paths from config
 # instead of reading them back — this reader intentionally does read them back).
+# LOCKSTEP-BEGIN lean-record-key
 record_key() { # record_key <key> <file>
   [ -f "$2" ] || return 0
   grep -oE "$1:[[:space:]]*[A-Za-z0-9._/-]+" "$2" 2>/dev/null | head -n1 | sed -E "s/^$1:[[:space:]]*//"
 }
+# LOCKSTEP-END lean-record-key
 record_verdict() {
   [ -f "$1" ] || return 0
   grep -oE 'verdict=[A-Za-z-]+' "$1" 2>/dev/null | head -n1 | sed -E 's/^verdict=//'
@@ -251,7 +253,11 @@ iso_to_epoch() {
 }
 # LOCKSTEP-END iso-to-epoch
 
+# Held byte-identical by pipeline-cost-block.sh, which measures the published cost fence between
+# the same rows this measures spans between (#546).
+# LOCKSTEP-BEGIN lean-progress-ts-re
 TS_RE='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z'
+# LOCKSTEP-END lean-progress-ts-re
 
 # first_row_ts <file> — the record's first timestamped row, the origin every span and the
 # wall-clock measure from. Header keys carry no stamp, so this is the earliest observed activity.
