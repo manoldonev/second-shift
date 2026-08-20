@@ -103,6 +103,14 @@ them without moving them means nobody performs them.
   deleted against what was added. "It removes a session" does not discharge the deletion
   doctrine on its own, and D-2 adds surface the ticket did not budget for.
 
+- **AC-15** — Incidental, and found by this ticket's own run. `tools/run-selftests-selftest.sh`'s
+  AC-4 env case hand-rolls its `env` rather than going through `run_runner`, and so escaped the
+  `LEAN_JOB_CEILING` scrub that file's own header declares mandatory. It carries the scrub now,
+  behind a hostile ceiling set in front of it, so a dropped scrub reds on any machine instead of
+  only on one running enough lanes to push the ceiling below the number the case asserts. Not in
+  the ticket's surface: it is what milestone 3 red on here, because this run was itself the
+  fourth concurrent lane.
+
 ## Out of scope
 
 - Renaming `build-lean` — retired, not deferred: with the close-out no longer a session the block
