@@ -174,8 +174,12 @@ done
 
 # SELFTEST_JOBS (the env form the workflows use) must reach the same place as --jobs.
 OUT="$BASE/out.ac4env"
-env -u TMPDIR -u RUN_SELFTESTS_DROP_LAST SELFTEST_JOBS=3 \
-  bash "$RUNNER" --root "$R4G" > "$OUT" 2>&1
+# The only invocation in this file that does NOT go through run_runner — it has to SET
+# SELFTEST_JOBS where the driver unsets it — so it carries the driver's scrub by hand. Without
+# it, an inherited LEAN_JOB_CEILING clips the 3 this case exists to observe, and the assertion
+# reds on any machine running a second lane.
+env -u TMPDIR -u RUN_SELFTESTS_DROP_LAST -u LEAN_JOB_CEILING -u LEAN_SELFTEST_CACHE_DIR \
+  SELFTEST_JOBS=3 bash "$RUNNER" --root "$R4G" > "$OUT" 2>&1
 RC=$?
 [[ "$RC" -eq 0 ]] && grep -q 'jobs=3' "$OUT" \
   && ok "AC-4: SELFTEST_JOBS is honored as the concurrency source" \

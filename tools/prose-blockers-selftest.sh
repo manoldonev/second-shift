@@ -121,13 +121,15 @@ N_ALL=$(ids --tier all | wc -l | tr -d ' ')
   || bad "bold widens the stop tier" "stop=$N_STOP bold=$N_BOLD"
 [ "$N_ALL" -gt "$N_BOLD" ] && ok "all widens the bold tier" \
   || bad "all widens the bold tier" "bold=$N_BOLD all=$N_ALL"
-PROSE_BLOCKERS_ROOT="$WORK" bash "$TOOL" census --tier bold 2>/dev/null | grep -q 'no issues found' \
+BOLD=$(PROSE_BLOCKERS_ROOT="$WORK" bash "$TOOL" census --tier bold 2>/dev/null)
+grep -q 'no issues found' <<<"$BOLD" \
   && ok "the bolded prohibition appears at --tier bold" \
   || bad "the bolded prohibition appears at --tier bold" "absent"
-PROSE_BLOCKERS_ROOT="$WORK" bash "$TOOL" census --tier all --full 2>/dev/null | grep -q 'Never copy plugin content' \
+ALL=$(PROSE_BLOCKERS_ROOT="$WORK" bash "$TOOL" census --tier all --full 2>/dev/null)
+grep -q 'Never copy plugin content' <<<"$ALL" \
   && ok "a clause-initial never appears at --tier all" \
   || bad "a clause-initial never appears at --tier all" "absent"
-PROSE_BLOCKERS_ROOT="$WORK" bash "$TOOL" census --tier all --full 2>/dev/null | grep -q 'never the local cache values' \
+grep -q 'never the local cache values' <<<"$ALL" \
   && bad "an elliptical contrast binds no action" "censused even at --tier all" \
   || ok "an elliptical contrast binds no action"
 run census --tier bogus >/dev/null 2>&1; is "an unknown tier is a usage error" "$?" "2"
@@ -135,7 +137,8 @@ run census --tier bogus >/dev/null 2>&1; is "an unknown tier is a usage error" "
 echo "== the census unit =="
 is "a bullet's continuation lines are one construct" \
   "$(row 'core/skills/beta/SKILL.md' | grep -c 'First step')" "1"
-row 'beta/SKILL.md' | grep -q 'separately numbered step' \
+BETA=$(row 'beta/SKILL.md')
+grep -q 'separately numbered step' <<<"$BETA" \
   && ok "a 5b-style marker starts a new construct" \
   || bad "a 5b-style marker starts a new construct" "merged into the previous block"
 
