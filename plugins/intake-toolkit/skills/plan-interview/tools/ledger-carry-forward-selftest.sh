@@ -53,7 +53,10 @@ echo "[ledger-carry-forward-selftest] projection of a real receipt"
 #        column gone and the escaped pipe in D-2 intact.
 run_cf "$FIX/valid-receipt.md"
 cp "$TMP/stdout" "$TMP/projected.md"
-ids=$(grep -oE '^\|[[:space:]]*D-[0-9]+' "$TMP/projected.md" | grep -oE 'D-[0-9]+' | tr '\n' ' ')
+# `|| true`, and not decoration: under pipefail an empty projection would make the first
+# grep fail, abort the suite on set -e, and report zero FAILs for a helper that emitted
+# nothing — a red that reads like a crash instead of like the case it is.
+ids=$(grep -oE '^\|[[:space:]]*D-[0-9]+' "$TMP/projected.md" | grep -oE 'D-[0-9]+' | tr '\n' ' ' || true)
 n_rows=$(rows_of "$TMP/projected.md" | wc -l | tr -d ' ')
 if [[ "$RC" -eq 0 ]] && [[ "$n_rows" -eq 5 ]] && [[ "$ids" == "D-1 D-2 D-3 D-4 D-5 " ]]; then
   pass "(cf-a) receipt fixture → 5 rows, ids in receipt order"
