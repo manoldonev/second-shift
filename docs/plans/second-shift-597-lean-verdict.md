@@ -1,144 +1,162 @@
 # lean review verdict — #597
 
 verdict=needs-work
-run_id: review-597-1
-session_id: 3f4f4e7e-9bc5-4cac-9b01-0bef284a5d17
-rounds: 1
+run_id: review-597-2
+session_id: 53fd55c8-a5bd-41e1-b316-f66558a30ef2
+rounds: 2
 pr: #601
-reviewed_head: 405657aebedb7c714287a80a088793db9a3a2bc9
-reviewed_patch_id: 79eb4344d6a86e76a6f74ed85ba4a9c41759db2d
-inherited_patch_id: none
-inherited_from_verdict: none
+reviewed_head: b768db907ea7f3a6591456b11eb1786047d9a7ef
+reviewed_patch_id: 56dd73a57dd7a997fda0275ece11ba1466ef1683
+inherited_patch_id: 79eb4344d6a86e76a6f74ed85ba4a9c41759db2d
+inherited_from_verdict: 170953eea3f9034ec01c5cffcc39bb971321d839
 fidelity: not-applicable
-model: opus
+model: unknown
 capabilities: pr-marker
 
-Round 1 (`review-597-1`), full branch diff `06e48be..405657a` — 11 files, +820/-14.
-Panel: security, performance, maintainability, complexity, test-coverage,
-scope-completeness (6/6 returned; none dark).
+Round 2 (`review-597-2`), inheriting round 1's coverage of patch `79eb4344d6a8`.
+Read range `170953e..HEAD` — the single new commit `b768db9`, a merge of `origin/main`
+into the branch. Panel dispatched over the branch's own contribution at the merged head
+(`origin/main...HEAD`, 12 files, +964/-14) so the merge composition was re-read, not just
+the merge diff: security, performance, maintainability, complexity, test-coverage,
+unit-test-mutation, scope-completeness. 6/7 returned; test-coverage went dark.
 
 ## Verdict: needs-work — one blocker, outside the AC set
 
-The implementation is right and every AC is met. The blocker is that **this PR cannot merge
-and no CI job has ever run on it.**
+Round 1's blocker is **cleared**. The PR was born unmergeable and had never been graded
+by CI; `b768db9` fixes that. `refs/pull/601/merge` now exists, and the two selftest jobs
+are green at this head — `lint-and-selftests` (3m50s) and `selftests (macos, bash 3.2)`
+(6m57s). That is the stock bash-3.2 lane and CI's shellcheck 0.9.0 actually grading the
+branch for the first time, which is what round 1 could only approximate by hand.
+
+The conflict resolution is exactly what round 1 measured in trial: `scripts/lockstep-manifest.tsv`
+resolved as a union, main's `tier-alphabet-parse` row (#596) first, this branch's
+`contribution-compare` row second, no line of either side altered. `check-lockstep-pairs.sh`
+passes 24/24 including `contribution-compare`, and the two copies of the predicate are
+byte-identical at this head.
+
+But CI, now that it runs, reds a lane the branch itself caused.
 
 ## Blocker
 
-**B-1 — PR 601 is born unmergeable, so zero checks were ever queued.**
-`git ls-remote origin 'refs/pull/601/*'` returns `refs/pull/601/head` and **no
-`refs/pull/601/merge`** — GitHub never built the merge ref, so no `pull_request` workflow
-was dispatched. `gh pr checks 601` says "no checks reported", which is the same string a
-merely-early PR gives; the ls-remote is what tells them apart.
+**B-1 — `mutation-sweep-pr` is RED on a baseline-absent survivor this PR introduces.**
+`plugins/dev-pipeline/skills/build-lean/lean-evidence.sh::cmp-eq::4480dc581ad4`
+(job 96362307413: `applied=11 killed=10 survived=1`).
 
-The conflict is one hunk, in `scripts/lockstep-manifest.tsv`: this branch appends the
-`contribution-compare` row and comment block at EOF, and `#596` (merged into main as
-`602b0f0`) appends `tier-alphabet-parse` at the same place. Adjacent-append, no semantic
-overlap — a union resolution is correct.
+The site is `lean-evidence.sh:571`, inside this PR's own new `contribution-compare` block:
 
-Consequences, in order of weight:
+```sh
+if [ "$rc" -eq 0 ] && { [ ! -s "$d/old" ] || [ ! -s "$d/new" ]; }; then rc=2; fi
+```
 
-1. **`pr-gates` has never graded this branch.** That job is the merge boundary this PR
-   modifies. So has nothing else: the two selftest jobs, `mutation-sweep-pr`, the stock
-   **bash-3.2 macOS lane**, and CI's shellcheck 0.9.0 (local is 0.11.0) all never ran. Every
-   green in the PR body is a local claim.
-2. **After the resolving merge, the lane's own milestone 4 will still red.** The scheduler
-   and `build-lean` call the **installed** `lean-gate.sh` (dev-pipeline 9.0.1), which
-   predates this fix. The merge boundary is fine — `pr-gates` runs the BRANCH's
-   `check-lean-chain.sh` → `lean-evidence.sh`, so it gets the new tolerance — but the
-   close-out's `bash G 4` does not. Same bootstrap as #363: invoke the branch's own copy,
-   `bash <worktree>/plugins/dev-pipeline/skills/build-lean/lean-gate.sh 4 597`.
+It is PR-introduced, not inherited: `origin/main`'s `lean-evidence.sh` carries exactly one
+`cmp-eq` site (`[ "$APPLICABLE" -eq 0 ]`); this PR adds two, and the survivor is one of them.
+It is absent from `tools/mutation-baseline.tsv` and from `tools/mutation-catalog.tsv`, so
+per CLAUDE.md it reds the lane rather than reading as data.
 
-**Measured, not assumed — the approve would NOT have been void.** I resolved the conflict as
-a union in a scratch worktree (merged head `bfe0a99`) and ran the branch's own predicate
-across it:
+Not flake. Reproduced locally at this head (`--mode pr --base origin/main`): same id, and the
+sweep's own serial re-verify outside the pool agreed — "really does survive its kill set".
 
-| | value |
-| --- | --- |
-| patch-id at `405657a` (merge-base `06e48be`) | `79eb4344d6a8…` |
-| patch-id at `bfe0a99` (merge-base `602b0f0`) | `644e041de223…` — **moved** |
-| `contribution_delta(405657a → bfe0a99)` | **rc=0**, empty detail |
+**Why no case kills it.** `contribution_delta` reaches `rc=2` by two routes. `(s3)` in
+`lean-evidence-selftest.sh` and `(vb3)` in `lean-gate-selftest.sh` both drive the *same* one —
+a `reviewed_head` that is not a commit in the checkout, which returns from
+`contribution_lines` at line 536 and never reaches 571. The second route — both computations
+succeed but one side's contribution is **empty** — has no case at all. That is the route the
+block's own header singles out as load-bearing rather than defensive: "two failed computations
+compare EQUAL, so an unguarded reader prints its ✓ having compared nothing."
 
-So the standing "a conflicting PR guarantees a void approve" rule does not apply here — this
-PR is the thing that makes it not apply, and it works on itself. B-1 stands on (1) and (2),
-not on void risk.
+**The mutant is not a log-text difference — it flips the verdict.** Probed against the real
+predicate sourced from this head, with `reviewed_head` a commit on the base branch (its own
+contribution therefore empty):
 
-**Remedy** (one round either way): merge `origin/main`, resolve the manifest as a union, push
-through `bot-commit.sh`. Round 2's `G delta` is then the merge commit alone.
-
-## Warnings
-
-**W-1 — the rc=2 fail-open swallows a class that is certainty, not doubt.**
-`contribution_lines` returns 1 when `reviewed_head` is not a commit in the checkout, so
-`contribution_delta` answers rc=2 and both callers pass. That condition has a name everywhere
-else in this system: `lean-gate.sh`'s legacy arm and `check-lean-chain.sh:697` both call it
-"the branch was rebased or force-pushed after the review" and refuse. Reachable at the
-boundary on a modern record: `check-lean-chain.sh` guards only for an EMPTY `reviewed_head`,
-then `delegate freshness` → `arm_freshness` → patch-id moved → rc=2 →
-`inapplicable freshness reduced-strength` → **zero violations, `pr-gates` green**. Before this
-PR that same state was a `note_violation`. `(s3)`/`(vb3)` assert it as passing, so it is
-deliberate and tested — and it is squarely inside OR-1, whose default D-5 pins as
-`user-answered`, which is why this is a warning and not a blocker. Worth splitting the two
-cases later: "the merge-base would not resolve" is doubt; "the head the record names does not
-exist here" is a known history rewrite.
-
-**W-2 — the two new `verdict-progress-unreadable` branches have no covering case.**
-`orchestrate-lean.sh:843,845` — both `progress_token` reads carry a `|| terminal
-verdict-progress-unreadable 1 …` arm, and `(vr1)`/`(vr2)` only exercise the paths where both
-reads succeed. New failure route, untested. (test-coverage-reviewer, confidence 80.)
-
-## Suggestions
-
-- **S-1** — `contribution_summary`'s `n == 0` branch prints "no affected line could be named"
-  and the caller **still invalidates**, which is the inverse of AC-3/D-6 ("a path that cannot
-  enumerate one does not invalidate"). Practically unreachable — git emits per-file sections
-  in sorted path order, so a `cmp` difference implies some file's line list differs — and it
-  errs closed. Either make it rc=2 or pin the unreachability in a comment.
-- **S-2** — `contribution_lines` sees only `+`/`-` body lines, so a **mode change** (`old
-  mode`/`new mode`, no hunk) and a **pure rename** produce no contribution at all. A
-  post-review `chmod +x` therefore does not invalidate. Narrow, but this repo has been bitten
-  by a dropped exec bit before.
-- **S-3** — `arm_freshness` enters the escape hatch without checking `VERDICT_REVIEWED_HEAD`
-  is non-empty. `check-lean-chain.sh` supplies that guard on the `pr-gates` path, but
-  `lean-evidence.sh` is documented as separately fetchable by a consumer's CI, where it is
-  the only reader. Same one-line shape as W-1.
-
-## AC scoring — 7 / 7 satisfied
-
-| AC | Score | Evidence |
+| | rc | outcome |
 | --- | --- | --- |
-| AC-1 base advance leaves the verdict standing | satisfied | `(vb1)`, `(s2)`, `(lean-base-advance)`; plus the measured `contribution_delta` rc=0 across a real resolving merge of this very branch |
-| AC-2 unmoved head spawns no REVIEW; rc=3 + m5 ends COMPLETE | satisfied | `(vr1)`/`(vr2)`; `verdict_rc`'s 3 and 2 route ahead of the spawn, and `progress_token` is `MAIN_ROOT`-anchored so it still reads after teardown — the actual F1 fix |
-| AC-3 invalidation NAMES the affected lines | satisfied | `(vb2)`, `(s)` assert file + count + first offending `+`/`-` line inline. See S-1 for the unreachable `n == 0` corner |
-| AC-4 compare `+`/`-` per file, each side against its own merge-base | satisfied | `contribution_lines` re-derives `merge-base("$2","$3")` per side; column-0 state machine, so `---`/`+++` headers and a removed `-- ` line are not mistaken for content. `check-lockstep-pairs.sh`: 23 pairs, 0 failed — the two copies are byte-identical |
-| AC-5 regression guards reproduce the #583 sequence | satisfied | Three tiers, each with an explicit non-vacuity assertion against plain git: `(vb0)` (BOTH arms would have redded), `(s2a)`, `(vr4)`, and the composed leg's inline pid/inferred checks |
-| AC-6 an uncomputable comparison stands and the line NAMES the fail-open | satisfied | `(vb3)` pins "FAILED OPEN"+"OR-1" on the declared arm; `(s3)` pins the boundary's `reduced-strength` channel. Both lines also state how to reverse it |
-| AC-7 both SKILLs state the base-merge case | satisfied | `build-lean/SKILL.md` edited in place (no line growth); `review-lean/SKILL.md` +1 line, and it carries no cap — the 60-line cap is `run-lean/SKILL.md`, untouched |
+| original | 2 | fail-open, verdict **stands** — `freshness: reduced-strength`, names OR-1 |
+| mutant | 1 | **violation** — falsely invalidates, enumerating `f.txt 1 +branchline` |
 
-## Verification run in this session (CI ran none of it)
+So with the guard mutated away, an empty old-side contribution is compared against a non-empty
+new side, they differ, and the arm reds. That is a false invalidation in precisely the case
+D-5/OR-1 exists to let stand — the failure class this whole PR is about, reachable through the
+PR's own new code, with nothing asserting against it.
 
-| Check | Result |
-| --- | --- |
-| `shellcheck -e SC1091,SC2015,SC2181` over every `*.sh` | rc=0 (local 0.11.0; **CI's 0.9.0 never ran**) |
-| `jq empty` over every `*.json` | clean |
-| `scripts/check-lockstep-pairs.sh` | 23 pairs, 0 failed — including `contribution-compare` |
-| `tools/run-selftests.sh --exclude tools/install-topology-selftest.sh`, **no `SKIP_STRESS`** | **69 scored, 69 run, 0 failed**, rc=0 |
-| The four touched suites, run alone and scored by case id | all rc=0; `(vb0)(vb1)(vb2)(vb3)(s)(s2a)(s2)(s3)(vr1)(vr2)(vr3)(vr4)(lean-base-advance)` all PASS |
-| `/bin/bash -n` (3.2.57) on the three changed scripts | OK — syntax only; **the bash-3.2 execution lane never ran** |
-| `tools/mutation-catalog.tsv` anchors on the 3 changed guards, `sed -E` as the sweep applies them, HEAD vs base | all still match — no re-anchoring obligation |
-| `mutation-sweep-pr` | **never ran** — see B-1 |
+**It is cheaply killable, and one fixture closes both copies.** A case whose record names a
+`reviewed_head` that is a valid commit with an empty own-contribution (an ancestor of the base
+is the natural shape), asserting `rc=0` plus the `freshness: reduced-strength` / OR-1 line the
+way `(s3)` already does. Under the mutant that case fails on rc alone.
 
-## Strengths
+**Do the gate side too.** `lean-gate.sh` carries the byte-identical block, so its twin site
+keys to the same `cmp-eq::4480dc581ad4`. The PR lane deferred `lean-gate.sh` to nightly
+("slow suite, 147s"), so that twin was never scored here — merging as-is moves the red to the
+nightly sweep instead of resolving it. A paired case in `lean-gate-selftest.sh` alongside
+`(vb3)` closes it.
 
-- Every green case is paired with a non-vacuity assertion made against plain git, so a
-  fixture that failed to reproduce the #583 state reds instead of reading as covered. `(vb0)`
-  checks BOTH arms would have redded, which is the difference between this and a case that
-  proves the arms were disabled.
-- The shared predicate is one call site memoized behind `contribution_state`, so the two
-  milestone-4 arms cannot answer differently — and the lockstep row makes the boundary's copy
-  a checked contract rather than a hopeful duplicate.
-- The comment on `contribution_lines` explains why a column-0 state machine rather than
-  `/^[+-]/`, with the concrete failure (`-- ` in a markdown/shell repo). That is the kind of
-  comment that survives the next edit.
-- The scope discipline holds: OR-2 declines `render_patch_id` with a stated reason rather
-  than widening, and the legacy SHA arm is left alone with the argument for why it is
-  unreachable.
+A `tools/mutation-baseline.tsv` row is the other admissible remedy, but it would be the wrong
+one: the site is demonstrably killable, so a row accepting it as unkillable-by-construction
+would not be true.
+
+## AC scoring — all 7 satisfied
+
+Every `AC-n` re-scored against the whole spec at this head, per the inheritance rule.
+
+| AC | Score | Basis |
+| --- | --- | --- |
+| AC-1 | satisfied | Both milestone-4 arms consult `contribution_state`, and the merge boundary's `arm_freshness` consults `contribution_delta`; `(vb1)`, `(s2)`/`(s2a)`, and the `(lean-base-advance)` scenario cover the end-to-end path. |
+| AC-2 | satisfied | `orchestrate-lean.sh` routes `verdict_rc` rc=3 and rc=2 ahead of the REVIEW spawn; the dead `3)` case arm is deleted; `(vr1)`–`(vr3)`, non-vacuity by `(vr4)`. |
+| AC-3 | satisfied | `contribution_delta` rc=1 emits `path<TAB>count<TAB>first-offending-line`, rendered by `contribution_summary` into every `fail_milestone 4` / `note_violation`; `(vb2)`. |
+| AC-4 | satisfied | `contribution_lines` diffs each side against its **own** merge-base and emits only in-hunk `+`/`-` lines; the column-0 state machine excludes context and the `---`/`+++` headers. |
+| AC-5 | satisfied | Three tiers present and non-vacuous: `(vb0)` asserts both arms *would* have redded, `(s2a)` asserts the fixture reproduced the #583 state, `(vr4)` likewise. |
+| AC-6 | satisfied | The fail-open is asserted, not left to a reading of the code — `(vb3)`, `(s3)`. Note B-1: only one of its two routes is asserted. |
+| AC-7 | satisfied | Verified at the merged head — both prose edits survived the merge intact: `build-lean/SKILL.md:36` and `review-lean/SKILL.md:131-136`. |
+
+B-1 sits outside the AC set, exactly as round 1's blocker did. Scope completeness re-scored
+all seven issue items as in-diff (PASS).
+
+## Merge composition — checked, sound
+
+Main brought its own `lean-gate.sh` changes (the #141/#599 rc=9 wrong-tree guard) into a file
+this PR also edits. Verified independently and by the panel: `require_lane_tree` dispatches in
+the `1|2|3|4|5|all|delta|verdict` block strictly before `run_milestone`/`cmd_verdict`, so a
+wrong-tree call still evaluates nothing and never reaches `cmd_4`'s new `contribution_state`.
+`BASE_BRANCH` and `VERDICT_REL` are both established before any consumer. The `--help` sed
+range auto-resolved to `2,317p`, which lands exactly on the line before `set -uo pipefail`.
+No conflict markers; `bash -n` clean on all seven touched shell scripts. No frozen file
+touched; `Changelog:` trailers present.
+
+## Warnings — carried, not re-litigated
+
+Round 1's **W-1** (the rc=2 fail-open lets a force-push / history rewrite reach
+`inapplicable freshness reduced-strength` rather than a violation) and **S-2**
+(`contribution_lines` reads only `+`/`-` body lines, so a mode change or pure rename produces
+no contribution) both still stand, unchanged by the merge. B-1 is a near sibling of W-1 —
+same `rc=2` fail-open, reached by the empty-contribution route rather than the
+unreadable-head one — which is part of why a case there is worth having.
+
+## Coverage gap
+
+`test-coverage-reviewer` went dark (empty result after its automatic retry) — its domain was
+not reviewed by the panel this round. `unit-test-mutation-reviewer` went dark on first
+dispatch and **succeeded on retry**, returning three confirmatory nits. Merge readiness here
+is assessed without a test-coverage reviewer opinion; the test-adequacy question that matters
+this round is B-1, which was established from CI, a local reproduction and a controlled probe
+rather than from a reviewer's judgment.
+
+`a11y` and the design-fidelity dimension were not routed: no changed path matched
+`stageParams.webComponentGlobs` (unset → default `apps/web/**/*.{tsx,jsx}`). `db-reviewer`
+and `pipeline-reviewer` were not triggered. Not coverage gaps — triggers that did not fire.
+
+## Panel verdicts
+
+| Reviewer | Verdict | Findings | Confidence |
+| --- | --- | --- | --- |
+| Scope Completeness | Pass | 0 | — |
+| Security | Pass | 0 (3 suppressed) | — |
+| Performance | Pass | 0 | — |
+| Complexity | Pass | 0 | — |
+| Maintainability | Pass | 0 | — |
+| Unit Test Mutation | Pass | 3 nits | 82–90 |
+| Test Coverage | Dark (no output) | — | — |
+
+## What round 3 needs
+
+One build round, no design work: add the empty-contribution case to
+`lean-evidence-selftest.sh` and its twin to `lean-gate-selftest.sh`, then confirm
+`mutation-sweep-pr` goes green. Nothing else in this PR is asked to change.
