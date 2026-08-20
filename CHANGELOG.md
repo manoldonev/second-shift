@@ -4,6 +4,106 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v10.0.0
+
+### `dev-pipeline` 9.0.1 → 10.0.0
+
+- **feat(dev-pipeline): reconcile the committed lean spec against the pre-flight Decision Ledger at milestone 1 (#592)** (#592)
+  milestone 1 now refuses a committed lean spec that drops a pre-flight
+  Decision Ledger row whose provenance is `user-answered` or `user-delegated`, or that
+  re-decides one without a `DEPARTURE — <reason>` marker carrying a reason. It runs in
+  the observe pass, is inert when the ticket has no `<issue>-ledger.md`, spends a fix
+  attempt on a refusal and an envfail (never budget) on a receipt it cannot read.
+  Migration: a run on a ticket that HAS a pre-flight receipt must carry its
+  `user-answered`/`user-delegated` rows into a `## Decision Ledger` table row with the
+  same `D-n` id and Resolution text, or mark the row `DEPARTURE — <reason>`. Measured
+  over the 27 receipt/spec pairs on disk in this repo, 1 passes as written.
+  milestone 1's receipt-reconciliation disclosure is no longer dropped when the
+  design lane is armed or disarmed — consumers with a `design.provider` configured now
+  see the carry-forward counts on the pass line in every design state.
+  Migration: none.
+- **feat(dev-pipeline)!: milestone 3 no longer runs the diff-scoped mutation sweep PR CI already runs (#595)** (#595)
+  milestone 3 no longer runs a repo-carried tools/mutation-sweep.sh.
+  The lane made the identical diff-scoped invocation a PR CI job already makes,
+  so it was duplicated work blocking an interactive build session. `gates.mutation`
+  is unchanged and still declares intent for config-grill/doctor advisories.
+  Migration: a consumer repo carrying its own tools/mutation-sweep.sh must wire
+  its own nightly or PR sweep; the shipped gate no longer runs one.
+  **BREAKING:** lean-gate.sh milestone 3 no longer executes a repo-carried tools/mutation-sweep.sh, and no longer emits the "mutation sweep SKIPPED" notice or its progress row.
+- **feat(dev-pipeline): resolve model tiers through config instead of vendor tokens (#596)** (#596)
+  model tiers are now vendor-neutral. Dispatch sites name a tier and
+  reviewers.tierMap resolves it, so a repo whose subscription lacks a model class
+  retargets it in one config line instead of forking the plugin; reviewers.modelOverrides
+  additionally accepts a tier name, and the structured-emitter sink is overridable for
+  the first time. Defaults are unchanged - every tier resolves to the model dispatched
+  before this change. Migration: none, configVersion stays 2.
+- **fix(dev-pipeline): lean-gate refuses to grade a tree that is not the lane's (#599)** (#599)
+  lean-gate.sh's milestone (`1`-`5`, `all`) and review-role (`delta`,
+  `verdict`) subcommands now refuse with exit 9 when the checkout they run in is
+  not on the run's lane branch, instead of grading whatever tree they landed in
+  and reporting a confident verdict about it. A detached HEAD refuses on the same
+  path. `LEAN_GATE_ANY_TREE=1` disarms the assertion and announces that it did.
+  Migration: none — the main-checkout roles are unguarded, so no scheduler or
+  operator call site changes; a manual `bash G <n> <issue>` typed from the shared
+  checkout, which used to answer about `main`, now says so.
+- **A base advance no longer voids a verdict whose reviewed lines never moved (#601)** (#601)
+  a base merge that alters none of the PR's own added or removed lines
+  no longer invalidates its approve verdict — milestone 4 and pr-gates both say
+  which of the branch's lines they judged, and let the verdict stand when they
+  cannot name one. run-lean no longer spawns a review round against an unmoved
+  head after its own close-out tore the lane worktree down.
+  Migration: none — no verdict-record key changes and no record needs a re-stamp.
+- **perf-retro: derive the lean timing profile from milestone timestamps (#603)** (#603)
+  `retro-corpus.sh timing` derives a per-run timing profile from the lean
+  progress records, and perf-retro now produces a populated profile on a lean-only
+  corpus instead of triaging on fields no run writes.
+  Migration: none.
+
+### `intake-toolkit` 4.0.0 → 4.1.0
+
+- **feat(dev-pipeline): reconcile the committed lean spec against the pre-flight Decision Ledger at milestone 1 (#592)** (#592)
+  milestone 1 now refuses a committed lean spec that drops a pre-flight
+  Decision Ledger row whose provenance is `user-answered` or `user-delegated`, or that
+  re-decides one without a `DEPARTURE — <reason>` marker carrying a reason. It runs in
+  the observe pass, is inert when the ticket has no `<issue>-ledger.md`, spends a fix
+  attempt on a refusal and an envfail (never budget) on a receipt it cannot read.
+  Migration: a run on a ticket that HAS a pre-flight receipt must carry its
+  `user-answered`/`user-delegated` rows into a `## Decision Ledger` table row with the
+  same `D-n` id and Resolution text, or mark the row `DEPARTURE — <reason>`. Measured
+  over the 27 receipt/spec pairs on disk in this repo, 1 passes as written.
+  milestone 1's receipt-reconciliation disclosure is no longer dropped when the
+  design lane is armed or disarmed — consumers with a `design.provider` configured now
+  see the carry-forward counts on the pass line in every design state.
+  Migration: none.
+
+### `review-toolkit` 7.1.0 → 7.2.0
+
+- **feat(dev-pipeline): resolve model tiers through config instead of vendor tokens (#596)** (#596)
+  model tiers are now vendor-neutral. Dispatch sites name a tier and
+  reviewers.tierMap resolves it, so a repo whose subscription lacks a model class
+  retargets it in one config line instead of forking the plugin; reviewers.modelOverrides
+  additionally accepts a tier name, and the structured-emitter sink is overridable for
+  the first time. Defaults are unchanged - every tier resolves to the model dispatched
+  before this change. Migration: none, configVersion stays 2.
+
+### `second-shift` 7.0.1 → 8.0.0
+
+- **feat(dev-pipeline)!: milestone 3 no longer runs the diff-scoped mutation sweep PR CI already runs (#595)** (#595)
+  milestone 3 no longer runs a repo-carried tools/mutation-sweep.sh.
+  The lane made the identical diff-scoped invocation a PR CI job already makes,
+  so it was duplicated work blocking an interactive build session. `gates.mutation`
+  is unchanged and still declares intent for config-grill/doctor advisories.
+  Migration: a consumer repo carrying its own tools/mutation-sweep.sh must wire
+  its own nightly or PR sweep; the shipped gate no longer runs one.
+  **BREAKING:** lean-gate.sh milestone 3 no longer executes a repo-carried tools/mutation-sweep.sh, and no longer emits the "mutation sweep SKIPPED" notice or its progress row.
+- **feat(dev-pipeline): resolve model tiers through config instead of vendor tokens (#596)** (#596)
+  model tiers are now vendor-neutral. Dispatch sites name a tier and
+  reviewers.tierMap resolves it, so a repo whose subscription lacks a model class
+  retargets it in one config line instead of forking the plugin; reviewers.modelOverrides
+  additionally accepts a tier name, and the structured-emitter sink is overridable for
+  the first time. Defaults are unchanged - every tier resolves to the model dispatched
+  before this change. Migration: none, configVersion stays 2.
+
 ## v9.1.0
 
 ### `dev-pipeline` 9.0.0 → 9.0.1
