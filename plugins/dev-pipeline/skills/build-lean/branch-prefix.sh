@@ -36,6 +36,7 @@
 #   resolve_branch_prefix <configured> <tracker-type> <key-pattern> [<repo-dir>]
 #   bp_key_re <tracker-type> <key-pattern>
 #   bp_is_work_branch <ref> <prefix> <tracker-type> <key-pattern>
+#   bp_branch_key <ref> <prefix> <tracker-type> <key-pattern>
 #
 # Exit / return: 0 = resolved (printed on stdout); 2 = unresolvable (diagnostic on stderr).
 #
@@ -85,6 +86,22 @@ bp_is_work_branch() { # bp_is_work_branch <ref> <prefix> <tracker> <key-pattern>
   local got
   got="$(_bp_candidate "$1" "${3:-github}" "$(bp_key_re "${3:-github}" "${4:-}")")" || return 1
   [ "$got" = "$2" ]
+}
+
+# The other half of the same answer (#611): once a ref is known to belong to the namespace, WHICH
+# ticket is it? Built on bp_is_work_branch rather than on a bare `${ref#$prefix}` so the
+# membership question and the extraction question can never disagree — a caller that stripped the
+# prefix itself would happily report `notes` as the key of `claude/second-shift-notes`, which is
+# precisely the branch bp_is_work_branch exists to reject. After that test the strip is exact: the
+# candidate parse defines the prefix as everything BEFORE the key, under both trackers.
+#
+# The key is returned AS THE BRANCH SPELLS IT — lowercased under jira, because that is the
+# transform the branch name already applied. A caller comparing it against a ticket argument
+# normalizes that argument the same way rather than expecting this to un-lowercase a key it
+# cannot reconstruct.
+bp_branch_key() { # bp_branch_key <ref> <prefix> <tracker> <key-pattern>  -> prints the key
+  bp_is_work_branch "$1" "$2" "${3:-github}" "${4:-}" || return 1
+  printf '%s\n' "${1#"$2"}"
 }
 
 resolve_branch_prefix() { # resolve_branch_prefix <configured> <tracker> <key-pattern> [<repo>]
@@ -141,7 +158,7 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
       --tracker)     _tracker="${2:-}"; shift 2 ;;
       --key-pattern) _keypat="${2:-}"; shift 2 ;;
       --repo)        _repo="${2:-}"; shift 2 ;;
-      -h|--help)     sed -n '2,42p' "$0"; exit 0 ;;
+      -h|--help)     sed -n '2,43p' "$0"; exit 0 ;;
       *) echo "branch-prefix.sh: unknown argument '$1'" >&2; exit 2 ;;
     esac
   done

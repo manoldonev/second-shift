@@ -76,7 +76,8 @@
 # the role `reviewed_head` now holds; no reader gates on it.
 #
 # Usage:
-#   lean-gate.sh entry  <issue>          entry precondition: the session's audit ledger is live.
+#   lean-gate.sh entry  <issue> [--ticket-source argument|lane-branch|lane-registry]
+#                                        entry precondition: the session's audit ledger is live.
 #                                        On success it RECORDS that fact in the progress file;
 #                                        every build-role subcommand below refuses with exit 2
 #                                        until that row exists, so skipping this step is a
@@ -84,7 +85,8 @@
 #                                        The queue-label reject is the SESSION's step (SKILL.md
 #                                        step 1) — it needs a tracker read, so it is not gated
 #                                        here. Under tracker.type: jira there is no queue at all.
-#   lean-gate.sh claim  <issue>          the two bot-wrapper claim writes (AC-15/D-49).
+#   lean-gate.sh claim  <issue> [--ticket-source ...]
+#                                        the two bot-wrapper claim writes (AC-15/D-49).
 #                                        Under tracker.type: jira it makes NO tracker write and
 #                                        needs no GH_BOT — it records the run id and returns.
 #   lean-gate.sh <1..5> <issue>          evaluate one milestone. Milestone 1 also refuses when
@@ -209,6 +211,16 @@
 #           environment repair, and because this is the one failure mode that otherwise does not
 #           fail at all: every answer here is derived from the tree the process happens to be in,
 #           so from the wrong one the gate reports a confident verdict about the wrong branch.
+#      10 = UNRESOLVABLE TICKET ARGUMENT (#611): `entry`/`claim` were given no ticket, or one
+#           that does not validate, does not exist, is closed with no evidence this run ever
+#           claimed it, or disagrees with the lane branch this checkout is on — and, on `mark`
+#           and `teardown` too, that last arm alone. NOTHING WAS RESOLVED: no tracker write, no
+#           attestation, no progress row, no fix attempt. ONE integer for all five reasons
+#           (each named in its own message) because unlike 5/6/7/8/9 they share one remedy —
+#           re-invoke naming the ticket you meant. Its own integer rather than the usage 2
+#           because 2 is what the milestone calls still answer, and a scheduler or operator
+#           that could not tell "you passed no argument" from "the argument is a lie" would
+#           treat a false-premise run as a typo.
 #
 # THE RESERVED VERIFY-LANE INPUT CODE (#527). Exit 3 from a configured verify lane — the fixed
 # `lint`/`typecheck`/`test` keys, or any `extraLanes` entry — means "I failed for reasons that are
@@ -338,6 +350,10 @@ PROGRESS_OBLIGATIONS=0
 # #515. Empty means "not given"; the default is applied after validation, so `--arm` on a
 # subcommand that ignores it is still loud rather than silently absorbed into the default.
 STALENESS_ARM=""
+# #611. The DECLARED provenance of the ticket argument beside it. Empty means "not given" and the
+# default is applied after validation, exactly as `--arm` above does — a source token on a
+# subcommand that records nothing has to be loud rather than absorbed.
+TICKET_SOURCE=""
 # #539. The launch token `m3-run` stamps into its marker, passed on argv because that is the whole
 # point of the subcommand: a re-exec'd runner inherits an environment, and an env handshake is the
 # shape that reached the nested lane children last time.
@@ -436,7 +452,8 @@ while [ $# -gt 0 ]; do
     --obligations)   PROGRESS_OBLIGATIONS=1; shift ;;
     --m3-token)      M3_RUN_TOKEN="${2:-}"; shift 2 ;;
     --arm)           STALENESS_ARM="${2:-}"; shift 2 ;;
-    -h|--help)       sed -n '2,317p' "$0"; exit 0 ;;
+    --ticket-source) TICKET_SOURCE="${2:-}"; shift 2 ;;
+    -h|--help)       sed -n '2,329p' "$0"; exit 0 ;;
     -*)              envfail "unknown option: $1" ;;
     *)
       if [ "$POSITIONAL" -eq 0 ]; then SUB="$1"; POSITIONAL=1
@@ -448,7 +465,16 @@ while [ $# -gt 0 ]; do
 done
 
 [ -n "$SUB" ]   || envfail "usage: lean-gate.sh <entry|claim|mark|1..5|all|teardown|inflight|delta|verdict|progress|staleness|m3-run> <issue>"
-[ -n "$ISSUE" ] || envfail "usage: lean-gate.sh <entry|claim|mark|1..5|all|teardown|inflight|delta|verdict|progress|staleness|m3-run> <issue>"
+# #611. DEFERRED for `entry`/`claim` alone, and into a REFUSAL rather than a usage error — the
+# absent-ticket case is what that guard is about, and answering it with the same exit 2 a typo'd
+# flag gets is what let a session read "no argument" as "choose one". The assertion is not
+# dropped: it moves to the ticket-resolution block below, which runs once the branch namespace is
+# resolved and can therefore name what a lane cwd would have inferred. Every other subcommand
+# keeps this refusal verbatim, the milestone calls included (the AC preamble binds only two).
+case "$SUB" in
+  entry|claim) : ;;
+  *) [ -n "$ISSUE" ] || envfail "usage: lean-gate.sh <entry|claim|mark|1..5|all|teardown|inflight|delta|verdict|progress|staleness|m3-run> <issue>" ;;
+esac
 
 case "$SUB" in
   entry|claim|mark|1|2|3|4|5|all|teardown|inflight|delta|verdict|progress|staleness|m3-run) : ;;
@@ -508,6 +534,21 @@ if [ -n "$STALENESS_ARM" ]; then
   esac
 fi
 STALENESS_ARM="${STALENESS_ARM:-both}"
+
+# #611, the same parse-time shape and the same reason: a source token outside the enum, or one
+# handed to a subcommand that records nothing, declares a provenance no reader can interpret —
+# and the point of the flag is that provenance is CHECKED rather than asserted.
+if [ -n "$TICKET_SOURCE" ]; then
+  case "$SUB" in
+    entry|claim) : ;;
+    *) envfail "--ticket-source is only meaningful on 'entry' or 'claim', not '$SUB'." ;;
+  esac
+  case "$TICKET_SOURCE" in
+    argument|lane-branch|lane-registry) : ;;
+    *) envfail "--ticket-source takes argument|lane-branch|lane-registry, got '$TICKET_SOURCE'." ;;
+  esac
+fi
+TICKET_SOURCE="${TICKET_SOURCE:-argument}"
 
 # ---------------------------------------------------------------- roots + config
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" \
@@ -659,6 +700,232 @@ BRANCH_PREFIX="$(resolve_branch_prefix \
   "$(cfg '.tracker.branchPrefix' '')" "$TRACKER_TYPE" "$TRACKER_KEY_PATTERN" "$MAIN_ROOT")" \
   || exit 2
 
+# ---------------------------------------------------------------- ticket resolution (#611)
+# WHAT THIS DEFENDS. `<issue>` was a given everywhere above: the parser asserted it was non-empty
+# and nothing ever asked whether it named anything. So a session whose argument was lost to shell
+# quoting could list the queue, SELF-SELECT an assignment, claim it and open a PR for it — while
+# the operator believed a different ticket was in flight. Claiming a ticket the caller never named
+# is a write under a false premise, the same class as authoring your own verdict, and it belongs
+# in the gate for the same reason that one does: a reminder in prose is not a control.
+#
+# THE GATE NEVER RESOLVES A TICKET. It validates one it was handed, and refuses otherwise. That is
+# the whole design: an inference the gate performed itself would be indistinguishable, in the
+# record, from a caller that named the ticket — which is the failure. So inference stays with the
+# CALLER, is legal only from a lane-branch cwd, and comes back as an explicit argument plus
+# `--ticket-source` naming where it came from. Both are recorded; the branch name checks them.
+#
+# WHY THE BRANCH NAME AND NOT THE LANE REGISTRY (D-5). The gate is standing IN a tree whose
+# identity its own branch asserts, whereas `lean-lanes.tsv` is one machine-global file every
+# worktree of every lane shares — it can be stale, and a second declaration of a fact the checkout
+# already carries is the shape that goes blind rather than red. `--ticket-source lane-registry` is
+# therefore accepted and recorded, and still checked against the branch: a disagreement refuses.
+#
+# ORDER, and why it is here rather than at dispatch. The cheap arms run BEFORE the pinned name
+# table below, because every path there is `$ISSUE`-derived — with an empty key the run-id cache
+# resolves to `<state-dir>/-run-id`, which `entry`/`claim` would then WRITE. A refusal that first
+# creates a file named after the ticket it is refusing to accept is not a refusal.
+TICKET_UNRESOLVABLE=10
+
+ticket_refuse() { # ticket_refuse <reason> [detail...]
+  local d
+  warn "✗ $SUB: UNRESOLVABLE TICKET ARGUMENT — $1"
+  shift
+  for d in "$@"; do warn "  $d"; done
+  warn "  Nothing was resolved: no tracker write, no attestation, no progress row and no fix attempt. Name the ticket you mean."
+  exit "$TICKET_UNRESOLVABLE"
+}
+
+# Under jira the branch name lowercases the key, so a comparison against a branch-derived key has
+# to apply the same transform to the argument. Identity under github. Deliberately the transform
+# BRANCH_KEY below already performs — one rule, so the two answers cannot drift.
+ticket_norm() { # ticket_norm <key>
+  case "$TRACKER_TYPE" in
+    jira) printf '%s\n' "$1" | tr '[:upper:]' '[:lower:]' ;;
+    *)    printf '%s\n' "$1" ;;
+  esac
+}
+
+# ADAPTER-AWARE, and the github arm is deliberately narrower than `bp_key_re`'s `[0-9]+`: an
+# issue number is a POSITIVE integer, so `0` is not one, and a zero-padded `0007` — which the API
+# happily accepts — would derive a branch name no other reader of this run reconstructs. Both are
+# refused at the shape arm rather than surviving to become a lane nobody can find again.
+# A here-string, never a pipeline: under `pipefail` a producer that gets SIGPIPE when the reader
+# exits early turns a MATCH into a non-zero status, which would read here as "invalid key".
+ticket_key_valid() { # ticket_key_valid <key>
+  case "$TRACKER_TYPE" in
+    jira) grep -qiE "^($(bp_key_re jira "$TRACKER_KEY_PATTERN"))$" <<<"$1" ;;
+    *)    grep -qE '^[1-9][0-9]*$' <<<"$1" ;;
+  esac
+}
+
+# The cwd's OWN ticket, or empty. `bp_branch_key` answers only for a ref that parses as a work
+# branch of this repo's namespace, so a shared checkout on the base branch, an unrelated
+# `fix/...` branch and a detached HEAD all yield nothing and constrain nothing — the arms below
+# fire on DISAGREEMENT, never on the mere absence of a lane.
+TICKET_TREE_HEAD="$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null)" || TICKET_TREE_HEAD=""
+[ -n "$TICKET_TREE_HEAD" ] || TICKET_TREE_HEAD="<unresolvable>"
+TICKET_TREE_KEY=""
+if [ "$TICKET_TREE_HEAD" != "HEAD" ] && [ "$TICKET_TREE_HEAD" != "<unresolvable>" ]; then
+  TICKET_TREE_KEY="$(bp_branch_key "$TICKET_TREE_HEAD" "$BRANCH_PREFIX" \
+                       "$TRACKER_TYPE" "$TRACKER_KEY_PATTERN")" || TICKET_TREE_KEY=""
+fi
+
+# LIBRARY MODE dispatches nothing, so it resolves nothing either: its placeholder args exist only
+# to satisfy the parser, and refusing them would break the one consumer that sources this file.
+if [ -z "${LEAN_GATE_LIB:-}" ]; then
+
+  # (i) ABSENT. Two messages, one code. From a lane cwd the gate can say what the caller PROBABLY
+  # meant — and still refuses, because saying it and acting on it are different things.
+  case "$SUB" in
+    entry|claim)
+      if [ -z "$ISSUE" ]; then
+        if [ -n "$TICKET_TREE_KEY" ]; then
+          ticket_refuse "\`$SUB\` was given no ticket, and this gate does not self-select one." \
+            "This checkout is on '$TICKET_TREE_HEAD', whose key is '$TICKET_TREE_KEY'. If that is the run you mean, say so:" \
+            "    bash G $SUB $TICKET_TREE_KEY --ticket-source lane-branch" \
+            "Inference is legal from here, but it is the CALLER's to perform and the gate's to check — so it arrives as an argument with its provenance declared, and both are recorded."
+        fi
+        ticket_refuse "\`$SUB\` was given no ticket, and this checkout ('$TICKET_TREE_HEAD') is not a work branch of '$BRANCH_PREFIX' — there is no lane to infer one from." \
+          "A build session that picks its own assignment claims a ticket its caller never named. Re-invoke as \`bash G $SUB <issue>\`."
+      fi
+
+      # (ii) KEY SHAPE. Before any tracker read — a key the adapter cannot spell is answered
+      # locally rather than by a round trip that would report it as "not found".
+      ticket_key_valid "$ISSUE" || case "$TRACKER_TYPE" in
+        jira) ticket_refuse "'$ISSUE' is not a valid jira key for this repo — it does not match tracker.keyPattern '$(bp_key_re jira "$TRACKER_KEY_PATTERN")'." \
+                "No tracker read was attempted: a key the adapter cannot spell has no ticket to be." ;;
+        *)    ticket_refuse "'$ISSUE' is not a github issue number — expected a positive integer with no leading zeros." \
+                "No tracker read was attempted. A padded or zero key would also derive a lane branch no other reader of this run reconstructs." ;;
+      esac
+      ;;
+  esac
+
+  # (iii) CWD DISAGREEMENT (AC-4). The four calls the #141 wrong-tree refusal does not bind —
+  # it covers `1`..`5`, `all`, `delta` and `verdict`, which are EVALUATIONS derived from the tree
+  # they run in. These four are not evaluations, and each writes somewhere the ticket names: a
+  # label and a marker comment, a PR marker, a worktree. An error, never a fallback: the argument
+  # and the tree are two independent statements of the same fact, and picking a winner silently is
+  # how one of them stops being checked. A second exit code is deliberately NOT minted here —
+  # `rc=9` stays the milestone calls' alone, as the AC requires.
+  case "$SUB" in
+    entry|claim|mark|teardown)
+      if [ -n "$TICKET_TREE_KEY" ] && [ -n "$ISSUE" ] \
+         && [ "$TICKET_TREE_KEY" != "$(ticket_norm "$ISSUE")" ]; then
+        ticket_refuse "the argument names '$ISSUE', but this checkout is on '$TICKET_TREE_HEAD', whose key is '$TICKET_TREE_KEY'." \
+          "These are two independent statements of which run this is, and they disagree — so one of them is wrong and this gate cannot tell which." \
+          "Re-run from a checkout on '$BRANCH_PREFIX$(ticket_norm "$ISSUE")', or name '$TICKET_TREE_KEY' if this tree is the run you meant."
+      fi
+      ;;
+  esac
+
+  # (iv) INFERENCE LEGALITY (AC-3). A declared inference source is a claim about WHERE the ticket
+  # came from, and from a checkout that is not a lane there is nowhere it could have come from —
+  # so the declaration is false and the run stops. Arm (iii) has already established that a lane
+  # cwd AGREES with the argument, which is what makes the pair a check rather than a label.
+  case "$SUB" in
+    entry|claim)
+      if [ "$TICKET_SOURCE" != "argument" ] && [ -z "$TICKET_TREE_KEY" ]; then
+        ticket_refuse "--ticket-source '$TICKET_SOURCE' declares an INFERRED ticket, but this checkout ('$TICKET_TREE_HEAD') is not a work branch of '$BRANCH_PREFIX'." \
+          "Inference is legal only from a lane worktree — the re-entry shape. A fresh run from the shared checkout names its ticket, or does not start."
+      fi
+      ;;
+  esac
+
+fi
+
+# The tracker arm, DEFINED here beside its siblings and CALLED at dispatch: it needs the run
+# identity resolved below, and it opens a socket, so it must not run for a call the cheap arms
+# above already refused. One read per run boundary, never per milestone — the milestone calls'
+# recorded no-network property is unchanged.
+#
+# github only, on staleness_ticket_arm's precedent: the jira adapter has no issue-state read here
+# and inventing one would be a second tracker authority. The shape arm still ran, so a jira run is
+# not unguarded — only its liveness is un-asked, and it says so.
+require_ticket_live() {
+  local raw err rc state labels comments marker
+  if [ "$TRACKER_TYPE" != "github" ]; then
+    say "$SUB: ticket liveness arm skipped — tracker '$TRACKER_TYPE' has no issue-state read here. The key-shape and cwd arms already ran."
+    return 0
+  fi
+
+  err="$(mktemp -t lean-ticket.XXXXXX)" || envfail "mktemp failed."
+  raw="$("$GH_CLI" issue view "$ISSUE" --json state,labels 2>"$err")"; rc=$?
+  err="$(cat "$err" 2>/dev/null; rm -f "$err")"
+  if [ "$rc" -ne 0 ]; then
+    # TWO NAMED REASONS off one failed read, classified by what the CLI said. The classification
+    # is a convenience and never a decision: both arms refuse, so a future `gh` rewording degrades
+    # this to the generic reason and never to admission. Fail closed is the staleness arm's own
+    # precedent — an unreadable tracker is not an open ticket.
+    #
+    # CASE-FOLDED before matching, which is not a nicety: the live wording is "Could not resolve
+    # to an issue or pull request", lowercase, and the capitalized guess sent a plainly absent
+    # number down the outage arm — a refusal either way, but one that named the wrong cause.
+    case "$(printf '%s' "$err" | tr '[:upper:]' '[:lower:]')" in
+      *"could not resolve to"*)
+        ticket_refuse "'$ISSUE' names no issue in this repository." \
+          "$GH_CLI said: $(printf '%s' "$err" | tr '\n' ' ')" \
+          "Nothing was claimed. Check the number against the queue before re-invoking." ;;
+      *)
+        ticket_refuse "#$ISSUE's state could not be read via '$GH_CLI' — refusing to treat an unreadable tracker as a live ticket." \
+          "$GH_CLI said: $(printf '%s' "$err" | tr '\n' ' ')" \
+          "This arm fails CLOSED: an outage that answered 'looks fine' would let exactly the run this refusal exists to stop proceed on a premise nobody checked." ;;
+    esac
+  fi
+
+  state="$(printf '%s' "$raw" | jq -r '.state // ""' 2>/dev/null)" || state=""
+  case "$state" in
+    OPEN) return 0 ;;
+    # ANY terminal state, `.stateReason` deliberately unread — the staleness arm's D-7 reasoning
+    # verbatim: a NOT_PLANNED close is exactly as dead as a completed one. MERGED is here because
+    # issues and PRs share one number space and `gh issue view` resolves either, so a PR number
+    # passed as a ticket reaches this arm; it is terminal, and reporting it as an unrecognized
+    # state named the wrong cause for a refusal that was already correct.
+    CLOSED|MERGED) : ;;
+    *) ticket_refuse "'$GH_CLI' answered an unrecognized state '$state' for #$ISSUE — refusing to guess whether the ticket is open." \
+         "Fail closed, for the same reason the unreadable arm above does." ;;
+  esac
+
+  # CLOSED, so the one waiver: THIS RUN's own re-entry. A run whose ticket closed under it must
+  # still be able to run `entry` — that is the call the close-out and `teardown` paths come
+  # through, and stranding it would leave a worktree nobody can reach. The evidence is the pair
+  # the skill's own re-entry test names, and both halves are needed: the label alone is set by
+  # anyone, and a marker alone survives an unclaimed re-open.
+  labels="$(printf '%s' "$raw" | jq -r '(.labels // [])[].name' 2>/dev/null)" || labels=""
+  if [ -n "$COMMENTS_FILE" ]; then
+    [ -f "$COMMENTS_FILE" ] || envfail "--comments-file '$COMMENTS_FILE' does not exist."
+    comments="$(cat "$COMMENTS_FILE")"
+  else
+    comments="$("$GH_CLI" api "repos/{owner}/{repo}/issues/$ISSUE/comments" --paginate 2>&1)" \
+      || ticket_refuse "#$ISSUE is $state and its comment trail could not be read, so this run's own claim evidence cannot be checked." \
+           "$GH_CLI said: $(printf '%s' "$comments" | tr '\n' ' ')"
+  fi
+  # BOT-authored and carrying THIS run's id — the same two filters check-lean-chain.sh applies at
+  # the merge boundary. An operator-posted marker is not evidence the harness ran, and a marker
+  # from some other run is not evidence THIS one claimed anything.
+  marker="$(printf '%s' "$comments" | jq -r --arg tag "$LEAN_CLAIM_MARKER_TAG" --arg id "$RESOLVED_RUN_ID" '
+      [ (. // [])[] | select((.user.type // "") == "Bot")
+        | select((.body // "") | contains("<!-- stage: " + $tag + " -->"))
+        | select((.body // "") | contains("<!-- run_id: " + $id + " -->")) ] | length' 2>/dev/null)" || marker=0
+  [ -n "$marker" ] || marker=0
+
+  if [ "$marker" -gt 0 ] && grep -qxF "$CLAIMED_LABEL" <<<"$labels"; then
+    case "$SUB" in
+      # A fresh claim on a closed ticket is precisely the false-premise write, and the checklist
+      # already says to skip step 2 on a re-entry — so this is a refusal, not a no-op that would
+      # re-swap labels on an item the repository's unclaim workflow has already released.
+      claim) ticket_refuse "#$ISSUE is $state. This run's claim evidence is on it, so the run is real — but a claim WRITE against a closed ticket is not." \
+               "Skip step 2 on a re-entry (the marker is posted and the labels are swapped already) and continue at the first unsatisfied milestone." ;;
+    esac
+    say "entry: #$ISSUE is $state, but carries the '$CLAIMED_LABEL' label and this run's own bot-authored '$LEAN_CLAIM_MARKER_TAG' marker (run_id '$RESOLVED_RUN_ID')."
+    say "  Admitted as a RE-ENTRY so close-out and \`teardown\` can still run. This waives the open check and nothing else — it is not a fresh claim."
+    return 0
+  fi
+
+  ticket_refuse "#$ISSUE is $state, and nothing on it evidences that this run ever claimed it." \
+    "Looked for the '$CLAIMED_LABEL' label AND a bot-authored '$LEAN_CLAIM_MARKER_TAG' marker carrying run_id '$RESOLVED_RUN_ID'; found label=$(grep -qxF "$CLAIMED_LABEL" <<<"$labels" && echo yes || echo no), marker=$marker." \
+    "Starting a run on a closed ticket is a run whose premise is already false."
+}
+
 # Under jira the key is lowercased in the branch name (tools/tracker/jira/README.md's `branch
 # name` row); under github the key is digits and the transform is an identity. Applied to the
 # KEY only, never to the prefix, which is used as configured.
@@ -747,10 +1014,24 @@ case "$SUB" in
     # milestone 4 (which compares the record against that very file) would then refuse a valid,
     # review-authored record permanently, burning a fix attempt on every retry. An EVALUATION
     # must be able to read an identity, never to establish one.
-    RESOLVED_RUN_ID="$(resolve_cached_id "$RUN_ID_CACHE" 1)" ;;
+    #
+    # #611 SPLIT THE SEED OFF THE RESOLVE for the two run-boundary calls. Seeding is a WRITE
+    # named after the ticket, and `entry`/`claim` can still be refused after this line by the
+    # liveness arm — so a typo'd number used to leave `<typo>-run-id` behind holding this run's
+    # id, which seed-once would then hand to whatever real run later took that number. `mark`
+    # keeps the immediate seed: nothing refuses it on ticket grounds past this point.
+    case "$SUB" in
+      mark) RESOLVED_RUN_ID="$(resolve_cached_id "$RUN_ID_CACHE" 1)" ;;
+      *)    RESOLVED_RUN_ID="$(resolve_cached_id "$RUN_ID_CACHE" 0)" ;;
+    esac ;;
   *)
     RESOLVED_RUN_ID="$(resolve_cached_id "$RUN_ID_CACHE" 0)" ;;
 esac
+
+# The deferred half of the seed above, called once the ticket is known to be real. Discarding the
+# value is the point: RESOLVED_RUN_ID is already what this writes, and re-reading it here would
+# make a second resolution path out of a function whose whole contract is that there is one.
+seed_run_id_cache() { resolve_cached_id "$RUN_ID_CACHE" 1 >/dev/null; }
 
 # First `<key>: <token>` in a file, HTML-comment or bare form. Deliberately the SAME extraction
 # shape lean-reconcile.sh uses on the same records — two readers of one schema that disagreed
@@ -1590,6 +1871,19 @@ pass_milestone() {
 ENTRY_ROW_MARKER="| entry | ledger="
 
 entry_row_present() { [ "$(count_matches "$ENTRY_ROW_MARKER" "$PROGRESS_FILE" -F)" -gt 0 ]; }
+
+# #611. The other half of "a checked control, not a prose reminder": the argument the run boundary
+# accepted, and the provenance its caller declared for it. Its OWN `| ticket |` namespace on the
+# teardown row's precedent — nothing reading `| milestone-<n> |` (progress_token, the obligations
+# report) can mistake it for a certified milestone, and the scheduler's continuation predicate is
+# unmoved by it. DEDUPED on the whole row so a resumed run's second `entry` does not stack
+# identical lines, while a re-entry that declares a DIFFERENT source records that as a new fact.
+record_ticket_resolution() {
+  local row
+  row="| ticket | resolved=$ISSUE | source=$TICKET_SOURCE | tree=$TICKET_TREE_HEAD"
+  [ "$(count_matches "$row" "$PROGRESS_FILE" -F)" -eq 0 ] || return 0
+  append_line "$(now_iso) $row"
+}
 
 # D-9, ENRICHMENT ONLY. `audit-toolkit` off and "the ledger is missing" are one operator action
 # apart and read identically today, so the refusal below picks its wording from the settings
@@ -2546,6 +2840,7 @@ cmd_entry() {
   # Tightening to per-session is one comparison against the id recorded here, but cannot be done
   # honestly until #417 lands.
   ensure_progress_file
+  record_ticket_resolution
   # #528: a claim still present here was orphaned by a killed writer, never held by a live one —
   # see append_satisfied. This is where a session starts, so it is where the sweep belongs.
   clear_satisfied_claims
@@ -2603,10 +2898,14 @@ cmd_claim() {
 
   if [ "$TRACKER_TYPE" = "jira" ]; then
     ensure_progress_file
+    record_ticket_resolution
     append_line "$(now_iso) | claim | tracker=jira | no tracker write (read-only tracker)"
     say "✓ claim: jira adapter — no tracker write; run_id '$RESOLVED_RUN_ID' recorded in $PROGRESS_FILE"
     return 0
   fi
+
+  ensure_progress_file
+  record_ticket_resolution
 
   helper="$(dirname "$(dirname "$(cd "$(dirname "$0")" && pwd)")")/tools/claim-issue.sh"
   [ -f "$helper" ] || envfail "claim-issue.sh not found at '$helper'."
@@ -5324,6 +5623,14 @@ esac
 
 case "$SUB" in
   claim|delta|all|1|2|3|4|5) require_entry_attested ;;
+esac
+
+# #611, LAST of the three guards and the only one that opens a socket. After the attestation
+# check, whose remedy is one local command, so an unattested `claim` is not sent to the network to
+# be told something it could have been told for free — and after the cheap ticket arms, which have
+# already refused every argument this read would have no answer for.
+case "$SUB" in
+  entry|claim) require_ticket_live; seed_run_id_cache ;;
 esac
 
 case "$SUB" in
