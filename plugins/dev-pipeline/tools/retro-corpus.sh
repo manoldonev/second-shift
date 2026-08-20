@@ -27,8 +27,24 @@
 # milestone 5's own predicate (`lean-gate.sh cmd_5`'s closing-comment check), swept across
 # every open lean PR instead of one issue, so it needs no branch checkout.
 #
+# `timing` mode is #565's piece: a per-run timing profile derived from the SAME artifact-schema
+# records `corpus` selects, with no new record, no new key and no new write on any lane. The
+# only span primitive BOTH grammar generations of the progress record write is
+# `| milestone-N | satisfied`, so every span keys off it: span(N) = satisfied(N) minus the most
+# recent `satisfied` of any LOWER-numbered milestone, or minus the record's first timestamped
+# row. `started`/`concluded` measure the GATE CALL — ~1 second — and exist on a minority of
+# records, so they are never a span basis; they feed `reverifyMin` (a diagnostic OUTSIDE every
+# sum) and the `re-run` flag. Spans stop at milestone 4: 21 of 23 terminated records carry a
+# later `milestone-5 | satisfied`, once 605 minutes after a 41-minute run, so including it
+# would measure close-out bookkeeping as run time.
+#
+# Nothing is repaired by inference. A record with no `milestone-4 | satisfied` row gets a null
+# wall-clock and a `fidelity[]` flag — never a fallback to PR merge time, git metadata or file
+# mtime. The gap IS the finding, and Step 2 of perf-retro triages on those flags.
+#
 # Usage:
 #   retro-corpus.sh corpus   [--window N] [--state-dir <dir>] [--json]
+#   retro-corpus.sh timing   [--window N] [--state-dir <dir>] [--json]
 #   retro-corpus.sh open-prs [--pr-list-file <path>] [--comments-dir <dir>] [--json]
 #
 # Seams (zero-network selftest, the lean-gate.sh precedent):
@@ -46,8 +62,8 @@ set -uo pipefail
 GH_CLI="${GH:-gh}"
 SUB="${1:-}"; shift || true
 case "$SUB" in
-  corpus|open-prs) : ;;
-  *) echo "retro-corpus.sh: usage: retro-corpus.sh <corpus|open-prs> [options]" >&2; exit 2 ;;
+  corpus|timing|open-prs) : ;;
+  *) echo "retro-corpus.sh: usage: retro-corpus.sh <corpus|timing|open-prs> [options]" >&2; exit 2 ;;
 esac
 
 WINDOW=15
@@ -63,7 +79,7 @@ while [ $# -gt 0 ]; do
     --pr-list-file)  PR_LIST_FILE="${2:-}"; shift 2 ;;
     --comments-dir)  COMMENTS_DIR="${2:-}"; shift 2 ;;
     --json)          EMIT_JSON=true; shift ;;
-    -h|--help)       sed -n '2,40p' "$0"; exit 0 ;;
+    -h|--help)       sed -n '2,56p' "$0"; exit 0 ;;
     *) echo "retro-corpus.sh: unknown argument '$1'" >&2; exit 2 ;;
   esac
 done
@@ -218,6 +234,198 @@ cmd_corpus() {
   fi
 }
 
+# ============================================================== timing mode
+# ISO-8601 -> epoch, BSD/GNU dual form. `-u` is load-bearing on the BSD arm: without it
+# `date -j -f` reads a `Z` string as LOCAL time, and neither wrong form fails cleanly, so the
+# error is a silent offset rather than a crash. This is a verbatim second copy of
+# pipeline-cost-block.sh's helper — pinned by a scripts/lockstep-manifest.tsv row rather than
+# extracted, because #546 owns every executable line of that file and a shared-helper refactor
+# would collide with it head-on.
+# LOCKSTEP-BEGIN iso-to-epoch
+iso_to_epoch() {
+  local e
+  e=$(date -u -j -f "%Y-%m-%dT%H:%M:%SZ" "$1" +%s 2>/dev/null)
+  case "$e" in ''|*[!0-9]*) e=$(date -u -d "$1" +%s 2>/dev/null) ;; esac
+  case "$e" in ''|*[!0-9]*) return 1 ;; esac
+  printf '%s\n' "$e"
+}
+# LOCKSTEP-END iso-to-epoch
+
+TS_RE='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z'
+
+# first_row_ts <file> — the record's first timestamped row, the origin every span and the
+# wall-clock measure from. Header keys carry no stamp, so this is the earliest observed activity.
+first_row_ts() { grep -oE "$TS_RE" "$1" 2>/dev/null | head -n1; }
+
+# milestone_ts <file> <n> <state> — every timestamp of `| milestone-<n> | <state>`, in file
+# order. `satisfied` is idempotent (lean-gate.sh's append_satisfied returns early, D-41), so its
+# result is one line or none and NO rule anywhere selects a "last" occurrence (AC-3).
+milestone_ts() {
+  grep -oE "$TS_RE \| milestone-$2 \| $3" "$1" 2>/dev/null | cut -c1-20
+}
+
+# floor_min <seconds> — whole minutes, FLOORED (toward negative infinity), not truncated.
+# Every span, the wall-clock and reverifyMin are floored independently, which is exactly why no
+# field claims sum(spans) == wallClockMin (AC-7c).
+#
+# The negative arm is not hypothetical. `109-lean-progress.md` satisfies milestone 1 at 12:52:14
+# and milestone 2 at 11:55:09 — out of order — so under AC-2's basis span(2) is genuinely
+# negative, and bash's `/` (which truncates TOWARD ZERO) would report -57 where the floor is -58.
+# The value is emitted as measured rather than clamped: AC-2 defines one basis for the whole
+# corpus, and a span silently rewritten to 0 would read as a fast milestone instead of as the
+# out-of-order record it is.
+floor_min() {
+  local s="$1"
+  if [ "$s" -lt 0 ] && [ $((s % 60)) -ne 0 ]; then echo $(( s / 60 - 1 )); else echo $(( s / 60 )); fi
+}
+
+cmd_timing() {
+  local dir f stem tk model row rows="[]"
+  dir="$(state_dir)"
+  [ -d "$dir" ] || { echo "retro-corpus.sh: no state dir at $dir" >&2; exit 2; }
+
+  for f in "$dir"/*.md; do
+    [ -f "$f" ] || continue
+    # The SAME structural test corpus mode uses — a `verdict_record:` header key, never a
+    # `-lean-` filename literal (AC-1).
+    grep -q '^verdict_record:' "$f" 2>/dev/null || continue
+    stem="$(basename "$f" .md)"
+    tk="$(record_key issue "$f")"
+    model="$(record_key model "$f")"; [ -n "$model" ] || model="unknown"
+
+    local sa sa_e flags="" spans="{}" wall="null" rev="null" rounds="null" orch="indeterminate"
+    sa="$(first_row_ts "$f")"
+    if [ -n "$sa" ]; then sa_e="$(iso_to_epoch "$sa")" || sa_e=""; else sa_e=""; fi
+
+    # ---- fidelity: grammar generation. `old-grammar` means the record predates the
+    # started/concluded vocabulary entirely; AC-2 and AC-4 still produce values there, because
+    # both key off `satisfied`, which every generation writes.
+    local has_new=false
+    grep -qE "$TS_RE \| milestone-[0-9]+ \| (started|concluded)" "$f" 2>/dev/null && has_new=true
+    [ "$has_new" = "false" ] && flags="$flags old-grammar"
+    # `no-chronology` is emitted, never dropped silently: a record with no parseable timestamped
+    # row still gets a row, with null spans.
+    [ -n "$sa_e" ] || flags="$flags no-chronology"
+
+    # ---- spans (milestones 1-4 only, AC-2/AC-2b) and the satisfied chain.
+    # `base` walks forward as the most recent satisfied of a LOWER-numbered milestone, so a
+    # milestone that was never satisfied does not break the chain — the next one measures from
+    # the last one that was.
+    local n sat sat_e base_e span_secs sat4_e=""
+    base_e="$sa_e"
+    for n in 1 2 3 4; do
+      sat="$(milestone_ts "$f" "$n" satisfied | head -n1)"
+      [ -n "$sat" ] || continue
+      sat_e="$(iso_to_epoch "$sat")" || continue
+      [ "$n" = "4" ] && sat4_e="$sat_e"
+      if [ -n "$base_e" ]; then
+        span_secs=$((sat_e - base_e))
+        spans="$(jq -c --arg k "$n" --argjson v "$(floor_min "$span_secs")" '. + {($k): $v}' <<<"$spans")"
+      fi
+      base_e="$sat_e"
+    done
+
+    # ---- wall-clock. The terminal marker is `milestone-4 | satisfied` and NOTHING else: no
+    # merge time, no approval time, no git metadata, no mtime, no "last row" (AC-6).
+    if [ -n "$sat4_e" ] && [ -n "$sa_e" ]; then
+      wall="$(floor_min $((sat4_e - sa_e)))"
+      [ $((sat4_e - sa_e)) -gt 86400 ] && flags="$flags over-24h"
+    else
+      # "never got there" and "got there and failed" stay distinguishable (AC-5). The test is
+      # "no `milestone-4` row AT ALL", matched anywhere on the line: a milestone-4 row written
+      # without a timestamp still means the run got there, and requiring a stamp here would
+      # report it as a record that stops earlier than it does.
+      if grep -qE '\| milestone-4 \|' "$f" 2>/dev/null; then
+        flags="$flags unterminated"
+      else
+        flags="$flags truncated-record"
+      fi
+    fi
+
+    # ---- reverifyMin and the re-run flag. Both scan milestones 1-4, the same bound spans use:
+    # milestone 5 follows the run's defined end, so its churn is close-out bookkeeping and not
+    # re-verification of the run (AC-7d/AC-8). reverifyMin is a DIAGNOSTIC and enters no sum
+    # with spans; it is null on any record carrying no `concluded` row (AC-7b), where it would
+    # otherwise read as a measured zero.
+    local rev_secs=0 rerun=false c last_c
+    for n in 1 2 3 4; do
+      sat="$(milestone_ts "$f" "$n" satisfied | head -n1)"
+      [ -n "$sat" ] || continue
+      sat_e="$(iso_to_epoch "$sat")" || continue
+      last_c=""
+      for c in $(milestone_ts "$f" "$n" 'concluded'); do
+        local c_e; c_e="$(iso_to_epoch "$c")" || continue
+        [ "$c_e" -gt "$sat_e" ] || continue
+        rerun=true; last_c="$c_e"
+      done
+      [ -n "$last_c" ] && rev_secs=$((rev_secs + last_c - sat_e))
+      for c in $(milestone_ts "$f" "$n" 'started'); do
+        local s_e; s_e="$(iso_to_epoch "$c")" || continue
+        [ "$s_e" -gt "$sat_e" ] && rerun=true
+      done
+    done
+    [ "$rerun" = "true" ] && flags="$flags re-run"
+    if [ "$wall" != "null" ] && grep -qE "$TS_RE \| milestone-[0-9]+ \| concluded" "$f" 2>/dev/null; then
+      rev="$(floor_min "$rev_secs")"
+    fi
+
+    # ---- rounds: max(round=N), matched ANYWHERE on the line. Some records carry
+    # `milestone-4 | verdict=approve | round=1` at column 0 with no timestamp, and counting
+    # `verdict=`/`attempt`/`started` rows UNDERCOUNTS — `72` carries round=2 with no round-1 row.
+    local rmax
+    rmax="$(grep -oE 'round=[0-9]+' "$f" 2>/dev/null | sed 's/round=//' | sort -n | tail -n1)"
+    [ -n "$rmax" ] && rounds="$rmax"
+
+    # ---- orchestrated: three-valued by declaration, two-valued in practice. The ABSENCE of a
+    # spawn transcript never implies `manual` — `run_id` has no orchestrator-only shape, so
+    # there is no positive discriminator for a hand-run lane (OR-1). `manual` stays reserved and
+    # unemitted rather than inferred, because an inferred arm would publish a split that is
+    # really "transcript present vs. anything else".
+    if [ -n "$tk" ]; then
+      for c in "$dir/$tk"-lean-spawn-*.log; do
+        [ -f "$c" ] || continue
+        orch="orchestrated"; break
+      done
+    fi
+
+    [ "$model" = "unknown" ] && flags="$flags unknown-model"
+
+    local frow
+    frow="$(jq -n -c --arg s "$flags" '($s | split(" ") | map(select(. != "")))')"
+    row="$(jq -n -c --arg stem "$stem" --arg tk "$tk" --arg sa "$sa" --arg model "$model" \
+      --argjson spans "$spans" --argjson fid "$frow" --arg orch "$orch" \
+      --arg wall "$wall" --arg rev "$rev" --arg rounds "$rounds" \
+      '{stem: $stem, ticketKey: $tk,
+        startedAt: (if $sa == "" then null else $sa end),
+        wallClockMin: (if $wall == "null" then null else ($wall | tonumber) end),
+        spans: $spans,
+        reverifyMin: (if $rev == "null" then null else ($rev | tonumber) end),
+        rounds: (if $rounds == "null" then null else ($rounds | tonumber) end),
+        orchestrated: $orch, model: $model, fidelity: $fid}')"
+    rows="$(jq -c --argjson r "$row" '. + [$r]' <<<"$rows")"
+  done
+
+  # Same newest-first sort and post-sort window slice corpus applies, so the two modes select
+  # the same runs for the same --window.
+  rows="$(jq -c --argjson w "$WINDOW" '(sort_by(.startedAt // "") | reverse) | .[0:$w]' <<<"$rows")"
+
+  if [ "$EMIT_JSON" = "true" ]; then
+    printf '%s\n' "$rows"
+  else
+    # No header row — corpus prints none either. A null scalar, an empty spans object and an
+    # empty fidelity array all render as `-`; corpus's own `unknown` rendering is untouched.
+    jq -r '.[] | [
+        .ticketKey,
+        (if .wallClockMin == null then "-" else (.wallClockMin | tostring) end),
+        ((.spans | to_entries | map("\(.key)=\(.value)") | join(",")) | if . == "" then "-" else . end),
+        (if .reverifyMin == null then "-" else (.reverifyMin | tostring) end),
+        (if .rounds == null then "-" else (.rounds | tostring) end),
+        .orchestrated, .model,
+        ((.fidelity | join(",")) | if . == "" then "-" else . end)
+      ] | @tsv' <<<"$rows"
+  fi
+}
+
 # ============================================================== open-prs mode
 # THE LEAN DISCRIMINATOR IS THE ARTIFACT, NOT THE NAMESPACE (#413). Both lanes now cut
 # `<branchPrefix><key>` branches, so the prefix that used to select lean PRs here selects
@@ -298,5 +506,6 @@ cmd_open_prs() {
 
 case "$SUB" in
   corpus)   cmd_corpus ;;
+  timing)   cmd_timing ;;
   open-prs) cmd_open_prs ;;
 esac

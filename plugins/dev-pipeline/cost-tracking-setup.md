@@ -8,7 +8,7 @@ The goal: the lean lane's build session computes the block once at [`build-lean`
 pipeline-cost-block.sh --stateless --sessions <id[,id…]> --start <iso> --end <iso> [--out <file>]
 ```
 
-**State-less mode is the script's only mode** (#574 deleted the stateful branch, unreachable since #348 removed its only writer), and it is deliberately inert on everything a state file used to carry: it amends no PR (the session pastes the block itself), records no `costBlockApplied`, and writes **no** `cost-log.jsonl` row — lean runs are out of the perf corpus by declaration (D-36), so a row here would quietly contaminate cross-run analytics with a harness that has no stages. The run's own progress record is what carries the session ids to hand it.
+**State-less mode is the script's only mode** (#574 deleted the stateful branch, unreachable since #348 removed its only writer), and it is deliberately inert on everything a state file used to carry: it amends no PR (the session pastes the block itself), records no `costBlockApplied`, and writes **no** `cost-log.jsonl` row — a row here would quietly contaminate cross-run analytics with a harness that has no stages. That is the live half of D-36; its "lean runs are out of the perf corpus" half is superseded by #565, which derives the lean timing profile from the progress records via `retro-corpus.sh timing`. The run's own progress record is what carries the session ids to hand it.
 
 Opting in is just steps 1–3 below (collector + telemetry env + bot wrapper) — no per-engineer hook wiring. Each id you pass is a native Claude Code session UUID (`$CLAUDE_CODE_SESSION_ID`), the same value the OTel exporter tags datapoints with as `session.id`, which is what lets the cost block match them.
 
@@ -162,7 +162,7 @@ An empty-looking block here means the query found no `claude_code.cost.usage` da
 - `skip(rotated-out)` — the oldest datapoint still on disk is **newer** than the run's start, so the file covering the run is gone: it aged out of the exporter's `max_backups` / `max_days` retention, or the collector had not started yet when the run did. As of #432 the sub-step reads rotated backups whose mtime covers the window, so a run that merely predates the newest rotation no longer lands here.
 - `skip(zero-datapoints)` — rows for the supplied session ids **are** inside the window, but none of them carries `claude_code.cost.usage`. Telemetry is flowing and there is genuinely no cost to report.
 
-The rollup lives only in the block itself — a lean run writes no `cost-log.jsonl` row (D-36).
+The rollup lives only in the block itself — a lean run writes no `cost-log.jsonl` row (D-36's live half; its perf-corpus-exclusion half is superseded by #565).
 
 ### Manual re-run after an OTel query failure
 
