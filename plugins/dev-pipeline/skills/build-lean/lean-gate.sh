@@ -842,14 +842,20 @@ fi
 # and inventing one would be a second tracker authority. The shape arm still ran, so a jira run is
 # not unguarded — only its liveness is un-asked, and it says so.
 require_ticket_live() {
-  local raw err rc state labels comments marker
+  local err rc state labels comments marker
   if [ "$TRACKER_TYPE" != "github" ]; then
     say "$SUB: ticket liveness arm skipped — tracker '$TRACKER_TYPE' has no issue-state read here. The key-shape and cwd arms already ran."
     return 0
   fi
 
+  # THE SAME READ EXPRESSION staleness_ticket_arm makes, `--json state --jq '.state'`, and not a
+  # combined `--json state,labels`. Two readers of one tracker fact that spell their query
+  # differently agree only by accident of what every stub in reach happens to answer — and the
+  # scheduler's own composed fixtures serve exactly this shape. Labels are read separately and
+  # ONLY on the closed path below, where they are the only place they matter, so the ordinary
+  # run still pays one call.
   err="$(mktemp -t lean-ticket.XXXXXX)" || envfail "mktemp failed."
-  raw="$("$GH_CLI" issue view "$ISSUE" --json state,labels 2>"$err")"; rc=$?
+  state="$("$GH_CLI" issue view "$ISSUE" --json state --jq '.state' 2>"$err")"; rc=$?
   err="$(cat "$err" 2>/dev/null; rm -f "$err")"
   if [ "$rc" -ne 0 ]; then
     # TWO NAMED REASONS off one failed read, classified by what the CLI said. The classification
@@ -872,7 +878,6 @@ require_ticket_live() {
     esac
   fi
 
-  state="$(printf '%s' "$raw" | jq -r '.state // ""' 2>/dev/null)" || state=""
   case "$state" in
     OPEN) return 0 ;;
     # ANY terminal state, `.stateReason` deliberately unread — the staleness arm's D-7 reasoning
@@ -890,7 +895,7 @@ require_ticket_live() {
   # through, and stranding it would leave a worktree nobody can reach. The evidence is the pair
   # the skill's own re-entry test names, and both halves are needed: the label alone is set by
   # anyone, and a marker alone survives an unclaimed re-open.
-  labels="$(printf '%s' "$raw" | jq -r '(.labels // [])[].name' 2>/dev/null)" || labels=""
+  labels="$("$GH_CLI" issue view "$ISSUE" --json labels --jq '.labels[].name' 2>/dev/null)" || labels=""
   if [ -n "$COMMENTS_FILE" ]; then
     [ -f "$COMMENTS_FILE" ] || envfail "--comments-file '$COMMENTS_FILE' does not exist."
     comments="$(cat "$COMMENTS_FILE")"

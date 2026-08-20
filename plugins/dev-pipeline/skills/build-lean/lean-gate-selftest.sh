@@ -108,17 +108,12 @@ cat > "$GH_STUB" <<'STUB'
 #!/usr/bin/env bash
 set -uo pipefail
 if [ -n "${STUB_GH_FAIL:-}" ]; then printf '%s\n' "$STUB_GH_FAIL" >&2; exit 1; fi
-_labels() {
-  local l out=""
-  [ -n "${STUB_GH_LABELS:-}" ] || { printf '[]'; return 0; }
-  for l in ${STUB_GH_LABELS//,/ }; do out="$out{\"name\":\"$l\"},"; done
-  printf '[%s]' "${out%,}"
-}
 case "${1:-}/${2:-}" in
   issue/view)
     case "$*" in
-      *--json\ body*) printf '%s\n' "${STUB_GH_BODY:-}" ;;
-      *) printf '{"state":"%s","labels":%s}\n' "${STUB_GH_STATE:-OPEN}" "$(_labels)" ;;
+      *--json\ body*)   printf '%s\n' "${STUB_GH_BODY:-}" ;;
+      *--json\ labels*) printf '%s\n' "${STUB_GH_LABELS//,/$'\n'}" ;;
+      *)                printf '%s\n' "${STUB_GH_STATE:-OPEN}" ;;
     esac ;;
   api/*) printf '%s\n' "${STUB_GH_COMMENTS:-[]}" ;;
   pr/list) printf '[]\n' ;;
@@ -4948,7 +4943,12 @@ cat > "$WREAL/gh-wt-stub.sh" <<'EOF'
 # SWEEP. Answer that read the way the suite-wide stub does — an open ticket — so the sweep's own
 # assertions are what these cases turn on, rather than a boundary refusal upstream of them.
 case "${1:-}/${2:-}" in
-  issue/view) printf '{"state":"OPEN","labels":[]}\n'; exit 0 ;;
+  issue/view)
+    case "$*" in
+      *--json\ labels*) printf '\n' ;;
+      *)                printf 'OPEN\n' ;;
+    esac
+    exit 0 ;;
 esac
 head=""
 while [ $# -gt 0 ]; do
