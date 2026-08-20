@@ -2,13 +2,14 @@
 
 **Opt-in, local, experimental.** The dev-pipeline works fine without this. If you want each PR to carry a cost block in its description, follow the steps below.
 
-The goal: the lean lane's build session computes the block once at [`build-lean`](skills/build-lean/SKILL.md) step 7, by invoking `pipeline-cost-block.sh --stateless`, and pastes it into both the PR description and the run's closing comment. The script reads OTel metrics emitted under the session ids it is handed, clamps them to the run's own wall-clock fence (supplied as `--start`/`--end`) so a co-resident run or a `/dev-pipeline:pipeline-retro` session sharing the same `session.id` doesn't leak in, and renders one cost block to stdout (or to `--out`).
+The goal: the lean lane's build session computes the block at [`build-lean`](skills/build-lean/SKILL.md) step 7 and again at step 9, by invoking `pipeline-cost-block.sh --stateless --issue <n>`, and pastes it into both the PR description and the run's closing comment. The script reads OTel metrics emitted under the run's session ids, clamps them to the run's own wall-clock fence so a co-resident run or a `/dev-pipeline:pipeline-retro` session sharing the same `session.id` doesn't leak in, and renders one cost block to stdout (or to `--out`).
 
 ```bash
+pipeline-cost-block.sh --stateless --issue <n> [--close-out] [--prs <ref[,ref…]>] [--out <file>]
 pipeline-cost-block.sh --stateless --sessions <id[,id…]> --start <iso> --end <iso> [--out <file>]
 ```
 
-**State-less mode is the script's only mode** (#574 deleted the stateful branch, unreachable since #348 removed its only writer), and it is deliberately inert on everything a state file used to carry: it amends no PR (the session pastes the block itself), records no `costBlockApplied`, and writes **no** `cost-log.jsonl` row — a row here would quietly contaminate cross-run analytics with a harness that has no stages. That is the live half of D-36; its "lean runs are out of the perf corpus" half is superseded by #565, which derives the lean timing profile from the progress records via `retro-corpus.sh timing`. The run's own progress record is what carries the session ids to hand it.
+**State-less mode is the script's only mode** (#574 deleted the stateful branch, unreachable since #348 removed its only writer), and it is deliberately inert on everything a state file used to carry: it amends no PR — the session pastes the block itself — and records no `costBlockApplied`. It is no longer inert on the cost log: `--close-out` writes one `cost-log.jsonl` row per run again (#546), retiring the live half of D-36. The reasoning that half rested on was that a stage-less harness would contaminate a per-stage corpus; what it actually produced was a corpus that ended on 2026-07-31, the day the lean era began, leaving cost-effectiveness — one of the two ratified goal axes — with nothing to be measured against. The lean row carries `byTier` where a staged row carried `byLabel`, so the two eras are told apart by which key is present rather than by a marker field. D-36's other half, "lean runs are out of the perf corpus", was already superseded by #565, which derives the lean timing profile from the progress records via `retro-corpus.sh timing`. That same record is what `--issue <n>` reads the fence and the session ids off, so neither is a caller's reconstruction any more.
 
 Opting in is just steps 1–3 below (collector + telemetry env + bot wrapper) — no per-engineer hook wiring. Each id you pass is a native Claude Code session UUID (`$CLAUDE_CODE_SESSION_ID`), the same value the OTel exporter tags datapoints with as `session.id`, which is what lets the cost block match them.
 
@@ -162,7 +163,7 @@ An empty-looking block here means the query found no `claude_code.cost.usage` da
 - `skip(rotated-out)` — the oldest datapoint still on disk is **newer** than the run's start, so the file covering the run is gone: it aged out of the exporter's `max_backups` / `max_days` retention, or the collector had not started yet when the run did. As of #432 the sub-step reads rotated backups whose mtime covers the window, so a run that merely predates the newest rotation no longer lands here.
 - `skip(zero-datapoints)` — rows for the supplied session ids **are** inside the window, but none of them carries `claude_code.cost.usage`. Telemetry is flowing and there is genuinely no cost to report.
 
-The rollup lives only in the block itself — a lean run writes no `cost-log.jsonl` row (D-36's live half; its perf-corpus-exclusion half is superseded by #565).
+The rollup lives in the block, and — under `--close-out` — in one `cost-log.jsonl` row per run beneath the state dir (#546). The row's identity is (`ticketKey`, `runId`): a re-entered close-out replaces its own row, while a retry under a new run id appends, so an aborted run stays in the corpus as the real cost it was. A run that logs any `skip(…)` verdict writes no row at all.
 
 ### Manual re-run after an OTel query failure
 
@@ -172,9 +173,10 @@ The cost block is **best-effort** — the run's work is already done when it log
    - the OTel collector wasn't reachable / wasn't running when the sub-step ran — start it (steps 1–2 above) and confirm `~/.claude/otel-metrics/metrics.jsonl` is non-empty;
    - the `OTEL_*` env vars weren't exported in the shell that launched the run — load your `.envrc` (`direnv allow`) so `OTEL_EXPORTER_OTLP_ENDPOINT` etc. are set;
    - the metrics file is present but malformed — inspect the stderr from the failed run (re-run the command below to reproduce it).
-2. **Re-run the call** — it needs no run in flight, only the session ids, the fence, and the metrics file:
+2. **Re-run the call** — it needs no run in flight, only the run's progress record (or, failing that, the session ids and the fence) and the metrics file:
 
    ```bash
+   bash pipeline-cost-block.sh --stateless --issue <n>
    bash pipeline-cost-block.sh --stateless \
      --sessions <id[,id…]> --start <iso> --end <iso>
    ```

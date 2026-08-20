@@ -93,6 +93,36 @@ else
   WORK="$(mktemp -d -t "leangate.XXXXXX")"
 fi
 
+# ---------------------------------------------------------------- the tracker stub (#611)
+# `entry`/`claim` now READ the ticket at the run boundary, so every case in this file that
+# attests would otherwise open a socket — against a repo the fixture does not have. The stub is
+# EXPORTED suite-wide, on `LEAN_GATE_ANY_TREE`'s precedent: the seam has to reach the dozen call
+# sites that bypass `gate()` (attest_at, pgate, tdgate, jw_gate), and a per-call pin would leave
+# whichever one was added next silently live. Cases that want a different answer override `GH`
+# for their own invocation, exactly as the pre-existing `gh-dead.sh` cases already do.
+#
+# It answers the four reads this script makes and fails everything else loudly, so a new read
+# added upstream surfaces here as a named stub miss rather than as a network call nobody notices.
+GH_STUB="$WORK/gh-ticket-stub.sh"
+cat > "$GH_STUB" <<'STUB'
+#!/usr/bin/env bash
+set -uo pipefail
+if [ -n "${STUB_GH_FAIL:-}" ]; then printf '%s\n' "$STUB_GH_FAIL" >&2; exit 1; fi
+case "${1:-}/${2:-}" in
+  issue/view)
+    case "$*" in
+      *--json\ body*)   printf '%s\n' "${STUB_GH_BODY:-}" ;;
+      *--json\ labels*) printf '%s\n' "${STUB_GH_LABELS//,/$'\n'}" ;;
+      *)                printf '%s\n' "${STUB_GH_STATE:-OPEN}" ;;
+    esac ;;
+  api/*) printf '%s\n' "${STUB_GH_COMMENTS:-[]}" ;;
+  pr/list) printf '[]\n' ;;
+  *) echo "gh-ticket-stub: unstubbed call: $*" >&2; exit 1 ;;
+esac
+STUB
+chmod +x "$GH_STUB"
+export GH="$GH_STUB"
+
 # ---------------------------------------------------------------- fixture repo + config
 TREE="$WORK/tree"
 mkdir -p "$TREE/docs/plans" "$TREE/.claude/audit"
@@ -4877,6 +4907,17 @@ mkdir -p "$WPR"
 # that returned `[]` for both could not tell the two cases apart.
 cat > "$WREAL/gh-wt-stub.sh" <<'EOF'
 #!/usr/bin/env bash
+# #611: `entry` reads the ticket at the run boundary now, and these cases drive `entry` for its
+# SWEEP. Answer that read the way the suite-wide stub does — an open ticket — so the sweep's own
+# assertions are what these cases turn on, rather than a boundary refusal upstream of them.
+case "${1:-}/${2:-}" in
+  issue/view)
+    case "$*" in
+      *--json\ labels*) printf '\n' ;;
+      *)                printf 'OPEN\n' ;;
+    esac
+    exit 0 ;;
+esac
 head=""
 while [ $# -gt 0 ]; do
   case "$1" in --head) head="${2:-}"; shift 2 ;; *) shift ;; esac
@@ -5226,7 +5267,10 @@ pr_fixture claude/acme-25 '[{"number":25,"state":"CLOSED"}]'
 
 rm -f "$WPROG"
 # Run it FROM INSIDE wt-25, which is what makes that worktree the caller's own for (wt15).
-out="$(wgate "$WREAL/wt-25" entry 30)"; rc=$?
+# The argument is 25 and not an unrelated number: since #611 an `entry` whose ticket disagrees
+# with the lane branch its cwd is on is a refusal, so a mismatched pair here would never reach the
+# sweep at all — every assertion below would red on a guard none of them are about.
+out="$(wgate "$WREAL/wt-25" entry 25)"; rc=$?
 
 if [ "$rc" -eq 0 ] && ! wt_registered "$p26" && grep -qF 'has no open PR' <<<"$out"; then
   pass "(wt9) the sweep removes a worktree whose PR is merged — PR state, never git branch --merged"
@@ -6130,8 +6174,12 @@ LT_OFF="$(git -C "$LT_MAIN" rev-parse --abbrev-ref HEAD)"
 # would send a selftest to the live API. A refused lookup removes nothing and is reported, which
 # is exactly the state these cases want — none of them is about the sweep.
 ltgate() { local t="$1" i="$2"; shift 2
+  # #611: the TICKET stub, not `gh-dead.sh`. (lt2) drives `entry` to prove it is not wrong-tree
+  # guarded, and under a dead CLI that call now refuses at the run boundary instead — leaving the
+  # case asserting "not rc=9" about an invocation that never reached the guard at all. Both stubs
+  # are network-free; only this one lets the arm mean what the case says it means.
   ( unset RUN_ID CLAUDE_CODE_SESSION_ID GH_BOT LEAN_GATE_ANY_TREE
-    cd "$t" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$LT_PROG" GH="$WORK/gh-dead.sh" \
+    cd "$t" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$LT_PROG" GH="$GH_STUB" \
     bash "$GATE" --issue-file "$ISSUE_NOREGIONS" "$@" "$i" 2>&1 )
 }
 
@@ -6179,7 +6227,11 @@ rm -f "$LT_PROG"
 # the tree it is handed, so the linked-worktree case needs the main copy planted by hand.
 mkdir -p "$LT_MAIN/.claude/audit"
 printf '{"tool":"Bash"}\n' > "$LT_MAIN/.claude/audit/$ENTRY_SID.jsonl"
-( export GH="$WORK/gh-dead.sh"; attest_at "$LT_LANE" "$CFG" "$LT_PROG" 31 )
+# #611: NOT under `gh-dead.sh` any more. `entry` reads the ticket at the run boundary, so a dead
+# CLI here refuses the attestation this case needs to exist — and (lt3) would then report a
+# missing-attestation rc=2 as "milestone 1 did not pass through", which is a red naming the wrong
+# guard. The suite-wide stub keeps it network-free.
+attest_at "$LT_LANE" "$CFG" "$LT_PROG" 31
 out="$(ltgate "$LT_LANE" 31 1)"; rc=$?
 if [ "$rc" -eq 1 ] && ! grep -q 'WRONG TREE' <<<"$out" && grep -q 'no committed spec' <<<"$out"; then
   pass "(lt3) on the lane branch the guard passes THROUGH to the milestone body — milestone 1 returns its own absent-spec answer"
@@ -6238,6 +6290,253 @@ lt7_stdout="$( unset RUN_ID CLAUDE_CODE_SESSION_ID GH_BOT
 if ! grep -q 'LEAN_GATE_ANY_TREE' <<<"$lt7_stdout"; then
   pass "(lt7a) the disarm announcement goes to stderr and never to stdout"
 else fail "(lt7a) the disarm note polluted stdout: $lt7_stdout"; fi
+
+
+# ---- (tk) #611: the ticket-resolution contract on the run boundary ------------------------
+# WHY A BLOCK OF ITS OWN rather than cases folded into (l). The (l) usage cases assert exit 2 —
+# "you spelled the invocation wrong" — and every case here asserts exit 10, which is a different
+# claim: the invocation parsed and its ticket is not one this run may act on. A suite that mixed
+# them would let a regression collapsing 10 into 2 pass half the file.
+#
+# TWO TREES, because the contract's two halves need opposite cwds: TK_MAIN is a shared checkout
+# that is on no lane at all (so nothing is inferable from it), TK_LANE is a worktree ON
+# `claude/acme-77` (the re-entry shape). LEAN_GATE_ANY_TREE is unset in both — the suite-wide
+# disarm would make the cwd arms vacuous, which is the failure mode the (wt*) block already
+# taught this file to guard against.
+TK_MAIN="$WORK/tk-main"
+mkdir -p "$TK_MAIN/.claude/audit"
+git -C "$TK_MAIN" init -q
+git -C "$TK_MAIN" config user.email t@example.invalid
+git -C "$TK_MAIN" config user.name t
+printf '.claude/\n' > "$TK_MAIN/.gitignore"
+git -C "$TK_MAIN" add -A >/dev/null 2>&1
+git -C "$TK_MAIN" commit -q -m "tk fixture" >/dev/null 2>&1
+git -C "$TK_MAIN" branch -M main >/dev/null 2>&1
+git -C "$TK_MAIN" update-ref refs/remotes/origin/main HEAD
+TK_LANE="$WORK/tk-lane"
+git -C "$TK_MAIN" worktree add -q -b claude/acme-77 "$TK_LANE" HEAD 2>/dev/null
+mkdir -p "$TK_LANE/.claude/audit"
+TK_SID="sess-tk-fixture"
+printf '{"tool":"Bash"}\n' > "$TK_MAIN/.claude/audit/$TK_SID.jsonl"
+TK_PROG="$WORK/tk-prog.md"
+
+# The two drivers. Neither passes --issue-file: these cases are about the run boundary, which
+# reads the tracker through $GH and never through that seam, and a fixture flag the production
+# path does not consult would read as coverage it is not.
+tkgate() { # tkgate <args…> — from the shared checkout, on no lane
+  ( unset RUN_ID GH_BOT LEAN_GATE_ANY_TREE
+    cd "$TK_MAIN" && CLAUDE_CODE_SESSION_ID="$TK_SID" SECOND_SHIFT_CONFIG="$CFG" \
+    LEAN_PROGRESS_FILE="$TK_PROG" bash "$GATE" "$@" 2>&1 )
+}
+tklane() { # tklane <args…> — from the lane worktree, on claude/acme-77
+  ( unset RUN_ID GH_BOT LEAN_GATE_ANY_TREE
+    cd "$TK_LANE" && CLAUDE_CODE_SESSION_ID="$TK_SID" SECOND_SHIFT_CONFIG="$CFG" \
+    LEAN_PROGRESS_FILE="$TK_PROG" bash "$GATE" "$@" 2>&1 )
+}
+
+# --- failure case 1: ABSENT ---------------------------------------------------------------
+rm -f "$TK_PROG"
+out="$(tkgate entry)"; rc=$?
+if [ "$rc" -eq 10 ] && grep -q 'was given no ticket' <<<"$out" \
+   && grep -q 'not a work branch' <<<"$out"; then
+  pass "(tk1) AC-2: \`entry\` with no ticket from a non-lane cwd refuses with rc=10, naming what was missing"
+else fail "(tk1) expected rc=10 refusing to self-select, got $rc: $out"; fi
+
+# The row a refused call must NOT have written. `entry`'s whole job is to create this file, so
+# "it refused" and "it refused before writing" are genuinely different outcomes here.
+if [ ! -f "$TK_PROG" ]; then
+  pass "(tk1a) AC-5: the absent-ticket refusal writes no progress file at all"
+else fail "(tk1a) the refusal created $TK_PROG: $(cat "$TK_PROG")"; fi
+
+out="$(tklane claim)"; rc=$?
+if [ "$rc" -eq 10 ] && grep -q "whose key is '77'" <<<"$out" \
+   && grep -q 'claim 77 --ticket-source lane-branch' <<<"$out"; then
+  pass "(tk2) AC-2: from a lane cwd the refusal names the derived key and the exact re-invocation — and still refuses"
+else fail "(tk2) expected rc=10 naming key 77 and the re-invocation, got $rc: $out"; fi
+
+# --- failure case 2: KEY SHAPE ------------------------------------------------------------
+out="$(tkgate entry abc)"; rc=$?
+if [ "$rc" -eq 10 ] && grep -q 'not a github issue number' <<<"$out"; then
+  pass "(tk3) AC-5: a non-numeric github key refuses with its own named reason"
+else fail "(tk3) expected rc=10 on 'abc', got $rc: $out"; fi
+
+out="$(tkgate entry 0)"; rc=$?
+if [ "$rc" -eq 10 ] && grep -q 'positive integer' <<<"$out"; then
+  pass "(tk3a) AC-1: zero is not a positive integer and is refused at the shape arm"
+else fail "(tk3a) expected rc=10 on '0', got $rc: $out"; fi
+
+out="$(tkgate entry 007)"; rc=$?
+if [ "$rc" -eq 10 ] && grep -q 'leading zeros' <<<"$out"; then
+  pass "(tk3b) AC-1: a zero-padded key is refused — it would derive a lane branch no other reader reconstructs"
+else fail "(tk3b) expected rc=10 on '007', got $rc: $out"; fi
+
+# The shape arm must beat the tracker arm: a key the adapter cannot spell has no ticket to be,
+# and a stub that would have answered OPEN proves the ordering rather than the outcome.
+out="$( STUB_GH_STATE=OPEN tkgate entry abc )"; rc=$?
+if [ "$rc" -eq 10 ] && grep -q 'No tracker read was attempted' <<<"$out"; then
+  pass "(tk3c) AC-2: the shape refusal performs no tracker read, even when the tracker would have said OPEN"
+else fail "(tk3c) expected the no-read message, got $rc: $out"; fi
+
+# --- failure case 3: NONEXISTENT / CLOSED -------------------------------------------------
+out="$( STUB_GH_FAIL='GraphQL: Could not resolve to an issue or pull request with the number of 4242. (repository.issue)' \
+        tkgate entry 4242 )"; rc=$?
+if [ "$rc" -eq 10 ] && grep -q 'names no issue in this repository' <<<"$out"; then
+  pass "(tk4) AC-5: an argument naming no issue refuses with its own named reason, distinct from an outage"
+else fail "(tk4) expected the nonexistent reason, got $rc: $out"; fi
+
+out="$( STUB_GH_STATE=CLOSED tkgate entry 4242 )"; rc=$?
+if [ "$rc" -eq 10 ] && grep -q 'nothing on it evidences that this run ever claimed it' <<<"$out"; then
+  pass "(tk5) AC-1: a CLOSED ticket with no re-entry evidence refuses"
+else fail "(tk5) expected the closed-no-evidence reason, got $rc: $out"; fi
+
+# The waiver, and its two halves. The marker must be BOT-authored AND carry THIS run's id — the
+# same pair check-lean-chain.sh applies at the merge boundary — and the label must be present.
+TK_MARKER="$WORK/tk-marker.json"
+cat > "$TK_MARKER" <<'JSON'
+[{"user":{"type":"Bot"},"body":"<!-- run_id: tk-run-1 -->\n<!-- stage: lean-claimed -->\n"}]
+JSON
+TK_HUMAN="$WORK/tk-human.json"
+cat > "$TK_HUMAN" <<'JSON'
+[{"user":{"type":"User"},"body":"<!-- run_id: tk-run-1 -->\n<!-- stage: lean-claimed -->\n"}]
+JSON
+
+tkre() { # tkre <comments-fixture> <args…> — a re-entry: this run's id established
+  local f="$1"; shift
+  ( unset GH_BOT LEAN_GATE_ANY_TREE
+    cd "$TK_MAIN" && RUN_ID=tk-run-1 CLAUDE_CODE_SESSION_ID="$TK_SID" SECOND_SHIFT_CONFIG="$CFG" \
+    LEAN_PROGRESS_FILE="$TK_PROG" STUB_GH_STATE=CLOSED STUB_GH_LABELS=in-progress \
+    STUB_GH_COMMENTS="$(cat "$f")" bash "$GATE" "$@" 2>&1 )
+}
+
+rm -f "$TK_PROG"
+out="$(tkre "$TK_MARKER" entry 4242)"; rc=$?
+if [ "$rc" -eq 0 ] && grep -q 'Admitted as a RE-ENTRY' <<<"$out"; then
+  pass "(tk5a) AC-1: a CLOSED ticket carrying the claimed label AND this run's bot marker admits \`entry\`, so close-out and teardown still run"
+else fail "(tk5a) expected rc=0 admitting the re-entry, got $rc: $out"; fi
+
+out="$(tkre "$TK_MARKER" claim 4242)"; rc=$?
+if [ "$rc" -eq 10 ] && grep -q 'a claim WRITE against a closed ticket is not' <<<"$out"; then
+  pass "(tk5b) AC-1: the same evidence routes \`claim\` to a refusal — the waiver is for close-out, never for a fresh claim"
+else fail "(tk5b) expected rc=10 refusing the claim write, got $rc: $out"; fi
+
+out="$(tkre "$TK_HUMAN" entry 4242)"; rc=$?
+if [ "$rc" -eq 10 ] && grep -q 'marker=0' <<<"$out"; then
+  pass "(tk5c) an operator-posted claim marker is not evidence the harness ran — the waiver needs a BOT author"
+else fail "(tk5c) expected rc=10 on a human-authored marker, got $rc: $out"; fi
+
+# --- failure case 4: TRACKER UNREADABLE ---------------------------------------------------
+out="$( STUB_GH_FAIL='error connecting to api.github.com' tkgate entry 4242 )"; rc=$?
+if [ "$rc" -eq 10 ] && grep -q 'could not be read' <<<"$out" && grep -q 'fails CLOSED' <<<"$out"; then
+  pass "(tk6) AC-5: an unreadable tracker refuses with its own named reason and says it fails closed"
+else fail "(tk6) expected the outage reason, got $rc: $out"; fi
+
+out="$( STUB_GH_STATE=WEIRD tkgate entry 4242 )"; rc=$?
+if [ "$rc" -eq 10 ] && grep -q 'unrecognized state' <<<"$out"; then
+  pass "(tk6a) an unrecognized state is refused rather than guessed — the same fail-closed side"
+else fail "(tk6a) expected the unrecognized-state refusal, got $rc: $out"; fi
+
+# --- failure case 5: CWD DISAGREEMENT -----------------------------------------------------
+for sub in entry claim mark teardown; do
+  out="$(tklane "$sub" 78)"; rc=$?
+  if [ "$rc" -eq 10 ] && grep -q "whose key is '77'" <<<"$out"; then
+    pass "(tk7-$sub) AC-4: \`$sub\` refuses when the argument and the lane branch disagree"
+  else fail "(tk7-$sub) expected rc=10 on a disagreement, got $rc: $out"; fi
+done
+
+# The other half of AC-4, and the one a plausible implementation gets wrong: the milestone calls
+# keep the #141 code they already had. A second integer here would make two guards answer one
+# question with two remedies.
+out="$(tklane 1 78)"; rc=$?
+if [ "$rc" -eq 9 ]; then
+  pass "(tk7a) AC-4: a milestone call from the same disagreeing tree still exits 9, not 10 — the wrong-tree refusal is not duplicated"
+else fail "(tk7a) expected rc=9 from the milestone call, got $rc: $out"; fi
+
+# A cwd that is not a work branch of this namespace constrains nothing — otherwise every call
+# from a shared checkout would need a lane to run at all.
+out="$( STUB_GH_STATE=OPEN tkgate mark 78 )"; rc=$?
+if [ "$rc" -ne 10 ]; then
+  pass "(tk7b) AC-4: a non-lane cwd constrains nothing — \`mark\` is not refused for standing in the shared checkout"
+else fail "(tk7b) a non-lane cwd wrongly triggered the disagreement arm: $out"; fi
+
+# --- legal path 1: ARGUMENT ONLY ----------------------------------------------------------
+rm -f "$TK_PROG"
+out="$( STUB_GH_STATE=OPEN tkgate entry 4242 )"; rc=$?
+if [ "$rc" -eq 0 ] && grep -qF '| ticket | resolved=4242 | source=argument' "$TK_PROG"; then
+  pass "(tk8) AC-3: an open, named ticket resolves and records \`source=argument\` in the progress file"
+else fail "(tk8) expected rc=0 and an argument-sourced ticket row, got $rc: $out / $(cat "$TK_PROG" 2>/dev/null)"; fi
+
+# --- legal path 2: INFERENCE WITH A DECLARED SOURCE ---------------------------------------
+rm -f "$TK_PROG"
+out="$( STUB_GH_STATE=OPEN tklane entry 77 --ticket-source lane-branch )"; rc=$?
+if [ "$rc" -eq 0 ] && grep -qF '| ticket | resolved=77 | source=lane-branch' "$TK_PROG"; then
+  pass "(tk9) AC-3: an inferred ticket declared from a lane cwd resolves, and BOTH the key and its source are recorded"
+else fail "(tk9) expected rc=0 and a lane-branch-sourced row, got $rc: $out / $(cat "$TK_PROG" 2>/dev/null)"; fi
+
+out="$( STUB_GH_STATE=OPEN tkgate entry 4242 --ticket-source lane-branch )"; rc=$?
+if [ "$rc" -eq 10 ] && grep -q 'is not a work branch' <<<"$out"; then
+  pass "(tk10) AC-3: a declared inference from a cwd that is no lane refuses — there is nowhere it could have come from"
+else fail "(tk10) expected rc=10 on an inference claim from the shared checkout, got $rc: $out"; fi
+
+# The registry source is ACCEPTED and still CHECKED against the branch (D-5): the branch name
+# wins, so a row that disagreed with the tree is the disagreement refusal, never a fallback.
+rm -f "$TK_PROG"
+out="$( STUB_GH_STATE=OPEN tklane entry 77 --ticket-source lane-registry )"; rc=$?
+if [ "$rc" -eq 0 ] && grep -qF 'source=lane-registry' "$TK_PROG"; then
+  pass "(tk10a) D-5: \`lane-registry\` is a recordable source, and it is still checked against the branch name"
+else fail "(tk10a) expected rc=0 recording the registry source, got $rc: $out"; fi
+
+out="$( STUB_GH_STATE=OPEN tklane entry 78 --ticket-source lane-registry )"; rc=$?
+if [ "$rc" -eq 10 ] && grep -q "whose key is '77'" <<<"$out"; then
+  pass "(tk10b) D-5: a registry-sourced key that disagrees with the branch refuses — the branch wins, and the disagreement is not silently absorbed"
+else fail "(tk10b) expected rc=10 on a registry/branch disagreement, got $rc: $out"; fi
+
+# --- the flag's own usage errors, which are exit 2 and not 10 -----------------------------
+out="$(tkgate entry 4242 --ticket-source bogus)"; rc=$?
+if [ "$rc" -eq 2 ] && grep -q 'argument|lane-branch|lane-registry' <<<"$out"; then
+  pass "(tk11) AC-3: a source token outside the enum is a usage error, not a refusal"
+else fail "(tk11) expected rc=2 on an unknown source, got $rc: $out"; fi
+
+out="$(tkgate teardown 4242 --ticket-source lane-branch)"; rc=$?
+if [ "$rc" -eq 2 ] && grep -q "only meaningful on 'entry' or 'claim'" <<<"$out"; then
+  pass "(tk11a) AC-3: --ticket-source on a subcommand that records nothing is a usage error, not a silent no-op"
+else fail "(tk11a) expected rc=2 on a non-boundary subcommand, got $rc: $out"; fi
+
+# --- the half that did NOT move -----------------------------------------------------------
+# (l2) above asserts this for subcommand 1 against the shared TREE; this asserts it here too,
+# because the deferral that made `entry` refuse with 10 is spelled as a case on $SUB, and a
+# regression widening that case is invisible from either side alone.
+out="$(tkgate 3)"; rc=$?
+if [ "$rc" -eq 2 ] && grep -q 'usage: lean-gate.sh' <<<"$out"; then
+  pass "(tk12) the milestone calls keep their exit-2 usage error on an absent argument"
+else fail "(tk12) expected rc=2 from a milestone call with no issue, got $rc: $out"; fi
+
+# --- no stray identity from a refused boundary call ---------------------------------------
+# `entry` seeds `<issue>-run-id`, and seed-once never clobbers — so a cache written for a number
+# the gate then refused would hand this run's identity to whatever real run later took it.
+rm -rf "$TK_MAIN/.claude/pipeline-state"
+( unset GH_BOT LEAN_GATE_ANY_TREE
+  cd "$TK_MAIN" && RUN_ID=tk-stray CLAUDE_CODE_SESSION_ID="$TK_SID" SECOND_SHIFT_CONFIG="$CFG" \
+  LEAN_PROGRESS_FILE="$TK_PROG" STUB_GH_STATE=CLOSED bash "$GATE" entry 4242 >/dev/null 2>&1 )
+if [ ! -e "$TK_MAIN/.claude/pipeline-state/4242-run-id" ]; then
+  pass "(tk13) a refused boundary call leaves no run-id cache behind for the ticket it refused"
+else fail "(tk13) the refusal seeded $(cat "$TK_MAIN/.claude/pipeline-state/4242-run-id")"; fi
+
+# --- the jira arm: adapter-aware shape, and a liveness read it does not have ---------------
+TK_CFG_JIRA="$WORK/tk-config-jira.json"
+sed -e 's/"branchPrefix": "claude\/acme-"/"branchPrefix": "claude\/acme-", "type": "jira", "keyPattern": "[A-Z]+-[0-9]+"/' "$CFG" > "$TK_CFG_JIRA"
+tkj() { ( unset RUN_ID GH_BOT LEAN_GATE_ANY_TREE
+          cd "$TK_MAIN" && CLAUDE_CODE_SESSION_ID="$TK_SID" SECOND_SHIFT_CONFIG="$TK_CFG_JIRA" \
+          LEAN_PROGRESS_FILE="$TK_PROG" bash "$GATE" "$@" 2>&1 ); }
+out="$(tkj entry 4242)"; rc=$?
+if [ "$rc" -eq 10 ] && grep -q 'not a valid jira key' <<<"$out"; then
+  pass "(tk14) AC-1: validation is adapter-aware — a bare number is not a key under jira"
+else fail "(tk14) expected rc=10 on a numeric key under jira, got $rc: $out"; fi
+
+rm -f "$TK_PROG"
+out="$(tkj entry ACME-9)"; rc=$?
+if [ "$rc" -eq 0 ] && grep -q 'ticket liveness arm skipped' <<<"$out"; then
+  pass "(tk14a) AC-1: under jira the shape arm runs and the liveness arm says it has no read here, rather than inventing one"
+else fail "(tk14a) expected rc=0 with an announced skip, got $rc: $out"; fi
 
 echo "[lean-gate-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 exit "$FAILS"

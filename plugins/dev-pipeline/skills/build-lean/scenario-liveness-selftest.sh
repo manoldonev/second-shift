@@ -143,6 +143,28 @@ LEANCFG
   # so a leg's own --issue-file in "$@" is a later occurrence and overrides it.
   LEAN_ISSUE_NOREGIONS="$TMP/lean-issue-noregions.json"
   printf '{"body": "# issue\\n\\nNo Open Regions section here.\\n"}' > "$LEAN_ISSUE_NOREGIONS"
+  # #611: the run boundary READS the ticket now, so `entry` is no longer zero-network by the
+  # `--issue-file` argument alone — that seam covers milestone 1's body read and not this one.
+  # The stub restores the property for every leg below, which is what lets them keep asserting
+  # the CHAIN rather than dying at its first call. Steered per leg by STUB_GH_*, exactly as the
+  # per-tool suite's stub is.
+  LEAN_GH="$TMP/lean-gh-stub.sh"
+  cat > "$LEAN_GH" <<'LEANGH'
+#!/usr/bin/env bash
+set -uo pipefail
+if [ -n "${STUB_GH_FAIL:-}" ]; then printf '%s\n' "$STUB_GH_FAIL" >&2; exit 1; fi
+case "${1:-}/${2:-}" in
+  issue/view)
+    case "$*" in
+      *--json\ labels*) printf '%s\n' "${STUB_GH_LABELS:-}" ;;
+      *)                printf '%s\n' "${STUB_GH_STATE:-OPEN}" ;;
+    esac ;;
+  api/*)      printf '[]\n' ;;
+  pr/list)    printf '[]\n' ;;
+  *) echo "lean-gh-stub: unstubbed call: $*" >&2; exit 1 ;;
+esac
+LEANGH
+  chmod +x "$LEAN_GH"
   # #416: the build-role precondition reads an entry attestation these legs must now COMPOSE,
   # not seed — which means a live per-session ledger and a session id the legs control. Pinning
   # it here (rather than inheriting the ambient one) is what makes the legs behave identically
@@ -158,7 +180,7 @@ LEANCFG
   LEAN_SID="sess-lean-build"
   printf '{"tool":"Bash"}\n' > "$LEAN_TREE/.claude/audit/$LEAN_SID.jsonl"
   lean_gate() { ( unset RUN_ID GH_BOT; cd "$LEAN_TREE" && SECOND_SHIFT_CONFIG="$LEAN_CFG" LEAN_PROGRESS_FILE="$LEAN_PROG" \
-                  CLAUDE_CODE_SESSION_ID="$LEAN_SID" \
+                  CLAUDE_CODE_SESSION_ID="$LEAN_SID" GH="${GH:-$LEAN_GH}" \
                   bash "$LEAN_GATE" --issue-file "$LEAN_ISSUE_NOREGIONS" "$@" 2>&1 ); }
   lean_count() { if [[ -f "$LEAN_PROG" ]]; then local n; n=$(grep -cF "$1" "$LEAN_PROG" 2>/dev/null) || n=0; echo "$n"; else echo 0; fi; }
   # #496: the same call through the observe seam. A separate helper rather than an assignment
@@ -166,6 +188,7 @@ LEANCFG
   # the call, and a seam that leaked into the legs below would silence their recording assertions.
   lean_gate_observe() { ( unset RUN_ID GH_BOT; cd "$LEAN_TREE" && SECOND_SHIFT_CONFIG="$LEAN_CFG" \
                   LEAN_PROGRESS_FILE="$LEAN_PROG" CLAUDE_CODE_SESSION_ID="$LEAN_SID" LEAN_GATE_OBSERVE=1 \
+                  GH="${GH:-$LEAN_GH}" \
                   bash "$LEAN_GATE" --issue-file "$LEAN_ISSUE_NOREGIONS" "$@" 2>&1 ); }
 
   LEAN_SPEC="$LEAN_TREE/docs/plans/acme-77-lean.md"
@@ -801,6 +824,40 @@ $ba_all_out"
     && pass "(lean-entry) an unattested run is refused at 'all' and at a milestone with exit 2, records nothing, and self-heals after one idempotent entry call" \
     || fail "(lean-entry) all=$ea_all m4=$ea_m4 milestone-lines=$ea_attempts healed=$ea_healed, expected 2/2/0/0: $ea_healed_out"
 
+  # ---- leg 3d: the ticket-resolution contract, composed (#611) --------------
+  # Same CLAUDE.md obligation, for the verdict path that sits BEFORE every other one: a run whose
+  # caller never named its ticket must not start. The per-tool suite proves each refusal against
+  # fixtures; what only a composed leg can show is that the refusal leaves the CHAIN unstarted —
+  # no attestation, no rows, and `all` still refusing afterwards — rather than merely printing a
+  # message and letting the run proceed one call later.
+  #
+  # The tree is the same fully-green one leg 3b uses, so the only thing under test is the missing
+  # or wrong argument. `entry` is called with none, then with a ticket the lane branch contradicts.
+  rm -f "$LEAN_PROG"
+  tr_none="$( ( unset RUN_ID GH_BOT; cd "$LEAN_TREE" && SECOND_SHIFT_CONFIG="$LEAN_CFG" \
+                LEAN_PROGRESS_FILE="$LEAN_PROG" CLAUDE_CODE_SESSION_ID="$LEAN_SID" \
+                GH="${GH:-$LEAN_GH}" bash "$LEAN_GATE" entry 2>&1 ) )"; tr_none_rc=$?
+  tr_rows_after=0; [[ -f "$LEAN_PROG" ]] && tr_rows_after=1
+  # ...and the run is genuinely unstarted: `all` still refuses for want of the attestation the
+  # refused call never wrote. A refusal that printed and proceeded would heal here.
+  lean_gate all 77 >/dev/null 2>&1; tr_all=$?
+  # The other half, on a branch this tree IS on: the argument and the checkout disagree.
+  git -C "$LEAN_TREE" branch -f claude/acme-77 HEAD >/dev/null 2>&1
+  tr_head="$(git -C "$LEAN_TREE" rev-parse --abbrev-ref HEAD)"
+  git -C "$LEAN_TREE" checkout -q claude/acme-77 2>/dev/null
+  tr_wrong="$( ( unset RUN_ID GH_BOT LEAN_GATE_ANY_TREE; cd "$LEAN_TREE" && SECOND_SHIFT_CONFIG="$LEAN_CFG" \
+                 LEAN_PROGRESS_FILE="$LEAN_PROG" CLAUDE_CODE_SESSION_ID="$LEAN_SID" \
+                 GH="${GH:-$LEAN_GH}" bash "$LEAN_GATE" entry 78 2>&1 ) )"; tr_wrong_rc=$?
+  git -C "$LEAN_TREE" checkout -q "$tr_head" 2>/dev/null
+  # ...and naming the run the tree is actually on starts it, which is what makes the pair evidence
+  # rather than a gate that refuses everything.
+  lean_seed_progress r-lean-1 sess-lean-build
+  lean_gate 1 77 >/dev/null 2>&1; tr_healed=$?
+  [[ "$tr_none_rc" -eq 10 && "$tr_rows_after" -eq 0 && "$tr_all" -eq 2 \
+     && "$tr_wrong_rc" -eq 10 && "$tr_healed" -eq 0 ]] \
+    && pass "(lean-ticket) an entry with no ticket, and one the lane branch contradicts, each exit 10 leaving the run unstarted — 'all' still refuses — and the correctly-named run walks the progression" \
+    || fail "(lean-ticket) none=$tr_none_rc rows=$tr_rows_after all=$tr_all wrong=$tr_wrong_rc healed=$tr_healed, expected 10/0/2/10/0: $tr_none $tr_wrong"
+
   # ---- leg 3c: the entry precondition's cutoff, composed (#444) -------------
   # Same CLAUDE.md obligation as leg 3b, for the verdict path #444 adds: the precondition now
   # DE-BLOCKS a branch that started before it existed. The per-tool suite proves the comparator
@@ -854,7 +911,7 @@ LEANCFGJ
   # CLAUDE_CODE_SESSION_ID is the BUILD identity — `claim` stamps it into the progress file, and
   # milestone 4 compares it against the review session id in the committed record.
   lean_gate_j() { ( cd "$LEAN_TREE" && env -u GH_BOT SECOND_SHIFT_CONFIG="$LEAN_CFG_J" \
-                    LEAN_PROGRESS_FILE="$LEAN_PROG_J" RUN_ID="r-lean-j" \
+                    LEAN_PROGRESS_FILE="$LEAN_PROG_J" RUN_ID="r-lean-j" GH="${GH:-$LEAN_GH}" \
                     CLAUDE_CODE_SESSION_ID="sess-lean-jira-build" bash "$LEAN_GATE" "$@" 2>&1 ); }
   lean_count_j() { if [[ -f "$LEAN_PROG_J" ]]; then local n; n=$(grep -cF "$1" "$LEAN_PROG_J" 2>/dev/null) || n=0; echo "$n"; else echo 0; fi; }
 
@@ -966,7 +1023,7 @@ LEANPRJNV
   el_gate() { # el_gate <config-file> <progress-file> <args...>
     local cfg="$1" prog="$2"; shift 2
     ( unset RUN_ID GH_BOT; cd "$EL_TREE" && SECOND_SHIFT_CONFIG="$cfg" LEAN_PROGRESS_FILE="$prog" \
-      CLAUDE_CODE_SESSION_ID="$EL_SID" bash "$LEAN_GATE" --issue-file "$EL_ISSUE" "$@" 2>&1 )
+      CLAUDE_CODE_SESSION_ID="$EL_SID" GH="${GH:-$LEAN_GH}" bash "$LEAN_GATE" --issue-file "$EL_ISSUE" "$@" 2>&1 )
   }
   # Each extraLanes case gets its own progress file, so each composes its own `entry` first.
   el_attest() { el_gate "$1" "$2" entry 777 >/dev/null 2>&1; }
@@ -1104,7 +1161,7 @@ LEANDCFG
   mkdir -p "$LEAN_DTREE/.claude/audit"
   printf '{"tool":"Bash"}\n' > "$LEAN_DTREE/.claude/audit/$LEAN_DSID.jsonl"
   lean_dgate() { ( unset RUN_ID GH_BOT; cd "$LEAN_DTREE" && SECOND_SHIFT_CONFIG="$LEAN_DCFG" LEAN_PROGRESS_FILE="$LEAN_DPROG" \
-                   CLAUDE_CODE_SESSION_ID="$LEAN_DSID" \
+                   CLAUDE_CODE_SESSION_ID="$LEAN_DSID" GH="${GH:-$LEAN_GH}" \
                    bash "$LEAN_GATE" --issue-file "$LEAN_ISSUE_NOREGIONS" "$@" 2>&1 ); }
   lean_dcommit() { git -C "$LEAN_DTREE" add -A >/dev/null 2>&1
                    git -C "$LEAN_DTREE" commit -q --allow-empty -m "${1:-lean design fixture}" >/dev/null 2>&1; }
@@ -1934,7 +1991,7 @@ COSESS
   te_gate() { # te_gate <config> <args...> — stderr MERGED, for reading the gate's report
     local cfg="$1"; shift
     ( cd "$TE_TREE" && env -u RUN_ID -u GH_BOT CLAUDE_CODE_SESSION_ID="$TE_SID" \
-        SECOND_SHIFT_CONFIG="$cfg" LEAN_PROGRESS_FILE="$TE_PROG" \
+        SECOND_SHIFT_CONFIG="$cfg" LEAN_PROGRESS_FILE="$TE_PROG" GH="${GH:-$LEAN_GH}" \
         bash "$LEAN_GATE" --issue-file "$LEAN_ISSUE_NOREGIONS" "$@" 2>&1 )
   }
   # THE TOKEN VARIANT, stderr DROPPED. `progress --infra` prints an opaque token on stdout and its
@@ -1944,7 +2001,7 @@ COSESS
   te_token() { # te_token <config> <args...>
     local cfg="$1"; shift
     ( cd "$TE_TREE" && env -u RUN_ID -u GH_BOT CLAUDE_CODE_SESSION_ID="$TE_SID" \
-        SECOND_SHIFT_CONFIG="$cfg" LEAN_PROGRESS_FILE="$TE_PROG" \
+        SECOND_SHIFT_CONFIG="$cfg" LEAN_PROGRESS_FILE="$TE_PROG" GH="${GH:-$LEAN_GH}" \
         bash "$LEAN_GATE" --issue-file "$LEAN_ISSUE_NOREGIONS" "$@" 2>/dev/null )
   }
 
