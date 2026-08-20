@@ -227,6 +227,32 @@ run emit --state-dir /nonexistent >/dev/null 2>&1;                      check o2
 run emit --state-dir "$S" --manifest /nonexistent >/dev/null 2>&1;      check o3 "$?" 2 "a missing manifest"
 run emit --state-dir "$S" --manifest "$M" --classes /nonexistent >/dev/null 2>&1; check o4 "$?" 2 "a missing class table"
 
+# (p) the default paths resolve against the repo root, not against an empty string. Nothing else
+#     here exercises them — every case above passes explicit paths — so a broken root resolution
+#     would leave the tool unusable in the one way it is actually invoked and every case green.
+mkdir -p "$T/empty"
+run emit --state-dir "$T/empty" >/dev/null 2>&1
+check p "$?" 3 "with no --manifest the committed default resolves and its records are missing (3), not unresolvable (2)"
+
+# (q) --lanes is honoured over the state dir's own registry. The two must be able to disagree, or
+#     the seam is untested and the default silently wins wherever the fixture has no registry.
+mkstate "$T/state5"; S5="$T/state5"
+printf '1	some date	900	2026-01-01T00:00:00Z
+' > "$S5/lean-lanes.tsv"
+printf '2	some date	901	2026-01-01T00:00:00Z
+' > "$T/other-lanes.tsv"
+OUT="$(run manifest --state-dir "$S5" --lanes "$T/other-lanes.tsv")"
+check q "$(printf '%s\n' "$OUT" | grep -c '^900-lean-progress.md')" 1 "the lane the passed registry does NOT name stays in"
+check q2 "$(printf '%s\n' "$OUT" | grep -c '^901-lean-progress.md')" 0 "the lane it names is excluded"
+check q3 "$(printf '%s\n' "$OUT" | grep -c 'from the lane registry: 901')" 1 "and the header attributes it to the registry"
+
+# (r) with nothing excluded, both header sources read `none` — the manifest must never imply an
+#     exclusion it did not make.
+OUT="$(run manifest --state-dir "$S5" --lanes /nonexistent)"
+check r "$(printf '%s\n' "$OUT" | grep -c 'still in flight when this was cut: none')" 1 "no exclusions renders as none"
+check r2 "$(printf '%s\n' "$OUT" | grep -c 'from the lane registry: none')" 1 "an absent registry renders as none"
+check r3 "$(printf '%s\n' "$OUT" | grep -c 'named by --exclude:     none')" 1 "an unused --exclude renders as none"
+
 echo
 if [ "$FAILED" -eq 0 ]; then echo "gate-ablation-selftest: ALL CASES PASSED"; exit 0; fi
 echo "gate-ablation-selftest: $FAILED CASE(S) FAILED"; exit 1
