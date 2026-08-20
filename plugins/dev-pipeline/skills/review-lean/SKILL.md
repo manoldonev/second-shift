@@ -131,5 +131,6 @@ build session, so this cannot be folded back into the build lane by convenience.
 - **Review the patch you will name — the record hashes it literally.** Re-check the PR head
   immediately before writing the record; if the branch moved while you were reviewing, review
   the new commits or start over. Once the record is pushed, any further push that CHANGES A
-  LINE — a fix, a docs-only commit, a rebase that resolved a conflict — voids it and costs a
-  new round. A rebase that replays the branch unchanged does not: the patch is the same.
+  LINE — a fix, a docs-only commit, a rebase that resolved a conflict by editing one — voids it
+  and costs a new round. A replay that changes none of your `+`/`-` lines does not, and neither
+  does a base merge that leaves them all intact: the reviewed content is the same.

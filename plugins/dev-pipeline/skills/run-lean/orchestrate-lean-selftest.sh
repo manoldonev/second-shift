@@ -1342,6 +1342,62 @@ if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 3 ] && grep -q 'review-lean 11' <<<
   pass "(u2) non-vacuity: a head with no usable verdict still gets its REVIEW spawn — the skip is a comparison, not a blanket refusal"
 else fail "(u2) expected rc=0 with 3 spawns and a review, got rc=$rc / $(spawn_count): $(all_argv)"; fi
 
+# ---- (vr) #597 D-1/AC-2: the CANNOT-ANSWER verdict codes route ahead of the REVIEW spawn --------
+# #531's header claims classes 4 and 6 "now hard-stop one spawn EARLIER" and lists 3 with them.
+# 3 was not: the `else` arm spawns on EVERY non-zero rc and the `case` that routes 3 reads only
+# afterwards. On #583 that cost a whole review session — `verdict_rc` is anchored in the LANE
+# WORKTREE, the close-out had already run teardown, so it answered 3 without ever reaching the
+# gate, and a REVIEW was spawned against a head that had not moved in five and a half hours.
+#
+# rc=3 IS NOT AN ERROR BY ITSELF. An absent worktree is what a FINISHED lane looks like. The
+# milestone-5 token separates the two, and it is compared against the milestone-ZERO token rather
+# than parsed — milestone 0 cannot have a satisfied row, so its count is the zero token by
+# construction, and the scheduler keeps its "never parses a token" posture.
+setup_case "" "3" "ready-for-dev" "11"
+set_progress_tokens 'adv-0' 'm5-1
+m5-0'
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 1 ] \
+   && ! grep -q 'review-lean' <<<"$(all_argv)" \
+   && grep -q 'lane-closed-out' <<<"$out"; then
+  pass "(vr1) AC-2: rc=3 with a satisfied milestone 5 ends the run COMPLETE and spawns NO review against an unmoved head"
+else fail "(vr1) expected rc=0, 1 spawn and no review, got rc=$rc / $(spawn_count): $(all_argv)
+$out"; fi
+
+# The other half of the same read, and the pre-existing stop it must not swallow. Identical
+# composition, milestone-5 token EQUAL to the zero baseline: the lane never finished, so this is
+# the old `worktree-missing` failure — still a failure, still no review spawned.
+setup_case "" "3" "ready-for-dev" "11"
+set_progress_tokens 'adv-0' 'm5-0
+m5-0'
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 1 ] && [ "$(spawn_count)" -eq 1 ] \
+   && ! grep -q 'review-lean' <<<"$(all_argv)" \
+   && grep -q 'worktree-missing' <<<"$out"; then
+  pass "(vr2) rc=3 with an unsatisfied milestone 5 is still the worktree-missing stop, and still spawns no review"
+else fail "(vr2) expected rc=1 with worktree-missing and no review, got rc=$rc / $(spawn_count): $(all_argv)
+$out"; fi
+
+# rc=2 is the gate refusing to run at all — an environment answer, not a verdict. A review round
+# cannot clear it, so spawning one is pure cost, which is #531's own stated reason for 4 and 6.
+setup_case "" "2" "ready-for-dev" "11"
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 2 ] && [ "$(spawn_count)" -eq 1 ] \
+   && ! grep -q 'review-lean' <<<"$(all_argv)" \
+   && grep -q 'verdict-gate-unreadable' <<<"$out"; then
+  pass "(vr3) rc=2 hard-stops before the REVIEW spawn — a review cannot clear a gate that never evaluated one"
+else fail "(vr3) expected rc=2 with no review spawn, got rc=$rc / $(spawn_count): $(all_argv)
+$out"; fi
+
+# NON-VACUITY for the whole block. (u2) already proves rc=5 spawns a review; this proves the two
+# new routes are keyed on the CODE and not on some incidental property of the fixture — the same
+# composition with the ordinary needs-work code still spends a round and spawns.
+setup_case "" "$V_NEEDSWORK_APPROVE" "ready-for-dev" "11"
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 0 ] && grep -q 'review-lean 11' <<<"$(all_argv)"; then
+  pass "(vr4) non-vacuity: the ordinary verdict codes still spawn their REVIEW — the new routes are keyed on 2/3, not a blanket refusal"
+else fail "(vr4) expected the ordinary path to still review, got rc=$rc: $(all_argv)"; fi
+
 # ---- (w) #531 D-8/D-9: the close-out gets the continuation arm the build phase already had -------
 # The close-out had the build phase's exact failure mode — exited 0, obligations unmet, but the
 # record advanced — got one spawn, and exited 1. Cost on the run that surfaced it: an entire second

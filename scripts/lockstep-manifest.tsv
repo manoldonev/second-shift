@@ -727,3 +727,11 @@ checked-call	verbatim	plugins/dev-pipeline/tools/checked-call.sh	checked-call	pl
 # the reader. The composed case is repo-only by construction (the staged install cache has no
 # `tools/`), and says so rather than skipping in silence.
 tier-alphabet-parse	verbatim	plugins/review-toolkit/scripts/check-model-tiers.sh	tier-alphabet-parse	plugins/dev-pipeline/tools/config-lint.sh	tier-alphabet-parse
+#
+# The contribution comparison (#597 D-4). The lane's milestone-4 freshness arms and the merge
+# boundary's freshness arm must answer ONE question — "did the branch's own +/- lines move" — the
+# same way, or a base merge passes in the lane and reds at merge time (which is what forced the
+# #583 re-stamp). Neither file can import the other: lean-gate.sh runs from a lane worktree and
+# lean-evidence.sh is fetched standalone at a pinned ref by a consumer's CI, with no sibling
+# guaranteed beside it. So each carries its own copy, and this row is what keeps them one contract.
+contribution-compare	verbatim	plugins/dev-pipeline/skills/build-lean/lean-gate.sh	contribution-compare	plugins/dev-pipeline/skills/build-lean/lean-evidence.sh	contribution-compare

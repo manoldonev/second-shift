@@ -510,6 +510,107 @@ record_key() { # record_key <key> <path> [charset]
     | head -n1 | sed -E "s/^$1:[[:space:]]*//"
 }
 
+# LOCKSTEP-BEGIN contribution-compare
+# THE BRANCH'S OWN CONTRIBUTION, AS LINES (#597, D-2/D-3/D-4). The escape hatch both freshness
+# readers — this milestone's arms and the merge boundary's — consult when their naive check reds.
+#
+# WHY A HASH CANNOT ANSWER THIS. A patch identity is computed over `diff(merge-base(base, head),
+# head)`, so MERGING THE BASE IN advances the merge-base and moves the id even when the branch
+# alters not one line. On #583 the resolution was a pure union — no new branch line — and the id
+# still moved from 1decd12550cd to 86daf57fb18e, because the CONTEXT lines around the branch's own
+# additions in CLAUDE.md and docs/testing.md had changed underneath them. That cost a review round
+# against an unmoved head and a hand re-stamp.
+#
+# THE COMPARISON THAT CAN. Take the `+`/`-` lines only, per file, each side measured against ITS
+# OWN merge-base, and compare them. Context is excluded on purpose: a base merge moves context, and
+# context is not something a review approves. This is AC-4's "nine-file hash comparison,
+# mechanized" — the one the ticket ran by hand to prove the branch's contribution was identical.
+#
+# THE STATE MACHINE IS ANCHORED ON COLUMN 0, and that is what makes it unambiguous rather than
+# heuristic: inside a hunk EVERY line carries a ' ', '+', '-' or '\' prefix, so a body line reading
+# `diff --git …` or `@@ …` at column 0 cannot exist. A naive `/^[+-]/` over the whole diff would
+# have eaten the `---`/`+++` file headers and — the failure that actually bites in a repo full of
+# markdown and shell — read a removed line beginning `-- ` as one of them.
+contribution_lines() { # contribution_lines <repo-root> <base-ref> <head-ish> <exclude-path>
+  local base
+  git -C "$1" cat-file -e "$3^{commit}" 2>/dev/null || return 1
+  base="$(git -C "$1" merge-base "$2" "$3" 2>/dev/null)" || return 1
+  [ -n "$base" ] || return 1
+  git -C "$1" diff "$base" "$3" -- . ":(exclude)$4" 2>/dev/null | awk '
+    /^diff --git /        { inbody = 0; f = ""; next }
+    !inbody && /^--- /    { p = substr($0, 5); if (p != "/dev/null") { sub(/^a\//, "", p); f = p } next }
+    !inbody && /^\+\+\+ / { p = substr($0, 5); if (p != "/dev/null") { sub(/^b\//, "", p); f = p } next }
+    !inbody && /^@@/      { inbody = 1; next }
+    inbody && /^[+-]/     { print f "\t" $0 }
+  '
+}
+
+# DID THE CONTRIBUTION MOVE — rc 0 identical, 1 moved, 2 not computable.
+#
+# rc=1 prints the ENUMERATION D-6 requires, one `path<TAB>count<TAB>first-offending-line` row per
+# affected file, `LC_ALL=C sort`ed so two runs over one tree cannot disagree about order. The
+# enumeration is the invalidation's PRECONDITION, not its decoration: a caller that cannot name an
+# affected line has the doubt case, and AC-3 says the verdict stands there.
+#
+# rc=2 ON AN EMPTY CONTRIBUTION, either side, and that guard is load-bearing rather than defensive
+# — it is the same one `branch_patch_id`'s header states for `git patch-id`: two failed
+# computations compare EQUAL, so an unguarded reader prints its ✓ having compared nothing. An
+# unresolvable merge-base, a head absent from this checkout's history and an empty measured range
+# all surface here as the same refusal to answer, which is correct: they are all "no comparison
+# was made", and splitting them produces an arm no case can kill.
+#
+# THE CALLER OWNS THE rc=2 POLICY, not this function. D-5 points the two live callers at
+# fail-OPEN — the verdict stands, and the line says so — against every other unreadable-input path
+# in these two tools, which fail closed. That reversal is OR-1, and keeping it in the callers is
+# what makes it a one-line flip rather than a rewrite.
+contribution_delta() { # contribution_delta <repo-root> <base-ref> <old-head> <new-head> <exclude-path>
+  local d rc=0
+  d="$(mktemp -d 2>/dev/null)" || return 2
+  contribution_lines "$1" "$2" "$3" "$5" > "$d/old" 2>/dev/null || rc=2
+  contribution_lines "$1" "$2" "$4" "$5" > "$d/new" 2>/dev/null || rc=2
+  if [ "$rc" -eq 0 ] && { [ ! -s "$d/old" ] || [ ! -s "$d/new" ]; }; then rc=2; fi
+  if [ "$rc" -eq 0 ] && ! cmp -s "$d/old" "$d/new"; then
+    rc=1
+    awk -F'\t' '
+      NR == FNR { n1[$1]++; L1[$1 SUBSEP n1[$1]] = $2; next }
+                { n2[$1]++; L2[$1 SUBSEP n2[$1]] = $2 }
+      END {
+        for (f in n1) seen[f] = 1
+        for (f in n2) seen[f] = 1
+        for (f in seen) {
+          a = (f in n1) ? n1[f] : 0
+          b = (f in n2) ? n2[f] : 0
+          m = (a > b) ? a : b
+          c = 0; first = ""
+          for (i = 1; i <= m; i++) {
+            x = L1[f SUBSEP i]; y = L2[f SUBSEP i]
+            if (x != y) { c++; if (first == "") first = (y != "") ? y : x }
+          }
+          if (c > 0) print f "\t" c "\t" first
+        }
+      }
+    ' "$d/old" "$d/new" | LC_ALL=C sort
+  fi
+  rm -rf "$d"
+  return "$rc"
+}
+
+# The enumeration, as ONE line an operator reads in a single pass. Stdin is contribution_delta's
+# rc=1 output; the shape mirrors the existing arms' `(e.g. X)` style rather than inventing a
+# second one. NO SILENT CAP: past the third file it says how many more there are.
+contribution_summary() { # contribution_summary  (delta rows on stdin)
+  awk -F'\t' '
+    NF == 0 { next }
+    { n++; total += $2; if (n <= 3) { parts = parts (parts == "" ? "" : "; ") $1 ": " $2 " line(s) (e.g. " $3 ")" } }
+    END {
+      if (n == 0) { print "no affected line could be named"; exit }
+      if (n > 3) parts = parts "; and " (n - 3) " more file(s)"
+      print total " reviewed line(s) across " n " file(s) — " parts
+    }
+  '
+}
+# LOCKSTEP-END contribution-compare
+
 # ---------------------------------------------------------------- classification
 # FAILS CLOSED, and that is a consequence of #413 rather than a belt-and-braces addition. While a
 # branch-namespace arm classified independently, an unreadable diff cost only the artifact arm and
@@ -642,6 +743,7 @@ VERDICT_VALUE=""
 VERDICT_RUN_ID=""
 VERDICT_SESSION_ID=""
 VERDICT_REVIEWED_PATCH_ID=""
+VERDICT_REVIEWED_HEAD=""
 
 load_verdict() {
   VERDICT="$(find_artifact "$KEY" "$LEAN_VERDICT_SUFFIX")" || VERDICT=""
@@ -654,6 +756,11 @@ load_verdict() {
   VERDICT_RUN_ID="$(record_key run_id "$REPO_ROOT/$VERDICT")"
   VERDICT_SESSION_ID="$(record_key session_id "$REPO_ROOT/$VERDICT")"
   VERDICT_REVIEWED_PATCH_ID="$(record_key reviewed_patch_id "$REPO_ROOT/$VERDICT")"
+  # #597 D-2. `reviewed_head:` is read here rather than added as a NEW key precisely because it is
+  # not new — it has been in LEAN_VERDICT_HEADER_KEYS since #372, so every in-flight and every
+  # already-merged record already carries it and none of them needs a re-stamp for this boundary to
+  # gain the escape hatch. `reviewed_patch_id:` does not contain the substring `reviewed_head:`.
+  VERDICT_REVIEWED_HEAD="$(record_key reviewed_head "$REPO_ROOT/$VERDICT")"
   return 0
 }
 
@@ -824,7 +931,18 @@ arm_freshness() {
   if [ -z "$cur" ]; then
     envfail "cannot compute this branch's patch identity against origin/$PR_BASE_REF — the merge-base is unresolvable (a full-history checkout of the base is required: fetch-depth: 0), or the branch's diff excluding '$VERDICT' is empty. Either way there is nothing to compare the verdict's reviewed_patch_id against."
   elif [ "$cur" != "$VERDICT_REVIEWED_PATCH_ID" ]; then
-    note_violation "verdict record '$VERDICT' reviewed patch $(printf '%.12s' "$VERDICT_REVIEWED_PATCH_ID"), but this branch's diff against origin/$PR_BASE_REF now hashes to $(printf '%.12s' "$cur"). Content changed after the review — a commit landed, or a rebase resolved a conflict by altering a line — so the review read a different tree than the one being merged. Run another review round."
+    # THE ESCAPE HATCH, AT THE BOUNDARY (#597 D-4). Without it milestone 4 passes and this job still
+    # reds on the identical base merge — which is exactly what forced the #583 re-stamp — so AC-1
+    # would be true in the lane and false at merge time. `fetch-depth: 0` is already this job's
+    # checkout, and `reviewed_head` is an ancestor of the PR head, so both sides are resolvable here.
+    local delta drc
+    delta="$(contribution_delta "$REPO_ROOT" "origin/$PR_BASE_REF" "$VERDICT_REVIEWED_HEAD" "$PR_HEAD_SHA" "$VERDICT")"
+    drc=$?
+    case "$drc" in
+      1) note_violation "verdict record '$VERDICT' reviewed patch $(printf '%.12s' "$VERDICT_REVIEWED_PATCH_ID"), but this branch's diff against origin/$PR_BASE_REF now hashes to $(printf '%.12s' "$cur") and the branch's own lines moved with it: $(printf '%s\n' "$delta" | contribution_summary). Content changed after the review — a commit landed, or a conflict was resolved by altering a line — so the review read a different tree than the one being merged. Run another review round." ;;
+      0) echo "[lean-evidence] notice: freshness — the recorded patch identity $(printf '%.12s' "$VERDICT_REVIEWED_PATCH_ID") and this head's $(printf '%.12s' "$cur") differ, which a base advance alone is enough to cause, and every one of the branch's own +/- lines is unchanged since reviewed_head $(printf '%.12s' "$VERDICT_REVIEWED_HEAD") — no reviewed line was altered, so the verdict stands (#597 AC-1)." >&2 ;;
+      *) inapplicable freshness reduced-strength "the patch identity moved from $(printf '%.12s' "$VERDICT_REVIEWED_PATCH_ID") to $(printf '%.12s' "$cur") and the +/- comparison could NOT be computed, so this arm FAILED OPEN and the verdict stands (#597 D-5/OR-1). It is the one unreadable-input path in this file that does not fail closed; reverse it by treating that case as a violation here and in lean-gate.sh's milestone 4." ;;
+    esac
   fi
 }
 
