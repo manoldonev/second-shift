@@ -1,205 +1,195 @@
 # lean review verdict — #609
 
-verdict=needs-work
-run_id: review-609-1
-session_id: ef6d6033-8304-4915-bde3-343afbf7177e
-rounds: 1
+verdict=approve
+run_id: review-609-2
+session_id: d2b69ee9-c35e-4bc5-b894-3e9e3edad780
+rounds: 2
 pr: #614
-reviewed_head: 228e595590055d4d830df652c5e88c1dc053276b
-reviewed_patch_id: 3c23f90156e0011eccf9a617d15d453ae06c0eca
-inherited_patch_id: none
-inherited_from_verdict: none
+reviewed_head: 231c9628cab259dcf0c09fd999b703af224404fc
+reviewed_patch_id: ddde8f6109a9c092bb2c22aad6c6dd858558fa44
+inherited_patch_id: 3c23f90156e0011eccf9a617d15d453ae06c0eca
+inherited_from_verdict: 461f7e269abbb7a93c7b8ff6de6173e58f12ad23
 fidelity: not-applicable
 model: unknown
 capabilities: pr-marker
 
 ## Review summary
 
-Round 1, full branch diff (`f51f7d87..228e5955`), 9 files / +1607. The report is good work: the
-numbers reproduce, the routing table checks out line-for-line against `ci.yml`, and the honesty
-discipline the spec promised is actually kept — `unmeasured` is never smoothed into a pass, the
-adjudicated column is disclosed as judgment, and the manifest genuinely pins what was measured.
+Round 2, inheriting round 1's coverage of patch `3c23f90156e0`. Delta `461f7e26..231c9628` — one fix
+commit, 4 files, +68/-13. Round 1's single blocker (C-1: the suite green on macOS, `emit` exiting 139
+under the ubuntu lane's awk) is **resolved, with evidence on the lane that gates the merge**. No new
+blockers. Approve.
 
-One blocker. `tools/gate-ablation-selftest.sh` is **green on macOS and red on the ubuntu lane** —
-13 cases fail, and `emit`'s entire success path dies with exit 139 (SIGSEGV) under that host's awk.
-It reds two CI jobs and leaves the new guard with zero mutation coverage. AC-5 is unsatisfied.
+Round 1's five suggestions: S-1, S-2, S-3 and S-4 are addressed and each of the three code-bearing
+ones is now guarded by a case that fails when the fix is reverted (probed below). S-5 was a nit about
+a column header and is untaken — fine.
 
-Panel: 6/6 reviewers returned, none dark. Their only ≥80 finding does not survive verification at
-the severity claimed (see Suggestions); the blocker below came from CI evidence, not from the panel.
+Panel: 5/5 reviewers returned, none dark. Zero findings at or above the confidence threshold from any
+of them; the one 85 (scope-completeness) is explicitly recorded as requiring no change.
+
+## Evidence for C-1's closure
+
+CI run `32416881388` at the reviewed head:
+
+| job | round 1 (`228e5955`) | round 2 (`231c9628`) |
+| --- | --- | --- |
+| `lint-and-selftests` → *run all selftests* (ubuntu) | `FAIL … (rc=1)`, 13 cases | **pass** — `pass tools/gate-ablation-selftest.sh`, `ALL CASES PASSED` |
+| `mutation-sweep-pr` | `RED: unrunnable pair`, `mutants_applied 0` | **pass** — `applied=11 killed=11 survived=0` |
+| `selftests (macos, bash 3.2)` | pass | pass |
+
+The second row is the one that matters beyond the red build: round 1's finding was that the guard
+shipped with zero mutants proving it can fail. It is now scored, and kills every mutant applied.
+
+**The fix is complete, not merely sufficient for the fixture.** The crash class is a read that also
+creates the element it reads, landing on a node a prior `printf` released. `seed_counters()` runs as
+the first statement of `report()`, before any output, and seeds every counter rendering touches
+(`fire`, `fire_verb`, `mech_n`, `dec_n`, `eval_s`, `eval_cov`, `rework_s`, `rework_cov`, `false_red`,
+`repeat_n`, `n_advisory`). I enumerated every array subscript read from the rendering section onward
+and checked the remainder: `cls_*` and `f_*` are assigned by construction; `keep_when`/`keep_key`/
+`fr_when`/`fr_key` are read only past an `in` guard, and `in` does not create; and the two nested
+reads round 1 flagged as suspects, `adj_note[keep_key[gp]]` and `adj_cite[fr_key[gp]]`, are safe
+because `key` is only ever a value proven `in adj_dec`, and `adj_dec`/`adj_fr`/`adj_cite`/`adj_note`
+are assigned together per row and so share one key set. No creation-on-read site remains in the
+rendering path.
+
+**"No cell moves" is verified, not asserted.** `docs/gate-ablation.md` was last written at `c3ed9071`
+and was not regenerated this round, so the committed report predates the seeding. `check` regenerates
+it with the seeded code and reproduces it byte-for-byte over the real 52-record corpus — that is a
+direct measurement that seeding changed nothing. It also holds by reading: `total_fr()` and
+`total_repeat()` sum values (`t += …`) rather than counting keys, so added zeros are inert, and
+`advisory_by_ms()` guards on `> 0`.
+
+## Probes — each new guard fails when its fix is reverted
+
+Run in an isolated worktree at the reviewed head, scored by case id.
+
+| probe | mutation | cases that failed |
+| --- | --- | --- |
+| P0 | none (baseline) | none, rc=0 |
+| P1 | flip the eval-cost tiebreak in `worse()` | `(s)` — and only `(s)` |
+| P2 | delete the committed-report scrub call | `(m5)` — and only `(m5)` |
+| P3 | restore round 1's narrow absolute-path anchor | `(l3)` — and only `(l3)` |
+| P5 | widen the anchor so a letter before the slash matches | `(l4)` among others |
+| P4 | remove `seed_counters()` — the C-1 fix itself | **none, rc=0** |
+
+P1–P3 establish that S-3, S-2 and S-1 are each guarded rather than merely fixed. P5 establishes that
+`(l4)` is a live over-match guard and not a case that passes under every anchor.
+
+P4 is the honest limit, and it is inherent rather than a gap to fill: the C-1 regression class is a
+gawk heap bug, and no case runnable under the one-true-awk on this host can detect its return. Its
+only coverage is the ubuntu job running the suite. The file header now says exactly that, in place of
+the round-1 comment whose reasoning pointed at the lane that stayed green.
+
+## Local verification
+
+From the checkout of the reviewed head: `gate-ablation.sh check` clean (the committed block
+reproduces from the pinned corpus, and the newly added committed-report scrub passes on the real
+artifact); `gate-ablation-selftest.sh` all cases passed; `shellcheck -e SC1091,SC2015,SC2181` clean on
+both shell files. Branch carries no `plugins/**` path and no release-owned file; `pr-gates` confirms
+frozen-files clean and the changelog trailer not required.
 
 ## Strengths
 
-- **The limitation is load-bearing rather than decorative.** `mechanical()` consults the committed
-  verdict-record round boundary first and falls to `unmeasured`/`no-response` with no inference
-  repair — no git metadata, no mtime, no merge time. The method section then states the reach
-  limit, lists the four write-nothing refusal classes *in a table* rather than omitting them, and
-  the report's own truncation caveat (10 of 52 records reach `milestone-4 satisfied`) keeps
-  `no-response` from reading as a lane fact.
-- **`check` is a real reproduction, not a prose grep.** The generated block sits between markers and
-  is regenerated and diffed, and the corpus is pinned by sha256 — so AC-5's byte-for-byte claim is
-  testable. `manifest` deriving the live-lane exclusion from the registry *and* recording where each
-  exclusion came from in the header makes the corpus boundary auditable rather than asserted.
-- **`tools/gate-ablation-classes.tsv` refusing an `other` bucket** (D-c) is the right call and is
-  guarded — cases (g)/(g2)/(g3) pin the hard failure, and they pass on both lanes.
-- **The routing table is accurate.** Every row verified against `.github/workflows/ci.yml`:
-  `pr-gates` → *frozen files guard* / *changelog trailer guard* / *lean chain reconciliation*,
-  `lint-and-selftests` → *shellcheck* / *run all selftests*, and `mutation-sweep-pr`.
+- **The fix is diagnosed, not patched around.** The commit names the mechanism (an 8-byte
+  heap-use-after-free in `r_force_number`), the surfacing exit codes on each platform, and the
+  reason the tail of the report went missing rather than the run dying loudly. The header comment is
+  corrected in the same commit, which is what stops the next edit from repeating the inference.
+- **Seeding is the right shape of fix.** It removes the class rather than the instance, and it is
+  simultaneously the honest description of the tables — every declared point has a row whether or not
+  it fired, and each seeded value is the zero that row already prints.
+- **The three suggestion fixes each arrived with a case.** S-1, S-2 and S-3 could all have been
+  landed as silent one-liners; each instead has a probe-confirmed guard, and `(l4)` is a negative case
+  that pins the widened anchor against over-matching rather than only against under-matching.
+- **The spec annotation is honest.** F-5 gains a note that its two counts predate the corpus pin and
+  names the shipped split; it is a Findings-section correction, not an acceptance criterion edited
+  after the fact to match the diff.
 
 ## Critical (must fix before merge)
 
-### C-1 — the selftest is green on macOS and red on Linux; `emit`'s success path segfaults there
-
-`tools/gate-ablation-selftest.sh` — CI run
-[32410936360](https://github.com/manoldonev/second-shift/actions/runs/32410936360), two jobs red:
-
-| job | result |
-| --- | --- |
-| `lint-and-selftests` → *run all selftests* | `FAIL tools/gate-ablation-selftest.sh (rc=1)` — **the only failing suite in the sweep** |
-| `mutation-sweep-pr` | `RED: unrunnable pair: tools/gate-ablation-selftest.sh does not exit 0 against the unmutated sandbox (exit 1) (guard tools/gate-ablation.sh). Its mutants are NOT scored.` → `mutants_applied 0, killed 0` |
-| `selftests (macos, bash 3.2)` | **pass** |
-
-13 cases fail, and the pattern names the mechanism precisely. **Every case that expects `emit` to
-succeed returns 139 — SIGSEGV:**
-
-```
-FAIL (b)  emit succeeds over a manifest-matching corpus      — want '0', got '139'
-FAIL (b2) two emits differ
-FAIL (f)  an out-of-manifest record does not red the run     — want '0', got '139'
-FAIL (l)  a session-id-shaped token exits 4                  — want '4', got '139'
-FAIL (l2) an absolute local path exits 4                     — want '4', got '139'
-FAIL (m)  an in-sync report checks clean                     — want '0', got '139'
-FAIL (m2) a hand-edited table reds                           — want '1', got '139'
-FAIL (m3) a report with no generated block reds              — want '1', got '139'
-FAIL (j)(k)(k2)(k3)(m4) — want '1', got '0'
-```
-
-Every case that expects a *refusal* (`g`,`h`,`o*`,`p`,`q*`,`r*`,`d`,`e`) passes, because awk exits
-before reaching the crash site. `gate-ablation.sh` then does `cat "$OUT" >&2; exit "$rc"`, so the
-139 is the awk's, surfaced verbatim.
-
-**Crash window, from which assertions still passed:** `(c)`, `(c2)`, `(c3)`, `(c4)` and `(f2)` all
-pass, so Corpus, Decision points, Firings and the Never-fired row all rendered. `(j)` (repeat
-firings) and `(k)`/`(k2)`/`(k3)` (false reds) return 0 matches, so those tables never printed. The
-crash is inside `report()`, **at or after the Never-fired table's tail (`gate-ablation.awk:296`) and
-before the Repeat-firings block completes (`:347`)** — i.e. Earn-your-keep, False reds, or Repeat
-firings.
-
-*Hypotheses, not measurements* — I have no mawk on this host to bisect with:
-`printf ..., total_fr(), plural(total_fr())` (`:329`, `:348`) calls user functions inside a printf
-argument list, and both `total_fr()`/`total_repeat()` iterate `for (gp in …)` over globals that may
-never have been assigned an element; `adj_note[keep_key[gp]]` (`:311`) is a nested array subscript.
-Bisect on the real host rather than trusting this ordering.
-
-**Two consequences beyond the red build:**
-
-1. **AC-5 is unsatisfied off this machine.** The byte-for-byte reproducibility claim, and the D-f
-   rc=4 scrub gate, are both *unreachable* on the ubuntu lane — `(l)`/`(l2)` show the scrub never
-   fires because `emit` dies first. A reader who re-runs the generator on Linux gets a crash, not
-   the tables. The committed report was generated on macOS and cannot currently be reproduced
-   anywhere else.
-2. **The new guard has zero mutation coverage.** The sweep classifies the pair as unrunnable and
-   scores `0` mutants applied — so the guard shipped without a single mutant proving it can fail.
-   `sites_beyond_budget cmp-z:7+logic:17+detector:1+default:1` were all deferred.
-
-The file's own header reasons about exactly this risk and gets the direction backwards:
-
-> `# One-true-awk portable on purpose: no asort, no ENDFILE, no mktime. The macOS selftest lane runs`
-> `# this under the same awk the lane's other guards do, and a gawk-only builtin would fail there and`
-> `# nowhere else.`
-
-The failure is Linux-only, so "would fail there and nowhere else" points at the one lane that stayed
-green. Please fix the comment alongside the code — it is the reasoning that let this through, and
-it is the repo's own recorded lesson that a green macOS sweep is no evidence for the other lane.
-
-**Verification the fix needs:** a green ubuntu `lint-and-selftests` *and* a `mutation-sweep-pr` that
-actually scores the pair. A local macOS re-run cannot distinguish a fix from the status quo.
+*(none)*
 
 ## Warnings (should fix)
 
-*(none beyond C-1)*
+*(none)*
 
 ## Suggestions (consider)
 
-- **S-1 `tools/gate-ablation.sh:213` — the absolute-path scrub anchor is narrower than its stated
-  intent.** `grep -nE '(^|[ \`(])(/[A-Za-z_.]|~/)'` requires line-start, space, backtick or `(`
-  before the path, so a `key=/Users/…` shape slips through (probed: no match, vs. a match on the
-  space-prefixed form).
-  The security reviewer filed this at confidence 85 on the premise that free-form `attempt`/`absent`
-  reason text and `advisory` rows reach the generated block verbatim — **that premise is wrong.**
-  `r_reason` is read only by `classify()` (`gate-ablation.awk:117`, `:201`) and `n_advisory` only
-  contributes counts (`:114`, `:218`); the only free-form cells that reach `emit`'s output are
-  `adj_note`/`adj_cite`, both from the committed, diff-reviewed adjudication TSV. So the residual
-  surface is a hand-written committed cell, not corpus text — real, but a hardening nit, not the
-  disclosure path described. Both committed artifacts are verifiably clean today (I grepped the
-  whole of `docs/gate-ablation.md` and the manifest for UUIDs and absolute paths: nothing).
-- **S-2 the scrub gate covers `emit`'s output, not the committed artifacts.** AC-5 asks that "the
-  committed report and manifest carry no session ids and no absolute local paths", but the gate only
-  inspects `$OUT` — the hand-written prose half of `docs/gate-ablation.md` is unscrubbed. Both are
-  clean now, so this is coverage, not a defect. Running the same two greps over `$REPORT` in `check`
-  would close it for the cost of two lines.
-- **S-3 the demotion ranking is unpinned by order.** `worse()` plus the bubble sort at
-  `gate-ablation.awk:273` decides the table AC-2 says the report ranks by, and no case asserts the
-  resulting order — the fixture exercises the path without pinning it. Flagged by test-coverage at
-  confidence 55; agreed as a low-cost addition once C-1 is fixed, since a comparator regression
-  would currently survive.
-- **S-4 spec F-5's counts no longer match the shipped report.** F-5 records the `m1/spec-absent`
-  split as 39 `attempt` / 21 `absent`; the generated table says 36 / 18. The gap is the live-lane
-  exclusion the manifest applies, which is correct behavior — but F-5 reads as a measurement and is
-  now stale. A parenthetical noting the counts predate the corpus pin would keep it honest.
-- **S-5 "first decision-changing firing" is manifest order, not chronological.** `keep_when[gp]` and
-  `fr_when[gp]` take the first firing in corpus-file order, which is numeric issue id. Close enough
-  to chronological to be harmless today, and deterministic either way; worth a word in the column
-  header if the corpus ever gains an out-of-order id.
+- **S-2 carry-forward — the manifest is still outside the scrub.** `check` now scrubs both the
+  generated block and the committed report, which is the half round 1 asked for. The corpus manifest
+  is named alongside the report in D-2's "no session ids and no absolute local paths" clause and is
+  scrubbed by neither, nor is it scrubbed at `manifest` write time. It is clean today — I ran both
+  scrub patterns over it directly and neither matched — and its content is structurally record ids
+  plus hashes, so this is residual coverage rather than a defect. A third `scrub` call would close it.
+- **The path anchor still has two evading shapes.** `-` and `/` are excluded from the
+  preceding-character class, so a path glued directly behind a hyphen or a second slash is not
+  matched. Security filed this at 70 and suppressed it; I agree with the suppression. The scrub is
+  accidental-leakage hygiene over a report this tool generates itself, and both shapes require a
+  deliberately crafted adjudication cell.
+- **The PR body's case count is stale.** It says 39; the suite now carries 45 `check` invocations
+  after this round's four additions. Cosmetic, and the PR body is not a gated artifact.
+- **The tri-awk byte-identity claim is broader than what is verifiable here.** The commit reports
+  identical output under one-true-awk, mawk 1.3.4 and gawk 5.2.1. CI proves gawk 5.2.1 over the
+  fixture, and I reproduced the committed report under one-true-awk over the real corpus. The real
+  corpus under gawk is unverified — and unreachable in practice, since the records are host-local to a
+  macOS machine, so nothing rests on it. Recorded so the claim's support is visible.
+- **S-5 remains untaken** (round 1): "first decision-changing firing" is manifest order, which is
+  numeric issue id rather than chronological. Deterministic either way and harmless on today's corpus.
 
 ## Plan compliance
 
 | AC | Verdict | Evidence |
 | --- | --- | --- |
-| AC-1 | satisfied | 33 declared points enumerated including 20 zero-fire ones; `tools/gate-ablation-classes.tsv` committed; every firing cited `record • milestone-N • ISO`; unmatched reason is a hard failure, pinned by (g)/(g2)/(g3) which pass on both lanes. |
-| AC-2 | satisfied | `mechanical` and `adjudicated` are separate labeled columns; demotion table ranks by zero-decision-change count then `eval s`; six earn-your-keep rows each carry a dated incident. `attempts` are carried as the firing count and timing spans as `eval s`/`rework s`, so the issue's "attempts and timing spans" secondary key is honored. |
-| AC-3 | satisfied | Method section states what is and is not recomputable; all four write-nothing refusal classes tabulated (wrong-tree `rc=9`, unattested-entry, `envfail`, scheduler) with "**It is never an implied pass.**"; 47 stage-era records listed out-of-corpus with their count. |
-| AC-4 | satisfied | `**Lower bound: 1 firing.**` with the #531 citation; `**Upper bound: 5 firings.**` reported separately, naming reaping and idempotent re-invocation as the over-count sources. The issue's trailing "Phase 2 inherits both numbers with their labels" clause is not restated in the report; the substance (both numbers separately reported and labeled as bounds) is in-diff, and the report declares itself the successor slice's input at :13 — nit, not a gap. |
-| AC-5 | **unsatisfied** | The suite is red on the ubuntu lane (C-1). The byte-for-byte determinism claim `(b2)` and the D-f rc=4 scrub `(l)`/`(l2)` both fail there, so neither guarantee holds off macOS. Determinism and `check` do hold on macOS — verified locally: two `emit` runs byte-identical, `check` clean, shellcheck clean, and the suite green under stock bash 3.2. |
-| AC-6 | satisfied | `docs/pipeline-manifesto.md` V1 gains a pointer to the report and nothing else changes (4-line diff, 2 lines touched); no `plugins/**` path in the diffstat, so no gate, skill or other principle is edited. |
+| AC-1 | satisfied | Inherited. Report unchanged this round; the classes table, the zero-fire enumeration and the citation form are untouched by the delta, and the unmatched-reason hard failure stays pinned by `(g)`/`(g2)`/`(g3)`, now green on both lanes. |
+| AC-2 | satisfied | Strengthened this round. The ranking the criterion names is now order-pinned by `(s)`, probe-confirmed to fail on a flipped comparator. Scope-completeness records at 85 that the secondary key renders as `eval s` with attempt counts appearing as a column — correct, since the attempt count is already the primary key and cannot also be its own tiebreak; it explicitly asks for no change. |
+| AC-3 | satisfied | Inherited; the method section, the four write-nothing refusal classes and the 47-record stage-era count are outside the delta. |
+| AC-4 | satisfied | Inherited; the lower bound of 1 firing with its citation and the separately labeled upper bound are outside the delta. |
+| AC-5 | **satisfied** — was the round-1 blocker | The suite is green on ubuntu (`ALL CASES PASSED`) and on macOS bash 3.2, and the sweep now scores the pair 11 applied / 11 killed. Determinism `(b2)` and the rc=4 scrub `(l)`/`(l2)` — both unreachable on the ubuntu lane in round 1 because `emit` died first — now pass there, joined by `(l3)`/`(l4)`/`(m5)`. `check` reproduces the committed block from the pinned corpus locally, and `emit`'s rc=3 drift arm is unchanged and green. |
+| AC-6 | satisfied | Inherited and re-confirmed against the delta: the manifesto pointer is untouched this round, and the branch diff carries no `plugins/**` path, so no gate, skill or principle is edited. |
 
-No scope creep. The diff is exactly the generator, its two input tables, the manifest, the report,
-the spec and the one-line manifesto pointer.
+No scope creep. The delta is the awk fix, the two scrub changes, the ranking pin, four selftest cases
+and one spec annotation — every one of them traceable to a round-1 finding.
 
 ## Pre-existing gaps (not blocking this PR)
 
-None surfaced.
+- The generator's logic lives mostly in `tools/gate-ablation.awk`, and the mutation sweep mutates
+  shell guards, so the awk file is not swept. That is the sweep's declared scope repo-wide, not
+  something this PR introduced; the suite's cases are what cover the awk.
 
 ## Suppressed (below confidence threshold)
 
-- `tools/gate-ablation.sh:120` (40) — `for id in $(record_ids)` word-splits, but ids are `[0-9]+` by construction.
-- `tools/gate-ablation.sh:96` (35) — operator-supplied `--state-dir`/`--manifest` paths are uncontained; local operator tool, no untrusted caller.
-- `docs/gate-ablation-manifest.tsv` (30) — committed sha256s of gitignored records leak no content.
-- `tools/gate-ablation.awk:208-280` (55) — demotion ranking order unasserted → promoted to S-3.
-- `docs/gate-ablation.md` (70) — AC-2's "attempts and timing spans" secondary key rendered across two tables; judged faithful.
-- `tools/gate-ablation-selftest.sh` (70) — AC-5's "existing fixture seams" wording vs. seams this PR introduces; offline determinism is the intent and is met.
+- `tools/gate-ablation.sh` (70) — the two anchor-evading shapes; promoted to a suggestion above.
+- `tools/gate-ablation.sh` (55) — the committed-report scrub runs before the later mktemp and its
+  trap. Verified harmless: no temp file exists at that point, so an rc=4 there orphans nothing.
+- Scope-completeness noted that the dispatched base was the round-1 verdict commit rather than the
+  PR base, and judged scope against the real merge-base instead. That was the intended delta range;
+  its correction means the AC scoring above rests on the whole branch, not the delta.
 
 ## Verdicts
 
 | Reviewer | Verdict | Findings | Confidence |
 | --- | --- | --- | --- |
-| Scope Completeness | Pass | 1 (nit) | 85 |
-| Security | Pass | 1 (downgraded to S-1) | 85 |
-| Performance | Pass | 0 | — |
+| Scope Completeness | Pass | 1 (nit, no change required) | 85 |
+| Security | Pass | 0 | — |
 | Complexity | Pass | 0 | — |
 | Maintainability | Pass | 0 | — |
 | Test Coverage | Pass | 0 | — |
 
-Not routed: `a11y-reviewer` and the design-fidelity dimension — no changed path matched
-`stageParams.webComponentGlobs` (unset → default `apps/web/**/*.{tsx,jsx}`). `db-reviewer`,
-`pipeline-reviewer` and `unit-test-mutation-reviewer` were not triggered. No reviewer went dark.
+Not selected: `performance-reviewer` under the round-2 reduced-lineup rule — it returned no findings
+in round 1 and the delta's only new cost is a bounded one-pass seeding loop. `a11y-reviewer` and the
+design-fidelity dimension were not routed: no changed path matched the resolved
+`stageParams.webComponentGlobs` (unset, so the default). `db-reviewer`, `pipeline-reviewer` and
+`unit-test-mutation-reviewer` were not triggered. No reviewer went dark.
 
-**Ready to merge? No.**
+Design fidelity is `not-applicable`: the spec arms no `## Design` section — no handoff link, no
+render-state rows — and the repo configures no design provider, so the disarm needs no justification.
 
-**Reasoning:** the analysis is sound and the report is the artifact #609 asked for, but its guard
-does not run on the lane that gates the merge: the suite is red on ubuntu, `emit` segfaults there,
-two CI jobs are red on it, and the new guard shipped with zero mutation coverage as a direct
-consequence. AC-5 fails until a Linux-green sweep exists. Everything else scores satisfied, so this
-should be a narrow fix round.
+**Ready to merge? Yes.**
 
-`pr-gates` is also red, on the absent verdict record — that is the expected pre-handoff state and is
-not a finding.
+**Reasoning:** the round-1 blocker is closed on the lane that gates the merge, with the mutation
+coverage it cost restored; the fix removes the crash class rather than an instance, and its
+output-neutrality is measured against the real corpus rather than argued. Every AC is satisfied, the
+panel is unanimous with nothing at blocking confidence, and the three suggestion fixes each ship with
+a guard that fails when reverted.
+
+`pr-gates` is red on the round-1 `needs-work` record — the expected pre-handoff state, which this
+record clears.
