@@ -24,29 +24,16 @@ trap 'rm -rf "$BASE"' EXIT
 
 # run_runner <fixture-root> [args...] -> writes $OUT, sets $RC
 #
-# LEAN_JOB_CEILING is SCRUBBED unless a case opts in through $CEILING, and that scrub is not
-# hygiene — it is what makes the jobs assertions below mean anything. The lean gate exports that
-# variable into every milestone-3 child, and one of those children is the sweep that runs this
-# file, so an inherited ceiling would silently clip the value every ceiling case asserts.
-#
-# LEAN_SELFTEST_CACHE_DIR (#563) is scrubbed for the identical reason and a sharper consequence:
+# LEAN_SELFTEST_CACHE_DIR (#563) is scrubbed for a reason that is not hygiene:
 # the lean gate exports a STORE too, and an inherited one would turn the cache ON in every case
 # below that asserts nothing is served without --cache-dir. The #563 cases at the end of this
 # file set it deliberately, one invocation at a time, and never through this driver.
 OUT=""; RC=0
-CEILING=""
 run_runner() {
   local root="$1"; shift
   OUT="$BASE/out.$$.$RANDOM"
-  if [[ -n "$CEILING" ]]; then
-    env -u TMPDIR -u SELFTEST_JOBS -u RUN_SELFTESTS_DROP_LAST -u LEAN_SELFTEST_CACHE_DIR \
-      LEAN_JOB_CEILING="$CEILING" \
-      bash "$RUNNER" --root "$root" "$@" > "$OUT" 2>&1
-  else
-    env -u TMPDIR -u SELFTEST_JOBS -u RUN_SELFTESTS_DROP_LAST -u LEAN_SELFTEST_CACHE_DIR \
-      -u LEAN_JOB_CEILING \
-      bash "$RUNNER" --root "$root" "$@" > "$OUT" 2>&1
-  fi
+  env -u TMPDIR -u SELFTEST_JOBS -u RUN_SELFTESTS_DROP_LAST -u LEAN_SELFTEST_CACHE_DIR \
+    bash "$RUNNER" --root "$root" "$@" > "$OUT" 2>&1
   RC=$?
 }
 
@@ -789,63 +776,80 @@ run_runner "$R3" --exclude "keep-selftest.sh" --exclude "drop-selftest.sh"
                   || { fail "usage: an all-excluded sweep did not red (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
 
 # ---------------------------------------------------------------------------------------
-# The lane job ceiling (#526). A fixture tree of two trivial passing suites — nothing here is
-# about what the suites do, only about the jobs value the runner resolves and prints.
+# THE SLOW-SUITE TABLE (#566 AC-10). The bound that replaced ~640 lines of detached-runner
+# supervision in lean-gate.sh: milestone 3 fits inside the harness turn because the sweep it
+# runs is narrowed here, not because a runner outlives the turn.
 #
-# The ceiling is asserted through `jobs=` on the runner's own summary line rather than by
-# timing anything: a concurrency assertion keyed on wall clock is a flake generator, and the
-# resolved value is the entire contract.
+# EVERY OTHER CASE IN THIS FILE BUILDS A --root WITH NO SUCH TABLE, which is what keeps them
+# meaningful — an absent table is the "every suite is fast" default, so nothing above this
+# point changed behavior when the table shipped.
 # ---------------------------------------------------------------------------------------
-RJ="$BASE/jobs"; mkdir -p "$RJ"
-make_suite "$RJ" "j1-selftest.sh" 0 'echo j1'
-make_suite "$RJ" "j2-selftest.sh" 0 'echo j2'
+RSL="$BASE/slow"; mkdir -p "$RSL/tools"
+make_suite "$RSL" "tools/quick-selftest.sh" 0 'echo quick'
+make_suite "$RSL" "tools/heavy-selftest.sh" 0 'echo heavy'
+make_suite "$RSL" "sub/other-selftest.sh"   0 'echo other'
+printf '# hdr\ntools/heavy-selftest.sh\t147\ttoo slow for the turn\n' > "$RSL/tools/selftest-slow-suites.tsv"
 
-# AC-5. No ceiling and no flag is what BOTH CI workflows produce — neither invokes the gate that
-# exports one, and neither passes --jobs. Asserted, not assumed: this is the case that says CI's
-# concurrency is untouched by everything else in this change.
-CEILING=""; run_runner "$RJ"
-if [[ "$RC" -eq 0 ]] && grep -q 'jobs=4' "$OUT" && ! grep -q 'job ceiling' "$OUT"; then
-  ok "ceiling: absent leaves the default at 4 — CI's resolved concurrency is unchanged"
+# AC-10 / AC-4. Applied BY DEFAULT — no flag opts in. The deferred suite is NAMED with its
+# reason (a count could not tell an operator which green they are not getting), the sweep still
+# exits 0, and the discovered/ran invariant holds because the exclusion is computed before
+# dispatch rather than by killing a live suite.
+run_runner "$RSL"
+if [[ "$RC" -eq 0 ]] && grep -q 'deferred: tools/heavy-selftest.sh (147s — too slow for the turn)' "$OUT" \
+   && grep -q '3 discovered, 1 excluded, 2 to run' "$OUT" && ! grep -q 'ERROR' "$OUT"; then
+  ok "slow-table: applied by default, names the deferred suite and its reason, and still exits 0"
 else
-  fail "ceiling: absent must resolve jobs=4 with no announcement (rc=$RC)"; sed 's/^/    | /' "$OUT"
+  fail "slow-table: default application failed (rc=$RC)"; sed 's/^/    | /' "$OUT"
 fi
 
-# AC-2. The case the whole ticket exists for: SELFTEST_JOBS could not carry a ceiling because
-# --jobs overwrites it, so absent-with-an-explicit-flag must be byte-identical to today.
-CEILING=""; run_runner "$RJ" --jobs 10
-if [[ "$RC" -eq 0 ]] && grep -q 'jobs=10' "$OUT" && ! grep -q 'job ceiling' "$OUT"; then
-  ok "ceiling: absent leaves an explicit --jobs 10 alone"
+# AC-10. `--full` is the opt-out, and it is what every sweep of record passes. This is the case
+# that says CI's coverage is unchanged by the table's existence.
+run_runner "$RSL" --full
+if [[ "$RC" -eq 0 ]] && ! grep -q 'deferred:' "$OUT" && grep -q '3 discovered, 0 excluded, 3 to run' "$OUT"; then
+  ok "slow-table: --full ignores the table entirely — the sweep of record still runs everything"
 else
-  fail "ceiling: absent must leave --jobs 10 alone (rc=$RC)"; sed 's/^/    | /' "$OUT"
+  fail "slow-table: --full must run all 3 suites with no deferral (rc=$RC)"; sed 's/^/    | /' "$OUT"
 fi
 
-CEILING=2; run_runner "$RJ" --jobs 10
-if [[ "$RC" -eq 0 ]] && grep -q 'jobs=2' "$OUT" && grep -q 'job ceiling: 10 -> 2' "$OUT"; then
-  ok "ceiling: below the flag clips it, and says so"
+# THE DEDUPE, and it is a correctness case rather than a tidiness one. EXCLUDED feeds
+# EXPECTED = DISCOVERED - EXCLUDED, which the run/discovered invariant is checked against, so
+# counting one suite twice under-states EXPECTED and reds an honest sweep. It is the NORMAL
+# case, not an edge one: this repo's own milestone-3 `test` command passes
+# `--exclude tools/install-topology-selftest.sh` explicitly, and that suite is also a table row.
+run_runner "$RSL" --exclude tools/heavy-selftest.sh
+if [[ "$RC" -eq 0 ]] && grep -q '3 discovered, 1 excluded, 2 to run' "$OUT" && ! grep -q 'ERROR' "$OUT"; then
+  ok "slow-table: a suite excluded BOTH explicitly and by the table counts once"
 else
-  fail "ceiling: 2 must clip --jobs 10 to 2 and announce it (rc=$RC)"; sed 's/^/    | /' "$OUT"
+  fail "slow-table: explicit+table double-count broke the run/discovered invariant (rc=$RC)"; sed 's/^/    | /' "$OUT"
 fi
 
-# A CEILING, not an override. An operator who asked for fewer workers than their share keeps
-# them — raising anyone's concurrency is not something this variable may ever do.
-CEILING=9; run_runner "$RJ" --jobs 3
-if [[ "$RC" -eq 0 ]] && grep -q 'jobs=3' "$OUT" && ! grep -q 'job ceiling' "$OUT"; then
-  ok "ceiling: above the flag is a no-op"
+# THE STALE-ROW POSTURE, inherited from --exclude verbatim: a row naming no discovered suite is
+# a hard error, so a renamed suite cannot silently start running twice (here and in its own CI
+# job) with nobody noticing. The message must name the TABLE — a stale table row and a stale
+# workflow argument have different remedies, and a shared message sends the reader to the wrong
+# file.
+printf '# hdr\ntools/vanished-selftest.sh\t99\tgone\n' > "$RSL/tools/selftest-slow-suites.tsv"
+run_runner "$RSL"
+if [[ "$RC" -eq 2 ]] && grep -q 'selftest-slow-suites.tsv row' "$OUT" && grep -q 'stale table row' "$OUT"; then
+  ok "slow-table: a row matching no discovered suite reds, and the message names the table"
 else
-  fail "ceiling: 9 must leave --jobs 3 alone (rc=$RC)"; sed 's/^/    | /' "$OUT"
+  fail "slow-table: stale row must red with a table-specific message (rc=$RC)"; sed 's/^/    | /' "$OUT"
 fi
 
-# Rejected the way --jobs is. Unvalidated, the minimum is undefined and the naive shell form
-# yields an empty or zero jobs value — a silent drop to serial, which is the fail-open shape
-# this change exists to remove.
-CEILING=abc; run_runner "$RJ"
-[[ "$RC" -eq 2 ]] && ok "ceiling: a non-numeric ceiling is rejected" \
-                  || { fail "ceiling: LEAN_JOB_CEILING=abc was accepted (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
+# ...and --full does not read the table at all, so a stale row cannot red the sweep of record.
+# The opt-out has to be total: a CI lane that reds on the local check's cost record would make
+# the table a merge blocker, which is the opposite of what it is for.
+run_runner "$RSL" --full
+[[ "$RC" -eq 0 ]] && ok "slow-table: --full does not read the table, so a stale row cannot red CI" \
+                  || { fail "slow-table: --full redded on a stale table row (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
 
-CEILING=0; run_runner "$RJ"
-[[ "$RC" -eq 2 ]] && ok "ceiling: a zero ceiling is rejected" \
-                  || { fail "ceiling: LEAN_JOB_CEILING=0 was accepted (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
-CEILING=""
+# A MALFORMED ROW IS A USAGE ERROR, not a silently-skipped one. A row whose seconds column is
+# not a number is a hand-edit that did not finish, and treating it as absent would defer nothing
+# while reporting a bound that is not in force.
+printf '# hdr\ntools/heavy-selftest.sh\tsoon\ttoo slow\n' > "$RSL/tools/selftest-slow-suites.tsv"
+run_runner "$RSL"
+[[ "$RC" -eq 2 ]] && ok "slow-table: a non-numeric seconds column is rejected" \
+                  || { fail "slow-table: malformed row was accepted (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
 
 # ---------------------------------------------------------------------------------------
 # THE FIXTURE REAPER CALL SITE (#528). Every other case builds a --root whose tools/ holds only
@@ -900,7 +904,7 @@ fi
 run_env_cached() {
   local store="$1" root="$2"; shift 2
   OUT="$BASE/out.$$.$RANDOM"
-  env -u TMPDIR -u SELFTEST_JOBS -u RUN_SELFTESTS_DROP_LAST -u LEAN_JOB_CEILING \
+  env -u TMPDIR -u SELFTEST_JOBS -u RUN_SELFTESTS_DROP_LAST \
     LEAN_SELFTEST_CACHE_DIR="$store" \
     bash "$RUNNER" --root "$root" "$@" > "$OUT" 2>&1
   RC=$?
@@ -943,7 +947,7 @@ make_suite "$RE1" "e.sh" 0 'echo e-subject'
 # not on a log line: the marker must land in the flag's store and the env's must stay empty.
 CDIRA="$BASE/argv-store"
 OUT="$BASE/out.argv-wins"
-env -u TMPDIR -u SELFTEST_JOBS -u RUN_SELFTESTS_DROP_LAST -u LEAN_JOB_CEILING \
+env -u TMPDIR -u SELFTEST_JOBS -u RUN_SELFTESTS_DROP_LAST \
   LEAN_SELFTEST_CACHE_DIR="$BASE/never-used-store" \
   bash "$RUNNER" --root "$RE1" --cache-dir "$CDIRA" --cache-write > "$OUT" 2>&1
 RC=$?

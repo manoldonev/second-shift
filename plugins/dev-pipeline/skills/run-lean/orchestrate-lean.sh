@@ -674,7 +674,7 @@ progress_token() { # progress_token [--satisfied <n>]
 # every killed spawn read as advancement — the thing lean-gate.sh's row set was closed to prevent.
 #
 # Same MAIN_ROOT anchor and same RUN_ID scrub as its sibling, for the same two reasons; and the
-# same FAIL-CLOSED posture, for a third. The gate answers `m3infra-v2:0` when there is no death, so
+# same FAIL-CLOSED posture, for a third. The gate answers `m3infra-v3:0` when there is no death, so
 # an empty or erroring read is never a legitimate negative — treating it as one would put this
 # script back to reading a killed session as an idle one, which is the bug being removed.
 infra_token() {

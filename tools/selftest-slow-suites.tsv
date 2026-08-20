@@ -1,0 +1,26 @@
+# selftest-slow-suites.tsv — suites tools/run-selftests.sh DEFERS TO CI by default (#566).
+#
+# WHAT THIS BUYS. lean-gate.sh milestone 3 runs the sweep as a single blocking call inside the
+# harness turn, which reaps at roughly 120s. Before #566 the lane paid for that with a detached
+# runner, a marker/rejoin protocol and a lane registry — ~560 lines of supervision whose only
+# job was surviving a bound this table simply stays under.
+#
+# APPLIED BY DEFAULT; `--full` opts out. The sweeps of record pass `--full`: both CI selftest
+# jobs, the nightly wholesale leg, and the CLAUDE.md contributor recipe. A row here therefore
+# narrows the LOCAL pre-PR check only — nothing listed stops being a merge requirement, because
+# CI still sweeps everything and the merge boundary still blocks on CI.
+#
+# A ROW COSTS SIGNAL LATENCY, NEVER SOUNDNESS. The worst case for a deferred suite is that its
+# regression is caught at PR CI instead of before the push. That is the trade #566 accepted;
+# it is not a licence to defer a suite merely because it is inconvenient.
+#
+# A row naming no discovered suite is a HARD ERROR — the same stale-row posture --exclude,
+# install-topology-known-red.tsv and mutation-baseline.tsv already carry. A suite ABSENT from
+# this file is treated as fast.
+#
+# seconds is a MEASUREMENT, not a budget: what the suite cost alone, on the machine and date
+# named in the row. Re-measure when you change what a listed suite does.
+#
+# selftest<TAB>seconds<TAB>reason
+tools/install-topology-selftest.sh	584	re-runs every shipped suite from a staged install cache, so its cost is the whole suite set a second time; 319/438/584s over three runs of one unchanged tree. Already nightly-only on the CI side (nightly-guards.yml), so this row aligns the local check with a deferral CI had already made.
+plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	147	the tree largest suite, and alone it exceeds the reap the quick check exists to fit; measured 2026-08-14 by the mutation sweep unmutated precheck (tools/mutation-slow-suites.tsv). Deferring it is the single row that makes the bound reachable: without it no table membership fits.

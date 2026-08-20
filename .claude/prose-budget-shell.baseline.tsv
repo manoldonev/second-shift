@@ -3,12 +3,10 @@
 plugins/design-toolkit/skills/design-faithful/lib/design-lib-selftest.sh	54	49	22	449
 plugins/dev-pipeline/skills/build-lean/branch-prefix-selftest.sh	274	242	80	331
 plugins/dev-pipeline/skills/build-lean/branch-prefix.sh	150	137	64	467
-plugins/dev-pipeline/skills/build-lean/lane-registry-selftest.sh	329	300	106	353
-plugins/dev-pipeline/skills/build-lean/lane-registry.sh	329	308	119	386
 plugins/dev-pipeline/skills/build-lean/lean-evidence-selftest.sh	853	769	252	328
 plugins/dev-pipeline/skills/build-lean/lean-evidence.sh	901	848	419	494
 plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	6535	6022	1935	321
-plugins/dev-pipeline/skills/build-lean/lean-gate.sh	4972	4707	2538	539
+plugins/dev-pipeline/skills/build-lean/lean-gate.sh	4672	4425	2367	535
 plugins/dev-pipeline/skills/build-lean/lean-reconcile-selftest.sh	728	660	215	326
 plugins/dev-pipeline/skills/build-lean/lean-reconcile.sh	501	471	217	461
 plugins/dev-pipeline/skills/build-lean/scenario-liveness-selftest.sh	2954	2763	954	345
@@ -88,4 +86,4 @@ tools/mutation-sweep.sh	1912	1802	700	388
 tools/reap-lean-fixtures-selftest.sh	320	281	86	306
 tools/reap-lean-fixtures.sh	199	185	80	432
 tools/run-selftests-selftest.sh	889	803	252	314
-tools/run-selftests.sh	581	543	245	451
+tools/run-selftests.sh	680	639	306	479

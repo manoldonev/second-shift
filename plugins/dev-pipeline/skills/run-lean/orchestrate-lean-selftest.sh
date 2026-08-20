@@ -825,7 +825,7 @@ if [ "$rc" -eq 1 ] && [ "$(spawn_count)" -eq 2 ] \
   pass "(oi4) repeated infrastructure deaths are bounded by the existing --max-continuations"
 else fail "(oi4) expected rc=1 after 2 spawns on the existing bound, got rc=$rc / $(spawn_count): $out"; fi
 
-# Fail-closed, exactly like (o8) for its sibling. The gate answers `m3infra-v2:0` when there is no
+# Fail-closed, exactly like (o8) for its sibling. The gate answers `m3infra-v3:0` when there is no
 # death, so an erroring read is never a legitimate negative — treating it as one puts the scheduler
 # straight back to reading a killed session as an idle one.
 setup_case "" "$V_APPROVE" "ready-for-dev" "11"

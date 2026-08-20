@@ -70,8 +70,14 @@ The ticket's four spec defects, found at intake and binding here:
   (b) the **six** `tools/mutation-catalog.tsv` rows anchored to deleted code are **deleted**, not
   re-anchored: `lane-registry-recycled-pid`, `lane-join-entry-dropped`, `lean-gate-m3-no-join`,
   `lean-gate-m3-stale-marker`, `lean-gate-m3-death-blind`, `lean-gate-m3-samelaunch-join`;
-  (c) the `LEAN_JOB_CEILING` writer↔reader row in `scripts/lockstep-manifest.tsv` is removed,
-  while the `LEAN_SELFTEST_CACHE_DIR` entry survives untouched;
+  (c) **VOID, corrected during the build.** This clause required removing the `LEAN_JOB_CEILING`
+  writer↔reader row from `scripts/lockstep-manifest.tsv`. That file does not exist: #606
+  (`80276e7`, this branch's own base) deleted all 744 lines of it and made
+  `check-lockstep-pairs.sh` discover pairs from their in-source `LOCKSTEP-BEGIN` markers instead.
+  The clause was written from a stale reading of the shared checkout at intake. Nothing replaces
+  it: `LEAN_JOB_CEILING` never carried a marker pair, so deleting the name discharges the
+  coupling outright. `lean-gate.sh`'s one real marker block — `seam-scrub subset` — is untouched
+  by this diff, and `bash scripts/check-lockstep-pairs.sh` stays green;
   (d) the PR body states the **net bash line delta**, which must be strongly negative.
 
 - **AC-8**: `lean-gate.sh` does NOT read, poll, or otherwise consume CI verdicts. No new

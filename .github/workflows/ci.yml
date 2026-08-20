@@ -118,7 +118,7 @@ jobs:
 
       - name: run all selftests
         run: |
-          args=(--exclude tools/install-topology-selftest.sh --cache-dir "$RUNNER_TEMP/selftest-cache")
+          args=(--full --exclude tools/install-topology-selftest.sh --cache-dir "$RUNNER_TEMP/selftest-cache")
           if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
             args+=(--cache-write)
           fi
@@ -395,7 +395,7 @@ jobs:
           ln -sf /bin/bash /tmp/bash32/bash
           export PATH="/tmp/bash32:$PATH"
           bash --version | head -1
-          args=(--exclude tools/install-topology-selftest.sh --cache-dir "$RUNNER_TEMP/selftest-cache")
+          args=(--full --exclude tools/install-topology-selftest.sh --cache-dir "$RUNNER_TEMP/selftest-cache")
           if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
             args+=(--cache-write)
           fi

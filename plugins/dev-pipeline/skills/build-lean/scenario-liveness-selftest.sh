@@ -1654,9 +1654,6 @@ IKSESS
       rm -f "$IK_DIR/spawns" "$IK_DIR/session.log" "$IK_GH_LOG" "$IK_PR_NUMS" \
             "$LEAN_TREE/.claude/pipeline-state/$IK_KEY-run-id" \
             "$LEAN_TREE/.claude/pipeline-state/$IK_KEY-review-run-id"
-      rm -f "$LEAN_TREE/.claude/pipeline-state/$IK_KEY"-lean-m3-*.pid \
-            "$LEAN_TREE/.claude/pipeline-state/$IK_KEY"-lean-m3-*.rc \
-            "$LEAN_TREE/.claude/pipeline-state/$IK_KEY"-lean-m3-*.log
       : > "$IK_PR_NUMS"
       git -C "$LEAN_TREE" worktree remove --force "$IK_WT" >/dev/null 2>&1
       git -C "$LEAN_TREE" branch -D "$IK_BRANCH" >/dev/null 2>&1
@@ -1901,120 +1898,101 @@ COSESS
     git -C "$LEAN_TREE" worktree remove --force "$CO_WT" >/dev/null 2>&1
   fi
 
-  # ======================= #539: the runner outlives a simulated turn end (AC-5) ===
-  # WHAT NO EXISTING GUARD COULD FAIL ON. Every milestone-3 case in lean-gate-selftest.sh drives
-  # the gate inside ONE process group and asserts what the gate returns, so all of them stayed
-  # green through the entire period in which this repo's lane could not reach milestone 3 at all:
-  # the harness tore the runner down with the session that launched it, the waiter reported rc=7,
-  # and each individual assertion about spawning, joining and marker-matching remained true. The
-  # property that was false is the one no component test states — that the evaluation is still
-  # there on the OTHER side of a turn boundary — and it is only observable by killing the launcher
-  # and then looking.
+  # ============ #566: milestone 3 is INLINE, and its residue is what the scheduler reads ====
+  # WHAT THIS REPLACED. A #539 scenario stood here and asserted the opposite property: that
+  # milestone 3's DETACHED runner outlived its launcher's whole process group being killed, and
+  # that a second call JOINED it rather than starting a second sweep. #566 deleted that stratum —
+  # the runner, the marker, the rejoin, the lane registry — because the evaluation is now bounded
+  # to fit inside the turn instead of engineered to survive leaving it.
   #
-  # THE KILL IS (if5)'s IDIOM VERBATIM (D-11): `set -m` so the backgrounded gate leads its own
-  # group, wait for the milestone-3 `started` row so the runner demonstrably exists, then
-  # `kill -9` the negative pid. That is a PROCESS-GROUP kill, which is not what the harness does —
-  # the real teardown is session-directed, measured under a `claude -p` child — but it is the
-  # strongest kill this suite can issue, and it is the one the shipped shape fails: the default
-  # runner is forked into the launcher's group and dies with it. A guard the seam-off arm survives
-  # would be no guard, which is what the paired non-vacuity leg below decides.
+  # WHAT NO FIXTURE CASE CAN FAIL ON, and why this is still a scenario. lean-gate-selftest.sh's
+  # (x3d) asserts the gate does not ANNOUNCE a detached evaluation, and (if5)/(if5b) assert a
+  # killed one leaves `started` with no `concluded`. Neither composes the piece the scheduler
+  # actually acts on: that the residue a killed milestone 3 leaves is what `progress --infra`
+  # reports, in the token space orchestrate-lean.sh compares across a spawn. Three components,
+  # one property, and the seam between them is where #527's original defect lived.
   #
-  # AND THE SECOND CALL MUST JOIN. Surviving is half the contract; the other half is that the
-  # rejoin machinery m3_joinable and the `<pid> <token>` record were built for is finally
-  # REACHABLE across sessions, which is the property the ticket says had never once fired. A run
-  # whose runner survives but whose next call launches a second sweep into the same worktree is
-  # #500's livelock, not a fix.
+  # THE KILL IS (if5)'s IDIOM VERBATIM: `set -m` so the backgrounded gate leads its own group,
+  # wait for the milestone-3 `started` row so the evaluation demonstrably began, then `kill -9`
+  # the negative pid.
   TE_KEY=57
-  TE_DIR="$TMP/lean-turnend"
+  TE_DIR="$TMP/lean-inline-m3"
   TE_TREE="$TE_DIR/tree"
-  TE_SID="sess-lean-turnend"
+  TE_SID="sess-lean-inline-m3"
   mkdir -p "$TE_TREE/docs/plans" "$TE_TREE/.claude/audit"
   git -C "$TE_TREE" init -q
   git -C "$TE_TREE" config user.email te@example.invalid
-  git -C "$TE_TREE" config user.name lean-turnend
+  git -C "$TE_TREE" config user.name lean-inline
   printf '.claude/\n' > "$TE_TREE/.gitignore"
   printf '# spec\n\n- AC-1: the thing\n' > "$TE_TREE/docs/plans/acme-$TE_KEY-lean.md"
   git -C "$TE_TREE" add -A >/dev/null 2>&1
   git -C "$TE_TREE" commit -q -m base >/dev/null 2>&1
   git -C "$TE_TREE" update-ref refs/remotes/origin/main HEAD
   printf '{"tool":"Bash"}\n' > "$TE_TREE/.claude/audit/$TE_SID.jsonl"
-  # A lane that BLOCKS, so the kill lands mid-sweep rather than after it, and self-terminating so
-  # a kill that somehow misses cannot wedge the suite.
-  TE_CFG="$TE_DIR/config-block.json"
-  jq '.commands.acme.test = "sleep 20"' "$LEAN_CFG" > "$TE_CFG"
   TE_PROG="$TE_DIR/progress.md"
 
-  te_state() { printf '%s' "$TE_TREE/.claude/pipeline-state/$TE_KEY-lean-m3-"; }
-  te_runner_pid() { # the recorded runner's pid, or empty
-    local f p
-    for f in "$(te_state)"*.pid; do
-      [ -f "$f" ] || continue
-      read -r p _ < "$f" 2>/dev/null
-      case "${p:-}" in ''|*[!0-9]*) continue ;; esac
-      printf '%s' "$p"; return 0
-    done
-    printf ''
-  }
-  te_reap() { case "${1:-}" in ''|*[!0-9]*) return 0 ;; esac
-              kill -9 -"$1" 2>/dev/null || kill -9 "$1" 2>/dev/null; return 0; }
-
-  # te_leg <seam> — spawn a gate, kill its whole process group mid-sweep, and report
-  # "<runner-alive> <second-call-verb>" where the verb is JOIN, LAUNCH or NONE.
-  te_leg() {
-    local seam="$1" kpg waited alive out pid
-    rm -f "$TE_PROG" "$(te_state)"*.pid "$(te_state)"*.rc "$(te_state)"*.log
+  te_gate() { # te_gate <config> <args...>
+    local cfg="$1"; shift
     ( cd "$TE_TREE" && env -u RUN_ID -u GH_BOT CLAUDE_CODE_SESSION_ID="$TE_SID" \
-        SECOND_SHIFT_CONFIG="$TE_CFG" LEAN_PROGRESS_FILE="$TE_PROG" \
-        bash "$LEAN_GATE" --issue-file "$LEAN_ISSUE_NOREGIONS" entry "$TE_KEY" ) >/dev/null 2>&1
-    set -m
-    ( cd "$TE_TREE" && env -u RUN_ID -u GH_BOT CLAUDE_CODE_SESSION_ID="$TE_SID" \
-        SECOND_SHIFT_CONFIG="$TE_CFG" LEAN_PROGRESS_FILE="$TE_PROG" \
-        LEAN_GATE_M3_NEW_SESSION="$seam" \
-        bash "$LEAN_GATE" --issue-file "$LEAN_ISSUE_NOREGIONS" 3 "$TE_KEY" ) >/dev/null 2>&1 &
-    kpg=$!
-    set +m
-    waited=0
-    while ! grep -qF "| milestone-3 | started |" "$TE_PROG" 2>/dev/null && [ "$waited" -lt 300 ]; do
-      sleep 0.1; waited=$((waited + 1))
-    done
-    kill -9 -"$kpg" 2>/dev/null
-    wait "$kpg" 2>/dev/null
-    # The launcher's whole group is gone before anything is asked about the runner, so "still
-    # alive" cannot be the waiter being slow to die.
-    waited=0
-    while kill -0 -"$kpg" 2>/dev/null && [ "$waited" -lt 50 ]; do sleep 0.1; waited=$((waited + 1)); done
-    pid="$(te_runner_pid)"
-    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then alive=1; else alive=0; fi
-    # THE SECOND CALL, from a shell that never met the first one — a fresh session's `bash G 3`.
-    # A 1s ceiling because the sweep still has most of its 20s to run and this leg is about which
-    # ARM the call takes, not about the answer it eventually gets.
-    out="$( cd "$TE_TREE" && env -u RUN_ID -u GH_BOT CLAUDE_CODE_SESSION_ID="$TE_SID" \
-              SECOND_SHIFT_CONFIG="$TE_CFG" LEAN_PROGRESS_FILE="$TE_PROG" \
-              LEAN_GATE_M3_NEW_SESSION="$seam" LEAN_GATE_WAIT_CEILING_SECS=1 \
-              bash "$LEAN_GATE" --issue-file "$LEAN_ISSUE_NOREGIONS" 3 "$TE_KEY" 2>&1 )"
-    local verb=NONE
-    grep -q 'JOINING it rather than launching a second' <<<"$out" && verb=JOIN
-    grep -q 'spawned detached' <<<"$out" && verb=LAUNCH
-    # Both the survivor and whatever the second call started: this leg must not be the thing that
-    # leaves an orphaned sweep behind, which CLAUDE.md records as reddening later suites for good.
-    te_reap "$pid"
-    te_reap "$(te_runner_pid)"
-    printf '%s %s' "$alive" "$verb"
+        SECOND_SHIFT_CONFIG="$cfg" LEAN_PROGRESS_FILE="$TE_PROG" \
+        bash "$LEAN_GATE" --issue-file "$LEAN_ISSUE_NOREGIONS" "$@" 2>&1 )
   }
 
-  te_on="$(te_leg 1)"
-  [[ "$te_on" == "1 JOIN" ]] \
-    && pass "(lean-turnend) AC-1/AC-5: with the escape on, the runner survives its launcher's whole process group being killed and the next call JOINS it" \
-    || fail "(lean-turnend) expected '1 JOIN' (alive, joined), got '$te_on'"
+  # ---- the happy path: an inline evaluation concludes, and the read says "no death" ---------
+  TE_CFG_OK="$TE_DIR/config-ok.json"
+  jq '.commands.acme.test = "true"' "$LEAN_CFG" > "$TE_CFG_OK"
+  rm -f "$TE_PROG"
+  te_gate "$TE_CFG_OK" entry "$TE_KEY" >/dev/null 2>&1
+  te_ok_out="$(te_gate "$TE_CFG_OK" 3 "$TE_KEY")"; te_ok_rc=$?
+  te_ok_tok="$(te_gate "$TE_CFG_OK" progress "$TE_KEY" --infra 2>/dev/null)"
+  # The started/concluded PAIR is the half a join used to break deliberately (#511 D-9: "a join
+  # writes nothing"). With no join arm left, every evaluation that begins must also close.
+  if [[ "$te_ok_rc" -eq 0 && "$te_ok_tok" == "m3infra-v3:0" ]] \
+     && ! grep -q 'spawned detached' <<<"$te_ok_out" \
+     && [[ "$(re_count "$TE_PROG" '| milestone-3 | started |')" -eq 1 \
+        && "$(re_count "$TE_PROG" '| milestone-3 | concluded |')" -eq 1 ]]; then
+    pass "(lean-inline-m3) #566 AC-1/AC-9: milestone 3 runs inline, closes its started/concluded pair, and the scheduler reads m3infra-v3:0"
+  else
+    fail "(lean-inline-m3) rc=$te_ok_rc token='$te_ok_tok' started=$(re_count "$TE_PROG" '| milestone-3 | started |') concluded=$(re_count "$TE_PROG" '| milestone-3 | concluded |'): $te_ok_out"
+  fi
 
-  # ---- non-vacuity ------------------------------------------------------------------------
-  # THE SAME COMPOSITION WITH THE SEAM OFF, which is the shipped shape and the filed defect. If
-  # this leg ever reports a survivor, the one above has stopped depending on the seam and is
-  # measuring something else.
-  te_off="$(te_leg 0)"
-  [[ "$te_off" == "0 LAUNCH" ]] \
-    && pass "(lean-turnend-nv) non-vacuity: with the seam off the same kill leaves nothing to rejoin, and the next call launches a second sweep" \
-    || fail "(lean-turnend-nv) expected '0 LAUNCH' (dead, relaunched), got '$te_off'"
+  # ---- non-vacuity: kill it mid-lane, and the SAME read must move -------------------------
+  # Without this leg the one above would stay green against a gate that answered `:0`
+  # unconditionally — which is exactly the shape #527 was filed about, a killed session
+  # indistinguishable from an idle one.
+  TE_CFG_BLOCK="$TE_DIR/config-block.json"
+  jq '.commands.acme.test = "sleep 20"' "$LEAN_CFG" > "$TE_CFG_BLOCK"
+  rm -f "$TE_PROG"
+  te_gate "$TE_CFG_BLOCK" entry "$TE_KEY" >/dev/null 2>&1
+  set -m
+  ( cd "$TE_TREE" && env -u RUN_ID -u GH_BOT CLAUDE_CODE_SESSION_ID="$TE_SID" \
+      SECOND_SHIFT_CONFIG="$TE_CFG_BLOCK" LEAN_PROGRESS_FILE="$TE_PROG" \
+      bash "$LEAN_GATE" --issue-file "$LEAN_ISSUE_NOREGIONS" 3 "$TE_KEY" ) >/dev/null 2>&1 &
+  te_kpg=$!
+  set +m
+  te_waited=0
+  while ! grep -qF "| milestone-3 | started |" "$TE_PROG" 2>/dev/null && [ "$te_waited" -lt 300 ]; do
+    sleep 0.1; te_waited=$((te_waited + 1))
+  done
+  kill -9 -"$te_kpg" 2>/dev/null
+  wait "$te_kpg" 2>/dev/null
+  te_waited=0
+  while kill -0 -"$te_kpg" 2>/dev/null && [ "$te_waited" -lt 50 ]; do sleep 0.1; te_waited=$((te_waited + 1)); done
+  # NOTHING SURVIVES THE GROUP KILL — the property AC-1 bought by deleting the escape. If a
+  # detached runner ever comes back, `sleep 20` is still running here and this check fails.
+  if kill -0 -"$te_kpg" 2>/dev/null; then
+    fail "(lean-inline-m3-nv) a lane child outlived the gate's process group — milestone 3 detached"
+  else
+    te_nv_tok="$(te_gate "$TE_CFG_BLOCK" progress "$TE_KEY" --infra 2>/dev/null)"
+    if [[ "$te_nv_tok" == "m3infra-v3:1" \
+       && "$(re_count "$TE_PROG" '| milestone-3 | started |')" -eq 1 \
+       && "$(re_count "$TE_PROG" '| milestone-3 | concluded |')" -eq 0 ]]; then
+      pass "(lean-inline-m3-nv) non-vacuity: a killed inline evaluation leaves started-with-no-concluded, and the same read moves to m3infra-v3:1"
+    else
+      fail "(lean-inline-m3-nv) expected m3infra-v3:1 with 1 started / 0 concluded, got token='$te_nv_tok' started=$(re_count "$TE_PROG" '| milestone-3 | started |') concluded=$(re_count "$TE_PROG" '| milestone-3 | concluded |')"
+    fi
+  fi
+
 fi
 
 # ══════════════════════════════════════════════════════════════════════════════

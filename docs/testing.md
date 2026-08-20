@@ -42,58 +42,57 @@ follows:
 | no suites discovered, or every suite excluded | exit 2 — a sweep that runs nothing is never green |
 
 `--exclude` has four in-repo callers, all passing
-`--exclude tools/install-topology-selftest.sh`: both CI selftest jobs (`lint-and-selftests`,
-`selftests-bash32`) and both nightly wholesale lanes (`wholesale-selftests`,
-`wholesale-selftests-bash32`) — inside the sweep it contends with the very suites it re-runs
+`--exclude tools/install-topology-selftest.sh` (and, since #566, `--full` alongside it): both CI
+selftest jobs (`lint-and-selftests`, `selftests-bash32`) and both nightly wholesale lanes
+(`wholesale-selftests`, `wholesale-selftests-bash32`) — inside the sweep it contends with the very suites it re-runs
 from the install cache, which is what the install-topology section below measures.
 `install-topology-selftest.sh` itself runs in its own nightly jobs (`install-topology`,
 `install-topology-bash32`), never alongside a sweep. The maintainer's dogfood lean-gate
-milestone-3 lane passes the same exclusion for the same reason, out of the repo in a gitignored
-config — see CLAUDE.md's Verification section. The suite stays *discovered*: the exclusion names
+milestone-3 lane gets the same exclusion from `tools/selftest-slow-suites.tsv` instead, which it
+applies by default — see the slow-suite table section below. The suite stays *discovered*: the exclusion names
 a path that must keep existing, so renaming the suite reds CI instead of silently
 double-running it.
 
-### The lane job ceiling
+### The slow-suite table
 
-A sweep sizes itself to the machine, and until #526 nothing counted how many sweeps were on it.
-Five concurrent lean lanes on ten cores measured load 16.9–26.8 and one lane at **1h46m wall for
-4m07s of its own CPU** against the 5:22 uncontended figure — each lane had asked for the whole box.
+`lean-gate.sh` milestone 3 runs the sweep as a **single blocking call inside the harness turn**,
+which reaps at roughly 120s. Until #566 the lane paid for that bound with a detached runner, a
+marker/rejoin protocol, an `INTERRUPTED_BUDGET_M3` and a lane registry — ~1,300 lines of
+supervision, guards included, whose only job was surviving a limit it is cheaper to stay under.
 
-The fix is one number passed downhill:
+`tools/selftest-slow-suites.tsv` is what replaced all of it. It is a committed cost record —
+`suite<TAB>seconds<TAB>reason` — and `run-selftests.sh` applies its rows as exclusions **by
+default**.
 
-| Who | Does what |
-| --- | --- |
-| `lean-gate.sh entry` | registers this lane in `lean-lanes.tsv` (pid **plus** that pid's start time — pids recycle) |
-| `lean-gate.sh 3` | derives `max(1, cores / live_lanes)`, announces it, exports `LEAN_JOB_CEILING` to every lane command |
-| `run-selftests.sh` | applies `min(resolved_jobs, ceiling)` after its parse loop |
-| `lean-gate.sh teardown` | deregisters. A lane killed before teardown is reaped by the next reader |
+| Caller | Passes | Runs |
+| --- | --- | --- |
+| `lean-gate.sh 3` (via the consumer's `test` command) | nothing | the table is applied — the bounded quick check |
+| both CI selftest jobs | `--full` | everything |
+| both nightly wholesale lanes | `--full` | everything |
+| CLAUDE.md's contributor recipe | `--full` | everything |
 
-`LEAN_JOB_CEILING` is deliberately **not** `SELFTEST_JOBS`. The runner reads `SELFTEST_JOBS` before
-argument parsing and `--jobs` overwrites it unconditionally, so an injected value would be
-discarded in exactly the case that matters — a caller passing `--jobs`. It is also a *ceiling*, not
-an override: `--jobs 2` under a ceiling of 8 still runs two.
+**Default-on, with an explicit opt-out, and the direction is load-bearing.** The only caller that
+wants the bound is milestone 3, and it runs a `test` command out of a consumer's *gitignored*
+config — so an opt-in flag would have to be hand-added to an untracked file no gate can read, and
+"is the bound actually in force?" would be unanswerable in review and unverifiable in CI. Inverted,
+every sweep of record carries `--full` in a **committed** file, where a missing opt-out shows up in
+the diff.
 
-**A ceiling, not a semaphore.** The suites are independent and safe to interleave; they were
-starving each other, not racing. A wait-your-turn lock would put a waiter on the milestone-3 path
-and turn a slow lane into a hung one.
+**A row costs signal latency, never soundness.** Everything deferred still runs in CI, and the
+merge boundary still blocks on CI, so the worst case for a deferred suite is that its regression is
+caught at PR time instead of before the push. That is the trade #566 accepted; it is not a licence
+to defer a suite because it is inconvenient.
 
-**Every degradation is toward today.** An unreadable, empty, or fully-stale registry yields the
-single-lane answer — the *largest* ceiling — and names which of the three it hit. A ceiling is
-never 0 and never empty: a silent drop to serial is the fail-open shape this replaced, and a
-non-positive `LEAN_JOB_CEILING` is rejected through the same `die` as a bad `--jobs`.
+**Same stale-row posture as `--exclude`.** A row naming no discovered suite is a hard error, so a
+renamed suite cannot silently start running twice. The message names the table rather than
+`--exclude`, because the two have different remedies. Rows and explicit `--exclude` flags are
+**deduped**: `EXCLUDED` feeds `EXPECTED = DISCOVERED - EXCLUDED`, so double-counting one suite
+would under-state `EXPECTED` and red an honest sweep — and it is the normal case, since the dogfood
+`test` command excludes `install-topology` explicitly while the table also lists it.
 
-**CI is untouched.** Neither workflow invokes the gate, so no ceiling is exported and `JOBS`
-resolves exactly as before — asserted by a `run-selftests-selftest.sh` case rather than assumed.
+`--full` does not read the table at all, so a stale or malformed row cannot red the sweep of
+record. Cases: `run-selftests-selftest.sh`'s `slow-table:` block.
 
-**Consumers may honor it, and need not.** The gate ships to repos whose `test` command is `vitest`
-/ `pytest` / `cargo test`, none of which read this variable. The gate cannot detect that, so its
-announcement says *advertised, not enforced*; a command that ignores the value behaves as it always
-did. A consumer that wants the benefit maps it onto its own flag (`vitest --maxWorkers`,
-`pytest -n`, `cargo test --jobs`) in its configured command string.
-
-Registry scope is **this repo's lanes**, not the machine's: the file lives beside the rest of the
-lean run state in the main checkout, which every worktree already resolves to. Lanes in another
-repo on the same machine are invisible to it.
 
 `SKIP_STRESS` is never set by the runner. The ubuntu lane omits it and the macos lane sets it;
 that asymmetry predates this script and is preserved, and the mutation baseline's environment
@@ -149,8 +148,7 @@ containment is the load-bearing part and the hashing is not. Four properties, al
 **The lean lane is the third participant (#563).** `lean-gate.sh` milestone 3 runs a `test`
 command it does not own — that string lives in a consumer's `.claude/second-shift.config.json`,
 gitignored in this repo — so it cannot add a flag to it. It exports `LEAN_SELFTEST_CACHE_DIR`
-instead, beside the `LEAN_JOB_CEILING` it already exports, and `run-selftests.sh` reads that when
-argv named no store. Argv wins, and unset is a no-op, so both CI lanes, the nightly leg and the
+instead, and `run-selftests.sh` reads that when argv named no store. Argv wins, and unset is a no-op, so both CI lanes, the nightly leg and the
 local recipe resolve exactly what they resolve today. Three differences from the CI path, all
 deliberate:
 
@@ -351,7 +349,9 @@ before adding to what it runs.
 
 **It no longer runs on the PR lane at all.** It lives in `.github/workflows/nightly-guards.yml`
 on a nightly cron plus `workflow_dispatch`, and both CI selftest jobs exclude it by path via
-`run-selftests.sh --exclude`. The documented local recipe excludes it too.
+`run-selftests.sh --exclude`. The documented local recipe excludes it too, and since #566 it also
+carries a `tools/selftest-slow-suites.tsv` row, so the lean lane's bounded quick check defers it
+without needing the flag.
 
 The reasoning is a cost/signal ratio, not a judgment that the guard is worthless — it caught two
 real defects that were green in-tree the whole time, and it stays. But its cost *is* the shipped
@@ -499,12 +499,6 @@ coupling rather than mechanizing it into a guard that cannot fail.
   and a status board into one table serving neither reader. Reviewer-guarded: both tables are
   short, sit in the two files every contributor reads first, and a new tier lands with its own
   suite in the same PR.
-- **`LEAN_JOB_CEILING`, writer ↔ reader (#526).** `lean-gate.sh` exports the name into every
-  milestone-3 lane child; `tools/run-selftests.sh` reads it. A one-sided rename breaks it in the
-  INVISIBLE direction — the runner sees no ceiling and every lane sizes itself to the whole machine
-  again, which reds nothing. The two sites share a token, not a block, and pinning a variable name
-  in two places is the presence check this repo bans. Guard: `lean-gate-selftest.sh` (jc1) — a real
-  extraLane child echoes `${LEAN_JOB_CEILING:-unset}` and its value must equal the announced ceiling.
 - **`LEAN_SELFTEST_CACHE_DIR`, writer ↔ reader (#563).** The same coupling one ticket later,
   declined for the same reason. The invisible direction is sharper: a one-sided rename just means
   no lean sweep ever serves from cache again, which looks exactly like a cache that is working and
