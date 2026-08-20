@@ -65,11 +65,28 @@ echo "[lockstep-selftest]"
 # Non-vacuity for everything below: the grammar, the exclusion and the size-1 rule are all
 # asserted against synthetic trees, and this is the one case that says the real tree satisfies
 # them. It is also what would catch a marker accidentally pasted into any file in the repo.
-rc=$(run "$ROOT")
-if [[ "$rc" -eq 0 ]]; then
-  ok "(a) the live tree is green"
+# Invoked with NO ARGUMENT, which is exactly how CI invokes it — so the default-root
+# resolution is on the covered path. That matters more than it looks: a broken resolution
+# does not error, it walks somewhere with no markers, finds zero anchors, and exits 0. The
+# `> 0` assertion is what separates "everything agrees" from "nothing was read".
+bash "$CHECKER" >"$TMP/out" 2>&1; rc=$?
+anchors=$(sed -n 's/^\[lockstep\] \([0-9][0-9]*\) anchor(s) checked.*/\1/p' "$TMP/out")
+if [[ "$rc" -eq 0 && "${anchors:-0}" -gt 0 ]]; then
+  ok "(a) the live tree is green with no argument — $anchors anchor(s) discovered"
 else
-  bad "(a) the live tree is RED — rc=$rc; run 'bash scripts/check-lockstep-pairs.sh'"
+  bad "(a) the live tree is RED or empty — rc=$rc, anchors=${anchors:-<none>}; run 'bash scripts/check-lockstep-pairs.sh'"
+  out | sed 's/^/      /' >&2
+fi
+
+# ---- (a2) an explicit root is honoured -------------------------------------------------
+# The other invocation shape, and the one every case below uses. Asserted against the live
+# tree so the two forms are known to agree.
+rc=$(run "$ROOT")
+explicit=$(sed -n 's/^\[lockstep\] \([0-9][0-9]*\) anchor(s) checked.*/\1/p' "$TMP/out")
+if [[ "$rc" -eq 0 && "$explicit" == "$anchors" ]]; then
+  ok "(a2) an explicit root agrees with the default ($explicit anchors)"
+else
+  bad "(a2) explicit root disagrees with the default — rc=$rc, $explicit vs ${anchors:-<none>}"
   out | sed 's/^/      /' >&2
 fi
 

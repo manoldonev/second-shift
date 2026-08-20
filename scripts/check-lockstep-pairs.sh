@@ -83,9 +83,16 @@
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Both resolutions are asserted before use, and the reason is that their failure mode is
+# SILENT AND GREEN. A `cd … && pwd` that does not run leaves an empty string; `$HERE/..` then
+# reads as `/..`, which resolves to `/`, and the walk below finds no marker anywhere it is
+# willing to read. Zero anchors is zero failures, so the script exits 0 and CI — which invokes
+# it with no argument, through exactly this path — reports a passing contract check over a tree
+# it never looked at. Refusing loudly here is what makes that a red instead.
+[[ -n "$HERE" ]] || { echo "[lockstep] FATAL: cannot resolve this script's own directory" >&2; exit 99; }
 ROOT="${1:-$(cd "$HERE/.." && pwd)}"
 
-[[ -d "$ROOT" ]] || { echo "[lockstep] FATAL: root not found: $ROOT" >&2; exit 99; }
+[[ -n "$ROOT" && -d "$ROOT" ]] || { echo "[lockstep] FATAL: root not found: ${ROOT:-<empty>}" >&2; exit 99; }
 
 # --- Discovery scope -------------------------------------------------------------------
 #
