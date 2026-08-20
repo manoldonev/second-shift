@@ -266,17 +266,28 @@ if [ "$rc" -eq 2 ] && grep -q 'a condition rather than a clock' <<<"$out"; then
   pass "(m5) a date-shaped expiry is refused — the grammar is a condition, deliberately"
 else fail "(m5) expected the grammar refusal, got rc=$rc: $out"; fi
 
-# The register that ships in this repo must itself be clean, or every consumer inherits a
-# malformed example.
+# ---- (m6) the register that ships in THIS repo, and the one SUITE-DECLARED SKIP ------------
+# The register documents the schema by example, so a malformed one here is inherited by every
+# consumer reading it. It is also a consumer-repo artifact that ships inside no plugin, which
+# makes this the case install-topology-selftest.sh's exit-77 contract is written for: run from a
+# version-keyed install cache there is no repo above the harness, and the file's absence there
+# measures nothing about this tool.
+#
+# The probe is INTRINSIC — the file either resolves or it does not — never a variable the outer
+# guard exports, which would leave the same defect alive for anyone running this suite directly.
+# And it comes LAST, after every assertion the absent artifact does not touch, so a skip costs
+# the other 29 cases nothing.
 SHIPPED="$HERE/../../../.claude/lean-overrides.tsv"
 if [ -f "$SHIPPED" ]; then
   out="$(ov r1 s1 '' lint --register "$SHIPPED" 2>&1)"; rc=$?
   if [ "$rc" -eq 0 ]; then pass "(m6) this repo's own shipped register lints clean"
   else fail "(m6) the shipped register has $rc violation(s): $out"; fi
-else
-  fail "(m6) the shipped register at $SHIPPED is missing — the schema it documents has no example"
 fi
 
 echo
 echo "operator-override.sh: $PASSES passed, $FAILS failed"
 [ "$FAILS" -eq 0 ] || exit 1
+if [ ! -f "$SHIPPED" ]; then
+  echo "SKIP: the repo's .claude/lean-overrides.tsv is a consumer-repo artifact that ships in no plugin, so from an install cache its absence measures nothing — (m6) alone is skipped."
+  exit 77
+fi
