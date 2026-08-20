@@ -123,6 +123,11 @@ payload rather than to the github-only wrapper); `scripts/check-lean-chain.sh` d
 The arm validates **every present** override record — well-formedness, expiry, identity binding —
 and refuses a malformed or expired one. Absence is class (a): most runs record no override.
 
+The arm holds a `LOCKSTEP-BEGIN override-record-reader` copy of the mechanism's parser rather than
+shelling out to it: a consumer's CI fetches `lean-evidence.sh` **alone**, at a pinned ref, so a
+sibling call there resolves to nothing and the boundary would pass on evidence it never read. Same
+situation, same remedy, as `checked-call.sh`'s inline copy.
+
 ### 5. Docs
 
 `docs/pipeline-manifesto.md` states the mechanism's trust posture and the residual above.
@@ -178,6 +183,8 @@ within the D-1/D-2/D-3/D-4 constraints; D-7 onward are this build's own.
 | D-11 | Where a pre-lane override record is written | Into the repo root of the caller, with a printed carry-forward line when that root is not the lane branch. Automating the carry would change the entry gate's behavior, which AC-6 forbids in this slice. | user-delegated |
 | D-12 | Which side of the merge boundary validates the record | The portable evidence payload, since the record is tracker-agnostic; the github-only wrapper only delegates, as it already does for ratification. | codebase-derived |
 | D-13 | Exit code for the resumable reject | A new code, applied only when the unintaken probe is the sole failure, so an operator and a wrapper can both distinguish resumable from terminal without parsing prose. | user-delegated |
+| D-14 | Where an expired persistent row actually reds | At the first consumer that consults the register, not at the entry gate. D-2 says such a row reds the next run's entry; wiring the entry gate would change a third gate's behavior, which AC-6 forbids in this slice, and the consulting gate is also where the refusal is actionable. Phase 2 moves it earlier when the register wires the remaining gates-process gates. | codebase-derived |
+| D-15 | Field separator inside the record reader | A non-whitespace unit separator, not a tab. Tab is IFS-whitespace in bash, so an empty middle field collapsed the delimiter run and every later field shifted one column left — measured: an empty run_id was reported as a bad expiry. The register keeps its on-disk tabs and is read with a delimiter-counting cut. | codebase-derived |
 
 ## Out of scope
 
