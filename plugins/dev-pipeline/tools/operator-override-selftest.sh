@@ -269,27 +269,35 @@ else fail "(m5) expected the grammar refusal, got rc=$rc: $out"; fi
 # ---- (s) the root resolution the PRODUCTION callers actually take -------------------------
 # Every case above pins SECOND_SHIFT_REPO_ROOT, because every case above is about something
 # else. Nothing in production sets it: both consumers call this tool from inside a checkout and
-# it resolves the shared root through `git rev-parse --git-common-dir`. Unasserted, that path is
-# where the token silently lands somewhere nobody reads it — and a mutation sweep confirmed it,
-# surviving both a wrong-default mutant on the override branch and an inverted `&&` on the
-# resolution itself. The assertion is the EXACT path, not merely rc 0: both mutants still exit 0
-# while writing the token elsewhere or nowhere.
+# it resolves the SHARED root through `git rev-parse --git-common-dir`. Unasserted, that is where
+# the token silently lands somewhere nobody reads it — and a sweep confirmed it, surviving both a
+# wrong-default mutant on the override branch and the logic flip on the resolution itself.
+#
+# DRIVEN FROM A SUBDIRECTORY, which is the load-bearing detail. Run from the repo root, `pwd`
+# equals the resolved root, so the resolution's own fallback arm produces the RIGHT answer by
+# accident and the logic mutant survives a green case — measured, on the first version of this
+# case. A subdirectory is also the honest shape: the gate calls this from a lane worktree, never
+# from wherever the root happens to be.
+#
+# The assertion is the EXACT path, not merely rc 0: every mutant here still exits 0 while writing
+# the token somewhere else.
 GITREPO="$WORK/gitrepo"
-mkdir -p "$GITREPO/.claude"
+mkdir -p "$GITREPO/.claude" "$GITREPO/sub"
 cp "$REPO/.claude/second-shift.config.json" "$GITREPO/.claude/"
 git -C "$GITREPO" init -q 2>/dev/null
 if [ -d "$GITREPO/.git" ]; then
-  ( cd "$GITREPO" && env -u SECOND_SHIFT_REPO_ROOT RUN_ID=gr-run CLAUDE_CODE_SESSION_ID=gr-sess \
+  ( cd "$GITREPO/sub" && env -u SECOND_SHIFT_REPO_ROOT RUN_ID=gr-run CLAUDE_CODE_SESSION_ID=gr-sess \
       bash "$TOOL" attend ) >/dev/null 2>&1
   rc=$?
-  if [ "$rc" -eq 0 ] && [ -f "$GITREPO/.claude/pipeline-state/attend-gr-sess.token" ]; then
-    pass "(s1) with no root override the shared root resolves through the git common dir, and the token lands there"
-  else fail "(s1) attend rc=$rc and the token is not at \$GITREPO/.claude/pipeline-state/attend-gr-sess.token: $(ls -1 "$GITREPO/.claude/pipeline-state" 2>&1)"; fi
+  if [ "$rc" -eq 0 ] && [ -f "$GITREPO/.claude/pipeline-state/attend-gr-sess.token" ] \
+     && [ ! -e "$GITREPO/sub/.claude" ]; then
+    pass "(s1) called from a subdirectory with no root override, the token lands at the SHARED root and nowhere else"
+  else fail "(s1) attend rc=$rc; token at the shared root: $([ -f "$GITREPO/.claude/pipeline-state/attend-gr-sess.token" ] && echo yes || echo no); stray tree under sub/: $(find "$GITREPO/sub" -mindepth 1 2>/dev/null | head -3)"; fi
 
   # ...and it reads back as attended from that same resolution, which is what a consumer's gate
   # actually asks. A token written to the right path but read from a different one is the same
   # defect wearing the other hat.
-  out="$( cd "$GITREPO" && env -u SECOND_SHIFT_REPO_ROOT RUN_ID=gr-run CLAUDE_CODE_SESSION_ID=gr-sess \
+  out="$( cd "$GITREPO/sub" && env -u SECOND_SHIFT_REPO_ROOT RUN_ID=gr-run CLAUDE_CODE_SESSION_ID=gr-sess \
       bash "$TOOL" state 2>&1 )"
   if [ "$out" = "attended" ]; then
     pass "(s2) the reader resolves the same root the writer did"
