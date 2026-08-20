@@ -77,7 +77,9 @@ P5 forbids.
 - **V1 — Velocity is a design criterion, equal to correctness.** Wall-clock on the ticket →
   mergeable-PR path counts: speed of implementation, of review, of CI, of making the PR
   mergeable. A gate that is right but slow is not done — it gets faster, moves off the critical
-  path, or goes advisory. Strictness that cannot change the merge decision does not get to block.
+  path, or goes advisory. Strictness that cannot change the merge decision does not get to block —
+  and which of the lane's gates that describes is now measured rather than argued:
+  [`docs/gate-ablation.md`](gate-ablation.md).
 - **V2 — Never idle-block on a non-prerequisite.** No session, and above all no operator, waits
   on execution whose output the next step does not directly consume. Advisory or CI-duplicated
   work runs in the background or on CI. The operator-in-the-middle wait between build and review

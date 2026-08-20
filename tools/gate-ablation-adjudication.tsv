@@ -1,0 +1,49 @@
+# gate-ablation-adjudication.tsv — the recorded adjudication (#609 AC-2, D-b).
+#
+# The mechanical column is computed; this one is JUDGMENT, and it is the column the demotion
+# table ranks by. Every row cites the record it was read from. A gate point with no row here is a
+# HARD FAILURE in the generator, so the file cannot go stale as the corpus grows.
+#
+# The question each decision answers is AC-2s, verbatim: DID THE DEMANDED FIX ALTER WHAT SHIPPED.
+# Not "would the merge have gone the other way" — that is the census slices question and it needs
+# the redundancy analysis the report carries in prose. A refusal whose remedy is an act the
+# checklist already prescribes (write the spec, hand off the review, post the closing comment)
+# altered nothing: the run was going to do it anyway, and the refusal announced an ordering.
+#
+# Columns: key <TAB> decision <TAB> false_red <TAB> citation <TAB> note
+#   key        a gate point, or `<issue>:<gate point>` to override one run
+#   decision   changed | unchanged | undetermined
+#   false_red  yes only where a COMMITTED record explicitly contradicts the refusal (AC-4 floor)
+#   note       renders as the earn-your-keep tables "what changed" cell
+
+m1/spec-absent	unchanged	no	528-lean-progress.md • milestone-1 • 2026-08-13T23:43:44Z, twenty seconds after the entry row	the spec is authored by checklist step 4; the refusal prints the path it wants and nothing else
+m1/spec-no-ac	undetermined	no	never fired in this corpus	—
+m1/ledger-lint	undetermined	no	never fired in the pinned corpus	the one run that hit it was still in flight when the manifest was cut, so it is excluded and nothing committed speaks to it
+m1/preflight-reconcile	undetermined	no	never fired in this corpus	—
+m1/pause-and-ask	undetermined	no	375-lean-progress.md • milestone-1 • 2026-08-04T21:00:04Z	the check landed mid-run and fired on a milestone satisfied nine hours earlier; no intent-gap record exists and the record ends at the second firing, so what resolved it is not recorded
+m1/design-form	undetermined	no	never fired in this corpus	—
+m2/frozen-files	undetermined	no	never fired in this corpus	—
+m2/changelog-trailer	undetermined	no	never fired in this corpus	—
+m3/lint	changed	no	356-lean-progress.md • milestone-3 • 2026-08-10T12:03:12Z	a red shellcheck lane; the remedy is a source edit, so the branch that merged is not the branch that fired
+m3/typecheck	undetermined	no	never fired in this corpus	—
+m3/test	changed	no	528-lean-progress.md • milestone-3 • 2026-08-14T00:53:38Z	a red selftest sweep; the remedy is a source or fixture edit, and 528 took three of them across four sessions
+m3/extra-lane	changed	no	375-lean-progress.md • milestone-3 • 2026-08-04T11:52:28Z	a red mutation sweep; the remedy is a strengthened guard or an accepted baseline row, and both land in the diff
+m3/setup-lane	undetermined	no	never fired in this corpus	—
+m3/no-verify-lane	undetermined	no	never fired in this corpus	—
+m3/design-render	undetermined	no	never fired in this corpus	—
+m4/verdict-absent	unchanged	no	357-lean-progress.md • milestone-4 • 2026-08-06T21:57:40Z	the remedy is checklist step 8s handoff; the refusal states an ordering the run was already following
+m4/verdict-not-approve	changed	no	528-lean-progress.md • milestone-4 • 2026-08-14T12:43:49Z	round 3 blockers on that run; the committed verdict record reaches four rounds and its final round boundary moves the reviewed patch id
+m4/verdict-keys	undetermined	no	never fired in this corpus	—
+m4/verdict-uncommitted	undetermined	no	never fired in this corpus	—
+m4/identity	undetermined	no	never fired in this corpus	—
+m4/chain-break	changed	no	375-lean-progress.md • milestone-4 • 2026-08-04T13:29:10Z	round 1 claimed inherited coverage from a patch id no committed record carries; without the refusal PR 377 merges on a verdict attesting a diff nobody read
+m4/patch-stale	changed	no	345-lean-progress.md • milestone-4 • 2026-08-03T15:03:21Z	an approve bound to 05c05a4 while 15 files had landed after it, one of them the CI workflow that judges the PR; the second round covered them and milestone 4 satisfied 30 minutes later
+m4/head-missing	undetermined	no	never fired in this corpus	—
+m4/head-tree-diff	undetermined	no	never fired in this corpus	—
+m4/fidelity	undetermined	no	never fired in this corpus	—
+m5/progress-current	unchanged	no	346-lean-progress.md • milestone-5 • 2026-08-03T18:46:20Z	an ordering assertion over the record itself; its remedy is to satisfy the milestone that is already next, and it touches no branch content
+m5/exit-artifacts:no-open-pr	unchanged	no	531-lean-progress.md • milestone-5 • 2026-08-16T16:05:32Z	the point as a class: nothing committed speaks to a lane that genuinely produced no PR
+531:m5/exit-artifacts:no-open-pr	unchanged	yes	docs/plans/second-shift-531-lean-verdict.md, which records `pr: #548` for that run	the close-out found no OPEN PR because the PR had merged mid-close-out; a committed record names it, so the premise of the refusal is contradicted rather than unverified
+m5/verdict-reference:closing-comment	unchanged	no	516-lean-progress.md • milestone-5 • 2026-08-13T15:04:57Z	the remedy is checklist step 9s own closing comment; the refusal fires before the act it demands and touches no branch content
+m5/verdict-reference:body-ref	undetermined	no	never fired in this corpus	—
+m5/identity-stamp	unchanged	no	500-lean-progress.md • milestone-5 • 2026-08-12T12:01:32Z	the artifact it demands is a PR comment, outside the shipped tree by construction, so no fix it forces can alter what merged
