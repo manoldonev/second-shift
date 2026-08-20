@@ -487,6 +487,14 @@ issue_block() {
       bash "$SCRIPT" --stateless --issue 900 --out "$out" "$@" ) >/dev/null 2>&1
 }
 block_total() { grep -oE '\$[0-9]+\.[0-9]{2} \|$' "$1" | tr -d '$ |'; }
+# The same invocation, keeping STDERR instead of the render: the derivation summary is the
+# only place the resolution ladder and the review union are observable from outside.
+issue_stderr() { # issue_stderr <issue> [extra args…]
+  local n="$1"; shift
+  # shellcheck disable=SC2069 # deliberate: keep STDERR (the summary), discard stdout
+  ( cd "$RT" && OTEL_METRICS_FILE="$MET" COST_BLOCK_SKIP_FLUSH=1 \
+      bash "$SCRIPT" --stateless --issue "$n" --out /dev/null "$@" 2>&1 >/dev/null )
+}
 
 # --- AC-1/AC-2: the derived fence and session set ----------------------------
 D_OUT="$TMP/derived.md"
@@ -514,6 +522,16 @@ grep -qE '^\| Session total \(lean run' "$D_OUT" \
   && ok "(AC-4) with no verdict record the row keeps the build-only title" \
   || bad "(AC-4) pre-review block should read 'Session total (lean run …)'"
 
+# The derivation summary's `(review included)` suffix is the ONLY operator-visible signal that
+# the union fired, and AC-3 makes the degrade deliberately silent: a close-out accidentally run
+# from the main checkout — where the branch-committed verdict record does not exist — renders a
+# build-only figure that is well-formed and wrong, which is this ticket's own defect class. The
+# suffix is what tells the two apart, so it is asserted in BOTH directions rather than read.
+PRE_ERR="$(issue_stderr 900)"
+{ grep -q '2 session(s)' <<<"$PRE_ERR" && ! grep -q 'review included' <<<"$PRE_ERR"; } \
+  && ok "(AC-3) with no verdict record the summary reports 2 sessions and claims no review" \
+  || bad "(AC-3) pre-review summary should be '2 session(s)' with no suffix, got: $PRE_ERR"
+
 cat > "$VREC" <<VRECEOF
 # lean verdict — issue 900
 
@@ -535,6 +553,11 @@ grep -qE '^\| Run total \(build \+ review' "$R_OUT" \
 grep -q 'Sessions: 3' "$R_OUT" \
   && ok "(AC-3) the review session is counted, not merely priced" \
   || bad "(AC-3) expected 'Sessions: 3' once the verdict record exists"
+
+POST_ERR="$(issue_stderr 900)"
+grep -q '3 session(s) (review included)' <<<"$POST_ERR" \
+  && ok "(AC-3) the summary SAYS the union fired — the silent degrade is distinguishable" \
+  || bad "(AC-3) expected '3 session(s) (review included)', got: $POST_ERR"
 
 # --- AC-5: explicit arguments override, INDIVIDUALLY -------------------------
 O_OUT="$TMP/override-start.md"
@@ -569,6 +592,47 @@ NOTS_OUT="$( cd "$RT" && OTEL_METRICS_FILE="$MET" COST_BLOCK_SKIP_FLUSH=1 \
 { [[ "$NOTS_RC" -eq 2 ]] && grep -q 'underivable' <<<"$NOTS_OUT"; } \
   && ok "(AC-6) a record with no timestamped row exits 2 rather than rendering a default" \
   || bad "(AC-6) stampless record: rc=$NOTS_RC, stderr: $NOTS_OUT"
+
+# --- AC-6: WHICH record --issue reads — the config ladder, driven -------------
+# Every fixture above lands on the built-in `.claude/pipeline-state` default, so the whole
+# CONFIG → cfg() → state_dir() ladder — the code that decides which record a run derives from —
+# would answer identically if it were deleted. These two repos are the only inputs that
+# separate it from its default. `SECOND_SHIFT_CONFIG` is unset deliberately: the ladder under
+# test is the one an unconfigured lane session actually takes.
+mk_lean_repo() { # mk_lean_repo <root> <state-subdir> <issue> — a throwaway repo + record
+  mkdir -p "$1/$2" "$1/.claude"
+  git -C "$1" init -q 2>/dev/null
+  printf '# lean run — issue %s\n\nrun_id: run-%s\nsession_id: %s\n\n%s | entry | telemetry=on\n%s | milestone-3 | concluded | rc=0\n' \
+    "$3" "$3" "$S1" "2026-07-02T10:00:00Z" "2026-07-02T11:30:00Z" > "$1/$2/$3-lean-progress.md"
+}
+issue_stderr_at() { # issue_stderr_at <root> <issue> — the summary, from inside <root>
+  # shellcheck disable=SC2069 # deliberate: keep STDERR (the summary), discard stdout
+  ( cd "$1" && env -u SECOND_SHIFT_CONFIG OTEL_METRICS_FILE="$MET" COST_BLOCK_SKIP_FLUSH=1 \
+      bash "$SCRIPT" --stateless --issue "$2" --out /dev/null 2>&1 >/dev/null )
+}
+
+# A config that MOVES the state dir. Ignore it — read the default dir instead — and the record
+# is not there at all, so the run refuses rather than deriving a fence from the wrong run.
+RT2="$TMP/lean-repo-cfgdir"
+mk_lean_repo "$RT2" "custom-state" 910
+printf '{"configVersion":2,"paths":{"pipelineStateDir":"custom-state"}}\n' \
+  > "$RT2/.claude/second-shift.config.json"
+CFG_ERR="$(issue_stderr_at "$RT2" 910)"; CFG_RC=$?
+{ [[ "$CFG_RC" -eq 0 ]] && grep -q "custom-state/910-lean-progress.md" <<<"$CFG_ERR"; } \
+  && ok "(AC-6) a configured pipelineStateDir is where --issue looks for the record" \
+  || bad "(AC-6) configured state dir: rc=$CFG_RC, stderr: $CFG_ERR"
+
+# A config that EXISTS but omits the key. `jq -r` yields the literal string "null" there, which
+# is the only input on which cfg()'s two guards disagree: keep the "null" and the run resolves a
+# state dir literally named `null`. So this repo, not the config-less ones above, is what makes
+# the `!= "null"` half load-bearing.
+RT3="$TMP/lean-repo-cfgnull"
+mk_lean_repo "$RT3" ".claude/pipeline-state" 920
+printf '{"configVersion":2,"tracker":{"type":"github"}}\n' > "$RT3/.claude/second-shift.config.json"
+NUL_ERR="$(issue_stderr_at "$RT3" 920)"; NUL_RC=$?
+{ [[ "$NUL_RC" -eq 0 ]] && grep -q ".claude/pipeline-state/920-lean-progress.md" <<<"$NUL_ERR"; } \
+  && ok "(AC-6) a config missing the key falls back to the default dir, not to a dir named 'null'" \
+  || bad "(AC-6) absent config key: rc=$NUL_RC, stderr: $NUL_ERR"
 
 echo
 echo "=== #546: the cost-log row is back, and only the close-out writes it ==="
@@ -642,15 +706,33 @@ SKIP_STDERR="$( cd "$RT" && OTEL_METRICS_FILE="$EMPTY_MET" COST_LOG_FILE="$CL2" 
   && ok "(AC-10) a skip(…) verdict writes no row, even under --close-out" \
   || bad "(AC-10) a skip path wrote a row or produced no verdict: $SKIP_STDERR"
 
-# --- the class guard behind AC-13: no path emits a shell diagnostic ----------
-# The deleted `record` call was a call to a function retired with the state file — invisible
-# because `set -uo pipefail` renders it as one stderr line and a continue. This asserts the
-# CLASS rather than the one site: any surviving call to something that no longer exists shows
-# up here as an interpreter complaint on a path the suite actually drives.
+# --- AC-13: the no-readable-metrics branch, driven ---------------------------
+# The deleted `record` call sat on ONE branch — the belt-and-braces exit taken when every
+# metrics candidate's mtime became unreadable — and `set -uo pipefail` renders a call to a
+# retired function as one stderr line and a continue. A guard that never enters that branch
+# cannot fail on a revert of it, so the branch is entered here rather than reasoned about:
+# an empty live file beside a non-empty rotated backup gets past the telemetry-off check,
+# and a `stat` that refuses makes both mtime passes come up empty. Its own diagnostic is
+# asserted first, so this can never pass by not reaching the code it exists to cover.
+STUB="$TMP/stub-bin"; mkdir -p "$STUB"
+printf '#!/bin/sh\nexit 1\n' > "$STUB/stat"; chmod +x "$STUB/stat"
+UNREAD="$RT/unreadable"; mkdir -p "$UNREAD"
+: > "$UNREAD/metrics.jsonl"
+mk_cost_metrics "$UNREAD/metrics-2026-07-02T09-00-00.000-size.jsonl" \
+  "$S1:2026-07-02T10:10:00Z:1.00:claude-opus-4-7"
+# shellcheck disable=SC2069 # deliberate: keep STDERR (the diagnostic), discard stdout
+UNREAD_STDERR="$( cd "$RT" && PATH="$STUB:$PATH" OTEL_METRICS_FILE="$UNREAD/metrics.jsonl" \
+  COST_BLOCK_SKIP_FLUSH=1 bash "$SCRIPT" --stateless --issue 900 --close-out --out /dev/null 2>&1 >/dev/null )"
+grep -q 'no readable metrics file could be selected' <<<"$UNREAD_STDERR" \
+  && ok "(AC-13) the no-readable-metrics branch is entered, not merely present" \
+  || bad "(AC-13) the branch was not reached, so the guard below proves nothing: $UNREAD_STDERR"
+
+# With that branch driven alongside the skip and close-out paths, this asserts the CLASS: any
+# surviving call to something that no longer exists shows up as an interpreter complaint.
 ALL_STDERR="$SKIP_STDERR
-$( cd "$RT" && OTEL_METRICS_FILE="$MET" COST_BLOCK_SKIP_FLUSH=1 \
-     bash "$SCRIPT" --stateless --issue 900 --close-out --out /dev/null \
-       COST_LOG_FILE="$CL2" 2>&1 >/dev/null )"
+$UNREAD_STDERR
+$( cd "$RT" && COST_LOG_FILE="$CL2" OTEL_METRICS_FILE="$MET" COST_BLOCK_SKIP_FLUSH=1 \
+     bash "$SCRIPT" --stateless --issue 900 --close-out --out /dev/null 2>&1 >/dev/null )"
 grep -qE 'command not found|not found$' <<<"$ALL_STDERR" \
   && bad "(AC-13) a driven path calls something that does not exist: $ALL_STDERR" \
   || ok "(AC-13) no driven path emits a shell diagnostic for a retired helper"
