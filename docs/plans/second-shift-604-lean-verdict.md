@@ -1,146 +1,136 @@
 # lean review verdict — #604
 
-verdict=approve
-run_id: review-604-1
-session_id: 7a7cdae2-f34e-47c2-ae31-b525c96df807
-rounds: 1
+verdict=needs-work
+run_id: review-604-2
+session_id: 67f9216d-6910-4f0c-a46e-164977a0de6b
+rounds: 2
 pr: #606
-reviewed_head: 414521fd2e9624f99d558665a186b1e692d7093c
-reviewed_patch_id: f0dd7254d10175bcf0d6a78c4074e45cc25bfa9e
-inherited_patch_id: none
-inherited_from_verdict: none
+reviewed_head: 019bfaaa2ba3a2730cc1df62180dbeb775ac10d4
+reviewed_patch_id: b0c0f2c1b95b5e7db5525a9048e65f2af4d78664
+inherited_patch_id: f0dd7254d10175bcf0d6a78c4074e45cc25bfa9e
+inherited_from_verdict: b1eeebcaf143cdeac0966d3659744cbfbc684741
 fidelity: not-applicable
 model: unknown
 capabilities: pr-marker
 
-# Review round 1 — PR #606 (issue #604)
+# Review round 2 — PR #606 (issue #604)
 
-**Verdict: approve.** No blockers. Three warnings, none of which blocks the merge.
-Panel 6/6, none dark. Range reviewed: `3b55bc7..414521f` (full branch diff — round 1).
+**Verdict: needs-work.** One blocker. Panel 6/6, none dark.
+Range read: `b1eeebc..019bfaa` (the second base merge), inheriting the coverage of patch
+`f0dd7254d101` from round 1. Read wider than the range — see "Why the delta under-reports" below.
+
+## Why this round exists, and why the delta under-reports it
+
+Round 1 approved at `414521f`. The operator then merged main a **second** time (`019bfaa`,
+bringing `733d2d5` / #603). That advance voided the round-1 record, and #601's
+contribution-compare hatch says why rather than merely that: the branch's own lines moved —
+**7 unique lines, all in `scripts/lockstep-manifest.tsv`**, measured by hashing the `+`/`-` line
+sets per file against each side's own merge-base.
+
+Those 7 lines are the `iso-to-epoch` row and its rationale block, which #603 appended to the
+manifest and which this branch's `git rm` resolution now also deletes. So the branch's
+contribution genuinely grew, and this is a real round, not a re-stamp.
+
+`G delta` prints `b1eeebc..HEAD`, which contains only main's 8 files — the manifest is not in it,
+because the file was already deleted at `b1eeebc` and the merge only kept it deleted. The new
+contribution is visible only against `origin/main`. I reviewed both.
+
+**The merge dropped nothing of main's.** For each of the 9 files main touched in
+`3b55bc7..733d2d5`, I compared `733d2d5` against the merge head: only `lockstep-manifest.tsv`
+(deleted, as designed) and `retro-corpus.sh` (the branch's own AC-7 re-point at :200) differ.
+Every other byte of #603 is present.
+
+## Blocker
+
+| # | Severity | Site | Finding |
+| --- | --- | --- | --- |
+| B1 | **Blocker** | `plugins/dev-pipeline/tools/retro-corpus.sh:241` | **AC-7 unsatisfied: a live file still points at the manifest this PR deletes.** The comment above the `iso_to_epoch` block reads "*This is a verbatim second copy of `pipeline-cost-block.sh`'s helper — pinned by a `scripts/lockstep-manifest.tsv` row rather than extracted*". That file does not exist at this head. It is a dangling pointer to a mechanism this PR retires, sitting one line above the `LOCKSTEP-BEGIN` marker that is now the actual pin. |
+
+**Why blocker rather than warning.** AC-7's obligation is that live files pointing at the manifest
+are re-pointed; its "31" is a spec-time measurement, not a frozen subject, and every AC here is
+scored against the reviewed head. The head has one such file. Three further reasons:
+
+- It is **wrong information, not missing information**. Round 1's W2 recorded a *lost* clause and
+  I scored it a warning; this is the inverse — a reader is told the enforcement lives in a file
+  that is gone, and may conclude the pin was dropped and edit one copy freely.
+- It is **invisible to every other gate**. The line is not in the branch's diff (it arrived via
+  the merge's other parent), CI has no prose guard for it, and `check-lockstep-pairs.sh` passes
+  because the coupling *is* enforced. This round is the only place it gets caught.
+- The remedy is **one line**, matching the wording this same PR already used at
+  `retro-corpus.sh:200`: re-point to `docs/testing.md`'s *Couplings considered and declined*, or
+  simply to the marker pair.
+
+Confirmed exhaustively: `grep -rIn 'lockstep-manifest' . --exclude-dir=.git` outside
+`docs/plans/**` returns **this file alone**. The ~93 remaining hits are historical plan docs,
+which AC-7 explicitly leaves untouched. `docs/testing.md` and `CLAUDE.md` are clean.
+
+Two reviewers reached this site independently (maintainability at confidence 90 as `minor`,
+scope-completeness at confidence 92 as `blocker`), and I had it from my own read before the panel
+returned. The Scope Completeness Gate returned FAIL, which is a hard gate.
 
 ## Per-AC scoring
 
 | AC | Score | Basis |
 | --- | --- | --- |
-| AC-1 | **satisfied** | `check-lockstep-pairs.sh` takes no manifest argument; it walks, groups by anchor and compares every member. Ran CI's own invocation (no argument) from the reviewed checkout: `21 anchor(s) checked, 0 failed`. `scripts/lockstep-manifest.tsv` is gone, and `ci.yml:143` runs the script bare. |
-| AC-2 | **satisfied** | Size-1 failure verified live on a constructed tree, and it names both: `FAIL: orphan-demo: only ONE site (sub/thing.sh)`. All six orphans have zero live markers (`stage8-secondary-review`'s sole mention is `docs/plans/acme-260.md:220`, doubly out of scope — excluded path AND mid-sentence, so it fails the grammar). Each in-code site left a `SINGLE-SITED:` note stating why and what would justify re-adding. |
-| AC-3 | **satisfied** | `seam-scrub` reports live as `subset-of: superset preflight.sh ⊇ lean-gate.sh`. Suite cases (g) narrowing, (h) absent token reds, (i) direction reversal reds, (j) member disagreement, (j2) two supersets, (k) unknown token — all pass. |
-| AC-4 | **satisfied** | `EXCLUDED_PREFIXES='docs/plans/'` is a named constant carrying its reason as prose. Armed by the new catalog row `lockstep-discovery-scope`, which I confirmed is **killed** by case (l), with (l2) as the over-reach negative. |
-| AC-5 | **satisfied** | `docs/testing.md:466` *Couplings considered and declined*, organised into "Unanchorable" and "Retired — the subject itself is gone" rather than dumped, with the behavioral guard named in almost every entry. |
-| AC-6 | **satisfied** | Enumerated **every** live `LOCKSTEP-BEGIN` site and checked each for adjacent rationale. All carry it — most immediately above the marker, several (`lean-pr-marker`, `contribution-compare`, `audit-row-fields`, `checked-call`) immediately below it inside the block. See warning W2 for the one clause that did not survive. |
-| AC-7 | **satisfied** | Zero live references to `lockstep-manifest` outside `docs/plans/**`; the historical plan docs are untouched, as required. |
-| AC-8 | **satisfied** | 24 cases, 0 failed, covering every shape the AC names. Registers re-anchored — see "Verification I ran" below: I did not take the PR's word for the baseline removals. |
-| AC-9 | **satisfied** | `CLAUDE.md:177` tier-map row now reads "a `LOCKSTEP-BEGIN <anchor>` marker on **each** copy — they are discovered and grouped, never registered" / "the files themselves"; `docs/testing.md` carries the discovery-model section and both known trades. |
+| AC-1 | **satisfied** | Re-verified at this head with CI's own bare invocation from the reviewed checkout: `22 anchor(s) checked, 0 failed` (21 at round 1; `iso-to-epoch` is the 22nd, arriving with the merge). `scripts/lockstep-manifest.tsv` is absent. |
+| AC-2 | **satisfied** | Inherited — `check-lockstep-pairs.sh` is byte-unchanged in this delta. Round 1 verified the size-1 failure live on a constructed tree. |
+| AC-3 | **satisfied** | Inherited; unchanged. The live `subset-of` group still reports `superset preflight.sh ⊇ lean-gate.sh` in this run. |
+| AC-4 | **satisfied** | Inherited; unchanged. |
+| AC-5 | **satisfied** | Inherited; `docs/testing.md`'s *Couplings considered and declined* is unchanged in this delta. |
+| AC-6 | **satisfied** | Re-scored for the **new** anchor: `iso-to-epoch` carries rationale adjacent to its `LOCKSTEP-BEGIN` at **both** sites (`pipeline-cost-block.sh:180-186`, `retro-corpus.sh:238-243`), and that rationale is a strict **superset** of the manifest text the merge deleted — the `-u`-is-load-bearing contract and the "#546 owns every executable line" reason both survive. Nothing informative was lost with the row. Presence is met at every anchor; B1 is about one clause naming a retired mechanism, which is AC-7's property, not AC-6's. |
+| AC-7 | **unsatisfied** | See B1. |
+| AC-8 | **satisfied** | Inherited. The live-corpus case reads the anchor count out of the checker's own output rather than pinning a literal, so 21→22 does not red it — confirmed by `lint-and-selftests` passing on this exact head. |
+| AC-9 | **satisfied** | Inherited; `CLAUDE.md` and `docs/testing.md` are unchanged in this delta and carry no `lockstep-manifest` reference. |
 
-**9 of 9 satisfied.** The spec was committed once (`7861d73`) and never amended — no
-after-the-fact fitting of the ACs to the diff.
+**8 of 9 satisfied.** The spec was committed once (`7861d73`) and never amended — verified by
+`git log --follow` on the spec file. No after-the-fact fitting.
 
-## Verification I ran (not inherited from the PR body)
+## Verification at this head
 
-**The PR-lane mutation sweep DEFERRED this guard.** `mutation-sweep-pr` is green, but its log
-reads `scripts/check-lockstep-pairs.sh deferred-to-nightly … 0 0 0` — the 6-fast-guard cap. So
-the green sweep job proves nothing about the guard this PR rewrites, while the PR **removes five
-baseline rows**. CLAUDE.md warns precisely here: deleting a row that records a site as unkillable
-reds the next sweep on the survivor it exists to accept.
+- **CI ran on the reviewed head** (`headSha` = `019bfaaa`): `lint-and-selftests` pass,
+  `selftests (macos, bash 3.2)` pass, `mutation-sweep-pr` pass. `pr-gates` fails on exactly one
+  thing — the voided verdict record, which this round replaces. No other red.
+- **No new mutation obligation.** The delta touches no guard and no register row;
+  `check-lockstep-pairs.sh`, `tools/mutation-baseline.tsv` and `tools/mutation-catalog.tsv` are
+  byte-unchanged since round 1. Round 1's scoped sweep of the rewritten guard
+  (`applied=11 killed=11 survived=0`, all three catalog rows applied and killed) still covers this
+  head; I did not re-run it, and say so rather than implying fresh evidence.
+- **The `iso-to-epoch` pair is correctly discovered.** Both markers are whole-line, the two blocks
+  are byte-identical, and the checker groups them as a clean size-2 group with no row — which is
+  the ticket's own thesis demonstrated a second time, exactly as it was by #601's
+  `contribution-compare` pair at round 1.
 
-So I ran the sweep myself, scoped to that one guard via an isolated probe worktree and a scratch
-commit (there is no `--only` flag, and the cap is hardcoded):
+## Warnings carried forward from round 1 (none blocking, none re-verified this round)
 
-```
-scripts/check-lockstep-pairs.sh  swept  applied=11 killed=11 survived=0
-```
-
-Zero survivors, so all five removals are safe. All three catalog rows were applied and **KILLED**:
-`lockstep-discovery-scope`, `lockstep-grammar-anchor`, and `lockstep-normalize` — the last being
-one of the removed baseline rows, which the PR claimed is now killed rather than unkillable. It is.
-
-**Directional control on the live corpus.** A green checker proves nothing until the wrong tree
-reds. I injected real drift into the `audit-row-fields` block and the checker failed correctly,
-naming the anchor and both files.
-
-## Warnings (none blocking)
-
-**W1 — a stray untracked file can MASK the size-1 failure locally.** This is the round's own
-finding; no reviewer raised it. The walk is `find`-based by D-4 (deliberate — fixture trees are
-not git repos), and it prunes only `.git` and `node_modules`. It therefore reads untracked
-working-tree files. Reproduced in both directions on a constructed tree:
-
-```
-A: single-sited anchor            -> FAIL: orphan-demo: only ONE site (sub/thing.sh)
-B: same tree + sub/thing.sh.bak   -> PASS: orphan-demo (verbatim): sub/thing.sh sub/thing.sh.bak agree
-```
-
-An editor backup, or a `.orig`/`.rej` left by a conflict resolution, turns a genuine orphan into a
-green PASS — masking the exact property this PR adds. **CI is unaffected**: `actions/checkout`
-yields a clean tree, so the merge boundary's authority is intact. It bites the local run the
-CLAUDE.md recipe recommends before pushing. Not a blocker, and cheap to close later: prune
-`*.bak`/`*.orig`/`*.rej`, or prefer `git ls-files` when the root is a git repo and fall back to
-`find` for the fixture trees D-4 cares about.
-
-**W2 — one clause of #601's `contribution-compare` rationale was dropped, not relocated.** The
-deleted manifest row explained why those two copies must be held identical rather than shared:
-"Neither file can import the other: lean-gate.sh runs from a lane worktree and lean-evidence.sh is
-fetched standalone at a pinned ref by a consumer's CI." That sentence is at no site now. AC-6 is
-still satisfied — the anchor carries ~20 lines of substantive rationale directly below its marker
-in both files — and the contract itself is fully enforced (the group discovers and compares
-clean). This is a documentation loss from the base-merge resolution, which the spec's Sequencing
-section pre-authorised as "keep the delete, no row needed"; it discussed the row, not its prose.
-One comment line closes it.
-
-**W3 — the suite sits on the slow-list boundary.** My scoped sweep emitted
-`WARN: slow-list drift: check-lockstep-pairs-selftest.sh measured 5s (>= 5s) but
-tools/mutation-slow-suites.tsv does not record it`. Independently timed twice at ~4.1s wall, so it
-straddles the bar. Membership drift is a precheck warn and never a red, and adding the row would
-*defer* this guard out of the PR lane — the wrong trade for a guard this PR just rewrote. Leaving
-it absent is defensible; recorded so the nightly warn is not read as a regression.
-
-**Nit.** The PR body's verification table says `20 anchors`; the head measures **21**, because the
-base merge brought in #601's `contribution-compare` pair. The table is honest for the tree it was
-measured on, just pre-merge.
-
-## Findings dismissed
-
-**`scope-completeness-reviewer`'s AC-6 blocker (confidence 95) is factually wrong and I dismissed
-it.** It asserted that "neither lean-gate.sh:830 nor lean-evidence.sh:515 has any LOCKSTEP prose
-above or inside the block". Both have roughly twenty lines of it inside the block, beginning
-directly below the marker: "THE BRANCH'S OWN CONTRIBUTION, AS LINES (#597, D-2/D-3/D-4)…", then
-"WHY A HASH CANNOT ANSWER THIS", then "THE COMPARISON THAT CAN". The reviewer checked only above
-the marker — its own suppressed note shows it knew the below-the-marker pattern existed elsewhere.
-Its narrower point survives as W2, at warning severity.
-
-**Its `major` on the baseline rows is closed by evidence, not dismissed.** It said outright that it
-could not confirm kill status within budget and asked for a scoped sweep before merge. That sweep
-is above: `applied=11 killed=11 survived=0`.
-
-## Panel
-
-| Reviewer | Verdict | Findings |
+| # | Site | Status |
 | --- | --- | --- |
-| Security | Pass | 0 (3 suppressed, all <50 confidence) |
-| Performance | Pass | 0 |
-| Maintainability | Pass | 0 |
-| Complexity | Pass | 0 |
-| Test Coverage | Pass | 0 |
-| Scope Completeness | Fail (1 blocker dismissed, 1 major closed by evidence) | 2 |
+| W1 | `check-lockstep-pairs.sh` walk | A `find`-based walk reads **untracked** working-tree files, so a stray `.bak`/`.orig` can join a group and mask the size-1 failure. CI is unaffected (clean checkout); it bites the local run CLAUDE.md recommends. Unaddressed. |
+| W2 | deleted `lean-evidence` DROPPED row | The clause "neither file can import the other" is now at no site. Unaddressed. |
+| W3 | `check-lockstep-pairs-selftest.sh` runtime | Straddles the 5s slow-list bar (~4.1s measured). Deliberately left off the slow list — adding a row would defer the guard from the PR lane. Recorded so the nightly warn is not misread. |
 
-a11y and design-fidelity were not routed: no changed path matches
-`stageParams.webComponentGlobs` (default `apps/web/**/*.{tsx,jsx}`) — this is a shell/docs repo.
-Not a coverage gap.
+## Note for the next round's dispatch
 
-## Strengths
+The scope reviewer flagged, correctly, that dispatching it with the lean **delta** base
+(`b1eeebc`, a commit on the branch) shows it only the base merge and would have produced a false
+all-unsatisfied FAIL. It self-corrected to `origin/main...019bfaaa` and scored the real
+contribution. The delta bounds what a round *reads*; the scope gate must still see the whole
+contribution, so it should be dispatched with the PR base regardless of the round's delta.
 
-- **The ticket's own thesis, demonstrated live by its own merge.** #601 shipped
-  `contribution-compare` as two markers *plus* a manifest row. The base merge deleted the row, and
-  the pair is now discovered and compared automatically with no registration. The conflict this PR
-  exists to abolish was the last thing it had to resolve.
-- **The size-1 property is the real deliverable and it found six live orphans**, three of them
-  cited in plan documents as proof that copies "still matched byte-for-byte" while nothing was
-  comparing them. That is a false coverage signal removed, not just a file deleted.
-- **The two mutation defects were fixed rather than baselined.** The `cd … && pwd` fail-open was
-  the serious one — it made CI's own no-argument invocation report a green contract check over a
-  tree it never read, and zero anchors is zero failures. The live-corpus case now invokes the
-  checker the way CI does and asserts a non-zero anchor count, which is what separates "everything
-  agrees" from "nothing was read".
-- **The exclusion is data with a reason, not a glob**, and it is armed by a catalog row because no
-  generic operator reaches a bare assignment — the one hole in the walk has the one signal that
-  can see it widen.
+## Verdicts
+
+| Reviewer | Verdict | Findings | Confidence |
+| --- | --- | --- | --- |
+| Scope Completeness | **Fail** | 1 blocker, 1 nit | 92–95 |
+| Security | Pass | 0 (1 suppressed at 30) | — |
+| Performance | Pass | 0 | — |
+| Complexity | Pass | 0 | — |
+| Maintainability | Pass (nits) | 1 minor | 90 |
+| Test Coverage | Pass | 0 | — |
+
+`a11y-reviewer` and the design-fidelity dimension were **not routed**: no changed path matched
+`stageParams.webComponentGlobs` (unset; default `apps/web/**/*.{tsx,jsx}`). Not a coverage gap.
+
+## Remedy
+
+One line at `plugins/dev-pipeline/tools/retro-corpus.sh:241`. Everything else on this branch is
+ready.
