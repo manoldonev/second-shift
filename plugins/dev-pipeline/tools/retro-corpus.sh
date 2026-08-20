@@ -238,7 +238,7 @@ cmd_corpus() {
 # ISO-8601 -> epoch, BSD/GNU dual form. `-u` is load-bearing on the BSD arm: without it
 # `date -j -f` reads a `Z` string as LOCAL time, and neither wrong form fails cleanly, so the
 # error is a silent offset rather than a crash. This is a verbatim second copy of
-# pipeline-cost-block.sh's helper — pinned by a scripts/lockstep-manifest.tsv row rather than
+# pipeline-cost-block.sh's helper — pinned by the iso-to-epoch LOCKSTEP markers below rather than
 # extracted, because #546 owns every executable line of that file and a shared-helper refactor
 # would collide with it head-on.
 # LOCKSTEP-BEGIN iso-to-epoch
