@@ -2920,12 +2920,20 @@ region_resolved() { # region_resolved <id> <comments-json>
 # Silent on stderr and defaulting to headless: this decorates a refusal, and a mechanism that
 # could not answer must not turn a milestone-1 red into an environment error.
 override_affordance() { # override_affordance <region-ids>
-  local st first
+  local st rg
   st="$(bash "$OVERRIDE_TOOL" state 2>/dev/null)" || st=""
   [ "$st" = "attended" ] || return 0
-  first="${1%%,*}"
-  printf '\n  This session is attended, so there is a third route: record the operator'"'"'s own answer and re-run. One command per region, and the answer is quoted VERBATIM — paraphrasing it is the fabrication the record exists to prevent:\n    bash %s record --gate spec-open-region --scope open-region-resolution --issue %s --region %s --decision '"'"'<what the operator decided, one line>'"'"' --answer '"'"'<their answer, verbatim>'"'"'\n' \
-    "$OVERRIDE_TOOL" "$ISSUE" "$first"
+  # ONE LINE PER REGION, because authority is scoped per region and a single command clears only
+  # the one it names. Printing the first and leaving the operator to infer the rest is how a
+  # two-region refusal gets half-resolved and re-runs into the same wall.
+  printf '\n  This session is attended, so there is a third route: record the operator'"'"'s own answer and re-run. One command per region, and the answer is quoted VERBATIM — paraphrasing it is the fabrication the record exists to prevent:\n'
+  while IFS= read -r rg; do
+    [ -n "$rg" ] || continue
+    printf '    bash %s record --gate spec-open-region --scope open-region-resolution --issue %s --region %s --decision '"'"'<what the operator decided, one line>'"'"' --answer '"'"'<their answer, verbatim>'"'"'\n' \
+      "$OVERRIDE_TOOL" "$ISSUE" "$rg"
+  done <<EOF
+$(printf '%s\n' "$1" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+EOF
 }
 
 # #533. The OTHER declared source: intake's plan-interview writes pause-and-ask regions into

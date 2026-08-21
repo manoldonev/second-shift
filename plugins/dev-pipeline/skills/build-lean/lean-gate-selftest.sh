@@ -2189,6 +2189,22 @@ else
     pass "(yo4) AC-4: attended with no record still REFUSES, and prints the exact record-writing command"
   else fail "(yo4) expected rc=1 with the affordance printed, got rc=$rc: $out"; fi
 
+  # (yo4b) TWO unresolved regions, TWO commands. The affordance's own sentence promises "one
+  # command per region", and authority is scoped per region — one command clears only the id it
+  # names, so printing the first and leaving the operator to infer the rest is how a two-region
+  # refusal gets half-resolved and re-runs into the same wall. Both ids asserted, because a
+  # reader that emitted the LAST one instead of the first would look just as right on (yo4).
+  reset_progress
+  cat > "$WORK/issue-or2-paa.json" <<'PAA2'
+{"body": "# issue\n\n## Open Regions\n\n| ID | Region | Disposition |\n| --- | --- | --- |\n| OR-1 | Ordering guarantee | pause-and-ask |\n| OR-3 | Backfill window | pause-and-ask |\n"}
+PAA2
+  out="$(BUILD_RID="$OV_RID" BUILD_SID="$OV_SID" gate 1 7 --issue-file "$WORK/issue-or2-paa.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+  if [ "$rc" -eq 1 ] \
+     && grep -q -- '--region OR-1 ' <<<"$out" \
+     && grep -q -- '--region OR-3 ' <<<"$out"; then
+    pass "(yo4b) AC-4: two unresolved regions print two commands — one per region, as the sentence says"
+  else fail "(yo4b) expected a command for BOTH OR-1 and OR-3, got rc=$rc: $out"; fi
+
   # (yo5) a malformed record is an ENVIRONMENT refusal that spends no fix budget — the same
   # posture (y10) pins for an unreadable tracker. Collapsing it into "no override" would let a
   # record the merge boundary is about to reject wave the region through here first.
