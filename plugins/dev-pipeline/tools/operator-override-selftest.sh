@@ -197,7 +197,7 @@ REC_BEFORE="$(cksum < "$RECORD")"
 out="$(ov r1 s1 '' record --gate intake-unqueued --scope intake-attestation --issue '../../escaped' \
         --decision d --answer a --repo-root "$REPO" 2>&1)"; rc=$?
 STRAY="$(find "$WORK" -name '*escaped*lean-override.md' 2>/dev/null | head -1)"
-if [ "$rc" -eq 2 ] && grep -q 'ticket number' <<<"$out" && [ -z "$STRAY" ]; then
+if [ "$rc" -eq 2 ] && grep -q 'ticket key' <<<"$out" && [ -z "$STRAY" ]; then
   pass "(u1) a traversal-shaped --issue is refused with no record anywhere — the path it named was never written"
 else fail "(u1) expected rc 2 and no stray record, got rc=$rc, stray='$STRAY': $out"; fi
 
@@ -218,6 +218,24 @@ out="$(ov r1 s1 '' record --gate intake-unqueued --scope intake-attestation --is
 if [ "$rc" -eq 0 ] && [ "$(cksum < "$RECORD")" != "$REC_BEFORE" ] && grep -q '^> Go — scoped in the thread\.$' "$RECORD"; then
   pass "(u3) a well-formed block still appends — (u1)/(u2) turn on the refusal, not on a dead writer"
 else fail "(u3) expected a clean append, got rc=$rc: $out"; fi
+
+# (u4) THE KEY SHAPE IS THE TRACKER'S. Every case above passes a github issue NUMBER, which is the
+# one key shape a jira consumer never has — so the numeric-only reader was pinned green here for
+# the mechanism's whole life while being unreachable for those consumers end to end: `record`
+# refused the key, and the gate's own printed remedy named the argument its tool would reject.
+# Asserted through record AND check, because both routes parse through the same reader and a fix
+# to one alone would leave the yield unreachable from the other. Lands at its own path, so the
+# shared $RECORD (u1)/(u2)/(j) read stays untouched.
+JIRA_RECORD="$REPO/docs/plans/acme-ABC-123-lean-override.md"
+# Snapshotted HERE, not reused from (u1)'s: (u3) appended to $RECORD in between.
+REC_BEFORE_JIRA="$(cksum < "$RECORD")"
+out="$(ov r1 s1 '' record --gate spec-open-region --scope open-region-resolution --issue ABC-123 \
+        --region OR-1 --decision 'ship it as scoped' --answer 'Leave it scoped.' --repo-root "$REPO" 2>&1)"; rc=$?
+ov r1 s1 '' check --gate spec-open-region --issue ABC-123 --region OR-1 --repo-root "$REPO" >/dev/null 2>&1
+crc=$?
+if [ "$rc" -eq 0 ] && [ "$crc" -eq 0 ] && [ -f "$JIRA_RECORD" ] && [ "$(cksum < "$RECORD")" = "$REC_BEFORE_JIRA" ]; then
+  pass "(u4) a non-numeric tracker key records and then YIELDS — the whole mechanism was unreachable under jira"
+else fail "(u4) expected record rc 0 and check rc 0 for a jira-shaped key, got rc=$rc crc=$crc: $out"; fi
 
 # ---- (j) AC-5: a malformed block is UNKNOWN, never a clean negative ------------------------
 # The distinction this asserts is the whole rc vocabulary: "there is no override" and "there is
