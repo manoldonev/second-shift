@@ -1,0 +1,44 @@
+# selftest-sweep-baseline.tsv — the committed bound on the UN-DEFERRED serial sum (#629).
+#
+# WHAT THIS IS. tools/selftest-slow-suites.tsv defers every suite at or above its declared
+# threshold so lean-gate.sh milestone 3's local sweep stays inside the harness's ~120s reap. This
+# file is the other half: the total cost of everything that table did NOT defer, plus the drift
+# allowed over it. tools/check-sweep-bound.sh reads both.
+#
+# WHY A DRIFT ALLOWANCE AND NOT A FIXED CEILING. The quantity that matters is GROWTH — a suite
+# that arrived or grew while staying untabled. A fixed constant would either be the reap bound
+# (which this sum is only a proxy for; the local sweep runs in parallel, so its wall time is far
+# under the serial total) or an arbitrary number nobody could re-derive.
+#
+# RE-BASELINING IS AN EXPLICIT REVIEWED COMMIT, never an automatic rewrite. Edit the two numbers
+# below and say in the commit what was measured, when, and on which lane. A re-baseline that
+# absorbs a grown suite without saying so is how a bound rots into decoration.
+#
+# WHICH LANE THIS WAS MEASURED ON MATTERS. The enforcing surface is
+# .github/workflows/nightly-guards.yml's ubuntu wholesale lane, so the seed is taken there — a
+# baseline describes the lane that checks it.
+#
+# THE EMITTER IS PART OF THE UNIT. run-selftests.sh charges a sub-second suite one whole second,
+# so this total is not the wall clock of a serial sweep and is not meant to be. Baseline and
+# checked sum come through the same emitter, which is what makes the comparison mean anything.
+#
+# HOW THE ALLOWANCE WAS PICKED, and what it can and cannot see. Three consecutive measurements on
+# the enforcing lane over essentially this tree came in at 113s, 96s and 108s — a spread of
+# roughly -9%/+7% around their mean, which is what a hosted runner costs. 20% is about twice that
+# spread, so ordinary noise does not flap it. What that buys, stated plainly: the AGGREGATE arm
+# resolves at roughly two to three suites crossing the table's threshold, not one. A single
+# arrival is caught by the per-suite warning instead, which names the suite and exits 0 —
+# deliberately, because one wall-clock sample of one suite is a range rather than a point.
+# Tightening this below the lane's own noise would buy nothing but a red morning.
+#
+# key<TAB>value
+baseline-seconds	106
+allowance-percent	20
+#
+# Provenance, for the reader who has to decide whether a red is real:
+#   measured-on      2026-08-21
+#   measured-lane    nightly-guards.yml / wholesale-selftests (ubuntu-latest), --full
+#   measured-tree    the #629 branch at implementation time
+#   undeferred-count 60 of 73 discovered suites
+#   samples          113s (59 suites, +1s for the suite this diff adds), 96s, 108s
+#   for contrast     119s for the same set on an arm64 macOS workstation

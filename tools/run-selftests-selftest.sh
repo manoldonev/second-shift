@@ -57,6 +57,10 @@ make_suite() {
   } > "$root/$rel"
 }
 
+# frame_set <file> — the replayed ::group:: headers with the elapsed field blanked. See the
+# AC-4 case below for why the time is not part of what is being compared.
+frame_set() { awk '/^::group::/ { $2 = "ELAPSED"; print }' "$1"; }
+
 echo "== run-selftests-selftest =="
 
 # ---------------------------------------------------------------------------------------
@@ -159,11 +163,17 @@ for root in "$R4G" "$R4R"; do
     && ok "AC-4: $label — jobs=1 and jobs=4 agree on the verdict (rc=$rc1)" \
     || fail "AC-4: $label — jobs=1 rc=$rc1 but jobs=4 rc=$rc4"
   # Same verdict is not enough: the same SET must have run, in the same order.
-  if diff <(grep '^::group::' "$out1") <(grep '^::group::' "$out4") >/dev/null; then
+  #
+  # The elapsed field (#629) is normalized out, and that is the assertion staying honest rather
+  # than being weakened. The two runs differ by CONCURRENCY, which is the one thing a wall clock
+  # is guaranteed to disagree about — a suite that straddles a second boundary at jobs=4 and not
+  # at jobs=1 would red this case for behaving exactly as measured time behaves. What must not
+  # move is the set and its order, and that is what is compared.
+  if diff <(frame_set "$out1") <(frame_set "$out4") >/dev/null; then
     ok "AC-4: $label — jobs=1 and jobs=4 report the identical suite set, in order"
   else
     fail "AC-4: $label — the reported suite set differs between jobs=1 and jobs=4"
-    diff <(grep '^::group::' "$out1") <(grep '^::group::' "$out4") | sed 's/^/    | /'
+    diff <(frame_set "$out1") <(frame_set "$out4") | sed 's/^/    | /'
   fi
 done
 
@@ -448,7 +458,7 @@ else
   fail "AC-10: no 64-hex key was printed, or it names no marker (got '${CKEY:-}')"
   sed 's/^/    | /' "$OUT"
 fi
-sed -n '/::group::cached  rowed-selftest.sh/,/::endgroup::/p' "$OUT" > "$BASE/ac10.block"
+sed -n '/::group::cached  -  rowed-selftest.sh/,/::endgroup::/p' "$OUT" > "$BASE/ac10.block"
 grep -q 'rowed-selftest\.sh$' "$BASE/ac10.block" \
   && grep -q 'rowed\.sh$' "$BASE/ac10.block" \
   && [[ "$(grep -cE '^\[run-selftests\]     [0-9a-f]{40}  ' "$BASE/ac10.block")" -eq 2 ]] \
@@ -1018,6 +1028,57 @@ run_runner "$RE2" --cache-dir "$BASE/blocker/store"
 [[ "$RC" -eq 2 ]] \
   && ok "#563/AC-3: control — an uncreatable argv --cache-dir is still a usage error" \
   || { fail "#563/AC-3: an uncreatable --cache-dir was accepted (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
+
+# ---------------------------------------------------------------------------------------
+# #629/AC-1 — every frame line carries the suite's elapsed seconds, and the exit-code contract
+# is untouched by it.
+#
+# THE SUB-SECOND ARM IS THE ONE THAT MATTERS. tools/check-sweep-bound.sh sums these across ~60
+# suites, most of which finish inside a second; an emitter that rounded those to 0 would let the
+# un-deferred set grow by half a minute without its total moving, which is the exact drift the
+# sum exists to see. So a suite that takes no measurable time is charged ONE second, and that is
+# asserted as a literal rather than as "some number".
+#
+# The failing suite is here for two reasons: its frame must carry the time AND still carry
+# (rc=N), and the sweep must still red. An emitter that reformatted the FAIL frame past the
+# reconciliation would be invisible to a green-only fixture.
+# ---------------------------------------------------------------------------------------
+R629="$BASE/ac629"; mkdir -p "$R629"
+make_suite "$R629" "fast-selftest.sh" 0 'echo instant'
+make_suite "$R629" "slow-selftest.sh" 0 'sleep 2' 'echo slept'
+make_suite "$R629" "red-selftest.sh"  1 'echo broke'
+
+run_runner "$R629" --jobs 3
+[[ "$RC" -ne 0 ]] && ok "#629/AC-1: the exit-code contract is unchanged — a red suite still reds (rc=$RC)" \
+                 || { fail "#629/AC-1: a failing suite exited 0 once elapsed was emitted"; sed 's/^/    | /' "$OUT"; }
+
+FRAMES="$(grep -c '^::group::' "$OUT")"
+TIMED="$(grep -cE '^::group::(pass|FAIL)  [0-9]+s  ' "$OUT")"
+[[ "$FRAMES" -eq 3 && "$TIMED" -eq 3 ]] \
+  && ok "#629/AC-1: all 3 frame lines carry an elapsed field" \
+  || { fail "#629/AC-1: $TIMED of $FRAMES frame lines carried elapsed"; sed 's/^/    | /' "$OUT"; }
+
+grep -qE '^::group::pass  1s  fast-selftest\.sh$' "$OUT" \
+  && ok "#629/AC-1: a sub-second suite is charged one second, never zero" \
+  || { fail "#629/AC-1: the instant suite was not charged exactly 1s"; sed 's/^/    | /' "$OUT"; }
+
+SLOW_SECS="$(sed -n 's/^::group::pass  \([0-9][0-9]*\)s  slow-selftest\.sh$/\1/p' "$OUT" | head -1)"
+[[ -n "$SLOW_SECS" && "$SLOW_SECS" -ge 2 ]] \
+  && ok "#629/AC-1: a 2s suite reports at least its own sleep (${SLOW_SECS}s)" \
+  || { fail "#629/AC-1: the 2s suite reported '${SLOW_SECS:-<nothing>}'"; sed 's/^/    | /' "$OUT"; }
+
+grep -qE '^::group::FAIL  [0-9]+s  red-selftest\.sh \(rc=1\)$' "$OUT" \
+  && ok "#629/AC-1: a FAIL frame carries the elapsed AND still names the exit code" \
+  || { fail "#629/AC-1: the FAIL frame lost its rc or its elapsed"; sed 's/^/    | /' "$OUT"; }
+
+# The property the AC-5 contiguity walk above depends on: a pass frame's LAST whitespace-separated
+# token is still the suite path. Appending the time instead of inserting it would have made that
+# token `(1s)` and silently broken the leak detection while every case here stayed green.
+sed -n 's/^::group::pass .*[[:space:]]//p' "$OUT" > "$BASE/ac629.tokens"
+grep -qxF 'fast-selftest.sh' "$BASE/ac629.tokens" \
+  && grep -qxF 'slow-selftest.sh' "$BASE/ac629.tokens" \
+  && ok "#629/AC-1: the suite path is still the last token of a pass frame" \
+  || { fail "#629/AC-1: elapsed displaced the suite path as the frame's last token"; sed 's/^/    | /' "$BASE/ac629.tokens"; }
 
 echo
 if [[ "$FAILS" -eq 0 ]]; then

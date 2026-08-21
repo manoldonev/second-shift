@@ -96,8 +96,21 @@ jobs:
       - name: install shellcheck + jq
         run: sudo apt-get update -q && sudo apt-get install -y shellcheck jq
 
+      # pipefail, because the capture is what the bound check reads and `tee` would otherwise
+      # report ITS exit code — a red sweep would leave this step green.
       - name: wholesale selftest sweep, cache bypassed
-        run: bash tools/run-selftests.sh --full --exclude tools/install-topology-selftest.sh
+        run: |
+          set -o pipefail
+          bash tools/run-selftests.sh --full --exclude tools/install-topology-selftest.sh 2>&1 \
+            | tee "$RUNNER_TEMP/sweep.log"
+
+      # THE ONE EXECUTION SURFACE (#629). Not the PR lane: a PR runner is noisier and a single
+      # slow-end sample would red an honest PR. Not the macos twin either — the baseline is one
+      # committed number, and two machine classes checked against it would make it meaningless
+      # for both. It runs after the sweep and only when the sweep was green: a red sweep is the
+      # headline, and its timings describe a tree that failed.
+      - name: un-deferred sweep bound
+        run: bash tools/check-sweep-bound.sh --log "$RUNNER_TEMP/sweep.log"
 
   # The prose ratchet (#552). Standing measurement, same as its neighbours: it compares the
   # instruction layer and the lane's shell guards against committed baselines and reds when one
