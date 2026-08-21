@@ -269,7 +269,7 @@ EOF
 # LOCKSTEP-END override-record-reader
 
 cmd_record() {
-  local gate="" scope="" issue="" region="none" decision="" answer="" root="" path n line why
+  local gate="" scope="" issue="" region="none" decision="" answer="" root="" path n line why staged
   while [ $# -gt 0 ]; do
     case "$1" in
       --gate)      gate="${2:-}"; shift 2 ;;
@@ -293,13 +293,29 @@ cmd_record() {
   [ -n "$decision" ] || envfail "record: --decision is required — one line saying what the operator decided."
   [ -n "$answer" ] || envfail "record: --answer is required — the operator's stated answer, quoted verbatim. Paraphrasing it is the fabrication this record exists to prevent."
 
+  # THE TICKET NUMBER IS CHECKED BEFORE IT REACHES A PATH. The parse below reads the artifact and
+  # not the arguments, which is what makes it authoritative — but it cannot see WHERE the artifact
+  # landed, and record_path interpolates this value straight into that path. A traversal-shaped
+  # --issue writes a perfectly well-formed record somewhere nothing will ever read it.
+  case "$issue" in
+    ''|*[!0-9]*) envfail "record: --issue must be a ticket number, got '${issue:-<none>}' — it is interpolated into the record's path." ;;
+  esac
+
   path="$(record_path "$root" "$issue")"
   n=$(( $(override_parse_blocks "$path" | wc -l | tr -d ' ') + 1 ))
-  mkdir -p "$(dirname "$path")" 2>/dev/null || envfail "cannot create $(dirname "$path")."
-  if [ ! -f "$path" ]; then
-    printf '# Lean override record — issue %s\n\nRecorded operator overrides for this ticket. Each block is one decision: the gate that would\notherwise have refused, the authority scope it covers, and the operator answer it quotes.\n' "$issue" > "$path" \
-      || envfail "cannot write $path."
-  fi
+
+  # STAGED, PARSED, THEN APPENDED. Still validated against the artifact AS PARSED, by the same
+  # reader the gate and the boundary use: validating the arguments instead would assert that the
+  # intent was legal rather than that the artifact is, and those two came apart once already in
+  # this repo's history. What moves is only WHEN. A block that fails the read used to be in the
+  # destination file by the time anyone said so, and the cost then landed on the NEXT run rather
+  # than this one — a typo'd --gate left an unreadable block in the right file, and every later
+  # `check` for that issue returned 2 until a human hand-edited it. A tool must not create the
+  # artifact that blocks the lane.
+  staged="$(mktemp -t leanoverride.XXXXXX)" || envfail "record: cannot create a temp file to stage the block."
+  # shellcheck disable=SC2064  # expanded NOW on purpose: the trap has to name this file, not a
+  # variable a later caller may have reassigned.
+  trap "rm -f '$staged'" EXIT
   {
     printf '\n## Override %s\n' "$n"
     printf 'gate: %s\n' "$gate"
@@ -313,14 +329,18 @@ cmd_record() {
     printf 'decision: %s\n' "$decision"
     printf '\n### Operator answer\n\n'
     printf '%s\n' "$answer" | sed 's/^/> /'
-  } >> "$path" || envfail "cannot append to $path."
+  } > "$staged" || envfail "record: cannot stage the override block at $staged."
 
-  # Validated AFTER the write, against the file as parsed — the same reader the gate and the
-  # boundary use. Validating the arguments instead would assert that the intent was legal, not
-  # that the artifact is, and those came apart once already in this repo's history.
-  line="$(override_parse_blocks "$path" | tail -n 1)"
+  line="$(override_parse_blocks "$staged" | tail -n 1)"
   why="$(override_block_violation "$line")"
-  [ -z "$why" ] || envfail "the block just written to $path is malformed: $why. Fix or remove it — a malformed record refuses at the merge boundary too."
+  [ -z "$why" ] || envfail "the override block is malformed: $why. NOTHING was written — a malformed record refuses at the merge boundary too, so the lane is no worse off than before this call."
+
+  mkdir -p "$(dirname "$path")" 2>/dev/null || envfail "cannot create $(dirname "$path")."
+  if [ ! -f "$path" ]; then
+    printf '# Lean override record — issue %s\n\nRecorded operator overrides for this ticket. Each block is one decision: the gate that would\notherwise have refused, the authority scope it covers, and the operator answer it quotes.\n' "$issue" > "$path" \
+      || envfail "cannot write $path."
+  fi
+  cat "$staged" >> "$path" || envfail "cannot append to $path."
   say "✓ recorded override $n at $path"
   case "$(git -C "$root" rev-parse --abbrev-ref HEAD 2>/dev/null)" in
     "$(cfg '.tracker.branchPrefix' 'claude/')"*) : ;;
@@ -430,7 +450,7 @@ EOF
   # ---- the persistent register. Consulted second and rarely populated, so the common path pays
   # nothing for it. An expired or unevaluable row is rc 2 and reds the run HERE, at the first
   # consumer that consults it — which is what "reds the next run" means in practice.
-  local reg rrc
+  local reg rrc ex
   reg="$root/$OVERRIDE_REGISTER_REL"
   if [ -f "$reg" ]; then
     while IFS= read -r line; do

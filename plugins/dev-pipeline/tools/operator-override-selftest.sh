@@ -180,6 +180,44 @@ out="$(ov r1 s1 '' lint --record "$RECORD" 2>&1)"; rc=$?
 if [ "$rc" -eq 0 ]; then pass "(l) AC-5: lint passes the record the tool itself wrote"
 else fail "(l) lint reported $rc violation(s) on a tool-written record: $out"; fi
 
+# ---- (u) AC-2: a refused `record` writes NOTHING -------------------------------------------
+# The tool must not create the artifact that blocks the lane. Both arms here are about the write
+# that happens BEFORE anyone judges the value: the record's schema is validated against the file
+# as parsed, which is the right check, but a parse cannot see where the file landed and cannot
+# un-append a block it has already read.
+#
+# Ordered before (j), which snapshots $RECORD as the known-good copy every later case restores
+# from — an arm that left a bad block behind would poison that snapshot, which is itself a second
+# reading of the same assertion.
+REC_BEFORE="$(cksum < "$RECORD")"
+
+# (u1) --issue is interpolated straight into the record's PATH. A traversal-shaped value used to
+# write a well-formed record outside plansDir and only then refuse.
+out="$(ov r1 s1 '' record --gate intake-unqueued --scope intake-attestation --issue '../../escaped' \
+        --decision d --answer a --repo-root "$REPO" 2>&1)"; rc=$?
+STRAY="$(find "$WORK" -name '*escaped*lean-override.md' 2>/dev/null | head -1)"
+if [ "$rc" -eq 2 ] && grep -q 'ticket number' <<<"$out" && [ -z "$STRAY" ]; then
+  pass "(u1) a traversal-shaped --issue is refused BEFORE it reaches a path — no record lands anywhere"
+else fail "(u1) expected rc 2 and no stray record, got rc=$rc, stray='$STRAY': $out"; fi
+
+# (u2) ...and a typo'd --gate lands in the RIGHT file, which is the costlier half: the block is
+# unreadable, so every later `check` for this issue answers UNKNOWN (rc 2) until a human edits
+# the record by hand. Asserted on the file's BYTES, because "refused" and "wrote nothing" are
+# exactly the two things that used to come apart here.
+out="$(ov r1 s1 '' record --gate intake-unqueue --scope intake-attestation --issue 42 \
+        --decision d --answer a --repo-root "$REPO" 2>&1)"; rc=$?
+if [ "$rc" -eq 2 ] && grep -q 'NOTHING was written' <<<"$out" && [ "$(cksum < "$RECORD")" = "$REC_BEFORE" ]; then
+  pass "(u2) a malformed block is refused with the destination record byte-for-byte unchanged"
+else fail "(u2) expected rc 2 and an untouched record, got rc=$rc: $out"; fi
+
+# (u3) NON-VACUITY for both arms above: the same shape with every value legal still appends, so
+# (u1)/(u2) turn on the refusal and not on `record` having stopped writing at all.
+out="$(ov r1 s1 '' record --gate intake-unqueued --scope intake-attestation --issue 42 \
+        --decision 'proceed unqueued' --answer 'Go — scoped in the thread.' --repo-root "$REPO" 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(cksum < "$RECORD")" != "$REC_BEFORE" ] && grep -q '^> Go — scoped in the thread\.$' "$RECORD"; then
+  pass "(u3) a well-formed block still appends — (u1)/(u2) turn on the refusal, not on a dead writer"
+else fail "(u3) expected a clean append, got rc=$rc: $out"; fi
+
 # ---- (j) AC-5: a malformed block is UNKNOWN, never a clean negative ------------------------
 # The distinction this asserts is the whole rc vocabulary: "there is no override" and "there is
 # something here I could not read" must not collapse, or a record the merge boundary is about to
