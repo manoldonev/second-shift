@@ -4,6 +4,149 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v11.0.0
+
+### `design-toolkit` 4.0.1 → 4.0.2
+
+- **Every prose blocking construct now carries a disposition (#625)** (#625)
+  prose blockers that only restated a gate's refusal are gone from
+  seventeen skills' SKILL.md — the gates are unchanged, and each deletion names
+  the gate that already enforced it in docs/prose-blocker-triage.tsv. Four
+  copies of the dup-scan rc-2 rule are now one contract held by a LOCKSTEP
+  anchor. Migration: none.
+  the dup-scan rc-2 guidance no longer tells intake-interviewer to hand nothing
+  off while its next line hands the draft over; the shared line now pins only the
+  hard-stop and the rc report, and each skill states what does or does not go out.
+  Migration: none.
+
+### `dev-pipeline` 10.0.1 → 11.0.0
+
+- **The lean cost block derives its own time fence and session set (#615)** (#615)
+  `pipeline-cost-block.sh` gains `--issue <n>`, which derives the time fence
+  (first to last timestamped progress row) and the session set (`build_session_set`
+  UNION the verdict record's session) rather than taking either from the caller;
+  `--start`, `--end` and `--sessions` remain as individual overrides, and an
+  underivable fence is a named refusal instead of a plausible default. A set that
+  counts the review session retitles its total row "Run total (build + review)".
+  `--close-out` writes one `cost-log.jsonl` row per run again, keyed on (ticketKey,
+  runId) so a re-entered close-out replaces its own row while a retry under a new run
+  id appends; the row carries `byTier` where staged-era rows carried `byLabel`, and no
+  row is written on any skip verdict.
+  Migration: none. build-lean step 7 now passes `--issue <issue>`, and step 9
+  re-computes with `--close-out` and replaces the snapshot in the PR body.
+- **build-lean refuses a ticket argument it cannot resolve (#616)** (#616)
+  build-lean refuses to start a run on a ticket its caller did not name.
+  `entry`/`claim` exit 10 on an absent, malformed, nonexistent or closed ticket,
+  on an unreadable tracker, or when a lane-branch checkout names a different one
+  (`mark`/`teardown` get that last arm too). Milestone calls are unchanged.
+  Migration: none.
+- **The Decision Ledger carry-forward is a projection, not a retype (#620)** (#620)
+  build-lean's milestone-1 step now names ledger-carry-forward.sh as
+  the route for carrying a pre-flight receipt's Decision Ledger into the
+  committed spec, instead of leaving the rows to be retyped between two arities
+  the lint enforces exactly. ledger-lint.sh is unchanged apart from lockstep
+  markers over the empty-form literal the new helper must emit.
+  Migration: none.
+- **The close-out is a gate command, not a third model session (#627)** (#627)
+  the lean lane closes a run out with a gate command instead of a third
+  model session. The close-out re-computes the published cost block, writes its
+  cross-run corpus row, replaces the stale block in the PR description and posts
+  the closing comment, each recorded as its own milestone-5 obligation and
+  degrading to met-with-the-skip-named on a host with no telemetry collector.
+  `bash G 5` is unchanged and stays a pure verifier.
+  Migration: none.
+- **An attended session may pause and ask, and a recorded operator answer is what yields (#626)** (#626)
+  a gate that exists only because nobody is assumed to be watching can
+  now yield to an operator who is. An operator-minted attendance token unlocks
+  the affordance to pause and ask instead of reject; the yield itself needs a
+  committed per-decision override record quoting the operator's answer, which
+  the merge boundary validates. Two consumers ship wired: the scheduler's
+  unintaken-ticket reject (now the distinguishable resumable exit 3, and
+  acceptable on a recorded override with no re-labelling) and the spec gate's
+  unresolved pause-and-ask region.
+  Migration: none. Headless behavior is unchanged on both consumers, except that
+  the unintaken-ticket preflight reject now exits 3 rather than 2.
+  `operator-override.sh record` no longer writes a record it is about
+  to refuse — a bad --issue or --gate now leaves the tree untouched.
+  Migration: none.
+  an attended session refusing on two open regions now prints the
+  record command for both, not just the first.
+  Migration: none.
+- **milestone 3 stops running the full sweep locally, and the supervision stratum goes with it (#621)** (#621)
+  milestone 3 now runs its verify lanes inline instead of spawning a detached
+  runner, and defers the suites listed in tools/selftest-slow-suites.tsv to CI. The lane
+  registry and job ceiling are removed. Migration: a consumer whose test command reads
+  LEAN_JOB_CEILING should drop it — the variable is no longer exported. Repos that want a
+  bounded local sweep add rows to tools/selftest-slow-suites.tsv; pass --full to
+  run-selftests.sh anywhere the whole suite set must run.
+  tools/selftest-slow-suites.tsv defers every selftest measured at or above 9s from
+  the local milestone-3 check; CI still runs all of them. Migration: none.
+  gate-ablation.sh no longer reads a lane registry to exclude in-flight
+  runs from the corpus — that registry was retired with milestone 3's supervision
+  stratum, and the read had become a permanent silent no-op. --exclude is the
+  single exclusion source; name every live lane when you re-cut the pin.
+  Migration: an operator regenerating docs/gate-ablation-manifest.tsv must pass
+  every in-flight issue id to --exclude. A lane left unnamed is not silently
+  absorbed — the next 'gate-ablation.sh emit' exits 3 naming its drifted record.
+  **BREAKING:** lean-gate.sh no longer accepts the m3-run subcommand or --m3-token, and LEAN_GATE_M3_NEW_SESSION, LEAN_LANE_REGISTRY, LEAN_LANE_PID, LEAN_JOB_CEILING and LEAN_GATE_WAIT_CEILING_SECS are no longer read. A consumer mapping LEAN_JOB_CEILING onto its own test command's concurrency flag will stop receiving it.
+- **fix(dev-pipeline): the override record's issue key is the tracker's shape, not github's (#634)** (#634)
+  `operator-override.sh record` and `check` now accept a tracker key of any
+  alphanumeric/`.`/`_`/`-` shape, not just digits — so an attended session under a
+  non-numeric tracker can resolve a pause-and-ask Open Region with the command the gate
+  prints, instead of that command failing as malformed. Migration: none.
+- **fix(dev-pipeline): the cost block's issue key is the tracker's shape, not github's (#635)** (#635)
+  `pipeline-cost-block.sh --issue` now accepts a tracker key of any
+  alphanumeric/`.`/`_`/`-` shape, not just digits — so the lean lane's close-out can publish
+  a cost figure under a non-numeric tracker instead of hard-stopping with milestone 5's
+  cost-block obligation unmet. Migration: none.
+- **Every prose blocking construct now carries a disposition (#625)** (#625)
+  prose blockers that only restated a gate's refusal are gone from
+  seventeen skills' SKILL.md — the gates are unchanged, and each deletion names
+  the gate that already enforced it in docs/prose-blocker-triage.tsv. Four
+  copies of the dup-scan rc-2 rule are now one contract held by a LOCKSTEP
+  anchor. Migration: none.
+  the dup-scan rc-2 guidance no longer tells intake-interviewer to hand nothing
+  off while its next line hands the draft over; the shared line now pins only the
+  hard-stop and the rc report, and each skill states what does or does not go out.
+  Migration: none.
+
+### `intake-toolkit` 4.1.1 → 4.1.2
+
+- **The Decision Ledger carry-forward is a projection, not a retype (#620)** (#620)
+  build-lean's milestone-1 step now names ledger-carry-forward.sh as
+  the route for carrying a pre-flight receipt's Decision Ledger into the
+  committed spec, instead of leaving the rows to be retyped between two arities
+  the lint enforces exactly. ledger-lint.sh is unchanged apart from lockstep
+  markers over the empty-form literal the new helper must emit.
+  Migration: none.
+- **fix(intake-toolkit): dup-scan's not-applicable arm is reachable from --issue (#630)** (#630)
+  dup-scan.sh under `tracker.type: jira` now exits 0 with its not-applicable
+  line when the subject is supplied as `--issue <key>`, instead of failing with
+  "--issue takes a number" (rc 2) — which callers read as a hard-stop. Migration: none.
+- **Every prose blocking construct now carries a disposition (#625)** (#625)
+  prose blockers that only restated a gate's refusal are gone from
+  seventeen skills' SKILL.md — the gates are unchanged, and each deletion names
+  the gate that already enforced it in docs/prose-blocker-triage.tsv. Four
+  copies of the dup-scan rc-2 rule are now one contract held by a LOCKSTEP
+  anchor. Migration: none.
+  the dup-scan rc-2 guidance no longer tells intake-interviewer to hand nothing
+  off while its next line hands the draft over; the shared line now pins only the
+  hard-stop and the rc report, and each skill states what does or does not go out.
+  Migration: none.
+
+### `second-shift` 8.0.1 → 8.0.2
+
+- **Every prose blocking construct now carries a disposition (#625)** (#625)
+  prose blockers that only restated a gate's refusal are gone from
+  seventeen skills' SKILL.md — the gates are unchanged, and each deletion names
+  the gate that already enforced it in docs/prose-blocker-triage.tsv. Four
+  copies of the dup-scan rc-2 rule are now one contract held by a LOCKSTEP
+  anchor. Migration: none.
+  the dup-scan rc-2 guidance no longer tells intake-interviewer to hand nothing
+  off while its next line hands the draft over; the shared line now pins only the
+  hard-stop and the rc report, and each skill states what does or does not go out.
+  Migration: none.
+
 ## v10.0.1
 
 ### `audit-toolkit` 4.0.0 → 4.0.1
