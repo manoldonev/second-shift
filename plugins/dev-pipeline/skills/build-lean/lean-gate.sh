@@ -157,15 +157,15 @@
 #                                        outstanding without the scheduler reading the record.
 #                                        All three flags are mutually exclusive.
 #                                        `--infra` (#527) prints a DIFFERENT token space,
-#                                        `m3infra-v2:<n>`, over milestone-3 evaluations that began
+#                                        `m3infra-v3:<n>`, over milestone-3 evaluations that began
 #                                        and never concluded — an infrastructure death, derived
 #                                        from residue because a session killed at the turn boundary
-#                                        writes no class. v2 (#539): a LIVE recorded runner is no
-#                                        longer subtracted, because with the new-session escape one
-#                                        is in-flight-and-joinable rather than evidence that no
-#                                        death occurred. `m3infra-v2:0` is the no-death answer; it
-#                                        is never empty. Compare it ACROSS a spawn, never as a
-#                                        level: the record is append-only.
+#                                        writes no class. v3 (#566): the predicate is the unclosed
+#                                        count ALONE. The runner-record half retired with the
+#                                        detached runner itself — milestone 3 is inline now, so
+#                                        there are no pid records to scan. `m3infra-v3:0` is the
+#                                        no-death answer; it is never empty. Compare it ACROSS a
+#                                        spawn, never as a level: the record is append-only.
 #   lean-gate.sh staleness <issue> [--arm ticket|base|both]
 #                                        SCHEDULER role (#515): is this run's premise still true?
 #                                        The TICKET arm asks whether the issue is still open; the
@@ -174,15 +174,6 @@
 #                                        no fix budget, and creates no file. `--arm` defaults to
 #                                        `both`; preflight passes `ticket`, because the base arm
 #                                        belongs to the spawn loop.
-#   lean-gate.sh m3-run <issue> --m3-token <tok>
-#                                        INTERNAL (#539): BE milestone 3's detached runner. Never
-#                                        invoked by an operator, a skill or the scheduler — only by
-#                                        m3_launch_or_join's new-session escape, which re-execs
-#                                        this file through `setsid(2)`. It evaluates milestone 3
-#                                        exactly once, writes the started/concluded pair, and
-#                                        stamps <tok> into the marker its waiters are blocked on.
-#                                        A SUBCOMMAND rather than an env var so nothing inherits
-#                                        it; see the runner-handshake note in Seams below.
 #
 # Exit: 0 = satisfied / ok
 #       1 = milestone failed, or a `verdict` authorship refusal (fix and retry — budget remains)
@@ -201,14 +192,13 @@
 #             files. Its own integer for the same reason 5 and 6 are: the scheduler's response
 #             differs from a phase failure's, and one that cannot tell them apart spends the rest
 #             of the run proving the premise it was just told is false.
-#           * milestone 3: THE EVALUATION DID NOT COMPLETE — its detached runner died without
-#             stamping a code, or the wall-clock ceiling was reached with it still running (#511
-#             D-5). Nothing was evaluated, so 1 would send the operator to fix code that was never
-#             judged, and 4 would fire an abort comment at a sweep that is very likely still
-#             running. The remedy is to RE-INVOKE, which joins a live runner or relaunches a dead
-#             one.
 #           * milestone 3 (#527): A VERIFY LANE RAISED THE RESERVED INFRASTRUCTURE CODE — see
-#             below. Same meaning, same remedy, and likewise no fix attempt charged.
+#             below. Nothing about this branch was evaluated, so 1 would send the operator to fix
+#             code that was never judged and 4 would fire an abort comment at an environment
+#             failure. No fix attempt is charged and the remedy is to RE-INVOKE. #566 retired the
+#             other way milestone 3 could reach a 7: the runner-died and ceiling-breached classes
+#             (#511 D-5) went out with the detached runner, so a milestone-3 seven now means the
+#             lane raised 3 and nothing else.
 #       8 = `inflight` only (#531): THE LANE WORKTREE STILL HOLDS WORK — its tree is dirty, or it
 #           carries commits that are not on origin/<branch>. Its own integer rather than 1 for the
 #           reason 5, 6 and 7 have theirs: 1 on this subcommand means the predicate could not be
@@ -244,7 +234,7 @@
 # It is reserved CROSS-REPO, and that is its one exposure: a consumer whose lane already exits 3
 # for a genuine failure is reclassified as infrastructure and charged no fix attempt. The failure
 # direction is a run that RETRIES when it should have stopped — bounded by the scheduler's
-# --max-continuations and by INTERRUPTED_BUDGET_M3 — never a red branch reported green. There is
+# --max-continuations and by INTERRUPTED_BUDGET — never a red branch reported green. There is
 # deliberately no per-lane config opt-out; see docs/config-schema.md.
 #
 # Seams (zero-network selftest; the check-pipeline-chain.sh precedent):
@@ -253,11 +243,6 @@
 #                            outbound call milestone 3 can make, and only when a consumer
 #                            configures the probe — the suite points it at a stub.
 #   LEAN_PROGRESS_FILE       override the resolved progress-file path
-#   LEAN_LANE_REGISTRY       #526: override the lane-liveness registry. Default: lean-lanes.tsv
-#                            in the pipeline-state dir, shared by every worktree on the machine.
-#   LEAN_LANE_PID            #526: name the lane's owning process instead of resolving it from
-#                            the process tree (a scheduler registering itself). lane-registry.sh
-#                            owns both, and degrades to the single-lane answer without either.
 #   SECOND_SHIFT_CONFIG      override the resolved config path
 #   --pr-file <path>         milestone 5: read the PR record from a JSON fixture
 #   --comments-file <path>   milestone 5 and milestone 1's pause-and-ask check: read the issue
@@ -286,18 +271,9 @@
 #                            and writing no `satisfied` line. `cmd_all`'s cheap pre-pass uses it,
 #                            and so does the scheduler's verdict read: reading a verdict must not
 #                            charge the build role for a milestone the reader did not fail.
-#   LEAN_GATE_WAIT_CEILING_SECS
-#                            #511 D-4: how long a milestone-3 call blocks on its detached runner
-#                            before returning 7. Defaults to 3600. The suite sets it to seconds to
-#                            exercise a breach; a real run should not lower it — a breach
-#                            reclassifies an honest slow sweep as infrastructure.
-#                            NOT IN `SEAM_SCRUB`, exactly like LEAN_GATE_OBSERVE beside it, so
-#                            milestone 3's lane children INHERIT it — and in this repo those
-#                            children are lean-gate.sh. An operator who exports a short ceiling to
-#                            debug gets spurious `rc=7` out of the nested suite's own milestone-3
-#                            calls. Export it for one call rather than for a shell. The register
-#                            is a `subset-of` lockstep row against preflight.sh (which carries
-#                            the superset) and is not widenable from this side alone.
+#                            NOT IN `SEAM_SCRUB`, so a verify lane the gate runs inherits it. The
+#                            register is a `subset-of` lockstep row against preflight.sh (which
+#                            carries the superset) and is not widenable from this side alone.
 #   LEAN_GATE_TEST_STALL_DIR #528: TEST-ONLY, never set in CI or by an operator — the loop it
 #                            gates is otherwise unreachable. Pauses append_satisfied/
 #                            heal_progress_run_id between their absence check and their write,
@@ -305,17 +281,6 @@
 #                            "absent" before either commits — the one race shape a real
 #                            concurrent run cannot be driven through deterministically.
 #                            Bounded (10s) so a broken harness cannot hang a real run.
-#   LEAN_GATE_M3_NEW_SESSION=1
-#                            #539: spawn milestone 3's detached runner in its own SESSION, so it
-#                            outlives the turn that launched it. UNSET IS THE SHIPPED DEFAULT and
-#                            is the forked subshell described at m3_launch_or_join — a consumer
-#                            cannot inherit this path by upgrading. On, the wait ceiling drops to
-#                            300s (M3_WAIT_CEILING_ESCAPE_DEFAULT), which is affordable only
-#                            because the runner survives the give-up and the next call rejoins it.
-#                            SCRUBBED out of milestone 3's lane children, unlike the two seams
-#                            above: a lane child is not turn-bound and has nothing to escape from,
-#                            and leaving it inheritable would make the sweep's own shape depend on
-#                            an ambient variable.
 #   LEAN_GATE_ANY_TREE=1     #141: DISARM THE LANE-TREE ASSERTION — let `1`..`5`, `all`, `delta`
 #                            and `verdict` grade whatever checkout they are invoked from. It
 #                            ANNOUNCES on stderr every time it disarms a call, naming the branch
@@ -327,22 +292,7 @@
 #                            bare-`git init` fixture trees, over many issue keys and three branch
 #                            prefixes, and one tree cannot be on nine lane branches at once. A run
 #                            that wants a different tree graded should move, not disarm.
-#                            NOT IN `SEAM_SCRUB`, exactly like the two seams above.
-#
-# WHAT MILESTONE 3'S RUNNER INHERITS, and why it is an ARGV SUBCOMMAND rather than an env var.
-# The first shape of the "you are the runner" handshake was an inherited `LEAN_GATE_M3_RUNNER=1`
-# on a re-exec of this script, and it cost a milestone attempt on #511's own PR: milestone 3's lane
-# children here are lean-gate.sh itself (dogfooding), so the variable reached the nested selftest
-# and every milestone-3 call inside it ran INLINE as a "runner". That rejection stands, and
-# `m3-run` is the shape that answers it — a positional subcommand is not inherited the way an
-# exported var is.
-#
-# THE COST HALF OF THAT REJECTION DID NOT REPRODUCE (#539). It read "a whole second gate startup
-# per call — 1.4s against a 1.9s total overhead, enough to push the paired suite past
-# mutation-sweep.sh's 300s killer bound". Re-measured on this file, full startup including config
-# and git-root resolution, five consecutive runs: `real 0.09–0.10`. Roughly 15x off, reproduced
-# twice. The default path is still the forked subshell — nothing to inherit and nothing to
-# re-parse — and the re-exec is what the escape above needs to reach a new session at all.
+#                            NOT IN `SEAM_SCRUB`, exactly like `LEAN_GATE_OBSERVE` above.
 #
 # bash 3.2 compatible (macOS ships it, and CI has a bash-3.2 lane).
 set -uo pipefail
@@ -376,10 +326,6 @@ STALENESS_ARM=""
 # default is applied after validation, exactly as `--arm` above does — a source token on a
 # subcommand that records nothing has to be loud rather than absorbed.
 TICKET_SOURCE=""
-# #539. The launch token `m3-run` stamps into its marker, passed on argv because that is the whole
-# point of the subcommand: a re-exec'd runner inherits an environment, and an env handshake is the
-# shape that reached the nested lane children last time.
-M3_RUN_TOKEN=""
 
 # The fix budget: 3 attempts per milestone, the 4th red hard-stops (D-19). Counted from
 # the progress file's `attempt` lines per D-41 — only FAILED evaluations append one.
@@ -401,25 +347,12 @@ ABSENT_BUDGET=10
 # staying out of reach of the bad luck an honest run meets (0, occasionally 1-2).
 INTERRUPTED_BUDGET=5
 
-# #527 D-7. MILESTONE 3 GETS ITS OWN, LARGER BOUND, and without it the rest of this ticket is
-# self-defeating: once an infrastructure kill stops charging a fix attempt the lane re-spawns, and
-# every one of those spawns leaves another unclosed `started` row that `unclosed_count` never
-# decrements — so the run hard-stops at `rc=4` here instead of at the fix budget, one bound over.
-# 8 clears the 6 spawns a scheduler can generate (--max-rounds 3 × --max-continuations 2) with
-# headroom, while still bounding a hand-run loop that has no --max-continuations at all.
-#
-# PER-MILESTONE, NOT PER-ROW. The residue describes only the LATEST runner, so a historical
-# unclosed row carries no class and cannot be sorted into "infrastructure" or "operator Ctrl-C"
-# after the fact. Milestone 3 is the only one that runs detached and the only one long enough to
-# be killed by a turn boundary, so the milestone IS the class here.
-INTERRUPTED_BUDGET_M3=8
-
-interrupted_budget_for() { # interrupted_budget_for <milestone>
-  case "$1" in
-    3) echo "$INTERRUPTED_BUDGET_M3" ;;
-    *) echo "$INTERRUPTED_BUDGET" ;;
-  esac
-}
+# #566 RETIRED MILESTONE 3'S SEPARATE, LARGER BOUND. #527 D-7 gave it one (8 against this 5)
+# because milestone 3 was the only evaluation that ran DETACHED and the only one long enough to be
+# killed by a turn boundary, so re-spawns accumulated unclosed rows faster than any other
+# milestone could. Both halves of that premise are gone: the evaluation is inline and bounded to
+# fit inside the turn, so milestone 3 is now exactly as exposed to an interrupted run as 1, 2, 4
+# and 5 — and one bound describes all five honestly.
 
 # #527 D-2/D-3. THE TWO HALVES OF THE INFRASTRUCTURE CONTRACT, named rather than spelled inline so
 # the reserved code and the exit code it becomes are greppable and cannot drift apart.
@@ -472,10 +405,9 @@ while [ $# -gt 0 ]; do
     --satisfied)     PROGRESS_SATISFIED="${2:-}"; shift 2 ;;
     --infra)         PROGRESS_INFRA=1; shift ;;
     --obligations)   PROGRESS_OBLIGATIONS=1; shift ;;
-    --m3-token)      M3_RUN_TOKEN="${2:-}"; shift 2 ;;
     --arm)           STALENESS_ARM="${2:-}"; shift 2 ;;
     --ticket-source) TICKET_SOURCE="${2:-}"; shift 2 ;;
-    -h|--help)       sed -n '2,347p' "$0"; exit 0 ;;
+    -h|--help)       sed -n '2,297p' "$0"; exit 0 ;;
     -*)              envfail "unknown option: $1" ;;
     *)
       if [ "$POSITIONAL" -eq 0 ]; then SUB="$1"; POSITIONAL=1
@@ -486,7 +418,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-[ -n "$SUB" ]   || envfail "usage: lean-gate.sh <entry|claim|mark|1..5|all|close-out|teardown|inflight|delta|verdict|progress|staleness|m3-run> <issue>"
+[ -n "$SUB" ]   || envfail "usage: lean-gate.sh <entry|claim|mark|1..5|all|close-out|teardown|inflight|delta|verdict|progress|staleness> <issue>"
 # #611. DEFERRED for `entry`/`claim` alone, and into a REFUSAL rather than a usage error — the
 # absent-ticket case is what that guard is about, and answering it with the same exit 2 a typo'd
 # flag gets is what let a session read "no argument" as "choose one". The assertion is not
@@ -495,28 +427,13 @@ done
 # keeps this refusal verbatim, the milestone calls included (the AC preamble binds only two).
 case "$SUB" in
   entry|claim) : ;;
-  *) [ -n "$ISSUE" ] || envfail "usage: lean-gate.sh <entry|claim|mark|1..5|all|close-out|teardown|inflight|delta|verdict|progress|staleness|m3-run> <issue>" ;;
+  *) [ -n "$ISSUE" ] || envfail "usage: lean-gate.sh <entry|claim|mark|1..5|all|close-out|teardown|inflight|delta|verdict|progress|staleness> <issue>" ;;
 esac
 
 case "$SUB" in
-  entry|claim|mark|1|2|3|4|5|all|close-out|teardown|inflight|delta|verdict|progress|staleness|m3-run) : ;;
-  *) envfail "unknown subcommand '$SUB' (expected entry|claim|mark|1..5|all|close-out|teardown|inflight|delta|verdict|progress|staleness|m3-run)" ;;
+  entry|claim|mark|1|2|3|4|5|all|close-out|teardown|inflight|delta|verdict|progress|staleness) : ;;
+  *) envfail "unknown subcommand '$SUB' (expected entry|claim|mark|1..5|all|close-out|teardown|inflight|delta|verdict|progress|staleness)" ;;
 esac
-
-# #539, the same parse-time shape as `--satisfied` and `--infra` beside it. `m3-run` without a token
-# would stamp a marker no waiter can match, which reads downstream as "the evaluation did not
-# complete" after the whole sweep has already been paid for — the most expensive way to spell a
-# usage error. The token is opaque and its format is m3_launch_or_join's business, so the only
-# assertion here is that it is non-empty and carries no whitespace, which the `<pid> <token>` and
-# `<token> <rc>` records both read positionally.
-if [ "$SUB" = "m3-run" ]; then
-  [ -n "$M3_RUN_TOKEN" ] || envfail "m3-run needs --m3-token <tok> — it is the identity every waiter matches its marker against."
-  case "$M3_RUN_TOKEN" in
-    *[[:space:]]*) envfail "--m3-token cannot contain whitespace, got '$M3_RUN_TOKEN' — the runner records read it positionally." ;;
-  esac
-elif [ -n "$M3_RUN_TOKEN" ]; then
-  envfail "--m3-token is only meaningful on 'm3-run', not '$SUB'."
-fi
 
 # Validated at parse time rather than inside cmd_progress, so a typo is a usage error before any
 # root or config resolution — and so `--satisfied` on a subcommand that ignores it is still loud.
@@ -737,10 +654,13 @@ BRANCH_PREFIX="$(resolve_branch_prefix \
 # `--ticket-source` naming where it came from. Both are recorded; the branch name checks them.
 #
 # WHY THE BRANCH NAME AND NOT THE LANE REGISTRY (D-5). The gate is standing IN a tree whose
-# identity its own branch asserts, whereas `lean-lanes.tsv` is one machine-global file every
-# worktree of every lane shares — it can be stale, and a second declaration of a fact the checkout
-# already carries is the shape that goes blind rather than red. `--ticket-source lane-registry` is
-# therefore accepted and recorded, and still checked against the branch: a disagreement refuses.
+# identity its own branch asserts, whereas the lane registry `lean-lanes.tsv` was one
+# machine-global file every worktree of every lane shared — it could be stale, and a second
+# declaration of a fact the checkout already carries is the shape that goes blind rather than red.
+# #566 RETIRED that registry outright, and this arm outlives it deliberately: `lane-registry` is
+# now a caller-asserted provenance LABEL and nothing more. It is accepted and recorded, and still
+# checked against the branch — a disagreement refuses — but no file backs the claim, so a caller
+# passing it is asserting where its key came from, not citing a source the gate could consult.
 #
 # ORDER, and why it is here rather than at dispatch. The cheap arms run BEFORE the pinned name
 # table below, because every path there is `$ISSUE`-derived — with an empty key the run-id cache
@@ -975,15 +895,6 @@ INTENT_GAP_REL="$PLANS_DIR/$REPO_SLUG-$ISSUE-lean-intent-gap.md"
 # suffix. check-lean-chain.sh pins this suffix independently — it cannot see this derivation.
 RENDER_MANIFEST_REL="$PLANS_DIR/$REPO_SLUG-$ISSUE-lean-renders.md"
 PROGRESS_FILE="${LEAN_PROGRESS_FILE:-$MAIN_ROOT/$STATE_DIR/$ISSUE-lean-progress.md}"
-
-# ---------------------------------------------------------------- the lane registry (#526)
-# ONE file for every lane of this repo, beside the rest of the lean run state in the MAIN
-# checkout — which every worktree on this machine already resolves to, so N concurrent lanes
-# see one another without any of them needing to know the others exist. Every other path here
-# is per-ISSUE; this one deliberately is not. lane-registry.sh owns the liveness key, the
-# ancestor walk that decides which pid is "the lane", and the degradation contract.
-LANE_REGISTRY="${LEAN_LANE_REGISTRY:-$MAIN_ROOT/$STATE_DIR/lean-lanes.tsv}"
-LANE_REGISTRY_SH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lane-registry.sh"
 
 # ---------------------------------------------------------------- RUN_ID persistence
 # SKILL.md step 2 says "export RUN_ID first ... it keys every record" — true only if the
@@ -1477,7 +1388,7 @@ now_iso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 # already there), so no fixture can red on that half alone. Do not read a surviving mutant on
 # the two lines below as a coverage hole — the placeholder check is there to keep an already
 # healed run from spawning awk on every append, which is cost, not correctness.
-# TEST-ONLY, exactly like LEAN_GATE_OBSERVE / LEAN_GATE_WAIT_CEILING_SECS above and
+# TEST-ONLY, exactly like LEAN_GATE_OBSERVE above and
 # RUN_SELFTESTS_DROP_LAST/RC in run-selftests.sh — never set in CI or by an operator. Pauses the
 # caller between its absence check and its write, so a selftest can force two same-issue
 # writers to both observe "absent" before either commits — the exact race #528's atomic-write
@@ -2152,56 +2063,6 @@ worktree_destroy() { # worktree_destroy <path> <branch>
   return 0
 }
 
-# ---------------------------------------------------------------- lane liveness (#526)
-# Three thin wrappers over lane-registry.sh. ADVISORY THROUGHOUT — every one of them returns 0
-# whatever happens, including a helper that is missing entirely. A consumer pinned to an older
-# plugin copy, or a packaging accident, must degrade to exactly today's behavior (no ceiling,
-# every lane sized to the whole machine) rather than red a milestone over a bookkeeping file.
-lane_register() {
-  [ -x "$LANE_REGISTRY_SH" ] || [ -f "$LANE_REGISTRY_SH" ] || return 0
-  bash "$LANE_REGISTRY_SH" register --registry "$LANE_REGISTRY" --issue "$ISSUE" >/dev/null 2>&1 || return 0
-  say "  lane registered in $LANE_REGISTRY — milestone-3 sweeps size themselves to this machine's live lane count."
-  return 0
-}
-
-lane_deregister() {
-  [ -f "$LANE_REGISTRY_SH" ] || return 0
-  bash "$LANE_REGISTRY_SH" deregister --registry "$LANE_REGISTRY" --issue "$ISSUE" >/dev/null 2>&1 || return 0
-  say "  lane deregistered from $LANE_REGISTRY."
-  return 0
-}
-
-# Derives the ceiling, ANNOUNCES it, and appends the assignment to the one env prefix every
-# milestone-3 child is spawned through. Appending to SEAM_SCRUB_ENV rather than editing four
-# call sites is deliberate: that array is already the single idiom shared by the render
-# pre-command, `lanes[]`, the fixed lint/typecheck/test keys and `extraLanes`, so a fifth
-# execution site added later inherits this for free instead of being forgotten. The array now
-# carries a scrub list AND one assignment; `env` takes them in that order natively.
-#
-# The append happens OUTSIDE the LOCKSTEP-BEGIN/END seam-scrub markers — those pin the denylist
-# STRING against preflight.sh's superset, and this touches neither.
-lane_apply_job_ceiling() {
-  local out ceil lanes cores basis
-  [ -f "$LANE_REGISTRY_SH" ] || return 0
-  out="$(bash "$LANE_REGISTRY_SH" ceiling --registry "$LANE_REGISTRY" 2>/dev/null)" || out=""
-  IFS="$(printf '\t')" read -r ceil lanes cores basis <<<"$out"
-  case "${ceil:-}" in ''|*[!0-9]*) return 0 ;; esac
-  [ "$ceil" -ge 1 ] || return 0
-  case "$basis" in
-    live) say "milestone-3: job ceiling $ceil = $cores cores / $lanes live lane(s)." ;;
-    absent)     say "milestone-3: job ceiling $ceil = $cores cores / 1 lane assumed — no lane registry at $LANE_REGISTRY." ;;
-    unreadable) say "milestone-3: job ceiling $ceil = $cores cores / 1 lane assumed — the lane registry at $LANE_REGISTRY is unreadable." ;;
-    empty)      say "milestone-3: job ceiling $ceil = $cores cores / 1 lane assumed — the lane registry is empty." ;;
-    stale)      say "milestone-3: job ceiling $ceil = $cores cores / 1 lane assumed — the lane registry held only stale entries, now reaped." ;;
-    *)          say "milestone-3: job ceiling $ceil = $cores cores / $lanes lane(s)." ;;
-  esac
-  # AC-7. The gate cannot know whether a consumer's `test` command reads this — `vitest`,
-  # `pytest` and `cargo test` do not — so the announcement never claims it was applied.
-  say "  exported as LEAN_JOB_CEILING to every lane command below: ADVERTISED, not enforced. A command that does not read it runs exactly as before."
-  SEAM_SCRUB_ENV+=("LEAN_JOB_CEILING=$ceil")
-  return 0
-}
-
 # #563. The SECOND value handed down that same channel, and the same shape for the same reason:
 # the `test` command a consumer configured is a string this gate runs and cannot rewrite, so a
 # flag is not reachable and an environment name is.
@@ -2228,10 +2089,12 @@ lane_apply_selftest_cache() {
   # inheritance, so a bare `return` here would announce a cold sweep and run a cached one — the
   # fail-open shape the switch exists to remove, wearing the fix's own output.
   #
-  # An EMPTY ASSIGNMENT is the scrub, and `-u` is not available at this point: SEAM_SCRUB_ENV
-  # already carries an assignment (LEAN_JOB_CEILING), and `env` stops reading options at the
-  # first NAME=VALUE — a `-u` appended after one is read as the command to run, not as a scrub.
-  # The reader treats empty as absent, so this is the same no-op as never setting it.
+  # An EMPTY ASSIGNMENT is the scrub. Until #566 it was also the only option available: an
+  # earlier entry in SEAM_SCRUB_ENV was an assignment by this point, and `env` stops reading
+  # options at the first NAME=VALUE, so a `-u` appended after one is read as the command to run
+  # rather than as a scrub. That constraint died with the lane job ceiling — this is now the LAST
+  # entry and `-u` would reach — but the empty assignment is kept because the reader treats empty
+  # as absent, so the two are the same no-op and swapping them would be an unrelated edit.
   if [ "${LEAN_SELFTEST_CACHE:-1}" = "0" ]; then
     say "milestone-3: selftest pass cache DISABLED (LEAN_SELFTEST_CACHE=0) — this sweep runs cold."
     SEAM_SCRUB_ENV+=("LEAN_SELFTEST_CACHE_DIR=")
@@ -2253,50 +2116,6 @@ lane_apply_selftest_cache() {
 # nothing and records nothing, so refusing it for a missing attestation would block cleanup for
 # no evidentiary gain. What guards the removal is worktree_destroy()'s preconditions, which are
 # stronger and independent of any record the run wrote about itself.
-# #539 AC-2. THE RUNNER'S REAPER, and until now the lane had none: cmd_teardown never touched it,
-# so what actually stopped a milestone-3 runner was the harness tearing down the session that
-# launched it. The escape removes exactly that, which leaves `git worktree remove` free to yank the
-# tree out from under a live sweep — the orphaned-fixture class CLAUDE.md warns reds later suites
-# indefinitely, and a sweep whose checkout vanishes mid-run fails for reasons no one can read.
-#
-# LOCATED BY THE ISSUE-KEYED GLOB, not m3_paths, for #527 D-4's reason exactly: that key is
-# `cksum($REPO_ROOT)`, and teardown is legitimately invoked from either the worktree or the main
-# checkout. The glob is the handle both sides share.
-#
-# THE PGID FIRST, THE PID SECOND. On the escape path the runner leads its own group and the
-# negative-pid kill takes the whole sweep tree with it — measured: a forked subshell's own
-# grandchildren stay in the runner's group, because inheriting monitor mode through a fork does not
-# re-run bash's job-control setup. On the default path the runner is NOT a group leader (its group
-# is its launcher's, long gone), so `kill -9 -<pid>` fails with ESRCH and the plain kill is what
-# lands. Trying the group first is therefore free, with one exception worth naming: if this
-# process's OWN group happened to be numbered by a recorded pid, the negative kill would be
-# suicide. Cheap to rule out, so it is ruled out rather than reasoned about.
-#
-# THE RECORD IS CLEARED whether or not anything was killed. A pidfile outliving the worktree it
-# describes is the raw material for a spurious join on a recycled pid, which is the harm
-# m3_joinable's note spends four paragraphs on.
-m3_reap_runners() {
-  local f r_pid r_tok own killed=0
-  own="$(ps -o pgid= -p $$ 2>/dev/null | tr -d ' ')"
-  for f in "$MAIN_ROOT/$STATE_DIR/$ISSUE-lean-m3-"*.pid; do
-    [ -f "$f" ] || continue
-    r_pid=""; r_tok=""
-    read -r r_pid r_tok < "$f" 2>/dev/null
-    case "$r_pid" in ''|*[!0-9]*) rm -f "$f"; continue ;; esac
-    if kill -0 "$r_pid" 2>/dev/null; then
-      if [ -n "$own" ] && [ "$r_pid" = "$own" ]; then
-        warn "  teardown: recorded runner $r_pid names this process's own process group — not killing it. Stop it by hand."
-      else
-        kill -9 -"$r_pid" 2>/dev/null || kill -9 "$r_pid" 2>/dev/null
-        killed=$((killed + 1))
-      fi
-    fi
-    rm -f "$f"
-  done
-  [ "$killed" -gt 0 ] && say "teardown: reaped $killed live milestone-3 runner(s) before touching the worktree."
-  return 0
-}
-
 # #531 D-11. TEARDOWN IS REPORTED, NEVER CERTIFIED. Checklist step 9 runs `bash G 5` and THEN
 # `bash G teardown`, so the outcome does not exist when milestone 5 is decided and cannot be one of
 # its obligations. Gating the aggregate on it would also contradict the note above — the kept
@@ -2322,13 +2141,6 @@ append_teardown() { # append_teardown <outcome> <detail>
 
 cmd_teardown() {
   local wt paths rest="" own="" order removed_paths="" removed=0 kept_lines=""
-  # #526, FIRST and unconditionally: the lane is over whichever way the worktree removal goes,
-  # and a kept worktree (the early return below) is still a lane that stopped consuming cores.
-  lane_deregister
-  # #539 AC-2, BEFORE worktree_destroy and before the no-worktree early return below. A runner
-  # outliving its lane is worth stopping whether or not there is a directory left to remove, and
-  # ordering it after the removal would be the race this exists to close.
-  m3_reap_runners
   paths="$(lean_worktrees_for_branch "$LEAN_BRANCH")" || paths=""
   if [ -z "$paths" ]; then
     say "teardown: no registered worktree is on $LEAN_BRANCH — nothing to remove."
@@ -2503,84 +2315,43 @@ progress_token() { # progress_token [<milestone>] — prints the token, never to
 }
 
 # ---------------------------------------------------------------- the INFRA-DEATH READ (#527)
-# THE CLASS IS DERIVED FROM RESIDUE, because nothing is alive to write it. Topology T-A is the
-# milestone-3 runner dying at the turn boundary that killed the session which launched it: SIGKILL
-# cannot be trapped (see the note beside run_milestone's append_started), the scheduler never
-# invokes milestone 3 itself, and no process survives to return a code. What DOES survive is a
-# shape: `append_started 3` already flushed, no matching `concluded` row, and no marker. The pid
-# record's LIVENESS was part of that shape until #539 and no longer is — see the paragraph below
-# on why a surviving runner is a death to recover from rather than the absence of one.
+# THE CLASS IS DERIVED FROM RESIDUE, because nothing is alive to write it. `append_started 3`
+# already flushed and there is no matching `concluded` row: the evaluation began and never
+# returned. SIGKILL cannot be trapped (see the note beside run_milestone's append_started) and the
+# scheduler never invokes a milestone itself, so residue is the only witness there is.
 #
-# LOCATED BY GLOB, NOT BY m3_paths (D-4). That key is `cksum($REPO_ROOT)` and REPO_ROOT is
-# cwd-derived, so the scheduler — which runs this from $MAIN_ROOT, deliberately, because the
-# progress record must survive worktree teardown — would hash the main checkout and name a record
-# that does not exist. The issue-keyed glob is the one handle both sides share.
+# LOCATED BY THE PROGRESS RECORD, which the scheduler reads from $MAIN_ROOT deliberately — the
+# record must survive worktree teardown. That is the one handle both sides share.
 #
-# A LIVE RUNNER WITH NO MARKER IS IN-FLIGHT-AND-JOINABLE, WHICH IS A DEATH TO RECOVER FROM, NOT THE
-# ABSENCE OF ONE (#539 AC-3). This read shipped subtracting live runners from the unclosed count, on
-# the premise stated one paragraph up — "nothing survives one to write a class" — and that premise
-# was the ticket's. With LEAN_GATE_M3_NEW_SESSION the runner DOES survive, so the subtraction went
-# false exactly when the escape started working: the scheduler read an unmoved token after a spawn
-# that had been killed mid-sweep, stopped, and left its continuations unspent. An orphaned runner is
-# the STRONGEST recoverable signal there is, because the next spawn joins a sweep already minutes
-# in rather than starting one.
+# #566 NARROWED THE PREDICATE TO THE UNCLOSED COUNT ALONE. The other half used to be a scan of
+# `<issue>-lean-m3-*.pid` runner records, because milestone 3 ran DETACHED and a runner could
+# outlive the session that launched it — so "a live runner with no marker" was a distinguishable
+# state, and a rich one. Milestone 3 no longer detaches: the evaluation is inline and bounded to
+# fit inside the turn, there are no runner records to scan, and the only residue an interrupted
+# evaluation leaves is the unclosed row this counts.
 #
-# WHAT THE SUBTRACTION WAS PROTECTING is not lost with it. Its stated worry was an honest in-flight
-# evaluation reading as a death — but this subcommand is a SCHEDULER read, taken on both sides of a
-# spawn that has already returned, so "in flight" here means "in flight with nobody waiting on it".
-# The count is still stable across the evaluation's own conclusion in the direction that matters:
-# the runner writes `concluded` before it stamps, so the unclosed row and the liveness disappear
-# together rather than one before the other.
-#
-# `live` survives as the DIAGNOSTIC below, which is where it was always more useful: "one record,
-# and its runner is alive" and "one record, and its runner is gone" are the same n and two very
-# different operator situations.
-#
-# THE TOKEN SPACE MOVES TO v2 WITH IT, per the generation-prefix note below. The predicate changed;
-# a caller comparing a v1 reading against a v2 one is comparing two different questions, and the
-# prefix is what makes that visible instead of arithmetic.
-m3_runner_records() { # prints "<found> <live>" over $ISSUE-lean-m3-*.pid in the state dir
-  local f found=0 live=0 r_pid r_tok
-  for f in "$MAIN_ROOT/$STATE_DIR/$ISSUE-lean-m3-"*.pid; do
-    [ -f "$f" ] || continue
-    found=$((found + 1))
-    r_pid=""; r_tok=""
-    read -r r_pid r_tok < "$f" 2>/dev/null
-    # The same two rejections m3_read_runner makes, and for its reasons: a non-numeric pid is not a
-    # pid, and a record carrying no token predates the current format and names nothing joinable.
-    case "$r_pid" in ''|*[!0-9]*) continue ;; esac
-    [ -n "$r_tok" ] || continue
-    kill -0 "$r_pid" 2>/dev/null && live=$((live + 1))
-  done
-  printf '%s %s\n' "$found" "$live"
-}
+# THE TOKEN SPACE MOVES TO v3 WITH IT, per the generation-prefix note below, and that is the whole
+# reason the prefix exists. The predicate changed; a caller comparing a v2 reading against a v3 one
+# is comparing two different questions, and the prefix makes that visible instead of arithmetic.
+# The scheduler (orchestrate-lean.sh) only ever compares this token to ANOTHER reading of itself
+# and never parses it, so the version bump costs it nothing — but a future reader that did parse
+# would be stopped by the prefix rather than silently misled.
 
 # PRINTED BEHIND A GENERATION PREFIX, like progress_token's, and for the identical reason: this is
-# a number a caller must NOT order. `m3infra-v1:` marks the token space, so a later change of
-# predicate is visibly a different token rather than a silently comparable integer.
+# a number a caller must NOT order.
 #
-# NEVER EMPTY. "No infra death" is `m3infra-v2:0`, because the scheduler's reader rejects an empty
+# NEVER EMPTY. "No infra death" is `m3infra-v3:0`, because the scheduler's reader rejects an empty
 # token as a broken gate — a legitimate negative answer must not look like one.
-#
-# THE RESIDUAL THIS DOES NOT COVER, recorded here rather than left to be rediscovered: A JOIN WRITES
-# NOTHING (m3_launch_or_join's D-9 note), so a second consecutive turn-end death over ONE surviving
-# runner leaves n where the first death put it. Spawn 1 launches and dies — n moves, the scheduler
-# spends a continuation. Spawn 2 joins that runner and dies before the sweep ends — no row is
-# written by a join, so n is unmoved and the scheduler stops with a live sweep still running. The
-# first death is the one AC-3 is about and the one the escape makes recoverable; making a join
-# observable means a new row kind and a re-argument of D-9's "counting a join would walk an
-# honestly-waiting run into INTERRUPTED_BUDGET", which is a different ticket, not a wider `n`.
 infra_token() {
-  local unclosed found live n rec
+  local unclosed n
   unclosed="$(unclosed_count 3)"
-  rec="$(m3_runner_records)"
-  found="${rec% *}"; live="${rec#* }"
   n="$unclosed"
   [ "$n" -lt 0 ] && n=0
-  # OR-1's diagnostic: the read says what it saw, so an operator can tell "no records at all" from
-  # "a record, and its runner is alive". stderr, so it cannot contaminate the token on stdout.
-  warn "progress --infra: $unclosed unclosed milestone-3 evaluation(s), $found runner record(s), $live live."
-  printf 'm3infra-v2:%s\n' "$n"
+  # The diagnostic, on stderr so it cannot contaminate the token on stdout. It says what was
+  # counted rather than only the verdict, so an operator can tell a clean read from a suppressed
+  # one without re-deriving it.
+  warn "progress --infra: $unclosed unclosed milestone-3 evaluation(s)."
+  printf 'm3infra-v3:%s\n' "$n"
 }
 
 # ---------------------------------------------------------------- the CLOSE-OUT REPORT (#531)
@@ -2915,11 +2686,6 @@ cmd_entry() {
   if [ "$TRACKER_TYPE" = "jira" ]; then
     say "  tracker delta (jira): no queue label to confirm — the operator supplies the ticket key (tracker.writes: false). Step 1's label reject does not apply."
   fi
-  # #526. Register this lane's liveness so every OTHER lane's milestone-3 sweep can size itself
-  # to its share of the machine. Advisory throughout: the helper never fails a run, and a lane
-  # that cannot be registered is simply not counted — which raises the others' ceilings back
-  # toward the uncontended default rather than starving them.
-  lane_register
   # LAST, and its result is discarded: the attestation above is what `entry` exists to
   # establish, so nothing the sweep does may reach this function's exit status.
   cmd_entry_sweep
@@ -3715,433 +3481,6 @@ for _seam_tok in "${_seam_scrub_toks[@]}"; do
 done
 unset _seam_tok _seam_scrub_toks
 
-# #539, appended OUTSIDE the lockstep block above — `SEAM_SCRUB` is a `subset-of` row against
-# preflight.sh and is not widenable from this side, and LEAN_JOB_CEILING already sets the precedent
-# for adding to the array rather than to the string. The escape seam is scrubbed where
-# LEAN_GATE_OBSERVE and LEAN_GATE_WAIT_CEILING_SECS deliberately are not, because it answers a
-# question only the OUTERMOST call has: a lane child is not turn-bound and has nothing to outlive.
-# Inherited, it would put every nested milestone-3 call on the escape path — this repo's lane
-# children are lean-gate.sh — so an ambient variable would decide what the sweep is measuring.
-SEAM_SCRUB_ENV+=(-u LEAN_GATE_M3_NEW_SESSION)
-
-# ---------------------------------------------------------------- milestone 3: detach + join
-# #511 D-1. THE EVALUATION RUNS DETACHED AND THE CALLING PROCESS BLOCKS ON ITS MARKER.
-#
-# WHY IT IS THE GATE'S JOB. `orchestrate-lean.sh` spawns every BUILD session under `claude -p`,
-# where TURN END IS PROCESS EXIT. A block facing a long wait has one move that looks polite —
-# background the work, end the turn, collect it on the next one — and here that move is fatal:
-# there is no next turn. On the #497 run both BUILD sessions signed off with verification in
-# flight, neither ever reported, milestone 3 never ran and the lane exited with a continuation
-# unspent. A prose rule has a poor record against a block trying to be considerate about a long
-# wait, so the CHOICE IS REMOVED rather than legislated: the gate detaches, and the call blocks.
-# A session that "backgrounds" this call now backgrounds a waiter, not the evaluation.
-#
-# AND IT KILLS THE DUPLICATE-SWEEP LIVELOCK. On the #500 run a re-spawn launched a SECOND sweep
-# into the worktree the first orphan was still sweeping, so the progress token could never reach
-# milestone 3. "Never yield" does not stop that; launch-or-JOIN does — a second invocation that
-# finds a live runner attaches to it and starts nothing.
-#
-# WHAT THE TOOL-TIMEOUT REAP KILLS is the waiter alone, and WITHIN ONE TURN the evaluation is a
-# different process that keeps going — re-issuing the call rejoins it. That is the property the
-# whole shape is for, and it holds exactly as far as the turn does.
-#
-# ACROSS A TURN BOUNDARY IT DID NOT, until #539. This note used to stop at the sentence above, and
-# that was measured false: a Bash call past the 120s tool timeout is moved to a background task
-# rather than killed, the session then ends its turn — under `claude -p`, process exit — and the
-# harness's teardown takes the runner with it. Scored by case id under a real `claude -p` child,
-# one launching call in this exact spawn-then-block shape: today's forked subshell DEAD, the same
-# spawn wrapped in `set -m` so the runner leads its own process group DEAD, and a runner in its own
-# SESSION alive with PPID 1. THE TEARDOWN IS SESSION-DIRECTED. A new process group inside the
-# launcher's session buys nothing, which is why `disown` and `trap '' HUP` never defended against
-# it. `LEAN_GATE_M3_NEW_SESSION=1` is the escape and it is off by default; see m3_launch_or_join.
-#
-# MILESTONE 3 ONLY (D-2), keyed (issue, milestone-3, worktree) so `bash G 3 <issue>` and `all`'s
-# 3-leg join the same runner. Measured on #497's own progress record: milestone 1 concluded in 1s,
-# milestone 2 in 2s, milestone 3 in 20m44s. Every observed death is the sweep, and a fork + marker
-# + poll round-trip on four evaluations that return in a second is cost bought for nothing.
-#
-# D-4. ~3x the longest milestone-3 evaluation on record (20m44s). Deliberately generous: CLAUDE.md
-# warns that `install-topology-selftest.sh` alone swings 319s/438s/584s and to "treat the range,
-# not a point value", and a breach RECLASSIFIES an honest slow run as infrastructure. Headroom is
-# worth more here than a fast wedge verdict. The seam exists so the suite can breach it in seconds.
-M3_WAIT_CEILING_DEFAULT=3600
-
-# #539 AC-1, and the inversion is the point. 3600s above is generous because on the default path
-# GIVING UP ON THE WAIT MEANS LOSING THE WORK: the runner dies with the turn anyway, so a short
-# ceiling only buys an earlier report of the same loss. On the escape path the runner outlives the
-# turn, `m3_wait`'s ceiling arm returns 7 and deliberately KEEPS the pid record, and the next call
-# rejoins a sweep that never stopped — so a fast give-up costs nothing but the waiter. 300s is the
-# value OR-2 chose: comfortably past this repo's non-`install-topology` sweep and well inside one
-# scheduler continuation, retunable in one number plus its fixture rows.
-#
-# OR-2, stated where the number lives: a consumer invoking the gate ONCE and non-headlessly has no
-# rejoin, so a slow-but-honest sweep would be abandoned here. That is why the seam defaults off and
-# why `LEAN_GATE_WAIT_CEILING_SECS` still outranks both defaults.
-M3_WAIT_CEILING_ESCAPE_DEFAULT=300
-
-# THE ESCAPE SEAM ITSELF. Read through a function rather than inline so the launch path, the
-# ceiling default and the teardown reap cannot drift into three different readings of one variable.
-m3_new_session() { [ "${LEAN_GATE_M3_NEW_SESSION:-0}" = "1" ]; }
-
-# The wait this exists for is measured in minutes, so this could be far coarser — but the SUITE
-# drives milestone 3 dozens of times against a fixture that returns in milliseconds, and at a
-# one-second poll the gate's own selftest paid ~30s in sleeps alone. The loop body below is all
-# builtins (`[ -f ]`, `read <`, `kill -0`, `$SECONDS`), so a 20-minute evaluation costs 6000
-# wakeups of nothing rather than 6000 forks.
-M3_POLL_SECS=0.1
-
-# The launch identity a marker is stamped with and a waiter matches against. Declared here because
-# `set -u` is on and the counter is incremented before its first read; `LEAN_GATE_LIB` source mode
-# can also reach these functions without going through a launch.
-M3_LAUNCH_SEQ=0
-M3_TOKEN=""
-
-# D-10: STATE_DIR, never TMPDIR. macOS `mktemp -d` ignores TMPDIR and this repo already carries
-# orphan-fixture scars from that directory; the state dir is also gitignored, survives worktree
-# teardown, and is readable by a joining session that resolved a different checkout.
-#
-# KEYED ON THE WORKTREE, not the issue alone: two checkouts of one branch are two evaluations of
-# two different trees, and joining across them would hand back a verdict about a tree the caller
-# never had. `cksum` over the resolved root — POSIX, deterministic, and it cannot emit a path
-# separator the way the path itself would.
-m3_paths() {
-  [ -n "${M3_BASE:-}" ] && return 0
-  local key
-  key="$(printf '%s' "$REPO_ROOT" | cksum | awk '{print $1}')"
-  M3_BASE="$MAIN_ROOT/$STATE_DIR/$ISSUE-lean-m3-$key"
-  M3_PID="$M3_BASE.pid"
-  M3_RC="$M3_BASE.rc"
-  M3_LOG="$M3_BASE.log"
-}
-
-# LIVENESS IS THE RECORDED PID PLUS `kill -0`, never `pgrep -f`. This repo carries a mutual-
-# deadlock scar where a waiter's own command line matched its own pattern and it waited on itself
-# forever.
-#
-# THE RECORD IS `<pid> <token>`, and the token is what makes pid reuse survivable. A recycled pid
-# reads as live here and always will — `kill -0` cannot tell one process from another. The claim
-# this note used to make, that reuse needed "a whole pid wraparound" and cost "one extra ceiling
-# wait rather than a wrong verdict", was wrong in both halves: `kern.maxproc` is a few thousand,
-# pids recycle within a day of ordinary use here, and a reboot walks straight back through a
-# recorded one within minutes — and what the resulting join returned was a PREVIOUS evaluation's
-# exit code, instantly. TWO mechanisms make the second half true now, and the token alone is not
-# one of them: a waiter attached to a recycled pid waits for a marker stamped by THAT launch, AND
-# m3_joinable refuses the join outright when that launch has already stamped one. Without the
-# second, the marker the waiter is sent to wait for is the one already on disk.
-#
-# A record carrying no token predates this format and is deliberately NOT joinable — nothing it
-# could stamp would be identifiable — so it reads as dead and relaunches, the recoverable
-# direction.
-#
-# `read <` rather than `$(cat …)`: this runs on every poll, and a command substitution is a fork.
-m3_read_runner() {
-  M3_R_PID=""; M3_R_TOKEN=""
-  [ -f "${M3_PID:-}" ] || return 1
-  read -r M3_R_PID M3_R_TOKEN < "$M3_PID" 2>/dev/null
-  case "$M3_R_PID" in ''|*[!0-9]*) M3_R_PID=""; return 1 ;; esac
-  [ -n "$M3_R_TOKEN" ] || return 1
-  return 0
-}
-
-m3_runner_live() {
-  m3_read_runner || return 1
-  kill -0 "$M3_R_PID" 2>/dev/null
-}
-
-# The recorded pid, for a diagnostic — empty when there is nothing to name.
-m3_runner_pid() {
-  m3_read_runner >/dev/null 2>&1
-  printf '%s' "$M3_R_PID"
-}
-
-# THE MARKER IS BOUND TO THE LAUNCH THAT PRODUCED IT, and that binding is the whole answer to a
-# wait returning a code it did not earn. The launch arm's `rm -f "$M3_RC"` below cannot be that
-# answer, because it runs only after `m3_runner_live` has already branched away to the join — a
-# guard on one arm of an either/or. A joiner without this check returns whatever marker is on disk
-# in 0s having evaluated nothing, and when that code is 0 it is a green milestone 3 certifying a
-# tree it never ran against.
-#
-# Builtins only: this is the poll loop's first statement.
-m3_marker_mine() { # m3_marker_mine <token> — sets M3_MARKER_RC when the marker on disk is this launch's
-  local tok="" rc=""
-  M3_MARKER_RC=""
-  [ -f "${M3_RC:-}" ] || return 1
-  read -r tok rc < "$M3_RC" 2>/dev/null
-  [ "$tok" = "$1" ] || return 1
-  # A marker that is not a number is a marker mid-write or truncated — which the tmp+mv write
-  # should make impossible, so reading it as "did not complete" is the fail-closed answer rather
-  # than passing a milestone on an unparseable code.
-  case "$rc" in ''|*[!0-9]*) rc=7 ;; esac
-  M3_MARKER_RC="$rc"
-  return 0
-}
-
-# A RUNNER IS JOINABLE ONLY WHILE ITS EVALUATION IS UNFINISHED, and "unfinished" is the ABSENCE of
-# that launch's own marker — never the liveness of its pid. Those are two different facts, and the
-# gap between them is where the ceiling arm's carve-out lives: it returns 7 and deliberately KEEPS
-# the pid record so a re-invocation can rejoin a runner that is genuinely still working. That
-# premise expires the moment the runner finishes. What is on disk then is a retained pid record and
-# a marker THE SAME LAUNCH stamped — one launch, ONE TOKEN — so the token match, which is the whole
-# defense against a stale marker, cannot separate them, and a joiner that arrived on a recycled pid
-# consumed that marker in 0s having evaluated nothing. The ceiling is not the only way in: a waiter
-# killed by the harness's reap leaves the identical residue, because both `rm -f "$M3_PID"` sites
-# are inside m3_wait and there is no trap — and nothing clears it until the next launch on that key,
-# which is exactly the interval over which pid reuse becomes likely.
-#
-# The stamp is m3_run_detached's LAST statement, so a marker bearing this record's token is proof
-# that launch is over. Refusing the join sends the caller down the launch arm, which clears the
-# stale marker and evaluates the tree the caller actually has — the recoverable direction, and the
-# same one a token-less record already takes. The cost is a completed-but-unconsumed evaluation
-# being discarded rather than handed to a waiter that was never attached to it, which is the
-# honest trade: nothing proves that evaluation ran against this caller's tree.
-#
-# NOT FIXED BY HAVING THE RUNNER DELETE ITS OWN PID RECORD. That depends on the runner surviving
-# past its own stamp, so a `kill -9` in that window rebuilds the residue exactly; and an
-# unconditional delete there can remove a LATER launch's record, whose waiter then reads the
-# missing pidfile as a death and returns 7 having evaluated nothing. This predicate needs nothing
-# from the runner and is evaluated where the decision is actually made.
-m3_joinable() {
-  m3_runner_live || return 1
-  if m3_marker_mine "$M3_R_TOKEN"; then return 1; fi
-  return 0
-}
-
-# The runner's output is a FILE, not this process's stdout — it has to be, since the runner
-# outlives every waiter attached to it. Replayed whole at every terminal outcome, including the
-# two that report nothing was evaluated: an `envfail` inside the runner exits it before it can
-# stamp a code, and the reason it printed is then the only diagnosis there is.
-m3_replay_log() {
-  [ -s "${M3_LOG:-}" ] || return 0
-  cat "$M3_LOG"
-}
-
-# D-3. THREE TERMINAL STATES, and a waiter that polls only for success is not one of them: silence
-# through a crash reads identically to "still running", which is the shape that cost the #496
-# review round. (i) the marker appears -> exit with its value. (ii) the recorded pid fails `kill -0`
-# with no marker -> the runner died. (iii) the ceiling is reached. (ii) and (iii) both return D-5's
-# `rc=7` and spend no fix attempt, because nothing was evaluated.
-m3_wait() { # m3_wait <ceiling-secs> <token>
-  local ceiling="$1" token="$2" pid
-  # bash's own elapsed-seconds counter, reset here. No `date` fork per poll, and no BSD/GNU split
-  # to get wrong — the two `date` arithmetic dialects are a documented scar in this repo.
-  SECONDS=0
-  while :; do
-    if m3_marker_mine "$token"; then
-      # THE PID DOES NOT OUTLIVE THE EVALUATION A WAITER CONSUMED. It was the only one of the
-      # three runner-state paths with no `rm` anywhere, so the steady state after every green
-      # milestone 3 was a dead pid sitting in the state dir waiting to be recycled into a join
-      # against an evaluation that ended hours ago.
-      rm -f "$M3_PID"
-      m3_replay_log
-      return "$M3_MARKER_RC"
-    fi
-    if ! m3_runner_live; then
-      # ONE GRACE RE-CHECK, and it is not belt-and-braces. The runner stamps the marker with its
-      # last statement and exits immediately after, so a runner observed gone between the two
-      # probes above may have stamped it in that gap — without this, a completed evaluation
-      # reports as a death on every fast lane.
-      sleep "$M3_POLL_SECS"
-      if ! m3_marker_mine "$token"; then
-        pid="$(m3_runner_pid)"
-        # Same reason as above, for the other terminal state a waiter reaches: the runner this
-        # pid names is gone, so leaving it on disk only feeds a later spurious join.
-        rm -f "$M3_PID"
-        m3_replay_log
-        warn "✗ milestone-3: the detached evaluation (pid ${pid:-unknown}) is gone and stamped no exit code — it did not complete, so NOTHING was evaluated and no fix attempt was charged."
-        warn "  Re-invoke \`bash G 3 $ISSUE\`: that relaunches a dead runner, or joins a live one. Whatever it printed is above, and in $M3_LOG."
-        return 7
-      fi
-      continue
-    fi
-    if [ "$SECONDS" -ge "$ceiling" ]; then
-      pid="$(m3_runner_pid)"
-      m3_replay_log
-      warn "✗ milestone-3: still running after ${SECONDS}s, past the ${ceiling}s ceiling (LEAN_GATE_WAIT_CEILING_SECS) — giving up on the WAIT, not on the evaluation."
-      warn "  Runner pid ${pid:-unknown} is still alive and is NOT killed here. Re-invoking from THIS session rejoins it while it runs; once it finishes, its answer belongs to no waiter and the next call evaluates afresh. Across a turn boundary that rejoin needs LEAN_GATE_M3_NEW_SESSION=1 — without it the runner is torn down with the session that launched it (#539), so a later session finds nothing to rejoin. \`kill\` that pid to stop it. Nothing was evaluated and no fix attempt was charged."
-      return 7
-    fi
-    sleep "$M3_POLL_SECS"
-  done
-}
-
-# THE DETACHED EVALUATION ITSELF — the only place cmd_3 is called on a recording path. It writes
-# exactly ONE started/concluded pair per real evaluation (D-9), then stamps its code into the
-# marker every attached waiter is blocked on.
-#
-# The unclosed check is deliberately NOT repeated here: the waiter made it before launching, and a
-# runner that re-announced would print the notice into a log nobody reads first.
-#
-# THE STAMP IS THE LAST STATEMENT, and its absence is load-bearing. A runner killed mid-sweep, or
-# one that `envfail`s out from under itself, leaves no marker — which is exactly D-3's "did not
-# complete", reported as rc=7 with this log replayed rather than as a milestone failure. Written
-# via a tmp + `mv` so a waiter can never read a half-written code.
-#
-# THE STAMP CARRIES THE LAUNCH TOKEN, not the code alone. On the DEFAULT path `$M3_TOKEN` is a
-# plain shell variable minted before the fork, so the subshell already has it and no `export` is
-# involved. On the escape path this is a fresh process and the token arrives on argv as
-# `--m3-token`, which cmd_m3_run assigns into the same variable before calling this — one runner
-# body, one place the marker is written. Its own pid is not usable as an identity either way: `$$`
-# in a subshell is the PARENT's pid, and `$BASHPID` is bash 4+, which the stock 3.2 macOS CI lane
-# does not have.
-m3_run_detached() {
-  local r_rc
-  append_started 3
-  cmd_3; r_rc=$?
-  append_concluded 3 "$r_rc"
-  printf '%s %s\n' "$M3_TOKEN" "$r_rc" > "$M3_RC.tmp" && mv "$M3_RC.tmp" "$M3_RC"
-  return "$r_rc"
-}
-
-# #539 AC-1. THE ESCAPE PATH'S RUNNER, and the only caller of m3_run_detached that is a whole
-# process rather than a subshell. Everything it needs it re-derives the way any other invocation
-# does — REPO_ROOT from the cwd the exec preserved, so m3_paths hashes the same key its launcher
-# did, and the config from the same env. The one thing it cannot re-derive is WHICH LAUNCH it is,
-# and that is the token on argv.
-#
-# NOT IN require_entry_attested's SET. The launching call is a build-role subcommand and has
-# already passed it against this same file; re-asserting it here could only fail for a reason the
-# launcher ruled out one process ago, and the failure would be silent — an `exit 2` before the
-# marker is stamped is indistinguishable to a waiter from a runner that died mid-sweep, so the
-# operator would be sent to re-invoke against a condition re-invoking cannot clear.
-cmd_m3_run() {
-  m3_paths
-  M3_TOKEN="$M3_RUN_TOKEN"
-  m3_run_detached
-  return $?
-}
-
-# #539 AC-1. THE ESCAPE'S SPAWN. Three things happen in one process and the order matters: python
-# is forked into the background (so it is not a process-group leader and `setsid()` can succeed),
-# it calls `setsid(2)` (new session, new group, and — with no controlling terminal — nothing left
-# for a session-directed teardown to address), then it `execv`s bash on THIS file. The exec keeps
-# the pid, so `$!` below names the runner itself and not a wrapper that has already gone; and
-# `kill -9 -<pid>` addresses the whole sweep tree, because the runner is its group's leader.
-#
-# THE INTERPRETER IS RESOLVED FIRST AND THE FAILURE IS AN ENVFAIL. A seam that silently falls back
-# to the default path would be a consumer thinking it has the escape and getting today's shape, and
-# the symptom — a dead runner at turn end — is precisely what the seam was turned on to stop.
-#
-# ARGV, NOT ENV, for the token: see the runner-handshake note in the header's Seams block.
-# `--issue-file` is forwarded because milestone 1 is the only reader of it and the runner never
-# reaches milestone 1 — but the suite drives whole `all` progressions through this path, and a
-# runner that refused an unforwarded flag would fail for a reason that has nothing to do with the
-# tree under evaluation.
-M3_SPAWNED_PID=""
-m3_spawn_new_session() {
-  local py
-  py="${LEAN_GATE_PYTHON:-python3}"
-  command -v "$py" >/dev/null 2>&1 \
-    || envfail "LEAN_GATE_M3_NEW_SESSION=1 needs '$py' to reach setsid(2) — the escape has no shell-only form, and falling back to the default spawn would hand back a runner that dies at turn end while reporting the escape. Install it, point LEAN_GATE_PYTHON at one, or unset the seam."
-  local -a fwd=()
-  [ -n "${ISSUE_FILE:-}" ] && fwd=(--issue-file "$ISSUE_FILE")
-  "$py" -c 'import os, sys; os.setsid(); os.execv(sys.argv[1], sys.argv[1:])' \
-    "$BASH" "$0" m3-run "$ISSUE" --m3-token "$M3_TOKEN" "${fwd[@]+"${fwd[@]}"}" \
-    </dev/null >"$M3_LOG" 2>&1 &
-  M3_SPAWNED_PID=$!
-  disown "$M3_SPAWNED_PID" 2>/dev/null
-}
-
-# D-1's decision, in one predicate: a LIVE runner is joined, anything else is relaunched. There is
-# no lock — the pid's own liveness is the authority, and it is self-healing in a way a lock file
-# is not (a launcher killed while holding one wedges every later call). The window it accepts is
-# the sub-millisecond gap between the spawn below and the pidfile write on the next line; the
-# arrivals this exists to serialize are a re-spawned session and a rejoining waiter, seconds to
-# minutes apart. That is the same posture run_milestone's OR-1 note already takes on concurrency.
-m3_launch_or_join() {
-  m3_paths
-  local dir pid ceiling
-  dir="$(dirname "$M3_BASE")"
-  [ -d "$dir" ] || mkdir -p "$dir" || envfail "cannot create the milestone-3 runner dir '$dir'."
-
-  # RESOLVED BEFORE ANYTHING IS SPAWNED. A typo in either seam is a usage error, and validating it
-  # inside the wait would announce it only after leaving a detached evaluation with no waiter.
-  #
-  # #539: which DEFAULT applies is the escape seam's; LEAN_GATE_WAIT_CEILING_SECS outranks both, so
-  # an operator or the suite still names one number and gets it on either path.
-  if m3_new_session; then
-    ceiling="${LEAN_GATE_WAIT_CEILING_SECS:-$M3_WAIT_CEILING_ESCAPE_DEFAULT}"
-  else
-    ceiling="${LEAN_GATE_WAIT_CEILING_SECS:-$M3_WAIT_CEILING_DEFAULT}"
-  fi
-  case "$ceiling" in
-    ''|*[!0-9]*) envfail "LEAN_GATE_WAIT_CEILING_SECS must be a whole number of seconds, got '$ceiling'." ;;
-  esac
-  [ "$ceiling" -gt 0 ] \
-    || envfail "LEAN_GATE_WAIT_CEILING_SECS must be greater than 0, got '$ceiling'."
-
-  if m3_joinable; then
-    pid="$(m3_runner_pid)"
-    # D-9: A JOIN WRITES NOTHING. #497 defines the unclosed diff as "evaluations that began and
-    # never returned"; a join is not an evaluation beginning, and counting it would walk an
-    # honestly-waiting run into INTERRUPTED_BUDGET.
-    say "milestone-3: an evaluation is already running in this worktree (pid $pid) — JOINING it rather than launching a second. Nothing is recorded for a join."
-    say "  runner state: $M3_BASE.{pid,rc,log}"
-    # THE JOINED RUNNER'S OWN TOKEN, read off its record by the m3_runner_live above — never this
-    # process's. A join waits for the marker THAT evaluation will stamp, so a marker already on
-    # disk from an earlier one cannot end this wait.
-    m3_wait "$ceiling" "$M3_R_TOKEN"
-    return $?
-  fi
-
-  # THE LAUNCH TOKEN, minted before anything is spawned so the forked subshell inherits it as an
-  # ordinary shell variable. `$$` distinguishes gate processes, the counter distinguishes launches
-  # within one, and `$RANDOM` covers a later process that reuses this pid and starts counting at 1
-  # again. No fork and no `date`: a command substitution here could not increment the counter in
-  # this shell anyway.
-  M3_LAUNCH_SEQ=$((M3_LAUNCH_SEQ + 1))
-  M3_TOKEN="$$-$M3_LAUNCH_SEQ-$RANDOM"
-
-  # THE STALE MARKER IS REMOVED BEFORE THE SPAWN, never after — hygiene now rather than the
-  # correctness guard it once was, since m3_marker_mine already refuses a marker this launch did
-  # not stamp. Leaving one on disk would still leave the state dir describing an evaluation that
-  # no longer exists, and clears the log the next waiter replays.
-  rm -f "$M3_RC" "$M3_RC.tmp" "$M3_LOG"
-  # THE DEFAULT PATH: A FORKED SUBSHELL, not a re-exec of this script. Two properties, both paid
-  # for:
-  #   — Nothing to inherit. A re-exec needs a handshake saying "you are the runner", and the first
-  #     shape of that was an env var, which milestone 3's own lane children inherited (this repo's
-  #     lane children ARE lean-gate.sh) and every nested milestone-3 call ran inline. A subshell
-  #     already knows; there is no flag for a grandchild to pick up.
-  #   — Nothing to re-parse. A re-exec re-reads the config through a dozen `jq` forks and
-  #     re-resolves the git roots to reach a function this process already has loaded. That was
-  #     recorded here as 1.4s of a 1.9s per-call overhead, enough to push the paired suite past the
-  #     mutation sweep's 300s killer bound; #539 re-measured it at `real 0.09–0.10` over five
-  #     consecutive full startups, ~15x off and reproduced twice. The suite-cost half of that
-  #     rejection does not follow from 0.09s. The INHERITANCE half above does still stand, and
-  #     `m3-run` is what answers it.
-  # `trap '' HUP` in place of `nohup`, which needs an external command to exec. `disown` is
-  # best-effort; the HUP half is the trap's.
-  #
-  # NEITHER OF THESE SURVIVES TURN END, and no amount of detaching inside the launcher's session
-  # will: the harness teardown is session-directed (see the note above M3_WAIT_CEILING_DEFAULT).
-  # `setsid` as a COMMAND is not the escape either — it does not exist on macOS, and adding it makes
-  # the launch report a pid while the runner never starts. `setsid(2)` as a SYSCALL is, which is
-  # what the branch below reaches through python3 and why that branch is a re-exec at all: the
-  # payload has to be an `execv`able program, and a shell function is not one.
-  if m3_new_session; then
-    m3_spawn_new_session
-    pid="$M3_SPAWNED_PID"
-  else
-    ( trap '' HUP; m3_run_detached ) </dev/null >"$M3_LOG" 2>&1 &
-    pid=$!
-    disown "$pid" 2>/dev/null
-  fi
-  printf '%s %s\n' "$pid" "$M3_TOKEN" > "$M3_PID.tmp" && mv "$M3_PID.tmp" "$M3_PID"
-  # THE CEILING AND THE SPAWN SHAPE ARE ANNOUNCED, not left to be inferred from which default the
-  # reader assumes is in force. Two seams now decide how long this call can block and whether the
-  # runner outlives the session, and an operator reading a `rc=7` an hour later needs to know which
-  # pair was in effect. It is also the only cheap observable the suite has for the escape path's
-  # 300s default — the alternative is a case that waits it out.
-  say "milestone-3: evaluation spawned detached (pid $pid, $( m3_new_session && printf 'own session' || printf 'this session' ), ceiling ${ceiling}s) — this call BLOCKS on it and cannot be backgrounded away (#511). Its output is replayed here when it lands."
-  # NAMED, not left to be re-derived. An operator whose waiter was reaped needs the log to see how
-  # far the evaluation got and the pid to stop it; and the selftest needs the same three paths,
-  # where re-deriving the key would be a hand-maintained copy of m3_paths that cannot fail when
-  # m3_paths changes. Production says where it put them.
-  say "  runner state: $M3_BASE.{pid,rc,log}"
-  m3_wait "$ceiling" "$M3_TOKEN"
-  return $?
-}
-
 # extraLanes `when` glob match — bash pattern matching (NOT globstar, NOT git pathspec),
 # the dialect this gate inherited (AC-4): `*`
 # crosses `/`, so `**` buys nothing extra and a bare directory literal never matches a file
@@ -4608,11 +3947,11 @@ lane_failure_class() { # lane_failure_class <lane-rc> — the class fail_milesto
 
 cmd_3() {
   local cmd rc any_verifying=0
-  # #526. BEFORE the first lane child of any kind, since the whole point is that every one of
-  # them inherits the ceiling — the setup lanes below, the fixed keys, extraLanes, and the
-  # render pre-command cmd_3_render runs at the end.
-  lane_apply_job_ceiling
-  # #563. Beside the ceiling and before the same first child, for the same inheritance reason.
+  # #563. BEFORE the first lane child of any kind, since the whole point is that every one of
+  # them inherits the cache store this appends to SEAM_SCRUB_ENV — the setup lanes below, the
+  # fixed keys, extraLanes, and the render pre-command cmd_3_render runs at the end. It stood
+  # beside #526's lane job ceiling here until #566 deleted that, so it is now the only ASSIGNMENT
+  # appended to SEAM_SCRUB_ENV — every other entry there is a `-u` scrub.
   lane_apply_selftest_cache
   # lanes[] setup steps first, when present. Shape is {name, cwd?, commands[]} — the SAME
   # reader the previous runner used (its step 1), including the non-object backstop (#100): a lane
@@ -5738,9 +5077,10 @@ run_milestone() {
   # from an interrupted one — accepted, because the posture below is announce-not-refuse and
   # reaching the budget would need five simultaneous calls on one milestone.
   unclosed="$(unclosed_count "$n")"
-  # #527 D-7: milestone 3's own, larger bound. Resolved once, here, so the announce, the observe
-  # prediction and the refusal below cannot disagree about which budget this milestone is on.
-  budget="$(interrupted_budget_for "$n")"
+  # ONE bound for all five milestones since #566 retired milestone 3's larger one (see
+  # INTERRUPTED_BUDGET above). Still resolved once, here, so the announce, the observe prediction
+  # and the refusal below cannot disagree about which budget this milestone is on.
+  budget="$INTERRUPTED_BUDGET"
   if [ "$unclosed" -gt 0 ]; then
     # ANNOUNCE, NEVER REFUSE (D-4). An interrupted milestone is precisely the one a resuming
     # session must be able to re-run, and this is the call it makes: SKILL.md's Resume step says
@@ -5779,29 +5119,28 @@ run_milestone() {
     return 4
   fi
 
-  # #511 D-1/D-2: milestone 3 is the one evaluation long enough to outlive a turn, so it does not
-  # run in THIS process. The wrapper spawns it detached and blocks on its marker; the runner arm at
-  # the top of this function writes the started/concluded pair, because a JOIN must record nothing.
-  # Returning here rather than falling through is what keeps that pair single per evaluation.
-  if [ "$n" = "3" ]; then
-    m3_launch_or_join
-    return $?
-  fi
-
   # The append IS the flush: append_line is a single unbuffered `echo >>`, so ordering it before
   # the long work is the whole requirement (D-10). No trap closes this row on a signal (D-9) — the
   # design rests on the ABSENCE of a conclusion, a partial trap would make that absence mean two
   # different things, and SIGKILL cannot be trapped at all. An `exit` from inside a milestone body
   # (envfail) likewise leaves the row open, which is the honest record of what happened (D-12).
   append_started "$n"
-  # Milestone 3 is absent by construction — it returned above. A `*)` that fell through silently
-  # would turn a regression in that arm into a green milestone that never ran, so it envfails.
+  # #566 PUT MILESTONE 3 BACK IN THIS DISPATCH. Between #511 and #566 it was absent by
+  # construction — the arm above returned early into a detached launch-or-join wrapper, and a `3`
+  # arriving here meant that wrapper had regressed, so the `*)` envfailed rather than quietly
+  # running an evaluation the run's records did not describe. There is no wrapper now: milestone 3
+  # is an ordinary inline milestone like the other four, and it takes an ordinary arm.
+  #
+  # The `*)` STAYS, for the reason it was written. A milestone number with no arm must not fall
+  # through to a silent success — that would be a green milestone that never ran, which is the one
+  # failure this whole file exists to prevent.
   case "$n" in
     1) cmd_1 ;;
     2) cmd_2 ;;
+    3) cmd_3 ;;
     4) cmd_4 ;;
     5) cmd_5 ;;
-    *) envfail "run_milestone: milestone $n must not reach the inline dispatch" ;;
+    *) envfail "run_milestone: no dispatch arm for milestone $n" ;;
   esac
   rc=$?
   append_concluded "$n" "$rc"
@@ -6020,7 +5359,6 @@ case "$SUB" in
   delta)   cmd_delta ;;
   progress) cmd_progress ;;
   staleness) cmd_staleness ;;
-  m3-run) cmd_m3_run ;;
   verdict) cmd_verdict ;;
   all)     cmd_all ;;
   *)       run_milestone "$SUB" ;;
