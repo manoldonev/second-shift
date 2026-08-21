@@ -99,6 +99,47 @@ would under-state `EXPECTED` and red an honest sweep — and it is the normal ca
 `--full` does not read the table at all, so a stale or malformed row cannot red the sweep of
 record. Cases: `run-selftests-selftest.sh`'s `slow-table:` block.
 
+#### The bound on what the table did *not* defer
+
+The table's membership rule — *every suite at or above the declared threshold is listed, and
+re-measure when you change what a listed suite does* — used to be a sentence in its own header
+with nothing behind it. A suite that grew, or arrived untabled, walked the un-deferred sum back
+toward milestone 3's reap, where the lane is not slow but **unpassable**: nothing is detached, so
+a reaped call loses its work, and five of those hard-stop the run.
+
+`tools/check-sweep-bound.sh` is that rule as code. Measuring and judging are split:
+`run-selftests.sh` prints each suite's elapsed seconds on its existing frame line
+(`::group::pass  3s  path/to-selftest.sh`) and judges nothing, so its exit-code contract keeps
+meaning exactly what it meant. The checker sums the suites the table did *not* defer and compares
+that total to `tools/selftest-sweep-baseline.tsv`.
+
+| | |
+| --- | --- |
+| Reds on | the aggregate exceeding the committed baseline by more than its stated allowance |
+| Warns on | one un-tabled suite at or above the table's `# threshold-seconds` directive, aggregate still inside |
+| Also reds on | a log that is absent, whose elapsed fields do not parse, that names a suite discovery did not produce, or that covers only part of the un-deferred set |
+| Runs in | `nightly-guards.yml`'s ubuntu wholesale lane, and nowhere else |
+
+**A single suite over threshold is a warning, never a red.** One wall-clock sample of one suite is
+a range rather than a point — this repo has 319/438/584s recorded for the same unchanged tree — so
+staking a lane's status on it would buy flake. The aggregate is the quantity that actually breaks
+milestone 3, and it is the only thing that reds.
+
+**Nightly only, and one lane of it.** PR runners are noisier and a single slow-end sample would red
+an honest PR. The macos twin is left out for a different reason: the baseline is one committed
+number, and checking two machine classes against it would make it meaningless for both.
+
+**A sub-second suite is charged one whole second.** The consumer is a sum over ~60 suites, most of
+which finish instantly; rounding those to zero would let the set grow by half a minute without the
+total moving. Baseline and checked sum come through the same emitter, so they stay commensurable —
+the total is not the wall clock of a serial sweep and is not meant to be.
+
+**Re-baselining is an explicit reviewed commit.** Two numbers in
+`tools/selftest-sweep-baseline.tsv`, changed by hand, with the commit saying what was measured,
+when, and on which lane — never an automatic rewrite. The alternative remedy is to table the
+grower, which the red names beside it. Cases: `tools/check-sweep-bound-selftest.sh`, plus
+`run-selftests-selftest.sh`'s `#629/AC-1` block for the emitter.
+
 
 `SKIP_STRESS` is never set by the runner. The ubuntu lane omits it and the macos lane sets it;
 that asymmetry predates this script and is preserved, and the mutation baseline's environment

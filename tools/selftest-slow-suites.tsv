@@ -19,10 +19,17 @@
 # soundness.
 #
 # THE MEMBERSHIP RULE IS A MEASUREMENT, NOT A JUDGMENT: every suite in this tree was timed alone
-# on 2026-08-20 (67 suites, 603s serial), and every suite at or above 9s is listed. That leaves
-# 98s serial with a longest single suite of 8s, which is what makes the bound reachable. The
-# threshold is the whole rule — do not hand-pick around it, and re-measure when you change what a
-# listed suite does.
+# on 2026-08-20 (67 suites, 603s serial), and every suite at or above the threshold declared
+# below is listed. That left 98s serial with a longest single suite of 8s, which is what makes
+# the bound reachable. The threshold is the whole rule — do not hand-pick around it, and
+# re-measure when you change what a listed suite does.
+#
+# THAT LAST SENTENCE IS NO LONGER PROSE ALONE (#629). tools/check-sweep-bound.sh sums the
+# un-deferred suites' emitted elapsed on the nightly wholesale lane and reds when the total
+# drifts past tools/selftest-sweep-baseline.tsv by more than its stated allowance. A suite that
+# grows or arrives untabled therefore surfaces within a day instead of the day milestone 3 stops
+# passing. The threshold below is the one that check reads; it is declared as a directive rather
+# than restated in that file, so there is no second copy to drift.
 #
 # THIS IS A LOT OF DEFERRAL, and it should be read as a finding rather than a detail: on this tree
 # twelve suites carry 84% of the sweep's cost, and they are disproportionately the LANE'S OWN
@@ -33,6 +40,8 @@
 # A row naming no discovered suite is a HARD ERROR — the same stale-row posture --exclude,
 # install-topology-known-red.tsv and mutation-baseline.tsv already carry. A suite ABSENT from
 # this file is treated as fast.
+#
+# threshold-seconds	9
 #
 # selftest<TAB>seconds<TAB>reason
 tools/install-topology-selftest.sh	584	re-runs every shipped suite from a staged install cache, so it costs the whole suite set twice; 319/438/584s over three runs. Already nightly-only in CI, so this row aligns the local check with a deferral CI had made.
@@ -45,6 +54,6 @@ plugins/dev-pipeline/tools/retro-corpus-selftest.sh	22	measured 22s alone on 202
 plugins/second-shift/skills/onboard/tools/config-grill-selftest.sh	17	measured 17s alone on 2026-08-20 — at or above the 9s threshold this table applies.
 plugins/dev-pipeline/tools/preflight-selftest.sh	15	measured 15s alone on 2026-08-20 — at or above the 9s threshold this table applies.
 plugins/second-shift/skills/doctor/tools/doctor-selftest.sh	13	measured 13s alone on 2026-08-20 — at or above the 9s threshold this table applies.
-tools/run-selftests-selftest.sh	11	measured 11s alone on 2026-08-20 — at or above the 9s threshold this table applies.
+tools/run-selftests-selftest.sh	12	re-measured at 12s alone on 2026-08-21, after #629 added the elapsed-emitter case — at or above the threshold this table applies.
 plugins/dev-pipeline/skills/build-lean/lean-evidence-selftest.sh	11	measured 11s alone on 2026-08-20 — at or above the 9s threshold this table applies.
 plugins/dev-pipeline/skills/build-lean/lean-reconcile-selftest.sh	9	measured 9s alone on 2026-08-20 — at or above the 9s threshold this table applies.
