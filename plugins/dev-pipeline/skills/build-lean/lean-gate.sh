@@ -650,10 +650,13 @@ BRANCH_PREFIX="$(resolve_branch_prefix \
 # `--ticket-source` naming where it came from. Both are recorded; the branch name checks them.
 #
 # WHY THE BRANCH NAME AND NOT THE LANE REGISTRY (D-5). The gate is standing IN a tree whose
-# identity its own branch asserts, whereas `lean-lanes.tsv` is one machine-global file every
-# worktree of every lane shares — it can be stale, and a second declaration of a fact the checkout
-# already carries is the shape that goes blind rather than red. `--ticket-source lane-registry` is
-# therefore accepted and recorded, and still checked against the branch: a disagreement refuses.
+# identity its own branch asserts, whereas the lane registry `lean-lanes.tsv` was one
+# machine-global file every worktree of every lane shared — it could be stale, and a second
+# declaration of a fact the checkout already carries is the shape that goes blind rather than red.
+# #566 RETIRED that registry outright, and this arm outlives it deliberately: `lane-registry` is
+# now a caller-asserted provenance LABEL and nothing more. It is accepted and recorded, and still
+# checked against the branch — a disagreement refuses — but no file backs the claim, so a caller
+# passing it is asserting where its key came from, not citing a source the gate could consult.
 #
 # ORDER, and why it is here rather than at dispatch. The cheap arms run BEFORE the pinned name
 # table below, because every path there is `$ISSUE`-derived — with an empty key the run-id cache
@@ -3891,10 +3894,11 @@ lane_failure_class() { # lane_failure_class <lane-rc> — the class fail_milesto
 
 cmd_3() {
   local cmd rc any_verifying=0
-  # #526. BEFORE the first lane child of any kind, since the whole point is that every one of
-  # them inherits the ceiling — the setup lanes below, the fixed keys, extraLanes, and the
-  # render pre-command cmd_3_render runs at the end.
-  # #563. Beside the ceiling and before the same first child, for the same inheritance reason.
+  # #563. BEFORE the first lane child of any kind, since the whole point is that every one of
+  # them inherits the cache store this appends to SEAM_SCRUB_ENV — the setup lanes below, the
+  # fixed keys, extraLanes, and the render pre-command cmd_3_render runs at the end. It stood
+  # beside #526's lane job ceiling here until #566 deleted that, so it is now the only ASSIGNMENT
+  # appended to SEAM_SCRUB_ENV — every other entry there is a `-u` scrub.
   lane_apply_selftest_cache
   # lanes[] setup steps first, when present. Shape is {name, cwd?, commands[]} — the SAME
   # reader the previous runner used (its step 1), including the non-object backstop (#100): a lane

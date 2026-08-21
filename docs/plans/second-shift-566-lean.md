@@ -46,6 +46,16 @@ The ticket's four spec defects, found at intake and binding here:
   `CHANGELOG.md` and `docs/plans/**` — never live code, selftests, workflows or the register
   TSVs. `lane-registry.sh` and `lane-registry-selftest.sh` are deleted.
 
+  **Amended in round 3, and it STRENGTHENS the check.** The 23 identifiers above are all names of
+  *code*. Round 2's B-1 was a consumer that spelled the coupling as the ARTIFACT — a
+  `lean-lanes.tsv` path default in `tools/gate-ablation.sh`, arriving from the base merge, which no
+  token on that list could see. The grep therefore also covers `lean-lanes.tsv` and `live_lanes`,
+  and no live match may be a COUPLING. Two live matches are permitted and both are named here:
+  `tools/gate-ablation-selftest.sh` case `(q)`, which writes a `lean-lanes.tsv` into a fixture
+  state dir on purpose, to assert that a stale registry left over on a real machine excludes
+  nothing; and `lean-gate.sh`'s D-5 paragraph, which names the retired registry in the PAST tense
+  to explain why `--ticket-source lane-registry` survives as a caller-asserted label.
+
 - **AC-3**: WHEN the bounded quick check reds THEN exactly one milestone-3 fix attempt is
   charged, and the existing budget-exhaustion behavior (`rc=4` on the 4th red) is preserved.
   Proven by selftest.

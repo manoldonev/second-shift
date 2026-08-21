@@ -83,6 +83,11 @@ bash tools/gate-ablation.sh emit      # print the block
 bash tools/gate-ablation.sh manifest --exclude <live lanes>   # re-cut the corpus pin
 ```
 
+`--exclude` is the only exclusion source, so **name every lane that is in flight when you re-cut**.
+The pin committed here was cut against three (`546 609 611`); two of them were found automatically,
+by a lane registry that #566 retired along with milestone 3's supervision stratum. A lane you forget
+is not silently dropped — its record joins the corpus and the next `emit` refuses on its drift.
+
 `emit` verifies every manifest row against the live corpus and **exits 3 naming any record that
 drifted or went missing**, so a regeneration either reproduces the tables byte-for-byte or says which
 record moved. It also exits 4 if its own output carries a session id or an absolute local path.
