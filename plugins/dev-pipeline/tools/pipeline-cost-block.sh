@@ -232,7 +232,16 @@ REVIEW_SESSION_INCLUDED=0
 
 if [ -n "$ARG_ISSUE" ]; then
   case "$ARG_ISSUE" in
-    ''|*[!0-9]*) log "--issue takes an issue number, got '$ARG_ISSUE'"; exit 2 ;;
+    # THE KEY SHAPE IS THE TRACKER'S, NOT GITHUB'S — the same class #634 widened in
+    # operator-override.sh, missed here. This was `[!0-9]` — numbers only — so under a
+    # non-numeric tracker the lean lane's close-out could never publish a figure: the gate
+    # passes the run's own ticket key straight through, and every one of those keys was
+    # rejected as malformed. The value is a record-path component and a JSON string here
+    # (the cost-log row already calls it `ticketKey`), never a number, so nothing downstream
+    # wanted digits in the first place.
+    # STILL CLOSED, and deliberately: `/` stays out, because ARG_ISSUE is interpolated into
+    # the progress record's path, and the empty case stays a usage error.
+    ''|*[!0-9A-Za-z._-]*) log "--issue takes an issue key, got '$ARG_ISSUE'"; exit 2 ;;
   esac
   [ -n "$MAIN_ROOT" ] \
     || { log "--issue $ARG_ISSUE: not in a git repo, so the lean progress record is unresolvable — pass --sessions/--start/--end instead"; exit 2; }
