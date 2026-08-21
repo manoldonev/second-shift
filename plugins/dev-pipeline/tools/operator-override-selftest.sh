@@ -191,13 +191,14 @@ else fail "(l) lint reported $rc violation(s) on a tool-written record: $out"; f
 # reading of the same assertion.
 REC_BEFORE="$(cksum < "$RECORD")"
 
-# (u1) --issue is interpolated straight into the record's PATH. A traversal-shaped value used to
-# write a well-formed record outside plansDir and only then refuse.
+# (u1) --issue is interpolated straight into the record's PATH, so a traversal-shaped value used to
+# land a well-formed record outside plansDir and only then refuse. `issue:` is a key the reader
+# already rejects, so what fixes this is the staging, not a second check on the argument.
 out="$(ov r1 s1 '' record --gate intake-unqueued --scope intake-attestation --issue '../../escaped' \
         --decision d --answer a --repo-root "$REPO" 2>&1)"; rc=$?
 STRAY="$(find "$WORK" -name '*escaped*lean-override.md' 2>/dev/null | head -1)"
 if [ "$rc" -eq 2 ] && grep -q 'ticket number' <<<"$out" && [ -z "$STRAY" ]; then
-  pass "(u1) a traversal-shaped --issue is refused BEFORE it reaches a path — no record lands anywhere"
+  pass "(u1) a traversal-shaped --issue is refused with no record anywhere — the path it named was never written"
 else fail "(u1) expected rc 2 and no stray record, got rc=$rc, stray='$STRAY': $out"; fi
 
 # (u2) ...and a typo'd --gate lands in the RIGHT file, which is the costlier half: the block is

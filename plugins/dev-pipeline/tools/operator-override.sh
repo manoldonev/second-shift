@@ -293,14 +293,6 @@ cmd_record() {
   [ -n "$decision" ] || envfail "record: --decision is required — one line saying what the operator decided."
   [ -n "$answer" ] || envfail "record: --answer is required — the operator's stated answer, quoted verbatim. Paraphrasing it is the fabrication this record exists to prevent."
 
-  # THE TICKET NUMBER IS CHECKED BEFORE IT REACHES A PATH. The parse below reads the artifact and
-  # not the arguments, which is what makes it authoritative — but it cannot see WHERE the artifact
-  # landed, and record_path interpolates this value straight into that path. A traversal-shaped
-  # --issue writes a perfectly well-formed record somewhere nothing will ever read it.
-  case "$issue" in
-    ''|*[!0-9]*) envfail "record: --issue must be a ticket number, got '${issue:-<none>}' — it is interpolated into the record's path." ;;
-  esac
-
   path="$(record_path "$root" "$issue")"
   n=$(( $(override_parse_blocks "$path" | wc -l | tr -d ' ') + 1 ))
 
@@ -312,6 +304,13 @@ cmd_record() {
   # than this one — a typo'd --gate left an unreadable block in the right file, and every later
   # `check` for that issue returned 2 until a human hand-edited it. A tool must not create the
   # artifact that blocks the lane.
+  #
+  # THIS IS ALSO WHAT HOLDS THE PATH, which is why no separate check on `--issue` sits above.
+  # record_path interpolates that value straight into the record's location, so a traversal-shaped
+  # one used to land a well-formed record outside plansDir — but `issue:` is a key the reader
+  # already rejects, and nothing is created until the read comes back clean. An argument guard
+  # here would be a second answer to a question this one already answers, and (u1) proved it
+  # unkillable: deleted, every case stayed green.
   staged="$(mktemp -t leanoverride.XXXXXX)" || envfail "record: cannot create a temp file to stage the block."
   # shellcheck disable=SC2064  # expanded NOW on purpose: the trap has to name this file, not a
   # variable a later caller may have reassigned.
