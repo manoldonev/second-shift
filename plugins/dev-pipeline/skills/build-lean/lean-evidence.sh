@@ -129,7 +129,7 @@
 # Usage:
 #   lean-evidence.sh classify              print applicable/trigger/key/spec_in_diff, exit 0
 #   lean-evidence.sh check --key N         run the arms against an already-resolved key
-#              [--arms verdict,identity,freshness,intent-gap]   default: all four
+#              [--arms verdict,identity,freshness,intent-gap,override]   default: all five
 #   lean-evidence.sh [all]                 classify, then check every arm (the consumer form)
 #
 # Exit 0 = pass or not-applicable; 1 = evidence violation; 2 = usage/environment error.
@@ -145,7 +145,7 @@ DIFF_FILES_FILE=""
 VIOLATIONS_FILE=""
 SUB=""
 KEY=""
-ARMS="verdict,identity,freshness,intent-gap"
+ARMS="verdict,identity,freshness,intent-gap,override"
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -346,6 +346,9 @@ LEAN_SPEC_SUFFIX='-lean.md'
 LEAN_VERDICT_SUFFIX='-lean-verdict.md'
 # LOCKSTEP-END lean-verdict-suffix
 LEAN_INTENT_GAP_SUFFIX='-lean-intent-gap.md'
+# #613. Same suffix operator-override.sh's record_path() builds; the two are held apart only by
+# this literal, exactly as the intent-gap suffix is.
+LEAN_OVERRIDE_SUFFIX='-lean-override.md'
 
 # LOCKSTEP-BEGIN lean-pr-marker
 # The PR marker's stage token. WRITTEN by lean-gate.sh's `mark` subcommand, READ by the
@@ -971,6 +974,128 @@ arm_intent_gap() {
   fi
 }
 
+# ---------------------------------------------------------------- arm 5: operator overrides (#613)
+# THE YIELD'S EVIDENCE, checked at the boundary. A gate that yielded to an attended operator did
+# so on the strength of a record quoting that operator's answer; this is where the record is held
+# to its own schema, so a run cannot yield on an artifact nobody could read afterwards.
+#
+# WHAT THIS ARM DOES NOT DO. It does not re-decide whether the yield was WARRANTED — that is the
+# reviewer's call, and the whole point of committing the record is that a human can repudiate it
+# in the PR. Nor does it evaluate the PERSISTENT register's expiry: that needs a tracker read, and
+# the gate that consults a row is both where the read is cheap and where the refusal is
+# actionable. Here the record's own `expiry: run` is validated, which is AC-5's subject.
+#
+# Absence is class (a): most runs record no override at all.
+# LOCKSTEP-BEGIN override-record-reader verbatim
+# The CLOSED enums. Widening either is the phase-2 work #613 defers, and an unknown value is an
+# ERROR rather than a silent miss: a gate name nobody implements must not read as "no override
+# exists", which is the fail-open this whole mechanism is built against.
+OVERRIDE_GATES='intake-unqueued spec-open-region'
+OVERRIDE_SCOPES='intake-attestation open-region-resolution'
+
+# The gate that is region-scoped. A region is REQUIRED for it and forbidden for the other: an
+# open-region override that named no region would clear every region on the ticket at once.
+OVERRIDE_REGION_SCOPED_GATE='spec-open-region'
+
+# The register is at a FIXED path, deliberately unlike every other artifact here. The merge
+# boundary reads it and the merge boundary has no config — the same reasoning check-lean-chain.sh
+# already applies to its own constants.
+OVERRIDE_REGISTER_REL='.claude/lean-overrides.tsv'
+
+override_in_enum() { # override_in_enum <value> <space-separated set>
+  case " $2 " in *" $1 "*) return 0 ;; esac
+  return 1
+}
+
+# Every block, one TAB-separated line, keys read FIRST-MATCH WITHIN THE BLOCK. Per-block and not
+# per-file because one run can yield at two different gates, and a single file-wide first-match
+# header could only ever name one of them.
+#
+# `answers` counts non-empty quoted lines under `### Operator answer`: a record whose quote is
+# missing is a decision nobody stated, which is the thing this record exists to carry.
+#
+# THE SEPARATOR IS \037, NOT A TAB, and that is a correctness fix rather than a taste one. Tab is
+# an IFS-WHITESPACE character in bash, so `IFS=<tab> read` collapses a run of them into ONE
+# delimiter: an empty middle field silently shifts every field after it, and the reader then
+# reports a violation about the wrong key. Measured on the first draft — a record with an empty
+# `run_id:` was reported as carrying `expiry: 1`.
+override_parse_blocks() { # override_parse_blocks <file>
+  [ -f "$1" ] || return 0
+  awk '
+    function flush() {
+      if (!inblk) return
+      printf "%s\037%s\037%s\037%s\037%s\037%s\037%s\037%s\037%s\n", g, sc, is, rg, ri, si, ex, (dc == "" ? 0 : 1), ans
+    }
+    function reset() { g=""; sc=""; is=""; rg=""; ri=""; si=""; ex=""; dc=""; ans=0; inans=0 }
+    /^##[[:space:]]+Override[[:space:]]/ { flush(); reset(); inblk=1; next }
+    !inblk { next }
+    /^###[[:space:]]+Operator answer[[:space:]]*$/ { inans=1; next }
+    /^###[[:space:]]/ { inans=0 }
+    inans && /^>[[:space:]]*[^[:space:]]/ { ans++ }
+    inans { next }
+    {
+      if (match($0, /^[a-z_]+:[[:space:]]*/)) {
+        k = substr($0, 1, index($0, ":") - 1)
+        v = substr($0, RLENGTH + 1)
+        sub(/[[:space:]]+$/, "", v)
+        if (k == "gate"       && g  == "") g  = v
+        if (k == "scope"      && sc == "") sc = v
+        if (k == "issue"      && is == "") is = v
+        if (k == "region"     && rg == "") rg = v
+        if (k == "run_id"     && ri == "") ri = v
+        if (k == "session_id" && si == "") si = v
+        if (k == "expiry"     && ex == "") ex = v
+        if (k == "decision"   && dc == "") dc = v
+      }
+    }
+    END { flush() }
+  ' "$1"
+}
+
+# One rule set, two callers: `check` uses it to decide MALFORMED (rc 2), `lint` to count
+# violations. A second copy would be two answers to "is this record well-formed", and the merge
+# boundary's answer is the one that has to match the gate's.
+override_block_violation() { # override_block_violation <tsv-line> — prints a reason, or nothing when clean
+  local g sc is rg ri si ex dc ans
+  IFS="$(printf '\037')" read -r g sc is rg ri si ex dc ans <<EOF
+$1
+EOF
+  override_in_enum "$g" "$OVERRIDE_GATES"   || { echo "gate '${g:-<none>}' is not one of: $OVERRIDE_GATES"; return; }
+  override_in_enum "$sc" "$OVERRIDE_SCOPES" || { echo "scope '${sc:-<none>}' is not one of: $OVERRIDE_SCOPES"; return; }
+  case "$is" in ''|*[!0-9]*) echo "issue '${is:-<none>}' is not a ticket number"; return ;; esac
+  if [ "$g" = "$OVERRIDE_REGION_SCOPED_GATE" ]; then
+    case "$rg" in
+      OR-[0-9]*) : ;;
+      *) echo "gate '$g' is region-scoped but region reads '${rg:-<none>}' — an override naming no region would clear every open region on the ticket at once"; return ;;
+    esac
+  elif [ "$rg" != "none" ]; then
+    echo "gate '$g' is not region-scoped, so region must read 'none', not '${rg:-<none>}'"; return
+  fi
+  [ -n "$ri" ] || { echo "run_id is empty — the override binds to run identity"; return; }
+  [ -n "$si" ] || { echo "session_id is empty — nothing names the session that recorded it"; return; }
+  [ "$ex" = "run" ] || { echo "expiry '${ex:-<none>}' — a per-issue record carries only 'run'; a persistent override belongs in $OVERRIDE_REGISTER_REL with an explicit expiry"; return; }
+  [ "$dc" = "1" ] || { echo "decision is empty"; return; }
+  [ "${ans:-0}" -ge 1 ] || { echo "no quoted operator answer under '### Operator answer' — a decision nobody stated is not an override"; return; }
+}
+# LOCKSTEP-END override-record-reader
+
+arm_override() {
+  local rec line why
+  rec="$(find_artifact "$KEY" "$LEAN_OVERRIDE_SUFFIX")" || rec=""
+  [ -n "$rec" ] || return 0
+  if [ -z "$(override_parse_blocks "$REPO_ROOT/$rec")" ]; then
+    note_violation "override record '$rec' declares no '## Override n' block — a record with no override in it is not evidence of anything, and something wrote it."
+    return 0
+  fi
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    why="$(override_block_violation "$line")"
+    [ -z "$why" ] || note_violation "override record '$rec': $why. A gate yielded on this record; it has to be readable by the boundary that is being asked to trust it."
+  done <<EOF
+$(override_parse_blocks "$REPO_ROOT/$rec")
+EOF
+}
+
 # ---------------------------------------------------------------- dispatch
 emit_count() {
   [ -n "$VIOLATIONS_FILE" ] || return 0
@@ -984,6 +1109,7 @@ run_arms() {
   case ",$ARMS," in *,identity,*)    arm_identity ;; esac
   case ",$ARMS," in *,freshness,*)   arm_freshness ;; esac
   case ",$ARMS," in *,intent-gap,*)  arm_intent_gap ;; esac
+  case ",$ARMS," in *,override,*)    arm_override ;; esac
   emit_count
   if [ "$violations" -gt 0 ]; then
     echo "[lean-evidence] ✗ $violations evidence artifact(s) missing for the lean PR on #$KEY." >&2

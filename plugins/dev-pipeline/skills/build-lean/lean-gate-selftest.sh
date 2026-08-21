@@ -196,6 +196,11 @@ gate() { # gate <args...>  — always from inside the fixture tree
     # shellcheck disable=SC2030,SC2031  # subshell-local is the point: the identity must reach
     # this one gate invocation and no other, exactly like the unset it re-opens.
     [ -n "$BUILD_SID" ] && export CLAUDE_CODE_SESSION_ID="$BUILD_SID"
+    # #613's twin of the line above, and opt-in for the same reason: attendance binds to BOTH
+    # identities, so an attended case needs the run id past the unset as well. Empty everywhere
+    # else, which is what keeps every other case's `headless` reading a real assertion.
+    # shellcheck disable=SC2030,SC2031
+    [ -n "$BUILD_RID" ] && export RUN_ID="$BUILD_RID"
     cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" \
     bash "$GATE" --issue-file "$ISSUE_NOREGIONS" "$@" 2>&1 )
 }
@@ -206,6 +211,7 @@ gate() { # gate <args...>  — always from inside the fixture tree
 # argues for. Set per call via `bgate`, never globally: a suite-wide session id would restore
 # exactly the ambient leak that cost (v6) a review round.
 BUILD_SID=""
+BUILD_RID=""
 bgate() { BUILD_SID="$ENTRY_SID" gate "$@"; }
 # Capture-then-default, NOT `grep -cF ... || echo 0`: on zero matches `grep -c` prints "0" AND
 # exits 1, so the `||` fires too and the helper emits "0\n0" — which every `-eq 0` comparison
@@ -2141,6 +2147,108 @@ rm -f "$TREE/.claude/pipeline-state/7-ledger.md"
 if [ "$rc" -eq 2 ] && grep -q 'could not read pre-flight ledger' <<<"$out" && [ "$before" = "$after" ]; then
   pass "(y18) AC-4: an unreadable ledger at the default path is an environment refusal (rc=2), not a clear and not a fix attempt"
 else fail "(y18) expected rc=2 naming 'could not read pre-flight ledger' with attempts unchanged ($before), got rc=$rc attempts=$after: $out"; fi
+reset_progress
+
+# ---- (yo) #613 AC-4: the operator-override route through the same refusal --------------------
+# THE THIRD RESOLUTION ARTIFACT. (y3) covers the tracker comment and (y4) the ratified intent-gap
+# record; these cover an override recorded by a present operator. The pairing that matters is
+# (yo3)/(yo4): the token changes what the refusal SAYS and never what it decides.
+OVT="$HERE/../../tools/operator-override.sh"
+OV_REC="$TREE/docs/plans/acme-7-lean-override.md"
+OV_SID="ov-attend-session"
+OV_RID="ov-attend-run"
+ov_attend() {
+  ( cd "$TREE" && env RUN_ID="$OV_RID" CLAUDE_CODE_SESSION_ID="$OV_SID" SECOND_SHIFT_CONFIG="$CFG" \
+      bash "$OVT" attend ) >/dev/null 2>&1
+}
+ov_write() { # ov_write <region>
+  ( cd "$TREE" && env RUN_ID="$OV_RID" CLAUDE_CODE_SESSION_ID="$OV_SID" SECOND_SHIFT_CONFIG="$CFG" \
+      bash "$OVT" record --gate spec-open-region --scope open-region-resolution --issue 7 \
+      --region "$1" --decision 'append-only, per the operator' --answer 'Append-only. Ship it.' \
+      --repo-root "$TREE" ) >/dev/null 2>&1
+}
+ov_clear() { rm -f "$OV_REC" "$TREE/.claude/pipeline-state/attend-$OV_SID.token"; commit_tree "drop override fixture" >/dev/null 2>&1; }
+
+if [ ! -f "$OVT" ]; then
+  fail "(yo0) the override mechanism at $OVT is absent — every case below would pass vacuously"
+else
+  pass "(yo0) the override mechanism resolves at the path lean-gate.sh defaults to"
+
+  # (yo1) the YIELD. An override naming OR-1 clears the region with an empty comment trail and no
+  # intent-gap record at all.
+  reset_progress
+  ov_attend
+  ov_write OR-1
+  commit_tree "override record for OR-1"
+  out="$(BUILD_RID="$OV_RID" BUILD_SID="$OV_SID" gate 1 7 --issue-file "$WORK/issue-or1-paa.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+  if [ "$rc" -eq 0 ]; then
+    pass "(yo1) AC-4: a recorded operator override naming the region clears the refusal, where today only a tracker comment does"
+  else fail "(yo1) expected rc=0 with an override for OR-1, got $rc: $out"; fi
+
+  # (yo2) authority is SCOPED to the region it names. Without this, an override for any region
+  # would clear every region, and (yo1) alone could not tell the difference.
+  reset_progress
+  ov_clear
+  ov_attend
+  ov_write OR-3
+  commit_tree "override record for OR-3"
+  out="$(BUILD_RID="$OV_RID" BUILD_SID="$OV_SID" gate 1 7 --issue-file "$WORK/issue-or1-paa.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+  if [ "$rc" -eq 1 ] && grep -q 'region OR-1' <<<"$out"; then
+    pass "(yo2) AC-4: an override recorded for another region does NOT clear this one"
+  else fail "(yo2) expected rc=1 still naming OR-1, got $rc: $out"; fi
+  ov_clear
+
+  # (yo3) HEADLESS — the gate's normal case, since every scheduler payload is one. The refusal
+  # sentence is asserted whole, and the affordance asserted ABSENT: AC-4 binds this arm unchanged.
+  reset_progress
+  out="$(gate 1 7 --issue-file "$WORK/issue-or1-paa.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+  if [ "$rc" -eq 1 ] \
+     && grep -qF 'record, before continuing. (attempt ' <<<"$out" \
+     && ! grep -q 'record --gate spec-open-region' <<<"$out"; then
+    pass "(yo3) AC-4: headless, the refusal is unchanged — its sentence runs straight into the attempt suffix, with no affordance spliced in"
+  else fail "(yo3) expected the unchanged headless refusal with no affordance, got rc=$rc: $out"; fi
+
+  # (yo4) ATTENDED, NO RECORD — the same rc, the same region, plus the exact command. This is the
+  # epic's claim reduced to a diff between two refusals: the token bought the affordance and
+  # nothing else.
+  reset_progress
+  ov_attend
+  out="$(BUILD_RID="$OV_RID" BUILD_SID="$OV_SID" gate 1 7 --issue-file "$WORK/issue-or1-paa.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+  if [ "$rc" -eq 1 ] && grep -q 'region OR-1' <<<"$out" \
+     && grep -q 'record --gate spec-open-region --scope open-region-resolution --issue 7 --region OR-1' <<<"$out"; then
+    pass "(yo4) AC-4: attended with no record still REFUSES, and prints the exact record-writing command"
+  else fail "(yo4) expected rc=1 with the affordance printed, got rc=$rc: $out"; fi
+
+  # (yo4b) TWO unresolved regions, TWO commands. The affordance's own sentence promises "one
+  # command per region", and authority is scoped per region — one command clears only the id it
+  # names, so printing the first and leaving the operator to infer the rest is how a two-region
+  # refusal gets half-resolved and re-runs into the same wall. Both ids asserted, because a
+  # reader that emitted the LAST one instead of the first would look just as right on (yo4).
+  reset_progress
+  cat > "$WORK/issue-or2-paa.json" <<'PAA2'
+{"body": "# issue\n\n## Open Regions\n\n| ID | Region | Disposition |\n| --- | --- | --- |\n| OR-1 | Ordering guarantee | pause-and-ask |\n| OR-3 | Backfill window | pause-and-ask |\n"}
+PAA2
+  out="$(BUILD_RID="$OV_RID" BUILD_SID="$OV_SID" gate 1 7 --issue-file "$WORK/issue-or2-paa.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+  if [ "$rc" -eq 1 ] \
+     && grep -q -- '--region OR-1 ' <<<"$out" \
+     && grep -q -- '--region OR-3 ' <<<"$out"; then
+    pass "(yo4b) AC-4: two unresolved regions print two commands — one per region, as the sentence says"
+  else fail "(yo4b) expected a command for BOTH OR-1 and OR-3, got rc=$rc: $out"; fi
+
+  # (yo5) a malformed record is an ENVIRONMENT refusal that spends no fix budget — the same
+  # posture (y10) pins for an unreadable tracker. Collapsing it into "no override" would let a
+  # record the merge boundary is about to reject wave the region through here first.
+  reset_progress
+  before="$(attempts_1)"
+  printf '## Override 1\ngate: spec-open-region\nscope: open-region-resolution\nissue: 7\nregion: none\nrun_id: r\nsession_id: s\nexpiry: run\ndecision: d\n\n### Operator answer\n\n> a\n' > "$OV_REC"
+  commit_tree "malformed override record"
+  out="$(gate 1 7 --issue-file "$WORK/issue-or1-paa.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+  after="$(attempts_1)"
+  if [ "$rc" -eq 2 ] && grep -q 'could not be read as a clean answer' <<<"$out" && [ "$before" = "$after" ]; then
+    pass "(yo5) a malformed override record is an environment refusal (rc=2) that spends no fix attempt"
+  else fail "(yo5) expected rc=2 naming the unreadable record with attempts unchanged ($before), got rc=$rc attempts=$after: $out"; fi
+  ov_clear
+fi
 reset_progress
 
 # ---- (p) the REVIEW role: lean-gate.sh verdict ---------------------------------------------
