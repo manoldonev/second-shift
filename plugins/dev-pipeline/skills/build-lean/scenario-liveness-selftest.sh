@@ -1417,7 +1417,28 @@ case "$1" in
       *)               cat "$RE_PR" ;;
     esac ;;
   api)
-    case "$*" in *comments*) cat "$RE_COMMENTS_LIVE" ;; *) exit 1 ;; esac ;;
+    case "$*" in
+      *"-X POST"*)
+        # A WRITE, and the three env knobs are what let one leg drive it (#590's close-out posts
+        # its closing comment through here) without changing what the others see: unset, this arm
+        # simply accepts, which is what every pre-existing leg already got from the `cat` below.
+        #   GH_POST_FAIL=always|once  refuse the write; `once` needs GH_POST_FAIL_FLAG
+        #   GH_POST_SINK              a comment-trail file to APPEND the written comment to
+        #   GH_POST_BODY_MARK         the body to append, so the trail reader can find it
+        case "${GH_POST_FAIL:-}" in
+          always) exit 1 ;;
+          once)   [ -n "${GH_POST_FAIL_FLAG:-}" ] && [ -f "$GH_POST_FAIL_FLAG" ] \
+                    || { [ -n "${GH_POST_FAIL_FLAG:-}" ] && : > "$GH_POST_FAIL_FLAG"; exit 1; } ;;
+        esac
+        if [ -n "${GH_POST_SINK:-}" ] && [ -n "${GH_POST_BODY_MARK:-}" ]; then
+          jq --arg b "$GH_POST_BODY_MARK" \
+             '. + [{ user: { type: "Bot" }, created_at: "2026-01-09T00:00:00Z", body: $b }]' \
+             "$GH_POST_SINK" > "$GH_POST_SINK.tmp" && mv "$GH_POST_SINK.tmp" "$GH_POST_SINK"
+        fi
+        echo "https://example.invalid/written" ;;
+      *comments*) cat "$RE_COMMENTS_LIVE" ;;
+      *) exit 1 ;;
+    esac ;;
   *) exit 1 ;;
 esac
 REGH
@@ -1451,29 +1472,23 @@ case "$*" in
     git -C "$RE_WT" push -q origin "HEAD:refs/heads/$RE_BRANCH" >/dev/null 2>&1 || exit 1
     ;;
   *build-lean*)
-    if [ "$n" -eq 1 ]; then
-      # SKILL.md step 2 is SKIPPED, which is the whole shape of a re-entry: the marker is posted
-      # and the labels are swapped already. The run's ESTABLISHED id is exported rather than
-      # minted, so `entry` seeds the cache with the id the marker on the ticket carries.
-      export CLAUDE_CODE_SESSION_ID=sess-lean-re-build RUN_ID="$RE_RUN"
-      printf '{"tool":"Bash"}\n' > "$RE_LEDGER_DIR/sess-lean-re-build.jsonl"
-      g entry "$RE_KEY" || exit 1
-      printf '# spec\n\n- AC-1: the composed re-entry\n' > "$RE_WT/docs/plans/acme-$RE_KEY-lean.md"
-      git -C "$RE_WT" add -A >/dev/null 2>&1
-      git -C "$RE_WT" commit -q -m "build session pushes the spec" >/dev/null 2>&1 || exit 1
-      git -C "$RE_WT" push -q origin "HEAD:refs/heads/$RE_BRANCH" >/dev/null 2>&1 || exit 1
-      g 1 "$RE_KEY" || exit 1
-      g 2 "$RE_KEY" || exit 1
-      g 3 "$RE_KEY" || exit 1
-    else
-      # The CLOSE-OUT is a fresh session, so a fresh id — which its own `entry` admits to the
-      # build set (#446), and without which milestone 5's `mark` would refuse to stamp it.
-      export CLAUDE_CODE_SESSION_ID=sess-lean-re-close RUN_ID="$RE_RUN"
-      printf '{"tool":"Bash"}\n' > "$RE_LEDGER_DIR/sess-lean-re-close.jsonl"
-      g entry "$RE_KEY" || exit 1
-      g all "$RE_KEY" || exit 1
-      g 5 "$RE_KEY" || exit 1
-    fi
+    # SKILL.md step 2 is SKIPPED, which is the whole shape of a re-entry: the marker is posted
+    # and the labels are swapped already. The run's ESTABLISHED id is exported rather than
+    # minted, so `entry` seeds the cache with the id the marker on the ticket carries.
+    #
+    # ONE build spawn, and no close-out spawn — #590 made the close-out a gate call the scheduler
+    # invokes itself. A second build-lean spawn reaching here means the scheduler took the no-PR
+    # continuation path, which this leg's fixtures do not produce.
+    export CLAUDE_CODE_SESSION_ID=sess-lean-re-build RUN_ID="$RE_RUN"
+    printf '{"tool":"Bash"}\n' > "$RE_LEDGER_DIR/sess-lean-re-build.jsonl"
+    g entry "$RE_KEY" || exit 1
+    printf '# spec\n\n- AC-1: the composed re-entry\n' > "$RE_WT/docs/plans/acme-$RE_KEY-lean.md"
+    git -C "$RE_WT" add -A >/dev/null 2>&1
+    git -C "$RE_WT" commit -q -m "build session pushes the spec" >/dev/null 2>&1 || exit 1
+    git -C "$RE_WT" push -q origin "HEAD:refs/heads/$RE_BRANCH" >/dev/null 2>&1 || exit 1
+    g 1 "$RE_KEY" || exit 1
+    g 2 "$RE_KEY" || exit 1
+    g 3 "$RE_KEY" || exit 1
     ;;
   *) exit 1 ;;
 esac
@@ -1537,15 +1552,16 @@ RESESS
 
     # ...and the record was written by the REAL gate, not by the session fake. Three shapes only
     # the gate emits: `entry`'s attestation row, one satisfied line per milestone (append_satisfied
-    # is idempotent, so the close-out's `all` + `5` still leave exactly one), and the BUILD SESSION
-    # SET spanning both spawns.
+    # is idempotent, so the close-out's own 1..4 progression still leaves exactly one), and a BUILD
+    # SESSION SET that is now the header ALONE.
     #
-    # The set is header ∪ rows (#446), and the asymmetry is the assertion rather than a quirk of
-    # it: the FIRST build session is the one ensure_progress_file stamps into the header, so it
-    # gets no row, while the close-out — a fresh session on a file that already exists — is
-    # admitted by its own `entry` as a `| session |` row. Without that row milestone 5's `mark`
-    # would refuse to stamp the close-out at all, so a leg asserting only the header would pass
-    # over the exact case a re-entered run is.
+    # THAT LAST PART IS #590 AC-6's COMPOSED EVIDENCE, and it is the assertion rather than a
+    # loosening. Before #590 the close-out was a fresh SESSION whose own `entry` admitted it to the
+    # build set as a `| session |` row, and without that row milestone 5's `mark` refused to stamp
+    # it. There is no such session now — the scheduler invokes the gate with
+    # CLAUDE_CODE_SESSION_ID scrubbed — so `mark` passes only because the PR already carries this
+    # run's marker, which is exactly the no-op the identity refusal now sits behind. A gate that
+    # kept the old ordering reds this leg on a refusal.
     re_sat=0
     for m in 1 2 3 4 5; do
       [[ "$(re_count "$RE_PROG" "| milestone-$m | satisfied")" -eq 1 ]] && re_sat=$((re_sat + 1))
@@ -1553,9 +1569,10 @@ RESESS
     [[ "$re_sat" -eq 5 \
        && "$(re_count "$RE_PROG" '| entry | ledger=')" -ge 1 \
        && "$(re_count "$RE_PROG" 'session_id: sess-lean-re-build')" -eq 1 \
-       && "$(re_count "$RE_PROG" '| session | sess-lean-re-close')" -eq 1 ]] \
-      && pass "(lean-reentry) the composed chain's record is the GATE's: an entry attestation, one satisfied line per milestone, and a build-session set spanning the header's first session and the close-out spawn's own row" \
-      || fail "(lean-reentry) satisfied=$re_sat entry-rows=$(re_count "$RE_PROG" '| entry | ledger=') header-session=$(re_count "$RE_PROG" 'session_id: sess-lean-re-build') close-session-row=$(re_count "$RE_PROG" '| session | sess-lean-re-close'), expected 5/>=1/1/1"
+       && "$(re_count "$RE_PROG" '| session | sess-lean-re-close')" -eq 0 \
+       && "$(cat "$RE_DIR/spawns" 2>/dev/null || echo 0)" -eq 2 ]] \
+      && pass "(lean-reentry) the composed chain's record is the GATE's: an entry attestation, one satisfied line per milestone, and a build-session set that is the header alone — two spawns, no close-out session" \
+      || fail "(lean-reentry) satisfied=$re_sat entry-rows=$(re_count "$RE_PROG" '| entry | ledger=') header-session=$(re_count "$RE_PROG" 'session_id: sess-lean-re-build') close-session-row=$(re_count "$RE_PROG" '| session | sess-lean-re-close') spawns=$(cat "$RE_DIR/spawns" 2>/dev/null), expected 5/>=1/1/0/2"
 
     # ---- non-vacuity for the scheduler leg -------------------------------------------------
     # The leg above would stay green if preflight admitted every claimed ticket. Vary the
@@ -1684,18 +1701,14 @@ case "$*" in
       wait "$kpg" 2>/dev/null
       reaped=0
       while kill -0 -"$kpg" 2>/dev/null && [ "$reaped" -lt 50 ]; do sleep 0.1; reaped=$((reaped + 1)); done
-    elif [ "$n" -eq 2 ]; then
+    else
+      # SPAWN 2, the continuation, and the LAST build-role session this leg has: #590 made the
+      # close-out a gate call, so there is no third spawn to script.
       g entry "$IK_KEY" || exit 1
       g 1 "$IK_KEY" || exit 1
       g 2 "$IK_KEY" || exit 1
       g 3 "$IK_KEY" || exit 1
       printf '%s\n' "$IK_PR_NUM" > "$IK_PR_NUMS"
-    else
-      export CLAUDE_CODE_SESSION_ID=sess-lean-ik-close
-      printf '{"tool":"Bash"}\n' > "$IK_LEDGER_DIR/sess-lean-ik-close.jsonl"
-      g entry "$IK_KEY" || exit 1
-      g all "$IK_KEY" || exit 1
-      g 5 "$IK_KEY" || exit 1
     fi
     ;;
   *) exit 1 ;;
@@ -1767,32 +1780,38 @@ IKSESS
 
     git -C "$LEAN_TREE" worktree remove --force "$IK_WT" >/dev/null 2>&1
 
-    # ---- leg 10: a PARTIALLY FINISHED CLOSE-OUT, continued to a terminal write (#531) -------
-    # THE EPIC'S ACCEPTANCE EVIDENCE. #525's whole premise is that nothing fails when the lane
-    # stops completing runs, which is how eight tickets coexisted with a green sweep. This leg is
-    # the falsifiable form of "a run completes" for the close-out half: BUILD -> REVIEW -> a
-    # close-out that discharges ONE of milestone 5's two obligations -> the continuation -> the
-    # terminal `| milestone-5 | satisfied` row.
+    # ---- leg 10: a PARTIALLY FINISHED CLOSE-OUT, retried to a terminal write (#531 → #590) ---
+    # THE EPIC'S ACCEPTANCE EVIDENCE, re-cut for the shape #590 landed. #525's premise is that
+    # nothing fails when the lane stops COMPLETING runs, which is how eight tickets coexisted with
+    # a green sweep. This leg is the falsifiable form of "a run completes" for the close-out half:
+    # BUILD -> REVIEW -> a close-out that discharges only part of milestone 5 -> the one retry ->
+    # the terminal `| milestone-5 | satisfied` row.
     #
-    # WHY IT HAS TO BE COMPOSED, in the same terms as legs 8 and 9. Both halves are covered against
-    # themselves: lean-gate-selftest.sh drives the obligation rows against fixtures, and
-    # orchestrate-lean-selftest.sh (w1)/(w2) drive the continuation against a FAKE gate whose
-    # tokens a case scripts. Neither can fail if the gate's WRITER and the scheduler's READER
-    # disagree about which rows a partially finished close-out leaves — and D-10 is precisely a
-    # decision about that: an obligation row spelled with the aggregate's verb would move the
-    # scheduler's satisfied token and print `done` over a run with no closing comment on it. Only a
-    # composed leg can red on that.
+    # WHAT MOVED. The close-out is no longer a spawned session, so the composition is now
+    # scheduler -> a REAL `bash G close-out` in the lane worktree -> the gate's own writes ->
+    # milestone 5 -> teardown. That makes the leg STRONGER, not weaker: the old one asserted that a
+    # spawned session's record moved, while this one runs the actual writer.
     #
-    # THE PARTIAL STATE IS REAL, not simulated: the first close-out runs against a comment trail
-    # with no verdict reference, so the real cmd_5 reds on the `verdict-reference` obligation while
-    # `exit-artifacts` holds. The fixture then posts the missing comment — which is exactly what a
-    # human rescuing this run by hand would do — and the second close-out completes.
+    # WHY IT STILL HAS TO BE COMPOSED, in legs 8 and 9's terms. Both halves remain covered against
+    # themselves — lean-gate-selftest.sh drives the obligation rows against fixtures, and
+    # orchestrate-lean-selftest.sh's (p*) block drives the retry against a FAKE gate whose exit
+    # codes a case scripts. Neither can fail if the gate's WRITER and the scheduler's READER
+    # disagree, and #590 D-5 is exactly a decision about that: the scheduler now trusts an exit
+    # code, so a gate that redded without reding — or that satisfied milestone 5 on a run with no
+    # closing comment on it — would print `done` and only a composed leg could red on it.
+    #
+    # THE PARTIAL STATE IS REAL, not simulated: the first close-out's closing-comment WRITE is
+    # refused by the fake code host, so the real cmd_close_out reds on the `verdict-reference`
+    # obligation while the ones ahead of it hold. The second write is accepted — which is what a
+    # transient API failure looks like — and the second close-out completes. In CO_MODE=stuck the
+    # write is never accepted, which is the paired non-vacuity arm.
     CO_KEY=58
     CO_BRANCH="claude/acme-$CO_KEY"
     CO_RUN="r-lean-closeout"
     CO_PR_NUM=23
     CO_DIR="$TMP/lean-closeout"
     CO_WT="$TMP/lean-closeout-wt"
+    CO_VERDICT_REL="docs/plans/acme-$CO_KEY-lean-verdict.md"
     mkdir -p "$CO_DIR"
 
     CO_CFG="$CO_DIR/config.json"; cp "$RE_CFG" "$CO_CFG"
@@ -1810,6 +1829,12 @@ COPR
 
     # The claim marker and the PR identity marker, but NO closing comment. That absence is the
     # case: `exit-artifacts` will hold and `verdict-reference` will not.
+    #
+    # THE PR MARKER IS ALSO #590 AC-6's COMPOSED EVIDENCE. The close-out runs with
+    # CLAUDE_CODE_SESSION_ID scrubbed, so it is not a recorded BUILD session — and cmd_5 calls
+    # `mark`. It passes only because the marker checklist step 7 already posted carries this run's
+    # id, which is precisely the no-op the identity refusal now sits behind. Delete this entry and
+    # the whole leg reds on a refusal, which is the guard working.
     CO_COMMENTS_PARTIAL="$CO_DIR/comments-partial.json"
     cat > "$CO_COMMENTS_PARTIAL" <<COC
 [{ "user": { "type": "Bot" }, "created_at": "2026-01-01T00:00:00Z",
@@ -1817,15 +1842,9 @@ COPR
  { "user": { "type": "Bot" }, "created_at": "2026-01-02T00:00:00Z",
    "body": "<!-- run_id: $CO_RUN -->\n<!-- session_id: sess-lean-co-build -->\n<!-- stage: lean-pr-marker -->" }]
 COC
-    # ...and the same trail WITH it, which the session fake swaps in between the two close-outs.
-    CO_COMMENTS_FULL="$CO_DIR/comments-full.json"
-    jq --arg v "docs/plans/acme-$CO_KEY-lean-verdict.md" \
-       '. + [{ user: { type: "Bot" }, created_at: "2026-01-03T00:00:00Z",
-               body: ("Done. Verdict record: " + $v) }]' \
-       "$CO_COMMENTS_PARTIAL" > "$CO_COMMENTS_FULL"
 
-    # ONE live trail file the fake gh reads, so "the operator posted the missing comment" is a
-    # copy rather than a second gh stub.
+    # ONE live trail file the fake gh reads AND appends its accepted write to, so "the closing
+    # comment was posted" is the fake code host's own record rather than a second stub.
     CO_COMMENTS_LIVE="$CO_DIR/comments-live.json"
 
     CO_SESSION="$CO_DIR/session"
@@ -1844,42 +1863,19 @@ case "$*" in
     git -C "$CO_WT" push -q origin "HEAD:refs/heads/$CO_BRANCH" >/dev/null 2>&1 || exit 1
     ;;
   *build-lean*)
-    if [ "$n" -eq 1 ]; then
-      export CLAUDE_CODE_SESSION_ID=sess-lean-co-build RUN_ID="$CO_RUN"
-      printf '{"tool":"Bash"}\n' > "$CO_LEDGER_DIR/sess-lean-co-build.jsonl"
-      g entry "$CO_KEY" || exit 1
-      printf '# spec\n\n- AC-1: the composed close-out continuation\n' > "$CO_WT/docs/plans/acme-$CO_KEY-lean.md"
-      git -C "$CO_WT" add -A >/dev/null 2>&1
-      git -C "$CO_WT" commit -q -m "build session pushes the spec" >/dev/null 2>&1 || exit 1
-      git -C "$CO_WT" push -q origin "HEAD:refs/heads/$CO_BRANCH" >/dev/null 2>&1 || exit 1
-      g 1 "$CO_KEY" || exit 1
-      g 2 "$CO_KEY" || exit 1
-      g 3 "$CO_KEY" || exit 1
-    else
-      # EVERY close-out is a fresh session, so a fresh id — its own `entry` admits it to the build
-      # set (#446), without which milestone 5's `mark` would refuse to stamp it. `bash G 5` is
-      # allowed to RED here: on the first close-out that red IS the case, and its exit is not
-      # checked, exactly as a real close-out's checklist step 9 leaves the failure to the record.
-      export CLAUDE_CODE_SESSION_ID="sess-lean-co-close-$n" RUN_ID="$CO_RUN"
-      printf '{"tool":"Bash"}\n' > "$CO_LEDGER_DIR/sess-lean-co-close-$n.jsonl"
-      g entry "$CO_KEY" || exit 1
-      # `all` first, exactly as the checklist mandates before step 9 — and it is what makes
-      # milestone 4 satisfied here, without which cmd_5 stops at its progress-file precondition
-      # and never reaches an obligation at all. Its exit is deliberately unchecked: on the first
-      # close-out its milestone-5 red IS the case.
-      g all "$CO_KEY"
-      g 5 "$CO_KEY"
-      # THE RESCUE, and it is the fixture varying rather than production: the missing closing
-      # comment is posted after the first close-out has already recorded it unmet. In CO_MODE=stuck
-      # it never appears, which is the paired non-vacuity arm.
-      # Keyed on "the first close-out has now happened", NOT on the spawn ordinal: `n` counts
-      # every spawn, so a literal would silently name the REVIEW spawn and the rescue would never
-      # fire — the shape this leg is meant to catch in production.
-      if [ "${CO_MODE:-fixed}" = "fixed" ] && [ ! -f "$CO_DIR/rescued" ]; then
-        : > "$CO_DIR/rescued"
-        cp "$CO_COMMENTS_FULL" "$CO_COMMENTS_LIVE"
-      fi
-    fi
+    # ONE build spawn now, and no close-out spawn at all — #590 deleted it. A second build-lean
+    # spawn reaching here means the scheduler took the no-PR continuation path, which this leg's
+    # fixtures do not produce; it would show up as a spawn count of 3.
+    export CLAUDE_CODE_SESSION_ID=sess-lean-co-build RUN_ID="$CO_RUN"
+    printf '{"tool":"Bash"}\n' > "$CO_LEDGER_DIR/sess-lean-co-build.jsonl"
+    g entry "$CO_KEY" || exit 1
+    printf '# spec\n\n- AC-1: the composed close-out retry\n' > "$CO_WT/docs/plans/acme-$CO_KEY-lean.md"
+    git -C "$CO_WT" add -A >/dev/null 2>&1
+    git -C "$CO_WT" commit -q -m "build session pushes the spec" >/dev/null 2>&1 || exit 1
+    git -C "$CO_WT" push -q origin "HEAD:refs/heads/$CO_BRANCH" >/dev/null 2>&1 || exit 1
+    g 1 "$CO_KEY" || exit 1
+    g 2 "$CO_KEY" || exit 1
+    g 3 "$CO_KEY" || exit 1
     ;;
   *) exit 1 ;;
 esac
@@ -1891,7 +1887,9 @@ COSESS
     CO_PROG_NV="$CO_DIR/progress-nv.md"
     CO_GH_LOG="$CO_DIR/gh.log"
     co_run() { # co_run <progress-file> <fixed|stuck>
-      rm -f "$CO_DIR/spawns" "$CO_DIR/session.log" "$CO_GH_LOG" "$CO_DIR/rescued" \
+      local fail_mode=once
+      [ "$2" = "stuck" ] && fail_mode=always
+      rm -f "$CO_DIR/spawns" "$CO_DIR/session.log" "$CO_GH_LOG" "$CO_DIR/post-refused" \
             "$LEAN_TREE/.claude/pipeline-state/$CO_KEY-run-id" \
             "$LEAN_TREE/.claude/pipeline-state/$CO_KEY-review-run-id"
       cp "$CO_COMMENTS_PARTIAL" "$CO_COMMENTS_LIVE"
@@ -1900,14 +1898,22 @@ COSESS
       git -C "$RE_ORIGIN" update-ref -d "refs/heads/$CO_BRANCH" >/dev/null 2>&1
       git -C "$LEAN_TREE" update-ref -d "refs/remotes/origin/$CO_BRANCH" >/dev/null 2>&1
       git -C "$LEAN_TREE" worktree add -q -b "$CO_BRANCH" "$CO_WT" HEAD >/dev/null 2>&1
+      # OTEL_METRICS_FILE points at nothing, deliberately: the close-out's cost re-compute is the
+      # REAL pipeline-cost-block.sh, and a leg whose verdict moved with whatever the operator's
+      # collector happened to have on disk would be a scenario about this machine. The documented
+      # skip is what a host with no collector produces, and its three obligations must still be
+      # recorded met — which is AC-4, asserted below.
       ( cd "$LEAN_TREE" && env -u CLAUDE_CODE_SESSION_ID -u RUN_ID -u LEAN_RUN_MODEL -u GH_BOT \
           GH="$RE_GH" LEAN_SPAWN_BIN="$CO_SESSION" \
           SECOND_SHIFT_CONFIG="$CO_CFG" LEAN_PROGRESS_FILE="$1" RE_COMMENTS_LIVE="$CO_COMMENTS_LIVE" \
-          CO_MODE="$2" \
+          CO_MODE="$2" OTEL_METRICS_FILE="$CO_DIR/no-such-metrics.jsonl" \
+          COST_LOG_FILE="$CO_DIR/cost-log.jsonl" \
+          GH_POST_FAIL="$fail_mode" GH_POST_FAIL_FLAG="$CO_DIR/post-refused" \
+          GH_POST_SINK="$CO_COMMENTS_LIVE" \
+          GH_POST_BODY_MARK="Closed out. Verdict record: $CO_VERDICT_REL" \
           CO_DIR="$CO_DIR" CO_WT="$CO_WT" CO_GATE="$LEAN_GATE" CO_KEY="$CO_KEY" \
           CO_RUN="$CO_RUN" CO_PR_NUM="$CO_PR_NUM" CO_LEDGER_DIR="$RE_LEDGER_DIR" \
-          CO_BRANCH="$CO_BRANCH" CO_COMMENTS_FULL="$CO_COMMENTS_FULL" \
-          CO_COMMENTS_LIVE="$CO_COMMENTS_LIVE" \
+          CO_BRANCH="$CO_BRANCH" \
           RE_LABELS="$CO_LABELS" RE_BODY="$CO_BODY" RE_STATE="$CO_STATE" \
           RE_PR="$CO_PR" RE_PR_ALL="$CO_PR_ALL" RE_PR_NUMS="$CO_PR_NUMS" RE_GH_LOG="$CO_GH_LOG" \
           bash "$RE_ORCH" "$CO_KEY" --build-model sonnet 2>&1 )
@@ -1917,11 +1923,15 @@ COSESS
     co_out="$(co_run "$CO_PROG" fixed)"; co_rc=$?
     co_spawns="$(cat "$CO_DIR/spawns" 2>/dev/null || echo 0)"
     co_m5="$(re_count "$CO_PROG" '| milestone-5 | satisfied')"
-    [[ "$co_rc" -eq 0 && "$co_spawns" -eq 4 && "$co_m5" -eq 1 ]] \
-      && grep -q 'continuing in a fresh session (1 of 1)' <<<"$co_out" \
+    # AC-5's GREEN HALF, read HERE because the next `co_run` re-cuts the worktree. `co_run` leaves
+    # it committed and clean, so the only thing that can have removed it is the close-out's own
+    # teardown.
+    co_wt_green=absent; [ -d "$CO_WT" ] && co_wt_green=present
+    [[ "$co_rc" -eq 0 && "$co_spawns" -eq 2 && "$co_m5" -eq 1 ]] \
+      && grep -q 'retrying once' <<<"$co_out" \
       && grep -q 'done — #' <<<"$co_out" \
-      && pass "(lean-closeout) a close-out that discharged only one of milestone 5's obligations is continued once, and the real lane still reaches its terminal write" \
-      || fail "(lean-closeout) rc=$co_rc spawns=$co_spawns milestone-5-rows=$co_m5, expected 0/4/1: $co_out"
+      && pass "(lean-closeout) a close-out that discharged only part of milestone 5 is retried once, and the real lane still reaches its terminal write — with NO third session" \
+      || fail "(lean-closeout) rc=$co_rc spawns=$co_spawns milestone-5-rows=$co_m5, expected 0/2/1: $co_out"
 
     # THE PARTIAL STATE WAS REAL, and it is the gate's own record that says so — the composition's
     # whole point. `exit-artifacts` met while `verdict-reference` was still unmet, and the aggregate
@@ -1933,27 +1943,54 @@ COSESS
       && pass "(lean-closeout) the record carries one row per obligation with its own state — the partial close-out is legible in the artifact, not only in the log" \
       || fail "(lean-closeout) obligation rows were not written as expected: $(grep 'obligation' "$CO_PROG" 2>/dev/null)"
 
-    # ...and the scheduler's continuation was routed on the GENERAL progress token (D-9), which
-    # moved because the failed close-out appended a milestone-5 attempt row. Without that row the
-    # run would have taken the advanced-nothing stop instead, and this leg would be measuring the
-    # wrong path.
+    # #590 AC-3/AC-4: the three cost obligations the close-out OWNS are recorded, and on a host
+    # with no collector they degrade to met-with-the-skip-named rather than reding. A gate that
+    # fail-closed here could not close a run out on any machine without an OTel collector, and a
+    # gate that recorded nothing would leave #546's corpus write unasserted again.
+    [[ "$(re_count "$CO_PROG" '| milestone-5 | obligation | cost-block | met')" -eq 1 \
+       && "$(re_count "$CO_PROG" '| milestone-5 | obligation | cost-log-row | met')" -eq 1 \
+       && "$(re_count "$CO_PROG" '| milestone-5 | obligation | pr-cost-block | met')" -eq 1 \
+       && "$(re_count "$CO_PROG" 'obligation | cost-block | unmet')" -eq 0 ]] \
+      && pass "(lean-closeout) the close-out's three cost obligations are recorded, and a documented skip degrades them to met-with-a-reason rather than reding an honest run" \
+      || fail "(lean-closeout) cost obligations were not recorded as expected: $(grep 'obligation' "$CO_PROG" 2>/dev/null)"
+
+    # ...and the failed close-out charged milestone 5's fix budget, which #590 D-4 KEPT. Without
+    # this the retry would be routed on nothing observable and the record would not show that the
+    # first attempt happened at all.
     [[ "$(re_count "$CO_PROG" '| milestone-5 | attempt |')" -ge 1 ]] \
-      && pass "(lean-closeout) the continuation was routed on a real advancement — the failed close-out's own attempt row" \
-      || fail "(lean-closeout) no milestone-5 attempt row, so the continuation cannot have been routed on advancement: $(cat "$CO_PROG" 2>/dev/null)"
+      && pass "(lean-closeout) the first close-out's failure is on the record as a milestone-5 attempt — the general fix-budget machinery is unforked" \
+      || fail "(lean-closeout) no milestone-5 attempt row, so the first close-out left no trace: $(cat "$CO_PROG" 2>/dev/null)"
 
     # ---- non-vacuity ----------------------------------------------------------------------
-    # The leg above would stay green against a scheduler that continued forever, or against a gate
-    # that satisfied milestone 5 regardless. Vary the FIXTURE — the closing comment is never posted
-    # — and the identical composition must spend its one continuation, stop under its own slug, and
-    # reach NO terminal write.
+    # The leg above would stay green against a scheduler that retried forever, or against a gate
+    # that satisfied milestone 5 regardless. Vary the FIXTURE — the closing comment is never
+    # accepted — and the identical composition must spend its one retry, stop under its own slug,
+    # and reach NO terminal write.
     co_nv_out="$(co_run "$CO_PROG_NV" stuck)"; co_nv_rc=$?
     co_nv_spawns="$(cat "$CO_DIR/spawns" 2>/dev/null || echo 0)"
-    [[ "$co_nv_rc" -eq 1 && "$co_nv_spawns" -eq 4 \
+    [[ "$co_nv_rc" -eq 1 && "$co_nv_spawns" -eq 2 \
        && "$(re_count "$CO_PROG_NV" '| milestone-5 | satisfied')" -eq 0 ]] \
-      && grep -q 'terminal: closeout-continuations-spent' <<<"$co_nv_out" \
+      && grep -q 'terminal: closeout-incomplete' <<<"$co_nv_out" \
       && grep -q 'obligation verdict-reference: unmet' <<<"$co_nv_out" \
-      && pass "(lean-closeout-nv) non-vacuity: an obligation that never becomes met spends the one continuation, stops under its own slug, and names the outstanding obligation from the gate's own report" \
-      || fail "(lean-closeout-nv) rc=$co_nv_rc spawns=$co_nv_spawns milestone-5-rows=$(re_count "$CO_PROG_NV" '| milestone-5 | satisfied'), expected 1/4/0: $co_nv_out"
+      && pass "(lean-closeout-nv) non-vacuity: an obligation that never becomes met spends the one retry, stops under its own slug, and names the outstanding obligation from the gate's own report" \
+      || fail "(lean-closeout-nv) rc=$co_nv_rc spawns=$co_nv_spawns milestone-5-rows=$(re_count "$CO_PROG_NV" '| milestone-5 | satisfied'), expected 1/2/0: $co_nv_out"
+
+    # #590 AC-5, AND IT IS THE PAIR THAT MAKES IT A GUARD. Either half alone is satisfiable by a
+    # gate that never tears down, or by one that always does; only together do they pin the
+    # ORDERING — teardown after `cmd_5` returned 0, never before it. What a wrong order costs is
+    # the whole reason a stopped close-out keeps its tree: the manual rescue would be reaching into
+    # a directory that no longer exists.
+    #
+    # WHAT IT ADDS, measured rather than claimed. Two mutants were run against this leg — hoisting
+    # `cmd_teardown` above the `cmd_5` call, and tearing down on the obligation-failure path — and
+    # BOTH also red the rc/spawn assertions above, because destroying the tree breaks the retry
+    # this leg is built on. So this is not the sole catcher of either. It earns its line by being
+    # the only assertion in the suite that reads the lane tree on a STOPPED close-out, and by
+    # failing in AC-5's own vocabulary: the collateral reds above say `rc=1 spawns=2`, which does
+    # not point at teardown, and a reader would re-derive the ordering from scratch every time.
+    [[ "$co_wt_green" = "absent" && -d "$CO_WT" ]] \
+      && pass "(lean-closeout) teardown runs on a fully met close-out and NOT on one that stopped — the failed lane's worktree is still there for the manual rescue" \
+      || fail "(lean-closeout) teardown ordering: after the green close-out the worktree was $co_wt_green (want absent), after the stopped one $([ -d "$CO_WT" ] && echo present || echo absent) (want present)"
 
     git -C "$LEAN_TREE" worktree remove --force "$CO_WT" >/dev/null 2>&1
   fi

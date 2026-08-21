@@ -173,8 +173,17 @@ for root in "$R4G" "$R4R"; do
 done
 
 # SELFTEST_JOBS (the env form the workflows use) must reach the same place as --jobs.
+#
+# THIS CASE HAND-ROLLS ITS `env`, so it must carry run_runner's LEAN_JOB_CEILING scrub itself —
+# and the hostile ceiling in front of it is the assertion, not scenery. Without the scrub an
+# ambient ceiling below 3 clips the very number being asserted, and the case then reds for a
+# reason that has nothing to do with SELFTEST_JOBS. That is not hypothetical: the lean gate
+# exports a ceiling into every milestone-3 child, one of which is the sweep that runs this file,
+# so the leak surfaces only on a machine running enough lanes to push the ceiling under 3 —
+# somebody else's concurrency deciding whether this suite passes. Setting one here makes a
+# dropped scrub fail EVERYWHERE instead of only there.
 OUT="$BASE/out.ac4env"
-env -u TMPDIR -u RUN_SELFTESTS_DROP_LAST SELFTEST_JOBS=3 \
+LEAN_JOB_CEILING=2 env -u TMPDIR -u RUN_SELFTESTS_DROP_LAST -u LEAN_JOB_CEILING SELFTEST_JOBS=3 \
   bash "$RUNNER" --root "$R4G" > "$OUT" 2>&1
 RC=$?
 [[ "$RC" -eq 0 ]] && grep -q 'jobs=3' "$OUT" \

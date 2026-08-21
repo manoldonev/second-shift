@@ -2,7 +2,7 @@
 
 **Opt-in, local, experimental.** The dev-pipeline works fine without this. If you want each PR to carry a cost block in its description, follow the steps below.
 
-The goal: the lean lane's build session computes the block at [`build-lean`](skills/build-lean/SKILL.md) step 7 and again at step 9, by invoking `pipeline-cost-block.sh --stateless --issue <n>`, and pastes it into both the PR description and the run's closing comment. The script reads OTel metrics emitted under the run's session ids, clamps them to the run's own wall-clock fence so a co-resident run or a `/dev-pipeline:pipeline-retro` session sharing the same `session.id` doesn't leak in, and renders one cost block to stdout (or to `--out`).
+The goal: the lean lane computes the block twice — the build session at [`build-lean`](skills/build-lean/SKILL.md) step 7, and the gate's `close-out` command at step 9 (#590) — by invoking `pipeline-cost-block.sh --stateless --issue <n>`, and puts it into both the PR description and the run's closing comment. The script reads OTel metrics emitted under the run's session ids, clamps them to the run's own wall-clock fence so a co-resident run or a `/dev-pipeline:pipeline-retro` session sharing the same `session.id` doesn't leak in, and renders one cost block to stdout (or to `--out`).
 
 ```bash
 pipeline-cost-block.sh --stateless --issue <n> [--close-out] [--prs <ref[,ref…]>] [--out <file>]
@@ -127,13 +127,13 @@ Exporting the same vars from `~/.zshrc`, or wrapping `claude` in an alias, works
 
 ## 4. (No hook wiring step)
 
-Cost tracking does not need a Stop hook. The build session invokes `pipeline-cost-block.sh --stateless` directly at `build-lean` step 7, before it opens the PR, and reuses that one block in the step-9 closing comment.
+Cost tracking does not need a Stop hook. The build session invokes `pipeline-cost-block.sh --stateless` directly at `build-lean` step 7, before it opens the PR; `lean-gate.sh close-out` invokes it again at step 9, with `--close-out`, and publishes that second block.
 
 ## 5. Verify end-to-end
 
 1. Run a lean issue (`/dev-pipeline:run-lean <issue>`, or `/dev-pipeline:build-lean <issue>` directly). Each session it spawns records its `$CLAUDE_CODE_SESSION_ID` as a `| session |` row in `.claude/pipeline-state/{issue}-lean-progress.md`.
 2. Tail the collector output: `tail -f ~/.claude/otel-metrics/metrics.jsonl` — you should see JSON lines within a few seconds of the session emitting.
-3. At step 7 the build session computes the block from those ids and the run's fence, and pastes it into the PR description; step 9 repeats the same block in the closing comment. Success is the block appearing in the PR — nothing is recorded in a state file, by design.
+3. At step 7 the build session computes the block from those ids and the run's fence, and pastes it into the PR description; at step 9 `bash lean-gate.sh close-out <issue>` re-computes it over the run's now-complete fence, replaces the step-7 block in the description, and carries it in the closing comment. Success is the block appearing in the PR — nothing is recorded in a state file, by design.
 
 For ad-hoc verification without a run, hand it any session id and fence:
 
@@ -164,6 +164,8 @@ An empty-looking block here means the query found no `claude_code.cost.usage` da
 - `skip(zero-datapoints)` — rows for the supplied session ids **are** inside the window, but none of them carries `claude_code.cost.usage`. Telemetry is flowing and there is genuinely no cost to report.
 
 The rollup lives in the block, and — under `--close-out` — in one `cost-log.jsonl` row per run beneath the state dir (#546). The row's identity is (`ticketKey`, `runId`): a re-entered close-out replaces its own row, while a retry under a new run id appends, so an aborted run stays in the corpus as the real cost it was. A run that logs any `skip(…)` verdict writes no row at all.
+
+**A discontinuity in the corpus, dated (#590).** Rows written before the close-out stopped being a spawned model session cover **three** sessions — build, review, close-out — and rows after it cover **two**. No field marks the change: rows carry a timestamp and a `runId`, and a date fence is what separates the eras. Comparing a `totalUsd` or a session count across it is comparing two lane shapes, not two runs. The reversible default was taken deliberately — adding a discriminator to an append-only log later is contained, while rewriting history is not.
 
 ### Manual re-run after an OTel query failure
 
