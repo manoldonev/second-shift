@@ -265,8 +265,11 @@ census() {
   case "$TIER" in stop|bold|all) ;; *) die "--tier must be stop, bold or all (got '$TIER')" ;; esac
   local tmp
   tmp=$(mktemp) || die "mktemp failed"
-  # shellcheck disable=SC2064
-  trap "rm -f '$tmp'" EXIT
+  # Cleanup is explicit, at the bottom of this function, and deliberately NOT an EXIT trap — bash
+  # 3.2, the stock macOS shell, does not run a trap set inside a pipeline element of a command
+  # substitution, which is exactly how the tier counts below call this:
+  # `$(census --tier bold | awk …)`. A trap would clean up under bash 5 and leak one temp per
+  # such call under 3.2, which is invisible to output and to rc.
   local f
   while IFS= read -r f; do
     scan_file "$f"
@@ -296,6 +299,9 @@ census() {
       printf '%s\t%s\t%s\n' "$id" "$sites" "$(printf '%s' "$text" | cut -c1-160)"
     fi
   done | LC_ALL=C sort
+  local rc=$?
+  rm -f "$tmp"
+  return "$rc"
 }
 
 check() {
@@ -307,6 +313,8 @@ check() {
   tmp_rows=$(mktemp) || die "mktemp failed"
   # shellcheck disable=SC2064
   trap "rm -f '$tmp_census' '$tmp_rows'" EXIT
+  # `census` writes TIER and FULL as globals and does its own teardown; the subshell keeps both
+  # off this shell, whose EXIT trap above owns the two temps opened here.
   (census) >"$tmp_census" || exit $?
 
   local bad

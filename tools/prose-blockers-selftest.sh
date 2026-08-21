@@ -262,12 +262,18 @@ is "the excluded count is all minus stop" "$(num_after 'excludes ')" \
   "$(( $(num_after 'all=') - $(num_after 'stop=') ))"
 
 echo "== check does not leak its temp files =="
-# `check` arms an EXIT trap over two temp files and then calls `census`, whose own unconditional
-# `trap … EXIT` REPLACES it — running the census in a SUBSHELL is what keeps the two traps apart.
-# No other assertion here can fail on that: the leak is invisible to output and to rc. Counting
-# the host's real temp dir would be racy — a concurrent suite's files land in it, and mktemp
-# ignores TMPDIR on macOS — so this shims `mktemp` onto a jail directory. CREATED is the
-# anti-vacuity half: a shim the tool never called would leak nothing either.
+# `check` allocates two temp files under an EXIT trap and calls `census` three times; `census`
+# allocates one per call and removes it EXPLICITLY, because a trap of its own would not fire
+# under bash 3.2 inside the `$(census --tier … | awk …)` tier counts — the shell that ships with
+# macOS, and the lane that caught the leak this case now pins. The SUBSHELL around that call keeps
+# census's global writes off this shell; it is no longer what holds two EXIT traps apart, and
+# removing it now fails nothing here.
+# No other assertion here can fail on a leak: it is invisible to output and to rc. Counting the
+# host's real temp dir would be racy — a concurrent suite's files land in it, and mktemp ignores
+# TMPDIR on macOS — so this shims `mktemp` onto a jail directory. CREATED is the anti-vacuity
+# half, and it proves the shim was REACHED rather than pinning any particular allocation: all
+# five calls (`check`'s two plus one per `census`) go through it, so the bar clears on `census`
+# alone.
 JAIL="$WORK/tmpjail"
 mkdir -p "$JAIL/bin" "$JAIL/files"
 cat >"$JAIL/bin/mktemp" <<'SHIM'
