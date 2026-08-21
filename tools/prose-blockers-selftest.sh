@@ -291,6 +291,36 @@ LEAKED=$(find "$JAIL/files" -type f 2>/dev/null | wc -l | tr -d ' ')
   || bad "the shimmed mktemp is what check actually called" "${CREATED:-0} temp file(s) created"
 is "check removes every temp file it created" "$LEAKED" "0"
 
+echo "== check refuses with the census's OWN status when the census pipeline fails =="
+# `check` reads `(census) >"$tmp_census" || exit $?`. A census that masked a failed pipeline would
+# leave check comparing the record against a TRUNCATED census, and the all-clear it then printed
+# would be indistinguishable from a real one — the fail-open a verification tool can least afford.
+# census captures its pipeline's status across its own cleanup and returns it; no other assertion
+# here can fail on that, because the status is invisible to census's output.
+# The injection point is the pipeline's LAST element, which is what the capture reads: a `sort`
+# shim exiting 9. The code is deliberately distinctive so the assertion pins the VALUE that
+# propagates rather than merely "something went wrong" — a hardcoded 0 and a hardcoded non-zero
+# both fail it. The second assertion is the consequence, not a restatement: under a masked status
+# check runs on to its comparison and prints a summary over an empty census.
+FAILSORT="$WORK/failsort"
+mkdir -p "$FAILSORT/bin"
+cat >"$FAILSORT/bin/sort" <<'SHIM'
+#!/usr/bin/env bash
+printf 'called\n' >>"$FAILSORT_MARK"
+exit 9
+SHIM
+chmod +x "$FAILSORT/bin/sort"
+OUT=$(PROSE_BLOCKERS_ROOT="$WORK" FAILSORT_MARK="$FAILSORT/called" PATH="$FAILSORT/bin:$PATH" \
+  bash "$TOOL" check docs/rec.tsv 2>&1)
+is "check exits with the census's own status, not a masked one" "$?" "9"
+grep -q 'construct(s) over' <<<"$OUT" \
+  && bad "check stops instead of comparing against a truncated census" "$OUT" \
+  || ok "check stops instead of comparing against a truncated census"
+[ -s "$FAILSORT/called" ] && ok "the failing sort is what census actually ran" \
+  || bad "the failing sort is what census actually ran" "the shim was never invoked"
+run check docs/rec.tsv >/dev/null 2>&1
+is "the same record passes with sort working — the shim is the whole difference" "$?" "0"
+
 echo "== the shipped record =="
 PROSE_BLOCKERS_ROOT="$SELF_DIR/.." bash "$TOOL" check >/dev/null 2>&1
 is "this repo's own tree is fully dispositioned" "$?" "0"

@@ -299,6 +299,9 @@ census() {
       printf '%s\t%s\t%s\n' "$id" "$sites" "$(printf '%s' "$text" | cut -c1-160)"
     fi
   done | LC_ALL=C sort
+  # The pipeline's status has to survive the cleanup below: `check` reads
+  # `(census) >"$tmp_census" || exit $?`, so a masked failure there would leave it comparing the
+  # record against a TRUNCATED census and printing an all-clear over it.
   local rc=$?
   rm -f "$tmp"
   return "$rc"
