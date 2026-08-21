@@ -1295,5 +1295,46 @@ if [ "$rc" -eq 2 ] && grep -q 'portable evidence payload is missing' <<<"$out"; 
   pass "(Y5) an unreachable evidence payload is an environment error, never a pass"
 else fail "(Y5) expected rc=2 on a missing payload, got rc=$rc: $out"; fi
 
+# ---- (AA) evidence 7b: the boundary keeps DELEGATING the override arm (#613) ---------------
+# CHAIN-LEVEL, and that is the whole point of putting it here. lean-evidence-selftest.sh drives
+# the override arm's payload directly, so it stays green when `delegate override` is deleted from
+# the gate — the boundary would then validate nothing while reporting clean. A TYPO is worse than
+# a deletion: `run_arms` matches `*,override,*`, so a misspelled arm name runs ZERO arms, emits
+# zero violations and exits 0. Both mutants red here and in no other suite.
+#
+# Two rungs, the same shape the intent-gap arm above already carries: (S1) refuses, (S3) clears.
+# (X6) left a tree that passes, and each case below changes only the override record on it, so a
+# refusal here can only have come from this arm.
+OVREC="$TREE/docs/plans/acme-42-lean-override.md"
+
+# The verdict is re-written on top of every record, for the reason write_gap does it: the record
+# is a new commit, and evidence 5 tolerates exactly one path differing from the head.
+OV_ROUND=0
+write_override() { # write_override <expiry>   — every other key well-formed
+  local p
+  OV_ROUND=$((OV_ROUND + 1))
+  printf '# Lean override record — issue 42\n\n## Override 1\ngate: intake-unqueued\nscope: intake-attestation\nissue: 42\nregion: none\nrun_id: r-abc123\nsession_id: sess-build-1\nexpiry: %s\ndecision: proceed without the queue label\n\n### Operator answer\n\n> Yes — the ticket was scoped in the thread, go.\n' \
+    "$1" > "$OVREC"
+  commit_tree "override record (round $OV_ROUND)"
+  p="$(tree_patch_id HEAD)"
+  write_verdict approve "r-review-ov-$OV_ROUND" "sess-review-ov-$OV_ROUND" "$(git -C "$TREE" rev-parse HEAD)" "$p"
+}
+
+# (AA1) the refusal. ONE key is wrong and every other reads clean, so this cannot be passed by a
+# boundary that merely reads the record less strictly — only by one that reads it at all.
+write_override forever
+out="$(run_gate_base "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q "a per-issue record carries only 'run'" <<<"$out"; then
+  pass "(AA1) a malformed override record reds the boundary — the chain still delegates the arm"
+else fail "(AA1) expected rc=1 on a malformed override record, got rc=$rc: $out"; fi
+
+# (AA2) ...and a well-formed record clears it, silently. Without this arm (AA1) could be a
+# boundary that refuses every override rather than one that reads them.
+write_override run
+out="$(run_gate_base "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+if [ "$rc" -eq 0 ] && silent "$out"; then
+  pass "(AA2) a well-formed override record passes the boundary with zero bytes"
+else fail "(AA2) expected a silent rc=0 on a well-formed override record, got rc=$rc: $out"; fi
+
 echo "[check-lean-chain-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 exit "$FAILS"
