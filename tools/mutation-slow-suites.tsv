@@ -11,4 +11,5 @@ plugins/dev-pipeline/skills/build-lean/lean-reconcile-selftest.sh	10	2026-08-17
 plugins/dev-pipeline/skills/build-lean/scenario-liveness-selftest.sh	31	2026-07-31
 plugins/dev-pipeline/tools/preflight-selftest.sh	8	2026-07-31
 plugins/intake-toolkit/hooks/exitplan-ledger-gate-selftest.sh	5	2026-07-31
+tools/prose-blockers-selftest.sh	15	2026-08-21
 tools/run-selftests-selftest.sh	8	2026-08-14
