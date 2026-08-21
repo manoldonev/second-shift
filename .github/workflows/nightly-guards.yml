@@ -97,7 +97,7 @@ jobs:
         run: sudo apt-get update -q && sudo apt-get install -y shellcheck jq
 
       - name: wholesale selftest sweep, cache bypassed
-        run: bash tools/run-selftests.sh --exclude tools/install-topology-selftest.sh
+        run: bash tools/run-selftests.sh --full --exclude tools/install-topology-selftest.sh
 
   # The prose ratchet (#552). Standing measurement, same as its neighbours: it compares the
   # instruction layer and the lane's shell guards against committed baselines and reds when one
@@ -131,4 +131,4 @@ jobs:
           ln -sf /bin/bash /tmp/bash32/bash
           export PATH="/tmp/bash32:$PATH"
           bash --version | head -1
-          bash tools/run-selftests.sh --exclude tools/install-topology-selftest.sh
+          bash tools/run-selftests.sh --full --exclude tools/install-topology-selftest.sh

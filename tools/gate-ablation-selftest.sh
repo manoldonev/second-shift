@@ -116,14 +116,14 @@ S="$T/state"; C="$T/classes.tsv"; A="$T/adj.tsv"; P="$T/plans"; M="$T/manifest.t
 mkstate "$S"; mkclasses "$C"; mkadj "$A"; mkverdicts "$P"
 
 # (a) manifest mode names each record with a hash and honours --exclude.
-OUT="$(run manifest --state-dir "$S" --lanes /nonexistent --exclude 901)"
+OUT="$(run manifest --state-dir "$S" --exclude 901)"
 check a "$(printf '%s\n' "$OUT" | grep -c '^900-lean-progress.md')" 1 "manifest lists the in-corpus record"
 check a2 "$(printf '%s\n' "$OUT" | grep -c '^901-lean-progress.md')" 0 "--exclude drops the named lane"
-check a3 "$(printf '%s\n' "$OUT" | grep -c 'named by --exclude:     901')" 1 "the header records where the exclusion came from"
+check a3 "$(printf '%s\n' "$OUT" | grep -c 'still in flight when this was cut, named by --exclude: 901')" 1 "the header records the exclusion and its single source"
 check a4 "$(printf '%s\n' "$OUT" | awk -F'\t' '/^900/ {print length($2)}')" 64 "the row carries a sha256"
 
 # (b) emit is deterministic over an unchanged corpus — AC-5's byte-for-byte claim.
-run manifest --state-dir "$S" --lanes /nonexistent > "$M"
+run manifest --state-dir "$S" > "$M"
 E1="$T/e1"; E2="$T/e2"
 bash "$TOOL" emit --state-dir "$S" --manifest "$M" --classes "$C" --adjudication "$A" --plans-dir "$P" > "$E1" 2>&1
 rc1=$?
@@ -163,7 +163,7 @@ check e2 "$(printf '%s\n' "$OUT" | grep -c '901-lean-progress.md: named by the m
 mkstate "$T/state3"; S3="$T/state3"
 cp "$S3/900-lean-progress.md" "$S3/999-lean-progress.md"
 M2="$T/manifest2.tsv"
-run manifest --state-dir "$S3" --lanes /nonexistent --exclude 999 > "$M2"
+run manifest --state-dir "$S3" --exclude 999 > "$M2"
 OUT="$(run emit --state-dir "$S3" --manifest "$M2" --classes "$C" --adjudication "$A" --plans-dir "$P")"; rc=$?
 check f "$rc" 0 "an out-of-manifest record does not red the run"
 check f2 "$(printf '%s\n' "$OUT" | grep -c 'scored records (artifact schema) | 2 ')" 1 "and is not scored"
@@ -171,7 +171,7 @@ check f2 "$(printf '%s\n' "$OUT" | grep -c 'scored records (artifact schema) | 2
 # (g) an unclassified reason is a hard failure naming the record — never an `other` bucket (D-c).
 mkstate "$T/state4"; S4="$T/state4"
 echo "2026-01-01T00:20:00Z | milestone-3 | attempt | the moon was in the wrong phase" >> "$S4/900-lean-progress.md"
-M3="$T/manifest3.tsv"; run manifest --state-dir "$S4" --lanes /nonexistent > "$M3"
+M3="$T/manifest3.tsv"; run manifest --state-dir "$S4" > "$M3"
 OUT="$(run emit --state-dir "$S4" --manifest "$M3" --classes "$C" --adjudication "$A" --plans-dir "$P")"; rc=$?
 check g "$rc" 1 "an unmatched reason exits 1"
 check g2 "$(printf '%s\n' "$OUT" | grep -c 'matches no row in the reason-class table')" 1 "and says so"
@@ -252,24 +252,22 @@ mkdir -p "$T/empty"
 run emit --state-dir "$T/empty" >/dev/null 2>&1
 check p "$?" 3 "with no --manifest the committed default resolves and its records are missing (3), not unresolvable (2)"
 
-# (q) --lanes is honoured over the state dir's own registry. The two must be able to disagree, or
-#     the seam is untested and the default silently wins wherever the fixture has no registry.
+# (q) THE LANE REGISTRY IS NOT A SOURCE ANY MORE (#566). It was read from the state dir by
+#     default, so a state dir that still carries a `lean-lanes.tsv` — every machine that ran a
+#     lane before the retirement does — must not have its rows excluded behind the operator's
+#     back. This is the case that reds if the read is ever reintroduced.
 mkstate "$T/state5"; S5="$T/state5"
 printf '1	some date	900	2026-01-01T00:00:00Z
 ' > "$S5/lean-lanes.tsv"
-printf '2	some date	901	2026-01-01T00:00:00Z
-' > "$T/other-lanes.tsv"
-OUT="$(run manifest --state-dir "$S5" --lanes "$T/other-lanes.tsv")"
-check q "$(printf '%s\n' "$OUT" | grep -c '^900-lean-progress.md')" 1 "the lane the passed registry does NOT name stays in"
-check q2 "$(printf '%s\n' "$OUT" | grep -c '^901-lean-progress.md')" 0 "the lane it names is excluded"
-check q3 "$(printf '%s\n' "$OUT" | grep -c 'from the lane registry: 901')" 1 "and the header attributes it to the registry"
+OUT="$(run manifest --state-dir "$S5")"
+check q "$(printf '%s\n' "$OUT" | grep -c '^900-lean-progress.md')" 1 "a stale registry in the state dir excludes nothing"
+check q2 "$(printf '%s\n' "$OUT" | grep -c 'still in flight when this was cut, named by --exclude: none')" 1 "and the header claims no exclusion it did not make"
+check q3 "$(run manifest --state-dir "$S5" --lanes "$T/other-lanes.tsv" >/dev/null 2>&1; echo $?)" 2 "--lanes is gone, and an unknown option is a usage error rather than a silent no-op"
 
-# (r) with nothing excluded, both header sources read `none` — the manifest must never imply an
-#     exclusion it did not make.
-OUT="$(run manifest --state-dir "$S5" --lanes /nonexistent)"
-check r "$(printf '%s\n' "$OUT" | grep -c 'still in flight when this was cut: none')" 1 "no exclusions renders as none"
-check r2 "$(printf '%s\n' "$OUT" | grep -c 'from the lane registry: none')" 1 "an absent registry renders as none"
-check r3 "$(printf '%s\n' "$OUT" | grep -c 'named by --exclude:     none')" 1 "an unused --exclude renders as none"
+# (r) with nothing excluded the header reads `none` — the manifest must never imply an exclusion
+#     it did not make.
+OUT="$(run manifest --state-dir "$S5")"
+check r "$(printf '%s\n' "$OUT" | grep -c 'still in flight when this was cut, named by --exclude: none')" 1 "no exclusions renders as none"
 
 echo
 if [ "$FAILED" -eq 0 ]; then echo "gate-ablation-selftest: ALL CASES PASSED"; exit 0; fi

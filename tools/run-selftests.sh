@@ -56,15 +56,15 @@
 #
 # USAGE
 #   run-selftests.sh [--exclude <repo-relative-path>]... [--jobs <n>] [--root <dir>]
-#                    [--cache-dir <dir>] [--cache-write]
+#                    [--cache-dir <dir>] [--cache-write] [--full]
 #
 #   --exclude     repeatable. Lifts a suite out of THIS sweep while leaving it discovered, so it
 #                 can run in its own CI job. An exclusion matching no discovered suite is a HARD
 #                 ERROR — the stale-row posture install-topology-known-red.tsv and
 #                 mutation-baseline.tsv already carry, applied to a stale workflow argument.
+#   --full        do NOT apply tools/selftest-slow-suites.tsv. The sweep of record passes this;
+#                 see #566 below for why the table is on by default and the opt-out is explicit.
 #   --jobs        concurrency; defaults to $SELFTEST_JOBS, itself defaulting to 4 (the recipe).
-#                 $LEAN_JOB_CEILING, when set, caps the resolved value — see #526 below. It is
-#                 a CEILING, not an override: a smaller --jobs still wins.
 #   --root        tree to discover under; defaults to the repo root above this script.
 #   --cache-dir   marker store for the pass cache. Absent, no suite is ever skipped.
 #   --cache-write additionally RECORD passes into that store. Requires --cache-dir.
@@ -93,6 +93,8 @@ ROOT="$(dirname "$HERE")"   # HERE is already absolute and resolved, so its dirn
 SELF="${BASH_SOURCE[0]}"
 JOBS="${SELFTEST_JOBS:-4}"
 EXCLUDES=""   # newline-separated; bash 3.2 has no array-of-args ergonomics worth the noise here
+FULL=0        # 1 = do not apply the slow-suite table (#566)
+DEFERRED=""   # newline-separated "<suite><TAB><reason>", for the announcement below
 TAB=$'\t'
 
 CACHE_DIR=""
@@ -161,36 +163,43 @@ while [[ $# -gt 0 ]]; do
     --cache-dir)   [[ $# -ge 2 ]] || die "--cache-dir requires a directory"
                    CACHE_DIR="$2"; shift 2 ;;
     --cache-write) CACHE_WRITE=1; shift ;;
+    --full)    FULL=1; shift ;;
     *)         die "unknown argument: $1" ;;
   esac
 done
 
 [[ "$JOBS" =~ ^[0-9]+$ ]] && [[ "$JOBS" -ge 1 ]] || die "--jobs/SELFTEST_JOBS must be a positive integer, got: $JOBS"
-# ---- the lane job ceiling (#526) ------------------------------------------------------
-# A DISTINCT variable from SELFTEST_JOBS, and that is the whole reason it exists rather than
-# being folded into the existing one. SELFTEST_JOBS is read at the top of this file, BEFORE the
-# parse loop above, and `--jobs` overwrites it unconditionally — so an injected value would be
-# discarded exactly when a caller passes `--jobs`, which is the only case this ceiling exists
-# for. Applied here instead: after the resolved value is known, as a ceiling rather than a
-# replacement, so an operator who asks for FEWER workers than their share still gets fewer.
-#
-# Validated at the same site and through the same `die` as `--jobs`, deliberately. Left
-# unvalidated, the minimum is undefined and the naive shell form yields an empty or zero JOBS —
-# a silent drop to serial with nothing announced, which is the fail-open shape this whole
-# change exists to remove rather than introduce.
-#
-# UNSET IS A NO-OP. Neither CI workflow invokes the gate that exports this, so a runner sees no
-# ceiling and every sweep there resolves exactly the value it resolves today.
-if [[ -n "${LEAN_JOB_CEILING:-}" ]]; then
-  [[ "$LEAN_JOB_CEILING" =~ ^[0-9]+$ ]] && [[ "$LEAN_JOB_CEILING" -ge 1 ]] \
-    || die "LEAN_JOB_CEILING must be a positive integer, got: $LEAN_JOB_CEILING"
-  if [[ "$JOBS" -gt "$LEAN_JOB_CEILING" ]]; then
-    echo "[run-selftests] job ceiling: $JOBS -> $LEAN_JOB_CEILING (LEAN_JOB_CEILING — this machine is running more than one lane)"
-    JOBS="$LEAN_JOB_CEILING"
-  fi
-fi
 [[ -d "$ROOT" ]] || die "--root is not a directory: $ROOT"
 ROOT="$(cd "$ROOT" && pwd)"
+
+# ---- the slow-suite table (#566) -------------------------------------------------------
+# ON BY DEFAULT, and `--full` is the opt-out. The inverse — an opt-in `--quick` — was rejected
+# at intake for a reason that is structural rather than stylistic: the only caller that WANTS
+# the bound is lean-gate.sh milestone 3, which runs a `test` command out of a consumer's
+# gitignored config. An opt-in flag would therefore have to be added by hand to an untracked
+# file that no gate can read, so "did the bound actually apply?" would be unanswerable in
+# review and unverifiable in CI. Default-on inverts that: the sweeps of record (both CI
+# selftest jobs, the nightly wholesale leg, and the CLAUDE.md contributor recipe) pass `--full`
+# in COMMITTED files, where a missing opt-out is visible in the diff.
+#
+# WHY A TABLE AND NOT MORE `--exclude` FLAGS. The membership is a cost record — each row
+# carries the measurement that justifies it — and it has to be reviewable. Flags in the
+# gitignored config are neither.
+#
+# RESOLVED UNDER $ROOT, never under $SELF's repo: --root points at the tree being swept, and a
+# sweep of another tree must read that tree's table or it is applying this one's membership to
+# suites it has never measured. Absent, every suite is treated as fast.
+SLOW_SUITES="$ROOT/tools/selftest-slow-suites.tsv"
+if [[ "$FULL" -eq 0 && -f "$SLOW_SUITES" ]]; then
+  while IFS="$TAB" read -r sl_suite sl_secs sl_reason; do
+    case "${sl_suite:-}" in ''|'#'*) continue ;; esac
+    [[ -n "$sl_secs" && -n "$sl_reason" ]] \
+      || die "malformed row in $SLOW_SUITES: '$sl_suite' — expected <suite>\\t<seconds>\\t<reason>"
+    [[ "$sl_secs" =~ ^[0-9]+$ ]] \
+      || die "malformed row in $SLOW_SUITES: '$sl_suite' seconds must be a whole number, got '$sl_secs'"
+    DEFERRED="$DEFERRED$sl_suite$TAB${sl_secs}s — $sl_reason"$'\n'
+  done < "$SLOW_SUITES"
+fi
 
 # ---- orphan reaping (#528) -------------------------------------------------------------
 # "The sweep harness on entry": lean-gate-selftest.sh and orchestrate-lean-selftest.sh — both
@@ -227,8 +236,8 @@ fi
 # ---- the lean lane's store (#563) ------------------------------------------------------
 # The SECOND activation path, and the only one that is not argv. lean-gate.sh milestone 3 cannot
 # rewrite the `test` command it runs — that string lives in a consumer's config, gitignored here
-# — so it hands the store down the one channel it does own, exactly as it already hands down
-# LEAN_JOB_CEILING (#526). This is the reading end of that coupling.
+# — so it hands the store down the one channel it does own: an env assignment prepended to the
+# lane's invocation. This is the reading end of that coupling.
 #
 # ARGV WINS, and this sits AFTER the parse and after the --cache-write check so that stays true
 # in both directions: an explicit --cache-dir is never overridden, and a lone --cache-write is
@@ -302,17 +311,60 @@ DISCOVERED=0
 # Each --exclude must name a discovered suite EXACTLY. A path that matches nothing is a stale
 # workflow argument: it would silently widen the sweep the day the suite is renamed, and the
 # renamed suite would then run twice (here and in its own job) with nobody noticing.
+#
+# THE TABLE'S ROWS ARE EXCLUSIONS TOO, and they carry the SAME stale-row posture: a row naming
+# no discovered suite is a hard error, so a renamed suite cannot silently start running twice.
+# The message names which source the bad path came from — a stale table row and a stale
+# workflow argument have different remedies.
+#
+# DEDUPED, and that is a correctness requirement rather than tidiness. EXCLUDED feeds
+# EXPECTED = DISCOVERED - EXCLUDED, which the run/discovered invariant is checked against, so
+# counting one suite twice would under-state EXPECTED and red an honest sweep. It is the normal
+# case, not an edge one: this repo's milestone-3 `test` command already passes
+# `--exclude tools/install-topology-selftest.sh` explicitly, and that suite is also a table row.
 EXCLUDED=0
-while IFS= read -r ex; do
+SEEN=""
+while IFS= read -r ex_line; do
+  ex="${ex_line%%"$TAB"*}"
   [[ -n "$ex" ]] || continue
   ex="${ex#./}"
-  if ! grep -qxF "$ex" <<<"$ALL"; then
-    die "--exclude '$ex' matches no discovered suite under $ROOT — stale exclusion"
-  fi
+  ex_src="--exclude '$ex' matches no discovered suite under $ROOT — stale exclusion"
+  case "$ex_line" in
+    *"$TAB"*) ex_src="$SLOW_SUITES row '$ex' matches no discovered suite under $ROOT — stale table row; drop it or fix the path" ;;
+  esac
+  grep -qxF "$ex" <<<"$ALL" || die "$ex_src"
+  grep -qxF "$ex" <<<"$SEEN" && continue
+  SEEN="$SEEN$ex"$'\n'
   EXCLUDED=$((EXCLUDED + 1))
 done <<EOF
 $EXCLUDES
+$DEFERRED
 EOF
+# THE DEDUPED UNION BECOMES THE CANONICAL LIST, and the dispatch filter below reads only this.
+# Keeping the table in a second variable and filtering on $EXCLUDES alone was the first shape of
+# this and it was wrong in the one direction a green run hides: EXCLUDED counted the table rows,
+# so EXPECTED dropped, but the worklist still carried them — the suites ran, the run/discovered
+# invariant caught the disagreement, and the sweep died on an arithmetic error rather than on
+# anything about the tree. One list, counted and filtered from the same bytes.
+EXCLUDES="$SEEN"
+
+# ---- the deferred-to-CI listing (#566 AC-4) --------------------------------------------
+# NAMED, one line per suite, never a count. An operator reading a green milestone 3 has to be
+# able to tell which suites that green does NOT cover, and a number cannot answer it. The gate
+# replays this verbatim; it makes no deferral claim of its own.
+#
+# A DEFERRAL IS NOT A FAILURE. It is announced on stdout beside the ordinary sweep output and
+# changes no exit code — the excluded set is computed BEFORE dispatch, so the discovered/ran
+# invariant holds by construction rather than being fought.
+if [[ -n "$DEFERRED" ]]; then
+  echo "[run-selftests] slow-suite table applied ($SLOW_SUITES) — deferred to CI, which sweeps them with --full:"
+  while IFS="$TAB" read -r df_suite df_note; do
+    [[ -n "$df_suite" ]] || continue
+    echo "[run-selftests]   deferred: $df_suite ($df_note)"
+  done <<EOF
+$DEFERRED
+EOF
+fi
 
 EXPECTED=$((DISCOVERED - EXCLUDED))
 [[ "$EXPECTED" -gt 0 ]] || die "every discovered suite is excluded — a sweep that runs nothing is never green"

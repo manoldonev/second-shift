@@ -24,33 +24,24 @@ trap 'rm -rf "$BASE"' EXIT
 
 # run_runner <fixture-root> [args...] -> writes $OUT, sets $RC
 #
-# LEAN_JOB_CEILING is SCRUBBED unless a case opts in through $CEILING, and that scrub is not
-# hygiene — it is what makes the jobs assertions below mean anything. The lean gate exports that
-# variable into every milestone-3 child, and one of those children is the sweep that runs this
-# file, so an inherited ceiling would silently clip the value every ceiling case asserts.
+# LEAN_SELFTEST_CACHE_DIR (#563) is SCRUBBED, and the scrub is not hygiene:
+# the lean gate exports a STORE too, and an inherited one would turn the cache ON in every case
+# below that asserts nothing is served without --cache-dir.
 #
 # EVERY DIRECT INVOCATION BELOW CARRIES THE SAME SCRUB, and until #613 the policy was stated here
 # and honored only by this driver — so the cases that hand-roll their own `env` inherited whatever
-# ceiling the machine was running under. The SELFTEST_JOBS case argues that at its own site.
+# the machine was running under. #613 made that policy real for #526's job ceiling; #566 deletes
+# the ceiling, so the discipline now rides on the one seam the gate still hands a lane child.
+# The SELFTEST_JOBS case argues it at its own site.
 #
-# LEAN_SELFTEST_CACHE_DIR (#563) is scrubbed for the identical reason and a sharper consequence:
-# the lean gate exports a STORE too, and an inherited one would turn the cache ON in every case
-# below that asserts nothing is served without --cache-dir. The #563 cases at the end of this
-# file set it deliberately, one invocation at a time, and never through this driver.
+# The #563 cases at the end of this file set the store deliberately, one invocation at a time,
+# and never through this driver.
 OUT=""; RC=0
-CEILING=""
 run_runner() {
   local root="$1"; shift
   OUT="$BASE/out.$$.$RANDOM"
-  if [[ -n "$CEILING" ]]; then
-    env -u TMPDIR -u SELFTEST_JOBS -u RUN_SELFTESTS_DROP_LAST -u LEAN_SELFTEST_CACHE_DIR \
-      LEAN_JOB_CEILING="$CEILING" \
-      bash "$RUNNER" --root "$root" "$@" > "$OUT" 2>&1
-  else
-    env -u TMPDIR -u SELFTEST_JOBS -u RUN_SELFTESTS_DROP_LAST -u LEAN_SELFTEST_CACHE_DIR \
-      -u LEAN_JOB_CEILING \
-      bash "$RUNNER" --root "$root" "$@" > "$OUT" 2>&1
-  fi
+  env -u TMPDIR -u SELFTEST_JOBS -u RUN_SELFTESTS_DROP_LAST -u LEAN_SELFTEST_CACHE_DIR \
+    bash "$RUNNER" --root "$root" "$@" > "$OUT" 2>&1
   RC=$?
 }
 
@@ -132,7 +123,7 @@ make_suite "$R3B" "one-selftest.sh" 0 'echo one'
 make_suite "$R3B" "two-selftest.sh" 0 'echo two'
 
 OUT="$BASE/out.ac3b"
-env -u TMPDIR -u LEAN_JOB_CEILING -u SELFTEST_JOBS RUN_SELFTESTS_DROP_LAST=1 \
+env -u TMPDIR -u LEAN_SELFTEST_CACHE_DIR -u SELFTEST_JOBS RUN_SELFTESTS_DROP_LAST=1 \
   bash "$RUNNER" --root "$R3B" > "$OUT" 2>&1
 RC=$?
 [[ "$RC" -eq 2 ]] && grep -q 'silent truncation' "$OUT" \
@@ -178,21 +169,25 @@ done
 
 # SELFTEST_JOBS (the env form the workflows use) must reach the same place as --jobs.
 #
-# THIS CASE HAND-ROLLS ITS `env`, so it carries both of the driver's scrubs itself — the header
-# above says why each one matters — and the hostile ceiling in front of it is the assertion, not
-# scenery. Without the scrub an ambient ceiling below 3 clips the very number being asserted, and
-# the case then reds for a reason that has nothing to do with SELFTEST_JOBS. That is not
-# hypothetical: the lean gate exports a ceiling into every milestone-3 child, one of which is the
-# sweep that runs this file, so the leak surfaces only on a machine running enough lanes to push
-# the ceiling under 3 — somebody else's concurrency deciding whether this suite passes. Setting
-# one here makes a dropped scrub fail EVERYWHERE instead of only there.
+# THIS CASE HAND-ROLLS ITS `env`, so it must carry run_runner's LEAN_SELFTEST_CACHE_DIR scrub
+# itself — and the hostile store in front of it is the assertion, not scenery. Without the scrub
+# an ambient store activates the pass cache (`cache: activated from LEAN_SELFTEST_CACHE_DIR`),
+# and this case then runs a cached sweep while claiming to measure a cold one. That is not
+# hypothetical: the lean gate exports a store into every milestone-3 child, one of which is the
+# sweep that runs this file, so the leak surfaces only on a machine whose operator carries the
+# variable. Setting one here makes a dropped scrub fail EVERYWHERE instead of only there — which
+# is why the assertion is two-sided: the jobs number AND the absence of the activation line.
+#
+# It carried #526's LEAN_JOB_CEILING scrub on the same reasoning until #566 deleted the ceiling;
+# the argument survived the variable, so it was re-pointed at the seam that is still handed down.
 OUT="$BASE/out.ac4env"
-LEAN_JOB_CEILING=2 env -u TMPDIR -u RUN_SELFTESTS_DROP_LAST -u LEAN_JOB_CEILING -u LEAN_SELFTEST_CACHE_DIR \
-  SELFTEST_JOBS=3 bash "$RUNNER" --root "$R4G" > "$OUT" 2>&1
+LEAN_SELFTEST_CACHE_DIR="$BASE/hostile-cache" \
+  env -u TMPDIR -u RUN_SELFTESTS_DROP_LAST -u LEAN_SELFTEST_CACHE_DIR SELFTEST_JOBS=3 \
+  bash "$RUNNER" --root "$R4G" > "$OUT" 2>&1
 RC=$?
-[[ "$RC" -eq 0 ]] && grep -q 'jobs=3' "$OUT" \
-  && ok "AC-4: SELFTEST_JOBS is honored as the concurrency source" \
-  || { fail "AC-4: SELFTEST_JOBS was not honored"; sed 's/^/    | /' "$OUT"; }
+[[ "$RC" -eq 0 ]] && grep -q 'jobs=3' "$OUT" && ! grep -q 'activated from LEAN_SELFTEST_CACHE_DIR' "$OUT" \
+  && ok "AC-4: SELFTEST_JOBS is honored as the concurrency source, on an uncached sweep" \
+  || { fail "AC-4: SELFTEST_JOBS was not honored, or an ambient cache store leaked in"; sed 's/^/    | /' "$OUT"; }
 
 # ---------------------------------------------------------------------------------------
 # AC-5 — each suite's output is one CONTIGUOUS group, never interleaved with another's.
@@ -259,7 +254,7 @@ make_suite "$RCM" "alpha-selftest.sh" 0 'echo alpha-ok'
 make_suite "$RCM" "beta-selftest.sh" 0 'echo beta-ok'
 
 OUT="$BASE/out.norc"
-env -u TMPDIR -u LEAN_JOB_CEILING -u RUN_SELFTESTS_DROP_LAST RUN_SELFTESTS_DROP_RC=1 \
+env -u TMPDIR -u LEAN_SELFTEST_CACHE_DIR -u RUN_SELFTESTS_DROP_LAST RUN_SELFTESTS_DROP_RC=1 \
   bash "$RUNNER" --root "$RCM" --jobs 2 > "$OUT" 2>&1
 RC=$?
 # rc=3, not merely non-zero: this fixture is the REAL shape #527 reserves the code for — every
@@ -363,7 +358,7 @@ run_runner "$NEST" --jobs 2
 # inner sweep's LAST suite and red it as truncation. ZLEAF is that last suite, so its marker is
 # the discriminator — the outer sweep reds either way (the seam is doing its job up there).
 OUT="$BASE/out.nest2"
-env -u TMPDIR -u LEAN_JOB_CEILING RUN_SELFTESTS_DROP_LAST=1 bash "$RUNNER" --root "$NEST" --jobs 2 > "$OUT" 2>&1
+env -u TMPDIR -u LEAN_SELFTEST_CACHE_DIR RUN_SELFTESTS_DROP_LAST=1 bash "$RUNNER" --root "$NEST" --jobs 2 > "$OUT" 2>&1
 RC=$?
 grep -q 'ZLEAF-ran' "$OUT" \
   && ok "nesting: the parent's truncation seam does not reach the nested runner" \
@@ -540,7 +535,7 @@ make_suite "$RCN" "nv-selftest.sh" 0 'echo NV-ran'
 make_suite "$RCN" "nv.sh"          0 'echo nv-subject'
 write_tsv "$RCN" "nv-selftest.sh${T}nv-selftest.sh" "nv-selftest.sh${T}nv.sh"
 OUT="$BASE/out.cache-norc"
-env -u TMPDIR -u LEAN_JOB_CEILING -u SELFTEST_JOBS -u RUN_SELFTESTS_DROP_LAST RUN_SELFTESTS_DROP_RC=1 \
+env -u TMPDIR -u LEAN_SELFTEST_CACHE_DIR -u SELFTEST_JOBS -u RUN_SELFTESTS_DROP_LAST RUN_SELFTESTS_DROP_RC=1 \
   bash "$RUNNER" --root "$RCN" --cache-dir "$CDIRN" --cache-write > "$OUT" 2>&1
 RC=$?
 [[ "$RC" -ne 0 ]] && [[ "$(find "$CDIRN" -type f 2>/dev/null | grep -c '')" -eq 0 ]] \
@@ -693,7 +688,7 @@ write_tsv "$RCE" "e-selftest.sh${T}e-selftest.sh" "e-selftest.sh${T}e.sh"
 run_env_case() { # <label> <expect-served: yes|no> <env assignment>...
   local label="$1" expect="$2"; shift 2
   OUT="$BASE/out.env.$RANDOM"
-  env -u TMPDIR -u LEAN_JOB_CEILING -u SELFTEST_JOBS -u RUN_SELFTESTS_DROP_LAST -u SKIP_STRESS -u RUNNER_OS "$@" \
+  env -u TMPDIR -u LEAN_SELFTEST_CACHE_DIR -u SELFTEST_JOBS -u RUN_SELFTESTS_DROP_LAST -u SKIP_STRESS -u RUNNER_OS "$@" \
     bash "$RUNNER" --root "$RCE" --cache-dir "$CDIRE" > "$OUT" 2>&1
   RC=$?
   if [[ "$RC" -ne 0 ]]; then
@@ -709,7 +704,7 @@ run_env_case() { # <label> <expect-served: yes|no> <env assignment>...
 }
 
 OUT="$BASE/out.env.seed"
-env -u TMPDIR -u LEAN_JOB_CEILING -u SELFTEST_JOBS -u RUN_SELFTESTS_DROP_LAST -u SKIP_STRESS RUNNER_OS=Linux \
+env -u TMPDIR -u LEAN_SELFTEST_CACHE_DIR -u SELFTEST_JOBS -u RUN_SELFTESTS_DROP_LAST -u SKIP_STRESS RUNNER_OS=Linux \
   bash "$RUNNER" --root "$RCE" --cache-dir "$CDIRE" --cache-write > "$OUT" 2>&1
 RC=$?
 [[ "$RC" -eq 0 ]] && grep -q 'cache: 0 served, 1 recorded' "$OUT" \
@@ -802,63 +797,80 @@ run_runner "$R3" --exclude "keep-selftest.sh" --exclude "drop-selftest.sh"
                   || { fail "usage: an all-excluded sweep did not red (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
 
 # ---------------------------------------------------------------------------------------
-# The lane job ceiling (#526). A fixture tree of two trivial passing suites — nothing here is
-# about what the suites do, only about the jobs value the runner resolves and prints.
+# THE SLOW-SUITE TABLE (#566 AC-10). The bound that replaced ~640 lines of detached-runner
+# supervision in lean-gate.sh: milestone 3 fits inside the harness turn because the sweep it
+# runs is narrowed here, not because a runner outlives the turn.
 #
-# The ceiling is asserted through `jobs=` on the runner's own summary line rather than by
-# timing anything: a concurrency assertion keyed on wall clock is a flake generator, and the
-# resolved value is the entire contract.
+# EVERY OTHER CASE IN THIS FILE BUILDS A --root WITH NO SUCH TABLE, which is what keeps them
+# meaningful — an absent table is the "every suite is fast" default, so nothing above this
+# point changed behavior when the table shipped.
 # ---------------------------------------------------------------------------------------
-RJ="$BASE/jobs"; mkdir -p "$RJ"
-make_suite "$RJ" "j1-selftest.sh" 0 'echo j1'
-make_suite "$RJ" "j2-selftest.sh" 0 'echo j2'
+RSL="$BASE/slow"; mkdir -p "$RSL/tools"
+make_suite "$RSL" "tools/quick-selftest.sh" 0 'echo quick'
+make_suite "$RSL" "tools/heavy-selftest.sh" 0 'echo heavy'
+make_suite "$RSL" "sub/other-selftest.sh"   0 'echo other'
+printf '# hdr\ntools/heavy-selftest.sh\t147\ttoo slow for the turn\n' > "$RSL/tools/selftest-slow-suites.tsv"
 
-# AC-5. No ceiling and no flag is what BOTH CI workflows produce — neither invokes the gate that
-# exports one, and neither passes --jobs. Asserted, not assumed: this is the case that says CI's
-# concurrency is untouched by everything else in this change.
-CEILING=""; run_runner "$RJ"
-if [[ "$RC" -eq 0 ]] && grep -q 'jobs=4' "$OUT" && ! grep -q 'job ceiling' "$OUT"; then
-  ok "ceiling: absent leaves the default at 4 — CI's resolved concurrency is unchanged"
+# AC-10 / AC-4. Applied BY DEFAULT — no flag opts in. The deferred suite is NAMED with its
+# reason (a count could not tell an operator which green they are not getting), the sweep still
+# exits 0, and the discovered/ran invariant holds because the exclusion is computed before
+# dispatch rather than by killing a live suite.
+run_runner "$RSL"
+if [[ "$RC" -eq 0 ]] && grep -q 'deferred: tools/heavy-selftest.sh (147s — too slow for the turn)' "$OUT" \
+   && grep -q '3 discovered, 1 excluded, 2 to run' "$OUT" && ! grep -q 'ERROR' "$OUT"; then
+  ok "slow-table: applied by default, names the deferred suite and its reason, and still exits 0"
 else
-  fail "ceiling: absent must resolve jobs=4 with no announcement (rc=$RC)"; sed 's/^/    | /' "$OUT"
+  fail "slow-table: default application failed (rc=$RC)"; sed 's/^/    | /' "$OUT"
 fi
 
-# AC-2. The case the whole ticket exists for: SELFTEST_JOBS could not carry a ceiling because
-# --jobs overwrites it, so absent-with-an-explicit-flag must be byte-identical to today.
-CEILING=""; run_runner "$RJ" --jobs 10
-if [[ "$RC" -eq 0 ]] && grep -q 'jobs=10' "$OUT" && ! grep -q 'job ceiling' "$OUT"; then
-  ok "ceiling: absent leaves an explicit --jobs 10 alone"
+# AC-10. `--full` is the opt-out, and it is what every sweep of record passes. This is the case
+# that says CI's coverage is unchanged by the table's existence.
+run_runner "$RSL" --full
+if [[ "$RC" -eq 0 ]] && ! grep -q 'deferred:' "$OUT" && grep -q '3 discovered, 0 excluded, 3 to run' "$OUT"; then
+  ok "slow-table: --full ignores the table entirely — the sweep of record still runs everything"
 else
-  fail "ceiling: absent must leave --jobs 10 alone (rc=$RC)"; sed 's/^/    | /' "$OUT"
+  fail "slow-table: --full must run all 3 suites with no deferral (rc=$RC)"; sed 's/^/    | /' "$OUT"
 fi
 
-CEILING=2; run_runner "$RJ" --jobs 10
-if [[ "$RC" -eq 0 ]] && grep -q 'jobs=2' "$OUT" && grep -q 'job ceiling: 10 -> 2' "$OUT"; then
-  ok "ceiling: below the flag clips it, and says so"
+# THE DEDUPE, and it is a correctness case rather than a tidiness one. EXCLUDED feeds
+# EXPECTED = DISCOVERED - EXCLUDED, which the run/discovered invariant is checked against, so
+# counting one suite twice under-states EXPECTED and reds an honest sweep. It is the NORMAL
+# case, not an edge one: this repo's own milestone-3 `test` command passes
+# `--exclude tools/install-topology-selftest.sh` explicitly, and that suite is also a table row.
+run_runner "$RSL" --exclude tools/heavy-selftest.sh
+if [[ "$RC" -eq 0 ]] && grep -q '3 discovered, 1 excluded, 2 to run' "$OUT" && ! grep -q 'ERROR' "$OUT"; then
+  ok "slow-table: a suite excluded BOTH explicitly and by the table counts once"
 else
-  fail "ceiling: 2 must clip --jobs 10 to 2 and announce it (rc=$RC)"; sed 's/^/    | /' "$OUT"
+  fail "slow-table: explicit+table double-count broke the run/discovered invariant (rc=$RC)"; sed 's/^/    | /' "$OUT"
 fi
 
-# A CEILING, not an override. An operator who asked for fewer workers than their share keeps
-# them — raising anyone's concurrency is not something this variable may ever do.
-CEILING=9; run_runner "$RJ" --jobs 3
-if [[ "$RC" -eq 0 ]] && grep -q 'jobs=3' "$OUT" && ! grep -q 'job ceiling' "$OUT"; then
-  ok "ceiling: above the flag is a no-op"
+# THE STALE-ROW POSTURE, inherited from --exclude verbatim: a row naming no discovered suite is
+# a hard error, so a renamed suite cannot silently start running twice (here and in its own CI
+# job) with nobody noticing. The message must name the TABLE — a stale table row and a stale
+# workflow argument have different remedies, and a shared message sends the reader to the wrong
+# file.
+printf '# hdr\ntools/vanished-selftest.sh\t99\tgone\n' > "$RSL/tools/selftest-slow-suites.tsv"
+run_runner "$RSL"
+if [[ "$RC" -eq 2 ]] && grep -q 'selftest-slow-suites.tsv row' "$OUT" && grep -q 'stale table row' "$OUT"; then
+  ok "slow-table: a row matching no discovered suite reds, and the message names the table"
 else
-  fail "ceiling: 9 must leave --jobs 3 alone (rc=$RC)"; sed 's/^/    | /' "$OUT"
+  fail "slow-table: stale row must red with a table-specific message (rc=$RC)"; sed 's/^/    | /' "$OUT"
 fi
 
-# Rejected the way --jobs is. Unvalidated, the minimum is undefined and the naive shell form
-# yields an empty or zero jobs value — a silent drop to serial, which is the fail-open shape
-# this change exists to remove.
-CEILING=abc; run_runner "$RJ"
-[[ "$RC" -eq 2 ]] && ok "ceiling: a non-numeric ceiling is rejected" \
-                  || { fail "ceiling: LEAN_JOB_CEILING=abc was accepted (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
+# ...and --full does not read the table at all, so a stale row cannot red the sweep of record.
+# The opt-out has to be total: a CI lane that reds on the local check's cost record would make
+# the table a merge blocker, which is the opposite of what it is for.
+run_runner "$RSL" --full
+[[ "$RC" -eq 0 ]] && ok "slow-table: --full does not read the table, so a stale row cannot red CI" \
+                  || { fail "slow-table: --full redded on a stale table row (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
 
-CEILING=0; run_runner "$RJ"
-[[ "$RC" -eq 2 ]] && ok "ceiling: a zero ceiling is rejected" \
-                  || { fail "ceiling: LEAN_JOB_CEILING=0 was accepted (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
-CEILING=""
+# A MALFORMED ROW IS A USAGE ERROR, not a silently-skipped one. A row whose seconds column is
+# not a number is a hand-edit that did not finish, and treating it as absent would defer nothing
+# while reporting a bound that is not in force.
+printf '# hdr\ntools/heavy-selftest.sh\tsoon\ttoo slow\n' > "$RSL/tools/selftest-slow-suites.tsv"
+run_runner "$RSL"
+[[ "$RC" -eq 2 ]] && ok "slow-table: a non-numeric seconds column is rejected" \
+                  || { fail "slow-table: malformed row was accepted (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
 
 # ---------------------------------------------------------------------------------------
 # THE FIXTURE REAPER CALL SITE (#528). Every other case builds a --root whose tools/ holds only
@@ -913,7 +925,7 @@ fi
 run_env_cached() {
   local store="$1" root="$2"; shift 2
   OUT="$BASE/out.$$.$RANDOM"
-  env -u TMPDIR -u SELFTEST_JOBS -u RUN_SELFTESTS_DROP_LAST -u LEAN_JOB_CEILING \
+  env -u TMPDIR -u SELFTEST_JOBS -u RUN_SELFTESTS_DROP_LAST \
     LEAN_SELFTEST_CACHE_DIR="$store" \
     bash "$RUNNER" --root "$root" "$@" > "$OUT" 2>&1
   RC=$?
@@ -956,7 +968,7 @@ make_suite "$RE1" "e.sh" 0 'echo e-subject'
 # not on a log line: the marker must land in the flag's store and the env's must stay empty.
 CDIRA="$BASE/argv-store"
 OUT="$BASE/out.argv-wins"
-env -u TMPDIR -u SELFTEST_JOBS -u RUN_SELFTESTS_DROP_LAST -u LEAN_JOB_CEILING \
+env -u TMPDIR -u SELFTEST_JOBS -u RUN_SELFTESTS_DROP_LAST \
   LEAN_SELFTEST_CACHE_DIR="$BASE/never-used-store" \
   bash "$RUNNER" --root "$RE1" --cache-dir "$CDIRA" --cache-write > "$OUT" 2>&1
 RC=$?

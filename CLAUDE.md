@@ -57,7 +57,7 @@ patch.
 ```bash
 find . -name '*.sh' -type f -print0 | xargs -0 shellcheck -e SC1091,SC2015,SC2181
 find . -name '*.json' -type f -print0 | xargs -0 -n1 jq empty
-SKIP_STRESS=1 bash tools/run-selftests.sh --exclude tools/install-topology-selftest.sh
+SKIP_STRESS=1 bash tools/run-selftests.sh --full --exclude tools/install-topology-selftest.sh
 ```
 
 **`tools/run-selftests.sh` is the sweep — here, in both CI selftest jobs, and in this repo's own
