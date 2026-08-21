@@ -9,8 +9,7 @@ Input a PR number. Output findings on the PR and a **committed verdict record** 
 run's milestone 4 and the merge boundary both read.
 
 This runs as its own top-level session, and that is the entire point: the session that wrote
-the code must not author its own evaluation. `lean-gate.sh verdict` refuses to run inside the
-build session, so this cannot be folded back into the build lane by convenience.
+the code does not author its own evaluation.
 
 `G` = `lean-gate.sh` in the sibling `build-lean/` skill directory.
 
@@ -26,13 +25,12 @@ build session, so this cannot be folded back into the build lane by convenience.
 
 1. Export a review identity before anything else — `RUN_ID=review-<issue>-<round>`, charset
    `[A-Za-z0-9._-]+`. It is cached per-issue under the review role, never shared with the
-   build run's. A verdict carrying the build's id is refused in-gate and at the merge
-   boundary.
+   build run's.
 2. `gh pr view <pr> --json number,headRefName,baseRefName,body,url` — the head branch resolves
    the issue key (`Closes #N` in the body) and the lean spec path.
 3. Check out the PR head **by branch name** — any checkout with that branch checked out works,
-   and a DETACHED head does not: steps 4 and 6 refuse with `rc=9` from a tree whose branch is not
-   the lane's, because both derive their answer from the checkout they run in. The build run's
+   and a DETACHED head does not: steps 4 and 6 derive their answer from the checkout they run
+   in. The build run's
    worktree is the usual place but is not guaranteed to be there: the build session destroys it at
    approval, and a later `entry` sweeps the ones abandoned runs left behind. `gh pr checkout` on a
    same-repo PR gives the right name; on a fork-origin one it prefixes the owner, so
@@ -81,16 +79,14 @@ build session, so this cannot be folded back into the build lane by convenience.
    The summary file carries the finding table and the per-AC scoring. The gate writes the
    reconciliation keys itself — including `reviewed_patch_id`, hashed from that checkout's own
    diff against the base, and `inherited_patch_id`, written every round and `none` on a root.
-   `--fidelity` is yours and defaults to `not-applicable`, which an armed run refuses: forgetting
-   it costs the round rather than certifying a design nobody looked at. Hand-edit none of them
+   `--fidelity` is yours and defaults to `not-applicable`, which on an armed run costs the round
+   rather than certifying a design nobody looked at. Hand-edit none of them
    (quoting a key in the summary is safe — readers take the header), and do not run this from the
-   main checkout: the record would name a patch you never reviewed. That is now ENFORCED rather
-   than advised — the gate refuses any tree not on the lane branch with `rc=9`.
+   main checkout: the record would name a patch you never reviewed.
 7. Commit and push the record to the PR's head branch through `bot-commit.sh`, and let it be
    the **last** commit on the branch. It is evidence only once committed — nothing local
    reaches CI — and it is PATCH-BOUND: milestone 4, the merge boundary and `lean-reconcile.sh`
-   all recompute that hash and refuse the record once any line outside it has changed. Commit
-   nothing else in this session.
+   all recompute that hash. Commit nothing else in this session.
 8. Post the findings as one PR comment (the build session reads the PR, not this transcript) —
    through [`gh-bot.sh`](../../tools/gh-bot.sh) when its `--status` is `ok`, plain `gh`
    otherwise. This is a `pr comment` write, which `pr-revision` already mandates the wrapper
@@ -101,8 +97,6 @@ build session, so this cannot be folded back into the build lane by convenience.
 
 ## Rules that are not negotiable
 
-- **Never write the verdict by hand.** The gate's refusals are the separation; a hand-written
-  record bypasses all of them and reds at `scripts/check-lean-chain.sh` anyway.
 - **Never end a turn with work this turn started and has not collected.** The scheduler spawns
   this session under `claude -p` exactly as it spawns the build one, and there turn end IS
   process exit: a `&`-detached command, a probe you mean to report on "when it lands", or an
@@ -113,9 +107,6 @@ build session, so this cannot be folded back into the build lane by convenience.
   and do not restructure the panel around a death it does not have.
 - **One identity per review round.** Re-running a round reuses the cached id; a new round
   after a fix gets a new one, so the rounds stay distinguishable in the ledger.
-- **A round that reviewed nothing produces no record.** An all-dark panel (step 5c) is an
-  infrastructure failure wearing a review's clothes: the report looks complete and the verdict
-  slot is still there to fill. Leave it empty and hand back.
 - **Inheritance narrows what you READ, never what you must find.** Every `AC-n` is scored every
   round against the whole spec — the delta bounds the reading, not the verdict. Code an earlier
   round approved that the fix then touched IS in the delta, so it is read again; only what did

@@ -13,5 +13,6 @@ plugins/dev-pipeline/skills/build-lean/scenario-liveness-selftest.sh	68	2026-08-
 plugins/dev-pipeline/tools/preflight-selftest.sh	8	2026-07-31
 plugins/intake-toolkit/hooks/exitplan-ledger-gate-selftest.sh	5	2026-07-31
 scripts/check-lean-chain-selftest.sh	67	2026-08-21
+tools/prose-blockers-selftest.sh	15	2026-08-21
 tools/run-selftests-selftest.sh	12	2026-08-21
 tools/mutation-sweep-selftest.sh	135	2026-08-20

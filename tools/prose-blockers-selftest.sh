@@ -1,0 +1,329 @@
+#!/usr/bin/env bash
+# prose-blockers-selftest.sh — behavioral suite for tools/prose-blockers.sh.
+#
+# Every case drives the real script over a fixture tree via PROSE_BLOCKERS_ROOT. Nothing here
+# re-declares the predicate: a copy of it could not fail on a production edit, which is the
+# mirror-harness shape this repo forbids.
+#
+# LOCKSTEP marker lines are built at RUNTIME from a variable, never written literally into a
+# heredoc — a whole-line marker in a fixture is a real site to scripts/check-lockstep-pairs.sh
+# and would fail as a group of one.
+
+set -uo pipefail
+
+SELF_DIR=$(cd -- "$(dirname -- "$0")" && pwd)
+TOOL="$SELF_DIR/prose-blockers.sh"
+PASS=0; FAIL=0
+
+ok()   { PASS=$((PASS + 1)); printf '  ok   %s\n' "$1"; }
+bad()  { FAIL=$((FAIL + 1)); printf '  FAIL %s\n     %s\n' "$1" "${2:-}"; }
+is()   { [ "$2" = "$3" ] && ok "$1" || bad "$1" "want '$3', got '$2'"; }
+
+WORK=$(mktemp -d) || exit 2
+trap 'rm -rf "$WORK"' EXIT
+
+# ---------------------------------------------------------------- fixture tree
+skill() { # skill <plugin> <name>; body on stdin
+  local d="$WORK/plugins/$1/skills/$2"
+  mkdir -p "$d"
+  cat >"$d/SKILL.md"
+}
+
+mkdir -p "$WORK/plugins/rev/scripts/fixtures/plugin/skills/copied"
+cat >"$WORK/plugins/rev/scripts/fixtures/plugin/skills/copied/SKILL.md" <<'EOF'
+The gate refuses without a live ledger.
+EOF
+
+skill core alpha <<'EOF'
+---
+name: alpha
+description: refuses everything in the frontmatter, which is metadata and not a rule
+---
+
+# alpha
+
+The gate refuses without a live audit ledger.
+
+**Do not pad the report with "no issues found."**
+
+The lint never looks at the tree, and a capability that is off simply never runs.
+
+Never copy plugin content into the consumer repo.
+
+Renders the pinned ref, never the local cache values.
+
+```
+bash guard.sh --strict   # refuses an empty body
+```
+
+> "alpha requires the Workflow tool. It cannot run as a subagent — hand back."
+EOF
+
+skill core beta <<'EOF'
+# beta
+
+Independent retrospective for a completed (or aborted) run. An abort is a real cost.
+
+`git.baseBranch` empty → ABORT with the stderr reason.
+
+1. First step, whose continuation line
+   mentions that the gate refuses a stale patch id.
+5b. A separately numbered step that hands back on an all-dark panel.
+
+ABORT the run and record the reason.
+
+A refusal at the intake boundary is recorded in the ledger.
+
+The excerpt boundary: this construct refuses at length, and it runs well past the one hundred and sixty characters the default census truncates at, so the whole form and the cut form differ.
+EOF
+
+skill other gamma <<'EOF'
+# gamma
+
+The gate refuses without a live audit ledger.
+EOF
+
+: >"$WORK/guard.sh"   # a real path for the record's enforcer column to resolve to
+
+run() { PROSE_BLOCKERS_ROOT="$WORK" bash "$TOOL" "$@" 2>&1; }
+ids() { PROSE_BLOCKERS_ROOT="$WORK" bash "$TOOL" census "$@" 2>/dev/null | cut -f1; }
+row() { PROSE_BLOCKERS_ROOT="$WORK" bash "$TOOL" census 2>/dev/null | grep -F "$1"; }
+
+echo "== corpus =="
+CORPUS=$(run corpus)
+is "corpus: three real skills discovered" "$(printf '%s\n' "$CORPUS" | wc -l | tr -d ' ')" "3"
+case "$CORPUS" in
+  *fixtures*) bad "corpus: fixture copies excluded by path" "fixture SKILL.md is in the corpus" ;;
+  *) ok "corpus: fixture copies excluded by path" ;;
+esac
+
+echo "== predicate: the stop tier =="
+STOP=$(PROSE_BLOCKERS_ROOT="$WORK" bash "$TOOL" census --full 2>/dev/null)
+grep -q 'refuses without a live audit ledger' <<<"$STOP" \
+  && ok "a named refusal is a construct" || bad "a named refusal is a construct" "absent"
+grep -q 'no issues found' <<<"$STOP" \
+  && bad "a bare bolded prohibition is NOT a stop" "censused at the stop tier" \
+  || ok "a bare bolded prohibition is NOT a stop"
+grep -q 'never looks at the tree' <<<"$STOP" \
+  && bad "a descriptive never is not a construct" "censused" \
+  || ok "a descriptive never is not a construct"
+grep -q 'ABORT with the stderr reason' <<<"$STOP" \
+  && ok "a commanded ABORT is a stop" || bad "a commanded ABORT is a stop" "absent"
+grep -q 'ABORT the run and record the reason' <<<"$STOP" \
+  && ok "a bare shouted ABORT is a stop" || bad "a bare shouted ABORT is a stop" "absent"
+grep -q 'A refusal at the intake boundary' <<<"$STOP" \
+  && ok "the NOUN form of refusal is a stop" || bad "the NOUN form of refusal is a stop" "absent"
+grep -q 'completed (or aborted) run' <<<"$STOP" \
+  && bad "an aborted RUN is a state, not a stop" "censused" \
+  || ok "an aborted RUN is a state, not a stop"
+grep -q 'It cannot run as a subagent' <<<"$STOP" \
+  && bad "a blockquote is quoted payload" "censused" || ok "a blockquote is quoted payload"
+grep -q 'refuses an empty body' <<<"$STOP" \
+  && bad "fenced code is not prose" "censused" || ok "fenced code is not prose"
+grep -q 'metadata and not a rule' <<<"$STOP" \
+  && bad "frontmatter is not prose" "censused" || ok "frontmatter is not prose"
+
+echo "== predicate: the wider tiers =="
+N_STOP=$(ids | wc -l | tr -d ' ')
+N_BOLD=$(ids --tier bold | wc -l | tr -d ' ')
+N_ALL=$(ids --tier all | wc -l | tr -d ' ')
+[ "$N_BOLD" -gt "$N_STOP" ] && ok "bold widens the stop tier" \
+  || bad "bold widens the stop tier" "stop=$N_STOP bold=$N_BOLD"
+[ "$N_ALL" -gt "$N_BOLD" ] && ok "all widens the bold tier" \
+  || bad "all widens the bold tier" "bold=$N_BOLD all=$N_ALL"
+BOLD=$(PROSE_BLOCKERS_ROOT="$WORK" bash "$TOOL" census --tier bold 2>/dev/null)
+grep -q 'no issues found' <<<"$BOLD" \
+  && ok "the bolded prohibition appears at --tier bold" \
+  || bad "the bolded prohibition appears at --tier bold" "absent"
+ALL=$(PROSE_BLOCKERS_ROOT="$WORK" bash "$TOOL" census --tier all --full 2>/dev/null)
+grep -q 'Never copy plugin content' <<<"$ALL" \
+  && ok "a clause-initial never appears at --tier all" \
+  || bad "a clause-initial never appears at --tier all" "absent"
+grep -q 'never the local cache values' <<<"$ALL" \
+  && bad "an elliptical contrast binds no action" "censused even at --tier all" \
+  || ok "an elliptical contrast binds no action"
+run census --tier bogus >/dev/null 2>&1; is "an unknown tier is a usage error" "$?" "2"
+
+echo "== --full against the default excerpt =="
+LONG_CUT=$(PROSE_BLOCKERS_ROOT="$WORK" bash "$TOOL" census 2>/dev/null \
+  | grep -F 'The excerpt boundary' | cut -f3)
+LONG_WHOLE=$(PROSE_BLOCKERS_ROOT="$WORK" bash "$TOOL" census --full 2>/dev/null \
+  | grep -F 'The excerpt boundary' | cut -f3)
+is "the default cuts a long construct at 160 characters" "${#LONG_CUT}" "160"
+[ "${#LONG_WHOLE}" -gt 160 ] && ok "--full emits the construct whole" \
+  || bad "--full emits the construct whole" "got ${#LONG_WHOLE} char(s), want more than 160"
+
+echo "== the census unit =="
+is "a bullet's continuation lines are one construct" \
+  "$(row 'core/skills/beta/SKILL.md' | grep -c 'First step')" "1"
+BETA=$(row 'beta/SKILL.md')
+grep -q 'separately numbered step' <<<"$BETA" \
+  && ok "a 5b-style marker starts a new construct" \
+  || bad "a 5b-style marker starts a new construct" "merged into the previous block"
+
+DUP_ID=$(PROSE_BLOCKERS_ROOT="$WORK" bash "$TOOL" census 2>/dev/null \
+  | awk -F'\t' '$2 ~ /alpha/ && $2 ~ /gamma/ {print $1}')
+[ -n "$DUP_ID" ] && ok "one contract in two skills is one construct with two sites" \
+  || bad "one contract in two skills is one construct with two sites" "no row carries both"
+
+echo "== ids are content-derived =="
+BEFORE=$(ids)
+printf '\n\nA trailing paragraph that names no stop.\n' >>"$WORK/plugins/core/skills/beta/SKILL.md"
+is "an unrelated edit re-keys nothing" "$(ids)" "$BEFORE"
+
+echo "== lockstep grouping =="
+# Two sites whose text DIFFERS, held together by an anchor: one construct, two sites.
+BEGIN_MARK="<!-- LOCKSTEP-BEGIN $(printf 'fixture-anchor') -->"
+END_MARK="<!-- LOCKSTEP-END $(printf 'fixture-anchor') -->"
+printf '\n%s\nOn rc 2 the scan could not run: hard-stop in alpha.\n%s\n' "$BEGIN_MARK" "$END_MARK" \
+  >>"$WORK/plugins/core/skills/alpha/SKILL.md"
+printf '\n%s\nOn rc 2 the scan could not run: hard-stop in gamma.\n%s\n' "$BEGIN_MARK" "$END_MARK" \
+  >>"$WORK/plugins/other/skills/gamma/SKILL.md"
+ANCHORED=$(PROSE_BLOCKERS_ROOT="$WORK" bash "$TOOL" census 2>/dev/null \
+  | awk -F'\t' '$3 ~ /hard-stop/ {print $1 "\t" $2}')
+is "differing sites under one anchor are ONE construct" \
+  "$(printf '%s\n' "$ANCHORED" | grep -c .)" "1"
+printf '%s' "$ANCHORED" | grep -q 'alpha' && printf '%s' "$ANCHORED" | grep -q 'gamma' \
+  && ok "the anchored construct carries both sites" \
+  || bad "the anchored construct carries both sites" "$ANCHORED"
+
+echo "== the root derives from the script's own location =="
+# Every case above hands the tool a PROSE_BLOCKERS_ROOT, which is exactly what leaves the
+# fallback unexercised. A copy of the tool INSIDE the fixture tree makes the derived root the
+# fixture root, so what answers here is the derivation rather than the override.
+mkdir -p "$WORK/tools"
+cp "$TOOL" "$WORK/tools/prose-blockers.sh"
+DERIVED=$(env -u PROSE_BLOCKERS_ROOT bash "$WORK/tools/prose-blockers.sh" census 2>/dev/null \
+  | cut -f1 | tr '\n' ' ')
+OVERRIDDEN=$(PROSE_BLOCKERS_ROOT="$WORK" bash "$TOOL" census 2>/dev/null | cut -f1 | tr '\n' ' ')
+is "an unset root derives the tree from the script's own parent" "$DERIVED" "$OVERRIDDEN"
+
+echo "== check =="
+REC="$WORK/docs/rec.tsv"
+mkdir -p "$WORK/docs"
+: >"$REC"
+
+run check docs/rec.tsv >/dev/null 2>&1; is "an empty record is all-undispositioned" "$?" "3"
+
+# Every live construct gets a row -> clean.
+PROSE_BLOCKERS_ROOT="$WORK" bash "$TOOL" census 2>/dev/null \
+  | awk -F'\t' '{print $1 "\tgate-backed\tpointer-kept\t" $2 "\tguard.sh::x\tcovered"}' >"$REC"
+OUT=$(run check docs/rec.tsv); is "a complete record is clean" "$?" "0"
+grep -q 'zero undispositioned' <<<"$OUT" && ok "clean run says so" || bad "clean run says so" "$OUT"
+
+# A prose-deleted row whose construct is still there is UNPRUNED.
+LIVE=$(ids | head -1)
+sed "s|^$LIVE\tgate-backed\tpointer-kept|$LIVE\tgate-backed\tprose-deleted|" "$REC" >"$REC.x" && mv "$REC.x" "$REC"
+OUT=$(run check docs/rec.tsv); is "a prose-deleted row still in the tree reds" "$?" "3"
+grep -q 'UNPRUNED' <<<"$OUT" && ok "and names it UNPRUNED" || bad "and names it UNPRUNED" "$OUT"
+
+# A surviving-action row whose construct is gone is STALE.
+printf 'pb-deadbeef\tpromoted\tfiled\tsome/file.md:1\t#999\tnot in the tree\n' >>"$REC"
+OUT=$(run check docs/rec.tsv); is "a filed row with no construct reds" "$?" "3"
+grep -q 'STALE' <<<"$OUT" && ok "and names it STALE" || bad "and names it STALE" "$OUT"
+
+# Malformed rows are exit 4, ahead of any comparison.
+printf 'pb-1\tgate-backed\tpointer-kept\n' >"$REC"
+run check docs/rec.tsv >/dev/null 2>&1; is "a short row is a malformed record" "$?" "4"
+printf 'pb-1\tinvented\tpointer-kept\ta:1\tg::x\tn\n' >"$REC"
+run check docs/rec.tsv >/dev/null 2>&1; is "an unknown disposition is malformed" "$?" "4"
+printf 'pb-1\tgate-backed\tinvented\ta:1\tg::x\tn\n' >"$REC"
+run check docs/rec.tsv >/dev/null 2>&1; is "an unknown action is malformed" "$?" "4"
+printf 'pb-1\tgate-backed\tpointer-kept\ta:1\t-\tn\n' >"$REC"
+OUT=$(run check docs/rec.tsv 2>&1); is "a gate-backed row naming no enforcer is malformed" "$?" "4"
+grep -q 'names no enforcer' <<<"$OUT" && ok "and says which" || bad "and says which" "$OUT"
+# An enforcer path the tree does not carry is UNRESOLVED.
+PROSE_BLOCKERS_ROOT="$WORK" bash "$TOOL" census 2>/dev/null \
+  | awk -F'\t' '{print $1 "\tgate-backed\tpointer-kept\t" $2 "\tno/such/guard.sh::x\tcovered"}' >"$REC"
+OUT=$(run check docs/rec.tsv); is "an enforcer the tree lacks reds" "$?" "3"
+grep -q 'UNRESOLVED' <<<"$OUT" && ok "and names it UNRESOLVED" || bad "and names it UNRESOLVED" "$OUT"
+PROSE_BLOCKERS_ROOT="$WORK" bash "$TOOL" census 2>/dev/null \
+  | awk -F'\t' '{print $1 "\tpromoted\tfiled\t" $2 "\t#4242\tdeferred"}' >"$REC"
+run check docs/rec.tsv >/dev/null 2>&1; is "an issue ref is not a path to resolve" "$?" "0"
+
+printf '# only a comment\n\npb-2\tdeleted\tprose-deleted\ta:1\t-\twas never a control\n' >"$REC"
+run check docs/rec.tsv >/dev/null 2>&1; is "comments and blanks are skipped, deleted needs no enforcer" "$?" "3"
+
+run check docs/nope.tsv >/dev/null 2>&1; is "an absent record is a usage error" "$?" "2"
+
+echo "== check reports what the default tier excludes =="
+PROSE_BLOCKERS_ROOT="$WORK" bash "$TOOL" census 2>/dev/null \
+  | awk -F'\t' '{print $1 "\tgate-backed\tpointer-kept\t" $2 "\tguard.sh::x\tcovered"}' >"$REC"
+TIERS=$(run check docs/rec.tsv | grep 'tiers:')
+[ -n "$TIERS" ] && ok "check reports the stop, bold and all counts" \
+  || bad "check reports the stop, bold and all counts" "no tiers line in check's output"
+num_after() { local v="${TIERS##*"$1"}"; v="${v%%[!0-9]*}"; printf '%s' "$v"; }
+is "the reported stop count is the default census" "$(num_after 'stop=')" "$(ids | wc -l | tr -d ' ')"
+is "the reported bold count is the bold census" \
+  "$(num_after 'bold=')" "$(ids --tier bold | wc -l | tr -d ' ')"
+is "the reported all count is the all census" \
+  "$(num_after 'all=')" "$(ids --tier all | wc -l | tr -d ' ')"
+is "the excluded count is all minus stop" "$(num_after 'excludes ')" \
+  "$(( $(num_after 'all=') - $(num_after 'stop=') ))"
+
+echo "== check does not leak its temp files =="
+# `check` allocates two temp files under an EXIT trap and calls `census` three times; `census`
+# allocates one per call and removes it EXPLICITLY, because a trap of its own would not fire
+# under bash 3.2 inside the `$(census --tier … | awk …)` tier counts — the shell that ships with
+# macOS, and the lane that caught the leak this case now pins. The SUBSHELL around that call keeps
+# census's global writes off this shell; it is no longer what holds two EXIT traps apart, and
+# removing it now fails nothing here.
+# No other assertion here can fail on a leak: it is invisible to output and to rc. Counting the
+# host's real temp dir would be racy — a concurrent suite's files land in it, and mktemp ignores
+# TMPDIR on macOS — so this shims `mktemp` onto a jail directory. CREATED is the anti-vacuity
+# half, and it proves the shim was REACHED rather than pinning any particular allocation: all
+# five calls (`check`'s two plus one per `census`) go through it, so the bar clears on `census`
+# alone.
+JAIL="$WORK/tmpjail"
+mkdir -p "$JAIL/bin" "$JAIL/files"
+cat >"$JAIL/bin/mktemp" <<'SHIM'
+#!/usr/bin/env bash
+# stand-in for the bare `mktemp` form, the only one prose-blockers.sh uses
+f="$TMPJAIL/files/tmp.$$.$RANDOM"
+: >"$f" && printf '%s\n' "$f" && printf '%s\n' "$f" >>"$TMPJAIL/created"
+SHIM
+chmod +x "$JAIL/bin/mktemp"
+PROSE_BLOCKERS_ROOT="$WORK" TMPJAIL="$JAIL" PATH="$JAIL/bin:$PATH" \
+  bash "$TOOL" check docs/rec.tsv >/dev/null 2>&1
+CREATED=$(wc -l <"$JAIL/created" 2>/dev/null | tr -d ' ')
+LEAKED=$(find "$JAIL/files" -type f 2>/dev/null | wc -l | tr -d ' ')
+[ "${CREATED:-0}" -ge 2 ] && ok "the shimmed mktemp is what check actually called" \
+  || bad "the shimmed mktemp is what check actually called" "${CREATED:-0} temp file(s) created"
+is "check removes every temp file it created" "$LEAKED" "0"
+
+echo "== check refuses with the census's OWN status when the census pipeline fails =="
+# `check` reads `(census) >"$tmp_census" || exit $?`. A census that masked a failed pipeline would
+# leave check comparing the record against a TRUNCATED census, and the all-clear it then printed
+# would be indistinguishable from a real one — the fail-open a verification tool can least afford.
+# census captures its pipeline's status across its own cleanup and returns it; no other assertion
+# here can fail on that, because the status is invisible to census's output.
+# The injection point is the pipeline's LAST element, which is what the capture reads: a `sort`
+# shim exiting 9. The code is deliberately distinctive so the assertion pins the VALUE that
+# propagates rather than merely "something went wrong" — a hardcoded 0 and a hardcoded non-zero
+# both fail it. The second assertion is the consequence, not a restatement: under a masked status
+# check runs on to its comparison and prints a summary over an empty census.
+FAILSORT="$WORK/failsort"
+mkdir -p "$FAILSORT/bin"
+cat >"$FAILSORT/bin/sort" <<'SHIM'
+#!/usr/bin/env bash
+printf 'called\n' >>"$FAILSORT_MARK"
+exit 9
+SHIM
+chmod +x "$FAILSORT/bin/sort"
+OUT=$(PROSE_BLOCKERS_ROOT="$WORK" FAILSORT_MARK="$FAILSORT/called" PATH="$FAILSORT/bin:$PATH" \
+  bash "$TOOL" check docs/rec.tsv 2>&1)
+is "check exits with the census's own status, not a masked one" "$?" "9"
+grep -q 'construct(s) over' <<<"$OUT" \
+  && bad "check stops instead of comparing against a truncated census" "$OUT" \
+  || ok "check stops instead of comparing against a truncated census"
+[ -s "$FAILSORT/called" ] && ok "the failing sort is what census actually ran" \
+  || bad "the failing sort is what census actually ran" "the shim was never invoked"
+run check docs/rec.tsv >/dev/null 2>&1
+is "the same record passes with sort working — the shim is the whole difference" "$?" "0"
+
+echo "== the shipped record =="
+PROSE_BLOCKERS_ROOT="$SELF_DIR/.." bash "$TOOL" check >/dev/null 2>&1
+is "this repo's own tree is fully dispositioned" "$?" "0"
+
+printf '\n%s: %d passed, %d failed\n' "$(basename "$0")" "$PASS" "$FAIL"
+[ "$FAIL" -eq 0 ]

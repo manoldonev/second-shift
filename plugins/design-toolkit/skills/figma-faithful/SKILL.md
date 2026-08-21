@@ -48,8 +48,6 @@ This skill has **no hard dependency** on a spec.
 - **Spec-fed mode (an approved spec / Copy Index exists):** trust the approved Copy Index +
   component list, skip re-derivation, go straight to token translation (step 4) and implement.
 
-Never abort for lack of a spec; spec-fed is an optimization.
-
 ## Reference docs (load these)
 
 The authoritative token/component facts are **repo-specific** and live in the repo's

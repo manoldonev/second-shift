@@ -1,0 +1,71 @@
+# prose-blocker triage — #610
+#
+# One row per blocking construct censused by `bash tools/prose-blockers.sh census` over the
+# pre-prune tree, dispositioned per the manifesto's P2/P5: a prose-only blocker is either
+# restated gate prose, a rule worth enforcing, or a rule that was never a control.
+#
+# COLUMNS  id  disposition  action  sites  enforcer  note
+#
+#   id           the census id. Content-derived, so a construct whose prose this prune EDITED
+#                carries its post-prune id and names its predecessor in the note. A construct
+#                whose prose was deleted keeps the id it was censused under.
+#   disposition  gate-backed | promoted | deleted
+#   action       prose-deleted | pointer-kept | lockstep-pinned | guard-added | filed
+#   sites        comma-joined path:line, regenerated from the census command
+#   enforcer     REPO-RELATIVE PATH :: subcommand-or-check-name, for gate-backed and promoted
+#                rows. A `filed` row carries the follow-up issue instead. THIS KEY FORMAT IS
+#                DECLARED REVERSIBLE: the phase-2 classification register may re-key it, and
+#                everything here regenerates from the census command.
+#   note         why. For `deleted`, the one line saying it was never a control.
+#
+# WHAT THIS FILE IS NOT. It is not a register the census reads — nothing enters the corpus by
+# being listed here, and nothing leaves it by being forgotten. `bash tools/prose-blockers.sh
+# check` compares the two and reports a construct with no row, a `prose-deleted` row whose
+# construct is still in the tree, and a surviving-action row whose construct is gone.
+#
+# OUT OF CENSUS, NAMED. Agent contract files under plugins/*/agents carry the same construct
+# class and are NOT censused here. They are routed to the phase-2 register intake (#605).
+#
+# SEQUENCING with the open guard-size and prose-load tickets: this prune touches SKILL.md prose
+# only. #553 (lean-gate.sh comments), #554 (orchestrate-lean.sh and run-selftests.sh comments)
+# and #566 (milestone 3's supervision machinery) own SHELL prose in files this record only ever
+# names as enforcers; #541 is their epic. Where #566 deletes milestone 3's long-sweep
+# machinery, the build-lean prose describing it is #566's residual, not this record's — no row
+# here disposition a construct in that block.
+#
+
+pb-2253f5d9	gate-backed	pointer-kept	plugins/dev-pipeline/skills/build-lean/SKILL.md:16	plugins/dev-pipeline/skills/build-lean/lean-gate.sh::entry	Re-keyed from pb-72c91e8c by this prune. entry states its own refusal and its own exit-2 chain for every later build-role call; the two accepting intake states restate probe_intake. The checklist step itself has to stay — it is where the run starts.
+pb-e8abbe7e	gate-backed	pointer-kept	plugins/second-shift/skills/onboard/SKILL.md:38	plugins/dev-pipeline/skills/build-lean/lean-gate.sh::entry	Re-keyed from pb-43842410. The entry-gate refusal is deleted; the ABORT arm is plugins/second-shift/skills/onboard/tools/pin-resolve.sh::exit-1, which the operator reads on the review screen, so the step stays.
+pb-196b73ca	gate-backed	pointer-kept	plugins/dev-pipeline/skills/review-lean/SKILL.md:38	plugins/dev-pipeline/skills/build-lean/lean-gate.sh::delta	delta owns exit 2. The hand-back on a genuinely absent attestation is a reading no gate makes, and it is why the step survives intact.
+pb-94ee597a	gate-backed	pointer-kept	plugins/dev-pipeline/skills/review-lean/SKILL.md:67	scripts/check-lean-chain.sh::verdict-record	The all-dark rule, settled KEEP / gates-llm by the parent epic. Its bucket is pre-settled, its disposition was not: an absent verdict record is already a violation at the merge boundary, which is the gate analog. This is the operative site and it stays whole; the duplicate at pb-bdd633e7 is the one that went.
+pb-5658947b	gate-backed	pointer-kept	plugins/dev-pipeline/skills/run-lean/SKILL.md:25	plugins/dev-pipeline/skills/run-lean/orchestrate-lean.sh::exit-codes	The exit-code table is the scheduler contract restated for a reader who has to act on it. orchestrate-lean.sh emits every code named here. Re-keyed from pb-ec1a1a92 when the merged-in resumable-reject work added a fourth exit code to the table; same construct, same enforcer, disposition unchanged.
+pb-30bb039d	gate-backed	pointer-kept	plugins/dev-pipeline/skills/build-lean/SKILL.md:40	plugins/dev-pipeline/skills/build-lean/lean-gate.sh::override_affordance	Milestone 1 refuses an unresolved pause-and-ask region, and for an attended session the gate prints the recording command itself. The prose points at that refusal; the tracker-write accounting around it is arithmetic a reader needs, not a control.
+pb-dd97c66f	gate-backed	pointer-kept	plugins/second-shift/skills/onboard/SKILL.md:29	plugins/dev-pipeline/tools/config-lint.sh::topology.repos.baseBranch	config-lint refuses an empty baseBranch, but only once a config exists. This ABORT fires at detection, before the interview is spent, so it is an earlier control rather than a duplicate one.
+pb-b7d0711c	gate-backed	pointer-kept	plugins/dev-pipeline/skills/pipeline-retro/SKILL.md:105	plugins/dev-pipeline/skills/build-lean/lean-gate.sh::milestone-preconditions	A routing-menu row asking whether a milestone assertion COULD refuse an outcome, citing the real precedent. It duplicates no refusal and is addressed to a retro author, not to a run.
+pb-5c1cd975	gate-backed	lockstep-pinned	plugins/intake-toolkit/skills/intake-interviewer/SKILL.md:250,plugins/intake-toolkit/skills/intake-orchestrator/SKILL.md:407,plugins/intake-toolkit/skills/intake-orchestrator/SKILL.md:492,plugins/intake-toolkit/skills/plan-interview/SKILL.md:78	plugins/intake-toolkit/skills/plan-interview/tools/dup-scan.sh::exit-2	One contract, four sites (was pb-4fa33ab3, pb-72e2384e, pb-5f947221, pb-aeca4743). dup-scan.sh returns 10 for found and 2 for could-not-run precisely so a failed scan never reads as a clean one, and its header says so in the same words the four sites did. The rationale is deleted at all four; the operative instruction is now one block held identical by LOCKSTEP anchor dup-scan-rc2.
+pb-0426581f	promoted	filed	plugins/dev-pipeline/skills/review-lean/SKILL.md:115	#622	No gate scores an AC-n, and none can tell a spec amended to match the diff from one amended because scope moved — which build-lean step 4 instructs. Needs the severity axis and the recorded-authority carve-out, not a check. Prose stays: it is the rule only control.
+pb-21641fc1	deleted	pointer-kept	plugins/intake-toolkit/skills/intake-orchestrator/SKILL.md:218	-	Site 1 of 2. Never a control: the rule fires only where topology.type is be-fe-pair AND both repos declare ticketTag, which onboard never emits, so no shipped config reaches it. Every available intake-exit home is invoked by skill prose, so no promotion reaches P2 impossible-to-skip either. Prose kept: Step 1.5 four-way branch dangles without it. Re-triaged from promoted/filed/#623; #623 closed on this basis.
+pb-ce91bffc	deleted	pointer-kept	plugins/intake-toolkit/skills/intake-orchestrator/SKILL.md:235	-	Site 2 of 2, same rule as pb-21641fc1. Re-triaged from promoted/filed/#623; #623 closed on this basis.
+pb-3bdd8454	deleted	pointer-kept	plugins/design-toolkit/skills/figma-iterate/SKILL.md:57	-	Never a control — and not because the rule is unwanted: no surface on this skill's path can enforce it. design-toolkit ships no hooks, and a PreToolUse on AskUserQuestion fires only on the arm that already passes, so a promotion stays prose asking the model to run a script. Prose kept: it is the rule's only expression. Re-triaged from promoted/filed/#624; #624 closed NOT_PLANNED on this basis.
+pb-7ec3eca9	gate-backed	prose-deleted	plugins/dev-pipeline/skills/build-lean/SKILL.md:36	plugins/dev-pipeline/skills/build-lean/lean-gate.sh::verdict	"You never author the verdict" — the gate refuses a verdict carrying the build session identity and scripts/check-lean-chain.sh refuses it again. The block was the restatement and nothing else.
+pb-78bacc64	gate-backed	prose-deleted	plugins/dev-pipeline/skills/review-lean/SKILL.md:104	plugins/dev-pipeline/skills/build-lean/lean-gate.sh::verdict	The same rule, the review side. The block said outright that a hand-written record reds at check-lean-chain.sh anyway.
+pb-7e44dbda	gate-backed	prose-deleted	plugins/dev-pipeline/skills/review-lean/SKILL.md:11	plugins/dev-pipeline/skills/build-lean/lean-gate.sh::verdict	The restated refusal goes; why this is a separate session stays, because a reader arriving at the file needs it.
+pb-731a8ac0	gate-backed	prose-deleted	plugins/dev-pipeline/skills/review-lean/SKILL.md:27	plugins/dev-pipeline/skills/build-lean/lean-gate.sh::verdict	The identity refusal is stated at the gate and again at the merge boundary. The instruction to export the id survives.
+pb-a575f1b4	gate-backed	prose-deleted	plugins/dev-pipeline/skills/review-lean/SKILL.md:79	plugins/dev-pipeline/skills/build-lean/lean-gate.sh::verdict	Two refusals restated in one step: rc=9 on a foreign tree, and the armed-run refusal of a not-applicable fidelity. Both are the gate current messages.
+pb-7e295f82	gate-backed	prose-deleted	plugins/dev-pipeline/skills/build-lean/SKILL.md:29	plugins/dev-pipeline/skills/build-lean/lean-gate.sh::4	Milestone 4 refuses a verdict carrying the build identity. The hand-off instruction stays; the restated refusal does not.
+pb-63776cf4	gate-backed	prose-deleted	plugins/dev-pipeline/skills/review-lean/SKILL.md:89	plugins/dev-pipeline/skills/build-lean/lean-gate.sh::4	Three surfaces recompute the patch id and each refuses on its own. m4/patch-stale is an earn-your-keep point in docs/gate-ablation.md with a dated incident (2026-08-03), so the gate stays and only the prose copy goes.
+pb-6567822d	gate-backed	prose-deleted	plugins/dev-pipeline/skills/build-lean/SKILL.md:38	plugins/dev-pipeline/skills/build-lean/lean-gate.sh::fix-budget	The budget is a hardcoded constant with no flag and no env seam, and the absent/attempt taxonomy is the gate own bookkeeping. What survives is the part no gate does: post the abort comment, keep the worktree and the claim.
+pb-c720d13d	gate-backed	prose-deleted	plugins/dev-pipeline/skills/build-lean/SKILL.md:39	plugins/dev-pipeline/skills/build-lean/lean-gate.sh::wrong-tree	rc=9 refuses, evaluates nothing and spends no budget, and says all three. What survives is the cwd advice, which is a harness fact the gate cannot state.
+pb-71661525	gate-backed	prose-deleted	plugins/dev-pipeline/skills/review-lean/SKILL.md:33	plugins/dev-pipeline/skills/build-lean/lean-gate.sh::wrong-tree	The same rc=9, the review side. Which checkout to use is not the gate business and stays.
+pb-83a5f3b5	gate-backed	prose-deleted	plugins/dev-pipeline/skills/build-lean/SKILL.md:21	plugins/dev-pipeline/skills/build-lean/lean-gate.sh::1	Two restatements in one step: rc=9 ("never work in the shared checkout") and milestone 1 pause-and-ask refusal. The remedy — get an operator comment — stays.
+pb-c54693f0	gate-backed	prose-deleted	plugins/dev-pipeline/skills/build-lean/SKILL.md:23	plugins/dev-pipeline/skills/build-lean/lean-gate.sh::1	Milestone 1 refuses a spec that carries neither the receipt D-n rows nor a DEPARTURE mark, and ledger-lint.sh refuses each arity. The route (ledger-carry-forward.sh) survives; the refusal does not.
+pb-6131f8c1	gate-backed	prose-deleted	plugins/second-shift/skills/onboard/SKILL.md:120	plugins/dev-pipeline/skills/build-lean/lean-gate.sh::3	Milestone 3 render gate owns "a ticket declaring a non-default render state is refused". Onboard restated it while describing what liveRender buys.
+pb-2f0a8825	gate-backed	prose-deleted	plugins/dev-pipeline/skills/build-lean/SKILL.md:44	scripts/check-lean-chain.sh::ratification	The merge boundary refuses ratified: no. The P9 obligation to WRITE the intent-gap record is not gated and stays.
+pb-0fcf3243	gate-backed	prose-deleted	plugins/intake-toolkit/skills/interviewing-baseline/SKILL.md:183	scripts/check-lean-chain.sh::ratification	The same two refusals, restated where the record schema is documented. The schema note stays; where a citing-nothing yes is settled is now a pointer.
+pb-bdd633e7	gate-backed	prose-deleted	plugins/dev-pipeline/skills/review-lean/SKILL.md:116	scripts/check-lean-chain.sh::verdict-record	The second copy of the all-dark rule. The settled KEEP is not dispositioned away — pb-94ee597a, the checklist step that carries the operative instruction, survives whole.
+pb-ee574d15	gate-backed	prose-deleted	plugins/dev-pipeline/skills/run-lean/SKILL.md:37	plugins/dev-pipeline/skills/run-lean/orchestrate-lean.sh::probe_intake	probe_intake IS this rule: it reads the label, names the reject, recognises the re-entry state, and states the ungated-tracker arm itself. The remedy the operator acts on is at checklist step 5, which stays.
+pb-c0f16a39	gate-backed	prose-deleted	plugins/dev-pipeline/skills/run-lean/SKILL.md:8	plugins/dev-pipeline/skills/run-lean/orchestrate-lean.sh::loop	Not a refusal the prose adds — the script owns the loop by construction. Only the refusal wording went; the role statement is the first thing a scheduler session reads.
+pb-17e023fe	gate-backed	prose-deleted	plugins/second-shift/skills/onboard/SKILL.md:169	plugins/second-shift/skills/onboard/tools/scaffold-review-context.sh::refuse-overwrite	The tool refuses to overwrite an existing review-context.md and says so on stderr.
+pb-3f2b7994	gate-backed	prose-deleted	plugins/second-shift/skills/onboard/SKILL.md:161	plugins/second-shift/skills/onboard/tools/scaffold-review-context.sh::reject-empty-body	The tool refuses an empty or TODO body. Why a hollow section is bad is not the tool business and stays.
+pb-7fd1ca9e	gate-backed	prose-deleted	plugins/second-shift/skills/onboard/SKILL.md:298	plugins/dev-pipeline/skills/build-lean/lean-gate.sh::entry	The entry-gate refusal restated a second time in the same file. doctor FAIL on the same combination is the check that actually catches the hand edit, and it stays.
+pb-e2ae0c39	deleted	prose-deleted	plugins/design-toolkit/skills/figma-faithful/SKILL.md:51	-	An instruction NOT to stop. Nothing ever demanded the stop it forbids, no gate could enforce it in either direction, and it appears in no firing in docs/gate-ablation.md — it was never a control.

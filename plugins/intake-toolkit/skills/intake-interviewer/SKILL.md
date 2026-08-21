@@ -246,8 +246,10 @@ it is a tracker **read**, not a write, so it does not touch the never-write-to-G
   overlapping but distinct, unrelated), and let them choose. A candidate carrying the *claimed*
   label is already being built — that one is worth naming explicitly. Record your judgment as a
   Decision Ledger row per candidate. **Never close anything.**
-- **`2`** — the scan could not run. **Hard-stop** the hand-off: emit the draft, state the rc and
-  the reason, and tell the user it is unscanned so they do not file it as if it were.
+<!-- LOCKSTEP-BEGIN dup-scan-rc2 -->
+- **`2`** — the scan could not run. Hard-stop: report the rc and the reason.
+<!-- LOCKSTEP-END dup-scan-rc2 -->
+  Emit the draft anyway, and tell the user it is unscanned so they do not file it as if it were.
 
 Under `tracker.type: jira` it prints a not-applicable line and exits `0`.
 
