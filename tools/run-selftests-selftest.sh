@@ -160,13 +160,26 @@ for root in "$R4G" "$R4R"; do
 done
 
 # SELFTEST_JOBS (the env form the workflows use) must reach the same place as --jobs.
+#
+# THIS CASE HAND-ROLLS ITS `env`, so it must carry run_runner's LEAN_SELFTEST_CACHE_DIR scrub
+# itself — and the hostile store in front of it is the assertion, not scenery. Without the scrub
+# an ambient store activates the pass cache (`cache: activated from LEAN_SELFTEST_CACHE_DIR`),
+# and this case then runs a cached sweep while claiming to measure a cold one. That is not
+# hypothetical: the lean gate exports a store into every milestone-3 child, one of which is the
+# sweep that runs this file, so the leak surfaces only on a machine whose operator carries the
+# variable. Setting one here makes a dropped scrub fail EVERYWHERE instead of only there — which
+# is why the assertion is two-sided: the jobs number AND the absence of the activation line.
+#
+# It carried #526's LEAN_JOB_CEILING scrub on the same reasoning until #566 deleted the ceiling;
+# the argument survived the variable, so it was re-pointed at the seam that is still handed down.
 OUT="$BASE/out.ac4env"
-env -u TMPDIR -u RUN_SELFTESTS_DROP_LAST SELFTEST_JOBS=3 \
+LEAN_SELFTEST_CACHE_DIR="$BASE/hostile-cache" \
+  env -u TMPDIR -u RUN_SELFTESTS_DROP_LAST -u LEAN_SELFTEST_CACHE_DIR SELFTEST_JOBS=3 \
   bash "$RUNNER" --root "$R4G" > "$OUT" 2>&1
 RC=$?
-[[ "$RC" -eq 0 ]] && grep -q 'jobs=3' "$OUT" \
-  && ok "AC-4: SELFTEST_JOBS is honored as the concurrency source" \
-  || { fail "AC-4: SELFTEST_JOBS was not honored"; sed 's/^/    | /' "$OUT"; }
+[[ "$RC" -eq 0 ]] && grep -q 'jobs=3' "$OUT" && ! grep -q 'activated from LEAN_SELFTEST_CACHE_DIR' "$OUT" \
+  && ok "AC-4: SELFTEST_JOBS is honored as the concurrency source, on an uncached sweep" \
+  || { fail "AC-4: SELFTEST_JOBS was not honored, or an ambient cache store leaked in"; sed 's/^/    | /' "$OUT"; }
 
 # ---------------------------------------------------------------------------------------
 # AC-5 — each suite's output is one CONTIGUOUS group, never interleaved with another's.

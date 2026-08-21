@@ -204,6 +204,20 @@ if [ "${1:-}" = "inflight" ]; then
   rc="$(sed -n "${n}p" "$INFLIGHT_RC_FILE" 2>/dev/null)"
   exit "${rc:-0}"
 fi
+# #590's `close-out` gets its own arm, its own counter and its own scripted rc stream, on
+# `inflight`'s precedent exactly: folding it into `count` would re-number the gate-call assertion
+# in every case above and — because the fallthrough arm records an `attempts` line whenever the
+# observe seam is absent — would make the WRITING close-out call read as the recording verdict
+# read (r5) exists to forbid. DEFAULTS TO 0 through an EMPTY stream, so every approve case keeps
+# meaning what it meant: a close-out that completed.
+if [ "${1:-}" = "close-out" ]; then
+  n=$(( $(cat "$GATE_LOG_DIR/ccount" 2>/dev/null || echo 0) + 1 ))
+  echo "$n" > "$GATE_LOG_DIR/ccount"
+  echo "ARGV: $* | CWD: $PWD | RUN_ID_SET: ${RUN_ID+yes} | SESSION_SET: ${CLAUDE_CODE_SESSION_ID+yes}" >> "$GATE_LOG_DIR/closeout.log"
+  echo "fake-gate: close-out call $n"
+  rc="$(sed -n "${n}p" "$CLOSEOUT_RC_FILE" 2>/dev/null)"
+  exit "${rc:-0}"
+fi
 if [ "${1:-}" = "progress" ]; then
   [ -n "${PROGRESS_FAIL:-}" ] && exit 3
   # #527's `--infra` is a THIRD token space on the same subcommand, with its own counter and its
@@ -259,7 +273,7 @@ SPAWN_LOG_DIR=""; GATE_LOG_DIR=""; GH_LOG=""; LABELS_FILE=""; PR_FILE=""
 SPAWN_RC_FILE=""; GATE_RC_FILE=""
 PROGRESS_ADV_FILE=""; PROGRESS_M5_FILE=""; PROGRESS_INFRA_FILE=""; COMMENTS_FILE=""
 STALENESS_RC_FILE=""; STALENESS_TICKET_RC_FILE=""
-PROGRESS_OBL_FILE=""; INFLIGHT_RC_FILE=""
+PROGRESS_OBL_FILE=""; INFLIGHT_RC_FILE=""; CLOSEOUT_RC_FILE=""
 CASE_N=0
 
 # #531 D-7. THE VERDICT READ NOW RUNS BEFORE THE REVIEW SPAWN AS WELL AS AFTER IT, so a round
@@ -310,6 +324,9 @@ setup_case() { # setup_case <spawn-rcs> <gate-rcs> <labels> <pr>
   # fixture is what the tool ECHOES when a close-out fails; its content is only ever asserted as
   # having been passed through, never parsed.
   INFLIGHT_RC_FILE="$d/inflight-rcs"; : > "$INFLIGHT_RC_FILE"
+  # #590 DEFAULT, on the same principle: an EMPTY stream answers 0 on every call, so every
+  # pre-existing approve case keeps meaning what it meant — a close-out that completed first try.
+  CLOSEOUT_RC_FILE="$d/closeout-rcs"; : > "$CLOSEOUT_RC_FILE"
   PROGRESS_OBL_FILE="$d/progress-obligations"
   { echo "milestone-5 obligation exit-artifacts: met"
     echo "milestone-5 obligation verdict-reference: unmet"
@@ -365,6 +382,7 @@ run_tool() { # run_tool [config] [args...]
          PROGRESS_ADV_FILE="$PROGRESS_ADV_FILE" PROGRESS_M5_FILE="$PROGRESS_M5_FILE"
          PROGRESS_INFRA_FILE="$PROGRESS_INFRA_FILE" INFRA_FAIL="${INFRA_FAIL:-}"
          PROGRESS_OBL_FILE="$PROGRESS_OBL_FILE" INFLIGHT_RC_FILE="$INFLIGHT_RC_FILE"
+         CLOSEOUT_RC_FILE="$CLOSEOUT_RC_FILE"
          PR_FROM_SPAWN="${PR_FROM_SPAWN:-}" PROGRESS_FAIL="${PROGRESS_FAIL:-}"
          STALENESS_RC_FILE="$STALENESS_RC_FILE"
          STALENESS_TICKET_RC_FILE="$STALENESS_TICKET_RC_FILE"
@@ -388,6 +406,8 @@ run_tool() { # run_tool [config] [args...]
 slug_of() { sed -n 's/.*\] terminal: \([a-z][a-z-]*\) —.*/\1/p' <<<"$1"; }
 
 spawn_count() { cat "$SPAWN_LOG_DIR/count" 2>/dev/null || echo 0; }
+closeout_count() { cat "$GATE_LOG_DIR/ccount" 2>/dev/null || echo 0; }
+set_closeout_rcs() { printf '%s\n' "$1" > "$CLOSEOUT_RC_FILE"; }
 gate_count()  { cat "$GATE_LOG_DIR/count" 2>/dev/null || echo 0; }
 # #496: how many gate calls ran on the RECORDING path. Capture-then-default, never
 # `grep -c … || echo 0` — on zero matches grep prints "0" AND exits 1, so the `||` fires too and
@@ -424,12 +444,22 @@ else fail "(a) expected rc=2 with no spawn, got rc=$rc / $(spawn_count) spawn(s)
 setup_case "" "$V_APPROVE" "ready-for-dev
 opus" "11"
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
-if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 3 ] && [ "$(gate_count)" -eq 2 ] \
+if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 2 ] && [ "$(gate_count)" -eq 2 ] \
+   && [ "$(closeout_count)" -eq 1 ] \
    && grep -q 'build-lean 7' <<<"$(spawn_argv 1)" \
-   && grep -q 'review-lean 11' <<<"$(spawn_argv 2)" \
-   && grep -q 'build-lean 7' <<<"$(spawn_argv 3)"; then
-  pass "(b) approve ⇒ BUILD → REVIEW(pr from the tracker) → close-out BUILD, exit 0"
-else fail "(b) expected rc=0 with 3 spawns / 2 gate calls, got rc=$rc / $(spawn_count) / $(gate_count): $out"; fi
+   && grep -q 'review-lean 11' <<<"$(spawn_argv 2)"; then
+  pass "(b) approve ⇒ BUILD → REVIEW(pr from the tracker) → a close-out GATE CALL, exit 0 — #590 deleted the third spawn"
+else fail "(b) expected rc=0 with 2 spawns / 2 gate calls / 1 close-out, got rc=$rc / $(spawn_count) / $(gate_count) / $(closeout_count): $out"; fi
+
+# ...and that call lends NEITHER identity. Both scrubs are what keeps this script's
+# authors-nothing rule true while it gains a call that WRITES: RUN_ID so the run's own cached id
+# keys the records, CLAUDE_CODE_SESSION_ID so the scheduler's session can never reach a PR marker
+# through the gate's `mark`.
+if grep -q 'ARGV: close-out 7 ' "$GATE_LOG_DIR/closeout.log" 2>/dev/null \
+   && ! grep -q 'RUN_ID_SET: yes' "$GATE_LOG_DIR/closeout.log" 2>/dev/null \
+   && ! grep -q 'SESSION_SET: yes' "$GATE_LOG_DIR/closeout.log" 2>/dev/null; then
+  pass "(b1a) the close-out gate call carries neither an ambient RUN_ID nor the scheduler's session id"
+else fail "(b1a) the close-out call leaked an identity: $(cat "$GATE_LOG_DIR/closeout.log" 2>/dev/null)"; fi
 
 if grep -q 'PR #11 is open' <<<"$out"; then
   pass "(b2) the PR number comes from the tracker, not from a convention"
@@ -455,8 +485,7 @@ if [ "$bad" -eq 0 ]; then
 else fail "(d1) the parent's RUN_ID leaked into a spawned session"; fi
 
 if grep -q '^LEAN_RUN_MODEL: sonnet$' "$SPAWN_LOG_DIR/spawn-1" \
-   && grep -q '^LEAN_RUN_MODEL: opus$' "$SPAWN_LOG_DIR/spawn-2" \
-   && grep -q '^LEAN_RUN_MODEL: sonnet$' "$SPAWN_LOG_DIR/spawn-3"; then
+   && grep -q '^LEAN_RUN_MODEL: opus$' "$SPAWN_LOG_DIR/spawn-2"; then
   pass "(d2) LEAN_RUN_MODEL is set per PHASE — build's model on build, review's on review"
 else fail "(d2) LEAN_RUN_MODEL was not re-set per phase: $(grep -h LEAN_RUN_MODEL "$SPAWN_LOG_DIR"/spawn-*)"; fi
 
@@ -525,11 +554,11 @@ else fail "(g3) a probe verdict went missing: $out"; fi
 setup_case "" "$V_APPROVE" "in-progress" "11"
 set_claim_trail Bot lean-500-abc123
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
-if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 3 ] \
+if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 2 ] \
    && grep -q 'ok intake: re-entry' <<<"$out" \
    && grep -q 'lean-500-abc123' <<<"$out"; then
   pass "(s1) a claimed ticket carrying this lane's bot-authored marker is accepted as re-entry, and the accept names the marker's run id"
-else fail "(s1) expected rc=0 with 3 spawns and a named re-entry, got rc=$rc / $(spawn_count) spawn(s): $out"; fi
+else fail "(s1) expected rc=0 with 2 spawns and a named re-entry, got rc=$rc / $(spawn_count) spawn(s): $out"; fi
 
 # The claimed label defaults to `in-progress` here — the fixture config sets no
 # `.tracker.labels.claimed` — which is the same shipped default lean-gate.sh's `claim` writes. A
@@ -622,11 +651,12 @@ else fail "(s9) the queue-label arm did not short-circuit, rc=$rc: $out / $(cat 
 # ---- (h) needs-work: a fix round and a NEW review context ---------------------------------------
 setup_case "" "$V_NEEDSWORK_APPROVE" "ready-for-dev" "11"
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
-if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 5 ] && [ "$(gate_count)" -eq 4 ] \
+if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 4 ] && [ "$(gate_count)" -eq 4 ] \
+   && [ "$(closeout_count)" -eq 1 ] \
    && grep -q 'build-lean 7' <<<"$(spawn_argv 3)" \
    && grep -q 'review-lean 11' <<<"$(spawn_argv 4)"; then
-  pass "(h1) needs-work ⇒ a fresh fix BUILD then a fresh REVIEW, then close-out on the approve"
-else fail "(h1) expected 5 spawns / 4 gate calls, got rc=$rc / $(spawn_count) / $(gate_count): $out"; fi
+  pass "(h1) needs-work ⇒ a fresh fix BUILD then a fresh REVIEW, then the close-out call on the approve"
+else fail "(h1) expected 4 spawns / 4 gate calls / 1 close-out, got rc=$rc / $(spawn_count) / $(gate_count) / $(closeout_count): $out"; fi
 
 if ! grep -qE -- '--resume|--continue' <<<"$(spawn_argv 4)"; then
   pass "(h2) round 2's review is a NEW context, not round 1's resumed"
@@ -690,13 +720,13 @@ a2" "m5-0
 m5-1"
 PR_FROM_SPAWN=2 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
 unset PR_FROM_SPAWN
-if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 4 ] \
+if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 3 ] \
    && grep -q 'build-lean 7' <<<"$(spawn_argv 1)" \
    && grep -q 'build-lean 7' <<<"$(spawn_argv 2)" \
    && grep -q 'review-lean 11' <<<"$(spawn_argv 3)" \
    && grep -q 'BUILD advanced but left no open PR' <<<"$out"; then
   pass "(o1) exit-0 + no PR + progress advanced ⇒ a second BUILD spawn, and the run reaches REVIEW"
-else fail "(o1) expected rc=0 with 4 spawns (build, build, review, close-out), got rc=$rc / $(spawn_count): $out"; fi
+else fail "(o1) expected rc=0 with 3 spawns (build, build, review), got rc=$rc / $(spawn_count): $out"; fi
 
 # AC-1's other half: a continuation is a FRESH session. The separation rule this lane rests on
 # does not get an exception for the recovery path.
@@ -780,12 +810,12 @@ set_infra_tokens "i1
 i2"
 PR_FROM_SPAWN=2 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
 unset PR_FROM_SPAWN
-if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 4 ] \
+if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 3 ] \
    && grep -q 'build-lean 7' <<<"$(spawn_argv 2)" \
    && grep -q 'review-lean 11' <<<"$(spawn_argv 3)" \
    && grep -q 'killed by infrastructure' <<<"$out"; then
   pass "(oi1) progress unmoved but infra residue MOVED ⇒ a second BUILD spawn, and the run reaches REVIEW"
-else fail "(oi1) expected rc=0 with 4 spawns on an infra-only advance, got rc=$rc / $(spawn_count): $out"; fi
+else fail "(oi1) expected rc=0 with 3 spawns on an infra-only advance, got rc=$rc / $(spawn_count): $out"; fi
 
 # The same boundary (o4) pins for the continuation predicate: read from the MAIN checkout, with no
 # ambient RUN_ID. The residue lives in the main checkout's state dir, which is exactly why the read
@@ -836,36 +866,56 @@ if [ "$rc" -eq 1 ] && [ "$(spawn_count)" -eq 0 ] \
   pass "(oi5) a gate that cannot answer the infra read is a loud refusal, not a blind spawn"
 else fail "(oi5) expected rc=1 with 0 spawns on an unreadable infra read, got rc=$rc / $(spawn_count): $out"; fi
 
-# ---- (p) #492 AC-7: the close-out is VERIFIED, never credited on its exit status -----------------
-# `verdict_rc` runs before the close-out spawn and nothing evaluated after it, so this site
-# reported `done` on a session that had done nothing — worse than the no-PR case, which at least
-# exits loudly. What is checked is a NEW milestone-5 satisfaction, so a re-entered lane cannot be
-# credited with a prior run's.
+# ---- (p) #590: the close-out is READ FROM ITS EXIT CODE ------------------------------------------
+# #492 AC-7 put a token comparison here because the close-out was a `claude -p` session, which
+# exits 0 whenever the model ends its turn — so `done` was printed over a session that had done
+# nothing. A gate command cannot end its turn early, and D-5 retired the comparison for the rule
+# every other call site already follows. These three cases are that rule, driven at the seam.
 setup_case "" "$V_APPROVE" "ready-for-dev" "11"
-set_progress_tokens "adv-0" "m5-0"
+set_closeout_rcs $'1\n1'
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
-if [ "$rc" -eq 1 ] && [ "$(spawn_count)" -eq 3 ] \
-   && grep -q 'recorded no NEW milestone-5 satisfaction' <<<"$out" \
+if [ "$rc" -eq 1 ] && [ "$(closeout_count)" -eq 2 ] \
+   && grep -q 'close-out did not complete' <<<"$out" \
    && ! grep -q 'done — #' <<<"$out"; then
-  pass "(p1) a close-out that exits 0 without satisfying milestone 5 is a non-zero exit naming what is unmet, not 'done'"
-else fail "(p1) expected rc=1 after the close-out spawn, got rc=$rc / $(spawn_count): $out"; fi
+  pass "(p1) a close-out whose gate call reds twice is a non-zero exit, not 'done'"
+else fail "(p1) expected rc=1 after 2 close-out calls, got rc=$rc / $(closeout_count) call(s): $out"; fi
 
-# D-9: verify-only. The continuation machinery is NOT extended to this site — three spawns above,
-# not four — because past an approve another silent session answers a question the operator has
-# not been told about yet.
-if [ "$(spawn_count)" -eq 3 ] && grep -q -- '--satisfied 5' <<<"$(progress_log)"; then
-  pass "(p2) the uncredited close-out is not re-spawned, and the check it failed is milestone-5-scoped"
-else fail "(p2) the close-out was re-spawned, or the check was not milestone-scoped: $(spawn_count) spawn(s) / $(progress_log)"; fi
+# ONE retry, hard-coded — never two, and never a spawn. The bound is MAX_REVIEW_RETRIES' reasoning
+# at a cheaper site, and the whole point of deleting the session is that nothing here is worth
+# paying a model to re-attempt a third time.
+if [ "$(closeout_count)" -eq 2 ] && [ "$(spawn_count)" -eq 2 ] \
+   && [ "$(slug_of "$out")" = "closeout-incomplete" ]; then
+  pass "(p2) the retry budget is exactly one, and the failure is its own slug — no third call, no re-spawn"
+else fail "(p2) expected 2 close-out calls / 2 spawns / slug closeout-incomplete, got $(closeout_count) / $(spawn_count) / '$(slug_of "$out")'"; fi
 
-# The positive control for (p1): the SAME path with a new milestone-5 row reaches `done`. Without
-# it, (p1) would also pass against a tool that failed every close-out unconditionally.
+# The failure carries the gate's per-obligation report — the states come from the GATE, and this
+# script echoes them. Asserted on the passed-through lines rather than on wording it could invent,
+# which is what keeps the scheduler from growing a reader of the record's schema.
+if grep -q 'obligation exit-artifacts: met' <<<"$out" \
+   && grep -q 'obligation verdict-reference: unmet' <<<"$out" \
+   && grep -q 'teardown: not recorded' <<<"$out" \
+   && [ "$(progress_reads obl)" -ge 1 ]; then
+  pass "(p2a) the close-out failure carries the gate's per-obligation report, teardown included as its own line"
+else fail "(p2a) the obligation report was not echoed ($(progress_reads obl) read(s)): $out"; fi
+
+# NON-VACUITY. (p1) would also pass against a tool that failed every close-out unconditionally,
+# and (p2) against one that never retried. A FIRST call that succeeds is one call and a `done`;
+# a first that reds and a second that succeeds is two calls and a `done`.
 setup_case "" "$V_APPROVE" "ready-for-dev" "11"
-set_progress_tokens "adv-0" "m5-0
-m5-1"
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
-if [ "$rc" -eq 0 ] && [ "$(progress_reads m5)" -eq 2 ] && grep -q 'done — #7 approved on PR #11' <<<"$out"; then
-  pass "(p3) a close-out that DOES satisfy milestone 5 reaches 'done' — the check is a comparison, not a blanket refusal"
-else fail "(p3) expected rc=0 with 2 milestone-5 reads, got rc=$rc / $(progress_reads m5) read(s): $out"; fi
+if [ "$rc" -eq 0 ] && [ "$(closeout_count)" -eq 1 ] \
+   && grep -q 'done — #7 approved on PR #11' <<<"$out"; then
+  pass "(p3) a close-out that completes first try is ONE call and 'done' — the read is an exit code, not a blanket refusal"
+else fail "(p3) expected rc=0 with 1 close-out call, got rc=$rc / $(closeout_count): $out"; fi
+
+setup_case "" "$V_APPROVE" "ready-for-dev" "11"
+set_closeout_rcs $'1\n0'
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(closeout_count)" -eq 2 ] \
+   && grep -q 'retrying once' <<<"$out" \
+   && grep -q 'done — #7 approved on PR #11' <<<"$out"; then
+  pass "(p4) the one retry is real: a first red followed by a green reaches 'done' on the second call"
+else fail "(p4) expected rc=0 after a retried close-out, got rc=$rc / $(closeout_count): $out"; fi
 
 # ---- (k) model resolution stays the caller's ------------------------------------------------------
 # #490: a departure from the shipped review tier now requires a stated reason, so this case
@@ -893,7 +943,7 @@ else fail "(k2) expected rc=2 with 0 spawns, got rc=$rc / $(spawn_count): $out";
 # A stated departure is accepted: the override reaches the spawn and the reason is echoed.
 setup_case "" "$V_APPROVE" "ready-for-dev" "11"
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet --review-model sonnet --review-model-basis 'sized-here: rate-limited on opus')"; rc=$?
-if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 3 ] \
+if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 2 ] \
    && grep -q '^LEAN_RUN_MODEL: sonnet$' "$SPAWN_LOG_DIR/spawn-2" \
    && grep -q 'basis: sized-here: rate-limited on opus' <<<"$out"; then
   pass "(k3) a stated --review-model-basis is accepted: the departure reaches the spawn and the reason is echoed"
@@ -982,13 +1032,13 @@ else fail "(m4) the shipped tracker-CLI default did not resolve, rc=$rc: $out"; 
 # REVIEW re-spawn, then the approve that follows it closes the run out normally.
 setup_case "" $'5\n5\n0' "ready-for-dev" "11"
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
-if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 4 ] && [ "$(gate_count)" -eq 3 ] \
+if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 3 ] && [ "$(gate_count)" -eq 3 ] \
+   && [ "$(closeout_count)" -eq 1 ] \
    && grep -q 'review-lean 11' <<<"$(spawn_argv 2)" \
    && grep -q 'review-lean 11' <<<"$(spawn_argv 3)" \
-   && grep -q 'build-lean 7' <<<"$(spawn_argv 4)" \
    && grep -q 'No round spent, no BUILD spawn' <<<"$out"; then
   pass "(r1) a class-5 read re-spawns REVIEW — not BUILD — and spends no round"
-else fail "(r1) expected rc=0 with build,review,review,close-out and 3 gate calls, got rc=$rc / $(spawn_count) spawn(s) / $(gate_count) gate call(s): $out"; fi
+else fail "(r1) expected rc=0 with build,review,review and 3 gate calls, got rc=$rc / $(spawn_count) spawn(s) / $(gate_count) gate call(s): $out"; fi
 
 # ...and the retry is BOUNDED at one. A second dark review is a broken review lane, so the run
 # exits 5 naming it rather than spending the round budget on sessions that produce no record.
@@ -1077,7 +1127,7 @@ else fail "(r9) expected rc=2 with 0 spawns, got rc=$rc / $(spawn_count): $out";
 git -C "$TREE" update-ref refs/remotes/origin/"$BRANCH" HEAD
 setup_case "" "$V_APPROVE" "ready-for-dev" "11"
 out="$(run_tool "$WORK/no-such-config.json" "$ISSUE" --build-model sonnet)"; rc=$?
-if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 3 ]; then
+if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 2 ]; then
   pass "(r10) an ABSENT config still resolves the shipped defaults — the guard fails closed on corruption only"
 else fail "(r10) an absent config was refused, got rc=$rc / $(spawn_count) spawn(s): $out"; fi
 
@@ -1090,10 +1140,10 @@ else fail "(r10) an absent config was refused, got rc=$rc / $(spawn_count) spawn
 # accepts — is precisely what a fake gate cannot fail on.
 setup_case "" "$V_APPROVE" "ready-for-dev" "11"
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
-if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 3 ] \
+if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 2 ] \
    && [ "$(staleness_reads loop)" -eq 1 ] && [ "$(staleness_reads ticket)" -eq 1 ]; then
   pass "(v1) an approved run reads staleness ONCE for its one build spawn — never before REVIEW, never before the close-out"
-else fail "(v1) expected 3 spawns with 1 loop + 1 ticket read, got $(spawn_count) / $(staleness_reads loop) / $(staleness_reads ticket), rc=$rc: $out"; fi
+else fail "(v1) expected 2 spawns with 1 loop + 1 ticket read, got $(spawn_count) / $(staleness_reads loop) / $(staleness_reads ticket), rc=$rc: $out"; fi
 
 if grep -q "CWD: $TREE" <<<"$(staleness_log)" \
    && ! grep -q 'RUN_ID_SET: yes' <<<"$(staleness_log)"; then
@@ -1114,9 +1164,9 @@ m5-1'
 PR_FROM_SPAWN=2 \
   out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
 unset PR_FROM_SPAWN
-if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 4 ] && [ "$(staleness_reads loop)" -eq 2 ]; then
-  pass "(v4) a continuation re-checks the premise — 4 spawns, 2 build spawns, 2 reads"
-else fail "(v4) expected 4 spawns with 2 loop reads, got $(spawn_count) / $(staleness_reads loop), rc=$rc: $out"; fi
+if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 3 ] && [ "$(staleness_reads loop)" -eq 2 ]; then
+  pass "(v4) a continuation re-checks the premise — 3 spawns, 2 build spawns, 2 reads"
+else fail "(v4) expected 3 spawns with 2 loop reads, got $(spawn_count) / $(staleness_reads loop), rc=$rc: $out"; fi
 
 # Round 2's read is a FRESH evaluation, not round 1's answer remembered: the same run passes the
 # check, spends a needs-work round, and is stopped by the check on the way into round 2.
@@ -1325,22 +1375,21 @@ else fail "(t4) the check preempted the continuation path: rc=$rc / $(inflight_r
 # stopping instead would strand finished, reviewed work.
 setup_case "" "0" "ready-for-dev" "11"
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
-if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 2 ] \
+if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 1 ] && [ "$(closeout_count)" -eq 1 ] \
    && grep -q 'build-lean 7' <<<"$(spawn_argv 1)" \
-   && grep -q 'build-lean 7' <<<"$(spawn_argv 2)" \
    && ! grep -q 'review-lean' <<<"$(all_argv)" \
    && grep -q 'review-skipped-approved' <<<"$out"; then
   pass "(u1) an already-approved head spawns NO review and falls into the close-out, naming the state it passed through"
-else fail "(u1) expected rc=0 with 2 build spawns and no review, got rc=$rc / $(spawn_count): $(all_argv)"; fi
+else fail "(u1) expected rc=0 with 1 build spawn, 1 close-out and no review, got rc=$rc / $(spawn_count) / $(closeout_count): $(all_argv)"; fi
 
 # NON-VACUITY. The case above would also pass against a scheduler that never reviewed anything.
 # The identical composition whose pre-spawn read is 5 — the real gate's answer on a head no review
 # has covered — must spawn the review.
 setup_case "" "$V_APPROVE" "ready-for-dev" "11"
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
-if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 3 ] && grep -q 'review-lean 11' <<<"$(spawn_argv 2)"; then
+if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 2 ] && grep -q 'review-lean 11' <<<"$(spawn_argv 2)"; then
   pass "(u2) non-vacuity: a head with no usable verdict still gets its REVIEW spawn — the skip is a comparison, not a blanket refusal"
-else fail "(u2) expected rc=0 with 3 spawns and a review, got rc=$rc / $(spawn_count): $(all_argv)"; fi
+else fail "(u2) expected rc=0 with 2 spawns and a review, got rc=$rc / $(spawn_count): $(all_argv)"; fi
 
 # ---- (vr) #597 D-1/AC-2: the CANNOT-ANSWER verdict codes route ahead of the REVIEW spawn --------
 # #531's header claims classes 4 and 6 "now hard-stop one spawn EARLIER" and lists 3 with them.
@@ -1398,62 +1447,32 @@ if [ "$rc" -eq 0 ] && grep -q 'review-lean 11' <<<"$(all_argv)"; then
   pass "(vr4) non-vacuity: the ordinary verdict codes still spawn their REVIEW — the new routes are keyed on 2/3, not a blanket refusal"
 else fail "(vr4) expected the ordinary path to still review, got rc=$rc: $(all_argv)"; fi
 
-# ---- (w) #531 D-8/D-9: the close-out gets the continuation arm the build phase already had -------
-# The close-out had the build phase's exact failure mode — exited 0, obligations unmet, but the
-# record advanced — got one spawn, and exited 1. Cost on the run that surfaced it: an entire second
-# build+review cycle to redo bookkeeping. The predicate is the GENERAL progress token (D-9), not a
-# third token space: a close-out whose gate call redded appended a milestone-5 attempt row, so that
-# token moves, while one that died before any gate call wrote nothing any predicate could see.
+# ---- (w) #590: the close-out's own failure modes, past the retry ---------------------------------
+# #531 D-8/D-9's continuation arm lived here — one re-SPAWN routed on the general progress token,
+# with `closeout-idle` and `closeout-continuations-spent` telling "it never reached a gate call"
+# from "it reached one and redded". Both distinctions were properties of a MODEL SESSION and died
+# with it: a gate call always reaches the gate, and its rc says whether it landed. What survives
+# is the pair below — the in-flight boundary on the far side of a completed close-out, which is
+# the one state that must never be reported as a finished run.
 setup_case "" "$V_APPROVE" "ready-for-dev" "11"
-set_progress_tokens 'adv-0
-adv-1
-adv-2' 'm5-0
-m5-0
-m5-0
-m5-1'
+# Line 1 is the BUILD phase's own read — clean, or the run stops before the close-out and this
+# case would be measuring `build-inflight` while claiming to measure the close-out's boundary.
+printf '0\n8\n' > "$INFLIGHT_RC_FILE"
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
-if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 4 ] \
-   && grep -q 'build-lean 7' <<<"$(spawn_argv 4)" \
-   && grep -q 'continuing in a fresh session (1 of 1)' <<<"$out" \
-   && [ "$(slug_of "$out")" = "approved" ]; then
-  pass "(w1) a close-out that advanced but recorded no NEW milestone-5 satisfaction is continued once, and the run still reaches its terminal write"
-else fail "(w1) expected rc=0 with 4 spawns, got rc=$rc / $(spawn_count) / '$(slug_of "$out")': $out"; fi
-
-# ...and the budget is EXACTLY one, hard-coded. A second unsatisfied close-out is the stop, and it
-# reports rather than re-spawns: three bookkeeping actions a fresh session cannot finish twice will
-# not be finished on a third.
-setup_case "" "$V_APPROVE" "ready-for-dev" "11"
-set_progress_tokens 'adv-0
-adv-1
-adv-2
-adv-3
-adv-4' 'm5-0'
-out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
-if [ "$rc" -eq 1 ] && [ "$(spawn_count)" -eq 4 ] \
-   && [ "$(slug_of "$out")" = "closeout-continuations-spent" ] \
+if [ "$rc" -eq 1 ] && [ "$(closeout_count)" -eq 1 ] \
+   && [ "$(slug_of "$out")" = "closeout-inflight" ] \
    && ! grep -q 'done — #' <<<"$out"; then
-  pass "(w2) the close-out continuation budget is one: a second unsatisfied close-out is a named stop, never a third spawn"
-else fail "(w2) expected rc=1 with 4 spawns and slug closeout-continuations-spent, got rc=$rc / $(spawn_count) / '$(slug_of "$out")': $out"; fi
+  pass "(w1) a close-out that completed over a worktree still holding work is a hard stop, never 'done'"
+else fail "(w1) expected rc=1 with slug closeout-inflight, got rc=$rc / $(closeout_count) / '$(slug_of "$out")': $out"; fi
 
-# #531 D-12. The failure names the two obligations milestone 5 OWNS, each with its own state, plus
-# teardown read SEPARATELY — and the states come from the GATE. Asserted on the passed-through
-# lines rather than on wording this script could invent, which is what keeps the scheduler from
-# growing a reader of the record's schema.
-if grep -q 'obligation exit-artifacts: met' <<<"$out" \
-   && grep -q 'obligation verdict-reference: unmet' <<<"$out" \
-   && grep -q 'teardown: not recorded' <<<"$out" \
-   && [ "$(progress_reads obl)" -ge 1 ]; then
-  pass "(w3) the close-out failure carries the gate's per-obligation report, teardown included as its own line"
-else fail "(w3) the obligation report was not echoed ($(progress_reads obl) read(s)): $out"; fi
-
-# The OTHER close-out failure, and the one (p1) already covers: advanced nothing at all. It must
-# stay a distinct slug from the budget stop above, or the two conditions are back behind one word.
+# Fail-closed, on (o8)/(oi5)'s principle: an in-flight read that could not be COMPLETED is not a
+# clean one, and reporting a finished run on that guess is what the check exists to prevent.
 setup_case "" "$V_APPROVE" "ready-for-dev" "11"
-set_progress_tokens "adv-0" "m5-0"
+printf '0\n1\n' > "$INFLIGHT_RC_FILE"
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
-if [ "$rc" -eq 1 ] && [ "$(slug_of "$out")" = "closeout-idle" ]; then
-  pass "(w4) a close-out that advanced nothing is its own slug — not the budget stop, and not a fourth spawn"
-else fail "(w4) expected slug closeout-idle, got rc=$rc / '$(slug_of "$out")': $out"; fi
+if [ "$rc" -eq 1 ] && [ "$(slug_of "$out")" = "closeout-inflight-unreadable" ]; then
+  pass "(w2) an in-flight read that cannot be completed after the close-out is its own slug, not a pass"
+else fail "(w2) expected slug closeout-inflight-unreadable, got rc=$rc / '$(slug_of "$out")': $out"; fi
 
 # ---- (x) #531 D-1: the taxonomy is a taxonomy ---------------------------------------------------
 # EXACTLY ONE terminal line per run, and pairwise-DISTINCT slugs across distinct conditions. A
@@ -1486,8 +1505,8 @@ setup_case "" "5
 x_seen="$x_seen$(x_one review-dark "$(run_tool "$CFG" "$ISSUE" --build-model sonnet)")
 "
 setup_case "" "$V_APPROVE" "ready-for-dev" "11"
-set_progress_tokens "adv-0" "m5-0"
-x_seen="$x_seen$(x_one closeout-idle "$(run_tool "$CFG" "$ISSUE" --build-model sonnet)")
+set_closeout_rcs $'1\n1'
+x_seen="$x_seen$(x_one closeout-incomplete "$(run_tool "$CFG" "$ISSUE" --build-model sonnet)")
 "
 setup_case "" "$V_APPROVE" "ready-for-dev" "11"
 x_seen="$x_seen$(x_one approved "$(run_tool "$CFG" "$ISSUE" --build-model sonnet)")

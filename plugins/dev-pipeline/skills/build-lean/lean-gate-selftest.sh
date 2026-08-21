@@ -4123,6 +4123,15 @@ if [ "$rc" -eq 2 ] && grep -qF 'no entry attestation' <<<"$out"; then
   pass "(ea5) 'all' refuses an unattested run before its cheap pre-pass runs"
 else fail "(ea5) expected rc=2 from all, got $rc: $out"; fi
 
+# #590's `close-out` shares the precondition for a sharper reason than its siblings: it WRITES.
+# A close-out on a run with no attestation would post a public closing comment about a run nothing
+# can reconcile, which is worse than a milestone certified against one.
+pseed_unattested
+out="$(pgate close-out 8)"; rc=$?
+if [ "$rc" -eq 2 ] && grep -qF 'no entry attestation' <<<"$out"; then
+  pass "(ea5a) 'close-out' refuses an unattested run before it writes anything"
+else fail "(ea5a) expected rc=2 from close-out, got $rc: $out"; fi
+
 # `delta` is invoked by the REVIEW session — D-4 gates it anyway and accepts the consequence: a
 # reviewer of an unattested build is told to stop, with a remedy only the build side can apply.
 pseed_unattested
@@ -4488,15 +4497,39 @@ if [ "$rc" -eq 1 ] && [ ! -s "$BOT_SPOOL" ] \
   pass "(ms1) mark refuses a session outside the recorded build set, naming the conflict, the recorded id(s) and the re-invocation"
 else fail "(ms1) expected rc=1 + the three D-8 fields + no write, rc=$rc: $out / spool=$(cat "$BOT_SPOOL" 2>/dev/null)"; fi
 
-# AC-5's ORDERING, pinned by consequence rather than by reading the source: --pr-file names a
-# file that does not exist, which is an envfail (rc=2) the moment the PR lookup runs. Getting
-# rc=1 proves the identity refusal landed FIRST — so a review session doing the documented
-# recovery pays no network call and needs no verdict record to exist yet.
+# AC-5's ORDERING, RE-CUT for #590 and pinned by consequence rather than by reading the source.
+# #446 put the identity refusal ahead of the PR lookup so a review session doing the documented
+# recovery paid no network call — a COST argument, and the case pinned it with a --pr-file naming
+# a file that does not exist (an envfail, rc=2, the moment the lookup runs). #590 moved the
+# refusal BEHIND the already-marked no-op, because the close-out is a gate command with no session
+# identity at all and must pass when checklist step 7 already stamped the PR. So the lookup is
+# reached now, and rc=2 is the honest consequence.
 : > "$BOT_SPOOL"
 out="$(mark_gate "$CFG" mark-run-r sess-review-r mark 8 --pr-file "$WORK/absent-pr.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+if [ "$rc" -eq 2 ] && [ ! -s "$BOT_SPOOL" ]; then
+  pass "(ms2) the PR lookup is reached before the refusal now — and an unreadable --pr-file still writes nothing"
+else fail "(ms2) expected rc=2 and no write once the lookup precedes the refusal, rc=$rc: $out / spool=$(cat "$BOT_SPOOL" 2>/dev/null)"; fi
+
+# ...and WHAT THE REORDER MUST NOT COST, which is the whole of #446: a foreign session on a PR
+# that does NOT already carry this run's marker is still refused, and still writes nothing. The
+# refusal guards a WRITE, so moving it behind a path that writes nothing changes what it protects
+# by exactly zero — (ms1) above is that assertion, and this is its no-write half stated again
+# against a REAL pr fixture so the two cannot both be satisfied by an envfail.
+: > "$BOT_SPOOL"
+out="$(mark_gate "$CFG" mark-run-r sess-review-r mark 8 --pr-file "$WORK/pr-mark.json" --comments-file "$WORK/comments-none.json")"; rc=$?
 if [ "$rc" -eq 1 ] && [ ! -s "$BOT_SPOOL" ] && grep -q 'not a recorded BUILD session' <<<"$out"; then
-  pass "(ms2) the refusal precedes the PR lookup — an unreadable --pr-file is never reached"
-else fail "(ms2) expected the identity refusal before the PR lookup, rc=$rc: $out"; fi
+  pass "(ms2a) a foreign session on a PR carrying no marker for this run is still refused, and still writes nothing"
+else fail "(ms2a) the reorder cost the refusal, rc=$rc: $out / spool=$(cat "$BOT_SPOOL" 2>/dev/null)"; fi
+
+# ...and #590 AC-6's OWN half, which nothing above states: a session OUTSIDE the build set passes
+# when the PR already carries this run's marker. That is the path the scheduler's close-out takes
+# — it runs with CLAUDE_CODE_SESSION_ID scrubbed — and under the pre-#590 order it was a refusal,
+# so no lane could ever have closed out through the gate. Nothing is posted: the no-op is the pass.
+: > "$BOT_SPOOL"
+out="$(mark_gate "$CFG" mark-run-1 sess-review-r mark 8 --pr-file "$WORK/pr-mark.json" --comments-file "$WORK/comments-mark-same.json")"; rc=$?
+if [ "$rc" -eq 0 ] && [ ! -s "$BOT_SPOOL" ] && grep -q 'already carries this run' <<<"$out"; then
+  pass "(ms2b) a session outside the build set PASSES when the PR already carries this run's marker — the no-op the close-out relies on, and it posts nothing"
+else fail "(ms2b) expected a silent rc=0 no-op for an unrecorded session on an already-marked PR, rc=$rc: $out / spool=$(cat "$BOT_SPOOL" 2>/dev/null)"; fi
 
 # AC-2/D-7. sess-mark-2 and sess-mark-3 registered through `entry` calls that appended NO second
 # attestation row — that row is per-RUN and short-circuits. A recorder sharing the row's presence
@@ -6188,13 +6221,13 @@ ltgate() { local t="$1" i="$2"; shift 2
 # one-member probe cannot tell from a complete one.
 rm -f "$LT_PROG"
 lt1_bad=""
-for sub in 1 2 3 4 5 all delta verdict; do
+for sub in 1 2 3 4 5 all delta verdict close-out; do
   out="$(ltgate "$LT_MAIN" 31 "$sub")"; rc=$?
   [ "$rc" -eq 9 ] || lt1_bad="$lt1_bad $sub(rc=$rc)"
   grep -q 'WRONG TREE' <<<"$out" || lt1_bad="$lt1_bad $sub(no-message)"
 done
 if [ -z "$lt1_bad" ]; then
-  pass "(lt1) all eight guarded subcommands refuse with exit 9 from a tree on '$LT_OFF' instead of the lane branch"
+  pass "(lt1) all nine guarded subcommands refuse with exit 9 from a tree on '$LT_OFF' instead of the lane branch"
 else fail "(lt1) not refused:$lt1_bad"; fi
 
 # (lt1a) ...and the refusal EVALUATED NOTHING. The progress file is the only thing a milestone
@@ -6537,6 +6570,126 @@ out="$(tkj entry ACME-9)"; rc=$?
 if [ "$rc" -eq 0 ] && grep -q 'ticket liveness arm skipped' <<<"$out"; then
   pass "(tk14a) AC-1: under jira the shape arm runs and the liveness arm says it has no read here, rather than inventing one"
 else fail "(tk14a) expected rc=0 with an announced skip, got $rc: $out"; fi
+
+# ---- (co) #590: the close-out command's own logic ------------------------------------------------
+# The composed happy path lives in scenario-liveness-selftest.sh's (lean-closeout) leg, which runs
+# the REAL command through the REAL scheduler to a terminal write. What that leg CANNOT reach is
+# the branch below it: it runs on a host with no collector, so its cost block is always a
+# documented skip and the PR-description replacement is never attempted. These cases own that
+# branch — and the replacement is the highest-risk text in the command, because a strip that ran
+# to end-of-file would silently delete a human's own paragraph out of a PR description.
+CO_WORK="$WORK/closeout"; mkdir -p "$CO_WORK"
+CO_SPOOL="$CO_WORK/patched-body"
+CO_STUB="$CO_WORK/writer.sh"
+cat > "$CO_STUB" <<'EOF'
+#!/usr/bin/env bash
+for a in "$@"; do
+  case "$a" in body=@*) cat "${a#body=@}" > "$CO_SPOOL" ;; esac
+done
+echo 9
+EOF
+chmod +x "$CO_STUB"
+
+# shellcheck disable=SC2016  # a literal dollar amount in a rendered table, not an expansion.
+CO_BLOCK="$(printf '%s\n' '<!-- pipeline-cost-block -->' '---' '' '## Pipeline Cost' '' '| Scope | Cost |' '|---|---|' '| Run total | $1.00 |' '' 'Cache-hit rate: 90% · Sessions: 2')"
+
+# LIBRARY MODE, so the replacement is driven as the function it is rather than through a live PR.
+# Prints the note the command records as its obligation detail; the patched body lands in $CO_SPOOL.
+# shellcheck disable=SC1090,SC2034  # $GATE is the script under test, and the two globals below
+# are exactly the inputs its production body reads.
+co_patch() { # co_patch <current-body>
+  # CAPTURED BEFORE THE SOURCE, and that is not style. `.` inside a function lends that function's
+  # positional parameters to the sourced file, and the gate's own option loop SHIFTS them away — so
+  # a `$1` read AFTER the source is unbound, which under this suite's `set -u` kills the subshell
+  # and returns an empty note. Every one of these six cases failed that way before it ever reached
+  # an assertion about the production code.
+  local co_arg="$1"
+  rm -f "$CO_SPOOL"
+  # EXPORTED, not prefixed, and for TWO reasons that are easy to conflate. The stub is a separate
+  # process and sees only the environment, so `CO_SPOOL`/`GH_BOT` have to be exported at all. And a
+  # prefix assignment on `.` would not have survived the source anyway — that persistence is POSIX-
+  # mode behavior, not this bash's. Either way the failure is silent and reads as "the function
+  # returned nothing".
+  ( cd "$TREE" && export CO_SPOOL GH_BOT="$CO_STUB"
+    LEAN_GATE_LIB=1 SECOND_SHIFT_CONFIG="$CFG" . "$GATE" >/dev/null 2>&1
+    LEAN_COST_BLOCK="$CO_BLOCK"
+    closeout_patch_pr_body 9 "$co_arg" >/dev/null 2>&1
+    printf '%s' "$LEAN_PATCH_NOTE" )
+}
+
+# (co1) A BLOCK IN THE MIDDLE. Everything above it survives, the block is replaced, and — the case
+# this exists for — everything BELOW its terminator line survives too.
+co_body="$(printf '%s\n' 'Summary of the change.' '' 'Closes #9' '' "$CO_BLOCK" '' '## Notes from a human' '' 'Please do not delete me.')"
+co_note="$(co_patch "$co_body")"
+if [ "$co_note" = "replaced in place" ] \
+   && grep -qF 'Please do not delete me.' "$CO_SPOOL" \
+   && grep -qF 'Closes #9' "$CO_SPOOL" \
+   && [ "$(grep -cF '<!-- pipeline-cost-block -->' "$CO_SPOOL")" -eq 1 ]; then
+  pass "(co1) a cost block with human text below it is replaced in place — the text below survives, and exactly one block remains"
+else fail "(co1) note='$co_note', body=$(cat "$CO_SPOOL" 2>/dev/null)"; fi
+
+# (co2) NO BLOCK YET. The step-7 paste is the ordinary case, but a body that never got one must
+# gain it rather than be rewritten.
+co_body="$(printf '%s\n' 'Summary of the change.' '' 'Closes #9')"
+co_note="$(co_patch "$co_body")"
+if [ "$co_note" = "appended — the description carried no earlier block" ] \
+   && grep -qF 'Closes #9' "$CO_SPOOL" \
+   && [ "$(grep -cF '<!-- pipeline-cost-block -->' "$CO_SPOOL")" -eq 1 ]; then
+  pass "(co2) a description with no earlier block gains one, and keeps everything it had"
+else fail "(co2) note='$co_note', body=$(cat "$CO_SPOOL" 2>/dev/null)"; fi
+
+# (co3) A MARKER WITH NO TERMINATOR. The strip cannot tell where such a block ends, so it runs to
+# end-of-file — and the command must SAY so rather than truncate quietly. The note is the record's
+# half of that; a mutant that dropped the distinction would leave (co1) green and this red.
+co_body="$(printf '%s\n' 'Summary.' '' '<!-- pipeline-cost-block -->' 'a block whose last line moved' '' 'text below')"
+co_note="$(co_patch "$co_body")"
+if [ "$co_note" = "replaced, but the previous block had no terminator line — anything below it was not preserved" ] \
+   && grep -qF 'Summary.' "$CO_SPOOL" \
+   && ! grep -qF 'text below' "$CO_SPOOL"; then
+  pass "(co3) a marker with no terminator line is reported as a truncating replacement, not performed as a silent one"
+else fail "(co3) note='$co_note', body=$(cat "$CO_SPOOL" 2>/dev/null)"; fi
+
+# (co4) CRLF. A body round-tripped through the GitHub API carries CRLF, so `$0 == marker` matches
+# nothing without the CR strip — the marker would read as ABSENT on every real PR while every
+# fixture in this file passed. The failure is a second block appended below the first, forever.
+co_body="$(printf '%s\r\n' 'Summary.' '' '<!-- pipeline-cost-block -->' '---' '' 'Cache-hit rate: 10% · Sessions: 1' '' 'text below')"
+co_note="$(co_patch "$co_body")"
+if [ "$co_note" = "replaced in place" ] \
+   && [ "$(grep -cF '<!-- pipeline-cost-block -->' "$CO_SPOOL")" -eq 1 ] \
+   && grep -qF 'text below' "$CO_SPOOL"; then
+  pass "(co4) a CRLF description is matched and replaced once — the marker does not read as absent on a body the API round-tripped"
+else fail "(co4) note='$co_note', body=$(cat "$CO_SPOOL" 2>/dev/null)"; fi
+
+# (co5) THE CORPUS ROW IS READ BACK, keyed on (ticketKey, runId). #546 writes it inside
+# pipeline-cost-block.sh; without this read-back the obligation would assert "a command was run",
+# which is the whole class of claim this ticket exists to delete.
+CO_LOG="$CO_WORK/cost-log.jsonl"
+{ printf '{"ticketKey":"8","runId":"r-other","totalUsd":1}\n'
+  printf '{"ticketKey":"8","runId":"r-co","totalUsd":2}\n'; } > "$CO_LOG"
+# shellcheck disable=SC1090,SC2034  # ditto — the two globals ARE the function's inputs.
+co_row() { # co_row <run-id>
+  local co_arg="$1"   # before the source, for the reason co_patch states above
+  # COST_LOG_FILE IS SET AFTER THE SOURCE, not as a prefix on it. A prefix assignment on `.`
+  # persists only in POSIX mode; under the bash this suite runs in, it lasts exactly as long as the
+  # source and is gone by the time the function below reads it — which reads as "the row is not in
+  # the log". The two prefixes that remain are needed only DURING the source, which is why they
+  # are still prefixes.
+  ( cd "$TREE" && LEAN_GATE_LIB=1 SECOND_SHIFT_CONFIG="$CFG" . "$GATE" >/dev/null 2>&1
+    COST_LOG_FILE="$CO_LOG"; ISSUE=8; RESOLVED_RUN_ID="$co_arg"
+    closeout_cost_log_row && echo found || echo missing )
+}
+co_hit="$(co_row r-co)"; co_miss="$(co_row r-absent)"
+if [ "$co_hit" = "found" ] && [ "$co_miss" = "missing" ]; then
+  pass "(co5) the cost-log read-back finds this run's row and refuses another run's — the corpus write is asserted, not assumed"
+else fail "(co5) hit='$co_hit' miss='$co_miss' over $(cat "$CO_LOG")"; fi
+
+# (co6) A LOG THAT DOES NOT PARSE is not a found row. `jq -s` errors with EMPTY output there, and
+# an unguarded numeric test on an empty string is a syntax error that would read as success under
+# the wrong idiom — the fail-open shape this repo enumerates.
+printf 'not json at all\n' > "$CO_LOG"
+if [ "$(co_row r-co)" = "missing" ]; then
+  pass "(co6) an unparseable cost log reads as 'no row', never as one — the count is captured before it is tested"
+else fail "(co6) an unparseable cost log was read as a found row"; fi
 
 echo "[lean-gate-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 exit "$FAILS"
