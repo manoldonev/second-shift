@@ -1,187 +1,202 @@
 # lean review verdict — #610
 
 verdict=needs-work
-run_id: review-610-4
-session_id: 469ac7a7-2726-42f8-8086-f430c57931bf
-rounds: 4
+run_id: review-610-5
+session_id: 3728c4a8-4b21-4bd6-bbb2-92dbb6b2b2ef
+rounds: 5
 pr: #625
-reviewed_head: 0135a3b9425a3d650650f9028609722fe80123a8
-reviewed_patch_id: 30f0e0d21b377cc4bce56b1357fe60e7dfd43225
-inherited_patch_id: ae9a73a241a4a8081985dccd7cae87551cc4239c
-inherited_from_verdict: 5462f4634fd3bb47e15d88aad980c22c1d172d48
+reviewed_head: dfa2f20f6edd43e22204294e128b07b153fe6e55
+reviewed_patch_id: 2fdaa7e1632779034b769fd677264073073f3c7d
+inherited_patch_id: 30f0e0d21b377cc4bce56b1357fe60e7dfd43225
+inherited_from_verdict: 934e3f2b8f4737023fbbcf1a31841835165e43eb
 fidelity: not-applicable
 model: unknown
 capabilities: pr-marker
 
-Round 4, inheriting round 3's coverage of patch `ae9a73a241a4`. Delta read: `5462f463..HEAD` —
-the trap fix, the second `origin/main` merge, and the two triage rows that merge minted. I read
-wider than the range: the whole branch contribution against the merge-base (`c4a8dd22..HEAD`, 18
-files), because the merge puts #626's content in the delta and reading only the range would
-confuse main's work for this branch's.
+Round 5, inheriting round 4's coverage of patch `30f0e0d21b37`. Delta read: `934e3f2b..HEAD` —
+the third `origin/main` merge and the one commit that closes round 4's open warning. I read wider
+than the range: the whole branch contribution against the merge-base, because a merge commit puts
+main's own files in the delta and reading only the range confuses them for this branch's work.
 
-Verdict: **needs-work** — one blocker, and it is not this round's work. Round 3's blocker is
-genuinely fixed and every AC is satisfied; the base moved again while the round was running.
+Verdict: **needs-work** — one blocker, and like rounds 2 and 4 it is not this round's code. Round
+4's warning is genuinely and well closed, every technical claim in the PR body reproduces, and the
+base drift that cost the last three rounds is finally **not** an issue. What is wrong is the
+deliverable's own record: three rows assert a promotion that two now-closed tickets have
+explicitly disowned, and the operator filed the exact corrections on #610 before this head was
+cut.
 
-## Round 3's blocker is closed, measured rather than read off the commit message
+## Round 4's warning is closed, and closed in the killable direction
 
-**B-5 (the `EXIT`-trap leak under bash 3.2) — fixed, and fixed in the killable direction.**
-`census` no longer arms a trap; it captures the pipeline's status, removes its temp, and returns
-the captured status. Probed in an isolated worktree at the reviewed head, scoring each mutant
-under brew bash 5.3.9 and under a `bash` shim that `exec`s `/bin/bash` 3.2.57 (the harness that
-reproduces the CI lane):
+**The rc-propagation half of the round-4 fix now has a guard.** `census` captures its pipeline's
+status across its own cleanup and returns it; `check` reads that capture and exits on it. Round 4
+measured that mutating either half to a constant left the suite fully green. The new case shims
+`sort` — the pipeline's last element, which is what the capture reads — to exit 9, and asserts the
+value that propagates.
+
+Probed in an isolated worktree at the reviewed head, every mutant scored under brew bash 5.3.9 and
+under a `bash` shim that `exec`s `/bin/bash` 3.2.57:
 
 | Tree | bash 5 | bash 3.2 |
 | --- | --- | --- |
-| shipped head | 52 passed, 0 failed | 52 passed, 0 failed |
-| cleanup block deleted (`local rc` / `rm` / `return`) | **51 / 1** | **51 / 1** |
-| `return "$rc"` → `return 0` | 52 / 0 | 52 / 0 |
-| `(census)` subshell unwrapped | 52 / 0 | 52 / 0 |
-| pre-fix trap form restored | 52 / 0 | **51 / 1** |
+| shipped head | 56 / 0 | 56 / 0 |
+| `census`'s status return → `return 0` (site-keyed, line 307 only) | **54 / 2** | **54 / 2** |
+| `census`'s status return → `return 1` (anti-constant control) | 32 / 23 | 32 / 23 |
+| `check` drops its capture-or-exit propagation (line 321) | **54 / 2** | **54 / 2** |
+| round 4's explicit `rm` deleted (leak guard) | 55 / 1 | 55 / 1 |
+| `check`'s own status return → `return 0` (line 389, distinct site) | 51 / 5 | 51 / 5 |
 
-The last row is round 3's CI red reproduced exactly, which is what makes the first row's green
-trustworthy rather than merely reassuring. The second row is the point of the chosen remedy:
-deleting the cleanup now fails under **both** shells, where the trap form failed only under 3.2
-— on the one lane nobody reads until it is too late. `selftests (macos, bash 3.2)` is green on
-this head, along with `lint-and-selftests`.
+Rows two and four each fail **exactly the two new assertions and nothing else** — I captured the
+failing case names rather than trusting the counts, and both mutants fail
+`check exits with the census's own status, not a masked one` and
+`check stops instead of comparing against a truncated census`. Row five confirms round 4's own
+guard is still the sole killer of its site. The per-site keying matters and the build was right to
+insist on it: that return text appears twice in the file, and one unkeyed `sed` moves five
+unrelated cases (row six is that other site, mutated deliberately).
 
-Also verified: no `die` is reachable between `mktemp` and the cleanup — the two argument-validation
-`die`s precede the allocation, and `hash_stdin`'s runs at source time — so nothing the trap used to
-cover is now uncovered. `set -uo pipefail` without `-e` is what makes `local rc=$?` reachable at all.
+**The distinctive exit code is load-bearing in a way the PR body understates.** Under both masked
+mutants `check` does not exit 0 — it runs on to its comparison over an empty census and exits
+**3**, printing `census: 0 construct(s) over 0 file(s); record: 8 row(s)`. So an assertion of
+merely "non-zero" would have passed both mutants. Pinning the value 9 is what makes this case kill
+anything, and the fail-open it guards is reproduced verbatim in the mutant's own output.
 
-**Round 3's two comment notes are closed honestly.** The suite's comment no longer claims the
-`(census)` subshell holds two traps apart, and says the `CREATED` bar proves the shim was reached
-rather than pinning `check`'s own two allocations. Both statements are true of the shipped tree —
-the probe above independently measures the subshell revert as killing nothing, which is precisely
-what the new comment says. Naming what a fix cost is the opposite of the usual failure mode here.
+**The merge resolution is correct and complete.** Round 4 prescribed taking main's side whole in
+`tools/run-selftests-selftest.sh` (#566/#621 deleted `LEAN_JOB_CEILING`, and main's copy already
+subsumed this branch's scrub). `git diff origin/main HEAD -- tools/run-selftests-selftest.sh`
+prints nothing, which is the check round 4 named. `mutation-slow-suites.tsv` is the union of both
+sides.
 
-**The stale PR-body prose-budget figures are corrected.** `prose-budget.sh --check` on this head:
-3 fails, and they are exactly the three pre-existing rows (`QUERIES.md`,
-`figma-faithful-spec-reviewer.md`, `capability-parity-check-selftest.sh`), none of which this
-branch touches. `build-lean` 1687, `review-lean` 1657, `onboard` 5106 all read `ok`, matching the
-body.
+**The PR body's numbers all reproduce.** `check` rc=0 at 13 constructs / 35 rows / 26 files;
+prose-budget 4 fails here against 6 on `main`, measured in a detached `origin/main` worktree
+rather than asserted — `build-lean/SKILL.md` reads 1707 against a 1624 row here and 1930 against a
+1488 row there, so that overrun is inherited and materially reduced; `review-lean` and `onboard`
+fail on `main` and pass here.
+
+## The base moved a fourth time, and this time it costs nothing
+
+#630 landed on `main` at `2c281b56` after this head was cut. Unlike rounds 2 and 4 this is **not**
+a blocker and no fourth merge is owed:
+
+- The PR is `MERGEABLE`; `git merge-tree --write-tree HEAD origin/main` returns rc=0 with no
+  conflicted path. No reviewed `+`/`-` line is touched, so the record written this round is not
+  void on arrival.
+- It mints no census work — proved, not assumed, by the round-4 method: `plugins/` archived from
+  both `9f2b5d00` and `2c281b56` into throwaway roots and censused with `PROSE_BLOCKERS_ROOT`
+  yields **38 constructs with byte-identical ids** on each.
+- `check` over the actual merged tree (`25393b03`) reads `13 construct(s) over 26 file(s);
+  record: 35 row(s)`, `✓ zero undispositioned constructs`, rc=0. AC-6 survives the merge.
+
+`mergeStateStatus: BLOCKED` is the committed `verdict=needs-work` holding the gate, not a new
+problem. CI on this head: `lint-and-selftests` pass, `selftests (macos, bash 3.2)` pass,
+`mutation-sweep-pr` pass, `pr-gates` fail — the last being the correct state while the record says
+needs-work.
 
 ## Blocker
 
-### B-6 — the base moved again: the PR is CONFLICTING, and the resolution cannot leave the reviewed lines intact
+### B-7 — three `promoted` rows name follow-ups that were closed NOT_PLANNED, and the corrections were filed on #610 before this head was cut
 
-#621 ("milestone 3 stops running the full sweep locally, and the supervision stratum goes with
-it") landed on `main` at `9f2b5d00` while this round was running. `gh pr view 625` now reads
-`CONFLICTING` / `DIRTY`, and `git merge-tree HEAD origin/main` names one conflicted file:
+`docs/prose-blocker-triage.tsv` rows `pb-21641fc1`, `pb-ce91bffc` (both `#623`) and `pb-3bdd8454`
+(`#624`) read `promoted | filed`. Both tickets are now **CLOSED / NOT_PLANNED** — #623 at
+2026-08-21T12:48Z, #624 at 13:10Z — each closed on a finding that the rule *cannot become a
+control*, not that it was deferred.
 
-```
-CONFLICT (content): Merge conflict in tools/run-selftests-selftest.sh
-```
+This is not an inference from the closures. The operator posted the row corrections **on #610
+itself**, with the replacement rows spelled out:
 
-That file carries this branch's own round-1 edit, so resolving it edits `+`/`-` lines that are
-inside the reviewed patch — `reviewed_patch_id` is recomputed at milestone 4 and at the merge
-boundary, and an `approve` written now would be void on arrival there. Approving and handing back
-cost the same number of sessions; the hand-back is the honest one. (Everything else auto-merges:
-`build-lean/SKILL.md`, `tools/mutation-slow-suites.tsv`, `.claude/prose-budget-shell.baseline.tsv`.)
+- 12:47:49Z — `pb-21641fc1` / `pb-ce91bffc`: "the rows' `promoted` disposition and their `#623`
+  enforcer are both now wrong", with the two tab-separated replacement rows given verbatim, and
+  "Please fold this into the conflict resolution you already owe."
+- 13:11:33Z — `pb-3bdd8454`: "the row points at a promotion that will not happen", with the
+  recommended re-disposition given and one judgment call explicitly left to this lane.
 
-**Resolve this one by taking MAIN'S side whole — do not keep both sides.** This is the opposite
-of round 2's resolution and the reason is worth reading before touching the file:
+HEAD `dfa2f20f` is dated 12:52:55Z — **after** the first comment — and carries neither correction.
 
-- This branch's edit to that file is the SELFTEST_JOBS case gaining `-u LEAN_SELFTEST_CACHE_DIR`
-  alongside the hostile `LEAN_JOB_CEILING=2` it already carried.
-- #566/#621 **deleted the job ceiling outright**: `LEAN_JOB_CEILING` no longer appears anywhere in
-  `tools/run-selftests.sh` or `lean-gate.sh` on `main`. Keeping this branch's side resurrects a
-  variable nothing sets and nothing reads.
-- Main's copy of that case already carries this branch's contribution and more: it hand-rolls the
-  `-u LEAN_SELFTEST_CACHE_DIR` scrub, puts a **hostile store** in front of it, and asserts
-  two-sidedly (`jobs=3` **and** the absence of `activated from LEAN_SELFTEST_CACHE_DIR`). Its
-  comment even records that the argument was re-pointed from the deleted ceiling to the seam the
-  gate still hands down.
+**Why it is a blocker rather than a warning.** AC-4 requires a `promoted` construct to have either
+the shipped guard or "the record's `enforcer` cell carries the follow-up issue that **owns** it".
+An issue closed not-planned, whose closing comment says the prose stays as prose and the triage
+row is stale, owns nothing. So three of 35 rows assert a promotion no gate performs and no open
+ticket owns — the promotion is dropped, and the drop lives only on the tracker, not in the
+deliverable this issue ships. That is the one thing AC-4 exists to prevent.
 
-So main's version subsumes the branch's, and the check afterwards is one command:
-`git diff origin/main HEAD -- tools/run-selftests-selftest.sh` must print nothing.
+**And nothing downstream catches it.** `check`'s enforcer-resolution arm exempts issue-shaped
+cells by construction (`prose-blockers.sh:340`, the enforcer test skips a cell matching a bare
+`#`-number), so the record reads rc=0 while these three rows are false. D-8 already says `check`
+cannot verify that a named enforcer really enforces the rule; this is that gap with a live
+instance in it. It lands at review or nowhere.
 
-**The merge mints no census work — measured, not assumed.** I censused both base commits in
-throwaway roots (`PROSE_BLOCKERS_ROOT` over a `git archive` of `plugins/` at each): `c4a8dd22` and
-`9f2b5d00` both yield **38 constructs with byte-identical ids**. #621 changed no
-construct-bearing block, so unlike the previous merge this one re-keys nothing and adds no row —
-AC-6 survives it, and `check` should still read 13 constructs / 35 rows / rc=0 on the merged tree.
-Confirm rather than assume, but expect no work here.
+**The corrections apply verbatim at this head — I checked rather than assumed.** All three ids
+still resolve in the census at `dfa2f20f` with unchanged sites
+(`intake-orchestrator/SKILL.md:218` and `:235`, `figma-iterate/SKILL.md:57`), so columns 1 and 4
+stand and only columns 2, 3, 5 and 6 change. #630, the pending base merge, touches `dup-scan.sh`
+and its selftest only — not `intake-orchestrator/SKILL.md` — so the ids survive that merge too.
+
+Both operator comments land on `deleted` / `pointer-kept` / `-`, which is the only legal pairing:
+`prose-blockers.sh:326` permits an empty enforcer for `deleted` alone, and `pointer-kept` is a
+surviving-action row so neither the UNPRUNED nor the STALE arm fires. **One judgment is genuinely
+yours and is not mine to settle**: #624's comment notes that AC-2 documents `deleted` as carrying
+"the one-line reason it was **never a control**", while a reader could argue `pb-3bdd8454` is
+instead *worth enforcing but unenforceable here*. If that distinction matters to this record, say
+so in the note rather than flattening it. Applying the corrections and saying which reading you
+took closes this.
+
+`pb-0426581f` (`#622`) is unaffected — #622 is still OPEN.
 
 ## Warnings
 
-- **The rc-propagation half of the round-4 fix is unguarded.** Mutating `return "$rc"` to
-  `return 0` leaves the suite at 52/0 under both shells (measured above), and
-  `unit-test-mutation-reviewer` predicted the same site independently (confidence 82). It matters
-  in one direction: `check` reads `(census) >"$tmp_census" || exit $?`, so a masked failure would
-  let `check` compare the record against a truncated census and report `✓ zero undispositioned`
-  vacuously — a fail-open in a verification tool. The status capture is correct as written; what
-  is missing is a case that drives `census`'s pipeline to a non-zero exit and asserts `check`
-  refuses. Not a blocker, and not new breakage — the pre-fix code returned the pipeline's status
-  implicitly, so this is an unguarded *preservation* of correct behavior rather than a regression.
-  Worth one case whenever this file is next open; it is small.
-- **The PR body's Round 3 paragraph is stale**: it says "12 constructs, 34 rows" where the head
-  reads 13 and 35 after the round-4 dispositions. The AC-6 block in the same body is correct.
-  Body-only, so it costs no round — one edit alongside the B-6 fix.
-- **`mutation-sweep-pr` is green on this head and computed ZERO verdicts**, unchanged from round 3
-  and for the same designed reason (`tools/prose-blockers.sh` is deferred wholesale by the
-  slow-list row this PR adds). I closed the substance instead of assuming it: cold PR-scoped sweep
-  in an isolated worktree with the deferral overridden and its own cache dir —
-  `applied=8 killed=8 survived=0`, **9 verdicts computed live, 0 served from cache**, 45s.
-  `sites_beyond_budget: cmp-z:4+logic:23+default:1` is unchanged, so the cleanup site is still
-  outside the mutant budget and the hand-written leak case remains the only thing covering it.
-- **`tools/prose-blockers.sh.bak` is sitting untracked in the lane worktree.** It cannot reach the
-  PR (untracked, outside `git diff`) and does not touch `reviewed_patch_id`, but it will confuse
-  the next session's `git status`. The build session recorded that a bare `rm` was denied to it;
-  worth clearing by hand.
+- **`mutation-sweep-pr` is green on this head and grades nothing**, unchanged since round 3 and
+  for the same self-inflicted reason: this PR's own slow-list row defers `prose-blockers.sh`
+  wholesale. I did not treat that green as signal. The round-5 build's cold override sweep
+  (`applied=8 killed=8 survived=0`, 9 verdicts live, 79s,
+  `sites_beyond_budget: cmp-z:4+logic:23+default:1`) is consistent with rounds 3 and 4, and my own
+  hand probe above covers the two sites the ordinal cap skips. No action — recorded so the next
+  reader does not mistake the lane's green for coverage.
+- **Two files arrive unbaselined from the base**, not from this branch: `tools/gate-ablation.sh`
+  and `tools/gate-ablation-selftest.sh` report `NEW (add to baseline)`. They are main's, the prune
+  does not move them, and AC-7 only obliges rows the prune moves — so nothing is owed here. Named
+  so it is not rediscovered as this branch's debt. prose-budget is a nightly guard
+  (`nightly-guards.yml`), not a PR gate, so none of this reds the lane.
 
 ## Per-AC scoring
 
 | AC | Score | Evidence |
 | --- | --- | --- |
-| AC-1 | satisfied | Live on this head: `census` emits 13 rows over 26 files, two consecutive runs byte-identical, tier line `stop=13 (default), bold=59, all=227 - the default excludes 214`. The behavioral selftest is 52 cases and is 52/0 under bash 5 **and** bash 3.2 — the case that reported round 3's defect now passes because the defect is gone, not because the case was weakened (deleting the fix still fails it, 51/1, under both). |
-| AC-2 | satisfied | 35 rows, exactly one disposition each — 30 `gate-backed`, 4 `promoted`, 1 `deleted`; `check` rc=0 with zero undispositioned over the merged tree. The two rows this round adds are the merge working as designed: `pb-5658947b` is the exit-code table re-keyed in place (content-derived ids; the base added a code) and `pb-30bb039d` is genuinely new to the corpus, a block that acquired a stop marker when the base appended a sentence about milestone 1's refusal. Both `pointer-kept` — deleting prose the base just wrote would re-litigate a landed PR, which is not this prune's call. The all-dark rule still keeps its operative site (`pb-94ee597a`); only its duplicate went. |
-| AC-3 | satisfied | `check`'s mechanical arm resolves every enforcer path. I read the two new rows' sites rather than grepping them: `orchestrate-lean.sh` emits all eight codes 0–7 that `run-lean/SKILL.md`'s table names, and `lean-gate.sh` really does refuse an unresolved pause-and-ask region at milestone 1 (`override_affordance` prints the per-region `record` command for an attended session), so `pb-30bb039d`'s prose is a pointer at a real refusal rather than a rule with no control. |
-| AC-4 | satisfied | All four `promoted` rows are `filed`; #622, #623 and #624 are all still OPEN. No guard shipped, which D-1 authorizes for anything larger than one-guard-small. |
-| AC-5 | satisfied | Six tab-separated columns on all 35 rows; every disposition and action inside the declared enums (`check`'s malformed-record arm would exit 4 otherwise). The two new rows key their enforcer on the declared path-plus-tuple format. |
-| AC-6 | satisfied | `check` on this head: `census: 13 construct(s) over 26 file(s); record: 35 row(s)`, `✓ zero undispositioned constructs`, rc=0. No standing CI guard wired, per D-9 and the AC's own text. |
-| AC-7 | satisfied | `prose-budget.sh --check`: 3 fails, all three pre-existing and untouched by this branch. The regenerated rows record post-prune truth; `build-lean` reading 1687 against a 1624 row is the base's later prose, inside the +5% tolerance and correctly NOT re-regenerated — regenerating would raise the ratchet for prose this PR did not write. The shell baseline gains exactly the two new files. Residual ownership (#553/#554/#566/#541, and the agent-contract corpus routed to phase 2) is named in the record header per row. |
+| AC-1 | satisfied | `census` emits 13 rows over 26 files on this head, tier line `stop=13 (default), bold=59, all=227`. The behavioral selftest is 56 cases, 56/0 under bash 5 **and** bash 3.2, and the two cases added this round are provably non-vacuous — each of the two production sites they cover fails exactly them and nothing else. |
+| AC-2 | **unsatisfied** | Mechanically the record is well-formed: 35 rows, exactly one disposition each, 30 `gate-backed` / 4 `promoted` / 1 `deleted`. But B-7 makes three of those dispositions factually wrong — `promoted` asserts a rule that a gate will enforce, and the two tickets that would have enforced them are closed not-planned on the finding that they cannot be. The operator's filed corrections re-disposition all three to `deleted` / `pointer-kept`. |
+| AC-3 | satisfied | `check`'s mechanical arm resolves every path-keyed enforcer in the tree (rc=0). The AC's "resolves in the tree" clause has only ever bound path-keyed cells — issue-shaped enforcers are exempt by construction — so the three stale issue refs are scored under AC-4 rather than double-counted here. |
+| AC-4 | **unsatisfied** | Same root cause as AC-2, and this is where it bites hardest. No guard shipped (D-1 authorizes that for anything larger than one-guard-small), so each `promoted` row depends entirely on its `enforcer` cell naming the follow-up that owns it. `#623` and `#624` are CLOSED/NOT_PLANNED and their closing comments explicitly disown the promotions. Three of four `promoted` rows therefore satisfy neither limb. `#622` (`pb-0426581f`) is OPEN and does satisfy it. |
+| AC-5 | satisfied | Six tab-separated columns on all 35 rows; every disposition and action inside the declared enums, which `check`'s malformed-record arm would exit 4 on otherwise. The corrections B-7 asks for stay inside the same enums and the same key format. |
+| AC-6 | satisfied | `check` on this head: `census: 13 construct(s) over 26 file(s); record: 35 row(s)`, `✓ zero undispositioned constructs`, rc=0 — and the same over the merged tree with the pending base. No standing CI guard wired, per D-9 and the AC's own text. Note that AC-6 is satisfied *and* blind to B-7, by the design D-8 declares. |
+| AC-7 | satisfied | `prose-budget.sh --check`: 4 fails here, 6 on `origin/main`, both measured. Three fails are pre-existing and untouched (`QUERIES.md`, `figma-faithful-spec-reviewer.md`, `capability-parity-check-selftest.sh`); `build-lean/SKILL.md` fails on both sides and is materially better here. The shell baseline row for `prose-blockers-selftest.sh` is re-recorded at what this PR ships, which is legitimate for a row this PR minted for a file it authors in full. Residual ownership (#553/#554/#566/#541, and the agent-contract corpus routed to phase 2) is named per row. |
 
-Design fidelity: `not-applicable`. The spec disarms it (`Design: none`) and the repo's config
-declares no `design.provider` and no `stageParams.webComponentGlobs`, so the disarm is justified
-rather than convenient.
+Design fidelity: `not-applicable`. The spec disarms it (`Design: none`), the repo's config declares
+no `design.provider` and no `stageParams.webComponentGlobs`, and no changed path is a web
+component — so the disarm is justified rather than convenient.
 
 ## Panel
 
-Six reviewers selected, **six returned** — no dark reviewer this round, after
-`test-coverage-reviewer` went dark in rounds 2 and 3. Five `approve` with zero findings
-(security, maintainability, complexity, test-coverage, scope-completeness);
-`unit-test-mutation-reviewer` returned `approve-with-nits` with the one finding recorded as a
-warning above. Security's three findings were all suppressed below threshold and correctly so
-(operator-supplied env in a local CLI with no request surface). Scope-completeness surfaced the
-stale body paragraph at confidence 70, also recorded above.
+Six reviewers selected, **six returned** — no dark reviewer, second consecutive round. Five
+returned `approve` with zero findings (security, maintainability, complexity, test-coverage,
+unit-test-mutation). Security's one suppressed finding (confidence 30, the test's `PATH` shim)
+is correctly below threshold — the shim is scoped to the suite's temp jail with no production
+reach.
 
-`performance-reviewer` was **not selected**, under the round-2+ lineup-reduction rule: it returned
-zero findings in three prior rounds and the round-4 change (removing a trap, adding an `rm`) has no
-performance surface. Not a coverage gap by darkness — a deliberate narrowing, named so it is
-visible. `a11y-reviewer` and the design-fidelity dimension were not routed: no changed path matches
-`stageParams.webComponentGlobs` (`apps/web/**/*.{tsx,jsx}` — the shipped default; this repo
-declares none). `db-reviewer` and `pipeline-reviewer` were not triggered.
+`scope-completeness-reviewer` returned `request-changes` with B-7 at **confidence 93**, reached
+independently of my own reading and of anything in the dispatch prompt. Its suppressed note
+(confidence 70) — that `check` has no liveness test on `filed` issue refs, so this staleness class
+recurs — is correct and correctly out of scope, since AC-6 forbids a new standing guard in this
+slice; it belongs to the phase-2 register. The Scope Completeness Gate is hard, so `needs-work`
+follows structurally as well as on the merits.
 
-## What round 5 needs
+`performance-reviewer` was **not selected**, unchanged from round 4 under the round-2+
+lineup-reduction rule: zero findings in four prior rounds and no performance surface in a
+30-line test addition. Not a coverage gap by darkness — a deliberate narrowing, named so a later
+reader can tell the two apart. `a11y-reviewer` and the design-fidelity dimension were not routed:
+no changed path matches `stageParams.webComponentGlobs` (unset, so the default
+`apps/web/**/*.{tsx,jsx}`), which is the ordinary shape of a shell-and-prose diff.
 
-Merge `origin/main` (`9f2b5d00`) and resolve `tools/run-selftests-selftest.sh` by taking main's
-copy whole — the branch's edit there is subsumed, and keeping both sides resurrects a variable
-#566 deleted. Verify with `git diff origin/main HEAD -- tools/run-selftests-selftest.sh` printing
-nothing, then re-run `bash tools/prose-blockers.sh check` on the merged tree (expect 13/35/rc=0 —
-the two bases census identically, so no new row is owed) and fix the body's "12 constructs, 34
-rows" line. Nothing else is outstanding: the three warnings above are notes, not gates.
+## What closing this round needs
 
-## Strengths
-
-- **The fix chose the killable shape over the convenient one.** Keeping the trap and adding an
-  `rm` beside it would have been green everywhere a build session looks and killable only on the
-  macOS lane; removing the trap makes the cleanup the sole path, so deleting it fails under both
-  shells. The commit message argues exactly that, and the probe confirms it.
-- **The round names what the fix cost.** With `census` trap-free the `(census)` subshell no longer
-  holds two traps apart, and the suite's comment now says so instead of claiming a kill it no
-  longer makes — measured true here. A build session volunteering the weakening of its own prior
-  guard is rare and is what stopped this round rediscovering it as a finding.
-- **The merged-in prose was dispositioned rather than pruned.** Re-keying a construct in place and
-  admitting a new one as `pointer-kept` is the record behaving as designed under a content-keyed
-  id scheme; deleting prose the base had just deliberately written would have been the tempting
-  and wrong move.
+One commit on the lane branch applying the three row corrections from the two #610 comments, and a
+sentence in the PR body saying which reading you took on the `pb-3bdd8454` note. `check` will
+still read 13/35/rc=0 afterwards — the corrections change no id and no site, and `deleted` +
+`pointer-kept` keeps both the UNPRUNED and STALE arms quiet. No base merge is owed: the PR is
+mergeable against `2c281b56` and that merge mints no census work.
