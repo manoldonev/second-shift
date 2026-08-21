@@ -53,6 +53,7 @@ plugins/dev-pipeline/skills/run-lean/orchestrate-lean-selftest.sh	28	measured 28
 plugins/dev-pipeline/tools/retro-corpus-selftest.sh	22	measured 22s alone on 2026-08-20 — at or above the 9s threshold this table applies.
 plugins/second-shift/skills/onboard/tools/config-grill-selftest.sh	17	measured 17s alone on 2026-08-20 — at or above the 9s threshold this table applies.
 plugins/dev-pipeline/tools/preflight-selftest.sh	15	measured 15s alone on 2026-08-20 — at or above the 9s threshold this table applies.
+tools/prose-blockers-selftest.sh	15	measured 15s alone on 2026-08-21 (15.41s wall, 8.42u+7.05s) — at or above the 9s threshold this table applies.
 plugins/second-shift/skills/doctor/tools/doctor-selftest.sh	13	measured 13s alone on 2026-08-20 — at or above the 9s threshold this table applies.
 tools/run-selftests-selftest.sh	12	re-measured at 12s alone on 2026-08-21, after #629 added the elapsed-emitter case — at or above the threshold this table applies.
 plugins/dev-pipeline/skills/build-lean/lean-evidence-selftest.sh	11	measured 11s alone on 2026-08-20 — at or above the 9s threshold this table applies.
