@@ -1,159 +1,169 @@
 # lean review verdict — #610
 
 verdict=needs-work
-run_id: review-610-2
-session_id: 6cc27e31-4dbf-4af8-872f-ac6f107a66d3
-rounds: 2
+run_id: review-610-3
+session_id: 9b47bef0-4132-4895-8798-c2ffdfe9cc16
+rounds: 3
 pr: #625
-reviewed_head: 768ceea488540a121c0ac45e1af435e7f12c1e33
-reviewed_patch_id: 3142263a15bd4f56f1cc3a5341569fd3dcf2349c
-inherited_patch_id: 4ea3297097df04d30a53846e91ad3d171c83ae05
-inherited_from_verdict: 1b800d54fba0585f8ca7a91fbc2aca05cb0742d5
+reviewed_head: 80ca11d6c916d2e9fc34bfb99b29fd74202f65a9
+reviewed_patch_id: ae9a73a241a4a8081985dccd7cae87551cc4239c
+inherited_patch_id: 3142263a15bd4f56f1cc3a5341569fd3dcf2349c
+inherited_from_verdict: 650c4d99f0cc022125ed42808e702d5675cb32fe
 fidelity: not-applicable
 model: unknown
 capabilities: pr-marker
 
-Round 2, inheriting round 1's coverage of patch `4ea3297097df`. Delta read:
-`1b800d54..768ceea4` (7 files) — the single fix commit answering round 1's three blockers.
-Verdict: **needs-work** — one blocker, and it is not in the diff.
+Round 3, inheriting round 2's coverage of patch `3142263a15bd`. Delta read: `650c4d99..80ca11d6`
+— the `origin/main` merge plus the two fix commits. I read wider than the range: the whole
+branch contribution (`42dfb2a5..80ca11d6`, 18 files), because the merge puts #627's content in
+the delta and reading only the range would confuse main's work for this branch's.
 
-All three round-1 blockers are fixed, and I verified each one rather than reading the
-commit message:
+Verdict: **needs-work** — one blocker, and it is the CI lane the previous two rounds never got
+an answer from.
 
-- **B-1 (mutation survivors) — fixed, verified cold.** The first sweep I ran returned
-  `killed=8 survived=0` with **0 verdicts computed and 8 served from cache**, which proves
-  nothing. Re-run against an isolated cache dir: `applied=8 killed=8 survived=0`, 9 verdicts
-  computed live, rc=0. Both coverage gaps are genuinely closed — the fixture-tree copy of the
-  tool makes the derived root answer, and the 190-character construct plus a length comparison
-  distinguishes `--full` from the 160-character excerpt.
-- **B-2 (wider counts unreported) — fixed.** `check` now prints
-  `tiers: stop=12 (default), bold=58, all=226 - the default excludes 214 wider construct(s).`
-  The three tier counts are each checked against an independently computed census, and the
-  difference against their arithmetic. I probed all three: deleting the line, breaking the
-  subtraction, and making `n_bold` wrong each fail exactly the case written for it.
-- **B-3 (lockstep pinned a false sentence) — fixed correctly.** The anchor now pins only the
-  hard-stop and the rc report, and each of the four sites carries its own tail. I read all four:
-  `intake-interviewer` hands the draft over, `plan-interview` hands nothing off, and the two
-  `intake-orchestrator` sites label nothing and create nothing. The contradiction is gone and
-  the anchor no longer forces three correct sites to follow a fourth. `check-lockstep-pairs.sh`
-  passes 27/27.
+Round 2's blocker and all three of its warnings are genuinely closed, each verified rather than
+read off a commit message:
 
-The two round-1 warnings that were code are also closed and probe-confirmed: the caps-`ABORT`
-arm now takes the raw text as a parameter (removing it fails "a bare shouted ABORT is a stop"),
-and the `refusal` noun form gained its case (narrowing the alternation fails it). The third
-warning was the PR body's incomplete prose-budget accounting; the body now names all three
-stale rows including `onboard`.
+- **B-4 (base drift) — fixed.** `origin/main` (42dfb2a5) is an ancestor of the head, the PR is
+  `MERGEABLE`, and GitHub created five check-runs where the conflicted head had zero. Both
+  conflicts kept BOTH sides, as the round-2 record asked: `run-selftests-selftest.sh` carries
+  main's hostile `LEAN_JOB_CEILING=2` *and* this branch's `-u LEAN_SELFTEST_CACHE_DIR` in one
+  scrub line (the AC-4 env case passes on the merged head), and `build-lean/SKILL.md` step 9 is
+  main's single `close-out` call under this branch's prune. I checked the merge lost nothing
+  else: of the 14 files #627 touched, only the two conflicted ones and `run-lean/SKILL.md`
+  differ from main at the head, and each difference is this prune's own edit — #627's rewrite of
+  the run-lean authorship rule survives verbatim.
+- **W-1 (the `EXIT`-trap fix was unguarded) — closed, and non-redundantly.** Reverting the
+  `(census)` subshell now fails exactly one case (51/1). With that one assertion deleted the
+  revert is invisible again (51 passed, 0 failed), so the new assertion is the sole killer, not
+  a second copy of an existing one.
+- **W-2 (slow-list row) — closed.** `tools/prose-blockers-selftest.sh 15 2026-08-21` parses, and
+  `mutation-sweep-selftest.sh`'s own TSV lint (suite exists / integer seconds / ISO date) covers
+  the row.
+- **W-3 (the `promoted` gloss) — closed.** The header now says "or a filed issue owns doing it",
+  which is true of all four `filed` rows.
 
 ## Blocker
 
-### B-4 — the branch cannot merge, and the reviewed head has no CI at all
+### B-5 — the macOS bash-3.2 lane is RED on the reviewed head, and it is a real leak
 
-`mergeable: CONFLICTING`, `mergeable_state: dirty`. #627 landed on `main` after this branch was
-cut and conflicts with it in `plugins/dev-pipeline/skills/build-lean/SKILL.md` and
-`tools/run-selftests-selftest.sh`. GitHub runs no checks on an unmergeable PR, so
-`gh api .../commits/768ceea4/check-runs` returns **zero** check-runs — where round 1's head
-carried five. `pr-gates` and `mutation-sweep-pr` are not red here; they have not run.
+`selftests (macos, bash 3.2)` failed on 80ca11d6 — on the very case round 3 added:
 
-That leaves this round with no CI evidence, and local green is not a substitute in this repo —
-the bash-3.2 lane, ubuntu's gawk, and the shellcheck version skew each red things that pass
-here, and `prose-blockers.sh` is a new awk-heavy tool of exactly that class. What I can say is
-what I ran locally, cold, from the reviewed head: the full sweep is **72 scored, 72 run,
-0 failed**; `shellcheck -e SC1091,SC2015,SC2181` is clean on both changed shell files;
-`prose-blockers.sh check` exits 0 reporting 12 constructs over 26 files against 34 rows; the
-PR-scoped mutation sweep is 8/8 killed. That is a strong local signal and it is not the lane.
+```
+FAIL  tools/prose-blockers-selftest.sh (rc=1)
+  FAIL check removes every temp file it created
+     want '0', got '2'
+prose-blockers-selftest.sh: 51 passed, 1 failed
+[run-selftests] summary: 72 scored, 71 run, 1 served from cache, 1 failed (0 infrastructure)
+```
 
-The second half of this blocker is why it cannot be waived: **resolving the conflict edits `+`
-lines in two files that are inside the reviewed patch**, so a verdict written now is void on
-arrival — milestone 4 recomputes `reviewed_patch_id` and refuses it. Approving would certify a
-patch that cannot land and will not survive being made landable.
+**The guard is right and the tool is wrong.** Reproduced locally and diagnosed to the line. The
+shim records five `mktemp` calls per `check`; calls **#4 and #5** are what survive, and those are
+the two `census` temps allocated inside
 
-Two things I checked so the resolution is not guesswork:
+```
+n_bold=$(census --tier bold | awk 'END {print NR}')
+n_all=$(census  --tier all  | awk 'END {print NR}')
+```
 
-- **The census survives the merge.** I ran the census over #627's `build-lean/SKILL.md` and over
-  the branch-base version: both carry the same 8 construct ids, and #627 mints **none** that the
-  triage record lacks a row for. So the resolution is "apply this branch's prune on top of #627's
-  step-9 `close-out` rewrite", and `check` stays green. AC-6 is not at risk.
-- **`run-selftests-selftest.sh` needs a real merge, not a side-take.** Main's side adds
-  `LEAN_JOB_CEILING=2` (so a dropped scrub fails everywhere, not only under concurrency); this
-  branch's side adds `-u LEAN_SELFTEST_CACHE_DIR` to the scrub. They are complementary — taking
-  either side whole silently drops the other's coverage, in a test file, where the loss reads as
-  green. The resolution keeps both.
+`census` cleans up through `trap "rm -f '$tmp'" EXIT`, and **bash 3.2 does not run an `EXIT`
+trap set inside a pipeline element of a command substitution.** Minimal model, same tree:
+`(census)` leaks nothing under either shell; `$(census | wc -l)` leaks the inner temp under
+3.2.57 and nothing under 5.3.9. So `prose-blockers.sh check` leaks two temp files per run on the
+repo's stock macOS shell — the tier-count block, which is round 2's own fix for round-1's B-2
+(768ceea4), and which the 3.2 lane never graded because round 2's head was unmergeable and
+carried no CI at all.
+
+The subshell at line 311 is not the problem and should stay. A remedy I verified in an isolated
+worktree: an explicit `rm -f "$tmp"` at the end of `census`, after `done | LC_ALL=C sort`. With
+it the suite is **52 passed, 0 failed under both** `/bin/bash` 3.2.57 and bash 5.3.9; the
+`(census)` revert still fails that one case. Take that or something better — the requirement is
+that `census` not depend on an `EXIT` trap firing in a context 3.2 does not fire it in.
+
+**A local run will not reproduce this.** The suite invokes the tool as `bash "$TOOL"`, which on
+this host resolves to brew bash 5.x even when the suite itself is started with `/bin/bash` — so
+the ordinary `bash tools/prose-blockers-selftest.sh` is 52/0 with the bug present. Force the
+tool's own shell to 3.2 to see it, e.g. a `bash` shim on `PATH` that `exec`s `/bin/bash`; under
+that harness the suite reproduces CI exactly (51 passed, 1 failed).
 
 ## Warnings
 
-- **The `EXIT`-trap fix is real and unguarded.** `(census) >"$tmp_census" || exit $?` closes a
-  genuine leak: `check` arms its trap for two temp files and then calls `census`, whose own
-  unconditional `trap … EXIT` replaces it. Measured in the real temp dir (`mktemp` ignores
-  `TMPDIR` on this host, so a `TMPDIR`-scoped count reads 0 either way and proves nothing):
-  the shipped form leaks **0** files per `check`, the reverted form leaks **2**. Reverting it
-  fails **no** case — the suite still passes 50/50. The mutation sweep does not cover it either:
-  its 8 mutants are budget-capped (`sites_beyond_budget: cmp-z:4+logic:23+default:1`), so
-  `killed=8/8` proves eight mutants died, not that this site is reachable. One assertion counting
-  the tool's temp files before and after a `check` run closes it.
-- **Slow-list drift, introduced by this branch.** The sweep warns that
-  `tools/prose-blockers-selftest.sh` measured **13s** against a 5s bar while
-  `tools/mutation-slow-suites.tsv` has no row at or above it, so its guard stays in the PR lane.
-  Warn, never red, by that tool's own contract — but the suite is new here and the row is this
-  branch's to add.
-- **The tool header's `promoted` gloss is false of every promoted row.** `prose-blockers.sh:11`
-  reads "promoted — it is worth enforcing, so a gate now does". All four promoted rows
-  (`pb-0426581f`, `pb-21641fc1`, `pb-ce91bffc`, `pb-3bdd8454`) are `filed` against #622/#623/#624
-  with no gate, which AC-4 explicitly authorizes. The record is right and the header overstates
-  it — worth one line in a tool whose subject is prose that claims more control than it has.
+- **`mutation-sweep-pr` is green on this head and computed ZERO verdicts.** The slow-list row
+  this round added defers `tools/prose-blockers.sh` wholesale, so the CI job graded nothing:
+  `PR mode graded NOTHING: all 1 in-scope guard(s) deferred to nightly, 0 swept` and
+  `0 verdict(s) computed`. That is the designed trade and the row belongs here — but the green
+  asserts nothing about this tree, and it is the only mutation signal the merge boundary sees.
+  I closed the substance instead of assuming it: PR-scoped sweep on the FINAL head with the
+  deferral overridden (`MUTATION_SWEEP_SLOW_THRESHOLD_S=999`) and an isolated cache dir —
+  `applied=8 killed=8 survived=0`, **9 verdicts computed live, 0 served from cache**, 64s. The
+  trap-isolation site is still outside the mutant budget (`sites_beyond_budget:
+  cmp-z:4+logic:23+default:1`), which is exactly why the hand-written case in B-5 is the thing
+  that found the leak.
+- **The new case's anti-vacuity half is weaker than its comment claims.** `CREATED >= 2` is
+  described as pinning `check`'s own two temps, but `census` contributes three more through the
+  same shim — measured `CREATED=5` on the real tree — so the bar is cleared by `census` alone. A
+  mutant that stops `check` allocating through `mktemp` at all still scores `CREATED=3` and
+  passes both halves (verified). It does still prove the shim was reached, which is its stated
+  job, so this is a note on the comment rather than a defect in the assertion.
+- **The PR body's prose-budget figure for `build-lean` is stale.** It says main was failing at
+  1847 words; main at 42dfb2a5 measures 1868 (the #627 step-9 rewrite landed after that
+  sentence was written). The head is 1645 against a regenerated 1624 row and reads `ok` inside
+  tolerance. Body-only, so it costs no round — worth one edit when the blocker is fixed.
 
 ## Panel
 
-Seven reviewers selected. Six returned; **`test-coverage-reviewer` went dark** (died after its
-automatic retry — turn-budget cap, no text on either attempt). Coverage gap: the test-adequacy
-dimension was not reviewed this round by that reviewer. Not a void round — six usable results —
-and I read the suite myself and probed eight assertions, which is why this does not change the
-verdict. Security, performance, maintainability and complexity approve with no findings.
-`scope-completeness-reviewer` approves. `unit-test-mutation-reviewer` returned one minor finding
-at confidence 82 — the unguarded trap fix — which I probed and promoted to the warning above; it
-is the one finding the budget-capped sweep could not have surfaced.
+Seven reviewers selected, six returned, all `approve` with **zero** findings between them
+(security, performance, maintainability, complexity, unit-test-mutation, scope-completeness).
+Two sub-80 suppressions from security, both correctly suppressed.
+
+`test-coverage-reviewer` went **dark** for the second consecutive round — died after its
+automatic retry, no text on either attempt, turn-budget cap. Coverage gap: the test-adequacy
+dimension was again not reviewed by that reviewer. Not a void round (six usable results), and it
+did not change the verdict — I read the suite myself and probed four assertions, which is what
+produced B-5. Two rounds of the same reviewer dying the same way is an infrastructure datapoint,
+not a finding against this PR.
 
 `a11y-reviewer` and the design-fidelity dimension were not routed: no changed path matches the
-resolved web-component surface (`apps/web/**/*.{tsx,jsx}`, the shipped default — this repo
+resolved web-component surface (`apps/web/**/*.{tsx,jsx}` — the shipped default; this repo
 declares no `stageParams.webComponentGlobs`). `db-reviewer` and `pipeline-reviewer` were not
 triggered. Not coverage gaps.
-
-`scope-completeness-reviewer` noted that it was dispatched with base `1b800d54` and re-scoped
-itself to `ab0a2d68...768ceea4` before judging. That base is correct for a delta round — the gate
-derives it from the committed records — but the reviewer is right that scope must be judged
-against the whole branch, and it did so.
 
 ## Per-AC scoring
 
 | AC | Score | Evidence |
 | --- | --- | --- |
-| AC-1 | **satisfied** | Round 1's only gap was the unreported wider counts; `check` now prints stop/bold/all and the excluded difference, guarded against absence and against a wrong count (three probes, all killed). Census, corpus, block unit, lockstep grouping, content-derived ids and the behavioral selftest were verified in round 1 and are unchanged. |
-| AC-2 | satisfied | Inherited. Re-confirmed live: 34 rows, `check` rc=0, zero undispositioned. The delta does not touch the record. |
-| AC-3 | satisfied | Inherited from round 1, which read the enforcers rather than trusting the cells. Unchanged in the delta. |
-| AC-4 | satisfied | Inherited; re-verified that #622, #623 and #624 are all still OPEN. All four promoted rows are `filed`, per D-1. |
-| AC-5 | satisfied | Inherited. Six-column TSV, unchanged in the delta. |
-| AC-6 | satisfied | `check` exits 0 on the pruned tree — and, per B-4's first check, still would after the conflict is resolved, since #627 mints no construct the record lacks. |
-| AC-7 | satisfied | `prose-budget.sh --check` on the reviewed head: every row this branch touches reads `ok`, and exactly the three pre-existing failures (`QUERIES.md`, `figma-faithful-spec-reviewer.md`, `capability-parity-check-selftest.sh`) remain red rather than laundered green. The five rows this round moved are regenerated. |
+| AC-1 | satisfied | Inherited from rounds 1-2 and re-confirmed live on the merged tree: 12 rows, two consecutive censuses byte-identical, tier line prints `stop=12 (default), bold=58, all=226 - the default excludes 214`. The behavioral selftest exists and is 52 cases; its one failing case is the guard correctly reporting B-5's defect, not a gap in this AC. |
+| AC-2 | satisfied | 34 rows, one disposition each — 29 `gate-backed`, 4 `promoted`, 1 `deleted`. `check` rc=0 with zero undispositioned over the MERGED tree, so the merge minted no construct the record lacks and un-pruned nothing it recorded deleted. The all-dark rule keeps its operative site (`pb-94ee597a`, step 5c, `pointer-kept`) and only its duplicate went (`pb-bdd633e7`). |
+| AC-3 | satisfied | Every enforcer resolves — mechanically for the paths, and by reading for the seven whose `::` half is a label rather than a literal token (`milestone-preconditions`, `exit-codes`, `topology.repos.baseBranch`, `exit-2`, `refuse-overwrite`, `reject-empty-body`, `verdict-record`). I opened each named site; each really enforces the rule its row claims. `check-lockstep-pairs.sh`: 28 anchors, 0 failed. |
+| AC-4 | satisfied | All four `promoted` rows are `filed`, and #622, #623 and #624 are all still OPEN. No guard shipped, which D-1 authorizes for anything larger than one-guard-small. |
+| AC-5 | satisfied | Six columns on all 34 rows; dispositions and actions both inside the declared enums. Unchanged in the delta. |
+| AC-6 | satisfied | `check` on the merged tree: `12 construct(s) over 26 file(s); record: 34 row(s)`, `✓ zero undispositioned constructs`, rc=0 — under bash 3.2 as well as bash 5. No standing CI guard wired, per D-9. |
+| AC-7 | satisfied | `prose-budget.sh --check`: **6 fails on main, 3 on this head**. The three that remain (`QUERIES.md`, `figma-faithful-spec-reviewer.md`, `capability-parity-check-selftest.sh`) are the pre-existing ones and are still red, not laundered. `build-lean` 1868 -> 1645, `review-lean` 1805 -> 1657, `onboard` 5154 -> 5106 are real reductions, and the regenerated rows record post-prune truth. The shell baseline gains exactly the two new files. |
 
-Design fidelity: `not-applicable`. The spec disarms it (`Design: none — this repo configures no
-design provider`) and the repo's config declares no `design.provider`, so the disarm is justified.
+Design fidelity: `not-applicable`. The spec disarms it (`Design: none`) and the repo's config
+declares no `design.provider`, so the disarm is justified.
 
-## What round 3 needs
+## What round 4 needs
 
-Merge `origin/main` in, resolving both conflicts as described above; push; then a fresh review
-context. If CI is green on the merged head, the only open items are the three warnings, none of
-which is a blocker on its own.
+Fix B-5 in `tools/prose-blockers.sh` — `census` must not rely on an `EXIT` trap that bash 3.2
+does not fire inside a command substitution — push, and get the macOS lane green. Nothing else
+is outstanding: the three warnings above are notes, not gates, and the two body edits cost no
+round. Re-run the suite with the tool forced under `/bin/bash`, not just the ordinary harness,
+or the fix will look landed when it is not.
 
 ## Strengths
 
-- The B-1 fix is diagnosed at the right level. "Every case supplied `PROSE_BLOCKERS_ROOT`, so the
-  derivation never ran" is the actual reason those mutants survived, and putting a copy of the
-  tool inside the fixture tree makes the derivation answer instead of stubbing it — the harness
-  now exercises the branch rather than asserting around it.
-- The B-3 fix moves the right sentence. It would have been easier to reword the fourth site to
-  match the other three; instead the anchor was narrowed to what is actually common and each
-  site kept its own tail, which is what the lockstep mechanism is for.
-- The tier line is reported with its own guard against being silently wrong, not just against
-  being absent — the counts are checked against independently computed censuses, so a line that
-  prints confidently false numbers fails.
-- The prose-budget regeneration stayed surgical under a second round of pressure: five rows
-  moved, five rows regenerated, and the three unrelated pre-existing failures still red.
+- **The round-3 guard earned its keep immediately.** It was added to close a warning about an
+  unguarded fix, and instead of merely pinning the subshell it surfaced a live, shipped,
+  shell-specific leak two rounds of green local runs had walked straight past. That is what a
+  guard written against a mechanism rather than an outcome buys.
+- **The merge is a real merge.** Both conflicts were resolved by keeping both sides, in a test
+  file where taking either side whole would have read as green while dropping the other's
+  coverage — and the commit message says which half came from where, so the next reader does
+  not have to reconstruct it.
+- **The slow-list row is the honest move even though it costs the PR its own mutation signal.**
+  The row is measured from the sweep's precheck rather than a stopwatch, and it takes the guard
+  into the nightly by the documented trade rather than leaving a 15s cost on every push.
+- **The census survived a base merge without re-keying anything.** Content-derived ids over a
+  file the merge edited, and `check` is still rc=0 with the same 12/34 — the id scheme's central
+  claim, tested by an event nobody staged for it.
