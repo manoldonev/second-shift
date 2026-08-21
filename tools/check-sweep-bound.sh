@@ -125,15 +125,15 @@ ALLOWANCE="$(base_value allowance-percent)"
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/check-sweep-bound.XXXXXX")" || die "mktemp failed"
 trap 'rm -rf "$TMP"' EXIT
 
+# THE MARKER ROW IS THE ONLY SIGNAL, and awk's exit status is deliberately not a second one.
+# Carrying both made the status redundant: dropping it changed no outcome, because the row still
+# reached the reader below — an unkillable guard, and the mutation sweep said so. One mechanism,
+# read in one place.
 awk '
   /^::group::/    { if (depth == 0) printf "%s\t%s\t%s\n", $1, $2, $3; depth++; next }
-  /^::endgroup::/ { depth--; if (depth < 0) { print "!\tnegative-depth\t-"; exit 1 } next }
-  END             { if (depth != 0) { print "!\tunbalanced-framing\t-"; exit 1 } }
+  /^::endgroup::/ { depth--; if (depth < 0) { print "!\tnegative-depth\t-"; exit } next }
+  END             { if (depth != 0) print "!\tunbalanced-framing\t-" }
 ' "$LOG" > "$TMP/frames"
-awk_rc=$?
-if [[ "$awk_rc" -ne 0 ]]; then
-  die "the timing input is not a replay this can walk: $(sed -n 's/^!\t\([^\t]*\).*/\1/p' "$TMP/frames" | head -1)"
-fi
 
 : > "$TMP/timed"
 : > "$TMP/undeferred"
@@ -141,6 +141,7 @@ while IFS="$TAB" read -r f_status f_elapsed f_suite; do
   [[ -n "$f_status" ]] || continue
   case "$f_status" in
     '::group::pass'|'::group::FAIL'|'::group::cached') : ;;
+    '!') die "the timing input is not a replay this can walk: $f_elapsed" ;;
     *) die "unrecognized frame line status '$f_status' — the emitter's shape moved and this parse is stale" ;;
   esac
   [[ -n "$f_suite" ]] || die "a frame line names no suite: '$f_status $f_elapsed'"

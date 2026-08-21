@@ -217,10 +217,22 @@ RC="$(run --log "$TMP/unbalanced.log" --root "$R")"
 [[ "$RC" -eq 2 ]] && ok "(e) AC-4: a replay whose framing does not balance is exit 2" \
   || { bad "(e) AC-4: unbalanced framing must red, got rc=$RC"; dump; }
 
-{ frame pass 10s a-selftest.sh; frame pass 20s a-selftest.sh; } > "$TMP/dup.log"
+# THE DUPLICATE IS THE ONLY DEFECT HERE, and that costs a line of fixture care. A log that
+# merely repeats one suite is ALSO missing the other, so the completeness arm reds it and the
+# case proves nothing about duplicates — measured: with the duplicate check neutered this case
+# still passed. Both un-deferred suites are present, and the repeat is small enough that summing
+# it twice stays inside the allowance, so exit 2 can only come from the arm under test.
+{
+  frame pass 10s a-selftest.sh
+  frame pass 20s nested/b-selftest.sh
+  frame pass 1s a-selftest.sh
+} > "$TMP/dup.log"
 RC="$(run --log "$TMP/dup.log" --root "$R")"
-[[ "$RC" -eq 2 ]] && ok "(e) AC-4: one suite framed twice is exit 2" \
-  || { bad "(e) AC-4: two sweeps in one log cannot be summed, got rc=$RC"; dump; }
+if [[ "$RC" -eq 2 ]] && grep -qF 'twice' "$TMP/out"; then
+  ok "(e) AC-4: one suite framed twice is exit 2"
+else
+  bad "(e) AC-4: two sweeps in one log cannot be summed, got rc=$RC"; dump
+fi
 
 # ---------------------------------------------------------------------------------------
 # (f) AC-4's negative control, and the case the guard is most likely to be wrong about. A
@@ -296,6 +308,37 @@ if [[ "$RC" -eq 0 ]] && grep -qF '1 per-suite warning(s)' "$TMP/out"; then
 else
   bad "(i) the live table's threshold directive is missing or has moved (rc=$RC)"; dump
 fi
+
+# ---------------------------------------------------------------------------------------
+# (j) The default --root, which the one execution surface relies on: nightly-guards.yml invokes
+# the checker with a --log and nothing else. If that default stopped resolving to the repo the
+# checker ships in, the nightly would red for a reason no reader would connect to a sweep.
+#
+# Asserted through a log naming one REAL suite and no others: discovery over the repo must then
+# find the rest of the un-deferred set missing, which is a message a wrong root cannot produce.
+# ---------------------------------------------------------------------------------------
+{ frame pass 1s tools/check-sweep-bound-selftest.sh; } > "$TMP/noroot.log"
+bash "$CHECKER" --log "$TMP/noroot.log" > "$TMP/out" 2>&1
+RC=$?
+NAMED="$(grep -cE '^  [A-Za-z].*-selftest\.sh$' "$TMP/out")"
+if [[ "$RC" -eq 2 ]] \
+  && grep -qF 'no timing for these un-deferred suites' "$TMP/out" \
+  && [[ "$NAMED" -ge 40 ]]; then
+  ok "(j) with no --root the checker discovers the repo it ships in ($NAMED un-deferred suites unaccounted for)"
+else
+  bad "(j) the default --root did not resolve to this repo (rc=$RC, $NAMED suites named)"; dump
+fi
+
+# ---------------------------------------------------------------------------------------
+# (k) TMPDIR unset. The ubuntu lane that runs this check does not set it, so the fallback in the
+# scratch allocation is the path CI actually takes — and a local run with TMPDIR set can never
+# observe it. Same scrub run-selftests-selftest.sh applies for the same reason.
+# ---------------------------------------------------------------------------------------
+baseline "$R" 30 10
+env -u TMPDIR bash "$CHECKER" --log "$TMP/green.log" --root "$R" > "$TMP/out" 2>&1
+RC=$?
+[[ "$RC" -eq 0 ]] && ok "(k) the scratch allocation works with TMPDIR unset, as it is on the nightly lane" \
+  || { bad "(k) TMPDIR unset broke the run (rc=$RC)"; dump; }
 
 echo "[sweep-bound-selftest] $FAIL failure(s)"
 exit "$FAIL"
