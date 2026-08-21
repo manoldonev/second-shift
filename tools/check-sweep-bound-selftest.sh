@@ -340,5 +340,22 @@ RC=$?
 [[ "$RC" -eq 0 ]] && ok "(k) the scratch allocation works with TMPDIR unset, as it is on the nightly lane" \
   || { bad "(k) TMPDIR unset broke the run (rc=$RC)"; dump; }
 
+# ---------------------------------------------------------------------------------------
+# (l) --help is range-free: it prints the header comment up to its last line and stops. The
+# alternative — a line range — starts leaking `set -uo pipefail` into the help text the first
+# time anyone edits the prose above it, which is silent and permanent. Same case
+# reap-lean-fixtures-selftest.sh carries for the same idiom.
+# ---------------------------------------------------------------------------------------
+bash "$CHECKER" --help > "$TMP/out" 2>&1
+RC=$?
+if [[ "$RC" -eq 0 ]] \
+  && grep -qF 'check-sweep-bound.sh --log' "$TMP/out" \
+  && grep -qF 'EXIT: 0 within allowance' "$TMP/out" \
+  && ! grep -qF 'set -uo pipefail' "$TMP/out"; then
+  ok "(l) --help prints through the last header line and stops before the code"
+else
+  bad "(l) --help is truncated, empty, or leaking code (rc=$RC)"; dump
+fi
+
 echo "[sweep-bound-selftest] $FAIL failure(s)"
 exit "$FAIL"
