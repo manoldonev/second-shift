@@ -49,12 +49,22 @@ The ticket's four spec defects, found at intake and binding here:
   **Amended in round 3, and it STRENGTHENS the check.** The 23 identifiers above are all names of
   *code*. Round 2's B-1 was a consumer that spelled the coupling as the ARTIFACT — a
   `lean-lanes.tsv` path default in `tools/gate-ablation.sh`, arriving from the base merge, which no
-  token on that list could see. The grep therefore also covers `lean-lanes.tsv` and `live_lanes`,
-  and no live match may be a COUPLING. Two live matches are permitted and both are named here:
-  `tools/gate-ablation-selftest.sh` case `(q)`, which writes a `lean-lanes.tsv` into a fixture
-  state dir on purpose, to assert that a stale registry left over on a real machine excludes
-  nothing; and `lean-gate.sh`'s D-5 paragraph, which names the retired registry in the PAST tense
-  to explain why `--ticket-source lane-registry` survives as a caller-asserted label.
+  token on that list could see. The grep therefore also covers `lean-lanes.tsv` and `live_lanes`.
+
+  **The operative test is that no live match may be a COUPLING** — a match through which live
+  code, a selftest, a workflow or a register TSV still depends on the retired stratum. Past-tense
+  provenance prose and deliberate negative fixtures are not couplings and do not fail this AC;
+  how many of them exist is bookkeeping, not the predicate. *(Round 3's W-1: the round-3
+  amendment enumerated two and the same commit wrote a third, so the count is stated as of a
+  head rather than as a bound.)* As of this head there are three:
+  - `tools/gate-ablation-selftest.sh` case `(q)`, which writes a `lean-lanes.tsv` into a fixture
+    state dir on purpose, to assert that a stale registry left over on a real machine excludes
+    nothing;
+  - `lean-gate.sh`'s D-5 paragraph, which names the retired registry in the PAST tense to explain
+    why `--ticket-source lane-registry` survives as a caller-asserted label;
+  - `tools/run-selftests-selftest.sh`'s `env` case comment, which records in the PAST tense that
+    the case carried `LEAN_JOB_CEILING`'s scrub until #566 deleted the ceiling — the provenance
+    for why it now scrubs `LEAN_SELFTEST_CACHE_DIR` instead.
 
 - **AC-3**: WHEN the bounded quick check reds THEN exactly one milestone-3 fix attempt is
   charged, and the existing budget-exhaustion behavior (`rc=4` on the 4th red) is preserved.

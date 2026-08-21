@@ -1215,13 +1215,20 @@ else
   fail "(ic6/ic7) tools/run-selftests.sh is not beside this gate in a git checkout — the reserved code's only composed guard did not run"
 fi
 
-# ---- (ib) #527 AC-4: the INTERRUPTED budget is per-milestone ------------------------------
+# ---- (ib) #527 AC-4 / #566: the INTERRUPTED budget — one value, scoped per milestone -------
 # Without this the fix is self-defeating. Once an infra kill stops charging a fix attempt the
-# lane re-spawns, and each dead spawn leaves another unclosed `started` row that nothing
-# decrements — so the run would hard-stop here, one bound over, on a milestone nothing judged.
+# scheduler re-spawns, and each dead spawn leaves another unclosed `started` row that nothing
+# decrements — so the run would loop here forever, on a milestone nothing judged.
 #
-# The discriminator is the SAME COUNT answered two ways: 5 unclosed rows exhausts milestone 1
-# and does not exhaust milestone 3.
+# #527 D-7 gave milestone 3 a LARGER VALUE (8 against 5) because it alone ran DETACHED, and so
+# was the only evaluation long enough for a turn boundary to kill. #566 deleted the detached
+# runner and that asymmetry with it: (ib1) and (ib2) now answer the SAME COUNT the SAME way on
+# milestone 1 and on milestone 3.
+#
+# What #566 did NOT retire is the SCOPING — the value is shared, the ledger is not, and unclosed
+# rows still belong to the milestone that wrote them. (ib3) is what pins that half, because
+# (ib1) and (ib2) each seed the milestone they then ask about and so cannot see a gate that
+# counted unclosed rows repo-wide.
 IB_TREE="$WORK/ib-tree"
 mkdir -p "$IB_TREE/docs/plans"
 git -C "$IB_TREE" init -q
@@ -1249,7 +1256,7 @@ prog="$WORK/ib-prog-m1.md"; rm -f "$prog"; ib_seed "$prog" 1 5
 out="$(gate_ib "$prog" 1 7)"; rc=$?
 if [ "$rc" -eq 4 ] && grep -q 'interrupted-exhausted' "$prog" \
    && grep -q 'interrupted 5/5' <<<"$out"; then
-  pass "(ib1) AC-4: milestone 1 keeps the 5-interruption bound, and reports it as 5/5"
+  pass "(ib1) AC-4: milestone 1 exhausts at the 5-interruption bound, and reports it as 5/5"
 else fail "(ib1) expected rc=4 at 5 unclosed on milestone 1, got rc=$rc: $out"; fi
 
 # #566 RETIRED MILESTONE 3'S SEPARATE BOUND. This case asserted the inverse — that the SAME
@@ -1265,13 +1272,18 @@ if [ "$rc" -eq 4 ] && grep -q 'interrupted-exhausted' "$prog" \
   pass "(ib2) #566: milestone 3 shares the generic 5-interruption bound — its own 8 retired with the detached runner"
 else fail "(ib2) expected rc=4 at 5 unclosed on milestone 3's generic 5-bound, got rc=$rc: $out"; fi
 
-# ...and the larger bound is a BOUND, not an absence of one. A hand-run `bash G 3 <issue>` has
-# no --max-continuations, so the gate-side refusal is the only thing left holding it.
-prog="$WORK/ib-prog-m3-spent.md"; rm -f "$prog"; ib_seed "$prog" 3 8
-out="$(gate_ib "$prog" 3 7)"; rc=$?
-if [ "$rc" -eq 4 ] && grep -q 'interrupted-exhausted' "$prog"; then
-  pass "(ib3) AC-4: milestone 3 still hard-stops once its own budget is spent"
-else fail "(ib3) expected rc=4 at 8 unclosed on milestone 3, got rc=$rc: $out"; fi
+# ...and the count is SCOPED to one milestone, which is the half of #527 AC-4 that #566 left
+# standing. Retiring the separate value did not merge the ledgers: a run that infrastructure cut
+# off five times at milestone 3 must still be able to re-enter milestone 1, or the bound stops
+# being a per-milestone brake and becomes a per-run one. Seeded at milestone 3's own exhausting
+# count and asked at milestone 1, so a gate that counted unclosed rows repo-wide would satisfy
+# (ib1) and (ib2) and fail only here.
+prog="$WORK/ib-prog-cross.md"; rm -f "$prog"; ib_seed "$prog" 3 5
+out="$(gate_ib "$prog" 1 7)"; rc=$?
+if [ "$rc" -eq 0 ] && ! grep -q 'interrupted-exhausted' "$prog" \
+   && ! grep -q 'never concluded' <<<"$out"; then
+  pass "(ib3) #566: the bound is per-milestone in SCOPE — milestone 3's 5 unclosed rows neither exhaust milestone 1 nor are announced to it"
+else fail "(ib3) expected rc=0, no exhaustion row and no interruption notice at milestone 1 with 5 unclosed milestone-3 rows, got rc=$rc: $out"; fi
 
 # ---- (ir) #527 AC-5: `progress --infra`, the read derived from residue ---------------------
 # Nothing survives the kill to write a class — SIGKILL cannot be trapped, and the scheduler never
@@ -5809,34 +5821,35 @@ else fail "(if6) expected rc=0 + marker + the interrupted notice, got rc=$rc mar
 
 # THE BUDGET (D-2/D-7). Seeded from the REAL writer's line — duplicating what append_started
 # produced above, rather than hand-spelling a shape that would keep passing after the writer moved.
-# EIGHT unconcluded rows, and the ninth call refuses: no body, no new started row, rc=4.
+# FIVE unconcluded rows, and the sixth call refuses: no body, no new started row, rc=4.
 #
-# Eight, not five, since #527: milestone 3 carries its own larger interrupted budget, because an
-# infrastructure kill no longer charges a fix attempt and each dead re-spawn leaves another
-# unclosed row here. The 5-bound is still asserted, on a milestone that keeps it — (if11) and
-# (ib1) both drive milestone 1 — so the split is pinned from both sides rather than relaxed.
+# Five, not eight, since #566: milestone 3 no longer carries a larger interrupted budget of its
+# own, because the detached runner that justified one is gone and the inline evaluation is exactly
+# as exposed to a turn boundary as every other milestone's. Seeding the bound EXACTLY is what
+# makes this case discriminate — at eight it would red under a 5-, 6- or 7-bound alike, and assert
+# nothing (ib2) does not already assert.
 reset_progress
 rm -f "$MARK497"
 gate_497 3 7 >/dev/null 2>&1
 started_line="$(grep -F '| milestone-3 | started |' "$PROG" | head -n1)"
 [ -n "$started_line" ] && [ "$(count_in_progress '| milestone-3 | concluded |')" -eq 1 ] \
   || fail "(if7-fixture) no closed pair to seed from — the budget cases below would assert nothing"
-for _ in 1 2 3 4 5 6 7 8; do printf '%s\n' "$started_line" >> "$PROG"; done
+for _ in 1 2 3 4 5; do printf '%s\n' "$started_line" >> "$PROG"; done
 rm -f "$MARK497"
 out="$(gate_497 3 7)"; rc=$?
 if [ "$rc" -eq 4 ] && [ ! -e "$MARK497" ] \
-   && [ "$(count_in_progress '| milestone-3 | interrupted-exhausted | 8 unconcluded')" -eq 1 ] \
-   && [ "$(count_in_progress '| milestone-3 | started |')" -eq 9 ]; then
-  pass "(if7) the 9th evaluation past 8 unconcluded rows returns 4, records the exhaustion and never runs the body"
-else fail "(if7) expected rc=4 / no marker / one 'interrupted-exhausted | 8 unconcluded' / 9 started, got rc=$rc marker=$([ -e "$MARK497" ] && echo present || echo absent) exh=$(count_in_progress '| milestone-3 | interrupted-exhausted |') started=$(count_in_progress '| milestone-3 | started |'): $out"; fi
+   && [ "$(count_in_progress '| milestone-3 | interrupted-exhausted | 5 unconcluded')" -eq 1 ] \
+   && [ "$(count_in_progress '| milestone-3 | started |')" -eq 6 ]; then
+  pass "(if7) the 6th evaluation past 5 unconcluded rows returns 4, records the exhaustion and never runs the body"
+else fail "(if7) expected rc=4 / no marker / one 'interrupted-exhausted | 5 unconcluded' / 6 started, got rc=$rc marker=$([ -e "$MARK497" ] && echo present || echo absent) exh=$(count_in_progress '| milestone-3 | interrupted-exhausted |') started=$(count_in_progress '| milestone-3 | started |'): $out"; fi
 
 # The number it reports is the unconcluded count it REFUSED ON, not a count of the lines it wrote
-# itself — the (c7) defect one level down. Past the cap the verdict is already 4 either way, so
-# only the record can catch a counter that swept up its own exhaustion lines.
+# itself — the (c7) defect one level down. At or past the cap the verdict is already 4 either way,
+# so only the record can catch a counter that swept up its own exhaustion lines.
 gate_497 3 7 >/dev/null 2>&1
-if [ "$(count_in_progress '| milestone-3 | interrupted-exhausted | 8 unconcluded')" -eq 2 ]; then
+if [ "$(count_in_progress '| milestone-3 | interrupted-exhausted | 5 unconcluded')" -eq 2 ]; then
   pass "(if7b) the exhaustion record counts unconcluded ROWS, not the exhaustion lines it wrote itself"
-else fail "(if7b) expected two 'interrupted-exhausted | 8 unconcluded' lines, got: $(grep 'interrupted-exhausted' "$PROG" | tr '\n' ' ')"; fi
+else fail "(if7b) expected two 'interrupted-exhausted | 5 unconcluded' lines, got: $(grep 'interrupted-exhausted' "$PROG" | tr '\n' ' ')"; fi
 
 # D-8: the new verbs are invisible to every existing counter. `interrupted-exhausted` must not
 # carry the `budget-exhausted` substring (c2) reads, nor the `absent-exhausted` one (c5) reads,
