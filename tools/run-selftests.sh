@@ -138,16 +138,29 @@ if [[ "${1:-}" == "--run-one" ]]; then
   # — would silently start caching under the dogfood sweep while the same suite run standalone
   # did not, which is both a fixture that means something different depending on who ran it and
   # a cache activated by a route nobody declared.
+  #
+  # THE CLOCK BRACKETS THE SUITE AND NOTHING ELSE (#629). Whole seconds from `date +%s`, which is
+  # the one form both lanes agree on — a sub-second flag is GNU-only, and a dual form fails dirty
+  # on macos. A suite that finishes inside one second is charged ONE, never zero: the consumer is
+  # a SUM over ~50 suites, and rounding the small ones away would let the set grow by half a
+  # minute without the total moving. Over-stating is the safe direction, and the baseline is taken
+  # through this same emitter, so the two are commensurable.
+  W_T0="$(date +%s)"
   ( cd "$W_ROOT" && env -u RUN_SELFTESTS_DROP_LAST -u RUN_SELFTESTS_DROP_RC \
        -u LEAN_SELFTEST_CACHE_DIR bash "$W_SUITE" ) \
     > "$W_OUT/$W_IDX.log" 2>&1
   W_RC=$?   # captured BEFORE anything else runs — a later test would overwrite $?
+  W_SECS=$(( $(date +%s) - W_T0 ))
+  [[ "$W_SECS" -ge 1 ]] || W_SECS=1
   # Rejection-assertion seam #2 (see RUN_SELFTESTS_DROP_LAST below): exit WITHOUT writing the
   # verdict file, reproducing a worker that died mid-suite. That path is a documented guarantee
   # — a suite with no verdict is named as infra, never scored as a pass — and it is unreachable
   # from a fixture otherwise, since a suite cannot reach its own worker's results directory.
   # Never set in CI or by an operator.
   [[ "${RUN_SELFTESTS_DROP_RC:-}" == "1" ]] && exit 0
+  # Written BEFORE the verdict, so the parent never sees an rc with no time beside it. The
+  # reverse order would give the replay a scored suite whose frame line has nothing to print.
+  echo "$W_SECS" > "$W_OUT/$W_IDX.secs"
   echo "$W_RC" > "$W_OUT/$W_IDX.rc"
   exit 0
 fi
@@ -593,7 +606,12 @@ while IFS="$TAB" read -r idx suite key; do
   # indistinguishable in a log from a suite that quietly stopped being discovered.
   if [[ -f "$BASE/hits/$idx" ]]; then
     CACHED=$((CACHED + 1))
-    echo "::group::cached  $suite"
+    # The elapsed field is a literal dash, never a number and never blank. A cached suite did
+    # not run, so it HAS no elapsed — and tools/check-sweep-bound.sh reds on a field it cannot
+    # parse rather than treating an unmeasured suite as a free one. The nightly lane that runs
+    # that check passes no store at all, so this arm never reaches it; the dash is what keeps
+    # that a fact about the log rather than an assumption about the caller.
+    echo "::group::cached  -  $suite"
     echo "[run-selftests] cache hit — this exact content already passed on this lane, so the suite was not re-run."
     echo "[run-selftests]   key: $key"
     echo "[run-selftests]   over: $(head -1 "$BASE/cache-manifest/$(slug_of "$suite")")"
@@ -610,10 +628,20 @@ while IFS="$TAB" read -r idx suite key; do
     rc=125
   fi
 
-  if [[ "$rc" -eq 0 ]]; then
-    echo "::group::pass  $suite"
+  # ELAPSED SITS BETWEEN THE STATUS AND THE SUITE (#629), not after it. The suite path stays the
+  # LAST whitespace-separated token of a pass/cached frame, which is what run-selftests-selftest's
+  # contiguity walk reads it as; appending the time instead would have made `(3s)` the suite name.
+  # A worker that wrote no verdict wrote no time either, so `?s` and rc=125 arrive together.
+  if [[ -f "$RESULTS/$idx.secs" ]]; then
+    secs="$(cat "$RESULTS/$idx.secs")s"
   else
-    echo "::group::FAIL  $suite (rc=$rc)"
+    secs="?s"
+  fi
+
+  if [[ "$rc" -eq 0 ]]; then
+    echo "::group::pass  $secs  $suite"
+  else
+    echo "::group::FAIL  $secs  $suite (rc=$rc)"
   fi
   [[ -f "$RESULTS/$idx.log" ]] && cat "$RESULTS/$idx.log"
   [[ "$rc" -eq 125 ]] && echo "[run-selftests] no verdict written — the worker died before scoring this suite (infra, not a result)"

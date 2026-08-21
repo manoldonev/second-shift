@@ -116,11 +116,17 @@ rc=$RC
   && pass "(ds-b2) --issue with --body-file → 2, named" \
   || fail "(ds-b2) --issue with --body-file — rc=$rc out=$OUT"
 
+# The message, not just the code — and here that is what makes the case a guard at all.
+# The numeric check sits BELOW the tracker-type block (so the jira arm above stays
+# reachable), which puts it one step from the subject fetch: delete it and `five` flows
+# into `gh issue view five`, the tracker fails on it, and the tool exits 2 anyway. An
+# rc-only assertion is green either way and pins nothing. Measured: with the guard
+# removed this case still passed until it asserted the text.
 run "$LIVE" "$GH" --issue five
 rc=$RC
-[ "$rc" -eq 2 ] \
-  && pass "(ds-c) non-numeric --issue → 2" \
-  || fail "(ds-c) non-numeric --issue — got rc=$rc"
+[ "$rc" -eq 2 ] && grep -q -- "--issue takes a number" <<< "$OUT" \
+  && pass "(ds-c) non-numeric --issue → 2, named — not the subject-fetch failure" \
+  || fail "(ds-c) non-numeric --issue — rc=$rc out=$OUT"
 
 run "$LIVE" "$GH" --title "x" --body-file "$TMP/does-not-exist.md"
 rc=$RC
@@ -293,15 +299,23 @@ echo "[dup-scan-selftest] adapters and config"
 # D-6: jira has no queue label and no claimed label, so there is no corpus. It must
 # say so — and it must not have looked, because a silent 0 from an adapter that
 # cannot scan is indistinguishable from a clean scan.
+#
+# THE SUBJECT SHAPE IS THE TEST. This case used to pass `--issue 500`, and a number is
+# the one subject shape no jira consumer has — a jira key is never all-digits. It was
+# green for months against a tool whose `--issue` numeric guard sat in the argument
+# parse, ABOVE the tracker-type check, so every real jira invocation died on a usage 2
+# two blocks before this branch could run. The arm was structurally unreachable through
+# the only door its consumers use, and the case covering it could not tell. A key here
+# reds on that ordering; a number does not.
 LOG="$TMP/gh.log"
 : > "$LOG"
 set +e
 OUT="$(PATH="$STUB:$PATH" DUP_SCAN_STUB_CORPUS="$LIVE" SECOND_SHIFT_CONFIG="$TMP/jira.json" \
-       DUP_SCAN_STUB_LOG="$LOG" bash "$SCAN" --issue 500 2>&1)"
+       DUP_SCAN_STUB_LOG="$LOG" bash "$SCAN" --issue ABC-123 2>&1)"
 rc=$?
 set -e
 [ "$rc" -eq 0 ] && grep -q "not applicable" <<< "$OUT" \
-  && pass "(ds-u) tracker.type jira → 0, explicitly not-applicable" \
+  && pass "(ds-u) a filed jira subject reaches the not-applicable arm → 0, not a usage 2" \
   || fail "(ds-u) jira skip — rc=$rc out=$OUT"
 
 [ ! -s "$LOG" ] \

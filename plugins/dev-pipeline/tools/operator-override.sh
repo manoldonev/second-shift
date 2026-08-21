@@ -251,7 +251,15 @@ $1
 EOF
   override_in_enum "$g" "$OVERRIDE_GATES"   || { echo "gate '${g:-<none>}' is not one of: $OVERRIDE_GATES"; return; }
   override_in_enum "$sc" "$OVERRIDE_SCOPES" || { echo "scope '${sc:-<none>}' is not one of: $OVERRIDE_SCOPES"; return; }
-  case "$is" in ''|*[!0-9]*) echo "issue '${is:-<none>}' is not a ticket number"; return ;; esac
+  # THE KEY SHAPE IS THE TRACKER'S, NOT GITHUB'S. This was `[!0-9]` — numbers only — which made
+  # the whole mechanism unreachable under a non-numeric tracker: a jira consumer's key never
+  # matches, so `record` refused every override and the gate's own printed remedy named an
+  # argument its tool would reject. The reader cannot ask a config which shape to expect (the
+  # merge boundary parses this same block with no config), so the class is widened to the one
+  # every adapter's keys already live in rather than derived per tracker.
+  # STILL CLOSED, and deliberately: `/` stays out, because `issue` is interpolated into the
+  # record's path, and the empty case stays a violation.
+  case "$is" in ''|*[!0-9A-Za-z._-]*) echo "issue '${is:-<none>}' is not a ticket key"; return ;; esac
   if [ "$g" = "$OVERRIDE_REGION_SCOPED_GATE" ]; then
     case "$rg" in
       OR-[0-9]*) : ;;

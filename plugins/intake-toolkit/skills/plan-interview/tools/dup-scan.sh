@@ -134,10 +134,6 @@ for pair in "THRESHOLD:$THRESHOLD" "TITLE_WEIGHT:$TITLE_WEIGHT" "CORPUS_LIMIT:$C
     ''|*[!0-9]*) echo "dup-scan: ${pair%%:*} must be a non-negative integer, got '${pair#*:}'" >&2; exit 2 ;;
   esac
 done
-case "$SUBJECT_ISSUE" in
-  '') : ;;
-  *[!0-9]*) echo "dup-scan: --issue takes a number, got '$SUBJECT_ISSUE'" >&2; exit 2 ;;
-esac
 if [ -n "$BODY_FILE" ] && [ ! -f "$BODY_FILE" ]; then
   echo "dup-scan: body file not found: $BODY_FILE" >&2
   exit 2
@@ -195,6 +191,20 @@ if [ "$TRACKER_TYPE" != "github" ]; then
 fi
 
 command -v gh >/dev/null 2>&1 || { echo "dup-scan: gh is required under tracker.type github" >&2; exit 2; }
+
+# The numeric shape of --issue is a property of the GITHUB adapter, not of the flag, so
+# the guard has to sit BELOW the tracker-type check rather than up in the argument parse.
+# It used to sit above it, and that made the not-applicable arm structurally unreachable
+# for every jira consumer: --issue is the only subject form a filed jira ticket has, its
+# key is never all-digits, so `--issue ABC-123` died on a usage error two blocks before
+# anything read tracker.type. The arm itself was healthy the whole time — reachable via
+# --title, and pinned green by its own selftest case, which passed a NUMBER. A jira exit
+# therefore read 2, "the scan could not run", which the SKILL blocks turn into a
+# hard-stop; the honest answer was 0, "there is no corpus by design".
+case "$SUBJECT_ISSUE" in
+  '') : ;;
+  *[!0-9]*) echo "dup-scan: --issue takes a number, got '$SUBJECT_ISSUE'" >&2; exit 2 ;;
+esac
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
