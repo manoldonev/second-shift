@@ -36,9 +36,9 @@ rescue path, and the fallback if headless sessions ever leave the subscription.
 
 - **Never re-label a ticket to get past a reject.** A ticket claimed by a run this lane stopped is
   already intaken; preflight reads its claim marker and re-enters.
-- **You author nothing and the scheduler writes nothing.** Every tracker comment, label swap,
-  commit and record is made by a payload block under its own identity; a write here would put a
-  third identity into a two-identity contract.
+- **You author nothing under your own identity.** Every tracker comment, label swap, commit and
+  record is made by a payload block or by the gate, under the build side's bot identity; a write
+  of your own would put a third identity into a two-identity contract.
 - **Never interpret a finding.** The verdict gate's exit code is the whole signal. Reading the
   record to decide what comes next is content judgment — how this lane grew stage choreography.
 - **Never resume a review context.** Each round's review is a new session (`-p`, never

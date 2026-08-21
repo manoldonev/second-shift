@@ -117,6 +117,18 @@
 #                                        collected (a missing worktree included — nothing that does
 #                                        not exist holds work); 8 = it still holds work, naming
 #                                        which arm fired; 1 = the read could not be completed.
+#   lean-gate.sh close-out <issue>       BUILD role (#590): perform the close-out's writes, then
+#                                        assert milestone 5, then tear the lane down. It
+#                                        re-computes the run's published cost block (which is
+#                                        also what writes the cross-run corpus row), replaces the
+#                                        stale block in the PR description, and — under a tracker
+#                                        that writes — posts the one closing comment carrying the
+#                                        PR link, the verdict-record path and that block. Every
+#                                        write goes through the bot wrapper where the consumer
+#                                        configured one, so no third identity appears on a
+#                                        close-out artifact. It then calls milestone 5 unchanged
+#                                        and, ONLY on its rc=0, `teardown`. `5` on its own is
+#                                        untouched and stays a pure verifier.
 #   lean-gate.sh delta  <issue>          REVIEW role: print the range this round must READ —
 #                                        the delta since the tree the last round covered, or the
 #                                        full branch diff when there is nothing verifiable to
@@ -259,6 +271,12 @@
 #                            Regions table is read ALONGSIDE the issue body, not instead of it
 #                            — a region declared in either source is seen — while its `D-n`
 #                            rows are the only source for the carry-forward check.
+#   LEAN_COST_BLOCK_TOOL     #590: the pipeline-cost-block.sh the close-out invokes. Default: the
+#                            sibling under tools/. A selftest points it at a stub so the close-out
+#                            can be driven with no OTel collector and no metrics on disk.
+#   COST_LOG_FILE            #546/#590: the cross-run cost log the close-out reads its own row
+#                            back from. Default: cost-log.jsonl beneath the state dir. Shared
+#                            with pipeline-cost-block.sh, which writes it.
 #   LEAN_RUN_MODEL           #347: the `model:` key stamped into the progress/verdict record
 #                            at creation time (retro-corpus.sh's corpus-aggregation key).
 #                            Read once, not cached; absent reads "unknown", never an error.
@@ -453,7 +471,7 @@ while [ $# -gt 0 ]; do
     --m3-token)      M3_RUN_TOKEN="${2:-}"; shift 2 ;;
     --arm)           STALENESS_ARM="${2:-}"; shift 2 ;;
     --ticket-source) TICKET_SOURCE="${2:-}"; shift 2 ;;
-    -h|--help)       sed -n '2,329p' "$0"; exit 0 ;;
+    -h|--help)       sed -n '2,347p' "$0"; exit 0 ;;
     -*)              envfail "unknown option: $1" ;;
     *)
       if [ "$POSITIONAL" -eq 0 ]; then SUB="$1"; POSITIONAL=1
@@ -464,7 +482,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-[ -n "$SUB" ]   || envfail "usage: lean-gate.sh <entry|claim|mark|1..5|all|teardown|inflight|delta|verdict|progress|staleness|m3-run> <issue>"
+[ -n "$SUB" ]   || envfail "usage: lean-gate.sh <entry|claim|mark|1..5|all|close-out|teardown|inflight|delta|verdict|progress|staleness|m3-run> <issue>"
 # #611. DEFERRED for `entry`/`claim` alone, and into a REFUSAL rather than a usage error — the
 # absent-ticket case is what that guard is about, and answering it with the same exit 2 a typo'd
 # flag gets is what let a session read "no argument" as "choose one". The assertion is not
@@ -473,12 +491,12 @@ done
 # keeps this refusal verbatim, the milestone calls included (the AC preamble binds only two).
 case "$SUB" in
   entry|claim) : ;;
-  *) [ -n "$ISSUE" ] || envfail "usage: lean-gate.sh <entry|claim|mark|1..5|all|teardown|inflight|delta|verdict|progress|staleness|m3-run> <issue>" ;;
+  *) [ -n "$ISSUE" ] || envfail "usage: lean-gate.sh <entry|claim|mark|1..5|all|close-out|teardown|inflight|delta|verdict|progress|staleness|m3-run> <issue>" ;;
 esac
 
 case "$SUB" in
-  entry|claim|mark|1|2|3|4|5|all|teardown|inflight|delta|verdict|progress|staleness|m3-run) : ;;
-  *) envfail "unknown subcommand '$SUB' (expected entry|claim|mark|1..5|all|teardown|inflight|delta|verdict|progress|staleness|m3-run)" ;;
+  entry|claim|mark|1|2|3|4|5|all|close-out|teardown|inflight|delta|verdict|progress|staleness|m3-run) : ;;
+  *) envfail "unknown subcommand '$SUB' (expected entry|claim|mark|1..5|all|close-out|teardown|inflight|delta|verdict|progress|staleness|m3-run)" ;;
 esac
 
 # #539, the same parse-time shape as `--satisfied` and `--infra` beside it. `m3-run` without a token
@@ -1624,10 +1642,18 @@ clear_satisfied_claims() { rm -rf "$PROGRESS_FILE".satisfied-*.claim; }
 # IDEMPOTENT ON THE FULL TRIPLE, not on the name: `unmet` then `met` is the history a fix round
 # leaves and is worth keeping, while an `all` sweep re-running cmd_5 must not restate what is
 # already on file. So the record is bounded at one row per (obligation, state) pair.
-append_obligation() { # append_obligation <milestone> <name> <met|unmet>
+#
+# THE DETAIL IS FREE TEXT AFTER THE TRIPLE (#590), and everything above still holds because of
+# where it sits. `obligation_state` reads the triple as a FIXED SUBSTRING and the idempotence
+# bound below counts the same substring, so a row carrying a detail is read and deduped exactly
+# as a bare one — one row per (obligation, state) pair, whatever the detail says. It exists for
+# the close-out's cost obligations, which can be met in two very different ways: a real published
+# figure, or a documented skip on a host with no telemetry. Without the detail those two are one
+# `met` row, and the record could not tell an operator which run it was looking at.
+append_obligation() { # append_obligation <milestone> <name> <met|unmet> [detail]
   ensure_progress_file
   [ "$(count_matches "| milestone-$1 | obligation | $2 | $3" "$PROGRESS_FILE" -F)" -eq 0 ] || return 0
-  append_line "$(now_iso) | milestone-$1 | obligation | $2 | $3"
+  append_line "$(now_iso) | milestone-$1 | obligation | $2 | $3${4:+ | $4}"
 }
 
 # Record the outstanding obligation, then fail EXACTLY as before. Every milestone-5 red that names
@@ -2571,7 +2597,17 @@ infra_token() {
 # ALWAYS 0. It answers a question about a record that may legitimately be empty — a close-out that
 # died before its first gate call leaves nothing, and "nothing was recorded" is that answer rather
 # than a failure to produce one.
-LEAN_M5_OBLIGATIONS='exit-artifacts verdict-reference'
+#
+# FIVE SINCE #590, and the order is EXECUTION order rather than alphabetical: the three the
+# close-out command writes, then the two the milestone-5 verifier asserts. An operator reading a
+# stopped run's report reads it top-down and the first `unmet` is where the run stopped.
+#
+# THE CLOSING COMMENT HAS NO ROW OF ITS OWN, deliberately. `verdict-reference` already asserts it
+# — the comment IS the surface that carries the verdict-record path under github, and under a
+# read-only tracker the PR body is, which is the same obligation discharged where the adapter
+# allows. A sixth row would make the report answer the same question twice and disagree with
+# itself the moment one adapter's surface moved.
+LEAN_M5_OBLIGATIONS='cost-block cost-log-row pr-cost-block exit-artifacts verdict-reference'
 
 # `met` WINS over `unmet` when both are on file, and that is the only sound reading of an
 # append-only record: the pair is a HISTORY, so a fix round that turned an outstanding obligation
@@ -3062,29 +3098,6 @@ cmd_mark() {
     return 0
   fi
 
-  # #446: the ambient session must be a RECORDED build session. FIRST, before the PR lookup and
-  # the comment fetch — a review session doing the documented recovery gets its refusal at zero
-  # network cost, and the refusal needs no committed verdict record to exist yet.
-  #
-  # This never records; see record_build_session's note on why a self-whitelisting guard would be
-  # vacuous. It prints the recorded id rather than silently substituting it, which is the whole
-  # difference: a genuine second build session keeps its OWN ambient id on its OWN marker, while
-  # the operator's correction becomes "copy the harness's recorded value" instead of "hand-supply
-  # an identity string".
-  msid="${CLAUDE_CODE_SESSION_ID:-}"
-  if ! session_in_build_set "$msid"; then
-    recorded="$(build_session_set | tr '\n' ' ' | sed -e 's/[[:space:]]*$//')"
-    warn "✗ mark: this session ('${msid:-unset}') is not a recorded BUILD session for #$ISSUE — refusing to stamp it onto the PR marker."
-    warn "  session_id is the strongest identity the merge boundary compares; a marker carrying a REVIEW session's id makes lean-evidence.sh report an independent review as a P10 self-review, and no re-run or second marker clears it."
-    if [ -z "$recorded" ]; then
-      warn "  The harness recorded no build session in $PROGRESS_FILE. Run 'bash G entry $ISSUE' from the session that built this branch."
-    else
-      warn "  Build session(s) recorded by the harness: $recorded"
-      warn "  Re-invoke from one of them, or: CLAUDE_CODE_SESSION_ID=<id> bash G mark $ISSUE"
-    fi
-    return 1
-  fi
-
   if [ -n "$PR_FILE" ]; then
     [ -f "$PR_FILE" ] || envfail "--pr-file '$PR_FILE' does not exist."
     pr="$(cat "$PR_FILE")"
@@ -3120,6 +3133,33 @@ cmd_mark() {
   if [ "${existing:-0}" -ge 1 ]; then
     say "· mark: PR #$prnum already carries this run's marker (run_id=$RESOLVED_RUN_ID) — nothing posted."
     return 0
+  fi
+
+  # #446: the ambient session must be a RECORDED build session, and #590 moved this AFTER the
+  # no-op above rather than ahead of the two reads. What it protects is unchanged, because it
+  # guards a WRITE: on the path it now sits behind, nothing is written, so no foreign identity can
+  # reach a marker however the caller is identified. What #446 bought by placing it first was a
+  # zero-network refusal for a review session doing the documented recovery — a cost argument, not
+  # a correctness one, and it is now paid by the close-out, which is a gate command with no
+  # session identity at all and must pass when checklist step 7 already stamped the marker.
+  #
+  # This never records; see record_build_session's note on why a self-whitelisting guard would be
+  # vacuous. It prints the recorded id rather than silently substituting it, which is the whole
+  # difference: a genuine second build session keeps its OWN ambient id on its OWN marker, while
+  # the operator's correction becomes "copy the harness's recorded value" instead of "hand-supply
+  # an identity string".
+  msid="${CLAUDE_CODE_SESSION_ID:-}"
+  if ! session_in_build_set "$msid"; then
+    recorded="$(build_session_set | tr '\n' ' ' | sed -e 's/[[:space:]]*$//')"
+    warn "✗ mark: this session ('${msid:-unset}') is not a recorded BUILD session for #$ISSUE — refusing to stamp it onto the PR marker."
+    warn "  session_id is the strongest identity the merge boundary compares; a marker carrying a REVIEW session's id makes lean-evidence.sh report an independent review as a P10 self-review, and no re-run or second marker clears it."
+    if [ -z "$recorded" ]; then
+      warn "  The harness recorded no build session in $PROGRESS_FILE. Run 'bash G entry $ISSUE' from the session that built this branch."
+    else
+      warn "  Build session(s) recorded by the harness: $recorded"
+      warn "  Re-invoke from one of them, or: CLAUDE_CODE_SESSION_ID=<id> bash G mark $ISSUE"
+    fi
+    return 1
   fi
 
   body="$(mktemp -t lean-mark.XXXXXX)" || envfail "mktemp failed."
@@ -5226,20 +5266,51 @@ jira_items_section() { # stdin: the PR body — prints the section's lines, noth
   '
 }
 
-cmd_5() {
-  local pr comments url draft body
-
-  # "Progress file current" is asserted as: milestones 1-4 each left a `satisfied` record.
-  #
-  # NOT as "the file exists". That check cannot hold: failing any milestone appends an
-  # attempt line, appending creates the file, so a bare existence check heals itself between
-  # the first run and the second — it reports absent once and passes forever after, which is
-  # worse than not checking at all. Asserting the 1-4 records is stable (an M5 attempt line
-  # never satisfies M1-4) and is what the contract actually means.
+# "Progress file current" is asserted as: milestones 1-4 each left a `satisfied` record.
+#
+# NOT as "the file exists". That check cannot hold: failing any milestone appends an
+# attempt line, appending creates the file, so a bare existence check heals itself between
+# the first run and the second — it reports absent once and passes forever after, which is
+# worse than not checking at all. Asserting the 1-4 records is stable (an M5 attempt line
+# never satisfies M1-4) and is what the contract actually means.
+#
+# ONE DEFINITION, TWO CALLERS since #590: cmd_5 certifies against it, and cmd_close_out refuses to
+# WRITE against it. The second is the stronger need — declining to certify an uncertified run is
+# bookkeeping, while posting a closing comment on one is a false public statement about it.
+m5_missing_milestones() { # prints the unsatisfied milestone numbers, space-prefixed; empty = current
   local m missing=""
   for m in 1 2 3 4; do
     [ "$(count_matches "| milestone-$m | satisfied" "$PROGRESS_FILE" -F)" -ge 1 ] || missing="$missing $m"
   done
+  printf '%s' "$missing"
+}
+
+# The lane's one open PR, resolved once. EXTRACTED rather than duplicated for #590's close-out:
+# two readers of "which PR is this lane's" that could disagree would let the command write its
+# cost block onto one PR and the milestone assert against another.
+LEAN_PR_JSON=""
+LEAN_PR_ERROR=""
+resolve_open_pr() { # 0 = $LEAN_PR_JSON holds a one-element array; 1 = $LEAN_PR_ERROR says why
+  local pr
+  LEAN_PR_JSON=""; LEAN_PR_ERROR=""
+  if [ -n "$PR_FILE" ]; then
+    [ -f "$PR_FILE" ] || envfail "--pr-file '$PR_FILE' does not exist."
+    pr="$(cat "$PR_FILE")"
+  else
+    pr="$("$GH_CLI" pr list --head "$LEAN_BRANCH" --state open \
+          --json number,url,body,isDraft --limit 1 2>&1)" \
+      || { warn "$pr"; LEAN_PR_ERROR="could not list PRs for $LEAN_BRANCH"; return 1; }
+  fi
+  printf '%s' "$pr" | jq -e 'type == "array" and length > 0' >/dev/null 2>&1 \
+    || { LEAN_PR_ERROR="no open PR found for branch $LEAN_BRANCH"; return 1; }
+  LEAN_PR_JSON="$pr"
+  return 0
+}
+
+cmd_5() {
+  local pr comments url draft body missing
+
+  missing="$(m5_missing_milestones)"
   if [ -n "$missing" ]; then
     fail_milestone 5 "progress file is not current — milestone(s)$missing left no satisfied record, so there is nothing to certify"
     return $?
@@ -5257,16 +5328,8 @@ cmd_5() {
   # `verdict-reference` is the surface that points at the committed verdict record — the closing
   # comment on the issue under github, and the PR body under a `writes: false` tracker, which is
   # the same obligation discharged where the adapter allows.
-  if [ -n "$PR_FILE" ]; then
-    [ -f "$PR_FILE" ] || envfail "--pr-file '$PR_FILE' does not exist."
-    pr="$(cat "$PR_FILE")"
-  else
-    pr="$("$GH_CLI" pr list --head "$LEAN_BRANCH" --state open \
-          --json number,url,body,isDraft --limit 1 2>&1)" \
-      || { warn "$pr"; fail_obligation exit-artifacts "could not list PRs for $LEAN_BRANCH"; return $?; }
-  fi
-  printf '%s' "$pr" | jq -e 'type == "array" and length > 0' >/dev/null 2>&1 \
-    || { fail_obligation exit-artifacts "no open PR found for branch $LEAN_BRANCH"; return $?; }
+  resolve_open_pr || { fail_obligation exit-artifacts "$LEAN_PR_ERROR"; return $?; }
+  pr="$LEAN_PR_JSON"
 
   draft="$(printf '%s' "$pr" | jq -r '.[0].isDraft')"
   body="$(printf '%s' "$pr" | jq -r '.[0].body // ""')"
@@ -5334,6 +5397,255 @@ cmd_5() {
   cmd_mark || { fail_milestone 5 "could not stamp the build identity on the PR"; return $?; }
 
   pass_milestone 5 "exit artifacts present ($url)"
+}
+
+# ---------------------------------------------------------------- the CLOSE-OUT (#590)
+# WHY THIS IS A SUBCOMMAND AND NOT A SESSION. After the approve, orchestrate-lean.sh spawned a
+# third full model session on the run's BUILD model whose entire output was a fixed sequence of
+# commands: re-compute the cost block, replace it in the PR description, post one closing comment,
+# assert milestone 5, tear the lane down. Not one of those is a judgment, and paying a
+# reasoning-tier session per run to type them is the deletion doctrine pointed at the lane's own
+# ritual. Observed cost on the #585 run: spawn 1 build, spawn 2 review, spawn 3 bookkeeping.
+#
+# THE IDENTITY CONSTRAINT IS WHAT MAKES IT A GATE COMMAND rather than scheduler code (D-6). The
+# lane runs a two-identity contract — the scheduler authors nothing, the review block owns
+# milestone 4 and nothing else — so the close-out's writes must carry the BUILD identity. They do:
+# every one goes through the bot wrapper, already the author of the claim marker, the PR marker
+# and every commit on the branch. No third party appears on a close-out artifact, which is the
+# property the ticket declares binding. The scheduler's rule is restated, not weakened: it authors
+# nothing UNDER ITS OWN IDENTITY.
+#
+# IT IS NOT A SECOND MILESTONE 5 (D-1). `bash G 5` is unchanged and stays a pure verifier: this
+# command WRITES and then calls it, so a caller who wants to re-assert without writing still has
+# one, and nothing re-keys the scheduler's satisfied-token predicate, the `all` progression,
+# retro-corpus or lean-reconcile.
+#
+# ORDER IS LOAD-BEARING. The progress precondition first, so a run whose earlier milestones never
+# passed is refused BEFORE anything public is written — declining to certify such a run is
+# bookkeeping, while posting a closing comment on it is a false public statement about it. Then
+# the writes, each recording its own obligation as it lands. Then the assertions. Then, and only
+# on a fully met close-out (D-6), teardown.
+
+# The two literals that BOUND a rendered cost block inside a PR description. Held byte-for-byte to
+# pipeline-cost-block.sh, which RENDERS them: the replacement below strips from the marker line
+# through the first following line carrying the terminator prefix and leaves everything after it
+# untouched, so a renderer whose last line moved while this did not would make that strip run to
+# end-of-file and silently delete whatever a human had appended below the block.
+# LOCKSTEP-BEGIN lean-cost-block-bounds
+COST_BLOCK_MARKER='<!-- pipeline-cost-block -->'
+COST_BLOCK_TERMINATOR='Cache-hit rate: '
+# LOCKSTEP-END lean-cost-block-bounds
+
+# The authenticated writer for the close-out's two source-control writes. The bot wherever the
+# consumer configured one — the identity every other close-out artifact already carries — and the
+# operator's own CLI where it did not, which is the only writer a bot-less consumer has. Neither
+# arm is a third identity in the lane's sense: the party that would otherwise have made these
+# writes is the build session, and under a bot-less consumer that session wrote as the operator too.
+closeout_writer() {
+  if [ "$BOT_ENABLED" = "true" ] && [ -n "${GH_BOT:-}" ]; then printf '%s' "$GH_BOT"; else printf '%s' "$GH_CLI"; fi
+}
+
+# (1) THE PUBLISHED FIGURE. The step-7 snapshot's fence closed before the review half of the run
+# existed, so this — not that one — is the number the run publishes, and `--close-out` is also
+# what writes the cross-run corpus row.
+#
+# A DOCUMENTED SKIP IS NOT A FAILURE (AC-4). The tool's own exit contract is "0 = ran, or logged a
+# documented skip" — telemetry off, no collector, the window rotated out of the metrics files — and
+# on a skip it renders nothing. Reding there would make every host without a collector unable to
+# close a run out. A NON-ZERO exit is the opposite and is refused: it means the fence or the
+# session set could not be derived at all, which is exactly the confidently-wrong published figure
+# #546 exists to stop.
+LEAN_COST_BLOCK=""
+LEAN_COST_SKIP=""
+LEAN_COST_ERROR=""
+closeout_cost_block() { # closeout_cost_block <pr-url>
+  local tool out rc
+  LEAN_COST_BLOCK=""; LEAN_COST_SKIP=""; LEAN_COST_ERROR=""
+  tool="${LEAN_COST_BLOCK_TOOL:-$(dirname "$(dirname "$(cd "$(dirname "$0")" && pwd)")")/tools/pipeline-cost-block.sh}"
+  if [ ! -f "$tool" ]; then
+    LEAN_COST_ERROR="pipeline-cost-block.sh not found at '$tool', so this run's published figure cannot be derived"
+    return 1
+  fi
+  # stdout is the block; the tool's stderr is the operator's evidence and is deliberately not
+  # captured, so a skip verdict is READ rather than swallowed into a variable nobody prints.
+  out="$(bash "$tool" --stateless --issue "$ISSUE" --close-out --prs "$1")"; rc=$?
+  if [ "$rc" -ne 0 ]; then
+    LEAN_COST_ERROR="pipeline-cost-block.sh exited $rc — the run's fence or session set could not be derived, so there is no honest figure to publish (its own line above says which)"
+    return 1
+  fi
+  case "$out" in
+    *"$COST_BLOCK_MARKER"*) LEAN_COST_BLOCK="$out" ;;
+    *) LEAN_COST_SKIP="the tool exited 0 and rendered no block — a documented skip, named on its own line above" ;;
+  esac
+  return 0
+}
+
+# (2) THE CORPUS ROW. Asserted, not assumed: the write happens inside the tool above, so without
+# a read-back the obligation would be "we ran a command", which is what the whole ticket is about.
+# Identity is (ticketKey, runId), the pair the tool keys its replace-or-append on.
+LEAN_COST_LOG=""
+closeout_cost_log_row() {
+  local n
+  LEAN_COST_LOG="${COST_LOG_FILE:-$MAIN_ROOT/$STATE_DIR/cost-log.jsonl}"
+  [ -f "$LEAN_COST_LOG" ] || return 1
+  # CAPTURE FIRST, then test. `jq -s` over a log that does not parse errors with EMPTY output, and
+  # an unguarded numeric test on an empty string is a syntax error that reads as "no row".
+  n="$(jq -s --arg k "$ISSUE" --arg r "$RESOLVED_RUN_ID" \
+        '[ .[] | select(((.ticketKey // "") == $k) and ((.runId // "") == $r)) ] | length' \
+        "$LEAN_COST_LOG" 2>/dev/null)" || n=""
+  case "$n" in ''|*[!0-9]*) return 1 ;; esac
+  [ "$n" -ge 1 ]
+}
+
+# (3) THE PR DESCRIPTION. The step-7 block is stale the moment the review lands, and a reader of
+# the PR reads the description, not the issue thread.
+#
+# BOUNDED REPLACEMENT, NEVER TRUNCATE-TO-EOF. The block is appended last by construction, so
+# stripping from its marker to the end of the body would usually be right — and would silently
+# delete a human's own text on the one run where somebody had written below it. So the strip ends
+# at the renderer's own last line, whose prefix is held to it by the marker block above; a body
+# whose marker has no terminator after it is REPORTED rather than quietly truncated.
+LEAN_PATCH_NOTE=""
+LEAN_PATCH_ERROR=""
+closeout_patch_pr_body() { # closeout_patch_pr_body <pr-number> <current-body>
+  local dir state out rc
+  LEAN_PATCH_NOTE=""; LEAN_PATCH_ERROR=""
+  dir="$(mktemp -d -t lean-closeout.XXXXXX)" || envfail "mktemp failed."
+  : > "$dir/head"; : > "$dir/tail"
+  # CR-stripped first: a body round-tripped through the GitHub API carries CRLF, and `$0 == m`
+  # against a line ending in CR matches nothing — the marker would read as absent on every real
+  # PR while every fixture passed.
+  state="$(printf '%s\n' "$2" | tr -d '\r' | awk -v m="$COST_BLOCK_MARKER" -v t="$COST_BLOCK_TERMINATOR" \
+      -v h="$dir/head" -v tl="$dir/tail" '
+    !seen { if ($0 == m) { seen = 1 } else { print > (h) } ; next }
+    !cut  { if (index($0, t) == 1) { cut = 1 } ; next }
+          { print > (tl) }
+    END   { print (seen ? (cut ? "replaced" : "truncated") : "appended") }
+  ')"
+  { cat "$dir/head"; printf '%s\n' "$LEAN_COST_BLOCK"; cat "$dir/tail"; } > "$dir/body"
+  out="$("$(closeout_writer)" api -X PATCH "repos/{owner}/{repo}/pulls/$1" \
+        -F body=@"$dir/body" --jq .number 2>&1)"; rc=$?
+  rm -rf "$dir"
+  if [ "$rc" -ne 0 ]; then
+    LEAN_PATCH_ERROR="could not replace the cost block in PR #$1's description: $out"
+    return 1
+  fi
+  case "$state" in
+    truncated) LEAN_PATCH_NOTE="replaced, but the previous block had no terminator line — anything below it was not preserved"
+               warn "· close-out: PR #$1's earlier cost block carried no '$COST_BLOCK_TERMINATOR' line, so the replacement could not tell where it ended. Text below it was not preserved." ;;
+    appended)  LEAN_PATCH_NOTE="appended — the description carried no earlier block" ;;
+    *)         LEAN_PATCH_NOTE="replaced in place" ;;
+  esac
+  say "✓ close-out: PR #$1's cost block $LEAN_PATCH_NOTE."
+  return 0
+}
+
+# (4) THE CLOSING COMMENT — github only. NO HTML MARKER, deliberately: a `<!-- stage: … -->` token
+# here would enrol this comment in check-pipeline-chain.sh's run-family selection, which is the
+# pollution the claim marker's own lean-distinct tag exists to avoid. Its machine consumer keys on
+# CONTENT — the verdict-record path — which is also exactly what `verdict-reference` asserts, and
+# what retro-corpus's open-PRs mode filters on without ever reading the author.
+LEAN_COMMENT_ERROR=""
+closeout_comment() { # closeout_comment <pr-url>
+  local file out rc
+  LEAN_COMMENT_ERROR=""
+  file="$(mktemp -t lean-closeout-comment.XXXXXX)" || envfail "mktemp failed."
+  {
+    echo "🤖 Closed out by \`/dev-pipeline:build-lean\`."
+    echo ""
+    echo "- PR: $1"
+    echo "- Verdict record: \`$VERDICT_REL\`"
+    if [ -n "$LEAN_COST_BLOCK" ]; then
+      echo ""
+      printf '%s\n' "$LEAN_COST_BLOCK"
+    fi
+  } > "$file"
+  out="$("$(closeout_writer)" api -X POST \
+        "repos/{owner}/{repo}/issues/$ISSUE/comments" -F body=@"$file" --jq .html_url 2>&1)"; rc=$?
+  rm -f "$file"
+  if [ "$rc" -ne 0 ]; then
+    LEAN_COMMENT_ERROR="could not post the closing comment on #$ISSUE: $out"
+    return 1
+  fi
+  say "✓ close-out: closing comment posted on #$ISSUE ($out)"
+  return 0
+}
+
+cmd_close_out() {
+  local missing pr prnum url body detail n rc
+
+  # MILESTONES 1-4 FIRST, RECORDING, and this is the mandate the deleted session used to carry.
+  # Checklist step 9 ordered `bash G all` before the close-out because a milestone satisfied before
+  # a fix round is stale, and — load-bearing rather than hygienic — milestone 4 has NO other
+  # recorder: the scheduler reads the verdict through `LEAN_GATE_OBSERVE=1`, which by contract
+  # writes no satisfied row. Without this loop the progress precondition below could never hold and
+  # no lane could ever close out.
+  #
+  # 1..4, NOT `all`. The mandated `all` reached milestone 5 BEFORE step 9's writes existed and
+  # redded there every time, spending a fix attempt on an artifact the very next command was about
+  # to create — a cost the old shape paid on every run and the liveness fixture documented as
+  # expected. Here milestone 5 is evaluated exactly once, at the end, after the writes.
+  for n in 1 2 3 4; do
+    run_milestone "$n"; rc=$?
+    if [ "$rc" -ne 0 ]; then
+      say "close-out: stopped at milestone-$n (rc=$rc) — nothing was written."
+      return "$rc"
+    fi
+  done
+
+  missing="$(m5_missing_milestones)"
+  if [ -n "$missing" ]; then
+    fail_milestone 5 "progress file is not current — milestone(s)$missing left no satisfied record, so there is nothing to close out and nothing public should be written about it"
+    return $?
+  fi
+
+  resolve_open_pr || { fail_milestone 5 "$LEAN_PR_ERROR"; return $?; }
+  pr="$LEAN_PR_JSON"
+  prnum="$(printf '%s' "$pr" | jq -r '.[0].number')"
+  url="$(printf '%s' "$pr" | jq -r '.[0].url')"
+  body="$(printf '%s' "$pr" | jq -r '.[0].body // ""')"
+
+  closeout_cost_block "$url" || { fail_obligation cost-block "$LEAN_COST_ERROR"; return $?; }
+  # NOT a `${VAR:-default}` carrying an apostrophe: inside double quotes bash opens a quote on it
+  # and the file stops parsing several hundred lines later, which is a `bash -n` failure rather
+  # than a runtime one but is worth not re-discovering.
+  detail="recomputed over the fence this run recorded"
+  [ -n "$LEAN_COST_SKIP" ] && detail="$LEAN_COST_SKIP"
+  append_obligation 5 cost-block met "$detail"
+
+  if [ -n "$LEAN_COST_SKIP" ]; then
+    append_obligation 5 cost-log-row met "no rollup, no row — $LEAN_COST_SKIP"
+  elif closeout_cost_log_row; then
+    append_obligation 5 cost-log-row met "$LEAN_COST_LOG"
+    say "✓ close-out: the cross-run cost corpus carries this run's row ($LEAN_COST_LOG)."
+  else
+    fail_obligation cost-log-row "a cost block was rendered but $LEAN_COST_LOG carries no row for (ticketKey=$ISSUE, runId=$RESOLVED_RUN_ID) — the corpus write did not land, so this run would be missing from the only cross-run cost record"
+    return $?
+  fi
+
+  if [ -n "$LEAN_COST_SKIP" ]; then
+    append_obligation 5 pr-cost-block met "nothing to publish — $LEAN_COST_SKIP"
+  elif closeout_patch_pr_body "$prnum" "$body"; then
+    append_obligation 5 pr-cost-block met "$LEAN_PATCH_NOTE"
+  else
+    fail_obligation pr-cost-block "$LEAN_PATCH_ERROR"
+    return $?
+  fi
+
+  # Under a read-only tracker there is no comment surface at all, so `verdict-reference` is
+  # discharged by the PR body — which checklist step 7 already wrote, the verdict record's path
+  # being deterministic before the record exists. cmd_5 asserts exactly that, on the same arm.
+  if [ "$TRACKER_TYPE" = "jira" ]; then
+    say "· close-out: tracker '$TRACKER_TYPE' is read-only — no closing comment; the PR body carries the verdict reference."
+  else
+    closeout_comment "$url" || { fail_obligation verdict-reference "$LEAN_COMMENT_ERROR"; return $?; }
+  fi
+
+  cmd_5 || return $?
+
+  # D-6: LAST, and only here. A close-out that redded above returned already, so the worktree, the
+  # branch and the claim are all still standing for the manual rescue every other hard stop leaves.
+  cmd_teardown
 }
 
 # ---------------------------------------------------------------- all
@@ -5630,11 +5942,11 @@ require_entry_attested() {
 # in happens to be missing. `verdict` joins this set although it is outside the one below —
 # review-lean owns it, and its record names a patch identity computed from THIS checkout's diff.
 case "$SUB" in
-  1|2|3|4|5|all|delta|verdict) require_lane_tree ;;
+  1|2|3|4|5|all|delta|verdict|close-out) require_lane_tree ;;
 esac
 
 case "$SUB" in
-  claim|delta|all|1|2|3|4|5) require_entry_attested ;;
+  claim|delta|all|1|2|3|4|5|close-out) require_entry_attested ;;
 esac
 
 # #611, LAST of the three guards and the only one that opens a socket. After the attestation
@@ -5650,6 +5962,7 @@ case "$SUB" in
   claim)   cmd_claim ;;
   mark)    cmd_mark ;;
   teardown) cmd_teardown ;;
+  close-out) cmd_close_out ;;
   inflight) cmd_inflight ;;
   delta)   cmd_delta ;;
   progress) cmd_progress ;;
