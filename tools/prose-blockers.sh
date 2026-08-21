@@ -8,7 +8,7 @@
 # always one of three things, and this command is what makes the set enumerable:
 #
 #   gate-backed  a gate already enforces it; the prose only restates the refusal
-#   promoted     it is worth enforcing, so a gate now does
+#   promoted     it is worth enforcing, so a gate now does — or a filed issue owns doing it
 #   deleted      it was never a control; a reminder is not a gate
 #
 # The disposition itself is NOT computed here. It is authored once, in the record this

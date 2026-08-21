@@ -261,6 +261,30 @@ is "the reported all count is the all census" \
 is "the excluded count is all minus stop" "$(num_after 'excludes ')" \
   "$(( $(num_after 'all=') - $(num_after 'stop=') ))"
 
+echo "== check does not leak its temp files =="
+# `check` arms an EXIT trap over two temp files and then calls `census`, whose own unconditional
+# `trap … EXIT` REPLACES it — running the census in a SUBSHELL is what keeps the two traps apart.
+# No other assertion here can fail on that: the leak is invisible to output and to rc. Counting
+# the host's real temp dir would be racy — a concurrent suite's files land in it, and mktemp
+# ignores TMPDIR on macOS — so this shims `mktemp` onto a jail directory. CREATED is the
+# anti-vacuity half: a shim the tool never called would leak nothing either.
+JAIL="$WORK/tmpjail"
+mkdir -p "$JAIL/bin" "$JAIL/files"
+cat >"$JAIL/bin/mktemp" <<'SHIM'
+#!/usr/bin/env bash
+# stand-in for the bare `mktemp` form, the only one prose-blockers.sh uses
+f="$TMPJAIL/files/tmp.$$.$RANDOM"
+: >"$f" && printf '%s\n' "$f" && printf '%s\n' "$f" >>"$TMPJAIL/created"
+SHIM
+chmod +x "$JAIL/bin/mktemp"
+PROSE_BLOCKERS_ROOT="$WORK" TMPJAIL="$JAIL" PATH="$JAIL/bin:$PATH" \
+  bash "$TOOL" check docs/rec.tsv >/dev/null 2>&1
+CREATED=$(wc -l <"$JAIL/created" 2>/dev/null | tr -d ' ')
+LEAKED=$(find "$JAIL/files" -type f 2>/dev/null | wc -l | tr -d ' ')
+[ "${CREATED:-0}" -ge 2 ] && ok "the shimmed mktemp is what check actually called" \
+  || bad "the shimmed mktemp is what check actually called" "${CREATED:-0} temp file(s) created"
+is "check removes every temp file it created" "$LEAKED" "0"
+
 echo "== the shipped record =="
 PROSE_BLOCKERS_ROOT="$SELF_DIR/.." bash "$TOOL" check >/dev/null 2>&1
 is "this repo's own tree is fully dispositioned" "$?" "0"
