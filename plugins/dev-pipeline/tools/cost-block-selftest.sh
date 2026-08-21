@@ -634,6 +634,27 @@ NUL_ERR="$(issue_stderr_at "$RT3" 920)"; NUL_RC=$?
   && ok "(AC-6) a config missing the key falls back to the default dir, not to a dir named 'null'" \
   || bad "(AC-6) absent config key: rc=$NUL_RC, stderr: $NUL_ERR"
 
+# --- the key shape is the tracker's, not github's ----------------------------
+# THE REGRESSION GUARD. Every case above passes a github issue NUMBER — the one shape a
+# non-numeric tracker never has — which is how a guard those consumers could not get past
+# stayed green for this tool's whole life. #634 widened the same class in operator-override.sh
+# and did not reach here, so the lean lane's close-out still died on a jira-shaped key: the gate
+# hands it the run's own ticket key and the tool called it malformed. On the old guard this
+# answers rc=2 with "takes an issue number"; the record is never even looked for.
+RT4="$TMP/lean-repo-jira-key"
+mk_lean_repo "$RT4" ".claude/pipeline-state" PROJ-123
+KEY_ERR="$(issue_stderr_at "$RT4" PROJ-123)"; KEY_RC=$?
+{ [[ "$KEY_RC" -eq 0 ]] && grep -q ".claude/pipeline-state/PROJ-123-lean-progress.md" <<<"$KEY_ERR"; } \
+  && ok "(#634-class) a non-numeric tracker key reaches its record instead of being refused as malformed" \
+  || bad "(#634-class) jira-shaped key: rc=$KEY_RC, stderr: $KEY_ERR"
+
+# The two constraints the widened class still holds. A traversal-shaped value stays out
+# because the key is interpolated into the record's path, and empty stays a usage error.
+TRAV_ERR="$(issue_stderr_at "$RT4" ../etc/passwd)"; TRAV_RC=$?
+{ [[ "$TRAV_RC" -eq 2 ]] && grep -q "takes an issue key" <<<"$TRAV_ERR"; } \
+  && ok "(#634-class) a traversal-shaped key is still refused by the widened guard" \
+  || bad "(#634-class) traversal key: rc=$TRAV_RC, stderr: $TRAV_ERR"
+
 echo
 echo "=== #546: the cost-log row is back, and only the close-out writes it ==="
 CL="$TMP/cost-log.jsonl"
