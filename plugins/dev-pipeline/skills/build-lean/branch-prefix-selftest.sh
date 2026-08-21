@@ -256,6 +256,37 @@ if [ "$out" = '[0-9]+|[A-Za-z]+-[0-9]+|X-[0-9]+' ]; then
   pass "(h5) bp_key_re yields the github numeric key, jira's built-in shape, and a configured override"
 else fail "(h5) unexpected key patterns: $out"; fi
 
+# ---- (i) bp_branch_key: the extraction half of the same parse (#611) --------------------------
+# lean-gate.sh derives THIS RUN's ticket from the cwd's branch and refuses when it disagrees with
+# the argument, so a wrong answer here is a refusal on an honest run or a silent pass on a
+# mismatched one. The cases that matter are the ones a bare `${ref#$prefix}` gets wrong: it is
+# the obvious implementation, and it happily reports a key for a branch that is not a work branch
+# at all — which is exactly the input this function has to reject rather than parse.
+key() { # key <ref> <prefix> [<tracker>] [<key-pattern>]
+  # shellcheck source=branch-prefix.sh
+  ( . "$TOOL" && bp_branch_key "$1" "$2" "${3:-github}" "${4:-}" )
+}
+
+out="$(key "claude/acme-7" "claude/acme-")|$(key "jdoe/12" "jdoe/")"
+if [ "$out" = "7|12" ]; then
+  pass "(i1) the key is the trailing run under both the slugged and the bare namespace"
+else fail "(i1) expected 7|12, got: $out"; fi
+
+if ! key "claude/acme-notes" "claude/acme-" >/dev/null 2>&1    && ! key "claude/other-7" "claude/acme-" >/dev/null 2>&1    && ! key "main" "claude/acme-" >/dev/null 2>&1; then
+  pass "(i2) a non-key tail, a foreign slug and a slashless ref yield NO key — not a prefix strip"
+else fail "(i2) bp_branch_key returned a key for a ref that is not this namespace's work branch"; fi
+
+out="$(key "claude/acme-12" "claude/" jira 'ACME-[0-9]+')"
+if [ "$out" = "acme-12" ]; then
+  pass "(i3) under jira the key comes back as the BRANCH spells it — lowercased, the transform the branch already applied"
+else fail "(i3) expected the lowercased jira key, got: $out"; fi
+
+# The membership answer and the extraction answer are one decision, so they cannot disagree: any
+# ref bp_is_work_branch accepts yields a key, and every ref it rejects yields none.
+if isw "claude/acme-7" "claude/acme-" && key "claude/acme-7" "claude/acme-" >/dev/null 2>&1    && ! isw "claude/acme-notes" "claude/acme-" && ! key "claude/acme-notes" "claude/acme-" >/dev/null 2>&1; then
+  pass "(i4) bp_branch_key agrees with bp_is_work_branch in both directions — one parse, two questions"
+else fail "(i4) the membership and extraction answers disagree"; fi
+
 # ---- (g) --help stops at the header ----------------------------------------------------------
 # `sed -n '2,Np'` is a hand-maintained line number and this repo has been burned by a header
 # that outgrew it. Bounded on BOTH ends, and the lower bound is the header's genuinely LAST

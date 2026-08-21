@@ -74,33 +74,31 @@
 # applies only within a phase spawn, never across verdict classes — a class-5 round that "advanced"
 # is still a round with no review in it.
 #
-# THE CLOSE-OUT IS VERIFIED, NOT CREDITED. `verdict_rc` runs BEFORE the close-out spawn and
-# nothing evaluated after it, so a close-out that ended its turn early exited 0 and printed
-# `done` while step 9's obligations were all unmet — no closing comment, milestone 5 unsatisfied,
-# the worktree still on disk, and the claimed label still set on a ticket the lane had just
-# declared finished. That is worse than the no-PR case, which at least fails loudly. The check is
-# the same token narrowed to milestone 5's `satisfied` row, and the row must be NEW — a re-entered
-# lane must not be credited with a prior run's milestone 5. The scheduler still cannot invoke
-# `bash G 5` itself, because a failing one routes through fail_milestone and would consume
-# milestone 5's fix budget on the scheduler's behalf.
+# THE CLOSE-OUT IS A GATE CALL, NOT A SPAWN (#590). It used to be a third full model session on
+# the run's BUILD model, and everything it did after the approve was a fixed sequence of commands:
+# re-compute the cost block, replace it in the PR description, post one closing comment, assert
+# milestone 5, tear the lane down. `bash G close-out` performs all of it under the bot identity
+# the lane already commits and comments with, so the two-identity contract is untouched — the
+# rule this script holds is that it authors nothing UNDER ITS OWN IDENTITY, and a bot-authored
+# artifact is the build side's, exactly as the claim marker and the PR marker already are.
 #
-# WHAT IT NO LONGER MEANS (#531 D-8). "Verify-only, never a re-spawn" used to be part of that
-# sentence, and it was an assertion whose `because` clause bound to the SEPARATELY-reasoned
-# prohibition beside it — the word "either" was the tell. Re-spawning a payload violates no
-# invariant here: "the scheduler must not record" is real and is enforced through
-# LEAN_GATE_OBSERVE=1, not through spawn counts. Close-out therefore has the continuation arm the
-# build phase already had, on the same advancement predicate and a HARD-CODED budget of one — a
-# knob would let an operator turn a broken lane into an expensive one, and close-out is three
-# bookkeeping actions: a fresh session that cannot finish them twice will not finish them on a
-# third. The cost of not having it, measured: an entire second build+review cycle to redo
-# bookkeeping.
+# THREE MECHANISMS DIED WITH THE SPAWN (D-3/D-5): the continuation budget, the advancement-token
+# comparison, and the verified-not-credited rule. All three existed to work around ONE property
+# of a model session — `claude -p` exits 0 whenever the model ends its turn, so a close-out that
+# stopped early exited 0 and printed `done` over a run with no closing comment on it. A gate
+# command cannot end its turn early. Its exit code IS the verdict, which is already the lane's
+# evidence rule at every other call site, and reading it also removes the acknowledged wart where
+# a legitimate second lane run over an already-closed issue was reported as a failure because the
+# NEW-row requirement could never be met by an idempotent append.
 #
-# AND WHAT IT REPORTS (#531 D-10/D-12). The failure used to name three obligations as one — "the
-# closing comment, the exit artifacts and the worktree teardown are all unaccounted for" — which
-# was wrong twice: milestone 5 never asserted the teardown at all (step 9 runs it AFTERWARDS), and
-# for the two it does assert the message could not say which was outstanding. The gate now records
-# a row per obligation and reports them through `progress --obligations`; this script ECHOES those
-# lines and reads nothing, which is the same division `progress` and `staleness` already hold.
+# WHAT SURVIVES: the ONE RETRY (MAX_REVIEW_RETRIES' reasoning at a cheaper site), the in-flight
+# read on the far side, and the per-obligation report. That last is #531 D-10/D-12 and is worth
+# restating: the failure used to name three obligations as one — "the closing comment, the exit
+# artifacts and the worktree teardown are all unaccounted for" — which was wrong twice, since
+# milestone 5 never asserted the teardown at all and could not say which of the other two was
+# outstanding. The gate records a row per obligation and reports them through
+# `progress --obligations`; this script ECHOES those lines and reads nothing, which is the same
+# division `progress` and `staleness` already hold.
 #
 # A HEAD THAT ALREADY CARRIES AN APPROVE IS NOT RE-REVIEWED (#531 D-7). The round loop entered the
 # build phase unconditionally and the REVIEW spawn PRECEDED the only verdict read, so a re-entry
@@ -172,8 +170,9 @@
 # break the boundary two paragraphs up.
 #
 # WHICH SPAWNS, and which deliberately not (D-4). Round-1 entry, every continuation, and every
-# later round's build spawn. NOT the REVIEW spawn and NOT the close-out spawn: an approved PR must
-# still land, and a stop there would strand finished, reviewed work rather than save any.
+# later round's build spawn. NOT the REVIEW spawn and, since #590 deleted it, no close-out spawn
+# exists to exempt — the close-out is a gate call. An approved PR must still land, and a stop
+# there would strand finished, reviewed work rather than save any.
 #
 # WHAT IT CANNOT DO, said out loud so exit 7 is not misread as a promptness guarantee (OR-3): this
 # is a SPAWN-BOUNDARY check and there is no channel into a live `claude -p`, so the incident's 30
@@ -206,8 +205,8 @@
 #   SECOND_SHIFT_CONFIG          override the resolved config path
 #
 # Exit: 0 = approved and closed out; 1 = a phase failed, a build phase spent its continuation
-#       budget, the lane's PR could not be resolved unambiguously, a close-out left step 9's
-#       exit artifacts unmet, or a staleness / progress / infra-residue read could not be
+#       budget, the lane's PR could not be resolved unambiguously, the close-out did not complete
+#       twice running, or a staleness / progress / infra-residue read could not be
 #       completed (#527: every one of the three is fail-closed — a predicate that could not be
 #       evaluated is not a predicate that passed); 2 = usage or preflight
 #       reject, including a launch onto an already-closed ticket; 4 = round budget exhausted (hard
@@ -297,7 +296,7 @@ while [ $# -gt 0 ]; do
     --max-rounds)         MAX_ROUNDS="${2:-}"; shift 2 ;;
     --max-continuations)  MAX_CONTINUATIONS="${2:-}"; shift 2 ;;
     --dry-run)            DRY_RUN=1; shift ;;
-    -h|--help)            sed -n '2,223p' "$0"; exit 0 ;;
+    -h|--help)            sed -n '2,222p' "$0"; exit 0 ;;
     -*)                   envfail usage-unknown-option "unknown option: $1" ;;
     *)                    [ -z "$ISSUE" ] && ISSUE="$1" || envfail usage-unexpected-argument "unexpected argument: $1"; shift ;;
   esac
@@ -711,6 +710,27 @@ closeout_report() {
     || echo "the gate could not report milestone 5's obligations — read $MAIN_ROOT/$STATE_DIR/$ISSUE-lean-progress.md by hand."
 }
 
+# #590. THE CLOSE-OUT ITSELF, and it is a gate call rather than a third spawn. Everything the
+# spawned session did after the approve was a fixed sequence of commands, so the session was pure
+# overhead — one reasoning-tier model session per run to type them.
+#
+# ANCHORED IN THE LANE WORKTREE, unlike its three read-only siblings above. They are anchored at
+# MAIN_ROOT precisely because the close-out deletes the tree; this IS the close-out, and the gate
+# refuses a milestone call from anywhere but the lane branch (rc=9). The teardown that removes the
+# tree is the last thing it does, from inside it, exactly as the spawned session's last act was.
+#
+# BOTH IDENTITIES SCRUBBED, and that is what keeps this script's authors-nothing rule true while
+# it gains a call that writes. `RUN_ID` so the run's own cached id keys the records rather than
+# the scheduler's environment — the same reason its siblings scrub it. `CLAUDE_CODE_SESSION_ID`
+# because the scheduler's session is not a recorded BUILD session and must not become one: the
+# gate's `mark` no-ops when checklist step 7 already stamped the PR and REFUSES when a marker
+# would have to be written, so a close-out can never put this session's identity on an artifact.
+closeout_rc() {
+  local wt
+  wt="$(lane_worktree)" || return 3
+  ( cd "$wt" && env -u RUN_ID -u CLAUDE_CODE_SESSION_ID bash "$GATE" close-out "$ISSUE" )
+}
+
 progress_token() { # progress_token [--satisfied <n>]
   local tok rc
   tok="$( cd "$MAIN_ROOT" && env -u RUN_ID bash "$GATE" progress "$ISSUE" "$@" 2>/dev/null )"
@@ -860,7 +880,7 @@ while :; do
   # by hand; nothing in the lane would have.
   #
   # rc=0 HERE IS NOT A STOP. Stopping would strand approved, reviewed work, which the two paragraphs
-  # above already decline to do for the REVIEW and close-out spawns. It skips the review it does not
+  # above already decline to do for the REVIEW spawn. It skips the review it does not
   # need and falls into the close-out, so the competing-record path closes without costing the run
   # anything. A prior run's approve is still caught loudly downstream by the close-out's NEW-row
   # requirement.
@@ -880,9 +900,10 @@ while :; do
   # so the fix is to stop spawning a review that cannot possibly clear the condition.
   #
   # rc=3 IS NOT AN ERROR BY ITSELF. The worktree is ABSENT because teardown removed it, which is
-  # what a finished lane looks like. `progress --satisfied 5` — a token this script already reads on
-  # both sides of the close-out spawn — separates the two: a satisfied milestone 5 means the lane
-  # finished, and the run ends COMPLETE. Unsatisfied keeps the pre-existing `worktree-missing` stop.
+  # what a finished lane looks like. `progress --satisfied 5` separates the two: a satisfied
+  # milestone 5 means the lane finished, and the run ends COMPLETE. Unsatisfied keeps the
+  # pre-existing `worktree-missing` stop. Since #590 this is the token's ONLY remaining reader on
+  # the close-out side — the before/after comparison that used to bracket the spawn went with it.
   verdict_rc; rc=$?
   if [ "$rc" -eq 0 ]; then
     say "terminal-vocabulary: review-skipped-approved — the current head already carries an approve verdict, so no REVIEW is spawned against it and no competing record can be authored for it. Falling into the close-out."
@@ -922,79 +943,42 @@ while :; do
   case "$rc" in
     0)
       say "verdict: approve. Closing out."
-      # #531 D-8. THE CONTINUATION ARM THE BUILD PHASE ALREADY HAD. Close-out had the identical
-      # failure mode — exited 0, obligations unmet, but the record advanced — got one spawn, and
-      # exited 1. The header's stated reason did not cover it: "Verify-only, never a re-spawn" is an
-      # assertion whose `because` clause binds to a SECOND, separately-reasoned prohibition (the
-      # word "either" is the tell), and re-spawning a payload violates no invariant here — "the
-      # scheduler must not record" is real and is enforced through LEAN_GATE_OBSERVE=1, not through
-      # spawn counts. Cost on the run that surfaced it: an entire second build+review cycle to redo
-      # bookkeeping.
+      # #590 D-3/D-5. NO SPAWN, NO CONTINUATION BUDGET, NO TOKEN COMPARISON. All three existed to
+      # work around one property of a model session: `claude -p` exits 0 whenever the model ends
+      # its turn, so the close-out's exit status could not be trusted and its work had to be read
+      # back out of the record. A gate command cannot end its turn early — its exit code IS the
+      # verdict, which is already the lane's evidence rule at every other call site.
       #
-      # EXACTLY ONE, HARD-CODED, NOT A FLAG — mirroring MAX_REVIEW_RETRIES and its reasoning. A knob
-      # here lets an operator turn a broken lane into an expensive one, and the bound is the point:
-      # close-out is three bookkeeping actions, and a fresh session that cannot complete them twice
-      # will not complete them on a third.
-      MAX_CLOSEOUT_CONTINUATIONS=1
-      closeout_continuations=0
-      while :; do
-        # #531 D-9. TWO READS, ONE TOKEN SPACE EACH, and no third one invented. The milestone-5
-        # token decides SUCCESS; the general token — reused verbatim from the build phase — decides
-        # whether a failed close-out ADVANCED. A close-out whose gate call redded appended a
-        # milestone-5 attempt row, so the general token moves; one that died before calling the gate
-        # at all wrote nothing any predicate could see, and per-obligation rows would not catch it
-        # either.
-        co_m5_before="$(progress_token --satisfied 5)" \
-          || terminal closeout-progress-unreadable 1 "cannot read the run's progress record through '$GATE' — the close-out cannot be verified, so it is not spawned."
-        co_tok_before="$(progress_token)" \
-          || terminal closeout-progress-unreadable 1 "cannot read the run's progress record through '$GATE' — the close-out's advancement predicate is unavailable, so it is not spawned."
+      # ONE RETRY, then a stop. The bound is MAX_REVIEW_RETRIES' reasoning at a cheaper site: the
+      # close-out is a fixed sequence of writes, and a call that cannot complete them twice will
+      # not complete them on a third. Not a flag — a knob here turns a broken lane into an
+      # expensive one.
+      #
+      # THE RETIRED WART. The old check required a NEW `| milestone-5 | satisfied` row, which a
+      # legitimate second lane run over an already-closed issue could never produce (the append is
+      # idempotent and the record is keyed by issue), so its correct close-out was reported as a
+      # failure. Reading the exit code removes that case without adding one.
+      closeout_rc; rc=$?
+      if [ "$rc" -ne 0 ]; then
+        say "close-out did not complete (gate exit $rc) — retrying once."
+        closeout_rc; rc=$?
+      fi
+      if [ "$rc" -ne 0 ]; then
+        say "milestone 5's own obligations, as recorded:"
+        closeout_report | while IFS= read -r line; do say "  $line"; done
+        terminal closeout-incomplete 1 "HARD STOP: the close-out did not complete (gate exit $rc), twice. The obligations above name what is outstanding. The ticket is still claimed and PR #$PR is still open; finish it by hand with 'bash $GATE close-out $ISSUE' from the lane worktree."
+      fi
 
-        spawn BUILD "$BUILD_MODEL" "/dev-pipeline:build-lean $ISSUE" \
-          || terminal closeout-session-failed 1 "close-out session failed."
-
-        # AC-5 again, at the second boundary D-3 names. The ordinary shape here is that there is
-        # nothing left to read — the close-out's last act is `bash G teardown` — so this fires only
-        # when teardown KEPT the worktree over uncollected work, which is exactly the state that
-        # must not be reported as a finished run.
-        inflight_rc; co_if_rc=$?
-        case "$co_if_rc" in
-          0) : ;;
-          8) terminal closeout-inflight 1 "HARD STOP: the close-out session exited 0 but the lane worktree still holds work nothing else has a copy of — see the gate's line above. The ticket is still claimed and PR #$PR is still open." ;;
-          *) terminal closeout-inflight-unreadable 1 "the in-flight check could not be completed after the close-out (gate exit $co_if_rc) — whether the lane worktree still holds work is unknown, and reporting a finished run on that guess is what this check exists to prevent." ;;
-        esac
-
-        co_m5_after="$(progress_token --satisfied 5)" \
-          || terminal closeout-progress-unreadable 1 "cannot read the run's progress record through '$GATE' after the close-out session."
-        co_tok_after="$(progress_token)" \
-          || terminal closeout-progress-unreadable 1 "cannot read the run's progress record's advancement predicate through '$GATE' after the close-out session."
-
-        # AC-7. The close-out is verified against the record, never credited on its exit status.
-        # The NEW-row requirement costs the legitimate re-entry too: `append_satisfied` is idempotent
-        # and the progress file is keyed by issue rather than by run, so a second full lane run over
-        # an issue whose record already carries `| milestone-5 | satisfied` cannot move this token,
-        # and its correct close-out is reported as a failure below. Deliberate: that failure is
-        # loud and hand-recoverable, where a false `done` is neither.
-        [ "$co_m5_after" != "$co_m5_before" ] && break
-
-        # #531 D-12. The message names the two obligations milestone 5 OWNS, each with its own
-        # state, plus teardown's outcome read SEPARATELY — it no longer claims milestone 5 certifies
-        # a teardown that runs after it and that it has never asserted. The states come from the
-        # gate; this loop echoes them and reads nothing.
-        if [ "$co_tok_after" = "$co_tok_before" ]; then
-          say "close-out session exited 0 and advanced nothing at all — it did not reach a single gate call, so there is no continuation to make."
-          say "milestone 5's own obligations, as recorded:"
-          closeout_report | while IFS= read -r line; do say "  $line"; done
-          terminal closeout-idle 1 "close-out session recorded no NEW milestone-5 satisfaction, so build-lean step 9 did not finish. Reporting a failure rather than 'done' — the ticket is still claimed and PR #$PR is still open. Finish step 9 by hand from the lane worktree."
-        fi
-
-        closeout_continuations=$((closeout_continuations + 1))
-        if [ "$closeout_continuations" -gt "$MAX_CLOSEOUT_CONTINUATIONS" ]; then
-          say "milestone 5's own obligations, as recorded:"
-          closeout_report | while IFS= read -r line; do say "  $line"; done
-          terminal closeout-continuations-spent 1 "HARD STOP: the close-out advanced but recorded no NEW milestone-5 satisfaction, and it has spent its continuation budget ($MAX_CLOSEOUT_CONTINUATIONS). Reporting a failure rather than 'done' — the ticket is still claimed and PR #$PR is still open. Finish step 9 by hand from the lane worktree."
-        fi
-        say "close-out advanced but recorded no NEW milestone-5 satisfaction — continuing in a fresh session ($closeout_continuations of $MAX_CLOSEOUT_CONTINUATIONS)."
-      done
+      # AC-5 again, at the second boundary #531 D-3 names. The ordinary shape here is that there
+      # is nothing left to read — the close-out's last act is teardown — so this fires only when
+      # teardown KEPT the worktree over uncollected work, which is exactly the state that must not
+      # be reported as a finished run.
+      inflight_rc; co_if_rc=$?
+      case "$co_if_rc" in
+        0) : ;;
+        8) terminal closeout-inflight 1 "HARD STOP: the close-out completed but the lane worktree still holds work nothing else has a copy of — see the gate's line above. The ticket is still claimed and PR #$PR is still open." ;;
+        *) terminal closeout-inflight-unreadable 1 "the in-flight check could not be completed after the close-out (gate exit $co_if_rc) — whether the lane worktree still holds work is unknown, and reporting a finished run on that guess is what this check exists to prevent." ;;
+      esac
       terminal approved 0 "done — #$ISSUE approved on PR #$PR."
       ;;
     1) say "verdict: needs-work." ;;

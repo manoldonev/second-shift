@@ -45,6 +45,8 @@ now comes from the cost log and the audit ledgers named below.
 
 **Completed and aborted runs are both in scope.** An abort is a real cost, often the most expensive shape of run, and excluding it flatters the profile.
 
+**The cost corpus spans two lane shapes (#590).** Before the close-out stopped being a spawned model session a run cost three sessions — build, review, close-out — and after it, two. Nothing in a row marks which side it is on: date-fence on the row's own timestamp and `runId` before comparing `totalUsd` or session counts across the change, and say in the report which era a bucket is drawn from. The TIMING profile is unaffected — it already excludes milestone 5 as bookkeeping — so this is a cost-axis caveat only.
+
 Per selected run, gather: the cost log at `<STATE_DIR>/cost-log.jsonl` when present; the timing
 paragraphs of any existing `<key>-retro.md`; and, for each session id the run recorded — the
 progress record's `session_id:` header plus every `| session |` row it appended — the audit

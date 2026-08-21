@@ -135,9 +135,15 @@ violate() { echo "ledger-lint: VIOLATION: $1" >&2; VIOLATIONS=$((VIOLATIONS + 1)
 # prose mirrors in interviewing-baseline are a markdown table, which neither relation can
 # compare against a shell assignment, and #517/#562 both declined to give lean-gate.sh a
 # second parser for exactly this reason. Guarded behaviorally by ledger-lint-selftest.sh.
-# The LOCKSTEP markers here named two pairs that no longer exist; removed in #604.
+# The LOCKSTEP markers that once wrapped THIS assignment named two pairs that no longer
+# exist; removed in #604.
 PROVENANCE_ENUM='user-answered|user-delegated|codebase-derived|deferred|ticket-sourced'
+# The empty form is the one string ledger-carry-forward.sh must EMIT rather than merely
+# recognise, so it necessarily holds a second copy. The lockstep pair is what keeps the two
+# from drifting into a state where this lint rejects the line that helper writes.
+# LOCKSTEP-BEGIN ledger-empty-form
 EMPTY_FORM='No material decisions — all choices codebase-derived.'
+# LOCKSTEP-END ledger-empty-form
 
 # Receipt-mode vocabulary. Single-sited on purpose: nothing else copies these, so
 # they need no lockstep row. The merge-boundary gate reads the intent-gap record's

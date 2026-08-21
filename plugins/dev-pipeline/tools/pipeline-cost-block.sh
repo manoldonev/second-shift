@@ -116,6 +116,17 @@ TIER_FAMILY_MAP='{"opus":"reasoning","sonnet":"code","haiku":"emit"}'
 # Also orders the session-total row's tier list. Anything absent sorts last.
 TIER_ORDER='{"reasoning":1,"code":2,"emit":3,"unknown":4}'
 
+# The two literals that BOUND a rendered block inside a PR description, and the reason they are
+# held to a copy rather than left inline in the jq program below. lean-gate.sh's close-out
+# REPLACES a stale block in a body it does not otherwise own: it strips from the marker line
+# through the first following line carrying the terminator prefix, and leaves everything after it
+# untouched. If the renderer's last line moved and the stripper's did not, that strip would run to
+# end-of-file and silently delete whatever a human had appended below the block.
+# LOCKSTEP-BEGIN lean-cost-block-bounds
+COST_BLOCK_MARKER='<!-- pipeline-cost-block -->'
+COST_BLOCK_TERMINATOR='Cache-hit rate: '
+# LOCKSTEP-END lean-cost-block-bounds
+
 STATELESS=0
 ARG_SESSIONS=""
 ARG_START=""
@@ -588,6 +599,7 @@ render_block() {
     total_note="build + review — no stage windows by design"
   fi
   jq -r --arg dur "$DURATION_MIN" \
+        --arg marker "$COST_BLOCK_MARKER" --arg term "$COST_BLOCK_TERMINATOR" \
         --arg totalNote "$total_note" \
         --arg totalScope "$total_scope" \
         --argjson tierOrder "$TIER_ORDER" \
@@ -603,7 +615,7 @@ render_block() {
     ([.byTier[] | reportable | .tier] | unique | sort_by($tierOrder[.] // 9)) as $all_tiers |
     (
       [
-        "<!-- pipeline-cost-block -->",
+        $marker,
         "---",
         "",
         "## Pipeline Cost",
@@ -615,7 +627,7 @@ render_block() {
       +
       [
         "",
-        "Cache-hit rate: " + ((.totals.cache_hit_rate * 100 | round) | tostring) + "%"
+        $term + ((.totals.cache_hit_rate * 100 | round) | tostring) + "%"
           + " · Pipeline run: " + $dur + " min"
           + " · Sessions: " + (.totals.session_count | tostring)
           + ( if $fenceLoHm != "" then " (time-fenced " + $fenceLoHm + "–" + $fenceHiHm + ")" else "" end )
