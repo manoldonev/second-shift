@@ -448,7 +448,7 @@ else
   fail "AC-10: no 64-hex key was printed, or it names no marker (got '${CKEY:-}')"
   sed 's/^/    | /' "$OUT"
 fi
-sed -n '/::group::cached  rowed-selftest.sh/,/::endgroup::/p' "$OUT" > "$BASE/ac10.block"
+sed -n '/::group::cached  -  rowed-selftest.sh/,/::endgroup::/p' "$OUT" > "$BASE/ac10.block"
 grep -q 'rowed-selftest\.sh$' "$BASE/ac10.block" \
   && grep -q 'rowed\.sh$' "$BASE/ac10.block" \
   && [[ "$(grep -cE '^\[run-selftests\]     [0-9a-f]{40}  ' "$BASE/ac10.block")" -eq 2 ]] \
