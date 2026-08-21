@@ -694,12 +694,12 @@ else
       --answer 'I ran intake here — go.' --repo-root "$TREE" ) >/dev/null 2>&1
   ATTEND_SESSION=ov-session-2 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
   unset ATTEND_SESSION
-  if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 3 ] \
+  if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 2 ] \
      && grep -q 'recorded operator override' <<<"$out" \
      && grep -q 'nothing is re-labelled' <<<"$out" \
      && ! grep -qE 'issue (edit|comment)|-X (POST|PATCH|PUT|DELETE)' "$GH_LOG"; then
     pass "(ov2) AC-3: a recorded override accepts an unintaken ticket and the run proceeds — with no tracker write at all"
-  else fail "(ov2) expected rc=0 / 3 spawns / a named override accept and zero writes, got rc=$rc / $(spawn_count): $out"; fi
+  else fail "(ov2) expected rc=0 / 2 spawns / a named override accept and zero writes, got rc=$rc / $(spawn_count): $out"; fi
 
   # (ov3) A MALFORMED record is UNKNOWN, never a clean reject: fail-closed, and NOT resumable,
   # because the remedy is fixing the record rather than paying off intake. Without this case a
