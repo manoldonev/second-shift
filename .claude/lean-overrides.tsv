@@ -1,0 +1,25 @@
+# lean-overrides.tsv — the PERSISTENT operator-override register (#613).
+#
+# Read by plugins/dev-pipeline/tools/operator-override.sh and validated at the merge boundary.
+# Almost every override belongs in the per-issue record instead
+# (<plansDir>/<slug>-<issue>-lean-override.md, written by that tool's `record`); a row here is
+# for the rare class that must outlive one run.
+#
+# WHY THIS FILE IS SAFE WHERE AN APPEND-PER-RUN REGISTER IS NOT: a central file every run touches
+# conflicts by construction. Persistent overrides are rare by design, so this one is edited about
+# as often as scripts/fail-open-sites.tsv — and, like that file, it is hand-edited and argued
+# about in a PR rather than written by a tool. There is no `add` verb on purpose.
+#
+# TAB-separated. Columns:
+#   gate <TAB> scope <TAB> region <TAB> expiry <TAB> justification
+#
+# gate           intake-unqueued | spec-open-region  (the closed consumer enum)
+# scope          intake-attestation | open-region-resolution  (the authority scope, never an identity)
+# region         OR-n for the region-scoped gate; `none` otherwise.
+# expiry         The single form `until-issue:<N>` — a CONDITION, not a clock. A date would
+#                import the `date` arithmetic the token design declined, and would expire at
+#                midnight rather than when the work it waits on lands. The row is expired the
+#                moment issue N closes, and an expired row reds the next run that consults it.
+# justification  Why this override must outlive one run. Empty reds.
+#
+# No rows today: every override recorded so far has been per-run.

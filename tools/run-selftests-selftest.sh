@@ -24,10 +24,18 @@ trap 'rm -rf "$BASE"' EXIT
 
 # run_runner <fixture-root> [args...] -> writes $OUT, sets $RC
 #
-# LEAN_SELFTEST_CACHE_DIR (#563) is scrubbed for a reason that is not hygiene:
+# LEAN_SELFTEST_CACHE_DIR (#563) is SCRUBBED, and the scrub is not hygiene:
 # the lean gate exports a STORE too, and an inherited one would turn the cache ON in every case
-# below that asserts nothing is served without --cache-dir. The #563 cases at the end of this
-# file set it deliberately, one invocation at a time, and never through this driver.
+# below that asserts nothing is served without --cache-dir.
+#
+# EVERY DIRECT INVOCATION BELOW CARRIES THE SAME SCRUB, and until #613 the policy was stated here
+# and honored only by this driver — so the cases that hand-roll their own `env` inherited whatever
+# the machine was running under. #613 made that policy real for #526's job ceiling; #566 deletes
+# the ceiling, so the discipline now rides on the one seam the gate still hands a lane child.
+# The SELFTEST_JOBS case argues it at its own site.
+#
+# The #563 cases at the end of this file set the store deliberately, one invocation at a time,
+# and never through this driver.
 OUT=""; RC=0
 run_runner() {
   local root="$1"; shift
@@ -115,7 +123,7 @@ make_suite "$R3B" "one-selftest.sh" 0 'echo one'
 make_suite "$R3B" "two-selftest.sh" 0 'echo two'
 
 OUT="$BASE/out.ac3b"
-env -u TMPDIR -u SELFTEST_JOBS RUN_SELFTESTS_DROP_LAST=1 \
+env -u TMPDIR -u LEAN_SELFTEST_CACHE_DIR -u SELFTEST_JOBS RUN_SELFTESTS_DROP_LAST=1 \
   bash "$RUNNER" --root "$R3B" > "$OUT" 2>&1
 RC=$?
 [[ "$RC" -eq 2 ]] && grep -q 'silent truncation' "$OUT" \
@@ -246,7 +254,7 @@ make_suite "$RCM" "alpha-selftest.sh" 0 'echo alpha-ok'
 make_suite "$RCM" "beta-selftest.sh" 0 'echo beta-ok'
 
 OUT="$BASE/out.norc"
-env -u TMPDIR -u RUN_SELFTESTS_DROP_LAST RUN_SELFTESTS_DROP_RC=1 \
+env -u TMPDIR -u LEAN_SELFTEST_CACHE_DIR -u RUN_SELFTESTS_DROP_LAST RUN_SELFTESTS_DROP_RC=1 \
   bash "$RUNNER" --root "$RCM" --jobs 2 > "$OUT" 2>&1
 RC=$?
 # rc=3, not merely non-zero: this fixture is the REAL shape #527 reserves the code for — every
@@ -350,7 +358,7 @@ run_runner "$NEST" --jobs 2
 # inner sweep's LAST suite and red it as truncation. ZLEAF is that last suite, so its marker is
 # the discriminator — the outer sweep reds either way (the seam is doing its job up there).
 OUT="$BASE/out.nest2"
-env -u TMPDIR RUN_SELFTESTS_DROP_LAST=1 bash "$RUNNER" --root "$NEST" --jobs 2 > "$OUT" 2>&1
+env -u TMPDIR -u LEAN_SELFTEST_CACHE_DIR RUN_SELFTESTS_DROP_LAST=1 bash "$RUNNER" --root "$NEST" --jobs 2 > "$OUT" 2>&1
 RC=$?
 grep -q 'ZLEAF-ran' "$OUT" \
   && ok "nesting: the parent's truncation seam does not reach the nested runner" \
@@ -527,7 +535,7 @@ make_suite "$RCN" "nv-selftest.sh" 0 'echo NV-ran'
 make_suite "$RCN" "nv.sh"          0 'echo nv-subject'
 write_tsv "$RCN" "nv-selftest.sh${T}nv-selftest.sh" "nv-selftest.sh${T}nv.sh"
 OUT="$BASE/out.cache-norc"
-env -u TMPDIR -u SELFTEST_JOBS -u RUN_SELFTESTS_DROP_LAST RUN_SELFTESTS_DROP_RC=1 \
+env -u TMPDIR -u LEAN_SELFTEST_CACHE_DIR -u SELFTEST_JOBS -u RUN_SELFTESTS_DROP_LAST RUN_SELFTESTS_DROP_RC=1 \
   bash "$RUNNER" --root "$RCN" --cache-dir "$CDIRN" --cache-write > "$OUT" 2>&1
 RC=$?
 [[ "$RC" -ne 0 ]] && [[ "$(find "$CDIRN" -type f 2>/dev/null | grep -c '')" -eq 0 ]] \
@@ -680,7 +688,7 @@ write_tsv "$RCE" "e-selftest.sh${T}e-selftest.sh" "e-selftest.sh${T}e.sh"
 run_env_case() { # <label> <expect-served: yes|no> <env assignment>...
   local label="$1" expect="$2"; shift 2
   OUT="$BASE/out.env.$RANDOM"
-  env -u TMPDIR -u SELFTEST_JOBS -u RUN_SELFTESTS_DROP_LAST -u SKIP_STRESS -u RUNNER_OS "$@" \
+  env -u TMPDIR -u LEAN_SELFTEST_CACHE_DIR -u SELFTEST_JOBS -u RUN_SELFTESTS_DROP_LAST -u SKIP_STRESS -u RUNNER_OS "$@" \
     bash "$RUNNER" --root "$RCE" --cache-dir "$CDIRE" > "$OUT" 2>&1
   RC=$?
   if [[ "$RC" -ne 0 ]]; then
@@ -696,7 +704,7 @@ run_env_case() { # <label> <expect-served: yes|no> <env assignment>...
 }
 
 OUT="$BASE/out.env.seed"
-env -u TMPDIR -u SELFTEST_JOBS -u RUN_SELFTESTS_DROP_LAST -u SKIP_STRESS RUNNER_OS=Linux \
+env -u TMPDIR -u LEAN_SELFTEST_CACHE_DIR -u SELFTEST_JOBS -u RUN_SELFTESTS_DROP_LAST -u SKIP_STRESS RUNNER_OS=Linux \
   bash "$RUNNER" --root "$RCE" --cache-dir "$CDIRE" --cache-write > "$OUT" 2>&1
 RC=$?
 [[ "$RC" -eq 0 ]] && grep -q 'cache: 0 served, 1 recorded' "$OUT" \

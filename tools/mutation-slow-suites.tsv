@@ -6,10 +6,12 @@
 # A paired suite ABSENT from this file is treated as fast.
 #
 # selftest<TAB>seconds<TAB>measured_at   (seconds from the seed run's unmutated precheck; ISO-8601 date)
+plugins/dev-pipeline/skills/build-lean/lean-evidence-selftest.sh	26	2026-08-21
 plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	141	2026-08-20
 plugins/dev-pipeline/skills/build-lean/lean-reconcile-selftest.sh	10	2026-08-17
 plugins/dev-pipeline/skills/build-lean/scenario-liveness-selftest.sh	68	2026-08-20
 plugins/dev-pipeline/tools/preflight-selftest.sh	8	2026-07-31
 plugins/intake-toolkit/hooks/exitplan-ledger-gate-selftest.sh	5	2026-07-31
+scripts/check-lean-chain-selftest.sh	67	2026-08-21
 tools/run-selftests-selftest.sh	8	2026-08-14
 tools/mutation-sweep-selftest.sh	135	2026-08-20

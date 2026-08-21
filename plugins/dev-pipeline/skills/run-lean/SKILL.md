@@ -23,21 +23,21 @@ rescue path, and the fallback if headless sessions ever leave the subscription.
 3. **Run it.** `bash O <issue> --build-model <m> --model-basis label` — then watch. Between phases
    there is no human in the middle: build → review chains the moment the PR exists.
 4. **Read the exit code, and nothing else.** `0` approved and closed out · `1` a phase failed ·
-   `2` preflight rejected (nothing was spawned) · `4` hard stop, budget spent · `5` the review
-   half produced no verdict usable against this head, twice · `6` the verdict was authored by the
-   build run or build session (P10) · `7` the run's premise expired mid-flight — the ticket closed,
-   or the base moved into this branch's files.
-5. On `2`, fix what preflight named — usually an unintaken ticket: run `/intake-toolkit:intake`
-   yourself. On `5`, run `/dev-pipeline:review-lean <pr>` by hand: the review half failed, so a
-   rebuild fixes nothing. On `7`, read which arm fired, then rebase and re-launch or abandon the
-   ticket; without a rebase it re-fires. On `4` and `6`, **stop** — re-entry is from the top.
+   `2` preflight rejected · `3` preflight rejected, RESUMABLE — the ticket is unintaken ·
+   `4` hard stop, budget spent · `5` the review half produced no verdict usable against this head,
+   twice · `6` the verdict was authored by the build run or build session (P10) · `7` the run's
+   premise expired mid-flight — the ticket closed, or the base moved into this branch's files.
+5. On `3`, run `/intake-toolkit:intake` yourself and re-launch — or, watching, `operator-override.sh
+   attend` first and the reject prints how to record the decision instead of re-labelling. On `2`,
+   fix what preflight named. On `5`, run `/dev-pipeline:review-lean <pr>` by hand: a rebuild fixes
+   nothing. On `7`, rebase and re-launch, or abandon. On `4`/`6`, **stop** — re-entry is from the top.
 
 ## Rules that are not negotiable
 
 - **Under github, an unintaken ticket is a reject — not a prompt and not a spawned intake session.**
   Intake elicits through questions a headless session cannot answer, so a spawned one either hangs
-  or fabricates a receipt the Decision Ledger has no legal provenance for. Run intake yourself.
-  A tracker with no queue label is ungated here; preflight says so rather than pretending.
+  or fabricates a receipt with no legal provenance. Run intake yourself; attended, the reject prints
+  the command that records your decision, and preflight then re-accepts with nothing re-labelled.
 - **Never re-label a ticket to get past a reject.** A ticket claimed by a run this lane stopped is
   already intaken; preflight reads its claim marker and re-enters.
 - **You author nothing under your own identity.** Every tracker comment, label swap, commit and

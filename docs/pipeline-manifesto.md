@@ -109,6 +109,38 @@ tracker trail and PR artifacts. The three are reconciled mechanically, with CI a
 verifier. Forging any one record is possible; forging all three consistently is what
 reconciliation makes detectable.
 
+### Where a gate may yield to a present human, and where it may not
+
+Every gate here fires identically whether an unsupervised model or an answering operator is
+driving. Some of those gates exist only because nobody is assumed to be there — and for those, and
+only those, an attended session may buy something.
+
+The predicate is a classification, not a preference:
+
+- **`gates-llm`** — defenses against fabrication and self-approval. These **never** yield. An
+  attended session cannot approve its own work any more than an unattended one can; attendance is
+  not the missing ingredient there, independence is.
+- **`gates-process`** — rules whose premise is "no human is available to answer this". These
+  **may** yield when the premise is false.
+
+The mechanism is **affordance plus record**, and both halves are load-bearing:
+
+1. The **affordance token** is minted by an operator running a command, never asserted by the
+   session. It unlocks exactly one thing: the right to _pause and ask_ where the gate would
+   otherwise reject. It buys no yield. Staleness is structural — the token binds to the run's
+   identity, so a spawned payload's fresh session id can never match one — rather than a
+   wall-clock TTL, which would import portability hazards for no security.
+2. The **override record** is the yield's evidence: a committed file naming the gate, the run, the
+   authority scope, and the operator's answer quoted verbatim. Its trust level is exactly the
+   intent-gap record's — session-writable, PR-visible, merge-boundary-validated, repudiable at
+   review. Nothing about it is tamper-proof, and it does not claim to be.
+
+**The residual, stated rather than papered over.** A local gate whose code is edited to skip its
+own yield bookkeeping will skip it. That is the standing local-gate posture from the section above,
+not a new hole: it is tamper-evident, it arrives at review as a diff, and the merge boundary
+validates every record that does reach it. What the mechanism removes is the silent yield — a run
+that waved a gate through and left nothing for anyone to argue with afterwards.
+
 ## T0 note — trust-boundary preconditions
 
 The merge boundary has two halves: a protection ruleset on the default branch (landed earlier), and a

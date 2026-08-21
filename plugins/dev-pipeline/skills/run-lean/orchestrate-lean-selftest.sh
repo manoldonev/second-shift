@@ -389,6 +389,10 @@ run_tool() { # run_tool [config] [args...]
          STATE_ANSWER="${STATE_ANSWER:-OPEN}"
          RUN_ID=poisoned-parent-run LEAN_RUN_MODEL=poisoned-parent-model )
   [ "${USE_DEFAULT_GH:-0}" -eq 1 ] || envs+=( GH="$BIN/gh" )
+  # #613. Attendance is OPT-IN per case. Every pre-existing case keeps running with the session
+  # id unset — which resolves headless, which is what makes their unchanged wording a real
+  # assertion about the headless arm rather than an accident of this harness.
+  [ -z "${ATTEND_SESSION:-}" ] || envs+=( CLAUDE_CODE_SESSION_ID="$ATTEND_SESSION" )
   # #531 D-5: the two streams now carry different KINDS of line, so one case has to see them
   # apart. Every other case keeps the merged view it was written against.
   if [ "${RUN_TOOL_SPLIT:-0}" -eq 1 ]; then
@@ -511,13 +515,25 @@ if [ -s "$GH_LOG" ] \
 else fail "(f) the scheduler made a tracker write, or made no call at all: $(cat "$GH_LOG")"; fi
 
 # ---- (g) preflight is a reject-and-stop, and reports EVERY failure at once ---------------------
+# #613 AC-3 changed the CODE this exits with, and nothing else about it: the unintaken reject is
+# now RESUMABLE and says so, where every other preflight refusal stays 2. The probe's own wording
+# is asserted unchanged in the same breath, because that half is what AC-3 binds for a headless
+# run — which this is, the harness leaving the session id unset.
 setup_case "" "$V_APPROVE" "" "11"
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
-if [ "$rc" -eq 2 ] && [ "$(spawn_count)" -eq 0 ] \
+if [ "$rc" -eq 3 ] && [ "$(spawn_count)" -eq 0 ] \
+   && [ "$(slug_of "$out")" = "preflight-rejected-resumable" ] \
    && grep -q 'FAIL intake' <<<"$out" \
-   && grep -q 'does not spawn an intake session' <<<"$out"; then
-  pass "(g1) a ticket without the queue label is rejected before any spawn, naming the hand-back"
-else fail "(g1) expected rc=2 with 0 spawns, got rc=$rc / $(spawn_count): $out"; fi
+   && grep -q 'does not spawn an intake session' <<<"$out" \
+   && grep -q 'attendance: headless' <<<"$out"; then
+  pass "(g1) a ticket without the queue label is rejected before any spawn, with the RESUMABLE code and the hand-back wording unchanged"
+else fail "(g1) expected rc=3 / slug preflight-rejected-resumable / 0 spawns, got rc=$rc / '$(slug_of "$out")' / $(spawn_count): $out"; fi
+
+# The affordance is NOT printed to a headless run: this is the reject a scheduler payload sees,
+# and a command it cannot legally run would be noise at best.
+if ! grep -q 'record --gate intake-unqueued' <<<"$out"; then
+  pass "(g1b) AC-3: headless, the reject offers no record-writing command"
+else fail "(g1b) the affordance leaked into a headless reject: $out"; fi
 
 setup_case "" "$V_APPROVE" "" "11"
 SPAWN_BIN_OVERRIDE="$WORK/no-such-binary" \
@@ -528,6 +544,14 @@ if [ "$rc" -eq 2 ] \
    && grep -q 'FAIL spawn' <<<"$out"; then
   pass "(g2) two failing probes are BOTH reported from one invocation — no first-failure abort"
 else fail "(g2) expected both probe failures in one run, got rc=$rc: $out"; fi
+
+# #613 AC-3, the other half of (g1): the resumable code is claimed ONLY when the unintaken probe
+# is the SOLE failure. This run is not resumable by paying off intake — the session binary is
+# missing — so it must read as the ordinary terminal reject. (g2) already pins rc=2; what is new
+# is that the SLUG did not become the resumable one.
+if [ "$(slug_of "$out")" = "preflight-rejected" ]; then
+  pass "(g2b) AC-3: an unintaken ticket alongside another failing probe is NOT resumable"
+else fail "(g2b) expected slug preflight-rejected, got '$(slug_of "$out")': $out"; fi
 
 # The probes run concurrently. That is not directly observable from outside, so what is asserted
 # is the property concurrency has to preserve and a serial short-circuit would not: the ok/FAIL
@@ -622,6 +646,79 @@ if [ "$rc" -eq 2 ] && [ "$(spawn_count)" -eq 0 ] \
   pass "(s7) the retired --intake-attested is an unknown option, not a silently accepted no-op"
 else fail "(s7) expected an unknown-option reject, got rc=$rc / $(spawn_count): $out"; fi
 
+# ---- (ov) #613: the THIRD accepting state, and the affordance the reject offers ---------------
+# The unintaken ticket keeps rejecting for a headless run — (g1) above — and these cases are what
+# an ATTENDED operator gets instead. The two halves are kept apart on purpose: a token alone
+# reaches only the printed command, and only a RECORD accepts.
+#
+# The identity is opted into per case through ATTEND_SESSION; RUN_ID is whatever run_tool already
+# poisons the environment with, which is exactly the ambient id probe_intake resolves against.
+OV_TOOL="$HERE/../../tools/operator-override.sh"
+OV_RECORD="$TREE/docs/plans/acme-$ISSUE-lean-override.md"
+mint_attendance() { # mint_attendance <session-id>
+  mkdir -p "$TREE/.claude/pipeline-state"
+  printf 'session_id: %s\nrun_id: poisoned-parent-run\n' "$1" > "$TREE/.claude/pipeline-state/attend-$1.token"
+}
+drop_attendance() { rm -rf "$TREE/.claude/pipeline-state" "$OV_RECORD"; }
+
+if [ ! -f "$OV_TOOL" ]; then
+  fail "(ov0) the override mechanism at $OV_TOOL is absent — the three cases below would all pass vacuously"
+else
+  pass "(ov0) the override mechanism resolves at the path the scheduler defaults to"
+
+  # (ov1) ATTENDED, NO RECORD: still a reject, still resumable — and now carrying the exact
+  # command. This is the epic's central claim at a consumer: the signal alone unlocks nothing.
+  drop_attendance
+  mint_attendance ov-session-1
+  setup_case "" "$V_APPROVE" "" "11"
+  ATTEND_SESSION=ov-session-1 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+  unset ATTEND_SESSION
+  if [ "$rc" -eq 3 ] && [ "$(spawn_count)" -eq 0 ] \
+     && grep -q 'attendance: attended' <<<"$out" \
+     && grep -q 'record --gate intake-unqueued --scope intake-attestation' <<<"$out" \
+     && grep -q 'does not spawn an intake session' <<<"$out"; then
+    pass "(ov1) AC-3: attended with no record still REJECTS, and prints the exact record-writing command"
+  else fail "(ov1) expected rc=3 with the affordance printed, got rc=$rc / $(spawn_count): $out"; fi
+
+  # (ov2) ATTENDED WITH A RECORD: accepted, the run proceeds, and NOTHING is re-labelled. The
+  # tracker-write assertion is the half that makes "no re-labelling" checkable rather than a claim
+  # about intent — a lane that quietly added the queue label would satisfy the accept and fail
+  # here.
+  drop_attendance
+  mint_attendance ov-session-2
+  setup_case "" "$V_APPROVE" "" "11"
+  ( cd "$TREE" && env RUN_ID=poisoned-parent-run CLAUDE_CODE_SESSION_ID=ov-session-2 \
+      SECOND_SHIFT_CONFIG="$CFG" bash "$OV_TOOL" record \
+      --gate intake-unqueued --scope intake-attestation --issue "$ISSUE" \
+      --decision 'intake was run in this session; proceed without re-labelling' \
+      --answer 'I ran intake here — go.' --repo-root "$TREE" ) >/dev/null 2>&1
+  ATTEND_SESSION=ov-session-2 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+  unset ATTEND_SESSION
+  if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 2 ] \
+     && grep -q 'recorded operator override' <<<"$out" \
+     && grep -q 'nothing is re-labelled' <<<"$out" \
+     && ! grep -qE 'issue (edit|comment)|-X (POST|PATCH|PUT|DELETE)' "$GH_LOG"; then
+    pass "(ov2) AC-3: a recorded override accepts an unintaken ticket and the run proceeds — with no tracker write at all"
+  else fail "(ov2) expected rc=0 / 2 spawns / a named override accept and zero writes, got rc=$rc / $(spawn_count): $out"; fi
+
+  # (ov3) A MALFORMED record is UNKNOWN, never a clean reject: fail-closed, and NOT resumable,
+  # because the remedy is fixing the record rather than paying off intake. Without this case a
+  # tool that folded rc 2 into rc 1 would look identical to (ov1).
+  drop_attendance
+  mint_attendance ov-session-3
+  mkdir -p "$TREE/docs/plans"
+  printf '## Override 1\ngate: intake-unqueued\nscope: not-a-scope\nissue: %s\nregion: none\nrun_id: r\nsession_id: s\nexpiry: run\ndecision: d\n\n### Operator answer\n\n> a\n' "$ISSUE" > "$OV_RECORD"
+  setup_case "" "$V_APPROVE" "" "11"
+  ATTEND_SESSION=ov-session-3 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+  unset ATTEND_SESSION
+  if [ "$rc" -eq 2 ] && [ "$(spawn_count)" -eq 0 ] \
+     && [ "$(slug_of "$out")" = "preflight-rejected" ] \
+     && grep -q 'could not be read as a clean answer' <<<"$out"; then
+    pass "(ov3) a malformed override record fails CLOSED and is not the resumable reject"
+  else fail "(ov3) expected rc=2 / slug preflight-rejected, got rc=$rc / '$(slug_of "$out")' / $(spawn_count): $out"; fi
+  drop_attendance
+fi
+
 # AC-4/AC-1, the conjunction's OTHER half. A marker with no claimed label is a stale claim on a
 # ticket whose label was hand-reset — the lane's own bookkeeping says this ticket is not in flight,
 # and a marker from some earlier run must not override that. Without this case a tool that dropped
@@ -629,7 +726,10 @@ else fail "(s7) expected an unknown-option reject, got rc=$rc / $(spawn_count): 
 setup_case "" "$V_APPROVE" "" "11"
 set_claim_trail Bot lean-500-abc123
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
-if [ "$rc" -eq 2 ] && [ "$(spawn_count)" -eq 0 ] \
+# rc 3, not 2, since #613: this ticket presents as unintaken and that IS the resumable class. The
+# assertion that matters here is unchanged — it fell through to the plain reject rather than being
+# read as re-entry.
+if [ "$rc" -eq 3 ] && [ "$(spawn_count)" -eq 0 ] \
    && grep -q "does not carry 'ready-for-dev'" <<<"$out" \
    && ! grep -q 're-entry' <<<"$out"; then
   pass "(s10) a bot marker with NO claimed label is not re-entry — both halves of the conjunction are load-bearing"
