@@ -68,6 +68,10 @@
 #      surfaced that the receipt did not cover — that record reads `ratified: yes` and cites
 #      the operator comment that ratified it. Absence of a record is the ordinary case and is
 #      printed, not silently skipped.
+#   7b. OPERATOR OVERRIDES (#613): every present override record parses and satisfies its own
+#      schema — gate, authority scope, region, identity binding, per-run expiry, and a quoted
+#      operator answer. A gate that yielded to an attended operator did so on this record; an
+#      unreadable one is a yield nobody can reconcile after the fact.
 #   8. DESIGN EVIDENCE (#394): if the committed spec ARMS the design render lane — a `## Design`
 #      section declaring at least one `RS-n` render state, with no explicit disarm — then a
 #      render receipt is committed beside it, the verdict scores `fidelity: pass`, and the
@@ -181,7 +185,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --comments-file)   COMMENTS_FILE="${2:-}"; shift 2 ;;
     --diff-files-file) DIFF_FILES_FILE="${2:-}"; shift 2 ;;
-    -h|--help) sed -n '2,173p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,177p' "$0"; exit 0 ;;
     *) echo "[lean-chain] unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -798,6 +802,22 @@ fi
 # for a consumer, so a second copy here would be the duplicate machinery the lockstep manifest
 # calls worse than none.
 delegate intent-gap
+
+# ---- (11b) evidence 7b: every present operator-override record is readable (#613) ---------
+# A gates-process gate may yield to an attended operator, and when it does the yield's evidence
+# is a committed record quoting that operator's own answer. This holds the record to its schema
+# so nothing yields on an artifact the boundary cannot read afterwards — the same posture the
+# ratification arm above takes toward the intent-gap record, one rung down: that one asks whether
+# a human signed off, this one asks whether what they signed is legible.
+#
+# NOT a judgment about whether the yield was warranted. That is the reviewer's, and committing
+# the record is precisely what puts it in front of them to repudiate.
+#
+# DELEGATED in full, and the payload holds a LOCKSTEP copy of the reader rather than shelling out
+# to the mechanism's own binary: a consumer's CI fetches lean-evidence.sh alone, at a pinned ref,
+# so a sibling call there would resolve to nothing and this boundary would pass on evidence it
+# never read.
+delegate override
 
 # ---- (12) evidence 8: armed design runs carry a fresh render receipt (#394) ---------------
 # Skipped when there is no committed spec — already a violation, and "armed-ness unresolvable"

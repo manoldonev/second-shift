@@ -34,6 +34,7 @@ TREE="$WORK/tree"
 SPEC="$TREE/docs/plans/acme-42-lean.md"
 VREC="$TREE/docs/plans/acme-42-lean-verdict.md"
 GAPREC="$TREE/docs/plans/acme-42-lean-intent-gap.md"
+OVREC="$TREE/docs/plans/acme-42-lean-override.md"
 mkdir -p "$TREE/docs/plans" "$TREE/scripts/fixtures" "$TREE/.claude"
 git -C "$TREE" init -q 2>/dev/null
 git -C "$TREE" config user.email lean@example.invalid
@@ -537,6 +538,57 @@ if [ "$rc" -eq 0 ] && silent "$out"; then
   pass "(y) a ratified, cited intent-gap record passes"
 else fail "(y) expected a silent rc=0 on a ratified gap, got $rc: $out"; fi
 rm -f "$GAPREC"; commit_tree "gap cleared"
+write_verdict
+
+# ---- (ov) #613: the operator-override arm --------------------------------------------------
+# The boundary reads the record with a LOCKSTEP copy of the mechanism's own parser, because a
+# consumer's CI fetches this file alone and a sibling call would resolve to nothing. These cases
+# drive that copy — which is why they matter beyond operator-override-selftest.sh: that suite
+# proves the ORIGINAL, and a lockstep block that had drifted would still be byte-compared but
+# never executed here.
+out="$(ev "claude/acme-42" "$WORK/markers-good.json" "$WORK/diff-lean.txt")"; rc=$?
+if [ "$rc" -eq 0 ] && silent "$out"; then
+  pass "(ov1) absence of an override record is the ordinary case, and is silent"
+else fail "(ov1) expected a silent pass with no override record, got $rc: $out"; fi
+
+printf '## Override 1\ngate: spec-open-region\nscope: open-region-resolution\nissue: 42\nregion: OR-1\nrun_id: r-1\nsession_id: s-1\nexpiry: run\nrecorded_at: 2026-01-01T00:00:00Z\ndecision: append-only\n\n### Operator answer\n\n> Append-only. Ship it.\n' > "$OVREC"
+commit_tree "well-formed override"
+write_verdict
+out="$(ev "claude/acme-42" "$WORK/markers-good.json" "$WORK/diff-lean.txt")"; rc=$?
+if [ "$rc" -eq 0 ] && silent "$out"; then
+  pass "(ov2) a well-formed override record passes silently"
+else fail "(ov2) expected a silent rc=0 on a well-formed override, got $rc: $out"; fi
+
+# The identity binding, which is what makes the yield reconcilable at all. A record naming no run
+# is a yield nobody can place.
+printf '## Override 1\ngate: spec-open-region\nscope: open-region-resolution\nissue: 42\nregion: OR-1\nrun_id:\nsession_id: s-1\nexpiry: run\ndecision: append-only\n\n### Operator answer\n\n> Append-only.\n' > "$OVREC"
+commit_tree "override with no run binding"
+write_verdict
+out="$(ev "claude/acme-42" "$WORK/markers-good.json" "$WORK/diff-lean.txt")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'run_id is empty' <<<"$out"; then
+  pass "(ov3) an override record with no run binding is refused at the boundary"
+else fail "(ov3) expected rc=1 naming the missing run binding, got $rc: $out"; fi
+
+# Persistence smuggled into a per-issue record: the expiry-gated class belongs in the central
+# register, where it is argued about in a diff.
+printf '## Override 1\ngate: intake-unqueued\nscope: intake-attestation\nissue: 42\nregion: none\nrun_id: r-1\nsession_id: s-1\nexpiry: until-issue:9\ndecision: d\n\n### Operator answer\n\n> Yes.\n' > "$OVREC"
+commit_tree "override claiming persistence"
+write_verdict
+out="$(ev "claude/acme-42" "$WORK/markers-good.json" "$WORK/diff-lean.txt")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'persistent override belongs in' <<<"$out"; then
+  pass "(ov4) a per-issue record claiming persistence is refused and routed to the register"
+else fail "(ov4) expected rc=1 naming the register, got $rc: $out"; fi
+
+# A file at the record's path with no block in it: something wrote it, and "empty" must not read
+# as "absent".
+printf '# Lean override record — issue 42\n\nNothing here.\n' > "$OVREC"
+commit_tree "override record with no block"
+write_verdict
+out="$(ev "claude/acme-42" "$WORK/markers-good.json" "$WORK/diff-lean.txt")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'declares no' <<<"$out"; then
+  pass "(ov5) a record file carrying no override block is refused, not read as absence"
+else fail "(ov5) expected rc=1 on a blockless record, got $rc: $out"; fi
+rm -f "$OVREC"; commit_tree "override cleared"
 write_verdict
 
 # ---- (z) config-derived resolution, the consumer's only path -------------------------------
