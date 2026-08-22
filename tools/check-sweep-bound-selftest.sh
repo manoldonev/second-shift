@@ -107,18 +107,21 @@ fi
 # ---------------------------------------------------------------------------------------
 # (a2) AC-2 — the deferral boundary itself. Every table row elsewhere sits far from its
 # threshold (99s vs 10-55s), so deleting the `>= threshold` filter outright passes every other
-# case unchanged. A row one second UNDER threshold must land in the sum; AT threshold, excluded.
+# case unchanged. Both rows are written by hand at the exact seconds this case is about —
+# table() hardcodes 99s, which is clearly-over, not at. A row one second UNDER threshold must
+# land in the sum; a row AT threshold is excluded, which is what pins `>=` against `>`.
 # ---------------------------------------------------------------------------------------
 T="$TMP/thresh"
 suite "$T" below-selftest.sh
 suite "$T" at-selftest.sh
-table "$T" 10 at-selftest.sh
+table "$T" 10
 printf 'below-selftest.sh%s9%sone second under threshold\n' "$TAB" "$TAB" >> "$T/tools/selftest-suite-timings.tsv"
+printf 'at-selftest.sh%s10%sexactly at threshold\n' "$TAB" "$TAB" >> "$T/tools/selftest-suite-timings.tsv"
 baseline "$T" 5 0
 { frame pass 5s below-selftest.sh; frame pass 999s at-selftest.sh; } > "$TMP/thresh.log"
 RC="$(run --log "$TMP/thresh.log" --root "$T")"
 if [[ "$RC" -eq 0 ]] && grep -qF '5s over 1 suite(s)' "$TMP/out"; then
-  ok "(a2) AC-2: a row one second under threshold sums (5s over 1 suite); the at-threshold row, timed 999s, is excluded"
+  ok "(a2) AC-2: a row one second under threshold sums (5s over 1 suite); the row tabled at exactly the threshold, timed 999s, is excluded"
 else
   bad "(a2) AC-2: expected the under-threshold row alone summed to 5s over 1 suite, got rc=$RC"; dump
 fi

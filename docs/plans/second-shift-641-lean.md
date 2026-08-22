@@ -108,6 +108,7 @@ rows), `prose-blocker-triage.tsv`, `mutation-catalog.tsv`, `mutation-operators.t
 | D-4 | Scope: add a new TSV, or replace the three existing ratchets that do a worse version of its job | Replace, not add — amended after the operator's "what is the goal of these endless rows of tsv" question, https://github.com/manoldonev/second-shift/issues/641#issuecomment-5380196852 | ticket-sourced |
 | D-5 | Whether the register rule (state the asymmetry rule that would have prevented the 180 retired rows) belongs in this slice | Yes, beside P4/P5, as a second manifesto paragraph — approved as a scope addition, https://github.com/manoldonev/second-shift/issues/641#issuecomment-5380232575 | ticket-sourced |
 | D-6 | One shared `# threshold-seconds` directive vs. one per consumer (scope item 2 said "its own directive key") | One shared key — `run-selftests.sh` and `check-sweep-bound.sh` bound the identical 9s quantity, and two same-valued keys reintroduce the drift this file exists to remove. See Build-time amendments. | codebase-derived |
+| D-7 | AC-7 clause (a)'s row-count bar: hold 170, or correct it | Corrected to **168** — DEPARTURE from the filed AC-7. 170 was the operator's rounding of the 180 rows named in scope item 2 and omitted the 15-row unified timing table the same scope item mandates as their replacement; the spec's own derivation is 180 retired - 15 added - 3 net elsewhere = 168. Additional rows were explicitly NOT retired to reach 170 — round 2's B6 refuses that remedy by name. Amended in the issue body under *Operator amendment — AC-7 clause (a), 2026-08-22*, with a dated record at https://github.com/manoldonev/second-shift/issues/641#issuecomment-5382870407 | user-answered |
 
 ## Acceptance Criteria
 
@@ -129,9 +130,10 @@ rows), `prose-blocker-triage.tsv`, `mutation-catalog.tsv`, `mutation-operators.t
   gone, and `tools/install-topology-selftest.sh` still passes.
 - **AC-6** (oracle): `bash tools/run-selftests.sh --full --exclude tools/install-topology-selftest.sh`
   is green, and the nightly `prose-budget` job stays green.
-- **AC-7** (proxy): committed TSV row count drops by at least 170, and **net guard/test shell mass
-  is lower than `origin/main` at merge** — this slice's own check, applied to itself, must pass
-  without a `Guard-mass:` trailer.
+- **AC-7** (proxy): committed TSV row count drops by at least **168** (amended 2026-08-22 by the
+  operator — see D-7; the filed 170 omitted the 15-row unified timing table the same scope item
+  mandates), and **net guard/test shell mass is lower than `origin/main` at merge** — this
+  slice's own check, applied to itself, must pass without a `Guard-mass:` trailer.
 - **AC-8** (critic): `docs/pipeline-manifesto.md` carries both paragraphs beside P4/P5 with no
   restatement elsewhere, and `docs/testing.md` links to the register rule rather than repeating it.
 - **AC-9** (critic): `Changelog:` trailer.
@@ -144,11 +146,19 @@ failed regardless of its other ACs.
 ## Build-time amendments
 
 - **AC-7 self-check**: `scripts/check-guard-budget.sh` applied to this branch's own diff against
-  `origin/main` measures delta 0 — the new check plus its selftest (263 lines) are offset by
-  deleting `plugins/dev-pipeline/tools/prose-budget-selftest.sh`'s now-dead baseline-ratchet
-  cases (525 -> 269 lines) and `tools/install-topology-selftest.sh`'s known-red machinery
+  `origin/main` measures **`base 50308, HEAD 50282 (delta -26)`**, rc=0 — the new check plus its
+  selftest (263 lines) are more than offset by deleting
+  `plugins/dev-pipeline/tools/prose-budget-selftest.sh`'s now-dead baseline-ratchet cases
+  (525 -> 269 lines) and `tools/install-topology-selftest.sh`'s known-red machinery
   (312 -> 260 lines), plus tightened comment density in the new/touched files themselves. No
   `Guard-mass:` trailer is carried, per AC-7's own text.
+  Clause (a), measured the same way: committed `.tsv` data rows (non-comment, non-blank) go
+  `origin/main` **615** -> HEAD **447** = **-168**, against the amended bar of 168. Per file:
+  `-89` / `-65` prose-budget baselines, `-14` selftest-slow-suites, `-10` mutation-slow-suites,
+  `-2` selftest-sweep-baseline, `-2` mutation-baseline, `-1` mutation-catalog, `+15` the unified
+  `tools/selftest-suite-timings.tsv`. This bullet superseded a round-1 reading of `delta 0`,
+  which round 2's B6 correctly called stale and flattering. The figure above is re-measured
+  after the round-2 fix commit, whose W1 boundary rows cost 7 lines of the earlier -33.
 - **prose-budget.sh's `--update-baseline`** is kept as an accepted no-op (prints and exits 0)
   rather than removed as an unknown flag, so a caller still wired to it (pipeline-doctor.sh's own
   remediation hints, referenced nowhere else) does not regress to a usage error.
@@ -192,3 +202,26 @@ failed regardless of its other ACs.
   suite's existing table fixture (folded into `run-selftests-selftest.sh`'s standing table rather
   than a separate case, since its assertions were already free to extend); (4) D-6 above; (5)
   AC-7's own net-negative requirement — see the updated AC-7 self-check bullet.
+- **Round-2 review fixes** (PR #648, `run_id=review-641-pr648-2`, needs-work, one blocker):
+  (1) **B6, clause (a)** — resolved by the operator amendment carried above as D-7, not by
+  retiring rows. The bar is 168; the branch measures -168. Round 2's B6 named this as its
+  option (i) and refused the alternative by name.
+  (2) **B6, the stale record** — the AC-7 self-check bullet above now states the measurement it
+  actually took (`delta -26`, and clause (a)'s 615 -> 447 = -168 with its per-file breakdown)
+  instead of the superseded round-1 `delta 0`. The PR body is restated to match. This half of
+  B6 stood on its own merits and was owed regardless of where the bar sat.
+  (3) **W1** — `tools/check-sweep-bound-selftest.sh`'s `(a2)` case claimed an at-threshold
+  boundary it did not construct: `table()` hardcodes every fixture row at 99s, so `at-selftest.sh`
+  sat at 99s against a 10s bar and the case only ever distinguished clearly-under from
+  clearly-over. Both boundary rows are now written by hand at the exact seconds the case is about
+  (9s under, 10s at). The same gap existed in the other consumer —
+  `tools/run-selftests-selftest.sh`'s table had rows at 147s and 8s against a 9s bar and none at
+  9s — so `tools/quick-selftest.sh` is now tabled at exactly 9s there. Probed on an isolated
+  worktree, one site at a time: `-ge` -> `-gt` at `check-sweep-bound.sh:109`, at
+  `check-sweep-bound.sh:209`, and at `run-selftests.sh:221` each now reds its suite
+  (1, 1, and 2 failures against green baselines); all three survived before this fix.
+  (4) **W2 and W3 are carried forward unfixed**, as round 2 classified them: W2's non-numeric
+  `die` in `check-sweep-bound.sh` remains unguarded on that side (the same arm is well covered in
+  `run-selftests.sh`), and W3's four reflowed `scenario-liveness-selftest.sh` comments are named
+  here rather than re-wrapped — four lines of the net-negative are reflow, not deletion, which is
+  worth stating plainly in the PR that introduces a line-counting metric.
