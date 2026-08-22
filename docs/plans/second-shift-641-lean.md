@@ -49,6 +49,11 @@ Three independent, small mechanisms, none of which is itself a new gate framewor
   lower value whenever the tree measures under the committed ceiling, and lowering is a normal,
   reviewed, no-reason-required edit — same review-visibility property the issue wants for a raise,
   extended to the automatic case rather than carved out of it. See D-b, Known trades.
+- **F-3 — round-1 review (B-1) found F-1/F-2's departures from the issue's ratified line recorded
+  only here, not where the operator reads.** Both are now amended into #641's own body: the
+  committed-ceiling value (50,531 vs. the ratified 50,247, F-1/D-a) and the deferral of the
+  automatic-commit ratchet half to a linked follow-up, **#646**, rather than to this spec's Known
+  trades alone.
 
 ## Design decisions
 
@@ -92,9 +97,9 @@ Three independent, small mechanisms, none of which is itself a new gate framewor
   well above the measured total is not itself a red — only growth past it is. That is a real gap
   against the issue's literal "automatically", accepted because the alternative is a CI workflow
   with write access to `main`, which this repo's own T0 note treats as an open risk rather than
-  something to add casually. If the advisory is repeatedly ignored, the mechanism to reconsider is
-  a scheduled ratchet PR (a workflow that opens a PR, not one that commits directly), not a
-  same-run addition here.
+  something to add casually. The mechanism that closes this gap — a scheduled workflow that opens
+  a PR rather than committing directly — is filed as **#646** and is explicitly deferred there in
+  #641's own body (round-1 review B-1), not decided silently in this spec.
 - **The classifier is a defined predicate, not the issue's original (unspecified) methodology.**
   Two independent measurements landing within 0.1% of each other (F-1) is treated as sufficient
   confirmation that both are measuring the same real thing, rather than chasing byte-parity with an

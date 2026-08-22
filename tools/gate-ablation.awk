@@ -47,7 +47,7 @@ function readfile(path, kind,   line, n, f) {
     if (line ~ /^[ \t]*#/ || trim(line) == "") continue
     n = split(line, f, "\t")
     if (kind == "classes") {
-      if (n < 5) { err("classes table row has " n " fields, want 5: " line); }
+      if (n < 5) { err("classes table row has " n " fields, want 6 (5 base + earn-your-keep): " line); }
       ncls++
       cls_gp[ncls] = trim(f[1]); cls_ms[ncls] = trim(f[2]); cls_ob[ncls] = trim(f[3])
       cls_pat[ncls] = f[4];      cls_lb[ncls] = trim(f[5])

@@ -277,8 +277,8 @@ jobs:
           BASE_REF: ${{ github.base_ref }}
         run: bash scripts/check-changelog-trailer.sh "origin/$BASE_REF"
 
-      # #641: guard/test shell mass stays under a ceiling that only ever ratchets down. Same
-      # env-not-interpolation discipline as BASE_REF above.
+      # #641: guard/test shell mass stays under a ceiling that cannot rise without a reason
+      # recorded in the same diff. Same env-not-interpolation discipline as BASE_REF above.
       - name: guard budget guard (guard/test shell mass stays under the ratcheting ceiling)
         env:
           BASE_REF: ${{ github.base_ref }}

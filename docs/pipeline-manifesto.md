@@ -66,9 +66,10 @@ build session write its own verdict; that debt is closed, not tolerated.
 this single anchor, rather than a new copy being added beside them.
 
 **P4/P5 posture:** mechanical since #641 — `tools/guard-budget.tsv` sets a ceiling on guard/test
-shell mass that only ever ratchets down (`scripts/check-guard-budget.sh`, run in `pr-gates`), and
-`tools/gate-ablation-classes.tsv`'s earn-your-keep column requires every gate decision point to
-name the regression class it alone catches.
+shell mass that cannot rise without a reason recorded in the same diff
+(`scripts/check-guard-budget.sh`, run in `pr-gates`), and `tools/gate-ablation-classes.tsv`'s
+earn-your-keep column requires every gate decision point to name the regression class it alone
+catches.
 
 ## The three velocity principles
 

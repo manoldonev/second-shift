@@ -101,6 +101,34 @@ commit "$R" "introduce the ceiling"
 rc=$?
 [ "$rc" -eq 0 ] && ok "6 first-time introduction of the ceiling is not a 'raise'" || bad "6 expected rc=0, got $rc"
 
+# ---- Case 7: every classify() arm counts, and a non-matching product .sh does not.
+# One fixture per remaining pattern (Cases 1-6 only ever exercised check-*.sh) plus a large
+# product file the ceiling would overflow into if the negative case were wrong.
+R="$TMP/r7"; mkdir -p "$R"; mkrepo "$R"
+guardfile "$R" "foo-selftest.sh" 5                                     # *-selftest.sh
+guardfile "$R" "check-thing.sh" 10                                     # check-*.sh
+guardfile "$R" "foo-lint.sh" 7                                         # *-lint.sh
+guardfile "$R" "plugins/dev-pipeline/skills/build-lean/lean-gate.sh" 9 # */skills/*/lean-gate.sh
+guardfile "$R" "tools/run-selftests.sh" 11                             # run-selftests.sh
+guardfile "$R" "tools/mutation-sweep.sh" 13                            # mutation-sweep.sh
+guardfile "$R" "tools/gate-ablation.sh" 6                              # gate-ablation.sh
+guardfile "$R" "deploy.sh" 1000                                        # product .sh — must NOT count
+mkdir -p "$R/tools"
+printf '# fixture\n61\t2026-01-01\n' > "$R/tools/guard-budget.tsv"
+commit "$R" "base"
+git -C "$R" checkout -qb feature
+OUT="$(cd "$R" && bash "$GATE" main 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && ok "7 all six remaining classify() arms sum to 61, product.sh (1000) excluded" \
+  || bad "7 expected rc=0 (measured 61 == ceiling 61), got $rc: $OUT"
+
+# ---- Case 8: the ceiling file itself missing => must FAIL with a usage error (rc=2).
+R="$TMP/r8"; mkdir -p "$R"; mkrepo "$R"
+guardfile "$R" "check-thing.sh" 10
+commit "$R" "base, no tools/guard-budget.tsv"
+git -C "$R" checkout -qb feature
+OUT="$(cd "$R" && bash "$GATE" main 2>&1)"; rc=$?
+[ "$rc" -eq 2 ] && ok "8 missing tools/guard-budget.tsv fails (rc=2)" || bad "8 expected rc=2, got $rc: $OUT"
+
 echo "check-guard-budget-selftest: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1
 exit 0

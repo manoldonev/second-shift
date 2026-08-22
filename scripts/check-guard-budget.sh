@@ -92,7 +92,7 @@ if [ "$MEASURED" -gt "$HEAD_CEILING" ]; then
 fi
 
 if [ "$MEASURED" -lt "$HEAD_CEILING" ]; then
-  echo "[guard-budget] under budget: measured $MEASURED lines, ceiling $HEAD_CEILING. Advisory: ratchet $TSV down to $MEASURED when convenient — the ceiling only ever falls."
+  echo "[guard-budget] under budget: measured $MEASURED lines, ceiling $HEAD_CEILING. Advisory: ratchet $TSV down to $MEASURED when convenient — a lowered ceiling needs no reason, but raising it back does, in the same diff."
 else
   echo "[guard-budget] at budget: measured $MEASURED lines, ceiling $HEAD_CEILING."
 fi
