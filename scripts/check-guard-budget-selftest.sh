@@ -118,8 +118,9 @@ printf '# fixture\n61\t2026-01-01\n' > "$R/tools/guard-budget.tsv"
 commit "$R" "base"
 git -C "$R" checkout -qb feature
 OUT="$(cd "$R" && bash "$GATE" main 2>&1)"; rc=$?
-[ "$rc" -eq 0 ] && ok "7 all six remaining classify() arms sum to 61, product.sh (1000) excluded" \
-  || bad "7 expected rc=0 (measured 61 == ceiling 61), got $rc: $OUT"
+[ "$rc" -eq 0 ] && echo "$OUT" | grep -qE 'at budget: measured 61' \
+  && ok "7 all six remaining classify() arms sum to 61, product.sh (1000) excluded" \
+  || bad "7 expected rc=0 and measured 61 (a narrowed arm would silently under-count), got $rc: $OUT"
 
 # ---- Case 8: the ceiling file itself missing => must FAIL with a usage error (rc=2).
 R="$TMP/r8"; mkdir -p "$R"; mkrepo "$R"

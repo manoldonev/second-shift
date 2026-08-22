@@ -17,4 +17,4 @@
 # Raising the ceiling is a deliberate, reviewed edit: bump the number, stamp today's date, and
 # say why in the reason column — the escape hatch for a genuinely new guard, priced so it is
 # visible at review rather than absorbed silently.
-50531	2026-08-22
+50560	2026-08-22	PR #645's own round-2/3 test coverage — Cases 7/8 closing round-1 W-2/W-4, and round 3's one-line strengthening of Case 7 (asserts the measured number, not just rc)
