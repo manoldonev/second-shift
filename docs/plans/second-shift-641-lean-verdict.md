@@ -1,175 +1,199 @@
 # lean review verdict — #641
 
-verdict=needs-work
-run_id: review-641-2
-session_id: 4d8d5b1e-3ea9-44c9-97e5-725a5fc75d9a
-rounds: 2
+verdict=approve
+run_id: review-641-3
+session_id: 73a2c98e-ceef-4135-9311-f9f230f3bdb0
+rounds: 3
 pr: #645
-reviewed_head: 2bae5cd6b91b3123e143b79b8cfd93a7a75d19dd
-reviewed_patch_id: 95f97f1e44fd2832e39359cde7993b86325edcb6
-inherited_patch_id: 255055fadd7f2174067134de7fc1909ac69fb480
-inherited_from_verdict: 21c2cf89df542c775ed5a158ca53740a670c1616
+reviewed_head: 73534a915c725a0b9a997b0b1075f0732849e05d
+reviewed_patch_id: b940751b804c9fdbfcf2ce4dcac5cc2a5aeb32ae
+inherited_patch_id: 95f97f1e44fd2832e39359cde7993b86325edcb6
+inherited_from_verdict: b804b36d077f5d0e5744256233526d98df7c03ef
 fidelity: not-applicable
 model: opus
 capabilities: pr-marker
 
-Round 2 — delta `21c2cf8..2bae5cd` (6 files, +44/-10), inheriting round 1's coverage of
-`b8cc982..9ea2bf7`. Verdict: **needs-work**, on two blockers.
+Round 3 — delta `b804b36..73534a9` (2 files, +4/-3), inheriting rounds 1–2's coverage of
+`b8cc982..b804b36`. Verdict: **approve**.
 
-Round 1's blocker is **closed**, and closed in the right shape. The two cheap warnings and the
-suggestion are closed too. What blocks this round is new: the fix commit's own 28 lines of
-guard/test shell push the tree over the ceiling this PR introduces, so `pr-gates` reds on the
-PR's own gate — and the test added to close round 1's W-2 cannot fail in the direction W-2 named.
+Both of round 2's blockers are closed, and closed with execution evidence rather than by
+assertion. B-2 in particular went from *seven of seven mutants surviving* to *eight of eight
+killed* on a re-run of round 2's own probe. Every `AC-n` is satisfied. Two warnings are carried
+below; neither blocks, and one of them is the more interesting finding of the round.
 
 ## Per-AC scoring (against `docs/plans/second-shift-641-lean.md`)
 
 | AC | Score | Basis |
 | --- | --- | --- |
-| AC-1 | satisfied | `tools/guard-budget.tsv` exists; `check-guard-budget-selftest.sh` drives the shipped script over eight fixture git repos — under / over-naming-the-overage / raise-without-reason / raise-with-reason / lower / first-ever-commit / all-arms / missing-TSV. Ran here: **10 passed, 0 failed**. |
-| AC-2 | satisfied | Every row of `tools/gate-ablation-classes.tsv` carries a non-empty 6th column; `gate-ablation.awk:57` reds naming the row on blank **and** on absent. `gate-ablation-selftest.sh` ALL CASES PASSED here, including (t)/(t2)/(t3). |
-| AC-3 | satisfied | The step is in `pr-gates` (`ci.yml:280-286`) and ran on this PR. Case 2 reds a synthetic over-budget tree. (It also reds the *real* tree — see B-1. That is AC-3 working, not failing.) |
-| AC-4 | satisfied | One pointer paragraph in the `**Pn posture:**` form, no restatement of P4/P5's text. Round 1's W-1 overclaim is gone. |
-| AC-5 | satisfied | Three `Changelog:` trailers on the branch; the round-2 commit carries one with `Migration: none.` |
+| AC-1 | satisfied | `tools/guard-budget.tsv` exists; `check-guard-budget-selftest.sh` drives the shipped script over eight fixture git repos covering all six required behaviours. Ran here at the reviewed head: **10 passed, 0 failed**. Case 7 now asserts the measured value, not just the exit code (see B-2 below). |
+| AC-2 | satisfied | All 33 data rows of `tools/gate-ablation-classes.tsv` carry a non-empty 6th column (verified by an independent `awk` pass over the committed file, zero offenders); `gate-ablation.awk:57` reds naming the row on blank **and** on absent. `gate-ablation-selftest.sh`: ALL CASES PASSED here, cases (t)/(t2)/(t3) included. |
+| AC-3 | satisfied | The step is wired in `pr-gates` (`ci.yml:280-286`) and — new this round — **ran green on the real merge tree**: CI run `32574669326`, job `pr-gates`, step 5 `completed/success`. Case 2 reds a synthetic over-budget tree. |
+| AC-4 | satisfied | One pointer paragraph at `docs/pipeline-manifesto.md:68` in the `**Pn posture:**` form, no restatement of P4/P5's text. Unchanged this round. |
+| AC-5 | satisfied | Four `Changelog:` trailers across the branch; CI's trailer guard (`pr-gates` step 4) is `completed/success`. The round-3 commit carries no trailer of its own, which is fine — trailers are extracted grep-anywhere and survive the squash. |
 
-Fidelity: **not-applicable** — the spec declares no `## Design` section (only `## Design
-decisions`, which is prose), and the repo configures no design provider.
+Fidelity: **not-applicable** — the spec declares no armed `## Design` section (`## Design
+decisions` is prose, with no handoff link and no `| RS-n |` rows), and the repo's config declares
+no `design.provider`. Step 5b does not apply.
 
-## Blockers
+## Round-2 blockers — disposition
 
-**B-1 — `pr-gates` reds on this PR's own guard-budget step; the round-2 commit added 28 lines of
-guard mass without pricing it.** `tools/guard-budget.tsv:20`
+**B-1 — the ceiling had zero headroom and redded this PR's own `pr-gates` step. CLOSED.**
 
-CI run **32573925015**, job `pr-gates`, step 5 — `completed/failure`:
+`tools/guard-budget.tsv:20` is raised `50531 → 50560` with a reason in the same diff, which is
+the mechanism's own contract for a raise. Verified in both directions:
 
-```
-[guard-budget] ✗ guard/test shell is over budget: measured 50559 lines, ceiling 50531 (over by 28).
-[guard-budget]   Delete guard mass, or raise tools/guard-budget.tsv's ceiling in the open with a reason.
-```
+- At the reviewed head, from the PR's own checkout: `bash scripts/check-guard-budget.sh main` →
+  `[guard-budget] at budget: measured 50560 lines, ceiling 50560.` rc=0. Same result against
+  `origin/main`.
+- On CI's merge tree, which is the answer the diff cannot give: run `32574669326`, `pr-gates`
+  step 5 `completed/success`.
 
-Reproduced locally at the reviewed head (`bash scripts/check-guard-budget.sh main`, rc=1, same
-numbers). The overage is exactly the 28 lines this round appended to
-`scripts/check-guard-budget-selftest.sh` (Cases 7 and 8) — a `*-selftest.sh`, which `classify()`
-counts. Round 1's head measured 50,531 against a ceiling of 50,531: **zero headroom by
-construction** (D-a sets the ceiling to the measured value), so any guard-mass addition on this
-branch reds, and this one did.
+Round 2's downstream tell is closed with it. Step 6 (pipeline chain reconciliation) is now
+`completed/success` — it had been `skipped` behind the red at every prior commit, so this PR's
+evidence set had never been reconciled by CI. Step 7 (lean chain) now *runs* and fails for the
+one correct reason: `verdict record ... reads 'verdict=needs-work', not 'verdict=approve'` — the
+standing round-2 record. That is the expected pre-handoff shape, not a finding.
 
-Two consequences beyond the red itself. `pr-gates` steps 6 and 7 — pipeline chain reconciliation
-and **lean chain reconciliation** — are `completed/skipped`, so this PR's evidence set has never
-been reconciled by CI at any commit. And the PR body's Verification section still asserts a clean
-run; it describes round 1's tree.
+**B-2 — Case 7 could not fail in the narrowing direction. CLOSED, and verified by re-running
+round 2's probe verbatim.**
 
-Either remedy clears it, and both are the mechanism working as designed: raise the ceiling to
-50,559 with a reason in the same diff (`50559<TAB>2026-08-22<TAB>PR #645's own round-2 test
-coverage — Cases 7/8 closing round-1 W-2/W-4`), or delete 28 lines of guard mass elsewhere.
+`scripts/check-guard-budget-selftest.sh:121` now asserts the output (`at budget: measured 61`)
+rather than only `rc -eq 0`, which was the fix round 2 prescribed. Re-probed in an isolated
+scratch tree at the reviewed head — each `classify()` arm neutered one at a time to a
+non-matching pattern, `bash -n` clean throughout, scored by case id:
 
-**B-2 — Case 7 cannot fail in the direction round-1 W-2 named; the commit message reports it
-closed.** `scripts/check-guard-budget-selftest.sh:105-119`
-
-W-2 said: *"The narrowing direction is the silent one: drop an arm and `measured` falls, the gate
-stays green."* Case 7 builds one fixture file per `classify()` arm summing to 61, commits a
-ceiling of 61, and asserts **`rc -eq 0`**. But `check-guard-budget.sh:94` treats measured **under**
-ceiling as an advisory and exits **0** — so a smaller `measured` is indistinguishable from the
-right one. The named invariant ("all six remaining classify() arms sum to 61") is not what the
-case tests.
-
-Probed in an isolated worktree at the reviewed head — each arm neutered one at a time, selftest
-re-run, `bash -n` clean throughout:
-
-| arm neutered | Case 7 |
-| --- | --- |
-| `-name '*-selftest.sh'` | **ok** (green) |
-| `-name 'check-*.sh'` | **ok** (green) |
-| `-name '*-lint.sh'` | **ok** (green) |
-| `-path '*/skills/*/lean-gate.sh'` | **ok** (green) |
-| `-name 'run-selftests.sh'` | **ok** (green) |
-| `-name 'mutation-sweep.sh'` | **ok** (green) |
-| `-name 'gate-ablation.sh'` | **ok** (green) |
-| *(control)* broaden to `-name '*.sh'` | **FAIL** — `measured 1061, ceiling 61` |
-
-Seven of seven survive. Only the control — the broadening direction, where `deploy.sh`'s 1000
-lines start counting — is caught, so the negative product-`.sh` half of W-2 **is** genuinely
-closed. The six-arms half is not.
-
-The commit message states *"classify()'s six untested match arms plus the negative product-.sh
-case are now covered by one fixture (W-2)"*, and the `Changelog:` trailer bills the round as
-"test-coverage fixes". A case that converges on green while reading as coverage is the shape
-`CLAUDE.md`'s testing section exists to refuse — and it is 28 lines of guard mass, on the PR whose
-subject is that guards must earn their keep.
-
-One line closes it — assert the number, not just the exit code:
-
-```bash
-case "$OUT" in *"at budget: measured 61"*) ok "7 ..." ;; *) bad "7 ... : $OUT" ;; esac
-```
-
-That kills all seven mutants above and keeps the control.
-
-## Round-1 findings — disposition
-
-| # | Status | Basis |
+| arm neutered | round 2 | round 3 |
 | --- | --- | --- |
-| **B-1** | **closed** | #641's body now carries a `## Build-time amendments (PR #645 round 1)` section recording both departures, and **#646** is filed with real scope, a rationale for the deferral, and draft ACs. The shape is right: the operator's ratification line is preserved **verbatim** and the departures sit in a separately-titled section attributed to the build round — not a silent rewrite of the ratified text into agreement with the diff. Independent `scope-completeness-reviewer` re-classified against the full `b8cc982..HEAD` diff and returned **PASS**. |
-| W-1 | closed | `pipeline-manifesto.md:68`, `ci.yml:280`, and `check-guard-budget.sh:95` all drop "only ever ratchets down" / "the ceiling only ever falls" for a raise-needs-a-reason phrasing that is true. |
-| W-2 | **half-closed → B-2** | Negative case closed; six arms not. |
-| W-3 | **open, and now load-bearing** | Round 1 accepted the zero-headroom ceiling as a defensible trade. It is the proximate cause of B-1, and it will red every future round of this PR that adds a test line. Not re-raised as its own blocker — B-1 is its consequence and carries the remedy. |
-| W-4 | closed where it matters | Case 8 covers the missing-`tools/guard-budget.tsv` path. Probed the failure **reason**, not just the code: the fixture exits 2 at `check-guard-budget.sh:39` with `no ceiling recorded at tools/guard-budget.tsv`, not via the merge-base or usage arms. The other four `exit 2` paths remain untested, as round 1 allowed. |
-| S-1 | closed | `gate-ablation.awk:50` now says "want 6 (5 base + earn-your-keep)". |
-| S-2 | open | See below. |
-| S-3, S-4 | open | Both discretionary in round 1; not re-raised. |
+| `-name '*-selftest.sh'` | ok (survived) | **FAIL** — `measured 56, ceiling 61` |
+| `-name 'check-*.sh'` | ok (survived) | **FAIL** — `measured 51` |
+| `-name '*-lint.sh'` | ok (survived) | **FAIL** — `measured 54` |
+| `-path '*/skills/*/lean-gate.sh'` | ok (survived) | **FAIL** — `measured 52` |
+| `-name 'run-selftests.sh'` | ok (survived) | **FAIL** — `measured 50` |
+| `-name 'mutation-sweep.sh'` | ok (survived) | **FAIL** — `measured 48` |
+| `-name 'gate-ablation.sh'` | ok (survived) | **FAIL** — `measured 55` |
+| *(control)* broaden to `-name '*.sh'` | FAIL | **FAIL** — `measured 1061` |
+
+**7/7 surviving → 8/8 killed**, control preserved. Each mutant's diagnostic names a distinct
+`measured` value, so the kills are the arms and not one shared accident.
+
+## Warnings (should fix, neither blocking)
+
+**W-1 — after this merges, the guard's *second* check can no longer fire on the real tree.**
+`scripts/check-guard-budget.sh:80`
+
+The raise-without-reason arm is armed by exactly one condition: the reason column at HEAD being
+blank. Round 3's own delta is what makes that column permanently non-blank on `main`. Probed as a
+matched fire/no-fire pair against the shipped script:
+
+| fixture | result |
+| --- | --- |
+| base carries #645's reason; a later PR raises `100 → 500` leaving the reason **verbatim** | **rc=0, arm silent** |
+| base carries an empty reason; the identical raise | rc=1, `ceiling raised from 100 to 500 with no reason recorded` |
+
+So from merge day, a future author can raise the ceiling to any value and the gate stays green as
+long as they leave PR #645's reason string sitting beside it. AC-1's third case still passes —
+its fixture constructs the empty-reason base that the real tree no longer has.
+
+Not raised as a blocker, on three grounds, and I want the reasoning on the record rather than the
+conclusion alone. AC-1 is satisfied by its letter and by both fixture directions. A raise remains
+a visible, deliberate edit in a reviewed diff whether or not the gate speaks — the gate's marginal
+contribution was only ever forcing blank → non-blank. And the primary check (measured > ceiling)
+is fully live and is where nearly all of the mechanism's value sits. This was seen at round 1
+(S-4) and round 2 (S-2) and adjudicated discretionary both times; what changed is that it moved
+from hypothetical to live, which is worth recording even though the call is the same. The fix
+wants the reason compared against the merge-base copy, not merely tested for emptiness — a real
+design decision, and a natural addition to **#646**'s scope.
+
+Two smaller findings in the same file, not separately raised: `ceiling_row()` exits on the first
+data row, so a second appended row is silently ignored despite the header's "ONE data row"
+(probed: appending `99999` below the live row leaves the ceiling at the first value, rc=0), and
+the date column is never validated. Both are round 2's S-2, unchanged.
+
+**W-2 — the spec and the issue both state a committed ceiling the tree contradicts.**
+`docs/plans/second-shift-641-lean.md:33,39,54`
+
+F-1 says *"The committed ceiling is **50,531**"* in the present tense; D-a and F-3 repeat the
+figure; #641's `## Build-time amendments` bullet states it as fact. The committed row is
+**50,560**. Rounds 2 and 3 moved the number and the prose did not follow.
+
+This is the inverse of the shape the review contract treats as a blocker — the spec was *not*
+amended to agree with the diff, it simply went stale — and it is self-correcting for a reader,
+because `tools/guard-budget.tsv`'s reason column is in the same diff and names rounds 2/3
+explicitly. The issue's section is also titled "(PR #645 round 1)", which scopes its literals.
+Carried as a warning rather than a blocker for those reasons; the honest remedy is one edit
+replacing the literal with "the post-merge measured value", which is what D-a actually decided.
+Raised by `scope-completeness-reviewer` at confidence 92, and confirmed here against both files.
 
 ## Suggestions
 
-- **S-1 (r2)** The PR body was not updated for round 2. It still cites *"the two new
-  `check-guard-budget-selftest.sh` cases"* (there are now four), still reports the
-  `--exclude`-only sweep as **61** where the recipe of record passes `--full` for **74**
-  (round 1's S-2, unaddressed), and its Verification section claims a clean run that B-1 falsifies.
-- **S-2 (r2)** Round 1's S-4 remains: the raise check never verifies the reason is *new*, so a
-  stale reason left in the row clears a later raise — and `ceiling_row()` exits on the first data
-  row, so a second appended row is silently ignored despite the header's "ONE data row". If B-1 is
-  cleared by raising the ceiling, this row will be the first one carrying a reason, which is the
-  natural moment to close it.
+- **S-1** Round 1's S-2 is now closed — the PR body carries the `--full` = 74 / `--exclude`-only
+  = 61 distinction. Worth noting the body was edited *after* CI started, so `pr-gates`' captured
+  copy of it still shows the round-1 text; harmless, but it is why the CI log and the PR disagree.
+- **S-2** Round 3's commit message says the probe covered "the six untested `classify()` arms" and
+  then lists five. Understated rather than overstated — the probe here confirms all seven arms are
+  killed — so it costs nothing but the count in the message is wrong.
 
 ## Strengths
 
-- **The blocker was closed by making the issue tell the truth, not by making the spec agree with
-  the diff.** #646 is a real ticket — it names the `contents: write`-on-`main` objection, the
-  PR-opening shape that avoids it, and four draft ACs — rather than a placeholder to satisfy a
-  reviewer. The ratification line stays verbatim and the departure is labeled as the build's.
-- **B-1 is the mechanism catching its own author on its first day.** The gate this PR ships is the
-  gate that reds this PR, on the real merge tree, for exactly the right reason and with the
-  remedy printed in its own diagnostic. That is a stronger demonstration of AC-3 than the fixture.
-- **Case 8 tests the reason, not just the code.** The missing-ceiling path is the one that matters
-  — deleting `tools/guard-budget.tsv` must red — and the fixture reaches it through a real git
-  repo rather than a stubbed one.
-- **The wording fixes went to all three copies.** W-1 named the manifesto; the fix also corrected
-  the CI comment and the script's own advisory string, so the overclaim does not survive anywhere
-  a reader would meet it.
+- **The B-2 fix is the smallest thing that could possibly work, and it works completely.** One
+  line, from an exit-code assertion to an output assertion, converting a case that could not fail
+  in the direction it advertised into one that kills every arm of a seven-way classifier. Round
+  2 prescribed exactly this line; the build applied exactly it, and did not pad around it.
+- **The ceiling raise pays the mechanism's own price in public.** `tools/guard-budget.tsv:20`
+  carries the number, the date, and a reason naming the specific commits that consumed the
+  budget. The PR that introduces "a raise needs a stated reason in the same diff" is the first
+  thing to be held to it, and it did not carve itself an exemption.
+- **`pr-gates` now reaches the chain-reconciliation steps for the first time on this branch.**
+  Steps 6 and 7 had been skipped behind a red step 5 at every prior commit; closing B-1 also
+  restored the evidence path that was silently unexercised, which was the part of round 2's
+  finding that was easy to miss.
+- **`mutation-sweep-pr` produced real verdicts, not a vacuous green.** 6 applied, 6 killed, 0
+  survived on `scripts/check-guard-budget.sh` with 7 verdicts computed by running the paired
+  suite — worth stating explicitly, because an rc=0 from PR-mode can also mean nothing was swept.
 
 ## Suppressed / not carried
 
-- `scope-completeness-reviewer` (conf 85) — Scope item 2's optional "dated incident" sub-clause is
-  cited by issue number (#119) on one row and by no ISO date anywhere. The clause is conditional
-  ("where one exists") with no incident registry to check against; not falsifiable, not carried.
-- `scope-completeness-reviewer` (conf 95) — flagged that the dispatch base was branch-internal
-  rather than `main`. Correct observation about the dispatch, not a defect in the PR: the narrowed
-  range is `lean-gate.sh delta`'s inheritance contract, and the reviewer widened to the full diff
-  on its own before classifying. No action.
+- `scope-completeness-reviewer` (conf 84) — no `earn_your_keep` cell carries a dated incident,
+  though the header adopts the convention. The scope clause is conditional ("where one exists")
+  and there is no incident registry to check a row against. Round 2 adjudicated the same clause
+  the same way; not carried, for consistency rather than by re-deciding it.
+- `security-reviewer` (conf 30) — the free-text reason column is committed prose in a
+  repo-controlled file with no injection or disclosure sink. Correct, and below threshold.
+- Not a finding, recorded so a later round does not re-derive it: `echo "$OUT" | grep -q` under
+  `set -o pipefail` can score a match as a miss when the writer is large enough to block. Both
+  directions were exercised here (the clean run passes, all eight mutants fail through this
+  line), the payload is one short line, and the idiom is pre-existing at `:55` and `:67`.
 
 ## Verdicts
 
 | Reviewer | Verdict | Findings | Confidence |
 | --- | --- | --- | --- |
-| Scope Completeness | Pass | 2 (nit) | 85–95 |
-| Test Coverage | Pass | 0 | — |
+| Scope Completeness | Pass | 2 (1 major, 1 minor) | 84–92 |
+| Security | Pass | 0 | — |
+| Performance | Pass | 0 | — |
 | Maintainability | Pass | 0 | — |
-| Complexity | Pass | 0 | — |
+| Test Coverage | Pass | 0 | — |
 
-Security, performance and the domain reviewers were not selected: the delta is comment/doc wording,
-two error-message strings, and one selftest block, with no executable production-logic change.
-a11y + design-fidelity not routed — no changed path matched `stageParams.webComponentGlobs`
-(unset → default `apps/web/**/*.{tsx,jsx}`).
+No reviewer went dark; all five selected returned usable results. Complexity was not selected
+(the delta is Small — 2 files, +4/-3). a11y + design-fidelity were not routed: no changed path
+matched `stageParams.webComponentGlobs`, which resolves to the shipped default
+`apps/web/**/*.{tsx,jsx}` because the repo's config declares neither the key nor a
+`design.provider`. Neither is a coverage gap.
 
-**Both blockers are orchestrator findings.** All four reviewers approved; `test-coverage-reviewer`
-read `classify()` and returned no findings. B-1 came from running the shipped gate at the reviewed
-head and reading the PR's own CI job; B-2 from a seven-arm mutation probe in an isolated worktree.
-Neither is visible from the diff alone.
+**W-1 is an orchestrator finding**, from a fire/no-fire probe of the shipped script rather than
+from the diff — as were both of round 2's blockers. The panel found nothing stronger than the
+stale literals in W-2, which is the right outcome for a four-line delta whose job was to close
+two specific findings.
+
+## Verification run at the reviewed head
+
+- `bash scripts/check-guard-budget.sh main` → rc=0, `at budget: measured 50560 lines, ceiling 50560`.
+- `bash scripts/check-guard-budget-selftest.sh` → 10 passed, 0 failed.
+- `bash tools/gate-ablation-selftest.sh` → ALL CASES PASSED.
+- `shellcheck -e SC1091,SC2015,SC2181` on both changed shell files → clean.
+- CI at `73534a9`: `lint-and-selftests` success, `selftests (macos, bash 3.2)` success,
+  `mutation-sweep-pr` success, `pr-gates` failing only on step 7 for the standing needs-work
+  record.
+- No `tools/mutation-catalog.tsv`, `mutation-baseline.tsv`, `mutation-exclusions.tsv` or
+  `LOCKSTEP-BEGIN` obligation attaches to either changed file; round 3 edited a selftest and a
+  data row, not guard code, so no anchor is re-keyed.
