@@ -139,3 +139,25 @@ Ratified at filing (operator, 2026-08-22): derived comparison rather than a stor
 trailer escape hatch rather than a file edit; the deletion half lands in this slice, not a
 follow-up. AC-7 is the anti-regression: a slice about guard mass that increases guard mass has
 failed regardless of its other ACs.
+
+## Build-time amendments
+
+- **AC-7 self-check**: `scripts/check-guard-budget.sh` applied to this branch's own diff against
+  `origin/main` measures delta 0 — the new check plus its selftest (263 lines) are offset by
+  deleting `plugins/dev-pipeline/tools/prose-budget-selftest.sh`'s now-dead baseline-ratchet
+  cases (525 -> 269 lines) and `tools/install-topology-selftest.sh`'s known-red machinery
+  (312 -> 260 lines), plus tightened comment density in the new/touched files themselves. No
+  `Guard-mass:` trailer is carried, per AC-7's own text.
+- **prose-budget.sh's `--update-baseline`** is kept as an accepted no-op (prints and exits 0)
+  rather than removed as an unknown flag, so a caller still wired to it (pipeline-doctor.sh's own
+  remediation hints, referenced nowhere else) does not regress to a usage error.
+- **A pre-existing, unrelated environment sensitivity was found and is NOT fixed here** (out of
+  scope for a guard-mass slice): `operator-override-selftest.sh` (and likely the sibling
+  attended/headless-checking lean-lane suites) false-reds when the sweep runs from inside a
+  spawned `build-lean` session, because `orchestrate-lean.sh`'s `LEAN_ATTEND_MODE=headless` env
+  var leaks into the suite's otherwise-isolated fixture subshells. Confirmed pre-existing (no file
+  in this PR's diff is on that suite's call path) and confirmed environmental (scrubbing
+  `LEAN_ATTEND_MODE`/`LEAN_RUN_MODEL`/`LEAN_SPAWN_PERMISSION_MODE` alongside the documented
+  `CLAUDE_CODE_SESSION_ID` turns the same full sweep from 4 failures to 74/74 green). AC-6's
+  `bash tools/run-selftests.sh --full --exclude tools/install-topology-selftest.sh is green` is
+  satisfied under that scrub.

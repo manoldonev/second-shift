@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# check-sweep-bound.sh — the missing-row counterpart to tools/selftest-slow-suites.tsv's
-# stale-row error (#629).
+# check-sweep-bound.sh — the missing-row counterpart to the slow-suite table's stale-row error
+# (#629; the table is tools/selftest-suite-timings.tsv since #641).
 #
 # WHY THIS EXISTS. The table keeps lean-gate.sh milestone 3's local sweep inside the harness's
 # ~120s reap by deferring every suite at or above its declared threshold. Membership is a
@@ -42,8 +42,8 @@
 #
 #   --log        the captured stdout+stderr of a `run-selftests.sh --full` sweep. Required.
 #   --root       tree the sweep was taken over; defaults to the repo above this script.
-#   --baseline   defaults to <root>/tools/selftest-sweep-baseline.tsv
-#   --table      defaults to <root>/tools/selftest-slow-suites.tsv
+#   --baseline   defaults to <root>/tools/selftest-suite-timings.tsv (#641 unified three files)
+#   --table      defaults to <root>/tools/selftest-suite-timings.tsv
 #
 # EXIT: 0 within allowance, with or without per-suite warnings. 1 aggregate breach. 2 usage error
 # or unreadable input.
@@ -74,8 +74,10 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="${ROOT:-$(dirname "$HERE")}"
 [[ -d "$ROOT" ]] || die "--root is not a directory: $ROOT"
 ROOT="$(cd "$ROOT" && pwd)"
-BASELINE="${BASELINE:-$ROOT/tools/selftest-sweep-baseline.tsv}"
-TABLE="${TABLE:-$ROOT/tools/selftest-slow-suites.tsv}"
+# #641: three timing files collapsed into tools/selftest-suite-timings.tsv. BASELINE and TABLE
+# now default to the SAME file; --baseline/--table stay independent flags for fixtures.
+BASELINE="${BASELINE:-$ROOT/tools/selftest-suite-timings.tsv}"
+TABLE="${TABLE:-$ROOT/tools/selftest-suite-timings.tsv}"
 
 [[ -n "$LOG" ]] || die "--log is required — there is no arm on which this exits 0 without one"
 [[ -f "$LOG" && -r "$LOG" ]] || die "the timing input is absent or unreadable: $LOG"
@@ -97,16 +99,22 @@ THRESHOLD="$(sed -n "s/^# threshold-seconds${TAB}\\([0-9][0-9]*\\)[[:space:]]*$/
 [[ -n "$THRESHOLD" ]] \
   || die "$TABLE declares no '# threshold-seconds<TAB><n>' directive — the membership rule is unreadable"
 
+# #641: TABLE is shared with mutation-sweep.sh's own lower, hardcoded 5s bar, so it carries rows
+# below THRESHOLD that land in the un-deferred sum like any suite run-selftests.sh actually ran.
 DEFERRED=""
 while IFS="$TAB" read -r t_suite t_secs t_rest; do
   case "${t_suite:-}" in ''|'#'*) continue ;; esac
   [[ -n "$t_secs" && -n "$t_rest" ]] || die "malformed row in $TABLE: '$t_suite'"
+  [[ "$t_secs" =~ ^[0-9]+$ ]] || die "malformed row in $TABLE: '$t_suite' seconds must be a whole number, got '$t_secs'"
+  [[ "$t_secs" -ge "$THRESHOLD" ]] || continue
   DEFERRED="$DEFERRED${t_suite#./}"$'\n'
 done < "$TABLE"
 
 # ---- the committed baseline --------------------------------------------------------------
+# #641: baseline-seconds/allowance-percent now live as `# `-prefixed directives in the same
+# unified table as the threshold above — same explicit-reviewed-commit re-baseline contract.
 [[ -f "$BASELINE" ]] || die "the committed baseline is absent: $BASELINE"
-base_value() { sed -n "s/^$1${TAB}\\([0-9][0-9]*\\)[[:space:]]*$/\\1/p" "$BASELINE" | head -1; }
+base_value() { sed -n "s/^# $1${TAB}\\([0-9][0-9]*\\)[[:space:]]*$/\\1/p" "$BASELINE" | head -1; }
 BASE_SECS="$(base_value baseline-seconds)"
 ALLOWANCE="$(base_value allowance-percent)"
 [[ -n "$BASE_SECS" ]] || die "$BASELINE declares no 'baseline-seconds' — it must be a whole number"

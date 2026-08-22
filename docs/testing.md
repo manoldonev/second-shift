@@ -6,6 +6,28 @@ deliberately does not run in CI.
 The short version lives in [`CLAUDE.md`](../CLAUDE.md) under **Verification**; this file
 carries the reasoning and the operator-run adversarial recipe.
 
+## What survives as a register
+
+[`docs/pipeline-manifesto.md`](pipeline-manifesto.md)'s P4/P5 posture names the register rule;
+this section is its consequence, not a second copy of it. #641 applied it — five files, 180 rows,
+every one a number a command could produce in one call, are gone: two prose-budget baselines (subsumed
+by `scripts/check-guard-budget.sh`, [below](#the-slow-suite-table), and a derived nightly total),
+three independently-drifting suite-timing tables (collapsed into
+[`tools/selftest-suite-timings.tsv`](#the-slow-suite-table)), and the `install-topology-known-red.tsv`
+allowlist, which had already drained to zero rows before this PR deleted it (see
+[Green here is not green where it ships](#how-the-sweep-runs), the class-guard subsection).
+
+What survives is everything a human, not a command, decided:
+`tools/gate-ablation-adjudication.tsv`, `tools/gate-ablation-classes.tsv`,
+`docs/prose-blocker-triage.tsv`, `tools/mutation-catalog.tsv`, `tools/mutation-operators.tsv`,
+`tools/mutation-exclusions.tsv`, `tools/mutation-pair-map.tsv`, `scripts/fail-open-sites.tsv`,
+`tools/capability-parity.tsv`,
+`plugins/dev-pipeline/tools/review-harness-fixtures/review-harness-manifest.tsv`,
+`tools/selftest-cache-inputs.tsv`, `tools/mutation-baseline.tsv` — each row states something no
+`find`/`wc`/`git ls-tree` could re-derive: a regression class, an adjudicated disposition, a
+reasoned exclusion. See [Test-the-tests](#test-the-tests-the-mutation-sweep), the earn-your-keep
+rule, for the discipline that keeps *those* honest.
+
 ## How the sweep runs
 
 One script owns it, locally and in CI:
@@ -15,7 +37,7 @@ SKIP_STRESS=1 bash tools/run-selftests.sh --full
 ```
 
 **`--full` is what makes that a full sweep.** Since #566 the bare invocation is the *bounded
-quick check*: it applies `tools/selftest-slow-suites.tsv` as exclusions by default, which is the
+quick check*: it applies `tools/selftest-suite-timings.tsv` as exclusions by default, which is the
 form `lean-gate.sh` milestone 3 gets. Every caller that wants the whole set — both CI selftest
 jobs, both nightly wholesale lanes, and the local recipe in [`CLAUDE.md`](../CLAUDE.md) — passes
 `--full`. See [the slow-suite table](#the-slow-suite-table) below.
@@ -44,7 +66,7 @@ follows:
 | a worker dies without writing a verdict | that suite scores `rc=125`, named as infra — never as a pass |
 | **every** failing suite is that infra class | exit **3**, the reserved code (#527) — the workers died, so the sweep learned nothing about the tree. `lean-gate.sh` milestone 3 reads a 3 from any verify lane as "nothing was evaluated": it reds with 7 and charges no fix attempt. Mixed infra-and-real stays exit 1, because a red branch is still a red branch. See [`config-schema.md`](config-schema.md) for the cross-repo contract |
 | discovered-minus-excluded ≠ suites actually run | exit 2, `silent truncation` — a faster sweep that ran fewer suites is the failure mode this design is most exposed to |
-| `--exclude` matches no discovered suite | exit 2, `stale exclusion` — the posture a stale `install-topology-known-red.tsv` row already carries |
+| `--exclude` matches no discovered suite | exit 2, `stale exclusion` — the same stale-row posture the slow-suite table applies to its own rows |
 | no suites discovered, or every suite excluded | exit 2 — a sweep that runs nothing is never green |
 
 `--exclude` has four in-repo callers, all passing
@@ -54,7 +76,7 @@ selftest jobs (`lint-and-selftests`, `selftests-bash32`) and both nightly wholes
 from the install cache, which is what the install-topology section below measures.
 `install-topology-selftest.sh` itself runs in its own nightly jobs (`install-topology`,
 `install-topology-bash32`), never alongside a sweep. The maintainer's dogfood lean-gate
-milestone-3 lane gets the same exclusion from `tools/selftest-slow-suites.tsv` instead, which it
+milestone-3 lane gets the same exclusion from `tools/selftest-suite-timings.tsv` instead, which it
 applies by default — see the slow-suite table section below. The suite stays *discovered*: the exclusion names
 a path that must keep existing, so renaming the suite reds CI instead of silently
 double-running it.
@@ -66,9 +88,21 @@ which reaps at roughly 120s. Until #566 the lane paid for that bound with a deta
 marker/rejoin protocol, a milestone-3-only interrupted budget and a lane registry — ~1,300 lines of
 supervision, guards included, whose only job was surviving a limit it is cheaper to stay under.
 
-`tools/selftest-slow-suites.tsv` is what replaced all of it. It is a committed cost record —
-`suite<TAB>seconds<TAB>reason` — and `run-selftests.sh` applies its rows as exclusions **by
-default**.
+`tools/selftest-suite-timings.tsv` is what replaced all of it. It is a committed cost record —
+`suite<TAB>seconds<TAB>measured_at` — and `run-selftests.sh` applies rows at or above its own
+`# threshold-seconds` directive as exclusions **by default**.
+
+**One table, three consumers (#641).** The file used to be three: this one (as
+`selftest-slow-suites.tsv`), `tools/check-sweep-bound.sh`'s baseline (as
+`selftest-sweep-baseline.tsv`), and `tools/mutation-sweep.sh`'s own slow list (as
+`mutation-slow-suites.tsv`) — independently drifting copies of the *same measurement* for the
+suites they shared (`lean-gate-selftest.sh` was 141s in both, by coincidence, not by any
+reconciling mechanism). They are one file now, one row per suite, one date. Each consumer keeps its
+own threshold as a `# `-prefixed comment directive in the same file rather than a separate one:
+`run-selftests.sh` and `check-sweep-bound.sh` share `# threshold-seconds` (9s); `mutation-sweep.sh`
+applies its own lower, hardcoded 5s bar in code, so the file legitimately carries rows between the
+two — real to the mutation lane, filtered out here at read time. A row naming no discovered suite
+is still a hard error; a suite absent from the file is still treated as fast by every consumer.
 
 | Caller | Passes | Runs |
 | --- | --- | --- |
@@ -111,7 +145,9 @@ a reaped call loses its work, and five of those hard-stop the run.
 `run-selftests.sh` prints each suite's elapsed seconds on its existing frame line
 (`::group::pass  3s  path/to-selftest.sh`) and judges nothing, so its exit-code contract keeps
 meaning exactly what it meant. The checker sums the suites the table did *not* defer and compares
-that total to `tools/selftest-sweep-baseline.tsv`.
+that total to the `# baseline-seconds`/`# allowance-percent` directives in
+`tools/selftest-suite-timings.tsv` (#641: the same unified file as the slow-suite table above,
+not a separate `selftest-sweep-baseline.tsv`).
 
 | | |
 | --- | --- |
@@ -134,8 +170,8 @@ which finish instantly; rounding those to zero would let the set grow by half a 
 total moving. Baseline and checked sum come through the same emitter, so they stay commensurable —
 the total is not the wall clock of a serial sweep and is not meant to be.
 
-**Re-baselining is an explicit reviewed commit.** Two numbers in
-`tools/selftest-sweep-baseline.tsv`, changed by hand, with the commit saying what was measured,
+**Re-baselining is an explicit reviewed commit.** Two directive lines in
+`tools/selftest-suite-timings.tsv`, changed by hand, with the commit saying what was measured,
 when, and on which lane — never an automatic rewrite. The alternative remedy is to table the
 grower, which the red names beside it. Cases: `tools/check-sweep-bound-selftest.sh`, plus
 `run-selftests-selftest.sh`'s `#629/AC-1` block for the emitter.
@@ -345,16 +381,17 @@ cross-plugin path goes through a resolution ladder**, never a fixed hop count �
 `tools/install-topology-selftest.sh` is the class guard, and it is the reason no new instance of
 this needs its own test: it stages `plugins/` at version-keyed paths outside any git repo and
 re-runs **every** shipped suite from a `git init`'d consumer cwd, under a per-suite wall-clock
-bound. It reds on any failure absent from `tools/install-topology-known-red.tsv`; a listed suite
-that passes, and a row matching no suite, are warnings that say "shrink the list".
+bound. It reds on any staged suite that fails, full stop — the `install-topology-known-red.tsv`
+allowlist that used to carve out an exception here drained to zero rows (#421) and is deleted
+(#641); a suite listed nowhere is already the "everything must pass" posture once the allowlist
+plumbing is gone.
 
-Its scoring is **55 suites: 49 pass, 6 listed** — and how that number was arrived at is the more
-useful thing to know than the number. The first run, on the authoring machine, scored 51 pass /
-4 listed; CI scored 49 / 2-red on the same commit, identically on both lanes, because two suites
-fail for reasons the authoring machine's environment hid (one needs the `claude` CLI to be
-*absent*, one needs bash older than 5.3). **A guard that reports on the environment cannot be
-seeded from one environment** — read every "measured here" claim about it as "measured on one
-machine" until a different one agrees.
+Its first run, on the authoring machine, scored 51 of 55 shipped suites passing, with 4 failing
+for reasons that turned out to be environment-dependent rather than real: CI scored 49 pass on
+the same commit, identically on both lanes, because two suites fail for reasons the authoring
+machine's environment hid (one needs the `claude` CLI to be *absent*, one needs bash older than
+5.3). **A guard that reports on the environment cannot be seeded from one environment** — read
+every "measured here" claim about it as "measured on one machine" until a different one agrees.
 
 **You can be the second environment without waiting for CI, and you should.** The gap is not
 mysterious: it is a small number of ambient dependencies, and removing them is a better
@@ -368,11 +405,11 @@ PATH="$SHADOW" bash tools/install-topology-selftest.sh
 ```
 
 That reproduces CI's verdict exactly — same two suites, same first failure line from each — on a
-machine whose own PATH hides both. It is how the two late rows were diagnosed rather than guessed.
-
-That is also why those two rows are marked ENVIRONMENT-DEPENDENT. They will pass on some machines,
-and the guard will duly warn "drop its row". Do not: read the cause and drop the row only once the
-suite passes where the cause says it fails.
+machine whose own PATH hides both. It is how those two were diagnosed as environment-dependent
+rather than guessed, and both were fixed for real rather than allowlisted: `install-topology-
+known-red.tsv` (the mechanism that would have carved out a temporary exception) had already
+drained to zero rows by #421, before #641 deleted it. Read a red here the same way: reproduce the
+gap first, do not reach for an exception that no longer exists.
 
 Re-running the whole shipped set is the price of the class being visible at all, and it is not
 small. Suites run concurrently (`INSTALL_TOPOLOGY_JOBS`, default 4 — each suite is a separate
@@ -397,7 +434,7 @@ before adding to what it runs.
 **It no longer runs on the PR lane at all.** It lives in `.github/workflows/nightly-guards.yml`
 on a nightly cron plus `workflow_dispatch`, and both CI selftest jobs exclude it by path via
 `run-selftests.sh --exclude`. The documented local recipe excludes it too, and since #566 it also
-carries a `tools/selftest-slow-suites.tsv` row, so the lean lane's bounded quick check defers it
+carries a `tools/selftest-suite-timings.tsv` row, so the lean lane's bounded quick check defers it
 without needing the flag.
 
 The reasoning is a cost/signal ratio, not a judgment that the guard is worthless — it caught two
@@ -413,9 +450,9 @@ of at PR time. If your change is about how plugins are installed or laid out, th
 good enough — run `bash tools/install-topology-selftest.sh` directly, or dispatch the workflow
 against your branch. Its 1200s `INSTALL_TOPOLOGY_TIMEOUT` is deliberately left alone: it was sized
 for contention that is now gone, but it is a hang detector and re-tightening it needs an
-uncontended measurement the nightly is what will produce. Both lanes are retained, because several
-`install-topology-known-red.tsv` rows are explicitly environment-dependent and the bash-3.2 lane
-carries signal ubuntu does not.
+uncontended measurement the nightly is what will produce. Both lanes are retained, because the two
+suites diagnosed above are explicitly environment-dependent and the bash-3.2 lane carries signal
+ubuntu does not.
 
 `INSTALL_TOPOLOGY_TIMEOUT` (default 1200s) is the per-suite bound. Its job is to turn a hang into
 one named timeout line instead of a CI job that dies at its own timeout with no attributable
@@ -1094,11 +1131,12 @@ any of its guard's mutants are scored — and that precheck is itself a paired-s
 run claiming "zero executions" has to skip it. A guard whose every mutant hits the cache skips its
 precheck entirely; a guard with even one miss pays it. The precheck also runs **serially, once per
 distinct suite, before the pool**: its timings set every killer bound and feed
-`tools/mutation-slow-suites.tsv`, so taking them under the pool's own contention would measure the
-pool rather than the suite.
+`tools/selftest-suite-timings.tsv` (#641: shared with `run-selftests.sh`/`check-sweep-bound.sh`,
+which apply their own, separate 9s threshold to the same file), so taking them under the pool's
+own contention would measure the pool rather than the suite.
 
 It is also where **slow-list drift is warned**, and the placement is the point. A suite that has
-grown past the 5s bar while absent from `tools/mutation-slow-suites.tsv` keeps its guard in the PR
+grown past the 5s bar while absent from `tools/selftest-suite-timings.tsv` keeps its guard in the PR
 lane, where every mutant that makes the guard spin costs the full killer bound; enough of them and
 the job dies on its own 15-minute ceiling — before the report, and therefore before any warn the
 report would have carried. `lean-gate-selftest.sh` reached **143s** against that 5s bar exactly this
@@ -1213,7 +1251,7 @@ regardless. A run has shipped a reding baseline on exactly this mistake.
 
 **A green PR does not mean a green nightly.** The PR lane sweeps only guards whose kill set is a
 single fast suite; everything paired to a slow or multi-suite killer (`lean-gate-selftest`,
-`scenario-liveness-selftest`, anything in `tools/mutation-slow-suites.tsv`) reports
+`scenario-liveness-selftest`, anything in `tools/selftest-suite-timings.tsv`) reports
 `deferred-to-nightly` and is **not graded on your PR**.
 Edit one of those and any new survivor surfaces at 03:17 UTC, on someone else's morning. If your
 diff touches a deferred guard, expect to learn about it from the nightly rather than from your PR —

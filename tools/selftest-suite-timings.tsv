@@ -1,0 +1,39 @@
+# selftest-suite-timings.tsv — one row per suite whose measured cost feeds two independent
+# consumers (#641, replacing tools/selftest-slow-suites.tsv and tools/mutation-slow-suites.tsv,
+# which independently drifted while recording the SAME measurement for overlapping suites at
+# different dates — e.g. lean-gate-selftest.sh was 141s in both, by coincidence, not by any
+# reconciling mechanism). One row per suite now, one date.
+#
+# EACH CONSUMER APPLIES ITS OWN THRESHOLD, moved out of this file and into the consumer that
+# reads it (#641): tools/run-selftests.sh and tools/check-sweep-bound.sh at 9s (the directive
+# below), tools/mutation-sweep.sh at 5s (a separate, hardcoded consumer-side constant, unchanged
+# by this file). A suite between the two — at or above 5s but under 9s — is a real row here,
+# relevant to the mutation lane only; run-selftests.sh filters it out at read time.
+#
+# tools/check-sweep-bound.sh's aggregate ratchet (#629) also lives in this file now, replacing
+# tools/selftest-sweep-baseline.tsv — the two directive lines below. Still an EXPLICIT REVIEWED
+# COMMIT to re-baseline, never an automatic rewrite; only the file it lives in changed.
+#
+# A row naming no discovered suite is a HARD ERROR (run-selftests.sh's existing stale-row
+# posture, applied here too). A suite ABSENT from this file is treated as fast by both consumers.
+#
+# threshold-seconds	9
+# baseline-seconds	106
+# allowance-percent	20
+#
+# suite<TAB>seconds<TAB>measured_at
+tools/install-topology-selftest.sh	584	2026-08-20
+plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	141	2026-08-20
+tools/mutation-sweep-selftest.sh	135	2026-08-20
+plugins/dev-pipeline/skills/build-lean/scenario-liveness-selftest.sh	68	2026-08-20
+scripts/check-lean-chain-selftest.sh	67	2026-08-21
+plugins/dev-pipeline/skills/run-lean/orchestrate-lean-selftest.sh	28	2026-08-20
+plugins/dev-pipeline/skills/build-lean/lean-evidence-selftest.sh	26	2026-08-21
+plugins/dev-pipeline/tools/retro-corpus-selftest.sh	22	2026-08-20
+plugins/second-shift/skills/onboard/tools/config-grill-selftest.sh	17	2026-08-20
+plugins/dev-pipeline/tools/preflight-selftest.sh	15	2026-08-20
+tools/prose-blockers-selftest.sh	15	2026-08-21
+plugins/second-shift/skills/doctor/tools/doctor-selftest.sh	13	2026-08-20
+tools/run-selftests-selftest.sh	12	2026-08-21
+plugins/dev-pipeline/skills/build-lean/lean-reconcile-selftest.sh	10	2026-08-17
+plugins/intake-toolkit/hooks/exitplan-ledger-gate-selftest.sh	5	2026-07-31

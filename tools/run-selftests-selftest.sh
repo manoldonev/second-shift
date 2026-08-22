@@ -819,14 +819,14 @@ RSL="$BASE/slow"; mkdir -p "$RSL/tools"
 make_suite "$RSL" "tools/quick-selftest.sh" 0 'echo quick'
 make_suite "$RSL" "tools/heavy-selftest.sh" 0 'echo heavy'
 make_suite "$RSL" "sub/other-selftest.sh"   0 'echo other'
-printf '# hdr\ntools/heavy-selftest.sh\t147\ttoo slow for the turn\n' > "$RSL/tools/selftest-slow-suites.tsv"
+printf '# threshold-seconds\t9\ntools/heavy-selftest.sh\t147\t2026-08-20\n' > "$RSL/tools/selftest-suite-timings.tsv"
 
 # AC-10 / AC-4. Applied BY DEFAULT — no flag opts in. The deferred suite is NAMED with its
-# reason (a count could not tell an operator which green they are not getting), the sweep still
-# exits 0, and the discovered/ran invariant holds because the exclusion is computed before
-# dispatch rather than by killing a live suite.
+# measured seconds and date (a count could not tell an operator which green they are not
+# getting), the sweep still exits 0, and the discovered/ran invariant holds because the
+# exclusion is computed before dispatch rather than by killing a live suite.
 run_runner "$RSL"
-if [[ "$RC" -eq 0 ]] && grep -q 'deferred: tools/heavy-selftest.sh (147s — too slow for the turn)' "$OUT" \
+if [[ "$RC" -eq 0 ]] && grep -q 'deferred: tools/heavy-selftest.sh (147s (measured 2026-08-20))' "$OUT" \
    && grep -q '3 discovered, 1 excluded, 2 to run' "$OUT" && ! grep -q 'ERROR' "$OUT"; then
   ok "slow-table: applied by default, names the deferred suite and its reason, and still exits 0"
 else
@@ -859,9 +859,9 @@ fi
 # job) with nobody noticing. The message must name the TABLE — a stale table row and a stale
 # workflow argument have different remedies, and a shared message sends the reader to the wrong
 # file.
-printf '# hdr\ntools/vanished-selftest.sh\t99\tgone\n' > "$RSL/tools/selftest-slow-suites.tsv"
+printf '# threshold-seconds\t9\ntools/vanished-selftest.sh\t99\t2026-08-20\n' > "$RSL/tools/selftest-suite-timings.tsv"
 run_runner "$RSL"
-if [[ "$RC" -eq 2 ]] && grep -q 'selftest-slow-suites.tsv row' "$OUT" && grep -q 'stale table row' "$OUT"; then
+if [[ "$RC" -eq 2 ]] && grep -q 'selftest-suite-timings.tsv row' "$OUT" && grep -q 'stale table row' "$OUT"; then
   ok "slow-table: a row matching no discovered suite reds, and the message names the table"
 else
   fail "slow-table: stale row must red with a table-specific message (rc=$RC)"; sed 's/^/    | /' "$OUT"
@@ -877,10 +877,23 @@ run_runner "$RSL" --full
 # A MALFORMED ROW IS A USAGE ERROR, not a silently-skipped one. A row whose seconds column is
 # not a number is a hand-edit that did not finish, and treating it as absent would defer nothing
 # while reporting a bound that is not in force.
-printf '# hdr\ntools/heavy-selftest.sh\tsoon\ttoo slow\n' > "$RSL/tools/selftest-slow-suites.tsv"
+printf '# threshold-seconds\t9\ntools/heavy-selftest.sh\tsoon\t2026-08-20\n' > "$RSL/tools/selftest-suite-timings.tsv"
 run_runner "$RSL"
 [[ "$RC" -eq 2 ]] && ok "slow-table: a non-numeric seconds column is rejected" \
                   || { fail "slow-table: malformed row was accepted (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
+
+# #641: a table with rows but no `# threshold-seconds` directive is unreadable, not "defer
+# nothing" — the membership rule the rows exist to state has gone missing.
+printf 'tools/heavy-selftest.sh\t147\t2026-08-20\n' > "$RSL/tools/selftest-suite-timings.tsv"
+run_runner "$RSL"
+[[ "$RC" -eq 2 ]] && grep -q 'threshold-seconds' "$OUT" \
+  && ok "slow-table: a table with no '# threshold-seconds' directive is a hard error" \
+  || { fail "slow-table: a directive-less table was accepted (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
+
+# AC-4 (#641): the committed table is a real union — no suite appears twice.
+DUPES="$(grep -v '^#' "$HERE/selftest-suite-timings.tsv" | grep -v '^$' | cut -f1 | sort | uniq -d)"
+[[ -z "$DUPES" ]] && ok "slow-table: the committed table has no duplicate suite row" \
+                  || fail "slow-table: duplicate row(s) in the committed table: $DUPES"
 
 # ---------------------------------------------------------------------------------------
 # THE FIXTURE REAPER CALL SITE (#528). Every other case builds a --root whose tools/ holds only

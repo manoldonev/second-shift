@@ -65,11 +65,13 @@
 #   (.claude/hooks/pre-commit-typecheck.sh) reuses this same carve-out, kept in lockstep
 #   with this file by its pre-commit-typecheck-selftest.sh.
 #
-# .claude/**/*.tsv — pipeline-internal data (e.g. .claude/prose-budget.baseline.tsv) read
-#   only by a shell tool (prose-budget.sh). Zero coverage per the shared rationale, and it
+# .claude/**/*.tsv — pipeline-internal data (e.g. .claude/lean-overrides.tsv) read
+#   only by a shell tool. Zero coverage per the shared rationale, and it
 #   is outside the prettier format-glob *.{ts,tsx,js,json,md}, so the INERT-lane
 #   `prettier --check` already skips it. Anchor is deliberately .claude/-scoped: a .tsv
 #   anywhere else (e.g. an apps/** fixture consumed by a *.test.ts) still selects SUITE.
+#   (#641 retired the two prose-budget baselines that used to live under .claude/ — the
+#   glob's scope is unchanged, only its motivating example moved.)
 #
 # .claude/**/*.{json,jsonl} — cost-tracking fixtures (read by pipeline-cost-block.sh /
 #   cost-block-selftest.sh), .claude/settings.json, the audit .jsonl ledgers, etc. The

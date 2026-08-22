@@ -721,7 +721,7 @@ fi
 # criterion (which would grade mutants more weakly than the baseline that produced them).
 FX="$(new_fixture strong)"
 baseline_with "$FX"
-printf '# fixture slow list\n./guard-selftest.sh\t42\t2026-07-29\n' > "$FX/tools/mutation-slow-suites.tsv"
+printf '# fixture slow list\n./guard-selftest.sh\t42\t2026-07-29\n' > "$FX/tools/selftest-suite-timings.tsv"
 # The commit must TOUCH THE GUARD, or the PR-mode diff selects nothing and the case
 # passes vacuously on the empty-diff exit instead of exercising deferral.
 printf '\n# touched to put this guard in the PR diff\n' >> "$FX/guard.sh"
@@ -769,7 +769,7 @@ printf 'sleep 1.2\n' | cat - "$FX/guard-selftest.sh" > "$FX/guard-selftest.sh.tm
 mv "$FX/guard-selftest.sh.tmp" "$FX/guard-selftest.sh"
 ( cd "$FX" && git add -A \
   && git -c user.email=f@e.invalid -c user.name=f commit -qm 'slow the fixture suite' ) >/dev/null 2>&1
-printf '# fixture slow list — deliberately EMPTY of the suite below\n' > "$FX/tools/mutation-slow-suites.tsv"
+printf '# fixture slow list — deliberately EMPTY of the suite below\n' > "$FX/tools/selftest-suite-timings.tsv"
 OUT="$( cd "$FX" && enf env MUTATION_SWEEP_SLOW_THRESHOLD_S=1 bash "$SWEEP" --mode full 2>&1 )"; RC=$?
 if [[ $RC -eq 0 ]] && grep -q 'slow-list drift: \./guard-selftest\.sh measured' <<<"$OUT"; then
   ok "an unlisted suite past the threshold warns, naming itself, without reding the run"
@@ -807,7 +807,7 @@ fi
 # CONTROL: the same fixture, the same sleep, the same threshold — only the row is added. A
 # case that skipped this would pass on a warn keyed to duration alone, which would then fire
 # on every listed suite forever and train the reader to ignore it.
-printf '# fixture slow list\n./guard-selftest.sh\t2\t2026-08-14\n' > "$FX/tools/mutation-slow-suites.tsv"
+printf '# fixture slow list\n./guard-selftest.sh\t2\t2026-08-14\n' > "$FX/tools/selftest-suite-timings.tsv"
 OUT="$( cd "$FX" && enf env MUTATION_SWEEP_SLOW_THRESHOLD_S=1 bash "$SWEEP" --mode full 2>&1 )"; RC=$?
 if [[ $RC -eq 0 ]] && ! grep -q 'slow-list drift' <<<"$OUT"; then
   ok "the same suite, once listed, warns no more"
@@ -2525,7 +2525,7 @@ if [[ -f "$REPO_ROOT/tools/mutation-catalog.tsv" ]]; then
   done < "$REPO_ROOT/tools/mutation-catalog.tsv"
 fi
 # Slow suites: selftest resolves, seconds numeric, measured_at ISO-8601.
-if [[ -f "$REPO_ROOT/tools/mutation-slow-suites.tsv" ]]; then
+if [[ -f "$REPO_ROOT/tools/selftest-suite-timings.tsv" ]]; then
   while IFS=$'\t' read -r s secs when; do
     case "$s" in ''|'#'*) continue ;; esac
     [[ -f "$REPO_ROOT/$s" ]] || lint_fail "slow-suites selftest does not exist: $s"
@@ -2534,7 +2534,7 @@ if [[ -f "$REPO_ROOT/tools/mutation-slow-suites.tsv" ]]; then
       [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) : ;;
       *) lint_fail "slow-suites measured_at is not ISO-8601: $s -> '$when'" ;;
     esac
-  done < "$REPO_ROOT/tools/mutation-slow-suites.tsv"
+  done < "$REPO_ROOT/tools/selftest-suite-timings.tsv"
 fi
 # No suite in the REAL corpus may redirect to a literal path outside its own mktemp tree.
 # That is the concurrency hazard the pool made reachable: two mutants of one guard run the

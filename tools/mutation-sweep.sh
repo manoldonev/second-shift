@@ -331,7 +331,9 @@ EXCLUSIONS="$TOOLS_DIR/mutation-exclusions.tsv"
 OPERATORS="$TOOLS_DIR/mutation-operators.tsv"
 CATALOG="$TOOLS_DIR/mutation-catalog.tsv"
 BASELINE="$TOOLS_DIR/mutation-baseline.tsv"
-SLOW_SUITES="$TOOLS_DIR/mutation-slow-suites.tsv"
+# #641: shared with run-selftests.sh/check-sweep-bound.sh; was this tool's own
+# mutation-slow-suites.tsv before the three timing files were unified.
+SLOW_SUITES="$TOOLS_DIR/selftest-suite-timings.tsv"
 
 ENFORCING=0
 [[ -n "${GITHUB_ACTIONS:-}" ]] && ENFORCING=1
@@ -1962,7 +1964,7 @@ while [[ $i -lt ${#GL_GUARD[@]} ]]; do
       # timeout it diagnoses. Warn, never red: the list is a cost record, and a stale row
       # costs wall clock, not correctness.
       if [[ $((t1 - t0)) -ge $SLOW_THRESHOLD_S ]] && ! is_slow "$s"; then
-        warn "slow-list drift: $s measured $((t1 - t0))s (>= ${SLOW_THRESHOLD_S}s) but tools/mutation-slow-suites.tsv does not record it at or above that bar, so its guard is still swept in the PR lane. Add or update the row by ordinary PR."
+        warn "slow-list drift: $s measured $((t1 - t0))s (>= ${SLOW_THRESHOLD_S}s) but tools/selftest-suite-timings.tsv does not record it at or above that bar, so its guard is still swept in the PR lane. Add or update the row by ordinary PR."
       fi
       PRE_OK="${PRE_OK:+$PRE_OK }$s"
       continue
@@ -2113,13 +2115,30 @@ if [[ $SEED -eq 1 ]]; then
   info "seed: baseline -> $OUT"
 
   SOUT="${SLOW_OUT:-$SLOW_SUITES}"
+  # #641: SLOW_SUITES is SHARED with run-selftests.sh/check-sweep-bound.sh, so the default path
+  # MERGES rather than overwrites — only rows for suites prechecked THIS run are replaced. A
+  # CI-supplied --slow-out (always a scratch path) never hits this branch.
+  MEASURED_LIST="$WORKDIR/measured-suites.txt"
+  printf '%s\n' "${MEASURED:-}" | grep -v '^$' | cut -f1 | LC_ALL=C sort -u > "$MEASURED_LIST"
+  # Snapshot first: `{ ... } > "$SOUT"` truncates $SOUT before anything inside the braces runs.
+  SNAPSHOT=""
+  if [[ "$SOUT" == "$SLOW_SUITES" && -f "$SLOW_SUITES" ]]; then
+    SNAPSHOT="$WORKDIR/slow-suites-snapshot.tsv"
+    cp "$SLOW_SUITES" "$SNAPSHOT"
+  fi
   {
-    echo "# mutation-slow-suites.tsv — paired suites measured at or above ${SLOW_THRESHOLD_S}s in the canonical"
-    echo "# environment. The PR lane defers any guard whose killer appears here."
-    echo "# Membership drift is a report warn, never red; this committed copy updates by ordinary PR."
-    echo "# A paired suite ABSENT from this file is treated as fast."
-    echo "#"
-    echo "# selftest<TAB>seconds<TAB>measured_at   (seconds from the seed run's unmutated precheck; ISO-8601 date)"
+    if [[ -n "$SNAPSHOT" ]]; then
+      grep '^#' "$SNAPSHOT"
+      awk -F'\t' -v mf="$MEASURED_LIST" 'BEGIN { while ((getline l < mf) > 0) measured[l] = 1 }
+        /^#/ { next } NF == 0 { next } !($1 in measured) { print }' "$SNAPSHOT"
+    else
+      echo "# mutation-slow-suites.tsv — paired suites measured at or above ${SLOW_THRESHOLD_S}s in the canonical"
+      echo "# environment. The PR lane defers any guard whose killer appears here."
+      echo "# Membership drift is a report warn, never red; this committed copy updates by ordinary PR."
+      echo "# A paired suite ABSENT from this file is treated as fast."
+      echo "#"
+      echo "# selftest<TAB>seconds<TAB>measured_at   (seconds from the seed run's unmutated precheck; ISO-8601 date)"
+    fi
     printf '%s\n' "${MEASURED:-}" | grep -v '^$' | sort -u | while IFS=$'\t' read -r s secs; do
       [[ -n "$s" ]] || continue
       [[ "$secs" -ge "$SLOW_THRESHOLD_S" ]] 2>/dev/null && printf '%s\t%s\t%s\n' "$s" "$secs" "$(date -u +%Y-%m-%d)"

@@ -33,22 +33,37 @@ trap 'rm -rf "$TMP"' EXIT INT TERM
 # checker reads the tree only to answer "is this a suite that exists?".
 suite() { mkdir -p "$(dirname "$1/$2")"; printf '#!/usr/bin/env bash\n' > "$1/$2"; }
 
+# table() and baseline() both write tools/selftest-suite-timings.tsv (#641: --table and
+# --baseline default to the same unified file), so each preserves whatever the other already
+# wrote there — neither call knows whether it runs first.
+
 # table <root> <threshold> <deferred-suite>... — the slow-suite table the checker resolves.
 table() {
   local root="$1" thr="$2"; shift 2
   mkdir -p "$root/tools"
+  local f="$root/tools/selftest-suite-timings.tsv"
+  local kept=""
+  [[ -f "$f" ]] && kept="$(grep -E '^# (baseline-seconds|allowance-percent)' "$f" || true)"
   {
     printf '# fixture slow-suite table\n'
     printf '# threshold-seconds%s%s\n' "$TAB" "$thr"
+    [[ -n "$kept" ]] && printf '%s\n' "$kept"
     local s
     for s in "$@"; do printf '%s%s99%sdeferred by this fixture\n' "$s" "$TAB" "$TAB"; done
-  } > "$root/tools/selftest-slow-suites.tsv"
+  } > "$f"
 }
 
 baseline() { # <root> <seconds> <allowance>
-  mkdir -p "$1/tools"
-  printf 'baseline-seconds%s%s\nallowance-percent%s%s\n' "$TAB" "$2" "$TAB" "$3" \
-    > "$1/tools/selftest-sweep-baseline.tsv"
+  local root="$1" secs="$2" allow="$3"
+  mkdir -p "$root/tools"
+  local f="$root/tools/selftest-suite-timings.tsv"
+  local rest=""
+  [[ -f "$f" ]] && rest="$(grep -v '^# baseline-seconds\|^# allowance-percent' "$f" || true)"
+  {
+    [[ -n "$rest" ]] && printf '%s\n' "$rest"
+    printf '# baseline-seconds%s%s\n' "$TAB" "$secs"
+    printf '# allowance-percent%s%s\n' "$TAB" "$allow"
+  } > "$f"
 }
 
 frame() { # <status> <elapsed-field> <suite> [inner-line...]
@@ -262,7 +277,7 @@ fi
 # aggregate compared against nothing.
 # ---------------------------------------------------------------------------------------
 table "$R" 25 heavy-selftest.sh
-sed '/^# threshold-seconds/d' "$R/tools/selftest-slow-suites.tsv" > "$TMP/nothr.tsv"
+sed '/^# threshold-seconds/d' "$R/tools/selftest-suite-timings.tsv" > "$TMP/nothr.tsv"
 RC="$(run --log "$TMP/green.log" --root "$R" --table "$TMP/nothr.tsv")"
 if [[ "$RC" -eq 2 ]] && grep -qF 'threshold-seconds' "$TMP/out"; then
   ok "(g) AC-4: a table declaring no threshold is exit 2"
@@ -270,12 +285,12 @@ else
   bad "(g) AC-4: a missing threshold directive must red, got rc=$RC"; dump
 fi
 
-printf 'allowance-percent%s10\n' "$TAB" > "$TMP/nobase.tsv"
+printf '# allowance-percent%s10\n' "$TAB" > "$TMP/nobase.tsv"
 RC="$(run --log "$TMP/green.log" --root "$R" --baseline "$TMP/nobase.tsv")"
 [[ "$RC" -eq 2 ]] && ok "(g) AC-4: a baseline record with no baseline-seconds is exit 2" \
   || { bad "(g) AC-4: a baseline missing its sum must red, got rc=$RC"; dump; }
 
-printf 'baseline-seconds%s0\nallowance-percent%s10\n' "$TAB" "$TAB" > "$TMP/zerobase.tsv"
+printf '# baseline-seconds%s0\n# allowance-percent%s10\n' "$TAB" "$TAB" > "$TMP/zerobase.tsv"
 RC="$(run --log "$TMP/green.log" --root "$R" --baseline "$TMP/zerobase.tsv")"
 [[ "$RC" -eq 2 ]] && ok "(g) AC-4: a zero baseline is exit 2, not a bound everything breaches" \
   || { bad "(g) AC-4: baseline-seconds=0 must red, got rc=$RC"; dump; }
@@ -302,7 +317,7 @@ L="$TMP/live-root"
 suite "$L" c-selftest.sh
 baseline "$L" 12 10
 { frame pass 12s c-selftest.sh; } > "$TMP/live.log"
-RC="$(run --log "$TMP/live.log" --root "$L" --table "$REPO/tools/selftest-slow-suites.tsv")"
+RC="$(run --log "$TMP/live.log" --root "$L" --table "$REPO/tools/selftest-suite-timings.tsv")"
 if [[ "$RC" -eq 0 ]] && grep -qF '1 per-suite warning(s)' "$TMP/out"; then
   ok "(i) the live slow-suite table declares a threshold the checker reads, and it is at most 12s"
 else
