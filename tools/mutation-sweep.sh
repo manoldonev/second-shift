@@ -2116,12 +2116,11 @@ if [[ $SEED -eq 1 ]]; then
 
   SOUT="${SLOW_OUT:-$SLOW_SUITES}"
   # #641: SLOW_SUITES is SHARED with run-selftests.sh/check-sweep-bound.sh, so the default path
-  # MERGES rather than overwrites — only rows for suites prechecked THIS run are replaced. A
+  # MERGES (only rows for suites prechecked THIS run are replaced) rather than overwrites. A
   # CI-supplied --slow-out (always a scratch path) never hits this branch.
   MEASURED_LIST="$WORKDIR/measured-suites.txt"
   printf '%s\n' "${MEASURED:-}" | grep -v '^$' | cut -f1 | LC_ALL=C sort -u > "$MEASURED_LIST"
-  # Snapshot first: `{ ... } > "$SOUT"` truncates $SOUT before anything inside the braces runs.
-  SNAPSHOT=""
+  SNAPSHOT="" # snapshot first: `{ ... } > "$SOUT"` truncates $SOUT before the braces run
   if [[ "$SOUT" == "$SLOW_SUITES" && -f "$SLOW_SUITES" ]]; then
     SNAPSHOT="$WORKDIR/slow-suites-snapshot.tsv"
     cp "$SLOW_SUITES" "$SNAPSHOT"

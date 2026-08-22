@@ -107,6 +107,7 @@ rows), `prose-blocker-triage.tsv`, `mutation-catalog.tsv`, `mutation-operators.t
 | D-3 | Whether the ratchet-file deletion lands in this slice or a follow-up | This slice — deferring it was PR #645's own review finding. Ratified in the issue body, https://github.com/manoldonev/second-shift/issues/641 | ticket-sourced |
 | D-4 | Scope: add a new TSV, or replace the three existing ratchets that do a worse version of its job | Replace, not add — amended after the operator's "what is the goal of these endless rows of tsv" question, https://github.com/manoldonev/second-shift/issues/641#issuecomment-5380196852 | ticket-sourced |
 | D-5 | Whether the register rule (state the asymmetry rule that would have prevented the 180 retired rows) belongs in this slice | Yes, beside P4/P5, as a second manifesto paragraph — approved as a scope addition, https://github.com/manoldonev/second-shift/issues/641#issuecomment-5380232575 | ticket-sourced |
+| D-6 | One shared `# threshold-seconds` directive vs. one per consumer (scope item 2 said "its own directive key") | One shared key — `run-selftests.sh` and `check-sweep-bound.sh` bound the identical 9s quantity, and two same-valued keys reintroduce the drift this file exists to remove. See Build-time amendments. | codebase-derived |
 
 ## Acceptance Criteria
 
@@ -161,3 +162,33 @@ failed regardless of its other ACs.
   `CLAUDE_CODE_SESSION_ID` turns the same full sweep from 4 failures to 74/74 green). AC-6's
   `bash tools/run-selftests.sh --full --exclude tools/install-topology-selftest.sh is green` is
   satisfied under that scrub.
+- **D-6 — scope item 2's threshold directive is ONE shared key, not one per consumer** (departure,
+  flagged undeclared in round 1 review, documented here rather than reverted). The scope text said
+  "one per consumer… and its own directive key"; shipped a single `# threshold-seconds` directive
+  in `tools/selftest-suite-timings.tsv`, read identically by `run-selftests.sh` and
+  `check-sweep-bound.sh`. Both consumers bound the SAME quantity — milestone 3's local sweep and
+  its nightly aggregate check both defer at 9s — and `check-sweep-bound.sh`'s header names the
+  reason directly: "THE THRESHOLD HAS ONE HOME." Two independently-keyed directives holding the
+  identical value is exactly the drift shape this file replaces three ratchet files to avoid — a
+  hand-edit to one key with no obligation to touch the other. Reverting to two same-valued keys
+  would reintroduce that drift risk to satisfy the letter of the scope text against its own intent.
+  `mutation-sweep.sh`'s separate 5s bar is unaffected — it stays its own hardcoded consumer-side
+  constant, per the scope text's own "already there, unchanged." Provenance: codebase-derived.
+- **Round-1 review fixes** (PR #648, `run_id=review-641-pr648-1`, needs-work): (1) added a
+  `tools/mutation-baseline.tsv` row for `pipeline-doctor.sh::detector::3726bf79a636` — the same
+  accepted survivor as the deleted `fd42dbc00b25` row, re-keyed because #641 dropped `, sh n/a`
+  from the grepped literal; (2) AC-2's classify_ref() arms were unguarded — `classify_worktree()`
+  and `classify_ref()` were two separate implementations of the same predicate, not "the SAME case
+  statement" the header claimed, and every existing fixture drove only the worktree side (a file
+  added on the checked-out feature branch). Fixed at the root rather than adding a second,
+  duplicate arm list to fixture: both functions now call one shared `is_guard_path()`, so a
+  worktree-side arm fixture exercises the ref side's classification too, and there is nothing left
+  to drift. What `classify_ref()` alone still owns — the git-ls-tree READ, not the classification —
+  gets its own "ref-mechanism" case (a file present only at the base, absent on feature), because
+  every AC-1 case reuses one path present on both sides and so cannot tell a broken ref-read from a
+  correct one; (3) the `>= threshold` filter in both `run-selftests.sh` and `check-sweep-bound.sh`
+  had no fixture row below its own threshold, so every existing case passed unchanged whether the
+  filter deferred everything with a table row or nothing at all — added one boundary row to each
+  suite's existing table fixture (folded into `run-selftests-selftest.sh`'s standing table rather
+  than a separate case, since its assertions were already free to extend); (4) D-6 above; (5)
+  AC-7's own net-negative requirement — see the updated AC-7 self-check bullet.

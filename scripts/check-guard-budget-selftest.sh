@@ -5,9 +5,16 @@
 # Every case asserts the PRINTED measured value, never rc alone (AC-1's own text) — rc alone
 # would not distinguish "measured correctly" from "measured wrong and got lucky on the sign".
 #
-# AC-2's classify() coverage is one case PER ARM: each adds one file matching exactly one
-# arm and asserts the delta is exactly that file's line count, so neutering a single arm
-# fails that case alone and names which arm broke. Bash 3.2 compatible.
+# AC-2's classify() coverage is one case PER ARM, worktree-side only: each adds one file
+# matching exactly one arm and asserts the delta is exactly that file's line count, so
+# neutering a single arm fails that case alone and names which arm broke. classify_worktree()
+# and classify_ref() both call the SAME is_guard_path() (check-guard-budget.sh), so an arm
+# fixture on the worktree side exercises the ref side's classification too — there is no
+# second, independently-drifting arm list to cover separately. What classify_ref() alone owns —
+# the git-ls-tree READ, not the classification — needs its own case: AC-1's cases all reuse one
+# path present on BOTH sides at different sizes, which a broken ref (reading HEAD's PATH SET
+# instead of the base's) survives undetected, since the path still resolves either way. Only a
+# path absent from one side exposes it — the "ref-mechanism" case below. Bash 3.2 compatible.
 
 set -uo pipefail
 
@@ -38,15 +45,25 @@ commit_all() { # commit_all <dir> <message>
 
 # ============================================================= AC-1: the four fixture cases
 
+# mk_guard_case <r-suffix> <initial-lines> <final-lines> [trailer] — the setup common to Cases
+# 1/3/4: a guard file at <initial> lines on main, resized to <final> on feature (with a
+# Guard-mass: trailer on that commit if given). Leaves OUT/rc set from running the gate.
+mk_guard_case() {
+  R="$TMP/$1"; mkdir -p "$R"; mkrepo "$R"
+  mkdir -p "$R/tools"; nlines "$2" > "$R/tools/check-thing.sh"
+  commit_all "$R" "feat: add a $2-line guard"
+  git -C "$R" checkout -qb feature
+  nlines "$3" > "$R/tools/check-thing.sh"
+  if [ -n "${4:-}" ]; then
+    git -C "$R" add . && git -C "$R" -c user.name=t -c user.email=t@t commit -qm "feat: resize the guard" -m "$4"
+  else
+    commit_all "$R" "resize: guard $2 -> $3 lines"
+  fi
+  OUT="$( (cd "$R" && bash "$GATE" main) 2>&1 )"; rc=$?
+}
+
 # ---- Case 1: mass DECREASED => pass, printed values show the decrease.
-R="$TMP/r1"; mkdir -p "$R"; mkrepo "$R"
-mkdir -p "$R/tools"
-nlines 10 > "$R/tools/check-thing.sh"
-commit_all "$R" "feat: add a 10-line guard"
-git -C "$R" checkout -qb feature
-nlines 4 > "$R/tools/check-thing.sh"
-commit_all "$R" "fix: shrink the guard to 4 lines"
-OUT="$( (cd "$R" && bash "$GATE" main) 2>&1 )"; rc=$?
+mk_guard_case r1 10 4
 if [ "$rc" -eq 0 ] && echo "$OUT" | grep -q "base 10, HEAD 4 (delta -6)"; then
   ok "1 mass decreased passes and prints base 10 / HEAD 4 / delta -6"
 else
@@ -69,14 +86,7 @@ else
 fi
 
 # ---- Case 3: mass INCREASED, no trailer => fail, naming the delta.
-R="$TMP/r3"; mkdir -p "$R"; mkrepo "$R"
-mkdir -p "$R/tools"
-nlines 5 > "$R/tools/check-thing.sh"
-commit_all "$R" "feat: add a 5-line guard"
-git -C "$R" checkout -qb feature
-nlines 12 > "$R/tools/check-thing.sh"
-commit_all "$R" "feat: grow the guard with no trailer"
-OUT="$( (cd "$R" && bash "$GATE" main) 2>&1 )"; rc=$?
+mk_guard_case r3 5 12
 if [ "$rc" -eq 1 ] && echo "$OUT" | grep -q "grew by 7 lines" && echo "$OUT" | grep -q "base 5 (" ; then
   ok "3 mass increased with no trailer fails (rc=1), names delta 7 and base 5"
 else
@@ -84,15 +94,7 @@ else
 fi
 
 # ---- Case 4: mass INCREASED, WITH a Guard-mass trailer => pass.
-R="$TMP/r4"; mkdir -p "$R"; mkrepo "$R"
-mkdir -p "$R/tools"
-nlines 5 > "$R/tools/check-thing.sh"
-commit_all "$R" "feat: add a 5-line guard"
-git -C "$R" checkout -qb feature
-nlines 12 > "$R/tools/check-thing.sh"
-git -C "$R" add . && git -C "$R" -c user.name=t -c user.email=t@t commit -qm "feat: grow the guard" \
-  -m "Guard-mass: +7 new fixture arm needs its own guard rows"
-OUT="$( (cd "$R" && bash "$GATE" main) 2>&1 )"; rc=$?
+mk_guard_case r4 5 12 "Guard-mass: +7 new fixture arm needs its own guard rows"
 if [ "$rc" -eq 0 ] && echo "$OUT" | grep -q "delta +7" && echo "$OUT" | grep -q "covered by a 'Guard-mass:' trailer"; then
   ok "4 mass increased with a Guard-mass trailer passes, printing delta +7"
 else
@@ -139,6 +141,22 @@ arm_case "lean-gate"   "plugins/dev-pipeline/skills/build-lean/lean-gate.sh"
 arm_case "run-sf"      "tools/run-selftests.sh"
 arm_case "mut-sweep"   "tools/mutation-sweep.sh"
 arm_case "gate-abl"    "tools/gate-ablation.sh"
+
+# ---- classify_ref()'s OWN mechanism (the git-ls-tree read, not the classification is_guard_path()
+# already covers above): a file that exists ONLY at main, absent on feature, must still lower
+# BASE_MASS by its line count — provable only by reading main's tree, never the worktree.
+R="$TMP/refmech"; mkdir -p "$R"; mkrepo "$R"
+mkdir -p "$R/tools"; nlines 6 > "$R/tools/widget-selftest.sh"
+commit_all "$R" "feat: add tools/widget-selftest.sh on main"
+git -C "$R" checkout -qb feature
+rm -f "$R/tools/widget-selftest.sh"
+commit_all "$R" "fix: remove tools/widget-selftest.sh on feature"
+OUT="$( (cd "$R" && bash "$GATE" main) 2>&1 )"; rc=$?
+if [ "$rc" -eq 0 ] && echo "$OUT" | grep -q "delta -6"; then
+  ok "ref-mechanism: a base-only file lowers BASE_MASS by 6 via classify_ref()'s tree read"
+else
+  bad "ref-mechanism: expected rc=0 'delta -6' for a base-only file, got rc=$rc: $OUT"
+fi
 
 echo "check-guard-budget-selftest: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1

@@ -95,9 +95,7 @@ assert_rc() { # assert_rc <label> <want-rc> [needle]
 payload_inline() { jq -n --arg p "$1" '{tool_input: {plan: $p}}'; }
 payload_field()  { jq -n --arg f "$1" --arg v "$2" '{tool_input: {}} | .tool_input[$f] = $v'; }
 
-# ---------------------------------------------------------------------------
 # Tier 1 — inline plan content in tool_input.plan
-# ---------------------------------------------------------------------------
 run_hook "$(payload_inline "$VALID_LEDGER")"
 assert_rc "(t1a) tier 1 inline valid ledger → allow" 0 "payload tool_input.plan"
 
@@ -134,9 +132,7 @@ OUT="$(printf '%s' "$(payload_inline "$VALID_LEDGER")" \
 RC=$?
 assert_rc "(t1e) tier 1 inline with TMPDIR unset → allow via the /tmp fallback" 0 "payload tool_input.plan"
 
-# ---------------------------------------------------------------------------
 # Tier 2 — a plan-file path in the payload. All three field names must resolve.
-# ---------------------------------------------------------------------------
 printf '%s' "$VALID_LEDGER"   > "$WORK/good-plan.md"
 printf '%s' "$INVALID_LEDGER" > "$WORK/bad-plan.md"
 
@@ -348,9 +344,7 @@ OUT="$(printf '%s' "$(payload_inline "$INVALID_LEDGER")" \
     PATH="$SHIM" bash "$HOOK" 2>&1)"; RC=$?
 assert_rc "(e3) jq unavailable → allow with the jq warning" 0 "jq unavailable"
 
-# ---------------------------------------------------------------------------
 # The exit contract, aggregated over every case above.
-# ---------------------------------------------------------------------------
 if [[ "$NEVER_ONE_VIOLATIONS" -eq 0 ]]; then
   ok "(x1) never exit 1 — every case above returned 0 or 2"
 else

@@ -1407,9 +1407,7 @@ if [ -f "$SKILL" ]; then
   else fail "(n0) SKILL.md is $lines lines — the cap is 60 including frontmatter"; fi
 else fail "(n0) SKILL.md not found at $SKILL"; fi
 
-# ================================================================================================
 # #531 — the terminal-state taxonomy and the three boundaries it gave a vocabulary to.
-# ================================================================================================
 
 # ---- (t) the BUILD exit contract: exited 0 with work in flight ---------------------------------
 # THE DEFECT, at the boundary it is observable from. `claude -p` exits 0 whenever the model ends

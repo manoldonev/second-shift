@@ -111,9 +111,7 @@ else
   bad "(v2) expected rc=0 with 1.2.0 → 1.3.0, got: $out"
 fi
 
-# ---------------------------------------------------------------------------
 # (v3) untouched plugin => exit 0, no bump demanded.
-# ---------------------------------------------------------------------------
 R="$(newrepo v3)"
 printf 'root note\n' > "$R/NOTES.md"
 commit_in "$R" "docs: root-only change"
@@ -140,9 +138,7 @@ else
   bad "(v4) expected rc=1 naming beta with a count of 1, got: $out"
 fi
 
-# ---------------------------------------------------------------------------
 # (v5) explicit base-ref argument is honored over tag discovery.
-# ---------------------------------------------------------------------------
 R="$(newrepo v5)"
 printf 'alpha v2\n' > "$R/plugins/alpha/README.md"
 commit_in "$R" "fix(alpha): unbumped change"

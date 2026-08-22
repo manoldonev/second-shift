@@ -15,9 +15,9 @@
 # THE CLASSIFICATION (PR #645's predicate, kept behaviorally identical). A .sh file counts as
 # guard/test when its basename matches `*-selftest.sh`, `check-*.sh` or `*-lint.sh`, or it is a
 # lean-gate.sh (`*/skills/*/lean-gate.sh`), or one of the named standing-guard entry points:
-# run-selftests.sh, mutation-sweep.sh, gate-ablation.sh. classify_worktree()/classify_ref()
-# below are two entry points over the SAME case statement, so a fixture for one exercises the
-# rule the other enforces too.
+# run-selftests.sh, mutation-sweep.sh, gate-ablation.sh — is_guard_path() below, called by BOTH
+# classify_worktree() (files on disk) and classify_ref() (a git ref's tree, never checked out),
+# so there is one arm list, not two hand-kept ones a fixture could exercise on only one side.
 #
 # THE ESCAPE HATCH IS A COMMIT TRAILER, NOT A FILE EDIT: a PR whose guard mass increases reds
 # unless a commit on the branch carries a `Guard-mass:` trailer, the same extracted grep-anywhere
@@ -36,31 +36,23 @@ cd "$(git rev-parse --show-toplevel)" || { echo "not in a git repo" >&2; exit 2;
 BASE="${1:?usage: check-guard-budget.sh <base-ref>}"
 MERGE_BASE="$(git merge-base "$BASE" HEAD 2>/dev/null)" || { echo "[guard-budget] cannot resolve merge-base of $BASE and HEAD" >&2; exit 2; }
 
-# Two readings of the SAME predicate — files on disk (HEAD) vs. a git ref's tree (base, never
-# checked out). Keep the case arms textually identical: add an arm to both, or the "a fixture
-# for one exercises the rule the other enforces" property below stops being true.
+is_guard_path() { # is_guard_path <repo-relative-.sh-path> — rc=0 iff it counts as guard/test mass
+  case "$1" in */skills/*/lean-gate.sh) return 0 ;; esac
+  case "${1##*/}" in
+    *-selftest.sh|check-*.sh|*-lint.sh|run-selftests.sh|mutation-sweep.sh|gate-ablation.sh) return 0 ;;
+  esac
+  return 1
+}
+
 classify_worktree() { # classify_worktree <root> — every guard/test .sh path under root, one per line
-  find "$1" -type f \( \
-      -name '*-selftest.sh' -o \
-      -name 'check-*.sh' -o \
-      -name '*-lint.sh' -o \
-      -path '*/skills/*/lean-gate.sh' -o \
-      -name 'run-selftests.sh' -o \
-      -name 'mutation-sweep.sh' -o \
-      -name 'gate-ablation.sh' \
-    \) -not -path '*/node_modules/*' -not -path '*/.git/*' 2>/dev/null
+  find "$1" -type f -name '*.sh' -not -path '*/node_modules/*' -not -path '*/.git/*' 2>/dev/null \
+    | while IFS= read -r p; do is_guard_path "$p" && printf '%s\n' "$p"; done
 }
 
 classify_ref() { # classify_ref <ref> — same predicate, evaluated over `git ls-tree`, no checkout
   git ls-tree -r --name-only "$1" -- . 2>/dev/null | while IFS= read -r p; do
     case "$p" in */node_modules/*) continue ;; esac
-    case "$p" in
-      */skills/*/lean-gate.sh) printf '%s\n' "$p"; continue ;;
-    esac
-    case "${p##*/}" in
-      *-selftest.sh|check-*.sh|*-lint.sh|run-selftests.sh|mutation-sweep.sh|gate-ablation.sh)
-        printf '%s\n' "$p" ;;
-    esac
+    is_guard_path "$p" && printf '%s\n' "$p"
   done
 }
 
