@@ -7,41 +7,45 @@
 # enumerated with a count of zero, which is most of what the report has to say.
 #
 # Columns: gate_point <TAB> milestone <TAB> obligation <TAB> ERE over the reason <TAB> label
+#          <TAB> earn_your_keep
 # `obligation` is "-" where the gate writes no obligation row for the point.
+# `earn_your_keep` names the regression class this decision point ALONE catches — the same bar
+# the mutation sweep has held every register row to since #567 (#641). A dated incident goes here
+# where one exists. tools/gate-ablation.awk reds naming the row when this column is empty.
 #
 # Order is significant WITHIN a milestone (first match wins) and is the render order of the
 # decision-points table. Patterns are anchored where the gate message is anchored.
 
-m1/spec-absent	1	-	^no committed spec at 	the run has not written its spec yet
-m1/spec-no-ac	1	-	carries no numbered AC-n criterion	the spec declares no AC-n
-m1/ledger-lint	1	-	Decision Ledger fails ledger-lint	the spec's Decision Ledger is malformed
-m1/preflight-reconcile	1	-	does not reconcile with the pre-flight ledger	the spec drops or re-decides a bound receipt row
-m1/pause-and-ask	1	-	declares region .* dispositioned pause-and-ask	an Open Region needs an operator answer first
-m1/design-form	1	-	(## Design|design render lane|Design: none)	the spec's Design section is neither armed nor disarmed
-m2/frozen-files	2	-	^check-frozen-files\.sh failed	the PR edits a release-owned file
-m2/changelog-trailer	2	-	^check-changelog-trailer\.sh failed	a plugins PR carries no Changelog trailer
-m3/lint	3	-	^lint failed \(rc=	the configured lint lane is red
-m3/typecheck	3	-	^typecheck failed \(rc=	the configured typecheck lane is red
-m3/test	3	-	^test failed \(rc=	the configured test lane is red
-m3/extra-lane	3	-	^(mutation sweep|extra lane) 	a configured extra verifying lane is red
-m3/setup-lane	3	-	^(setup lane|lane ')	a configured setup lane is red or malformed
-m3/no-verify-lane	3	-	^no verifying lane configured	the repo configures nothing that verifies
-m3/design-render	3	-	(render |liveRender|RS-n|render receipt)	the armed design render lane could not produce a receipt
-m4/verdict-absent	4	-	^no committed verdict record at 	the review has not been handed off yet
-m4/verdict-not-approve	4	-	reads verdict=.*, not verdict=approve	the review returned needs-work
-m4/verdict-keys	4	-	carries no [a-z_]+ (reconciliation key|key,)	the verdict record is missing a required header key
-m4/verdict-uncommitted	4	-	(exists but was never committed|has uncommitted changes)	the verdict record is not on the branch
-m4/identity	4	-	(carries the BUILD run's identity|names the BUILD session)	the build session authored its own verdict
-m4/chain-break	4	-	inherited_patch_id	the round chain does not reach back to a committed record
-m4/patch-stale	4	-	(file\(s\) changed after it|now hashes to|own diff has moved since)	content moved after the review
-m4/head-missing	4	-	is not a commit in this branch's history	the reviewed commit no longer exists on the branch
-m4/head-tree-diff	4	-	differ between that commit and the current head	the review read a different tree
-m4/fidelity	4	-	fidelity=	an armed ticket's design fidelity is unscored or stale
-m5/progress-current	5	-	^progress file is not current	an earlier milestone left no satisfied record
-m5/exit-artifacts:no-open-pr	5	exit-artifacts	^(no open PR found for branch|could not list PRs for)	no open PR for the lane branch
-m5/exit-artifacts:draft	5	exit-artifacts	is still a draft	the PR is still a draft
-m5/exit-artifacts:closes	5	exit-artifacts	carries no 'Closes	the PR body does not close the issue
-m5/exit-artifacts:spec-link	5	exit-artifacts	does not link the committed spec	the PR body does not link the spec
-m5/verdict-reference:closing-comment	5	verdict-reference	^(no closing comment on|could not fetch the comment trail)	no closing comment references the verdict record
-m5/verdict-reference:body-ref	5	verdict-reference	does not reference the verdict record	the PR body does not reference the verdict record
-m5/identity-stamp	5	-	^could not stamp the build identity	the PR carries no build identity marker
+m1/spec-absent	1	-	^no committed spec at 	the run has not written its spec yet	a run that starts implementing before any spec is committed — nothing downstream has an AC to check against
+m1/spec-no-ac	1	-	carries no numbered AC-n criterion	the spec declares no AC-n	a spec that reads as complete but names no falsifiable AC-n — milestone 9 and the reviewer would have no oracle
+m1/ledger-lint	1	-	Decision Ledger fails ledger-lint	the spec's Decision Ledger is malformed	a Decision Ledger row malformed well enough to misparse silently downstream instead of failing loud here
+m1/preflight-reconcile	1	-	does not reconcile with the pre-flight ledger	the spec drops or re-decides a bound receipt row	a spec that silently drops or re-decides a pre-flight ledger row bound to this run, instead of carrying or departing it
+m1/pause-and-ask	1	-	declares region .* dispositioned pause-and-ask	an Open Region needs an operator answer first	an unresolved Open Region shipped as though it were closed, with no operator answer on record
+m1/design-form	1	-	(## Design|design render lane|Design: none)	the spec's Design section is neither armed nor disarmed	an armed ticket whose spec never declares its Design section either way, leaving milestone 3's render lane nothing to check
+m2/frozen-files	2	-	^check-frozen-files\.sh failed	the PR edits a release-owned file	a feature PR silently re-writing a release-derived field (plugin.json version, CHANGELOG.md) instead of leaving it to the release PR (#119)
+m2/changelog-trailer	2	-	^check-changelog-trailer\.sh failed	a plugins PR carries no Changelog trailer	a plugins/** PR landing with no changelog intent recorded anywhere, so the release notes silently degrade to a bare subject line
+m3/lint	3	-	^lint failed \(rc=	the configured lint lane is red	a shellcheck/jq regression a green test run would not surface
+m3/typecheck	3	-	^typecheck failed \(rc=	the configured typecheck lane is red	a type-checked contract broken with the test suite still green
+m3/test	3	-	^test failed \(rc=	the configured test lane is red	a behavioral regression the repo's own configured test lane exists to catch
+m3/extra-lane	3	-	^(mutation sweep|extra lane) 	a configured extra verifying lane is red	a regression only a repo-configured extra verifying lane (e.g. the mutation sweep) is wired to catch
+m3/setup-lane	3	-	^(setup lane|lane ')	a configured setup lane is red or malformed	a red or malformed setup step the configured lint/typecheck/test commands depend on before they can even run
+m3/no-verify-lane	3	-	^no verifying lane configured	the repo configures nothing that verifies	a consumer repo that configures no verifying lane at all — the one milestone with nothing green to check
+m3/design-render	3	-	(render |liveRender|RS-n|render receipt)	the armed design render lane could not produce a receipt	an armed ticket claiming rendered RS rows with no receipt behind them — a claimed artifact nobody produced
+m4/verdict-absent	4	-	^no committed verdict record at 	the review has not been handed off yet	a PR merged with no independent review ever run — the handoff step 8 exists to force one
+m4/verdict-not-approve	4	-	reads verdict=.*, not verdict=approve	the review returned needs-work	a needs-work verdict merged anyway instead of driving another fix round
+m4/verdict-keys	4	-	carries no [a-z_]+ (reconciliation key|key,)	the verdict record is missing a required header key	a verdict record missing a header key the reconciliation logic itself reads, silently misparsed downstream
+m4/verdict-uncommitted	4	-	(exists but was never committed|has uncommitted changes)	the verdict record is not on the branch	a verdict written locally but never pushed — the merge boundary would see nothing
+m4/identity	4	-	(carries the BUILD run's identity|names the BUILD session)	the build session authored its own verdict	the build session approving its own work — P10's self-approval defense
+m4/chain-break	4	-	inherited_patch_id	the round chain does not reach back to a committed record	a round chain whose patch-id lineage does not reach back to a committed record — an approval nothing traces to
+m4/patch-stale	4	-	(file\(s\) changed after it|now hashes to|own diff has moved since)	content moved after the review	content pushed after an approve, reusing a verdict that no longer describes the branch instead of spending a new round
+m4/head-missing	4	-	is not a commit in this branch's history	the reviewed commit no longer exists on the branch	a reviewed commit that no longer exists on the branch — a verdict about history that was rewritten away
+m4/head-tree-diff	4	-	differ between that commit and the current head	the review read a different tree	a review that read a different tree than the one at the reviewed commit — a mismatched-checkout false approve
+m4/fidelity	4	-	fidelity=	an armed ticket's design fidelity is unscored or stale	an armed ticket's design fidelity left unscored or stale at approval time
+m5/progress-current	5	-	^progress file is not current	an earlier milestone left no satisfied record	an earlier milestone recorded satisfied from the run's own account instead of a fresh gate re-check
+m5/exit-artifacts:no-open-pr	5	exit-artifacts	^(no open PR found for branch|could not list PRs for)	no open PR for the lane branch	close-out invoked against a branch with no open PR to close
+m5/exit-artifacts:draft	5	exit-artifacts	is still a draft	the PR is still a draft	a PR left in draft state closed out as if it were ready for review
+m5/exit-artifacts:closes	5	exit-artifacts	carries no 'Closes	the PR body does not close the issue	a PR body that never actually closes the issue it claims to finish
+m5/exit-artifacts:spec-link	5	exit-artifacts	does not link the committed spec	the PR body does not link the spec	a PR body that never links the spec a reviewer would need to check it against
+m5/verdict-reference:closing-comment	5	verdict-reference	^(no closing comment on|could not fetch the comment trail)	no closing comment references the verdict record	a close-out with no closing comment pointing a future reader at the verdict record
+m5/verdict-reference:body-ref	5	verdict-reference	does not reference the verdict record	the PR body does not reference the verdict record	a PR body that never references the verdict record backing its merge
+m5/identity-stamp	5	-	^could not stamp the build identity	the PR carries no build identity marker	a PR carrying no build identity marker for CI's chain check to compare a later verdict against

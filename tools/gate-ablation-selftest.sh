@@ -76,11 +76,11 @@ REC
 mkclasses() {
   {
     echo "# fixture classes"
-    printf 'm1/spec-absent\t1\t-\t^no committed spec at \tspec not written\n'
-    printf 'm1/never\t1\t-\t^this never matches anything\tnever\n'
-    printf 'm3/test\t3\t-\t^test failed \\(rc=\ttest lane red\n'
-    printf 'm4/verdict-not-approve\t4\t-\treads verdict=.*, not verdict=approve\tneeds-work\n'
-    printf 'm5/exit-artifacts:no-open-pr\t5\texit-artifacts\t^no open PR found for branch \tno open PR\n'
+    printf 'm1/spec-absent\t1\t-\t^no committed spec at \tspec not written\tno spec, nothing to build against\n'
+    printf 'm1/never\t1\t-\t^this never matches anything\tnever\tnever fires, kept for enumeration\n'
+    printf 'm3/test\t3\t-\t^test failed \\(rc=\ttest lane red\ta test regression a green lint would not catch\n'
+    printf 'm4/verdict-not-approve\t4\t-\treads verdict=.*, not verdict=approve\tneeds-work\ta needs-work verdict merged anyway\n'
+    printf 'm5/exit-artifacts:no-open-pr\t5\texit-artifacts\t^no open PR found for branch \tno open PR\tclose-out with nothing to close\n'
   } > "$1"
 }
 
@@ -268,6 +268,24 @@ check q3 "$(run manifest --state-dir "$S5" --lanes "$T/other-lanes.tsv" >/dev/nu
 #     it did not make.
 OUT="$(run manifest --state-dir "$S5")"
 check r "$(printf '%s\n' "$OUT" | grep -c 'still in flight when this was cut, named by --exclude: none')" 1 "no exclusions renders as none"
+
+# (t) #641 AC-2: a classes-table row with an empty earn-your-keep (6th) column fails the class
+#     check and names the row — a decision point cannot ship with nothing justifying its keep.
+C_BLANK="$T/classes-blank.tsv"
+{
+  echo "# fixture classes, one row with a blank earn-your-keep column"
+  printf 'm1/spec-absent\t1\t-\t^no committed spec at \tspec not written\t\n'
+} > "$C_BLANK"
+OUT="$(run emit --state-dir "$S3" --manifest "$M2" --classes "$C_BLANK" --adjudication "$A" --plans-dir "$P")"; rc=$?
+check t "$rc" 1 "a row with a blank earn-your-keep column exits 1"
+check t2 "$(printf '%s\n' "$OUT" | grep -c "row 'm1/spec-absent' carries no earn-your-keep column")" 1 "and names the offending row"
+C_MISSING="$T/classes-missing.tsv"
+{
+  echo "# fixture classes, one row with the 6th column absent entirely"
+  printf 'm1/spec-absent\t1\t-\t^no committed spec at \tspec not written\n'
+} > "$C_MISSING"
+run emit --state-dir "$S3" --manifest "$M2" --classes "$C_MISSING" --adjudication "$A" --plans-dir "$P" >/dev/null 2>&1
+check t3 "$?" 1 "a row with the 6th column missing entirely (not just blank) exits 1 too"
 
 echo
 if [ "$FAILED" -eq 0 ]; then echo "gate-ablation-selftest: ALL CASES PASSED"; exit 0; fi

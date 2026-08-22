@@ -65,6 +65,11 @@ build session write its own verdict; that debt is closed, not tolerated.
 *substitutively*: the existing prose copies of the don't-split-for-splitting rule are replaced by
 this single anchor, rather than a new copy being added beside them.
 
+**P4/P5 posture:** mechanical since #641 — `tools/guard-budget.tsv` sets a ceiling on guard/test
+shell mass that only ever ratchets down (`scripts/check-guard-budget.sh`, run in `pr-gates`), and
+`tools/gate-ablation-classes.tsv`'s earn-your-keep column requires every gate decision point to
+name the regression class it alone catches.
+
 ## The three velocity principles
 
 Operator-stated, from running the manual lane: it is slow, over-strict, and waits in vain. These

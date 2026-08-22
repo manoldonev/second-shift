@@ -1,0 +1,20 @@
+# guard-budget.tsv — the guard/test shell line-count ceiling (#641).
+#
+# ONE data row: ceiling <TAB> as_of <TAB> reason.
+#   ceiling  Total lines across every file scripts/check-guard-budget.sh classifies as
+#            guard/test shell (its own header documents the classification exactly).
+#   as_of    ISO date the ceiling was last set.
+#   reason   Empty unless this row RAISES the ceiling over its previous committed value — then
+#            it names why. scripts/check-guard-budget.sh reds a raise carrying no reason.
+#
+# The ratchet only goes down: nothing here auto-lowers the number on a merge (that would need
+# CI to commit to main unsupervised, which this repo grants no workflow the permissions for —
+# docs/plans/second-shift-641-lean.md's Known trades). Instead the check prints an advisory
+# whenever the tree measures under the committed ceiling, naming the lower value so an operator
+# can ratchet it down as a normal, reviewed edit. A PR that adds guard mass without deleting at
+# least as much pushes the measured total over this row's ceiling and reds.
+#
+# Raising the ceiling is a deliberate, reviewed edit: bump the number, stamp today's date, and
+# say why in the reason column — the escape hatch for a genuinely new guard, priced so it is
+# visible at review rather than absorbed silently.
+50531	2026-08-22

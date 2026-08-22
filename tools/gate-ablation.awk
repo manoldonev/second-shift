@@ -52,6 +52,10 @@ function readfile(path, kind,   line, n, f) {
       cls_gp[ncls] = trim(f[1]); cls_ms[ncls] = trim(f[2]); cls_ob[ncls] = trim(f[3])
       cls_pat[ncls] = f[4];      cls_lb[ncls] = trim(f[5])
       if (trim(f[3]) == "-") cls_ob[ncls] = ""
+      # #641: every decision point earns its keep or the row names a gap, not the reverse — a
+      # 6th column naming the regression class this point alone catches. Column absent (n < 6)
+      # or present-but-blank both read as unearned; only a non-empty column clears the bar.
+      if (n < 6 || trim(f[6]) == "") { err("classes table row '" cls_gp[ncls] "' carries no earn-your-keep column (#641)"); }
     } else if (kind == "adj") {
       if (n < 5) { err("adjudication table row has " n " fields, want 5: " line); }
       adj_dec[trim(f[1])]  = trim(f[2]); adj_fr[trim(f[1])]   = trim(f[3])
