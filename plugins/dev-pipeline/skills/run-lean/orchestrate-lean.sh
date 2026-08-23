@@ -337,6 +337,12 @@ envfail() { terminal "$1" 2 "$2"; }
 
 # #650 AC-4. The attended drive-mode prints the command that RESUMES the lane, and the honest
 # spelling of that command is the one the operator just ran. Captured before the parser consumes it.
+#
+# EXPANDED AS `${ORIG_ARGV[@]+"${ORIG_ARGV[@]}"}` at its one reader, and that is not superstition:
+# bash 3.2 under `set -u` treats `"${arr[@]}"` on an EMPTY array as an unbound variable and dies.
+# It cannot be empty on any path reaching that reader — `--attended` is itself an argument — but
+# CI has a bash-3.2 lane and a local bash 5.x sweep cannot tell the two forms apart, so the one
+# that is safe under both is the one written.
 ORIG_ARGV=("$@")
 
 while [ $# -gt 0 ]; do
@@ -879,7 +885,7 @@ fi
 attended_handoff() { # attended_handoff <role> <command>
   say "ATTENDED HANDOFF — this is the operator's turn. There is no spawn; nothing is running."
   say "  1. run this in an attended session:   $2"
-  say "  2. then re-invoke to advance the lane: $0 $(printf '%s ' "${ORIG_ARGV[@]}")"
+  say "  2. then re-invoke to advance the lane: $0 $(printf '%s ' ${ORIG_ARGV[@]+"${ORIG_ARGV[@]}"})"
   say "  the model this lane sizes $1 at: $([ "$1" = BUILD ] && printf '%s' "$BUILD_MODEL" || printf '%s' "$REVIEW_MODEL")"
   terminal "attended-$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')-turn" 9 \
     "the lane is waiting on the operator's $1 turn. Every check above ran as a direct gate call; nothing was spawned."
