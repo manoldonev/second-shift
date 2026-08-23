@@ -45,7 +45,7 @@ be retrodiction dressed as measurement.
   front door can actually move.
 - **AC-6** — `Changelog:` trailer present.
 - **AC-7** (added by this slice) — the follow-up carrying AC-2's campaign and AC-3's execution is
-  **filed and linked from this PR** before handoff. A re-scope that does not file its remainder is
+  **filed and linked from this PR** before handoff — **#650**. A re-scope that does not file its remainder is
   a scope cut, not a split.
 - **AC-8** (added by this slice) — the evidence file records, for each corpus launch, the evidence
   that produced its class, not merely the class. A classification with no citable evidence is
