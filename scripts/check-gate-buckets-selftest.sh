@@ -58,7 +58,7 @@ new_fixture() {
 #!/usr/bin/env bash
 envfail() { echo "$1" >&2; exit 2; }
 fail_milestone() { echo "$@" >&2; }
-# fail_milestone 1 "a retired site kept only as prose"
+#   [ -f spec ] || { fail_milestone 1 "a retired site kept only as prose"; }
 cmd_1() {
   [ -f spec ] || { fail_milestone 1 "no committed spec on the branch"; return $?; }
   [ -n "$CFG" ] || envfail "cannot read the config"
@@ -101,7 +101,7 @@ check() {
 }
 EOF
   {
-    printf '# fixture register\n'
+    printf '# fixture register\n\n'
     row "$LG::fail_milestone" gates-signal 'fail_milestone 1 "no committed spec on the branch"' - 'fixture: objective absence.'
     row "$LG::envfail"        not-a-gate   'envfail '                                            - 'environment refusal — fixture.'
     row "$LE::note_violation" gates-llm    "note_violation \"verdict record carries the BUILD run's identity\"" - 'fixture: P10 defense.'
@@ -136,6 +136,14 @@ else bad "(g1) a fully dispositioned fixture is green" "$out"; fi
 case "$out" in
   *"coverage (sites per row)"*) ok "(g1b) AC-4: the covered-site count is printed per row" ;;
   *) bad "(g1b) AC-4: the covered-site count is printed per row" "$out" ;;
+esac
+# The summary's two numbers are the contract stated back: 10 enumerated sites, 10 register rows.
+# Asserting the VALUES and not just the shape is what makes the counting itself guarded — a
+# summary that says "all dispositioned" over a miscounted denominator reads exactly like a pass.
+case "$out" in
+  *"10 enumerated refusal site(s) across 5 file(s), all bucketed by 10 register row(s)"*)
+    ok "(g1c) the verdict line reports the denominator and the register size, both exact" ;;
+  *) bad "(g1c) the verdict line reports both counts exactly" "$out" ;;
 esac
 
 echo "== the three disagreements, each independently =="
@@ -243,6 +251,15 @@ case "$rc:$out" in
   *) bad "(g12) a row with the wrong field count reds" "$out" ;;
 esac
 
+D="$(new_fixture emptycell)"
+printf '%s%s%sanchor%s-%swhy\n' "$LG::fail_milestone" "$TAB" "$TAB" "$TAB" "$TAB" >> "$D/scripts/gate-buckets.tsv"
+out="$(run_guard "$D")"; rc=$?
+case "$rc:$out" in
+  0:*) bad "(g12b) a row with five fields but an EMPTY one reds" "$out" ;;
+  *"malformed row"*) ok "(g12b) a five-field row with an empty bucket cell reds as malformed — the field count is not the check, the field CONTENT is" ;;
+  *) bad "(g12b) a row with an empty bucket cell reds as malformed" "$out" ;;
+esac
+
 D="$(new_fixture badkey)"
 row "not-a-path-key" gates-signal 'x' - 'fixture.' >> "$D/scripts/gate-buckets.tsv"
 row "$LG::not_a_primitive" gates-signal 'fail_milestone 1 "no committed spec' - 'fixture.' >> "$D/scripts/gate-buckets.tsv"
@@ -305,6 +322,36 @@ else ok "(g18c) 'launch_note terminal \"…\"' — the name in argument position
 if printf '%s\n' "$out" | awk -F'\t' -v k="$OL::envfail" '$1 == k && $2 == 3 { found = 1 } END { exit found ? 1 : 0 }'; then
   ok "(g18d) envfail()'s one-line definition is excluded from the TERMINAL enumeration too — the exclusion is by the file's whole primitive set, not by the primitive being scanned"
 else bad "(g18d) a definition line that CALLS another primitive is not a site" "$out"; fi
+
+echo "== the environment the guard runs in =="
+
+out="$(bash "$GUARD" --help 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] \
+   && printf '%s' "$out" | grep -q 'declares its yield bucket' \
+   && printf '%s' "$out" | grep -q '^# Exit code = number of violations' \
+   && ! printf '%s' "$out" | grep -q 'set -uo pipefail'; then
+  ok "(g19) --help prints through the last header line and stops before the code"
+else bad "(g19) --help prints the header and nothing past it" "rc=$rc $out"; fi
+
+D="$(new_fixture no_tmpdir)"
+out="$(env -u TMPDIR bash "$GUARD" "$D" 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ]; then
+  ok "(g20) with TMPDIR unset the guard still runs — its scratch files fall back to /tmp rather than to a path that does not exist"
+else bad "(g20) TMPDIR unset must not break the guard" "rc=$rc $out"; fi
+
+# The EMPTY denominator. A corpus that refuses nowhere is a legitimate state, and the guard must
+# read it as "nothing to classify" rather than as one nameless unclassified site — which is what
+# it becomes the moment the empty-line guard on the site loop stops holding.
+D="$(new_fixture empty_corpus)"
+for f in "$LG" "$LE" "$OL" "$OO" "$CC"; do
+  grep -v -e 'fail_milestone 1' -e 'note_violation "' -e 'envfail "' -e 'envfail env-' \
+       -e 'terminal preflight' -e 'fail "PR body' "$D/$f" > "$D/t" && mv "$D/t" "$D/$f"
+done
+: > "$D/scripts/gate-buckets.tsv"
+out="$(run_guard "$D")"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q '0 enumerated refusal site(s)'; then
+  ok "(g21) a corpus with no refusal sites at all is green against an empty register — an empty denominator is not one unnamed violation"
+else bad "(g21) an empty denominator is green" "rc=$rc $out"; fi
 
 echo
 if [ "$FAILS" -eq 0 ]; then

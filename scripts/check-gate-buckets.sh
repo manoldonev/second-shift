@@ -248,8 +248,8 @@ else
 fi
 
 if [[ $violations -eq 0 ]]; then
-  n="$(printf '%s' "$SITES" | grep -c . || true)"
-  r="$(grep -cv '^[[:space:]]*\(#\|$\)' "$TSV" || true)"
+  n="$(printf '%s' "$SITES" | grep -c .)"
+  r="$(grep -cv '^[[:space:]]*\(#\|$\)' "$TSV")"
   echo "[gate-buckets] ✓ $n enumerated refusal site(s) across $(printf '%s' "$CORPUS" | grep -c .) file(s), all bucketed by $r register row(s)."
 fi
 exit "$violations"
