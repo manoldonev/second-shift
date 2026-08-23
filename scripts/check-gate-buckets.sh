@@ -147,14 +147,24 @@ in_set() { # in_set <value> <space-separated set>
   return 1
 }
 
+corpus_prims() { # corpus_prims <repo-relative path> — the primitives CORPUS declares for it
+  local f prims
+  while IFS=: read -r f prims; do
+    [[ "$f" == "$1" ]] && { printf '%s' "$prims"; return 0; }
+  done <<<"$CORPUS"
+  return 0
+}
+
 if [[ ! -f "$TSV" ]]; then
   fail "the register is missing: $TSV_REL — the denominator has nothing to be checked against"
 else
   COVERED_ROWS="$(mktemp "${TMPDIR:-/tmp}/gate-buckets-rows.XXXXXX")" \
     || envfail "cannot create a temp file to collect the register's rows"
-  COUNTS="$(mktemp "${TMPDIR:-/tmp}/gate-buckets-counts.XXXXXX")" \
-    || envfail "cannot create a temp file to collect the per-row coverage counts"
-  trap 'rm -f "$COVERED_ROWS" "$COUNTS"' EXIT
+  SITES_F="$(mktemp "${TMPDIR:-/tmp}/gate-buckets-sites.XXXXXX")" \
+    || envfail "cannot create a temp file to hold the denominator"
+  PASS_OUT="$(mktemp "${TMPDIR:-/tmp}/gate-buckets-pass.XXXXXX")" \
+    || envfail "cannot create a temp file for the rows-against-sites pass"
+  trap 'rm -f "$COVERED_ROWS" "$SITES_F" "$PASS_OUT"' EXIT
 
   while IFS="$TAB" read -r rkey rbucket ranchor ryield rwhy; do
     case "${rkey:-}" in ''|'#'*) continue ;; esac
@@ -169,10 +179,10 @@ else
       continue
     fi
     # The key must name a pair CORPUS actually declares. A row keyed to a primitive the
-    # enumerator never scans for could never be checked against anything.
-    if ! CB_F="$rfile" CB_P="$rprim" awk -F: \
-           '$1 == ENVIRON["CB_F"] { n = split($2, a, " "); for (i = 1; i <= n; i++) if (a[i] == ENVIRON["CB_P"]) found = 1 }
-            END { exit found ? 0 : 1 }' <<<"$CORPUS"; then
+    # enumerator never scans for could never be checked against anything. Pure bash on purpose:
+    # this runs once per register row, and a subprocess per row is what the batching below exists
+    # to remove.
+    if ! in_set "$rprim" "$(corpus_prims "$rfile")"; then
       fail "$rkey: no such corpus pair — the enumerator does not scan '$rfile' for '$rprim', so this row disposes of nothing"
       continue
     fi
@@ -199,51 +209,86 @@ else
       fail "$rkey: a not-a-gate row's 'why' must open with what the site IS instead — 'environment refusal', 'usage error' or 'success path'; got: ${rwhy:0:60}"
     fi
 
-    # ---- anchor resolution ------------------------------------------------------
+    printf '%s\t%s\t%s\n' "$rkey" "$ranchor" "$rbucket" >> "$COVERED_ROWS"
+  done < "$TSV"
+
+  # ---- rows x sites, in ONE pass ------------------------------------------------
+  # WHY BATCHED. This used to be a subprocess per row (its anchor's hit count) plus a subprocess
+  # per site (which rows claim it) — ~460 spawns against this tree, and 3.4s of the guard's 3.5s.
+  # The comparison itself is 156 x 305 index() calls, which is nothing; the process table was the
+  # whole cost. It matters beyond tidiness: at 3.5s the paired selftest crossed the mutation
+  # sweep's 5s slow bar, which is what decides whether the PR lane grades this guard at all.
+  #
+  # Through ENVIRON and files, never `awk -v`: -v interprets backslash escapes, and anchors quote
+  # shell full of them — `\$` would silently become `$` and a row would match nothing while
+  # reading as a typo.
+  #
+  # Emits three tagged streams so one pass answers every question the two loops used to:
+  #   HITS  <count> <key> <bucket> <anchor>      one per register row (count may be 0)
+  #   UNCL  <key> <line> <text>                  a site no row claims
+  #   AMBIG <key> <line> <buckets> <text>        a site claimed by rows that DISAGREE
+  printf '%s\n' "$SITES" > "$SITES_F"
+  # FILENAME, not the `FNR == NR` idiom: when the rows file is EMPTY awk never enters that block
+  # for it, so the sites file's first record satisfies FNR == NR and is silently loaded as a
+  # register row. A register whose rows are all comments would then dispose of its own denominator
+  # with a blank row — a green-looking pass built from nothing. (g21) is the case.
+  CB_ROWS="$COVERED_ROWS" awk -F"$TAB" '
+    FILENAME == ENVIRON["CB_ROWS"] { nrow++; rk[nrow] = $1; ra[nrow] = $2; rb[nrow] = $3; next }
+    $1 == "" { next }
+    {
+      buckets = ""; nb = 0
+      for (i = 1; i <= nrow; i++) {
+        if (rk[i] != $1 || index($3, ra[i]) == 0) continue
+        hits[i]++
+        # Distinct-bucket set, kept as a padded string so the membership test is a substring
+        # one. Counted as it is built rather than re-split afterwards: a separator count is one
+        # off-by-one away from reading "two disagreeing rows" as agreement, which is the exact
+        # thing this arm exists to catch.
+        if (index(buckets, " " rb[i] " ") == 0) { buckets = buckets " " rb[i] " "; nb++ }
+      }
+      if (nb == 0) { print "UNCL" FS $1 FS $2 FS $3; next }
+      if (nb > 1) { gsub(/  +/, " ", buckets); sub(/^ /, "", buckets); sub(/ $/, "", buckets)
+                    print "AMBIG" FS $1 FS $2 FS buckets FS $3 }
+    }
+    END { for (i = 1; i <= nrow; i++) print "HITS" FS (hits[i] + 0) FS rk[i] FS rb[i] FS ra[i] }
+  ' "$COVERED_ROWS" "$SITES_F" > "$PASS_OUT"
+
+  # A row with no hits is one of two different things, and only here is it worth a `grep` — on a
+  # clean tree this loop runs zero times, which is the other half of why the pass above is
+  # batched.
+  while IFS="$TAB" read -r tag c rkey rbucket ranchor; do
+    [[ "$tag" == "HITS" && "$c" -eq 0 ]] || continue
+    rfile="${rkey%%::*}"
     if ! grep -qF -- "$ranchor" "$ROOT/$rfile"; then
       fail "$rkey: ANCHOR DRIFT — '$ranchor' no longer appears in $rfile. Re-anchor the row (or drop it if the site is gone); an anchor that matches nothing disposes of nothing."
-      continue
-    fi
-    # Which enumerated sites does this row claim? Through ENVIRON, never `awk -v`: -v interprets
-    # backslash escapes, and anchors quote shell full of them — `\$` would silently become `$`
-    # and the row would match nothing while reading as a typo.
-    hits="$(CB_K="$rkey" CB_A="$ranchor" awk -F"$TAB" \
-              '$1 == ENVIRON["CB_K"] && index($3, ENVIRON["CB_A"]) > 0 { c++ } END { print c + 0 }' <<<"$SITES")"
-    if [[ "$hits" -eq 0 ]]; then
+    else
       fail "$rkey: the row disposes of '$ranchor' as '$rbucket', but the enumeration finds no such site — the row outlived what it classified. Drop it, or re-anchor it."
-      continue
     fi
-    printf '%s\t%s\t%s\n' "$rkey" "$ranchor" "$rbucket" >> "$COVERED_ROWS"
-    printf '%s\t%s\t%s\t%s\n' "$hits" "$rkey" "$rbucket" "$ranchor" >> "$COUNTS"
-  done < "$TSV"
+  done < "$PASS_OUT"
 
   # Every enumerated site must be claimed by some row, and by rows that AGREE. AC-1 says EXACTLY
   # one disposition per site, so two anchors that both cover a site while disagreeing about its
   # bucket is not a redundancy — it is a site with no answer, and the looser of the two would
   # otherwise decide it silently.
-  while IFS="$TAB" read -r skey sline stext; do
-    [[ -n "${skey:-}" ]] || continue
-    claimed="$(CB_K="$skey" CB_T="$stext" awk -F"$TAB" \
-                 '$1 == ENVIRON["CB_K"] && index(ENVIRON["CB_T"], $2) > 0 { print $3 }' \
-                 "$COVERED_ROWS" | LC_ALL=C sort -u | tr '\n' ' ')"
-    claimed="${claimed% }"
-    if [[ -z "$claimed" ]]; then
-      fail "${skey%%::*}:$sline UNCLASSIFIED refusal site (${skey##*::}) — every gate in the lane declares its bucket. Add a row to $TSV_REL:
-      $(printf '%s' "$stext" | sed -e 's/^[[:space:]]*//')"
-    elif [[ "$claimed" == *" "* ]]; then
-      fail "${skey%%::*}:$sline is claimed by rows disposing of it as BOTH: $claimed. A site carries exactly one bucket; tighten whichever anchor is reaching past its own site:
-      $(printf '%s' "$stext" | sed -e 's/^[[:space:]]*//')"
-    fi
-  done <<<"$SITES"
+  while IFS="$TAB" read -r tag skey sline sx sy; do
+    case "$tag" in
+      UNCL)
+        fail "${skey%%::*}:$sline UNCLASSIFIED refusal site (${skey##*::}) — every gate in the lane declares its bucket. Add a row to $TSV_REL:
+      $(printf '%s' "$sx" | sed -e 's/^[[:space:]]*//')" ;;
+      AMBIG)
+        fail "${skey%%::*}:$sline is claimed by rows disposing of it as BOTH: $sx. A site carries exactly one bucket; tighten whichever anchor is reaching past its own site:
+      $(printf '%s' "$sy" | sed -e 's/^[[:space:]]*//')" ;;
+    esac
+  done < "$PASS_OUT"
 
   # AC-4: the covered-site count per row, always printed. A row whose anchor swallows more than
   # one site is legitimate — it is how the mechanical `envfail` classes stay one row instead of
   # 132 — but it is also how a FUTURE refusal gets dispositioned by an anchor nobody re-read. The
   # count is what makes that visible rather than silent.
-  if [[ -s "$COUNTS" ]]; then
+  if grep -q '^HITS' "$PASS_OUT"; then
     echo "[gate-buckets] coverage (sites per row):"
-    LC_ALL=C sort -t"$TAB" -k2,2 "$COUNTS" \
-      | while IFS="$TAB" read -r c k b a; do printf '  %4s  %-12s  %s  «%s»\n' "$c" "$b" "$k" "$a"; done
+    grep '^HITS' "$PASS_OUT" | LC_ALL=C sort -t"$TAB" -k3,3 \
+      | while IFS="$TAB" read -r _tag c k b a; do printf '  %4s  %-12s  %s  «%s»\n' "$c" "$b" "$k" "$a"; done
   fi
 fi
 

@@ -298,6 +298,17 @@ if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'vacuously'; then
   ok "(g16) an empty OVERRIDE_GATES vocabulary is exit 2 — AC-5's safety arm must not pass by having nothing to compare against"
 else bad "(g16) an empty yield vocabulary exits 2" "rc=$rc $out"; fi
 
+# The other side of (g21), and the one that actually caught the bug: a register with rows-shaped
+# content but NO valid rows, against a corpus that DOES refuse. An `FNR == NR` two-file read loads
+# the denominator's own first line as a register row here, and the run then reads as a pass built
+# out of nothing.
+D="$(new_fixture comments_only)"
+printf '# every row commented out\n#%sgates-signal%sx%s-%sy\n' "$TAB" "$TAB" "$TAB" "$TAB" > "$D/scripts/gate-buckets.tsv"
+out="$(run_guard "$D")"; rc=$?
+if [ "$rc" -ge 10 ] && printf '%s' "$out" | grep -q 'UNCLASSIFIED'; then
+  ok "(g22) a register of comments against a refusing corpus reds on every site — a denominator cannot dispose of itself"
+else bad "(g22) an all-comment register reds on every enumerated site" "rc=$rc $out"; fi
+
 D="$(new_fixture noregister)"
 rm -f "$D/scripts/gate-buckets.tsv"
 out="$(run_guard "$D")"; rc=$?
