@@ -186,8 +186,8 @@
 #       6 = milestone 4 only: INTEGRITY REFUSAL — the record is authored by the build run or the
 #           build session (P10). Terminal: the trust boundary this lane exists to enforce is not
 #           something a retry can clear.
-#       7 = NOTHING WAS EVALUATED — raised by two subcommands, unambiguous at each call site, and
-#           under neither one a milestone failure nor a fix attempt:
+#       7 = NOTHING WAS EVALUATED — raised by three subcommands, unambiguous at each call site, and
+#           under none of them a milestone failure nor a fix attempt:
 #           * `staleness`: STALE — the ticket is closed, or the base has moved into this branch's
 #             files. Its own integer for the same reason 5 and 6 are: the scheduler's response
 #             differs from a phase failure's, and one that cannot tell them apart spends the rest
@@ -199,6 +199,11 @@
 #             other way milestone 3 could reach a 7: the runner-died and ceiling-breached classes
 #             (#511 D-5) went out with the detached runner, so a milestone-3 seven now means the
 #             lane raised 3 and nothing else.
+#           * `mark` (#650): THE TICKET CLOSED UNDER THIS RUN — the mid-run re-check. Same fact as
+#             the `staleness` ticket arm's and deliberately the same integer, because the remedy is
+#             the same one: stop, and re-open the ticket if the work should still land. Nothing was
+#             marked, so no handoff is half-made. `cmd_5` and `cmd_close_out` call `cmd_mark` as a
+#             function and never reach it — the landing path stays open by design.
 #       8 = `inflight` only (#531): THE LANE WORKTREE STILL HOLDS WORK — its tree is dirty, or it
 #           carries commits that are not on origin/<branch>. Its own integer rather than 1 for the
 #           reason 5, 6 and 7 have theirs: 1 on this subcommand means the predicate could not be
@@ -407,7 +412,7 @@ while [ $# -gt 0 ]; do
     --obligations)   PROGRESS_OBLIGATIONS=1; shift ;;
     --arm)           STALENESS_ARM="${2:-}"; shift 2 ;;
     --ticket-source) TICKET_SOURCE="${2:-}"; shift 2 ;;
-    -h|--help)       sed -n '2,297p' "$0"; exit 0 ;;
+    -h|--help)       sed -n '2,302p' "$0"; exit 0 ;;
     -*)              envfail "unknown option: $1" ;;
     *)
       if [ "$POSITIONAL" -eq 0 ]; then SUB="$1"; POSITIONAL=1
@@ -2547,6 +2552,47 @@ staleness_base_arm() {
   printf '%s\n' "$overlap" | while IFS= read -r f; do [ -n "$f" ] && say "    $f"; done
   say "  If that list is only a file every base merge rewrites (a version-pinned doc, a generated lockfile), this is the known false-positive class — there is deliberately no exclusion list."
   return 7
+}
+
+# #650 AC-2. THE MID-RUN RE-CHECK — the one `staleness_ticket_arm` caller that runs from INSIDE a
+# live payload session.
+#
+# WHAT WAS UNCOVERED, said precisely, because the ticket's own wording ("nothing calls it") is
+# looser than the defect. The refusal above IS reached: `orchestrate-lean.sh` asks for it at
+# preflight and again before every BUILD spawn. What nothing asked after `entry` is whether the
+# ticket is STILL open — and the scheduler structurally cannot, because there is no channel into a
+# running `claude -p`. Its own header says so: the spawn-boundary check "bounds the damage at one
+# session, not at zero". This is the other side of that boundary, asked by the session itself.
+#
+# WHY `mark` AND NOT A MILESTONE (`D-11`). `require_ticket_live`'s header fixes the rule the
+# milestone calls depend on — "one read per run boundary, never per milestone" — and `1`..`5` are
+# recorded as network-free. `mark` is neither: it already opens a socket and already writes. So the
+# check lands where it costs nothing structurally, and it lands at the moment that matters — step 7,
+# immediately before the handoff — so a ticket that closed under a live build session is caught
+# before a review round is spent proving work nobody needs.
+#
+# WHAT IT DOES NOT BUY, stated so exit 7 here is not misread. The session has already spent its own
+# time; this cannot refund it. It saves the handoff and the review round, which is the cost the
+# corrected class-M shape actually names.
+#
+# THE DIRECT SUBCOMMAND ONLY, and that exemption is load-bearing rather than an oversight.
+# `cmd_5` and `cmd_close_out` call `cmd_mark` as a FUNCTION, so they never reach this guard — which
+# is #515's `D-4` reasoning honored rather than re-decided: the landing path must stay open, and a
+# refusal there would strand approved, reviewed work instead of saving any. A ticket that closed
+# mid-review still closes out.
+require_ticket_still_open() {
+  local rc
+  staleness_ticket_arm; rc=$?
+  case "$rc" in
+    0) return 0 ;;
+    7) warn "[lean-gate] ✗ $SUB: THE TICKET CLOSED UNDER THIS RUN. Nothing was marked and nothing was written — the PR carries no build-identity marker from this call, so no handoff is half-made."
+       warn "  This session's own time is already spent; what this refusal saves is the review round after it. Do not hand off."
+       warn "  If the work should still land, re-open #$ISSUE and re-invoke. If it should not, the worktree and the claim are left in place for a manual rescue."
+       exit 7 ;;
+    *) warn "[lean-gate] ✗ $SUB: the ticket's liveness could not be read, so whether this run's premise still holds is unknown."
+       warn "  Fail closed, on the arm's own precedent: an unreadable tracker is not an open ticket, and a marker posted on that guess is the handoff this check exists to stop."
+       exit 2 ;;
+  esac
 }
 
 cmd_staleness() {
@@ -5347,6 +5393,14 @@ esac
 # already refused every argument this read would have no answer for.
 case "$SUB" in
   entry|claim) require_ticket_live; seed_run_id_cache ;;
+esac
+
+# #650 AC-2. The mid-run re-check, and it sits HERE for the reason the block above sits where it
+# does: after the cheap ticket arms have refused every argument this read would have no answer for,
+# and after the cwd arm at (iii) — which already binds `mark` — has established that the argument
+# and the tree name the same run. `mark` is the only subcommand in this arm; see the function.
+case "$SUB" in
+  mark) require_ticket_still_open ;;
 esac
 
 case "$SUB" in

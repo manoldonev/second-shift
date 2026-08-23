@@ -4597,6 +4597,56 @@ if [ "$rc" -eq 1 ] && [ ! -s "$BOT_SPOOL" ] && grep -q 'no open PR found' <<<"$o
   pass "(pm7) mark refuses when the branch has no open PR"
 else fail "(pm7) expected rc=1 with no write, rc=$rc: $out / spool=$(cat "$BOT_SPOOL" 2>/dev/null)"; fi
 
+# ---- (tl) #650 AC-2: the mid-run ticket-liveness re-check ------------------------------------
+# The scheduler asks "is this ticket still open" before every BUILD spawn and cannot ask again
+# while one is running — there is no channel into a live `claude -p`, which its own header states
+# as "bounds the damage at one session, not at zero". This is the other side of that boundary: the
+# session asks for itself, at the step-7 handoff, before a review round is spent on work whose
+# ticket closed underneath it.
+#
+# `mark` and not a milestone, because `require_ticket_live`'s header fixes "one read per run
+# boundary, never per milestone" and `1`..`5` are recorded network-free. `mark` already opens a
+# socket and already writes.
+
+# THE REFUSAL. Nothing is spooled — the point of catching it here rather than after is that no
+# half-made handoff exists to clean up.
+: > "$BOT_SPOOL"
+out="$(STUB_GH_STATE=CLOSED mark_gate "$CFG" mark-run-tl1 sess-mark-1 mark 8 --pr-file "$WORK/pr-mark.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+if [ "$rc" -eq 7 ] && [ ! -s "$BOT_SPOOL" ] && grep -q 'THE TICKET CLOSED UNDER THIS RUN' <<<"$out"; then
+  pass "(tl1) mark refuses with the staleness code when the ticket closed under the run, and writes nothing"
+else fail "(tl1) expected rc=7 + no write + the named refusal, rc=$rc: $out / spool=$(cat "$BOT_SPOOL" 2>/dev/null)"; fi
+
+# ANTI-VACUITY for (tl1), and it is the case that makes the pair a measurement: the SAME
+# invocation with the SAME fixtures under an OPEN ticket must post. Without it a `mark` broken for
+# any other reason would satisfy (tl1)'s "rc!=0, nothing spooled" shape.
+: > "$BOT_SPOOL"
+out="$(STUB_GH_STATE=OPEN mark_gate "$CFG" mark-run-tl2 sess-mark-1 mark 8 --pr-file "$WORK/pr-mark.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+if [ "$rc" -eq 0 ] && grep -q 'run_id: mark-run-tl2' "$BOT_SPOOL" 2>/dev/null; then
+  pass "(tl2) the same call under an OPEN ticket posts as before — the refusal is the STATE's doing, not a broken path"
+else fail "(tl2) expected the ordinary post under OPEN, rc=$rc: $out / spool=$(cat "$BOT_SPOOL" 2>/dev/null)"; fi
+
+# FAIL CLOSED, on the arm's own precedent: an unreadable tracker is not an open ticket. Its own
+# code, because the remedy differs — 7 says re-open or abandon, 2 says fix the environment.
+: > "$BOT_SPOOL"
+out="$(STUB_GH_FAIL='gh: upstream is on fire' mark_gate "$CFG" mark-run-tl3 sess-mark-1 mark 8 --pr-file "$WORK/pr-mark.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+if [ "$rc" -eq 2 ] && [ ! -s "$BOT_SPOOL" ] && grep -q 'liveness could not be read' <<<"$out"; then
+  pass "(tl3) an unreadable tracker refuses with the environment code and posts nothing — fail closed"
+else fail "(tl3) expected rc=2 + no write on an unreadable tracker, rc=$rc: $out / spool=$(cat "$BOT_SPOOL" 2>/dev/null)"; fi
+
+# THE LANDING PATH IS EXEMPT (`D-9`), and this is the case that keeps it exempt. `cmd_5` and
+# `cmd_close_out` call `cmd_mark` as a FUNCTION, so they never reach the dispatch guard — #515's
+# `D-4` reasoning honored rather than re-decided: a ticket that closes mid-review must still be
+# able to land its approved, reviewed work, and a refusal there would strand it.
+#
+# SCORED ON THE REFUSAL'S ABSENCE, not on a green close-out: this fixture is not staged for a
+# complete milestone 5, and asserting one would make the case about something else. The property
+# is precisely "the mid-run guard did not fire here", and it is falsifiable — widen the dispatch
+# arm to `mark|5|close-out` and this reds while (tl1) still passes.
+out="$(STUB_GH_STATE=CLOSED mark_gate "$CFG" mark-run-tl4 sess-mark-1 5 8 --pr-file "$WORK/pr-mark.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+if [ "$rc" -ne 7 ] && ! grep -q 'THE TICKET CLOSED UNDER THIS RUN' <<<"$out"; then
+  pass "(tl4) milestone 5's own re-call of mark is NOT gated by the mid-run check — the landing path stays open"
+else fail "(tl4) the mid-run refusal fired on the landing path, rc=$rc: $out"; fi
+
 # ---- (ms) #446: mark's session_id must come from a RECORDED build session --------------------
 # The marker's session_id is the STRONGEST identity the merge boundary compares (run_id is
 # agent-chosen; the session id is harness-assigned) and it was read from the ambient environment.
