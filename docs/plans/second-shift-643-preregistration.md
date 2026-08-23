@@ -281,3 +281,84 @@ selection back to a post-hoc judgement call at the one value most likely to be h
 precise discretion the pre-registration exists to remove. Nothing in this slice turns on it: no arm
 is selected here, attention is unmeasured here, and this corpus's band (`0.873–0.905`) does not
 touch the endpoint. #650 inherits this table, not `R3-2`'s.
+
+## Revision 5 — amendment made on an operator ruling, during #650
+
+**Dated 2026-08-23, after scoring.** Appended, not edited in: revisions 2, 3 and 4 above are
+unchanged, and revision 1 stays up unedited on the issue. The append discipline is the point —
+every revision of this criterion is readable in the order it was written, so a bar that moves is
+visible rather than rewritten away.
+
+**Provenance, because this one is different from the others.** #650's build session was instructed
+that this file is frozen and that a criterion it believed had to change was to be handed back, not
+amended. It raised the finding below as a blocking question and stopped. This revision lands on the
+operator's ruling in answer to it, and its two parts are that ruling's own terms. Like revisions 3
+and 4 it was written by an author who has seen the result, so it states which arm it favours.
+
+### R5-1a — the finding: variant `c` as `B4` defines it is empty
+
+`B4` defines variant `c` as *"the minimum instrument that replaces exactly the spawn sites a direct
+gate call can serve."* That set is **empty**, and the check is mechanical rather than argued.
+
+At `4813e0b` — this repo's `main` when #650 was cut — `orchestrate-lean.sh` calls `spawn` at four
+lines, and two of them are the `--dry-run` preview:
+
+```
+762:  spawn BUILD  "$BUILD_MODEL"  "/dev-pipeline:build-lean $ISSUE"     # --dry-run preview
+763:  spawn REVIEW "$REVIEW_MODEL" "/dev-pipeline:review-lean <pr>"      # --dry-run preview
+800:    spawn BUILD  "$BUILD_MODEL"  "/dev-pipeline:build-lean $ISSUE"   # the build phase
+929:      spawn REVIEW "$REVIEW_MODEL" "/dev-pipeline:review-lean $PR"   # the review phase
+```
+
+Two real spawn sites, and **both are model payloads**: a build session and a review session. Neither
+is a candidate for a direct gate call, because neither is a gate call — they are the two halves of
+the lane that a gate cannot perform. The third spawn, the close-out, was the one site a direct call
+could serve, and **#590 already deleted it**: `closeout_rc` invokes `bash "$GATE" close-out` and the
+gate writes under the bot identity.
+
+Two consequences follow, and both matter to how the campaign is read:
+
+1. **Variant `c`, read literally, IS variant `a`.** Building "the minimum instrument that replaces
+   the remaining serviceable spawn sites" builds nothing, and the campaign would measure two
+   distinct drive-modes under three names.
+2. **Arm B's "generalize #590 to every spawn site" describes the SHIPPED STATE, not a reshape.**
+   The generalization is complete. An arm B selected on that reading would be satisfied by main as
+   it stands, which is not a reshape — it is a no-op wearing an arm's name.
+
+### R5-1b — the redefinition: variant `c` is the attended drive-mode
+
+Variant `c` is redefined, for this campaign and for the arm-B row that inherits it, as the
+**attended drive-mode**:
+
+- the scheduler's **entire control flow** runs as direct `lean-gate.sh` calls — preflight,
+  staleness, in-flight, verdict, close-out — and every one of their **exit codes is the verdict**,
+  which is already this lane's evidence rule at every other call site;
+- there is **no `claude -p` transport anywhere** in it;
+- at each point where the lane needs a model session, it **prints the exact next payload command**
+  for an operator to run in an attended session of their own, and exits;
+- re-invocation **resumes statelessly**, deriving where the lane is from the gate's own reads rather
+  than from any carried state.
+
+That is #590's template applied at the **lane** level rather than at the script level: the
+scheduler's checks stay mechanical, the payload work stays a model session, and the mechanism the
+corpus's class-T failures are attributed to is the one thing removed. Arm B's row is amended to name
+this as reshape's shape; "generalize #590 to every spawn site" is struck as satisfied.
+
+### Unchanged from `B4`
+
+The spike is **time-boxed**. It is an **instrument, not a ship**. It **lands only if it wins** — and
+it does not win here, because no arm is selected in the slice that builds it. The ticket title's
+reading of AC-2's three units as three **drive-modes**, rather than three spawn-site refactors, is
+ratified.
+
+### Direction
+
+**This amendment favours arm B**, and says so plainly: without it arm B has no instrument at all,
+and the decision table degenerates to keep-versus-delete over two drive-modes while still printing
+three rows. The author of the original prediction favoured arm A, and an amendment that hands the
+middle arm a measurable form is not one that prediction would have chosen. It is adopted because a
+table with an unreachable row is the same defect `R3-2` and `R4-1` were written to remove, one
+level up: there, a band no reading could select; here, an arm no instrument could realise.
+
+Nothing in #650's own PR turns on it. No arm is selected there, the nine runs do not exist yet, and
+the instrument this revision defines is built to be measured, not to be adopted.
