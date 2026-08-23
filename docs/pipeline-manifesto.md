@@ -134,8 +134,16 @@ The predicate is a classification, not a preference:
 - **`gates-llm`** — defenses against fabrication and self-approval. These **never** yield. An
   attended session cannot approve its own work any more than an unattended one can; attendance is
   not the missing ingredient there, independence is.
+- **`gates-signal`** — the refused fact is objective: a verify lane is red, a hash moved, a
+  release-owned file was edited. These **never** yield either. The bucket exists because the
+  predicate is not total: a red test lane is neither a fabrication defense nor premised on an
+  absent human, and forcing it into `gates-process` to keep the classification binary is exactly
+  how a red suite becomes operator-waivable.
 - **`gates-process`** — rules whose premise is "no human is available to answer this". These
   **may** yield when the premise is false.
+
+Which gate is which is not left to a reading: [`scripts/gate-buckets.tsv`](../scripts/gate-buckets.tsv)
+declares one bucket per refusal site, and an unclassified one fails CI.
 
 The mechanism is **affordance plus record**, and both halves are load-bearing:
 
