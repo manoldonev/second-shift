@@ -24,9 +24,10 @@
 # `tools/`, which is not inside `plugins/` — it cannot stage itself, so no recursion guard is
 # needed.
 #
-# VERDICT. Reds only on a suite that is NOT listed in install-topology-known-red.tsv.
-# A listed suite that passes is a warning, never a red — the "shrink the list" direction,
-# the same contract tools/mutation-baseline.tsv carries for survivors.
+# VERDICT. A staged suite that fails REDS, full stop (#641: the known-red allowlist that used to
+# carve out an exception here emptied to 0 rows and outlived its purpose — deleted, along with
+# this read path. A suite listed nowhere is already the "everything must pass" posture once the
+# allowlist plumbing is gone).
 #
 # SUITE-DECLARED SKIPS. A suite may exit 77 to say "I need something that ships inside no
 # plugin, so from here its absence measures nothing" — scored as a named, counted SKIP rather
@@ -40,7 +41,6 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
-KNOWN_RED="$HERE/install-topology-known-red.tsv"
 SELF="$HERE/$(basename "${BASH_SOURCE[0]}")"
 
 # Per-suite wall-clock bound. This guard runs a SECOND copy of every shipped suite, often
@@ -128,37 +128,10 @@ if [[ "${1:-}" == "--run-one" ]]; then
   exit 0
 fi
 
-RAN=0; PASSED=0; KNOWN=0; SKIPPED=0; RED=0; STALE=0
+RAN=0; PASSED=0; SKIPPED=0; RED=0
 red()   { echo "  RED:   $1"; RED=$((RED + 1)); }
 ok()    { echo "  pass:  $1"; PASSED=$((PASSED + 1)); }
-known() { echo "  known: $1"; KNOWN=$((KNOWN + 1)); }
 skip()  { echo "  SKIP:  $1"; SKIPPED=$((SKIPPED + 1)); }
-warn()  { echo "  warn:  $1"; }
-
-# ---- known-red list ----------------------------------------------------------------
-# Keyed on the REPO-relative path (`plugins/<name>/<rel>`), never the staged one: a staged
-# path carries the version segment, so every row would rot at the next release.
-KR_PATH=(); KR_CAUSE=(); KR_SEEN=()
-if [[ -f "$KNOWN_RED" ]]; then
-  while IFS=$'\t' read -r c1 c2 || [[ -n "${c1:-}" ]]; do
-    case "${c1:-}" in ''|'#'*) continue ;; esac
-    KR_PATH[${#KR_PATH[@]}]="$c1"
-    KR_CAUSE[${#KR_CAUSE[@]}]="${c2:-}"
-    KR_SEEN[${#KR_SEEN[@]}]=0
-  done < "$KNOWN_RED"
-else
-  echo "[install-topology] FATAL: known-red list not found at $KNOWN_RED" >&2
-  exit 1
-fi
-
-known_red_index() { # $1 = repo-relative path → echoes index, or empty
-  local i=0
-  while [[ $i -lt ${#KR_PATH[@]} ]]; do
-    [[ "${KR_PATH[$i]}" == "$1" ]] && { echo "$i"; return 0; }
-    i=$((i + 1))
-  done
-  return 1
-}
 
 # ---- stage the install cache --------------------------------------------------------
 BASE="$(mktemp -d -t install-topology.XXXXXX)"
@@ -236,14 +209,9 @@ while IFS= read -r line; do
   idx="${line%%	*}"; staged="${line#*	}"
   rel="${staged#"$CACHE"/}"                       # <plugin>/<version>/<path-under-plugin>
   plugin="${rel%%/*}"; rest="${rel#*/}"; rest="${rest#*/}"
-  repo_rel="plugins/$plugin/$rest"                # stable across releases; the known-red key
-  kr="$(known_red_index "$repo_rel" || true)"
+  repo_rel="plugins/$plugin/$rest"                # stable across releases
 
   if [[ "$staged" == *.mjs && "$HAVE_NODE" -eq 0 ]]; then
-    # A skipped suite still MATCHES its row — the row is not stale, it is unevaluated.
-    # Without this the same absent `node` reports twice, as a skip and as a stale row,
-    # and the second one says "shrink the list" about a row nothing disproved.
-    [[ -n "$kr" ]] && KR_SEEN[kr]=1
     skip "$repo_rel — node not on PATH, cannot run a .mjs suite"
     continue
   fi
@@ -265,9 +233,6 @@ while IFS= read -r line; do
   if [[ "$rc" -eq 77 ]]; then
     reason="$(grep -m1 '^[[:space:]]*SKIP: ' "$RESULTS/$idx.log" 2>/dev/null | sed -e 's/^[[:space:]]*SKIP:[[:space:]]*//')"
     if [[ -n "$reason" ]]; then
-      # Same accounting as the absent-node skip above: the row is unevaluated, not stale, and
-      # a skip is not a run.
-      [[ -n "$kr" ]] && KR_SEEN[kr]=1
       skip "$repo_rel — $reason"
       continue
     fi
@@ -276,10 +241,6 @@ while IFS= read -r line; do
   RAN=$((RAN + 1))
 
   if [[ "$rc" -eq 0 ]]; then
-    if [[ -n "$kr" ]]; then
-      KR_SEEN[kr]=1
-      warn "$repo_rel is listed known-red but PASSED — drop its row (listed: ${KR_CAUSE[$kr]})"
-    fi
     ok "$repo_rel"
     continue
   fi
@@ -292,21 +253,8 @@ while IFS= read -r line; do
     detail="rc=$rc — $(grep -iE 'FAIL|error|No such|not found' "$RESULTS/$idx.log" 2>/dev/null | head -1 | sed 's/^[[:space:]]*//')"
   fi
 
-  if [[ -n "$kr" ]]; then
-    KR_SEEN[kr]=1
-    known "$repo_rel — $detail (known: ${KR_CAUSE[$kr]})"
-  else
-    red "$repo_rel — $detail"
-  fi
+  red "$repo_rel — $detail"
 done < "$BASE/worklist"
 
-# A row whose suite never ran is stale, not a failure — same direction as a killed mutant
-# still sitting in the mutation baseline: it says "shrink the list", loudly, without reding.
-i=0
-while [[ $i -lt ${#KR_PATH[@]} ]]; do
-  [[ "${KR_SEEN[$i]}" -eq 0 ]] && { warn "known-red row ${KR_PATH[$i]} matched no staged suite — stale row"; STALE=$((STALE + 1)); }
-  i=$((i + 1))
-done
-
-echo "[install-topology] summary: $RAN ran, $PASSED passed, $KNOWN known-red, $SKIPPED skipped, $STALE stale row(s), $RED red"
+echo "[install-topology] summary: $RAN ran, $PASSED passed, $SKIPPED skipped, $RED red"
 exit "$RED"

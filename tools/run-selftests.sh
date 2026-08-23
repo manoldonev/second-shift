@@ -60,9 +60,9 @@
 #
 #   --exclude     repeatable. Lifts a suite out of THIS sweep while leaving it discovered, so it
 #                 can run in its own CI job. An exclusion matching no discovered suite is a HARD
-#                 ERROR — the stale-row posture install-topology-known-red.tsv and
-#                 mutation-baseline.tsv already carry, applied to a stale workflow argument.
-#   --full        do NOT apply tools/selftest-slow-suites.tsv. The sweep of record passes this;
+#                 ERROR — the same stale-row posture mutation-baseline.tsv already carries,
+#                 applied to a stale workflow argument.
+#   --full        do NOT apply tools/selftest-suite-timings.tsv. The sweep of record passes this;
 #                 see #566 below for why the table is on by default and the opt-out is explicit.
 #   --jobs        concurrency; defaults to $SELFTEST_JOBS, itself defaulting to 4 (the recipe).
 #   --root        tree to discover under; defaults to the repo root above this script.
@@ -202,15 +202,24 @@ ROOT="$(cd "$ROOT" && pwd)"
 # RESOLVED UNDER $ROOT, never under $SELF's repo: --root points at the tree being swept, and a
 # sweep of another tree must read that tree's table or it is applying this one's membership to
 # suites it has never measured. Absent, every suite is treated as fast.
-SLOW_SUITES="$ROOT/tools/selftest-slow-suites.tsv"
+#
+# THE THRESHOLD HAS ONE HOME (#641, carried over from #629): the table's own
+# `# threshold-seconds` directive, read here and by tools/check-sweep-bound.sh so the two
+# cannot drift onto different numbers. mutation-sweep.sh's separate, hardcoded 5s bar means the
+# table also carries rows below THIS threshold — filtered out here at read time.
+SLOW_SUITES="$ROOT/tools/selftest-suite-timings.tsv"
 if [[ "$FULL" -eq 0 && -f "$SLOW_SUITES" ]]; then
-  while IFS="$TAB" read -r sl_suite sl_secs sl_reason; do
+  SLOW_THRESHOLD_S="$(sed -n "s/^# threshold-seconds${TAB}\\([0-9][0-9]*\\)[[:space:]]*\$/\\1/p" "$SLOW_SUITES" | head -1)"
+  [[ -n "$SLOW_THRESHOLD_S" ]] \
+    || die "$SLOW_SUITES declares no '# threshold-seconds<TAB><n>' directive — the membership rule is unreadable"
+  while IFS="$TAB" read -r sl_suite sl_secs sl_date; do
     case "${sl_suite:-}" in ''|'#'*) continue ;; esac
-    [[ -n "$sl_secs" && -n "$sl_reason" ]] \
-      || die "malformed row in $SLOW_SUITES: '$sl_suite' — expected <suite>\\t<seconds>\\t<reason>"
+    [[ -n "$sl_secs" && -n "$sl_date" ]] \
+      || die "malformed row in $SLOW_SUITES: '$sl_suite' — expected <suite>\\t<seconds>\\t<measured_at>"
     [[ "$sl_secs" =~ ^[0-9]+$ ]] \
       || die "malformed row in $SLOW_SUITES: '$sl_suite' seconds must be a whole number, got '$sl_secs'"
-    DEFERRED="$DEFERRED$sl_suite$TAB${sl_secs}s — $sl_reason"$'\n'
+    [[ "$sl_secs" -ge "$SLOW_THRESHOLD_S" ]] || continue
+    DEFERRED="$DEFERRED$sl_suite$TAB${sl_secs}s (measured $sl_date)"$'\n'
   done < "$SLOW_SUITES"
 fi
 

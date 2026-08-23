@@ -409,8 +409,7 @@ LEANBOT
     || fail "(lean-fixloop) the surviving attempt counter was lost across re-entry"
 
   # ---- leg 3d: the milestone-4 taxonomy, composed (#496) --------------------
-  # CLAUDE.md: a new gate contract extends the liveness scenario for every verdict path it
-  # touches. The per-tool suite proves each class against its own fixture; what only a composed
+  # CLAUDE.md: a new gate contract must extend this scenario too. The per-tool suite proves each class against its own fixture; what only a composed
   # leg can show is that the classes stay DISTINCT along one run's progress-file chain, and that
   # they survive `all` — the whole-progression entry point a resume re-enters through, and the
   # one caller that reaches milestone 4 through a pre-pass rather than directly.
@@ -571,8 +570,7 @@ LEANBOT
     || fail "(lean-patch-id) write=$pid_write rebase=$lean_rebased sha-arm-diff='$lean_sha_would_red' rcs=$pid1/$pid2/$pid3, expected 0/0/nonempty/0/0/5"
 
   # ---- leg 7b: #597 — a BASE ADVANCE does not void a verdict, composed ------
-  # CLAUDE.md: a new gate contract extends the liveness scenario for every verdict path it
-  # touches. Leg 7 composes the arm across a REBASE; this leg composes it across the operation
+  # CLAUDE.md: a new gate contract must extend this scenario too. Leg 7 composes the arm across a REBASE; this leg composes it across the operation
   # the rebase case does not reach — merging the base IN. The two differ in exactly the way that
   # matters: a rebase leaves the merge-base where it was, while a merge ADVANCES it, and
   # `branch_patch_id` hashes a diff measured from it. On #583 that moved the identity from
@@ -667,8 +665,7 @@ $ba_all_out"
     || fail "(lean-nv) milestone-1 passed with no spec — the lean legs are vacuous"
 
   # ---- leg 3c: absence is not a failed fix, composed (#494) -----------------
-  # CLAUDE.md: a new gate contract extends the liveness scenario for every verdict path it
-  # touches. The per-tool suite proves the two line kinds against a hand-seeded progress file;
+  # CLAUDE.md: a new gate contract must extend this scenario too. The per-tool suite proves the two line kinds against a hand-seeded progress file;
   # what only a composed leg can show is the interaction with `all` — the whole-progression
   # entry point a resume re-enters through, and the one caller that reaches milestone 1 with
   # PRECHECK set. A pre-pass that recorded an absence would charge a run for a milestone it
@@ -872,8 +869,7 @@ $ba_all_out"
   lean_seed_progress r-lean-1 sess-lean-build
 
   # ---- leg 3b: the entry precondition, composed (#416) ----------------------
-  # CLAUDE.md: a new gate contract extends the liveness scenario for every verdict path it
-  # touches. This is that leg. The per-tool suite proves the refusal in isolation against one
+  # CLAUDE.md: a new gate contract must extend this scenario too. This is that leg. The per-tool suite proves the refusal in isolation against one
   # milestone; what only a composed leg can show is that a run which skipped step 1 is stopped
   # at the call a REAL run makes — `all`, the whole-progression entry point a resume re-enters
   # through — and stopped there WITHOUT charging a fix attempt, before any milestone body runs.
@@ -2167,9 +2163,7 @@ COSESS
 
 fi
 
-# ══════════════════════════════════════════════════════════════════════════════
 # LANE ROUTING (#413) — exactly one merge-boundary gate claims any given PR
-# ══════════════════════════════════════════════════════════════════════════════
 # WHY THIS IS A SCENARIO AND NOT TWO FIXTURE CASES. Both lanes now cut branches under
 # `<tracker.branchPrefix><key>`, so the branch name no longer separates them; what does is that
 # BOTH gates ask lean-evidence.sh's classify() which lane owns a PR. That is a property of the

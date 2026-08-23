@@ -108,9 +108,7 @@ else
   fail "(AC-1) corpus mode exited non-zero on an artifact-only state dir"
 fi
 
-# ═══════════════════════════════════════════════════════════════════════════════════
 # AC-2: mixed-era corpus — both eras present, both labeled, single array.
-# ═══════════════════════════════════════════════════════════════════════════════════
 D="$WORK/ac2"; mkdir -p "$D"
 mkstage "$D" 100 "2026-08-01T09:00:00Z"
 mkprogress "$D" 200 "2026-08-02T10:00:00Z" "claude-opus-5"
@@ -122,9 +120,7 @@ else
   fail "(AC-2) expected both eras present — got eras=$ERAS, output=$OUT"
 fi
 
-# ═══════════════════════════════════════════════════════════════════════════════════
 # AC-3: corpus-membership — a lean-schema run's ticket key appears in the sweep's input set.
-# ═══════════════════════════════════════════════════════════════════════════════════
 D="$WORK/ac3"; mkdir -p "$D"
 mkprogress "$D" 345 "2026-08-01T10:00:00Z" "claude-sonnet-5"
 OUT="$(run_corpus "$D")"

@@ -41,9 +41,7 @@ run_reap() {
 
 echo "== reap-lean-fixtures-selftest =="
 
-# ---------------------------------------------------------------------------------------
 # A live owner is kept regardless of age — ownership is the safety mechanism, not age.
-# ---------------------------------------------------------------------------------------
 D1="$BASE/d1"; mkdir -p "$D1"
 LIVE="$D1/leangate.4242.Thu_Aug_14_02_00_00_2026.ab12cd"
 mkdir -p "$LIVE"
@@ -55,9 +53,7 @@ run_reap "$D1"
   && pass "a live owner's fixture is kept however old it is" \
   || { fail "a live owner's fixture was not kept"; sed 's/^/    | /' "$OUT"; }
 
-# ---------------------------------------------------------------------------------------
 # A dead owner (no stub entry — simulates a gone pid) IS removed once past the owned floor.
-# ---------------------------------------------------------------------------------------
 D2="$BASE/d2"; mkdir -p "$D2"
 DEAD="$D2/leangate.5151.Wed_Jan_01_00_00_00_2020.ff99gg"
 mkdir -p "$DEAD"
@@ -96,9 +92,7 @@ run_reap "$D4"
   && pass "a recycled pid (stamp mismatch) is treated as not-owned and removed" \
   || { fail "a recycled-pid fixture was kept"; sed 's/^/    | /' "$OUT"; }
 
-# ---------------------------------------------------------------------------------------
 # Legacy / unstamped names — no ownership signal at all, so only the LONG floor governs.
-# ---------------------------------------------------------------------------------------
 D5="$BASE/d5"; mkdir -p "$D5"
 LEGACY_YOUNG="$D5/leangate.ab12cd"     # 2 dot-fields: no pid, no stamp
 mkdir -p "$LEGACY_YOUNG"
@@ -112,9 +106,7 @@ run_reap "$D5"
   && pass "an unstamped legacy name is governed by the long floor alone" \
   || { fail "legacy age-floor handling is wrong"; sed 's/^/    | /' "$OUT"; }
 
-# ---------------------------------------------------------------------------------------
 # Unrelated content in the same tmp root is never touched — the glob is the whole guard.
-# ---------------------------------------------------------------------------------------
 D6="$BASE/d6"; mkdir -p "$D6"
 UNRELATED="$D6/some-other-tool.abcdef"
 mkdir -p "$UNRELATED"
@@ -144,9 +136,7 @@ RC=$?
   && pass "an unreadable ownership source degrades to not-owned rather than crashing" \
   || { fail "an unreadable ps-stub source was fatal or mishandled (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
 
-# ---------------------------------------------------------------------------------------
 # --dry-run reports without removing.
-# ---------------------------------------------------------------------------------------
 D8="$BASE/d8"; mkdir -p "$D8"
 DRY="$D8/leangate.9191.Whichever.oo44pp"
 mkdir -p "$DRY"
@@ -157,9 +147,7 @@ run_reap "$D8" --dry-run
   && pass "--dry-run reports a reap-eligible fixture without removing it" \
   || { fail "--dry-run removed a fixture, or did not report it"; sed 's/^/    | /' "$OUT"; }
 
-# ---------------------------------------------------------------------------------------
 # A concurrent removal is not fatal: the candidate vanishes between discovery and the delete.
-# ---------------------------------------------------------------------------------------
 D9="$BASE/d9"; mkdir -p "$D9"
 VANISH="$D9/leangate.2020.Ghost.qq55rr"
 mkdir -p "$VANISH"
@@ -171,9 +159,7 @@ run_reap "$D9"
   && pass "a candidate removed by a concurrent reaper does not fail the run (rc=0)" \
   || { fail "a vanished candidate reded the run (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
 
-# ---------------------------------------------------------------------------------------
 # Usage floor.
-# ---------------------------------------------------------------------------------------
 OUT="$BASE/out.usage1"
 bash "$TOOL" --dir "$BASE/does-not-exist" > "$OUT" 2>&1
 [ "$?" -eq 2 ] && pass "usage: a nonexistent --dir is rejected" \

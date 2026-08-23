@@ -37,9 +37,7 @@ pg_err() { { printf '%s\n' "$1" | bash "$GATE" extract >/dev/null; } 2>&1; }
 
 echo "== predecessor-gate.sh =="
 
-# ---------------------------------------------------------------------------
 # extract — trailer combinations (AC-1)
-# ---------------------------------------------------------------------------
 
 got=$(pg $'Some body text.\n\nPredecessor: #262\nSuccessor: #265')
 want=$'predecessor=262\nsuccessor=265'
@@ -64,9 +62,7 @@ want=$'predecessor=262\nsuccessor=265'
 [[ "$got" == "$want" ]] && pass "(pg5) '#' prefix optional — bare numbers extract identically (AC-1)" \
   || fail "(pg5) bare numbers → got '$got' (want '$want')"
 
-# ---------------------------------------------------------------------------
 # extract — KEY_PATTERN parameterization (AC-1)
-# ---------------------------------------------------------------------------
 
 got=$(pg $'Predecessor: GH-540\nSuccessor: GH-542' '[A-Z]+-[0-9]+')
 want=$'predecessor=GH-540\nsuccessor=GH-542'
@@ -81,9 +77,7 @@ got=$(pg $'Predecessor: 262' '[A-Z]+-[0-9]+')
 [[ -z "$got" ]] && pass "(pg8) cross-pattern isolation, reverse — a bare number under the jira pattern does NOT extract (AC-1)" \
   || fail "(pg8) reverse cross-pattern → got '$got' (want empty)"
 
-# ---------------------------------------------------------------------------
 # extract — malformed / duplicate handling (AC-1, plan D-2)
-# ---------------------------------------------------------------------------
 
 got=$(pg $'Predecessor: #two')
 rc=$(printf '%s\n' 'Predecessor: #two' | bash "$GATE" extract >/dev/null 2>&1; echo $?)
@@ -125,9 +119,7 @@ rc=$(printf 'x\n' | bash "$GATE" extract stray-arg >/dev/null 2>&1; echo $?)
 [[ "$rc" == "2" ]] && pass "(pg15) extract with a stray argument → usage error rc=2" \
   || fail "(pg15) extract stray arg → rc=$rc (want 2)"
 
-# ---------------------------------------------------------------------------
 # verdict — the gate semantics (AC-1)
-# ---------------------------------------------------------------------------
 
 vrc() { bash "$GATE" verdict "$@" >/dev/null 2>&1; echo $?; }
 

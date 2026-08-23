@@ -90,9 +90,7 @@ check ".cjs OUTSIDE .claude -> gate"             0 $'tools/jest.config.cjs'
 check "inert .mjs + real .ts -> gate"            0 $'.claude/x/workflows/y.mjs\napps/api/src/foo.ts'
 check "inert .cjs + package.json -> gate"        0 $'.claude/x/workflows/y.cjs\npackage.json'
 
-# ---------------------------------------------------------------------------
 # Parity / drift tail.
-# ---------------------------------------------------------------------------
 echo "[self-test] lockstep + embedded-copy parity"
 
 # (1) Lockstep: the hook carves out exactly .claude/**/*.(mjs|cjs); is-inert-diff.sh

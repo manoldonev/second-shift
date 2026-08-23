@@ -819,16 +819,25 @@ RSL="$BASE/slow"; mkdir -p "$RSL/tools"
 make_suite "$RSL" "tools/quick-selftest.sh" 0 'echo quick'
 make_suite "$RSL" "tools/heavy-selftest.sh" 0 'echo heavy'
 make_suite "$RSL" "sub/other-selftest.sh"   0 'echo other'
-printf '# hdr\ntools/heavy-selftest.sh\t147\ttoo slow for the turn\n' > "$RSL/tools/selftest-slow-suites.tsv"
+# Two rows sit ON the 9s boundary, folded into this same table, and between them they pin the
+# comparison itself rather than only its far side. sub/other-selftest.sh (8s) is one second
+# UNDER and must stay un-deferred and actually run — deleting the `>= threshold` filter outright
+# (deferring every tabled suite regardless of value) is what the 'pass ... sub/other-selftest.sh'
+# clause catches. tools/quick-selftest.sh (9s) is EXACTLY AT the bar and must be deferred — that
+# is the row that distinguishes `>=` from `>`, and without it the excluded count is identical
+# under either operator.
+printf '# threshold-seconds\t9\ntools/heavy-selftest.sh\t147\t2026-08-20\ntools/quick-selftest.sh\t9\t2026-08-20\nsub/other-selftest.sh\t8\t2026-08-20\n' > "$RSL/tools/selftest-suite-timings.tsv"
 
 # AC-10 / AC-4. Applied BY DEFAULT — no flag opts in. The deferred suite is NAMED with its
-# reason (a count could not tell an operator which green they are not getting), the sweep still
-# exits 0, and the discovered/ran invariant holds because the exclusion is computed before
-# dispatch rather than by killing a live suite.
+# measured seconds and date (a count could not tell an operator which green they are not
+# getting), the sweep still exits 0, and the discovered/ran invariant holds because the
+# exclusion is computed before dispatch rather than by killing a live suite.
 run_runner "$RSL"
-if [[ "$RC" -eq 0 ]] && grep -q 'deferred: tools/heavy-selftest.sh (147s — too slow for the turn)' "$OUT" \
-   && grep -q '3 discovered, 1 excluded, 2 to run' "$OUT" && ! grep -q 'ERROR' "$OUT"; then
-  ok "slow-table: applied by default, names the deferred suite and its reason, and still exits 0"
+if [[ "$RC" -eq 0 ]] && grep -q 'deferred: tools/heavy-selftest.sh (147s (measured 2026-08-20))' "$OUT" \
+   && grep -q 'deferred: tools/quick-selftest.sh (9s (measured 2026-08-20))' "$OUT" \
+   && grep -q '3 discovered, 2 excluded, 1 to run' "$OUT" \
+   && grep -q '::group::pass.*sub/other-selftest.sh' "$OUT" && ! grep -q 'ERROR' "$OUT"; then
+  ok "slow-table: applied by default, names each deferred suite, defers the at-threshold row, runs the under-threshold one, still exits 0"
 else
   fail "slow-table: default application failed (rc=$RC)"; sed 's/^/    | /' "$OUT"
 fi
@@ -848,7 +857,7 @@ fi
 # case, not an edge one: this repo's own milestone-3 `test` command passes
 # `--exclude tools/install-topology-selftest.sh` explicitly, and that suite is also a table row.
 run_runner "$RSL" --exclude tools/heavy-selftest.sh
-if [[ "$RC" -eq 0 ]] && grep -q '3 discovered, 1 excluded, 2 to run' "$OUT" && ! grep -q 'ERROR' "$OUT"; then
+if [[ "$RC" -eq 0 ]] && grep -q '3 discovered, 2 excluded, 1 to run' "$OUT" && ! grep -q 'ERROR' "$OUT"; then
   ok "slow-table: a suite excluded BOTH explicitly and by the table counts once"
 else
   fail "slow-table: explicit+table double-count broke the run/discovered invariant (rc=$RC)"; sed 's/^/    | /' "$OUT"
@@ -859,9 +868,9 @@ fi
 # job) with nobody noticing. The message must name the TABLE — a stale table row and a stale
 # workflow argument have different remedies, and a shared message sends the reader to the wrong
 # file.
-printf '# hdr\ntools/vanished-selftest.sh\t99\tgone\n' > "$RSL/tools/selftest-slow-suites.tsv"
+printf '# threshold-seconds\t9\ntools/vanished-selftest.sh\t99\t2026-08-20\n' > "$RSL/tools/selftest-suite-timings.tsv"
 run_runner "$RSL"
-if [[ "$RC" -eq 2 ]] && grep -q 'selftest-slow-suites.tsv row' "$OUT" && grep -q 'stale table row' "$OUT"; then
+if [[ "$RC" -eq 2 ]] && grep -q 'selftest-suite-timings.tsv row' "$OUT" && grep -q 'stale table row' "$OUT"; then
   ok "slow-table: a row matching no discovered suite reds, and the message names the table"
 else
   fail "slow-table: stale row must red with a table-specific message (rc=$RC)"; sed 's/^/    | /' "$OUT"
@@ -877,10 +886,23 @@ run_runner "$RSL" --full
 # A MALFORMED ROW IS A USAGE ERROR, not a silently-skipped one. A row whose seconds column is
 # not a number is a hand-edit that did not finish, and treating it as absent would defer nothing
 # while reporting a bound that is not in force.
-printf '# hdr\ntools/heavy-selftest.sh\tsoon\ttoo slow\n' > "$RSL/tools/selftest-slow-suites.tsv"
+printf '# threshold-seconds\t9\ntools/heavy-selftest.sh\tsoon\t2026-08-20\n' > "$RSL/tools/selftest-suite-timings.tsv"
 run_runner "$RSL"
 [[ "$RC" -eq 2 ]] && ok "slow-table: a non-numeric seconds column is rejected" \
                   || { fail "slow-table: malformed row was accepted (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
+
+# #641: a table with rows but no `# threshold-seconds` directive is unreadable, not "defer
+# nothing" — the membership rule the rows exist to state has gone missing.
+printf 'tools/heavy-selftest.sh\t147\t2026-08-20\n' > "$RSL/tools/selftest-suite-timings.tsv"
+run_runner "$RSL"
+[[ "$RC" -eq 2 ]] && grep -q 'threshold-seconds' "$OUT" \
+  && ok "slow-table: a table with no '# threshold-seconds' directive is a hard error" \
+  || { fail "slow-table: a directive-less table was accepted (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
+
+# AC-4 (#641): the committed table is a real union — no suite appears twice.
+DUPES="$(grep -v '^#' "$HERE/selftest-suite-timings.tsv" | grep -v '^$' | cut -f1 | sort | uniq -d)"
+[[ -z "$DUPES" ]] && ok "slow-table: the committed table has no duplicate suite row" \
+                  || fail "slow-table: duplicate row(s) in the committed table: $DUPES"
 
 # ---------------------------------------------------------------------------------------
 # THE FIXTURE REAPER CALL SITE (#528). Every other case builds a --root whose tools/ holds only

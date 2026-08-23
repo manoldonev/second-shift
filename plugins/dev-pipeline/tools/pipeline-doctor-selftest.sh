@@ -100,9 +100,7 @@ run_classifier() { # run_classifier <state-dir>
   return 0
 }
 
-# ---------------------------------------------------------------------------
 # (d1) the fail direction: an orphaned in_progress run IS surfaced
-# ---------------------------------------------------------------------------
 D="$WORK/d1"; mkdir -p "$D"
 mkstate 4001.json in_progress 3600
 out="$(run_classifier "$D")"
@@ -112,9 +110,7 @@ else
   bad "(d1) in_progress 60min → expected a stale line, got: [$out]"
 fi
 
-# ---------------------------------------------------------------------------
 # (d2) the 30-minute boundary — the threshold is the whole contract
-# ---------------------------------------------------------------------------
 D="$WORK/d2"; mkdir -p "$D"
 mkstate 4002.json in_progress 120        # 2 min — fresh
 out="$(run_classifier "$D")"
@@ -133,9 +129,7 @@ out="$(run_classifier "$D")"
 [[ -z "$out" ]] && ok "(d2c) in_progress 29min → not stale (< 30 boundary holds)" \
   || bad "(d2c) in_progress 29min → expected silence, got: [$out]"
 
-# ---------------------------------------------------------------------------
 # (d3) terminal states are never stale, however old — they exited by contract
-# ---------------------------------------------------------------------------
 D="$WORK/d3"; mkdir -p "$D"
 mkstate 4005.json completed 86400
 mkstate 4006.json failed    86400
@@ -204,9 +198,7 @@ else
   bad "(d6) malformed JSON → expected silence, got: [$out]"
 fi
 
-# ---------------------------------------------------------------------------
 # (d7) an empty state dir is silent (no glob-literal leakage)
-# ---------------------------------------------------------------------------
 D="$WORK/d7"; mkdir -p "$D"
 out="$(run_classifier "$D")"
 [[ -z "$out" ]] && ok "(d7) empty state dir → silent, unexpanded glob not treated as a file" \
@@ -804,9 +796,7 @@ else
   ok "(inv/complete) all $inv_n_declared selftest delegation(s) the doctor makes are covered by an arm, and no two share a basename"
 fi
 
-# ---------------------------------------------------------------------------
 # summary
-# ---------------------------------------------------------------------------
 echo "[pipeline-doctor-selftest] $PASS passed, $FAIL failed"
 [[ "$FAIL" -eq 0 ]] || exit 1
 exit 0
