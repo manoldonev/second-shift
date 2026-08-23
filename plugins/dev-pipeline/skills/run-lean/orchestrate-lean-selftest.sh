@@ -387,6 +387,10 @@ run_tool() { # run_tool [config] [args...]
          STALENESS_RC_FILE="$STALENESS_RC_FILE"
          STALENESS_TICKET_RC_FILE="$STALENESS_TICKET_RC_FILE"
          STATE_ANSWER="${STATE_ANSWER:-OPEN}"
+         # #650 AC-1. EMPTY by default, and `${LEAN_LAUNCH_ID:-...}` in the tool treats empty as
+         # unset — so every pre-existing case still exercises the PRODUCTION token expression and
+         # only the cases that assert a transcript path pin one.
+         LEAN_LAUNCH_ID="${LAUNCH_ID_OVERRIDE:-}"
          RUN_ID=poisoned-parent-run LEAN_RUN_MODEL=poisoned-parent-model )
   [ "${USE_DEFAULT_GH:-0}" -eq 1 ] || envs+=( GH="$BIN/gh" )
   # #613. Attendance is OPT-IN per case. Every pre-existing case keeps running with the session
@@ -1621,7 +1625,7 @@ else fail "(x1) slug vocabulary broke: mismatches='$x_slugs' multi-line=$x_lines
 # merged log for "error" caught build-session prose. The payload is what moves: control is stdout,
 # payload is stderr AND a per-role transcript.
 setup_case "" "$V_APPROVE" "ready-for-dev" "11"
-RUN_TOOL_SPLIT=1 run_tool "$CFG" "$ISSUE" --build-model sonnet \
+RUN_TOOL_SPLIT=1 LAUNCH_ID_OVERRIDE=y-launch run_tool "$CFG" "$ISSUE" --build-model sonnet \
   > "$WORK/case-$CASE_N/stdout" 2> "$WORK/case-$CASE_N/stderr"
 y_rc=$?
 y_out="$(cat "$WORK/case-$CASE_N/stdout")"
@@ -1639,10 +1643,12 @@ else fail "(y1) the streams were not separated, rc=$y_rc: stdout=[$y_out] stderr
 # The per-role transcript, which is the durable half: the terminal and the redirects are both
 # ephemeral, and reconstructing one run's phase timings previously meant rebuilding the timeline
 # from git and PR metadata.
-y_log="$TREE/.claude/pipeline-state/$ISSUE-lean-spawn-1-build.log"
+# #650 AC-1: the LAUNCH token now sits between the `spawn` stem and the ordinal, so this path
+# pins the whole naming contract — stem, launch, ordinal, role — rather than three quarters of it.
+y_log="$TREE/.claude/pipeline-state/$ISSUE-lean-spawn-y-launch-1-build.log"
 if [ -f "$y_log" ] && grep -q 'PAYLOAD-STDOUT-1' "$y_log" && grep -q 'PAYLOAD-STDERR-1' "$y_log" \
    && ! grep -q '\[orchestrate-lean\]' "$y_log" \
-   && [ -f "$TREE/.claude/pipeline-state/$ISSUE-lean-spawn-2-review.log" ]; then
+   && [ -f "$TREE/.claude/pipeline-state/$ISSUE-lean-spawn-y-launch-2-review.log" ]; then
   pass "(y2) each spawn leaves a per-ROLE transcript under the pipeline-state dir, carrying payload only"
 else fail "(y2) no clean per-role transcript at $y_log: $(ls "$TREE/.claude/pipeline-state" 2>/dev/null)"; fi
 
@@ -1655,6 +1661,155 @@ if [ "$y_all" -ge 5 ] && [ "$y_bad" -eq 0 ]; then
   pass "(y3) every one of the $y_all control lines carries an ISO-8601 UTC instant in the gate's own format"
 else fail "(y3) $y_bad of $y_all control lines were unstamped: $y_out"; fi
 
+# ---- (z) #650 AC-1: a re-launch no longer destroys its predecessor's evidence ------------------
+# THE REGRESSION, stated as the mechanism rather than as a symptom. `SPAWN_N` resets per scheduler
+# PROCESS, and the transcript path was keyed on it alone — so launch 2's first spawn reopened
+# launch 1's `<issue>-lean-spawn-1-build.log` and the tool's own readability probe (`: > "$log"`)
+# truncated it to zero before a byte was appended. #643's audit hit this directly: it could report
+# a launch FLOOR of 18 and no launch COUNT, which is what makes `M1ᵗ`'s denominator unrecoverable.
+#
+# SCORED ON BYTES, NOT ON EXISTENCE. The file survives either way — truncation leaves it there,
+# empty — so an `-f` test passes on the broken tool. The assertion below captures launch 1's
+# transcript, runs launch 2, and compares: unchanged and non-empty is the only passing state.
+LEDGER="$TREE/.claude/pipeline-state/$ISSUE-lean-launches.tsv"
+STATE="$TREE/.claude/pipeline-state"
+
+setup_case "" "$V_APPROVE" "ready-for-dev" "11"
+LAUNCH_ID_OVERRIDE=z-first run_tool "$CFG" "$ISSUE" --build-model sonnet >/dev/null 2>&1
+z_first="$STATE/$ISSUE-lean-spawn-z-first-1-build.log"
+z_before="$(cat "$z_first" 2>/dev/null)"
+
+setup_case "" "$V_APPROVE" "ready-for-dev" "11"
+LAUNCH_ID_OVERRIDE=z-second run_tool "$CFG" "$ISSUE" --build-model sonnet >/dev/null 2>&1
+z_second="$STATE/$ISSUE-lean-spawn-z-second-1-build.log"
+z_after="$(cat "$z_first" 2>/dev/null)"
+
+if [ -n "$z_before" ] && [ "$z_after" = "$z_before" ] && [ -s "$z_second" ]; then
+  pass "(z1) a second launch of the same issue leaves the first launch's transcript byte-identical, and writes its own"
+else fail "(z1) launch 2 destroyed launch 1's evidence: before=[$z_before] after=[$z_after] second=$(wc -c <"$z_second" 2>/dev/null) — $(ls "$STATE" 2>/dev/null)"; fi
+
+# Anti-vacuity for (z1): the two transcripts must be DIFFERENT FILES. Two launches whose token did
+# not reach the path would both satisfy "non-empty" by appending into one, and the equality above
+# would then be comparing a file with itself.
+if [ "$z_first" != "$z_second" ] && [ -f "$z_first" ] && [ -f "$z_second" ]; then
+  pass "(z2) the launch token reaches the transcript path, so two launches address two files"
+else fail "(z2) the two launches did not address two files: $z_first / $z_second"; fi
+
+# THE LEDGER'S REASON FOR EXISTING: a launch that spawns NOTHING. A preflight reject is a launch —
+# it consumed an operator's attention and it is a row in the campaign's denominator — and no
+# transcript records it, because the tool exits before `spawn` is ever called. Stamping the
+# filename alone would leave AC-2's denominator under-counting, in the direction that favours the
+# delete arm.
+setup_case "" "" "" ""
+z_out="$(LAUNCH_ID_OVERRIDE=z-reject run_tool "$CFG" "$ISSUE" --build-model sonnet)"; z_rc=$?
+z_rows="$(grep -c "	z-reject	" "$LEDGER" 2>/dev/null)" || z_rows=0
+z_launch="$(grep -c "	z-reject	$ISSUE	launch	" "$LEDGER" 2>/dev/null)" || z_launch=0
+z_term="$(grep -c "	z-reject	$ISSUE	terminal	" "$LEDGER" 2>/dev/null)" || z_term=0
+z_spawns="$(grep -c "	z-reject	$ISSUE	spawn	" "$LEDGER" 2>/dev/null)" || z_spawns=0
+if [ "$(spawn_count)" -eq 0 ] && [ "$z_launch" -eq 1 ] && [ "$z_term" -eq 1 ] && [ "$z_spawns" -eq 0 ] \
+   && [ "$z_rows" -eq 2 ]; then
+  pass "(z3) a launch that spawns nothing is still enumerable — one launch row, one terminal row, no spawn rows"
+else fail "(z3) the preflight-rejected launch was not enumerable (rc=$z_rc): rows=$z_rows launch=$z_launch term=$z_term spawns=$z_spawns out=$z_out"; fi
+
+# The terminal row carries the VOCABULARY and the exit code, not merely the fact of an ending.
+# That is the field the attribution rubric is applied to: `staleness-expired` and `build-idle` are
+# different classes, and neither is recoverable from a transcript the scheduler never opened.
+z_detail="$(sed -n "s/.*	z-reject	$ISSUE	terminal	//p" "$LEDGER" 2>/dev/null)"
+if grep -qE '^[a-z][a-z-]+ rc=[0-9]+$' <<<"$z_detail"; then
+  pass "(z4) the terminal row carries the slug and the exit code: '$z_detail'"
+else fail "(z4) the terminal row carries no classifiable outcome: '$z_detail'"; fi
+
+# A completed run records its spawns in order, so the ledger alone answers "which spawns belonged
+# to this launch" without globbing a directory that may have been reaped.
+z_sp="$(sed -n "s/.*	z-second	$ISSUE	spawn	//p" "$LEDGER" 2>/dev/null)"
+if [ "$(printf '%s\n' "$z_sp" | grep -c .)" -eq 2 ] \
+   && grep -q '^n=1 role=BUILD ' <<<"$z_sp" && grep -q '^n=2 role=REVIEW ' <<<"$z_sp"; then
+  pass "(z5) a launch's spawns are enumerable from the ledger alone, in order and by role"
+else fail "(z5) the ledger did not enumerate z-second's spawns: [$z_sp]"; fi
+
+# ---- (aa) #650 AC-4: the attended drive-mode, variant (c) of #643's campaign -------------------
+# THE DEFINING PROPERTY, and every case below asserts it: there is NO `claude -p` anywhere in this
+# path. Zero spawns, always — the check that separates this mode from arm (a) is not "fewer spawns"
+# but "none", because the transport is the component the campaign is measuring the absence of.
+#
+# The counterpart property is that arm (a) is UNPERTURBED. (aa2) is that assertion: the same
+# fixture without the flag still spawns, so the instrument has not quietly changed the arm it is
+# measured against.
+
+# NO PR ⇒ the BUILD turn. Exit 9, the command printed, nothing spawned.
+setup_case "" "" "ready-for-dev" ""
+aa_out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet --attended)"; aa_rc=$?
+if [ "$aa_rc" -eq 9 ] && [ "$(spawn_count)" -eq 0 ] \
+   && [ "$(slug_of "$aa_out")" = "attended-build-turn" ] \
+   && grep -qF "/dev-pipeline:build-lean $ISSUE" <<<"$aa_out" \
+   && grep -qF -- "--attended" <<<"$aa_out"; then
+  pass "(aa1) with no PR the attended mode hands over the BUILD turn — exit 9, command printed, nothing spawned"
+else fail "(aa1) expected a BUILD handover at exit 9 with no spawn, rc=$aa_rc spawns=$(spawn_count): $aa_out"; fi
+
+# ANTI-VACUITY, and the load-bearing half of the pair: the SAME fixture WITHOUT the flag must still
+# spawn. Without this, a tool broken so that it never spawns at all would satisfy every case here.
+setup_case "" "" "ready-for-dev" ""
+aa_out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; aa_rc=$?
+if [ "$(spawn_count)" -ge 1 ]; then
+  pass "(aa2) the same fixture WITHOUT --attended still spawns — arm (a) is unperturbed by its own measuring instrument"
+else fail "(aa2) arm (a) stopped spawning, rc=$aa_rc: $aa_out"; fi
+
+# A PR with no usable verdict — the ordinary state of a freshly built lane — is the REVIEW turn.
+setup_case "" "5" "ready-for-dev" "11"
+aa_out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet --attended)"; aa_rc=$?
+if [ "$aa_rc" -eq 9 ] && [ "$(spawn_count)" -eq 0 ] \
+   && [ "$(slug_of "$aa_out")" = "attended-review-turn" ] \
+   && grep -qF '/dev-pipeline:review-lean 11' <<<"$aa_out"; then
+  pass "(aa3) an open PR with no usable verdict hands over the REVIEW turn, naming the PR — nothing spawned"
+else fail "(aa3) expected a REVIEW handover at exit 9 with no spawn, rc=$aa_rc spawns=$(spawn_count): $aa_out"; fi
+
+# NEEDS-WORK is a BUILD turn, not a REVIEW one: the loop re-spawns BUILD here, so this hands BUILD
+# over. Routing it to REVIEW would ask the reviewer to re-review an unchanged head.
+setup_case "" "1" "ready-for-dev" "11"
+aa_out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet --attended)"; aa_rc=$?
+if [ "$aa_rc" -eq 9 ] && [ "$(spawn_count)" -eq 0 ] \
+   && [ "$(slug_of "$aa_out")" = "attended-build-turn" ]; then
+  pass "(aa4) a needs-work verdict hands over the FIX turn as a BUILD turn, not another review"
+else fail "(aa4) expected a BUILD handover on needs-work, rc=$aa_rc spawns=$(spawn_count) slug=$(slug_of "$aa_out"): $aa_out"; fi
+
+# APPROVE ⇒ the close-out, and it runs as a DIRECT gate call with no session at all. This is #590's
+# template being the whole mode rather than one call site.
+setup_case "" "0" "ready-for-dev" "11"
+aa_out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet --attended)"; aa_rc=$?
+if [ "$aa_rc" -eq 0 ] && [ "$(spawn_count)" -eq 0 ] && [ "$(closeout_count)" -eq 1 ] \
+   && [ "$(slug_of "$aa_out")" = "approved" ]; then
+  pass "(aa5) an approve closes out through a direct gate call and finishes the lane with zero sessions"
+else fail "(aa5) expected a spawnless close-out, rc=$aa_rc spawns=$(spawn_count) closeouts=$(closeout_count): $aa_out"; fi
+
+# THE PREMISE IS CHECKED FIRST, exactly as the loop's build phase checks it, and a stale one costs
+# the operator nothing — not even a handover they would then have to abandon.
+setup_case "" "" "ready-for-dev" ""
+printf '7\n' > "$STALENESS_RC_FILE"
+aa_out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet --attended)"; aa_rc=$?
+if [ "$aa_rc" -eq 7 ] && [ "$(spawn_count)" -eq 0 ] \
+   && [ "$(slug_of "$aa_out")" = "staleness-expired" ] \
+   && ! grep -qF '/dev-pipeline:build-lean' <<<"$aa_out"; then
+  pass "(aa6) an expired premise stops before any handover — the operator is not sent to work a dead lane"
+else fail "(aa6) expected staleness-expired with no handover, rc=$aa_rc spawns=$(spawn_count): $aa_out"; fi
+
+# UNCOLLECTED WORK stops too: a review turn against a remote head missing the build turn's commits
+# is the #531 defect with a human in the middle instead of a spawn.
+setup_case "" "" "ready-for-dev" "11"
+printf '8\n' > "$INFLIGHT_RC_FILE"
+aa_out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet --attended)"; aa_rc=$?
+if [ "$aa_rc" -eq 1 ] && [ "$(spawn_count)" -eq 0 ] && [ "$(slug_of "$aa_out")" = "build-inflight" ]; then
+  pass "(aa7) uncollected work in the lane worktree stops the lane instead of handing over a review of a stale head"
+else fail "(aa7) expected build-inflight, rc=$aa_rc spawns=$(spawn_count) slug=$(slug_of "$aa_out"): $aa_out"; fi
+
+# The preview must describe the mode the next invocation will actually take. A dry run that printed
+# arm (a)'s round schedule under --attended would be a dry run of a different program.
+setup_case "" "" "ready-for-dev" ""
+aa_out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet --attended --dry-run)"; aa_rc=$?
+if [ "$aa_rc" -eq 0 ] && [ "$(spawn_count)" -eq 0 ] && [ "$(gate_count)" -eq 0 ] \
+   && grep -q 'ATTENDED' <<<"$aa_out" && ! grep -q 'round(s) of BUILD' <<<"$aa_out"; then
+  pass "(aa8) --dry-run under --attended previews the attended schedule and calls no gate"
+else fail "(aa8) expected an attended preview with no gate calls, rc=$aa_rc gates=$(gate_count): $aa_out"; fi
+
 # ---- (n) --help prints the header and stops before the code ------------------------------------------
 # BOTH bounds, and the lower one is not decoration: the `Exit: 0 = approved` anchor sits four lines
 # above the header's end, so a range that over-shrinks (2,134p -> 2,130p) drops the whole exit-code
@@ -1663,6 +1818,8 @@ else fail "(y3) $y_bad of $y_all control lines were unstamped: $y_out"; fi
 out="$(bash "$TOOL" --help 2>&1)"; rc=$?
 if [ "$rc" -eq 0 ] && grep -qF 'Exit: 0 = approved' <<<"$out" \
    && grep -qF 'integrity refusal (P10)' <<<"$out" \
+   && grep -qF 'THE LANE IS WAITING ON THE OPERATOR' <<<"$out" \
+   && grep -qF 're-launch the same command.' <<<"$out" \
    && ! grep -qF 'set -uo pipefail' <<<"$out"; then
   pass "(n) --help prints through the last header line and stops before the code"
 else fail "(n) --help did not print exactly the header, rc=$rc: $out"; fi
