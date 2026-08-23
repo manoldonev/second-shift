@@ -251,6 +251,33 @@ DRY_RUN=0
 # only chronology in a run lived in the gate's record and nothing here could be joined to it.
 now_iso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
+# #650 AC-1. THE LAUNCH LEDGER — one line per launch, one per spawn, one per terminal.
+#
+# WHAT IT EXISTS FOR, precisely: #643's audit could not enumerate the LAUNCH unit at all (its
+# limitation 1), so `M1ᵗ`'s denominator had to be bounded rather than counted. The transcript stamp
+# below makes a launch's spawns groupable; this makes a launch that spawns NOTHING — a preflight
+# reject, an unresolvable branch prefix — countable too. Without it the denominator still
+# under-counts, and it under-counts in the direction that favours the delete arm.
+#
+# ADVISORY, never fatal, on the transcript's own precedent (see `spawn`): a launch whose ledger
+# line cannot be written is a lost convenience, and a run stopped over one would be this script
+# deciding that its own bookkeeping outranks the work.
+#
+# AND IT DOES NOT BREAK "WHAT IT WRITES: NOTHING", for the reason the transcript comment states at
+# length: that premise is about ARTIFACTS — records carrying a run's identity, which the merge
+# boundary compares — and a ledger line carries none. It is bytes this script already emitted on
+# its control stream, written where an analyst can find them after the terminal has scrolled away.
+#
+# NO-OP UNTIL `LAUNCH_LEDGER` IS SET, which is what lets `terminal` call it unconditionally: an
+# arg-parsing `envfail` fires long before the config resolves a state dir, and a bookkeeping helper
+# that errored on the way out of a usage refusal would be worse than the gap it closes.
+launch_note() { # launch_note <event> <detail>
+  [ -n "${LAUNCH_LEDGER:-}" ] || return 0
+  mkdir -p "$LOG_DIR" 2>/dev/null
+  printf '%s\t%s\t%s\t%s\t%s\n' "$(now_iso)" "$LAUNCH_ID" "$ISSUE" "$1" "$2" \
+    >> "$LAUNCH_LEDGER" 2>/dev/null || :
+}
+
 # #531 D-5. ONE STREAM FOR CONTROL. `say` wrote stdout and `envfail` wrote stderr, so even this
 # script's own lines were split across two — and a watcher filtering the merged log for "error"
 # caught build-session prose. Control is stdout, all of it; the PAYLOAD is what goes to stderr now
@@ -283,6 +310,12 @@ terminal() { # terminal <slug> <exit-code> <message...>
   local slug="$1" code="$2"
   shift 2
   say "terminal: $slug — $*"
+  # #650 AC-1. EVERY exit funnels through here, `envfail` included, so one call site records every
+  # launch's outcome — which is the field that turns the ledger from a launch count into something
+  # the attribution rubric can be applied to. A terminal vocabulary IS evidence: `staleness-expired`
+  # and `build-idle` classify differently, and neither is recoverable from a transcript that the
+  # scheduler never got far enough to open.
+  launch_note terminal "$slug rc=$code"
   exit "$code"
 }
 envfail() { terminal "$1" 2 "$2"; }
@@ -376,6 +409,30 @@ CLAIM_MARKER_TAG='lean-claimed'
 # and PR metadata.
 STATE_DIR="$(cfg '.paths.pipelineStateDir' '.claude/pipeline-state')"
 LOG_DIR="$MAIN_ROOT/$STATE_DIR"
+
+# #650 AC-1. THE LAUNCH TOKEN, and the evidence-destruction it removes.
+#
+# `SPAWN_N` resets per scheduler process (see `spawn`) and the transcript path was keyed on it
+# alone, so launch 2's first spawn reopened launch 1's `<issue>-lean-spawn-1-build.log` and the
+# `: >` readability probe TRUNCATED it before a byte was appended. That is not log rotation; it is
+# a launch's evidence being destroyed by its successor, and it is why #643's corpus reports a
+# launch FLOOR of 18 rather than a launch count.
+#
+# A STAMPED FILENAME, NOT A PER-LAUNCH DIRECTORY (`D-8`). The corpus discovers transcripts with a
+# flat `<issue>-lean-spawn-*.log` glob — `tools/retro-corpus.sh:391` is the shipped reader — and a
+# directory moves every transcript out of that glob's reach. A top-level-versus-recursive
+# disagreement over exactly this pattern is what produced the 57-vs-63 miscount the criterion's
+# revision 3 had to correct, so making the pattern deeper is the one change that would make the
+# NEXT enumeration harder rather than easier. The stamp keeps discovery flat and makes the launch a
+# FIELD in the name instead of a level in the path.
+#
+# `LEAN_LAUNCH_ID` IS A SEAM, not a knob for operators: a token carrying the current second and
+# this process's pid is unique in production and unassertable in a fixture, so the suite pins it.
+# Seconds AND pid, because two launches of one ticket inside the same second are a re-launch after
+# an instant preflight reject — the exact shape whose evidence this exists to keep.
+LAUNCH_ID="${LEAN_LAUNCH_ID:-$(now_iso | tr -d ':-')-$$}"
+LAUNCH_LEDGER="$LOG_DIR/$ISSUE-lean-launches.tsv"
+launch_note launch "branch_key=$ISSUE build=$BUILD_MODEL review=$REVIEW_MODEL rounds=$MAX_ROUNDS continuations=$MAX_CONTINUATIONS"
 
 # ---- preflight ------------------------------------------------------------------------------
 # THE PROBES RUN CONCURRENTLY, and one invocation reports EVERY failure. Both halves are
@@ -609,9 +666,10 @@ spawn() { # spawn <role> <model> <prompt>
   local role="$1" model="$2" prompt="$3" rc lower log
   SPAWN_N=$((SPAWN_N + 1))
   lower="$(printf '%s' "$role" | tr '[:upper:]' '[:lower:]')"
-  log="$LOG_DIR/$ISSUE-lean-spawn-$SPAWN_N-$lower.log"
+  log="$LOG_DIR/$ISSUE-lean-spawn-$LAUNCH_ID-$SPAWN_N-$lower.log"
   say "spawn $role — model=$model — $prompt"
   if [ "$DRY_RUN" -eq 1 ]; then return 0; fi
+  launch_note spawn "n=$SPAWN_N role=$role model=$model"
   # ADVISORY, never fatal (AC-3). A transcript that cannot be opened is a lost convenience; a run
   # stopped over one would be this script deciding that its own logging outranks the work. The
   # mkdir is part of that: round 1's first spawn precedes the BUILD session's own `entry`, so on a
