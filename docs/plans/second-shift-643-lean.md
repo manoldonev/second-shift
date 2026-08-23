@@ -58,7 +58,7 @@ be retrodiction dressed as measurement.
 | D-1 | AC-2's "at least three runs per arm" | DEPARTURE — the campaign is nine lane runs over days and cannot be collected in one build session; variant `c` does not exist and must be built as a time-boxed spike first. This slice delivers the retrospective audit only; the campaign moves to the follow-up required by AC-7. | user-answered |
 | D-2 | AC-3's "the selected arm is executed in this slice" | DEPARTURE — the pre-registration states the retrospective corpus narrows arms and the prospective runs select. Selecting here would be the precise failure the criterion was written to prevent. Moves to the follow-up. | user-answered |
 | D-3 | AC-5's front-door truth | DEPARTURE — conditional on an arm landing. No front door moves in this slice, so the criterion is vacuous here; reinstated in the follow-up. | user-answered |
-| D-4 | the corpus window | Fixed at all launches since #548 introduced spawn logging: 2026-08-16 → 08-22, 57 spawn logs across 15 issues. Stated in the pre-registration and not re-openable after scoring begins. | derived |
+| D-4 | the corpus window | Fixed at all launches since #548 introduced spawn logging: 2026-08-16 → 08-22, 57 spawn logs across 15 issues. Stated in the pre-registration and not re-openable after scoring begins. | codebase-derived |
 
 **Provenance note for `D-1`..`D-3`.** The operator was given the phase split in plain terms on
 2026-08-23 — "Phase 1 — this session … Phase 2 — the prospective runs … nine lane runs" — together
