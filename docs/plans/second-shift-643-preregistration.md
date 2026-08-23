@@ -130,3 +130,107 @@ Corpus and the no-drop rule; the window is now stated explicitly as **all launch
 introduced spawn logging, 2026-08-16 → 08-22**, a seven-day recency sample that includes the two
 #647-defect days. Arm A remains scoped to the scheduler layer only — `build-lean`, `review-lean`
 and `lean-gate.sh` are out of scope under every arm.
+
+---
+
+## Revision 3 — amendments made AFTER the numbers were read
+
+**Dated 2026-08-23, after scoring.** Revision 2's text above is unedited, and revision 1 stays up
+unedited on the issue. This section exists because round 1 of the independent review on PR 651
+returned four defects that bind the criterion itself rather than the audit, and #650 is instructed
+to measure against this file — so a defect left here propagates into the campaign that selects the
+arm.
+
+**These amendments cannot be trusted the way revision 2 can, and the reason is structural:** they
+were written by an author who has now seen the result. Each one therefore states which arm it
+favours. Read them in that light, and note that none of them can move this slice's outcome — no arm
+is selected here under any revision.
+
+### R3-1 — the prior belongs in the committed file (round-1 blocker B-4)
+
+Revision 2 says at `:108` that the prediction "is recorded as a prior" and then records none. It
+lives only in [revision 1's comment](https://github.com/manoldonev/second-shift/issues/643#issuecomment-5385766947),
+which is the exact container revision 2 condemns two sections earlier — "a scope amendment placed in
+a comment was the single most expensive error of the 2026-08-22 recalibration." Carried here
+verbatim, under revision 1's own heading:
+
+> ### Prediction, recorded now
+>
+> M1 lands between 0.30 and 0.50 — arm A, or the top of arm B. **If it comes back materially higher,
+> that is evidence against the framing above, and the arm the table selects beats the prediction.**
+
+Provenance, checkable: comment `5385766947` was created `2026-08-23T11:31:08Z`; this branch's first
+commit `f573ee3` is `2026-08-23T11:51:08Z`. The prediction precedes the branch by 20 minutes, and
+precedes the scoring commit `ecc77e5` (`11:55:52Z`) by 24. **Direction: neutral** — transcription
+only. The audit's earlier gloss of this quote dropped "or the top of arm B" and is corrected there.
+
+### R3-2 — the decision table is made total (round-1 blocker B-3)
+
+Revision 2's B1 table selects arm C on `M1ᵗ >= 0.80` alone, while its B3 section adds "Arm C is
+selected on `M1ᵗ` **and** attention(a) < attention(b)." A run where `M1ᵗ` clears 0.80 and the
+attention comparison fails is selected by the table and refused by the prose, and **no arm is
+assigned** — which is revision 1's defect, the one B1 was written to remove, reintroduced by the fix
+for it. Revision 1 had no such hole: its table carried the conjunct and a `>= 0.50, but either
+condition fails → B` catch row.
+
+The conjunct moves back into the table, which is now total over its domain:
+
+| `M1ᵗ` band (both ends) | attention | Arm |
+| --- | --- | --- |
+| >= 0.80 | attention(a) < attention(b) | **C — keep.** #617/#638/#639 unblock and the slowness is someone else's ticket. |
+| >= 0.80 | attention(a) >= attention(b) | **B — reshape.** The transport holds but the operator still pays; that is revision 1's "either condition fails" row. |
+| 0.50 – 0.80 | any | **B — reshape.** |
+| < 0.50 | any | **A — delete the scheduler layer.** |
+| the band straddles a row boundary | any | **no arm** — the corpus is insufficient and the prospective runs decide (revision 2's band rule, unchanged). |
+
+Prose adds nothing to this table; B3's sentence is superseded by its top two rows.
+
+**Direction: this favours the arm the author predicted.** It makes arm C strictly harder to reach —
+`M1ᵗ` alone no longer selects it — and the author predicted arm A. It is adopted anyway because it
+restores a rule revision 1 fixed *before* any data existed, and because attention is unmeasured in
+this slice, so it cannot change what lands here. #650 measures attention and inherits the table.
+
+### R3-3 — the launch-enumeration sources are corrected, and the ordering clause was violated
+
+Revision 2's B2 consequence reads: "the launch enumeration must come from sources outside the
+corpus (the operating record, `cost-log.jsonl`, tracker timestamps), **be committed before
+scoring**, and mark unrecoverable launches explicitly." Two corrections, both against this session:
+
+1. **`cost-log.jsonl` cannot serve, and this is checkable rather than argued.** The lean lane writes
+   no row to it by design. Empirically: the file's last row is `2026-07-31T21:40:35Z`, three weeks
+   before the corpus window opens on 08-16, and none of the 15 corpus issues appears in it. Naming
+   a source without opening it is the same error class as R3-1. The source list is amended to **the
+   gate's progress records and tracker timestamps**; `cost-log.jsonl` is struck.
+2. **"Committed before scoring" was not satisfied, and cannot now be.** No enumeration was committed
+   before `ecc77e5`. It is committed late instead, in the audit's *Launch enumeration* section, and
+   the slice records the violation as a departure rather than restating the clause as met. A
+   pre-registration whose procedural steps are quietly dropped when they turn out to be
+   inconvenient is worth nothing, so it is recorded as broken.
+
+**Direction: neutral to the arm; adverse to this session's compliance record.** That is the honest
+place for it to land.
+
+### R3-4 — the corpus is its rule, not its count (round-1 blocker B-1)
+
+`D-4` fixes the corpus as "**all** launches since #548 introduced spawn logging: 2026-08-16 → 08-22"
+and then states a count of 57. The count was a **miscount of that rule**, not a second definition of
+it: a top-level glob of the state directory returns 57 spawn logs, a recursive `find` returns 63,
+and the six-log difference is one complete archived launch of #641 that satisfies the rule in full.
+The rule is unchanged and the no-drop rule is unchanged; the enumeration is corrected to **63**.
+
+Correcting an enumeration toward *more* data is not re-opening a fixed corpus — dropping members
+would be. The audit restates every band on 63 and the arm does not move.
+
+**One statement in revision 2 above is falsified by the recovered set and is left standing on
+purpose.** The B2 correction says "the earlier launches' transcripts are gone", citing #641's
+four-launches-behind-three-logs as the illustration. One of those four survives in full, in the
+archive directory the corpus was drawn from. The *mechanism* revision 2 describes is real and
+unchanged — `orchestrate-lean.sh` does truncate, and `SPAWN_N` does reset — but the claim that no
+launch survives it is too strong: one did, because a human copied it aside before the next launch
+ran. The audit's limitation 1 carries the corrected version, and the recovered launch is the only
+end-to-end-observable launch in the entire corpus.
+
+**Direction: this favours the arm the author predicted**, slightly. The recovered set adds one
+class-T spawn and five clean, taking `M1ᵗ` from 0.88–0.91 down to 0.873–0.905. It stays in the keep
+row, so nothing turns on it — but it moves toward arm A, which is why it is stated as a number
+rather than waved through.

@@ -1,71 +1,235 @@
 # #643 — retrospective audit of the fixed corpus
 
 **Scored 2026-08-23, against the criterion committed in
-[`second-shift-643-preregistration.md`](second-shift-643-preregistration.md) — which landed as this
-branch's first commit, before any of the numbers below were read.** `git log --reverse` is the check.
+[`second-shift-643-preregistration.md`](second-shift-643-preregistration.md), which landed as this
+branch's first commit.** `git log --reverse` is the check, and it is worth being exact about what it
+checks: the pre-registration commit `f573ee3` (`11:51:08Z`) precedes the scoring commit `ecc77e5`
+(`11:55:52Z`) by 4m44s. **That establishes commit order, not read order** — the 57 logs that pass
+had in hand could not be classified in four minutes, so some reading necessarily preceded the
+criterion's commit. The
+ordering evidence that does carry weight is elsewhere and is stronger: the prediction below was
+recorded at `11:31:08Z`, twenty minutes before the branch existed, and it was refuted.
+
+This file was revised on 2026-08-23 after round 1 of the independent review on PR 651. The corpus,
+the bands and limitation 1 all moved; see *Corpus enumeration* for what changed and why.
 
 Per the pre-registration this audit **narrows** the arms; it does not select one. The prospective
 per-arm runs select, and they are the follow-up's work.
 
 ## Headline: the prediction was wrong
 
-The pre-registration recorded a prior of `M1ᵗ ∈ [0.30, 0.50]` — arm A, delete — and committed to
-"if it comes back materially higher, that is evidence against my framing." It came back materially
-higher. **At the spawn level the transport-attributed rate is 0.88–0.91, which is arm C territory.**
+The prior was recorded in [revision 1 of the criterion](https://github.com/manoldonev/second-shift/issues/643#issuecomment-5385766947)
+at `2026-08-23T11:31:08Z`, twenty minutes before this branch's first commit, and is carried verbatim
+into the committed file by revision 3:
 
-That reading does not survive contact with the launch-unit problem below, and the corpus is too
-thin post-#566 to settle anything. But the direction is recorded plainly: the corpus does not
-support the delete arm, and it was assembled by someone who expected it to.
+> M1 lands between 0.30 and 0.50 — arm A, or the top of arm B. **If it comes back materially higher,
+> that is evidence against the framing above, and the arm the table selects beats the prediction.**
+
+It came back materially higher. **At the spawn level the transport-attributed rate is 0.873–0.905,
+which is arm C territory** — not arm A, and not the top of arm B either.
+
+That reading does not survive contact with the launch-unit problem below, and the post-#566 corpus
+is nine spawns. But the direction is recorded plainly: the corpus does not support the delete arm,
+and it was assembled by someone who expected it to.
 
 ## What the attribution rubric changed
 
 | Reading | Rate | Arm it selects |
 | --- | --- | --- |
-| Naive — every non-clean spawn counts against the scheduler | 42/57 = **0.74** | B (reshape) |
-| `M1ᵗ` — transport-attributed only, U optimistic | 52/57 = **0.91** | C (keep) |
-| `M1ᵗ` — transport-attributed only, U pessimistic | 50/57 = **0.88** | C (keep) |
+| Naive — every non-clean spawn counts against the scheduler | 47/63 = **0.746** | B (reshape) |
+| `M1ᵗ` — transport-attributed only, U optimistic | 57/63 = **0.905** | C (keep) |
+| `M1ᵗ` — transport-attributed only, U pessimistic | 55/63 = **0.873** | C (keep) |
 
 Both ends of the band land in the same row, which is the pre-registration's condition for the band
 to be usable at all. **The rubric is what moved the answer**: three host-sleep deaths, one API 500
 and four mis-dispatches are not the transport's fault, and revision 1 of the criterion — which had
 no rubric — would have charged all eight to the scheduler and selected a different arm.
 
+Note what this table does *not* do: it selects no arm. Under revision 3's total decision table arm C
+additionally requires `attention(a) < attention(b)`, which this slice does not measure at all.
+
 ## Classification tally
 
 | Class | Count | Counts against the scheduler? |
 | --- | --- | --- |
-| clean | 42 | — |
-| **T** transport — turn ended with the milestone unmet | 5 | **yes, and only these** |
+| clean | 47 | — |
+| **T** transport — turn ended with the milestone unmet | 6 | **yes, and only these** |
 | **M** mis-dispatch — spawned onto already-completed work | 4 | see limitation 3 |
 | **S** host sleep | 3 | no |
 | **U** unattributable — empty log | 2 | widens the band |
 | **I** infrastructure — API 500 | 1 | no |
 
+63 spawns across 15 issues. The tally sums to 63; see *Corpus enumeration* for why it is 63 and not
+the 57 this file first reported.
+
+## Corpus enumeration
+
+This file first reported 57 spawn logs. The corpus is 63.
+
+`D-4` fixes the corpus by a **rule** — "all launches since #548 introduced spawn logging,
+2026-08-16 → 08-22" — and the 57 was a miscount of that rule rather than a second definition of it.
+The two commands disagree:
+
+```
+find .claude/pipeline-state -maxdepth 1 -name '*lean-spawn-*.log' | wc -l   # 57
+find .claude               -name '*lean-spawn-*.log' | wc -l                # 63
+```
+
+The six-log difference is `.claude/pipeline-state/archive-641-pr645-20260822T141642Z/`, a complete
+six-spawn launch of #641 archived by hand on `2026-08-22T14:16:42Z` when PR 645 was abandoned. They
+are **not duplicates of the live files of the same name** — archived spawns 1/2/3 are 2300/3021/1666
+bytes against the live 1919/2591/142 — they are a different, earlier launch.
+
+Correcting an enumeration toward *more* data is not re-opening a fixed corpus; dropping members
+would be. The no-drop rule is unchanged and every band in this file is restated on 63. **The arm does
+not move** (0.873–0.905, still the keep row); what moves is the tally, the post-#566 sample, and
+limitation 1, which had asserted these transcripts were gone.
+
+The lesson is worth more than the six rows: **when a document declares a corpus, enumerate the
+corpus yourself.** A top-level glob and a recursive `find` disagreed, and the difference is where
+the only end-to-end-observable launch in the entire corpus was hiding.
+
+## Launch enumeration — B2's consequence, discharged late
+
+The criterion's B2 correction requires a launch enumeration "from sources outside the corpus …
+committed before scoring", with unrecoverable launches marked. **That ordering was violated** — no
+enumeration was committed before the scoring commit `ecc77e5`, and this section is the late
+discharge. Recorded as departure `D-7` rather than restated as met. Revision 3 also strikes
+`cost-log.jsonl` from the named sources: the lean lane writes no row to it by design, and
+empirically its last row is `2026-07-31T21:40:35Z` — three weeks before the window opens, with none
+of the 15 corpus issues present.
+
+The source that does work is the **gate's progress records** (`<issue>-lean-progress.md`), written
+by `lean-gate.sh` and not by the scheduler, so genuinely outside the spawn-log corpus. Each `entry`
+stamps a UTC timestamp and a session id.
+
+| issue | build sessions recorded | build spawn logs surviving | delta |
+| --- | --- | --- | --- |
+| 141 | 1 | 2 | −1 |
+| 517 | 3 | 3 | 0 |
+| 530 | 1 | 4 | −3 |
+| 533 | 1 | 1 | 0 |
+| 542 | 2 | 2 | 0 |
+| 549 | 3 | 4 | −1 |
+| 562 | 5 | 4 | **+1** |
+| 565 | 4 | 1 | **+3** |
+| 575 | 1 | 2 | −1 |
+| 581 | 2 | 3 | −1 |
+| 582 | 1 | 1 | 0 |
+| 583 | 4 | 2 | **+2** |
+| 585 | 4 | 3 | **+1** |
+| 597 | 2 | 1 | **+1** |
+| 641 | 4 | 5 | −1 |
+| **total** | **38** | **38** | — |
+
+#641's row folds in the archive on both sides: 3 live sessions + 1 recovered from the archived
+progress record, against 2 live + 3 archived build logs. The recovered session
+(`71e53c4e`, `2026-08-22T12:07:51Z`) appears in **no** live record — the hand-archival *moved* the
+progress file rather than copying it, so the operating record is itself segmented and only the
+archive holds the first segment. That is an operator action, not a scheduler defect, but it means
+the corpus boundary silently dropped a progress segment as well as six spawn logs.
+
+**What this enumerates, and what it does not.** The unit here is the *build session*, not the
+launch. One launch spawns a build session per round, so 38 over-counts launches; and the record
+cannot distinguish a scheduler-spawned session from a hand-run one, so it over-counts scheduler
+work too. It is an upper bound that cannot be converted into a launch count. **No surviving source
+enumerates launches** — that is the finding, and it is now established from outside the corpus
+rather than from a signal inside it.
+
+Both directions of the delta are informative, and neither is visible in the spawn logs alone:
+
+- **8 recorded build sessions have no surviving build transcript** (#562, #565, #583, #585, #597).
+  Some are hand-runs that were never spawned; the rest are destroyed transcripts. Either way the
+  spawn-log corpus is not a census of build sessions.
+- **8 build spawn logs have no `entry` record at all** (#141, #530, #549, #575, #581, #641) — a
+  spawn that died before the gate's first call, or a mis-dispatch that `entry` refused with rc 10.
+  Class M's four rows sit in this set, which is a mechanical check on that classification.
+
+**Unrecoverable launches, marked as B2 requires:** all of them except one. The single launch
+recoverable end to end is the archived #641 launch, and it is recovered only because a human copied
+it aside.
+
 ## Three limitations that stop this corpus selecting an arm
 
-**1. The launch unit is unrecoverable, and the launch unit is what the criterion specifies.**
+**1. The launch unit is not enumerable from any surviving source, and the launch unit is what the
+criterion specifies.**
 `M1ᵗ` above is computed per *spawn*, not per *launch*, because `orchestrate-lean.sh` truncates each
-spawn log before appending (`:621`, then `tee -a` at `:633`) and `SPAWN_N` resets per process
-(`:607`). A re-launch overwrites its predecessor. The only recoverable launch signal is a collision
-— the same `SPAWN_N` appearing under two different roles — which occurs for exactly two issues
-(#562, #585), giving a floor of 17 launches across the 15 issues. The floor is known to be badly
-low: #641 alone had **four** launches behind **three** logs. A launch dies whole when any spawn in
-it dies, so the launch-level rate is necessarily worse than the spawn-level rate by an unknown
-factor. **The scheduler destroys the evidence needed to audit the scheduler.**
+spawn log before appending (`:621`, then `tee -a` at `:634`) and `SPAWN_N` resets per process
+(`:607`). A re-launch overwrites its predecessor. In-corpus, the only launch signal is a collision —
+the same `SPAWN_N` appearing under two different roles — which occurs for exactly two issues (#562,
+#585); with the archived #641 launch recovered below that gives a floor of **18** launches across
+the 15 issues. **The scheduler destroys the evidence needed to audit the scheduler**, and that
+finding is unchanged.
 
-**2. Four of the five T failures are pre-#566, and #566 deleted the mechanism.**
+Two corrections to how this file first stated it, both against its own argument:
+
+**(a) "The earlier launches' transcripts are gone" is false for the case this file names as its
+worst.** The criterion's B2 correction cites #641's four-launches-behind-three-logs as the
+illustration that a launch is unrecoverable. One of those four survives *in full* —
+`.claude/pipeline-state/archive-641-pr645-20260822T141642Z/` holds spawns 1–6 with strictly
+increasing mtimes (12:23:42Z → 13:18:53Z), alternating build/review, no gaps: one complete launch,
+hand-archived when PR 645 was abandoned. The mechanism destroys transcripts; it did not destroy
+this one, because a human copied it out of the way first. **Nothing in the repo archives** —
+`grep -rn archive plugins/` is empty — so this is a one-off rescue, not a property of the system.
+
+**(b) "A launch dies whole when any spawn in it dies" is refuted by the one launch we can observe
+end to end.** The recovered launch contains a class-T spawn — archived `641-lean-spawn-3-build.log`,
+which ended its turn holding an unpushed PR-body update — and **it did not die**. Spawns 4, 5 and 6
+ran on and the launch reached a round-3 `approve`. Its code commit had been pushed; only the PR-body
+update was stranded, so the T cost part of a round rather than the launch.
+
+That matters for the bound, because the premise was doing all the work. Taking it at face value on
+the corrected numbers: floor 18 launches, 6 class-T spawns, so launch-level `M1ᵗ >= 1 − 6/18 =
+**0.667**` — the reshape row, not the keep row, and worth stating plainly since this file previously
+declined to bound it at all. But the premise is the pessimistic extreme, and the single launch that
+can be checked against it violates it. **The true launch-level rate lies somewhere in 0.667–0.905,
+and every point in that interval is in arm B or arm C. Arm A is not reachable from this corpus under
+any reading of the launch unit** — including the one most hostile to the scheduler. The delete arm
+needs the prospective runs, not a harsher reading of this corpus.
+
+**2. Four of the six T failures are pre-#566, and #566 deleted the mechanism.**
 `530-1` (08-16), `562-2` (08-17), `581-1` and `581-2` (08-19) are one failure mode: the session
 backgrounded milestone 3 and ended its turn, and under `claude -p` turn end is process exit. #566
-landed 2026-08-21 (`9f2b5d0`) and made milestone 3 run inline. Only `641-3` (08-22) post-dates it,
-and that one was waiting on hand-launched suites rather than milestone 3. **The post-#566 corpus is
-three spawns and one T** — statistically empty. Whatever the transport's residual failure rate is,
-this corpus measured mostly a mechanism that no longer exists.
+landed `2026-08-21T12:29:09Z` (`9f2b5d0`) and made milestone 3 run inline. The two T spawns that
+post-date it are both #641 on 08-22 — live `641-3` and archived `641-3` — and **neither was waiting
+on milestone 3**: one was waiting on hand-launched suites, the other on a full sweep before pushing
+a PR-body edit. The mechanism #566 deleted does not appear after #566; a *different* shape of the
+same turn-boundary death does.
+
+**The post-#566 corpus is nine spawns and two T** — `1 − 2/9 = 0.778`, the reshape row. The archive
+tripled it from the three spawns this file first reported, which is the single largest thing the
+corpus correction bought. Nine spawns still settles nothing, and it is the number that most deserves
+the prospective runs: it is the only part of this corpus that measures the transport as it exists
+today, and it is the part that reads worst for the scheduler.
 
 **3. Class M is a scheduler cost that `M1ᵗ` does not charge it for.**
 Four spawns landed on issues already closed and merged — one of them collided with a concurrent
 lane mid-run. That is a real defect and a real cost, and it is *not* transport, so the rubric as
 pre-registered excludes it. Recorded here rather than folded quietly into `X`, because it is
 evidence the reshape arm would want and the delete arm would want, and the criterion cannot see it.
+
+## Robustness — every defensible reading of this corpus
+
+`D-5` was flagged so it could be checked rather than trusted. Here is the check, across every
+variation of the rubric that can be argued for, on the corrected 63-spawn corpus:
+
+| Reading | Rate | Arm |
+| --- | --- | --- |
+| Naive — every non-clean spawn charged to the scheduler | 47/63 = **0.746** | B |
+| `M1ᵗ` pessimistic (U counted against) | 55/63 = **0.873** | C |
+| `M1ᵗ` optimistic (U clean) | 57/63 = **0.905** | C |
+| `D-5` unamended — API 500 scored `U` rather than `I` | 0.857–0.905 | C |
+| All four mis-dispatches charged to the scheduler | 0.810–0.841 | C |
+| Launch level, floor 18, assuming a T kills its launch | **0.667** | B |
+| Post-#566 spawns only (9 spawns, 2 T) | **0.778** | B |
+
+**Every reading lands in arm B or arm C. None reaches arm A.** The delete arm the author predicted
+is not reachable from this corpus under any variation, including the ones most hostile to the
+scheduler — and that is a materially stronger statement than the single band, because it does not
+depend on the rubric choices a motivated author made.
+
+The two readings that land in B are also the two that matter most for #650: the launch unit, and the
+corpus that measures the transport as it exists after #566. Neither is settled here.
 
 ## Rubric amendment made during scoring
 
@@ -141,6 +305,22 @@ own terminal text; classified rows quote the specific signal.
 | `641-lean-spawn-1-build.log` | 1919 | clean | fixed as out-of-scope for a guard-mass slice. Milestone 4 (independent review) is now up to a separate `/dev-pipeline:review-lean` session — not mine to do.  |
 | `641-lean-spawn-2-review.log` | 2591 | clean | went dark (turn budget, no text on either attempt) — noted as a coverage gap, though its domain is where blockers 2 and 3 came from, which I probed directly.  |
 | `641-lean-spawn-3-build.log` | 142 | T | ends "I'll wait for both test suites to finish, then ... proceed to finalize the AC-7 documentation and commit." |
+
+Six rows recovered from `.claude/pipeline-state/archive-641-pr645-20260822T141642Z/` — one complete
+launch of #641 against PR 645, missed by this file's first pass. Same rubric, scored the same way.
+
+| spawn log (archived) | bytes | class | evidence |
+| --- | --- | --- | --- |
+| `641-lean-spawn-1-build.log` | 2300 | clean | "**Next step (not mine to do in this session):** milestone 4 needs an independent review from a fresh session — `/dev-pipeline:review-lean 645`." |
+| `641-lean-spawn-2-review.log` | 3021 | clean | "Review complete. Verdict record committed and pushed; findings posted." Round 1 `needs-work`, handed back. |
+| `641-lean-spawn-3-build.log` | 1666 | **T** | ends "PR body update is staged locally, ready to push once the full sweep confirms nothing else broke. **I'll pick this back up when the sweep finishes.**" — turn ended on incomplete work at exit 0. Weaker than the other five T rows: commit `2bae5cd` *was* pushed, so only the PR-body edit was stranded. Scored T anyway — the rubric's T fires on "exit 0 on incomplete work", and reading it down would be the motivated call. |
+| `641-lean-spawn-4-review.log` | 2521 | clean | "**Round 2: `needs-work`.** Verdict record `b804b36` pushed as the last commit" — findings comment posted. |
+| `641-lean-spawn-5-build.log` | 1855 | clean | "Clean and pushed. Round-3 fix is complete." Both round-2 blockers closed. |
+| `641-lean-spawn-6-review.log` | 2950 | clean | "Round 3 review complete: **approve**." |
+
+PR 645 was later closed unmerged on design grounds. That is class **X** at the PR level — content,
+not transport — and it is why the launch was archived by hand. It does not change any row above:
+the launch itself ran to an approve.
 
 ## Note on this file
 
