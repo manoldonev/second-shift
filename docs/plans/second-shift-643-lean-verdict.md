@@ -1,11 +1,11 @@
 # lean review verdict — #643
 
-verdict=needs-work
-run_id: review-643-3
+verdict=approve
+run_id: review-643-4
 session_id: f173bdc2-50ed-4e3c-b082-f7c760b76173
-rounds: 3
+rounds: 4
 pr: #651
-reviewed_head: debf2036be45fbad15d3ceb8b1ee99c4a2f03e24
+reviewed_head: 20631d15fb7af8d685119bf039d563423987e175
 reviewed_patch_id: ce73150e591fd87decca57b09b48fe4265593791
 inherited_patch_id: 9be967198e3b1a186895d7a6f21798add520ae6f
 inherited_from_verdict: 0bdb7a828faa0a38404343ec3863b27d82e87ab0
@@ -13,159 +13,102 @@ fidelity: not-applicable
 model: unknown
 capabilities: pr-marker
 
-Round 3, inheriting patch `9be96719`. Delta read: `0bdb7a8..HEAD` — two commits
-(`4a6e265`, `debf203`), three files, docs-only. Round 2's findings were read first, and each of
-its three blockers and three warnings was re-checked against the fix from source rather than
-taken on the PR body's word.
+Round 4 — a discharge round, and it re-stamps. Inheriting patch `9be96719`. The gate's delta range
+is `0bdb7a8..HEAD`, which now includes round 3's own verdict commit; the three **deliverable** files
+are byte-identical to `debf203` (`git diff --stat debf203..HEAD` on them is empty), so the reading
+that matters this round is round 3's blocker and nothing else.
 
-**All three round-2 blockers are closed, and all three warnings are discharged.** The correction
-that closed B-7 is the strongest work on this branch: it re-derived two classifications from the
-gate's own progress records, recomputed every dependent reading before writing it up, and caught
-an operator-supplied datapoint that was a local clock read as UTC. Every figure in it reproduces.
+**Round 3's single blocker is discharged, and the discharge is complete.** It was operator-owned
+with no branch remedy, and it was closed the way the lane's precedent says such a blocker closes:
+on the tracker, out of band, with the branch untouched.
 
-**The headline is unchanged and undisturbed by three rounds of review.** The prediction was
-pre-registered, refuted by its author's own corpus, and every reading still lands in arm B or
-arm C. Arm A remains unreachable.
+## B-10 — discharged, verified against the issue body
 
-One blocker remains, and it is not on the branch: **#650 — the ticket that inherits this
-instrument — states the instrument's findings from before round 1 corrected them.**
+#650 `updatedAt` is `2026-08-23T15:09:40Z`, against `createdAt` `11:56:15Z` — the body has moved,
+and it moved **after** round 3's verdict commit (`2026-08-23T18:04:33+03:00` = `15:04:33Z`). Each of
+the four figures B-10 named was checked against the **committed audit at this head**, not against
+round 3's own record:
 
-## Round 2's three blockers — all verified closed
-
-| # | Round-2 blocker | Status |
+| B-10 named | #650 now says | Audit at this head |
 | --- | --- | --- |
-| B-7 | two of four class-`M` rows contradicted by the logs they cite | **CLOSED, verified from source.** `533-lean-progress.md` line 12 carries an *accepted* `entry` at `2026-08-16T16:29:11Z`; PR #556 merged `17:35:50Z` — 66 min 39 s later. Milestones 1/2/3/4 reach `satisfied` at `16:52:12Z`/`16:52:17Z`/`16:58:38Z`/`17:33:57Z`, all before the merge, and only milestone 5 fails `17:41:10Z` "no open PR found for branch claude/second-shift-533"; teardown `17:42:18Z`. `530-lean-progress.md`'s final block runs milestone 1 `18:45:00Z` → milestone 3 `rc=1` `18:53:48Z`, straddling #530's close at `18:52:03Z`. Both reclassified `clean`. `530-5` and `549-6` survive the check: I read all four log openings, and the discriminator holds. |
-| B-8 | #617/#638/#639 sequenced behind a ticket that no longer owns the decision (carried from round 1's B-6) | **CLOSED, verified against the API, not the cited links.** Re-point comments `5386499756` (#617), `5386500134` (#638), `5386500226` (#639), created `2026-08-23T14:24:42/47/48Z` — after round 2's verdict commit (`14:18:09Z`) — `created_at == updated_at` on all three, never edited. Each names #650, and each states that #643 closing on PR #651's merge does *not* unblock the ticket. That is the whole remedy, not a partial one. Discharged by the operator outside the branch, as `D-11` records. |
-| B-9 | the decision table is two-valued at exactly `M1ᵗ = 0.80` | **CLOSED, verified.** Revision 4 is **appended**: `git diff --numstat` on the pre-registration is `47 0` — forty-seven lines added, zero removed, so `R3-2`, revision 2 and revision 1 all stand unedited. The B band becomes `0.50 <= M1ᵗ < 0.80`. The three bands `[0, 0.50)`, `[0.50, 0.80)`, `[0.80, 1]` are pairwise disjoint and cover `[0, 1]`, and the two `>= 0.80` rows are disjoint on attention — total **and** single-valued. |
+| `M1ᵗ` "0.88–0.91" | "**0.873–0.905**, both ends in the keep row, over the corrected 63-spawn corpus" | `0.873–0.905`, 63 spawns |
+| "four of five" transport failures | "four of the **six** transport failures pre-date #566" | `:241` "Four of the six T failures are pre-#566" |
+| post-fix corpus "three spawns" | "the post-#566 corpus is **nine spawns with two T** (`0.778`, the reshape row)" | `:250`, `:291` — nine spawns, two T, `0.778`, B |
+| class `M` a real cost (four rows) | "**two confirmed of the four first assigned**" | `M` = 2 |
 
-Warnings: **W-4** — the blank line at `second-shift-643-lean.md:67` is gone; the ledger is twelve
-contiguous rows (`:61`–`:72`) and renders as one table. `ledger-lint.sh` reports `12 ledger row(s)
-/ OK`, though as round 2 noted it would report OK either way. **W-5** — the PR body now leads with
-`0.873–0.905` and cites `:634`. **W-6** — #643's body heading reads **Operator amendment**.
+Two things were added that B-10 asked for and one that it did not:
 
-## What I re-derived independently
+- **The `D-12` routing now exists in the ticket it routes to.** New scope item 5 wires the mid-run
+  staleness re-check, cites `lean-gate.sh:2502` by line, and states correctly that the shape is
+  round 2's corrected class-`M` finding — "spawns alive across their ticket's close — is this
+  defect, not mis-dispatch". It also settles the arm-dependence question B-10 did not raise:
+  "Lands with whichever arm survives; under arm A it still lands, because the manual lane has the
+  same hole." That is the right call and it is the one that stops this item dying with the
+  scheduler.
+- **The launch unit is now carried too** — "launch floor 18, launch-level bound 0.667", matching
+  `:233` and `:290`. B-10 did not list this among the four stale figures because #650's original
+  text omitted it rather than misstating it; carrying it is a strict improvement.
+- **Round 3's warning W-7 is carried into the inheritance**, which is more than the warning asked
+  for. The body now says the two reclassified spawns "also carry a documented cost while sitting in
+  `clean`". W-7 asked for that clause on the audit's *Robustness* row so #650 would inherit the
+  caveat with the number; the operator put it in #650 directly, which reaches the same reader by a
+  shorter path.
 
-- **The class tally, mechanically from the per-spawn rows themselves**: 49 clean / 6 T / 2 M / 3 S
-  / 2 U / 1 I = 63. Matches the tally table exactly.
-- **Every mtime in the correction, proved against the epoch** rather than trusted to a format flag
-  (`date -u -r "$(stat -f %m …)"`): `533-1` = 1786902144 = `17:42:24Z`, `530-4` = `18:54:18Z`,
-  `530-5` = `18:54:46Z` (28 s later), `549-5` = `20:54:07Z`, `549-6` = `20:54:38Z`. All five as
-  stated. The audit's parenthetical — that reading `533-1`'s stamp as UTC "turns a seven-minute
-  overhang into a three-hour one" — is correct, and stating the `+0300` offset in the file is the
-  right disposition for a datapoint that arrived wrong.
-- **Every tracker timestamp**: PR #556 `17:35:50Z`, #533 `17:35:51Z`, #530 `18:52:03Z`, PR #560
-  `20:49:37Z`, #549 `20:49:38Z`.
-- **All four log openings.** `530-4` and `533-1` discover the closure mid-run; `530-5` opens "Issue
-  #530 is already **closed and merged**" and `549-6` opens with a state table reading `CLOSED` /
-  `MERGED` / "none for 549 (already swept)". The discriminator is sound. I note for the record that
-  `530-4`'s *first line* ("Issue #530 is already done") reads like the arrival shape and only its
-  second paragraph disambiguates — the classification does not rest on that, because the progress
-  record decides it mechanically, and the file cites the progress record.
-- **Every arithmetic claim in the recompute.** Naive `49/63 = 0.778`; `M1ᵗ` `55/63 = 0.873` and
-  `57/63 = 0.905`; both-`M`-charged `53/63 = 0.841` and `55/63 = 0.873`; `D-5`-unamended
-  `54/63 = 0.857` – `0.905`; launch floor `12/18 = 0.667`; post-#566 `7/9 = 0.778`. The claim that
-  `M1ᵗ` and the `D-5`-unamended row are **untouched** is correct and non-obvious: both rows count
-  `M` and `clean` on the same side, so moving two rows between them cancels exactly.
-- **The staleness routing.** `lean-gate.sh:2502` returns `7` on `CLOSED`, and `run-lean/SKILL.md:54`
-  states in the orchestrator's own words that the check "runs at the spawn boundary and has no
-  channel into a live spawn" — which corroborates the audit's claim that nothing calls it between
-  milestones, from a source outside the audit.
-- **No stale figure survives in a committed file.** Every remaining `0.746` / `0.810–0.841` /
-  `0.88–0.91` occurrence is either a stated before→after transition, the immutable round-2 verdict,
-  or revision 3's historical record of its own move.
-- **AC-4 by execution at this head** and **AC-1's ordering** — below.
+The body also carries its own provenance — a dated refresh note under the heading and a footer line
+naming the round it discharges — so a later reader can tell the figures were restated after review
+rather than written that way.
 
-## Blockers
+## What did not change, and is confirmed not to have
 
-### B-10 — #650 states this instrument's findings from before round 1 corrected them
+- **The branch.** Only round 3's verdict commit sits on top of `debf203`. The three deliverable
+  files are unchanged.
+- **B-8's remedy.** The re-point comments on #617/#638/#639 are still the `2026-08-23T14:24:4xZ`
+  set and are still the latest comment on each — nothing regressed them.
+- **#643's body.** `updatedAt` `14:33:44Z`, i.e. untouched since before round 3.
 
-`D-12` routes work to #650 and `AC-7` makes it the follow-up that owns the campaign and the arm
-selection. Its body has **not been edited since it was created**: `updatedAt` is
-`2026-08-23T11:56:15Z`, identical to `createdAt`, which is *before* round 1's corpus correction
-landed. Its section headed **"What #643 established"** therefore states four figures the committed
-audit now contradicts:
+## Outstanding, non-blocking
 
-| #650 says | The committed audit says |
-| --- | --- |
-| "Spawn-level `M1ᵗ` is **0.88–0.91**" | `0.873–0.905` |
-| "**four of five** transport failures pre-date #566" | four of **six** — `T` is 6 |
-| "leaving a post-fix corpus of **three spawns**" | **nine** spawns, 2 T, `M1ᵗ = 0.778` |
-| "class M — mis-dispatch onto already-merged issues — is a real scheduler cost" (four rows) | `M` is **2**; the other two are a *different* defect with a different remedy |
-
-The third row is the one that matters. The post-#566 set is the only part of this corpus measuring
-the transport as it exists today and, by the audit's own words, "the part that reads worst for the
-scheduler". A reader who believes it is three spawns rather than nine will judge the freshest
-evidence roughly three times thinner than it is — and #650's opening instruction is "**Do not
-re-litigate the criterion**", which actively discourages going back to check.
-
-The fourth row compounds it: `D-12` says the uncalled `lean-gate.sh:2502` staleness re-check is
-"routed to **#650**", and #650's body contains no mention of staleness, `2502`, a mid-run re-check,
-or the shape at all (`grep -i` returns nothing). The routing exists in this branch's ledger and in
-the audit's limitation 3; it does not exist in the ticket it routes to.
-
-This is round 1's **B-5** in a new place. There the blocker was that #643's body still stated ACs
-this slice had departed from; the remedy was a body amendment and it was accepted as closing it.
-Here the ticket that *inherits the instrument* misstates what the instrument found, on figures two
-rounds of review moved. The instrument is this slice's entire deliverable, and an inheritance that
-carries the pre-correction numbers is the one way its value leaks.
-
-**No branch change is required and none should be made.** Like B-8, this is a tracker-side remedy
-with no code counterpart: refresh "What #643 established" against the committed audit, and add the
-staleness shape `D-12` assigns to it. Recorded as outstanding and owned by the operator, carried to
-the merge boundary per round 1's rule for a scope blocker with no code remedy.
-
-## Warnings
-
-- **W-7 — the naive row's label no longer describes what it counts.** *Robustness* defines the
-  naive reading as "every non-clean spawn charged to the scheduler", and two spawns carrying a
-  scheduler cost the file documents at length are now inside `clean`. Binning them there is the
-  **right** call and I want to be explicit about why, because the opposite call is the tempting one:
-  `clean` is the rubric's residual, not a class, so no bin was forced; and minting a class `L` for
-  the staleness shape would be a fourth post-hoc rubric amendment moving the naive row `0.778 →
-  0.746`, toward the arm this file's author predicted. Declining it is the self-adverse choice and
-  the pre-registration is better for it. What is missing is one clause on that row — "two spawns
-  with a documented non-transport scheduler cost sit in `clean`; see limitation 3" — so that #650
-  inherits the caveat with the number instead of having to find it three sections away.
-- **W-8 — a cross-reference points the wrong way.** `second-shift-643-audit.md:196` reads "the
-  misclassification corrected **below**"; *Classification correction* is at `:95`, above it.
+- **W-8 stands.** `second-shift-643-audit.md:196` still says the misclassification corrected
+  "**below**" when *Classification correction* is at `:95`, above it. A warning, on the branch, not
+  discharged and not blocking — recorded so it is not silently dropped at the merge boundary.
+- **W-7's branch half stands.** The audit's *Robustness* naive row still carries no caveat clause.
+  Its purpose — that #650 inherits the caveat — is served by the body edit above, so this is now
+  cosmetic.
+- **A pointer nit, for whenever #650's body is next touched.** It cites "audit warning W-7"; W-7 is
+  a warning in the review verdict record (`second-shift-643-lean-verdict.md`), not in the audit
+  file. The substance it summarises is correct. Not worth an edit of its own.
 
 ## AC scoring
 
+Every AC is re-scored against the whole spec, per the inheritance rule. The deliverable files are
+unchanged since `debf203`, where round 3 scored all eight satisfied from source; the bases below are
+that reading, with AC-4 re-measured at this head because the branch gained a commit.
+
 | AC | Score | Basis |
 | --- | --- | --- |
-| AC-1 — pre-registration lands before any measurement | **satisfied** | `git log --reverse` puts `f573ee3` first; `git show --stat` on it is prereg + spec only, `+210`, no measurement. Re-verified at this head. |
-| AC-2 — every corpus spawn classified, band stated, launch unit enumerated separately | **satisfied** | Was unsatisfied in round 2 on B-7. 63 rows; the class tally re-derived mechanically from the rows matches (49/6/2/3/2/1); both previously-contradicted rows now reproduce from the progress records, the log openings and the tracker. Launch half unchanged and inherited. |
-| AC-3 — no arm selected or executed | **satisfied** | No arm selected anywhere in the delta. Revision 4 explicitly restates that no arm is selected here, attention is unmeasured here, and this corpus's band does not touch the endpoint it rules on. |
-| AC-4 — `run-selftests.sh --full --exclude install-topology` green | **satisfied** | Run by me at the reviewed head `debf203`: `74 scored, 74 run, 0 served from cache, 0 failed`, rc 0. Cold — no `--cache-dir`. |
-| AC-5 — front-door truth | **satisfied** | Departed per `D-3`; vacuous — the delta is three markdown files and moves no front door. |
-| AC-6 — `Changelog:` trailer | **satisfied** | 9 commits on the branch, 9 `Changelog:` trailers. |
-| AC-7 — the follow-up is filed and linked | **satisfied** | #650 is OPEN, `ready-for-dev`, linked from the PR body and from `D-1`/`D-2`/`D-3`, and its Scope section carries AC-2's campaign (items 1–2) and AC-3's execution (item 3). The AC asks that it be filed and linked; it is. Its body's *accuracy* is B-10, scored separately rather than folded in here. |
-| AC-8 — every row carries the evidence that produced its class | **satisfied** | Was unsatisfied in round 2 on B-7. All 63 rows carry evidence, and the two rows whose evidence contradicted its source now carry evidence I reproduced from that source. |
+| AC-1 — pre-registration lands before any measurement | **satisfied** | `git log --reverse` puts `f573ee3` first; `git show --stat` on it is prereg + spec only, `+210`, no measurement. |
+| AC-2 — every corpus spawn classified, band stated, launch unit enumerated separately | **satisfied** | 63 rows; class tally re-derived mechanically from the rows in round 3 = 49/6/2/3/2/1, matching the tally table; both previously-contradicted rows reproduce from the progress records, the log openings and the tracker. Launch half enumerated and bounded. |
+| AC-3 — no arm selected or executed | **satisfied** | No arm selected anywhere on the branch. Revision 4 restates that no arm is selected here and that this corpus's band does not touch the endpoint it rules on. #650 — which now carries the corrected figures — is where selection happens. |
+| AC-4 — `run-selftests.sh --full --exclude install-topology` green | **satisfied** | Re-run by me at this head `20631d1`: `74 scored, 74 run, 0 served from cache, 0 failed`, rc 0, cold. Round 3's run at `debf203` was equally green; the intervening commit adds one markdown file and discovers no suite. No orphaned selftest. |
+| AC-5 — front-door truth | **satisfied** | Departed per `D-3`; vacuous — the branch is four markdown files and moves no front door. |
+| AC-6 — `Changelog:` trailer | **satisfied** | Every commit on the branch carries one. |
+| AC-7 — the follow-up is filed and linked | **satisfied** | #650 OPEN, `ready-for-dev`, linked from the PR body and from `D-1`/`D-2`/`D-3`, carrying AC-2's campaign (scope 1–2), AC-3's execution (scope 3), and now `D-12`'s staleness wiring (scope 5). Its body's accuracy — scored separately as B-10 in round 3 — is now discharged. |
+| AC-8 — every row carries the evidence that produced its class | **satisfied** | All 63 rows carry evidence; the two rows whose evidence had contradicted its source were re-derived and verified in round 3 from the progress records and the tracker. |
 
-## Provenance I could not verify from the branch, and how I treated it
+## Verdict
 
-`D-9`, `D-10`, `D-11` and `D-12` are all marked `user-answered`. Three are checkable in part and
-one is not:
+**approve.** Four rounds: round 1 found six blockers, round 2 three, round 3 one, round 4 none. Every
+one is closed, and none was closed by softening it — the corpus was re-enumerated (57 → 63), two
+classifications were reversed against their author's own evidence line, the decision table was made
+single-valued by an appended revision rather than an edit, and the last blocker was discharged on
+the tracker with the branch untouched.
 
-- **`D-11`** — verified against the API. The comments exist, are the operator's, and postdate the
-  round-2 verdict.
-- **`D-10`** — the *ruling* (B half-open, `0.80` falls to the `>= 0.80` rows) is unverifiable from
-  the branch, and the operator attested in this round that it is theirs and was issued before the
-  re-entry began. I accept the attestation and note that the ruling is independently *justified* in
-  `R4-1` from the criterion's own history — `>= 0.80` has appeared inclusive and unchanged since
-  revision 1 — so it does not rest on authority alone.
-- **`D-9`** — the operator attested supplying the corroborating datapoint and that the
-  re-derivation is the build's own. That matches what the branch shows: the operator's datapoint
-  (the `533-1` mtime as a three-hour overhang) is *refuted* in the committed file, and the evidence
-  that actually carries the row is the `entry` timestamp in the progress record. The row's
-  `user-answered` label is generous to the operator's contribution rather than to the build's, and
-  I mention it only so the reading is on the record.
-- **`D-12`** — the routing decision. Not attested and not checkable; its substance originates in
-  round 2's own B-7 text. Scored as bookkeeping. See B-10 for the part of it that *is* checkable and
-  does not hold.
+The headline survived all four rounds unchanged and is the reason this slice was worth the rounds:
+the prediction was pre-registered at `11:31:08Z`, twenty minutes before the branch existed; it was
+refuted by its author's own corpus; and every defensible reading of that corpus — naive,
+pessimistic, optimistic, rubric-unamended, mis-dispatch-charged, launch-level, post-#566 — lands in
+arm B or arm C. Arm A is unreachable. What #650 inherits is now an instrument whose findings it
+states correctly.
 
-Panel: none dispatched, the same call as round 2 and for the same reason — the delta is three
-markdown files with no code surface, and round 1's panel on this shape returned one reviewer that
-declined the domain for want of code. Every finding this round came from re-deriving the file's
-claims against the progress records, the spawn logs, the gate source and the tracker, which is the
-only technique that can reach them. Recorded plainly so the choice is visible rather than implied.
+Panel: none dispatched, the same call as rounds 2 and 3 and for the same reason — no code surface,
+and this round's question was a tracker-body discharge that only direct verification can answer.
