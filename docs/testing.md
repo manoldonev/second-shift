@@ -557,6 +557,19 @@ coupling rather than mechanizing it into a guard that cannot fail.
 
 **Unanchorable — no literal the two sides could share.**
 
+- **The mid-run ticket-liveness re-check ↔ the milestone calls' network-free property** (#650
+  `D-11`). Not a duplication but a coupling of a different kind, recorded here because the decision
+  is exactly the sort that gets re-litigated: `lean-gate.sh`'s `require_ticket_live` header fixes
+  "one read per run boundary, never per milestone", and `1`..`5` are documented as making no
+  network call. The mid-run re-check would save the most time at milestone 3's start — that is
+  where a run whose ticket closed underneath it actually burns its minutes — and it is placed on
+  `mark` instead, which already opens a socket and already writes, so the property holds unbroken.
+  Nothing anchors the two sides: one is a comment stating an invariant, the other is the absence of
+  a call. **Behaviorally guarded on the half that can be**: `lean-gate-selftest.sh` case `(tl4)`
+  fails if the guard is widened past the direct `mark` subcommand. The milestone half is guarded by
+  the property itself — the suite's gh stub fails loudly on an unstubbed call, so a milestone call
+  that grew a tracker read would surface as a named stub miss rather than as a silent socket.
+
 - **preflight ↔ gate zero-verifying-lane predicate.** Real against `lean-gate.sh` milestone 3,
   which reds naming the opt-out where `preflight.sh` only warns. preflight computes an aggregated
   VERIFYING count inline; the gate reads `allowUnverified`/`lanes`/`extraLanes` into separate
