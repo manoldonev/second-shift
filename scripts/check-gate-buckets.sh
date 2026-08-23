@@ -49,15 +49,29 @@
 #     the primitive being enumerated. `orchestrate-lean.sh`'s `envfail() { terminal "$1" 2 "$2"; }`
 #     is one line that defines one primitive and calls another; excluding only `envfail`'s own
 #     name would leave that line enumerated as a `terminal` site, which is a definition, not a gate.
-#   * non-command positions. The primitive must sit at the start of a command — line start, or
-#     after `;`, `|`, `&`, `(`, `)`, `{` or `}`. This is what keeps `launch_note terminal "..."`
-#     (a literal ARGUMENT inside terminal()'s own body) out of the `terminal` enumeration.
+#   * ARGUMENT positions. The primitive must sit where a COMMAND may start, and that is the
+#     whole class, not a hand-picked sample of it: line start, after a separator or grouping
+#     character (`;` `&` `|` `(` `)` `{` `}`), or after one of the bash reserved words that is
+#     itself followed by a command (`!` `if` `then` `elif` `else` `while` `until` `do` `time`
+#     `coproc`), in any run. `CMDPOS` below IS that class. What it excludes is a primitive's NAME
+#     appearing as an argument to something else — `launch_note terminal "..."`, a literal inside
+#     terminal()'s own body. The earlier draft of this exclusion listed the separators only, which
+#     read as "non-command positions" while silently dropping `else envfail "..."` and every
+#     one-line `if ...; then fail_milestone ...` — a live shape in the corpus, and the shape a new
+#     gate is most likely to be written in. An exclusion whose LABEL is wider than its code is
+#     indistinguishable from a forgotten surface, which is what AC-8 exists to prevent.
 #
-# THE RESIDUAL A SHAPE ENUMERATOR CANNOT CLOSE, stated for the same reason: a NEWLY NAMED refusal
-# helper in a corpus file is not enumerated until it is added to CORPUS. What the register does
-# catch is the other direction — rename or delete an enumerated primitive and every row keyed to
-# it covers zero sites, which reds as drift. There is no honest shape test for "is this new
-# function a refusal", so this is judgment, recorded rather than pretended away.
+# THE RESIDUAL A SHAPE ENUMERATOR CANNOT CLOSE, stated for the same reason. It has TWO shapes,
+# and naming only the first would leave the second looking forgotten:
+#   * a NEWLY NAMED refusal helper in a corpus file is not enumerated until it is added to CORPUS.
+#   * a refusal made through NO helper at all — an inline `echo "..." >&2; return 2`. Two live
+#     instances, both in operator-override.sh (the malformed-override-block and malformed-register-
+#     row refusals): they are refusals with the primitive-keyed shape of ordinary code, so nothing
+#     keyed to a primitive can see them. AC-3 fixed this file's primitive list at `envfail`, so
+#     they are outside this slice's denominator by construction rather than by oversight.
+# What the register does catch is the other direction — rename or delete an enumerated primitive
+# and every row keyed to it covers zero sites, which reds as drift. There is no honest shape test
+# for "is this a refusal", so both residuals are judgment, recorded rather than pretended away.
 #
 # OUT OF SCOPE, named as a residual rather than left to look forgotten: the ~19 scripts/ + tools/
 # CI guards, and the .mjs Workflow gates. Both are their own slices.
@@ -100,13 +114,21 @@ TAB="$(printf '\t')"
 
 # enumerate — the recipe. Prints `key<TAB>lineno<TAB>text`, one live refusal site per line, where
 # key is the `path::name` enforcer key docs/prose-blocker-triage.tsv already established.
+# CMDPOS — where a command may start, as one named constant so the recipe and the header's
+# self-exclusion 3 cannot describe different things. A separator or grouping character, OR a run
+# of the bash reserved words that are themselves followed by a command. The reserved-word run is
+# what puts `else envfail "..."` and `if ...; then fail_milestone ...` in the denominator; without
+# it a new gate written that way joins the lane unclassified and this guard stays green, which is
+# the regression #636 was filed against.
+CMDPOS='(^|[;&|(){}])[[:space:]]*((!|if|then|elif|else|while|until|do|time|coproc)[[:space:]]+)*'
+
 enumerate() {
   local f prims defs p
   while IFS=: read -r f prims; do
     [[ -n "$f" ]] || continue
     defs="^[[:space:]]*($(printf '%s' "$prims" | tr ' ' '|'))\\(\\)"
     for p in $prims; do
-      grep -nE "(^|[;&|(){}])[[:space:]]*${p}[[:space:]]" "$ROOT/$f" \
+      grep -nE "${CMDPOS}${p}[[:space:]]" "$ROOT/$f" \
         | grep -vE '^[0-9]+:[[:space:]]*#' \
         | grep -vE "^[0-9]+:${defs#^}" \
         | sed -E "s#^([0-9]+):#$f::$p$TAB\\1$TAB#"

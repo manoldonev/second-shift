@@ -15,9 +15,16 @@
 # wiring a red test lane to an operator waiver — is a one-cell edit that no proximity reading
 # would catch.
 #
-# THE NEGATIVE DIRECTION (g17) pins what the recipe must NOT enumerate: a mention in a comment, a
-# helper's own definition line, and a primitive's name sitting in ARGUMENT position. An enumerator
-# that reds on those gets an exclusion baselined into it within a week, and then it guards nothing.
+# THE RECIPE IS PINNED IN BOTH DIRECTIONS, and only one of them was here at first.
+#   * NEGATIVE (g18a-d): what must NOT be enumerated — a mention in a comment, a helper's own
+#     definition line, a primitive's name in ARGUMENT position. An enumerator that reds on those
+#     gets an exclusion baselined into it within a week, and then it guards nothing.
+#   * POSITIVE (g18e-g): that a legitimately placed call IS enumerated from every position a
+#     command may start in, including after a reserved word. This half was MISSING through round
+#     1, and its absence is why `else envfail "..."` sat outside the denominator while 29
+#     assertions and a 10/10 mutation score reported the guard as covered. A completeness claim
+#     needs its inclusions asserted, not only its exclusions: an unclassified site can red only if
+#     the enumerator produced it first, so a hole in the recipe is silent by construction.
 #
 # TECHNIQUE: fixture trees under mktemp, each carrying the five corpus paths and its own
 # scripts/gate-buckets.tsv, handed to the REAL guard as its repo root. No production file is
@@ -63,6 +70,13 @@ cmd_1() {
   [ -f spec ] || { fail_milestone 1 "no committed spec on the branch"; return $?; }
   [ -n "$CFG" ] || envfail "cannot read the config"
 }
+cmd_2() {
+  if [ -z "$SPEC" ]; then fail_milestone 1 "kwpos after then"
+  else fail_milestone 1 "kwpos after else"
+  fi
+  while [ -n "$X" ]; do fail_milestone 1 "kwpos after do"; done
+  elsewhere fail_milestone 1 "not a command position — the word merely BEGINS with a keyword"
+}
 EOF
   cat > "$d/$LE" <<'EOF'
 #!/usr/bin/env bash
@@ -103,6 +117,7 @@ EOF
   {
     printf '# fixture register\n\n'
     row "$LG::fail_milestone" gates-signal 'fail_milestone 1 "no committed spec on the branch"' - 'fixture: objective absence.'
+    row "$LG::fail_milestone" gates-signal 'fail_milestone 1 "kwpos after '                       - 'fixture: the three keyword-position sites, as one class row.'
     row "$LG::envfail"        not-a-gate   'envfail '                                            - 'environment refusal — fixture.'
     row "$LE::note_violation" gates-llm    "note_violation \"verdict record carries the BUILD run's identity\"" - 'fixture: P10 defense.'
     row "$LE::envfail"        not-a-gate   'envfail '                                            - 'environment refusal — fixture.'
@@ -137,11 +152,11 @@ case "$out" in
   *"coverage (sites per row)"*) ok "(g1b) AC-4: the covered-site count is printed per row" ;;
   *) bad "(g1b) AC-4: the covered-site count is printed per row" "$out" ;;
 esac
-# The summary's two numbers are the contract stated back: 10 enumerated sites, 10 register rows.
+# The summary's two numbers are the contract stated back: 13 enumerated sites, 11 register rows.
 # Asserting the VALUES and not just the shape is what makes the counting itself guarded — a
 # summary that says "all dispositioned" over a miscounted denominator reads exactly like a pass.
 case "$out" in
-  *"10 enumerated refusal site(s) across 5 file(s), all bucketed by 10 register row(s)"*)
+  *"13 enumerated refusal site(s) across 5 file(s), all bucketed by 11 register row(s)"*)
     ok "(g1c) the verdict line reports the denominator and the register size, both exact" ;;
   *) bad "(g1c) the verdict line reports both counts exactly" "$out" ;;
 esac
@@ -279,8 +294,8 @@ D="$(new_fixture listonly)"
 out="$(bash "$GUARD" --list "$D" 2>&1)"; rc=$?
 if [ "$rc" -eq 0 ]; then
   n="$(printf '%s\n' "$out" | grep -c .)"
-  if [ "$n" -eq 10 ]; then ok "(g14) --list prints the denominator (10 fixture sites) and checks nothing, even against an EMPTY register"
-  else bad "(g14) --list prints the denominator and checks nothing" "expected 10 lines, got $n: $out"; fi
+  if [ "$n" -eq 13 ]; then ok "(g14) --list prints the denominator (13 fixture sites) and checks nothing, even against an EMPTY register"
+  else bad "(g14) --list prints the denominator and checks nothing" "expected 13 lines, got $n: $out"; fi
 else bad "(g14) --list exits 0" "$out"; fi
 
 echo "== structural refusals are exit 2, never a disposition disagreement =="
@@ -317,6 +332,34 @@ case "$rc:$out" in
   *"the register is missing"*) ok "(g17) a missing register reds — the denominator has nothing to be checked against" ;;
   *) bad "(g17) a missing register reds" "$out" ;;
 esac
+
+# THE POSITIVE DIRECTION, and the half whose absence let round 1's blocker through. (g18a-d)
+# below pin only what must NOT be enumerated; nothing asserted that a LEGITIMATELY placed call IS
+# enumerated from every position a command may start in. A 29-assertion suite and a 10/10 mutation
+# score stayed green while `else envfail "..."` — and every one-line `if ...; then fail_milestone
+# ...` — sat outside the denominator, which is silent in the direction that matters: an
+# unclassified site can only red if the enumerator produced it first.
+echo "== what the recipe MUST enumerate =="
+D="$(new_fixture positions)"
+out="$(bash "$GUARD" --list "$D" 2>&1)"
+kw_missing=""
+for kw in "then" "else" "do"; do
+  ln="$(grep -n "kwpos after $kw" "$D/$LG" | cut -d: -f1)"
+  printf '%s\n' "$out" | awk -F'\t' -v k="$LG::fail_milestone" -v l="$ln" '$1 == k && $2 == l { f = 1 } END { exit f ? 0 : 1 }' \
+    || kw_missing="$kw_missing $kw"
+done
+if [ -z "$kw_missing" ]; then
+  ok "(g18e) a refusal after a reserved word — 'then', 'else', 'do' — IS enumerated; a command position is the whole class, not just the separator characters"
+else bad "(g18e) keyword-preceded refusals are enumerated" "missing after:$kw_missing"; fi
+
+if printf '%s' "$out" | grep -q 'the word merely BEGINS with a keyword'; then
+  bad "(g18f) a word that merely BEGINS with a reserved word is not a command position" "$out"
+else ok "(g18f) 'elsewhere fail_milestone …' is not enumerated — the reserved word must be a whole word, not a prefix"; fi
+
+n_pos="$(printf '%s\n' "$out" | grep -c .)"
+if [ "$n_pos" -eq 13 ]; then
+  ok "(g18g) the widening adds exactly the three keyword-position sites and nothing else — 13 = the 10 separator-position fixture sites + 3, with 'elsewhere fail_milestone …' correctly absent"
+else bad "(g18g) the widening enumerates exactly the expected sites" "expected 13, got $n_pos: $out"; fi
 
 echo "== what the recipe must NOT enumerate =="
 D="$(new_fixture negatives)"
