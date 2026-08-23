@@ -234,3 +234,50 @@ end-to-end-observable launch in the entire corpus.
 class-T spawn and five clean, taking `M1ᵗ` from 0.88–0.91 down to 0.873–0.905. It stays in the keep
 row, so nothing turns on it — but it moves toward arm A, which is why it is stated as a number
 rather than waved through.
+
+## Revision 4 — amendment made AFTER round 2 of the independent review
+
+**Dated 2026-08-23, after scoring.** Appended, not edited in: revision 3's text above is unchanged,
+revision 2's is unchanged, and revision 1 stays up unedited on the issue. The append discipline is
+the point — every revision of this criterion is readable in the order it was written, so a bar that
+moves is visible rather than rewritten away. As with revision 3, this amendment was written by an
+author who has seen the result, so it states which arm it favours.
+
+### R4-1 — the decision table is single-valued at `M1ᵗ = 0.80` (round-2 blocker B-9)
+
+`R3-2` rebuilt the table to close round 1's B-3 and asserted it "is now total over its domain". It
+is total. It is not **single-valued**: the `>= 0.80` rows and the `0.50 – 0.80` row both claim the
+endpoint, so a run at exactly `M1ᵗ = 0.80` with `attention(a) < attention(b)` is selected as **C** by
+row 1 and as **B** by row 3. Totality was checked over the *gaps* and not over the *boundary points*,
+which is the one place a band table fails silently.
+
+The overlap is inherited from revision 2 (`>= 0.80` / `0.50 – 0.80`) rather than introduced by
+revision 3 — but revision 3 is the amendment written to remove exactly this class of hole, and it
+re-published the boundary unchanged while asserting the property. `0.80` is not a measure-zero
+curiosity on a nine-run campaign: it is `4/5`, `8/10`, `12/15`.
+
+**The B band becomes half-open.** `0.50 <= M1ᵗ < 0.80`, so exactly `0.80` falls to the `>= 0.80`
+rows. That is the only reading consistent with the criterion's own history: `>= 0.80` has appeared,
+inclusive and unchanged, in every revision since revision 1, while the B row has been written as a
+range with no stated endpoint convention. The `< 0.50` row is already half-open in the same
+direction, so the table now reads consistently across both boundaries.
+
+| `M1ᵗ` band (both ends) | attention | Arm |
+| --- | --- | --- |
+| `M1ᵗ >= 0.80` | attention(a) < attention(b) | **C — keep.** #617/#638/#639 unblock and the slowness is someone else's ticket. |
+| `M1ᵗ >= 0.80` | attention(a) >= attention(b) | **B — reshape.** The transport holds but the operator still pays; that is revision 1's "either condition fails" row. |
+| `0.50 <= M1ᵗ < 0.80` | any | **B — reshape.** |
+| `M1ᵗ < 0.50` | any | **A — delete the scheduler layer.** |
+| the band straddles a row boundary | any | **no arm** — the corpus is insufficient and the prospective runs decide (revision 2's band rule, unchanged). |
+
+The three bands are now pairwise disjoint and cover `[0, 1]`, so the table is total **and**
+single-valued. This supersedes `R3-2`'s table; `R3-2`'s reasoning for restoring the conjunct is
+unchanged and still governs.
+
+**Direction: this favours the scheduler.** At exactly `0.80` the choice was previously ambiguous
+between B and C; it is now C whenever attention favours the scheduler, which is the keep arm — and
+the author predicted arm A. It is adopted anyway because leaving the endpoint two-valued hands the
+selection back to a post-hoc judgement call at the one value most likely to be hit, which is the
+precise discretion the pre-registration exists to remove. Nothing in this slice turns on it: no arm
+is selected here, attention is unmeasured here, and this corpus's band (`0.873–0.905`) does not
+touch the endpoint. #650 inherits this table, not `R3-2`'s.

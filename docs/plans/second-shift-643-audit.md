@@ -10,8 +10,10 @@ criterion's commit. The
 ordering evidence that does carry weight is elsewhere and is stronger: the prediction below was
 recorded at `11:31:08Z`, twenty minutes before the branch existed, and it was refuted.
 
-This file was revised on 2026-08-23 after round 1 of the independent review on PR 651. The corpus,
-the bands and limitation 1 all moved; see *Corpus enumeration* for what changed and why.
+This file was revised on 2026-08-23 after round 1 of the independent review on PR 651 — the corpus,
+the bands and limitation 1 all moved; see *Corpus enumeration* — and again after round 2, when two
+of the four class-`M` rows turned out to be contradicted by the logs they cite; see *Classification
+correction*. `M1ᵗ` survived both revisions unchanged; the readings that charge `M` did not.
 
 Per the pre-registration this audit **narrows** the arms; it does not select one. The prospective
 per-arm runs select, and they are the follow-up's work.
@@ -36,25 +38,25 @@ and it was assembled by someone who expected it to.
 
 | Reading | Rate | Arm it selects |
 | --- | --- | --- |
-| Naive — every non-clean spawn counts against the scheduler | 47/63 = **0.746** | B (reshape) |
+| Naive — every non-clean spawn counts against the scheduler | 49/63 = **0.778** | B (reshape) |
 | `M1ᵗ` — transport-attributed only, U optimistic | 57/63 = **0.905** | C (keep) |
 | `M1ᵗ` — transport-attributed only, U pessimistic | 55/63 = **0.873** | C (keep) |
 
 Both ends of the band land in the same row, which is the pre-registration's condition for the band
 to be usable at all. **The rubric is what moved the answer**: three host-sleep deaths, one API 500
-and four mis-dispatches are not the transport's fault, and revision 1 of the criterion — which had
-no rubric — would have charged all eight to the scheduler and selected a different arm.
+and two mis-dispatches are not the transport's fault, and revision 1 of the criterion — which had
+no rubric — would have charged all six to the scheduler and selected a different arm.
 
-Note what this table does *not* do: it selects no arm. Under revision 3's total decision table arm C
+Note what this table does *not* do: it selects no arm. Under revision 4's decision table arm C
 additionally requires `attention(a) < attention(b)`, which this slice does not measure at all.
 
 ## Classification tally
 
 | Class | Count | Counts against the scheduler? |
 | --- | --- | --- |
-| clean | 47 | — |
+| clean | 49 | — |
 | **T** transport — turn ended with the milestone unmet | 6 | **yes, and only these** |
-| **M** mis-dispatch — spawned onto already-completed work | 4 | see limitation 3 |
+| **M** mis-dispatch — spawned onto already-completed work | 2 | see limitation 3 |
 | **S** host sleep | 3 | no |
 | **U** unattributable — empty log | 2 | widens the band |
 | **I** infrastructure — API 500 | 1 | no |
@@ -88,6 +90,52 @@ limitation 1, which had asserted these transcripts were gone.
 The lesson is worth more than the six rows: **when a document declares a corpus, enumerate the
 corpus yourself.** A top-level glob and a recursive `find` disagreed, and the difference is where
 the only end-to-end-observable launch in the entire corpus was hiding.
+
+## Classification correction — two `M` rows were alive across the close
+
+`M` is "spawned onto already-completed work". Two of the four rows first reported do not meet that
+definition, and the disproof is in the sources the rows themselves cite. Both were re-derived here
+from the logs, the gate's progress records and the tracker.
+
+**`533-lean-spawn-1-build.log` — reclassified `clean`.** PR #556 merged `2026-08-16T17:35:50Z` and
+#533 closed `17:35:51Z`. This spawn's `entry` row in `533-lean-progress.md` is `16:29:11Z` —
+**66 min 39 s earlier** — and it is an *accepted* entry, so `entry`'s rc-10 refusal never fired and
+could not have: at `16:29:11Z` there was nothing to refuse. The record then walks milestone 1
+(`16:52:12Z`), 2 (`16:52:17Z`), 3 (`16:58:38Z`) and 4 (`17:33:57Z`) to `satisfied`, all of it before
+the merge, and only milestone 5 fails at `17:41:10Z` with "no open PR found for branch
+claude/second-shift-533". Teardown `17:42:18Z`; the log's own mtime is `2026-08-16T17:42:24Z`
+(`20:42:24` local `+0300` — the offset is worth stating, because reading that stamp as UTC turns a
+seven-minute overhang into a three-hour one). A 73-minute run that straddles the close is not a
+dispatch onto completed work.
+
+**`530-lean-spawn-4-build.log` — reclassified `clean`.** The log's first paragraph says the
+opposite of its evidence line: "while I was mid-run (running `bash G all 530` from the worktree to
+check remaining milestones), a different run of this same issue completed underneath me", and it
+goes on to explain that "the build worktree … was torn down mid-command — that's why my gate call's
+output devolved into `No such file or directory` … the directory disappeared out from under the
+running shell, not a real test regression". `530-lean-progress.md` corroborates mechanically: the
+final block starts milestone 1 at `18:45:00Z` and milestone 3 concludes `rc=1` at `18:53:48Z`,
+straddling #530's close at `18:52:03Z`. Log mtime `18:54:18Z`.
+
+**`530-lean-spawn-5` and `549-lean-spawn-6` survive the check and stay `M`.** Each is the *next*
+`SPAWN_N` in a launch whose previous spawn had already terminated after the close, and each opens by
+reporting the closure it found on arrival rather than discovering it mid-run — `530-5` (mtime
+`18:54:46Z`, 28 s after `530-4`) leads with "Issue #530 is already **closed and merged**"; `549-6`
+(mtime `20:54:38Z`, after `549-5`'s `20:54:07Z`) leads with a state table reading `CLOSED` /
+`MERGED` / "Worktree none for 549 (already swept)". #549 closed `20:49:38Z`, PR #560 merged
+`20:49:37Z`. **That opening is how the two shapes are told apart:** discovered-on-arrival is `M`;
+discovered-mid-run is the staleness shape.
+
+**Recomputed before it was written up, and the arm does not move.** Corrected tally: clean 49, T 6,
+M 2, S 3, U 2, I 1 — still 63. `M1ᵗ` is **untouched at 0.873–0.905** because `M` was never charged
+against it. What moves is every reading that *does* charge `M`: the naive row `47/63 = 0.746 →
+49/63 = 0.778` (still B) and *Robustness*'s all-mis-dispatches-charged row `0.810–0.841 →
+0.841–0.873` (still C). The launch floor of 18, the `0.667` launch bound, the post-#566 nine-spawn
+`0.778` and the `D-5`-unamended `0.857–0.905` are all untouched — none of them is a function of `M`,
+and both corrected spawns are 08-16, outside the post-#566 set. **Every reading still lands in arm B
+or arm C, and arm A stays unreachable.** Recorded as `D-9`, and the direction is stated in
+*Rubric amendment*: dropping rows out of `M` moves the naive reading *toward* keep, which is the arm
+this file's author predicted against.
 
 ## Launch enumeration — B2's consequence, discharged late
 
@@ -143,7 +191,9 @@ Both directions of the delta are informative, and neither is visible in the spaw
   spawn-log corpus is not a census of build sessions.
 - **8 build spawn logs have no `entry` record at all** (#141, #530, #549, #575, #581, #641) — a
   spawn that died before the gate's first call, or a mis-dispatch that `entry` refused with rc 10.
-  Class M's four rows sit in this set, which is a mechanical check on that classification.
+  This set is **not** a mechanical check on class `M`: #533 does not appear in it, yet
+  `533-lean-spawn-1` was classified `M` — which is how the misclassification corrected below was
+  first visible from inside this file's own tables.
 
 **Unrecoverable launches, marked as B2 requires:** all of them except one. The single launch
 recoverable end to end is the archived #641 launch, and it is recovered only because a human copied
@@ -202,11 +252,27 @@ corpus correction bought. Nine spawns still settles nothing, and it is the numbe
 the prospective runs: it is the only part of this corpus that measures the transport as it exists
 today, and it is the part that reads worst for the scheduler.
 
-**3. Class M is a scheduler cost that `M1ᵗ` does not charge it for.**
-Four spawns landed on issues already closed and merged — one of them collided with a concurrent
-lane mid-run. That is a real defect and a real cost, and it is *not* transport, so the rubric as
-pre-registered excludes it. Recorded here rather than folded quietly into `X`, because it is
-evidence the reshape arm would want and the delete arm would want, and the criterion cannot see it.
+**3. Two scheduler costs sit outside `M1ᵗ`, and the smaller one was hiding the larger.**
+`M` as reported first covered four spawns; on re-derivation only **two** are mis-dispatches —
+`530-5` and `549-6`, each of which opens by reporting a closure it found on arrival. Two spawns
+landed on genuinely open work and were still running when the ticket closed under them
+(*Classification correction*). Both are real scheduler costs, both are *not* transport, and the
+rubric as pre-registered excludes both — but they are **different defects with different remedies**:
+
+- **mis-dispatch** (`M`, 2 spawns) — the scheduler starts a spawn against work that is already
+  finished. The remedy is at dispatch time.
+- **no mid-run staleness re-check** (2 spawns) — the scheduler starts a spawn correctly and never
+  re-checks; the ticket closes underneath it and the spawn burns a full run discovering that at
+  milestone 5. The remedy is a mid-run call, and the refusal already exists —
+  `lean-gate.sh:2502` (`staleness`, rc 7) — with nothing on the build path calling it between
+  milestones.
+
+The illustration this limitation first offered — "one of them collided with a concurrent lane
+mid-run" — was in fact an instance of the *second* shape, filed under the first. Recorded here
+rather than folded quietly into `X`, because it is evidence the reshape arm would want and the
+delete arm would want, and the criterion cannot see either shape. **Neither is wired up in this
+slice** — this slice adds no shell and no gate — and the staleness re-check is routed to **#650**,
+which owns the campaign these readings feed.
 
 ## Robustness — every defensible reading of this corpus
 
@@ -215,11 +281,11 @@ variation of the rubric that can be argued for, on the corrected 63-spawn corpus
 
 | Reading | Rate | Arm |
 | --- | --- | --- |
-| Naive — every non-clean spawn charged to the scheduler | 47/63 = **0.746** | B |
+| Naive — every non-clean spawn charged to the scheduler | 49/63 = **0.778** | B |
 | `M1ᵗ` pessimistic (U counted against) | 55/63 = **0.873** | C |
 | `M1ᵗ` optimistic (U clean) | 57/63 = **0.905** | C |
 | `D-5` unamended — API 500 scored `U` rather than `I` | 0.857–0.905 | C |
-| All four mis-dispatches charged to the scheduler | 0.810–0.841 | C |
+| Both mis-dispatches charged to the scheduler | 0.841–0.873 | C |
 | Launch level, floor 18, assuming a T kills its launch | **0.667** | B |
 | Post-#566 spawns only (9 spawns, 2 T) | **0.778** | B |
 
@@ -237,9 +303,12 @@ corpus that measures the transport as it exists after #566. Neither is settled h
 | --- | --- | --- |
 | D-5 | Class **I** (infrastructure: API 5xx, network) added alongside P/S/X as not-counting-against | favours the scheduler |
 | D-6 | Class **M** (mis-dispatch) added and reported separately rather than folded into X | neutral to `M1ᵗ`; visible instead of hidden |
+| D-9 | Two of D-6's four `M` rows reclassified `clean` — they were alive across the close, not dispatched after it | favours the scheduler: `M1ᵗ` is untouched, but the naive row moves `0.746 → 0.778` and the all-`M`-charged row `0.810–0.841 → 0.841–0.873` |
 
-Both were forced by evidence the rubric had no bin for. Neither moves a threshold, and D-5 moves
-the reading *toward* the arm the author predicted against — recorded so that can be checked.
+All three were forced by evidence: D-5 and D-6 by shapes the rubric had no bin for, D-9 by two rows
+whose evidence contradicted the bin they had been put in. None moves a threshold, and D-5 and D-9
+both move the reading *toward* the arm the author predicted against — recorded so that can be
+checked rather than trusted.
 
 ## Per-spawn evidence
 
@@ -259,9 +328,9 @@ own terminal text; classified rows quote the specific signal.
 | `530-lean-spawn-1-build.log` | 51 | T | ends "Waiting for the background selftest run to finish." — turn ended holding a detached milestone-3 job |
 | `530-lean-spawn-2-build.log` | 2413 | clean | te's own suggested remediation. **Next step, per [[never-wait-for-ci-before-review]]: run `/dev-pipeline:review-lean 559` next — do not wait for CI first.**  |
 | `530-lean-spawn-3-review.log` | 2557 | clean | ates` was red on exactly one arm — the missing verdict record — which this round has now supplied. Panel: six reviewers selected, six returned, none dark.  |
-| `530-lean-spawn-4-build.log` | 1227 | M | spawned onto #530 after a concurrent lane had already merged it |
+| `530-lean-spawn-4-build.log` | 1227 | clean | opens "while I was mid-run … a different run of this same issue completed underneath me"; the progress record has this session in milestone 3 from `18:45:00Z`, failing `18:53:48Z` as the worktree was torn out from under it — #530 closed `18:52:03Z`. Alive across the close, not dispatched after it; see *Classification correction* |
 | `530-lean-spawn-5-build.log` | 833 | M | spawned onto #530 after it was closed and merged |
-| `533-lean-spawn-1-build.log` | 1033 | M | spawned onto #533 after PR #556 had landed |
+| `533-lean-spawn-1-build.log` | 1033 | clean | `entry` accepted `16:29:11Z`, 66 min BEFORE PR #556 merged `17:35:50Z`; milestones 1–4 all reach `satisfied` (m4 `17:33:57Z`) and only m5 fails `17:41:10Z` "no open PR found". Ran to completion across the close; see *Classification correction* |
 | `533-lean-spawn-2-review.log` | 188 | S | "API Error: Your computer went to sleep mid-response." after committing and pushing the record |
 | `542-lean-spawn-1-build.log` | 3022 | clean | n-slow-suites.tsv`. Adding the row would defer that guard to nightly — less PR-lane coverage of a file this PR touches — so I judged it not this PR's call.  |
 | `542-lean-spawn-2-review.log` | 2432 | clean | Next step is yours: `/dev-pipeline:run-lean` will pick the verdict up at milestone 4, or you can drive the merge boundary directly. I have not merged anything.  |
