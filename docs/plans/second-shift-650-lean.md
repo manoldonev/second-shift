@@ -1,7 +1,9 @@
 # #650 — build the campaign's instruments; the campaign itself runs outside this PR
 
 Issue: https://github.com/manoldonev/second-shift/issues/650
-Criterion (frozen): [`second-shift-643-preregistration.md`](second-shift-643-preregistration.md)
+Criterion (frozen, +revision 5 on an operator ruling): [`second-shift-643-preregistration.md`](second-shift-643-preregistration.md)
+Campaign evidence file: [`second-shift-650-campaign.md`](second-shift-650-campaign.md)
+Follow-up (the campaign and the arm execution): #652
 Audit (phase 1): [`second-shift-643-audit.md`](second-shift-643-audit.md)
 
 ## What this slice is, and what it is not
@@ -49,7 +51,8 @@ and changes no outcome in this PR, because no arm is selected here under any rev
   re-invocation resumes statelessly from the gate's own reads. It is an instrument, not a ship — it
   lands only if it wins, and the arm it belongs to is selected by the campaign, not here. Arm `a`
   is not perturbed: the existing loop is untouched on its own path.
-- **AC-5** — **the evidence file the campaign fills in is committed**, with the row schema, the
+- **AC-5** — **the evidence file the campaign fills in is committed** at
+  [`second-shift-650-campaign.md`](second-shift-650-campaign.md), with the row schema, the
   per-run fields AC-2 of #643 requires (wall-clock, session count, **operator-attention minutes**),
   the frozen attribution rubric restated by reference rather than by copy, and every run row empty.
   A skeleton whose columns are decided after the first run is a skeleton that gets fitted to it.
@@ -58,8 +61,10 @@ and changes no outcome in this PR, because no arm is selected here under any rev
 - **AC-7** — *departed, see `D-5`.* No arm is selected and none is executed in this PR under any
   outcome, including the outcome where the instruments make one look obvious.
 - **AC-8** — the follow-up carrying `AC-6` and `AC-7` is **filed and linked from this PR before
-  handoff**. #643's own `AC-7` rule, inherited: a re-scope that does not file its remainder is a
-  scope cut, not a split.
+  handoff** — **#652**. #643's own `AC-7` rule, inherited: a re-scope that does not file its
+  remainder is a scope cut, not a split. Filed `needs-spec-work` rather than `ready-for-dev`
+  deliberately: its work is nine lane runs over days, which no build session can pick up, and a
+  queue label would offer it to one. Re-label at the operator's discretion.
 - **AC-9** — `bash tools/run-selftests.sh --full --exclude tools/install-topology-selftest.sh` is
   green, and `shellcheck -e SC1091,SC2015,SC2181` is clean over every `*.sh`.
 - **AC-10** — `Changelog:` and `Guard-mass:` trailers present. This slice adds guard mass
