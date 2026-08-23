@@ -156,6 +156,14 @@ jobs:
       - name: capability parity register (tools/capability-parity.tsv)
         run: bash tools/capability-parity-check.sh
 
+      # Every refusal site in the lean lane declares its yield bucket. Same class as the two
+      # steps above — an enumerator plus a register that must cover its output exactly — and it
+      # lives HERE rather than in pr-gates deliberately: it reads five files off the tree and
+      # needs none of that job's environment block. #610 D-9 left prose-blockers.sh's coverage
+      # unwired because "the parent's register owns the living coverage guard"; this is it.
+      - name: gate bucket register (scripts/gate-buckets.tsv)
+        run: bash scripts/check-gate-buckets.sh
+
       - name: namespace direction check (docs/namespaces.md rule 3)
         run: |
           # Array, not a space-separated string: the multi-dir expansion is intentional, and
