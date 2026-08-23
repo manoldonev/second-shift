@@ -62,7 +62,8 @@ additionally requires `attention(a) < attention(b)`, which this slice does not m
 | **I** infrastructure — API 500 | 1 | no |
 
 63 spawns across 15 issues. The tally sums to 63; see *Corpus enumeration* for why it is 63 and not
-the 57 this file first reported.
+the 57 this file first reported, and *Classification correction* for why `M` is 2 and `clean` 49,
+against the 4 and 47 this file first reported.
 
 ## Corpus enumeration
 
