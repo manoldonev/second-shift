@@ -58,7 +58,7 @@ One row per run. `—` means not yet recorded; a committed row is a run that hap
 
 | # | arm | ticket | size | started (UTC) | wall-clock | sessions | launches | **attention (min)** | interventions (class × n) | ledger path |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | a | — | — | — | — | — | — | — | — | — |
+| 1 | a | #636 | opus, single-PR (triplet O, per #652's assignment) | 2026-08-23T18:58:06Z | 0:59:00 to first verdict (r1 needs-work, per protocol item 3); terminal approve 1:30:20, PR #654 | 4 | 1 | **1** (launch keystrokes; zero prompts, zero rescues) | none | `.claude/pipeline-state/636-lean-launches.tsv` |
 | 2 | a | — | — | — | — | — | — | — | — | — |
 | 3 | a | — | — | — | — | — | — | — | — | — |
 | 4 | b | — | — | — | — | — | — | — | — | n/a |
