@@ -59,6 +59,8 @@ be retrodiction dressed as measurement.
 | D-2 | AC-3's "the selected arm is executed in this slice" | DEPARTURE — the pre-registration states the retrospective corpus narrows arms and the prospective runs select. Selecting here would be the precise failure the criterion was written to prevent. Moves to the follow-up. | user-answered |
 | D-3 | AC-5's front-door truth | DEPARTURE — conditional on an arm landing. No front door moves in this slice, so the criterion is vacuous here; reinstated in the follow-up. | user-answered |
 | D-4 | the corpus window | Fixed at all launches since #548 introduced spawn logging: 2026-08-16 → 08-22, 57 spawn logs across 15 issues. Stated in the pre-registration and not re-openable after scoring begins. | codebase-derived |
+| D-5 | a spawn died of an API 500, which the rubric had no bin for | Class **I** (infrastructure: API 5xx, network) added alongside P/S/X as not counting against the scheduler. Recorded because it moves the reading TOWARD the arm this session predicted against. | codebase-derived |
+| D-6 | four spawns landed on already-merged issues — a scheduler defect that is not transport | Class **M** (mis-dispatch) added and reported separately rather than folded into X, where it would have been invisible. Neutral to `M1ᵗ`. | codebase-derived |
 
 **Provenance note for `D-1`..`D-3`.** The operator was given the phase split in plain terms on
 2026-08-23 — "Phase 1 — this session … Phase 2 — the prospective runs … nine lane runs" — together
