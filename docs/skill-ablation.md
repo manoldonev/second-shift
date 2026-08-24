@@ -12,7 +12,7 @@ a pre-registration edited after results exist is not one. The relocation is reco
 
 They sit under `docs/plans/` deliberately. `scripts/check-fail-open-shapes.sh` excludes that path as
 "the run-artifact archive: … never executed, so a shape in it is quoted shell, not a call site", and
-a verbatim session transcript quoting `| grep -q` is exactly that. Filing the evidence where the
+a verbatim session transcript quoting a piped `grep -q` is exactly that. Filing the evidence where the
 existing exclusion already reaches costs no guard edit and no new selftest case; adding a second
 excluded directory would have cost both. A report on machinery growth should not grow machinery to
 land.
