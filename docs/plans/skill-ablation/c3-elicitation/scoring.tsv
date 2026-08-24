@@ -1,0 +1,21 @@
+sample	ticket	reference_row	decision	bare_result	pre_flight_discoverable
+C3-a	650	D-1	sequencing of scope item 4	MISS	yes
+C3-a	650	D-2	whether scope item 5 may share this PR	MISS	yes
+C3-a	650	D-3	the criterion's mutability — may this session author a revision	MISS	yes
+C3-a	650	D-4	scope item 2 — the campaign's nine runs (DEPARTURE)	MISS	yes
+C3-a	650	D-5	scope item 3's second half — arm execution (DEPARTURE)	MISS	yes
+C3-a	650	D-6	variant c is empty as B4 defines it	HIT	yes
+C3-a	650	D-7	the follow-up filing rule	MISS	yes
+C3-b	643	D-1	AC-2's three-runs-per-arm (DEPARTURE)	MISS	yes
+C3-b	643	D-2	AC-3's selected arm is executed in this slice (DEPARTURE)	HIT	yes
+C3-b	643	D-3	AC-5's front-door truth (DEPARTURE)	MISS	yes
+C3-b	643	D-9	two of class M's four rows are contradicted by the logs they cite	MISS	no
+C3-b	643	D-10	the decision table is two-valued at exactly M1 transport = 0.80	MISS	yes
+C3-b	643	D-11	three dependents sequenced behind a ticket that no longer owns the decision	MISS	no
+C3-b	643	D-12	the uncalled lean-gate.sh:2502 staleness refusal that D-9 exposed	MISS	no
+C3-c	597	D-1	what the scheduler does when verdict_rc cannot answer (rc 2/3)	HIT	yes
+C3-c	597	D-2	how the branch's own contribution is identified	HIT	yes
+C3-c	597	D-3	relationship between the inferred arm and the declared patch-id arm	MISS	yes
+C3-c	597	D-4	whether the merge boundary gets the same tolerance in this PR	HIT	yes
+C3-c	597	D-5	default when the contribution comparison cannot be computed	HIT	yes
+C3-c	597	D-6	what AC-3's "names WHICH lines" means concretely	MISS	yes

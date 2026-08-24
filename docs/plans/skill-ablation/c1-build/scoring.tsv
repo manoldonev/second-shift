@@ -1,0 +1,11 @@
+item	artifact	registered_636	registered_647	ablated_636	ablated_647	covered_in_both_ablated
+M1	committed spec with numbered AC-n	covered	covered	covered	covered	yes
+M2	Decision Ledger with provenance	covered	covered	covered	covered	yes
+M3	lane worktree on a lane branch from the configured base	covered	covered	covered	covered	yes
+M4	commits under the bot identity	covered	covered	absent	absent	no
+M5	Changelog: trailer	covered	covered	covered	absent	non-discriminating (CLAUDE.md mandates it for both arms)
+M6	ready non-draft PR with summary, spec link, Closes #N	covered	covered	covered	absent	no
+M7	cost block derived from the progress record	covered	covered	absent	absent	no
+M8	PR marker carrying the run identity	covered	covered	absent	absent	no
+M9	review authored outside this session	covered	covered	covered	absent	no
+M10	close-out: cost-log row, refreshed block, closing comment, teardown	covered	covered	partial	absent	no

@@ -1,0 +1,9 @@
+arm	rc	wall_seconds
+c1-636	rc=0	168
+c1-647	rc=0	334
+c2-654	rc=0	535
+c2-660	rc=0	420
+c3-597	rc=0	181
+c3-643	rc=0	236
+c3-650	rc=0	276
+c2-657	rc=0	~480 (first run, wall-clock under 3-way contention)
