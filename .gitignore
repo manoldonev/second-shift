@@ -23,6 +23,15 @@
 # assertion is on the output path, not on what happens to be in the tree.
 .claude/lean-renders/
 
+# The operator's machine-local Claude allowlist. Ignored here rather than only in a personal
+# global ignore file, because `lean-gate.sh entry` COPIES it into each lane worktree (#647) and
+# refuses to when the destination path is not ignored — an untracked file there would make
+# `git status --porcelain` non-empty, and that is the predicate the entry sweep and the
+# scheduler's in-flight boundary both read to decide whether a lane worktree still holds work.
+# A worktree the gate itself dirtied is one the reaper never removes again. `.claude/settings.json`
+# is deliberately NOT here: it is tracked, so a worktree already carries it.
+.claude/settings.local.json
+
 # Per-machine direnv env (OTel telemetry export for cost tracking) — local-only,
 # opt-in per engineer; see the dev-pipeline plugin's cost-tracking-setup.md.
 .envrc

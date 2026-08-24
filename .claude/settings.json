@@ -1,4 +1,20 @@
 {
+  "_comment": "INTERIM, #647: the allows the dogfood lean lane needs, tracked so a lane worktree actually receives them — a git worktree gets tracked files only, so the operator's gitignored .claude/settings.local.json can never be in one. lean-gate.sh's `entry` now copies that file into the lane worktree (#647 AC-1), which is the remedy that also works for consumers; this block covers the first round here, before any copy has run. Delete it once that ordering no longer matters. WIDTH IS DELIBERATE (#647 round 1, B2): this file is tracked in a PUBLIC repo, so every entry here is a standing grant in every clone and every contributor session — not just the lane's. The `gh` verbs are therefore ENUMERATED from what the lane actually invokes, and every one of them is a read except `gh pr create`, which is checklist step 7. Anything that can merge, close, delete or edit outside the lane branch is excluded categorically: `gh pr merge`, `gh pr close`, `gh issue close`, `gh issue edit`, `gh pr edit`, `gh pr comment`, `gh issue comment`. The lane still makes those writes — they are the bot wrapper's, made INSIDE the `lean-gate.sh` call the first entry already allows, so excluding them here costs the lane nothing. `Bash(gh api:*)` is absent for a reason that is not fixable by narrowing: allow patterns match a command PREFIX, so no `gh api` form excludes a trailing `-X DELETE`. An operator who wants either that or a wider grant puts it in their own untracked settings.local.json, which #647's copy now carries into the lane worktree anyway.",
+  "permissions": {
+    "allow": [
+      "Bash(bash plugins/dev-pipeline/skills/build-lean/lean-gate.sh:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh pr list:*)",
+      "Bash(gh pr diff:*)",
+      "Bash(gh pr checks:*)",
+      "Bash(gh pr create:*)",
+      "Bash(gh issue view:*)",
+      "Bash(gh issue list:*)",
+      "Bash(gh run view:*)",
+      "Bash(gh run list:*)",
+      "Bash(git fetch:*)"
+    ]
+  },
   "hooks": {
     "SessionStart": [
       {

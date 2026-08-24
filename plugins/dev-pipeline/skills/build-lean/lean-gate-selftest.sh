@@ -5564,6 +5564,183 @@ if [ "$rc" -eq 0 ] && wt_registered "$WTREE" && grep -qF 'it is the main checkou
   pass "(wt19) teardown refuses the main checkout by name, even when the lean branch is checked out there"
 else fail "(wt19) expected a named refusal on the main checkout, rc=$rc: $out"; fi
 
+
+# --- (ws) #647: the lane worktree INHERITS the checkout's Claude settings ------------------------
+# A worktree receives tracked files only, and the operator's allowlist is gitignored — the fixture
+# repo's `.gitignore` carries `.claude/` for exactly that reason, so these worktrees start with no
+# settings the same way a real one does. A session launched in such a worktree has no allowlist at
+# all and every tool call falls through to the harness's classifier; the observed shape is a session
+# denied `git fetch`, `gh api` and its own first gate call, which still exits 0.
+#
+# One `entry` per fixture rather than one shared run, because the whole point is what a SECOND
+# entry does differently from the first (ws3), and a single run cannot show that.
+#
+# `ws_wt` and not `wt_make` directly: `wt_make` swallows `git worktree add`'s stderr, so a fixture
+# number already used by an earlier section produces NO worktree and every assertion below then
+# reads a path that does not exist — which is indistinguishable from a seed that declined to run.
+# Caught the first time this section was written, on `wt_make 40`. The registration is checked
+# rather than assumed, so a future collision fails HERE instead of passing vacuously downstream.
+ws_wt() { # ws_wt <issue> -> path, or a named failure
+  local p; p="$(wt_make "$1")"
+  wt_registered "$p" || fail "(ws-setup) fixture worktree claude/acme-$1 was not created — is that number already used by an earlier section?"
+  printf '%s' "$p"
+}
+printf '{"permissions":{"allow":["Bash(git fetch:*)"]}}\n' > "$WTREE/.claude/settings.local.json"
+
+p60="$(ws_wt 60)"; pr_fixture claude/acme-60 '[{"number":60,"state":"OPEN"}]'
+# The premise, asserted rather than assumed: `git worktree add` did NOT bring the file along. If a
+# future git ever did, every case below would pass while testing nothing.
+if [ -e "$p60/.claude/settings.local.json" ]; then ws_pre=1; else ws_pre=0; fi
+rm -f "$WPROG"
+out="$(wgate "$WTREE" entry 60)"; rc=$?
+
+if [ "$ws_pre" -eq 0 ] && [ "$rc" -eq 0 ] && [ -f "$p60/.claude/settings.local.json" ] \
+   && cmp -s "$WTREE/.claude/settings.local.json" "$p60/.claude/settings.local.json"; then
+  pass "(ws1) entry seeds the lane worktree with the checkout's .claude/settings.local.json, content-identical"
+else fail "(ws1) pre=$ws_pre rc=$rc — the worktree did not inherit the allowlist: $out"; fi
+
+# AC-2, both halves at once. A symlink would satisfy "the file is there" and satisfy `cmp` too, and
+# would hand a lane session write access to the operator's real settings — so the inode's
+# INDEPENDENCE is the assertion, not the file's presence. The `-f` conjunct keeps this from passing
+# on a path that does not exist at all, which `! -L` alone is true for.
+printf 'MUTATED-BY-THE-LANE\n' >> "$p60/.claude/settings.local.json" 2>/dev/null
+if [ -f "$p60/.claude/settings.local.json" ] && [ ! -L "$p60/.claude/settings.local.json" ] \
+   && grep -qF 'MUTATED-BY-THE-LANE' "$p60/.claude/settings.local.json" \
+   && ! grep -qF 'MUTATED-BY-THE-LANE' "$WTREE/.claude/settings.local.json"; then
+  pass "(ws2) the copy is a regular file, and a write inside the worktree cannot reach the origin checkout's file"
+else fail "(ws2) the worktree's settings file is not independent of the checkout's: $(ls -l "$p60/.claude/settings.local.json" 2>&1)"; fi
+
+# AC-3. The mutation above is the marker: a re-entry that reused the worktree and re-copied would
+# erase it, and the operator's in-worktree edit with it.
+out="$(wgate "$WTREE" entry 60)"; rc=$?
+if [ "$rc" -eq 0 ] && grep -qF 'MUTATED-BY-THE-LANE' "$p60/.claude/settings.local.json" 2>/dev/null \
+   && grep -qF 'is already present' <<<"$out"; then
+  pass "(ws3) a re-entry reusing the worktree leaves an existing settings file alone, and says so"
+else fail "(ws3) re-entry clobbered the worktree's own settings file, rc=$rc: $out"; fi
+
+# AC-1's other half. A consumer who keeps no local settings has nothing to inherit, and must not be
+# told they are missing something — the absence of any `settings:` line is the assertion, so a
+# future diagnostic added on this path fails here rather than becoming noise on every clean run.
+mv "$WTREE/.claude/settings.local.json" "$WREAL/ws-stash.json"
+p61="$(ws_wt 61)"; pr_fixture claude/acme-61 '[{"number":61,"state":"OPEN"}]'
+out="$(wgate "$WTREE" entry 61)"; rc=$?
+if [ "$rc" -eq 0 ] && [ ! -e "$p61/.claude/settings.local.json" ] && ! grep -qF 'settings:' <<<"$out"; then
+  pass "(ws4) a checkout with no settings of its own yields a worktree with none, silently and without error"
+else fail "(ws4) rc=$rc, worktree file present=$([ -e "$p61/.claude/settings.local.json" ] && echo yes || echo no): $out"; fi
+mv "$WREAL/ws-stash.json" "$WTREE/.claude/settings.local.json"
+
+# D-4: an UNTRACKED `.claude/settings.json` is inherited too. In this fixture `.claude/` is ignored
+# wholesale, so `settings.json` is exactly as invisible to the worktree as the local one — which is
+# the case the ticket names, and the one a tracked settings.json never reaches.
+printf '{"env":{"WS":"1"}}\n' > "$WTREE/.claude/settings.json"
+p62="$(ws_wt 62)"; pr_fixture claude/acme-62 '[{"number":62,"state":"OPEN"}]'
+out="$(wgate "$WTREE" entry 62)"; rc=$?
+if [ "$rc" -eq 0 ] && [ -f "$p62/.claude/settings.local.json" ] && [ -f "$p62/.claude/settings.json" ]; then
+  pass "(ws5) both settings files are inherited — the local one and an untracked settings.json"
+else fail "(ws5) rc=$rc — one of the two files did not land: $(ls "$p62/.claude" 2>&1)"; fi
+
+# The Open Region's reversible default, from the direction that can actually be got wrong. A
+# TRACKED settings.json is already in the worktree, and the rule that leaves it alone is
+# "the destination exists", which asks git nothing. Simulated here by putting the file there first.
+# The local file IS expected to land alongside it — without that conjunct this case would pass on a
+# seed that did nothing at all.
+p63="$(ws_wt 63)"; pr_fixture claude/acme-63 '[{"number":63,"state":"OPEN"}]'
+mkdir -p "$p63/.claude"
+printf '{"env":{"WS":"tracked"}}\n' > "$p63/.claude/settings.json"
+out="$(wgate "$WTREE" entry 63)"; rc=$?
+if [ "$rc" -eq 0 ] && grep -qF '"tracked"' "$p63/.claude/settings.json" \
+   && [ -f "$p63/.claude/settings.local.json" ]; then
+  pass "(ws6) a settings.json the worktree already carries — as a tracked one is — is passed over while its sibling still lands"
+else fail "(ws6) the copy overwrote a file the worktree already had, rc=$rc: $out"; fi
+
+# The dangling-symlink arm. `[ -e ]` alone is FALSE for a symlink whose target does not exist, so an
+# implementation testing only `-e` would `cp` straight THROUGH it and write into whatever path the
+# operator pointed it at — outside the worktree entirely. The settings.json conjunct is again the
+# liveness half: the seed must have RUN on this worktree for the refusal to mean anything.
+p64="$(ws_wt 64)"; pr_fixture claude/acme-64 '[{"number":64,"state":"OPEN"}]'
+mkdir -p "$p64/.claude"
+ln -s "$WREAL/ws-nonexistent-target.json" "$p64/.claude/settings.local.json"
+out="$(wgate "$WTREE" entry 64)"; rc=$?
+if [ "$rc" -eq 0 ] && [ ! -e "$WREAL/ws-nonexistent-target.json" ] \
+   && [ -L "$p64/.claude/settings.local.json" ] && [ -f "$p64/.claude/settings.json" ]; then
+  pass "(ws7) a destination that is a dangling symlink counts as present — the copy is not written through it"
+else fail "(ws7) the seed wrote through a symlink, rc=$rc: $(ls -l "$p64/.claude" 2>&1)"; fi
+
+# AC-2 from the SOURCE side: `cp` dereferences, so what lands is a regular file even when the
+# operator's own settings file is a symlink into a dotfiles repo. `cp -P` or `ln -s` would fail here.
+mv "$WTREE/.claude/settings.local.json" "$WREAL/ws-real-settings.json"
+ln -s "$WREAL/ws-real-settings.json" "$WTREE/.claude/settings.local.json"
+p65="$(ws_wt 65)"; pr_fixture claude/acme-65 '[{"number":65,"state":"OPEN"}]'
+out="$(wgate "$WTREE" entry 65)"; rc=$?
+if [ "$rc" -eq 0 ] && [ -f "$p65/.claude/settings.local.json" ] && [ ! -L "$p65/.claude/settings.local.json" ]; then
+  pass "(ws8) a symlinked source is dereferenced — the worktree gets a regular file, never a link back out"
+else fail "(ws8) rc=$rc: $(ls -l "$p65/.claude" 2>&1)"; fi
+
+# The suite's own hygiene: every later section runs `entry` from this same checkout, and a settings
+# file left here would print a `settings:` line into output those cases grep.
+rm -f "$WTREE/.claude/settings.local.json" "$WTREE/.claude/settings.json" "$WREAL/ws-real-settings.json"
+
+# ---- (ws9)/(ws10) #647 round 1, B1: the premise the eight cases above SHARE -------------------
+# Every (ws) case runs in a fixture whose `.gitignore` carries `.claude/`, which encodes the
+# operator's PERSONAL GLOBAL ignore rule as a repo rule. No consumer repo has that line, and this
+# repo did not either until this change added one path of it — so all eight are green on a premise
+# production does not satisfy, and not one of them can fail when the seed writes an UNIGNORED
+# untracked file into a tree whose cleanliness `worktree_inflight` reads as "still carries work".
+# Sharing a premise with the feature is exactly how a suite converges on green while the defect
+# it is meant to cover stays live, so this needs a SECOND fixture repo rather than another case
+# in the first one.
+WNIG="$WREAL/wtree-noignore"
+mkdir -p "$WNIG/.claude/audit"
+git -C "$WNIG" init -q
+git -C "$WNIG" config user.email t@example.invalid
+git -C "$WNIG" config user.name t
+git -C "$WNIG" symbolic-ref HEAD refs/heads/main
+# HERMETICITY, and it is the whole case. `git check-ignore` consults the operator's GLOBAL ignore
+# file as well as the repo's, and the machine this lane runs on carries
+# `**/.claude/settings.local.json` there — which is exactly why the production repo looked ignored
+# while carrying no rule of its own, and why round 1's defect needed an isolated probe to see. Left
+# unpinned, this fixture inherits that rule, the seed copies, and both cases below measure the
+# operator's home directory rather than the gate: green here, and a DIFFERENT path taken on a CI
+# runner that has no such file. `/dev/null` is an empty excludes file, so only `$WNIG/.gitignore`
+# counts.
+git -C "$WNIG" config core.excludesFile /dev/null
+# Ignore rules EXIST here — just not one covering the seed's destination. A repo with no
+# `.gitignore` at all would leave "does this handle a rule-less repo" as a confound on the result.
+printf 'node_modules/\n' > "$WNIG/.gitignore"
+git -C "$WNIG" add -A >/dev/null 2>&1
+git -C "$WNIG" commit -q -m "no-ignore fixture" >/dev/null 2>&1
+git -C "$WNIG" update-ref refs/remotes/origin/main HEAD
+printf '{"tool":"Bash"}\n' > "$WNIG/.claude/audit/$WSID.jsonl"
+printf '{"permissions":{"allow":["Bash(git fetch:*)"]}}\n' > "$WNIG/.claude/settings.local.json"
+nig_registered() { git -C "$WNIG" worktree list --porcelain 2>/dev/null | grep -qxF "worktree $1"; }
+p66="$WREAL/wt-66"
+git -C "$WNIG" worktree add -q --no-track -b claude/acme-66 "$p66" main 2>/dev/null
+git -C "$WNIG" update-ref refs/remotes/origin/claude/acme-66 "$(git -C "$WNIG" rev-parse claude/acme-66)"
+# Registration checked, not assumed — same reason `ws_wt` checks it: an absent worktree makes both
+# cases below pass vacuously, and "nothing was copied" is what (ws9) asserts.
+nig_registered "$p66" || fail "(ws-setup) no-ignore fixture worktree claude/acme-66 was not created"
+
+pr_fixture claude/acme-66 '[{"number":66,"state":"OPEN"}]'
+rm -f "$WPROG"
+out="$(wgate "$WNIG" entry 66)"; rc=$?
+if [ "$rc" -eq 0 ] && [ ! -e "$p66/.claude/settings.local.json" ] \
+   && grep -qF 'is not git-ignored' <<<"$out" && grep -qF 'Add this line to .gitignore' <<<"$out"; then
+  pass "(ws9) where no ignore rule covers the destination, the seed declines by name and writes nothing"
+else fail "(ws9) rc=$rc — the seed wrote an unignored file into the lane worktree, or declined silently: $out"; fi
+
+# THE PROBE FROM ROUND 1, AS A CASE — seed, then sweep, and the worktree must still reap. If the
+# seed had written an unignored file, `git status --porcelain` is non-empty, `worktree_inflight`
+# answers 8 ("its tree is not clean"), and `worktree_destroy` KEEPS the worktree instead — the
+# stray-worktree accumulation #530 and this very sweep exist to prevent, self-inflicted by the
+# gate one call earlier and never recoverable, because every later entry re-reads the same file.
+# Removing the check-ignore guard from `seed_lane_worktree_settings` reds this line.
+pr_fixture claude/acme-66 '[{"number":66,"state":"CLOSED"}]'
+rm -f "$WPROG"
+out="$(wgate "$WNIG" entry 66)"; rc=$?
+if [ "$rc" -eq 0 ] && ! nig_registered "$p66"; then
+  pass "(ws10) the next entry's sweep still reaps a worktree the seed considered — the seed left the tree clean"
+else fail "(ws10) rc=$rc — the worktree is still registered: the seed dirtied the tree the sweep reads: $out"; fi
+
 # ---- (pc) #445: the producer stamps the generation its readers gate on ----------------------
 # THE WRITER HALF of the capability contract. A merge-boundary arm bound to a capability reads
 # this stamp off the run's own claim comment; a producer that stopped writing it would send every

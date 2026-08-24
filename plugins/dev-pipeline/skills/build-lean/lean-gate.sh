@@ -85,6 +85,12 @@
 #                                        The queue-label reject is the SESSION's step (SKILL.md
 #                                        step 1) — it needs a tracker read, so it is not gated
 #                                        here. Under tracker.type: jira there is no queue at all.
+#                                        #647: it also SEEDS this run's lane worktree with the
+#                                        checkout's own `.claude/settings{,.local}.json`, copied
+#                                        never symlinked and never over an existing file, so a
+#                                        session launched in the worktree inherits the operator's
+#                                        allowlist instead of gambling on the classifier.
+#                                        Advisory — it cannot change entry's verdict.
 #   lean-gate.sh claim  <issue> [--ticket-source ...]
 #                                        the two bot-wrapper claim writes (AC-15/D-49).
 #                                        Under tracker.type: jira it makes NO tracker write and
@@ -412,7 +418,7 @@ while [ $# -gt 0 ]; do
     --obligations)   PROGRESS_OBLIGATIONS=1; shift ;;
     --arm)           STALENESS_ARM="${2:-}"; shift 2 ;;
     --ticket-source) TICKET_SOURCE="${2:-}"; shift 2 ;;
-    -h|--help)       sed -n '2,302p' "$0"; exit 0 ;;
+    -h|--help)       sed -n '2,308p' "$0"; exit 0 ;;
     -*)              envfail "unknown option: $1" ;;
     *)
       if [ "$POSITIONAL" -eq 0 ]; then SUB="$1"; POSITIONAL=1
@@ -1973,6 +1979,93 @@ EOF
   return "$found"
 }
 
+# ---------------------------------------------------------------- settings inheritance (#647)
+# A git worktree receives TRACKED files only. The operator's permission allowlist lives in
+# `.claude/settings.local.json`, which is gitignored — so it STRUCTURALLY cannot exist in a lane
+# worktree, and a session launched with that worktree as its cwd starts with no allowlist at all.
+# Every tool call then falls through to the harness's classifier, which is probabilistic: two
+# identical launches of the #641 lane two hours apart produced one completed build and one session
+# denied `git fetch`, `gh api` and its own first gate call. `Bash(git *)` WAS in the operator's
+# allowlist and was denied anyway — the rule existed and simply was not visible from where the
+# session ran. A session denied every tool call still exits 0, so the failure is near-silent.
+#
+# So the lane worktree inherits the posture of the checkout it was cut from, which is the only
+# posture the operator ever consented to. Four properties, each load-bearing:
+#
+#   COPY, NEVER SYMLINK. A symlink into the main checkout would let a lane session's write reach
+#   the operator's real settings file. `cp` also dereferences a symlinked SOURCE, so what lands in
+#   the worktree is a regular file with an independent inode either way.
+#
+#   NEVER CLOBBER. A destination that already exists is left alone, and that one rule does two
+#   jobs: a re-entry reusing a worktree cannot overwrite edits made inside it, and a `settings.json`
+#   that is TRACKED is already there and is skipped for free — so nothing here has to ask git what
+#   is tracked, which is the reversible default the ticket's Open Region names.
+#
+#   IGNORED, OR NOT WRITTEN AT ALL. The copy is skipped, loudly, unless the destination path is
+#   already covered by an ignore rule — because `entry`'s own sweep and the scheduler both decide
+#   whether a lane worktree still holds work by asking whether its tree is clean.
+#
+#   ADVISORY. Nothing here may reach `entry`'s exit status. The attestation is what `entry` exists
+#   to establish; a settings file that could not be copied is a lost convenience, not evidence.
+#   Same rule `cmd_entry_sweep` runs under, for the same reason.
+#
+# NOT INERT, and that was checked rather than assumed: a lane worktree is not a separate trust
+# root — the harness resolves project identity through the git common dir, so a worktree of a
+# trusted checkout honours a project-scope allowlist on arrival. Were it otherwise, this copy would
+# land a file the harness ignores, which reads exactly as green as a working remedy.
+seed_lane_worktree_settings() {
+  local paths wt rel src dst
+  paths="$(lean_worktrees_for_branch "$LEAN_BRANCH")" || return 0
+  [ -n "$paths" ] || return 0
+  while IFS= read -r wt; do
+    [ -n "$wt" ] || continue
+    # The main checkout is the SOURCE. An operator who checked the lane branch out there would
+    # otherwise have the file copied onto itself.
+    [ "$wt" = "$MAIN_ROOT" ] && continue
+    for rel in settings.local.json settings.json; do
+      src="$MAIN_ROOT/.claude/$rel"
+      dst="$wt/.claude/$rel"
+      # Absent at the origin is the documented no-op, not a diagnosis: a consumer who keeps no
+      # local settings has nothing to inherit and must not be told they are missing something.
+      [ -f "$src" ] || continue
+      # -e OR -L: a dangling symlink is `-e`-false and must still count as present, or the copy
+      # would write THROUGH it into whatever the operator pointed it at.
+      if [ -e "$dst" ] || [ -L "$dst" ]; then
+        say "  settings: $wt/.claude/$rel is already present — left as it is."
+        continue
+      fi
+      # IGNORED, OR NOT WRITTEN AT ALL (#647 round 1, B1). Asked of the DESTINATION PATH, before
+      # any bytes exist there, so it holds on the first seed as much as on the hundredth — the
+      # same shape as the render-output assertion this file already makes before milestone 3
+      # writes a PNG, and for a stricter reason. `git check-ignore` answers the very question
+      # `git status --porcelain` answers, and that predicate is load-bearing here: an unignored
+      # untracked file makes `worktree_inflight` report 8, "its tree is not clean" — to the sweep
+      # three lines up in `cmd_entry`, which then declines to reap the worktree FOREVER, and to
+      # the scheduler's #531 D-3 boundary, which reads a finished build session as still carrying
+      # work. A convenience that quietly disables the reaper is not a convenience.
+      #
+      # It does not re-open the tracked-ness question the never-clobber rule closed: a tracked
+      # `settings.json` is already in the worktree and returned above, so this line is only ever
+      # reached for a destination that does not exist.
+      if ! git -C "$wt" check-ignore -q ".claude/$rel" 2>/dev/null; then
+        warn "  settings: .claude/$rel is not git-ignored in $wt, so copying it would leave the lane worktree permanently unclean — not inherited."
+        warn "    Add this line to .gitignore to receive it: .claude/$rel"
+        continue
+      fi
+      mkdir -p "$wt/.claude" 2>/dev/null \
+        || { warn "  settings: cannot create $wt/.claude — .claude/$rel not inherited."; continue; }
+      if cp "$src" "$dst" 2>/dev/null; then
+        say "  settings: copied .claude/$rel into $wt — the lane worktree inherits this checkout's posture."
+      else
+        warn "  settings: could not copy .claude/$rel into $wt — a session run there will have no allowlist."
+      fi
+    done
+  done <<EOF
+$paths
+EOF
+  return 0
+}
+
 # The DECLINE path, and the only one either mechanism has. It prints rather than fails (D-6):
 # the run is complete and a leftover directory is hygiene, not evidence, so a refusal must not
 # red a gate or an `entry` that is otherwise ready to start the next run. The manual command is
@@ -2732,9 +2825,14 @@ cmd_entry() {
   if [ "$TRACKER_TYPE" = "jira" ]; then
     say "  tracker delta (jira): no queue label to confirm — the operator supplies the ticket key (tracker.writes: false). Step 1's label reject does not apply."
   fi
-  # LAST, and its result is discarded: the attestation above is what `entry` exists to
-  # establish, so nothing the sweep does may reach this function's exit status.
+  # LAST, and their results are discarded: the attestation above is what `entry` exists to
+  # establish, so nothing either of these does may reach this function's exit status.
   cmd_entry_sweep
+  # #647, and AFTER the sweep on purpose — a worktree the sweep has just removed is not one to
+  # seed. This is where the copy lives because `entry` is the one call every run makes, on every
+  # re-entry, from either side of the lane; see seed_lane_worktree_settings for why a worktree
+  # that inherits nothing is a session that gambles on the classifier.
+  seed_lane_worktree_settings
   return 0
 }
 
