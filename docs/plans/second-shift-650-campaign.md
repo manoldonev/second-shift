@@ -64,7 +64,7 @@ One row per run. `—` means not yet recorded; a committed row is a run that hap
 | 4 | b | #647 | sonnet, single-PR (triplet S, per #652's assignment) | ≤2026-08-23T22:01:20Z (first branch commit; launch keystroke not separately recorded) | 0:43 to first verdict (r1 needs-work 22:44:47Z, per protocol item 3); terminal approve 2026-08-24T09:46:33Z with the 9h53m off-shift gap excluded per #652's shift ruling; PR #657 | 4 | 4 (operator invocations: build, review r1, build re-entry, review r2) | **~20** (operator-reported at row time: launches, handoff/verdict reads, one review redirect, two pasted rulings) | none by rubric (one in-shift operator redirect of a redundant review sweep — arm-b steering, not a failure; filed as #658) | n/a (arm b writes no ledger; invocation count operator-recorded) |
 | 5 | b | #642 | opus, single-PR (triplet O, per #652's assignment) | ≤2026-08-24T14:17:40Z (first branch commit; launch keystroke not separately recorded) | 1:54 to first verdict (r1 needs-work 16:11:43Z, per protocol item 3); terminal approve 18:23:09Z, total ~4:05, 3 rounds, PR #660 | 6 | 6 (operator invocations: build, review r1, re-entry, review r2, re-entry, review r3) | **~35** (operator-reported at row time: launches, three verdict/handoff reads, AC-6 ruling relays) | none by rubric (first build session ended post-handoff pre-ruling — operator-managed lifecycle, no work lost, ruling took the tracker path; two operator body amendments to #642 re-based AC-6 mid-run, both dated and direction-noted) | n/a (arm b writes no ledger; invocation count operator-recorded) |
 | 6 | b | — | — | — | — | — | — | — | — | n/a |
-| 7 | c | — | — | — | — | — | — | — | — | — |
+| 7 | c | #644 | opus, single-PR (triplet O, per #652's assignment) | 2026-08-24T19:20:02Z (ledger) | 1:20:48 to first verdict (r1 needs-work 20:40:50Z, per protocol item 3); approve 21:29:48Z, merged 21:36:38Z, 2 rounds, PR #673 | 4 | 6 attended invocations (4 turn handoffs rc=9 + 2 post-merge preflight-rejections rc=2) | **~25** (operator-reported at row time: handoff reads, 4 session launches, two verdict reads) | none by rubric; one arm-c structural finding — the arm CANNOT write its own `approved` terminal: post-merge re-entry preflight-rejects on the closed ticket before reaching close-out (ledger rows 21:37:04Z/21:37:46Z), completion proven by tracker instead | `.claude/pipeline-state/644-lean-launches.tsv` (per-invocation launches; no approved terminal by construction — see intervention detail) |
 | 8 | c | — | — | — | — | — | — | — | — | — |
 | 9 | c | — | — | — | — | — | — | — | — | — |
 
@@ -74,7 +74,7 @@ One entry per intervention, cited. Empty until the runs happen.
 
 | run # | class | what happened | evidence (file, line, timestamp) |
 | --- | --- | --- | --- |
-| — | — | — | — |
+| 7 | none (structural, not an intervention) | `--attended` cannot reach its own close-out: the post-merge re-invocation preflight-rejects on the closed ticket (`FAIL ticket: #644 is CLOSED`) before the gate's m5 merged-PR acceptance is consulted, so the ledger can never carry an `approved` terminal for arm c. Run completion is proven by the tracker (PR #673 merged 21:36:38Z, approve record `f6e670f`). Filed as a spike defect. | `644-lean-launches.tsv` terminals `preflight-rejected rc=2` at 2026-08-24T21:37:04Z and 21:37:46Z |
 
 ## Scoring
 
