@@ -74,14 +74,14 @@ pre-registration before any result, not discovered after.
 
 ## Decision Ledger
 
-No pre-flight ledger exists for #644, so this table is the run's own and every row is
-`spec-derived` unless marked otherwise.
+No pre-flight ledger exists for #644, so this table is the run's own; every row is grounded in
+the ticket text or the codebase, never assumed.
 
 | ID | Decision | Resolution | Provenance |
 | --- | --- | --- | --- |
-| D-1 | Open region from the ticket body: delete a losing arm in-slice, or file a successor? | The ticket states the reversible default — delete-in-slice when the deletion is self-contained, flagged in the PR — and this run takes it. A deletion that is not self-contained (reaches a consumer-facing contract, or an entry point outside this repo's dogfood use) is filed instead, named in the report. | ticket-stated default |
+| D-1 | Open region from the ticket body: delete a losing arm in-slice, or file a successor? | The ticket states the reversible default — delete-in-slice when the deletion is self-contained, flagged in the PR — and this run takes it. A deletion that is not self-contained (reaches a consumer-facing contract, or an entry point outside this repo's dogfood use) is filed instead, named in the report. | ticket-sourced |
 | D-2 | What "bare" means operationally | Plugin-free, same repo, same model tier (`opus`), same working tree. Not a fresh config dir — that loses OAuth and would measure authentication, not scaffolding. | codebase-derived |
-| D-3 | Where the burden of proof sits | On the skill. `keep` requires a demonstrated win; absence of evidence yields `cut-to-delta`, never `keep`. This is the rule that makes AC-1 and AC-3 consistent at the sample sizes actually reachable, and it is the only reading under which "roughly equal, but ours is more thorough" is a loss as the ticket demands. | ticket-derived |
-| D-4 | Comparison 3's oracle is kit-authored, which biases toward the incumbent | Only ledger rows with `user-answered` provenance are scored — those were ratified by the operator and consumed by a build, so an external party validated them as load-bearing. `codebase-derived` rows are kit-internal and excluded. | spec-derived |
+| D-3 | Where the burden of proof sits | On the skill. `keep` requires a demonstrated win; absence of evidence yields `cut-to-delta`, never `keep`. This is the rule that makes AC-1 and AC-3 consistent at the sample sizes actually reachable, and it is the only reading under which "roughly equal, but ours is more thorough" is a loss as the ticket demands. | ticket-sourced |
+| D-4 | Comparison 3's oracle is kit-authored, which biases toward the incumbent | Only ledger rows with `user-answered` provenance are scored — those were ratified by the operator and consumed by a build, so an external party validated them as load-bearing. `codebase-derived` rows are kit-internal and excluded. | codebase-derived |
 | D-5 | Whether the milestone gates are re-measured here | No. `docs/gate-ablation.md` measured them over a pinned 52-record corpus and is cited as inherited evidence with its pin named. Re-running it would spend the slice's budget reproducing a committed answer. What this slice adds for comparison 1 is the **skill** half, which that report does not cover. | codebase-derived |
-| D-6 | No new script or selftest | The ticket excludes an eval harness, and a checked-in script here would owe a selftest under `CLAUDE.md` — machinery to measure whether there is too much machinery. Commands are recorded in the evidence instead. | ticket-derived |
+| D-6 | No new script or selftest | The ticket excludes an eval harness, and a checked-in script here would owe a selftest under `CLAUDE.md` — machinery to measure whether there is too much machinery. Commands are recorded in the evidence instead. | ticket-sourced |
