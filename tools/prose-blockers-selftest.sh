@@ -29,9 +29,34 @@ skill() { # skill <plugin> <name>; body on stdin
   cat >"$d/SKILL.md"
 }
 
+# agent <plugin> <name>; body on stdin — an agent CONTRACT file, plugins/*/agents/*.md (#637
+# folded these into the same census as SKILL.md).
+agent() {
+  local d="$WORK/plugins/$1/agents"
+  mkdir -p "$d"
+  cat >"$d/$2.md"
+}
+
 mkdir -p "$WORK/plugins/rev/scripts/fixtures/plugin/skills/copied"
 cat >"$WORK/plugins/rev/scripts/fixtures/plugin/skills/copied/SKILL.md" <<'EOF'
 The gate refuses without a live ledger.
+EOF
+
+mkdir -p "$WORK/plugins/rev/scripts/fixtures/plugin/agents"
+cat >"$WORK/plugins/rev/scripts/fixtures/plugin/agents/copied-reviewer.md" <<'EOF'
+The reviewer refuses without a spec to check.
+EOF
+
+agent core delta <<'EOF'
+---
+name: delta
+description: an agent contract, not a skill — same construct class, different corpus arm
+---
+
+# delta
+
+Reviews the diff for the named contract. If the artifact is unreadable, refuse and hand
+back with no verdict rather than guessing at its content.
 EOF
 
 skill core alpha <<'EOF'
@@ -91,10 +116,20 @@ row() { PROSE_BLOCKERS_ROOT="$WORK" bash "$TOOL" census 2>/dev/null | grep -F "$
 
 echo "== corpus =="
 CORPUS=$(run corpus)
-is "corpus: three real skills discovered" "$(printf '%s\n' "$CORPUS" | wc -l | tr -d ' ')" "3"
+is "corpus: three real skills plus one real agent contract discovered" \
+  "$(printf '%s\n' "$CORPUS" | wc -l | tr -d ' ')" "4"
 case "$CORPUS" in
-  *fixtures*) bad "corpus: fixture copies excluded by path" "fixture SKILL.md is in the corpus" ;;
+  *fixtures*) bad "corpus: fixture copies excluded by path" "fixture file is in the corpus" ;;
   *) ok "corpus: fixture copies excluded by path" ;;
+esac
+case "$CORPUS" in
+  *agents/delta.md*) ok "corpus: an agent contract file is discovered" ;;
+  *) bad "corpus: an agent contract file is discovered" "agents/delta.md is absent" ;;
+esac
+case "$CORPUS" in
+  *copied-reviewer.md*) bad "corpus: a fixture agent contract is excluded by path" \
+    "copied-reviewer.md is in the corpus" ;;
+  *) ok "corpus: a fixture agent contract is excluded by path" ;;
 esac
 
 echo "== predicate: the stop tier =="
@@ -122,6 +157,12 @@ grep -q 'refuses an empty body' <<<"$STOP" \
   && bad "fenced code is not prose" "censused" || ok "fenced code is not prose"
 grep -q 'metadata and not a rule' <<<"$STOP" \
   && bad "frontmatter is not prose" "censused" || ok "frontmatter is not prose"
+grep -q 'refuse and hand back with no verdict' <<<"$STOP" \
+  && ok "an agent contract's refusal is a construct too" \
+  || bad "an agent contract's refusal is a construct too" "absent"
+grep -q 'refuses without a spec to check' <<<"$STOP" \
+  && bad "a fixture agent contract is excluded from the stop census" "censused" \
+  || ok "a fixture agent contract is excluded from the stop census"
 
 echo "== predicate: the wider tiers =="
 N_STOP=$(ids | wc -l | tr -d ' ')

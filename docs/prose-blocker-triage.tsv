@@ -23,8 +23,12 @@
 # check` compares the two and reports a construct with no row, a `prose-deleted` row whose
 # construct is still in the tree, and a surviving-action row whose construct is gone.
 #
-# OUT OF CENSUS, NAMED. Agent contract files under plugins/*/agents carry the same construct
-# class and are NOT censused here. They are routed to the phase-2 register intake (#605).
+# AGENT CONTRACT FILES. Agent contract files under plugins/*/agents carry the same construct
+# class and, as of #637, ARE censused here alongside SKILL.md — the phase-2 register this
+# residual used to be routed to (#605) is keyed on enforced gates in code and cannot hold
+# prose, so it was never a home for it. An agent has no run to stop and no milestone ladder;
+# tools/prose-blockers.sh's Corpus section says how a "stop" construct is read against that
+# narrower outcome (answer / decline to answer).
 #
 # SEQUENCING with the open guard-size and prose-load tickets: this prune touches SKILL.md prose
 # only. #553 (lean-gate.sh comments), #554 (orchestrate-lean.sh and run-selftests.sh comments)
@@ -69,3 +73,4 @@ pb-17e023fe	gate-backed	prose-deleted	plugins/second-shift/skills/onboard/SKILL.
 pb-3f2b7994	gate-backed	prose-deleted	plugins/second-shift/skills/onboard/SKILL.md:161	plugins/second-shift/skills/onboard/tools/scaffold-review-context.sh::reject-empty-body	The tool refuses an empty or TODO body. Why a hollow section is bad is not the tool business and stays.
 pb-7fd1ca9e	gate-backed	prose-deleted	plugins/second-shift/skills/onboard/SKILL.md:298	plugins/dev-pipeline/skills/build-lean/lean-gate.sh::entry	The entry-gate refusal restated a second time in the same file. doctor FAIL on the same combination is the check that actually catches the hand edit, and it stays.
 pb-e2ae0c39	deleted	prose-deleted	plugins/design-toolkit/skills/figma-faithful/SKILL.md:51	-	An instruction NOT to stop. Nothing ever demanded the stop it forbids, no gate could enforce it in either direction, and it appears in no firing in docs/gate-ablation.md — it was never a control.
+pb-820b5ac8	deleted	pointer-kept	plugins/design-toolkit/agents/figma-faithful-spec-reviewer.md:98	-	First row from the #637 corpus widening (agent contracts). "A missing Element Inventory is a Blocker" cross-references the Severity Levels table (lines 43-49) so the reviewer grades that one gap Blocker rather than Warning — it names a severity LABEL, not a decline; nothing checks an agent-emitted finding severity (this agent dispatches schema-free since #574 retired its gate engine), so it was never a control. Kept whole: the Scene inventory completeness section this line points at would dangle without the cross-reference.

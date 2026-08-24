@@ -77,10 +77,19 @@
 #
 # ## Corpus
 #
-# Skills' SKILL.md files under plugins/. Fixture copies are excluded BY PATH (their prose
-# is test data — pruning it would edit a fixture's expected content). Agent contract files
-# under plugins/*/agents carry the same construct class and are a named out-of-census
-# residual, routed to the classification register rather than silently swept in or dropped.
+# Skills' SKILL.md files under plugins/, and agent contract files under plugins/*/agents
+# (#637 folded the latter in — they used to be a named out-of-census residual, routed to the
+# classification register, which cannot hold prose). Fixture copies are excluded BY PATH
+# (their prose is test data — pruning it would edit a fixture's expected content).
+#
+# An agent contract has no run to stop and no milestone ladder: a SKILL.md's "stop" is a
+# checklist step a session refuses to pass, but a sub-agent has no checklist to halt partway
+# through — its only outcome states are "answer" and "decline to answer". So a stop marker in
+# an agent contract is read the same way structurally (the predicate is unchanged — it still
+# just matches text), but triaged against that narrower outcome: the construct is blocking
+# only where it tells the sub-agent to decline rather than answer (refuse to review, hand
+# back with no verdict, abort the dispatch) — not every instruction that happens to contain a
+# stop word while describing what the agent DOES once it proceeds.
 #
 #
 # Usage:
@@ -122,8 +131,14 @@ fi
 
 # The corpus, resolved from the tree every time. `find` rather than a manifest: a skill
 # added tomorrow is censused tomorrow, with nobody having to remember to enrol it.
+#
+# Agent contract files (plugins/*/agents/*.md) carry the same construct class as SKILL.md
+# prose — a sub-agent reads its contract as instruction the same way a skill session reads
+# its SKILL.md — so they are censused alongside it (#637). Fixture copies are excluded by
+# path exactly as for SKILL.md: any file under a `/fixtures/` directory is test data, not a
+# real contract.
 corpus_files() {
-  find "$ROOT/plugins" -type f -name 'SKILL.md' 2>/dev/null |
+  find "$ROOT/plugins" -type f \( -name 'SKILL.md' -o -path '*/agents/*.md' \) 2>/dev/null |
     grep -v '/fixtures/' |
     sed "s|^$ROOT/||" |
     LC_ALL=C sort
