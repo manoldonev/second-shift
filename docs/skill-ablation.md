@@ -28,9 +28,14 @@ git log --format='%h %ad %s' --date=short -- docs/plans/skill-ablation/         
 | --- | --- | --- | --- | --- |
 | 1 | `build-lean` SKILL (48 lines) | mandated-artifact coverage | bare covers 3 of 9 discriminating items | **cut-to-delta** |
 | 1b | the five milestone gates | *inherited* — `docs/gate-ablation.md` | 66% of firings adjudicated `unchanged`; all six keep-earners re-run at the merge boundary | inherited, not re-collected |
-| 2 | `review-lean` SKILL (127 lines) | recall of ground-truth blockers | bare **4 of 5**, and found 2 real defects the lane's own review missed | **cut-to-delta** |
+| 2 | `review-lean` SKILL (127 lines) | recall of ground-truth blockers | bare† **4 of 5**, and found 2 real defects the lane's own review missed | **cut-to-delta** |
 | 3 | `plan-interview` + `interviewing-baseline` (312 lines) | recall of operator-ratified decisions | bare **6 of 20** | **keep** |
-| — | `intake-orchestrator` (711 lines) | — | not reached by any metric here | **not adjudicated** |
+| — | `intake-orchestrator` (711 lines) | — | not reached by any metric here | **not adjudicated** → #672 |
+| — | `intake-interviewer` (279 lines) | — | registered in scope; no sample ran its path | **not adjudicated** → #672 |
+
+† **Comparison 2 ran a bare session, not the built-in `/code-review` the ticket names.** The
+departure is declared in §2 with its direction of bias; the verdict is unaffected, the
+`/code-review` comparison is unmeasured, and it is routed to #671 arm 2.
 
 No comparison exits `undetermined`. **This slice executes no deletion**, and §5 states why that is
 the evidence-supported action rather than a flinch.
@@ -100,6 +105,38 @@ not in tree) to localise the cut. Until that exists, the cut is recorded and not
 
 ## 2 — `review-lean` vs. a bare session review
 
+### Departure — the comparator is not the one the ticket names
+
+Issue #644's scope item 2 reads **"`review-lean` vs. the built-in `/code-review`"**. That is not
+what ran. Each arm was a plugin-free session given the generic instruction at
+[`c2-review/prompt-template.txt:5`](plans/skill-ablation/c2-review/prompt-template.txt) — *"Review
+this change as you would any PR you were asked to review before merge"* — with no review skill,
+built-in or otherwise, invoked. The substitution entered at registration time: the
+pre-registration's own comparison-2 heading already reads "vs. a bare session review", and neither
+it nor this report flagged the rename against the ticket, so nothing in the branch recorded that a
+named comparator had been swapped: at the reviewed head `f7505dc`, `grep -rn code-review` across
+the pre-registration, this report, the evidence directory and the spec returned **zero** matches.
+That is how the substitution stayed invisible, and it is what this section exists to end.
+Raised as blocker B1 of PR 673 round 1 and
+declared here, in the spec's Decision Ledger (`D-7`), and in the PR body. The pre-registration is
+**not** edited — for the reason given at the top of this file, and because its single-commit
+history is what AC-1 is scored on.
+
+**What the 0.80 is, and what it is not.** The measurement stands exactly as taken: a bare session
+recalled 4 of the 5 ground-truth blockers, over the pre-registered sample, scored by the
+pre-registered rule. It is a **bare-vs-kit** recall, and that is how §4 now titles it. It is **not**
+a `/code-review`-vs-`review-lean` result, and the claim that it is `review-lean`'s P6 basis of
+record *for the comparison the ticket named* is withdrawn. That comparison is **unmeasured**.
+
+**Direction of the bias, and why the verdict does not move.** A prompt-only session is the weaker
+comparator: `/code-review` carries its own review scaffolding, so it should recall at least as much
+as the bare arm did. The substitution can therefore only have *depressed* the challenger's score —
+its failure mode is a false `keep`, never a false cut. C2 cut anyway, at 0.80 against a registered
+3/5–4/5 `cut-to-delta` band. The verdict is unaffected; the title of the number was wrong, and only
+that. Routed to **#671, arm 2** — see *Recorded separately* below.
+
+### Result
+
 Ground truth: blockers the lane's own round-1 record raised, the branch then fixed, and round 2
 verified closed — defects that reached the PR *and* changed what shipped.
 
@@ -124,7 +161,8 @@ scored a miss. It is also a finding the lane's review did not make.
 ### What bare found that three rounds of lane review did not
 
 On #660 the bare session raised two blockers absent from the lane's round-1, round-2 and round-3
-records. One is live on `main` today. `build-lean/SKILL.md:32` says, in one sentence:
+records. **Both are live on `main` today**, and both are now filed. `build-lean/SKILL.md:32` says,
+in one sentence:
 
 > …asserts milestone 5 — **which a MERGED PR satisfies as well as an open one** (#642), so
 > close-out stays reachable after a merge — … But **leave the claimed label alone**: **milestone 5
@@ -135,6 +173,14 @@ build session executes, and the contradiction survived a three-round independent
 PR that introduced it. A bare session found it in seven minutes.
 Filed as **#670**; not fixed here, being outside this slice's AC set.
 
+The second is `docs/config-schema.md:22–33`, which still asserts that a verify lane's reserved exit
+`3` "applies to the fixed `lint`/`typecheck`/`test` keys and to every `extraLanes` entry". One grep
+falsifies it: `lane_failure_class` in `lean-gate.sh:3783` has exactly **one** caller — `typecheck`,
+at `:3856` — after #660's lane demotion. It survived that PR's three review rounds and its full
+panel, and surfaced only here. Filed as **#674**; also outside this slice's AC set. This paragraph
+corrects an earlier count of "one" in this section: the bare arm's escape rate on #660 is two of
+two, not one of two.
+
 ### Recorded separately, as registered
 
 P10 independence — the verdict is authored by a session that is not the build session — is a
@@ -143,7 +189,9 @@ addresses the skill's 127 lines of prose. It says nothing about the separate-ses
 which this slice did not measure and does not touch.
 
 **Successor — #671, arm 2.** The delta is not localisable to particular lines from this evidence.
-Measuring which of the 127 lines carries it is the follow-up; until then no line is cut.
+Measuring which of the 127 lines carries it is the follow-up; until then no line is cut. That arm
+also carries the comparator declared above: `review-lean` against the built-in `/code-review`, on
+the same three samples and the same oracle, which this slice did not measure.
 
 ---
 
@@ -187,6 +235,23 @@ That is the surviving delta, and it is what `keep` is keeping.
 a ledger. This metric does not reach it. It is recorded as unmeasured rather than credited with a
 pass, and filed as **#672** — the highest-value target for the next slice.
 
+**`intake-interviewer` (279 lines) exits with no verdict, and this is the record of it.** The
+ticket's scope item 3 names it alongside `plan-interview`, and the pre-registration declares it "in
+scope insofar as it produces the same artifact". That premise holds — it does emit a Decision
+Ledger, in the five-column receipt shape, per the `interviewing-baseline` contract. What did not
+hold is the sample. C3 handed each arm an **already-filed issue body** (#650, #643, #597) and scored
+recall against the `user-answered` rows of committed *lean-spec* ledgers — the four-column plan
+ledger `plan-interview` produces at pre-flight. An issue body is `intake-interviewer`'s **output**,
+not its input, and no sample ran its path: an unstructured bug report or rough idea taken to an
+issue-ready body plus a receipt-shape ledger. C3 therefore measured the surface downstream of it and
+never the surface itself. So it reaches **no verdict and no measured basis**: not a `keep`, not a
+`cut-to-delta`, and explicitly not a pass by association with `plan-interview`. Raised as blocker
+B2 of PR 673 round 1; declared here, in the spec's Decision Ledger (`D-8`), and in the PR body.
+**Successor: #672**, whose
+body was extended by operator amendment on 2026-08-24 to cover `intake-interviewer` on the same
+terms as `intake-orchestrator` — whatever adjudication method lands there covers both, and each
+exits with either a measured basis or an explicit no-basis record, never silence.
+
 ### Rows no pre-flight session could reach
 
 Three of the twenty reference rows record decisions surfaced *after* execution began — a
@@ -207,10 +272,10 @@ none may be credited with a pass.**
 | skill | lines | measured | basis | date |
 | --- | --- | --- | --- | --- |
 | `dev-pipeline/build-lean` | 48 | C1 | cut-to-delta; carries M4/M6/M7/M8/M9/M10, where no gate is readable | 2026-08-24 |
-| `dev-pipeline/review-lean` | 127 | C2 | cut-to-delta; bare recall 0.80 on ground-truth blockers, delta not yet localised | 2026-08-24 |
+| `dev-pipeline/review-lean` | 127 | C2 | cut-to-delta; **bare-session** recall 0.80 on ground-truth blockers — not the ticket's `/code-review` comparison, which is unmeasured (→ #671 arm 2); delta not yet localised | 2026-08-24 |
 | `intake-toolkit/plan-interview` + `interviewing-baseline` | 312 | C3 | **keep**; bare recall 0.30, delta is the scope-boundary/DEPARTURE class | 2026-08-24 |
-| `intake-toolkit/intake-orchestrator` | 711 | — | **unmeasured — no basis** | — |
-| `intake-toolkit/intake-interviewer` | 279 | — | **unmeasured — no basis** | — |
+| `intake-toolkit/intake-orchestrator` | 711 | — | **unmeasured — no basis**; no metric here reaches decomposition → successor **#672** | — |
+| `intake-toolkit/intake-interviewer` | 279 | — | **unmeasured — no basis**; registered in scope, no sample exercised its path → successor **#672** (§3) | — |
 | `review-toolkit/review-lead` | 446 | — | **unmeasured — no basis** | — |
 | `second-shift/onboard` | 472 | — | **unmeasured — no basis** | — |
 | `dev-pipeline/pr-revision` | 385 | — | **unmeasured — no basis** | — |
@@ -236,6 +301,13 @@ surviving cut qualifies, and the reasons are evidence, not caution:
 - **C3 is a `keep`.**
 
 So AC-5 is satisfied vacuously — no deletion, therefore no orphan — and it is recorded that way
-rather than as a green sweep that proves something it does not. The successors are filed: **#670** (a live
-self-contradiction in a shipped checklist, found by the bare arm), **#671** (localise both cuts) and
-**#672** (`intake-orchestrator`, 711 unmeasured lines).
+rather than as a green sweep that proves something it does not. The successors are filed:
+
+- **#670** — a live self-contradiction in a shipped checklist, found by the bare arm.
+- **#674** — the config schema's exit-3 claim against a one-caller dispatcher, the second escaped
+  blocker from the same arm.
+- **#671** — localise both cuts, and run the comparator the ticket named (`/code-review`) that §2
+  declares this slice did not.
+- **#672** — `intake-orchestrator` (711 lines) and, by the operator's 2026-08-24 amendment,
+  `intake-interviewer` (279 lines): 990 unmeasured lines, each owed a basis or an explicit
+  no-basis record.
