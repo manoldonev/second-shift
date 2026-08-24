@@ -1,68 +1,109 @@
 # lean review verdict — #644
 
-verdict=needs-work
-run_id: review-644-1
-session_id: abf0c6ee-46ed-43eb-a5e1-891ae99a5e67
-rounds: 1
+verdict=approve
+run_id: review-644-2
+session_id: 6e150695-54b4-4ace-bb9e-446ebe018c5b
+rounds: 2
 pr: #673
-reviewed_head: f7505dc1f4e45fe7d0fb37b96ac768495e33d453
-reviewed_patch_id: b8a6e7a2e944f96986bb8b098b3a82239a502fd0
-inherited_patch_id: none
-inherited_from_verdict: none
+reviewed_head: ce36dffda67568dabbd2d2629afe43b4480916c1
+reviewed_patch_id: 082f21180eae963d91b9c3213a04b461cdb18aa4
+inherited_patch_id: b8a6e7a2e944f96986bb8b098b3a82239a502fd0
+inherited_from_verdict: 1ce1bd77b5f9be073b15bbfa16f21bf2645f9748
 fidelity: not-applicable
 model: unknown
 capabilities: pr-marker
 
-## Round 1 — `needs-work`
+## Round 2 — `approve`
 
-**Panel:** security, performance, maintainability, complexity, test-coverage, scope-completeness — all six returned, **none dark**. Five returned `approve` with zero findings on a docs-only diff; `scope-completeness` returned `request-changes` with 2 blockers, both of which I had independently derived before its result landed and both of which I re-verified against the tree.
+**Panel:** maintainability, scope-completeness — trivial-inert routing (all three changed files are
+Markdown outside `.claude/`). Both returned, **none dark**. Maintainability `approve`, zero findings.
+`scope-completeness` returned `request-changes` with two `major` findings and one `minor` — all three
+are residuals of operator-ruled departures, not defects in the delta; see *Warnings*.
 
-**Range:** `bash G delta 644` printed the FULL branch range `1317fe0..f7505dc` — round 1, nothing to inherit. 32 files, 2,436 insertions, 0 deletions, all under `docs/`. Reviewed from a checkout of the head branch at `f7505dc`; head re-checked immediately before this record and unmoved.
+**Range:** `bash G delta 644` printed `1ce1bd7..HEAD`, inheriting the coverage of patch `b8a6e7a2e944`.
+One commit (`ce36dff`), docs-only, 3 files, +96/−12. Reviewed from a checkout of the head branch;
+head re-checked immediately before this record (remote, local and `gh pr view` all `ce36dff`) and unmoved.
 
-**Mechanical evidence (run at this head, in a checkout of it):** pre-registration landing order verified — `f174f1f` is the branch's first commit, is the *only* commit touching `docs/skill-ablation-pre-registration.md`, and precedes all three evidence commits (`bd84ddc`, `abab52b`, `7b489b8`). The three committed C2 ground-truth records are **byte-identical** to the lane's originals at `35e0240` / `5ba15b0` / `a3eeceb` (`diff` clean, all three). C2's reviewed heads `cfba102` / `f8f7c14` / `642a6b1` all resolve, and `35e0240` records `reviewed_head: cfba10220fced…` — the sample is the real oracle. C3's reference denominator re-derived independently from the three specs on `main`: `user-answered` rows = 7 / 7 / 6 = **20**, and the row IDs in `scoring.tsv` match those ledgers exactly (`650` D-1..D-7; `643` D-1,D-2,D-3,D-9,D-10,D-11,D-12; `597` D-1..D-6). Every headline number reconciles with its TSV: C1 3/9 (`covered_in_both_ablated` = M1,M2,M3), C2 4/5 hits, C3 6/20 hits and 6/17 over the `pre_flight_discoverable` subset. Thresholds applied exactly as registered. Successors #670/#671/#672 all exist and are OPEN. CI at this head: `lint-and-selftests` PASS 4m32s, `selftests (macos, bash 3.2)` PASS 7m50s, `mutation-sweep-pr` PASS; `pr-gates` reds at exactly one step — *lean chain reconciliation*, `✗ no committed verdict record` — which is this record's absence and nothing else.
+**Both round-1 blockers are discharged, and I verified each by execution rather than by reading the
+declaration.**
+
+**B1 — the swapped comparator — closed.** The departure is now declared in `docs/skill-ablation.md` §2
+(a dedicated *Departure* subsection), in the c2 evidence README, in spec ledger row `D-7`, and in the
+PR body; §4's row is retitled to a **bare-session** recall and the P6-basis-of-record framing is
+withdrawn at `:128`. I checked for residue of the withdrawn claim: `grep` for "one is live" returns
+nothing anywhere under `docs/`, and no surface still frames the 0.80 as the ticket's comparison.
+
+*The round-1 fix's own disclosed self-falsification is genuinely cured, not hedged.* The first draft
+wrote "`grep -rn code-review` … returns nothing", a sentence made false by its own landing. The
+amendment pins it to the head it was true at, and the pin is checkable: at `f7505dc`,
+`git grep code-review` over the pre-registration, the report, the evidence directory and the spec
+returns **zero** matches (rc=1); at `ce36dff` the same grep returns 11 across 3 files. The claim is
+now true as written and stays true. I also confirmed the `--force-with-lease` was that amendment and
+nothing else: `1ce1bd7` (the round-1 record) is an unmodified ancestor of the head, the branch's ten
+commits below the tip are byte-identical, and only the tip was replaced.
+
+**B2 — `intake-interviewer`'s silent exit — closed, and closed the way that makes it scoreable.**
+Round 1's objection was that #672 named a *different* skill, so naming it as successor would have been
+a re-assertion. The fix instead states **why the metric could not reach the surface**, and that reason
+verifies at source: `intake-interviewer/SKILL.md` mandates the ledger in the **receipt shape (five
+columns)**, whereas C3 scored `user-answered` rows of four-column *lean-spec* plan ledgers — so C3
+measured the surface downstream of it. §4's row, §3's paragraph, the verdicts table and `D-8` all carry
+the no-basis exit plus successor.
+
+**The successor attestations verify independently on the tracker, by the authorship test rather than
+by their labels.** #672's scope extension to `intake-interviewer` is **operator-authored** —
+`userContentEdits` shows both edits by `manoldonev`, the extension at 2026-08-24T20:45:07Z. #671's
+arm-2 scope extension is honestly self-labelled "recorded by the #644 build session; not an
+operator-authored edit", and is ratified by an operator comment on #671. #674 is operator-filed and
+its premise holds: `lane_failure_class` is defined at `lean-gate.sh:3783` with exactly **one** caller,
+`typecheck` at `:3856`, against a `docs/config-schema.md:22–33` that still claims four lanes.
+
+**Mechanical evidence re-run at this head, not inherited.** Pre-registration untouched: `f174f1f` is
+still the branch's first commit and the *only* commit touching it, and it is absent from the delta —
+AC-1's substrate is intact. Every one of the branch's ten commits carries a `Changelog:` trailer.
+The Decision Ledger lints clean (`ledger-lint: 10 ledger row(s): OK`), every row is four-column, and
+the new rows' provenance is correct: `D-7`/`D-8`/`D-9` `user-answered` (each traceable to a tracker
+artifact I verified), `D-10` `codebase-derived` — correctly *not* `user-answered`, since the operator
+ruled that it be recorded while the substance was the run's own call. The evidence tree carries all 29
+artifacts and c2's `scoring.tsv` shows 4 HIT / 1 MISS = the reported 0.80.
+
+**CI at this head:** `lint-and-selftests` green, `mutation-sweep-pr` green. `pr-gates` is red at
+**exactly one step** — step 7, lean chain reconciliation — and the log names the reason as this very
+record: "verdict record reads 'verdict=needs-work', not 'verdict=approve'". Steps 3–6 (frozen files,
+changelog trailer, guard budget, pipeline chain) all pass, so there is no second red hiding behind the
+expected one.
 
 ### Per-AC scoring
 
 | AC | Verdict | Basis |
 | --- | --- | --- |
-| AC-1 — pre-registration lands before any result, naming metric / sample / scoring rule / thresholds per comparison | **satisfied** | Landing order verified by `git log` per the AC's own recipe; one commit, never edited. All four elements present for all three comparisons. |
-| AC-2 — each comparison over exactly its pre-registered sample, raw outputs + prompts + scoring committed | **satisfied** | Samples re-derived independently (see above), not read off the report. Evidence landed at `docs/plans/skill-ablation/` rather than the AC's literal `docs/skill-ablation/` — see W5; the issue's own AC-2 says "under a `docs/` evidence path", which is met. |
-| AC-3 — a verdict per comparison, citing the losing arm's evidence by path, none `undetermined` | **satisfied** | Three verdicts, none `undetermined`, each threshold applied as registered. Per-verdict path citations are absent — see W2. |
-| AC-4 — every surface left standing records its re-measured P6 basis and date | **unsatisfied** | **B2.** `intake-interviewer` — named in the ticket's own comparison 3 and declared in scope by this branch's pre-registration — records `unmeasured — no basis` with `—` for both comparison id and date, and no successor covers it. |
-| AC-5 — any deletion leaves the sweep green with no orphans | **satisfied (vacuous)** | No deletion executed; §5 states the evidence reason. Recorded as vacuous rather than as a green sweep proving something it does not — the right call. Independently: both selftest jobs pass at this head. |
-| AC-6 — `Changelog:` trailer, `Migration:` if a shipped skill is removed | **satisfied** | Trailer present on the branch (`abab52b` carries the substantive one). No shipped skill removed, so no `Migration:` owed. |
+| AC-1 — pre-registration lands before any result, naming metric / sample / scoring rule / thresholds | **satisfied** | Re-verified at this head: `f174f1f` is the branch's first commit and its only commit; untouched by the delta. |
+| AC-2 — each comparison over exactly its pre-registered sample, raw outputs + prompts + scoring committed | **satisfied** | Evidence tree complete (29 artifacts, all three arms with prompts + scoring + raw outputs). The path departure round 1 raised as W5 now carries ledger row `D-10` as a DEPARTURE; the AC is not amended to match, and it is a departure of location, not of coverage. |
+| AC-3 — a verdict per comparison, citing the losing arm's evidence by path, none `undetermined` | **satisfied** | Three verdicts, none `undetermined`. Round 1's W2 (no verdict cites its losing arm by path) is partly improved — §2's new Departure section cites `c2-review/prompt-template.txt` by path — and otherwise unchanged; carried as a warning, not escalated. |
+| AC-4 — every surface left standing records its re-measured P6 basis and date | **satisfied** (was the round-1 blocker) | `intake-interviewer` now records an explicit no-basis exit with its reason and successor #672, which is precisely the second of the two discharges round 1 prescribed. Scored on round 1's own reading of AC-4, under which an explicit `unmeasured — no basis` record is an acceptable form and the defect was a registered-in-scope surface vanishing without a successor. |
+| AC-5 — any deletion leaves the sweep green with no orphans | **satisfied (vacuous)** | Still no deletion in the delta; §5 gives the evidence reason. Recorded as vacuous rather than as a green sweep proving something it does not. |
+| AC-6 — `Changelog:` trailer, `Migration:` if a shipped skill is removed | **satisfied** | Trailer on all ten commits, including `ce36dff`. No shipped skill removed, so no `Migration:` owed. |
 
-### Blockers
-
-| # | Severity | Location | Finding |
-| --- | --- | --- | --- |
-| B1 | Blocker | `docs/plans/skill-ablation/c2-review/prompt-template.txt:5` | **Comparison 2's comparator is not the one the ticket names, and the substitution is recorded nowhere.** Issue #644 scope item 2 is `review-lean` **vs. the built-in `/code-review`**. What ran is a generic bare review instruction ("Review this change as you would any PR you were asked to review before merge"). `grep -r code-review` across the pre-registration, `docs/skill-ablation.md`, the c2 README and the spec returns **zero** matches, and none of D-1..D-6 records the change. The ticket is internally ambiguous — its umbrella sentence does say "against a bare Claude Code session" — but item 2 names a specific, separately-runnable comparator, and a slice whose entire methodological claim is pre-registration discipline cannot silently swap one. It matters beyond bookkeeping: §4 now records `bare recall 0.80` as `review-lean`'s **P6 basis of record**, the thing the next model generation re-measures against, and that basis was collected against a different comparator than the one commissioned. Direction of bias is favourable (a prompt-only reviewer is weaker than `/code-review`, so this cannot have produced a false cut), which is why it is a recording defect rather than a wrong verdict. |
-| B2 | Blocker | `docs/skill-ablation.md:201` | **`intake-interviewer` reaches no verdict, no basis and no successor, against this branch's own registration.** The pre-registration states `intake-interviewer` (279 lines) "is in scope insofar as it produces the same artifact"; §4 then records it `unmeasured — no basis`, date `—`. §3 never mentions it. #672 is filed for `intake-orchestrator` — a different skill, explicitly registered as *not adjudicated by this slice* — so the residual #672 names is not this one. The result is a surface the branch registered as in scope, silently exiting with neither a score nor a declared deferral, which is the one shape AC-4 exists to prevent. |
-
-**Both blockers are dischargeable with a documentation edit — neither requires re-running an arm.** B1: a ledger row plus a line in §2 recording that the bare session stands in for `/code-review`, why that substitution is defensible, and that "`review-lean` beats `/code-review`" therefore remains unmeasured — named as a residual the way `intake-orchestrator` is. B2: either score it under the already-registered C3 metric, or declare the deferral explicitly and give it a named successor. Do **not** discharge either by editing `docs/skill-ablation-pre-registration.md` — its single-commit history is load-bearing and is what AC-1 is scored on.
+**6 of 6 satisfied.** No blockers.
 
 ### Warnings
 
 | # | Location | Finding |
 | --- | --- | --- |
-| W1 | `docs/skill-ablation.md` §2 | **The report understates its own result: two of bare's #660 blockers are live on `main`, not one.** §2 and the c2 README both say "two blockers absent from the lane's records… **one** is live on `main` today", and file only #670. Bare's blocker 2 — that `docs/config-schema.md` lines 22–33 still assert exit `3` "applies to the fixed `lint`/`typecheck`/`test` keys and to every `extraLanes` entry" and that milestone 3 "reds with exit `7` … charges **no fix attempt**" — is **also still true on `main` and still false**: I grepped `lane_failure_class` in `lean-gate.sh` and it has exactly **one** caller, `typecheck` at `:3856`. `lint`, `test` and every `extraLanes` entry are advisory and reach it never. So a documented cross-repo contract is stale, the bare arm caught it, and the report neither files it nor adjudicates it away. Either file it alongside #670 or say why it does not count. |
-| W2 | `docs/skill-ablation.md` §§1–3 | **No verdict cites its losing arm's evidence by path (AC-3's literal clause).** The evidence root is cited once, in the header. §1 cites `lean-gate.sh` line numbers, §2 cites `build-lean/SKILL.md:32` — neither names a committed evidence file. A reader cannot get from "bare 4 of 5" to `c2-review/scoring.tsv` without inferring the convention. Scored satisfied because the root citation plus the `c<n>-<name>/` naming makes every arm reachable, but one relative link per section would discharge it outright. |
-| W3 | `docs/skill-ablation.md` §2, and the pre-registration's C2 scoring rule | **The registered false-blocker count is never reported.** The pre-registration commits to two things this report does not do: "False blockers are counted alongside recall" and "**Every** near-miss is quoted verbatim in the report and adjudicated there, so a reader can repudiate the call rather than take it on trust." Bare raised **9** blockers across the three samples (3 on #654, 2 on #657, 4 on #660); 4 are ground-truth hits. The #654 near-miss and one #660 extra are adjudicated; **three are not** — `bare-654-review.md` blockers 2 (`gate-buckets.tsv`'s `not-a-gate` row asserting something false about the attendance gate) and 3 (`(g18b)`/`(g18d)` can never fail), and the second #660 extra from W1. No per-sample false-blocker tally appears anywhere. This does not move the verdict — the count gates only the `5/5` row and recall is 4/5 — but it is a registered obligation left undischarged in the artifact AC-3 is scored on. |
-| W4 | `docs/skill-ablation.md` §1 | **The central mechanism claim is one session's, generalised to both.** "the ablated sessions cite `lean-gate.sh:2663`, `:890`, `:1852` by line and derive the spec path, the ledger schema and the worktree from the gate's own code" — all three citations come from `bare-ablated-647-plan.md` alone. `bare-ablated-636-plan.md` covers M1–M3 just as fully while citing `lean-evidence.sh:165`/`:168`, `check-lean-chain.sh:194` and `orchestrate-lean.sh:336`, and mentions `lean-gate.sh` twice without a line number. The structural finding ("the enforcement machinery teaches the process") survives — those are all enforcement sources — but "the gate's own code" is narrower than the evidence, and it is the premise the consumer-repo caveat in §1 and the no-cut decision in §5 both rest on. The direction is conservative (it blocks a cut), so this is accuracy, not a wrong action. |
-| W5 | `docs/plans/second-shift-644-lean.md`, Decision Ledger | **The AC-2 path departure is disclosed in the report but carries no ledger row.** AC-2's text says `docs/skill-ablation/`; the evidence is at `docs/plans/skill-ablation/`. Leaving the *pre-registration* uncorrected is the right call and is well argued. But the **spec** is the definition of done, and it carries neither an amended AC nor a departure row, so the spec-vs-tree mismatch is reconcilable only by reading the report. A `D-7` departure row costs one line and makes the spec self-consistent without touching the oracle. |
-| W6 | `docs/skill-ablation.md` §4 | **"Twenty-six skills ship" is paired with a denominator computed over 29 files.** `find plugins -name SKILL.md -path '*/skills/*'` returns 29 and totals exactly **4,951** lines — the report's denominator — but three of those are review-toolkit test fixtures (`scripts/fixtures/reviewer-references/{plugin,plugin-design,plugin-dangling}/skills/review-lead/SKILL.md`, 22+27+21 = 70 lines). The shipped total is **4,881**. The 90% headline is unaffected (9.8% vs 10.0%) and the ticket's own table uses the same methodology, so this is a one-number correction, not a re-analysis. |
-
-### Suggestions
-
-- `bare-arm-timings.tsv` lists 8 arms; 10 bare-session outputs are committed. The two C1 ablated sensitivity runs have no timing rows, and the PR body's "Eight bare sessions … committed verbatim" undercounts by the same two. Not an AC obligation — AC-2 lists timings only among the artifacts — but the sensitivity runs are what carries C1's headline number, so they are the two whose cost is most worth recording.
-- The pre-registration cites `docs/gate-ablation.md`'s "20 of 33 decision points never fired" as inherited evidence. That figure is from the original 52-record analysis, which `gate-ablation.md` itself annotates as dated ("the 33 declared points are 31 — `m4/head-missing` and `m4/head-tree-diff` were deleted as structurally dead") and instructs readers to read as such. The 66% figure (72 of 109) and the six-keep-earner routing map both check out exactly. Worth a "(over the 52-record pin)" qualifier.
+| W1 | issue #644 scope item 2 | **The ticket's named `/code-review` comparison ships unmeasured.** The scope gate is right that declaration is not implementation — the comparison the ticket names is not in this diff. It is not a blocker here because the remedy was an operator ruling, carried as `user-answered` ledger row `D-7` and ratified on the tracker by an operator comment on #671, and because the direction-of-bias argument is sound: a prompt-only challenger is the weaker one, so the substitution could only depress the challenger's score and its failure mode is a false `keep`, never a false cut. C2 cut anyway. The verdict cannot move; the *title* of the number was what was wrong, and that is now fixed. Recorded here so the merge boundary sees the departure rather than inheriting it silently. |
+| W2 | issue #644 scope item 3 | **`intake-interviewer` ships unmeasured**, same shape as W1: honest and complete record, ticket-named measurement absent from the diff, deferred by operator-authored amendment to #672. |
+| W3 | `docs/skill-ablation.md` §4 | **The P6 bases live only in a central table; no `SKILL.md` points at them.** `grep -rn skill-ablation plugins/` returns zero, so `build-lean`, `review-lean` and `plan-interview` are individually silent about their own basis — the next generation change finds it only if it already knows this document exists. A one-line pointer in each of the three surviving skills would make AC-4's stated purpose self-executing. Not a scope miss; AC-4 does not specify where the record lives. |
+| W4 | carried from round 1, unaddressed | W3 (the registered false-blocker tally is still never reported, against a pre-registration that promised "every near-miss adjudicated"), W4 (§1's mechanism claim is one session's generalised to both — all three cited line numbers are `bare-ablated-647`'s), and W6 (the 4,951 denominator counts 3 review-toolkit test fixtures; the shipped total is 4,881). None were in scope for this round's discharge and none are escalated. |
+| W5 | PR body | "Eight bare sessions … committed verbatim" still undercounts: **ten** bare outputs are committed, and `bare-arm-timings.tsv` carries eight rows. The two missing are the C1 ablated sensitivity runs — the two that carry comparison 1's headline number, and so the two whose cost is most worth recording. A PR-body-only defect costs no round. |
 
 ### Strengths
 
-- **The confound was found, disclosed, and cost the slice its headline result — and the conservative verdict was taken anyway.** The registered protocol scored 9/9 → `delete`. Rather than bank it, the run built an ablated sensitivity arm, published both numbers side by side, and took `cut-to-delta`. Refusing the stronger verdict your own rubric licenses, because you can show the rubric measured the wrong thing, is the single hardest behaviour to get out of a pre-registered study and it is the reason this report is trustworthy.
-- **The oracle is genuinely external and I could re-derive it end to end.** The three C2 ground-truth records are byte-identical to the lane's own committed round-1 verdicts, and C3's 20 reference rows re-derive exactly — count and row IDs — from three specs on `main` that this branch did not author. Nothing in the scoring rests on a number only this PR knows.
-- **§5 refuses to execute either cut, and gives an evidence reason rather than caution.** C1's basis is tree-source `lean-gate.sh`, which is false in a consumer repo (the #642 consumer-capability trap); C2's 0.80 says the 127 lines are at best a tie but not which lines carry the 0.20. Both are correct, both are localisation problems, and both are filed rather than guessed at.
-- **AC-5 is reported as vacuously satisfied instead of as a green sweep.** The sweep *is* green, and claiming it as evidence for an AC about deletions when no deletion happened would have been free. Declining that is the same discipline as the C1 verdict.
-- **The headline is the ratio, not the verdict.** Leading with "90% of shipped skill mass has no re-measured basis" — and recording 22 surfaces as `unmeasured — no basis` rather than crediting them with a pass — is what makes this a measurement rather than an advertisement.
+- **The self-falsifying claim was fixed by pinning it to the head it was true at, not by softening it.** The tempting repair is to delete the sentence or hedge it into vagueness. Pinning keeps the claim falsifiable *and* makes it permanently true — and it is the only repair that survives the sentence being a file in the tree it greps. I could check it in both directions, which is the point.
+- **B2's discharge names the mechanism, not just a successor.** Round 1 rejected #672 because it named a different skill. The fix's answer — an issue body is `intake-interviewer`'s output, not its input, and the reference set is the wrong ledger shape — is a claim about *why the metric structurally could not reach the surface*, and it verifies at source. That converts a deferral from an assertion into a finding.
+- **The corrections are complete rather than local.** W1's "one → both" fix propagated to §2, the c2 README, §5's successor list and the PR body, with no residue anywhere; and `D-10` took `codebase-derived` rather than borrowing the operator's authority for a call the run actually made itself. Both are places where a smaller, self-serving edit was available and was not taken.
+- **The pre-registration is still one commit and still untouched**, under direct pressure to edit it — which is what keeps AC-1 meaningful and is the whole reason a pre-registration is worth reading.
 
-**Ready to merge?** No — 2 blockers, both discharged by documentation edits at the reviewed head. AC-4 is unsatisfied; AC-1, AC-2, AC-3, AC-5 and AC-6 are satisfied.
+**Ready to merge?** Yes — 0 blockers, 6 of 6 ACs satisfied. Two ticket-named comparisons ship
+deliberately unmeasured under verified operator rulings with named, operator-ratified successors
+(#671 arm 2, #672); both are recorded above as warnings so the departure is visible at the merge
+boundary rather than inherited in silence.
