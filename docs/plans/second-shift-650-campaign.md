@@ -61,7 +61,7 @@ One row per run. `—` means not yet recorded; a committed row is a run that hap
 | 1 | a | #636 | opus, single-PR (triplet O, per #652's assignment) | 2026-08-23T18:58:06Z | 0:59:00 to first verdict (r1 needs-work, per protocol item 3); terminal approve 1:30:20, PR #654 | 4 | 1 | **1** (launch keystrokes; zero prompts, zero rescues) | none | `.claude/pipeline-state/636-lean-launches.tsv` |
 | 2 | a | — | — | — | — | — | — | — | — | — |
 | 3 | a | — | — | — | — | — | — | — | — | — |
-| 4 | b | — | — | — | — | — | — | — | — | n/a |
+| 4 | b | #647 | sonnet, single-PR (triplet S, per #652's assignment) | ≤2026-08-23T22:01:20Z (first branch commit; launch keystroke not separately recorded) | 0:43 to first verdict (r1 needs-work 22:44:47Z, per protocol item 3); terminal approve 2026-08-24T09:46:33Z with the 9h53m off-shift gap excluded per #652's shift ruling; PR #657 | 4 | 4 (operator invocations: build, review r1, build re-entry, review r2) | **~20** (operator-reported at row time: launches, handoff/verdict reads, one review redirect, two pasted rulings) | none by rubric (one in-shift operator redirect of a redundant review sweep — arm-b steering, not a failure; filed as #658) | n/a (arm b writes no ledger; invocation count operator-recorded) |
 | 5 | b | — | — | — | — | — | — | — | — | n/a |
 | 6 | b | — | — | — | — | — | — | — | — | n/a |
 | 7 | c | — | — | — | — | — | — | — | — | — |
