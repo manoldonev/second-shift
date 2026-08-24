@@ -96,8 +96,8 @@ record moved. It also exits 4 if its own output carries a session id or an absol
 
 ## Findings
 
-> **The corpus was RE-CUT by #642** (74 records pinned, 70 scored, 192 firings, 31 declared decision
-> points) so that the next report measures the surface #642 left. The generated block below is that
+> **The corpus was RE-CUT by #642** (70 records pinned and scored, 1 in-flight lane excluded, 192
+> firings, 31 declared decision points) so that the next report measures the surface #642 left. The generated block below is that
 > re-cut; the numbered findings that follow are the ORIGINAL analysis over the 52-record pin, kept
 > verbatim because they are what #642 acted on and what its PR is checkable against. Read them as
 > dated, and read the block for current figures. Two of the changes #642 made are visible in it

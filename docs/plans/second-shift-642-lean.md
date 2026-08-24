@@ -80,7 +80,19 @@ Both are recorded here rather than silently absorbed, and both are carried as `D
 
 ## Explicitly out of scope
 
-`m4/patch-stale`, `m4/chain-break` and `m4/verdict-not-approve` stay blocking — they carry the
-corpus's two sharpest dated incidents and P10 independence is the lane's load-bearing property.
+`m4/patch-stale`, `m4/chain-break` and `m4/verdict-not-approve` stay blocking, and P10
+independence is the lane's load-bearing property.
+
+*Restated after the AC-9 re-cut (round 1, W1).* This paragraph originally rested the first two on
+"the corpus's two sharpest dated incidents". Those records — `m4/patch-stale` 2026-08-03,
+`m4/chain-break` 2026-08-04 — are not in the corpus this PR ships, so under it both points read
+**never-fired** and that citation no longer stands. They are kept on the same footing as the other
+never-fired points instead: the mechanism-argued reason in AC-2's register
+(`tools/gate-ablation-classes.tsv`'s `earn_your_keep`, populated 31/31), which never depended on a
+firing. `m4/verdict-not-approve` is unaffected — it fires 4 times in the shipped corpus, every one
+adjudicated `changed`. Reconciled in [`docs/testing.md`](../testing.md); the incidents themselves
+remain readable as findings 4 and 5 of `docs/gate-ablation.md`, which that report already labels as
+the dated 52-record analysis.
+
 Milestone 2 is not demoted: the ticket scopes the demotion to three named milestone-3 points,
 and milestone 2's two checks cost two script invocations, not a suite sweep.

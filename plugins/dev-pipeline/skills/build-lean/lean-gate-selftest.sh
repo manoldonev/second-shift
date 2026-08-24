@@ -1712,6 +1712,37 @@ if [ "$rc" -eq 0 ] && grep -qF 'example.invalid/pr/9' <<<"$out" && ! grep -qF 'e
   pass "(k10) #642 AC-8: with both an open and a merged PR on the branch, the OPEN one is resolved"
 else fail "(k10) expected the open PR (#9) to win, got $rc: $out"; fi
 
+# ---- (k11) #642 AC-3, round 1 B2: m5/identity-stamp, the sixth reason, driven ---------------
+# The other five announcement reasons each had a behavioral case; this one had only the static
+# site count, which greps call sites textually and can never observe what the routing DOES —
+# that a failed identity stamp records `absent` and charges zero attempts.
+#
+# THE SEAM IS `gate`, NOT `bgate`. cmd_mark's #446 guard refuses any session outside the recorded
+# build set, and `gate` runs with CLAUDE_CODE_SESSION_ID unset — which is why every other case
+# that reaches cmd_mark uses `bgate`. Here reaching it and being refused IS the fixture.
+#
+# The comment fixture carries the closing comment and NO run marker, deliberately: cmd_mark's
+# idempotent no-op sits BEFORE the session guard, so a trail carrying this run's marker would
+# return 0 and the case would assert nothing. Every earlier milestone-5 obligation must pass, or
+# the refusal under test is never reached — (k11a) asserts the reason text for exactly that.
+cat > "$WORK/comments-closing-nomarker.json" <<'EOF'
+[{ "user": { "type": "Bot" }, "created_at": "2026-01-01T00:00:00Z",
+   "body": "Done. Verdict record: docs/plans/acme-7-lean-verdict.md" }]
+EOF
+seed_progress_1_to_4
+out="$(gate 5 7 --pr-file "$WORK/pr-ready.json" --comments-file "$WORK/comments-closing-nomarker.json")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'could not stamp the build identity' <<<"$out"; then
+  pass "(k11a) milestone-5 refuses when the build identity could not be stamped on the PR"
+else fail "(k11a) expected rc=1 naming the identity stamp, got $rc: $out"; fi
+# BOTH halves, for (c3)'s reason: "attempt_count did not rise" passes vacuously on a path that
+# recorded nothing at all. The verdict-reference obligation must read `met` — that is what proves
+# the run got PAST the closing-comment check and the refusal under test is m5/identity-stamp.
+if [ "$(count_in_progress '| milestone-5 | absent |')" -ge 1 ] \
+   && [ "$(count_in_progress '| milestone-5 | attempt |')" -eq 0 ] \
+   && [ "$(count_in_progress '| milestone-5 | obligation | verdict-reference | met')" -eq 1 ]; then
+  pass "(k11) #642 AC-3: a failed identity stamp records 'absent' past both met obligations, and charges no fix attempt"
+else fail "(k11) expected an absent row, 0 attempts and a met verdict-reference, got $(count_in_progress '| milestone-5 | absent |') / $(count_in_progress '| milestone-5 | attempt |') / $(count_in_progress '| milestone-5 | obligation | verdict-reference | met'): $(cat "$PROG")"; fi
+
 # ---- (ob) #531 D-10: milestone 5 reports its two obligations SEPARATELY -------------------
 # THE DEFECT. `orchestrate-lean.sh` could only say "the closing comment, the exit artifacts and
 # the worktree teardown are all unaccounted for", because a milestone-5 red left one `attempt`
@@ -1978,6 +2009,39 @@ o_sum_after="$(cksum < "$VERDICT")"; o_mt_after="$(mtime_of "$VERDICT")"
 if [ "$rc" -eq 0 ] && [ -n "$o_mt_before" ] && [ "$o_sum_before" = "$o_sum_after" ] && [ "$o_mt_before" = "$o_mt_after" ]; then
   pass "(o) a full 'all' sweep leaves the verdict record byte- and mtime-identical"
 else fail "(o) sweep rc=$rc; cksum $o_sum_before -> $o_sum_after; mtime '$o_mt_before' -> '$o_mt_after': $out"; fi
+
+# ---- (co1) #642 AC-3, round 1 B1: the CLOSE-OUT path re-verbed --------------------------------
+# AC-3 was half-applied. `cmd_5`'s milestone-5 reds were re-verbed; `cmd_close_out`'s were not, so
+# two reasons the ablation corpus adjudicates `unchanged` — m5/progress-current and
+# m5/exit-artifacts:no-open-pr — still reached `append_attempt` on the close-out path and charged
+# the fix budget. The static (ac1c) guard above is what catches the class; this is the reachable
+# arm driven end to end, because a count of call sites cannot observe which counter moved.
+#
+# THIS RUNS RIGHT AFTER (o) ON PURPOSE. close-out evaluates milestones 1-4 itself and stops at the
+# first red, so the no-PR arm is only reachable from a tree where all four pass — which is exactly
+# what (o) just proved of this one. `seed_build_progress` gives it a clean attested record;
+# close-out re-runs 1-4 and appends their satisfied rows itself.
+#
+# The other arm, `cmd_close_out`'s progress-current red, has NO behavioral fixture and can have
+# none: it sits behind the 1-4 loop that appends the very satisfied rows it tests for, so no
+# input reaches it. (ac1c) is that arm's only possible guard, which is the argument for a static
+# case here rather than the usual preference for a driven one.
+printf '[]\n' > "$WORK/pr-none.json"
+seed_build_progress r-build-1 sess-build-1
+out="$(gate close-out 7 --pr-file "$WORK/pr-none.json" --comments-file "$WORK/comments-closing.json")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'no open or merged PR found' <<<"$out"; then
+  pass "(co1a) close-out refuses when the lane branch has no open or merged PR"
+else fail "(co1a) expected rc=1 naming the missing PR, got $rc: $out"; fi
+# The assertion the blocker is about. `absent` >= 1 AND `attempt` == 0 together — either alone
+# passes vacuously, the first on a path that also charged, the second on a path that recorded
+# nothing. The obligation row is the third: close-out mirrors cmd_5's `block_obligation
+# exit-artifacts`, so the record names WHICH half is outstanding rather than leaving one
+# indistinguishable line (#531 D-10).
+if [ "$(count_in_progress '| milestone-5 | absent |')" -ge 1 ] \
+   && [ "$(count_in_progress '| milestone-5 | attempt |')" -eq 0 ] \
+   && [ "$(count_in_progress '| milestone-5 | obligation | exit-artifacts | unmet')" -eq 1 ]; then
+  pass "(co1) #642 AC-3: the close-out no-PR refusal records 'absent' and its obligation row, and charges no fix attempt"
+else fail "(co1) expected an absent row, 0 attempts and the unmet obligation, got $(count_in_progress '| milestone-5 | absent |') / $(count_in_progress '| milestone-5 | attempt |') / $(count_in_progress '| milestone-5 | obligation | exit-artifacts | unmet'): $(cat "$PROG")"; fi
 
 # ---- (x) #374 AC-1/2/3: cmd_all's cheap pre-pass -------------------------------------------
 # The pre-pass evaluates milestones 1 and 4 BEFORE milestone 3's green gate (~15 minutes in
@@ -6124,13 +6188,132 @@ else fail "(ac1) milestone-4 site mapping drifted: $m4_calls call(s), class sign
 # THE ABSENT-VERB SITES, held to the same completeness bar (#642 AC-3). Every reason the ablation
 # report adjudicates `unchanged` must reach block_milestone/block_obligation; a new one added as a
 # fail_milestone silently re-charges the fix budget, and only a whole-file count can say so.
-# EIGHT SITES over SIX points: `m5/identity-stamp` and `m5/verdict-reference:closing-comment`
-# each have two arms (the jira and github close-outs; the fetch failure and the missing comment).
+# TEN SITES over SIX points: `m5/identity-stamp` and `m5/verdict-reference:closing-comment` each
+# have two arms (the jira and github close-outs; the fetch failure and the missing comment), and
+# round 1 added the two `cmd_close_out` arms — m5/progress-current and m5/exit-artifacts:no-open-pr
+# — that `cmd_5` had already re-verbed and close-out had not (8 -> 10).
 # The literal-prefix `"[a-z]` is what excludes block_obligation's own `block_milestone 5 "$2"`.
+#
+# THIS COUNT IS THE INCLUSION DIRECTION AND NOTHING MORE. It was green across both of round 1's
+# blocker sites, because a `fail_milestone` carrying one of the six predicates leaves it untouched.
+# (ac1c) below is the half that can see that; neither case replaces the other.
 m_block="$(grep -cE 'block_milestone [145] "[a-z]|block_obligation [a-z-]+ "' "$GATE")"
-if [ "$m_block" -eq 8 ]; then
-  pass "(ac1b) #642 AC-3: all 8 announcement-class refusal sites route to the absent verb, over the 6 points the ablation report adjudicates 'unchanged'"
-else fail "(ac1b) absent-verb site count drifted: $m_block (expected 8) — $(grep -nE 'block_milestone [145] "[a-z]|block_obligation [a-z-]+ "' "$GATE")"; fi
+if [ "$m_block" -eq 10 ]; then
+  pass "(ac1b) #642 AC-3: all 10 announcement-class refusal sites route to the absent verb, over the 6 points the ablation report adjudicates 'unchanged'"
+else fail "(ac1b) absent-verb site count drifted: $m_block (expected 10) — $(grep -nE 'block_milestone [145] "[a-z]|block_obligation [a-z-]+ "' "$GATE")"; fi
+
+# ---- (ac1c)/(ac1d) #642 AC-3, round 1: THE EXCLUSION DIRECTION -----------------------------
+# (ac1b) above counts absent-verb sites and asserts a total. That is the INCLUSION direction, and
+# it is blind by construction to the defect it was written for: two `fail_milestone 5` sites in
+# `cmd_close_out` carried m5/progress-current and m5/exit-artifacts:no-open-pr reasons, which
+# leaves the count at 8 and passes. A violation spelled in the OTHER verb is invisible to a
+# guard that only counts the right one — so this case asserts the complement: no CHARGING-verb
+# site's reason may classify into an announcement-class point.
+#
+# MEMBERSHIP IS DERIVED, never hand-listed. AC-3's wording is "every reason docs/gate-ablation.md
+# adjudicates `unchanged`", so the set is read from the PRODUCTION adjudication table, and each
+# reason is classified by the PRODUCTION predicate table under gate-ablation.awk's own rule
+# (first match wins within a milestone). A seventh point adjudicated `unchanged` by a future
+# corpus joins this guard with no edit here — and re-verbing one that leaves the set is likewise
+# a one-file change. The `<issue>:<point>` override key form is stripped to its point.
+#
+# `$VAR`-ONLY REASONS ARE RESOLVED, to every literal `VAR="…"` assignment in the gate. The
+# blocker's second site is `fail_milestone 5 "$LEAN_PR_ERROR"` — a guard reading source literals
+# alone would have caught exactly half of it and reported a green on the other half.
+#
+# WHY A PREFIX SUFFICES. All six announcement predicates are `^`-anchored, so a reason's leading
+# literal decides the question; truncating at the first unescaped `"` cannot hide a match that a
+# fuller expansion would find. (ac1d) pins what the technique CANNOT reach.
+#
+# It also reaches a site NO fixture can drive: `cmd_close_out`'s progress-current red is
+# unreachable from close-out's own flow (the 1..4 loop it sits behind appends the very satisfied
+# rows it tests for), so the static classification is that arm's only possible guard. (kc1) below
+# drives the reachable one behaviorally.
+AC_ADJ="$HERE/../../../../tools/gate-ablation-adjudication.tsv"
+AC_CLS="$HERE/../../../../tools/gate-ablation-classes.tsv"
+if [ -r "$AC_ADJ" ] && [ -r "$AC_CLS" ]; then
+  ac_scan="$(awk -F'\t' -v ADJ="$AC_ADJ" -v CLS="$AC_CLS" '
+    FILENAME == ADJ {
+      if ($0 !~ /^#/ && NF > 1 && $2 == "unchanged") { gp = $1; sub(/^[0-9]+:/, "", gp); ann[gp] = 1 }
+      next
+    }
+    FILENAME == CLS {
+      if ($0 !~ /^#/ && NF >= 5) { nc++; cms[nc] = $2; cpat[nc] = $4; cgp[nc] = $1 }
+      next
+    }
+    # every literal VAR="…" assignment in the gate, for the $VAR-only reasons below
+    {
+      s = $0
+      while (match(s, /[A-Z_][A-Z0-9_]*="/)) {
+        nm = substr(s, RSTART, RLENGTH - 2); rest = substr(s, RSTART + RLENGTH); q = index(rest, "\"")
+        if (q > 1) asg[nm] = asg[nm] SUBSEP substr(rest, 1, q - 1)
+        s = substr(s, RSTART + RLENGTH)
+      }
+    }
+    /fail_milestone [0-9]+ "|fail_obligation [a-z-]+ "/ { sl[++ns] = $0; sn[ns] = FNR }
+    function classify(ms, reason,   i) {
+      for (i = 1; i <= nc; i++) if (cms[i] == ms && reason ~ cpat[i]) return cgp[i]
+      return ""
+    }
+    END {
+      if (nc == 0) { print "INFRA\tthe predicate table parsed to zero rows"; exit }
+      for (g in ann) nann++
+      if (nann == 0) { print "INFRA\tthe adjudication table declared no `unchanged` point"; exit }
+      printf "SET\t%s\n", nann
+      for (i = 1; i <= ns; i++) {
+        s = sl[i]
+        if (match(s, /fail_milestone [0-9]+ "/)) { ms = substr(s, RSTART, RLENGTH); gsub(/[^0-9]/, "", ms) }
+        else if (match(s, /fail_obligation [a-z-]+ "/)) ms = "5"
+        else continue
+        rest = substr(s, RSTART + RLENGTH); q = index(rest, "\"")
+        arg = (q > 0) ? substr(rest, 1, q - 1) : rest
+        # fail_obligation and block_obligation pass their CALLER s reason through; the caller is
+        # the site, and it is matched on its own line.
+        if (arg == "$1" || arg == "$2") continue
+        k = 0
+        if (arg ~ /^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$/) {
+          nm = arg; gsub(/[${}]/, "", nm)
+          if (nm in asg) k = split(asg[nm], cand, SUBSEP)
+          if (k == 0) { printf "OPAQUE\t%s\t%s\t%s\n", sn[i], ms, arg; continue }
+        } else if (arg ~ /^\$/ || arg == "") {
+          printf "OPAQUE\t%s\t%s\t%s\n", sn[i], ms, arg; continue
+        } else { k = 1; cand[1] = arg }
+        for (j = 1; j <= k; j++) {
+          if (cand[j] == "" || (i SUBSEP cand[j]) in seen) continue
+          seen[i SUBSEP cand[j]] = 1
+          gp = classify(ms, cand[j])
+          if (gp != "" && (gp in ann)) printf "VIOLATION\t%s\t%s\t%s\t%s\n", sn[i], ms, gp, cand[j]
+        }
+      }
+    }
+  ' "$AC_ADJ" "$AC_CLS" "$GATE")"
+  ac_infra="$(printf '%s\n' "$ac_scan" | grep -c '^INFRA')" || ac_infra=0
+  ac_set="$(printf '%s\n' "$ac_scan" | awk -F'\t' '$1 == "SET" { print $2 }')"
+  ac_viol="$(printf '%s\n' "$ac_scan" | grep '^VIOLATION')" || ac_viol=""
+  ac_opaque="$(printf '%s\n' "$ac_scan" | grep '^OPAQUE')" || ac_opaque=""
+  ac_nopaque="$(printf '%s\n' "$ac_scan" | grep -c '^OPAQUE')" || ac_nopaque=0
+
+  # The set size is asserted so a table that stopped parsing cannot make the exclusion vacuous —
+  # zero announcement points would let every charging site through, silently.
+  if [ "$ac_infra" -eq 0 ] && [ "$ac_set" = "6" ] && [ -z "$ac_viol" ]; then
+    pass "(ac1c) #642 AC-3: no charging-verb reason classifies into any of the 6 announcement-class points, over the production adjudication + predicate tables"
+  else fail "(ac1c) exclusion direction breached (announcement points: ${ac_set:-none}, infra=$ac_infra) — a fail_milestone/fail_obligation site carries a reason the corpus adjudicates 'unchanged', so it charges the fix budget: $ac_viol"; fi
+
+  # WHAT THE TECHNIQUE CANNOT REACH, pinned so a new blind spot has to be looked at rather than
+  # inherited. A reason that is a function call, a parameter expansion, or a leading `$VAR` cannot
+  # be prefix-classified — the six predicates are all `^`-anchored, and nothing here states the
+  # anchor's text. All ten sit at milestones 1, 3 and 4; the assertion that NONE sits at milestone
+  # 5 is the load-bearing half, because milestone 5 carries three of the six announcement points
+  # and is where both round-1 blockers lived.
+  ac_op5="$(printf '%s\n' "$ac_opaque" | awk -F'\t' '$3 == "5"' | wc -l | tr -d ' ')"
+  if [ "$ac_nopaque" -eq 10 ] && [ "$ac_op5" -eq 0 ]; then
+    pass "(ac1d) #642 AC-3: the 10 reasons (ac1c) cannot classify are pinned, and none is at milestone 5"
+  else fail "(ac1d) the unclassifiable-reason set moved: $ac_nopaque (expected 10), $ac_op5 at milestone 5 (expected 0) — each needs a look before it is inherited: $ac_opaque"; fi
+elif ! git -C "$HERE" rev-parse --show-toplevel >/dev/null 2>&1; then
+  echo "  SKIPPED: (ac1c/ac1d) staged install cache — the ablation tables are repo-only, so the exclusion direction is asserted in the repo sweep and not here"
+else
+  fail "(ac1c/ac1d) the ablation adjudication/predicate tables are not beside this gate in a git checkout — AC-3's exclusion direction lost its only guard"
+fi
 
 # `all` PROPAGATES the class rather than laundering it into its own 1. Both halves of the pre-pass
 # are driven: an integrity refusal, which must never read as needs-work one layer up, and an absent

@@ -4843,13 +4843,25 @@ cmd_close_out() {
     fi
   done
 
+  # THE ABSENT VERB ON BOTH, exactly as cmd_5 spells them (#642 AC-3, round 1 B1). These two reds
+  # name reasons docs/gate-ablation.md adjudicates `unchanged` — m5/progress-current and
+  # m5/exit-artifacts:no-open-pr — so a charging verb here re-opened, on the close-out path alone,
+  # the fix-budget hole the milestone-5 assert path had just closed. `block_obligation` rather than
+  # a bare `block_milestone` for the second: close-out records obligation state the same way cmd_5
+  # does, so the record still names WHICH half is outstanding (#531 D-10).
+  #
+  # The first arm is defensive and unreachable from HERE — the 1..4 loop above appends the very
+  # satisfied rows m5_missing_milestones tests for, so no input reaches it. It is re-verbed anyway
+  # and guarded statically: lean-gate-selftest.sh's (ac1c) classifies every charging-verb reason
+  # through the production predicate table, which is the only technique that can reach an arm no
+  # fixture can drive. (co1) drives the second.
   missing="$(m5_missing_milestones)"
   if [ -n "$missing" ]; then
-    fail_milestone 5 "progress file is not current — milestone(s)$missing left no satisfied record, so there is nothing to close out and nothing public should be written about it"
+    block_milestone 5 "progress file is not current — milestone(s)$missing left no satisfied record, so there is nothing to close out and nothing public should be written about it"
     return $?
   fi
 
-  resolve_open_pr || { fail_milestone 5 "$LEAN_PR_ERROR"; return $?; }
+  resolve_open_pr || { block_obligation exit-artifacts "$LEAN_PR_ERROR"; return $?; }
   pr="$LEAN_PR_JSON"
   prnum="$(printf '%s' "$pr" | jq -r '.[0].number')"
   url="$(printf '%s' "$pr" | jq -r '.[0].url')"

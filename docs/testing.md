@@ -47,19 +47,60 @@ that record class outright. Whatever those arms answered, the boundary refused t
 not merely quiet. Milestone 4 now refuses the class itself, which is strictly tighter than the
 fallback it replaces.
 
-**Kept (18), by why.** The ticket's warning is the load-bearing one: deleting these would remove
-function from the shipped product to tidy the dogfood canary.
+**Kept: 18 against the pin #642 acted on, 20 against the corpus it ships.** The ticket's warning
+is the load-bearing one: deleting these would remove function from the shipped product to tidy the
+dogfood canary.
 
-| Kept point(s) | Why it is live for a consumer |
-| --- | --- |
-| `m1/design-form`, `m3/design-render`, `m4/fidelity` | the whole design tier. This repo configures no `design.provider`, so it never arms; a consumer that does reaches all three on its first armed ticket |
-| `m4/identity` | P10's mechanical enforcement. #348 removed the in-build reviewer that used to trip it, and this row is what keeps refusing a build session that writes its own approve |
-| `m3/typecheck` | this repo leaves `typecheck` null. A consumer that configures one reaches it on the first type error — and it is the one verify key #642 did **not** demote, so it is also where the reserved infra code still has a reader |
-| `m3/setup-lane`, `m3/no-verify-lane` | "the check could not run" and "nothing was verified". Demoting either would make milestone 3 green having verified nothing |
-| `m2/frozen-files`, `m2/changelog-trailer` | reachable on this repo today — a feature PR touching a release-owned file, or a `plugins/**` PR with no trailer |
-| `m1/spec-no-ac`, `m1/ledger-lint`, `m1/preflight-reconcile` | all reachable from an ordinary spec: no AC-n, an out-of-enum provenance, a dropped receipt row |
-| `m4/verdict-keys`, `m4/verdict-uncommitted` | reachable from a hand-written or uncommitted record. Deleting `verdict-uncommitted` would not move WHEN the failure is caught — it would make the local answer WRONG, certifying milestone 4 against a file that is not on the branch |
-| `m5/exit-artifacts:draft`, `:closes`, `:spec-link`, `m5/verdict-reference:body-ref` | a draft PR, a missing `Closes`, a missing spec link, and (under a `writes: false` tracker) a body with no verdict reference — every one an ordinary consumer state |
+*Both numbers are right, and the difference is the point.* The **18** are the 52-record pin's
+never-fired points less the two deleted above; that is the set the operator's 2026-08-24 AC-6
+amendment ratifies at 18/18. #642 also **re-cut the corpus** (70 scored records, 31 declared
+points), and the re-cut moves the never-fired set underneath that count: `m1/ledger-lint` and
+`m1/preflight-reconcile` fired **4** and **2** times in records the old pin did not carry, so they
+leave it, while `m3/lint`, `m5/progress-current`, `m4/chain-break` and `m4/patch-stale` enter it.
+Net **20** — the same number the 52-record pin produced, over a **different set**. That numeric
+coincidence is why the table below carries a firings column instead of a headline count: reading
+"20 then, 20 now" as "nothing moved" is the one wrong inference available here. Every point in the
+table carries its reason either way — 18/18 against the pin, 20/20 against the shipped corpus.
+
+**Dated 2026-08-24, and derived rather than authoritative.** The decision-points table in
+`docs/gate-ablation.md` is what says which points fired; this table says why each is kept. Re-cut
+the corpus and the *counts* here go stale while the *reasons* do not — so re-derive the counts
+from the report, never from this paragraph. The `firings` column below is the shipped corpus's.
+
+| Kept point(s) | Firings | Why it is live for a consumer |
+| --- | --- | --- |
+| `m1/design-form`, `m3/design-render`, `m4/fidelity` | 0 | the whole design tier. This repo configures no `design.provider`, so it never arms; a consumer that does reaches all three on its first armed ticket |
+| `m4/identity` | 0 | P10's mechanical enforcement. #348 removed the in-build reviewer that used to trip it, and this row is what keeps refusing a build session that writes its own approve |
+| `m3/typecheck` | 0 | this repo leaves `typecheck` null. A consumer that configures one reaches it on the first type error — and it is the one verify key #642 did **not** demote, so it is also where the reserved infra code still has a reader |
+| `m3/setup-lane`, `m3/no-verify-lane` | 0 | "the check could not run" and "nothing was verified". Demoting either would make milestone 3 green having verified nothing |
+| `m2/frozen-files`, `m2/changelog-trailer` | 0 | reachable on this repo today — a feature PR touching a release-owned file, or a `plugins/**` PR with no trailer |
+| `m1/spec-no-ac` | 0 | reachable from an ordinary spec that declares no AC-n |
+| `m1/ledger-lint`, `m1/preflight-reconcile` | **4**, **2** | reachable from an ordinary spec — an out-of-enum provenance, a dropped receipt row — and under the re-cut corpus they are no longer hypothetical: both fired, in records the 52-record pin did not carry. Kept for the same reason, now with firings behind it |
+| `m4/verdict-keys`, `m4/verdict-uncommitted` | 0 | reachable from a hand-written or uncommitted record. Deleting `verdict-uncommitted` would not move WHEN the failure is caught — it would make the local answer WRONG, certifying milestone 4 against a file that is not on the branch |
+| `m5/exit-artifacts:draft`, `:closes`, `:spec-link`, `m5/verdict-reference:body-ref` | 0 | a draft PR, a missing `Closes`, a missing spec link, and (under a `writes: false` tracker) a body with no verdict reference — every one an ordinary consumer state |
+| `m3/lint` | 0 | new to the never-fired set under the re-cut. It is also one of the three points #642 **demoted** (AC-4): it no longer refuses at all, it records a non-blocking advisory, because `lint-and-selftests` re-runs the identical command at the merge boundary. A demoted point that never fired is not a candidate for deletion — the advisory is the whole remaining function |
+| `m5/progress-current` | 0 | new to the never-fired set under the re-cut, and one of the six #642 re-verbed to `absent`: an earlier milestone left no satisfied record, so the remedy is the step the checklist orders next. Reachable by any consumer that calls milestone 5 out of order |
+| `m4/chain-break`, `m4/patch-stale` | 0 | **the two the ticket kept blocking on cited incidents the re-cut dropped** — see below |
+
+**`m4/chain-break` and `m4/patch-stale`: the citation moved, the reason did not.** #642's spec
+keeps these two blocking because they "carry the corpus's two sharpest dated incidents" — the
+2026-08-03 `patch-stale` firing (an approve bound to `05c05a4` with 15 files landed after it, one
+of them the CI workflow judging the PR) and the 2026-08-04 `chain-break` firing. Neither record is
+in the re-cut corpus, so under the corpus this PR ships both points read **never-fired**, and that
+rationale no longer cites surviving evidence.
+
+They are kept anyway, on the same footing as every other never-fired point above: the
+reachability reason in `tools/gate-ablation-classes.tsv`'s `earn_your_keep` column — populated for
+all **31** declared points, which is AC-2's register and the authority here. Both reasons are
+argued from the mechanism, never from a firing, so the re-cut costs them nothing:
+`m4/patch-stale` is the only thing that distinguishes a rebase replaying the branch unchanged from
+new content landing after an approve (#372's shape); `m4/chain-break` catches a broken *multi-round*
+history, which `patch-stale`'s same-round test structurally cannot see. Demoting either would spend
+P10 independence, which is the lane's load-bearing property.
+
+The dated incidents are still real and still readable — they are findings 4 and 5 of
+`docs/gate-ablation.md`, which that report labels as the original 52-record analysis and asks to be
+read as dated. What changed is that they can no longer be re-derived from the shipped manifest.
 
 **Supersession is not enough on its own.** `m4/verdict-uncommitted` is re-checked at the merge
 boundary too, and it is kept: deleting a local arm is only safe when what is left answers
