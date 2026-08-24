@@ -3,11 +3,23 @@
 **Measured 2026-08-24.** #644, parent #284. The thresholds this report is scored against were fixed
 in [`docs/skill-ablation-pre-registration.md`](skill-ablation-pre-registration.md) before any result
 existed; that file has not been edited since. Raw arm outputs are under
-[`docs/skill-ablation/`](skill-ablation/), one file per session, verbatim.
+[`docs/plans/skill-ablation/`](plans/skill-ablation/), one file per session, verbatim.
+
+**The pre-registration names `docs/skill-ablation/`; the evidence landed at
+`docs/plans/skill-ablation/`, and the pre-registration was deliberately NOT corrected.** It has
+exactly one commit, `f174f1f`, and keeping it that way is worth more than a right path inside it —
+a pre-registration edited after results exist is not one. The relocation is recorded here instead.
+
+They sit under `docs/plans/` deliberately. `scripts/check-fail-open-shapes.sh` excludes that path as
+"the run-artifact archive: … never executed, so a shape in it is quoted shell, not a call site", and
+a verbatim session transcript quoting `| grep -q` is exactly that. Filing the evidence where the
+existing exclusion already reaches costs no guard edit and no new selftest case; adding a second
+excluded directory would have cost both. A report on machinery growth should not grow machinery to
+land.
 
 ```bash
-git log --format='%h %ad %s' --date=short -- docs/skill-ablation-pre-registration.md   # lands first
-git log --format='%h %ad %s' --date=short -- docs/skill-ablation/                      # lands after
+git log --format='%h %ad %s' --date=short -- docs/skill-ablation-pre-registration.md  # one commit, first
+git log --format='%h %ad %s' --date=short -- docs/plans/skill-ablation/               # all later
 ```
 
 ## Verdicts

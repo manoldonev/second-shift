@@ -1,7 +1,7 @@
 # Skill-vs-bare-session ablation — evidence
 
-Pre-registration: [`../skill-ablation-pre-registration.md`](../skill-ablation-pre-registration.md)
-(landed first, never edited). Results and verdicts: [`../skill-ablation.md`](../skill-ablation.md).
+Pre-registration: [`../../skill-ablation-pre-registration.md`](../../skill-ablation-pre-registration.md)
+(landed first, never edited). Results and verdicts: [`../../skill-ablation.md`](../../skill-ablation.md).
 
 Every file here is a raw session output or a scoring table. No harness was built — the ticket
 excludes one, and a checked-in script here would owe a selftest under `CLAUDE.md`, which is
