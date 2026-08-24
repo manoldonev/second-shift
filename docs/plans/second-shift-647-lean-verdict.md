@@ -1,185 +1,181 @@
 # lean review verdict — #647
 
-verdict=needs-work
-run_id: review-647-1
-session_id: 9ba1afaa-c36d-4f71-ab8a-d68d405654d4
-rounds: 1
+verdict=approve
+run_id: review-647-2
+session_id: c3693a9b-7acf-418c-a99d-835747869ed9
+rounds: 2
 pr: #657
-reviewed_head: f8f7c142919507a58acbc268596c1127b4fa1ae0
-reviewed_patch_id: 0be43fad810014af9b70610de21654dd8b507ab0
-inherited_patch_id: none
-inherited_from_verdict: none
+reviewed_head: 497740737845501720e7c52f848015eac183edf4
+reviewed_patch_id: 1909ee28ea7c98d48291bcc1300c631da24775c3
+inherited_patch_id: 0be43fad810014af9b70610de21654dd8b507ab0
+inherited_from_verdict: 5ba15b044a021b5c8dbd900f27c9d454d15bc200
 fidelity: not-applicable
 model: unknown
 capabilities: pr-marker
 
 ## Review summary
 
-Round 1 covers the whole branch diff (`b657907..HEAD`, 5 files / +287). The mechanism is
-well-chosen and the eight `(ws)` cases are unusually strong — each pins a distinct failure the
-others pass through, and the PR's own probe table shows they are live rather than decorative.
-Both selftest lanes are green in CI (ubuntu 4m27s, macOS bash-3.2 6m23s), so AC-5 has evidence on
-both platforms; `pr-gates` is red only on the absent verdict record this review writes.
+Round 2 inherits patch `0be43fad8100` and reads the delta `5ba15b0..HEAD` (3 commits, 7 files,
++127/-7). Both round-1 blockers are discharged, and each was verified by **execution**, not by
+reading the diff.
 
-Two blockers, both about what the change *deposits* rather than how it is tested.
+**B1 is fixed and the fix is live.** `seed_lane_worktree_settings` now asks `git check-ignore` about
+the destination path before any bytes exist there, and skips with the `.gitignore` line to add. The
+mechanism is the right one: `worktree_inflight()` (`lean-gate.sh:2119`) reads
+`git status --porcelain`, whose default `-unormal` reports untracked-but-not-ignored files and
+nothing else, so `check-ignore` on the destination is exactly the predicate that keeps the sweep's
+input clean. I re-ran round 1's probe as the build re-ran it, and then went further: applying the
+new catalog row's sed in an isolated worktree reds **exactly `(ws9)` and `(ws10)` and nothing
+else**, with the eight original cases green under the mutant, while the unmutated tree is
+`0 FAILURE(S)`. That is the row's whole claim, independently reproduced.
 
-The first is the one the suite structurally cannot see. `seed_lane_worktree_settings` writes an
-**untracked** file into a tree whose cleanliness `lean-gate.sh` itself treats as a load-bearing
-predicate, and it does so with no assertion that the destination is git-ignored. Every fixture in
-the suite writes `.claude/` into the fixture repo's `.gitignore` (`lean-gate-selftest.sh:137` and
-~20 siblings), which models the operator's **personal global** ignore rule as a repo rule. The
-production repo does not have that rule: `git check-ignore -v .claude/settings.local.json` resolves
-through `/Users/mdonev/.config/git/ignore`, not through this repo's `.gitignore`. So the suite is
-green on a premise neither this repo nor any consumer repo satisfies.
+The fixture change is the part that matters most and it is correct. `(ws9)`/`(ws10)` run in a
+**second** repo whose `.gitignore` carries only `node_modules/` and whose `core.excludesFile` is
+pinned to `/dev/null`. That pin is load-bearing exactly as its comment says: I confirmed this repo's
+new `.gitignore:33` resolves `.claude/settings.local.json` as ignored **with the operator's global
+ignore file neutralised**, which is what makes the dogfood lane take the copy path on a CI runner
+and not merely on this machine.
 
-The second is a posture the PR argues against in its own "What is deliberately NOT here" section
-and then commits: a standing, project-scope, publicly-cloned `Bash(gh:*)` grant.
+**B2 is fixed, and the enumeration survives falsification.** The tracked `Bash(gh:*)` is gone. I did
+not take the derivation on trust: the stated basis is "the lane scripts and skills, cross-checked
+against what lane sessions have really run", and the second half carries it. Counting `gh` verbs
+across 477 session audit ledgers, the nine kept entries are precisely the high-traffic reads plus
+the one PR-opening write — `gh issue view` (704), `gh pr view` (441), `gh run view` (306),
+`gh pr checks` (143), `gh pr list` (101), `gh run list` (79), `gh issue list` (49), `gh pr create`
+(35), `gh pr diff` (9) — and every excluded verb is either a categorical write (`gh pr merge` 4,
+`gh pr close` 3, `gh issue close` 5, `gh issue edit` 28, `gh pr edit` 25, `gh pr comment` 26,
+`gh issue comment` 19) or `gh api` (263 across forms), excluded on the prefix argument. Three of the
+kept verbs appear nowhere in the lane scripts, so a scripts-only derivation would have missed them;
+the ledger half is doing real work. `gh pr checkout` is named in `review-lean`'s own checklist but
+has **zero** ledger invocations, so omitting it is empirically right rather than an oversight.
+
+The `gh api` prefix argument is sound as stated: an allow pattern matches a command prefix, and no
+`gh api` prefix excludes a trailing `-X DELETE`.
+
+Three warnings, no blockers. All seven ACs are satisfied against the committed spec.
+
+**On the spec amendment.** AC-4's bar moved this round from "the three allows" to the enumeration,
+and a spec amended to match the diff is normally itself a blocker. It is not one here, on two
+independent grounds: the amendment **tightens** the bar rather than lowering it to fit what shipped
+(a wildcard was permitted before and is now forbidden at any width), and `D-8` carries
+`user-answered` provenance for a categorical operator ruling issued at re-entry launch, before the
+fix was written. The rule that guards against post-hoc spec fitting is not engaged by a bar that got
+harder for a reason that pre-dates the code.
 
 ## Strengths
 
-- **`(ws2)`, `(ws7)` and `(ws8)` are the three cases most implementations would omit**, and each is
-  the only killer of a real mutant: inode independence (not mere presence + `cmp`), a *dangling*
-  symlink destination that `[ -e ]` alone reads as absent, and a symlinked *source* that `cp -P`
-  would have propagated. The probe table's "`(ws1)` stayed green" note under the `ln -s` mutant is
-  exactly the right thing to report — it shows the weaker assertion would have survived.
-- **`ws_wt()` checks its own fixture registration** rather than assuming it, so a future worktree-
-  number collision fails at the setup line instead of passing vacuously on a path that does not
-  exist. That is the class of vacuous-green this repo has been bitten by before.
-- **`D-7` was probed rather than assumed.** "A remedy that copies a file the harness ignores reads
-  exactly as green as a working one" is the correct thing to have been worried about, and checking
-  the trust-root question before relying on it is the difference between a fix and a placebo.
-- **The ordering residual is named in the PR, the spec and the code comment** instead of being left
-  for review to find.
-
-## Blockers
-
-### B1 — the seed writes an unignored untracked file into the tree whose cleanliness `worktree_inflight()` reads
-
-`plugins/dev-pipeline/skills/build-lean/lean-gate.sh:2020-2044` (`seed_lane_worktree_settings`)
-
-`.claude/settings.local.json` is ignored **only** by the operator's global ignore file. This repo's
-`.gitignore` does not list it, and a consumer repo receiving the shipped gate has no reason to.
-Where no ignore rule covers it, the copy makes the lane worktree permanently unclean, and
-`worktree_inflight()` (`lean-gate.sh:2093-2101`) — the single predicate that both `cmd_entry_sweep`
-and the scheduler's `#531 D-3` boundary consume — answers `8`, *"its tree is not clean"*, on a file
-the gate itself just wrote.
-
-Probed, in an isolated fixture repo with no ignore rule for the path:
-
-```
-=== worktree BEFORE seed ===
-(nothing above == clean)
-=== worktree AFTER seed ===
-?? .claude/settings.local.json
-=== what worktree_inflight() would answer ===
-rc=8  INFLIGHT_REASON='its tree is not clean'  DETAIL: ?? .claude/settings.local.json
-=== and with a repo .gitignore covering it (the fixture's premise) ===
-(seeded file no longer listed)
-```
-
-The last line is the point: the fixture's `.gitignore` is what makes all eight `(ws)` cases blind
-to this. Consequences, in order:
-
-1. **The sweep stops reaping.** `worktree_destroy` → `worktree_inflight` → `8` → `worktree_keep`.
-   Entry *N* seeds the file; entry *N+1*'s sweep sees a dirty tree and declines to remove the
-   worktree, forever. That is precisely the stray-worktree accumulation `#530` and the sweep exist
-   to prevent, now self-inflicted by the gate.
-2. **The scheduler reads a false in-flight.** The same predicate tells `#531 D-3` that a finished
-   build session "still carries work", on a tree whose only content is a settings file.
-3. **Secondary:** an untracked machine-local settings file — which may carry an `env` block — sits
-   in a worktree an autonomous session commits and pushes from, in a public repo.
-
-This repo already treats this exact class as gate-worthy, in this same file: `lean-gate.sh:3952`
-runs `git check-ignore -q "$RENDER_OUT_REL"` **before** writing render bytes and fails milestone 3
-naming the exact `.gitignore` line to add — and PNG bytes are strictly less sensitive than an
-allowlist. `.gitignore`'s own `.claude/worktrees/` paragraph documents the same failure mode
-("an untracked entry here still makes `git status --porcelain` non-empty, which mis-records the
-pre-flight attestation … Surfaced by the #1 dogfooding retro").
-
-**Remedy** (must stay advisory — `D-5` is right): before copying, `git -C "$wt" check-ignore -q
-".claude/$rel"`; on a miss, skip the copy and `warn` with the `.gitignore` line to add, mirroring
-`lean-gate.sh:3953`. Add the corresponding line to this repo's `.gitignore` so the dogfood lane
-takes the copy path rather than the warn path. And a `(ws)` case whose fixture repo does **not**
-carry `.claude/` in `.gitignore` — without it, the suite still cannot fail on this.
-
-### B2 — a tracked, project-scope `Bash(gh:*)` is the standing grant this PR's own reasoning rejects
-
-`.claude/settings.json:6`
-
-The new `permissions.allow` block is committed, so it applies to every clone of a public repo and
-to every contributor session in it — not only to the lane. `Bash(gh:*)` matches far more than the
-lane's reads: `gh pr merge`, `gh api -X DELETE`, `gh secret set`. Two specific problems:
-
-- The PR's "What is deliberately not here" argues, correctly, that making `bypassPermissions` the
-  lane default "trades a random failure for a standing grant on every spawn, and that posture
-  decision is not this slice's." A committed `gh:*` is the same trade at a slightly smaller
-  blast radius, made in the same slice. The `_comment` justifies the *ordering* problem being
-  solved; it does not justify the *width* of the grant or its move from user scope to project
-  scope.
-- It removes the confirmation prompt that stands behind the merge-authorization rule this
-  repository's lane depends on. This repo also ingests attacker-influenceable text (issue bodies,
-  fork PR diffs) into agent context, so the pre-approved surface is not hypothetical.
-
-AC-4 as written names `gh`, so I am not scoring AC-4 unsatisfied — this is a blocker on
-independent grounds. **Remedy:** narrow to the subcommands the lane actually needs
-(`Bash(gh pr view:*)`, `Bash(gh pr list:*)`, `Bash(gh issue view:*)`, `Bash(gh pr comment:*)`,
-`Bash(gh api:*)` if a read form is expressible), keeping the `_comment` and its delete-when
-condition. If the operator wants the wide form, it belongs in the ungitignored user-scope file,
-not in a tracked one.
+- **The fixture is a second repo, not a ninth case in the first one.** Round 1's defect existed
+  *because* eight cases shared the feature's premise; adding a case to that fixture would have
+  reproduced the blindness. Splitting the fixture is the only move that makes the suite able to
+  fail, and the `core.excludesFile=/dev/null` pin closes the remaining leak — without it both new
+  cases would have measured the operator's home directory and taken a different path on CI.
+- **`(ws10)` is round 1's probe promoted to a case.** A blocker found by an out-of-band probe
+  normally leaves no durable guard behind; this one now reds automatically, and the sweep-then-seed
+  ordering means it pins the real interaction (entry *N* seeds, entry *N+1* declines to reap) rather
+  than a restatement of `(ws9)`.
+- **The catalog row earns its keep against the generic tier explicitly.** The guard line carries no
+  `-eq`/`-ne`, no `-z`/`-n`, no `&&`/`||`, no `grep` literal, no `${VAR:-}` and no `exit 1` — so no
+  generic operator enumerates the site and it would otherwise be an unmutated line. That is the
+  correct justification for a catalog row, and it is stated rather than assumed.
+- **The guard is index-aware by construction, which covers a case nobody claimed.** `git
+  check-ignore` consults the index by default, so a destination that is *tracked but deleted on
+  disk* answers "not ignored" and is skipped — copying there would have produced a ` M` entry and
+  dirtied the tree just as surely as an untracked file. The never-clobber test cannot see that
+  shape; this one does.
 
 ## Warnings
 
-### W1 — AC-4's efficacy is a proxy no case verifies, and the observed invocation form is compound
+### W1 — "made inside the `lean-gate.sh` call the first allow already covers" is false for the writes it is invoked to excuse
 
-The three allows are asserted to be "the three allows the dogfood lane needs", but nothing checks
-that they match the command strings the lane actually issues. The #647 build session's own audit
-ledger records:
+`docs/plans/second-shift-647-lean.md:77` (`D-8`), and the same sentence in the PR body's B2 section.
 
-```
-export RUN_ID="lean-647-$(date -u +%Y%m%dT%H%M%SZ)" && echo "RUN_ID=$RUN_ID" && bash plugins/dev-pipeline/skills/build-lean/lean-gate.sh entry 647 2>&1 | tail -40; echo "rc=$?"
-export RUN_ID="lean-647-20260823T215541Z" && bash plugins/dev-pipeline/skills/build-lean/lean-gate.sh claim 647 2>&1 | ctx-wire run --agent claude tail -20
-```
+The exclusion of `gh pr comment` / `gh issue comment` / `gh issue edit` is the operator's categorical
+ruling and is not in question. The *reason given for it being costless* is checkable, and it does not
+check out. `lean-gate.sh` contains exactly one `gh` token in its entire 5000+ lines — `gh pr checkout`
+inside a warning **message string** at line 5430 — and no reference to `gh-bot.sh`, `gh pr comment`
+or `gh issue comment` at all. It does invoke `claim-issue.sh` (line 2872), which wraps the bot, so
+the *claim and label* writes genuinely are covered by the first allow. The findings comment is not:
+`review-lean` checklist step 8 posts it directly, and all 26 `gh pr comment` invocations in the audit
+ledger are issued straight from a lane worktree, none inside a gate call.
 
-The gate segment matches the allow; `export`, `tail`, `echo` and the `ctx-wire run` wrapper in the
-same compound command do not. So the tracked block may not, on its own, have prevented the
-2026-08-22 shape it is written to cover for the first round. Not a blocker — AC-4 is explicitly a
-*proxy* and the block is explicitly interim — but the residual section reads as if AC-4 closes the
-first-round case, and on this evidence it closes part of it.
+The consequence is scoped and small — this is an interim, this-repo-only file, and the operator's own
+`settings.local.json` (which AC-1 now copies) covers the gap on this machine. But it means round 1's
+W1 residual **grew** this round rather than shrank: the PR's "ordering residual" section still says
+AC-4's tracked block "covers the remaining first-round case here", and on a narrower block that is
+now less true than it was in round 1. Fix the sentence, not the allowlist.
 
-### W2 — the `wt == MAIN_ROOT` guard is redundant with never-clobber, and untested
+### W2 — the tracker's AC-4 still states the bar the shipped block deliberately departs from
 
-`lean-gate.sh:2026`. If the operator has the lane branch checked out in the main checkout, `dst`
-*is* `src`, so `[ -e "$dst" ]` fires first and prints "already present". The guard is therefore
-belt-and-braces rather than load-bearing, and `git worktree list`'s recorded path is not guaranteed
-byte-equal to `pwd`-resolved `MAIN_ROOT` on a symlinked prefix — where they differ, the guard
-silently does nothing and never-clobber carries it anyway. No change required; noting it so a
-future reader does not mistake it for the mechanism that makes the self-copy safe.
+`https://github.com/manoldonev/second-shift/issues/647` (issue body, AC-4).
+
+The issue body reads "lands with the three allows and a comment naming this ticket". The shipped
+block carries eleven entries, and the amendment lives in the committed spec and in `D-8` — but not in
+the tracker, and there is no dated comment recording it (the three comments on #647 predate the
+ruling). The precedent this repo set on #641 is that an operator amendment to an AC's bar lands in
+the issue **body** plus a dated comment, carried as a D-row; two of those three legs exist here.
+
+This does not change my scoring — the committed lean spec is the definition of done for this lane,
+and it carries the amendment. It is a durability gap: a future scope check reading only the tracker
+sees a mismatch, which is exactly what happened to the scope-completeness reviewer this round
+(confidence 85). The remedy is a tracker edit, which is human-authority work, so it is recorded here
+rather than resolved.
+
+### W3 — the remedy's consumer story is now conditional, and the ticket's remedy-selection rationale was not revisited
+
+`plugins/dev-pipeline/skills/build-lean/lean-gate.sh:2050`.
+
+Issue #647 chose this remedy over the alternative partly because it "also works for consumers, whose
+ignore rules and allowlists this repo cannot see". After round 2 a consumer inherits **nothing** until
+they add `.claude/settings.local.json` to their own `.gitignore` — which is the precise state the
+ticket described as the one to solve for. The trade is forced and correctly taken: the alternative is
+writing an unignored file, which is the defect, and `D-9` rejects the in-flight carve-out for good
+reason. It is also disclosed where a consumer will actually see it — the refusal prints the exact line
+to add, and commit `bbef4d9`'s `Migration:` line states it.
+
+What is missing is the loop back to the ticket's own comparison: the sentence that justified picking
+this remedy is now half-true, and nothing in the spec or PR says so. Noting it so the narrowed
+consumer story is a decision on the record rather than a residue of the fix.
+
+## Round-1 findings, dispositions
+
+| r1 finding | Disposition |
+| --- | --- |
+| B1 — unignored write dirties the tree `worktree_inflight()` reads | **Fixed.** Guard at `lean-gate.sh:2050`, `.gitignore:33`, `(ws9)`/`(ws10)` in a premise-free second fixture. Mutant probe reproduces the kill set exactly. |
+| B2 — tracked project-scope `Bash(gh:*)` | **Fixed.** Replaced by nine enumerated verbs; derivation independently confirmed against 477 session ledgers. |
+| W1 — AC-4's efficacy is an unverified proxy; observed invocations are compound | **Not addressed, and now sharper** — carried forward as this round's W1. |
+| W2 — the `wt == MAIN_ROOT` guard is redundant with never-clobber | **Not addressed; none was required.** Round 1 asked for no change. Still accurate, still harmless. |
 
 ## Per-AC scoring
 
 | AC | Verdict | Basis |
 | --- | --- | --- |
-| AC-1 | satisfied | `(ws1)` content-identical copy with the pre-condition (`ws_pre`) asserted, `(ws4)` the silent no-op with the *absence* of a `settings:` line as the assertion |
-| AC-2 | satisfied | `(ws2)` regular file + write-independence from the origin; `(ws8)` symlinked source dereferenced. The `ln -s` mutant reds both and leaves `(ws1)` green |
-| AC-3 | satisfied | `(ws3)` re-entry preserves the in-worktree mutation and prints "is already present"; `(ws6)` and `(ws7)` extend it to the tracked-file and dangling-symlink shapes |
-| AC-4 | satisfied | the three allows plus a top-level `_comment` naming #647 land in the tracked file; `jq empty` passes in CI. Efficacy is a separate matter — see W1; grant width — see B2 |
-| AC-5 | satisfied | CI, this head: `lint-and-selftests` pass (4m27s) and `selftests (macos, bash 3.2)` pass (6m23s), both running the recipe AC-5 names. Not re-run locally — the CI evidence is the same command on two platforms |
-| AC-6 | satisfied | implementation commit carries `Changelog:` with a `Migration: none — consumers gain the behavior with no action` line |
-
-Every AC is satisfied; the two blockers are defects the ACs do not reach. That is the expected
-shape when the oracles are written from the same mental model as the implementation — B1 is
-exactly a case where the fixture and the feature share a premise the production repo does not.
+| AC-1 | satisfied | `(ws1)` content-identical copy against an asserted pre-condition; `(ws4)` the silent no-op asserted on the *absence* of a `settings:` line. Re-read this round (the file is in the delta); unchanged and still green |
+| AC-2 | satisfied | `(ws2)` regular file plus write-independence from the origin; `(ws8)` symlinked source dereferenced. Both green in my own cold run of the suite |
+| AC-3 | satisfied | `(ws3)` re-entry preserves an in-worktree mutation; `(ws6)`/`(ws7)` extend it to the tracked-file and dangling-symlink shapes. The new guard sits *after* this test, so it does not re-open the tracked-ness question |
+| AC-4 | satisfied | eleven allows, no wildcard, `_comment` names #647; `jq empty` green in CI. Scored against the **amended** spec bar, whose amendment is operator-sourced and strictly tightening — see the summary. Grant width: resolved. Justification accuracy: W1. Tracker drift: W2 |
+| AC-5 | satisfied | CI at this exact head `4977407`: `lint-and-selftests` pass (4m29s) and `selftests (macos, bash 3.2)` pass (6m37s) — the AC's own command on two runners, and CI is this AC's oracle. Corroborated locally: `lean-gate-selftest.sh` cold, `0 FAILURE(S)` |
+| AC-6 | satisfied | `bbef4d9` carries `Changelog:` with `Migration: none — a consumer wanting the copy adds .claude/settings.local.json to their .gitignore`; the two test/docs commits carry `Changelog: none` |
+| AC-7 | satisfied | `(ws9)` the seed declines by name and writes nothing; `(ws10)` the next entry's sweep still reaps. The fixture requirement the AC itself imposes is met — `.gitignore` carries only `node_modules/`, and `core.excludesFile` is pinned. Verified live: the catalog mutant reds these two and only these two |
 
 ## Reviewer panel
 
-Six reviewers, none dark: security (2 major, conf 82/85), performance, maintainability,
-complexity, test-coverage, scope-completeness — the last five returned no findings above
-threshold. `a11y` + design-fidelity not routed: no changed path matched
-`stageParams.webComponentGlobs` (`apps/web/**/*.{tsx,jsx}`). Design fidelity: `not-applicable` —
-the spec arms no `## Design` section and the repo declares no `design.provider`.
+Six reviewers, none dark: security, performance, maintainability, complexity, test-coverage,
+scope-completeness. The first five returned **zero** findings above threshold; security suppressed
+three below it (highest 62), all of which I read and agree are non-findings — notably the
+`2>/dev/null` on `check-ignore`, which fails **closed** (a git error skips the copy).
+Scope-completeness returned three minor/nit findings; two are carried above as W2 and W3, the third
+(AC-1's ordering residual) is disclosed in the PR, the spec and the code comment, and needs no
+finding.
 
-B1 and B2 were reached independently by the security reviewer and by hand-derivation from the
-`worktree_inflight` call graph; B1's mechanism was confirmed by probe rather than by reading, and
-W1 by reading the build session's own audit ledger rather than the PR's account of it.
+`a11y` and the design-fidelity dimension were not routed: no changed path matched
+`stageParams.webComponentGlobs` (absent, resolving to `apps/web/**/*.{tsx,jsx}`). Fidelity is
+`not-applicable` — the spec arms no `## Design` section and the repo declares no `design.provider`.
 
-**Verdict: needs-work** — 2 blockers, 2 warnings.
+As in round 1, the panel is not where this round's substance came from. W1 and W3 came from
+hand-derivation against the audit ledger and the call graph; AC-7's verification came from applying
+the catalog mutant in an isolated worktree, which was necessary because **CI could not check it**:
+`lean-gate-selftest.sh` is a 141s slow suite, so `mutation-sweep-pr` deferred every in-scope guard to
+nightly and graded nothing at this head. The row's claim had no oracle but the build's own assertion
+until this round reproduced it.
+
+**Verdict: approve** — 0 blockers, 3 warnings.
