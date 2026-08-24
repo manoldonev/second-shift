@@ -1,0 +1,6 @@
+sample	pr	reviewed_head	ground_truth_blocker	bare_result	adjudication
+C2-a	654	cfba102	enumerator's command-position class omits keyword-preceded calls (lean-gate.sh:420 `else envfail`)	MISS	bare found a different hole in the same guard — sites using no declared primitive at all; same consequence, different mechanism, scored a miss per the registered rule
+C2-b	657	f8f7c14	B1 settings seed writes an unignored untracked file into the tree worktree_inflight() reads	HIT	same mechanism and consequence; bare also independently named the global-excludes trap in the fixture
+C2-b	657	f8f7c14	B2 tracked project-scope `Bash(gh:*)` is the standing grant the PR's own reasoning rejects	HIT	near-verbatim, including the PR's self-contradiction
+C2-c	660	642a6b1	B1 AC-3 half-applied: two announcement reasons still charge the fix budget on close-out	HIT	exact, same sites
+C2-c	660	642a6b1	B2 AC-3's fixture-per-reason unsatisfied for m5/identity-stamp	HIT	exact, same two sites
