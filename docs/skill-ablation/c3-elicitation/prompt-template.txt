@@ -1,0 +1,13 @@
+You have been handed the ticket below. Before any implementation plan is written, your job is to
+surface the load-bearing decisions it leaves undecided — the things a competent engineer would
+have to settle with the person who filed it, because getting them wrong would change what gets
+built or make the work land wrong.
+
+The repository is checked out at the commit this work would start from; read whatever you need to
+ground yourself.
+
+Produce the list of decisions you would take to that person before planning. One per numbered
+item: name the decision — the thing that is undecided — in a sentence or two. You do not need to
+propose a resolution; surfacing the decision is the task.
+
+--- TICKET ---

@@ -1,0 +1,12 @@
+You are reviewing a pull request in this repository. The working directory is checked out at the
+PR's head commit, so you may read any file for context. The complete diff of the PR against its
+base is included below, and it contains the PR's own spec/acceptance-criteria file.
+
+Review this change as you would any PR you were asked to review before merge.
+
+Your response MUST end with a section headed exactly `BLOCKERS`, listing every finding you judge to
+be a blocker — a defect that must be fixed before this can merge. Number them. For each, name the
+file, the mechanism, and the consequence. If you find none, write `BLOCKERS: none`.
+Put warnings and nits in separate sections above it.
+
+--- DIFF ---

@@ -1,0 +1,12 @@
+You have been handed the ticket below to implement in this repository. It has been through intake
+and is ready for development. The repository is checked out at the base commit the work starts
+from.
+
+Before you write any code: state the COMPLETE plan of record you will follow — every artifact you
+will produce, in the order you will produce them, from picking this ticket up to the point where
+it is merged. Be concrete about each artifact: what it is, where it lives, what it must contain,
+and who produces it.
+
+Then stop. Do not implement anything.
+
+--- TICKET ---
