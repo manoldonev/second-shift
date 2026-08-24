@@ -98,7 +98,12 @@ P5 forbids.
   on execution whose output the next step does not directly consume. Advisory or CI-duplicated
   work runs in the background or on CI. The operator-in-the-middle wait between build and review
   is the specific latency the lane's scheduler exists to delete: build → review chains the moment
-  the PR exists, with zero human latency between phases.
+  the PR exists, with zero human latency between phases. **#642 applied it to the lane's own
+  gates**: `m3/lint`, `m3/test` and `m3/extra-lane` are re-run verbatim at the merge boundary, so
+  refusing on them inside the build session bought WHEN a failure was caught, not whether — at the
+  price of a fix round. They report and do not refuse. The scope of that reading is narrow and
+  measured: a point is demotable only where CI duplication is DEMONSTRATED and where deleting the
+  local refusal leaves the local answer correct-but-later rather than wrong.
 - **V3 — Parallel-first is an implementation requirement.** Every skill, script and gate ships
   written for parallel execution: independent work fans out (job-pooled scripts, concurrent
   dispatch, probes with no data dependency between them). Serial execution of independent steps

@@ -3,77 +3,51 @@
 # precondition and the claim helper.
 #
 # WHY THIS EXISTS: build-lean is OUTCOME-gated, not process-prescribed. The harness asserts
-# ARTIFACTS at five ordered milestones and is deliberately silent about the path between
-# them — the session may draw on any skill surface it likes, or none. Everything this
-# script checks is a file, an exit code, or a tracker record; nothing is a claim about how
-# the work was done.
+# ARTIFACTS at five ordered milestones and is deliberately silent about the path between them.
+# Everything this script checks is a file, an exit code, or a tracker record.
 #
-# TRUST POSTURE (D-47) — read this before adding a check here. Lean-in-run is NOT
-# lean-in-enforcement. Every record this script writes is written by the agent being
-# checked, so it is at best tamper-EVIDENT. The binding evidence contract lives at the
-# model-free merge boundary (scripts/check-lean-chain.sh) and in the operator-side
-# lean-reconcile.sh, where it costs zero run tokens. The fix-budget counter here is
-# cost-control, NOT integrity: gaming it means spending more, which the cost block makes
-# visible. Do not add an integrity check here and call it enforcement.
+# TRUST POSTURE (D-47) — read this before adding a check here. Every record this script writes is
+# written by the agent being checked, so it is at best tamper-EVIDENT. The binding evidence
+# contract lives at the model-free merge boundary (scripts/check-lean-chain.sh) and in
+# lean-reconcile.sh. The fix-budget counter here is cost-control, NOT integrity. Do not add an
+# integrity check here and call it enforcement. RUN_ID is agent-CHOSEN and the session id is
+# agent-OVERRIDABLE, so do not describe this as stronger than those two describe themselves.
 #
-# AUTHORSHIP (P10) — the one property here that is a check rather than a record. Generation
-# must not author evaluation's record. The BUILD role (`entry`, `claim`, `1..5`, `all`) can
-# only READ the verdict record; the REVIEW role (`verdict`) can only WRITE it, and refuses to
-# run inside the build session at all. Identity is role-keyed on both sides, so a review
-# session that provisioned no identity is refused rather than silently inheriting the build's
-# — see the RUN_ID persistence section.
-#
-# HONEST ALTITUDE, same as the siblings: this is tamper-EVIDENCE, not proof. RUN_ID is
-# agent-CHOSEN, whereas the session id is merely agent-OVERRIDABLE — $CLAUDE_CODE_SESSION_ID
-# is an ordinary environment variable, so a determined agent can spoof it here. That is worth
-# something (the honest value is assigned by the harness, and a spoof must then be sustained
-# across the audit ledger lean-reconcile.sh reads) but it is not a guarantee. Do not describe
-# this check as stronger than lean-reconcile.sh and check-lean-chain.sh describe theirs.
+# AUTHORSHIP (P10) — the one property here that is a check rather than a record. The BUILD role
+# (`entry`, `claim`, `1..5`, `all`) can only READ the verdict record; the REVIEW role (`verdict`)
+# can only WRITE it, and refuses to run inside the build session. Identity is role-keyed on both
+# sides, so a review session that provisioned no identity is refused rather than inheriting the
+# build's.
 #
 # FRESHNESS (milestone 4). Four of the five milestones re-derive their answer from the current
-# tree on every sweep, which is what makes `satisfied` a record rather than a cache. Milestone
-# 4 cannot: its evaluation is reading a file. So it additionally binds that file to a tree —
-# the record must be COMMITTED, and nothing but the record itself may have changed since. A
-# verdict for an earlier head is not a verdict for this one.
+# tree on every sweep, which is what makes `satisfied` a record rather than a cache. Milestone 4
+# cannot — its evaluation is reading a file — so it binds that file to a tree: the record must be
+# COMMITTED, and nothing but the record itself may have changed since.
 #
-# TWO ARMS, and neither subsumes the other. The check just described is INFERRED freshness: git
-# says which commit carries the record, and the record's prose cannot argue with it. The
-# DECLARED arm reads what the reviewer stated. Inference binds the record to where it was
-# COMMITTED; the declaration binds it to what was REVIEWED, and the two come apart in the
-# ordinary case where code lands between the review and the record's commit — the reviewer then
-# commits an honest record on top of a head it never read, and inference alone calls that fresh.
-# Running both is what makes the pair non-vacuous in either direction.
+# TWO ARMS, and neither subsumes the other. INFERRED freshness asks where git says the record was
+# committed; the DECLARED arm asks what the reviewer stated. They come apart when code lands
+# between the review and the record's commit — the reviewer commits an honest record on top of a
+# head it never read, and inference alone calls that fresh.
 #
-# The declaration is keyed on `reviewed_patch_id` — the patch identity of the branch's own diff
-# — and NOT on the `reviewed_head` SHA beside it. A rebase rewrites commit SHAs and changes no
-# reviewed content, so SHA keying refused a mechanical operation, and refused it unavoidably: in
-# a fresh checkout the pre-rebase object does not exist at all. Patch identity is invariant
-# there, and still moves on any real change — including a conflict resolution, which SHA keying
-# could not distinguish from a clean replay. It does NOT cover a base change that reds the suite
-# with no textual conflict; the verdict correctly still stands there, and the merged result is
-# CI's business. `reviewed_head` remains a diagnostic pointer, and the path records written
-# before the patch-id key still gate on.
+# The declaration is keyed on `reviewed_patch_id`, not on the `reviewed_head` SHA beside it: a
+# rebase rewrites SHAs and changes no reviewed content, and in a fresh checkout the pre-rebase
+# object does not exist at all. Patch identity is invariant there and still moves on any real
+# change. It does NOT cover a base change that reds the suite with no textual conflict — the
+# verdict correctly still stands there, and the merged result is CI's business. `reviewed_head`
+# is a diagnostic pointer and the input to #597's escape hatch; it gates nothing on its own.
 #
-# INHERITANCE (#375). Every round declares `inherited_patch_id`: the reviewed patch of the round
-# whose coverage it inherits, so a fix round reads the delta since that tree instead of the whole
-# diff again — or the literal `none` on a chain root. The merge boundary's guarantee then reads
-# "a CHAIN of independent reviews collectively covered this tree", and it holds only while every
-# LINK is verified — an unverified link would let a round read forty lines and be credited with a
-# thousand. So every reader walks the chain, and a link matching no committed record is refused.
+# INHERITANCE (#375). Every round declares `inherited_patch_id` — the reviewed patch of the round
+# whose coverage it inherits, or the literal `none` on a chain root — so a fix round reads the
+# delta since that tree. The merge boundary's guarantee then reads "a CHAIN of independent reviews
+# collectively covered this tree", and it holds only while every LINK is verified, so every reader
+# walks the chain and a link matching no committed record is refused.
 #
-# EVERY round, including the roots that inherit nothing, because the alternative was reachable
-# and reached: a key the writer sometimes omits leaves the reviewer's own findings as the first
-# occurrence in the file, and every reader takes the first match. See `inherited_key`, which
-# anchors the read to the header and is the half of that fix which also covers records this
-# writer did not produce.
-#
-# The keys are DERIVED here, never passed in, for the reason `reviewed_head`/`reviewed_patch_id`
-# refuse an argument: a flag lets a round name coverage it did not inherit, and a round could
-# silently OMIT the key, which every reader would then read as a full-coverage claim it never
-# performed. The chain is walked by matching patch identities, never commit SHAs — the same
-# reasoning one level up: a SHA link dies on a rebase, and the refusal would charge a review
-# round for a mechanical operation. `inherited_from_verdict` is a human pointer only, exactly
-# the role `reviewed_head` now holds; no reader gates on it.
+# EVERY round emits the key, roots included: a key the writer sometimes omits leaves the
+# reviewer's own findings as the first occurrence in the file, and every reader takes the first
+# match. `inherited_key` anchors the read to the header, which also covers records this writer did
+# not produce. The keys are DERIVED here, never passed in, because a flag lets a round name
+# coverage it did not inherit. The chain is walked by patch identity, never by SHA — a SHA link
+# dies on a rebase. `inherited_from_verdict` is a human pointer; no reader gates on it.
 #
 # Usage:
 #   lean-gate.sh entry  <issue> [--ticket-source argument|lane-branch|lane-registry]
@@ -190,49 +164,31 @@
 #           broken. Distinct from 1 because the remedy is a REVIEW round, never a BUILD fix, and a
 #           scheduler that cannot tell them apart re-spawns BUILD to fix nothing (#496).
 #       6 = milestone 4 only: INTEGRITY REFUSAL — the record is authored by the build run or the
-#           build session (P10). Terminal: the trust boundary this lane exists to enforce is not
-#           something a retry can clear.
-#       7 = NOTHING WAS EVALUATED — raised by three subcommands, unambiguous at each call site, and
-#           under none of them a milestone failure nor a fix attempt:
-#           * `staleness`: STALE — the ticket is closed, or the base has moved into this branch's
-#             files. Its own integer for the same reason 5 and 6 are: the scheduler's response
-#             differs from a phase failure's, and one that cannot tell them apart spends the rest
-#             of the run proving the premise it was just told is false.
-#           * milestone 3 (#527): A VERIFY LANE RAISED THE RESERVED INFRASTRUCTURE CODE — see
-#             below. Nothing about this branch was evaluated, so 1 would send the operator to fix
-#             code that was never judged and 4 would fire an abort comment at an environment
-#             failure. No fix attempt is charged and the remedy is to RE-INVOKE. #566 retired the
-#             other way milestone 3 could reach a 7: the runner-died and ceiling-breached classes
-#             (#511 D-5) went out with the detached runner, so a milestone-3 seven now means the
-#             lane raised 3 and nothing else.
-#           * `mark` (#650): THE TICKET CLOSED UNDER THIS RUN — the mid-run re-check. Same fact as
-#             the `staleness` ticket arm's and deliberately the same integer, because the remedy is
-#             the same one: stop, and re-open the ticket if the work should still land. Nothing was
-#             marked, so no handoff is half-made. `cmd_5` and `cmd_close_out` call `cmd_mark` as a
-#             function and never reach it — the landing path stays open by design.
-#       8 = `inflight` only (#531): THE LANE WORKTREE STILL HOLDS WORK — its tree is dirty, or it
-#           carries commits that are not on origin/<branch>. Its own integer rather than 1 for the
-#           reason 5, 6 and 7 have theirs: 1 on this subcommand means the predicate could not be
-#           EVALUATED, and a scheduler that could not tell "there is uncollected work" from "I
-#           could not look" would either stop every run whose fetch flaked or review a head missing
-#           everything the build session just did.
-#       9 = WRONG TREE (#141): a milestone-evaluation or review-role subcommand — `1`..`5`, `all`,
-#           `delta`, `verdict` — was invoked from a checkout that is not on this run's lane branch.
-#           NOTHING WAS EVALUATED. The refusal fires before the first read, so no record is
-#           written, no budget is spent and no fix attempt is charged. Its own integer rather than
-#           2 because the remedy is POSITIONAL — re-run from the lane worktree — not an
-#           environment repair, and because this is the one failure mode that otherwise does not
-#           fail at all: every answer here is derived from the tree the process happens to be in,
-#           so from the wrong one the gate reports a confident verdict about the wrong branch.
-#      10 = UNRESOLVABLE TICKET ARGUMENT (#611): `entry`/`claim` were given no ticket, or one
-#           that does not validate, does not exist, is closed with no evidence this run ever
-#           claimed it, or disagrees with the lane branch this checkout is on — and, on `mark`
-#           and `teardown` too, that last arm alone. NOTHING WAS RESOLVED: no tracker write, no
-#           attestation, no progress row, no fix attempt. ONE integer for all five reasons
-#           (each named in its own message) because unlike 5/6/7/8/9 they share one remedy —
-#           re-invoke naming the ticket you meant. Its own integer rather than the usage 2
-#           because 2 is what the milestone calls still answer, and a scheduler or operator
-#           that could not tell "you passed no argument" from "the argument is a lie" would
+#           build session (P10). Terminal: a retry cannot clear it.
+#       7 = NOTHING WAS EVALUATED. Never a milestone failure and never a fix attempt. Three
+#           subcommands raise it, unambiguously at each call site:
+#           * `staleness`: the ticket is closed, or the base has moved into this branch's files.
+#           * milestone 3 (#527): a BLOCKING verify lane raised the reserved infrastructure code —
+#             see below. Since #642 that is `typecheck` alone; `lint`, `test` and extraLanes are
+#             advisory and classify nothing. The remedy is to RE-INVOKE.
+#           * `mark` (#650): the ticket closed under this run. Same remedy as the staleness arm's,
+#             hence the same integer. `cmd_5`/`cmd_close_out` call `cmd_mark` as a function and
+#             never reach it, so the landing path stays open by design.
+#       8 = `inflight` only (#531): THE LANE WORKTREE STILL HOLDS WORK — dirty tree, or commits not
+#           on origin/<branch>. Its own integer because 1 there means the predicate could not be
+#           EVALUATED, and conflating the two either stops every run whose fetch flaked or reviews
+#           a head missing everything the build session just did.
+#       9 = WRONG TREE (#141): `1`..`5`, `all`, `delta` or `verdict` invoked from a checkout that is
+#           not on this run's lane branch. Refuses before the first read — nothing written, nothing
+#           spent. Its own integer because the remedy is POSITIONAL, and because this is the one
+#           failure mode that otherwise does not fail at all: every answer here is derived from the
+#           tree the process is in, so from the wrong one the gate is confidently wrong.
+#      10 = UNRESOLVABLE TICKET ARGUMENT (#611): `entry`/`claim` were given no ticket, or one that
+#           does not validate, does not exist, is closed with no evidence this run claimed it, or
+#           disagrees with the lane branch — that last arm binds `mark` and `teardown` too. Nothing
+#           was resolved. ONE integer for all five (each named in its own message) because they
+#           share one remedy: re-invoke naming the ticket you meant. Not the usage 2, because a
+#           reader that could not tell "you passed no argument" from "the argument is a lie" would
 #           treat a false-premise run as a typo.
 #
 # THE RESERVED VERIFY-LANE INPUT CODE (#527). Exit 3 from a configured verify lane — the fixed
@@ -365,18 +321,12 @@ INTERRUPTED_BUDGET=5
 # fit inside the turn, so milestone 3 is now exactly as exposed to an interrupted run as 1, 2, 4
 # and 5 — and one bound describes all five honestly.
 
-# #527 D-2/D-3. THE TWO HALVES OF THE INFRASTRUCTURE CONTRACT, named rather than spelled inline so
-# the reserved code and the exit code it becomes are greppable and cannot drift apart.
-#
-# LANE_INFRA_RC is an INPUT: the exit code a verify lane (`lint`/`typecheck`/`test`, or any
-# extraLane) uses to say "I failed for reasons that are not this branch". tools/run-selftests.sh
-# raises it when every failing suite is its no-verdict class. Reserved cross-repo — see
-# docs/config-schema.md for the exposure a consumer whose lane already exits 3 carries.
-#
-# INFRA_CLASS is an OUTPUT: the exit code milestone 3 returns for it, and it is deliberately the
-# EXISTING 7 rather than a new integer. 7 already means "NOTHING WAS EVALUATED … THE EVALUATION
-# DID NOT COMPLETE" with the same remedy — re-invoke — so build-lean/SKILL.md gains no new
-# operator path, and both readers already handle it.
+# #527 D-2/D-3. THE TWO HALVES OF THE INFRASTRUCTURE CONTRACT, named so they cannot drift apart.
+# LANE_INFRA_RC is an INPUT: the code a BLOCKING verify lane uses to say "I failed for reasons that
+# are not this branch" — since #642 that is `typecheck` alone. Reserved cross-repo; see
+# docs/config-schema.md for a consumer whose lane already exits 3.
+# INFRA_CLASS is an OUTPUT: what milestone 3 returns for it, deliberately the EXISTING 7 ("nothing
+# was evaluated", remedy: re-invoke) rather than a new integer, so no reader gains an operator path.
 LANE_INFRA_RC=3
 INFRA_CLASS=7
 
@@ -389,18 +339,14 @@ SUB=""
 ISSUE=""
 POSITIONAL=0
 
-# LIBRARY MODE (#439). `LEAN_GATE_LIB=1 . lean-gate.sh` leaves this file's helpers defined and
-# dispatches nothing — the args below are inert placeholders, and the bottom of the file returns
-# before the subcommand case. It exists for one function: md_table_prettier has width cases the
-# render path cannot reach, because every column of the render manifest is wider than the
-# 3-dash minimum, and the only other way to fixture them is a hand-copied padder in the suite —
-# a mirror harness, which cannot fail on a production edit and so converges on green while the
-# real code drifts. No run sets this; every documented seam still applies in library mode.
+# LIBRARY MODE (#439). `LEAN_GATE_LIB=1 . lean-gate.sh` leaves the helpers defined and dispatches
+# nothing. It exists so a selftest can drive production functions directly rather than keeping a
+# hand-copied twin — a mirror harness cannot fail on a production edit. No run sets it; every
+# documented seam still applies.
 #
 # CAVEAT for anyone sourcing it: the parser below consumes the placeholders, so the sourcing
-# scope's own positional parameters are gone afterwards. Copy anything you need out of `$1`
-# BEFORE the `.` — a caller that reads them after it gets an unbound-variable error under
-# `set -u`, which is how this caveat was found rather than reasoned about.
+# scope's own positional parameters are gone afterwards. Copy what you need out of `$1` BEFORE
+# the `.`, or `set -u` bites.
 [ -n "${LEAN_GATE_LIB:-}" ] && set -- entry 0
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -418,7 +364,7 @@ while [ $# -gt 0 ]; do
     --obligations)   PROGRESS_OBLIGATIONS=1; shift ;;
     --arm)           STALENESS_ARM="${2:-}"; shift 2 ;;
     --ticket-source) TICKET_SOURCE="${2:-}"; shift 2 ;;
-    -h|--help)       sed -n '2,308p' "$0"; exit 0 ;;
+    -h|--help)       sed -n '2,264p' "$0"; exit 0 ;;
     -*)              envfail "unknown option: $1" ;;
     *)
       if [ "$POSITIONAL" -eq 0 ]; then SUB="$1"; POSITIONAL=1
@@ -517,41 +463,27 @@ MAIN_ROOT="$(cd "$_common/.." 2>/dev/null && pwd)" \
 
 CONFIG="${SECOND_SHIFT_CONFIG:-$MAIN_ROOT/.claude/second-shift.config.json}"
 
-# #496 S4. ABSENT and UNPARSEABLE are two different facts and only one of them is legal. A config
-# that is not there means "this consumer configured nothing", and every `cfg` default below is the
-# documented answer. A config that IS there and does not parse means the operator's intent is
-# unknown — and the defaults are not a neutral fallback: `.tracker.type` defaults to `github`, the
-# arm that attests MORE than jira's, and a run that silently picks an arm from a typo is deciding
-# policy by accident. Fail closed.
+# #496 S4. ABSENT and UNPARSEABLE are two different facts and only one is legal. Absent means "this
+# consumer configured nothing" and every `cfg` default applies. Present-but-unparseable means the
+# intent is unknown — and the defaults are not neutral (`.tracker.type` falls back to `github`, the
+# arm that attests MORE), so a typo would pick a policy in silence. Fail closed.
 #
-# UP FRONT AND OUTSIDE `cfg`, deliberately. `cfg` is invoked as `$(cfg …)`, where an `exit` kills
-# the command substitution's subshell only: the caller reads an empty string and carries on. That
-# is the same invisibility the sibling scheduler's resolve_pr avoids by counting in the caller —
-# a refusal nobody can observe is not a refusal.
+# UP FRONT AND OUTSIDE `cfg`, deliberately: `cfg` runs as `$(cfg …)`, where an `exit` kills only the
+# substitution's subshell and the caller reads an empty string and carries on.
 #
-# `jq empty` rather than `jq -e .`: it reads the WHOLE input and asserts only that it parses,
-# where `-e .` also gates on the last document's truthiness.
+# `jq empty`, not `jq -e .`: it reads the WHOLE input and asserts only that it parses.
 if [ -f "$CONFIG" ] && ! jq empty "$CONFIG" >/dev/null 2>&1; then
   envfail "config $CONFIG exists but is not parseable JSON — refusing to fall back to defaults, which would silently select tracker.type=github and every other shipped default. Fix the file (jq empty '$CONFIG' names the parse error) or point SECOND_SHIFT_CONFIG elsewhere."
 fi
 
-# #528. The config is a SHARED, mutable file (the main checkout's, unless SECOND_SHIFT_CONFIG
-# points elsewhere) — a sibling session's edit mid-run re-points every live lane's gate, and
-# nothing in any run's record said which file it actually read. Announced once per invocation,
-# so a re-point is visible in the output rather than inferred afterwards from file timestamps.
+# #528. The config is a SHARED, mutable file, so a sibling session's edit re-points every live
+# lane's gate mid-run. Announced once per invocation so a re-point is visible rather than inferred.
 #
-# STDERR, via `warn` rather than `say`: orchestrate-lean.sh's progress_token() captures this
-# script's STDOUT verbatim (`2>/dev/null`) and compares it byte-for-byte across two reads to
-# decide whether the BUILD phase made progress. A stdout announcement would ride along in that
-# comparison — harmless while the config path is stable, but on the exact mid-run re-point this
-# AC exists to surface, it would flip `tok_before` != `tok_after` with nothing in the actual
-# progress record having changed, corrupting the continuation predicate on the one event this is
-# supposed to make visible, not break.
-#
-# SKIPPED on `progress` specifically, even on stderr: that subcommand's own contract is "prints
-# the token, never touches the file" (see progress_token() below) — a bare, machine-read answer
-# by design, not merely by the happenstance of whichever caller redirects what. Every other
-# subcommand gets the announcement.
+# STDERR, via `warn`: orchestrate-lean.sh's progress_token() compares this script's STDOUT
+# byte-for-byte across two reads, so a stdout announcement would flip that comparison on exactly
+# the re-point this exists to surface — corrupting the continuation predicate instead of exposing
+# the event. SKIPPED on `progress` even on stderr: that subcommand's contract is a bare
+# machine-read answer. Every other subcommand gets it.
 [ "$SUB" = "progress" ] || warn "config: $CONFIG"
 
 cfg() { # cfg <jq-filter> <default>
@@ -572,36 +504,28 @@ REPO_SLUG="$(cfg "$HOST_Q" 'acme')"
 BASE_BRANCH="$(cfg "$HOST_Q as \$h | .topology.repos[\$h].baseBranch" 'main')"
 
 # ---------------------------------------------------------------- the design axis (#394)
-# HALF of the arming signal (D-8). The other half is the committed spec's `## Design` section,
-# and the two are ANDed: a provider with no section is a milestone-1 red (arming is a per-ticket
-# decision, never a default), while a section with no provider arms NOTHING — a consumer with no
-# design axis may still document one, and a gate that armed on prose alone would demand a render
-# harness from a repo that never configured one.
+# HALF of the arming signal (D-8); the other half is the spec's `## Design` section, ANDed. A
+# provider with no section is a milestone-1 red (arming is per-ticket, never a default); a section
+# with no provider arms NOTHING, or a repo that merely documents a design axis would be asked for a
+# render harness it never configured.
 #
-# Config is read here and NOWHERE at the merge boundary: CI never sees this file (it is
-# gitignored on every consumer), which is why check-lean-chain.sh derives armed-ness from the
-# committed spec alone. The two answers agree on every spec that can reach a merge, because a
-# spec whose section is malformed never gets past milestone 1.
+# Config is read here and NOWHERE at the merge boundary — CI never sees this gitignored file — so
+# check-lean-chain.sh derives armed-ness from the committed spec alone. The two agree on every spec
+# that can reach a merge, because a malformed section never gets past milestone 1.
 DESIGN_PROVIDER="$(cfg '.design.provider' '')"
 LR_COMMAND="$(cfg '.design.liveRender.command' '')"
 LR_CWD="$(cfg '.design.liveRender.cwd' '')"
 LR_READY_PROBE="$(cfg '.design.liveRender.readyProbe' '')"
 
 # ---------------------------------------------------------------- the tracker adapter
-# ONE resolution, THREE branch sites: the entry note, cmd_claim, and cmd_5. Milestones 1-4
-# are adapter-INSENSITIVE (a committed file, two repo scripts, a config command table, a
-# committed verdict record) and must stay that way — an adapter branch inside them would be
-# a second tracker authority.
+# ONE resolution, THREE branch sites: the entry note, cmd_claim, and cmd_5. Milestones 1-4 are
+# adapter-INSENSITIVE and must stay that way — an adapter branch inside them is a second tracker
+# authority.
 #
-# Absent ⇒ github is a FAIL-SAFE, not a back-compat allowance: config-lint.sh already requires
-# `tracker.type` to be github|jira (an absent key reads as "" and errors), so no lint-clean
-# config omits it. The default is for the config that never reached the lint — hand-edited, or
-# read before it runs — and github is the safe side of that: the arm whose exit gate demands a
-# closing comment fails loudly, where the jira arm would quietly accept a PR body.
-#
-# An UNRECOGNIZED value is a loud environment error rather than a fall-through — a typo'd
-# `tracker.type` silently running the write-happy arm on a read-only tracker is exactly the
-# failure this whole change removes. The enum matches config-lint.sh's.
+# Absent ⇒ github is a FAIL-SAFE: config-lint requires the key, so the default is only for a config
+# that never reached the lint, and github is the safe side — its exit gate demands a closing comment
+# and fails loudly where jira would quietly accept a PR body. An UNRECOGNIZED value is a loud
+# environment error, never a fall-through. The enum matches config-lint.sh's.
 TRACKER_TYPE="$(cfg '.tracker.type' 'github')"
 case "$TRACKER_TYPE" in
   github|jira) : ;;
@@ -630,15 +554,11 @@ esac
 # one of those sites instead of derived here is a drift the CI gate surfaces as a red merge
 # boundary on every lean PR — see the plan's pinned-name-table section.
 
-# The BRANCH. `<branchPrefix><key>`, the staged lane's formula verbatim (#413) — this lane no
-# longer re-roots the configured prefix onto a `lean/` namespace of its own. The two lanes
-# therefore SHARE one namespace, and nothing downstream may classify lean-vs-staged by branch
-# name any more: that discriminator is the committed lean spec, resolved in lean-evidence.sh.
-#
-# The prefix itself comes from branch-prefix.sh, which is the one implementation of the
-# resolution order (config, else the dominant prefix among remote branches, else refuse). The
-# old `cfg '.tracker.branchPrefix' 'claude/acme-'` default is deliberately gone: it wrote the
-# placeholder org slug into real branch names whenever a consumer had not set the key.
+# The BRANCH. `<branchPrefix><key>` (#413). Lean and staged SHARE one namespace, so nothing
+# downstream may classify lean-vs-staged by branch name; that discriminator is the committed lean
+# spec, resolved in lean-evidence.sh. The prefix comes from branch-prefix.sh, the one implementation
+# of the resolution order (config, else the dominant remote-branch prefix, else refuse). There is
+# deliberately no `claude/acme-` default: it wrote a placeholder org slug into real branch names.
 # shellcheck source=branch-prefix.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/branch-prefix.sh"
 # Hoisted into a variable rather than inlined into the call below: the #442 worktree sweep asks
@@ -651,32 +571,24 @@ BRANCH_PREFIX="$(resolve_branch_prefix \
   || exit 2
 
 # ---------------------------------------------------------------- ticket resolution (#611)
-# WHAT THIS DEFENDS. `<issue>` was a given everywhere above: the parser asserted it was non-empty
-# and nothing ever asked whether it named anything. So a session whose argument was lost to shell
-# quoting could list the queue, SELF-SELECT an assignment, claim it and open a PR for it — while
-# the operator believed a different ticket was in flight. Claiming a ticket the caller never named
-# is a write under a false premise, the same class as authoring your own verdict, and it belongs
-# in the gate for the same reason that one does: a reminder in prose is not a control.
+# WHAT THIS DEFENDS. Nothing used to ask whether `<issue>` named anything, so a session whose
+# argument was lost to shell quoting could list the queue, SELF-SELECT an assignment, claim it and
+# open a PR for it while the operator believed another ticket was in flight. Claiming a ticket the
+# caller never named is a write under a false premise, the same class as authoring your own verdict.
 #
-# THE GATE NEVER RESOLVES A TICKET. It validates one it was handed, and refuses otherwise. That is
-# the whole design: an inference the gate performed itself would be indistinguishable, in the
-# record, from a caller that named the ticket — which is the failure. So inference stays with the
-# CALLER, is legal only from a lane-branch cwd, and comes back as an explicit argument plus
-# `--ticket-source` naming where it came from. Both are recorded; the branch name checks them.
+# THE GATE NEVER RESOLVES A TICKET. It validates one it was handed. An inference the gate performed
+# itself would be indistinguishable, in the record, from a caller that named the ticket — which is
+# the failure. Inference stays with the CALLER, is legal only from a lane-branch cwd, and comes back
+# as an explicit argument plus `--ticket-source`. Both are recorded; the branch name checks them.
 #
-# WHY THE BRANCH NAME AND NOT THE LANE REGISTRY (D-5). The gate is standing IN a tree whose
-# identity its own branch asserts, whereas the lane registry `lean-lanes.tsv` was one
-# machine-global file every worktree of every lane shared — it could be stale, and a second
-# declaration of a fact the checkout already carries is the shape that goes blind rather than red.
-# #566 RETIRED that registry outright, and this arm outlives it deliberately: `lane-registry` is
-# now a caller-asserted provenance LABEL and nothing more. It is accepted and recorded, and still
-# checked against the branch — a disagreement refuses — but no file backs the claim, so a caller
-# passing it is asserting where its key came from, not citing a source the gate could consult.
+# THE BRANCH NAME, NOT A REGISTRY (D-5). The gate is standing IN a tree whose identity its own
+# branch asserts. #566 retired `lean-lanes.tsv`; `lane-registry` survives as a caller-asserted
+# provenance LABEL, still checked against the branch, with no file behind it.
 #
-# ORDER, and why it is here rather than at dispatch. The cheap arms run BEFORE the pinned name
-# table below, because every path there is `$ISSUE`-derived — with an empty key the run-id cache
-# resolves to `<state-dir>/-run-id`, which `entry`/`claim` would then WRITE. A refusal that first
-# creates a file named after the ticket it is refusing to accept is not a refusal.
+# ORDER. The cheap arms run BEFORE the pinned name table below, because every path there is
+# `$ISSUE`-derived: with an empty key the run-id cache resolves to `<state-dir>/-run-id`, which
+# `entry`/`claim` would then WRITE. A refusal that first creates a file named after the ticket it is
+# refusing is not a refusal.
 TICKET_UNRESOLVABLE=10
 
 ticket_refuse() { # ticket_refuse <reason> [detail...]
@@ -908,24 +820,15 @@ RENDER_MANIFEST_REL="$PLANS_DIR/$REPO_SLUG-$ISSUE-lean-renders.md"
 PROGRESS_FILE="${LEAN_PROGRESS_FILE:-$MAIN_ROOT/$STATE_DIR/$ISSUE-lean-progress.md}"
 
 # ---------------------------------------------------------------- RUN_ID persistence
-# SKILL.md step 2 says "export RUN_ID first ... it keys every record" — true only if the
-# operator's shell survives from `claim` through every later `bash G <n> <issue>` call.
-# It does not: this tool is routinely invoked as ONE-SHOT subprocesses (a fresh shell per
-# call, only cwd inherited), so an export in the claim call is gone by the next one, and
-# every record after it silently stamps `run_id: unset` — exactly the mismatch
-# lean-reconcile.sh exists to catch (observed live on #306: claim/verdict carried the real
-# id, the progress-file header did not). Fix at the ROOT rather than leaning harder on the
-# operator to keep re-exporting it: cache the id to a file the FIRST time it is seen (any
-# call made with $RUN_ID set — claim is typically first), and every call without $RUN_ID
-# in its own environment reads the cache instead of falling back to "unset".
+# This tool is routinely invoked as ONE-SHOT subprocesses, so an export in the `claim` call is gone
+# by the next one and every later record stamps `run_id: unset` — the mismatch lean-reconcile.sh
+# exists to catch. So: cache the id the FIRST time it is seen, and resolve from the cache whenever
+# $RUN_ID is absent from a call's own environment.
 #
-# ROLE-KEYED (P10). There are two caches, not one, and neither role may read the other's.
-# Before this split, ANY invocation without an exported RUN_ID resolved the issue's single
-# cached id — so a review session working the same issue would stamp the BUILD run's identity
-# into the verdict record and the authorship check would compare a value against itself. The
-# review role therefore resolves `<issue>-review-run-id` and, finding nothing, resolves
-# NOTHING: `verdict` refuses rather than falling through to the build cache. Silent inheritance
-# is the exact failure this separation exists to make impossible.
+# ROLE-KEYED (P10). TWO caches, and neither role may read the other's. With one, a review session
+# working the same issue resolved the BUILD run's id into the verdict record and the authorship
+# check compared a value against itself. The review role resolves `<issue>-review-run-id` and,
+# finding nothing, resolves NOTHING: `verdict` refuses rather than falling through.
 RUN_ID_CACHE="$MAIN_ROOT/$STATE_DIR/$ISSUE-run-id"
 REVIEW_RUN_ID_CACHE="$MAIN_ROOT/$STATE_DIR/$ISSUE-review-run-id"
 resolve_cached_id() { # resolve_cached_id <cache-path> <persist:0|1>
@@ -956,19 +859,15 @@ case "$SUB" in
     # the same silent-inheritance failure in a slower form.
     RESOLVED_RUN_ID="$(resolve_cached_id "$REVIEW_RUN_ID_CACHE" 0)" ;;
   entry|claim|mark)
-    # ONLY the build-role subcommands may ESTABLISH the build identity. Seed-once above is
-    # necessary but not sufficient: with no cache on disk yet — a run that never exported
-    # RUN_ID, a state dir cleaned after a retro — a REVIEW session running `bash G 4 <issue>`
-    # to check the record it just wrote would CREATE the cache holding its own id, and
-    # milestone 4 (which compares the record against that very file) would then refuse a valid,
-    # review-authored record permanently, burning a fix attempt on every retry. An EVALUATION
-    # must be able to read an identity, never to establish one.
+    # ONLY the build-role subcommands may ESTABLISH the build identity. With no cache on disk yet,
+    # a REVIEW session running `bash G 4 <issue>` would CREATE it holding its own id, and milestone
+    # 4 — which compares the record against that very file — would then refuse a valid record
+    # permanently. An EVALUATION must be able to read an identity, never to establish one.
     #
-    # #611 SPLIT THE SEED OFF THE RESOLVE for the two run-boundary calls. Seeding is a WRITE
-    # named after the ticket, and `entry`/`claim` can still be refused after this line by the
-    # liveness arm — so a typo'd number used to leave `<typo>-run-id` behind holding this run's
-    # id, which seed-once would then hand to whatever real run later took that number. `mark`
-    # keeps the immediate seed: nothing refuses it on ticket grounds past this point.
+    # #611 SPLIT THE SEED OFF THE RESOLVE for the two run-boundary calls: seeding is a WRITE named
+    # after the ticket, and `entry`/`claim` can still be refused below by the liveness arm, so a
+    # typo'd number used to leave `<typo>-run-id` behind for whatever real run later took it.
+    # `mark` keeps the immediate seed — nothing refuses it on ticket grounds past this point.
     case "$SUB" in
       mark) RESOLVED_RUN_ID="$(resolve_cached_id "$RUN_ID_CACHE" 1)" ;;
       *)    RESOLVED_RUN_ID="$(resolve_cached_id "$RUN_ID_CACHE" 0)" ;;
@@ -1009,26 +908,22 @@ record_verdict() { # record_verdict <file>
 }
 
 # The PATCH IDENTITY of the branch's own diff — what `reviewed_patch_id` records and what the
-# freshness readers recompute. `git patch-id --stable` hashes patch CONTENT, so it is invariant
-# under a rebase (which rewrites commit SHAs and changes not one reviewed line) and under the
-# blob-hash and hunk-offset churn a rebase brings with it, while still moving the moment a
-# commit — or a conflict resolution — alters a line. That is why it replaced a SHA here: SHA
-# identity cannot tell a clean replay from a resolution, so it fired on both and charged a
-# review round for a mechanical operation.
+# freshness readers recompute. `git patch-id --stable` hashes patch CONTENT, so it survives a
+# rebase and the blob-hash/hunk-offset churn one brings, while still moving the moment a commit or
+# a conflict resolution alters a line. SHA identity could not tell a clean replay from a
+# resolution and charged a review round for a mechanical operation.
 #
-# The verdict record is EXCLUDED, and the exclusion is load-bearing on BOTH sides rather than
-# tidy: at write time HEAD does not yet carry the record, at read time it does. Without it the
-# write-side and read-side ids never agree, and the arm reds on every correct record.
+# The verdict record is EXCLUDED, load-bearing on BOTH sides: at write time HEAD does not carry the
+# record, at read time it does. Without it the two ids never agree and the arm reds on every
+# correct record.
 #
-# The base is the CONFIGURED baseBranch. The merge-boundary reader has only the PR's declared
-# base (the runtime config is gitignored and never reaches a CI checkout), so the two agree
-# exactly when the PR targets the configured base — which is this lane's contract, since a lean
-# worktree is cut from that base. A PR retargeted elsewhere reds at the boundary: fail-closed,
-# and named there.
+# The base is the CONFIGURED baseBranch; the merge-boundary reader has only the PR's declared base,
+# so the two agree exactly when the PR targets it — this lane's contract. A retargeted PR reds
+# there, fail-closed and named.
 #
-# Prints NOTHING when the id is unresolvable, and every caller must treat that as a refusal
-# rather than a value. `git patch-id` prints nothing for an empty diff, so two failed
-# computations compare EQUAL — an unguarded reader would print its ✓ having hashed nothing.
+# Prints NOTHING when unresolvable, and every caller must treat that as a refusal: `git patch-id`
+# prints nothing for an empty diff, so two failed computations compare EQUAL and an unguarded
+# reader prints its ✓ having hashed nothing.
 branch_patch_id() { # branch_patch_id <head-ish>
   local base id
   base="$(git -C "$REPO_ROOT" merge-base "origin/$BASE_BRANCH" "$1" 2>/dev/null)" || return 0
@@ -1039,15 +934,12 @@ branch_patch_id() { # branch_patch_id <head-ish>
 }
 
 # The RENDER binding (#394): the same identity with the render manifest ALSO excluded, for the
-# same self-reference reason the verdict record is excluded above — the manifest records this
-# value, so a manifest inside the measurement could never agree with itself.
+# self-reference reason the verdict record is excluded above.
 #
-# The asymmetry with branch_patch_id is the design, not an oversight. The manifest stays INSIDE
-# `reviewed_patch_id`, so committing render evidence moves the reviewed patch and the verdict
-# binds to the evidence it was scored against; it stays OUTSIDE `rendered_from`, so committing
-# that evidence — and, later, the reviewer committing the verdict on top of it — does not
-# invalidate the render it just recorded. Without the second exclusion the first commit of the
-# manifest would immediately make the manifest stale, and milestone 3 would re-render forever.
+# The asymmetry with branch_patch_id is the design. The manifest stays INSIDE `reviewed_patch_id`,
+# so committing render evidence moves the reviewed patch and the verdict binds to the evidence it
+# was scored against; it stays OUTSIDE `rendered_from`, or the first commit of the manifest would
+# make the manifest stale and milestone 3 would re-render forever.
 render_patch_id() { # render_patch_id <head-ish>
   local base id
   base="$(git -C "$REPO_ROOT" merge-base "origin/$BASE_BRANCH" "$1" 2>/dev/null)" || return 0
@@ -1313,21 +1205,17 @@ versions_after() { # versions_after <newline-separated-commits> <marker>
 # the round that broke it. Never exits: each caller phrases its own refusal, and the writer
 # degrades rather than refusing.
 #
-# The COUNT is reported rather than merely tallied, and milestone 4 puts it in its pass line, for
-# the same reason that line already names the freshness arm it gated on: with inheritance, "this
-# head was reviewed" means "a chain of N verified rounds covered it", and an operator reading a
-# checkmark should be able to see which claim was checked. It is also what makes the window below
-# MEASURABLE from outside — see the next paragraph.
+# The COUNT is reported, and milestone 4 puts it in its pass line: with inheritance, "this head
+# was reviewed" means "a chain of N verified rounds covered it", and a checkmark should say which
+# claim was checked. It is also what makes the window below measurable from outside.
 #
-# The search window starts strictly BELOW <declaring-commit> and shrinks past each hit, so the
-# chain must run STRICTLY BACKWARDS through the record's history. That keeps a branch reverted to
-# a previously-reviewed tree readable: the current round's record then carries an identity an
-# ancestor also carries, and an unbounded search resolves that round to ITSELF, counting the
-# record under test as a link in its own chain. Shrinking also makes termination structural, so
-# there is no cycle counter to get wrong (and none sitting in the code that no fixture can red).
+# The search window starts strictly BELOW <declaring-commit> and shrinks past each hit, so the walk
+# runs STRICTLY BACKWARDS. That keeps a branch reverted to a previously-reviewed tree readable — an
+# unbounded search resolves such a round to ITSELF, counting the record under test as a link in its
+# own chain — and makes termination structural, so there is no cycle counter to get wrong.
 #
-# <declaring-commit> is EMPTY at write time, because the record being written is not committed
-# yet and so cannot appear in the history being searched. Read-side callers pass it.
+# <declaring-commit> is EMPTY at write time: the record is not committed yet and cannot appear in
+# the history being searched. Read-side callers pass it.
 chain_walk() { # chain_walk <inherited-patch-id> <declaring-round> [declaring-commit]
   local want="$1" round="${2:-?}" from="${3:-}" versions c hit rest links=0
   versions="$(git -C "$REPO_ROOT" log --format=%H -- "$VERDICT_REL" 2>/dev/null)"
@@ -1367,45 +1255,32 @@ chain_walk() { # chain_walk <inherited-patch-id> <declaring-round> [declaring-co
 #   <iso> | milestone-<n> | satisfied
 #   milestone-4 | verdict=<approve|needs-work> | round=<n>
 #
-# The `session` row is the BUILD-SESSION SET (#446) — see below. It deliberately spells the id
-# WITHOUT a `session_id:` key: `record_key` here and `extract_key` in lean-reconcile.sh both
-# take the FIRST match of that key in the file, and the header must keep winning that race.
+#   <iso> | milestone-3 | advisory | <reason>          # #642 — a demoted lane reported a red
 #
-# Reconciliation keys (AC-14) ride in the header so a run stays reconcilable by whatever
-# reads the record later, not just by the tool that wrote it.
+# The `session` row is the BUILD-SESSION SET (#446). It spells the id WITHOUT a `session_id:` key:
+# `record_key` here and `extract_key` in lean-reconcile.sh take the FIRST match in the file, and the
+# header must keep winning that race. Reconciliation keys (AC-14) ride in the header so a run stays
+# reconcilable by whatever reads it later.
 now_iso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
-# The header is written ONCE, at creation, and was never revisited — which is how #322's
-# `run_id: unset` freeze happened, and why its remedy was to stop `entry` from being the
-# creator. #416 cannot keep that remedy: the attestation row has to exist before `claim`, the
-# first subcommand the precondition guards, so `entry` creates the file again — and SKILL.md
-# orders it BEFORE the RUN_ID export, so on an ordinary run the header IS stamped `unset`.
-# Heal the field rather than arguing about which subcommand may create the record.
+# The header is written ONCE at creation, and `entry` creates the file BEFORE SKILL.md orders the
+# RUN_ID export — so on an ordinary run it is stamped `unset`. Left unhealed that is not cosmetic:
+# lean-reconcile.sh's arm (1) compares the bot claim comment's run_id against this header's, so an
+# honest github run reds at the merge boundary with the real id on one side and `unset` on the
+# other. Heal the field.
 #
-# Left unhealed this is not cosmetic. lean-reconcile.sh's arm (1) compares the bot claim
-# comment's run_id against this header's, so an honest github run reds at the merge boundary
-# with the real id on one side and `unset` on the other.
+# The BUILD CACHE is the authority, not $RESOLVED_RUN_ID: only `entry` and `claim` persist there,
+# and arm (1) compares this header against what `claim` wrote, so the header must carry the
+# ESTABLISHED identity — a milestone call made with an ad-hoc RUN_ID leaves it alone. It is also
+# what keeps the review role out: a review identity is never in the build cache (P10).
 #
-# The ONE behavioral guard is the cache compare, and the BUILD CACHE is the authority — not
-# $RESOLVED_RUN_ID alone. Only `entry` and `claim` persist there, and arm (1) compares this
-# header against what `claim` wrote, so the header must carry the ESTABLISHED identity and no
-# other: a milestone call made with an ad-hoc RUN_ID resolves one for its own records and leaves
-# the header alone. It is also what keeps the review role out — a review identity is never in
-# the build cache (P10), so `verdict` could not stamp itself here even if it grew a write into
-# this file, which today it has not.
-#
-# Matching the literal `unset` is a narrowing, not a second guard: the cache compare already
-# makes a rewrite of an established id a no-op (it can only ever write the value that is
-# already there), so no fixture can red on that half alone. Do not read a surviving mutant on
-# the two lines below as a coverage hole — the placeholder check is there to keep an already
-# healed run from spawning awk on every append, which is cost, not correctness.
-# TEST-ONLY, exactly like LEAN_GATE_OBSERVE above and
-# RUN_SELFTESTS_DROP_LAST/RC in run-selftests.sh — never set in CI or by an operator. Pauses the
-# caller between its absence check and its write, so a selftest can force two same-issue
-# writers to both observe "absent" before either commits — the exact race #528's atomic-write
-# fixes close, and the one shape a real race cannot be driven through deterministically.
-# Bounded (10s) so a broken harness cannot hang a real run; nothing real ever exports the var
-# this checks, so the loop body is unreachable outside a test.
+# Matching the literal `unset` is a narrowing, not a second guard — the cache compare already makes
+# a rewrite of an established id a no-op — so a surviving mutant on the two lines below is not a
+# coverage hole. It is there to keep a healed run from spawning awk on every append.
+# TEST-ONLY, like LEAN_GATE_OBSERVE above — never set in CI or by an operator. Pauses the caller
+# between its absence check and its write so a selftest can force two same-issue writers to both
+# observe "absent", the one shape a real race cannot be driven through deterministically. Bounded
+# (10s) so a broken harness cannot hang a real run.
 _lean_gate_test_stall() { # _lean_gate_test_stall <label>
   [ -n "${LEAN_GATE_TEST_STALL_DIR:-}" ] || return 0
   : > "$LEAN_GATE_TEST_STALL_DIR/ready.$1.$$"
@@ -1495,46 +1370,27 @@ append_absent() { append_line "$(now_iso) | milestone-$1 | absent | $2"; }
 # D-41: a passing evaluation appends AT MOST ONE `satisfied` line per milestone, so
 # diagnostic re-runs and `all` sweeps never inflate anything. Idempotent by construction.
 #
-# #528: the check-then-append above is a READ-THEN-APPEND, and therefore not atomic — two gate
-# processes on the SAME issue (same-issue re-entry, never a cross-lane race: STATE_DIR is
-# issue-keyed) can both read zero rows and both append, duplicating the line this function
-# exists to keep singular.
+# #528: the check-then-append above is not atomic — two gate processes on the SAME issue can both
+# read zero rows and both append, duplicating the line this function exists to keep singular.
 #
-# AN ATOMIC CLAIM, THEN A PLAIN APPEND — deliberately NOT the unique-temp-plus-rename technique
-# heal_progress_run_id uses just above. That technique rebuilds the whole file, which would make
-# this function a SECOND rewriter of the record, and progress_token()'s soundness argument below
-# rests on there being exactly one: it states that `attempt`/`satisfied` rows are append-only and
-# so the selected count "cannot go up and back down within a spawn". A rebuild built from a
-# fresh-at-write-time read can drop a row a concurrent append_attempt/append_absent wrote in the
-# gap, and a dropped `attempt` row does exactly what that comment says cannot happen — it also
-# un-charges #494's fix budget by one, silently and unrecoverably, because append_attempt fires
-# only on a fresh failure and a re-evaluation never replays it. Keeping this function append-only
-# keeps that invariant true rather than leaving it standing while false.
+# AN ATOMIC CLAIM, THEN A PLAIN APPEND — deliberately NOT heal_progress_run_id's temp-plus-rename.
+# That rebuilds the whole file, making this a SECOND rewriter, and progress_token()'s soundness
+# argument rests on there being exactly one: a rebuild can drop a row a concurrent
+# append_attempt/append_absent wrote in the gap, which silently un-charges #494's fix budget (that
+# append fires only on a fresh failure and is never replayed). Append-only keeps the invariant true.
 #
-# THE CHECK ABOVE IS A FAST PATH ONLY, not the guard. Two writers can both pass it before either
-# writes — that gap is exactly what makes a bare check-then-append not atomic, and it can be
-# arbitrarily wide (a descheduled process, not just a same-instant coincidence). The guard is the
-# `mkdir` below: it is atomic and refuses an existing target, so of any number of concurrent
-# same-issue writers exactly ONE enters and the rest return immediately. Nothing waits, nothing
-# retries, and a loser returning empty-handed is correct — the winner is inside writing the very
-# row the loser would have written.
+# THE CHECK ABOVE IS A FAST PATH, not the guard: two writers can both pass it before either writes,
+# and the gap can be arbitrarily wide. The guard is the `mkdir` — atomic, refuses an existing
+# target, so exactly ONE writer enters and the rest return immediately. THE RE-CHECK INSIDE is what
+# makes it exactly one: a loser arriving after the winner released would otherwise append a second
+# row.
 #
-# THE RE-CHECK INSIDE IS WHAT MAKES IT EXACTLY ONE, not the mkdir. A loser that arrives AFTER the
-# winner released would otherwise claim cleanly and append a second row; re-reading the record
-# inside the critical section is what closes that, and it is what makes correctness independent
-# of how far apart two writers' checks and writes fall.
-#
-# HELD ACROSS ONE APPEND, THEN RELEASED — deliberately not a persistent per-milestone claim. A
-# claim that outlives the call cannot tell "held by a genuinely concurrent writer" from "orphaned
-# by a record that was replaced since", and this repo replaces records routinely (the gate
-# recreates a deleted one, an operator rewrites one by hand, a fixture seeds one directly). Such a
-# claim permanently blocks the milestone it names from ever being recorded satisfied again, which
-# is a far worse failure than the duplicate row it prevents. Measured, not theorised: a persistent
-# form of this claim reded a full `all` sweep in lean-gate-selftest.sh's own fixture.
-#
-# The one window left is a process KILLED between mkdir and rmdir — microseconds, and the run it
-# kills is over anyway. `clear_satisfied_claims` sweeps such an orphan at `entry`, which every
-# session runs before anything else, so recovery is the checklist's existing first step.
+# HELD ACROSS ONE APPEND, THEN RELEASED. A persistent claim cannot tell "held by a concurrent
+# writer" from "orphaned by a record that was replaced since", and this repo replaces records
+# routinely — such a claim permanently blocks the milestone from ever being recorded satisfied,
+# which is far worse than the duplicate row it prevents (measured: it reded a full `all` sweep in
+# this file's own fixture). The one window left is a process killed between mkdir and rmdir;
+# `clear_satisfied_claims` sweeps the orphan at `entry`.
 append_satisfied() {
   ensure_progress_file
   [ "$(count_matches "| milestone-$1 | satisfied" "$PROGRESS_FILE" -F)" -eq 0 ] || return 0
@@ -1555,27 +1411,21 @@ clear_satisfied_claims() { rm -rf "$PROGRESS_FILE".satisfied-*.claim; }
 # #531 D-10. THE PER-OBLIGATION ROW, and its verb is load-bearing rather than descriptive.
 #
 # progress_token narrows to milestone n by the FIXED SUBSTRING `| milestone-n | satisfied`, so an
-# obligation row spelled with that verb — `| milestone-5 | satisfied | closing comment` — would
-# move the scheduler's close-out token the instant the FIRST of the two obligations held. The
-# close-out would then report `done` over a run with no closing comment on it, which is precisely
-# the false `done` orchestrate-lean.sh's header calls worse than the loud failure it replaced.
-# `obligation` collides with nothing: not progress_token's two row kinds, not attempt_count's
-# `| milestone-n | attempt |`, not absent_count's, not unclosed_count's pair.
+# obligation row spelled with that verb would move the scheduler's close-out token the instant the
+# FIRST of the two obligations held — reporting `done` over a run with no closing comment on it.
+# `obligation` collides with nothing: not progress_token's row kinds, not attempt_count's, not
+# absent_count's, not unclosed_count's pair.
 #
-# BOTH DIRECTIONS ARE RECORDED, because the scheduler's failure message (D-12) has to name which
-# obligation is outstanding, and a record that only ever writes successes cannot answer that.
+# BOTH DIRECTIONS ARE RECORDED: the scheduler's failure message (D-12) has to name which obligation
+# is outstanding, and a record of successes alone cannot answer that.
 #
-# IDEMPOTENT ON THE FULL TRIPLE, not on the name: `unmet` then `met` is the history a fix round
-# leaves and is worth keeping, while an `all` sweep re-running cmd_5 must not restate what is
-# already on file. So the record is bounded at one row per (obligation, state) pair.
+# IDEMPOTENT ON THE FULL TRIPLE, not the name — `unmet` then `met` is the history a fix round
+# leaves — so one row per (obligation, state) pair.
 #
-# THE DETAIL IS FREE TEXT AFTER THE TRIPLE (#590), and everything above still holds because of
-# where it sits. `obligation_state` reads the triple as a FIXED SUBSTRING and the idempotence
-# bound below counts the same substring, so a row carrying a detail is read and deduped exactly
-# as a bare one — one row per (obligation, state) pair, whatever the detail says. It exists for
-# the close-out's cost obligations, which can be met in two very different ways: a real published
-# figure, or a documented skip on a host with no telemetry. Without the detail those two are one
-# `met` row, and the record could not tell an operator which run it was looking at.
+# THE DETAIL IS FREE TEXT AFTER THE TRIPLE (#590); both readers match the triple as a FIXED
+# SUBSTRING, so a row carrying a detail dedupes exactly as a bare one. It exists for the close-out's
+# cost obligations, which can be met by a real published figure or by a documented skip on a host
+# with no telemetry — without it those are one `met` row.
 append_obligation() { # append_obligation <milestone> <name> <met|unmet> [detail]
   ensure_progress_file
   [ "$(count_matches "| milestone-$1 | obligation | $2 | $3" "$PROGRESS_FILE" -F)" -eq 0 ] || return 0
@@ -1589,6 +1439,13 @@ append_obligation() { # append_obligation <milestone> <name> <met|unmet> [detail
 fail_obligation() { # fail_obligation <name> <reason>
   append_obligation 5 "$1" unmet
   fail_milestone 5 "$2"
+}
+
+# #642. The ABSENT-verb twin, for the milestone-5 obligations whose red is an announcement: the
+# next checklist step has not happened yet. Same obligation row, same refusal, no fix attempt.
+block_obligation() { # block_obligation <name> <reason>
+  append_obligation 5 "$1" unmet
+  block_milestone 5 "$2"
 }
 
 attempt_count() { count_matches "| milestone-$1 | attempt |" "$PROGRESS_FILE" -F; }
@@ -1609,19 +1466,15 @@ absent_count() { count_matches "| milestone-$1 | absent |" "$PROGRESS_FILE" -F; 
 # gate process killed mid-run leaves a record byte-identical to one where the milestone was never
 # invoked — and `bash G all`, the resuming session and the retro corpus all read the second.
 #
-# WHY TWO VERBS AND NOT ONE. The issue's own sketch closes a `started` row with the concluding
-# `attempt`/`satisfied` line. That is unsound HERE: append_satisfied is idempotent by construction
-# (D-41 above), so re-evaluating an already-satisfied milestone appends no closing line at all —
-# and CLAUDE.md mandates exactly such a re-run (`bash G all`) before build-lean's close-out step.
-# Every honest run would end its record looking interrupted. So the conclusion is its own,
-# deliberately NON-idempotent verb.
+# TWO VERBS, NOT ONE. Closing a `started` row with the concluding `attempt`/`satisfied` line is
+# unsound here: append_satisfied is idempotent (D-41), so re-evaluating an already-satisfied
+# milestone appends no closing line — and CLAUDE.md mandates exactly such a re-run before
+# close-out, so every honest run would end its record looking interrupted. The conclusion gets its
+# own deliberately NON-idempotent verb.
 #
-# WHY THE PAYLOAD IS `rc=<n>`. `| milestone-3 | concluded | satisfied` would be safe against
-# today's readers — each anchors `| milestone-N | ` immediately before its verb — but it puts the
-# literal `satisfied` on a bookkeeping line, which is the trap absent_count's note above records.
-# `rc=<n>` cannot collide, and it carries #496's class taxonomy into the record for free.
-#
-# NEITHER VERB IS IN progress_token's ROW SET, on purpose — see the D-3 note there.
+# THE PAYLOAD IS `rc=<n>` because `concluded | satisfied` would put the literal `satisfied` on a
+# bookkeeping line — the collision trap absent_count's note records. NEITHER VERB IS IN
+# progress_token's ROW SET, on purpose.
 append_started()   { append_line "$(now_iso) | milestone-$1 | started |"; }
 append_concluded() { append_line "$(now_iso) | milestone-$1 | concluded | rc=$2"; }
 
@@ -1643,30 +1496,22 @@ unclosed_count() { # unclosed_count <milestone>
 # ---------------------------------------------------------------- the build-session SET (#446)
 # `mark` stamps a session id onto the PR marker, and that field is the STRONGER of the two
 # comparisons lean-evidence.sh's arm_identity makes: run_id is agent-CHOSEN, the session id is
-# harness-assigned. It was nonetheless read straight from the ambient environment while
-# $RESOLVED_RUN_ID beside it came from the role-keyed cache — so the documented manual recovery,
-# run from the REVIEW session (the only place a missing marker becomes visible, since the arm is
-# unmasked by the verdict-record push), stamped the review session as the build session and the
-# boundary reported an honest, independent review as a P10 self-review.
+# harness-assigned. Read straight from the ambient environment, the documented manual recovery —
+# run from the REVIEW session, the only place a missing marker becomes visible — stamped the review
+# session as the build session, and the boundary reported an independent review as a P10 self-review.
 #
-# WHY A SET RATHER THAN A LOOKUP. Resolving the id from the progress HEADER — the issue's first
-# suggested direction — would re-open a deliberately closed hole: the header is seed-once and
-# single-valued, so a second build session on the same PR (the case cmd_mark's D-4 idempotence
-# exists for) would carry session 1's id on its own marker, and nothing checks that at session
-# level. So `mark` keeps writing the AMBIENT id, which is correct on every honest path including
-# that second session, and instead REFUSES when the ambient session is not a recorded build
-# session. A refusal is recoverable; a mis-stamped marker is not — it survives a re-run (the
-# idempotence guard keys on run_id alone) and survives a corrective second marker (the boundary
-# compares against EVERY marker), leaving only "delete bot-authored evidence and hand-supply an
-# identity string", which is the posture the P10 arms exist to remove.
+# A SET RATHER THAN A LOOKUP. The progress HEADER is seed-once and single-valued, so a second build
+# session on the same PR would carry session 1's id on its own marker with nothing checking it at
+# session level. `mark` keeps writing the AMBIENT id — correct on every honest path — and REFUSES
+# when that session is not a recorded build session. A refusal is recoverable; a mis-stamped marker
+# is not: it survives a re-run (the idempotence guard keys on run_id) and a corrective second
+# marker (the boundary compares against EVERY marker).
 #
-# THE SET IS header ∪ rows. The header is already the build identity by cmd_verdict's compare,
-# so including it is the definition rather than a compatibility shim — and it is what keeps a run
-# already in flight when this lands, whose file has no session rows yet, from stranding at `mark`.
+# THE SET IS header ∪ rows. The header is already the build identity by cmd_verdict's compare, and
+# including it keeps a run already in flight, whose file has no session rows yet, from stranding.
 #
-# 'unset' and the empty string are NOT members. cmd_mark's compare would otherwise pass an unset
-# ambient session against an unset recorded one — two unverifiable values agreeing — and write
-# `session_id: unset` onto the marker. "Unverifiable" must never resolve to "fine".
+# 'unset' and the empty string are NOT members, or cmd_mark's compare would pass two unverifiable
+# values against each other and write `session_id: unset` onto the marker.
 # Held verbatim by plugins/dev-pipeline/tools/pipeline-cost-block.sh, whose --issue mode derives
 # the published cost figure's session set from this same record (#546). The two must not diverge:
 # a cost block counting a wider or narrower set than `mark` refuses on is a figure that reads
@@ -1720,40 +1565,23 @@ record_build_session() {
 # A failed milestone: record the attempt, then decide retry-vs-hard-stop.
 #
 # THE OBSERVE SEAM (#374 AC-1..3, promoted by #496). `LEAN_GATE_OBSERVE=1` calls a milestone body
-# to learn whether it would fail WITHOUT recording anything — no attempt line, no budget consumed,
-# no `satisfied` line. Recording stays the real 1..5 loop's job; a pre-pass that recorded would
-# double-count every attempt it shares with the real call further down the same `all` sweep.
+# to learn whether it would fail WITHOUT recording anything. Recording stays the real 1..5 loop's
+# job; a pre-pass that recorded would double-count every attempt it shares with the real call
+# further down the same `all` sweep. It reports EXHAUSTION as its own value, predicted from the
+# count on file — `count >= FIX_BUDGET` is exactly when the recording path's post-append
+# `count > FIX_BUDGET` fires — because "spent" and "failed once" are the two states a scheduler
+# must not confuse.
 #
-# It was `PRECHECK`, an ambient internal, and it returned a flat 1 before the budget compare — so
-# it SWALLOWED rc=4. That was harmless while cmd_all was its only caller (the real loop below
-# re-derives the 4). It is not harmless now the scheduler reads a verdict through it: "this
-# milestone is spent" and "this milestone failed once" are the two states a scheduler must not
-# confuse. So observe mode reports exhaustion as its own value, predicted from the count already
-# on file — `count >= FIX_BUDGET` is exactly the condition under which the recording path's
-# post-append `count > FIX_BUDGET` would fire.
+# THE CLASS (#496 S1). $3 is the exit code a red returns, defaulting to 1, so every milestone that
+# does not classify is unchanged. Budget exhaustion OUTRANKS the class in both paths: 4 keeps its
+# prior meaning, and a class-6 red suppressing a spent budget would trade one misreport for another.
 #
-# THE CLASS (#496 S1). $3 is the exit code a red returns, defaulting to 1 — the historical value,
-# so every milestone that does not classify is unchanged. Milestone 4 passes one at all twenty of
-# its sites; see cmd_4. Budget exhaustion OUTRANKS the class in both paths: 4 keeps its exact prior
-# meaning, and the alternative (a class-6 red suppressing a spent budget) would trade one
-# misreport for another. Nothing loops on it — the scheduler never retries a 6 at all.
-#
-# THE INFRA CLASS (#527 D-8). Class 7 is the one value that is not a verdict about the branch: it
-# says the evaluation did not happen. Charging it a fix attempt bills the difficulty signal #494
-# separated for a sweep whose workers were killed, and — worse — walks a run that is doing real
-# work into `rc=4` on a milestone nothing ever judged. So the class is honored BEFORE the append,
-# not after it: the observe arm above is the nearest existing precedent for returning a class
-# while writing nothing.
-#
-# AND IT IS THE ONE CLASS THAT OUTRANKS BUDGET EXHAUSTION, inverting the paragraph above rather
-# than contradicting it. That rule exists because a class-6 red must not hide a spent budget; here
-# the direction reverses, because an infra red spends nothing and never can. Reporting 4 for one
-# would tell the caller "this milestone is out of attempts" about a call that took none — the same
-# misreport in the other direction. So the recording path returns 7 before it ever reads the count,
-# and observe predicts the identical answer.
-#
-# On the recording path that also means budget exhaustion NEEDS NO CARVE-OUT: `count > FIX_BUDGET`
-# is only reached below, on a count this call did increment.
+# THE INFRA CLASS (#527 D-8) is the one exception, and it inverts that rule rather than
+# contradicting it: class 7 says the evaluation did not happen, so it spends nothing and never can,
+# and reporting 4 would tell the caller "out of attempts" about a call that took none. So the class
+# is honored BEFORE the append, and observe predicts the identical answer. On the recording path
+# exhaustion then needs no carve-out: `count > FIX_BUDGET` is only reached on a count this call
+# did increment.
 fail_milestone() {
   local n="$1" reason="$2" class="${3:-1}" count
   if [ "${LEAN_GATE_OBSERVE:-0}" = "1" ]; then
@@ -1779,28 +1607,31 @@ fail_milestone() {
   return "$class"
 }
 
-# #494 D-1. A milestone that reds because its artifact IS NOT WRITTEN YET — not because a fix
-# did not work. `build-lean` step 3 orders `bash G 1 <issue>` to learn the path step 4 must write
-# to, so the first such red is the contract's own recommended move; charging it to a 3-attempt
-# fix budget made the bound tightest on exactly the runs that later need it most, and made
-# `attempt` lines unreadable as a difficulty signal for the retro corpus.
+# #494 D-1. A milestone that reds because its artifact IS NOT WRITTEN YET — not because a fix did
+# not work. Step 3 orders `bash G 1 <issue>` to learn the path step 4 must write to, so the first
+# such red is the contract's own recommended move; charging it made the fix bound tightest on
+# exactly the runs that later need it most, and made `attempt` lines unreadable as a difficulty
+# signal for the retro corpus.
 #
-# WHY A SECOND COUNTER RATHER THAN FREE. Making absence cost nothing removes the only thing
-# bounding a session that loops on step 3 forever. So absence is bounded, just on its own much
-# larger budget (D-2) — and it reuses `rc=4` rather than inventing a code, so build-lean's
-# existing hard-stop handling (append the reason, one abort comment, keep the worktree and the
-# claim) covers it with no new operator path.
+# A SECOND COUNTER RATHER THAN FREE: free absence removes the only thing bounding a session that
+# loops on step 3 forever. Bounded on its own much larger budget (D-2), reusing `rc=4` so
+# build-lean's existing hard-stop handling covers it with no new operator path.
 #
-# WRITTEN GENERICALLY, APPLIED AT ONE SITE (D-7). Milestone 4's `[ -f "$rec" ]` carries the same
-# shape, but this ticket scopes milestones 2-5 out: widening it would flip selftest case (c1),
-# which drives milestone 4's absence and whose staying green is the evidence the scoping held.
-block_milestone() {
-  local n="$1" reason="$2" count
+# #642 WIDENED IT past #494's single site. The set is exactly the reasons docs/gate-ablation.md
+# adjudicates `unchanged` — every one an ANNOUNCEMENT that the checklist's next step has not
+# happened yet: m1/spec-absent, m4/verdict-absent, m5/progress-current, m5/no-open-pr,
+# m5/closing-comment, m5/identity-stamp. A red that names something the run was going to do anyway
+# is not a failed fix, whichever milestone it sits on.
+#
+# THE CLASS IS CARRIED (#642). Milestone 4's absence returns 5, not 1: the remedy is a REVIEW
+# round, and a scheduler that read a bare 1 there would re-spawn BUILD to fix nothing.
+block_milestone() { # block_milestone <milestone> <reason> [class]
+  local n="$1" reason="$2" class="${3:-1}" count
   if [ "${LEAN_GATE_OBSERVE:-0}" = "1" ]; then
     count="$(absent_count "$n")"
     warn "✗ milestone-$n (observe): $reason"
     [ "$count" -ge "$ABSENT_BUDGET" ] && return 4
-    return 1
+    return "$class"
   fi
   append_absent "$n" "$reason"
   count="$(absent_count "$n")"
@@ -1810,7 +1641,7 @@ block_milestone() {
     warn "milestone-$n has been evaluated $count times against an artifact that was never written — hard stop."
     return 4
   fi
-  return 1
+  return "$class"
 }
 
 pass_milestone() {
@@ -1822,16 +1653,14 @@ pass_milestone() {
 }
 
 # ---------------------------------------------------------------- entry precondition
-# AC-14. The predicate is a NON-EMPTY ledger file for THIS session, anchored at the main
-# checkout. Directory existence is explicitly NOT the test — an empty or absent per-session
-# file means the hook never fired, and a run whose tool calls left no ledger cannot be
-# reconciled by lean-reconcile.sh. Fail closed.
+# AC-14. The predicate is a NON-EMPTY ledger file for THIS session, anchored at the main checkout.
+# Directory existence is explicitly NOT the test — an empty or absent per-session file means the
+# hook never fired, and a run whose tool calls left no ledger cannot be reconciled. Fail closed.
 #
-# #416: fail-closed was never the gap. NOTHING ENFORCED THAT THIS RAN. `entry` appeared here
-# and at its dispatch arm and nowhere else, and it wrote nothing durable — so a run that simply
-# skipped step 1 reached five green milestones, a verdict record and a merged PR, with no
-# artifact recording the omission. Two such runs are what surfaced this. The row below is that
-# artifact, and require_entry_attested() is what makes skipping step 1 a refusal.
+# #416: fail-closed was never the gap — NOTHING ENFORCED THAT THIS RAN. `entry` wrote nothing
+# durable, so a run that skipped step 1 reached five green milestones, a verdict record and a
+# merged PR with no artifact recording the omission (twice, observed). The row below is that
+# artifact; require_entry_attested() is what makes skipping step 1 a refusal.
 ENTRY_ROW_MARKER="| entry | ledger="
 
 entry_row_present() { [ "$(count_matches "$ENTRY_ROW_MARKER" "$PROGRESS_FILE" -F)" -gt 0 ]; }
@@ -1874,12 +1703,10 @@ audit_toolkit_opted_out() {
 # process, so its OWN inherited environment IS the export decision the run never had — the exact
 # discriminator the failing run lacked.
 #
-# WARN, never refuse (D-1/D-3). The audit-ledger precedent above does not transfer: the ledger is
-# CONSUMED downstream (lean-reconcile.sh reads it; check-lean-chain.sh gates the merge on the
-# chain it anchors), whereas nothing consumes cost — no milestone, no verdict arm, no
-# merge-boundary check. cost-tracking-setup.md declares the feature "Opt-in, local, experimental.
-# The dev-pipeline works fine without this", so refusing here would promote an optional feature to
-# a hard precondition for every consumer, including those with no collector installed.
+# WARN, never refuse (D-1/D-3). The audit-ledger precedent does not transfer: that ledger is
+# CONSUMED downstream, whereas nothing consumes cost — no milestone, no verdict arm, no
+# merge-boundary check. Refusing would promote an opt-in, experimental feature to a hard
+# precondition for every consumer, including those with no collector installed.
 #
 # Three states: `off` (the variable is not enabling telemetry), `nocoll` (it is, but nothing
 # accepts on a loopback OTLP endpoint), `on` (it is, and either the probe connected or the probe
@@ -1932,21 +1759,18 @@ telemetry_state() {
 }
 
 # ---------------------------------------------------------------- worktree teardown (#442)
-# The lane created a worktree per run and never removed one, so a checkout accumulated a stale
-# directory per finished ticket. The cost is not disk: `git checkout <branch>` in the main
-# checkout then fails with "already used by worktree at ..." for branches whose work landed
-# weeks earlier, and the only fix was a human noticing.
+# A stale worktree per finished ticket is not a disk cost: `git checkout <branch>` in the main
+# checkout then fails with "already used by worktree at ..." for work that landed weeks earlier.
 #
-# TWO ENTRY POINTS, ONE REMOVAL. `teardown` fires at approval (checklist step 9); the sweep below
-# covers the exits approval never reaches — the session died, a human merged the PR with no lean
-# round, the run was abandoned. Neither suffices alone: of five stale worktrees found on a live
-# consumer checkout, most were the second kind. Both funnel through worktree_destroy(), so a
-# worktree can only be destroyed on terms the other path would also accept.
+# TWO ENTRY POINTS, ONE REMOVAL. `teardown` fires at approval; the sweep below covers the exits
+# approval never reaches — the session died, a human merged with no lean round, the run was
+# abandoned — and of five stale worktrees found on a live checkout, most were the second kind. Both
+# funnel through worktree_destroy(), so a worktree can only be destroyed on terms the other path
+# would also accept.
 #
-# WHAT IS NEVER DONE HERE: `git branch -d/-D`. The PR points at the branch and the verdict record
-# is committed on it, so removing the CHECKOUT is correct and deleting the REF is not. `git
-# worktree remove` already leaves the branch alone; said out loud so a later edit does not
-# "helpfully" add the delete.
+# NEVER `git branch -d/-D`. The PR points at the branch and the verdict record is committed on it,
+# so removing the CHECKOUT is correct and deleting the REF is not. Said out loud so a later edit
+# does not "helpfully" add the delete.
 
 # `<path>\t<branch>` for every registered worktree that has a branch checked out. --porcelain is
 # the only parseable form — the human listing pads columns with spaces and brackets the branch,
@@ -2090,26 +1914,20 @@ worktree_keep() { # worktree_keep <path> <reason> [<detail>]
 # session that exits 0 with commits unpushed is `claude -p` ending a turn, not a block finishing,
 # and the round that follows reviews a remote head missing everything BUILD just did.
 #
-# EXTRACTED RATHER THAN RE-DERIVED, and that is the whole point of the row. Two copies of "is this
-# tree collected" would be two answers the moment one grew a case — and the failure direction of a
-# scheduler-side copy that drifted LENIENT is a review round spent on code nobody will merge, which
-# is the defect being fixed. One predicate, two callers.
+# EXTRACTED RATHER THAN RE-DERIVED. Two copies of "is this tree collected" are two answers the
+# moment one grows a case, and a scheduler-side copy drifting LENIENT is a review round spent on
+# code nobody will merge — the defect being fixed. One predicate, two callers.
 #
-# PUSHED-NESS IS "origin/<branch>..HEAD is empty", NOT the issue's proposed `HEAD =
-# origin/<branch>`. Once the review session pushes its verdict record the build worktree is
-# legitimately BEHIND origin, and strict equality would refuse exactly the removal this exists
-# for. Behind is safe; ahead is not.
+# PUSHED-NESS IS "origin/<branch>..HEAD is empty", not `HEAD == origin/<branch>`: once the review
+# session pushes its verdict record the build worktree is legitimately BEHIND origin, and strict
+# equality would refuse exactly the removal this exists for. Behind is safe; ahead is not.
 #
-# THREE ANSWERS, NOT TWO, and the third is why this is not a boolean. "The status could not be
-# read" and "origin/<branch> is unresolvable" are not "the tree is clean" and not "the tree is
-# dirty" — they are reads that did not complete, and both callers must fail CLOSED on them: the
-# same posture `staleness` and `progress` already take, for the same error-reads-as-success reason.
-# Teardown's own handling is unchanged by the split, because it keeps the worktree on 1 and on 8
-# alike.
+# THREE ANSWERS, NOT TWO. "The status could not be read" and "origin/<branch> is unresolvable" are
+# reads that did not complete, and both callers fail CLOSED on them — the error-reads-as-success
+# posture `staleness` and `progress` already take.
 #
-# The reason and its detail are PUBLISHED rather than printed, so each caller frames them in its
-# own vocabulary — teardown says "keeping", the scheduler says "still carries work" — without a
-# second copy of the conditions.
+# The reason and its detail are PUBLISHED rather than printed, so each caller frames them in its own
+# vocabulary without a second copy of the conditions.
 INFLIGHT_REASON=""
 INFLIGHT_DETAIL=""
 worktree_inflight() { # worktree_inflight <path> <branch> — 0 collected · 8 in flight · 1 unreadable
@@ -2165,21 +1983,16 @@ worktree_destroy() { # worktree_destroy <path> <branch>
 # the `test` command a consumer configured is a string this gate runs and cannot rewrite, so a
 # flag is not reachable and an environment name is.
 #
-# WHAT IT BUYS: tools/run-selftests.sh already carries a content-addressed pass cache (#448) that
-# CI activates with --cache-dir, and a milestone-3 sweep re-derives the same verdicts every time
-# a run comes back to it — the close-out sweep of an unmoved head being the measured case (#549:
-# ~9:47 of an 82-minute run). Serving those from a store makes the second sweep of unchanged
-# content cost nothing. The cache decides per SUITE on content, never on HEAD, so nothing here
-# is a new trust shortcut: a suite serves iff every input it DECLARED is byte-identical to a
-# recorded pass, and a suite that declared nothing always runs.
+# WHAT IT BUYS: run-selftests.sh carries a content-addressed pass cache (#448), and a milestone-3
+# sweep re-derives the same verdicts every time a run comes back to it (#549: ~9:47 of an 82-minute
+# run). The cache decides per SUITE on content, never on HEAD, so it is no new trust shortcut: a
+# suite serves iff every input it DECLARED is byte-identical to a recorded pass, and one that
+# declared nothing always runs.
 #
-# ADVERTISED, NOT ENFORCED, exactly like the ceiling above: a `test` command that is vitest or
-# pytest never reads this and runs precisely as before.
-#
-# The store lives OUTSIDE every checkout — a worktree teardown must not cost the operator their
-# cache — and is per-machine, which matches a key already scoped by OS and bash major. Same
-# default idiom, same override name shape, and the same 0-valued off switch as
-# tools/mutation-sweep.sh's cache: a cache you cannot turn off is a green you cannot re-check.
+# ADVERTISED, NOT ENFORCED: a `test` command that is vitest or pytest never reads it. The store
+# lives OUTSIDE every checkout — a teardown must not cost the operator their cache — and carries the
+# same 0-valued off switch as the mutation sweep's: a cache you cannot turn off is a green you
+# cannot re-check.
 lane_apply_selftest_cache() {
   local store
   # THE OFF SWITCH HAS TO SCRUB, not merely decline to export. An operator who already carries
@@ -2210,27 +2023,20 @@ lane_apply_selftest_cache() {
 # milestones 1-5 and the checklist mandates it BEFORE step 9, so a self-removing milestone 5
 # would delete the worktree mid-run, before the closing comment is even posted.
 #
-# NOT in require_entry_attested's set, unlike every other build-role subcommand: this asserts
-# nothing and records nothing, so refusing it for a missing attestation would block cleanup for
-# no evidentiary gain. What guards the removal is worktree_destroy()'s preconditions, which are
-# stronger and independent of any record the run wrote about itself.
-# #531 D-11. TEARDOWN IS REPORTED, NEVER CERTIFIED. Checklist step 9 runs `bash G 5` and THEN
-# `bash G teardown`, so the outcome does not exist when milestone 5 is decided and cannot be one of
-# its obligations. Gating the aggregate on it would also contradict the note above — the kept
-# worktree is a sanctioned state, and a run that legitimately finished would red over a directory.
+# NOT in require_entry_attested's set: this asserts nothing and records nothing, so refusing it for
+# a missing attestation would block cleanup for no evidentiary gain. worktree_destroy()'s
+# preconditions guard the removal, and they are stronger and independent of any self-report.
+# #531 D-11. TEARDOWN IS REPORTED, NEVER CERTIFIED. Step 9 runs `bash G 5` and THEN `bash G
+# teardown`, so the outcome does not exist when milestone 5 is decided. It gets its own
+# `| teardown |` namespace, invisible to anything reading `| milestone-<n> |`, which keeps it a
+# diagnostic rather than a silent input to the scheduler's satisfied token.
 #
-# So it gets a row of its own, in its own `| teardown |` namespace rather than a milestone one:
-# nothing that reads `| milestone-<n> |` can see it, which is what keeps it a diagnostic instead of
-# a silent input to the scheduler's satisfied token.
+# ONE ROW PER OUTCOME KIND, not one per call; a later call reaching a DIFFERENT outcome still
+# appends, which is the transition an operator wants to see (kept, fixed, then removed).
 #
-# ONE ROW PER OUTCOME KIND, not one per call. `bash G teardown` is re-runnable and a bounded record
-# is the readable one; a later call reaching a DIFFERENT outcome still appends, which is the
-# transition an operator actually wants to see (kept, fixed, then removed).
-#
-# IT NEVER MINTS A RECORD. cmd_teardown is deliberately outside require_entry_attested's set so
-# cleanup works from a checkout with no run state at all, and a write that brought the progress
-# file into existence would quietly undo that. Guarded on the file rather than on a flag, because
-# the condition IS "there is a record to annotate".
+# IT NEVER MINTS A RECORD — a write that brought the progress file into existence would undo the
+# no-run-state property above. Guarded on the file, because the condition IS "there is a record to
+# annotate".
 append_teardown() { # append_teardown <outcome> <detail>
   [ -f "$PROGRESS_FILE" ] || return 0
   [ "$(count_matches "| teardown | $1 |" "$PROGRESS_FILE" -F)" -eq 0 ] || return 0
@@ -2282,25 +2088,18 @@ EOF
 }
 
 # ---------------------------------------------------------------- the IN-FLIGHT READ (#531)
-# SCHEDULER ROLE, and the same "gate owns the predicate, loop owns the comparison" division
-# `progress` and `staleness` established. The scheduler needs to know whether a spawn that exited 0
-# left work only this worktree has; it must not learn that by running git itself, because a
-# file-overlap-style heuristic inlined there breaks the boundary its header states.
+# SCHEDULER ROLE, on the "gate owns the predicate, loop owns the comparison" division `progress`
+# and `staleness` established. The scheduler must not learn this by running git itself — an
+# inlined heuristic breaks the boundary its header states.
 #
-# READ-ONLY in the strict sense that boundary needs: no `attempt` row, no `satisfied` row, no fix
-# budget, and — like `progress` and `staleness` — no ensure_progress_file, so it cannot bring the
-# run's record into existence.
+# READ-ONLY in the strict sense: no `attempt` row, no `satisfied` row, no fix budget, and no
+# ensure_progress_file, so it cannot bring the run's record into existence. NOT in
+# require_entry_attested's set, for `progress`'s reason: it is most needed where a spawn died early.
 #
-# NOT in require_entry_attested's set, for `progress`'s reason exactly: the states it is most
-# needed in are the ones where a spawn died early, and refusing it there would remove the answer
-# precisely when it matters.
-#
-# NO WORKTREE IS 0, DELIBERATELY. The scheduler calls this after the close-out too, whose last act
-# is `bash G teardown` — so the ordinary successful shape is that there is nothing left to read.
-# It is also the honest answer: a tree that does not exist holds no uncollected work, and
-# `git worktree remove` refuses a dirty one, so the directory cannot have taken work with it. A
-# BUILD spawn that never cut a worktree is caught by the continuation predicate beside this, which
-# is the read that owns "did anything happen at all".
+# NO WORKTREE IS 0, DELIBERATELY. The scheduler also calls this after the close-out, whose last act
+# is teardown, and it is the honest answer besides: a tree that does not exist holds no uncollected
+# work, and `git worktree remove` refuses a dirty one. A BUILD spawn that never cut a worktree is
+# caught by the continuation predicate beside this.
 cmd_inflight() {
   local wt rc paths win_rc=0 win_wt="" win_reason="" win_detail=""
   paths="$(lean_worktrees_for_branch "$LEAN_BRANCH")" || paths=""
@@ -2353,36 +2152,24 @@ EOF
 # nothing, which is what keeps orchestrate-lean.sh's "gate exit codes and tracker state, nothing
 # else" boundary intact while it gains a third thing to know.
 #
-# WHY THESE TWO ROW KINDS AND NO OTHERS (D-1). `satisfied` and `attempt` are the only rows a
-# milestone EVALUATION writes, so they are exactly "the build role did something that counts".
-# The bookkeeping rows must stay out, and one of them is load-bearing: record_build_session
-# appends `| session | <id>` on every fresh session's `entry` call — deliberately, even when
-# `entry` short-circuits — so a naive "did the file change" predicate would be TRUE for any spawn
-# that reached checklist step 1, and the no-progress case AC-3 protects would be unreachable.
+# EXACTLY TWO ROW KINDS (D-1, held at two by #497 D-3). `satisfied` and `attempt` are the only rows
+# a milestone EVALUATION writes. The bookkeeping rows must stay out: `| session | <id>` is appended
+# on every fresh session's `entry` call, so a naive "did the file change" predicate would be TRUE
+# for any spawn that reached step 1; and `started`/`concluded` are written on EVERY continuation, so
+# counting them would make each dead spawn of a background-and-exit session read as advancement and
+# burn the whole `--max-continuations` budget. The in-flight pair is a record for the resuming
+# SESSION, never a signal to the orchestrator.
 #
-# #497 D-3 KEEPS THE SET AT EXACTLY THOSE TWO. `started`/`concluded` are written on EVERY
-# continuation, so counting them would make each dead spawn of a background-and-exit session read
-# as advancement and burn the whole `--max-continuations` budget re-proving the same thing. Today
-# that pattern costs exactly one continuation: spawn 2 re-runs the milestones, hits
-# append_satisfied's idempotence, moves nothing, and the scheduler correctly stops. The in-flight
-# pair is a record for the resuming SESSION, never a signal to the orchestrator.
+# WHY A COUNT IS A SOUND TOKEN. These rows are append-only, and the single rewriter in this file
+# (heal_progress_run_id) has an exact-string compare bounded to the header — so the count cannot go
+# up and back down within a spawn and read as unchanged. #528 keeps that true under a concurrent
+# writer by making append_satisfied claim-then-append rather than rebuild. The `progress-v1:`
+# generation prefix marks the token space so a caller reaching for `-gt` has to notice this is not
+# an orderable integer.
 #
-# WHY A COUNT IS A SOUND TOKEN. These rows are append-only: append_attempt and append_satisfied
-# only ever add, and the single rewriter in this file (heal_progress_run_id) has an exact-string
-# compare bounded to the header. So the selected count cannot go up and back down within a spawn
-# and read as unchanged. #528 is what keeps that true under a concurrent same-issue writer:
-# append_satisfied takes an atomic exclusive-create claim and then appends, rather than
-# rebuilding the file — a rebuild would make it a second rewriter, and one that can drop a
-# concurrently-appended `attempt` row, which is precisely the downward movement this paragraph
-# rules out. It is printed behind a generation prefix rather than bare precisely
-# because it is a number a caller must NOT order: `progress-v1:` marks the token space, so a
-# future change of predicate is visibly a different token rather than a silently comparable
-# integer, and a caller reaching for `-gt` has to notice it is not one.
-#
-# NOT in require_entry_attested's set (D-2), for a sharper reason than teardown's: this reads the
-# very file an attestation would live in, so gating it on that attestation would make the
-# predicate unavailable in exactly the state — a spawn that died before `entry` — the scheduler
-# most needs an answer about.
+# NOT in require_entry_attested's set (D-2): this reads the very file an attestation would live in,
+# so gating it there would remove the answer in exactly the state — a spawn that died before
+# `entry` — the scheduler most needs one about.
 progress_token() { # progress_token [<milestone>] — prints the token, never touches the file
   local pat n
   if [ -n "${1:-}" ]; then
@@ -2421,19 +2208,11 @@ progress_token() { # progress_token [<milestone>] — prints the token, never to
 # LOCATED BY THE PROGRESS RECORD, which the scheduler reads from $MAIN_ROOT deliberately — the
 # record must survive worktree teardown. That is the one handle both sides share.
 #
-# #566 NARROWED THE PREDICATE TO THE UNCLOSED COUNT ALONE. The other half used to be a scan of
-# `<issue>-lean-m3-*.pid` runner records, because milestone 3 ran DETACHED and a runner could
-# outlive the session that launched it — so "a live runner with no marker" was a distinguishable
-# state, and a rich one. Milestone 3 no longer detaches: the evaluation is inline and bounded to
-# fit inside the turn, there are no runner records to scan, and the only residue an interrupted
-# evaluation leaves is the unclosed row this counts.
-#
-# THE TOKEN SPACE MOVES TO v3 WITH IT, per the generation-prefix note below, and that is the whole
-# reason the prefix exists. The predicate changed; a caller comparing a v2 reading against a v3 one
-# is comparing two different questions, and the prefix makes that visible instead of arithmetic.
-# The scheduler (orchestrate-lean.sh) only ever compares this token to ANOTHER reading of itself
-# and never parses it, so the version bump costs it nothing — but a future reader that did parse
-# would be stopped by the prefix rather than silently misled.
+# #566 NARROWED THE PREDICATE TO THE UNCLOSED COUNT ALONE — milestone 3 no longer detaches, so
+# there are no runner pid records to scan and the unclosed row is the only residue an interrupted
+# evaluation leaves. THE TOKEN SPACE MOVED TO v3 with it: a caller comparing a v2 reading against a
+# v3 one is comparing two different questions, and the prefix makes that visible instead of
+# arithmetic.
 
 # PRINTED BEHIND A GENERATION PREFIX, like progress_token's, and for the identical reason: this is
 # a number a caller must NOT order.
@@ -2453,33 +2232,22 @@ infra_token() {
 }
 
 # ---------------------------------------------------------------- the CLOSE-OUT REPORT (#531)
-# D-12. The scheduler's close-out failure used to name three obligations as one — "the closing
-# comment, the exit artifacts and the worktree teardown are all unaccounted for" — which was wrong
-# twice over: milestone 5 never asserted the teardown at all, and even for the two it does assert
-# the message could not say which of them was outstanding. Every recovery began with a human
-# reading the record by hand.
+# D-12. The scheduler's close-out failure used to name three obligations as one, and could not say
+# which was outstanding — every recovery began with a human reading the record by hand.
 #
-# A REPORT, NOT A TOKEN, and the distinction is the boundary. Everything else on this subcommand
-# prints an opaque value the caller may only COMPARE; this prints lines the caller may only ECHO.
-# Neither lets the scheduler interpret the record, which is what its header forbids — and putting
-# the reading here rather than there is the same division `progress` and `staleness` already hold.
+# A REPORT, NOT A TOKEN. Everything else on this subcommand prints an opaque value the caller may
+# only COMPARE; this prints lines the caller may only ECHO. Neither lets the scheduler interpret the
+# record, which is what its header forbids. TEARDOWN IS READ SEPARATELY and labelled as its own
+# thing (D-11), so the report cannot be mistaken for a claim that milestone 5 certified it.
 #
-# TEARDOWN IS READ SEPARATELY and labelled as its own thing (D-11), so the report cannot be
-# mistaken for a claim that milestone 5 certified it.
-#
-# ALWAYS 0. It answers a question about a record that may legitimately be empty — a close-out that
-# died before its first gate call leaves nothing, and "nothing was recorded" is that answer rather
+# ALWAYS 0: the record may legitimately be empty, and "nothing was recorded" is that answer rather
 # than a failure to produce one.
 #
-# FIVE SINCE #590, and the order is EXECUTION order rather than alphabetical: the three the
-# close-out command writes, then the two the milestone-5 verifier asserts. An operator reading a
-# stopped run's report reads it top-down and the first `unmet` is where the run stopped.
-#
-# THE CLOSING COMMENT HAS NO ROW OF ITS OWN, deliberately. `verdict-reference` already asserts it
-# — the comment IS the surface that carries the verdict-record path under github, and under a
-# read-only tracker the PR body is, which is the same obligation discharged where the adapter
-# allows. A sixth row would make the report answer the same question twice and disagree with
-# itself the moment one adapter's surface moved.
+# FIVE SINCE #590, in EXECUTION order — the three the close-out writes, then the two milestone 5
+# asserts — so an operator reads top-down and the first `unmet` is where the run stopped. THE
+# CLOSING COMMENT HAS NO ROW OF ITS OWN: `verdict-reference` already asserts it, and a sixth row
+# would answer the same question twice and disagree with itself the moment one adapter's surface
+# moved.
 LEAN_M5_OBLIGATIONS='cost-block cost-log-row pr-cost-block exit-artifacts verdict-reference'
 
 # `met` WINS over `unmet` when both are on file, and that is the only sound reading of an
@@ -2536,48 +2304,37 @@ cmd_progress() {
 # fix. Measured on this repo: the branch for one ticket kept working for 30 minutes after another
 # PR landed the same fix, and the ticket itself was not closed until 63 minutes after that.
 #
-# TWO ARMS, and the weaker one is the one everybody reaches for first. A ticket closing records a
-# HUMAN NOTICING, not the event — in the motivating incident it lagged the merge by an hour, so an
-# arm that reads only tracker state catches nothing in real time. It is still worth reading,
-# because a launch onto an already-closed ticket should not spend a run at all, but the leading
-# signal is the base: main had moved into the very files the branch was editing.
+# TWO ARMS, and the weaker one is what everybody reaches for first: a ticket closing records a
+# HUMAN NOTICING, not the event, and in the motivating incident it lagged the merge by an hour.
+# Still worth reading — a launch onto an already-closed ticket should not spend a run — but the
+# leading signal is the base.
 #
-# WHY FILE OVERLAP AND NOT "THE BASE ADVANCED" (D-1). Measured here: 178 first-parent merges in 21
-# days, ~9.4/day, one every ~1.5 working hours. Bare advancement is therefore true on essentially
-# every multi-hour run, and each stop costs a hand rebase. The predicate is
+# FILE OVERLAP, NOT "THE BASE ADVANCED" (D-1). Measured here: ~9.4 first-parent merges a day, so
+# bare advancement is true on essentially every multi-hour run and each stop costs a hand rebase.
+# The predicate is
 #
 #     files(merge-base..origin/<base>) ∩ files(merge-base..<branch>) ≠ ∅
 #
-# which the incident satisfies (7 files landed, 4 of them shared with the branch). Patch-level
-# redundancy was rejected as false-negative-prone: a second agent re-implementing the same fix
-# produces a different patch-id.
+# which the incident satisfies (7 files landed, 4 shared with the branch). Patch-level redundancy
+# was rejected as false-negative-prone: a second agent re-implementing the same fix produces a
+# different patch-id.
 #
-# ITS KNOWN FALSE-POSITIVE CLASS, named rather than engineered around (OR-1). Any file that
-# essentially every base merge touches — a version-pinned install doc, a generated lockfile — will
-# overlap a branch that also edits it, on every release. Measured here at 32 of 32 release merges
-# for one such doc, ~7% of runs. There is deliberately NO exclusion list: a config key of paths
-# that "do not count" re-introduces exactly the judgment the mechanical predicate exists to avoid,
-# and it is cheap to add later if the rate turns out to bite. The exit message names the class so
-# an operator recognizes one of these in a single read.
+# ITS KNOWN FALSE-POSITIVE CLASS, named rather than engineered around (OR-1): any file essentially
+# every base merge touches — a version-pinned install doc, a lockfile — overlaps a branch that also
+# edits it (32 of 32 release merges for one such doc, ~7% of runs). Deliberately NO exclusion list;
+# a config key of paths that "do not count" re-introduces the judgment the mechanical predicate
+# exists to avoid. The exit message names the class so an operator recognizes one in a single read.
 #
-# READ-ONLY, in the strict sense the scheduler's contract needs (D-3). It records nothing: no
-# `attempt` row, no `satisfied` row, no fix-budget consumption, and — like `progress` — it does not
-# call ensure_progress_file, so it cannot bring the run's record into existence. The scheduler reads
-# only its rc, which is what keeps "gate exit codes and tracker state, nothing else" true while the
-# lane gains a predicate that has to look at git.
+# READ-ONLY (D-3): no `attempt` row, no `satisfied` row, no fix budget, no ensure_progress_file. NOT
+# in require_entry_attested's set — this runs BEFORE the first BUILD spawn, whose own first act is
+# `entry`, so gating it would refuse it on every honest run's first call.
 #
-# NOT in require_entry_attested's set, for a reason sharper than `progress`'s: this runs BEFORE the
-# first BUILD spawn of round 1, and `entry` is that spawn's own first act. Gating it on an
-# attestation would refuse it on every honest run's first call.
+# FAIL CLOSED (D-5): a failed fetch, an unresolvable merge-base or an unreadable tracker answer
+# returns 1 naming which read failed, never 0 — a stale `origin/<base>` answering "nothing moved" is
+# indistinguishable from a clean check.
 #
-# FAIL CLOSED (D-5). A failed fetch, an unresolvable merge-base or an unreadable tracker answer
-# returns 1 naming which read failed, and never 0. A stale `origin/<base>` would make the base arm
-# answer "nothing moved", which is indistinguishable from a clean check — the same error-reads-as-
-# success shape `progress_token`'s non-zero return exists to remove.
-#
-# THE ARMS SHORT-CIRCUIT, ticket first. It is the cheaper read (no fetch), and a run stopped by it
-# is stopping regardless of what the base says — so "which arm fired" stays unambiguous and a dead
-# ticket costs no network round trip against the base.
+# THE ARMS SHORT-CIRCUIT, ticket first: it is the cheaper read, and a run stopped by it is stopping
+# regardless of what the base says.
 #
 # Exit: 0 = clean, or an arm stated a skip · 7 = STALE · 1 = a read could not be completed.
 staleness_ticket_arm() {
@@ -2650,29 +2407,21 @@ staleness_base_arm() {
 # #650 AC-2. THE MID-RUN RE-CHECK — the one `staleness_ticket_arm` caller that runs from INSIDE a
 # live payload session.
 #
-# WHAT WAS UNCOVERED, said precisely, because the ticket's own wording ("nothing calls it") is
-# looser than the defect. The refusal above IS reached: `orchestrate-lean.sh` asks for it at
-# preflight and again before every BUILD spawn. What nothing asked after `entry` is whether the
-# ticket is STILL open — and the scheduler structurally cannot, because there is no channel into a
-# running `claude -p`. Its own header says so: the spawn-boundary check "bounds the damage at one
-# session, not at zero". This is the other side of that boundary, asked by the session itself.
+# WHAT WAS UNCOVERED. The scheduler asks for the refusal above at preflight and before every BUILD
+# spawn; what nothing asked AFTER `entry` is whether the ticket is still open — and the scheduler
+# structurally cannot, because there is no channel into a running `claude -p`. This is the other
+# side of that boundary, asked by the session itself.
 #
-# WHY `mark` AND NOT A MILESTONE (`D-11`). `require_ticket_live`'s header fixes the rule the
-# milestone calls depend on — "one read per run boundary, never per milestone" — and `1`..`5` are
-# recorded as network-free. `mark` is neither: it already opens a socket and already writes. So the
-# check lands where it costs nothing structurally, and it lands at the moment that matters — step 7,
-# immediately before the handoff — so a ticket that closed under a live build session is caught
-# before a review round is spent proving work nobody needs.
+# `mark` AND NOT A MILESTONE (D-11). `require_ticket_live` fixes "one read per run boundary, never
+# per milestone", and `1`..`5` are recorded as network-free; `mark` already opens a socket and
+# already writes. It also lands at the moment that matters — step 7, immediately before the handoff.
 #
-# WHAT IT DOES NOT BUY, stated so exit 7 here is not misread. The session has already spent its own
-# time; this cannot refund it. It saves the handoff and the review round, which is the cost the
-# corrected class-M shape actually names.
+# WHAT IT DOES NOT BUY: the session has already spent its own time. It saves the handoff and the
+# review round.
 #
-# THE DIRECT SUBCOMMAND ONLY, and that exemption is load-bearing rather than an oversight.
-# `cmd_5` and `cmd_close_out` call `cmd_mark` as a FUNCTION, so they never reach this guard — which
-# is #515's `D-4` reasoning honored rather than re-decided: the landing path must stay open, and a
-# refusal there would strand approved, reviewed work instead of saving any. A ticket that closed
-# mid-review still closes out.
+# THE DIRECT SUBCOMMAND ONLY, and load-bearing: `cmd_5` and `cmd_close_out` call `cmd_mark` as a
+# FUNCTION and never reach this guard. The landing path must stay open — a refusal there would
+# strand approved, reviewed work instead of saving any.
 require_ticket_still_open() {
   local rc
   staleness_ticket_arm; rc=$?
@@ -2794,13 +2543,9 @@ cmd_entry() {
   # session. Later readers check PRESENCE ONLY — nothing re-resolves a ledger path from inside
   # a worktree, which is what lets this land independently of #417.
   #
-  # Idempotent, and retroactive by design (D-11): a run that skipped step 1 in a properly
-  # configured repo self-heals with one command, while in the configuration that motivated this
-  # (`audit-toolkit` off) the predicate above still refuses — so the enforcement binds exactly
-  # where it was missing. OR-1: the row is per-RUN, not per-session. It attests that the run
-  # STARTED attested; a session resuming it inherits the row without re-proving its own ledger.
-  # Tightening to per-session is one comparison against the id recorded here, but cannot be done
-  # honestly until #417 lands.
+  # Idempotent and retroactive (D-11): a run that skipped step 1 self-heals with one command, while
+  # with `audit-toolkit` off the predicate above still refuses. OR-1: the row is per-RUN, not
+  # per-session — it attests that the run STARTED attested, and a resuming session inherits it.
   ensure_progress_file
   record_ticket_resolution
   # #528: a claim still present here was orphaned by a killed writer, never held by a live one —
@@ -2987,23 +2732,18 @@ resolve_capability_stamp() {
 LEAN_PR_MARKER_TAG='lean-pr-marker'
 # LOCKSTEP-END lean-pr-marker
 
-# WHY THE PR AND NOT THE ISSUE (D-2). The build run's identity has to be readable by a check
-# that knows nothing about the tracker: source control is GitHub for every adapter, so a PR
-# comment is the one authenticated write surface that needs no `tracker.writes` branching.
-# lean-evidence.sh compares the verdict record's identity against EVERY marker here.
+# THE PR AND NOT THE ISSUE (D-2): the build run's identity has to be readable by a check that knows
+# nothing about the tracker, and source control is GitHub for every adapter. lean-evidence.sh
+# compares the verdict record's identity against EVERY marker here.
 #
-# WHY STEP 7 AND NOT MILESTONE 5 ALONE. A PR comment does not fire a `pull_request` event, so
-# it never re-runs the merge-boundary job. The last CI run on a lean PR is the review session's
-# verdict-record push, and nothing pushes after it — a marker first written at milestone 5
-# would be invisible to that run and would red every lean PR until someone re-ran the job by
-# hand. So the checklist calls this at PR-open, and cmd_5 calls it again; the second call is a
-# no-op. (The receipt placed the write at milestone 5 on the reasoning that the PR exists by
-# then, which is equally true at step 7 — see this issue's intent-gap record.)
+# STEP 7, NOT MILESTONE 5 ALONE. A PR comment fires no `pull_request` event, and the last CI run on
+# a lean PR is the review session's verdict-record push — so a marker first written at milestone 5
+# is invisible to the run that gates the merge and reds every lean PR until someone re-runs the job.
+# The checklist calls this at PR-open and cmd_5 calls it again; the second call is a no-op.
 #
-# IDEMPOTENT BY IDENTITY, not by presence: a marker carrying THIS run's id suppresses the
-# write, while a marker from a DIFFERENT build session on the same PR does not. That is the
-# case D-4 exists for — a second session must leave its own marker, or its identity is
-# invisible at the boundary and it could author its own review.
+# IDEMPOTENT BY IDENTITY, not by presence: a marker carrying THIS run's id suppresses the write, a
+# marker from a DIFFERENT build session does not (D-4). A second session must leave its own, or its
+# identity is invisible at the boundary and it could author its own review.
 cmd_mark() {
   local pr prnum comments existing body url rc msid recorded
 
@@ -3049,19 +2789,16 @@ cmd_mark() {
     return 0
   fi
 
-  # #446: the ambient session must be a RECORDED build session, and #590 moved this AFTER the
-  # no-op above rather than ahead of the two reads. What it protects is unchanged, because it
-  # guards a WRITE: on the path it now sits behind, nothing is written, so no foreign identity can
-  # reach a marker however the caller is identified. What #446 bought by placing it first was a
-  # zero-network refusal for a review session doing the documented recovery — a cost argument, not
-  # a correctness one, and it is now paid by the close-out, which is a gate command with no
-  # session identity at all and must pass when checklist step 7 already stamped the marker.
+  # #446: the ambient session must be a RECORDED build session. It sits AFTER the no-op above
+  # (#590) and that is safe, because what it guards is a WRITE: on the path behind the no-op
+  # nothing is written, so no foreign identity can reach a marker. Placing it first bought only a
+  # zero-network refusal, and that cost is now the close-out's — a gate command with no session
+  # identity at all, which must pass when step 7 already stamped the marker.
   #
-  # This never records; see record_build_session's note on why a self-whitelisting guard would be
-  # vacuous. It prints the recorded id rather than silently substituting it, which is the whole
-  # difference: a genuine second build session keeps its OWN ambient id on its OWN marker, while
-  # the operator's correction becomes "copy the harness's recorded value" instead of "hand-supply
-  # an identity string".
+  # It never records (see record_build_session on why a self-whitelisting guard is vacuous) and it
+  # PRINTS the recorded id rather than substituting it: a genuine second build session keeps its
+  # own ambient id on its own marker, while the operator's correction becomes "copy the harness's
+  # recorded value" instead of "hand-supply an identity string".
   msid="${CLAUDE_CODE_SESSION_ID:-}"
   if ! session_in_build_set "$msid"; then
     recorded="$(build_session_set | tr '\n' ' ' | sed -e 's/[[:space:]]*$//')"
@@ -3096,16 +2833,14 @@ cmd_mark() {
 }
 
 # ---------------------------------------------------------------- milestone 1: open regions
-# #374 AC-8/9/10. A declared `pause-and-ask` Open Region (interviewing-baseline's Decision
-# Ledger contract) is not the build session's to close — refuse here, before any code is
-# written, rather than let it surface as a review blocker hours later (observed on #372's
-# OR-2: resolved in-session, caught only at round-1 review, cost an operator comment AND a
-# round-2 review to clear). `reversible-default-and-flag` regions carry their own default and
-# are never refused (AC-9); an issue with no `## Open Regions` section is unaffected (AC-10).
+# #374 AC-8/9/10. A declared `pause-and-ask` Open Region is not the build session's to close —
+# refuse before any code is written rather than let it surface as a review blocker hours later
+# (#372's OR-2 cost an operator comment AND a round-2 review). `reversible-default-and-flag`
+# regions carry their own default and are never refused (AC-9); no `## Open Regions` section is
+# unaffected (AC-10).
 #
-# NETWORK, and deliberately NOT part of cmd_all's cheap pre-pass (AC-7 bounds the pre-pass,
-# not milestone 1's real body) — the issue and its comment trail are read live unless the
-# fixture seams below are set. cmd_1 skips this entirely under LEAN_GATE_OBSERVE=1.
+# NETWORK, and deliberately NOT part of cmd_all's cheap pre-pass — the issue and its comment trail
+# are read live unless the fixture seams below are set. cmd_1 skips this under LEAN_GATE_OBSERVE=1.
 open_regions_section() { # stdin: the issue body — prints the section's lines, nothing else
   awk '
     tolower($0) ~ /^#+[[:space:]]+open regions[[:space:]]*$/ { insec = 1; next }
@@ -3114,15 +2849,12 @@ open_regions_section() { # stdin: the issue body — prints the section's lines,
   '
 }
 
-# Table rows `| <id> | ... | pause-and-ask |` inside the section — the closed 2-value
-# disposition enum interviewing-baseline defines. The header/separator rows never match:
-# neither carries the literal disposition token in its last cell.
+# Table rows `| <id> | ... | pause-and-ask |` inside the section. The header/separator rows never
+# match — neither carries the literal disposition token in its last cell.
 #
-# The disposition is the LAST NON-EMPTY cell, not $(NF-1). GFM does not require the trailing
-# pipe interviewing-baseline's canonical form happens to write, and `| OR-1 | R | pause-and-ask`
-# puts the disposition at $NF — under $(NF-1) that row scans the Region text, matches nothing,
-# and the gate fails OPEN on a table a renderer accepts. Scanning back from NF over trimmed
-# cells reads both shapes, since the trailing pipe's own field is empty.
+# The disposition is the LAST NON-EMPTY cell, not $(NF-1): GFM does not require the trailing pipe,
+# so `| OR-1 | R | pause-and-ask` puts it at $NF, and under $(NF-1) that row scans the Region text,
+# matches nothing, and the gate fails OPEN on a table a renderer accepts.
 pause_and_ask_ids() { # stdin: the issue body
   open_regions_section | awk -F'|' '
     /pause-and-ask/ {
@@ -3190,16 +2922,11 @@ $(printf '%s\n' "$1" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
 EOF
 }
 
-# #533. The OTHER declared source: intake's plan-interview writes pause-and-ask regions into
-# the pre-flight ledger, not the issue body — so a run whose spec came out of pre-flight has its
-# regions sitting somewhere this guard, pre-#533, never looked. The ledger's `## Open Regions`
-# table is the SAME shape interviewing-baseline defines for the issue body (`pause_and_ask_ids`
-# reads either unchanged; only the source differs), so no second parser is needed here.
-#
-# Default path follows the `{issue}-ledger.md` convention — the sibling of every
-# other per-issue file in $STATE_DIR (PROGRESS_FILE, RUN_ID_CACHE). `--ledger-file` overrides it,
-# symmetric with `--issue-file`/`--comments-file`, so a selftest can drive this leg without a real
-# write into $STATE_DIR — a SHARED, mutable directory across every worktree on the machine.
+# #533. The OTHER declared source: plan-interview writes pause-and-ask regions into the pre-flight
+# ledger, not the issue body. Its `## Open Regions` table is the SAME shape (`pause_and_ask_ids`
+# reads either unchanged), so no second parser is needed. `--ledger-file` overrides the
+# `{issue}-ledger.md` default, symmetric with `--issue-file`/`--comments-file`, so a selftest can
+# drive this leg without writing into $STATE_DIR — shared and mutable across every worktree.
 pause_and_ask_ledger_path() {
   if [ -n "$LEDGER_FILE" ]; then
     printf '%s\n' "$LEDGER_FILE"
@@ -3367,14 +3094,11 @@ design_rs_rows() { # design_rs_rows   (spec on stdin)
   '
 }
 
-# The GATE's arming resolution (D-8): the shared predicate plus the form validation only a
-# writer can act on. Prints exactly one of `unarmed`, `disarmed`, `armed`, or `error:<message>`
-# — an error being an authoring defect the session can fix, never an environment problem.
-#
-# `unarmed` short-circuits on the config: a repo with no `design.provider` has no design axis, so
-# a `## Design` section in its spec is documentation and arms nothing. That is the AND half of
-# D-8, and the case that kills an AND→OR mutant — under OR, every consumer that ever wrote the
-# heading would be required to own a render harness.
+# The GATE's arming resolution (D-8). Prints exactly one of `unarmed`, `disarmed`, `armed`, or
+# `error:<message>` — an error being an authoring defect the session can fix, never an environment
+# problem. `unarmed` short-circuits on the config: with no `design.provider` a `## Design` section
+# is documentation and arms nothing. That is D-8's AND half — under OR, every consumer that ever
+# wrote the heading would be required to own a render harness.
 design_state() { # design_state <spec-path>
   local spec="$1" sec n_disarm n_reason n_link
   [ -n "$DESIGN_PROVIDER" ] || { printf 'unarmed'; return 0; }
@@ -3409,17 +3133,14 @@ design_state() { # design_state <spec-path>
   printf 'armed'
 }
 
-# The STATE LOCK behind D-8's mid-run-disarm refusal. Its line shape deliberately does NOT
-# contain the `| milestone-3 | attempt |` substring attempt_count() greps, so arming — which
-# happens on every armed evaluation, passing or failing — can never consume fix budget. It is a
-# record of a decision, not a counter.
+# The STATE LOCK behind D-8's mid-run-disarm refusal. Its line shape does NOT contain the
+# `| milestone-3 | attempt |` substring attempt_count() greps, so arming — which happens on every
+# armed evaluation — never consumes fix budget. It is a record of a decision, not a counter.
 #
-# Read the STRENGTH of this lock correctly. PROGRESS_FILE is uncommitted and machine-local, so
-# the row binds inside the worktree that armed the lane; a resume in a fresh worktree, or on a
-# second machine, reads no record and accepts the disarm. That matches this script's declared
-# trust posture — a local record is tamper-evidence, never integrity — and the residual sits at
-# review, where an unjustified "Design: none" on a provider repo is a blocker. Do not inherit
-# this as "cannot be escaped".
+# Read its STRENGTH correctly: PROGRESS_FILE is uncommitted and machine-local, so the row binds
+# inside the worktree that armed the lane and a resume elsewhere accepts the disarm. That matches
+# this script's trust posture — a local record is tamper-evidence, never integrity — and the
+# residual sits at review. Do not inherit this as "cannot be escaped".
 design_was_armed() {
   [ "$(count_matches "| milestone-3 | armed |" "$PROGRESS_FILE" -F)" -ge 1 ]
 }
@@ -3486,19 +3207,14 @@ cmd_1() {
     fi
   fi
 
-  # #517: the pre-flight receipt is BINDING INPUT (SKILL.md step 4) — and until now nothing in
-  # the lane held it beside the spec this run committed. The review session reads the COMMITTED
-  # spec; by the time it looks, a dropped receipt row has left no trace to notice its absence
-  # against, and a row the spec silently re-decided the other way reads as an ordinary choice.
-  # This is the one place both documents are in reach at once.
+  # #517: the pre-flight receipt is BINDING INPUT (SKILL.md step 4), and this is the one place both
+  # documents are in reach at once. The review session reads the COMMITTED spec, by which point a
+  # dropped receipt row has left no trace to notice its absence against and a silently re-decided
+  # row reads as an ordinary choice.
   #
-  # It is necessarily LOCAL and never a merge-boundary check: $STATE_DIR is gitignored on every
-  # consumer, this repo included, so check-lean-chain.sh in CI cannot read the receipt at all.
-  #
-  # Same seam as the #562 lint above, and the same reason: the provenance enum stays single-sited
-  # in ledger-lint.sh rather than gaining a third parser here (docs/testing.md, the
-  # `intake-receipt vocabulary` entry under *Couplings considered and declined*).
-  # `resolve_ledger_lint` is re-used only when the branch above did not already resolve it.
+  # Necessarily LOCAL: $STATE_DIR is gitignored on every consumer, so CI cannot read the receipt.
+  # Same seam as the #562 lint above — the provenance enum stays single-sited in ledger-lint.sh
+  # rather than gaining a third parser here.
   receipt="$(pause_and_ask_ledger_path)"
   if [ -f "$receipt" ]; then
     [ -n "$lint" ] || lint="$(resolve_ledger_lint)" \
@@ -3509,14 +3225,11 @@ cmd_1() {
       # A fix the build role can make — edit the committed spec — so it spends a fix attempt,
       # exactly as #562's provenance lint does two blocks up.
       1) fail_milestone 1 "spec $SPEC_REL does not reconcile with the pre-flight ledger $receipt: $rec_out"; return $? ;;
-      # Anything else is a READ that failed (an unreadable receipt, a broken install). "No
-      # ledger" and "a ledger this could not read" are different facts and neither may report
-      # CLEAR — but the second is not a failed fix either, so it never charges the budget.
-      #
-      # This is the SAME fact #533's check_pause_and_ask reports below, and it is worded so,
-      # because this block now reaches an unreadable ledger first: it runs in the observe pass
-      # (it opens no socket) while that check sits under the guard. The rc and the
-      # no-fix-attempt half of the contract are unchanged — only which reader says it first.
+      # Anything else is a READ that failed. "No ledger" and "a ledger this could not read" are
+      # different facts and neither may report CLEAR — but the second is not a failed fix either,
+      # so it never charges the budget. Same fact #533's check_pause_and_ask reports below, worded
+      # so because this block reaches an unreadable ledger FIRST: it runs in the observe pass while
+      # that check sits under the guard.
       *) envfail "milestone-1: could not read pre-flight ledger $receipt while reconciling it against $SPEC_REL (ledger-lint exit $rec_rc): $rec_out" ;;
     esac
   fi
@@ -3676,33 +3389,26 @@ lean_extra_lanes_diff() {
 # owns the state matrix, the output paths, the hashes and the manifest, and nothing else.
 RENDER_OUT_REL=".claude/lean-renders/$ISSUE"
 
-# Placeholder substitution is into a SHELL COMMAND STRING, so every value is single-quoted on the
-# way in. `{state}` is the reason this is not optional: a render state is human prose ("filters
-# expanded"), so the raw form splices two words where the harness expects one argument — observed
-# the first time a two-word state was declared, where the harness received `--state filters` and
-# a stray `expanded`, rendered the wrong view, and passed every other assertion here. `{out}` and
-# `{route}` get the same treatment because a worktree path may contain a space too.
+# Substitution is into a SHELL COMMAND STRING, so every value is single-quoted on the way in.
+# `{state}` is why that is not optional: a render state is human prose ("filters expanded"), so the
+# raw form splices two words where the harness expects one argument — observed, rendering the wrong
+# view while passing every other assertion here. `{out}`/`{route}` get the same treatment.
 #
-# The CONTRACT this creates, and the docs state it: the placeholders appear UNQUOTED in the
-# template. `--state {state}` is correct; `--state "{state}"` nests this quoting inside the
-# consumer's and delivers a literally-quoted argument.
+# THE CONTRACT: the placeholders appear UNQUOTED in the template. `--state {state}` is correct;
+# `--state "{state}"` nests this quoting inside the consumer's.
 shquote() { # shquote <value>
   printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
 }
 
 # Substitution walks the template rather than using `${t//p/r}`, and that is not a style choice.
 # Since bash 5.2 `patsub_replacement` is ON by default, so a bare ampersand in the REPLACEMENT
-# expands to whatever the pattern just matched: a route `prospects?tab=new&sort=asc` arrives at
-# the harness as `prospects?tab=new{route}sort=asc`, and a state `filters & sort expanded` as
-# `filters {state} sort expanded`. shquote() cannot reach this — it quotes for the shell, one
-# layer below where the corruption happens. The failure is silent by construction: the harness
-# still exits 0, the screenshot is still non-empty, two rows still hash differently because they
-# were shot at two different WRONG views, and the manifest records the DECLARED route and state,
-# so the receipt is honest about intent while the pixels are of something else. That is failure
-# class (2) reinstated, and it also disarms the reviewer's hash check, which would agree.
-# Escaping is no fix: `\&` is the literal on 5.2+ and a literal backslash-ampersand on 3.2.
-# Splitting on the placeholder has no replacement layer at all, so it is identical on both.
-# macOS system bash (3.2) never showed this; every ubuntu runner and every homebrew bash does.
+# expands to whatever the pattern just matched: `prospects?tab=new&sort=asc` reaches the harness as
+# `prospects?tab=new{route}sort=asc`. shquote() cannot reach this — it quotes one layer below.
+# The failure is SILENT: the harness exits 0, the screenshot is non-empty, two rows hash
+# differently because they were shot at two different WRONG views, and the manifest records the
+# DECLARED route and state, so the receipt is honest about intent while the pixels are not.
+# Escaping is no fix (`\&` differs between 3.2 and 5.2+); splitting on the placeholder has no
+# replacement layer at all. macOS system bash never showed this; every ubuntu runner does.
 subst() { # subst <template> <placeholder> <replacement>
   local t="$1" p="$2" r="$3" out=""
   while :; do
@@ -3787,17 +3493,13 @@ md_table_prettier() {
 }
 
 # The prettier binary this gate may run on an artifact IT AUTHORED (#439, D-5). Prints the
-# invocation path, or nothing when none resolves — which every caller must treat as "skip the
-# format step", never as a failure: an absent formatter is a consumer fact, not a run defect.
+# invocation path, or nothing — which every caller must treat as "skip the format step", never as
+# a failure: an absent formatter is a consumer fact, not a run defect.
 #
-# Two rungs, and the omission of a third is the design. The previous ladder
-# ended in `npx --yes prettier@x`; that rung was deliberately NOT carried here, because a gate
-# call must not reach the network. #348 deleted that ladder, leaving this file the sole carrier
-# of the two rungs, so nothing outside this file holds them now.
-#
-# `commands.<repo>.format` cannot supply this: in at least one consumer it is bound to the
-# CHECK variant (`yarn format:check`), and the shipped config-lint fixture carries exactly
-# that. No new config key either — this resolver needs no consumer onboarding to work.
+# TWO rungs, and the omission of a third is the design: an `npx --yes prettier@x` rung would make
+# a gate call reach the network. `commands.<repo>.format` cannot supply this either — in at least
+# one consumer it is bound to the CHECK variant (`yarn format:check`). No new config key: this
+# resolver needs no consumer onboarding.
 lean_resolve_prettier() {
   local wt="$REPO_ROOT" mr="$MAIN_ROOT"
   # SINGLE-SITED: the header above says it — nothing outside this file holds these rungs now.
@@ -4070,23 +3772,30 @@ cmd_3_render() {
 }
 
 # #527 D-1. The verify-lane exit code, classified. ONE resolver rather than a test at each call
-# site, because the contract is that the reserved code means the same thing wherever a lane runs —
-# a per-site check is how the fixed keys and extraLanes drift into disagreeing about it.
+# site: the reserved code must mean the same thing wherever a lane runs.
 #
 # NOT A PER-LANE CONFIG DECLARATION. A `failureClass`-style opt-in would put the answer in the
-# config of the repo whose lane just told us it could not answer, and every consumer would have to
-# discover the key before the class did anything. A reserved code is discovered once, in
-# docs/config-schema.md, and works on the fixed keys — which is where the repo-carried sweep runs,
-# since `commands[repo].test` is its only call path.
+# config of the repo whose lane just said it could not answer, and every consumer would have to
+# discover the key before the class did anything.
 #
-# SCOPED TO VERIFY LANES. Setup `lanes[]` are already infra by construction — they never read a 3.
-# (The repo-carried mutation sweep used to be the other exception here; #580 retired the lane that
-# ran it, so the only remaining reader of this class is a verify lane.)
+# SCOPED TO VERIFY LANES, and since #642 to `typecheck` alone — `lint`, `test` and extraLanes are
+# advisory, so they never reach a class at all. Setup `lanes[]` were always infra by construction.
 lane_failure_class() { # lane_failure_class <lane-rc> — the class fail_milestone should return
   case "$1" in
     "$LANE_INFRA_RC") echo "$INFRA_CLASS" ;;
     *)                echo 1 ;;
   esac
+}
+
+# #642. A red on a DEMOTED milestone-3 lane. It records — on the `advisory` verb milestone 2's
+# frozen-files notice already established, which no counter in this file greps — and returns 0, so
+# the milestone continues to the lanes after it and concludes on its own merits. The lane's own
+# output has already gone to the terminal; this is the durable half, and it is what a reviewer and
+# the retro corpus read.
+lane_advisory() { # lane_advisory <reason>
+  append_line "$(now_iso) | milestone-3 | advisory | $1 — reported, not blocking: the merge boundary re-runs this lane"
+  warn "milestone-3: $1"
+  warn "  ADVISORY (#642), not a refusal — this lane is re-run at the merge boundary, so it reports here and blocks there. Nothing was charged to the fix budget."
 }
 
 cmd_3() {
@@ -4138,7 +3847,15 @@ cmd_3() {
     any_verifying=1
     say "milestone-3: $key » $cmd"
     ( cd "$REPO_ROOT" && env ${SEAM_SCRUB_ENV[@]+"${SEAM_SCRUB_ENV[@]}"} bash -c "$cmd" ); rc=$?
-    [ "$rc" -eq 0 ] || { fail_milestone 3 "$key failed (rc=$rc)" "$(lane_failure_class "$rc")"; return $?; }
+    [ "$rc" -eq 0 ] && continue
+    # #642: `lint` and `test` REPORT, they do not refuse — the merge boundary re-runs both
+    # (`lint-and-selftests`), so refusing here buys WHEN a failure is caught, not whether, and
+    # spends a fix round to buy it. `typecheck` is NOT demoted: the demotion's premise is
+    # measured CI duplication and typecheck has none measured.
+    case "$key" in
+      typecheck) fail_milestone 3 "$key failed (rc=$rc)" "$(lane_failure_class "$rc")"; return $? ;;
+      *) lane_advisory "$key failed (rc=$rc)" ;;
+    esac
   done
 
   # ---- extraLanes (EP-2) ---------------------------------------------------------
@@ -4222,23 +3939,21 @@ cmd_3() {
         el_cmd="$(jq -r --argjson i "$el_i" --argjson j "$el_ci" '.[$i].commands[$j]' <<<"$el_lanes")"
         say "milestone-3: extra lane '$el_name' » $el_cmd"
         ( cd "$REPO_ROOT" && env ${SEAM_SCRUB_ENV[@]+"${SEAM_SCRUB_ENV[@]}"} bash -c "$el_cmd" ); rc=$?
-        [ "$rc" -eq 0 ] || { fail_milestone 3 "extra lane '$el_name' failed (rc=$rc): $el_cmd" "$(lane_failure_class "$rc")"; return $?; }
+        # #642, and the same demotion the fixed keys above take. The `break` is what changes with
+        # it: fail-fast used to be the refusal's job, and a lane's later commands are still
+        # meaningless once an earlier one red, so the lane stops and the NEXT lane runs.
+        [ "$rc" -eq 0 ] || { lane_advisory "extra lane '$el_name' failed (rc=$rc): $el_cmd"; break; }
       done
     done
   fi
 
   # ---- design live-render (#394) -------------------------------------------------
-  # LAST in milestone 3, after extraLanes — the same slot, and for the same reason, that
-  # extraLanes took after the fixed keys: cheap deterministic lanes first, then the expensive
-  # ones. A no-op on every unarmed run, which is every run in a repo with no design.provider.
+  # LAST in milestone 3, after extraLanes, on the same rule: cheap deterministic lanes first, then
+  # the expensive ones. A no-op on every unarmed run.
   #
-  # #580 retired what used to follow it: a diff-scoped `tools/mutation-sweep.sh --mode pr` run,
-  # decision D-18. It made the IDENTICAL invocation the `mutation-sweep-pr` CI job already makes,
-  # so it was CI-duplicated work idle-blocking a build session — and it ran on a contended
-  # machine, where a killed sweep orphans fixtures that poison later sweeps. The merge boundary
-  # re-derives the same truth for free. The mutation seam is now repo-carried AND repo-RUN: a
-  # repo that wants one wires its own CI, and this gate no longer looks for `tools/mutation-sweep.sh`
-  # at all. Do not re-add it here — the duplication is the whole reason it went.
+  # #580 retired a repo-carried `tools/mutation-sweep.sh --mode pr` run from this slot: it made the
+  # IDENTICAL invocation the `mutation-sweep-pr` CI job already makes. Do not re-add it — the
+  # duplication is the whole reason it went, and #642 applied the same reading to `lint`/`test`.
   cmd_3_render; rc=$?
   [ "$rc" -eq 0 ] || return "$rc"
 
@@ -4246,25 +3961,23 @@ cmd_3() {
 }
 
 # ---------------------------------------------------------------- milestone 4: review
-# D-22/D-46: the COMMITTED verdict record is the record of record. The progress-file line
-# is a local counter only — the lean chain gate re-asserts the committed record at the
-# merge boundary, so a hand-typed local line cannot reach a merge.
+# D-22/D-46: the COMMITTED verdict record is the record of record. The progress-file line is a
+# local counter only — the merge boundary re-asserts the committed record, so a hand-typed local
+# line cannot reach a merge.
 #
-# READ-ONLY BY CONSTRUCTION. This milestone never writes to the verdict record — not to
-# create it, not to stamp it, not to "normalize" it. The build session's only relationship
-# to that file is reading one somebody else wrote; the moment this function can write it,
-# the P10 separation below is decorative. The suite asserts the file is byte- and
-# mtime-identical across a full `all` sweep.
+# READ-ONLY BY CONSTRUCTION. This milestone never writes to the verdict record — not to create it,
+# not to stamp it, not to "normalize" it. The moment it can, the P10 separation is decorative. The
+# suite asserts the file is byte- and mtime-identical across a full `all` sweep.
 cmd_4() {
   local rec="$REPO_ROOT/$VERDICT_REL" v_val v_run v_sess b_prog_run b_prog_sess b_cached cand
-  local v_commit v_short stale n_stale v_head v_head_short declared n_declared v_pid cur_pid v_fresh
+  local v_commit v_short stale n_stale v_head v_pid cur_pid v_fresh
   local v_inh v_chain v_coverage
   # The handoff moment, and so the one place the P9 reminder is contextual rather than noise.
   # It lives here rather than as another SKILL.md line for the reason the cap exists: stderr is
   # read exactly when it applies, prose is read on every run. NO DETECTION happens here — the
   # refusal is the merge boundary's alone (check-lean-chain.sh evidence 6), and a second in-run
   # copy would be the duplicate machinery D-47 rules out, not defense in depth.
-  [ -f "$rec" ] || { fail_milestone 4 "no committed verdict record at $VERDICT_REL — hand off to '/dev-pipeline:review-lean <pr>'. If this run wrote an intent-gap record, ratify it before that handoff: the merge boundary refuses one still reading 'ratified: no'." 5; return $?; }
+  [ -f "$rec" ] || { block_milestone 4 "no committed verdict record at $VERDICT_REL — hand off to '/dev-pipeline:review-lean <pr>'. If this run wrote an intent-gap record, ratify it before that handoff: the merge boundary refuses one still reading 'ratified: no'." 5; return $?; }
   v_val="$(record_verdict "$rec")"
   if [ "$v_val" != "approve" ]; then
     fail_milestone 4 "verdict record $VERDICT_REL reads verdict=${v_val:-<none>}, not verdict=approve" 1; return $?
@@ -4441,67 +4154,54 @@ cmd_4() {
   # inference cannot see: a reviewer who reads head A, waits while a fix lands at B, and then
   # commits an honest record on top of B leaves inference with nothing to complain about.
   #
-  # TWO KEYINGS, in precedence order. Patch identity is the gate whenever the record carries
-  # one; the SHA path below is what pre-key records still gate on. The old keying is not WRONG,
-  # only over-strict — it refused a rebase, which changes no reviewed content — so records
-  # written before the key existed are read on it rather than refused by the upgrade itself.
-  #
   # What patch identity deliberately does NOT cover: a base change that reds the suite with no
   # textual conflict. The branch's patch is unchanged there, so the verdict correctly still
-  # stands, and the merged result failing is CI's business. Conflating "the reviewed content
-  # moved" with "the merge result broke" is what made the SHA keying over-strict to begin with.
+  # stands, and the merged result failing is CI's business.
+  #
+  # #642 DELETED THE SHA-KEYED FALLBACK that used to sit below this arm for records carrying no
+  # `reviewed_patch_id` — two decision points, `m4/head-missing` and `m4/head-tree-diff`, neither
+  # of which had ever fired. They were not merely quiet: cmd_verdict, the only writer, emits the
+  # key unconditionally and `envfail`s rather than omit it, so a record without it predates the
+  # key — and lean-evidence.sh, which `pr-gates` runs on every consumer's PR, refuses exactly
+  # that record class ("declares no reviewed_patch_id"). Whatever those arms answered, the
+  # boundary refused the PR. What replaces them is stricter, not looser: absence is refused here
+  # too, in the same words and the same class as the record's other missing keys.
   v_pid="$(record_key reviewed_patch_id "$rec")"
-  if [ -n "$v_pid" ]; then
-    cur_pid="$(branch_patch_id HEAD)"
-    if [ -z "$cur_pid" ]; then
-      fail_milestone 4 "cannot compute this branch's patch identity against origin/$BASE_BRANCH, so there is nothing to compare $VERDICT_REL's reviewed_patch_id against — and a freshness check that cannot run must not report a pass. Fetch origin/$BASE_BRANCH and re-run." 2
-      return $?
-    fi
-    v_fresh="covering the current head (patch-id $(printf '%.12s' "$v_pid"))"
-    # THE SAME ESCAPE HATCH (#597, D-3), asked through the SAME call site as the inferred arm above
-    # so the two cannot answer differently. `branch_patch_id`'s input INCLUDES the merge-base, so
-    # merging the base in moves the id even when the branch alters not one line — the #583 re-stamp,
-    # `1decd12550cd -> 86daf57fb18e`, over a resolution that introduced no new branch line.
-    if [ "$v_pid" != "$cur_pid" ]; then
-      contribution_state "$v_head" HEAD
-      case "$CONTRIB_RC" in
-        1) fail_milestone 4 "verdict record $VERDICT_REL reviewed patch $(printf '%.12s' "$v_pid"), but this branch's diff against origin/$BASE_BRANCH now hashes to $(printf '%.12s' "$cur_pid") and the branch's own lines moved with it: $(printf '%s\n' "$CONTRIB_DETAIL" | contribution_summary) — content changed after the review, so the verdict does not cover it. Get a new review round: '/dev-pipeline:review-lean <pr>'." 5
-           return $? ;;
-        0) v_fresh="covering the current head — the recorded patch identity $(printf '%.12s' "$v_pid") and this head's $(printf '%.12s' "$cur_pid") differ, which a base advance alone is enough to cause, and every one of the branch's own +/- lines is unchanged since reviewed_head $(printf '%.12s' "$v_head"), so no reviewed line was altered (#597 AC-1)" ;;
-        *) v_fresh="covering the current head — the patch identity moved from $(printf '%.12s' "$v_pid") to $(printf '%.12s' "$cur_pid") and the +/- comparison could NOT be computed, so this milestone FAILED OPEN and the verdict stands (#597 D-5/OR-1)" ;;
-      esac
-    fi
-    pass_milestone 4 "$VERDICT_REL reads verdict=approve, authored by review run $v_run, $v_fresh, $v_coverage"
+  if [ -z "$v_pid" ]; then
+    fail_milestone 4 "verdict record $VERDICT_REL carries no reviewed_patch_id key, so nothing states which tree the review actually read — and the merge boundary refuses that record class outright. Re-run the review round on a dev-pipeline that writes it: '/dev-pipeline:review-lean <pr>'." 5
     return $?
   fi
-
-  if ! git -C "$REPO_ROOT" cat-file -e "$v_head^{commit}" 2>/dev/null; then
-    fail_milestone 4 "verdict record $VERDICT_REL names reviewed_head $v_head, which is not a commit in this branch's history — the branch was rebased or force-pushed after the review, so the reviewed code no longer exists here. Get a new review round: '/dev-pipeline:review-lean <pr>'." 5
+  cur_pid="$(branch_patch_id HEAD)"
+  if [ -z "$cur_pid" ]; then
+    fail_milestone 4 "cannot compute this branch's patch identity against origin/$BASE_BRANCH, so there is nothing to compare $VERDICT_REL's reviewed_patch_id against — and a freshness check that cannot run must not report a pass. Fetch origin/$BASE_BRANCH and re-run." 2
     return $?
   fi
-  declared="$(git -C "$REPO_ROOT" diff --name-only "$v_head" HEAD 2>/dev/null | grep -vxF "$VERDICT_REL")"
-  if [ -n "$declared" ]; then
-    v_head_short="$(git -C "$REPO_ROOT" rev-parse --short "$v_head" 2>/dev/null)"
-    n_declared="$(printf '%s\n' "$declared" | wc -l | tr -d ' ')"
-    fail_milestone 4 "verdict record $VERDICT_REL states it reviewed $v_head_short, but $n_declared file(s) differ between that commit and the current head (e.g. $(printf '%s' "$declared" | head -n1)) — the review read a different tree than the one being gated. Get a new review round: '/dev-pipeline:review-lean <pr>'." 5
-    return $?
+  v_fresh="covering the current head (patch-id $(printf '%.12s' "$v_pid"))"
+  # THE SAME ESCAPE HATCH (#597, D-3), asked through the SAME call site as the inferred arm above
+  # so the two cannot answer differently. `branch_patch_id`'s input INCLUDES the merge-base, so
+  # merging the base in moves the id even when the branch alters not one line.
+  if [ "$v_pid" != "$cur_pid" ]; then
+    contribution_state "$v_head" HEAD
+    case "$CONTRIB_RC" in
+      1) fail_milestone 4 "verdict record $VERDICT_REL reviewed patch $(printf '%.12s' "$v_pid"), but this branch's diff against origin/$BASE_BRANCH now hashes to $(printf '%.12s' "$cur_pid") and the branch's own lines moved with it: $(printf '%s\n' "$CONTRIB_DETAIL" | contribution_summary) — content changed after the review, so the verdict does not cover it. Get a new review round: '/dev-pipeline:review-lean <pr>'." 5
+         return $? ;;
+      0) v_fresh="covering the current head — the recorded patch identity $(printf '%.12s' "$v_pid") and this head's $(printf '%.12s' "$cur_pid") differ, which a base advance alone is enough to cause, and every one of the branch's own +/- lines is unchanged since reviewed_head $(printf '%.12s' "$v_head"), so no reviewed line was altered (#597 AC-1)" ;;
+      *) v_fresh="covering the current head — the patch identity moved from $(printf '%.12s' "$v_pid") to $(printf '%.12s' "$cur_pid") and the +/- comparison could NOT be computed, so this milestone FAILED OPEN and the verdict stands (#597 D-5/OR-1)" ;;
+    esac
   fi
-
-  pass_milestone 4 "$VERDICT_REL reads verdict=approve, authored by review run $v_run, declaring reviewed_head $(git -C "$REPO_ROOT" rev-parse --short "$v_head" 2>/dev/null) and covering the current head, $v_coverage"
+  pass_milestone 4 "$VERDICT_REL reads verdict=approve, authored by review run $v_run, $v_fresh, $v_coverage"
 }
 
 # ---------------------------------------------------------------- verdict (REVIEW role)
-# The ONLY write path to the verdict record, and it lives in this script rather than a second
-# one for a single reason: the pinned name table above is the sole derivation of VERDICT_REL,
-# and a name invented at a second site is exactly the drift the merge-boundary gate turns red.
+# The ONLY write path to the verdict record, and it lives in this script because the pinned name
+# table above is the sole derivation of VERDICT_REL — a name invented at a second site is the
+# drift the merge-boundary gate turns red.
 #
-# It never evaluates a milestone, never appends to the progress file (that file belongs to the
-# build run), and never touches the build run-id cache. Those omissions are what let milestone
-# 4 stay a pure read while the record still comes from here.
+# It never evaluates a milestone, never appends to the progress file, and never touches the build
+# run-id cache. Those omissions let milestone 4 stay a pure read.
 #
-# The refusals are ordered cheapest-first and every one of them fails CLOSED. In particular a
-# build run whose progress header records no session id is refused outright: without it there
-# is nothing to separate the review from, and "unverifiable" must never resolve to "fine".
+# The refusals are ordered cheapest-first and every one fails CLOSED. A build run whose progress
+# header records no session id is refused outright: "unverifiable" must never resolve to "fine".
 cmd_verdict() {
   local sess b_prog_sess b_prog_run b_cached rec body c reviewed_head reviewed_patch_id
   local cand inherited_patch_id inherited_from chain
@@ -4569,14 +4269,10 @@ cmd_verdict() {
     ''|*[!0-9]*|0) envfail "verdict: --rounds must be a positive integer (got '$VERDICT_ROUNDS')." ;;
   esac
 
-  # DESIGN FIDELITY (#394, D-7). Defaults to `not-applicable` rather than being required, and
-  # the default is the FAIL-CLOSED side: on an armed run milestone 4 demands `pass`, so a review
-  # round that forgot the flag is refused instead of certifying a design it never looked at. On
-  # an unarmed run — every run in a repo with no design axis — the default is simply the truth.
-  #
-  # `fail` exists so a finding round can record what it found. Omitting the key on a failure
-  # would leave the record silent about the one dimension it was scored on, and the next round
-  # would inherit that silence.
+  # DESIGN FIDELITY (#394, D-7). Defaults to `not-applicable`, which is the FAIL-CLOSED side: on an
+  # armed run milestone 4 demands `pass`, so a round that forgot the flag is refused rather than
+  # certifying a design it never looked at. On an unarmed run the default is simply the truth.
+  # `fail` exists so a finding round can record what it found.
   [ -n "$VERDICT_FIDELITY" ] || VERDICT_FIDELITY="not-applicable"
   case "$VERDICT_FIDELITY" in
     pass|fail|not-applicable) : ;;
@@ -4833,12 +4529,30 @@ resolve_open_pr() { # 0 = $LEAN_PR_JSON holds a one-element array; 1 = $LEAN_PR_
     [ -f "$PR_FILE" ] || envfail "--pr-file '$PR_FILE' does not exist."
     pr="$(cat "$PR_FILE")"
   else
-    pr="$("$GH_CLI" pr list --head "$LEAN_BRANCH" --state open \
-          --json number,url,body,isDraft --limit 1 2>&1)" \
+    pr="$("$GH_CLI" pr list --head "$LEAN_BRANCH" --state all \
+          --json number,url,body,isDraft,state --limit 20 2>&1)" \
       || { warn "$pr"; LEAN_PR_ERROR="could not list PRs for $LEAN_BRANCH"; return 1; }
   fi
+  printf '%s' "$pr" | jq -e 'type == "array"' >/dev/null 2>&1 \
+    || { LEAN_PR_ERROR="could not list PRs for $LEAN_BRANCH"; return 1; }
+  # #642: A MERGED PR SATISFIES THE SAME OBLIGATION AN OPEN ONE DOES. The obligation is that the
+  # PR reached its terminal state carrying its exit artifacts, and merged is more terminal than
+  # open. Requiring `open` made `close-out` permanently unreachable once an operator merged first:
+  # milestones 3 and 4 passed and 5 retried three times against a condition that could not become
+  # true again, so the run's cost-log row was never written and its PR kept a stale cost block.
+  #
+  # OPEN WINS WHEN BOTH EXIST — a re-cut PR on the same branch is the live one, and its body is
+  # what close-out patches. A CLOSED-unmerged PR satisfies nothing: it is the shape of abandoned
+  # work, and certifying it would be a false public statement about the run.
+  #
+  # `.state // "OPEN"` is for the `--pr-file` seam, whose fixtures predate the key and whose whole
+  # contract has always been "this is the lane's PR"; it is never a live gh response, which always
+  # carries the field it was asked for.
+  pr="$(printf '%s' "$pr" | jq -c '
+        [ .[] | select((.state // "OPEN") == "OPEN") ]
+      + [ .[] | select((.state // "OPEN") == "MERGED") ] | .[0:1]' 2>/dev/null)"
   printf '%s' "$pr" | jq -e 'type == "array" and length > 0' >/dev/null 2>&1 \
-    || { LEAN_PR_ERROR="no open PR found for branch $LEAN_BRANCH"; return 1; }
+    || { LEAN_PR_ERROR="no open or merged PR found for branch $LEAN_BRANCH"; return 1; }
   LEAN_PR_JSON="$pr"
   return 0
 }
@@ -4848,7 +4562,7 @@ cmd_5() {
 
   missing="$(m5_missing_milestones)"
   if [ -n "$missing" ]; then
-    fail_milestone 5 "progress file is not current — milestone(s)$missing left no satisfied record, so there is nothing to certify"
+    block_milestone 5 "progress file is not current — milestone(s)$missing left no satisfied record, so there is nothing to certify"
     return $?
   fi
 
@@ -4864,7 +4578,7 @@ cmd_5() {
   # `verdict-reference` is the surface that points at the committed verdict record — the closing
   # comment on the issue under github, and the PR body under a `writes: false` tracker, which is
   # the same obligation discharged where the adapter allows.
-  resolve_open_pr || { fail_obligation exit-artifacts "$LEAN_PR_ERROR"; return $?; }
+  resolve_open_pr || { block_obligation exit-artifacts "$LEAN_PR_ERROR"; return $?; }
   pr="$LEAN_PR_JSON"
 
   draft="$(printf '%s' "$pr" | jq -r '.[0].isDraft')"
@@ -4899,7 +4613,7 @@ cmd_5() {
     [ "$n_verdict" -ge 1 ] \
       || { fail_obligation verdict-reference "PR body does not reference the verdict record ($VERDICT_REL) — under a read-only tracker the body is the only surface that can carry it"; return $?; }
     append_obligation 5 verdict-reference met
-    cmd_mark || { fail_milestone 5 "could not stamp the build identity on the PR"; return $?; }
+    cmd_mark || { block_milestone 5 "could not stamp the build identity on the PR"; return $?; }
     pass_milestone 5 "exit artifacts present, jira adapter, no tracker write ($url)"
     return 0
   fi
@@ -4909,7 +4623,7 @@ cmd_5() {
     comments="$(cat "$COMMENTS_FILE")"
   else
     comments="$("$GH_CLI" api "repos/{owner}/{repo}/issues/$ISSUE/comments" --paginate 2>&1)" \
-      || { warn "$comments"; fail_obligation verdict-reference "could not fetch the comment trail for #$ISSUE"; return $?; }
+      || { warn "$comments"; block_obligation verdict-reference "could not fetch the comment trail for #$ISSUE"; return $?; }
   fi
   printf '%s' "$comments" | jq -e 'type == "array"' >/dev/null 2>&1 \
     || envfail "comment trail is not a JSON array."
@@ -4920,7 +4634,7 @@ cmd_5() {
   closing="$(printf '%s' "$comments" | jq -r --arg v "$VERDICT_REL" \
     '[ .[] | select((.body // "") | contains($v)) ] | length')"
   [ "$closing" -ge 1 ] \
-    || { fail_obligation verdict-reference "no closing comment on #$ISSUE references the verdict record ($VERDICT_REL)"; return $?; }
+    || { block_obligation verdict-reference "no closing comment on #$ISSUE references the verdict record ($VERDICT_REL)"; return $?; }
   append_obligation 5 verdict-reference met
 
   # The build identity, stamped on the PR (D-3). LAST, after every assertion above: a run that
@@ -4930,7 +4644,7 @@ cmd_5() {
   # NOT an obligation row of its own (D-11 draws the set at two): it is an assertion milestone 5
   # makes about the run's identity, not one of checklist step 9's obligations, and adding it to the
   # report would make the report answer a question the failure message does not ask.
-  cmd_mark || { fail_milestone 5 "could not stamp the build identity on the PR"; return $?; }
+  cmd_mark || { block_milestone 5 "could not stamp the build identity on the PR"; return $?; }
 
   pass_milestone 5 "exit artifacts present ($url)"
 }
@@ -5129,13 +4843,25 @@ cmd_close_out() {
     fi
   done
 
+  # THE ABSENT VERB ON BOTH, exactly as cmd_5 spells them (#642 AC-3, round 1 B1). These two reds
+  # name reasons docs/gate-ablation.md adjudicates `unchanged` — m5/progress-current and
+  # m5/exit-artifacts:no-open-pr — so a charging verb here re-opened, on the close-out path alone,
+  # the fix-budget hole the milestone-5 assert path had just closed. `block_obligation` rather than
+  # a bare `block_milestone` for the second: close-out records obligation state the same way cmd_5
+  # does, so the record still names WHICH half is outstanding (#531 D-10).
+  #
+  # The first arm is defensive and unreachable from HERE — the 1..4 loop above appends the very
+  # satisfied rows m5_missing_milestones tests for, so no input reaches it. It is re-verbed anyway
+  # and guarded statically: lean-gate-selftest.sh's (ac1c) classifies every charging-verb reason
+  # through the production predicate table, which is the only technique that can reach an arm no
+  # fixture can drive. (co1) drives the second.
   missing="$(m5_missing_milestones)"
   if [ -n "$missing" ]; then
-    fail_milestone 5 "progress file is not current — milestone(s)$missing left no satisfied record, so there is nothing to close out and nothing public should be written about it"
+    block_milestone 5 "progress file is not current — milestone(s)$missing left no satisfied record, so there is nothing to close out and nothing public should be written about it"
     return $?
   fi
 
-  resolve_open_pr || { fail_milestone 5 "$LEAN_PR_ERROR"; return $?; }
+  resolve_open_pr || { block_obligation exit-artifacts "$LEAN_PR_ERROR"; return $?; }
   pr="$LEAN_PR_JSON"
   prnum="$(printf '%s' "$pr" | jq -r '.[0].number')"
   url="$(printf '%s' "$pr" | jq -r '.[0].url')"

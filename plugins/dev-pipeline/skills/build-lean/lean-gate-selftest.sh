@@ -446,11 +446,18 @@ reset_progress
 printf '# spec\n\n- AC-1: a thing\n- AC-2: another\n' > "$SPEC"
 
 # ---- (c) D-19 fix budget: 3 attempts, the 4th red hard-stops -----------------------------
-# #496: the three reds are the milestone-4 CLASS (5 — an absent record is a review-round problem,
-# not a build fix), and the 4th is still 4. Both halves matter: a budget that stopped reporting 4
-# would lose the hard stop, and a 4th call that reported 5 would tell the scheduler to keep
-# re-spawning REVIEW past the bound. Exhaustion outranks the class.
+# #496: the three reds are the milestone-4 CLASS (5 — a malformed record is a review-round
+# problem, not a build fix), and the 4th is still 4. Both halves matter: a budget that stopped
+# reporting 4 would lose the hard stop, and a 4th call that reported 5 would tell the scheduler to
+# keep re-spawning REVIEW past the bound. Exhaustion outranks the class.
+#
+# #642 RE-POINTED THIS at a record that is PRESENT and keyless. It used to drive milestone 4's
+# ABSENCE — which was legal while absence charged the fix budget, and is not now that it routes to
+# the `absent` verb (AC-3). The class under test is unchanged (5) and so is the property; only the
+# refusal driving it is one the budget still counts. The record is removed again afterwards so the
+# (j) block still opens on a tree with no committed verdict.
 reset_progress
+printf 'verdict=approve\n' > "$VERDICT"; commit_tree "a keyless verdict record, for the budget cases"
 rcs=""
 for _ in 1 2 3 4; do gate 4 7 >/dev/null 2>&1; rcs="$rcs$?"; done
 if [ "$rcs" = "5554" ]; then pass "(c1) fix budget: attempts 1-3 return the milestone-4 class, the 4th returns 4 (hard stop)"
@@ -458,6 +465,20 @@ else fail "(c1) expected rc sequence 5554, got $rcs"; fi
 if [ "$(count_in_progress 'budget-exhausted')" -ge 1 ]; then
   pass "(c2) budget exhaustion is recorded in the progress file"
 else fail "(c2) no budget-exhausted line recorded"; fi
+
+# #642 AC-3: the ABSENT counterpart of (c1), on the site (c1) used to drive. Four calls against a
+# record that does not exist must charge NOTHING and must not hard-stop — the remedy is the
+# handoff the checklist orders next, not a fix. The class is still 5, which is what keeps the
+# scheduler routing to the review half.
+rm -f "$VERDICT"; commit_tree "the keyless record is withdrawn"
+reset_progress
+rcs=""
+for _ in 1 2 3 4; do gate 4 7 >/dev/null 2>&1; rcs="$rcs$?"; done
+if [ "$rcs" = "5555" ] \
+   && [ "$(count_in_progress '| milestone-4 | absent |')" -eq 4 ] \
+   && [ "$(count_in_progress '| milestone-4 | attempt |')" -eq 0 ]; then
+  pass "(c2b) #642: an absent verdict record records 'absent', keeps the milestone-4 class, and charges no fix attempt"
+else fail "(c2b) expected rc 5555 / 4 absent / 0 attempts, got $rcs / $(count_in_progress '| milestone-4 | absent |') / $(count_in_progress '| milestone-4 | attempt |')"; fi
 
 # ---- (c3-c6) #494: an ABSENT artifact is not a failed fix --------------------------------
 # (c1) above is the deliberate control: it drives MILESTONE 4's identical `[ -f ]` absence,
@@ -917,23 +938,34 @@ if [ "$rc" -eq 0 ] && grep -qF "extra lane 'ok-lane' » echo hi" <<<"$out"; then
   pass "(i2) AC-1: an extraLane with no 'when' always runs"
 else fail "(i2) expected rc=0 and the lane's command printed, got rc=$rc: $out"; fi
 
-# AC-1: a failing lane reds milestone 3, naming BOTH the lane and the failing command.
+# AC-1, as #642 left it: a failing lane REPORTS, naming BOTH the lane and the failing command,
+# and milestone 3 continues. `mutation-sweep-pr` and `lint-and-selftests` re-run what extraLanes
+# carry at the merge boundary, so refusing here bought when, not whether.
 cfg="$(el_cfg '[{"name":"boom","commands":["exit 7"],"failureClass":"TEST_FAILURE"}]')"
 prog="$WORK/el-prog-boom.md"
 out="$(gate_el "$cfg" "$prog" 3 7)"; rc=$?
-if [ "$rc" -eq 1 ] && grep -qF "extra lane 'boom' failed (rc=7): exit 7" <<<"$out"; then
-  pass "(i3) AC-1: a failing extraLane reds milestone 3, naming the lane and the command"
-else fail "(i3) expected rc=1 naming lane+command, got rc=$rc: $out"; fi
+if [ "$rc" -eq 0 ] && grep -qF "extra lane 'boom' failed (rc=7): exit 7" <<<"$out" \
+   && grep -q 'ADVISORY' <<<"$out"; then
+  pass "(i3) #642 AC-4: a failing extraLane reports and does not refuse, naming the lane and the command"
+else fail "(i3) expected rc=0 with an advisory naming lane+command, got rc=$rc: $out"; fi
+# The DURABLE half, and the one that matters to a reviewer and to the retro corpus: the red left a
+# record, on a verb no counter in the gate greps. Without this, "advisory" would be indistinguishable
+# from "silently swallowed".
+if [ "$(el_count_in "| milestone-3 | advisory | extra lane 'boom' failed (rc=7)" "$prog")" -eq 1 ] \
+   && [ "$(el_count_in '| milestone-3 | attempt |' "$prog")" -eq 0 ] \
+   && [ "$(el_count_in '| milestone-3 | satisfied' "$prog")" -eq 1 ]; then
+  pass "(i3b) #642 AC-4: the advisory red is RECORDED, charges no fix attempt, and the milestone still concludes satisfied"
+else fail "(i3b) expected 1 advisory / 0 attempts / 1 satisfied, got $(el_count_in '| milestone-3 | advisory |' "$prog") / $(el_count_in '| milestone-3 | attempt |' "$prog") / $(el_count_in '| milestone-3 | satisfied' "$prog"): $(cat "$prog" 2>/dev/null)"; fi
 
 # AC-2: commands[] run sequentially and stop at the FIRST non-zero — "echo three" must never
 # run, and the failure names the second command, not the third.
 cfg="$(el_cfg '[{"name":"multi","commands":["echo one","exit 5","echo three"],"failureClass":"TEST_FAILURE"}]')"
 prog="$WORK/el-prog-multi.md"
 out="$(gate_el "$cfg" "$prog" 3 7)"; rc=$?
-if [ "$rc" -eq 1 ] && grep -qF "» echo one" <<<"$out" \
+if [ "$rc" -eq 0 ] && grep -qF "» echo one" <<<"$out" \
    && ! grep -qF "» echo three" <<<"$out" \
    && grep -qF "failed (rc=5): exit 5" <<<"$out"; then
-  pass "(i4) AC-2: a multi-command lane stops at the first non-zero command"
+  pass "(i4) AC-2: a multi-command lane stops at the first non-zero command (#642: it reports rather than refuses, and the lane still stops)"
 else fail "(i4) expected sequential run stopping at 'exit 5', got rc=$rc: $out"; fi
 
 # AC-3: a non-matching `when`, against the REAL non-empty diff above (src/App.tsx,
@@ -1099,6 +1131,12 @@ else fail "(i15) expected the lane to run against a nested tsx change, got rc=$r
 # Driven through the EL fixture because it is the one with a real non-empty diff and its own
 # progress file per case; the ASSERTIONS are on the gate's exit code and on the progress record,
 # never on the lane's own output.
+#
+# #642 MOVED EVERY CASE HERE FROM `test` TO `typecheck`. `lint`, `test` and extraLanes no longer
+# refuse at all, so the reserved code cannot mean anything on them — an advisory lane's exit code
+# is recorded, not classified. `typecheck` is the one verify key still blocking, so it is where the
+# contract still has a reader, and (ic4) below pins the OTHER half of that split: a demoted lane
+# exiting the reserved 3 is advisory like any other red.
 ic_cfg() { # ic_cfg <jq-filter> — the shared config with that filter applied
   EL_CFG_N=$((EL_CFG_N + 1))
   local out="$WORK/ic-cfg-$EL_CFG_N.json"
@@ -1108,11 +1146,11 @@ ic_cfg() { # ic_cfg <jq-filter> — the shared config with that filter applied
 
 # AC-2/AC-3, the FIXED KEYS — which is the path a repo-carried sweep takes, since
 # `commands[repo].test` is its only call site.
-cfg="$(ic_cfg '.commands.acme.test = "exit 3"')"
+cfg="$(ic_cfg '.commands.acme.typecheck = "exit 3"')"
 prog="$WORK/ic-prog-fixed.md"
 out="$(gate_el "$cfg" "$prog" 3 7)"; rc=$?
 if [ "$rc" -eq 7 ] && grep -q 'INFRASTRUCTURE' <<<"$out" \
-   && grep -qF 'test failed (rc=3)' <<<"$out"; then
+   && grep -qF 'typecheck failed (rc=3)' <<<"$out"; then
   pass "(ic1) AC-2: a fixed key exiting the reserved 3 reds milestone 3 with 7, named as infrastructure"
 else fail "(ic1) expected rc=7 naming infrastructure, got rc=$rc: $out"; fi
 if [ "$(el_count_in '| milestone-3 | attempt |' "$prog")" -eq 0 ]; then
@@ -1121,7 +1159,7 @@ else fail "(ic2) an infra red charged a fix attempt: $(cat "$prog" 2>/dev/null)"
 
 # THE CONTROL, and (ic1)/(ic2) are vacuous without it: an ordinary red must still be rc=1 and
 # must still charge. Same lane, same call, one digit different.
-cfg="$(ic_cfg '.commands.acme.test = "exit 1"')"
+cfg="$(ic_cfg '.commands.acme.typecheck = "exit 1"')"
 prog="$WORK/ic-prog-ordinary.md"
 out="$(gate_el "$cfg" "$prog" 3 7)"; rc=$?
 if [ "$rc" -eq 1 ] && [ "$(el_count_in '| milestone-3 | attempt |' "$prog")" -eq 1 ] \
@@ -1129,21 +1167,24 @@ if [ "$rc" -eq 1 ] && [ "$(el_count_in '| milestone-3 | attempt |' "$prog")" -eq
   pass "(ic3) control: a lane failing with any other code is still rc=1 and still charges one attempt"
 else fail "(ic3) expected rc=1 with one attempt row, got rc=$rc / $(el_count_in '| milestone-3 | attempt |' "$prog") attempt(s): $out"; fi
 
-# AC-2, EXTRALANES — D-1's uniformity. The reserved code cannot mean one thing on the fixed keys
-# and another on the additive lanes, or a consumer's integration tier is charged for a killed
-# runner while its unit tier is not.
+# #642: THE OTHER HALF OF THE SPLIT. D-1's uniformity claim — the reserved code means the same
+# thing on the fixed keys and on the additive lanes — held while both refused. extraLanes are
+# advisory now, so the reserved code has no reader there: an exit 3 records like any other lane
+# red and the milestone concludes. Asserting the new truth is what stops the old case from being
+# re-added on the strength of a comment nobody re-read.
 cfg="$(ic_cfg '.commands.acme.extraLanes = [{"name":"flaky","commands":["exit 3"],"failureClass":"TEST_FAILURE"}]')"
 prog="$WORK/ic-prog-extra.md"
 out="$(gate_el "$cfg" "$prog" 3 7)"; rc=$?
-if [ "$rc" -eq 7 ] && grep -q 'INFRASTRUCTURE' <<<"$out" \
-   && [ "$(el_count_in '| milestone-3 | attempt |' "$prog")" -eq 0 ]; then
-  pass "(ic4) AC-2: an extraLane exiting the reserved 3 is classed identically to a fixed key"
-else fail "(ic4) expected rc=7 with no attempt row, got rc=$rc: $out"; fi
+if [ "$rc" -eq 0 ] && ! grep -q 'INFRASTRUCTURE' <<<"$out" \
+   && [ "$(el_count_in '| milestone-3 | attempt |' "$prog")" -eq 0 ] \
+   && [ "$(el_count_in "| milestone-3 | advisory | extra lane 'flaky' failed (rc=3)" "$prog")" -eq 1 ]; then
+  pass "(ic4) #642: an extraLane exiting the reserved 3 is ADVISORY — the lane no longer refuses, so nothing is classified"
+else fail "(ic4) expected rc=0 with an advisory row and no infra classification, got rc=$rc: $out"; fi
 
 # AC-3, the claim that actually matters at run time: repeated infra reds never exhaust the fix
 # budget. Four calls is one past FIX_BUDGET — the count at which an ordinary red hard-stops with
 # rc=4 — so a class that leaked into the counter would show up here as a 4 rather than a 7.
-cfg="$(ic_cfg '.commands.acme.test = "exit 3"')"
+cfg="$(ic_cfg '.commands.acme.typecheck = "exit 3"')"
 prog="$WORK/ic-prog-repeat.md"
 gate_el "$cfg" "$prog" 3 7 >/dev/null 2>&1
 gate_el "$cfg" "$prog" 3 7 >/dev/null 2>&1
@@ -1163,8 +1204,8 @@ else fail "(ic5) expected a fourth rc=7 with no attempt and no exhaustion, got r
 # NAMED CONFIGS, not `ic_cfg`: that helper runs in a command substitution, so its counter
 # increments in a subshell and every call writes the SAME path. Harmless where one config is used
 # before the next is built — every case above — and wrong here, where two must be live at once.
-IC8_ORD="$WORK/ic8-ordinary.json"; jq '.commands.acme.test = "exit 1"' "$CFG" > "$IC8_ORD"
-IC8_INF="$WORK/ic8-infra.json";    jq '.commands.acme.test = "exit 3"' "$CFG" > "$IC8_INF"
+IC8_ORD="$WORK/ic8-ordinary.json"; jq '.commands.acme.typecheck = "exit 1"' "$CFG" > "$IC8_ORD"
+IC8_INF="$WORK/ic8-infra.json";    jq '.commands.acme.typecheck = "exit 3"' "$CFG" > "$IC8_INF"
 prog="$WORK/ic-prog-spent.md"
 gate_el "$IC8_ORD" "$prog" 3 7 >/dev/null 2>&1
 gate_el "$IC8_ORD" "$prog" 3 7 >/dev/null 2>&1
@@ -1199,7 +1240,7 @@ if [ -f "$IC_RUNNER" ]; then
   mkdir -p "$IC_SWEEP"
   printf '#!/usr/bin/env bash\nexit 125\n' > "$IC_SWEEP/one-selftest.sh"
   printf '#!/usr/bin/env bash\nexit 125\n' > "$IC_SWEEP/two-selftest.sh"
-  cfg="$(ic_cfg "$(printf '.commands.acme.test = "bash %s --root %s --jobs 2"' "$IC_RUNNER" "$IC_SWEEP")")"
+  cfg="$(ic_cfg "$(printf '.commands.acme.typecheck = "bash %s --root %s --jobs 2"' "$IC_RUNNER" "$IC_SWEEP")")"
   prog="$WORK/ic-prog-composed.md"
   out="$(gate_el "$cfg" "$prog" 3 7)"; rc=$?
   if [ "$rc" -eq 7 ] && [ "$(el_count_in '| milestone-3 | attempt |' "$prog")" -eq 0 ]; then
@@ -1220,6 +1261,58 @@ elif ! git -C "$HERE" rev-parse --show-toplevel >/dev/null 2>&1; then
 else
   fail "(ic6/ic7) tools/run-selftests.sh is not beside this gate in a git checkout — the reserved code's only composed guard did not run"
 fi
+
+# ---- (ad) #642 AC-4: the merge-boundary duplicates report, they do not refuse ---------------
+# `lint` and `test` are re-run verbatim by `lint-and-selftests` at the merge boundary, so what
+# refusing here bought was WHEN a failure is caught, not whether — at the price of a fix round
+# inside the build session. They report now. `typecheck` is NOT demoted, and (ad3) is what keeps
+# that from being a comment: the demotion's premise is measured CI duplication, and typecheck has
+# none measured.
+for ad_key in lint test; do
+  cfg="$(ic_cfg ".commands.acme.$ad_key = \"exit 1\"")"
+  prog="$WORK/ad-prog-$ad_key.md"
+  out="$(gate_el "$cfg" "$prog" 3 7)"; rc=$?
+  if [ "$rc" -eq 0 ] && grep -qF "$ad_key failed (rc=1)" <<<"$out" && grep -q 'ADVISORY' <<<"$out"; then
+    pass "(ad1-$ad_key) #642 AC-4: a red '$ad_key' lane reports and milestone 3 still concludes zero"
+  else fail "(ad1-$ad_key) expected rc=0 with an advisory, got rc=$rc: $out"; fi
+  if [ "$(el_count_in "| milestone-3 | advisory | $ad_key failed (rc=1)" "$prog")" -eq 1 ] \
+     && [ "$(el_count_in '| milestone-3 | attempt |' "$prog")" -eq 0 ] \
+     && [ "$(el_count_in '| milestone-3 | satisfied' "$prog")" -eq 1 ]; then
+    pass "(ad2-$ad_key) #642 AC-4: the red is RECORDED on the advisory verb, charges no fix attempt, and the milestone concludes satisfied"
+  else fail "(ad2-$ad_key) expected 1 advisory / 0 attempts / 1 satisfied for $ad_key, got: $(cat "$prog" 2>/dev/null)"; fi
+done
+
+# THE CONTROL, and (ad1)/(ad2) are half-vacuous without it: `typecheck` still refuses, still
+# charges, and still returns 1. One key different, same call.
+cfg="$(ic_cfg '.commands.acme.typecheck = "exit 1"')"
+prog="$WORK/ad-prog-typecheck.md"
+out="$(gate_el "$cfg" "$prog" 3 7)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -qF 'typecheck failed (rc=1)' <<<"$out" \
+   && [ "$(el_count_in '| milestone-3 | attempt |' "$prog")" -eq 1 ] \
+   && [ "$(el_count_in '| milestone-3 | advisory |' "$prog")" -eq 0 ]; then
+  pass "(ad3) #642 AC-4: 'typecheck' is NOT demoted — it still refuses with 1 and still charges one attempt"
+else fail "(ad3) expected rc=1 with one attempt and no advisory row, got rc=$rc: $out"; fi
+
+# A DEMOTED LANE STILL RUNS. "Advisory" must not decay into "skipped": the lane's output is the
+# operator's only live signal, and the record above is worth nothing if nothing was executed.
+cfg="$(ic_cfg '.commands.acme.test = "echo ad-lane-really-ran; exit 1"')"
+prog="$WORK/ad-prog-ran.md"
+out="$(gate_el "$cfg" "$prog" 3 7)"; rc=$?
+if [ "$rc" -eq 0 ] && grep -qF 'ad-lane-really-ran' <<<"$out"; then
+  pass "(ad4) #642 AC-4: a demoted lane is still EXECUTED — it reports its red, it is not skipped"
+else fail "(ad4) the demoted lane did not run, rc=$rc: $out"; fi
+
+# ...and the milestone still refuses on the m3 points #642 did NOT demote. `no-verify-lane` is the
+# sharpest of them: demoting it would make milestone 3 green having verified nothing, which is the
+# one failure the whole file exists to prevent.
+# `allowUnverified` is cleared too — the shared fixture config sets it (it is what makes the (i)
+# block's zero-lane tree green), and leaving it on would take the opt-out arm instead of the refusal.
+cfg="$(ic_cfg '.commands.acme.lint = null | .commands.acme.typecheck = null | .commands.acme.test = null | .commands.acme.extraLanes = [] | del(.commands.acme.allowUnverified)')"
+prog="$WORK/ad-prog-zero.md"
+out="$(gate_el "$cfg" "$prog" 3 7)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'no verifying lane configured' <<<"$out"; then
+  pass "(ad5) #642: m3/no-verify-lane still REFUSES — the demotion is scoped to the three named points, not to milestone 3"
+else fail "(ad5) expected rc=1 on a zero-lane tree, got rc=$rc: $out"; fi
 
 # ---- (ib) #527 AC-4 / #566: the INTERRUPTED budget — one value, scoped per milestone -------
 # Without this the fix is self-defeating. Once an infra kill stops charging a fix attempt the
@@ -1386,12 +1479,25 @@ else fail "(ir10) expected rc=2 on a non-progress subcommand, got rc=$rc: $out";
 # `reviewed_head` is resolved BEFORE the commit, which is the honest shape: the reviewer reads
 # the current head, names it, and then commits the record on top of it. Resolving it after the
 # commit would name the record's own commit and make every declared-freshness case vacuous.
+# The patch identity a record must carry, computed by the PRODUCTION function through library
+# mode — never by a copy of its formula here. A copy could not fail on a production edit, which
+# is the mirror-harness shape docs/testing.md forbids; and #642 made this key mandatory at
+# milestone 4, so every fixture record needs one that the gate itself will agree with.
+# shellcheck disable=SC1090  # $GATE is the script under test; following it is the point.
+fixture_patch_id() { # fixture_patch_id [head-ish]
+  # Copied out BEFORE the `.`: sourcing consumes the sourcing scope's positional parameters.
+  local fp_head="${1:-HEAD}"
+  ( cd "$TREE" && LEAN_GATE_LIB=1 SECOND_SHIFT_CONFIG="$CFG" . "$GATE" >/dev/null 2>&1 \
+    && REPO_ROOT="$TREE" BASE_BRANCH=main VERDICT_REL="docs/plans/acme-7-lean-verdict.md" \
+       branch_patch_id "$fp_head" )
+}
+
 VROUND=0
 write_review_verdict() { # write_review_verdict [verdict] [reviewed-head]
   VROUND=$((VROUND + 1))
   local head="${2:-$(git -C "$TREE" rev-parse HEAD)}"
-  printf 'verdict=%s\nrun_id: r-review-1\nsession_id: sess-review-1\nrounds: %s\nreviewed_head: %s\n' \
-    "${1:-approve}" "$VROUND" "$head" > "$VERDICT"
+  printf 'verdict=%s\nrun_id: r-review-1\nsession_id: sess-review-1\nrounds: %s\nreviewed_head: %s\nreviewed_patch_id: %s\n' \
+    "${1:-approve}" "$VROUND" "$head" "$(fixture_patch_id "$head")" > "$VERDICT"
   commit_tree "review verdict ${1:-approve} (round $VROUND)"
 }
 
@@ -1431,62 +1537,50 @@ out="$(gate 4 7)"; rc=$?
 if [ "$rc" -eq 0 ]; then pass "(j4) milestone-4 passes on a committed verdict=approve with distinct review identities"
 else fail "(j4) expected rc=0, got $rc: $out"; fi
 
-# ---- (u) DECLARED freshness, SHA-keyed: the pre-patch-id fallback --------------------------
-# `write_review_verdict` deliberately emits NO `reviewed_patch_id`, so every case in this block
-# exercises the fallback path records written before that key still gate on — the (v) block
-# covers the patch-id-keyed one. The distinction is asserted at (u5) rather than assumed: if the
-# writer ever grew the key, these cases would silently migrate to the other arm and this block
-# would assert nothing about the path it is named for.
+# ---- (u) #642: the pre-patch-id MIGRATION arm replaces the SHA-keyed fallback ---------------
+# This block used to drive `m4/head-missing` and `m4/head-tree-diff`, the two arms milestone 4
+# fell through to for a record carrying no `reviewed_patch_id`. #642 deleted both. They were not
+# merely never-fired: cmd_verdict, the only writer, emits that key unconditionally and envfails
+# rather than omit it, and lean-evidence.sh — which `pr-gates` runs on every consumer's PR —
+# refuses a record without it outright. Whatever those arms answered, the boundary refused the PR.
 #
-# The MIGRATION arm. Every verdict record written before this key existed lands here, and it is
-# refused rather than grandfathered: a remedy is always available (re-run the review round),
-# so a transitional pass would be a waiver. Note this is a record that is otherwise complete —
-# both reconciliation keys present, committed, and its commit IS the head — so the ONLY thing
-# that can red it is the missing key.
+# What is left is the pair of key requirements, and they are strictly tighter than the fallback
+# they replace: absence of either is refused here now, in the same class the record's other
+# missing keys carry.
 reset_progress
 printf 'verdict=approve\nrun_id: r-review-1\nsession_id: sess-review-1\n' > "$VERDICT"; commit_tree
 out="$(gate 4 7)"; rc=$?
 if [ "$rc" -eq 5 ] && grep -q 'no reviewed_head key' <<<"$out"; then
-  pass "(u1) milestone-4 fails an approve record carrying no reviewed_head key (the pre-key migration case)"
+  pass "(u1) milestone-4 fails an approve record carrying no reviewed_head key"
 else fail "(u1) expected rc=5 on a head-less approve, got $rc: $out"; fi
 
-# The gap the INFERRED arm cannot see, and the reason this key exists. The record is committed
-# LAST — so `git log -1 -- <record>` finds the head, nothing but the record differs from it, and
-# the inferred arm is green — but the head it NAMES is one commit older, which is exactly what
-# happens when a fix lands between the review and the record's commit.
+# THE ARM THAT REPLACED THE FALLBACK. Otherwise complete — both reconciliation keys, a
+# reviewed_head naming this very commit, committed — so the missing patch id is the only thing
+# that can red it.
 reset_progress
-stale_head="$(git -C "$TREE" rev-parse HEAD)"
-printf '# spec\n\n- AC-1: a thing\n- AC-2: landed while the review was running\n' > "$SPEC"
-commit_tree "code lands between the review and the record"
-write_review_verdict approve "$stale_head"
+printf 'verdict=approve\nrun_id: r-review-1\nsession_id: sess-review-1\nreviewed_head: %s\n' \
+  "$(git -C "$TREE" rev-parse HEAD)" > "$VERDICT"; commit_tree
 out="$(gate 4 7)"; rc=$?
-if [ "$rc" -eq 5 ] && grep -q 'states it reviewed' <<<"$out"; then
-  pass "(u2) milestone-4 refuses a record naming an earlier head even though its own commit IS the head (inferred arm green, declared arm reds)"
-else fail "(u2) expected rc=5 on a declared-stale record, got $rc: $out"; fi
+if [ "$rc" -eq 5 ] && grep -q 'no reviewed_patch_id key' <<<"$out"; then
+  pass "(u2) #642: a record written before reviewed_patch_id existed is REFUSED, not gated on the deleted SHA fallback"
+else fail "(u2) expected rc=5 naming the missing patch id, got $rc: $out"; fi
 
-# ...and a head that is not a commit here at all — the rebase/force-push-after-approval shape.
+# Non-vacuity for (u2): the same record WITH the key passes, so (u2) reds on the key alone and not
+# on some other defect of the printf record above.
 reset_progress
-write_review_verdict approve 0000000000000000000000000000000000000000
+write_review_verdict
 out="$(gate 4 7)"; rc=$?
-if [ "$rc" -eq 5 ] && grep -q 'not a commit in this branch' <<<"$out"; then
-  pass "(u3) milestone-4 refuses a reviewed_head absent from the branch's history"
-else fail "(u3) expected rc=5 on an unknown reviewed_head, got $rc: $out"; fi
+if [ "$rc" -eq 0 ] && grep -q 'patch-id' <<<"$out"; then
+  pass "(u3) ...and the same record carrying the key passes on the patch-id arm — (u2) measured the key, not the fixture"
+else fail "(u3) expected rc=0 on a patch-id-keyed record, got $rc: $out"; fi
 
-reset_progress
-write_review_verdict approve
-out="$(gate 4 7)"; rc=$?
-if [ "$rc" -eq 0 ] && grep -q 'declaring reviewed_head' <<<"$out"; then
-  pass "(u4) milestone-4 passes a record naming the head it was written on top of"
-else fail "(u4) expected rc=0 on a matching reviewed_head, got $rc: $out"; fi
-
-# The block's own premise, asserted rather than assumed. The pass line above names the SHA arm;
-# the patch-id arm prints `patch-id` instead — (v1). Without this, a writer that grew the key
-# would move (u1)-(u4) onto the other arm and leave the fallback with no coverage at all, green
-# the whole time.
-if ! grep -q 'reviewed_patch_id' "$VERDICT" 2>/dev/null \
-   && ! grep -q 'patch-id' <<<"$out"; then
-  pass "(u5) the (u) records carry no reviewed_patch_id, so this block does gate on the SHA fallback"
-else fail "(u5) the (u) block is no longer exercising the SHA fallback: $(cat "$VERDICT" 2>/dev/null)"; fi
+# The two deleted arms are ABSENT, not merely unreached. A behavioral case cannot red on an arm
+# that no longer exists, so the deletion itself is pinned here — the same completeness discipline
+# (ac1) applies to the class mapping.
+if ! grep -q 'is not a commit in this branch' "$GATE" \
+   && ! grep -q 'differ between that commit and the current head' "$GATE"; then
+  pass "(u4) #642: m4/head-missing and m4/head-tree-diff are gone from the gate, not just unreached"
+else fail "(u4) the SHA-keyed fallback arms are still present in $GATE"; fi
 
 # ---- (k) AC-7: milestone 5 exit artifacts, via the fixture seams --------------------------
 cat > "$WORK/pr-draft.json" <<'EOF'
@@ -1533,6 +1627,15 @@ out="$(gate 5 7 --pr-file "$WORK/pr-ready.json" --comments-file "$WORK/comments-
 if [ "$rc" -eq 1 ] && grep -q 'references the verdict record' <<<"$out"; then
   pass "(k3) milestone-5 fails when no closing comment references the verdict record"
 else fail "(k3) expected rc=1 on a missing closing comment, got $rc: $out"; fi
+# #642 AC-3: the largest announcement class in milestone 5 (8 of the corpus's firings, every one
+# adjudicated `unchanged`) records the ABSENT verb — the closing comment is the step the checklist
+# orders NEXT, so refusing for its absence must not charge a fix attempt. Both halves asserted:
+# a bare "attempt_count did not rise" passes vacuously if the path records nothing at all.
+if [ "$(count_in_progress '| milestone-5 | absent |')" -ge 1 ] \
+   && [ "$(count_in_progress '| milestone-5 | attempt |')" -eq 0 ] \
+   && [ "$(count_in_progress '| milestone-5 | obligation | verdict-reference | unmet')" -eq 1 ]; then
+  pass "(k3b) #642 AC-3: the missing closing comment records 'absent' and its obligation row, and charges no fix attempt"
+else fail "(k3b) expected an absent row, 0 attempts and the unmet obligation, got $(count_in_progress '| milestone-5 | absent |') / $(count_in_progress '| milestone-5 | attempt |') / $(count_in_progress '| milestone-5 | obligation | verdict-reference | unmet'): $(cat "$PROG")"; fi
 
 reset_progress
 out="$(gate 5 7 --pr-file "$WORK/pr-ready.json" --comments-file "$WORK/comments-closing.json")"; rc=$?
@@ -1548,6 +1651,12 @@ out="$(gate 5 7 --pr-file "$WORK/pr-ready.json" --comments-file "$WORK/comments-
 if [ "$rc" -eq 1 ] && grep -q 'not current' <<<"$out"; then
   pass "(k5) that failure is stable on re-run (the check does not heal itself)"
 else fail "(k5) the progress-file check healed itself between runs — rc=$rc: $out"; fi
+# #642 AC-3: ...and both of those calls recorded ABSENT, not an attempt. `m5/progress-current`
+# fires because an EARLIER milestone has not happened yet, which is the announcement shape.
+if [ "$(count_in_progress '| milestone-5 | absent |')" -eq 2 ] \
+   && [ "$(count_in_progress '| milestone-5 | attempt |')" -eq 0 ]; then
+  pass "(k5b) #642 AC-3: m5/progress-current records 'absent' on both calls and charges no fix attempt"
+else fail "(k5b) expected 2 absent / 0 attempts, got $(count_in_progress '| milestone-5 | absent |') / $(count_in_progress '| milestone-5 | attempt |'): $(cat "$PROG")"; fi
 
 # Realistic state: milestones 1-4 have run and left their records. `bgate`, not `gate`: this is
 # the only (k) case that gets past every assertion to cmd_mark, which since #446 refuses a
@@ -1557,6 +1666,82 @@ seed_progress_1_to_4
 out="$(bgate 5 7 --pr-file "$WORK/pr-ready.json" --comments-file "$WORK/comments-closing.json")"; rc=$?
 if [ "$rc" -eq 0 ]; then pass "(k6) milestone-5 passes with a ready PR, spec link, closing comment, and a progress file"
 else fail "(k6) expected rc=0, got $rc: $out"; fi
+
+# ---- (k7)-(k10) #642 AC-8: a MERGED PR satisfies the same obligation an open one does --------
+# Requiring `open` made close-out permanently unreachable once an operator merged first —
+# milestones 3 and 4 pass, 5 retries three times against a condition that cannot become true
+# again, and the run's cost-log row is never written. The obligation is that the PR reached its
+# terminal state carrying its exit artifacts, and merged is more terminal than open.
+cat > "$WORK/pr-merged.json" <<'EOF'
+[{ "number": 9, "url": "https://example.invalid/pr/9", "isDraft": false, "state": "MERGED",
+   "body": "Closes #7\n\nSpec: docs/plans/acme-7-lean.md" }]
+EOF
+cat > "$WORK/pr-closed.json" <<'EOF'
+[{ "number": 9, "url": "https://example.invalid/pr/9", "isDraft": false, "state": "CLOSED",
+   "body": "Closes #7\n\nSpec: docs/plans/acme-7-lean.md" }]
+EOF
+cat > "$WORK/pr-open-and-merged.json" <<'EOF'
+[{ "number": 8, "url": "https://example.invalid/pr/8", "isDraft": false, "state": "MERGED",
+   "body": "Closes #7\n\nSpec: docs/plans/acme-7-lean.md" },
+ { "number": 9, "url": "https://example.invalid/pr/9", "isDraft": false, "state": "OPEN",
+   "body": "Closes #7\n\nSpec: docs/plans/acme-7-lean.md" }]
+EOF
+seed_progress_1_to_4
+out="$(bgate 5 7 --pr-file "$WORK/pr-merged.json" --comments-file "$WORK/comments-closing.json")"; rc=$?
+if [ "$rc" -eq 0 ]; then pass "(k7) #642 AC-8: milestone-5 passes on a MERGED PR — close-out stays reachable after a merge"
+else fail "(k7) expected rc=0 on a merged PR, got $rc: $out"; fi
+
+# A CLOSED-unmerged PR is the shape of abandoned work. Certifying it would be a false public
+# statement about the run, so it satisfies nothing — and the refusal is the ABSENT verb (AC-3).
+seed_progress_1_to_4
+out="$(gate 5 7 --pr-file "$WORK/pr-closed.json" --comments-file "$WORK/comments-closing.json")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'no open or merged PR found' <<<"$out"; then
+  pass "(k8) #642 AC-8: a CLOSED-unmerged PR satisfies nothing — merged is accepted, abandoned is not"
+else fail "(k8) expected rc=1 naming no open or merged PR, got $rc: $out"; fi
+if [ "$(count_in_progress '| milestone-5 | absent |')" -ge 1 ] \
+   && [ "$(count_in_progress '| milestone-5 | attempt |')" -eq 0 ]; then
+  pass "(k9) #642 AC-3: the no-PR refusal records 'absent' and charges no fix attempt"
+else fail "(k9) expected an absent row and no attempt, got $(count_in_progress '| milestone-5 | absent |') / $(count_in_progress '| milestone-5 | attempt |'): $(cat "$PROG")"; fi
+
+# OPEN WINS when both exist: a re-cut PR on the same branch is the live one, and its body is what
+# close-out patches. The merged row is FIRST in the fixture, so a reader that simply took `.[0]`
+# would pick the wrong one.
+seed_progress_1_to_4
+out="$(bgate 5 7 --pr-file "$WORK/pr-open-and-merged.json" --comments-file "$WORK/comments-closing.json")"; rc=$?
+if [ "$rc" -eq 0 ] && grep -qF 'example.invalid/pr/9' <<<"$out" && ! grep -qF 'example.invalid/pr/8' <<<"$out"; then
+  pass "(k10) #642 AC-8: with both an open and a merged PR on the branch, the OPEN one is resolved"
+else fail "(k10) expected the open PR (#9) to win, got $rc: $out"; fi
+
+# ---- (k11) #642 AC-3, round 1 B2: m5/identity-stamp, the sixth reason, driven ---------------
+# The other five announcement reasons each had a behavioral case; this one had only the static
+# site count, which greps call sites textually and can never observe what the routing DOES —
+# that a failed identity stamp records `absent` and charges zero attempts.
+#
+# THE SEAM IS `gate`, NOT `bgate`. cmd_mark's #446 guard refuses any session outside the recorded
+# build set, and `gate` runs with CLAUDE_CODE_SESSION_ID unset — which is why every other case
+# that reaches cmd_mark uses `bgate`. Here reaching it and being refused IS the fixture.
+#
+# The comment fixture carries the closing comment and NO run marker, deliberately: cmd_mark's
+# idempotent no-op sits BEFORE the session guard, so a trail carrying this run's marker would
+# return 0 and the case would assert nothing. Every earlier milestone-5 obligation must pass, or
+# the refusal under test is never reached — (k11a) asserts the reason text for exactly that.
+cat > "$WORK/comments-closing-nomarker.json" <<'EOF'
+[{ "user": { "type": "Bot" }, "created_at": "2026-01-01T00:00:00Z",
+   "body": "Done. Verdict record: docs/plans/acme-7-lean-verdict.md" }]
+EOF
+seed_progress_1_to_4
+out="$(gate 5 7 --pr-file "$WORK/pr-ready.json" --comments-file "$WORK/comments-closing-nomarker.json")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'could not stamp the build identity' <<<"$out"; then
+  pass "(k11a) milestone-5 refuses when the build identity could not be stamped on the PR"
+else fail "(k11a) expected rc=1 naming the identity stamp, got $rc: $out"; fi
+# BOTH halves, for (c3)'s reason: "attempt_count did not rise" passes vacuously on a path that
+# recorded nothing at all. The verdict-reference obligation must read `met` — that is what proves
+# the run got PAST the closing-comment check and the refusal under test is m5/identity-stamp.
+if [ "$(count_in_progress '| milestone-5 | absent |')" -ge 1 ] \
+   && [ "$(count_in_progress '| milestone-5 | attempt |')" -eq 0 ] \
+   && [ "$(count_in_progress '| milestone-5 | obligation | verdict-reference | met')" -eq 1 ]; then
+  pass "(k11) #642 AC-3: a failed identity stamp records 'absent' past both met obligations, and charges no fix attempt"
+else fail "(k11) expected an absent row, 0 attempts and a met verdict-reference, got $(count_in_progress '| milestone-5 | absent |') / $(count_in_progress '| milestone-5 | attempt |') / $(count_in_progress '| milestone-5 | obligation | verdict-reference | met'): $(cat "$PROG")"; fi
 
 # ---- (ob) #531 D-10: milestone 5 reports its two obligations SEPARATELY -------------------
 # THE DEFECT. `orchestrate-lean.sh` could only say "the closing comment, the exit artifacts and
@@ -1824,6 +2009,39 @@ o_sum_after="$(cksum < "$VERDICT")"; o_mt_after="$(mtime_of "$VERDICT")"
 if [ "$rc" -eq 0 ] && [ -n "$o_mt_before" ] && [ "$o_sum_before" = "$o_sum_after" ] && [ "$o_mt_before" = "$o_mt_after" ]; then
   pass "(o) a full 'all' sweep leaves the verdict record byte- and mtime-identical"
 else fail "(o) sweep rc=$rc; cksum $o_sum_before -> $o_sum_after; mtime '$o_mt_before' -> '$o_mt_after': $out"; fi
+
+# ---- (co1) #642 AC-3, round 1 B1: the CLOSE-OUT path re-verbed --------------------------------
+# AC-3 was half-applied. `cmd_5`'s milestone-5 reds were re-verbed; `cmd_close_out`'s were not, so
+# two reasons the ablation corpus adjudicates `unchanged` — m5/progress-current and
+# m5/exit-artifacts:no-open-pr — still reached `append_attempt` on the close-out path and charged
+# the fix budget. The static (ac1c) guard above is what catches the class; this is the reachable
+# arm driven end to end, because a count of call sites cannot observe which counter moved.
+#
+# THIS RUNS RIGHT AFTER (o) ON PURPOSE. close-out evaluates milestones 1-4 itself and stops at the
+# first red, so the no-PR arm is only reachable from a tree where all four pass — which is exactly
+# what (o) just proved of this one. `seed_build_progress` gives it a clean attested record;
+# close-out re-runs 1-4 and appends their satisfied rows itself.
+#
+# The other arm, `cmd_close_out`'s progress-current red, has NO behavioral fixture and can have
+# none: it sits behind the 1-4 loop that appends the very satisfied rows it tests for, so no
+# input reaches it. (ac1c) is that arm's only possible guard, which is the argument for a static
+# case here rather than the usual preference for a driven one.
+printf '[]\n' > "$WORK/pr-none.json"
+seed_build_progress r-build-1 sess-build-1
+out="$(gate close-out 7 --pr-file "$WORK/pr-none.json" --comments-file "$WORK/comments-closing.json")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'no open or merged PR found' <<<"$out"; then
+  pass "(co1a) close-out refuses when the lane branch has no open or merged PR"
+else fail "(co1a) expected rc=1 naming the missing PR, got $rc: $out"; fi
+# The assertion the blocker is about. `absent` >= 1 AND `attempt` == 0 together — either alone
+# passes vacuously, the first on a path that also charged, the second on a path that recorded
+# nothing. The obligation row is the third: close-out mirrors cmd_5's `block_obligation
+# exit-artifacts`, so the record names WHICH half is outstanding rather than leaving one
+# indistinguishable line (#531 D-10).
+if [ "$(count_in_progress '| milestone-5 | absent |')" -ge 1 ] \
+   && [ "$(count_in_progress '| milestone-5 | attempt |')" -eq 0 ] \
+   && [ "$(count_in_progress '| milestone-5 | obligation | exit-artifacts | unmet')" -eq 1 ]; then
+  pass "(co1) #642 AC-3: the close-out no-PR refusal records 'absent' and its obligation row, and charges no fix attempt"
+else fail "(co1) expected an absent row, 0 attempts and the unmet obligation, got $(count_in_progress '| milestone-5 | absent |') / $(count_in_progress '| milestone-5 | attempt |') / $(count_in_progress '| milestone-5 | obligation | exit-artifacts | unmet'): $(cat "$PROG")"; fi
 
 # ---- (x) #374 AC-1/2/3: cmd_all's cheap pre-pass -------------------------------------------
 # The pre-pass evaluates milestones 1 and 4 BEFORE milestone 3's green gate (~15 minutes in
@@ -4223,8 +4441,23 @@ else fail "(ea3) expected rc=2 + remedy + zero attempts/absences, rc=$rc, attemp
 # entry trace reds. It reds at the precondition rather than inside cmd_4 — which is the point of
 # D-4, since the constraint the issue states as governing is that the failure be reachable BEFORE
 # a verdict record exists — but the observable the issue asks for is the same one.
-printf 'verdict=approve\nrun_id: r-p-review\nsession_id: sess-p-review\nrounds: 1\nreviewed_head: %s\n' \
-  "$(git -C "$PTREE" rev-parse HEAD)" > "$PTREE/docs/plans/acme-8-lean-verdict.md"
+# `reviewed_patch_id` is stamped for the reason every fixture record now stamps one (#642): the key
+# is required at milestone 4, and this case is about the ENTRY precondition, not about the record.
+# Derived through the production function in library mode — never a copy of its formula.
+#
+# The CONTENT COMMIT below is what makes that computable. `origin/main` in this fixture sits at the
+# tree's only commit, so a branch carrying nothing but the verdict record — which the measurement
+# excludes — has an EMPTY diff, and `git patch-id` prints nothing for one. The record would then be
+# written key-less and the case would red on the key rather than on the precondition it names.
+printf 'p fixture content, so the branch diff is non-empty\n' > "$PTREE/content.txt"
+git -C "$PTREE" add -A >/dev/null 2>&1
+git -C "$PTREE" commit -q -m "p fixture content" >/dev/null 2>&1
+# shellcheck disable=SC1090  # $GATE is the script under test; following it is the point.
+p_pid="$( cd "$PTREE" && LEAN_GATE_LIB=1 SECOND_SHIFT_CONFIG="$CFG" . "$GATE" >/dev/null 2>&1 \
+          && REPO_ROOT="$PTREE" BASE_BRANCH=main VERDICT_REL="docs/plans/acme-8-lean-verdict.md" \
+             branch_patch_id HEAD )"
+printf 'verdict=approve\nrun_id: r-p-review\nsession_id: sess-p-review\nrounds: 1\nreviewed_head: %s\nreviewed_patch_id: %s\n' \
+  "$(git -C "$PTREE" rev-parse HEAD)" "$p_pid" > "$PTREE/docs/plans/acme-8-lean-verdict.md"
 git -C "$PTREE" add -A >/dev/null 2>&1
 git -C "$PTREE" commit -q -m "p review verdict" >/dev/null 2>&1
 pseed_unattested
@@ -5939,14 +6172,148 @@ else fail "(pg12) --satisfied was accepted on 'delta', rc=$rc: $out"; fi
 # ---- (ac) #496: the milestone-4 failure taxonomy, the observe seam, and the config guard -----
 # The per-arm behavior is asserted where each arm's fixture already lives — (j1)/(j3)/(u*)/(t*)/
 # (v*)/(x*)/(n*)/(fd*)/(ac-d*) above, each now keyed to its class. What is left, and what only a
-# whole-function assertion can carry, is COMPLETENESS: a twenty-first site added without a class
+# whole-function assertion can carry, is COMPLETENESS: a nineteenth site added without a class
 # silently defaults to 1, which is exactly the collapse this ticket removes, and no behavioral
 # case can red on an arm that does not exist yet.
+#
+# 20 -> 18 at #642: `m4/head-missing` and `m4/head-tree-diff` were deleted (both class 5) and the
+# `reviewed_patch_id`-absent refusal that replaced them added one back (also class 5). The verdict
+# ABSENCE site left this count entirely — it is `block_milestone` now, on the absent verb.
 m4_calls="$(grep -c 'fail_milestone 4 "' "$GATE")"
 m4_sig="$(grep 'fail_milestone 4 "' "$GATE" | sed -n 's/.*" \([0-9]\).*$/\1/p' | sort | tr -d '\n')"
-if [ "$m4_calls" -eq 20 ] && [ "$m4_sig" = "11122555555555555566" ]; then
-  pass "(ac1) all 20 milestone-4 failure sites carry an explicit class, in the documented 3x1 / 2x2 / 13x5 / 2x6 split"
-else fail "(ac1) milestone-4 site mapping drifted: $m4_calls call(s), class signature '$m4_sig' (expected 20 / 11122555555555555566)"; fi
+if [ "$m4_calls" -eq 18 ] && [ "$m4_sig" = "111225555555555566" ]; then
+  pass "(ac1) all 18 milestone-4 failure sites carry an explicit class, in the documented 3x1 / 2x2 / 11x5 / 2x6 split"
+else fail "(ac1) milestone-4 site mapping drifted: $m4_calls call(s), class signature '$m4_sig' (expected 18 / 111225555555555566)"; fi
+
+# THE ABSENT-VERB SITES, held to the same completeness bar (#642 AC-3). Every reason the ablation
+# report adjudicates `unchanged` must reach block_milestone/block_obligation; a new one added as a
+# fail_milestone silently re-charges the fix budget, and only a whole-file count can say so.
+# TEN SITES over SIX points: `m5/identity-stamp` and `m5/verdict-reference:closing-comment` each
+# have two arms (the jira and github close-outs; the fetch failure and the missing comment), and
+# round 1 added the two `cmd_close_out` arms — m5/progress-current and m5/exit-artifacts:no-open-pr
+# — that `cmd_5` had already re-verbed and close-out had not (8 -> 10).
+# The literal-prefix `"[a-z]` is what excludes block_obligation's own `block_milestone 5 "$2"`.
+#
+# THIS COUNT IS THE INCLUSION DIRECTION AND NOTHING MORE. It was green across both of round 1's
+# blocker sites, because a `fail_milestone` carrying one of the six predicates leaves it untouched.
+# (ac1c) below is the half that can see that; neither case replaces the other.
+m_block="$(grep -cE 'block_milestone [145] "[a-z]|block_obligation [a-z-]+ "' "$GATE")"
+if [ "$m_block" -eq 10 ]; then
+  pass "(ac1b) #642 AC-3: all 10 announcement-class refusal sites route to the absent verb, over the 6 points the ablation report adjudicates 'unchanged'"
+else fail "(ac1b) absent-verb site count drifted: $m_block (expected 10) — $(grep -nE 'block_milestone [145] "[a-z]|block_obligation [a-z-]+ "' "$GATE")"; fi
+
+# ---- (ac1c)/(ac1d) #642 AC-3, round 1: THE EXCLUSION DIRECTION -----------------------------
+# (ac1b) above counts absent-verb sites and asserts a total. That is the INCLUSION direction, and
+# it is blind by construction to the defect it was written for: two `fail_milestone 5` sites in
+# `cmd_close_out` carried m5/progress-current and m5/exit-artifacts:no-open-pr reasons, which
+# leaves the count at 8 and passes. A violation spelled in the OTHER verb is invisible to a
+# guard that only counts the right one — so this case asserts the complement: no CHARGING-verb
+# site's reason may classify into an announcement-class point.
+#
+# MEMBERSHIP IS DERIVED, never hand-listed. AC-3's wording is "every reason docs/gate-ablation.md
+# adjudicates `unchanged`", so the set is read from the PRODUCTION adjudication table, and each
+# reason is classified by the PRODUCTION predicate table under gate-ablation.awk's own rule
+# (first match wins within a milestone). A seventh point adjudicated `unchanged` by a future
+# corpus joins this guard with no edit here — and re-verbing one that leaves the set is likewise
+# a one-file change. The `<issue>:<point>` override key form is stripped to its point.
+#
+# `$VAR`-ONLY REASONS ARE RESOLVED, to every literal `VAR="…"` assignment in the gate. The
+# blocker's second site is `fail_milestone 5 "$LEAN_PR_ERROR"` — a guard reading source literals
+# alone would have caught exactly half of it and reported a green on the other half.
+#
+# WHY A PREFIX SUFFICES. All six announcement predicates are `^`-anchored, so a reason's leading
+# literal decides the question; truncating at the first unescaped `"` cannot hide a match that a
+# fuller expansion would find. (ac1d) pins what the technique CANNOT reach.
+#
+# It also reaches a site NO fixture can drive: `cmd_close_out`'s progress-current red is
+# unreachable from close-out's own flow (the 1..4 loop it sits behind appends the very satisfied
+# rows it tests for), so the static classification is that arm's only possible guard. (kc1) below
+# drives the reachable one behaviorally.
+AC_ADJ="$HERE/../../../../tools/gate-ablation-adjudication.tsv"
+AC_CLS="$HERE/../../../../tools/gate-ablation-classes.tsv"
+if [ -r "$AC_ADJ" ] && [ -r "$AC_CLS" ]; then
+  ac_scan="$(awk -F'\t' -v ADJ="$AC_ADJ" -v CLS="$AC_CLS" '
+    FILENAME == ADJ {
+      if ($0 !~ /^#/ && NF > 1 && $2 == "unchanged") { gp = $1; sub(/^[0-9]+:/, "", gp); ann[gp] = 1 }
+      next
+    }
+    FILENAME == CLS {
+      if ($0 !~ /^#/ && NF >= 5) { nc++; cms[nc] = $2; cpat[nc] = $4; cgp[nc] = $1 }
+      next
+    }
+    # every literal VAR="…" assignment in the gate, for the $VAR-only reasons below
+    {
+      s = $0
+      while (match(s, /[A-Z_][A-Z0-9_]*="/)) {
+        nm = substr(s, RSTART, RLENGTH - 2); rest = substr(s, RSTART + RLENGTH); q = index(rest, "\"")
+        if (q > 1) asg[nm] = asg[nm] SUBSEP substr(rest, 1, q - 1)
+        s = substr(s, RSTART + RLENGTH)
+      }
+    }
+    /fail_milestone [0-9]+ "|fail_obligation [a-z-]+ "/ { sl[++ns] = $0; sn[ns] = FNR }
+    function classify(ms, reason,   i) {
+      for (i = 1; i <= nc; i++) if (cms[i] == ms && reason ~ cpat[i]) return cgp[i]
+      return ""
+    }
+    END {
+      if (nc == 0) { print "INFRA\tthe predicate table parsed to zero rows"; exit }
+      for (g in ann) nann++
+      if (nann == 0) { print "INFRA\tthe adjudication table declared no `unchanged` point"; exit }
+      printf "SET\t%s\n", nann
+      for (i = 1; i <= ns; i++) {
+        s = sl[i]
+        if (match(s, /fail_milestone [0-9]+ "/)) { ms = substr(s, RSTART, RLENGTH); gsub(/[^0-9]/, "", ms) }
+        else if (match(s, /fail_obligation [a-z-]+ "/)) ms = "5"
+        else continue
+        rest = substr(s, RSTART + RLENGTH); q = index(rest, "\"")
+        arg = (q > 0) ? substr(rest, 1, q - 1) : rest
+        # fail_obligation and block_obligation pass their CALLER s reason through; the caller is
+        # the site, and it is matched on its own line.
+        if (arg == "$1" || arg == "$2") continue
+        k = 0
+        if (arg ~ /^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$/) {
+          nm = arg; gsub(/[${}]/, "", nm)
+          if (nm in asg) k = split(asg[nm], cand, SUBSEP)
+          if (k == 0) { printf "OPAQUE\t%s\t%s\t%s\n", sn[i], ms, arg; continue }
+        } else if (arg ~ /^\$/ || arg == "") {
+          printf "OPAQUE\t%s\t%s\t%s\n", sn[i], ms, arg; continue
+        } else { k = 1; cand[1] = arg }
+        for (j = 1; j <= k; j++) {
+          if (cand[j] == "" || (i SUBSEP cand[j]) in seen) continue
+          seen[i SUBSEP cand[j]] = 1
+          gp = classify(ms, cand[j])
+          if (gp != "" && (gp in ann)) printf "VIOLATION\t%s\t%s\t%s\t%s\n", sn[i], ms, gp, cand[j]
+        }
+      }
+    }
+  ' "$AC_ADJ" "$AC_CLS" "$GATE")"
+  ac_infra="$(printf '%s\n' "$ac_scan" | grep -c '^INFRA')" || ac_infra=0
+  ac_set="$(printf '%s\n' "$ac_scan" | awk -F'\t' '$1 == "SET" { print $2 }')"
+  ac_viol="$(printf '%s\n' "$ac_scan" | grep '^VIOLATION')" || ac_viol=""
+  ac_opaque="$(printf '%s\n' "$ac_scan" | grep '^OPAQUE')" || ac_opaque=""
+  ac_nopaque="$(printf '%s\n' "$ac_scan" | grep -c '^OPAQUE')" || ac_nopaque=0
+
+  # The set size is asserted so a table that stopped parsing cannot make the exclusion vacuous —
+  # zero announcement points would let every charging site through, silently.
+  if [ "$ac_infra" -eq 0 ] && [ "$ac_set" = "6" ] && [ -z "$ac_viol" ]; then
+    pass "(ac1c) #642 AC-3: no charging-verb reason classifies into any of the 6 announcement-class points, over the production adjudication + predicate tables"
+  else fail "(ac1c) exclusion direction breached (announcement points: ${ac_set:-none}, infra=$ac_infra) — a fail_milestone/fail_obligation site carries a reason the corpus adjudicates 'unchanged', so it charges the fix budget: $ac_viol"; fi
+
+  # WHAT THE TECHNIQUE CANNOT REACH, pinned so a new blind spot has to be looked at rather than
+  # inherited. A reason that is a function call, a parameter expansion, or a leading `$VAR` cannot
+  # be prefix-classified — the six predicates are all `^`-anchored, and nothing here states the
+  # anchor's text. All ten sit at milestones 1, 3 and 4; the assertion that NONE sits at milestone
+  # 5 is the load-bearing half, because milestone 5 carries three of the six announcement points
+  # and is where both round-1 blockers lived.
+  ac_op5="$(printf '%s\n' "$ac_opaque" | awk -F'\t' '$3 == "5"' | wc -l | tr -d ' ')"
+  if [ "$ac_nopaque" -eq 10 ] && [ "$ac_op5" -eq 0 ]; then
+    pass "(ac1d) #642 AC-3: the 10 reasons (ac1c) cannot classify are pinned, and none is at milestone 5"
+  else fail "(ac1d) the unclassifiable-reason set moved: $ac_nopaque (expected 10), $ac_op5 at milestone 5 (expected 0) — each needs a look before it is inherited: $ac_opaque"; fi
+elif ! git -C "$HERE" rev-parse --show-toplevel >/dev/null 2>&1; then
+  echo "  SKIPPED: (ac1c/ac1d) staged install cache — the ablation tables are repo-only, so the exclusion direction is asserted in the repo sweep and not here"
+else
+  fail "(ac1c/ac1d) the ablation adjudication/predicate tables are not beside this gate in a git checkout — AC-3's exclusion direction lost its only guard"
+fi
 
 # `all` PROPAGATES the class rather than laundering it into its own 1. Both halves of the pre-pass
 # are driven: an integrity refusal, which must never read as needs-work one layer up, and an absent
@@ -5994,8 +6361,11 @@ else fail "(ac5) the recording path appended no attempt line — (ac4) proves no
 # so a scheduler reading through it could not tell "spent" from "failed once" — and the whole
 # point of the seam is that the scheduler reads through it. The budget is spent by the RECORDING
 # path (observe must not be able to spend one), then read.
+# #642: driven by a PRESENT, keyless record — milestone 4's absence no longer charges the budget
+# (AC-3), so it can no longer exhaust one. The record is restored afterwards.
 reset_progress
 mv "$VERDICT" "$WORK/held-verdict-ac2.md"
+printf 'verdict=approve\n' > "$VERDICT"; commit_tree "a keyless record, to spend the budget"
 for _ in 1 2 3 4; do gate 4 7 >/dev/null 2>&1; done
 obs_lines="$(count_in_progress '| milestone-4 |')"
 out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID

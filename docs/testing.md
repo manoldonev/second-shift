@@ -28,6 +28,85 @@ What survives is everything a human, not a command, decided:
 reasoned exclusion. See [Test-the-tests](#test-the-tests-the-mutation-sweep), the earn-your-keep
 rule, for the discipline that keeps *those* honest.
 
+### Never-fired decision points: the #642 reachability verdict
+
+`docs/gate-ablation.md` found 20 of the lane's 33 declared decision points had never fired over a
+52-record corpus. A point with no firings cannot be shown to change a merge decision — and neither
+can it be shown not to, so #642 owed each one an argument rather than a deletion. Two buckets, and
+the argument is what makes the bucket checkable:
+
+- **structurally dead** — the state cannot be reached by any consumer on the current tree. Deleted.
+- **dead here, live for a consumer** — this repo simply never enters the state. Kept, untouched.
+  Absence of firings in a repo that ships no design work is not evidence about a repo that does.
+
+**Deleted (2).** `m4/head-missing` and `m4/head-tree-diff`, the pre-patch-id SHA tail milestone 4
+fell through to for a verdict record carrying no `reviewed_patch_id`. `cmd_verdict` — the only
+writer — emits that key unconditionally and `envfail`s rather than omit it, so a record without it
+predates the key; and `lean-evidence.sh`, which `pr-gates` runs on every consumer's PR, refuses
+that record class outright. Whatever those arms answered, the boundary refused the PR: superseded,
+not merely quiet. Milestone 4 now refuses the class itself, which is strictly tighter than the
+fallback it replaces.
+
+**Kept: 18 against the pin #642 acted on, 20 against the corpus it ships.** The ticket's warning
+is the load-bearing one: deleting these would remove function from the shipped product to tidy the
+dogfood canary.
+
+*Both numbers are right, and the difference is the point.* The **18** are the 52-record pin's
+never-fired points less the two deleted above; that is the set the operator's 2026-08-24 AC-6
+amendment ratifies at 18/18. #642 also **re-cut the corpus** (70 scored records, 31 declared
+points), and the re-cut moves the never-fired set underneath that count: `m1/ledger-lint` and
+`m1/preflight-reconcile` fired **4** and **2** times in records the old pin did not carry, so they
+leave it, while `m3/lint`, `m5/progress-current`, `m4/chain-break` and `m4/patch-stale` enter it.
+Net **20** — the same number the 52-record pin produced, over a **different set**. That numeric
+coincidence is why the table below carries a firings column instead of a headline count: reading
+"20 then, 20 now" as "nothing moved" is the one wrong inference available here. Every point in the
+table carries its reason either way — 18/18 against the pin, 20/20 against the shipped corpus.
+
+**Dated 2026-08-24, and derived rather than authoritative.** The decision-points table in
+`docs/gate-ablation.md` is what says which points fired; this table says why each is kept. Re-cut
+the corpus and the *counts* here go stale while the *reasons* do not — so re-derive the counts
+from the report, never from this paragraph. The `firings` column below is the shipped corpus's.
+
+| Kept point(s) | Firings | Why it is live for a consumer |
+| --- | --- | --- |
+| `m1/design-form`, `m3/design-render`, `m4/fidelity` | 0 | the whole design tier. This repo configures no `design.provider`, so it never arms; a consumer that does reaches all three on its first armed ticket |
+| `m4/identity` | 0 | P10's mechanical enforcement. #348 removed the in-build reviewer that used to trip it, and this row is what keeps refusing a build session that writes its own approve |
+| `m3/typecheck` | 0 | this repo leaves `typecheck` null. A consumer that configures one reaches it on the first type error — and it is the one verify key #642 did **not** demote, so it is also where the reserved infra code still has a reader |
+| `m3/setup-lane`, `m3/no-verify-lane` | 0 | "the check could not run" and "nothing was verified". Demoting either would make milestone 3 green having verified nothing |
+| `m2/frozen-files`, `m2/changelog-trailer` | 0 | reachable on this repo today — a feature PR touching a release-owned file, or a `plugins/**` PR with no trailer |
+| `m1/spec-no-ac` | 0 | reachable from an ordinary spec that declares no AC-n |
+| `m1/ledger-lint`, `m1/preflight-reconcile` | **4**, **2** | reachable from an ordinary spec — an out-of-enum provenance, a dropped receipt row — and under the re-cut corpus they are no longer hypothetical: both fired, in records the 52-record pin did not carry. Kept for the same reason, now with firings behind it |
+| `m4/verdict-keys`, `m4/verdict-uncommitted` | 0 | reachable from a hand-written or uncommitted record. Deleting `verdict-uncommitted` would not move WHEN the failure is caught — it would make the local answer WRONG, certifying milestone 4 against a file that is not on the branch |
+| `m5/exit-artifacts:draft`, `:closes`, `:spec-link`, `m5/verdict-reference:body-ref` | 0 | a draft PR, a missing `Closes`, a missing spec link, and (under a `writes: false` tracker) a body with no verdict reference — every one an ordinary consumer state |
+| `m3/lint` | 0 | new to the never-fired set under the re-cut. It is also one of the three points #642 **demoted** (AC-4): it no longer refuses at all, it records a non-blocking advisory, because `lint-and-selftests` re-runs the identical command at the merge boundary. A demoted point that never fired is not a candidate for deletion — the advisory is the whole remaining function |
+| `m5/progress-current` | 0 | new to the never-fired set under the re-cut, and one of the six #642 re-verbed to `absent`: an earlier milestone left no satisfied record, so the remedy is the step the checklist orders next. Reachable by any consumer that calls milestone 5 out of order |
+| `m4/chain-break`, `m4/patch-stale` | 0 | **the two the ticket kept blocking on cited incidents the re-cut dropped** — see below |
+
+**`m4/chain-break` and `m4/patch-stale`: the citation moved, the reason did not.** #642's spec
+keeps these two blocking because they "carry the corpus's two sharpest dated incidents" — the
+2026-08-03 `patch-stale` firing (an approve bound to `05c05a4` with 15 files landed after it, one
+of them the CI workflow judging the PR) and the 2026-08-04 `chain-break` firing. Neither record is
+in the re-cut corpus, so under the corpus this PR ships both points read **never-fired**, and that
+rationale no longer cites surviving evidence.
+
+They are kept anyway, on the same footing as every other never-fired point above: the
+reachability reason in `tools/gate-ablation-classes.tsv`'s `earn_your_keep` column — populated for
+all **31** declared points, which is AC-2's register and the authority here. Both reasons are
+argued from the mechanism, never from a firing, so the re-cut costs them nothing:
+`m4/patch-stale` is the only thing that distinguishes a rebase replaying the branch unchanged from
+new content landing after an approve (#372's shape); `m4/chain-break` catches a broken *multi-round*
+history, which `patch-stale`'s same-round test structurally cannot see. Demoting either would spend
+P10 independence, which is the lane's load-bearing property.
+
+The dated incidents are still real and still readable — they are findings 4 and 5 of
+`docs/gate-ablation.md`, which that report labels as the original 52-record analysis and asks to be
+read as dated. What changed is that they can no longer be re-derived from the shipped manifest.
+
+**Supersession is not enough on its own.** `m4/verdict-uncommitted` is re-checked at the merge
+boundary too, and it is kept: deleting a local arm is only safe when what is left answers
+*correctly but later*. Where deleting it would make the local gate answer *wrongly*, the boundary
+duplicating it is beside the point.
+
 ## How the sweep runs
 
 One script owns it, locally and in CI:
@@ -64,7 +143,7 @@ follows:
 | --- | --- |
 | any suite exits non-zero | exit 1, every failing suite named with its code |
 | a worker dies without writing a verdict | that suite scores `rc=125`, named as infra — never as a pass |
-| **every** failing suite is that infra class | exit **3**, the reserved code (#527) — the workers died, so the sweep learned nothing about the tree. `lean-gate.sh` milestone 3 reads a 3 from any verify lane as "nothing was evaluated": it reds with 7 and charges no fix attempt. Mixed infra-and-real stays exit 1, because a red branch is still a red branch. See [`config-schema.md`](config-schema.md) for the cross-repo contract |
+| **every** failing suite is that infra class | exit **3**, the reserved code (#527) — the workers died, so the sweep learned nothing about the tree. `lean-gate.sh` milestone 3 reads a 3 from a **blocking** verify lane as "nothing was evaluated": it reds with 7 and charges no fix attempt. Since #642 that is `typecheck` alone — `lint`, `test` and extraLanes report without refusing, so on those an exit 3 is recorded like any other red and classifies nothing. Mixed infra-and-real stays exit 1, because a red branch is still a red branch. See [`config-schema.md`](config-schema.md) for the cross-repo contract |
 | discovered-minus-excluded ≠ suites actually run | exit 2, `silent truncation` — a faster sweep that ran fewer suites is the failure mode this design is most exposed to |
 | `--exclude` matches no discovered suite | exit 2, `stale exclusion` — the same stale-row posture the slow-suite table applies to its own rows |
 | no suites discovered, or every suite excluded | exit 2 — a sweep that runs nothing is never green |
@@ -604,12 +683,14 @@ coupling rather than mechanizing it into a guard that cannot fail.
   runner through the variable rather than the flag.
 - **The reserved verify-lane INFRASTRUCTURE exit code (#527), writer ↔ reader.**
   `tools/run-selftests.sh` raises 3 when every failing suite is its no-verdict class; `lean-gate.sh`
-  milestone 3 reads 3 from any verify lane as "nothing was evaluated" and charges no fix attempt.
-  The two sites share a NUMBER, not a block. Not left reviewer-guarded, which is where this differs
-  from the ceiling above: `lean-gate-selftest.sh` (ic6)/(ic7) COMPOSE the pair — the real runner,
-  over a fixture tree whose every suite dies without a verdict, wired into `commands.acme.test`
-  exactly as a consumer would wire it — so a one-sided change reds in both polarities. The ends are
-  pinned alone too: `run-selftests-selftest.sh`'s AC-1 cases on the writer, (ic1)-(ic5) on the reader.
+  milestone 3 reads 3 from a blocking verify lane as "nothing was evaluated" and charges no fix
+  attempt. The two sites share a NUMBER, not a block. Not left reviewer-guarded, which is where this
+  differs from the ceiling above: `lean-gate-selftest.sh` (ic6)/(ic7) COMPOSE the pair — the real
+  runner, over a fixture tree whose every suite dies without a verdict, wired into
+  `commands.acme.typecheck` exactly as a consumer would wire it — so a one-sided change reds in both
+  polarities. #642 moved that wiring off `commands.acme.test`, which no longer refuses; the contract
+  is unchanged, only the key it is driven through. The ends are pinned alone too:
+  `run-selftests-selftest.sh`'s AC-1 cases on the writer, (ic1)-(ic5) on the reader.
 - **lean verdict-record key schema** — one writer (`lean-gate.sh`'s `verdict`) and three readers
   (`lean-gate.sh` milestone 4, `check-lean-chain.sh`, `lean-reconcile.sh`). Dropping a key on the
   writer silently un-satisfies all three; a reader-side requirement the writer never emits reds

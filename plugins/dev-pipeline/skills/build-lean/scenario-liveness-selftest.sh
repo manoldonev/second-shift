@@ -235,17 +235,34 @@ LEANGH
                   git -C "$LEAN_TREE" commit -q --allow-empty -m "${1:-lean fixture}" >/dev/null 2>&1; }
   lean_commit "lean fixture tree"
   # The patch-id freshness arm measures the branch's diff from merge-base(origin/<base>, HEAD),
-  # so the fixture carries the remote-tracking ref a real checkout would have. Leg 7 composes
-  # that arm; every other leg writes records without the key and takes the SHA fallback.
+  # so the fixture carries the remote-tracking ref a real checkout would have. #642 deleted the
+  # SHA fallback every other leg used to take, so EVERY record here now carries the key.
   git -C "$LEAN_TREE" update-ref refs/remotes/origin/main HEAD
+  # The key, computed by the PRODUCTION function through library mode — never a copy of its
+  # formula. #642 made it mandatory at milestone 4, so a fixture record without one is refused
+  # before the arm the leg is about is ever reached.
+  # shellcheck disable=SC1090  # $LEAN_GATE is the script under test; following it is the point.
+  # SECOND_SHIFT_CONFIG is not optional here: sourcing the gate resolves branch-prefix.sh, which
+  # ENVFAILS when neither a configured prefix nor a parseable remote branch names one — and an
+  # envfail inside a `.` kills the sourcing shell, not just this substitution.
+  # The three arguments are copied out BEFORE the `.`, per the gate's own library-mode caveat:
+  # sourcing consumes the sourcing scope's positional parameters, and `set -u` then makes a bare
+  # `$1` below an unbound-variable error rather than an empty string.
+  lean_pid() { # lean_pid <tree> <verdict-rel> [head-ish]
+    local lp_tree="$1" lp_rel="$2" lp_head="${3:-HEAD}"
+    ( cd "$lp_tree" && LEAN_GATE_LIB=1 SECOND_SHIFT_CONFIG="$LEAN_CFG" . "$LEAN_GATE" >/dev/null 2>&1 \
+      && REPO_ROOT="$lp_tree" BASE_BRANCH=main VERDICT_REL="$lp_rel" branch_patch_id "$lp_head" )
+  }
   # `reviewed_head` is resolved BEFORE the commit, which is the shape a real round has: the
   # reviewer reads the current head, names it, and commits the record on top of it. Resolving it
   # after would name the record's own commit and leave the declared arm asserting nothing.
   LEAN_ROUND=0
   lean_write_verdict() { # lean_write_verdict <verdict> <run-id> <session-id> [reviewed-head]
     LEAN_ROUND=$((LEAN_ROUND + 1))
-    printf 'verdict=%s\nrun_id: %s\nsession_id: %s\nrounds: %s\nreviewed_head: %s\n' \
-      "$1" "$2" "$3" "$LEAN_ROUND" "${4:-$(git -C "$LEAN_TREE" rev-parse HEAD)}" > "$LEAN_VERDICT"
+    local lwv_head="${4:-$(git -C "$LEAN_TREE" rev-parse HEAD)}"
+    printf 'verdict=%s\nrun_id: %s\nsession_id: %s\nrounds: %s\nreviewed_head: %s\nreviewed_patch_id: %s\n' \
+      "$1" "$2" "$3" "$LEAN_ROUND" "$lwv_head" \
+      "$(lean_pid "$LEAN_TREE" docs/plans/acme-77-lean-verdict.md "$lwv_head")" > "$LEAN_VERDICT"
     lean_commit "review verdict $1 (round $LEAN_ROUND)"
   }
 
@@ -379,8 +396,14 @@ LEANBOT
     || fail "(lean-mark) re-entry rc=$lm5b, spool=$(cat "$LEAN_BOT_SPOOL" 2>/dev/null)"
 
   # ---- leg 2: budget exhaustion -> abort record ----------------------------
+  # #642 RE-POINTED THE DRIVER. It used to withhold the record entirely, which was a fix-budget
+  # red while milestone 4's absence charged one; the absence now routes to the `absent` verb and
+  # spends nothing (AC-3), so it can no longer exhaust a budget. A record that is PRESENT and
+  # keyless is the same class (5) through the counter that still counts.
   lean_seed_progress r-lean-1 sess-lean-build
   mv "$LEAN_VERDICT" "$TMP/held-lean-verdict.md"
+  printf 'verdict=approve\n' > "$LEAN_VERDICT"
+  lean_commit "a keyless record, to drive the fix budget"
   lean_rcs=""
   for _ in 1 2 3 4; do lean_gate 4 77 >/dev/null 2>&1; lean_rcs="$lean_rcs$?"; done
   [[ "$lean_rcs" == "5554" ]] \
@@ -392,6 +415,23 @@ LEANBOT
   [[ "$(lean_count '| milestone-4 | satisfied')" -eq 0 ]] \
     && pass "(lean-budget) an exhausted milestone records no satisfied line — an abort is not a pass" \
     || fail "(lean-budget) an exhausted milestone was also recorded satisfied"
+
+  # #642 AC-3, composed: the ABSENCE that used to drive the leg above now records `absent`, charges
+  # no fix attempt, and keeps milestone 4's class — so a scheduler still routes to the review half
+  # rather than re-spawning BUILD to fix nothing. Same tree, a fresh record, so the counters below
+  # are this leg's own.
+  lean_seed_progress r-lean-1 sess-lean-build
+  rm -f "$LEAN_VERDICT"
+  lean_commit "the keyless record is withdrawn"
+  lean_abs_rcs=""
+  for _ in 1 2 3 4; do lean_gate 4 77 >/dev/null 2>&1; lean_abs_rcs="$lean_abs_rcs$?"; done
+  [[ "$lean_abs_rcs" == "5555" \
+     && "$(lean_count '| milestone-4 | absent |')" -eq 4 \
+     && "$(lean_count '| milestone-4 | attempt |')" -eq 0 \
+     && "$(lean_count 'budget-exhausted')" -eq 0 ]] \
+    && pass "(lean-absent-verdict) #642: four calls against an absent verdict record compose to 'absent' rows, class 5 throughout, and no fix budget spent" \
+    || fail "(lean-absent-verdict) rcs=$lean_abs_rcs absent=$(lean_count '| milestone-4 | absent |') attempts=$(lean_count '| milestone-4 | attempt |') exhausted=$(lean_count 'budget-exhausted'), expected 5555/4/0/0"
+  mv "$TMP/held-lean-verdict.md" "$LEAN_VERDICT" 2>/dev/null || true
 
   # ---- leg 3: needs-work -> fix-loop re-entry ------------------------------
   # Round 2 arrives from a NEW review context, so it carries a new review identity — that is
@@ -991,8 +1031,9 @@ LEANCFGJ
   # build one `claim` stamps into the progress file below) and COMMITTED, or milestone 4
   # refuses it on authorship/freshness before the adapter is ever reached. `reviewed_head` is
   # the head as of the review, resolved before the record's own commit.
-  printf 'verdict=approve\nrun_id: r-lean-jreview\nsession_id: sess-lean-jira-review\nrounds: 1\nreviewed_head: %s\n' \
+  printf 'verdict=approve\nrun_id: r-lean-jreview\nsession_id: sess-lean-jira-review\nrounds: 1\nreviewed_head: %s\nreviewed_patch_id: %s\n' \
     "$(git -C "$LEAN_TREE" rev-parse HEAD)" \
+    "$(lean_pid "$LEAN_TREE" "docs/plans/acme-$LEAN_JKEY-lean-verdict.md")" \
     > "$LEAN_TREE/docs/plans/acme-$LEAN_JKEY-lean-verdict.md"
   lean_commit "jira leg: review verdict"
   cat > "$TMP/lean-pr-jira.json" <<LEANPRJ
@@ -1098,8 +1139,9 @@ LEANPRJNV
   EL_VERDICT="$EL_TREE/docs/plans/acme-777-lean-verdict.md"
   printf '# spec\n\n- AC-1: a thing\n' > "$EL_SPEC"
   git -C "$EL_TREE" add -A >/dev/null 2>&1 && git -C "$EL_TREE" commit -q -m "el: spec" >/dev/null 2>&1
-  printf 'verdict=approve\nrun_id: r-el-review\nsession_id: sess-el-review\nrounds: 1\nreviewed_head: %s\n' \
-    "$(git -C "$EL_TREE" rev-parse HEAD)" > "$EL_VERDICT"
+  printf 'verdict=approve\nrun_id: r-el-review\nsession_id: sess-el-review\nrounds: 1\nreviewed_head: %s\nreviewed_patch_id: %s\n' \
+    "$(git -C "$EL_TREE" rev-parse HEAD)" \
+    "$(lean_pid "$EL_TREE" docs/plans/acme-777-lean-verdict.md)" > "$EL_VERDICT"
   git -C "$EL_TREE" add -A >/dev/null 2>&1 && git -C "$EL_TREE" commit -q -m "el: verdict" >/dev/null 2>&1
   cat > "$TMP/lean-el-pr.json" <<LEANELPR
 [{ "number": 9, "url": "https://example.invalid/pr/9", "isDraft": false,
@@ -1141,14 +1183,34 @@ LEANELC
   EL_CFG_RED="$(el_cfg red '[{"name":"boom","commands":["exit 3"],"failureClass":"TEST_FAILURE"}]')"
   EL_PROG_RED="$TMP/lean-el-prog-red.md"
   el_attest "$EL_CFG_RED" "$EL_PROG_RED"
-  out="$(el_gate "$EL_CFG_RED" "$EL_PROG_RED" all 777)"; elr=$?
-  if [[ "$elr" -ne 0 ]] && grep -q 'stopped at milestone-3' <<<"$out"; then
-    pass "(lean-el-red) a failing extraLane composes into 'all' stopping at milestone-3"
-  else fail "(lean-el-red) expected 'all' to stop at milestone-3, got rc=$elr: $out"; fi
-  el_red_n=$(grep -cF '| milestone-4 | satisfied' "$EL_PROG_RED" 2>/dev/null) || el_red_n=0
-  [[ "$el_red_n" -eq 0 ]] \
-    && pass "(lean-el-red) milestone-4 is never recorded satisfied when extraLanes reds milestone-3 first" \
-    || fail "(lean-el-red) milestone-4 was recorded satisfied despite milestone-3 failing"
+  # The SAME exit artifacts the skip leg passes, so the only thing that can stop this run is the
+  # red lane — which since #642 cannot. Without them `all` would still red, at milestone 5, for a
+  # missing PR, and the leg would pass for a reason unrelated to what it is named for.
+  out="$(el_gate "$EL_CFG_RED" "$EL_PROG_RED" all 777 --pr-file "$TMP/lean-el-pr.json" \
+                 --comments-file "$TMP/lean-el-comments.json")"; elr=$?
+  if [[ "$elr" -eq 0 ]] && grep -qF "extra lane 'boom' failed (rc=3)" <<<"$out"; then
+    pass "(lean-el-red) #642 AC-4: a failing extraLane composes into a run that COMPLETES — the lane reports its red and does not refuse"
+  else fail "(lean-el-red) expected 'all' to reach the end reporting the red, got rc=$elr: $out"; fi
+  # NON-VACUITY, and it is the half that keeps the demotion honest: milestone 3 still refuses on
+  # the points #642 did NOT demote. Same tree, same red lane, `allowUnverified` stripped and the
+  # extraLanes emptied — `m3/no-verify-lane` must still stop the run, or "advisory" has quietly
+  # become "milestone 3 cannot red at all".
+  el_red_nv_cfg="$TMP/lean-el-cfg-red-nv.json"
+  jq 'del(.commands.acme.allowUnverified) | .commands.acme.extraLanes = []' "$EL_CFG_RED" > "$el_red_nv_cfg"
+  el_red_nv_prog="$TMP/lean-el-prog-red-nv.md"
+  el_attest "$el_red_nv_cfg" "$el_red_nv_prog"
+  out="$(el_gate "$el_red_nv_cfg" "$el_red_nv_prog" all 777)"; el_red_nv=$?
+  [[ "$el_red_nv" -ne 0 ]] && grep -q 'no verifying lane configured' <<<"$out" \
+    && pass "(lean-el-red-nv) non-vacuity: milestone 3 still REFUSES on the points #642 left blocking — the demotion is scoped, not a disarm" \
+    || fail "(lean-el-red-nv) expected a milestone-3 refusal on the zero-lane predicate, got rc=$el_red_nv: $out"
+  # The DURABLE half, and what keeps "advisory" from decaying into "swallowed": the red left a row
+  # on the `advisory` verb, no fix attempt was charged, and milestone 3 still concluded satisfied.
+  el_red_adv=$(grep -cF "| milestone-3 | advisory | extra lane 'boom' failed" "$EL_PROG_RED" 2>/dev/null) || el_red_adv=0
+  el_red_att=$(grep -cF '| milestone-3 | attempt |' "$EL_PROG_RED" 2>/dev/null) || el_red_att=0
+  el_red_sat=$(grep -cF '| milestone-3 | satisfied' "$EL_PROG_RED" 2>/dev/null) || el_red_sat=0
+  [[ "$el_red_adv" -ge 1 && "$el_red_att" -eq 0 && "$el_red_sat" -ge 1 ]] \
+    && pass "(lean-el-red) #642 AC-4: the red is RECORDED as advisory, charges no fix attempt, and milestone 3 still concludes satisfied" \
+    || fail "(lean-el-red) advisory=$el_red_adv attempts=$el_red_att satisfied=$el_red_sat, expected >=1/0/>=1"
 
   # ---- zero configured verify lanes (#392) — the RED verdict path, composed -------------
   # (lean-el-red) above proves a milestone-3 red composes when a lane RAN and failed. This
@@ -1426,6 +1488,7 @@ RECFG
     RE_PR="$RE_DIR/pr.json"
     cat > "$RE_PR" <<REPR
 [{ "number": $RE_PR_NUM, "url": "https://example.invalid/pr/$RE_PR_NUM", "isDraft": false,
+   "state": "OPEN",
    "body": "Closes #$RE_KEY\n\nSpec: docs/plans/acme-$RE_KEY-lean.md" }]
 REPR
     # The entry sweep's own shape (`--state all`), served with a state field so a run that ever
@@ -1476,9 +1539,12 @@ case "$1" in
     esac ;;
   pr)
     case "$*" in
-      *"--state all"*) cat "$RE_PR_ALL" ;;
-      *"--jq"*)        cat "$RE_PR_NUMS" ;;
-      *)               cat "$RE_PR" ;;
+      # DISCRIMINATED ON THE FIELD LIST, not on `--state all` (#642). Milestone 5 accepts a merged
+      # PR now, so it passes `--state all` too — and matching on that alone served it the SWEEP's
+      # two-field record, whose null `url`/`isDraft` reads as "PR null is still a draft".
+      *"--json number,state"*) cat "$RE_PR_ALL" ;;
+      *"--jq"*)                cat "$RE_PR_NUMS" ;;
+      *)                       cat "$RE_PR" ;;
     esac ;;
   api)
     case "$*" in
@@ -1690,6 +1756,7 @@ RESESS
     IK_PR="$IK_DIR/pr.json"
     cat > "$IK_PR" <<IKPR
 [{ "number": $IK_PR_NUM, "url": "https://example.invalid/pr/$IK_PR_NUM", "isDraft": false,
+   "state": "OPEN",
    "body": "Closes #$IK_KEY\n\nSpec: docs/plans/acme-$IK_KEY-lean.md" }]
 IKPR
     IK_PR_ALL="$IK_DIR/pr-all.json"
@@ -1882,6 +1949,7 @@ IKSESS
     CO_PR="$CO_DIR/pr.json"
     cat > "$CO_PR" <<COPR
 [{ "number": $CO_PR_NUM, "url": "https://example.invalid/pr/$CO_PR_NUM", "isDraft": false,
+   "state": "OPEN",
    "body": "Closes #$CO_KEY\n\nSpec: docs/plans/acme-$CO_KEY-lean.md" }]
 COPR
     CO_PR_ALL="$CO_DIR/pr-all.json"
