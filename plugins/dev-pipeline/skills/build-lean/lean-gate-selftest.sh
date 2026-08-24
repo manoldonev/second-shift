@@ -5680,6 +5680,67 @@ else fail "(ws8) rc=$rc: $(ls -l "$p65/.claude" 2>&1)"; fi
 # file left here would print a `settings:` line into output those cases grep.
 rm -f "$WTREE/.claude/settings.local.json" "$WTREE/.claude/settings.json" "$WREAL/ws-real-settings.json"
 
+# ---- (ws9)/(ws10) #647 round 1, B1: the premise the eight cases above SHARE -------------------
+# Every (ws) case runs in a fixture whose `.gitignore` carries `.claude/`, which encodes the
+# operator's PERSONAL GLOBAL ignore rule as a repo rule. No consumer repo has that line, and this
+# repo did not either until this change added one path of it — so all eight are green on a premise
+# production does not satisfy, and not one of them can fail when the seed writes an UNIGNORED
+# untracked file into a tree whose cleanliness `worktree_inflight` reads as "still carries work".
+# Sharing a premise with the feature is exactly how a suite converges on green while the defect
+# it is meant to cover stays live, so this needs a SECOND fixture repo rather than another case
+# in the first one.
+WNIG="$WREAL/wtree-noignore"
+mkdir -p "$WNIG/.claude/audit"
+git -C "$WNIG" init -q
+git -C "$WNIG" config user.email t@example.invalid
+git -C "$WNIG" config user.name t
+git -C "$WNIG" symbolic-ref HEAD refs/heads/main
+# HERMETICITY, and it is the whole case. `git check-ignore` consults the operator's GLOBAL ignore
+# file as well as the repo's, and the machine this lane runs on carries
+# `**/.claude/settings.local.json` there — which is exactly why the production repo looked ignored
+# while carrying no rule of its own, and why round 1's defect needed an isolated probe to see. Left
+# unpinned, this fixture inherits that rule, the seed copies, and both cases below measure the
+# operator's home directory rather than the gate: green here, and a DIFFERENT path taken on a CI
+# runner that has no such file. `/dev/null` is an empty excludes file, so only `$WNIG/.gitignore`
+# counts.
+git -C "$WNIG" config core.excludesFile /dev/null
+# Ignore rules EXIST here — just not one covering the seed's destination. A repo with no
+# `.gitignore` at all would leave "does this handle a rule-less repo" as a confound on the result.
+printf 'node_modules/\n' > "$WNIG/.gitignore"
+git -C "$WNIG" add -A >/dev/null 2>&1
+git -C "$WNIG" commit -q -m "no-ignore fixture" >/dev/null 2>&1
+git -C "$WNIG" update-ref refs/remotes/origin/main HEAD
+printf '{"tool":"Bash"}\n' > "$WNIG/.claude/audit/$WSID.jsonl"
+printf '{"permissions":{"allow":["Bash(git fetch:*)"]}}\n' > "$WNIG/.claude/settings.local.json"
+nig_registered() { git -C "$WNIG" worktree list --porcelain 2>/dev/null | grep -qxF "worktree $1"; }
+p66="$WREAL/wt-66"
+git -C "$WNIG" worktree add -q --no-track -b claude/acme-66 "$p66" main 2>/dev/null
+git -C "$WNIG" update-ref refs/remotes/origin/claude/acme-66 "$(git -C "$WNIG" rev-parse claude/acme-66)"
+# Registration checked, not assumed — same reason `ws_wt` checks it: an absent worktree makes both
+# cases below pass vacuously, and "nothing was copied" is what (ws9) asserts.
+nig_registered "$p66" || fail "(ws-setup) no-ignore fixture worktree claude/acme-66 was not created"
+
+pr_fixture claude/acme-66 '[{"number":66,"state":"OPEN"}]'
+rm -f "$WPROG"
+out="$(wgate "$WNIG" entry 66)"; rc=$?
+if [ "$rc" -eq 0 ] && [ ! -e "$p66/.claude/settings.local.json" ] \
+   && grep -qF 'is not git-ignored' <<<"$out" && grep -qF 'Add this line to .gitignore' <<<"$out"; then
+  pass "(ws9) where no ignore rule covers the destination, the seed declines by name and writes nothing"
+else fail "(ws9) rc=$rc — the seed wrote an unignored file into the lane worktree, or declined silently: $out"; fi
+
+# THE PROBE FROM ROUND 1, AS A CASE — seed, then sweep, and the worktree must still reap. If the
+# seed had written an unignored file, `git status --porcelain` is non-empty, `worktree_inflight`
+# answers 8 ("its tree is not clean"), and `worktree_destroy` KEEPS the worktree instead — the
+# stray-worktree accumulation #530 and this very sweep exist to prevent, self-inflicted by the
+# gate one call earlier and never recoverable, because every later entry re-reads the same file.
+# Removing the check-ignore guard from `seed_lane_worktree_settings` reds this line.
+pr_fixture claude/acme-66 '[{"number":66,"state":"CLOSED"}]'
+rm -f "$WPROG"
+out="$(wgate "$WNIG" entry 66)"; rc=$?
+if [ "$rc" -eq 0 ] && ! nig_registered "$p66"; then
+  pass "(ws10) the next entry's sweep still reaps a worktree the seed considered — the seed left the tree clean"
+else fail "(ws10) rc=$rc — the worktree is still registered: the seed dirtied the tree the sweep reads: $out"; fi
+
 # ---- (pc) #445: the producer stamps the generation its readers gate on ----------------------
 # THE WRITER HALF of the capability contract. A merge-boundary arm bound to a capability reads
 # this stamp off the run's own claim comment; a producer that stopped writing it would send every

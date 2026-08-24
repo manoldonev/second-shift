@@ -27,13 +27,23 @@ only posture the operator ever consented to — instead of inheriting nothing.
   the worktree copy does not alter the origin checkout's copy.
 - **AC-3** (oracle — selftest): an existing worktree file is not clobbered on a re-entry that
   reuses the worktree.
-- **AC-4** (proxy): the interim tracked `.claude/settings.json` lands with the three allows the
-  dogfood lane needs (the gate script, `gh`, `git fetch`) and a note naming this ticket, so its
-  removal after AC-1 ships is traceable.
+- **AC-4** (proxy): the interim tracked `.claude/settings.json` lands with the allows the dogfood
+  lane needs — the gate script, `git fetch`, and `gh` as an **enumeration** of the read verbs the
+  lane invokes plus the PR-opening one, never a `gh:*` wildcard — and a note naming this ticket, so
+  its removal after AC-1 ships is traceable. A tracked file in a public repo is a standing grant in
+  every clone and every contributor session, so no verb that can merge, close, delete or edit
+  outside the lane branch appears here at any width, and `gh api` cannot appear at all because an
+  allow pattern matches a command PREFIX and no `gh api` prefix excludes a trailing `-X DELETE`.
+  `D-8`.
 - **AC-5** (oracle): `bash tools/run-selftests.sh --full --exclude tools/install-topology-selftest.sh`
   is green.
 - **AC-6** (critic): `Changelog:` trailer with a `Migration:` line — consumers gain a behavior they
   did not have.
+- **AC-7** (oracle — selftest): the seed refuses to write where no ignore rule covers the
+  destination — nothing lands, and the refusal names the `.gitignore` line that would earn the
+  copy — and a lane worktree the seed has considered is still reaped by the next `entry`'s sweep.
+  Its fixture repo must NOT carry the `.claude/` ignore line the other cases' fixture does, or the
+  case shares the premise it exists to falsify. `D-9`.
 
 ## What is deliberately NOT here
 
@@ -42,7 +52,12 @@ only posture the operator ever consented to — instead of inheriting nothing.
   failure for a standing grant on every spawn, and that posture decision is not this slice's.
 - **No symlink, under any flag.** A symlink into the main checkout would let a lane session's write
   reach the operator's real settings file. `D-2`.
-- **No new gate refusal.** Nothing here may change `entry`'s verdict. `D-5`.
+- **No new gate refusal.** Nothing here may change `entry`'s verdict. `D-5` — and `D-9`'s refusal
+  is a refusal to COPY, printed as a warning: `entry`'s exit status is the same on both branches
+  of it.
+- **No wide `gh` grant, at any scope this repo publishes.** The operator's own wider allowlist
+  belongs in their untracked `settings.local.json` — which is precisely the file AC-1 now carries
+  into the lane worktree, so the narrow tracked block costs the operator nothing. `D-8`.
 
 ## Decision Ledger
 
@@ -58,6 +73,9 @@ every row below is authored in this session and carries its own basis.
 | D-5 | Advisory, never fatal | A settings file that could not be copied is a lost convenience, not evidence. The attestation is what `entry` exists to establish, and nothing added here may reach its exit status — the same rule `cmd_entry_sweep` already runs under. | codebase-derived |
 | D-6 | AC-4's "comment" is a JSON key | JSON has no comment syntax and this repo's verification runs `jq empty` over every `*.json`, so the note lands as a top-level `"_comment"` string. Probed: the harness ignores the unknown key without complaint. | codebase-derived |
 | D-7 | The remedy is not inert | A lane worktree is **not** a separate trust root — the harness resolves project identity through the git common dir, so a worktree of a trusted checkout inherits its trust and honours a project-scope allowlist. Probed directly in `second-shift-worktrees/647`: no `Ignoring N permissions.allow entry … has not been trusted` line, and no new `~/.claude.json` `projects` entry. Had it been a separate trust root, both AC-1's copy and AC-4's tracked file would have been ignored on arrival. | codebase-derived |
+
+| D-8 | How wide the tracked `gh` grant may be | A PUBLISHED, project-scope wildcard is never acceptable: no `Bash(gh:*)` in any tracked settings file. It is replaced by the enumerated verbs the lane actually invokes, derived from the lane scripts and skills and cross-checked against what lane sessions have really run — read-only, plus `gh pr create` for checklist step 7. Any verb that can merge, close, delete or edit outside the lane branch is excluded categorically; the lane still makes those writes, as the bot wrapper's, inside the `lean-gate.sh` call the first allow already covers. `gh api` is excluded on the same rule and cannot be narrowed back in, because prefix matching cannot exclude `-X DELETE`. AC-4 names `gh` and is satisfied by the enumeration. Operator ruling, 2026-08-24, on round 1's B2. | user-answered |
+| D-9 | What makes the copy safe for the reaper | `git check-ignore` on the DESTINATION PATH before any bytes are written, skipping with a named warning on a miss — the shape this file already uses before milestone 3 writes render bytes. Chosen over the two alternatives because it is the only one that holds in a CONSUMER repo: a repo-level ignore rule fixes this repo alone, and an in-flight carve-out would teach `worktree_inflight` — the one predicate the sweep and the scheduler's #531 D-3 boundary share — to overlook a real untracked file for every caller. This repo's `.gitignore` gains the line as well, so the dogfood lane takes the copy path rather than the warn path. | codebase-derived |
 
 ### Departures
 

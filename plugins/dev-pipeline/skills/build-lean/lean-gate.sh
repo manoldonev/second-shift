@@ -1990,7 +1990,7 @@ EOF
 # session ran. A session denied every tool call still exits 0, so the failure is near-silent.
 #
 # So the lane worktree inherits the posture of the checkout it was cut from, which is the only
-# posture the operator ever consented to. Three properties, each load-bearing:
+# posture the operator ever consented to. Four properties, each load-bearing:
 #
 #   COPY, NEVER SYMLINK. A symlink into the main checkout would let a lane session's write reach
 #   the operator's real settings file. `cp` also dereferences a symlinked SOURCE, so what lands in
@@ -2000,6 +2000,10 @@ EOF
 #   jobs: a re-entry reusing a worktree cannot overwrite edits made inside it, and a `settings.json`
 #   that is TRACKED is already there and is skipped for free — so nothing here has to ask git what
 #   is tracked, which is the reversible default the ticket's Open Region names.
+#
+#   IGNORED, OR NOT WRITTEN AT ALL. The copy is skipped, loudly, unless the destination path is
+#   already covered by an ignore rule — because `entry`'s own sweep and the scheduler both decide
+#   whether a lane worktree still holds work by asking whether its tree is clean.
 #
 #   ADVISORY. Nothing here may reach `entry`'s exit status. The attestation is what `entry` exists
 #   to establish; a settings file that could not be copied is a lost convenience, not evidence.
@@ -2028,6 +2032,24 @@ seed_lane_worktree_settings() {
       # would write THROUGH it into whatever the operator pointed it at.
       if [ -e "$dst" ] || [ -L "$dst" ]; then
         say "  settings: $wt/.claude/$rel is already present — left as it is."
+        continue
+      fi
+      # IGNORED, OR NOT WRITTEN AT ALL (#647 round 1, B1). Asked of the DESTINATION PATH, before
+      # any bytes exist there, so it holds on the first seed as much as on the hundredth — the
+      # same shape as the render-output assertion this file already makes before milestone 3
+      # writes a PNG, and for a stricter reason. `git check-ignore` answers the very question
+      # `git status --porcelain` answers, and that predicate is load-bearing here: an unignored
+      # untracked file makes `worktree_inflight` report 8, "its tree is not clean" — to the sweep
+      # three lines up in `cmd_entry`, which then declines to reap the worktree FOREVER, and to
+      # the scheduler's #531 D-3 boundary, which reads a finished build session as still carrying
+      # work. A convenience that quietly disables the reaper is not a convenience.
+      #
+      # It does not re-open the tracked-ness question the never-clobber rule closed: a tracked
+      # `settings.json` is already in the worktree and returned above, so this line is only ever
+      # reached for a destination that does not exist.
+      if ! git -C "$wt" check-ignore -q ".claude/$rel" 2>/dev/null; then
+        warn "  settings: .claude/$rel is not git-ignored in $wt, so copying it would leave the lane worktree permanently unclean — not inherited."
+        warn "    Add this line to .gitignore to receive it: .claude/$rel"
         continue
       fi
       mkdir -p "$wt/.claude" 2>/dev/null \
