@@ -28,6 +28,44 @@ What survives is everything a human, not a command, decided:
 reasoned exclusion. See [Test-the-tests](#test-the-tests-the-mutation-sweep), the earn-your-keep
 rule, for the discipline that keeps *those* honest.
 
+### Never-fired decision points: the #642 reachability verdict
+
+`docs/gate-ablation.md` found 20 of the lane's 33 declared decision points had never fired over a
+52-record corpus. A point with no firings cannot be shown to change a merge decision — and neither
+can it be shown not to, so #642 owed each one an argument rather than a deletion. Two buckets, and
+the argument is what makes the bucket checkable:
+
+- **structurally dead** — the state cannot be reached by any consumer on the current tree. Deleted.
+- **dead here, live for a consumer** — this repo simply never enters the state. Kept, untouched.
+  Absence of firings in a repo that ships no design work is not evidence about a repo that does.
+
+**Deleted (2).** `m4/head-missing` and `m4/head-tree-diff`, the pre-patch-id SHA tail milestone 4
+fell through to for a verdict record carrying no `reviewed_patch_id`. `cmd_verdict` — the only
+writer — emits that key unconditionally and `envfail`s rather than omit it, so a record without it
+predates the key; and `lean-evidence.sh`, which `pr-gates` runs on every consumer's PR, refuses
+that record class outright. Whatever those arms answered, the boundary refused the PR: superseded,
+not merely quiet. Milestone 4 now refuses the class itself, which is strictly tighter than the
+fallback it replaces.
+
+**Kept (18), by why.** The ticket's warning is the load-bearing one: deleting these would remove
+function from the shipped product to tidy the dogfood canary.
+
+| Kept point(s) | Why it is live for a consumer |
+| --- | --- |
+| `m1/design-form`, `m3/design-render`, `m4/fidelity` | the whole design tier. This repo configures no `design.provider`, so it never arms; a consumer that does reaches all three on its first armed ticket |
+| `m4/identity` | P10's mechanical enforcement. #348 removed the in-build reviewer that used to trip it, and this row is what keeps refusing a build session that writes its own approve |
+| `m3/typecheck` | this repo leaves `typecheck` null. A consumer that configures one reaches it on the first type error — and it is the one verify key #642 did **not** demote, so it is also where the reserved infra code still has a reader |
+| `m3/setup-lane`, `m3/no-verify-lane` | "the check could not run" and "nothing was verified". Demoting either would make milestone 3 green having verified nothing |
+| `m2/frozen-files`, `m2/changelog-trailer` | reachable on this repo today — a feature PR touching a release-owned file, or a `plugins/**` PR with no trailer |
+| `m1/spec-no-ac`, `m1/ledger-lint`, `m1/preflight-reconcile` | all reachable from an ordinary spec: no AC-n, an out-of-enum provenance, a dropped receipt row |
+| `m4/verdict-keys`, `m4/verdict-uncommitted` | reachable from a hand-written or uncommitted record. Deleting `verdict-uncommitted` would not move WHEN the failure is caught — it would make the local answer WRONG, certifying milestone 4 against a file that is not on the branch |
+| `m5/exit-artifacts:draft`, `:closes`, `:spec-link`, `m5/verdict-reference:body-ref` | a draft PR, a missing `Closes`, a missing spec link, and (under a `writes: false` tracker) a body with no verdict reference — every one an ordinary consumer state |
+
+**Supersession is not enough on its own.** `m4/verdict-uncommitted` is re-checked at the merge
+boundary too, and it is kept: deleting a local arm is only safe when what is left answers
+*correctly but later*. Where deleting it would make the local gate answer *wrongly*, the boundary
+duplicating it is beside the point.
+
 ## How the sweep runs
 
 One script owns it, locally and in CI:
@@ -64,7 +102,7 @@ follows:
 | --- | --- |
 | any suite exits non-zero | exit 1, every failing suite named with its code |
 | a worker dies without writing a verdict | that suite scores `rc=125`, named as infra — never as a pass |
-| **every** failing suite is that infra class | exit **3**, the reserved code (#527) — the workers died, so the sweep learned nothing about the tree. `lean-gate.sh` milestone 3 reads a 3 from any verify lane as "nothing was evaluated": it reds with 7 and charges no fix attempt. Mixed infra-and-real stays exit 1, because a red branch is still a red branch. See [`config-schema.md`](config-schema.md) for the cross-repo contract |
+| **every** failing suite is that infra class | exit **3**, the reserved code (#527) — the workers died, so the sweep learned nothing about the tree. `lean-gate.sh` milestone 3 reads a 3 from a **blocking** verify lane as "nothing was evaluated": it reds with 7 and charges no fix attempt. Since #642 that is `typecheck` alone — `lint`, `test` and extraLanes report without refusing, so on those an exit 3 is recorded like any other red and classifies nothing. Mixed infra-and-real stays exit 1, because a red branch is still a red branch. See [`config-schema.md`](config-schema.md) for the cross-repo contract |
 | discovered-minus-excluded ≠ suites actually run | exit 2, `silent truncation` — a faster sweep that ran fewer suites is the failure mode this design is most exposed to |
 | `--exclude` matches no discovered suite | exit 2, `stale exclusion` — the same stale-row posture the slow-suite table applies to its own rows |
 | no suites discovered, or every suite excluded | exit 2 — a sweep that runs nothing is never green |
@@ -604,12 +642,14 @@ coupling rather than mechanizing it into a guard that cannot fail.
   runner through the variable rather than the flag.
 - **The reserved verify-lane INFRASTRUCTURE exit code (#527), writer ↔ reader.**
   `tools/run-selftests.sh` raises 3 when every failing suite is its no-verdict class; `lean-gate.sh`
-  milestone 3 reads 3 from any verify lane as "nothing was evaluated" and charges no fix attempt.
-  The two sites share a NUMBER, not a block. Not left reviewer-guarded, which is where this differs
-  from the ceiling above: `lean-gate-selftest.sh` (ic6)/(ic7) COMPOSE the pair — the real runner,
-  over a fixture tree whose every suite dies without a verdict, wired into `commands.acme.test`
-  exactly as a consumer would wire it — so a one-sided change reds in both polarities. The ends are
-  pinned alone too: `run-selftests-selftest.sh`'s AC-1 cases on the writer, (ic1)-(ic5) on the reader.
+  milestone 3 reads 3 from a blocking verify lane as "nothing was evaluated" and charges no fix
+  attempt. The two sites share a NUMBER, not a block. Not left reviewer-guarded, which is where this
+  differs from the ceiling above: `lean-gate-selftest.sh` (ic6)/(ic7) COMPOSE the pair — the real
+  runner, over a fixture tree whose every suite dies without a verdict, wired into
+  `commands.acme.typecheck` exactly as a consumer would wire it — so a one-sided change reds in both
+  polarities. #642 moved that wiring off `commands.acme.test`, which no longer refuses; the contract
+  is unchanged, only the key it is driven through. The ends are pinned alone too:
+  `run-selftests-selftest.sh`'s AC-1 cases on the writer, (ic1)-(ic5) on the reader.
 - **lean verdict-record key schema** — one writer (`lean-gate.sh`'s `verdict`) and three readers
   (`lean-gate.sh` milestone 4, `check-lean-chain.sh`, `lean-reconcile.sh`). Dropping a key on the
   writer silently un-satisfies all three; a reader-side requirement the writer never emits reds

@@ -104,7 +104,7 @@ OVERRIDE_REL="plugins/dev-pipeline/tools/operator-override.sh"
 envfail() { echo "[gate-buckets] $1" >&2; exit 2; }
 
 # The corpus: `<repo-relative path>:<space-separated refusal primitives>`, one per line.
-CORPUS='plugins/dev-pipeline/skills/build-lean/lean-gate.sh:fail_milestone block_milestone fail_obligation ticket_refuse envfail
+CORPUS='plugins/dev-pipeline/skills/build-lean/lean-gate.sh:fail_milestone block_milestone fail_obligation block_obligation ticket_refuse envfail
 plugins/dev-pipeline/skills/build-lean/lean-evidence.sh:note_violation envfail
 plugins/dev-pipeline/skills/run-lean/orchestrate-lean.sh:terminal envfail
 plugins/dev-pipeline/tools/operator-override.sh:envfail

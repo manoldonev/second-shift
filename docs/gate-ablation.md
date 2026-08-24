@@ -96,6 +96,17 @@ record moved. It also exits 4 if its own output carries a session id or an absol
 
 ## Findings
 
+> **The corpus was RE-CUT by #642** (74 records pinned, 70 scored, 192 firings, 31 declared decision
+> points) so that the next report measures the surface #642 left. The generated block below is that
+> re-cut; the numbered findings that follow are the ORIGINAL analysis over the 52-record pin, kept
+> verbatim because they are what #642 acted on and what its PR is checkable against. Read them as
+> dated, and read the block for current figures. Two of the changes #642 made are visible in it
+> directly: `m1/spec-absent`, `m4/verdict-absent`, `m5/progress-current`,
+> `m5/exit-artifacts:no-open-pr`, `m5/verdict-reference:closing-comment` and `m5/identity-stamp`
+> now record under the `absent` verb, and the 33 declared points are 31 — `m4/head-missing` and
+> `m4/head-tree-diff` were deleted as structurally dead.
+
+
 **1. Milestone 2 has never fired.** Zero firings across 52 records, against 52 satisfactions and 12
 `advisory` rows — every one of them the frozen-files workflow-edit notice. A milestone whose only
 recorded output is advisory is a different finding from one that merely happens to be quiet, and both
@@ -159,13 +170,13 @@ announcement-class firings.
 
 | | |
 | --- | --- |
-| scored records (artifact schema) | 52 |
-| firings scored | 109 |
-| declared decision points | 33 |
-| `obligation` rows in the corpus | 1 |
-| `advisory` rows in the corpus | 12 (milestone-2: 12) |
-| records reaching `milestone-4 satisfied` | 10 |
-| records reaching `milestone-5 satisfied` | 6 |
+| scored records (artifact schema) | 70 |
+| firings scored | 192 |
+| declared decision points | 31 |
+| `obligation` rows in the corpus | 25 |
+| `advisory` rows in the corpus | 31 (milestone-2: 31) |
+| records reaching `milestone-4 satisfied` | 31 |
+| records reaching `milestone-5 satisfied` | 27 |
 | corpus manifest | `docs/gate-ablation-manifest.tsv` |
 
 ### Decision points
@@ -176,39 +187,37 @@ cost, each with the number of firings it could be measured over.
 
 | gate point | ms | obligation | firings | attempt / absent | mechanical | adjudicated | eval s | rework s |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `m1/spec-absent` | 1 | — | 54 | 36 / 18 | 54 unmeasured | 54 unchanged | 2 (14/54) | 178697 (15/54) |
+| `m1/spec-absent` | 1 | — | 83 | 51 / 32 | 83 unmeasured | 83 unchanged | 2 (31/83) | 18062 (31/83) |
 | `m1/spec-no-ac` | 1 | — | — | — / — | — | — | — | — |
-| `m1/ledger-lint` | 1 | — | — | — / — | — | — | — | — |
-| `m1/preflight-reconcile` | 1 | — | — | — / — | — | — | — | — |
-| `m1/pause-and-ask` | 1 | — | 2 | 2 / — | 2 no-response | 2 undetermined | — | — |
+| `m1/ledger-lint` | 1 | — | 4 | 4 / — | 4 unmeasured | 4 undetermined | 0 (4/4) | 91 (4/4) |
+| `m1/preflight-reconcile` | 1 | — | 2 | 2 / — | 2 unmeasured | 2 undetermined | 0 (2/2) | 68 (2/2) |
+| `m1/pause-and-ask` | 1 | — | 3 | 3 / — | 3 unmeasured | 3 undetermined | 5 (3/3) | 11272 (3/3) |
 | `m1/design-form` | 1 | — | — | — / — | — | — | — | — |
 | `m2/frozen-files` | 2 | — | — | — / — | — | — | — | — |
 | `m2/changelog-trailer` | 2 | — | — | — / — | — | — | — | — |
-| `m3/lint` | 3 | — | 2 | 2 / — | 2 unmeasured | 2 changed | 23 (1/2) | 45 (1/2) |
+| `m3/lint` | 3 | — | — | — / — | — | — | — | — |
 | `m3/typecheck` | 3 | — | — | — / — | — | — | — | — |
-| `m3/test` | 3 | — | 13 | 13 / — | 13 unmeasured | 13 changed | 2884 (4/13) | 3704 (4/13) |
-| `m3/extra-lane` | 3 | — | 12 | 12 / — | 12 unmeasured | 12 changed | 6624 (5/12) | 7932 (5/12) |
+| `m3/test` | 3 | — | 36 | 36 / — | 5 no-response, 31 unmeasured | 36 changed | 6677 (10/36) | 19821 (9/36) |
+| `m3/extra-lane` | 3 | — | 8 | 8 / — | 1 no-response, 7 unmeasured | 8 changed | 1457 (4/8) | 667 (4/8) |
 | `m3/setup-lane` | 3 | — | — | — / — | — | — | — | — |
 | `m3/no-verify-lane` | 3 | — | — | — / — | — | — | — | — |
 | `m3/design-render` | 3 | — | — | — / — | — | — | — | — |
-| `m4/verdict-absent` | 4 | — | 4 | 4 / — | 1 moved, 2 no-response, 1 unmeasured | 4 unchanged | — | — |
-| `m4/verdict-not-approve` | 4 | — | 6 | 6 / — | 4 moved, 2 no-response | 6 changed | 0 (1/6) | — |
+| `m4/verdict-absent` | 4 | — | 24 | 24 / — | 1 moved, 23 unmeasured | 24 unchanged | — | — |
+| `m4/verdict-not-approve` | 4 | — | 4 | 4 / — | 2 moved, 2 unmeasured | 4 changed | 0 (2/4) | — |
 | `m4/verdict-keys` | 4 | — | — | — / — | — | — | — | — |
 | `m4/verdict-uncommitted` | 4 | — | — | — / — | — | — | — | — |
 | `m4/identity` | 4 | — | — | — / — | — | — | — | — |
-| `m4/chain-break` | 4 | — | 1 | 1 / — | 1 moved | 1 changed | — | — |
-| `m4/patch-stale` | 4 | — | 1 | 1 / — | 1 unmeasured | 1 changed | — | — |
-| `m4/head-missing` | 4 | — | — | — / — | — | — | — | — |
-| `m4/head-tree-diff` | 4 | — | — | — / — | — | — | — | — |
+| `m4/chain-break` | 4 | — | — | — / — | — | — | — | — |
+| `m4/patch-stale` | 4 | — | — | — / — | — | — | — | — |
 | `m4/fidelity` | 4 | — | — | — / — | — | — | — | — |
-| `m5/progress-current` | 5 | — | 3 | 3 / — | 3 no-response | 3 unchanged | — | — |
-| `m5/exit-artifacts:no-open-pr` | 5 | `exit-artifacts` | 1 | 1 / — | 1 no-response | 1 unchanged | 1 (1/1) | — |
+| `m5/progress-current` | 5 | — | — | — / — | — | — | — | — |
+| `m5/exit-artifacts:no-open-pr` | 5 | `exit-artifacts` | 17 | 17 / — | 4 no-response, 13 unmeasured | 17 unchanged | 2 (2/17) | — |
 | `m5/exit-artifacts:draft` | 5 | `exit-artifacts` | — | — / — | — | — | — | — |
 | `m5/exit-artifacts:closes` | 5 | `exit-artifacts` | — | — / — | — | — | — | — |
 | `m5/exit-artifacts:spec-link` | 5 | `exit-artifacts` | — | — / — | — | — | — | — |
-| `m5/verdict-reference:closing-comment` | 5 | `verdict-reference` | 8 | 8 / — | 1 no-response, 7 unmeasured | 8 unchanged | 10 (7/8) | 646 (6/8) |
+| `m5/verdict-reference:closing-comment` | 5 | `verdict-reference` | 8 | 8 / — | 8 unmeasured | 8 unchanged | 6 (6/8) | 457 (6/8) |
 | `m5/verdict-reference:body-ref` | 5 | `verdict-reference` | — | — / — | — | — | — | — |
-| `m5/identity-stamp` | 5 | — | 2 | 2 / — | 2 unmeasured | 2 unchanged | 1 (1/2) | 51 (1/2) |
+| `m5/identity-stamp` | 5 | — | 3 | 3 / — | 3 unmeasured | 3 unchanged | 4 (3/3) | 1146 (3/3) |
 
 ### Firings
 
@@ -217,115 +226,198 @@ row; the records themselves are host-local and pinned by the manifest.
 
 | # | citation | gate point | verb | mechanical | adjudicated | repeat |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `345-lean-progress.md` • milestone-3 • `2026-08-03T12:39:04Z` | `m3/extra-lane` | attempt | unmeasured | changed | — |
-| 2 | `345-lean-progress.md` • milestone-4 • `2026-08-03T15:03:21Z` | `m4/patch-stale` | attempt | unmeasured | changed | — |
-| 3 | `346-lean-progress.md` • milestone-1 • `2026-08-03T17:54:20Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
-| 4 | `346-lean-progress.md` • milestone-5 • `2026-08-03T18:46:20Z` | `m5/progress-current` | attempt | no-response | unchanged | — |
-| 5 | `346-lean-progress.md` • milestone-4 • `2026-08-03T21:22:08Z` | `m4/verdict-not-approve` | attempt | no-response | changed | — |
-| 6 | `346-lean-progress.md` • milestone-5 • `2026-08-03T21:22:08Z` | `m5/progress-current` | attempt | no-response | unchanged | — |
-| 7 | `347-lean-progress.md` • milestone-1 • `2026-08-03T18:08:04Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
-| 8 | `347-lean-progress.md` • milestone-3 • `2026-08-03T18:36:24Z` | `m3/extra-lane` | attempt | unmeasured | changed | — |
-| 9 | `356-lean-progress.md` • milestone-1 • `2026-08-10T11:47:48Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
-| 10 | `356-lean-progress.md` • milestone-3 • `2026-08-10T12:03:12Z` | `m3/lint` | attempt | unmeasured | changed | — |
-| 11 | `356-lean-progress.md` • milestone-3 • `2026-08-10T12:13:49Z` | `m3/extra-lane` | attempt | unmeasured | changed | — |
-| 12 | `357-lean-progress.md` • milestone-1 • `2026-08-06T20:02:38Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
-| 13 | `357-lean-progress.md` • milestone-3 • `2026-08-06T21:37:09Z` | `m3/test` | attempt | unmeasured | changed | — |
-| 14 | `357-lean-progress.md` • milestone-4 • `2026-08-06T21:57:40Z` | `m4/verdict-absent` | attempt | no-response | unchanged | — |
-| 15 | `359-lean-progress.md` • milestone-1 • `2026-08-06T20:01:48Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
-| 16 | `359-lean-progress.md` • milestone-3 • `2026-08-06T21:46:21Z` | `m3/test` | attempt | unmeasured | changed | — |
-| 17 | `362-lean-progress.md` • milestone-1 • `2026-08-03T14:07:58Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
-| 18 | `362-lean-progress.md` • milestone-4 • `2026-08-03T16:13:51Z` | `m4/verdict-absent` | attempt | unmeasured | unchanged | — |
-| 19 | `363-lean-progress.md` • milestone-1 • `2026-08-03T17:45:07Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
-| 20 | `372-lean-progress.md` • milestone-1 • `2026-08-03T22:22:31Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
-| 21 | `372-lean-progress.md` • milestone-4 • `2026-08-04T10:04:13Z` | `m4/verdict-not-approve` | attempt | no-response | changed | — |
-| 22 | `374-lean-progress.md` • milestone-1 • `2026-08-04T11:13:16Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
-| 23 | `374-lean-progress.md` • milestone-3 • `2026-08-04T11:40:01Z` | `m3/test` | attempt | unmeasured | changed | — |
-| 24 | `374-lean-progress.md` • milestone-5 • `2026-08-04T12:12:51Z` | `m5/progress-current` | attempt | no-response | unchanged | — |
-| 25 | `375-lean-progress.md` • milestone-1 • `2026-08-04T11:12:46Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
-| 26 | `375-lean-progress.md` • milestone-3 • `2026-08-04T11:52:28Z` | `m3/extra-lane` | attempt | unmeasured | changed | — |
-| 27 | `375-lean-progress.md` • milestone-4 • `2026-08-04T13:29:10Z` | `m4/chain-break` | attempt | content-moved | changed | — |
-| 28 | `375-lean-progress.md` • milestone-1 • `2026-08-04T21:00:04Z` | `m1/pause-and-ask` | attempt | no-response | undetermined | — |
-| 29 | `375-lean-progress.md` • milestone-1 • `2026-08-04T21:00:44Z` | `m1/pause-and-ask` | attempt | no-response | undetermined | yes |
-| 30 | `378-lean-progress.md` • milestone-1 • `2026-08-04T22:08:37Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
-| 31 | `378-lean-progress.md` • milestone-4 • `2026-08-05T06:35:16Z` | `m4/verdict-not-approve` | attempt | content-moved | changed | — |
-| 32 | `379-lean-progress.md` • milestone-1 • `2026-08-04T22:09:30Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
-| 33 | `379-lean-progress.md` • milestone-4 • `2026-08-04T22:57:39Z` | `m4/verdict-absent` | attempt | content-moved | unchanged | — |
-| 34 | `381-lean-progress.md` • milestone-1 • `2026-08-04T21:44:05Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
-| 35 | `388-lean-progress.md` • milestone-1 • `2026-08-05T12:18:51Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
-| 36 | `392-lean-progress.md` • milestone-1 • `2026-08-05T22:32:33Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
-| 37 | `392-lean-progress.md` • milestone-3 • `2026-08-05T22:54:27Z` | `m3/test` | attempt | unmeasured | changed | — |
-| 38 | `393-lean-progress.md` • milestone-1 • `2026-08-05T22:37:40Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
-| 39 | `393-lean-progress.md` • milestone-3 • `2026-08-05T22:55:29Z` | `m3/test` | attempt | unmeasured | changed | — |
-| 40 | `394-lean-progress.md` • milestone-1 • `2026-08-06T09:19:38Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
-| 41 | `395-lean-progress.md` • milestone-1 • `2026-08-05T22:44:42Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
-| 42 | `395-lean-progress.md` • milestone-4 • `2026-08-05T22:58:22Z` | `m4/verdict-absent` | attempt | no-response | unchanged | — |
-| 43 | `398-lean-progress.md` • milestone-1 • `2026-08-06T11:16:39Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
-| 44 | `403-lean-progress.md` • milestone-1 • `2026-08-06T10:18:49Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
-| 45 | `408-lean-progress.md` • milestone-1 • `2026-08-06T14:48:58Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
-| 46 | `410-lean-progress.md` • milestone-1 • `2026-08-06T13:21:20Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
-| 47 | `413-lean-progress.md` • milestone-1 • `2026-08-08T19:01:14Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
-| 48 | `416-lean-progress.md` • milestone-1 • `2026-08-06T18:02:16Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
-| 49 | `417-lean-progress.md` • milestone-1 • `2026-08-06T17:52:43Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
-| 50 | `417-lean-progress.md` • milestone-4 • `2026-08-08T17:05:05Z` | `m4/verdict-not-approve` | attempt | content-moved | changed | — |
-| 51 | `419-lean-progress.md` • milestone-1 • `2026-08-06T18:31:28Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
-| 52 | `423-lean-progress.md` • milestone-1 • `2026-08-06T20:00:29Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
-| 53 | `423-lean-progress.md` • milestone-3 • `2026-08-06T20:44:20Z` | `m3/extra-lane` | attempt | unmeasured | changed | — |
-| 54 | `431-lean-progress.md` • milestone-1 • `2026-08-07T13:24:15Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
-| 55 | `434-lean-progress.md` • milestone-1 • `2026-08-08T18:29:50Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
-| 56 | `464-lean-progress.md` • milestone-1 • `2026-08-10T11:45:37Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
-| 57 | `473-lean-progress.md` • milestone-1 • `2026-08-10T12:22:40Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
-| 58 | `473-lean-progress.md` • milestone-3 • `2026-08-10T12:45:34Z` | `m3/extra-lane` | attempt | unmeasured | changed | — |
-| 59 | `476-lean-progress.md` • milestone-1 • `2026-08-10T12:44:19Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
-| 60 | `476-lean-progress.md` • milestone-4 • `2026-08-10T15:30:51Z` | `m4/verdict-not-approve` | attempt | content-moved | changed | — |
-| 61 | `477-lean-progress.md` • milestone-1 • `2026-08-10T12:44:45Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
-| 62 | `490-lean-progress.md` • milestone-1 • `2026-08-11T12:30:48Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
-| 63 | `490-lean-progress.md` • milestone-1 • `2026-08-11T12:31:01Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | yes |
-| 64 | `490-lean-progress.md` • milestone-3 • `2026-08-11T12:47:18Z` | `m3/test` | attempt | unmeasured | changed | — |
-| 65 | `490-lean-progress.md` • milestone-3 • `2026-08-11T12:53:35Z` | `m3/test` | attempt | unmeasured | changed | yes |
-| 66 | `492-lean-progress.md` • milestone-3 • `2026-08-11T15:22:29Z` | `m3/test` | attempt | unmeasured | changed | — |
-| 67 | `493-lean-progress.md` • milestone-1 • `2026-08-11T14:50:42Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
-| 68 | `493-lean-progress.md` • milestone-3 • `2026-08-11T15:23:36Z` | `m3/test` | attempt | unmeasured | changed | — |
-| 69 | `496-lean-progress.md` • milestone-1 • `2026-08-11T20:48:29Z` | `m1/spec-absent` | absent | unmeasured | unchanged | — |
-| 70 | `497-lean-progress.md` • milestone-1 • `2026-08-12T10:35:13Z` | `m1/spec-absent` | absent | unmeasured | unchanged | — |
-| 71 | `500-lean-progress.md` • milestone-1 • `2026-08-12T10:35:45Z` | `m1/spec-absent` | absent | unmeasured | unchanged | — |
-| 72 | `500-lean-progress.md` • milestone-5 • `2026-08-12T12:00:45Z` | `m5/verdict-reference:closing-comment` | attempt | unmeasured | unchanged | — |
-| 73 | `500-lean-progress.md` • milestone-5 • `2026-08-12T12:01:32Z` | `m5/identity-stamp` | attempt | unmeasured | unchanged | — |
-| 74 | `502-lean-progress.md` • milestone-1 • `2026-08-12T10:37:28Z` | `m1/spec-absent` | absent | unmeasured | unchanged | — |
-| 75 | `502-lean-progress.md` • milestone-3 • `2026-08-12T12:09:17Z` | `m3/extra-lane` | attempt | unmeasured | changed | — |
-| 76 | `511-lean-progress.md` • milestone-1 • `2026-08-13T11:26:41Z` | `m1/spec-absent` | absent | unmeasured | unchanged | — |
-| 77 | `511-lean-progress.md` • milestone-3 • `2026-08-13T12:42:27Z` | `m3/test` | attempt | unmeasured | changed | — |
-| 78 | `511-lean-progress.md` • milestone-3 • `2026-08-13T13:34:39Z` | `m3/extra-lane` | attempt | unmeasured | changed | — |
-| 79 | `511-lean-progress.md` • milestone-5 • `2026-08-13T23:00:22Z` | `m5/verdict-reference:closing-comment` | attempt | unmeasured | unchanged | — |
-| 80 | `514-lean-progress.md` • milestone-1 • `2026-08-13T11:22:48Z` | `m1/spec-absent` | absent | unmeasured | unchanged | — |
-| 81 | `514-lean-progress.md` • milestone-3 • `2026-08-13T12:21:55Z` | `m3/test` | attempt | unmeasured | changed | — |
-| 82 | `515-lean-progress.md` • milestone-1 • `2026-08-13T11:31:58Z` | `m1/spec-absent` | absent | unmeasured | unchanged | — |
-| 83 | `515-lean-progress.md` • milestone-3 • `2026-08-13T12:39:03Z` | `m3/extra-lane` | attempt | unmeasured | changed | — |
-| 84 | `515-lean-progress.md` • milestone-5 • `2026-08-13T15:53:09Z` | `m5/verdict-reference:closing-comment` | attempt | no-response | unchanged | — |
-| 85 | `516-lean-progress.md` • milestone-1 • `2026-08-13T11:48:22Z` | `m1/spec-absent` | absent | unmeasured | unchanged | — |
-| 86 | `516-lean-progress.md` • milestone-1 • `2026-08-13T12:03:36Z` | `m1/spec-absent` | absent | unmeasured | unchanged | yes |
-| 87 | `516-lean-progress.md` • milestone-3 • `2026-08-13T12:45:35Z` | `m3/extra-lane` | attempt | unmeasured | changed | — |
-| 88 | `516-lean-progress.md` • milestone-1 • `2026-08-13T14:22:25Z` | `m1/spec-absent` | absent | unmeasured | unchanged | — |
-| 89 | `516-lean-progress.md` • milestone-5 • `2026-08-13T15:04:57Z` | `m5/verdict-reference:closing-comment` | attempt | unmeasured | unchanged | — |
-| 90 | `516-lean-progress.md` • milestone-5 • `2026-08-13T15:08:23Z` | `m5/verdict-reference:closing-comment` | attempt | unmeasured | unchanged | — |
-| 91 | `516-lean-progress.md` • milestone-5 • `2026-08-13T15:09:09Z` | `m5/identity-stamp` | attempt | unmeasured | unchanged | — |
-| 92 | `526-lean-progress.md` • milestone-1 • `2026-08-13T14:20:02Z` | `m1/spec-absent` | absent | unmeasured | unchanged | — |
-| 93 | `527-lean-progress.md` • milestone-1 • `2026-08-14T17:07:35Z` | `m1/spec-absent` | absent | unmeasured | unchanged | — |
-| 94 | `527-lean-progress.md` • milestone-5 • `2026-08-14T18:44:34Z` | `m5/verdict-reference:closing-comment` | attempt | unmeasured | unchanged | — |
-| 95 | `528-lean-progress.md` • milestone-1 • `2026-08-13T23:43:44Z` | `m1/spec-absent` | absent | unmeasured | unchanged | — |
-| 96 | `528-lean-progress.md` • milestone-1 • `2026-08-13T23:44:09Z` | `m1/spec-absent` | absent | unmeasured | unchanged | yes |
-| 97 | `528-lean-progress.md` • milestone-3 • `2026-08-14T00:53:38Z` | `m3/test` | attempt | unmeasured | changed | — |
-| 98 | `528-lean-progress.md` • milestone-3 • `2026-08-14T11:00:27Z` | `m3/extra-lane` | attempt | unmeasured | changed | — |
-| 99 | `528-lean-progress.md` • milestone-4 • `2026-08-14T12:43:49Z` | `m4/verdict-not-approve` | attempt | content-moved | changed | — |
-| 100 | `528-lean-progress.md` • milestone-3 • `2026-08-14T16:08:52Z` | `m3/test` | attempt | unmeasured | changed | — |
-| 101 | `531-lean-progress.md` • milestone-1 • `2026-08-16T14:43:49Z` | `m1/spec-absent` | absent | unmeasured | unchanged | — |
-| 102 | `531-lean-progress.md` • milestone-5 • `2026-08-16T16:05:32Z` | `m5/exit-artifacts:no-open-pr` | attempt | no-response | unchanged | — |
-| 103 | `532-lean-progress.md` • milestone-1 • `2026-08-13T23:43:30Z` | `m1/spec-absent` | absent | unmeasured | unchanged | — |
-| 104 | `532-lean-progress.md` • milestone-3 • `2026-08-14T00:31:15Z` | `m3/lint` | attempt | unmeasured | changed | — |
-| 105 | `532-lean-progress.md` • milestone-3 • `2026-08-14T01:13:41Z` | `m3/extra-lane` | attempt | unmeasured | changed | — |
-| 106 | `532-lean-progress.md` • milestone-5 • `2026-08-14T02:40:06Z` | `m5/verdict-reference:closing-comment` | attempt | unmeasured | unchanged | — |
-| 107 | `539-lean-progress.md` • milestone-1 • `2026-08-14T22:13:41Z` | `m1/spec-absent` | absent | unmeasured | unchanged | — |
-| 108 | `539-lean-progress.md` • milestone-1 • `2026-08-16T11:03:22Z` | `m1/spec-absent` | absent | unmeasured | unchanged | — |
-| 109 | `539-lean-progress.md` • milestone-5 • `2026-08-16T13:01:02Z` | `m5/verdict-reference:closing-comment` | attempt | unmeasured | unchanged | — |
+| 1 | `72-lean-progress.md` • milestone-1 • `2026-08-01T13:01:53Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
+| 2 | `72-lean-progress.md` • milestone-1 • `2026-08-01T13:08:27Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | yes |
+| 3 | `72-lean-progress.md` • milestone-1 • `2026-08-01T13:08:44Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | yes |
+| 4 | `72-lean-progress.md` • milestone-3 • `2026-08-01T13:20:11Z` | `m3/test` | attempt | unmeasured | changed | — |
+| 5 | `72-lean-progress.md` • milestone-3 • `2026-08-01T13:25:15Z` | `m3/test` | attempt | unmeasured | changed | yes |
+| 6 | `72-lean-progress.md` • milestone-4 • `2026-08-01T13:33:46Z` | `m4/verdict-absent` | attempt | unmeasured | unchanged | — |
+| 7 | `72-lean-progress.md` • milestone-4 • `2026-08-01T13:36:22Z` | `m4/verdict-absent` | attempt | unmeasured | unchanged | yes |
+| 8 | `83-lean-progress.md` • milestone-1 • `2026-08-01T11:56:06Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
+| 9 | `83-lean-progress.md` • milestone-3 • `2026-08-01T12:25:16Z` | `m3/test` | attempt | unmeasured | changed | — |
+| 10 | `83-lean-progress.md` • milestone-3 • `2026-08-01T12:41:04Z` | `m3/test` | attempt | unmeasured | changed | yes |
+| 11 | `83-lean-progress.md` • milestone-3 • `2026-08-01T12:58:29Z` | `m3/test` | attempt | unmeasured | changed | yes |
+| 12 | `83-lean-progress.md` • milestone-4 • `2026-08-01T13:06:39Z` | `m4/verdict-absent` | attempt | unmeasured | unchanged | — |
+| 13 | `83-lean-progress.md` • milestone-5 • `2026-08-01T13:39:32Z` | `m5/exit-artifacts:no-open-pr` | attempt | unmeasured | unchanged | — |
+| 14 | `83-lean-progress.md` • milestone-5 • `2026-08-01T14:01:58Z` | `m5/exit-artifacts:no-open-pr` | attempt | unmeasured | unchanged | yes |
+| 15 | `92-lean-progress.md` • milestone-4 • `2026-08-02T14:51:05Z` | `m4/verdict-absent` | attempt | unmeasured | unchanged | — |
+| 16 | `103-lean-progress.md` • milestone-1 • `2026-08-01T12:16:12Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
+| 17 | `103-lean-progress.md` • milestone-1 • `2026-08-01T12:16:50Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | yes |
+| 18 | `103-lean-progress.md` • milestone-3 • `2026-08-01T12:26:29Z` | `m3/test` | attempt | unmeasured | changed | — |
+| 19 | `103-lean-progress.md` • milestone-3 • `2026-08-01T12:33:33Z` | `m3/test` | attempt | unmeasured | changed | yes |
+| 20 | `103-lean-progress.md` • milestone-4 • `2026-08-01T12:48:12Z` | `m4/verdict-absent` | attempt | unmeasured | unchanged | — |
+| 21 | `103-lean-progress.md` • milestone-5 • `2026-08-01T13:01:41Z` | `m5/exit-artifacts:no-open-pr` | attempt | unmeasured | unchanged | — |
+| 22 | `107-lean-progress.md` • milestone-1 • `2026-08-01T17:43:37Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
+| 23 | `107-lean-progress.md` • milestone-4 • `2026-08-01T18:00:01Z` | `m4/verdict-absent` | attempt | unmeasured | unchanged | — |
+| 24 | `107-lean-progress.md` • milestone-5 • `2026-08-01T18:13:28Z` | `m5/exit-artifacts:no-open-pr` | attempt | unmeasured | unchanged | — |
+| 25 | `109-lean-progress.md` • milestone-1 • `2026-08-01T11:30:16Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
+| 26 | `109-lean-progress.md` • milestone-3 • `2026-08-01T12:00:53Z` | `m3/test` | attempt | unmeasured | changed | — |
+| 27 | `109-lean-progress.md` • milestone-4 • `2026-08-01T12:09:43Z` | `m4/verdict-absent` | attempt | unmeasured | unchanged | — |
+| 28 | `113-lean-progress.md` • milestone-1 • `2026-08-01T17:48:20Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
+| 29 | `113-lean-progress.md` • milestone-4 • `2026-08-01T18:19:59Z` | `m4/verdict-absent` | attempt | unmeasured | unchanged | — |
+| 30 | `115-lean-progress.md` • milestone-1 • `2026-08-01T12:30:58Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
+| 31 | `115-lean-progress.md` • milestone-1 • `2026-08-01T12:35:24Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | yes |
+| 32 | `115-lean-progress.md` • milestone-3 • `2026-08-01T12:50:15Z` | `m3/test` | attempt | unmeasured | changed | — |
+| 33 | `115-lean-progress.md` • milestone-4 • `2026-08-01T13:06:50Z` | `m4/verdict-absent` | attempt | unmeasured | unchanged | — |
+| 34 | `141-lean-progress.md` • milestone-1 • `2026-08-19T22:15:07Z` | `m1/spec-absent` | absent | unmeasured | unchanged | — |
+| 35 | `141-lean-progress.md` • milestone-5 • `2026-08-19T23:33:50Z` | `m5/verdict-reference:closing-comment` | attempt | unmeasured | unchanged | — |
+| 36 | `141-lean-progress.md` • milestone-5 • `2026-08-19T23:37:06Z` | `m5/identity-stamp` | attempt | unmeasured | unchanged | — |
+| 37 | `149-lean-progress.md` • milestone-1 • `2026-08-01T11:16:29Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
+| 38 | `149-lean-progress.md` • milestone-1 • `2026-08-01T11:24:48Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | yes |
+| 39 | `149-lean-progress.md` • milestone-3 • `2026-08-01T11:49:04Z` | `m3/test` | attempt | unmeasured | changed | — |
+| 40 | `149-lean-progress.md` • milestone-3 • `2026-08-01T11:56:49Z` | `m3/extra-lane` | attempt | unmeasured | changed | — |
+| 41 | `149-lean-progress.md` • milestone-4 • `2026-08-01T12:09:42Z` | `m4/verdict-absent` | attempt | unmeasured | unchanged | — |
+| 42 | `207-lean-progress.md` • milestone-1 • `2026-08-01T11:16:24Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
+| 43 | `207-lean-progress.md` • milestone-4 • `2026-08-01T11:36:40Z` | `m4/verdict-absent` | attempt | unmeasured | unchanged | — |
+| 44 | `207-lean-progress.md` • milestone-5 • `2026-08-01T12:11:13Z` | `m5/exit-artifacts:no-open-pr` | attempt | unmeasured | unchanged | — |
+| 45 | `228-lean-progress.md` • milestone-1 • `2026-08-01T17:47:16Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
+| 46 | `228-lean-progress.md` • milestone-1 • `2026-08-01T17:56:30Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | yes |
+| 47 | `228-lean-progress.md` • milestone-4 • `2026-08-01T18:03:12Z` | `m4/verdict-absent` | attempt | unmeasured | unchanged | — |
+| 48 | `228-lean-progress.md` • milestone-4 • `2026-08-01T18:10:53Z` | `m4/verdict-absent` | attempt | unmeasured | unchanged | yes |
+| 49 | `228-lean-progress.md` • milestone-4 • `2026-08-01T18:58:43Z` | `m4/verdict-not-approve` | attempt | unmeasured | changed | — |
+| 50 | `229-lean-progress.md` • milestone-1 • `2026-08-01T11:15:26Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
+| 51 | `229-lean-progress.md` • milestone-5 • `2026-08-01T11:50:16Z` | `m5/exit-artifacts:no-open-pr` | attempt | no-response | unchanged | — |
+| 52 | `237-lean-progress.md` • milestone-1 • `2026-08-01T10:19:15Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
+| 53 | `237-lean-progress.md` • milestone-1 • `2026-08-01T10:25:58Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | yes |
+| 54 | `237-lean-progress.md` • milestone-1 • `2026-08-01T10:26:13Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | yes |
+| 55 | `237-lean-progress.md` • milestone-3 • `2026-08-01T11:07:19Z` | `m3/extra-lane` | attempt | unmeasured | changed | — |
+| 56 | `237-lean-progress.md` • milestone-4 • `2026-08-01T11:15:35Z` | `m4/verdict-absent` | attempt | unmeasured | unchanged | — |
+| 57 | `237-lean-progress.md` • milestone-5 • `2026-08-01T12:07:16Z` | `m5/exit-artifacts:no-open-pr` | attempt | unmeasured | unchanged | — |
+| 58 | `237-lean-progress.md` • milestone-5 • `2026-08-01T12:08:01Z` | `m5/verdict-reference:closing-comment` | attempt | unmeasured | unchanged | — |
+| 59 | `247-lean-progress.md` • milestone-1 • `2026-08-01T11:03:48Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
+| 60 | `247-lean-progress.md` • milestone-1 • `2026-08-01T11:05:52Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | yes |
+| 61 | `247-lean-progress.md` • milestone-4 • `2026-08-01T11:22:09Z` | `m4/verdict-absent` | attempt | unmeasured | unchanged | — |
+| 62 | `247-lean-progress.md` • milestone-5 • `2026-08-01T11:37:33Z` | `m5/exit-artifacts:no-open-pr` | attempt | unmeasured | unchanged | — |
+| 63 | `271-lean-progress.md` • milestone-1 • `2026-08-01T17:48:17Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
+| 64 | `271-lean-progress.md` • milestone-1 • `2026-08-01T17:50:56Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | yes |
+| 65 | `271-lean-progress.md` • milestone-4 • `2026-08-01T17:57:48Z` | `m4/verdict-absent` | attempt | unmeasured | unchanged | — |
+| 66 | `271-lean-progress.md` • milestone-5 • `2026-08-01T18:12:05Z` | `m5/exit-artifacts:no-open-pr` | attempt | unmeasured | unchanged | — |
+| 67 | `277-lean-progress.md` • milestone-1 • `2026-08-01T10:18:35Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
+| 68 | `277-lean-progress.md` • milestone-4 • `2026-08-01T10:54:51Z` | `m4/verdict-absent` | attempt | unmeasured | unchanged | — |
+| 69 | `277-lean-progress.md` • milestone-4 • `2026-08-01T11:18:14Z` | `m4/verdict-not-approve` | attempt | unmeasured | changed | — |
+| 70 | `277-lean-progress.md` • milestone-5 • `2026-08-01T11:19:04Z` | `m5/exit-artifacts:no-open-pr` | attempt | unmeasured | unchanged | — |
+| 71 | `283-lean-progress.md` • milestone-1 • `2026-07-31T22:26:51Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
+| 72 | `283-lean-progress.md` • milestone-4 • `2026-07-31T22:52:55Z` | `m4/verdict-absent` | attempt | unmeasured | unchanged | — |
+| 73 | `283-lean-progress.md` • milestone-5 • `2026-07-31T23:14:16Z` | `m5/exit-artifacts:no-open-pr` | attempt | unmeasured | unchanged | — |
+| 74 | `289-lean-progress.md` • milestone-1 • `2026-08-10T22:10:45Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
+| 75 | `297-lean-progress.md` • milestone-1 • `2026-08-10T22:10:49Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
+| 76 | `298-lean-progress.md` • milestone-1 • `2026-08-10T22:13:22Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
+| 77 | `299-lean-progress.md` • milestone-1 • `2026-08-01T10:18:04Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
+| 78 | `299-lean-progress.md` • milestone-4 • `2026-08-01T10:57:41Z` | `m4/verdict-absent` | attempt | unmeasured | unchanged | — |
+| 79 | `299-lean-progress.md` • milestone-5 • `2026-08-01T11:04:03Z` | `m5/exit-artifacts:no-open-pr` | attempt | unmeasured | unchanged | — |
+| 80 | `306-lean-progress.md` • milestone-1 • `2026-08-01T10:17:23Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
+| 81 | `306-lean-progress.md` • milestone-4 • `2026-08-01T10:27:47Z` | `m4/verdict-absent` | attempt | unmeasured | unchanged | — |
+| 82 | `306-lean-progress.md` • milestone-5 • `2026-08-01T10:36:54Z` | `m5/exit-artifacts:no-open-pr` | attempt | unmeasured | unchanged | — |
+| 83 | `344-lean-progress.md` • milestone-1 • `2026-08-02T12:00:07Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
+| 84 | `344-lean-progress.md` • milestone-4 • `2026-08-02T12:17:34Z` | `m4/verdict-absent` | attempt | unmeasured | unchanged | — |
+| 85 | `344-lean-progress.md` • milestone-4 • `2026-08-02T12:27:52Z` | `m4/verdict-absent` | attempt | unmeasured | unchanged | yes |
+| 86 | `344-lean-progress.md` • milestone-4 • `2026-08-02T12:47:34Z` | `m4/verdict-absent` | attempt | unmeasured | unchanged | yes |
+| 87 | `344-lean-progress.md` • milestone-5 • `2026-08-02T13:16:58Z` | `m5/exit-artifacts:no-open-pr` | attempt | unmeasured | unchanged | — |
+| 88 | `344-lean-progress.md` • milestone-5 • `2026-08-02T13:19:45Z` | `m5/verdict-reference:closing-comment` | attempt | unmeasured | unchanged | — |
+| 89 | `348-lean-progress.md` • milestone-1 • `2026-08-16T20:52:08Z` | `m1/spec-absent` | absent | unmeasured | unchanged | — |
+| 90 | `348-lean-progress.md` • milestone-1 • `2026-08-16T20:57:38Z` | `m1/pause-and-ask` | attempt | unmeasured | undetermined | — |
+| 91 | `348-lean-progress.md` • milestone-1 • `2026-08-16T22:38:17Z` | `m1/pause-and-ask` | attempt | unmeasured | undetermined | yes |
+| 92 | `348-lean-progress.md` • milestone-3 • `2026-08-16T22:47:23Z` | `m3/extra-lane` | attempt | unmeasured | changed | — |
+| 93 | `351-lean-progress.md` • milestone-1 • `2026-08-19T15:24:12Z` | `m1/spec-absent` | absent | unmeasured | unchanged | — |
+| 94 | `351-lean-progress.md` • milestone-1 • `2026-08-19T15:53:53Z` | `m1/spec-absent` | absent | unmeasured | unchanged | yes |
+| 95 | `397-lean-progress.md` • milestone-1 • `2026-08-10T22:24:38Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
+| 96 | `397-lean-progress.md` • milestone-3 • `2026-08-10T23:02:00Z` | `m3/extra-lane` | attempt | unmeasured | changed | — |
+| 97 | `426-lean-progress.md` • milestone-1 • `2026-08-09T21:57:46Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
+| 98 | `426-lean-progress.md` • milestone-1 • `2026-08-09T22:00:19Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | yes |
+| 99 | `427-lean-progress.md` • milestone-1 • `2026-08-09T22:00:59Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
+| 100 | `427-lean-progress.md` • milestone-3 • `2026-08-09T23:25:24Z` | `m3/extra-lane` | attempt | no-response | changed | — |
+| 101 | `432-lean-progress.md` • milestone-1 • `2026-08-09T10:56:32Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
+| 102 | `432-lean-progress.md` • milestone-3 • `2026-08-09T12:09:11Z` | `m3/test` | attempt | unmeasured | changed | — |
+| 103 | `432-lean-progress.md` • milestone-3 • `2026-08-09T12:37:31Z` | `m3/test` | attempt | unmeasured | changed | yes |
+| 104 | `432-lean-progress.md` • milestone-3 • `2026-08-09T13:04:32Z` | `m3/test` | attempt | unmeasured | changed | yes |
+| 105 | `439-lean-progress.md` • milestone-1 • `2026-08-09T10:55:32Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
+| 106 | `439-lean-progress.md` • milestone-3 • `2026-08-09T11:50:20Z` | `m3/test` | attempt | unmeasured | changed | — |
+| 107 | `439-lean-progress.md` • milestone-4 • `2026-08-09T12:57:35Z` | `m4/verdict-absent` | attempt | content-moved | unchanged | — |
+| 108 | `439-lean-progress.md` • milestone-3 • `2026-08-09T14:07:12Z` | `m3/test` | attempt | no-response | changed | — |
+| 109 | `440-lean-progress.md` • milestone-1 • `2026-08-09T10:58:31Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
+| 110 | `440-lean-progress.md` • milestone-3 • `2026-08-09T12:00:13Z` | `m3/test` | attempt | unmeasured | changed | — |
+| 111 | `440-lean-progress.md` • milestone-3 • `2026-08-09T13:08:18Z` | `m3/test` | attempt | unmeasured | changed | yes |
+| 112 | `441-lean-progress.md` • milestone-1 • `2026-08-09T11:23:43Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
+| 113 | `441-lean-progress.md` • milestone-1 • `2026-08-09T11:27:32Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | yes |
+| 114 | `441-lean-progress.md` • milestone-3 • `2026-08-09T12:10:09Z` | `m3/test` | attempt | unmeasured | changed | — |
+| 115 | `441-lean-progress.md` • milestone-3 • `2026-08-09T12:41:38Z` | `m3/test` | attempt | unmeasured | changed | yes |
+| 116 | `441-lean-progress.md` • milestone-3 • `2026-08-09T13:07:41Z` | `m3/test` | attempt | unmeasured | changed | yes |
+| 117 | `442-lean-progress.md` • milestone-1 • `2026-08-09T10:54:38Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
+| 118 | `442-lean-progress.md` • milestone-3 • `2026-08-09T12:37:37Z` | `m3/test` | attempt | no-response | changed | — |
+| 119 | `442-lean-progress.md` • milestone-3 • `2026-08-09T13:10:04Z` | `m3/test` | attempt | no-response | changed | yes |
+| 120 | `443-lean-progress.md` • milestone-1 • `2026-08-09T10:37:40Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
+| 121 | `443-lean-progress.md` • milestone-3 • `2026-08-09T11:17:20Z` | `m3/test` | attempt | unmeasured | changed | — |
+| 122 | `444-lean-progress.md` • milestone-1 • `2026-08-09T10:37:36Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
+| 123 | `445-lean-progress.md` • milestone-1 • `2026-08-09T23:11:19Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
+| 124 | `446-lean-progress.md` • milestone-1 • `2026-08-09T10:59:21Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
+| 125 | `446-lean-progress.md` • milestone-3 • `2026-08-09T12:45:11Z` | `m3/test` | attempt | unmeasured | changed | — |
+| 126 | `446-lean-progress.md` • milestone-3 • `2026-08-09T13:08:42Z` | `m3/test` | attempt | unmeasured | changed | yes |
+| 127 | `447-lean-progress.md` • milestone-1 • `2026-08-09T10:51:37Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
+| 128 | `447-lean-progress.md` • milestone-3 • `2026-08-09T12:00:37Z` | `m3/test` | attempt | no-response | changed | — |
+| 129 | `448-lean-progress.md` • milestone-1 • `2026-08-09T13:46:52Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
+| 130 | `448-lean-progress.md` • milestone-1 • `2026-08-09T13:53:01Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | yes |
+| 131 | `449-lean-progress.md` • milestone-1 • `2026-08-09T21:53:24Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
+| 132 | `450-lean-progress.md` • milestone-1 • `2026-08-09T21:53:35Z` | `m1/spec-absent` | attempt | unmeasured | unchanged | — |
+| 133 | `503-lean-progress.md` • milestone-1 • `2026-08-11T20:57:16Z` | `m1/spec-absent` | absent | unmeasured | unchanged | — |
+| 134 | `517-lean-progress.md` • milestone-1 • `2026-08-18T21:11:10Z` | `m1/spec-absent` | absent | unmeasured | unchanged | — |
+| 135 | `517-lean-progress.md` • milestone-5 • `2026-08-18T23:10:41Z` | `m5/verdict-reference:closing-comment` | attempt | unmeasured | unchanged | — |
+| 136 | `517-lean-progress.md` • milestone-5 • `2026-08-18T23:11:47Z` | `m5/identity-stamp` | attempt | unmeasured | unchanged | — |
+| 137 | `530-lean-progress.md` • milestone-1 • `2026-08-16T16:30:57Z` | `m1/spec-absent` | absent | unmeasured | unchanged | — |
+| 138 | `530-lean-progress.md` • milestone-3 • `2026-08-16T16:51:40Z` | `m3/test` | attempt | unmeasured | changed | — |
+| 139 | `530-lean-progress.md` • milestone-3 • `2026-08-16T17:34:12Z` | `m3/test` | attempt | unmeasured | changed | — |
+| 140 | `530-lean-progress.md` • milestone-3 • `2026-08-16T18:53:48Z` | `m3/test` | attempt | no-response | changed | — |
+| 141 | `533-lean-progress.md` • milestone-1 • `2026-08-16T16:29:54Z` | `m1/spec-absent` | absent | unmeasured | unchanged | — |
+| 142 | `533-lean-progress.md` • milestone-5 • `2026-08-16T17:41:10Z` | `m5/exit-artifacts:no-open-pr` | attempt | no-response | unchanged | — |
+| 143 | `542-lean-progress.md` • milestone-1 • `2026-08-17T21:17:24Z` | `m1/spec-absent` | absent | unmeasured | unchanged | — |
+| 144 | `542-lean-progress.md` • milestone-3 • `2026-08-17T21:34:34Z` | `m3/test` | attempt | unmeasured | changed | — |
+| 145 | `542-lean-progress.md` • milestone-3 • `2026-08-17T21:41:38Z` | `m3/extra-lane` | attempt | unmeasured | changed | — |
+| 146 | `542-lean-progress.md` • milestone-3 • `2026-08-17T21:49:36Z` | `m3/extra-lane` | attempt | unmeasured | changed | yes |
+| 147 | `542-lean-progress.md` • milestone-5 • `2026-08-17T22:13:01Z` | `m5/verdict-reference:closing-comment` | attempt | unmeasured | unchanged | — |
+| 148 | `549-lean-progress.md` • milestone-1 • `2026-08-16T18:54:41Z` | `m1/spec-absent` | absent | unmeasured | unchanged | — |
+| 149 | `549-lean-progress.md` • milestone-5 • `2026-08-16T20:52:57Z` | `m5/exit-artifacts:no-open-pr` | attempt | no-response | unchanged | — |
+| 150 | `552-lean-progress.md` • milestone-1 • `2026-08-16T19:10:30Z` | `m1/spec-absent` | absent | unmeasured | unchanged | — |
+| 151 | `562-lean-progress.md` • milestone-1 • `2026-08-17T21:05:27Z` | `m1/spec-absent` | absent | unmeasured | unchanged | — |
+| 152 | `563-lean-progress.md` • milestone-1 • `2026-08-18T16:37:14Z` | `m1/spec-absent` | absent | unmeasured | unchanged | — |
+| 153 | `563-lean-progress.md` • milestone-1 • `2026-08-18T17:00:36Z` | `m1/spec-absent` | absent | unmeasured | unchanged | — |
+| 154 | `565-lean-progress.md` • milestone-1 • `2026-08-19T22:46:11Z` | `m1/spec-absent` | absent | unmeasured | unchanged | — |
+| 155 | `565-lean-progress.md` • milestone-3 • `2026-08-19T23:11:17Z` | `m3/test` | attempt | unmeasured | changed | — |
+| 156 | `565-lean-progress.md` • milestone-3 • `2026-08-19T23:19:55Z` | `m3/extra-lane` | attempt | unmeasured | changed | — |
+| 157 | `566-lean-progress.md` • milestone-1 • `2026-08-20T19:45:06Z` | `m1/spec-absent` | absent | unmeasured | unchanged | — |
+| 158 | `566-lean-progress.md` • milestone-1 • `2026-08-20T19:46:37Z` | `m1/preflight-reconcile` | attempt | unmeasured | undetermined | — |
+| 159 | `566-lean-progress.md` • milestone-3 • `2026-08-20T20:32:32Z` | `m3/test` | attempt | unmeasured | changed | — |
+| 160 | `566-lean-progress.md` • milestone-4 • `2026-08-21T11:50:48Z` | `m4/verdict-not-approve` | attempt | content-moved | changed | — |
+| 161 | `569-lean-progress.md` • milestone-1 • `2026-08-17T18:46:38Z` | `m1/spec-absent` | absent | unmeasured | unchanged | — |
+| 162 | `574-lean-progress.md` • milestone-1 • `2026-08-18T16:53:59Z` | `m1/spec-absent` | absent | unmeasured | unchanged | — |
+| 163 | `574-lean-progress.md` • milestone-3 • `2026-08-18T17:47:32Z` | `m3/test` | attempt | unmeasured | changed | — |
+| 164 | `575-lean-progress.md` • milestone-1 • `2026-08-19T22:46:20Z` | `m1/spec-absent` | absent | unmeasured | unchanged | — |
+| 165 | `575-lean-progress.md` • milestone-5 • `2026-08-19T23:31:55Z` | `m5/verdict-reference:closing-comment` | attempt | unmeasured | unchanged | — |
+| 166 | `575-lean-progress.md` • milestone-5 • `2026-08-19T23:32:35Z` | `m5/identity-stamp` | attempt | unmeasured | unchanged | — |
+| 167 | `579-lean-progress.md` • milestone-1 • `2026-08-18T19:59:51Z` | `m1/spec-absent` | absent | unmeasured | unchanged | — |
+| 168 | `580-lean-progress.md` • milestone-1 • `2026-08-19T15:24:53Z` | `m1/spec-absent` | absent | unmeasured | unchanged | — |
+| 169 | `581-lean-progress.md` • milestone-1 • `2026-08-19T22:50:34Z` | `m1/spec-absent` | absent | unmeasured | unchanged | — |
+| 170 | `582-lean-progress.md` • milestone-1 • `2026-08-19T22:08:50Z` | `m1/spec-absent` | absent | unmeasured | unchanged | — |
+| 171 | `583-lean-progress.md` • milestone-1 • `2026-08-18T21:35:44Z` | `m1/spec-absent` | absent | unmeasured | unchanged | — |
+| 172 | `583-lean-progress.md` • milestone-3 • `2026-08-18T22:36:53Z` | `m3/test` | attempt | unmeasured | changed | — |
+| 173 | `583-lean-progress.md` • milestone-3 • `2026-08-19T16:41:45Z` | `m3/test` | attempt | unmeasured | changed | — |
+| 174 | `583-lean-progress.md` • milestone-5 • `2026-08-19T21:42:10Z` | `m5/verdict-reference:closing-comment` | attempt | unmeasured | unchanged | — |
+| 175 | `585-lean-progress.md` • milestone-1 • `2026-08-18T18:34:26Z` | `m1/spec-absent` | absent | unmeasured | unchanged | — |
+| 176 | `585-lean-progress.md` • milestone-1 • `2026-08-18T18:37:45Z` | `m1/pause-and-ask` | attempt | unmeasured | undetermined | — |
+| 177 | `585-lean-progress.md` • milestone-5 • `2026-08-18T21:08:48Z` | `m5/verdict-reference:closing-comment` | attempt | unmeasured | unchanged | — |
+| 178 | `597-lean-progress.md` • milestone-1 • `2026-08-19T22:41:07Z` | `m1/spec-absent` | absent | unmeasured | unchanged | — |
+| 179 | `597-lean-progress.md` • milestone-1 • `2026-08-19T22:46:51Z` | `m1/preflight-reconcile` | attempt | unmeasured | undetermined | — |
+| 180 | `597-lean-progress.md` • milestone-1 • `2026-08-19T22:47:24Z` | `m1/ledger-lint` | attempt | unmeasured | undetermined | — |
+| 181 | `597-lean-progress.md` • milestone-4 • `2026-08-20T15:30:58Z` | `m4/verdict-not-approve` | attempt | content-moved | changed | — |
+| 182 | `604-lean-progress.md` • milestone-1 • `2026-08-20T15:45:01Z` | `m1/spec-absent` | absent | unmeasured | unchanged | — |
+| 183 | `636-lean-progress.md` • milestone-1 • `2026-08-23T19:00:20Z` | `m1/spec-absent` | absent | unmeasured | unchanged | — |
+| 184 | `641-lean-progress.md` • milestone-1 • `2026-08-22T15:22:33Z` | `m1/spec-absent` | absent | unmeasured | unchanged | — |
+| 185 | `641-lean-progress.md` • milestone-1 • `2026-08-22T15:31:05Z` | `m1/ledger-lint` | attempt | unmeasured | undetermined | — |
+| 186 | `641-lean-progress.md` • milestone-5 • `2026-08-23T11:27:53Z` | `m5/exit-artifacts:no-open-pr` | attempt | no-response | unchanged | — |
+| 187 | `643-lean-progress.md` • milestone-1 • `2026-08-23T11:49:13Z` | `m1/spec-absent` | absent | unmeasured | unchanged | — |
+| 188 | `643-lean-progress.md` • milestone-1 • `2026-08-23T11:51:15Z` | `m1/ledger-lint` | attempt | unmeasured | undetermined | — |
+| 189 | `647-lean-progress.md` • milestone-1 • `2026-08-23T21:56:25Z` | `m1/spec-absent` | absent | unmeasured | unchanged | — |
+| 190 | `647-lean-progress.md` • milestone-1 • `2026-08-23T22:00:43Z` | `m1/ledger-lint` | attempt | unmeasured | undetermined | — |
+| 191 | `647-lean-progress.md` • milestone-3 • `2026-08-24T09:22:10Z` | `m3/test` | attempt | unmeasured | changed | — |
+| 192 | `650-lean-progress.md` • milestone-1 • `2026-08-23T15:37:22Z` | `m1/spec-absent` | absent | unmeasured | unchanged | — |
 
 ### Demotion candidates
 
@@ -341,12 +433,11 @@ interval where the operator was simply away and so ranks nothing.
 
 | rank | gate point | zero-decision-change firings | of total | undetermined | eval s | rework s |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `m1/spec-absent` | 54 | 54 | — | 2 (14/54) | 178697 (15/54) |
-| 2 | `m5/verdict-reference:closing-comment` | 8 | 8 | — | 10 (7/8) | 646 (6/8) |
-| 3 | `m4/verdict-absent` | 4 | 4 | — | — | — |
-| 4 | `m5/progress-current` | 3 | 3 | — | — | — |
-| 5 | `m5/identity-stamp` | 2 | 2 | — | 1 (1/2) | 51 (1/2) |
-| 6 | `m5/exit-artifacts:no-open-pr` | 1 | 1 | — | 1 (1/1) | — |
+| 1 | `m1/spec-absent` | 83 | 83 | — | 2 (31/83) | 18062 (31/83) |
+| 2 | `m4/verdict-absent` | 24 | 24 | — | — | — |
+| 3 | `m5/exit-artifacts:no-open-pr` | 17 | 17 | — | 2 (2/17) | — |
+| 4 | `m5/verdict-reference:closing-comment` | 8 | 8 | — | 6 (6/8) | 457 (6/8) |
+| 5 | `m5/identity-stamp` | 3 | 3 | — | 4 (3/3) | 1146 (3/3) |
 
 ### Never fired
 
@@ -356,11 +447,10 @@ different finding from one that fires and changes nothing, so the two are not me
 | gate point | ms | obligation |
 | --- | --- | --- |
 | `m1/spec-no-ac` | 1 | — |
-| `m1/ledger-lint` | 1 | — |
-| `m1/preflight-reconcile` | 1 | — |
 | `m1/design-form` | 1 | — |
 | `m2/frozen-files` | 2 | — |
 | `m2/changelog-trailer` | 2 | — |
+| `m3/lint` | 3 | — |
 | `m3/typecheck` | 3 | — |
 | `m3/setup-lane` | 3 | — |
 | `m3/no-verify-lane` | 3 | — |
@@ -368,9 +458,10 @@ different finding from one that fires and changes nothing, so the two are not me
 | `m4/verdict-keys` | 4 | — |
 | `m4/verdict-uncommitted` | 4 | — |
 | `m4/identity` | 4 | — |
-| `m4/head-missing` | 4 | — |
-| `m4/head-tree-diff` | 4 | — |
+| `m4/chain-break` | 4 | — |
+| `m4/patch-stale` | 4 | — |
 | `m4/fidelity` | 4 | — |
+| `m5/progress-current` | 5 | — |
 | `m5/exit-artifacts:draft` | 5 | `exit-artifacts` |
 | `m5/exit-artifacts:closes` | 5 | `exit-artifacts` |
 | `m5/exit-artifacts:spec-link` | 5 | `exit-artifacts` |
@@ -383,12 +474,9 @@ incident that earns the block.
 
 | gate point | first decision-changing firing | adjudication row | what changed |
 | --- | --- | --- | --- |
-| `m3/lint` | `2026-08-10T12:03:12Z` | `m3/lint` | a red shellcheck lane; the remedy is a source edit, so the branch that merged is not the branch that fired |
-| `m3/test` | `2026-08-06T21:37:09Z` | `m3/test` | a red selftest sweep; the remedy is a source or fixture edit, and 528 took three of them across four sessions |
-| `m3/extra-lane` | `2026-08-03T12:39:04Z` | `m3/extra-lane` | a red mutation sweep; the remedy is a strengthened guard or an accepted baseline row, and both land in the diff |
-| `m4/verdict-not-approve` | `2026-08-03T21:22:08Z` | `m4/verdict-not-approve` | round 3 blockers on that run; the committed verdict record reaches four rounds and its final round boundary moves the reviewed patch id |
-| `m4/chain-break` | `2026-08-04T13:29:10Z` | `m4/chain-break` | round 1 claimed inherited coverage from a patch id no committed record carries; without the refusal PR 377 merges on a verdict attesting a diff nobody read |
-| `m4/patch-stale` | `2026-08-03T15:03:21Z` | `m4/patch-stale` | an approve bound to 05c05a4 while 15 files had landed after it, one of them the CI workflow that judges the PR; the second round covered them and milestone 4 satisfied 30 minutes later |
+| `m3/test` | `2026-08-01T13:20:11Z` | `m3/test` | a red selftest sweep; the remedy is a source or fixture edit, and 528 took three of them across four sessions |
+| `m3/extra-lane` | `2026-08-01T11:56:49Z` | `m3/extra-lane` | a red mutation sweep; the remedy is a strengthened guard or an accepted baseline row, and both land in the diff |
+| `m4/verdict-not-approve` | `2026-08-01T18:58:43Z` | `m4/verdict-not-approve` | round 3 blockers on that run; the committed verdict record reaches four rounds and its final round boundary moves the reviewed patch id |
 
 ### False reds — lower bound
 
@@ -398,9 +486,9 @@ assumed correct.
 
 | gate point | firings | first | adjudication row | contradicted by |
 | --- | --- | --- | --- | --- |
-| `m5/exit-artifacts:no-open-pr` | 1 | `2026-08-16T16:05:32Z` | `531:m5/exit-artifacts:no-open-pr` | docs/plans/second-shift-531-lean-verdict.md, which records `pr: #548` for that run |
+| — | — | — | — | — |
 
-**Lower bound: 1 firing.**
+**Lower bound: 0 firings.**
 
 ### Repeat firings — upper bound
 
@@ -410,10 +498,13 @@ re-invocation both land here, and neither is a second independent refusal.
 
 | gate point | repeat firings | of total |
 | --- | --- | --- |
-| `m1/spec-absent` | 3 | 54 |
-| `m1/pause-and-ask` | 1 | 2 |
-| `m3/test` | 1 | 13 |
+| `m1/spec-absent` | 14 | 83 |
+| `m1/pause-and-ask` | 1 | 3 |
+| `m3/test` | 11 | 36 |
+| `m3/extra-lane` | 1 | 8 |
+| `m4/verdict-absent` | 4 | 24 |
+| `m5/exit-artifacts:no-open-pr` | 1 | 17 |
 
-**Upper bound: 5 firings.**
+**Upper bound: 32 firings.**
 
 <!-- END GENERATED: gate-ablation -->
