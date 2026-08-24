@@ -1,158 +1,146 @@
 # lean review verdict — #642
 
 verdict=needs-work
-run_id: review-642-1
-session_id: f6ee9c56-5d21-433f-a272-88fbe07af11e
-rounds: 1
+run_id: review-642-2
+session_id: f0cca947-f25a-4d14-bd41-7108b481fb19
+rounds: 2
 pr: #660
-reviewed_head: 642a6b13d94aaab9b2de4e84edd4e8fa79f54d8a
-reviewed_patch_id: 7698981723b370c033362e8dec398e6ecccea011
-inherited_patch_id: none
-inherited_from_verdict: none
+reviewed_head: 962c0bbac1e02cc0dae0a60ed0ea438cf97486e2
+reviewed_patch_id: 60c38517268cb72d3a810fd884f0dc5650c347c7
+inherited_patch_id: 7698981723b370c033362e8dec398e6ecccea011
+inherited_from_verdict: a3eeceb9812491d57de428f208b1dab888fd8461
 fidelity: not-applicable
 model: unknown
 capabilities: pr-marker
 
-# Review round 1 — PR 660 (#642)
+Range read: `a3eeceb..HEAD` (the round-1 fix), inheriting patch `7698981723b3` from round 1.
+Reviewed from the lane worktree with `claude/second-shift-642` checked out. Head re-verified
+unchanged at `962c0bb` after review.
 
-Range read: `bf231bd..642a6b1` (full branch diff; round 1, nothing to inherit).
-Reviewed from the lane worktree with the branch checked out. Head re-verified unchanged
-after review.
+**Verdict: needs-work — 1 blocker.** Both round-1 blockers are genuinely closed, and I verified
+each by execution rather than by reading the diff. The blocker is new, introduced by the fix
+itself: AC-6's measured clauses flipped sign, and `pr-gates` reds on the production guard.
 
-**Verdict: needs-work — 2 blockers, both on AC-3.** Every other AC is satisfied. The two
-blockers are narrow and both live inside AC-3's own contract; nothing in AC-4, AC-8 or the
-deletions is wrong.
+## Round-1 blockers: both closed, verified by mutant
 
-## Blockers
+**B1 (AC-3 half-applied on `cmd_close_out`) — closed.** Both sites now carry the absent verb,
+spelled as `cmd_5` spells them (`lean-gate.sh:4860` `block_milestone`, `:4864`
+`block_obligation exit-artifacts`). The interesting half is the guard, and the operator asked
+that its central claim be falsified rather than accepted: `(ac1c)` says it resolves `$VAR`-only
+reasons to their literal assignments, `"$LEAN_PR_ERROR"` being the named case a literals-only
+guard would score green. It does. I extracted the case's awk verbatim and drove it against four
+mutants, then re-ran the whole suite against two of them:
 
-### B1 — AC-3 is half-applied: two announcement-class reasons still charge the fix budget on the `close-out` path
-
-AC-3: *"every reason `docs/gate-ablation.md` adjudicates `unchanged` reaches `append_absent`."*
-
-The milestone-5 **assert** path was correctly re-verbed. The **`close-out`** path was not:
-
-| site | call | verb written |
+| mutant | `(ac1c)` | evidence |
 | --- | --- | --- |
-| `lean-gate.sh:4565` (`cmd_5`) | `block_milestone 5 "progress file is not current — …"` | `absent` ✅ |
-| `lean-gate.sh:4846` (`cmd_close_out`) | `fail_milestone 5 "progress file is not current — …"` | **`attempt`** ❌ |
-| `lean-gate.sh:4581` (`cmd_5`) | `block_obligation exit-artifacts "$LEAN_PR_ERROR"` | `absent` ✅ |
-| `lean-gate.sh:4852` (`cmd_close_out`) | `fail_milestone 5 "$LEAN_PR_ERROR"` | **`attempt`** ❌ |
+| close-out `$LEAN_PR_ERROR` → `fail_milestone` | **reds** | names `4864 m5/exit-artifacts:no-open-pr` via the *resolved* literals `could not list PRs for $LEAN_BRANCH` / `no open or merged PR found for branch $LEAN_BRANCH` |
+| close-out progress-current → `fail_milestone` | **reds** | names `4860 m5/progress-current` |
+| `cmd_5` `$LEAN_PR_ERROR` → `fail_milestone` | **reds** | names `4581`, same resolved literals |
+| identity-stamp → `fail_milestone` | **reds** | names `4647 m5/identity-stamp` |
 
-Both close-out reason strings classify into two of the six reasons AC-3 names. Verified by
-running the **production** predicate table against the literal strings, not by reading:
+Full-suite runs confirm it in situ: mutant A reds `(co1)` at `0 absent / 1 attempt / 0 obligation`
+— the exact pre-fix signature the build recorded — plus `(ac1b)` and `(ac1c)`; mutant D reds
+`(k11)` at `0 / 1 / 1` plus `(ac1b)` and `(ac1c)`. Baseline is clean: 511 passed, 0 failed, rc=0.
 
-```
-close-out reason #1 (progress-current text) CLASSIFIES AS: m5/progress-current
-close-out reason #2 (no-PR text)            CLASSIFIES AS: m5/exit-artifacts:no-open-pr
-```
+I also checked the derivation is not merely sound but *complete*, since a shape enumerator that
+misses a form reads as complete while blind. Enumerating every `fail_milestone`/`fail_obligation`
+/`append_attempt` occurrence against a deliberately broader regex than the guard's returns only
+the three definitions and the internal funnel — every call site matches the guard's shape. The
+same test on the absent verbs returns the same. `fail_obligation` and `block_obligation` both
+funnel to milestone 5, so the guard's `ms="5"` mapping is right. The `531:` override key strips
+correctly and the set derives to 6.
 
-Chain closed: `gate-ablation.awk:151-154` matches predicates against the **reason field**
-(`classify(ms, reason)`), and `:122` makes an unclassified reason a hard error — so these
-firings certainly land in those classes. `fail_milestone` (class 1, not INFRA) calls
-`append_attempt` → `| milestone-5 | attempt | <reason>`, which `attempt_count()` sees.
+**B2 (`m5/identity-stamp` had no behavioral fixture) — closed.** `(k11)` has real kill power, and
+specifically the kind `(k11a)` lacked: under mutant D, `(k11a)`'s message assertion stays **green**
+while `(k11)` alone reds. That is precisely the gap round 1 named.
 
-This is the exact half-application the ticket diagnoses for `m1/spec-absent` ("18 of 54
-firings under `absent`, 36 under the older `attempt` verb"). The operator's own 2026-08-23
-issue comment shows this firing as `(attempt 1/3)` — the charging verb — on close-out.
+## Blocker
 
-**Why the new completeness guard does not catch it.** `(ac1b)` counts
-`block_milestone [145] "[a-z]|block_obligation [a-z-]+ "` and asserts `== 8`. It guards the
-*inclusion* direction only. A `fail_milestone 5` site carrying one of the six predicates
-leaves the count at 8 and passes. The guard needs the exclusion direction too: no
-`fail_milestone` site's reason may match one of the six reasons' predicates.
+### AC-6 is unsatisfied at `962c0bb`, and `pr-gates` reds on it
 
-Fix: route both close-out sites through `block_milestone`/`block_obligation`, and extend
-`(ac1b)` with the exclusion assertion.
+This is not a re-litigation of AC-6's bar — the ≥30% target stays settled by the 2026-08-24 body
+amendment, exactly as inherited. What moved is the *measurement*, and it moved because of this
+round's delta. AC-6's committed text carries two measured clauses, and both flipped sign:
 
-### B2 — AC-3's fixture-per-reason is unsatisfied for `m5/identity-stamp`
-
-AC-3 requires the routing be *"driven by a fixture case per reason; a case asserts no
-fix-budget charge."* Five of six reasons have behavioral cases — `(c3)`, `(c2b)`, `(k5b)`,
-`(k9)`, `(k3b)`. `m5/identity-stamp` has none:
+| clause (spec text) | at `642a6b1` (r1) | at `962c0bb` (now) |
+| --- | --- | --- |
+| "`check-guard-budget.sh origin/main` reports a **negative** guard/test mass delta" | −31 ✅ | **+164** ❌ |
+| "combined line count **drops** … by the measured figure recorded in the PR body" (body: −0.8%) | −0.8% ✅ | **+96, +0.76% growth** ❌ |
 
 ```
-grep -rn 'could not stamp' plugins/dev-pipeline/skills/build-lean/*selftest*.sh   → no hits
+[guard-budget] ✗ guard/test shell mass grew by 164 lines with no reason recorded:
+                 base 51556 (bf231bd), HEAD 51720.
 ```
 
-Its only coverage is the static `(ac1b)` site count, which greps call sites textually and can
-never observe that a failed identity stamp records `absent` and charges zero attempts. The
-routing itself is correct (`:4616`, `:4647`), so this is a coverage gap, not a behavior defect.
+Measured at head: `lean-gate.sh` 5,518 → 5,244 (−274); `lean-gate-selftest.sh` 7,043 → **7,413**
+(+370). Combined 12,561 → 12,657. The PR body still records the selftest at 7,231 and the combined
+figure at −0.8%; the r1 fix added 182 more lines than the body accounts for.
 
-Fix: a milestone-5 fixture forcing `cmd_mark` to fail, asserting `| milestone-5 | absent |` ≥ 1
-and `| milestone-5 | attempt |` == 0, in the shape of `(k3b)`/`(k9)`.
+**Why this is a blocker and not a warning.** `pr-gates` runs this exact script
+(`.github/workflows/ci.yml:294`) and reds at `962c0bb` — and it dies at the guard-budget step,
+*before* reaching the verdict-record check. That is a different failure from round 1's expected
+pre-handoff red: landing my verdict record will not clear it. No commit on the branch carries the
+`Guard-mass:` trailer that is the script's own sanctioned escape hatch.
+
+**Remedy — the build's call, not mine.** The added coverage is not the problem; `(ac1c)`, `(ac1d)`,
+`(co1)` and `(k11)` are exactly what round 1 asked for and I have just verified they earn their
+mass. Either delete guard mass elsewhere to bring the derived delta negative, or add a
+`Guard-mass: +164 <reason>` trailer *and* have the AC-6 figures restated to what is actually
+measured. The second path restates a measured clause of a criterion the operator ratified, so it
+needs the operator, not the build session, and the honest reading is that the script exiting 0
+under a trailer still does not make the delta "negative" as AC-6's sentence requires.
+
+Independently found by `scope-completeness-reviewer` at confidence 96, on the amendment's clause
+(b); the line-count limb is this round's addition.
 
 ## Warnings
 
-**W1 — the re-cut corpus shares ZERO records with the corpus it replaces, and drops both dated
-incidents the kept-blocking rationale cites.** Base manifest: 52 records (345–539). Head: 70
-records (72–650). `comm` overlap is **0** — the two interleave across the same span (base has
-345/346/347, head has 344/348/351) yet coincide nowhere. Consequence: `m4/patch-stale`
-(2026-08-03, record `345`) and `m4/chain-break` (2026-08-04, record `375`) go from 1 firing to
-**zero**, so under the corpus this PR ships they are *never-fired* points — and they are exactly
-the two the issue's "Explicitly out of scope" keeps blocking *because* they carry those
-incidents. AC-2 is nonetheless **satisfied**: its register is `gate-ablation-classes.tsv`'s
-`earn_your_keep` (verified populated for all 31 declared points) plus the `docs/testing.md`
-table, and both points carry substantive reasons in the tsv. The report also honestly dates its
-two eras. What is off is the count: `docs/testing.md` states "**Kept (18)**" as current fact,
-while the shipped corpus yields **20** never-fired points, and two of that table's 18 entries
-(`m1/ledger-lint`, `m1/preflight-reconcile`) fired 4 and 2 times — so they are not never-fired
-at all. Actual testing.md coverage of never-fired points is 16/20. Worth dating the table the
-way the report dates its findings.
+**W1 — milestone 3 concludes `"green gate"` unconditionally, over a run that just reported a red.**
+Responsive to the operator's disclosure question, and the answer is narrower than "yes" or "no".
+The demotion does carry compensating controls: `lane_advisory` (`lean-gate.sh:3795`) emits two
+`warn` lines *and* a durable `| milestone-3 | advisory |` row, and the merge boundary re-runs the
+lane blocking. So the masking is not silent, and AC-4 ratifies the demotion. What is genuinely
+weak is the last thing the operator sees: `cmd_3` ends at `pass_milestone 3 "green gate"`
+(`:3961`) with no consultation of whether an advisory row was written this run. The warns scroll;
+the conclusion asserts a green gate. That is the shape that cost this run a round — the
+gate-buckets drift shipped in `1f346be` under a local `rc=0`. A conclusion that reads
+`green gate (N advisory)` would close it without touching the demotion. Not a blocker: the
+contract AC-4 states is met, and CI does block.
 
-**W2 — "74 records pinned" is not reproducible from any delivered artifact.** The manifest
-carries **70** non-comment rows; the generated table says `scored records | 70`; the header
-names **1** excluded in-flight lane (`642`). The figure "74" appears in the report's prose note,
-the commit body and the PR body. Relatedly, the operator's 2026-08-24 amendment clause (c)
-ratifies "18/18", which has the same provenance as W1's count.
+**W2 — the PR body's Verification block states both "154 rows" and "156 rows"** for
+`check-gate-buckets` two lines apart. Actual at head is **154** (305 sites, 154 rows, green), so
+the first is right and the second is stale. Body-only; nothing committed is wrong.
 
-**W3 — three-reviewer coverage gap.** `maintainability`, `test-coverage` and
-`unit-test-mutation` all went dark (turn-budget, died after retry). `test-coverage` is precisely
-the domain of B2, which was instead caught by `scope-completeness` and confirmed by hand.
+## AC scoring
 
-## Per-AC scoring
-
-| AC | Score | Basis |
+| AC | Verdict | Basis |
 | --- | --- | --- |
-| AC-1 | satisfied | Both points gone as code; residual mentions are deletion-documenting comments plus `(u4)` asserting absence. Deleted rows were in `gate-ablation-classes.tsv:43-44` at base (predicate rows — which is why the literal id never appeared in the gate). Sweep green: see AC-5 citation. |
-| AC-2 | satisfied | Register = `earn_your_keep` (all **31** declared points populated; zero empty) + `docs/testing.md` table. Deletions argued in the commit body. See W1 on the count. |
-| **AC-3** | **unsatisfied** | **B1** (routing half-applied on `close-out`) and **B2** (no fixture for `m5/identity-stamp`). The other five reasons route and are driven correctly. |
-| AC-4 | satisfied | `case "$key"`: `typecheck` → `fail_milestone` with class; `*` (= `lint`\|`test`, the loop is over `lint typecheck test`) → `lane_advisory`; extraLanes → `lane_advisory` (`:3945`). Non-vacuity is real: `(ad3)` typecheck still refuses and charges; `(ad5)` `no-verify-lane` still refuses; `(ad4)` the demoted lane still executes. |
-| AC-5 | satisfied (by citation) | CI's own run at the reviewed head `642a6b13`, per the operator's verification-economy instruction — not re-executed locally. `lint-and-selftests` **pass** 4m33s (job 97496045108); `selftests (macos, bash 3.2)` **pass** 7m8s (job 97496044422); `mutation-sweep-pr` **pass** (job 97496044809). `pr-gates` fails at 8s on the absent verdict record — expected pre-handoff, not a finding. |
-| AC-6 | satisfied vs the amended bar | Independently re-measured: `lean-gate.sh` 5518→5232 (**−286**), selftest 7043→7230 (**+187**), combined −99 on 12,561 = **−0.79%** (matches the −0.8% claimed). `check-guard-budget.sh origin/main` → **−31**, matching clause (b) exactly. Clause (d) −293 comment lines verified exactly (2782→2489). Clause (a) verified. Clause (c)'s "18/18" — see W1. |
-| AC-7 | satisfied | 2 `Changelog:` trailers on the branch. |
-| AC-8 | satisfied | `:4553` appends MERGED after OPEN and takes `.[0:1]` — open wins when both exist, closed-unmerged matches nothing. Driven by `(k7)` merged passes, `(k8)` closed-unmerged satisfies nothing, `(k10)` open wins over merged. |
-| AC-9 | satisfied | Corpus re-cut, report regenerated, `SKILL.md` / `docs/testing.md` / `docs/pipeline-manifesto.md` updated. See W1 and W2. |
-
-Design: `Design: none` — no `## Design` section in the spec, so step 5b did not run.
-Fidelity scored `not-applicable`.
-
-## Ledger provenance
-
-Checked against the operator's attestation that nothing was communicated to the build session.
-`D-5` (`user-answered`) cites the 2026-08-22 ratification present in the **original** issue body
-— attested. `D-2` (`ticket-sourced`) cites the dated 2026-08-23 comment — attested. `D-1` and
-`D-6` are `codebase-derived` and claim no operator provenance. **No unattested operator-provenance
-row.** The issue body's AC-6 amendment was authored by `manoldonev` at 2026-08-24T15:57:35Z —
-**after** the build handed off (PR marker 15:51:20; session time-fenced 14:07–15:50), verified via
-`userContentEdits.editor.login`. So it is not a spec amended by the build to match its own diff:
-the build recorded AC-6 as unmet, declined to chase it, and left the call to the operator; the
-operator then made that call. That is the sanctioned #641 shape, and it is why AC-6 is scored
-against the amended bar.
+| AC-1 | satisfied | deleted points survive only as explanatory comments; `(u4)` positively asserts their absence. Full sweep green in CI at `962c0bb` |
+| AC-2 | satisfied | `earn_your_keep` populated **31/31**; `docs/testing.md` table re-based with a firings column |
+| AC-3 | **satisfied** | both r1 blockers closed; six reasons on the absent verb; inclusion `(ac1b)`=10 and exclusion `(ac1c)` both verified to kill by mutant |
+| AC-4 | satisfied | `lane_advisory` wired at `:3857`/`:3945`; `(ad3)` pins typecheck not demoted (see W1) |
+| AC-5 | satisfied | workflows untouched; `check-gate-buckets.sh` at `ci.yml:165`, `check-guard-budget.sh` at `:294`, `run-selftests.sh` at `:125` — the boundary demonstrably bites at this head |
+| AC-6 | **unsatisfied** | blocker above |
+| AC-7 | satisfied | 5 `Changelog:` trailers on the branch |
+| AC-8 | satisfied | merged-PR acceptance; resolved literal now reads "no open or **merged** PR found" |
+| AC-9 | satisfied | re-cut regenerated; W2's "74 records" corrected to 70 pinned and scored (manifest is 74 lines, 70 data rows — verified) |
 
 ## Panel
 
-| Reviewer | Verdict | Findings |
-| --- | --- | --- |
-| Scope Completeness | Fail | 1 blocker (B2) — independently confirmed |
-| Security | Pass | 0 |
-| Performance | Pass | 0 |
-| Complexity | Pass | 0 |
-| Maintainability | Dark (no output) | — |
-| Test Coverage | Dark (no output) | — |
-| Unit Test Mutation | Dark (no output) | — |
+Six selected, **six returned, none dark** — the first full panel in three rounds.
+`scope-completeness` FAIL (the AC-6 blocker, confidence 96). `unit-test-mutation` approve with one
+nit: it independently extracted the `(ac1c)` awk and ran its own mutants, reaching the same
+conclusion I did — the classifier genuinely kills the B1 class, and its own soundness is covered
+by no other guard, so a future edit to it needs a manual trace. Worth recording as the one piece
+of standing maintenance debt the fix adds. `test-coverage`, `maintainability`, `complexity`,
+`security`: approve, zero findings between them.
 
-a11y + design-fidelity not routed: no changed path matched
-`stageParams.webComponentGlobs` (`apps/web/**/*.{tsx,jsx}`).
+## Verification economy
 
-B1 was found by hand-derivation, not by the panel — the four reviewers that returned produced
-zero code findings between them.
+Cited rather than re-run, at `962c0bb`: `lint-and-selftests` pass 4m32s (job 97520306632),
+`selftests (macos, bash 3.2)` pass 6m57s (job 97520306352), `mutation-sweep-pr` pass 24s (job
+97520306726). `pr-gates` fail 5s (job 97520306737) — read, not assumed, and it is the blocker
+above rather than the expected verdict-record red. Re-executed locally because CI does not run
+them verbatim: `check-guard-budget.sh` at both heads, the line-count measurements, the four-mutant
+`(ac1c)` probe, and two full mutant suite runs. Probes ran in throwaway worktrees at `962c0bb`,
+never in the reviewed one.
