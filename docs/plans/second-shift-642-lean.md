@@ -53,12 +53,16 @@ Both are recorded here rather than silently absorbed, and both are carried as `D
 - **AC-5** (oracle — CI): `pr-gates` and `lint-and-selftests` still red on the conditions the
   demoted milestone-3 lanes used to catch, proving the coverage moved rather than vanished.
   This AC's oracle is CI's own run on this PR, not a reviewer re-derivation.
-- **AC-6** (proxy, AMENDED — see D-6): combined `lean-gate.sh` + `lean-gate-selftest.sh` line
-  count drops against this branch's merge-base by the measured figure recorded in the PR body,
-  and `scripts/check-guard-budget.sh origin/main` reports a negative guard/test mass delta (D-1 —
-  this replaces the ticket's `tools/guard-budget.tsv` clause, whose subject #641 deleted). The
-  ticket's **≥30%** bar is NOT met and is not chased; D-6 records why, and the operator's call on
-  whether that is acceptable is deliberately left open rather than absorbed.
+- **AC-6** (proxy, AMENDED TWICE — see D-6 and D-7): (a) both structurally-dead decision points
+  deleted; (b) the ablation scope's OWN guard/test mass delta — measured before review-mandated
+  coverage — is strictly negative as reported by `scripts/check-guard-budget.sh origin/main`:
+  **−31** at `642a6b1` (D-1 — this replaces the ticket's `tools/guard-budget.tsv` clause, whose
+  subject #641 deleted). Coverage this PR's own review mandated is EXCLUDED from clause (b) and
+  declared instead — a `Guard-mass:` trailer carrying the re-measured branch total with per-case
+  attribution to the mandating verdict (D-7); (c) every kept never-fired point carries a recorded
+  reachability reason — **18/18**; (d) the prose pass's reduction recorded — **−293** comment lines.
+  The ticket's **≥30%** bar is NOT met and is not chased; D-6 records why its premise was refuted.
+  PR-body figures restate AFTER the final commit, per the measured-AC rule.
 - **AC-7** (critic): `Changelog:` trailer.
 - **AC-8** (oracle — selftest): milestone 5 accepts a **merged** PR for the lane branch as
   satisfying the same obligation an open one does, so `close-out` stays reachable after a merge
@@ -77,6 +81,7 @@ Both are recorded here rather than silently absorbed, and both are carried as `D
 | D-4 | How is AC-6's 30% reached, given that the never-fired points are almost all consumer-live? | By P5, not by manufacturing deletions. The decision-point deletions alone are ~200 lines; the remaining mass is comment prose — 2,782 of `lean-gate.sh`'s 5,518 lines and 2,083 of the selftest's 7,043. The survival rule: a comment stays when it states a CONSTRAINT a future edit could violate (an invariant, an ordering requirement, a fail-closed reason, a pinned dialect); it goes when it is incident narrative — what a past PR did, what an earlier design was, what was tried and retired — with no live constraint attached. Where narrative carries a constraint, the constraint survives in one line and the narrative does not. This is the same axis `scripts/check-guard-budget.sh` measures and the same posture `prose-budget.sh` took to its own baselines in #641. | codebase-derived |
 | D-6 | AC-6 asks for ≥30% off the two files. Is it reachable? | **No — measured at −0.8%, and the premise is refuted by AC-2's own verdict.** The ticket's arithmetic assumes the delete bucket is most of the 20 never-fired points ("Every dead decision point deleted takes its selftest cases with it"). The per-point reachability pass returns **2** structurally dead, not ~15: every other never-fired point is reachable by a consumer, and the ticket's own warning is that deleting those "would remove function from the shipped product to tidy the dogfood canary — the exact inversion this recalibration exists to reverse." The remaining mass is comment prose, and D-4's P5 pass takes what is honestly deletable from it; the balance would have to come from deleting rationale that states live constraints, or from deleting reachable gates. Neither is a cut this ticket asks for. MEASURED, after the P5 pass ran: `lean-gate.sh` 5,519 → 5,233 (−286, of which −293 are comment lines); `lean-gate-selftest.sh` 7,044 → 7,231 (+187, entirely the new AC-3/AC-4/AC-8 coverage); combined 12,563 → 12,464, **−0.8%**. `scripts/check-guard-budget.sh` reports **−31** across all guard/test shell. The pass stopped where it did because it ran out of archaeology: the gate's remaining large comment blocks are 830 lines over 54 blocks, most already compressed, and what is left below that is 3-to-7-line per-site rationale stating live constraints. Scaling the target is the operator's call, not the slice's. | codebase-derived |
 | D-5 | Delete outright, or demote-then-delete? | Outright. Operator-ratified 2026-08-22 in the ticket: a further corpus cycle to confirm what 52 records already show is the over-caution being diagnosed, and `git revert` is the undo. | user-answered |
+| D-7 | Round 1's mandated coverage flipped AC-6's measured clauses from −31 to +164. Delete live guard mass to buy the number back, or declare the growth? | **Declare it.** Operator amendment 2 on the ticket body (2026-08-24) re-bases clause (b) onto the ablation scope's own delta — strictly negative, **−31** at `642a6b1`, independently re-measured here at 51556 → 51525 — and excludes review-mandated coverage from the clause. That coverage is declared instead by a `Guard-mass:` trailer carrying the re-measured branch total with per-case attribution to `(ac1c)`, `(ac1d)`, `(co1)`, `(k11)` and the verdict that mandated them. Deleting working guards to satisfy arithmetic is the inversion this ticket was filed to end; rows are not retired to buy a bar (#641's precedent, applied a second time on this ticket). The relaxation covers review-mandated mass ONLY and cannot be cited by a PR whose growth is its own scope. | user-answered |
 
 ## Explicitly out of scope
 
