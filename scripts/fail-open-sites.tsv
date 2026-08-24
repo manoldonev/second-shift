@@ -43,3 +43,4 @@ plugins/dev-pipeline/tools/checked-call.sh	not-a-site	has two outcomes where the
 plugins/dev-pipeline/tools/checked-call-selftest.sh	not-a-site	pipeline it replaces yields two	Prose in that suite's header.
 scripts/check-changelog-trailer-selftest.sh	not-a-site	if grep -qE 'git log .*--format=%B	The match sits inside a quoted grep PATTERN — that suite greps its gate FOR the shape. There is no pipeline here.
 scripts/check-eval-model-identity-selftest.sh	not-a-site	# run. Deliberately NOT	A comment explaining why the shape was avoided.
+plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	out-of-scope	git -C "$WNIG" worktree list --porcelain 2>/dev/null | grep -qxF	Selftest-internal, and the sibling of the $WTREE row above. A dead producer inside a test harness reds the suite; it cannot mislead production.
