@@ -81,8 +81,8 @@ M1–M3. Generalising "bare rediscovers the spec, the ledger and the worktree" t
 unwarranted from this evidence, and cutting those three items would strip shipped function to tidy
 the dogfood canary — the exact consumer-capability trap #642 was warned off.
 
-**Successor:** re-run C1's ablated arm in a consumer-shaped checkout (kit installed, not in tree)
-to localise the cut. Until that exists, the cut is recorded and not executed.
+**Successor — #671, arm 1.** Re-run C1's ablated arm in a consumer-shaped checkout (kit installed,
+not in tree) to localise the cut. Until that exists, the cut is recorded and not executed.
 
 ---
 
@@ -121,7 +121,7 @@ records. One is live on `main` today. `build-lean/SKILL.md:32` says, in one sent
 A merged PR satisfies milestone 5, and milestone 5 requires an open PR. This is the checklist a
 build session executes, and the contradiction survived a three-round independent review of the very
 PR that introduced it. A bare session found it in seven minutes.
-Filed as a successor; not fixed here, being outside this slice's AC set.
+Filed as **#670**; not fixed here, being outside this slice's AC set.
 
 ### Recorded separately, as registered
 
@@ -130,8 +130,8 @@ property of the **lane**, and no bare-arm review can exhibit or refute it. `cut-
 addresses the skill's 127 lines of prose. It says nothing about the separate-session boundary,
 which this slice did not measure and does not touch.
 
-**Successor:** the delta is not localisable to particular lines from this evidence. Measuring which
-of the 127 lines carries it is the follow-up; until then no line is cut.
+**Successor — #671, arm 2.** The delta is not localisable to particular lines from this evidence.
+Measuring which of the 127 lines carries it is the follow-up; until then no line is cut.
 
 ---
 
@@ -173,7 +173,7 @@ That is the surviving delta, and it is what `keep` is keeping.
 
 `intake-orchestrator`, 711 lines and the largest skill in the tree, produces **decomposition**, not
 a ledger. This metric does not reach it. It is recorded as unmeasured rather than credited with a
-pass, and it is the highest-value target for the next slice.
+pass, and filed as **#672** — the highest-value target for the next slice.
 
 ### Rows no pre-flight session could reach
 
@@ -224,5 +224,6 @@ surviving cut qualifies, and the reasons are evidence, not caution:
 - **C3 is a `keep`.**
 
 So AC-5 is satisfied vacuously — no deletion, therefore no orphan — and it is recorded that way
-rather than as a green sweep that proves something it does not. The successors are named in §1, §2
-and §3; the highest-value one is `intake-orchestrator`, 711 unmeasured lines.
+rather than as a green sweep that proves something it does not. The successors are filed: **#670** (a live
+self-contradiction in a shipped checklist, found by the bare arm), **#671** (localise both cuts) and
+**#672** (`intake-orchestrator`, 711 unmeasured lines).
