@@ -116,6 +116,18 @@ the code does not author its own evaluation.
   reading is always allowed, and a round that read everything is a strictly stronger record.
 - **Approve on the diff, not on the spec's promises.** An unmet `AC-n` is a blocker, and a
   spec amended after the fact to match the diff is itself a blocker.
+- **A merge-boundary refusal is not a review round.** A red CI step that gates POLICY rather than
+  code — `guard-budget`, the `Changelog:` trailer check, frozen files — is RECORDED and does not by
+  itself make the verdict `needs-work`. The merge boundary already blocks on it, so refusing here
+  buys WHEN it is fixed and not whether, at the price of a full build-and-review pair applying a
+  fix no reviewer judgement shaped. Measured: #637's round 1 returned `needs-work` on exactly one
+  blocker, a red `guard-budget`; the fix was a single empty commit carrying a `Guard-mass:` trailer,
+  and round 2 then re-read the whole diff — 30:40, **58% of that run** (`docs/lane-latency.md`).
+  The follow-through needs no new rule: if the policy fix changes a line you reviewed your record is
+  void and a round happens anyway, and if it changes none — a trailer commit — your record stands.
+  A red CORRECTNESS lane is the opposite and stays a blocker: `lint-and-selftests`, `selftests` and
+  `mutation-sweep-pr` are evidence about the code, and an `AC-n` one of them contradicts is
+  unsatisfied however green the diff looks.
 - **Four design blockers, on an armed run.** A fidelity failure against any RS row; a PNG whose
   hash disagrees with the receipt in your own checkout; a `Design: none` disarm you cannot justify
   on a repo that configures a design provider; and an RS table declaring fewer states than the
