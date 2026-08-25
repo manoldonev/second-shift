@@ -79,6 +79,31 @@ of a full re-read.
    refusal that no reviewer judgement resolves; routing it through a review round costs a full
    build-and-review pair to apply a mechanical fix.
 
+## Checking it, instead of asserting it
+
+The numbers above are a snapshot taken by hand. `tools/lane-latency.sh` derives the same quantity
+for every run that has a ledger, and refuses when it regresses:
+
+```
+overhead = (terminal − launch) − Σ(spawn-end − spawn)
+```
+
+Everything outside a payload session — preflight, the gate calls between phases, the close-out.
+**Overhead rather than total wall-clock, deliberately:** the total is a property of the WORK, so a
+threshold on it would red a run for having a big ticket and the guard would be ignored within a
+month. Overhead is a property of the LANE, so a fixed ceiling (default 60s) is honest. On the two
+runs above it is two seconds.
+
+It needs the `spawn-end` rows the orchestrator began writing alongside it — start rows alone give
+"this session plus whatever the loop did next", which is the very ambiguity being measured. **A
+launch without both edges is reported `not-measurable` and is neither passed nor failed**, which is
+the whole pre-existing corpus: scoring those as zero-overhead would manufacture a clean bill of
+health for every run that predates the instrument.
+
+It is not a CI gate, and cannot be: the ledgers are gitignored and machine-local, so CI has no
+corpus to read. It runs where the data is — over an operator's own state dir, and from
+`perf-retro`, which is the cross-run latency retrospective this feeds.
+
 Session startup is deliberately *not* on this list. It is real, but it is bounded by what a model
 session costs to start, it is paid identically by the manual lane, and nothing in this repo's
 control moves it — whereas a removed round removes two whole sessions.

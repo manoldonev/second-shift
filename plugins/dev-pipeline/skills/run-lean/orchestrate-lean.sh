@@ -712,6 +712,13 @@ spawn() { # spawn <role> <model> <prompt>
     | tee -a "$log" >&2
   rc=${PIPESTATUS[0]}
   say "spawn $role exited $rc"
+  # THE CLOSING BRACKET OF THE SPAWN, and without it a payload's duration is not derivable. The
+  # ledger recorded only spawn STARTS, so the interval between two spawn rows is "this session plus
+  # everything the loop did afterwards" — a scheduler that spent ten minutes between spawns and one
+  # that spent two seconds produce identical ledgers. That is precisely the quantity
+  # `tools/lane-latency.sh` gates on, and it is the one number that distinguishes this lane's cost
+  # from the payload's, so it has to be recorded rather than inferred.
+  launch_note spawn-end "n=$SPAWN_N role=$role rc=$rc"
   return "$rc"
 }
 
