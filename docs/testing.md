@@ -470,10 +470,20 @@ why it can record without the second flag CI withholds.
 The pass cache above answers "does the *build* lane need to run this sweep again". A review
 session asks a narrower version of the same question, with the answer already sitting in the PR's
 checks: an oracle `AC-n` proved by "run the mandated recipe and it is green" does not need a
-*third* execution once `lint-and-selftests` (ubuntu) and `selftests-bash32` (macos) have both run
-it, verbatim, at the commit under review — and both are stronger than the reviewer's own checkout,
-which is bash 5.x. `gh pr checks <pr>` or `gh run view <run-id> --json headSha,conclusion,jobs`
-names the job, the head SHA, and the conclusion; citing those three IS the verification.
+*third* execution once `lint-and-selftests` (ubuntu) and `selftests-bash32` — display name
+`selftests (macos, bash 3.2)`, the string `gh pr checks`/`gh run view` actually print — have both
+run the recipe's suite set at the commit under review, and both cover ground the reviewer's own
+checkout (bash 5.x + BSD) does not: ubuntu is bash 5.x + GNU, macos is bash 3.2 + BSD. `gh pr
+checks <pr>` or `gh run view <run-id> --json headSha,conclusion,jobs` names the job, the head SHA,
+and the conclusion; citing those three IS the verification.
+
+CI's own invocation is not byte-identical to the recipe — it adds `--cache-dir
+"$RUNNER_TEMP/selftest-cache"`, and the ubuntu lane sets no `SKIP_STRESS` where the recipe sets
+`SKIP_STRESS=1` — and neither delta counts as "command differs" below. `--cache-dir` is read-only
+on a PR (`--cache-write` is push-only) and skips a suite only when every input
+`tools/selftest-cache-inputs.tsv` declares for it is byte-unchanged from an already-passed run, so
+the skip is not a gap the recipe would have caught differently; the missing `SKIP_STRESS` runs
+strictly *more* than the recipe, never less. Both classify as same command.
 
 **The discriminator is both conditions, not one: same command AND same head.**
 
@@ -483,8 +493,8 @@ names the job, the head SHA, and the conclusion; citing those three IS the verif
 - **Head differs** — a fix round landed after the run being cited, or the citation predates the
   reviewed patch. CI's green is about a tree that no longer exists. Execute.
 - **Neither differs** — cite the run and stop. A local rerun is not stronger evidence: CI's two
-  lanes already cover more (ubuntu, and macos under bash 3.2) than a single bash-5.x retry ever
-  will, and the retry answers a question the branch's own checks already answered.
+  lanes already cover two environments the local checkout does not (ubuntu, and macos under bash
+  3.2), and the retry answers a question the branch's own checks already answered.
 
 This narrows "verify by execution rather than trusting prose" — it does not repeal it. A
 single-suite probe of an assertion new to this round, or any command CI never ran verbatim, is
