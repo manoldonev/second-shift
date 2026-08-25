@@ -326,9 +326,16 @@ terminal() { # terminal <slug> <exit-code> <message...>
   # is already composed one line above; carrying it into the row costs nothing and is the difference
   # between a launch that can be classified and one that can only be guessed at.
   #
-  # FLATTENED AND BOUNDED, because the row is TSV and the field is the last one: a tab would forge a
-  # column and a newline would forge a row, and either turns one bad launch into a corrupt ledger.
-  launch_note terminal "$slug rc=$code — $(printf '%s' "$*" | tr '\n\t' '  ' | cut -c1-400)"
+  # FLATTENED, because the row is TSV and the field is the last one: a tab would forge a column and
+  # a newline would forge a row, and either turns one bad launch into a ledger that no longer parses.
+  #
+  # NOT LENGTH-BOUNDED, and that is the second draft. A `cut -c1-400` here is locale-dependent:
+  # under a UTF-8 locale it counts characters, under `LC_ALL=C` it counts BYTES and will split a
+  # multibyte sequence at the boundary — measured, it leaves a lone \342 where an em-dash was. Every
+  # message in this file is composed from this script's own literals plus small interpolations
+  # (an issue number, a PR list, a gate exit code), so the length is already bounded at the source,
+  # and a bound whose failure mode is corrupting the field it protects is worse than no bound.
+  launch_note terminal "$slug rc=$code — $(printf '%s' "$*" | tr '\n\t' '  ')"
   exit "$code"
 }
 envfail() { terminal "$1" 2 "$2"; }
