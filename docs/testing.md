@@ -474,8 +474,9 @@ checks: an oracle `AC-n` proved by "run the mandated recipe and it is green" doe
 `selftests (macos, bash 3.2)`, the string `gh pr checks`/`gh run view` actually print — have both
 run the recipe's suite set at the commit under review, and both cover ground the reviewer's own
 checkout (bash 5.x + BSD) does not: ubuntu is bash 5.x + GNU, macos is bash 3.2 + BSD. `gh pr
-checks <pr>` or `gh run view <run-id> --json headSha,conclusion,jobs` names the job, the head SHA,
-and the conclusion; citing those three IS the verification.
+checks <pr>` names the job and conclusion for the PR's current head — its own `--json` has no head
+SHA field, so pair it with `git rev-parse HEAD`; `gh run view <run-id> --json
+headSha,conclusion,jobs` supplies all three itself. Citing those three IS the verification.
 
 CI's own invocation is not byte-identical to the recipe — it adds `--cache-dir
 "$RUNNER_TEMP/selftest-cache"`, and the ubuntu lane sets no `SKIP_STRESS` where the recipe sets
@@ -483,15 +484,19 @@ CI's own invocation is not byte-identical to the recipe — it adds `--cache-dir
 on a PR (`--cache-write` is push-only) and skips a suite only when every input
 `tools/selftest-cache-inputs.tsv` declares for it is byte-unchanged from an already-passed run — a
 correctly-declared row skips no gap the recipe would have caught differently. An *under-declared*
-row is exactly that gap; it is the nightly's cold sweep, not the PR recipe, that catches it (within
-a day, per the containment above). The missing `SKIP_STRESS` runs strictly *more* than the recipe,
-never less. Both classify as same command.
+row is exactly that gap — but whether the PR lane itself catches it depends on what else the PR
+touches: moving only the under-declared input leaves the cache key unchanged, the suite is
+skipped, and it is the nightly's cold sweep that catches it (within a day, per the containment
+above); moving a *declared* input in the same PR moves the content-addressed key too, and the PR
+lane forces the suite to run, catching the gap itself. The missing `SKIP_STRESS` runs strictly
+*more* than the recipe, never less. Both classify as same command.
 
 **The discriminator is both conditions, not one: same command AND same head.**
 
-- **Command differs** — the AC's recipe carries a flag or exclusion CI's invocation does not (the
-  #650 campaign's AC-4 case: the AC asserted `--full`, the configured lane runs without it). CI's
-  green proves a different claim than the AC makes. Execute.
+- **Command differs** — the AC's recipe carries a flag or exclusion CI's invocation does not (e.g.
+  an AC asserting `tools/install-topology-selftest.sh` is green: both CI selftest jobs run
+  `--exclude tools/install-topology-selftest.sh` (`ci.yml:121`, `:414`), so their green never
+  covered that suite). CI's green proves a different claim than the AC makes. Execute.
 - **Head differs** — a fix round landed after the run being cited, or the citation predates the
   reviewed patch. CI's green is about a tree that no longer exists. Execute.
 - **Neither differs** — cite the run and stop. A local rerun is not stronger evidence: CI's two
