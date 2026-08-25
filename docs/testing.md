@@ -160,6 +160,40 @@ applies by default — see the slow-suite table section below. The suite stays *
 a path that must keep existing, so renaming the suite reds CI instead of silently
 double-running it.
 
+### When a run is killed mid-sweep
+
+A sweep that dies part-way — a foreground agent call hitting the harness's 2-minute cap, a
+Ctrl-C, a `timeout` — skips every suite's `trap … EXIT`. **`TMPDIR` cannot contain what that
+leaves behind.** On macOS `mktemp -d` with no template ignores `TMPDIR` entirely and uses
+`_CS_DARWIN_USER_TEMP_DIR`, so every suite's state dir lands in one directory shared by every
+worktree and every concurrent lane on the machine, and pointing `TMPDIR` somewhere private before a
+run moves none of it. [`CLAUDE.md`](../CLAUDE.md)'s verification recipe is the caller most exposed
+to this, which is why it routes here.
+
+**Most of it is reaped for you, and the residue is usually inert.** `run-selftests.sh` runs
+`tools/reap-lean-fixtures.sh` over `$TMPDIR` before it discovers anything, clearing the two
+fixture families big enough to matter — they stamp owning pid and process start time into their
+`mktemp -t` template, so the reaper deletes only what it can prove is dead and leaves every "could
+not tell" standing. What that does not reach is the no-template dirs, and those are mostly
+harmless now: a suite that stages its fixture root one level *below* its `mktemp` dir keeps a
+neighbor's leftovers outside its own resolution globs, and the suites that once resolved across
+the shared directory assert that nesting with a decoy fixture staged at the colliding depth.
+
+What the residue still costs is diagnosis time, and a wasted fix attempt if you spend one on the
+branch. **The tell is a red in a suite the diff cannot reach.** Re-run that suite alone in an
+untouched checkout first: red there too means it is environmental, and the enumeration is read-only:
+
+```sh
+ls -d "$(env -u TMPDIR mktemp -u -d | xargs dirname)"/*/*/agents
+```
+
+A match with a `.claude-plugin/plugin.json` beside it is a plugin-shaped leftover; one without is
+some vendor's directory and is none of your business. Before removing anything, `stat` its mtime
+against your own kill — a lane running in another worktree stages fixtures in this same directory,
+and a blind `rm -rf` over that glob deletes its live state. On a `/var/folders/…` path the removal
+can be permission-denied outright, in which case hand the operator one exact command rather than
+routing around it.
+
 ### The slow-suite table
 
 `lean-gate.sh` milestone 3 runs the sweep as a **single blocking call inside the harness turn**,

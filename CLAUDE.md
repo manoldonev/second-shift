@@ -60,6 +60,24 @@ find . -name '*.json' -type f -print0 | xargs -0 -n1 jq empty
 SKIP_STRESS=1 bash tools/run-selftests.sh --full --exclude tools/install-topology-selftest.sh
 ```
 
+**That third line takes minutes, and a foreground agent call cannot finish it.** The harness reaps
+a foreground `Bash` call at **2 minutes**, and the `timeout` parameter does not lift the cap — a
+call requesting 600000ms was still SIGKILLed at exactly 2m 0s (re-measured 2026-08-25, and the same
+2m 0s on every lane that has tried it). The shape that survives is `nohup <cmd> > <log> 2>&1` under
+the harness's `run_in_background`: it stays harness-tracked, so it is collected in the same turn
+rather than abandoned at turn end. A *bare* backgrounded command is not that shape and has been
+reaped at 2 minutes too — do not budget on it. This covers the sweep above, any single slow suite
+run on its own, and `tools/mutation-sweep.sh`. **`lean-gate.sh 3` is the exception**: it runs the
+sweep inline, bounded by `tools/selftest-suite-timings.tsv` to fit the turn, which is what a session
+detaching it and ending the turn would undo.
+
+**The killed-sweep note.** A foreground attempt that was already killed skipped its suites'
+`trap … EXIT`, and on macOS a *no-template* `mktemp -d` ignores `TMPDIR` (the `-t` form does honor
+it), so those leftovers sit in one directory shared with every other lane on the machine. The sweep
+reaps the stamped fixture families itself on its way in; for the rest,
+[scrub before re-running](docs/testing.md#when-a-run-is-killed-mid-sweep) — a red the diff cannot
+explain is that litter more often than it is your branch.
+
 **`tools/run-selftests.sh` is the sweep — here, in both CI selftest jobs, and in this repo's own
 dogfood lean-gate milestone-3 `test` lane** (the gitignored `.claude/second-shift.config.json`,
 at a wider `--jobs 10` but the same runner — not a hand-rolled `find | xargs` pipeline). It
