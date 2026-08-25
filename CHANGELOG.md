@@ -4,6 +4,117 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v12.0.0
+
+### `dev-pipeline` 11.0.0 → 12.0.0
+
+- **feat(dev-pipeline): P4/P5 get a mechanical counterpart, and 180 measurement rows retire (#648)** (#648)
+  `scripts/check-guard-budget.sh` reds a PR whose guard/test shell mass grows with no
+  `Guard-mass: +<n> <reason>` commit trailer, replacing PR #645's abandoned committed-ceiling
+  design. `.claude/prose-budget.baseline.tsv`, `.claude/prose-budget-shell.baseline.tsv`,
+  `tools/selftest-slow-suites.tsv`, `tools/mutation-slow-suites.tsv`,
+  `tools/selftest-sweep-baseline.tsv`, and `tools/install-topology-known-red.tsv` are deleted;
+  the three suite-timing files are replaced by `tools/selftest-suite-timings.tsv`.
+  `prose-budget.sh --update-baseline` is now an accepted no-op. Migration: none — no consumer
+  reads the deleted files directly.
+- **The campaign's instruments: per-launch spawn evidence, a mid-run staleness re-check, and variant (c) (#653)** (#653)
+  run-lean's payload transcripts are now stamped with a per-launch
+  token, so re-launching a ticket no longer truncates the previous launch's
+  transcript, and a <issue>-lean-launches.tsv beside them enumerates every
+  launch with its spawns and its terminal outcome.
+  Migration: none - transcript names gain a field and still match the
+  <issue>-lean-spawn-*.log glob every shipped reader uses.
+  lean-gate.sh's 'mark' now refuses with exit 7 when the ticket
+  closed under the run, so a build session whose premise expired mid-flight
+  stops before the handoff instead of costing a review round. An unreadable
+  tracker refuses with exit 2 (fail closed). Milestone 5 and close-out are
+  unaffected: a ticket that closes mid-review still lands its PR.
+  Migration: none.
+  run-lean gains --attended, an operator-driven drive-mode that
+  runs every check as a direct gate call, spawns nothing, and hands each
+  model turn to the operator (exit 9 = your turn). Built as the measured
+  third arm of #643's drive-mode campaign; the default behaviour of
+  run-lean is unchanged.
+  Migration: none - the flag is opt-in and the existing loop is untouched.
+- **The lane worktree inherits the operator's Claude settings, so a build session no longer gambles on the permission classifier (#657)** (#657)
+  a lean lane worktree now inherits the operator's Claude settings
+  from the checkout it was cut from, so a build session launched with the
+  worktree as its cwd runs under the posture the operator consented to instead
+  of falling through to the permission classifier. Copied, never symlinked, and
+  never over a file the worktree already carries.
+  Migration: none — consumers gain the behavior with no action. An operator who
+  keeps a hand-written settings file inside a lane worktree keeps it: an
+  existing destination is left alone.
+  `lean-gate.sh entry` no longer copies the checkout's Claude settings into a
+  lane worktree when the destination path is not covered by an ignore rule — it says
+  which `.gitignore` line would earn the copy instead. Without this, the copy left the
+  worktree permanently unclean, which stopped the entry sweep from ever reaping it.
+  Migration: none — a consumer wanting the copy adds `.claude/settings.local.json` to
+  their `.gitignore`; until then the gate declines and says so.
+- **The lane's gate stops refusing what it cannot change (#660)** (#660)
+  milestone 3's lint, test and extraLanes lanes now REPORT a red instead of refusing
+  — they record a `| milestone-3 | advisory |` row, charge no fix attempt, and the milestone
+  exits 0; the merge boundary is what blocks on them. Six announcement-class refusals across
+  milestones 4 and 5 moved to the `absent` verb and no longer charge the fix budget. Milestone
+  5 now accepts a MERGED pull request as satisfying the same obligation an open one does, so
+  `close-out` stays reachable after a merge. A verdict record carrying no `reviewed_patch_id`
+  is now refused at milestone 4 instead of falling through to a SHA-keyed comparison the merge
+  boundary rejected anyway.
+  Migration: a consumer whose verify lane relies on milestone 3 refusing must move that
+  enforcement to its own CI, or configure the lane under `typecheck`, which still blocks.
+  the lean gate's `close-out` no longer charges a fix attempt when the lane has no open
+  or merged PR, or when an earlier milestone left no satisfied record — both announce that a
+  checklist step has not happened yet, and both already behaved this way at milestone 5.
+  Migration: none.
+- **A review session cites a matching CI run instead of re-executing an oracle AC (#683)** (#683)
+  a review session verifying an oracle AC may now cite a CI run (job, head SHA,
+  conclusion) instead of re-executing the sweep, when the run's command and head both match
+  the reviewed commit. Migration: none.
+  none. Round-3 review fixes only: the Command-differs worked example named an AC
+  shape (#650's --full assertion) that both CI selftest lanes actually satisfy, and instead
+  points at a shape they genuinely don't cover (an AC asserting
+  tools/install-topology-selftest.sh is green, which both lanes exclude). Also clarifies the
+  gh pr checks / gh run view citation split (the former has no head-SHA field) and replaces a
+  coined term ('the PR recipe') with the doc's established 'PR lane', narrowing an over-general
+  claim about when the PR lane itself catches an under-declared cache-input row.
+- **Milestone 3's terminal line states its advisory count (#685)** (#685)
+  milestone 3's terminal line now reads "green gate (2 advisory)" when demoted lanes
+  reported red, instead of an unqualified green. No rc, verdict or consumer change.
+  Migration: none.
+- **Lane latency: measure it, remove the human from the recovery, delete arm c (#689)** (#689)
+  the `--attended` drive-mode and its exit code 9 are removed from run-lean's
+  orchestrator. It shipped as a measured spike under #650 and the campaign's frozen criterion
+  cannot select it. Drive the lane by hand with build-lean and review-lean directly, which is
+  unchanged. Migration: drop `--attended` from any wrapper; nothing returns exit 9 any more.
+  run-lean now recovers a BUILD session that exits 0 leaving uncollected work in the
+  lane worktree — it re-spawns BUILD once to collect it instead of stopping the run and asking
+  for a manual push. A second identical answer still stops, unchanged. Migration: none.
+  run-lean's launch ledger now records WHY a launch ended, not just its outcome slug and
+  exit code — a rejected or hard-stopped launch can be classified from the ledger alone instead of
+  from a terminal that has scrolled away. Adds docs/lane-latency.md, the ledger-derived account of
+  where a run's wall-clock actually goes. Migration: none; existing ledger rows keep parsing, the
+  reason is appended inside the existing final column.
+  **BREAKING:** `orchestrate-lean.sh --attended` is removed, along with its exit code 9. A wrapper that passed the flag now gets the ordinary usage refusal (exit 2), and no path returns 9. The manual two-terminal lane — invoking build-lean and review-lean directly — is unchanged and remains the supported way to drive the lane by hand.
+
+### `intake-toolkit` 4.1.2 → 4.2.0
+
+- **feat(dev-pipeline): P4/P5 get a mechanical counterpart, and 180 measurement rows retire (#648)** (#648)
+  `scripts/check-guard-budget.sh` reds a PR whose guard/test shell mass grows with no
+  `Guard-mass: +<n> <reason>` commit trailer, replacing PR #645's abandoned committed-ceiling
+  design. `.claude/prose-budget.baseline.tsv`, `.claude/prose-budget-shell.baseline.tsv`,
+  `tools/selftest-slow-suites.tsv`, `tools/mutation-slow-suites.tsv`,
+  `tools/selftest-sweep-baseline.tsv`, and `tools/install-topology-known-red.tsv` are deleted;
+  the three suite-timing files are replaced by `tools/selftest-suite-timings.tsv`.
+  `prose-budget.sh --update-baseline` is now an accepted no-op. Migration: none — no consumer
+  reads the deleted files directly.
+
+### `review-toolkit` 7.2.1 → 7.2.2
+
+- **Three consecutive rounds of panel reviews yielded zero blockers while a third of the panel goes dark (#679)** (#679)
+  test-coverage-reviewer and maintainability-reviewer now carry a turn-10 write-by
+  deadline, so a dispatch that would have died at the cap emits a partial review naming what it
+  could not verify instead of returning nothing. Migration: none.
+
 ## v11.0.0
 
 ### `design-toolkit` 4.0.1 → 4.0.2
