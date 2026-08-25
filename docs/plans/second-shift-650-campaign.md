@@ -91,12 +91,49 @@ to optimistic (every `U` is clean).
 
 | quantity | value |
 | --- | --- |
-| `M1ᵗ` band, pessimistic end | — |
-| `M1ᵗ` band, optimistic end | — |
-| attention(a), mean over runs 1–3 | — |
-| attention(b), mean over runs 4–6 | — |
-| attention(c), mean over runs 7–9 | — |
-| **arm selected by revision 4's table** | — |
+| `M1ᵗ` band, pessimistic end | **0.60** — every `U` a failure: 1 − 2/5 |
+| `M1ᵗ` band, optimistic end | **0.80** — every `U` clean: 1 − 1/5 |
+| attention(a), mean over runs 1–3 | **~3.3** (1, ~3, ~6 — two reconstructed) |
+| attention(b), mean over runs 4–6 | **~20** (5, 20, 35) |
+| attention(c), mean over runs 7–9 | **~32** (~25, ~45, ~25 — two reconstructed) |
+| **arm selected by revision 4's table** | **NO ARM — the band straddles the `0.80` boundary.** |
+
+Launch enumeration, from the ledgers per protocol item 6 (arm `a` only — `b` runs no scheduler and
+`c` has no `claude -p` transport, so neither can contribute to a transport metric):
+
+| row | ticket | launches | intervention |
+| --- | --- | --- | --- |
+| 1 | #636 | 1 | none |
+| 2 | #637 | 2 | 1 × `U` — launch 1, `preflight-rejected rc=2` at `21:42:45Z` |
+| 3 | #658 | 2 | 1 × `T` — launch 1's round-3 BUILD spawn exited 0 with the fix uncommitted |
+| | | **5** | `T` = 1, `U` = 1 |
+
+**Applying revision 4's table to each end.** The optimistic end `0.80` lands in the `M1ᵗ >= 0.80`
+row, and `attention(a) < attention(b)` holds (~3.3 against ~20, an ordering no reconstructed cell in
+this corpus can flip), so that end selects **C — keep**. The pessimistic end `0.60` lands in
+`0.50 <= M1ᵗ < 0.80`, which selects **B — reshape**. Two different rows: the band straddles, and the
+answer is **no arm**.
+
+**The whole corpus turns on one launch.** Collapse row 2's single `U` and the band collapses to a
+point: clean → `M1ᵗ = 0.80` exactly → **C** (revision 4's `R4-1` made that endpoint single-valued
+for precisely this case); a `T` → `0.60` → **B**. Either way an arm is selected. It is not
+recoverable — the audit ledger records tool calls and not their output, and #637's spawn logs exist
+only for launch 2 because launch 1 never spawned anything. The `U` is permanent.
+
+**What decides it, quantified.** Band width is `U ÷ total launches`. For both ends to reach the
+`>= 0.80` row: `1 − 2/(5+n) >= 0.80`, so **n = 5 further clean arm-`a` launches**. One further
+class-`T` moves it the other way. This costs no campaign: every ordinary `run-lean` invocation *is*
+an arm-`a` launch and the ledger already records its terminal, so the exit condition accrues from
+normal work rather than from measurement.
+
+**Read this before designing another campaign.** The decision rule needs exactly two inputs:
+`M1ᵗ`, which the launch ledger produces for free, and an *ordering* between attention(a) and
+attention(b). It never compares `b` against `c`, and no row of the table can select arm `c` at all —
+the outcomes are keep, reshape, or delete **the scheduler**. Arm `c`'s three runs (rows 7–9, ~95
+operator-minutes, the corpus's most expensive third) therefore carry zero decision weight, and the
+`b`-vs-`c` separability question that consumed the late campaign was never a question the criterion
+asked. The metric everyone worried about was used as a boolean; the metric that actually decided the
+outcome was free, automatic, and lost to a single uncaptured terminal line.
 
 Revision 4's table is the one that applies (`R4-1` supersedes `R3-2`'s), and it is total and
 single-valued over `[0, 1]`. If the band straddles a row boundary the answer is **no arm**, and
