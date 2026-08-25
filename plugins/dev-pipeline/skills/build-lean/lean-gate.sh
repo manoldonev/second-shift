@@ -3792,7 +3792,15 @@ lane_failure_class() { # lane_failure_class <lane-rc> — the class fail_milesto
 # the milestone continues to the lanes after it and concludes on its own merits. The lane's own
 # output has already gone to the terminal; this is the durable half, and it is what a reviewer and
 # the retro corpus read.
+# #668. The count milestone 3's terminal line states. The two warn lines below scroll past and the
+# progress row is durable but nothing reads it live, so the ONE line an operator or the scheduler
+# reads was asserting an unqualified green over lanes that had just reported red. Counted here
+# rather than recomputed from the progress file at the end: the file accumulates across a run's fix
+# rounds, and what the terminal line qualifies is THIS invocation.
+LANE_ADVISORY_COUNT=0
+
 lane_advisory() { # lane_advisory <reason>
+  LANE_ADVISORY_COUNT=$(( LANE_ADVISORY_COUNT + 1 ))
   append_line "$(now_iso) | milestone-3 | advisory | $1 — reported, not blocking: the merge boundary re-runs this lane"
   warn "milestone-3: $1"
   warn "  ADVISORY (#642), not a refusal — this lane is re-run at the merge boundary, so it reports here and blocks there. Nothing was charged to the fix budget."
@@ -3800,6 +3808,10 @@ lane_advisory() { # lane_advisory <reason>
 
 cmd_3() {
   local cmd rc any_verifying=0
+  # Defensive only, not guarding a live path: `all` runs each milestone once per process, so
+  # nothing calls cmd_3 twice today, and the file-scope initialiser above already zeroes this.
+  # Kept so a future second in-process caller cannot inherit a stale count.
+  LANE_ADVISORY_COUNT=0
   # #563. BEFORE the first lane child of any kind, since the whole point is that every one of
   # them inherits the cache store this appends to SEAM_SCRUB_ENV — the setup lanes below, the
   # fixed keys, extraLanes, and the render pre-command cmd_3_render runs at the end. It stood
@@ -3957,7 +3969,11 @@ cmd_3() {
   cmd_3_render; rc=$?
   [ "$rc" -eq 0 ] || return "$rc"
 
-  pass_milestone 3 "green gate"
+  # #668. Qualify the green with what reported red beside it. Zero advisories leaves the text
+  # byte-identical to what every existing consumer already reads.
+  local adv_note=""
+  if [ "$LANE_ADVISORY_COUNT" -gt 0 ]; then adv_note=" ($LANE_ADVISORY_COUNT advisory)"; fi
+  pass_milestone 3 "green gate$adv_note"
 }
 
 # ---------------------------------------------------------------- milestone 4: review

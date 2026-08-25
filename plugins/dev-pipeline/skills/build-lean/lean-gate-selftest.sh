@@ -1314,6 +1314,38 @@ if [ "$rc" -eq 1 ] && grep -q 'no verifying lane configured' <<<"$out"; then
   pass "(ad5) #642: m3/no-verify-lane still REFUSES — the demotion is scoped to the three named points, not to milestone 3"
 else fail "(ad5) expected rc=1 on a zero-lane tree, got rc=$rc: $out"; fi
 
+# ---- (ad6-ad8) #668: the terminal line states what reported red beside it ------------------
+# The advisory row above is durable and the warn lines are live, but the ONE line an operator or
+# the scheduler reads was `green gate` either way. Observed on PR 660: a real selftest failure rode
+# an advisory lane under an rc=0 gate whose last line was an unqualified green.
+cfg="$(ic_cfg '.commands.acme.test = "exit 1"')"
+prog="$WORK/ad-prog-count1.md"
+out="$(gate_el "$cfg" "$prog" 3 7)"; rc=$?
+if [ "$rc" -eq 0 ] && grep -qFx '[lean-gate] ✓ milestone-3: green gate (1 advisory)' <<<"$out"; then
+  pass "(ad6) #668 AC-1: one advisory lane — the terminal line carries the count"
+else fail "(ad6) expected rc=0 and a counted terminal line, got rc=$rc: $out"; fi
+
+# TWO, so (ad6) cannot pass against a hardcoded "(1 advisory)" suffix. `typecheck` stays null
+# between them: it is the undemoted key, and a red there would refuse before the second count.
+cfg="$(ic_cfg '.commands.acme.lint = "exit 1" | .commands.acme.test = "exit 1"')"
+prog="$WORK/ad-prog-count2.md"
+out="$(gate_el "$cfg" "$prog" 3 7)"; rc=$?
+if [ "$rc" -eq 0 ] && grep -qFx '[lean-gate] ✓ milestone-3: green gate (2 advisory)' <<<"$out" \
+   && [ "$(el_count_in '| milestone-3 | advisory |' "$prog")" -eq 2 ]; then
+  pass "(ad7) #668 AC-1: the count tracks the advisory rows actually written, not a fixed suffix"
+else fail "(ad7) expected rc=0, a '(2 advisory)' terminal line and 2 advisory rows, got rc=$rc: $out"; fi
+
+# THE CONTROL, and AC-2's whole content: a clean run's terminal line must be BYTE-IDENTICAL to
+# what every existing consumer already reads. `-x` is load-bearing — a substring match would pass
+# against `green gate (0 advisory)`, which is exactly the leak this case exists to catch.
+cfg="$(ic_cfg '.commands.acme.test = "true"')"
+prog="$WORK/ad-prog-count0.md"
+out="$(gate_el "$cfg" "$prog" 3 7)"; rc=$?
+if [ "$rc" -eq 0 ] && grep -qFx '[lean-gate] ✓ milestone-3: green gate' <<<"$out" \
+   && [ "$(el_count_in '| milestone-3 | advisory |' "$prog")" -eq 0 ]; then
+  pass "(ad8) #668 AC-2: zero advisories leaves the terminal line unchanged, byte for byte"
+else fail "(ad8) expected the unqualified terminal line on a clean run, got rc=$rc: $out"; fi
+
 # ---- (ib) #527 AC-4 / #566: the INTERRUPTED budget — one value, scoped per milestone -------
 # Without this the fix is self-defeating. Once an infra kill stops charging a fix attempt the
 # scheduler re-spawns, and each dead spawn leaves another unclosed `started` row that nothing
