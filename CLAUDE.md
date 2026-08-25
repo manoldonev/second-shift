@@ -72,7 +72,7 @@ sweep inline, bounded by `tools/selftest-suite-timings.tsv` to fit the turn, whi
 detaching it and ending the turn would undo.
 
 **The killed-sweep note.** A foreground attempt that was already killed skipped its suites'
-`trap … EXIT`, and **a private `TMPDIR` relocates only half of what that leaves behind.** The
+`trap … EXIT`, and **a private `TMPDIR` relocates the scratch and not the fixtures.** The
 stamped fixture families allocate with `mktemp -d -t <name>`, and on macOS that path resolves
 against `_CS_DARWIN_USER_TEMP_DIR` — a bare `mktemp -d` *is* `-t tmp`, so there is no second
 behavior to fall back on. Those land in one directory shared with every other lane on the machine
