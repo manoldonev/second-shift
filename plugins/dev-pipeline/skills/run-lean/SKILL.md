@@ -26,8 +26,7 @@ rescue path, and the fallback if headless sessions ever leave the subscription.
    `2` preflight rejected · `3` preflight rejected, RESUMABLE — the ticket is unintaken ·
    `4` hard stop, budget spent · `5` the review half produced no verdict usable against this head,
    twice · `6` the verdict was authored by the build run or build session (P10) · `7` the run's
-   premise expired mid-flight — the ticket closed, or the base moved into this branch's files ·
-   `9` `--attended` only: the lane is waiting on YOUR turn — run the printed command, re-invoke.
+   premise expired mid-flight — the ticket closed, or the base moved into this branch's files.
 5. On `3`, run `/intake-toolkit:intake` yourself and re-launch — or, watching, `operator-override.sh
    attend` first and the reject prints how to record the decision instead of re-labelling. On `2`,
    fix what preflight named. On `5`, run `/dev-pipeline:review-lean <pr>` by hand: a rebuild fixes
@@ -54,6 +53,4 @@ blocks up by hand from the routed repo, or just re-launch: preflight accepts the
 run left, so re-entry costs no tracker write and no re-labelling.
 The staleness check that produces `7` runs at the spawn boundary; the gate re-asks at the build
 session's own handoff (`mark`), so a ticket closing mid-spawn costs that session, not the review
-round after it. `--dry-run` previews and spawns nothing. `--attended` is #643's variant (c) — an
-instrument under measurement, not the lane's shape: every check is a direct gate call, nothing
-spawns, each invocation advances the lane by one turn you run, and the round budget is yours.
+round after it. `--dry-run` previews and spawns nothing.

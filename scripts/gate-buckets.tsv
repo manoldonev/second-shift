@@ -165,7 +165,6 @@ plugins/dev-pipeline/skills/run-lean/orchestrate-lean.sh::envfail	not-a-gate	env
 plugins/dev-pipeline/skills/run-lean/orchestrate-lean.sh::envfail	not-a-gate	envfail usage-	-	usage error — the nine `usage-*` slugs are argument-parsing refusals (unknown option, missing --build-model, a non-numeric --max-rounds). Nothing about the lane is being judged; the invocation is malformed. One row per slug prefix rather than per site, per OR-1's default.
 #
 # ---- plugins/dev-pipeline/skills/run-lean/orchestrate-lean.sh::terminal ----
-plugins/dev-pipeline/skills/run-lean/orchestrate-lean.sh::terminal	not-a-gate	terminal "attended-	-	success path — the `--attended` drive mode's per-turn handoff. Nothing was refused and nothing was spawned: the operator runs the printed command and re-invokes, and exit 9 is how one operator turn ends. It is the yield already taken, not a gate that could yield.
 plugins/dev-pipeline/skills/run-lean/orchestrate-lean.sh::terminal	not-a-gate	terminal approved 0 	-	success path — the lane reached an approved, closed-out PR. Exit 0.
 plugins/dev-pipeline/skills/run-lean/orchestrate-lean.sh::terminal	gates-signal	terminal build-continuations-spent 1 	-	the fact is objective and counted: the build phase spent its --max-continuations budget without leaving a PR.
 plugins/dev-pipeline/skills/run-lean/orchestrate-lean.sh::terminal	gates-signal	terminal build-idle 1 	-	the fact is objective: no open PR on the lane branch after the BUILD session, so there is nothing to review.
