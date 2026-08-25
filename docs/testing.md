@@ -481,9 +481,11 @@ CI's own invocation is not byte-identical to the recipe — it adds `--cache-dir
 "$RUNNER_TEMP/selftest-cache"`, and the ubuntu lane sets no `SKIP_STRESS` where the recipe sets
 `SKIP_STRESS=1` — and neither delta counts as "command differs" below. `--cache-dir` is read-only
 on a PR (`--cache-write` is push-only) and skips a suite only when every input
-`tools/selftest-cache-inputs.tsv` declares for it is byte-unchanged from an already-passed run, so
-the skip is not a gap the recipe would have caught differently; the missing `SKIP_STRESS` runs
-strictly *more* than the recipe, never less. Both classify as same command.
+`tools/selftest-cache-inputs.tsv` declares for it is byte-unchanged from an already-passed run — a
+correctly-declared row skips no gap the recipe would have caught differently. An *under-declared*
+row is exactly that gap; it is the nightly's cold sweep, not the PR recipe, that catches it (within
+a day, per the containment above). The missing `SKIP_STRESS` runs strictly *more* than the recipe,
+never less. Both classify as same command.
 
 **The discriminator is both conditions, not one: same command AND same head.**
 
@@ -497,8 +499,9 @@ strictly *more* than the recipe, never less. Both classify as same command.
   3.2), and the retry answers a question the branch's own checks already answered.
 
 This narrows "verify by execution rather than trusting prose" — it does not repeal it. A
-single-suite probe of an assertion new to this round, or any command CI never ran verbatim, is
-still review-side work; only the command-and-head match is a citation, not a discretion call.
+single-suite probe of an assertion new to this round, or any command that differs from what CI
+ran, is still review-side work; only the command-and-head match is a citation, not a discretion
+call.
 
 ## Why a tier map at all
 
