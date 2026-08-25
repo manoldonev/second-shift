@@ -195,14 +195,6 @@
 #                          phase; the counter resets whenever a spawn yields a PR. 0 restores
 #                          the pre-#492 behavior of never continuing.
 #     --dry-run            Print the schedule and exit 0 without spawning anything.
-#     --attended           VARIANT (c) OF #643's CAMPAIGN — an instrument, not the lane's shape.
-#                          Runs every check as a direct `lean-gate.sh` call and spawns NOTHING:
-#                          where a model session is genuinely needed it prints the command for you
-#                          to run in an attended session, exits 9, and resumes statelessly when you
-#                          re-invoke. One invocation advances the lane by at most one operator turn.
-#                          The round budget is YOURS in this mode — --max-rounds and
-#                          --max-continuations are in-memory counters and are not carried across
-#                          invocations; the gate's own rc=4 hard stop is unaffected.
 #
 # Seams (every one has a shipped default pointing at the real thing):
 #   LEAN_SPAWN_BIN               the session binary (default `claude`)
@@ -222,12 +214,6 @@
 #       REVIEW retry; 6 = an integrity refusal (P10) — terminal, never retried; 7 = the run's
 #       premise expired mid-flight (#515) — the ticket closed, or the base moved into this
 #       branch's files.
-#
-#       9 = `--attended` only: THE LANE IS WAITING ON THE OPERATOR'S TURN. Not a failure and not a
-#           completion — every check ran, all of them as direct gate calls, and the one thing left
-#           is a model session this mode deliberately does not spawn. The command to run is printed
-#           above the terminal line, and so is the command that resumes. Its own integer because a
-#           wrapper must not read "your turn" as either "done" (0) or "broken" (1).
 #
 #       3 = the RESUMABLE preflight reject (#613): the ticket is unintaken and that was the ONLY
 #       failing probe. Distinguished from 2 because the two need different next actions and a
@@ -250,11 +236,13 @@ ISSUE=""
 BUILD_MODEL=""
 REVIEW_MODEL_DEFAULT="opus"
 REVIEW_MODEL="$REVIEW_MODEL_DEFAULT"
-ATTENDED=0
 REVIEW_MODEL_BASIS=""
 MODEL_BASIS="label"
 MAX_ROUNDS=3
 MAX_CONTINUATIONS=2
+# Not a flag, deliberately: it bounds a RECOVERY from a transport artefact, not a budget an
+# operator tunes per run, and the whole value of it is that nobody has to know it is there.
+MAX_INFLIGHT_RECOVERIES=1
 # #496 D-10: exactly one. Not a flag — a knob here would let an operator turn a broken review lane
 # into an expensive one, and the bound is the point.
 MAX_REVIEW_RETRIES=1
@@ -330,20 +318,27 @@ terminal() { # terminal <slug> <exit-code> <message...>
   # the attribution rubric can be applied to. A terminal vocabulary IS evidence: `staleness-expired`
   # and `build-idle` classify differently, and neither is recoverable from a transcript that the
   # scheduler never got far enough to open.
-  launch_note terminal "$slug rc=$code"
+  # #652 taught this the hard way: the SLUG ALONE IS NOT THE REASON. A campaign row's launch 1 read
+  # `preflight-rejected rc=2` and nothing else, and the terminal text existed only on a scrolled-away
+  # control stream — the audit ledger records tool calls, not their output, so which probe refused
+  # was unrecoverable a day later. That one unattributable launch is what widened `M1ᵗ` into a band
+  # straddling a decision boundary, so nine runs returned "no arm" on a missing sentence. The message
+  # is already composed one line above; carrying it into the row costs nothing and is the difference
+  # between a launch that can be classified and one that can only be guessed at.
+  #
+  # FLATTENED, because the row is TSV and the field is the last one: a tab would forge a column and
+  # a newline would forge a row, and either turns one bad launch into a ledger that no longer parses.
+  #
+  # NOT LENGTH-BOUNDED, and that is the second draft. A `cut -c1-400` here is locale-dependent:
+  # under a UTF-8 locale it counts characters, under `LC_ALL=C` it counts BYTES and will split a
+  # multibyte sequence at the boundary — measured, it leaves a lone \342 where an em-dash was. Every
+  # message in this file is composed from this script's own literals plus small interpolations
+  # (an issue number, a PR list, a gate exit code), so the length is already bounded at the source,
+  # and a bound whose failure mode is corrupting the field it protects is worse than no bound.
+  launch_note terminal "$slug rc=$code — $(printf '%s' "$*" | tr '\n\t' '  ')"
   exit "$code"
 }
 envfail() { terminal "$1" 2 "$2"; }
-
-# #650 AC-4. The attended drive-mode prints the command that RESUMES the lane, and the honest
-# spelling of that command is the one the operator just ran. Captured before the parser consumes it.
-#
-# EXPANDED AS `${ORIG_ARGV[@]+"${ORIG_ARGV[@]}"}` at its one reader, and that is not superstition:
-# bash 3.2 under `set -u` treats `"${arr[@]}"` on an EMPTY array as an unbound variable and dies.
-# It cannot be empty on any path reaching that reader — `--attended` is itself an argument — but
-# CI has a bash-3.2 lane and a local bash 5.x sweep cannot tell the two forms apart, so the one
-# that is safe under both is the one written.
-ORIG_ARGV=("$@")
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -354,8 +349,7 @@ while [ $# -gt 0 ]; do
     --max-rounds)         MAX_ROUNDS="${2:-}"; shift 2 ;;
     --max-continuations)  MAX_CONTINUATIONS="${2:-}"; shift 2 ;;
     --dry-run)            DRY_RUN=1; shift ;;
-    --attended)           ATTENDED=1; shift ;;
-    -h|--help)            sed -n '2,236p' "$0"; exit 0 ;;
+    -h|--help)            sed -n '2,222p' "$0"; exit 0 ;;
     -*)                   envfail usage-unknown-option "unknown option: $1" ;;
     *)                    [ -z "$ISSUE" ] && ISSUE="$1" || envfail usage-unexpected-argument "unexpected argument: $1"; shift ;;
   esac
@@ -842,143 +836,12 @@ infra_token() {
 }
 
 if [ "$DRY_RUN" -eq 1 ]; then
-  # #650 AC-4. A preview that described arm (a)'s schedule while `--attended` was set would be a
-  # dry run of a mode the next invocation is not going to take.
-  if [ "$ATTENDED" -eq 1 ]; then
-    say "dry run: branch=$BRANCH · gate=$GATE · ATTENDED — direct gate calls only, no spawn; each invocation advances the lane by at most one operator turn."
-    terminal dry-run 0 "dry run: nothing was spawned and no gate was called."
-  fi
   say "dry run: branch=$BRANCH · gate=$GATE · $MAX_ROUNDS round(s) of BUILD → REVIEW → verdict"
   spawn BUILD "$BUILD_MODEL" "/dev-pipeline:build-lean $ISSUE"
   spawn REVIEW "$REVIEW_MODEL" "/dev-pipeline:review-lean <pr>"
   terminal dry-run 0 "dry run: nothing was spawned."
 fi
 
-# ---- the attended drive-mode (#650 AC-4) -------------------------------------------------------
-# VARIANT (c) OF #643's CAMPAIGN, and it is an INSTRUMENT, not a ship. It is built to be measured
-# against arm (a) — the loop below — and against the manual two-terminal lane, and it lands as the
-# lane's shape only if the campaign's criterion selects it. Nothing here changes what `run-lean`
-# does without the flag: this branch returns before the loop, and the loop is byte-unchanged, which
-# is what keeps the arm it is measured against unperturbed by its own measuring instrument.
-#
-# WHAT IT IS. #590's template applied at the LANE level rather than at the script level. #590 found
-# that the close-out did not need a model session and replaced its spawn with a direct gate call
-# whose exit code IS the verdict; every check this scheduler makes already has that shape. So the
-# whole control flow — staleness, PR resolution, in-flight, verdict, close-out — runs as direct
-# `lean-gate.sh` calls here, and the two things that genuinely need a model session are handed to an
-# operator to run in an ATTENDED session of their own. There is no `claude -p` anywhere in this
-# path. That is the point: the transport the corpus's class-T failures are attributed to is the one
-# component removed, and the campaign measures what its absence costs in attention minutes.
-#
-# WHY IT IS STATELESS. Every predicate this mode routes on is read from the gate or the tracker, so
-# "where is the lane" is derived rather than carried. One invocation advances the lane by at most
-# one operator turn and exits; the operator runs the printed command and re-invokes. No state file,
-# no resumable session, nothing to reconcile if the operator walks away for a day.
-#
-# WHAT IT GIVES UP, said out loud rather than discovered during the campaign (`D-12`). `--max-rounds`
-# and `--max-continuations` are in-memory counters of a single scheduler process, and a stateless
-# single-step driver cannot carry them without inventing the state file the paragraph above declines.
-# So the round budget here is the OPERATOR's, not this script's. The gate's own `rc=4` hard stop is
-# unaffected and still fires, which is the bound that actually protects the fix budget; what is lost
-# is the scheduler's independent second bound against a reset counter. A measured instrument may
-# legitimately be weaker than the thing it is measured against — it may not be weaker SILENTLY.
-attended_handoff() { # attended_handoff <role> <command>
-  say "ATTENDED HANDOFF — this is the operator's turn. There is no spawn; nothing is running."
-  say "  1. run this in an attended session:   $2"
-  say "  2. then re-invoke to advance the lane: $0 $(printf '%s ' ${ORIG_ARGV[@]+"${ORIG_ARGV[@]}"})"
-  say "  the model this lane sizes $1 at: $([ "$1" = BUILD ] && printf '%s' "$BUILD_MODEL" || printf '%s' "$REVIEW_MODEL")"
-  terminal "attended-$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')-turn" 9 \
-    "the lane is waiting on the operator's $1 turn. Every check above ran as a direct gate call; nothing was spawned."
-}
-
-if [ "$ATTENDED" -eq 1 ]; then
-  say "attended drive-mode: no claude -p transport. The round budget is yours — this script's --max-rounds is not carried across invocations."
-
-  # #515, and FIRST, exactly as the loop's build phase does it and for the same reason: a lane whose
-  # premise has expired should cost nothing more, not even the reads below.
-  staleness_rc; st_rc=$?
-  case "$st_rc" in
-    0) : ;;
-    7) terminal staleness-expired 7 "HARD STOP: this lane's premise has expired — see the gate's line above for which arm fired. Rebase onto the updated base and re-invoke, or abandon the ticket. Detection is all this does: nothing was rebased and nothing was reverted." ;;
-    *) terminal staleness-unreadable 1 "the staleness check could not be completed (gate exit $st_rc) — refusing to advance a lane against a premise nothing verified." ;;
-  esac
-
-  PR="$(resolve_pr)"
-  if [ "$(printf '%s' "$PR" | grep -c '[0-9]')" -gt 1 ]; then
-    terminal pr-ambiguous 1 "more than one open PR on '$BRANCH' ($(printf '%s' "$PR" | tr '\n' ' ')) — the lane cannot choose which one this is about. Close or retarget the extras and re-invoke."
-  fi
-
-  # NO PR ⇒ THE BUILD TURN. The same predicate the loop uses to decide whether a build phase is
-  # finished, read here as "has the build turn happened yet" — which is what makes re-invocation
-  # idempotent: run the build turn twice and the second invocation sees the PR and moves on.
-  if [ -z "$PR" ]; then
-    attended_handoff BUILD "/dev-pipeline:build-lean $ISSUE"
-  fi
-  say "PR #$PR is open on $BRANCH."
-
-  # #531 AC-5, at the same boundary and for the same reason: a review reads the REMOTE head, so
-  # uncollected work in the lane worktree means the operator's next turn would review something
-  # other than what they just wrote.
-  inflight_rc; if_rc=$?
-  case "$if_rc" in
-    0) : ;;
-    8) terminal build-inflight 1 "HARD STOP: PR #$PR is open, but the lane worktree still holds work nothing else has a copy of — see the gate's line above. A review would read a remote head missing it. Push from the lane worktree and re-invoke." ;;
-    *) terminal build-inflight-unreadable 1 "the in-flight check could not be completed (gate exit $if_rc) — whether the lane worktree still holds work is unknown, and handing over a review on that guess is the defect this check exists to remove." ;;
-  esac
-
-  # THE VERDICT GATE'S RC IS THE ROUTER, exactly as it is in the loop — one taxonomy, read once,
-  # with every non-spawn arm reaching the SAME terminal the loop reaches. Only the two arms that
-  # would have spawned a model session differ, and they hand over instead.
-  verdict_rc; rc=$?
-  case "$rc" in
-    0)
-      say "verdict: approve. Closing out."
-      # #590's template, and here it is the whole point rather than one call site: the close-out is
-      # a gate call whose exit code IS the verdict, so this mode discharges milestone 5 with no
-      # session at all — under arm (a) too, since #590.
-      closeout_rc; rc=$?
-      if [ "$rc" -ne 0 ]; then
-        say "close-out did not complete (gate exit $rc) — retrying once."
-        closeout_rc; rc=$?
-      fi
-      if [ "$rc" -ne 0 ]; then
-        say "milestone 5's own obligations, as recorded:"
-        closeout_report | while IFS= read -r line; do say "  $line"; done
-        terminal closeout-incomplete 1 "HARD STOP: the close-out did not complete (gate exit $rc), twice. The obligations above name what is outstanding. The ticket is still claimed and PR #$PR is still open; finish it by hand with 'bash $GATE close-out $ISSUE' from the lane worktree."
-      fi
-      inflight_rc; co_if_rc=$?
-      case "$co_if_rc" in
-        0) : ;;
-        8) terminal closeout-inflight 1 "HARD STOP: the close-out completed but the lane worktree still holds work nothing else has a copy of — see the gate's line above. The ticket is still claimed and PR #$PR is still open." ;;
-        *) terminal closeout-inflight-unreadable 1 "the in-flight check could not be completed after the close-out (gate exit $co_if_rc) — whether the lane worktree still holds work is unknown, and reporting a finished lane on that guess is what this check exists to prevent." ;;
-      esac
-      terminal approved 0 "done — #$ISSUE approved on PR #$PR."
-      ;;
-    # NEEDS-WORK ⇒ THE FIX TURN, which is a BUILD turn: the loop re-spawns BUILD here, so this hands
-    # BUILD over. The reviewer's blockers are in the verdict record the build session reads; this
-    # script does not relay them, on the same rule that keeps it from weighing a finding.
-    1) attended_handoff BUILD "/dev-pipeline:build-lean $ISSUE" ;;
-    2) terminal verdict-gate-unreadable 2 "the verdict gate could not run against '$BRANCH' (exit 2) — an environment refusal, not a verdict. No handover: an operator turn cannot clear a gate that never evaluated one." ;;
-    3)
-      # #597 AC-2's two readings of an absent worktree, and the same discriminator: a satisfied
-      # milestone 5 means teardown removed it and the lane FINISHED.
-      m5_tok="$(progress_token --satisfied 5)" \
-        || terminal verdict-progress-unreadable 1 "no lane worktree for '$BRANCH', and the run's progress record could not be read through '$GATE' either — whether the lane finished is unknown, and neither guess is worth an operator's turn."
-      m5_zero="$(progress_token --satisfied 0)" \
-        || terminal verdict-progress-unreadable 1 "no lane worktree for '$BRANCH', and the zero-baseline progress read failed through '$GATE' — the comparison that decides whether the lane finished cannot be made."
-      if [ "$m5_tok" = "$m5_zero" ]; then
-        terminal worktree-missing 1 "cannot locate a worktree for '$BRANCH', and the run's record carries no satisfied milestone 5 — the build turn did not leave one. No handover: a review cannot produce a worktree."
-      fi
-      terminal lane-closed-out 0 "done — #$ISSUE closed out on PR #$PR. The lane worktree is gone because teardown removed it and milestone 5 is satisfied, which is a FINISHED lane, not a missing one."
-      ;;
-    4) terminal verdict-budget-spent 4 "HARD STOP: the verdict gate exhausted its fix budget. No rescue attempt — re-entry is from the top." ;;
-    # NO USABLE RECORD ⇒ THE REVIEW TURN. `5` is the honest answer on a head no review has covered,
-    # which is the ordinary state of a freshly built PR — so this is the arm the happy path takes.
-    5) attended_handoff REVIEW "/dev-pipeline:review-lean $PR" ;;
-    6) terminal verdict-self-authored 6 "HARD STOP: the verdict record is authored by the build run or the build session (P10) — generation may not author its own evaluation, and that is not something another turn can clear. Produce one from a separate review session." ;;
-    *) terminal verdict-gate-failed 1 "the verdict gate could not run (exit $rc)." ;;
-  esac
-fi
 
 round=1
 while :; do
@@ -988,6 +851,13 @@ while :; do
   # AND the progress record moved. `continuations` is scoped to this phase, which IS the reset
   # D-3 asks for: the only way out of this loop is a PR.
   continuations=0
+  # #652's corpus, and its OWN counter rather than a share of --max-continuations. The two bound
+  # different failure modes — that one bounds spawns which left no PR at all, this one bounds
+  # spawns which left a PR and uncollected work beside it — and folding them would let an
+  # infrastructure kill early in a phase spend the budget that recovers the exit-0-dirty case
+  # later in it. One re-spawn, on the review retry's reasoning: a second identical answer is a
+  # broken lane rather than bad luck, and a third costs more to learn the same thing.
+  inflight_recoveries=0
   PR=""
   while :; do
     # #515, and FIRST in the loop body: a run whose premise has expired should cost nothing more,
@@ -1039,13 +909,36 @@ while :; do
     # An open PR also means the branch was pushed at least once, which is what makes the unreadable
     # arm below a genuine environment error rather than the ordinary state of a young lane.
     #
-    # A TERMINAL, not a continuation. The remedy is one push from a tree that still exists, and a
-    # fresh session re-deriving the work would be the expensive way to reach the same place.
+    # RECOVERED, not terminal — reversing #531's original posture on the evidence #652 produced.
+    # That posture reasoned "the remedy is one push from a tree that still exists, and a fresh
+    # session re-deriving the work would be the expensive way to reach the same place." The second
+    # half is what the corpus refutes: a fresh session does NOT re-derive anything. The work is
+    # sitting in the lane worktree and build-lean is outcome-gated and resumable by construction —
+    # its Resume contract re-reads the progress record and continues at the first unsatisfied
+    # milestone, which here means committing and pushing what is already there. That is the same
+    # remedy the operator performs by hand, at the same cost, minus the operator.
+    #
+    # It is the campaign's most expensive measured failure: #652's row 3 is exactly this shape — a
+    # round-3 BUILD spawn produced the edit its blocker required, ended its turn with the edit
+    # uncommitted (under `claude -p`, turn end IS process exit), and the lane hard-stopped until a
+    # human committed from the worktree and re-launched. One class-T across five arm-a launches,
+    # which is a fifth of the metric that decides whether this scheduler survives.
+    #
+    # The scheduler still authors NOTHING. It does not commit the tree and it does not push — it
+    # spawns the block whose job that already is, which is the one move available to it that stays
+    # inside "gate exit codes and tracker state".
     if [ -n "$PR" ]; then
       inflight_rc; if_rc=$?
       case "$if_rc" in
         0) break ;;
-        8) terminal build-inflight 1 "HARD STOP: the BUILD session exited 0 and PR #$PR is open, but the lane worktree still holds work nothing else has a copy of — see the gate's line above for which arm fired. A review would read a remote head missing it. Push from the lane worktree and re-launch; the worktree and the claim are left in place." ;;
+        8)
+          if [ "$inflight_recoveries" -ge "$MAX_INFLIGHT_RECOVERIES" ]; then
+            terminal build-inflight 1 "HARD STOP: the BUILD session exited 0 and PR #$PR is open, but the lane worktree still holds work nothing else has a copy of — see the gate's line above for which arm fired — and a recovery spawn already tried to collect it. A review would read a remote head missing it. Push from the lane worktree and re-launch; the worktree and the claim are left in place."
+          fi
+          inflight_recoveries=$((inflight_recoveries + 1))
+          say "the BUILD session exited 0 leaving work in the lane worktree that nothing else has a copy of — re-spawning BUILD to collect it ($inflight_recoveries of $MAX_INFLIGHT_RECOVERIES). Nothing is being authored here: the fresh session resumes at the first unsatisfied milestone."
+          continue
+          ;;
         # Fail closed, the same posture the two reads above take: a predicate that could not be
         # evaluated is not a predicate that passed, and the failure direction of guessing here is a
         # review round spent on code nobody will merge.
