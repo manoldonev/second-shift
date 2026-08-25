@@ -3808,7 +3808,9 @@ lane_advisory() { # lane_advisory <reason>
 
 cmd_3() {
   local cmd rc any_verifying=0
-  # Per-invocation, so `all` (which runs the milestones in one process) cannot carry a count in.
+  # Defensive only, not guarding a live path: `all` runs each milestone once per process, so
+  # nothing calls cmd_3 twice today, and the file-scope initialiser above already zeroes this.
+  # Kept so a future second in-process caller cannot inherit a stale count.
   LANE_ADVISORY_COUNT=0
   # #563. BEFORE the first lane child of any kind, since the whole point is that every one of
   # them inherits the cache store this appends to SEAM_SCRUB_ENV — the setup lanes below, the

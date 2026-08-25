@@ -44,3 +44,19 @@ rows, or any consumer. One formatted string, plus fixture cases pinning both for
   can contribute to it.
 - A fix round re-runs `bash G 3` in a fresh process, so the count describes that invocation — which
   is the intended reading: it qualifies the green it is printed beside.
+
+## Verification result (AC-3)
+
+`tools/selftest-suite-timings.tsv` defers `lean-gate-selftest.sh` from milestone 3's bounded
+sweep, so AC-3 requires it be run explicitly and the result recorded here. Run at this branch's
+head, in this worktree:
+
+| Run | Result |
+| --- | --- |
+| `bash plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh` | **all green** — 514 PASS, 0 FAILURE, rc=0 |
+| the same suite with `lean-gate.sh` reverted to `origin/main` (the unconditional form) | **2 FAILURE(S) — exactly (ad6) and (ad7)**, nothing else disturbed |
+| `shellcheck -e SC1091,SC2015,SC2181` on the two changed shell files | clean |
+| milestone 3's own bounded sweep (`bash G 3`) | green, terminal line printed **unqualified** — zero advisories, byte-identical to today's text |
+
+(ad8) passes on both sides by design: it pins the zero-advisory text, which the mutation does not
+move. That is what makes it a control rather than a second copy of (ad6).
