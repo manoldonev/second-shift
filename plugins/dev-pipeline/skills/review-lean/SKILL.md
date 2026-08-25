@@ -52,7 +52,9 @@ the code does not author its own evaluation.
    at all. The committed lean spec is the definition of done: score each numbered `AC-n` as
    satisfied / unsatisfied / undeterminable, and say which. `approve` iff there are no blockers;
    any blocker is `needs-work`. Do not soften a blocker to keep a run moving, and do not invent
-   one to look thorough.
+   one to look thorough. **An oracle `AC-n` CI already ran verbatim at this reviewed head is
+   verified by citing that run (job, head SHA, conclusion), not by re-running it** — execute only
+   when the command or the head differs from what CI ran ([discriminator](../../../../docs/testing.md#citing-a-ci-run-instead-of-re-running-it-review-side)).
 5b. **Design fidelity — only when the spec's `## Design` section is armed** (a handoff link plus
    `| RS-n |` render-state rows; `Design: none — <reason>` means skip this step and score
    `not-applicable`). You are the design-SIGHTED reader; the panel's fidelity reviewer is not.

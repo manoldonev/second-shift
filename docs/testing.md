@@ -465,6 +465,31 @@ nightly wholesale leg. The lean lane's use of this same mechanism sits on the mu
 side of that line — its store is local, it records, and it is never anyone's authority — which is
 why it can record without the second flag CI withholds.
 
+### Citing a CI run instead of re-running it (review side)
+
+The pass cache above answers "does the *build* lane need to run this sweep again". A review
+session asks a narrower version of the same question, with the answer already sitting in the PR's
+checks: an oracle `AC-n` proved by "run the mandated recipe and it is green" does not need a
+*third* execution once `lint-and-selftests` (ubuntu) and `selftests-bash32` (macos) have both run
+it, verbatim, at the commit under review — and both are stronger than the reviewer's own checkout,
+which is bash 5.x. `gh pr checks <pr>` or `gh run view <run-id> --json headSha,conclusion,jobs`
+names the job, the head SHA, and the conclusion; citing those three IS the verification.
+
+**The discriminator is both conditions, not one: same command AND same head.**
+
+- **Command differs** — the AC's recipe carries a flag or exclusion CI's invocation does not (the
+  #650 campaign's AC-4 case: the AC asserted `--full`, the configured lane runs without it). CI's
+  green proves a different claim than the AC makes. Execute.
+- **Head differs** — a fix round landed after the run being cited, or the citation predates the
+  reviewed patch. CI's green is about a tree that no longer exists. Execute.
+- **Neither differs** — cite the run and stop. A local rerun is not stronger evidence: CI's two
+  lanes already cover more (ubuntu, and macos under bash 3.2) than a single bash-5.x retry ever
+  will, and the retry answers a question the branch's own checks already answered.
+
+This narrows "verify by execution rather than trusting prose" — it does not repeal it. A
+single-suite probe of an assertion new to this round, or any command CI never ran verbatim, is
+still review-side work; only the command-and-head match is a citation, not a discretion call.
+
 ## Why a tier map at all
 
 CI here is **model-free by design** — no API-billed calls. That constraint is what makes the
