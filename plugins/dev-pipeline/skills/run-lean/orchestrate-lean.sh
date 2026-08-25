@@ -240,6 +240,9 @@ REVIEW_MODEL_BASIS=""
 MODEL_BASIS="label"
 MAX_ROUNDS=3
 MAX_CONTINUATIONS=2
+# Not a flag, deliberately: it bounds a RECOVERY from a transport artefact, not a budget an
+# operator tunes per run, and the whole value of it is that nobody has to know it is there.
+MAX_INFLIGHT_RECOVERIES=1
 # #496 D-10: exactly one. Not a flag — a knob here would let an operator turn a broken review lane
 # into an expensive one, and the bound is the point.
 MAX_REVIEW_RETRIES=1
@@ -831,6 +834,13 @@ while :; do
   # AND the progress record moved. `continuations` is scoped to this phase, which IS the reset
   # D-3 asks for: the only way out of this loop is a PR.
   continuations=0
+  # #652's corpus, and its OWN counter rather than a share of --max-continuations. The two bound
+  # different failure modes — that one bounds spawns which left no PR at all, this one bounds
+  # spawns which left a PR and uncollected work beside it — and folding them would let an
+  # infrastructure kill early in a phase spend the budget that recovers the exit-0-dirty case
+  # later in it. One re-spawn, on the review retry's reasoning: a second identical answer is a
+  # broken lane rather than bad luck, and a third costs more to learn the same thing.
+  inflight_recoveries=0
   PR=""
   while :; do
     # #515, and FIRST in the loop body: a run whose premise has expired should cost nothing more,
@@ -882,13 +892,36 @@ while :; do
     # An open PR also means the branch was pushed at least once, which is what makes the unreadable
     # arm below a genuine environment error rather than the ordinary state of a young lane.
     #
-    # A TERMINAL, not a continuation. The remedy is one push from a tree that still exists, and a
-    # fresh session re-deriving the work would be the expensive way to reach the same place.
+    # RECOVERED, not terminal — reversing #531's original posture on the evidence #652 produced.
+    # That posture reasoned "the remedy is one push from a tree that still exists, and a fresh
+    # session re-deriving the work would be the expensive way to reach the same place." The second
+    # half is what the corpus refutes: a fresh session does NOT re-derive anything. The work is
+    # sitting in the lane worktree and build-lean is outcome-gated and resumable by construction —
+    # its Resume contract re-reads the progress record and continues at the first unsatisfied
+    # milestone, which here means committing and pushing what is already there. That is the same
+    # remedy the operator performs by hand, at the same cost, minus the operator.
+    #
+    # It is the campaign's most expensive measured failure: #652's row 3 is exactly this shape — a
+    # round-3 BUILD spawn produced the edit its blocker required, ended its turn with the edit
+    # uncommitted (under `claude -p`, turn end IS process exit), and the lane hard-stopped until a
+    # human committed from the worktree and re-launched. One class-T across five arm-a launches,
+    # which is a fifth of the metric that decides whether this scheduler survives.
+    #
+    # The scheduler still authors NOTHING. It does not commit the tree and it does not push — it
+    # spawns the block whose job that already is, which is the one move available to it that stays
+    # inside "gate exit codes and tracker state".
     if [ -n "$PR" ]; then
       inflight_rc; if_rc=$?
       case "$if_rc" in
         0) break ;;
-        8) terminal build-inflight 1 "HARD STOP: the BUILD session exited 0 and PR #$PR is open, but the lane worktree still holds work nothing else has a copy of — see the gate's line above for which arm fired. A review would read a remote head missing it. Push from the lane worktree and re-launch; the worktree and the claim are left in place." ;;
+        8)
+          if [ "$inflight_recoveries" -ge "$MAX_INFLIGHT_RECOVERIES" ]; then
+            terminal build-inflight 1 "HARD STOP: the BUILD session exited 0 and PR #$PR is open, but the lane worktree still holds work nothing else has a copy of — see the gate's line above for which arm fired — and a recovery spawn already tried to collect it. A review would read a remote head missing it. Push from the lane worktree and re-launch; the worktree and the claim are left in place."
+          fi
+          inflight_recoveries=$((inflight_recoveries + 1))
+          say "the BUILD session exited 0 leaving work in the lane worktree that nothing else has a copy of — re-spawning BUILD to collect it ($inflight_recoveries of $MAX_INFLIGHT_RECOVERIES). Nothing is being authored here: the fresh session resumes at the first unsatisfied milestone."
+          continue
+          ;;
         # Fail closed, the same posture the two reads above take: a predicate that could not be
         # evaluated is not a predicate that passed, and the failure direction of guessing here is a
         # review round spent on code nobody will merge.

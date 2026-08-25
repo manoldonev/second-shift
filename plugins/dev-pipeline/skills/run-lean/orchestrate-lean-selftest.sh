@@ -1421,16 +1421,36 @@ else fail "(n0) SKILL.md not found at $SKILL"; fi
 # from a legitimate one.
 #
 # THE GATE ANSWERS, THIS SCRIPT ROUTES. The predicate itself is lean-gate-selftest.sh's to prove
-# (it owns the real git conditions); what is asserted here is that an 8 stops the round BEFORE the
-# review, which no gate-side case can reach.
+# (it owns the real git conditions); what is asserted here is what an 8 ROUTES TO, which no
+# gate-side case can reach.
+#
+# #652 REVERSED THE ROUTE. An 8 used to be terminal on the reasoning that a fresh session would
+# "re-derive the work"; it does not — build-lean resumes at the first unsatisfied milestone, and
+# the work is already in the worktree, so the re-spawn commits and pushes what is sitting there.
+# The corpus made that concrete: row 3's class-T is this exact shape and cost a human turn. The
+# recovery must therefore happen BEFORE the review spawn and the round must still reach approve.
 setup_case "" "$V_APPROVE" "ready-for-dev" "11"
 printf '8\n' > "$INFLIGHT_RC_FILE"
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
-if [ "$rc" -eq 1 ] && [ "$(spawn_count)" -eq 1 ] && [ "$(inflight_reads)" -eq 1 ] \
+if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 3 ] && [ "$(inflight_reads)" -eq 3 ] \
+   && [ "$(slug_of "$out")" = "approved" ] \
+   && grep -q 're-spawning BUILD to collect it (1 of 1)' <<<"$out"; then
+  pass "(t1) a BUILD spawn that exits 0 leaving work in its worktree is RECOVERED by one re-spawn, and the round still reaches approve"
+else fail "(t1) expected rc=0 / 3 spawns / 3 reads / slug approved, got rc=$rc / $(spawn_count) / $(inflight_reads) / '$(slug_of "$out")': $out"; fi
+
+# THE BOUND, and (t1) is half a fix without it: a lane whose sessions keep ending mid-collection
+# would otherwise re-spawn forever on a condition no spawn is fixing. One recovery, then the
+# original hard stop — under the SAME slug, because the operator-facing state is unchanged and
+# only the number of attempts before reaching it moved.
+setup_case "" "$V_APPROVE" "ready-for-dev" "11"
+printf '8\n8\n' > "$INFLIGHT_RC_FILE"
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 1 ] && [ "$(spawn_count)" -eq 2 ] && [ "$(inflight_reads)" -eq 2 ] \
    && [ "$(slug_of "$out")" = "build-inflight" ] \
-   && grep -q 'HARD STOP' <<<"$out"; then
-  pass "(t1) a BUILD spawn that exits 0 leaving work in its worktree stops the round before the REVIEW spawn, under its own slug"
-else fail "(t1) expected rc=1 / 1 spawn / 1 read / slug build-inflight, got rc=$rc / $(spawn_count) / $(inflight_reads) / '$(slug_of "$out")': $out"; fi
+   && grep -q 'HARD STOP' <<<"$out" \
+   && grep -q 'a recovery spawn already tried' <<<"$out"; then
+  pass "(t1b) a second identical in-flight answer stops the round under the original slug, naming the spent recovery"
+else fail "(t1b) expected rc=1 / 2 spawns / 2 reads / slug build-inflight, got rc=$rc / $(spawn_count) / $(inflight_reads) / '$(slug_of "$out")': $out"; fi
 
 # FAIL CLOSED, and distinguishably so: "I could not look" is not "there is nothing there", and the
 # slug is what makes the two tellable apart in a log.
@@ -1465,10 +1485,15 @@ infra-1'
 PR_FROM_SPAWN=2 \
   out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
 unset PR_FROM_SPAWN
-if [ "$rc" -eq 1 ] && [ "$(inflight_reads)" -eq 1 ] && [ "$(spawn_count)" -eq 2 ] \
+if [ "$rc" -eq 1 ] && [ "$(inflight_reads)" -eq 2 ] && [ "$(spawn_count)" -eq 3 ] \
    && grep -q 'killed by infrastructure' <<<"$out"; then
-  pass "(t4) the in-flight check is NOT consulted on the no-PR path — a PR-less spawn still routes to #527's continuation, and the check fires only once the second spawn yields a PR"
+  pass "(t4) the in-flight check is NOT consulted on the no-PR path — a PR-less spawn still routes to #527's continuation, and the check fires only once a spawn yields a PR"
 else fail "(t4) the check preempted the continuation path: rc=$rc / $(inflight_reads) read(s) / $(spawn_count) spawn(s): $out"; fi
+
+# THE TWO BUDGETS ARE SEPARATE, which is what (t4) now also demonstrates and is worth naming: the
+# no-PR spawn above spent an infrastructure CONTINUATION, and the in-flight recovery that follows
+# it still got its own. Had they shared one counter the recovery would have been unavailable
+# exactly when a run had already had a bad day, which is when it is most needed.
 
 # ---- (u) #531 D-7: a head that already carries an approve is not re-reviewed --------------------
 # The round loop entered the build phase unconditionally and the REVIEW spawn PRECEDED the only
