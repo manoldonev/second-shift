@@ -1,94 +1,167 @@
 # lean review verdict — #656
 
 verdict=needs-work
-run_id: review-656-1
-session_id: d7133ae6-8744-42f6-99a2-9a2319b3a7df
-rounds: 1
+run_id: review-656-2
+session_id: 0ffd7fdf-fe71-470c-9444-205654a9a761
+rounds: 2
 pr: #681
-reviewed_head: 56f2908dee3287e5e1b9dc540557735314e77229
-reviewed_patch_id: c244e28d6086655a9e8f9d79beaaa30f1bc9e733
-inherited_patch_id: none
-inherited_from_verdict: none
+reviewed_head: 375aa0b7e98a758f65cbdcf37c2b90847b3de73f
+reviewed_patch_id: e759b3e53257da5db37674405cb525dc92cceae0
+inherited_patch_id: c244e28d6086655a9e8f9d79beaaa30f1bc9e733
+inherited_from_verdict: af3f8e19f244c195a2a5702a13969ac4d5cb00bf
 fidelity: not-applicable
 model: unknown
 capabilities: pr-marker
 
-Round 1, full range `93b857fe..HEAD` (nothing verifiable to inherit). Three files:
-`CLAUDE.md`, `docs/testing.md`, `docs/plans/second-shift-656-lean.md`.
+Round 2, delta range `af3f8e19..HEAD`, inheriting patch `c244e28d6086` (round 1). Three files:
+`CLAUDE.md`, `docs/testing.md`, `docs/plans/second-shift-656-lean.md`. Round 1's findings were
+read first.
 
-**Verdict: needs-work.** One blocker, one warning. The slice is otherwise well-built: the
-split-by-role decision is right, the runbook leads with what is already automated rather than
-sending a reader to hand-delete from a shared directory, and the dangling
-`reap-lean-fixtures.sh` cross-reference now lands.
+**Round 1's B-1 is fixed.** The `(the -t form does honor it)` parenthetical is gone, the
+replacement is correct about `-t`, and the runbook now carries a runnable `-u` derivation with a
+`-p` control and names the vacuous `TMPDIR=/tmp/x` form so it is not repeated. D-6 was corrected
+rather than quietly left standing, and D-9 records the reversal. That is the right shape.
 
-## Blocker
+**Verdict: needs-work.** The fix over-generalized. Round 1's claim was narrow and true; round 2
+replaced it with a blanket claim that is false for the most common `mktemp` form in this repo —
+including the sweep runner's own state dir.
 
-**B-1 — `CLAUDE.md` asserts that `mktemp -t` honors `TMPDIR`. It does not, on this machine.**
+## Blockers
 
-The added killed-sweep note reads: a no-template `mktemp -d` ignores `TMPDIR` *(the `-t` form
-does honor it)*. The parenthetical is false. Measured on the lane machine, system
-`/usr/bin/mktemp`, with `TMPDIR` set to a directory that exists and is visible to the process:
+**B-1 — "no `mktemp` form puts that litter where `TMPDIR` points" is false. The largest single
+piece of killed-sweep litter is the one form that DOES honor `TMPDIR`.**
 
-- no-template form resolves under the `_CS_DARWIN_USER_TEMP_DIR` path, not `TMPDIR` — claim holds
-- `-t` form resolves under the same path, NOT `TMPDIR` — claim fails
-- `-t` without `-d`: same
-- positive control: the `-p <dir>` form DOES resolve under the named directory
+Three bolded sentences assert it:
 
-The positive control matters — it shows the probe can observe a directory being honored, so the
-two negative results are not a harness artifact. The first attempt at this check was vacuous and
-is worth naming: it set `TMPDIR` to a path that does not exist, which cannot distinguish "ignores
-TMPDIR" from "falls back because the directory is missing". The spec's own D-6 records that same
-vacuous form as its verification. D-6's conclusion for the no-template case is nonetheless correct
-— it just is not established by the derivation it cites.
+| Site | Claim |
+| --- | --- |
+| `CLAUDE.md`, killed-sweep note | "on macOS **no `mktemp` form puts that litter where `TMPDIR` points**" |
+| `docs/testing.md` | "**`TMPDIR` cannot contain what that leaves behind — in any `mktemp` form.**" |
+| `docs/testing.md` | "pointing `TMPDIR` somewhere private before a run moves none of it" |
 
-Why this is a blocker rather than a nit. `docs/testing.md` states, correctly and in bold, that
-`TMPDIR` cannot contain this litter and that pointing it somewhere private before a run moves none
-of it. It also states that the two reaped fixture families stamp ownership into a `mktemp -t`
-template. Compose those with `CLAUDE.md`'s parenthetical and a reader concludes the `-t` families
-ARE contained by `TMPDIR`, so a private `TMPDIR` isolates them — the exact false comfort this
-section exists to remove. It lands in the auto-loaded surface, where it is read by every session in
-the repo without being asked for.
+The counterexample is `tools/run-selftests.sh:394-395` — the sweep runner's own base directory,
+which holds every suite's scratch:
 
-The measurement also makes the section's own thesis STRONGER, not weaker: nothing here is
-contained by `TMPDIR`, and the parenthetical is the one clause undercutting that.
+```
+BASE="$(mktemp -d "${TMPDIR:-/tmp}/run-selftests.XXXXXX")" || die "mktemp failed"
+trap 'rm -rf "$BASE"' EXIT
+```
 
-Remedy: drop or correct the parenthetical. One clause; no restructuring.
+That is an **explicit template**, not `-t` and not the no-template form. The shell interpolates
+`$TMPDIR` before `mktemp` ever runs, so the path is honored unconditionally — and line 395 is
+exactly the `trap … EXIT` a killed sweep skips. Measured 2026-08-25, same machine and derivation
+style as the runbook's own block:
 
-## Warning (not blocking this round)
+```sh
+PRIV="$(mktemp -d /private/tmp/probe656b-XXXXXX)"
+TMPDIR="$PRIV" bash -c 'mktemp -u -d "${TMPDIR:-/tmp}/run-selftests.XXXXXX"'
+  -> /private/tmp/probe656b-RxjOCd/run-selftests.fFDayv     # TMPDIR honored
+env -u TMPDIR bash -c 'mktemp -u -d "${TMPDIR:-/tmp}/run-selftests.XXXXXX"'
+  -> /tmp/run-selftests.ZbdKw9                              # falls back to /tmp
+TMPDIR="$PRIV" /usr/bin/mktemp -u -d -t leangate
+  -> /var/folders/…/T/leangate.jvDkRSQkke                   # the form the runbook DOES test
+```
 
-**W-1 — the same false claim is pre-existing in `tools/reap-lean-fixtures.sh`'s header**, which
-states that BSD `mktemp -t` honors `TMPDIR` "so the template is not the problem", and cites the
-CLAUDE.md note this PR creates. The PR faithfully propagated an existing assertion rather than
-inventing one, which is why this is a warning and B-1 is the blocker: the PR is answerable for
-what it writes into `CLAUDE.md`, not for a script comment it did not touch.
+`grep -rln 'mktemp[^|]*"${TMPDIR:-/tmp}'` finds **14** guard scripts using this form
+(`check-sweep-bound.sh`, `check-gate-buckets.sh`, `check-fail-open-shapes.sh`,
+`exitplan-ledger-gate.sh`, `orchestrate-lean.sh`, several `*-selftest.sh`, …). It is the repo's
+dominant form, not an edge case.
 
-It is worth filing, because something downstream may rest on it: `run-selftests.sh` reaps over
-`${TMPDIR:-/tmp}`. If the stamped families do not in fact land under `TMPDIR`, that pass finds
-them only while `TMPDIR` holds its default value, and silently reaps nothing when an operator or
-a lane overrides it. Not verified either way here — it is out of this branch's range, and it is
-a mechanism question, not a prose one.
+The runbook's own derivation block contains the tell: its `-p "$PRIV"` control line is annotated
+*"a NAMED dir is honored"*. An explicit template is that same category. The block tests
+`-u -d`, `-u -d -t stamp` and `-u -t stamp` — three spellings of one behavior — and the prose
+generalizes from them to "any form" without testing the fourth, which behaves oppositely.
+
+Why this blocks rather than nits: the operational advice inverts. A reader is told a private
+`TMPDIR` buys nothing, so nobody sets one; in fact it relocates the runner's `BASE` and 14 guards'
+scratch, which is most of the volume. The narrower claim round 1 approved — a no-template
+`mktemp -d` ignores `TMPDIR` — was true. This is a regression introduced by the fix.
+
+Remedy: scope the claim to the forms measured. The honest statement is that the `-t` and
+no-template families are not containable by `TMPDIR` (which is what the stamped fixture families
+use, and is the whole point), while explicit-template callers do follow it.
+
+**B-2 — "an unset `TMPDIR` and the directory `-t` resolves to are the same path here" is false;
+the word is *default*, not *unset*.**
+
+`docs/testing.md` explains the reaper's reach with:
+
+> **That pass reaches them because an unset `TMPDIR` and the directory `-t` resolves to are the
+> same path here — not because it was aimed there.**
+
+`run-selftests.sh:241` invokes it as `--dir "${TMPDIR:-/tmp}"`. Measured:
+
+```sh
+env -u TMPDIR bash -c 'echo "${TMPDIR:-/tmp}"'   -> /tmp                  # where the reaper looks
+env -u TMPDIR /usr/bin/mktemp -u -d -t leangate  -> /var/folders/…/T/…    # where fixtures land
+bash -c 'echo "${TMPDIR:-/tmp}"'                 -> /var/folders/…/T/     # inherited TMPDIR
+```
+
+With `TMPDIR` genuinely unset the two paths **diverge** and the pass reaches nothing. The
+coincidence the sentence relies on holds because macOS launchd exports `TMPDIR` at its default,
+which equals the confstr directory — i.e. because `TMPDIR` is *set*, to a value nobody changed.
+
+This is refuted by a command printed fifteen lines below it in the same section: the enumeration
+deliberately runs `env -u TMPDIR mktemp -u -d | xargs dirname` and gets `/var/folders/…/T`, not
+`/tmp`. The document already knows unset ≠ `/tmp` for `-t`; only this sentence does not.
+
+The sentence carries neither a derivation nor a date, which AC-4 requires of a measurement.
+
+**B-3 — the cross-reference the PR claims to land now resolves to a refutation.**
+
+The PR body lists as a deliverable: *"`tools/reap-lean-fixtures.sh`'s header has been citing
+'CLAUDE.md's killed-sweep note' … That cross-reference now lands."* It lands on text that denies
+the clause citing it. `tools/reap-lean-fixtures.sh:6-8`:
+
+> a templated `mktemp -d -t <name>.XXXXXX` work dir **under TMPDIR (or /tmp)** … BSD `mktemp -t`
+> **DOES honor TMPDIR** (unlike its no-template form — see CLAUDE.md's killed-sweep note), so the
+> template is not the problem.
+
+The note now says no such `-t`/no-template distinction exists. Both halves are false by this PR's
+own measurement, and this is the header of the live guard the runbook routes readers to as the
+automated remedy — it misdescribes where the script looks versus where the fixtures are.
+
+Round 1 scored this W-1, non-blocking, on the reasoning that the PR "is answerable for what it
+writes into `CLAUDE.md`, not for a script comment it did not touch". That reasoning held while the
+two surfaces agreed. The PR has since inverted the cited authority, so the contradiction is now
+this PR's.
+
+Cost of the remedy: zero. `check-guard-budget.sh`'s predicate is `*-selftest.sh`, `check-*.sh`,
+`*-lint.sh`, `*/skills/*/lean-gate.sh`, plus `run-selftests.sh`/`mutation-sweep.sh`/
+`gate-ablation.sh`. `reap-lean-fixtures.sh` matches none, so a header edit cannot move guard mass
+and AC-3 stays green.
 
 ## Per-AC scoring
 
 | AC | verdict | basis |
 | --- | --- | --- |
-| AC-1 | satisfied | The rule sits directly under the recipe fence, not behind a link, and names all three required elements: the 2-minute foreground reap and that `timeout` does not lift it; the surviving background shape and that it is collected in the same turn; the scrub obligation for an already-killed attempt. |
-| AC-2 | satisfied | The runbook covers why `TMPDIR` cannot isolate the litter, what the reaper clears before a reader touches anything, a read-only enumeration, and a check before deleting. The published command was run verbatim here: it returns a real match, a vendor directory with no plugin marker beside it — the harmless case the prose names. |
-| AC-3 | satisfied | `check-guard-budget.sh origin/main`: base 51793, HEAD 51793, delta 0. No new gate, no new script; the diff is markdown only. No `Guard-mass:` trailer owed. |
-| AC-4 | **unsatisfied** | B-1. The `-t` clause carries neither a runnable derivation nor a measurement date, and measurement contradicts it. The second half of AC-4 IS met: no sentence asserts a currently-fixed defect as live, and the runbook correctly describes the emit-deadline isolation in the past tense without naming that case as still redding. |
-| AC-5 | satisfied | `Changelog: none` present on the branch. |
-| AC-6 | satisfied | Verified twice over: `lint-and-selftests` and the macos bash-3.2 lane both pass at this head, and the CI log carries `summary: 75 scored, 75 run, 0 failed`. |
+| AC-1 | satisfied | All three required elements sit directly under the recipe fence: the 2-minute foreground reap and that `timeout` does not lift it; the surviving `nohup … > log` shape under `run_in_background` and that it is collected in the same turn; the scrub obligation. Verified first-hand this round — the documented shape carried the full sweep detached, and a foreground variant was SIGKILLed at exactly 2m 0s. The obligation is correctly stated; its supporting mechanism sentence is B-1, charged to AC-4. |
+| AC-2 | **unsatisfied** | The AC's first required element is *why `TMPDIR` cannot isolate the litter*, and the answer given is a blanket claim measurement refutes for 14 guards including the runner's own `BASE` (B-1). Its "what the reaper already clears" element carries B-2's false mechanism. The remaining elements hold: the enumeration is read-only and was run verbatim here, returning `/var/folders/…/T/gitkraken/gitlens/agents` — a vendor directory with no `plugin.json` beside it, exactly the harmless case the prose names; the `stat`-before-delete check and the permission-denied note are present. |
+| AC-3 | satisfied | `check-guard-budget.sh origin/main`: base 51793, HEAD 51793, delta 0. Markdown-only diff; no new gate, no new script. No `Guard-mass:` trailer owed. |
+| AC-4 | **unsatisfied** | B-1 and B-2. The `-u` derivation block is runnable and reproduced exactly here, but the conclusion drawn from it exceeds the forms it tests; B-2's claim carries neither derivation nor date and is false. The second half of AC-4 IS met: no sentence asserts a currently-fixed defect as live, and the emit-deadline live-scan case is correctly described by mechanism without being named as still redding. |
+| AC-5 | satisfied | `Changelog: none` on all three commits. `check-changelog-trailer.sh origin/main`: no `plugins/**` change, trailer not required. |
+| AC-6 | satisfied | CI `lint-and-selftests` green at `375aa0b7`: `summary: 75 scored, 74 run, 1 served from cache, 0 failed`. `selftests (macos, bash 3.2)` also passes at that head. A local cold sweep was started via the documented shape and aborted once CI answered; AC-6 rests on CI, as it did at round 1. |
+
+## Also verified (no findings)
+
+- `check-lockstep-pairs.sh`: 29 anchors, 0 failed. The split-by-role decision (D-1) owes no anchor —
+  the two sites genuinely do not restate each other.
+- `check-frozen-files.sh origin/main`: clean, no release-owned files touched.
+- The `mktemp(1)` mechanism the prose cites is accurate as far as it goes: DESCRIPTION confirms
+  `-t` resolves against `_CS_DARWIN_USER_TEMP_DIR` with `TMPDIR` only as a fallback, and that
+  "if only the `-d` flag is passed mktemp behaves as if `-t tmp` was supplied".
+- The "no such note existed" premise checks out: `git show main:CLAUDE.md` has zero `killed-sweep`
+  matches, so the dangling-reference diagnosis was correct.
 
 ## Deviation to record
 
-The panel was NOT fanned out this round. This session runs under a standing instruction not to
-dispatch subagents or workflows unless the operator asks, which is in tension with review-lean's
-step 5 naming `review-lead` as the implementation. The review above is first-hand: the diff was
-read in full and every factual claim in it was executed rather than accepted. The verdict does not
-turn on the omission — a blocker was found by measurement, and a panel finding nothing could not
-have overturned it — but the deviation belongs in the record rather than in a transcript, and the
-operator may want the round re-run with the panel before this counts toward the campaign row.
+The reviewer panel was not fanned out this round, as in round 1: this session runs under a standing
+operator instruction not to dispatch subagents or workflows unasked, which is in tension with
+review-lean step 5 naming `review-lead` as the implementation. The review is first-hand — the delta
+was read in full and every factual claim in it was executed rather than accepted. The verdict does
+not turn on the omission: all three blockers were found by measurement, which is the mode that has
+carried both rounds of this ticket.
 
-CI state at review time: `lint-and-selftests` pass, `mutation-sweep-pr` pass, macos bash-3.2 pass,
-`pr-gates` fail. The `pr-gates` red was read from its job log and is solely the absent verdict
-record this review writes — no other gate is implicated.
+CI at review time (`375aa0b7`): `lint-and-selftests` pass, `mutation-sweep-pr` pass,
+`selftests (macos, bash 3.2)` pass, `pr-gates` fail. The `pr-gates` red is the lean-chain
+reconciliation arm naming the absent round-2 verdict record — this record — and no other gate.
