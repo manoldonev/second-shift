@@ -1736,13 +1736,26 @@ if [ "$(spawn_count)" -eq 0 ] && [ "$z_launch" -eq 1 ] && [ "$z_term" -eq 1 ] &&
   pass "(z3) a launch that spawns nothing is still enumerable — one launch row, one terminal row, no spawn rows"
 else fail "(z3) the preflight-rejected launch was not enumerable (rc=$z_rc): rows=$z_rows launch=$z_launch term=$z_term spawns=$z_spawns out=$z_out"; fi
 
-# The terminal row carries the VOCABULARY and the exit code, not merely the fact of an ending.
-# That is the field the attribution rubric is applied to: `staleness-expired` and `build-idle` are
-# different classes, and neither is recoverable from a transcript the scheduler never opened.
+# The terminal row carries the VOCABULARY, the exit code AND THE REASON, not merely the fact of an
+# ending. The first two are the field the attribution rubric is applied to: `staleness-expired` and
+# `build-idle` are different classes. The third is what #652 proved the first two cannot replace —
+# a campaign launch recorded `preflight-rejected rc=2` and the sentence naming the failing probe
+# lived only on a control stream nobody kept, so the launch was unclassifiable a day later and the
+# band it widened is why nine runs selected no arm.
 z_detail="$(sed -n "s/.*	z-reject	$ISSUE	terminal	//p" "$LEDGER" 2>/dev/null)"
-if grep -qE '^[a-z][a-z-]+ rc=[0-9]+$' <<<"$z_detail"; then
-  pass "(z4) the terminal row carries the slug and the exit code: '$z_detail'"
+if grep -qE '^[a-z][a-z-]+ rc=[0-9]+ — .' <<<"$z_detail"; then
+  pass "(z4) the terminal row carries the slug, the exit code and the reason: '$z_detail'"
 else fail "(z4) the terminal row carries no classifiable outcome: '$z_detail'"; fi
+
+# ONE ROW, whatever the message did. The reason is the LAST field of a TSV row, so a tab in it
+# would forge a column and a newline would forge a row — turning one bad launch into a ledger that
+# no longer parses. Asserted on the real writer rather than trusted: this is the only field in the
+# file whose content is arbitrary prose.
+z_term_rows="$(grep -c "	z-reject	$ISSUE	terminal	" "$LEDGER" 2>/dev/null || echo 0)"
+z_cols="$(grep "	z-reject	$ISSUE	terminal	" "$LEDGER" 2>/dev/null | head -1 | awk -F'\t' '{print NF}')"
+if [ "$z_term_rows" -eq 1 ] && [ "$z_cols" -eq 5 ]; then
+  pass "(z4b) a prose reason stays inside one five-column row — no forged column, no forged row"
+else fail "(z4b) the reason broke the row shape: rows=$z_term_rows cols=$z_cols"; fi
 
 # A completed run records its spawns in order, so the ledger alone answers "which spawns belonged
 # to this launch" without globbing a directory that may have been reaped.

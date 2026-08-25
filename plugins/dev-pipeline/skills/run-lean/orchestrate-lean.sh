@@ -318,7 +318,17 @@ terminal() { # terminal <slug> <exit-code> <message...>
   # the attribution rubric can be applied to. A terminal vocabulary IS evidence: `staleness-expired`
   # and `build-idle` classify differently, and neither is recoverable from a transcript that the
   # scheduler never got far enough to open.
-  launch_note terminal "$slug rc=$code"
+  # #652 taught this the hard way: the SLUG ALONE IS NOT THE REASON. A campaign row's launch 1 read
+  # `preflight-rejected rc=2` and nothing else, and the terminal text existed only on a scrolled-away
+  # control stream — the audit ledger records tool calls, not their output, so which probe refused
+  # was unrecoverable a day later. That one unattributable launch is what widened `M1ᵗ` into a band
+  # straddling a decision boundary, so nine runs returned "no arm" on a missing sentence. The message
+  # is already composed one line above; carrying it into the row costs nothing and is the difference
+  # between a launch that can be classified and one that can only be guessed at.
+  #
+  # FLATTENED AND BOUNDED, because the row is TSV and the field is the last one: a tab would forge a
+  # column and a newline would forge a row, and either turns one bad launch into a corrupt ledger.
+  launch_note terminal "$slug rc=$code — $(printf '%s' "$*" | tr '\n\t' '  ' | cut -c1-400)"
   exit "$code"
 }
 envfail() { terminal "$1" 2 "$2"; }
