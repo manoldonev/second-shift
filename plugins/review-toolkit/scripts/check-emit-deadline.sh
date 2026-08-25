@@ -100,7 +100,21 @@ DEFAULT_CAP=15
 # Add a name only on a DEMONSTRATED death — an agent observed hitting its cap without
 # emitting — never prophylactically. Enrolling the whole default-cap panel is a different
 # (and much larger) decision than fixing an agent known to be falling through the gap.
-DEADLINE_AT_DEFAULT="${DEADLINE_AT_DEFAULT:-plan-reviewer spec-reviewer}"
+#
+# test-coverage-reviewer and maintainability-reviewer are the two PANEL reviewers that clear that
+# bar, and they clear it by measurement rather than by anecdote: docs/review-panel-yield.md counts
+# 10 dark events in 41 dispatches for the first and 1 in 47 for the second, over a pinned corpus of
+# 47 roster-named review rounds. No other panelist has a non-zero dark column there, and none of
+# them is enrolled here — the dark column IS the enrollment predicate, and a zero in it is a
+# refusal.
+#
+# THEIR DISPATCH ALREADY CARRIES A BOUNDING NUDGE, AND IT DID NOT HOLD. code-review.mjs appends
+# BOUNDED_EXPLORATION to both and records it as the primary, measured fix for this stall class
+# ("took maintainability-reviewer from ~50% to 0/12"). That is the spec-reviewer shape from the
+# header above — a nudge in place, a death anyway — and it earns the same conclusion: the
+# dispatch-time nudge and the agent-doc deadline are independent mitigations, and a demonstrated
+# death earns both, not either.
+DEADLINE_AT_DEFAULT="${DEADLINE_AT_DEFAULT:-plan-reviewer spec-reviewer test-coverage-reviewer maintainability-reviewer}"
 
 # The jq binary. A seam, not a configuration knob — see the Env note above.
 JQ="${EMIT_DEADLINE_JQ:-jq}"
