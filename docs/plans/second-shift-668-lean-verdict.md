@@ -1,130 +1,151 @@
 # lean review verdict — #668
 
-verdict=needs-work
-run_id: review-668-1
-session_id: 6588c2b2-e647-48b6-96c8-94e476fbafc6
-rounds: 1
+verdict=approve
+run_id: review-668-2
+session_id: cbc85b69-8ee4-4e37-aef2-a1ee1b498939
+rounds: 2
 pr: #685
-reviewed_head: 1effbb3f86f6a0d7182a65a017056da3236ef39c
-reviewed_patch_id: fcf5f143d970240fcfb93000a5bed05a6d6c7795
-inherited_patch_id: none
-inherited_from_verdict: none
+reviewed_head: 6ded9df098dbff04e1ec84eac6984173f911e046
+reviewed_patch_id: 3c5e8d1f6f6af737d42f8ae1db89163eaea6b679
+inherited_patch_id: fcf5f143d970240fcfb93000a5bed05a6d6c7795
+inherited_from_verdict: 7da4302d5df40eb0a662473c748af27cfe2e073d
 fidelity: not-applicable
 model: unknown
 capabilities: pr-marker
 
-# Review round 1 — PR 685 (#668)
+# Review round 2 — PR 685 (#668)
 
-Range read: `295f4ea..1effbb3` — FULL branch diff (root round, nothing to inherit).
-Panel: 6 selected, 6 returned, **none dark**, zero blockers from the panel. The one blocker
-below is extrinsic to the diff and was found in CI; both of the panel's suppressed
-sub-80 notes independently name it and the AC-3 record-location warning.
+Range read: `7da4302..HEAD` — the delta since the tree round 1 covered (`inherited_patch_id
+fcf5f143d970`). One commit, `6ded9df`: the corrected `cmd_3` comment and the spec's new
+`## Verification result (AC-3)` section. Round 1's findings were read first, and every AC is
+scored below against the whole spec, not against the delta.
 
-## Verdict: needs-work — 1 blocker, 2 warnings
+Panel: 5 selected, 5 returned, **none dark**, zero findings from any of them. The one warning
+below is operator-side, as in round 1.
 
-The change itself is correct, minimal and genuinely covered. It cannot merge as it stands:
-`pr-gates` is red.
+## Verdict: approve — 0 blockers, 1 warning
 
-## Blocker
+Round 1's blocker and both its warnings are closed. The one new note is a comment premise that
+is looser than the fact it is asserting; the conclusion it draws is independently true, and no
+behavior depends on it.
 
-**B1 — `pr-gates` fails: guard/test shell mass grew +46 with no `Guard-mass:` trailer.**
-[CI run 32879544935, job 97905459585] Reproduced locally at the reviewed head:
+## Round 1 findings — disposition
 
-```
-$ bash scripts/check-guard-budget.sh origin/main
-[guard-budget] ✗ guard/test shell mass grew by 46 lines with no reason recorded:
-                 base 51793 (295f4ea), HEAD 51839.
-[guard-budget]   Guard-mass: +46 <reason>
-```
-
-The branch carries both required `Changelog:` trailers, and the frozen-files and changelog-trailer
-steps pass; only this one fails. Because the job's shell is `-e`, the failure **short-circuits the
-two steps after it** — *pipeline chain reconciliation* and *lean chain reconciliation* never ran on
-this head, so their result is unknown rather than green.
-
-Remedy (one empty commit, no code change):
+**B1 (blocker) — `pr-gates` red on `check-guard-budget.sh`: CLOSED.** Re-run at this head:
 
 ```
-git commit --allow-empty -m "chore(dev-pipeline): record the guard-mass for #668" \
-  -m "Guard-mass: +46 three behavioural fixture cases (ad6-ad8) pinning both forms of milestone 3's terminal line, plus the counted-suffix branch in cmd_3." \
-  -m "Changelog: none."
+[guard-budget] ✓ guard/test shell mass: base 51793, HEAD 51841 (delta +48), covered by a
+               'Guard-mass:' trailer.
 ```
 
-Note for the next round: a trailer-only/empty commit changes no `+`/`-` line, so the branch's patch
-identity is unchanged. That does not void this record — but it also means `G delta` has nothing new
-to hand the next round, which will re-read the full branch diff (the #637/PR 677 shape).
+The `Guard-mass: +48` trailer on `6ded9df` matches the measured delta exactly — the figure was
+re-derived after the last edit rather than copied from round 1's remedy (which said `+46`, before
+the comment edit added two counted lines). CI agrees: at this head the `guard budget guard` step
+passes, and so do `frozen files`, `changelog trailer` and `pipeline chain reconciliation`. The
+only remaining red is `lean chain reconciliation`, failing on
+`verdict record … reads 'verdict=needs-work', not 'verdict=approve'` — round 1's own record. That
+is expected state for a pre-approval lean PR, not a blocker; this record clears it.
+
+**W1 — AC-3's result "recorded here": CLOSED, and re-derived rather than taken on trust.** The
+spec now carries `## Verification result (AC-3)`. Every row of its table was independently
+re-measured in this session at this head, and each matches:
+
+| Row the spec asserts | What I measured |
+| --- | --- |
+| suite at head: all green, 514 PASS, 0 FAILURE, rc=0 | `lean-gate-selftest.sh` in the lane worktree: **rc=0, 514 PASS, `all green`** |
+| gate reverted to `origin/main`: 2 FAILURE(S), exactly (ad6) and (ad7) | isolated probe worktree at this head, `git checkout origin/main -- lean-gate.sh` (mutation confirmed: 0 occurrences of `LANE_ADVISORY_COUNT`, −17/+1 lines): **rc=2, 512 PASS + exactly `(ad6)` and `(ad7)` failing**, (ad8) passing |
+| `shellcheck -e SC1091,SC2015,SC2181` on both changed shell files: clean | clean, rc=0 |
+| `bash G 3` printed the terminal line unqualified | not re-executed here — running the build gate under a review identity would write progress rows for `review-668-2`. Corroborated instead by `(ad8)`, which pins `[lean-gate] ✓ milestone-3: green gate` with `grep -qFx` on a zero-advisory run, and by the code: the suffix is appended only under `-gt 0`. |
+
+**W2 — the reset's over-claim: ADDRESSED in both places.** The correction landed in the code
+comment as well as the PR body, which is the right move — round 1 quoted the body, but the same
+sentence was the comment above `LANE_ADVISORY_COUNT=0`, and fixing only the body would have
+shipped the defect. See the warning below for what the replacement says.
 
 ## Warnings
 
-**W1 — the spec's AC-3 asks for the explicit slow-suite result "recorded here"; the spec doc
-records nothing.** `docs/plans/second-shift-668-lean.md` AC-3 requires the deferred suite to "be
-run explicitly and its result recorded here". The result table lives in the PR body instead, which
-does become the squash commit message, so the substance is met — but the committed spec, the
-artifact the pipeline treats as the definition of done, carries no run result. Scored satisfied on
-the substance; flagged so the next spec of this shape says where the record goes.
+**W1 — the new `cmd_3` comment's premise is broader than the fact it needs, and is false as
+stated.** `plugins/dev-pipeline/skills/build-lean/lean-gate.sh:3811`:
 
-**W2 — `cmd_3`'s per-invocation `LANE_ADVISORY_COUNT=0` reset is unreachable, and the PR's design
-note over-claims it.** The note says the reset means "`all` — which runs the milestones in one
-process — cannot carry a count in". `cmd_all` runs `run_milestone` once per milestone 1..5, so a
-second in-process `cmd_3` has no caller, and the file-scope `LANE_ADVISORY_COUNT=0` already
-initialises it. Measured: deleting the two reset lines and re-running the suite in an isolated
-worktree at this head → **all green** (a surviving mutant). This is defensive-by-construction code,
-not a coverage gap: keep the line, drop the claim that it is guarding a reachable path. No test is
-owed for it.
+```
+# Defensive only, not guarding a live path: `all` runs each milestone once per process, so
+# nothing calls cmd_3 twice today, and the file-scope initialiser above already zeroes this.
+```
 
-## What was verified independently (not read on trust)
+`cmd_all` does **not** run each milestone once per process. Its pre-pass calls `cmd_1` and
+`cmd_4` **directly** under `LEAN_GATE_OBSERVE=1`, bypassing `run_milestone`, and then the
+`for n in 1 2 3 4 5` loop calls `run_milestone` for all five — so milestone 1's and milestone 4's
+bodies each execute **twice** in one `all` process. The premise as written is only true of
+milestone 3, and it is true of milestone 3 precisely because the pre-pass "evaluates 1 and 4
+alone to avoid paying for milestone 3", as `run_milestone`'s own comment says.
+
+The conclusion — *nothing calls `cmd_3` twice today* — is correct, and I verified it
+independently: `cmd_3` is reachable from exactly two sites (`run_milestone`'s dispatch case and
+its observe case, mutually exclusive within one call) plus `cmd_all`'s single loop iteration for
+`n=3`. So no behavior turns on this and nothing is owed but a narrower sentence, e.g. *"`all`
+reaches `cmd_3` exactly once — its pre-pass evaluates only 1 and 4"*. Flagged rather than waved
+through because this comment is now on its second revision and its entire job is to state a
+reachability fact exactly; the PR body's version of the same note (`cmd_all` runs `run_milestone`
+once per milestone 1..5) is accurate, so the two disagree.
+
+## What was verified independently this round (not read on trust)
 
 | Check | Result |
 | --- | --- |
-| `lean-gate-selftest.sh` at the reviewed head | **all green**, 514 passes (rc=0) |
-| the same suite with `lean-gate.sh` reverted to `main` (mutation confirmed applied: 0 occurrences of `LANE_ADVISORY_COUNT`, −15 lines) | **2 FAILURE(S) — exactly (ad6) and (ad7)**; (ad8) passes on both sides, so it is a control, not a duplicate |
-| `SKIP_STRESS=1 tools/run-selftests.sh --full --exclude tools/install-topology-selftest.sh` at the head | **75 scored, 75 run, 0 failed** |
-| `shellcheck -e SC1091,SC2015,SC2181` on both changed shell files | clean |
-| `bash G delta 668` from both the installed 11.0.0 gate and the branch's own copy | identical FULL-range answer |
-| every `pass_milestone 3` site | exactly one (`:3974`) — no second path prints an unqualified green |
-| every `lane_advisory` call site | exactly two (`:3867` fixed-key loop, `:3955` extraLanes loop), both in `cmd_3`'s own body — plain `for` loops, no pipeline or `( … )` subshell, so the increments reach the caller |
-| the durable row | `pass_milestone` → `append_satisfied`, which writes `\| milestone-3 \| satisfied` with **no reason field** — the counted string reaches stdout only, so no progress-row or reconciliation surface moves |
-| consumers of the terminal line | repo-wide `grep '✓ milestone'` outside the suite → only the gate's own two `say` sites; `orchestrate-lean.sh` reads rc and progress records, never this text |
-| the `Changelog: none.` on the spec commit | harmless here — `extract_trailers` ends a block at the un-indented `Co-Authored-By:`, and `render_bullet` drops a whole-block `none.`, so the squash renders the substantive trailer only |
+| `lean-gate-selftest.sh` at the reviewed head | 514 PASS, 0 FAILURE, rc=0 |
+| the same suite with the gate reverted to `origin/main`, in an isolated probe worktree | rc=2 — exactly `(ad6)` and `(ad7)`; `(ad8)` passes on both sides, so it is a control |
+| `scripts/check-guard-budget.sh origin/main` | ✓ +48, covered by the trailer |
+| `shellcheck -e SC1091,SC2015,SC2181` on `lean-gate.sh` + `lean-gate-selftest.sh` | clean |
+| `gh run view --job` on `pr-gates` at this head (step list, not `gh pr checks`) | 4 of 5 steps green; only `lean chain reconciliation` red, on `verdict=needs-work` |
+| every `cmd_3` call site | `run_milestone`'s two mutually-exclusive arms + `cmd_all`'s one loop iteration — never twice per process |
+| both `lane_advisory` call sites | `:3869` (fixed-key `for`), `:3957` (extraLanes `for (( ))` under `if [ "$el_count" -gt 0 ]`) — plain loops in `cmd_3`'s own body, no pipeline and no `( … )` wrapper, so both increments reach the caller |
+| the file-scope initialiser the comment cites | `:3800`, above both — the comment's second clause is accurate |
+| `6ded9df`'s trailer block | `Guard-mass:` and `Changelog: none.` each on one un-indented line, terminated by `Co-Authored-By:` — no indented prose to render into `CHANGELOG.md` |
+| the branch's substantive `Changelog:` trailer | present on `1effbb3`, survives the squash (grep-anywhere extraction) |
 
 ## AC scoring (against the committed spec, every AC every round)
 
 | AC | Score | Basis |
 | --- | --- | --- |
-| AC-1 (oracle) — terminal line names the count when nonzero; fixture reds on the unconditional form | **satisfied** | `(ad6)` pins `green gate (1 advisory)` with `grep -qFx`, `(ad7)` pins `(2 advisory)` **and** asserts 2 durable advisory rows, so a hardcoded suffix cannot pass it. Both die on the reverted gate, reproduced here. |
-| AC-2 (critic) — rc, verdict routing, progress-row text and every consumer unchanged; zero-advisory text byte-identical | **satisfied** | `(ad8)`'s `grep -qFx` is the byte-identity assertion, and `-x` is load-bearing exactly as its comment says (`green gate (0 advisory)` would pass a substring match). The suffix is appended only under `-gt 0`; rows carry no reason; no consumer greps the line. |
-| AC-3 (oracle) — sweep green, `Changelog:` trailer, deferred suite run explicitly and recorded | **satisfied** (see W1 on where it is recorded) | Full sweep re-run here: 75/75, 0 failed. Explicit `lean-gate-selftest.sh` run: green. `Changelog:` trailer present on the fix commit and enforced green by CI. |
+| AC-1 (oracle) — terminal line names the count when nonzero; a fixture asserts it and reds against the unconditional form | **satisfied** | `(ad6)` pins `green gate (1 advisory)` with `grep -qFx`; `(ad7)` pins `(2 advisory)` **and** asserts 2 durable advisory rows, so a hardcoded suffix cannot pass it. Both die on the reverted gate — reproduced in this session, not inherited. |
+| AC-2 (critic) — rc, verdict routing, progress-row text and every consumer unchanged; zero-advisory text byte-identical | **satisfied** | `(ad8)`'s `grep -qFx` is the byte-identity assertion and passes on both sides of the mutation. The suffix is appended only under `-gt 0`; the delta touches one comment and adds no code path. |
+| AC-3 (oracle) — sweep green, `Changelog:` trailer, deferred suite run explicitly and its result **recorded in the spec** | **satisfied** | The spec now carries the result table, and both of its measured rows reproduce here. Sweep green at this exact head in both CI selftest jobs (`lint-and-selftests` 4m36s, `selftests (macos, bash 3.2)` 7m50s — both pass `--full`, so the deferred suite ran there too). `Changelog:` trailer present and CI-green. Round 1's W1 is what this closes. |
 
-Design fidelity: **not-applicable** — the spec has no `## Design` section and no render receipt;
-no changed path is in a web-component surface, so `a11y` and the design-fidelity dimension were
-not routed (config declares no `stageParams.webComponentGlobs`, so the shipped
-`apps/web/**/*.{tsx,jsx}` default applied).
+Design fidelity: **not-applicable** — the spec has no `## Design` section and no render receipt.
 
 ## Strengths
 
-- The counter is incremented inside `lane_advisory` itself rather than at the two call sites, so
-  the two shapes (fixed keys, extraLanes) cannot drift apart — there is one increment site by
-  construction, which is why the untested extraLanes shape is not a hole.
-- `(ad8)` is a real control, not a second copy of `(ad6)`: it passes on both sides of the mutation
-  by design, and the PR says so rather than presenting it as a third kill.
-- The decision not to add a `tools/mutation-catalog.tsv` row is correct and correctly reasoned:
-  this suite is on `tools/selftest-suite-timings.tsv`, so `mutation-sweep-pr` defers it and a
-  catalog row would pass in seconds having graded nothing.
-- Counting rather than re-deriving from the progress file is the right call for the stated reason —
-  that file accumulates across fix rounds, so a derived number would qualify the wrong run.
+- The AC-3 warning was closed by **re-measuring at this head**, not by transcribing round 1's
+  figures into the spec. Both numbers reproduce exactly, which is the difference between a record
+  and a rumour — an asserted figure in a committed spec is a build input nothing downstream
+  re-derives.
+- The `Guard-mass:` figure was re-derived after the last edit. Round 1's remedy said `+46`; the
+  comment edit made it `+48`, because `lean-gate.sh` is itself counted guard mass. Pasting the
+  reviewer's number would have shipped a wrong one under a gate that only checks the trailer's
+  presence.
+- W2 was fixed in the **code** as well as the PR body. The body was a transcription of the
+  comment; closing only the quoted copy is the standard way this class of defect survives a round.
+- One commit for the blocker and both warnings, rather than the empty trailer commit round 1
+  suggested. A trailer-only commit already costs a full re-read, so folding the content in was
+  free — the right call, and it is why this round's delta is readable at all.
 
 ## Panel verdicts
 
 | Reviewer | Verdict | Findings | Confidence |
 | --- | --- | --- | --- |
+| Maintainability | Pass | 0 | — |
+| Test Coverage | Pass | 0 | — |
 | Security | Pass | 0 | — |
 | Performance | Pass | 0 | — |
-| Maintainability | Pass | 0 | — |
-| Complexity | Pass | 0 | — |
-| Test Coverage | Pass | 0 | — |
 | Scope Completeness | Pass | 0 | — |
 
-Not routed (not dark): `a11y-reviewer` + design-fidelity — no changed path matched
-`stageParams.webComponentGlobs` (`apps/web/**/*.{tsx,jsx}`); `unit-test-mutation-reviewer` — no
-co-located unit spec surface in this repo, and an executed mutation probe was run in-session
-instead; `db-reviewer` / `pipeline-reviewer` — no DB or queue surface.
+Security's one sub-80 note (confidence 40) is the retained reset line, and reads it as defensive
+state hygiene with no security surface — consistent with the reading above.
+
+Depth routing: the delta is 2 files / +19/−1, and touches a `.sh`, so it is **Small** (the
+trivial-inert carve-out does not apply). Complexity and unit-test-mutation were not selected —
+not dark. `scope-completeness-reviewer` was dispatched against the **full branch** range
+(`295f4ea...HEAD`), not the delta, so its gate scored the whole issue rather than one commit.
+`a11y-reviewer` + the design-fidelity dimension were not routed: no changed path matched
+`stageParams.webComponentGlobs` (absent from config, so the shipped default
+`apps/web/**/*.{tsx,jsx}` applied). `db-reviewer` / `pipeline-reviewer` — no DB or queue surface.
