@@ -160,6 +160,93 @@ applies by default — see the slow-suite table section below. The suite stays *
 a path that must keep existing, so renaming the suite reds CI instead of silently
 double-running it.
 
+### When a run is killed mid-sweep
+
+A sweep that dies part-way — a foreground agent call hitting the harness's 2-minute cap, a
+Ctrl-C, a `timeout` — skips every suite's `trap … EXIT`. **What a private `TMPDIR` can contain
+depends on which `mktemp` form allocated it, and the two forms in play answer oppositely.**
+
+The **stamped fixture families** — `lean-gate-selftest.sh` and `orchestrate-lean-selftest.sh`, the
+two big enough to have needed a reaper — allocate with `mktemp -d -t <name>.XXXXXX`, and that form
+ignores `TMPDIR`. On macOS the `-t` path resolves against `_CS_DARWIN_USER_TEMP_DIR` and reaches
+`TMPDIR` only as a fallback for when that confstr is unavailable, which on a Mac it is not; and
+`mktemp -d` with no template *is* the `-t tmp` form, so there is no second behavior to fall back
+on. The **explicit-template** form is the same category as the `-p` control below and behaves
+oppositely: the shell expands the path before `mktemp` ever runs, so it is honored unconditionally.
+Measured 2026-08-25 — the derivation is `-u`, so it creates nothing:
+
+```sh
+PRIV="$(mktemp -d /private/tmp/probe-XXXXXX)"   # a directory that EXISTS
+TMPDIR="$PRIV" /usr/bin/mktemp -u -d             # -> /var/folders/…/T/tmp.…    no template — ignored
+TMPDIR="$PRIV" /usr/bin/mktemp -u -d -t stamp    # -> /var/folders/…/T/stamp.…  -t — ignored
+TMPDIR="$PRIV" /usr/bin/mktemp -u -d -p "$PRIV"  # -> $PRIV/tmp.…               control: a NAMED dir is honored
+TMPDIR="$PRIV" bash -c 'mktemp -u -d "${TMPDIR:-/tmp}/x.XXXXXX"'  # -> $PRIV/x.…   explicit template — honored
+env -u TMPDIR bash -c 'mktemp -u -d "${TMPDIR:-/tmp}/x.XXXXXX"'   # -> /tmp/x.…    …and falls back to /tmp
+```
+
+The `-p` control moving is what makes the two ignored lines a result rather than a harness
+artifact.
+**Point `TMPDIR` at a path that does not exist and this check is vacuous** — it can no longer tell
+"ignored `TMPDIR`" from "fell back because the directory was missing", and both produce the same
+`/var/folders/…` answer.
+
+The explicit template is not a curiosity: `grep -rl 'TMPDIR:-/tmp}/' --include='*.sh' .` finds
+**14** files mentioning it, and reading the 18 lines behind that `-l` leaves **12** that call it, at
+16 sites. The other two only describe the form in a comment and allocate with `-t` themselves
+(`tools/mutation-sweep.sh`, `plugins/intake-toolkit/hooks/exitplan-ledger-gate-selftest.sh`), so
+they belong on the *ignored* side of this split — counting a `-l` without reading its matches puts
+them on the wrong one. Among the twelve is the sweep runner's own state dir: its worklist and cache
+bookkeeping plus each suite's captured `log`/`rc`/`secs`, and a **sibling** of the stamped fixture
+dirs rather than their parent, since a worker runs its suite from the repo root with `TMPDIR`
+untouched (`tools/run-selftests.sh:127-170`):
+
+```sh
+BASE="$(mktemp -d "${TMPDIR:-/tmp}/run-selftests.XXXXXX")" || die "mktemp failed"
+trap 'rm -rf "$BASE"' EXIT
+```
+
+So exporting a private `TMPDIR` before a run **does** relocate that `BASE` and the other eleven
+scripts' scratch, and does **not** move the stamped fixture families, which keep landing in the one
+directory shared by every worktree and every concurrent lane on the machine.
+[`CLAUDE.md`](../CLAUDE.md)'s verification recipe is the caller most exposed to this, which is why
+it routes here.
+
+**Most of it is reaped for you, and the residue is usually inert.** `run-selftests.sh` runs
+`tools/reap-lean-fixtures.sh` over `${TMPDIR:-/tmp}` before it discovers anything, clearing the two
+fixture families named above — they stamp owning pid and process start time into their
+`mktemp -t` template, so the reaper deletes only what it can prove is dead and leaves every "could
+not tell" standing. **That pass reaches them because `TMPDIR` arrives already *set*, by launchd, to
+the very directory `-t` resolves to — not because it was aimed there.** *Unset* is not that case:
+with `TMPDIR` genuinely absent the two paths diverge and the pass reaches nothing (measured
+2026-08-25):
+
+```sh
+env -u TMPDIR bash -c 'echo "${TMPDIR:-/tmp}"'   # -> /tmp                 where the reaper looks
+env -u TMPDIR /usr/bin/mktemp -u -d -t stamp     # -> /var/folders/…/T/…   where the fixtures land
+```
+
+Export a private `TMPDIR` and it sweeps that instead, while the fixtures keep landing where they
+always did. What it does not reach in either case is everything without one of those two stamped
+prefixes, and that residue is mostly harmless now: a suite that stages its fixture root one level
+*below* its `mktemp` dir keeps a neighbor's leftovers outside its own resolution globs, and the
+suites that once resolved across the shared directory assert that nesting with a decoy fixture
+staged at the colliding depth.
+
+What the residue still costs is diagnosis time, and a wasted fix attempt if you spend one on the
+branch. **The tell is a red in a suite the diff cannot reach.** Re-run that suite alone in an
+untouched checkout first: red there too means it is environmental, and the enumeration is read-only:
+
+```sh
+ls -d "$(env -u TMPDIR mktemp -u -d | xargs dirname)"/*/*/agents
+```
+
+A match with a `.claude-plugin/plugin.json` beside it is a plugin-shaped leftover; one without is
+some vendor's directory and is none of your business. Before removing anything, `stat` its mtime
+against your own kill — a lane running in another worktree stages fixtures in this same directory,
+and a blind `rm -rf` over that glob deletes its live state. On a `/var/folders/…` path the removal
+can be permission-denied outright, in which case hand the operator one exact command rather than
+routing around it.
+
 ### The slow-suite table
 
 `lean-gate.sh` milestone 3 runs the sweep as a **single blocking call inside the harness turn**,

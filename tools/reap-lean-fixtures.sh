@@ -3,12 +3,14 @@
 # signal-killed suite left behind (#528).
 #
 # WHY THIS EXISTS. lean-gate-selftest.sh and orchestrate-lean-selftest.sh each allocate a
-# templated `mktemp -d -t <name>.XXXXXX` work dir under TMPDIR (or /tmp) and clean it up with a
-# `trap ... EXIT`. BSD `mktemp -t` DOES honor TMPDIR (unlike its no-template form — see
-# CLAUDE.md's killed-sweep note), so the template is not the problem. A trap is: a suite killed
-# by a SIGNAL (a `timeout`, a reaped background job, several concurrent sweeps starving each
-# other) never reaches it, and the directory survives. Measured live: 107 `leangate.*` and 73
-# `orchestrate-lean-selftest.*` orphans on one machine.
+# templated `mktemp -d -t <name>.XXXXXX` work dir and clean it up with a `trap ... EXIT`. On macOS
+# that `-t` path resolves against _CS_DARWIN_USER_TEMP_DIR, NOT against TMPDIR — this script's
+# `${TMPDIR:-/tmp}` default reaches it only because launchd exports TMPDIR already set to that same
+# directory (derivation: docs/testing.md#when-a-run-is-killed-mid-sweep; --dir aims it elsewhere).
+# The template is not the problem either way. A trap is: a suite killed by a SIGNAL (a `timeout`,
+# a reaped background job, several concurrent sweeps starving each other) never reaches it, and
+# the directory survives. Measured live: 107 `leangate.*` and 73 `orchestrate-lean-selftest.*`
+# orphans on one machine.
 #
 # AGE ALONE IS UNSAFE. CLAUDE.md records install-topology at 319-584s and the full sweep at
 # 5:22-13:12 — a LIVE fixture is routinely tens of minutes old, so reaping on age alone would
