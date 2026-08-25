@@ -164,18 +164,38 @@ double-running it.
 
 A sweep that dies part-way — a foreground agent call hitting the harness's 2-minute cap, a
 Ctrl-C, a `timeout` — skips every suite's `trap … EXIT`. **`TMPDIR` cannot contain what that
-leaves behind.** On macOS `mktemp -d` with no template ignores `TMPDIR` entirely and uses
-`_CS_DARWIN_USER_TEMP_DIR`, so every suite's state dir lands in one directory shared by every
-worktree and every concurrent lane on the machine, and pointing `TMPDIR` somewhere private before a
-run moves none of it. [`CLAUDE.md`](../CLAUDE.md)'s verification recipe is the caller most exposed
-to this, which is why it routes here.
+leaves behind — in any `mktemp` form.** On macOS the `-t` path resolves against
+`_CS_DARWIN_USER_TEMP_DIR` and reaches `TMPDIR` only as a fallback for when that confstr is
+unavailable, which on a Mac it is not; and `mktemp -d` with no template *is* the `-t tmp` form, so
+there is no second behavior to fall back on. Measured 2026-08-25 — the derivation is `-u`, so it
+creates nothing:
+
+```sh
+PRIV="$(mktemp -d /private/tmp/probe-XXXXXX)"   # a directory that EXISTS
+TMPDIR="$PRIV" /usr/bin/mktemp -u -d             # -> /var/folders/…/T/tmp.…
+TMPDIR="$PRIV" /usr/bin/mktemp -u -d -t stamp    # -> /var/folders/…/T/stamp.…
+TMPDIR="$PRIV" /usr/bin/mktemp -u -d -p "$PRIV"  # -> $PRIV/tmp.…  — control: a NAMED dir is honored
+```
+
+The control is the only line that moves, which is what makes the other two a result rather than a
+harness artifact. **Point `TMPDIR` at a path that does not exist and this check is vacuous** — it
+can no longer tell "ignored `TMPDIR`" from "fell back because the directory was missing", and both
+produce the same `/var/folders/…` answer.
+
+So every suite's state dir lands in one directory shared by every worktree and every concurrent
+lane on the machine, and pointing `TMPDIR` somewhere private before a run moves none of it.
+[`CLAUDE.md`](../CLAUDE.md)'s verification recipe is the caller most exposed to this, which is why
+it routes here.
 
 **Most of it is reaped for you, and the residue is usually inert.** `run-selftests.sh` runs
-`tools/reap-lean-fixtures.sh` over `$TMPDIR` before it discovers anything, clearing the two
+`tools/reap-lean-fixtures.sh` over `${TMPDIR:-/tmp}` before it discovers anything, clearing the two
 fixture families big enough to matter — they stamp owning pid and process start time into their
 `mktemp -t` template, so the reaper deletes only what it can prove is dead and leaves every "could
-not tell" standing. What that does not reach is the no-template dirs, and those are mostly
-harmless now: a suite that stages its fixture root one level *below* its `mktemp` dir keeps a
+not tell" standing. **That pass reaches them because an unset `TMPDIR` and the directory `-t`
+resolves to are the same path here — not because it was aimed there.** Export a private `TMPDIR`
+and it sweeps that instead, while the fixtures keep landing where they always did. What it does not
+reach in either case is everything without one of those two stamped prefixes, and that residue is
+mostly harmless now: a suite that stages its fixture root one level *below* its `mktemp` dir keeps a
 neighbor's leftovers outside its own resolution globs, and the suites that once resolved across
 the shared directory assert that nesting with a decoy fixture staged at the colliding depth.
 
