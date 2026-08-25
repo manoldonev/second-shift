@@ -233,6 +233,24 @@ grep -q "spec-reviewer" "$TMP/.live" \
   && ok "B5 spec-reviewer is covered by the lint under the shipped enrollment" \
   || bad "B5 expected spec-reviewer in the live lint output ($(cat "$TMP/.live"))"
 
+# B13: THE DARK-REVIEWER SHAPE. B4/B5 cover the two intake-side agents; the panel side is the
+# class the enrollment rule was written for and the one that has actually been dying —
+# docs/review-panel-yield.md measures test-coverage-reviewer dark in 10 of 41 dispatches and
+# maintainability-reviewer in 1 of 47, over a pinned 47-round corpus, with their dispatch-time
+# BOUNDED_EXPLORATION nudge already in place.
+#
+# Anchored on the per-agent `ok:` LINE, not on the bare name B4/B5 grep for, so it has two
+# independent kill criteria rather than one: drop either name from DEADLINE_AT_DEFAULT and the
+# agent stops being linted, so no `ok:` line is printed while the run stays rc=0 and B1 goes on
+# passing; delete the deadline from either agent doc and the line becomes a violation instead.
+# A bare-name grep would survive the second mutant, since a violation line names the agent too.
+covered=0
+for a in test-coverage-reviewer maintainability-reviewer; do
+  grep -q "ok: $a.md" "$TMP/.live" && covered=$((covered + 1))
+done
+[ "$covered" -eq 2 ] && ok "B13 both demonstrated-dark panel reviewers are linted under the shipped enrollment" \
+  || bad "B13 expected both dark panel reviewers to have an ok: line, saw $covered ($(cat "$TMP/.live"))"
+
 # B6/B7: the live scan's two REFUSALS. Both are one contract from opposite sides — a lint that
 # cannot see the tree it lints must say so, not report clean. That is what the fixed hop count
 # did from an install for a release: `$HERE/../../..` landed on the cache root, the glob matched
