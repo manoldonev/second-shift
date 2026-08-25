@@ -191,16 +191,22 @@ artifact.
 `/var/folders/…` answer.
 
 The explicit template is not a curiosity: `grep -rl 'TMPDIR:-/tmp}/' --include='*.sh' .` finds
-**14** files using it, among them the sweep runner's own state dir — the parent of every suite's
-scratch, and the single largest thing a killed run strands (`tools/run-selftests.sh`):
+**14** files mentioning it, and reading the 18 lines behind that `-l` leaves **12** that call it, at
+16 sites. The other two only describe the form in a comment and allocate with `-t` themselves
+(`tools/mutation-sweep.sh`, `plugins/intake-toolkit/hooks/exitplan-ledger-gate-selftest.sh`), so
+they belong on the *ignored* side of this split — counting a `-l` without reading its matches puts
+them on the wrong one. Among the twelve is the sweep runner's own state dir: its worklist and cache
+bookkeeping plus each suite's captured `log`/`rc`/`secs`, and a **sibling** of the stamped fixture
+dirs rather than their parent, since a worker runs its suite from the repo root with `TMPDIR`
+untouched (`tools/run-selftests.sh:127-170`):
 
 ```sh
 BASE="$(mktemp -d "${TMPDIR:-/tmp}/run-selftests.XXXXXX")" || die "mktemp failed"
 trap 'rm -rf "$BASE"' EXIT
 ```
 
-So exporting a private `TMPDIR` before a run **does** relocate that `BASE` and the other thirteen
-callers' scratch, and does **not** move the stamped fixture families, which keep landing in the one
+So exporting a private `TMPDIR` before a run **does** relocate that `BASE` and the other eleven
+scripts' scratch, and does **not** move the stamped fixture families, which keep landing in the one
 directory shared by every worktree and every concurrent lane on the machine.
 [`CLAUDE.md`](../CLAUDE.md)'s verification recipe is the caller most exposed to this, which is why
 it routes here.

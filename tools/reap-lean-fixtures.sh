@@ -6,7 +6,7 @@
 # templated `mktemp -d -t <name>.XXXXXX` work dir and clean it up with a `trap ... EXIT`. On macOS
 # that `-t` path resolves against _CS_DARWIN_USER_TEMP_DIR, NOT against TMPDIR — this script's
 # `${TMPDIR:-/tmp}` default reaches it only because launchd exports TMPDIR already set to that same
-# directory (see CLAUDE.md's killed-sweep note for the derivation, and --dir to aim it elsewhere).
+# directory (derivation: docs/testing.md#when-a-run-is-killed-mid-sweep; --dir aims it elsewhere).
 # The template is not the problem either way. A trap is: a suite killed by a SIGNAL (a `timeout`,
 # a reaped background job, several concurrent sweeps starving each other) never reaches it, and
 # the directory survives. Measured live: 107 `leangate.*` and 73 `orchestrate-lean-selftest.*`

@@ -77,7 +77,7 @@ stamped fixture families allocate with `mktemp -d -t <name>`, and on macOS that 
 against `_CS_DARWIN_USER_TEMP_DIR` — a bare `mktemp -d` *is* `-t tmp`, so there is no second
 behavior to fall back on. Those land in one directory shared with every other lane on the machine
 whatever `TMPDIR` says. The explicit-template form `mktemp -d "${TMPDIR:-/tmp}/…"` — the sweep
-runner's own `BASE`, and thirteen other callers — *is* honored, because the shell expands the path
+runner's own `BASE`, and eleven other scripts — *is* honored, because the shell expands the path
 before `mktemp` runs (measured 2026-08-25; the derivation is in the runbook). The sweep reaps the
 stamped families itself on its way in; for the rest,
 [scrub before re-running](docs/testing.md#when-a-run-is-killed-mid-sweep) — a red the diff cannot
