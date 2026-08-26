@@ -95,6 +95,13 @@ Across the corpus from Step 1, triaged by Step 2, build the table every candidat
 - **Review rounds** (`rounds`) against milestone-4 span — one round is the common case, so a round count above one is the first thing to check before attributing review cost to the stage itself. Null on records carrying no `round=` token; those are absent from this column, not zero.
 - **Per-dispatch latency** from audit-ledger `SubagentStop` differencing, where ledgers exist. When no ledger covers the window, **omit the column entirely** rather than showing partial rows that read as complete.
 - **Cost rows** where the cost log covers the run.
+- **Scheduler overhead** (`bash tools/lane-latency.sh --dir <state-dir>`), for the runs driven by
+  `run-lean`. It is the one column that separates THIS LANE's cost from the payload's:
+  `(terminal − launch) − Σ(spawn-end − spawn)`, everything outside a model session. Measured at
+  **2 seconds** on the two runs `docs/lane-latency.md` derives by hand, so a run reporting more is
+  the finding — and a run whose ledger predates the `spawn-end` rows reports `not-measurable` and
+  belongs in the fidelity column, never scored as zero. Omit the column entirely when no ledger in
+  the window carries both edges, on the same rule as per-dispatch latency above.
 
 An artifact-only corpus is a normal input and produces a **populated** table: every field above except the last two derives from the progress records alone. "Not applicable" and an empty table are both wrong answers here — if the profile is thin, that is a Step 2 fidelity count to report, not a table to skip.
 

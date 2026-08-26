@@ -1765,6 +1765,25 @@ if [ "$(printf '%s\n' "$z_sp" | grep -c .)" -eq 2 ] \
   pass "(z5) a launch's spawns are enumerable from the ledger alone, in order and by role"
 else fail "(z5) the ledger did not enumerate z-second's spawns: [$z_sp]"; fi
 
+# EVERY SPAWN IS CLOSED, which is what makes a payload's duration derivable. Start rows alone give
+# the interval "this session PLUS whatever the loop did next", so a scheduler that spent ten minutes
+# between spawns and one that spent two seconds wrote identical ledgers — and that difference is
+# exactly what `tools/lane-latency.sh` gates on. Paired and rc-carrying, or the metric silently
+# becomes total wall-clock again.
+z_end="$(sed -n "s/.*	z-second	$ISSUE	spawn-end	//p" "$LEDGER" 2>/dev/null)"
+if [ "$(printf '%s\n' "$z_end" | grep -c .)" -eq 2 ] \
+   && grep -q '^n=1 role=BUILD rc=' <<<"$z_end" && grep -q '^n=2 role=REVIEW rc=' <<<"$z_end"; then
+  pass "(z6) every spawn is closed by a spawn-end row carrying its ordinal, role and exit code"
+else fail "(z6) the ledger did not close z-second's spawns: [$z_end]"; fi
+
+# ORDER, not merely presence: a start must precede its own end. Asserted on the file as written,
+# because a pair emitted in the wrong order subtracts to a negative payload and would read as the
+# scheduler having spent the session's whole duration.
+z_seq="$(grep "	z-second	$ISSUE	spawn" "$LEDGER" 2>/dev/null | awk -F'\t' '{printf "%s ", $4}')"
+if [ "$z_seq" = "spawn spawn-end spawn spawn-end " ]; then
+  pass "(z7) starts and ends alternate — a spawn is closed before the next one opens"
+else fail "(z7) the spawn edges are out of order: [$z_seq]"; fi
+
 
 # ---- (n) --help prints the header and stops before the code ------------------------------------------
 # BOTH bounds, and the lower one is not decoration: the `Exit: 0 = approved` anchor sits four lines
