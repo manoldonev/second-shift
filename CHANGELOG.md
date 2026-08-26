@@ -4,6 +4,18 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v12.1.0
+
+### `dev-pipeline` 12.0.0 → 12.1.0
+
+- **feat(dev-pipeline): gate the scheduler's own overhead, and stop spending a round on a policy CI red (#690)** (#690)
+  adds `tools/lane-latency.sh`, which measures how much of a lean run's wall-clock the
+  scheduler itself is responsible for and fails above a ceiling; the launch ledger now closes every
+  spawn with a `spawn-end` row so a payload's duration is derivable. review-lean records a red
+  policy CI check (guard-budget, changelog trailer, frozen files) instead of blocking on it — a red
+  correctness lane still blocks. Migration: ledgers written before this cannot be measured and are
+  reported as such, never scored.
+
 ## v12.0.0
 
 ### `dev-pipeline` 11.0.0 → 12.0.0
