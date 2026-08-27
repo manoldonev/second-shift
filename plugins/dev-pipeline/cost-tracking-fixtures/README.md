@@ -39,5 +39,23 @@ excluded — that exclusion being the point of the fence (#224).
   a zero-cost sonnet row and zero-cost model-less token rows. The vendor-neutrality
   oracle (#357): tiers split 40/20/5/15 cents, total $0.80.
 
-`cost-block-selftest.sh` drives all three; the state-file fixtures that used to sit
+- `transcript-fallback.jsonl` — a Claude Code SESSION TRANSCRIPT, not a metrics file (one
+  session, `77777777-8888-4999-8aaa-bbbbbbbbbbbb`): four assistant turns carrying
+  `message.usage` and one usage-less user turn. Drives the transcript fallback, reached when
+  the metrics file has no rows for the run: a [10:00,10:30] fence keeps 3 of the 5 records,
+  both fractional-second boundary turns included. Carries no `cost-state` record, so its
+  rollup reports `cost_usd: null` with coverage 0 of 1.
+- `transcript-cost-state.jsonl` — a second session transcript
+  (`88888888-9999-4aaa-8bbb-cccccccccccc`) with two fenced opus turns and TWO cumulative
+  `cost-state` records, $1.00 then $2.50 (opus $2.00 + haiku $0.50). The USD oracle: the
+  last record wins, so the total is $2.50 — not $1.00 and not $3.50 — split reasoning 200¢ /
+  emit 50¢, the haiku tier getting a row without a fenced turn of its own. Paired with the
+  fixture above under one `--sessions` set it is the partial-coverage oracle: null cost,
+  coverage 1 of 2.
+
+Point the script at a transcript fixture with `COST_BLOCK_TRANSCRIPT_ROOT=<dir>` where the
+file sits at `<dir>/<any-slug>/<session-id>.jsonl`, and at a rowless metrics file so the
+fallback is reached.
+
+`cost-block-selftest.sh` drives all five; the state-file fixtures that used to sit
 beside them died with the stateful branch (#574).
