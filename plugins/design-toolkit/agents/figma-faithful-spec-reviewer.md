@@ -20,6 +20,8 @@ You review a **figma-faithful FE spec** — the contract that `design-toolkit:fi
 
 **Explicit-input discipline.** Review only when you are handed a figma-faithful spec. Do **not** infer "this is a figma spec" from a plan or ticket and run these checks anyway. If the input has no Copy Index / Components / Screens sections, it is not a figma-faithful spec — say so and return `N/A`, do not fabricate findings.
 
+**That `N/A` is the whole of your lean-lane behavior, and it is correct.** A lean-lane spec is a ticket's acceptance criteria with an embedded translation plan; it has none of those sections, so every input you get from that lane returns `N/A`. Nothing here should be read as covering it. The lean lane's reachable owner is `design-toolkit:figma-faithful-plan-reviewer`, dispatched at `figma-faithful` step 7 on the committed translation plan the gate asserts — it holds the visual-contract and component-suitability checks below in the form they take when there is a plan rather than a spec. If you are being dispatched on lean-lane input, the dispatcher picked the wrong agent; say which one it wanted.
+
 ## Scope
 
 You ONLY review the spec's **completeness and internal consistency**. Do not:
@@ -28,7 +30,7 @@ You ONLY review the spec's **completeness and internal consistency**. Do not:
 - Review code (that is `design-toolkit:figma-faithful-reviewer`'s job, post-implementation).
 - Question product decisions.
 
-**Hard limit — you cannot verify the spec MATCHES Figma.** You are static and have no Figma/MCP access. You confirm the spec is internally complete (no placeholders, every component resolved, every transition grounded, every field mapped) — **not** that the Copy Index strings are the _right_ strings, nor that a resolved component is the one the mock actually shows. Verifying the spec against the rendered design is the deferred pixel-diff/screenshot gate, which you do not have. State this rather than implying you checked it.
+**Hard limit — you cannot verify the spec MATCHES Figma.** You are static and have no Figma/MCP access. You confirm the spec is internally complete (no placeholders, every component resolved, every transition grounded, every field mapped) — **not** that the Copy Index strings are the _right_ strings, nor that a resolved component is the one the mock actually shows. Verifying the spec against the rendered design is the design-sighted `review-lean` session, which scores `fidelity:` against the render receipt milestone 3 produces and must cite paired design-vs-rendered numbers per `RS-n`; it is not a pixel-diff gate, and no such gate exists in this repo. State this rather than implying you checked it.
 
 ## Process
 

@@ -128,8 +128,10 @@ code's current spacing.
   These are NOT in `get_variable_defs` and they dictate the CSS: a wrap row of fill-container
   cards is a **grid** with equal fixed-width columns (an incomplete last row keeps its column
   width — **no stretch**), NOT a flex row with `flexGrow:1` (which stretches the last row to
-  fill). State sizing/fill/overflow per node in the step-7 plan — a token-only read misses
-  stretch, fixed height, and truncation entirely.
+  fill). State sizing/fill/overflow per node in the step-7 plan's `dimensions` table — a
+  token-only read misses stretch, fixed height, and truncation entirely, and on the lean lane a
+  plan with **no** dimension row for a control-bearing screen is a plan-review Blocker in its own
+  right: that silence is what ships a 32px control at 107px.
 
 Do not infer block spacing or placement from the file you're editing — the existing value may
 itself be wrong (a 24px gap where Figma says 16px is a finding to fix, not a precedent to
@@ -174,22 +176,40 @@ rather than restating them. The design-tokens extension file may list known-good
 domain; until such an index exists, find the nearest existing screen in that app and mirror it,
 and **say which one**.
 
-### 7. Surface the translation plan (pre-implementation gate)
+### 7. Write the translation plan (pre-implementation gate)
 
-Before writing any code, emit the **translation plan** as a discrete artifact: the completed
-token table (steps 3–4, all columns filled, **including the step-3b inter-block gap rows**),
-the resolved-component list (step 5), the **placement decision** from step 3b (which container
-each node mounts under, and at what level), the chosen analog (step 6), and the file list you
-will create/edit. This is the cheapest place to catch a wrong token row — one line to fix here
-vs. the same value spread across call-sites after the build. **Dispatch
+Before writing any code, write the **translation plan** as a file: the completed token table
+(steps 3–4, all columns filled, **including the step-3b inter-block gap rows**), the
+resolved-component list (step 5), the **placement decision** from step 3b (which container each
+node mounts under, and at what level), the **per-node dimensions** from step 3b, the chosen analog
+(step 6), and the file list you will create/edit. This is the cheapest place to catch a wrong
+token row — one line to fix here vs. the same value spread across call-sites after the build.
+
+**On the lean lane it is an asserted artifact, not prose.** Write it to
+`<plansDir>/<key>-lean-plan.md` — the path `bash G 1 <issue>` derives the spec path from, with
+`-lean-plan.md` in place of `-lean.md`. `lean-gate.sh` milestone 3 refuses an armed ticket
+**before the render pass** unless that file exists, is committed, and carries:
+
+- a header line `planned_from: pending` — the gate stamps this with the branch's plan patch
+  identity and reds until you commit the stamp, so the plan is dated against the code it was
+  written for. On a later round it re-stamps: **re-read the plan against the lines that moved**
+  before committing, because nothing else in the lane checks that it still says the right thing;
+- a table declaring a **`why this component`** column, one row per resolved component;
+- a table declaring a **`dimensions`** column, one row per sized node.
+
+Every cell of both tables must be filled, and a row may not declare fewer cells than its header.
+That is deliberate and it is the whole mechanical contract: an omission has to read as an **empty
+cell**, not as an absent thought. A resolved component with no stated reason is the name-match
+resolution that ships the wrong control; a node with no recorded dimensions is the eyeballed size
+that ships at 3× the design. Nothing here checks that a recorded value is *correct* — that is the
+design-sighted `review-lean` session, scoring `fidelity:` against the render receipt.
+
+**Dispatch
 [`design-toolkit:figma-faithful-plan-reviewer`](../../agents/figma-faithful-plan-reviewer.md) on
 this artifact yourself**, before step 8, and act on its verdict: `block` → fix the table and
-re-emit; `fix-and-go` / `pass` → proceed.
-
-No autonomous lane does that dispatch for you. The lean lane is outcome-gated — it asserts
-artifacts and cannot branch on a process step's verdict — and the translation plan is not one of
-the artifacts it asserts, so the dispatch is the operator's. `design-toolkit:figma-iterate`
-replaces it with a user checkpoint by design.
+re-emit; `fix-and-go` / `pass` → proceed. The gate asserts the artifact's shape; it cannot run an
+agent or branch on a verdict, so the dispatch stays yours on every lane.
+`design-toolkit:figma-iterate` replaces it with a user checkpoint by design.
 
 ### 8. Implement
 
@@ -204,7 +224,9 @@ are mandatory where the surface renders RTL.
 Re-read your own styling / token usage against the step-3 token table — every value must trace
 to a token or a justified named constant. This is self-attestation by the same agent that wrote
 the code, so it is the weakest link; the real enforcement is that the **token table exists as a
-visible artifact** a reviewer (or a future pixel-diff gate) can check against.
+visible artifact** a reviewer can check against — on the lean lane the design-sighted
+`review-lean` session, scoring `fidelity:` against the render receipt. There is no pixel-diff
+gate in this repo.
 
 Then re-open the **parent** frame screenshot (not just the node) and confirm: (a) every gap
 between top-level blocks matches a step-3b row, (b) the component nests at the same level as the
