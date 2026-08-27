@@ -809,9 +809,13 @@ else
     || bad "expected 1500 cache-read tokens, got $(jq -r '.totals.cache_read_tokens' <<<"$T_ROLLUP")"
 
   # NULL, not 0. A zero would read as a run that cost nothing, which is a different claim.
+  # This transcript has no cost-state record at all — a headless session's shape.
   [[ "$(jq -r '.totals.cost_usd')" == "null" ]] <<<"$T_ROLLUP" \
-    && ok "cost is null rather than 0 — the transcript carries no USD to report" \
+    && ok "cost is null rather than 0 — this transcript wrote no cost-state, so there is no USD to report" \
     || bad "expected null cost_usd, got $(jq -r '.totals.cost_usd' <<<"$T_ROLLUP")"
+  [[ "$(jq -c '.costCoverage' <<<"$T_ROLLUP")" == '{"covered":0,"sessions":1}' ]] \
+    && ok "the rollup says WHY: 0 of 1 sessions carried a cost-state" \
+    || bad "expected costCoverage {0,1}, got $(jq -c '.costCoverage' <<<"$T_ROLLUP")"
 
   [[ "$(jq -r '.byTier[0].tier' <<<"$T_ROLLUP")" == "reasoning" ]] \
     && ok "the transcript model is tier-mapped by the same table the OTel path uses" \
@@ -831,6 +835,61 @@ grep -q 'Cache write' <<<"$T_BLOCK" \
 grep -q '| \$' <<<"$T_BLOCK" \
   && bad "the transcript block rendered a dollar figure it cannot know: $T_BLOCK" \
   || ok "no dollar figure is rendered for a transcript-sourced block"
+
+echo
+echo "=== the transcript fallback — USD from the end-of-session cost-state record ==="
+# Invariant: money comes only from a cost-state record that EVERY session in the set wrote, and
+# from the LAST such record per session (it is cumulative). No liveness scenario reaches this:
+# the scenario suite drives verdict paths, and the cost block is a render off a fixture corpus.
+C_SID="88888888-9999-4aaa-8bbb-cccccccccccc"
+cp "$FIX/transcript-cost-state.jsonl" "$T_ROOT/-some-project/$C_SID.jsonl"
+c_rollup() { # c_rollup <sessions>
+  OTEL_METRICS_FILE="$EMPTY_OTEL" COST_BLOCK_TRANSCRIPT_ROOT="$T_ROOT" COST_BLOCK_DUMP_ROLLUP=1 \
+    bash "$SCRIPT" --stateless --sessions "$1" \
+      --start 2026-05-25T10:00:00Z --end 2026-05-25T10:30:00Z 2>/dev/null
+}
+C_ROLLUP="$(c_rollup "$C_SID")"
+if [[ -z "$C_ROLLUP" ]] || ! jq -e . >/dev/null 2>&1 <<<"$C_ROLLUP"; then
+  bad "the cost-state fallback produced no valid rollup JSON"
+else
+  # 2.5 is the LAST record's total. The first says 1.0, and the two summed say 3.5 — either of
+  # those is a wrong figure this one assertion refuses.
+  [[ "$(jq -r '.totals.cost_usd' <<<"$C_ROLLUP")" == "2.5" ]] \
+    && ok "the total is the LAST cost-state record's — cumulative, so neither the first nor the sum" \
+    || bad "expected 2.5 from the last cost-state record, got $(jq -r '.totals.cost_usd' <<<"$C_ROLLUP")"
+  [[ "$(jq -r '.costSource' <<<"$C_ROLLUP")" == "cost-state" ]] \
+    && ok "the rollup names cost-state as where the money came from" \
+    || bad "expected costSource=cost-state, got '$(jq -r '.costSource' <<<"$C_ROLLUP")'"
+  # Per-tier: the opus figure lands on reasoning; haiku spent 50 cents with NO fenced turn of
+  # its own and still gets a row, so the tiers add up to the total.
+  [[ "$(tier_cents reasoning <<<"$C_ROLLUP")" == "200" && "$(tier_cents emit <<<"$C_ROLLUP")" == "50" ]] \
+    && ok "per-model costUSD is tier-mapped, and a tier with money but no fenced turn still gets its row" \
+    || bad "expected reasoning=200c emit=50c, got reasoning=$(tier_cents reasoning <<<"$C_ROLLUP") emit=$(tier_cents emit <<<"$C_ROLLUP")"
+fi
+
+C_BLOCK="$(OTEL_METRICS_FILE="$EMPTY_OTEL" COST_BLOCK_TRANSCRIPT_ROOT="$T_ROOT" \
+  bash "$SCRIPT" --stateless --sessions "$C_SID" \
+    --start 2026-05-25T10:00:00Z --end 2026-05-25T10:30:00Z 2>/dev/null)"
+{ grep -qF "| \$2.50 |" <<<"$C_BLOCK" && grep -q 'Cache write' <<<"$C_BLOCK"; } \
+  && ok "a priced transcript block renders the dollar figure AND the token columns" \
+  || bad "expected \$2.50 beside token columns in: $C_BLOCK"
+grep -q 'cost-state' <<<"$C_BLOCK" \
+  && ok "the footer names the cost-state record as the source of the USD" \
+  || bad "expected a cost-state source line in: $C_BLOCK"
+
+# PARTIAL COVERAGE IS NOT A TOTAL. Two sessions, one with a cost-state: the figure is null and
+# the coverage says 1 of 2 — a 2.50 here would be published as the run's whole spend.
+P_ROLLUP="$(c_rollup "$T_SID,$C_SID")"
+{ [[ "$(jq -r '.totals.cost_usd' <<<"$P_ROLLUP")" == "null" ]] \
+  && [[ "$(jq -c '.costCoverage' <<<"$P_ROLLUP")" == '{"covered":1,"sessions":2}' ]]; } \
+  && ok "a set with one session lacking a cost-state reports null cost and 1-of-2 coverage, not a partial sum" \
+  || bad "partial coverage leaked a figure: $(jq -c '{cost:.totals.cost_usd,costCoverage}' <<<"$P_ROLLUP")"
+P_BLOCK="$(OTEL_METRICS_FILE="$EMPTY_OTEL" COST_BLOCK_TRANSCRIPT_ROOT="$T_ROOT" \
+  bash "$SCRIPT" --stateless --sessions "$T_SID,$C_SID" \
+    --start 2026-05-25T10:00:00Z --end 2026-05-25T10:30:00Z 2>/dev/null)"
+{ ! grep -q '| \$' <<<"$P_BLOCK" && grep -q '1 of 2 sessions' <<<"$P_BLOCK"; } \
+  && ok "the partially-covered block renders no dollar figure and states the coverage" \
+  || bad "expected no \$ and a '1 of 2 sessions' footer in: $P_BLOCK"
 
 # NO REGRESSION: when the metrics file DOES carry rows for the run, the fallback must stay out
 # of the way even with a transcript sitting right there.

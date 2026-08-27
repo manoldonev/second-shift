@@ -528,14 +528,27 @@ compute_bucket_rollup() {
 # disk the whole time. Rotation and a collector that was down are recoverable for the
 # same reason.
 #
-# What it CANNOT do: there is no USD in the transcript. Claude Code computes the dollar
-# figure internally and ships it only as `claude_code.cost.usage`, so a transcript rollup
-# carries `cost_usd: null` and says so on the block. Pricing the tokens here was
-# considered and rejected: a price table shipped to consumers goes stale silently and
-# starts publishing confidently wrong figures, which is strictly worse than a stated gap.
+# Money comes from a second record in the same file. Claude Code writes a cumulative
+# `cost-state` record — `totalCostUSD` plus per-model `costUSD`, priced by Claude Code itself
+# at list price, the same figure it exports as `claude_code.cost.usage` — when an interactive
+# session ends or goes idle. Two properties bound how it is used:
 #
-# The rollup below is emitted in the SAME SHAPE as the OTel one, plus `source`, so
-# render_block and write_cost_log_row need one branch each rather than a parallel path.
+#   * It is SESSION-cumulative, not fenced. The last record per session is the session's
+#     whole spend, so it is attributed to the run only because a lean session belongs to one
+#     run by construction. The block says "session-cumulative" for that reason.
+#   * A headless `claude -p` session never writes one (its figure goes to the `-p` result
+#     JSON instead, which this script does not see). So a set with any session lacking the
+#     record reports `cost_usd: null` and the coverage, never a partial sum — a partial sum
+#     reads as the run's total and is exactly the confidently-wrong figure this script exists
+#     to refuse.
+#
+# Pricing the tokens here instead was considered and rejected: a price table shipped to
+# consumers goes stale silently and starts publishing confidently wrong figures, which is
+# strictly worse than a stated gap.
+#
+# The rollup below is emitted in the SAME SHAPE as the OTel one, plus `source`,
+# `costSource` and `costCoverage`, so render_block and write_cost_log_row need one branch
+# each rather than a parallel path.
 # ────────────────────────────────────────────────────────────────────────────
 
 # Transcript roots, in search order. $CLAUDE_CONFIG_DIR first when set (a consumer running
@@ -594,23 +607,44 @@ compute_transcript_rollup() {
     ] as $all
     | [ $all[] | select( $fenceLo == "" or (.t >= $fenceLo and .t <= $fenceHi) ) ] as $inFence
     | [ $inFence[] as $r | select( ($sids | index($r.sid)) != null ) | $r ] as $tagged
+    # The dollar figure (see TRANSCRIPT FALLBACK above). LAST record per session wins: the
+    # record is cumulative, so an earlier one is a strict under-count of the same session.
+    | ( [ .[] | select(.type == "cost-state" and (.sessionId | type) == "string")
+              | . as $c | select( ($sids | index($c.sessionId)) != null ) ]
+        | group_by(.sessionId) | map(last) ) as $covered
+    | ($covered | length) as $nCovered
+    | ($sids | length) as $nSids
+    | ($nCovered > 0 and $nCovered == $nSids) as $priced
+    | [ $covered[] | (.modelUsage // {}) | to_entries[]
+        | { model: .key, tier: tier_of(.key), usd: (.value.costUSD // 0) } ] as $tierUsd
     | {
         source: "transcript",
+        costSource: (if $priced then "cost-state" else null end),
+        costCoverage: { covered: $nCovered, sessions: $nSids },
         byTier: (
-          $tagged
-          | group_by(.tier)
-          | map({
-              tier: .[0].tier,
-              # No money in this source. Null rather than 0 so a reader cannot mistake a
-              # missing figure for a free run.
-              cost_usd: null,
-              output_tokens: ( [.[] | .u.output_tokens // 0] | add // 0 ),
-              models: ( [.[] | .model // empty] | unique | sort )
-            })
+          ( $tagged
+            | group_by(.tier)
+            | map({
+                tier: .[0].tier,
+                output_tokens: ( [.[] | .u.output_tokens // 0] | add // 0 ),
+                models: ( [.[] | .model // empty] | unique | sort )
+              }) ) as $turnRows
+          # A tier that spent money without a fenced turn of its own (a subagent model, say)
+          # still gets a row, so the per-tier figures add up to the total.
+          | ( [ $tierUsd[].tier ] | unique | map(select(. as $t | ($turnRows | map(.tier) | index($t)) == null))
+              | map(. as $t | { tier: $t, output_tokens: 0,
+                                models: ([ $tierUsd[] | select(.tier == $t) | .model ] | unique | sort) }) ) as $costOnlyRows
+          | ($turnRows + $costOnlyRows)
+          | map(. as $row
+                | .cost_usd = ( if $priced then ([ $tierUsd[] | select(.tier == $row.tier) | .usd ] | add // 0)
+                                # Null rather than 0 so a reader cannot mistake a missing
+                                # figure for a free run.
+                                else null end )
+                | .models = ( if $priced then ((.models + [ $tierUsd[] | select(.tier == $row.tier) | .model ]) | unique | sort) else .models end ))
           | sort_by($tierOrder[.tier] // 9)
         ),
         totals: {
-          cost_usd: null,
+          cost_usd: ( if $priced then ([ $covered[].totalCostUSD // 0 ] | add) else null end ),
           input_tokens:          ( [$tagged[] | .u.input_tokens                // 0] | add // 0 ),
           output_tokens:         ( [$tagged[] | .u.output_tokens               // 0] | add // 0 ),
           cache_read_tokens:     ( [$tagged[] | .u.cache_read_input_tokens     // 0] | add // 0 ),
@@ -649,7 +683,11 @@ if [ "$(jq -r '.rowCount // 0' <<<"$ROLLUP")" -eq 0 ]; then
   TRANSCRIPT_ROLLUP=$(compute_transcript_rollup 2>/dev/null || true)
   if [ -n "$TRANSCRIPT_ROLLUP" ] && jq -e . >/dev/null 2>&1 <<<"$TRANSCRIPT_ROLLUP" \
      && [ "$(jq -r '.rowCount // 0' <<<"$TRANSCRIPT_ROLLUP")" -gt 0 ]; then
-    log "recovered from transcript: OTel had no in-fence rows for this run's sessions, so $(jq -r '.rowCount' <<<"$TRANSCRIPT_ROLLUP") turn(s) were read from the session transcript instead. TOKENS ONLY — the transcript carries no USD (see TRANSCRIPT FALLBACK above)."
+    if [ "$(jq -r '.costSource // ""' <<<"$TRANSCRIPT_ROLLUP")" = "cost-state" ]; then
+      log "recovered from transcript: OTel had no in-fence rows for this run's sessions, so $(jq -r '.rowCount' <<<"$TRANSCRIPT_ROLLUP") turn(s) were read from the session transcript instead, and the USD from every session's own end-of-session cost-state record (session-cumulative — see TRANSCRIPT FALLBACK above)."
+    else
+      log "recovered from transcript: OTel had no in-fence rows for this run's sessions, so $(jq -r '.rowCount' <<<"$TRANSCRIPT_ROLLUP") turn(s) were read from the session transcript instead. TOKENS ONLY — $(jq -r '.costCoverage | "\(.covered) of \(.sessions)"' <<<"$TRANSCRIPT_ROLLUP") session(s) wrote a cost-state record, and a partial sum is not a total (see TRANSCRIPT FALLBACK above)."
+    fi
     ROLLUP="$TRANSCRIPT_ROLLUP"
   fi
 fi
@@ -776,8 +814,19 @@ render_block() {
       +
       # The two sources render DIFFERENT tables rather than one table with a blank cell:
       # a "Cost (USD)" column reading "n/a" invites a reader to treat the run as free,
-      # whereas a table carrying no cost column at all cannot be misread that way.
-      ( if $source == "transcript" then
+      # whereas a table carrying no cost column at all cannot be misread that way. A
+      # transcript that DID yield a figure renders both the cost and the tokens.
+      ( if $source == "transcript" and .totals.cost_usd != null then
+          [
+            "| Scope | Tiers | Models | Cost (USD) | Output | Cache write | Cache read |",
+            "|-------|-------|--------|-----------:|-------:|------------:|-----------:|",
+            "| " + $totalScope + " (" + $totalNote + ") | " + ($all_tiers | join(", ")) + " | " + ($all_models | join(", "))
+              + " | " + fmt(.totals.cost_usd)
+              + " | " + (.totals.output_tokens | commafy)
+              + " | " + (.totals.cache_creation_tokens | commafy)
+              + " | " + (.totals.cache_read_tokens | commafy) + " |"
+          ]
+        elif $source == "transcript" then
           [
             "| Scope | Tiers | Models | Output | Cache write | Cache read |",
             "|-------|-------|--------|-------:|------------:|-----------:|",
@@ -800,8 +849,12 @@ render_block() {
           + " · Pipeline run: " + $dur + " min"
           + " · Sessions: " + (.totals.session_count | tostring)
           + ( if $fenceLoHm != "" then " (time-fenced " + $fenceLoHm + "–" + $fenceHiHm + ")" else "" end )
-          + ( if $source == "transcript" then
-                " · Source: session transcript — token counts only, no USD (Claude Code computes cost internally and emits it solely as OTel `claude_code.cost.usage`)"
+          + ( if $source == "transcript" and .totals.cost_usd != null then
+                " · Source: session transcript — USD from the end-of-session `cost-state` record Claude Code writes itself (session-cumulative, list price)"
+              elif $source == "transcript" then
+                " · Source: session transcript — token counts only, no USD ("
+                  + (.costCoverage.covered | tostring) + " of " + (.costCoverage.sessions | tostring)
+                  + " sessions wrote a `cost-state` record; a headless `-p` session never does, and a partial sum is not a total)"
               else
                 " · Source: OTel `claude_code.cost.usage`"
               end )
@@ -831,8 +884,9 @@ write_cost_log_row() {
       ticketKey: $issue,
       runId: $runId,
       sessionIds: $sids,
-      # Null for a transcript-sourced row, and `source` is the discriminator that says
-      # why. A reader wanting only priced runs filters on source == "otel".
+      # Null for a transcript-sourced row whose sessions did not all write a cost-state
+      # record; `source` says where the figure came from. A reader wanting only priced runs
+      # filters on totalUsd != null, not on source.
       totalUsd: $rollup.totals.cost_usd,
       source: ($rollup.source // "otel"),
       tokens: { input: $rollup.totals.input_tokens,
