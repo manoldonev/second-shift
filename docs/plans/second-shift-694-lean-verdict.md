@@ -1,207 +1,214 @@
 # lean review verdict — #694
 
-verdict=needs-work
-run_id: review-694-1
-session_id: e522ce46-d951-4347-b470-0e1bf30ce9d3
-rounds: 1
+verdict=approve
+run_id: review-694-2
+session_id: 6b5078b1-14c6-424f-a5f0-6261c7dc3bbf
+rounds: 2
 pr: #701
-reviewed_head: 4343498bc53f4e658ce3fcd48967defd15dbd336
-reviewed_patch_id: 4472a86437f3f0148e0db71cb62abc44d0f250d3
-inherited_patch_id: none
-inherited_from_verdict: none
+reviewed_head: 6cd599b96152bb43750cc606834f43b80e37e1f5
+reviewed_patch_id: b6da4c043a279407640d7ae292f50f1445094e76
+inherited_patch_id: 4472a86437f3f0148e0db71cb62abc44d0f250d3
+inherited_from_verdict: e5ef16bdf1fd5f128e523a9f1b250912745f4e09
 fidelity: not-applicable
 model: opus
 capabilities: pr-marker
 
-# Review round 1 — PR #701 (issue #694), head `4343498b`
+# Review round 2 — PR #701 (issue #694), head `6cd599b9`
 
-Range read: `609a22cf..4343498b` (full branch diff — root round, nothing to inherit).
+Range read: `e5ef16bd..HEAD` — the round-1 fix commit `6cd599b9` alone, inheriting the coverage
+of patch `4472a86437f3` recorded by round 1. Read wider than the range wherever the delta was
+misleading: the whole `origin/main...HEAD` contribution for the per-`AC-n` scoring, and the
+prior record's findings first.
+
 Panel: 6 of 6 returned, none dark (security, performance, complexity, test-coverage,
-scope-completeness, maintainability). Design fidelity: **not-applicable** — the committed spec
-`docs/plans/second-shift-694-lean.md` declares no `## Design` section, so step 5b does not arm.
+maintainability, scope-completeness). **Zero findings from the panel, as in round 1**; every
+statement below is hand-derived and measured. Design fidelity: **not-applicable** — the committed
+spec declares no `## Design` section, and this repo's config declares no `design.provider`.
 
-**Verdict: `needs-work`** — 3 blockers. Two of them are the same fix landing wrong (AC-4), and
-one is a coverage gap proven by mutation (AC-6). The gate itself is correct: every arm I probed
-behaves as documented, and both new `tools/mutation-catalog.tsv` rows are honestly graded.
+**A note on the branch's own diff.** `git diff main...HEAD` in a checkout whose local `main` is
+stale sweeps in `609a22cf` (#699, merged) as branch content. The real merge-base is
+`609a22cf` and `origin/main` is exactly that commit, so the contribution is
+`origin/main...HEAD` — 20 files. The cost-block files are not this branch's.
+
+**Verdict: `approve`.** All seven `AC-n` satisfied. All three round-1 blockers are fixed and each
+fix was verified independently, not taken on the commit message's word. Both round-1 warnings are
+closed. Two findings below are warnings that do not block: one is a pre-existing line outside
+AC-4's declared family, the other is a successor-ticket consequence for the operator to act on at
+promotion time, not a defect in this diff.
 
 ## Findings
 
 | # | Severity | Where | Finding |
 | --- | --- | --- | --- |
-| B1 | Blocker | `plugins/design-toolkit/**` (4 sites) | The AC-4 rewrite introduces the `dev-pipeline:` namespace token into design-toolkit, which `docs/namespaces.md` rule 3(a) forbids. `lint-and-selftests` is RED on it. |
-| B2 | Blocker | `plugins/design-toolkit/agents/figma-faithful-reviewer.md:39` | AC-4 missed a family member: it still defers to "a deferred pixel-diff gate" — the gate AC-4 says may not be named. |
-| B3 | Blocker | `plugins/dev-pipeline/skills/build-lean/lean-gate.sh:3814,3838` | Two of `plan_violations()`'s five malformed shapes have no `(dp*)` case. Both are fail-open when neutered, and the suite stays green. AC-6 asks for "each malformed shape". |
-| W1 | Warning | `docs/testing.md:782-791` | The declined-coupling note justifies D-10 in one direction only; a plan-only edit does restale the render receipt. |
-| W2 | Warning | PR body / commit `63e181aa` | The `(dp*)` case count is stated three different ways, and one enumerated shape has no case. |
+| W1 | Warning | `docs/live-render.md:178` | The one surviving live deferral to a pixel-diff gate — "the pixel-diff gate is still deferred" — in a file this branch edits, while five sibling documents it also edits now say no such gate exists and must not be deferred to. |
+| W2 | Warning | `#695` (declared successor) | AC-4 as the spec broadened it lands #695's option 3 verbatim across the four documents #695 enumerates. Promoting #695 `ready-for-dev` on merge, as the issue instructs, queues a ticket whose problem statement no longer reproduces. |
 
-### B1 — the AC-4 fix violates `docs/namespaces.md` rule 3(a), and CI is red on it
+### W1 — one deferral to the non-existent gate survives, outside AC-4's family
 
-`lint-and-selftests` step 15, *namespace direction check (docs/namespaces.md rule 3)*, fails
-(run 33086021046, job 98565746233, head `4343498b`, conclusion `failure`). Rule 3(a) greps for the
-literal `dev-pipeline:` token across the four toolkit plugins and exits 1 on any hit. The AC-4
-deferral rewrite introduces four:
+`git grep -i 'pixel-diff\|screenshot-diff'` over `plugins/ docs/` at `6cd599b9` returns eight live
+sites. Seven are correct: the three `figma-faithful-*` agents and the `figma-faithful` /
+`figma-faithful-spec` skills all now deny the gate exists and name the design-sighted `review-lean`
+session; `design-faithful/SKILL.md:59` already said "no pixel-diff tool in-repo — do not invent";
+`lean-gate.sh:3147` is a comment citing that. The eighth is `docs/live-render.md:178`:
 
-- `plugins/design-toolkit/agents/figma-faithful-plan-reviewer.md:56`
-- `plugins/design-toolkit/agents/figma-faithful-plan-reviewer.md:64`
-- `plugins/design-toolkit/agents/figma-faithful-spec-reviewer.md:33`
-- `plugins/design-toolkit/skills/figma-faithful/SKILL.md:205`
+> It verifies nothing against the design — the pixel-diff gate is still deferred, and a reviewer
+> can still cite a real but irrelevant criterion.
 
-Measured: `git grep 'dev-pipeline:' origin/main -- plugins/design-toolkit plugins/review-toolkit
-plugins/intake-toolkit plugins/audit-toolkit` returns **nothing**; the same grep at `4343498b`
-returns exactly those four. Wholly diff-introduced.
+**Not a blocker, and I want to be exact about why.** AC-4's subject is "every deferral in the
+`figma-faithful` reviewer family". `docs/live-render.md` is repo documentation, not a member of
+that family, and the line is pre-existing (#693's, unchanged by this branch's hunks). The two
+statements are also not strictly contradictory: no gate *exists* (fact), and a decision about
+whether to build one is *pending* in #695 (also fact). What makes it worth a line is that this
+branch adds 22 lines to that same file and its own new prose elsewhere reads "do not defer to
+one" — so the repo now says both things about the same absent gate, in two files one PR touched.
+One sentence closes it, and it is the same sentence the five siblings already carry.
 
-This is not a merge-boundary policy red of the `guard-budget` / `Changelog:` / frozen-files kind.
-Those name something the run was going to do anyway; this one names content the diff just wrote,
-and it sits in the correctness lane. (The rest of that job is green — step 9 *run all selftests*
-passed, as did the `selftests (macos, bash 3.2)` job.)
+### W2 — the successor's problem statement is answered by this diff
 
-**Remedy, and it is small.** Name the lane bare, which is what every other toolkit already does:
-`plugins/review-toolkit/skills/review-lead/SKILL.md:190` writes "`review-lean`'s design-sighted
-fidelity arm", and `plugins/intake-toolkit/skills/plan-interview/SKILL.md:61` writes "an autonomous
-`run-lean <issue>` run". Dropping `/dev-pipeline:` from the four sites keeps every sentence AC-4
-asks for and clears the rule. The reader is still unambiguously named.
+The issue body ends: *"On merge, label #695 `ready-for-dev`. Successor: #695."* #695 is open and
+titled *"Three reviewers defer fidelity to a pixel-diff gate that was never built"*. Its problem
+statement enumerates exactly four documents — `figma-faithful-spec-reviewer.md:31`,
+`figma-faithful-plan-reviewer.md:44`, `figma-faithful-reviewer.md:39`,
+`figma-faithful-spec/SKILL.md:218` — and its "Fix shape" section says the direction is
+**"Undecided by design — this ticket exists to make the standing debt visible and to force the
+decision, not to presume it"**, listing three: build it, scope it down, or *"Retire the deferral.
+Decide fidelity will remain attested, and rewrite all four documents to say so plainly instead of
+pointing at a gate that is not coming."*
 
-### B2 — AC-4 stops one file short of the family
+This PR rewrites all four of those documents to exactly that. After merge, #695's stated problem
+does not reproduce at any of its four line references.
 
-AC-4: *"every deferral in the `figma-faithful` reviewer family names an owner that can actually run
-on the lean lane, or says plainly that none can. … none may name a gate that does not exist."*
+**Why this is a warning and not a blocker.** Three things had to be true for it to be one, and
+none is:
 
-`plugins/design-toolkit/agents/figma-faithful-reviewer.md:39`, under **Hard limits**, still reads:
+1. *An AC would have to be unmet.* AC-4 as the **committed spec** states it — "every deferral in
+   the `figma-faithful` reviewer family … none may name a gate that does not exist" — is met.
+2. *The spec would have to have been amended to match the diff.* It was not.
+   `docs/plans/second-shift-694-lean.md` has exactly **one** commit on this branch, `53fdeccb`,
+   the spec commit that precedes all implementation, and AC-4's broad wording is in it verbatim
+   at lines 54–56. `git diff 53fdeccb..HEAD -- docs/plans/second-shift-694-lean.md` is empty.
+   The broadening (the issue's AC-4 named only `figma-faithful-spec-reviewer`'s deferral targets)
+   was declared before code, not discovered after it.
+3. *It would have to foreclose #695.* It does not. #695's own text says option 3 "closes
+   nothing"; the real question — build a comparison, or scope it to measured properties — is
+   untouched.
 
-> You cannot verify a value MATCHES the design. … That needs the Figma node dump (**a deferred
-> pixel-diff gate**), which you do not have.
+**What it does oblige.** Re-derive #695 before promoting it: its problem statement, its four line
+references and its option 3 are all spent. Left as-is, a build session picks it up and finds the
+work already done at every reference the ticket gives it.
 
-That is the forbidden construct verbatim, in the third member of the three-agent
-`figma-faithful-*` family — and one that IS dispatched on the lean lane, as review-lead's
-design-fidelity dimension under `design.provider: figma`. The diff proves the author read this
-construct as in scope: the identical sentence was rewritten in **both** siblings
-(`figma-faithful-plan-reviewer.md:64`, `figma-faithful-spec-reviewer.md:33`) to name the
-design-sighted review session and to add "no such gate exists in this repo". This file was simply
-not visited. The PR body meanwhile asserts the work is complete: *"Every deferral in the reviewer
-family now names a reachable owner, or says none exists."*
+## Round-1 blockers — each fix verified independently
 
-Fix it the same way the siblings were fixed — and without reintroducing B1's token.
+### B1 (namespace red) — fixed, measured
 
-### B3 — two of five malformed shapes are unguarded, and both fail OPEN
+`git grep 'dev-pipeline:' 6cd599b9 -- plugins/design-toolkit plugins/review-toolkit
+plugins/intake-toolkit plugins/audit-toolkit` returns **nothing**. `lint-and-selftests` at head
+`6cd599b9` is **success** (run 33089872958, job 98579499166) — the job that was `failure` on
+step 15 at `4343498b`. The lane is named bare at every site, matching the precedent round 1
+cited.
 
-`plan_violations()` emits five distinct violation shapes. Three have a case; two have none:
+### B2 (the missed family member) — fixed, and wider than the blocker asked
 
-| shape | site | case |
-| --- | --- | --- |
-| no table declares the column | `lean-gate.sh:3858,3859` | `(dp2)` |
-| a short row | `lean-gate.sh:3847` | `(dp4)` |
-| an empty cell | `lean-gate.sh:3852` | `(dp3)` |
-| **the table carries no data row** | `lean-gate.sh:3814-3815` | **none** |
-| **no delimiter row under the header** | `lean-gate.sh:3838-3839` | **none** |
+`figma-faithful-reviewer.md:39` now reads "…it is not a pixel-diff gate, and no such gate exists
+in this repo. Say so rather than implying you checked the design." The fix went past the one file:
+grepping the *construct* found two further sites the round-1 review had not enumerated either —
+`figma-faithful/SKILL.md:228` and `figma-faithful-spec/SKILL.md:219` — and both were rewritten.
+That is the right method and it is worth naming: an AC phrased "every X in the family" is
+satisfied by a grep that returns nothing, not by visiting the files someone remembered.
 
-AC-6 asks that the suite cover *"each malformed shape"*. Probed rather than argued, in an isolated
-detached worktree at `4343498b` (never the reviewed one):
+Each rewritten site names a reader that is real and reachable: `review-lean/SKILL.md:70-84` on
+this branch publishes the `## Design fidelity evidence` grammar (`| RS-n | frame node | property |
+design | rendered | verdict |`), and `lean-gate.sh:3155` enforces it at the verdict writer. The
+deferral target is not another disclaimer.
 
-1. **Direct probe of the predicate.** Extracting `plan_violations()` and running it over crafted
-   plans, at HEAD and under each mutant:
-   - a `| node | dimensions | overflow |` table with a delimiter row and **zero data rows** —
-     HEAD: `the table declaring a "dimensions" column carries no data row`; with `:3814` neutered
-     to `if (0) {`: **`<NONE>`**.
-   - the same table with **no delimiter row** and two data rows — HEAD: `…has no delimiter row
-     under its header`; with `:3838` neutered: **`<NONE>`**.
-   Both mutants turn a refusal into a clean pass, so neither arm is cosmetic.
-2. **Suite verdict under each mutant.** Full `lean-gate-selftest.sh`, env scrubbed
-   (`env -u CLAUDE_CODE_SESSION_ID -u LEAN_ATTEND_MODE -u LEAN_RUN_MODEL -u
-   LEAN_SPAWN_PERMISSION_MODE -u RUN_ID`), one mutant per worktree:
+### B3 (two fail-open shapes) — fixed, and I re-derived the kill rather than reading the claim
 
-   | tree | assertions | failures | suite rc |
-   | --- | ---: | ---: | ---: |
-   | unmutated baseline | 549 | 0 | 0 |
-   | `:3814` → `if (0) {` (no-data-row arm) | 549 | **0 — SURVIVES** | **0** |
-   | `:3838` → `if (0) {` (delimiter arm) | 549 | **0 — SURVIVES** | **0** |
+`plan_violations()` emits five malformed shapes; all five now have a `(dp*)` case — `(dp2)` no
+column, `(dp3)` empty cell, `(dp4)` short row, **`(dp10)` no data row**, **`(dp11)` no delimiter
+row**. Probed at `6cd599b9` in throwaway detached worktrees, never this checkout, serially, with
+`CLAUDE_CODE_SESSION_ID` / `LEAN_ATTEND_MODE` / `LEAN_RUN_MODEL` / `LEAN_SPAWN_PERMISSION_MODE` /
+`RUN_ID` / `SECOND_SHIFT_CONFIG` scrubbed. Each mutant is the catalog row's own `sed -E`
+expression, verified to rewrite exactly one line and to leave the file parsing under `bash -n`:
 
-   The `(dp*)` block ran identically in all three (same 12 assertions, all green) — the mutants are
-   inside the block's blast radius and it does not see them.
+| tree | mutant | passes | failures | terminal |
+| --- | --- | ---: | ---: | --- |
+| baseline | — | **551** | 0 | `all green` |
+| `lean-plan-no-data-row-waived` | the `carries no data row` arm → `if (0) {` | 550 | **1 — exactly `(dp10)`** | `1 FAILURE(S)` |
+| `lean-plan-delimiter-arm-waived` | `if (rowno == 2)` → `if (rowno == -1)` | 550 | **1 — exactly `(dp11)`** | `1 FAILURE(S)` |
 
-The no-data-row shape is not an exotic one. It is the ticket's own headline failure restated: the
-issue was filed on *"a plan that records no control dimensions at all"*, and a `dimensions` table
-with a header and no rows is exactly that, passing the gate written to catch it. Two `(dp*)` cases
-in the shape of `(dp3)`/`(dp4)` close it.
+Both rows are live, each new case is the sole killer of its row, and the baseline reproduces the
+551 the PR body claims.
 
-### W1 — the declined-coupling note is one-directional
+**The detail that makes these cases correct, and it is not incidental.** Under the no-data-row
+mutant the gate still exits **rc=1** — the plan reads complete, so `design_plan_gate` walks on to
+the stale-stamp block and refuses there instead. I captured the refusal it actually printed:
 
-`docs/testing.md:782-791` (and the mirroring comment at `lean-gate-selftest.sh`'s `dplan_sync`)
-justify not excluding the plan from `render_patch_id()` with: *"it only goes stale when non-plan,
-non-receipt code moved — which stales the receipt anyway."* That is true of `plan_patch_id()`. The
-reverse is unstated and does happen: the plan **is** inside `render_patch_id()`, so a plan-only
-commit — filling a `why this component` cell after a plan-review finding, no code change — moves
-the render id and restales the receipt, forcing a full re-render nothing else asked for. No
-livelock (the receipt is excluded from both identities, so it settles in one pass), and D-10's
-lockstep rationale against `check-lean-chain.sh` still carries the decision on its own. The note
-just claims more than the code delivers; one sentence.
+> ✗ milestone-3: the translation plan `docs/plans/acme-55-lean-plan.md` was written against
+> different code — its 'planned_from' has been re-stamped to `aced9388f4dc`.
 
-### W2 — the case count is stated three ways
+A `(dp*)` case asserting only `[ "$rc" -eq 1 ]` would have scored that as a kill while the shape
+stayed fail-open. Both new cases assert the **refusal text**, which is what catches it. `(dp11)`
+carrying two data rows is right for the mirror-image reason: with one row, `rowno` never reaches 3,
+so the mutant falls through to `endtable()`'s no-data-row arm and the plan is still refused —
+fail-closed with the wrong message rather than fail-open. Two rows is the shape a real plan has and
+the only one where the arm is genuinely open.
 
-PR body: "gains 12 `(dp*)` cases". Commit `63e181aa`'s `Guard-mass:` trailer: "11
-lean-gate-selftest cases". Measured: **10 case ids** (`dp0`–`dp9`) carrying **12** pass/fail
-assertions. Separately, the PR body enumerates the covered malformed shapes as "(missing column,
-empty cell, short row, **no delimiter**, no header line)" — there is no delimiter-row case (B3).
+## Round-1 warnings — both closed
 
-## Recorded, not blocking
+- **W1 (the one-directional coupling note).** `docs/testing.md:788-799` now states the direction it
+  was silent on, and the code agrees: `render_patch_id()` excludes only `$VERDICT_REL` and
+  `$RENDER_MANIFEST_REL`, so the plan sits inside it and a plan-only commit does restale the
+  receipt; `plan_patch_id()` additionally excludes `$PLAN_MANIFEST_REL`. The receipt is excluded
+  from both, which is what makes it converge in one pass instead of looping — the note says
+  exactly that.
+- **W2 (the case count stated three ways).** Now stated once and correct. Measured at
+  `6cd599b9`: **12** unique `(dp*)` ids (`dp0`–`dp11`) carrying **14** `pass` assertions. The
+  fix commit's `Guard-mass:` trailer says "12 `(dp*)` case ids carrying 14 assertions".
 
-- **`pr-gates` is red on step 7 only** — *lean chain reconciliation*, which requires
-  `verdict=approve`. Expected state for an unreviewed lean PR, not a finding. Steps 3-6 (frozen
-  files, `Changelog:` trailer, guard budget, pipeline chain reconciliation) are all green.
-- **`mutation-sweep-pr` is green in 12s and graded nothing here.** `lean-gate-selftest.sh` is
-  slow-listed in `tools/selftest-suite-timings.tsv`, so the PR-lane sweep defers it. I probed both
-  new catalog rows by hand instead, same isolated-worktree method as B3:
-  - `lean-plan-arm-uncalled` (`design_plan_gate; rc=$?` → `rc=0`) — **killed**: 539/549, 10
-    failures (`dp1`-`dp8` and their partners), suite rc 10.
-  - `lean-plan-empty-cell-waived` (`if (cell[i] == "") {` → `if (0) {`) — **killed**: 548/549,
-    1 failure, exactly `(dp3)`, suite rc 1.
-  Both rows are live and precisely anchored; the PR body's hand-probe claim reproduces.
-- **A panel finding I dismissed.** maintainability-reviewer reported, at confidence 92, a literal
-  `[REDACTED]` placeholder in the comment at `lean-gate.sh:3953`, citing its own `git show`.
-  Measured: `grep -c 'REDACTED'` returns **0** against both the worktree file and the committed
-  blob `4343498b:plugins/dev-pipeline/skills/build-lean/lean-gate.sh`. It is an artifact of the
-  reviewing harness's output filter, which also rewrote the `(dpN)` case ids in my own selftest
-  logs. No defect. Security, performance, complexity, test-coverage and scope-completeness
-  returned zero findings each.
+## Per-`AC-n` scoring
 
-## Acceptance criteria
-
-Scored against the committed spec `docs/plans/second-shift-694-lean.md`, every `AC-n` re-derived
-this round.
+Every `AC-n` is scored against the whole spec, not the delta.
 
 | AC | Score | Evidence |
 | --- | --- | --- |
-| AC-1 — armed spec owes a committed, `planned_from`-stamped plan at `<plansDir>/<key>-lean-plan.md`; milestone 3 refuses before the render pass on absence / malformed table / stale binding; same arming predicate and `design_was_armed` lock | **satisfied** | `PLAN_MANIFEST_REL` (`lean-gate.sh:830`), `plan_patch_id()` (`:982`), `design_plan_gate()` (`:3884`) called as the first statement of the ARMED block in `cmd_3_render` (`:3960`), after the `design_state()` case and after the `armed` record is appended. `(dp0)` pins the AND half of arming, `(dp1)` absence on the absent budget, `(dp6)` the stamp-and-commit cycle reds before the harness is called once, `(dp7)` staleness converging, `(dp8)` the disarm lock. `scenario-liveness-selftest.sh`'s `(lean-design-plan)` composes it. |
-| AC-2 — plan review reports a control-bearing screen whose plan records no dimension row; inverted to the silent case | **satisfied** | `figma-faithful-plan-reviewer.md:88` (with `:32`) adds a `[Blocker]` on "no dimension row at all", alongside the retained repeating/wrapping-group `[Warning]`. |
-| AC-3 — plan review reports a component whose rendered affordances exceed the frame with no note that it is intended | **satisfied** | New `### Component-resolution suitability` section, `figma-faithful-plan-reviewer.md:92-110`; the affordance-excess and name-match-only `[Blocker]`s. |
-| AC-4 — every deferral in the family names a lane-reachable owner or says none exists; none names a target that `N/A`s every lean-lane input; none names a gate that does not exist | **unsatisfied** | B2: `figma-faithful-reviewer.md:39` still names the non-existent pixel-diff gate. B1: the two rewrites that did land name their owner with a token `docs/namespaces.md` rule 3(a) forbids in a toolkit, and CI is red on it. The interactive-lane-only marking of `figma-faithful-spec-reviewer` and the "copy capture has no lean-lane owner" statement are both correct and are the good half of this AC. |
-| AC-5 — `figma-faithful` step 7 describes the artifact (path, tables, `planned_from`) and the asserting milestone | **satisfied** | `figma-faithful/SKILL.md:179-213` — path, the stamp cycle including the re-read obligation, both required columns, the every-cell/no-short-row rule, and the explicit statement that nothing here checks correctness. Replaces the #693 placeholder. |
-| AC-6 — `lean-gate-selftest.sh` covers AC-1 (arming, absence, **each malformed shape**, the stamp cycle, staleness, the disarm lock) and `scenario-liveness-selftest.sh` carries the composed leg | **unsatisfied** | The liveness leg is present and real (`(lean-design-plan)`, both halves). Three of five malformed shapes are covered; two are not, and both fail open — B3, measured. |
-| AC-7 — `docs/live-render.md` and `build-lean/SKILL.md` describe the plan gate where they describe the render receipt | **satisfied** | `docs/live-render.md:112-133` (the plan first, then the render, with the budget split); `build-lean/SKILL.md:27`. |
+| **AC-1** — the plan is a committed artifact at `<plansDir>/<key>-lean-plan.md` with a gate-stamped `planned_from:`; milestone 3 refuses **before the render pass** on absence / missing-or-empty table / stale binding; same arming predicate and `design_was_armed` lock as the render lane | **satisfied** | `design_plan_gate; rc=$?` is called at `lean-gate.sh:3960`, ahead of the `LR_COMMAND` check and every render call — the ordering is in the code, not only in the docs. `(dp0)` is the AND executioner (armed spec read through a no-design config must not mention a plan); `(dp8)` pins the disarm lock; `(dp5)`–`(dp7)` the stamp cycle and staleness convergence. All green in my scrubbed 551/551 baseline. |
+| **AC-2** — the sizing check fires on the SILENT case (no dimension rows at all), not only on a repeating/wrapping group | **satisfied** | `figma-faithful-plan-reviewer.md`: new `[Blocker]` for "a plan for a **control-bearing screen** … that records **no dimension row at all**", explicitly labelled the silent case, with the pre-existing repeating/wrapping-group `[Warning]` retained beside it rather than replaced. |
+| **AC-3** — a component whose rendered affordances exceed what the frame draws, with no intended-note, is reported | **satisfied** | New `### Component-resolution suitability` section, `[Blocker]` on excess affordances (steppers, chevrons, clear buttons) with no note and no suppressing prop, plus a `[Blocker]` on a resolution stated only as a name match. The section substitutes "what the plan describes the node as being" for "what the frame draws" — a real narrowing, but a **stated** one: its own preamble says "You have no Figma access, so you cannot confirm a component matches the frame", and the spec's *Explicitly out of scope* already says neither reviewer verifies a recorded value against the design. Declared, not silent. |
+| **AC-4** — every deferral in the reviewer family names a lane-reachable owner or says none exists; none names an `N/A`-on-every-lean-input target; none names a gate that does not exist | **satisfied** | Grep of the construct across `plugins/`: no family member defers to a pixel-diff gate. Component *identity* is marked interactive-lane-only with its reason (`figma-faithful-spec-reviewer` `N/A`s every lean-lane spec) and its *suitability* half taken locally; copy *capture* is stated to have **no** lean-lane owner rather than handed to an agent that would `N/A` it. The named owner's contract exists (`review-lean/SKILL.md:70-84`, enforced at `lean-gate.sh:3155`). The plan reviewer's own input recognizer was widened to accept the lean-lane artifact — a recognizer narrower than the artifact would have been the same dropped check one level down. `docs/live-render.md:178` is W1 and is outside this AC's declared family. |
+| **AC-5** — step 7 describes the artifact (path, tables, `planned_from`) and the asserting milestone, replacing #693's placeholder | **satisfied** | `figma-faithful/SKILL.md` §7 now carries the path derivation, the `planned_from: pending` header and what the gate does with it, both required columns, the every-cell/no-short-row rule with its rationale, and the "refuses **before** the render pass" ordering. |
+| **AC-6** — `lean-gate-selftest.sh` covers arming, absence, **each** malformed shape, the stamp cycle, staleness and the disarm lock; `scenario-liveness-selftest.sh` carries the composed leg | **satisfied** | 12 ids / 14 assertions; all five `plan_violations()` shapes now have a case (this was round 1's B3, re-derived by probe above). `scenario-liveness-selftest.sh` gains `(lean-design-plan)`: three refusals with `rcs=111`, `attempts=0`, `armed=1` and no `lean-renders/88` directory — proving the order, the absent-budget economics and the arming lock in composition — then the same chain walking into the render pass once the plan is committed. |
+| **AC-7** — `docs/live-render.md` and `build-lean/SKILL.md` describe the plan gate where they describe the render receipt | **satisfied** | `docs/live-render.md` §"What the gate does when armed — first, the translation plan" (+22 lines) covers the artifact, the budget split and the deliberate absence of a merge-boundary arm, with "**Then the render.**" following. `build-lean/SKILL.md:27` step 6 now names the plan clause ahead of the receipt clause in one sentence. Neither reads as the complete armed contract while omitting half of it. |
 
-## Strengths
+## Recorded, not blocking
 
-- **The three-identity derivation is the strongest thing here.** `plan_patch_id()` is structurally
-  identical to `render_patch_id()` — same merge-base, same `patch-id --stable`, same
-  print-nothing-on-failure contract — with each of its three exclusions independently motivated,
-  and the declined symmetric change on `render_patch_id()` is recorded in `docs/testing.md`'s
-  *Couplings considered and declined* rather than left for a future reader to rediscover. The
-  `#436` skew it avoids is real and is invisible from either side.
-- **The budget split is applied, not asserted.** Absence / missing header / stale stamp are
-  `block_milestone`, a malformed table is `fail_milestone`, and `(dp1)` and `(dp2)` pin the
-  attempt counter on each side rather than just the exit code.
-- **`dplan_sync()` stamps through production.** The fixture never derives a patch id itself, and
-  the comment says why — it would agree with a broken gate forever. It also save-and-restores the
-  real progress file so the attempt counters the other cases assert on stay byte-identical. That
-  is the harder and correct construction.
-- **The fenced-example carve-out was found by probing.** `(dp9)` exists because a plan quoting the
-  shape the gate's own refusal tells you to write would otherwise be refused for quoting it — the
-  one red an author cannot act on.
-- **Both new mutation-catalog rows are precisely anchored**, and the bracket-expression fix for
-  BSD `sed -E` (`[$][?]`) is the right call, not a workaround.
-
-## Re-entry
-
-B1 and B2 are prose edits in `plugins/design-toolkit/`; B3 is two `(dp*)` cases modelled on
-`(dp3)`/`(dp4)`. None of the three touches `lean-gate.sh`'s executable surface, so a round-2 delta
-should be small. Fixing B1 will turn `lint-and-selftests` green; `pr-gates` stays red until a
-verdict of `approve` exists, by design.
+- **`pr-gates` is red on step 7 alone** — *lean chain reconciliation*, which requires
+  `verdict=approve`. Expected state for an unreviewed lean PR. Steps 3–6 — frozen files,
+  `Changelog:` trailer, **guard budget**, pipeline chain reconciliation — are all **success**, so
+  the `Guard-mass: +551` trailer is accepted. `lint-and-selftests` and
+  `selftests (macos, bash 3.2)` are both green at this head.
+- **`mutation-sweep-pr` is green in 12s and graded nothing.** `lean-gate-selftest.sh` is
+  slow-listed in `tools/selftest-suite-timings.tsv`, so the PR-lane sweep defers it — the two new
+  catalog rows have no CI oracle on this lane. That is why they were probed by hand above rather
+  than credited to a green check.
+- **All four `lean-plan-*` catalog seds apply cleanly under `sed -E`**, each rewriting exactly one
+  line: `lean-plan-arm-uncalled` (`lean-gate.sh:3960`), `lean-plan-empty-cell-waived` (`:3851`),
+  `lean-plan-no-data-row-waived` (`:3814`), `lean-plan-delimiter-arm-waived` (`:3836`). No
+  syntax-broken mutant, so no vacuous kill.
+- **`scripts/gate-buckets.tsv` +7 rows, `docs/prose-blocker-triage.tsv` +3 rows**, all present and
+  anchored; the guards that validate them are inside the green `lint-and-selftests` job.
+- **The `[REDACTED]` strings are the session's output filter, not file content.** They appear in
+  tool output for `scenario-liveness-selftest.sh:1391` and `lean-gate.sh:3953`; `grep -c REDACTED`
+  returns **0** for both files. Round 1 hit the same artifact and dismissed a confidence-92 panel
+  finding on it.
+- **The toolkit → dev-pipeline prose coupling deepens, legitimately.** `docs/namespaces.md` rule 3
+  reads "the four toolkits never reference dev-pipeline", but its CI enforcement is two greps —
+  the `dev-pipeline:` token and `dev-pipeline/` paths — and design-toolkit content now carries a
+  good deal of lean-lane vocabulary (`review-lean`, the render receipt, milestone 3, `RS-n`,
+  `<plansDir>/<key>-lean-plan.md`, `bash G 1 <issue>`). It greps clean and it is unavoidable:
+  AC-4 requires naming an owner that runs on the lean lane, and AC-5 requires publishing the
+  artifact's path. Main already carries the same shape (`review-lead/SKILL.md:190`,
+  `plan-interview/SKILL.md:61`). Recorded because the volume changed, not because this diff broke
+  a rule.
+- **Tree pristine at the time of writing.** All probing ran in throwaway detached worktrees;
+  this checkout is clean against `origin/claude/second-shift-694`, so `reviewed_patch_id` hashes
+  the pushed patch and nothing else.
