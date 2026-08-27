@@ -1289,8 +1289,53 @@ LEANDCFG
   lean_dgate() { ( unset RUN_ID GH_BOT; cd "$LEAN_DTREE" && SECOND_SHIFT_CONFIG="$LEAN_DCFG" LEAN_PROGRESS_FILE="$LEAN_DPROG" \
                    CLAUDE_CODE_SESSION_ID="$LEAN_DSID" GH="${GH:-$LEAN_GH}" \
                    bash "$LEAN_GATE" --issue-file "$LEAN_ISSUE_NOREGIONS" "$@" 2>&1 ); }
+  # The armed ticket's translation plan (#694) and its sync. Every armed milestone-3 call below
+  # reaches the render pass only through the plan gate, so the plan has to be committed and
+  # current whenever the tree moves — otherwise the design legs would compose over a red they
+  # never meant to assert. The stamp comes from PRODUCTION: the gate writes `planned_from`, this
+  # never derives a patch id, which would be the mirror harness docs/testing.md forbids.
+  LEAN_DPLAN="$LEAN_DTREE/docs/plans/acme-88-lean-plan.md"
+  LEAN_DSYNCCFG="$TMP/lean-config-design-nosync.json"
+  LEAN_DSYNCPROG="$TMP/lean-progress-design-presync.md"
+  cat > "$LEAN_DSYNCCFG" <<LEANSYNCCFG
+{
+  "tracker": { "branchPrefix": "claude/acme-", "labels": { "queue": "ready-for-dev", "claimed": "in-progress" } },
+  "topology": { "repos": { "acme": { "path": ".", "baseBranch": "main" } } },
+  "paths": { "plansDir": "docs/plans", "pipelineStateDir": ".claude/pipeline-state" },
+  "commands": { "acme": { "lint": null, "typecheck": null, "test": null, "allowUnverified": true } },
+  "design": { "provider": "figma" }
+}
+LEANSYNCCFG
+  lean_dplan_write() {
+    {
+      printf '# translation plan — acme #88\n\nplanned_from: pending\n\n'
+      printf '| node | repo component | why this component |\n| --- | --- | --- |\n'
+      printf '| Filter panel | @acme/ui Drawer | the frame draws a right-edge sheet over a scrim |\n\n'
+      printf '| node | dimensions | overflow |\n| --- | --- | --- |\n'
+      printf '| Filter panel | fixed 320px wide, hug height | none |\n'
+    } > "$LEAN_DPLAN"
+  }
+  # Save-and-restore the REAL progress file: milestone 3 is only reachable through the entry
+  # attestation lean_dseed writes, so a fresh one would refuse before the plan pass and stamp
+  # nothing — silently. Restoring keeps the attempt/lock counters the legs assert on identical.
+  lean_dplan_sync() {
+    [ -f "$LEAN_DPLAN" ] || return 0
+    git -C "$LEAN_DTREE" rev-parse --verify -q refs/remotes/origin/main >/dev/null 2>&1 || return 0
+    cp "$LEAN_DPROG" "$LEAN_DSYNCPROG" 2>/dev/null || return 0
+    ( unset RUN_ID GH_BOT CLAUDE_CODE_SESSION_ID; cd "$LEAN_DTREE" \
+      && SECOND_SHIFT_CONFIG="$LEAN_DSYNCCFG" LEAN_PROGRESS_FILE="$LEAN_DPROG" \
+         CLAUDE_CODE_SESSION_ID="$LEAN_DSID" GH="${GH:-$LEAN_GH}" \
+         bash "$LEAN_GATE" --issue-file "$LEAN_ISSUE_NOREGIONS" 3 88 ) >/dev/null 2>&1
+    mv "$LEAN_DSYNCPROG" "$LEAN_DPROG" 2>/dev/null
+    if ! git -C "$LEAN_DTREE" diff --quiet HEAD -- docs/plans/acme-88-lean-plan.md 2>/dev/null \
+       || [ -z "$(git -C "$LEAN_DTREE" log -1 --format=%H -- docs/plans/acme-88-lean-plan.md 2>/dev/null)" ]; then
+      git -C "$LEAN_DTREE" add docs/plans/acme-88-lean-plan.md >/dev/null 2>&1
+      git -C "$LEAN_DTREE" commit -q -m "stamp the translation plan" >/dev/null 2>&1
+    fi
+  }
   lean_dcommit() { git -C "$LEAN_DTREE" add -A >/dev/null 2>&1
-                   git -C "$LEAN_DTREE" commit -q --allow-empty -m "${1:-lean design fixture}" >/dev/null 2>&1; }
+                   git -C "$LEAN_DTREE" commit -q --allow-empty -m "${1:-lean design fixture}" >/dev/null 2>&1
+                   lean_dplan_sync; }
   lean_dseed() { rm -f "$LEAN_DPROG"
                  { echo "# lean run — issue 88"; echo ""; echo "run_id: r-lean-d"; echo "session_id: sess-lean-d-build"; } > "$LEAN_DPROG"
                  lean_dgate entry 88 >/dev/null 2>&1; }
@@ -1319,6 +1364,34 @@ LEANDCFG
   git -C "$LEAN_DTREE" update-ref refs/remotes/origin/main HEAD
   printf 'the work\n' > "$LEAN_DTREE/subject.txt"
   lean_dcommit "the build session pushes the armed spec"
+
+  # ---- design leg 0: the translation plan gates the render pass (#694) -------------------
+  # The plan used to be prose a build session emitted and then implemented against — nothing on
+  # this lane read it, so both checks written to grade it reached nothing. What only a composed
+  # leg proves is the ORDER and the ECONOMICS: the refusal lands before the harness is called
+  # once, and it walks the absent budget rather than the fix budget, so an armed run does not
+  # spend two of its three milestone-3 attempts reaching its first screenshot.
+  lean_dseed
+  ld_prcs=""
+  for _ in 1 2 3; do lean_dgate 3 88 >/dev/null 2>&1; ld_prcs="$ld_prcs$?"; done
+  ld_pattempts=$(grep -cF '| milestone-3 | attempt |' "$LEAN_DPROG" 2>/dev/null) || ld_pattempts=0
+  ld_parmed=$(grep -cF '| milestone-3 | armed |' "$LEAN_DPROG" 2>/dev/null) || ld_parmed=0
+  [[ "$ld_prcs" == "111" && "$ld_pattempts" -eq 0 && "$ld_parmed" -eq 1 \
+     && ! -d "$LEAN_DTREE/.claude/lean-renders/88" ]] \
+    && pass "(lean-design-plan) an armed run with no translation plan reds before any render, arms the lock, and spends no fix attempt" \
+    || fail "(lean-design-plan) rcs=$ld_prcs attempts=$ld_pattempts armed=$ld_parmed rendered=$([[ -d "$LEAN_DTREE/.claude/lean-renders/88" ]] && echo yes || echo no)"
+
+  lean_dplan_write
+  lean_dcommit "the translation plan"
+  lean_dseed
+  ld_pok="$(lean_dgate 3 88 2>&1)"
+  if grep -q 'translation plan current' <<<"$ld_pok" && [[ -d "$LEAN_DTREE/.claude/lean-renders/88" ]]; then
+    pass "(lean-design-plan) …and once it is committed and stamped the SAME chain walks past it into the render pass"
+  else
+    fail "(lean-design-plan) the committed plan did not release the render pass: $ld_pok"
+  fi
+  rm -rf "$LEAN_DTREE/.claude/lean-renders/88"
+  rm -f "$LEAN_DTREE/docs/plans/acme-88-lean-renders.md"
 
   # ---- design leg 1: a blocking render red walks the SAME budget to the hard stop --------
   # D-2's whole point: there is no degraded state, so an unreachable render harness spends the

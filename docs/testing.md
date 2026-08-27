@@ -779,6 +779,18 @@ coupling rather than mechanizing it into a guard that cannot fail.
   the property itself — the suite's gh stub fails loudly on an unstubbed call, so a milestone call
   that grew a tracker read would surface as a named stub miss rather than as a silent socket.
 
+- **`render_patch_id()` ↔ `check-lean-chain.sh`'s render-id computation, on the #694 plan
+  exclusion.** The gate now derives a THIRD identity, `plan_patch_id()`, which excludes the verdict
+  record, the render receipt and the translation plan. The symmetric change — teaching
+  `render_patch_id()` to exclude the plan too — was considered and **declined**: that function is
+  mirrored at the merge boundary by a reader that cannot see this file, so a consumer pinned to an
+  older boundary ref would red every armed PR whose branch carries a plan, and the skew is
+  invisible from either side (the #436 shape). It is also unnecessary. The plan is asserted BEFORE
+  the render pass, so it is committed before a receipt exists to restale, and it only goes stale
+  when non-plan, non-receipt code moved — which stales the receipt anyway. **Behaviorally
+  guarded**: `lean-gate-selftest.sh`'s `(dp7)` pins that the stamp converges rather than looping,
+  and `(di*)` still pin the receipt's idempotence across the same commits.
+
 - **preflight ↔ gate zero-verifying-lane predicate.** Real against `lean-gate.sh` milestone 3,
   which reds naming the opt-out where `preflight.sh` only warns. preflight computes an aggregated
   VERIFYING count inline; the gate reads `allowUnverified`/`lanes`/`extraLanes` into separate

@@ -3708,11 +3708,86 @@ dcfg() { # dcfg <liveRender-command-or-empty> [cwd]
 }
 EOCFG
 }
+DPLAN="$DTREE/docs/plans/acme-55-lean-plan.md"
+DSYNCCFG="$WORK/dsync-config.json"
+DSYNCPROG="$WORK/dsync-progress.md"
+
 DSTUB_CMD="bash $DSTUB --route {route} --state {state} --out {out}"
+
+# The design config dplan_sync() reads: armed, but with NO liveRender command, so the gate stops
+# at the harness check the instant the plan pass is satisfied. Syncing must never render into
+# fixture state the cases below assert on.
+cat > "$DSYNCCFG" <<EOSYNC
+{
+  "tracker": { "branchPrefix": "claude/acme-", "labels": { "queue": "ready-for-dev", "claimed": "in-progress" } },
+  "topology": { "repos": { "acme": { "path": ".", "baseBranch": "main" } } },
+  "paths": { "plansDir": "docs/plans", "pipelineStateDir": ".claude/pipeline-state" },
+  "commands": { "acme": { "lint": null, "typecheck": null, "test": null, "allowUnverified": true } },
+  "design": { "provider": "figma" }
+}
+EOSYNC
+
+# The armed ticket's translation plan (#694), conforming: a `why this component` table and a
+# `dimensions` table, every cell filled, and the `planned_from:` line the gate stamps.
+dplan_write() {
+  {
+    echo "# translation plan — acme #55"
+    echo ""
+    echo "planned_from: pending"
+    echo ""
+    echo "## Resolved components"
+    echo ""
+    echo "| node | repo component | why this component |"
+    echo "| --- | --- | --- |"
+    echo "| Filter panel | @acme/ui Drawer | the frame draws a right-edge sheet over a scrim |"
+    echo ""
+    echo "## Dimensions"
+    echo ""
+    echo "| node | dimensions | overflow |"
+    echo "| --- | --- | --- |"
+    echo "| Filter panel | fixed 320px wide, hug height | none |"
+  } > "$DPLAN"
+}
+
+# Bring `planned_from` current using PRODUCTION — the gate stamps it, this never computes a patch
+# id itself. A selftest that derived the id would be the mirror harness docs/testing.md forbids,
+# and it would agree with a broken gate forever.
+#
+# It runs against the REAL progress file and restores it afterwards, rather than against a
+# throwaway one: milestone 3 is only reachable through the entry attestation `dreset` writes, so a
+# fresh progress file would refuse before the plan pass and stamp nothing — silently, leaving every
+# armed case below red on an artifact the fixture believed it had synced. Save-and-restore keeps
+# the attempt/absent counters the cases assert on byte-identical.
+#
+# It reads a design config with NO liveRender, so the gate stops at the harness check immediately
+# after the plan pass instead of rendering into fixture state other cases depend on.
+#
+# The stamp lands in its OWN commit. That is safe by construction: the plan is excluded from
+# plan_patch_id, so re-stamping never restales the stamp it just wrote, and it is excluded from
+# nothing else — a re-stamp moves render_patch_id, which is correct, because the plan only goes
+# stale when the code the receipt screenshotted moved too.
+dplan_sync() {
+  [ -f "$DPLAN" ] || return 0
+  git -C "$DTREE" rev-parse --verify -q refs/remotes/origin/main >/dev/null 2>&1 || return 0
+  cp "$DPROG" "$DSYNCPROG" 2>/dev/null || return 0
+  ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$DTREE" \
+    && SECOND_SHIFT_CONFIG="$DSYNCCFG" LEAN_PROGRESS_FILE="$DPROG" \
+       bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 3 55 ) >/dev/null 2>&1
+  mv "$DSYNCPROG" "$DPROG" 2>/dev/null
+  if ! git -C "$DTREE" diff --quiet HEAD -- docs/plans/acme-55-lean-plan.md 2>/dev/null \
+     || [ -z "$(git -C "$DTREE" log -1 --format=%H -- docs/plans/acme-55-lean-plan.md 2>/dev/null)" ]; then
+    git -C "$DTREE" add docs/plans/acme-55-lean-plan.md >/dev/null 2>&1
+    git -C "$DTREE" commit -q -m "stamp the translation plan" >/dev/null 2>&1
+  fi
+}
 
 dcommit() {
   git -C "$DTREE" add -A >/dev/null 2>&1
   git -C "$DTREE" commit -q --allow-empty -m "${1:-fixture}" >/dev/null 2>&1
+  # Every armed milestone-3 case below reaches the render pass only through the plan gate, so the
+  # plan has to be committed and current whenever the tree moves. A no-op unless the plan exists
+  # AND its binding actually went stale.
+  dplan_sync
 }
 dgate() { ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$DTREE" \
   && SECOND_SHIFT_CONFIG="$DCFG" LEAN_PROGRESS_FILE="$DPROG" bash "$GATE" --issue-file "$ISSUE_NOREGIONS" "$@" 2>&1 ); }
@@ -3905,6 +3980,162 @@ if [ "$rc" -eq 0 ] && grep -q '1 bound, 1 carried, 0 departure(s)' <<<"$out" \
    && grep -q 'design lane disarmed for this ticket' <<<"$out"; then
   pass "(a15) #517 AC-8: a DISARMED design lane does not clobber it either"
 else fail "(a15) expected rc=0 carrying BOTH the counts and the disarm note, got $rc: $out"; fi
+
+# ---- (dp) #694 AC-1: the TRANSLATION PLAN gate ---------------------------------------------
+# The plan was prose a build session emitted and implemented against — nothing read it, so both
+# checks written to grade it (per-node sizing, component suitability) reached nothing. These cases
+# pin the artifact contract that makes them reachable: it exists, both tables are fully populated,
+# it is committed, and it is dated against this branch's patch.
+#
+# THEY ALL RUN THE FULL RENDER CONFIG. A case that reds under a config with no harness could not
+# tell "the plan stopped it" from "there was nothing to render", so every red below is one the
+# render pass would otherwise have walked straight past.
+dcommit_raw() { # a tree move that does NOT re-stamp the plan — staleness is the subject here
+  git -C "$DTREE" add -A >/dev/null 2>&1
+  git -C "$DTREE" commit -q --allow-empty -m "${1:-fixture}" >/dev/null 2>&1
+}
+# The plan cases reach the render pass twice on their way through, so they leave a manifest and
+# PNGs behind. A later `git add -A` would COMMIT that manifest, and the (dr) happy path then writes
+# a byte-identical one, finds HEAD already carrying it, and reads as green — a case asserting the
+# commit refusal would pass while asserting nothing. Clear it before every tree move.
+dclear_render() { rm -f "$DMANIFEST" "$DCALLS"; rm -rf "$DTREE/.claude/lean-renders"; }
+
+# (dp0) THE AND EXECUTIONER, first. The same tree with no plan at all, read through the config
+# with no design axis: milestone 3 must not mention a translation plan. Under a section-only
+# reading of arming, every consumer that ever wrote `## Design` would owe this artifact.
+dreset
+dspec_armed
+rm -f "$DPLAN"
+dcommit_raw "the armed spec, no plan"
+dcfg "$DSTUB_CMD"
+out="$(dgate_nodesign 3 55)"; rc=$?
+if ! grep -q 'translation plan' <<<"$out"; then
+  pass "(dp0) a repo with no design.provider owes no translation plan (the AND half of D-8)"
+else fail "(dp0) the unarmed reader demanded a translation plan, rc=$rc: $out"; fi
+
+# (dp1) ARMED and absent. The red names the path and the two columns, and it is charged to the
+# ABSENT budget — #642's criterion: a red naming something the run was going to do anyway is not
+# a failed fix. Without that split an armed run spends two of its three attempts getting to a
+# first render.
+dreset
+out="$(dgate 3 55)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -qF 'docs/plans/acme-55-lean-plan.md' <<<"$out" \
+   && grep -qF 'why this component' <<<"$out" && grep -qF 'dimensions' <<<"$out" \
+   && grep -q 'not a fix attempt' <<<"$out" && [ "$(dcount '| milestone-3 | attempt |')" -eq 0 ]; then
+  pass "(dp1) an armed spec with no translation plan reds milestone 3, names the artifact, and spends no fix attempt"
+else fail "(dp1) rc=$rc attempts=$(dcount '| milestone-3 | attempt |'): $out"; fi
+
+# (dp2) present, but the resolved-component table never declares `why this component`. This is
+# the name-match resolution the ticket was filed on: a component resolved on a layer name, with
+# nobody ever asked why it is the right one.
+dreset
+dplan_write
+sed 's/| why this component |/| note |/' "$DPLAN" > "$DPLAN.tmp" && mv "$DPLAN.tmp" "$DPLAN"
+dcommit_raw "a plan with no why-this-component column"
+out="$(dgate 3 55)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'resolved-component list is absent' <<<"$out" \
+   && [ "$(dcount '| milestone-3 | attempt |')" -eq 1 ]; then
+  pass "(dp2) a plan with no 'why this component' column reds, and a written-but-wrong plan IS a fix attempt"
+else fail "(dp2) rc=$rc attempts=$(dcount '| milestone-3 | attempt |'): $out"; fi
+
+# (dp3) the EMPTY CELL, which is the spec reviewer's device and the whole point of the column
+# anchor: a dimension row that exists but records nothing is the silence being caught.
+dreset
+dplan_write
+sed 's/| Filter panel | fixed 320px wide, hug height | none |/| Filter panel |  | none |/' "$DPLAN" > "$DPLAN.tmp" && mv "$DPLAN.tmp" "$DPLAN"
+dcommit_raw "a plan with an empty dimensions cell"
+out="$(dgate 3 55)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'dimensions row 1 leaves column 2 empty' <<<"$out"; then
+  pass "(dp3) an empty cell in the dimension table reds, named by row and column"
+else fail "(dp3) expected the empty-cell refusal, rc=$rc: $out"; fi
+
+# (dp4) the SHORT ROW. GFM renders a missing trailing cell as blank, so deleting the cell would
+# otherwise be the one-character escape from (dp3).
+dreset
+dplan_write
+sed 's/| Filter panel | fixed 320px wide, hug height | none |/| Filter panel | fixed 320px wide, hug height |/' "$DPLAN" > "$DPLAN.tmp" && mv "$DPLAN.tmp" "$DPLAN"
+dcommit_raw "a plan with a short dimensions row"
+out="$(dgate 3 55)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'a short row is a missing cell' <<<"$out"; then
+  pass "(dp4) a row declaring fewer cells than its header reds — deleting the cell is not an escape"
+else fail "(dp4) expected the short-row refusal, rc=$rc: $out"; fi
+
+# (dp5) conforming tables, no `planned_from:` line. The gate refuses rather than inserting one:
+# it stamps a field the author declared, it never invents structure inside an authored artifact.
+dreset
+dplan_write
+grep -v '^planned_from:' "$DPLAN" > "$DPLAN.tmp" && mv "$DPLAN.tmp" "$DPLAN"
+dcommit_raw "a conforming plan with no planned_from header"
+out="$(dgate 3 55)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q "no 'planned_from:' header" <<<"$out" \
+   && grep -qF 'planned_from: pending' <<<"$out"; then
+  pass "(dp5) a plan with no 'planned_from:' line reds, naming the exact line to add"
+else fail "(dp5) expected the missing-header refusal with the remedy line, rc=$rc: $out"; fi
+
+# (dp6) THE STAMP CYCLE, and the case that proves the plan gate is what the render pass waits on.
+# Red one: the gate stamps and demands a commit, and NO render has happened. Red two: committed
+# and current, so the same evaluation walks past the plan into the render pass.
+dreset
+dplan_write
+dcommit_raw "the conforming plan"
+rm -f "$DCALLS"
+out="$(dgate 3 55)"; rc=$?
+dp_stamped="$(grep -oE '^planned_from: .+' "$DPLAN" | head -n1)"
+if [ "$rc" -eq 1 ] && grep -q 're-stamped to' <<<"$out" && [ "$dp_stamped" != "planned_from: pending" ] \
+   && [ "$(dcalls)" -eq 0 ]; then
+  pass "(dp6) an unstamped plan is stamped by the gate and reds before the harness is called once"
+else fail "(dp6) rc=$rc stamped='$dp_stamped' renders=$(dcalls): $out"; fi
+
+dcommit_raw "commit the stamp"
+dreset
+out="$(dgate 3 55)"; rc=$?
+if grep -q 'translation plan current' <<<"$out" && [ "$(dcalls)" -eq 2 ]; then
+  pass "(dp6) …and once committed the same evaluation passes the plan and reaches the render pass"
+else fail "(dp6) expected the plan to pass and both states to render, rc=$rc renders=$(dcalls): $out"; fi
+
+# (dp7) STALENESS (decision g). The plan was written against code that has since moved, so the
+# binding no longer says what it claims. It re-stamps and reds; committing that clears it.
+dclear_render
+dreset
+printf 'a later fix\n' >> "$DTREE/subject.txt"
+dcommit_raw "code moves under the plan"
+out="$(dgate 3 55)"; rc=$?
+dp_restamped="$(grep -oE '^planned_from: .+' "$DPLAN" | head -n1)"
+if [ "$rc" -eq 1 ] && grep -q 'RE-READ THE PLAN' <<<"$out" && [ "$dp_restamped" != "$dp_stamped" ]; then
+  pass "(dp7) a plan bound to code that has since moved reds and is re-stamped"
+else fail "(dp7) rc=$rc before='$dp_stamped' after='$dp_restamped': $out"; fi
+
+dcommit_raw "commit the re-stamp"
+dreset
+out="$(dgate 3 55)"; rc=$?
+if grep -q 'translation plan current' <<<"$out"; then
+  pass "(dp7) …and committing the re-stamp clears it, so the binding converges rather than looping"
+else fail "(dp7) the re-stamped plan did not settle, rc=$rc: $out"; fi
+
+# (dp8) THE STATE LOCK moved with the ordering (D-5). The plan pass now runs first, so it is the
+# pass that must write `| milestone-3 | armed |` — otherwise a plan that failed could be disarmed
+# away on the next attempt, which is exactly what the lock exists to refuse.
+dclear_render
+dreset
+rm -f "$DPLAN"
+dcommit_raw "the plan is removed again"
+dgate 3 55 >/dev/null 2>&1
+dp_armed="$(dcount '| milestone-3 | armed |')"
+{ printf '%s\n' '# spec' '' '- AC-1: the thing' '' '## Design' '' 'Design: none — reconsidered.'; } > "$DSPEC"
+dcommit_raw "a mid-run disarm after the plan red"
+out="$(dgate 3 55)"; rc=$?
+if [ "$dp_armed" -eq 1 ] && [ "$rc" -eq 1 ] && grep -q 'already armed it' <<<"$out"; then
+  pass "(dp8) a plan red still arms the lane, so the disarm state-lock refuses the escape it exists for"
+else fail "(dp8) armed=$dp_armed rc=$rc: $out"; fi
+
+# Leave the fixture where the (dr) cases expect it: armed spec, conforming committed plan, and no
+# render evidence — committed OR in the tree, per dclear_render's header.
+dspec_armed
+dplan_write
+dclear_render
+dcommit_raw "restore the armed spec and its plan, clearing the render evidence"
+dplan_sync
+dclear_render
 
 # ---- (dr) AC-3: the render pass ----------------------------------------------------------
 # (dr7) the template must carry {out} — there is otherwise nowhere for a screenshot to land.

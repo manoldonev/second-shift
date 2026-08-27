@@ -822,6 +822,12 @@ INTENT_GAP_REL="$PLANS_DIR/$REPO_SLUG-$ISSUE-lean-intent-gap.md"
 # spec on the boundary's artifact arm. Same reasoning that gave the verdict record its own
 # suffix. check-lean-chain.sh pins this suffix independently — it cannot see this derivation.
 RENDER_MANIFEST_REL="$PLANS_DIR/$REPO_SLUG-$ISSUE-lean-renders.md"
+# The TRANSLATION PLAN (#694), the design lane's other committed artifact. Same suffix reasoning
+# as the render receipt above — `-lean-plan.md` must not end in `-lean.md`, or the boundary's
+# first-match spec scan would pick it up and call it the spec. Unlike the render receipt this
+# suffix is NOT pinned by check-lean-chain.sh: nothing at the merge boundary reads the plan
+# (D-12), and a name pinned there would read as coverage this repo does not have.
+PLAN_MANIFEST_REL="$PLANS_DIR/$REPO_SLUG-$ISSUE-lean-plan.md"
 PROGRESS_FILE="${LEAN_PROGRESS_FILE:-$MAIN_ROOT/$STATE_DIR/$ISSUE-lean-progress.md}"
 
 # ---------------------------------------------------------------- RUN_ID persistence
@@ -950,6 +956,34 @@ render_patch_id() { # render_patch_id <head-ish>
   base="$(git -C "$REPO_ROOT" merge-base "origin/$BASE_BRANCH" "$1" 2>/dev/null)" || return 0
   [ -n "$base" ] || return 0
   id="$(git -C "$REPO_ROOT" diff "$base" "$1" -- . ":(exclude)$VERDICT_REL" ":(exclude)$RENDER_MANIFEST_REL" 2>/dev/null \
+    | git -C "$REPO_ROOT" patch-id --stable 2>/dev/null | cut -d' ' -f1)"
+  printf '%s' "$id"
+}
+
+# The PLAN binding (#694): the same identity again, with the render receipt AND the plan itself
+# excluded. Three exclusions rather than two, and each one is forced by a different livelock.
+#
+# ITSELF, for the reason the two above are excluded from their own readers: the gate STAMPS
+# `planned_from` into this file, so an id computed over it would be stale the instant the stamp
+# it recorded was committed, and milestone 3 would re-stamp forever.
+#
+# THE RENDER RECEIPT, because the render pass rewrites it on every code change. Without this the
+# plan would go stale each time a receipt was committed, and re-asserting the plan is not what a
+# fresh screenshot means.
+#
+# `render_patch_id` deliberately does NOT gain the symmetric third exclusion. Its computation is
+# mirrored by scripts/check-lean-chain.sh, which cannot see this file; a consumer pinning an older
+# boundary ref would then red every armed PR whose branch carries a plan. The ordering makes the
+# exclusion unnecessary anyway — the plan is asserted and committed BEFORE the render pass ever
+# computes an id, so committing it never restales a receipt that does not yet exist (D-10).
+#
+# Prints NOTHING when unresolvable, and every caller must treat that as a refusal — same contract
+# as branch_patch_id above, and for the same reason: two failed computations compare EQUAL.
+plan_patch_id() { # plan_patch_id <head-ish>
+  local base id
+  base="$(git -C "$REPO_ROOT" merge-base "origin/$BASE_BRANCH" "$1" 2>/dev/null)" || return 0
+  [ -n "$base" ] || return 0
+  id="$(git -C "$REPO_ROOT" diff "$base" "$1" -- . ":(exclude)$VERDICT_REL" ":(exclude)$RENDER_MANIFEST_REL" ":(exclude)$PLAN_MANIFEST_REL" 2>/dev/null \
     | git -C "$REPO_ROOT" patch-id --stable 2>/dev/null | cut -d' ' -f1)"
   printf '%s' "$id"
 }
@@ -3732,6 +3766,154 @@ render_bytes_ok() {
   [ "$n" -gt 0 ]
 }
 
+# ---- the armed TRANSLATION PLAN (#694) --------------------------------------------------------
+# `figma-faithful` step 7 has always emitted a translation plan — the completed token table, the
+# placement decision, the resolved-component list, the analog, the file list — and called it "the
+# cheapest place to catch a wrong token row". Nothing read it. It was prose a build session emitted
+# and then implemented against, so both checks written to grade it reached nothing: the plan
+# reviewer's only sizing finding is scoped to a repeating/wrapping group, and component-resolution
+# suitability was deferred to an agent that returns N/A on every lean-lane spec.
+#
+# WHAT THIS ARM BUYS, stated as narrowly as #693's evidence table states its own: not fidelity, and
+# not that the plan is right. It makes the plan a COMMITTED, PATCH-BOUND artifact with two tables
+# whose cells cannot be silently empty. An omission then reads as an empty cell instead of an
+# absent thought, which is the spec reviewer's own device, and the reviewer checks that grade the
+# plan's substance finally have something that is guaranteed to be there.
+#
+# COLUMN-ANCHORED, not heading-anchored (D-2). What is load-bearing is the CELL — "a resolved
+# component with no `why this component`" and "a screen with no `dimensions`" are the two silences
+# being caught — so the predicate keys on the column that must exist rather than on a heading name
+# nobody agreed to. One rule, and a plan may lay its sections out however it likes.
+PLAN_COMPONENT_COLUMN="why this component"
+PLAN_DIMENSION_COLUMN="dimensions"
+
+# The plan's violations, one human-readable line each; EMPTY output is a conforming plan.
+#
+# A SHORT ROW IS A VIOLATION, and deliberately so: GFM lets a row declare fewer cells than its
+# header and renders the remainder blank, so "delete the trailing empty cell" would otherwise be
+# the one-character escape from the check this whole arm exists to make.
+#
+# Table detection is local and needs no lookahead — a run of consecutive leading-`|` lines is a
+# table, anything else ends it. Row 1 is the header, row 2 the delimiter, the rest are data.
+plan_violations() { # plan_violations <plan-path>
+  [ -f "$1" ] || return 0
+  awk -v want_c="$PLAN_COMPONENT_COLUMN" -v want_d="$PLAN_DIMENSION_COLUMN" '
+    function trim(x) { gsub(/^[[:space:]]+|[[:space:]]+$/, "", x); return x }
+    function cells_of(line,   body, n) {
+      body = line; sub(/^\|/, "", body); sub(/\|$/, "", body)
+      n = split(body, cell, "|")
+      for (i = 1; i <= n; i++) cell[i] = trim(cell[i])
+      return n
+    }
+    function endtable() {
+      if (intab && want != "" && rowno < 3) {
+        printf "the table declaring a \"%s\" column carries no data row\n", want
+      }
+      intab = 0; want = ""; rowno = 0; hdrn = 0
+    }
+    {
+      line = trim($0)
+      if (line !~ /^\|/) { endtable(); next }
+      if (!intab) { intab = 1; rowno = 0; want = ""; hdrn = 0 }
+      rowno++
+      n = cells_of(line)
+      if (rowno == 1) {
+        hdrn = n
+        for (i = 1; i <= n; i++) {
+          if (tolower(cell[i]) == want_c) { want = want_c; seen_c = 1 }
+          if (tolower(cell[i]) == want_d) { want = want_d; seen_d = 1 }
+        }
+        next
+      }
+      if (want == "") next
+      if (rowno == 2) {
+        for (i = 1; i <= n; i++) {
+          if (cell[i] !~ /^:?-{3,}:?$/) {
+            printf "the table declaring a \"%s\" column has no delimiter row under its header\n", want
+            want = ""
+            break
+          }
+        }
+        next
+      }
+      if (n < hdrn) {
+        printf "%s row %d declares %d cell(s) where its header declares %d — a short row is a missing cell\n", want, rowno - 2, n, hdrn
+        next
+      }
+      for (i = 1; i <= n; i++) {
+        if (cell[i] == "") {
+          printf "%s row %d leaves column %d empty\n", want, rowno - 2, i
+        }
+      }
+    }
+    END {
+      endtable()
+      if (!seen_c) printf "no table declares a \"%s\" column — the resolved-component list is absent\n", want_c
+      if (!seen_d) printf "no table declares a \"%s\" column — the dimension table is absent\n", want_d
+    }
+  ' "$1"
+}
+
+# Rewrite the FIRST `planned_from:` line in place. First-match on purpose: record_key() reads the
+# first match too, so writer and reader cannot disagree about which line is the header even in a
+# document whose prose says the word again further down.
+plan_stamp() { # plan_stamp <plan-path> <patch-id>
+  local tmp="$1.lean-stamp.$$"
+  awk -v id="$2" '
+    !done && /^[[:space:]]*planned_from:/ { print "planned_from: " id; done = 1; next }
+    { print }
+  ' "$1" > "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
+  mv "$tmp" "$1" 2>/dev/null || { rm -f "$tmp"; return 1; }
+  return 0
+}
+
+# The armed plan pass. Returns 0 when the milestone may continue, or the refusal's own code.
+#
+# THE BUDGET SPLIT (D-11) is #642's criterion applied verbatim: absence, a missing header line and
+# a stale stamp all name something the run was going to do anyway, so they are `block_milestone`
+# and cost no fix attempt. A MALFORMED table is a `fail_milestone` — the plan was written and the
+# thing written is wrong, which is exactly a fix that did not work. Without that split an armed
+# run spends two of its three milestone-3 attempts reaching its first render.
+design_plan_gate() {
+  local f="$REPO_ROOT/$PLAN_MANIFEST_REL" viol cur prev
+
+  if [ ! -f "$f" ]; then
+    block_milestone 3 "spec $SPEC_REL arms the design lane, but no translation plan is written at $PLAN_MANIFEST_REL. Emit the figma-faithful step-7 plan there before rendering anything: a header line 'planned_from: pending' (this gate stamps it), a table with a '$PLAN_COMPONENT_COLUMN' column — one row per resolved component — and a table with a '$PLAN_DIMENSION_COLUMN' column — one row per sized node. Every cell must be filled; an empty cell is the finding."
+    return $?
+  fi
+
+  viol="$(plan_violations "$f")"
+  if [ -n "$viol" ]; then
+    fail_milestone 3 "the translation plan $PLAN_MANIFEST_REL is not complete: $(printf '%s' "$viol" | tr '\n' ';' | sed 's/;$//; s/;/; /g'). The two tables are the whole mechanical contract — a resolved component with no stated reason, and a node with no recorded dimensions, are the two silences this artifact exists to make visible."
+    return $?
+  fi
+
+  cur="$(plan_patch_id HEAD)"
+  [ -n "$cur" ] \
+    || { fail_milestone 3 "cannot compute this branch's plan patch identity against origin/$BASE_BRANCH — the merge-base is unresolvable, or the branch's diff excluding $VERDICT_REL, $RENDER_MANIFEST_REL and $PLAN_MANIFEST_REL is empty. Fetch origin/$BASE_BRANCH and re-run; a binding that cannot be computed must not be recorded."; return $?; }
+
+  if ! grep -qE '^[[:space:]]*planned_from:' "$f" 2>/dev/null; then
+    block_milestone 3 "the translation plan $PLAN_MANIFEST_REL carries no 'planned_from:' header, so nothing states which tree it was written against. Add the line 'planned_from: pending' above the tables and re-run — this gate stamps the value, it never invents structure inside an artifact you author."
+    return $?
+  fi
+
+  prev="$(record_key planned_from "$f")"
+  if [ "$prev" = "$cur" ]; then
+    if [ -z "$(git -C "$REPO_ROOT" log -1 --format=%H -- "$PLAN_MANIFEST_REL" 2>/dev/null)" ] \
+       || ! git -C "$REPO_ROOT" diff --quiet HEAD -- "$PLAN_MANIFEST_REL" 2>/dev/null; then
+      block_milestone 3 "the translation plan $PLAN_MANIFEST_REL is stamped for this tree (planned_from $(printf '%.12s' "$cur")) but is not committed — commit it and re-run milestone 3. Both readings of uncommitted fail here: an untracked file has no commit, and a tracked one can differ from the bytes anyone committed."
+      return $?
+    fi
+    say "milestone-3: translation plan current (planned_from $(printf '%.12s' "$cur")) — $PLAN_MANIFEST_REL."
+    return 0
+  fi
+
+  plan_stamp "$f" "$cur" \
+    || { fail_milestone 3 "cannot rewrite the 'planned_from:' header of $PLAN_MANIFEST_REL"; return $?; }
+  block_milestone 3 "the translation plan $PLAN_MANIFEST_REL was written against different code — its 'planned_from' has been re-stamped to $(printf '%.12s' "$cur"). RE-READ THE PLAN against the lines that moved before you commit the stamp: the binding records that the plan was current at this patch, and nothing else in this lane checks that it still says the right thing. Then commit it and re-run milestone 3."
+  return $?
+}
+
 # The armed render pass. Returns 0 when the milestone may continue, or fail_milestone's own code
 # (1 or 4) when it may not — cmd_3 propagates it verbatim rather than re-deciding.
 cmd_3_render() {
@@ -3758,6 +3940,18 @@ cmd_3_render() {
   if ! design_was_armed; then
     append_line "$(now_iso) | milestone-3 | armed | design render lane armed by $SPEC_REL"
   fi
+
+  # ---- the TRANSLATION PLAN, FIRST (#694, D-3) -------------------------------------------------
+  # Before the harness-config checks and before a single screenshot, because the plan is where a
+  # wrong token row costs one table cell and everything downstream of it costs a build. This is
+  # also why the arming record above now belongs to the PLAN pass rather than the render pass: the
+  # state lock has to be held by whichever design pass runs first, or a plan that failed could be
+  # disarmed away on the next attempt (D-5).
+  #
+  # It returns the refusal's own code and this function propagates it verbatim, exactly as cmd_3
+  # propagates ours — one classification, decided where the refusal is raised.
+  design_plan_gate; rc=$?
+  [ "$rc" -eq 0 ] || return "$rc"
 
   [ -n "$LR_COMMAND" ] \
     || { fail_milestone 3 "spec $SPEC_REL arms the design render lane, but the config declares no design.liveRender.command — the harness that owns boot, auth and screenshot is the consumer's, and there is nothing to run. Configure it (docs/live-render.md) or disarm the ticket."; return $?; }

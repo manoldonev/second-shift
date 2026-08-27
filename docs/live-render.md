@@ -109,9 +109,31 @@ Handoff: https://<your provider>/file/abc123
 …or the explicit disarm, `Design: none — <reason>`, which is a conscious per-ticket decision and
 is **state-locked**: once a run has armed, switching to the disarm reds at milestones 1 and 3.
 
-**What the gate does when armed.** Milestone 3, last — after `extraLanes` — renders every
-declared row through your command, asserts exit 0 and a non-empty PNG per row, and
-writes a hash manifest at `<plansDir>/<key>-lean-renders.md`. PNG bytes never enter history: they
+**What the gate does when armed — first, the translation plan.** Before the harness is called
+once, milestone 3 asserts a committed **translation plan** at `<plansDir>/<key>-lean-plan.md` —
+the artifact `design-toolkit:figma-faithful` step 7 writes. It must carry a `planned_from:` header
+(the gate stamps it with the branch's plan patch identity and reds until the stamp is committed),
+a table declaring a **`why this component`** column, and a table declaring a **`dimensions`**
+column, with every cell of both filled and no row shorter than its header. The ordering is the
+point: a wrong token row should red before anything is rendered, because one table cell is the
+cheapest place to fix it.
+
+Its reds are split across the two budgets on #642's criterion. Absence, a missing `planned_from:`
+line and a stale stamp are **absent**-budget reds naming the checklist's own next step, so they
+cost no fix attempt; a table that is present and malformed is a fix attempt, because the plan was
+written and what was written is wrong. That split is what keeps an armed run from spending two of
+its three milestone-3 attempts reaching its first screenshot.
+
+What the plan buys is that an omission reads as an **empty cell** rather than an absent thought.
+Nothing here checks that a recorded component is the right one or a recorded dimension is the
+design's — `design-toolkit:figma-faithful-plan-reviewer`, which the implementing session dispatches
+at step 7, asks those as questions the plan must answer. It is deliberately **not** re-asserted at
+the merge boundary: the boundary re-asserts the verdict chain, and `fidelity: pass` binds to the
+render receipt, not to the plan.
+
+**Then the render.** Milestone 3, last — after `extraLanes` — renders every declared row through
+your command, asserts exit 0 and a non-empty PNG per row, and writes a hash manifest at
+`<plansDir>/<key>-lean-renders.md`. PNG bytes never enter history: they
 land under `.claude/lean-renders/<key>/`, which the gate asserts is git-ignored before it renders.
 Milestone 4 then refuses any verdict that does not score `fidelity: pass`, or whose manifest was
 rendered from different code.
