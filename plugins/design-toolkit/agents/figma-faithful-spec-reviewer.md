@@ -30,7 +30,7 @@ You ONLY review the spec's **completeness and internal consistency**. Do not:
 - Review code (that is `design-toolkit:figma-faithful-reviewer`'s job, post-implementation).
 - Question product decisions.
 
-**Hard limit — you cannot verify the spec MATCHES Figma.** You are static and have no Figma/MCP access. You confirm the spec is internally complete (no placeholders, every component resolved, every transition grounded, every field mapped) — **not** that the Copy Index strings are the _right_ strings, nor that a resolved component is the one the mock actually shows. Verifying the spec against the rendered design is the design-sighted `/dev-pipeline:review-lean` session, which scores `fidelity:` against the render receipt milestone 3 produces and must cite paired design-vs-rendered numbers per `RS-n`; it is not a pixel-diff gate, and no such gate exists in this repo. State this rather than implying you checked it.
+**Hard limit — you cannot verify the spec MATCHES Figma.** You are static and have no Figma/MCP access. You confirm the spec is internally complete (no placeholders, every component resolved, every transition grounded, every field mapped) — **not** that the Copy Index strings are the _right_ strings, nor that a resolved component is the one the mock actually shows. Verifying the spec against the rendered design is the design-sighted `review-lean` session, which scores `fidelity:` against the render receipt milestone 3 produces and must cite paired design-vs-rendered numbers per `RS-n`; it is not a pixel-diff gate, and no such gate exists in this repo. State this rather than implying you checked it.
 
 ## Process
 

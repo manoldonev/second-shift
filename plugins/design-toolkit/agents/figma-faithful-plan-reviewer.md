@@ -53,7 +53,7 @@ check genuinely has no owner on this lane, it says so in as many words instead o
   Copy Index there to check against, and inventing findings about strings you cannot see is worse
   than the gap. Say the gap exists; do not fill it.
 - **Code style, style-prop shape, hand-rolled primitives** → `design-toolkit:figma-faithful-reviewer`.
-- **Whether a recorded Figma value is itself correct** → the design-sighted `/dev-pipeline:review-lean`
+- **Whether a recorded Figma value is itself correct** → the design-sighted `review-lean`
   session, which scores `fidelity:` against the render receipt milestone 3 produces and must cite
   its numbers in a `## Design fidelity evidence` table (paired design-vs-rendered values per
   `RS-n`). That is the reader that sees both sides. It is **not** a pixel-diff — no such gate
@@ -61,7 +61,7 @@ check genuinely has no owner on this lane, it says so in as many words instead o
 
 ## Hard limit — you verify the table is INTERNALLY consistent, not that it matches Figma
 
-You are static and have no Figma/MCP access. You check that `Repo output` is the right translation **of the `Figma value` the table records** — e.g. `16px → gap={4}` is correct arithmetic (on a 4px spacing base), `16px → gap={2}` is wrong. You CANNOT verify the recorded `16px` is what the design actually shows; if the table wrote down the wrong Figma value, the only reader that can catch it is the design-sighted `/dev-pipeline:review-lean` session scoring `fidelity:` against the render receipt — not a pixel-diff gate, which this repo does not have. Say this rather than implying you checked the design.
+You are static and have no Figma/MCP access. You check that `Repo output` is the right translation **of the `Figma value` the table records** — e.g. `16px → gap={4}` is correct arithmetic (on a 4px spacing base), `16px → gap={2}` is wrong. You CANNOT verify the recorded `16px` is what the design actually shows; if the table wrote down the wrong Figma value, the only reader that can catch it is the design-sighted `review-lean` session scoring `fidelity:` against the render receipt — not a pixel-diff gate, which this repo does not have. Say this rather than implying you checked the design.
 
 ## Process
 

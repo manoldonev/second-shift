@@ -4061,6 +4061,37 @@ if [ "$rc" -eq 1 ] && grep -q 'a short row is a missing cell' <<<"$out"; then
   pass "(dp4) a row declaring fewer cells than its header reds — deleting the cell is not an escape"
 else fail "(dp4) expected the short-row refusal, rc=$rc: $out"; fi
 
+# (dp10) THE TABLE THAT CARRIES NO DATA ROW — the ticket's own headline failure restated: "a plan
+# that records no control dimensions at all". It is caught by neither neighbour, which is why it
+# needs its own case: the missing-column arm sees the column declared, and the empty-cell arm has
+# no cell to look at. A header and a delimiter over nothing is a column declared and never filled.
+dreset
+dplan_write
+sed '/^| Filter panel | fixed 320px wide, hug height | none |$/d' "$DPLAN" > "$DPLAN.tmp" && mv "$DPLAN.tmp" "$DPLAN"
+dcommit_raw "a plan whose dimension table carries no data row"
+out="$(dgate 3 55)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'the table declaring a "dimensions" column carries no data row' <<<"$out"; then
+  pass "(dp10) a dimension table with a header and no data row reds — a declared column with nothing under it is the silence the artifact exists to make visible"
+else fail "(dp10) expected the no-data-row refusal, rc=$rc: $out"; fi
+
+# (dp11) NO DELIMITER ROW UNDER THE HEADER. Without it GFM renders the run as paragraph text, not
+# a table, so a plan that lost the line reads as populated in the source and as prose to anything
+# that renders it — and the gate would otherwise mistake the first data row for the delimiter.
+#
+# TWO data rows on purpose. With one, neutering this arm falls through to (dp10)'s arm — `rowno`
+# never reaches 3, so `endtable()` reports the no-data-row shape instead and the case still reds
+# on a gate that has stopped checking delimiters. Two rows is the shape a real plan has, and it is
+# where the arm is fail-open rather than merely mis-worded.
+dreset
+dplan_write
+echo "| Results grid | fill width, 12px row gap | scroll-y |" >> "$DPLAN"
+awk '/^\| --- \| --- \| --- \|$/ { n++; if (n == 2) next } { print }' "$DPLAN" > "$DPLAN.tmp" && mv "$DPLAN.tmp" "$DPLAN"
+dcommit_raw "a plan whose dimension table lost its delimiter row"
+out="$(dgate 3 55)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'the table declaring a "dimensions" column has no delimiter row under its header' <<<"$out"; then
+  pass "(dp11) a dimension table with no delimiter row under its header reds — the first data row is not a delimiter"
+else fail "(dp11) expected the missing-delimiter refusal, rc=$rc: $out"; fi
+
 # (dp9) A FENCED EXAMPLE IS NOT A TABLE. The step-7 prose invites a plan to quote the required
 # shape, and a plan whose own example's placeholder cells were reported as violations would be
 # refused for doing what it was told — the one red an author cannot act on.

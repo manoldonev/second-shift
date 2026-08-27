@@ -785,11 +785,18 @@ coupling rather than mechanizing it into a guard that cannot fail.
   `render_patch_id()` to exclude the plan too — was considered and **declined**: that function is
   mirrored at the merge boundary by a reader that cannot see this file, so a consumer pinned to an
   older boundary ref would red every armed PR whose branch carries a plan, and the skew is
-  invisible from either side (the #436 shape). It is also unnecessary. The plan is asserted BEFORE
-  the render pass, so it is committed before a receipt exists to restale, and it only goes stale
-  when non-plan, non-receipt code moved — which stales the receipt anyway. **Behaviorally
-  guarded**: `lean-gate-selftest.sh`'s `(dp7)` pins that the stamp converges rather than looping,
-  and `(di*)` still pin the receipt's idempotence across the same commits.
+  invisible from either side (the #436 shape). It is also unnecessary **in the direction the
+  exclusion would serve**: the plan is asserted BEFORE the render pass, so it is committed before a
+  receipt exists to restale, and `plan_patch_id()` only goes stale when non-plan, non-receipt code
+  moved — which stales the receipt anyway. **The other direction is real, and it is the price paid
+  for the lockstep**: the plan sits inside `render_patch_id()`, so a plan-only commit — filling a
+  `why this component` cell after a plan-review finding, with no code touched — moves the render id
+  and restales the receipt, forcing a re-render nothing else asked for. That converges in a single
+  pass rather than looping (the receipt is excluded from both identities, so re-rendering cannot
+  restale itself), and the boundary-skew argument carries the decision on its own; the cost is one
+  wasted render pass, not a livelock. **Behaviorally guarded**: `lean-gate-selftest.sh`'s `(dp7)`
+  pins that the stamp converges rather than looping, and `(di*)` still pin the receipt's idempotence
+  across the same commits.
 
 - **preflight ↔ gate zero-verifying-lane predicate.** Real against `lean-gate.sh` milestone 3,
   which reds naming the opt-out where `preflight.sh` only warns. preflight computes an aggregated

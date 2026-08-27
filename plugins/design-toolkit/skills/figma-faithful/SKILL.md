@@ -202,7 +202,7 @@ That is deliberate and it is the whole mechanical contract: an omission has to r
 cell**, not as an absent thought. A resolved component with no stated reason is the name-match
 resolution that ships the wrong control; a node with no recorded dimensions is the eyeballed size
 that ships at 3× the design. Nothing here checks that a recorded value is *correct* — that is the
-design-sighted `/dev-pipeline:review-lean` session, scoring `fidelity:` against the render receipt.
+design-sighted `review-lean` session, scoring `fidelity:` against the render receipt.
 
 **Dispatch
 [`design-toolkit:figma-faithful-plan-reviewer`](../../agents/figma-faithful-plan-reviewer.md) on
@@ -224,7 +224,9 @@ are mandatory where the surface renders RTL.
 Re-read your own styling / token usage against the step-3 token table — every value must trace
 to a token or a justified named constant. This is self-attestation by the same agent that wrote
 the code, so it is the weakest link; the real enforcement is that the **token table exists as a
-visible artifact** a reviewer (or a future pixel-diff gate) can check against.
+visible artifact** a reviewer can check against — on the lean lane the design-sighted
+`review-lean` session, scoring `fidelity:` against the render receipt. There is no pixel-diff
+gate in this repo.
 
 Then re-open the **parent** frame screenshot (not just the node) and confirm: (a) every gap
 between top-level blocks matches a step-3b row, (b) the component nests at the same level as the
