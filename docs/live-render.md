@@ -1,10 +1,15 @@
 # Live-render verify — wiring a consumer render harness
 
 `design.liveRender` names one repo-owned render command that `/dev-pipeline:build-lean`'s
-milestone 3 runs: after the design engine implements a screen, the gate runs your command, reads
-the emitted PNG, and semantically compares it against the cached design frame (placement,
-sizing/fill, truncation, default state — not a pixel diff). Without the key an armed ticket reds;
-without a provider, nothing arms. See [Lean-lane wiring](#lean-lane-wiring) below.
+milestone 3 runs: after the design engine implements a screen, the gate runs your command, takes
+the emitted PNG, and hashes it into the render receipt bound to the reviewed patch. **The gate
+compares nothing against the design** — it caches no design frame. The comparison (placement,
+sizing/fill, truncation, default state — never a pixel diff) is the design-sighted
+`/dev-pipeline:review-lean` session's, scored as `fidelity:` in the verdict record — and it stays
+that way, by decision: see
+[Why there is no pixel-diff gate](#why-there-is-no-pixel-diff-gate-and-none-is-coming) below.
+Without the key an armed ticket reds; without a provider, nothing arms. See
+[Lean-lane wiring](#lean-lane-wiring) below.
 
 **One blocking posture.** A failure on this key reds the lean gate. A consumer whose harness
 was written against an older, tolerant posture is now on the strict one.
@@ -175,9 +180,33 @@ grammar is published to its producer in `review-lean/SKILL.md` step 5b.
 That is **tamper-evidence, not fidelity.** It converts a one-word header nobody could falsify into
 a record a human can read and contradict, and raises the cost of a rubber stamp from typing a word
 to fabricating node references, paired numbers, and a citation that resolves in a patch-bound
-spec. It verifies nothing against the design — the pixel-diff gate is still deferred, and a
-reviewer can still cite a real but irrelevant criterion. The refusal sits at the **writer** rather
-than at milestone 4 so a malformed table costs an edit instead of a round, and there is
+spec. It verifies nothing against the design: a reviewer can still cite a real but irrelevant
+criterion. The refusal sits at the **writer** rather than at milestone 4 so a malformed table
+costs an edit instead of a round, and there is
 deliberately **no milestone-4 backstop**: a verdict record carries no schema version, so a legacy
 evidence-free `pass` is byte-indistinguishable from one whose section was stripped after the fact,
 and every record written before this shipped keeps passing unchanged.
+
+## Why there is no pixel-diff gate, and none is coming
+
+The rendered-vs-design comparison was a standing deferral in four documents. #695 **retired** it
+rather than building it, and this is the settled posture — not an interim one.
+
+A pixel differ would compare a Figma frame export against a browser screenshot: different
+rasterizer, DPR, font stack and viewport. Its tolerance model is therefore either loose enough to
+catch nothing or tight enough to red on the next machine, with nothing in the repo to tell the two
+settings apart — and the dependency would land on every consumer's render harness, in a contract
+whose whole shape is that the harness owns boot/auth/screenshot and the lane owns nothing that
+needs installing.
+
+The narrower alternative — asserting **measured properties** against the translation plan's
+`dimensions` table — is not refuted, and #701 made it cheaper by turning that plan into a
+committed, gate-asserted artifact. Two things keep it out of the lane for now: its ground truth is
+the Figma value *as the build agent transcribed it*, so it catches plan→code drift and stays blind
+to design→plan drift; and getting the rendered numbers at all needs a breaking addition to the
+command contract above (a second emitted artifact per state). It belongs to its own ticket, with
+those costs priced. **Nothing here defers to it.**
+
+So fidelity on this lane is **attested, and the attestation is auditable** — that is the whole
+claim. The evidence table above is what makes contradicting a rubber stamp possible, and it is
+what a reader should read instead of waiting for a gate.
