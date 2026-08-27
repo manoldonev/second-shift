@@ -31,7 +31,9 @@ the same change (it had no reader left).
 
 ## The command contract
 
-Your script owns **boot, auth, and screenshot**. The gate owns route derivation and comparison.
+Your script owns **boot, auth, and screenshot**. The gate owns route derivation, the state
+matrix, the PNG hashes and the manifest — **never comparison**, which is the review session's
+([why](#why-there-is-no-pixel-diff-gate-and-none-is-coming)).
 
 - **`{route}`** — the app-relative leaf below your feature mount path (e.g. `prospects`,
   `prospects/new`). The harness owns any shell/org/tenant prefix (`/admin/{orgSlug}/offers/…`) —
@@ -204,8 +206,9 @@ The narrower alternative — asserting **measured properties** against the trans
 committed, gate-asserted artifact. Two things keep it out of the lane for now: its ground truth is
 the Figma value *as the build agent transcribed it*, so it catches plan→code drift and stays blind
 to design→plan drift; and getting the rendered numbers at all needs a breaking addition to the
-command contract above (a second emitted artifact per state). It belongs to its own ticket, with
-those costs priced. **Nothing here defers to it.**
+command contract above (a second emitted artifact per state). It would need a ticket of its own,
+with those costs priced; none is filed, and this document does not wait on one. **Nothing here
+defers to it.**
 
 So fidelity on this lane is **attested, and the attestation is auditable** — that is the whole
 claim. The evidence table above is what makes contradicting a rubber stamp possible, and it is

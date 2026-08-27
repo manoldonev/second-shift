@@ -110,6 +110,7 @@ Non-goals:
 | D-3 | Re-edit the five AC-2 documents that already satisfy the AC? | No. Re-measure at head and record the measurement; #694 satisfied them. | codebase-derived |
 | D-4 | Write a guard so the deferral cannot return? | No. `writing-tests` tier map routes prose-in-markdown to "nothing", and no lockstep anchor fits six independent statements. Recorded here so the absence is a decision, not an oversight. | codebase-derived |
 | D-5 | Fix `docs/live-render.md:5`'s false "the gate semantically compares" claim, found in the file AC-2 requires editing? | Yes, under its own AC-5 rather than folded into AC-4 — it is the ticket's defect class, two paragraphs away, and shipping AC-4 without it leaves the file self-contradictory. | codebase-derived |
+| D-6 | Round 1 found the same false-capability claim at `docs/live-render.md:34`, which AC-6's grep passed. Widen the criterion, or just fix the line? | Both. The line is fixed, and AC-6 gains a second arm over the defect SHAPE — a capability claim, not the deferral vocabulary. Source: the round-1 verdict record `docs/plans/second-shift-695-lean-verdict.md`, finding B1(3). | codebase-derived |
 
 ## Acceptance Criteria
 
@@ -129,9 +130,35 @@ Non-goals:
   comparing the render against a cached design frame; it describes what the gate actually does
   (runs the harness, takes the PNG, hashes it into the receipt) and names the review session as
   the reader that compares.
-- **AC-6** — `git grep -i -e 'pixel-diff' -e 'pixel diff' -e 'screenshot-diff' -e 'screenshot diff'`
-  over `plugins/` and `docs/`, excluding `docs/plans/`, returns no text deferring to, or promising,
-  a gate that does not exist.
+- **AC-6** — the tree carries neither shape of this defect, checked on **both** axes. Round 1
+  demonstrated that the vocabulary arm alone is not a completeness criterion (D-6):
+  1. **Deferral vocabulary.**
+     `git grep -i -e 'pixel-diff' -e 'pixel diff' -e 'screenshot-diff' -e 'screenshot diff'` over
+     `plugins/` and `docs/`, excluding `docs/plans/`, returns no text deferring to, or promising, a
+     gate that does not exist.
+  2. **False capability claim** — the shape the first arm is blind to: a sentence crediting the
+     gate with comparison never has to name a pixel differ. No hit of
+
+     ```
+     git grep -n -i -E '(gate|milestone[ -]?3|lane).{0,80}(compar|verif(y|ies).{0,20}(against|design)|check.{0,20}against the design)|(compar|check|verif).{0,40}(design frame|handoff frame|figma frame|mock)' -- docs/ plugins/ schema/ ':!docs/plans/'
+     ```
+
+     credits the gate, the lane, or milestone 3 with comparing a render against the design.
+     `docs/plans/` is excluded on the same ground as arm 1 — it is the historical record, and
+     this run's own verdict record quotes the defect verbatim in order to report it. The
+     grep is deliberately broader than the claim it polices, so its output is a triage queue, not
+     a verdict: a hit that **denies** the capability, or that attributes the comparison to the
+     `/dev-pipeline:review-lean` session, is the compliant form.
+
+     Triage at the fix-round head — **12 hits, none a live claim**, in four classes:
+     *hypothetical* (`docs/live-render.md:197`, "a pixel differ **would** compare");
+     *denial* (`lean-gate.sh:3539`, `:3552`);
+     *attributed to the sighted reader* (`lean-gate.sh:4689`, `figma-faithful/SKILL.md:243` — the
+     design engine comparing its own render, expressly "what every static gate misses");
+     and *a different subject entirely* — the scheduler's progress-token comparison
+     (`orchestrate-lean.sh:48-49`, `:362`, `:1035`, `orchestrate-lean-selftest.sh:976`,
+     `lean-gate.sh:2130`), `pipeline-manifesto.md:72`'s P4 register, and
+     `stall-probe.mjs:285`'s "comparable across arms".
 
 ## Follow-up owed (not filed from this lane)
 
