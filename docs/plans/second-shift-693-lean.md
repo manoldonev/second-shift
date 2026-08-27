@@ -120,6 +120,10 @@ Reading rules, each mirroring an idiom the gate already uses:
 - **AC-18** — WHEN a `verdict` cell cites an `AC-n` or `D-n` the spec does declare, THEN the row is
   accepted and `fidelity: pass` remains available. A cited deviation does not force `fail`, and no
   new `fidelity` value is introduced.
+- **AC-19** — added mid-run, after the implementation surfaced the staleness: `docs/live-render.md`
+  is the design lane's doc of record and its closing paragraph enumerates what the gate owns about
+  the fidelity judgment. It must state what the gate now enforces about the record's shape, that
+  this is tamper-evidence and not fidelity, and that there is no milestone-4 backstop.
 
 ## Explicitly out of scope
 

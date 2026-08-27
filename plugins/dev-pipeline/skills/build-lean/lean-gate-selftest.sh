@@ -3759,6 +3759,38 @@ dspec_armed() { # dspec_armed <extra-rows...>
   } > "$DSPEC"
 }
 
+# The conforming evidence body an armed `--fidelity pass` write now demands (#693): one scored row
+# per state dspec_armed declares. A FILE passed through --summary-file, because that is the
+# production path a reviewer uses — an inline here-doc at each of the seven call sites would be
+# seven copies of the column contract to keep in step.
+DEVIDENCE="$WORK/devidence.md"
+devidence() { # devidence [extra-rows...]
+  local r
+  {
+    echo "## Design fidelity evidence"
+    echo ""
+    echo "| RS-n | frame node | property | design | rendered | verdict |"
+    echo "| --- | --- | --- | --- | --- | --- |"
+    echo "| RS-1 | Prospects / default | control height | 32px | 32px | match |"
+    echo "| RS-2 | Prospects / filters expanded | panel width | 320px | 320px | match |"
+    for r in "$@"; do echo "$r"; done
+  } > "$DEVIDENCE"
+}
+devidence
+
+# The gate's OWN key reader, run over a record this suite produced — never a grep spelled here.
+# `record_key` is an unanchored whole-file scan, so what it does with a body that contains
+# `key: value`-shaped text is a production property, and a hand-rolled mirror of it could not
+# fail on a production edit.
+dreckey() { # dreckey <key> <file>
+  # `k`/`f` are copied out of $1/$2 BEFORE the source, for the reason mdrows() states below:
+  # library mode's placeholder args are consumed by the gate's own parser, which leaves this
+  # scope with no positional parameters at all.
+  local k="$1" f="$2"
+  # shellcheck disable=SC1090  # $GATE is the script under test, sourced in its own library mode.
+  ( cd "$TREE" && LEAN_GATE_LIB=1 SECOND_SHIFT_CONFIG="$CFG" . "$GATE" >/dev/null 2>&1 && record_key "$k" "$f" )
+}
+
 dmode ok
 dcfg "$DSTUB_CMD"
 dcommit "base"
@@ -4191,7 +4223,7 @@ else fail "(fd3) expected the armed refusal despite the body value, rc=$rc: $out
 # (fd5b) and the same record scored `pass` in its header passes, so (fd5)/(fd3) turn on the
 # header value and nothing else.
 dreset
-out="$(dverdict sess-review-d3 r-review-d3 --pr 55 --verdict approve --fidelity pass)"; rc=$?
+out="$(dverdict sess-review-d3 r-review-d3 --pr 55 --verdict approve --fidelity pass --summary-file "$DEVIDENCE")"; rc=$?
 dcommit "a record scoring fidelity pass"
 dreset
 out="$(dgate 4 55)"; rc=$?
@@ -4244,7 +4276,7 @@ else fail "(ac-d3) the restored fixture is not green, so the two cases above pro
 printf 'a fix lands after the render\n' > "$DTREE/subject.txt"
 dcommit "a fix, leaving the receipt behind"
 dreset
-out="$(dverdict sess-review-d4 r-review-d4 --pr 55 --verdict approve --fidelity pass)"; rc=$?
+out="$(dverdict sess-review-d4 r-review-d4 --pr 55 --verdict approve --fidelity pass --summary-file "$DEVIDENCE")"; rc=$?
 dcommit "an honest record on the new head, scored against the OLD screenshots"
 dreset
 out="$(dgate 4 55)"; rc=$?
@@ -4260,7 +4292,7 @@ dreset
 out="$(dgate 3 55)"; rc=$?
 dcommit "the re-rendered receipt for the new head"
 dreset
-out="$(dverdict sess-review-d5 r-review-d5 --pr 55 --verdict approve --fidelity pass)"; rc=$?
+out="$(dverdict sess-review-d5 r-review-d5 --pr 55 --verdict approve --fidelity pass --summary-file "$DEVIDENCE")"; rc=$?
 grep -v '^fidelity:' "$DVERDICT" > "$DVERDICT.tmp" && mv "$DVERDICT.tmp" "$DVERDICT"
 dcommit "a record with the key stripped, as a pre-#394 reviewer would have written it"
 dreset
@@ -4272,13 +4304,294 @@ else fail "(fd6) expected the unarmed transition allowance, rc=$rc: $out"; fi
 # (fd7) ...but a value that IS present on an unarmed run must be not-applicable, so a `pass`
 # cannot be parked on an unarmed record and inherited by a later armed one.
 dreset
-out="$(dverdict sess-review-d6 r-review-d6 --pr 55 --verdict approve --fidelity pass)"; rc=$?
+out="$(dverdict sess-review-d6 r-review-d6 --pr 55 --verdict approve --fidelity pass --summary-file "$DEVIDENCE")"; rc=$?
 dcommit "a record claiming a fidelity its spec could not have armed"
 dreset
 out="$(dgate_nodesign 4 55)"; rc=$?
 if [ "$rc" -eq 5 ] && grep -q 'arms no design render lane' <<<"$out"; then
   pass "(fd7) an unarmed run refuses a fidelity value other than not-applicable"
 else fail "(fd7) expected the unarmed non-applicable refusal, rc=$rc: $out"; fi
+
+# ---- (fe) #693: an armed `fidelity: pass` must carry a conforming evidence table -------------
+# The gap these close is that milestone 4's armed arm asked three MECHANICAL questions and one
+# unfalsifiable one — the header reads `pass` — so the whole lane was satisfied by a receipt of
+# the wrong screen, correctly hashed. Every case here is a WRITER case: the refusal is at
+# cmd_verdict, where the fix is one edit, not at milestone 4 where it costs the round. No
+# scenario in scenario-liveness-selftest.sh reaches the malformed-table taxonomy — the scenario
+# composes ONE refusal (no table at all) against the terminal write, which is the fact that needs
+# composing; the shapes below are a per-tool matter.
+dspec_armed
+dcommit "the armed spec, restored for the evidence cases"
+dreset
+dmode ok
+dgate 3 55 >/dev/null 2>&1
+dcommit "the render receipt at this head"
+dreset
+out="$(dgate 3 55)"; rc=$?
+[ "$rc" -eq 0 ] || fail "(fe0) the armed fixture is not green at milestone 3, so the (fe) cases would assert nothing: $out"
+
+# (fe1) AC-1: the omitted --summary-file. This is the shape the pre-#693 lane accepted, and the
+# one a reviewer reaches for first.
+out="$(dverdict sess-review-e1 r-review-e1 --pr 55 --verdict approve --fidelity pass)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'no "## Design fidelity evidence" section' <<<"$out"; then
+  pass "(fe1) an armed 'pass' with no summary at all is refused, naming the missing section"
+else fail "(fe1) expected the missing-section refusal, rc=$rc: $out"; fi
+
+# (fe1b) ...and a summary that IS supplied but carries only prose lands on the same refusal, so
+# (fe1) turns on the section's absence rather than on the flag's.
+printf 'I looked at the screens and they matched the design.\n' > "$WORK/fe-prose.md"
+out="$(dverdict sess-review-e1b r-review-e1b --pr 55 --verdict approve --fidelity pass --summary-file "$WORK/fe-prose.md")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'no "## Design fidelity evidence" section' <<<"$out"; then
+  pass "(fe1b) a prose summary with no evidence section is refused identically — the flag is not what is checked"
+else fail "(fe1b) expected the missing-section refusal on a prose summary, rc=$rc: $out"; fi
+
+# (fe1c) ...and the refusal WROTE NOTHING. The check sits above the run-id cache whose comment
+# reads "every refusal above has passed, so this is a real review round"; placed below it, a
+# refused round would cache a review identity for a record that does not exist.
+rm -f "$DTREE/.claude/pipeline-state/55-review-run-id"
+dverdict sess-review-e1c r-review-e1c --pr 55 --verdict approve --fidelity pass >/dev/null 2>&1
+if [ ! -e "$DTREE/.claude/pipeline-state/55-review-run-id" ]; then
+  pass "(fe1c) a refused evidence write caches no review identity — the refusal precedes the cache"
+else fail "(fe1c) the refused round cached a review identity: $(cat "$DTREE/.claude/pipeline-state/55-review-run-id" 2>/dev/null)"; fi
+
+# (fe2) AC-6/AC-18: the accepting case, and it carries a CITED deviation — a deviation that names
+# a criterion the spec declares does not force `fail`, which is the whole reason the enum is not
+# simply "match".
+devidence '| RS-2 | Prospects / filters expanded | unit selector | number field | text input | deviation (AC-1) |'
+out="$(dverdict sess-review-e2 r-review-e2 --pr 55 --verdict approve --fidelity pass --summary-file "$DEVIDENCE")"; rc=$?
+if [ "$rc" -eq 0 ] && grep -q '^fidelity: pass$' "$DVERDICT" \
+   && grep -qF '| RS-2 | Prospects / filters expanded | unit selector | number field | text input | deviation (AC-1) |' "$DVERDICT"; then
+  pass "(fe2) a conforming table — several rows for one state, and a cited deviation — is accepted at fidelity=pass"
+else fail "(fe2) expected the conforming write to land, rc=$rc: $out / $(cat "$DVERDICT" 2>/dev/null)"; fi
+devidence
+
+# (fe3) AC-2, the OMISSION direction.
+{ echo "## Design fidelity evidence"; echo ""
+  echo "| RS-n | frame node | property | design | rendered | verdict |"
+  echo "| --- | --- | --- | --- | --- | --- |"
+  echo "| RS-1 | Prospects / default | control height | 32px | 32px | match |"; } > "$WORK/fe-missing.md"
+out="$(dverdict sess-review-e3 r-review-e3 --pr 55 --verdict approve --fidelity pass --summary-file "$WORK/fe-missing.md")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'no row for RS-2' <<<"$out"; then
+  pass "(fe3) a table omitting a declared render state is refused, naming the missing row"
+else fail "(fe3) expected the missing-row refusal, rc=$rc: $out"; fi
+
+# (fe4) AC-2, the OTHER direction — a row the spec does not declare. Same stale-artifact argument
+# that makes the spec the enumeration source: a row carried over from a round before the spec
+# dropped RS-3 must not pass silently.
+devidence '| RS-3 | Prospects / archived | control height | 32px | 32px | match |'
+out="$(dverdict sess-review-e4 r-review-e4 --pr 55 --verdict approve --fidelity pass --summary-file "$DEVIDENCE")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'scores RS-3, which the spec does not declare' <<<"$out"; then
+  pass "(fe4) a row for an undeclared render state is refused, naming it"
+else fail "(fe4) expected the undeclared-row refusal, rc=$rc: $out"; fi
+devidence
+
+# (fe5) AC-3: the header is enforced BY NAME, not by cell count. This table has six cells in every
+# row and one wrong column name.
+{ echo "## Design fidelity evidence"; echo ""
+  echo "| RS-n | node | property | design | rendered | verdict |"
+  echo "| --- | --- | --- | --- | --- | --- |"
+  echo "| RS-1 | Prospects / default | control height | 32px | 32px | match |"
+  echo "| RS-2 | Prospects / filters expanded | panel width | 320px | 320px | match |"; } > "$WORK/fe-hdr.md"
+out="$(dverdict sess-review-e5 r-review-e5 --pr 55 --verdict approve --fidelity pass --summary-file "$WORK/fe-hdr.md")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'header row must name exactly 6 columns' <<<"$out" \
+   && grep -q 'RS-n | node | property' <<<"$out"; then
+  pass "(fe5) a misnamed column is refused, reporting the expected six and what was found"
+else fail "(fe5) expected the header refusal, rc=$rc: $out"; fi
+
+# (fe5d) ...and the count is EXACTLY six, never "at least six". A superset puts AC-3 ("any empty
+# cell is refused") and AC-4 ("all six non-empty is accepted") in direct conflict on a 7-column
+# table whose 7th cell is empty, and it leaves the empty-column refusal with a column name it
+# cannot report. The per-row cell-count arm reds this table too, with a DIFFERENT message — so the
+# assertion is on the header message specifically, or a relaxed header contract survives here.
+{ echo "## Design fidelity evidence"; echo ""
+  echo "| RS-n | frame node | property | design | rendered | verdict | notes |"
+  echo "| --- | --- | --- | --- | --- | --- | --- |"
+  echo "| RS-1 | Prospects / default | control height | 32px | 32px | match | fine |"
+  echo "| RS-2 | Prospects / filters expanded | panel width | 320px | 320px | match | fine |"; } > "$WORK/fe-super.md"
+out="$(dverdict sess-review-e5d r-review-e5d --pr 55 --verdict approve --fidelity pass --summary-file "$WORK/fe-super.md")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'header row must name exactly 6 columns' <<<"$out"; then
+  pass "(fe5d) a seven-column superset is refused BY THE HEADER CONTRACT — exactly six, not at least six"
+else fail "(fe5d) expected the header refusal on a column superset, rc=$rc: $out"; fi
+
+# (fe5b) ...and a table with no `| --- |` separator has no locatable header at all. The data-row
+# anchor cannot find the header row, so the separator is what locates it — this is the case that
+# says so.
+{ echo "## Design fidelity evidence"; echo ""
+  echo "| RS-n | frame node | property | design | rendered | verdict |"
+  echo "| RS-1 | Prospects / default | control height | 32px | 32px | match |"
+  echo "| RS-2 | Prospects / filters expanded | panel width | 320px | 320px | match |"; } > "$WORK/fe-nosep.md"
+out="$(dverdict sess-review-e5b r-review-e5b --pr 55 --verdict approve --fidelity pass --summary-file "$WORK/fe-nosep.md")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'separator row' <<<"$out"; then
+  pass "(fe5b) a table with no separator row is refused — the header is located by the separator, nothing else"
+else fail "(fe5b) expected the separator refusal, rc=$rc: $out"; fi
+
+# (fe5c) ...and the heading is matched at ANY depth and case-folded, mirroring design_section().
+# Without this a reviewer who nested the section reads AC-1's "no section" message and cannot tell
+# it from a section they never wrote.
+{ echo "### DESIGN FIDELITY EVIDENCE"; echo ""
+  echo "| rs-n | Frame Node | PROPERTY | Design | Rendered | Verdict |"
+  echo "| --- | --- | --- | --- | --- | --- |"
+  echo "| RS-1 | Prospects / default | control height | 32px | 32px | match |"
+  echo "| RS-2 | Prospects / filters expanded | panel width | 320px | 320px | match |"; } > "$WORK/fe-depth.md"
+out="$(dverdict sess-review-e5c r-review-e5c --pr 55 --verdict approve --fidelity pass --summary-file "$WORK/fe-depth.md")"; rc=$?
+if [ "$rc" -eq 0 ]; then
+  pass "(fe5c) a nested, case-folded heading and header are accepted — the match is depth- and case-tolerant"
+else fail "(fe5c) expected the nested heading to be accepted, rc=$rc: $out"; fi
+
+# (fe6) AC-4: an empty cell, named by COLUMN. Cell-count-only checking could not report a name.
+{ echo "## Design fidelity evidence"; echo ""
+  echo "| RS-n | frame node | property | design | rendered | verdict |"
+  echo "| --- | --- | --- | --- | --- | --- |"
+  echo "| RS-1 | Prospects / default | control height |  | 32px | match |"
+  echo "| RS-2 | Prospects / filters expanded | panel width | 320px | 320px | match |"; } > "$WORK/fe-empty.md"
+out="$(dverdict sess-review-e6 r-review-e6 --pr 55 --verdict approve --fidelity pass --summary-file "$WORK/fe-empty.md")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'column "design" is empty' <<<"$out"; then
+  pass "(fe6) an empty cell is refused, naming the row and the column"
+else fail "(fe6) expected the empty-cell refusal, rc=$rc: $out"; fi
+
+# (fe7) AC-5: heading, header and separator, and nothing else. Without this a reviewer satisfies
+# the section check vacuously.
+{ echo "## Design fidelity evidence"; echo ""
+  echo "| RS-n | frame node | property | design | rendered | verdict |"
+  echo "| --- | --- | --- | --- | --- | --- |"; } > "$WORK/fe-norows.md"
+out="$(dverdict sess-review-e7 r-review-e7 --pr 55 --verdict approve --fidelity pass --summary-file "$WORK/fe-norows.md")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'carries no data row' <<<"$out"; then
+  pass "(fe7) a zero-data-row section is refused against an armed spec"
+else fail "(fe7) expected the empty-table refusal, rc=$rc: $out"; fi
+
+# (fe8) AC-16: `deviation` plus a free-text reason is what the lane accepted before, and it is
+# what returned `pass` twice against a wrong screen. A reason nothing can check is not a citation.
+devidence
+sed -e 's#| RS-1 | Prospects / default | control height | 32px | 32px | match |#| RS-1 | Prospects / default | control height | 32px | 70px | deviation — it looked fine to me |#' "$DEVIDENCE" > "$WORK/fe-bare.md"
+grep -qF 'it looked fine to me' "$WORK/fe-bare.md" \
+  || fail "(fe8-fixture) the bare-deviation body was not built — (fe8) would assert nothing"
+out="$(dverdict sess-review-e8 r-review-e8 --pr 55 --verdict approve --fidelity pass --summary-file "$WORK/fe-bare.md")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'without naming the AC-n or D-n' <<<"$out"; then
+  pass "(fe8) an uncited deviation is refused — a free-text reason is not a citation"
+else fail "(fe8) expected the uncited-deviation refusal, rc=$rc: $out"; fi
+
+# (fe8b) ...and the enum token is a PREFIX anchored on a non-word boundary, so a cell that merely
+# BEGINS with the token does not read as it — ledger-lint.sh reads the Surface Inventory
+# disposition with the same anchor, for the same reason. Both directions of the anchor are
+# exercised: `matches roughly` must not read as `match` (the trailing boundary), and `mismatch …`
+# must not either (the leading one). A closed enum without both is a substring test.
+devidence
+sed -e 's#| RS-1 | Prospects / default | control height | 32px | 32px | match |#| RS-1 | Prospects / default | control height | 32px | 32px | matches roughly |#' "$DEVIDENCE" > "$WORK/fe-loose1.md"
+sed -e 's#| RS-1 | Prospects / default | control height | 32px | 32px | match |#| RS-1 | Prospects / default | control height | 32px | 700px | mismatch — 700px vs 320px |#' "$DEVIDENCE" > "$WORK/fe-loose2.md"
+{ grep -qF 'matches roughly' "$WORK/fe-loose1.md" && grep -qF 'mismatch' "$WORK/fe-loose2.md"; } \
+  || fail "(fe8b-fixture) the loose-enum bodies were not built — (fe8b) would assert nothing"
+out="$(dverdict sess-review-e8b r-review-e8b --pr 55 --verdict approve --fidelity pass --summary-file "$WORK/fe-loose1.md")"; rc=$?
+out2="$(dverdict sess-review-e8c r-review-e8c --pr 55 --verdict approve --fidelity pass --summary-file "$WORK/fe-loose2.md")"; rc2=$?
+if [ "$rc" -eq 1 ] && grep -q 'is neither "match" nor' <<<"$out" \
+   && [ "$rc2" -eq 1 ] && grep -q 'is neither "match" nor' <<<"$out2"; then
+  pass "(fe8b) 'matches roughly' and 'mismatch …' are both refused — the enum token is boundary-anchored, not a substring"
+else fail "(fe8b) expected both loose-enum refusals, rc=$rc/$rc2: $out / $out2"; fi
+
+# (fe9) AC-17: the DANGLING citation. This is the failure that prompted the ticket — an extra
+# affordance classified as a decided deviation when no decision existed anywhere in the criteria.
+devidence
+sed -e 's#| RS-2 | Prospects / filters expanded | panel width | 320px | 320px | match |#| RS-2 | Prospects / filters expanded | panel width | 320px | 700px | deviation (AC-9) |#' "$DEVIDENCE" > "$WORK/fe-dangling.md"
+grep -qF 'deviation (AC-9)' "$WORK/fe-dangling.md" \
+  || fail "(fe9-fixture) the dangling-citation body was not built — (fe9) would assert nothing"
+out="$(dverdict sess-review-e9 r-review-e9 --pr 55 --verdict approve --fidelity pass --summary-file "$WORK/fe-dangling.md")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'cites AC-9, which the spec does not declare' <<<"$out"; then
+  pass "(fe9) a citation the spec never declares is refused as dangling, naming the reference"
+else fail "(fe9) expected the dangling-citation refusal, rc=$rc: $out"; fi
+
+# (fe10) AC-7: the other two enum values need no table, on the same armed spec. Without this the
+# check could be keyed on the armed spec alone and every finding round would be blocked from
+# recording what it found.
+out="$(dverdict sess-review-e10 r-review-e10 --pr 55 --verdict approve --fidelity not-applicable)"; rc=$?
+out2="$(dverdict sess-review-e10b r-review-e10b --pr 55 --verdict needs-work --fidelity fail)"; rc2=$?
+if [ "$rc" -eq 0 ] && [ "$rc2" -eq 0 ]; then
+  pass "(fe10) 'not-applicable' and 'fail' write with no evidence table — the obligation is 'pass'-only"
+else fail "(fe10) expected both non-pass values to write, rc=$rc rc2=$rc2: $out / $out2"; fi
+
+# (fe11) AC-7's OTHER half: an UNARMED consumer. Same tree, same spec, read through a config with
+# no design axis — the pairing that keeps the AND honest. Milestone 4 refuses this record in its
+# own words; the writer must not, or every consumer with no design axis breaks.
+out="$( unset RUN_ID; cd "$DTREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$DPROG" \
+        CLAUDE_CODE_SESSION_ID=sess-review-e11 RUN_ID=r-review-e11 \
+        bash "$GATE" verdict 55 --pr 55 --verdict approve --fidelity pass 2>&1 )"; rc=$?
+if [ "$rc" -eq 0 ]; then
+  pass "(fe11) with no design.provider configured the writer demands nothing — the obligation is provider-gated"
+else fail "(fe11) an unarmed consumer was refused at the writer, rc=$rc: $out"; fi
+
+# (fe12) AC-8: a DISARMED spec scoring `pass`. design_state has four outcomes, not two, and
+# treating a disarm as merely not-armed would let a ticket that declared no render state bank one.
+printf '# spec\n\n- AC-1: x\n\n## Design\n\nDesign: none — no FE surface in this ticket.\n' > "$DSPEC"
+out="$(dverdict sess-review-e12 r-review-e12 --pr 55 --verdict approve --fidelity pass --summary-file "$DEVIDENCE")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'disarms the design lane' <<<"$out"; then
+  pass "(fe12) a disarmed spec cannot bank a fidelity pass"
+else fail "(fe12) expected the disarmed refusal, rc=$rc: $out"; fi
+
+# (fe13) ...and an `error:` state — here a spec declaring render states with no handoff link. A
+# section too broken to enumerate is exactly the tamper surface: under a not-armed reading it
+# would sail through.
+printf '# spec\n\n- AC-1: x\n\n## Design\n\n| RS-n | route | state | AC refs |\n| --- | --- | --- | --- |\n| RS-1 | p | default | AC-1 |\n' > "$DSPEC"
+out="$(dverdict sess-review-e13 r-review-e13 --pr 55 --verdict approve --fidelity pass --summary-file "$DEVIDENCE")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'design arming cannot be resolved' <<<"$out"; then
+  pass "(fe13) a malformed '## Design' section is refused at the writer, not read as not-armed"
+else fail "(fe13) expected the unresolvable-arming refusal, rc=$rc: $out"; fi
+
+# (fe14) ...and an ABSENT spec, which design_state reads as `unarmed` — the same answer it gives a
+# consumer with no design axis. The provider being configured is what tells the two apart, and
+# without that split an armed ticket reviewed from the wrong checkout banks a pass on a file
+# nobody read.
+mv "$DSPEC" "$WORK/fe-held-spec.md"
+out="$(dverdict sess-review-e14 r-review-e14 --pr 55 --verdict approve --fidelity pass --summary-file "$DEVIDENCE")"; rc=$?
+mv "$WORK/fe-held-spec.md" "$DSPEC"
+if [ "$rc" -eq 1 ] && grep -q 'no spec at' <<<"$out"; then
+  pass "(fe14) an absent spec under a configured provider is refused — not read as an unarmed consumer"
+else fail "(fe14) expected the absent-spec refusal, rc=$rc: $out"; fi
+
+# (fe15) AC-9: NO MILESTONE-4 BACKSTOP, and this is what that buys. A verdict record carries no
+# timestamp and no schema version, so a legacy evidence-free `pass` is byte-indistinguishable from
+# one whose section was stripped — a backstop that cannot tell them apart adds no assurance and
+# strands every record written before this shipped. The record below is exactly that legacy shape.
+dspec_armed
+dcommit "the armed spec, restored"
+dreset
+dgate 3 55 >/dev/null 2>&1
+dcommit "the render receipt at this head"
+dreset
+devidence
+out="$(dverdict sess-review-e15 r-review-e15 --pr 55 --verdict approve --fidelity pass --summary-file "$DEVIDENCE")"; rc=$?
+[ "$rc" -eq 0 ] || fail "(fe15-fixture) the conforming write did not land, so (fe15) would strip nothing: $out"
+awk '/^#+[[:space:]]+[Dd]esign fidelity evidence/ { exit } { print }' "$DVERDICT" > "$DVERDICT.tmp" && mv "$DVERDICT.tmp" "$DVERDICT"
+grep -q 'Design fidelity evidence' "$DVERDICT" \
+  && fail "(fe15-fixture) the evidence section was not stripped — (fe15) would assert nothing"
+dcommit "a pre-#693 record: fidelity pass, no evidence section"
+dreset
+out="$(dgate 4 55)"; rc=$?
+if [ "$rc" -eq 0 ]; then
+  pass "(fe15) milestone 4's armed arm is unchanged — an already-committed evidence-free 'pass' still passes"
+else fail "(fe15) a legacy record was retroactively failed by the evidence rule, rc=$rc: $out"; fi
+
+# (fe16) AC-14: record_key is an UNANCHORED whole-file scan, and milestone 4 reads `rounds` and
+# `reviewed_patch_id` through it. The evidence table is reviewer-authored text inside that scan
+# range, so a table cell shaped like a key must not win the first-match race against the header.
+# Read through the gate's own record_key, never a grep spelled here.
+devidence
+sed -e 's#| RS-1 | Prospects / default | control height | 32px | 32px | match |#| RS-1 | Card / rounds: 9 | reviewed_patch_id: cafebabe | 32px | 32px | match |#' "$DEVIDENCE" > "$WORK/fe-keys.md"
+grep -qF 'reviewed_patch_id: cafebabe' "$WORK/fe-keys.md" \
+  || fail "(fe16-fixture) the key-shaped body was not built — (fe16) would assert nothing"
+out="$(dverdict sess-review-e16 r-review-e16 --pr 55 --verdict approve --rounds 3 --fidelity pass --summary-file "$WORK/fe-keys.md")"; rc=$?
+fe_rounds="$(dreckey rounds "$DVERDICT")"
+fe_pid="$(dreckey reviewed_patch_id "$DVERDICT")"
+if [ "$rc" -eq 0 ] && [ "$fe_rounds" = "3" ] && [ -n "$fe_pid" ] && [ "$fe_pid" != "cafebabe" ]; then
+  pass "(fe16) a table cell shaped like a record key does not displace the header's value for rounds or reviewed_patch_id"
+else fail "(fe16) record_key read rounds='$fe_rounds' reviewed_patch_id='$fe_pid' (rc=$rc): $out"; fi
+
+# ...and the same record still walks milestone 4, so (fe16) is about the READER and not about a
+# write the gate happened to refuse.
+dcommit "a record whose evidence table contains key-shaped text"
+dreset
+out="$(dgate 4 55)"; rc=$?
+if [ "$rc" -eq 0 ]; then
+  pass "(fe16b) ...and milestone 4 passes on it — the key-shaped cells changed nothing downstream"
+else fail "(fe16b) milestone 4 refused a record whose table carries key-shaped text, rc=$rc: $out"; fi
+devidence
 
 # ---- (ea) the entry attestation: recorded, and enforced (#416) -------------------------------
 # The gap this closes is not "entry fails open" — it always failed closed. It is that NOTHING
@@ -5274,7 +5587,7 @@ fp_unformatter() { rm -rf "$DTREE/node_modules"; }
 # (fp8) THE BENIGN PATH: a resolvable formatter runs, and its output is kept. Without this the
 # revert cases below would pass on a gate that never formatted anything at all.
 fp_formatter benign
-out="$(dverdict sess-review-fp r-review-fp --pr 55 --verdict approve --fidelity pass)"; rc=$?
+out="$(dverdict sess-review-fp r-review-fp --pr 55 --verdict approve --fidelity pass --summary-file "$DEVIDENCE")"; rc=$?
 if [ "$rc" -eq 0 ] && grep -q '^FORMATTED-BODY-MARKER$' "$DVERDICT" \
    && grep -q '^run_id: r-review-fp$' "$DVERDICT" \
    && grep -q 'formatted with' <<<"$out"; then
@@ -5286,7 +5599,7 @@ else fail "(fp8) expected a formatted record, rc=$rc: $out / $(cat "$DVERDICT" 2
 # degrades the round to a chain root and drops `fidelity:`, which no reader can detect after
 # the fact. One warn line, and the call still succeeds: formatting is never the gate.
 fp_formatter join
-out="$(dverdict sess-review-fp r-review-fp --pr 55 --verdict approve --fidelity pass)"; rc=$?
+out="$(dverdict sess-review-fp r-review-fp --pr 55 --verdict approve --fidelity pass --summary-file "$DEVIDENCE")"; rc=$?
 if [ "$rc" -eq 0 ] && grep -q '^run_id: r-review-fp$' "$DVERDICT" \
    && grep -q '^fidelity: pass$' "$DVERDICT" \
    && grep -q 'changed header key' <<<"$out"; then
@@ -5297,7 +5610,7 @@ else fail "(fp9) expected a reverted record and a warning, rc=$rc: $out / $(cat 
 # not a run defect — and the gate must not reach the network to invent one, so the warning is
 # the only thing that fires.
 fp_unformatter
-out="$(dverdict sess-review-fp r-review-fp --pr 55 --verdict approve --fidelity pass)"; rc=$?
+out="$(dverdict sess-review-fp r-review-fp --pr 55 --verdict approve --fidelity pass --summary-file "$DEVIDENCE")"; rc=$?
 if [ "$rc" -eq 0 ] && grep -q '^run_id: r-review-fp$' "$DVERDICT" \
    && ! grep -q '^FORMATTED-BODY-MARKER$' "$DVERDICT" \
    && grep -q 'no prettier under' <<<"$out"; then
