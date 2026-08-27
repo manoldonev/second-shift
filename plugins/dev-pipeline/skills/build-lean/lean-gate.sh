@@ -3795,11 +3795,16 @@ PLAN_DIMENSION_COLUMN="dimensions"
 #
 # Table detection is local and needs no lookahead — a run of consecutive leading-`|` lines is a
 # table, anything else ends it. Row 1 is the header, row 2 the delimiter, the rest are data.
+#
+# FENCED BLOCKS ARE SKIPPED. A plan that quotes the required shape inside a ``` fence — which the
+# figma-faithful step-7 prose invites — would otherwise have its own example parsed as a real
+# table and its placeholder cells reported as violations. A false red on an artifact the gate
+# just told you to write is the one refusal an author cannot act on.
 plan_violations() { # plan_violations <plan-path>
   [ -f "$1" ] || return 0
   awk -v want_c="$PLAN_COMPONENT_COLUMN" -v want_d="$PLAN_DIMENSION_COLUMN" '
     function trim(x) { gsub(/^[[:space:]]+|[[:space:]]+$/, "", x); return x }
-    function cells_of(line,   body, n) {
+    function cells_of(line,   body, n, i) {
       body = line; sub(/^\|/, "", body); sub(/\|$/, "", body)
       n = split(body, cell, "|")
       for (i = 1; i <= n; i++) cell[i] = trim(cell[i])
@@ -3813,6 +3818,8 @@ plan_violations() { # plan_violations <plan-path>
     }
     {
       line = trim($0)
+      if (line ~ /^(```|~~~)/) { endtable(); fenced = !fenced; next }
+      if (fenced) { next }
       if (line !~ /^\|/) { endtable(); next }
       if (!intab) { intab = 1; rowno = 0; want = ""; hdrn = 0 }
       rowno++
@@ -3828,7 +3835,7 @@ plan_violations() { # plan_violations <plan-path>
       if (want == "") next
       if (rowno == 2) {
         for (i = 1; i <= n; i++) {
-          if (cell[i] !~ /^:?-{3,}:?$/) {
+          if (cell[i] !~ /^:?---+:?$/) {   # `---+`, never `-{3,}` — no interval expressions (portability)
             printf "the table declaring a \"%s\" column has no delimiter row under its header\n", want
             want = ""
             break

@@ -3709,6 +3709,7 @@ dcfg() { # dcfg <liveRender-command-or-empty> [cwd]
 EOCFG
 }
 DPLAN="$DTREE/docs/plans/acme-55-lean-plan.md"
+DFENCE='```'  # single-quoted: three backticks in double quotes are command substitution
 DSYNCCFG="$WORK/dsync-config.json"
 DSYNCPROG="$WORK/dsync-progress.md"
 
@@ -4059,6 +4060,20 @@ out="$(dgate 3 55)"; rc=$?
 if [ "$rc" -eq 1 ] && grep -q 'a short row is a missing cell' <<<"$out"; then
   pass "(dp4) a row declaring fewer cells than its header reds — deleting the cell is not an escape"
 else fail "(dp4) expected the short-row refusal, rc=$rc: $out"; fi
+
+# (dp9) A FENCED EXAMPLE IS NOT A TABLE. The step-7 prose invites a plan to quote the required
+# shape, and a plan whose own example's placeholder cells were reported as violations would be
+# refused for doing what it was told — the one red an author cannot act on.
+dreset
+dplan_write
+{ printf '\n%smarkdown\n' "$DFENCE"
+  printf '| node | dimensions | overflow |\n| --- | --- | --- |\n|  |  |  |\n'
+  printf '%s\n' "$DFENCE"; } >> "$DPLAN"
+dcommit_raw "a conforming plan that quotes the shape in a fence"
+out="$(dgate 3 55)"; rc=$?
+if ! grep -q 'leaves column' <<<"$out" && ! grep -q 'is absent' <<<"$out"; then
+  pass "(dp9) a fenced example's placeholder cells draw no violation — quoting the shape is not declaring a table"
+else fail "(dp9) the fenced example was parsed as a real table, rc=$rc: $out"; fi
 
 # (dp5) conforming tables, no `planned_from:` line. The gate refuses rather than inserting one:
 # it stamps a field the author declared, it never invents structure inside an authored artifact.
