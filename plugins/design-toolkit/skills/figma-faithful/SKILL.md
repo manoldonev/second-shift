@@ -181,11 +181,15 @@ token table (steps 3–4, all columns filled, **including the step-3b inter-bloc
 the resolved-component list (step 5), the **placement decision** from step 3b (which container
 each node mounts under, and at what level), the chosen analog (step 6), and the file list you
 will create/edit. This is the cheapest place to catch a wrong token row — one line to fix here
-vs. the same value spread across call-sites after the build. In an autonomous pipeline this
-artifact is the gate [`design-toolkit:figma-faithful-plan-reviewer`](../../agents/figma-faithful-plan-reviewer.md)
-reviews, and the pipeline branches on its verdict (`block` → fix the table and re-emit;
-`fix-and-go` / `pass` → proceed to step 8). Run manually, surface it for the same check before
-continuing.
+vs. the same value spread across call-sites after the build. **Dispatch
+[`design-toolkit:figma-faithful-plan-reviewer`](../../agents/figma-faithful-plan-reviewer.md) on
+this artifact yourself**, before step 8, and act on its verdict: `block` → fix the table and
+re-emit; `fix-and-go` / `pass` → proceed.
+
+No autonomous lane does that dispatch for you. The lean lane is outcome-gated — it asserts
+artifacts and cannot branch on a process step's verdict — and the translation plan is not one of
+the artifacts it asserts, so the dispatch is the operator's. `design-toolkit:figma-iterate`
+replaces it with a user checkpoint by design.
 
 ### 8. Implement
 

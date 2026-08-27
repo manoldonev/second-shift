@@ -141,3 +141,21 @@ data, font loading, and scrollbar/viewport differences.
 The gate owns the state matrix, the paths, the hashes and the manifest; the fidelity judgment is
 scored by the `/dev-pipeline:review-lean` session, design-sighted, from a checkout of the reviewed
 head, and recorded as `fidelity:` in the verdict record.
+
+**What the gate does own about that judgment is its SHAPE, not its truth.** An armed
+`--fidelity pass` is refused at the writer unless the review summary carries a
+`## Design fidelity evidence` table: six named columns
+(`RS-n | frame node | property | design | rendered | verdict`), every cell populated, one or more
+rows for each declared `RS-n` and none for a state the spec does not declare, and a `verdict` cell
+reading `match` or `deviation (<AC-n|D-n>)` citing a criterion the spec actually carries. The
+grammar is published to its producer in `review-lean/SKILL.md` step 5b.
+
+That is **tamper-evidence, not fidelity.** It converts a one-word header nobody could falsify into
+a record a human can read and contradict, and raises the cost of a rubber stamp from typing a word
+to fabricating node references, paired numbers, and a citation that resolves in a patch-bound
+spec. It verifies nothing against the design — the pixel-diff gate is still deferred, and a
+reviewer can still cite a real but irrelevant criterion. The refusal sits at the **writer** rather
+than at milestone 4 so a malformed table costs an edit instead of a round, and there is
+deliberately **no milestone-4 backstop**: a verdict record carries no schema version, so a legacy
+evidence-free `pass` is byte-indistinguishable from one whose section was stripped after the fact,
+and every record written before this shipped keeps passing unchanged.
