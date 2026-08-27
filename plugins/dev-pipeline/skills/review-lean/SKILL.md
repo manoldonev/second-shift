@@ -66,6 +66,27 @@ the code does not author its own evaluation.
    provider surface and compare **per RS row**, scoring each one in the summary. Re-rendering is
    permitted only at the reviewed head, and say so when you do; there is no foreign-checkout
    fallback and no "mismatch expected" written in advance.
+
+   The scoring is written as a table under a `## Design fidelity evidence` heading in the
+   `--summary-file`, and `--fidelity pass` on an armed ticket is **refused at the writer** without
+   one. Columns exactly these six, in this order; every cell non-empty; one or more rows per
+   declared `RS-n`, all of them and no others:
+
+   ```
+   ## Design fidelity evidence
+
+   | RS-n | frame node | property | design | rendered | verdict |
+   | ---- | ---------- | -------- | ------ | -------- | ------- |
+   | RS-1 | Checkout / populated | control height | 32px | 32px | match |
+   | RS-1 | Checkout / populated | unit selector | number field | text input | deviation (AC-3) |
+   ```
+
+   `verdict` is `match`, or `deviation (<ref>)` where `<ref>` is an `AC-n` or `D-n` **the spec
+   declares** — a bare `deviation`, a free-text reason, and a citation the spec does not carry are
+   all refused. A cited deviation does not force `fidelity: fail`: the point is that "the ticket
+   decided this", which anything can check, replaces "I judged it fine", which nothing can. This
+   makes your claim falsifiable by a human reader; it does not verify the render against the
+   design, and no gate in this repo does.
 5c. **A voided round is handed back, never recorded.** `review-lead` voids a round when every
    reviewer it selected went dark — it then emits a "review did not run" report naming the dark
    set, and answers no merge question. When that happens, stop before step 6: post the coverage

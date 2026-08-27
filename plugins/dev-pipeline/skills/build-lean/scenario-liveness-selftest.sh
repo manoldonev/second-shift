@@ -1305,6 +1305,16 @@ LEANDCFG
     printf '| RS-n | route | state | AC refs |\n| --- | --- | --- | --- |\n'
     printf '| RS-1 | prospects | default | AC-1 |\n| RS-2 | prospects | filters expanded | AC-1 |\n'
   } > "$LEAN_DSPEC"
+  # The evidence table an armed `--fidelity pass` write demands (#693), scored against the two
+  # states the spec above declares.
+  LEAN_DEVIDENCE="$TMP/lean-design-evidence.md"
+  {
+    printf '## Design fidelity evidence\n\n'
+    printf '| RS-n | frame node | property | design | rendered | verdict |\n'
+    printf '| --- | --- | --- | --- | --- | --- |\n'
+    printf '| RS-1 | Prospects / default | control height | 32px | 32px | match |\n'
+    printf '| RS-2 | Prospects / filters expanded | panel width | 320px | 288px | deviation (AC-1) |\n'
+  } > "$LEAN_DEVIDENCE"
   lean_dcommit "base"
   git -C "$LEAN_DTREE" update-ref refs/remotes/origin/main HEAD
   printf 'the work\n' > "$LEAN_DTREE/subject.txt"
@@ -1345,16 +1355,35 @@ LEANDCFG
   lean_dseed
   lean_dgate 4 88 >/dev/null 2>&1; ld_nofid=$?
 
+  # ...and the armed EVIDENCE obligation (#693), composed. The same round scoring `pass` with no
+  # evidence table is refused at the WRITER, so this lane cannot reach milestone 4 — let alone the
+  # terminal write — on a one-word fidelity claim. Two facts here, and the second one is the
+  # PLACEMENT: the already-committed record must be byte-untouched, and no review identity may be
+  # cached for a round that wrote nothing. lean_dverdict clears that cache before every call, so
+  # its absence afterwards is measured rather than assumed.
+  lean_dseed
+  ld_rec_before="$(cat "$LEAN_DTREE/docs/plans/acme-88-lean-verdict.md" 2>/dev/null)"
+  ld_noev_out="$(lean_dverdict sess-lean-d-review-noev r-lean-d-review-noev --pr 8 --verdict approve --fidelity pass 2>&1)"; ld_noev=$?
+  ld_rec_after="$(cat "$LEAN_DTREE/docs/plans/acme-88-lean-verdict.md" 2>/dev/null)"
+  ld_noev_cache=0
+  [[ -e "$LEAN_DTREE/.claude/pipeline-state/88-review-run-id" ]] && ld_noev_cache=1
+  if [[ "$ld_noev" -eq 1 && "$ld_rec_before" == "$ld_rec_after" && "$ld_noev_cache" -eq 0 ]] \
+     && grep -q 'Design fidelity evidence' <<<"$ld_noev_out"; then
+    pass "(lean-design-evidence) an armed 'pass' with no evidence table is refused at the writer — the committed record is untouched and no review identity is cached"
+  else
+    fail "(lean-design-evidence) rc=$ld_noev cache=$ld_noev_cache record-changed=$([[ "$ld_rec_before" == "$ld_rec_after" ]] && echo no || echo yes): $ld_noev_out"
+  fi
+
   # ...and a stale receipt under an otherwise-fresh verdict — D-10's backstop, composed.
   lean_dseed
-  lean_dverdict sess-lean-d-review2 r-lean-d-review2 --pr 8 --verdict approve --fidelity pass >/dev/null 2>&1
+  lean_dverdict sess-lean-d-review2 r-lean-d-review2 --pr 8 --verdict approve --fidelity pass --summary-file "$LEAN_DEVIDENCE" >/dev/null 2>&1
   lean_dcommit "a verdict scoring fidelity pass"
   lean_dseed
   lean_dgate 4 88 >/dev/null 2>&1; ld_pass=$?
   printf 'a fix lands after the render\n' > "$LEAN_DTREE/subject.txt"
   lean_dcommit "a fix, leaving the receipt behind"
   lean_dseed
-  lean_dverdict sess-lean-d-review3 r-lean-d-review3 --pr 8 --verdict approve --fidelity pass >/dev/null 2>&1
+  lean_dverdict sess-lean-d-review3 r-lean-d-review3 --pr 8 --verdict approve --fidelity pass --summary-file "$LEAN_DEVIDENCE" >/dev/null 2>&1
   lean_dcommit "an honest record on top of a stale receipt"
   lean_dseed
   lean_dgate 4 88 >/dev/null 2>&1; ld_stale=$?
@@ -1371,7 +1400,7 @@ LEANDCFG
   lean_dgate 3 88 >/dev/null 2>&1
   lean_dcommit "the re-rendered receipt for the fixed head"
   lean_dseed
-  lean_dverdict sess-lean-d-review4 r-lean-d-review4 --pr 8 --verdict approve --fidelity pass >/dev/null 2>&1
+  lean_dverdict sess-lean-d-review4 r-lean-d-review4 --pr 8 --verdict approve --fidelity pass --summary-file "$LEAN_DEVIDENCE" >/dev/null 2>&1
   lean_dcommit "the round-2 record on the fresh receipt"
   rm -rf "$LEAN_DTREE/.claude/lean-renders/88"
   cat > "$TMP/lean-design-pr.json" <<'LEANDPR'

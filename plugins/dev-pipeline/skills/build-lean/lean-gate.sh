@@ -119,7 +119,12 @@
 #                                        REVIEW role: write the committed verdict record.
 #                                        --fidelity defaults to not-applicable, which is the
 #                                        fail-closed side on an armed run (milestone 4 wants
-#                                        `pass`); `fail` with `approve` is refused.
+#                                        `pass`); `fail` with `approve` is refused. On an ARMED
+#                                        ticket `pass` additionally requires a conforming
+#                                        `## Design fidelity evidence` table in --summary-file
+#                                        (grammar: review-lean/SKILL.md step 5b) — refused here,
+#                                        at the writer, rather than at milestone 4 where it
+#                                        would cost the round.
 #   lean-gate.sh progress <issue> [--satisfied <n> | --infra | --obligations]
 #                                        SCHEDULER role (#492): print an OPAQUE TOKEN over the
 #                                        progress rows that mean the build role advanced. Reads
@@ -364,7 +369,7 @@ while [ $# -gt 0 ]; do
     --obligations)   PROGRESS_OBLIGATIONS=1; shift ;;
     --arm)           STALENESS_ARM="${2:-}"; shift 2 ;;
     --ticket-source) TICKET_SOURCE="${2:-}"; shift 2 ;;
-    -h|--help)       sed -n '2,264p' "$0"; exit 0 ;;
+    -h|--help)       sed -n '2,269p' "$0"; exit 0 ;;
     -*)              envfail "unknown option: $1" ;;
     *)
       if [ "$POSITIONAL" -eq 0 ]; then SUB="$1"; POSITIONAL=1
@@ -3094,6 +3099,132 @@ design_rs_rows() { # design_rs_rows   (spec on stdin)
   '
 }
 
+# ---- the armed fidelity EVIDENCE table (#693) ------------------------------------------------
+# An armed `fidelity: pass` used to be one word the reviewing model wrote about its own work.
+# Milestone 4's armed arm asks three mechanical questions — a receipt exists, this branch's render
+# patch identity is computable, the receipt's `rendered_from` equals it — and one unfalsifiable
+# one: does the header read `pass`. Nothing anywhere compared anything to the design, so the arm
+# was fully satisfied by a receipt of the WRONG SCREEN, correctly hashed, with `pass` typed above
+# it. Observed: the sighted arm returned `pass` twice against a screen whose controls were ~2.2x
+# the design's width and carried an affordance the frames do not contain, with every mechanical
+# check passing correctly throughout.
+#
+# What this buys is TAMPER-EVIDENCE, not fidelity. It verifies nothing against the design — no
+# gate in this repo does, and `design-faithful/SKILL.md` says so ("no pixel-diff tool in-repo —
+# do not invent"). It converts an unfalsifiable header into one a human can falsify by reading
+# the record, and raises the cost of a rubber stamp from typing a word to fabricating node
+# references, paired numbers, and a citation that resolves in a patch-bound spec.
+#
+# A TABLE and not prose, because the record body is handed to prettier
+# (`lean_format_verdict_record`) and `proseWrap: "always"` reflows sentences — a predicate over
+# reflowed prose is fragile, and every other artifact this gate parses is already a table.
+FIDELITY_EVIDENCE_HEADING="Design fidelity evidence"
+FIDELITY_EVIDENCE_COLUMNS="RS-n|frame node|property|design|rendered|verdict"
+
+# The evidence section's violations, one human-readable line each; EMPTY output is a conforming
+# section. Scoped, heading-tolerant and trim-then-non-empty exactly as `design_rs_rows()` above
+# is, and for reasons rather than symmetry: a whole-body scan would read the SPEC's own 4-column
+# `| RS-1 | route | state | AC refs |` table as a malformed evidence row, and a literal `## `-only
+# heading match could not tell a reviewer who nested the section from one who omitted it.
+#
+# The heading regex is BUILT from $FIDELITY_EVIDENCE_HEADING rather than spelled twice — the
+# refusal message and the reader must name the same section or the message sends a reviewer to
+# write a heading the reader will not find.
+#
+# THE HEADER ROW IS THE LINE IMMEDIATELY ABOVE THE `| --- |` SEPARATOR, and nothing else works:
+# the data-row anchor (`RS-[0-9]+`) cannot find it, and "first pipe-leading line in the section"
+# breaks on prose containing a `|`. The separator rule is also what stops a header whose first
+# cell was substituted to `RS-1` from being counted as a data row.
+#
+# Columns are enforced BY NAME and EXACTLY SIX, never "at least six": a superset puts "any empty
+# cell" and "all six non-empty" in direct conflict on a 7-column table whose 7th cell is empty,
+# and cell-count-only checking would leave the empty-column refusal with no column name to report.
+fidelity_evidence_violations() { # fidelity_evidence_violations <declared-ids> <known-refs>  (body on stdin)
+  awk -v declared="$1" -v refs="$2" -v cols="$FIDELITY_EVIDENCE_COLUMNS" -v heading="$FIDELITY_EVIDENCE_HEADING" '
+    function trim(s) { gsub(/^[[:space:]]+|[[:space:]]+$/, "", s); return s }
+    # A markdown separator: pipes, dashes, colons and space, with at least one dash. Never an
+    # interval expression — `#{1,6}`-style intervals are not portable across the awks this ships
+    # on, which is the same reason the heading rules above spell `#+[[:space:]]`.
+    function issep(s) { return (s ~ /^[[:space:]]*\|[[:space:]:|-]*$/ && s ~ /-/) }
+    # The cells of a leading-pipe markdown row, trimmed. Field 1 is the empty run before that
+    # leading pipe, so it is dropped by construction — the same reason design_rs_rows() reads
+    # its id out of $2 rather than $1 — and a TRAILING pipe contributes one empty field that is
+    # punctuation, not a cell.
+    function rowcells(s, a,   n, i, k, hi) {
+      delete a
+      n = split(s, RCF, "|")
+      hi = n
+      if (s ~ /\|[[:space:]]*$/) hi = n - 1
+      k = 0
+      for (i = 2; i <= hi; i++) a[++k] = trim(RCF[i])
+      return k
+    }
+    BEGIN {
+      hre = "^#+[[:space:]]+" tolower(heading) "[[:space:]]*$"
+      ncol = split(cols, want, "|")
+      n = split(declared, d, " ")
+      for (i = 1; i <= n; i++) if (d[i] != "" && !(d[i] in decl)) { decl[d[i]] = 1; declorder[++ndecl] = d[i] }
+      n = split(refs, r, " ")
+      for (i = 1; i <= n; i++) if (r[i] != "") known[r[i]] = 1
+    }
+    tolower($0) ~ hre        { insec = 1; found = 1; next }
+    insec && /^#+[[:space:]]/ { insec = 0 }
+    insec                     { sec[++nl] = $0 }
+    END {
+      if (!found) { print "no \"## " heading "\" section in the review summary"; exit }
+
+      sepi = 0
+      for (i = 1; i <= nl; i++) if (issep(sec[i])) { sepi = i; break }
+      if (sepi >= 2) {
+        nh = rowcells(sec[sepi - 1], H)
+        hdrok = (nh == ncol)
+        for (i = 1; hdrok && i <= ncol; i++) if (tolower(H[i]) != tolower(want[i])) hdrok = 0
+        if (!hdrok) {
+          got = ""
+          for (i = 1; i <= nh; i++) got = got (i > 1 ? " | " : "") H[i]
+          print "the header row must name exactly " ncol " columns, in order: " cols " — found: " (nh ? got : "<no cells>")
+        }
+      } else if (sepi == 1) {
+        print "the \"| --- |\" separator is the first line of the section, so no header row sits above it"
+      } else {
+        print "no \"| --- |\" separator row, so the header row cannot be located — the header is the line immediately above the separator"
+      }
+
+      nrows = 0
+      for (i = 1; i <= nl; i++) {
+        if (sepi >= 2 && i == sepi - 1) continue          # the header row is not a data row
+        if (sec[i] !~ /^[[:space:]]*\|[[:space:]]*RS-[0-9]+[[:space:]]*\|/) continue
+        nrows++
+        nc = rowcells(sec[i], C)
+        id = C[1]
+        seen[id] = 1
+        if (nc > ncol) { print "row " nrows " (" id "): " nc " cells, expected exactly " ncol; continue }
+        bad = 0
+        for (j = 1; j <= ncol; j++) if (j > nc || C[j] == "") { print "row " nrows " (" id "): column \"" want[j] "\" is empty"; bad = 1 }
+        if (bad) continue
+        if (!(id in decl)) { print "row " nrows " scores " id ", which the spec does not declare"; continue }
+        # The disposition token is a PREFIX of the cell, because `deviation` carries a payload
+        # after it. Anchored on a non-word boundary so `deviation (AC-3)` and `deviation(AC-3)`
+        # both read while `deviations` does not — ledger-lint.sh reads the Surface Inventory
+        # disposition with this same idiom, and for the same reason.
+        v = C[ncol]
+        if (v ~ /^match([^A-Za-z0-9-]|$)/) continue
+        if (v ~ /^deviation([^A-Za-z0-9-]|$)/) {
+          ref = ""
+          if (match(v, /(AC|D)-[0-9]+/)) ref = substr(v, RSTART, RLENGTH)
+          if (ref == "")           print "row " nrows " (" id "): verdict \"" v "\" claims a deviation without naming the AC-n or D-n that decides it"
+          else if (!(ref in known)) print "row " nrows " (" id "): verdict cites " ref ", which the spec does not declare"
+          continue
+        }
+        print "row " nrows " (" id "): verdict \"" v "\" is neither \"match\" nor \"deviation (<AC-n|D-n>)\""
+      }
+
+      if (nrows == 0) { print "the \"## " heading "\" section carries no data row — a heading and a header row evidence nothing"; exit }
+      for (i = 1; i <= ndecl; i++) if (!(declorder[i] in seen)) print "no row for " declorder[i] ", which the spec declares"
+    }
+  '
+}
+
 # The GATE's arming resolution (D-8). Prints exactly one of `unarmed`, `disarmed`, `armed`, or
 # `error:<message>` — an error being an authoring defect the session can fix, never an environment
 # problem. `unarmed` short-circuits on the config: with no `design.provider` a `## Design` section
@@ -4220,6 +4351,7 @@ cmd_4() {
 # header records no session id is refused outright: "unverifiable" must never resolve to "fine".
 cmd_verdict() {
   local sess b_prog_sess b_prog_run b_cached rec body c reviewed_head reviewed_patch_id
+  local fid_spec fid_state fid_decl fid_refs fid_bad fid_line
   local cand inherited_patch_id inherited_from chain
   sess="${CLAUDE_CODE_SESSION_ID:-}"
   [ -n "$sess" ] \
@@ -4348,6 +4480,81 @@ cmd_verdict() {
   if [ -n "$SUMMARY_FILE" ]; then
     [ -f "$SUMMARY_FILE" ] || envfail "verdict: --summary-file '$SUMMARY_FILE' does not exist."
     body="$(cat "$SUMMARY_FILE")"
+  fi
+
+  # THE ARMED EVIDENCE OBLIGATION (#693). `review-lean` step 5b already mandates comparing per RS
+  # row "scoring each one in the summary"; the obligation existed and nothing checked it —
+  # `--summary-file` was read as opaque text and no reader anywhere parsed it for shape. So the
+  # armed lane's whole fidelity claim rested on one model's sighted comparison recorded as one
+  # word, and no downstream reader could tell a real comparison from a rubber stamp.
+  #
+  # Refused at the WRITER, where the fix is one edit away, for the reason the fidelity/approve
+  # contradiction above states in full: milestone 4 would cost the round. It cannot sit BESIDE
+  # that sibling — `body` does not exist until the block above — and it must sit BEFORE the run-id
+  # cache below, whose comment reads "every refusal above has passed, so this is a real review
+  # round". A refusal placed after that line caches a review identity for a round that wrote no
+  # record.
+  #
+  # NO MILESTONE-4 BACKSTOP, deliberately. A verdict record carries no timestamp and no schema
+  # version, so a legacy evidence-free `pass` is byte-indistinguishable from one whose section was
+  # stripped after the fact. A backstop that cannot tell those apart adds no assurance and creates
+  # a migration problem; every already-committed record keeps passing milestone 4 unchanged.
+  #
+  # The pair of conditions is `pass` AND a configured provider. An unarmed `pass` is already
+  # refused by milestone 4's own arm in clearer words, and re-refusing it here would break every
+  # consumer with no design axis for no gain.
+  if [ "$VERDICT_FIDELITY" = "pass" ] && [ -n "$DESIGN_PROVIDER" ]; then
+    fid_spec="$REPO_ROOT/$SPEC_REL"
+    # `design_state` reads an ABSENT spec as `unarmed` — the same answer it gives a consumer with
+    # no design axis at all — so the two must be split here or an armed ticket reviewed from a
+    # checkout missing its spec banks a pass on a file nobody read. The provider being configured
+    # is what makes them distinguishable at this call site.
+    if [ ! -f "$fid_spec" ]; then
+      warn "✗ verdict: --fidelity pass, but this checkout carries no spec at $SPEC_REL — there is nothing that could have armed a design lane, and nothing to score the evidence against."
+      warn "  Run the verdict from a checkout of the PR head (review-lean step 3)."
+      return 1
+    fi
+    fid_state="$(design_state "$fid_spec")"
+    case "$fid_state" in
+      armed) : ;;
+      disarmed)
+        warn "✗ verdict: --fidelity pass, but $SPEC_REL disarms the design lane ('Design: none — <reason>'). A disarmed ticket declares no render state to have scored; the only value it may carry is 'not-applicable'."
+        return 1 ;;
+      error:*)
+        # A malformed `## Design` section is NOT merely not-armed: treating it that way would let
+        # a spec too broken to enumerate bank a pass, which is the tamper surface this refusal
+        # exists to close. `design_state` has four outcomes, not two.
+        warn "✗ verdict: --fidelity pass, but $SPEC_REL's design arming cannot be resolved: ${fid_state#error:}"
+        return 1 ;;
+      *)
+        warn "✗ verdict: --fidelity pass, but design_state reports '$fid_state' for $SPEC_REL — refusing rather than guessing which lane was scored."
+        return 1 ;;
+    esac
+    # THE DECLARED SET COMES FROM design_rs_rows(), the reader milestone 3 builds the receipt
+    # with — not from design_armed's prefix detector, which counts a malformed row that
+    # design_rs_rows drops. Using the receipt's own reader is what keeps the evidence set equal to
+    # what was actually rendered. Milestone 3 refuses a spec with no well-formed row, so a healthy
+    # branch cannot reach this line with an empty set; the refusal below is for the one that did.
+    fid_decl="$(design_rs_rows < "$fid_spec" | cut -f1 | tr '\n' ' ')"
+    case "$fid_decl" in
+      *[!\ ]*) : ;;
+      *) warn "✗ verdict: --fidelity pass, but the '## Design' section of $SPEC_REL declares no well-formed '| RS-n | route | state | AC refs |' row, so there is no render state an evidence table could score. Re-run milestone 3 in the build lane."
+         return 1 ;;
+    esac
+    # `AC-n` as well as `D-n`, because the Decision Ledger section is OPTIONAL while at least one
+    # `AC-n` is mandatory — so a resolvable target always exists and no legitimate deviation is
+    # left with nothing to cite. Two-stage extraction: a non-alphanumeric boundary first so
+    # `XAC-1` does not donate `AC-1`, then the bare id.
+    fid_refs="$(grep -oE '(^|[^A-Za-z0-9])(AC|D)-[0-9]+' "$fid_spec" 2>/dev/null | grep -oE '(AC|D)-[0-9]+' | sort -u | tr '\n' ' ')"
+    fid_bad="$(printf '%s\n' "$body" | fidelity_evidence_violations "$fid_decl" "$fid_refs")"
+    if [ -n "$fid_bad" ]; then
+      warn "✗ verdict: --fidelity pass on an armed ticket requires a conforming '## $FIDELITY_EVIDENCE_HEADING' table in --summary-file — one or more rows per declared render state ($fid_decl):"
+      printf '%s\n' "$fid_bad" | while IFS= read -r fid_line; do warn "    $fid_line"; done
+      warn "  Columns, in order, case-insensitive: $FIDELITY_EVIDENCE_COLUMNS. Every cell non-empty."
+      warn "  'verdict' is 'match', or 'deviation (<AC-n|D-n>)' naming a criterion $SPEC_REL declares. A cited deviation does not force fidelity=fail."
+      warn "  The grammar is in review-lean/SKILL.md step 5b. It makes the fidelity claim FALSIFIABLE by a human reader; it does not verify the render against the design, and no gate here does."
+      return 1
+    fi
   fi
 
   resolve_capability_stamp
