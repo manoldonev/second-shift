@@ -1,138 +1,148 @@
 # lean review verdict — #695
 
-verdict=needs-work
-run_id: review-695-1
-session_id: 82da75bb-2583-44d1-bf8c-d9d8593a7df9
-rounds: 1
+verdict=approve
+run_id: review-695-2
+session_id: 494caaa4-6019-400a-bd00-f8d31511fe8f
+rounds: 2
 pr: #702
-reviewed_head: 0ad8c00a2eeb0e8c296bead231e400aea199d9f2
-reviewed_patch_id: 5c7d72737f9c8371ae83b7ed5e61809a21fc8f4b
-inherited_patch_id: none
-inherited_from_verdict: none
+reviewed_head: 03c8522cacef70216ea1c379696e5a0602e05b04
+reviewed_patch_id: d9140ec842b4e66d8fbfa4013de50442ba54ffa4
+inherited_patch_id: 5c7d72737f9c8371ae83b7ed5e61809a21fc8f4b
+inherited_from_verdict: e2d815a06a88b47f0612ed29c03a5fa4a9fc4a4a
 fidelity: not-applicable
 model: opus
 capabilities: pr-marker
 
-# Review round 1 — PR #702 (#695)
+# Review round 2 — PR #702 (#695)
 
-**Verdict: needs-work.** One blocker.
+**Verdict: approve.** No blockers. Two warnings, one suggestion.
 
-Range read: `6dd9f70..0ad8c00` (root round — full branch diff, 2 files, +193/-7).
-Reviewed from the lane worktree with `claude/second-shift-695` checked out.
+Range read: `e2d815a..03c8522` (delta round — 2 files, +36/-6), inheriting the coverage of patch
+`5c7d72737f9c` recorded by round 1. The panel was dispatched over the **full branch**
+(`6dd9f70...03c8522`) rather than the delta, because the diff is small and a round that read
+everything is the stronger record. Reviewed from the lane worktree with
+`claude/second-shift-695` checked out; head re-verified against `origin` immediately before
+writing this record.
 
 Gate of record: the **branch copy** of `lean-gate.sh`
-(`plugins/dev-pipeline/skills/build-lean/lean-gate.sh`), not the installed
-`dev-pipeline/11.0.0` cache — `main` is at 12.1.0 and the cached gate lacks
-`plan_patch_id` / `PLAN_MANIFEST_REL` / `seed_lane_worktree_settings`. Same choice the build
-session made and recorded.
+(`plugins/dev-pipeline/skills/build-lean/lean-gate.sh`), not the installed `dev-pipeline/11.0.0`
+cache — `main` is at 12.1.0 and the cached gate lacks `plan_patch_id` / `PLAN_MANIFEST_REL` /
+`seed_lane_worktree_settings`. Same choice rounds 1 and the build session made.
+
+## Prior round disposition
+
+| Prior | Status | Evidence |
+| --- | --- | --- |
+| **B1** (blocker) — `docs/live-render.md:34` credited the gate with "route derivation and comparison" | **Fixed** | `:34-36` now reads "route derivation, the state matrix, the PNG hashes and the manifest — **never comparison**, which is the review session's", with an anchor into `## Why there is no pixel-diff gate`. Re-verified against `cmd_3`, not just against the prose: the gate parses `RS-n<TAB>route<TAB>state` from the spec table (`lean-gate.sh:3119-3131`), substitutes `{route}` (`:4053`), `lean_sha256`es the PNG (`:4077`) and writes the manifest (`:4088`). Every one of the four named responsibilities is real; the removed one is not. The anchor `#why-there-is-no-pixel-diff-gate-and-none-is-coming` resolves against the heading at `:192`. |
+| **W1** — the shipped doc asserted a follow-up ticket exists for direction 2 | **Fixed** | `:206-211` now reads "It **would need** a ticket of its own, with those costs priced; none is filed, and this document does not wait on one." No longer asserts a ticket a reader can go looking for. |
+| **W2** — `Changelog: none` on a consumer-visible correction | **Fixed without rewriting history** | `03c8522` carries a real `Changelog:` block. Trailers are extracted grep-anywhere across the branch and `Changelog: none` "counts as trailer-present but renders nothing" (`scripts/derive-release.sh:29-36`), so the three `none` trailers on the earlier commits do not pollute the squashed entry. No force-push, no lost committer identity. |
+
+No prior finding was suppressed rather than addressed, and none was re-introduced.
 
 ## Finding table
 
 | # | Severity | Location | Finding |
 | --- | --- | --- | --- |
-| B1 | **Blocker** | `docs/live-render.md:34` | `"Your script owns **boot, auth, and screenshot**. The gate owns route derivation and comparison."` — the gate owns **no** comparison. This is the ticket's own defect class, in the file this PR rewrote to remove it, 29 lines above the correction it added. |
-| W1 | Warning | `docs/live-render.md:203`, spec "Follow-up owed" | Direction 2 "belongs to its own ticket, with those costs priced" — that ticket is not filed. A shipped doc points at a component that does not exist, which is the shape #695 exists to retire. Mitigated but not removed by the adjacent **"Nothing here defers to it."** |
-| W2 | Warning | `0ad8c00` commit trailer | `Changelog: none` on a correction to the consumer-facing wiring doc that materially changes what a consumer believes the lane does for them. |
+| W1 | Warning | `docs/plans/second-shift-695-lean.md` (AC-6 arm 2 triage) | The AC asserts "**12 hits**, none a live claim". The committed grep, run verbatim at `03c8522`, returns **13 lines**. The enumeration itself is complete — the miscount comes from listing `orchestrate-lean.sh:48-49` as one entry when it is two matching lines. A criterion that states a count the criterion's own command does not produce makes the next reader reconcile a discrepancy that is not a defect. |
+| W2 | Warning | `docs/plans/second-shift-695-lean.md` (AC-6 arm 2 triage) | The triage is a **point-in-time snapshot pinned inside a durable criterion**. Thirteen line numbers across seven files are named in an AC that must be re-scored every round; all thirteen resolve today, and every one drifts the next time any of those files is edited. The criterion proper ("no hit credits the gate, the lane, or milestone 3 with comparing a render against the design") is durable; the hit table is a round artifact. Recording the triage was right — round 1's lesson was that an unrecorded broad grep gets re-triaged cold — but it belongs in the verdict record or a "measured at" note, not inside the AC's own text. |
+| S1 | Suggestion | `docs/live-render.md:34-36` | "**never comparison**" is unqualified in the section a consumer reads to build their harness, while the gate *does* perform one comparison the same file tells them to design for: the byte-identical-states detector (`:162-165`, "Two declared states that produce byte-identical screenshots red"). The restrictive clause ("which is the review session's") and the anchor both scope it to the design comparison, and `:169` states the bounded form correctly — so this is an imprecision, not the ticket's defect class (it under-claims rather than over-claims). One word — "never *design* comparison" — closes it. |
 
-### B1 — the same false-capability claim survives in the same file
+### Why none of these is a blocker
 
-`docs/live-render.md:34` sits in **`## The command contract`**, the section a consumer reads to
-build their render harness, and states the division of labour as:
+W1 and W2 are accuracy and durability notes on a criterion that is otherwise **stronger than the
+one it replaced**, and neither changes what the tree contains. S1 points at an under-claim, which
+is the mirror image of the defect class #695 exists to retire and is disambiguated twice in the
+same file. Nothing here credits a component with fidelity work it does not do.
 
-> Your script owns **boot, auth, and screenshot**. The gate owns route derivation and comparison.
+## The round-2 question this run turns on: is the widened AC-6 real?
 
-It is flatly contradicted by three things, one of which this PR wrote:
+Round 1's blocker was not the line — it was that the spec's own completeness criterion was
+**phrase-shaped while the defect was shape-shaped**, so a sentence crediting the gate with
+comparison passed a check that read as complete. The fix widened AC-6 to a second arm over the
+defect shape. That amendment is the thing worth auditing hardest, because a spec amended after
+the fact to match the diff is itself a blocker.
 
-- this PR's own new opening, `docs/live-render.md:5-6` — "**The gate compares nothing against
-  the design** — it caches no design frame";
-- the file's pre-existing `docs/live-render.md:167` — "**Comparison is still not the gate's.**
-  Nothing here diffs a screenshot against a design frame";
-- `lean-gate.sh:3552` — "What this gate does NOT do: compare anything. Comparison against the
-  design frame is review judgment (D-5) and lives in the review-lean session."
+It is not that. Three checks:
 
-Verified against the code, not just the prose: `cmd_3`'s render loop runs the consumer command,
-requires a non-empty PNG at `{out}`, `lean_sha256`es it, runs the byte-identical-states detector,
-and writes the manifest. There is no design-side input anywhere in it. Route derivation IS the
-gate's (`{route}` comes from the spec's `| RS-n |` rows), so only the trailing "and comparison"
-is false.
-
-Why this is a blocker and not a pre-existing-gap note:
-
-1. **It is the ticket's defect class verbatim.** D-5 is on the record calling exactly this shape
-   out — "a document crediting a component with fidelity work it does not do" — and justifying
-   AC-5 on the ground that "shipping AC-4 without it leaves the file self-contradictory." The
-   file is still self-contradictory, for the same reason, 29 lines up.
-2. **AC-1 requires the decision to be recorded "operatively in `docs/live-render.md`."** Line 34
-   operatively records the opposite, in the one section a consumer implementing a harness cannot
-   skip.
-3. **AC-6's completeness check is structurally blind to it.** The grep enumerates four *phrases*
-   (`pixel-diff`, `pixel diff`, `screenshot-diff`, `screenshot diff`), not the *defect shape*, so
-   a sentence that credits the gate with comparison without naming a pixel differ passes it. The
-   grep reads as complete and is not — the audit that found this was
-   `grep -E '(gate|milestone[ -]?3|lane).{0,80}(compar|verif...|check.{0,20}against the design)'`
-   over `docs/ plugins/ schema/`, which returns line 34 as the only live instance repo-wide.
-
-Fix: delete "and comparison" (and, if you want the sentence to keep saying something true, the
-gate owns route derivation, the state matrix, the PNG hashes and the manifest — line 168 already
-words that). One line. Consider whether AC-6's grep should be widened to the defect shape rather
-than the phrase list, so the next instance is caught by the criterion instead of by a reviewer.
-
-### W1 — an unfiled follow-up is a live pointer
-
-`docs/live-render.md:203` ships "It belongs to its own ticket, with those costs priced." No such
-ticket exists; the PR body says filing is the operator's action and "this needs your action to
-land." The adjacent **"Nothing here defers to it."** is what keeps this out of blocker territory
-— no verification responsibility is routed to the unfiled ticket, and the section heading says
-"none is coming." But until the ticket is filed, a reader who follows that sentence lands
-nowhere. File it, or reword to "would need its own ticket" so the doc does not assert one exists.
-
-### W2 — `Changelog: none` on a consumer-visible correction
-
-The behaviour did not change, but what `docs/live-render.md` tells a consumer their lane does
-changed materially: a consumer reading the old opening believed the gate "semantically compares"
-their render against the design. That is the kind of correction a consumer would want to see in
-the release notes. Judgment call, not a gate — the presence check passes either way.
+1. **The amendment is stricter, not looser**, and its source is named — D-6 cites the round-1
+   verdict record, `codebase-derived`, with the resolution quoting the finding. AC-6 arm 1
+   survives verbatim; arm 2 is added on top.
+2. **The criterion is live, not vacuous.** Probed the committed regex against both defect
+   sentences this ticket exists to remove:
+   - `"The gate owns route derivation and comparison."` → **matched** (the round-1 blocker).
+   - `"milestone 3 … semantically compares it against the cached design frame."` → **matched**
+     (the AC-5 defect).
+   A criterion that catches both shapes the run found is a real gate, not a restatement.
+3. **The criterion passes at its own head, and I ran it rather than reading it.** Extracted the
+   fenced command verbatim from the committed spec and executed it: 13 hits, every one in the
+   compliant classes the AC names (hypothetical, denial, attributed to the sighted reader, or a
+   different subject entirely — the scheduler's progress-token comparison, P4's derived
+   comparison, `stall-probe.mjs`'s "comparable across arms"). Every one of the thirteen cited
+   line numbers resolves at head. Only the **count** is wrong (W1). Note also that the
+   `':!docs/plans/'` exclusion is load-bearing and correctly present: without it the AC is
+   unsatisfiable at its own head, because this very record quotes the offending sentence in order
+   to report it.
 
 ## Per-AC scoring (against the committed spec `docs/plans/second-shift-695-lean.md`)
 
 | AC | Score | Evidence |
 | --- | --- | --- |
-| AC-1 | **satisfied** | Direction 3 recorded in the spec's `## Decision (AC-1)` with reasoning against directions 1 and 2, and operatively in `docs/live-render.md:190-212`. D-1/D-2 carry it in the ledger with legal provenance values. |
-| AC-2 | **satisfied** | Re-measured independently at `0ad8c00`, not taken from the spec's table: `figma-faithful-spec-reviewer.md:33`, `figma-faithful-plan-reviewer.md:59,64`, `figma-faithful-reviewer.md:39`, `figma-faithful-spec/SKILL.md:219`, `design-faithful/SKILL.md:59` — every one denies the gate exists. Cited line numbers all resolve at the base too. A sixth file the issue does not name, `figma-faithful/SKILL.md:228`, also already complies. Zero edits to these files is correct, not a gap: #694 satisfied them, and a no-op edit would manufacture a diff. |
-| AC-3 | **satisfied** | No gate built, so nothing is owed on "asserted by the lane" and no selftest is owed. Verified no document promises a gate is *coming*: the broadened grep for `once/when/until the gate`, `future gate`, `planned gate`, `not yet built` over `plugins/ docs/` returns nothing. (B1 is a claim that a capability *exists*, which is a different and worse shape, scored there.) |
-| AC-4 | **satisfied** | `docs/live-render.md:180-186` no longer reads "the pixel-diff gate is still deferred"; the settled posture and its reasoning replace it at `:190-212`. |
-| AC-5 | **satisfied as written** | The opening (`:3-12`) now describes what the gate does — runs the command, takes the PNG, hashes it into the receipt — and names the review session as the comparer. Verified against `cmd_3`. **Scored satisfied because the AC scopes itself to "the opening"**; B1 is the same defect elsewhere in the file, filed as a finding rather than as an AC miss. |
-| AC-6 | **satisfied as written, weak as a criterion** | The literal grep returns only denials plus this PR's own explanation. See B1(3): the criterion is phrase-shaped, so passing it is not evidence the file is free of the defect — and here it is not. |
+| AC-1 | **satisfied** | Direction 3 recorded with reasoning against directions 1 and 2 in `## Decision (AC-1)`, and operatively in `docs/live-render.md:192-214` under a heading that states the posture is settled ("and none is coming"). D-1/D-2 carry it in the ledger with legal `provenance` values. Unchanged by this round's delta; re-verified at head. |
+| AC-2 | **satisfied** | Re-measured at `03c8522`, not inherited from the spec's table: `figma-faithful-spec-reviewer.md:33`, `figma-faithful-plan-reviewer.md:59,64`, `figma-faithful-reviewer.md:39`, `figma-faithful-spec/SKILL.md:219`, `design-faithful/SKILL.md:59` — every one denies the gate exists. Zero edits to these files remains the correct answer, not a gap. |
+| AC-3 | **satisfied** | No gate built, so nothing is owed on "asserted by the lane" and no selftest is owed. Re-ran the broadened "coming gate" grep (`once/when/until the gate`, `future gate`, `planned gate`, `not yet built`, `gate is coming`, `will be built`) over `plugins/ docs/` excluding `docs/plans/` at head: three hits, none about a fidelity gate (a scheduler token, an eval baseline, a db-reviewer tenancy note). |
+| AC-4 | **satisfied** | "the pixel-diff gate is still deferred" is gone; `:192-214` states the settled posture and its reasoning. Arm-1 grep at head returns 12 lines, all denial, heading, anchor link, or the explicit hypothetical — no live deferral anywhere in `plugins/ docs/`. |
+| AC-5 | **satisfied** | The opening (`:3-12`) describes what the gate does — runs the command, takes the PNG, hashes it into the patch-bound receipt — states "**The gate compares nothing against the design** — it caches no design frame", and names the `/dev-pipeline:review-lean` session as the comparer. Verified against `cmd_3`. |
+| AC-6 | **satisfied**, and now a real criterion | Both arms run clean at head; both are recorded above with their triage. Round 1 scored this "satisfied as written, weak as a criterion"; that weakness is what this round's delta fixed, and the probe in the section above is the evidence it is no longer weak. W1/W2 are accuracy notes on the AC's prose, not an unmet criterion. |
 
-**Design fidelity: `not-applicable`.** The config declares no `design.provider`, so no `## Design`
-section is required or present in the spec, and no render receipt exists. Step 5b does not apply.
+**Design fidelity: `not-applicable`.** The repo config declares no `design.provider`, so no
+`## Design` section is required or present in the spec, and no render receipt exists. Step 5b does
+not apply.
 
 ## Panel
 
 | Reviewer | Verdict | Findings | Model |
 | --- | --- | --- | --- |
 | Maintainability | Pass | 0 | sonnet |
-| Scope completeness | Pass | 0 (1 suppressed: AC-2 satisfied in the base by #694, promoted after independent re-measurement) | opus |
+| Scope completeness | Pass | 0 (2 suppressed, both visibility-only: AC-2's five files untouched but read at head; the spec's AC-4/AC-5 exceed the issue's three ACs — additional work, which cannot fail the gate) | opus |
 
 Routing: **trivial-inert** — every changed file is Markdown outside `.claude/`, so security,
-performance, complexity and test-coverage were not selected (no executable surface); a11y and the
-design-fidelity dimension were not routed (no changed path matches
-`stageParams.webComponentGlobs`, which the config does not set — default
-`apps/web/**/*.{tsx,jsx}`). Not-selected, not dark: both selected reviewers returned usable
-results, so the round is intact. B1 is a `[Cross-cutting]` orchestrator finding — no reviewer
-reported it, and it was verified against `lean-gate.sh` before being raised.
+performance, complexity and test-coverage were not selected (no executable surface). a11y and the
+design-fidelity dimension were not routed: no changed path matches
+`stageParams.webComponentGlobs`, which the repo config does not set (default
+`apps/web/**/*.{tsx,jsx}`). Not-selected, not dark — both selected reviewers returned usable
+results, so the round is intact. Noted for calibration: maintainability returned in 7s on one tool
+call, declining to open every file under proportionate grounding; that is a usable result, but it
+is not what this round rested on. All three findings below are mine, verified against the gate
+source before being raised.
 
 ## Strengths
 
-- **The stale-evidence handling is the right call and is done honestly.** Every one of the
-  issue's three line citations described pre-#694 text. The build re-measured all five AC-2
-  targets at head, recorded the measurement in a table with quoted text, and edited **nothing** —
-  refusing to churn five files for a diff. That is the harder and correct answer.
-- **The unfiled second defect was carried under its own AC rather than folded in.** AC-5 and D-5
-  make the addition visible and reviewable instead of smuggling it into AC-4's edit.
-- **The rejection of direction 1 is grounded, not rhetorical.** "No `package.json` anywhere" and
-  "the dependency lands on every consumer's harness" both check out; the repo has no image
-  tooling and the `design.liveRender` contract is explicitly install-free.
-- **Direction 2 is deferred without being disparaged**, with its precondition (#701's committed
-  `dimensions` table) named and its known limitation — plan→code only, blind to design→plan —
-  stated up front in the draft ticket.
+- **The fix went to the criterion, not just the line.** The one-line correction was the cheap
+  half; widening AC-6 to a second arm over the defect *shape* is what stops the next instance
+  being caught by a reviewer instead of by the spec. D-6 records it with its source, so the
+  amendment is auditable rather than silent.
+- **The new sentence is a positive denial, not a deletion.** "route derivation, the state matrix,
+  the PNG hashes and the manifest — never comparison" names what the gate owns before denying what
+  it does not, so a later reader cannot re-add the false claim by inference from an absence. All
+  four named responsibilities check out in `cmd_3`.
+- **The `':!docs/plans/'` exclusion on the new arm was thought through.** Promoting a review's
+  triage grep into an AC verbatim would have made the AC unsatisfiable at its own head — this
+  run's records quote the offending sentence in order to report it. Arm 2 carries the same
+  exclusion arm 1 already had, on the same stated ground.
+- **W2 was discharged without rewriting history.** A real `Changelog:` on the fix commit
+  discharges a `Changelog: none` on an earlier one, because trailers are extracted grep-anywhere
+  and survive the squash. Cheaper and safer than an amend or a merge-dialog edit.
+- **W1's fix declines to over-correct.** "It would need a ticket of its own … none is filed, and
+  this document does not wait on one" removes the dangling pointer without pretending the
+  direction was refuted — the recommendation survives, the false assertion does not.
+
+## Recommendation
+
+Approve and merge. W1 and W2 are worth folding into the spec at some point — the count is wrong
+and the hit table will go stale inside a durable criterion — but neither changes the tree, neither
+is consumer-visible, and neither is worth a round. S1 is a one-word polish on `docs/live-render.md:34`.
+
+Still owed by the operator, outside this PR: **file the direction-2 follow-up ticket** drafted in
+the spec's "Follow-up owed" section. The shipped doc no longer asserts it exists, so nothing is
+broken by the delay — but the recommendation is live and the precondition (#701's committed
+`dimensions` table) is now in place.
