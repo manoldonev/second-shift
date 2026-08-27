@@ -515,10 +515,143 @@ compute_bucket_rollup() {
   ' "${METRICS_FILES[@]}"
 }
 
+# ────────────────────────────────────────────────────────────────────────────
+# TRANSCRIPT FALLBACK (#692). Claude Code writes a per-turn `usage` object into its own
+# session transcript, which is the same accounting the OTel `claude_code.token.usage`
+# metric is derived from. That makes it a second, independent source for everything in
+# the block EXCEPT money.
+#
+# Why it is needed: the three zero-row verdicts below all assume the collector is the
+# only place a run's spend was ever recorded. It is not. A consumer whose telemetry is
+# routed to an org-hosted collector exports normally and still leaves the local metrics
+# file empty, so every run there published "cost unrecoverable" while the numbers sat on
+# disk the whole time. Rotation and a collector that was down are recoverable for the
+# same reason.
+#
+# What it CANNOT do: there is no USD in the transcript. Claude Code computes the dollar
+# figure internally and ships it only as `claude_code.cost.usage`, so a transcript rollup
+# carries `cost_usd: null` and says so on the block. Pricing the tokens here was
+# considered and rejected: a price table shipped to consumers goes stale silently and
+# starts publishing confidently wrong figures, which is strictly worse than a stated gap.
+#
+# The rollup below is emitted in the SAME SHAPE as the OTel one, plus `source`, so
+# render_block and write_cost_log_row need one branch each rather than a parallel path.
+# ────────────────────────────────────────────────────────────────────────────
+
+# Transcript roots, in search order. $CLAUDE_CONFIG_DIR first when set (a consumer running
+# more than one seat has one config dir per seat), then the default — a run's session may
+# predate the current seat routing. $COST_BLOCK_TRANSCRIPT_ROOT overrides both, for tests.
+transcript_roots() {
+  if [ -n "${COST_BLOCK_TRANSCRIPT_ROOT:-}" ]; then
+    printf '%s\n' "$COST_BLOCK_TRANSCRIPT_ROOT"
+    return
+  fi
+  [ -n "${CLAUDE_CONFIG_DIR:-}" ] && printf '%s\n' "$CLAUDE_CONFIG_DIR/projects"
+  [ "${CLAUDE_CONFIG_DIR:-}" != "$HOME/.claude" ] && printf '%s\n' "$HOME/.claude/projects"
+  return 0
+}
+
+# Every transcript file belonging to this run's session set, deduplicated.
+transcript_files() {
+  local root sid f
+  while IFS= read -r root; do
+    [ -d "$root" ] || continue
+    while IFS= read -r sid; do
+      [ -n "$sid" ] || continue
+      for f in "$root"/*/"$sid.jsonl"; do
+        [ -s "$f" ] && printf '%s\n' "$f"
+      done
+    done < <(jq -r '.[]' <<<"$SIDS_JSON")
+  done < <(transcript_roots) | sort -u
+}
+
+compute_transcript_rollup() {
+  local files=()
+  while IFS= read -r f; do files+=("$f"); done < <(transcript_files)
+  [ ${#files[@]} -eq 0 ] && return 1
+
+  jq -s --argjson sids "$SIDS_JSON" \
+        --arg fenceLo "$FENCE_LO" \
+        --arg fenceHi "$FENCE_HI" \
+        --argjson tierMap "$TIER_FAMILY_MAP" \
+        --argjson tierOrder "$TIER_ORDER" '
+    def tier_of($m):
+      if ($m | type) != "string" then "unknown"
+      else ( [ $tierMap | to_entries[] as $e | select($m | contains($e.key)) | $e.value ] | first ) // "unknown"
+      end;
+    # Fractional seconds must go before any comparison. Transcript stamps carry millis
+    # (2026-08-27T10:12:08.167Z) and the fence does not, and "…08.167Z" < "…08Z" as a
+    # STRING because "." sorts below "Z" — so the run own first turn would fall outside
+    # its own fence. The OTel path never hits this: todate emits whole seconds.
+    def whole_seconds: if type == "string" then sub("\\.[0-9]+Z$"; "Z") else . end;
+    [ .[]
+      | select(.message.usage != null)
+      | { t:     (.timestamp | whole_seconds),
+          sid:   (.sessionId // .session_id),
+          model: (.message.model // "unknown"),
+          tier:  tier_of(.message.model),
+          u:     .message.usage }
+    ] as $all
+    | [ $all[] | select( $fenceLo == "" or (.t >= $fenceLo and .t <= $fenceHi) ) ] as $inFence
+    | [ $inFence[] as $r | select( ($sids | index($r.sid)) != null ) | $r ] as $tagged
+    | {
+        source: "transcript",
+        byTier: (
+          $tagged
+          | group_by(.tier)
+          | map({
+              tier: .[0].tier,
+              # No money in this source. Null rather than 0 so a reader cannot mistake a
+              # missing figure for a free run.
+              cost_usd: null,
+              output_tokens: ( [.[] | .u.output_tokens // 0] | add // 0 ),
+              models: ( [.[] | .model // empty] | unique | sort )
+            })
+          | sort_by($tierOrder[.tier] // 9)
+        ),
+        totals: {
+          cost_usd: null,
+          input_tokens:          ( [$tagged[] | .u.input_tokens                // 0] | add // 0 ),
+          output_tokens:         ( [$tagged[] | .u.output_tokens               // 0] | add // 0 ),
+          cache_read_tokens:     ( [$tagged[] | .u.cache_read_input_tokens     // 0] | add // 0 ),
+          cache_creation_tokens: ( [$tagged[] | .u.cache_creation_input_tokens // 0] | add // 0 ),
+          session_count: ( $sids | length )
+        }
+      }
+    | .totals.cache_hit_rate =
+        ( (.totals.input_tokens + .totals.cache_read_tokens + .totals.cache_creation_tokens) as $denom
+          | if $denom > 0 then (.totals.cache_read_tokens / $denom) else 0 end )
+    | .rowCount = ($tagged | length)
+    | .fenceRowCount = ($inFence | length)
+    | .oldestScannedAt = ( [ $all[].t ] | min // "" )
+    | .rotatedOut = false
+    | .rowSpanSeconds = (
+        if ($tagged | length) > 1 then
+          ( ( [$tagged[].t] | max | fromdateiso8601 )
+            - ( [$tagged[].t] | min | fromdateiso8601 ) )
+        else 0 end )
+  ' "${files[@]}"
+}
+
 ROLLUP=$(compute_bucket_rollup 2>/dev/null)
 if [ -z "$ROLLUP" ] || ! jq -e . >/dev/null 2>&1 <<<"$ROLLUP"; then
   log "skip(otel-error): OTel metrics query failed"
   exit 0
+fi
+
+# ────────────────────────────────────────────────────────────────────────────
+# The fallback runs HERE — before the dump hook and before the skip ladder — so a
+# recovered rollup is what every downstream consumer sees, the test hook included.
+# It fires only when OTel produced nothing for this run, so no path that yields a
+# figure today can change.
+# ────────────────────────────────────────────────────────────────────────────
+if [ "$(jq -r '.rowCount // 0' <<<"$ROLLUP")" -eq 0 ]; then
+  TRANSCRIPT_ROLLUP=$(compute_transcript_rollup 2>/dev/null || true)
+  if [ -n "$TRANSCRIPT_ROLLUP" ] && jq -e . >/dev/null 2>&1 <<<"$TRANSCRIPT_ROLLUP" \
+     && [ "$(jq -r '.rowCount // 0' <<<"$TRANSCRIPT_ROLLUP")" -gt 0 ]; then
+    log "recovered from transcript: OTel had no in-fence rows for this run's sessions, so $(jq -r '.rowCount' <<<"$TRANSCRIPT_ROLLUP") turn(s) were read from the session transcript instead. TOKENS ONLY — the transcript carries no USD (see TRANSCRIPT FALLBACK above)."
+    ROLLUP="$TRANSCRIPT_ROLLUP"
+  fi
 fi
 
 # Test hook: when COST_BLOCK_DUMP_ROLLUP is set, print the time-fenced rollup JSON
@@ -545,6 +678,7 @@ ROW_COUNT=$(jq -r '.rowCount // 0' <<<"$ROLLUP")
 FENCE_ROW_COUNT=$(jq -r '.fenceRowCount // 0' <<<"$ROLLUP")
 OLDEST_SCANNED=$(jq -r '.oldestScannedAt // ""' <<<"$ROLLUP")
 ROTATED_OUT=$(jq -r '.rotatedOut // false' <<<"$ROLLUP")
+ROLLUP_SOURCE=$(jq -r '.source // "otel"' <<<"$ROLLUP")
 
 if [ "$ROW_COUNT" -eq 0 ]; then
   if [ "$ROTATED_OUT" = "true" ]; then
@@ -557,7 +691,11 @@ if [ "$ROW_COUNT" -eq 0 ]; then
   exit 0
 fi
 
-if [ -z "$TOTAL_COST" ] || [ "$TOTAL_COST" = "0" ] || [ "$TOTAL_COST" = "null" ]; then
+# A transcript rollup reports null cost BY CONSTRUCTION, not because nothing was spent, so
+# the zero-cost verdict below would misread it as an empty run and discard real token
+# figures. Keyed on the source rather than on the value for exactly that reason.
+if [ "$ROLLUP_SOURCE" = "otel" ] \
+   && { [ -z "$TOTAL_COST" ] || [ "$TOTAL_COST" = "0" ] || [ "$TOTAL_COST" = "null" ]; }; then
   log "skip(zero-datapoints): $ROW_COUNT in-fence rows for this run's sessions, but no claude_code.cost.usage among them — telemetry is flowing; there is genuinely no cost to report."
   exit 0
 fi
@@ -612,11 +750,16 @@ render_block() {
         --arg totalNote "$total_note" \
         --arg totalScope "$total_scope" \
         --argjson tierOrder "$TIER_ORDER" \
-        --arg fenceLoHm "$fence_lo_hm" --arg fenceHiHm "$fence_hi_hm" '
+        --arg fenceLoHm "$fence_lo_hm" --arg fenceHiHm "$fence_hi_hm" \
+        --arg source "${ROLLUP_SOURCE:-otel}" '
     def fmt(x):
       (x * 100 | round) as $c
       | "$" + ( ($c / 100 | floor) | tostring ) + "." +
         ( $c % 100 | tostring | if length == 1 then "0" + . else . end );
+    # Thousands separators, which jq has no builtin for. Tokens are the only figures the
+    # transcript source carries, so an unseparated 45410410 would be the whole payload.
+    def srev: explode | reverse | implode;
+    def commafy: tostring | srev | [ scan(".{1,3}") ] | join(",") | srev;
     # The render filter (see RENDER FILTER in the header). A row with no money and no model
     # identity reports nothing; the rollup and the cost-log row keep it regardless.
     def reportable: select((.cost_usd > 0) or ((.models | length) > 0));
@@ -628,11 +771,28 @@ render_block() {
         "---",
         "",
         "## Pipeline Cost",
-        "",
-        "| Scope | Tiers | Models | Cost (USD) |",
-        "|-------|-------|--------|-----------:|",
-        "| " + $totalScope + " (" + $totalNote + ") | " + ($all_tiers | join(", ")) + " | " + ($all_models | join(", ")) + " | " + fmt(.totals.cost_usd) + " |"
+        ""
       ]
+      +
+      # The two sources render DIFFERENT tables rather than one table with a blank cell:
+      # a "Cost (USD)" column reading "n/a" invites a reader to treat the run as free,
+      # whereas a table carrying no cost column at all cannot be misread that way.
+      ( if $source == "transcript" then
+          [
+            "| Scope | Tiers | Models | Output | Cache write | Cache read |",
+            "|-------|-------|--------|-------:|------------:|-----------:|",
+            "| " + $totalScope + " (" + $totalNote + ") | " + ($all_tiers | join(", ")) + " | " + ($all_models | join(", "))
+              + " | " + (.totals.output_tokens | commafy)
+              + " | " + (.totals.cache_creation_tokens | commafy)
+              + " | " + (.totals.cache_read_tokens | commafy) + " |"
+          ]
+        else
+          [
+            "| Scope | Tiers | Models | Cost (USD) |",
+            "|-------|-------|--------|-----------:|",
+            "| " + $totalScope + " (" + $totalNote + ") | " + ($all_tiers | join(", ")) + " | " + ($all_models | join(", ")) + " | " + fmt(.totals.cost_usd) + " |"
+          ]
+        end )
       +
       [
         "",
@@ -640,7 +800,11 @@ render_block() {
           + " · Pipeline run: " + $dur + " min"
           + " · Sessions: " + (.totals.session_count | tostring)
           + ( if $fenceLoHm != "" then " (time-fenced " + $fenceLoHm + "–" + $fenceHiHm + ")" else "" end )
-          + " · Source: OTel `claude_code.cost.usage`"
+          + ( if $source == "transcript" then
+                " · Source: session transcript — token counts only, no USD (Claude Code computes cost internally and emits it solely as OTel `claude_code.cost.usage`)"
+              else
+                " · Source: OTel `claude_code.cost.usage`"
+              end )
       ]
     ) | .[]
   ' <<<"$ROLLUP"
@@ -667,7 +831,14 @@ write_cost_log_row() {
       ticketKey: $issue,
       runId: $runId,
       sessionIds: $sids,
+      # Null for a transcript-sourced row, and `source` is the discriminator that says
+      # why. A reader wanting only priced runs filters on source == "otel".
       totalUsd: $rollup.totals.cost_usd,
+      source: ($rollup.source // "otel"),
+      tokens: { input: $rollup.totals.input_tokens,
+                output: $rollup.totals.output_tokens,
+                cacheRead: $rollup.totals.cache_read_tokens,
+                cacheCreation: $rollup.totals.cache_creation_tokens },
       durationMin: ($dur | tonumber? // null),
       models: ([$rollup.byTier[].models[]] | unique | sort),
       byTier: $rollup.byTier,

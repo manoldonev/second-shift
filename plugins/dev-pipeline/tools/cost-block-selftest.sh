@@ -668,9 +668,20 @@ COST_LOG_FILE="$CL" issue_block "$TMP/norow.md"
 # --- AC-8: the row's key set is cross-era readable --------------------------
 COST_LOG_FILE="$CL" issue_block "$TMP/row1.md" --close-out --prs "https://x/pull/901"
 ROW_KEYS="$(jq -r 'keys | join(",")' < "$CL" 2>/dev/null | tail -n1)"
-[[ "$ROW_KEYS" == "at,byTier,cacheHitRate,durationMin,models,prs,runId,sessionIds,ticketKey,totalUsd" ]] \
-  && ok "(AC-8) the row carries every cross-era key plus runId and byTier" \
+# `source` and `tokens` joined the set with the transcript fallback: `totalUsd` is null on a
+# transcript-sourced row, so a reader summing spend needs the discriminator, and the tokens are
+# the only figures that source carries. The pin stays exact — a schema change should have to
+# come here and say so.
+[[ "$ROW_KEYS" == "at,byTier,cacheHitRate,durationMin,models,prs,runId,sessionIds,source,ticketKey,tokens,totalUsd" ]] \
+  && ok "(AC-8) the row carries every cross-era key plus runId, byTier, source and tokens" \
   || bad "(AC-8) unexpected row keys: '$ROW_KEYS'"
+
+# An OTel-sourced row must say so explicitly rather than leaving the field absent — a reader
+# filtering on source == "otel" would otherwise drop every pre-fallback row.
+OTEL_SOURCE="$(jq -r '.source' < "$CL" 2>/dev/null | tail -n1)"
+[[ "$OTEL_SOURCE" == "otel" ]] \
+  && ok "(AC-8) an OTel-sourced row is labelled otel, not left unlabelled" \
+  || bad "(AC-8) expected source=otel on a metrics-backed row, got '$OTEL_SOURCE'"
 
 # byLabel's ABSENCE is the era discriminator — no marker field was added, so a reader that
 # cannot tell the eras apart is a reader this assertion is protecting.
@@ -757,6 +768,79 @@ $( cd "$RT" && COST_LOG_FILE="$CL2" OTEL_METRICS_FILE="$MET" COST_BLOCK_SKIP_FLU
 grep -qE 'command not found|not found$' <<<"$ALL_STDERR" \
   && bad "(AC-13) a driven path calls something that does not exist: $ALL_STDERR" \
   || ok "(AC-13) no driven path emits a shell diagnostic for a retired helper"
+
+echo
+echo "=== the transcript fallback — tokens when the local metrics file has no rows for the run ==="
+# Layout the script expects: <root>/<project-slug>/<session-id>.jsonl
+T_SID="77777777-8888-4999-8aaa-bbbbbbbbbbbb"
+T_ROOT="$TMP/transcripts"
+mkdir -p "$T_ROOT/-some-project"
+cp "$FIX/transcript-fallback.jsonl" "$T_ROOT/-some-project/$T_SID.jsonl"
+# Present but carrying no rows, so the OTel rollup yields rowCount 0 and the fallback is reached.
+EMPTY_OTEL="$TMP/no-rows.jsonl"
+printf '{}\n' > "$EMPTY_OTEL"
+
+t_rollup() {
+  OTEL_METRICS_FILE="$EMPTY_OTEL" COST_BLOCK_TRANSCRIPT_ROOT="$T_ROOT" COST_BLOCK_DUMP_ROLLUP=1 \
+    bash "$SCRIPT" --stateless --sessions "$T_SID" \
+      --start 2026-05-25T10:00:00Z --end 2026-05-25T10:30:00Z 2>/dev/null
+}
+T_ROLLUP="$(t_rollup)"
+
+if [[ -z "$T_ROLLUP" ]] || ! jq -e . >/dev/null 2>&1 <<<"$T_ROLLUP"; then
+  bad "the fallback produced no valid rollup JSON"
+else
+  [[ "$(jq -r '.source' <<<"$T_ROLLUP")" == "transcript" ]] \
+    && ok "the rollup is labelled transcript, so downstream can branch on it" \
+    || bad "expected source=transcript, got '$(jq -r '.source' <<<"$T_ROLLUP")'"
+
+  # 3 of 5 records: both fence-boundary turns IN (fractional seconds normalised), the 11:00
+  # turn OUT, and the usage-less user turn skipped. This one assertion carries all three.
+  [[ "$(jq -r '.rowCount' <<<"$T_ROLLUP")" == "3" ]] \
+    && ok "fractional-second bounds are inside the fence; the out-of-fence and usage-less rows are not" \
+    || bad "expected rowCount 3, got $(jq -r '.rowCount' <<<"$T_ROLLUP")"
+
+  [[ "$(jq -r '.totals.output_tokens' <<<"$T_ROLLUP")" == "175" ]] \
+    && ok "output tokens sum over the fenced turns only (100+50+25)" \
+    || bad "expected 175 output tokens, got $(jq -r '.totals.output_tokens' <<<"$T_ROLLUP")"
+
+  [[ "$(jq -r '.totals.cache_read_tokens' <<<"$T_ROLLUP")" == "1500" ]] \
+    && ok "cache-read tokens sum over the fenced turns only" \
+    || bad "expected 1500 cache-read tokens, got $(jq -r '.totals.cache_read_tokens' <<<"$T_ROLLUP")"
+
+  # NULL, not 0. A zero would read as a run that cost nothing, which is a different claim.
+  [[ "$(jq -r '.totals.cost_usd')" == "null" ]] <<<"$T_ROLLUP" \
+    && ok "cost is null rather than 0 — the transcript carries no USD to report" \
+    || bad "expected null cost_usd, got $(jq -r '.totals.cost_usd' <<<"$T_ROLLUP")"
+
+  [[ "$(jq -r '.byTier[0].tier' <<<"$T_ROLLUP")" == "reasoning" ]] \
+    && ok "the transcript model is tier-mapped by the same table the OTel path uses" \
+    || bad "expected tier reasoning, got $(jq -r '.byTier[0].tier' <<<"$T_ROLLUP")"
+fi
+
+# The rendered block: token columns, no dollar figure, and a footer naming the real source.
+T_BLOCK="$(OTEL_METRICS_FILE="$EMPTY_OTEL" COST_BLOCK_TRANSCRIPT_ROOT="$T_ROOT" \
+  bash "$SCRIPT" --stateless --sessions "$T_SID" \
+    --start 2026-05-25T10:00:00Z --end 2026-05-25T10:30:00Z 2>/dev/null)"
+grep -q 'Source: session transcript' <<<"$T_BLOCK" \
+  && ok "the block names the transcript as its source" \
+  || bad "expected a transcript source line in: $T_BLOCK"
+grep -q 'Cache write' <<<"$T_BLOCK" \
+  && ok "the block renders token columns instead of a cost column" \
+  || bad "expected token columns in: $T_BLOCK"
+grep -q '| \$' <<<"$T_BLOCK" \
+  && bad "the transcript block rendered a dollar figure it cannot know: $T_BLOCK" \
+  || ok "no dollar figure is rendered for a transcript-sourced block"
+
+# NO REGRESSION: when the metrics file DOES carry rows for the run, the fallback must stay out
+# of the way even with a transcript sitting right there.
+NR_ROLLUP="$(OTEL_METRICS_FILE="$METRICS" COST_BLOCK_TRANSCRIPT_ROOT="$T_ROOT" COST_BLOCK_DUMP_ROLLUP=1 \
+  bash "$SCRIPT" --stateless --sessions "$SHARED_SID" \
+    --start 2026-05-25T10:00:00Z --end 2026-05-25T10:30:00Z 2>/dev/null)"
+{ [[ "$(jq -r '.source // "otel"' <<<"$NR_ROLLUP")" == "otel" ]] \
+  && [[ "$(total_of <<<"$NR_ROLLUP")" =~ ^1(\.00)?$ ]]; } \
+  && ok "a run with OTel rows keeps the OTel rollup and its \$1.00 total" \
+  || bad "the fallback displaced a usable OTel rollup: $(jq -c '{source,rowCount,totals}' <<<"$NR_ROLLUP")"
 
 echo
 echo "Result: $PASS passed, $FAIL failed"
