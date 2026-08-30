@@ -77,7 +77,17 @@ Nothing about time or the 24h staleness contract is involved.
   guard must point at the failing case. *(Added during build: this is what made the nightly red
   undiagnosable from its own log — the ticket flags the oddity explicitly, and a class guard
   whose red names a passing case sends the next reader to the wrong assertion.)*
-- **AC-6** — `Changelog:` trailer present per repo convention.
+- **AC-6** — AC-5's path is guarded by an executing test, not left to the next red to discover.
+  It is dead code on every green run — it executes only once a staged suite has already failed,
+  which is exactly why a broken composition survived seven nightly runs — so it is
+  sentinel-delimited and driven against fixture logs, including the `ok: … failed …` decoy that
+  produced the misleading line. The guard does not inherit install-topology's staging cost.
+- **AC-7** — `docs/testing.md`'s install-topology section is corrected. Its standing claim that
+  the class guard "is the reason no new instance of this needs its own test" is what this
+  ticket disproves in part: the guard detected the defect on every one of the seven nightly
+  runs, but it runs nightly-only since #620 and its red named a passing case, so neither
+  detection-on-the-branch nor diagnosability followed from it.
+- **AC-8** — `Changelog:` trailer present per repo convention.
 
 ## Non-goals
 

@@ -663,9 +663,58 @@ fi
 # suites live), and `resolve_sibling <plugin> <relpath>` (another plugin). A shape
 # with no arm is a shape where the 5h2 break recurs unseen, so the arm set tracks the
 # doctor's actual delegation forms rather than the two that were easiest to reach.
+#
+# THE SIBLING ARM RESOLVES THROUGH THE PRODUCTION LADDER, NOT A PATH JOIN (#664). The
+# first two arms address files under the doctor's own plugin, so a doctor-relative
+# join answers them correctly under every layout. The third crosses a plugin boundary,
+# and that is the one place the two layouts disagree:
+#
+#   monorepo checkout:           <PLUGINS_DIR>/<sib>/<rel>
+#   version-keyed install cache: <cacheroot>/<sib>/<ver>/<rel>
+#
+# This arm used to join `$PLUGINS_ROOT/<sib>/<rel>` — which is rung 1 of resolve_sibling's
+# ladder and nothing else. In this checkout rung 1 always hits, so the arm was green here
+# forever; from an install cache the version segment makes it name nothing and all three
+# real delegations read as deleted. That is what reddened nightly install-topology for 7
+# consecutive runs while both in-repo selftest jobs were green at the same heads.
+#
+# So the arm asks the SAME resolver production asks — resolve-sibling.sh's real block,
+# lifted by its sentinels and executed, the extract-and-execute technique this file uses
+# throughout. A guard that re-derives its subject's path arithmetic can disagree with the
+# subject; one that runs the subject's resolver cannot.
 DOCTOR_DIR="$(cd "$(dirname "$DOCTOR")" && pwd)"
 OWN_PLUGIN_DIR="$(cd "$DOCTOR_DIR/.." && pwd)"
 PLUGINS_ROOT="$(cd "$DOCTOR_DIR/../.." && pwd)"
+
+# The two globals resolve_sibling() reads, at the doctor's real depth. Held in their own
+# variables rather than passed at each call site because (inv-cache) below re-points the
+# arm at a fabricated cache and re-runs the REAL inv_scan against it — the same way
+# inv_probe drives the real extraction rather than restating it.
+INV_PLUGIN_DIR="$OWN_PLUGIN_DIR"
+INV_PLUGINS_DIR="$PLUGINS_ROOT"
+
+# resolve-sibling.sh's real function, lifted by its sentinels into a stub the sibling arm
+# executes. Sourcing it into THIS shell would bind it to this file's own depth; running it
+# as a stub with PLUGIN_DIR/PLUGINS_DIR supplied keeps the ladder depth-agnostic, which is
+# the property resolve-sibling.sh's header says the extraction exists to preserve.
+INV_RS_BLOCK="$(sed -n '/# >>> resolve-sibling/,/# <<< resolve-sibling/p' "$RESOLVE_SIBLING")"
+INV_RS_STUB="$WORK/inv-resolve-sibling.sh"
+if [[ -z "$INV_RS_BLOCK" ]]; then
+  bad "(inv/sibling) resolve-sibling sentinels not found in $RESOLVE_SIBLING — the ladder was refactored without updating this guard, so the sibling arm has no resolver"
+else
+  # shellcheck disable=SC2016  # deliberate: "$1"/"$2" are the STUB's positional params, written
+  # out literally for the child shell to expand — expanding them here would bake in this
+  # shell's arguments and the stub would resolve the same pair on every call.
+  printf '%s\n%s\nresolve_sibling "$1" "$2"\n' 'set -uo pipefail' "$INV_RS_BLOCK" > "$INV_RS_STUB"
+fi
+
+# Prints the resolved path, or nothing when the ladder finds no file — resolve_sibling only
+# ever prints a path it has already `-f` tested, so an empty answer IS "does not exist".
+inv_sibling_path() { # inv_sibling_path <sibling-plugin> <path-under-that-plugin>
+  [[ -f "$INV_RS_STUB" ]] || return 1
+  PLUGIN_DIR="$INV_PLUGIN_DIR" PLUGINS_DIR="$INV_PLUGINS_DIR" \
+    bash "$INV_RS_STUB" "$1" "$2" 2>/dev/null
+}
 
 # ONE extraction, shared by the live assertion and by every probe. The probes drive
 # THIS function against a doctored copy instead of restating its greps: a hand-kept
@@ -699,7 +748,7 @@ inv_scan() { # inv_scan <doctor-file> <arm>
       script)  base="$DOCTOR_DIR/$hit" ;;
       plugin)  base="$OWN_PLUGIN_DIR/$hit" ;;
       sibling) plug="${hit%% *}"; rel="${hit#* }"; hit="$plug/$rel"
-               base="$PLUGINS_ROOT/$plug/$rel" ;;
+               base="$(inv_sibling_path "$plug" "$rel")" ;;
     esac
     [[ -f "$base" ]] || INV_MISSING="$INV_MISSING $hit"
   done < <(inv_extract "$doc" "$arm")
@@ -748,6 +797,73 @@ INV_INJECT_SIBLING='resolve_sibling review-toolkit scripts/definitely-deleted-se
 inv_probe script  "$INV_INJECT_SCRIPT"  'definitely-deleted-selftest.sh'
 inv_probe plugin  "$INV_INJECT_PLUGIN"  'skills/build-lean/definitely-deleted-selftest.sh'
 inv_probe sibling "$INV_INJECT_SIBLING" 'review-toolkit/scripts/definitely-deleted-selftest.sh'
+
+# ---------------------------------------------------------------------------
+# (inv-cache) the sibling arm, run against a VERSION-KEYED INSTALL CACHE.
+#
+# WHY THIS CASE EXISTS (#664). The arm above was green in this checkout for its whole
+# life and red from every install, because the layouts only disagree across a plugin
+# boundary and the in-repo run never crosses one that has a version segment. Seven
+# consecutive nightly install-topology runs were red on nothing but this, and the
+# in-repo sweep could not see it — install-topology is the only thing that runs a
+# shipped suite from the shipped shape, and since #620 it runs nightly, not on the PR
+# lane. So the class is re-guarded HERE, where the ordinary sweep reaches it: a
+# fabricated cache is cheap, and it makes the defect red at PR time instead of a day
+# later in a log that names a different case.
+#
+# It drives the REAL inv_scan by re-pointing the two globals the arm resolves against,
+# exactly as inv_probe drives the real extraction — a second copy of the arm's own logic
+# could not fail when the arm drifts, which is the mirror harness CLAUDE.md bans.
+#
+# The sibling is staged at a version that is deliberately NOT the doctor's, so rung 2
+# misses and rung 3 is what has to decide. Staging it at the same version would let a
+# ladder with a dead rung 3 pass, and rung 3 is the rung an install actually uses:
+# plugins are versioned independently, so a sibling at the same version is the
+# coincidence, not the norm.
+# ---------------------------------------------------------------------------
+INV_CACHE="$WORK/inv-cache"
+INV_MYVER="7.0.0"
+INV_SIBVER="3.1.4"
+inv_staged=0
+mkdir -p "$INV_CACHE/dev-pipeline/$INV_MYVER/tools"
+while IFS= read -r inv_hit; do
+  [[ -z "$inv_hit" ]] && continue
+  inv_plug="${inv_hit%% *}"; inv_rel="${inv_hit#* }"
+  mkdir -p "$INV_CACHE/$inv_plug/$INV_SIBVER/$(dirname "$inv_rel")"
+  : > "$INV_CACHE/$inv_plug/$INV_SIBVER/$inv_rel"
+  inv_staged=$((inv_staged + 1))
+done < <(inv_extract "$DOCTOR" sibling)
+
+INV_SAVED_PLUGIN_DIR="$INV_PLUGIN_DIR"
+INV_SAVED_PLUGINS_DIR="$INV_PLUGINS_DIR"
+INV_PLUGIN_DIR="$INV_CACHE/dev-pipeline/$INV_MYVER"
+INV_PLUGINS_DIR="$INV_CACHE/dev-pipeline"
+
+inv_scan "$DOCTOR" sibling
+if [[ "$inv_staged" -eq 0 ]]; then
+  bad "(inv-cache) staged no sibling delegations — the extraction found none, so this case measures nothing"
+elif [[ "$INV_SEEN" -ne "$inv_staged" ]]; then
+  bad "(inv-cache) the arm saw $INV_SEEN delegation(s) but $inv_staged were staged — the two sides read different sets"
+elif [[ -n "$INV_MISSING" ]]; then
+  bad "(inv-cache) under a version-keyed install cache the arm cannot find:$INV_MISSING — it is joining a monorepo path instead of asking resolve_sibling, so every sibling delegation reads as deleted from an install"
+else
+  ok "(inv-cache) all $INV_SEEN sibling delegation(s) resolve from a version-keyed install cache, at a sibling version that is not this plugin's"
+fi
+
+# The control. Without it the case above passes for a resolver that returns a path for
+# ANYTHING — including one that never checks the file exists — and the arm's whole job is
+# telling a live delegation from a dead one. Re-uses the doctored copy inv_probe already
+# wrote, so the injected shape stays defined in exactly one place.
+inv_scan "$WORK/probe-doctor-sibling.sh" sibling
+case " $INV_MISSING " in
+  *" review-toolkit/scripts/definitely-deleted-selftest.sh "*)
+    ok "(inv-cache-control) a delegation staged nowhere is still reported missing under the cache layout" ;;
+  *)
+    bad "(inv-cache-control) the injected absent delegation was NOT reported missing under the cache layout — the arm resolves paths it never verified, so (inv-cache) is vacuous. Got:[$INV_MISSING]" ;;
+esac
+
+INV_PLUGIN_DIR="$INV_SAVED_PLUGIN_DIR"
+INV_PLUGINS_DIR="$INV_SAVED_PLUGINS_DIR"
 
 # COMPLETENESS — the arms are only as good as the arm LIST. Drop one from the loop above
 # and its live check silently disappears while every probe still passes, because a probe

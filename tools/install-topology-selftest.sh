@@ -250,7 +250,25 @@ while IFS= read -r line; do
   elif [[ "$rc" -eq 125 ]]; then
     detail="no verdict written — the worker died before scoring this suite (infra, not a result)"
   else
-    detail="rc=$rc — $(grep -iE 'FAIL|error|No such|not found' "$RESULTS/$idx.log" 2>/dev/null | head -1 | sed 's/^[[:space:]]*//')"
+    # A suite's OWN failure line first, and only then the loose substring sweep (#664).
+    # The loose sweep alone picked the first line merely CONTAINING "fail" anywhere, which
+    # for pipeline-doctor-selftest.sh is a PASSING line — `ok: (d3) completed + failed at
+    # 24h` — 37 lines above the real `FAIL:` one. Seven nightly reds named a green case,
+    # and every reader who trusted the summary went to the wrong assertion. A marker at
+    # the START of the line is the suites' own convention (`FAIL:`, `FATAL:`, `RED:`), so
+    # it cannot collide with case prose the way a bare substring does. The loose sweep is
+    # kept as the fallback: a suite that dies on `No such file` prints no marker at all,
+    # and a red with a vague detail still beats a red with none.
+    #
+    # Sentinel-delimited because this path is DEAD on every green run — it executes only
+    # once a staged suite has already failed, which is why a broken detail line survived
+    # seven nightly reds. install-topology-detail-selftest.sh lifts these lines and runs
+    # them against fixture logs so the path is exercised on a green tree too.
+    # >>> red-detail
+    detail="$(grep -m1 -E '^[[:space:]]*(FAIL|FATAL|RED|ERROR)[:[:space:]]' "$RESULTS/$idx.log" 2>/dev/null | sed 's/^[[:space:]]*//')"
+    [[ -n "$detail" ]] || detail="$(grep -m1 -iE 'FAIL|error|No such|not found' "$RESULTS/$idx.log" 2>/dev/null | sed 's/^[[:space:]]*//')"
+    detail="rc=$rc — $detail"
+    # <<< red-detail
   fi
 
   red "$repo_rel — $detail"
