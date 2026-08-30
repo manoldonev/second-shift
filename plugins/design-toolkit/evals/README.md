@@ -28,6 +28,25 @@ CI in this repo is model-free by design. The kit spawns `claude -p` subprocesses
 subscription; there is no API key and no CI lane, and none should be added. Budget before you
 start — the kit's README has the quota arithmetic.
 
+## Prerequisite: the plugin must be enabled
+
+`claude -p --agent` resolves a plugin agent as `<plugin>:<agent>` and only when that plugin is
+enabled on the machine running the eval, so every `run.sh` here passes
+`design-toolkit:figma-faithful-…`. With `design-toolkit@second-shift` disabled the CLI exits 1 in
+under a second with `not found. Available agents: …`, every run scores 0, and the result reads
+like an agent failure rather than the environment one it is. Check `/plugin` (or the
+`enabledPlugins` block in `~/.claude/settings.json`) first, and always smoke before a full run.
+
+Two consequences worth stating plainly:
+
+- **What you measure is the INSTALLED plugin, not your branch.** The installed cache lags an
+  unmerged edit. Before recording a number against a prompt change, confirm the two agree —
+  `diff plugins/design-toolkit/agents/<agent>.md ~/.claude/plugins/cache/second-shift/design-toolkit/<version>/agents/<agent>.md` —
+  and record the answer in the baseline's provenance block.
+- **The four older kit evals pass BARE agent names** (`--agent-name security-reviewer`), which no
+  longer resolve for a plugin agent. That is a second way in which they are unrunnable as
+  committed, alongside their dangling `--fixtures-dir` pointers. Do not copy the pattern.
+
 ## Running one
 
 ```bash

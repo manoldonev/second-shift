@@ -19,6 +19,14 @@
 
 set -euo pipefail
 
+# THE AGENT NAME IS NAMESPACED, AND THE PLUGIN MUST BE ENABLED. `claude -p --agent` resolves a
+# plugin agent as `<plugin>:<agent>`, and only when that plugin is enabled for the machine running
+# the eval. If `design-toolkit@second-shift` is disabled the CLI exits 1 in under a second with
+# "not found. Available agents: …" and every run scores 0 — a red that looks like an agent failure
+# and is an environment one. Check with `/plugin` (or the `enabledPlugins` block in
+# ~/.claude/settings.json) before a full run, and smoke first.
+#
+
 HERE="$(cd "$(dirname "$0")" && pwd)"
 KIT="$HERE/../../../review-toolkit/evals/agent-eval-kit"
 NOTE="${1:-baseline}"
@@ -32,7 +40,7 @@ shift || true
 # whether the agent reviews it or declines it as "not a figma-faithful spec" is the thing #704's
 # AC-4 measures. A prompt that pre-classified the input would grade the prompt, not the agent.
 python3 "$KIT/run-eval.py" \
-  --agent-name figma-faithful-spec-reviewer \
+  --agent-name design-toolkit:figma-faithful-spec-reviewer \
   --rubric "$HERE/rubric.py" \
   --fixtures-dir "$HERE/fixtures" \
   --eval-dir "$HERE" \
