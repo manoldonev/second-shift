@@ -42,11 +42,12 @@ binds newly added guards.
 | --- | --- | --- |
 | one script's behavior against fixtures | a per-tool behavioral selftest | `*-selftest.sh` next to the tool |
 | two copies of one contract staying identical | a `LOCKSTEP-BEGIN <anchor>` marker on **each** copy — they are discovered and grouped, never registered | the files themselves |
+| a document's claim ABOUT shipped code | a derivation guard: read the fact out of the code, require the doc to state the same set, fail closed on an unmodelled shape | `scripts/check-*.sh` + its selftest |
 | a composed verdict path reaching a terminal write | a scenario | `skills/build-lean/scenario-liveness-selftest.sh` |
 | a production Workflow `.mjs` dispatch ladder | a shim case | `workflows/runtime-shim-selftest.mjs` |
 | whether an existing suite actually catches a regression | a mutation-catalog row | `tools/mutation-catalog.tsv` |
 | whether a shipped suite still passes where it is **installed** | **nothing** — the class guard already runs every shipped suite | `tools/install-topology-selftest.sh` |
-| prose in a markdown file | **nothing** — see above | — |
+| prose in a markdown file that asserts nothing checkable | **nothing** — see above | — |
 
 **Test-the-tests.** `tools/mutation-sweep.sh` mutates the repo's shell guards and runs their
 paired selftests; a mutant that survives is a regression the suite would not have caught. It runs

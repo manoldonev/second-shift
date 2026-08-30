@@ -20,13 +20,34 @@ Principles:
 - `configVersion` bumps only on breaking schema changes; plugins support one version per release. The migration contract and per-version upgrade docs live in [`migrations/`](migrations/README.md); config-lint fails older/newer configs with the pointer, never a bare "invalid".
 - **A `commands.<host>` lane runs in a scrubbed child env.** `preflight.sh` and `lean-gate.sh` milestone 3 both spawn every configured lane command (`lint`/`typecheck`/`test`/`format`/`lanes`/`extraLanes`) with the pipeline's own seam vars (`SECOND_SHIFT_CONFIG`, `STATECTL_STATE_DIR`, and related overrides) stripped from its environment (`env -u`) — a lane command that is itself second-shift tooling (dogfooding) must not see the caller's pipeline state. The denylist itself is stated once, as `SEAM_SCRUB` inside the `LOCKSTEP-BEGIN seam-scrub` markers in [`lean-gate.sh`](../plugins/dev-pipeline/skills/build-lean/lean-gate.sh); the stage doc that used to carry this note died with the staged lane in #348.
 - **Exit code `3` is RESERVED on a verify lane: "this failed for reasons that are not the branch."**
-  It applies to the fixed `lint`/`typecheck`/`test` keys and to every `extraLanes` entry (setup
-  `lanes[]` are already infra-classed, and are out of it). `lean-gate.sh` milestone 3 reads a `3`
+  Exactly one lane reads it. `lean-gate.sh` milestone 3 reads a `3` from a **blocking** verify lane
   as infrastructure: it reds with exit `7` — *nothing was evaluated* — instead of `1`, charges **no
   fix attempt**, and the lean scheduler re-spawns the build session rather than reporting an idle
-  one. This repo's own [`tools/run-selftests.sh`](../tools/run-selftests.sh) raises it when every
+  one. Everywhere else the code classifies nothing, because there is nothing left to classify:
+  #642 demoted the other verify lanes to advisory, so a `3` there is recorded like any other red
+  and the milestone continues past it.
+
+  <!-- LANE-CLASS-BEGIN -->
+  - `typecheck` — **reserved**: the one fixed key milestone 3 still refuses on, so its rc is the
+    only one routed through the classifier.
+  - `lint`, `test` — **not reserved**: advisory since #642. Recorded, never classified.
+  - `extraLanes[]` — **not reserved**: advisory since #642, per entry. Recorded, never classified.
+  - setup `lanes[]` — **not reserved**: SETUP-only and INFRA-classed by role, never a verify lane,
+    and never routed through the classifier.
+  <!-- LANE-CLASS-END -->
+
+  Those rows are **derived, not asserted**:
+  [`check-lane-class-doc.sh`](../scripts/check-lane-class-doc.sh) reads the dispatch out of
+  `lean-gate.sh` and reds when it and this list disagree — which is what the list is for. The
+  sentence they replace claimed four lane families from the day #642 left one, and survived that
+  PR's three review rounds and its full panel, because nothing held it to the shell.
+
+  This repo's own [`tools/run-selftests.sh`](../tools/run-selftests.sh) raises a `3` when every
   failing suite is its no-verdict class (the workers were killed); a run mixing infra with a
-  genuinely red suite still exits `1`, because a red branch is still a red branch.
+  genuinely red suite still exits `1`, because a red branch is still a red branch. Here it is
+  wired as the `test` lane, which is advisory — so that `3` currently classifies nothing in this
+  repo, and the reservation is what keeps it meaningful for a consumer wiring the same command to
+  a blocking lane.
   **The exposure:** a lane that already exits `3` for a genuine failure is reclassified as
   infrastructure and charged no fix attempt. There is deliberately no per-lane opt-out — the
   failure direction is a run that retries when it should have stopped, bounded by the scheduler's
