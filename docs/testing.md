@@ -884,9 +884,13 @@ coupling rather than mechanizing it into a guard that cannot fail.
   `.github/workflows/unclaim-on-close.yml`, both shipped
   `templates/consumer/second-shift-unclaim.{sh,yml}` headers, `onboard/SKILL.md`'s spoken
   onboarding line, `schema/second-shift.config.schema.json`'s `claimed` description, and
-  `docs/onboarding.md`. #642 falsified the reason all seven gave — "milestone 5 requires an OPEN
-  pr" — by widening milestone 5 to accept a merged PR, and its AC-9 prose sweep named four files,
-  none of them these. The premise then survived a further three-round review of the PR that
+  `docs/onboarding.md`. #642 falsified the reason all seven gave — that the exit milestone could
+  not be reached unless the PR was still open — by widening milestone 5 to accept a merged PR, and
+  its AC-9 prose sweep named four files, none of them these. That reason is stated here in
+  INDIRECT SPEECH on purpose: #670's sweep is a `git grep` for the claim's own wording, and a
+  regex cannot tell a live assertion from a quotation labelling the claim as dead. A live doc that
+  quoted the old sentence verbatim would read to that sweep as an eighth site; the verbatim text
+  survives where it is evidence, in the three excluded frozen-record classes below. The premise then survived a further three-round review of the PR that
   introduced the contradiction, and was found by an ablation's bare session.
   **Not lockstep-able**: the group would have to be `verbatim`, and these are seven arguments
   addressed to seven different readers — a build session's checklist instruction, a maintainer's

@@ -2268,13 +2268,44 @@ COSESS
       && pass "(lean-closeout-merged) #670 AC-2: an operator merge before close-out does not strand the run — the composed lane still reaches its terminal milestone-5 write, with no third session" \
       || fail "(lean-closeout-merged) rc=$co_mg_rc spawns=$co_mg_spawns milestone-5-rows=$co_mg_m5, expected 0/2/1: $co_mg_out"
 
-    # NON-VACUITY, and the reason this leg can fail at all: the fake must actually have been asked
-    # for open PRs and actually have answered "none". Without this the leg would still pass with
-    # the pre-#670 gate if the fake had quietly served the merged record to every query — which is
-    # exactly what it did before this ticket taught it `--state`.
-    grep -q -- '--state open' "$CO_GH_LOG" \
-      && pass "(lean-closeout-merged) the lane really did narrow to open PRs and get nothing back — the leg exercises the resolver, not a fake that answers every query the same way" \
-      || fail "(lean-closeout-merged) no '--state open' query in the gh log, so the merged path was never actually distinguished: $(cat "$CO_GH_LOG" 2>/dev/null)"
+    # ---- NON-VACUITY, and what it is careful NOT to claim -----------------------------------
+    # An earlier draft asserted `grep -q -- '--state open' "$CO_GH_LOG"` here, in the words "the
+    # fake must actually have been asked for open PRs and actually have answered none". It could
+    # not fail. After this fix NOTHING in the gate narrows to open PRs — that IS the fix — so the
+    # only `--state open` line the composed lane writes is the scheduler's own `resolve_pr`
+    # (orchestrate-lean.sh:731), which carries `--jq` and is therefore answered by the arm ABOVE
+    # the `--state` one, with the PR number rather than "none". The grep matched a query the
+    # `--state` arm never saw: deleting that arm outright left the whole suite green, 76/76. An
+    # assertion certifying a path it never crosses is the same defect #670 exists to repair, so
+    # it is replaced by two that are true at head and each fail in their own world.
+    co_mg_all="$(grep -cF -e '--state all' "$CO_GH_LOG" 2>/dev/null)" || co_mg_all=0
+    # WHO NARROWED TO OPEN, split by the one thing the log can distinguish them by. The scheduler's
+    # resolve_pr is the sole legitimate `--state open` caller and it always passes `--jq`; a gate
+    # that resolved its PR the pre-#670 way would add a `pr list --state open` line WITHOUT one.
+    # This is an argv classification, not an attribution: it says which shape of query was made,
+    # which is exactly what the fix changed.
+    co_mg_open_gate="$(awk '/pr list/ && /--state open/ && !/--jq/' "$CO_GH_LOG" 2>/dev/null | wc -l | tr -d ' ')"
+    co_mg_open_sched="$(awk '/pr list/ && /--state open/ && /--jq/' "$CO_GH_LOG" 2>/dev/null | wc -l | tr -d ' ')"
+    [[ "$co_mg_all" -ge 1 && "$co_mg_open_gate" -eq 0 && "$co_mg_open_sched" -ge 1 ]] \
+      && pass "(lean-closeout-merged-live) the merged PR was resolved over the live \`gh pr list --state all\` — no \`--pr-file\` shortcut — and no gate-side \`--state open\` narrowing was made at all; the one that remains is the scheduler's own \`--jq\` call" \
+      || fail "(lean-closeout-merged-live) --state all=$co_mg_all gate-side --state open=$co_mg_open_gate scheduler --state open --jq=$co_mg_open_sched, expected >=1/0/>=1: $(cat "$CO_GH_LOG" 2>/dev/null)"
+
+    # ...AND THE ZERO ABOVE IS A MEASURED ABSENCE, not a fake that cannot tell the two apart. This
+    # probes the FIXTURE, deliberately and in its own case: the leg's power to kill a restored
+    # `--state open` resolver rests entirely on the fake answering `[]` to that narrowing, and no
+    # lane call reaches that arm any more, so nothing else in this suite would notice it rotting.
+    # It is not evidence that the lane asked — the case above owns that, and its answer is no.
+    co_mg_probe() { # co_mg_probe <state>
+      RE_GH_LOG=/dev/null RE_PR="$CO_PR_MERGED" RE_PR_OPEN="$CO_PR_NONE" \
+      RE_PR_ALL="$CO_PR_ALL" RE_PR_NUMS="$CO_PR_NUMS" \
+        "$RE_GH" pr list --head "$CO_BRANCH" --state "$1" \
+          --json number,url,body,isDraft,state --limit 20 2>/dev/null
+    }
+    co_mg_open_len="$(co_mg_probe open | jq 'length' 2>/dev/null)" || co_mg_open_len=-1
+    co_mg_all_state="$(co_mg_probe all | jq -r '.[0].state // "none"' 2>/dev/null)" || co_mg_all_state=error
+    [[ "$co_mg_open_len" = "0" && "$co_mg_all_state" = "MERGED" ]] \
+      && pass "(lean-closeout-merged-fixture) the fake really does discriminate: an \`--state open\` narrowing gets \`[]\` where \`--state all\` gets the MERGED record — so a resolver that asked the pre-#670 way would still be starved" \
+      || fail "(lean-closeout-merged-fixture) --state open returned length=$co_mg_open_len (want 0) and --state all returned state=$co_mg_all_state (want MERGED), so the fixture cannot distinguish the two"
 
     git -C "$LEAN_TREE" worktree remove --force "$CO_WT" >/dev/null 2>&1
   fi

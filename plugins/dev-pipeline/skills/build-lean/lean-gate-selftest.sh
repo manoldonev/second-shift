@@ -5509,8 +5509,13 @@ esac
 STUB
 chmod +x "$WORK/gh-merged.sh"
 
+# RUN AS AN ALREADY-ATTESTED SESSION, and that is load-bearing for (pm7c) rather than tidiness.
+# `mark`'s build-session guard sits TWO refusals in front of the merged branch, so a session id
+# outside the recorded set makes the no-write assertion below unfalsifiable — it passed even with
+# the merged early-return deleted, refusing on the identity instead. Reusing `sess-mark-1` rather
+# than attesting a fifth id keeps (ms11)'s `| session |` row count at 3, which is its own guard.
 : > "$BOT_SPOOL"
-out="$( GH="$WORK/gh-merged.sh" mark_gate "$CFG" mark-run-670 sess-mark-670 mark 8 --comments-file "$WORK/comments-none.json" )"; rc=$?
+out="$( GH="$WORK/gh-merged.sh" mark_gate "$CFG" mark-run-670 sess-mark-1 mark 8 --comments-file "$WORK/comments-none.json" )"; rc=$?
 if [ "$rc" -eq 0 ] && grep -q 'already MERGED' <<<"$out"; then
   pass "(pm7b) #670 AC-1: mark RESOLVES a merged PR over the live gh path instead of refusing it"
 else fail "(pm7b) expected rc=0 naming the merged PR, rc=$rc: $out"; fi

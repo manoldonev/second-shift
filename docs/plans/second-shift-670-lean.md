@@ -29,8 +29,25 @@ change falsifies is updated" and enumerated four files; the unclaim family was n
   passes `--pr-file` does not satisfy this AC.
 - **AC-2** (oracle — scenario): `scenario-liveness-selftest.sh` carries a leg composing
   BUILD → REVIEW → the operator merges → `close-out` reaches its terminal
-  `| milestone-5 | satisfied` write. Entailed and included: the suite's gh fake discriminates on
-  `--state`, so an `--state open` call no longer receives the record an `--state all` call gets.
+  `| milestone-5 | satisfied` write. Entailed and asserted in the leg, in three parts:
+
+  1. the merged PR is resolved over the **live** `gh pr list --state all` call — no `--pr-file`
+     anywhere in the composed path, which is the seam that let #642's `(k7)` certify post-merge
+     reachability while crossing none of the code that denied it;
+  2. **no gate-side `--state open` narrowing is made at all.** After this fix nothing in
+     `lean-gate.sh` asks for open PRs; the sole surviving `--state open` line in the fake's log is
+     the scheduler's own `resolve_pr` (`orchestrate-lean.sh:731`), classified by the `--jq` it
+     always carries. A restored pre-#670 resolver adds a `pr list --state open` with no `--jq`,
+     which is what this counts;
+  3. the fake's `--state` arm really answers `[]` to an open narrowing where `--state all` gets the
+     MERGED record — probed directly, in its own case, and labelled as a **fixture-capability**
+     check rather than a claim about the run. It has to be: (2)'s zero says no lane call reaches
+     that arm, so nothing else in the suite would notice it rotting, and the leg's power to kill a
+     restored resolver rests entirely on it.
+
+  A single log grep for `--state open` does **not** satisfy this AC: it passes in the world it
+  names as the failure, because the scheduler's `--jq` query writes that string whatever the arm
+  answers.
 - **AC-3** (oracle — selftest): the existing `(k7)` case's title claims only what it tests —
   `resolve_open_pr`'s jq state-ordering through the `--pr-file` seam — and no longer asserts
   post-merge reachability, which AC-1's case now owns.
@@ -43,8 +60,17 @@ change falsifies is updated" and enumerated four files; the unclaim family was n
        ':!plugins/intake-toolkit/skills/plan-interview/tools/dup-scan-fixtures/'
   ```
 
-  returns **zero** matches. It returns exactly seven at `ff3f6f8` (measured), one per site below;
-  the three exclusions are the frozen-record classes AC-5 scopes out, not conveniences.
+  returns **zero** matches at head (measured). It returns exactly seven at `ff3f6f8` (measured),
+  one per site below; the three exclusions are the frozen-record classes AC-5 scopes out, not
+  conveniences.
+
+  **The oracle cannot tell an assertion from a quotation**, and the fix is on the doc side rather
+  than in the exclusion list. AC-5's own declined-coupling row has to name the falsified claim to
+  argue about it; written as a verbatim quote it read to this sweep as an eighth live site.
+  `docs/testing.md` therefore states it in indirect speech, and the verbatim text survives only
+  where it is dated evidence — in the three excluded classes. Widening the exclusions to
+  `':!docs/testing.md'` would have bought the same zero while blinding the sweep to a real
+  regression in a live doc.
 
   | # | Site | Reader |
   | --- | --- | --- |
@@ -65,8 +91,21 @@ change falsifies is updated" and enumerated four files; the unclaim family was n
   are deliberately excluded rather than overlooked.
 - **AC-6** (critic): `Changelog:` trailer present, and the commit verb is `fix:` (D-10).
 - **AC-7** (oracle): every `tools/mutation-catalog.tsv` row anchored in `lean-gate.sh` still
-  applies after the edit — `tools/mutation-catalog-selftest.sh` green, and the
-  `lean-gate-mark-session-guard` sed re-checked by hand against the edited `cmd_mark` (D-9).
+  applies after the edit — **26 rows, zero drift**, re-derived under the sweep's own `sed -E` and
+  byte-identity test (`tools/mutation-sweep.sh:1853,1861`), `lean-gate-mark-session-guard`
+  included (D-9). Oracle, from the repo root:
+
+  ```
+  g=plugins/dev-pipeline/skills/build-lean/lean-gate.sh
+  awk -F'\t' -v g="$g" '$1 !~ /^#/ && $2 == g { print $3 }' tools/mutation-catalog.tsv |
+    while IFS= read -r s; do
+      sed -E -e "$s" "$g" | cmp -s - "$g" && echo "DRIFT: $s"
+    done
+  ```
+
+  prints nothing. There is no `tools/mutation-catalog-selftest.sh` — the catalog's own suite is
+  `tools/mutation-sweep-selftest.sh`, and the anchor check it wraps is a full sweep, which is why
+  the obligation is discharged by re-deriving the seds directly.
 
 ## Out of scope, with reasons
 
