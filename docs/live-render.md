@@ -171,6 +171,26 @@ The gate owns the state matrix, the paths, the hashes and the manifest; the fide
 scored by the `/dev-pipeline:review-lean` session, design-sighted, from a checkout of the reviewed
 head, and recorded as `fidelity:` in the verdict record.
 
+**The provider's fidelity reviewer is mandatory on an armed spec (#708).** It used to be routed by
+model judgment over `stageParams.webComponentGlobs`, and a miss left a one-line note in the round
+summary while the round proceeded — so an armed ticket could be approved with the design dimension
+never reviewed, and nothing in the record said so. `review-lead` now spawns it unconditionally on
+an armed spec, and a round that lost it to a dark reviewer is **voided** rather than recorded
+(`review-lean` step 5c). The record's `panel:` key is the attestation: the reviewer agent types the
+round actually returned a result from, qualified and comma-separated. Milestone 4 and
+`check-lean-chain.sh` evidence arm 8 both require it to name the provider's reviewer.
+
+WHICH reviewer is derived from the **handoff link's host**, never from `design.provider`: the first
+recognised URL in the `## Design` section naming `figma.com` (or a subdomain) means
+`design-toolkit:figma-faithful-reviewer`; `claude.ai` under `/design` means
+`design-toolkit:design-faithful-reviewer`. The reason is the same one arming has: the merge
+boundary reads a CI checkout where `design.provider` is gitignored and invisible. A handoff host
+neither side can classify is refused at milestone 1, where the remedy is a spec edit, and a host
+that disagrees with the configured provider is refused there too — the gate is the only reader that
+sees both. Like the evidence table below, this is **tamper-evidence**: the panel is agent-written,
+and what it buys is that a silently unrun design dimension has to be actively misstated rather than
+achieved by an omission.
+
 **What the gate does own about that judgment is its SHAPE, not its truth.** An armed
 `--fidelity pass` is refused at the writer unless the review summary carries a
 `## Design fidelity evidence` table: six named columns

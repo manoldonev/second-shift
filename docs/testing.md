@@ -941,6 +941,14 @@ coupling rather than mechanizing it into a guard that cannot fail.
   range AND the excluded path. Composed instead — `lean-gate-selftest.sh` (u3) and the (v) block
   drive writer-to-reader end to end, and `scenario-liveness-selftest.sh`'s (lean-declared) and
   (lean-patch-id) legs compose each arm against a record whose INFERRED freshness is green.
+  `panel:` (#708) is the one key with a reader of its OWN: `header_key`'s charset stops at the first
+  character outside `[A-Za-z0-9._-]`, so a qualified comma-separated list truncates to its leading
+  plugin token, and `panel_key` reads it whole. Widening the shared reader was rejected — it would
+  change how every key in the schema is read, across three lockstep members and the chain walk, to
+  serve one. The key stays in `LEAN_VERDICT_HEADER_KEYS` anyway: what that loop proves is that
+  formatting did not damage the LINE ANCHORING, and the truncated comparison detects a reflow
+  exactly as an untruncated one would. Guarded at the writer by `lean-gate-selftest.sh`'s (fp0)-(fp7)
+  and at the two readers by (fp5)/(fp6) and `check-lean-chain-selftest.sh`'s (X7)-(X11).
   `verdict=` is read FIRST-MATCH at every reader, never counted: the writer appends reviewer prose
   below the keys and review prose quotes verdict values, so a count-anywhere reader passes a record
   whose authoritative first line says needs-work — `lean-gate-selftest.sh` (s) and

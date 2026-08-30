@@ -1392,10 +1392,15 @@ LEANSYNCCFG
       CLAUDE_CODE_SESSION_ID="$sid" RUN_ID="$rid" bash "$LEAN_GATE" verdict 88 "$@" 2>&1 )
   }
   {
-    printf '# spec\n\n- AC-1: a thing\n\n## Design\n\nHandoff: https://design.example.invalid/f/a\n\n'
+    printf '# spec\n\n- AC-1: a thing\n\n## Design\n\nHandoff: https://www.figma.com/design/AbC123/Prospects\n\n'
     printf '| RS-n | route | state | AC refs |\n| --- | --- | --- | --- |\n'
     printf '| RS-1 | prospects | default | AC-1 |\n| RS-2 | prospects | filters expanded | AC-1 |\n'
   } > "$LEAN_DSPEC"
+  # The reviewer the handoff host above makes mandatory (#708). Written out rather than derived
+  # so the fixture states the expected answer instead of re-deriving production's — a derivation
+  # here would pass whatever design_family() happened to return, including nothing.
+  LEAN_DPANEL="review-toolkit:security-reviewer,design-toolkit:figma-faithful-reviewer"
+
   # The evidence table an armed `--fidelity pass` write demands (#693), scored against the two
   # states the spec above declares.
   LEAN_DEVIDENCE="$TMP/lean-design-evidence.md"
@@ -1469,7 +1474,7 @@ LEANSYNCCFG
 
   # A review round that scored no fidelity: the handoff must round-trip, not certify.
   lean_dseed
-  lean_dverdict sess-lean-d-review r-lean-d-review --pr 8 --verdict approve >/dev/null 2>&1
+  lean_dverdict sess-lean-d-review r-lean-d-review --pr 8 --verdict approve --panel "$LEAN_DPANEL" >/dev/null 2>&1
   lean_dcommit "a verdict that scored no fidelity"
   lean_dseed
   lean_dgate 4 88 >/dev/null 2>&1; ld_nofid=$?
@@ -1482,7 +1487,7 @@ LEANSYNCCFG
   # its absence afterwards is measured rather than assumed.
   lean_dseed
   ld_rec_before="$(cat "$LEAN_DTREE/docs/plans/acme-88-lean-verdict.md" 2>/dev/null)"
-  ld_noev_out="$(lean_dverdict sess-lean-d-review-noev r-lean-d-review-noev --pr 8 --verdict approve --fidelity pass 2>&1)"; ld_noev=$?
+  ld_noev_out="$(lean_dverdict sess-lean-d-review-noev r-lean-d-review-noev --pr 8 --verdict approve --fidelity pass --panel "$LEAN_DPANEL" 2>&1)"; ld_noev=$?
   ld_rec_after="$(cat "$LEAN_DTREE/docs/plans/acme-88-lean-verdict.md" 2>/dev/null)"
   ld_noev_cache=0
   [[ -e "$LEAN_DTREE/.claude/pipeline-state/88-review-run-id" ]] && ld_noev_cache=1
@@ -1495,14 +1500,14 @@ LEANSYNCCFG
 
   # ...and a stale receipt under an otherwise-fresh verdict — D-10's backstop, composed.
   lean_dseed
-  lean_dverdict sess-lean-d-review2 r-lean-d-review2 --pr 8 --verdict approve --fidelity pass --summary-file "$LEAN_DEVIDENCE" >/dev/null 2>&1
+  lean_dverdict sess-lean-d-review2 r-lean-d-review2 --pr 8 --verdict approve --fidelity pass --panel "$LEAN_DPANEL" --summary-file "$LEAN_DEVIDENCE" >/dev/null 2>&1
   lean_dcommit "a verdict scoring fidelity pass"
   lean_dseed
   lean_dgate 4 88 >/dev/null 2>&1; ld_pass=$?
   printf 'a fix lands after the render\n' > "$LEAN_DTREE/subject.txt"
   lean_dcommit "a fix, leaving the receipt behind"
   lean_dseed
-  lean_dverdict sess-lean-d-review3 r-lean-d-review3 --pr 8 --verdict approve --fidelity pass --summary-file "$LEAN_DEVIDENCE" >/dev/null 2>&1
+  lean_dverdict sess-lean-d-review3 r-lean-d-review3 --pr 8 --verdict approve --fidelity pass --panel "$LEAN_DPANEL" --summary-file "$LEAN_DEVIDENCE" >/dev/null 2>&1
   lean_dcommit "an honest record on top of a stale receipt"
   lean_dseed
   lean_dgate 4 88 >/dev/null 2>&1; ld_stale=$?
@@ -1519,7 +1524,7 @@ LEANSYNCCFG
   lean_dgate 3 88 >/dev/null 2>&1
   lean_dcommit "the re-rendered receipt for the fixed head"
   lean_dseed
-  lean_dverdict sess-lean-d-review4 r-lean-d-review4 --pr 8 --verdict approve --fidelity pass --summary-file "$LEAN_DEVIDENCE" >/dev/null 2>&1
+  lean_dverdict sess-lean-d-review4 r-lean-d-review4 --pr 8 --verdict approve --fidelity pass --panel "$LEAN_DPANEL" --summary-file "$LEAN_DEVIDENCE" >/dev/null 2>&1
   lean_dcommit "the round-2 record on the fresh receipt"
   rm -rf "$LEAN_DTREE/.claude/lean-renders/88"
   cat > "$TMP/lean-design-pr.json" <<'LEANDPR'
@@ -1550,6 +1555,106 @@ LEANDC
   [[ ! -d "$LEAN_DTREE/.claude/lean-renders/88" ]] \
     && pass "(lean-design-terminal) and nothing re-rendered — the receipt's binding alone carried the sweep" \
     || fail "(lean-design-terminal) the post-approve sweep re-rendered, which would void the verdict it just earned"
+
+  # ---- design leg 4: the panel attestation, writer and both readers (#708) ---------------
+  # The mandatory-reviewer contract has three enforcement sites — the verdict WRITER, the build
+  # gate's milestone 4, and the merge BOUNDARY — and each has its own fixture suite. What only a
+  # composed leg shows is that they agree over ONE tree: a record the writer refuses must also
+  # be one both readers refuse, or the lane has a shape that is unwritable but mergeable (or
+  # writable and unmergeable, which strands a run). Leg 3 left exactly the right tree behind —
+  # an approved round-2 record over a fresh receipt, milestones 1-5 all exiting 0 — so every
+  # assertion below changes exactly one fact about a lane that was green a moment ago.
+
+  # (a) THE WRITER. A dark mandatory reviewer reaches the review session as a panel WITHOUT it —
+  # code-review.mjs excludes a reviewer it got no result from — so the two shapes that matter
+  # are the flag omitted and a panel naming only the reviewers that did return. review-lean 5c
+  # hands such a round back; this is the assertion that it cannot instead be quietly downgraded
+  # into a record. The committed record must be byte-untouched by either attempt.
+  lean_dseed
+  ld_p_before="$(cat "$LEAN_DTREE/docs/plans/acme-88-lean-verdict.md" 2>/dev/null)"
+  ld_p_nopanel="$(lean_dverdict sess-lean-d-p1 r-lean-d-p1 --pr 8 --verdict approve --fidelity pass --summary-file "$LEAN_DEVIDENCE" 2>&1)"; ld_p1=$?
+  ld_p_dark="$(lean_dverdict sess-lean-d-p2 r-lean-d-p2 --pr 8 --verdict approve --fidelity pass --panel "review-toolkit:security-reviewer,review-toolkit:maintainability-reviewer" --summary-file "$LEAN_DEVIDENCE" 2>&1)"; ld_p2=$?
+  ld_p_after="$(cat "$LEAN_DTREE/docs/plans/acme-88-lean-verdict.md" 2>/dev/null)"
+  if [[ "$ld_p1" -eq 1 && "$ld_p2" -eq 1 && "$ld_p_before" == "$ld_p_after" ]] \
+     && grep -q -- '--panel' <<<"$ld_p_nopanel" \
+     && grep -q 'design-toolkit:figma-faithful-reviewer' <<<"$ld_p_dark"; then
+    pass "(lean-design-panel) the writer refuses an armed round with no panel, and one whose panel lost the mandatory reviewer — the committed record is untouched by either, so a voided round writes nothing"
+  else
+    fail "(lean-design-panel) rc=$ld_p1/$ld_p2 record-changed=$([[ "$ld_p_before" == "$ld_p_after" ]] && echo no || echo yes): $ld_p_nopanel | $ld_p_dark"
+  fi
+
+  # (b) THE TWO READERS, over a record this writer would never have produced — one committed
+  # before the key existed, or hand-edited afterwards, which is exactly the case a reader has to
+  # own. Only the `panel:` line changes, and the verdict record is excluded from BOTH patch
+  # bindings (reviewed_patch_id and the render binding), so nothing else about this tree goes
+  # stale: a red below is the panel arm and cannot be anything else. The green half runs first,
+  # on the unmodified record, so a leg that reds for an unrelated reason is not read as a pass.
+  LD_CHAIN="$HERE/../../../../scripts/check-lean-chain.sh"
+  LD_CEV="$HERE/lean-evidence.sh"
+  LD_CEMPTY="$TMP/lean-design-chain-comments.json"; echo '[]' > "$LD_CEMPTY"
+  LD_CDIFF="$TMP/lean-design-chain-files.txt"
+  printf 'subject.txt\ndocs/plans/acme-88-lean.md\ndocs/plans/acme-88-lean-renders.md\ndocs/plans/acme-88-lean-verdict.md\n' > "$LD_CDIFF"
+  ld_boundary() { # ld_boundary -> the merge boundary's own output over this armed tree
+    ( cd "$LEAN_DTREE" && PIPELINE_BRANCH_PREFIX="claude/acme-" \
+      PR_HEAD_REF="claude/acme-88" PR_HEAD_SHA="$(git -C "$LEAN_DTREE" rev-parse HEAD)" \
+      PR_BASE_REF=main PR_BODY="Closes #88" PR_CREATED_AT="2026-07-30T12:00:00Z" \
+      LEAN_EVIDENCE="$LD_CEV" bash "$LD_CHAIN" --comments-file "$LD_CEMPTY" \
+      --diff-files-file "$LD_CDIFF" 2>&1 )
+  }
+  # The boundary is a MARKETPLACE-REPO artifact, absent by construction from a staged install
+  # cache — the same split the lane-routing block below states, and told apart the same way.
+  # Its other arms red on the empty comment trail here on purpose: this leg reads WHICH line the
+  # boundary wrote, never its exit code, so "the panel arm fired" cannot be confused with "some
+  # arm fired".
+  if [[ ! -f "$LD_CHAIN" ]] && [[ ! -f "$HERE/../../../../.claude-plugin/marketplace.json" ]]; then
+    echo "  skip: (lean-design-panel) the merge boundary is marketplace-repo-only and this tree is an installed plugin cache"
+  else
+    if [[ ! -f "$LD_CHAIN" ]]; then
+      fail "(lean-design-panel) the merge boundary is missing at $LD_CHAIN — the reader half did not run"
+    else
+      lean_dseed
+      lean_dgate 4 88 >/dev/null 2>&1; ld_pnl_m4_ok=$?
+      ld_pnl_b_ok="$(ld_boundary)"
+      # ONE fact changed: the mandatory reviewer struck from the panel the round recorded.
+      awk '/^panel:/ { print "panel: review-toolkit:security-reviewer"; next } { print }' \
+        "$LEAN_DTREE/docs/plans/acme-88-lean-verdict.md" > "$TMP/lean-design-panel-edit.md" \
+        && mv "$TMP/lean-design-panel-edit.md" "$LEAN_DTREE/docs/plans/acme-88-lean-verdict.md"
+      lean_dcommit "a record whose panel lost the mandatory reviewer"
+      lean_dseed
+      lean_dgate 4 88 >/dev/null 2>&1; ld_pnl_m4_bad=$?
+      ld_pnl_b_bad="$(ld_boundary)"
+      if [[ "$ld_pnl_m4_ok" -eq 0 && "$ld_pnl_m4_bad" -eq 5 ]] \
+         && ! grep -q 'design-toolkit:figma-faithful-reviewer' <<<"$ld_pnl_b_ok" \
+         && grep -q 'design-toolkit:figma-faithful-reviewer' <<<"$ld_pnl_b_bad"; then
+        pass "(lean-design-panel) milestone 4 and the merge boundary both accept the panel that names the mandatory reviewer and both red the one that does not"
+      else
+        fail "(lean-design-panel) m4 was $ld_pnl_m4_ok then $ld_pnl_m4_bad (expected 0 then 5); boundary named the reviewer before=$(grep -c 'design-toolkit:figma-faithful-reviewer' <<<"$ld_pnl_b_ok") after=$(grep -c 'design-toolkit:figma-faithful-reviewer' <<<"$ld_pnl_b_bad")"
+      fi
+    fi
+  fi
+
+  # (c) AN UNRECOGNISED HANDOFF HOST is a violation, not a pass — the failure this whole arm
+  # would degrade into if the derivation ever returned "no family" as "no reviewer required".
+  # Milestone 1 is where the gate says so, because the fix is a spec edit.
+  ld_p_savedspec="$(cat "$LEAN_DSPEC")"
+  {
+    printf '# spec\n\n- AC-1: a thing\n\n## Design\n\nHandoff: https://design.example.invalid/f/a\n\n'
+    printf '| RS-n | route | state | AC refs |\n| --- | --- | --- | --- |\n'
+    printf '| RS-1 | prospects | default | AC-1 |\n'
+  } > "$LEAN_DSPEC"
+  ld_p_host="$(lean_dgate 1 88 2>&1)"; ld_p_hostrc=$?
+  printf '%s\n' "$ld_p_savedspec" > "$LEAN_DSPEC"
+  [[ "$ld_p_hostrc" -ne 0 ]] && grep -q 'recognises as a provider surface' <<<"$ld_p_host" \
+    && pass "(lean-design-panel) an armed section whose handoff host names no provider surface reds at milestone 1 rather than arming a reviewer nobody can name" \
+    || fail "(lean-design-panel) rc=$ld_p_hostrc: $ld_p_host"
+
+  # Hand the ARMED LOCK back to the non-vacuity leg below. `lean_dseed` truncates the progress
+  # file, and this leg reseeds several times without ever re-running milestone 3 — the milestone
+  # that writes `| milestone-3 | armed |`. Left that way, the mid-run disarm the next leg asserts
+  # on would be a legitimate first-time disarm and pass, and the non-vacuity check would report
+  # green for the wrong reason. Restoring the lock is the fixture's job, not production's.
+  lean_dseed
+  lean_dgate 3 88 >/dev/null 2>&1
 
   # ---- non-vacuity for the design legs ---------------------------------------------------
   # The whole block would stay green if arming never took. Disarm the spec on a run that
