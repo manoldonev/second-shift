@@ -4001,8 +4001,19 @@ dgate() { ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$DTREE" \
 # That pairing is the AND→OR mutant's executioner — under OR the section alone would arm.
 dgate_nodesign() { ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$DTREE" \
   && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$DPROG" bash "$GATE" --issue-file "$ISSUE_NOREGIONS" "$@" 2>&1 ); }
+# The panel an armed round must carry (#708): the fixture config declares `design.provider: figma`
+# and dspec_armed hands off to a figma host, so the figma fidelity reviewer is the mandatory one.
+# Written out rather than derived — a fixture that recomputed design_family() would assert
+# whatever that function returned, including nothing.
+DPANEL="review-toolkit:security-reviewer,design-toolkit:figma-faithful-reviewer"
 dverdict() { # dverdict <session-id> <run-id> [args...]
   local sid="$1" rid="$2"; shift 2
+  # DEFAULTED, not required at every call site. $DSPEC is armed for nearly every case below, and
+  # the writer refuses an armed round with no `--panel`; supplying it here keeps each of those
+  # cases asserting its own subject — the fidelity-evidence grammar, the enum, the identity arms
+  # — instead of restating the panel contract. A case that IS about the panel passes its own,
+  # and wins: the gate's parser takes the last occurrence of a flag.
+  case " $* " in *" --panel "*) : ;; *) set -- "$@" --panel "$DPANEL" ;; esac
   ( unset RUN_ID; cd "$DTREE" && SECOND_SHIFT_CONFIG="$DCFG" LEAN_PROGRESS_FILE="$DPROG" \
     CLAUDE_CODE_SESSION_ID="$sid" RUN_ID="$rid" bash "$GATE" verdict 55 "$@" 2>&1 )
 }
@@ -4031,7 +4042,7 @@ dspec_armed() { # dspec_armed <extra-rows...>
     echo ""
     echo "## Design"
     echo ""
-    echo "Handoff: https://design.example.invalid/file/abc"
+    echo "Handoff: https://www.figma.com/design/AbC123/Prospects"
     echo ""
     echo "| RS-n | route | state (what must be visible) | AC refs |"
     echo "| --- | --- | --- | --- |"
@@ -4070,6 +4081,17 @@ dreckey() { # dreckey <key> <file>
   local k="$1" f="$2"
   # shellcheck disable=SC1090  # $GATE is the script under test, sourced in its own library mode.
   ( cd "$TREE" && LEAN_GATE_LIB=1 SECOND_SHIFT_CONFIG="$CFG" . "$GATE" >/dev/null 2>&1 && record_key "$k" "$f" )
+}
+
+# The `panel:` value, through the GATE's own reader rather than a grep spelled here. `record_key`
+# and `header_key` both stop at the first character outside [A-Za-z0-9._-], so either would
+# truncate a qualified comma-separated list to its leading token and (fp0) would assert nothing
+# about the property it exists for. A grep in the fixture would prove only that the bytes are on
+# disk, which is not the claim — the claim is that a READER gets the whole value back.
+dpanelkey() { # dpanelkey <file>
+  local f="$1"
+  # shellcheck disable=SC1090  # $GATE is the script under test, sourced in its own library mode.
+  ( cd "$TREE" && LEAN_GATE_LIB=1 SECOND_SHIFT_CONFIG="$CFG" . "$GATE" >/dev/null 2>&1 && panel_key < "$f" )
 }
 
 dmode ok
@@ -4140,6 +4162,54 @@ out="$(dgate 1 55)"; rc=$?
 if [ "$rc" -eq 1 ] && grep -q 'declares no render state' <<<"$out"; then
   pass "(dz7) a section naming neither a render state nor a disarm is refused"
 else fail "(dz7) expected the no-render-state refusal, rc=$rc: $out"; fi
+
+# (dz8) #708 D-13: an armed section whose handoff link names no host this lane can classify. The
+# fidelity reviewer an armed round must dispatch is derived from that host — here and at the merge
+# boundary alike — so an unclassifiable one leaves the mandatory reviewer unnameable. Refused at
+# authoring time, where the remedy is a spec edit, rather than at the boundary where it costs a
+# round. The section is otherwise WELL-FORMED, so nothing but the host can be what reds it.
+dreset
+{
+  printf '# spec\n\n- AC-1: x\n\n## Design\n\nHandoff: https://design.example.invalid/f/a\n\n'
+  printf '| RS-n | route | state | AC refs |\n| --- | --- | --- | --- |\n| RS-1 | p | default | AC-1 |\n'
+} > "$DSPEC"
+out="$(dgate 1 55)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'recognises as a provider surface' <<<"$out"; then
+  pass "(dz8) an armed section whose handoff host names no provider surface is refused at milestone 1"
+else fail "(dz8) expected the unrecognised-host refusal, rc=$rc: $out"; fi
+
+# (dz9) #708 D-14: the host and config `design.provider` name DIFFERENT families. This gate is the
+# only reader that sees both — the merge boundary reads the committed spec and never the config —
+# so it is the only place the disagreement can be reported at all. Left standing it is a run that
+# renders one provider's states while the boundary demands the other provider's reviewer: green on
+# each side of the seam, and wrong. The config here declares figma; the handoff says claude-design.
+dreset
+{
+  printf '# spec\n\n- AC-1: x\n\n## Design\n\nHandoff: https://claude.ai/design/AbC123\n\n'
+  printf '| RS-n | route | state | AC refs |\n| --- | --- | --- | --- |\n| RS-1 | p | default | AC-1 |\n'
+} > "$DSPEC"
+out="$(dgate 1 55)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'hands off to a claude-design surface' <<<"$out" \
+   && grep -q 'design.provider is "figma"' <<<"$out"; then
+  pass "(dz9) a handoff host disagreeing with config design.provider is refused at milestone 1, naming both"
+else fail "(dz9) expected the host/provider mismatch refusal, rc=$rc: $out"; fi
+
+# (dz10) ...and the SAME claude-design handoff under a claude-design provider ARMS. Without this
+# the pair above would pass on a gate that simply refused every claude.ai handoff, and the family
+# derivation would never be shown to have two answers.
+DCFG_CD="$WORK/dconfig-claude-design.json"
+sed -e 's#"provider": "figma"#"provider": "claude-design"#' "$DCFG" > "$DCFG_CD"
+grep -q '"claude-design"' "$DCFG_CD" \
+  || fail "(dz10-fixture) the claude-design config was not built — (dz10) would assert nothing"
+dreset
+out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$DTREE" \
+        && SECOND_SHIFT_CONFIG="$DCFG_CD" LEAN_PROGRESS_FILE="$DPROG" \
+           bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 1 55 2>&1 )"; rc=$?
+if [ "$rc" -eq 0 ] && grep -q 'design lane ARMED' <<<"$out"; then
+  pass "(dz10) the same claude.ai/design handoff ARMS under a claude-design provider — the derivation has two answers"
+else fail "(dz10) expected an armed pass under claude-design, rc=$rc: $out"; fi
+dspec_armed
+dreset
 
 # (a15) #517 AC-8, on the two branches this suite's OTHER config cannot reach. The (a9)-(a14)
 # block above runs through $CFG, which declares no `design` key, so design_state() returns
@@ -4413,7 +4483,7 @@ else fail "(dr6) expected the missing-{state} refusal, rc=$rc: $out"; fi
 dreset
 {
   echo "# spec"; echo ""; echo "- AC-1: x"; echo ""; echo "## Design"; echo ""
-  echo "Handoff: https://design.example.invalid/f/a"; echo ""
+  echo "Handoff: https://www.figma.com/design/AbC123/Prospects"; echo ""
   echo "| RS-n | route | state | AC refs |"; echo "| --- | --- | --- | --- |"
   echo "| RS-1 | prospects | default | AC-1 |"
 } > "$DSPEC"
@@ -4433,7 +4503,7 @@ else fail "(dr6b) expected the template check to pass through to the render, rc=
 dreset
 {
   echo "# spec"; echo ""; echo "- AC-1: x"; echo ""; echo "## Design"; echo ""
-  echo "Handoff: https://design.example.invalid/f/a"; echo ""
+  echo "Handoff: https://www.figma.com/design/AbC123/Prospects"; echo ""
   echo "| RS-n | route | state | AC refs |"; echo "| --- | --- | --- | --- |"
   echo "| RS-1 | prospects | default | AC-1 |"
   echo "| RS-1 | prospects | filters expanded | AC-1 |"
@@ -4550,7 +4620,7 @@ dmode ok
 rm -f "$DCALLS" "$DMANIFEST"
 {
   echo "# spec"; echo ""; echo "- AC-1: the thing"; echo ""; echo "## Design"; echo ""
-  echo "Handoff: https://design.example.invalid/file/abc"; echo ""
+  echo "Handoff: https://www.figma.com/design/AbC123/Prospects"; echo ""
   echo "| RS-n | route | state (what must be visible) | AC refs |"; echo "| --- | --- | --- | --- |"
   echo "| RS-1 | prospects | default | AC-1 |"
   echo "| RS-2 | prospects?tab=new&sort=asc | filters & sort expanded | AC-1 |"
@@ -5074,6 +5144,125 @@ if [ "$rc" -eq 0 ]; then
   pass "(fe16b) ...and milestone 4 passes on it — the key-shaped cells changed nothing downstream"
 else fail "(fe16b) milestone 4 refused a record whose table carries key-shaped text, rc=$rc: $out"; fi
 devidence
+
+# ---- (fp) the panel attestation: the mandatory fidelity reviewer (#708) ---------------------
+# On an armed ticket the provider's fidelity reviewer is not routed by judgment, and `panel:` is
+# what makes its absence detectable: it lists the reviewers the round actually got a result back
+# from, so "never selected" and "went dark" are the same shape here and both are refused. These
+# cases drive the WRITER and milestone 4; the merge boundary's identical arm is
+# check-lean-chain-selftest.sh's (X7)-(X11), over the same lockstep derivation.
+#
+# (fp0) runs first and is the vacuity guard: everything below asserts nothing if the fixture's
+# armed round could not be written at all.
+dspec_armed
+dcommit "the armed spec for the panel cases"
+dreset
+dgate 3 55 >/dev/null 2>&1
+dcommit "the render receipt for the panel cases"
+dreset
+devidence
+out="$(dverdict sess-review-p0 r-review-p0 --pr 55 --verdict approve --fidelity pass --summary-file "$DEVIDENCE")"; rc=$?
+fp_panel="$(dpanelkey "$DVERDICT")"
+if [ "$rc" -eq 0 ] && [ "$fp_panel" = "$DPANEL" ]; then
+  pass "(fp0) an armed round naming the mandatory reviewer writes, and the record carries the panel back WHOLE — qualified names and commas survive the reader"
+else fail "(fp0) rc=$rc panel='$fp_panel' expected '$DPANEL': $out"; fi
+# COMMITTED here, because every refusal below writes nothing and so commits nothing: without this
+# (fp5) would red on an uncommitted record instead of on its panel, and would assert nothing about
+# the arm it exists for.
+dcommit "the green armed record for the panel cases"
+
+# (fp1) NO PANEL AT ALL. `--panel` is bypassed here rather than defaulted, which is the one thing
+# every other case in this suite relies on dverdict not doing.
+fp_before="$(cat "$DVERDICT" 2>/dev/null)"
+out="$( unset RUN_ID; cd "$DTREE" && SECOND_SHIFT_CONFIG="$DCFG" LEAN_PROGRESS_FILE="$DPROG" \
+        CLAUDE_CODE_SESSION_ID=sess-review-p1 RUN_ID=r-review-p1 \
+        bash "$GATE" verdict 55 --pr 55 --verdict approve --fidelity pass --summary-file "$DEVIDENCE" 2>&1 )"; rc=$?
+fp_after="$(cat "$DVERDICT" 2>/dev/null)"
+if [ "$rc" -eq 1 ] && grep -q -- '--panel <a,b,c> is required' <<<"$out" \
+   && [ "$fp_before" = "$fp_after" ]; then
+  pass "(fp1) an armed round with no --panel is refused at the writer, and the committed record is untouched"
+else fail "(fp1) expected the missing-panel refusal with no write, rc=$rc: $out"; fi
+
+# (fp2) THE RESERVED SEAT IS EMPTY: a full panel of other reviewers with the mandatory one absent.
+# That is what a dark fidelity reviewer looks like in the returned set, and what routing that
+# never selected it looks like — indistinguishable here, and refused either way.
+out="$(dverdict sess-review-p2 r-review-p2 --pr 55 --verdict approve --fidelity pass \
+        --panel "review-toolkit:security-reviewer,review-toolkit:maintainability-reviewer" \
+        --summary-file "$DEVIDENCE")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'design-toolkit:figma-faithful-reviewer' <<<"$out"; then
+  pass "(fp2) an armed round whose panel omits the mandatory reviewer is refused, and the refusal names the reviewer"
+else fail "(fp2) expected the panel-omission refusal, rc=$rc: $out"; fi
+
+# (fp3) SUBSTRING IS NOT MEMBERSHIP. No shipped reviewer name contains another's today, which is
+# exactly why this needs pinning: the day one does is the day a `case` without comma anchors, or a
+# bare grep, silently stops discriminating.
+out="$(dverdict sess-review-p3 r-review-p3 --pr 55 --verdict approve --fidelity pass \
+        --panel "acme:pre-design-toolkit:figma-faithful-reviewer-v2" \
+        --summary-file "$DEVIDENCE")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'does not name design-toolkit:figma-faithful-reviewer' <<<"$out"; then
+  pass "(fp3) a panel entry that merely CONTAINS the reviewer's name is not that reviewer — the match is a whole comma-separated token"
+else fail "(fp3) a substring panel entry was credited as a dispatch, rc=$rc: $out"; fi
+
+# (fp4) NOT GATED ON --fidelity. A needs-work record is evidence too, and the next round inherits
+# its coverage by reference; a round that never dispatched the mandatory reviewer has no coverage
+# of that dimension to hand on, whatever verdict it reached. Without this the arm could be keyed
+# on `pass` and every finding round would carry an unchecked panel into the chain.
+out="$(dverdict sess-review-p4 r-review-p4 --pr 55 --verdict needs-work --fidelity fail \
+        --panel "review-toolkit:security-reviewer")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'design-toolkit:figma-faithful-reviewer' <<<"$out"; then
+  pass "(fp4) the panel obligation is not gated on --fidelity — a needs-work round owes it too"
+else fail "(fp4) a needs-work round skipped the panel obligation, rc=$rc: $out"; fi
+
+# (fp5) MILESTONE 4, over a record this writer would never have produced: one committed before the
+# key existed, or hand-edited afterwards, which is the case a READER has to own. Only the `panel:`
+# line changes, and the verdict record is excluded from both patch bindings, so a red here is the
+# panel arm and can be nothing else. rc=5 — the remedy is another review round, not a build fix.
+dreset
+out="$(dgate 4 55)"; ld_m4_ok=$?
+[ "$ld_m4_ok" -eq 0 ] || fail "(fp5-fixture) milestone 4 was not green before the edit, so (fp5) would assert nothing: $out"
+awk '/^panel:/ { print "panel: review-toolkit:security-reviewer"; next } { print }' "$DVERDICT" > "$DVERDICT.tmp" \
+  && mv "$DVERDICT.tmp" "$DVERDICT"
+grep -q 'design-toolkit:figma-faithful-reviewer' "$DVERDICT" \
+  && fail "(fp5-fixture) the panel line was not rewritten — (fp5) would assert nothing"
+dcommit "a record whose panel lost the mandatory reviewer"
+dreset
+out="$(dgate 4 55)"; rc=$?
+if [ "$rc" -eq 5 ] && grep -q 'does not name design-toolkit:figma-faithful-reviewer' <<<"$out"; then
+  pass "(fp5) milestone 4 refuses a committed record whose panel lacks the mandatory reviewer (5 — get a review round)"
+else fail "(fp5) expected rc=5 with the panel violation, got rc=$rc: $out"; fi
+
+# (fp6) ...and an armed record with NO panel key at all. #708 D-15 grandfathers nothing: without
+# the key, nothing in the branch says which reviewers ran, which is the whole condition the key
+# was added to make visible. The writer's unarmed `panel: none` sentinel lands here too.
+awk '/^panel:/ { next } { print }' "$DVERDICT" > "$DVERDICT.tmp" && mv "$DVERDICT.tmp" "$DVERDICT"
+grep -q '^panel:' "$DVERDICT" && fail "(fp6-fixture) the panel key was not removed — (fp6) would assert nothing"
+dcommit "a record predating the panel key"
+dreset
+out="$(dgate 4 55)"; rc=$?
+if [ "$rc" -eq 5 ] && grep -q 'panel=<none>' <<<"$out"; then
+  pass "(fp6) an armed record carrying no panel key is refused too — nothing is grandfathered"
+else fail "(fp6) expected rc=5 naming the absent panel, got rc=$rc: $out"; fi
+
+# (fp7) THE UNARMED CONSUMER is untouched. Same tree, same spec, read through a config with no
+# design axis — the pairing that keeps the obligation provider-gated. Every consumer without a
+# design lane would otherwise be unable to write a verdict at all.
+out="$( unset RUN_ID; cd "$DTREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$DPROG" \
+        CLAUDE_CODE_SESSION_ID=sess-review-p7 RUN_ID=r-review-p7 \
+        bash "$GATE" verdict 55 --pr 55 --verdict approve 2>&1 )"; rc=$?
+fp7_panel="$(dpanelkey "$DVERDICT")"
+if [ "$rc" -eq 0 ] && [ "$fp7_panel" = "none" ]; then
+  pass "(fp7) with no design.provider configured the writer demands no panel, and records the 'none' sentinel rather than an absence"
+else fail "(fp7) unarmed write rc=$rc panel='$fp7_panel' (expected 0 / none): $out"; fi
+
+# Restore a green armed record for anything downstream that reads this tree.
+dspec_armed
+dcommit "the armed spec, restored after the panel cases"
+dreset
+dgate 3 55 >/dev/null 2>&1
+dcommit "the render receipt, restored"
+dreset
+dverdict sess-review-p9 r-review-p9 --pr 55 --verdict approve --fidelity pass --summary-file "$DEVIDENCE" >/dev/null 2>&1
+dcommit "a green armed record, restored"
 
 # ---- (ea) the entry attestation: recorded, and enforced (#416) -------------------------------
 # The gap this closes is not "entry fails open" — it always failed closed. It is that NOTHING
@@ -7052,11 +7241,16 @@ else fail "(pg13) expected rc=2 with an 'unknown progress form' refusal, got rc=
 # 20 -> 18 at #642: `m4/head-missing` and `m4/head-tree-diff` were deleted (both class 5) and the
 # `reviewed_patch_id`-absent refusal that replaced them added one back (also class 5). The verdict
 # ABSENCE site left this count entirely — it is `block_milestone` now, on the absent verb.
+#
+# 18 -> 20 at #708: the panel attestation added two, both on the armed path. The unnameable-family
+# refusal is class 1 (the remedy is a spec edit in the build lane, and milestone 1 refuses it there
+# too); the panel-omission refusal is class 5 (only another review round can produce a record that
+# names the reviewer — no build action fixes it).
 m4_calls="$(grep -c 'fail_milestone 4 "' "$GATE")"
 m4_sig="$(grep 'fail_milestone 4 "' "$GATE" | sed -n 's/.*" \([0-9]\).*$/\1/p' | sort | tr -d '\n')"
-if [ "$m4_calls" -eq 18 ] && [ "$m4_sig" = "111225555555555566" ]; then
-  pass "(ac1) all 18 milestone-4 failure sites carry an explicit class, in the documented 3x1 / 2x2 / 11x5 / 2x6 split"
-else fail "(ac1) milestone-4 site mapping drifted: $m4_calls call(s), class signature '$m4_sig' (expected 18 / 111225555555555566)"; fi
+if [ "$m4_calls" -eq 20 ] && [ "$m4_sig" = "11112255555555555566" ]; then
+  pass "(ac1) all 20 milestone-4 failure sites carry an explicit class, in the documented 4x1 / 2x2 / 12x5 / 2x6 split"
+else fail "(ac1) milestone-4 site mapping drifted: $m4_calls call(s), class signature '$m4_sig' (expected 20 / 11112255555555555566)"; fi
 
 # THE ABSENT-VERB SITES, held to the same completeness bar (#642 AC-3). Every reason the ablation
 # report adjudicates `unchanged` must reach block_milestone/block_obligation; a new one added as a
