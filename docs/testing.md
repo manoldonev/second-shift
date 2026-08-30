@@ -148,10 +148,11 @@ follows:
 | `--exclude` matches no discovered suite | exit 2, `stale exclusion` — the same stale-row posture the slow-suite table applies to its own rows |
 | no suites discovered, or every suite excluded | exit 2 — a sweep that runs nothing is never green |
 
-`--exclude` has four in-repo callers, all passing
+`--exclude` has three in-repo callers, all passing
 `--exclude tools/install-topology-selftest.sh` (and, since #566, `--full` alongside it): both CI
-selftest jobs (`lint-and-selftests`, `selftests-bash32`) and both nightly wholesale lanes
-(`wholesale-selftests`, `wholesale-selftests-bash32`) — inside the sweep it contends with the very suites it re-runs
+selftest jobs (`lint-and-selftests`, `selftests-bash32`) and the nightly wholesale lane
+(`wholesale-selftests`; its macos bash-3.2 twin was deleted 2026-08-30 — `selftests-bash32`
+already asks that question on every PR) — inside the sweep it contends with the very suites it re-runs
 from the install cache, which is what the install-topology section below measures.
 `install-topology-selftest.sh` itself runs in its own nightly jobs (`install-topology`,
 `install-topology-bash32`), never alongside a sweep. The maintainer's dogfood lean-gate
