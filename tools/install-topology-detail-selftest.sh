@@ -61,6 +61,8 @@ trap 'rm -rf "$WORK"' EXIT
 # Run the REAL block against a fixture log. detail() <rc> <log-body> → the composed string.
 RESULTS="$WORK/results"
 mkdir -p "$RESULTS"
+# shellcheck disable=SC2034  # read by the EXTRACTED block's 124 arm, not by this file
+SUITE_TIMEOUT=1200
 detail() { # detail <rc> <log-body>
   # shellcheck disable=SC2034  # rc and idx are read by the EXTRACTED block, not by this file
   local rc="$1" body="$2" idx=0001
@@ -153,6 +155,50 @@ t5_out="$(detail 1 "      FAIL: indented deeply")"
 case "$t5_out" in
   "rc=1 — FAIL: indented deeply") ok "(t5) leading whitespace is stripped from the quoted line" ;;
   *) bad "(t5) expected the indent stripped, got:[$t5_out]" ;;
+esac
+
+# ---------------------------------------------------------------------------
+# (t6) the INFRA arms. 124, 125 and a signal death are not assertion failures — no case in
+# the suite decided anything — so each is named rather than described by whatever the log
+# happened to contain. The fixture log carries a PASS line on purpose: these arms must not
+# read it at all, and the whole #664 disease is a red quoting a line that had just succeeded.
+# ---------------------------------------------------------------------------
+t6_log='  PASS: milestone-1 fails when the lean spec is absent'
+
+t6_out="$(detail 124 "$t6_log")"
+case "$t6_out" in
+  *"timed out after 1200s"*) ok "(t6/124) a timeout is named as the bound, and does not quote the log" ;;
+  *) bad "(t6/124) expected the timeout wording, got:[$t6_out]" ;;
+esac
+
+t6_out="$(detail 125 "$t6_log")"
+case "$t6_out" in
+  *"no verdict written"*) ok "(t6/125) a worker that wrote no verdict is named as infra, and does not quote the log" ;;
+  *) bad "(t6/125) expected the no-verdict wording, got:[$t6_out]" ;;
+esac
+
+# 143 = SIGTERM. Observed for real: an outer reaper took the process group mid-suite, and the
+# detail read `rc=143 — PASS: milestone-1 fails when the lean spec is absent` — a red naming an
+# assertion that had just passed, on a tree with nothing wrong with it.
+for t6_sig in 130 137 143; do
+  t6_out="$(detail "$t6_sig" "$t6_log")"
+  case "$t6_out" in
+    *"PASS:"*)
+      bad "(t6/$t6_sig) a signal-killed suite quoted a PASSING line from its log — the loose sweep is deciding for a run that reached no verdict. Got:[$t6_out]" ;;
+    *"killed by signal $((t6_sig - 128))"*)
+      ok "(t6/$t6_sig) a signal-killed suite is named as infra, with the signal number" ;;
+    *)
+      bad "(t6/$t6_sig) expected the signal wording, got:[$t6_out]" ;;
+  esac
+done
+
+# (t6-control) the signal range must not swallow an ORDINARY non-zero rc. A suite exiting 1
+# is a real failure and has to keep quoting its own FAIL line; a range that reached down to it
+# would silence every genuine red into "infra, not a result".
+t6c_out="$(detail 1 "  FAIL: (inv/sibling) the real failure")"
+case "$t6c_out" in
+  *"(inv/sibling)"*) ok "(t6-control) rc=1 is still a real failure and still quotes the suite's FAIL line" ;;
+  *) bad "(t6-control) the infra arms swallowed an ordinary failure. Got:[$t6c_out]" ;;
 esac
 
 echo "[install-topology-detail-selftest] $PASS passed, $FAIL failed"

@@ -77,11 +77,17 @@ Nothing about time or the 24h staleness contract is involved.
   guard must point at the failing case. *(Added during build: this is what made the nightly red
   undiagnosable from its own log — the ticket flags the oddity explicitly, and a class guard
   whose red names a passing case sends the next reader to the wrong assertion.)*
+  A suite killed by a signal is covered by the same criterion: it reached no verdict, so it gets
+  a named arm beside the existing 124 / 125 ones rather than quoting whatever it had printed
+  before it died. *(Observed live during this build: a run reaped at a harness turn boundary
+  reported `rc=143 — PASS: milestone-1 fails when the lean spec is absent` — a red naming an
+  assertion that had just succeeded, on a tree with nothing wrong with it.)*
 - **AC-6** — AC-5's path is guarded by an executing test, not left to the next red to discover.
-  It is dead code on every green run — it executes only once a staged suite has already failed,
-  which is exactly why a broken composition survived seven nightly runs — so it is
-  sentinel-delimited and driven against fixture logs, including the `ok: … failed …` decoy that
-  produced the misleading line. The guard does not inherit install-topology's staging cost.
+  The whole rc dispatch is dead code on every green run — it executes only once a staged suite
+  has already failed, which is exactly why a broken composition survived seven nightly runs —
+  so all four arms are sentinel-delimited together and driven against fixture logs, including
+  the `ok: … failed …` decoy that produced the misleading line and a PASS-carrying log the infra
+  arms must not read. The guard stages nothing and does not inherit install-topology's cost.
 - **AC-7** — `docs/testing.md`'s install-topology section is corrected. Its standing claim that
   the class guard "is the reason no new instance of this needs its own test" is what this
   ticket disproves in part: the guard detected the defect on every one of the seven nightly
