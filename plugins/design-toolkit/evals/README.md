@@ -93,6 +93,21 @@ across rounds.
 
 ## Baselines
 
-Each directory carries a `CLOSEOUT-BASELINE.md` recording its measured pre-edit baseline, with
-the provenance block a later run needs to compare against it. #704 landed those; the
-keep-or-revert campaign that acts on them is #707.
+Each directory carries a `CLOSEOUT-BASELINE.md` recording its measured pre-edit baseline, with the
+provenance block a later run needs to compare against it. #704 landed those; the keep-or-revert
+campaign that acts on them is #707.
+
+| Agent | Baseline | Headroom |
+| --- | ---: | --- |
+| `figma-faithful-reviewer` | **100.00%** | none — a regression guard, not a tuning target |
+| `figma-faithful-plan-reviewer` | **99.17%** | 0.83pp — likewise |
+| `figma-faithful-spec-reviewer` | **72.50%** | 27.5pp, nearly all of it in one fixture |
+
+**Two of the three are at a ceiling, and that is itself the result.** The plan reviewer caught
+every #692 defect 3/3 on the first try — so #692's failure was *dispatch*, not capability: that
+agent is dispatched by the operator at `figma-faithful` step 7 and by no autonomous lane. Routing
+is #705's subject.
+
+The spec reviewer's deficit is one fixture: `01-lean-spec-no-visual-contract` scored **0/3**,
+declining a lean-lane spec as `N/A` in every run — the defect #704's AC-4 fixes, and the one place
+a #707 campaign has room to move a number.

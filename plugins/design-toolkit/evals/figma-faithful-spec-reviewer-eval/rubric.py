@@ -25,7 +25,7 @@ Total: 10.
 """
 
 RUBRIC_VERSION = 1
-FIXTURE_VERSION = 1
+FIXTURE_VERSION = 2  # 04-control-clean corrected; see its .expected.json notes
 
 MAX_POINTS = {
     "d1_verdict_correctness": 6,

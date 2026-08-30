@@ -25,18 +25,18 @@ Workspace admin (console, `settings:write` scope).
 
 | Node | Component | Copy | Visual contract | States |
 | --- | --- | --- | --- | --- |
-| Page header | `Typography` | `CI-1` | `pageTitle` variant, hug block size | all |
-| Preferences panel | `Card` | — | fill inline size to 720px max, hug block size, flat: `elevation={0}` overriding the resting shadow, 1px `border.default` | all |
-| Panel title | `Typography` | `CI-2` | `sectionTitle` variant | all |
-| Category toggle row | `Stack` | — | fill inline size, hug block size, 12px row gap | all |
-| Category switch | `Switch` | — | 36px inline size, 20px block size, `border.default` track off / `brand.main` track on | all |
-| Category label | `Typography` | `CI-3`…`CI-6` | `bodyStrong` variant | all |
-| Category description | `Typography` | `CI-7`…`CI-10` | `helper` variant, `text.secondary`, wraps to two lines then truncates | all |
-| Digest frequency picker | `Select` | `CI-11` label | 240px inline size, 40px block size, 1px `border.default` resting / `brand.main` focus, defaults to `Daily` | all |
-| Save action | `Button` | `CI-12` | hug inline size, 36px block size, disabled until the form is dirty | all |
+| Page header | `Typography` | `CI-1` | `pageTitle` variant, hug block size | loaded, loading, error |
+| Preferences panel | `Card` | — | fill inline size to 720px max, hug block size, flat: `elevation={0}` overriding the resting shadow, 1px `border.default` | loaded, loading, error |
+| Panel title | `Typography` | `CI-2` | `sectionTitle` variant | loaded, loading, error |
+| Category toggle row | `Stack` | — | fill inline size, hug block size, 12px row gap | loaded, error |
+| Category switch | `Switch` | — | 36px inline size, 20px block size, `border.default` track off / `brand.main` track on | loaded, error |
+| Category label | `Typography` | `CI-3`…`CI-6` | `bodyStrong` variant | loaded, error |
+| Category description | `Typography` | `CI-7`…`CI-10` | `helper` variant, `text.secondary`, wraps to two lines then truncates | loaded, error |
+| Digest frequency picker | `Select` | `CI-11` label, `CI-15`…`CI-18` options | 240px inline size, 40px block size, 1px `border.default` resting / `brand.main` focus, defaults to `Daily` | loaded, error |
+| Save action | `Button` | `CI-12` | hug inline size, 36px block size, disabled until the form is dirty | loaded, error |
 | Error banner | `Banner` | `CI-13` | fill inline size, hug block size, `critical` tone | error only |
 | Loading skeleton | `Stack` | — | fill inline size, four rows at 44px block size each | loading only |
-| Help card | `Card` | `CI-14` | fill inline size, hug block size, flat, sibling of the panel with a 16px gap | all |
+| Help card | `Card` | `CI-14` | fill inline size, hug block size, flat, sibling of the panel with a 16px gap | loaded, loading, error |
 
 ### `/settings/notifications` — loading
 
@@ -96,6 +96,10 @@ list-to-picker gap, 16px picker-to-footer gap, 16px panel-to-help-card gap.
 | CI-12 | Save changes | Save action |
 | CI-13 | We couldn't save your preferences. Nothing was changed. | Error banner |
 | CI-14 | Notification emails are sent to every admin on the workspace. | Help card |
+| CI-15 | As it happens | Digest picker option (`realtime`) |
+| CI-16 | Daily | Digest picker option (`daily`) |
+| CI-17 | Weekly | Digest picker option (`weekly`) |
+| CI-18 | Never | Digest picker option (`never`) |
 
 ## Acceptance Criteria
 
