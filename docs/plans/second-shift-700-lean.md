@@ -87,9 +87,11 @@ about the receipt's `OR-n` regions, which the lean gate's own `check_pause_and_a
   `scenario-liveness-selftest.sh` gains a leg for the new verdict path.
 - **AC-15** The new guard code is itself armed: `tools/mutation-catalog.tsv` gains rows naming the
   regression classes this change introduces the risk of, and each is **probed** — applied, and the
-  paired suite run — rather than credited by construction. `lean-gate-selftest.sh` is 141s against
+  paired suite run — rather than credited by construction. `lean-gate-selftest.sh` is 212s against
   the sweep's 5s slow threshold, so the `mutation-sweep-pr` job defers these rows to nightly and a
-  row credited without a probe would be graded by nothing at PR time.
+  row credited without a probe would be graded by nothing at PR time. A row's note must name the
+  regression its own `sed` produces: a note describing a different mutant is what a probe that was
+  run and READ would have caught, so the note is part of what the probe checks.
 
 ## Scope boundary
 
