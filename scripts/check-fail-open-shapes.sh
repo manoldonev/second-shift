@@ -75,7 +75,9 @@ SELF_EXCLUDE='scripts/check-fail-open-shapes\.sh|scripts/check-fail-open-shapes-
 #                 one would red the guard for saying so.
 # Both arms match against `relpath:line:text`, which is why the .tsv arm anchors on the path
 # separator rather than on `$` — end-of-line here is the end of the matched TEXT.
-SCAN_EXCLUDE="^(docs/plans/|$SELF_EXCLUDE)|^[^:]*\\.tsv:"
+# .claude/pipeline-state and .claude/audit are gitignored operator state (lane logs, audit ledgers)
+# that quote shell verbatim; CI never has them, so scanning them reds the operator and not the tree.
+SCAN_EXCLUDE="^(docs/plans/|\\.claude/(pipeline-state|audit)/|$SELF_EXCLUDE)|^[^:]*\\.tsv:"
 
 # A pipe (never `||`) into a grep whose option cluster contains `q`. Covers -q, -qi, -qiE,
 # -Eq, -Fxq, -qxF.
