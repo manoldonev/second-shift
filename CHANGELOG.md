@@ -4,6 +4,59 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v12.2.0
+
+### `design-toolkit` 4.0.2 → 4.0.3
+
+- **`fidelity: pass` must cite evidence, not assert it (#696)** (#696)
+  an armed `--fidelity pass` verdict write is refused unless its
+  summary carries a `## Design fidelity evidence` table scoring every declared
+  render state — six named columns, every cell populated, and any deviation
+  citing an AC-n or D-n the spec declares. The grammar is published in
+  review-lean step 5b. This is tamper-evidence, not fidelity: it makes the
+  claim falsifiable by a human reader and verifies nothing against the design.
+  Already-committed verdict records are unaffected. Migration: a design-armed
+  consumer must emit the table from its next review round onward.
+- **The translation plan becomes an artifact milestone 3 asserts (#701)** (#701)
+  an armed design ticket now owes a committed translation plan at
+  `<plansDir>/<key>-lean-plan.md` — a `planned_from:` header the gate stamps, a
+  `why this component` table and a `dimensions` table, every cell filled.
+  Milestone 3 refuses without it, before the render pass. The figma-faithful
+  plan reviewer now owns component-resolution suitability and blocks a
+  control-bearing screen whose plan records no dimension row at all.
+  Migration: none — unarmed and non-figma tickets are unaffected.
+
+### `dev-pipeline` 12.1.0 → 12.2.0
+
+- **Recover a cost block from the session transcript (#697)** (#697)
+  a cost block is now recovered from the session transcript when the
+  local OTel metrics file has no rows for the run — tokens, tiers, duration
+  and cache-hit rate, with no USD (the transcript carries none). cost-log rows
+  gain `source` and `tokens`; `totalUsd` is null on transcript-sourced rows,
+  so a spend report should filter on `source == "otel"`.
+  Migration: none.
+- **`fidelity: pass` must cite evidence, not assert it (#696)** (#696)
+  an armed `--fidelity pass` verdict write is refused unless its
+  summary carries a `## Design fidelity evidence` table scoring every declared
+  render state — six named columns, every cell populated, and any deviation
+  citing an AC-n or D-n the spec declares. The grammar is published in
+  review-lean step 5b. This is tamper-evidence, not fidelity: it makes the
+  claim falsifiable by a human reader and verifies nothing against the design.
+  Already-committed verdict records are unaffected. Migration: a design-armed
+  consumer must emit the table from its next review round onward.
+- **feat(dev-pipeline): price the transcript fallback from the session's cost-state record (#699)** (#699)
+  the cost block's transcript fallback now carries the run's USD when every
+  session in the set wrote a cost-state record; otherwise it states how many did.
+  Migration: none.
+- **The translation plan becomes an artifact milestone 3 asserts (#701)** (#701)
+  an armed design ticket now owes a committed translation plan at
+  `<plansDir>/<key>-lean-plan.md` — a `planned_from:` header the gate stamps, a
+  `why this component` table and a `dimensions` table, every cell filled.
+  Milestone 3 refuses without it, before the render pass. The figma-faithful
+  plan reviewer now owns component-resolution suitability and blocks a
+  control-bearing screen whose plan records no dimension row at all.
+  Migration: none — unarmed and non-figma tickets are unaffected.
+
 ## v12.1.0
 
 ### `dev-pipeline` 12.0.0 → 12.1.0
