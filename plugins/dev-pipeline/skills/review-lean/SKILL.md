@@ -45,7 +45,7 @@ the code does not author its own evaluation.
    by reference to that record; when there is nothing verifiable to inherit it prints the full
    range and says so. There is no flag: the range is derived from the committed records, so a
    round cannot claim a narrower reading than the branch supports, nor forget to declare one.
-5. **Review** over the range step 4 printed. `review-lead` is the implementation — no reviewer
+5. **Review** over the range step 4 printed. `review-toolkit:review-lead` is the implementation — no reviewer
    is defined here. On an inheriting round, read the **prior record's findings** first: a round
    that inherits coverage without seeing what was previously found cannot tell a fixed blocker
    from a re-introduced one, and a blocker the build simply ignored leaves no trace in the delta
@@ -87,7 +87,7 @@ the code does not author its own evaluation.
    decided this", which anything can check, replaces "I judged it fine", which nothing can. This
    makes your claim falsifiable by a human reader; it does not verify the render against the
    design, and no gate in this repo does.
-5c. **A voided round is handed back, never recorded.** `review-lead` voids a round when every
+5c. **A voided round is handed back, never recorded.** `review-toolkit:review-lead` voids a round when every
    reviewer it selected went dark — it then emits a "review did not run" report naming the dark
    set, and answers no merge question. When that happens, stop before step 6: post the coverage
    gap as the step-8 PR comment, write **no** verdict record, and do not spend the round. Neither
@@ -125,7 +125,7 @@ the code does not author its own evaluation.
   process exit: a `&`-detached command, a probe you mean to report on "when it lands", or an
   armed `Monitor` is abandoned, not deferred. Two build sessions were lost to that shape before
   it was written down. **Your long pole is not one of them.** A `Workflow` dispatch — how
-  `review-lead` fans out — was MEASURED under `-p`: the session is re-entered when the workflow
+  `review-toolkit:review-lead` fans out — was MEASURED under `-p`: the session is re-entered when the workflow
   completes and reports its result normally. So await it. Do not arrange to collect it later,
   and do not restructure the panel around a death it does not have.
 - **One identity per review round.** Re-running a round reuses the cached id; a new round
