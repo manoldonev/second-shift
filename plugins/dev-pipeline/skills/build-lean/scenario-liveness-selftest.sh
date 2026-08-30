@@ -875,6 +875,52 @@ $ba_all_out"
 
   lean_seed_progress r-lean-1 sess-lean-build
 
+  # ---- leg 3g: an UNENUMERABLE open-regions section, composed (#700) --------
+  # CLAUDE.md's obligation once more: #700 gives milestone 1 a new verdict path — a section that
+  # DECLARES regions in a shape the gate cannot read now refuses as an environment error instead
+  # of clearing. That is a third outcome beside "no regions" and "an unresolved region", and it
+  # reaches a different terminal write.
+  #
+  # What only a composed leg can show: the refusal has to travel out through cmd_1's envfail,
+  # NOT through fail_milestone. The two are indistinguishable inside the per-tool suite's
+  # single-call assertions — both print a reason and both exit non-zero — and they differ exactly
+  # where it costs: one spends a fix attempt, the other must not. #494's block/fail split is the
+  # same distinction, and the same reason it earned a leg.
+  #
+  # The PASS direction is what makes this liveness rather than a refusal test: rewrite the very
+  # same regions in a shape the parser reads, and the run walks on to a satisfied milestone 1.
+  LEAN_ISSUE_UNENUM="$TMP/lean-issue-unenum.json"
+  printf '{"body": "# issue\\n\\n## Open regions\\n\\n- Completeness of the watcher taxonomy; whether it covers every shape is not derivable.\\n"}' > "$LEAN_ISSUE_UNENUM"
+  LEAN_ISSUE_READABLE="$TMP/lean-issue-readable.json"
+  printf '{"body": "# issue\\n\\n## Open regions\\n\\n- OR-1: completeness of the watcher taxonomy. reversible-default-and-flag, default as listed.\\n"}' > "$LEAN_ISSUE_READABLE"
+
+  lean_seed_progress r-lean-1 sess-lean-build
+  une_before=$(lean_count '| milestone-1 | attempt |')
+  une_refuse_out="$(lean_gate 1 77 --issue-file "$LEAN_ISSUE_UNENUM" --comments-file "$TMP/lean-comments-empty.json" 2>&1)"; une_refuse=$?
+  une_after=$(lean_count '| milestone-1 | attempt |')
+
+  # The same section, rewritten into a shape the parser reads — and deliberately a REVERSIBLE
+  # region, so what clears it is enumerability and not the region going away.
+  une_pass_out="$(lean_gate 1 77 --issue-file "$LEAN_ISSUE_READABLE" --comments-file "$TMP/lean-comments-empty.json" 2>&1)"; une_pass=$?
+  une_pass_after=$(lean_count '| milestone-1 | attempt |')
+
+  [[ "$une_refuse" -eq 2 && "$une_after" -eq "$une_before" && "$une_pass" -eq 0 && "$une_pass_after" -eq "$une_before" ]] \
+    && grep -q 'could not enumerate the open regions' <<< "$une_refuse_out" \
+    && pass "(lean-unenumerable) a section declaring regions in no recognized shape refuses milestone 1 as an ENVIRONMENT error, spends no fix attempt, and the same regions rewritten in a readable shape walk on" \
+    || fail "(lean-unenumerable) refuse=$une_refuse (want 2) attempts $une_before->$une_after (want unchanged) pass=$une_pass (want 0) pass-attempts=$une_pass_after. refuse-out=$une_refuse_out pass-out=$une_pass_out"
+
+  # NON-VACUITY, the shape (lean-override-nv) uses: the readable fixture must be capable of
+  # refusing, or the pass direction above proves only that milestone 1 stopped reading sections.
+  LEAN_ISSUE_READABLE_PAA="$TMP/lean-issue-readable-paa.json"
+  printf '{"body": "# issue\\n\\n## Open regions\\n\\n- OR-1: completeness of the watcher taxonomy. pause-and-ask, nobody owns it.\\n"}' > "$LEAN_ISSUE_READABLE_PAA"
+  lean_seed_progress r-lean-1 sess-lean-build
+  une_nv_out="$(lean_gate 1 77 --issue-file "$LEAN_ISSUE_READABLE_PAA" --comments-file "$TMP/lean-comments-empty.json" 2>&1)"; une_nv=$?
+  [[ "$une_nv" -eq 1 ]] && grep -q 'region OR-1' <<< "$une_nv_out" \
+    && pass "(lean-unenumerable-nv) non-vacuity: the same bullet shape dispositioned pause-and-ask still reaches the unresolved-region refusal" \
+    || fail "(lean-unenumerable-nv) expected rc=1 naming OR-1, got $une_nv: $une_nv_out"
+
+  lean_seed_progress r-lean-1 sess-lean-build
+
   # ---- leg 3d: an interrupted evaluation, composed (#497) -------------------
   # Same CLAUDE.md obligation: the interrupted budget's rc=4 is a new verdict path. The per-tool
   # suite proves the pair and the bound against one milestone in isolation, including the real
