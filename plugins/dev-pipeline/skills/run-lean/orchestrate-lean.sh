@@ -606,16 +606,50 @@ probe_gate() {
   echo "FAIL gate: no readable milestone gate at $GATE (set LEAN_GATE)"; return 1
 }
 
+# #704. TELEMETRY WITHOUT AN EXPORTER IS THE ONE MISCONFIGURATION THAT COSTS A WHOLE RUN SILENTLY.
+# `pipeline-cost-block.sh` prices a run from the OTel metrics its payload sessions export. Claude
+# Code exports those only when a metrics EXPORTER is configured — `CLAUDE_CODE_ENABLE_TELEMETRY=1`
+# on its own enables the feature and configures no destination, so every session runs, bills, and
+# exports nothing. The cost block then falls to its transcript source, which recovers tokens but
+# NOT money (a headless `-p` session writes no `cost-state` record), and the run publishes
+# `totalUsd: null` after the spend has already happened.
+#
+# Measured on #704: four payload sessions, zero rows under any of their session ids, `totalUsd`
+# null on a run whose 26 predecessors all carried a figure. The launching environment had
+# CLAUDE_CODE_ENABLE_TELEMETRY=1 and none of OTEL_METRICS_EXPORTER / OTEL_EXPORTER_OTLP_ENDPOINT,
+# because a parent process exported the full set and passed only the enable flag to its children.
+#
+# WARN, NEVER REJECT, and the asymmetry is the point. Telemetry is optional — a consumer that
+# never turns it on is in a supported state and the cost block says `skip(telemetry-off)` for it.
+# What is NOT supported is the half-configured shape, which is indistinguishable from working
+# until the close-out block runs hours later. So this probe returns 0 always and is excluded from
+# the reject arithmetic below; its whole job is to put the fix in front of the operator while the
+# run still costs nothing.
+probe_telemetry() {
+  if [ -z "${CLAUDE_CODE_ENABLE_TELEMETRY:-}" ] || [ "${CLAUDE_CODE_ENABLE_TELEMETRY:-0}" = "0" ]; then
+    echo "ok telemetry: off — this run's cost block will report skip(telemetry-off), by configuration"
+    return 0
+  fi
+  if [ -n "${OTEL_METRICS_EXPORTER:-}" ]; then
+    echo "ok telemetry: enabled with a metrics exporter — this run's spend is priceable"
+    return 0
+  fi
+  echo "WARN telemetry: CLAUDE_CODE_ENABLE_TELEMETRY is on but OTEL_METRICS_EXPORTER is unset — this run will bill and export NO metrics, and its cost block will publish tokens with totalUsd null. The run is not blocked. To price it, re-launch with the exporter configured, e.g. OTEL_METRICS_EXPORTER=otlp OTEL_EXPORTER_OTLP_PROTOCOL=grpc OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317"
+  return 0
+}
+
 probe_intake > "$PROBE_DIR/1" 2>&1 & p1=$!
 probe_spawn  > "$PROBE_DIR/2" 2>&1 & p2=$!
 probe_gate   > "$PROBE_DIR/3" 2>&1 & p3=$!
 probe_ticket > "$PROBE_DIR/4" 2>&1 & p4=$!
+probe_telemetry > "$PROBE_DIR/5" 2>&1 & p5=$!
 wait "$p1"; r1=$?
 wait "$p2"; r2=$?
 wait "$p3"; r3=$?
 wait "$p4"; r4=$?
+wait "$p5"
 
-for f in 1 2 3 4; do
+for f in 1 2 3 4 5; do
   while IFS= read -r line; do say "  $line"; done < "$PROBE_DIR/$f"
 done
 # #613 AC-3. The resumable exit is claimed ONLY when the unintaken-ticket probe is the sole

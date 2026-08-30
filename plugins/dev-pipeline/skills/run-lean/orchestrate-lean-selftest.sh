@@ -1331,6 +1331,30 @@ if [ "$rc" -eq 2 ] && [ "$(spawn_count)" -eq 0 ] && grep -q 'could not be comple
   pass "(v12) preflight fails closed too — an unreadable tracker is not an open ticket"
 else fail "(v12) expected a preflight rc=2 on an unevaluable read, got rc=$rc / $(spawn_count): $out"; fi
 
+# ---- (v14) telemetry preflight: the half-configured shape is named, and never blocks -----------
+# SCENARIO, not a presence grep. #704 spent a full two-hour run whose four payload sessions
+# exported zero OTel rows, and published totalUsd:null at close-out — the first such row in 27.
+# The launching environment had the enable flag and no exporter. Nothing in the lane said so
+# until the cost block ran, by which point the spend had happened. These three cases pin the
+# three-way split: off is fine, configured is fine, half-configured is called out — and none of
+# them changes the exit code, because telemetry is optional and a warn that rejects would break
+# every consumer that runs without it.
+setup_case "" "$V_APPROVE" "ready-for-dev" "11"
+out="$(CLAUDE_CODE_ENABLE_TELEMETRY=1 OTEL_METRICS_EXPORTER='' run_tool "$CFG" "$ISSUE" --build-model sonnet --dry-run)"; rc=$?
+if [ "$rc" -eq 0 ] && grep -q 'WARN telemetry' <<<"$out" && grep -q 'OTEL_METRICS_EXPORTER' <<<"$out"; then
+  pass "(v14a) telemetry on with no exporter WARNS, names the variable, and still exits 0"
+else fail "(v14a) expected rc=0 with a WARN naming OTEL_METRICS_EXPORTER, got rc=$rc: $out"; fi
+
+out="$(CLAUDE_CODE_ENABLE_TELEMETRY=1 OTEL_METRICS_EXPORTER=otlp run_tool "$CFG" "$ISSUE" --build-model sonnet --dry-run)"; rc=$?
+if [ "$rc" -eq 0 ] && ! grep -q 'WARN telemetry' <<<"$out" && grep -q 'ok telemetry' <<<"$out"; then
+  pass "(v14b) a configured exporter reports ok and raises no warning"
+else fail "(v14b) expected an ok telemetry line and no WARN, got rc=$rc: $out"; fi
+
+out="$(CLAUDE_CODE_ENABLE_TELEMETRY='' OTEL_METRICS_EXPORTER='' run_tool "$CFG" "$ISSUE" --build-model sonnet --dry-run)"; rc=$?
+if [ "$rc" -eq 0 ] && ! grep -q 'WARN telemetry' <<<"$out" && grep -q 'skip(telemetry-off)' <<<"$out"; then
+  pass "(v14c) telemetry deliberately off is a supported state, not a warning"
+else fail "(v14c) expected the telemetry-off ok line and no WARN, got rc=$rc: $out"; fi
+
 # ---- (v13) the REAL gate, end to end: the one case a fake cannot make green ---------------------
 # Its own fixture repo with a real bare origin, because it is the only case in this file that runs
 # actual git ranges. Everything above would stay green if the scheduler asked the gate for a
