@@ -595,6 +595,30 @@ allowlist that used to carve out an exception here drained to zero rows (#421) a
 (#641); a suite listed nowhere is already the "everything must pass" posture once the allowlist
 plumbing is gone.
 
+**Two things #664 changed about how far that goes.** The class guard did its job — it caught a
+sibling-resolution defect in `pipeline-doctor-selftest.sh` on the very first nightly run after
+it landed, and on the six after that. Neither half of the loop closed anyway:
+
+- *It ran a day late, and the PR that introduced the defect was long merged.* Since #620 the
+  guard is nightly-only; the PR lane excludes it. So "no new instance needs its own test" holds
+  for **detecting** the class, and stops holding when you want the defect to red on the branch
+  that causes it. Where a cross-plugin resolution is cheap to fabricate — a few `mkdir -p` under
+  a `mktemp -d`, no plugins staged, no suites re-run — put a case in the suite that owns the
+  code too: `pipeline-doctor-selftest.sh`'s `(inv-cache)` is the reference. Stage the sibling at
+  a version that is **not** the caller's, so rung 2 misses and rung 3 is what has to decide;
+  same-version staging passes with a dead rung 3, and rung 3 is the rung an install uses.
+- *Its red named a passing case.* The `detail` string on a `RED:` line was the first log line
+  matching `grep -iE 'FAIL|error|…'`, and pipeline-doctor's `ok: (d3) completed + failed at
+  24h` matches "fail" 37 lines above the real `FAIL:` line. The captured log is deleted with
+  `$BASE` on exit, so that one line is all a reader gets. It now prefers a line whose *start* is
+  a marker (`FAIL:`/`FATAL:`/`RED:`/`ERROR:`) and falls back to the loose sweep only when a
+  suite died before printing one. That path is dead on every green run — which is why it was
+  wrong for seven runs unnoticed — so it is sentinel-delimited (`# >>> red-detail`) and
+  exercised against fixture logs by `tools/install-topology-detail-selftest.sh`.
+
+The general form: **a guard whose red cannot say what it caught is not yet a working guard**,
+and a nightly-only guard is a detection tier, not a PR gate.
+
 Its first run, on the authoring machine, scored 51 of 55 shipped suites passing, with 4 failing
 for reasons that turned out to be environment-dependent rather than real: CI scored 49 pass on
 the same commit, identically on both lanes, because two suites fail for reasons the authoring

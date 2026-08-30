@@ -245,13 +245,42 @@ while IFS= read -r line; do
     continue
   fi
 
+  # THE WHOLE rc DISPATCH is sentinel-delimited, not just its last arm: every branch here is
+  # DEAD on a green run — the block executes only once a staged suite has already failed, which
+  # is why a broken detail composition survived seven nightly reds unnoticed. Wrapping only the
+  # `else` would leave the 124/125/signal arms in the same unexecuted state the fix is about.
+  # install-topology-detail-selftest.sh lifts these lines and runs them against fixture logs so
+  # the path is exercised on a green tree too. It needs $rc, $RESULTS/$idx.log and
+  # $SUITE_TIMEOUT, and produces $detail.
+  # >>> red-detail
   if [[ "$rc" -eq 124 ]]; then
     detail="timed out after ${SUITE_TIMEOUT}s (bound, not a hang)"
   elif [[ "$rc" -eq 125 ]]; then
     detail="no verdict written — the worker died before scoring this suite (infra, not a result)"
+  elif [[ "$rc" -gt 128 && "$rc" -lt 165 ]]; then
+    # Killed by a signal, so it never reached a verdict — infra, like 124 and 125, and named
+    # rather than described (#664). Without this arm the loose sweep below quotes whatever the
+    # suite had printed before it died, which for a suite killed mid-run is its last PASSING
+    # line: `rc=143 — PASS: milestone-1 fails when the lean spec is absent` was a real red from
+    # this guard, and it points a reader at an assertion that had just succeeded. The usual
+    # source is an outer reaper — a harness turn boundary, a CI job cancellation — taking the
+    # whole process group, which is a fact about the run, not about the suite.
+    detail="killed by signal $((rc - 128)) before reaching a verdict — no assertion failed (infra, not a result). Re-run it alone before reading this as a regression."
   else
-    detail="rc=$rc — $(grep -iE 'FAIL|error|No such|not found' "$RESULTS/$idx.log" 2>/dev/null | head -1 | sed 's/^[[:space:]]*//')"
+    # A suite's OWN failure line first, and only then the loose substring sweep (#664).
+    # The loose sweep alone picked the first line merely CONTAINING "fail" anywhere, which
+    # for pipeline-doctor-selftest.sh is a PASSING line — `ok: (d3) completed + failed at
+    # 24h` — 37 lines above the real `FAIL:` one. Seven nightly reds named a green case,
+    # and every reader who trusted the summary went to the wrong assertion. A marker at
+    # the START of the line is the suites' own convention (`FAIL:`, `FATAL:`, `RED:`), so
+    # it cannot collide with case prose the way a bare substring does. The loose sweep is
+    # kept as the fallback: a suite that dies on `No such file` prints no marker at all,
+    # and a red with a vague detail still beats a red with none.
+    detail="$(grep -m1 -E '^[[:space:]]*(FAIL|FATAL|RED|ERROR)[:[:space:]]' "$RESULTS/$idx.log" 2>/dev/null | sed 's/^[[:space:]]*//')"
+    [[ -n "$detail" ]] || detail="$(grep -m1 -iE 'FAIL|error|No such|not found' "$RESULTS/$idx.log" 2>/dev/null | sed 's/^[[:space:]]*//')"
+    detail="rc=$rc — $detail"
   fi
+  # <<< red-detail
 
   red "$repo_rel — $detail"
 done < "$BASE/worklist"
