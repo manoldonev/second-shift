@@ -24,10 +24,9 @@
 # were measurement registers — a row recording a number the tree can compute — and both are
 # deleted, per docs/pipeline-manifesto.md's P4/P5 posture: a register's rows must be
 # judgments, not measurements.
-#   - The SHELL half is subsumed by `scripts/check-guard-budget.sh`, which derives guard/test
-#     shell mass at the base ref and at HEAD on every PR — a stronger, ratchet-free version of
-#     what the comment-density baseline was approximating. This tool no longer measures shell
-#     files at all.
+#   - The SHELL half's #641 successor script was itself deleted outright by #719 — a
+#     symptom-level ratchet, not a control, per docs/pipeline-manifesto.md's P4/P5 posture.
+#     This tool no longer measures shell files at all, and nothing replaces the check.
 #   - The MARKDOWN half keeps exactly one judgment, unchanged: the narrative `#NNN` flag.
 #     Whether an incident reference belongs in loaded context is a human call, not a
 #     measurement, so it stays — reported live from the file's own content, no baseline

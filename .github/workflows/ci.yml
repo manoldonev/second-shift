@@ -293,14 +293,6 @@ jobs:
           BASE_REF: ${{ github.base_ref }}
         run: bash scripts/check-changelog-trailer.sh "origin/$BASE_REF"
 
-      # #641: guard/test shell mass must not grow without a stated reason. Derived comparison —
-      # base vs HEAD, computed fresh — never a stored ceiling. Same env-not-interpolation
-      # discipline as BASE_REF above.
-      - name: "guard budget guard (guard/test shell mass does not grow without a Guard-mass: trailer)"
-        env:
-          BASE_REF: ${{ github.base_ref }}
-        run: bash scripts/check-guard-budget.sh "origin/$BASE_REF"
-
       # T2 rung 1: a pipeline-authored PR must carry a complete, single-family, key-consistent
       # stage trail as of PR open. Same env-not-interpolation discipline as BASE_REF above,
       # and it matters more here: a PR body is far more attacker-controllable than a ref name.

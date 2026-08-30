@@ -490,12 +490,12 @@ else
 fi
 # <<< otel-telemetry-classify <<<
 
-# --- 7. Instruction-prose narrative check (L2 debloat, #188; reshaped by #641) --
+# --- 7. Instruction-prose narrative check (L2 debloat, #188; reshaped by #641, #719) --
 # Quality signal, not an environment blocker: surface narrative #NNN archaeology as WARN —
-# it never fails pre-flight. #641 deleted the word-count-vs-baseline ratchet (both the
-# markdown and shell halves) — the shell half is now scripts/check-guard-budget.sh's job, and
-# the markdown half is a derived total with nothing committed behind it — so the only FAIL
-# this tool can still report is vacuous coverage.
+# it never fails pre-flight. #641 deleted the word-count-vs-baseline ratchet on both the
+# markdown and shell halves, and #719 deleted the shell-mass guard that had taken over the
+# shell half with no replacement — the markdown half is a derived total with nothing
+# committed behind it — so the only FAIL this tool can still report is vacuous coverage.
 if pb=$(bash "$SCRIPT_DIR/prose-budget.sh" 2>&1); then
   # An n/a result is a legitimate pass, but it must not READ like a measured one —
   # "0 fail(s)" against nothing inspected is the ambiguity this check now closes.
