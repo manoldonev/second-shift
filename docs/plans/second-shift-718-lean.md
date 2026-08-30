@@ -135,7 +135,7 @@ departures from the ticket body's letter.
 
 | id | Decision | Resolution | Provenance |
 | --- | --- | --- | --- |
-| D-1 | What replaces the continuation loop | One BUILD spawn per round; no PR ⇒ `build-no-pr`, PR + rc 8 ⇒ `build-inflight`, both terminal | user-answered (issue body, ratified 2026-08-30) |
-| D-2 | Whether a Stop hook backstops the stranded-work exit | No. Rescued by hand with the recipe in `build-lean/SKILL.md`; a Stop hook needs a measured rate first | user-answered (operator objection, 2026-08-30) |
+| D-1 | What replaces the continuation loop | One BUILD spawn per round; no PR ⇒ `build-no-pr`, PR + rc 8 ⇒ `build-inflight`, both terminal | user-answered |
+| D-2 | Whether a Stop hook backstops the stranded-work exit | No. Rescued by hand with the recipe in `build-lean/SKILL.md`; a Stop hook needs a measured rate first | user-answered |
 | D-3 | Whether `--satisfied` survives | Yes — `OL`'s `rc=3` close-out arm reads it; only its prefix and function name change (D-A) | codebase-derived |
 | D-4 | Where the deleted `(t3)` boundary goes | Folded into `(h4)`'s rc-8 arm (D-D) | codebase-derived |
