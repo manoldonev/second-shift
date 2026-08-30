@@ -23,7 +23,7 @@
 #
 # suite<TAB>seconds<TAB>measured_at
 tools/install-topology-selftest.sh	584	2026-08-20
-plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	141	2026-08-20
+plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	212	2026-08-30
 tools/mutation-sweep-selftest.sh	135	2026-08-20
 plugins/dev-pipeline/skills/build-lean/scenario-liveness-selftest.sh	68	2026-08-20
 scripts/check-lean-chain-selftest.sh	67	2026-08-21

@@ -2793,17 +2793,32 @@ cmd_mark() {
     return 0
   fi
 
-  if [ -n "$PR_FILE" ]; then
-    [ -f "$PR_FILE" ] || envfail "--pr-file '$PR_FILE' does not exist."
-    pr="$(cat "$PR_FILE")"
-  else
-    pr="$("$GH_CLI" pr list --head "$LEAN_BRANCH" --state open \
-          --json number,url --limit 1 2>&1)" \
-      || { warn "✗ mark: could not list PRs for $LEAN_BRANCH: $pr"; return 1; }
-  fi
-  printf '%s' "$pr" | jq -e 'type == "array" and length > 0' >/dev/null 2>&1 \
-    || { warn "✗ mark: no open PR found for branch $LEAN_BRANCH — open it first (checklist step 7)."; return 1; }
+  # #670: RESOLVED THE SAME WAY MILESTONE 5 RESOLVES, which before this was a `--state open`
+  # list of its own. #642 widened milestone 5 to accept a merged PR so close-out would stay
+  # reachable after a merge, but left this call site behind — and cmd_5 calls mark
+  # UNCONDITIONALLY, so the widening bought nothing on the live path: `gh pr list --state open`
+  # answered `[]`, mark returned 1, and milestone 5 blocked on "could not stamp the build
+  # identity". One resolver now serves both, so the two cannot drift apart again.
+  #
+  # The `--pr-file` seam is preserved because resolve_open_pr honors it too — which is also why
+  # the pre-#670 selftest could not see this: its fixture never reached the `pr list` call.
+  # The hint is PARENTHETICAL, not an imperative: resolve_open_pr's error is "no open or merged PR
+  # found" on one path and "could not list PRs" — a transient gh failure — on the other, and
+  # "open it first" would be wrong advice for the second.
+  resolve_open_pr || { warn "✗ mark: $LEAN_PR_ERROR (the lane's PR is opened at checklist step 7)."; return 1; }
+  pr="$LEAN_PR_JSON"
   prnum="$(printf '%s' "$pr" | jq -r '.[0].number')"
+
+  # A MERGED PR TAKES NO NEW MARKER. The marker exists for ONE reader: the merge boundary
+  # (scripts/check-lean-chain.sh), which runs on a `pull_request` event — checklist step 7 says
+  # so in as many words, that a marker posted after the review's push is invisible to the CI run
+  # that gates the merge. Past the merge that reader has already run, so posting here would be a
+  # write with no consumer, on a PR nobody will re-review. Resolving it is still worth doing: the
+  # ordinary path posted the marker at step 7 and milestone 5 only needs to not FAIL on it.
+  if [ "$(printf '%s' "$pr" | jq -r '.[0].state // "OPEN"')" = "MERGED" ]; then
+    say "· mark: PR #$prnum is already MERGED — the identity marker's only reader is the pull_request-event merge boundary, which has already run, so nothing is posted."
+    return 0
+  fi
 
   if [ -n "$COMMENTS_FILE" ]; then
     [ -f "$COMMENTS_FILE" ] || envfail "--comments-file '$COMMENTS_FILE' does not exist."
@@ -2883,31 +2898,133 @@ cmd_mark() {
 # NETWORK, and deliberately NOT part of cmd_all's cheap pre-pass — the issue and its comment trail
 # are read live unless the fixture seams below are set. cmd_1 skips this under LEAN_GATE_OBSERVE=1.
 open_regions_section() { # stdin: the issue body — prints the section's lines, nothing else
+  # #700, two fixes, both about seeing the section AT ALL rather than parsing its rows.
+  #
+  # The heading match is deliberately NOT anchored at end-of-line. `## Open regions (BUILD flags,
+  # does not pause)` — #636 and #622 both carry it — was not recognized as the section, which is
+  # the worst of the three shapes this check got wrong: nothing is misparsed, so no refusal can
+  # fire and the gate clears in silence. The cost is that `## Open regions in other tickets` now
+  # reads as the section too; a false refusal an operator can clear beats a false clear.
+  #
+  # Termination is by heading DEPTH, not by "any heading". A heading-per-region section
+  #
+  #   ## Open regions
+  #   ### OR-1 — Ordering
+  #
+  # ended on its own first region, leaving ZERO non-blank content lines — so it read as an EMPTY
+  # section rather than an unparseable one, and cleared. Deeper headings now stay inside, which is
+  # what makes the content visible to open_regions_defects below.
   awk '
-    tolower($0) ~ /^#+[[:space:]]+open regions[[:space:]]*$/ { insec = 1; next }
-    insec && /^#+[[:space:]]/                                 { insec = 0 }
-    insec                                                     { print }
+    tolower($0) ~ /^#+[[:space:]]+open regions([[:space:]].*)?$/ {
+      insec = 1; match($0, /^#+/); depth = RLENGTH; next
+    }
+    insec && /^#+[[:space:]]/ { match($0, /^#+/); if (RLENGTH <= depth) insec = 0 }
+    insec                     { print }
   '
 }
 
-# Table rows `| <id> | ... | pause-and-ask |` inside the section. The header/separator rows never
-# match — neither carries the literal disposition token in its last cell.
+# Every region the section declares, one `<id><TAB><disposition>` line each, across BOTH shapes
+# the corpus actually uses. An EMPTY disposition means no token was recognizable — a distinct
+# fact from "not pause-and-ask", and one open_regions_defects refuses on rather than swallows.
 #
-# The disposition is the LAST NON-EMPTY cell, not $(NF-1): GFM does not require the trailing pipe,
-# so `| OR-1 | R | pause-and-ask` puts it at $NF, and under $(NF-1) that row scans the Region text,
-# matches nothing, and the gate fails OPEN on a table a renderer accepts.
-pause_and_ask_ids() { # stdin: the issue body
-  open_regions_section | awk -F'|' '
-    /pause-and-ask/ {
-      id = $2; gsub(/^[[:space:]]+|[[:space:]]+$/, "", id)
-      disp = ""
-      for (i = NF; i >= 1; i--) {
-        cell = $i; gsub(/^[[:space:]]+|[[:space:]]+$/, "", cell)
-        if (cell != "") { disp = cell; break }
-      }
-      if (disp == "pause-and-ask" && id != "" && id != "ID") print id
+# TABLE ARM — semantics unchanged (#374). The disposition is the LAST NON-EMPTY cell, not
+# $(NF-1): GFM does not require the trailing pipe, so `| OR-1 | R | pause-and-ask` puts it at
+# $NF, and under $(NF-1) that row scans the Region text, matches nothing, and the gate fails OPEN
+# on a table a renderer accepts. Matching the id against `OR-n` is what drops the header and
+# separator rows — the old `id != "ID"` test, now positive rather than negative.
+#
+# BULLET ARM — new, and the shape that 7 of the 11 issue bodies declaring regions with ids
+# actually use; no issue body has used the table form since #381. A bullet is its first line plus
+# the following MORE-INDENTED lines, because #640 (OR-1, OR-2), #639 (OR-1) and #637 (OR-1) all
+# put the disposition token on a CONTINUATION line — a first-line-only read finds the id and
+# misses the token, and on #639 that token is a live `pause-and-ask`. A blank line does NOT end a
+# bullet: a loose list puts its continuations after one.
+#
+# The bullet arm matches the token as a SUBSTRING where the table arm compares a whole cell, so a
+# bullet naming both resolves to `pause-and-ask` — tested first, deliberately, because a false
+# refusal an operator can clear beats a false clear nobody sees.
+open_region_rows() { # stdin: the issue body
+  open_regions_section | awk '
+    function trim(s) { gsub(/^[[:space:]]+|[[:space:]]+$/, "", s); return s }
+    function disp_of(text) {
+      if (text ~ /pause-and-ask/)               return "pause-and-ask"
+      if (text ~ /reversible-default-and-flag/) return "reversible-default-and-flag"
+      return ""
     }
+    function flush(   id) {
+      if (!inbullet) return
+      inbullet = 0
+      if (match(buf, /OR-[0-9]+/)) {
+        id = substr(buf, RSTART, RLENGTH)
+        print id "\t" disp_of(buf)
+      }
+      buf = ""
+    }
+    /^[[:space:]]*\|/ {
+      flush()
+      n = split($0, C, "|")
+      id = trim(C[2])
+      disp = ""
+      for (i = n; i >= 1; i--) { cell = trim(C[i]); if (cell != "") { disp = cell; break } }
+      if (id ~ /^OR-[0-9]+$/) {
+        if (disp != "pause-and-ask" && disp != "reversible-default-and-flag") disp = ""
+        print id "\t" disp
+      }
+      next
+    }
+    /^[[:space:]]*[-*][[:space:]]/ {
+      flush()
+      buf = $0; inbullet = 1; indent = match($0, /[^[:space:]]/) - 1
+      next
+    }
+    inbullet {
+      if ($0 ~ /^[[:space:]]*$/) next
+      if (match($0, /[^[:space:]]/) - 1 > indent) { buf = buf " " $0; next }
+      flush()
+    }
+    END { flush() }
   '
+}
+
+# The pause-and-ask ids. Unchanged as a CONTRACT — callers still get one id per line, and the
+# header/separator rows still never appear. What changed is that it reads both shapes now.
+pause_and_ask_ids() { # stdin: the issue body
+  open_region_rows | awk -F'\t' '$2 == "pause-and-ask" { print $1 }'
+}
+
+# What a declared source ASSERTS but this parser could not enumerate (#700). One finding per line;
+# nothing at all when the section is absent, blank, the explicit empty form, or fully readable:
+#
+#   unenumerable    the section carries content and no shape matched a single region
+#   nodisp <id>     a region was parsed whose disposition token is unrecognizable
+#
+# This is the fail-closed half, and it is why widening the shapes was not on its own the fix: a
+# parser covering two of three forms reads as complete at review and still clears on the fourth.
+# The same reasoning the `--issue-file` arm below already carries, applied one level in — existing
+# but unparseable is not "declares no region", it is "could not read".
+#
+# Deliberately NOT keyed on "zero pause-and-ask ids": a table declaring only
+# `reversible-default-and-flag` rows, and the explicit empty form, each legitimately yield zero
+# ids, and the first is pinned CLEAR by this suite's (y3) case.
+#
+# The empty form is matched by PREFIX rather than against ledger-lint.sh's OPEN_EMPTY_FORM.
+# Receipt WORDING is ledger-lint's to validate and region ENUMERATION is this gate's — the split
+# `--reconcile` already states — and the issue-body source has no lint at all to teach an operator
+# the canonical sentence, so exact-matching it would refuse a reasonable hand-written
+# "No open regions."
+open_regions_defects() { # open_regions_defects <source-text>
+  local sec rows
+  sec="$(printf '%s\n' "$1" | open_regions_section)"
+  # HERESTRINGS, not `printf | grep -q`. This file runs under `set -o pipefail`, and `grep -q`
+  # exits the moment it matches — so on a section large enough to fill the pipe buffer the writer
+  # takes SIGPIPE and the pipeline reports 141 ON A MATCH. Under `|| return 0` that reads as "the
+  # section has no content" and this function reports no defects: the exact fail-open it exists to
+  # close, reachable only on bodies bigger than the fixtures. Measured at ~20k lines.
+  grep -q '[^[:space:]]' <<< "$sec" || return 0
+  grep -qiE '^[[:space:]]*No open regions' <<< "$sec" && return 0
+  rows="$(printf '%s\n' "$1" | open_region_rows)"
+  [ -n "$rows" ] || { echo "unenumerable"; return 0; }
+  printf '%s\n' "$rows" | awk -F'\t' '$2 == "" { print "nodisp " $1 }'
 }
 
 # A pause-and-ask region's resolution artifact. THREE of them now:
@@ -3027,6 +3144,41 @@ check_pause_and_ask() { # prints a reason on stdout; the vocabulary above says w
     body_ids="$(printf '%s' "$body" | pause_and_ask_ids)"
   fi
 
+
+  # ---- #700: what the sources DECLARE but this parser could not enumerate. Checked before the
+  # region walk, and reported as rc=2 rather than as a milestone failure: a section asserting
+  # regions the gate cannot read is the same "could not read" the two gh arms above report, and
+  # no edit the build role can make fixes it — neither the issue body nor the gitignored receipt
+  # is this session's to edit, which is exactly this file's stated rule for rc=2.
+  #
+  # EVERY source and EVERY region in one message, not the first — the same ergonomic the refusal
+  # further down owes and states: an operator clearing two problems must not pay two runs to
+  # discover the second.
+  local defects="" d
+  if [ -f "$ledger_path" ]; then
+    while IFS= read -r d; do
+      case "$d" in
+        unenumerable) defects="${defects:+$defects; }the pre-flight ledger $ledger_path declares an \"## Open regions\" section in no recognized shape" ;;
+        nodisp\ *)    defects="${defects:+$defects; }the pre-flight ledger $ledger_path declares region ${d#nodisp } with no recognizable disposition" ;;
+      esac
+    done <<EOF
+$(open_regions_defects "$ledger_content")
+EOF
+  fi
+  if [ "$TRACKER_TYPE" != "jira" ]; then
+    while IFS= read -r d; do
+      case "$d" in
+        unenumerable) defects="${defects:+$defects; }issue #$ISSUE's body declares an \"## Open regions\" section in no recognized shape" ;;
+        nodisp\ *)    defects="${defects:+$defects; }issue #$ISSUE's body declares region ${d#nodisp } with no recognizable disposition" ;;
+      esac
+    done <<EOF
+$(open_regions_defects "$body")
+EOF
+  fi
+  if [ -n "$defects" ]; then
+    echo "could not enumerate the open regions declared for #$ISSUE: $defects. A source that declares regions this gate cannot read is not the same fact as one declaring none, and is not treated as one. Accepted shapes: a table row \"| OR-n | region | disposition |\", or a bullet naming an OR-n whose disposition token appears in that bullet (continuation lines count); or the explicit empty form, a line beginning \"No open regions\". The contract is in intake-toolkit's interviewing-baseline skill under \"Open Regions\". Fix the section, then re-run."
+    return 2
+  fi
   ids="$(printf '%s\n%s\n' "$ledger_ids" "$body_ids" | awk 'NF' | sort -u)"
   [ -n "$ids" ] || return 0
 
