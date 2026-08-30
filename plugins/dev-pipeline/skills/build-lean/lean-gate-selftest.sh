@@ -2561,6 +2561,24 @@ if [ "$rc" -eq 1 ] && grep -q 'region OR-1 dispositioned pause-and-ask with no r
   pass "(y32) AC-4/AC-12: the table path still refuses with its original sentence, untouched by the new arm"
 else fail "(y32) expected the original unresolved-region sentence and no enumeration refusal, got $rc: $out"; fi
 
+# (y33) AC-5: the SIZE case, and the reason it is here. open_regions_defects reads its section
+# with herestrings, not `printf | grep -q`: this file runs under `set -o pipefail`, `grep -q`
+# exits on its first match, and on a section large enough to fill the pipe buffer the writer takes
+# SIGPIPE — so the pipeline reports 141 ON A MATCH and the content test reads as "no content".
+# Every other case in this block is a handful of lines and passes either way; this one is the
+# only thing standing between that idiom and a fail-open reachable on real issue bodies.
+reset_progress
+{ printf '# issue\n\n## Open regions\n\n'
+  awk 'BEGIN { for (i = 0; i < 3000; i++) print "- a prose bullet, number " i ", carrying no OR-n id at all and padded well past one pipe buffer" }'
+} > "$WORK/or-big.txt"
+jq -Rs '{body: .}' < "$WORK/or-big.txt" > "$WORK/issue-or-big.json"
+out="$(gate 1 7 --issue-file "$WORK/issue-or-big.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+if [ "$rc" -eq 2 ] && grep -q 'no recognized shape' <<<"$out"; then
+  pass "(y33) AC-5: a LARGE unenumerable section still refuses — the content test does not lose its match to SIGPIPE"
+else fail "(y33) expected rc=2 on a >1-pipe-buffer unenumerable section, got $rc: $out"; fi
+
+reset_progress
+
 reset_progress
 
 # ---- (yo) #613 AC-4: the operator-override route through the same refusal --------------------

@@ -81,9 +81,15 @@ about the receipt's `OR-n` regions, which the lean gate's own `check_pause_and_a
 
 - **AC-13** New scenario cases in `lean-gate-selftest.sh` cover AC-1 through AC-10, driven through
   the `--issue-file` / `--ledger-file` seams rather than the network.
-- **AC-14** `tools/mutation-catalog.tsv` rows anchored on the edited guard code are re-anchored, and
-  the liveness scenario in `scenario-liveness-selftest.sh` is extended to cover the new gate
-  contract, per CLAUDE.md's two obligations on ordinary PRs.
+- **AC-14** CLAUDE.md's two obligations on ordinary PRs are discharged, and shown to be:
+  every existing `tools/mutation-catalog.tsv` row addressing `lean-gate.sh` is verified to still
+  bite after the edit (none was anchored on this code, so none needed re-anchoring), and
+  `scenario-liveness-selftest.sh` gains a leg for the new verdict path.
+- **AC-15** The new guard code is itself armed: `tools/mutation-catalog.tsv` gains rows naming the
+  regression classes this change introduces the risk of, and each is **probed** — applied, and the
+  paired suite run — rather than credited by construction. `lean-gate-selftest.sh` is 141s against
+  the sweep's 5s slow threshold, so the `mutation-sweep-pr` job defers these rows to nightly and a
+  row credited without a probe would be graded by nothing at PR time.
 
 ## Scope boundary
 

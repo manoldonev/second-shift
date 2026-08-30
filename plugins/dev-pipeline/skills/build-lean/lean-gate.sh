@@ -2998,8 +2998,13 @@ pause_and_ask_ids() { # stdin: the issue body
 open_regions_defects() { # open_regions_defects <source-text>
   local sec rows
   sec="$(printf '%s\n' "$1" | open_regions_section)"
-  printf '%s\n' "$sec" | grep -q '[^[:space:]]' || return 0
-  printf '%s\n' "$sec" | grep -qiE '^[[:space:]]*No open regions' && return 0
+  # HERESTRINGS, not `printf | grep -q`. This file runs under `set -o pipefail`, and `grep -q`
+  # exits the moment it matches — so on a section large enough to fill the pipe buffer the writer
+  # takes SIGPIPE and the pipeline reports 141 ON A MATCH. Under `|| return 0` that reads as "the
+  # section has no content" and this function reports no defects: the exact fail-open it exists to
+  # close, reachable only on bodies bigger than the fixtures. Measured at ~20k lines.
+  grep -q '[^[:space:]]' <<< "$sec" || return 0
+  grep -qiE '^[[:space:]]*No open regions' <<< "$sec" && return 0
   rows="$(printf '%s\n' "$1" | open_region_rows)"
   [ -n "$rows" ] || { echo "unenumerable"; return 0; }
   printf '%s\n' "$rows" | awk -F'\t' '$2 == "" { print "nodisp " $1 }'
