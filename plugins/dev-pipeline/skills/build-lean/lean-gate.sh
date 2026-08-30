@@ -115,7 +115,7 @@
 #                                        inherit. Reads only; writes nothing.
 #   lean-gate.sh verdict <issue> --pr <n> --verdict <approve|needs-work> [--rounds <n>]
 #                                        [--fidelity <pass|fail|not-applicable>]
-#                                        [--summary-file <path>]
+#                                        [--panel <a,b,c>] [--summary-file <path>]
 #                                        REVIEW role: write the committed verdict record.
 #                                        --fidelity defaults to not-applicable, which is the
 #                                        fail-closed side on an armed run (milestone 4 wants
@@ -283,6 +283,7 @@ VERDICT_VALUE=""
 VERDICT_PR=""
 VERDICT_ROUNDS=""
 VERDICT_FIDELITY=""
+VERDICT_PANEL=""
 SUMMARY_FILE=""
 PROGRESS_SATISFIED=""
 PROGRESS_INFRA=0
@@ -363,6 +364,7 @@ while [ $# -gt 0 ]; do
     --verdict)       VERDICT_VALUE="${2:-}"; shift 2 ;;
     --rounds)        VERDICT_ROUNDS="${2:-}"; shift 2 ;;
     --fidelity)      VERDICT_FIDELITY="${2:-}"; shift 2 ;;
+    --panel)         VERDICT_PANEL="${2:-}"; shift 2 ;;
     --summary-file)  SUMMARY_FILE="${2:-}"; shift 2 ;;
     --satisfied)     PROGRESS_SATISFIED="${2:-}"; shift 2 ;;
     --infra)         PROGRESS_INFRA=1; shift ;;
@@ -3107,6 +3109,101 @@ design_armed() { # design_armed   (spec on stdin)
 }
 # LOCKSTEP-END lean-design-armed
 
+# LOCKSTEP-BEGIN lean-design-provider-family
+# The provider FAMILY an armed spec hands off to, the fidelity reviewer that family makes
+# mandatory, and the token test that reads a `panel:` header (#708, D-12/D-13).
+#
+# TWO READERS, for the reason `design_armed` above has two: lean-gate.sh refuses a bad
+# `--panel` at the verdict WRITER, and scripts/check-lean-chain.sh refuses a bad `panel:` at
+# the merge BOUNDARY. The boundary cannot read config — `design.provider` is gitignored on
+# every consumer and never reaches a CI checkout — so the family must come from the committed
+# spec, and a derivation that differed between the two sides would let a record the writer
+# accepted red the PR, or wave through one it would have refused. Neither divergence is
+# visible from either side alone, which is the whole reason this is a marker block.
+#
+# FIRST RECOGNISED HOST WINS, and every other URL in the section is ignored. A `## Design`
+# section carries prose links — a ticket, a doc, a screenshot host — beside the handoff, so a
+# rule keyed on POSITION would classify by whichever one an author happened to paste first.
+# A section whose links name no provider host prints nothing; both callers turn that into a
+# refusal, never into "no reviewer is mandatory". That is the fail-closed direction: an
+# unclassifiable handoff leaves the mandatory reviewer unnameable, and a check that cannot
+# name what it requires must not report a pass.
+#
+# Host granularity is the registrable domain, plus a path prefix for claude.ai alone:
+# `figma.com` and any subdomain of it are the figma surface, while `claude.ai` at large is
+# the product and only `/design` under it is a handoff.
+design_family() { # design_family   (spec on stdin)
+  awk '
+    tolower($0) ~ /^#+[[:space:]]+design[[:space:]]*$/ { insec = 1; next }
+    insec && /^#+[[:space:]]/ { insec = 0 }
+    insec {
+      s = $0
+      while (match(s, /https?:\/\/[^[:space:]<>")]+/)) {
+        u = substr(s, RSTART, RLENGTH)
+        s = substr(s, RSTART + RLENGTH)
+        sub(/^https?:\/\//, "", u)
+        p = index(u, "/")
+        if (p == 0) { host = u; path = "/" } else { host = substr(u, 1, p - 1); path = substr(u, p) }
+        sub(/[?#].*$/, "", host)
+        sub(/[?#].*$/, "", path)
+        sub(/^[^@]*@/, "", host)
+        sub(/:[0-9]+$/, "", host)
+        host = tolower(host)
+        if (host == "figma.com" || host ~ /\.figma\.com$/) { print "figma"; exit }
+        if (host == "claude.ai" && (path == "/design" || index(path, "/design/") == 1)) { print "claude-design"; exit }
+      }
+    }
+  '
+}
+
+# The reviewer a family makes mandatory. QUALIFIED, because that is how review-lead's own
+# plugin-shipped panel names it and how code-review.mjs hands it back; a bare name would match
+# nothing a review round actually reports. Returns non-zero on an unrecognised family so a
+# caller cannot mistake an empty answer for a satisfied requirement.
+design_family_reviewer() { # design_family_reviewer <family>
+  case "${1:-}" in
+    figma)         printf 'design-toolkit:figma-faithful-reviewer' ;;
+    claude-design) printf 'design-toolkit:design-faithful-reviewer' ;;
+    *)             return 1 ;;
+  esac
+}
+
+# The `panel:` value, read WHOLE and header-anchored. `header_key` cannot serve here: its charset
+# stops at the first character outside [A-Za-z0-9._-], so a qualified comma-separated list
+# truncates to its leading `<plugin>` token — precisely the widening the capability stamp's own
+# comment warned a future list-valued reader it would need. Widening the shared reader instead
+# would change how EVERY key in the schema is read, across its three lockstep members and the
+# chain walk, to serve one key. This reads the one key that needs it, anchored to the same header
+# block for the same reason: `panel` is a word review prose uses, so a first-match-anywhere read
+# would take its value from the reviewer's own findings.
+panel_key() { # panel_key   (record on stdin)
+  awk '
+    /^[A-Za-z_][A-Za-z0-9_]*[:=]/ { hdr = 1 }
+    hdr && /^[[:space:]]*$/       { exit }
+    hdr && /^panel:/ {
+      sub(/^panel:[[:space:]]*/, "")
+      sub(/[[:space:]]+$/, "")
+      printf "%s", $0
+      exit
+    }
+  '
+}
+
+# Exact comma-separated TOKEN match, never a substring. No shipped name is a substring of
+# another today, and that is precisely the property a substring test would stop checking: one
+# reviewer named as a suffix of a second would silently credit the wrong dispatch, and the
+# header this reads is written by the reviewed party. Whitespace around the separators is
+# stripped because the value is hand-typeable on the writer's flag.
+panel_has() { # panel_has <panel-value> <reviewer>
+  local hay
+  hay=",$(printf '%s' "${1:-}" | tr -d '[:space:]'),"
+  case "$hay" in
+    *",${2},"*) return 0 ;;
+  esac
+  return 1
+}
+# LOCKSTEP-END lean-design-provider-family
+
 # The section's body lines, for the gate-side form checks the boundary does not make.
 design_section() { # design_section   (spec on stdin)
   awk '
@@ -3265,7 +3362,7 @@ fidelity_evidence_violations() { # fidelity_evidence_violations <declared-ids> <
 # is documentation and arms nothing. That is D-8's AND half — under OR, every consumer that ever
 # wrote the heading would be required to own a render harness.
 design_state() { # design_state <spec-path>
-  local spec="$1" sec n_disarm n_reason n_link
+  local spec="$1" sec n_disarm n_reason n_link n_fam
   [ -n "$DESIGN_PROVIDER" ] || { printf 'unarmed'; return 0; }
   [ -f "$spec" ] || { printf 'unarmed'; return 0; }
   sec="$(design_section < "$spec" 2>/dev/null)"
@@ -3294,6 +3391,24 @@ design_state() { # design_state <spec-path>
   n_link="$(printf '%s\n' "$sec" | grep -ciE 'https?://[^[:space:]]+')" || n_link=0
   [ "${n_link:-0}" -ge 1 ] \
     || { printf 'error:the "## Design" section of %s declares render states but no provider handoff link. The review session scores fidelity against the design frame; without the link there is nothing to score against.' "$SPEC_REL"; return 0; }
+
+  # #708 D-13/D-14. The handoff HOST decides which fidelity reviewer an armed round must
+  # dispatch, and scripts/check-lean-chain.sh derives it from this same section because it can
+  # see nothing else. Two refusals, both AUTHORING errors a session fixes in the spec:
+  #
+  #   (a) no recognised provider host. Left to stand, the boundary reds the PR at arm 8 with
+  #       the mandatory reviewer unnameable. Saying so at milestone 1 costs a spec edit
+  #       instead of a review round.
+  #   (b) the host and config design.provider name different families. This gate is the ONLY
+  #       reader that sees both, so it is the only place the disagreement can be reported at
+  #       all. The host wins by construction — it is what CI reads — which makes a mismatch a
+  #       run that renders one provider's states while the boundary demands the other
+  #       provider's reviewer: green on each side of the seam, and wrong.
+  n_fam="$(design_family < "$spec" 2>/dev/null)"
+  [ -n "$n_fam" ] \
+    || { printf 'error:the "## Design" section of %s carries a handoff link, but none this lane recognises as a provider surface. The first recognised link must name figma.com (or a subdomain of it) or claude.ai under /design: the fidelity reviewer an armed round MUST dispatch is derived from that host, by this gate and by the merge boundary alike, and a host neither can classify leaves the mandatory reviewer unnameable.' "$SPEC_REL"; return 0; }
+  [ "$n_fam" = "$DESIGN_PROVIDER" ] \
+    || { printf 'error:the "## Design" section of %s hands off to a %s surface, but config design.provider is "%s". On an armed ticket the HOST decides which fidelity reviewer is mandatory — the merge boundary reads the committed spec and never the config — so this run would render one provider\047s states while the boundary demanded the other provider\047s reviewer. Point the handoff link at the configured provider, or change design.provider.' "$SPEC_REL" "$n_fam" "$DESIGN_PROVIDER"; return 0; }
 
   printf 'armed'
 }
@@ -3684,7 +3799,13 @@ lean_resolve_prettier() {
 # Every header key cmd_verdict emits in `key: value` form. The list exists so the format step
 # below can prove it damaged none of them; it is the writer's own emission set, so a key added
 # to the record must be added here too or the guard silently stops covering it.
-LEAN_VERDICT_HEADER_KEYS="run_id session_id rounds pr reviewed_head reviewed_patch_id inherited_patch_id inherited_from_verdict fidelity model"
+LEAN_VERDICT_HEADER_KEYS="run_id session_id rounds pr reviewed_head reviewed_patch_id inherited_patch_id inherited_from_verdict fidelity panel model"
+# Two of those keys carry values `header_key`'s charset TRUNCATES — `inherited_from_verdict` to
+# its leading path segment, `panel` to its leading plugin token — and they belong here anyway.
+# What this loop proves is that formatting did not DAMAGE a key, and the damage a formatter does
+# is to the line anchoring: a reflowed header makes every one of these read empty. The truncated
+# comparison detects that exactly as the untruncated one would. `panel_key` is the reader that
+# needs the whole value, and it is a separate function for that reason.
 
 # Format the verdict record, best-effort, and never at the cost of its header contract (#439,
 # D-4/D-6). Padding cannot help here the way it does for the manifest: the body is arbitrary
@@ -4471,10 +4592,29 @@ cmd_4() {
   # The manifest arm is D-10's SECOND detector, not its first: review-lean checks staleness
   # before it scores, so this is the backstop for a round that skipped that step or a fix that
   # landed between the scoring and the record.
-  local d_state v_fid m_from cur_render
+  local d_state v_fid v_panel p_rev m_from cur_render
   d_state="$(design_state "$REPO_ROOT/$SPEC_REL")"
   v_fid="$(header_key fidelity < "$rec")"
   if [ "$d_state" = "armed" ]; then
+    # WHO REVIEWED, before WHAT THEY SCORED (#708). The writer already refuses a record whose
+    # panel lacks the mandatory reviewer, so on a healthy lane this arm is silent — it exists
+    # for the record this writer did not produce: one committed before the key existed, one
+    # hand-edited, one written under a spec whose handoff host was repointed afterwards. The
+    # merge boundary makes the identical check on the identical derivation (lockstep
+    # `lean-design-provider-family`), so a lane that passed here cannot red there for this.
+    #
+    # ORDER is deliberate. `fidelity: pass` from a round that never dispatched the fidelity
+    # reviewer is a claim about a dimension nobody covered, and reporting the missing coverage
+    # first names the cause rather than the symptom.
+    v_panel="$(panel_key < "$rec")"
+    if ! p_rev="$(design_family_reviewer "$(design_family < "$REPO_ROOT/$SPEC_REL")")"; then
+      fail_milestone 4 "spec $SPEC_REL arms the design render lane, but its handoff link names no provider surface this lane recognises, so the fidelity reviewer the round had to dispatch cannot be named — and a check that cannot name what it requires must not pass. Fix the '## Design' handoff link and re-run milestone 1." 1
+      return $?
+    fi
+    if [ -z "$v_panel" ] || [ "$v_panel" = "none" ] || ! panel_has "$v_panel" "$p_rev"; then
+      fail_milestone 4 "spec $SPEC_REL arms the design render lane, but $VERDICT_REL reads panel=${v_panel:-<none>}, which does not name $p_rev. An armed round is certified only once the provider's fidelity reviewer actually returned a result; nothing here attests that it ran. Get a round that dispatched it: '/dev-pipeline:review-lean <pr>'." 5
+      return $?
+    fi
     if [ "$v_fid" != "pass" ]; then
       fail_milestone 4 "spec $SPEC_REL arms the design render lane, but $VERDICT_REL reads fidelity=${v_fid:-<none>}, not fidelity=pass — an armed ticket is not approved until a design-sighted round scores its declared render states. Get one: '/dev-pipeline:review-lean <pr>'." 5
       return $?
@@ -4553,7 +4693,7 @@ cmd_4() {
 # header records no session id is refused outright: "unverifiable" must never resolve to "fine".
 cmd_verdict() {
   local sess b_prog_sess b_prog_run b_cached rec body c reviewed_head reviewed_patch_id
-  local fid_spec fid_state fid_decl fid_refs fid_bad fid_line
+  local fid_spec fid_state fid_decl fid_refs fid_bad fid_line panel_reviewer
   local cand inherited_patch_id inherited_from chain
   sess="${CLAUDE_CODE_SESSION_ID:-}"
   [ -n "$sess" ] \
@@ -4705,6 +4845,35 @@ cmd_verdict() {
   # The pair of conditions is `pass` AND a configured provider. An unarmed `pass` is already
   # refused by milestone 4's own arm in clearer words, and re-refusing it here would break every
   # consumer with no design axis for no gain.
+  # THE PANEL ATTESTATION (#708, D-5/D-17). On an armed ticket the provider's fidelity reviewer
+  # is mandatory, and `panel:` is what makes its absence detectable at all: it names the
+  # reviewer agent types this round actually got a result back from. Refused HERE as well as at
+  # the merge boundary, for the reason the evidence table is — at the writer the fix is one flag
+  # away, at the boundary it costs the round.
+  #
+  # NOT gated on `--fidelity`. A `needs-work` record is evidence too, and the next round
+  # inherits its coverage by reference; a round that never dispatched the mandatory reviewer has
+  # no coverage of that dimension to hand on, whatever verdict it reached.
+  #
+  # `design_state`, not `design_armed`: an unarmed or malformed section must not demand a panel
+  # it has no family to name, and design_state's AND against config `design.provider` is what
+  # leaves every consumer with no design axis untouched by this arm.
+  if [ -n "$DESIGN_PROVIDER" ] && [ -f "$REPO_ROOT/$SPEC_REL" ] \
+     && [ "$(design_state "$REPO_ROOT/$SPEC_REL")" = "armed" ]; then
+    if ! panel_reviewer="$(design_family_reviewer "$(design_family < "$REPO_ROOT/$SPEC_REL")")"; then
+      warn "✗ verdict: $SPEC_REL arms the design lane, but its handoff link names no provider surface this lane recognises, so the reviewer this round was required to dispatch cannot be named. Fix the '## Design' handoff link in the build lane — milestone 1 refuses it there too."
+      return 1
+    fi
+    if [ -z "$VERDICT_PANEL" ]; then
+      warn "✗ verdict: --panel <a,b,c> is required on an armed ticket. It records the reviewer agent types review-lead RETURNED a result from — take the list from the round's structured result, qualified as review-lead's own panel names them — and $SPEC_REL makes $panel_reviewer mandatory. A reviewer that went dark is not in that list, and a round that lost the mandatory one is handed back under review-lean 5c rather than recorded."
+      return 1
+    fi
+    if ! panel_has "$VERDICT_PANEL" "$panel_reviewer"; then
+      warn "✗ verdict: --panel '$VERDICT_PANEL' does not name $panel_reviewer, which $SPEC_REL's handoff host makes mandatory for an armed round. Either routing never selected it — review-lead's always-spawn row on an armed spec — or it went dark, and a dark mandatory reviewer VOIDS the round (review-lean 5c): hand it back, write no record."
+      return 1
+    fi
+  fi
+
   if [ "$VERDICT_FIDELITY" = "pass" ] && [ -n "$DESIGN_PROVIDER" ]; then
     fid_spec="$REPO_ROOT/$SPEC_REL"
     # `design_state` reads an ABSENT spec as `unarmed` — the same answer it gives a consumer with
@@ -4789,6 +4958,13 @@ cmd_verdict() {
     # the value. Both readers additionally anchor it to the header (`header_key`), which is the
     # half of that fix covering records this writer did not produce.
     echo "fidelity: $VERDICT_FIDELITY"
+    # UNCONDITIONAL with an explicit `none`, for the reason `inherited_patch_id` is: a key the
+    # writer sometimes omits has no authentic occurrence to win the first-match race, so a
+    # reviewer's own prose supplies the value. `none` is not a reviewer name, so it can never
+    # satisfy the boundary's token test — an unarmed record says "no panel was recorded" in a
+    # form that reads as one, rather than by an absence a reader cannot distinguish from a
+    # writer that never knew the key.
+    echo "panel: ${VERDICT_PANEL:-none}"
     echo "model: ${LEAN_RUN_MODEL:-unknown}"
     # THE PRODUCER'S CAPABILITY STAMP (#445), with NO READER TODAY — and shipped anyway, on
     # purpose. A review-side arm bound to a capability will need to place the generation that
