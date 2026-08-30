@@ -206,3 +206,37 @@ Verified in both directions locally with a `cp` shim that reproduces GNU's refus
 | E | mutant applied, GNU-`cp` semantics | `(ws7)` fails **only** because of the new arm |
 | F | this branch, GNU-`cp` semantics | green |
 
+
+## AC-3: the sweep that closes it
+
+Three `workflow_dispatch` runs of `mutation-sweep.yml` on this branch, in order. Each is cited
+because each one is a different piece of evidence:
+
+| run | head | what it establishes |
+| --- | --- | --- |
+| [`33315253887`](https://github.com/manoldonev/second-shift/actions/runs/33315253887) | `3aa08a6` | **AC-1 works.** First run of the patched diagnostic; shard 6 named `(i-580a)` and `(i-580b)` with the path that matched, which is the entire diagnosis. Still red — the cases were not fixed yet. |
+| [`33318103376`](https://github.com/manoldonev/second-shift/actions/runs/33318103376) | `015e359` | **The pair runs again.** Shard 6 green on the unrunnable pair and `lean-gate.sh` swept for the first time since 2026-08-20 — `applied=36 killed=33 survived=3`, one of them the baseline-absent `lean-gate-settings-clobber-dangling` that became AC-6. Run red on that, plus an unrelated shard-2 `pool disagreement` (below). |
+| [`33319110925`](https://github.com/manoldonev/second-shift/actions/runs/33319110925) | `015e359` | **AC-3.** All ten shards and the merge job green. Shard 6: `swept plugins/dev-pipeline/skills/build-lean/lean-gate.sh — applied=36 killed=34 survived=2`, the two remaining survivors being the pair already carried in `tools/mutation-baseline.tsv`. |
+
+The only commit after `015e359` is this file — the citation cannot precede the run it cites.
+`git diff 015e359..HEAD` touches `docs/plans/` alone.
+
+**The shard-2 red in the middle run, and why it is not this branch's.** It was
+`pool disagreement: catalog::selftest-elapsed-subsecond-floor` — the sweep's own name for a
+mutant the worker pool scored SURVIVED and a serial re-run scored KILLED, which the harness
+reports as "the harness is at fault, not the guard" and explicitly tells the operator not to
+baseline. The mutant deletes `tools/run-selftests.sh`'s one-second elapsed floor, so whether it is
+visible depends on whether suites finish inside a second — a function of runner load. It did not
+appear in the run before it or the run after it, at the same head, and nothing in this branch
+touches the scoring path.
+
+## Local verification
+
+```
+SKIP_STRESS=1 bash tools/run-selftests.sh --full --exclude tools/install-topology-selftest.sh
+# 76 scored, 76 run, 0 failed  (at 015e359)
+```
+
+`--full` matters here: the dogfood milestone-3 lane runs without it, so `lean-gate-selftest.sh`
+and `mutation-sweep-selftest.sh` — the two suites this change edits — are both deferred there and
+neither was run by `bash G 3`.
