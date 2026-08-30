@@ -1,0 +1,18 @@
+{
+  "expected_verdict": "block",
+  "expected_findings": [
+    "token-table arithmetic error: `field → field gap` records 16px and outputs `rowGap={2}`, which is 8px on the 4px base — it should be `{4}`",
+    "token-table arithmetic error on an INTER-BLOCK row: `header block → form block gap` records 16px and outputs `rowGap={2}` — the step-3b sibling-gap rows take the same arithmetic, so this should be `{4}`",
+    "`submit button min inline size` outputs a raw `minWidth: '200px'` on a BRANDED / host-relative surface, where a raw px for sizing is forbidden — the sizing abstraction (theme.typography.pxToRem) is required, and rem is host-controlled in web-component mode"
+  ],
+  "must_not_flag": [
+    "`label → control gap` 8px → gap={2} — correct",
+    "`form column padding` 24px → 6, `form block → upload block gap` 24px → rowGap={6}, `upload block → footer gap` 40px → rowGap={10} — all correct on the 4px base",
+    "the `dimensions` table — fully populated with an overflow decision per row",
+    "the component resolutions — every `why this component` cell describes what the frame draws",
+    "the Decision Ledger — the explicit empty form always satisfies the section check",
+    "the block-size values recorded in the dimensions table (40px, 96px, 44px) — a dimensions cell records the Figma measurement, and the plan reviewer cannot know whether the number itself is right"
+  ],
+  "layer": "token arithmetic + branded sizing rule",
+  "notes": "Three planted rows in a nine-row table, two of them the same arithmetic slip at different scopes (an intra-node gap and a step-3b inter-block gap) because the checklist calls the inter-block rows out separately — a reviewer that grades only the intra-node rows catches one of two. The third defect is the branded-surface rule, which is a plan-level check the plan reviewer owns ('a branded spacing/inter-block-gap row must be a theme-unit number, never the sizing helper or a raw px'): here it is a SIZING row, where the sizing helper is what is required and a raw px is not."
+}

@@ -1,0 +1,18 @@
+{
+  "expected_verdict": "revise",
+  "surface": "storefront (branded / host-relative)",
+  "expected_findings": [
+    "hardcoded hex colors in sx on a branded surface — '#D6DBE3', '#FFFFFF', '#EDF0F4', '#12161C', '#1F6FEB' — where palette paths exist (border.default, background.surface, border.subtle, text.primary, brand.main)",
+    "raw px sizing on a branded surface — width: '320px' — where theme.typography.pxToRem() is the required abstraction",
+    "hardcoded rem sizing on a branded surface — minHeight: '2.75rem' — rem is host-controlled in web-component mode",
+    "literal fontFamily 'Inter, sans-serif' on a branded surface — the family is merchant-branded and must be inherited",
+    "raw fontSize '18px' / fontWeight 600 instead of a Typography variant from the ramp"
+  ],
+  "must_not_flag": [
+    "gap={4} / gap={2} / paddingInline: 6 / paddingBlock: 6 / paddingBlockStart: 4 — theme unit numbers are the correct spacing abstraction",
+    "the <Stack> layout containers themselves",
+    "direction='row' or justifyContent: 'space-between' — no token governs them"
+  ],
+  "layer": "branded-surface literals",
+  "notes": "Planted against acme-ui-design-tokens-storefront.md rules 1, 2, 4 and 5. The trap for a careless reviewer is the console file's fixed palette: these hexes ARE the console token values, but the file is under apps/storefront/, where the palette is branded at runtime and no value table applies at all. Flagging them is right; flagging them as 'use the console token' is a weaker but still correct call."
+}

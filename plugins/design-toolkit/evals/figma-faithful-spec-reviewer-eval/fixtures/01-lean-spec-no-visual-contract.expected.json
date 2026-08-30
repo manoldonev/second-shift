@@ -1,0 +1,17 @@
+{
+  "expected_verdict": "block",
+  "must_not_return": "N/A",
+  "expected_findings": [
+    "no visual contract for any rendered node — the spec carries a token table (spacing, color, type) but records no dimensions, no per-state border or fill, no fixed-height decision, no truncation rule and no default state, so every control's size is left to the implementer. A token table is not a visual contract.",
+    "the NumberField resolution is stated without any note that the increment/decrement steppers it renders are intended, and the spec's own description of the node is a plain weight-threshold entry"
+  ],
+  "acceptable_alternative_severity": "The second finding may land as a Warning. The first must be a Blocker, and the review must not be declined.",
+  "must_not_flag": [
+    "the absence of a Copy Index — this is a lean-lane spec, not a figma-faithful spec; the reviewer should say the copy-capture check had no input rather than manufacture a Blocker for a section this artifact shape does not have",
+    "the absence of an Element Inventory — same reason; name it as a check with no input on this shape",
+    "the token table arithmetic — correct on a 4px base, and in any case the plan reviewer's slice",
+    "the Figma reference — fileKey + nodeId are both present and independently resolvable"
+  ],
+  "layer": "lean-lane spec, no visual contract",
+  "notes": "Ticket fixture 3 and the AC-4 oracle. TODAY this fixture scores 0: the agent's `N/A` rule fires on 'no Copy Index / Components / Screens sections', its own prompt says 'every input you get from that lane returns N/A', and so the check written for exactly this case — 'a token table is not a visual contract' — never runs. That is a real recorded baseline, not a harness fault. After the AC-4 narrowing the agent should review what the input carries, name the checks that had no input, and block on the missing visual contract."
+}

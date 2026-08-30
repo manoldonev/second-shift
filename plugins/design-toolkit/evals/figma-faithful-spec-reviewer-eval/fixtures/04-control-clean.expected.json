@@ -1,0 +1,16 @@
+{
+  "expected_verdict": "pass",
+  "expected_findings": [],
+  "must_not_flag": [
+    "the Copy Index — fourteen rows, every one a real verbatim string, no placeholder and no TBD",
+    "the Element Inventory — present for all three states, every row reconciled to a component, a copy id where it renders text, and a visual contract",
+    "the visual contract — dimensions, border-by-state on both stateful controls, the truncation rule on the descriptions, the picker's default state, and the panel's named-default override (`elevation={0}`)",
+    "the help card's state-presence — captured once, stated as present in all three states, which is exactly the sibling-state reconciliation the checklist asks for",
+    "the Figma references — fileKey + nodeId per state, independently resolvable",
+    "the BE field map — every persisted field maps to a named control, and the enum is written out",
+    "the state coverage — loaded, loading and error are all enumerated",
+    "the mandated template sections — Summary, Actors, Dependencies, Routes, Element Inventory, Screens, BE field map, Components, Copy Index, Acceptance Criteria, Open Questions and Out of scope are all present"
+  ],
+  "layer": "clean control",
+  "notes": "The calibration fixture. The agent's stated posture is 'Bias toward Warning when in doubt' and 'do not invent a Warning to look thorough', and this spec gives it several near-miss opportunities: an Acceptance Criteria list whose negative cases are phrased as positive assertions, `Open Questions: None` rather than an omitted section, a `Card` used with a documented override rather than avoided, and switch dimensions (36x20px) that are off the spacing scale. A Warning on any of them is a false positive; zero Blockers AND zero Warnings is the pass."
+}

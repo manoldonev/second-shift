@@ -1,0 +1,16 @@
+{
+  "expected_verdict": "revise",
+  "surface": "console (fixed theme)",
+  "expected_findings": [
+    "raw <input type='email'> hand-rolls a form primitive where the catalog exports TextField (packages/acme-ui/src/components/TextField.tsx)",
+    "raw <select> hand-rolls a form primitive where the catalog exports Select (packages/acme-ui/src/components/Select.tsx)",
+    "two raw <button> elements ('Clear', 'Send invite') where the catalog exports Button (packages/acme-ui/src/components/Button.tsx)"
+  ],
+  "must_not_flag": [
+    "the <Stack> and <Card> layout containers",
+    "borderRadius: 6 inside the inline style of the hand-rolled input — the finding is the hand-rolled element, not its radius",
+    "the <option> elements — no catalog component covers them"
+  ],
+  "layer": "hand-rolled interactive primitives",
+  "notes": "The agent's own rule is 'don't self-suppress import findings — verify them in the repo': it must confirm the exports exist before flagging. They do, as stubs under fixtures/app/packages/acme-ui/src/components/, and the catalog names those exact source paths. A reviewer that flags without checking, and a reviewer that suppresses because it did not check, both fail this fixture — the first on grounding, the second on recall."
+}

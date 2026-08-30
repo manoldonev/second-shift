@@ -1,0 +1,17 @@
+{
+  "expected_verdict": "revise",
+  "surface": "storefront (branded / host-relative, RTL-capable)",
+  "expected_findings": [
+    "physical spacing props on an RTL-capable surface — marginTop, paddingLeft, paddingRight, marginRight, marginLeft — where the logical full-name equivalents (marginBlockStart, paddingInlineStart, paddingInlineEnd, marginInlineEnd, marginInlineStart) are required",
+    "the bgcolor shorthand alias instead of backgroundColor with a palette path",
+    "physical position props top / right on the IconButton where insetBlockStart / insetInlineEnd are the logical equivalents; a bare number in inset-family props is also not spacing-aware"
+  ],
+  "must_not_flag": [
+    "minWidth: (t) => t.typography.pxToRem(180) — this IS the required sizing abstraction on the branded surface",
+    "gap={2} and borderRadius: 2 — theme unit numbers, the correct spacing abstraction",
+    "the <Select> and <IconButton> usage — real catalog components, correctly used",
+    "position: 'absolute' — no token governs it"
+  ],
+  "layer": "physical style props on an RTL surface",
+  "notes": "Planted against acme-ui-design-tokens-storefront.md rule 6, where physical props are a correctness defect rather than a style preference because the surface renders RTL. The fixture deliberately uses the correct pxToRem abstraction for sizing, so a reviewer that flags sizing here is over-reaching. marginLeft: 'auto' is in the finding set like every other physical prop — the 'auto' value does not exempt it."
+}

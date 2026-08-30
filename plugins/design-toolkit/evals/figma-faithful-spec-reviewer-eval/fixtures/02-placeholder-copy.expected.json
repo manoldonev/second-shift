@@ -1,0 +1,18 @@
+{
+  "expected_verdict": "block",
+  "expected_findings": [
+    "Copy Index row CI-2 is a bare Figma placeholder `{Description}` — the instance node was never drilled, so the implementer will invent the intro paragraph",
+    "Copy Index row CI-5 is a bare Figma placeholder `{Label}` — same failure on the note field's label",
+    "Copy Index row CI-9 reads `Option 1`, a Figma default component-variant string rather than the error banner's real copy"
+  ],
+  "must_not_flag": [
+    "the Element Inventory — present, per-state, and every row reconciles to a Copy Index id, a component and a visual contract",
+    "the visual contract — dimensions, border-by-state, truncation, wrapping and the responsive full-width decision are all recorded",
+    "the Figma references — fileKey + nodeId per state, independently resolvable",
+    "the BE field map — every persisted field maps to a named control",
+    "the state machine — the in-flight state is reconciled against idle and the error banner's presence is stated per state",
+    "the `Select` and `TextField` resolutions — real catalog components with a named import"
+  ],
+  "layer": "placeholder copy",
+  "notes": "A spec that is complete on every other axis, so the only route to a Blocker is to actually read the Copy Index strings. Three planted rows in a nine-row table, two of them the classic `{Token}` shape and the third the subtler `Option 1` component-default string that reads like real copy at a glance."
+}

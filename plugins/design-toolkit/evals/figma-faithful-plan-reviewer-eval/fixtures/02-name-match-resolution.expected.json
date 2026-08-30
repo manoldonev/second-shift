@@ -1,0 +1,18 @@
+{
+  "expected_verdict": "block",
+  "expected_findings": [
+    "the amount field's `why this component` cell resolves NumberField purely by restating the Figma layer name and the catalog alias table — a name match with no statement of what the frame actually draws; the catalog's own affordance notes say NumberField renders increment/decrement steppers with no prop that suppresses them, and the plan never says the steppers are intended",
+    "the unit picker's `why this component` cell reads 'closest match' — a filled cell that says nothing, which is the silence the column exists to make visible"
+  ],
+  "acceptable_alternative_severity": "The second finding may land as a Warning rather than a Blocker; the first must be a Blocker (an unjustified name-match resolution to a component whose rendered affordances exceed what the plan describes).",
+  "must_not_flag": [
+    "the token table arithmetic — every row is correct on the 4px base",
+    "the `dimensions` table — fully populated, one row per sized node, with an overflow decision each",
+    "the two `Action Button` rows — both cells describe the frame, not the layer name",
+    "the placement decision — stated as page-level and the file list edits CatalogPage.tsx",
+    "the analog — BulkTagDrawer is a close structural match",
+    "the inter-block gap rows — present"
+  ],
+  "layer": "name-match component resolution",
+  "notes": "Ticket fixture 2. The #692 defect verbatim in structure: a node resolved to a stepper-rendering number field by layer name, cleared by both the plan reviewer ('component identity → spec reviewer') and the spec reviewer (presence, not suitability). The fixture is deliberately correct everywhere else, so the only way to reach a Blocker is to actually grade the CONTENT of the `why this component` cells rather than confirm they are non-empty — which is what #701's non-empty assertion cannot do."
+}
