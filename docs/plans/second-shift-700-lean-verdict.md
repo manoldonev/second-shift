@@ -1,275 +1,199 @@
 # lean review verdict — #700
 
-verdict=needs-work
-run_id: review-700-1
-session_id: 28c5de0d-fd63-43b1-80b9-a34d5e9f5478
-rounds: 1
+verdict=approve
+run_id: review-700-2
+session_id: f0dca896-cc78-4b0f-a34b-62ee4008d6e5
+rounds: 2
 pr: #716
-reviewed_head: 667f97365af28aa8393902ce6dbbff1651e2226d
-reviewed_patch_id: 6d31a4247e97eee0ead4a9684deb3bc481d17a97
-inherited_patch_id: none
-inherited_from_verdict: none
+reviewed_head: 4fe450c8e6f3c31b68d7d4f58ed99ec32c25e8cb
+reviewed_patch_id: c1dace94684f23df8e561c4b3019ae215dceb547
+inherited_patch_id: 6d31a4247e97eee0ead4a9684deb3bc481d17a97
+inherited_from_verdict: e5bcdfd9b6430e02f20aa8a4d6f6324938a33ac4
 fidelity: not-applicable
 model: unknown
 capabilities: pr-marker
 
-# Review round 1 — PR #716 / issue #700
+# Review round 2 — PR #716 / issue #700
 
-Range read: `f9eeb28..667f973` (full branch diff — round 1, nothing to inherit).
-Reviewed from `/Users/mdonev/github/second-shift-worktrees/700`, verified pristine against
-`origin/claude/second-shift-700` before the record was written.
+Range read: `e5bcdfd..4fe450c`, inheriting the coverage of patch `6d31a4247e97` (round 1).
+Reviewed from `/Users/mdonev/github/second-shift-worktrees/700`, verified identical to
+`origin/claude/second-shift-700` before the record was written. Round 1's findings were read
+first.
 
-**Verdict: needs-work.** Two blockers. The branch reds both correctness selftest lanes, and the
-red is caused by the diff's own AC-11 deliverable; and one of the five new mutation-catalog rows
-describes a regression its own `sed` does not produce, which is the one thing AC-15 exists to
-prevent. Neither is in the parser: the rewrite is correct against the whole live corpus, the
-fail-closed arm does what it claims, the other four catalog rows are probed kills, and both suites
-the change edits are green here.
+**Verdict: approve.** Both round-1 blockers are fixed, and each fix was re-derived here rather
+than taken from the fix commit's own account. `lean-gate.sh` and both edited suites are unchanged
+since round 1, so the parser evidence from that round carries; what is new in this delta is four
+record files, and every claim they make was checked.
 
-## Blockers
+## Round-1 blockers — both discharged
 
-### B1 — `lint-and-selftests` and `selftests (macos, bash 3.2)` are red on the reviewed head, from this diff
+### B1 — three undispositioned prose constructs redding both correctness lanes: FIXED
 
-`tools/prose-blockers-selftest.sh` fails `this repo's own tree is fully dispositioned — want '0',
-got '3'` on both lanes of run `33321210185` at head `667f973`. Reproduced at the reviewed head:
+The fix adds three rows to `docs/prose-blocker-triage.tsv` and leaves
+`interviewing-baseline/SKILL.md` untouched — the cheaper of the two remedies round 1 named, and
+the one that does not re-stale the AC-11 prose that round read.
 
-```
-[prose-blockers] UNDISPOSITIONED — in the tree, absent from docs/prose-blocker-triage.tsv:
-  pb-15096154  plugins/intake-toolkit/skills/interviewing-baseline/SKILL.md:128
-  pb-be1ceaa2  plugins/intake-toolkit/skills/interviewing-baseline/SKILL.md:140
-  pb-db3589f8  plugins/intake-toolkit/skills/interviewing-baseline/SKILL.md:146
-```
+Re-derived at the reviewed head rather than inherited: `bash tools/prose-blockers.sh check` reports
+`census: 23 construct(s) over 51 file(s)` and `✓ zero undispositioned constructs`, and
+`bash tools/prose-blockers.sh census` emits `pb-15096154` / `pb-be1ceaa2` / `pb-db3589f8` at
+exactly the three sites the new rows name (`SKILL.md:128`, `:140`, `:146`). The ids are
+content-derived, so this is the check that they were computed against the shipped prose and not
+transcribed.
 
-All three are lines this PR added — the AC-11 shape contract (`**The shapes the lean gate can
-read.**`, `**Put an `OR-n` on every region.**`, `The refusal is an *environment* refusal:`). The
-merge base is clean: at `f9eeb28` the census is 20 constructs, `✓ zero undispositioned`; at
-`667f973` it is 23. So this is not inherited red — the PR grew the stop-tier census by exactly 3
-and dispositioned none of them.
+CI oracle at this head — command and head both match, so cited rather than re-run:
+run `33324495676` @ `4fe450c`, `lint-and-selftests` **success** with
+`prose-blockers-selftest.sh: 60 passed, 0 failed` and `[run-selftests] summary: 78 scored, 77 run,
+1 served from cache, 0 failed` (the cached suite is `cost-block-selftest.sh`, unrelated);
+`selftests (macos, bash 3.2)` **success**. Both suites this PR edits ran in that sweep —
+`pass 167s lean-gate-selftest.sh`, `pass 67s scenario-liveness-selftest.sh` — so the green is not
+the slow-suite-deferring shape.
 
-These are the correctness lanes, not the policy ones, so this is a blocker rather than a recorded
-merge-boundary refusal. It is also not the trailer-only shape the carve-out is written for: the
-fix adds rows to `docs/prose-blocker-triage.tsv` or rewords `SKILL.md`, either of which changes a
-line this round read.
+The three rows are substantively right, not merely present. Each is `gate-backed` / `pointer-kept`
+with an enforcer that resolves: `open_regions_defects` (:2998), `open_region_rows` (:2929) and
+`cmd_1` (:3488) all exist in `lean-gate.sh`. `tools/prose-blockers.sh:105` says the guard verifies
+the enforcer PATH and explicitly not the named subcommand, so those three names are checked here or
+nowhere. The "prose restates a gate but is kept because its audience writes the section in an
+intake session no build gate is running in" reading is the one `pb-2253f5d9` and `pb-30bb039d`
+already take.
 
-### B2 — `lean-openregions-heading-depth`'s note describes a regression its `sed` does not produce (AC-15)
+### B2 — the `lean-openregions-heading-depth` note describing a mutant its `sed` does not produce: FIXED
 
-The row's note reads:
+The row's program is now `s#if \(RLENGTH <= depth\) insec = 0#insec = 0#`. Probed here in a
+throwaway `git worktree --detach` at `4fe450c`, applied the way `tools/mutation-sweep.sh:1852`
+applies it (`sed -E -e`):
 
-> Reverts `open_regions_section` to terminating on ANY following heading, so a heading-per-region
-> section yields zero non-blank content lines and reads as an empty section. A survivor would mean
-> no case covers the shape whose failure mode is 'looks absent' rather than 'parses wrong'.
+- not byte-identical (no anchor drift), and the diff is exactly one line:
+  `insec && /^#+[[:space:]]/ { match($0, /^#+/); if (RLENGTH <= depth) insec = 0 }` →
+  `insec && /^#+[[:space:]]/ { match($0, /^#+/); insec = 0 }`
+- `bash -n` valid
+- `lean-gate-selftest.sh` against it produces
+  `FAIL: (y23) expected rc=2 naming an unenumerable section, got 0` — the heading-per-region case,
+  which is the shape the note claims the row models. 457 cases passed; `(y23)` was the only
+  failure in the run.
 
-Its `sed` is `s#if \(RLENGTH <= depth\) insec = 0#if (0) insec = 0#`, which leaves the guarded
-assignment unreachable — so the section **never terminates** and swallows everything after the
-heading. That is the opposite of "terminating on ANY following heading", and it yields *more*
-content, not zero.
+**Run caveat, stated rather than papered over.** That run did not reach its own summary line: it
+hung after ~14 minutes inside an unrelated network-touching case (`lean-gate.sh … claim 8`), with
+a second lane's probe (`second-shift-worktrees/670-mut`) running concurrently on this machine. It
+covered 458 of the suite's ~566 cases, and I killed it by PID and restored the mutant. The prefix
+it did cover contains the entire `(y19)`–`(y33)` open-regions block, which is where any additional
+killer of a mutation to `open_regions_section` would have to be; the ~108 unreached cases are the
+`(pc)`/`(pg)`/`(ac)`/`(if)` progress, milestone-4 and in-flight blocks, none of which touch that
+function. So "killed, by `(y23)`" is measured; "by `(y23)` and nothing else, suite-wide" rests on
+that prefix plus round 1's independent measurement of the same mutant at `667f973`, where
+`lean-gate.sh` was byte-identical.
 
-Measured, both halves, each in its own isolated worktree at `667f973`:
+The note's own claim also checks out against the base. At `f9eeb28` the line read
+`insec && /^#+[[:space:]]/ { insec = 0 }` (`lean-gate.sh:2886`), so "reverts
+`open_regions_section` to terminating on ANY following heading" describes the pre-#700 behaviour
+exactly — the `match($0, /^#+/)` the mutant leaves behind sets `RSTART`/`RLENGTH` and changes no
+control flow.
 
-| `sed` applied | killed by | expectation that moved |
-| --- | --- | --- |
-| the row as committed (`if (0) insec = 0`) | `(y28)` only | a *contentless* section now swallows the following `## Acceptance Criteria` body → rc=2, want rc=0 |
-| the mutant the note describes (`insec = 0`) | `(y23)` only | the heading-per-region section reads as empty → rc=0, want rc=2 |
+This row has no PR-lane oracle either way: `mutation-sweep-pr` passed in **12s** on run
+`33324495676`, which for a 212s-rated suite means it deferred these rows and graded none of them.
+The probe above is the only thing standing behind the row.
 
-So the two mutants are killed by disjoint cases, and the case the note is about — `(y23)`, the
-heading-per-region shape — **passes** under the row as committed. The row is not blind (it dies,
-and it is anchor-loud), and the real regression is not uncovered (`(y23)` catches it). What is
-wrong is the record: `mutation-catalog.tsv`'s own header defines the note column as "what
-regression the mutant models, i.e. what a survivor would MEAN", and AC-15 requires the rows to
-name "the regression classes this change introduces the risk of". This one names a class it does
-not model, and the arming is pointed at a different site than the note claims.
+## Also fixed this round
 
-It also falsifies the "each was probed" claim for this row specifically — the PR body says the
-rows were "applied to an isolated worktree and the paired suite run — rather than credited by
-construction", and a probe that was run *and read* would have shown `(y28)` where the note
-predicts `(y23)`.
+- **R1 (round 1, recorded-not-blocking) — `guard-budget`.** `4fe450c` carries a `Guard-mass: +385`
+  trailer, and the gate is now green at this head: `[guard-budget] ✓ guard/test shell mass: base
+  54358, HEAD 54743 (delta +385), covered by a 'Guard-mass:' trailer.` The delta figure is
+  unchanged from round 1 even though the base moved (54189→54358), which is what the trailer's own
+  "the figure is the branch's" claim asserts.
+- **F6 — `tools/selftest-suite-timings.tsv`.** The `lean-gate-selftest.sh` row moves
+  `141 / 2026-08-20` → `212 / 2026-08-30`. The commit's claim that no consumer decision moves is
+  verified: `mutation-sweep.sh` thresholds at 5s and `run-selftests.sh` / `check-sweep-bound.sh` at
+  9s, so the suite was deferred at 141 and is deferred at 212; and `check-sweep-bound.sh`'s
+  aggregate ratchet sums only the **un-deferred** subset (`:147-231`) against the
+  `# baseline-seconds 106` directive, which this diff does not touch. Round 1 independently
+  measured 215s cold; CI measured 167s on the Linux runner. Nothing keys on the precision.
 
-Cheapest fix: change the `sed` to `s#if \(RLENGTH <= depth\) insec = 0#insec = 0#`, which models
-the actual pre-#700 behaviour and is killed by `(y23)` — measured above, so no new probe is owed.
-Correcting the note to describe an unbounded section instead is also sound, but leaves the
-heading-depth *reversion* unarmed by any row.
+## `pr-gates` is red, and that is expected state
 
-## Recorded, not blocking
-
-### R1 — `pr-gates` is red on `guard-budget` (+385 lines, no `Guard-mass:` trailer)
-
-`[guard-budget] ✗ guard/test shell mass grew by 385 lines with no reason recorded: base 54189
-(ff3f6f8), HEAD 54574.` This is a policy gate the merge boundary already holds, so it is recorded
-here and does not by itself move the verdict. It needs `Guard-mass: +385 <reason>` on one of the
-branch's commits.
+The only failing step is `lean chain reconciliation`:
+`[lean-chain] ✗ verdict record … reads 'verdict=needs-work', not 'verdict=approve'`. That arm
+requires an approving record to exist, so it cannot be green before this round writes one. Not a
+finding.
 
 ## Findings (non-blocking)
 
-### F1 — the fail-closed arm does not fire on a section that MIXES a readable row with an unreadable one
+### N1 — AC-15 was amended this round; it strengthens rather than launders, but say so out loud
 
-`open_regions_defects` reports `unenumerable` only when the section yields **zero** rows. A
-section carrying one parseable row plus a region in an unrecognized shape parses the first, is
-non-empty, and clears silently — the fourth-form fail-open the code's own comment says the arm
-exists to stop. Measured at the reviewed head:
+The delta adds to AC-15: *"A row's note must name the regression its own `sed` produces: a note
+describing a different mutant is what a probe that was run and READ would have caught, so the note
+is part of what the probe checks."* This codifies round 1's B2 into the spec.
 
-```
-## Open regions
+Flagged because "a spec amended after the fact to match the diff is itself a blocker" is the rule,
+and this is an amendment made between rounds. It is not that shape: it **adds** an obligation
+rather than relaxing one, and the diff satisfies AC-15's *original* wording independently — the
+`sed` was corrected, not the criterion. `ledger-lint --reconcile` is clean at this head
+(`9 bound, 9 carried, 0 departure(s)`), and the amendment is AC prose, not a ledger re-decision.
+Scored `satisfied` on the pre-amendment text, so the amendment is not load-bearing for the verdict.
 
-| ID | Region | Disposition |
-| --- | --- | --- |
-| OR-1 | foo | reversible-default-and-flag |
+### N2 — D-8's deferral still lives only in the spec and receipt, not the issue body
 
-1. OR-2 — bar, pause-and-ask and nobody owns it
-```
-→ `ROWS=[OR-1 reversible-default-and-flag]`, `DEFECTS=[]`, milestone 1 CLEARS with a live
-`pause-and-ask` region unread.
+`scope-completeness-reviewer` raised this again at confidence 88 (its own verdict: approve,
+non-blocking): issue #700's Scope asks for "at minimum: table row, bullet, and a
+heading-per-region", and no heading-per-region *parser* is written. Same disposition as round 1,
+re-checked at the current head rather than inherited: `D-8` is present in the pre-flight receipt
+(`.claude/pipeline-state/700-ledger.md:20`) with `user-answered` provenance and `intent` kind,
+carried verbatim into the committed spec (`:114`) and its `## Scope boundary` (`:98`), and
+`ledger-lint --reconcile` binds it clean. The receipt's mtime (18:14) predates both round-2
+commits, so it is not a record edited to fit the fix. The pre-flight ledger overriding the
+ticket's own wording is the documented order of authority. The reviewer's suggested remedy —
+editing the issue body's acceptance criteria — is a human-authority action, so it is recorded, not
+actioned.
 
-This is not an unmet `AC-n`: D-1 ratified the predicate as "zero `OR-n` rows in any recognized
-shape", AC-5 states it the same way, and the code implements exactly that. The finding is that the
-PR body's framing — "Shape coverage alone still fails open on the next unanticipated form; this is
-what stops that" — is stronger than what shipped. The arm stops the next unanticipated form only
-when it is the *only* form in the section.
+### Carried from round 1, unaddressed and still non-blocking
 
-### F2 — a bullet naming two ids enumerates only the first
-
-`flush()` uses `match(buf, /OR-[0-9]+/)`, so `- OR-1 and OR-2: both stay
-reversible-default-and-flag` emits `OR-1` and drops `OR-2` entirely — it can never be reported
-dispositionless or pause-and-ask under its own name. Because `disp_of` scans the whole bullet, a
-`pause-and-ask` anywhere in such a bullet still refuses, but under the wrong id. Zero occurrences
-in the live corpus; worth a comment at the `match()` rather than code.
-
-### F3 — a disposition on a nested SUB-bullet is read as "no disposition"
-
-```
-- **OR-1** — the ordering guarantee
-  - Disposition: pause-and-ask
-```
-The sub-bullet matches the bullet rule before the continuation rule, so it flushes `OR-1` with an
-empty disposition → `nodisp OR-1` → rc=2. Fail-closed, so not a defect in the safety direction,
-but the new `interviewing-baseline` text says "continuation lines included" without saying a
-nested bullet is not one — an author following the doc gets a refusal it does not predict.
-
-### F4 — `open_regions_defects`' exit status is discarded
-
-Both call sites read it through `<<EOF $(open_regions_defects …) EOF`, so a non-zero return (an
-awk failure, a `grep` error rc=2) reaches the caller as an empty defect list and the check clears.
-The realistic paths all fail closed (`open_region_rows` returning empty ⇒ `unenumerable`), so this
-is low risk, but it is the same shape as the rc-in-a-subshell hazard `cmd_1`'s own comment calls
-out for `check_pause_and_ask`. The security reviewer flagged it at confidence 40.
-
-### F5 — AC-9's "every unenumerable SOURCE" is not pinned
-
-`(y26)` pins two regions in one message from one source; `(y24)` and `(y30)` pin each source
-separately. No case drives a defective ledger and a defective issue body in the same run, which is
-the half of AC-9 that says "every source". The code appends with the same `${defects:+$defects; }`
-idiom in both blocks so it is very likely right — but AC-9 is scored `satisfied (partially
-pinned)` rather than fully verified by the suite.
-
-### F6 — `tools/selftest-suite-timings.tsv` is not refreshed
-
-The row for `lean-gate-selftest.sh` still reads `141 2026-08-20`. The suite gained ~200 lines
-including `(y33)`'s 3000-line fixture; measured 215s cold here. Well clear of both consumer
-thresholds either way, so nothing breaks — but the milestone-3 turn bound is computed from this
-file.
-
-### F7 — commit verb
-
-The branch is three `fix:` commits. The middle one adds a new gate contract (a third milestone-1
-verdict path) and carries a `Migration:` line in its `Changelog:`. Under CLAUDE.md's "use the
-honest verb" that reads closer to `feat:`. Calling the repair of a fail-open `fix:` is defensible;
-flagging it so the bump level is a decision rather than an accident.
-
-## Dismissed
-
-**`scope-completeness-reviewer`, confidence 88 — "issue #700's third shape (heading-per-region) is
-not enumerated".** Correct on the facts and dismissed on authority. Issue #700 says "Not intaken
-… Needs intake before it can be run", so its `## Scope` is a pre-intake sketch, and the pre-flight
-interview is what refines it. `D-8` is an `intent`-kind row with `user-answered` provenance, it is
-present in the pre-flight receipt (`.claude/pipeline-state/700-ledger.md:20`) and not only in the
-committed spec, and `ledger-lint --reconcile` — which binds intent-row provenance — ran clean at
-milestone 1 (progress record, `2026-08-30T15:08:22Z | milestone-1 | satisfied`). The committed
-spec carries the departure in both its `## Scope boundary` and D-8. That is the pre-flight ledger
-overriding the ticket's own wording, which is the documented order of authority, so the item is
-deferred by an operator decision rather than by the build session's own judgment.
-
-## What was measured, not taken on trust
-
-**The whole live corpus, old parser vs new.** Every issue body in the repo (344 fetched) was
-scanned for an `## Open regions` section: 17 carry one. Both parsers were sourced under
-`LEAN_GATE_LIB=1` from an isolated worktree at `667f973` and run over all 17, plus all 43 on-disk
-pre-flight receipts that carry the section.
-
-| Issue | old ids | new ids | new rows | defects |
-| --- | --- | --- | --- | --- |
-| 372, 375 | OR-2 / OR-1 | unchanged | table, parse | — |
-| 374, 381, 553, 622, 636, 637 | — | — | all `reversible-default-and-flag` | — |
-| 554 | — | **OR-2** | bullet | — |
-| 638 (open) | — | **OR-1** | bullet | — |
-| 639 (open) | — | **OR-1** | bullet, continuation line | — |
-| 694 | — | **OR-1, OR-2** | bullet | — |
-| 640 (open) | — | — | OR-1/OR-2 flag, OR-3 empty | `nodisp OR-3` |
-| 363, 426, 427, 441 | — | — | none | `unenumerable` |
-
-Every claim in the PR body's Verification section reproduces exactly. The four `unenumerable`
-issues are all CLOSED; of the three whose reading changes and are OPEN (#638, #639, #640) none
-carries `ready-for-dev`, so D-13's blast-radius claim holds. **All 43 receipts: no divergence
-between old and new, and zero defects** — the receipt half of AC-8 is non-regressive on the real
-corpus.
-
-**AC-14, first half.** Every one of the 26 pre-#700 `tools/mutation-catalog.tsv` rows targeting
-`lean-gate.sh` was applied with `sed -E` at the reviewed head: all 26 still change the file and
-all 26 still produce `bash -n`-valid output, so none drifted. Grepping the row programs for
-`open_region`/`pause_and_ask`/`insec`/`disp` matches only the five new rows — confirming the
-spec's "none was anchored on this code".
-
-**AC-14, second half + AC-13.** Both edited suites run green here, cold, with
-`env -u CLAUDE_CODE_SESSION_ID`:
-`lean-gate-selftest.sh` → `all green`, 215s; `scenario-liveness-selftest.sh` → `76 passed, 0
-failed`. This mattered: the build's own milestone 3 was 66s (`15:51:57Z → 15:53:03Z`), which is
-the slow-suite-deferring shape — neither of the two suites this PR edits was necessarily run by
-the green the build recorded.
-
-**AC-15 — the five new catalog rows, probed not credited.** `mutation-sweep-pr` passed in 12s,
-which for a 141s-rated suite means it graded none of them, so each row was applied to an isolated
-worktree at `667f973` and `lean-gate-selftest.sh` run against it.
-
-| Row | rc | killed by | verdict |
-| --- | --- | --- | --- |
-| `lean-openregions-unenumerable-clears` | 5 | `(y23)` `(y24)` `(y30)` `(y31)` `(y33)` | killed, note accurate |
-| `lean-openregions-nodisp-swallowed` | 2 | `(y25)` `(y26)` | killed, note accurate |
-| `lean-openregions-heading-depth` | 1 | `(y28)` | killed, **note wrong** — see B2 |
-| `lean-openregions-bullet-continuation` | 2 | `(y20)` `(y21)` | killed, note accurate |
-| `lean-openregions-content-test-via-pipe` | 1 | `(y33)` | killed, note accurate |
-
-Baseline at `667f973` with no mutant: `rc=0`, 566 passing cases, 215s. Each mutant run took
-211-231s, so no verdict rests on a timeout. `(y33)` is confirmed as the **sole** killer of the
-SIGPIPE mutant, which is exactly the claim commit `667f973` makes for its own existence.
+`lean-gate.sh` is unchanged, so these stand exactly as round 1 wrote them and are not re-argued
+here: **F1** the fail-closed arm does not fire on a section mixing one readable row with an
+unreadable region (matches D-1/AC-5 as ratified; the PR body's framing is broader than what
+shipped); **F2** a bullet naming two ids enumerates only the first; **F3** a disposition on a
+nested sub-bullet reads as "no disposition" (fail-closed, but the new doc does not predict it);
+**F4** `open_regions_defects`' exit status is discarded at both call sites; **F5** AC-9's "every
+unenumerable SOURCE" has no case driving two defective sources in one run; **F7** the branch's
+`fix:` verb on a commit that adds a new gate contract reads closer to `feat:` under CLAUDE.md's
+honest-verb rule — a bump-level decision for the merge dialog, not a blocker.
 
 ## AC scoring
 
+Every AC scored against the whole spec. Where the evidence is round 1's, it is because the code it
+rests on is byte-identical at this head — not because it was inherited unexamined.
+
 | AC | Verdict | Evidence |
 | --- | --- | --- |
-| AC-1 | satisfied | `^#+[[:space:]]+open regions([[:space:]].*)?$`; `(y22)`; #636/#622 now seen in the corpus run |
-| AC-2 | satisfied | depth-keyed termination; `(y23)`; mutant `lean-openregions-heading-depth` |
-| AC-3 | satisfied | bullet arm + continuation folding; `(y19)`, `(y20)`, `(y21)`; #639's live continuation-line token found in the corpus run; mutant `lean-openregions-bullet-continuation` |
-| AC-4 | satisfied | 0 deletions in the selftest diff, so `(y2)/(y5)/(y6)/(y12)/(y14)` are untouched and green; `(y32)`; 43/43 receipts and 4/4 table-form issues unchanged old→new |
-| AC-5 | satisfied | `(y23)`, `(y24)`, `(y33)`; mutant `lean-openregions-unenumerable-clears` killed by 5 cases |
-| AC-6 | satisfied | `(y25)`; #640 OR-3 reports `nodisp` on the live body; mutant `lean-openregions-nodisp-swallowed` |
-| AC-7 | satisfied | `(y21)`, `(y27)`, `(y28)`; absent-section path returns 0 before any grep |
-| AC-8 | satisfied | `(y29)`, `(y30)` for the ledger; the jira arm is guarded identically and is inert (`body` is empty there), though no case pins that |
-| AC-9 | satisfied (partially pinned) | `(y26)` pins two regions in one message; no case pins two SOURCES in one message — see F5 |
-| AC-10 | satisfied | `(y31)`; `cmd_1`'s `[ "$pa_rc" -ne 2 ] \|\| envfail` precedes `fail_milestone`; liveness leg 3g asserts the attempt counter across the composed path |
-| AC-11 | satisfied, but see B1 | `interviewing-baseline` gains the two-source shape table — and the three undispositioned prose constructs that red CI |
-| AC-12 | satisfied | the refusal sentence is untouched (17 deletions in `lean-gate.sh`, all inside the two rewritten functions); `(y32)` asserts it fires without the new message |
-| AC-13 | satisfied | `(y19)`–`(y33)`, all through `--issue-file`/`--ledger-file`, no network |
-| AC-14 | satisfied | 26/26 existing rows re-anchored clean; liveness leg 3g + 3g-nv; both suites green here |
-| AC-15 | **unsatisfied** | four of five rows name the class they model; `lean-openregions-heading-depth` does not — B2 |
+| AC-1 | satisfied | round 1: relaxed heading regex, `(y22)`, #636/#622 seen in the live-corpus replay; `lean-gate.sh` unchanged, suite green in CI at `4fe450c` |
+| AC-2 | satisfied | round 1: depth-keyed termination, `(y23)`; and the `lean-openregions-heading-depth` mutant re-probed here kills via `(y23)` |
+| AC-3 | satisfied | round 1: bullet arm + continuation folding, `(y19)`–`(y21)`, #639's live continuation token |
+| AC-4 | satisfied | round 1: zero deletions in the selftest diff; 43/43 receipts and 4/4 table-form issues unchanged old→new |
+| AC-5 | satisfied | round 1: `(y23)`, `(y24)`, `(y33)`; `lean-openregions-unenumerable-clears` killed by five cases |
+| AC-6 | satisfied | round 1: `(y25)`; #640's OR-3 reports `nodisp` on the live body |
+| AC-7 | satisfied | round 1: `(y21)`, `(y27)`, `(y28)` |
+| AC-8 | satisfied | round 1: `(y29)`, `(y30)`; all 43 on-disk receipts non-regressive |
+| AC-9 | satisfied (partially pinned) | round 1: `(y26)` pins two regions in one message; no case pins two SOURCES — F5 |
+| AC-10 | satisfied | round 1: `(y31)`, `cmd_1`'s `[ "$pa_rc" -ne 2 ] \|\| envfail` ahead of `fail_milestone`, liveness leg 3g |
+| AC-11 | satisfied | the `interviewing-baseline` shape contract is unchanged from round 1, and its three stop-tier constructs are now dispositioned: census `23 / ✓ zero undispositioned` here, `prose-blockers-selftest.sh` 60/0 and both correctness lanes green at `4fe450c` |
+| AC-12 | satisfied | round 1: the refusal sentence is untouched; `(y32)` |
+| AC-13 | satisfied | round 1: `(y19)`–`(y33)` all via `--issue-file`/`--ledger-file`; `lean-gate-selftest.sh` green in CI at this head |
+| AC-14 | satisfied | round 1: 26/26 pre-#700 rows re-anchored and `bash -n` valid, none anchored on this code; both edited suites green in CI at this head |
+| AC-15 | **satisfied** | all five rows now name the class they model. The corrected `lean-openregions-heading-depth` was probed at this head, not credited by construction — one-line change, `bash -n` valid, killed by `(y23)`, the case the note is about. `mutation-sweep-pr`'s 12s pass confirms the row still has no PR-lane oracle, which is why the probe was run |
 
 ## Verdicts (panel)
 
-| Reviewer | Verdict | Findings |
-| --- | --- | --- |
-| Security | Pass | 0 (1 suppressed at 40) |
-| Performance | Pass | 0 |
-| Maintainability | Pass | 0 |
-| Complexity | Pass | 0 |
-| Test Coverage | Pass | 0 |
-| Scope Completeness | Fail | 1 blocker at 88 — dismissed above on authority |
+Reviewed range `e5bcdfd..4fe450c` — four record files, no executable surface.
 
-No `## Design` section in the spec and no design provider configured for this repo, so step 5b
-does not apply: `fidelity: not-applicable`.
+| Reviewer | Verdict | Findings | Confidence |
+| --- | --- | --- | --- |
+| Security | Pass | 0 | 2 suppressed at 15–20 |
+| Performance | Pass | 0 | — |
+| Maintainability | Pass | 0 | — |
+| Test Coverage | Pass | 0 | — |
+| Scope Completeness | Pass | 1 minor, non-blocking | 88 — N2 |
+
+`complexity-reviewer` was not selected (delta below the Medium bar). `a11y-reviewer` and the
+design-fidelity dimension were not routed: no changed path matches
+`stageParams.webComponentGlobs`, which is unset in this repo's config and resolves to the default
+`apps/web/**/*.{tsx,jsx}`. No reviewer went dark.
+
+No `## Design` section in the spec and no design provider configured, so step 5b does not apply:
+`fidelity: not-applicable`.
