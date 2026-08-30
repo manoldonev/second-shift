@@ -518,7 +518,7 @@ pyramid, plus one tier that is honest about being outside CI.
 | Classic tier | Here | Status |
 | --- | --- | --- |
 | Unit | Per-tool behavioral selftests — execute one script against tempdir fixtures, assert exit code / output / state | Established |
-| Contract | `check-lockstep-pairs.sh` — `LOCKSTEP` marker groups discovered from the tree and compared; + registry and schema lints (config-lint ↔ schema, model tiers, text-contract carriers) | Established |
+| Contract | `check-lockstep-pairs.sh` — `LOCKSTEP` marker groups discovered from the tree and compared; `check-lane-class-doc.sh` — a doc claim DERIVED from the code it describes; + registry and schema lints (config-lint ↔ schema, model tiers, text-contract carriers) | Established |
 | Integration | `scenario-liveness-selftest.sh` — composed verdict paths through real scripts to a terminal write | Established, extending |
 | Runtime | `workflows/runtime-shim-selftest.mjs` — executes real Workflow `.mjs` bodies with injected fakes | Established (#214) |
 | Mutation | Repo-level sweep: canned mutants applied to guarded scripts, paired selftest must go red | Planned |
@@ -755,6 +755,37 @@ that prose goes immediately ABOVE the BEGIN marker, never between the markers.
 `docs/plans/**` is excluded from the walk, stated as data in the script with its reason: plan
 documents quote locksteped blocks verbatim as evidence for a decision, are never edited afterwards,
 and are SUPPOSED to drift from the block they quote. Five of them quote a live block today.
+
+### When the second copy is not prose: derive it (#674)
+
+A `LOCKSTEP` group holds two copies of one contract identical. It has nothing to say when the two
+sides are not both prose — when a document states a fact **about the code**, and the code is the
+only place that fact is true.
+
+`docs/config-schema.md` states the cross-repo reserved-exit-`3` contract, including which lanes
+read it. #642 demoted three of the four it named, and the sentence went on claiming all four
+through that PR's three review rounds and its full panel — because the file it lived in was in no
+diff anyone read, and no marker could have caught it: there was no second copy to compare against.
+
+`scripts/check-lane-class-doc.sh` is the shape that fits. It **derives** the reserved set by
+walking `lean-gate.sh`'s `lane_failure_class` call sites, and requires the doc's marker-delimited
+rows to name exactly that set, in both directions. It is not a prose-presence guard — it fails for
+a fact that lives in another file, which is precisely what grepping a markdown file for a word
+cannot do.
+
+Two properties are what make the class safe to reuse:
+
+- **The doc's rows ARE the claim, not a restatement beside it.** The surrounding prose stops
+  enumerating lanes entirely. A machine-readable line that merely accompanies a prose list gives
+  you two declarations to keep in sync and guards only one of them.
+- **It fails closed on a shape it cannot model.** A derivation that silently returns a smaller set
+  when it meets an unfamiliar dispatch reads as agreement. So a call site under a different `case`
+  subject, a call outside any arm, a glob arm, or no call site at all each red naming the line —
+  "teach this script the new shape", not "the doc is wrong".
+
+Reach for this when a document asserts something enumerable about shipped code. Reach for a
+`LOCKSTEP` marker when the two sides are copies of each other. When neither fits, the coupling is
+unanchorable and belongs in the list below.
 
 ### Couplings considered and declined
 
