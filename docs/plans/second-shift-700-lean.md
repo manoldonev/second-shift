@@ -42,7 +42,7 @@ about the receipt's `OR-n` regions, which the lean gate's own `check_pause_and_a
   following more-indented lines, up to the next bullet or a dedent. Both `pause-and-ask` and
   `reversible-default-and-flag` are recognized, backticked or bare.
 - **AC-4** Table rows keep working unchanged, including the trailing-pipe-less variant. The
-  existing cases `(y2)`, `(y3)`, `(y6)` and `(y12)` of `lean-gate-selftest.sh` stay green with no
+  existing cases `(y2)`, `(y5)`, `(y6)`, `(y12)` and `(y14)` of `lean-gate-selftest.sh` stay green with no
   edit to their fixtures or expectations.
 
 **Fail-closed — the load-bearing half**
@@ -96,7 +96,7 @@ affordance or the rc=0 unresolved-region path (D-12, AC-12).
 
 | ID | Decision | Resolution | Provenance |
 | --- | --- | --- | --- |
-| D-1 | What milestone 1 does when a `## Open regions` section is present but no region can be enumerated from it | Red when the section carries non-blank content, yields zero `OR-n` rows in any recognized shape, and is not the explicit empty form. NOT the ticket's literal "zero pause-and-ask ids": measured, a table declaring only `reversible-default-and-flag` rows and the explicit empty form each legitimately yield zero ids, and the first is pinned CLEAR today by `lean-gate-selftest.sh` case `(y3)` / `LEDGER_FLAG_ONLY` | user-answered |
+| D-1 | What milestone 1 does when a `## Open regions` section is present but no region can be enumerated from it | Red when the section carries non-blank content, yields zero `OR-n` rows in any recognized shape, and is not the explicit empty form. NOT the ticket's literal "zero pause-and-ask ids": measured, a table declaring only `reversible-default-and-flag` rows and the explicit empty form each legitimately yield zero ids, and the first is pinned CLEAR today by `lean-gate-selftest.sh` cases `(y5)` (issue body) and `(y14)` (`LEDGER_FLAG_ONLY`) | user-answered |
 | D-2 | Which of `check_pause_and_ask`'s three return codes the new red takes | rc=2, UNKNOWN — an environment refusal that spends no fix attempt. Neither the issue body nor the gitignored receipt is the build role's to edit, which is exactly the function's own stated rule for rc=2 ("no edit the build role can make will fix it"); the two gh read arms and the `--issue-file` jq arm all return 2 | user-answered |
 | D-3 | How much of a bullet the bullet arm reads | Fold continuation lines: a bullet is its first line plus the following indented lines, to the next bullet or a dedent. Measured — #640 OR-1 and OR-2, #639 OR-1, and #637 OR-1 all carry the disposition token on a continuation line, and #639 is OPEN with a `pause-and-ask` sitting there | user-answered |
 | D-4 | A section whose bullets carry no `OR-n` at all (#441, #427, #426, #363) | Reds, as a direct consequence of D-1 — zero `OR-n` rows in any recognized shape. No separate arm is written for it. All four measured instances are CLOSED, so there is no live blast radius | codebase-derived |

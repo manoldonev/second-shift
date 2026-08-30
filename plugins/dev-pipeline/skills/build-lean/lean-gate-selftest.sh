@@ -2379,6 +2379,190 @@ if [ "$rc" -eq 2 ] && grep -q 'could not read pre-flight ledger' <<<"$out" && [ 
 else fail "(y18) expected rc=2 naming 'could not read pre-flight ledger' with attempts unchanged ($before), got rc=$rc attempts=$after: $out"; fi
 reset_progress
 
+# ---- (ys) #700: the section is read in the shapes the corpus ACTUALLY uses, and a section it
+# cannot read REFUSES ------------------------------------------------------------------------
+# WHY HERE AND NOT A SCENARIO: every case below drives one function pair (open_regions_section /
+# open_region_rows) through the --issue-file and --ledger-file seams and asserts a single
+# milestone-1 verdict. The COMPOSED path — an unenumerable section reaching a terminal refusal
+# rather than a milestone-1 pass — is a different assertion and is covered where it belongs, by
+# the `unenumerable open regions` scenario in scenario-liveness-selftest.sh. Neither subsumes the
+# other: these pin WHICH shapes parse, that one pins that the verdict actually terminates.
+#
+# The pre-#700 parser split on the pipe character, so it recognized a region only as a table row.
+# Measured across the tracker: 7 of the 11 issue bodies that declare regions with ids use bullets,
+# and no issue body has used the table form since #381 — so the shape the gate could read was the
+# shape nobody was writing, and milestone 1's refusal returned CLEAR having enumerated nothing.
+
+# The #694 shape, which is what filed this: id and disposition on one bullet line.
+cat > "$WORK/issue-or-bullet-paa.json" <<'EOF'
+{"body": "# issue\n\n## Open regions\n\n- **OR-1** (`pause-and-ask`) — the plan artifact's contract\n- **OR-2** (`reversible-default-and-flag`) — the enum's members\n"}
+EOF
+# The #639 shape: the token sits on a CONTINUATION line of the bullet, not on its first line.
+cat > "$WORK/issue-or-bullet-cont-paa.json" <<'EOF'
+{"body": "# issue\n\n## Open regions\n\n- OR-1: which run identity the record binds to, given the scheduler scrubs RUN_ID and\n  the build run's id is minted in the child. `pause-and-ask` if no binding is derivable.\n"}
+EOF
+# The #640 OR-1/OR-2 shape: continuation-line token, but reversible — must still CLEAR.
+cat > "$WORK/issue-or-bullet-cont-flag.json" <<'EOF'
+{"body": "# issue\n\n## Open regions\n\n- OR-1: whether the non-verdict is a wait or a hand-back (stop;\n  the operator re-launches). `reversible-default-and-flag`, default hand-back.\n"}
+EOF
+# The #636 / #622 shape: a DECORATED heading. Pre-#700 this matched no section at all.
+cat > "$WORK/issue-or-decorated-heading.json" <<'EOF'
+{"body": "# issue\n\n## Open regions (BUILD flags, does not pause)\n\n- OR-1: the falsifier's construction. `pause-and-ask`, and it is blocking.\n"}
+EOF
+# A heading-per-region section: pre-#700 the sub-heading ENDED the section, leaving zero non-blank
+# content lines, so it read as an empty section rather than an unparseable one.
+cat > "$WORK/issue-or-heading-per-region.json" <<'EOF'
+{"body": "# issue\n\n## Open Regions\n\n### OR-1 — Ordering\n\nDisposition: pause-and-ask\n"}
+EOF
+# The #441 / #427 / #426 / #363 shape: prose bullets carrying no OR-n at all.
+cat > "$WORK/issue-or-idless-prose.json" <<'EOF'
+{"body": "# issue\n\n## Open regions\n\n- Completeness of the AC-5 watcher taxonomy. The list is stated so the criteria are writable.\n- Trigger-5 behavior on stacks the detection does not cover, where every lane is null.\n"}
+EOF
+# The #640 OR-3 shape: an id whose disposition is stated only in prose, with no token anywhere.
+cat > "$WORK/issue-or-nodisp.json" <<'EOF'
+{"body": "# issue\n\n## Open regions\n\n- OR-3: whether an attended operator may override and approve anyway. Default **no** — this is a\n  gates-signal condition under the sibling register slice's predicate.\n"}
+EOF
+# Both defects at once, to pin that ONE run reports both.
+cat > "$WORK/issue-or-two-defects.json" <<'EOF'
+{"body": "# issue\n\n## Open regions\n\n- OR-3: whether an attended operator may override. Default **no**, flagged.\n- OR-4: the retention window. Default 30 days, flagged.\n"}
+EOF
+# A hand-written short empty form — NOT ledger-lint's canonical sentence.
+cat > "$WORK/issue-or-empty-form-short.json" <<'EOF'
+{"body": "# issue\n\n## Open regions\n\nNo open regions.\n"}
+EOF
+# A heading with nothing under it: asserts nothing, so it is not the unenumerable case.
+cat > "$WORK/issue-or-bare-heading.json" <<'EOF'
+{"body": "# issue\n\n## Open Regions\n\n## Acceptance Criteria\n\n- AC-1 something\n"}
+EOF
+
+# (y19) AC-3: the #694 bullet — the shape this ticket was filed on. Pre-#700 the id came from the
+# second pipe-delimited field of a line with no pipes, so it was empty and the region vanished.
+reset_progress
+out="$(gate 1 7 --issue-file "$WORK/issue-or-bullet-paa.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'region OR-1' <<<"$out" && ! grep -q 'OR-2' <<<"$out"; then
+  pass "(y19) AC-3: a bullet-form pause-and-ask region refuses milestone 1, and its reversible sibling does not"
+else fail "(y19) expected rc=1 naming OR-1 only, got $rc: $out"; fi
+
+# (y20) AC-3: the disposition token on a CONTINUATION line. A first-line-only read finds the id
+# and misses the token — and on #639, an OPEN ticket, that token is a live pause-and-ask.
+reset_progress
+out="$(gate 1 7 --issue-file "$WORK/issue-or-bullet-cont-paa.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'region OR-1' <<<"$out"; then
+  pass "(y20) AC-3: a pause-and-ask token on a bullet's continuation line is found and refuses"
+else fail "(y20) expected rc=1 naming OR-1 from a continuation line, got $rc: $out"; fi
+
+# (y21) AC-3/AC-7: the same folding must not manufacture a refusal. A continuation-line
+# reversible-default-and-flag is a fully enumerated region and clears — the (y5) rule, reached
+# through the bullet arm.
+reset_progress
+out="$(gate 1 7 --issue-file "$WORK/issue-or-bullet-cont-flag.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+if [ "$rc" -eq 0 ]; then
+  pass "(y21) AC-3/AC-7: a continuation-line reversible-default-and-flag region is enumerated and clears"
+else fail "(y21) expected rc=0 for a continuation-line reversible region, got $rc: $out"; fi
+
+# (y22) AC-1: the DECORATED heading, and the sharpest case in this block. Pre-#700 the heading
+# regex was anchored at end-of-line, so `## Open regions (BUILD flags, does not pause)` matched no
+# section — nothing was misparsed, so no refusal could fire and the gate cleared in silence.
+reset_progress
+out="$(gate 1 7 --issue-file "$WORK/issue-or-decorated-heading.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'region OR-1' <<<"$out"; then
+  pass "(y22) AC-1: a heading carrying trailing text is still the Open Regions section, and its region refuses"
+else fail "(y22) expected rc=1 naming OR-1 under a decorated heading, got $rc: $out"; fi
+
+# (y23) AC-2/AC-5: heading-per-region. The fix is in the SECTION extractor, not the row parse —
+# terminating on any heading left zero non-blank content, which read as an empty section. It now
+# stays inside, is visible, and reds as unenumerable rather than clearing.
+reset_progress
+out="$(gate 1 7 --issue-file "$WORK/issue-or-heading-per-region.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+if [ "$rc" -eq 2 ] && grep -q 'could not enumerate the open regions' <<<"$out" && grep -q 'no recognized shape' <<<"$out"; then
+  pass "(y23) AC-2/AC-5: a heading-per-region section is visible to the parse and refuses as unenumerable"
+else fail "(y23) expected rc=2 naming an unenumerable section, got $rc: $out"; fi
+
+# (y24) AC-5: idless prose bullets. The section asserts it has open regions and the parser cannot
+# name one — the same "could not read" the two gh arms report, not "declares none".
+reset_progress
+out="$(gate 1 7 --issue-file "$WORK/issue-or-idless-prose.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+if [ "$rc" -eq 2 ] && grep -q "issue #7's body declares an \"## Open regions\" section in no recognized shape" <<<"$out"; then
+  pass "(y24) AC-5: a section of idless prose bullets is an environment refusal, not a clear"
+else fail "(y24) expected rc=2 naming the issue body's unenumerable section, got $rc: $out"; fi
+
+# (y25) AC-6: an id parsed with no recognizable disposition token. Reading it as "not
+# pause-and-ask" is exactly the fail-open this ticket closes.
+reset_progress
+out="$(gate 1 7 --issue-file "$WORK/issue-or-nodisp.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+if [ "$rc" -eq 2 ] && grep -q 'declares region OR-3 with no recognizable disposition' <<<"$out"; then
+  pass "(y25) AC-6: a region with no recognizable disposition refuses, naming the region"
+else fail "(y25) expected rc=2 naming OR-3 as dispositionless, got $rc: $out"; fi
+
+# (y26) AC-9: every region in ONE message, not the first — the same ergonomic the unresolved-region
+# refusal already owes and states. An operator clearing two must not pay two runs.
+reset_progress
+out="$(gate 1 7 --issue-file "$WORK/issue-or-two-defects.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+if [ "$rc" -eq 2 ] && grep -q 'OR-3' <<<"$out" && grep -q 'OR-4' <<<"$out" \
+   && [ "$(grep -c 'could not enumerate the open regions' <<<"$out")" -eq 1 ]; then
+  pass "(y26) AC-9: two dispositionless regions are named in one refusal, not one per run"
+else fail "(y26) expected one refusal naming both OR-3 and OR-4, got $rc: $out"; fi
+
+# (y27) AC-7: the empty form is recognized by PREFIX, not against ledger-lint's canonical
+# sentence. The issue body has no lint to teach an operator that sentence, so a hand-written
+# "No open regions." must clear rather than refuse.
+reset_progress
+out="$(gate 1 7 --issue-file "$WORK/issue-or-empty-form-short.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+if [ "$rc" -eq 0 ]; then
+  pass "(y27) AC-7: a short hand-written empty form clears — the recognizer is a prefix, not the canonical sentence"
+else fail "(y27) expected rc=0 for a hand-written empty form, got $rc: $out"; fi
+
+# (y28) AC-7: a heading with no non-blank content under it asserts nothing, so it is absence and
+# not an unenumerable section. This is the boundary (y23) sits on the other side of.
+reset_progress
+out="$(gate 1 7 --issue-file "$WORK/issue-or-bare-heading.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+if [ "$rc" -eq 0 ]; then
+  pass "(y28) AC-7: an Open Regions heading with nothing under it declares nothing and clears"
+else fail "(y28) expected rc=0 for a contentless section, got $rc: $out"; fi
+
+# (y29) AC-8: the LEDGER source gets the same treatment, through the one shared parser. A fix
+# that only covered the issue body would leave the other declared half open.
+reset_progress
+LEDGER_BULLET_PAA="$WORK/ledger-bullet-paa.md"
+printf '## Open Regions\n\n- OR-1: the ordering guarantee. pause-and-ask, nobody owns it yet.\n' > "$LEDGER_BULLET_PAA"
+out="$(gate 1 7 --comments-file "$WORK/comments-none.json" --ledger-file "$LEDGER_BULLET_PAA")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'region OR-1' <<<"$out"; then
+  pass "(y29) AC-8: a bullet-form pause-and-ask region in the pre-flight ledger refuses too"
+else fail "(y29) expected rc=1 naming OR-1 from the ledger, got $rc: $out"; fi
+
+# (y30) AC-8: and the unenumerable arm reaches the ledger, naming THAT source rather than the
+# issue body — an operator must be told which of the two to go and fix.
+reset_progress
+LEDGER_IDLESS="$WORK/ledger-idless.md"
+printf '## Open Regions\n\n- Whether the ladder copies get manifest rows. Default: add it.\n' > "$LEDGER_IDLESS"
+out="$(gate 1 7 --comments-file "$WORK/comments-none.json" --ledger-file "$LEDGER_IDLESS")"; rc=$?
+if [ "$rc" -eq 2 ] && grep -q "the pre-flight ledger $LEDGER_IDLESS declares an" <<<"$out"; then
+  pass "(y30) AC-8/AC-9: an unenumerable LEDGER section refuses, naming the ledger path as the source"
+else fail "(y30) expected rc=2 naming the ledger path, got $rc: $out"; fi
+
+# (y31) AC-10: the refusal costs no fix attempt. It is the environment-refusal arm, so a run whose
+# ticket carries an unreadable section must not burn milestone 1's budget on something no edit the
+# build role can make would fix — neither the issue body nor the gitignored receipt is its to edit.
+reset_progress
+before="$(count_in_progress '| milestone-1 | attempt |')"
+out="$(gate 1 7 --issue-file "$WORK/issue-or-idless-prose.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+after="$(count_in_progress '| milestone-1 | attempt |')"
+if [ "$rc" -eq 2 ] && [ "$after" -eq "$before" ]; then
+  pass "(y31) AC-10: an unenumerable section is an environment refusal and spends no fix attempt"
+else fail "(y31) expected rc=2 with attempts unchanged ($before), got rc=$rc attempts=$after: $out"; fi
+
+# (y32) AC-4/AC-12: the non-regression pin with teeth. The pre-#700 table path and its refusal
+# SENTENCE are unchanged — that sentence is the one the file marks byte-for-byte fixed for
+# headless runs, and the new refusal is an additional message rather than an edit to it.
+reset_progress
+out="$(gate 1 7 --issue-file "$WORK/issue-or1-paa.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'region OR-1 dispositioned pause-and-ask with no resolution artifact' <<<"$out" \
+   && ! grep -q 'could not enumerate the open regions' <<<"$out"; then
+  pass "(y32) AC-4/AC-12: the table path still refuses with its original sentence, untouched by the new arm"
+else fail "(y32) expected the original unresolved-region sentence and no enumeration refusal, got $rc: $out"; fi
+
+reset_progress
+
 # ---- (yo) #613 AC-4: the operator-override route through the same refusal --------------------
 # THE THIRD RESOLUTION ARTIFACT. (y3) covers the tracker comment and (y4) the ratified intent-gap
 # record; these cover an override recorded by a present operator. The pairing that matters is

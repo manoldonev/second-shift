@@ -125,6 +125,28 @@ Explicit empty form, for genuinely trivial scope:
 No open regions — every decision in scope is ratified.
 ```
 
+**The shapes the lean gate can read.** This section is not only read by people: milestone 1 of
+`build-lean` enumerates its regions from **two** declared sources — this receipt, and the issue
+body — and refuses on a `pause-and-ask` region with no resolution artifact. So the shape is load-
+bearing, and a section it cannot enumerate is refused rather than passed over (#700):
+
+| Where | Accepted |
+| --- | --- |
+| Receipt (`{issue}-ledger.md`) | the table row above, or the explicit empty form. `ledger-lint --receipt` mandates the table here, so a bullet receipt fails intake's own lint. |
+| Issue body | the table row, **or** a bullet naming an `OR-n` whose disposition token appears somewhere in that bullet — continuation lines included — or the explicit empty form. |
+
+Two things follow, and both have bitten:
+
+- **Put an `OR-n` on every region.** A section of prose bullets with no ids declares regions the
+  gate cannot name, and is refused as unenumerable. Stating the disposition in prose ("default
+  **no**, flagged") rather than with its token is the same failure one level down.
+- **The heading may carry trailing text** (`## Open regions (BUILD flags, does not pause)`) and is
+  matched case-insensitively, but the words "open regions" must open it.
+
+The refusal is an *environment* refusal: it spends none of milestone 1's fix budget, because
+neither the issue body nor the gitignored receipt is the build session's to edit. Reshape the
+section and re-run.
+
 ### The Surface Inventory
 
 Open Regions makes the *known* gaps explicit. The inventory is for the other kind: the
