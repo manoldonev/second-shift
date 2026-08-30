@@ -102,7 +102,7 @@ else
     || { echo "config-diff-guard: could not marshal --ack values" >&2; exit 3; }
 fi
 
-# The walk (see docs/plans/second-shift-450-lean.md AC-2): descend objects, treat an ARRAY as a
+# The walk (see AC-2 of the #450 spec, docs/plans/second-shift-450-lean.md in git history): descend objects, treat an ARRAY as a
 # leaf compared whole. commands.<id>.lanes, extraLanes and reviewers.add are arrays of objects, so
 # index-level paths would report a cascade of shifted elements on a single insertion — noise that
 # trains the reader to acknowledge blindly.
