@@ -75,7 +75,7 @@ of a full re-read.
 2. **Collapse the review panel (#667).** Review spawns are 10–17 minutes each, two per round, and
    the recorded measurement behind that ticket is that the core four reviewers produced zero
    blockers across 248 record-versions. This cuts every round, not just the spurious ones.
-3. **Do not spend a round on a budget red.** A guard-budget or trailer failure is a CI-shaped
+3. **Do not spend a round on a policy-gate red.** A trailer or frozen-files failure is a CI-shaped
    refusal that no reviewer judgement resolves; routing it through a review round costs a full
    build-and-review pair to apply a mechanical fix.
 

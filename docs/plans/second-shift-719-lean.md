@@ -13,8 +13,9 @@ Both issue comments ratify this deletion (2026-08-30, operator, original cut and
 
 ## Acceptance Criteria
 
-- **AC-1** `git grep -nE 'Guard-mass|check-guard-budget' -- . ':!docs/plans' ':!CHANGELOG.md'`
-  prints nothing [base: 29 hits / 11 files].
+- **AC-1** `git grep -nE 'Guard-mass|check-guard-budget|guard-budget' -- . ':!docs/plans' ':!CHANGELOG.md'`
+  prints nothing [base: 37 hits / 11 files — widened r1 to cover the bare `guard-budget` spelling,
+  which the narrower regex let `docs/lane-latency.md:78` escape].
 - **AC-2** `test ! -e scripts/check-guard-budget.sh -a ! -e scripts/check-guard-budget-selftest.sh`.
 - **AC-3** `awk -v j='  pr-gates:' '$0==j{f=1;next} /^  [a-z-]+:$/{f=0} f' .github/workflows/ci.yml
   | grep -cE '^\s*run:.*check-guard-(budget|ratchet)'` → 0 [base: 1].
