@@ -36,25 +36,19 @@
 # counter lives in a file a fix round can reset, and a scheduler with no bound of its own would
 # loop forever on a reset counter.
 #
-# WHY A SPAWN'S EXIT STATUS IS NOT A COMPLETION SIGNAL (#492). `claude -p` exits 0 whenever the
-# model ends its turn cleanly — which is "the model stopped talking", not "the block finished".
-# A headless payload that backgrounds a gate, exhausts its context, or decides to wait on
-# anything produces the identical signature: exit 0, work committed, nothing left to review. So
-# this loop reads a THIRD post-spawn state beside finished and failed — exited 0, no PR, but the
-# run advanced — and re-spawns on it, because build-lean is outcome-gated and resumable by
-# construction and its own Resume contract makes a fresh session the recovery.
+# WHY A SPAWN'S EXIT STATUS IS NOT A COMPLETION SIGNAL. `claude -p` exits 0 whenever the model
+# ends its turn cleanly — which is "the model stopped talking", not "the block finished". A
+# headless payload that exhausts its context or decides to wait on anything produces the identical
+# signature: exit 0, work committed, nothing left to review.
 #
-# What it may NOT do is judge that from the session's output. "Advanced" is one opaque token from
-# `lean-gate.sh progress`, compared before and after the spawn and interpreted no further; the
-# gate owns the predicate, this script owns only the comparison. That is what keeps the boundary
-# above ("gate exit codes and tracker state") true while this script gains a third thing to read.
-#
-# THE CONTINUATION BUDGET, and why it is load-bearing rather than belt-and-braces. `fail_milestone`
-# appends an attempt row on every red including the over-budget one, so a spawn that hit the
-# gate's own `rc=4` hard stop reads as "advanced" and would re-spawn forever. --max-continuations
-# bounds that. It is NOT a new fix budget — the gate's counter still decides when a milestone is
-# spent — it is a bound on CONSECUTIVE spawns that leave no PR, and it resets whenever a spawn
-# yields one, so each build phase gets its own and a run that keeps advancing is not starved.
+# #718 ANSWERS THAT WITH A HUMAN RATHER THAN A RETRY. Between #492 and #718 this loop read a THIRD
+# post-spawn state — exited 0, no PR, but the run advanced — and re-spawned on it, on a budget, off
+# two opaque tokens the gate printed for no other reader. Three mechanisms, one purpose, and the
+# purpose was to guess whether a session that stopped talking would say more if asked again.
+# It now spawns BUILD ONCE per round. No PR is `build-no-pr` and the run stops; the operator reads
+# the lane log and decides, which is the judgement the budget was standing in for. The stranded-work
+# exit is rescued by hand with the recipe in build-lean/SKILL.md. If that rate proves unacceptable,
+# the measurement is the basis for a Stop hook — not a presumption.
 #
 # THE VERDICT GATE'S RC IS A TAXONOMY, NOT A BOOLEAN (#496). Every milestone-4 failure used to
 # return 1, so twenty distinct conditions arrived here as one word — and the loop had exactly one
@@ -189,11 +183,6 @@
 #     --model-basis <text> Free text recorded in the log beside the build model, e.g. `label`
 #                          or `sized-here: touches two gates`. Default `label`.
 #     --max-rounds <n>     Default 3. The n+1th is the hard stop.
-#     --max-continuations <n>
-#                          Default 2. Consecutive BUILD spawns that exit 0, leave no PR, and
-#                          advanced the run are re-spawned up to this many times per build
-#                          phase; the counter resets whenever a spawn yields a PR. 0 restores
-#                          the pre-#492 behavior of never continuing.
 #     --dry-run            Print the schedule and exit 0 without spawning anything.
 #
 # Seams (every one has a shipped default pointing at the real thing):
@@ -239,10 +228,6 @@ REVIEW_MODEL="$REVIEW_MODEL_DEFAULT"
 REVIEW_MODEL_BASIS=""
 MODEL_BASIS="label"
 MAX_ROUNDS=3
-MAX_CONTINUATIONS=2
-# Not a flag, deliberately: it bounds a RECOVERY from a transport artefact, not a budget an
-# operator tunes per run, and the whole value of it is that nobody has to know it is there.
-MAX_INFLIGHT_RECOVERIES=1
 # #496 D-10: exactly one. Not a flag — a knob here would let an operator turn a broken review lane
 # into an expensive one, and the bound is the point.
 MAX_REVIEW_RETRIES=1
@@ -316,7 +301,7 @@ terminal() { # terminal <slug> <exit-code> <message...>
   # #650 AC-1. EVERY exit funnels through here, `envfail` included, so one call site records every
   # launch's outcome — which is the field that turns the ledger from a launch count into something
   # the attribution rubric can be applied to. A terminal vocabulary IS evidence: `staleness-expired`
-  # and `build-idle` classify differently, and neither is recoverable from a transcript that the
+  # and `build-no-pr` classify differently, and neither is recoverable from a transcript that the
   # scheduler never got far enough to open.
   # #652 taught this the hard way: the SLUG ALONE IS NOT THE REASON. A campaign row's launch 1 read
   # `preflight-rejected rc=2` and nothing else, and the terminal text existed only on a scrolled-away
@@ -347,9 +332,9 @@ while [ $# -gt 0 ]; do
     --review-model-basis) REVIEW_MODEL_BASIS="${2:-}"; shift 2 ;;
     --model-basis)        MODEL_BASIS="${2:-}"; shift 2 ;;
     --max-rounds)         MAX_ROUNDS="${2:-}"; shift 2 ;;
-    --max-continuations)  MAX_CONTINUATIONS="${2:-}"; shift 2 ;;
+    --max-continuations)  envfail usage-max-continuations "--max-continuations was removed in #718 along with the continuation budget it bounded: BUILD is spawned once per round, and a spawn that leaves no PR ends the run for a human to read. There is no value of this flag to pass." ;;
     --dry-run)            DRY_RUN=1; shift ;;
-    -h|--help)            sed -n '2,222p' "$0"; exit 0 ;;
+    -h|--help)            sed -n '2,211p' "$0"; exit 0 ;;
     -*)                   envfail usage-unknown-option "unknown option: $1" ;;
     *)                    [ -z "$ISSUE" ] && ISSUE="$1" || envfail usage-unexpected-argument "unexpected argument: $1"; shift ;;
   esac
@@ -366,10 +351,6 @@ if [ "$REVIEW_MODEL" != "$REVIEW_MODEL_DEFAULT" ] && [ -z "$REVIEW_MODEL_BASIS" 
 fi
 case "$MAX_ROUNDS" in ''|*[!0-9]*) envfail usage-max-rounds "--max-rounds must be a positive integer, got '$MAX_ROUNDS'" ;; esac
 [ "$MAX_ROUNDS" -ge 1 ] || envfail usage-max-rounds "--max-rounds must be at least 1."
-# Zero is legal here where it is not for --max-rounds: a run with no rounds could do nothing at
-# all, whereas a run with no continuations is exactly the pre-#492 behavior and is the honest way
-# to ask for it back.
-case "$MAX_CONTINUATIONS" in ''|*[!0-9]*) envfail usage-max-continuations "--max-continuations must be a non-negative integer, got '$MAX_CONTINUATIONS'" ;; esac
 
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || envfail env-no-git-repo "not in a git repo."
 _common="$(git rev-parse --git-common-dir 2>/dev/null)" || envfail env-git-common-dir "cannot resolve --git-common-dir."
@@ -452,7 +433,7 @@ LOG_DIR="$MAIN_ROOT/$STATE_DIR"
 # an instant preflight reject — the exact shape whose evidence this exists to keep.
 LAUNCH_ID="${LEAN_LAUNCH_ID:-$(now_iso | tr -d ':-')-$$}"
 LAUNCH_LEDGER="$LOG_DIR/$ISSUE-lean-launches.tsv"
-launch_note launch "branch_key=$ISSUE build=$BUILD_MODEL review=$REVIEW_MODEL rounds=$MAX_ROUNDS continuations=$MAX_CONTINUATIONS"
+launch_note launch "branch_key=$ISSUE build=$BUILD_MODEL review=$REVIEW_MODEL rounds=$MAX_ROUNDS"
 
 # ---- preflight ------------------------------------------------------------------------------
 # THE PROBES RUN CONCURRENTLY, and one invocation reports EVERY failure. Both halves are
@@ -667,7 +648,7 @@ say "preflight: clean."
 # indistinguishable from a stated one in the very log this ticket exists to make legible.
 REVIEW_BASIS_NOTE=""
 [ -n "$REVIEW_MODEL_BASIS" ] && REVIEW_BASIS_NOTE=" (basis: $REVIEW_MODEL_BASIS)"
-say "build model: $BUILD_MODEL (basis: $MODEL_BASIS) · review model: $REVIEW_MODEL$REVIEW_BASIS_NOTE · rounds: $MAX_ROUNDS · continuations: $MAX_CONTINUATIONS"
+say "build model: $BUILD_MODEL (basis: $MODEL_BASIS) · review model: $REVIEW_MODEL$REVIEW_BASIS_NOTE · rounds: $MAX_ROUNDS"
 
 # ---- the work branch and its worktree ---------------------------------------------------------
 # One prefix resolver for the whole marketplace; this script asks it the same question the gate
@@ -780,21 +761,9 @@ verdict_rc() {
   ( cd "$wt" && env -u RUN_ID LEAN_GATE_OBSERVE=1 bash "$GATE" 4 "$ISSUE" )
 }
 
-# The continuation predicate (#492). One opaque token; this script never parses it, only compares
-# two of them for equality. Same RUN_ID scrub as verdict_rc, for the same reason.
-#
-# Run from MAIN_ROOT, NOT the lane worktree: the progress record lives in the main checkout so it
-# survives teardown, and the close-out comparison happens on both sides of a spawn whose last act
-# is `bash G teardown` — a reader anchored in the worktree would be reading from a directory the
-# thing it is measuring has just deleted.
-#
-# It RETURNS NON-ZERO rather than printing an empty token when the gate cannot answer. An empty
-# token compared against an empty token agrees, and that agreement would read as "the run did not
-# advance" — a broken gate would be indistinguishable from an idle session, which is the exact
-# shape of error-reads-as-success this ticket exists to remove.
-# #515. Both arms, from MAIN_ROOT and with RUN_ID scrubbed, for the same two reasons progress_token
-# carries: the branch ref and the remote-tracking ref live in the main checkout's common dir, and
-# an ambient run id must not let the scheduler's environment key anything the gate resolves.
+# #515. Both arms, from MAIN_ROOT and with RUN_ID scrubbed, for two reasons: the branch ref and the
+# remote-tracking ref live in the main checkout's common dir, and an ambient run id must not let
+# the scheduler's environment key anything the gate resolves.
 #
 # Output is NOT suppressed — the gate's line naming which arm fired and what it saw IS the
 # operator's evidence for the stop, and this script must not paraphrase a predicate it does not own.
@@ -850,27 +819,20 @@ closeout_rc() {
   ( cd "$wt" && env -u RUN_ID -u CLAUDE_CODE_SESSION_ID bash "$GATE" close-out "$ISSUE" )
 }
 
-progress_token() { # progress_token [--satisfied <n>]
-  local tok rc
-  tok="$( cd "$MAIN_ROOT" && env -u RUN_ID bash "$GATE" progress "$ISSUE" "$@" 2>/dev/null )"
-  rc=$?
-  [ "$rc" -eq 0 ] && [ -n "$tok" ] || return 1
-  printf '%s\n' "$tok"
-}
-
-# #527. THE INFRA-DEATH READ, and it is a SEPARATE token space from the one above rather than a
-# widening of it. The continuation predicate counts milestones the build role SATISFIED or FAILED;
-# an evaluation that was killed did neither, which is exactly why a session that spent five minutes
-# sweeping is byte-identical to one that did nothing. Folding the two into one token would make
-# every killed spawn read as advancement — the thing lean-gate.sh's row set was closed to prevent.
+# The close-out's ONE remaining token read (#597 D-1). Not a predicate over spawns — a single
+# question asked once, on the rc=3 arm below: with the lane worktree gone, did milestone 5 ever
+# reach `satisfied`? Two of these are compared for equality and never parsed.
 #
-# Same MAIN_ROOT anchor and same RUN_ID scrub as its sibling, for the same two reasons; and the
-# same FAIL-CLOSED posture, for a third. The gate answers `m3infra-v3:0` when there is no death, so
-# an empty or erroring read is never a legitimate negative — treating it as one would put this
-# script back to reading a killed session as an idle one, which is the bug being removed.
-infra_token() {
+# Run from MAIN_ROOT, NOT the lane worktree: the progress record lives in the main checkout so it
+# survives teardown, and this read happens precisely because teardown has already run. Same RUN_ID
+# scrub as verdict_rc, for the same reason.
+#
+# It RETURNS NON-ZERO rather than printing an empty token when the gate cannot answer. An empty
+# token compared against an empty token agrees, and that agreement would read as "milestone 5 was
+# never satisfied" — a broken gate indistinguishable from an unfinished lane.
+satisfied_token() { # satisfied_token <milestone>
   local tok rc
-  tok="$( cd "$MAIN_ROOT" && env -u RUN_ID bash "$GATE" progress "$ISSUE" --infra 2>/dev/null )"
+  tok="$( cd "$MAIN_ROOT" && env -u RUN_ID bash "$GATE" progress "$ISSUE" --satisfied "$1" 2>/dev/null )"
   rc=$?
   [ "$rc" -eq 0 ] && [ -n "$tok" ] || return 1
   printf '%s\n' "$tok"
@@ -888,141 +850,84 @@ round=1
 while :; do
   say "── round $round of $MAX_ROUNDS"
 
-  # The build phase. One spawn on the happy path; a continuation only when the spawn left no PR
-  # AND the progress record moved. `continuations` is scoped to this phase, which IS the reset
-  # D-3 asks for: the only way out of this loop is a PR.
-  continuations=0
-  # #652's corpus, and its OWN counter rather than a share of --max-continuations. The two bound
-  # different failure modes — that one bounds spawns which left no PR at all, this one bounds
-  # spawns which left a PR and uncollected work beside it — and folding them would let an
-  # infrastructure kill early in a phase spend the budget that recovers the exit-0-dirty case
-  # later in it. One re-spawn, on the review retry's reasoning: a second identical answer is a
-  # broken lane rather than bad luck, and a third costs more to learn the same thing.
-  inflight_recoveries=0
-  PR=""
-  while :; do
-    # #515, and FIRST in the loop body: a run whose premise has expired should cost nothing more,
-    # not even the progress read below. This covers round-1 entry and every continuation, because
-    # a continuation re-enters here — which is the spawn the motivating incident kept taking.
-    staleness_rc; st_rc=$?
-    case "$st_rc" in
+  # THE BUILD PHASE, and it is ONE spawn (#718). What stood here was a loop with two counters — a
+  # continuation budget over spawns that left no PR, and a separate in-flight recovery over spawns
+  # that left a PR with uncollected work beside it — each re-spawning BUILD on the theory that a
+  # session which stopped talking would finish if asked again. Both are deleted: the exits they
+  # guarded are handed to a human, who can read the lane log, which is the one thing the budgets
+  # could not do.
+  # #515, and FIRST in the phase: a run whose premise has expired should cost nothing more, not
+  # even the spawn. Every round re-enters here, which is the spawn the motivating incident kept
+  # taking.
+  staleness_rc; st_rc=$?
+  case "$st_rc" in
+    0) : ;;
+    7) terminal staleness-expired 7 "HARD STOP: this run's premise expired while it was in flight — see the gate's line above for which arm fired and what it saw. Rebase this branch onto the updated base and re-launch, or abandon the ticket; a re-launch without rebasing re-fires this stop at the same point. Detection is all this does: nothing was rebased and nothing was reverted. The worktree and the claim are left in place." ;;
+    # Fail closed (D-5): a predicate that could not be evaluated is not a predicate that passed,
+    # and spawning on one would be spawning blind.
+    *) terminal staleness-unreadable 1 "the staleness check could not be completed (gate exit $st_rc) — refusing to spawn BUILD against a premise nothing verified." ;;
+  esac
+
+  spawn BUILD "$BUILD_MODEL" "/dev-pipeline:build-lean $ISSUE" \
+    || terminal build-session-failed 1 "BUILD session failed in round $round."
+
+  PR="$(resolve_pr)"
+  # More than one open PR on this head is not a state to guess through: the review would run on
+  # one and the close-out could verify the other. Named, not counted silently.
+  if [ "$(printf '%s' "$PR" | grep -c '[0-9]')" -gt 1 ]; then
+    terminal pr-ambiguous 1 "more than one open PR on '$BRANCH' ($(printf '%s' "$PR" | tr '\n' ' ')) — the lane cannot choose which one this run is about. Close or retarget the extras and re-launch."
+  fi
+  # #531 AC-5. THE BUILD EXIT CONTRACT, and it is gated on there BEING a PR, which is where the
+  # harm lives: the round that follows hands `review-lean` a PR whose REMOTE head is missing
+  # everything the build session just did. Measured three times in a single run of one ticket,
+  # each costing a full review round with nothing in the log to distinguish it from a legitimate
+  # one; the worst shape had BUILD correctly rebase onto a moved base AND find a real defect the
+  # new base introduced, then exit 0 leaving both unpushed — one teardown from losing them.
+  #
+  # DELIBERATELY NOT ON THE NO-PR PATH, and the ordering outlived the continuation it was written
+  # against. A build session is expected to hold unpushed commits for most of its life — milestone
+  # 3 runs long before checklist step 7 pushes — so an unpushed spec commit in a young lane must
+  # not be read as work left behind. This arm asks "is what happened visible to a reviewer", and
+  # only a PR makes that question meaningful; without one the run stops below regardless.
+  #
+  # An open PR also means the branch was pushed at least once, which is what makes the unreadable
+  # arm below a genuine environment error rather than the ordinary state of a young lane.
+  #
+  # TERMINAL, restoring #531's original posture (#718). #652 argued for a recovery spawn instead:
+  # the work is in the lane worktree, build-lean resumes at the first unsatisfied milestone, so a
+  # fresh session re-derives nothing and just pushes. True — and it is still one more session spent
+  # guessing that the next one will behave differently. #531's reading is the one that survives:
+  # the remedy is a single push from a tree that still exists, which an operator performs in
+  # seconds from the recipe in build-lean/SKILL.md. Both the worktree and the claim are left
+  # standing for exactly that.
+  if [ -n "$PR" ]; then
+    inflight_rc; if_rc=$?
+    case "$if_rc" in
       0) : ;;
-      7) terminal staleness-expired 7 "HARD STOP: this run's premise expired while it was in flight — see the gate's line above for which arm fired and what it saw. Rebase this branch onto the updated base and re-launch, or abandon the ticket; a re-launch without rebasing re-fires this stop at the same point. Detection is all this does: nothing was rebased and nothing was reverted. The worktree and the claim are left in place." ;;
-      # Fail closed (D-5). Same posture as the progress read below: a predicate that could not be
-      # evaluated is not a predicate that passed, and spawning on one would be spawning blind.
-      *) terminal staleness-unreadable 1 "the staleness check could not be completed (gate exit $st_rc) — refusing to spawn BUILD against a premise nothing verified." ;;
+      8)
+        terminal build-inflight 1 "HARD STOP: the BUILD session exited 0 and PR #$PR is open, but the lane worktree still holds work nothing else has a copy of — see the gate's line above for which arm fired. A review would read a remote head missing it. Push from the lane worktree and re-launch; the worktree and the claim are left in place."
+        ;;
+      # Fail closed, the same posture the two reads above take: a predicate that could not be
+      # evaluated is not a predicate that passed, and the failure direction of guessing here is a
+      # review round spent on code nobody will merge.
+      *) terminal build-inflight-unreadable 1 "the in-flight check could not be completed (gate exit $if_rc) — whether the BUILD session left work behind is unknown, and reviewing on that guess is the defect this check exists to remove." ;;
     esac
-
-    tok_before="$(progress_token)" \
-      || terminal progress-unreadable 1 "cannot read the run's progress record through '$GATE' — the continuation predicate is unavailable, so a stopped BUILD session could not be told from a finished one. Not spawning blind."
-
-    # #527: read on BOTH sides, in the same shape as the token above, because the routing below is
-    # on the DELTA and never on the level. The record is append-only, so one infrastructure death
-    # leaves a level test true for the rest of the run — every later idle session would then read
-    # as recoverable and spend the whole continuation budget on nothing, which is a fresh instance
-    # of the bug this reads for.
-    infra_before="$(infra_token)" \
-      || terminal infra-unreadable 1 "cannot read the run's milestone-3 infrastructure residue through '$GATE' — a killed evaluation could not be told from an idle session, which is the one distinction this loop needs. Not spawning blind."
-
-    spawn BUILD "$BUILD_MODEL" "/dev-pipeline:build-lean $ISSUE" \
-      || terminal build-session-failed 1 "BUILD session failed in round $round."
-
-    PR="$(resolve_pr)"
-    # More than one open PR on this head is not a state to guess through: the review would run on
-    # one and the close-out could verify the other. Named, not counted silently.
-    if [ "$(printf '%s' "$PR" | grep -c '[0-9]')" -gt 1 ]; then
-      terminal pr-ambiguous 1 "more than one open PR on '$BRANCH' ($(printf '%s' "$PR" | tr '\n' ' ')) — the lane cannot choose which one this run is about. Close or retarget the extras and re-launch."
-    fi
-    # #531 AC-5. THE BUILD EXIT CONTRACT, and it is gated on there BEING a PR, which is where the
-    # harm lives: the round that follows hands `review-lean` a PR whose REMOTE head is missing
-    # everything the build session just did. Measured three times in a single run of one ticket,
-    # each costing a full review round with nothing in the log to distinguish it from a legitimate
-    # one; the worst shape had BUILD correctly rebase onto a moved base AND find a real defect the
-    # new base introduced, then exit 0 leaving both unpushed — one teardown from losing them.
-    #
-    # DELIBERATELY NOT ON THE NO-PR PATH, and that ordering is load-bearing rather than incidental.
-    # A build session is expected to hold unpushed commits for most of its life — milestone 3 runs
-    # long before checklist step 7 pushes — so asserting this before a PR exists would hard-stop
-    # exactly the spawn #527 taught this loop to CONTINUE from: an infrastructure kill mid-sweep,
-    # whose worktree legitimately carries an unpushed spec commit. The continuation predicate below
-    # owns "did anything happen at all"; this owns "is what happened visible to a reviewer".
-    #
-    # An open PR also means the branch was pushed at least once, which is what makes the unreadable
-    # arm below a genuine environment error rather than the ordinary state of a young lane.
-    #
-    # RECOVERED, not terminal — reversing #531's original posture on the evidence #652 produced.
-    # That posture reasoned "the remedy is one push from a tree that still exists, and a fresh
-    # session re-deriving the work would be the expensive way to reach the same place." The second
-    # half is what the corpus refutes: a fresh session does NOT re-derive anything. The work is
-    # sitting in the lane worktree and build-lean is outcome-gated and resumable by construction —
-    # its Resume contract re-reads the progress record and continues at the first unsatisfied
-    # milestone, which here means committing and pushing what is already there. That is the same
-    # remedy the operator performs by hand, at the same cost, minus the operator.
-    #
-    # It is the campaign's most expensive measured failure: #652's row 3 is exactly this shape — a
-    # round-3 BUILD spawn produced the edit its blocker required, ended its turn with the edit
-    # uncommitted (under `claude -p`, turn end IS process exit), and the lane hard-stopped until a
-    # human committed from the worktree and re-launched. One class-T across five arm-a launches,
-    # which is a fifth of the metric that decides whether this scheduler survives.
-    #
-    # The scheduler still authors NOTHING. It does not commit the tree and it does not push — it
-    # spawns the block whose job that already is, which is the one move available to it that stays
-    # inside "gate exit codes and tracker state".
-    if [ -n "$PR" ]; then
-      inflight_rc; if_rc=$?
-      case "$if_rc" in
-        0) break ;;
-        8)
-          if [ "$inflight_recoveries" -ge "$MAX_INFLIGHT_RECOVERIES" ]; then
-            terminal build-inflight 1 "HARD STOP: the BUILD session exited 0 and PR #$PR is open, but the lane worktree still holds work nothing else has a copy of — see the gate's line above for which arm fired — and a recovery spawn already tried to collect it. A review would read a remote head missing it. Push from the lane worktree and re-launch; the worktree and the claim are left in place."
-          fi
-          inflight_recoveries=$((inflight_recoveries + 1))
-          say "the BUILD session exited 0 leaving work in the lane worktree that nothing else has a copy of — re-spawning BUILD to collect it ($inflight_recoveries of $MAX_INFLIGHT_RECOVERIES). Nothing is being authored here: the fresh session resumes at the first unsatisfied milestone."
-          continue
-          ;;
-        # Fail closed, the same posture the two reads above take: a predicate that could not be
-        # evaluated is not a predicate that passed, and the failure direction of guessing here is a
-        # review round spent on code nobody will merge.
-        *) terminal build-inflight-unreadable 1 "the in-flight check could not be completed (gate exit $if_rc) — whether the BUILD session left work behind is unknown, and reviewing on that guess is the defect this check exists to remove." ;;
-      esac
-    fi
-
-    tok_after="$(progress_token)" \
-      || terminal progress-unreadable 1 "cannot read the run's progress record through '$GATE' after the BUILD session."
-    infra_after="$(infra_token)" \
-      || terminal infra-unreadable 1 "cannot read the run's milestone-3 infrastructure residue through '$GATE' after the BUILD session."
-
-    # AC-3: exited 0, no PR, and nothing was recorded. Unchanged from before #492 — not
-    # reviewing nothing is still correct, and a session that did nothing will do nothing twice.
-    #
-    # #527 NARROWS "a session that did nothing", which was the false half of that sentence. It is
-    # true of an IDLE session and false of a KILLED one, and until this read the code could not
-    # tell them apart: a milestone-3 evaluation killed at the turn boundary satisfies no milestone
-    # and fails none, so the token it leaves is byte-identical to an idle spawn's — measured at
-    # four launches, zero PRs, both continuations unspent every time, against an implementation
-    # that was complete and correct the whole time. The stop below is now conditioned on BOTH
-    # predicates being unmoved; an infrastructure death falls through to the ordinary continuation
-    # path, on the ordinary --max-continuations bound.
-    if [ "$tok_after" = "$tok_before" ]; then
-      if [ "$infra_after" = "$infra_before" ]; then
-        terminal build-idle 1 "no open PR on '$BRANCH' after the BUILD session — nothing to review."
-      fi
-      say "the BUILD session's milestone-3 evaluation was killed by infrastructure — it recorded no milestone because none of them concluded, not because the session was idle. Re-spawning rather than stopping."
-    fi
-
-    continuations=$((continuations + 1))
-    if [ "$continuations" -gt "$MAX_CONTINUATIONS" ]; then
-      terminal build-continuations-spent 1 "HARD STOP: the BUILD session advanced but left no PR, and this build phase has spent its --max-continuations budget ($MAX_CONTINUATIONS). The worktree and the claim are left in place for a manual rescue."
-    fi
-    say "BUILD advanced but left no open PR — continuing in a fresh session ($continuations of $MAX_CONTINUATIONS)."
-  done
+  else
+    # No PR, and this is where the run ends. Nothing here reads WHY: a session that exited 0
+    # without opening one may have been idle, may have been killed mid-sweep, or may have finished
+    # every milestone but the push — and the three used to be told apart by two opaque tokens that
+    # could not actually tell them apart (#527 measured four launches, zero PRs, the whole budget
+    # spent, against an implementation that was complete throughout). The lane log says which; a
+    # human reads it. The worktree and the claim are left in place for a manual rescue.
+    terminal build-no-pr 1 "no open PR on '$BRANCH' after the BUILD session — BUILD ended with no PR, so there is nothing to review and a human decides what happens next. Read the lane log for what the session did. The worktree and the claim are left in place."
+  fi
   say "PR #$PR is open on $BRANCH."
 
   # The review phase, and its own bounded retry. A class-5 read means the review produced nothing
   # usable against this head — dark, uncommitted, or stale — which is a failure of the REVIEW half,
   # so the recovery is another review, not another round of fixes. One re-spawn, on a counter
-  # separate from --max-rounds and --max-continuations, because a second dark review is a broken
-  # review lane rather than bad luck and a third would only cost more to learn the same thing.
+  # separate from --max-rounds, because a second dark review is a broken review lane rather than
+  # bad luck and a third would only cost more to learn the same thing.
   # #531 D-7. THE VERDICT READ MOVES AHEAD OF THE SPAWN. The loop entered the build phase
   # unconditionally and the review spawn PRECEDED the only verdict read, so a re-entry ran BUILD and
   # then fell into a review against a head that already carried an approve — and a fresh round could
@@ -1058,14 +963,14 @@ while :; do
   if [ "$rc" -eq 0 ]; then
     say "terminal-vocabulary: review-skipped-approved — the current head already carries an approve verdict, so no REVIEW is spawned against it and no competing record can be authored for it. Falling into the close-out."
   elif [ "$rc" -eq 3 ]; then
-    # STILL TWO TOKENS COMPARED FOR EQUALITY, never parsed — the invariant progress_token's header
-    # states, and the reason this does not read `progress-v1:0`. Milestone 0 does not exist, so its
+    # TWO TOKENS COMPARED FOR EQUALITY, never parsed — the invariant satisfied_token's header
+    # states, and the reason this does not read for a literal `:0`. Milestone 0 does not exist, so its
     # satisfied-count is the ZERO token by construction; milestone 5 equal to it means no
     # `| milestone-5 | satisfied` row was ever written. A format read here would couple this
     # scheduler to the gate's token grammar with nothing enforcing the pair.
-    m5_tok="$(progress_token --satisfied 5)" \
+    m5_tok="$(satisfied_token 5)" \
       || terminal verdict-progress-unreadable 1 "no lane worktree for '$BRANCH', and the run's progress record could not be read through '$GATE' either — whether the lane finished is unknown, and neither guess is worth a REVIEW spawn."
-    m5_zero="$(progress_token --satisfied 0)" \
+    m5_zero="$(satisfied_token 0)" \
       || terminal verdict-progress-unreadable 1 "no lane worktree for '$BRANCH', and the zero-baseline progress read failed through '$GATE' — the comparison that decides whether the lane finished cannot be made, so no REVIEW is spawned on a guess."
     if [ "$m5_tok" = "$m5_zero" ]; then
       terminal worktree-missing 1 "cannot locate a worktree for '$BRANCH', and the run's record carries no satisfied milestone 5 — the BUILD session did not leave one. No REVIEW spawned: a review cannot produce a worktree."

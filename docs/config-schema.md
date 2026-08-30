@@ -50,9 +50,9 @@ Principles:
   a blocking lane.
   **The exposure:** a lane that already exits `3` for a genuine failure is reclassified as
   infrastructure and charged no fix attempt. There is deliberately no per-lane opt-out — the
-  failure direction is a run that retries when it should have stopped, bounded by the scheduler's
-  `--max-continuations` and by the gate's milestone-3 interrupt budget, never a red branch reported
-  green. Have such a lane exit any other non-zero code.
+  failure direction is a run that charges no fix attempt when it should have, bounded by the gate's
+  milestone-3 interrupt budget, never a red branch reported green. Have such a lane exit any other
+  non-zero code.
 - **`ticketTag` is advisory, and only advisory.** It keys off
   `topology.repos.<id>.ticketTag` on a confirmed pair's `be`+`fe` entries. It used to read two
   ways: a retired lane resolved `TARGET_REPOS` from it as a gate input and failed

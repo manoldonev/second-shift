@@ -40,9 +40,9 @@ inner `while :` loop that existed only to re-spawn. The `progress --obligations`
 **`LG`** — `progress_token()`, `infra_token()`, the `--infra` flag and its two validators, and
 `cmd_progress`'s no-flag arm. `--obligations` and `--satisfied` stay.
 
-**`OLS`** — cases `(o1)`–`(o8)`, `(oi1)`–`(oi5)`, `(t1)`, `(t1b)`, `(t3)`, `(t4)`, and `(j3)`.
+**`OLS`** — cases `(o1)`–`(o8)`, `(oi1)`–`(oi5)`, `(t1)`, `(t1b)`, `(t3)`, `(t4)`, `(j3)`, `(v4)`.
 
-**`LGS`** — cases `(ir1)`–`(ir4)`, `(ir9)`, `(ir10)`, `(ob7)`, `(pg1)`–`(pg4)`.
+**`LGS`** — cases `(ir1)`–`(ir4)`, `(ir9)`, `(ir10)`, `(pg1)`–`(pg4)`.
 
 **`scripts/gate-buckets.tsv`** — the rows for `build-idle`, `build-continuations-spent`,
 `progress-unreadable`, `infra-unreadable`.
@@ -68,25 +68,39 @@ place of its old parse arm.
 - **D-B. `OL`'s surviving `--satisfied` reader is renamed too**, for the same AC-1 reason —
   `satisfied_token()` in place of `progress_token()`. Not a new code path: the same two-line
   subshell, minus the continuation-predicate rationale its header carried.
-- **D-C. `(j3)` is deleted, though the ticket does not list it.** Its whole assertion is
-  `progress_reads adv >= 2 && progress_reads infra >= 2` — the two reads this ticket removes.
-  It cannot survive the deletion it is asserting the presence of.
+- **D-C. `(j3)`, `(v4)` and liveness leg 9 are deleted, though the ticket lists none of them.**
+  `(j3)`'s whole assertion is `progress_reads adv >= 2 && progress_reads infra >= 2` — the two
+  reads this ticket removes. `(v4)` drove two BUILD spawns in ONE build phase so a staleness read
+  count of 2 could only mean "per BUILD spawn"; one phase now has one spawn, and `(v5)` makes the
+  same distinction over two ROUNDS. Leg 9 (`lean-infrakill`) composed a real `kill -9` through to
+  a terminal write via the continuation. None can survive the deletion it asserts the presence of.
 - **D-D. `(t3)`'s surviving half is folded into `(h4)` rather than lost.** `(t3)` is deleted as
   ratified, but the boundary it pinned — `inflight_rc` runs from the MAIN checkout with no
   ambient `RUN_ID` — describes a call that survives. `(h4)`'s rc-8 arm asserts it, so the
   deletion costs no coverage.
-- **D-E. `(pg7)`, `(pg8)` and `(pg10)` are re-anchored, not deleted.** Each pins a property of
+- **D-E. `(ob7)`, `(pg7)`, `(pg8)` and `(pg10)` are re-anchored, not deleted.** `(ob7)` pins
+  that `--obligations` refuses to combine with a token flag; `--satisfied` is still such a flag,
+  so the case drives that pair instead of the deleted `--infra` one. Each pins a property of
   the *reader* (scoping, not-a-creator, generation prefix) that `--satisfied` still has. They
   keep their ids and their subjects, and swap the bare-token call for a `--satisfied` one.
   `(pg9)` is `(pg8)`'s positive control and stays with it.
+- **D-G. AC-1's `progress-unreadable` alternand is anchored** as `terminal progress-unreadable`
+  — see the AC itself for the substring collision that forces it.
 - **D-F. `(td2)` and `(if9)` keep their ids and assertions** and swap the token helper for a
   direct `grep -c '| satisfied'` over the progress file, per the ticket.
 
 ## Acceptance criteria
 
 - **AC-1** — for `OL` and `LG`:
-  `! grep -qE 'MAX_CONTINUATIONS|MAX_INFLIGHT_RECOVERIES|progress_token|infra_token|tok_before|tok_after|infra_before|infra_after|inflight_recoveries|continuations=|build-idle|build-continuations-spent|progress-unreadable|--infra|progress-v1'`
+  `! grep -qE 'MAX_CONTINUATIONS|MAX_INFLIGHT_RECOVERIES|progress_token|infra_token|tok_before|tok_after|infra_before|infra_after|inflight_recoveries|continuations=|build-idle|build-continuations-spent|terminal progress-unreadable|--infra|progress-v1'`
   holds on both. Base: reds on both (35 and 22 matching lines). *Mutant:* any residue.
+
+  **Amended (D-G).** The ticket's alternation carried a bare `progress-unreadable`, which is a
+  SUBSTRING of the surviving terminal `verdict-progress-unreadable` — the `rc=3` close-out arm's
+  fail-closed stop, which nothing in this ticket deletes and AC-7 depends on. The bare form is
+  unsatisfiable without deleting a slug the ticket keeps, so the alternand is anchored on the call
+  form `terminal progress-unreadable`, which is the only way the deleted slug is ever written.
+  Every other alternand is verbatim.
 - **AC-2 `(h4)`** — a new `OLS` case, two arms. Fake `claude` rc 0, no PR, clean tree ⇒ exactly
   **1** BUILD spawn, terminal slug `build-no-pr`, exit 1. Same fixture with the `inflight` fake
   answering rc 8 ⇒ terminal slug `build-inflight`, exactly **1** BUILD spawn, and the in-flight
@@ -96,10 +110,12 @@ place of its old parse arm.
   sums stated in the PR body.
 - **AC-4** — the `LGS` pin multiset
   (`grep -oE 'pass "\([a-z0-9-]+\)' | sort | uniq -c`) at head equals the base multiset minus
-  exactly `(ir1) (ir2) (ir3) (ir4) (ir9) (ir10) (ob7) (pg1) (pg2) (pg3) (pg4)` and plus exactly
-  `(pg13)` — 561 → **551** occurrences. `(td2)`, `(if9)`, `(pg7)`, `(pg8)`, `(pg9)`, `(pg10)`
-  are NOT on the removal list. The `OLS` multiset equals base minus
-  `(o1)…(o8) (oi1)…(oi5) (t1) (t1b) (t3) (t4) (j3)` plus `(h4)` — 119 → **102**.
+  exactly `(ir1) (ir2) (ir3) (ir4) (ir9) (ir10) (pg1) (pg2) (pg3) (pg4)` and plus exactly
+  `(pg13)` — 561 → **552** occurrences. `(ob7)`, `(td2)`, `(if9)`, `(pg7)`, `(pg8)`, `(pg9)`,
+  `(pg10)` are NOT on the removal list. The `OLS` multiset equals base minus
+  `(o1)…(o8) (oi1)…(oi5) (t1) (t1b) (t3) (t4) (j3) (v4)` plus `(h4)`×3 — 119 → **103**.
+  `(h4)` carries three arms under one id: the no-PR stop, the in-flight stop, and the removed
+  flag's usage refusal.
   *Mutant:* delete a re-anchored case instead of swapping its helper.
 - **AC-5** — `bash scripts/check-gate-buckets.sh` exits 0. *Mutant:* leave a deleted terminal's
   row behind, or omit `build-no-pr`'s.
@@ -111,8 +127,11 @@ place of its old parse arm.
   message containing `unknown`. Pinned as `LGS` case `(pg13)`.
 - **AC-8** — `plugins/dev-pipeline/skills/build-lean/scenario-liveness-selftest.sh` still
   composes `(lean-inline-m3)` and `(lean-inline-m3-nv)` over the `started`/`concluded` residue
-  itself, with no `progress --infra` call anywhere in the repo's shipped scripts.
-  *Mutant:* delete the scenario rather than re-anchor it.
+  itself, with no `progress --infra` call anywhere in the repo's shipped scripts. Leg 9
+  (`lean-infrakill`, `lean-infrakill-nv`) is DELETED — its whole subject was the scheduler
+  continuing after a killed evaluation, and there is no composed verdict path left for it to
+  reach. *Mutant:* delete `(lean-inline-m3-nv)` rather than re-anchor it, leaving the leg above
+  green against a gate that closes its pair unconditionally.
 - **AC-9** — `plugins/dev-pipeline/hooks/hooks.json` is unchanged and has no `Stop` hook
   (`jq -e '.hooks.Stop == null'`). Nothing is added while here.
 

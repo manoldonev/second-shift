@@ -125,14 +125,17 @@
 #                                        (grammar: review-lean/SKILL.md step 5b) — refused here,
 #                                        at the writer, rather than at milestone 4 where it
 #                                        would cost the round.
-#   lean-gate.sh progress <issue> [--satisfied <n> | --infra | --obligations]
-#                                        SCHEDULER role (#492): print an OPAQUE TOKEN over the
-#                                        progress rows that mean the build role advanced. Reads
-#                                        only — it writes nothing and, unlike every other
-#                                        subcommand, does not create the file it reads. The
-#                                        caller compares the token across a spawn and interprets
-#                                        nothing; `--satisfied <n>` narrows it to milestone n's
-#                                        `satisfied` row alone.
+#   lean-gate.sh progress <issue> <--satisfied <n> | --obligations>
+#                                        SCHEDULER role. Reads only — it writes nothing and,
+#                                        unlike every other subcommand, does not create the file
+#                                        it reads. ONE OF THE TWO FLAGS IS REQUIRED: the bare
+#                                        form printed the continuation predicate, and #718 deleted
+#                                        that predicate along with the loop that compared it.
+#                                        `--satisfied <n>` prints an OPAQUE TOKEN over milestone
+#                                        n's `satisfied` rows alone — `m5sat-v1:<count>`, to be
+#                                        COMPARED and never parsed or ordered. Its one caller is
+#                                        orchestrate-lean.sh's close-out arm, asking whether a
+#                                        lane whose worktree is gone ever finished.
 #                                        `--obligations` (#531) prints neither token but a REPORT:
 #                                        one line per milestone-5 obligation with its recorded
 #                                        state, the aggregate's own state, and the teardown
@@ -140,17 +143,7 @@
 #                                        the scheduler's close-out failure message is assembled
 #                                        from them so that it can name WHICH obligation is
 #                                        outstanding without the scheduler reading the record.
-#                                        All three flags are mutually exclusive.
-#                                        `--infra` (#527) prints a DIFFERENT token space,
-#                                        `m3infra-v3:<n>`, over milestone-3 evaluations that began
-#                                        and never concluded — an infrastructure death, derived
-#                                        from residue because a session killed at the turn boundary
-#                                        writes no class. v3 (#566): the predicate is the unclosed
-#                                        count ALONE. The runner-record half retired with the
-#                                        detached runner itself — milestone 3 is inline now, so
-#                                        there are no pid records to scan. `m3infra-v3:0` is the
-#                                        no-death answer; it is never empty. Compare it ACROSS a
-#                                        spawn, never as a level: the record is append-only.
+#                                        The two flags are mutually exclusive.
 #   lean-gate.sh staleness <issue> [--arm ticket|base|both]
 #                                        SCHEDULER role (#515): is this run's premise still true?
 #                                        The TICKET arm asks whether the issue is still open; the
@@ -205,8 +198,8 @@
 #
 # It is reserved CROSS-REPO, and that is its one exposure: a consumer whose lane already exits 3
 # for a genuine failure is reclassified as infrastructure and charged no fix attempt. The failure
-# direction is a run that RETRIES when it should have stopped — bounded by the scheduler's
-# --max-continuations and by INTERRUPTED_BUDGET — never a red branch reported green. There is
+# direction is a run that is CHARGED NO FIX ATTEMPT when it should have been — bounded by
+# INTERRUPTED_BUDGET — never a red branch reported green. There is
 # deliberately no per-lane config opt-out; see docs/config-schema.md.
 #
 # Seams (zero-network selftest; the check-pipeline-chain.sh precedent):
@@ -285,7 +278,6 @@ VERDICT_ROUNDS=""
 VERDICT_FIDELITY=""
 SUMMARY_FILE=""
 PROGRESS_SATISFIED=""
-PROGRESS_INFRA=0
 # #531 D-12. A third `progress` mode, and a REPORT rather than a token: the scheduler's close-out
 # failure message must name each obligation's own state, and a scheduler that parsed the record to
 # get them would own a reader it has no business owning. This prints the lines; the loop echoes
@@ -313,10 +305,11 @@ ABSENT_BUDGET=10
 # #497 D-7. The INTERRUPTED budget: how many evaluations of one milestone may BEGIN and never
 # conclude before the next call refuses to start another. A third bound, and deliberately the
 # tightest of the three — absence is the contract's own recommended move (build-lean step 3 orders
-# a milestone-1 call before the spec can exist), interruption never is. A full lane can spawn ~9
-# build sessions (MAX_ROUNDS=3 × 1 + MAX_CONTINUATIONS=2, continuations resetting per build phase),
-# each able to interrupt once — so 5 fires on a systematic background-and-exit pattern while
-# staying out of reach of the bad luck an honest run meets (0, occasionally 1-2).
+# a milestone-1 call before the spec can exist), interruption never is. FIXED AT 5, and #718 is why
+# it is now a constant rather than a derivation: it used to be sized off the lane's worst-case spawn
+# count, and that count was the round budget times the continuation budget, which no longer exists.
+# The number it produced was 5, the shape it guards has not moved, and an honest run meets 0 —
+# occasionally 1 or 2 — so 5 still fires only on a systematic background-and-exit pattern.
 INTERRUPTED_BUDGET=5
 
 # #566 RETIRED MILESTONE 3'S SEPARATE, LARGER BOUND. #527 D-7 gave it one (8 against this 5)
@@ -365,11 +358,10 @@ while [ $# -gt 0 ]; do
     --fidelity)      VERDICT_FIDELITY="${2:-}"; shift 2 ;;
     --summary-file)  SUMMARY_FILE="${2:-}"; shift 2 ;;
     --satisfied)     PROGRESS_SATISFIED="${2:-}"; shift 2 ;;
-    --infra)         PROGRESS_INFRA=1; shift ;;
     --obligations)   PROGRESS_OBLIGATIONS=1; shift ;;
     --arm)           STALENESS_ARM="${2:-}"; shift 2 ;;
     --ticket-source) TICKET_SOURCE="${2:-}"; shift 2 ;;
-    -h|--help)       sed -n '2,269p' "$0"; exit 0 ;;
+    -h|--help)       sed -n '2,262p' "$0"; exit 0 ;;
     -*)              envfail "unknown option: $1" ;;
     *)
       if [ "$POSITIONAL" -eq 0 ]; then SUB="$1"; POSITIONAL=1
@@ -406,23 +398,20 @@ if [ -n "$PROGRESS_SATISFIED" ]; then
   esac
 fi
 
-# #527 D-6, the same shape and the same reason: a flag that silently selects nothing is a read that
-# answers a question nobody asked. The two flags are MUTUALLY EXCLUSIVE rather than composable —
-# they print different token spaces, and one invocation can only print one of them, so accepting
-# both would have to pick a winner silently.
-if [ "$PROGRESS_INFRA" -eq 1 ]; then
-  [ "$SUB" = "progress" ] || envfail "--infra is only meaningful on 'progress', not '$SUB'."
-  [ -z "$PROGRESS_SATISFIED" ] \
-    || envfail "--infra and --satisfied are different token spaces and cannot be combined — ask for one per call."
-fi
-
-# #531, the same shape again, and mutually exclusive with BOTH of the above for a sharper reason
-# than theirs: this one prints a human-readable report rather than a token at all, so a caller that
-# combined it with either would get two different KINDS of answer on one stream.
+# #531, the same shape again, and mutually exclusive with the flag above for a sharper reason than
+# its own: this one prints a human-readable report rather than a token at all, so a caller that
+# combined the two would get two different KINDS of answer on one stream.
 if [ "$PROGRESS_OBLIGATIONS" -eq 1 ]; then
   [ "$SUB" = "progress" ] || envfail "--obligations is only meaningful on 'progress', not '$SUB'."
-  [ "$PROGRESS_INFRA" -eq 0 ] && [ -z "$PROGRESS_SATISFIED" ] \
-    || envfail "--obligations prints a report, not a token — it cannot be combined with --infra or --satisfied."
+  [ -z "$PROGRESS_SATISFIED" ] \
+    || envfail "--obligations prints a report, not a token — it cannot be combined with --satisfied."
+fi
+
+# #718. ONE OF THE TWO IS REQUIRED, and the refusal names what went away rather than printing a
+# default. The bare form was the continuation predicate; deleting the predicate but leaving the
+# subcommand answering SOMETHING would hand a stale caller a token nothing computes from anymore.
+if [ "$SUB" = "progress" ] && [ "$PROGRESS_OBLIGATIONS" -eq 0 ] && [ -z "$PROGRESS_SATISFIED" ]; then
+  envfail "unknown progress form: bare 'progress <issue>' printed the continuation predicate, which #718 deleted with the loop that read it. Pass --satisfied <n> or --obligations."
 fi
 
 # #515, same shape and for the same reason: an unknown arm must be a usage error before any read
@@ -484,10 +473,10 @@ fi
 # #528. The config is a SHARED, mutable file, so a sibling session's edit re-points every live
 # lane's gate mid-run. Announced once per invocation so a re-point is visible rather than inferred.
 #
-# STDERR, via `warn`: orchestrate-lean.sh's progress_token() compares this script's STDOUT
+# STDERR, via `warn`: orchestrate-lean.sh's satisfied_token() compares this script's STDOUT
 # byte-for-byte across two reads, so a stdout announcement would flip that comparison on exactly
-# the re-point this exists to surface — corrupting the continuation predicate instead of exposing
-# the event. SKIPPED on `progress` even on stderr: that subcommand's contract is a bare
+# the re-point this exists to surface — corrupting the close-out's read instead of exposing the
+# event. SKIPPED on `progress` even on stderr: that subcommand's contract is a bare
 # machine-read answer. Every other subcommand gets it.
 [ "$SUB" = "progress" ] || warn "config: $CONFIG"
 
@@ -1413,7 +1402,7 @@ append_absent() { append_line "$(now_iso) | milestone-$1 | absent | $2"; }
 # read zero rows and both append, duplicating the line this function exists to keep singular.
 #
 # AN ATOMIC CLAIM, THEN A PLAIN APPEND — deliberately NOT heal_progress_run_id's temp-plus-rename.
-# That rebuilds the whole file, making this a SECOND rewriter, and progress_token()'s soundness
+# That rebuilds the whole file, making this a SECOND rewriter, and satisfied_token()'s soundness
 # argument rests on there being exactly one: a rebuild can drop a row a concurrent
 # append_attempt/append_absent wrote in the gap, which silently un-charges #494's fix budget (that
 # append fires only on a fresh failure and is never replayed). Append-only keeps the invariant true.
@@ -1449,10 +1438,10 @@ clear_satisfied_claims() { rm -rf "$PROGRESS_FILE".satisfied-*.claim; }
 
 # #531 D-10. THE PER-OBLIGATION ROW, and its verb is load-bearing rather than descriptive.
 #
-# progress_token narrows to milestone n by the FIXED SUBSTRING `| milestone-n | satisfied`, so an
+# satisfied_token narrows to milestone n by the FIXED SUBSTRING `| milestone-n | satisfied`, so an
 # obligation row spelled with that verb would move the scheduler's close-out token the instant the
 # FIRST of the two obligations held — reporting `done` over a run with no closing comment on it.
-# `obligation` collides with nothing: not progress_token's row kinds, not attempt_count's, not
+# `obligation` collides with nothing: not satisfied_token's row kind, not attempt_count's, not
 # absent_count's, not unclosed_count's pair.
 #
 # BOTH DIRECTIONS ARE RECORDED: the scheduler's failure message (D-12) has to name which obligation
@@ -1513,13 +1502,13 @@ absent_count() { count_matches "| milestone-$1 | absent |" "$PROGRESS_FILE" -F; 
 #
 # THE PAYLOAD IS `rc=<n>` because `concluded | satisfied` would put the literal `satisfied` on a
 # bookkeeping line — the collision trap absent_count's note records. NEITHER VERB IS IN
-# progress_token's ROW SET, on purpose.
+# satisfied_token's ROW SET, on purpose.
 append_started()   { append_line "$(now_iso) | milestone-$1 | started |"; }
 append_concluded() { append_line "$(now_iso) | milestone-$1 | concluded | rc=$2"; }
 
 # D-11. The predicate is a DIFFERENCE, not a flag. Both rows are append-only and nothing rewrites
 # them, so `started` minus `concluded` for one milestone is exactly the cumulative number of
-# evaluations that began and never returned — progress_token's soundness argument below ("the
+# evaluations that began and never returned — satisfied_token's soundness argument below ("the
 # selected count cannot go up and back down within a spawn") extends to them unchanged.
 #
 # Both patterns carry the TRAILING separator, for absent_count's reason in the other direction:
@@ -1706,8 +1695,8 @@ entry_row_present() { [ "$(count_matches "$ENTRY_ROW_MARKER" "$PROGRESS_FILE" -F
 
 # #611. The other half of "a checked control, not a prose reminder": the argument the run boundary
 # accepted, and the provenance its caller declared for it. Its OWN `| ticket |` namespace on the
-# teardown row's precedent — nothing reading `| milestone-<n> |` (progress_token, the obligations
-# report) can mistake it for a certified milestone, and the scheduler's continuation predicate is
+# teardown row's precedent — nothing reading `| milestone-<n> |` (satisfied_token, the obligations
+# report) can mistake it for a certified milestone, and the scheduler's milestone-5 read is
 # unmoved by it. DEDUPED on the whole row so a resumed run's second `entry` does not stack
 # identical lines, while a re-entry that declares a DIFFERENT source records that as a new fact.
 record_ticket_resolution() {
@@ -2137,8 +2126,8 @@ EOF
 #
 # NO WORKTREE IS 0, DELIBERATELY. The scheduler also calls this after the close-out, whose last act
 # is teardown, and it is the honest answer besides: a tree that does not exist holds no uncollected
-# work, and `git worktree remove` refuses a dirty one. A BUILD spawn that never cut a worktree is
-# caught by the continuation predicate beside this.
+# work, and `git worktree remove` refuses a dirty one. A BUILD spawn that never cut a worktree
+# leaves no PR either, which is the scheduler's `build-no-pr` stop.
 cmd_inflight() {
   local wt rc paths win_rc=0 win_wt="" win_reason="" win_detail=""
   paths="$(lean_worktrees_for_branch "$LEAN_BRANCH")" || paths=""
@@ -2182,92 +2171,33 @@ EOF
   esac
 }
 
-# ---------------------------------------------------------------- the CONTINUATION PREDICATE
-# #492. `claude -p` exits 0 whenever the model ends its turn cleanly, which is "the model stopped
-# talking", not "the block finished" — so a scheduler reading the spawn's exit status cannot tell
-# a finished build from one that stopped two milestones early with every artifact on disk. This
-# subcommand is the artifact it reads instead (AC-5): one opaque token over the progress rows that
-# mean THE BUILD ROLE ADVANCED. The caller compares the token across a spawn and interprets
-# nothing, which is what keeps orchestrate-lean.sh's "gate exit codes and tracker state, nothing
-# else" boundary intact while it gains a third thing to know.
+# ---------------------------------------------------------------- the CLOSE-OUT's SATISFIED READ
+# #492 put a CONTINUATION PREDICATE here — a token over every row a milestone evaluation writes,
+# read on both sides of a BUILD spawn to decide whether to spawn again — and #718 deleted it with
+# the loop that compared it. What is left is the narrow question that outlived it: with the lane
+# worktree gone, did milestone 5 ever reach `satisfied`? One caller, one call site, one comparison.
 #
-# EXACTLY TWO ROW KINDS (D-1, held at two by #497 D-3). `satisfied` and `attempt` are the only rows
-# a milestone EVALUATION writes. The bookkeeping rows must stay out: `| session | <id>` is appended
-# on every fresh session's `entry` call, so a naive "did the file change" predicate would be TRUE
-# for any spawn that reached step 1; and `started`/`concluded` are written on EVERY continuation, so
-# counting them would make each dead spawn of a background-and-exit session read as advancement and
-# burn the whole `--max-continuations` budget. The in-flight pair is a record for the resuming
-# SESSION, never a signal to the orchestrator.
+# MILESTONE n's `satisfied` ROW ALONE (D-8). `attempt` is excluded on purpose — a close-out that
+# redded milestone 5 advanced the record but did not finish the checklist, and crediting it would
+# be the exact false `done` this read exists to refuse.
 #
 # WHY A COUNT IS A SOUND TOKEN. These rows are append-only, and the single rewriter in this file
 # (heal_progress_run_id) has an exact-string compare bounded to the header — so the count cannot go
-# up and back down within a spawn and read as unchanged. #528 keeps that true under a concurrent
-# writer by making append_satisfied claim-then-append rather than rebuild. The `progress-v1:`
+# up and back down between two reads and read as unchanged. #528 keeps that true under a concurrent
+# writer by making append_satisfied claim-then-append rather than rebuild. The `m5sat-v1:`
 # generation prefix marks the token space so a caller reaching for `-gt` has to notice this is not
 # an orderable integer.
 #
 # NOT in require_entry_attested's set (D-2): this reads the very file an attestation would live in,
 # so gating it there would remove the answer in exactly the state — a spawn that died before
 # `entry` — the scheduler most needs one about.
-progress_token() { # progress_token [<milestone>] — prints the token, never touches the file
-  local pat n
-  if [ -n "${1:-}" ]; then
-    # D-8: milestone n's `satisfied` row ALONE. `attempt` is excluded here on purpose — a
-    # close-out that redded milestone 5 advanced the record but did not finish the checklist,
-    # and crediting it would be the exact false `done` this ticket exists to remove.
-    pat="| milestone-$1 | satisfied"
-  else
-    pat="| milestone-"
-  fi
+satisfied_token() { # satisfied_token <milestone> — prints the token, never touches the file
+  local n
   # ensure_progress_file is deliberately NOT called: this subcommand must not bring into
   # existence the artifact whose absence is itself the answer. count_matches already answers 0
   # for a missing file.
-  if [ -n "${1:-}" ]; then
-    n="$(count_matches "$pat" "$PROGRESS_FILE" -F)"
-  else
-    # One pass, both kinds. -E over two -F greps so the row set is defined in one expression:
-    # the `| milestone-<n> | ` stem followed by either verb, end-anchored for `satisfied` and
-    # carrying the trailing separator for `attempt`, so neither a `budget-exhausted` row nor a
-    # reason string mentioning either word can inflate the count.
-    #
-    # `[|]` and not `\|`: an escaped pipe inside an ERE is a GNU extension that POSIX leaves
-    # undefined, and this file has a macOS/BSD lane. A bracket expression means the same literal
-    # to both, where `\|` is exactly the class of dual form that fails dirty rather than loudly.
-    n="$(count_matches '[|] milestone-[0-9][0-9]* [|] (satisfied$|attempt [|])' "$PROGRESS_FILE" -E)"
-  fi
-  printf 'progress-v1:%s\n' "$n"
-}
-
-# ---------------------------------------------------------------- the INFRA-DEATH READ (#527)
-# THE CLASS IS DERIVED FROM RESIDUE, because nothing is alive to write it. `append_started 3`
-# already flushed and there is no matching `concluded` row: the evaluation began and never
-# returned. SIGKILL cannot be trapped (see the note beside run_milestone's append_started) and the
-# scheduler never invokes a milestone itself, so residue is the only witness there is.
-#
-# LOCATED BY THE PROGRESS RECORD, which the scheduler reads from $MAIN_ROOT deliberately — the
-# record must survive worktree teardown. That is the one handle both sides share.
-#
-# #566 NARROWED THE PREDICATE TO THE UNCLOSED COUNT ALONE — milestone 3 no longer detaches, so
-# there are no runner pid records to scan and the unclosed row is the only residue an interrupted
-# evaluation leaves. THE TOKEN SPACE MOVED TO v3 with it: a caller comparing a v2 reading against a
-# v3 one is comparing two different questions, and the prefix makes that visible instead of
-# arithmetic.
-
-# PRINTED BEHIND A GENERATION PREFIX, like progress_token's, and for the identical reason: this is
-# a number a caller must NOT order.
-#
-# NEVER EMPTY. "No infra death" is `m3infra-v3:0`, because the scheduler's reader rejects an empty
-# token as a broken gate — a legitimate negative answer must not look like one.
-infra_token() {
-  local unclosed n
-  unclosed="$(unclosed_count 3)"
-  n="$unclosed"
-  [ "$n" -lt 0 ] && n=0
-  # The diagnostic, on stderr so it cannot contaminate the token on stdout. It says what was
-  # counted rather than only the verdict, so an operator can tell a clean read from a suppressed
-  # one without re-deriving it.
-  warn "progress --infra: $unclosed unclosed milestone-3 evaluation(s)."
-  printf 'm3infra-v3:%s\n' "$n"
+  n="$(count_matches "| milestone-$1 | satisfied" "$PROGRESS_FILE" -F)"
+  printf 'm5sat-v1:%s\n' "$n"
 }
 
 # ---------------------------------------------------------------- the CLOSE-OUT REPORT (#531)
@@ -2329,11 +2259,7 @@ cmd_progress() {
     obligations_report
     return 0
   fi
-  if [ "$PROGRESS_INFRA" -eq 1 ]; then
-    infra_token
-    return 0
-  fi
-  progress_token "$PROGRESS_SATISFIED"
+  satisfied_token "$PROGRESS_SATISFIED"
   return 0
 }
 
