@@ -1,0 +1,242 @@
+# #663 — an unrunnable-pair red names its failing cases, and lean-gate's coverage comes back
+
+**Issue:** https://github.com/manoldonev/second-shift/issues/663
+
+## Goal
+
+Two things, in the order the ticket sets them, because the second is not diagnosable without the
+first:
+
+1. **The diagnostic.** When the mutation sweep declares an `unrunnable pair`, its CI log must name
+   the paired suite's failing case(s). Today it prints `tail -40` of the killer log and nothing
+   else, so any suite that reports failures as it goes and then keeps running — which is every
+   suite in this repo — buries them under the trailing PASSes.
+2. **The red.** `plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh` exits 2 against the
+   sweep's unmutated sandbox, so `lean-gate.sh` — 13 of 63 catalog rows, the most covered guard in
+   the tree — has been scored by nothing since 2026-08-20. The PR lane defers it as a slow suite;
+   the nightly cannot run its killer.
+
+## Measured at `808aa29`, not inherited from the ticket
+
+The ticket's evidence is five nightlies old. Re-derived here:
+
+| claim | at head | source |
+| --- | --- | --- |
+| red since 2026-08-20 | still red, every night through 2026-08-30 | `gh run list --workflow mutation-sweep.yml` — 08-23…08-30 all `failure` |
+| the diagnostic shows only PASS lines | confirmed | run `33303512585`, job `99235849651` (shard 6): 40 `PASS:` lines, then `[lean-gate-selftest] 2 FAILURE(S)` |
+| exit 2 | confirmed, and it is a **case count** — the suite's `exit "$FAILS"` convention, so exactly two cases fail | `lean-gate-selftest.sh` tail |
+| the suite is green outside the sandbox | confirmed | the same SHA's `selftests` job is green |
+
+The red is a shard-6 failure only; the other nine shards are green, which is why the run's
+conclusion is `failure` with the rest of the sweep's evidence intact.
+
+## The diagnostic gap, precisely
+
+`tools/mutation-sweep.sh`'s `save_pre_log()` was `tail -n "$PRE_LOG_LINES" "$KILLER_LOG"`. That
+window answers *"did the suite get anywhere at all"* — which is the question #526 added it for,
+and it does answer it. It does not answer *"which case"*, and on a 550-case suite the two are
+never the same lines. The fix is additive: the snapshot leads with the `$FAIL_PATTERN` matches
+(capped, and the overflow counted out loud), then the same tail. The tail arm stays because it is
+still the only thing that separates a suite that ran from one reaped at line 1.
+
+Deliberately **not** done: raising `PRE_LOG_LINES`. A bigger blind window is the same defect with
+a worse cost — the suite that motivated this would need ~500 lines of log per red to be covered by
+one, and the class it belongs to (a suite that fails early and keeps going) has no bound at all.
+
+## Root cause of the exit-2
+
+**Named by the patched diagnostic on its first run.** See Findings.
+
+## Decision Ledger
+
+No pre-flight ledger was recorded for this ticket; every row below is derived in this lane.
+
+| ID | Decision | Resolution | Provenance |
+| --- | --- | --- | --- |
+| D-1 | Widen the blind tail, or hoist the matches out of it? | Hoist. A larger window is unbounded in exactly the direction the failure runs; matches-first is bounded by the number of failing cases. Both are printed. | codebase-derived |
+| D-2 | Where does the new guard live? | `tools/mutation-sweep-selftest.sh`, as `(g4)`/`(g4c)` — the per-tool behavioral tier, next to `(g2)` which guards the snapshot's survival but not its usefulness. Placed **after** `(g3)`, which reads `(g2)`'s `$OUT`. | codebase-derived |
+| D-3 | Baseline or exclude around the lean-gate red? | No — the ticket forbids it, and the guard is the one whose coverage matters most. | user-answered |
+| D-4 | How is the exit-2 diagnosed, given no local repro path? | Two oracles, in parallel: a local emulation of the sandbox conditions (detached-worktree cwd + a GNU-`mktemp` shim so `-t` honours `TMPDIR`, which is the Linux behaviour macOS lacks), and a `workflow_dispatch` of the patched sweep on this branch. CI is authoritative; the emulation is what makes iteration cheap. | codebase-derived |
+
+## Acceptance Criteria
+
+- **AC-1** — an `unrunnable pair` red's CI log names the failing case(s) of the paired suite. The
+  matches are emitted *in addition to* the tail, both under one framed block, and a suite that
+  fails without matching the trigger at all says so rather than printing a bare tail.
+- **AC-2** — the root cause of the `lean-gate-selftest.sh` exit-2 is identified with its failing
+  cases cited by name in this file, and fixed.
+- **AC-3** — a full-mode sweep covering `lean-gate.sh` completes green, with the dispatch run
+  cited in this file and in the PR body.
+- **AC-4** — a `Changelog:` trailer per repo convention.
+- **AC-6** — the survivor the restored coverage uncovered is killed rather than baselined. The
+  first sweep to score `lean-gate.sh` in ten days reported
+  `catalog::lean-gate-settings-clobber-dangling` as a baseline-absent survivor; the catalog row
+  names a regression class, so the answer is a guard that kills it on the lane that scores it, not
+  a baseline row that accepts it.
+- **AC-5** — the AC-1 behaviour is guarded by a selftest case that fails on the pre-fix code: the
+  fixture buries its `FAIL:` line under more than `PRE_LOG_LINES` of passing chatter, so a
+  tail-only diagnostic cannot show it. The no-match arm is guarded separately, and the tail arm is
+  asserted alongside the match arm so that dropping the tail is not scored as an improvement.
+
+AC-5 is not in the issue. It is carried because AC-1 is a behaviour change to a guard, and this
+repo's `writing-tests` contract routes one-script behaviour to a per-tool selftest; shipping AC-1
+without it would leave the diagnostic exactly as unfalsifiable as the red it exists to explain.
+
+## Findings
+
+### The two cases
+
+The AC-1 patch was pushed and the sweep dispatched on this branch before anything else was
+known. Its shard-6 log named them on the first run:
+
+```
+| (2 line(s) matching FAIL: — the failing case(s))
+|   FAIL: (i-580a) expected no mutation line at all, got: [lean-gate] config:
+|         /tmp/mutation-sweep-work.lws3HK/tmp.0/leangate.8410.…/config.json
+|   FAIL: (i-580b) expected a green milestone-3 with the sweep untouched, got rc=0 marker=absent:
+|         [lean-gate] config: /tmp/mutation-sweep-work.lws3HK/tmp.0/leangate.8410.…/config.json
+```
+
+`(i-580a)` and `(i-580b)` are #580's two arms: milestone 3 no longer invokes
+`tools/mutation-sweep.sh`, and neither the absent-tree branch nor the sweep-carrying branch may
+emit a line about it. Both assert it with a deliberately broad net — `! grep -qi 'mutation'` over
+the gate's whole output.
+
+### Why it fires only inside the sweep
+
+The failure is in the assertion's reach, not in the gate. The message the grep matched is the
+gate's own opening line, `[lean-gate] config: <path>`, and the path is this suite's `mktemp`
+scratch:
+
+1. `lean-gate-selftest.sh` allocates `WORK` with `mktemp -d -t "leangate.<stamp>.XXXXXX"`.
+2. On **Linux**, `-t` resolves the template against `$TMPDIR`. On macOS it resolves against
+   `_CS_DARWIN_USER_TEMP_DIR` and ignores `TMPDIR` entirely — which is why no local run on this
+   machine could ever have reproduced it, and why the ticket said so.
+3. `tools/mutation-sweep.sh` runs every killer with `TMPDIR="$KILLER_TMPDIR"`, and
+   `$KILLER_TMPDIR` is `$WORKDIR/tmp.<worker>` under
+   `WORKDIR="$(mktemp -d -t mutation-sweep-work.XXXXXX)"`.
+
+So inside the sweep — and inside nothing else in this repo — the fixture's own config path
+contains the literal string `mutation`, and the negative grep matched the directory the suite was
+standing in. `exit 2` is the suite's `exit "$FAILS"` convention: exactly these two cases.
+
+The `~256 suite lines` window the ticket pointed at contained the cause but not for the reason it
+guessed: `005bd3c` (PR #595, closing #580) added these two assertions at 2026-08-19 21:43 UTC, and
+the first nightly to run them — 2026-08-20 03:17 UTC — is the first red. Every night since has
+been the same two cases.
+
+### Reproduced locally, and the ticket's "no local repro path" is now false
+
+The ticket recorded that macOS cannot cover the condition. That is true of `mktemp` and not of the
+mechanism: pointing the suite at a `TMPDIR` whose name carries the word, with a `mktemp` shim that
+resolves `-t` against `TMPDIR` the way GNU does, reproduces the CI red exactly — **rc=2, the same
+two cases, nothing else**:
+
+```
+mktemp shim: `-t NAME` -> mktemp -d "$TMPDIR/NAME"        # GNU behaviour, which macOS lacks
+cwd:         a `git worktree add --detach` sandbox        # what the sweep runs killers in
+TMPDIR:      <scratch>/mutation-sweep-work.probe/tmp.0    # what the sweep names its own
+```
+
+Three runs settle it, and each is cited because each rules something out:
+
+| probe | tree | condition | result |
+| --- | --- | --- | --- |
+| A | `808aa29` (pre-fix) | sandbox cwd + `mutation`-named `TMPDIR` | **rc=2**, `(i-580a)` + `(i-580b)`, verbatim |
+| B | this branch | same | rc=0, 552 cases green |
+| C | this branch, `scrub_fixture_paths` neutered to the identity | ordinary `TMPDIR` | `(i-580d)` fails alone |
+
+The earlier control runs (repo cwd; sandbox cwd alone; sandbox cwd with a `TMPDIR` *not* carrying
+the word) were all green, which is what isolates the directory NAME as the whole of the cause —
+not the sandbox, not `TMPDIR` as such.
+
+### The fix
+
+`scrub_fixture_paths()` drops every whitespace-delimited token that names the fixture scratch
+root before the substring test, keyed by `awk`'s `index()` — the root is a path, and escaping one
+into a regex is the second half of this same class of bug. What survives is every word the gate
+itself chose, which is what the two cases are about. `(i-580b)`'s tripwire marker is untouched and
+remains the strong arm; a resurrected D-18 line names `tools/mutation-sweep.sh` relatively — see
+`(i-580c)`'s literal — and is not scrubbed.
+
+Deliberately **not** done: narrowing the grep to a phrase. The breadth is the point of #580's
+pair (the two arms of a deleted `if`), and a phrase-shaped criterion is how a defect walks past a
+guard that reads it — this repo has the receipts.
+
+### The regression guard
+
+`(i-580d)` hands the gate a byte-identical config sitting under a directory named
+`mutation-sweep-work.probe/tmp.0`, and asserts the `(i-580a)` criterion still holds. It fails on
+the pre-fix assertion, needs no Linux, and asserts `rc=0` plus a positive token alongside so that
+a scrub which emptied the output would not satisfy it.
+
+## Second finding: what the restored coverage immediately caught
+
+Scoring `lean-gate.sh` again (run `33316017803`, shard 6 — `applied=36 killed=33 survived=3`) turned
+the unrunnable pair into an ordinary red one line further on:
+
+```
+RED: baseline-absent survivor: catalog::lean-gate-settings-clobber-dangling
+```
+
+The catalog row drops the `-L` half of #647's never-clobber test —
+`if [ -e "$dst" ] || [ -L "$dst" ]` → `if [ -e "$dst" ]` — and `(ws7)` exists to catch exactly that.
+It does, **on macOS**, and not on the lane that scores it:
+
+| platform | `cp` onto a dangling-symlink destination | `(ws7)`'s `[ ! -e <target> ]` arm |
+| --- | --- | --- |
+| macOS (BSD `cp`) | follows the link, creates the target | fires — mutant killed (measured: probe D) |
+| ubuntu (GNU `cp`) | refuses, `not writing through dangling symlink` | never fires — mutant survives |
+
+So the harm the case asserts against is one GNU `cp` already prevents, and `(ws7)` was a guard that
+only fired on the developer's laptop. It had been that way since #647; nothing could say so while
+the pair was unrunnable.
+
+`(ws7)` gains a platform-independent arm: the gate's own `settings: <path> is already present —
+left as it is.` line, naming that destination. That is what the deleted conjunct actually
+controls — with `-L` the seed skips and says so; without it the seed proceeds and reports either a
+copy or a failed one — and it holds whichever `cp` is installed, so the case no longer rests on
+the mechanism that made it blind.
+
+Verified in both directions locally with a `cp` shim that reproduces GNU's refusal:
+
+| probe | tree | result |
+| --- | --- | --- |
+| D | mutant applied, BSD `cp` | `(ws7)` fails — the pre-existing arm, still live on macOS |
+| E | mutant applied, GNU-`cp` semantics | `(ws7)` fails **only** because of the new arm |
+| F | this branch, GNU-`cp` semantics | green |
+
+
+## AC-3: the sweep that closes it
+
+Three `workflow_dispatch` runs of `mutation-sweep.yml` on this branch, in order. Each is cited
+because each one is a different piece of evidence:
+
+| run | head | what it establishes |
+| --- | --- | --- |
+| [`33315253887`](https://github.com/manoldonev/second-shift/actions/runs/33315253887) | `3aa08a6` | **AC-1 works.** First run of the patched diagnostic; shard 6 named `(i-580a)` and `(i-580b)` with the path that matched, which is the entire diagnosis. Still red — the cases were not fixed yet. |
+| [`33318103376`](https://github.com/manoldonev/second-shift/actions/runs/33318103376) | `015e359` | **The pair runs again.** Shard 6 green on the unrunnable pair and `lean-gate.sh` swept for the first time since 2026-08-20 — `applied=36 killed=33 survived=3`, one of them the baseline-absent `lean-gate-settings-clobber-dangling` that became AC-6. Run red on that, plus an unrelated shard-2 `pool disagreement` (below). |
+| [`33319110925`](https://github.com/manoldonev/second-shift/actions/runs/33319110925) | `015e359` | **AC-3.** All ten shards and the merge job green. Shard 6: `swept plugins/dev-pipeline/skills/build-lean/lean-gate.sh — applied=36 killed=34 survived=2`, the two remaining survivors being the pair already carried in `tools/mutation-baseline.tsv`. |
+
+The only commit after `015e359` is this file — the citation cannot precede the run it cites.
+`git diff 015e359..HEAD` touches `docs/plans/` alone.
+
+**The shard-2 red in the middle run, and why it is not this branch's.** It was
+`pool disagreement: catalog::selftest-elapsed-subsecond-floor` — the sweep's own name for a
+mutant the worker pool scored SURVIVED and a serial re-run scored KILLED, which the harness
+reports as "the harness is at fault, not the guard" and explicitly tells the operator not to
+baseline. The mutant deletes `tools/run-selftests.sh`'s one-second elapsed floor, so whether it is
+visible depends on whether suites finish inside a second — a function of runner load. It did not
+appear in the run before it or the run after it, at the same head, and nothing in this branch
+touches the scoring path.
+
+## Local verification
+
+```
+SKIP_STRESS=1 bash tools/run-selftests.sh --full --exclude tools/install-topology-selftest.sh
+# 76 scored, 76 run, 0 failed  (at 015e359)
+```
+
+`--full` matters here: the dogfood milestone-3 lane runs without it, so `lean-gate-selftest.sh`
+and `mutation-sweep-selftest.sh` — the two suites this change edits — are both deferred there and
+neither was run by `bash G 3`.

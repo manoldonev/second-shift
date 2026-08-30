@@ -161,6 +161,31 @@ PROG="$WORK/progress.md"
 SPEC="$TREE/docs/plans/acme-7-lean.md"
 VERDICT="$TREE/docs/plans/acme-7-lean-verdict.md"
 
+# #663: THE SUBSTRING NETS BELOW ARE CAST OVER THE GATE'S WORDS, NEVER OVER ITS PATHS.
+# The gate opens every run with `[lean-gate] config: <path>`, and that path is wherever
+# `mktemp -d -t` put this suite's scratch. On Linux `-t` resolves against $TMPDIR, and the
+# nightly mutation sweep runs every killer with TMPDIR pointed at a directory of its own
+# named `mutation-sweep-work.XXXXXX` — so on that lane, and on no other, (i-580a)'s
+# `grep -i mutation` matched the directory the suite was standing in. Both #580 cases failed
+# for that reason on every nightly from 2026-08-20, the pair read as unrunnable, and
+# lean-gate.sh — the most catalog-covered guard in the tree — was scored by nothing at all
+# until #663. The macOS lane never saw it: `mktemp -d -t` there resolves against
+# _CS_DARWIN_USER_TEMP_DIR and ignores TMPDIR outright.
+#
+# Tokens are dropped WHOLE, keyed on the fixture root by `index()` rather than by a regex —
+# the root is a path, and escaping one into a pattern is the second half of this same bug.
+# What survives is every word the gate itself chose, which is what the #580 cases are about;
+# a resurrected D-18 line names `tools/mutation-sweep.sh` relatively (see (i-580c)'s literal)
+# and is untouched, and (i-580b)'s tripwire marker is an oracle no scrub can reach.
+FIXTURE_ROOT="$(dirname "$WORK")"
+scrub_fixture_paths() { # scrub_fixture_paths <text>
+  awk -v r="$FIXTURE_ROOT" '{
+    n = split($0, w, " "); s = ""
+    for (i = 1; i <= n; i++) if (index(w[i], r) == 0) s = s (s == "" ? "" : " ") w[i]
+    print s
+  }' <<<"$1"
+}
+
 # The default issue body every case gets unless it overrides `--issue-file` itself: no Open
 # Regions section at all, so milestone 1's pause-and-ask check (AC-10) no-ops before it would
 # ever need a live `gh issue view` or a comment trail. Without this EVERY existing milestone-1
@@ -725,9 +750,10 @@ else fail "(i) expected a green milestone-3, got rc=$rc: $out"; fi
 # tools/mutation-sweep.sh. A positive-carrying tree is covered by (i-580b) further down — the
 # absent branch and the present branch were the two arms of the deleted `if`, so proving only
 # one of them would leave the other free to come back.
-if ! grep -qi 'mutation' <<<"$out"; then
+m580a="$(scrub_fixture_paths "$out")"
+if ! grep -qi 'mutation' <<<"$m580a"; then
   pass "(i-580a) AC-1: no mutation-sweep line is emitted when the tree carries no sweep"
-else fail "(i-580a) expected no mutation line at all, got: $(grep -i mutation <<<"$out")"; fi
+else fail "(i-580a) expected no mutation line at all, got: $(grep -i mutation <<<"$m580a")"; fi
 
 # #392 AC-1 (second half): the same green run also carries the allowUnverified notice, since
 # the shared fixture has zero fixed keys and no extraLanes.
@@ -788,9 +814,31 @@ attest_at "$M580_TREE" "$CFG" "$M580_PROG" 7
 out="$( cd "$M580_TREE" && ( unset RUN_ID CLAUDE_CODE_SESSION_ID GH_BOT
   SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$M580_PROG" \
   bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 3 7 2>&1 ) )"; rc=$?
-if [ "$rc" -eq 0 ] && [ ! -e "$M580_MARK" ] && ! grep -qi 'mutation' <<<"$out"; then
+if [ "$rc" -eq 0 ] && [ ! -e "$M580_MARK" ] && ! grep -qi 'mutation' <<<"$(scrub_fixture_paths "$out")"; then
   pass "(i-580b) AC-1: milestone 3 never invokes a repo-carried tools/mutation-sweep.sh"
 else fail "(i-580b) expected a green milestone-3 with the sweep untouched, got rc=$rc marker=$([ -e "$M580_MARK" ] && cat "$M580_MARK" || echo absent): $out"; fi
+
+# ---- (i-580d) #663: the negative net does not match the FIXTURE'S OWN PATH ----------------
+# The regression that cost lean-gate.sh its whole mutation coverage, pinned deterministically
+# instead of being left to the one lane that produces the condition. The gate is handed a
+# config whose PATH carries the word the two cases above grep for; before the scrub, both of
+# them failed on exactly this and the suite exited 2 with the sweep unable to say why.
+#
+# The config is byte-identical to $CFG and every path in it is relative, so the ONLY thing this
+# case varies is where the file sits — which is the whole claim.
+M663_DIR="$WORK/mutation-sweep-work.probe/tmp.0"
+mkdir -p "$M663_DIR"
+cp "$CFG" "$M663_DIR/config.json"
+reset_progress
+out="$( cd "$TREE" && ( unset RUN_ID CLAUDE_CODE_SESSION_ID GH_BOT
+  SECOND_SHIFT_CONFIG="$M663_DIR/config.json" LEAN_PROGRESS_FILE="$PROG" \
+  bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 3 7 2>&1 ) )"; rc=$?
+m663="$(scrub_fixture_paths "$out")"
+# The rc arm is asserted alongside: a scrub that emptied the output entirely would satisfy the
+# grep and prove nothing, and a gate that stopped running would do the same.
+if [ "$rc" -eq 0 ] && ! grep -qi 'mutation' <<<"$m663" && grep -q 'allowUnverified opt-out is set' <<<"$m663"; then
+  pass "(i-580d) AC-1 survives a fixture path that itself contains the word — the net is over the gate's words, not its scratch dir"
+else fail "(i-580d) rc=$rc, scrubbed output: $m663"; fi
 
 # ...and the progress record carries no D-18 skip row either. The stdout half above cannot fail
 # when only the sibling `append_line` comes back, which is the same asymmetry (i-392b) exists
@@ -6512,14 +6560,28 @@ else fail "(ws6) the copy overwrote a file the worktree already had, rc=$rc: $ou
 # implementation testing only `-e` would `cp` straight THROUGH it and write into whatever path the
 # operator pointed it at — outside the worktree entirely. The settings.json conjunct is again the
 # liveness half: the seed must have RUN on this worktree for the refusal to mean anything.
+#
+# #663: THE HARM ARM IS PLATFORM-BLIND, AND THE CANONICAL LANE IS THE BLIND SIDE. `[ ! -e <target> ]`
+# asks whether the write happened, and on Linux it never does — GNU `cp` refuses to write through a
+# dangling symlink on its own ("not writing through dangling symlink"), so the `-L` conjunct has no
+# observable consequence there and the catalog's `lean-gate-settings-clobber-dangling` mutant
+# SURVIVED the first ubuntu sweep to score this guard in ten days (run 33316017803, shard 6, serially
+# re-verified). BSD `cp` follows the link and writes, which is why the same mutant dies locally —
+# a guard that only fires on the developer's laptop.
+#
+# The arm added below is the gate's OWN WORDS, which are the thing the deleted conjunct actually
+# controls: with `-L`, the destination is reported present and skipped; without it, the seed
+# proceeds and reports either a copy or a failed copy. That is true on both platforms and does not
+# rest on which `cp` is installed — so the case now kills the mutant where it is scored.
 p64="$(ws_wt 64)"; pr_fixture claude/acme-64 '[{"number":64,"state":"OPEN"}]'
 mkdir -p "$p64/.claude"
 ln -s "$WREAL/ws-nonexistent-target.json" "$p64/.claude/settings.local.json"
 out="$(wgate "$WTREE" entry 64)"; rc=$?
 if [ "$rc" -eq 0 ] && [ ! -e "$WREAL/ws-nonexistent-target.json" ] \
+   && grep -qF "settings: $p64/.claude/settings.local.json is already present" <<<"$out" \
    && [ -L "$p64/.claude/settings.local.json" ] && [ -f "$p64/.claude/settings.json" ]; then
-  pass "(ws7) a destination that is a dangling symlink counts as present — the copy is not written through it"
-else fail "(ws7) the seed wrote through a symlink, rc=$rc: $(ls -l "$p64/.claude" 2>&1)"; fi
+  pass "(ws7) a destination that is a dangling symlink counts as present — the seed reports it skipped and writes nothing through it"
+else fail "(ws7) the seed did not treat the dangling symlink as present, rc=$rc: $(ls -l "$p64/.claude" 2>&1) :: $(grep -F 'settings:' <<<"$out")"; fi
 
 # AC-2 from the SOURCE side: `cp` dereferences, so what lands is a regular file even when the
 # operator's own settings file is a symlink into a dotfiles repo. `cp -P` or `ln -s` would fail here.

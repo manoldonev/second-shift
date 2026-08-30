@@ -661,6 +661,60 @@ else
   bad "(g3) the red did not account for the suppressed rows"; printf '%s\n' "$OUT" | tail -6
 fi
 
+echo "(g4) unrunnable pair — the FAILING CASES are named even when they scroll off the tail"
+# #663. (g2) proves the snapshot survives; it does NOT prove the snapshot is USEFUL, because its
+# needle is the last thing the fixture prints. A real suite reports each failure where it happens
+# and keeps going, so on lean-gate-selftest.sh — 550+ cases — the two FAIL lines sat hundreds of
+# lines above the end, and the blind `tail -40` showed forty PASSes and the summary on every
+# nightly from 2026-08-20 on. The guard is the SEPARATION: this killer names its failing case
+# FIRST and then buries it under more than PRE_LOG_LINES of passing chatter, so a tail-only
+# diagnostic cannot show it and a matches-first one must.
+#
+# PLACED AFTER (g3), not between (g2) and it: (g3) asserts against (g2)'s $OUT, and a run
+# inserted above it would silently re-point that assertion at a different fixture.
+FX="$(new_fixture strong)"
+baseline_with "$FX"
+{ printf '#!/usr/bin/env bash\n'
+  printf 'echo "  FAIL: (needle-case) the case that actually failed"\n'
+  # shellcheck disable=SC2016 # the $-expressions are the FIXTURE's code, not ours
+  printf 'i=0; while [ $i -lt 60 ]; do echo "  PASS: filler $i"; i=$((i + 1)); done\n'
+  printf 'echo "[fixture-selftest] 1 FAILURE(S)"\n'
+  printf 'exit 1\n'
+} > "$FX/guard-selftest.sh"
+fx_commit "$FX" bury
+OUT="$( cd "$FX" && enf bash "$SWEEP" --mode full 2>&1 )"; RC=$?
+# The tail arm is asserted alongside the match arm, so a change that swapped one blind window
+# for another — matches only — fails here rather than passing as an improvement.
+if [[ $RC -eq 1 ]] \
+  && grep -q 'unrunnable pair' <<<"$OUT" \
+  && grep -q 'needle-case' <<<"$OUT" \
+  && grep -q 'PASS: filler 59' <<<"$OUT"; then
+  ok "the red names the failing case though 60 passing lines buried it, and still carries the tail"
+else
+  bad "(g4) expected rc=1 + the buried FAIL case + the tail; got rc=$RC"; printf '%s\n' "$OUT" | tail -8
+fi
+# ...and a suite that DID name its case must not also be reported as naming none.
+if grep -q 'no line matches' <<<"$OUT"; then
+  bad "(g4b) a suite that named its failing case was reported as naming none"
+else
+  ok "the no-match note is withheld from a suite that named its case"
+fi
+
+echo "(g4c) a killer that fails without naming a case says so, rather than printing a bare tail"
+# The other side of (g4b). Without this the operator cannot tell "the suite has no trigger
+# lines" from "the diagnostic did not look", and the reaped-by-OOM class is exactly the one
+# that produces no FAIL line at all.
+FX="$(new_fixture strong)"
+baseline_with "$FX"
+printf '#!/usr/bin/env bash\necho "quiet failure, no trigger line"\nexit 3\n' > "$FX/guard-selftest.sh"
+fx_commit "$FX" quiet
+OUT="$( cd "$FX" && enf bash "$SWEEP" --mode full 2>&1 )"; RC=$?
+if [[ $RC -eq 1 ]] && grep -q 'no line matches' <<<"$OUT" && grep -q 'quiet failure' <<<"$OUT"; then
+  ok "the red says no case was named, and still carries the suite's own output"
+else
+  bad "(g4c) expected rc=1 + the no-match note + the tail; got rc=$RC"; printf '%s\n' "$OUT" | tail -8
+fi
+
 echo "(h) baseline-missing — enforcing non-seed is red; seed mode is green with artifacts"
 FX="$(new_fixture strong)"
 OUT="$( cd "$FX" && enf bash "$SWEEP" --mode full 2>&1 )"; RC=$?

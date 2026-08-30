@@ -1279,8 +1279,34 @@ UNRUN_GUARDS=""
 # 2-core runner) and one with a genuinely failing case (rc=1) produced the identical line, so
 # the class was undiagnosable in CI by construction and every occurrence died as "no idea".
 PRE_LOG_LINES="${MUTATION_SWEEP_PRE_LOG_LINES:-40}"
+# AND WHY A BLIND TAIL IS NOT ENOUGH. A suite reports its failures where they happen and keeps
+# going, so on a long one the FAIL lines are nowhere near the end: lean-gate-selftest.sh exited 2
+# on every nightly from 2026-08-20 on, and each of those reds printed forty PASS lines and the
+# suite's own summary, naming neither failing case. The tail answers "did it get anywhere at
+# all"; the matches answer "which case", and only the second is actionable. Both are printed,
+# matches first, because the tail is still what separates a suite that ran from one reaped at
+# line 1.
+PRE_FAIL_LINES="${MUTATION_SWEEP_PRE_FAIL_LINES:-20}"
 pre_log_path() { printf '%s/pre.log.%s' "$WORKDIR" "$(printf '%s' "$1" | tr '/' '_')"; }
-save_pre_log() { tail -n "$PRE_LOG_LINES" "$KILLER_LOG" > "$(pre_log_path "$1")" 2>/dev/null; }
+save_pre_log() { # save_pre_log <suite>
+  local p n
+  p="$(pre_log_path "$1")"
+  : > "$p"
+  # A killer that said NOTHING leaves the snapshot EMPTY, which is what lets the emitter below
+  # say so. Writing a "no matches" header over silence would report the header as output.
+  [[ -s "$KILLER_LOG" ]] || return 0
+  n="$(grep -c -- "$FAIL_PATTERN" "$KILLER_LOG" 2>/dev/null)" || n=0
+  if [[ "${n:-0}" -gt 0 ]]; then
+    printf -- '(%s line(s) matching %s — the failing case(s))\n' "$n" "$FAIL_PATTERN" >> "$p"
+    grep -- "$FAIL_PATTERN" "$KILLER_LOG" 2>/dev/null | head -n "$PRE_FAIL_LINES" >> "$p"
+    [[ "$n" -gt "$PRE_FAIL_LINES" ]] \
+      && printf -- '(%s further match(es) not shown)\n' "$((n - PRE_FAIL_LINES))" >> "$p"
+  else
+    printf -- '(no line matches %s — the suite failed without naming a case)\n' "$FAIL_PATTERN" >> "$p"
+  fi
+  printf -- '(last %s line(s))\n' "$PRE_LOG_LINES" >> "$p"
+  tail -n "$PRE_LOG_LINES" "$KILLER_LOG" >> "$p" 2>/dev/null
+}
 
 # Both codes, deliberately: shellcheck renamed this diagnostic mid-version and the two
 # releases disagree on where they hang it. >=0.10 reports SC2329 on the FUNCTION; 0.9,
@@ -2007,7 +2033,7 @@ while [[ $i -lt ${#GL_GUARD[@]} ]]; do
         detail "its baseline rows are undecidable this run — not reported as killed."
         pl="$(pre_log_path "$s")"
         if [[ -s "$pl" ]]; then
-          detail "---- last $PRE_LOG_LINES line(s) of $s ----"
+          detail "---- $s: the failing case(s), then the tail ----"
           while IFS= read -r pline || [[ -n "$pline" ]]; do detail "| $pline"; done < "$pl"
           detail "---- end $s ----"
         else
