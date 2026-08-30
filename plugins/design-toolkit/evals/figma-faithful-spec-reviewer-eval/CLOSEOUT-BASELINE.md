@@ -92,8 +92,11 @@ stability is what makes it a usable oracle for #707.
 agents #704 measured, this is the only one not at a ceiling — the plan reviewer scored 99.17% and
 the diff reviewer 100% — so it is where #707's tuning budget belongs.
 
-The three over-reaches on `d3_no_fabrication` (one run each on fixtures 02, 03 and 04) are the
-secondary signal: a mild tendency to add a Warning the fixture's ground truth calls correct. Worth
+**Four of the twelve runs** over-reached on `d3_no_fabrication`, all of them on fixtures 02 (all
+three runs) and 03 (run 2). Fixtures 01 and 04 are clean at 6/6 — **the control fabricated
+nothing**, which is what the section above exists to establish. Two of the four hit `rubric.py`'s
+most severe `0` band ("two or more are, or any single one is extreme"), and fixture 02 run 0's
+over-reach was filed as a **Blocker** (F3), not a Warning. That is the secondary signal: worth
 watching during a campaign, not worth a prompt edit on n=3.
 
 ## Provenance
