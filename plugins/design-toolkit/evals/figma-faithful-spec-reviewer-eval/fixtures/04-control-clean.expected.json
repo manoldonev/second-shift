@@ -1,0 +1,17 @@
+{
+  "expected_verdict": "pass",
+  "expected_findings": [],
+  "must_not_flag": [
+    "the Copy Index — eighteen rows, every one a real verbatim string, no placeholder and no TBD; the digest picker's four option labels have their own rows (CI-15…CI-18), so no visible text is unmapped",
+    "the Element Inventory — present for all three states, every row reconciled to a component, a copy id where it renders text, and a visual contract",
+    "the visual contract — dimensions, border-by-state on both stateful controls, the truncation rule on the descriptions, the picker's default state, and the panel's named-default override (`elevation={0}`)",
+    "the help card's state-presence — captured once, stated as present in all three states, which is exactly the sibling-state reconciliation the checklist asks for",
+    "the States column — each row states the states it renders in; the toggle rows, picker and Save action are absent in `loading` and say so, and the page header, panel shell, panel title and help card are present in all three",
+    "the Figma references — fileKey + nodeId per state, independently resolvable",
+    "the BE field map — every persisted field maps to a named control, and the enum is written out",
+    "the state coverage — loaded, loading and error are all enumerated",
+    "the mandated template sections — Summary, Actors, Dependencies, Routes, Element Inventory, Screens, BE field map, Components, Copy Index, Acceptance Criteria, Open Questions and Out of scope are all present"
+  ],
+  "layer": "clean control",
+  "notes": "The calibration fixture. The agent's stated posture is 'Bias toward Warning when in doubt' and 'do not invent a Warning to look thorough', and this spec gives it several near-miss opportunities: acceptance criteria whose negative cases are phrased as positive assertions, an explicit `Open Questions: None` rather than an omitted section, a `Card` used with a documented default-override, and switch dimensions (36x20px) that are off the spacing scale. A Warning on any of them is a false positive; zero Blockers AND zero Warnings is the pass.\n\nFIXTURE v1. The first baseline run of this eval scored this fixture 56.7% over three runs, and two of the three findings were CORRECT: the digest picker's four option labels were visible text with no Copy Index row, and the States column read `all` on rows the loading-state prose replaces with a skeleton. Both were real defects in the fixture, not reviewer false positives, so the fixture was corrected and the eval re-baselined rather than the score being recorded against a control that was not clean. The pre-correction measurement is kept in CLOSEOUT-BASELINE.md."
+}

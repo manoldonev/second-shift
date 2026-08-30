@@ -1,0 +1,16 @@
+{
+  "expected_verdict": "block",
+  "expected_findings": [
+    "the Bulk price drawer screen's Figma reference is a SECTION / 'DEV-READY' link with node-id=0-1 (the file root), not a specific fileKey + nodeId for the drawer frames — neither a reviewer nor the implementer can pull the exact frame, so the reference is not independently resolvable"
+  ],
+  "must_not_flag": [
+    "the Copy Index — every row is a real verbatim string, no placeholders, no TBDs",
+    "the Element Inventory — present, per-state, every row reconciled to a component, a copy id and a visual contract",
+    "the visual contract — dimensions, border-by-state, truncation and the disabled default are all recorded",
+    "the NumberField resolution — the visual-contract cell explicitly says 'steppers intended', which is the note the checklist asks for",
+    "the BE field map — every persisted field maps to a named control",
+    "the in-flight state — reconciled against idle rather than left implied"
+  ],
+  "layer": "unresolvable node reference",
+  "notes": "A single-defect fixture aimed at the Node resolvability row, which is a Blocker on its own and easy to skim past because a URL is present and looks specific — it carries a node-id, but node-id=0-1 is the file root, and the prose says 'the frames live under that section'. A reviewer that treats any Figma URL as a resolution fails this fixture."
+}

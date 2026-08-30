@@ -42,16 +42,19 @@ that is exactly how per-node sizing and component suitability came to be owned b
 check genuinely has no owner on this lane, it says so in as many words instead of naming one.
 
 - **Component _identity_** (does a real repo component exist at that import, and did the spec
-  resolve one at all?) → `design-toolkit:figma-faithful-spec-reviewer`, **interactive lane only** —
-  it returns `N/A` on any input with no Copy Index / Components / Screens sections, which is every
-  lean-lane spec. Its _suitability_ half is yours in both lanes (above), so nothing is dropped when
-  that reviewer cannot run.
+  resolve one at all?) → `design-toolkit:figma-faithful-spec-reviewer`, on **both** lanes. It used
+  to return `N/A` on any input with no Copy Index / Components / Screens sections — which was every
+  lean-lane spec — and its `N/A` is now narrowed to an input that is not a design artifact at all,
+  so a lean-lane spec reaches it. Its _suitability_ half stays yours as well (above); that overlap
+  is deliberate, because a check two agents run is cheaper than one neither does.
 - **Import-path existence** in the repo → `design-toolkit:figma-faithful-reviewer` (post-build
   grep). Reachable on both lanes.
 - **Copy drift** against a discoverable spec → `design-toolkit:figma-faithful-reviewer`. Copy
-  _capture_ (is this the string the design shows?) has **no owner on the lean lane** — there is no
-  Copy Index there to check against, and inventing findings about strings you cannot see is worse
-  than the gap. Say the gap exists; do not fill it.
+  _capture_ (is this the string the design shows?) has an owner on the lean lane only where the
+  spec recorded the strings: `design-toolkit:figma-faithful-spec-reviewer` reviews a lean-lane spec
+  now, but it cannot check copy an artifact never carried, and neither can you. Where the spec
+  records no copy, that gap has no owner — say it exists; do not fill it with findings about
+  strings you cannot see.
 - **Code style, style-prop shape, hand-rolled primitives** → `design-toolkit:figma-faithful-reviewer`.
 - **Whether a recorded Figma value is itself correct** → the design-sighted `review-lean`
   session, which scores `fidelity:` against the render receipt milestone 3 produces and must cite

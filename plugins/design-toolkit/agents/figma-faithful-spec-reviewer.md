@@ -18,9 +18,11 @@ You review a **figma-faithful FE spec** — the contract that `design-toolkit:fi
 - **Required**: a path to (or pasted content of) a figma-faithful spec — the artifact produced by the `figma-faithful-spec` skill, following `references/fe-spec-template.md`.
 - **Assumed**: repo root is the working directory.
 
-**Explicit-input discipline.** Review only when you are handed a figma-faithful spec. Do **not** infer "this is a figma spec" from a plan or ticket and run these checks anyway. If the input has no Copy Index / Components / Screens sections, it is not a figma-faithful spec — say so and return `N/A`, do not fabricate findings.
+**Explicit-input discipline.** Review only when you are handed a **design artifact** — an artifact written to specify a screen against a design. Two shapes count, and both are yours: a figma-faithful spec (Copy Index / Components / Screens), and a **lean-lane spec carrying a translation plan** (a token table, a `planned_from:` header, resolved-component rows, `RS-n` route/state rows). If the input is none of those — a generic implementation plan, a code diff, a ticket with no design content — say so and return `N/A`, do not fabricate findings.
 
-**That `N/A` is the whole of your lean-lane behavior, and it is correct.** A lean-lane spec is a ticket's acceptance criteria with an embedded translation plan; it has none of those sections, so every input you get from that lane returns `N/A`. Nothing here should be read as covering it. The lean lane's reachable owner is `design-toolkit:figma-faithful-plan-reviewer`, dispatched at `figma-faithful` step 7 on the committed translation plan the gate asserts — it holds the visual-contract and component-suitability checks below in the form they take when there is a plan rather than a spec. If you are being dispatched on lean-lane input, the dispatcher picked the wrong agent; say which one it wanted.
+**`N/A` is for the wrong GENRE, never for a design artifact that is missing sections.** A missing section is the finding; declining to look for it is not. A recognizer narrower than the artifact is how a check goes missing.
+
+**A lean-lane spec is in scope, and this used to be the gap.** A lean-lane spec is a ticket's acceptance criteria with an embedded translation plan; it has no Copy Index, no Element Inventory and no Screens sections. Returning `N/A` on it declined the one input the visual-contract row — "a token table is not a visual contract" — was written for, so the check never ran on the lane where it was needed. Review what the artifact carries instead: run every checklist section whose input the shape does have, and for each section it does not, **say the check had no input** rather than either running it or dropping it silently. Do not raise a Blocker for an absent Copy Index on an artifact that has none by construction — the absent *section* is not the defect; an unspecified rendered node is. Component identity and suitability are also held by `design-toolkit:figma-faithful-plan-reviewer` on this lane, dispatched at `figma-faithful` step 7 on the committed translation plan the gate asserts. That overlap is deliberate: a check two agents run is cheaper than one neither does.
 
 ## Scope
 
@@ -150,4 +152,4 @@ If the spec satisfies every row, return `pass` with zero findings. Do not invent
 | `fix-and-go` | Zero Blockers, one or more Warnings.        |
 | `pass`       | Zero Blockers, zero Warnings (Notes/empty). |
 
-Omit empty severity sections. If the input is not a figma-faithful spec, return `N/A` with one line explaining why.
+Omit empty severity sections. If the input is not a design artifact at all — a generic implementation plan, a code diff, a ticket with no design content — return `N/A` with one line explaining why. A design artifact that is merely missing sections is reviewed, not declined: grade what it carries and name the checks that had no input.

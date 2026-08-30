@@ -1,0 +1,16 @@
+{
+  "expected_verdict": "approve",
+  "surface": "console (fixed theme)",
+  "expected_findings": [],
+  "must_not_flag": [
+    "gap={6} / gap={3} / gap={2} / paddingInline: 6 / paddingBlock: 6 / paddingBlockStart: 4 — theme unit numbers on the 4px base",
+    "color: 'text.secondary' and borderColor: 'border.default' / 'border.subtle' — palette paths, not literals",
+    "<Typography variant='sectionTitle' | 'fieldLabel' | 'body' | 'helper'> — ramp variants, not raw type",
+    "SEAT_COUNT_OPTICAL_INSET = '14px' — the console reference's named-constant-with-comment escape hatch for an off-scale value, used exactly as written",
+    "borderBlockStart: '1px solid' — a 1px hairline has no token in the reference's spacing scale",
+    "<Card>, <Banner>, <Button>, <Tag>, <Stack> — real catalog components",
+    "elevation={0} — the documented override for the Card's resting shadow"
+  ],
+  "layer": "clean control",
+  "notes": "The calibration fixture. The agent's stated posture is 'bias toward passing', and this file gives it four separate near-miss opportunities: an off-scale px literal that IS correctly named-and-commented, a bare '1px solid' with no matching token, a logical prop taking a string rather than a unit number, and layout containers. A Warning on any of them is a false positive; zero Criticals AND zero Warnings is the pass."
+}
