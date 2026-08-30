@@ -1,11 +1,11 @@
 # Release the pipeline's run-state labels when a tracker item closes (#423).
 #
 # The claimed label is added at claim and used to be removed by nothing: the lane's step-9
-# prose said the session drops it, but the lean lane's milestone 5 requires an OPEN pr, so it
-# runs strictly pre-merge — the one moment the label is still correct. The stale window
-# opens at merge, when the pr's closing reference closes the issue and no session is
-# running to notice. Binding the release to the close event is deterministic, needs no
-# live session, and covers both lanes plus a hand-closed issue.
+# prose said the session drops it, and no session is in a position to. Milestone 5 accepts a
+# merged pr as readily as an open one (#642, #670), so close-out runs either side of the merge
+# — and the label goes stale at the CLOSE, which is a moment no lane session is guaranteed to
+# be present for. A hand-closed issue has no session at all. Binding the release to the close
+# event is deterministic, needs no live session, and covers both lanes.
 #
 # This repo is the canary, so the job runs the SHIPPED template script in place rather
 # than a committed copy under .claude/tools/ — one script, and what runs here is exactly

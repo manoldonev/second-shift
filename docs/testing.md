@@ -880,6 +880,36 @@ coupling rather than mechanizing it into a guard that cannot fail.
   and a status board into one table serving neither reader. Reviewer-guarded: both tables are
   short, sit in the two files every contributor reads first, and a new tier lands with its own
   suite in the same PR.
+- **The claimed label's release rationale, across seven sites** (#670). Every one of them explains
+  why the label is not dropped session-side: `build-lean/SKILL.md` step 9,
+  `.github/workflows/unclaim-on-close.yml`, both shipped
+  `templates/consumer/second-shift-unclaim.{sh,yml}` headers, `onboard/SKILL.md`'s spoken
+  onboarding line, `schema/second-shift.config.schema.json`'s `claimed` description, and
+  `docs/onboarding.md`. #642 falsified the reason all seven gave — that the exit milestone could
+  not be reached unless the PR was still open — by widening milestone 5 to accept a merged PR, and
+  its AC-9 prose sweep named four files, none of them these. That reason is stated here in
+  INDIRECT SPEECH on purpose: #670's sweep is a `git grep` for the claim's own wording, and a
+  regex cannot tell a live assertion from a quotation labelling the claim as dead. A live doc that
+  quoted the old sentence verbatim would read to that sweep as an eighth site; the verbatim text
+  survives where it is evidence, in the three excluded frozen-record classes below. The premise then survived a further three-round review of the PR that
+  introduced the contradiction, and was found by an ablation's bare session.
+  **Not lockstep-able**: the group would have to be `verbatim`, and these are seven arguments
+  addressed to seven different readers — a build session's checklist instruction, a maintainer's
+  workflow rationale, two consumer-shipped script headers, a line spoken aloud during onboarding,
+  a JSON schema description surfacing in editor tooling, and an onboarding walkthrough. One shared
+  sentence pasted into all seven would flatten prose that is deliberately distinct, which is the
+  cost #604's `verbatim` relation exists to make explicit.
+  **Not the #674 derive-it shape either**, though it is the closer fit: what the sites state is a
+  *design rationale* ("no session is guaranteed to be running when the item closes"), not a set
+  the code enumerates. `check-lane-class-doc.sh` works because `lane_failure_class`'s call sites
+  ARE the reserved set; nothing in `lean-gate.sh` enumerates why a workflow owns a label.
+  **Behaviorally guarded on the half that can be**: the falsifiable half of the old claim was
+  never the prose, it was `cmd_mark`'s `--state open`, and `lean-gate-selftest.sh` cases `(pm7b)`,
+  `(pm7c)` and `(k7b)` now drive it over the live `gh` path. The prose half is reviewer-guarded,
+  and the three frozen-record classes that legitimately still quote the old sentence —
+  `docs/plans/**`, `docs/skill-ablation.md`, and the `dup-scan` corpus fixture — are excluded on
+  purpose, not overlooked: each is a dated record of what a file said on the day it was read, and
+  correcting the quote would destroy the evidence for the finding.
 - **`LEAN_SELFTEST_CACHE_DIR`, writer ↔ reader (#563).** The same coupling one ticket later,
   declined for the same reason. The invisible direction is sharper: a one-sided rename just means
   no lean sweep ever serves from cache again, which looks exactly like a cache that is working and
