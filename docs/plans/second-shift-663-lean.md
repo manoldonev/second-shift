@@ -45,7 +45,7 @@ one, and the class it belongs to (a suite that fails early and keeps going) has 
 
 ## Root cause of the exit-2
 
-Recorded in "Findings" below once the named cases are in hand — the ticket's own step order.
+**Named by the patched diagnostic on its first run.** See Findings.
 
 ## Decision Ledger
 
@@ -79,4 +79,88 @@ without it would leave the diagnostic exactly as unfalsifiable as the red it exi
 
 ## Findings
 
-*(the named cases, their cause, and the fix — filled in from the first patched sweep)*
+### The two cases
+
+The AC-1 patch was pushed and the sweep dispatched on this branch before anything else was
+known. Its shard-6 log named them on the first run:
+
+```
+| (2 line(s) matching FAIL: — the failing case(s))
+|   FAIL: (i-580a) expected no mutation line at all, got: [lean-gate] config:
+|         /tmp/mutation-sweep-work.lws3HK/tmp.0/leangate.8410.…/config.json
+|   FAIL: (i-580b) expected a green milestone-3 with the sweep untouched, got rc=0 marker=absent:
+|         [lean-gate] config: /tmp/mutation-sweep-work.lws3HK/tmp.0/leangate.8410.…/config.json
+```
+
+`(i-580a)` and `(i-580b)` are #580's two arms: milestone 3 no longer invokes
+`tools/mutation-sweep.sh`, and neither the absent-tree branch nor the sweep-carrying branch may
+emit a line about it. Both assert it with a deliberately broad net — `! grep -qi 'mutation'` over
+the gate's whole output.
+
+### Why it fires only inside the sweep
+
+The failure is in the assertion's reach, not in the gate. The message the grep matched is the
+gate's own opening line, `[lean-gate] config: <path>`, and the path is this suite's `mktemp`
+scratch:
+
+1. `lean-gate-selftest.sh` allocates `WORK` with `mktemp -d -t "leangate.<stamp>.XXXXXX"`.
+2. On **Linux**, `-t` resolves the template against `$TMPDIR`. On macOS it resolves against
+   `_CS_DARWIN_USER_TEMP_DIR` and ignores `TMPDIR` entirely — which is why no local run on this
+   machine could ever have reproduced it, and why the ticket said so.
+3. `tools/mutation-sweep.sh` runs every killer with `TMPDIR="$KILLER_TMPDIR"`, and
+   `$KILLER_TMPDIR` is `$WORKDIR/tmp.<worker>` under
+   `WORKDIR="$(mktemp -d -t mutation-sweep-work.XXXXXX)"`.
+
+So inside the sweep — and inside nothing else in this repo — the fixture's own config path
+contains the literal string `mutation`, and the negative grep matched the directory the suite was
+standing in. `exit 2` is the suite's `exit "$FAILS"` convention: exactly these two cases.
+
+The `~256 suite lines` window the ticket pointed at contained the cause but not for the reason it
+guessed: `005bd3c` (PR #595, closing #580) added these two assertions at 2026-08-19 21:43 UTC, and
+the first nightly to run them — 2026-08-20 03:17 UTC — is the first red. Every night since has
+been the same two cases.
+
+### Reproduced locally, and the ticket's "no local repro path" is now false
+
+The ticket recorded that macOS cannot cover the condition. That is true of `mktemp` and not of the
+mechanism: pointing the suite at a `TMPDIR` whose name carries the word, with a `mktemp` shim that
+resolves `-t` against `TMPDIR` the way GNU does, reproduces the CI red exactly — **rc=2, the same
+two cases, nothing else**:
+
+```
+mktemp shim: `-t NAME` -> mktemp -d "$TMPDIR/NAME"        # GNU behaviour, which macOS lacks
+cwd:         a `git worktree add --detach` sandbox        # what the sweep runs killers in
+TMPDIR:      <scratch>/mutation-sweep-work.probe/tmp.0    # what the sweep names its own
+```
+
+Three runs settle it, and each is cited because each rules something out:
+
+| probe | tree | condition | result |
+| --- | --- | --- | --- |
+| A | `808aa29` (pre-fix) | sandbox cwd + `mutation`-named `TMPDIR` | **rc=2**, `(i-580a)` + `(i-580b)`, verbatim |
+| B | this branch | same | rc=0, 552 cases green |
+| C | this branch, `scrub_fixture_paths` neutered to the identity | ordinary `TMPDIR` | `(i-580d)` fails alone |
+
+The earlier control runs (repo cwd; sandbox cwd alone; sandbox cwd with a `TMPDIR` *not* carrying
+the word) were all green, which is what isolates the directory NAME as the whole of the cause —
+not the sandbox, not `TMPDIR` as such.
+
+### The fix
+
+`scrub_fixture_paths()` drops every whitespace-delimited token that names the fixture scratch
+root before the substring test, keyed by `awk`'s `index()` — the root is a path, and escaping one
+into a regex is the second half of this same class of bug. What survives is every word the gate
+itself chose, which is what the two cases are about. `(i-580b)`'s tripwire marker is untouched and
+remains the strong arm; a resurrected D-18 line names `tools/mutation-sweep.sh` relatively — see
+`(i-580c)`'s literal — and is not scrubbed.
+
+Deliberately **not** done: narrowing the grep to a phrase. The breadth is the point of #580's
+pair (the two arms of a deleted `if`), and a phrase-shaped criterion is how a defect walks past a
+guard that reads it — this repo has the receipts.
+
+### The regression guard
+
+`(i-580d)` hands the gate a byte-identical config sitting under a directory named
+`mutation-sweep-work.probe/tmp.0`, and asserts the `(i-580a)` criterion still holds. It fails on
+the pre-fix assertion, needs no Linux, and asserts `rc=0` plus a positive token alongside so that
+a scrub which emptied the output would not satisfy it.
