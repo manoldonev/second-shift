@@ -79,6 +79,8 @@ No pre-flight ledger exists for #674; the rows below are this session's, all `co
 | D-6 | Correct the exit-3 claim at `docs/testing.md:146` and `docs/skill-ablation.md:176` too? | No — neither carries the defect. Both were re-read at head: testing.md already says "Since #642 that is `typecheck` alone", and skill-ablation.md is a dated measurement record of this very finding. (`docs/testing.md` **is** edited by this branch, under AC-7, in a different section and for a different reason.) | codebase-derived |
 | D-7 | Wire the guard into CI? | Yes, `ci.yml`'s contract-checks job, beside `check-lockstep-pairs.sh`. A guard only its own selftest runs is a guard that reds after the merge it should have blocked. | codebase-derived |
 | D-8 | The `writing-tests` tier map routes this class to "nothing". Leave it, or extend it? | Extend it, as AC-7 — added after milestone 1, before milestone 5. Leaving it is how the next instance of this defect gets filed instead of guarded; the map is the thing an author actually reads. | codebase-derived |
+| D-9 | `mutation-sweep-pr`'s two `default` survivors (review r1 B1): baseline them as unkillable, or delete the `${…:-…}` sites? | Delete. The awk `END` block emits `sites` and `fixedsites` unconditionally with `%d` and `+ 0`, so both defaults were provably dead syntax — a baseline row would have recorded a permanent exception for a line that should not exist. Deleting also drops the sites from enumeration, so no row is owed. **This alone does not clear the lane**: at `k=2` it promotes `${verdict:-}` and `${lanes:-}` into the swept window, and both were probed surviving. D-10 is what actually kills them. | codebase-derived |
+| D-10 | Review r1 W1 — four fail-closed arms no case drives: add cases, or declare them deliberately unguarded in the header? | Add cases (m)–(p). Declaring them unguarded is the wrong answer on a branch whose thesis is that an unchecked claim rots, and writing case (p) proved the arms were not merely undriven: `IFS=$'\t' read -r verdict lanes row` collapses runs of tabs (tab is IFS *whitespace*), so on the one row shape that arm exists to catch — empty middle field — the row text slid into `lanes` and the arm was structurally dead. Split positionally instead. Closing W1 is also what makes D-9's two promoted sites killable. | codebase-derived |
 
 ## Acceptance Criteria
 
@@ -97,9 +99,13 @@ No pre-flight ledger exists for #674; the rows below are this session's, all `co
   or when there are zero call sites.
 - **AC-4 — the completeness arm.** The guard derives the fixed-key list from milestone 3's
   `for key in …` loop and reds when a fixed key has no row in the doc's region.
-- **AC-5 — the guard is exercised.** `scripts/check-lane-class-doc-selftest.sh` runs the guard
-  green against the live tree and RED against a synthetic fixture for every refusal in AC-2,
-  AC-3 and AC-4 — each case asserting the exit code *and* the message that names the cause.
+- **AC-5 — the guard is exercised, and every refusal it implements is driven.**
+  `scripts/check-lane-class-doc-selftest.sh` runs the guard green against the live tree and RED
+  against a synthetic fixture for every refusal the guard can emit — not only those AC-2, AC-3 and
+  AC-4 enumerate — each case asserting the exit code *and* the message that names the cause.
+  *(Widened in the round-1 fix from "every refusal in AC-2, AC-3 and AC-4". The four arms outside
+  that enumeration were reported as review W1; driving them found one that could not fire at all,
+  which is the evidence that "outside the spec's enumeration" is not a safe place to leave an arm.)*
 - **AC-6 — the guard runs at the merge boundary.** `.github/workflows/ci.yml` invokes
   `scripts/check-lane-class-doc.sh` in the same job as the other repo-level contract checks.
 - **AC-7 — the route is written down.** The tier map that sent this class to "nothing" now has a

@@ -153,11 +153,15 @@ if [[ -n "$UNMODELLED" ]]; then
   done <<<"$UNMODELLED"
 fi
 
-if [[ "${SITES:-0}" -eq 0 ]]; then
+# No `${…:-0}` defaults on these two: the awk END block emits both rows unconditionally with
+# `%d` and a `+ 0`, so both are always a number. A default would be dead syntax — and were the
+# awk itself to fail, bash reads the resulting empty string as 0 in arithmetic context, so both
+# checks below still red rather than passing. The fail-closed path does not depend on the default.
+if [[ "$SITES" -eq 0 ]]; then
   bad "$GATE_REL — lane_failure_class has no call sites. Either the classifier is dead code or it was renamed; either way the reservation this doc states is no longer wired."
 fi
-if [[ "${FIXEDSITES:-0}" -ne 1 ]]; then
-  bad "$GATE_REL — expected exactly one \`for key in …\` fixed-key loop, found ${FIXEDSITES:-0}. The fixed-key list is not derivable."
+if [[ "$FIXEDSITES" -ne 1 ]]; then
+  bad "$GATE_REL — expected exactly one \`for key in …\` fixed-key loop, found $FIXEDSITES. The fixed-key list is not derivable."
 fi
 
 # ---- doc side -------------------------------------------------------------------------
@@ -196,12 +200,21 @@ if [[ -z "$DOCROWS" ]]; then
   bad "$DOC_REL — the LANE-CLASS region has no lane rows. An empty region asserts nothing and would agree with any dispatch."
 fi
 
-while IFS=$'\t' read -r verdict lanes row; do
-  [[ -n "${verdict:-}" ]] || continue
+# Split by hand rather than with `IFS=$'\t' read -r verdict lanes row`. Tab is an IFS
+# WHITESPACE character, so bash collapses a run of them: on the one row shape this loop exists
+# to catch — a row naming no backticked lane, whose middle field is empty — `read` folds the two
+# tabs into one and slides the row text into `lanes`. The arm then never fires, and an
+# unnameable row passes silently. Positional expansion sees the empty field.
+while IFS= read -r docline; do
+  [[ -n "$docline" ]] || continue
+  verdict="${docline%%$'\t'*}"
+  rest="${docline#*$'\t'}"
+  lanes="${rest%%$'\t'*}"
+  row="${rest#*$'\t'}"
   if [[ "$verdict" == "?" ]]; then
     bad "$DOC_REL — a lane row carries neither **reserved** nor **not reserved**: $row"
   fi
-  if [[ -z "${lanes:-}" ]]; then
+  if [[ -z "$lanes" ]]; then
     bad "$DOC_REL — a lane row names no backticked lane: $row"
   fi
 done <<<"$DOCROWS"

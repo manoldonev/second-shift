@@ -4,8 +4,8 @@
 #
 # The mutation idiom (per scripts/check-lockstep-pairs-selftest.sh): green on the real tree, RED
 # after a mutation. A guard never observed failing is indistinguishable from one that cannot fail
-# — and for this subject that is the whole point, since the sentence it guards spent a year
-# looking true.
+# — and for this subject that is the whole point, since the sentence it guards survived PR #660's
+# three review rounds and its full panel looking true.
 #
 # Cases (b) onward run against SYNTHETIC fixture trees. The checker reads exactly two paths under
 # its root, so a fixture is those two files and nothing else — which lets each case state exactly
@@ -205,6 +205,61 @@ rc=$(run "$d")
 if [[ "$rc" -ge 1 ]] && grep -q 'the dispatch is missing' <<<"$(out)"; then
   ok "(l) a missing dispatch reds rather than passing vacuously"
 else bad "(l) expected a red for the missing gate, got rc=$rc"; out; fi
+
+# ---- (m) a second fixed-key loop (the `for key in …` count arm) ------------------------------
+# A second milestone growing its own lane loop makes "the fixed keys" ambiguous: this script reads
+# ONE loop, and two of them would silently union into a set neither loop actually walks. The keys
+# here are identical, so the case pins the count arm alone rather than any downstream comparison.
+d=$(tree m)
+cat >> "$d/$GATE_REL" <<'EOF'
+milestone_4() {
+  for key in lint typecheck test; do
+    reverify_lane "$key"
+  done
+}
+EOF
+rc=$(run "$d")
+if [[ "$rc" -ge 1 ]] && grep -qF 'fixed-key loop, found 2' <<<"$(out)"; then
+  ok "(m) a second fixed-key loop reds, naming the count"
+else bad "(m) expected a red naming two fixed-key loops, got rc=$rc"; out; fi
+
+# ---- (n) a DOUBLED region marker (the BEGIN half of the marker check) ------------------------
+# The half of the `||` case (j) cannot reach: (j) deletes the END, so only the END-side count is
+# ever driven. This is the arm with a live consequence — two BEGINs and one END still parse to the
+# right rows, so a guard without the BEGIN-side count goes GREEN over a doc whose region has two
+# openings and no single answer about which one the reader is in.
+d=$(tree n)
+perl -0pi -e "s/^(.*$MB.*)\$/\$1\n  <!-- $MB -->/m" "$d/$DOC_REL"
+rc=$(run "$d")
+if [[ "$rc" -ge 1 ]] && grep -qF 'found 2 and 1' <<<"$(out)"; then
+  ok "(n) a doubled BEGIN marker reds even though the rows still parse"
+else bad "(n) expected a red naming two BEGINs and one END, got rc=$rc"; out; fi
+
+# ---- (o) a well-delimited but EMPTY region (the no-rows arm) ---------------------------------
+# The vacuity this whole guard exists to refuse, one level in: the markers are balanced, so the
+# region parse succeeds and returns nothing — and a set compared against nothing agrees with any
+# dispatch. It must red as EMPTY, and it must red ONCE for that reason: the empty region is also
+# the only input that drives a row through the loop with no fields, so a guard that stopped
+# skipping it would report a phantom malformed row on top of the real fault.
+d=$(tree o)
+perl -0pi -e "s/(<!-- $MB -->\n).*?(  <!-- $ME -->)/\$1\$2/s" "$d/$DOC_REL"
+rc=$(run "$d")
+o="$(out)"
+if [[ "$rc" -ge 1 ]] && grep -qF 'has no lane rows' <<<"$o" && ! grep -qF 'names no backticked lane' <<<"$o"; then
+  ok "(o) an empty region reds as empty, and reports no phantom row"
+else bad "(o) expected exactly the empty-region red, got rc=$rc"; out; fi
+
+# ---- (p) a row that names no backticked lane (the unnameable-row arm) ------------------------
+# A row carrying a verdict but no `lane` token adjudicates nothing while looking like a row that
+# does. Left unread it is invisible: it contributes no lane to either comm, so both directions
+# agree and the region reads as complete while one of its claims names no subject.
+d=$(tree p)
+perl -0pi -e 's/^(.*setup .*lanes.*)$/$1\n  - the remaining families — **not reserved**: covered above./m' "$d/$DOC_REL"
+rc=$(run "$d")
+if [[ "$rc" -ge 1 ]] && grep -qF 'names no backticked lane' <<<"$(out)"; then
+  ok "(p) a verdict-carrying row naming no lane reds"
+else bad "(p) expected a red naming the unnameable row, got rc=$rc"; out; fi
+
 
 echo "[lane-class-selftest] $PASS passed, $FAIL failed"
 exit "$FAIL"
