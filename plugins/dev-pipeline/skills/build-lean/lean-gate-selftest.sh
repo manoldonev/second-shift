@@ -1712,6 +1712,26 @@ cat > "$WORK/pr-closed.json" <<'EOF'
 [{ "number": 9, "url": "https://example.invalid/pr/9", "isDraft": false, "state": "CLOSED",
    "body": "Closes #7\n\nSpec: docs/plans/acme-7-lean.md" }]
 EOF
+# Milestone 5's own view of the same merged PR — it additionally asserts the body's Closes trailer and spec link.
+cat > "$WORK/gh-merged-m5.sh" <<'STUB'
+#!/bin/sh
+# `--state open` answers an EMPTY array, which is what real gh returns once the PR is merged —
+# so a revert of #670's resolver change fails here instead of quietly passing.
+case "$*" in
+  *"issue view"*) echo OPEN ;;
+  *"pr list"*)
+    case "$*" in
+      *"--state open"*) echo '[]' ;;
+      *) cat <<'JSON'
+[{ "number": 91, "url": "https://example.invalid/pr/91", "isDraft": false, "state": "MERGED",
+   "body": "Closes #7\n\nSpec: docs/plans/acme-7-lean.md" }]
+JSON
+      ;;
+    esac ;;
+  *) echo '[]' ;;
+esac
+STUB
+chmod +x "$WORK/gh-merged-m5.sh"
 cat > "$WORK/pr-open-and-merged.json" <<'EOF'
 [{ "number": 8, "url": "https://example.invalid/pr/8", "isDraft": false, "state": "MERGED",
    "body": "Closes #7\n\nSpec: docs/plans/acme-7-lean.md" },
@@ -1720,8 +1740,19 @@ cat > "$WORK/pr-open-and-merged.json" <<'EOF'
 EOF
 seed_progress_1_to_4
 out="$(bgate 5 7 --pr-file "$WORK/pr-merged.json" --comments-file "$WORK/comments-closing.json")"; rc=$?
-if [ "$rc" -eq 0 ]; then pass "(k7) #642 AC-8: milestone-5 passes on a MERGED PR — close-out stays reachable after a merge"
+if [ "$rc" -eq 0 ]; then pass "(k7) #642 AC-8: resolve_open_pr accepts a MERGED PR through the --pr-file seam"
 else fail "(k7) expected rc=0 on a merged PR, got $rc: $out"; fi
+
+# ---- (k7b) #670 AC-1: the same claim (k7) USED to make, over the path a consumer takes -------
+# (k7) was titled "close-out stays reachable after a merge" and could not observe it: --pr-file
+# short-circuits both resolvers, so cmd_5 passed while cmd_mark's own `--state open` list — which
+# cmd_5 calls unconditionally — would have answered `[]` and blocked the milestone. This case
+# takes the live path end to end and is the one that fails on a revert.
+seed_progress_1_to_4
+out="$( GH="$WORK/gh-merged-m5.sh" bgate 5 7 --comments-file "$WORK/comments-closing.json" )"; rc=$?
+if [ "$rc" -eq 0 ]; then
+  pass "(k7b) #670 AC-1: milestone-5 passes on a MERGED PR over the LIVE gh path — close-out is actually reachable after a merge"
+else fail "(k7b) expected rc=0 on the live merged path, got $rc: $out"; fi
 
 # A CLOSED-unmerged PR is the shape of abandoned work. Certifying it would be a false public
 # statement about the run, so it satisfies nothing — and the refusal is the ABSENT verb (AC-3).
@@ -5448,9 +5479,48 @@ else fail "(pm6b) expected a posted marker under jira+bot, rc=$rc: $out / spool=
 # not reached the step this is called from, and a silent success would hide that.
 : > "$BOT_SPOOL"
 out="$(mark_gate "$CFG" mark-run-3 sess-mark-3 mark 8 --pr-file "$WORK/pr-mark-none.json" --comments-file "$WORK/comments-none.json")"; rc=$?
-if [ "$rc" -eq 1 ] && [ ! -s "$BOT_SPOOL" ] && grep -q 'no open PR found' <<<"$out"; then
-  pass "(pm7) mark refuses when the branch has no open PR"
+if [ "$rc" -eq 1 ] && [ ! -s "$BOT_SPOOL" ] && grep -q 'no open or merged PR found' <<<"$out"; then
+  pass "(pm7) mark refuses when the branch has no PR at all"
 else fail "(pm7) expected rc=1 with no write, rc=$rc: $out / spool=$(cat "$BOT_SPOOL" 2>/dev/null)"; fi
+
+# ---- (pm7b)-(pm7c) #670 AC-1: mark resolves a MERGED PR, and posts nothing to it -------------
+# THE LIVE PATH, DELIBERATELY: no --pr-file anywhere below. That seam is what hid this defect —
+# both mark and resolve_open_pr honor it, so a fixture passing it never reaches the `gh pr list`
+# call where mark's own `--state open` lived, and #642's (k7) certified post-merge reachability
+# while crossing none of the code that denied it. A case here that passes --pr-file does not
+# satisfy AC-1.
+# The ticket-liveness arm mark runs before it writes needs an `issue view` answer too.
+cat > "$WORK/gh-merged.sh" <<'STUB'
+#!/bin/sh
+# `--state open` answers an EMPTY array, which is what real gh returns once the PR is merged —
+# so a revert of #670's resolver change fails here instead of quietly passing.
+case "$*" in
+  *"issue view"*) echo OPEN ;;
+  *"pr list"*)
+    case "$*" in
+      *"--state open"*) echo '[]' ;;
+      *) cat <<'JSON'
+[{"number":91,"url":"https://example.invalid/pr/91","isDraft":false,"state":"MERGED","body":"Closes #8"}]
+JSON
+      ;;
+    esac ;;
+  *) echo '[]' ;;
+esac
+STUB
+chmod +x "$WORK/gh-merged.sh"
+
+: > "$BOT_SPOOL"
+out="$( GH="$WORK/gh-merged.sh" mark_gate "$CFG" mark-run-670 sess-mark-670 mark 8 --comments-file "$WORK/comments-none.json" )"; rc=$?
+if [ "$rc" -eq 0 ] && grep -q 'already MERGED' <<<"$out"; then
+  pass "(pm7b) #670 AC-1: mark RESOLVES a merged PR over the live gh path instead of refusing it"
+else fail "(pm7b) expected rc=0 naming the merged PR, rc=$rc: $out"; fi
+
+# The other half of D-3, and the half a bare widening would get wrong: resolving it must not
+# also POST to it. The marker's only reader is the pull_request-event merge boundary, which has
+# already run by the time the PR is merged.
+if [ ! -s "$BOT_SPOOL" ]; then
+  pass "(pm7c) #670 D-3: nothing is posted to a merged PR — the marker's only reader has already run"
+else fail "(pm7c) expected NO write to a merged PR, spool=$(cat "$BOT_SPOOL" 2>/dev/null)"; fi
 
 # ---- (tl) #650 AC-2: the mid-run ticket-liveness re-check ------------------------------------
 # The scheduler asks "is this ticket still open" before every BUILD spawn and cannot ask again

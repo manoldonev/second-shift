@@ -366,8 +366,9 @@ pairs; there is no second question:
    human this is the write half of the pair — it holds `issues: write` and removes those two
    run-state labels from one closing issue (never `blockers`, which holds permanent
    classifications like `epic`) — and that it is what keeps them from going stale on every
-   merged ticket. Nothing else in either lane releases them: the lean lane's milestone 5
-   requires an OPEN pr, so a session-side drop would fire while review is still in flight.
+   merged ticket. Nothing else in either lane releases them: the labels go stale when the item
+   CLOSES, and no lane session is guaranteed to be running at that moment — a hand-closed item
+   never had one.
    Also say that a `permissions:` block only narrows the repo maximum — a repo whose Actions
    workflow permissions are read-only must switch to read-and-write, or the removal 403s
    (visibly, as a red run).

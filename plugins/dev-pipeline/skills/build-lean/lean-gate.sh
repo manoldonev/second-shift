@@ -2791,17 +2791,32 @@ cmd_mark() {
     return 0
   fi
 
-  if [ -n "$PR_FILE" ]; then
-    [ -f "$PR_FILE" ] || envfail "--pr-file '$PR_FILE' does not exist."
-    pr="$(cat "$PR_FILE")"
-  else
-    pr="$("$GH_CLI" pr list --head "$LEAN_BRANCH" --state open \
-          --json number,url --limit 1 2>&1)" \
-      || { warn "✗ mark: could not list PRs for $LEAN_BRANCH: $pr"; return 1; }
-  fi
-  printf '%s' "$pr" | jq -e 'type == "array" and length > 0' >/dev/null 2>&1 \
-    || { warn "✗ mark: no open PR found for branch $LEAN_BRANCH — open it first (checklist step 7)."; return 1; }
+  # #670: RESOLVED THE SAME WAY MILESTONE 5 RESOLVES, which before this was a `--state open`
+  # list of its own. #642 widened milestone 5 to accept a merged PR so close-out would stay
+  # reachable after a merge, but left this call site behind — and cmd_5 calls mark
+  # UNCONDITIONALLY, so the widening bought nothing on the live path: `gh pr list --state open`
+  # answered `[]`, mark returned 1, and milestone 5 blocked on "could not stamp the build
+  # identity". One resolver now serves both, so the two cannot drift apart again.
+  #
+  # The `--pr-file` seam is preserved because resolve_open_pr honors it too — which is also why
+  # the pre-#670 selftest could not see this: its fixture never reached the `pr list` call.
+  # The hint is PARENTHETICAL, not an imperative: resolve_open_pr's error is "no open or merged PR
+  # found" on one path and "could not list PRs" — a transient gh failure — on the other, and
+  # "open it first" would be wrong advice for the second.
+  resolve_open_pr || { warn "✗ mark: $LEAN_PR_ERROR (the lane's PR is opened at checklist step 7)."; return 1; }
+  pr="$LEAN_PR_JSON"
   prnum="$(printf '%s' "$pr" | jq -r '.[0].number')"
+
+  # A MERGED PR TAKES NO NEW MARKER. The marker exists for ONE reader: the merge boundary
+  # (scripts/check-lean-chain.sh), which runs on a `pull_request` event — checklist step 7 says
+  # so in as many words, that a marker posted after the review's push is invisible to the CI run
+  # that gates the merge. Past the merge that reader has already run, so posting here would be a
+  # write with no consumer, on a PR nobody will re-review. Resolving it is still worth doing: the
+  # ordinary path posted the marker at step 7 and milestone 5 only needs to not FAIL on it.
+  if [ "$(printf '%s' "$pr" | jq -r '.[0].state // "OPEN"')" = "MERGED" ]; then
+    say "· mark: PR #$prnum is already MERGED — the identity marker's only reader is the pull_request-event merge boundary, which has already run, so nothing is posted."
+    return 0
+  fi
 
   if [ -n "$COMMENTS_FILE" ]; then
     [ -f "$COMMENTS_FILE" ] || envfail "--comments-file '$COMMENTS_FILE' does not exist."

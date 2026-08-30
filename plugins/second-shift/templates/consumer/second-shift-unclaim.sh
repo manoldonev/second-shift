@@ -4,11 +4,11 @@
 # repo's own `issues: [closed]` workflow straight out of the marketplace checkout.
 #
 # THE GAP THIS FILLS. The claimed label is added at claim (claim-issue.sh) and was
-# removed by nothing. The lane's step-9 prose said the session drops it, but milestone 5
-# requires an OPEN pr, so it runs strictly pre-merge — the one moment the label is
-# CORRECT. The stale window opens at merge, when the pr's closing reference closes the
-# item and no session is running to notice. So the release is bound to the close event
-# instead: deterministic, session-free, and it also covers a hand-closed item.
+# removed by nothing. The lane's step-9 prose said the session drops it, and no session can
+# reliably be there to: the label goes stale when the ITEM CLOSES, and nothing guarantees a
+# lane session is running at that moment — the pr's closing reference can close the item long
+# after close-out finished, and a hand-closed item never had a session at all. So the release
+# is bound to the close event instead: deterministic, session-free, and it covers both.
 #
 # WHICH LABELS. The two RUN-STATE roles, claimed and queue. The queue label is normally
 # dropped by the claim swap, but a crashed swap leaves it on an item that then closes,
