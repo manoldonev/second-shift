@@ -68,6 +68,11 @@ No pre-flight ledger was recorded for this ticket; every row below is derived in
 - **AC-3** — a full-mode sweep covering `lean-gate.sh` completes green, with the dispatch run
   cited in this file and in the PR body.
 - **AC-4** — a `Changelog:` trailer per repo convention.
+- **AC-6** — the survivor the restored coverage uncovered is killed rather than baselined. The
+  first sweep to score `lean-gate.sh` in ten days reported
+  `catalog::lean-gate-settings-clobber-dangling` as a baseline-absent survivor; the catalog row
+  names a regression class, so the answer is a guard that kills it on the lane that scores it, not
+  a baseline row that accepts it.
 - **AC-5** — the AC-1 behaviour is guarded by a selftest case that fails on the pre-fix code: the
   fixture buries its `FAIL:` line under more than `PRE_LOG_LINES` of passing chatter, so a
   tail-only diagnostic cannot show it. The no-match arm is guarded separately, and the tail arm is
@@ -164,3 +169,40 @@ guard that reads it — this repo has the receipts.
 `mutation-sweep-work.probe/tmp.0`, and asserts the `(i-580a)` criterion still holds. It fails on
 the pre-fix assertion, needs no Linux, and asserts `rc=0` plus a positive token alongside so that
 a scrub which emptied the output would not satisfy it.
+
+## Second finding: what the restored coverage immediately caught
+
+Scoring `lean-gate.sh` again (run `33316017803`, shard 6 — `applied=36 killed=33 survived=3`) turned
+the unrunnable pair into an ordinary red one line further on:
+
+```
+RED: baseline-absent survivor: catalog::lean-gate-settings-clobber-dangling
+```
+
+The catalog row drops the `-L` half of #647's never-clobber test —
+`if [ -e "$dst" ] || [ -L "$dst" ]` → `if [ -e "$dst" ]` — and `(ws7)` exists to catch exactly that.
+It does, **on macOS**, and not on the lane that scores it:
+
+| platform | `cp` onto a dangling-symlink destination | `(ws7)`'s `[ ! -e <target> ]` arm |
+| --- | --- | --- |
+| macOS (BSD `cp`) | follows the link, creates the target | fires — mutant killed (measured: probe D) |
+| ubuntu (GNU `cp`) | refuses, `not writing through dangling symlink` | never fires — mutant survives |
+
+So the harm the case asserts against is one GNU `cp` already prevents, and `(ws7)` was a guard that
+only fired on the developer's laptop. It had been that way since #647; nothing could say so while
+the pair was unrunnable.
+
+`(ws7)` gains a platform-independent arm: the gate's own `settings: <path> is already present —
+left as it is.` line, naming that destination. That is what the deleted conjunct actually
+controls — with `-L` the seed skips and says so; without it the seed proceeds and reports either a
+copy or a failed one — and it holds whichever `cp` is installed, so the case no longer rests on
+the mechanism that made it blind.
+
+Verified in both directions locally with a `cp` shim that reproduces GNU's refusal:
+
+| probe | tree | result |
+| --- | --- | --- |
+| D | mutant applied, BSD `cp` | `(ws7)` fails — the pre-existing arm, still live on macOS |
+| E | mutant applied, GNU-`cp` semantics | `(ws7)` fails **only** because of the new arm |
+| F | this branch, GNU-`cp` semantics | green |
+

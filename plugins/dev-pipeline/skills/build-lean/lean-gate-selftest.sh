@@ -6560,14 +6560,28 @@ else fail "(ws6) the copy overwrote a file the worktree already had, rc=$rc: $ou
 # implementation testing only `-e` would `cp` straight THROUGH it and write into whatever path the
 # operator pointed it at — outside the worktree entirely. The settings.json conjunct is again the
 # liveness half: the seed must have RUN on this worktree for the refusal to mean anything.
+#
+# #663: THE HARM ARM IS PLATFORM-BLIND, AND THE CANONICAL LANE IS THE BLIND SIDE. `[ ! -e <target> ]`
+# asks whether the write happened, and on Linux it never does — GNU `cp` refuses to write through a
+# dangling symlink on its own ("not writing through dangling symlink"), so the `-L` conjunct has no
+# observable consequence there and the catalog's `lean-gate-settings-clobber-dangling` mutant
+# SURVIVED the first ubuntu sweep to score this guard in ten days (run 33316017803, shard 6, serially
+# re-verified). BSD `cp` follows the link and writes, which is why the same mutant dies locally —
+# a guard that only fires on the developer's laptop.
+#
+# The arm added below is the gate's OWN WORDS, which are the thing the deleted conjunct actually
+# controls: with `-L`, the destination is reported present and skipped; without it, the seed
+# proceeds and reports either a copy or a failed copy. That is true on both platforms and does not
+# rest on which `cp` is installed — so the case now kills the mutant where it is scored.
 p64="$(ws_wt 64)"; pr_fixture claude/acme-64 '[{"number":64,"state":"OPEN"}]'
 mkdir -p "$p64/.claude"
 ln -s "$WREAL/ws-nonexistent-target.json" "$p64/.claude/settings.local.json"
 out="$(wgate "$WTREE" entry 64)"; rc=$?
 if [ "$rc" -eq 0 ] && [ ! -e "$WREAL/ws-nonexistent-target.json" ] \
+   && grep -qF "settings: $p64/.claude/settings.local.json is already present" <<<"$out" \
    && [ -L "$p64/.claude/settings.local.json" ] && [ -f "$p64/.claude/settings.json" ]; then
-  pass "(ws7) a destination that is a dangling symlink counts as present — the copy is not written through it"
-else fail "(ws7) the seed wrote through a symlink, rc=$rc: $(ls -l "$p64/.claude" 2>&1)"; fi
+  pass "(ws7) a destination that is a dangling symlink counts as present — the seed reports it skipped and writes nothing through it"
+else fail "(ws7) the seed did not treat the dangling symlink as present, rc=$rc: $(ls -l "$p64/.claude" 2>&1) :: $(grep -F 'settings:' <<<"$out")"; fi
 
 # AC-2 from the SOURCE side: `cp` dereferences, so what lands is a regular file even when the
 # operator's own settings file is a symlink into a dotfiles repo. `cp -P` or `ln -s` would fail here.
