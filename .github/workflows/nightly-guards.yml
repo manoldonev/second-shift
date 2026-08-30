@@ -116,14 +116,13 @@ jobs:
       - name: un-deferred sweep bound
         run: bash tools/check-sweep-bound.sh --log "$RUNNER_TEMP/sweep.log"
 
-  # The prose narrative check (#552; reshaped by #641). It reports the instruction layer's size
-  # and flags narrative `#NNN` incident archaeology; it reds only on vacuous coverage (a scan
-  # root that exists but matched nothing). #641 deleted the word-count-vs-baseline ratchet on
-  # both axes — the shell half is scripts/check-guard-budget.sh's job now, and the markdown half
-  # is a derived total with nothing committed behind it — so there is no ceiling left to grow
-  # past. It is ADVISORY TO THE LEAN LANE — build-lean never runs it and a red here blocks no PR
-  # — but "advisory" scopes the lane, not CI, so this job reds like every other guard in this
-  # file.
+  # The prose narrative check (#552; reshaped by #641, #719). It reports the instruction layer's
+  # size and flags narrative `#NNN` incident archaeology; it reds only on vacuous coverage (a scan
+  # root that exists but matched nothing). #641 deleted the word-count-vs-baseline ratchet on both
+  # axes, and #719 deleted the shell-mass guard that had taken over the shell half — so there is
+  # no ceiling left to grow past, on either axis. It is ADVISORY TO THE LEAN LANE — build-lean
+  # never runs it and a red here blocks no PR — but "advisory" scopes the lane, not CI, so this
+  # job reds like every other guard in this file.
   #
   # ONE LANE, deliberately. ci.yml's selftests-bash32 already runs the whole sweep, including
   # prose-budget-selftest.sh, under stock bash 3.2 at PR time. A 3.2 twin here would re-run the

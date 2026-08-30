@@ -65,12 +65,11 @@ build session write its own verdict; that debt is closed, not tolerated.
 *substitutively*: the existing prose copies of the don't-split-for-splitting rule are replaced by
 this single anchor, rather than a new copy being added beside them.
 
-**P4/P5 posture (#641):** the asymmetry this closes — P2/P3's growth principles gate mechanically;
-P4/P5's restraint principles did not, for months, despite this document saying so in its own text.
-`scripts/check-guard-budget.sh` is the mechanical counterpart: it derives guard/test shell mass at
-the base ref and at HEAD on every PR and reds an increase that carries no `Guard-mass:` trailer, so
-P4's "none more" has a gate the way P2/P3 always did. It is a derived comparison, not a register —
-nothing is committed, so nothing can drift out of sync with what the tree actually measures.
+**P4/P5 posture (#641, #719):** the asymmetry this closes — P2/P3's growth principles gate
+mechanically; P4/P5's restraint principles did not, for months, despite this document saying so in
+its own text. P4/P5 are enforced by the operator at filing time (#717's `harness-internal` rule),
+not by a script; the last script that tried policed itself into an empty-trailer review round
+(#637).
 
 A register's rows must be judgments, not measurements. A row recording something the tree can
 compute — a file's size, a suite's runtime, a count — is a cache of the repo against itself, and

@@ -9,12 +9,11 @@
 # job is to make that state impossible to reintroduce silently.
 #
 # #641 reshaped the tool: both committed baselines (the markdown word-count ratchet and the
-# shell comment-density ratchet) are deleted — the shell half is subsumed by
-# scripts/check-guard-budget.sh, and the markdown half is a derived total with nothing
-# committed behind it. What survives is the narrative #NNN judgment and the three-way
-# coverage verdict (n/a / vacuous / measured), so this suite covers only those now. See
-# docs/pipeline-manifesto.md's P4/P5 posture for why the ratchet halves are gone rather than
-# merely untested.
+# shell comment-density ratchet) are deleted — the shell half's #641 successor script was
+# itself deleted outright by #719, with no replacement. What survives is the narrative #NNN
+# judgment and the three-way coverage verdict (n/a / vacuous / measured), so this suite
+# covers only those now. See docs/pipeline-manifesto.md's P4/P5 posture for why the ratchet
+# halves are gone rather than merely untested.
 #
 # The three coverage states are the heart of what remains, and T1/T7 are a matched pair:
 #   T1  a root exists but matched nothing        -> MUST fail    (the #145 bug)
@@ -181,7 +180,7 @@ else
   bad "B2 expected both runs rc=0 with no growth failure; first_rc=$FIRST_RC rc=$RC output: $(head -6 <<< "$OUT")"
 fi
 
-# --- B3: no shell files are measured at all — check-guard-budget.sh owns that now ---
+# --- B3: no shell files are measured at all — nothing does, since #719 ---
 R="$(mkrepo b3)"
 mkdir -p "$R/.claude/skills"
 printf '# lots of comments\n# more comments\n# even more\ntrue\n' > "$R/.claude/skills/dense.sh"

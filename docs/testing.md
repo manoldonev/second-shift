@@ -10,9 +10,10 @@ carries the reasoning and the operator-run adversarial recipe.
 
 [`docs/pipeline-manifesto.md`](pipeline-manifesto.md)'s P4/P5 posture names the register rule;
 this section is its consequence, not a second copy of it. #641 applied it — five files, 180 rows,
-every one a number a command could produce in one call, are gone: two prose-budget baselines (subsumed
-by `scripts/check-guard-budget.sh`, [below](#the-slow-suite-table), and a derived nightly total),
-three independently-drifting suite-timing tables (collapsed into
+every one a number a command could produce in one call, are gone: two prose-budget baselines
+(the shell half subsumed, and later deleted outright by #719 with no replacement; the markdown
+half a derived nightly total, [below](#the-slow-suite-table)), three independently-drifting
+suite-timing tables (collapsed into
 [`tools/selftest-suite-timings.tsv`](#the-slow-suite-table)), and the `install-topology-known-red.tsv`
 allowlist, which had already drained to zero rows before this PR deleted it (see
 [Green here is not green where it ships](#how-the-sweep-runs), the class-guard subsection).
