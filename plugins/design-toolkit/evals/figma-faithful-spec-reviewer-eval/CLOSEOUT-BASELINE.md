@@ -34,9 +34,9 @@ first act, not an assumption anyone may make from this file.
 
 | Dimension | Score | Notes |
 | --- | ---: | --- |
-| `d1_verdict_correctness` | **72.2%** (52/72) | the entire deficit is fixture 01 |
-| `d2_finding_grounding` | **70.8%** (17/24) | same |
-| `d3_no_fabrication` | **75.0%** (18/24) | three over-reaches spread across fixtures 02–04 |
+| `d1_verdict_correctness` | **72.2%** (52/72) | 18 of the 20 lost points are fixture 01 (0/18); the other 2 are the control, fixture 04 (16/18) |
+| `d2_finding_grounding` | **70.8%** (17/24) | 6 of the 7 lost points are fixture 01 (0/6); the other 1 is fixture 04 (5/6) |
+| `d3_no_fabrication` | **75.0%** (18/24) | fixture 01 is **clean** here (6/6) — the 6 lost points are fixtures 02 (2/6) and 03 (4/6) |
 
 ## Fixture 01 is the finding
 

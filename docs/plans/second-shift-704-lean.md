@@ -133,9 +133,14 @@ The same commit rewrites the three paragraphs in
 dropped check, and it is the plan reviewer's own stated rule that "every owner named below can
 actually run on the lane you are dispatched from".
 
-D-13 bounds the blast radius to those two files: grepping every `*.md`/`*.sh`/`*.mjs`/`*.json`
-outside `docs/plans/`, the `N/A` behaviour is restated only in `figma-faithful-spec-reviewer.md`
-(lines 21, 23, 153) and the deferral block of `figma-faithful-plan-reviewer.md`.
+D-13 bounds the blast radius, and the number it first recorded was wrong: **three sites, not two.**
+Grepping every `*.md`/`*.sh`/`*.mjs`/`*.json` outside `docs/plans/`, the `N/A` behaviour is
+restated in `figma-faithful-spec-reviewer.md` (lines 21, 23, 153 pre-edit), in the deferral block
+of `figma-faithful-plan-reviewer.md`, and in #694's rationale comment at
+`plugins/dev-pipeline/skills/build-lean/lean-gate.sh:3775` — a site in the sweep's own grep set
+that the first pass read as history, because the only live claim in it is a present-tense relative
+clause inside a past-tense sentence. All three are rewritten on this branch: the two agent
+files in the lockstep commit, `lean-gate.sh` in the round-1 fix that also corrected this row.
 `figma-faithful-spec/SKILL.md` references the agent but not its `N/A` condition;
 `figma-faithful/SKILL.md` and `figma-iterate/SKILL.md` do not restate it.
 
@@ -168,7 +173,7 @@ outside `docs/plans/`, the `N/A` behaviour is restated only in `figma-faithful-s
 | D-10 | Do the three new `run.sh` wrappers need selftests? | **No.** `CLAUDE.md`'s coverage register lists "the eval runners" as a standing exception with no independent contract. `shellcheck -e SC1091,SC2015,SC2181` must still pass. Do not add a same-named selftest. | codebase-derived |
 | D-11 | Build ordering, given AC-2 forbids prompt edits before the baseline and AC-4 mandates one. | Fixtures + rubrics + runners → **measure and record `CLOSEOUT-BASELINE.md` per agent** → then the AC-4 prompt edit and its D-2 lockstep. No re-measure in this PR (that is the D-1 follow-up). The baseline is therefore the pre-AC-4 number by construction. | codebase-derived |
 | D-12 | Do these evals run in CI? | **Never.** CI in this repo is model-free by design; the kit spawns `claude -p` subprocesses on the operator's subscription. Precedent stated outright in `plugins/intake-toolkit/evals/implementability-probe-eval/README.md`: "Operator-run and model-billed. Never in CI". Add no workflow lane. | codebase-derived |
-| D-13 | Blast radius of the D-2 lockstep beyond the two agent docs. | **Bounded to the two agent files.** Grepped every `*.md`/`*.sh`/`*.mjs`/`*.json` outside `docs/plans/`: the `N/A` behaviour is restated only in `figma-faithful-spec-reviewer.md` (lines 21, 23, 153) and the deferral block of `figma-faithful-plan-reviewer.md`. `figma-faithful-spec/SKILL.md` references the agent but not its `N/A` condition; `figma-faithful/SKILL.md` and `figma-iterate/SKILL.md` do not restate it. | codebase-derived |
+| D-13 | Blast radius of the D-2 lockstep beyond the two agent docs. | **Three sites, not two — corrected at review round 1.** Grepped every `*.md`/`*.sh`/`*.mjs`/`*.json` outside `docs/plans/`. Pre-edit the `N/A` behaviour was restated in `figma-faithful-spec-reviewer.md` (lines 21, 23, 153) and in the deferral block of `figma-faithful-plan-reviewer.md` — and the original sweep MISSED a third hit in its own grep set: `plugins/dev-pipeline/skills/build-lean/lean-gate.sh:3775`, #694's rationale comment, where the live claim was a **present-tense relative clause** ("an agent that _returns_ `N/A` on every lean-lane spec") sitting inside a past-tense sentence, so a tense-based skim read the whole line as history. All three are rewritten in the D-2 lockstep commit set. Re-run at the branch head the set is those three and no more: the two remaining `reached nothing` hits (`lean-gate-selftest.sh:3987`, `scenario-liveness-selftest.sh:1370`) state the pre-#694 condition in the past tense and assert nothing about the agent's current behaviour. `figma-faithful-spec/SKILL.md` references the agent but not its `N/A` condition; `figma-faithful/SKILL.md` and `figma-iterate/SKILL.md` do not restate it. | codebase-derived |
 | D-14 | The baseline measurement itself — how many runs, and against which agent prompts? | `--runs-per-fixture 3 --concurrency 2`, against the agent prompts **as they stand before the AC-4 edit** (D-11). Three runs is the smallest n the +10pp/3-run rule can consume, and the kit's own README asks for lower concurrency and fewer runs on iterative work; the campaign that spends more is #707's. Recorded with the run's cost, wall clock, and pinned model ids in each `CLOSEOUT-BASELINE.md`. | codebase-derived |
 | D-15 | What resolves OR-1 (a baseline fixture scoring at or near 0/3)? | Nothing in this PR. OR-1's own disposition text is the answer: record the low score in `CLOSEOUT-BASELINE.md` and stop. A low baseline is the *finding this PR exists to produce*, and #707 is the ticket that acts on it — editing a prompt before its baseline lands is the one thing AC-2 exists to prevent. No operator comment is owed because no decision is being taken. | codebase-derived |
 | D-16 | What resolves OR-2 (does the AC-4 narrowing change `review-lean` step 5b dispatch)? | Nothing in this PR touches `review-lean`. The narrowing changes which inputs the agent declines, not who dispatches it — and nothing dispatches `figma-faithful-spec-reviewer` on the lean lane today, so the reachable behaviour change is zero until #705 decides the lane's dispatch. Recorded rather than decided. | codebase-derived |
@@ -201,9 +206,14 @@ outside `docs/plans/`, the `N/A` behaviour is restated only in `figma-faithful-s
   `scripts/check-eval-model-identity.sh` (no vendor pin, no floating alias in a model position in
   the runnable surface), `shellcheck -e SC1091,SC2015,SC2181` on the three `run.sh` wrappers, and
   `jq empty` on every `*.expected.json`.
-- **AC-7** — no documentation is left stale by this change. The `N/A` behaviour is restated
-  nowhere outside the two agent files (D-13), so this AC is satisfied by that measurement holding
-  at the branch head, re-run rather than asserted.
+- **AC-7** — no documentation is left stale by this change. The `N/A` behaviour is restated at the
+  three sites D-13 names — the two agent files and the #694 rationale comment in `lean-gate.sh` —
+  and all three are rewritten here. This AC is satisfied by that measurement holding at the branch
+  head, **re-run rather than asserted**: the round-1 re-run is what found the third site and
+  corrected D-13's count, which is the mode of failure this AC exists to catch. A re-run must also
+  discharge the near-misses it turns up: `lean-gate-selftest.sh:3987` and
+  `scenario-liveness-selftest.sh:1370` are in the grep set but state the pre-#694 condition in the
+  past tense, so they are correct as they stand.
 
 ## Open Regions
 

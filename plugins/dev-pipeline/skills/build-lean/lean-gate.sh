@@ -3772,7 +3772,8 @@ render_bytes_ok() {
 # cheapest place to catch a wrong token row". Nothing read it. It was prose a build session emitted
 # and then implemented against, so both checks written to grade it reached nothing: the plan
 # reviewer's only sizing finding is scoped to a repeating/wrapping group, and component-resolution
-# suitability was deferred to an agent that returns N/A on every lean-lane spec.
+# suitability was deferred to an agent that, at the time, returned N/A on every lean-lane spec
+# (narrowed by #704's AC-4 — a lean-lane spec is in scope for it now).
 #
 # WHAT THIS ARM BUYS, stated as narrowly as #693's evidence table states its own: not fidelity, and
 # not that the plan is right. It makes the plan a COMMITTED, PATCH-BOUND artifact with two tables
