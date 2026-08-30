@@ -700,7 +700,7 @@ INV_PLUGINS_DIR="$PLUGINS_ROOT"
 INV_RS_BLOCK="$(sed -n '/# >>> resolve-sibling/,/# <<< resolve-sibling/p' "$RESOLVE_SIBLING")"
 INV_RS_STUB="$WORK/inv-resolve-sibling.sh"
 if [[ -z "$INV_RS_BLOCK" ]]; then
-  bad "(inv/sibling) resolve-sibling sentinels not found in $RESOLVE_SIBLING — the ladder was refactored without updating this guard, so the sibling arm has no resolver"
+  bad "(inv/sibling-resolver) resolve-sibling sentinels not found in $RESOLVE_SIBLING — the ladder was refactored without updating this guard, so the sibling arm has no resolver"
 else
   # shellcheck disable=SC2016  # deliberate: "$1"/"$2" are the STUB's positional params, written
   # out literally for the child shell to expand — expanding them here would bake in this
@@ -834,10 +834,19 @@ while IFS= read -r inv_hit; do
   inv_staged=$((inv_staged + 1))
 done < <(inv_extract "$DOCTOR" sibling)
 
+# EVERY global the arm's join reads is re-pointed here, not just the ones inv_sibling_path
+# reads. The first version of this case re-pointed only INV_PLUGIN_DIR/INV_PLUGINS_DIR — the
+# two globals the FIX introduced — and left PLUGINS_ROOT, which is the global the DEFECT's
+# line joined against, aimed at the real monorepo. The fabricated cache was invisible to
+# exactly the code path the case claimed to bound, so restoring `base="$PLUGINS_ROOT/$plug/$rel"`
+# still passed. A fixture that re-points the fix's variables cannot bound the defect's: the
+# fabricated tree has to be the ONLY place these files exist.
 INV_SAVED_PLUGIN_DIR="$INV_PLUGIN_DIR"
 INV_SAVED_PLUGINS_DIR="$INV_PLUGINS_DIR"
+INV_SAVED_PLUGINS_ROOT="$PLUGINS_ROOT"
 INV_PLUGIN_DIR="$INV_CACHE/dev-pipeline/$INV_MYVER"
 INV_PLUGINS_DIR="$INV_CACHE/dev-pipeline"
+PLUGINS_ROOT="$INV_CACHE/dev-pipeline"
 
 inv_scan "$DOCTOR" sibling
 if [[ "$inv_staged" -eq 0 ]]; then
@@ -864,6 +873,7 @@ esac
 
 INV_PLUGIN_DIR="$INV_SAVED_PLUGIN_DIR"
 INV_PLUGINS_DIR="$INV_SAVED_PLUGINS_DIR"
+PLUGINS_ROOT="$INV_SAVED_PLUGINS_ROOT"
 
 # COMPLETENESS — the arms are only as good as the arm LIST. Drop one from the loop above
 # and its live check silently disappears while every probe still passes, because a probe

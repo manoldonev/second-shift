@@ -180,7 +180,7 @@ esac
 # 143 = SIGTERM. Observed for real: an outer reaper took the process group mid-suite, and the
 # detail read `rc=143 — PASS: milestone-1 fails when the lean spec is absent` — a red naming an
 # assertion that had just passed, on a tree with nothing wrong with it.
-for t6_sig in 130 137 143; do
+for t6_sig in 129 130 137 143 164; do
   t6_out="$(detail "$t6_sig" "$t6_log")"
   case "$t6_out" in
     *"PASS:"*)
@@ -189,6 +189,24 @@ for t6_sig in 130 137 143; do
       ok "(t6/$t6_sig) a signal-killed suite is named as infra, with the signal number" ;;
     *)
       bad "(t6/$t6_sig) expected the signal wording, got:[$t6_out]" ;;
+  esac
+done
+
+# (t6-fence) the range's two BOUNDARIES, which the interior points above cannot pin. 128 is
+# an ordinary exit code (a shell's own "invalid argument to exit"), not a signal death, and
+# 165 is past the top of the range; both must fall through to the quoting branch. Without
+# these, `-ge 128` and `-le 165` are both surviving mutants — and either one would silence a
+# real failure into "infra, not a result", which is the exact inversion (t6-control) guards
+# against one rung lower.
+for t6_fence in 128 165; do
+  t6_out="$(detail "$t6_fence" "$t6_log")"
+  case "$t6_out" in
+    *"killed by signal"*)
+      bad "(t6-fence/$t6_fence) rc=$t6_fence was named a signal death — the range boundary is off by one, so an ordinary exit reads as infra. Got:[$t6_out]" ;;
+    "rc=$t6_fence — "*)
+      ok "(t6-fence/$t6_fence) rc=$t6_fence falls outside the signal range and still quotes the suite's log" ;;
+    *)
+      bad "(t6-fence/$t6_fence) expected the ordinary-failure composition, got:[$t6_out]" ;;
   esac
 done
 
