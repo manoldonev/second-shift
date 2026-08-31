@@ -458,9 +458,9 @@ tell a skip from a suite that quietly stopped being discovered. The summary line
 performed is the faster-green misreading the rest of this section is about.
 
 **Adding a row is the risky edit in that file, not the cheap one.** Derive the input set from the
-suite, never from a ticket: `lean-gate-selftest.sh` reads eight files out of the checkout besides
-the gate itself, and the gate then resolves seven more at run time — sixteen rows where an eyeball
-lists two.
+suite, never from a ticket: `lean-gate-selftest.sh` reads eight files out of the checkout, the
+gate among them, and those resolve seven more at run time — sixteen rows, the suite's own path
+being the sixteenth, where an eyeball lists two.
 Where a suite's composed set is really its transitive closure — `scenario-liveness-selftest.sh` is
 the worked example, and is deliberately **not** in the table — drop the row. A dropped row costs
 seconds; an under-declared one costs a gate.
