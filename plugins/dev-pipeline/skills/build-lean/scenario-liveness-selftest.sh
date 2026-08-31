@@ -1987,12 +1987,10 @@ RESESS
     git -C "$LEAN_TREE" worktree remove --force "$RE_WT" >/dev/null 2>&1
 
     # LEG 9 WAS AN INFRASTRUCTURE KILL COMPOSED THROUGH TO A TERMINAL WRITE (#527), and #718
-    # deleted the route it composed. It drove a real `kill -9` on milestone 3's process group,
-    # then asserted that the scheduler read the residue, spawned BUILD again, and reached
-    # `| milestone-5 | satisfied` — the continuation. The scheduler no longer continues: a spawn
-    # that leaves no PR is `build-no-pr` and the run ends for a human, so there is no composed
-    # verdict path left for this leg to reach. The KILL MECHANIC and the residue it leaves are
-    # still composed, one section down, by (lean-inline-m3-nv).
+    # deleted the route it composed: a real `kill -9` on milestone 3's group, then the scheduler
+    # reading the residue, spawning BUILD again and reaching `| milestone-5 | satisfied`. The
+    # scheduler no longer continues, so there is no composed verdict path left for it to reach.
+    # The kill mechanic and its residue are still composed by (lean-inline-m3-nv), one section down.
 
     # ---- leg 10: a PARTIALLY FINISHED CLOSE-OUT, retried to a terminal write (#531 → #590) ---
     # THE EPIC'S ACCEPTANCE EVIDENCE, re-cut for the shape #590 landed. #525's premise is that

@@ -1464,12 +1464,11 @@ if [ "$rc" -eq 0 ] && ! grep -q 'interrupted-exhausted' "$prog" \
   pass "(ib3) #566: the bound is per-milestone in SCOPE — milestone 3's 5 unclosed rows neither exhaust milestone 1 nor are announced to it"
 else fail "(ib3) expected rc=0, no exhaustion row and no interruption notice at milestone 1 with 5 unclosed milestone-3 rows, got rc=$rc: $out"; fi
 
-# #718 DELETED THE (ir) BLOCK — `progress --infra`, the infra-death read. Six cases stood here
-# ((ir1)-(ir4), (ir9), (ir10)) over their own fixture tree, pinning a token space whose only
-# consumer was orchestrate-lean.sh's continuation loop. The loop is gone and so is the flag. The
-# RESIDUE those cases derived from is not gone and is still pinned: (if5)/(if5b) below assert that
-# a killed evaluation leaves `started` with no `concluded`, and scenario-liveness-selftest.sh's
-# (lean-inline-m3)/(lean-inline-m3-nv) compose that over a real group-killed milestone 3.
+# #718 DELETED THE (ir) BLOCK — `progress --infra`, the infra-death read. Six cases ((ir1)-(ir4),
+# (ir9), (ir10)) stood here over their own fixture tree, pinning a token space whose only consumer
+# was orchestrate-lean.sh's continuation loop. The RESIDUE they derived from is still pinned:
+# (if5)/(if5b) below, and scenario-liveness-selftest.sh's (lean-inline-m3)/(lean-inline-m3-nv)
+# over a real group-killed milestone 3.
 
 # ---- (j) AC-6: milestone 4 blocks on anything but a committed verdict=approve -------------
 # The fixture verdict is REVIEW-authored throughout: `r-review-1` / `sess-review-1` are the
@@ -7129,10 +7128,9 @@ else
 fi
 
 # ---- (pg) the CLOSE-OUT's SATISFIED READ, `progress --satisfied` ------------------------------
-# #492 put the CONTINUATION PREDICATE here and #718 deleted it: cases (pg1)-(pg4) pinned the bare
-# token's row set — that it moved on `satisfied` and `attempt` rows and not on the bookkeeping rows
-# a session writes merely by starting — and there is no longer a bare token or a caller for one.
-# What survives is the narrow question the close-out asks, and every case below is about that.
+# #492 put the CONTINUATION PREDICATE here and #718 deleted it: (pg1)-(pg4) pinned the bare token's
+# row set, and there is no longer a bare token or a caller for one. What survives is the narrow
+# question the close-out asks, and every case below is about that.
 PGPROG="$WORK/pg-progress.md"
 pgprog() { # pgprog <args...>
   ( unset RUN_ID CLAUDE_CODE_SESSION_ID GH_BOT

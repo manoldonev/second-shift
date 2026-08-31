@@ -745,12 +745,11 @@ else fail "(h2) round 2's review resumed a context: $(spawn_argv 4)"; fi
 # ---- (h4) #718: ONE build spawn per round, and both of its dead ends ----------------------------
 # The whole ticket in one case. A BUILD session that exits 0 is read for exactly one thing — did it
 # leave an open PR the review can run against — and each answer that is not "yes" ends the run for
-# a human. What stood behind those two exits was three mechanisms (a continuation budget, two
-# opaque token spaces, and a separate in-flight recovery counter) whose shared job was deciding
-# whether to spawn BUILD again. None of them could read the lane log; the human can.
+# a human. Three mechanisms stood behind those exits (a continuation budget, two opaque token
+# spaces, an in-flight recovery counter), none of which could read the lane log.
 #
-# EXACTLY ONE SPAWN IS THE ASSERTION, not "at least one": the deleted loop's residue would show up
-# here as a second one, and every re-add mutant this ticket lists reaches that number.
+# EXACTLY ONE SPAWN IS THE ASSERTION, not "at least one": the deleted loop's residue shows up here
+# as a second one, and every re-add mutant this ticket lists reaches that number.
 
 # Arm 1 — exit 0, no PR, a clean worktree. The stop is `build-no-pr`, and the in-flight check is
 # never reached, because there is no PR to make its question meaningful.
@@ -831,8 +830,8 @@ else fail "(j2) expected rc=1 on an absent PR, got rc=$rc: $out"; fi
 # #718 DELETED THE (o) AND (oi) SECTIONS, and (j3) with them. Thirteen cases stood here over two
 # opaque token spaces — #492's continuation predicate and #527's infra-death read — pinning a loop
 # that re-spawned BUILD when a session exited 0 and opened no PR. There is no such loop and no such
-# token: one spawn, then (j2) above and (h4) below, then a human reads the lane log. (j3) was that
-# pair's anti-vacuity control and asserted the two reads happened at all, which is what went away.
+# token: one spawn, then (j2) above and (h4) below, then a human. (j3) asserted the two reads
+# happened at all, which is what went away.
 
 # ---- (p) #590: the close-out is READ FROM ITS EXIT CODE ------------------------------------------
 # #492 AC-7 put a token comparison here because the close-out was a `claude -p` session, which
@@ -1305,12 +1304,10 @@ else fail "(n0) SKILL.md not found at $SKILL"; fi
 # (it owns the real git conditions); what is asserted here is what an 8 ROUTES TO, which no
 # gate-side case can reach.
 #
-# #652 REVERSED THE ROUTE and #718 REVERSED IT BACK. Between them an 8 was RECOVERED: one extra
-# BUILD spawn, on a counter of its own, to commit and push what was sitting in the worktree. It is
-# still a spawn bought on the guess that a session which stopped mid-collection will not stop
-# again, and #531's original reading is the one that survives — the remedy is a single push from a
-# tree that still exists, which an operator performs in seconds. (t1) and (t1b) stood here for the
-# recovery and its bound; (h4)'s rc-8 arm is the stop that replaced both.
+# #652 REVERSED THE ROUTE and #718 REVERSED IT BACK. Between them an 8 was RECOVERED by one extra
+# BUILD spawn — still a spawn bought on the guess that a session which stopped mid-collection will
+# not stop again. #531's reading survives: the remedy is a single push from a tree that still
+# exists. (t1) and (t1b) stood here for the recovery and its bound; (h4)'s rc-8 arm replaced both.
 
 # FAIL CLOSED, and distinguishably so: "I could not look" is not "there is nothing there", and the
 # slug is what makes the two tellable apart in a log.
@@ -1323,10 +1320,9 @@ if [ "$rc" -eq 1 ] && [ "$(spawn_count)" -eq 1 ] \
 else fail "(t2) expected rc=1 / 1 spawn / slug build-inflight-unreadable, got rc=$rc / $(spawn_count) / '$(slug_of "$out")': $out"; fi
 
 # (t3) and (t4) went with the paths they described (#718). (t3) pinned the read's SHAPE — from
-# MAIN_ROOT, RUN_ID scrubbed — over the TWO calls a recovery run made; (h4)'s rc-8 arm asserts the
-# same two properties over the one call that is left. (t4) pinned that the check is not consulted
-# on the no-PR path, which it demonstrated by watching the run take the continuation instead;
-# there is no continuation to take, and (h4)'s no-PR arm asserts zero in-flight reads directly.
+# MAIN_ROOT, RUN_ID scrubbed — over the two calls a recovery made; (h4)'s rc-8 arm asserts both
+# over the one call left. (t4) pinned that the check is not consulted on the no-PR path by watching
+# the run continue instead; there is no continuation, and (h4)'s no-PR arm asserts zero reads.
 
 # ---- (u) #531 D-7: a head that already carries an approve is not re-reviewed --------------------
 # The round loop entered the build phase unconditionally and the REVIEW spawn PRECEDED the only

@@ -36,19 +36,16 @@
 # counter lives in a file a fix round can reset, and a scheduler with no bound of its own would
 # loop forever on a reset counter.
 #
-# WHY A SPAWN'S EXIT STATUS IS NOT A COMPLETION SIGNAL. `claude -p` exits 0 whenever the model
-# ends its turn cleanly — which is "the model stopped talking", not "the block finished". A
-# headless payload that exhausts its context or decides to wait on anything produces the identical
-# signature: exit 0, work committed, nothing left to review.
-#
-# #718 ANSWERS THAT WITH A HUMAN RATHER THAN A RETRY. Between #492 and #718 this loop read a THIRD
-# post-spawn state — exited 0, no PR, but the run advanced — and re-spawned on it, on a budget, off
-# two opaque tokens the gate printed for no other reader. Three mechanisms, one purpose, and the
-# purpose was to guess whether a session that stopped talking would say more if asked again.
-# It now spawns BUILD ONCE per round. No PR is `build-no-pr` and the run stops; the operator reads
-# the lane log and decides, which is the judgement the budget was standing in for. The stranded-work
-# exit is rescued by hand with the recipe in build-lean/SKILL.md. If that rate proves unacceptable,
-# the measurement is the basis for a Stop hook — not a presumption.
+# WHY A SPAWN'S EXIT STATUS IS NOT A COMPLETION SIGNAL, and why #718 answers that with a HUMAN
+# rather than a retry. `claude -p` exits 0 whenever the model ends its turn cleanly, so a payload
+# that exhausted its context is byte-identical to one that finished. Between #492 and #718 this
+# loop read a THIRD post-spawn state — exited 0, no PR, but the run advanced — and re-spawned on
+# it, on a budget, off two opaque tokens the gate printed for no other reader: three mechanisms
+# guessing whether a session that stopped talking would say more if asked again. BUILD is spawned
+# ONCE per round now. No PR is `build-no-pr`, the run stops, and the operator reads the lane log —
+# the judgement the budget was standing in for. The stranded-work exit is rescued by hand with the
+# recipe in build-lean/SKILL.md; if that rate proves unacceptable, the measurement is the basis for
+# a Stop hook, not a presumption.
 #
 # THE VERDICT GATE'S RC IS A TAXONOMY, NOT A BOOLEAN (#496). Every milestone-4 failure used to
 # return 1, so twenty distinct conditions arrived here as one word — and the loop had exactly one
@@ -334,7 +331,7 @@ while [ $# -gt 0 ]; do
     --max-rounds)         MAX_ROUNDS="${2:-}"; shift 2 ;;
     --max-continuations)  envfail usage-max-continuations "--max-continuations was removed in #718 along with the continuation budget it bounded: BUILD is spawned once per round, and a spawn that leaves no PR ends the run for a human to read. There is no value of this flag to pass." ;;
     --dry-run)            DRY_RUN=1; shift ;;
-    -h|--help)            sed -n '2,211p' "$0"; exit 0 ;;
+    -h|--help)            sed -n '2,208p' "$0"; exit 0 ;;
     -*)                   envfail usage-unknown-option "unknown option: $1" ;;
     *)                    [ -z "$ISSUE" ] && ISSUE="$1" || envfail usage-unexpected-argument "unexpected argument: $1"; shift ;;
   esac
@@ -820,16 +817,15 @@ closeout_rc() {
 }
 
 # The close-out's ONE remaining token read (#597 D-1). Not a predicate over spawns — a single
-# question asked once, on the rc=3 arm below: with the lane worktree gone, did milestone 5 ever
-# reach `satisfied`? Two of these are compared for equality and never parsed.
+# question asked on the rc=3 arm below: with the lane worktree gone, did milestone 5 ever reach
+# `satisfied`? Two of these are compared for equality and never parsed.
 #
 # Run from MAIN_ROOT, NOT the lane worktree: the progress record lives in the main checkout so it
-# survives teardown, and this read happens precisely because teardown has already run. Same RUN_ID
-# scrub as verdict_rc, for the same reason.
+# survives the teardown this read happens because of. Same RUN_ID scrub as verdict_rc.
 #
-# It RETURNS NON-ZERO rather than printing an empty token when the gate cannot answer. An empty
-# token compared against an empty token agrees, and that agreement would read as "milestone 5 was
-# never satisfied" — a broken gate indistinguishable from an unfinished lane.
+# It RETURNS NON-ZERO rather than printing an empty token when the gate cannot answer: an empty
+# token agrees with an empty token, and that agreement would read as "milestone 5 was never
+# satisfied" — a broken gate indistinguishable from an unfinished lane.
 satisfied_token() { # satisfied_token <milestone>
   local tok rc
   tok="$( cd "$MAIN_ROOT" && env -u RUN_ID bash "$GATE" progress "$ISSUE" --satisfied "$1" 2>/dev/null )"
@@ -850,12 +846,10 @@ round=1
 while :; do
   say "── round $round of $MAX_ROUNDS"
 
-  # THE BUILD PHASE, and it is ONE spawn (#718). What stood here was a loop with two counters — a
+  # THE BUILD PHASE, and it is ONE spawn (#718). A loop with two counters stood here — a
   # continuation budget over spawns that left no PR, and a separate in-flight recovery over spawns
-  # that left a PR with uncollected work beside it — each re-spawning BUILD on the theory that a
-  # session which stopped talking would finish if asked again. Both are deleted: the exits they
-  # guarded are handed to a human, who can read the lane log, which is the one thing the budgets
-  # could not do.
+  # that left a PR with uncollected work beside it. Both are deleted: their exits are handed to a
+  # human, who can read the lane log, which is the one thing the budgets could not do.
   # #515, and FIRST in the phase: a run whose premise has expired should cost nothing more, not
   # even the spawn. Every round re-enters here, which is the spawn the motivating incident kept
   # taking.
@@ -914,11 +908,10 @@ while :; do
     esac
   else
     # No PR, and this is where the run ends. Nothing here reads WHY: a session that exited 0
-    # without opening one may have been idle, may have been killed mid-sweep, or may have finished
-    # every milestone but the push — and the three used to be told apart by two opaque tokens that
-    # could not actually tell them apart (#527 measured four launches, zero PRs, the whole budget
-    # spent, against an implementation that was complete throughout). The lane log says which; a
-    # human reads it. The worktree and the claim are left in place for a manual rescue.
+    # without opening one may have been idle, killed mid-sweep, or finished every milestone but
+    # the push — and the two deleted tokens could not actually tell those apart (#527 measured
+    # four launches, zero PRs, the whole budget spent, against a complete implementation). The
+    # lane log says which. The worktree and the claim are left in place for a manual rescue.
     terminal build-no-pr 1 "no open PR on '$BRANCH' after the BUILD session — BUILD ended with no PR, so there is nothing to review and a human decides what happens next. Read the lane log for what the session did. The worktree and the claim are left in place."
   fi
   say "PR #$PR is open on $BRANCH."

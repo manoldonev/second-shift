@@ -10,22 +10,23 @@ nothing added."* Parent epic #717.
 
 ## Base state
 
-Every number below is **re-derived at `10e0928`**, this branch's base — not at `ff3f6f8`, the
-head the ticket body was written against. `#732` landed in between and moved three of the four
-subject files, so the ticket's `16,617` / `542/520` / `[base: 24]` figures no longer describe
-anything measurable. The ticket's *thresholds* are inherited unchanged; only their operands are
-re-measured.
+Every number below is **re-derived at `1d714d4`**, this branch's base — not at `ff3f6f8`, the head
+the ticket body was written against. `#732` and `#729` have landed since and between them moved all
+four subject files, so the ticket's `16,617` / `542/520` / `[base: 24]` figures no longer describe
+anything measurable. `#729` landed *during* this build and was merged into the branch, so the
+operands below are the second re-derivation, not the first. The ticket's *thresholds* are inherited
+unchanged; only their operands are re-measured.
 
-| File | Symbol | Lines at `10e0928` |
+| File | Symbol | Lines at `1d714d4` |
 | --- | --- | --- |
 | `plugins/dev-pipeline/skills/run-lean/orchestrate-lean.sh` | `OL` | 1146 |
-| `plugins/dev-pipeline/skills/build-lean/lean-gate.sh` | `LG` | 5821 |
+| `plugins/dev-pipeline/skills/build-lean/lean-gate.sh` | `LG` | 5997 |
 | `plugins/dev-pipeline/skills/run-lean/orchestrate-lean-selftest.sh` | `OLS` | 1826 |
-| `plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh` | `LGS` | 8374 |
-| | **sum** | **17167** |
+| `plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh` | `LGS` | 8568 |
+| | **sum** | **17537** |
 
-`LGS` pin multiset at base: **561** `pass "(id)` occurrences over 539 distinct ids.
-`OLS` pin multiset at base: **119** occurrences over 119 distinct ids.
+`LGS` pin multiset at base: **572** `pass "(id)` occurrences.
+`OLS` pin multiset at base: **119** occurrences.
 `git grep -o 'max-continuations' -- . ':!docs/plans' ':!CHANGELOG.md' | wc -l` at base: **25**.
 
 ## What is deleted
@@ -93,7 +94,7 @@ place of its old parse arm.
 
 - **AC-1** — for `OL` and `LG`:
   `! grep -qE 'MAX_CONTINUATIONS|MAX_INFLIGHT_RECOVERIES|progress_token|infra_token|tok_before|tok_after|infra_before|infra_after|inflight_recoveries|continuations=|build-idle|build-continuations-spent|terminal progress-unreadable|--infra|progress-v1'`
-  holds on both. Base: reds on both (35 and 22 matching lines). *Mutant:* any residue.
+  holds on both. Base: reds on both (33 and 22 matching lines). *Mutant:* any residue.
 
   **Amended (D-G).** The ticket's alternation carried a bare `progress-unreadable`, which is a
   SUBSTRING of the surviving terminal `verdict-progress-unreadable` — the `rc=3` close-out arm's
@@ -106,12 +107,12 @@ place of its old parse arm.
   answering rc 8 ⇒ terminal slug `build-inflight`, exactly **1** BUILD spawn, and the in-flight
   read made from the main checkout with `RUN_ID` scrubbed (D-D). *Mutant:* re-add
   `continuations=$((continuations+1)); continue` ⇒ 2 spawns.
-- **AC-3** — `wc -l` of `OL` + `LG` + `OLS` + `LGS` at head ≤ **16717** (base 17167 − 450). Both
+- **AC-3** — `wc -l` of `OL` + `LG` + `OLS` + `LGS` at head ≤ **17087** (base 17537 − 450). Both
   sums stated in the PR body.
 - **AC-4** — the `LGS` pin multiset
   (`grep -oE 'pass "\([a-z0-9-]+\)' | sort | uniq -c`) at head equals the base multiset minus
   exactly `(ir1) (ir2) (ir3) (ir4) (ir9) (ir10) (pg1) (pg2) (pg3) (pg4)` and plus exactly
-  `(pg13)` — 561 → **552** occurrences. `(ob7)`, `(td2)`, `(if9)`, `(pg7)`, `(pg8)`, `(pg9)`,
+  `(pg13)` — 572 → **563** occurrences. `(ob7)`, `(td2)`, `(if9)`, `(pg7)`, `(pg8)`, `(pg9)`,
   `(pg10)` are NOT on the removal list. The `OLS` multiset equals base minus
   `(o1)…(o8) (oi1)…(oi5) (t1) (t1b) (t3) (t4) (j3) (v4)` plus `(h4)`×3 — 119 → **103**.
   `(h4)` carries three arms under one id: the no-PR stop, the in-flight stop, and the removed
@@ -119,9 +120,11 @@ place of its old parse arm.
   *Mutant:* delete a re-anchored case instead of swapping its helper.
 - **AC-5** — `bash scripts/check-gate-buckets.sh` exits 0. *Mutant:* leave a deleted terminal's
   row behind, or omit `build-no-pr`'s.
-- **AC-6** — `git grep -n 'max-continuations' -- . ':!docs/plans' ':!CHANGELOG.md'` returns only
-  `OL`'s usage-refusal line and the `OLS` case that drives it. Base: 25 occurrences across 6
-  files.
+- **AC-6** — `git grep -o 'max-continuations' -- . ':!docs/plans' ':!CHANGELOG.md' | wc -l`
+  returns **6**, over **4** lines: `OL`'s single usage-refusal line, which names the flag twice
+  (the `case` label it retires and the message that says so), and the three lines of the `(h4)`
+  arm that drives it. `-o` counts occurrences, not lines, which is also how the base operand was
+  taken. Base: 25 across 6 files.
 - **AC-7** — `bash "$LG" progress <issue> --obligations` still prints the obligations report and
   `--satisfied <n>` still prints a token; bare `progress <issue>` with no flag exits **2** with a
   message containing `unknown`. Pinned as `LGS` case `(pg13)`.

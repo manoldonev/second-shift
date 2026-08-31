@@ -2183,12 +2183,11 @@ EOF
 # redded milestone 5 advanced the record but did not finish the checklist, and crediting it would
 # be the exact false `done` this read exists to refuse.
 #
-# WHY A COUNT IS A SOUND TOKEN. These rows are append-only, and the single rewriter in this file
-# (heal_progress_run_id) has an exact-string compare bounded to the header — so the count cannot go
-# up and back down between two reads and read as unchanged. #528 keeps that true under a concurrent
-# writer by making append_satisfied claim-then-append rather than rebuild. The `m5sat-v1:`
-# generation prefix marks the token space so a caller reaching for `-gt` has to notice this is not
-# an orderable integer.
+# WHY A COUNT IS A SOUND TOKEN. These rows are append-only and the single rewriter in this file
+# (heal_progress_run_id) has an exact-string compare bounded to the header, so the count cannot go
+# up and back down between two reads and read as unchanged; #528 keeps that true under a concurrent
+# writer. The `m5sat-v1:` generation prefix marks the token space so a caller reaching for `-gt`
+# has to notice this is not an orderable integer.
 #
 # NOT in require_entry_attested's set (D-2): this reads the very file an attestation would live in,
 # so gating it there would remove the answer in exactly the state — a spawn that died before
