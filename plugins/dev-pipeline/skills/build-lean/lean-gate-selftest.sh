@@ -4545,6 +4545,31 @@ if [ "$rc" -eq 1 ] \
   pass "(dpr7) an armed claude-design run demands ITS family's plan reviewer and reds before any render — the family arm resolves rather than declining the mandate"
 else fail "(dpr7) rc=$rc attempts=$(dcount '| milestone-3 | attempt |') renders=$(dcalls): $out"; fi
 
+# (dpr9) THE ABSENT-PLAN REFUSAL NAMES THE FAMILY'S OWN PLAN STEP (#739). design_plan_gate picks
+# the step by family before it can know a plan exists, and the two arms print DIFFERENT guidance:
+# a claude-design run sent to read figma's step-7 goes looking for a token table its own step
+# mandates none of. Both arms fire on the same absent-plan path, so a mutant that collapses or
+# swaps them changes nothing any other case in this file reads — (dpr1) through (dpr8) all drive a
+# tree whose plan is present, and the figma arm is the fallback every non-claude-design case would
+# get either way.
+#
+# Runs on the claude-design host (dpr7) left in place, and RESTORES the plan afterwards: dplan_sync
+# is a no-op with no plan file, so leaving it removed would silently unsync every case below.
+dreset
+git -C "$DTREE" rm -q -f docs/plans/acme-55-lean-plan.md >/dev/null 2>&1
+dcommit_raw "remove the translation plan on the claude-design host"
+out="$(dgate_cd 3 55)"; rc=$?
+if [ "$rc" -eq 1 ] \
+   && grep -qF 'the design-faithful translation-plan step' <<<"$out" \
+   && ! grep -qF 'figma-faithful step-7' <<<"$out" \
+   && [ "$(dcount '| milestone-3 | attempt |')" -eq 0 ] && [ "$(dcalls)" -eq 0 ]; then
+  pass "(dpr9) the absent-plan refusal on a claude-design host names ITS family's plan step, not figma's, and spends no fix attempt"
+else fail "(dpr9) rc=$rc attempts=$(dcount '| milestone-3 | attempt |') renders=$(dcalls): $out"; fi
+
+dplan_write
+git -C "$DTREE" add docs/plans/acme-55-lean-plan.md >/dev/null 2>&1
+dcommit_raw "restore the translation plan"
+
 # (dpr8) AC-4, the WRITER. Two refusals and one stamp. The enum refusal is what keeps a typo from
 # becoming a fourth verdict value nothing downstream understands, and `--summary-file` is required
 # here where `verdict`'s is optional for the reason (dpr3) demonstrates: a `block` the gate has to

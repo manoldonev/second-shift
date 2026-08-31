@@ -7,7 +7,7 @@
   "acceptable_alternative_severity": "The missing-analog finding may land as a Warning rather than a Blocker; the unwired RS-4 must be a Blocker.",
   "must_not_flag": [
     "the `why this component` cells — every one describes what the handoff draws, not the node name",
-    "the `dimensions` table — fully populated, one row per sized node, with an overflow decision each",
+    "the `dimensions` table — fully populated, one row per sized node, with an overflow decision each, and the `node`/`RS`/`px` triple beside the prose cell — every `px` a `<w>×<h>` with `-` on the axis the node fills or hugs",
     "the placement decision — stated as page-level and portalled, and the file list edits ReturnsPage.tsx, which agrees",
     "the file list — the modal, its mount, the hook and a co-located test",
     "the Decision Ledger — one row, provenance inside the enum",

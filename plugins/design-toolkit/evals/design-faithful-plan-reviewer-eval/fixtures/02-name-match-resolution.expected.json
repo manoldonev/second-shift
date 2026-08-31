@@ -7,10 +7,10 @@
   "acceptable_alternative_severity": "The carrier-picker finding may land as a Warning rather than a Blocker; the delay-threshold one must be a Blocker (an unjustified resolution to a component whose rendered affordances exceed what the plan describes).",
   "must_not_flag": [
     "the `Date Range` and `Clear all` rows — both cells describe what the handoff draws, not the node name",
-    "the `dimensions` table — fully populated, one row per sized node, with an overflow decision each",
+    "the `dimensions` table — fully populated, one row per sized node, with an overflow decision each, and the `node`/`RS`/`px` triple beside the prose cell — every `px` a `<w>×<h>` with `-` on the axis the node fills or hugs",
     "the placement decision — stated as a sibling of the results table and the file list edits ExceptionQueuePage.tsx, which agrees",
     "the analog — ShipmentFilters is a close structural match",
-    "the state wiring — empty, filtered and cleared each carry a mechanism",
+    "the state wiring — RS-1, RS-2 and RS-3 each carry a mechanism",
     "the absence of a token map table — a design-faithful plan mandates none"
   ],
   "layer": "name-match component resolution",

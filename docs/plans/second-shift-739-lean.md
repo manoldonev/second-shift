@@ -20,21 +20,29 @@ reviewer grading an artifact improvised against a gate error string is not revie
   artifact-stage frontmatter shape (`model: opus`, `effort: high`, `tools: Read, Grep, Glob,
   Bash`, `skills: reviewer-baseline`, no `maxTurns`) and a checklist whose sections are exactly
   the D-2 set — component-resolution suitability, per-node dimensions, analog suitability,
-  state→code wiring, file coverage, Decision Ledger — with **no** token-arithmetic section.
+  state→code wiring, file coverage, Decision Ledger — plus the **placement** section D-3 makes the
+  plan carry, with **no** token-arithmetic section. Its per-node dimensions checks grade the
+  `node`/`RS`/`px` triple AC-3 mandates, not the prose cell alone.
 - **AC-2**: `design_family_plan_reviewer()` in `lean-gate.sh` resolves `claude-design` to
   `design-faithful-plan-reviewer`. On an armed claude-design run with no plan-review record,
   `bash G 3` REDS before any render command runs, naming
   `design-toolkit:design-faithful-plan-reviewer`, and spends no fix attempt.
 - **AC-3**: `plugins/design-toolkit/skills/design-faithful/SKILL.md` carries a
   pre-implementation plan step that mandates the artifact at `<plansDir>/<key>-lean-plan.md` with
-  the two gate-asserted tables (`why this component`, `dimensions`), the chosen analog, the file
-  list and a placement decision, and states the dispatch-and-record obligation on the lean lane.
-  It mandates no handoff-CSS→token-role map table (D-3).
+  the two gate-asserted tables (`why this component`, and `dimensions` carrying the **`node`**,
+  **`RS`** and **`px`** columns beside its prose cell, with a worked example row), the chosen
+  analog, the file list and a placement decision, and states the dispatch-and-record obligation on
+  the lean lane. **A plan written to the letter of the step passes `plan_violations` with no
+  output** — that is the AC's oracle, and it is what makes the step the producer side of the gate
+  rather than a shorter description of it. It mandates no handoff-CSS→token-role map table (D-3).
 - **AC-4**: the (dpr7) case in `lean-gate-selftest.sh` is inverted — it drives an armed
   claude-design host and asserts the refusal — and `tools/mutation-catalog.tsv`'s
   `lean-gate-plan-review-family-universal` row is re-anchored onto the `claude-design)` arm: its
   mutant deletes that line, so the family falls through to `*)` and is declined again. The mutant
-  is probed and killed by the inverted (dpr7).
+  is probed and killed by the inverted (dpr7). `lean-gate-selftest.sh` also covers
+  `design_plan_gate`'s OTHER family selector — the absent-plan refusal's guidance text — so an
+  armed claude-design run with no plan at all is sent to the design-faithful step and not to
+  figma's step 7.
 - **AC-5**: the stale-gap prose is gone, on a decidable oracle. Both of
   `git grep -n 'DOES NOT EXIST' -- ':!docs/plans/'` and
   `git grep -n 'OR-1 of' -- ':!docs/plans/'` return **nothing** — those are the two strings by
@@ -45,7 +53,10 @@ reviewer grading an artifact improvised against a gate error string is not revie
   instrument — committed flat fixtures with `.expected.json` siblings including one clean
   control, `rubric.py`, `run.sh` passing the namespaced agent name, `README.md`, `changelog.md`,
   and a `CLOSEOUT-BASELINE.md` recording the baseline as **OWED** with the reason no reading
-  exists. `bash scripts/check-eval-model-identity.sh` stays green.
+  exists. `bash scripts/check-eval-model-identity.sh` stays green. Every fixture that carries a
+  dimensions table declares the `node`/`RS`/`px` triple — each is a plan `plan_violations` accepts,
+  so the corpus never trains the reviewer on a shape the gate refuses — and the clean control's
+  `must_not_flag` names that shape.
 - **AC-7**: `build-lean/SKILL.md` step 6 no longer carries the
   `design-toolkit:<provider>-faithful-plan-reviewer` dispatch template — which expands to a name
   that does not exist for claude-design — and points at the gate's own refusal, which prints the
@@ -96,6 +107,12 @@ inverted (dpr7), and (dpr1) cannot be that killer, because (dpr1) drives a figma
   is #710's contract for BOTH families. The skill step mandates more than the gate asserts, and
   D-10 is what makes that safe: the reviewer reviews what is there and NAMES the checks that had
   no input, so a missing analog is visible in the review rather than silently unchecked.
+- **D-3's rule now reaches the three machine-read columns.** "Only what a reader exists for" is
+  the test, and #711/#744 gave `node`/`RS`/`px` two readers: `plan_violations` reds a dimensions
+  table that omits any of them, and `plan_node_rows` feeds the render pass the `px` values it
+  compares against the measured rects. Both are family-agnostic — they key on the `dimensions`
+  column, not on the design family — so a step that mandates only the prose cell describes a plan
+  milestone 3 refuses. Mandating them applies D-3; it does not widen the gate (OR-2 is untouched).
 - **The two families' plan steps are not lockstep.** The claude-design contract is deliberately
   narrower than figma's — a claude-design handoff carries CSS custom properties, not a
   `Figma value | Figma token | Repo output` table, so a token-arithmetic section would have no

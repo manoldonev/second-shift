@@ -10,6 +10,14 @@ Clear-all link.
 
 Claude Design handoff: project `pj_3Wm9Rz`, screen `exception-filters`.
 
+### States the spec declares
+
+| RS-n | state (what must be visible) |
+| --- | --- |
+| RS-1 | empty — every control at its default, Clear-all hidden |
+| RS-2 | filtered — at least one control set, Clear-all visible |
+| RS-3 | cleared — controls back at their defaults, query params stripped |
+
 ## Analog
 
 `apps/console/src/features/logistics/ShipmentFilters.tsx` — same rail shell, same stacked filter
@@ -31,21 +39,21 @@ sibling of the results table — the handoff shows it outside the table's card, 
 
 ## Dimensions
 
-| node | dimensions | overflow |
-| --- | --- | --- |
-| rail | fixed 264px inline size, fill block size | scroll |
-| carrier picker | fill inline size, 40px block size | truncate the selected label |
-| delay threshold | 96px inline size, 40px block size | none |
-| date range | fill inline size, 40px block size | none |
-| Clear all | hug inline size, 20px block size | none |
+| node | RS | px | dimensions | overflow |
+| --- | --- | --- | --- | --- |
+| rail | RS-1 | 264×- | fixed 264px inline size, fill block size | scroll |
+| carrier picker | RS-1 | -×40 | fill inline size, 40px block size | truncate the selected label |
+| delay threshold | RS-1 | 96×40 | 96px inline size, 40px block size | none |
+| date range | RS-1 | -×40 | fill inline size, 40px block size | none |
+| Clear all | RS-2 | -×20 | hug inline size, 20px block size | none |
 
 ## State → code wiring
 
 | state | trigger | mechanism |
 | --- | --- | --- |
-| empty | mount with no query params | all controls at their defaults, Clear-all hidden |
-| filtered | any control changes | filter state lifted to `ExceptionQueuePage`, serialized into the URL query |
-| cleared | Clear-all clicked | reset the filter state and strip the query params |
+| RS-1 | mount with no query params | all controls at their defaults, Clear-all hidden |
+| RS-2 | any control changes | filter state lifted to `ExceptionQueuePage`, serialized into the URL query |
+| RS-3 | Clear-all clicked | reset the filter state and strip the query params |
 
 ## File list
 

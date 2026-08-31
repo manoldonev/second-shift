@@ -42,14 +42,14 @@ the editor nested inside a list row.
 
 ## Dimensions
 
-| node | dimensions | overflow |
-| --- | --- | --- |
-| form column | fixed 560px inline size, hug block size | none |
-| URL field | fill inline size, 40px block size | none |
-| event-type picker | fill inline size, hug block size (grows with chip rows) | wrap chips onto a second row, then scroll at 3 rows |
-| signing secret | fill inline size, 40px block size | truncate the masked value |
-| active switch | hug inline size, 24px block size | none |
-| footer buttons | hug inline size, 36px block size | none |
+| node | RS | px | dimensions | overflow |
+| --- | --- | --- | --- | --- |
+| form column | RS-1 | 560×- | fixed 560px inline size, hug block size | none |
+| URL field | RS-1 | -×40 | fill inline size, 40px block size | none |
+| event-type picker | RS-1 | -×- | fill inline size, hug block size (grows with chip rows) | wrap chips onto a second row, then scroll at 3 rows |
+| signing secret | RS-2 | -×40 | fill inline size, 40px block size | truncate the masked value |
+| active switch | RS-1 | -×24 | hug inline size, 24px block size | none |
+| footer buttons | RS-1 | -×36 | hug inline size, 36px block size | none |
 
 ## State → code wiring
 
@@ -73,6 +73,6 @@ the editor nested inside a list row.
 
 | ID | Decision | Resolution | Provenance |
 | --- | --- | --- | --- |
-| D-1 | Is the signing secret editable, or rotate-only? | Rotate-only — the field is read-only with a separate Rotate action, per the handoff. | user-answered |
+| D-1 | Is the signing secret editable, or rotate-only? | Editable in place — the handoff draws a masked field with a reveal toggle and mounts no Rotate affordance, so the secret is edited on this screen. | user-answered |
 | D-2 | Does an inactive endpoint still validate the URL? | Yes — validation is independent of the active switch, matching ApiKeyEditor. | codebase-derived |
 | D-3 | Which event types are available at launch? | Deferred to the platform team's event catalog; the picker reads the catalog endpoint, so the list is data, not a code decision. | deferred |

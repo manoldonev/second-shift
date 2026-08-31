@@ -26,6 +26,12 @@ Each fixture is deliberately **correct everywhere except the planted defect**. T
 the score mean something: the only route to a Blocker is to grade the content, not to notice that
 a cell is empty. The gate already asserts non-emptiness, and non-emptiness is not the check.
 
+Every fixture that carries a dimensions table declares the `node`/`RS`/`px` triple beside the
+prose cell, so each one is a plan `plan_violations` accepts. That is deliberate: a corpus whose
+control is a shape milestone 3 refuses outright would train the reviewer to pass a plan the gate
+rejects, and score it down for saying so. Fixture 01 is the exception, and its absent table is the
+planted defect.
+
 ## The claude-design-specific trap
 
 Every fixture carries **no token table**, because a design-faithful plan mandates none — a

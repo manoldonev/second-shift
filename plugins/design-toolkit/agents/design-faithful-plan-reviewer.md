@@ -131,6 +131,21 @@ resolution the plan never justified, which is how a name match survives.
   individually sized control) that records **no dimension row at all**. This is the silent case
   and it is the one that ships: the implementer sizes every control by eye, and the design-blind
   code reviewer downstream has no recorded number to compare against either.
+- **[Blocker]** a `dimensions` table that declares no **`node`**, **`RS`** or **`px`** column. The
+  prose cell is not machine-readable and is not meant to be: `px` is the `<w>×<h>` the render pass
+  compares against the rendered rect, `node` is the key the live-render harness reports that node
+  under, and `RS` is which declared render state it was measured in. Milestone 3 refuses a plan on
+  that shape and charges a fix attempt for it, so the missing column costs the run a round before
+  it renders anything.
+- **[Blocker]** a `px` cell that does not read as `<w>×<h>` with an integer or `-` per axis
+  (`320×604`, `-×412`). A prose size in the machine column — `about 320 wide`, `fill` — is compared
+  against nothing, and the axis it should have pinned goes unmeasured.
+- **[Warning]** an `RS` cell naming a render state the spec's own `RS-n` table does not declare.
+  The row is then measured against no rendered file at all, which reads as a sized node and is not
+  one.
+- **[Warning]** a `px` cell that contradicts its own prose `dimensions` cell — `320×604` beside
+  "fill inline size", a `-` axis beside a stated fixed size. The two columns are one reading, and
+  the machine one is what the comparison uses.
 - **[Warning]** a sized node present in the component list with **no** row in the dimensions
   table — the table is per-node, so a missing row is a node nobody sized.
 - **[Warning]** a **repeating / wrapping group** (cards in a row, a grid) whose plan records item

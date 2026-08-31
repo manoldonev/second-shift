@@ -52,7 +52,24 @@ here vs. the same component spread across call-sites after the build.
   written for. On a later round it re-stamps: **re-read the plan against the lines that moved**
   before committing;
 - a table declaring a **`why this component`** column, one row per resolved component;
-- a table declaring a **`dimensions`** column, one row per sized node.
+- a table declaring a **`dimensions`** column, one row per sized node, with three machine-read
+  columns beside it — **`node`**, **`RS`** and **`px`**:
+
+  | node | RS | px | dimensions | overflow |
+  | --- | --- | --- | --- | --- |
+  | form column | RS-1 | 560×- | fixed 560px inline size, hug block size | none |
+  | signing secret | RS-2 | -×40 | fill inline size, 40px block size | truncate the masked value |
+
+  `node` is the name the repo's live-render harness reports that node under in its
+  `<png>.rects.json` sibling (`docs/live-render.md`); `RS` is the render state the spec declares it
+  is measured in; `px` is `<w>×<h>` with an integer or `-` per axis, `-` being a node with no fixed
+  size on that axis. `dimensions` stays **prose** — per-axis fixed/hug/fill, wrap behavior,
+  overflow/truncation — which is what `560×-` cannot carry. Milestone 3 does read the `px`
+  numbers: per render state it compares them against the sizes the harness measured,
+  scale-adaptively, and names any node out of proportion with the rest of its state. That grades
+  the transcription against the code, never against the handoff — whether a recorded value is the
+  *design's* is the design-sighted `review-lean` session, scoring `fidelity:` against the render
+  receipt.
 
 Every cell of both tables must be filled, and a row may not declare fewer cells than its header.
 That is the whole mechanical contract: an omission has to read as an **empty cell**, not as an

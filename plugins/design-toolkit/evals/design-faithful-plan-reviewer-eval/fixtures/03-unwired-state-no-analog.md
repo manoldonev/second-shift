@@ -33,13 +33,13 @@ The modal mounts at the page level in `ReturnsPage.tsx`, portalled above the ret
 
 ## Dimensions
 
-| node | dimensions | overflow |
-| --- | --- | --- |
-| modal | fixed 480px inline size, hug block size | scroll the body above 560px |
-| reason select | fill inline size, 40px block size | truncate the selected label |
-| note field | fill inline size, 96px block size | scroll |
-| carrier radios | fill inline size, 32px block size each | none |
-| footer buttons | hug inline size, 36px block size | none |
+| node | RS | px | dimensions | overflow |
+| --- | --- | --- | --- | --- |
+| modal | RS-1 | 480×- | fixed 480px inline size, hug block size | scroll the body above 560px |
+| reason select | RS-1 | -×40 | fill inline size, 40px block size | truncate the selected label |
+| note field | RS-1 | -×96 | fill inline size, 96px block size | scroll |
+| carrier radios | RS-1 | -×32 | fill inline size, 32px block size each | none |
+| footer buttons | RS-1 | -×36 | hug inline size, 36px block size | none |
 
 ## State → code wiring
 
