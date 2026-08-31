@@ -32,8 +32,8 @@ reviewer grading an artifact improvised against a gate error string is not revie
   It mandates no handoff-CSS→token-role map table (D-3).
 - **AC-4**: the (dpr7) case in `lean-gate-selftest.sh` is inverted — it drives an armed
   claude-design host and asserts the refusal — and `tools/mutation-catalog.tsv`'s
-  `lean-gate-plan-review-family-universal` row is re-anchored to the surviving `*)` arm (its
-  mutant deletes `claude-design)` so the family falls through and is declined again). The mutant
+  `lean-gate-plan-review-family-universal` row is re-anchored onto the `claude-design)` arm: its
+  mutant deletes that line, so the family falls through to `*)` and is declined again. The mutant
   is probed and killed by the inverted (dpr7).
 - **AC-5**: the stale-gap prose is gone, on a decidable oracle. Both of
   `git grep -n 'DOES NOT EXIST' -- ':!docs/plans/'` and
