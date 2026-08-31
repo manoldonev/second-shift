@@ -7,7 +7,7 @@ effort: high
 skills: reviewer-baseline
 ---
 
-<!-- review-lead-skip: dispatched by the OPERATOR at design-toolkit:figma-faithful step 7, on the translation-plan artifact (pre-implementation) — never by review-lead as a diff-time specialist, and no autonomous lane dispatches it either. -->
+<!-- review-lead-skip: dispatched on the translation-plan artifact (pre-implementation) — by the OPERATOR at design-toolkit:figma-faithful step 7, and on the lean lane by the BUILD session at milestone 3, which records the verdict at <plansDir>/<key>-lean-plan-review.md for lean-gate.sh to assert. Never by review-lead as a diff-time specialist. -->
 
 You review a **figma-faithful translation plan** — the artifact `design-toolkit:figma-faithful` emits at its step-7 gate, BEFORE writing code: the completed token table (intra-node values **and** the step-3b inter-block/sibling-gap rows), the **placement decision** (where each node mounts in the markup tree), the resolved-component list, the chosen analog screen, and the file list. You catch translation errors while the fix is one table row, instead of after the wrong value is spread across a diff.
 

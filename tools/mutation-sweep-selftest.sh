@@ -49,6 +49,11 @@ trap 'rm -rf "$TMPROOT"' EXIT
 adv() { env -u GITHUB_ACTIONS -u RUNNER_OS -u SKIP_STRESS MUTATION_SWEEP_CACHE=0 "$@"; }
 # Enforcing: the canonical environment, stated explicitly rather than inherited.
 enf() { env GITHUB_ACTIONS=1 RUNNER_OS=Linux SKIP_STRESS=1 MUTATION_SWEEP_CACHE=0 "$@"; }
+# Enforcing WITH the merge-time deferral bypass. NON-EXPORTING, like every other seam this
+# suite drives: exported, the knob would reach the nested real sweeps the deferral cases run
+# and silently re-answer the very assertions they exist to make.
+nodefer() { env GITHUB_ACTIONS=1 RUNNER_OS=Linux SKIP_STRESS=1 MUTATION_SWEEP_CACHE=0 \
+              MUTATION_SWEEP_NO_DEFER=1 "$@"; }
 # Advisory WITH the cache live, in a named directory. $1 = cache dir, rest = command.
 cch() {
   local d="$1"; shift
@@ -791,10 +796,10 @@ echo "(l3b) #582 AC-1/AC-2 — an ALL-deferred PR run warns unmissably and annot
 # This is the SAME fixture as (l3): one in-scope guard, and it defers. That makes it
 # "every in-scope guard deferred" by construction (1/1), the exact scenario #582 fixes: a
 # green PR run that graded nothing. RC stays 0 (this is not a red-build fix) but the run
-# must say so loudly, distinct from the per-guard "defer ... -> nightly" info line already
+# must say so loudly, distinct from the per-guard "defer ... -> merge-time sweep" info line already
 # asserted above.
 if [[ $RC -eq 0 ]] \
-  && grep -q 'WARN: PR mode graded NOTHING: all 1 in-scope guard(s) deferred to nightly, 0 swept' <<<"$OUT" \
+  && grep -q 'WARN: PR mode graded NOTHING: all 1 in-scope guard(s) deferred to the merge-time sweep, 0 swept' <<<"$OUT" \
   && grep -q 'reasons: slow suite: 1' <<<"$OUT" \
   && grep -q '^::warning::mutation-sweep: PR mode graded NOTHING' <<<"$OUT"; then
   ok "all-deferred run warns the count+reason and emits a check-surface annotation"
@@ -946,7 +951,7 @@ fi
 
 echo "(q) PR mode — a multi-killer union defers wholesale, never sweeps a partial union"
 # Invariant: the PR lane sweeps a guard only when its kill set is a SINGLE fast suite. A
-# two-killer union must defer to nightly: sweeping a reduced kill set would grade mutants
+# two-killer union must defer wholesale: sweeping a reduced kill set would grade mutants
 # under a weaker criterion than the one that produced the baseline (manufacturing false
 # reds on a merge-blocking lane), and sweeping the full union blows the lane's time
 # bound, since a surviving mutant runs every killer. Every other case gives kill_set_for
@@ -1001,6 +1006,81 @@ if ! grep -q 'PR mode graded NOTHING' <<<"$OUT" && ! grep -q '^::warning::mutati
   ok "a partial defer (6 swept, 1 deferred) triggers no all-deferred warn or annotation"
 else
   bad "(r) a partial defer wrongly fired the all-deferred warn/annotation"; printf '%s\n' "$OUT" | tail -6
+fi
+
+echo "(r2) the merge-time bypass grades what the PR lane defers — all THREE reasons, not one"
+# Invariant: MUTATION_SWEEP_NO_DEFER=1 disables the deferral decision WHOLESALE. All three
+# reasons exist to protect the PR lane's TIME BOUND, which the merge-time lane does not have,
+# so each must grade under the knob. Covering only one would leave a per-arm regression
+# invisible: a bypass wired into the slow-suite arm alone still reads green on a slow-suite
+# fixture while the cap and the union silently keep deferring, and the merge-time lane would
+# then skip exactly the guards it exists to grade — the topology this ticket replaced.
+#
+# Each sub-case is the SAME FIXTURE as its knob-off twin above — (l3) slow suite, (q)
+# multi-suite union, (r) fast-guard cap — so the pair isolates the knob as what moved the
+# verdict rather than the fixture. Status is read out of the report's own column rather than
+# grepped, so a row that changed shape cannot pass on a substring.
+status_of() { printf '%s\n' "$2" | awk -F'\t' -v g="$1" '$1==g {print $2}' | tail -1; }
+count_status() { printf '%s\n' "$2" | awk -F'\t' -v s="$1" '$2==s {c++} END {print c+0}'; }
+
+# 1/3 — a slow paired suite. The PR lane defers it wholesale ((l3)); merge time grades it.
+FX="$(new_fixture strong)"
+baseline_with "$FX"
+printf '# fixture slow list\n./guard-selftest.sh\t42\t2026-07-29\n' > "$FX/tools/selftest-suite-timings.tsv"
+printf '\n# touched to put this guard in the PR diff\n' >> "$FX/guard.sh"
+( cd "$FX" && git add -A && git -c user.email=f@e.invalid -c user.name=f commit -qm slow ) >/dev/null 2>&1
+OUT="$( cd "$FX" && nodefer bash "$SWEEP" --mode pr --base HEAD~1 2>&1 )"; RC=$?
+if [[ $RC -eq 0 && "$(status_of guard.sh "$OUT")" == "swept" ]] \
+  && [[ "$(count_status deferred-to-nightly "$OUT")" -eq 0 ]]; then
+  ok "the bypass grades a slow-suite guard the PR lane defers"
+else
+  bad "(r2a) expected guard.sh swept and zero defer rows; got rc=$RC status='$(status_of guard.sh "$OUT")'"
+  printf '%s\n' "$OUT" | tail -5
+fi
+
+# 2/3 — a multi-suite killer union. Grading under the FULL union is the same criterion that
+# produced the baseline, which is why disabling this arm manufactures no false reds.
+FX="$(new_fixture strong)"
+baseline_with "$FX"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$FX/second-killer-selftest.sh"
+printf 'guard.sh\t./second-killer-selftest.sh\tsecond killer forms a two-suite union\n' >> "$FX/tools/mutation-pair-map.tsv"
+printf '\n# touched to put this guard in the PR diff\n' >> "$FX/guard.sh"
+( cd "$FX" && git add -A && git -c user.email=f@e.invalid -c user.name=f commit -qm union ) >/dev/null 2>&1
+OUT="$( cd "$FX" && nodefer bash "$SWEEP" --mode pr --base HEAD~1 2>&1 )"; RC=$?
+if [[ $RC -eq 0 && "$(status_of guard.sh "$OUT")" == "swept" ]] \
+  && [[ "$(count_status deferred-to-nightly "$OUT")" -eq 0 ]]; then
+  ok "the bypass grades a two-killer union the PR lane defers"
+else
+  bad "(r2b) expected guard.sh swept and zero defer rows; got rc=$RC status='$(status_of guard.sh "$OUT")'"
+  printf '%s\n' "$OUT" | tail -5
+fi
+
+# 3/3 — the fast-guard cap. Seven guards cross a cap of six; the seventh is deferred at PR
+# time ((r)) and graded here. The 7/0 split pins the cap as bypassed rather than merely
+# raised — a knob that only widened it would still defer at some N.
+FX="$TMPROOT/nodefer-fleet$RANDOM$RANDOM"
+make_fleet_fixture "$FX" 7
+baseline_with "$FX"
+OUT="$( cd "$FX" && nodefer bash "$SWEEP" --mode pr --base HEAD~1 2>&1 )"; RC=$?
+SWEPT_N="$(count_status swept "$OUT")"
+DEFER_N="$(count_status deferred-to-nightly "$OUT")"
+if [[ $RC -eq 0 && "$SWEPT_N" -eq 7 && "$DEFER_N" -eq 0 ]]; then
+  ok "the bypass grades all seven guards, past the six-guard PR cap"
+else
+  bad "(r2c) expected swept=7 deferred=0; got rc=$RC swept=$SWEPT_N deferred=$DEFER_N"
+  printf '%s\n' "$OUT" | tail -6
+fi
+
+# CONTROL — the knob is OFF by default. Without this, a mutant that inverted the test (making
+# the bypass unconditional) would pass every assertion above while silently disarming the PR
+# lane's time bound, and (l3)/(q)/(r) would be the only thing standing between that and a
+# merge-blocking job that runs the whole universe. Same fleet fixture, no knob.
+OUT="$( cd "$FX" && enf bash "$SWEEP" --mode pr --base HEAD~1 2>&1 )"; RC=$?
+if [[ $RC -eq 0 && "$(count_status swept "$OUT")" -eq 6 && "$(count_status deferred-to-nightly "$OUT")" -eq 1 ]]; then
+  ok "with the knob unset the same fixture still defers — the bypass is opt-in"
+else
+  bad "(r2d) expected the default run to defer 1 of 7; got rc=$RC swept=$(count_status swept "$OUT") deferred=$(count_status deferred-to-nightly "$OUT")"
+  printf '%s\n' "$OUT" | tail -6
 fi
 
 echo "(s) leading-hyphen operator matches — the committed cmp rows enumerate real sites"

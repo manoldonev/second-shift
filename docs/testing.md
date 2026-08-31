@@ -1431,13 +1431,43 @@ because during this harness's own intake the `check-emit-deadline` site moved by
 two runs a day apart, and only the expression-addressed entry survived. The generic tier's
 matching obligation is gone: with content keys there is nothing for an ordinary edit to re-key.
 
-**Where it runs — two surfaces, both in CI.** Diff-scoped on every PR (the `mutation-sweep-pr`
-job) — guards whose kill set is not a single fast suite defer to nightly rather than being graded
-against a weaker criterion than the one that produced the baseline — and wholesale in the nightly
-`mutation-sweep.yml`. Kill verdicts are only comparable inside the canonical environment
-(ubuntu-latest, `SKIP_STRESS=1`), so local runs are advisory and say so.
+**Where it runs — three surfaces, all in CI.**
 
-**There is deliberately no third surface.** Until #580 `lean-gate.sh` milestone 3 ran a
+| Lane | Scope | Deferral | On red |
+| --- | --- | --- | --- |
+| `ci.yml`'s `mutation-sweep-pr` | the PR's diff | ON — a guard is swept only when its kill set is a single fast suite, and only for the first six | reds the PR |
+| `mutation-merge.yml` | the merge's diff, on every push to `main` | OFF (`MUTATION_SWEEP_NO_DEFER`) — nothing is waiting, so there is no time bound to trade coverage for | files an issue |
+| `mutation-sweep.yml` | the whole universe, monthly | n/a (`--mode full` never defers) | files a digest issue |
+
+The PR lane is fast and shallow by design: it costs 10–15s on a merge-blocking path, and the
+deferral is what keeps it there. **The merge lane is where a guard is actually graded** — same
+harness, same `--mode pr` diff scoping, same generic + catalog depth, with all three deferral
+reasons bypassed. It runs against `github.event.before`, queued rather than coalesced, so every
+merge is graded on its own diff.
+
+The monthly lane no longer grades anybody's change — the merge lane took that job. What is left
+for it is the classes no diff-scoped run can see: a baseline that has quietly shrunk, a verdict
+flipped by a third file (the memoization key is deliberately narrow, and says so), a suite edit
+that weakened a guard no merge touched. Those move on nobody's diff, so nothing event-driven
+reaches them. Monthly costs latency on that rarest class, bounded at ~30 days, and buys back a
+nightly whose marginal information was ~zero on any day nothing changed — 570 mutants re-derived
+to re-learn 438 known kills.
+
+**A red files an issue, it does not redden a dashboard.** Both non-PR lanes route their verdict
+into the intake queue through `.github/workflows/file-issue-on-red.yml`, deduplicated on a title
+key, labeled `bug` and nothing else — an auto-filed red has had no intake, so it must not read
+as queue-ready. A second red while the first is still open **comments** rather than being
+dropped: a repeat is a different commit and often a different survivor set. Three keys, so that
+no one standing red suppresses another: `mutation sweep red` (a coverage gap on a merge),
+`mutation sweep infra red` (a harness fault — the exit contract's other reds), and
+`mutation wholesale audit red` (the monthly digest). This exists because the nightly it replaces
+ran red for five consecutive nights untriaged: a cron dashboard is where a verdict goes to die.
+
+Kill verdicts are only comparable inside the canonical environment (ubuntu-latest,
+`SKIP_STRESS=1`), so local runs are advisory and say so. `MUTATION_SWEEP_NO_DEFER=1` is settable
+locally for the full picture, and does not change that.
+
+**There is deliberately no fourth surface.** Until #580 `lean-gate.sh` milestone 3 ran a
 `--mode pr` sweep in-session (decision D-18) whenever the target repo carried a
 `tools/mutation-sweep.sh`. It issued the **identical** invocation the PR job above already makes,
 so it was CI-duplicated work idle-blocking a build session — on a contended developer machine,
@@ -1551,14 +1581,14 @@ proves the parallel run really overlapped *first*, since two serial runs would a
 **A suite may not write a literal path outside its own `mktemp` tree.** Two mutants of one guard run
 the same suite at the same time, so a fixed `/tmp/<name>.out` turns an interleaved write-then-read
 into a verdict about the wrong mutant. Three suites carried exactly that and were fixed; case (k)
-lints the whole corpus for it, because the alternative symptom is flake in somebody's nightly.
+lints the whole corpus for it, because the alternative symptom is flake in somebody's sweep.
 
 **The pool presses on the killer time bound, and the direction matters.** Contention makes a suite
 slower and a timeout scores as a **kill** — the direction that *hides* a weak test rather than
 inventing a finding. The bound is `4 ×` the suite's own serially-measured time, floored at 60s, which
 is wide for a single-threaded suite given one worker per core; and every timeout is logged by name
 (`killer timeout (Ns exceeded, scored as KILLED)`), so a bound hit is visible data rather than a
-silent verdict. If a nightly shard starts naming timeouts it did not name before, read that as the
+silent verdict. If a wholesale shard starts naming timeouts it did not name before, read that as the
 pool pressing on the bound, not as the suite getting stronger.
 
 **3. A killed mutant stops at the first `FAIL:`.** The verdict is settled there, so the killer's
@@ -1632,13 +1662,16 @@ a handful of shifted rows.
 **Seed runs force `RC=0`.** A green seed is not a clean seed — `grep 'RED:'` the shard logs
 regardless. A run has shipped a reding baseline on exactly this mistake.
 
-**A green PR does not mean a green nightly.** The PR lane sweeps only guards whose kill set is a
+**A green PR does not mean a graded PR.** The PR lane sweeps only guards whose kill set is a
 single fast suite; everything paired to a slow or multi-suite killer (`lean-gate-selftest`,
 `scenario-liveness-selftest`, anything in `tools/selftest-suite-timings.tsv`) reports
-`deferred-to-nightly` and is **not graded on your PR**.
-Edit one of those and any new survivor surfaces at 03:17 UTC, on someone else's morning. If your
-diff touches a deferred guard, expect to learn about it from the nightly rather than from your PR —
-though content keying means only a site you actually *wrote* can produce one.
+`deferred-to-nightly` and is **not graded on your PR**. The status token still says `nightly`
+because three selftest greps and this document read it and re-keying an enum buys nothing; the
+lane it defers to is now the merge-time sweep on the commit your PR lands as.
+Edit one of those and any new survivor arrives as a filed issue minutes after the merge, addressed
+to whoever wrote the line rather than to whoever opens the Actions page next. If your diff touches
+a deferred guard, expect to learn about it from `mutation-merge` rather than from your PR — though
+content keying means only a site you actually *wrote* can produce one.
 
 **All-deferred is not silently green (#582).** When every in-scope guard defers — 23% of
 guard-touching PRs, measured by the #567 audit, concentrated on `lean-gate.sh` — the job still

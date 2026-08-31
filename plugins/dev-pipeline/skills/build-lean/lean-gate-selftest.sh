@@ -3719,18 +3719,52 @@ dplan_write() {
 # plan_patch_id, so re-stamping never restales the stamp it just wrote, and it is excluded from
 # nothing else — a re-stamp moves render_patch_id, which is correct, because the plan only goes
 # stale when the code the receipt screenshotted moved too.
-dplan_sync() {
+dplan_sync() { # dplan_sync [config]
+  local cfg="${1:-$DSYNCCFG}"
   [ -f "$DPLAN" ] || return 0
   git -C "$DTREE" rev-parse --verify -q refs/remotes/origin/main >/dev/null 2>&1 || return 0
   cp "$DPROG" "$DSYNCPROG" 2>/dev/null || return 0
   ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$DTREE" \
-    && SECOND_SHIFT_CONFIG="$DSYNCCFG" LEAN_PROGRESS_FILE="$DPROG" \
+    && SECOND_SHIFT_CONFIG="$cfg" LEAN_PROGRESS_FILE="$DPROG" \
        bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 3 55 ) >/dev/null 2>&1
   mv "$DSYNCPROG" "$DPROG" 2>/dev/null
   if ! git -C "$DTREE" diff --quiet HEAD -- docs/plans/acme-55-lean-plan.md 2>/dev/null \
      || [ -z "$(git -C "$DTREE" log -1 --format=%H -- docs/plans/acme-55-lean-plan.md 2>/dev/null)" ]; then
     git -C "$DTREE" add docs/plans/acme-55-lean-plan.md >/dev/null 2>&1
     git -C "$DTREE" commit -q -m "stamp the translation plan" >/dev/null 2>&1
+  fi
+  dplanrev_sync "$cfg"
+}
+
+# The plan-REVIEW record (#710), and the same discipline the plan stamp above is written under:
+# PRODUCTION's own writer stamps `reviewed_plan_from`, and this fixture never computes a patch id.
+# A fixture that derived the binding would be the mirror harness docs/testing.md forbids, and it
+# would agree with a broken gate forever.
+#
+# It is a no-op for a family with no plan reviewer: the writer refuses (exit 2), nothing lands in
+# the tree, and the commit arm below sees nothing to commit — which is exactly the state the
+# (dpr7) case needs, and it needs no special-casing here to get it.
+#
+# Committing the record cannot restale the plan (the record is excluded from plan_patch_id), which
+# is half of what (dpr2) asserts against production; the fixture RELIES on that rather than
+# re-deriving it, so a gate that lost the exclusion turns every armed case below red.
+DPLANREV="$DTREE/docs/plans/acme-55-lean-plan-review.md"
+DFINDINGS="$WORK/dplan-findings.md"
+{
+  printf '## Findings\n\n'
+  printf 'B1: the 16px sibling gap between the header block and the results grid is translated as 8px.\n'
+} > "$DFINDINGS"
+dplanrev_sync() { # dplanrev_sync [config] [verdict]
+  local cfg="${1:-$DSYNCCFG}" v="${2:-pass}"
+  [ -f "$DPLAN" ] || return 0
+  git -C "$DTREE" rev-parse --verify -q refs/remotes/origin/main >/dev/null 2>&1 || return 0
+  ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$DTREE" \
+    && SECOND_SHIFT_CONFIG="$cfg" LEAN_PROGRESS_FILE="$DPROG" \
+       bash "$GATE" plan-review 55 --verdict "$v" --summary-file "$DFINDINGS" --model stub-model ) >/dev/null 2>&1
+  if ! git -C "$DTREE" diff --quiet HEAD -- docs/plans/acme-55-lean-plan-review.md 2>/dev/null \
+     || [ -z "$(git -C "$DTREE" log -1 --format=%H -- docs/plans/acme-55-lean-plan-review.md 2>/dev/null)" ]; then
+    git -C "$DTREE" add docs/plans/acme-55-lean-plan-review.md >/dev/null 2>&1
+    git -C "$DTREE" commit -q -m "record the plan review" >/dev/null 2>&1
   fi
 }
 
@@ -4266,6 +4300,10 @@ if [ "$rc" -eq 1 ] && grep -q 're-stamped to' <<<"$out" && [ "$dp_stamped" != "p
 else fail "(dp6) rc=$rc stamped='$dp_stamped' renders=$(dcalls): $out"; fi
 
 dcommit_raw "commit the stamp"
+# #710: reaching the render pass now needs the plan-review record too, so the fixture supplies it
+# through PRODUCTION's writer. Without this the case would still see 'translation plan current'
+# and red on the render count — which is (dpr1)'s subject, not this one's.
+dplanrev_sync
 dreset
 out="$(dgate 3 55)"; rc=$?
 if grep -q 'translation plan current' <<<"$out" && [ "$(dcalls)" -eq 2 ]; then
@@ -4285,11 +4323,188 @@ if [ "$rc" -eq 1 ] && grep -q 'RE-READ THE PLAN' <<<"$out" && [ "$dp_restamped" 
 else fail "(dp7) rc=$rc before='$dp_stamped' after='$dp_restamped': $out"; fi
 
 dcommit_raw "commit the re-stamp"
+dplanrev_sync
 dreset
 out="$(dgate 3 55)"; rc=$?
 if grep -q 'translation plan current' <<<"$out"; then
   pass "(dp7) …and committing the re-stamp clears it, so the binding converges rather than looping"
 else fail "(dp7) the re-stamped plan did not settle, rc=$rc: $out"; fi
+
+# ---- (dpr) #710: the plan is asserted for shape and GRADED by somebody -------------------
+# The plan pass above proves two tables have no empty cells. Nothing proved anyone read what was
+# in them — `figma-faithful-plan-reviewer` scored 99.17% against the very defects #692 shipped and
+# was dispatched by no autonomous lane. The gate cannot run an agent, so these cases assert the
+# committed OUTPUT, exactly as the verdict record's own cases do.
+#
+# THEY ALL RUN THE FULL RENDER CONFIG, on (dp)'s rule: a case that redded under a config with no
+# harness could not tell "the plan review stopped it" from "there was nothing to render".
+#
+# ENTERING STATE: the plan is committed and current, and (dp7) left a current record beside it.
+
+# (dpr1) AC-1. ABSENT. The red names the dispatch and the writer, it walks the ABSENT budget, and
+# — the half that is the ticket's whole point — the render stub is never called once. A plan
+# nobody graded costs no screenshots.
+dclear_render
+git -C "$DTREE" rm -q -f docs/plans/acme-55-lean-plan-review.md >/dev/null 2>&1
+dcommit_raw "remove the plan-review record"
+dreset
+out="$(dgate 3 55)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -qF 'docs/plans/acme-55-lean-plan-review.md' <<<"$out" \
+   && grep -qF 'design-toolkit:figma-faithful-plan-reviewer' <<<"$out" \
+   && grep -qF 'plan-review 55' <<<"$out" \
+   && grep -q 'not a fix attempt' <<<"$out" \
+   && [ "$(dcount '| milestone-3 | attempt |')" -eq 0 ] && [ "$(dcalls)" -eq 0 ]; then
+  pass "(dpr1) an armed run with no plan-review record reds before any render command, names the dispatch, and spends no fix attempt"
+else fail "(dpr1) rc=$rc attempts=$(dcount '| milestone-3 | attempt |') renders=$(dcalls): $out"; fi
+
+# (dpr2) AC-2, first half: COMMITTING THE RECORD DOES NOT STALE IT. The record binds to the plan
+# patch id, and that id is computed over the branch diff — so without the exclusion the very
+# commit that lands the record would move the id it just recorded, and the binding could never be
+# satisfied by any sequence of commits. Asserted through the writer, which is the only thing that
+# stamps the value.
+dplanrev_sync
+dclear_render
+dreset
+out="$(dgate 3 55)"; rc=$?
+if grep -q 'translation plan reviewed by figma-faithful-plan-reviewer' <<<"$out" \
+   && grep -q 'verdict pass' <<<"$out" && [ "$(dcalls)" -eq 2 ]; then
+  pass "(dpr2) committing the plan-review record never stales it — the same evaluation passes it and reaches the render pass"
+else fail "(dpr2) the committed record did not release the render pass, rc=$rc renders=$(dcalls): $out"; fi
+
+# (dpr2) second half: STALENESS. The code moved under the plan, so the plan was re-stamped and
+# re-read; the review of the OLD plan is no longer a review of this one. Two commits, because the
+# plan's own re-stamp red has to be cleared first — this arm is about the record, not the plan.
+printf 'a fix landed after the plan review\n' >> "$DTREE/subject.txt"
+dclear_render
+dcommit_raw "code moves under the reviewed plan"
+dgate 3 55 >/dev/null 2>&1          # the plan re-stamps here
+dcommit_raw "commit the re-stamp"
+dreset
+out="$(dgate 3 55)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'was written against a different tree' <<<"$out" \
+   && grep -q 'translation plan current' <<<"$out" \
+   && [ "$(dcount '| milestone-3 | attempt |')" -eq 0 ] && [ "$(dcalls)" -eq 0 ]; then
+  pass "(dpr2) a record whose reviewed_plan_from no longer matches the branch's plan binding reds as stale, on the absent budget, before any render"
+else fail "(dpr2-stale) rc=$rc attempts=$(dcount '| milestone-3 | attempt |') renders=$(dcalls): $out"; fi
+
+# (dpr3) AC-3. `verdict: block` reds and QUOTES THE FIRST FINDING. Quoting is the arm that makes
+# the refusal actionable — "the plan review blocks" would send its reader to open a file to learn
+# what for, and the whole economics here is that the fix is one table row. The findings body opens
+# with a `## Findings` heading, so this also pins that a section label is not a finding.
+dplanrev_sync "$DSYNCCFG" block
+dclear_render
+dreset
+out="$(dgate 3 55)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'BLOCKED the translation plan' <<<"$out" \
+   && grep -qF 'B1: the 16px sibling gap' <<<"$out" \
+   && ! grep -qF '## Findings' <<<"$out" \
+   && [ "$(dcount '| milestone-3 | attempt |')" -eq 0 ] && [ "$(dcalls)" -eq 0 ]; then
+  pass "(dpr3) 'verdict: block' reds milestone 3 before any render, quoting the first finding and not the section heading above it"
+else fail "(dpr3) rc=$rc attempts=$(dcount '| milestone-3 | attempt |') renders=$(dcalls): $out"; fi
+
+# (dpr4) AC-3, the other side: `fix-and-go` PROCEEDS. It is a real value in the enum and not a
+# synonym for `block` — a reviewer that found something worth writing down and nothing worth
+# stopping for ships the list into the PR, where review-lean reads the committed record.
+dplanrev_sync "$DSYNCCFG" fix-and-go
+dclear_render
+dreset
+out="$(dgate 3 55)"; rc=$?
+if grep -q 'verdict fix-and-go' <<<"$out" && [ "$(dcalls)" -eq 2 ]; then
+  pass "(dpr4) 'fix-and-go' passes the plan-review gate and reaches the render pass"
+else fail "(dpr4) expected fix-and-go to proceed, rc=$rc renders=$(dcalls): $out"; fi
+
+# (dpr5) MALFORMED, and a `fail_milestone` rather than a block: the record was written and what
+# was written is wrong, which is #642's criterion for a fix attempt. Only a hand edit can reach
+# this — the writer stamps every key the reader reads — so the refusal is also the one that says
+# "stop hand-editing this file".
+dclear_render
+sed 's/^verdict: fix-and-go$/verdict: probably-fine/' "$DPLANREV" > "$DPLANREV.tmp" && mv "$DPLANREV.tmp" "$DPLANREV"
+dcommit_raw "a hand-edited record with a verdict outside the enum"
+dreset
+out="$(dgate 3 55)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'is malformed' <<<"$out" \
+   && grep -q "outside the enum" <<<"$out" \
+   && [ "$(dcount '| milestone-3 | attempt |')" -eq 1 ] && [ "$(dcalls)" -eq 0 ]; then
+  pass "(dpr5) a verdict outside the enum reds as MALFORMED and IS a fix attempt — a written-but-wrong record is a failed fix"
+else fail "(dpr5) rc=$rc attempts=$(dcount '| milestone-3 | attempt |') renders=$(dcalls): $out"; fi
+
+# (dpr6) the REVIEWER ARM of the same refusal, and it needs its own case: (dpr5) neuters the
+# verdict enum, so a gate that had stopped checking `reviewer:` entirely would still red there.
+# The value is host-derived (D-28) — a record naming some other agent is a record of a review the
+# spec's handoff never asked for.
+dplanrev_sync
+dclear_render
+sed 's/^reviewer: figma-faithful-plan-reviewer$/reviewer: maintainability-reviewer/' "$DPLANREV" > "$DPLANREV.tmp" && mv "$DPLANREV.tmp" "$DPLANREV"
+dcommit_raw "a record naming a reviewer the handoff host does not make mandatory"
+dreset
+out="$(dgate 3 55)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'is malformed' <<<"$out" \
+   && grep -q "reviewer 'maintainability-reviewer' is not the one" <<<"$out" && [ "$(dcalls)" -eq 0 ]; then
+  pass "(dpr6) a record naming a reviewer the handoff host does not make mandatory reds as malformed"
+else fail "(dpr6) rc=$rc renders=$(dcalls): $out"; fi
+
+# (dpr7) THE DECLINED MANDATE (D-27 / OR-1). `design-faithful-plan-reviewer` does not exist, so an
+# armed claude-design run has no dispatch to make and the gate must say so rather than demand an
+# artifact nobody can produce. This is the case that keeps the family arm from being a formality:
+# without it, a gate that mandated the record for EVERY armed family would be indistinguishable
+# from this one, because every other case here hands off to a figma host.
+#
+# The record committed above is left in the tree deliberately — a family with no plan reviewer is
+# not asked about it at all, so its presence must not change the answer either way.
+DCDCFG="$WORK/dconfig-claude-design.json"
+sed 's/"provider": "figma"/"provider": "claude-design"/' "$DCFG" > "$DCDCFG"
+DCDSYNCCFG="$WORK/dsync-config-claude-design.json"
+sed 's/"provider": "figma"/"provider": "claude-design"/' "$DSYNCCFG" > "$DCDSYNCCFG"
+dgate_cd() { ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$DTREE" \
+  && SECOND_SHIFT_CONFIG="$DCDCFG" LEAN_PROGRESS_FILE="$DPROG" bash "$GATE" --issue-file "$ISSUE_NOREGIONS" "$@" 2>&1 ); }
+sed 's#https://www.figma.com/design/AbC123/Prospects#https://claude.ai/design/AbC123/Prospects#' "$DSPEC" > "$DSPEC.tmp" && mv "$DSPEC.tmp" "$DSPEC"
+dclear_render
+dcommit_raw "the same armed ticket, handed off to a claude-design surface"
+dplan_sync "$DCDSYNCCFG"
+dclear_render
+dreset
+out="$(dgate_cd 3 55)"; rc=$?
+if grep -q "'claude-design' design family ships no plan-stage reviewer" <<<"$out" \
+   && ! grep -q 'is malformed' <<<"$out" && ! grep -q 'BLOCKED the translation plan' <<<"$out" \
+   && [ "$(dcalls)" -eq 2 ]; then
+  pass "(dpr7) an armed family with no plan-stage reviewer is declared unreviewed and proceeds — the mandate is family-scoped, not universal"
+else fail "(dpr7) rc=$rc renders=$(dcalls): $out"; fi
+
+# (dpr8) AC-4, the WRITER. Two refusals and one stamp. The enum refusal is what keeps a typo from
+# becoming a fourth verdict value nothing downstream understands, and `--summary-file` is required
+# here where `verdict`'s is optional for the reason (dpr3) demonstrates: a `block` the gate has to
+# quote needs a body to quote from.
+dwriter() { ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$DTREE" \
+  && SECOND_SHIFT_CONFIG="$DSYNCCFG" LEAN_PROGRESS_FILE="$DPROG" bash "$GATE" plan-review 55 "$@" 2>&1 ); }
+sed 's#https://claude.ai/design/AbC123/Prospects#https://www.figma.com/design/AbC123/Prospects#' "$DSPEC" > "$DSPEC.tmp" && mv "$DSPEC.tmp" "$DSPEC"
+dclear_render
+dcommit_raw "hand the ticket back to the figma surface"
+dplan_sync
+out="$(dwriter --verdict probably-fine --summary-file "$DFINDINGS" --model stub-model)"; rc=$?
+if [ "$rc" -eq 2 ] && grep -q 'takes pass|fix-and-go|block' <<<"$out"; then
+  pass "(dpr8) the writer refuses a verdict outside the enum, as a usage error and not a milestone red"
+else fail "(dpr8) expected the enum refusal at exit 2, rc=$rc: $out"; fi
+
+out="$(dwriter --verdict pass --model stub-model)"; rc=$?
+if [ "$rc" -eq 2 ] && grep -q 'summary-file is required' <<<"$out"; then
+  pass "(dpr8) …and refuses a verdict with no findings body — a record that names no fix is the silence this artifact exists to end"
+else fail "(dpr8) expected the required-summary refusal at exit 2, rc=$rc: $out"; fi
+
+# …and the STAMP is production's, read back through production's own reader. The fixture asserts
+# only that the two AGREE: it never computes a patch id, which is what would make it a mirror.
+dwriter --verdict pass --summary-file "$DFINDINGS" --model stub-model >/dev/null 2>&1
+dpr_stamped="$(grep -oE '^reviewed_plan_from: .+' "$DPLANREV" | head -n1 | sed 's/^reviewed_plan_from: //')"
+git -C "$DTREE" add docs/plans/acme-55-lean-plan-review.md >/dev/null 2>&1
+git -C "$DTREE" commit -q -m "record the plan review" >/dev/null 2>&1
+dclear_render
+dreset
+out="$(dgate 3 55)"; rc=$?
+if [ -n "$dpr_stamped" ] && [ "$dpr_stamped" != "pending" ] \
+   && grep -qF "reviewed_plan_from ${dpr_stamped:0:12}" <<<"$out" && [ "$(dcalls)" -eq 2 ]; then
+  pass "(dpr8) …and the value it stamps is the one the gate reads back as current — writer and reader share one derivation"
+else fail "(dpr8) stamped='$dpr_stamped' rc=$rc renders=$(dcalls): $out"; fi
+
+dclear_render
 
 # (dp8) THE STATE LOCK moved with the ordering (D-5). The plan pass now runs first, so it is the
 # pass that must write `| milestone-3 | armed |` — otherwise a plan that failed could be disarmed
