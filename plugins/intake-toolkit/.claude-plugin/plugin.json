@@ -1,7 +1,7 @@
 {
   "name": "intake-toolkit",
   "description": "Elicitation surface: /intake front door, intake-interviewer, intake-orchestrator, plan-interview (Decision Ledger + ledger-lint, incl. the receipt ratification bar; dup-scan, the duplicate check every intake exit runs before a ticket becomes eligible), grill-me, interviewing-baseline protocol, decomposition-reviewer, implementability-probe. Ships the exitplan-ledger-gate hook.",
-  "version": "4.2.0",
+  "version": "4.2.1",
   "author": {
     "name": "Manol Donev"
   }
