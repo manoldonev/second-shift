@@ -141,6 +141,14 @@ plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	plugins/dev-pipelin
 plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	plugins/dev-pipeline/tools/gh-bot.sh
 plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	plugins/intake-toolkit/skills/plan-interview/tools/ledger-lint.sh
 plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	plugins/design-toolkit/agents/figma-faithful-plan-reviewer.md
+plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	plugins/dev-pipeline/skills/build-lean/lean-evidence.sh
+
+#   #622 added a SIXTH beside-the-subject resolution, and it is the one that matters most to
+#   this table: `lean-gate.sh verdict` shells out to lean-evidence.sh for the AC-scorecard
+#   reader, so the writer's refusal moves whenever that reader does. Without the row, a change
+#   to lean-evidence.sh alone would leave this suite served from cache while the behavior it
+#   grades had moved — the exact staleness the table exists to prevent, on a file the sibling
+#   suite below already declares for the same reason.
 
 # --- check-lean-chain-selftest.sh (67s) --------------------------------------------------
 # The smallest closure of the three, and it terminates at depth 2. The suite reads the gate
