@@ -1,0 +1,17 @@
+{
+  "expected_verdict": "block",
+  "expected_findings": [
+    "the plan records NO dimensions at all — a control-bearing screen (a select, two numeric/currency fields, a toggle and two buttons) with no `dimensions` table and no per-node sizes, so every control will be sized by eye and the design-blind code reviewer downstream has no recorded number to compare against"
+  ],
+  "must_not_flag": [
+    "the `why this component` cells — every one describes what the handoff draws rather than restating the node name, and the day-of-month cell explicitly rules out the stepper-rendering alternative",
+    "the analog — InvoiceSettingsPanel is a close structural match for a settings panel with a footer action pair",
+    "the placement decision — stated as page-level sibling and the file list edits BillingSettingsPage.tsx, which agrees",
+    "the state wiring — pristine, dirty, in-flight and error each carry a mechanism",
+    "the file list — the panel, its mount, both hooks and a co-located test",
+    "the Decision Ledger — one row, provenance inside the enum",
+    "the absence of a token map table — a design-faithful plan mandates none, and token-role mapping is graded on the diff"
+  ],
+  "layer": "unsized control-bearing screen",
+  "notes": "The #692 defect in the claude-design shape: a plan that is correct everywhere else and records no sizes. The only route to a Blocker is the per-node dimensions check, so a reviewer that grades component cells alone scores 0 on d1. Deliberately clean elsewhere, including the deliberate absence of a token table — a reviewer that carries a figma-shaped arithmetic section will fabricate a finding about it, which `must_not_flag` scores on d3."
+}

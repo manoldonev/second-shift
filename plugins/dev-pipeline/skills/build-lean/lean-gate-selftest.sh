@@ -4554,14 +4554,17 @@ if [ "$rc" -eq 1 ] && grep -q 'is malformed' <<<"$out" \
   pass "(dpr6) a record naming a reviewer the handoff host does not make mandatory reds as malformed"
 else fail "(dpr6) rc=$rc renders=$(dcalls): $out"; fi
 
-# (dpr7) THE DECLINED MANDATE (D-27 / OR-1). `design-faithful-plan-reviewer` does not exist, so an
-# armed claude-design run has no dispatch to make and the gate must say so rather than demand an
-# artifact nobody can produce. This is the case that keeps the family arm from being a formality:
-# without it, a gate that mandated the record for EVERY armed family would be indistinguishable
-# from this one, because every other case here hands off to a figma host.
+# (dpr7) THE FAMILY ARM RESOLVES, AND TO ITS OWN REVIEWER (#739). Every other case in this block
+# drives a FIGMA host, so a gate that mandated the figma reviewer for every armed family would be
+# indistinguishable from the family-scoped one this file asserts. This case is the whole
+# difference: an armed CLAUDE-DESIGN run must red for `design-faithful-plan-reviewer` — not for
+# figma's, and not with "this family ships no plan-stage reviewer, nothing is required here",
+# which is the answer the tree gave until the agent existed.
 #
-# The record committed above is left in the tree deliberately — a family with no plan reviewer is
-# not asked about it at all, so its presence must not change the answer either way.
+# THE RECORD COMMITTED ABOVE IS REMOVED FIRST, and dplan_sync's fresh one with it. Both name a
+# reviewer, and the absent arm is what this case is about: left in place, the figma-family record
+# would red on the MALFORMED arm ((dpr6)'s subject) and a claude-design record would satisfy the
+# gate outright. Removing it does not stale the plan — plan_patch_id excludes the record.
 DCDCFG="$WORK/dconfig-claude-design.json"
 sed 's/"provider": "figma"/"provider": "claude-design"/' "$DCFG" > "$DCDCFG"
 DCDSYNCCFG="$WORK/dsync-config-claude-design.json"
@@ -4573,13 +4576,43 @@ dclear_render
 dcommit_raw "the same armed ticket, handed off to a claude-design surface"
 dplan_sync "$DCDSYNCCFG"
 dclear_render
+git -C "$DTREE" rm -q -f docs/plans/acme-55-lean-plan-review.md >/dev/null 2>&1
+dcommit_raw "remove the plan-review record on the claude-design host"
 dreset
 out="$(dgate_cd 3 55)"; rc=$?
-if grep -q "'claude-design' design family ships no plan-stage reviewer" <<<"$out" \
-   && ! grep -q 'is malformed' <<<"$out" && ! grep -q 'BLOCKED the translation plan' <<<"$out" \
-   && [ "$(dcalls)" -eq 2 ]; then
-  pass "(dpr7) an armed family with no plan-stage reviewer is declared unreviewed and proceeds — the mandate is family-scoped, not universal"
-else fail "(dpr7) rc=$rc renders=$(dcalls): $out"; fi
+if [ "$rc" -eq 1 ] \
+   && grep -qF 'design-toolkit:design-faithful-plan-reviewer' <<<"$out" \
+   && ! grep -qF 'figma-faithful-plan-reviewer' <<<"$out" \
+   && ! grep -q 'ships no plan-stage reviewer' <<<"$out" \
+   && grep -q 'not a fix attempt' <<<"$out" \
+   && [ "$(dcount '| milestone-3 | attempt |')" -eq 0 ] && [ "$(dcalls)" -eq 0 ]; then
+  pass "(dpr7) an armed claude-design run demands ITS family's plan reviewer and reds before any render — the family arm resolves rather than declining the mandate"
+else fail "(dpr7) rc=$rc attempts=$(dcount '| milestone-3 | attempt |') renders=$(dcalls): $out"; fi
+
+# (dpr9) THE ABSENT-PLAN REFUSAL NAMES THE FAMILY'S OWN PLAN STEP (#739). design_plan_gate picks
+# the step by family before it can know a plan exists, and the two arms print DIFFERENT guidance:
+# a claude-design run sent to read figma's step-7 goes looking for a token table its own step
+# mandates none of. Both arms fire on the same absent-plan path, so a mutant that collapses or
+# swaps them changes nothing any other case in this file reads — (dpr1) through (dpr8) all drive a
+# tree whose plan is present, and the figma arm is the fallback every non-claude-design case would
+# get either way.
+#
+# Runs on the claude-design host (dpr7) left in place, and RESTORES the plan afterwards: dplan_sync
+# is a no-op with no plan file, so leaving it removed would silently unsync every case below.
+dreset
+git -C "$DTREE" rm -q -f docs/plans/acme-55-lean-plan.md >/dev/null 2>&1
+dcommit_raw "remove the translation plan on the claude-design host"
+out="$(dgate_cd 3 55)"; rc=$?
+if [ "$rc" -eq 1 ] \
+   && grep -qF 'the design-faithful translation-plan step' <<<"$out" \
+   && ! grep -qF 'figma-faithful step-7' <<<"$out" \
+   && [ "$(dcount '| milestone-3 | attempt |')" -eq 0 ] && [ "$(dcalls)" -eq 0 ]; then
+  pass "(dpr9) the absent-plan refusal on a claude-design host names ITS family's plan step, not figma's, and spends no fix attempt"
+else fail "(dpr9) rc=$rc attempts=$(dcount '| milestone-3 | attempt |') renders=$(dcalls): $out"; fi
+
+dplan_write
+git -C "$DTREE" add docs/plans/acme-55-lean-plan.md >/dev/null 2>&1
+dcommit_raw "restore the translation plan"
 
 # (dpr8) AC-4, the WRITER. Two refusals and one stamp. The enum refusal is what keeps a typo from
 # becoming a fourth verdict value nothing downstream understands, and `--summary-file` is required

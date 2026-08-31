@@ -3220,16 +3220,18 @@ panel_has() { # panel_has <panel-value> <reviewer>
 # family check would be comparing plugin prefixes. The sibling can be qualified because its
 # consumer is `panel_has`, a token test over a reader widened for exactly that.
 #
-# ONE FAMILY, not two. `design-faithful-plan-reviewer` DOES NOT EXIST — there is no claude-design
-# counterpart to dispatch, so mandating a record for that family would demand an artifact no agent
-# can produce. That is OR-1 of this slice's spec, filed as #739; until that lands, an armed
-# claude-design run is unreviewed at the plan stage and the gate says so rather than pretending
-# otherwise. Returning non-zero here is what carries that: every caller reads a failure as "this
-# family has no plan reviewer", never as a satisfied requirement.
+# BOTH FAMILIES, and the `*)` arm is UNREACHABLE DEFENSE rather than a live case. `design_state`
+# refuses an armed spec whose handoff link classifies to neither family, and cmd_3_render reds on
+# that `error:*` before design_plan_gate runs — so no third family reaches this function. The arm
+# stays anyway, fail-closed: every caller reads a non-zero return as "this family has no plan
+# reviewer", never as a satisfied requirement, so a family added above without a reviewer declines
+# the mandate instead of mandating a dispatch nobody can make. It carries no mutation-catalog row
+# for the same reason it is written this way — there is no run that could kill one.
 design_family_plan_reviewer() { # design_family_plan_reviewer <family>
   case "${1:-}" in
-    figma) printf 'figma-faithful-plan-reviewer' ;;
-    *)     return 1 ;;
+    figma)         printf 'figma-faithful-plan-reviewer' ;;
+    claude-design) printf 'design-faithful-plan-reviewer' ;;
+    *)             return 1 ;;
   esac
 }
 
@@ -4187,7 +4189,7 @@ design_plan_review_gate() { # design_plan_review_gate <plan-patch-id>
 
   fam="$(design_family < "$REPO_ROOT/$SPEC_REL" 2>/dev/null)"
   if ! rev="$(design_family_plan_reviewer "$fam")"; then
-    say "milestone-3: the '$fam' design family ships no plan-stage reviewer, so $PLAN_MANIFEST_REL is asserted for shape and graded by nobody (OR-1 of $SPEC_REL). Nothing is required here."
+    say "milestone-3: the '$fam' design family ships no plan-stage reviewer, so $PLAN_MANIFEST_REL is asserted for shape and graded by nobody. Nothing is required here."
     return 0
   fi
 
@@ -4254,10 +4256,19 @@ design_plan_review_gate() { # design_plan_review_gate <plan-patch-id>
 # thing written is wrong, which is exactly a fix that did not work. Without that split an armed
 # run spends two of its three milestone-3 attempts reaching its first render.
 design_plan_gate() {
-  local f="$REPO_ROOT/$PLAN_MANIFEST_REL" viol cur prev
+  local f="$REPO_ROOT/$PLAN_MANIFEST_REL" viol cur prev fam step
 
   if [ ! -f "$f" ]; then
-    block_milestone 3 "spec $SPEC_REL arms the design lane, but no translation plan is written at $PLAN_MANIFEST_REL. Emit the figma-faithful step-7 plan there before rendering anything: a header line 'planned_from: pending' (this gate stamps it), a table with a '$PLAN_COMPONENT_COLUMN' column — one row per resolved component — and a table with a '$PLAN_DIMENSION_COLUMN' column — one row per sized node, carrying '$PLAN_NODE_COLUMN', '$PLAN_RS_COLUMN' and '$PLAN_PX_COLUMN' columns beside it: the key the render harness reports that node under, which declared render state it is measured in, and its size as <w>×<h> with an integer or '-' per axis. Every cell must be filled; an empty cell is the finding."
+    # The plan step is the PROVIDER's, and naming the wrong one sends a claude-design run to read
+    # a figma step whose token table it has no columns for. Both families ship one; the fallback
+    # names figma because that is the family design_state resolves an unrecognized host away from
+    # before this ever runs.
+    fam="$(design_family < "$REPO_ROOT/$SPEC_REL" 2>/dev/null)"
+    case "$fam" in
+      claude-design) step="the design-faithful translation-plan step" ;;
+      *)             step="the figma-faithful step-7 plan" ;;
+    esac
+    block_milestone 3 "spec $SPEC_REL arms the design lane, but no translation plan is written at $PLAN_MANIFEST_REL. Emit $step there before rendering anything: a header line 'planned_from: pending' (this gate stamps it), a table with a '$PLAN_COMPONENT_COLUMN' column — one row per resolved component — and a table with a '$PLAN_DIMENSION_COLUMN' column — one row per sized node, carrying '$PLAN_NODE_COLUMN', '$PLAN_RS_COLUMN' and '$PLAN_PX_COLUMN' columns beside it: the key the render harness reports that node under, which declared render state it is measured in, and its size as <w>×<h> with an integer or '-' per axis. Every cell must be filled; an empty cell is the finding."
     return $?
   fi
 
@@ -4323,7 +4334,7 @@ cmd_plan_review() {
 
   fam="$(design_family < "$REPO_ROOT/$SPEC_REL" 2>/dev/null)"
   rev="$(design_family_plan_reviewer "$fam")" \
-    || envfail "plan-review: the '$fam' design family ships no plan-stage reviewer agent, so this record would name a dispatch nobody can make. That gap is OR-1 of this slice and is filed as a follow-up; until it lands, an armed '$fam' run is unreviewed at the plan stage and milestone 3 says so."
+    || envfail "plan-review: the '$fam' design family ships no plan-stage reviewer agent, so this record would name a dispatch nobody can make. Every family this gate classifies an armed spec into ships one; a family that does not is unreviewed at the plan stage and milestone 3 says so rather than asserting a record."
   resolve_plan_reviewer_agent "$rev" >/dev/null 2>&1 \
     || envfail "plan-review: 'design-toolkit:$rev' is not installed in this checkout — searched the monorepo layout and the install cache under both plugins. A record written without the dispatch it claims to carry is the fabrication this artifact exists to make checkable."
 
