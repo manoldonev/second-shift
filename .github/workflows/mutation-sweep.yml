@@ -144,10 +144,12 @@ jobs:
             bash tools/mutation-sweep.sh --mode full --seed --shard "${{ matrix.shard }}/10" \
               --report sweep-out/mutation-report.tsv \
               --baseline-out sweep-out/mutation-baseline.tsv \
-              --slow-out sweep-out/mutation-slow-suites.tsv 2>&1 | tee "$RUNNER_TEMP/shard.log" || rc=$?
+              --slow-out sweep-out/mutation-slow-suites.tsv \
+              --verdict-log sweep-out/mutation-verdict-log.tsv 2>&1 | tee "$RUNNER_TEMP/shard.log" || rc=$?
           else
             bash tools/mutation-sweep.sh --mode full --shard "${{ matrix.shard }}/10" \
-              --report sweep-out/mutation-report.tsv 2>&1 | tee "$RUNNER_TEMP/shard.log" || rc=$?
+              --report sweep-out/mutation-report.tsv \
+              --verdict-log sweep-out/mutation-verdict-log.tsv 2>&1 | tee "$RUNNER_TEMP/shard.log" || rc=$?
           fi
           exit "$rc"
 

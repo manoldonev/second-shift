@@ -8,10 +8,17 @@
 # tools/mutation-sweep-selftest.sh.
 #
 # USAGE
-#   mutation-sweep.sh --mode full [--seed] [--shard i/N] [--report F] [--baseline-out F] [--slow-out F]
-#   mutation-sweep.sh --mode pr --base <ref> [--report F]
-#   mutation-sweep.sh --mode merge --shards-dir <dir> [--report F] [--baseline-out F] [--slow-out F]
+#   mutation-sweep.sh --mode full [--seed] [--shard i/N] [--report F] [--baseline-out F] [--slow-out F] [--verdict-log F]
+#   mutation-sweep.sh --mode pr --base <ref> [--report F] [--verdict-log F]
+#   mutation-sweep.sh --mode merge --shards-dir <dir> [--report F] [--baseline-out F] [--slow-out F] [--verdict-log F]
 #   mutation-sweep.sh --emit-site-keys
+#
+# --verdict-log F is opt-in and mode-agnostic, matching the --report/--baseline-out/--slow-out
+# family: inert unless given. Where given, it streams one TAB-separated row per SCORED mutant —
+# `<mutant id><TAB><verdict><TAB><killer suite>` (killer is `-` for a survivor) — so an operator
+# can compute a per-operator kill rate the report's survivor-only `survivor_ids` cell cannot
+# answer. Both tiers appear (generic and `catalog::` ids); a cache hit logs the killer suite
+# straight out of the memoized verdict, not a blank.
 #
 # SURVIVOR IDENTITY is `<guard relpath>::<operator id>::<key>` for the generic tier and
 # `catalog::<id>` for the hand-authored one. <key> is CONTENT-derived — 12 hex of a sha256
@@ -248,6 +255,7 @@ SEED=0
 REPORT_OUT=""
 BASELINE_OUT=""
 SLOW_OUT=""
+VERDICT_LOG=""
 SHARD_SPEC=""
 SHARDS_DIR=""
 # Unsharded is literally shard 1/1: every guard is in residue class 0, and the
@@ -274,6 +282,7 @@ while [[ $# -gt 0 ]]; do
     --report)       REPORT_OUT="${2:-}"; shift 2 ;;
     --baseline-out) BASELINE_OUT="${2:-}"; shift 2 ;;
     --slow-out)     SLOW_OUT="${2:-}"; shift 2 ;;
+    --verdict-log)  VERDICT_LOG="${2:-}"; shift 2 ;;
     --shard)        SHARD_SPEC="${2:-}"; shift 2 ;;
     --shards-dir)   SHARDS_DIR="${2:-}"; shift 2 ;;
     --emit-site-keys) EMIT_KEYS=1; shift ;;
@@ -844,6 +853,15 @@ fi
 printf 'guard\tstatus\tpaired_selftest\tmutants_applied\tkilled\tsurvived\tsurvivor_ids\tsites_beyond_budget\tsites_comment_only\n' > "$REPORT_SINK" \
   || die "cannot write the report sink: $REPORT_SINK"
 
+# Opt-in, unlike REPORT_SINK: unset means no file, not a mktemp buffer — there is no
+# stdout fallback to print, because a survivor-only report already exists for the case
+# where nobody asked for per-mutant detail. An unwritable path is a hard red, matching the
+# report sink's own or-red guard immediately above, never a silent skip.
+if [[ -n "$VERDICT_LOG" ]]; then
+  printf 'mutant_id\tverdict\tkiller_suite\n' > "$VERDICT_LOG" \
+    || die "cannot write the verdict log: $VERDICT_LOG"
+fi
+
 # The completion marker (see finish()) sits beside the report, so the whole output dir is
 # what a shard publishes. NON-DOTTED, deliberately: upload-artifact@v4 excludes hidden
 # paths unless include-hidden-files is set, and a dotted output dir once matched nothing
@@ -892,6 +910,7 @@ finish() {
     cat "$REPORT_SINK"
     rm -f "$REPORT_SINK"
   fi
+  [[ -n "$VERDICT_LOG" ]] && info "verdict log -> $VERDICT_LOG"
   # Written HERE and nowhere else: reaching finish() is exactly the property the marker
   # asserts. Its absence beside a report is what lets merge tell a shard that streamed
   # some rows and then died from one that ran to completion.
@@ -2127,6 +2146,11 @@ while [[ $i -lt ${#GL_GUARD[@]} ]]; do
         info "serial re-run agrees: $sid really does survive its kill set."
       fi
     fi
+    # AFTER the pool-disagreement correction above, so a re-verified kill logs its real
+    # killer suite rather than the pool's wrong "survived" — $vsuite is already "-" for an
+    # ordinary survivor (do_mutant_item's own default), so no extra branch is needed here.
+    [[ -n "$VERDICT_LOG" ]] && { printf '%s\t%s\t%s\n' "$sid" "$verdict" "$vsuite" >> "$VERDICT_LOG" \
+      || die "cannot write the verdict log: $VERDICT_LOG"; }
     [[ "$vkind" != "plain" ]] && report_bound_hit "$sid" "$vsuite" "$vkind" "$vbound" "$vprocs"
     if [[ "$verdict" == "killed" ]]; then
       killed=$((killed + 1))
