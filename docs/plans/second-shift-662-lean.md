@@ -209,27 +209,47 @@ landed in the TSV header rather than only in this spec.
 
 ## Demonstrations
 
-Four sweeps, D-3's shape verbatim — `--full --cache-write --cache-dir <tmp> --exclude
-tools/install-topology-selftest.sh`, at `--jobs 8`, into one throwaway store. Every sweep exited
-`rc=0`; 77 suites scored each time.
+**Re-executed in round 2, against the shipped closure.** Round 1's demonstration ran before
+`figma-faithful-plan-reviewer.md` was declared, so `lean-gate-selftest.sh`'s key moved under it and
+that evidence no longer described the artifact. These four sweeps are D-3's shape verbatim —
+`--full --cache-write --cache-dir <tmp> --exclude tools/install-topology-selftest.sh`, at
+`--jobs 8`, into one fresh throwaway store — at head `d02ea0a4`, in an isolated worktree, under
+`env -u LEAN_RUN_MODEL -u LEAN_ATTEND_MODE -u CLAUDE_CODE_SESSION_ID -u RUN_ID
+-u LEAN_SELFTEST_CACHE_DIR`. Every sweep exited `rc=0` at 77 scored, **0 failed**.
 
 | Sweep | Tree | scored / run / cached | `lean-gate-selftest.sh` | `check-lean-chain-selftest.sh` |
 | --- | --- | --- | --- | --- |
 | 1 | unchanged, cold store | 77 / 77 / 0 | RAN | RAN |
 | 2 | unchanged | 77 / 74 / 3 | CACHED | CACHED |
-| 3 | `ledger-lint.sh` touched | 77 / 75 / 2 | RAN | CACHED |
-| 4 | `lean-evidence.sh` touched | 77 / 75 / 2 | CACHED | RAN |
+| 3 | `figma-faithful-plan-reviewer.md` touched | 77 / 75 / 2 | **RAN** | CACHED |
+| 4 | `lean-evidence.sh` touched | 77 / 75 / 2 | CACHED | **RAN** |
 
-Sweep 2 is AC-2: both suites served from cache on an unchanged tree. The third cached suite is
-`cost-block-selftest.sh`, whose rows already existed.
+Sweep 2 is AC-2: both rowed suites served from cache on an unchanged tree. The third cached suite
+is `cost-block-selftest.sh`, whose rows predate this branch.
 
-Sweeps 3 and 4 are AC-3, one per rowed suite, and each moves a DEPTH-2 input the other suite does
-not declare — `ledger-lint.sh` reaches `lean-gate-selftest.sh` only through `lean-gate.sh`'s
-`resolve_sibling` call, and `lean-evidence.sh` reaches `check-lean-chain-selftest.sh` only through
-its `LEAN_EVIDENCE` export. Neither is the suite or its subject, both of which the runner already
-enforces mechanically (D-4). Each sweep re-ran exactly the suite whose closure moved and left the
-other cached, which is the property a vacuous hit would break. The edit in both cases was a single
-appended newline, reverted after the sweep.
+Sweeps 3 and 4 are AC-3, one per rowed suite. Each moves a depth-2 input the OTHER suite does not
+declare, and neither is a suite or a subject — both of those the runner already enforces
+mechanically (D-4). Sweep 3 moves **the row round 1 found missing**, which is what makes it
+evidence about the fix rather than about the mechanism: had the closure kept its 15-row form, that
+edit would have moved no declared blob, the key would not have moved, and the suite would have been
+served a stale pass. It re-ran. Sweep 4 does the same for `lean-evidence.sh`, which reaches
+`check-lean-chain-selftest.sh` only through its `LEAN_EVIDENCE` export. In both cases the edit was
+a single appended newline, reverted after the sweep; the driver's final `git status --porcelain`
+was empty.
+
+**Why the demo head is `d02ea0a4` and the branch head is later.** The commits after it are prose
+and TSV *comments* — no row was added, removed or edited. `cache_manifest()`
+(`tools/run-selftests.sh:459-489`) hashes the epoch, OS, bash major, `SKIP_STRESS`, the runner's
+own blob id, the suite path, and the blob id of each declared input; it does not hash
+`selftest-cache-inputs.tsv` itself. Checked rather than argued: every declared input across all
+three rowed suites, plus `tools/run-selftests.sh`, has an identical blob id at `d02ea0a4` and at
+the branch head, so all three cache keys are byte-identical and the demonstration transfers
+exactly. Verify with:
+
+```
+{ grep -vE '^\s*(#|$)' tools/selftest-cache-inputs.tsv | cut -f2 | sort -u; echo tools/run-selftests.sh; } \
+  | while read -r f; do [ "$(git rev-parse "d02ea0a4:$f")" = "$(git rev-parse "HEAD:$f")" ] || echo "MOVED: $f"; done
+```
 
 **AC-6's claim, measured on this branch's own milestone-3 lane.** That lane exports
 `LEAN_SELFTEST_CACHE_DIR` and runs the consumer `test` command, which omits `--full`. Its log
