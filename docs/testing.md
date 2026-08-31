@@ -898,6 +898,20 @@ coupling rather than mechanizing it into a guard that cannot fail.
 
 **Unanchorable — no literal the two sides could share.**
 
+- **The AC-scorecard reader ↔ its write-time caller** (#622). The contract runs at two layers —
+  `lean-gate.sh verdict` refuses a self-contradictory record at write time, `lean-evidence.sh`
+  refuses it at the merge boundary — and the obvious mechanization was a `LOCKSTEP` pair holding
+  two copies of one awk program. **Declined, because the duplication is avoidable rather than
+  necessary**: the two files ship in the same directory, so the writer shells out to
+  `lean-evidence.sh scorecard`, and there is exactly one implementation for a marker to hold. The
+  residual coupling is the REFUSAL MESSAGE — the writer has to tell a reviewer what shape to
+  write — and it is closed the same way, by a `scorecard --print-schema` seam the writer quotes
+  rather than a second copy of the heading and column names. **Behaviorally guarded**:
+  `lean-gate-selftest.sh` case `(vs3)` fails if the refusal stops quoting the reader's own schema
+  line, which is the only way the two could drift while both stayed green. The alternative that
+  was NOT available is the one the override-record reader took: `lean-evidence.sh` must stand
+  alone at a consumer's pinned ref, so the dependency can only run in this direction.
+
 - **The mid-run ticket-liveness re-check ↔ the milestone calls' network-free property** (#650
   `D-11`). Not a duplication but a coupling of a different kind, recorded here because the decision
   is exactly the sort that gets re-litigated: `lean-gate.sh`'s `require_ticket_live` header fixes

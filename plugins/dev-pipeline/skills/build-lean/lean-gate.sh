@@ -279,6 +279,11 @@ CURL_CLI="${CURL:-curl}"
 # path, not the resolve-sibling ladder, which exists for CROSS-plugin hops. The seam exists so a
 # selftest can drive the third resolution artifact without minting a token on the machine.
 OVERRIDE_TOOL="${LEAN_OVERRIDE_TOOL:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../tools" && pwd)/operator-override.sh}"
+# The portable evidence payload, which ships in THIS directory and carries the AC-scorecard
+# validator the merge boundary reads with (#622). The write-time layer calls the same
+# implementation rather than keeping a lockstep copy of an awk program: both layers can reach one
+# site, so a second copy would be duplicate machinery with no reader that needs it.
+EVIDENCE_TOOL="${LEAN_EVIDENCE_TOOL:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lean-evidence.sh}"
 PR_FILE=""
 COMMENTS_FILE=""
 ISSUE_FILE=""
@@ -5179,7 +5184,7 @@ cmd_4() {
 cmd_verdict() {
   local sess b_prog_sess b_prog_run b_cached rec body c reviewed_head reviewed_patch_id
   local fid_spec fid_state fid_decl fid_refs fid_bad fid_line panel_reviewer fid_disarm_state fid_disarm_ref
-  local cand inherited_patch_id inherited_from chain
+  local cand inherited_patch_id inherited_from chain sc_bad sc_line
   sess="${CLAUDE_CODE_SESSION_ID:-}"
   [ -n "$sess" ] \
     || envfail "verdict: CLAUDE_CODE_SESSION_ID is unset — the review session cannot be identified, so its authorship cannot be separated from the build's."
@@ -5433,6 +5438,40 @@ cmd_verdict() {
       warn "  The grammar is in review-lean/SKILL.md step 5b. It makes the fidelity claim FALSIFIABLE by a human reader; it does not verify the render against the design, and no gate here does."
       return 1
     fi
+  fi
+
+  # THE PER-AC SCORECARD (#622 AC-1/AC-2/AC-5). Refused at the WRITER for the reason its two
+  # siblings above are: here the fix is one edit to the summary away, at the merge boundary it
+  # costs the round. The validator is `lean-evidence.sh`'s — the same code the boundary runs, and
+  # the same code a hand-written record answers to — so a body that passes here cannot red there
+  # for this.
+  #
+  # NOT gated on the verdict value at this call site. The reader itself requires the section only
+  # on `approve` and validates it whenever it is present, which is the contract; splitting that
+  # decision across two files would put half of it where nobody reading the other half can see it.
+  #
+  # A MISSING SPEC IS REFUSED, not skipped. The declared AC set is the only thing that can say
+  # whether the record is silent about a criterion, and a review run from a checkout without the
+  # spec has read no definition of done — the same reasoning `--fidelity pass` makes above.
+  if [ ! -f "$REPO_ROOT/$SPEC_REL" ]; then
+    warn "✗ verdict: no committed spec at $SPEC_REL, so the record's AC scorecard has no declared criterion set to be reconciled against."
+    warn "  Run the verdict from a checkout of the PR head (review-lean step 3)."
+    return 1
+  fi
+  [ -f "$EVIDENCE_TOOL" ] \
+    || envfail "verdict: the evidence payload carrying the AC-scorecard reader is missing at '$EVIDENCE_TOOL' — the write-time and merge-boundary layers must run the same implementation. Set LEAN_EVIDENCE_TOOL if it lives elsewhere."
+  sc_bad="$(printf '%s\n' "$body" | bash "$EVIDENCE_TOOL" scorecard --spec "$REPO_ROOT/$SPEC_REL" --verdict "$VERDICT_VALUE")" \
+    || envfail "verdict: the AC-scorecard reader could not run (see the message above) — refusing rather than writing a record nothing validated."
+  if [ -n "$sc_bad" ]; then
+    warn "✗ verdict: the AC scorecard in --summary-file does not satisfy the record's own schema:"
+    printf '%s\n' "$sc_bad" | while IFS= read -r sc_line; do warn "    $sc_line"; done
+    # The SHAPE is quoted from the reader rather than restated here. A refusal that named a
+    # heading or a column set the reader does not look for would send a reviewer to write a
+    # section nothing reads — and a second copy of the schema is exactly the drift the single
+    # implementation above exists to prevent.
+    bash "$EVIDENCE_TOOL" scorecard --print-schema 2>/dev/null \
+      | while IFS= read -r sc_line; do warn "  $sc_line"; done
+    return 1
   fi
 
   resolve_capability_stamp

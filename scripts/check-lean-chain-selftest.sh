@@ -172,6 +172,33 @@ printf '# lean spec\n\n- AC-1: does a thing\n- AC-2: does another\n' > "$TREE/do
 # `reviewed_head` is resolved BEFORE the commit, which is the real shape: the reviewer reads the
 # current head, names it, and commits the record on top. Resolving it afterwards would name the
 # record's own commit and leave every declared-freshness case asserting nothing.
+# The scorecard the record's own spec forces on it (#622). Derived from the CURRENT spec rather
+# than hard-coded, because the cases below swap the spec's AC set several times and a fixed table
+# would score criteria that are no longer declared. It is a fixture generator, not an oracle: the
+# scorecard reader's own arms are asserted in lean-evidence-selftest.sh against LITERAL tables,
+# and the two dedicated cases below (AB*) hand-write theirs.
+scorecard_block() {
+  local ids id
+  ids="$(grep -oE '^[[:space:]]*[-*+][[:space:]]+AC-[0-9]+' "$TREE/docs/plans/acme-42-lean.md" 2>/dev/null \
+         | grep -oE 'AC-[0-9]+' | sort -u -t- -k2,2n)"
+  [ -n "$ids" ] || return 0
+  printf '\n## AC scorecard\n\n| AC-n | score | evidence |\n| --- | --- | --- |\n'
+  for id in $ids; do printf '| %s | satisfied | fixture |\n' "$id"; done
+}
+
+# Insert a key into the record's HEADER BLOCK — the first run of `key: value` lines, which every
+# reader anchors on and which ends at the first blank line. `>> "$VREC"` used to be equivalent,
+# because the fixture records had no body; now they carry a scorecard, so an appended key would
+# land BELOW the blank line where `header_key` cannot see it, and the case would red on an absence
+# it did not mean to create.
+add_header_key() { # add_header_key <key> <value>
+  awk -v k="$1" -v v="$2" '
+    !done && $0 == "" { print k ": " v; done = 1 }
+    { print }
+    END { if (!done) print k ": " v }
+  ' "$VREC" > "$VREC.hk" && mv "$VREC.hk" "$VREC"
+}
+
 write_verdict() { # write_verdict [verdict] [run-id] [session-id] [reviewed-head] [patch-id]
   printf 'verdict=%s\nrun_id: %s\nsession_id: %s\nrounds: 1\nreviewed_head: %s\n' \
     "${1:-approve}" "${2:-r-review-1}" "${3:-sess-review-1}" \
@@ -184,6 +211,7 @@ write_verdict() { # write_verdict [verdict] [run-id] [session-id] [reviewed-head
   # above the (X) block is one. VPANEL is set where the armed cases begin and is what each panel
   # case varies.
   [ -n "${VPANEL:-}" ] && printf 'panel: %s\n' "$VPANEL" >> "$VREC"
+  scorecard_block >> "$VREC"
   commit_tree "verdict ${1:-approve}"
 }
 
@@ -201,6 +229,7 @@ tree_patch_id() { # tree_patch_id <head-ish>
 }
 write_verdict_literal() { # write_verdict_literal <full-record-body>
   printf '%s' "$1" > "$VREC"
+  scorecard_block >> "$VREC"
   commit_tree "verdict (literal fixture)"
 }
 # A lean-SHAPED fixture that must never count as a real artifact.
@@ -260,6 +289,23 @@ out="$(run_gate "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt
 if [ "$rc" -eq 0 ] && silent "$out"; then
   pass "(A) AC-1: a lean PR with spec + approve-verdict + bot claim passes with zero bytes on both streams"
 else fail "(A) expected a silent rc=0, got $rc: $out"; fi
+
+# ---- (A2) #622: the AC scorecard arrives through the DELEGATION ----------------------------
+# This gate reads no scorecard of its own — `lean-evidence.sh` owns the arm, and the reader's
+# grammar is asserted against it directly in lean-evidence-selftest.sh's (sc) block. What only
+# THIS suite can show is that the arm survives the delegation: the payload is invoked here with
+# half its environment supplied by the caller, and an arm that never ran would leave (A) above
+# just as green. The record is HAND-WRITTEN, which is AC-5's case — it never passed a writer.
+# Written directly rather than through write_verdict_literal, which appends a scorecard of its
+# own — two sections would merge and the case would red on the duplicate-row arm instead.
+printf 'verdict=approve\nrun_id: r-review-1\nsession_id: sess-review-1\nrounds: 1\nreviewed_head: %s\n\n## AC scorecard\n\n| AC-n | score | evidence |\n| --- | --- | --- |\n| AC-1 | unsatisfied | not wired |\n| AC-2 | satisfied | fixture |\n' \
+  "$(git -C "$TREE" rev-parse HEAD)" > "$VREC"
+commit_tree "a hand-written record contradicting its own scorecard"
+out="$(run_gate "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'scored unsatisfied on a verdict=approve record' <<<"$out"; then
+  pass "(A2) a hand-written approve contradicting its own scorecard reds through the delegated payload"
+else fail "(A2) expected the delegated scorecard refusal, got rc=$rc: $out"; fi
+write_verdict
 
 # ---- (B) a non-lean, non-pipeline PR is simply not applicable ----------------------------
 # A whole-gate decline is class (b), not (a): nothing was evaluated, and an unevaluated gate that
@@ -828,6 +874,7 @@ write_chain_record() { # write_chain_record <run-id> <session-id> <rounds> <patc
     # The BODY, below the blank line the production writer emits — which is what makes it a body
     # rather than more header. (V6) needs a record whose own findings mention the key.
     [ -n "${7:-}" ] && printf '\n%s\n' "$7"
+    scorecard_block
   } > "$VREC"
   commit_tree "verdict round $3"
 }
@@ -1130,7 +1177,7 @@ arm_round() { # arm_round <handoff-url> <panel> <tag>
   pid="$(tree_patch_id HEAD)"
   VPANEL="$2"
   write_verdict approve "r-review-$3" "sess-review-$3" "$head" "$pid"
-  printf 'fidelity: pass\n' >> "$VREC"
+  add_header_key fidelity pass
   commit_tree "the record scores fidelity ($3)"
 }
 
@@ -1174,7 +1221,7 @@ else fail "(X3b) the gate did not resolve the real spec: $out"; fi
 
 # (X4) THE HAPPY PATH: armed spec, committed receipt whose rendered_from is this head's render
 # binding, and a verdict scoring `fidelity: pass`.
-printf 'fidelity: pass\n' >> "$VREC"
+add_header_key fidelity pass
 commit_tree "the record scores fidelity"
 # The receipt's binding excludes the verdict record AND itself, so committing either leaves it
 # unchanged — that is what lets the reviewer commit on top of evidence without invalidating it,
@@ -1192,7 +1239,7 @@ write_render_manifest "0000000000000000000000000000000000000000"
 commit_tree "a receipt for a tree this branch no longer is"
 w_pid="$(tree_patch_id HEAD)"
 write_verdict approve r-review-w3 sess-review-w3 "$(git -C "$TREE" rev-parse HEAD)" "$w_pid"
-printf 'fidelity: pass\n' >> "$VREC"
+add_header_key fidelity pass
 commit_tree "an honest record on top of a stale receipt"
 out="$(run_gate_base "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
 if [ "$rc" -eq 1 ] && grep -q 'records rendered_from' <<<"$out" \

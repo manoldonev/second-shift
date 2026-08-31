@@ -2657,12 +2657,22 @@ fi
 reset_progress
 
 # ---- (p) the REVIEW role: lean-gate.sh verdict ---------------------------------------------
+# $SPEC declares exactly `AC-1` from here to the end of the (r) block, so this is the minimum
+# conforming scorecard for every approve written below (#622).
+P_SCORECARD="$WORK/p-scorecard.md"
+printf '## AC scorecard\n\n| AC-n | score | evidence |\n| --- | --- | --- |\n| AC-1 | satisfied | fixture |\n' > "$P_SCORECARD"
+
 # Every arm here is a refusal that fails CLOSED. The subcommand is the only write path to the
 # verdict record, and it lives in this script solely so the pinned name table has one
 # derivation — not because the build role may reach it.
 verdict_cmd() { # verdict_cmd <session-id> <run-id|""> [args...]
   local sid="$1" rid="$2"
   shift 2
+  # DEFAULTED, the idiom dverdict already uses for `--panel` and for the same reason: an approve
+  # now needs an AC scorecard over the ids $SPEC declares (#622), and a case about the identity
+  # arms or the `--pr` grammar should not have to restate that contract to reach its subject. A
+  # case that IS about the scorecard passes its own, and wins — the parser takes the last flag.
+  case " $* " in *" --summary-file "*) : ;; *) set -- "$@" --summary-file "$P_SCORECARD" ;; esac
   if [ -n "$rid" ]; then
     ( unset RUN_ID; cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" \
       CLAUDE_CODE_SESSION_ID="$sid" RUN_ID="$rid" bash "$GATE" verdict 7 "$@" 2>&1 )
@@ -2699,7 +2709,8 @@ if [ "$rc" -eq 1 ] && grep -q 'no session id' <<<"$out"; then
 else fail "(p4) expected rc=1 on an unverifiable build session, got $rc: $out"; fi
 
 seed_build_progress r-build-1 sess-build-1
-printf 'No blockers. AC-1 satisfied.\n' > "$WORK/verdict-summary.md"
+{ printf 'No blockers. AC-1 satisfied.\n\n'
+  cat "$P_SCORECARD"; } > "$WORK/verdict-summary.md"
 # The head the writer must name is the one it is invoked ON. Resolved here, before the call, so
 # the assertion compares against a value this suite derived independently of the writer.
 p5_head="$(git -C "$TREE" rev-parse HEAD)"
@@ -3178,8 +3189,18 @@ xcommit() {
   git -C "$XTREE" commit -q --allow-empty -m "${1:-fixture}" >/dev/null 2>&1
 }
 xgate() { ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$XTREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$XPROG" bash "$GATE" "$@" 2>&1 ); }
+# THE AC SCORECARD an approve now has to carry (#622). The X/Y/Z/D fixture trees each declare
+# exactly `AC-1`, so one conforming table serves every writer case that is not ABOUT the
+# scorecard; the (sc) block below passes its own literal tables. Defaulted in the wrappers by the
+# same idiom dverdict already uses for `--panel`, and for the same reason: a case about the fix
+# budget or the inheritance chain should not have to restate this contract to reach its subject.
+SCORECARD_AC1="$WORK/scorecard-ac1.md"
+printf '## AC scorecard\n\n| AC-n | score | evidence |\n| --- | --- | --- |\n| AC-1 | satisfied | fixture |\n' > "$SCORECARD_AC1"
+: > "$WORK/vs-empty.md"
+
 xverdict() { # xverdict <session-id> <run-id> [args...]
   local sid="$1" rid="$2"; shift 2
+  case " $* " in *" --summary-file "*) : ;; *) set -- "$@" --summary-file "$SCORECARD_AC1" ;; esac
   rm -f "$XTREE/.claude/pipeline-state/9-review-run-id"
   ( unset RUN_ID; cd "$XTREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$XPROG" \
     CLAUDE_CODE_SESSION_ID="$sid" RUN_ID="$rid" bash "$GATE" verdict 9 "$@" 2>&1 )
@@ -3375,6 +3396,7 @@ ycommit() {
 ygate() { ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$YTREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$YPROG" bash "$GATE" "$@" 2>&1 ); }
 yverdict() { # yverdict <session-id> <run-id> [args...]
   local sid="$1" rid="$2"; shift 2
+  case " $* " in *" --summary-file "*) : ;; *) set -- "$@" --summary-file "$SCORECARD_AC1" ;; esac
   rm -f "$YPROG"; { echo "# lean run — issue 11"; echo ""; echo "run_id: r-build-y"; echo "session_id: sess-build-y"; } > "$YPROG"
   attest_at "$YTREE" "$CFG" "$YPROG" 11
   rm -f "$YTREE/.claude/pipeline-state/11-review-run-id"
@@ -3449,6 +3471,7 @@ zcommit() {
 zgate() { ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$ZTREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$ZPROG" bash "$GATE" "$@" 2>&1 ); }
 zverdict() { # zverdict <session-id> <run-id> [args...]
   local sid="$1" rid="$2"; shift 2
+  case " $* " in *" --summary-file "*) : ;; *) set -- "$@" --summary-file "$SCORECARD_AC1" ;; esac
   rm -f "$ZPROG"; { echo "# lean run — issue 12"; echo ""; echo "run_id: r-build-z"; echo "session_id: sess-build-z"; } > "$ZPROG"
   attest_at "$ZTREE" "$CFG" "$ZPROG" 12
   rm -f "$ZTREE/.claude/pipeline-state/12-review-run-id"
@@ -3456,6 +3479,9 @@ zverdict() { # zverdict <session-id> <run-id> [args...]
     CLAUDE_CODE_SESSION_ID="$sid" RUN_ID="$rid" bash "$GATE" verdict 12 "$@" 2>&1 )
 }
 zkey() { grep -oE "$1:[[:space:]]*[A-Za-z0-9._-]+" "$ZVERDICT" 2>/dev/null | head -n1 | sed -E "s/^$1:[[:space:]]*//"; }
+
+Z_SCORECARD="$WORK/z-scorecard.md"
+printf '\n## AC scorecard\n\n| AC-n | score | evidence |\n| --- | --- | --- |\n| AC-1 | satisfied | fixture |\n' > "$Z_SCORECARD"
 
 zcommit "base"
 git -C "$ZTREE" update-ref refs/remotes/origin/main HEAD
@@ -3475,6 +3501,10 @@ ZBODY="$WORK/zbody-1.md"
   echo "inherited_patch_id: deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
   echo "inherited_from_verdict: 1111111111111111111111111111111111111111"
   echo '```'
+  # The scorecard an approve now needs (#622). Appended rather than replacing the body: this
+  # case is about the reader taking the HEADER's value over one quoted in the findings, and the
+  # quoted block above is the whole point of it.
+  cat "$Z_SCORECARD"
 } > "$ZBODY"
 out="$(zverdict sess-review-z1 r-review-z1 --pr 92 --verdict approve --rounds 1 --summary-file "$ZBODY")"; rc=$?
 if [ "$rc" -eq 0 ] && [ "$(zkey inherited_patch_id)" = "none" ]; then
@@ -3508,6 +3538,10 @@ ZBODY2="$WORK/zbody-2.md"
   echo '```'
   echo "inherited_patch_id: $Z_PID1"
   echo '```'
+  # The scorecard an approve now needs (#622). Appended rather than replacing the body: this
+  # case is about the reader taking the HEADER's value over one quoted in the findings, and the
+  # quoted block above is the whole point of it.
+  cat "$Z_SCORECARD"
 } > "$ZBODY2"
 out="$(zverdict sess-review-z2 r-review-z2 --pr 92 --verdict approve --rounds 2 --summary-file "$ZBODY2")"; rc=$?
 zcommit "round 2's record, quoting a link that would resolve"
@@ -3831,6 +3865,7 @@ dverdict() { # dverdict <session-id> <run-id> [args...]
   # — instead of restating the panel contract. A case that IS about the panel passes its own,
   # and wins: the gate's parser takes the last occurrence of a flag.
   case " $* " in *" --panel "*) : ;; *) set -- "$@" --panel "$DPANEL" ;; esac
+  case " $* " in *" --summary-file "*) : ;; *) set -- "$@" --summary-file "$SCORECARD_AC1" ;; esac
   ( unset RUN_ID; cd "$DTREE" && SECOND_SHIFT_CONFIG="$DCFG" LEAN_PROGRESS_FILE="$DPROG" \
     CLAUDE_CODE_SESSION_ID="$sid" RUN_ID="$rid" bash "$GATE" verdict 55 "$@" 2>&1 )
 }
@@ -3883,6 +3918,15 @@ devidence() { # devidence [extra-rows...]
     echo "| RS-1 | Prospects / default | control height | 32px | 32px | match |"
     echo "| RS-2 | Prospects / filters expanded | panel width | 320px | 320px | match |"
     for r in "$@"; do echo "$r"; done
+    # The scorecard an approve now needs beside the fidelity table (#622). $DSPEC declares
+    # exactly `AC-1` wherever this fixture is used; the two sections are independent, and the
+    # (fe) cases below vary the fidelity table alone.
+    echo ""
+    echo "## AC scorecard"
+    echo ""
+    echo "| AC-n | score | evidence |"
+    echo "| --- | --- | --- |"
+    echo "| AC-1 | satisfied | fixture |"
   } > "$DEVIDENCE"
 }
 devidence
@@ -8846,6 +8890,116 @@ printf 'not json at all\n' > "$CO_LOG"
 if [ "$(co_row r-co)" = "missing" ]; then
   pass "(co6) an unparseable cost log reads as 'no row', never as one — the count is captured before it is tested"
 else fail "(co6) an unparseable cost log was read as a found row"; fi
+
+# ---- (vs) #622: the AC scorecard, refused at the WRITER ---------------------------------------
+# WHY THESE ARE PER-TOOL CASES and not only a scenario. The composed leg in
+# scenario-liveness-selftest.sh drives one review session through the writer to a terminal write
+# and one that contradicts itself to a stop — which is the ECONOMICS, not the grammar. The
+# grammar's arms are here (the writer's refusal) and in lean-evidence-selftest.sh's (sc) block
+# (the boundary's, over records that never passed a writer at all). Neither reader can stand in
+# for the other: the writer holds a `--summary-file` and no record, the boundary holds a record
+# and no flags.
+#
+# The X tree's spec declares exactly `AC-1`, and every case below passes its own table rather
+# than the wrapper's default.
+vs_body() { # vs_body <rows...>  — a conforming section wrapper around the given row(s)
+  { printf '## AC scorecard\n\n| AC-n | score | evidence |\n| --- | --- | --- |\n'
+    printf '%s\n' "$1"; } > "$WORK/vs-body.md"
+  echo "$WORK/vs-body.md"
+}
+xseed_build
+out="$(xverdict sess-review-vs1 r-review-vs1 --pr 90 --verdict approve --rounds 1 \
+        --summary-file "$(vs_body '| AC-1 | satisfied | read the diff |')")"; rc=$?
+if [ "$rc" -eq 0 ] && grep -q '## AC scorecard' "$XVERDICT" 2>/dev/null; then
+  pass "(vs1) an approve whose summary scores every declared AC-n is written, scorecard and all"
+else fail "(vs1) expected the write to succeed, rc=$rc: $out"; fi
+
+# THE REFUSAL LEAVES NOTHING BEHIND. Same discipline as the (fe) evidence cases: the record that
+# was already committed must be byte-untouched and no review identity may be cached, because a
+# cached id for a round that wrote nothing makes the NEXT round's `verdict` resolve an identity
+# no record carries.
+vs_rec_before="$(cat "$XVERDICT" 2>/dev/null)"
+rm -f "$XTREE/.claude/pipeline-state/9-review-run-id"
+xseed_build
+out="$(xverdict sess-review-vs2 r-review-vs2 --pr 90 --verdict approve --rounds 1 \
+        --summary-file "$WORK/vs-empty.md")"; rc=$?
+vs_rec_after="$(cat "$XVERDICT" 2>/dev/null)"
+vs_cached=0; [ -e "$XTREE/.claude/pipeline-state/9-review-run-id" ] && vs_cached=1
+if [ "$rc" -eq 1 ] && grep -q 'no "## AC scorecard" section' <<<"$out" \
+   && [ "$vs_rec_before" = "$vs_rec_after" ] && [ "$vs_cached" -eq 0 ]; then
+  pass "(vs2) an approve with no scorecard is refused, the committed record is untouched, and no review identity is cached"
+else fail "(vs2) rc=$rc cached=$vs_cached record-changed=$([ "$vs_rec_before" = "$vs_rec_after" ] && echo n || echo y): $out"; fi
+
+# THE REFUSAL QUOTES THE READER'S OWN SCHEMA rather than a second copy of it. This is what makes
+# "the message and the reader cannot drift" mechanical: the writer shells out to
+# `lean-evidence.sh scorecard --print-schema`, so a heading or column set changed in one place
+# cannot leave the other sending reviewers to write a section nothing reads.
+vs_schema="$(bash "$HERE/lean-evidence.sh" scorecard --print-schema 2>/dev/null | head -n1)"
+if [ -n "$vs_schema" ] && grep -qF "$vs_schema" <<<"$out"; then
+  pass "(vs3) the writer's refusal prints the reader's own schema line, so the two cannot drift apart"
+else fail "(vs3) the refusal did not quote the reader's schema ('$vs_schema'): $out"; fi
+
+xseed_build
+out="$(xverdict sess-review-vs4 r-review-vs4 --pr 90 --verdict approve --rounds 1 \
+        --summary-file "$(vs_body '| AC-1 | unsatisfied | the guard is not wired |')")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'scored unsatisfied on a verdict=approve record' <<<"$out"; then
+  pass "(vs4) the writer refuses an approve that scores its own criterion unsatisfied"
+else fail "(vs4) expected the self-contradiction refusal, rc=$rc: $out"; fi
+
+xseed_build
+out="$(xverdict sess-review-vs5 r-review-vs5 --pr 90 --verdict approve --rounds 1 \
+        --summary-file "$(vs_body '| AC-1 | undeterminable | the suite would not run |')")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'scored undeterminable on a verdict=approve record' <<<"$out"; then
+  pass "(vs5) the writer refuses an approve carrying an undeterminable row (D-6)"
+else fail "(vs5) expected the undeterminable refusal, rc=$rc: $out"; fi
+
+xseed_build
+out="$(xverdict sess-review-vs6 r-review-vs6 --pr 90 --verdict approve --rounds 1 \
+        --summary-file "$(vs_body '| AC-7 | satisfied | scored something else |')")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'no row for AC-1, which the spec declares' <<<"$out"; then
+  pass "(vs6) the writer refuses an approve silent about a criterion the spec declares"
+else fail "(vs6) expected the missing-row refusal, rc=$rc: $out"; fi
+
+# AC-2, both directions, at the writer: a measured-inert divergence is WRITABLE beside an
+# approve, and an unmeasured or unowned one is not.
+xseed_build
+out="$(xverdict sess-review-vs7 r-review-vs7 --pr 90 --verdict approve --rounds 1 \
+        --summary-file "$(vs_body '| AC-1 | divergent-inert | measured: 0 of 63 corpus records affected; follow-up: #765 |')")"; rc=$?
+if [ "$rc" -eq 0 ]; then
+  pass "(vs7) AC-2: a well-formed divergent-inert row is written beside an approve — it costs no round"
+else fail "(vs7) expected the divergent-inert write to succeed, rc=$rc: $out"; fi
+
+xseed_build
+out="$(xverdict sess-review-vs8 r-review-vs8 --pr 90 --verdict approve --rounds 1 \
+        --summary-file "$(vs_body '| AC-1 | divergent-inert | it looked harmless |')")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'carries no "measured: <text>"' <<<"$out" \
+   && grep -q 'carries no "follow-up: <ref>"' <<<"$out"; then
+  pass "(vs8) AC-2: divergent-inert without BOTH the measurement and the follow-up is refused, and both halves are named"
+else fail "(vs8) expected both divergent-inert refusals, rc=$rc: $out"; fi
+
+# The section is required only where an approve rests on it. A needs-work round is already a
+# refusal, so demanding the table there would be mass with no decision resting on it.
+xseed_build
+out="$(xverdict sess-review-vs9 r-review-vs9 --pr 90 --verdict needs-work --rounds 1 \
+        --summary-file "$WORK/vs-empty.md")"; rc=$?
+if [ "$rc" -eq 0 ]; then
+  pass "(vs9) a needs-work record writes with no scorecard — the arm is scoped to what an approve rests on"
+else fail "(vs9) expected the needs-work write to succeed, rc=$rc: $out"; fi
+
+# NO SPEC IN THE CHECKOUT is refused, not skipped. The declared set is the only thing that can
+# say whether the record is silent about a criterion, and a review run from a checkout without
+# the spec has read no definition of done — the same reasoning the armed `--fidelity pass` arm
+# makes. Restored immediately, so nothing below inherits a spec-less tree.
+mv "$XSPEC" "$WORK/vs-held-spec.md"
+xcommit "the spec is not in this checkout"
+xseed_build
+out="$(xverdict sess-review-vs10 r-review-vs10 --pr 90 --verdict approve --rounds 1 \
+        --summary-file "$(vs_body '| AC-1 | satisfied | read the diff |')")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'has no declared criterion set to be reconciled against' <<<"$out"; then
+  pass "(vs10) the writer refuses a verdict run from a checkout carrying no spec"
+else fail "(vs10) expected the absent-spec refusal, rc=$rc: $out"; fi
+mv "$WORK/vs-held-spec.md" "$XSPEC"
+xcommit "the spec restored"
 
 echo "[lean-gate-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 exit "$FAILS"

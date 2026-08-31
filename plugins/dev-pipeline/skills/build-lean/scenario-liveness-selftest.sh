@@ -269,6 +269,13 @@ LEANGH
   # ---- leg 1: all-green -> exit artifacts ----------------------------------
   lean_seed_progress r-lean-1 sess-lean-build
   printf '# spec\n\n- AC-1: a thing\n' > "$LEAN_SPEC"
+  # THE SCORECARD an approve now has to carry (#622). Every spec in this suite declares exactly
+  # `AC-1`, so one conforming table serves every `verdict` call below — the scorecard reader's own
+  # arms are per-tool (lean-evidence-selftest.sh); what the legs here compose is that a review
+  # session which scores its spec reaches the terminal write, and the (lean-sc-nv) leg that one
+  # which contradicts itself does not.
+  LEAN_SCORECARD="$TMP/lean-scorecard.md"
+  printf '## AC scorecard\n\n| AC-n | score | evidence |\n| --- | --- | --- |\n| AC-1 | satisfied | scenario fixture |\n' > "$LEAN_SCORECARD"
   # The spec is committed on its OWN, before the review reads it. `lean_commit` stages
   # everything, so folding it into the verdict commit would put a code change inside the record's
   # commit — a shape review-lean step 6 forbids and both freshness arms refuse. What is left is
@@ -542,6 +549,52 @@ LEANBOT
 
   lean_seed_progress r-lean-1 sess-lean-build
   lean_write_verdict approve r-lean-review-10 sess-lean-review-10
+
+  # ---- leg 3e: the AC scorecard, composed writer -> milestone 4 (#622) ------
+  # CLAUDE.md: a new gate contract must extend this scenario. What only a composed leg shows is
+  # the ECONOMICS — that a self-contradictory record never becomes one, so the lane stops at the
+  # handoff instead of carrying a contradiction to the merge boundary and spending a round there.
+  # The grammar's own arms are per-tool: the writer's in lean-gate-selftest.sh's (vs) block, the
+  # boundary's in lean-evidence-selftest.sh's (sc) block, over records that never passed a writer.
+  #
+  # The REAL `verdict` subcommand, from a review identity distinct on both axes — a hand-written
+  # record would compose a state no review session produces and would skip the refusal entirely.
+  lean_verdict() { # lean_verdict <session-id> <run-id> <scorecard-file>
+    rm -f "$LEAN_TREE/.claude/pipeline-state/77-review-run-id"
+    ( unset RUN_ID GH_BOT; cd "$LEAN_TREE" && SECOND_SHIFT_CONFIG="$LEAN_CFG" \
+      LEAN_PROGRESS_FILE="$LEAN_PROG" CLAUDE_CODE_SESSION_ID="$1" RUN_ID="$2" \
+      bash "$LEAN_GATE" verdict 77 --pr 5 --verdict approve --summary-file "$3" 2>&1 )
+  }
+  printf '## AC scorecard\n\n| AC-n | score | evidence |\n| --- | --- | --- |\n| AC-1 | unsatisfied | the guard is not wired |\n' \
+    > "$TMP/lean-scorecard-bad.md"
+
+  lean_seed_progress r-lean-1 sess-lean-build
+  rm -f "$LEAN_VERDICT"; lean_commit "the record the refused round must not resurrect"
+  lean_sc_bad_out="$(lean_verdict sess-lean-review-sc r-lean-review-sc "$TMP/lean-scorecard-bad.md")"; lean_sc_bad=$?
+  lean_sc_bad_rec=0; [[ -f "$LEAN_VERDICT" ]] && lean_sc_bad_rec=1
+  lean_gate 4 77 >/dev/null 2>&1; lean_sc_bad_m4=$?
+
+  # ...and the SAME session, the SAME tree, differing only in the scorecard, reaches the write
+  # and milestone 4's pass. That pair is the non-vacuity: neither half means anything alone.
+  lean_seed_progress r-lean-1 sess-lean-build
+  lean_sc_ok_out="$(lean_verdict sess-lean-review-sc2 r-lean-review-sc2 "$LEAN_SCORECARD")"; lean_sc_ok=$?
+  # Both outputs ride into the failure message below: a green half that reds tells you nothing
+  # unless you can see what the writer said about it.
+  lean_commit "review session commits its verdict record"
+  lean_gate 4 77 >/dev/null 2>&1; lean_sc_ok_m4=$?
+
+  if [[ "$lean_sc_bad" -eq 1 && "$lean_sc_bad_rec" -eq 0 && "$lean_sc_bad_m4" -eq 5 \
+        && "$lean_sc_ok" -eq 0 && "$lean_sc_ok_m4" -eq 0 ]] \
+     && grep -q 'scored unsatisfied on a verdict=approve record' <<<"$lean_sc_bad_out"; then
+    pass "(lean-scorecard) a round that scores its own criterion unsatisfied writes NO record and leaves milestone 4 absent; the same round with a conforming scorecard reaches the write and passes"
+  else
+    fail "(lean-scorecard) bad: rc=$lean_sc_bad record=$lean_sc_bad_rec m4=$lean_sc_bad_m4 (want 1/0/5); ok: rc=$lean_sc_ok m4=$lean_sc_ok_m4 (want 0/0): $lean_sc_bad_out / $lean_sc_ok_out"
+  fi
+
+  # Hand the tree back to the shape the legs below inherit: a hand-written record on the
+  # round counter they advance, rather than the writer-produced one this leg just committed.
+  lean_seed_progress r-lean-1 sess-lean-build
+  lean_write_verdict approve r-lean-review-10b sess-lean-review-10b
 
   # ---- non-vacuity ---------------------------------------------------------
   # An all-green leg that stays green over a broken tree proves nothing.
@@ -1287,6 +1340,8 @@ LEANSYNCCFG
     printf '| --- | --- | --- | --- | --- | --- |\n'
     printf '| RS-1 | Prospects / default | control height | 32px | 32px | match |\n'
     printf '| RS-2 | Prospects / filters expanded | panel width | 320px | 288px | deviation (AC-1) |\n'
+    printf '\n## AC scorecard\n\n| AC-n | score | evidence |\n| --- | --- | --- |\n'
+    printf '| AC-1 | satisfied | scenario fixture |\n'
   } > "$LEAN_DEVIDENCE"
   lean_dcommit "base"
   git -C "$LEAN_DTREE" update-ref refs/remotes/origin/main HEAD
@@ -1407,7 +1462,7 @@ LEANSYNCCFG
 
   # A review round that scored no fidelity: the handoff must round-trip, not certify.
   lean_dseed
-  lean_dverdict sess-lean-d-review r-lean-d-review --pr 8 --verdict approve --panel "$LEAN_DPANEL" >/dev/null 2>&1
+  lean_dverdict sess-lean-d-review r-lean-d-review --pr 8 --verdict approve --panel "$LEAN_DPANEL" --summary-file "$LEAN_SCORECARD" >/dev/null 2>&1
   lean_dcommit "a verdict that scored no fidelity"
   lean_dseed
   lean_dgate 4 88 >/dev/null 2>&1; ld_nofid=$?
@@ -1420,7 +1475,7 @@ LEANSYNCCFG
   # its absence afterwards is measured rather than assumed.
   lean_dseed
   ld_rec_before="$(cat "$LEAN_DTREE/docs/plans/acme-88-lean-verdict.md" 2>/dev/null)"
-  ld_noev_out="$(lean_dverdict sess-lean-d-review-noev r-lean-d-review-noev --pr 8 --verdict approve --fidelity pass --panel "$LEAN_DPANEL" 2>&1)"; ld_noev=$?
+  ld_noev_out="$(lean_dverdict sess-lean-d-review-noev r-lean-d-review-noev --pr 8 --verdict approve --fidelity pass --panel "$LEAN_DPANEL" --summary-file "$LEAN_SCORECARD" 2>&1)"; ld_noev=$?
   ld_rec_after="$(cat "$LEAN_DTREE/docs/plans/acme-88-lean-verdict.md" 2>/dev/null)"
   ld_noev_cache=0
   [[ -e "$LEAN_DTREE/.claude/pipeline-state/88-review-run-id" ]] && ld_noev_cache=1
@@ -1655,7 +1710,7 @@ LEANDC
   # resolves the claim against (proved generically by lean-evidence-selftest.sh's (ov6)-(ov9),
   # which check-lean-chain.sh delegates to in full).
   rm -f "$LEAN_DOVERDICT"
-  ld_o3="$(lean_doverdict sess-lean-do-review r-lean-do-review --pr 890 --verdict approve 2>&1)"; ld_o3_rc=$?
+  ld_o3="$(lean_doverdict sess-lean-do-review r-lean-do-review --pr 890 --verdict approve --summary-file "$LEAN_SCORECARD" 2>&1)"; ld_o3_rc=$?
   if [[ "$ld_o3_rc" -eq 0 ]] && grep -q '^fidelity: not-applicable (override: 89#1)$' "$LEAN_DOVERDICT" 2>/dev/null; then
     pass "(lean-design-override) #709 AC-2: the written verdict carries 'fidelity: not-applicable (override: 89#1)'"
   else fail "(lean-design-override) expected the verdict to carry the override ref, rc=$ld_o3_rc: $ld_o3; verdict: $(cat "$LEAN_DOVERDICT" 2>/dev/null)"; fi
@@ -1852,7 +1907,9 @@ case "$*" in
     # patch id it stamps is the thing milestone 4 recomputes, so a hand-written one would compose
     # a record no review session produces.
     export CLAUDE_CODE_SESSION_ID=sess-lean-re-review RUN_ID=r-lean-re-review
-    g verdict "$RE_KEY" --pr "$RE_PR_NUM" --verdict approve || exit 1
+    printf '## AC scorecard\n\n| AC-n | score | evidence |\n| --- | --- | --- |\n| AC-1 | %s | composed re-entry |\n' \
+      "${RE_SCORE:-satisfied}" > "$RE_DIR/scorecard.md"
+    g verdict "$RE_KEY" --pr "$RE_PR_NUM" --verdict approve --summary-file "$RE_DIR/scorecard.md" || exit 1
     git -C "$RE_WT" add -A >/dev/null 2>&1
     git -C "$RE_WT" commit -q -m "review session commits its verdict record" >/dev/null 2>&1 || exit 1
     # #531: the PUSH, which every commit in these legs now carries. review-lean step 6 pushes the
@@ -2074,7 +2131,9 @@ g() { ( unset LEAN_GATE_ANY_TREE; cd "$CO_WT" && bash "$CO_GATE" "$@" ) >> "$CO_
 case "$*" in
   *review-lean*)
     export CLAUDE_CODE_SESSION_ID=sess-lean-co-review RUN_ID=r-lean-co-review
-    g verdict "$CO_KEY" --pr "$CO_PR_NUM" --verdict approve || exit 1
+    printf '## AC scorecard\n\n| AC-n | score | evidence |\n| --- | --- | --- |\n| AC-1 | satisfied | composed close-out |\n' \
+      > "$CO_DIR/scorecard.md"
+    g verdict "$CO_KEY" --pr "$CO_PR_NUM" --verdict approve --summary-file "$CO_DIR/scorecard.md" || exit 1
     git -C "$CO_WT" add -A >/dev/null 2>&1
     git -C "$CO_WT" commit -q -m "review session commits its verdict record" >/dev/null 2>&1 || exit 1
     git -C "$CO_WT" push -q origin "HEAD:refs/heads/$CO_BRANCH" >/dev/null 2>&1 || exit 1
