@@ -59,7 +59,8 @@ repo configures no `design.provider`.
   a fix round) replaces the PR-description's `cost_usd:` line along with the rest of the block —
   never two such lines, never a stale one left behind as preserved text below the terminator.
 - AC-6 (D-2, D-4, D-6): `plugins/dev-pipeline/cost-tracking-setup.md` documents a runnable recipe
-  — `gh pr list` + `jq`, no new script — that reads the last 10 merged PRs by merge date: `cost_usd:`
+  — `gh pr list` + `jq`, no new script — that reads the last 10 merged **lean** PRs (filtered on
+  the configured `tracker.branchPrefix` via `headRefName`, matching D-4) by merge date: `cost_usd:`
   first, a labeled legacy `\$[0-9]+\.[0-9]{2}` block-grep fallback for a PR predating this ticket,
   the mean over the priced subset, and the coverage explicitly (nothing imputed, no unpriced run
   scored as zero).
@@ -77,10 +78,12 @@ repo configures no `design.provider`.
 1. `lean-gate.sh`: `resolve_cost_usd()` sets `$LEAN_COST_USD` from `$LEAN_COST_BLOCK`/`$LEAN_COST_SKIP`
    (D-7/D-8), called from `closeout_cost_block()` on both arms so a value exists whether or not a
    block rendered. `cost_block_with_usd_key()` echoes `$LEAN_COST_BLOCK` with a `cost_usd: …` line
-   inserted right after the marker line — never mutating the shared `$LEAN_COST_BLOCK` — and
-   `closeout_patch_pr_body()` calls it in place of the raw block when building the patched PR body.
-   `closeout_comment()` adds the `- cost_usd: $LEAN_COST_USD` bullet directly, unconditional on
-   whether `$LEAN_COST_BLOCK` is set.
+   inserted right after the block's own thematic break (`---`), not right after the marker line —
+   inserting it directly under the marker would leave it as a setext-H2 paragraph with the `---`
+   read as the underline, swallowing the block's `<hr>` on GitHub's renderer (round 1 finding) —
+   never mutating the shared `$LEAN_COST_BLOCK` — and `closeout_patch_pr_body()` calls it in place
+   of the raw block when building the patched PR body. `closeout_comment()` adds the
+   `- cost_usd: $LEAN_COST_USD` bullet directly, unconditional on whether `$LEAN_COST_BLOCK` is set.
 2. `cost-tracking-setup.md`: a new section documenting the `cost_usd:` key and the `gh pr list` +
    `jq` recipe (D-4, D-6) — window of 10 by `mergedAt`, `cost_usd:` capture with a legacy
    `\$[0-9]+\.[0-9]{2}` block fallback labeled in the output, the priced-subset mean, and the

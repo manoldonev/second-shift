@@ -5849,18 +5849,30 @@ resolve_cost_usd() { # resolve_cost_usd — sets $LEAN_COST_USD from $LEAN_COST_
 # block-embedded copy by construction cannot, so the block it pastes stays exactly what the tool
 # rendered rather than saying `cost_usd:` a second time inside it.
 #
-# INSERTED RIGHT AFTER THE MARKER LINE, not after the terminator. That keeps it inside the span
-# closeout_patch_pr_body's own strip discards on every close-out — marker through terminator line
-# — so a re-entered close-out replaces it along with the rest of the block instead of leaving a
-# stale copy behind as preserved "tail" text (the region after the terminator is exactly what that
-# strip treats as a human's own text and never touches).
+# INSERTED RIGHT AFTER THE BLOCK'S OWN THEMATIC BREAK, not right after the marker and not after
+# the terminator. That still keeps it inside the span closeout_patch_pr_body's own strip discards
+# on every close-out — marker through terminator line — so a re-entered close-out replaces it
+# along with the rest of the block instead of leaving a stale copy behind as preserved "tail" text
+# (the region after the terminator is exactly what that strip treats as a human's own text and
+# never touches).
+#
+# NOT RIGHT AFTER THE MARKER (#723 round 1, finding 1). The renderer's first two lines are the
+# marker (an HTML comment, so a block element on its own) then `---`, which GFM parses as the
+# block's thematic break. Inserting the key between those two lines makes the key line the
+# paragraph text of a SETEXT H2 whose underline is that very `---` — GitHub's own renderer turns
+# `cost_usd: …` into an `<h2>` and swallows the `<hr>` entirely (measured via `POST /markdown`,
+# `mode: gfm`, against a real close-out's block). Inserting after the `---` instead leaves it as an
+# ordinary paragraph line, blank-line-terminated before the next block (`## Pipeline Cost`, an ATX
+# heading — never a setext underline), so no line this function emits can ever read as a heading.
 #
 # NEVER TOUCHES THE MARKER LINE ITSELF: that line is held byte-for-byte to
 # COST_BLOCK_MARKER above, and closeout_patch_pr_body's replacement matches it with `$0 == m`. A
-# line inserted after it, not appended onto it, is what keeps that match intact on the next call.
+# line inserted after the break, not appended onto the marker, is what keeps that match intact on
+# the next call.
 cost_block_with_usd_key() { # cost_block_with_usd_key — echoes $LEAN_COST_BLOCK with the key inserted
   printf '%s\n' "$LEAN_COST_BLOCK" | awk -v m="$COST_BLOCK_MARKER" -v v="$LEAN_COST_USD" '
-    $0 == m { print; print "cost_usd: " v; next }
+    $0 == m { print; marker = 1; next }
+    marker && !ins && $0 == "---" { print; print "cost_usd: " v; ins = 1; next }
     { print }
   '
 }
