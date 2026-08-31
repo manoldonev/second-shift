@@ -469,8 +469,9 @@ seconds; an under-declared one costs a gate.
 name the suite and its subject and still under-declare, because that subject resolves a third file
 at run time. The shipped set runs to depth 3: `lean-gate.sh` resolves `claim-issue.sh`, which
 resolves its sibling `gh-bot.sh`, so `lean-gate-selftest.sh` declares a file two removes from
-anything it names. Follow every `$here/`-style resolution out of every declared script until it
-terminates, and say in the row comment where it terminated.
+anything it names. Follow every variable-rooted resolution out of every declared script until it
+terminates, and say in the row comment where it terminated — the rule below is how you enumerate
+them.
 
 That example replaced an earlier one — `pipeline-cost-block.sh` resolving `gh-bot.sh` — which was
 true until #584 deleted the PR-amend ladder that did it. `cost-block-selftest.sh`'s `gh-bot.sh`

@@ -43,8 +43,8 @@
 # under-declares if that SUBJECT resolves a third file at run time. The live example runs to
 # depth 3: lean-gate.sh resolves claim-issue.sh, which resolves gh-bot.sh beside itself, so
 # lean-gate-selftest.sh declares a file two removes from anything it names. When you add a row,
-# follow every `$here/`-style resolution out of every declared script until it terminates, and
-# record where it terminated.
+# follow every variable-rooted resolution out of every declared script until it terminates, and
+# record where it terminated. The next block is how you enumerate them.
 #
 # DERIVE THAT MECHANICALLY, AND OVER PATHS RATHER THAN OVER SCRIPTS. Grep each declared script
 # for the paths it BUILDS FROM A VARIABLE, and match every one against the rows below. Three
