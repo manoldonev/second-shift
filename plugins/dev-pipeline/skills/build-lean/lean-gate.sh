@@ -125,6 +125,17 @@
 #                                        (grammar: review-lean/SKILL.md step 5b) — refused here,
 #                                        at the writer, rather than at milestone 4 where it
 #                                        would cost the round.
+#   lean-gate.sh plan-review <issue> --verdict <pass|fix-and-go|block> --summary-file <path>
+#                                        [--model <m>]
+#                                        BUILD role (#710): write the committed plan-review
+#                                        record, the artifact milestone 3 asserts on an armed run.
+#                                        The build session dispatches the provider's plan reviewer
+#                                        itself — the gate cannot run an agent — and this stamps
+#                                        `reviewed_plan_from` from the checkout so the record
+#                                        cannot claim a tree it was not written against.
+#                                        --summary-file is REQUIRED (the findings verbatim); a
+#                                        `block` the gate must quote needs a body to quote from.
+#                                        A second call overwrites.
 #   lean-gate.sh progress <issue> <--satisfied <n> | --obligations>
 #                                        SCHEDULER role. Reads only — it writes nothing and,
 #                                        unlike every other subcommand, does not create the file
@@ -277,6 +288,11 @@ VERDICT_PR=""
 VERDICT_ROUNDS=""
 VERDICT_FIDELITY=""
 VERDICT_PANEL=""
+# #710: the plan-review writer's `model:` (D-29). Its own variable rather than LEAN_RUN_MODEL
+# alone, because the dispatch it records may run on a different tier than the session driving it.
+# Initialised EMPTY like every sibling, never from the environment: a same-named variable leaking
+# in from a caller's shell would satisfy a required flag no caller passed.
+VERDICT_MODEL=""
 SUMMARY_FILE=""
 PROGRESS_SATISFIED=""
 # #531 D-12. A third `progress` mode, and a REPORT rather than a token: the scheduler's close-out
@@ -359,11 +375,12 @@ while [ $# -gt 0 ]; do
     --fidelity)      VERDICT_FIDELITY="${2:-}"; shift 2 ;;
     --panel)         VERDICT_PANEL="${2:-}"; shift 2 ;;
     --summary-file)  SUMMARY_FILE="${2:-}"; shift 2 ;;
+    --model)         VERDICT_MODEL="${2:-}"; shift 2 ;;
     --satisfied)     PROGRESS_SATISFIED="${2:-}"; shift 2 ;;
     --obligations)   PROGRESS_OBLIGATIONS=1; shift ;;
     --arm)           STALENESS_ARM="${2:-}"; shift 2 ;;
     --ticket-source) TICKET_SOURCE="${2:-}"; shift 2 ;;
-    -h|--help)       sed -n '2,262p' "$0"; exit 0 ;;
+    -h|--help)       sed -n '2,273p' "$0"; exit 0 ;;
     -*)              envfail "unknown option: $1" ;;
     *)
       if [ "$POSITIONAL" -eq 0 ]; then SUB="$1"; POSITIONAL=1
@@ -374,7 +391,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-[ -n "$SUB" ]   || envfail "usage: lean-gate.sh <entry|claim|mark|1..5|all|close-out|teardown|inflight|delta|verdict|progress|staleness> <issue>"
+[ -n "$SUB" ]   || envfail "usage: lean-gate.sh <entry|claim|mark|1..5|all|close-out|teardown|inflight|delta|verdict|plan-review|progress|staleness> <issue>"
 # #611. DEFERRED for `entry`/`claim` alone, and into a REFUSAL rather than a usage error — the
 # absent-ticket case is what that guard is about, and answering it with the same exit 2 a typo'd
 # flag gets is what let a session read "no argument" as "choose one". The assertion is not
@@ -383,12 +400,12 @@ done
 # keeps this refusal verbatim, the milestone calls included (the AC preamble binds only two).
 case "$SUB" in
   entry|claim) : ;;
-  *) [ -n "$ISSUE" ] || envfail "usage: lean-gate.sh <entry|claim|mark|1..5|all|close-out|teardown|inflight|delta|verdict|progress|staleness> <issue>" ;;
+  *) [ -n "$ISSUE" ] || envfail "usage: lean-gate.sh <entry|claim|mark|1..5|all|close-out|teardown|inflight|delta|verdict|plan-review|progress|staleness> <issue>" ;;
 esac
 
 case "$SUB" in
-  entry|claim|mark|1|2|3|4|5|all|close-out|teardown|inflight|delta|verdict|progress|staleness) : ;;
-  *) envfail "unknown subcommand '$SUB' (expected entry|claim|mark|1..5|all|close-out|teardown|inflight|delta|verdict|progress|staleness)" ;;
+  entry|claim|mark|1|2|3|4|5|all|close-out|teardown|inflight|delta|verdict|plan-review|progress|staleness) : ;;
+  *) envfail "unknown subcommand '$SUB' (expected entry|claim|mark|1..5|all|close-out|teardown|inflight|delta|verdict|plan-review|progress|staleness)" ;;
 esac
 
 # Validated at parse time rather than inside cmd_progress, so a typo is a usage error before any
@@ -441,6 +458,13 @@ if [ -n "$TICKET_SOURCE" ]; then
   esac
 fi
 TICKET_SOURCE="${TICKET_SOURCE:-argument}"
+
+# #710, the same parse-time shape as every flag above: `--model` records the tier a plan-review
+# dispatch ran on, and there is no other subcommand it could mean anything to. `verdict` stamps
+# its own `model:` from LEAN_RUN_MODEL and would silently ignore this one.
+if [ -n "$VERDICT_MODEL" ]; then
+  [ "$SUB" = "plan-review" ] || envfail "--model is only meaningful on 'plan-review', not '$SUB'."
+fi
 
 # ---------------------------------------------------------------- roots + config
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" \
@@ -819,6 +843,12 @@ RENDER_MANIFEST_REL="$PLANS_DIR/$REPO_SLUG-$ISSUE-lean-renders.md"
 # suffix is NOT pinned by check-lean-chain.sh: nothing at the merge boundary reads the plan
 # (D-12), and a name pinned there would read as coverage this repo does not have.
 PLAN_MANIFEST_REL="$PLANS_DIR/$REPO_SLUG-$ISSUE-lean-plan.md"
+# THE PLAN REVIEW RECORD (#710). The plan reviewer's committed output — the artifact that makes
+# the plan GRADED rather than merely shaped. Same suffix reasoning a third time: `-lean-plan-review.md`
+# must not end in `-lean.md`. It is not pinned by check-lean-chain.sh either, for the reason the
+# plan is not: nothing at the merge boundary reads the plan or its review, and a name pinned there
+# would read as coverage this repo does not have.
+PLAN_REVIEW_MANIFEST_REL="$PLANS_DIR/$REPO_SLUG-$ISSUE-lean-plan-review.md"
 PROGRESS_FILE="${LEAN_PROGRESS_FILE:-$MAIN_ROOT/$STATE_DIR/$ISSUE-lean-progress.md}"
 
 # ---------------------------------------------------------------- RUN_ID persistence
@@ -962,6 +992,10 @@ render_patch_id() { # render_patch_id <head-ish>
 # plan would go stale each time a receipt was committed, and re-asserting the plan is not what a
 # fresh screenshot means.
 #
+# AND THE PLAN REVIEW RECORD (#710), for the reason the plan itself is excluded: the record binds
+# to this id, and the FIRST commit of the record would otherwise move the very id it just recorded
+# — a binding that stales itself the moment it is written can never be satisfied.
+#
 # `render_patch_id` deliberately does NOT gain the symmetric third exclusion. Its computation is
 # mirrored by scripts/check-lean-chain.sh, which cannot see this file; a consumer pinning an older
 # boundary ref would then red every armed PR whose branch carries a plan. The ordering makes the
@@ -974,7 +1008,7 @@ plan_patch_id() { # plan_patch_id <head-ish>
   local base id
   base="$(git -C "$REPO_ROOT" merge-base "origin/$BASE_BRANCH" "$1" 2>/dev/null)" || return 0
   [ -n "$base" ] || return 0
-  id="$(git -C "$REPO_ROOT" diff "$base" "$1" -- . ":(exclude)$VERDICT_REL" ":(exclude)$RENDER_MANIFEST_REL" ":(exclude)$PLAN_MANIFEST_REL" 2>/dev/null \
+  id="$(git -C "$REPO_ROOT" diff "$base" "$1" -- . ":(exclude)$VERDICT_REL" ":(exclude)$RENDER_MANIFEST_REL" ":(exclude)$PLAN_MANIFEST_REL" ":(exclude)$PLAN_REVIEW_MANIFEST_REL" 2>/dev/null \
     | git -C "$REPO_ROOT" patch-id --stable 2>/dev/null | cut -d' ' -f1)"
   printf '%s' "$id"
 }
@@ -3163,6 +3197,32 @@ panel_has() { # panel_has <panel-value> <reviewer>
 }
 # LOCKSTEP-END lean-design-provider-family
 
+# The PLAN-stage reviewer a family makes mandatory (#710) — the pre-implementation counterpart of
+# `design_family_reviewer` above, and OUTSIDE the lockstep block on purpose: that block is held
+# verbatim by scripts/check-lean-chain.sh because the merge boundary re-derives the family and the
+# mandatory FIDELITY reviewer from the committed spec. Nothing at the boundary reads the plan or
+# its review (D-12), so a copy there would be coverage this repo does not have — and a function
+# added inside the markers would red the pair for a contract only one side has.
+#
+# BARE, not qualified, and that is the one place it diverges from its sibling. The record's
+# `reviewer:` key is read by header_key, whose charset stops at the first character outside
+# [A-Za-z0-9._-]; a `design-toolkit:`-prefixed value would truncate to `design-toolkit` and the
+# family check would be comparing plugin prefixes. The sibling can be qualified because its
+# consumer is `panel_has`, a token test over a reader widened for exactly that.
+#
+# ONE FAMILY, not two. `design-faithful-plan-reviewer` DOES NOT EXIST — there is no claude-design
+# counterpart to dispatch, so mandating a record for that family would demand an artifact no agent
+# can produce. That is OR-1 of this slice's spec, filed as #739; until that lands, an armed
+# claude-design run is unreviewed at the plan stage and the gate says so rather than pretending
+# otherwise. Returning non-zero here is what carries that: every caller reads a failure as "this
+# family has no plan reviewer", never as a satisfied requirement.
+design_family_plan_reviewer() { # design_family_plan_reviewer <family>
+  case "${1:-}" in
+    figma) printf 'figma-faithful-plan-reviewer' ;;
+    *)     return 1 ;;
+  esac
+}
+
 # The section's body lines, for the gate-side form checks the boundary does not make.
 design_section() { # design_section   (spec on stdin)
   awk '
@@ -3433,6 +3493,26 @@ resolve_ledger_lint() {
   resolve_sibling intake-toolkit skills/plan-interview/tools/ledger-lint.sh
 }
 # <<< ledger-lint-resolver
+
+# #710 D-35. Whether design-toolkit ships the plan reviewer this checkout would have to dispatch.
+# The SAME ladder resolve_ledger_lint walks, at the same depth, so an install layout that resolves
+# one resolves the other — a second hand-rolled root walk here would be a third copy of an
+# arithmetic two callers already share.
+#
+# WHAT IT ANSWERS, stated narrowly: the agent contract is ON DISK. It does not answer whether the
+# plugin is ENABLED in this session, which is a harness fact no script can read. So the absent
+# direction is the only one worth acting on, and it is the one worth acting on: without it, a
+# consumer whose design.provider is configured but whose design-toolkit is not installed gets
+# "no plan-review record" — a red naming a dispatch it cannot make.
+resolve_plan_reviewer_agent() { # resolve_plan_reviewer_agent <bare-agent-name>
+  local SCRIPT_DIR PLUGIN_DIR PLUGINS_DIR
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" || return 1
+  # shellcheck disable=SC2034  # read by resolve_sibling() via dynamic scope (resolve-sibling.sh)
+  PLUGIN_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")"
+  # shellcheck disable=SC2034
+  PLUGINS_DIR="$(dirname "$PLUGIN_DIR")"
+  resolve_sibling design-toolkit "agents/$1.md"
+}
 
 # ---------------------------------------------------------------- milestone 1: spec/AC
 # AC-3, as resolved at intake (G-1): existence AT THE PINNED PATH plus >= 1 numbered AC-n,
@@ -3977,6 +4057,120 @@ plan_stamp() { # plan_stamp <plan-path> <patch-id>
   return 0
 }
 
+# The record's FIRST FINDING, for the `verdict: block` refusal to quote (#710). A refusal that
+# said only "the plan review blocks" would send its reader to open a file to learn what for; the
+# whole economics of this arm is that the fix is one table row, and naming it is what makes that
+# cheap.
+#
+# BODY-ONLY, anchored the way header_key is: the header block runs to the first blank line, and
+# everything after it is the reviewer's prose. Leading markdown headings are skipped because
+# "## Findings" is a section label, not a finding — quoting it would be the same non-answer as
+# quoting nothing. Truncated, because a reviewer's first line can be a paragraph and a refusal is
+# read in a terminal.
+plan_review_first_finding() { # plan_review_first_finding <record-path>
+  [ -f "$1" ] || return 0
+  awk '
+    /^[A-Za-z_][A-Za-z0-9_]*[:=]/ { hdr = 1 }
+    hdr && !body && /^[[:space:]]*$/ { body = 1; next }
+    !body { next }
+    {
+      line = $0
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
+      if (line == "") next
+      if (line ~ /^#+[[:space:]]/) next
+      print substr(line, 1, 240)
+      exit
+    }
+  ' "$1"
+}
+
+# THE PLAN REVIEW ASSERTION (#710, D-3). The plan gate above proves the plan has the SHAPE two
+# tables give it; nothing proved anyone read what was in the cells. `figma-faithful-plan-reviewer`
+# scored 99.17% against the very defects #692 shipped and was dispatched by no autonomous lane, so
+# the capability existed and the ROUTING did not. The gate cannot run an agent, so this takes the
+# verdict record's shape exactly: the build session dispatches, and the gate asserts the committed
+# OUTPUT.
+#
+# ORDER (D-32). At the END of the plan pass — after the plan's own `planned_from` binding is
+# confirmed current, and before cmd_3_render reaches the harness config or a single render
+# command. That is what AC-1 asserts against the render stub: a plan nobody graded costs no
+# screenshots. It also means an approved round does not re-plan, because plan_patch_id excludes
+# the verdict record, the receipt, the plan and this record, so both bindings are still current.
+#
+# THE BUDGET SPLIT (D-33) continues the plan pass's own reading of #642. Absence and staleness
+# name the checklist's next step, so they are `block_milestone`. So is `verdict: block`, and that
+# one is worth stating because the ticket's own gloss reads the other way: the primitive it NAMES
+# is block_milestone, and the read is defensible on #642's criterion — a blocking plan review is
+# the reviewer telling the run to do something it had not done yet, not a fix that failed. A
+# MALFORMED header is a `fail_milestone`: the record was written and what was written is wrong.
+#
+# Takes the plan patch id its caller already computed rather than recomputing it. Two computations
+# of one binding is two things that can disagree, and the caller's is the one the plan was just
+# graded against.
+design_plan_review_gate() { # design_plan_review_gate <plan-patch-id>
+  local cur="$1" f="$REPO_ROOT/$PLAN_REVIEW_MANIFEST_REL" fam rev r_from r_v r_rev r_model finding
+
+  fam="$(design_family < "$REPO_ROOT/$SPEC_REL" 2>/dev/null)"
+  if ! rev="$(design_family_plan_reviewer "$fam")"; then
+    say "milestone-3: the '$fam' design family ships no plan-stage reviewer, so $PLAN_MANIFEST_REL is asserted for shape and graded by nobody (OR-1 of $SPEC_REL). Nothing is required here."
+    return 0
+  fi
+
+  if [ ! -f "$f" ]; then
+    # D-35, and INSIDE the absent branch rather than above it. The refusal's premise is that a
+    # dispatch this arm is about to demand cannot be made — so it belongs where the dispatch is
+    # demanded. Hoisted, it would also red a run whose record is already written and current, in a
+    # checkout that no longer needs the agent because the review already happened.
+    #
+    # envfail, not a milestone red: nothing about the BRANCH was evaluated, and charging a run for
+    # its operator's install is the misreport the infra class exists to prevent.
+    resolve_plan_reviewer_agent "$rev" >/dev/null 2>&1 \
+      || envfail "milestone-3: spec $SPEC_REL arms the design lane on the '$fam' family, whose plan reviewer 'design-toolkit:$rev' this checkout does not ship — searched the monorepo layout and the install cache under both plugins. NOTHING was evaluated and no fix attempt was charged. Install design-toolkit, or disarm the ticket."
+    block_milestone 3 "the translation plan $PLAN_MANIFEST_REL has the right shape and no reader: there is no plan-review record at $PLAN_REVIEW_MANIFEST_REL. Dispatch 'design-toolkit:$rev' (Agent tool) on the committed plan, then record its output — 'lean-gate.sh plan-review $ISSUE --verdict <pass|fix-and-go|block> --summary-file <its findings> --model <the model it ran on>' — commit the record, and re-run milestone 3. The gate cannot run an agent; asserting the committed output is the only shape available to it."
+    return $?
+  fi
+
+  r_from="$(header_key reviewed_plan_from < "$f")"
+  r_v="$(header_key verdict < "$f")"
+  r_rev="$(header_key reviewer < "$f")"
+  r_model="$(header_key model < "$f")"
+
+  # MALFORMED, one refusal naming every defect at once so a second round is not spent learning
+  # about the second one. Header-anchored reads throughout: the body below is the reviewer's own
+  # prose about verdicts, and a first-match-anywhere read would take its answer from there.
+  local bad=""
+  [ -n "$r_from" ] || bad="${bad:+$bad; }no 'reviewed_plan_from:' key, so nothing states which plan was read"
+  case "$r_v" in
+    pass|fix-and-go|block) : ;;
+    "") bad="${bad:+$bad; }no 'verdict:' key" ;;
+    *)  bad="${bad:+$bad; }verdict '$r_v' is outside the enum {pass | fix-and-go | block}" ;;
+  esac
+  [ "$r_rev" = "$rev" ] \
+    || bad="${bad:+$bad; }reviewer '${r_rev:-<absent>}' is not the one $SPEC_REL's handoff host makes mandatory ('$rev')"
+  [ -n "$r_model" ] || bad="${bad:+$bad; }no 'model:' key"
+  if [ -n "$bad" ]; then
+    fail_milestone 3 "the plan-review record $PLAN_REVIEW_MANIFEST_REL is malformed: $bad. Rewrite it with 'lean-gate.sh plan-review $ISSUE' rather than by hand — the writer stamps every key this reads."
+    return $?
+  fi
+
+  if [ "$r_from" != "$cur" ]; then
+    block_milestone 3 "the plan-review record $PLAN_REVIEW_MANIFEST_REL was written against a different tree — it records reviewed_plan_from $(printf '%.12s' "$r_from"), and this branch's plan binding is now $(printf '%.12s' "$cur"). The plan has been re-read against code that moved since; re-dispatch 'design-toolkit:$rev' on it, rewrite the record with 'lean-gate.sh plan-review $ISSUE', and commit. Committing the record itself never stales it: $PLAN_REVIEW_MANIFEST_REL is excluded from the binding, exactly as the plan is."
+    return $?
+  fi
+
+  if [ "$r_v" = "block" ]; then
+    finding="$(plan_review_first_finding "$f")"
+    block_milestone 3 "'design-toolkit:$rev' BLOCKED the translation plan $PLAN_MANIFEST_REL: ${finding:-<the record carries no findings body>}. Fix the plan, re-dispatch, and rewrite the record — the full findings are in $PLAN_REVIEW_MANIFEST_REL. This is the cheap place to be wrong: one table cell here is a build everywhere downstream."
+    return $?
+  fi
+
+  say "milestone-3: translation plan reviewed by $rev (verdict $r_v, reviewed_plan_from $(printf '%.12s' "$r_from")) — $PLAN_REVIEW_MANIFEST_REL."
+  # `fix-and-go` proceeds AS IS (D-30), and does not become a silent pass. A real fix moves nothing
+  # this record binds to, so it is re-dispatched and the record is rewritten; a fix nobody made
+  # ships the finding list into the PR, where review-lean reads the committed record.
+  return 0
+}
+
 # The armed plan pass. Returns 0 when the milestone may continue, or the refusal's own code.
 #
 # THE BUDGET SPLIT (D-11) is #642's criterion applied verbatim: absence, a missing header line and
@@ -4000,7 +4194,7 @@ design_plan_gate() {
 
   cur="$(plan_patch_id HEAD)"
   [ -n "$cur" ] \
-    || { fail_milestone 3 "cannot compute this branch's plan patch identity against origin/$BASE_BRANCH — the merge-base is unresolvable, or the branch's diff excluding $VERDICT_REL, $RENDER_MANIFEST_REL and $PLAN_MANIFEST_REL is empty. Fetch origin/$BASE_BRANCH and re-run; a binding that cannot be computed must not be recorded."; return $?; }
+    || { fail_milestone 3 "cannot compute this branch's plan patch identity against origin/$BASE_BRANCH — the merge-base is unresolvable, or the branch's diff excluding $VERDICT_REL, $RENDER_MANIFEST_REL, $PLAN_MANIFEST_REL and $PLAN_REVIEW_MANIFEST_REL is empty. Fetch origin/$BASE_BRANCH and re-run; a binding that cannot be computed must not be recorded."; return $?; }
 
   if ! grep -qE '^[[:space:]]*planned_from:' "$f" 2>/dev/null; then
     block_milestone 3 "the translation plan $PLAN_MANIFEST_REL carries no 'planned_from:' header, so nothing states which tree it was written against. Add the line 'planned_from: pending' above the tables and re-run — this gate stamps the value, it never invents structure inside an artifact you author."
@@ -4015,13 +4209,92 @@ design_plan_gate() {
       return $?
     fi
     say "milestone-3: translation plan current (planned_from $(printf '%.12s' "$cur")) — $PLAN_MANIFEST_REL."
-    return 0
+    design_plan_review_gate "$cur"
+    return $?
   fi
 
   plan_stamp "$f" "$cur" \
     || { fail_milestone 3 "cannot rewrite the 'planned_from:' header of $PLAN_MANIFEST_REL"; return $?; }
   block_milestone 3 "the translation plan $PLAN_MANIFEST_REL was written against different code — its 'planned_from' has been re-stamped to $(printf '%.12s' "$cur"). RE-READ THE PLAN against the lines that moved before you commit the stamp: the binding records that the plan was current at this patch, and nothing else in this lane checks that it still says the right thing. Then commit it and re-run milestone 3."
   return $?
+}
+
+# ---------------------------------------------------------------- plan-review (BUILD role)
+# The WRITER for the record design_plan_review_gate asserts (#710, D-34). Flag style is `verdict`'s
+# and the reason is the same: the value a downstream reader binds to — here `reviewed_plan_from` —
+# is STAMPED from the checkout, never typed, so a record cannot claim a tree it was not written
+# against. A second call overwrites; a re-dispatch after a fix is the ordinary path.
+#
+# `--summary-file` is REQUIRED here where `verdict`'s is optional, and that asymmetry is the whole
+# point of the artifact: a `block` the gate has to quote needs a body to quote from, and a review
+# that recorded a verdict and no findings would leave the fix unnameable — which is the shape this
+# slice exists to end, one level up.
+#
+# EVERY REFUSAL IS `envfail`. Nothing here decides anything about the branch: this is a writer, and
+# its refusals are usage and environment, which is the exit-2 contract this file's header fixes.
+#
+# WRITTEN UNFORMATTED, like the spec and the intent-gap record and unlike the render receipt. The
+# body is arbitrary reviewer markdown, so only an external formatter could shape it, and this gate
+# does not reach the network for one. Format it yourself before committing if your repo's format
+# gate covers the plans directory.
+cmd_plan_review() {
+  local dstate fam rev cur f body
+  dstate="$(design_state "$REPO_ROOT/$SPEC_REL")"
+  case "$dstate" in
+    error:*) envfail "plan-review: ${dstate#error:}" ;;
+    armed)   : ;;
+    *)       envfail "plan-review: $SPEC_REL does not arm the design lane (state '$dstate'), so there is no translation plan to review and nothing would ever read this record." ;;
+  esac
+
+  fam="$(design_family < "$REPO_ROOT/$SPEC_REL" 2>/dev/null)"
+  rev="$(design_family_plan_reviewer "$fam")" \
+    || envfail "plan-review: the '$fam' design family ships no plan-stage reviewer agent, so this record would name a dispatch nobody can make. That gap is OR-1 of this slice and is filed as a follow-up; until it lands, an armed '$fam' run is unreviewed at the plan stage and milestone 3 says so."
+  resolve_plan_reviewer_agent "$rev" >/dev/null 2>&1 \
+    || envfail "plan-review: 'design-toolkit:$rev' is not installed in this checkout — searched the monorepo layout and the install cache under both plugins. A record written without the dispatch it claims to carry is the fabrication this artifact exists to make checkable."
+
+  [ -f "$REPO_ROOT/$PLAN_MANIFEST_REL" ] \
+    || envfail "plan-review: no translation plan at $PLAN_MANIFEST_REL — there is nothing to have reviewed. Write and commit the plan first; 'bash lean-gate.sh 3 $ISSUE' prints its contract."
+
+  case "$VERDICT_VALUE" in
+    pass|fix-and-go|block) : ;;
+    '') envfail "plan-review: --verdict is required and takes pass|fix-and-go|block." ;;
+    *)  envfail "plan-review: --verdict takes pass|fix-and-go|block, got '$VERDICT_VALUE'." ;;
+  esac
+
+  [ -n "$SUMMARY_FILE" ] \
+    || envfail "plan-review: --summary-file is required — the record's body is the reviewer's findings verbatim, and a verdict with no findings names no fix."
+  [ -f "$SUMMARY_FILE" ] || envfail "plan-review: --summary-file '$SUMMARY_FILE' does not exist."
+  body="$(cat "$SUMMARY_FILE")"
+  [ -n "$(printf '%s' "$body" | tr -d '[:space:]')" ] \
+    || envfail "plan-review: --summary-file '$SUMMARY_FILE' is empty."
+
+  VERDICT_MODEL="${VERDICT_MODEL:-${LEAN_RUN_MODEL:-}}"
+  [ -n "$VERDICT_MODEL" ] \
+    || envfail "plan-review: --model is required (or export LEAN_RUN_MODEL) — a review whose model is unrecorded cannot be placed by anyone re-reading the record."
+
+  cur="$(plan_patch_id HEAD)"
+  [ -n "$cur" ] \
+    || envfail "plan-review: cannot compute this branch's plan patch identity against origin/$BASE_BRANCH — the merge-base is unresolvable, or the branch's diff excluding $VERDICT_REL, $RENDER_MANIFEST_REL, $PLAN_MANIFEST_REL and $PLAN_REVIEW_MANIFEST_REL is empty. Fetch origin/$BASE_BRANCH and re-run; a binding that cannot be computed must not be recorded."
+
+  f="$REPO_ROOT/$PLAN_REVIEW_MANIFEST_REL"
+  mkdir -p "$(dirname "$f")" || envfail "plan-review: cannot create '$(dirname "$f")'."
+  {
+    echo "# lean translation-plan review — #$ISSUE"
+    echo ""
+    echo "reviewed_plan_from: $cur"
+    echo "verdict: $VERDICT_VALUE"
+    # BARE, never `design-toolkit:`-qualified — record_key's charset stops at the colon, and a
+    # qualified value would be read back as the plugin prefix alone. design_family_plan_reviewer
+    # is the single derivation both sides use, so writer and reader cannot disagree.
+    echo "reviewer: $rev"
+    echo "model: $VERDICT_MODEL"
+    echo ""
+    printf '%s\n' "$body"
+  } > "$f"
+
+  say "✓ plan-review: $PLAN_REVIEW_MANIFEST_REL written (verdict=$VERDICT_VALUE, reviewer=$rev, model=$VERDICT_MODEL, reviewed_plan_from=$(printf '%.12s' "$cur"))"
+  say "  It is evidence only once COMMITTED — commit it, then re-run milestone 3."
+  return 0
 }
 
 # The armed render pass. Returns 0 when the milestone may continue, or fail_milestone's own code
@@ -5787,6 +6060,7 @@ case "$SUB" in
   progress) cmd_progress ;;
   staleness) cmd_staleness ;;
   verdict) cmd_verdict ;;
+  plan-review) cmd_plan_review ;;
   all)     cmd_all ;;
   *)       run_milestone "$SUB" ;;
 esac

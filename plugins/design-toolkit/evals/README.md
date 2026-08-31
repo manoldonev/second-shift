@@ -104,9 +104,10 @@ campaign that acts on them is #707.
 | `figma-faithful-spec-reviewer` | **72.50%** | 27.5pp, nearly all of it in one fixture |
 
 **Two of the three are at a ceiling, and that is itself the result.** The plan reviewer caught
-every #692 defect 3/3 on the first try — so #692's failure was *dispatch*, not capability: that
-agent is dispatched by the operator at `figma-faithful` step 7 and by no autonomous lane. Routing
-is #705's subject.
+every #692 defect 3/3 on the first try — so #692's failure was *dispatch*, not capability: when
+this was measured, that agent was dispatched by the operator at `figma-faithful` step 7 and by
+nothing else. #705 closed the routing gap: the lean lane's build session now dispatches it at
+milestone 3 and commits its verdict, and the gate asserts the record.
 
 The spec reviewer's deficit is one fixture: `01-lean-spec-no-visual-contract` scored **0/3**,
 declining a lean-lane spec as `N/A` in every run — the defect #704's AC-4 fixes, and the one place
