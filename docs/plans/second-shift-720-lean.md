@@ -52,7 +52,7 @@ its own copies — it is the reader that still needs them. `branch_patch_id` and
   | --- | --- |
   | `(j3)`, `(j3b)`, `(u2)`, `(v4)`, `(v5)`, `(vb2)`, `(t2)` | listed in the ticket; each pins a deleted site |
   | `(vb-baseline)`, `(vb1)`, `(vb3)`, `(vb4)` | the ticket's discretionary set. **Deleted** — the fail-open path they pin lives inside the two stale arms, so it does not survive. `lean-evidence-selftest.sh` `(s2)`/`(s4)` keep the boundary's copy of it covered. |
-  | `(u3)`, `(v0)`, `(v1)`, `(v2)`, `(v3)`, `(v3a)`, `(v4-fixture)`, `(vb-fixture)`, `(vb0)`, `(vb4a)` | not listed, but mechanically forced: each is a non-vacuity or fixture guard **for** a deleted case, and `(u3)`/`(v1)`/`(v2)`/`(v3)` additionally grep the pass line's `patch-id` text, which the deletion removes. `(x1)` already pins that the real writer stamps `reviewed_patch_id`. |
+  | `(t3)`, `(u3)`, `(v0)`, `(v1)`, `(v2)`, `(v3)`, `(v3a)`, `(v4-fixture)`, `(vb-fixture)`, `(vb0)`, `(vb4a)` | not listed, but mechanically forced: each is a remedy half, non-vacuity guard or fixture guard **for** a deleted case, and `(u3)`/`(v1)`/`(v2)`/`(v3)` additionally grep the pass line's `patch-id` text, which the deletion removes. `(x1)` already pins that the real writer stamps `reviewed_patch_id`. |
   | `(v5-fixture)` → renamed `(v6-fixture)` | it guards the `CFG_NOBASE` fixture, which `(v6)` still needs |
 
   **`(v6)` is KEPT, against the ticket's list.** It drives `bash "$GATE" verdict … --verdict approve`
@@ -68,8 +68,16 @@ its own copies — it is the reader that still needs them. `branch_patch_id` and
   `m4/verdict-keys` still has a live site (`reviewed_head`). Only column 6 (`earn_your_keep`, which
   `gate-ablation.awk` does not read) is amended, so the generated block cannot move.
 - **AC-5** `lean-gate.sh` + `lean-gate-selftest.sh` at head ≤ **14,151** (base 14,401 − 250).
-  `git diff --quiet origin/main -- plugins/dev-pipeline/skills/build-lean/lean-evidence.sh` and
-  `-- scripts/check-lean-chain.sh` both exit 0. *Mutant:* any edit to either.
+  `git diff --quiet origin/main -- scripts/check-lean-chain.sh` exits 0.
+  **`lean-evidence.sh` changes by COMMENT LINES ONLY**, which is the same botch closed by a
+  sharper oracle:
+  `git diff origin/main -- <lean-evidence.sh> | grep -E '^[+-]' | grep -v '^[+-][+-][+-]' | grep -cvE '^[+-]#|^[+-]$'`
+  = **0** — not one executable line moves, so no check can have been relocated into it. Two of
+  those comment lines are the `LOCKSTEP-BEGIN/END contribution-compare` markers, which
+  `scripts/check-lockstep-pairs.sh` **requires** be removed once the second copy in `lean-gate.sh`
+  is deleted ("a lockstep marker with no counterpart … Give it a second site, or remove its
+  markers"); the rest correct prose that now names readers this change removed. *Mutant:* any
+  non-comment edit to either file.
 - **AC-6** `plugins/dev-pipeline/skills/build-lean/scenario-liveness-selftest.sh` loses legs 5, 7
   and 7b and the head-declaring half of leg 6, and keeps leg 3d `(lean-taxonomy)` and leg 4
   `(lean-authorship)` green. CLAUDE.md's rule cuts both ways: a deleted gate contract shrinks the
