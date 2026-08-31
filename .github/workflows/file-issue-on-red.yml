@@ -86,10 +86,7 @@ jobs:
           if [[ -n "$existing" ]]; then
             echo "already open as #$existing — appending this run rather than filing a duplicate."
             gh issue comment "$existing" --repo "$GH_REPO" --body-file "$BODY_FILE"
-            exit $?
-          fi
-
-          if [[ -n "$LABELS" ]]; then
+          elif [[ -n "$LABELS" ]]; then
             gh issue create --repo "$GH_REPO" --title "$TITLE_KEY @ $SHORT" \
               --body-file "$BODY_FILE" --label "$LABELS"
           else

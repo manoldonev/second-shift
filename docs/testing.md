@@ -1400,12 +1400,13 @@ harness, same `--mode pr` diff scoping, same generic + catalog depth, with all t
 reasons bypassed. It runs against `github.event.before`, queued rather than coalesced, so every
 merge is graded on its own diff.
 
-The monthly lane is not the enforced tier and has not been since the merge lane took that job.
-What it still covers is the classes no diff-scoped run can see: a baseline that has quietly
-shrunk, a verdict flipped by a third file (the memoization key is deliberately narrow), a suite
-edit that weakened a guard no merge touched. Those move on nobody's diff. Monthly costs latency
-on that rarest class, bounded at ~30 days, and buys back a nightly whose marginal information
-was ~zero on any day nothing changed — 570 mutants re-derived to re-learn 438 known kills.
+The monthly lane no longer grades anybody's change — the merge lane took that job. What is left
+for it is the classes no diff-scoped run can see: a baseline that has quietly shrunk, a verdict
+flipped by a third file (the memoization key is deliberately narrow, and says so), a suite edit
+that weakened a guard no merge touched. Those move on nobody's diff, so nothing event-driven
+reaches them. Monthly costs latency on that rarest class, bounded at ~30 days, and buys back a
+nightly whose marginal information was ~zero on any day nothing changed — 570 mutants re-derived
+to re-learn 438 known kills.
 
 **A red files an issue, it does not redden a dashboard.** Both non-PR lanes route their verdict
 into the intake queue through `.github/workflows/file-issue-on-red.yml`, deduplicated on a title
