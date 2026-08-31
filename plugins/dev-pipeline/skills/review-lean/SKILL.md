@@ -81,6 +81,12 @@ the code does not author its own evaluation.
    | RS-1 | Checkout / populated | unit selector | number field | text input | deviation (AC-3) |
    ```
 
+   **A sizing row cites the measurement, not the picture.** For any row whose `property` is a
+   dimension, the `rendered` cell is the value the harness reported in the state's
+   `<png>.rects.json` sibling — milestone 3 already compared those numbers against the translation
+   plan's `px` column, so quoting them keeps your table and the gate on one set of figures. A
+   number read off the PNG by eye is the thing this column exists instead of.
+
    `verdict` is `match`, or `deviation (<ref>)` where `<ref>` is an `AC-n` or `D-n` **the spec
    declares** — a bare `deviation`, a free-text reason, and a citation the spec does not carry are
    all refused. A cited deviation does not force `fidelity: fail`: the point is that "the ticket

@@ -1143,9 +1143,14 @@ LEANELC
   printf '.claude/\n' > "$LEAN_DTREE/.gitignore"
   LEAN_DSTUB="$TMP/lean-render-stub.sh"
   LEAN_DMODE="$TMP/lean-render-mode"
+  # The rects sibling every declared state owes (#711). Its payload is a file the legs rewrite, so
+  # the composed chain can be walked with measurements that agree with the plan and again with
+  # measurements that do not, without touching anything else the legs assert on.
+  LEAN_DRECTS="$TMP/lean-render-rects.json"
   cat > "$LEAN_DSTUB" <<LEANSTUB
 #!/usr/bin/env bash
 MODEF="$LEAN_DMODE"
+RECTSF="$LEAN_DRECTS"
 LEANSTUB
   cat >> "$LEAN_DSTUB" <<'LEANSTUB'
 route=""; state=""; out=""
@@ -1160,7 +1165,9 @@ done
 mode=ok; [ -f "$MODEF" ] && mode="$(cat "$MODEF")"
 case "$mode" in
   fail) echo "render harness unavailable" >&2; exit 5 ;;
-  *)    printf 'PNG-%s-%s\n' "$route" "$state" > "$out" ;;
+  *)    printf 'PNG-%s-%s\n' "$route" "$state" > "$out"
+        rm -f "$out.rects.json"
+        if [ -f "$RECTSF" ]; then cat "$RECTSF" > "$out.rects.json"; fi ;;
 esac
 exit 0
 LEANSTUB
@@ -1205,10 +1212,14 @@ LEANSYNCCFG
       printf '# translation plan — acme #88\n\nplanned_from: pending\n\n'
       printf '| node | repo component | why this component |\n| --- | --- | --- |\n'
       printf '| Filter panel | @acme/ui Drawer | the frame draws a right-edge sheet over a scrim |\n\n'
-      printf '| node | dimensions | overflow |\n| --- | --- | --- |\n'
-      printf '| Filter panel | fixed 320px wide, hug height | none |\n'
+      printf '| node | RS | px | dimensions | overflow |\n| --- | --- | --- | --- | --- |\n'
+      printf '| Filter panel | RS-2 | 320×604 | fixed 320px wide, hug height | none |\n'
     } > "$LEAN_DPLAN"
   }
+  # The measurements that AGREE with the plan above. Every design leg below composes over this, so
+  # a leg that means to assert something else rewrites it and puts it back.
+  LEAN_DRECTS_OK='{ "Filter panel": { "width": 320, "height": 604 } }'
+  printf '%s\n' "$LEAN_DRECTS_OK" > "$LEAN_DRECTS"
   # Save-and-restore the REAL progress file: milestone 3 is only reachable through the entry
   # attestation lean_dseed writes, so a fresh one would refuse before the plan pass and stamp
   # nothing — silently. Restoring keeps the attempt/lock counters the legs assert on identical.
@@ -1346,6 +1357,42 @@ LEANSYNCCFG
   [[ "$lean_darmed" -eq 1 && "$lean_dattempts" -eq 4 ]] \
     && pass "(lean-design-budget) the armed record is written once and counts for nothing — 4 attempts, 1 lock" \
     || fail "(lean-design-budget) armed=$lean_darmed attempts=$lean_dattempts, expected 1 and 4"
+
+  # ---- design leg 1b: the RENDERED MEASUREMENT, reached through the whole chain (#711) ----
+  # The per-tool suite owns the comparison's arithmetic. What only a composed leg can show is that
+  # a run REACHES it: the plan has to exist, carry the measured-node columns, be stamped, be
+  # reviewed and be committed, the harness has to run and write its rects sibling, and only then
+  # is a number compared. A milestone-3 arm nothing composes against is the #204 shape — green in
+  # its own suite, unreachable in the lane.
+  #
+  # The payload is the #692 defect verbatim: every stated axis at a common factor, which every
+  # `shape` test forgives and only the `scale` arm names. The SAME tree then goes green once the
+  # measurements agree, so the red is the comparison and not something incidental to the fixture.
+  printf 'ok\n' > "$LEAN_DMODE"
+  printf '%s\n' '{ "Filter panel": { "width": 640, "height": 1208 } }' > "$LEAN_DRECTS"
+  LEAN_DRENDREC="$LEAN_DTREE/docs/plans/acme-88-lean-renders.md"
+  rm -f "$LEAN_DRENDREC"
+  lean_dseed
+  ld_meas_out="$(lean_dgate 3 88 2>&1)"; ld_meas=$?
+  ld_mattempts=$(grep -cF '| milestone-3 | attempt |' "$LEAN_DPROG" 2>/dev/null) || ld_mattempts=0
+  ld_meas_receipt=0; [[ -f "$LEAN_DRENDREC" ]] && ld_meas_receipt=1
+  printf '%s\n' "$LEAN_DRECTS_OK" > "$LEAN_DRECTS"
+  lean_dseed
+  ld_meas_ok_out="$(lean_dgate 3 88 2>&1)"
+  ld_meas_ok_receipt=0; [[ -f "$LEAN_DRENDREC" ]] && ld_meas_ok_receipt=1
+  # THE RECEIPT IS THE ORACLE for the green half, not an exit code: it is written only after the
+  # comparison passes, and a first receipt reds for needing a commit whatever the measurements
+  # said. The red half asserts the mirror — a failed comparison leaves NO receipt behind, so a
+  # reviewer never reads evidence of a render that did not pass.
+  if [[ "$ld_meas" -eq 1 && "$ld_mattempts" -eq 1 && "$ld_meas_receipt" -eq 0 && "$ld_meas_ok_receipt" -eq 1 ]] \
+     && grep -q '(scale)' <<<"$ld_meas_out" && grep -q 'k=2.000' <<<"$ld_meas_out" \
+     && ! grep -q 'disagree with the translation plan' <<<"$ld_meas_ok_out"; then
+    pass "(lean-design-measure) a screen rendered at a uniform 2x reds milestone 3 on the fix budget through the whole armed chain and writes no receipt, and the same tree passes once the measurements agree"
+  else
+    fail "(lean-design-measure) rc=$ld_meas attempts=$ld_mattempts receipt=$ld_meas_receipt/$ld_meas_ok_receipt: $ld_meas_out"
+  fi
+  rm -rf "$LEAN_DTREE/.claude/lean-renders/88"
+  rm -f "$LEAN_DTREE/docs/plans/acme-88-lean-renders.md"
 
   # ---- design leg 2: the receipt commits, then milestone 4 refuses an unscored verdict ----
   printf 'ok\n' > "$LEAN_DMODE"

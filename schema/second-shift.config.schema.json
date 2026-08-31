@@ -224,6 +224,12 @@
               "type": "string",
               "format": "uri",
               "description": "Optional URL curl-checked before spawning the command (e.g. a sibling BE health endpoint). Probe failure degrades fast with the probe detail instead of waiting out the render timeout."
+            },
+            "tolerancePx": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 2,
+              "description": "Pixel tolerance for milestone 3's rendered-measurement comparison. The gate reads the `<png>.rects.json` sibling the harness writes beside each screenshot, keyed by the translation plan's node names, and reds when a node is out of proportion with the rest of its render state (`shape`) or when the whole state renders at a factor tolerance does not explain (`scale`). Absent = 2. See docs/live-render.md."
             }
           }
         }

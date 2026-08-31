@@ -3609,6 +3609,13 @@ DCFG="$WORK/dconfig.json"
 DSTUB="$WORK/render-stub.sh"
 DCALLS="$WORK/stub-calls.log"
 DMODE="$WORK/stub-mode"
+# The rects sibling (#711). The PAYLOAD is a file the cases rewrite — the same bytes for every
+# state, which is what makes the plan's `RS` column the thing that decides which nodes a state is
+# measured on rather than the stub. Its MODE is separate from the render mode: "the harness
+# screenshotted and wrote no rects" and "the harness failed" are different states, and the ticket
+# puts them on different budgets.
+DRECTS="$WORK/stub-rects.json"
+DRMODE="$WORK/stub-rects-mode"
 
 # The arg-asserting stub. It exits NONZERO on an unsubstituted `{route}`/`{state}`/`{out}`, so a
 # gate that forwarded the template verbatim reds instead of producing a plausible screenshot —
@@ -3619,6 +3626,8 @@ cat > "$DSTUB" <<EOSTUB
 #!/usr/bin/env bash
 CALLS="$DCALLS"
 MODEF="$DMODE"
+RECTSF="$DRECTS"
+RMODEF="$DRMODE"
 EOSTUB
 cat >> "$DSTUB" <<'EOSTUB'
 route=""; state=""; out=""
@@ -3642,13 +3651,20 @@ case "$mode" in
     case "$state" in ''|*'{state}'*) echo "stub: {state} not substituted ('$state')" >&2; exit 92 ;; esac
     printf 'PNG-%s-%s\n' "$route" "$state" > "$out" ;;
 esac
+rmode=emit; [ -f "$RMODEF" ] && rmode="$(cat "$RMODEF")"
+rm -f "$out.rects.json"
+case "$rmode" in
+  none) : ;;
+  bad)  printf 'this is not json\n' > "$out.rects.json" ;;
+  *)    if [ -f "$RECTSF" ]; then cat "$RECTSF" > "$out.rects.json"; else printf '{}\n' > "$out.rects.json"; fi ;;
+esac
 exit 0
 EOSTUB
 
-dcfg() { # dcfg <liveRender-command-or-empty> [cwd]
-  local cmd="${1:-}" cwd="${2:-}" lr=""
+dcfg() { # dcfg <liveRender-command-or-empty> [cwd] [tolerancePx]
+  local cmd="${1:-}" cwd="${2:-}" tol="${3:-}" lr=""
   if [ -n "$cmd" ]; then
-    lr=", \"liveRender\": { \"command\": \"$cmd\"$([ -n "$cwd" ] && printf ', "cwd": "%s"' "$cwd") }"
+    lr=", \"liveRender\": { \"command\": \"$cmd\"$([ -n "$cwd" ] && printf ', "cwd": "%s"' "$cwd")$([ -n "$tol" ] && printf ', "tolerancePx": %s' "$tol") }"
   fi
   cat > "$DCFG" <<EOCFG
 {
@@ -3680,8 +3696,19 @@ cat > "$DSYNCCFG" <<EOSYNC
 }
 EOSYNC
 
-# The armed ticket's translation plan (#694), conforming: a `why this component` table and a
-# `dimensions` table, every cell filled, and the `planned_from:` line the gate stamps.
+# The armed ticket's translation plan (#694/#711), conforming: a `why this component` table and a
+# dimension table declaring `node`/`RS`/`px` beside `dimensions`, every cell filled, and the
+# `planned_from:` line the gate stamps.
+#
+# The component table carries a `node` column of its own AND NO `dimensions` COLUMN, which is the
+# shape the measured-node arm has to get right: those three columns are required of the table that
+# declares `dimensions`, not of the document, so a `node` column over there is not the answer.
+#
+# RS-1, because it is the one state EVERY armed spec in this block declares — (dr6b) narrows the
+# matrix to the default state alone, and a default row keyed to RS-2 would red it on the
+# undeclared-state arm, for a reason that case is not about. A non-default state is measured by
+# (dpx12), where that is the subject.
+DPLAN_DROW='| Filter panel | RS-1 | 320×604 | fixed 320px wide, hug height | none |'
 dplan_write() {
   {
     echo "# translation plan — acme #55"
@@ -3696,11 +3723,20 @@ dplan_write() {
     echo ""
     echo "## Dimensions"
     echo ""
-    echo "| node | dimensions | overflow |"
-    echo "| --- | --- | --- |"
-    echo "| Filter panel | fixed 320px wide, hug height | none |"
+    echo "| node | RS | px | dimensions | overflow |"
+    echo "| --- | --- | --- | --- | --- |"
+    echo "$DPLAN_DROW"
   } > "$DPLAN"
 }
+
+# The rects payload the stub emits for EVERY state, matching the plan above exactly. Rewritten in
+# place by the measurement cases; restored by this function, so a case that moves it says so.
+DRECTS_OK='{ "Filter panel": { "width": 320, "height": 604 } }'
+drects_write() { # drects_write [json]
+  printf '%s\n' "${1:-$DRECTS_OK}" > "$DRECTS"
+  printf 'emit\n' > "$DRMODE"
+}
+drects_write
 
 # Bring `planned_from` current using PRODUCTION — the gate stamps it, this never computes a patch
 # id itself. A selftest that derived the id would be the mirror harness docs/testing.md forbids,
@@ -4206,14 +4242,45 @@ if [ "$rc" -eq 1 ] && grep -q 'resolved-component list is absent' <<<"$out" \
   pass "(dp2) a plan with no 'why this component' column reds, and a written-but-wrong plan IS a fix attempt"
 else fail "(dp2) rc=$rc attempts=$(dcount '| milestone-3 | attempt |'): $out"; fi
 
+# (dp12)-(dp14) #711: the MEASURED-NODE columns, one case per column. They are required OF THE
+# TABLE THAT DECLARES `dimensions`, never of the document, and (dp12) is where that distinction
+# has teeth: dplan_write's resolved-component table already carries a `node` column, so a
+# document-wide existence check reads it as the answer and the dimension table keeps its silence.
+dreset
+dplan_write
+sed 's/^| node | RS | px | dimensions | overflow |$/| component | RS | px | dimensions | overflow |/' "$DPLAN" > "$DPLAN.tmp" && mv "$DPLAN.tmp" "$DPLAN"
+dcommit_raw "a dimension table with no node column, and a component table that has one"
+out="$(dgate 3 55)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'declares no "node" column' <<<"$out"; then
+  pass "(dp12) a dimension table with no 'node' column reds — a 'node' column on the component table is not the answer"
+else fail "(dp12) expected the missing-node-column refusal, rc=$rc: $out"; fi
+
+dreset
+dplan_write
+sed 's/^| node | RS | px | dimensions | overflow |$/| node | state | px | dimensions | overflow |/' "$DPLAN" > "$DPLAN.tmp" && mv "$DPLAN.tmp" "$DPLAN"
+dcommit_raw "a dimension table with no RS column"
+out="$(dgate 3 55)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'declares no "rs" column' <<<"$out"; then
+  pass "(dp13) a dimension table with no 'RS' column reds — a size measured in no named state is measured against no file"
+else fail "(dp13) expected the missing-RS-column refusal, rc=$rc: $out"; fi
+
+dreset
+dplan_write
+sed 's/^| node | RS | px | dimensions | overflow |$/| node | RS | size | dimensions | overflow |/' "$DPLAN" > "$DPLAN.tmp" && mv "$DPLAN.tmp" "$DPLAN"
+dcommit_raw "a dimension table with no px column"
+out="$(dgate 3 55)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'declares no "px" column' <<<"$out"; then
+  pass "(dp14) a dimension table with no 'px' column reds — the prose 'dimensions' cell is not machine-readable and is not meant to be"
+else fail "(dp14) expected the missing-px-column refusal, rc=$rc: $out"; fi
+
 # (dp3) the EMPTY CELL, which is the spec reviewer's device and the whole point of the column
 # anchor: a dimension row that exists but records nothing is the silence being caught.
 dreset
 dplan_write
-sed 's/| Filter panel | fixed 320px wide, hug height | none |/| Filter panel |  | none |/' "$DPLAN" > "$DPLAN.tmp" && mv "$DPLAN.tmp" "$DPLAN"
+sed "s@^$DPLAN_DROW\$@| Filter panel | RS-1 | 320×604 |  | none |@" "$DPLAN" > "$DPLAN.tmp" && mv "$DPLAN.tmp" "$DPLAN"
 dcommit_raw "a plan with an empty dimensions cell"
 out="$(dgate 3 55)"; rc=$?
-if [ "$rc" -eq 1 ] && grep -q 'dimensions row 1 leaves column 2 empty' <<<"$out"; then
+if [ "$rc" -eq 1 ] && grep -q 'dimensions row 1 leaves column 4 empty' <<<"$out"; then
   pass "(dp3) an empty cell in the dimension table reds, named by row and column"
 else fail "(dp3) expected the empty-cell refusal, rc=$rc: $out"; fi
 
@@ -4221,7 +4288,7 @@ else fail "(dp3) expected the empty-cell refusal, rc=$rc: $out"; fi
 # otherwise be the one-character escape from (dp3).
 dreset
 dplan_write
-sed 's/| Filter panel | fixed 320px wide, hug height | none |/| Filter panel | fixed 320px wide, hug height |/' "$DPLAN" > "$DPLAN.tmp" && mv "$DPLAN.tmp" "$DPLAN"
+sed "s@^$DPLAN_DROW\$@| Filter panel | RS-1 | 320×604 | fixed 320px wide, hug height |@" "$DPLAN" > "$DPLAN.tmp" && mv "$DPLAN.tmp" "$DPLAN"
 dcommit_raw "a plan with a short dimensions row"
 out="$(dgate 3 55)"; rc=$?
 if [ "$rc" -eq 1 ] && grep -q 'a short row is a missing cell' <<<"$out"; then
@@ -4234,7 +4301,7 @@ else fail "(dp4) expected the short-row refusal, rc=$rc: $out"; fi
 # no cell to look at. A header and a delimiter over nothing is a column declared and never filled.
 dreset
 dplan_write
-sed '/^| Filter panel | fixed 320px wide, hug height | none |$/d' "$DPLAN" > "$DPLAN.tmp" && mv "$DPLAN.tmp" "$DPLAN"
+sed "\@^$DPLAN_DROW\$@d" "$DPLAN" > "$DPLAN.tmp" && mv "$DPLAN.tmp" "$DPLAN"
 dcommit_raw "a plan whose dimension table carries no data row"
 out="$(dgate 3 55)"; rc=$?
 if [ "$rc" -eq 1 ] && grep -q 'the table declaring a "dimensions" column carries no data row' <<<"$out"; then
@@ -4251,8 +4318,8 @@ else fail "(dp10) expected the no-data-row refusal, rc=$rc: $out"; fi
 # where the arm is fail-open rather than merely mis-worded.
 dreset
 dplan_write
-echo "| Results grid | fill width, 12px row gap | scroll-y |" >> "$DPLAN"
-awk '/^\| --- \| --- \| --- \|$/ { n++; if (n == 2) next } { print }' "$DPLAN" > "$DPLAN.tmp" && mv "$DPLAN.tmp" "$DPLAN"
+echo "| Results grid | RS-1 | -×412 | fill width, 12px row gap | scroll-y |" >> "$DPLAN"
+awk '/^\| --- \| --- \| --- \| --- \| --- \|$/ { next } { print }' "$DPLAN" > "$DPLAN.tmp" && mv "$DPLAN.tmp" "$DPLAN"
 dcommit_raw "a plan whose dimension table lost its delimiter row"
 out="$(dgate 3 55)"; rc=$?
 if [ "$rc" -eq 1 ] && grep -q 'the table declaring a "dimensions" column has no delimiter row under its header' <<<"$out"; then
@@ -4658,7 +4725,7 @@ dreset
 dmode ok
 rm -f "$DCALLS" "$DMANIFEST"
 out="$(dgate 3 55)"; rc=$?
-D_ROWS="$(grep -cE '^\| RS-[0-9]+ \|' "$DMANIFEST" 2>/dev/null)" || D_ROWS=0
+D_ROWS="$(grep -cE '^\| RS-[0-9]+ +\|' "$DMANIFEST" 2>/dev/null)" || D_ROWS=0
 if [ "$rc" -eq 1 ] && grep -q 'commit it and re-run' <<<"$out" \
    && [ "$D_ROWS" -eq 2 ] && [ "$(dcalls)" -eq 2 ] \
    && [ -s "$DTREE/.claude/lean-renders/55/RS-1.png" ] && [ -s "$DTREE/.claude/lean-renders/55/RS-2.png" ]; then
@@ -5336,6 +5403,228 @@ dcommit "the render receipt, restored"
 dreset
 dverdict sess-review-p9 r-review-p9 --pr 55 --verdict approve --fidelity pass --summary-file "$DEVIDENCE" >/dev/null 2>&1
 dcommit "a green armed record, restored"
+
+# ---- (dpx) #711: the RENDERED MEASUREMENT ---------------------------------------------------
+# The gap this closes, in the ticket's own words: milestone 3 renders and hashes, review-lean 5b
+# writes an evidence table the writer checks for SHAPE, and no gate read a NUMBER — so a screen
+# rendered at 2.2x the design's width passed every mechanical check (#692). The plan already
+# recorded the design side (#710); this block is the rendered side arriving.
+#
+# LAST IN THE DESIGN BLOCK, and self-establishing. Every case here rewrites the plan, the payload
+# and the spec's own state matrix, so running it earlier would hand (dl)/(fd)/(fe)/(fp) a fixture
+# whose measured nodes they never asserted anything about.
+#
+# THE STUB IS THE HARNESS, exactly as it is for the screenshots: it writes whatever payload the
+# case put in $DRECTS, and the gate's job is arithmetic over what a harness hands it. A fixture
+# that computed the medians itself would be the mirror harness docs/testing.md forbids, and would
+# agree with a broken gate forever.
+dpx_setup() { # dpx_setup <rects-json> <dimension-row>...
+  local rects="$1"; shift
+  dmode ok
+  dcfg "$DSTUB_CMD" "" "${DPX_TOL:-}"
+  dspec_armed
+  rm -f "$DVERDICT"
+  {
+    echo "# translation plan — acme #55"
+    echo ""
+    echo "planned_from: pending"
+    echo ""
+    echo "| node | repo component | why this component |"
+    echo "| --- | --- | --- |"
+    echo "| Filter panel | @acme/ui Drawer | the frame draws a right-edge sheet over a scrim |"
+    echo ""
+    echo "| node | RS | px | dimensions | overflow |"
+    echo "| --- | --- | --- | --- | --- |"
+    printf '%s\n' "$@"
+  } > "$DPLAN"
+  drects_write "$rects"
+  dcommit "a plan and a measurement payload"
+  dreset
+  rm -f "$DCALLS" "$DMANIFEST"
+  rm -rf "$DTREE/.claude/lean-renders/55"
+}
+DPX_TOL=""
+
+# Findings are JOINED into one refusal line (D-5), so `grep -c` would answer 1 for any number of
+# them — which is the difference between "k is named once" and "k is named at all", and between
+# three nodes reported and one. Count OCCURRENCES.
+dpx_hits() { # dpx_hits <needle> <<< output
+  local n
+  n="$(grep -o "$1" | grep -c .)" || n=0
+  [ -n "$n" ] || n=0
+  echo "$n"
+}
+
+# (dpx1) AC-1 VERBATIM. One stated axis, so the median absorbs everything and the arm degenerates
+# to plain absolute comparison — which is the whole reason AC-1 and AC-2 survive the scale-adaptive
+# rewrite unchanged. The refusal has to name all four of RS-n, the node, the design and the render:
+# "a size is wrong" sends the reader back to the file the gate just read.
+dpx_setup '{ "Control": { "height": 107 } }' '| Control | RS-1 | -×32 | fixed 32px tall | none |'
+out="$(dgate 3 55)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'RS-1' <<<"$out" && grep -q 'Control' <<<"$out" \
+   && grep -q 'design 32' <<<"$out" && grep -q 'rendered 107' <<<"$out" \
+   && [ "$(dcount '| milestone-3 | attempt |')" -eq 1 ] && [ ! -f "$DMANIFEST" ]; then
+  pass "(dpx1) a 32px control rendered at 107px reds milestone 3, naming the state, the node and both numbers, and spends a fix attempt"
+else fail "(dpx1) rc=$rc attempts=$(dcount '| milestone-3 | attempt |') manifest=$([ -f "$DMANIFEST" ] && echo yes || echo no): $out"; fi
+
+# (dpx2) AC-2, both halves. 33 against a design 32 is inside the default tolerance and passes
+# through to the receipt; the SAME tree under tolerancePx: 0 reds. Two runs of one fixture, because
+# the claim is about the key and not about the numbers.
+dpx_setup '{ "Control": { "height": 33 } }' '| Control | RS-1 | -×32 | fixed 32px tall | none |'
+out="$(dgate 3 55)"; rc=$?
+# The claim is that the COMPARISON passed, so it is asserted as "the render pass ran to its end
+# and raised no measurement finding" rather than on an exit code — whether the receipt then needs
+# committing is the receipt bookkeeping's business and moves with what the previous case left in
+# the tree.
+if grep -q 'rendered 2 state(s)' <<<"$out" && [ -f "$DMANIFEST" ] \
+   && [ "$(dpx_hits 'out of proportion' <<<"$out")" -eq 0 ] \
+   && [ "$(dpx_hits '(scale)' <<<"$out")" -eq 0 ]; then
+  pass "(dpx2) a 1px difference passes at the default tolerance and the render pass reaches its receipt"
+else fail "(dpx2) expected a clean measurement, rc=$rc: $out"; fi
+
+DPX_TOL=0
+dpx_setup '{ "Control": { "height": 33 } }' '| Control | RS-1 | -×32 | fixed 32px tall | none |'
+out="$(dgate 3 55)"; rc=$?
+DPX_TOL=""
+if [ "$rc" -eq 1 ] && grep -q 'tolerancePx=0' <<<"$out" && grep -q 'rendered 33' <<<"$out" \
+   && [ ! -f "$DMANIFEST" ]; then
+  pass "(dpx2) …and the same 1px difference reds at tolerancePx: 0 — the key is read, not decorative"
+else fail "(dpx2) expected the zero-tolerance refusal, rc=$rc: $out"; fi
+
+# (dpx3) AC-7 — THE #692 DEFECT CLASS, and the arm's fail-open flank. Both nodes render at a common
+# factor, so median normalization ABSORBS it and every `shape` test passes: an implementation that
+# lost the `scale` check still reds on genuine per-node defects and looks alive while being blind to
+# this exact defect. Two assertions, and the second is the one that matters: k is named ONCE, not
+# once per node, because "everything is 2.2x" is one fact and repeating it per node buries it.
+dpx_setup '{ "Header": { "height": 70 }, "Body": { "height": 110 } }' \
+  '| Header | RS-1 | -×32 | fixed 32px tall | none |' \
+  '| Body | RS-1 | -×50 | fixed 50px tall | none |'
+out="$(dgate 3 55)"; rc=$?
+dpx_scale="$(dpx_hits '(scale)' <<<"$out")"
+dpx_shape="$(dpx_hits 'out of proportion' <<<"$out")"
+if [ "$rc" -eq 1 ] && [ "$dpx_scale" -eq 1 ] && [ "$dpx_shape" -eq 0 ] \
+   && grep -q 'k=2.194' <<<"$out"; then
+  pass "(dpx3) a whole state rendered at a common factor reds as 'scale' naming k ONCE, with no per-node shape red the median absorbed"
+else fail "(dpx3) rc=$rc scale=$dpx_scale shape=$dpx_shape: $out"; fi
+
+# (dpx4) AC-8 — ALL THREE, IN ONE MESSAGE. Four stated axes at ratios 0.9/0.9/1.1/1.1 put the
+# median at 1.0, which no node matches: every node is out of proportion and NOTHING is explained by
+# a common factor, so this is the exact complement of (dpx3). One attempt is charged, which is the
+# accumulate-and-join claim made as a number — first-only would spend one of three attempts per
+# node revealed and hard-stop at attempt 4 having shown the operator three of four.
+dpx_setup '{ "Header": { "width": 90, "height": 180 }, "Body": { "width": 110 }, "Footer": { "height": 110 } }' \
+  '| Header | RS-1 | 100×200 | fixed | none |' \
+  '| Body | RS-1 | 100×- | fill height | none |' \
+  '| Footer | RS-1 | -×100 | fill width | none |'
+out="$(dgate 3 55)"; rc=$?
+dpx_shape="$(dpx_hits 'out of proportion' <<<"$out")"
+if [ "$rc" -eq 1 ] && grep -q 'Header' <<<"$out" && grep -q 'Body' <<<"$out" && grep -q 'Footer' <<<"$out" \
+   && [ "$dpx_shape" -eq 4 ] && [ "$(dcount '| milestone-3 | attempt |')" -eq 1 ]; then
+  pass "(dpx4) three mismatching nodes are named together in one refusal, on one fix attempt"
+else fail "(dpx4) rc=$rc shape=$dpx_shape attempts=$(dcount '| milestone-3 | attempt |'): $out"; fi
+
+# (dpx5) AC-3, first half: the sibling never arrives. ABSENT budget — the harness owns that file and
+# no edit in this worktree reaches it, which is #642's criterion applied verbatim. The screenshot
+# itself is fine, so nothing else in the render pass can see this.
+dpx_setup "$DRECTS_OK" '| Filter panel | RS-2 | 320×604 | fixed | none |'
+printf 'none\n' > "$DRMODE"
+out="$(dgate 3 55)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'no rects sibling' <<<"$out" && grep -q 'not a fix attempt' <<<"$out" \
+   && [ "$(dcount '| milestone-3 | attempt |')" -eq 0 ] && [ ! -f "$DMANIFEST" ]; then
+  pass "(dpx5) a state whose harness wrote no rects sibling reds on the absent budget — a green exit code and a real PNG do not make it a pass"
+else fail "(dpx5) rc=$rc attempts=$(dcount '| milestone-3 | attempt |'): $out"; fi
+
+# (dpx6) AC-3, second half: the file is there and does not carry a node the plan measures. FIX
+# budget, deliberately — on the absent budget a session would earn unlimited free retries by naming
+# nodes the harness never emits.
+dpx_setup '{ "Filter panel": { "width": 320 } }' '| Ghost | RS-1 | -×32 | fixed | none |'
+out="$(dgate 3 55)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'does not carry' <<<"$out" && grep -q 'Ghost' <<<"$out" \
+   && [ "$(dcount '| milestone-3 | attempt |')" -eq 1 ]; then
+  pass "(dpx6) a plan node the rects file does not carry reds on the FIX budget — omitting the key is not how a node opts out of measurement"
+else fail "(dpx6) rc=$rc attempts=$(dcount '| milestone-3 | attempt |'): $out"; fi
+
+# (dpx7) malformed rects JSON. The harness's output contract, so the absent budget again.
+dpx_setup "$DRECTS_OK" '| Filter panel | RS-2 | 320×604 | fixed | none |'
+printf 'bad\n' > "$DRMODE"
+out="$(dgate 3 55)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'not a JSON object' <<<"$out" \
+   && [ "$(dcount '| milestone-3 | attempt |')" -eq 0 ]; then
+  pass "(dpx7) an unparseable rects sibling reds on the absent budget, naming the file rather than the branch"
+else fail "(dpx7) rc=$rc attempts=$(dcount '| milestone-3 | attempt |'): $out"; fi
+
+# (dpx8) the entry resolved the node and measured half of it. Distinct from (dpx6) on purpose: a
+# node absent from the file and a node present with one axis are different facts about the harness,
+# and collapsing them would leave the second reading as "no such node".
+dpx_setup '{ "Control": { "height": 32 } }' '| Control | RS-1 | 320×32 | fixed | none |'
+out="$(dgate 3 55)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'states a width for node' <<<"$out" \
+   && [ "$(dcount '| milestone-3 | attempt |')" -eq 1 ]; then
+  pass "(dpx8) an axis the plan states and the rects entry omits reds — a resolved node measured on one axis is not a pass on the other"
+else fail "(dpx8) rc=$rc attempts=$(dcount '| milestone-3 | attempt |'): $out"; fi
+
+# (dpx9) THE PROSE ESCAPE HATCH, closed. `px` is machine-read and a cell that does not parse reds
+# rather than being skipped — skipping is what would let one unparseable cell silently opt a node
+# out of the only numeric check on this lane. `dimensions` next to it stays prose, which is the
+# whole reason the numbers got their own column.
+dpx_setup '{ "Control": { "height": 32 } }' '| Control | RS-1 | about 32px tall | fixed | none |'
+out="$(dgate 3 55)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'is not <w>' <<<"$out" \
+   && [ "$(dcount '| milestone-3 | attempt |')" -eq 1 ]; then
+  pass "(dpx9) a px cell that does not parse reds — an unreadable number is not a waiver"
+else fail "(dpx9) rc=$rc attempts=$(dcount '| milestone-3 | attempt |'): $out"; fi
+
+# (dpx10) a plan row measured in a state the spec does not declare. It is compared against nothing
+# at all, which is the same silence a missing node is, and it is refused BEFORE the harness runs —
+# rendering every state to then report a plan defect buys the operator nothing.
+dpx_setup "$DRECTS_OK" '| Filter panel | RS-9 | 320×604 | fixed | none |'
+out="$(dgate 3 55)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'RS-9' <<<"$out" && grep -q 'does not declare' <<<"$out" \
+   && [ "$(dcalls)" -eq 0 ]; then
+  pass "(dpx10) a plan row measured in an undeclared render state reds before the harness is called once"
+else fail "(dpx10) rc=$rc renders=$(dcalls): $out"; fi
+
+# (dpx11) tolerancePx that is not a non-negative integer. config-lint owns this rule too, but the
+# config is gitignored and never travels to CI, so the gate cannot assume anyone ran it — and an
+# unvalidated value reads as 0 in awk, turning a config typo into a wall of shape reds about the
+# branch.
+DPX_TOL=-1
+dpx_setup "$DRECTS_OK" '| Filter panel | RS-2 | 320×604 | fixed | none |'
+out="$(dgate 3 55)"; rc=$?
+DPX_TOL=""
+if [ "$rc" -eq 1 ] && grep -q 'tolerancePx' <<<"$out" && grep -q 'not a fix attempt' <<<"$out" \
+   && [ "$(dcalls)" -eq 0 ]; then
+  pass "(dpx11) a tolerancePx that is not a non-negative integer reds before anything is compared against it"
+else fail "(dpx11) rc=$rc renders=$(dcalls): $out"; fi
+
+# (dpx12) AC-4 and the receipt shape, on one conforming render. The sibling joins the hashed set as
+# its own `RS-n.rects` row — asserted by RECOMPUTING the hash here, because a receipt that hashed
+# something else would still look like a receipt — and editing it afterwards then stales the
+# receipt exactly as editing a PNG does, which is D-9's "no new gate code" claim made as a test.
+dpx_setup "$DRECTS_OK" '| Filter panel | RS-2 | 320×604 | fixed | none |'
+out="$(dgate 3 55)"; rc=$?
+dpx_rrows="$(grep -cE '^\| RS-[0-9]+\.rects +\|' "$DMANIFEST" 2>/dev/null)" || dpx_rrows=0
+dpx_rsha="$(shasum -a 256 "$DTREE/.claude/lean-renders/55/RS-2.png.rects.json" 2>/dev/null | cut -d' ' -f1)"
+if grep -q 'rendered 2 state(s)' <<<"$out" && [ "$dpx_rrows" -eq 2 ] \
+   && [ -n "$dpx_rsha" ] && grep -qF "$dpx_rsha" "$DMANIFEST"; then
+  pass "(dpx12) a conforming measurement renders green and puts a hashed 'RS-n.rects' row beside every screenshot row"
+else fail "(dpx12) rc=$rc rects-rows=$dpx_rrows sha=$dpx_rsha: $out $(cat "$DMANIFEST" 2>/dev/null)"; fi
+
+dcommit "the render receipt with its rects rows"
+dreset
+DPX_CALLS_BEFORE="$(dcalls)"
+out="$(dgate 3 55)"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(dcalls)" -eq "$DPX_CALLS_BEFORE" ]; then
+  pass "(dpx12) …and the committed receipt is idempotent — the rects rows do not force a re-render on every sweep"
+else fail "(dpx12) expected an idempotent pass, rc=$rc calls=$(dcalls) (was $DPX_CALLS_BEFORE): $out"; fi
+
+printf '{ "Filter panel": { "width": 640, "height": 604 } }\n' > "$DTREE/.claude/lean-renders/55/RS-2.png.rects.json"
+dreset
+out="$(dgate 3 55)"; rc=$?
+if [ "$(dcalls)" -gt "$DPX_CALLS_BEFORE" ]; then
+  pass "(dpx12) …and editing the rects file after the receipt is written stales it and re-renders — the measurements are evidence, hashed like the pixels"
+else fail "(dpx12) an edited rects file did not stale the receipt, calls=$(dcalls) (was $DPX_CALLS_BEFORE): $out"; fi
+DPX_TOL=""
 
 # ---- (ea) the entry attestation: recorded, and enforced (#416) -------------------------------
 # The gap this closes is not "entry fails open" — it always failed closed. It is that NOTHING
@@ -6310,7 +6599,8 @@ fi
 
 # (fp6) INTEGRATION: the receipt the render path writes is already in that form, so the file
 # the milestone tells the run to commit is the file a `--check` accepts. Asserted on the
-# delimiter row, whose dash counts are a pure function of the widths the write site computed.
+# delimiter row, whose dash counts are a pure function of the widths the write site computed —
+# the id column is 10 wide because the widest id is `RS-n.rects` (#711), not `RS-n`.
 dspec_armed
 printf 'x\n' > "$DTREE/fp-move-the-patch-id.txt"
 dcommit "the armed spec and a tree change, so the receipt must actually be re-derived"
@@ -6321,7 +6611,7 @@ FP_OUT3="$(dgate 3 55)"; rc=$?
 FP_DELIM="$(grep -m1 -E '^\| -+ \|' "$DMANIFEST" 2>/dev/null)"
 FP_HDR="$(grep -m1 -F '| RS ' "$DMANIFEST" 2>/dev/null)"
 if [ "$rc" -eq 1 ] && [ -n "$FP_DELIM" ] && [ ${#FP_DELIM} -eq ${#FP_HDR} ] \
-   && grep -qE '^\| ---- \| -+ \| -+ \| -+ \| -{64} \|$' <<<"$FP_DELIM"; then
+   && grep -qE '^\| -{10} \| -+ \| -+ \| -+ \| -{64} \|$' <<<"$FP_DELIM"; then
   pass "(fp6) the rendered receipt carries a padded delimiter row sized to its own columns"
 else fail "(fp6) the receipt is not in prettier's table form, rc=$rc, delim=[$FP_DELIM] hdr=[$FP_HDR]"; fi
 
