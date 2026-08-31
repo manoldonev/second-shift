@@ -38,12 +38,19 @@ Authoring litmus questions for the shared core (keep it small — owned facts po
 
 ## Authoring the review-context surface
 
-The shipped reviewers key on **named sections**, not free prose — a section they can't find
-means they infer conservatively from the diff and say so. A section with exactly one reader
-belongs in that reviewer's own `review-context/<reviewer-name>.md` (same content, self-loaded
-by exactly that reviewer); sections with multiple readers stay in the shared core — reviewers
-honor both homes. These are the sections that have readers today (every one optional; write
-only what's true for your repo):
+Review keys on **named sections**, not free prose — a section that can't be found means the
+dimension is inferred conservatively from the diff, and says so. A section with exactly one
+reader belongs in that reviewer's own `review-context/<reviewer-name>.md` (same content);
+sections with multiple readers stay in the shared core — both homes are honored. These are the
+sections that have readers today (every one optional; write only what's true for your repo):
+
+**A "Read by:" line names a dimension, not necessarily a dispatch.** `review-lead` reviews some
+dimensions in-session — its lead pass — rather than spawning a subagent for them, and the lead
+pass loads the shared file plus each of those reviewers' `review-context/<reviewer-name>.md`
+exactly as the subagent would have. So a `review-context/performance-reviewer.md` is read whether
+or not `performance-reviewer` is dispatched this round. The names are kept as the reader tokens
+because they remain effective-registry members and are what the machine-readable catalog's format
+accepts; the semantic is "this section calibrates that dimension, applied by whoever reviews it".
 
 ```markdown
 # Review context — <repo>
