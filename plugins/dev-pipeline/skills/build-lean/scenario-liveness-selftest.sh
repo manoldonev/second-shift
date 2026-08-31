@@ -1378,6 +1378,25 @@ LEANSYNCCFG
       git -C "$LEAN_DTREE" add docs/plans/acme-88-lean-plan.md >/dev/null 2>&1
       git -C "$LEAN_DTREE" commit -q -m "stamp the translation plan" >/dev/null 2>&1
     fi
+    lean_dplanrev_sync
+  }
+  # The plan-REVIEW record (#710) — the other half of what an armed milestone 3 now demands before
+  # it renders. PRODUCTION's writer stamps `reviewed_plan_from`; this never derives a patch id.
+  LEAN_DFINDINGS="$TMP/lean-design-plan-findings.md"
+  printf '## Findings\n\nB1: the results grid is planned at a fixed 320px where the frame hugs.\n' > "$LEAN_DFINDINGS"
+  lean_dplanrev_sync() { # lean_dplanrev_sync [verdict]
+    local v="${1:-pass}"
+    [ -f "$LEAN_DPLAN" ] || return 0
+    git -C "$LEAN_DTREE" rev-parse --verify -q refs/remotes/origin/main >/dev/null 2>&1 || return 0
+    ( unset RUN_ID GH_BOT; cd "$LEAN_DTREE" \
+      && SECOND_SHIFT_CONFIG="$LEAN_DSYNCCFG" LEAN_PROGRESS_FILE="$LEAN_DPROG" \
+         CLAUDE_CODE_SESSION_ID="$LEAN_DSID" GH="${GH:-$LEAN_GH}" \
+         bash "$LEAN_GATE" plan-review 88 --verdict "$v" --summary-file "$LEAN_DFINDINGS" --model stub-model ) >/dev/null 2>&1
+    if ! git -C "$LEAN_DTREE" diff --quiet HEAD -- docs/plans/acme-88-lean-plan-review.md 2>/dev/null \
+       || [ -z "$(git -C "$LEAN_DTREE" log -1 --format=%H -- docs/plans/acme-88-lean-plan-review.md 2>/dev/null)" ]; then
+      git -C "$LEAN_DTREE" add docs/plans/acme-88-lean-plan-review.md >/dev/null 2>&1
+      git -C "$LEAN_DTREE" commit -q -m "record the plan review" >/dev/null 2>&1
+    fi
   }
   lean_dcommit() { git -C "$LEAN_DTREE" add -A >/dev/null 2>&1
                    git -C "$LEAN_DTREE" commit -q --allow-empty -m "${1:-lean design fixture}" >/dev/null 2>&1
@@ -1432,11 +1451,31 @@ LEANSYNCCFG
     && pass "(lean-design-plan) an armed run with no translation plan reds before any render, arms the lock, and spends no fix attempt" \
     || fail "(lean-design-plan) rcs=$ld_prcs attempts=$ld_pattempts armed=$ld_parmed rendered=$([[ -d "$LEAN_DTREE/.claude/lean-renders/88" ]] && echo yes || echo no)"
 
+  # #710, composed: a plan with the right SHAPE and no reader still reds, and it reds on the same
+  # terms — before the harness is called, on the absent budget. The plan is written and stamped
+  # here WITHOUT its review record, which is the one state a per-tool fixture cannot show riding
+  # the whole chain: the sequence below is what a real armed run walks through in order.
   lean_dplan_write
+  git -C "$LEAN_DTREE" add -A >/dev/null 2>&1
+  git -C "$LEAN_DTREE" commit -q -m "the translation plan, unreviewed" >/dev/null 2>&1
+  lean_dseed
+  lean_dgate 3 88 >/dev/null 2>&1   # the gate stamps planned_from here
+  git -C "$LEAN_DTREE" add -A >/dev/null 2>&1
+  git -C "$LEAN_DTREE" commit -q -m "commit the plan stamp" >/dev/null 2>&1
+  lean_dseed
+  ld_rrcs=""
+  for _ in 1 2 3; do lean_dgate 3 88 >/dev/null 2>&1; ld_rrcs="$ld_rrcs$?"; done
+  ld_rattempts=$(grep -cF '| milestone-3 | attempt |' "$LEAN_DPROG" 2>/dev/null) || ld_rattempts=0
+  [[ "$ld_rrcs" == "111" && "$ld_rattempts" -eq 0 && ! -d "$LEAN_DTREE/.claude/lean-renders/88" ]] \
+    && pass "(lean-design-plan-review) a SHAPED but ungraded plan reds before any render and spends no fix attempt — the same economics the plan's own absence walks" \
+    || fail "(lean-design-plan-review) rcs=$ld_rrcs attempts=$ld_rattempts rendered=$([[ -d "$LEAN_DTREE/.claude/lean-renders/88" ]] && echo yes || echo no)"
+
   lean_dcommit "the translation plan"
   lean_dseed
   ld_pok="$(lean_dgate 3 88 2>&1)"
-  if grep -q 'translation plan current' <<<"$ld_pok" && [[ -d "$LEAN_DTREE/.claude/lean-renders/88" ]]; then
+  if grep -q 'translation plan current' <<<"$ld_pok" \
+     && grep -q 'translation plan reviewed by figma-faithful-plan-reviewer' <<<"$ld_pok" \
+     && [[ -d "$LEAN_DTREE/.claude/lean-renders/88" ]]; then
     pass "(lean-design-plan) …and once it is committed and stamped the SAME chain walks past it into the render pass"
   else
     fail "(lean-design-plan) the committed plan did not release the render pass: $ld_pok"

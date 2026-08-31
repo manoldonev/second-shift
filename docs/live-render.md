@@ -147,11 +147,24 @@ written and what was written is wrong. That split is what keeps an armed run fro
 its three milestone-3 attempts reaching its first screenshot.
 
 What the plan buys is that an omission reads as an **empty cell** rather than an absent thought.
-Nothing here checks that a recorded component is the right one or a recorded dimension is the
-design's — `design-toolkit:figma-faithful-plan-reviewer`, which the implementing session dispatches
-at step 7, asks those as questions the plan must answer. It is deliberately **not** re-asserted at
-the merge boundary: the boundary re-asserts the verdict chain, and `fidelity: pass` binds to the
-render receipt, not to the plan.
+Nothing in the shape check tells you a recorded component is the right one or a recorded dimension
+is the design's — `design-toolkit:figma-faithful-plan-reviewer` asks those as questions the plan
+must answer.
+
+**And on an armed lean run that dispatch is mandatory, not advisory.** The gate cannot run an
+agent, so it takes the verdict record's shape: the build session dispatches the reviewer on the
+committed plan and writes its output with `lean-gate.sh plan-review <issue> --verdict
+<pass|fix-and-go|block> --summary-file <findings> --model <m>`, which stamps `reviewed_plan_from`
+from the checkout. Milestone 3 then refuses — **before any render command runs** — when the record
+at `<plansDir>/<key>-lean-plan-review.md` is missing, when its `reviewed_plan_from` no longer
+matches the branch's plan binding, or when its verdict is `block`, quoting the first finding.
+`pass` and `fix-and-go` proceed; committing the record never stales it, because that path is
+excluded from the binding exactly as the plan is. A family with no plan-reviewer agent
+(`claude-design` has none today) is unreviewed at this stage and the gate says so rather than
+demanding an artifact nobody can produce.
+
+None of it is re-asserted at the merge boundary: the boundary re-asserts the verdict chain, and
+`fidelity: pass` binds to the render receipt, not to the plan.
 
 **Then the render.** Milestone 3, last — after `extraLanes` — renders every declared row through
 your command, asserts exit 0 and a non-empty PNG per row, and writes a hash manifest at
