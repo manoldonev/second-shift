@@ -4505,7 +4505,7 @@ render_measure_state() { # render_measure_state <rs-id> <plan-rows-tsv> <rects-e
 cmd_3_render() {
   local dstate rows n_rows nondefault=0 cur prev out_dir rc
   local r_id r_route r_state png sha ecmd dup manifest_rows="" seen="" seen_ids=""
-  local plan_rows prows mrows rjson rsha stray="" measure_fix="" measure_block=""
+  local plan_rows prows mrows rjson rsha m_cls m_msg stray="" measure_fix="" measure_block=""
 
   dstate="$(design_state "$REPO_ROOT/$SPEC_REL")"
   case "$dstate" in
