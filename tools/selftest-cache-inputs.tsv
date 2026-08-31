@@ -40,10 +40,11 @@
 #
 # AND THE SET IS THE TRANSITIVE CLOSURE, not the files the suite names. Neither of the rules
 # above can reach depth 2: a suite whose own path and whose subject are both declared still
-# under-declares if that SUBJECT resolves a third file at run time. The set below needed a
-# depth-2 input the first revision missed: the scripts pipeline-cost-block.sh resolves
-# beside itself. When you add a row, follow every `$here/`-style resolution out of every
-# declared script until it terminates, and record where it terminated.
+# under-declares if that SUBJECT resolves a third file at run time. The live example runs to
+# depth 3: lean-gate.sh resolves claim-issue.sh, which resolves gh-bot.sh beside itself, so
+# lean-gate-selftest.sh declares a file two removes from anything it names. When you add a row,
+# follow every `$here/`-style resolution out of every declared script until it terminates, and
+# record where it terminated.
 #
 # DERIVE THAT MECHANICALLY, AND OVER PATHS RATHER THAN OVER SCRIPTS. Grep each declared script
 # for its ${BASH_SOURCE[0]}- and $0-rooted path constructions and match every one against the
@@ -57,9 +58,11 @@
 # No `cost-block.sh` sibling exists — the script under test is pipeline-cost-block.sh, one
 # directory up, which is why the sibling rule cannot be the whole of the subject check.
 #
-# gh-bot.sh is the depth-2 closure: pipeline-cost-block.sh resolves and executes it whenever
-# tracker.bot.enabled is true, which the identity cases exercise. It resolves an out-of-repo
-# wrapper under $HOME, so the closure terminates there.
+# The gh-bot.sh row is an OVER-declaration, kept deliberately. It WAS the depth-2 closure —
+# pipeline-cost-block.sh resolved and executed it whenever tracker.bot.enabled was true — until
+# #584 deleted the PR-amend ladder that did so; the script now resolves no sibling at all, and
+# the row outlived the resolution. It is kept rather than dropped because over-declaring costs
+# one spurious miss when gh-bot.sh changes, and that is the direction this table errs in.
 plugins/dev-pipeline/tools/cost-block-selftest.sh	plugins/dev-pipeline/tools/cost-block-selftest.sh
 plugins/dev-pipeline/tools/cost-block-selftest.sh	plugins/dev-pipeline/tools/pipeline-cost-block.sh
 plugins/dev-pipeline/tools/cost-block-selftest.sh	plugins/dev-pipeline/cost-tracking-fixtures
@@ -84,8 +87,9 @@ plugins/dev-pipeline/tools/cost-block-selftest.sh	plugins/dev-pipeline/tools/gh-
 # suite goes from all green to 39 failures.
 #
 # DEPTH 3, and where it TERMINATES: claim-issue.sh resolves gh-bot.sh, which resolves an
-# out-of-repo wrapper under $HOME. The closure stops at the in-repo file, matching the
-# cost-block block above. Nothing at depth 2 resolves a further file: lean-gate.sh makes seven
+# out-of-repo wrapper under $HOME. The closure stops at the in-repo file: a path under $HOME is
+# not tracked, so it has no blob id to key on. Nothing at depth 2 resolves a further file: this
+# is the whole live depth-3 chain in the table, and lean-gate.sh makes seven
 # self-relative path constructions, six of them the .sh rows below and the seventh that .md,
 # and no script they reach makes another.
 #

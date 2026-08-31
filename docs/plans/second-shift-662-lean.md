@@ -74,6 +74,17 @@ The suite reads `scripts/check-lean-chain.sh` (subject) and exports `LEAN_EVIDEN
 resolve by default. `lean-evidence.sh` resolves no sibling; the closure terminates at depth 2.
 Every other file the suite touches is written under its own `mktemp` tree.
 
+### The example the contract taught from is gone
+
+Running AC-8's rule over `pipeline-cost-block.sh` — the script the depth-2 doctrine cited as its
+worked example — returns nothing: it makes no `${BASH_SOURCE[0]}`- or `$0`-rooted path
+construction, and the string `gh-bot` does not occur in it. `git log -S'gh-bot'` dates the removal
+to #584, which deleted the PR-amend ladder that resolved it. Three shipped sentences still asserted
+the resolution — the TSV header's depth-2 paragraph, the `cost-block-selftest.sh` row comment, and
+`docs/testing.md`'s contract, twice. AC-9 corrects them onto the chain this branch derived, which
+is live. The row itself stays: dropping an input is the direction that costs a gate, and an
+over-declaration costs one spurious miss.
+
 ### `mutation-sweep-selftest.sh` — does NOT terminate
 
 Its case (j) enumerates `git ls-files '*.sh'` over the whole repository and, for each result,
@@ -118,6 +129,14 @@ suite always run.
   `*.sh` names its prose mentions, and that a target the subject tests for EXISTENCE only is an
   input like any other. (Added in round 2: the missing row was one line, the rule that let it
   through is the part that generalizes.)
+
+- AC-9: the depth-2 worked example that `tools/selftest-cache-inputs.tsv`'s header and
+  `docs/testing.md`'s contract both teach from names a resolution the tree still makes. The one
+  they carried — `pipeline-cost-block.sh` resolving its sibling `gh-bot.sh` — was true until #584
+  deleted the PR-amend ladder that did it. Both now teach from the live depth-3 chain
+  (`lean-gate.sh` → `claim-issue.sh` → `gh-bot.sh`), and `cost-block-selftest.sh`'s surviving
+  `gh-bot.sh` row is labeled an over-declaration and kept, not dropped. (Added in round 2, from
+  applying AC-8's own rule to the file it landed in.)
 
 ## Decision Ledger
 

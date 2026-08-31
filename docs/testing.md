@@ -458,19 +458,26 @@ tell a skip from a suite that quietly stopped being discovered. The summary line
 performed is the faster-green misreading the rest of this section is about.
 
 **Adding a row is the risky edit in that file, not the cheap one.** Derive the input set from the
-suite, never from a ticket: `cost-block-selftest.sh` reads the fixture corpus, the script under
-test, AND the `gh-bot.sh` that script resolves at run time — three things where an eyeball lists
-one.
+suite, never from a ticket: `lean-gate-selftest.sh` reads eight files out of the checkout besides
+the gate itself, and the gate then resolves seven more at run time — sixteen rows where an eyeball
+lists two.
 Where a suite's composed set is really its transitive closure — `scenario-liveness-selftest.sh` is
 the worked example, and is deliberately **not** in the table — drop the row. A dropped row costs
 seconds; an under-declared one costs a gate.
 
 **Derive the closure, not the file list.** Neither mechanized rule reaches depth 2: a row set can
 name the suite and its subject and still under-declare, because that subject resolves a third file
-at run time. The shipped set needed one — `pipeline-cost-block.sh` executes its sibling
-`gh-bot.sh`, so `cost-block-selftest.sh`'s row must declare it even though the suite never names
-it. Follow every `$here/`-style resolution out of every declared script until it terminates, and
-say in the row comment where it terminated.
+at run time. The shipped set runs to depth 3: `lean-gate.sh` resolves `claim-issue.sh`, which
+resolves its sibling `gh-bot.sh`, so `lean-gate-selftest.sh` declares a file two removes from
+anything it names. Follow every `$here/`-style resolution out of every declared script until it
+terminates, and say in the row comment where it terminated.
+
+That example replaced an earlier one — `pipeline-cost-block.sh` resolving `gh-bot.sh` — which was
+true until #584 deleted the PR-amend ladder that did it. `cost-block-selftest.sh`'s `gh-bot.sh`
+row outlived the resolution and is deliberately kept: an over-declaration costs one spurious miss,
+and dropping a row is the direction that costs a gate. A stale row is cheap; a stale *example*
+teaches the next row-adder to derive against something that is not there, which is why this
+paragraph now points at a resolution the tree still makes.
 
 **Derive that mechanically, over paths rather than over scripts.** Grep the subject for its
 `${BASH_SOURCE[0]}`- and `$0`-rooted path constructions and match every one against the rows, and
