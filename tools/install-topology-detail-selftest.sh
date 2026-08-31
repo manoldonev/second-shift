@@ -26,7 +26,9 @@
 # WHY NOT INSIDE install-topology-selftest.sh ITSELF: that file stages and runs every shipped
 # suite — ~5 to 10 minutes, excluded from the PR lane since #620 (nightly then; event-triggered
 # since #666). A guard for three lines of grep must not inherit that cost, or it runs late — at
-# the next release PR, not on the branch that caused it. This suite stages nothing and needs no
+# the next push to `main`, not on the branch that caused it: the red-detail block lives inside
+# install-topology-selftest.sh, the guard script itself, so an edit here is the push filter's
+# guard-script family, not its shipped-suite-content one. This suite stages nothing and needs no
 # plugins.
 #
 # TECHNIQUE: extract-and-execute, not grep. The block is delimited in
