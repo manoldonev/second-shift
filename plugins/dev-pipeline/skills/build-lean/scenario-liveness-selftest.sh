@@ -79,8 +79,8 @@ unset SECOND_SHIFT_CONFIG SECOND_SHIFT_REPO_ROOT SECOND_SHIFT_EXTENSION_MANIFEST
 # #141: the lane-tree assertion, DISARMED for the legs whose fixture is a bare `git init` tree and
 # re-armed for the three that are not. Most legs here compose the gate against a plain repo on its
 # default branch, over several issue keys — one tree cannot be on four lane branches — so an export
-# is what keeps them driving the composed path this file exists to drive. The (lean-reentry),
-# (lean-infrakill) and (lean-closeout) legs are the exception: each cuts a REAL `git worktree` on
+# is what keeps them driving the composed path this file exists to drive. The (lean-reentry) and
+# (lean-closeout) legs are the exception: each cuts a REAL `git worktree` on
 # `claude/acme-<key>` and unsets this again inside its own `g()`, which is where the guard's PASS
 # direction is composed rather than merely tolerated (#141 D-5).
 export LEAN_GATE_ANY_TREE=1
@@ -1986,193 +1986,11 @@ RESESS
 
     git -C "$LEAN_TREE" worktree remove --force "$RE_WT" >/dev/null 2>&1
 
-    # ---- leg 9: an INFRASTRUCTURE KILL composed through to a terminal write (#527) --------
-    # Same CLAUDE.md obligation as leg 8, on the verdict path #527 adds: a BUILD session whose
-    # milestone-3 evaluation is killed satisfies no milestone and fails none, so its progress
-    # token is byte-identical to an idle spawn's — and the scheduler stopped there with both
-    # continuations unspent, on runs whose implementation was complete the whole time.
-    #
-    # WHY IT HAS TO BE COMPOSED. Both halves are covered against themselves already:
-    # lean-gate-selftest.sh (ir*) drives the residue read against hand-placed pid records, and
-    # orchestrate-lean-selftest.sh (oi*) drives the routing against a FAKE gate whose infra
-    # answers a case scripts. Neither can fail if the gate's writer and the scheduler's reader
-    # disagree about what residue a killed evaluation leaves — which is the whole contract.
-    # Here the kill is real (`kill -9` on the gate's process group, (if5)'s mechanic), the
-    # residue is whatever the real gate left, and the run must reach `| milestone-5 | satisfied`.
-    IK_KEY=56
-    IK_BRANCH="claude/acme-$IK_KEY"
-    IK_RUN="r-lean-infrakill"
-    IK_PR_NUM=22
-    IK_DIR="$TMP/lean-infrakill"
-    IK_WT="$TMP/lean-infrakill-wt"
-    mkdir -p "$IK_DIR"
-
-    # Two configs, and the split is what makes the kill reachable: the lane the FIRST spawn runs
-    # must block long enough to be killed mid-sweep, while every other gate call in the run — the
-    # scheduler's, and the later spawns' — takes the ordinary zero-lane one. The session fake
-    # selects per call; nothing about the scheduler's own environment changes.
-    IK_CFG="$IK_DIR/config.json"
-    cp "$RE_CFG" "$IK_CFG"
-    IK_CFG_BLOCK="$IK_DIR/config-block.json"
-    jq '.commands.acme.test = "sleep 20"' "$IK_CFG" > "$IK_CFG_BLOCK"
-
-    IK_LABELS="$IK_DIR/labels";     printf 'in-progress\n' > "$IK_LABELS"
-    IK_BODY="$IK_DIR/issue-body";   printf '# issue\n\nNo Open Regions section here.\n' > "$IK_BODY"
-    IK_STATE="$IK_DIR/issue-state"; printf 'OPEN\n' > "$IK_STATE"
-    IK_PR="$IK_DIR/pr.json"
-    cat > "$IK_PR" <<IKPR
-[{ "number": $IK_PR_NUM, "url": "https://example.invalid/pr/$IK_PR_NUM", "isDraft": false,
-   "state": "OPEN",
-   "body": "Closes #$IK_KEY\n\nSpec: docs/plans/acme-$IK_KEY-lean.md" }]
-IKPR
-    IK_PR_ALL="$IK_DIR/pr-all.json"
-    printf '[{ "number": %s, "state": "OPEN" }]\n' "$IK_PR_NUM" > "$IK_PR_ALL"
-    # EMPTY at the start, and that is the fixture's whole job: `resolve_pr` reads this file on
-    # every iteration, so a lane with no PR yet is expressed by its contents rather than by a
-    # spawn counter the scheduler would have to be told about. The second BUILD spawn writes it.
-    IK_PR_NUMS="$IK_DIR/pr-numbers"; : > "$IK_PR_NUMS"
-
-    IK_COMMENTS="$IK_DIR/comments.json"
-    cat > "$IK_COMMENTS" <<IKC
-[{ "user": { "type": "Bot" }, "created_at": "2026-01-01T00:00:00Z",
-   "body": "<!-- dev-pipeline -->\n<!-- run_id: $IK_RUN -->\n<!-- stage: lean-claimed -->" },
- { "user": { "type": "Bot" }, "created_at": "2026-01-02T00:00:00Z",
-   "body": "Done. Verdict record: docs/plans/acme-$IK_KEY-lean-verdict.md" },
- { "user": { "type": "Bot" }, "created_at": "2026-01-02T00:00:00Z",
-   "body": "<!-- run_id: $IK_RUN -->\n<!-- session_id: sess-lean-ik-build -->\n<!-- stage: lean-pr-marker -->" }]
-IKC
-
-    # The session fake. Spawn 1 KILLS its own milestone-3 evaluation and exits 0 having produced
-    # no PR — `claude -p`'s exact shape, since a turn that ends takes its detached children with
-    # it. Spawn 2 is the continuation and completes the build. Nothing writes a progress row by
-    # hand: every row in the record below came out of the real gate.
-    IK_SESSION="$IK_DIR/session"
-    cat > "$IK_SESSION" <<'IKSESS'
-#!/usr/bin/env bash
-n=$(( $(cat "$IK_DIR/spawns" 2>/dev/null || echo 0) + 1 ))
-echo "$n" > "$IK_DIR/spawns"
-echo "spawn $n: $*" >> "$IK_DIR/session.log"
-g() { ( unset LEAN_GATE_ANY_TREE; cd "$IK_WT" && SECOND_SHIFT_CONFIG="$IK_CFG" bash "$IK_GATE" "$@" ) >> "$IK_DIR/session.log" 2>&1; }
-case "$*" in
-  *review-lean*)
-    export CLAUDE_CODE_SESSION_ID=sess-lean-ik-review RUN_ID=r-lean-ik-review
-    g verdict "$IK_KEY" --pr "$IK_PR_NUM" --verdict approve || exit 1
-    git -C "$IK_WT" add -A >/dev/null 2>&1
-    git -C "$IK_WT" commit -q -m "review session commits its verdict record" >/dev/null 2>&1 || exit 1
-    git -C "$IK_WT" push -q origin "HEAD:refs/heads/$IK_BRANCH" >/dev/null 2>&1 || exit 1
-    ;;
-  *build-lean*)
-    export CLAUDE_CODE_SESSION_ID=sess-lean-ik-build RUN_ID="$IK_RUN"
-    printf '{"tool":"Bash"}\n' > "$IK_LEDGER_DIR/sess-lean-ik-build.jsonl"
-    if [ "$n" -eq 1 ] && [ "${IK_MODE:-kill}" = "idle" ]; then
-      # THE NON-VACUITY SPAWN. `entry` and nothing else: its rows are deliberately outside
-      # progress_token's set, and it starts no milestone-3 evaluation, so BOTH predicates are
-      # unmoved across this spawn and the scheduler must stop.
-      g entry "$IK_KEY" || exit 1
-    elif [ "$n" -eq 1 ]; then
-      g entry "$IK_KEY" || exit 1
-      printf '# spec\n\n- AC-1: the composed infrastructure kill\n' > "$IK_WT/docs/plans/acme-$IK_KEY-lean.md"
-      git -C "$IK_WT" add -A >/dev/null 2>&1
-      git -C "$IK_WT" commit -q -m "build session pushes the spec" >/dev/null 2>&1 || exit 1
-      # PUSHED BEFORE THE KILL, which is what makes the continuation reachable: the second spawn
-      # yields a PR, and the scheduler's in-flight check reads a head this one already published.
-      git -C "$IK_WT" push -q origin "HEAD:refs/heads/$IK_BRANCH" >/dev/null 2>&1 || exit 1
-      # NO milestone 1 or 2 HERE, and that omission is the case. A satisfied milestone moves the
-      # continuation predicate, and this spawn must move NOTHING that predicate can see — or the
-      # run continues down the pre-#527 "advanced but left no open PR" path and the infra route
-      # is never taken. Writing and committing the spec is not a gate call, so the record stays
-      # untouched until the kill leaves its residue. Spawn 2 satisfies 1 and 2.
-      # THE KILL. Its own process group (`set -m`) so the negative pid reaches the detached
-      # runner too — killing the waiter alone would leave the sweep running and the residue this
-      # leg is about would never form. The lane self-terminates on a short bound, so a kill that
-      # somehow misses cannot wedge the suite.
-      set -m
-      ( unset LEAN_GATE_ANY_TREE; cd "$IK_WT" && SECOND_SHIFT_CONFIG="$IK_CFG_BLOCK" bash "$IK_GATE" 3 "$IK_KEY" \
-          >> "$IK_DIR/session.log" 2>&1 ) &
-      kpg=$!
-      set +m
-      waited=0
-      while ! grep -qF "| milestone-3 | started |" "$LEAN_PROGRESS_FILE" 2>/dev/null \
-            && [ "$waited" -lt 200 ]; do sleep 0.1; waited=$((waited + 1)); done
-      kill -9 -"$kpg" 2>/dev/null
-      wait "$kpg" 2>/dev/null
-      reaped=0
-      while kill -0 -"$kpg" 2>/dev/null && [ "$reaped" -lt 50 ]; do sleep 0.1; reaped=$((reaped + 1)); done
-    else
-      # SPAWN 2, the continuation, and the LAST build-role session this leg has: #590 made the
-      # close-out a gate call, so there is no third spawn to script.
-      g entry "$IK_KEY" || exit 1
-      g 1 "$IK_KEY" || exit 1
-      g 2 "$IK_KEY" || exit 1
-      g 3 "$IK_KEY" || exit 1
-      printf '%s\n' "$IK_PR_NUM" > "$IK_PR_NUMS"
-    fi
-    ;;
-  *) exit 1 ;;
-esac
-exit 0
-IKSESS
-    chmod +x "$IK_SESSION"
-
-    IK_PROG="$IK_DIR/progress.md"
-    IK_PROG_NV="$IK_DIR/progress-nv.md"
-    IK_GH_LOG="$IK_DIR/gh.log"
-    ik_run() { # ik_run <progress-file> <kill|idle>
-      rm -f "$IK_DIR/spawns" "$IK_DIR/session.log" "$IK_GH_LOG" "$IK_PR_NUMS" \
-            "$LEAN_TREE/.claude/pipeline-state/$IK_KEY-run-id" \
-            "$LEAN_TREE/.claude/pipeline-state/$IK_KEY-review-run-id"
-      : > "$IK_PR_NUMS"
-      git -C "$LEAN_TREE" worktree remove --force "$IK_WT" >/dev/null 2>&1
-      git -C "$LEAN_TREE" branch -D "$IK_BRANCH" >/dev/null 2>&1
-      # #531: and the PUBLISHED head with it. The branch is recreated at the base every run, so a
-      # surviving origin ref from the previous run would make this one's worktree read as BEHIND
-      # origin — clean, but for the wrong reason, which is a fixture asserting nothing.
-      git -C "$RE_ORIGIN" update-ref -d "refs/heads/$IK_BRANCH" >/dev/null 2>&1
-      git -C "$LEAN_TREE" update-ref -d "refs/remotes/origin/$IK_BRANCH" >/dev/null 2>&1
-      git -C "$LEAN_TREE" worktree add -q -b "$IK_BRANCH" "$IK_WT" HEAD >/dev/null 2>&1
-      ( cd "$LEAN_TREE" && env -u CLAUDE_CODE_SESSION_ID -u RUN_ID -u LEAN_RUN_MODEL -u GH_BOT \
-          GH="$RE_GH" LEAN_SPAWN_BIN="$IK_SESSION" \
-          SECOND_SHIFT_CONFIG="$IK_CFG" LEAN_PROGRESS_FILE="$1" RE_COMMENTS_LIVE="$IK_COMMENTS" \
-          IK_MODE="$2" \
-          IK_DIR="$IK_DIR" IK_WT="$IK_WT" IK_GATE="$LEAN_GATE" IK_KEY="$IK_KEY" \
-          IK_CFG="$IK_CFG" IK_CFG_BLOCK="$IK_CFG_BLOCK" IK_RUN="$IK_RUN" IK_BRANCH="$IK_BRANCH" \
-          IK_PR_NUM="$IK_PR_NUM" IK_PR_NUMS="$IK_PR_NUMS" IK_LEDGER_DIR="$RE_LEDGER_DIR" \
-          RE_LABELS="$IK_LABELS" RE_BODY="$IK_BODY" RE_STATE="$IK_STATE" \
-          RE_PR="$IK_PR" RE_PR_ALL="$IK_PR_ALL" RE_PR_NUMS="$IK_PR_NUMS" RE_GH_LOG="$IK_GH_LOG" \
-          bash "$RE_ORCH" "$IK_KEY" --build-model sonnet 2>&1 )
-    }
-
-    ik_out="$(ik_run "$IK_PROG" kill)"; ik_rc=$?
-    ik_m5="$(re_count "$IK_PROG" '| milestone-5 | satisfied')"
-    ik_unclosed="$(re_count "$IK_PROG" '| milestone-3 | started |')"
-    ik_closed="$(re_count "$IK_PROG" '| milestone-3 | concluded |')"
-    [[ "$ik_rc" -eq 0 && "$ik_m5" -eq 1 ]] \
-      && grep -q 'killed by infrastructure' <<<"$ik_out" \
-      && grep -q 'done — #' <<<"$ik_out" \
-      && pass "(lean-infrakill) a BUILD session whose milestone-3 evaluation is KILLED continues in a fresh session and the real lane still reaches its terminal write" \
-      || fail "(lean-infrakill) rc=$ik_rc milestone-5-rows=$ik_m5, expected 0/1: $ik_out"
-
-    # The residue was REAL, not asserted: the kill left a started row the run never closed, which
-    # is exactly the shape the gate's read derives an infrastructure death from. A leg that
-    # continued for any other reason would show a matched pair here.
-    [[ "$ik_unclosed" -gt "$ik_closed" ]] \
-      && pass "(lean-infrakill) the killed evaluation left a genuinely unclosed milestone-3 row — the residue the continuation was routed on" \
-      || fail "(lean-infrakill) started=$ik_unclosed concluded=$ik_closed — nothing was actually killed, so the leg proves nothing"
-
-    # ---- non-vacuity ----------------------------------------------------------------------
-    # The leg above would stay green if the scheduler continued on every PR-less spawn. Vary the
-    # FIXTURE — a first spawn that does nothing but `entry`, whose rows are deliberately outside
-    # the progress token AND leave no milestone-3 residue — and the identical composition must
-    # stop at exit 1 with nothing to review.
-    ik_nv_out="$(ik_run "$IK_PROG_NV" idle)"; ik_nv_rc=$?
-    ik_nv_spawns="$(cat "$IK_DIR/spawns" 2>/dev/null || echo 0)"
-    [[ "$ik_nv_rc" -eq 1 && "$ik_nv_spawns" -eq 1 \
-       && "$(re_count "$IK_PROG_NV" '| milestone-5 | satisfied')" -eq 0 ]] \
-      && grep -q 'nothing to review' <<<"$ik_nv_out" \
-      && pass "(lean-infrakill-nv) non-vacuity: the same composition with a genuinely idle first spawn stops at exit 1 after ONE spawn and reaches no terminal write" \
-      || fail "(lean-infrakill-nv) rc=$ik_nv_rc spawns=$ik_nv_spawns milestone-5-rows=$(re_count "$IK_PROG_NV" '| milestone-5 | satisfied'), expected 1/1/0: $ik_nv_out"
-
-    git -C "$LEAN_TREE" worktree remove --force "$IK_WT" >/dev/null 2>&1
+    # LEG 9 WAS AN INFRASTRUCTURE KILL COMPOSED THROUGH TO A TERMINAL WRITE (#527), and #718
+    # deleted the route it composed: a real `kill -9` on milestone 3's group, then the scheduler
+    # reading the residue, spawning BUILD again and reaching `| milestone-5 | satisfied`. The
+    # scheduler no longer continues, so there is no composed verdict path left for it to reach.
+    # The kill mechanic and its residue are still composed by (lean-inline-m3-nv), one section down.
 
     # ---- leg 10: a PARTIALLY FINISHED CLOSE-OUT, retried to a terminal write (#531 → #590) ---
     # THE EPIC'S ACCEPTANCE EVIDENCE, re-cut for the shape #590 landed. #525's premise is that
@@ -2469,11 +2287,13 @@ COSESS
   # to fit inside the turn instead of engineered to survive leaving it.
   #
   # WHAT NO FIXTURE CASE CAN FAIL ON, and why this is still a scenario. lean-gate-selftest.sh's
-  # (x3d) asserts the gate does not ANNOUNCE a detached evaluation, and (if5)/(if5b) assert a
-  # killed one leaves `started` with no `concluded`. Neither composes the piece the scheduler
-  # actually acts on: that the residue a killed milestone 3 leaves is what `progress --infra`
-  # reports, in the token space orchestrate-lean.sh compares across a spawn. Three components,
-  # one property, and the seam between them is where #527's original defect lived.
+  # (x3d) asserts the gate does not ANNOUNCE a detached evaluation, and (if5)/(if5b) assert that a
+  # killed evaluation leaves `started` with no `concluded` — over a HAND-WRITTEN progress fixture.
+  # Neither composes the piece that decides whether the residue is real: that a milestone 3 killed
+  # with its whole process group leaves nothing running behind it and writes exactly that residue
+  # itself. #718 deleted the reader that used to sit on top of this (`progress --infra`, whose one
+  # consumer was the continuation loop); the composition it read from is what actually held, and
+  # it is asserted here directly from the record.
   #
   # THE KILL IS (if5)'s IDIOM VERBATIM: `set -m` so the backgrounded gate leads its own group,
   # wait for the milestone-3 `started` row so the evaluation demonstrably began, then `kill -9`
@@ -2500,16 +2320,6 @@ COSESS
         SECOND_SHIFT_CONFIG="$cfg" LEAN_PROGRESS_FILE="$TE_PROG" GH="${GH:-$LEAN_GH}" \
         bash "$LEAN_GATE" --issue-file "$LEAN_ISSUE_NOREGIONS" "$@" 2>&1 )
   }
-  # THE TOKEN VARIANT, stderr DROPPED. `progress --infra` prints an opaque token on stdout and its
-  # diagnostic on stderr precisely so a caller can compare the token as an exact string; merging
-  # them makes every comparison a two-line one that can never match. Same split as
-  # lean-gate-selftest.sh's gate_ir / gate_ir_e, and for the same reason.
-  te_token() { # te_token <config> <args...>
-    local cfg="$1"; shift
-    ( cd "$TE_TREE" && env -u RUN_ID -u GH_BOT CLAUDE_CODE_SESSION_ID="$TE_SID" \
-        SECOND_SHIFT_CONFIG="$cfg" LEAN_PROGRESS_FILE="$TE_PROG" GH="${GH:-$LEAN_GH}" \
-        bash "$LEAN_GATE" --issue-file "$LEAN_ISSUE_NOREGIONS" "$@" 2>/dev/null )
-  }
 
   # ---- the happy path: an inline evaluation concludes, and the read says "no death" ---------
   TE_CFG_OK="$TE_DIR/config-ok.json"
@@ -2517,22 +2327,21 @@ COSESS
   rm -f "$TE_PROG"
   te_gate "$TE_CFG_OK" entry "$TE_KEY" >/dev/null 2>&1
   te_ok_out="$(te_gate "$TE_CFG_OK" 3 "$TE_KEY")"; te_ok_rc=$?
-  te_ok_tok="$(te_token "$TE_CFG_OK" progress "$TE_KEY" --infra)"
   # The started/concluded PAIR is the half a join used to break deliberately (#511 D-9: "a join
   # writes nothing"). With no join arm left, every evaluation that begins must also close.
-  if [[ "$te_ok_rc" -eq 0 && "$te_ok_tok" == "m3infra-v3:0" ]] \
+  if [[ "$te_ok_rc" -eq 0 ]] \
      && ! grep -q 'spawned detached' <<<"$te_ok_out" \
      && [[ "$(re_count "$TE_PROG" '| milestone-3 | started |')" -eq 1 \
         && "$(re_count "$TE_PROG" '| milestone-3 | concluded |')" -eq 1 ]]; then
-    pass "(lean-inline-m3) #566 AC-1/AC-9: milestone 3 runs inline, closes its started/concluded pair, and the scheduler reads m3infra-v3:0"
+    pass "(lean-inline-m3) #566 AC-1: milestone 3 runs inline, detaches nothing, and closes its started/concluded pair"
   else
-    fail "(lean-inline-m3) rc=$te_ok_rc token='$te_ok_tok' started=$(re_count "$TE_PROG" '| milestone-3 | started |') concluded=$(re_count "$TE_PROG" '| milestone-3 | concluded |'): $te_ok_out"
+    fail "(lean-inline-m3) rc=$te_ok_rc started=$(re_count "$TE_PROG" '| milestone-3 | started |') concluded=$(re_count "$TE_PROG" '| milestone-3 | concluded |'): $te_ok_out"
   fi
 
-  # ---- non-vacuity: kill it mid-lane, and the SAME read must move -------------------------
-  # Without this leg the one above would stay green against a gate that answered `:0`
-  # unconditionally — which is exactly the shape #527 was filed about, a killed session
-  # indistinguishable from an idle one.
+  # ---- non-vacuity: kill it mid-lane, and the SAME record must move -----------------------
+  # Without this leg the one above would stay green against a gate that closed its pair no matter
+  # what happened — and an evaluation whose `concluded` row is written unconditionally leaves a
+  # killed run indistinguishable from a finished one, which is the shape #527 was filed about.
   TE_CFG_BLOCK="$TE_DIR/config-block.json"
   jq '.commands.acme.test = "sleep 20"' "$LEAN_CFG" > "$TE_CFG_BLOCK"
   rm -f "$TE_PROG"
@@ -2556,13 +2365,11 @@ COSESS
   if kill -0 -"$te_kpg" 2>/dev/null; then
     fail "(lean-inline-m3-nv) a lane child outlived the gate's process group — milestone 3 detached"
   else
-    te_nv_tok="$(te_token "$TE_CFG_BLOCK" progress "$TE_KEY" --infra)"
-    if [[ "$te_nv_tok" == "m3infra-v3:1" \
-       && "$(re_count "$TE_PROG" '| milestone-3 | started |')" -eq 1 \
+    if [[ "$(re_count "$TE_PROG" '| milestone-3 | started |')" -eq 1 \
        && "$(re_count "$TE_PROG" '| milestone-3 | concluded |')" -eq 0 ]]; then
-      pass "(lean-inline-m3-nv) non-vacuity: a killed inline evaluation leaves started-with-no-concluded, and the same read moves to m3infra-v3:1"
+      pass "(lean-inline-m3-nv) non-vacuity: a killed inline evaluation leaves started-with-no-concluded, where the leg above closed its pair"
     else
-      fail "(lean-inline-m3-nv) expected m3infra-v3:1 with 1 started / 0 concluded, got token='$te_nv_tok' started=$(re_count "$TE_PROG" '| milestone-3 | started |') concluded=$(re_count "$TE_PROG" '| milestone-3 | concluded |')"
+      fail "(lean-inline-m3-nv) expected 1 started / 0 concluded, got started=$(re_count "$TE_PROG" '| milestone-3 | started |') concluded=$(re_count "$TE_PROG" '| milestone-3 | concluded |')"
     fi
   fi
 

@@ -1464,89 +1464,11 @@ if [ "$rc" -eq 0 ] && ! grep -q 'interrupted-exhausted' "$prog" \
   pass "(ib3) #566: the bound is per-milestone in SCOPE — milestone 3's 5 unclosed rows neither exhaust milestone 1 nor are announced to it"
 else fail "(ib3) expected rc=0, no exhaustion row and no interruption notice at milestone 1 with 5 unclosed milestone-3 rows, got rc=$rc: $out"; fi
 
-# ---- (ir) #527 AC-5: `progress --infra`, the read derived from residue ---------------------
-# Nothing survives the kill to write a class — SIGKILL cannot be trapped, and the scheduler never
-# invokes milestone 3 itself — so the answer is derived from what is left behind: `started` rows
-# with no matching `concluded` row. Since #566 that is the WHOLE predicate; the runner-record half
-# retired with the detached runner (see (ir4)).
-#
-# ITS OWN TREE, deliberately, so no other case's progress residue can be counted into this read.
-IR_TREE="$WORK/ir-tree"
-mkdir -p "$IR_TREE/.claude/pipeline-state"
-git -C "$IR_TREE" init -q
-git -C "$IR_TREE" config user.email t@example.invalid
-git -C "$IR_TREE" config user.name t
-printf '.claude/\n' > "$IR_TREE/.gitignore"
-printf 'seed\n' > "$IR_TREE/README.md"
-git -C "$IR_TREE" add -A >/dev/null 2>&1 && git -C "$IR_TREE" commit -q -m "ir base" >/dev/null 2>&1
-git -C "$IR_TREE" update-ref refs/remotes/origin/main HEAD
-IR_STATE="$IR_TREE/.claude/pipeline-state"
-IR_PROG="$WORK/ir-progress.md"
-
-# stderr is DROPPED here, not merged: the token cases below compare $out against an exact string,
-# and the read's diagnostic ("n unclosed milestone-3 evaluation(s)") goes to stderr by design so
-# it cannot contaminate the token a caller parses. gate_ir_e is the usage-error variant.
-gate_ir() { # gate_ir <args...>
-  ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$IR_TREE" && SECOND_SHIFT_CONFIG="$CFG" \
-    LEAN_PROGRESS_FILE="$IR_PROG" bash "$GATE" --issue-file "$EL_ISSUE" "$@" 2>/dev/null )
-}
-gate_ir_e() { # gate_ir_e <args...> — stderr merged, for the refusal cases
-  ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$IR_TREE" && SECOND_SHIFT_CONFIG="$CFG" \
-    LEAN_PROGRESS_FILE="$IR_PROG" bash "$GATE" --issue-file "$EL_ISSUE" "$@" 2>&1 )
-}
-
-# A genuinely dead pid: spawned and reaped here, rather than a large integer guessed to be free.
-( : ) & IR_DEAD=$!
-wait "$IR_DEAD" 2>/dev/null
-
-rm -f "$IR_PROG"; rm -f "$IR_STATE"/*.pid
-out="$(gate_ir progress 7 --infra)"; rc=$?
-if [ "$rc" -eq 0 ] && [ "$out" = "m3infra-v3:0" ]; then
-  pass "(ir1) AC-5: no record at all answers m3infra-v3:0 — never empty, which the caller rejects"
-else fail "(ir1) expected m3infra-v3:0, got rc=$rc '$out'"; fi
-if [ ! -f "$IR_PROG" ]; then
-  pass "(ir2) AC-5: the read does not bring the progress file it reads into existence"
-else fail "(ir2) the --infra read created $IR_PROG"; fi
-
-# Two evaluations begun, one concluded ⇒ exactly one death, with no runner record to excuse it.
-{ echo "# lean run — issue 7"; echo "run_id: r-ir"
-  echo "2026-01-01T00:00:00Z | milestone-3 | started |"
-  echo "2026-01-01T00:00:01Z | milestone-3 | concluded | rc=0"
-  echo "2026-01-01T00:00:02Z | milestone-3 | started |"; } > "$IR_PROG"
-out="$(gate_ir progress 7 --infra)"
-if [ "$out" = "m3infra-v3:1" ]; then
-  pass "(ir3) AC-5: an unclosed evaluation with no runner record reads as one infra death"
-else fail "(ir3) expected m3infra-v3:1, got '$out'"; fi
-# #566 RETIRED THE RUNNER-RECORD HALF OF THIS READ. Cases (ir4) through (ir8) lived here and
-# pinned the `<found> <live>` diagnostic over `<issue>-lean-m3-*.pid` records: a LIVE pid, a DEAD
-# pid, a token-less record, the issue-keyed glob, and another issue's residue. Every one of them
-# described state that milestone 3's detached runner produced, and milestone 3 no longer detaches
-# — there is no runner, so there are no records, and a case asserting how they are counted would
-# be asserting against a fixture nothing in production can now write.
-#
-# WHAT REPLACED THEM IS THE VERSION PIN BELOW, not nothing. The count cases (ir1)-(ir3) still hold
-# the predicate; what the deletion put at risk is a reader that compares a v2 reading against a v3
-# one, which is exactly what the generation prefix exists to stop. So the prefix is asserted
-# directly rather than left implied by three equality checks that would all still pass if it
-# silently reverted.
-out="$(gate_ir_e progress 7 --infra)"
-if grep -qE '^m3infra-v3:[0-9]+$' <<<"$(gate_ir progress 7 --infra)" \
-   && ! grep -qF 'runner record(s)' <<<"$out"; then
-  pass "(ir4) #566 AC-9: the token is m3infra-v3 and the diagnostic no longer claims runner records"
-else fail "(ir4) expected an m3infra-v3 token with no runner-record diagnostic, got '$(gate_ir progress 7 --infra)' / '$out'"; fi
-rm -f "$IR_STATE"/*.pid
-
-
-# The two flags are different token spaces and one call prints one of them; and a flag that
-# silently selects nothing on a subcommand that ignores it is a read answering nobody's question.
-out="$(gate_ir_e progress 7 --infra --satisfied 5)"; rc=$?
-if [ "$rc" -eq 2 ] && grep -q 'cannot be combined' <<<"$out"; then
-  pass "(ir9) AC-5: --infra and --satisfied together are a usage error"
-else fail "(ir9) expected rc=2 refusing the combination, got rc=$rc: $out"; fi
-out="$(gate_ir_e 1 7 --infra)"; rc=$?
-if [ "$rc" -eq 2 ] && grep -q "only meaningful on 'progress'" <<<"$out"; then
-  pass "(ir10) AC-5: --infra on another subcommand is a usage error, not a silent no-op"
-else fail "(ir10) expected rc=2 on a non-progress subcommand, got rc=$rc: $out"; fi
+# #718 DELETED THE (ir) BLOCK — `progress --infra`, the infra-death read. Six cases ((ir1)-(ir4),
+# (ir9), (ir10)) stood here over their own fixture tree, pinning a token space whose only consumer
+# was orchestrate-lean.sh's continuation loop. The RESIDUE they derived from is still pinned:
+# (if5)/(if5b) below, and scenario-liveness-selftest.sh's (lean-inline-m3)/(lean-inline-m3-nv)
+# over a real group-killed milestone 3.
 
 # ---- (j) AC-6: milestone 4 blocks on anything but a committed verdict=approve -------------
 # The fixture verdict is REVIEW-authored throughout: `r-review-1` / `sess-review-1` are the
@@ -1921,11 +1843,12 @@ if [ "$(count_in_progress '| milestone-5 | obligation | exit-artifacts | met')" 
   pass "(ob6) re-running milestone 5 restates nothing — one row per (obligation, state)"
 else fail "(ob6) obligation rows accumulated across re-runs: $(grep -c 'obligation' "$PROG")"; fi
 
-# The flag is a REPORT, not a token space, so it cannot be combined with either of them — a
-# caller that asked for both would get two different KINDS of answer on one stream.
-out="$(gate progress 7 --obligations --infra)"; rc=$?
+# The flag is a REPORT, not a token space, so it cannot be combined with one — a caller that asked
+# for both would get two different KINDS of answer on one stream. Driven against `--satisfied`
+# since #718; the `--infra` half of this refusal went with the flag.
+out="$(gate progress 7 --obligations --satisfied 5)"; rc=$?
 if [ "$rc" -eq 2 ] && grep -q 'cannot be combined' <<<"$out"; then
-  pass "(ob7) --obligations refuses to combine with --infra"
+  pass "(ob7) --obligations refuses to combine with --satisfied"
 else fail "(ob7) expected rc=2, got $rc: $out"; fi
 out="$(gate 5 7 --obligations)"; rc=$?
 if [ "$rc" -eq 2 ] && grep -q "only meaningful on 'progress'" <<<"$out"; then
@@ -6762,7 +6685,7 @@ td_count() { local n; [ -f "$TDPROG" ] || { echo 0; return 0; }
 rm -f "$TDPROG"
 p="$(wt_make 43)"
 tdgate entry 43 >/dev/null 2>&1
-td_tok_before="$(tdgate progress 43)"
+td_sat_before="$(td_count '| satisfied')"
 out="$(tdgate teardown 43)"; rc=$?
 if [ "$rc" -eq 0 ] && [ "$(td_count '| teardown | removed |')" -eq 1 ]; then
   pass "(td1) a successful teardown records 'removed' in its own namespace"
@@ -6770,10 +6693,13 @@ else fail "(td1) rc=$rc, rows: $(grep 'teardown' "$TDPROG" 2>/dev/null)"; fi
 
 # It is a DIAGNOSTIC, so it must be invisible to both scheduler token spaces. A teardown row that
 # moved either one would make hygiene an input to a completion decision.
-td_tok_after="$(tdgate progress 43)"
-if [ "$td_tok_before" = "$td_tok_after" ] && [ -n "$td_tok_after" ]; then
-  pass "(td2) the teardown row moves neither the continuation predicate nor anything anchored on a milestone"
-else fail "(td2) the teardown row moved the progress token: '$td_tok_before' -> '$td_tok_after'"; fi
+td_sat_after="$(td_count '| satisfied')"
+# The second clause is the anti-vacuity control the deleted token used to supply: the teardown
+# DID write its row, so an unchanged satisfied count is evidence the row landed outside the
+# milestone namespace rather than evidence that nothing was written at all.
+if [ "$td_sat_before" = "$td_sat_after" ] && [ "$(td_count '| teardown |')" -gt 0 ]; then
+  pass "(td2) the teardown row moves neither the close-out's satisfied read nor anything anchored on a milestone"
+else fail "(td2) the teardown row moved a milestone-anchored count: '$td_sat_before' -> '$td_sat_after'"; fi
 
 out="$(tdgate teardown 43)"; rc=$?
 if [ "$rc" -eq 0 ] && [ "$(td_count '| teardown | absent |')" -eq 1 ]; then
@@ -7201,10 +7127,10 @@ else
   cp "$WORK/held-pc-verdict.md" "$YVERDICT" 2>/dev/null
 fi
 
-# ---- (pg) #492: the CONTINUATION PREDICATE, `progress` ----------------------------------------
-# The scheduler cannot read a spawn's exit status as a completion signal, so it reads this token
-# instead. What must hold: the token moves on exactly the rows a milestone EVALUATION writes, and
-# does not move on the bookkeeping rows a session writes merely by starting.
+# ---- (pg) the CLOSE-OUT's SATISFIED READ, `progress --satisfied` ------------------------------
+# #492 put the CONTINUATION PREDICATE here and #718 deleted it: (pg1)-(pg4) pinned the bare token's
+# row set, and there is no longer a bare token or a caller for one. What survives is the narrow
+# question the close-out asks, and every case below is about that.
 PGPROG="$WORK/pg-progress.md"
 pgprog() { # pgprog <args...>
   ( unset RUN_ID CLAUDE_CODE_SESSION_ID GH_BOT
@@ -7230,39 +7156,13 @@ session_id: sess-pg
 2026-01-01T00:00:06Z | milestone-3 | armed | 2 rows
 milestone-4 | verdict=approve | round=1
 EOF
-BASE_TOK="$(pgprog)"
-if [ "$BASE_TOK" = "progress-v1:2" ]; then
-  pass "(pg1) the token counts the two EVALUATION rows and ignores entry/session/budget-exhausted/skipped/armed/verdict"
-else fail "(pg1) expected progress-v1:2 over the mixed fixture, got '$BASE_TOK'"; fi
-
-# D-1's load-bearing exclusion. record_build_session appends a `session` row on EVERY fresh
-# session's `entry` call, deliberately even when `entry` short-circuits — so if this row moved the
-# token, any spawn that reached checklist step 1 would read as "advanced" and the scheduler's
-# no-progress stop would be unreachable. This is the case that catches a naive
-# "did the file change" predicate.
-printf '%s\n' '2026-01-01T00:01:00Z | session | sess-pg-2' >> "$PGPROG"
-printf '%s\n' '2026-01-01T00:01:01Z | entry | ledger=/x | lines=9 | telemetry=on | session=sess-pg-2' >> "$PGPROG"
-if [ "$(pgprog)" = "$BASE_TOK" ]; then
-  pass "(pg2) a fresh session's own bookkeeping rows do NOT move the token — the no-progress stop stays reachable"
-else fail "(pg2) a session/entry row moved the token: $BASE_TOK -> $(pgprog)"; fi
-
-printf '%s\n' '2026-01-01T00:02:00Z | milestone-2 | satisfied' >> "$PGPROG"
-if [ "$(pgprog)" != "$BASE_TOK" ]; then
-  pass "(pg3) a new milestone 'satisfied' row DOES move the token"
-else fail "(pg3) a satisfied row left the token unchanged at $BASE_TOK"; fi
-
-TOK3="$(pgprog)"
-printf '%s\n' '2026-01-01T00:03:00Z | milestone-3 | attempt | red' >> "$PGPROG"
-if [ "$(pgprog)" != "$TOK3" ]; then
-  pass "(pg4) a new milestone 'attempt' row moves it too — a session that redded a gate still advanced"
-else fail "(pg4) an attempt row left the token unchanged at $TOK3"; fi
 
 # D-8's narrowing. The close-out asks a different question from the build phase, and `attempt` is
 # deliberately NOT part of it: a close-out that redded milestone 5 advanced the record but did not
 # finish step 9, and crediting it would be the false `done` #492 exists to remove.
 M5_BEFORE="$(pgprog --satisfied 5)"
 printf '%s\n' '2026-01-01T00:04:00Z | milestone-5 | attempt | closing comment missing' >> "$PGPROG"
-if [ "$M5_BEFORE" = "progress-v1:0" ] && [ "$(pgprog --satisfied 5)" = "$M5_BEFORE" ]; then
+if [ "$M5_BEFORE" = "m5sat-v1:0" ] && [ "$(pgprog --satisfied 5)" = "$M5_BEFORE" ]; then
   pass "(pg5) --satisfied 5 ignores milestone 5's ATTEMPT rows, so a redded close-out is not credited"
 else fail "(pg5) an attempt row moved the milestone-5-scoped token: $M5_BEFORE -> $(pgprog --satisfied 5)"; fi
 
@@ -7271,12 +7171,14 @@ if [ "$(pgprog --satisfied 5)" != "$M5_BEFORE" ]; then
   pass "(pg6) --satisfied 5 moves on milestone 5's satisfied row — the close-out's credit signal"
 else fail "(pg6) the milestone-5 satisfied row did not move its scoped token"; fi
 
-# ...and it is SCOPED. A satisfied row on another milestone must not credit a close-out.
+# ...and it is SCOPED. A satisfied row on another milestone must not credit a close-out. The
+# second half is the anti-vacuity control, and it is what the deleted broad token used to supply:
+# without it the case would stay green against a reader that answered a constant.
 M5_NOW="$(pgprog --satisfied 5)"
-BROAD_NOW="$(pgprog)"
+M4_BEFORE="$(pgprog --satisfied 4)"
 printf '%s\n' '2026-01-01T00:06:00Z | milestone-4 | satisfied' >> "$PGPROG"
-if [ "$(pgprog --satisfied 5)" = "$M5_NOW" ] && [ "$(pgprog)" != "$BROAD_NOW" ]; then
-  pass "(pg7) another milestone's satisfaction moves the broad token but not the milestone-5-scoped one"
+if [ "$(pgprog --satisfied 5)" = "$M5_NOW" ] && [ "$(pgprog --satisfied 4)" != "$M4_BEFORE" ]; then
+  pass "(pg7) another milestone's satisfaction moves ITS OWN scoped token but not the milestone-5-scoped one"
 else fail "(pg7) --satisfied 5 was not scoped to milestone 5: $M5_NOW -> $(pgprog --satisfied 5)"; fi
 
 # Read-only, and specifically NOT a creator. Every other subcommand funnels through
@@ -7286,10 +7188,10 @@ PG_ABSENT="$WORK/pg-absent.md"
 rm -f "$PG_ABSENT"
 out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID GH_BOT
         cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PG_ABSENT" \
-        bash "$GATE" progress 78 2>&1 )"; rc=$?
-if [ "$rc" -eq 0 ] && [ "$out" = "progress-v1:0" ] && [ ! -f "$PG_ABSENT" ]; then
+        bash "$GATE" progress 78 --satisfied 5 2>&1 )"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$out" = "m5sat-v1:0" ] && [ ! -f "$PG_ABSENT" ]; then
   pass "(pg8) with no progress record at all the token is well-defined and the file is NOT created"
-else fail "(pg8) expected progress-v1:0 with no file created, rc=$rc out='$out' exists=$([ -f "$PG_ABSENT" ] && echo yes || echo no)"; fi
+else fail "(pg8) expected m5sat-v1:0 with no file created, rc=$rc out='$out' exists=$([ -f "$PG_ABSENT" ] && echo yes || echo no)"; fi
 
 # D-2: NOT in require_entry_attested's set — and for a sharper reason than teardown's. This reads
 # the very file an attestation would live in, so gating it on that attestation would make the
@@ -7303,9 +7205,9 @@ if [ "$rc" -eq 2 ] && grep -q 'no entry attestation' <<<"$out"; then
 else fail "(pg9) the control did not refuse, so (pg8)'s ungated read proves nothing: rc=$rc: $out"; fi
 
 # The token must never be mistaken for an ordinal — it is compared for equality and nothing else.
-if grep -q '^progress-v1:' <<<"$BASE_TOK"; then
+if grep -q '^m5sat-v1:' <<<"$M5_NOW"; then
   pass "(pg10) the token carries a generation prefix, so a caller reaching for a numeric compare has to notice it is not a number"
-else fail "(pg10) the token has no generation prefix: '$BASE_TOK'"; fi
+else fail "(pg10) the token has no generation prefix: '$M5_NOW'"; fi
 
 out="$(pgprog --satisfied nope)"; rc=$?
 if [ "$rc" -eq 2 ] && grep -q 'takes a milestone number' <<<"$out"; then
@@ -7318,6 +7220,14 @@ out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID GH_BOT
 if [ "$rc" -eq 2 ] && grep -q "only meaningful on 'progress'" <<<"$out"; then
   pass "(pg12) --satisfied on a subcommand that ignores it is a refusal, not a silently dropped flag"
 else fail "(pg12) --satisfied was accepted on 'delta', rc=$rc: $out"; fi
+
+# #718 AC-7. The bare form was the continuation predicate, and deleting the predicate while leaving
+# the subcommand answering SOMETHING would hand a stale caller a token nothing computes anymore —
+# the silently-wrong direction. It refuses instead, and the refusal names what went away.
+out="$(pgprog)"; rc=$?
+if [ "$rc" -eq 2 ] && grep -q 'unknown progress form' <<<"$out"; then
+  pass "(pg13) bare 'progress <issue>' is a usage refusal naming the deleted predicate, not a default token"
+else fail "(pg13) expected rc=2 with an 'unknown progress form' refusal, got rc=$rc: $out"; fi
 
 # ---- (ac) #496: the milestone-4 failure taxonomy, the observe seam, and the config guard -----
 # The per-arm behavior is asserted where each arm's fixture already lives — (j1)/(j3)/(u*)/(t*)/
@@ -7721,18 +7631,19 @@ if [ "$(count_in_progress 'budget-exhausted')" -eq 0 ] \
   pass "(if8) started/concluded/interrupted-exhausted inflate no existing counter"
 else fail "(if8) a new verb leaked into an existing counter: $(cat "$PROG")"; fi
 
-# D-3: and NOT into progress_token's row set either. A token that moved on this churn would make
-# every dead spawn of a background-and-exit session read as advancement to the scheduler, burning
-# the whole --max-continuations budget re-proving the same thing.
+# D-3: and NOT into the `satisfied` row set either. The reader that space fed was the scheduler's
+# continuation predicate, deleted in #718; the row-set property outlived it, because the close-out's
+# `--satisfied` read and the obligations report both anchor on `| milestone-<n> |` too.
+# READ FROM THE FILE, not through a token: the token that used to answer this is the deleted one.
 reset_progress
 gate 1 7 >/dev/null 2>&1
-tok_before="$(gate progress 7)"
+sat_before="$(count_in_progress '| satisfied')"
 gate 1 7 >/dev/null 2>&1; gate 1 7 >/dev/null 2>&1; gate 1 7 >/dev/null 2>&1
-tok_after="$(gate progress 7)"
-if [ -n "$tok_before" ] && [ "$tok_before" = "$tok_after" ] \
+sat_after="$(count_in_progress '| satisfied')"
+if [ "$sat_before" = "$sat_after" ] \
    && [ "$(count_in_progress '| milestone-1 | started |')" -eq 4 ]; then
-  pass "(if9) a churn of started/concluded rows leaves the progress token unchanged"
-else fail "(if9) token moved '$tok_before' -> '$tok_after' over $(count_in_progress '| milestone-1 | started |') started rows"; fi
+  pass "(if9) a churn of started/concluded rows adds no satisfied row"
+else fail "(if9) the satisfied count moved '$sat_before' -> '$sat_after' over $(count_in_progress '| milestone-1 | started |') started rows"; fi
 
 # THE OBSERVE SEAM. #496 promoted it to a SCHEDULER read — orchestrate-lean.sh runs
 # `LEAN_GATE_OBSERVE=1 bash G 4 <issue>` at top level, which the dispatch routes through
