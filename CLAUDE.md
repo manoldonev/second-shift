@@ -171,4 +171,6 @@ Testing: [`docs/testing.md`](docs/testing.md) — the tier map, the runtime shim
 
 Release process: [`docs/releasing.md`](docs/releasing.md) — the checklist of record.
 
+Release eval: [`docs/consumer-eval.md`](docs/consumer-eval.md) — the consumer-shaped replay every release records, its four metrics and their exact sources.
+
 Enforcement principles: [`docs/pipeline-manifesto.md`](docs/pipeline-manifesto.md) — P1–P10, the trust boundary, and the T0 note. A judgment aid, not a gate.
