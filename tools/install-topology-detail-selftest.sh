@@ -7,15 +7,16 @@
 # INVARIANT GUARDED: when a staged suite fails, the one line install-topology prints about it
 # names THAT SUITE'S OWN failure, not a line that merely contains the substring "fail".
 #
-# WHY THIS IS WORTH A SUITE (#664). install-topology is a nightly guard, so its red line is
-# usually the only thing a human reads about a failure — the captured log is deleted with
-# $BASE on exit and never leaves the runner. The line composed the detail as
-# `grep -iE 'FAIL|error|No such|not found' "$log" | head -1`, and for
-# pipeline-doctor-selftest.sh the first line matching that is a PASSING one:
+# WHY THIS IS WORTH A SUITE (#664). install-topology ran nightly at the time (#666 later moved
+# it to event triggers), so its red line was usually the only thing a human read about a
+# failure — the captured log is deleted with $BASE on exit and never leaves the runner. The
+# line composed the detail as `grep -iE 'FAIL|error|No such|not found' "$log" | head -1`, and
+# for pipeline-doctor-selftest.sh the first line matching that is a PASSING one:
 # `ok: (d3) completed + failed at 24h → never stale`. Seven consecutive nightly reds
 # therefore named a green case while the real `FAIL: (inv/sibling)` sat 37 lines below,
 # unquoted. The defect was not that the guard failed to catch a regression — it caught it
-# every night — but that it could not say what it had caught.
+# every night — but that it could not say what it had caught. The same log-deletion
+# constraint holds under event triggers, so the fix still matters.
 #
 # WHY NO SCENARIO COVERS IT (CLAUDE.md scenario-first rule): scenario-liveness-selftest.sh
 # composes verdict paths through the lean gate to a terminal WRITE. This path is inside a

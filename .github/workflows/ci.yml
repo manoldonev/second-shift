@@ -97,8 +97,9 @@ jobs:
       # braids together; it captures each suite and replays it inside ::group:: framing.
       #
       # install-topology-selftest.sh is EXCLUDED here. There is no job for it in this workflow:
-      # it runs on a nightly cron in .github/workflows/nightly-guards.yml, and the note above
-      # the release-time derivation gates below says why. It re-runs every shipped suite from a
+      # it runs in .github/workflows/install-topology.yml, on push/release-PR/dispatch rather
+      # than the PR lane (#666), and the note above the release-time derivation gates below
+      # says why. It re-runs every shipped suite from a
       # staged install cache, so leaving it in this sweep has it contending with the very suites
       # it duplicates (the then-slowest suite measured at 244s against a ~94s uncontended norm). It stays
       # DISCOVERED — the exclusion names a path that must exist, and the runner hard-errors if
@@ -227,12 +228,13 @@ jobs:
           SKIP_STRESS: '1'
         run: bash tools/mutation-sweep.sh --mode pr --base "origin/$BASE_REF"
 
-  # The install-topology class guard does NOT run here. It lives in .github/workflows/
-  # nightly-guards.yml on a nightly cron (plus workflow_dispatch), because its cost IS the
-  # shipped suite set run a second time — the repo's longest job — while the class it guards
-  # only moves when suites or packaging change. Both selftest jobs exclude it by path, and the
-  # runner hard-errors if that path ever stops matching, so it cannot silently fall out of the
-  # nightly's reach either.
+  # The install-topology class guard does NOT run here. It lives in
+  # .github/workflows/install-topology.yml, on push to main / the release PR / workflow_dispatch
+  # (#666 — a clock was the least relevant trigger for it), because its cost IS the shipped
+  # suite set run a second time — the repo's longest job — while the class it guards only moves
+  # when suites or packaging change. Both selftest jobs exclude it by path, and the runner
+  # hard-errors if that path ever stops matching, so it cannot silently fall out of that
+  # workflow's reach either.
   #
   # Release-time derivation (#119): feature PRs must NOT write the release-owned files —
   # plugin.json version fields and CHANGELOG.md are computed on the release PR by

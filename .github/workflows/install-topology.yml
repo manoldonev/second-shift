@@ -1,0 +1,154 @@
+# install-topology — the class guard for #419, event-triggered rather than nightly (#666).
+#
+# WHAT THE CLASS GUARD GUARDS. A shipped suite can pass in this checkout and fail everywhere it
+# is actually installed, because it silently borrows something from the tree it was authored
+# in. tools/install-topology-selftest.sh stages every plugin into a version-keyed install cache
+# outside any git repo, with cwd in a separate consumer directory, and re-runs every shipped
+# suite from there. Two real defects motivated it, both green in-tree the whole time — see that
+# script's own header for the full class.
+#
+# WHY NOT ON A CLOCK. This guard used to run nightly in nightly-guards.yml. Its own docs
+# (docs/testing.md) already accepted within-a-day detection as the trade for keeping it off the
+# PR lane, but a clock is the least relevant trigger for it: the guard's answer only moves when
+# packaging/layout changes or a release is cut, and its red was rotting on a cron dashboard
+# nobody here reads — the mutation nightly hit the same failure mode, independently.
+#
+# TRIGGERS. Three, each answering "did the layout this guard reproduces just change":
+#   - push to main, filtered to the packaging/layout paths below — once per merge that could
+#     move the answer, not once per merge.
+#   - the release PR (head branch `release/next`, and the head repo must be THIS repo — a fork
+#     PR can name its branch release/next, same discipline as ci.yml's pr-gates release
+#     exemption). A release ships every plugin at its own manifest version, which is exactly
+#     the topology this guard reproduces, regardless of which paths that PR's own commits touch.
+#   - workflow_dispatch, for a branch under development that touches packaging.
+#
+# PATH FILTER (AC-3), each family named because install-topology-selftest.sh itself reads it to
+# build the staged cache:
+#   - plugins/*/.claude-plugin/plugin.json — the guard reads THIS file's `version` to lay the
+#     plugin out at <plugin>/<version>/ in the cache; editing it changes the key the topology
+#     is staged under.
+#   - .claude-plugin/marketplace.json — the manifest a consumer installs from; it declares the
+#     shipped plugin set the guard iterates (plugins/*/.claude-plugin/) and carries the
+#     release-time version consumers pin to.
+#   - tools/install-topology-selftest.sh — the guard's own staging/layout logic; changing HOW
+#     it reproduces the install topology is a packaging/layout change by definition.
+#
+# ON RED (AC-2): file-issue-on-red dedupes against an already-open issue by title rather than
+# filing one per push — a red state gets one tracked issue, not one per trigger.
+#
+# BOTH LANES. Several install-topology-known-red.tsv rows were explicitly environment-dependent
+# historically, so the bash-3.2 copy carries signal ubuntu does not. Splitting by lane costs
+# nothing — they run concurrently and block nothing.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'plugins/*/.claude-plugin/plugin.json'
+      - '.claude-plugin/marketplace.json'
+      - 'tools/install-topology-selftest.sh'
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  install-topology:
+    # Every push/workflow_dispatch run executes; a pull_request run executes only for the
+    # release PR itself. Every OTHER pull_request event still triggers this workflow (path
+    # filters do not apply to pull_request here — the release PR must run regardless of which
+    # paths its own commits touch) but this job reports a no-op skip rather than a red.
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.head_ref == 'release/next' &&
+       github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # The staged suites need both; this job stands alone, so it states its own tools.
+      - name: install shellcheck + jq
+        run: sudo apt-get update -q && sudo apt-get install -y shellcheck jq
+
+      - name: install-topology class guard
+        run: bash tools/install-topology-selftest.sh
+
+  install-topology-bash32:
+    name: install-topology (macos, bash 3.2)
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.head_ref == 'release/next' &&
+       github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # macOS ships /bin/bash 3.2 and every shipped script claims 3.2 compat, but GitHub's macOS
+      # runners put Homebrew bash 5 first on PATH — so shim PATH to force `#!/usr/bin/env bash`
+      # back to the stock binary. Same idiom as ci.yml's selftests-bash32 job.
+      - name: install-topology class guard under stock bash 3.2
+        run: |
+          mkdir -p /tmp/bash32
+          ln -sf /bin/bash /tmp/bash32/bash
+          export PATH="/tmp/bash32:$PATH"
+          bash --version | head -1
+          bash tools/install-topology-selftest.sh
+
+  # AC-2: a red run files a deduplicated issue; a green run files nothing. `needs` both guard
+  # jobs so it can name whichever lane(s) actually failed; `always()` because the default
+  # `needs` gate would otherwise skip this job the moment either upstream job fails.
+  file-issue-on-red:
+    needs: [install-topology, install-topology-bash32]
+    if: always() && contains(needs.*.result, 'failure')
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      actions: read   # gh run view --log-failed, to pull the failing suite name(s) below
+    steps:
+      - name: dedupe against an already-open red, or file one
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          SHA: ${{ github.sha }}
+          UBUNTU_RESULT: ${{ needs.install-topology.result }}
+          BASH32_RESULT: ${{ needs.install-topology-bash32.result }}
+        run: |
+          set -euo pipefail
+
+          # Dedup by title substring, not a label: a label has to pre-exist in the repo or
+          # `gh issue create --label` errors outright, and the title is already the natural key.
+          existing="$(gh issue list --search 'is:open "install-topology guard red" in:title' --json number --jq '.[0].number // empty')"
+          if [[ -n "$existing" ]]; then
+            echo "install-topology is already red in open issue #$existing — not filing a duplicate."
+            exit 0
+          fi
+
+          FAILING=()
+          [[ "$UBUNTU_RESULT" == "failure" ]] && FAILING+=("install-topology (ubuntu)")
+          [[ "$BASH32_RESULT" == "failure" ]] && FAILING+=("install-topology-bash32 (macos, bash 3.2)")
+
+          # Best-effort: pull the guard's own `RED:` lines out of the run's captured logs so
+          # the issue names suites, not just lanes. Absence degrades to a pointer at the run.
+          SUITES="$(gh run view "$RUN_ID" --log-failed 2>/dev/null | grep -F 'RED:' | sed -E 's/^[^	]*	[^	]*	[[:space:]]*//' || true)"
+
+          BODY="$(mktemp)"
+          {
+            echo "The install-topology class guard failed on \`${SHA:0:12}\`, lane(s): ${FAILING[*]}."
+            echo
+            echo "Run: https://github.com/$GH_REPO/actions/runs/$RUN_ID"
+            echo
+            if [[ -n "$SUITES" ]]; then
+              echo "Failing suite(s):"
+              echo '```'
+              echo "$SUITES"
+              echo '```'
+            else
+              echo "Failing suite name(s) unavailable here — read the run log linked above."
+            fi
+          } > "$BODY"
+
+          gh issue create --repo "$GH_REPO" \
+            --title "install-topology guard red @ ${SHA:0:12}" \
+            --body-file "$BODY"
