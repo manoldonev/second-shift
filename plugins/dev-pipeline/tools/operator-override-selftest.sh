@@ -375,6 +375,65 @@ if [ "$rc" -eq 0 ] \
   pass "(t) --help prints through the last header line and stops before the code"
 else fail "(t) --help did not print exactly the header, rc=$rc: $out"; fi
 
+# ---- (v) #709: design-disarm — the new closed-enum value ----------------------------------
+# Same mechanism, a third gate: `check --gate design-disarm` behaves exactly like the other two
+# non-region-scoped gates (rc 1 with no record, rc 0 once one is recorded), and `--print-ref`
+# returns the block's own 1-indexed FILE-ORDER ordinal `<issue>#<n>` — not a running count of
+# design-disarm blocks alone. $RECORD and $REGISTER are cleared first: (m) above left the
+# register holding a malformed row, and every row in it is validated before the gate filter
+# runs, so an unrelated leftover violation would red these cases for the wrong reason.
+rm -f "$RECORD" "$REGISTER"
+ov r1 s1 '' check --gate design-disarm --issue 42 --repo-root "$REPO" >/dev/null 2>&1
+if [ $? -eq 1 ]; then pass "(v1) #709: design-disarm with no record refuses (rc 1), same as any other gate"
+else fail "(v1) expected rc 1 with no override record"; fi
+
+ov r1 s1 '' attend >/dev/null 2>&1
+out="$(ov r1 s1 '' record --gate design-disarm --scope design-disarm --issue 42 \
+        --decision 'the ticket ships no UI' --answer 'Confirmed — backend-only, disarm it.' --repo-root "$REPO" 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && [ -f "$RECORD" ] && grep -q '^> Confirmed — backend-only, disarm it\.$' "$RECORD"; then
+  pass "(v2) #709: design-disarm records like any other gate, quoting the operator's answer"
+else fail "(v2) design-disarm record failed (rc=$rc): $out"; fi
+
+out="$(ov r1 s1 '' check --gate design-disarm --issue 42 --repo-root "$REPO" --print-ref 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$out" = "42#1" ]; then
+  pass "(v3) #709 D-20/D-21: --print-ref on a hit prints the block's own 1-indexed ordinal"
+else fail "(v3) expected rc 0 and '42#1', got rc=$rc: $out"; fi
+
+# A second design-disarm block for the SAME issue: the ref is the block's own file position
+# (2), not "the 1st/2nd design-disarm block" — there is only one gate in this file so the two
+# readings coincide here, which is exactly why (v3)/(v4) exist as a PAIR: (v4) alone could not
+# tell "file position" from "design-disarm-block count" apart.
+out="$(ov r1 s1 '' record --gate design-disarm --scope design-disarm --issue 42 \
+        --decision 'second decision, same ticket' --answer 'Still disarmed.' --repo-root "$REPO" 2>&1)"; rc=$?
+out2="$(ov r1 s1 '' check --gate design-disarm --issue 42 --repo-root "$REPO" --print-ref 2>&1)"
+if [ "$rc" -eq 0 ] && [ "$out2" = "42#1" ]; then
+  pass "(v4) #709: FIRST match wins — a second design-disarm block does not move the printed ref"
+else fail "(v4) expected the ref to stay '42#1' (first match), got rc=$rc, ref='$out2'"; fi
+
+# ---- (v5) #709 D-23: design-disarm is FORBIDDEN in the persistent register -----------------
+rm -f "$RECORD"
+printf 'design-disarm\tdesign-disarm\tnone\tuntil-issue:7\ta register row would be a blanket opt-out\n' > "$REGISTER"
+out="$(ov r1 s1 '' check --gate design-disarm --issue 42 --repo-root "$REPO" 2>&1)"; rc=$?
+if [ "$rc" -eq 2 ] && grep -q 'may not appear in the persistent register' <<<"$out"; then
+  pass "(v5) #709 D-23: a design-disarm row in the persistent register is refused as malformed, not honored"
+else fail "(v5) expected rc 2 naming the per-issue-only rule, got rc=$rc: $out"; fi
+
+out="$(ov r1 s1 '' lint --register "$REGISTER" 2>&1)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'may not appear in the persistent register' <<<"$out"; then
+  pass "(v6) #709 D-23: lint counts that same row as exactly one violation"
+else fail "(v6) expected 1 violation naming the per-issue-only rule, got $rc: $out"; fi
+
+# ---- (v7) #709: --print-ref prints NOTHING on a REGISTER hit -------------------------------
+# A register row carries no per-block ordinal to cite — exercised on intake-unqueued, since
+# design-disarm can never reach the register ((v5) is exactly why).
+printf 'intake-unqueued\tintake-attestation\tnone\tuntil-issue:7\tthe upstream queue label is minted by hand until #7 lands\n' > "$REGISTER"
+echo OPEN > "$GH_STATE_FILE"
+out="$(ov r1 s1 '' check --gate intake-unqueued --issue 42 --repo-root "$REPO" --print-ref 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && [ -z "$out" ]; then
+  pass "(v7) #709: --print-ref prints nothing on a REGISTER hit — a register row carries no block ordinal"
+else fail "(v7) expected rc 0 and empty stdout, got rc=$rc: '$out'"; fi
+rm -f "$REGISTER" "$RECORD"
+
 # ---- (m6) the register that ships in THIS repo, and the one SUITE-DECLARED SKIP ------------
 # The register documents the schema by example, so a malformed one here is inherited by every
 # consumer reading it. It is also a consumer-repo artifact that ships inside no plugin, which

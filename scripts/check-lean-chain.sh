@@ -921,6 +921,12 @@ delegate intent-gap
 # NOT a judgment about whether the yield was warranted. That is the reviewer's, and committing
 # the record is precisely what puts it in front of them to repudiate.
 #
+# #709 AC-4/D-10: the same arm additionally resolves a `fidelity: not-applicable (override:
+# <ref>)` verdict header against that record — a design-disarm YIELD claim that cites no block
+# this issue's record actually carries is refused here, the one place this boundary CAN tell:
+# it cannot see `design.provider` (gitignored, never reaches a CI checkout), so it cannot itself
+# know the ticket was disarmed, but it can always check that a cited ref is real.
+#
 # DELEGATED in full, and the payload holds a LOCKSTEP copy of the reader rather than shelling out
 # to the mechanism's own binary: a consumer's CI fetches lean-evidence.sh alone, at a pinned ref,
 # so a sibling call there would resolve to nothing and this boundary would pass on evidence it

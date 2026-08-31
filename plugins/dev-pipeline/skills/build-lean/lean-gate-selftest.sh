@@ -4176,6 +4176,29 @@ dcommit "base"
 git -C "$DTREE" update-ref refs/remotes/origin/main HEAD
 printf 'the work\n' > "$DTREE/subject.txt"
 
+# #709: `Design: none` on a provider repo needs a gate-visible design-disarm override behind
+# it (D-1) — a build session may not opt a ticket out of the render lane on its own. Defined
+# HERE, before any disarm fixture below, so every "Design: none" case in this whole design
+# block can back its disarm rather than reading the new refusal by accident.
+DOVT="$HERE/../../tools/operator-override.sh"
+DOV_REC="$DTREE/docs/plans/acme-55-lean-override.md"
+dov_attend() { ( cd "$DTREE" && env RUN_ID=dov-run CLAUDE_CODE_SESSION_ID=dov-sess SECOND_SHIFT_CONFIG="$DCFG" \
+    bash "$DOVT" attend ) >/dev/null 2>&1; }
+dov_write() { # dov_write <decision> <answer>
+  ( cd "$DTREE" && env RUN_ID=dov-run CLAUDE_CODE_SESSION_ID=dov-sess SECOND_SHIFT_CONFIG="$DCFG" \
+      bash "$DOVT" record --gate design-disarm --scope design-disarm --issue 55 \
+      --decision "$1" --answer "$2" --repo-root "$DTREE" ) >/dev/null 2>&1; }
+dov_clear() { rm -f "$DOV_REC" "$DTREE/.claude/pipeline-state/attend-dov-sess.token"; }
+# One override, reused by every disarm fixture below that is not itself testing the override
+# mechanism (that is (dzo)'s job) — recorded once and left in place, since the mechanism scopes
+# by issue+gate and every case here is issue 55's design-disarm.
+if [ -f "$DOVT" ]; then
+  dov_attend
+  dov_write 'the ticket ships no UI' 'Confirmed — backend-only, disarm it where the fixture needs to.'
+else
+  fail "(dzoh) the override mechanism at $DOVT is absent — every disarm fixture below would read the new refusal instead of its own subject"
+fi
+
 # ---- (dz) AC-1: the milestone-1 arming forms --------------------------------------------
 # (dz1) provider configured, no section at all.
 dreset
@@ -4221,6 +4244,94 @@ out="$(dgate 1 55)"; rc=$?
 if [ "$rc" -eq 1 ] && grep -q 'states no reason' <<<"$out"; then
   pass "(dz5) a bare 'Design: none' is refused — the disarm is a decision and must carry one"
 else fail "(dz5) expected the no-reason refusal, rc=$rc: $out"; fi
+
+# ---- (dzo) #709: `Design: none` on a provider repo needs a gate-visible design-disarm override
+# D-1 forbids a build session opting a ticket out of the render lane on its own. The three arms
+# mirror (yo)'s spec-open-region cases: no record refuses naming the exact command, a valid
+# record yields, and a malformed one reds distinctly worded from "no override" (dov_attend/
+# dov_write/dov_clear/DOVT/DOV_REC are defined once, above (dz1), so every disarm fixture in
+# this whole design section can use them — this block is the one that exercises the mechanism
+# itself, not merely relies on it).
+if [ ! -f "$DOVT" ]; then
+  fail "(dzo0) the override mechanism at $DOVT is absent — every case below would pass vacuously"
+else
+  pass "(dzo0) the override mechanism resolves at the path lean-gate.sh defaults to"
+
+  # (dzo1) NO RECORD: milestone 1 reds naming the exact remedy command, on the same disarmed
+  # spec (dz2) accepts once an override backs it.
+  dreset
+  dov_clear
+  printf '# spec\n\n- AC-1: the thing\n\n## Design\n\nDesign: none — no FE surface in this ticket.\n' > "$DSPEC"
+  dcommit "a disarmed spec, no override"
+  out="$(dgate 1 55)"; rc=$?
+  if [ "$rc" -eq 1 ] \
+     && grep -q 'no design-disarm operator override backs it' <<<"$out" \
+     && grep -q -- 'record --gate design-disarm --scope design-disarm --issue 55' <<<"$out"; then
+    pass "(dzo1) #709 AC-1: a disarmed provider spec with no override reds milestone 1 naming the exact remedy"
+  else fail "(dzo1) expected rc=1 naming the override command, got rc=$rc: $out"; fi
+
+  # (dzo2) AC-2: a VALID record backs the SAME spec, and the ticket yields — 'disarmed', not the
+  # refusal (dzo1) hit on identical spec bytes.
+  dreset
+  dov_attend
+  dov_write 'the ticket ships no UI' 'Confirmed — backend-only, disarm it.'
+  out="$(dgate 1 55)"; rc=$?
+  if [ "$rc" -eq 0 ] && grep -q 'disarmed' <<<"$out"; then
+    pass "(dzo2) #709 AC-2: a design-disarm override backing the same spec yields — disarmed"
+  else fail "(dzo2) expected rc=0 disarmed, got rc=$rc: $out"; fi
+
+  # (dzo3) AC-3: a MALFORMED record is UNKNOWN, not "no override" — collapsing the two would let
+  # a record the merge boundary is about to reject wave the disarm through here first.
+  # `design_state()`'s vocabulary is `unarmed`/`disarmed`/`armed`/`error:<msg>` (its own header
+  # comment), not check_pause_and_ask's separate rc=2/no-charge one — a malformed override is an
+  # `error:` outcome like every other design_state() defect (a missing section, a bad host), so
+  # it charges a fix attempt like they do, rather than a bespoke unbudgeted class this one arm
+  # would need alone.
+  dreset
+  dov_clear
+  before="$(dcount '| milestone-1 | attempt |')"
+  # No '### Operator answer' quote at all — well-formed for design-disarm otherwise (it is NOT
+  # region-scoped, so 'region: none' here is correct rather than the defect), but a decision
+  # nobody stated is not an override.
+  printf '## Override 1\ngate: design-disarm\nscope: design-disarm\nissue: 55\nregion: none\nrun_id: r\nsession_id: s\nexpiry: run\ndecision: d\n' > "$DOV_REC"
+  out="$(dgate 1 55)"; rc=$?
+  after="$(dcount '| milestone-1 | attempt |')"
+  if [ "$rc" -eq 1 ] && grep -q 'could not be read as a clean answer' <<<"$out" \
+     && grep -q 'not the same fact as' <<<"$out" && [ "$after" -eq $((before + 1)) ]; then
+    pass "(dzo3) #709 AC-3: a malformed design-disarm record reds as UNKNOWN, worded distinctly from 'no override'"
+  else fail "(dzo3) expected rc=1 naming the unreadable record with one more attempt than before ($before), got rc=$rc attempts=$after: $out"; fi
+  dov_clear
+
+  # (dzo4) AC-2: the committed VERDICT stamps the override's own ref. Same spec as (dzo2); the
+  # writer's --fidelity defaults to not-applicable, and on a disarmed provider ticket it is
+  # stamped with the ref design_state() validated — '55#1', the record's own block ordinal.
+  dreset
+  dov_attend
+  dov_write 'the ticket ships no UI' 'Confirmed — backend-only, disarm it.'
+  rm -f "$DVERDICT"
+  out="$(dverdict sess-review-d run-review-d --pr 900 --verdict approve)"; rc=$?
+  if [ "$rc" -eq 0 ] && grep -q '^fidelity: not-applicable (override: 55#1)$' "$DVERDICT" 2>/dev/null; then
+    pass "(dzo4) #709 AC-2: the written verdict stamps 'fidelity: not-applicable (override: 55#1)'"
+  else fail "(dzo4) expected the verdict to carry the override ref, rc=$rc: $out; verdict: $(cat "$DVERDICT" 2>/dev/null)"; fi
+  dov_clear
+
+  # (dzo5) the writer's own fail-closed side: the SAME disarmed spec with no override backing it
+  # refuses --fidelity not-applicable at the WRITER, rather than let a bare value paper over the
+  # opt-out #705 forbids — the round never gets a verdict to hand to milestone 4.
+  dreset
+  dov_clear
+  rm -f "$DVERDICT"
+  out="$(dverdict sess-review-d2 run-review-d2 --pr 901 --verdict approve)"; rc=$?
+  if [ "$rc" -eq 1 ] && grep -q 'no design-disarm operator override backs it' <<<"$out" && [ ! -f "$DVERDICT" ]; then
+    pass "(dzo5) #709: the writer refuses a bare not-applicable on a disarmed spec with no override, and writes no record"
+  else fail "(dzo5) expected the writer to refuse with no record written, rc=$rc: $out"; fi
+  # RESTORE the default backing override this block cleared — every disarm fixture from here to
+  # the end of this design section (dz6 onward) assumes one is already recorded, the same way the
+  # pre-(dzo) header above established it before (dz1).
+  dov_attend
+  dov_write 'the ticket ships no UI' 'Confirmed — backend-only, disarm it where the fixture needs to.'
+fi
+dreset
 
 # (dz6) render states declared, no handoff link: the review session would have nothing to score
 # the screenshots against.

@@ -985,13 +985,24 @@ arm_intent_gap() {
 # the gate that consults a row is both where the read is cheap and where the refusal is
 # actionable. Here the record's own `expiry: run` is validated, which is AC-5's subject.
 #
+# #709 AC-4: it ALSO resolves a verdict's `fidelity: not-applicable (override: <ref>)` claim
+# against this same record — a design-disarm yield the writer cannot commit without a validated
+# override (D-1), so a ref that resolves to nothing is evidence of exactly the tamper this arm
+# exists to catch, whether or not any override record is committed at all.
+#
 # Absence is class (a): most runs record no override at all.
 # LOCKSTEP-BEGIN override-record-reader verbatim
 # The CLOSED enums. Widening either is the phase-2 work #613 defers, and an unknown value is an
 # ERROR rather than a silent miss: a gate name nobody implements must not read as "no override
 # exists", which is the fail-open this whole mechanism is built against.
-OVERRIDE_GATES='intake-unqueued spec-open-region'
-OVERRIDE_SCOPES='intake-attestation open-region-resolution'
+#
+# `design-disarm` (#709): a per-ticket `Design: none` disarm on a repo configured with
+# design.provider is a build-session-writable opt-out of the mandatory render lane, which #705's
+# decisions forbid without an operator-quoted override. It is NOT region-scoped (issue-scoped
+# only, like `intake-unqueued`) and is FORBIDDEN in the persistent register — see
+# register_row_violation() below, operator-override.sh-only since the register is per-tool.
+OVERRIDE_GATES='intake-unqueued spec-open-region design-disarm'
+OVERRIDE_SCOPES='intake-attestation open-region-resolution design-disarm'
 
 # The gate that is region-scoped. A region is REQUIRED for it and forbidden for the other: an
 # open-region override that named no region would clear every region on the ticket at once.
@@ -1087,8 +1098,64 @@ EOF
 }
 # LOCKSTEP-END override-record-reader
 
+# The `fidelity:` value, read WHOLE and header-anchored — the same shape check-lean-chain.sh's
+# `panel_key` is, and for the same reason: `header_key`'s charset stops at the first character
+# outside [A-Za-z0-9._-], so a suffixed value ("not-applicable (override: 709#1)") truncates to
+# its bare enum word there — exactly what every OTHER fidelity: reader wants (#709 D-4), since
+# widening the shared reader for one key would change how every key in the schema is read. This
+# is private to this file's single caller below, which needs the ref past the parenthesis.
+fidelity_key() { # fidelity_key   (record on stdin)
+  awk '
+    /^[A-Za-z_][A-Za-z0-9_]*[:=]/ { hdr = 1 }
+    hdr && /^[[:space:]]*$/       { exit }
+    hdr && /^fidelity:/ {
+      sub(/^fidelity:[[:space:]]*/, "")
+      sub(/[[:space:]]+$/, "")
+      printf "%s", $0
+      exit
+    }
+  '
+}
+
 arm_override() {
-  local rec line why
+  local rec line why vfid ref idx blk_g blk_is found
+
+  # #709 AC-4/D-4. Independent of the well-formedness sweep below, and evaluated even when NO
+  # override record is committed at all: a verdict claiming `fidelity: not-applicable (override:
+  # <ref>)` is a claim of a design-disarm YIELD, and the ref must resolve to an actual
+  # design-disarm block for THIS issue — a record entirely absent and a fidelity line citing one
+  # anyway are the same defect this arm exists to catch, an artifact the boundary is asked to
+  # trust that it cannot verify. `<ref>` ordinals are counted over EVERY block in the record, in
+  # file order, matching `operator-override.sh check --print-ref`'s own numbering — the ref names
+  # the block's position, not its gate-scoped rank.
+  if [ -n "$VERDICT" ]; then
+    vfid="$(fidelity_key < "$REPO_ROOT/$VERDICT")"
+    case "$vfid" in
+      *"(override: "*")")
+        ref="${vfid#*override: }"; ref="${ref%)}"
+        found=0
+        rec="$(find_artifact "$KEY" "$LEAN_OVERRIDE_SUFFIX")" || rec=""
+        if [ -n "$rec" ]; then
+          idx=0
+          while IFS= read -r line; do
+            [ -n "$line" ] || continue
+            idx=$((idx + 1))
+            IFS="$(printf '\037')" read -r blk_g _ blk_is _ <<EOF
+$line
+EOF
+            if [ "$blk_g" = "design-disarm" ] && [ "$blk_is" = "$KEY" ] && [ "${KEY}#${idx}" = "$ref" ]; then
+              found=1; break
+            fi
+          done <<EOF
+$(override_parse_blocks "$REPO_ROOT/$rec")
+EOF
+        fi
+        [ "$found" -eq 1 ] \
+          || note_violation "verdict record '$VERDICT' reads 'fidelity: $vfid', citing design-disarm override ref '$ref', but no committed override record for #$KEY carries a design-disarm block at that ref. A fidelity claim citing an override must resolve to the record it names."
+        ;;
+    esac
+  fi
+
   rec="$(find_artifact "$KEY" "$LEAN_OVERRIDE_SUFFIX")" || rec=""
   [ -n "$rec" ] || return 0
   if [ -z "$(override_parse_blocks "$REPO_ROOT/$rec")" ]; then

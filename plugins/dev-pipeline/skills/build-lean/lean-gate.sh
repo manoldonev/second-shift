@@ -3514,7 +3514,7 @@ fidelity_evidence_violations() { # fidelity_evidence_violations <declared-ids> <
 # is documentation and arms nothing. That is D-8's AND half — under OR, every consumer that ever
 # wrote the heading would be required to own a render harness.
 design_state() { # design_state <spec-path>
-  local spec="$1" sec n_disarm n_reason n_link n_fam
+  local spec="$1" sec n_disarm n_reason n_link n_fam ddr_rc
   [ -n "$DESIGN_PROVIDER" ] || { printf 'unarmed'; return 0; }
   [ -f "$spec" ] || { printf 'unarmed'; return 0; }
   sec="$(design_section < "$spec" 2>/dev/null)"
@@ -3529,7 +3529,23 @@ design_state() { # design_state <spec-path>
     n_reason="$(printf '%s\n' "$sec" | grep -ciE '^[[:space:]]*Design:[[:space:]]*none[[:space:]]+[^[:space:]]')" || n_reason=0
     [ "${n_reason:-0}" -ge 1 ] \
       || { printf 'error:the "## Design" section of %s disarms this ticket but states no reason. The form is "Design: none — <reason>": a disarm is a decision, and an undocumented one is indistinguishable from an omission at review time.' "$SPEC_REL"; return 0; }
-    printf 'disarmed'; return 0
+    # #709 D-1/D-4. A per-ticket "Design: none" on a provider repo is a build-session-writable
+    # opt-out of the mandatory render lane, which #705's decisions forbid without a gate-visible
+    # operator override. An unresolved $ISSUE fails CLOSED — never disarmed — because the
+    # override binds per issue and there is nothing to check it against.
+    [ -n "$ISSUE" ] \
+      || { printf 'error:the "## Design" section of %s disarms this ticket, but the issue this run resolves to is unset, so the design-disarm override (which binds per issue) cannot be checked. This is an environment defect, not an authoring one — run this from a context that resolves an issue.' "$SPEC_REL"; return 0; }
+    bash "$OVERRIDE_TOOL" check --gate design-disarm --issue "$ISSUE" --repo-root "$REPO_ROOT" >/dev/null 2>&1
+    ddr_rc=$?
+    case "$ddr_rc" in
+      0) printf 'disarmed'; return 0 ;;
+      1) printf 'error:the "## Design" section of %s disarms this ticket ("Design: none — <reason>") on a repo configured with design.provider "%s", but no design-disarm operator override backs it — a build session cannot opt a ticket out of the mandatory render lane on its own (#705). An attended operator records one: bash %s record --gate design-disarm --scope design-disarm --issue %s --decision '"'"'<what the operator decided, one line>'"'"' --answer '"'"'<their answer, verbatim>'"'"'' \
+        "$SPEC_REL" "$DESIGN_PROVIDER" "$OVERRIDE_TOOL" "$ISSUE"
+         return 0 ;;
+      *) printf 'error:the "## Design" section of %s disarms this ticket, but its design-disarm override record could not be read as a clean answer (override check exit %s; 127 means the mechanism is missing from this install rather than a record being malformed) — that is not the same fact as "no override", and is not treated as one. Fix or remove the record (bash %s lint --record …), then re-run.' \
+        "$SPEC_REL" "$ddr_rc" "$OVERRIDE_TOOL"
+         return 0 ;;
+    esac
   fi
 
   if [ "$(design_armed < "$spec" 2>/dev/null)" != "armed" ]; then
@@ -4845,7 +4861,7 @@ cmd_4() {
 # header records no session id is refused outright: "unverifiable" must never resolve to "fine".
 cmd_verdict() {
   local sess b_prog_sess b_prog_run b_cached rec body c reviewed_head reviewed_patch_id
-  local fid_spec fid_state fid_decl fid_refs fid_bad fid_line panel_reviewer
+  local fid_spec fid_state fid_decl fid_refs fid_bad fid_line panel_reviewer fid_disarm_state fid_disarm_ref
   local cand inherited_patch_id inherited_from chain
   sess="${CLAUDE_CODE_SESSION_ID:-}"
   [ -n "$sess" ] \
@@ -4926,6 +4942,28 @@ cmd_verdict() {
   if [ "$VERDICT_FIDELITY" = "fail" ] && [ "$VERDICT_VALUE" = "approve" ]; then
     warn "✗ verdict: --fidelity fail cannot accompany --verdict approve — a design-fidelity failure is a blocker, and any blocker is needs-work."
     return 1
+  fi
+
+  # #709 D-4/D-25. On a DISARMED provider ticket the default/explicit `not-applicable` is stamped
+  # with the design-disarm override's own ref, so the merge boundary (which cannot read the
+  # gitignored config) can validate the yield from the record alone. `design_state()` returns
+  # `disarmed` ONLY once it has already validated a design-disarm override for $ISSUE (its own
+  # comment) — the ref is re-derived with its own direct `--print-ref` call rather than threaded
+  # out of that one, because `design_state`'s answer is read through `$(...)`, and a subshell
+  # cannot hand a second fact back through a global no caller of it can see. A `Design: none`
+  # spec `design_state` cannot resolve to `disarmed` (no override, or one neither reader can
+  # parse) is refused HERE rather than let a bare `not-applicable` paper over the opt-out #705
+  # forbids; the fix is a spec edit or an operator-recorded override, not a re-run.
+  if [ "$VERDICT_FIDELITY" = "not-applicable" ] && [ -n "$DESIGN_PROVIDER" ] && [ -f "$REPO_ROOT/$SPEC_REL" ]; then
+    fid_disarm_state="$(design_state "$REPO_ROOT/$SPEC_REL")"
+    case "$fid_disarm_state" in
+      disarmed)
+        fid_disarm_ref="$(bash "$OVERRIDE_TOOL" check --gate design-disarm --issue "$ISSUE" --repo-root "$REPO_ROOT" --print-ref 2>/dev/null)"
+        VERDICT_FIDELITY="not-applicable (override: $fid_disarm_ref)" ;;
+      error:*)
+        warn "✗ verdict: --fidelity not-applicable, but $SPEC_REL's design arming cannot be resolved: ${fid_disarm_state#error:}"
+        return 1 ;;
+    esac
   fi
 
   # The reviewed head, DERIVED from the checkout this call runs in — never an argument. The

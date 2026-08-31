@@ -588,6 +588,58 @@ out="$(ev "claude/acme-42" "$WORK/markers-good.json" "$WORK/diff-lean.txt")"; rc
 if [ "$rc" -eq 1 ] && grep -q 'declares no' <<<"$out"; then
   pass "(ov5) a record file carrying no override block is refused, not read as absence"
 else fail "(ov5) expected rc=1 on a blockless record, got $rc: $out"; fi
+
+# ---- (ov6)-(ov9) #709 AC-4: the fidelity-ref resolution ------------------------------------
+# A verdict claiming `fidelity: not-applicable (override: <ref>)` is a design-disarm YIELD
+# claim, and this arm resolves it independently of whether the well-formedness sweep above
+# would also flag the same record for something else — the write helper below sidesteps
+# write_verdict() (which never emits a `fidelity:` key at all) to control that one value.
+write_verdict_fid() { # write_verdict_fid <fidelity-value>
+  local pid; pid="$(tree_patch_id)"
+  printf 'verdict=approve\nrun_id: r-review-1\nsession_id: sess-review-1\nrounds: 1\nreviewed_head: %s\nreviewed_patch_id: %s\nfidelity: %s\n' \
+    "$(git -C "$TREE" rev-parse HEAD)" "$pid" "$1" > "$VREC"
+  commit_tree "verdict with fidelity=$1"
+}
+
+# (ov6) a ref that resolves to a REAL design-disarm block for this issue passes silently.
+printf '## Override 1\ngate: design-disarm\nscope: design-disarm\nissue: 42\nregion: none\nrun_id: r-1\nsession_id: s-1\nexpiry: run\ndecision: backend-only\n\n### Operator answer\n\n> Confirmed — disarm it.\n' > "$OVREC"
+commit_tree "design-disarm override for #42"
+write_verdict_fid "not-applicable (override: 42#1)"
+out="$(ev "claude/acme-42" "$WORK/markers-good.json" "$WORK/diff-lean.txt")"; rc=$?
+if [ "$rc" -eq 0 ] && silent "$out"; then
+  pass "(ov6) #709 AC-4: a fidelity ref resolving to a real design-disarm block passes silently"
+else fail "(ov6) expected a silent rc=0, got $rc: $out"; fi
+
+# (ov7) the SAME cited ref with NO override record committed at all — a claim the boundary
+# cannot verify is exactly the tamper this arm exists to catch, whether or not any record file
+# exists.
+rm -f "$OVREC"; commit_tree "override cleared for ov7"
+write_verdict_fid "not-applicable (override: 42#1)"
+out="$(ev "claude/acme-42" "$WORK/markers-good.json" "$WORK/diff-lean.txt")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'no committed override record for #42 carries a design-disarm block' <<<"$out"; then
+  pass "(ov7) #709 AC-4: a fidelity ref citing an override with NO record at all is refused"
+else fail "(ov7) expected rc=1 naming the unresolved ref, got $rc: $out"; fi
+
+# (ov8) the ref resolves to a REAL, WELL-FORMED block at that file position — but for a
+# DIFFERENT gate. A block existing is not the same claim as a design-disarm YIELD existing.
+printf '## Override 1\ngate: spec-open-region\nscope: open-region-resolution\nissue: 42\nregion: OR-1\nrun_id: r-1\nsession_id: s-1\nexpiry: run\ndecision: append-only\n\n### Operator answer\n\n> Append-only. Ship it.\n' > "$OVREC"
+commit_tree "spec-open-region override for #42, not design-disarm"
+write_verdict_fid "not-applicable (override: 42#1)"
+out="$(ev "claude/acme-42" "$WORK/markers-good.json" "$WORK/diff-lean.txt")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'no committed override record for #42 carries a design-disarm block' <<<"$out"; then
+  pass "(ov8) #709 AC-4: a ref resolving to a block for a DIFFERENT gate does not count as design-disarm evidence"
+else fail "(ov8) expected rc=1 naming the unresolved ref, got $rc: $out"; fi
+
+# (ov9) NON-VACUITY: the exact same well-formed spec-open-region record, but the verdict cites
+# no override at all (a plain fidelity value) — (ov6)-(ov8) turn on the CITATION, not merely on
+# a record being present. Also proves the well-formedness sweep and the ref-resolution arm are
+# independent: this record is well-formed, so nothing else in arm_override() has an opinion.
+write_verdict_fid "not-applicable"
+out="$(ev "claude/acme-42" "$WORK/markers-good.json" "$WORK/diff-lean.txt")"; rc=$?
+if [ "$rc" -eq 0 ] && silent "$out"; then
+  pass "(ov9) #709: a fidelity value citing no override ref is unaffected by this arm — (ov6)-(ov8) turn on the citation"
+else fail "(ov9) expected a silent rc=0 with no ref cited, got $rc: $out"; fi
+
 rm -f "$OVREC"; commit_tree "override cleared"
 write_verdict
 
