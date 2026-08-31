@@ -72,9 +72,13 @@ rather than naming one:
 - **Token-role mapping and raw-value leakage** (a handoff `oklch()` written into the code instead
   of the repo's token role) → `design-toolkit:design-faithful-reviewer`, on the diff. The plan
   mandates no token map table, so there is nothing here for you to grade.
-- **Import-path existence** in the repo → `design-toolkit:design-faithful-reviewer` (post-build
-  grep).
-- **Code style, style-prop shape, hand-rolled primitives** → `design-toolkit:design-faithful-reviewer`.
+- **Code style, style-prop shape, and hand-rolled primitives in the CODE** — a `div` re-creating a
+  `Button`, a component that did not come from the primitives package →
+  `design-toolkit:design-faithful-reviewer`, on the diff.
+- **Whether an import path literally resolves** has NO declared owner on either lane: this agent
+  sees no code, and `design-faithful-reviewer` declares reuse and token discipline, not a
+  resolution grep. Say the gap exists if the plan's file list makes it doubtful; do not attribute
+  it to an agent that will not run it.
 - **Whether a recorded value is itself what the design shows** → the design-sighted `review-lean`
   session, which scores `fidelity:` against the render receipt milestone 3 produces. That is the
   reader that sees both sides. It is **not** a pixel-diff — no such gate exists in this repo — so
