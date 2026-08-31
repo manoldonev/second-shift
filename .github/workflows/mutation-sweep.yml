@@ -287,6 +287,6 @@ jobs:
     uses: ./.github/workflows/file-issue-on-red.yml
     with:
       title_key: mutation wholesale audit red
-      body: ${{ needs.merge.outputs.body || 'The monthly wholesale mutation audit is red and its digest job produced no verdict — read the run log linked below.' }}
+      body: ${{ needs.merge.outputs.body || 'The monthly wholesale mutation audit did not succeed and its digest job produced no verdict — a red shard, a timeout, a cancellation, or a runner death. Read the run log linked below.' }}
       commit: ${{ github.sha }}
       run_id: ${{ github.run_id }}
