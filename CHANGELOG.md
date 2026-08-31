@@ -4,6 +4,24 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v12.2.3
+
+### `dev-pipeline` 12.2.2 → 12.2.3
+
+- **The reviewer's unmet-AC blocker becomes a per-AC scorecard the gate can refuse (#755)** (#755)
+  a lean review verdict now carries a machine-readable `## AC scorecard`
+  over `satisfied` / `unsatisfied` / `divergent-inert` / `undeterminable`, with
+  one row per AC-n the committed spec declares. `lean-gate.sh verdict` refuses to
+  write an `approve` that scores its own criterion unsatisfied or undeterminable,
+  or is silent about one the spec declares, and `lean-evidence.sh` refuses the
+  same record at the merge boundary — so a hand-written record answers to it too.
+  A `divergent-inert` row must cite both an impact measurement and a filed
+  follow-up.
+  Migration: fail-closed from this release, with no grace window. Only the record
+  at the boundary is ever re-read and merged records are never re-graded, so an
+  in-flight PR is fixed by one re-run of `lean-gate.sh verdict` with the section
+  in `--summary-file`.
+
 ## v12.2.2
 
 ### `design-toolkit` 4.0.4 → 4.0.5
