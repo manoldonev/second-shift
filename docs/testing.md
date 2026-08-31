@@ -416,8 +416,7 @@ deliberate:
 - **It records without a second flag.** Property 3 exists because a PR lane would otherwise record
   untrusted content into a store other runs read. This store is machine-local and records the
   operator's own tree — the posture the mutation sweep's cache further down this page already
-  takes — and a store nothing writes can never serve the second sweep this lane exists to speed
-  up.
+  takes — and a store nothing writes can never serve a second sweep at all.
 - **An unusable store is a cold sweep, not an error.** A `--cache-dir` that cannot be created is a
   flag an operator typed that cannot work, and still exits 2. An *injected* store that cannot be
   created is not the tree's fault, so it prints a named notice and runs cold rather than reddening
@@ -428,15 +427,25 @@ deliberate:
   carrying `LEAN_SELFTEST_CACHE_DIR` would otherwise hand it to every lane child by ordinary
   inheritance, and the gate would announce a cold sweep while the runner cached.
 
+**What the lane can actually get from it (#662).** A suite is served here only if it is BOTH rowed
+in `tools/selftest-cache-inputs.tsv` AND not deferred by the slow-suite table above — and the lane's
+`test` command comes from a consumer's config, which in this repo omits `--full`, so every suite at
+or above the table's threshold is deferred before the cache is ever consulted. The suites worth the
+declaration burden are, by construction, the ones above that threshold. A row added for cost
+therefore buys this lane nothing; it buys the two CI selftest jobs, which pass `--full --cache-dir`
+in committed workflow files. What the lane does get is the residue: a rowed suite carrying no
+timings row at all, and so counted as fast — `cost-block-selftest.sh` today.
+
 The store defaults to `${XDG_CACHE_HOME:-~/.cache}/second-shift/lean-selftest`: outside every
 checkout, so a worktree teardown never costs it, and per-machine, which matches a key already
 scoped by OS and bash major. The `--run-one` worker scrubs the variable, so a suite never inherits
 it — the cache is decided once, in the parent, and a suite that nests its own runner keeps meaning
 what it means standalone.
 
-**What it is worth is bounded by the table, not by the seam.** One suite is rowed today, so an
-unchanged-head close-out sweep saves ~30s of the ~9:47 measured in #549. The wiring is what makes
-every row added later pay in the lean lane as well as in CI.
+**What it is worth is bounded by the table, not by the seam.** Three suites are rowed today, and
+an unchanged-head close-out sweep saves the ~30s of `cost-block-selftest.sh` — the only one of the
+three this lane can serve, because it is the only one the slow-suite table does not defer first.
+The #662 note above is the general form: a row bought for cost buys CI, not this lane.
 
 Only PASS is ever recorded, and only by the parent process after the replay has scored the run — a
 red suite, and a suite whose worker died without a verdict, write nothing. That falls out of the
@@ -449,19 +458,51 @@ tell a skip from a suite that quietly stopped being discovered. The summary line
 performed is the faster-green misreading the rest of this section is about.
 
 **Adding a row is the risky edit in that file, not the cheap one.** Derive the input set from the
-suite, never from a ticket: `cost-block-selftest.sh` reads the fixture corpus, the script under
-test, AND the `gh-bot.sh` that script resolves at run time — three things where an eyeball lists
-one.
+suite, never from a ticket: `lean-gate-selftest.sh` reads eight files out of the checkout, the
+gate among them, and those resolve seven more at run time — sixteen rows, the suite's own path
+being the sixteenth, where an eyeball lists two.
 Where a suite's composed set is really its transitive closure — `scenario-liveness-selftest.sh` is
 the worked example, and is deliberately **not** in the table — drop the row. A dropped row costs
 seconds; an under-declared one costs a gate.
 
 **Derive the closure, not the file list.** Neither mechanized rule reaches depth 2: a row set can
 name the suite and its subject and still under-declare, because that subject resolves a third file
-at run time. The shipped set needed one — `pipeline-cost-block.sh` executes its sibling
-`gh-bot.sh`, so `cost-block-selftest.sh`'s row must declare it even though the suite never names
-it. Follow every `$here/`-style resolution out of every declared script until it terminates, and
-say in the row comment where it terminated.
+at run time. The shipped set runs to depth 3: `lean-gate.sh` resolves `claim-issue.sh`, which
+resolves its sibling `gh-bot.sh`, so `lean-gate-selftest.sh` declares a file two removes from
+anything it names. Follow every variable-rooted resolution out of every declared script until it
+terminates, and say in the row comment where it terminated — the rule below is how you enumerate
+them.
+
+That example replaced an earlier one — `pipeline-cost-block.sh` resolving `gh-bot.sh` — which was
+true until #584 deleted the PR-amend ladder that did it. `cost-block-selftest.sh`'s `gh-bot.sh`
+row outlived the resolution and is deliberately kept: an over-declaration costs one spurious miss,
+and dropping a row is the direction that costs a gate. A stale row is cheap; a stale *example*
+teaches the next row-adder to derive against something that is not there, which is why this
+paragraph now points at a resolution the tree still makes.
+
+**Derive that mechanically, over paths rather than over scripts.** Grep the subject for the paths
+it builds from a variable, and match every one against the rows. Three things a prose reading
+misses, each of which has cost this table a defect:
+
+1. A resolution may target a `.md` or a `.tsv` as readily as a `.sh`, so a sweep scoped to `*.sh`
+   mentions can be accurate and still incomplete.
+2. A target the subject only tests for EXISTENCE is an input like any other. Its absence flips the
+   suite's verdict, while the key — content-addressed over the declared rows alone — does not move.
+3. **The root decides the answer, and there are two.** A `${BASH_SOURCE[0]}`- or `$0`-rooted path
+   names a file shipped beside the subject and is an input whenever the subject reaches it. A path
+   rooted at the *graded tree* (`$REPO_ROOT`, from `git rev-parse --show-toplevel`) is an input
+   only if the suite runs the subject against a tree that has the file — under a `mktemp` fixture
+   it usually does not, and the case is asserting the absent branch.
+
+`lean-gate.sh` resolves `plugins/design-toolkit/agents/figma-faithful-plan-reviewer.md` and never
+reads a byte of it; that closure's first revision missed it on counts 1 and 2 at once, and renaming
+the file takes the suite from green to 39 failures against a key that does not move. Count 3 is why
+the first two are not enough on their own: `check-lean-chain-selftest.sh`'s `lean-evidence.sh` row
+is a graded-tree resolution with no `${BASH_SOURCE[0]}` form anywhere, so a sweep for the first root
+alone cannot even reproduce the rows already in the table — while `lean-gate.sh`'s two graded-tree
+resolutions (`scripts/check-frozen-files.sh` and `scripts/check-changelog-trailer.sh`, at
+`:3612-3613`) correctly get no row, because the suite's fixtures never contain them and its case
+(h) asserts exactly that absent branch. Same shape, opposite answers; classify, do not assume.
 
 `CACHE_EPOCH` is a constant in the runner rather than a knob. The key covers repo content —
 including `run-selftests.sh`'s own bytes, which is property 2 applied to the harness that produces
