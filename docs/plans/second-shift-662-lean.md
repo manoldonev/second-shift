@@ -159,6 +159,14 @@ enforces mechanically (D-4). Each sweep re-ran exactly the suite whose closure m
 other cached, which is the property a vacuous hit would break. The edit in both cases was a single
 appended newline, reverted after the sweep.
 
+**AC-6's claim, measured on this branch's own milestone-3 lane.** That lane exports
+`LEAN_SELFTEST_CACHE_DIR` and runs the consumer `test` command, which omits `--full`. Its log
+names both new suites in the deferred list — `lean-gate-selftest.sh (212s)`,
+`check-lean-chain-selftest.sh (67s)` — and its summary reads `64 scored, 63 run, 1 served from
+cache`. The one served is `cost-block-selftest.sh`, which carries no timings row and so counts as
+fast. Neither row added here reached that lane at all, which is the sentence `docs/testing.md` now
+carries instead of the one it carried before.
+
 **One environment note for whoever re-runs this.** A sweep inheriting a lean-lane session's
 environment false-reds four suites — `lean-gate-selftest.sh` (rc=3), `scenario-liveness-selftest.sh`,
 `orchestrate-lean-selftest.sh` and `operator-override-selftest.sh`. The first cold sweep here hit
