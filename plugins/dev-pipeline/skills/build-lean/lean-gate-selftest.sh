@@ -140,11 +140,11 @@ commit_tree() { # commit_tree [message]
   git -C "$TREE" commit -q --allow-empty -m "${1:-fixture}" >/dev/null 2>&1
 }
 commit_tree "fixture tree"
-# The patch-id freshness arm measures the branch's diff from merge-base(origin/<baseBranch>,
+# The `verdict` writer resolves the record's reviewed_patch_id from merge-base(origin/<baseBranch>,
 # HEAD), so the fixture needs a real remote-tracking ref. A throwaway repo has no remote;
-# update-ref creates exactly what a fetch would leave behind, without one. Both the `verdict`
-# writer and milestone 4 refuse when this is unresolvable — see (v6)/(v5) — so its absence
-# would red the suite loudly rather than quietly skipping the arm.
+# update-ref creates exactly what a fetch would leave behind, without one. The writer refuses when
+# this is unresolvable — see (v6) — so its absence would red the suite loudly rather than quietly
+# skipping the arm. Milestone 4 stopped reading it at #720.
 git -C "$TREE" update-ref refs/remotes/origin/main HEAD
 
 CFG="$WORK/config.json"
@@ -1515,24 +1515,9 @@ if [ "$rc" -eq 1 ] && grep -q 'reads verdict=needs-work, not verdict=approve' <<
   pass "(j2) milestone-4 fails on verdict=needs-work"
 else fail "(j2) expected rc=1 on needs-work, got $rc: $out"; fi
 
-# An approve record with no reconciliation key is unverifiable at the merge boundary.
-printf 'verdict=approve\n' > "$VERDICT"; commit_tree
-out="$(gate 4 7)"; rc=$?
-if [ "$rc" -eq 5 ] && grep -q 'no run_id reconciliation key' <<<"$out"; then
-  pass "(j3) milestone-4 fails an approve record carrying no run_id reconciliation key"
-else fail "(j3) expected rc=5 on a key-less approve, got $rc: $out"; fi
-
-# ...and the session key is required for the same reason: without it the review session's
-# ledger cannot be located, so nothing outside the record attests the review happened.
-# reset_progress first — j1..j3 have already spent the 3-attempt budget, and a 4th red would
-# hard-stop at rc=4 and prove nothing about the check under test.
-reset_progress
-printf 'verdict=approve\nrun_id: r-review-1\n' > "$VERDICT"; commit_tree
-out="$(gate 4 7)"; rc=$?
-if [ "$rc" -eq 5 ] && grep -q 'no session_id reconciliation key' <<<"$out"; then
-  pass "(j3b) milestone-4 fails an approve record carrying no session_id reconciliation key"
-else fail "(j3b) expected rc=5 on a session-key-less approve, got $rc: $out"; fi
-
+# #720 deleted (j3)/(j3b) with the arms they pinned: the run_id and session_id key refusals were
+# duplicates of lean-evidence.sh's arm_verdict, which every consumer's merge boundary runs.
+# lean-evidence-selftest.sh pins that record class there.
 reset_progress
 write_review_verdict
 out="$(gate 4 7)"; rc=$?
@@ -1556,25 +1541,11 @@ if [ "$rc" -eq 5 ] && grep -q 'no reviewed_head key' <<<"$out"; then
   pass "(u1) milestone-4 fails an approve record carrying no reviewed_head key"
 else fail "(u1) expected rc=5 on a head-less approve, got $rc: $out"; fi
 
-# THE ARM THAT REPLACED THE FALLBACK. Otherwise complete — both reconciliation keys, a
-# reviewed_head naming this very commit, committed — so the missing patch id is the only thing
-# that can red it.
-reset_progress
-printf 'verdict=approve\nrun_id: r-review-1\nsession_id: sess-review-1\nreviewed_head: %s\n' \
-  "$(git -C "$TREE" rev-parse HEAD)" > "$VERDICT"; commit_tree
-out="$(gate 4 7)"; rc=$?
-if [ "$rc" -eq 5 ] && grep -q 'no reviewed_patch_id key' <<<"$out"; then
-  pass "(u2) #642: a record written before reviewed_patch_id existed is REFUSED, not gated on the deleted SHA fallback"
-else fail "(u2) expected rc=5 naming the missing patch id, got $rc: $out"; fi
-
-# Non-vacuity for (u2): the same record WITH the key passes, so (u2) reds on the key alone and not
-# on some other defect of the printf record above.
-reset_progress
-write_review_verdict
-out="$(gate 4 7)"; rc=$?
-if [ "$rc" -eq 0 ] && grep -q 'patch-id' <<<"$out"; then
-  pass "(u3) ...and the same record carrying the key passes on the patch-id arm — (u2) measured the key, not the fixture"
-else fail "(u3) expected rc=0 on a patch-id-keyed record, got $rc: $out"; fi
+# #720 deleted (u2) and its non-vacuity companion (u3): the reviewed_patch_id-absent refusal that
+# #642 put here is the same one lean-evidence.sh's arm_freshness makes at the merge boundary
+# ("declares no reviewed_patch_id"), pinned there by lean-evidence-selftest.sh (r). (u1) above
+# stays because `reviewed_head`'s absence has NO counterpart downstream. What still pins that the
+# real writer stamps the key is (x1), which reads it out of a writer-produced record.
 
 # The two deleted arms are ABSENT, not merely unreached. A behavioral case cannot red on an arm
 # that no longer exists, so the deletion itself is pinned here — the same completeness discipline
@@ -2814,34 +2785,26 @@ if [ "$rc" -ne 0 ]; then fail "(s0) the fixture verdict write failed: $out"; els
 fi
 rm -f "$REVIEW_CACHE"
 
-# ---- (t) FRESHNESS: the verdict must cover the tree it is read against ----------------------
-# Four of the five milestones re-derive their answer from the current tree on every sweep,
-# which is what makes `satisfied` a record rather than a cache. Milestone 4 cannot — its
-# evaluation is reading a file — so the file is bound to a tree instead. Without this the
-# needs-work loop's ordinary shape ("verdict, then more commits") certifies code no reviewer
-# saw, and the PR that introduced the separation demonstrated it on itself.
+# ---- (t) THE RECORD MUST BE ON THE BRANCH ---------------------------------------------------
+# Not freshness — #720 moved that question to the merge boundary, where lean-evidence.sh's
+# arm_freshness is the one reader of it. What is left here is the precondition every downstream
+# reader has: a record nobody committed is invisible to `pr-gates`, to the merge boundary and to
+# a human opening the PR, so a lane that certified it would hand off a run carrying no evidence
+# at all. That defect only the LANE can see, which is why these arms stay local.
 seed_build_progress r-build-1 sess-build-1
 write_review_verdict
 out="$(gate 4 7)"; rc=$?
 if [ "$rc" -eq 0 ]; then pass "(t1) milestone-4 passes when the verdict's commit IS the head"
 else fail "(t1) expected rc=0 on a fresh verdict, got $rc: $out"; fi
 
-# ONLY a later commit is added — everything the other arms check is left exactly as it was, so
-# a green here would mean the freshness link is not carrying the check at all.
+# #720 deleted (t2): the inferred freshness arm it pinned is gone from milestone 4, and
+# lean-evidence.sh's arm_freshness asks the same question at the merge boundary. (t3), its
+# remedy half, went with it — a remedy for a refusal that no longer exists asserts nothing.
+# (t1) stays: it is the ordinary green, and the (t4)/(t5) uncommitted cases below still need it.
 printf '# spec\n\n- AC-1: a thing\n- AC-2: added after the review\n' > "$SPEC"
 commit_tree "code lands after the verdict"
 seed_build_progress r-build-1 sess-build-1
-out="$(gate 4 7)"; rc=$?
-if [ "$rc" -eq 5 ] && grep -q 'a verdict does not cover code it never saw' <<<"$out"; then
-  pass "(t2) milestone-4 refuses a verdict that predates a later code commit"
-else fail "(t2) expected rc=5 on a stale verdict, got $rc: $out"; fi
-
-# ...and a new review round clears it, so (t2) is a check with a remedy rather than a wall.
-seed_build_progress r-build-1 sess-build-1
 write_review_verdict
-out="$(gate 4 7)"; rc=$?
-if [ "$rc" -eq 0 ]; then pass "(t3) a new review round over the current head clears it"
-else fail "(t3) expected rc=0 after a fresh round, got $rc: $out"; fi
 
 # An UNCOMMITTED record is not evidence: nothing downstream can see it, and nothing dates it
 # against the code. A bare `[ -f ]` existence check accepted it. TWO readings of "uncommitted"
@@ -3138,256 +3101,41 @@ rm -f "$TREE/$JSPEC_REL"; commit_tree "remove jira spec fixture"
 
 rm -f "$TREE/.claude/pipeline-state/$JKEY-run-id"
 
-# ---- (v) DECLARED freshness, PATCH-ID keyed: a rebase must not void a verdict ---------------
-# LAST in the file on purpose: (v3) rewrites the fixture branch's history with a real rebase, and
-# every case above reasons about commits it made itself.
+# ---- (v) the verdict WRITER still refuses an unresolvable base ------------------------------
+# #720 deleted milestone 4's two freshness arms, and with them (v0)-(v4), (v5), (vb-baseline),
+# (vb0)-(vb4a) — every case whose subject was a comparison this gate no longer makes. The question
+# they drove is asked once now, by lean-evidence.sh's arm_freshness at the merge boundary, and
+# lean-evidence-selftest.sh's (r)/(s2)/(s4) pin it there including the #597 fail-open route.
 #
-# The record is produced by the REAL `verdict` writer rather than a printf, so the id these cases
-# compare against is derived by the production code under test. A hand-written expectation could
-# only pin whatever formula the suite author copied.
-seed_build_progress r-build-1 sess-build-1
-rm -f "$VERDICT" "$REVIEW_CACHE" "$RUN_ID_CACHE"
-printf 'reviewer prose, round 1\n' > "$WORK/v-summary.md"
-out="$(verdict_cmd sess-review-9 r-review-9 --pr 12 --verdict approve --summary-file "$WORK/v-summary.md")"; rc=$?
-[ "$rc" -eq 0 ] || fail "(v0) the verdict writer refused, so the (v) block has no record to gate: $out"
-commit_tree "review session commits its patch-id-keyed record"
-
-out="$(gate 4 7)"; rc=$?
-if [ "$rc" -eq 0 ] && grep -qE 'reviewed_patch_id: [0-9a-f]{6}' "$VERDICT" 2>/dev/null \
-   && grep -q 'patch-id' <<<"$out"; then
-  pass "(v1) the review role stamps reviewed_patch_id and milestone-4's pass line names the patch-id arm it gated on"
-else fail "(v1) expected a patch-id-keyed record and pass line, rc=$rc: $out
-$(cat "$VERDICT" 2>/dev/null)"; fi
-
-# AC-4: the EXCLUSION. The writer resolves the id at a head that does not yet carry the record;
-# every reader recomputes it at a head that does. Excluding the record path on both sides is what
-# makes those two agree — drop it on either and the arm reds on every correct record.
+# (v6) is NOT one of those. Its subject is `cmd_verdict`, the WRITER, which still resolves the
+# branch's patch identity and still `envfail`s rather than omit the key — and after #720 that
+# refusal is the ONLY thing standing between a key-less record and a merge boundary that rejects
+# one outright, so it is the arm with the most to lose from going unpinned, not the least.
 #
-# Driven behaviorally, so it cannot be satisfied by a copy of the formula: the record's own bytes
-# change and are committed, and milestone 4 must still pass. If the path were in the measured
-# range, this edit alone would move the id.
-reset_progress
-printf 'reviewer prose, amended after the fact\n' >> "$VERDICT"
-commit_tree "the record's own bytes change"
-out="$(gate 4 7)"; rc=$?
-if [ "$rc" -eq 0 ] && grep -q 'patch-id' <<<"$out"; then
-  pass "(v2) editing the verdict record itself does not move the patch identity — the exclusion holds on both sides"
-else fail "(v2) expected rc=0 after editing the record, got $rc: $out"; fi
-
-# THE headline case. A rebase rewrites every commit SHA on the branch and changes not one
-# reviewed line, and the SHA keying refused it — in a fresh checkout the pre-rebase object does
-# not exist at all, so the refusal was unavoidable rather than merely wrong.
+# D-5 vacuity, WRITE side. A record written with the key silently OMITTED reads downstream as
+# "written before the key existed", which lean-evidence.sh refuses on every consumer's PR — so a
+# missing base here would produce an unmergeable record at review time, invisibly.
 #
-# The rebase is REAL. Simulating one would prove nothing about the property being claimed, which
-# is a property of git's replay. The base advances by a commit carrying actual content, because a
-# same-tree base would leave the pre- and post-rebase trees identical and the old SHA arm would
-# pass too — a vacuous case dressed as a regression guard. Non-vacuity is asserted, not argued.
-reset_progress
-v_branch="$(git -C "$TREE" symbolic-ref --short HEAD 2>/dev/null)"
-v_orphaned_head="$(git -C "$TREE" rev-parse HEAD)"
-git -C "$TREE" branch -f v-base refs/remotes/origin/main >/dev/null 2>&1
-git -C "$TREE" checkout -q v-base 2>/dev/null
-printf 'the base moved while the review was in flight\n' > "$TREE/base-moved.txt"
-git -C "$TREE" add base-moved.txt >/dev/null 2>&1
-git -C "$TREE" commit -q -m 'base advances' >/dev/null 2>&1
-git -C "$TREE" update-ref refs/remotes/origin/main v-base
-git -C "$TREE" checkout -q "$v_branch" 2>/dev/null
-if git -C "$TREE" rebase -q v-base >/dev/null 2>&1; then
-  v_rebase_ok=1
-else
-  v_rebase_ok=0
-  git -C "$TREE" rebase --abort >/dev/null 2>&1
-fi
-# Non-vacuity: under SHA keying this exact state reds. The pre-rebase commit is still an object
-# here (a local rebase does not gc it), so the `cat-file -e` arm would not fire — but its TREE
-# now differs from the head by the commit the base advanced with, so the `git diff <reviewed_head>
-# HEAD` arm would. If that diff is empty the case is measuring nothing.
-v_sha_arm_would_red="$(git -C "$TREE" diff --name-only "$v_orphaned_head" HEAD 2>/dev/null)"
-if [ "$v_rebase_ok" -eq 1 ] && [ "$(git -C "$TREE" rev-parse HEAD)" != "$v_orphaned_head" ] \
-   && [ -n "$v_sha_arm_would_red" ]; then
-  pass "(v3a) the fixture really was rebased onto a moved base, and the SHA arm would red on it"
-else fail "(v3a) the rebase did not take (ok=$v_rebase_ok, sha-arm-diff='$v_sha_arm_would_red') — (v3) would assert nothing"; fi
-
-out="$(gate 4 7)"; rc=$?
-if [ "$rc" -eq 0 ] && grep -q 'patch-id' <<<"$out"; then
-  pass "(v3) milestone-4 passes after a rebase that replays the branch unchanged, though the declared head is no longer this branch's"
-else fail "(v3) expected rc=0 after a clean rebase, got $rc: $out"; fi
-
-# D-5 vacuity, READ side. `git patch-id` prints NOTHING for an empty diff, so two failed
-# computations compare EQUAL — an unguarded reader prints its ✓ having hashed nothing. This
-# config names a base branch with no remote-tracking ref, so the merge-base is unresolvable.
+# seed_build_progress is load-bearing, not tidy-up: the cases above ran after reset_progress, so
+# the gate RE-created the progress file and stamped `session_id: unset` into it. cmd_verdict's
+# FIRST authorship refusal fires on exactly that, two checks before the patch-id arm this case
+# names — so without the seed (v6) passes for the wrong reason where an ambient session id happens
+# to leak in, and fails outright where it does not. Seeding a real build identity makes the writer
+# reach its own arm on every machine.
 reset_progress
 CFG_NOBASE="$WORK/config-nobase.json"
 jq '.topology.repos.acme.baseBranch = "no-such-base"' "$CFG" > "$CFG_NOBASE"
 [ "$(jq -r '.topology.repos.acme.baseBranch' "$CFG_NOBASE" 2>/dev/null)" = "no-such-base" ] \
-  || fail "(v5-fixture) the no-base config was not built — (v5)/(v6) would run against the real base"
-out="$(gate_cfg "$CFG_NOBASE" "$PROG" 4 7)"; rc=$?
-if [ "$rc" -eq 2 ] && grep -q 'cannot compute this branch' <<<"$out"; then
-  pass "(v5) an unresolvable base is a milestone-4 refusal, not a pass over two empty patch ids"
-else fail "(v5) expected rc=2 on an unresolvable base, got $rc: $out"; fi
-
-# D-5 vacuity, WRITE side, and the sharper half. A record written with the key silently OMITTED
-# reads downstream as "written before the key existed" and falls through to the SHA path — so a
-# missing base here would quietly re-introduce the rebase refusal, at review time, invisibly.
-#
-# seed_build_progress is load-bearing, not tidy-up: (v5) above ran after reset_progress, so the
-# gate RE-created the progress file and stamped `session_id: unset` into it. cmd_verdict's FIRST
-# authorship refusal fires on exactly that, two checks before the patch-id arm this case names —
-# so without the seed (v6) passes for the wrong reason where an ambient session id happens to
-# leak in, and fails outright where it does not. Seeding a real build identity makes the writer
-# reach its own arm on every machine.
+  || fail "(v6-fixture) the no-base config was not built — (v6) would run against the real base"
 seed_build_progress r-build-1 sess-build-1
 rm -f "$REVIEW_CACHE"
 out="$( unset RUN_ID; cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_NOBASE" LEAN_PROGRESS_FILE="$PROG" \
         CLAUDE_CODE_SESSION_ID=sess-review-9 RUN_ID=r-review-9 \
         bash "$GATE" verdict 7 --pr 12 --verdict approve 2>&1 )"; rc=$?
 if [ "$rc" -eq 2 ] && grep -q 'cannot compute the branch' <<<"$out"; then
-  pass "(v6) the verdict writer refuses an unresolvable base rather than omitting the key and degrading to the SHA path"
+  pass "(v6) the verdict writer refuses an unresolvable base rather than omitting the key downstream cannot do without"
 else fail "(v6) expected rc=2 from the writer on an unresolvable base, got $rc: $out"; fi
 
-# ...and the arm is still a GATE. A commit changing the branch after the review moves the patch
-# identity. Without this, (v3) reads as "the arm was disabled" rather than "the arm was re-keyed".
-#
-# Built in the shape where the patch-id arm is the ONLY one that can red: the record is written
-# at head A and lands in the SAME commit as the code change, so `git log -1 -- <record>` finds
-# the head, nothing differs from it, and the INFERRED arm is green. A code commit made after the
-# record's own commit would red on inference first and prove nothing about this arm.
-seed_build_progress r-build-1 sess-build-1
-rm -f "$REVIEW_CACHE"
-out="$(verdict_cmd sess-review-9 r-review-9 --pr 12 --verdict approve)"; rc=$?
-[ "$rc" -eq 0 ] || fail "(v4-fixture) the writer refused, so (v4) has no stale record to gate: $out"
-printf '# spec\n\n- AC-1: a thing\n- AC-2: landed while the review was running\n' > "$SPEC"
-commit_tree "code and the record land together"
-out="$(gate 4 7)"; rc=$?
-if [ "$rc" -eq 5 ] && grep -q 'reviewed patch' <<<"$out"; then
-  pass "(v4) milestone-4 refuses once a commit changes the branch's patch after the review, with the inferred arm green"
-else fail "(v4) expected rc=5 on a moved patch identity, got $rc: $out"; fi
-
-# ---- (vb) #597: a BASE ADVANCE must not void a verdict whose reviewed lines never moved ------
-# The #583 sequence, mechanized (AC-5). A verdict is gate-confirmed at head H; an unrelated PR
-# merges into the base touching a file the branch also touches; the branch merges the base in with
-# a resolution that adds not one branch line. BOTH freshness arms redded on that: the inferred one
-# because `git diff <verdict-commit> HEAD` counts every file the merge brought in, the declared one
-# because `branch_patch_id`'s input includes the merge-base — which the merge advances — and
-# `git patch-id` hashes CONTEXT lines, so a base edit three lines above the branch's own addition
-# moves the id. Measured on the real thing: `1decd12550cd -> 86daf57fb18e` with all eight files'
-# `+`/`-` sets byte-identical.
-#
-# The base advance is REAL, and the file it touches is one the branch also edits — a base commit in
-# some other file moves neither arm, and the case would assert nothing. Non-vacuity is asserted in
-# (vb0) against plain git rather than argued, and it is asserted on BOTH arms, because a fixture
-# that only moved one would leave the other's escape hatch unexercised while reading as covered.
-reset_progress
-seed_build_progress r-build-1 sess-build-1
-rm -f "$VERDICT" "$REVIEW_CACHE" "$RUN_ID_CACHE"
-
-# A file long enough that the base's edit lands in the branch hunk's CONTEXT rather than in its
-# own hunk — which is the whole mechanism. Seeded on the BASE so both sides share it.
-vb_branch="$(git -C "$TREE" symbolic-ref --short HEAD 2>/dev/null)"
-git -C "$TREE" branch -f vb-base refs/remotes/origin/main >/dev/null 2>&1
-git -C "$TREE" checkout -q vb-base 2>/dev/null
-printf 'c1\nc2\nc3\nc4\nc5\nc6\nc7\nc8\nc9\nc10\n' > "$TREE/shared.txt"
-git -C "$TREE" add shared.txt >/dev/null 2>&1
-git -C "$TREE" commit -q -m 'base seeds the shared file' >/dev/null 2>&1
-git -C "$TREE" update-ref refs/remotes/origin/main vb-base
-git -C "$TREE" checkout -q "$vb_branch" 2>/dev/null
-git -C "$TREE" merge -q --no-edit vb-base >/dev/null 2>&1
-
-# The branch's own contribution: one appended line at the end of the shared file.
-printf 'c1\nc2\nc3\nc4\nc5\nc6\nc7\nc8\nc9\nc10\nBRANCH-OWN-LINE\n' > "$TREE/shared.txt"
-commit_tree "the branch appends its own line to the shared file"
-out="$(verdict_cmd sess-review-9 r-review-9 --pr 12 --verdict approve)"; rc=$?
-[ "$rc" -eq 0 ] || fail "(vb-fixture) the writer refused, so the (vb) block has no record to gate: $out"
-commit_tree "review commits the record at the pre-merge head"
-vb_pid_before="$(grep -oE 'reviewed_patch_id:[[:space:]]*[A-Za-z0-9._-]+' "$VERDICT" | head -n1 | sed -E 's/^reviewed_patch_id:[[:space:]]*//')"
-vb_vcommit="$(git -C "$TREE" rev-parse HEAD)"
-out="$(gate 4 7)"; rc=$?
-if [ "$rc" -eq 0 ]; then pass "(vb-baseline) milestone-4 passes on the pre-merge head, so the block starts from a confirmed verdict"
-else fail "(vb-baseline) expected rc=0 before the base advance, got $rc: $out"; fi
-
-# The unrelated base advance: an edit INSIDE the branch's hunk context, in the same file.
-reset_progress
-git -C "$TREE" checkout -q vb-base 2>/dev/null
-printf 'c1\nc2\nc3\nc4\nc5\nc6\nc7\nBASE-EDIT\nc9\nc10\n' > "$TREE/shared.txt"
-git -C "$TREE" add shared.txt >/dev/null 2>&1
-git -C "$TREE" commit -q -m 'an unrelated PR lands on the base, in a file the branch also touches' >/dev/null 2>&1
-git -C "$TREE" update-ref refs/remotes/origin/main vb-base
-git -C "$TREE" checkout -q "$vb_branch" 2>/dev/null
-git -C "$TREE" merge -q --no-edit vb-base >/dev/null 2>&1
-vb_merge_ok=$?
-
-# NON-VACUITY, against plain git, on BOTH arms. `vb_pid_now` is recomputed the way the gate does
-# (merge-base of the CURRENT origin/main, record path excluded); `vb_inferred` is the inferred
-# arm's own file list. If either is unmoved the cases below are measuring nothing.
-vb_vrel="$(cd "$TREE" && git ls-files --full-name -- "$VERDICT" 2>/dev/null | head -n1)"
-[ -n "$vb_vrel" ] || vb_vrel="docs/plans/acme-7-lean-verdict.md"
-vb_mb="$(git -C "$TREE" merge-base refs/remotes/origin/main HEAD 2>/dev/null)"
-vb_pid_now="$(git -C "$TREE" diff "$vb_mb" HEAD -- . ":(exclude)$vb_vrel" 2>/dev/null \
-  | git -C "$TREE" patch-id --stable 2>/dev/null | cut -d' ' -f1)"
-vb_inferred="$(git -C "$TREE" diff --name-only "$vb_vcommit" HEAD 2>/dev/null | grep -vxF "$vb_vrel")"
-if [ "$vb_merge_ok" -eq 0 ] && [ -n "$vb_pid_before" ] && [ -n "$vb_pid_now" ] \
-   && [ "$vb_pid_before" != "$vb_pid_now" ] && [ -n "$vb_inferred" ]; then
-  pass "(vb0) the base really advanced into a file the branch touches: the patch identity moved and the inferred arm's file list is non-empty, so BOTH milestone-4 arms would have redded"
-else fail "(vb0) the fixture did not reproduce the #583 state (merge_ok=$vb_merge_ok, pid '$vb_pid_before' -> '$vb_pid_now', inferred='$vb_inferred') — (vb1) would assert nothing"; fi
-
-# AC-1 + AC-5. The verdict STANDS, and the line says why rather than passing silently (S-2).
-out="$(gate 4 7)"; rc=$?
-if [ "$rc" -eq 0 ] && grep -q 'own +/- lines is unchanged' <<<"$out"; then
-  pass "(vb1) AC-1/AC-5: milestone-4 passes after a base advance that altered no reviewed line, and the line names the base advance"
-else fail "(vb1) expected rc=0 with a base-advance line, got $rc: $out"; fi
-
-# ...and the arm is STILL A GATE. Without this, (vb1) reads as "the arms were disabled".
-# AC-3/D-6: the refusal must NAME the affected line — the file, a count, and the offending line
-# inline — because an invalidation that cannot enumerate one is the doubt case that must stand.
-reset_progress
-printf 'c1\nc2\nc3\nc4\nc5\nc6\nc7\nBASE-EDIT\nc9\nc10\nBRANCH-OWN-LINE-EDITED\n' > "$TREE/shared.txt"
-commit_tree "a real fix lands on a reviewed line after the base merge"
-out="$(gate 4 7)"; rc=$?
-if [ "$rc" -eq 5 ] && grep -q 'shared.txt: 1 line(s)' <<<"$out" \
-   && grep -q 'e.g. +BRANCH-OWN-LINE-EDITED' <<<"$out"; then
-  pass "(vb2) AC-3: a genuine post-review edit still reds, and the refusal names the file, the count and the offending line"
-else fail "(vb2) expected rc=5 naming the changed line, got $rc: $out"; fi
-
-# AC-6 / OR-1, the declared fail-open. The comparison cannot be computed — here because the
-# record names a reviewed_head that is not a commit in this checkout — and the operator constraint
-# is that invalidation requires certainty, so the verdict STANDS and the line says which way it
-# defaulted. This is the one unreadable-input path in this gate that does not fail closed, and it
-# is asserted rather than left to a reading of the code.
-reset_progress
-git -C "$TREE" checkout -q -- shared.txt 2>/dev/null
-printf 'c1\nc2\nc3\nc4\nc5\nc6\nc7\nBASE-EDIT\nc9\nc10\nBRANCH-OWN-LINE\n' > "$TREE/shared.txt"
-perl -i -pe 's/^reviewed_head:.*$/reviewed_head: 0123456789abcdef0123456789abcdef01234567/' "$VERDICT"
-commit_tree "the record names a head this checkout does not carry"
-out="$(gate 4 7)"; rc=$?
-if [ "$rc" -eq 0 ] && grep -q 'FAILED OPEN' <<<"$out" && grep -q 'OR-1' <<<"$out"; then
-  pass "(vb3) AC-6/OR-1: an uncomputable comparison passes rather than reds, and the line names the fail-open and its reason"
-else fail "(vb3) expected rc=0 with a named fail-open, got $rc: $out"; fi
-
-# (vb4) The SAME fail-open, reached by the OTHER route — and this gate carries the byte-identical
-# `contribution-compare` block, so the route left dark here is left dark in both copies at once.
-# `contribution_delta` reds to rc=2 two ways: a reviewed_head this checkout cannot read, which is
-# (vb3) above and returns from `contribution_lines` before the empty-contribution guard is reached,
-# and both sides computing fine with ONE OF THEM EMPTY. The second is the one with teeth: strip its
-# guard and an empty side `cmp`s as DIFFERENT from a full one, so the arm enumerates a line the
-# branch never moved and reds — a false invalidation in exactly the case OR-1 exists to let stand.
-reset_progress
-vb4_head="$(git -C "$TREE" rev-parse refs/remotes/origin/main)"
-perl -i -pe "s/^reviewed_head:.*\$/reviewed_head: $vb4_head/" "$VERDICT"
-commit_tree "the record names a readable head whose own contribution is empty"
-vb4_own="$(git -C "$TREE" diff --name-only "$(git -C "$TREE" merge-base refs/remotes/origin/main "$vb4_head" 2>/dev/null)" "$vb4_head" 2>/dev/null)"
-vb4_new="$(git -C "$TREE" diff --name-only "$(git -C "$TREE" merge-base refs/remotes/origin/main HEAD 2>/dev/null)" HEAD 2>/dev/null)"
-if git -C "$TREE" cat-file -e "$vb4_head^{commit}" 2>/dev/null && [ -z "$vb4_own" ] && [ -n "$vb4_new" ]; then
-  pass "(vb4a) the fixture drives the OTHER rc=2 route: reviewed_head IS readable here, and its own contribution is empty where this head's is not"
-else fail "(vb4a) the fixture did not reproduce the empty-contribution shape (own='$vb4_own', new='$vb4_new') — (vb4) would only re-assert (vb3)'s route"; fi
-
-out="$(gate 4 7)"; rc=$?
-if [ "$rc" -eq 0 ] && grep -q 'FAILED OPEN' <<<"$out" && grep -q 'OR-1' <<<"$out"; then
-  pass "(vb4) AC-6/OR-1: an EMPTY contribution on one side fails open too, rather than comparing empty against full and invalidating"
-else fail "(vb4) expected rc=0 with a named fail-open, got $rc: $out"; fi
-
-# Housekeeping: the (w)/(x) blocks below reason about a branch with no shared.txt and no vb-base.
-rm -f "$TREE/shared.txt"; commit_tree "remove the (vb) shared fixture file"
-git -C "$TREE" branch -D vb-base >/dev/null 2>&1
 
 # ---- (w) --help prints the header, and only the header ------------------------------------
 # `sed -n '2,Np'` is a hand-maintained line number: growing the header silently truncates the
@@ -4099,6 +3847,29 @@ dcommit "base"
 git -C "$DTREE" update-ref refs/remotes/origin/main HEAD
 printf 'the work\n' > "$DTREE/subject.txt"
 
+# #709: `Design: none` on a provider repo needs a gate-visible design-disarm override behind
+# it (D-1) — a build session may not opt a ticket out of the render lane on its own. Defined
+# HERE, before any disarm fixture below, so every "Design: none" case in this whole design
+# block can back its disarm rather than reading the new refusal by accident.
+DOVT="$HERE/../../tools/operator-override.sh"
+DOV_REC="$DTREE/docs/plans/acme-55-lean-override.md"
+dov_attend() { ( cd "$DTREE" && env RUN_ID=dov-run CLAUDE_CODE_SESSION_ID=dov-sess SECOND_SHIFT_CONFIG="$DCFG" \
+    bash "$DOVT" attend ) >/dev/null 2>&1; }
+dov_write() { # dov_write <decision> <answer>
+  ( cd "$DTREE" && env RUN_ID=dov-run CLAUDE_CODE_SESSION_ID=dov-sess SECOND_SHIFT_CONFIG="$DCFG" \
+      bash "$DOVT" record --gate design-disarm --scope design-disarm --issue 55 \
+      --decision "$1" --answer "$2" --repo-root "$DTREE" ) >/dev/null 2>&1; }
+dov_clear() { rm -f "$DOV_REC" "$DTREE/.claude/pipeline-state/attend-dov-sess.token"; }
+# One override, reused by every disarm fixture below that is not itself testing the override
+# mechanism (that is (dzo)'s job) — recorded once and left in place, since the mechanism scopes
+# by issue+gate and every case here is issue 55's design-disarm.
+if [ -f "$DOVT" ]; then
+  dov_attend
+  dov_write 'the ticket ships no UI' 'Confirmed — backend-only, disarm it where the fixture needs to.'
+else
+  fail "(dzoh) the override mechanism at $DOVT is absent — every disarm fixture below would read the new refusal instead of its own subject"
+fi
+
 # ---- (dz) AC-1: the milestone-1 arming forms --------------------------------------------
 # (dz1) provider configured, no section at all.
 dreset
@@ -4144,6 +3915,94 @@ out="$(dgate 1 55)"; rc=$?
 if [ "$rc" -eq 1 ] && grep -q 'states no reason' <<<"$out"; then
   pass "(dz5) a bare 'Design: none' is refused — the disarm is a decision and must carry one"
 else fail "(dz5) expected the no-reason refusal, rc=$rc: $out"; fi
+
+# ---- (dzo) #709: `Design: none` on a provider repo needs a gate-visible design-disarm override
+# D-1 forbids a build session opting a ticket out of the render lane on its own. The three arms
+# mirror (yo)'s spec-open-region cases: no record refuses naming the exact command, a valid
+# record yields, and a malformed one reds distinctly worded from "no override" (dov_attend/
+# dov_write/dov_clear/DOVT/DOV_REC are defined once, above (dz1), so every disarm fixture in
+# this whole design section can use them — this block is the one that exercises the mechanism
+# itself, not merely relies on it).
+if [ ! -f "$DOVT" ]; then
+  fail "(dzo0) the override mechanism at $DOVT is absent — every case below would pass vacuously"
+else
+  pass "(dzo0) the override mechanism resolves at the path lean-gate.sh defaults to"
+
+  # (dzo1) NO RECORD: milestone 1 reds naming the exact remedy command, on the same disarmed
+  # spec (dz2) accepts once an override backs it.
+  dreset
+  dov_clear
+  printf '# spec\n\n- AC-1: the thing\n\n## Design\n\nDesign: none — no FE surface in this ticket.\n' > "$DSPEC"
+  dcommit "a disarmed spec, no override"
+  out="$(dgate 1 55)"; rc=$?
+  if [ "$rc" -eq 1 ] \
+     && grep -q 'no design-disarm operator override backs it' <<<"$out" \
+     && grep -q -- 'record --gate design-disarm --scope design-disarm --issue 55' <<<"$out"; then
+    pass "(dzo1) #709 AC-1: a disarmed provider spec with no override reds milestone 1 naming the exact remedy"
+  else fail "(dzo1) expected rc=1 naming the override command, got rc=$rc: $out"; fi
+
+  # (dzo2) AC-2: a VALID record backs the SAME spec, and the ticket yields — 'disarmed', not the
+  # refusal (dzo1) hit on identical spec bytes.
+  dreset
+  dov_attend
+  dov_write 'the ticket ships no UI' 'Confirmed — backend-only, disarm it.'
+  out="$(dgate 1 55)"; rc=$?
+  if [ "$rc" -eq 0 ] && grep -q 'disarmed' <<<"$out"; then
+    pass "(dzo2) #709 AC-2: a design-disarm override backing the same spec yields — disarmed"
+  else fail "(dzo2) expected rc=0 disarmed, got rc=$rc: $out"; fi
+
+  # (dzo3) AC-3: a MALFORMED record is UNKNOWN, not "no override" — collapsing the two would let
+  # a record the merge boundary is about to reject wave the disarm through here first.
+  # `design_state()`'s vocabulary is `unarmed`/`disarmed`/`armed`/`error:<msg>` (its own header
+  # comment), not check_pause_and_ask's separate rc=2/no-charge one — a malformed override is an
+  # `error:` outcome like every other design_state() defect (a missing section, a bad host), so
+  # it charges a fix attempt like they do, rather than a bespoke unbudgeted class this one arm
+  # would need alone.
+  dreset
+  dov_clear
+  before="$(dcount '| milestone-1 | attempt |')"
+  # No '### Operator answer' quote at all — well-formed for design-disarm otherwise (it is NOT
+  # region-scoped, so 'region: none' here is correct rather than the defect), but a decision
+  # nobody stated is not an override.
+  printf '## Override 1\ngate: design-disarm\nscope: design-disarm\nissue: 55\nregion: none\nrun_id: r\nsession_id: s\nexpiry: run\ndecision: d\n' > "$DOV_REC"
+  out="$(dgate 1 55)"; rc=$?
+  after="$(dcount '| milestone-1 | attempt |')"
+  if [ "$rc" -eq 1 ] && grep -q 'could not be read as a clean answer' <<<"$out" \
+     && grep -q 'not the same fact as' <<<"$out" && [ "$after" -eq $((before + 1)) ]; then
+    pass "(dzo3) #709 AC-3: a malformed design-disarm record reds as UNKNOWN, worded distinctly from 'no override'"
+  else fail "(dzo3) expected rc=1 naming the unreadable record with one more attempt than before ($before), got rc=$rc attempts=$after: $out"; fi
+  dov_clear
+
+  # (dzo4) AC-2: the committed VERDICT stamps the override's own ref. Same spec as (dzo2); the
+  # writer's --fidelity defaults to not-applicable, and on a disarmed provider ticket it is
+  # stamped with the ref design_state() validated — '55#1', the record's own block ordinal.
+  dreset
+  dov_attend
+  dov_write 'the ticket ships no UI' 'Confirmed — backend-only, disarm it.'
+  rm -f "$DVERDICT"
+  out="$(dverdict sess-review-d run-review-d --pr 900 --verdict approve)"; rc=$?
+  if [ "$rc" -eq 0 ] && grep -q '^fidelity: not-applicable (override: 55#1)$' "$DVERDICT" 2>/dev/null; then
+    pass "(dzo4) #709 AC-2: the written verdict stamps 'fidelity: not-applicable (override: 55#1)'"
+  else fail "(dzo4) expected the verdict to carry the override ref, rc=$rc: $out; verdict: $(cat "$DVERDICT" 2>/dev/null)"; fi
+  dov_clear
+
+  # (dzo5) the writer's own fail-closed side: the SAME disarmed spec with no override backing it
+  # refuses --fidelity not-applicable at the WRITER, rather than let a bare value paper over the
+  # opt-out #705 forbids — the round never gets a verdict to hand to milestone 4.
+  dreset
+  dov_clear
+  rm -f "$DVERDICT"
+  out="$(dverdict sess-review-d2 run-review-d2 --pr 901 --verdict approve)"; rc=$?
+  if [ "$rc" -eq 1 ] && grep -q 'no design-disarm operator override backs it' <<<"$out" && [ ! -f "$DVERDICT" ]; then
+    pass "(dzo5) #709: the writer refuses a bare not-applicable on a disarmed spec with no override, and writes no record"
+  else fail "(dzo5) expected the writer to refuse with no record written, rc=$rc: $out"; fi
+  # RESTORE the default backing override this block cleared — every disarm fixture from here to
+  # the end of this design section (dz6 onward) assumes one is already recorded, the same way the
+  # pre-(dzo) header above established it before (dz1).
+  dov_attend
+  dov_write 'the ticket ships no UI' 'Confirmed — backend-only, disarm it where the fixture needs to.'
+fi
+dreset
 
 # (dz6) render states declared, no handoff link: the review session would have nothing to score
 # the screenshots against.
@@ -7230,9 +7089,9 @@ if [ "$rc" -eq 2 ] && grep -q 'unknown progress form' <<<"$out"; then
 else fail "(pg13) expected rc=2 with an 'unknown progress form' refusal, got rc=$rc: $out"; fi
 
 # ---- (ac) #496: the milestone-4 failure taxonomy, the observe seam, and the config guard -----
-# The per-arm behavior is asserted where each arm's fixture already lives — (j1)/(j3)/(u*)/(t*)/
-# (v*)/(x*)/(n*)/(fd*)/(ac-d*) above, each now keyed to its class. What is left, and what only a
-# whole-function assertion can carry, is COMPLETENESS: a nineteenth site added without a class
+# The per-arm behavior is asserted where each arm's fixture already lives — (j1)/(j2)/(u1)/(t*)/
+# (x*)/(n*)/(fd*)/(ac-d*) above, each now keyed to its class. What is left, and what only a
+# whole-function assertion can carry, is COMPLETENESS: a fifteenth site added without a class
 # silently defaults to 1, which is exactly the collapse this ticket removes, and no behavioral
 # case can red on an arm that does not exist yet.
 #
@@ -7244,11 +7103,19 @@ else fail "(pg13) expected rc=2 with an 'unknown progress form' refusal, got rc=
 # refusal is class 1 (the remedy is a spec edit in the build lane, and milestone 1 refuses it there
 # too); the panel-omission refusal is class 5 (only another review round can produce a record that
 # names the reviewer — no build action fixes it).
+#
+# 20 -> 14 at #720: SIX sites deleted, five class 5 (run_id, session_id and reviewed_patch_id key
+# absence; the inferred and declared patch-stale arms) and one class 2 (patch identity
+# uncomputable). Each re-asked a question lean-evidence.sh's arm_verdict/arm_freshness answers at
+# the merge boundary on every consumer's PR, so a record this milestone waved through on those
+# grounds could not reach a merge anyway. The class TWO count falls to one, which is the shape to
+# watch: the sole remaining environment-class site is the armed render-identity one, so a future
+# fail-open added on the unarmed path would show up here as a signature change and not just a total.
 m4_calls="$(grep -c 'fail_milestone 4 "' "$GATE")"
 m4_sig="$(grep 'fail_milestone 4 "' "$GATE" | sed -n 's/.*" \([0-9]\).*$/\1/p' | sort | tr -d '\n')"
-if [ "$m4_calls" -eq 20 ] && [ "$m4_sig" = "11112255555555555566" ]; then
-  pass "(ac1) all 20 milestone-4 failure sites carry an explicit class, in the documented 4x1 / 2x2 / 12x5 / 2x6 split"
-else fail "(ac1) milestone-4 site mapping drifted: $m4_calls call(s), class signature '$m4_sig' (expected 20 / 11112255555555555566)"; fi
+if [ "$m4_calls" -eq 14 ] && [ "$m4_sig" = "11112555555566" ]; then
+  pass "(ac1) all 14 milestone-4 failure sites carry an explicit class, in the documented 4x1 / 1x2 / 7x5 / 2x6 split"
+else fail "(ac1) milestone-4 site mapping drifted: $m4_calls call(s), class signature '$m4_sig' (expected 14 / 11112555555566)"; fi
 
 # THE ABSENT-VERB SITES, held to the same completeness bar (#642 AC-3). Every reason the ablation
 # report adjudicates `unchanged` must reach block_milestone/block_obligation; a new one added as a

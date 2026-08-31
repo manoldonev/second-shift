@@ -512,47 +512,18 @@ LEANBOT
     && pass "(lean-authorship) the chain reds with the INTEGRITY class when the verdict carries the build run's id or names its session" \
     || fail "(lean-authorship) expected rc 6 and 6, got $auth1 then $auth2"
 
-  # ---- leg 5: the chain reds on a STALE verdict, and a new round clears it --
-  # The composed counterpart to lean-gate-selftest's (t) cases, and the one failure this
-  # separation created rather than removed: with review in its own session, "verdict, then
-  # more commits" is the ordinary shape of the needs-work loop, so an approve for an earlier
-  # head reaching a green chain is the default outcome unless something binds the two.
-  # Everything else in leg 1 is left as it was; ONLY a later commit is added.
-  lean_seed_progress r-lean-1 sess-lean-build
-  lean_write_verdict approve r-lean-review-3 sess-lean-review-3
-  lean_gate 4 77 >/dev/null 2>&1; fresh1=$?
-  printf '# spec\n\n- AC-1: a thing\n- AC-2: added after the review\n' > "$LEAN_SPEC"
-  lean_commit "code lands after the verdict"
-  lean_seed_progress r-lean-1 sess-lean-build
-  lean_gate 4 77 >/dev/null 2>&1; fresh2=$?
-  lean_seed_progress r-lean-1 sess-lean-build
-  lean_write_verdict approve r-lean-review-4 sess-lean-review-4
-  lean_gate 4 77 >/dev/null 2>&1; fresh3=$?
-  [[ "$fresh1" -eq 0 && "$fresh2" -eq 5 && "$fresh3" -eq 0 ]] \
-    && pass "(lean-freshness) a verdict covering the head passes, one predating a later commit reds as 5, a new round clears it" \
-    || fail "(lean-freshness) expected rc 0/5/0, got $fresh1 then $fresh2 then $fresh3"
-
-  # ---- leg 6: the chain reds on a verdict that DECLARES an earlier head -----
-  # Leg 5 composes the INFERRED freshness arm — git decides which commit carries the record.
-  # This leg composes the DECLARED one, and it is constructed so leg 5's arm is GREEN over it:
-  # the record is committed LAST, so its commit IS the head and nothing but the record differs
-  # from it. Only the head the record NAMES is stale. That is not a contrived shape — it is what
-  # a review round produces whenever a fix lands while the review is still running, and it is
-  # the residual the inferred arm cannot see. Everything else is left as leg 1 had it.
-  lean_seed_progress r-lean-1 sess-lean-build
-  lean_stale_head="$(git -C "$LEAN_TREE" rev-parse HEAD)"
-  printf '# spec\n\n- AC-1: a thing\n- AC-3: landed while the review was running\n' > "$LEAN_SPEC"
-  lean_commit "code lands between the review and the record"
-  lean_write_verdict approve r-lean-review-5 sess-lean-review-5 "$lean_stale_head"
-  lean_gate 4 77 >/dev/null 2>&1; decl1=$?
-  lean_seed_progress r-lean-1 sess-lean-build
-  lean_write_verdict approve r-lean-review-6 sess-lean-review-6
-  lean_gate 4 77 >/dev/null 2>&1; decl2=$?
-  [[ "$decl1" -eq 5 && "$decl2" -eq 0 ]] \
-    && pass "(lean-declared) a record whose own commit IS the head still reds when it names an earlier reviewed_head, and a re-declared round clears it" \
-    || fail "(lean-declared) expected rc 5 then 0, got $decl1 then $decl2"
-
-  # ...and the migration arm: a record with no reviewed_head at all is refused, not grandfathered.
+  # ---- leg 5: the record must be ON THE BRANCH, and the key must be there ---
+  # #720 deleted milestone 4's freshness arms — the inferred one, the declared patch-id one, and
+  # the #597 base-advance escape hatch they shared — so the legs that composed them across a
+  # later commit, a rebase and a base merge went with them: they asserted a contract this chain
+  # no longer carries, and leaving them would have made this scenario claim one that does not
+  # exist. The question is asked once now, by lean-evidence.sh's arm_freshness at the merge
+  # boundary, and lean-evidence-selftest.sh composes it there.
+  #
+  # What COMPOSES here still is the pair no boundary check duplicates: a record predating the
+  # `reviewed_head` key is refused rather than grandfathered, and the class it is refused in
+  # survives the walk. Everything else in leg 1 is left exactly as it was, so a green would mean
+  # the milestone-4 link is not carrying the check at all.
   lean_seed_progress r-lean-1 sess-lean-build
   printf 'verdict=approve\nrun_id: r-lean-review-7\nsession_id: sess-lean-review-7\nrounds: 7\n' > "$LEAN_VERDICT"
   lean_commit "a key-less record, as written before reviewed_head existed"
@@ -560,138 +531,15 @@ LEANBOT
   [[ "$decl3" -eq 5 ]] \
     && pass "(lean-declared) a verdict record predating the reviewed_head key is refused, not grandfathered" \
     || fail "(lean-declared) expected rc=5 on a key-less record, got $decl3"
+
+  # ...and a record carrying the key clears it, so the leg is a check with a remedy, not a wall.
   lean_seed_progress r-lean-1 sess-lean-build
   lean_write_verdict approve r-lean-review-8 sess-lean-review-8
+  lean_gate 4 77 >/dev/null 2>&1; decl4=$?
+  [[ "$decl4" -eq 0 ]] \
+    && pass "(lean-declared) ...and a record carrying reviewed_head passes, so the refusal was the key and not the fixture" \
+    || fail "(lean-declared) expected rc=0 on a keyed record, got $decl4"
 
-  # ---- leg 7: the PATCH-ID declared arm, composed across a real rebase ------
-  # Legs 5 and 6 compose the two freshness arms over records that carry no `reviewed_patch_id`,
-  # so both take the SHA fallback. This leg composes the arm records written by the current
-  # writer actually take — and it composes it across the operation that arm exists for.
-  #
-  # The record comes from the REAL `verdict` subcommand rather than a printf: the id it stamps is
-  # the thing milestone 4 recomputes, so a leg that hand-wrote one would compose a record no
-  # review session produces. The write is refused unless the review identity is distinct from the
-  # build's on both axes, which is why the two are seeded explicitly here as everywhere else.
-  lean_seed_progress r-lean-1 sess-lean-build
-  rm -f "$LEAN_TREE/.claude/pipeline-state/77-review-run-id"
-  ( cd "$LEAN_TREE" && SECOND_SHIFT_CONFIG="$LEAN_CFG" LEAN_PROGRESS_FILE="$LEAN_PROG" \
-    CLAUDE_CODE_SESSION_ID=sess-lean-review-9 RUN_ID=r-lean-review-9 \
-    bash "$LEAN_GATE" verdict 77 --pr 5 --verdict approve >/dev/null 2>&1 ); pid_write=$?
-  lean_commit "review session commits its patch-id-keyed record"
-  lean_gate 4 77 >/dev/null 2>&1; pid1=$?
-
-  # A REAL rebase onto a base that moved with content. A same-tree base would leave the pre- and
-  # post-rebase trees identical, so the SHA arm would pass too and the leg would compose nothing.
-  lean_branch="$(git -C "$LEAN_TREE" symbolic-ref --short HEAD 2>/dev/null)"
-  lean_pre_rebase="$(git -C "$LEAN_TREE" rev-parse HEAD)"
-  git -C "$LEAN_TREE" branch -f lean-base refs/remotes/origin/main >/dev/null 2>&1
-  git -C "$LEAN_TREE" checkout -q lean-base 2>/dev/null
-  printf 'the base moved while the review was in flight\n' > "$LEAN_TREE/base-moved.txt"
-  git -C "$LEAN_TREE" add base-moved.txt >/dev/null 2>&1
-  git -C "$LEAN_TREE" commit -q -m 'base advances' >/dev/null 2>&1
-  git -C "$LEAN_TREE" update-ref refs/remotes/origin/main lean-base
-  git -C "$LEAN_TREE" checkout -q "$lean_branch" 2>/dev/null
-  git -C "$LEAN_TREE" rebase -q lean-base >/dev/null 2>&1; lean_rebased=$?
-  # The SHA arm would red here: the pre-rebase commit is still an object in this repo, but its
-  # tree now differs from the head by the base's commit. If that diff is empty the leg is vacuous.
-  lean_sha_would_red="$(git -C "$LEAN_TREE" diff --name-only "$lean_pre_rebase" HEAD 2>/dev/null)"
-  lean_seed_progress r-lean-1 sess-lean-build
-  lean_gate 4 77 >/dev/null 2>&1; pid2=$?
-
-  # ...and the arm is still a gate: a commit after the approve moves the patch and reds it.
-  lean_seed_progress r-lean-1 sess-lean-build
-  printf '# spec\n\n- AC-1: a thing\n- AC-4: landed after the approve\n' > "$LEAN_SPEC"
-  lean_commit "code lands after the approve"
-  lean_gate 4 77 >/dev/null 2>&1; pid3=$?
-
-  [[ "$pid_write" -eq 0 && "$lean_rebased" -eq 0 && -n "$lean_sha_would_red" \
-     && "$pid1" -eq 0 && "$pid2" -eq 0 && "$pid3" -eq 5 ]] \
-    && pass "(lean-patch-id) a review-written record passes, survives a rebase the SHA arm would have redded, and still reds once a commit changes the branch" \
-    || fail "(lean-patch-id) write=$pid_write rebase=$lean_rebased sha-arm-diff='$lean_sha_would_red' rcs=$pid1/$pid2/$pid3, expected 0/0/nonempty/0/0/5"
-
-  # ---- leg 7b: #597 — a BASE ADVANCE does not void a verdict, composed ------
-  # CLAUDE.md: a new gate contract must extend this scenario too. Leg 7 composes the arm across a REBASE; this leg composes it across the operation
-  # the rebase case does not reach — merging the base IN. The two differ in exactly the way that
-  # matters: a rebase leaves the merge-base where it was, while a merge ADVANCES it, and
-  # `branch_patch_id` hashes a diff measured from it. On #583 that moved the identity from
-  # 1decd12550cd to 86daf57fb18e over a union resolution that introduced no branch line, spawned a
-  # review against an unmoved head, and forced a hand re-stamp.
-  #
-  # What only a composed leg can show is that BOTH freshness arms clear it together. The per-tool
-  # suite drives each arm; here the inferred arm's file list and the declared arm's hash both move,
-  # and milestone 4 must still be green through `all` — the entry point a resume re-enters through.
-  lean_seed_progress r-lean-1 sess-lean-build
-  rm -f "$LEAN_TREE/.claude/pipeline-state/77-review-run-id"
-  ba_branch="$(git -C "$LEAN_TREE" symbolic-ref --short HEAD 2>/dev/null)"
-  git -C "$LEAN_TREE" branch -f ba-base refs/remotes/origin/main >/dev/null 2>&1
-  git -C "$LEAN_TREE" checkout -q ba-base 2>/dev/null
-  printf 'c1\nc2\nc3\nc4\nc5\nc6\nc7\nc8\nc9\nc10\n' > "$LEAN_TREE/shared.txt"
-  git -C "$LEAN_TREE" add shared.txt >/dev/null 2>&1
-  git -C "$LEAN_TREE" commit -q -m 'base seeds the shared file' >/dev/null 2>&1
-  git -C "$LEAN_TREE" update-ref refs/remotes/origin/main ba-base
-  git -C "$LEAN_TREE" checkout -q "$ba_branch" 2>/dev/null
-  git -C "$LEAN_TREE" merge -q --no-edit ba-base >/dev/null 2>&1
-  printf 'c1\nc2\nc3\nc4\nc5\nc6\nc7\nc8\nc9\nc10\nBRANCH-OWN-LINE\n' > "$LEAN_TREE/shared.txt"
-  lean_commit "the branch appends its own line to the shared file"
-  ( cd "$LEAN_TREE" && SECOND_SHIFT_CONFIG="$LEAN_CFG" LEAN_PROGRESS_FILE="$LEAN_PROG" \
-    CLAUDE_CODE_SESSION_ID=sess-lean-review-11 RUN_ID=r-lean-review-11 \
-    bash "$LEAN_GATE" verdict 77 --pr 5 --verdict approve >/dev/null 2>&1 ); ba_write=$?
-  lean_commit "review commits its record at the pre-merge head"
-  ba_vcommit="$(git -C "$LEAN_TREE" rev-parse HEAD)"
-  ba_pid_before="$(grep -oE 'reviewed_patch_id:[[:space:]]*[A-Za-z0-9._-]+' "$LEAN_VERDICT" \
-                   | head -n1 | sed -E 's/^reviewed_patch_id:[[:space:]]*//')"
-  lean_seed_progress r-lean-1 sess-lean-build
-  lean_gate 4 77 >/dev/null 2>&1; ba1=$?
-
-  # The unrelated base advance, INSIDE the branch hunk's context and in a file the branch also
-  # touches — the shape that moves both arms. A base commit in some other file moves neither.
-  git -C "$LEAN_TREE" checkout -q ba-base 2>/dev/null
-  printf 'c1\nc2\nc3\nc4\nc5\nc6\nc7\nBASE-EDIT\nc9\nc10\n' > "$LEAN_TREE/shared.txt"
-  git -C "$LEAN_TREE" add shared.txt >/dev/null 2>&1
-  git -C "$LEAN_TREE" commit -q -m 'an unrelated PR lands on the base' >/dev/null 2>&1
-  git -C "$LEAN_TREE" update-ref refs/remotes/origin/main ba-base
-  git -C "$LEAN_TREE" checkout -q "$ba_branch" 2>/dev/null
-  git -C "$LEAN_TREE" merge -q --no-edit ba-base >/dev/null 2>&1; ba_merged=$?
-
-  # NON-VACUITY, on BOTH arms, against plain git. If either is unmoved this leg composes nothing.
-  ba_mb="$(git -C "$LEAN_TREE" merge-base refs/remotes/origin/main HEAD 2>/dev/null)"
-  ba_pid_now="$(git -C "$LEAN_TREE" diff "$ba_mb" HEAD -- . ':(exclude)docs/plans/acme-77-lean-verdict.md' 2>/dev/null \
-                | git -C "$LEAN_TREE" patch-id --stable 2>/dev/null | cut -d' ' -f1)"
-  ba_inferred="$(git -C "$LEAN_TREE" diff --name-only "$ba_vcommit" HEAD 2>/dev/null \
-                 | grep -vxF 'docs/plans/acme-77-lean-verdict.md')"
-
-  # Through `all`, not through a direct milestone-4 call: the whole-progression entry point is
-  # where a resume re-enters, and a green arm that `all` never reaches is not a cleared run.
-  lean_seed_progress r-lean-1 sess-lean-build
-  ba_all_out="$(lean_gate all 77 2>&1)"
-  # `all` walks the WHOLE progression, so its own exit code answers for milestone 5 too — which
-  # this fixture has no PR for. What this leg owns is that milestone 4 is reached and SATISFIED on
-  # that walk, recorded in the run's own progress file rather than inferred from a rolled-up rc.
-  ba_all_m4=$(lean_count '| milestone-4 | satisfied')
-  ba_all_m4_red="$(printf '%s\n' "$ba_all_out" | grep '✗ milestone-4' || true)"
-  lean_seed_progress r-lean-1 sess-lean-build
-  lean_gate 4 77 >/dev/null 2>&1; ba2=$?
-
-  # ...and the arms are STILL gates. Without this the leg reads as "milestone 4 was disabled".
-  printf 'c1\nc2\nc3\nc4\nc5\nc6\nc7\nBASE-EDIT\nc9\nc10\nBRANCH-OWN-LINE-EDITED\n' > "$LEAN_TREE/shared.txt"
-  lean_commit "a real fix lands on a reviewed line after the base merge"
-  lean_seed_progress r-lean-1 sess-lean-build
-  lean_gate 4 77 >/dev/null 2>&1; ba3=$?
-
-  [[ "$ba_write" -eq 0 && "$ba_merged" -eq 0 && "$ba1" -eq 0 \
-     && -n "$ba_pid_before" && -n "$ba_pid_now" && "$ba_pid_before" != "$ba_pid_now" \
-     && -n "$ba_inferred" && "$ba_all_m4" -ge 1 && -z "$ba_all_m4_red" \
-     && "$ba2" -eq 0 && "$ba3" -eq 5 ]] \
-    && pass "(lean-base-advance) a verdict survives a base merge that moved BOTH freshness arms' inputs and altered no reviewed line — green through 'all' — and still reds once a reviewed line moves" \
-    || fail "(lean-base-advance) write=$ba_write merged=$ba_merged pid '$ba_pid_before'->'$ba_pid_now' inferred='$ba_inferred' rcs=$ba1/$ba2/$ba3 all-m4-satisfied=$ba_all_m4 all-m4-red='$ba_all_m4_red', expected 0/0/moved/nonempty/0/0/5/>=1/empty
-$ba_all_out"
-
-  # Restore the tree the remaining legs were written against: no shared.txt, no ba-base, and the
-  # base ref back where leg 7 left it. The legs below diff against origin/main.
-  rm -f "$LEAN_TREE/shared.txt"; lean_commit "remove the (lean-base-advance) fixture file"
-  git -C "$LEAN_TREE" branch -D ba-base >/dev/null 2>&1
-
-  # Restore the SHA-fallback shape the remaining legs were written against.
   lean_seed_progress r-lean-1 sess-lean-build
   lean_write_verdict approve r-lean-review-10 sess-lean-review-10
 
@@ -1666,6 +1514,66 @@ LEANDC
   [[ "$ld_nv" -ne 0 ]] \
     && pass "(lean-design-nv) non-vacuity: the same chain reds when the armed spec is disarmed mid-run" \
     || fail "(lean-design-nv) a mid-run disarm passed milestone 1 — the design legs are vacuous"
+
+  # ---- design leg: #709 the design-disarm override, composed through a FRESH ticket ------
+  # A separate issue (89) rather than reusing 88: that ticket's progress file already carries
+  # the `| milestone-3 | armed |` lock the (lean-design-nv) leg just proved, so a disarm on it
+  # can never be a legitimate first-time one — exactly the confound #709's own mechanism must
+  # NOT be judged through. This leg proves what the per-tool suites (operator-override-selftest,
+  # lean-gate-selftest, lean-evidence-selftest) cannot: that the SAME real gate binary, driven
+  # through the SAME entry precondition every other leg in this file uses, refuses a build
+  # session's own disarm on a provider repo and then yields once an operator's override is on
+  # disk — end to end, not against a fixture that assumes the mechanism already ran.
+  LEAN_DOISSUE=89
+  LEAN_DOPROG="$TMP/lean-progress-design-override.md"
+  LEAN_DOSPEC="$LEAN_DTREE/docs/plans/acme-89-lean.md"
+  LEAN_DOVERDICT="$LEAN_DTREE/docs/plans/acme-89-lean-verdict.md"
+  LEAN_DOVT="$HERE/../../tools/operator-override.sh"
+  lean_dogate() { ( unset RUN_ID GH_BOT; cd "$LEAN_DTREE" && SECOND_SHIFT_CONFIG="$LEAN_DCFG" LEAN_PROGRESS_FILE="$LEAN_DOPROG" \
+                   CLAUDE_CODE_SESSION_ID="$LEAN_DSID" GH="${GH:-$LEAN_GH}" \
+                   bash "$LEAN_GATE" --issue-file "$LEAN_ISSUE_NOREGIONS" "$@" 2>&1 ); }
+  lean_doseed() { rm -f "$LEAN_DOPROG"
+                  { echo "# lean run — issue $LEAN_DOISSUE"; echo ""; echo "run_id: r-lean-do"; echo "session_id: sess-lean-do-build"; } > "$LEAN_DOPROG"
+                  lean_dogate entry "$LEAN_DOISSUE" >/dev/null 2>&1; }
+  lean_doverdict() { # lean_doverdict <session> <run-id> [args...]
+    local sid="$1" rid="$2"; shift 2
+    rm -f "$LEAN_DTREE/.claude/pipeline-state/$LEAN_DOISSUE-review-run-id"
+    ( unset RUN_ID; cd "$LEAN_DTREE" && SECOND_SHIFT_CONFIG="$LEAN_DCFG" LEAN_PROGRESS_FILE="$LEAN_DOPROG" \
+      CLAUDE_CODE_SESSION_ID="$sid" RUN_ID="$rid" bash "$LEAN_GATE" verdict "$LEAN_DOISSUE" "$@" 2>&1 )
+  }
+  {
+    printf '# spec\n\n- AC-1: a thing\n\n## Design\n\nDesign: none — no FE surface in this ticket.\n'
+  } > "$LEAN_DOSPEC"
+  lean_doseed
+  git -C "$LEAN_DTREE" add -A >/dev/null 2>&1
+  git -C "$LEAN_DTREE" commit -q -m "issue 89: a disarmed provider spec, no override" >/dev/null 2>&1
+
+  # (a) no override on disk: milestone 1 reds, naming the exact remedy.
+  ld_o1="$(lean_dogate 1 "$LEAN_DOISSUE" 2>&1)"; ld_o1_rc=$?
+  if [[ "$ld_o1_rc" -ne 0 ]] && grep -q 'no design-disarm operator override backs it' <<<"$ld_o1"; then
+    pass "(lean-design-override) #709 AC-1: a disarmed provider ticket with no override reds milestone 1"
+  else fail "(lean-design-override) expected a refusal naming the override, rc=$ld_o1_rc: $ld_o1"; fi
+
+  # (b) an attended operator records one, and the SAME chain yields.
+  ( cd "$LEAN_DTREE" && env RUN_ID=r-lean-do-ov CLAUDE_CODE_SESSION_ID=sess-lean-do-ov SECOND_SHIFT_CONFIG="$LEAN_DCFG" \
+      bash "$LEAN_DOVT" attend ) >/dev/null 2>&1
+  ( cd "$LEAN_DTREE" && env RUN_ID=r-lean-do-ov CLAUDE_CODE_SESSION_ID=sess-lean-do-ov SECOND_SHIFT_CONFIG="$LEAN_DCFG" \
+      bash "$LEAN_DOVT" record --gate design-disarm --scope design-disarm --issue "$LEAN_DOISSUE" \
+      --decision "the ticket ships no UI" --answer "Confirmed — backend-only, disarm it." \
+      --repo-root "$LEAN_DTREE" ) >/dev/null 2>&1
+  ld_o2="$(lean_dogate 1 "$LEAN_DOISSUE" 2>&1)"; ld_o2_rc=$?
+  if [[ "$ld_o2_rc" -eq 0 ]] && grep -q 'disarmed' <<<"$ld_o2"; then
+    pass "(lean-design-override) #709 AC-2: the same chain yields once the operator's override is on disk"
+  else fail "(lean-design-override) expected rc=0 disarmed, rc=$ld_o2_rc: $ld_o2"; fi
+
+  # (c) the committed verdict stamps the override's own ref — the artifact the merge boundary
+  # resolves the claim against (proved generically by lean-evidence-selftest.sh's (ov6)-(ov9),
+  # which check-lean-chain.sh delegates to in full).
+  rm -f "$LEAN_DOVERDICT"
+  ld_o3="$(lean_doverdict sess-lean-do-review r-lean-do-review --pr 890 --verdict approve 2>&1)"; ld_o3_rc=$?
+  if [[ "$ld_o3_rc" -eq 0 ]] && grep -q '^fidelity: not-applicable (override: 89#1)$' "$LEAN_DOVERDICT" 2>/dev/null; then
+    pass "(lean-design-override) #709 AC-2: the written verdict carries 'fidelity: not-applicable (override: 89#1)'"
+  else fail "(lean-design-override) expected the verdict to carry the override ref, rc=$ld_o3_rc: $ld_o3; verdict: $(cat "$LEAN_DOVERDICT" 2>/dev/null)"; fi
 
   # ---- leg 8: the SCHEDULER's re-entry admission, composed to a terminal write (#514) -----
   # Same CLAUDE.md obligation as legs 3b/3c/3d: a new gate contract extends the liveness

@@ -116,6 +116,21 @@ Handoff: https://<your provider>/file/abc123
 …or the explicit disarm, `Design: none — <reason>`, which is a conscious per-ticket decision and
 is **state-locked**: once a run has armed, switching to the disarm reds at milestones 1 and 3.
 
+**The disarm alone is not enough on a provider repo (#709).** A build session writing `Design:
+none — <reason>` on its own is the opt-out this mechanism exists to forbid, so the gate additionally
+requires a gate-visible `design-disarm` operator override before it accepts the disarm — an
+attended operator, present before the run, records one:
+
+```
+bash <path-to>/operator-override.sh record --gate design-disarm --scope design-disarm \
+  --issue <n> --decision '<what the operator decided, one line>' --answer '<their answer, verbatim>'
+```
+
+With no record, milestone 1 reds naming that exact command. With a valid record, the ticket is
+`disarmed` and the committed verdict carries `fidelity: not-applicable (override: <ref>)`, where
+`<ref>` is `<issue>#<n>` — the record's own block ordinal. The merge boundary resolves that ref
+against the committed record independently of config, which it cannot read on a consumer.
+
 **What the gate does when armed — first, the translation plan.** Before the harness is called
 once, milestone 3 asserts a committed **translation plan** at `<plansDir>/<key>-lean-plan.md` —
 the artifact `design-toolkit:figma-faithful` step 7 writes. It must carry a `planned_from:` header

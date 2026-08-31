@@ -132,6 +132,15 @@ happened yet.
 it, one of them the CI workflow that judges the PR; `m4/chain-break` (2026-08-04) caught a round
 claiming inherited coverage from a patch id no committed record carries.
 
+> **Superseded for `m4/patch-stale` (#720, 2026-08-31).** Its incident is real and its keep was
+> earned — but it was earned by the CHECK, not by the check being made in the build lane.
+> `lean-evidence.sh`'s `arm_freshness` asks the identical question at the merge boundary, on
+> inputs the lane cannot make disagree, on every consumer's PR — so #720 deleted milestone 4's two
+> copies and kept the boundary's. The same #720 argument retires the three `m4/verdict-keys` sites
+> that `arm_verdict` duplicates; the row keeps its `reviewed_head` arm, which has no counterpart
+> downstream. Both rows stay in `tools/gate-ablation-classes.tsv` because this report's corpus
+> carries reasons they match.
+
 **5. Twenty of 33 declared decision points have never fired at all.** They are listed rather than
 dropped: a point with no firings cannot be shown to change a decision, but neither can it be shown
 not to, and several guard states this repo simply never enters (the whole design-render tier, the

@@ -48,6 +48,15 @@ that record class outright. Whatever those arms answered, the boundary refused t
 not merely quiet. Milestone 4 now refuses the class itself, which is strictly tighter than the
 fallback it replaces.
 
+**Deleted (6) at #720, on a DIFFERENT argument.** The six milestone-4 sites behind
+`tools/gate-ablation-classes.tsv`'s `m4/verdict-keys` and `m4/patch-stale` rows were not
+never-fired — `m4/patch-stale` had fired. They were DUPLICATES: `lean-evidence.sh` asks the
+identical questions at the merge boundary, on inputs the lane cannot make disagree, on every
+consumer's PR. A refusal whose only distinct effect is WHEN the operator learns is bought at the
+price of a second implementation of it, so #720 kept the boundary's copy and deleted the lane's.
+Both rows STAY in the classes table — it reads history, not the current gate — and
+`m4/verdict-keys` keeps a live site (`reviewed_head`, whose absence no boundary check refuses).
+
 **Kept: 18 against the pin #642 acted on, 20 against the corpus it ships.** The ticket's warning
 is the load-bearing one: deleting these would remove function from the shipped product to tidy the
 dogfood canary.
@@ -932,15 +941,18 @@ coupling rather than mechanizing it into a guard that cannot fail.
   writer silently un-satisfies all three; a reader-side requirement the writer never emits reds
   every lean PR. The writer spells keys as `echo` lines and the readers as grep/jq patterns.
   Guarded behaviorally, and the guard COMPOSES across sites: `lean-gate-selftest.sh` (p5)/(p7) feed
-  the writer's output to the milestone-4 reader in the same run; (j3)/(j3b)/(u1) pin each key's
-  absence as its own refusal; `check-lean-chain-selftest.sh` (N2)/(N3)/(R1) and
-  `lean-reconcile-selftest.sh` (J3)/(K1) do the same at the other two readers.
+  the writer's output to the milestone-4 reader in the same run; (u1) pins the one key whose absence
+  milestone 4 still refuses on its own (`reviewed_head`); `lean-evidence-selftest.sh` (r) pins the
+  `reviewed_patch_id` class, and `check-lean-chain-selftest.sh` (N2)/(N3)/(R1) and
+  `lean-reconcile-selftest.sh` (J3)/(K1) do the same at the other readers. #720 deleted milestone
+  4's own `run_id`/`session_id`/`reviewed_patch_id` refusals as duplicates of those.
   `reviewed_head:` and `reviewed_patch_id:` are the DERIVED keys — the readers recompute rather than
   extract, so a writer that stamped a short sha would extract cleanly everywhere and then fail every
   comparison. `reviewed_patch_id:` is tighter still: both sides must agree on the base, the diff
-  range AND the excluded path. Composed instead — `lean-gate-selftest.sh` (u3) and the (v) block
-  drive writer-to-reader end to end, and `scenario-liveness-selftest.sh`'s (lean-declared) and
-  (lean-patch-id) legs compose each arm against a record whose INFERRED freshness is green.
+  range AND the excluded path — and since #720 the only reader that COMPARES it is the merge
+  boundary, so the composition lives there: `lean-evidence-selftest.sh` drives writer-to-reader end
+  to end including the #597 base-advance hatch, `lean-gate-selftest.sh` (v6) pins that the writer
+  refuses rather than omitting the key, and (x1) pins that a writer-produced record carries one.
   `panel:` (#708) is the one key with a reader of its OWN: `header_key`'s charset stops at the first
   character outside `[A-Za-z0-9._-]`, so a qualified comma-separated list truncates to its leading
   plugin token, and `panel_key` reads it whole. Widening the shared reader was rejected — it would

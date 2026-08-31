@@ -27,7 +27,15 @@
 #   operator-override.sh record --gate <g> --scope <s> --issue <n> [--region <OR-n>]
 #                               --decision <text> --answer <text> [--repo-root <dir>]
 #   operator-override.sh check  --gate <g> --issue <n> [--region <OR-n>] [--repo-root <dir>]
+#                               [--print-ref]
 #   operator-override.sh lint   [--record <path>] [--register <path>]
+#
+# --print-ref (#709): on a `check` HIT, print the matching block's ref `<issue>#<n>` to stdout
+# before returning 0 — `n` is that block's 1-indexed ordinal, in FILE ORDER, among every
+# `## Override N` block in the per-issue record (the FIRST matching block, when more than one
+# matches). A hit from the PERSISTENT REGISTER instead prints nothing: a register row carries no
+# per-block ordinal to cite, and in practice no gate that reaches the register also passes this
+# flag — `design-disarm`, the one caller today, is itself forbidden in the register.
 #
 # Exit codes:
 #   attend  0 minted; 2 refused (no identity, or marked headless)
@@ -56,7 +64,7 @@ set -uo pipefail
 
 GH_CLI="${GH:-gh}"
 
-usage() { sed -n '2,53p' "$0"; }
+usage() { sed -n '2,61p' "$0"; }
 envfail() { echo "[operator-override] $1" >&2; exit 2; }
 say() { echo "[operator-override] $1"; }
 
@@ -179,8 +187,14 @@ record_path() { printf '%s\n' "$1/$PLANS_DIR/$REPO_SLUG-$2-lean-override.md"; }
 # The CLOSED enums. Widening either is the phase-2 work #613 defers, and an unknown value is an
 # ERROR rather than a silent miss: a gate name nobody implements must not read as "no override
 # exists", which is the fail-open this whole mechanism is built against.
-OVERRIDE_GATES='intake-unqueued spec-open-region'
-OVERRIDE_SCOPES='intake-attestation open-region-resolution'
+#
+# `design-disarm` (#709): a per-ticket `Design: none` disarm on a repo configured with
+# design.provider is a build-session-writable opt-out of the mandatory render lane, which #705's
+# decisions forbid without an operator-quoted override. It is NOT region-scoped (issue-scoped
+# only, like `intake-unqueued`) and is FORBIDDEN in the persistent register — see
+# register_row_violation() below, operator-override.sh-only since the register is per-tool.
+OVERRIDE_GATES='intake-unqueued spec-open-region design-disarm'
+OVERRIDE_SCOPES='intake-attestation open-region-resolution design-disarm'
 
 # The gate that is region-scoped. A region is REQUIRED for it and forbidden for the other: an
 # open-region override that named no region would clear every region on the ticket at once.
@@ -400,6 +414,13 @@ register_row_violation() { # register_row_violation <tsv-row>
   g="$(register_field 1 "$1")"; sc="$(register_field 2 "$1")"; rg="$(register_field 3 "$1")"
   ex="$(register_field 4 "$1")"; ju="$(register_field 5 "$1")"
   override_in_enum "$g" "$OVERRIDE_GATES"   || { echo "gate '${g:-<none>}' is not one of: $OVERRIDE_GATES"; return; }
+  # #709 D-23. `design-disarm` binds PER-ISSUE only: a register row matches on gate alone, with no
+  # per-issue binding and no operator-quoted decision behind it, which IS the blanket opt-out D-1
+  # forbids. Checked here, not in the LOCKSTEP block, because the register is this tool's own —
+  # the merge boundary never reads it. Both callers of this function (cmd_check's register loop
+  # and cmd_lint's) get the refusal for free.
+  [ "$g" != "design-disarm" ] \
+    || { echo "gate 'design-disarm' may not appear in the persistent register — it binds per-issue only (a register row would be a blanket opt-out with no operator-quoted decision behind it)"; return; }
   override_in_enum "$sc" "$OVERRIDE_SCOPES" || { echo "scope '${sc:-<none>}' is not one of: $OVERRIDE_SCOPES"; return; }
   if [ "$g" = "$OVERRIDE_REGION_SCOPED_GATE" ]; then
     case "$rg" in OR-[0-9]*) : ;; *) echo "gate '$g' is region-scoped but region reads '${rg:-<none>}'"; return ;; esac
@@ -415,13 +436,14 @@ register_row_violation() { # register_row_violation <tsv-row>
 
 # ---------------------------------------------------------------- check: the yield predicate
 cmd_check() {
-  local gate="" issue="" region="" root="" path line why g sc is rg hit=0
+  local gate="" issue="" region="" root="" print_ref=0 path line why g sc is rg hit=0 hit_ref="" idx=0
   while [ $# -gt 0 ]; do
     case "$1" in
       --gate)      gate="${2:-}"; shift 2 ;;
       --issue)     issue="${2:-}"; shift 2 ;;
       --region)    region="${2:-}"; shift 2 ;;
       --repo-root) root="${2:-}"; shift 2 ;;
+      --print-ref) print_ref=1; shift ;;
       *) envfail "check: unknown argument '$1'" ;;
     esac
   done
@@ -436,6 +458,7 @@ cmd_check() {
   if [ -f "$path" ]; then
     while IFS= read -r line; do
       [ -n "$line" ] || continue
+      idx=$((idx + 1))
       why="$(override_block_violation "$line")"
       if [ -n "$why" ]; then
         echo "[operator-override] malformed override block in $path: $why" >&2
@@ -448,11 +471,18 @@ EOF
       [ "$is" = "$issue" ] || continue
       if [ "$gate" = "$OVERRIDE_REGION_SCOPED_GATE" ]; then [ "$rg" = "$region" ] || continue; fi
       hit=1
+      # #709 D-20/D-21. FIRST match wins, same posture as every other reader in this file — `n` is
+      # the block's own 1-indexed file-order position, which is what cmd_record's own numbering
+      # already assigns it.
+      [ -n "$hit_ref" ] || hit_ref="$issue#$idx"
     done <<EOF
 $(override_parse_blocks "$path")
 EOF
   fi
-  [ "$hit" -eq 0 ] || return 0
+  if [ "$hit" -ne 0 ]; then
+    [ "$print_ref" -eq 0 ] || printf '%s\n' "$hit_ref"
+    return 0
+  fi
 
   # ---- the persistent register. Consulted second and rarely populated, so the common path pays
   # nothing for it. An expired or unevaluable row is rc 2 and reds the run HERE, at the first
