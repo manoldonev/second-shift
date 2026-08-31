@@ -1,73 +1,139 @@
 # lean review verdict — #723
 
 verdict=approve
-run_id: review-723-2
-session_id: df06c285-a85f-40a5-a596-24bfd440f3b8
-rounds: 2
+run_id: review-723-3
+session_id: 64f43bc8-8395-463b-b3e9-b61b5efa4ca9
+rounds: 3
 pr: #754
-reviewed_head: 535a427fc5925a5c435d1bf9ddd850bdf86043e9
-reviewed_patch_id: 79013973c1ff0f7470b806670af70ce8426c90d6
-inherited_patch_id: 2b194563801f4c8f2956c75ad535b38de28e43fe
-inherited_from_verdict: c2f4b1637e42d4bfd81e81b17d095adaf0fc3557
+reviewed_head: 8a116ea6ec15a01ab5c71426a93844532bedcca1
+reviewed_patch_id: 1c4b0f55beb1036260e468f7f8d95b531d1bd4d2
+inherited_patch_id: 79013973c1ff0f7470b806670af70ce8426c90d6
+inherited_from_verdict: 716a337377e6d9fceba1969fc5a9d04fc814d3e4
 fidelity: not-applicable
 panel: review-toolkit:scope-completeness-reviewer,review-toolkit:unit-test-mutation-reviewer
 model: opus
 capabilities: pr-marker
 
+## What this round read
+
+The delta the gate derived is `716a3373..HEAD`: a base merge of `origin/main` (`141ec546`,
+bringing #755's AC-scorecard layer) and a one-line whitespace restore (`8a116ea6`). **The
+branch's own contribution did not move.** Its added-line set and its deleted-line set against
+its base are byte-identical to the patch round 2 approved — measured, not assumed, by sorting
+both three-dot diffs and diffing the `+`/`-` line sets (empty both ways).
+
+The merge boundary agrees independently: `pr-gates` at this head prints
+`freshness — the recorded patch identity 79013973c1ff and this head's 1c4b0f55beb1 differ,
+which a base advance alone is enough to cause, and every one of the branch's own +/- lines is
+unchanged since reviewed_head 535a427fc592 — no reviewed line was altered, so the verdict
+stands (#597 AC-1)`.
+
+## Why a round happened anyway
+
+`pr-gates` is red at this head on exactly one violation, and it is not about the code:
+
+```
+✗ verdict record 'docs/plans/second-shift-723-lean-verdict.md' — AC scorecard:
+  no "## AC scorecard" section — an approve must score every AC-n the spec declares,
+  and this record scores none
+```
+
+Round 2 was written at 21:56 under the pre-#755 contract, which had no scorecard section.
+#755 merged at 22:13. The base merge at 22:16 pulled main's new **reader** into the branch,
+and that reader refuses a record written before the key existed — it carries no transitional
+arm. Reproduced locally at this head:
+`lean-evidence.sh scorecard --spec … --verdict approve < <record>` emits the same line.
+
+So the round is spent on a record-format migration, not on a defect. This round's record is
+written in the current schema; the code verdict is unchanged.
+
 ## Findings
+
+No new code findings. Round 2's seven open items were each re-verified as unchanged at this
+head and are carried forward; none is a blocker.
 
 | # | Severity | Dimension | File | Finding |
 | --- | --- | --- | --- | --- |
-| 1 | major | Test coverage / mutation | `plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh:8883` | Dropping the `next` from `cost_block_with_usd_key`'s NEW `---` arm re-emits the break line after the key — output `marker / --- / cost_usd: v / ---` — and **no case in the suite catches it**. `(co7b)` compares only lines 1-3, which the mutant reproduces byte-for-byte; `(co7)` greps the key line; `(co9)` counts `^cost_usd:` (1) and `^<!-- pipeline-cost-block -->$` (1), both unchanged; `(co8)`/`(co8b)`/`(co10)`/`(co11)` never route through the function. Executed on the extracted awk against `(co7)`'s own fixture, then rendered through `POST /markdown, mode: gfm`: `<h2>cost_usd: 70.41</h2>` — round 1's blocker verbatim, with CI green. The guard added to lock that blocker in does not lock it in. Remedy: add `[ "$(grep -c '^---$' <<<"$co_final")" -eq 1 ]` to `(co9)`, or extend `(co7b)`'s shape to four lines (`…\|cost_usd: 70.41\|\|`), pinning the blank line its own comment already claims. |
-| 2 | major | Correctness (latent) / cross-file coupling | `lean-gate.sh:5877-5882` | `cost_block_with_usd_key` is now **fail-silent**. Round 1's form inserted unconditionally after the marker; the new form inserts only if a bare `---` follows it. A marker-bearing block without one yields the block back verbatim — no key, no warning, no failed obligation — so AC-2 would break invisibly on the PR-description surface while the comment bullet still looked right (measured: new form `keys=0`, old form `keys=1` on that input). The `---` is a THIRD literal shared with `pipeline-cost-block.sh`, and unlike the marker and terminator it is **not** in the `lean-cost-block-bounds` LOCKSTEP block — `check-lockstep-pairs.sh` reports 29 anchors, 0 failed, and this literal is not among them. Not reachable today, and verified so: `render_block` has the single `$marker` emission in the file (`pipeline-cost-block.sh:806-812`) and emits `"---"` beside it unconditionally; table separators are `\|---\|---\|`, which `$0 == "---"` does not match. Remedy: extend the LOCKSTEP pair, or give the awk an `END { if (!ins) … }` arm that appends rather than drops. |
-| 3 | minor | Comment accuracy | `lean-gate-selftest.sh:8931-8934` | `(co9)`'s new comment justifies itself with "a shape `(co1)`-`(co8b)` never catch". Executed: `(co7b)` — inside that range, added in the same commit — **does** catch the marker-arm `next` drop; its shape becomes `marker\|marker\|---`. The claim is false, and a reader trusting it would take `(co9)`'s marker count as the sole killer. |
-| 4 | minor | Comment accuracy | `lean-gate-selftest.sh:8880-8882` | `(co7b)`'s comment claims the key line is "followed by the blank line the render filter always emits … never by `---` again". The assertion reads three lines and cannot see line 4; finding 1's mutant makes the sentence false while the case stays green. Say what it checks (the insertion point), not what it cannot see. |
-| 5 | minor | Correctness (docs) | `plugins/dev-pipeline/cost-tracking-setup.md:200-204` | The `src` legend glosses `unreported` as "a pre-#723 PR with no cost block, or a documented skip". All three `unreported` rows the recipe prints on this repo today — #749, #741, #738 — are neither: each **has** a rendered cost block, transcript-sourced with no `Cost (USD)` column ("0 of N sessions wrote a `cost-state` record"). D-5 designates this coverage line as the standing measurement for whether the unpriced-run gap earns a follow-up ticket, so the missing third case points a reader at "telemetry was off" when the actual cause is the one D-5 itself records — a headless `-p` session writes no `cost-state`. |
-| 6 | minor | Cross-file coupling (docs) | `cost-tracking-setup.md:161-164` | The recipe asserts that "lean" is decided by `headRefName` carrying `tracker.branchPrefix`. `retro-corpus.sh:435-441` carries a still-committed comment holding the opposite for its own lean selection — "THE LEAN DISCRIMINATOR IS THE ARTIFACT, NOT THE NAMESPACE (#413) … what makes a candidate lean is a non-fixture `*-<key>-lean.md` in the PR's OWN file list". Harmless today (the staged lane no longer ships a skill, and the filter measurably drops only `release:` PRs), but two adjacent plugin files now state incompatible rules with no note reconciling them. |
-| 7 | nit | Cosmetic | `cost-tracking-setup.md:186` | The mean prints `mean: $33.1`, not `$33.10` — `((… * 100 \| round) / 100 \| tostring)` drops the trailing zero. D-4's worked example on the identical dataset writes `$33.10`. Pre-existing from round 1, invisible then because that window's mean was `$41.95`. |
-| 8 | suggestion | Maintainability (carried, r1 finding 5) | `lean-gate.sh:5834` | Unchanged: `grep -oE '\$[0-9]+\.[0-9]{2}' \| head -1` is correct only while `fmt()` is the sole `$` emitter and `render_block` renders one data row. A later per-stage breakdown would silently publish a partial figure as an authoritative machine key. |
+| 1 | major (carried, r2 #1) | Test coverage / mutation | `lean-gate-selftest.sh:8924` | Dropping the `next` from `cost_block_with_usd_key`'s `---` arm re-emits the break AFTER the key, and no case catches it: `(co7b)` asserts only the first three lines, which the mutant reproduces byte-for-byte. Re-verified unchanged — a targeted grep over `git diff 535a427f HEAD` for `co7b` and for the function's own lines returns zero hits, so the gap is exactly as round 2 described it, no wider. |
+| 2 | major (carried, r2 #2) | Correctness (latent) | `lean-gate.sh:5918-5924` | `cost_block_with_usd_key` is fail-silent: it inserts only when a bare `---` follows the marker, and that `---` is a third shared literal with no `check-lockstep-pairs.sh` anchor. A marker-bearing block without one returns verbatim — no key, no warning. Unreachable today; `render_block` emits both together. Unchanged. |
+| 3 | minor (carried, r2 #3) | Comment accuracy | `lean-gate-selftest.sh` `(co9)` | The comment claims a shape `(co1)`-`(co8b)` never catch; `(co7b)`, inside that range, does catch it. Unchanged. |
+| 4 | minor (carried, r2 #4) | Comment accuracy | `lean-gate-selftest.sh` `(co7b)` | The comment claims the key is "never followed by `---` again"; the assertion reads three lines and cannot see line 4. Unchanged. |
+| 5 | minor (carried, r2 #5) | Correctness (docs) | `cost-tracking-setup.md:203` | The `src` legend glosses `unreported` as "a pre-#723 PR with no cost block, or a documented skip". Re-run this round: five `unreported` rows now (#750, #755, #749, #741, #738), and the three round 2 opened each HAD a rendered block with no `Cost (USD)` column. The gloss still does not name that case. |
+| 6 | minor (carried, r2 #6) | Cross-file coupling (docs) | `cost-tracking-setup.md:161-164` | The recipe decides "lean" by `headRefName`; `retro-corpus.sh:435-441` still carries a committed comment asserting the opposite discriminator for its own lean selection. Harmless today. Unchanged. |
+| 7 | nit (carried, r2 #7) | Cosmetic | `cost-tracking-setup.md:186` | The mean drops a trailing zero. Reproduced verbatim this round on a moved window: `mean: $37.1`, not `$37.10`. |
+| 8 | suggestion (carried, r2 #8) | Maintainability | `lean-gate.sh:5880` | `grep -oE '\$[0-9]+\.[0-9]{2}'` piped to `head -1` is correct only while `fmt()` is the sole `$` emitter and `render_block` renders one data row. Unchanged. |
+| 9 | advisory | Lane, not this PR | `lean-evidence.sh` (#755) | #755 shipped a verdict-record schema requirement with no transitional arm, so every in-flight lean PR whose record predates it is retro-redded and must spend a full review round on a format migration. This PR is the first instance. Routed to the operator, not to this build. |
+| 10 | nit | Commit hygiene | `8a116ea6` | The subject carries no conventional-commit type and no `Changelog:` trailer of its own. Neither check is harmed — the trailer is extracted grep-anywhere from `d9ab8785`, the bump derives from the highest verb on the branch, and the squash subject is the PR title `feat(dev-pipeline): …`. |
 
-## Round-1 findings, disposed
+## Merge integrity — the resolution claim was verified, not taken
 
-| R1 # | Sev | Status | Evidence |
-| --- | --- | --- | --- |
-| 1 | **blocker** | **fixed, measured** | The real `cost_block_with_usd_key` was run in LIB mode over PR #754's own published block, the result composed into the full PR body and pushed through `POST /markdown, mode: gfm`: `<hr>` → `<p dir="auto">cost_usd: 9.90</p>` → `<h2 dir="auto">Pipeline Cost</h2>`. The break survives and the key is a paragraph. Control pair on the same renderer: the round-1 placement still yields `<h2>cost_usd: 9.90</h2>` with **no** `<hr>`, so the probe is sensitive. The closing-comment surface was rendered too — the bullet is a plain `<li>`, the pasted block's `<hr>` intact. |
-| 2 | major | **fixed** | New `(co12)`/`(co13)` drive the real `closeout_cost_block` through the `LEAN_COST_BLOCK_TOOL` seam with stub tools, asserting `usd=12.34` and `usd=unavailable (no cost block rendered this run)`. Writer census over `lean-gate.sh`: `LEAN_COST_USD` is assigned in exactly four places — the top-level init `:5819`, the reset `:5882`, and the three branches inside `resolve_cost_usd` — so deleting the sole production call at `:5899` leaves it `""` and both new cases red. (Census + assertion text; decisive, but static, not an executed mutant.) |
-| 3 | major | **fixed** | Executed: dropping the marker arm's `next` yields `markers=2` and shape `marker\|marker\|---`, failing both `(co9)`'s new `co_marker_count -eq 1` and `(co7b)`'s verbatim predicate. Two killers, not one — see finding 3. |
-| 4 | major | **fixed, ran verbatim** | The amended recipe extracted from the doc and run verbatim from the repo root: rc 0, 10 rows, every one `claude/second-shift-*`, `mean: $33.1 over 7 of the last 10 merged lean PRs; 3 unpriced`. Round 1's window scored 4 of 10 with `#751 release: v12.2.2` inside it; that PR is now correctly out. Each of the three remaining unpriced rows was opened and confirmed genuinely priceless (block rendered, no `Cost (USD)` column) — see finding 5 for the label. |
-| 5 | suggestion | not addressed | Carried as finding 8. |
+`141ec546`'s message claims the `lean-gate-selftest.sh` conflict was "purely additive on both
+sides with no shared symbols; both blocks are kept, ours first." Checked:
 
-## The AC-6 amendment is a legitimate tightening
+- **Nothing lost from main.** `git diff 8200f1c3 HEAD` over the two shell files deletes exactly
+  five lines, all five of them this branch's own intended edits, verbatim. No #755 material.
+- **Nothing lost from the branch.** `git diff 716a3373 HEAD` over the same files deletes exactly
+  six lines, all six of them #755's own replacements. No `(co…)` and no `cost_usd` line.
+- **Nothing duplicated.** Zero duplicate function names in either file. The set of case-ID
+  labels appearing more than once is byte-identical at `8200f1c3`, at `535a427f` and at HEAD —
+  the merge added none. The nine `(co…)` and ten `(vs…)` cases each occur exactly once.
+- **No shell-scope collision.** The two blocks now share one process. Their variable-name sets
+  intersect in nothing (`comm -12` empty); the co block uses `co_rc`/`co_out` where the vs block
+  uses bare `rc`/`out`. Every `cd` in both runs inside a `( … )` subshell; no file-scope `trap`.
+- **The blank line is cosmetic.** `8a116ea6:9073` sits between a `fi` closing a completed `if`
+  and a `#` section header — outside every heredoc, awk program and brace continuation. The
+  nearest heredoc closed six lines earlier.
+- **`origin/main` is fully contained.** `git diff origin/main...HEAD` is the same five paths and
+  the same 483 insertions as before the merge.
+- All **62** `tools/mutation-catalog.tsv` rows targeting `lean-gate.sh`, `lean-evidence.sh` or
+  `lean-gate-selftest.sh` — the branch's own and the six #755 added — re-anchor at this head with
+  `sed -E`: 62 apply, 62 yield `bash -n`-valid output, 0 stale.
 
-The delta edits the committed spec (AC-6 and implementation note 1). That is the pattern the review contract calls a blocker when a spec is bent to match a diff, and it is not what happened here:
+## AC scorecard
 
-- **The tightened bar pre-existed the branch.** D-4 in the pre-flight ledger (`.claude/pipeline-state/723-ledger.md:13`, provenance `user-answered | intent`) reads "Window is the last 10 merged **lean** PRs by merge date". The spec's own D-4 row is byte-identical and is **untouched** by the delta (`git diff c2f4b163..HEAD -- docs/plans/second-shift-723-lean.md` changes no `D-4` line). AC-6 had simply dropped the word; the amendment closed a spec-internal divergence by moving the weaker clause toward the row of higher authority.
-- **It raises the bar, and the code moved with it.** A rewrite-to-fit has the opposite signature — it would have blessed the unfiltered window or edited D-4 down. Instead `headRefName` entered the `--json` set, the prefix is resolved from config, `--limit` went 30→60, a `select(startswith($prefix))` stage was added, both output branches say "lean", and the empty-prefix degradation is documented.
-- **Stated for the record:** AC-6's new clause is verbatim round-1 finding 4's own recommended remedy, so AC-6 is now co-extensive with the implementation and carries no independent oracle force this round. The load is carried by D-4 and by having run the recipe.
-
-## Per-AC scoring
-
-| AC | Verdict | Evidence |
+| AC-n | score | evidence |
 | --- | --- | --- |
-| AC-1 | satisfied | `echo "- cost_usd: $LEAN_COST_USD"` at `lean-gate.sh:5981`, between the `- Verdict record:` bullet and the `[ -n "$LEAN_COST_BLOCK" ]` paste — unconditional, so present on a full skip. `(co10)`/`(co11)`. Rendered: a plain `<li>`. |
-| AC-2 | satisfied | `closeout_patch_pr_body` calls `cost_block_with_usd_key` at `:5945`, reached only from the `elif` at `:6064` whose `if` arm at `:6062` handles `$LEAN_COST_SKIP` — a full skip patches nothing. Rendered end-to-end against PR #754's real block (round-1 finding 1 above). Finding 2 is the latent condition on that presence, not a present failure. |
-| AC-3 | satisfied | `resolve_cost_usd` `:5829-5842`: `tr -d '$'` gives a bare decimal; D-7's two reasons assigned at `:5838` and `:5841`. `(co7)`/`(co8)`/`(co8b)`, and now end-to-end through the production call site by `(co12)`/`(co13)`. |
-| AC-4 | satisfied | The awk pipes `$LEAN_COST_BLOCK` with no write-back; `closeout_comment` pastes the raw shared block at `:5984`. `(co7)` asserts `! grep -q '^pristine=.*cost_usd:'`; `(co10)` asserts exactly one occurrence in the comment. |
-| AC-5 | satisfied | The insert lands inside the marker→terminator span the strip discards (`:5938-5944`, terminator matched by `index($0,t)==1`). `(co9)` drives the real `closeout_patch_pr_body` twice and asserts exactly one `^cost_usd:` holding the second figure — now with the marker count beside it. |
-| AC-6 | satisfied | Recipe extracted and run verbatim (round-1 finding 4 above): filters on `headRefName`/`branchPrefix`, `cost_usd:` first, labeled `legacy` fallback, priced-subset mean, explicit coverage, nothing imputed. Findings 5-7 are accuracy notes on the surrounding prose and formatting, not on what the AC enumerates. |
-| AC-7 | satisfied | `git diff --name-status main...HEAD` = 5 paths: the spec and the round-1 verdict record (added), plus `cost-tracking-setup.md`, `lean-gate.sh`, `lean-gate-selftest.sh`. No `pipeline-cost-block.sh`, `retro-corpus.sh`, `cost-log.jsonl` or `perf-retro`; no new script; no jira code (OR-1 stays flagged). |
-| AC-8 | satisfied, see findings 1, 3-4 | All six enumerated cases exist and pass, plus `(co7b)`, `(co12)`, `(co13)`. CI at the reviewed head runs the sweep on both lanes and both are green. The AC's enumeration is met; finding 1 is a gap outside it. |
-| AC-9 | satisfied | `d9ab8785` is `feat(dev-pipeline):` with `Changelog: lean-gate.sh close-out publishes a cost_usd: <amount\|unavailable> …`. The round-2 commit is `fix(dev-pipeline):` and carries no trailer of its own, which is correct on both counts: the bump derives from the highest verb on the branch, and the trailer check extracts grep-anywhere. `check-frozen-files.sh origin/main` → "clean"; `check-changelog-trailer.sh origin/main` → "OK". |
+| AC-1 | satisfied | `lean-gate.sh:6027` `echo "- cost_usd: $LEAN_COST_USD"`, between the `- Verdict record:` bullet and the `[ -n "$LEAN_COST_BLOCK" ]` paste, unconditional — so present on a full skip. Cases `(co10)`/`(co11)`. |
+| AC-2 | satisfied | `lean-gate.sh:5991` composes head + `cost_block_with_usd_key` + tail; reached only from the `elif` at `:6110` whose `if` arm at `:6108` handles `$LEAN_COST_SKIP`, so a full skip patches nothing. Re-measured end-to-end this round: the real function over PR #754's own published block, composed into the real body, through `POST /markdown mode gfm` — `<hr>` then `<p dir="auto">cost_usd: 19.88</p>`. Control on the same renderer with round 1's placement yields `<h2>cost_usd: 19.88</h2>` and no `<hr>`, so the probe is sensitive. Finding 2 is a latent condition on that presence, not a present failure. |
+| AC-3 | satisfied | `resolve_cost_usd` `lean-gate.sh:5875-5889`: `tr -d '$'` gives a bare decimal at `:5882`; D-7's two reasons at `:5884` and `:5887`. Executed at this head against the live block: `RESOLVED=[19.88]`. Cases `(co7)`/`(co8)`/`(co8b)`, and through the production call site by `(co12)`/`(co13)`. |
+| AC-4 | satisfied | `cost_block_with_usd_key` at `:5918` pipes `$LEAN_COST_BLOCK` through awk with no write-back; `closeout_comment` pastes the raw shared block. `(co7)` asserts the shared block stays pristine; `(co10)` asserts exactly one occurrence in the comment. |
+| AC-5 | satisfied | The insert lands inside the marker-to-terminator span the strip discards (`:5976-5991`). `(co9)` drives the real `closeout_patch_pr_body` twice and asserts exactly one `^cost_usd:` holding the second figure, with the marker count beside it. |
+| AC-6 | satisfied | The doc is byte-identical to the round-2 reviewed head, and the recipe was extracted and run verbatim AGAIN this round on a window that has since moved: rc 0, 10 rows, every one `claude/second-shift-`, correct `cost_usd`/`legacy`/`unreported` classification, `mean: $37.1 over 5 of the last 10 merged lean PRs; 5 unpriced`. Nothing imputed, no unpriced row scored as zero. Findings 5-7 are accuracy notes on surrounding prose and formatting, not on what the AC enumerates. |
+| AC-7 | satisfied | Re-verified at the merged head: `git diff --name-status origin/main...HEAD` is exactly five paths — the spec and the verdict record added, `cost-tracking-setup.md`, `lean-gate-selftest.sh` and `lean-gate.sh` modified. None of the four files the AC forbids appears; no new script; no jira-adapter code. The base merge did not widen the set. |
+| AC-8 | satisfied | All nine enumerated cases present exactly once each at this head. CI at head `8a116ea6`, run `33445647231`: `lint-and-selftests` pass 4m56s and `selftests (macos, bash 3.2)` pass 7m10s — both run the repo's own sweep command, so the oracle is verified by citation rather than re-run. The AC's enumeration is met; finding 1 is a gap outside it. |
+| AC-9 | satisfied | `d9ab8785` is `feat(dev-pipeline):` with a full `Changelog:` trailer, and the PR title carries the same verb, so the squash subject bumps minor. At this head `check-frozen-files.sh origin/main` prints `clean` and `check-changelog-trailer.sh origin/main` prints `OK`. Finding 10 is the hygiene nit on the whitespace commit, which harms neither check. |
 
-**Design fidelity: not-applicable.** The spec's `## Design` reads `Design: none — this is a shell-string change plus a documentation recipe, no web surface, and this repo configures no design.provider`. Re-verified at this head: the delta is two shell files and two markdown files, no web-component surface, and `jq '.design'` on the repo config is `null`. The disarm is justified.
+**Design fidelity: not-applicable.** The spec's `## Design` reads `Design: none — this is a shell-string
+change plus a documentation recipe, no web surface, and this repo configures no design.provider`.
+Re-verified at this head: the branch's delta is two shell files and two markdown files with no web
+surface, and `jq '.design'` on the repo config is `null`. The disarm is justified.
 
 ## Verification performed
 
-- **CI cited, not re-run** (run `33442554810`, head `535a427f` = the reviewed head): `lint-and-selftests` **pass** (4m19s) and `selftests (macos, bash 3.2)` **pass** (8m32s). Both run the repo's own sweep command, so AC-8's oracle is verified by citation. Neither is a partial pass — a red on step 1 would have skipped the later steps, and neither redded.
-- **The blocker was re-measured through the same instrument that caught it**, not argued from the diff: the real function over the real block, composed into the real body, through GitHub's own renderer, with a broken/fixed control pair to prove the probe is sensitive. Both published surfaces were rendered.
-- **Mutants, executed on the extracted awk** against `(co7)`'s own fixture: marker-arm `next` drop → KILLED by `(co7b)` and `(co9)`; second arm removed → KILLED by `(co7)` and `(co7b)`; `---` arm `next` drop → **SURVIVED** (finding 1, confirmed by rendering the mutant output); `!ins` dropped, `marker &&` dropped, and `$0 == "---"` → `$0 ~ /---/` all survive but are equivalent on every input `render_block` can emit, so they are recorded rather than raised.
-- `mutation-sweep-pr` passed in **12s having graded nothing** — third PR running: "PR mode graded NOTHING: all 1 in-scope guard(s) deferred to the merge-time sweep, 0 swept (reasons: slow suite: 1)". Its green carries zero mutation information here; the hand probes above are the only mutation evidence on this PR.
-- `tools/mutation-catalog.tsv`: all 55 `lean-gate*` rows re-anchored at this head with `sed -E` — 55 apply and yield `bash -n`-valid output, 0 stale. The guard-edit re-anchoring obligation is met.
-- `scripts/check-lockstep-pairs.sh`: 29 anchors, 0 failed. `shellcheck -e SC1091,SC2015,SC2181` clean on both changed shell files (local 0.11.0; CI's pinned 0.9.0 covered by the cited `lint-and-selftests` pass).
-- `pr-gates` **fail** is the expected pre-approval state and is not a finding: its red is the absent round-2 verdict record, which this round produces. No correctness lane is red.
-- Panel: `scope-completeness-reviewer` (approve, 0 scope gaps) and `unit-test-mutation-reviewer`. Neither went dark; the mutation reviewer hit its turn cap mid-probe and was resumed to report. Nothing in the reviewed checkout was modified by either.
+- **The branch's contribution is provably unchanged**, by added/deleted line-set comparison, and
+  independently by the merge boundary's own freshness arm printing "the verdict stands".
+- **The rendering blocker was re-measured, not inherited**: real function, real block, real body,
+  GitHub's own renderer, with the broken control beside the fixed case.
+- **AC-6's recipe was re-run**, not cited — the merge window has moved since round 2 (#750 and
+  #755 merged into it), and the recipe still classifies every row correctly on the new data.
+  Worth noting for D-5's standing measurement: coverage fell from 7-of-10 priced to 5-of-10,
+  because both PRs that merged since publish no cost block at all.
+- `shellcheck -e SC1091,SC2015,SC2181` clean on both changed shell files at this head (local
+  0.11.0; CI's pinned 0.9.0 is covered by the cited `lint-and-selftests` pass).
+- `check-lockstep-pairs.sh`: 29 anchors, 0 failed.
+- `mutation-sweep-pr` passed in **13s having graded nothing** — fourth consecutive round, and it
+  says so itself: "PR mode graded NOTHING: all 1 in-scope guard(s) deferred to the merge-time
+  sweep, 0 swept (reasons: slow suite: 1)". Its green carries zero mutation information on this
+  PR. The hand probes recorded in rounds 1-2 and the 62-row catalog re-anchoring above are the
+  only mutation evidence here.
+- `pr-gates` fail at this head is the scorecard-schema violation quoted above and nothing else.
+  No correctness lane is red.
+- **Operational note for the merge, not a finding:** `origin/main` has since advanced past the
+  merged base by two commits, one of which touches these same two files. The PR reports
+  `MERGEABLE`, so no second base merge is needed and none should be taken — a merge that edits a
+  branch line would cost another review round for no gain, while a plain base advance leaves this
+  record standing.
+- Panel: `review-toolkit:scope-completeness-reviewer` (independent AC re-score, 0 scope gaps, plus
+  the merge-interaction audit) and `review-toolkit:unit-test-mutation-reviewer` (shell-scope
+  collision audit and the carried-gap re-verification). Neither went dark. Neither modified
+  anything in the reviewed checkout.
