@@ -5440,8 +5440,16 @@ cmd_verdict() {
     fi
   fi
 
-  # THE PER-AC SCORECARD (#622 AC-1/AC-2/AC-5). Refused at the WRITER for the reason its two
-  # siblings above are: here the fix is one edit to the summary away, at the merge boundary it
+  resolve_capability_stamp
+
+  # THE PER-AC SCORECARD (#622 AC-1/AC-2/AC-5). BELOW resolve_capability_stamp deliberately: that
+  # call is an ENVIRONMENT check on the producer's own vocabulary (rc=2, "this tool is
+  # misconfigured"), and diagnosing a reviewer's summary before telling them their gate is broken
+  # sends them to fix the wrong thing. Everything below it still precedes the run-id cache, whose
+  # comment reads "every refusal above has passed, so this is a real review round" — a refusal
+  # after that line would cache a review identity for a round that wrote no record.
+  #
+  # Refused at the WRITER for the reason its two siblings above are: here the fix is one edit to the summary away, at the merge boundary it
   # costs the round. The validator is `lean-evidence.sh`'s — the same code the boundary runs, and
   # the same code a hand-written record answers to — so a body that passes here cannot red there
   # for this.
@@ -5474,7 +5482,6 @@ cmd_verdict() {
     return 1
   fi
 
-  resolve_capability_stamp
   rec="$REPO_ROOT/$VERDICT_REL"
   mkdir -p "$(dirname "$rec")" || envfail "verdict: cannot create '$(dirname "$rec")'."
   # Cache the review identity only now — every refusal above has passed, so this is a real

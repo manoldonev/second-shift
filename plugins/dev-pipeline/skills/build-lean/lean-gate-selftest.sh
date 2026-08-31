@@ -5168,7 +5168,8 @@ else fail "(fe5b) expected the separator refusal, rc=$rc: $out"; fi
   echo "| rs-n | Frame Node | PROPERTY | Design | Rendered | Verdict |"
   echo "| --- | --- | --- | --- | --- | --- |"
   echo "| RS-1 | Prospects / default | control height | 32px | 32px | match |"
-  echo "| RS-2 | Prospects / filters expanded | panel width | 320px | 320px | match |"; } > "$WORK/fe-depth.md"
+  echo "| RS-2 | Prospects / filters expanded | panel width | 320px | 320px | match |"
+  cat "$SCORECARD_AC1"; } > "$WORK/fe-depth.md"
 out="$(dverdict sess-review-e5c r-review-e5c --pr 55 --verdict approve --fidelity pass --summary-file "$WORK/fe-depth.md")"; rc=$?
 if [ "$rc" -eq 0 ]; then
   pass "(fe5c) a nested, case-folded heading and header are accepted — the match is depth- and case-tolerant"
@@ -5248,7 +5249,8 @@ else fail "(fe10) expected both non-pass values to write, rc=$rc rc2=$rc2: $out 
 # own words; the writer must not, or every consumer with no design axis breaks.
 out="$( unset RUN_ID; cd "$DTREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$DPROG" \
         CLAUDE_CODE_SESSION_ID=sess-review-e11 RUN_ID=r-review-e11 \
-        bash "$GATE" verdict 55 --pr 55 --verdict approve --fidelity pass 2>&1 )"; rc=$?
+        bash "$GATE" verdict 55 --pr 55 --verdict approve --fidelity pass \
+             --summary-file "$SCORECARD_AC1" 2>&1 )"; rc=$?
 if [ "$rc" -eq 0 ]; then
   pass "(fe11) with no design.provider configured the writer demands nothing — the obligation is provider-gated"
 else fail "(fe11) an unarmed consumer was refused at the writer, rc=$rc: $out"; fi
@@ -5432,7 +5434,8 @@ else fail "(fp6) expected rc=5 naming the absent panel, got rc=$rc: $out"; fi
 # design lane would otherwise be unable to write a verdict at all.
 out="$( unset RUN_ID; cd "$DTREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$DPROG" \
         CLAUDE_CODE_SESSION_ID=sess-review-p7 RUN_ID=r-review-p7 \
-        bash "$GATE" verdict 55 --pr 55 --verdict approve 2>&1 )"; rc=$?
+        bash "$GATE" verdict 55 --pr 55 --verdict approve \
+             --summary-file "$SCORECARD_AC1" 2>&1 )"; rc=$?
 fp7_panel="$(dpanelkey "$DVERDICT")"
 if [ "$rc" -eq 0 ] && [ "$fp7_panel" = "none" ]; then
   pass "(fp7) with no design.provider configured the writer demands no panel, and records the 'none' sentinel rather than an absence"
@@ -5924,7 +5927,8 @@ else fail "(ea6) expected rc=2 from delta, got $rc: $out"; fi
 # `verdict:` — so requiring one and forbidding the other pins that control got past the gate.
 pseed_unattested
 out="$( cd "$PTREE" && CLAUDE_CODE_SESSION_ID=sess-p-review SECOND_SHIFT_CONFIG="$CFG" \
-        LEAN_PROGRESS_FILE="$PPROG" RUN_ID=r-p-review-2 bash "$GATE" verdict 8 --pr 3 --verdict approve 2>&1 )"; rc=$?
+        LEAN_PROGRESS_FILE="$PPROG" RUN_ID=r-p-review-2 bash "$GATE" verdict 8 --pr 3 --verdict approve \
+        --summary-file "$P_SCORECARD" 2>&1 )"; rc=$?
 if grep -qF '[lean-gate] verdict:' <<<"$out" \
    && ! grep -qF 'no entry attestation' <<<"$out"; then
   pass "(ea7) verdict is exempt from the build-role precondition (D-5) — it reaches its own evaluation"
