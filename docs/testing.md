@@ -155,8 +155,9 @@ selftest jobs (`lint-and-selftests`, `selftests-bash32`) and the nightly wholesa
 (`wholesale-selftests`; its macos bash-3.2 twin was deleted 2026-08-30 — `selftests-bash32`
 already asks that question on every PR) — inside the sweep it contends with the very suites it re-runs
 from the install cache, which is what the install-topology section below measures.
-`install-topology-selftest.sh` itself runs in its own nightly jobs (`install-topology`,
-`install-topology-bash32`), never alongside a sweep. The maintainer's dogfood lean-gate
+`install-topology-selftest.sh` itself runs in its own event-triggered jobs (`install-topology`,
+`install-topology-bash32` in `install-topology.yml` — push on packaging paths, the release PR, or
+`workflow_dispatch`; it ran nightly before #666), never alongside a sweep. The maintainer's dogfood lean-gate
 milestone-3 lane gets the same exclusion from `tools/selftest-suite-timings.tsv` instead, which it
 applies by default — see the slow-suite table section below. The suite stays *discovered*: the exclusion names
 a path that must keep existing, so renaming the suite reds CI instead of silently
@@ -602,9 +603,10 @@ sibling-resolution defect in `pipeline-doctor-selftest.sh` on the very first nig
 it landed, and on the six after that. Neither half of the loop closed anyway:
 
 - *It ran a day late, and the PR that introduced the defect was long merged.* Since #620 the
-  guard is nightly-only; the PR lane excludes it. So "no new instance needs its own test" holds
-  for **detecting** the class, and stops holding when you want the defect to red on the branch
-  that causes it. Where a cross-plugin resolution is cheap to fabricate — a few `mkdir -p` under
+  guard has been excluded from the PR lane — nightly-only at the time (#666 later moved it to
+  event triggers, and it still excludes the PR lane today). So "no new instance needs its own
+  test" holds for **detecting** the class, and stops holding when you want the defect to red on
+  the branch that causes it. Where a cross-plugin resolution is cheap to fabricate — a few `mkdir -p` under
   a `mktemp -d`, no plugins staged, no suites re-run — put a case in the suite that owns the
   code too: `pipeline-doctor-selftest.sh`'s `(inv-cache)` is the reference. Stage the sibling at
   a version that is **not** the caller's, so rung 2 misses and rung 3 is what has to decide;
@@ -619,7 +621,9 @@ it landed, and on the six after that. Neither half of the loop closed anyway:
   exercised against fixture logs by `tools/install-topology-detail-selftest.sh`.
 
 The general form: **a guard whose red cannot say what it caught is not yet a working guard**,
-and a nightly-only guard is a detection tier, not a PR gate.
+and a guard excluded from the PR lane is a detection tier, not a PR gate — true whether what
+runs it is a clock or, as install-topology's push/release-PR/dispatch triggers are since #666,
+an event.
 
 Its first run, on the authoring machine, scored 51 of 55 shipped suites passing, with 4 failing
 for reasons that turned out to be environment-dependent rather than real: CI scored 49 pass on
@@ -667,12 +671,14 @@ stress-inclusive sweep (no `SKIP_STRESS`, the repo's own pre-commit gate) measur
 before adding to what it runs.
 
 **It no longer runs on the PR lane, and no longer on a clock either (#666).** It lives in
-`.github/workflows/install-topology.yml`, triggered by a push to `main` that touches a
-packaging/layout path (plugin manifests, `marketplace.json`, the guard script itself — the
-workflow file states why each family is in scope), by the release PR, or by `workflow_dispatch`.
-Both CI selftest jobs still exclude it by path via `run-selftests.sh --exclude`, the documented
-local recipe excludes it too, and since #566 it also carries a `tools/selftest-suite-timings.tsv`
-row, so the lean lane's bounded quick check defers it without needing the flag.
+`.github/workflows/install-topology.yml`, triggered by a push to `main` that touches a plugin
+manifest's `version` (`plugins/*/.claude-plugin/plugin.json`) or the guard script itself — the
+workflow file states why each family is in scope, and why `.claude-plugin/marketplace.json` and
+a shipped suite's own content are deliberately NOT in that filter — by the release PR, or by
+`workflow_dispatch`. Both CI selftest jobs still exclude it by path via `run-selftests.sh
+--exclude`, the documented local recipe excludes it too, and since #566 it also carries a
+`tools/selftest-suite-timings.tsv` row, so the lean lane's bounded quick check defers it without
+needing the flag.
 
 The reasoning is a cost/signal ratio, not a judgment that the guard is worthless — it caught two
 real defects that were green in-tree the whole time, and it stays. But its cost *is* the shipped
@@ -682,13 +688,23 @@ critical path to re-derive the previous merge's answer. Inside the sweep it was 
 with the second copy of every suite it stages — the 244s-vs-94s figure above — so it was
 simultaneously the long pole and the thing lengthening everything else.
 
-**The trade, stated plainly:** a packaging or suite regression is now caught at the next push or
-release that touches those paths, rather than at PR time. A clock was strictly worse than that
-trade, not just slower — its answer barely moved between two nights, and a red run sat unread on a
-cron dashboard this repo's operator does not consume; the mutation nightly hit the same failure
-mode independently. A red run now files a deduplicated GitHub issue instead, so the failure has
-somewhere to be read. If your change is about how plugins are installed or laid out and you want
-the answer before pushing, run `bash tools/install-topology-selftest.sh` directly, or dispatch the
+**The trade, stated plainly — and the two halves of it differ.** A manifest-version bump or a
+change to the guard script itself is caught at the very next push to `main`, same as before. A
+change to a *shipped suite's own content* is not: the push filter is deliberately narrow (two
+families, not `plugins/**`) precisely so it does not fire once per merge, so that class of
+regression is caught at the next release PR — every plugin ships at its manifest version there,
+regardless of which paths the release PR's own commits touch — or by `workflow_dispatch`, not at
+the next push. Measured over the 40 first-parent merges to `main` before 2026-08-31: 23 touched
+`plugins/**` (the guard's real staged surface) against 4 that touched the push filter's two
+families, 3 of those 4 being release merges themselves — so in practice the push arm rarely fires
+outside a release, and the release cadence is the real bound. Between the `v12.1.0` and `v12.2.0`
+releases (2026-08-26 → 2026-08-30, 4.25 days) 12 merges changed the guard's staged surface with
+zero triggers firing; the retired cron ran 4 times in that same window. A clock was still strictly
+worse than this trade, not just slower — its answer barely moved between two nights, and a red run
+sat unread on a cron dashboard this repo's operator does not consume; the mutation nightly hit the
+same failure mode independently. A red run now files a deduplicated GitHub issue instead, so the
+failure has somewhere to be read. If your change touches a shipped suite and you want the answer
+before the next release PR, run `bash tools/install-topology-selftest.sh` directly, or dispatch the
 workflow against your branch. Its 1200s `INSTALL_TOPOLOGY_TIMEOUT` is deliberately left alone: it
 was sized for contention from a nightly run's ambient load, and re-tightening it needs a fresh
 uncontended measurement from the event-triggered runs. Both lanes are retained, because the two

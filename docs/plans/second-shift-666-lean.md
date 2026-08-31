@@ -31,10 +31,17 @@ the cron unchanged; neither is install-topology's guard and neither moves when p
     lane(s)/suite(s) — `grep -c 'SHA' .github/workflows/install-topology.yml` ≥ 1 in that job
 - **AC-3** The path filter is derived from what the guard actually stages, each family commented:
   - the `push.paths` list under `.github/workflows/install-topology.yml` contains exactly the
-    three families `plugins/*/.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`,
-    `tools/install-topology-selftest.sh` — `awk '/^  push:$/{f=1;next} /^  pull_request:$/{f=0} f' .github/workflows/install-topology.yml | grep -c "\.claude-plugin/plugin\.json\|marketplace\.json\|install-topology-selftest\.sh"` → 3
-  - the file's header comment names why each family is in scope (a `PATH FILTER` block, one
-    line per family) — `grep -c 'PATH FILTER' .github/workflows/install-topology.yml` ≥ 1
+    two families `plugins/*/.claude-plugin/plugin.json`, `tools/install-topology-selftest.sh` —
+    `awk '/^  push:$/{f=1;next} /^  pull_request:$/{f=0} f' .github/workflows/install-topology.yml | grep -c "\.claude-plugin/plugin\.json\|install-topology-selftest\.sh"` → 2
+  - `.claude-plugin/marketplace.json` is NOT a filtered family — the guard never reads it (it
+    iterates `plugins/*/` on disk directly), so asserting it as a trigger path would assert a
+    dependency the code does not have — `awk '/^  push:$/{f=1;next} /^  pull_request:$/{f=0} f' .github/workflows/install-topology.yml | grep -c 'marketplace\.json'` → 0
+  - the file's header comment names why each family is in scope, and names why
+    `marketplace.json` and a shipped suite's own content are deliberately excluded (a
+    `PATH FILTER` block) — `grep -c 'PATH FILTER' .github/workflows/install-topology.yml` ≥ 1
+  - (amended from the original 3-family/`marketplace.json`-inclusive form: round 1 review found
+    that family's rationale factually false — the guard's staged surface never reads
+    `marketplace.json` — so it is dropped rather than kept with a restated pretext)
 - **AC-4** Docs referencing the nightly cadence are updated to the event-triggered contract:
   - `! grep -n 'guard runs nightly' CLAUDE.md docs/testing.md`
   - `grep -q 'install-topology.yml' CLAUDE.md` and `grep -q 'install-topology.yml' docs/testing.md`
@@ -61,7 +68,7 @@ the cron unchanged; neither is install-topology's guard and neither moves when p
 | --- | --- |
 | Keep the cron alongside the new triggers ("belt and braces") | AC-1's `! grep schedule:` |
 | File one issue per push (spam) instead of deduping | AC-2's list-before-create requirement |
-| Filter on all of `plugins/**` (defeats moving off cron — same frequency as every merge) | AC-3's exact three-family count |
+| Filter on all of `plugins/**` (defeats moving off cron — same frequency as every merge) | AC-3's exact two-family count |
 | Silently drop `wholesale-selftests`/`prose-budget`'s cron while editing the shared file | Scope boundary + `nightly-guards.yml` still has a `schedule:` key (implied by AC-1 only asserting the two named jobs left, not the whole file) |
 | Leave stale "runs nightly" prose in CLAUDE.md/docs/testing.md | AC-4 |
 

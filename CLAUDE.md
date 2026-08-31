@@ -126,8 +126,9 @@ internally (`INSTALL_TOPOLOGY_JOBS`, default 4), so it is the long pole rather t
 outer `SELFTEST_JOBS=4` can shorten — the 5:22 above is essentially that one suite, and moves with
 it. Everything else is roughly 8 minutes serial and folds into its shadow. See
 [`docs/testing.md`](docs/testing.md) for what it buys, and for the trade accepted in moving it off
-the PR lane: a packaging or suite regression is caught at the next push/release that touches those
-paths, not at PR time.
+the PR lane: a manifest-version or guard-script change is caught at the next push to `main`, but a
+shipped suite's own content is caught only at the next release PR or via `workflow_dispatch` — the
+push filter is deliberately too narrow to catch that class, so it doesn't fire once per merge.
 
 `SELFTEST_JOBS=1` gives you a serial sweep with the same verdict, if you want one while debugging;
 prefer running the single suite alone instead. Output stays framed per suite either way, so
