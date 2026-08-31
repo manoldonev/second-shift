@@ -41,3 +41,12 @@
 # as the ignored paths above; must never ship in the public marketplace (trace gate denylists
 # these tokens). Keep it on disk locally for self-consumption runs; do not version it.
 .claude/second-shift.config.json
+
+# run-lean lane logs — the scheduler's per-ticket `orchestrate-lean.sh` transcripts
+# (`.claude/logs/run-lean-<issue>.log`, plus its `.<reason>-<n>` incident spills). Machine-local
+# and regenerated per run, but unlike the paths above these accumulate across every lane the
+# operator has ever launched here, so an unignored directory is both diff noise and a standing
+# `git add -A` hazard. Same predicate as the entries above: an untracked path under `.claude/`
+# makes `git status --porcelain` non-empty, which is what the entry sweep and the scheduler's
+# in-flight boundary read to decide whether a worktree still holds work.
+.claude/logs/
