@@ -51,9 +51,12 @@ binds newly added guards.
 
 **Test-the-tests.** `tools/mutation-sweep.sh` mutates the repo's shell guards and runs their
 paired selftests; a mutant that survives is a regression the suite would not have caught. It runs
-diff-scoped on every PR (the `mutation-sweep-pr` CI job) and wholesale nightly. **Those two are
-the only places it runs** — the lean gate's milestone 3 does not sweep, and #580 deleted the lane
-that did, because it made the identical invocation the PR job already makes. Survivors are
+diff-scoped on every PR (the `mutation-sweep-pr` CI job, which defers every slow or multi-suite
+guard), diff-scoped again on the merge with that deferral off (`mutation-merge.yml` — **this is
+where your guard is actually graded**, and its verdict arrives as a filed issue, not as a red
+square), and wholesale monthly. **Those three are the only places it runs** — the lean gate's
+milestone 3 does not sweep, and #580 deleted the lane that did, because it made the identical
+invocation the PR job already makes. Survivors are
 **data**, not a red build — only a
 survivor absent from `tools/mutation-baseline.tsv`, or a named infra failure, reds a lane.
 Generic survivor ids are **content-keyed**: the id is derived from the matched line itself, not

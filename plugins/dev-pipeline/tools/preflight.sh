@@ -47,16 +47,17 @@
 
 set -uo pipefail
 
-# Denylist of pipeline seam vars that must NOT leak into a configured command-lane
-# child process (run_lane() below) — see lean-gate.sh's matching SEAM_SCRUB for the
-# full rationale (#34). SUPERSET of lean-gate.sh's list: this file also carries its own
+# Denylist of vars that must NOT leak into a configured command-lane child process
+# (run_lane() below) — see lean-gate.sh's matching SEAM_SCRUB for the full rationale (#34),
+# including why MUTATION_SWEEP_NO_DEFER (a test-harness knob rather than a pipeline seam)
+# belongs here. SUPERSET of lean-gate.sh's list: this file also carries its own
 # PREFLIGHT_DOCTOR_CMD seam, so the relation is `subset-of` and not `verbatim` — declared on
 # the marker below, with `subset` on lean-gate.sh's copy. Two copies rather than one import
 # because neither file is importable by the other: they reach the same lane shape by two code
 # paths (the gate's milestone-3 sweep vs this file's one-pass doctor sweep). No comments inside
 # the marker block itself — they would break check-lockstep-pairs.sh's first_enum.
 # LOCKSTEP-BEGIN seam-scrub superset
-SEAM_SCRUB='SECOND_SHIFT_CONFIG|SECOND_SHIFT_REPO_ROOT|SECOND_SHIFT_EXTENSION_MANIFEST|SECOND_SHIFT_PLUGIN_ROOT|SECOND_SHIFT_REVIEW_TOOLKIT_ROOT|SECOND_SHIFT_DEV_PIPELINE_ROOT|SECOND_SHIFT_DESIGN_TOOLKIT_ROOT|SECOND_SHIFT_SECTION_CATALOG|STATECTL_STATE_DIR|STATECTL_WRITER|DEV_PIPELINE_MODE|BRANCH_PREFIX|KEY_PATTERN|LEAN_ATTEND_MODE|PREFLIGHT_DOCTOR_CMD'
+SEAM_SCRUB='SECOND_SHIFT_CONFIG|SECOND_SHIFT_REPO_ROOT|SECOND_SHIFT_EXTENSION_MANIFEST|SECOND_SHIFT_PLUGIN_ROOT|SECOND_SHIFT_REVIEW_TOOLKIT_ROOT|SECOND_SHIFT_DEV_PIPELINE_ROOT|SECOND_SHIFT_DESIGN_TOOLKIT_ROOT|SECOND_SHIFT_SECTION_CATALOG|STATECTL_STATE_DIR|STATECTL_WRITER|DEV_PIPELINE_MODE|BRANCH_PREFIX|KEY_PATTERN|LEAN_ATTEND_MODE|MUTATION_SWEEP_NO_DEFER|PREFLIGHT_DOCTOR_CMD'
 # LOCKSTEP-END seam-scrub
 
 declare -a SEAM_SCRUB_ENV=()

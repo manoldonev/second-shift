@@ -1,6 +1,19 @@
-# Nightly wholesale mutation sweep — the standing measurement of selftest strength.
+# Monthly wholesale mutation audit — the drift and baseline-hygiene backstop.
 #
-# The repo's first cron workflow. Model-free, like every other lane here.
+# Model-free, like every other lane here.
+#
+# THIS IS NO LONGER THE ENFORCED TIER. It ran nightly until the merge-time sweep
+# (.github/workflows/mutation-merge.yml) took that job. Nightly was the wrong cadence for it:
+# it re-derived ~570 mutants to re-learn ~438 known kills, so its marginal information on a
+# day nothing changed was ~zero — while the verdicts that DID matter landed on a schedule
+# page nobody reads, and stayed red for five consecutive nights untriaged. Every guard a
+# merge touches is now graded at merge time, by its own diff, at this same depth.
+#
+# WHAT IS LEFT FOR THIS LANE, and it is real: the classes no diff-scoped run can see. A
+# baseline that has quietly shrunk. A verdict that flipped because a THIRD file changed (the
+# memoization key is narrow and the sweep says so). A suite edit that weakened a guard nobody
+# touched. Those move on nobody's diff, so nothing event-driven catches them. Monthly is
+# priced against the only loss it incurs: latency on the rarest class, bounded at ~30 days.
 #
 # fetch-depth: 0 is load-bearing, not boilerplate: derive-release-selftest.sh diffs
 # against the latest release tag and check-workflows-selftest.sh cd's to the repo
@@ -23,8 +36,9 @@ name: mutation-sweep
 
 on:
   schedule:
-    # 03:17 UTC — off the hour to avoid GitHub's scheduler pileup.
-    - cron: '17 3 * * *'
+    # 03:17 UTC on the 1st — off the hour to avoid GitHub's scheduler pileup, and monthly
+    # rather than nightly since the enforced tier moved to merge time.
+    - cron: '17 3 1 * *'
   workflow_dispatch:
     inputs:
       seed:
@@ -119,16 +133,34 @@ jobs:
         env:
           SKIP_STRESS: '1' # canonical sweep environment; asserted against the baseline header
         run: |
+          set -o pipefail
           mkdir -p sweep-out
+          # Captured, not just streamed to the job log: the digest job below composes the
+          # filed issue from these lines, and `gh run view --log-failed` 404s while the run
+          # that would read it is still in progress. pipefail + explicit capture because
+          # `| tee` reports TEE's exit code — a red shard would otherwise leave this green.
+          rc=0
           if [[ "${{ steps.mode.outputs.seed }}" == "1" ]]; then
             bash tools/mutation-sweep.sh --mode full --seed --shard "${{ matrix.shard }}/10" \
               --report sweep-out/mutation-report.tsv \
               --baseline-out sweep-out/mutation-baseline.tsv \
-              --slow-out sweep-out/mutation-slow-suites.tsv
+              --slow-out sweep-out/mutation-slow-suites.tsv 2>&1 | tee "$RUNNER_TEMP/shard.log" || rc=$?
           else
             bash tools/mutation-sweep.sh --mode full --shard "${{ matrix.shard }}/10" \
-              --report sweep-out/mutation-report.tsv
+              --report sweep-out/mutation-report.tsv 2>&1 | tee "$RUNNER_TEMP/shard.log" || rc=$?
           fi
+          exit "$rc"
+
+      # Only the RED lines travel in the artifact, never the whole shard log: the log is the
+      # per-mutant evidence and belongs in the job log where it already is, while the digest
+      # needs one screen of verdict. `red-lines.txt` is inert to the merge, which globs
+      # `<shard>/mutation-report.tsv`.
+      - name: capture this shard's RED lines
+        if: always()
+        run: |
+          set -uo pipefail
+          mkdir -p sweep-out
+          grep -F 'RED:' "$RUNNER_TEMP/shard.log" > sweep-out/red-lines.txt 2>/dev/null || true
 
       # always(): a RED run is exactly the run whose evidence matters most.
       #
@@ -164,6 +196,8 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    outputs:
+      body: ${{ steps.digest.outputs.body }}
     steps:
       - uses: actions/checkout@v5 # default depth: merge only needs the tree for universe accounting
 
@@ -178,11 +212,55 @@ jobs:
 
       - name: merge shards
         run: |
+          set -o pipefail
           mkdir -p sweep-out
+          rc=0
           bash tools/mutation-sweep.sh --mode merge --shards-dir shards \
             --report sweep-out/mutation-report.tsv \
             --baseline-out sweep-out/mutation-baseline.tsv \
-            --slow-out sweep-out/mutation-slow-suites.tsv
+            --slow-out sweep-out/mutation-slow-suites.tsv 2>&1 | tee "$RUNNER_TEMP/merge.log" || rc=$?
+          exit "$rc"
+
+      # The audit's verdict, assembled where every shard's evidence has landed. always():
+      # the reds worth filing are precisely the ones that made an upstream job fail, and a
+      # merge that itself reds (a dead shard, a broken partition) is one of them.
+      #
+      # Survivor ids and harness faults share one digest here, unlike the merge-time lane's
+      # two title keys: this run grades the whole universe on nobody's diff, so its red is
+      # drift or baseline hygiene either way and routes to one reader.
+      - name: compose the audit digest
+        id: digest
+        if: always()
+        run: |
+          set -uo pipefail
+          RED="$( { cat shards/*/red-lines.txt; cat "$RUNNER_TEMP/merge.log"; } 2>/dev/null \
+                  | grep -F 'RED:' | LC_ALL=C sort -u || true)"
+          SURV="$(printf '%s\n' "$RED" | grep -F 'baseline-absent survivor: ' \
+                  | sed 's/.*baseline-absent survivor: //' | LC_ALL=C sort -u || true)"
+          OTHER="$(printf '%s\n' "$RED" | grep -vF 'baseline-absent survivor:' | grep -F 'RED:' || true)"
+          {
+            echo 'body<<MUTATION_AUDIT_BODY'
+            echo 'The monthly wholesale mutation audit is red. It sweeps the whole guard universe rather than one merge diff, so its findings are the classes a merge-scoped run cannot see: baseline drift, a verdict flipped by a third file, a suite edit that weakened a guard no merge touched.'
+            if [[ -n "$SURV" ]]; then
+              echo
+              echo 'Survivor ids absent from the baseline:'
+              echo '```'
+              echo "$SURV"
+              echo '```'
+            fi
+            if [[ -n "$OTHER" ]]; then
+              echo
+              echo 'Harness faults:'
+              echo '```'
+              echo "$OTHER"
+              echo '```'
+            fi
+            if [[ -z "$SURV" && -z "$OTHER" ]]; then
+              echo
+              echo "No \`RED:\` line was captured — a shard or the merge died before writing one. Read the run log."
+            fi
+            echo 'MUTATION_AUDIT_BODY'
+          } >> "$GITHUB_OUTPUT"
 
       - name: publish sweep artifacts
         if: always()
@@ -191,3 +269,24 @@ jobs:
           name: mutation-sweep
           path: sweep-out/
           if-no-files-found: error
+
+  # A green audit files nothing. A red one files, or comments on, exactly one issue under its
+  # own dedup key — never the merge-time lane's, so a standing audit red cannot suppress a
+  # coverage gap on somebody's merge, nor be suppressed by one.
+  #
+  # `cancelled` is matched alongside `failure` for the same reason the merge-time lane gates on
+  # `!= 'success'`: a shard that blows its 60-minute bound, or whose runner dies, resolves as
+  # `cancelled` and leaves `merge` `skipped`, so a `failure`-only test would let a whole audit
+  # vanish silently. Neither state can arise on a green run.
+  file-audit-red:
+    needs: [sweep, merge]
+    if: always() && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled'))
+    permissions:
+      contents: read
+      issues: write
+    uses: ./.github/workflows/file-issue-on-red.yml
+    with:
+      title_key: mutation wholesale audit red
+      body: ${{ needs.merge.outputs.body || 'The monthly wholesale mutation audit did not succeed and its digest job produced no verdict — a red shard, a timeout, a cancellation, or a runner death. Read the run log linked below.' }}
+      commit: ${{ github.sha }}
+      run_id: ${{ github.run_id }}
