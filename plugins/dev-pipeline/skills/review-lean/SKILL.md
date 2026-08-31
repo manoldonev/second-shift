@@ -121,8 +121,9 @@ the code does not author its own evaluation.
    main checkout: the record would name a patch you never reviewed.
 7. Commit and push the record to the PR's head branch through `bot-commit.sh`, and let it be
    the **last** commit on the branch. It is evidence only once committed — nothing local
-   reaches CI — and it is PATCH-BOUND: milestone 4, the merge boundary and `lean-reconcile.sh`
-   all recompute that hash. Commit nothing else in this session.
+   reaches CI — and it is PATCH-BOUND: the merge boundary and `lean-reconcile.sh` both recompute
+   that hash (milestone 4 stopped doing so at #720, so a stale record now reds in CI rather than
+   in the build lane). Commit nothing else in this session.
 8. Post the findings as one PR comment (the build session reads the PR, not this transcript) —
    through [`gh-bot.sh`](../../tools/gh-bot.sh) when its `--status` is `ok`, plain `gh`
    otherwise. This is a `pr comment` write, which `pr-revision` already mandates the wrapper
