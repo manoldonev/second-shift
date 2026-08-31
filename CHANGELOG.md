@@ -4,6 +4,209 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v12.2.1
+
+### `design-toolkit` 4.0.3 → 4.0.4
+
+- **design-toolkit gets evals: three fixture sets, three recorded baselines, one prompt fix (#713)** (#713)
+  design-toolkit ships evals for figma-faithful-reviewer,
+  figma-faithful-plan-reviewer and figma-faithful-spec-reviewer —
+  four labeled fixtures and a locked 3-dimension rubric each, run with
+  the agent-eval-kit loop. Operator-run and model-billed; never in CI.
+  Migration: none.
+  each design-toolkit eval dir now carries a CLOSEOUT-BASELINE.md
+  recording its measured pre-edit pass rates, per-fixture and
+  per-dimension, with the provenance a later run needs to compare
+  against it. Migration: none.
+  figma-faithful-spec-reviewer now reviews a lean-lane spec
+  instead of returning `N/A` on it — the `N/A` condition is narrowed to
+  an input that is not a design artifact at all, and a design artifact
+  missing sections is reviewed with the un-runnable checks named.
+  figma-faithful-plan-reviewer's deferrals to it are corrected in step.
+  Migration: none.
+- **The translation plan is asserted for shape and graded by nobody (#741)** (#741)
+  on an armed lean run, milestone 3 now refuses to render until the
+  provider's translation-plan reviewer's verdict is committed at
+  `<plansDir>/<key>-lean-plan-review.md`. The build session dispatches the
+  reviewer and writes the record with `lean-gate.sh plan-review <issue>
+  --verdict <pass|fix-and-go|block> --summary-file <findings> --model <m>`;
+  `block` reds the milestone quoting the first finding, `pass` and `fix-and-go`
+  proceed. A design family with no plan-stage reviewer agent is declared
+  unreviewed instead of blocked.
+  Migration: none — the artifact is required only on a ticket whose committed
+  spec arms the design lane against a figma handoff.
+
+### `dev-pipeline` 12.2.0 → 12.2.1
+
+- **pipeline-doctor-selftest's sibling arm asks resolve_sibling, not the monorepo path (#706)** (#706)
+  pipeline-doctor-selftest's sibling-delegation check resolves through the
+  real resolve_sibling ladder instead of a monorepo path join, so it no longer reports
+  every sibling selftest as deleted when the plugin runs from an install cache; and a
+  red from install-topology-selftest now quotes the failing suite's own FAIL line
+  rather than the first line that merely contains the word 'failed'.
+  Migration: none.
+  a red from install-topology-selftest now reports a signal-killed suite as
+  infra with its signal number, instead of quoting the last line it happened to print —
+  which for a suite killed mid-run is a passing assertion.
+  Migration: none.
+- **An unrunnable-pair red names its failing cases, and lean-gate's mutation coverage comes back (#715)** (#715)
+  an `unrunnable pair` red now names the paired suite's failing case(s)
+  instead of printing a blind tail of its log, and says so explicitly when the
+  suite failed without naming one.
+  Migration: none.
+  the shipped lean-gate selftest no longer fails when its own scratch
+  directory path contains the word "mutation" — #580's assertions read the gate's
+  words rather than the fixture's path — and its dangling-symlink never-clobber
+  case now fires under GNU cp as well as BSD cp.
+  Migration: none.
+- **design-toolkit gets evals: three fixture sets, three recorded baselines, one prompt fix (#713)** (#713)
+  design-toolkit ships evals for figma-faithful-reviewer,
+  figma-faithful-plan-reviewer and figma-faithful-spec-reviewer —
+  four labeled fixtures and a locked 3-dimension rubric each, run with
+  the agent-eval-kit loop. Operator-run and model-billed; never in CI.
+  Migration: none.
+  each design-toolkit eval dir now carries a CLOSEOUT-BASELINE.md
+  recording its measured pre-edit pass rates, per-fixture and
+  per-dimension, with the provenance a later run needs to compare
+  against it. Migration: none.
+  figma-faithful-spec-reviewer now reviews a lean-lane spec
+  instead of returning `N/A` on it — the `N/A` condition is narrowed to
+  an input that is not a design artifact at all, and a design artifact
+  missing sections is reviewed with the un-runnable checks named.
+  figma-faithful-plan-reviewer's deferrals to it are corrected in step.
+  Migration: none.
+- **Telemetry that is on but exporting nowhere costs a whole run before anyone finds out (#727)** (#727)
+  run-lean's preflight now reports whether a run's spend will be
+  priceable, naming `OTEL_METRICS_EXPORTER` when telemetry is enabled with no
+  exporter configured — before any session is spawned, rather than as a
+  `totalUsd: null` cost block hours later. Advisory only; no exit code changes.
+  Migration: none.
+- **Milestone 1 reads the open-region shapes tickets actually use, and refuses the ones it cannot (#716)** (#716)
+  build-lean's milestone 1 now reads a bullet-form `## Open regions` section — including
+  a disposition token on a bullet's continuation line — and a section heading carrying trailing
+  text, in both the issue body and the pre-flight ledger. A section that declares regions in no
+  recognized shape, or an `OR-n` with no recognizable disposition, is now refused as an
+  environment error naming every affected source and region, where it previously passed the gate
+  silently. The refusal spends no fix attempt. Migration: a ticket whose open-regions section is
+  prose without `OR-n` ids, or whose disposition is stated without its token, will now stop
+  milestone 1 — rewrite the section as a table row or an id-bearing bullet. The accepted shapes
+  are documented in intake-toolkit's interviewing-baseline skill.
+- **close-out's merged-PR reachability, and the seven sites stating its rule wrongly (#728)** (#728)
+  close-out now completes when an operator merges the PR before the run
+  reaches milestone 5. Previously the identity stamp still required an open PR, so
+  the run's cost-log row was never written and its PR kept a stale cost block. The
+  claimed label's release is unchanged — the unclaim workflow still fires on the
+  tracker item's close.
+  Migration: none.
+- **check-guard-budget.sh and the Guard-mass trailer are deleted (#732)** (#732)
+  none (repo CI only). Migration: drop Guard-mass: trailers.
+- **The provider's fidelity reviewer is mandatory on an armed run, and the verdict names who reviewed (#729)** (#729)
+  on an armed design ticket the provider's fidelity reviewer is now
+  dispatched unconditionally rather than on a path-glob judgment, a round that
+  loses it to a dark reviewer is voided instead of recorded, and the verdict
+  record carries a new `panel:` header naming the reviewers the round got a
+  result back from. `bash G verdict` requires `--panel` on an armed spec and
+  refuses one omitting the reviewer the handoff host implies; milestone 4 and
+  the merge boundary's evidence arm 8 assert the same. The reviewer family comes
+  from the `## Design` handoff link's host (a figma.com URL, or claude.ai under
+  /design), never from config, and milestone 1 refuses an armed spec whose
+  handoff host is unrecognisable or disagrees with `design.provider`.
+  Migration: none. No repo in this marketplace arms a design lane today, and
+  consumers fetch the merge boundary at their own pinned ref, so nothing in
+  flight turns red until a consumer bumps.
+- **The continuation stack is deleted: one BUILD spawn, then a human (#734)** (#734)
+  `/dev-pipeline:run-lean` spawns BUILD once per round. A build session
+  that ends without an open PR, or with one and uncommitted or unpushed work in
+  its lane worktree, now stops the run for a human to read rather than being
+  re-spawned on a budget. `lean-gate.sh progress <issue>` requires `--satisfied`
+  or `--obligations`; the bare form and `--infra` are removed.
+  Migration: `--max-continuations` is removed and refuses with a message naming
+  the removal. A lane that relied on the recovery spawn pushes from the lane
+  worktree by hand and re-launches.
+- **`Design: none` on a provider repo needs a gate-visible design-disarm override (#736)** (#736)
+  on a repo configured with design.provider, a spec that disarms the design render
+  lane with `Design: none — <reason>` now requires a gate-visible `design-disarm` operator
+  override (`operator-override.sh record --gate design-disarm --scope design-disarm --issue <n>
+  …`) — milestone 1 reds naming the exact command until one is recorded. The committed verdict
+  on a disarmed, overridden ticket carries `fidelity: not-applicable (override: <ref>)`, and the
+  merge boundary refuses a PR whose cited ref does not resolve to a real record.
+  Migration: none — a repo with no design.provider configured is unaffected, and an already-armed
+  or already-unarmed ticket is unaffected.
+- **refactor(dev-pipeline): milestone 4 stops re-checking what the merge boundary already checks (#738)** (#738)
+  milestone 4 no longer re-checks the verdict record's reconciliation keys
+  or its patch freshness; lean-evidence.sh at the merge boundary remains the check of
+  record for both. A commit pushed after an approve now leaves `bash G 4` green and
+  reds the PR instead, so land fixes before the handoff.
+  Migration: none.
+- **The enforced mutation sweep moves off the nightly cron onto the merge, and a red becomes a filed issue (#740)** (#740)
+  the mutation sweep's enforced tier moves off the nightly cron onto a
+  merge-time, diff-scoped run with deferral disabled (MUTATION_SWEEP_NO_DEFER),
+  and a red merge-time or monthly-audit run now files a deduplicated GitHub
+  issue carrying the survivor ids instead of reddening a cron dashboard. The PR
+  lane's deferral decisions and report enum are unchanged.
+  Migration: none.
+- **The translation plan is asserted for shape and graded by nobody (#741)** (#741)
+  on an armed lean run, milestone 3 now refuses to render until the
+  provider's translation-plan reviewer's verdict is committed at
+  `<plansDir>/<key>-lean-plan-review.md`. The build session dispatches the
+  reviewer and writes the record with `lean-gate.sh plan-review <issue>
+  --verdict <pass|fix-and-go|block> --summary-file <findings> --model <m>`;
+  `block` reds the milestone quoting the first finding, `pass` and `fix-and-go`
+  proceed. A design family with no plan-stage reviewer agent is declared
+  unreviewed instead of blocked.
+  Migration: none — the artifact is required only on a ticket whose committed
+  spec arms the design lane against a figma handoff.
+
+### `intake-toolkit` 4.2.0 → 4.2.1
+
+- **Milestone 1 reads the open-region shapes tickets actually use, and refuses the ones it cannot (#716)** (#716)
+  build-lean's milestone 1 now reads a bullet-form `## Open regions` section — including
+  a disposition token on a bullet's continuation line — and a section heading carrying trailing
+  text, in both the issue body and the pre-flight ledger. A section that declares regions in no
+  recognized shape, or an `OR-n` with no recognizable disposition, is now refused as an
+  environment error naming every affected source and region, where it previously passed the gate
+  silently. The refusal spends no fix attempt. Migration: a ticket whose open-regions section is
+  prose without `OR-n` ids, or whose disposition is stated without its token, will now stop
+  milestone 1 — rewrite the section as a table row or an id-bearing bullet. The accepted shapes
+  are documented in intake-toolkit's interviewing-baseline skill.
+
+### `review-toolkit` 7.2.2 → 7.2.3
+
+- **The provider's fidelity reviewer is mandatory on an armed run, and the verdict names who reviewed (#729)** (#729)
+  on an armed design ticket the provider's fidelity reviewer is now
+  dispatched unconditionally rather than on a path-glob judgment, a round that
+  loses it to a dark reviewer is voided instead of recorded, and the verdict
+  record carries a new `panel:` header naming the reviewers the round got a
+  result back from. `bash G verdict` requires `--panel` on an armed spec and
+  refuses one omitting the reviewer the handoff host implies; milestone 4 and
+  the merge boundary's evidence arm 8 assert the same. The reviewer family comes
+  from the `## Design` handoff link's host (a figma.com URL, or claude.ai under
+  /design), never from config, and milestone 1 refuses an armed spec whose
+  handoff host is unrecognisable or disagrees with `design.provider`.
+  Migration: none. No repo in this marketplace arms a design lane today, and
+  consumers fetch the merge boundary at their own pinned ref, so nothing in
+  flight turns red until a consumer bumps.
+- **review-lead's always-spawn core becomes a checklist-structured lead pass, and security-reviewer spawns on surface triggers (#733)** (#733)
+  review-lead no longer spawns performance-reviewer, maintainability-reviewer,
+  complexity-reviewer or test-coverage-reviewer; those four dimensions are now reviewed
+  in-session by the review-lead pass, and security-reviewer spawns only on a security
+  surface in the diff or when the repo carries a security-reviewer review-context file.
+  Every reviewer remains registered and spawnable, so no config change is required.
+  Consumers carrying `.claude/second-shift/review-context/<reviewer>.md` files for the
+  four collapsed reviewers should know the lead pass now reads them itself — those files
+  keep working and need no edit. Migration: none.
+
+### `second-shift` 8.0.2 → 8.0.3
+
+- **chore(docs): retire the spec and intent-gap records of closed lean runs from docs/plans (#725)** (#725)
+- **close-out's merged-PR reachability, and the seven sites stating its rule wrongly (#728)** (#728)
+  close-out now completes when an operator merges the PR before the run
+  reaches milestone 5. Previously the identity stamp still required an open PR, so
+  the run's cost-log row was never written and its PR kept a stale cost block. The
+  claimed label's release is unchanged — the unclaim workflow still fires on the
+  tracker item's close.
+  Migration: none.
+
 ## v12.2.0
 
 ### `design-toolkit` 4.0.2 → 4.0.3
