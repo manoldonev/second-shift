@@ -1232,14 +1232,13 @@ LEANSYNCCFG
   # it renders. PRODUCTION's writer stamps `reviewed_plan_from`; this never derives a patch id.
   LEAN_DFINDINGS="$TMP/lean-design-plan-findings.md"
   printf '## Findings\n\nB1: the results grid is planned at a fixed 320px where the frame hugs.\n' > "$LEAN_DFINDINGS"
-  lean_dplanrev_sync() { # lean_dplanrev_sync [verdict]
-    local v="${1:-pass}"
+  lean_dplanrev_sync() {
     [ -f "$LEAN_DPLAN" ] || return 0
     git -C "$LEAN_DTREE" rev-parse --verify -q refs/remotes/origin/main >/dev/null 2>&1 || return 0
     ( unset RUN_ID GH_BOT; cd "$LEAN_DTREE" \
       && SECOND_SHIFT_CONFIG="$LEAN_DSYNCCFG" LEAN_PROGRESS_FILE="$LEAN_DPROG" \
          CLAUDE_CODE_SESSION_ID="$LEAN_DSID" GH="${GH:-$LEAN_GH}" \
-         bash "$LEAN_GATE" plan-review 88 --verdict "$v" --summary-file "$LEAN_DFINDINGS" --model stub-model ) >/dev/null 2>&1
+         bash "$LEAN_GATE" plan-review 88 --verdict pass --summary-file "$LEAN_DFINDINGS" --model stub-model ) >/dev/null 2>&1
     if ! git -C "$LEAN_DTREE" diff --quiet HEAD -- docs/plans/acme-88-lean-plan-review.md 2>/dev/null \
        || [ -z "$(git -C "$LEAN_DTREE" log -1 --format=%H -- docs/plans/acme-88-lean-plan-review.md 2>/dev/null)" ]; then
       git -C "$LEAN_DTREE" add docs/plans/acme-88-lean-plan-review.md >/dev/null 2>&1
