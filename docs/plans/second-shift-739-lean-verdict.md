@@ -1,175 +1,203 @@
 # lean review verdict — #739
 
-verdict=approve
-run_id: review-739-1
-session_id: 6c6cf9a5-9a8b-4aae-8c96-c3ed3b40d896
-rounds: 1
+verdict=needs-work
+run_id: review-739-2
+session_id: 5add023b-f0bd-40d3-92c4-4516fc85ec05
+rounds: 2
 pr: #750
-reviewed_head: 1854bd3530c7298236974693e9cc4a62e0cf8e1f
-reviewed_patch_id: a6e3209933b2807f747b49ca18eddda1377a82f1
-inherited_patch_id: none
-inherited_from_verdict: none
+reviewed_head: d3e741eaa0055f71a204fc41ffb4604b73a13afd
+reviewed_patch_id: 2838072784f98adf47a8b93a423238a21da66ea8
+inherited_patch_id: a6e3209933b2807f747b49ca18eddda1377a82f1
+inherited_from_verdict: d3e741eaa0055f71a204fc41ffb4604b73a13afd
 fidelity: not-applicable
-model: opus
+panel: review-toolkit:scope-completeness-reviewer
+model: unknown
 capabilities: pr-marker
 
-# Review round 1 — PR #750 (issue #739)
+Range read: `cf060ab1..HEAD` (FULL range — `bash G delta 739` reports nothing verifiable to
+inherit; 24 files). Reviewed head: `d3e741eaa0055f71a204fc41ffb4604b73a13afd`.
+Round 1's findings were read first and are carried forward below.
 
-Range read: `c68d2321..HEAD` (root round, whole branch diff — 23 files, +1111/-29).
-Reviewed head: `1854bd3530c7298236974693e9cc4a62e0cf8e1f`.
-Panel: security, performance, maintainability, complexity, test-coverage,
-unit-test-mutation, scope-completeness — 7 selected, 7 returned, none dark.
+Panel: `review-toolkit:scope-completeness-reviewer` returned. `review-toolkit:test-coverage-reviewer`
+was selected and went **dark** (stopped at its turn limit with no report); its intended subject —
+coverage of the new gate arms — is covered by first-party greps below, so the round is not voided.
 
-**Verdict: approve.** No blockers. Three majors are recorded below; each is either a
-spec-wording correction or a cheap follow-up, and none of them makes an `AC-n` unmet in
-substance.
+**Verdict: needs-work.** Two blockers, both introduced by the rebase onto `cf060ab1` (v12.2.2)
+rather than by any edit of this branch, and both the same defect in two places: the branch's
+claude-design plan grammar is one release behind the gate's.
+
+## Why this round exists
+
+Round 1 approved head `1854bd35` against base `c68d2321`. The branch was then rebased onto
+`cf060ab1`, and the rebase resolved a conflict by **altering one of the branch's own `+` lines**.
+Verified by diffing the two branch diffs: everything else is blob-index and hunk-offset churn, and
+the single content change is `design_plan_gate`'s absent-plan refusal, which absorbed main's
+`$PLAN_NODE_COLUMN`/`$PLAN_RS_COLUMN`/`$PLAN_PX_COLUMN` clause from #711/#744 on both its `-` and
+`+` sides. That is the "conflict resolved by editing a line" case, so the round-1 record is void:
+`reviewed_patch_id a6e32099` (which I reproduced exactly against the old base, confirming I had
+the formula right) is now `2838072784`.
+
+**`pr-gates` is green on a documented fail-open, not on a pass.** Run `33433003571` at this head
+logs, from the gate's own mouth:
+
+> `· freshness: reduced-strength — the patch identity moved from a6e3209933b2 to 2838072784f9 and
+> the +/- comparison could NOT be computed, so this arm FAILED OPEN and the verdict stands`
+
+The comparison could not be computed because the force-push orphaned `reviewed_head 1854bd35`, so
+the CI checkout holds no object to resolve it against. Running the identical gate **locally**,
+where that object still exists, returns the violation:
+
+> `✗ verdict record … reviewed patch a6e3209933b2, but this branch's diff against origin/main now
+> hashes to 2838072784f9 and the branch's own lines moved with it: 2 reviewed line(s) across 1
+> file(s) … Run another review round.`
+
+Recorded for the operator, and it generalizes past this PR: on a **rebase**, this lane's
+merge-boundary freshness arm cannot see staleness, because the evidence it needs is exactly what
+the force-push destroys. Green there is not evidence that a verdict covers the head.
+
+## Blockers
+
+### B-1 — `design-faithful`'s new plan step under-specifies the plan the gate now demands, so an armed claude-design run that follows its own documentation burns a fix attempt (AC-3)
+
+`plugins/design-toolkit/skills/design-faithful/SKILL.md:54-55` mandates exactly two tables — a
+`why this component` table and a `dimensions` table. At the rebased base, `_plan_table_walk`
+(`lean-gate.sh:4060-4064`) additionally requires **`node`, `rs` and `px` columns on the table that
+declares `dimensions`**. That check is family-agnostic: it keys on the `dimensions` column, not on
+the design family. It did not exist at the old base —
+`git show c68d2321:…/lean-gate.sh | grep -c PLAN_NODE_COLUMN` → **0**.
+
+Proved, not argued. I extracted the guard's awk verbatim and ran a plan written to the letter of
+the new step:
+
+```
+the table declaring a "dimensions" column declares no "node" column — …
+the table declaring a "dimensions" column declares no "rs" column — …
+the table declaring a "dimensions" column declares no "px" column — …
+```
+
+Control: the figma-shaped plan from `figma-faithful/SKILL.md:199-206` through the same probe →
+**zero violations, rc 0**. The check is sound; the design-faithful step is what is short.
+
+Those violations feed `fail_milestone 3` (`lean-gate.sh:4272`), and `fail_milestone` calls
+`append_attempt` (`:1550`) — it **charges a fix attempt**, unlike the absent-plan
+`block_milestone` path. The mitigation that the absent-plan refusal now lists the three columns
+does not reach this path: a run that followed the step has *written* a plan, so it never sees that
+refusal.
+
+Three things make this the slice's own thesis rather than an imported standard:
+
+- The spec's stated purpose is the producer side — D-1: "only `figma-faithful` step 7 says how to
+  write one; without a claude-design step the new reviewer grades an artifact improvised against a
+  gate error string." At this head that is still true, in a narrower way.
+- **D-3's own rule now mandates the columns.** It admits "only what a reader exists for". A reader
+  now exists: `plan_violations` grades them, and `plan_node_rows` (`:4114`, consumed at `:4610`)
+  compares the `px` values against the rendered rects.
+- The agent this slice ships does not grade them either — `### Per-node dimensions`
+  (`design-faithful-plan-reviewer.md:128-141`) checks only the prose `dimensions` cell. So the
+  gate, the step and the agent disagree about what a complete claude-design plan is.
+
+**Why no suite caught it.** The only plan fixture in `lean-gate-selftest.sh` is figma-shaped
+(`DPLAN_DROW`, `:3711` — `| node | RS | px | dimensions | overflow |`), and `(dpr7)`, the sole
+claude-design case, calls `dplan_sync` and reuses it. No test anywhere exercises a plan written to
+the design-faithful step's documented shape.
+
+### B-2 — the eval fixtures encode that same stale grammar, and the clean control's `must_not_flag` trains the reviewer to pass a plan the gate rejects (AC-6)
+
+All three fixtures carrying a dimensions table use `| node | dimensions | overflow |` —
+`02-name-match-resolution.md:34`, `03-unwired-state-no-analog.md:36`,
+`04-control-clean.md:45`. Run through the same extracted walker,
+`04-control-clean.md` yields:
+
+```
+the table declaring a "dimensions" column declares no "rs" column — …
+the table declaring a "dimensions" column declares no "px" column — …
+```
+
+(twice, once per dimensions-declaring table). The control is the sharpest case, because
+`04-control-clean.expected.json:6` lists under **`must_not_flag`**:
+
+> "the `dimensions` table — one row per sized node, each with an overflow decision, including the
+> wrap-then-scroll behavior of the chip rows"
+
+So the instrument's calibration case explicitly scores a reviewer *down* for flagging a plan shape
+milestone 3 refuses outright. Independently raised by scope-completeness and reproduced here.
+
+**Disposal for both** (small and mechanical, and free right now): give the step the three columns
+as `figma-faithful` step 7 carries them, with the worked example; extend the agent's Per-node
+dimensions check to the same triple; re-shape the three fixtures and correct the control's
+`must_not_flag`. Because the baseline is **OWED** (D-14/OR-1), fixing the corpus costs nothing
+today and costs the reading once one is taken. Do **not** relax the gate.
 
 ## Per-AC scoring
 
 | AC | Score | Evidence |
 | --- | --- | --- |
-| AC-1 — agent file, artifact-stage frontmatter, checklist = the D-2 set, no token arithmetic | **satisfied, with a recorded deviation** | `plugins/design-toolkit/agents/design-faithful-plan-reviewer.md` carries `model: opus`, `effort: high`, `tools: Read, Grep, Glob, Bash`, `skills: reviewer-baseline`, no `maxTurns`. No token-arithmetic section — the load-bearing clause — and `## What this plan is NOT` states why. The checklist ships **seven** sections, not six: a `### Placement` section beyond the D-2 enumeration. See major 2. |
-| AC-2 — `design_family_plan_reviewer()` resolves `claude-design`; `bash G 3` reds before any render naming the agent, spending no fix attempt | **satisfied** | `lean-gate.sh:3220-3226`. The absent-record arm is `block_milestone 3` (`lean-gate.sh:4131`), which by construction writes no `\| milestone-3 \| attempt \|` line. Asserted by the inverted `(dpr7)`: `rc=1`, output contains `design-toolkit:design-faithful-plan-reviewer`, does **not** contain `figma-faithful-plan-reviewer` or `ships no plan-stage reviewer`, `attempts=0`, `renders=0`. |
-| AC-3 — `design-faithful/SKILL.md` plan step, its mandated contents, the dispatch-and-record obligation, no token map | **satisfied** | New `## Write the translation plan (pre-implementation gate)` section: the `<plansDir>/<key>-lean-plan.md` path, the `planned_from:` header, the `why this component` and `dimensions` tables, the analog, the placement decision, the file list, the explicit **No token map table** paragraph, and the lean-lane dispatch/record obligation naming `lean-gate.sh plan-review`. |
-| AC-4 — `(dpr7)` inverted; catalog row re-anchored onto the `claude-design)` arm; mutant probed and killed | **satisfied** | `(dpr7)` rewritten at `lean-gate-selftest.sh:4446-4479`; `tools/mutation-catalog.tsv:140` sed is now `s#^    claude-design\) printf .design-faithful-plan-reviewer. ;;$##`. **Independently probed** — see Mutation evidence. |
-| AC-5 — the stale-gap prose is gone, on a decidable oracle | **satisfied** | Ran both oracles from the reviewed checkout: `git grep -n 'DOES NOT EXIST' -- ':!docs/plans/'` → rc 1, no output; `git grep -n 'OR-1 of' -- ':!docs/plans/'` → rc 1, no output. The `ships no plan-stage reviewer` refusals survive at `lean-gate.sh:4117` and `:4262`, both now describing the unreachable `*)` fall-through. |
-| AC-6 — the eval instrument ships; `check-eval-model-identity.sh` green | **satisfied, with a fixture caveat** | Four flat fixtures each with an `.expected.json` sibling, `04-control-clean` the control; `rubric.py`, `run.sh` (`--agent-name design-toolkit:design-faithful-plan-reviewer`), `README.md`, `changelog.md` (no rows, states why), `CLOSEOUT-BASELINE.md` recording **OWED** with the installed-cache reason and the operator recipe. `bash scripts/check-eval-model-identity.sh` → rc 0, 97 runnable eval files. The control's cleanliness is major 3. |
-| AC-7 — step 6 drops the `<provider>-faithful-plan-reviewer` template | **satisfied** | `build-lean/SKILL.md:27` now reads "(Agent tool — the refusal prints the exact agent name, which is not derivable from the provider string)". The old template string is gone from the tree. |
-| AC-8 — extension-points row + evals README count | **satisfied** | `docs/extension-points.md:20` names `design-faithful-plan-reviewer` in the design-tokens reader row; `evals/README.md:3` reads "Four eval directories, one per static design reviewer", the table gained the row, and the campaign table gained an `OWED` row with its reason. |
-| AC-9 — `prose-blockers.sh check` green | **satisfied** | rc 0 — 28 constructs over 52 files, 50 record rows, zero undispositioned. Three triage rows moved: `pb-f643817e` (re-keyed from `pb-cbe0e255` by the `build-lean/SKILL.md` edit), `pb-c66b4201` (new, the agent), `pb-1a8a2039` (new, the skill step). |
-| AC-10 — the three guards green; `feat(design-toolkit):` verb; `Changelog:` trailer | **satisfied** | `check-gate-buckets.sh` rc 0 (305 sites / 161 rows), `check-lockstep-pairs.sh` rc 0 (29 anchors), `check-reviewer-references.sh` rc 0. `c68b0720` is `feat(design-toolkit):` and carries a consumer-facing `Changelog:` with `Migration:`; the other three commits carry `Changelog: none.` |
+| AC-1 | satisfied, deviation recorded | Frontmatter is the artifact-stage shape; no token-arithmetic section. Checklist ships **seven** sections — `Placement` (`:143`) beyond D-2's six. Carried from round 1: the deviation runs safe and D-3/AC-3 mandate a placement decision, so the AC's enumeration is short, not the code. AC-4 was amended in flight (`513ac83d`) and AC-1 was not; one word at `docs/plans/second-shift-739-lean.md:19-23` closes it. |
+| AC-2 | satisfied | `design_family_plan_reviewer()` resolves `claude-design` (`lean-gate.sh:3225-3231`). `(dpr7)` asserts rc 1, the namespaced agent name, no `figma-faithful-plan-reviewer`, no `ships no plan-stage reviewer`, **0** milestone-3 attempts, **0** render calls. PASS in my own full run. |
+| AC-3 | **unsatisfied** | B-1. The AC's criterion is stated by reference to "the two **gate-asserted** tables"; at this head the gate asserts three further columns on the `dimensions` table and the step mandates none of them. Under the narrowest literal reading the two named tables are present — but D-1's purpose, which is what AC-3 encodes, fails either way. |
+| AC-4 | satisfied | `(dpr7)` inverted (`:4522-4546`); catalog row 140 re-anchored onto the `claude-design)` arm. Re-probed at THIS head — see Mutation evidence. |
+| AC-5 | satisfied | Both oracles re-run from this checkout: `git grep -n 'DOES NOT EXIST' -- ':!docs/plans/'` and `git grep -n 'OR-1 of' -- ':!docs/plans/'` → no output. The `ships no plan-stage reviewer` refusals survive, describing the unreachable `*)` fall-through. |
+| AC-6 | **unsatisfied** | B-2. Structurally complete — `rubric.py`, `run.sh`, `README.md`, `changelog.md`, `CLOSEOUT-BASELINE.md` recording OWED, four fixtures with `.expected.json` siblings; `check-eval-model-identity.sh` rc 0 over 97 files. But the corpus encodes a plan grammar the current gate rejects, and the control's `must_not_flag` entrenches it. |
+| AC-7 | satisfied | The `<provider>-faithful-plan-reviewer` template survives only in `docs/plans/` records and a triage row's rationale prose — not in `build-lean/SKILL.md:27`. |
+| AC-8 | satisfied | `docs/extension-points.md:20` names the agent; `evals/README.md:3` reads "Four eval directories", the table carries the row, the campaign table carries the `OWED` row. |
+| AC-9 | satisfied | `prose-blockers.sh check` rc 0 — 28 constructs over 52 files, 50 rows, zero undispositioned. |
+| AC-10 | satisfied | `check-gate-buckets.sh` rc 0, `check-lockstep-pairs.sh` rc 0 (29 anchors), `check-reviewer-references.sh` rc 0. `e56a7976` takes `feat(design-toolkit):` with a consumer-facing `Changelog:`. |
 
-## Findings
+Design fidelity: **not-applicable** — the spec declares no `## Design` section and no `RS-n` rows.
 
-### Majors (should fix; none blocks)
+## Majors carried forward from round 1 (re-verified at this head, none blocking)
 
-1. **`design_plan_gate`'s new family selector is shipped with zero coverage on either arm.**
-   `lean-gate.sh:4188-4194` adds `fam="$(design_family < ...)"` and a two-arm `case` picking
-   between `"the design-faithful translation-plan step"` and `"the figma-faithful step-7 plan"`
-   for the absent-plan refusal. Verified from the reviewed checkout: `grep -n 'translation-plan
-   step\|step-7 plan'` over `lean-gate-selftest.sh` returns **nothing**, and over
-   `tools/mutation-catalog.tsv` returns **nothing**. `(dp0)`/`(dp1)` reach this branch only
-   through the figma fixture config and assert neither string; `(dpr7)` runs `dplan_sync` first,
-   so the manifest exists and this branch is never entered under `claude-design`. A mutant
-   collapsing both arms to the figma wording — or swapping them — survives the full suite.
-   Raised independently by test-coverage (conf 85) and unit-test-mutation (conf 88); confirmed
-   by grep here.
-   **Why it is not a blocker:** the `case` selects the *guidance text* of a refusal that fires
-   identically either way — it is not a gate decision, and no `AC-n` mandates coverage for it.
-   D-12 files this site as one of the six stale-prose corrections, not as a new contract.
-   The cheap disposal is one selftest case analogous to `(dp1)` on the claude-design config
-   asserting the refusal names the design-faithful step, plus a catalog row on the `case`.
-
-2. **AC-1's "sections are exactly the D-2 set" is literally unsatisfied — one section over.**
-   The checklist is Component-resolution suitability, Per-node dimensions, **Placement**, Analog
-   suitability, State→code wiring, File coverage, Decision Ledger. D-2 enumerates six; Placement
-   is the seventh. The deviation runs in the **safe** direction and is required by the same spec:
-   D-3 and AC-3 both mandate a placement decision in the plan, and D-3 says each mandated element
-   maps to a D-2 check. Deleting the section to satisfy AC-1 as written would leave a mandated
-   element with no reader — the exact shape this slice exists to end — so the code is right and
-   the AC's enumeration is short. The figma sibling carries the same check under "Layout context
-   — sibling spacing & placement", so there is direct precedent. Disposal: extend AC-1's
-   enumeration with placement at close-out; do not delete the section.
-
-3. **The control fixture is not demonstrably clean, so it may deflate its own baseline.**
-   `fixtures/04-control-clean.md`'s ledger row D-1 resolves "Rotate-only — the field is read-only
-   with a separate Rotate action, per the handoff", but the resolved-component table renders the
-   signing secret as `TextField type='password'` with an `endAdornment` reveal toggle inside an
-   editable form with Save/Cancel, states no `readOnly`, and neither the component list, the
-   dimensions table, the placement decision nor the file list mounts a Rotate control. That is a
-   grounded internal inconsistency against real rows, reachable from the agent's own File-coverage
-   and Component-resolution checks, and `must_not_flag` does not cover it. A correct reviewer
-   flagging it returns `fix-and-go`, scoring **0 of 6** on `d1_verdict_correctness` for the
-   control — the calibration measurement the control exists to take.
-   **Why it is not a blocker:** the baseline is OWED per D-14/OR-1, no reading exists, and nothing
-   downstream binds to the absent number, so the fixture can be corrected at zero cost before the
-   operator's first run. `CLOSEOUT-BASELINE.md` already routes that run through the operator.
-
-### Dismissed
-
-- **Scope-completeness returned FAIL (blocker, conf 88)** on issue #739 item 3's second clause —
-  *"Keep a case for a family that still has no reviewer, or the arm goes untested again."*
-  **Dismissed on authority, not on merits.** The committed lean spec is the definition of done
-  here, and it records this departure explicitly rather than silently: **D-6** names the clause
-  verbatim and states it "is not satisfiable end-to-end, per D-5's reach", and **D-5** decides the
-  `*)` arm's fate and the catalog re-anchor. Both rows are in the branch's **first** commit
-  (`222c90bb`, the spec commit, which precedes the code commit `c68b0720`), and both appear
-  verbatim in the pre-flight ledger at `.claude/pipeline-state/739-ledger.md` (rows D-5/D-6, plus
-  S-11/S-12 marking the selftest case and catalog row as decided). That is a pre-flight decision,
-  not a spec amended to match the diff.
-  The substance also holds, and I verified it independently rather than taking the comment's word:
-  `design_family()` (`lean-gate.sh:3128-3150`) emits only `figma` or `claude-design`; `design_state`
-  (`:3446`) returns `error:` for a handoff link classifying to neither, and again for a
-  host/`design.provider` disagreement; `cmd_plan_review` (`:4252-4257`) and `cmd_3_render` both
-  refuse on that `error:` before `design_family_plan_reviewer` is ever called. With both families
-  now resolving, the `*)` arm and both decline paths (`:4117`, `:4262`) are unreachable through
-  every public entry point — so item 3's second clause is not writable as an end-to-end scenario,
-  which is what D-6 says. The reviewer reached the same conclusion on the code and then scored the
-  clause unsatisfied anyway because the deferral is not in the *issue body*; on this lane the spec
-  and its pre-flight ledger are the higher authority.
-- **`mutation-sweep-pr` green is vacuous, and is not evidence.** The job graded **nothing**:
-  `all 1 in-scope guard(s) deferred to the merge-time sweep, 0 swept (reasons: slow suite: 1)`.
-  Recorded so no later reader mistakes that green for mutation coverage. The PR body already
-  discloses the deferral; the hand probe below is the actual evidence.
-- **`pr-gates` is red.** Expected on an unapproved lean PR — the chain reconciliation arm naming
-  its own reason. A merge-boundary policy state, not a review finding.
-- Security, performance, maintainability and complexity returned clean with no findings above
-  threshold. Security's two suppressed items (conf 40 / 30) are fixture-prose observations with no
-  credential values present; both correctly below threshold.
-
-## Verification I ran, rather than cited
-
-- **Both CI selftest jobs pass at the reviewed head.** `lint-and-selftests` (4m6s) and
-  `selftests (macos, bash 3.2)` (5m25s), run `33424979260`, head
-  `1854bd3530c7298236974693e9cc4a62e0cf8e1f` — same head, same command as the repo recipe. Cited,
-  not re-run. Both are conclusion `pass`, so no step was skipped by an earlier red.
-- **`lean-gate-selftest.sh` in full, locally, at the reviewed head** — `all green`, exit 0,
-  570 cases, with `(dpr7)` PASS. Run separately because milestone 3's slow-suite table defers it,
-  so the build's green gate said nothing about the case this PR rewrites.
-- **All five guards run from the reviewed checkout**: `check-gate-buckets.sh`,
-  `check-lockstep-pairs.sh`, `check-eval-model-identity.sh`, `check-reviewer-references.sh`,
-  `prose-blockers.sh check` — all rc 0.
-- **`shellcheck -e SC1091,SC2015,SC2181`** on the three changed shell files — rc 0 (local 0.11.0;
-  CI's own lint step passed at 0.9.0, which is the binding one).
-- **The lockstep-exclusion claim is true, and checked.** The agent's `<!-- ... -->` note says the
-  two reviewer-baseline deltas are deliberately outside the `artifact-reviewer-baseline-deltas`
-  group because that block's Output delta names the figma.mjs engine as the agent's former
-  dispatcher. Read the group at `figma-faithful-plan-reviewer.md:150-155`: it does carry
-  "(its former gate dispatcher, the figma.mjs engine, was retired in #574)", which is false of this
-  agent. Dropping the provenance clause rather than copying it verbatim is the honest call.
-- **The AC-4 amendment in `1854bd35` is legitimate.** It corrects a clause that contradicted
-  itself — the original said the row was "re-anchored to the surviving `*)` arm" while the same
-  sentence described a mutant that deletes `claude-design)`. The mutant, its killer and the
-  asserted behavior are unchanged; only the description of which line the sed edits moved. Not a
-  spec amended to match the diff.
+1. **`design_plan_gate`'s family selector still has zero coverage on either arm.**
+   `grep -c 'translation-plan step\|step-7 plan'` over `lean-gate-selftest.sh` → **0**, over
+   `tools/mutation-catalog.tsv` → **0**. A mutant collapsing or swapping the two arms survives the
+   full suite. Not a blocker: it selects the *guidance text* of a refusal that fires identically
+   either way. B-1's disposal is the natural place to fix it.
+2. **AC-1's enumeration is one section short of the code** — see AC-1 above.
+3. **The control fixture is not demonstrably clean** on a second, independent axis from B-2:
+   `04-control-clean.md`'s ledger row D-1 resolves the signing secret "Rotate-only — the field is
+   read-only", while `:39` resolves it to an editable `TextField type='password'` with a reveal
+   `endAdornment`, and nothing mounts a Rotate control. A correct reviewer flags that and scores
+   0 of 6 on the control. Same free-to-fix window as B-2.
 
 ## Mutation evidence
 
-`mutation-sweep-pr` graded nothing, so the re-anchored row has **no CI oracle**. Probed by hand,
-in an isolated detached worktree at the reviewed head (never the reviewed checkout):
+`mutation-sweep-pr` went green in **15s having graded nothing** — the sole in-scope guard is
+deferred as a slow suite — so the re-anchored row has no CI oracle at this head either. Probed by
+hand, in an isolated detached worktree at the reviewed head (never the reviewed checkout):
 
-- Applied `tools/mutation-catalog.tsv`'s `lean-gate-plan-review-family-universal` sed with
-  `sed -E`, which is how `tools/mutation-sweep.sh:1897` applies it. The row is well-formed under
-  ERE and edits **exactly one line** — `3223c3223`, deleting
-  `    claude-design) printf 'design-faithful-plan-reviewer' ;;` — leaving the `figma)` and `*)`
-  arms intact. Not a vacuous mutant.
-- Ran the full suite against the mutant: **1 failure out of 570 cases**, and it is `(dpr7)` —
-  `FAIL: (dpr7) rc=1 attempts=1 renders=2`. The mutated gate declined the mandate, walked past it
-  into the render pass (`renders=2`, against `0` on the unmutated tree) and charged a fix attempt.
-  The unmutated run at the same head is 570/570 green. The row's declared killer is real and the
-  kill is not incidental — `(dpr1)` and the other armed cases drive a figma host and stayed green
-  under the mutant, which is exactly why the inversion was needed.
-- The two hand-probed gaps `(dpr7)` does **not** cover are major 1's `case` arms, which no mutant
-  in the catalog anchors.
+- Applied row 140's sed with `sed -E`, as `tools/mutation-sweep.sh` applies it. It edits **exactly
+  one line** — deleting `    claude-design) printf 'design-faithful-plan-reviewer' ;;` — leaving
+  the `figma)` and `*)` arms intact. Not a vacuous mutant. (Under plain BSD `sed` the row's `\)`
+  is unbalanced and the mutant no-ops, which would read as a vacuous green.)
+- Full suite against the mutant: **exactly 1 failure across 588 cases**, and it is the declared
+  killer — `FAIL: (dpr7) rc=1 attempts=1 renders=2`. The mutated gate declined the mandate, walked
+  past it into the render pass (`renders=2` against `0` unmutated) and charged a fix attempt.
+- Unmutated at the same head: `all green`, 588/588.
 
-## What was not reviewed
+## Verification I ran, rather than cited
 
-- **Design fidelity: not applicable.** This repo's `.claude/second-shift.config.json` configures
-  no `design.provider`, and `docs/plans/second-shift-739-lean.md` carries no `## Design` section,
-  so the design lane is disarmed and step 5b does not run. `--fidelity not-applicable`.
-- **a11y and the design-fidelity review dimension were not routed** — no changed path is a web
-  component; the diff is bash, markdown, TSV, JSON and one Python rubric.
-- **`db-reviewer` and `pipeline-reviewer` were not selected** — this repo has no DB layer and no
-  async worker surface.
-- The eval instrument is **not executed** anywhere in this review, by design: it is operator-run
-  and model-billed, CI here is model-free, and D-14 defers the reading to after release.
+- **`lean-gate-selftest.sh` in full at this head** — `all green`, exit 0, **588** cases (up from
+  round 1's 570; main added cases in #742/#744/#749). Run separately because milestone 3's
+  slow-suite table defers it.
+- **Five guards from this checkout**, all rc 0: `check-gate-buckets.sh`, `check-lockstep-pairs.sh`,
+  `check-eval-model-identity.sh`, `check-reviewer-references.sh`, `prose-blockers.sh check`.
+- **The extracted-awk probe, its figma control, and the fixture runs** — the evidence for B-1/B-2.
+- **`lean-evidence.sh --arms freshness` locally**, which is what exposed the CI fail-open.
+- **Both CI selftest jobs pass at this head** — `lint-and-selftests` (4m39s) and
+  `selftests (macos, bash 3.2)` (5m12s), run `33433003571`, head `d3e741ea`, both `pass`. Cited,
+  not re-run: same command and same head as the repo recipe.
+
+**Census figures moved with the base, not the branch.** `check-gate-buckets.sh` now reports
+310 sites / 166 rows against round 1's 305 / 161 — main's additions absorbed by the rebase. No
+branch line moved them.
+
+## Dismissed
+
+- **The scope-completeness FAIL on issue item 3's second clause**, dismissed on authority in round
+  1 (D-5/D-6 record the departure in the branch's first commit and in the pre-flight ledger, and
+  the `*)` arm is unreachable through every public entry point). Unchanged at this head; the
+  dismissal stands and I did not re-litigate it.
+- **`mutation-sweep-pr` green** — vacuous, as above. Recorded so no later reader mistakes it for
+  mutation coverage.
+- **D-8 and D-13 respected** — nothing in the diff touches `scenario-liveness-selftest.sh` or the
+  closed #710 records.
