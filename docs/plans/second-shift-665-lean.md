@@ -47,6 +47,9 @@ file); the PR lane's deferral decisions (AC-4).
   "Test-the-tests" paragraph names the new lane set. CLAUDE.md's mutation paragraph delegates
   its lane facts there, so AC-5 is unsatisfiable without it — the skill currently asserts
   "**Those two are the only places it runs**", which this change falsifies.
+- **AC-9** (added at the round-1 fix; see Departures): every workflow this change adds or
+  edits passes CI's `actionlint` step, which runs shellcheck over each `run:` body — not only
+  the YAML floor that `scripts/check-workflows-selftest.sh` asserts.
 
 ## Departures from the pre-flight ledger
 
@@ -69,6 +72,12 @@ file); the PR lane's deferral decisions (AC-4).
   authors `file-issue-on-red.yml` and calls it from its own two workflows; rewiring
   `install-topology.yml` is left to a follow-up rather than editing a file not on `main`.
 - **OR-1**, **OR-3** left on their stated defaults.
+- **AC-9 added after round 1.** The original set bound what the workflows *say* and nothing
+  bound whether they *lint*. `scripts/check-workflows-selftest.sh` is a YAML parser: it
+  discovered both new files and passed them while four `run:`-body lines were failing CI's
+  `actionlint` on SC2016 (markdown backticks inside single-quoted shell). The resulting
+  blocker was therefore outside the AC set entirely — the gap this AC closes. Graded with the
+  same pinned `actionlint` 1.7.7 CI runs.
 
 ## Decision Ledger
 
