@@ -1,150 +1,209 @@
 # lean review verdict — #666
 
 verdict=needs-work
-run_id: review-666-1
-session_id: 9628d05a-9a5e-46d7-aa04-44edcbd2275d
-rounds: 1
+run_id: review-666-2
+session_id: f08d7e8f-d240-4b50-9037-465fe4b7ccbb
+rounds: 2
 pr: #735
-reviewed_head: ac59ff5c92d1943e979b28f37345c24d8b0eaf0b
-reviewed_patch_id: 6ad651796fc56a6d2834e8d83626a0a0ed738b17
-inherited_patch_id: none
-inherited_from_verdict: none
+reviewed_head: 79cedf63a9a8c6ee27b8e760a6c8349725f2506e
+reviewed_patch_id: 349d207f7adcd3672262b69efb36bc03c4edb7a9
+inherited_patch_id: 6ad651796fc56a6d2834e8d83626a0a0ed738b17
+inherited_from_verdict: 1c158378b454d005afca487633bf554b6084ebf2
 fidelity: not-applicable
-model: unknown
+model: opus
 capabilities: pr-marker
 
-Round 1 read the full branch range `1d714d4..ac59ff5` (7 files, +285/-94) — `lean-gate delta`
-reported FULL: no prior round to inherit from.
+Round 2 read the delta `1c15837..79cedf6` (4 files) — `lean-gate delta` reported inheritance of
+patch `6ad651796fc5` from round 1. Round 1's findings were read first; the whole branch
+(`1d714d4..79cedf6`, 8 files) was read where the delta was misleading, which it was: the fix
+commit edits one of two CLAUDE.md passages and one of two `install-topology-detail-selftest.sh`
+regions, and only reading the unchanged halves shows what it missed.
 
-Verdict: **needs-work** — 3 blockers, all in the "the artifact says something the code does not
-do" class. The mechanics of the move are sound; what fails is that three separate sentences
-this PR ships assert a trigger contract the workflow does not implement.
+Verdict: **needs-work** — 2 blockers and 1 major. Round 1's three blockers are all genuinely
+closed, and the AC-3 amendment is sound. What fails is the same defect class round 1 named,
+surviving in the two places the fix did not look: a sentence this PR authored still names a
+trigger path the workflow no longer has, and a measured figure this PR ships does not
+reproduce.
 
 ## Per-AC scoring
 
 | AC | Verdict | Basis |
 | --- | --- | --- |
-| AC-1 | **satisfied** | All five oracles run at `ac59ff5`: the file exists; no `schedule:`; `push:`/`pull_request:`/`workflow_dispatch:` all present; neither `install-topology:` nor `install-topology-bash32:` remains in `nightly-guards.yml`; the file parses under `ruby -ryaml`. `nightly-guards.yml` still carries its `schedule:`/`cron: '41 2 * * *'` (L30/33) with `wholesale-selftests` and `prose-budget` intact — the scope boundary holds. `scripts/check-workflows-selftest.sh` globs `.github/workflows/*.yml`, so the new file needs no registration. |
-| AC-2 | **satisfied** | `file-issue-on-red` exists, `needs` both guard jobs, gated `always() && contains(needs.*.result, 'failure')` — a skipped pair yields `skipped`, not `failure`, so a non-release PR files nothing. `gh issue list` (L122) precedes `gh issue create` (L152). The body names `${SHA:0:12}` (L138) and the failing lane(s). I additionally probed the `set -euo pipefail` + `[[ … ]] && FAILING+=(…)` shape at L129-130 that the security reviewer flagged at confidence 55: it does **not** abort when only one lane failed — measured rc=0 under both bash 3.2 and bash 5. Not a defect. |
-| AC-3 | **unsatisfied** | First bullet passes: the `push.paths` awk count is exactly 3, and `grep -c 'PATH FILTER'` is 1. Second bullet fails — see **Blocker 1**. |
-| AC-4 | **unsatisfied** | Both greps pass (`guard runs nightly` gone; `install-topology.yml` present in both files). The third, judgment bullet fails on two independent counts — see **Blockers 2 and 3**. |
-| AC-5 | **satisfied** | `ac59ff5`'s body carries a `Changelog:` trailer. |
+| AC-1 | **satisfied** | Unchanged by the delta; all five oracles re-run at `79cedf6`. File exists; no `schedule:`; `push:`/`pull_request:`/`workflow_dispatch:` all present; neither `install-topology:` nor `install-topology-bash32:` remains in `nightly-guards.yml`; `ruby -ryaml` parses `HEAD:.github/workflows/install-topology.yml`. Scope boundary holds — `nightly-guards.yml:30,33` still carries `schedule:` / `cron: '41 2 * * *'` with `wholesale-selftests` and `prose-budget` intact. |
+| AC-2 | **satisfied** | Untouched by the delta (the fix's only workflow edits are the header comment and one deleted `paths:` entry), inherited from round 1 and re-checked: `file-issue-on-red` at `:107`, gated `always() && contains(needs.*.result, 'failure')` at `:109`; `gh issue list` (`:128`) precedes `gh issue create` (`:158`); `SHA: ${{ github.sha }}` (`:120`), `${SHA:0:12}` in body (`:144`) and title (`:159`). |
+| AC-3 | **satisfied** | All four amended oracles pass at head: push-block family count → **2**; `marketplace.json` in the push block → **0** (`install-topology.yml:50-54` lists only the two families); `grep -c 'PATH FILTER'` → **1**. The header (`:29-41`) names both in-scope families *and* both deliberate exclusions. The amendment itself is faithful — see below. |
+| AC-4 | **unsatisfied** | Both literal greps pass (`guard runs nightly` absent from both files; `install-topology.yml` present in both). The third, judgment bullet — the *current* contract description must be accurate — fails at `CLAUDE.md:102`. See **Blocker 1**. The paragraph that replaced the round-1 falsehood carries a measured claim that does not reproduce — see **Blocker 2**. |
+| AC-5 | **satisfied** | `79cedf6` carries `Changelog: none.`; `ac59ff5` carries the branch's consumer-visible `Changelog:`. Trailers are extracted grep-anywhere, so the squash survives. |
+
+## Round 1's three blockers
+
+**Blocker 1 (AC-3, the false `marketplace.json` rationale) — CLOSED.** The fix took the second
+remedy round 1 offered ("restate it … or drop the family"). The `- '.claude-plugin/marketplace.json'`
+path entry is deleted, and the false sentence is replaced by an explicit exclusion note at
+`install-topology.yml:36-41`. Round 1's underlying measurement re-verified at head:
+`grep -c marketplace tools/install-topology-selftest.sh` → **0**, and the guard iterates the glob
+directly at `tools/install-topology-selftest.sh:158`.
+
+**The AC-3 amendment is faithful, not a spec bent to match the diff.** It implements a remedy the
+round-1 record named in writing; the code moved with it in the same commit (this is not an oracle
+relaxed around unchanged code); it is *tighter* than the form it replaces, adding a new
+`marketplace.json` → 0 assertion that did not exist before; it is disclosed in the spec with its
+provenance (`docs/plans/second-shift-666-lean.md:42-44`); and the adversarial table's counter-botch
+row moved in lockstep (`:71`, "three-family" → "two-family"), so the anti-`plugins/**` guard is not
+weakened. It also loses no coverage: adding a plugin necessarily adds a
+`plugins/*/.claude-plugin/plugin.json`, and the release-time `metadata.version` bump rides the
+release-PR trigger regardless of paths.
+
+**Blocker 2 (AC-4, docs claimed the push trigger catches a suite regression) — CLOSED in substance.**
+`CLAUDE.md:128-131` and `docs/testing.md:691-708` now state the two-halves trade honestly, and the
+workflow header matches at `:17-21` and `:39-41`. The replacement text carries a figure that does
+not survive re-derivation, which is **Blocker 2** below — a new finding against the new prose, not
+a re-opening of the old one.
+
+**Blocker 3 (AC-4, stale present-tense cadence in `docs/testing.md`) — CLOSED at all three sites
+round 1 named.** `:158-160` now reads "its own event-triggered jobs … it ran nightly before #666";
+`:604-606` re-dated; `:623-626` generalized to "a guard excluded from the PR lane". The class
+survives one file over — see the **Major**.
 
 ## Blockers
 
-### 1. AC-3 — the `PATH FILTER` rationale for `marketplace.json` is false
-
-`.github/workflows/install-topology.yml:25-32` states each family is listed "because
-install-topology-selftest.sh itself reads it to build the staged cache", and for
-`.claude-plugin/marketplace.json` specifically that it "declares the shipped plugin set the
-guard iterates (plugins/*/.claude-plugin/)".
-
-The guard never reads that file:
+### 1. AC-4 — `CLAUDE.md:102` still names `marketplace.json` as a filtered packaging path
 
 ```
-$ grep -c marketplace tools/install-topology-selftest.sh
-0
+CLAUDE.md:100-103
+selftest jobs pass the same exclusion, and the guard runs in
+`.github/workflows/install-topology.yml` on push to `main` when the diff touches packaging paths
+(plugin manifests, `marketplace.json`, the guard script itself), on the release PR, and via
+`workflow_dispatch` (#666 retired the nightly cron …
 ```
 
-It iterates the glob directly — `for plugin_dir in "$REPO"/plugins/*/` at
-`tools/install-topology-selftest.sh:158` — and reads only `plugin.json`'s `.version` from each.
-The other two families' rationales are true; this one is not.
+`.github/workflows/install-topology.yml:50-54` lists exactly two path entries; `marketplace.json`
+is not one of them. **The sentence was true at `ac59ff5` and is false at `79cedf6`** — the fix
+made it false and did not follow through. `git show 79cedf6 -- CLAUDE.md` has exactly one hunk, at
+`@@ -126,8 +126,9 @@`: the *second* install-topology passage was rewritten, the first was not.
 
-AC-3 asks for a comment that "names why each family is in scope". A rationale that is wrong is
-worse than an absent one: it is the sentence a future reader consults before widening or
-narrowing the filter, and it would send them to the wrong file. Restate it for what is true
-(it is the consumer-facing install manifest and it carries the release-time version), or drop
-the family.
+It now contradicts three artifacts the same commit wrote or preserved: the workflow header
+(`install-topology.yml:36-41`, "deliberately NOT a family"), `docs/testing.md:674-677` (same), and
+AC-3's own amended oracle asserting that family absent. This is precisely the harm round 1's
+Blocker 1 articulated — a rationale a future reader consults before widening or narrowing the
+filter, pointing at the wrong file — reproduced at a fourth sentence.
 
-### 2. AC-4 — both docs claim the push trigger catches a *suite* regression; it cannot
+Fix: delete `` `marketplace.json`, `` from `CLAUDE.md:102`.
 
-`CLAUDE.md:129` — "a packaging or suite regression is caught at the next push/release that
-touches those paths, not at PR time."
-`docs/testing.md:685` — "a packaging or suite regression is now caught at the next push or
-release that touches those paths, rather than at PR time."
+### 2. AC-4 — `docs/testing.md:701`'s "12 merges" does not reproduce; the window holds 6 commits total
 
-The push filter matches three paths. **No suite path is among them.** The guard stages whole
-plugin directories (`cp -R "$plugin_dir." …`, L166) and builds its worklist with
-`find "$CACHE" \( -name '*-selftest.sh' -o -name '*-selftest.mjs' \)` (L195) — 56 shipped
-suites, all under `plugins/**`. A change to any of them moves the guard's answer and matches
-none of the three families.
+```
+docs/testing.md:700-702
+… Between the `v12.1.0` and `v12.2.0`
+releases (2026-08-26 → 2026-08-30, 4.25 days) 12 merges changed the guard's staged surface with
+zero triggers firing; the retired cron ran 4 times in that same window.
+```
 
-This is not hypothetical: **every defect this guard has ever caught lives outside the filter.**
-The two in its own header (a suite borrowing the repo's git toplevel; `design-sync-selftest.mjs`
-assuming adjacent siblings) and #664's `pipeline-doctor-selftest.sh` sibling-resolution defect
-are all `plugins/**` files.
+Measured at head, `fae20ba..808aa29` (v12.1.0 → v12.2.0):
 
-Measured over the last 40 first-parent merges to `main` (2026-08-23 → 2026-08-31):
-
-| | count |
+| reading | count |
 | --- | --- |
-| merges touching `plugins/**` — the guard's staged surface | **23** |
-| merges touching the three filtered families | **4** — and **3 of those 4 are release merges** |
+| all commits in the window | **6** |
+| first-parent merges touching `plugins/**` | **5** (one of which is the closing release merge) |
+| all non-merge commits touching `plugins/` | **5** |
+| date-window variant (`--since 08-26 10:39 --until 08-30 16:34`) | 7 |
+| widest nearby window (`fae20ba..1d714d4`, past v12.2.0) | 14 |
 
-So the push arm's only non-release firing in 40 merges was `f9eeb28`, which touched the guard
-script itself. The real load-bearing trigger is the release PR. Between the `v12.1.0` release
-(08-26 10:39) and `v12.2.0` (08-30 16:33) — a **4.25-day gap** — **12 merges changed the
-guard's staged surface** with zero triggers. The retired cron ran 4 times in that same window.
+The window contains **six commits in total**, so twelve is not merely unmeasured, it is
+arithmetically impossible for the range the sentence names. No reading tried reproduces it.
 
-The pre-change sentence ("caught **within a day**") was true. Its replacement is false in the
-push half. The accurate statement is "caught on the next release PR, or by
-`workflow_dispatch`", and the honest trade is that the ≤1-day window widens to the release
-cadence — empirically ~4 days here.
+**The figure's origin is round 1's own verdict record** (`second-shift-666-lean-verdict.md:96-98`),
+which the build shipped verbatim into permanent documentation. I asserted that number; it is wrong,
+and it became a build input nothing re-derived. Flagging that explicitly because it is the failure
+mode, not just this line: a review record's asserted measurement is treated downstream as evidence.
 
-Worth flagging for whoever fixes this, though it is not itself a blocker: routing the guard's
-only reliable trigger onto the release PR puts the repo's longest job on the release critical
-path, which inverts the "a standing measurement belongs off the critical path" argument the
-same doc paragraph makes. Either widening the filter or restating the contract resolves the
-blocker; the two choices differ on this.
+Two further accuracy notes in the same sentence, to fix together:
 
-### 3. AC-4 — `docs/testing.md` still states the retired cadence as the live contract
+- **`4.25 days` is `4.12`.** `fae20ba` is `2026-08-26 10:39:29 +0000`; `808aa29` is
+  `2026-08-30 16:33:35 +0300` = `13:33:35 UTC`. That is 4d 2h 54m. The 4.25 figure comes from
+  reading the `+0300` stamp as UTC (which yields 4.246). `CLAUDE.md` does not repeat the number,
+  but `tools/install-topology-detail-selftest.sh` reasoning depends on the same magnitude.
+- **`zero triggers firing` is TRUE** and should be kept: the only merge in `fae20ba..808aa29`
+  matching the two-family filter is `808aa29`, the release merge closing the window.
 
-`docs/testing.md:158`, untouched by this diff:
+**The rest of the paragraph's figures re-derive exactly** and should be left alone. Over the 40
+first-parent merges ending at `1d714d4`: **23** touch `plugins/**`; **4** match the two-family
+filter; **3 of those 4** are release merges (CHANGELOG-touching); the single non-release firing is
+`f9eeb28` (#706), which changed the guard script. The cron's 4 runs in the window is also correct
+(02:41 UTC on 08-27/28/29/30). Re-derived here against the **two-family** filter, not inherited
+from round 1's three-family measurement — the counts happen to coincide because release merges
+touch both `marketplace.json` and the plugin manifests.
 
-> `install-topology-selftest.sh` itself runs in its own nightly jobs (`install-topology`,
-> `install-topology-bash32`), never alongside a sweep.
+## Major — must ride along, per the spec's own scope boundary
 
-Present tense, describing where the guard runs today, and naming the two jobs this very diff
-deletes from `nightly-guards.yml`. It sits in the `--exclude` callers section — a current-state
-inventory, not incident prose, so AC-4's historical carve-out does not reach it.
+### `tools/install-topology-detail-selftest.sh:27-28` states the retired cadence as a standing fact
 
-Two secondary sites, weaker because they sit inside the #664 incident narrative, but both
-stated as standing present-tense facts rather than dated history:
+```
+# WHY NOT INSIDE install-topology-selftest.sh ITSELF: that file stages and runs every shipped
+# suite — ~5 to 10 minutes, nightly-only since #620. A guard for three lines of grep must not
+# inherit that cost, or it runs a day late for a defect the PR lane could have caught.
+```
 
-- `docs/testing.md:604-605` — "Since #620 the guard is nightly-only; the PR lane excludes it."
-- `docs/testing.md:622` — "a nightly-only guard is a detection tier, not a PR gate."
+Present tense, and "runs a day late" is the cron cadence specifically — under the new triggers the
+lag is the release cadence, which this PR's own `docs/testing.md` paragraph measures in days, not a
+day. The branch re-dated `:10-19` of *this very file* correctly and stopped seventeen lines short,
+so one file now describes the guard both ways. `ci.yml` got the same ride-along treatment at both
+its sites (`:99-100`, `:231-232`) and is correct.
 
-`tools/install-topology-detail-selftest.sh:10-11` shows the pattern that works and was applied
-in this diff — "install-topology ran nightly at the time (#666 later moved it to event
-triggers)". Applying it in one file and not the other is what leaves these three.
+`docs/plans/second-shift-666-lean.md:61-63` names this file explicitly as a ride-along consequence
+of AC-4, so it is in scope for the ticket even though AC-4's literal oracle covers only two files.
+Scored major rather than blocker: it is a rationale comment inside a suite header, not a contract
+statement a reader acts on to change CI.
+
+Suggested: `nightly-only since #620` → `excluded from the PR lane since #620 (nightly then;
+event-triggered since #666)`, and `runs a day late` → `runs late — at the next release PR, not on
+the branch that caused it`.
 
 ## Recorded, not blocking
 
-- **`pr-gates` red at `ac59ff5`** — the lean-chain check, which reds until a verdict record
-  exists on the branch. Expected pre-approval state, not a finding.
-- **CI at `ac59ff5`**: `lint-and-selftests` **success** (4m41s), `mutation-sweep-pr`
-  **success**, `release-pr-gates` skipped, `selftests (macos, bash 3.2)` still in progress when
-  this record was written. `install-topology` and `install-topology-bash32` correctly report
-  `skipping` on this non-release PR — the new `if:` guard behaving as designed, observed live.
-- **Design fidelity**: `not-applicable` — the spec carries no `## Design` section, so step 5b
-  does not arm.
-- The `release/next` + head-repo check at L64-65 and L81-82 matches `ci.yml:249` and `ci.yml:365`
-  verbatim; `release-pr.yml:92` confirms that is the real release head branch. The fork-PR
-  hardening is correct.
-- Panel: security / performance / maintainability / complexity / test-coverage all returned
-  **approve, zero findings**. Scope-completeness returned two blockers, which converge with
-  Blockers 1 and 3 above; its `set -e` concern (suppressed, conf 55) I falsified by measurement.
+- **`pr-gates` red at `79cedf6`** — `check-lean-chain.sh`, "lean chain reconciliation". The
+  expected pre-approval state: it reds until a verdict record exists on the branch. Confirmed from
+  the failing job's log, not assumed.
+- **CI at `79cedf6`, cited not re-run** (run `33390572973`, head
+  `79cedf63a9a8c6ee27b8e760a6c8349725f2506e`): `lint-and-selftests` **success** (4m52s),
+  `selftests (macos, bash 3.2)` **success** (6m48s), `mutation-sweep-pr` **success** (16s).
+  `release-pr-gates` skipped. No correctness lane contradicts an `AC-n`.
+- **`install-topology` / `install-topology (macos, bash 3.2)` / `file-issue-on-red` all report
+  `skipping`** at this head (run `33390572967`) — the non-release-PR `if:` guard behaving as
+  designed, observed live for the second round running.
+- **Design fidelity: `not-applicable`** — the spec carries no `## Design` section
+  (`grep -c '^## Design'` → 0), so step 5b does not arm.
+- Residual `nightly` mentions in `plugins/dev-pipeline/tools/pipeline-doctor-selftest.sh:678,807`
+  and `tools/install-topology-selftest.sh` are past-tense incident narrative about the seven
+  consecutive reds. Historical and correct — AC-4's carve-out reaches them.
+- `nightly-guards.yml:14-19` records the move as history with a pointer to the new file. Correct.
+
+## Panel
+
+Scoped deliberately rather than run whole. Round 1 dispatched the full panel on this branch and the
+core five (security / performance / maintainability / complexity / test-coverage) returned
+**zero findings each**; only scope-completeness fired, and it converged with 2 of 3 blockers. This
+round's delta is four files of comments and prose plus one deleted YAML line — no code path
+changed — so the core five have nothing to read that they returned nothing on last time. I ran
+**scope-completeness** alone. It independently found Blocker 1 and contributed the Major; it
+accepted the "12 merges" figure at face value, which is Blocker 2 and was caught by re-derivation
+rather than by review.
 
 ## Strengths
 
-- The `if:` gate on both guard jobs is the right shape: `pull_request` cannot be path-filtered by
-  head branch in `on:`, so job-level routing is the only way to express "the release PR and
-  nothing else", and it reuses the repo's existing head-repo-pinned idiom rather than inventing
-  one. Verified live — both jobs skipped on this PR.
-- `file-issue-on-red` degrades honestly. `gh run view --log-failed` cannot read an in-progress
-  run's logs, and the code says so and falls back to a run link rather than filing an issue with
-  an empty body.
-- Dedup by title substring with the stated reason (a label must pre-exist or
-  `gh issue create --label` errors outright) is the correct call and the comment records why.
-- `tools/install-topology-detail-selftest.sh`'s prose was correctly re-dated rather than
-  rewritten, preserving the incident record.
+- The fix chose deletion over a restated pretext. Dropping the family is the stronger of the two
+  remedies round 1 offered, and it took the one that removes the claim rather than the one that
+  rewords it.
+- The new PATH FILTER block explains both *inclusions* and both *exclusions*, and says why the
+  suite-content gap is deliberate rather than leaving a reader to infer it. The workflow header now
+  routes to the docs for the honest trade instead of restating it in a third place that could drift.
+- `docs/testing.md`'s replacement paragraph splits the trade into its two halves explicitly rather
+  than averaging them into one comfortable sentence. That is the right shape; only one figure in it
+  is wrong.
+- The `if:`-gated release-PR routing continues to behave as designed, verified live at this head.
+
+## Minimal path to green
+
+Three prose edits, no code change: `CLAUDE.md:102`, `docs/testing.md:701` (the figure, the
+`4.25`), and `tools/install-topology-detail-selftest.sh:27-28`. AC-3's amendment stands as
+written; AC-1, AC-2, AC-3, AC-5 need nothing.
