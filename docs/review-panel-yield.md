@@ -215,6 +215,12 @@ the blocker column for all four, with the dark surface concentrated in the same 
 window adds is that the reviewing session already re-derives these dimensions under the Sub-Agent
 Trust Model, so the dispatch was being paid twice rather than being the only thing covering them.
 
+That premise holds by construction on the lean lane — `review-lean` reviews from a session that did
+not author the change — and it does not hold on `pr-revision`, which runs review-lead in dispatch
+mode from the session that wrote the fix, making the four author self-review there. Accepted, not
+fixed: that review is advisory and non-blocking by its own contract, and the four's blocker yield
+is zero on both corpora, so the dimension it weakens was not paying anyway.
+
 The measured columns above are untouched by that, and the decision is reversible in the direction
 this table wrote: every panelist stays in the effective registry and stays spawnable on demand or
 by config, so restoring a domain-gated dispatch for any of the four is a routing edit and nothing
