@@ -51,13 +51,13 @@ the code does not author its own evaluation.
    from a re-introduced one, and a blocker the build simply ignored leaves no trace in the delta
    at all. The committed lean spec is the definition of done: score every numbered `AC-n` it
    **declares** — an id opening a bullet or a heading — in a `## AC scorecard` table in the
-   `--summary-file`. The writer refuses an `approve` without one and prints the schema. Four
-   scores: `satisfied`, `unsatisfied`, `divergent-inert`, `undeterminable`. The last two cannot
-   stand beside an `approve`, so a divergence you have **measured** inert is scored
-   `divergent-inert` with `measured: <what you measured>` and `follow-up: <ref>` in its evidence
-   cell — that is the #565 case, where a blocker was forced on a narrowing measured identical
-   across all 63 corpus records. An UNMEASURED divergence is `unsatisfied`. `approve` iff there
-   are no blockers; any blocker is `needs-work`. Do not soften a blocker to keep a run moving, and do not invent
+   `--summary-file`. The writer refuses an `approve` without one, and prints the schema. Four
+   scores: `satisfied`, `unsatisfied`, `divergent-inert`, `undeterminable`. Neither `unsatisfied`
+   nor `undeterminable` may stand beside an `approve`. So a divergence you have **measured** as
+   inert is scored `divergent-inert`, carrying `measured: <what you measured>` and
+   `follow-up: <ref>` in its evidence cell — that is the case where a blocker was once forced on
+   a narrowing measured identical across all 63 corpus records. An UNMEASURED divergence is
+   `unsatisfied`. `approve` iff there are no blockers; any blocker is `needs-work`. Do not soften a blocker to keep a run moving, and do not invent
    one to look thorough. **An oracle `AC-n` proved by a CI run whose command and head both match
    this review is verified by citing that run (job, head SHA, conclusion), not by re-running it**
    — execute only when the command or the head differs from what CI ran ([discriminator](../../../../docs/testing.md#citing-a-ci-run-instead-of-re-running-it-review-side)).
