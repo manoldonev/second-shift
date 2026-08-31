@@ -146,6 +146,59 @@ bash pipeline-cost-block.sh --stateless \
 
 An empty-looking block here means the query found no `claude_code.cost.usage` datapoints for that id inside that fence; the log line on stderr names which of the two it was.
 
+## 6. Cost per merged PR
+
+`lean-gate.sh close-out` (step 9) publishes a `cost_usd:` key on both surfaces it writes — a
+bullet on the closing comment (present on every closed-out run, github only) and a line inside
+the PR description's cost block (present whenever a block is published). The value is a bare
+decimal (`cost_usd: 70.41`, no `$`) when a priced block rendered, or `unavailable (<reason>)`
+otherwise — either "block rendered, no Cost (USD) column" or "no cost block rendered this run".
+Either surface answers "what did this run cost" with a grep instead of a table cell.
+
+That's enough to answer the aggregate question straight from the tracker, with no
+`cost-log.jsonl` in reach (that file is gitignored and local to whoever's machine ran close-out).
+This is the recipe #723's kill criterion names — no new script, just `gh` + `jq` against the last
+10 merged PRs' own descriptions, reading `cost_usd:` first and falling back to a labeled legacy
+`$N.NN` block-grep for a PR that predates this ticket (no key at all):
+
+```bash
+gh pr list --state merged --limit 30 --json number,mergedAt,body | jq -r '
+  def classify:
+    if (.body | test("cost_usd: [0-9]")) then
+      { usd: (.body | capture("cost_usd: (?<v>[0-9.]+)").v | tonumber), src: "cost_usd" }
+    elif (.body | test("cost_usd: unavailable")) then
+      { usd: null, src: "unavailable" }
+    elif (.body | test("\\$[0-9]+\\.[0-9]{2}")) then
+      { usd: (.body | capture("\\$(?<v>[0-9]+\\.[0-9]{2})").v | tonumber), src: "legacy" }
+    else
+      { usd: null, src: "unreported" }
+    end;
+  (sort_by(.mergedAt) | reverse | .[:10] | map(. + classify)) as $rows
+  | ($rows | length) as $n
+  | ($rows | map(select(.usd != null))) as $priced
+  | ( $rows[] | "#\(.number)\t\(.mergedAt)\t"
+      + (if .usd then (.usd | tostring) else "—" end) + "\t(\(.src))" )
+  , ( if ($priced | length) > 0 then
+        "mean: $" + (( ($priced | map(.usd) | add / length) * 100 | round ) / 100 | tostring)
+          + " over \($priced | length) of the last \($n) merged PRs; \($n - ($priced | length)) unpriced"
+      else
+        "mean: n/a — 0 of the last \($n) merged PRs are priced"
+      end )
+'
+```
+
+`src` names where each row's figure came from: `cost_usd` (this ticket's key, priced),
+`unavailable` (this ticket's key, explicitly no price), `legacy` (a pre-#723 PR, recovered by
+grepping the block's own "Cost (USD)" cell), or `unreported` (nothing to read at all — a pre-#723
+PR with no cost block, or a documented skip). Nothing is imputed and no unpriced row is scored as
+zero; the mean is over the priced subset only, with the unpriced count stated beside it.
+
+Run it from inside the repo (or add `--repo <owner>/<name>`). The `mean`/unpriced-count line is
+the coverage figure D-4/D-5 of the #723 spec name as the standing measurement for whether the
+unpriced-run gap earns a later ticket — a run's `cost_usd` is only as trustworthy as the
+OTel/telemetry setup above being live for it, so a run outside that setup (or launched without
+`$CLAUDE_CODE_ENABLE_TELEMETRY`) reports `unavailable`/`unreported`, never zero.
+
 ## Troubleshooting
 
 **The block is empty or absent.** The script records nothing, so the diagnosis is the stderr log line from the step-7 call — `skip(<verdict>): …`. Each verdict names a distinct root cause (before #432 one value absorbed the first four states, which made "empty cost block" undiagnosable):
