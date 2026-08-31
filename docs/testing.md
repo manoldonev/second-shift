@@ -698,8 +698,9 @@ the next push. Measured over the 40 first-parent merges to `main` before 2026-08
 `plugins/**` (the guard's real staged surface) against 4 that touched the push filter's two
 families, 3 of those 4 being release merges themselves — so in practice the push arm rarely fires
 outside a release, and the release cadence is the real bound. Between the `v12.1.0` and `v12.2.0`
-releases (2026-08-26 → 2026-08-30, 4.25 days) 12 merges changed the guard's staged surface with
-zero triggers firing; the retired cron ran 4 times in that same window. A clock was still strictly
+releases (2026-08-26 → 2026-08-30, 4.12 days) 5 first-parent merges touched the guard's staged
+surface — one of them the closing release merge — with zero push triggers firing; the retired cron
+ran 4 times in that same window. A clock was still strictly
 worse than this trade, not just slower — its answer barely moved between two nights, and a red run
 sat unread on a cron dashboard this repo's operator does not consume; the mutation nightly hit the
 same failure mode independently. A red run now files a deduplicated GitHub issue instead, so the

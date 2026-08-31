@@ -24,9 +24,10 @@
 # when another suite has already exited non-zero. There is no verdict path to compose it onto.
 #
 # WHY NOT INSIDE install-topology-selftest.sh ITSELF: that file stages and runs every shipped
-# suite — ~5 to 10 minutes, nightly-only since #620. A guard for three lines of grep must not
-# inherit that cost, or it runs a day late for a defect the PR lane could have caught. This
-# suite stages nothing and needs no plugins.
+# suite — ~5 to 10 minutes, excluded from the PR lane since #620 (nightly then; event-triggered
+# since #666). A guard for three lines of grep must not inherit that cost, or it runs late — at
+# the next release PR, not on the branch that caused it. This suite stages nothing and needs no
+# plugins.
 #
 # TECHNIQUE: extract-and-execute, not grep. The block is delimited in
 # install-topology-selftest.sh by `# >>> red-detail` / `# <<< red-detail` and is re-hosted

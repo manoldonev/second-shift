@@ -99,7 +99,7 @@ mutation baseline's environment check meaningful.
 its cost is the whole suite set a second time. It no longer runs on the PR lane either — both CI
 selftest jobs pass the same exclusion, and the guard runs in
 `.github/workflows/install-topology.yml` on push to `main` when the diff touches packaging paths
-(plugin manifests, `marketplace.json`, the guard script itself), on the release PR, and via
+(plugin manifests, the guard script itself), on the release PR, and via
 `workflow_dispatch` (#666 retired the nightly cron — a clock was the least relevant trigger for a
 guard whose answer only moves on those paths). Run it directly, `bash
 tools/install-topology-selftest.sh`, when your change is about how plugins are installed or laid
