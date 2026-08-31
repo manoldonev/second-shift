@@ -7,15 +7,16 @@
 # INVARIANT GUARDED: when a staged suite fails, the one line install-topology prints about it
 # names THAT SUITE'S OWN failure, not a line that merely contains the substring "fail".
 #
-# WHY THIS IS WORTH A SUITE (#664). install-topology is a nightly guard, so its red line is
-# usually the only thing a human reads about a failure — the captured log is deleted with
-# $BASE on exit and never leaves the runner. The line composed the detail as
-# `grep -iE 'FAIL|error|No such|not found' "$log" | head -1`, and for
-# pipeline-doctor-selftest.sh the first line matching that is a PASSING one:
+# WHY THIS IS WORTH A SUITE (#664). install-topology ran nightly at the time (#666 later moved
+# it to event triggers), so its red line was usually the only thing a human read about a
+# failure — the captured log is deleted with $BASE on exit and never leaves the runner. The
+# line composed the detail as `grep -iE 'FAIL|error|No such|not found' "$log" | head -1`, and
+# for pipeline-doctor-selftest.sh the first line matching that is a PASSING one:
 # `ok: (d3) completed + failed at 24h → never stale`. Seven consecutive nightly reds
 # therefore named a green case while the real `FAIL: (inv/sibling)` sat 37 lines below,
 # unquoted. The defect was not that the guard failed to catch a regression — it caught it
-# every night — but that it could not say what it had caught.
+# every night — but that it could not say what it had caught. The same log-deletion
+# constraint holds under event triggers, so the fix still matters.
 #
 # WHY NO SCENARIO COVERS IT (CLAUDE.md scenario-first rule): scenario-liveness-selftest.sh
 # composes verdict paths through the lean gate to a terminal WRITE. This path is inside a
@@ -23,9 +24,12 @@
 # when another suite has already exited non-zero. There is no verdict path to compose it onto.
 #
 # WHY NOT INSIDE install-topology-selftest.sh ITSELF: that file stages and runs every shipped
-# suite — ~5 to 10 minutes, nightly-only since #620. A guard for three lines of grep must not
-# inherit that cost, or it runs a day late for a defect the PR lane could have caught. This
-# suite stages nothing and needs no plugins.
+# suite — ~5 to 10 minutes, excluded from the PR lane since #620 (nightly then; event-triggered
+# since #666). A guard for three lines of grep must not inherit that cost, or it runs late — at
+# the next push to `main`, not on the branch that caused it: the red-detail block lives inside
+# install-topology-selftest.sh, the guard script itself, so an edit here is the push filter's
+# guard-script family, not its shipped-suite-content one. This suite stages nothing and needs no
+# plugins.
 #
 # TECHNIQUE: extract-and-execute, not grep. The block is delimited in
 # install-topology-selftest.sh by `# >>> red-detail` / `# <<< red-detail` and is re-hosted
