@@ -257,7 +257,7 @@ jobs:
             fi
             if [[ -z "$SURV" && -z "$OTHER" ]]; then
               echo
-              echo 'No `RED:` line was captured — a shard or the merge died before writing one. Read the run log.'
+              echo "No \`RED:\` line was captured — a shard or the merge died before writing one. Read the run log."
             fi
             echo 'MUTATION_AUDIT_BODY'
           } >> "$GITHUB_OUTPUT"
@@ -273,9 +273,14 @@ jobs:
   # A green audit files nothing. A red one files, or comments on, exactly one issue under its
   # own dedup key — never the merge-time lane's, so a standing audit red cannot suppress a
   # coverage gap on somebody's merge, nor be suppressed by one.
+  #
+  # `cancelled` is matched alongside `failure` for the same reason the merge-time lane gates on
+  # `!= 'success'`: a shard that blows its 60-minute bound, or whose runner dies, resolves as
+  # `cancelled` and leaves `merge` `skipped`, so a `failure`-only test would let a whole audit
+  # vanish silently. Neither state can arise on a green run.
   file-audit-red:
     needs: [sweep, merge]
-    if: always() && contains(needs.*.result, 'failure')
+    if: always() && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled'))
     permissions:
       contents: read
       issues: write

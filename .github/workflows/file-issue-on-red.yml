@@ -79,7 +79,7 @@ jobs:
           BODY_FILE="$(mktemp)"
           {
             printf '%s\n\n' "$BODY_IN"
-            printf 'Commit: `%s`\n' "$SHORT"
+            printf "Commit: \`%s\`\n" "$SHORT"
             printf 'Run: %s\n' "$RUN_URL"
           } > "$BODY_FILE"
 

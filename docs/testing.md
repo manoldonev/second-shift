@@ -1548,14 +1548,14 @@ proves the parallel run really overlapped *first*, since two serial runs would a
 **A suite may not write a literal path outside its own `mktemp` tree.** Two mutants of one guard run
 the same suite at the same time, so a fixed `/tmp/<name>.out` turns an interleaved write-then-read
 into a verdict about the wrong mutant. Three suites carried exactly that and were fixed; case (k)
-lints the whole corpus for it, because the alternative symptom is flake in somebody's nightly.
+lints the whole corpus for it, because the alternative symptom is flake in somebody's sweep.
 
 **The pool presses on the killer time bound, and the direction matters.** Contention makes a suite
 slower and a timeout scores as a **kill** — the direction that *hides* a weak test rather than
 inventing a finding. The bound is `4 ×` the suite's own serially-measured time, floored at 60s, which
 is wide for a single-threaded suite given one worker per core; and every timeout is logged by name
 (`killer timeout (Ns exceeded, scored as KILLED)`), so a bound hit is visible data rather than a
-silent verdict. If a nightly shard starts naming timeouts it did not name before, read that as the
+silent verdict. If a wholesale shard starts naming timeouts it did not name before, read that as the
 pool pressing on the bound, not as the suite getting stronger.
 
 **3. A killed mutant stops at the first `FAIL:`.** The verdict is settled there, so the killer's

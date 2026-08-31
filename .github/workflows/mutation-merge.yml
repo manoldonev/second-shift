@@ -121,10 +121,10 @@ jobs:
 
           if [[ -n "$SURV" ]]; then
             KEY='mutation sweep red'
-            LEAD='A merge-time mutation sweep found survivor(s) absent from `tools/mutation-baseline.tsv`. Each is a mutation of a guard this merge touched that its paired suite did not catch.'
+            LEAD="A merge-time mutation sweep found survivor(s) absent from \`tools/mutation-baseline.tsv\`. Each is a mutation of a guard this merge touched that its paired suite did not catch."
           else
             KEY='mutation sweep infra red'
-            LEAD='A merge-time mutation sweep failed on a harness fault rather than a coverage gap. Triage per the exit contract in `docs/testing.md`.'
+            LEAD="A merge-time mutation sweep failed on a harness fault rather than a coverage gap. Triage per the exit contract in \`docs/testing.md\`."
           fi
 
           {
@@ -158,18 +158,20 @@ jobs:
           path: sweep-out/
           if-no-files-found: error
 
-  # A green run files nothing; a red one files, or comments on, exactly one issue. The
-  # fallbacks cover the case the classify step never ran at all (a runner death), where an
-  # unclassified infra red is still better than silence.
+  # A green run files nothing; a red one files, or comments on, exactly one issue. The gate is
+  # `!= 'success'` and not `== 'failure'` on purpose: a job that blows its 75-minute bound, or
+  # whose runner dies, resolves as `cancelled`, which `== 'failure'` does not match — so the
+  # merge would go ungraded in silence. That is exactly the case the fallbacks below cover,
+  # where an unclassified infra red beats no issue at all.
   file-red:
     needs: sweep
-    if: always() && needs.sweep.result == 'failure'
+    if: always() && needs.sweep.result != 'success'
     permissions:
       contents: read
       issues: write
     uses: ./.github/workflows/file-issue-on-red.yml
     with:
       title_key: ${{ needs.sweep.outputs.title_key || 'mutation sweep infra red' }}
-      body: ${{ needs.sweep.outputs.body || 'The merge-time mutation sweep job failed without producing a classified verdict — read the run log linked below.' }}
+      body: ${{ needs.sweep.outputs.body || 'The merge-time mutation sweep job did not succeed and produced no classified verdict — a timeout, a cancellation, or a runner death. Read the run log linked below.' }}
       commit: ${{ github.sha }}
       run_id: ${{ github.run_id }}
