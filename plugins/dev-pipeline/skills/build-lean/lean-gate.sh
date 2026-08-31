@@ -4228,13 +4228,16 @@ design_plan_review_gate() { # design_plan_review_gate <plan-patch-id>
     return 0
   fi
 
-  # D-35. The agent contract is not on disk, so the dispatch this arm is about to demand cannot be
-  # made. envfail, not a milestone red: nothing about the BRANCH was evaluated, and charging a run
-  # for its operator's install would be the misreport the infra class exists to prevent.
-  resolve_plan_reviewer_agent "$rev" >/dev/null 2>&1 \
-    || envfail "milestone-3: spec $SPEC_REL arms the design lane on the '$fam' family, whose plan reviewer 'design-toolkit:$rev' this checkout does not ship — searched the monorepo layout and the install cache under both plugins. NOTHING was evaluated and no fix attempt was charged. Install design-toolkit, or disarm the ticket."
-
   if [ ! -f "$f" ]; then
+    # D-35, and INSIDE the absent branch rather than above it. The refusal's premise is that a
+    # dispatch this arm is about to demand cannot be made — so it belongs where the dispatch is
+    # demanded. Hoisted, it would also red a run whose record is already written and current, in a
+    # checkout that no longer needs the agent because the review already happened.
+    #
+    # envfail, not a milestone red: nothing about the BRANCH was evaluated, and charging a run for
+    # its operator's install is the misreport the infra class exists to prevent.
+    resolve_plan_reviewer_agent "$rev" >/dev/null 2>&1 \
+      || envfail "milestone-3: spec $SPEC_REL arms the design lane on the '$fam' family, whose plan reviewer 'design-toolkit:$rev' this checkout does not ship — searched the monorepo layout and the install cache under both plugins. NOTHING was evaluated and no fix attempt was charged. Install design-toolkit, or disarm the ticket."
     block_milestone 3 "the translation plan $PLAN_MANIFEST_REL has the right shape and no reader: there is no plan-review record at $PLAN_REVIEW_MANIFEST_REL. Dispatch 'design-toolkit:$rev' (Agent tool) on the committed plan, then record its output — 'lean-gate.sh plan-review $ISSUE --verdict <pass|fix-and-go|block> --summary-file <its findings> --model <the model it ran on>' — commit the record, and re-run milestone 3. The gate cannot run an agent; asserting the committed output is the only shape available to it."
     return $?
   fi
