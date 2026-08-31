@@ -1,168 +1,179 @@
 # lean review verdict — #710
 
-verdict=needs-work
-run_id: review-710-1
-session_id: 0a5cbd89-76d8-4b66-8fca-a7928c0f263c
-rounds: 1
+verdict=approve
+run_id: review-710-2
+session_id: afae6004-1300-4700-a042-7f32c900d597
+rounds: 2
 pr: #741
-reviewed_head: 8a597d104bea73be635e5d70cdd0e7d5865a9288
-reviewed_patch_id: c653fba65d61c5986d491a434e07d8afad4a5ec6
-inherited_patch_id: none
-inherited_from_verdict: none
+reviewed_head: 11bda2e92b2a223647fd0d0fe562ec7370ed42b1
+reviewed_patch_id: e384a5e97eb0c3345e9c4fcfc0d9fda7b3d9030f
+inherited_patch_id: c653fba65d61c5986d491a434e07d8afad4a5ec6
+inherited_from_verdict: a1fd43e41e18085d2ef550fc913861b9f9f2ec50
 fidelity: not-applicable
 model: opus
 capabilities: pr-marker
 
-Round 1 — full branch range `7e82408f..8a597d10` (12 files, +686/-27). No prior round to inherit
-from; `bash G delta 710` printed the whole branch diff.
+Round 2 — delta range `8f572172..HEAD` (2 files, +4/-4), inheriting the coverage of patch
+`c653fba65d61` from round 1. Both round-1 blockers were red CI lanes, not unmet ACs; both are
+now green on CI at this exact head, and the fixes touch no production logic.
 
-The design of this slice is right and the tests are the good kind — every `(dpr*)` case drives a
-real fixture tree through production's own writer and reader, and none of them mirrors the
-gate's arithmetic. Two CI lanes are nevertheless red at this head, both branch-caused, both
-correctness lanes, and neither is mentioned by the PR body's Verification section.
+Verdict: **approve**.
 
-## Blockers
+## The two round-1 blockers
 
-**B1 — `lint-and-selftests` is RED, and it took the whole job's later coverage down with it.**
-`plugins/dev-pipeline/skills/build-lean/scenario-liveness-selftest.sh:1235`. CI's Ubuntu package
-is **shellcheck 0.9.0** and emits, on the new fixture helper:
+**B1 — `lint-and-selftests` (shellcheck 0.9.0 SC2119/SC2120). FIXED.**
+`af076210` deletes the unused `[verdict]` positional from `lean_dplanrev_sync` rather than
+passing `pass` at the call site. Verified three ways:
 
-```
-line 1229:  lean_dplanrev_sync
-            ^--- SC2119 (info): Use lean_dplanrev_sync "$@" if function's $1 should mean script's $1.
-line 1235:  lean_dplanrev_sync() { # lean_dplanrev_sync [verdict]
-            ^-- SC2120 (warning): lean_dplanrev_sync references arguments, but none are ever passed.
-```
+- The pinned CI binary (`shellcheck 0.9.0`) running the exact CI recipe
+  (`find . -name '*.sh' -type f -print0 | xargs -0 shellcheck -e SC1091,SC2015,SC2181`) over the
+  whole repo at this head: **0 findings, rc=0**.
+- Control, same binary: the pre-fix blob (`a1fd43e4:…/scenario-liveness-selftest.sh`) still
+  reproduces both SC2119 and SC2120 — so the clean result is the fix, not a binary that cannot
+  raise the codes.
+- CI itself: `lint-and-selftests` **success**, and every one of its 16 steps reports `success` at
+  `head_sha 11bda2e9`. Round 1's finding was that this job's shellcheck step is step 1 and had
+  skipped all 9 later steps; this round they all ran. That includes
+  `gate bucket register (scripts/gate-buckets.tsv)`, which is **AC-7's own oracle** and had no CI
+  evidence at all in round 1.
 
-Neither code is in the job's `-e SC1091,SC2015,SC2181` exclusion list. `lean_dplanrev_sync` takes
-an optional `[verdict]` that its single call site (inside `lean_dplan_sync`) never passes — the
-sibling `dplanrev_sync` in `lean-gate-selftest.sh` escapes the warning only because `(dpr3)` and
-`(dpr4)` do pass one.
+The fix loses no coverage: the call site was the only one, and it never passed a verdict. The
+sibling `dplanrev_sync` in `lean-gate-selftest.sh` correctly keeps its parameter, because
+`(dpr3)`/`(dpr4)` genuinely pass one.
 
-The PR body's "shellcheck … green" is honestly held and still wrong for CI: **local shellcheck
-0.11.0 is clean on the same recipe** (re-measured here), so this is the known local/CI version
-skew, not a mistake in reading the output.
+**B2 — `selftests (macos, bash 3.2)` (`tools/prose-blockers-selftest.sh`). FIXED.**
+`11bda2e9` re-keys `pb-0c42ee3f` → `pb-cbe0e255` and adds `pb-1c5740d4`.
+`bash tools/prose-blockers.sh check` at this head: `✓ zero undispositioned constructs`
+(census 26, record 48 rows). CI: `run all selftests under stock bash 3.2` **success**.
 
-The reason this is not a cosmetic lint red: shellcheck is the **first** step of
-`lint-and-selftests`, so every later step reported `skipped` at this head — the full Linux
-selftest sweep, JSON validation, actionlint, contract lockstep blocks, the reserved exit-3 lane
-set, eval-harness model identity, capability parity, the namespace direction check, **and
-`check-gate-buckets.sh`, which is AC-7's own oracle**. CI has verified essentially nothing about
-this branch. I ran those locally instead (see Verified here), but a green local run is not the
-lane the merge boundary reads.
+Both rows were checked for substance, not just for making the census balance:
 
-Fix: `lean_dplanrev_sync pass` at the call site, or drop the unused parameter.
+- `pb-cbe0e255` anchors `build-lean/SKILL.md:27`, which is the step-6 line that now names the
+  plan-review dispatch and `bash G plan-review`. The `gate-backed` disposition against
+  `lean-gate.sh::milestone-3` is true — `design_plan_review_gate` is the refusal it restates.
+- `pb-1c5740d4` anchors `figma-faithful/SKILL.md:207`, the step-7 dispatch paragraph, which
+  gained "milestone 3 refuses to render until the reviewer's output is committed". Also a genuine
+  restatement of the same gate. The census growing 25 → 26 is consistent with exactly one re-key
+  plus exactly one new construct.
 
-**B2 — `selftests (macos, bash 3.2)` is RED: `tools/prose-blockers-selftest.sh` (rc=1).**
-The failing case is `this repo's own tree is fully dispositioned`. Reproduced at this head:
+## Inheritance is sound — the base merge changed none of the reviewed lines
 
-```
-$ bash tools/prose-blockers.sh check
-[prose-blockers] census: 26 construct(s) over 51 file(s); record: 47 row(s).
-[prose-blockers] UNDISPOSITIONED — in the tree, absent from docs/prose-blocker-triage.tsv:
-  pb-1c5740d4  plugins/design-toolkit/skills/figma-faithful/SKILL.md:207
-  pb-cbe0e255  plugins/dev-pipeline/skills/build-lean/SKILL.md:27
-[prose-blockers] STALE — the row expects a surviving construct, the tree has none:
-  pb-0c42ee3f  (pointer-kept)
-```
+Round 1 reviewed up to `8a597d10`; `8f572172` then merged `origin/main`. I compared the branch's
+**added** lines per file between round 1's range and this head's range against the true
+merge-base:
 
-The same command on the base `7e82408f` reports `✓ zero undispositioned constructs` over a
-25-construct census, so this is the branch's: prose-blocker ids are content-derived, and the
-AC-8 edits to `figma-faithful/SKILL.md` step 7 and `build-lean/SKILL.md` step 6 re-keyed two
-blocking constructs and orphaned `pb-0c42ee3f`. `docs/prose-blocker-triage.tsv` needs the re-key
-(and the census grew 25 → 26, so one of the two is a genuinely new construct, not only a move).
+| File | r1 added | r2 added | |
+| --- | --- | --- | --- |
+| `lean-gate.sh` | 282 | 282 | identical |
+| `lean-gate-selftest.sh` | 217 | 217 | identical |
+| `scripts/gate-buckets.tsv` | 4 | 4 | identical |
+| `tools/mutation-catalog.tsv` | 8 | 8 | identical |
+| `docs/live-render.md` | 18 | 18 | identical |
 
-Neither blocker is a merge-boundary POLICY refusal — `lint-and-selftests` and `selftests` are the
-lanes the review contract names as evidence about the code.
+So round 1's coverage genuinely inherits and the delta above is the whole of what is new.
+
+The PR body's census figures moving (buckets 311/167 → 305/161, lockstep 30 → 29, liveness
+83 → 80) is main's own deletions, as the body states. Independently confirmed: the true
+merge-base is `b3deab1c`, not the stale local `main` at `7e82408f`, and
+`scripts/check-reviewer-references.sh` / `scripts/capability-parity-check.sh` — which round 1 ran
+at those paths — were already absent at the merge-base. Both guards still exist at
+`plugins/review-toolkit/scripts/check-reviewer-references.sh` and
+`tools/capability-parity-check.sh`, and both are green at this head.
+
+## The changed fixture still has teeth
+
+The delta edits a test fixture, so the question round 2 owes is whether the edited suite can still
+fail. Probed in an isolated worktree at this head: applying the `lean-gate-plan-review-absent-waved`
+catalog mutant to `lean-gate.sh` reds `scenario-liveness-selftest.sh` at
+**79 passed, 1 failed**, and the one failure is exactly the leg this branch adds —
+`(lean-design-plan-review) rcs=100 attempts=1 rendered=yes` against the expected
+`rcs=111 attempts=0 rendered=no`. Scored by set-difference of case text against a same-env clean
+baseline.
+
+All eight new catalog rows were re-checked for anchor drift at this head under `sed -E`: each
+applies and changes **exactly one line**. The base merge moved none of them.
 
 ## Per-AC scoring
 
-| AC | Verdict | Evidence |
+All nine satisfied. Every AC is re-scored at this head against the whole spec, not inherited.
+
+| AC | Verdict | Evidence at this head |
 | --- | --- | --- |
-| AC-1 | satisfied | `design_plan_gate` → `design_plan_review_gate` runs at `cmd_3_render:4448`, ahead of the `LR_COMMAND` check and every render. `(dpr1)` pins `rc=1`, `renders=0`, `attempts=0`; the composed `(lean-design-plan-review)` leg pins `rcs=111`, `attempts=0`, no renders dir. |
-| AC-2 | satisfied | `plan_patch_id` gains `":(exclude)$PLAN_REVIEW_MANIFEST_REL"` (`lean-gate.sh:1011`). `(dpr2)` first half proves committing the record does not stale it; second half proves a moved tree does. |
-| AC-3 | satisfied | `(dpr3)` reds on `block`, quotes `B1: the 16px sibling gap`, and asserts the `## Findings` heading is **not** quoted; `(dpr4)` proves `fix-and-go` reaches the render pass. |
-| AC-4 | satisfied | `cmd_plan_review` stamps `reviewed_plan_from` from `plan_patch_id HEAD`, never from a flag. `(dpr8)` covers the enum refusal, the required `--summary-file`, and writer/reader agreement on the stamped value. |
+| AC-1 | satisfied | `design_plan_review_gate` runs at the end of the plan pass, before any render. `(dpr1)` and the composed `(lean-design-plan-review)` leg both green; the mutant probe above proves the leg fails when the refusal is removed. Unchanged from round 1 — code lines byte-identical. |
+| AC-2 | satisfied | `plan_patch_id` excludes `PLAN_REVIEW_MANIFEST_REL`; `(dpr2)` / `(dpr2-stale)` green in a full `lean-gate-selftest.sh` run (`all green`, all 11 `(dpr*)` cases pass). |
+| AC-3 | satisfied | `(dpr3)` (block quoted, heading not quoted) and `(dpr4)` (`fix-and-go` reaches render) green. |
+| AC-4 | satisfied | `(dpr8)` green — writer stamps `reviewed_plan_from` from the checkout, refuses an out-of-enum verdict, and writer/reader agree on the stamped value. |
 | AC-5 | satisfied | `grep -rn 'autonomous lane' plugins/design-toolkit` → empty at this head. |
-| AC-6 | satisfied | 8 catalog rows; all 8 sed programs verified to apply cleanly at this head under `sed -E`, each changing exactly one line (no anchor drift). Liveness scenario extended. Commit verb `feat(dev-pipeline):`; `check-changelog-trailer.sh` green. |
-| AC-7 | satisfied | `check-gate-buckets.sh` → `✓ 311 enumerated refusal site(s) across 5 file(s), all bucketed by 167 register row(s)`. **Verified locally only** — CI's run of this step was skipped behind B1. |
-| AC-8 | satisfied | `build-lean/SKILL.md` step 6 states the dispatch, the `bash G plan-review` recording obligation, and that both refusals land before the render pass. `docs/live-render.md` replaces the operator-only paragraph with the lane contract, including the staleness and `block` arms. |
-| AC-9 | satisfied | #739 is OPEN, titled for the claude-design plan-review gap, and cited at `lean-gate.sh:3333` in the comment block directly above `design_family_plan_reviewer()`. |
+| AC-6 | satisfied | 8 catalog rows, all anchoring to exactly one line; liveness scenario extended and proven killing; `feat(dev-pipeline):` on the feature commit with a substantive `Changelog:` trailer; `check-changelog-trailer.sh` green locally and on CI. |
+| AC-7 | satisfied | `check-gate-buckets.sh` → `✓ 305 enumerated refusal site(s) across 5 file(s), all bucketed by 161 register row(s)`. **This round it is also CI-verified**: the `gate bucket register` step reports `success` at `head_sha 11bda2e9`. |
+| AC-8 | satisfied | `build-lean/SKILL.md` step 6 and `docs/live-render.md` both state the dispatch-and-record lane contract; verified by reading the lines the triage rows anchor. |
+| AC-9 | satisfied | #739 cited at `lean-gate.sh:3215` above `design_family_plan_reviewer()` (line moved from 3333 by main's deletions, not the branch's). |
 
-All nine are satisfied on content. The verdict is `needs-work` on the two red lanes, not on an
-unmet AC.
+## Merge-boundary state (recorded, not a blocker)
 
-## Verified here (not by CI at this head)
+`pr-gates` is red on one step only — `lean chain reconciliation`, because no approve verdict
+record exists yet. Its three sibling policy steps (frozen files, changelog trailer, pipeline chain)
+are all `success`. This is the expected pre-approve state and is what this record clears.
 
-- `lean-gate-selftest.sh` — **all green**, including all 11 `(dpr*)` assertions.
-- `scenario-liveness-selftest.sh` — **83 passed, 0 failed**, matching the PR body. (A first run
-  showed 3 failures in `(lean-override)` / `(lean-design-override)`; that was `LEAN_ATTEND_MODE`
-  leaking from my own shell, not the branch. Re-run with the env scrubbed: clean.)
-- Three of the eight new catalog mutants applied into isolated worktrees at this head and scored
-  by case id against the same-env clean baseline: `stale-accepted` → adds `(dpr2-stale)`;
-  `block-ignored` → adds `(dpr3)`; `malformed-waved` → adds `(dpr5)` **and** `(dpr6)`. All three
-  killed, by the cases the PR named. The other five were checked for anchor resolution only —
-  `mutation-sweep-pr` grades none of them, as the PR body says.
-- `check-lockstep-pairs.sh` (30 anchors, 0 failed), `check-gate-buckets.sh`,
-  `check-lane-class-doc.sh`, `check-eval-model-identity.sh`, `check-reviewer-references.sh`,
-  `check-frozen-files.sh origin/main`, `check-changelog-trailer.sh origin/main`, `jq empty` over
-  every JSON: all green.
-- `-lean-plan-review.md` does not collide with `check-lean-chain.sh`'s three END-anchored
-  suffixes (`-lean.md`, `-lean-verdict.md`, `-lean-renders.md`), so the artifact arm's first-match
-  spec scan cannot pick it up. The suffix reasoning in the spec holds.
-
-## Strengths
-
-- The `header_key` trap is correctly paid twice. `reviewer:` is stamped BARE at the writer and
-  compared BARE at the reader, both derived from the single `design_family_plan_reviewer()`, and
-  `writer-qualifies-reviewer` is a catalog row rather than a comment. Writer and reader cannot
-  drift apart because there is one derivation.
-- `design_family_plan_reviewer()` is deliberately **outside** the `lean-design-provider-family`
-  lockstep block, with the reason stated: nothing at the merge boundary reads the plan or its
-  review, so a copy in `check-lean-chain.sh` would read as coverage this repo does not have.
-  `check-lockstep-pairs.sh` agrees.
-- `(dpr7)` is the case that keeps the family arm from being a formality — it leaves the previous
-  record in the tree on purpose, so a gate that mandated the record universally is distinguishable
-  from one that scopes it to figma. Most panels would have skipped that case.
-- `(dpr6)` exists because `(dpr5)` neuters the verdict enum: without it, a gate that stopped
-  checking `reviewer:` entirely would still red at the enum arm and look covered.
-
-## Non-blocking
-
-- **AC-3, primitive vs gloss.** The ticket's guess-point 7 names `block_milestone` and glosses it
-  "(spends an attempt)"; in this gate `block_milestone` spends none. The spec adjudicates it in
-  writing ("The named PRIMITIVE wins"), the code follows the named primitive, and `(dpr3)` pins
-  `attempts == 0` — so AC-3 is satisfied. Flagged only so the human confirms the primitive, not
-  the parenthetical, was the intent.
-- **An unresolvable design family passes this gate quietly.** `design_plan_review_gate` computes
-  `fam="$(design_family < …)"` and, on empty, takes the declined-mandate branch and returns 0 —
-  emitting `the '' design family ships no plan-stage reviewer`. Only reachable from an armed spec
-  whose handoff link names no known host, which milestone 4 refuses separately, so this is a
-  suggestion rather than a hole. Consider distinguishing "family did not resolve" from "family has
-  no plan reviewer".
-- **Writer-side arms are thinly covered.** `cmd_plan_review` has seven `envfail` branches;
-  `(dpr8)` drives two of them plus the happy path. The five untested arms (lane not armed, family
-  declined at the writer, plan absent, empty-vs-missing summary file, missing `--model`) are all
-  usage errors and none is merge-blocking, and the reader-side gate is thoroughly covered — but
-  the `--model` arm in particular falls back to `LEAN_RUN_MODEL`, which is exactly the env var
-  known to leak into suites, so a future test of that arm needs a scrubbed env to mean anything.
-- **`build-lean/SKILL.md` step 6 templates the agent name** as
-  `design-toolkit:<provider>-faithful-plan-reviewer`. For `claude-design` that expands to an agent
-  that does not exist, and it is not even the name #739 discusses (`design-faithful-plan-reviewer`).
-  The gate's own refusal names the exact agent, so the build session is not misled in practice.
-- Two security findings below the confidence threshold, both recorded and both agreed with as
-  non-issues: a newline-bearing `--model` could emit an extra header line (the calling session can
-  already author the file directly), and `plan_review_first_finding` echoes up to 240 bytes of a
-  repo-local committed artifact into a refusal message unescaped.
+`mutation-sweep-pr` passes in 13s and grades **nothing** here — `lean-gate.sh` is a slow-suite
+guard deferred to nightly. The PR body says exactly this. Its green is not evidence, which is why
+the mutants were probed by hand.
 
 ## Panel
 
-Six reviewers selected, six alive, none dark. security / performance / maintainability /
-complexity: approve, no findings. test-coverage: approve-with-nits (1 minor, folded in above).
-scope-completeness: approve, no unsatisfied scope item (1 minor, folded in above). a11y and the
-design-fidelity dimension were not routed: no changed path matches the web-component surface
-(`stageParams.webComponentGlobs` is unset, so the shipped default `apps/web/**/*.{tsx,jsx}`
-applies). db, pipeline and unit-test-mutation were not triggered.
+Five reviewers selected, five alive, none dark: security, performance, maintainability,
+test-coverage, scope-completeness. **All five approve with zero findings.** Routing: the delta is
+2 files / 8 lines (Small, and at least Small because it touches a `*.sh`); test-coverage was
+spawned because the change touches a test file; scope-completeness spawned unconditionally on
+`Closes #710`. a11y and the design-fidelity dimension were not routed — no changed path matches
+`stageParams.webComponentGlobs` (unset, so the shipped default `apps/web/**/*.{tsx,jsx}` applies).
+
+Two of scope-completeness's suppressed notes were checked rather than taken at face value:
+
+- It flagged that the branch "also carries #720's work … and commit `b3deab1c`". That is the base
+  merge, not scope creep: `b3deab1c` is an ancestor of `origin/main`. Dismissed.
+- It noted the toolkit-absent `envfail` arm (D-35) has no selftest case and no catalog row, and
+  declined to score it a scope miss. Agreed, and carried below as non-blocking — AC-6 scopes
+  catalog rows to milestone reds and this arm is deliberately not one.
+
+## Non-blocking (carried forward from round 1, unchanged and still not blockers)
+
+- **The `block` primitive vs its gloss.** The ticket's guess-point 7 glosses `block_milestone` as
+  "spends an attempt"; here it spends none. The spec adjudicates in writing that the named
+  primitive wins, and `(dpr3)` pins `attempts == 0`. Flagged so the human confirms the primitive
+  was the intent.
+- **An unresolvable design family passes quietly.** `design_plan_review_gate` takes the
+  declined-mandate branch on an empty family and returns 0, emitting `the '' design family ships
+  no plan-stage reviewer`. Only reachable from an armed spec whose handoff names no known host,
+  which milestone 4 refuses separately.
+- **Writer-side arms are thinly covered.** `cmd_plan_review` has seven `envfail` branches;
+  `(dpr8)` drives two plus the happy path. The D-35 toolkit-absent arm is among the untested five.
+  All are usage errors, none merge-blocking, and the reader-side gate is thoroughly covered. A
+  future test of the `--model` arm needs a scrubbed env — it falls back to `LEAN_RUN_MODEL`, which
+  is known to leak into suites.
+- **`build-lean/SKILL.md` step 6 templates `design-toolkit:<provider>-faithful-plan-reviewer`.**
+  For `claude-design` that expands to an agent that does not exist, and is not the name #739
+  discusses. The gate's own refusal names the exact agent, so a build session is not misled.
+
+## Strengths
+
+- The fixes are the minimal correct ones. B1 could have been silenced by passing `pass` at the
+  call site; deleting the dead parameter instead removes the shape that caused it, and the
+  sibling helper that legitimately takes a parameter was correctly left alone.
+- The prose-blocker re-key is honest work rather than census arithmetic: both rows name the real
+  enforcer, and the one genuinely new construct is distinguished from the one that merely moved.
+- The PR body states the base-merge cause of every moved census figure instead of letting the
+  numbers stand bare, and states plainly that `mutation-sweep-pr`'s green covers nothing here.
+
+## Verified here
+
+`lean-gate-selftest.sh` (`all green`, 11/11 `(dpr*)`), `scenario-liveness-selftest.sh`
+(80 passed, 0 failed), `prose-blockers-selftest.sh` (60 passed, 0 failed) — the three suites
+milestone 3's sweep defers as slow. Plus `check-gate-buckets.sh`, `check-lockstep-pairs.sh`
+(29 anchors, 0 failed), `check-lane-class-doc.sh`, `check-eval-model-identity.sh`,
+`tools/capability-parity-check.sh` (37 rows), `plugins/review-toolkit/scripts/check-reviewer-references.sh`,
+`check-frozen-files.sh`, `check-changelog-trailer.sh`, and `jq empty` over every JSON: all green.
+All runs with `LEAN_RUN_MODEL` and `LEAN_ATTEND_MODE` scrubbed from the environment.
 
 ## Design fidelity
 
