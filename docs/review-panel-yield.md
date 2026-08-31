@@ -200,6 +200,32 @@ whose column is empty is a row that has stopped paying for itself.
 Every `demote` row leaves the agent in the effective registry and spawnable; none is a deletion.
 **This document decides; it does not route.** The routing edit lives in #667 and cites these rows.
 
+### What the routing edit actually did with P-4 through P-7
+
+#667 consumed these four rows as a **collapse into review-lead's in-session lead pass**, not as the
+domain-gated dispatch the `demote` vocabulary above describes. So "dispatched only on a diff
+matching its domain" is not what shipped for `test-coverage`, `maintainability`, `complexity` and
+`performance`: routing selects none of them at any change size, and their dimensions are reviewed
+by the reviewing session against a checklist folded from their own agent files. `security-reviewer`
+(P-3) shipped as written — surface-conditional. P-1, P-2 and P-8 are unchanged.
+
+The stronger decision rests on a wider corpus than this window: #667 attributed blockers across all
+248 committed verdict-record versions rather than the 56 pinned here, and found the same zero in
+the blocker column for all four, with the dark surface concentrated in the same place. What that
+window adds is that the reviewing session already re-derives these dimensions under the Sub-Agent
+Trust Model, so the dispatch was being paid twice rather than being the only thing covering them.
+
+That premise holds by construction on the lean lane — `review-lean` reviews from a session that did
+not author the change — and it does not hold on `pr-revision`, which runs review-lead in dispatch
+mode from the session that wrote the fix, making the four author self-review there. Accepted, not
+fixed: that review is advisory and non-blocking by its own contract, and the four's blocker yield
+is zero on both corpora, so the dimension it weakens was not paying anyway.
+
+The measured columns above are untouched by that, and the decision is reversible in the direction
+this table wrote: every panelist stays in the effective registry and stays spawnable on demand or
+by config, so restoring a domain-gated dispatch for any of the four is a routing edit and nothing
+more.
+
 ## Mitigation that lands with the measurement
 
 `check-emit-deadline.sh` enrolls agents at the default cap only on a **demonstrated** death. The

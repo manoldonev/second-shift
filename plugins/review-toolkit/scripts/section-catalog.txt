@@ -13,6 +13,16 @@
 #   readers = effective-registry reviewer names (no plugin: prefix), or the sentinel `all`
 #             (every panel reviewer reads it, via review-lead).
 #
+# WHAT A READER TOKEN MEANS. A reviewer name here names the DIMENSION the section calibrates —
+# not a guarantee that a subagent of that name is dispatched to read it. review-lead reviews
+# several dimensions in-session (its lead pass) instead of spawning them, and the lead pass loads
+# the same shared file and the same per-reviewer review-context/<name>.md those reviewers used to
+# self-load. Read every row as "this section calibrates that dimension, applied by whoever reviews
+# it this round" — the spawned reviewer where one is dispatched, the lead pass otherwise. The
+# tokens stay reviewer names because those names remain effective-registry members and the
+# format's legal column values are registry names or `all`; a section whose reader is a lead-pass
+# dimension is not a section with no reader.
+#
 # H1 title lines (`# ...`) are NEVER linted — only H2 (`## ...`) headings (H3+ subsection headings are section content). Sibling
 # discipline to tools/extension-manifest.txt (EP-3). Additions/renames are breaking-class:
 # check against known-consumer headings before release and list them in the release
