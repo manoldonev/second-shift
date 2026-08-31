@@ -515,9 +515,10 @@ record_key() { # record_key <key> <path> [charset]
     | head -n1 | sed -E "s/^$1:[[:space:]]*//"
 }
 
-# LOCKSTEP-BEGIN contribution-compare
-# THE BRANCH'S OWN CONTRIBUTION, AS LINES (#597, D-2/D-3/D-4). The escape hatch both freshness
-# readers — this milestone's arms and the merge boundary's — consult when their naive check reds.
+# THE BRANCH'S OWN CONTRIBUTION, AS LINES (#597, D-2/D-3/D-4). The escape hatch this file's
+# freshness arm consults when its naive check reds. It was held in lockstep with a second copy in
+# lean-gate.sh until #720 deleted milestone 4's freshness arms; this is the only copy now, and the
+# merge boundary is the only place the question is asked.
 #
 # WHY A HASH CANNOT ANSWER THIS. A patch identity is computed over `diff(merge-base(base, head),
 # head)`, so MERGING THE BASE IN advances the merge-base and moves the id even when the branch
@@ -564,10 +565,10 @@ contribution_lines() { # contribution_lines <repo-root> <base-ref> <head-ish> <e
 # all surface here as the same refusal to answer, which is correct: they are all "no comparison
 # was made", and splitting them produces an arm no case can kill.
 #
-# THE CALLER OWNS THE rc=2 POLICY, not this function. D-5 points the two live callers at
-# fail-OPEN — the verdict stands, and the line says so — against every other unreadable-input path
-# in these two tools, which fail closed. That reversal is OR-1, and keeping it in the callers is
-# what makes it a one-line flip rather than a rewrite.
+# THE CALLER OWNS THE rc=2 POLICY, not this function. D-5 points the live caller at fail-OPEN —
+# the verdict stands, and the line says so — against every other unreadable-input path in this
+# tool, which fail closed. That reversal is OR-1, and keeping it in the caller is what makes it a
+# one-line flip rather than a rewrite.
 contribution_delta() { # contribution_delta <repo-root> <base-ref> <old-head> <new-head> <exclude-path>
   local d rc=0
   d="$(mktemp -d 2>/dev/null)" || return 2
@@ -614,7 +615,6 @@ contribution_summary() { # contribution_summary  (delta rows on stdin)
     }
   '
 }
-# LOCKSTEP-END contribution-compare
 
 # ---------------------------------------------------------------- classification
 # FAILS CLOSED, and that is a consequence of #413 rather than a belt-and-braces addition. While a
