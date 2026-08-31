@@ -1667,6 +1667,66 @@ LEANDC
     && pass "(lean-design-nv) non-vacuity: the same chain reds when the armed spec is disarmed mid-run" \
     || fail "(lean-design-nv) a mid-run disarm passed milestone 1 — the design legs are vacuous"
 
+  # ---- design leg: #709 the design-disarm override, composed through a FRESH ticket ------
+  # A separate issue (89) rather than reusing 88: that ticket's progress file already carries
+  # the `| milestone-3 | armed |` lock the (lean-design-nv) leg just proved, so a disarm on it
+  # can never be a legitimate first-time one — exactly the confound #709's own mechanism must
+  # NOT be judged through. This leg proves what the per-tool suites (operator-override-selftest,
+  # lean-gate-selftest, lean-evidence-selftest) cannot: that the SAME real gate binary, driven
+  # through the SAME entry precondition every other leg in this file uses, refuses a build
+  # session's own disarm on a provider repo and then yields once an operator's override is on
+  # disk — end to end, not against a fixture that assumes the mechanism already ran.
+  LEAN_DOISSUE=89
+  LEAN_DOPROG="$TMP/lean-progress-design-override.md"
+  LEAN_DOSPEC="$LEAN_DTREE/docs/plans/acme-89-lean.md"
+  LEAN_DOVERDICT="$LEAN_DTREE/docs/plans/acme-89-lean-verdict.md"
+  LEAN_DOVT="$HERE/../../tools/operator-override.sh"
+  lean_dogate() { ( unset RUN_ID GH_BOT; cd "$LEAN_DTREE" && SECOND_SHIFT_CONFIG="$LEAN_DCFG" LEAN_PROGRESS_FILE="$LEAN_DOPROG" \
+                   CLAUDE_CODE_SESSION_ID="$LEAN_DSID" GH="${GH:-$LEAN_GH}" \
+                   bash "$LEAN_GATE" --issue-file "$LEAN_ISSUE_NOREGIONS" "$@" 2>&1 ); }
+  lean_doseed() { rm -f "$LEAN_DOPROG"
+                  { echo "# lean run — issue $LEAN_DOISSUE"; echo ""; echo "run_id: r-lean-do"; echo "session_id: sess-lean-do-build"; } > "$LEAN_DOPROG"
+                  lean_dogate entry "$LEAN_DOISSUE" >/dev/null 2>&1; }
+  lean_doverdict() { # lean_doverdict <session> <run-id> [args...]
+    local sid="$1" rid="$2"; shift 2
+    rm -f "$LEAN_DTREE/.claude/pipeline-state/$LEAN_DOISSUE-review-run-id"
+    ( unset RUN_ID; cd "$LEAN_DTREE" && SECOND_SHIFT_CONFIG="$LEAN_DCFG" LEAN_PROGRESS_FILE="$LEAN_DOPROG" \
+      CLAUDE_CODE_SESSION_ID="$sid" RUN_ID="$rid" bash "$LEAN_GATE" verdict "$LEAN_DOISSUE" "$@" 2>&1 )
+  }
+  {
+    printf '# spec\n\n- AC-1: a thing\n\n## Design\n\nDesign: none — no FE surface in this ticket.\n'
+  } > "$LEAN_DOSPEC"
+  lean_doseed
+  git -C "$LEAN_DTREE" add -A >/dev/null 2>&1
+  git -C "$LEAN_DTREE" commit -q -m "issue 89: a disarmed provider spec, no override" >/dev/null 2>&1
+
+  # (a) no override on disk: milestone 1 reds, naming the exact remedy.
+  ld_o1="$(lean_dogate 1 "$LEAN_DOISSUE" 2>&1)"; ld_o1_rc=$?
+  if [[ "$ld_o1_rc" -ne 0 ]] && grep -q 'no design-disarm operator override backs it' <<<"$ld_o1"; then
+    pass "(lean-design-override) #709 AC-1: a disarmed provider ticket with no override reds milestone 1"
+  else fail "(lean-design-override) expected a refusal naming the override, rc=$ld_o1_rc: $ld_o1"; fi
+
+  # (b) an attended operator records one, and the SAME chain yields.
+  ( cd "$LEAN_DTREE" && env RUN_ID=r-lean-do-ov CLAUDE_CODE_SESSION_ID=sess-lean-do-ov SECOND_SHIFT_CONFIG="$LEAN_DCFG" \
+      bash "$LEAN_DOVT" attend ) >/dev/null 2>&1
+  ( cd "$LEAN_DTREE" && env RUN_ID=r-lean-do-ov CLAUDE_CODE_SESSION_ID=sess-lean-do-ov SECOND_SHIFT_CONFIG="$LEAN_DCFG" \
+      bash "$LEAN_DOVT" record --gate design-disarm --scope design-disarm --issue "$LEAN_DOISSUE" \
+      --decision "the ticket ships no UI" --answer "Confirmed — backend-only, disarm it." \
+      --repo-root "$LEAN_DTREE" ) >/dev/null 2>&1
+  ld_o2="$(lean_dogate 1 "$LEAN_DOISSUE" 2>&1)"; ld_o2_rc=$?
+  if [[ "$ld_o2_rc" -eq 0 ]] && grep -q 'disarmed' <<<"$ld_o2"; then
+    pass "(lean-design-override) #709 AC-2: the same chain yields once the operator's override is on disk"
+  else fail "(lean-design-override) expected rc=0 disarmed, rc=$ld_o2_rc: $ld_o2"; fi
+
+  # (c) the committed verdict stamps the override's own ref — the artifact the merge boundary
+  # resolves the claim against (proved generically by lean-evidence-selftest.sh's (ov6)-(ov9),
+  # which check-lean-chain.sh delegates to in full).
+  rm -f "$LEAN_DOVERDICT"
+  ld_o3="$(lean_doverdict sess-lean-do-review r-lean-do-review --pr 890 --verdict approve 2>&1)"; ld_o3_rc=$?
+  if [[ "$ld_o3_rc" -eq 0 ]] && grep -q '^fidelity: not-applicable (override: 89#1)$' "$LEAN_DOVERDICT" 2>/dev/null; then
+    pass "(lean-design-override) #709 AC-2: the written verdict carries 'fidelity: not-applicable (override: 89#1)'"
+  else fail "(lean-design-override) expected the verdict to carry the override ref, rc=$ld_o3_rc: $ld_o3; verdict: $(cat "$LEAN_DOVERDICT" 2>/dev/null)"; fi
+
   # ---- leg 8: the SCHEDULER's re-entry admission, composed to a terminal write (#514) -----
   # Same CLAUDE.md obligation as legs 3b/3c/3d: a new gate contract extends the liveness
   # scenario for every verdict path it touches. #510 gave orchestrate-lean.sh's preflight a
