@@ -4,6 +4,34 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v12.2.2
+
+### `design-toolkit` 4.0.4 → 4.0.5
+
+- **No gate reads a rendered measurement against the plan's design dimensions (#744)** (#744)
+  `lean-gate.sh` milestone 3 compares rendered sizes against the translation
+  plan. The plan's sized-node table now declares `node`, `RS` and `px` (`<w>×<h>`, integer
+  or `-` per axis) beside the prose `dimensions` cell, and `design-toolkit:figma-faithful`
+  step 7 emits them. New optional config `design.liveRender.tolerancePx` (non-negative
+  integer, default 2) is the pixel tolerance both new reds are expressed in.
+  Migration: a consumer whose spec arms the design lane must have its live-render harness
+  emit `{out}.rects.json` — a JSON object keyed by the plan's node names carrying rendered
+  CSS `width`/`height`, `{}` when a state has nothing to report — or milestone 3 reds. An
+  armed run already in flight re-emits its plan with the three new columns.
+
+### `dev-pipeline` 12.2.1 → 12.2.2
+
+- **No gate reads a rendered measurement against the plan's design dimensions (#744)** (#744)
+  `lean-gate.sh` milestone 3 compares rendered sizes against the translation
+  plan. The plan's sized-node table now declares `node`, `RS` and `px` (`<w>×<h>`, integer
+  or `-` per axis) beside the prose `dimensions` cell, and `design-toolkit:figma-faithful`
+  step 7 emits them. New optional config `design.liveRender.tolerancePx` (non-negative
+  integer, default 2) is the pixel tolerance both new reds are expressed in.
+  Migration: a consumer whose spec arms the design lane must have its live-render harness
+  emit `{out}.rects.json` — a JSON object keyed by the plan's node names carrying rendered
+  CSS `width`/`height`, `{}` when a state has nothing to report — or milestone 3 reds. An
+  armed run already in flight re-emits its plan with the three new columns.
+
 ## v12.2.1
 
 ### `design-toolkit` 4.0.3 → 4.0.4
