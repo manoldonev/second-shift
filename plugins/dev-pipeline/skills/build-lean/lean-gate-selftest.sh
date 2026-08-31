@@ -9070,6 +9070,7 @@ if grep -qxF 'rc=0' <<<"$co_out" \
    && grep -q '^skip=the tool exited 0 and rendered no block' <<<"$co_out"; then
   pass "(co13) closeout_cost_block's documented-skip arm still resolves a real (non-blank) cost_usd value through the same call site"
 else fail "(co13) unexpected: $co_out"; fi
+
 # ---- (vs) #622: the AC scorecard, refused at the WRITER ---------------------------------------
 # WHY THESE ARE PER-TOOL CASES and not only a scenario. The composed leg in
 # scenario-liveness-selftest.sh drives one review session through the writer to a terminal write
