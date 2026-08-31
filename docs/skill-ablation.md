@@ -269,6 +269,15 @@ re-scoring: the registered denominator is 20 and it governs.
 skills ship. **Three surfaces were measured, covering four of them. The other twenty-two were not, and
 none may be credited with a pass.**
 
+**The protocol is extended, not amended, by
+[`docs/skill-ablation-addendum.md`](skill-ablation-addendum.md).** Two of the rows below are owed a
+re-measurement that the frozen pre-registration does not describe — `build-lean`'s basis is
+repo-local (§1), and `review-lean`'s is a bare-session recall rather than the `/code-review`
+comparison the ticket named, with its delta unlocalised (§2). The addendum fixes the substrate
+(#746), the challenger invocation (#747) and the attribution rubric (#748) that those arms consume,
+before any of them runs. Read it alongside this table: it is where the terms of the next
+measurement live, and it contains no results.
+
 | skill | lines | measured | basis | date |
 | --- | --- | --- | --- | --- |
 | `dev-pipeline/build-lean` | 48 | C1 | cut-to-delta; carries M4/M6/M7/M8/M9/M10, where no gate is readable | 2026-08-24 |
