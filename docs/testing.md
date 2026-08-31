@@ -442,9 +442,10 @@ scoped by OS and bash major. The `--run-one` worker scrubs the variable, so a su
 it — the cache is decided once, in the parent, and a suite that nests its own runner keeps meaning
 what it means standalone.
 
-**What it is worth is bounded by the table, not by the seam.** One suite is rowed today, so an
-unchanged-head close-out sweep saves ~30s of the ~9:47 measured in #549. The wiring is what makes
-every row added later pay in the lean lane as well as in CI.
+**What it is worth is bounded by the table, not by the seam.** Three suites are rowed today, and
+an unchanged-head close-out sweep saves the ~30s of `cost-block-selftest.sh` — the only one of the
+three this lane can serve, because it is the only one the slow-suite table does not defer first.
+The #662 note above is the general form: a row bought for cost buys CI, not this lane.
 
 Only PASS is ever recorded, and only by the parent process after the replay has scored the run — a
 red suite, and a suite whose worker died without a verdict, write nothing. That falls out of the
@@ -470,6 +471,16 @@ at run time. The shipped set needed one — `pipeline-cost-block.sh` executes it
 `gh-bot.sh`, so `cost-block-selftest.sh`'s row must declare it even though the suite never names
 it. Follow every `$here/`-style resolution out of every declared script until it terminates, and
 say in the row comment where it terminated.
+
+**Derive that mechanically, over paths rather than over scripts.** Grep the subject for its
+`${BASH_SOURCE[0]}`- and `$0`-rooted path constructions and match every one against the rows, and
+treat a target the subject only tests for EXISTENCE as an input like any other. Both halves earn
+their place: `lean-gate.sh` resolves
+`plugins/design-toolkit/agents/figma-faithful-plan-reviewer.md` and never reads a byte of it, and
+that suite's first declared closure missed it on both counts — a sweep scoped to `*.sh` mentions
+cannot see a `.md`, and nothing about an existence check reads as a dependency. Renaming that file
+takes the suite from green to 39 failures, against a key that hashes the declared rows and so does
+not move.
 
 `CACHE_EPOCH` is a constant in the runner rather than a knob. The key covers repo content —
 including `run-selftests.sh`'s own bytes, which is property 2 applied to the harness that produces

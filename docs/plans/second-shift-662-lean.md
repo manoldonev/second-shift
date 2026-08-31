@@ -104,11 +104,20 @@ suite always run.
 - AC-4: no change to `tools/run-selftests.sh` or to any other file of the cache mechanism. The
   diff is the TSV plus prose.
 - AC-5: the branch carries a `Changelog:` trailer.
-- AC-6: two stale statements are corrected — `docs/testing.md`'s claim that the lean lane's store
-  speeds a sweep it never runs, and `tools/selftest-cache-inputs.tsv`'s header citation of
-  `tools/mutation-slow-suites.tsv`, deleted in #641.
+- AC-6: the statements this branch falsifies or supersedes are corrected — `docs/testing.md`'s
+  claim that the lean lane's store speeds a sweep it never runs, its companion sentence that every
+  row added later pays in that lane, and its count of rowed suites; and
+  `tools/selftest-cache-inputs.tsv`'s header citation of `tools/mutation-slow-suites.tsv`, deleted
+  in #641. (Amended in round 2: the first correction landed as a new paragraph, which left the
+  companion sentence seven lines below it saying the opposite.)
 - AC-7: `tools/mutation-sweep-selftest.sh` gains no row, and the TSV header records the derivation
   that ruled it out, so the next contributor reads why rather than re-deriving it.
+- AC-8: the derivation rule that admitted round 1's miss is widened wherever a row-adder reads it —
+  both `tools/selftest-cache-inputs.tsv`'s header and `docs/testing.md`'s contract say to derive
+  over the subject's `${BASH_SOURCE[0]}`- and `$0`-rooted path constructions rather than over the
+  `*.sh` names its prose mentions, and that a target the subject tests for EXISTENCE only is an
+  input like any other. (Added in round 2: the missing row was one line, the rule that let it
+  through is the part that generalizes.)
 
 ## Decision Ledger
 
