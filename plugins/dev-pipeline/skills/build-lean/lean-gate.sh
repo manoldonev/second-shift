@@ -3279,28 +3279,6 @@ design_family_reviewer() { # design_family_reviewer <family>
   esac
 }
 
-# The PLAN-stage reviewer a family makes mandatory (#710) — the pre-implementation counterpart of
-# the function above, and deliberately NOT its mirror in two ways.
-#
-# BARE, not qualified. The record's `reviewer:` key is read by record_key, whose charset stops at
-# the first character outside [A-Za-z0-9._-]; a `design-toolkit:`-prefixed value would truncate to
-# `design-toolkit` and the family check would be comparing plugin prefixes. The diff-time sibling
-# above can be qualified because its consumer is a `panel:` token test, which is read by a widened
-# reader written for exactly that.
-#
-# ONE FAMILY, not two. `design-faithful-plan-reviewer` DOES NOT EXIST — there is no claude-design
-# counterpart to dispatch, so mandating a record for that family would demand an artifact no agent
-# can produce. That is OR-1 of this slice's spec, filed as #739; until that lands, an armed
-# claude-design run is unreviewed at the plan stage and the gate says so rather than pretending
-# otherwise. Returning non-zero here is what carries that: every caller reads a failure as "this
-# family has no plan reviewer", never as a satisfied requirement.
-design_family_plan_reviewer() { # design_family_plan_reviewer <family>
-  case "${1:-}" in
-    figma) printf 'figma-faithful-plan-reviewer' ;;
-    *)     return 1 ;;
-  esac
-}
-
 # The `panel:` value, read WHOLE and header-anchored. `header_key` cannot serve here: its charset
 # stops at the first character outside [A-Za-z0-9._-], so a qualified comma-separated list
 # truncates to its leading `<plugin>` token — precisely the widening the capability stamp's own
@@ -3336,6 +3314,32 @@ panel_has() { # panel_has <panel-value> <reviewer>
   return 1
 }
 # LOCKSTEP-END lean-design-provider-family
+
+# The PLAN-stage reviewer a family makes mandatory (#710) — the pre-implementation counterpart of
+# `design_family_reviewer` above, and OUTSIDE the lockstep block on purpose: that block is held
+# verbatim by scripts/check-lean-chain.sh because the merge boundary re-derives the family and the
+# mandatory FIDELITY reviewer from the committed spec. Nothing at the boundary reads the plan or
+# its review (D-12), so a copy there would be coverage this repo does not have — and a function
+# added inside the markers would red the pair for a contract only one side has.
+#
+# BARE, not qualified, and that is the one place it diverges from its sibling. The record's
+# `reviewer:` key is read by header_key, whose charset stops at the first character outside
+# [A-Za-z0-9._-]; a `design-toolkit:`-prefixed value would truncate to `design-toolkit` and the
+# family check would be comparing plugin prefixes. The sibling can be qualified because its
+# consumer is `panel_has`, a token test over a reader widened for exactly that.
+#
+# ONE FAMILY, not two. `design-faithful-plan-reviewer` DOES NOT EXIST — there is no claude-design
+# counterpart to dispatch, so mandating a record for that family would demand an artifact no agent
+# can produce. That is OR-1 of this slice's spec, filed as #739; until that lands, an armed
+# claude-design run is unreviewed at the plan stage and the gate says so rather than pretending
+# otherwise. Returning non-zero here is what carries that: every caller reads a failure as "this
+# family has no plan reviewer", never as a satisfied requirement.
+design_family_plan_reviewer() { # design_family_plan_reviewer <family>
+  case "${1:-}" in
+    figma) printf 'figma-faithful-plan-reviewer' ;;
+    *)     return 1 ;;
+  esac
+}
 
 # The section's body lines, for the gate-side form checks the boundary does not make.
 design_section() { # design_section   (spec on stdin)
