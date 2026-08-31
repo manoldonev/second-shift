@@ -6,7 +6,7 @@
 
 | Suite | Measured | Rows |
 | --- | --- | --- |
-| `plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh` | 212s (2026-08-30) | 15 |
+| `plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh` | 212s (2026-08-30) | 16 |
 | `scripts/check-lean-chain-selftest.sh` | 67s (2026-08-21) | 3 |
 
 279s of declared-input cost, against the 414s the pre-flight receipt projected across three
@@ -31,7 +31,7 @@ markers a push to `main` wrote. D-5, D-9.
 Both closures were read out of the suites, not copied from the ticket. Every resolution was
 followed until it terminated; each row-comment block in the TSV records where.
 
-### `lean-gate-selftest.sh` — terminates, 15 rows
+### `lean-gate-selftest.sh` — terminates, 16 rows
 
 Depth 1, read by the suite itself: `lean-gate.sh` (subject), `SKILL.md` (the (f) line-cap case),
 `tools/fixture-stamp.sh` (sourced), `plugins/audit-toolkit/hooks/audit-tool-calls.sh` (the (d5)
@@ -42,12 +42,25 @@ override-artifact cases).
 
 Depth 2, resolved by `lean-gate.sh` at run time: `branch-prefix.sh` and
 `plugins/dev-pipeline/tools/resolve-sibling.sh` (both sourced), `claim-issue.sh`,
-`pipeline-cost-block.sh`, and — through `resolve_sibling` — the cross-plugin
-`plugins/intake-toolkit/skills/plan-interview/tools/ledger-lint.sh`.
+`pipeline-cost-block.sh`, and — through `resolve_sibling` — two cross-plugin targets:
+`plugins/intake-toolkit/skills/plan-interview/tools/ledger-lint.sh`, and
+`plugins/design-toolkit/agents/figma-faithful-plan-reviewer.md`, which
+`resolve_plan_reviewer_agent()` (`lean-gate.sh:3507`) resolves on the armed design lane.
 
 Depth 3: `claim-issue.sh` resolves `gh-bot.sh`, which resolves an out-of-repo wrapper under
-`$HOME`. The closure terminates there, per D-8. Nothing else at depth 2 resolves a further
-script: every other `*.sh` mention in those files is prose.
+`$HOME`. The closure terminates there, per D-8. Nothing at depth 2 resolves a further file.
+
+The derivation that establishes that is over `lean-gate.sh`'s self-relative path constructions —
+`${BASH_SOURCE[0]}`- and `$0`-rooted — of which there are seven: `operator-override.sh` (`:281`),
+`branch-prefix.sh` (`:583`), `claim-issue.sh` (`:2499`), `resolve-sibling.sh` (`:3484`),
+`ledger-lint.sh` (`:3493`), `figma-faithful-plan-reviewer.md` (`:3514`) and
+`pipeline-cost-block.sh` (`:5536`). The suite's own side is eight `$HERE/`-rooted reads, all
+declared. Two properties of the sixth are why the first revision of this closure missed it, and
+why the rule is now stated in those terms in the TSV header: its target is a `.md`, so a
+derivation scoped to `*.sh` mentions could not see it, and the gate tests it for EXISTENCE only
+without ever reading its content, so nothing about it looks like a dependency. It is one anyway —
+renaming it takes the suite from `all green` to 39 failures, against a key that would not have
+moved.
 
 Two things deliberately outside the closure, both recorded in the TSV: `node_modules/.bin/prettier`,
 which the (fp5) live-oracle case uses opportunistically and skips when absent — it is untracked, so
@@ -130,10 +143,17 @@ a depth-3 closure.
 | ID | Region | Where it stands |
 | --- | --- | --- |
 | OR-1 | No mechanized guard catches a helper added LATER to a declared closure | Default taken: no guard. AC-4 freezes the mechanism, and the nightly wholesale leg runs both lanes with no store, so an under-declaration surfaces within a day against a tree nobody is waiting on. Flagged in the PR body as a residual. |
-| OR-2 | Whether `lean-gate-selftest.sh`'s closure actually terminates once derived in full | It does — 15 rows, terminating at the out-of-repo `$HOME` wrapper `gh-bot.sh` resolves. The failure the region was written to catch did materialize, on a suite it did not name: `tools/mutation-sweep-selftest.sh`. It is handled the way the region says to handle it — no row, reported, not shipped under-declared. |
+| OR-2 | Whether `lean-gate-selftest.sh`'s closure actually terminates once derived in full | It does — 16 rows, terminating at the out-of-repo `$HOME` wrapper `gh-bot.sh` resolves. The failure the region was written to catch did materialize, on a suite it did not name: `tools/mutation-sweep-selftest.sh`. It is handled the way the region says to handle it — no row, reported, not shipped under-declared. |
 
 OR-2's disposition in the receipt is operator-resolved, and the build session cannot close it.
 The derivation above is the answer; the resolving comment on the issue is the operator's.
+
+The count in that row moved from 15 to 16 after the operator resolved it. Review round 1 found one
+depth-2 resolution the derivation had missed — `figma-faithful-plan-reviewer.md` — and the row is
+now declared. This corrects a `codebase-derived` fact, not the region's disposition: OR-2 asked
+whether the closure terminates, the answer is still that it does, and the operator's approval is
+unaffected. What it did change is the derivation RULE, which is why the widened statement of it
+landed in the TSV header rather than only in this spec.
 
 ## Demonstrations
 
