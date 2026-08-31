@@ -1,144 +1,148 @@
 # lean review verdict — #667
 
-verdict=needs-work
-run_id: review-667-1
-session_id: cd0b9583-58a0-49d4-9ae7-0018f536c57e
-rounds: 1
+verdict=approve
+run_id: review-667-2
+session_id: 1484d9ff-57ff-414c-b742-c59340a7b7c0
+rounds: 2
 pr: #733
-reviewed_head: 707a1ca544ea851ca743020aefb97944a9a563e9
-reviewed_patch_id: bfba7da3a59ac0fa6d103460fbbcc617372df5d4
-inherited_patch_id: none
-inherited_from_verdict: none
+reviewed_head: d6fd610e96bddf00dd60310918356462b47146b3
+reviewed_patch_id: 1975e2131a300a8538075d84eb184a36cdcf28c3
+inherited_patch_id: bfba7da3a59ac0fa6d103460fbbcc617372df5d4
+inherited_from_verdict: 2117a39a7481f8452e7c446592cfd3888c9558fe
 fidelity: not-applicable
 model: opus
 capabilities: pr-marker
 
-# Review round 1 — #667 / PR #733
+# Review round 2 — #667 / PR #733
 
-Range read: `1d714d4..707a1ca` (root round, full branch diff — 6 files, +626/-50).
-Panel: 6 selected, 6 returned, 0 dark (security, performance, maintainability, complexity,
-test-coverage, scope-completeness). All six returned zero findings; the blocker below was
-hand-derived from the diff.
+Range read: `2117a39..HEAD` (inheriting round — the fix commit `d6fd610` only, 2 files,
++8/-2). Coverage of patch `bfba7da3a59a` is inherited from round 1's record in this file.
+Read wider than the range where the delta was misleading: the whole of
+`plugins/review-toolkit/skills/review-lead/SKILL.md`'s void/dark surface (every `void` hit,
+`git blame`d for provenance), the branch's four commit messages, and `scripts/derive-release.sh`'s
+trailer extraction.
 
-**Verdict: needs-work — 1 blocker, 3 warnings. 13 of 14 ACs satisfied.**
+Panel: 4 selected, 4 returned, **0 dark** (security, performance, maintainability,
+scope-completeness). Zero findings from all four. `scope-completeness-reviewer` noticed the
+dispatch base was this branch's own round-1 verdict commit, re-derived
+`merge-base(origin/main, HEAD)` = `1d714d4` itself, and classified the **whole branch** against
+#667 — PASS. Not selected: `complexity` and `test-coverage` (depth routing — Small); `a11y` +
+design-fidelity (no changed path matched `stageParams.webComponentGlobs`, unset → default
+`apps/web/**/*.{tsx,jsx}`); `db`, `pipeline`, `unit-test-mutation` (no trigger surface).
 
-## Blockers
+**Verdict: approve — 0 blockers, 1 warning. 14 of 14 ACs satisfied.**
 
-**B1 — the Rules section still states the OLD Step 4b-void trigger, and on a dark
-`scope-completeness-reviewer` it contradicts what AC-10 requires.**
-`plugins/review-toolkit/skills/review-lead/SKILL.md:519`
+## Round-1 findings — disposition
 
-The branch rewrote `### Step 4b-void` (`:377`–`:392`) so that an all-dark **selected set** is no
-longer a void when the lead pass completed, and added an explicit paragraph settling the scope
-gate: *"The scope gate is a hard No, not a void … a dark return all make 'Ready to merge?' **No**.
-It is a real verdict on a round that really happened, so it is never converted into a void"*
-(`:388`).
+**B1 (blocker) — FIXED.** `SKILL.md:519` no longer restates the Step 4b-void trigger. The
+parenthetical `(every selected reviewer dark)` is gone; the line now reads *"Step 4b-void owns the
+trigger; do not restate it here"* and states only the two consequences. Both are verified against
+the owning section rather than taken on the commit message's word: *"an all-dark **selected set**
+is not a void on its own when the lead pass completed"* matches `:381` (*"an all-dark selected set
+on top of a completed lead pass is **not** a void"*), and *"a dark `scope-completeness-reviewer` is
+a hard **No**, never a void"* matches `:388` (*"a dark return all make 'Ready to merge?' **No** …
+never converted into a void"*). The failure scenario B1 named — only `scope-completeness-reviewer`
+selected, and dark — now yields one answer from both sites: No.
 
-The terminal Rules list was not updated with it. Line 519 still reads:
+This is the right shape of fix. Updating the parenthetical to the *new* trigger would have
+re-armed the same defect for the next rewrite; deferring to the owning section and stating only
+consequences cannot go stale when the trigger is re-worded.
 
-> **Always give a clear verdict** — "Ready to merge?" must be answered Yes, No, or With fixes.
-> **One exception:** a round voided under Step 4b-void (every selected reviewer dark) answers it
-> not at all …
+**Scoped correctly, and I checked the failure mode of that scoping.** "Step 4b-void owns the
+trigger; do not restate it here" is scoped to the Rules list by "here". It is not the false
+absolute it could have been: `:214` legitimately states a void trigger for the armed-spec /
+toolkit-absent surface (`git blame` → `1d714d4`, pre-branch), and that sentence would have
+contradicted a "this is the only place" phrasing.
 
-The parenthetical is now wrong in both directions: "every selected reviewer dark" is no longer
-*sufficient* for a void (`:381` says a completed lead pass makes it a partial-coverage round), and
-it is no longer *necessary* (`:386`'s armed-spec case has nothing to do with darkness). `:519` is
-untouched by this branch — `git blame` puts it on `33cc62e` — so this is old text the diff made
-false, not a typo it introduced.
+**W1 — FIXED.** `:398` now reads *"**Three** not-selected cases"* above its three bullets,
+agreeing with `:404`'s "All three".
 
-**Failure scenario.** Routing on a lean round selects only `scope-completeness-reviewer` — the
-ordinary shape now that the core four are collapsed, and exactly this PR's own shape — and it goes
-dark. Step 4b-void `:388` says: not a void, `Dark (no output)` row, **"Ready to merge?" = No**.
-Rules `:519` says: every selected reviewer is dark, therefore voided, therefore **answer it not at
-all**. The two are normative statements about the same decision and give opposite outputs. Taking
-`:519`, the session emits the "review did not run" report, `review-lean` 5c hands the round back
-without writing a record, and the run stalls on infrastructure that reviewed the range perfectly
-well — while the hard No that AC-10 mandates is never recorded.
+**W2 — accepted explicitly**, in `docs/review-panel-yield.md:218` rather than by a code change.
+The paragraph states the premise's boundary in both directions (holds on the lean lane by
+construction, does not hold under `pr-revision`) and gives the acceptance grounds. Accurate:
+`pr-revision/SKILL.md:295` does make its review advisory and non-blocking, and both corpora do
+show zero blockers for the four. The doc is +6/−0, so the measured columns are provably unrevised.
 
-`:495`'s reference to the void is fine (it names no trigger). `:519` is the only wrong restatement
-in the file.
-
-**AC-10 is unsatisfied on this**: the AC requires that a dark `scope-completeness-reviewer` keep
-Step 4's force and yield "Ready to merge? No". As shipped, the skill states both that and its
-negation.
+**W3 — left, correctly.** `review-lean/SKILL.md:91` and `lean-gate.sh` still carry the old void
+shape, and both are excluded by the spec's own out-of-scope list ("Any lane-contract change …
+hand-back semantics"). Neither misbehaves: `review-lean` 5c keys off review-lead *actually
+emitting* the void report, not off deciding independently. Carried forward as a follow-up, not a
+finding against this PR.
 
 ## Warnings
 
-**W1 — `Step 4c`'s intro still counts two cases against a three-bullet list.** `SKILL.md:398`
-reads *"**Two** not-selected cases still must not be invisible"* immediately above three bullets
-(unmatched web-component surface; security conditional did not fire; design-toolkit not
-installed). The closing line of the same section *was* updated — `:404` reads "All three are a
-note, never a blocker". No behavior is ambiguous (the bullets are the instruction), so this is a
-warning rather than a blocker, but it is the same missed-restatement class as B1 and should be
-fixed in the same pass.
+**W1 (round 2) — the void rationale in the Rules list is now over-general across both void
+cases.** `plugins/review-toolkit/skills/review-lead/SKILL.md:519`
 
-**W2 — under `pr-revision`, the four collapsed dimensions are now reviewed by the session that
-authored the fix.** `plugins/dev-pipeline/skills/pr-revision/SKILL.md:266` runs review-lead in
-dispatch mode from the same session that made the revision commits, so the lead pass (Process step
-6) is performed there by the author. Previously those four dimensions had four independent Sonnet
-readers. The spec's justification — the Sub-Agent Trust Model already obliges *the reviewing
-session* to re-derive them — holds in the lean lane, where `review-lean` is a separate session by
-construction, but not on that path. Not raised as a blocker: pr-revision's review is explicitly
-advisory and non-blocking by its own contract (`:295`), and the measured blocker yield of the four
-is zero. Worth a sentence somewhere, or an explicit acceptance.
+Deleting the trigger parenthetical widened the sentence to cover both cases Step 4b-void
+enumerates, but its justification clause was left as-is: *"answers it not at all — **there was no
+review to draw a verdict from**, and 'No' would assert findings that do not exist"*. That is true
+of case 1 (`:385`, nothing reviewed the range at all) and false of case 2 (`:386`, the
+design-fidelity dimension unrunnable on an armed spec — which by its own words *"voids the round
+however well the rest of it went"*). On an armed-spec void with a healthy panel, a review did
+happen.
 
-**W3 — two sibling sites still state review-lead's void trigger in its old shape.**
-`plugins/dev-pipeline/skills/review-lean/SKILL.md:91` ("**every** reviewer it selected went dark")
-and, by reference, `lean-gate.sh:5024`. Both are out of scope by the spec's own exclusion list
-("Any lane-contract change … hand-back semantics") and neither misbehaves — `review-lean` 5c keys
-off review-lead *actually emitting* the void report rather than deciding independently, and the
-armed-spec half of both is still correct. Recording it so the follow-up is a choice rather than an
-oversight.
+Not a blocker, and the distinction from B1 is the point: `:519` no longer states a **trigger**, so
+there is no second normative statement to give an opposite output. The instruction — "answers it
+not at all" — is uniform and correct for both cases, and is stated unconditionally twice more, at
+`:214` and `:392`. Only the explanatory clause is over-broad.
+
+Provenance matters for where this belongs: the clause is pre-branch text (`git blame` → `33cc62e`),
+and the same over-generality already sits inside the owning section at `:394` (*"There is no
+verdict to give, because there was no review"*), which this branch did not touch. What the branch
+did was add case 2 to a section whose rationale prose assumed case 1. So the honest fix is one
+sentence in the owning section acknowledging that an armed-spec void can void a round that was
+reviewed — not another edit to the Rules list. No AC requires it; recording it so it is a choice
+rather than an oversight.
 
 ## AC scoring
 
+Inherited ACs are re-scored, not carried: each is re-checked at this head, cheaply where round 1
+already established the detail.
+
 | AC | Score | Evidence |
 | -- | ----- | -------- |
-| AC-1 — the four no longer selected at any size | satisfied | `SKILL.md` carries no selection site for the four: the "Always spawn (core reviewers)" section is replaced by `### Lead-pass dimensions (never spawned)` (`:164`–`:175`); the depth table's Reviewers column is split into "Lead-pass depth" / "Subagents selected" on all four rows (`:131`–`:135`); the Trivial-inert carve-out no longer says "always get full core review" (`:139`); Step 4b's dark example is re-cast to `db-reviewer + unit-test-mutation-reviewer` (`:374`). Grepped all five names across the file — the only remaining hits are the registry parenthetical, the lead-pass list, the extension-surface list, and dedup prose. |
-| AC-2 — the Depth table's surviving role stated | satisfied | `:123`–`:128`, "What this table routes, now that the core four are collapsed": depth calibration + whether the security conditional is worth evaluating; conditional reviewers stay exempt, restated at `:143`. |
-| AC-3 — lead-pass checklist reference file | satisfied | `lead-pass-checklist.md`, 338 lines, ships in the skill dir. Carries the generalized Pre-Emit Gate (`:65`), the two-condition Critical trigger (`:52`), a `Do NOT flag` block per dimension (all five verified against the agent files' `What NOT to Flag` — no item dropped), new-vs-pre-existing (`:41`), and confidence ≥ 80 with sub-threshold kept visible in `## Suppressed` (`:29`). Structure is one diff read then per-dimension sections with out-of-diff reads only against a named risk (`:11`–`:21`). Referenced from `SKILL.md:167` and from the Lead pass section at `:228`. |
-| AC-4 — security spawns conditionally | satisfied | Conditional table row at `:181` with both arms (diff surface OR `review-context/security-reviewer.md`), matching stated as model judgment; `security-reviewer` added to the never-depth-suppressed list at `:143`; the not-fired case is a Step 4c note at `:401`; the lead pass owns the dimension otherwise and defers when spawned (`:243`–`:246`, checklist `:280`). |
-| AC-5 — the lead pass loads the consumer extension surface | satisfied | `:230`–`:238` enumerates the shared core plus all four per-reviewer files, and the security one conditioned on the conditional not firing; empty/TODO-bodied counts as absent (`:240`), matching the `reviewer-baseline` rule and restated in the checklist at `:87`. |
-| AC-6 — catalog + extension-points reconciled, reader tokens unchanged | satisfied | `section-catalog.txt` is +10/−0 and every added line is a `#` comment — the active rows and section NAMES are byte-identical, so the catalog↔docs-template lockstep case is untouched. Semantic stated once in the catalog header and mirrored at `docs/extension-points.md:47`–`:53`; all ten `Read by:` tokens unchanged. |
-| AC-7 — registry intact | satisfied | All five names remain in the panel parenthetical (`SKILL.md:33`), hence in the effective registry, and in `REVIEWER_MODEL` (`code-review.mjs:36`–`:41`). `check-reviewer-references.sh` exits 0 against the edited file. |
-| AC-8 — the three sub-registries stay consistent | satisfied | Verified at the lint's own anchors, not just by its exit code: the `routing` sub-registry parses `**name-reviewer**` between `## Reviewer Routing` and the next `## ` — the four are still bold there, in the lead-pass list; the `verdict` sub-registry's awk anchor `/Verdict       \| Findings/` still matches (header row not reflowed), and the first-column labels Performance/Complexity/Maintainability/Test Coverage are unchanged while the Verdict cells read `Lead pass — ✅/❌`. The Verdict-rules exception is present at `:488`. Lint green. |
-| AC-9 — empty-selection short-circuit | satisfied | `code-review.mjs:174`–`:175` throws on a non-array or empty `reviewers`; `SKILL.md:271`–`:282` ("Empty selection: no fan-out at all") instructs skipping the Workflow, and Process steps 7–8 carry the same instruction inline. Correctly classified as neither dark nor a `[Coverage gap]` (`:281`, `:390`). |
-| AC-10 — Step 4b-void re-worded for a non-empty lead pass | **unsatisfied** | The Step 4b-void section itself is correct (`:377`–`:392`, including the scope-gate paragraph the AC names). But the Rules section at `:519` still defines the void as "every selected reviewer dark", which on a dark `scope-completeness-reviewer` withholds the verdict the AC requires to be "No". See B1. |
-| AC-11 — `code-review.mjs` untouched | satisfied | Absent from `git diff --stat 1d714d4..HEAD`. |
-| AC-12 — `review-panel-yield.md` brought in step | satisfied | +20/−0. The note "What the routing edit actually did with P-4 through P-7" sits under the Decisions table, states the collapse-not-domain-gated-dispatch fact, cites the wider 248-version corpus, and records that every panelist stays spawnable. Zero deletions, so the measured columns are provably unrevised. |
-| AC-13 — `Changelog:` trailer | satisfied | On `707a1ca`: names the four no longer spawned, the security conditional, that every reviewer stays registered and spawnable, that consumers' `review-context/<reviewer>.md` files are now read by the lead pass and need no edit, and `Migration: none.` `changelog trailer guard` green in `pr-gates` (step 4). |
-| AC-14 — validation surface green | satisfied | Cited, not re-run, per the CI-oracle rule — command and head both match. Run `33389195554` at head `707a1ca5`: `lint-and-selftests` **pass** (4m41s, job `99478635223`), `selftests (macos, bash 3.2)` **pass** (7m12s, job `99478635317`), `mutation-sweep-pr` **pass** (job `99478635188`). Run locally in the reviewed checkout: `check-reviewer-references.sh` rc 0, `check-review-context.sh` rc 0, `check-review-context-sections.sh` rc 0, `tools/prose-blockers.sh check` rc 0 (25 constructs / 47 rows / zero undispositioned). Noted: the two `review-context` lints are **vacuously** green here — this repo ships no `review-context/` surface, so they report "clean (no review-context surface)" rather than exercising the reader path. That is a property of the repo, not a gap in the change. |
+| AC-1 — the four no longer selected at any size | satisfied | Untouched by the delta; re-verified at this head. |
+| AC-2 — the Depth table's surviving role stated | satisfied | Untouched by the delta; inherited from round 1's per-line verification. |
+| AC-3 — lead-pass checklist reference file | satisfied | Untouched by the delta; `lead-pass-checklist.md` present, referenced from `SKILL.md`. |
+| AC-4 — security spawns conditionally | satisfied | Untouched by the delta. Exercised this round: routing evaluated the conditional and it fired on judgment, so the reviewer was selected. |
+| AC-5 — the lead pass loads the consumer extension surface | satisfied | Untouched by the delta. |
+| AC-6 — catalog + extension-points reconciled, reader tokens unchanged | satisfied | Untouched by the delta; `section-catalog.txt` and `docs/extension-points.md` are absent from `git diff --stat 2117a39..HEAD`. |
+| AC-7 — registry intact | satisfied | Re-verified at this head: all five `review-toolkit:<name>-reviewer` names present in `SKILL.md`, and all five keys present in `code-review.mjs`'s `REVIEWER_MODEL`. |
+| AC-8 — the three sub-registries stay consistent | satisfied | Re-verified at this head at the lint's own anchors: the four Verdicts rows are present at `:467`–`:471` with first-column labels `Performance` / `Complexity` / `Maintainability` / `Test Coverage` unchanged, rendering `Lead pass — ✅/❌`; `Security` at `:466` carries both arms. `check-reviewer-references.sh` rc 0. The delta's two edited lines are in `## Rules` and Step 4c — neither is a sub-registry region. |
+| AC-9 — empty-selection short-circuit | satisfied | Untouched by the delta. |
+| AC-10 — Step 4b-void re-worded for a non-empty lead pass | **satisfied** (was unsatisfied) | The clause that made it unsatisfied is gone. Every requirement of the AC now holds without contradiction: void applies to the selected subagents only (`:381`), an all-dark selected set over a completed lead pass is a partial-coverage round (`:381`), and a dark `scope-completeness-reviewer` yields "Ready to merge? **No**" (`:388`) with nothing in the file now saying otherwise — grepped every `void` hit and classified each as stating-the-trigger vs merely-referencing it. `:495` and `:519` reference; `:214` states a trigger for its own distinct surface; `:377`–`:392` own it. |
+| AC-11 — `code-review.mjs` untouched | satisfied | `git diff --stat main...HEAD -- plugins/dev-pipeline/workflows/code-review.mjs` is empty. |
+| AC-12 — `review-panel-yield.md` brought in step | satisfied | The round-1 note stands. The delta adds 6 lines and deletes 0, under Decisions, above the reversibility paragraph — so the measured columns are provably untouched by this round too. The claim it adds ("blocker yield is zero on both corpora") is accurate against the table's P-4…P-7 rows and the preceding paragraph's 248-version attribution. |
+| AC-13 — `Changelog:` trailer | satisfied | `707a1ca` carries the consumer-visible trailer. Checked the interaction the extra commits create rather than assuming it: the branch's three other commits carry `Changelog: none` / `none.`, each followed immediately by an **unindented** `Co-Authored-By:` line, which closes `extract_trailers`' `inblk` (continuation requires `^[ \t]+[^ \t]`); `render_bullet` then normalizes case and a trailing period before its `none` test. So the squash renders exactly one changelog bullet, not three. `changelog trailer guard` green in `pr-gates` step 4. |
+| AC-14 — validation surface green | satisfied | CI at this exact head, run `33390446845` on `d6fd610e`: `lint-and-selftests` **pass** (4m49s, the full sweep), `mutation-sweep-pr` **pass**. Cited, not re-run — command and head both match. `selftests (macos, bash 3.2)` was still **in flight** when this record was written; the delta contains zero shell (two Markdown files), so that lane's differentiator has no surface here, and the merge boundary blocks on it regardless. Run in the reviewed checkout: `check-reviewer-references.sh` rc 0, `check-review-context.sh` rc 0, `check-review-context-sections.sh` rc 0, `tools/prose-blockers.sh check` rc 0 (25 constructs / 47 rows / zero undispositioned). Carried from round 1 and still true: the two `review-context` lints are **vacuously** green here — this repo ships no `review-context/` surface, so they print "clean" rather than exercising the reader path the change adds. |
 
 ## Design fidelity
 
-`not-applicable`. The spec's `## Design` section reads `Design: none — this slice edits skill
-prose, a reference file, a section catalog and a repo doc`. The disarm is justified: `jq '.design'`
-on `.claude/second-shift.config.json` returns null, so this repo configures no design provider, and
-no changed path is a web component. There are no `| RS-n |` rows to score.
+`not-applicable`. The spec's `## Design` reads `Design: none — this slice edits skill prose, a
+reference file, a section catalog and a repo doc`. The disarm is justified and re-checked at this
+head: `jq '.design'` on `.claude/second-shift.config.json` returns absent, so this repo configures
+no design provider, and no changed path is a web component. There are no `| RS-n |` rows to score.
 
 ## Merge-boundary state (recorded, not a blocker)
 
-`pr-gates` is red on **one** step — step 6, "lean chain reconciliation (lean PRs carry their
-evidence set)". Read from the job's step list, not from `gh pr checks`: steps 3, 4 and 5 (frozen
-files, changelog trailer, pipeline chain) all succeeded. This is the expected pre-verdict state —
-the record this round writes is the missing evidence — and it is a policy lane, not a correctness
-one.
+`pr-gates` is red on **one** step, read from the job's step list rather than from `gh pr checks`:
+step 6, "lean chain reconciliation (lean PRs carry their evidence set)". Steps 3, 4 and 5 — frozen
+files, changelog trailer, pipeline chain — all succeeded. This is the expected pre-verdict state:
+the record this round writes is the missing evidence.
 
 ## Strengths
 
-- The registry-intact decision is carried through concretely rather than asserted: the four stay
-  bold inside `## Reviewer Routing` so the lint's `routing` sub-registry still finds them, the
-  Verdicts header spacing is left alone so its awk anchor still matches, and `REVIEWER_MODEL` keeps
-  all four keys. Consumer migration really is zero on the lint surface, and it is zero for a
-  checkable reason.
-- `AC-5` is the non-obvious risk in a collapse like this and the change names it directly: the
-  collapsed reviewers used to *self*-load their `review-context/<name>.md`, so the lead pass has to
-  load them explicitly or consumer calibration is silently dropped while every lint stays green.
-  The load list at `:230`–`:238` and the empty-section-counts-as-absent rule are the fix.
-- `AC-12` is a good instinct — landing a collapse when the measurement register says `demote`
-  ("dispatched only on a diff matching its domain") would have left that table asserting a routing
-  rule the tree no longer has. The note reconciles it without touching a measured column, and 20
-  additions with 0 deletions proves that rather than claiming it.
-- The checklist's fold is faithful where it would have been easy to be lossy: every one of the five
-  `What NOT to Flag` blocks survives item-for-item, and the file says plainly that the agent files
-  remain the long form.
+- The fix is the *general* one, not the local one. Re-pointing the parenthetical at the new
+  trigger would have passed a re-read and re-armed the identical defect at the next rewrite;
+  deleting the restatement and stating consequences instead removes the class, not the instance.
+- It anticipated the failure mode of its own remedy. A "Step 4b-void is the only place that states
+  this" phrasing would have been the same false-absolute class as the blocker itself, because
+  `:214` legitimately states a trigger for the armed-spec surface. The shipped wording is scoped
+  to the Rules list.
+- W2 was answered where it is checkable. The premise "the reviewing session already re-derives
+  these dimensions" is what the whole collapse rests on, and it was evaluated on a lane where it
+  does not hold and recorded there — in the measurement register, next to the rows that decided
+  it, rather than as a code change nobody asked for.
+- The fix commit message states the failure scenario and names the AC it unblocked, so the reason
+  for the change survives the squash independently of this record.
