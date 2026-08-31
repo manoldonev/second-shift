@@ -23,11 +23,16 @@
 # The table is validated on EVERY sweep, including one running with no cache at all, so a
 # malformed declaration reds locally rather than waiting for CI to read it.
 #
-# WHAT BELONGS HERE. Only suites whose cost is worth the declaration burden — the three
-# measured at >= 30s in tools/mutation-slow-suites.tsv were the landing set, and one of those
-# (scenario-liveness-selftest.sh) was DROPPED because its composed set is its transitive
-# closure and cannot be enumerated stably from the suite. Dropping a row is always safe: the
-# suite simply always runs.
+# WHAT BELONGS HERE. Only suites whose cost is worth the declaration burden. Cost is measured
+# in tools/selftest-suite-timings.tsv (which replaced tools/mutation-slow-suites.tsv in #641;
+# the earlier landing set was chosen off that deleted file). Two suites have been considered
+# and DROPPED because a composed set IS its transitive closure and cannot be enumerated stably
+# from the suite: scenario-liveness-selftest.sh, and mutation-sweep-selftest.sh — the latter's
+# case (j) enumerates `git ls-files '*.sh'` over the whole repository and its TSV-family lint
+# greps the content of every tracked *-selftest.sh, so its verdict moves with any .sh file
+# anywhere in the tree. Directory rows cannot express that either: the universe is the TRACKED
+# set, while a directory row contributes every regular file beneath it, untracked included.
+# Dropping a row is always safe: the suite simply always runs.
 #
 # EVERY SET BELOW WAS DERIVED FROM THE SUITE, not copied from a ticket. A suite typically
 # reads more than an eyeball would list — exactly the under-declaration the self-inclusion
@@ -51,3 +56,58 @@ plugins/dev-pipeline/tools/cost-block-selftest.sh	plugins/dev-pipeline/tools/cos
 plugins/dev-pipeline/tools/cost-block-selftest.sh	plugins/dev-pipeline/tools/pipeline-cost-block.sh
 plugins/dev-pipeline/tools/cost-block-selftest.sh	plugins/dev-pipeline/cost-tracking-fixtures
 plugins/dev-pipeline/tools/cost-block-selftest.sh	plugins/dev-pipeline/tools/gh-bot.sh
+
+# --- lean-gate-selftest.sh (212s) --------------------------------------------------------
+# The largest declared closure in this file, and every row was read out of the suite.
+#
+# DEPTH 1, what the suite itself reads from the checkout: the gate under test; SKILL.md, whose
+# line count case (f) asserts; tools/fixture-stamp.sh, which it SOURCES for the reaper's
+# ownership stamp; the audit-toolkit hook, the writer half of the ledger contract case (d5)
+# drives; tools/run-selftests.sh, the real runner cases (ic6)/(ic7) wire into a fixture config;
+# and the two gate-ablation tables cases (ac1c)/(ac1d) classify against.
+#
+# DEPTH 2, what lean-gate.sh resolves at run time: branch-prefix.sh and resolve-sibling.sh (both
+# sourced), operator-override.sh (also read directly by the suite's (yo) cases),
+# claim-issue.sh, pipeline-cost-block.sh, and — through resolve_sibling — intake-toolkit's
+# ledger-lint.sh, which milestone 1 uses to lint and reconcile a spec's Decision Ledger.
+#
+# DEPTH 3, and where it TERMINATES: claim-issue.sh resolves gh-bot.sh, which resolves an
+# out-of-repo wrapper under $HOME. The closure stops at the in-repo file, matching the
+# cost-block block above. Nothing else at depth 2 resolves a further script — every other
+# *.sh mention in those files is prose.
+#
+# DELIBERATELY OUT: node_modules/.bin/prettier, which case (fp5) uses as an opportunistic live
+# oracle and SKIPS when absent — untracked, so it has no blob id to key on, and CI installs
+# none. And .claude/second-shift.config.json, referenced zero times: the suite stages its own
+# fixture trees, so no machine-local untracked file can enter the key. A declared input that
+# does not exist is rc=2, and that file is absent on CI.
+#
+# tools/run-selftests.sh is already in the key as the runner's own blob id. It is declared
+# anyway so the closure reads as complete standing alone, rather than requiring the reader to
+# know what the key mixes in behind it.
+plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh
+plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	plugins/dev-pipeline/skills/build-lean/lean-gate.sh
+plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	plugins/dev-pipeline/skills/build-lean/SKILL.md
+plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	plugins/dev-pipeline/skills/build-lean/branch-prefix.sh
+plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	tools/fixture-stamp.sh
+plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	tools/run-selftests.sh
+plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	tools/gate-ablation-adjudication.tsv
+plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	tools/gate-ablation-classes.tsv
+plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	plugins/audit-toolkit/hooks/audit-tool-calls.sh
+plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	plugins/dev-pipeline/tools/operator-override.sh
+plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	plugins/dev-pipeline/tools/resolve-sibling.sh
+plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	plugins/dev-pipeline/tools/claim-issue.sh
+plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	plugins/dev-pipeline/tools/pipeline-cost-block.sh
+plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	plugins/dev-pipeline/tools/gh-bot.sh
+plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	plugins/intake-toolkit/skills/plan-interview/tools/ledger-lint.sh
+
+# --- check-lean-chain-selftest.sh (67s) --------------------------------------------------
+# The smallest closure of the three, and it terminates at depth 2. The suite reads the gate
+# under test and exports LEAN_EVIDENCE at lean-evidence.sh — the portable payload the gate
+# delegates its verdict, identity, freshness and patch-id arms to, and which it would resolve
+# by that same path with the variable unset. lean-evidence.sh resolves no sibling of its own,
+# so the closure stops there. Everything else the suite touches it writes under its own
+# mktemp tree.
+scripts/check-lean-chain-selftest.sh	scripts/check-lean-chain-selftest.sh
+scripts/check-lean-chain-selftest.sh	scripts/check-lean-chain.sh
+scripts/check-lean-chain-selftest.sh	plugins/dev-pipeline/skills/build-lean/lean-evidence.sh

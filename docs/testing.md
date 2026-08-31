@@ -406,8 +406,7 @@ deliberate:
 - **It records without a second flag.** Property 3 exists because a PR lane would otherwise record
   untrusted content into a store other runs read. This store is machine-local and records the
   operator's own tree — the posture the mutation sweep's cache further down this page already
-  takes — and a store nothing writes can never serve the second sweep this lane exists to speed
-  up.
+  takes — and a store nothing writes can never serve a second sweep at all.
 - **An unusable store is a cold sweep, not an error.** A `--cache-dir` that cannot be created is a
   flag an operator typed that cannot work, and still exits 2. An *injected* store that cannot be
   created is not the tree's fault, so it prints a named notice and runs cold rather than reddening
@@ -417,6 +416,15 @@ deliberate:
   re-checkable. It **scrubs** rather than merely declining to export: an operator already
   carrying `LEAN_SELFTEST_CACHE_DIR` would otherwise hand it to every lane child by ordinary
   inheritance, and the gate would announce a cold sweep while the runner cached.
+
+**What the lane can actually get from it (#662).** A suite is served here only if it is BOTH rowed
+in `tools/selftest-cache-inputs.tsv` AND not deferred by the slow-suite table above — and the lane's
+`test` command comes from a consumer's config, which in this repo omits `--full`, so every suite at
+or above the table's threshold is deferred before the cache is ever consulted. The suites worth the
+declaration burden are, by construction, the ones above that threshold. A row added for cost
+therefore buys this lane nothing; it buys the two CI selftest jobs, which pass `--full --cache-dir`
+in committed workflow files. What the lane does get is the residue: a rowed suite carrying no
+timings row at all, and so counted as fast — `cost-block-selftest.sh` today.
 
 The store defaults to `${XDG_CACHE_HOME:-~/.cache}/second-shift/lean-selftest`: outside every
 checkout, so a worktree teardown never costs it, and per-machine, which matches a key already

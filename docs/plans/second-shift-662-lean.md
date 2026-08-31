@@ -137,5 +137,31 @@ The derivation above is the answer; the resolving comment on the issue is the op
 
 ## Demonstrations
 
-Recorded after the rows land — AC-2's hit and AC-3's per-suite miss, both from the sweep shape
-D-3 fixes.
+Four sweeps, D-3's shape verbatim — `--full --cache-write --cache-dir <tmp> --exclude
+tools/install-topology-selftest.sh`, at `--jobs 8`, into one throwaway store. Every sweep exited
+`rc=0`; 77 suites scored each time.
+
+| Sweep | Tree | scored / run / cached | `lean-gate-selftest.sh` | `check-lean-chain-selftest.sh` |
+| --- | --- | --- | --- | --- |
+| 1 | unchanged, cold store | 77 / 77 / 0 | RAN | RAN |
+| 2 | unchanged | 77 / 74 / 3 | CACHED | CACHED |
+| 3 | `ledger-lint.sh` touched | 77 / 75 / 2 | RAN | CACHED |
+| 4 | `lean-evidence.sh` touched | 77 / 75 / 2 | CACHED | RAN |
+
+Sweep 2 is AC-2: both suites served from cache on an unchanged tree. The third cached suite is
+`cost-block-selftest.sh`, whose rows already existed.
+
+Sweeps 3 and 4 are AC-3, one per rowed suite, and each moves a DEPTH-2 input the other suite does
+not declare — `ledger-lint.sh` reaches `lean-gate-selftest.sh` only through `lean-gate.sh`'s
+`resolve_sibling` call, and `lean-evidence.sh` reaches `check-lean-chain-selftest.sh` only through
+its `LEAN_EVIDENCE` export. Neither is the suite or its subject, both of which the runner already
+enforces mechanically (D-4). Each sweep re-ran exactly the suite whose closure moved and left the
+other cached, which is the property a vacuous hit would break. The edit in both cases was a single
+appended newline, reverted after the sweep.
+
+**One environment note for whoever re-runs this.** A sweep inheriting a lean-lane session's
+environment false-reds four suites — `lean-gate-selftest.sh` (rc=3), `scenario-liveness-selftest.sh`,
+`orchestrate-lean-selftest.sh` and `operator-override-selftest.sh`. The first cold sweep here hit
+exactly that and recorded nothing, because a failing suite is never cached. The demos above ran
+under `env -u LEAN_RUN_MODEL -u LEAN_ATTEND_MODE -u CLAUDE_CODE_SESSION_ID -u RUN_ID`, which is
+what takes the same tree to 77/77 green.
