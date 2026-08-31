@@ -536,6 +536,11 @@ DESIGN_PROVIDER="$(cfg '.design.provider' '')"
 LR_COMMAND="$(cfg '.design.liveRender.command' '')"
 LR_CWD="$(cfg '.design.liveRender.cwd' '')"
 LR_READY_PROBE="$(cfg '.design.liveRender.readyProbe' '')"
+# #711 D-11. The one tolerance both new milestone-3 reds are expressed in, in PIXELS. The default
+# lives HERE rather than in config-lint, because a consumer that never declares the key must still
+# get the arm: a gate-side default is the value every unconfigured repo runs under, and the lint's
+# job is to refuse a declared one that is not a non-negative integer.
+LR_TOLERANCE_PX="$(cfg '.design.liveRender.tolerancePx' '2')"
 
 # ---------------------------------------------------------------- the tracker adapter
 # ONE resolution, THREE branch sites: the entry note, cmd_claim, and cmd_5. Milestones 1-4 are
@@ -3915,34 +3920,43 @@ lean_format_verdict_record() { # lean_format_verdict_record <path>
   return 0
 }
 
-# The manifest's rows as `RS-n<TAB>pngPath<TAB>sha256`. The `RS-[0-9]+` anchor is what keeps the
+# The manifest's rows as `RS-n<TAB>path<TAB>sha256`. The `RS-[0-9]+` anchor is what keeps the
 # markdown header and separator rows out of the result without a line counter.
+#
+# `.rects` IS PART OF THE ANCHOR (#711). Each state now contributes a SECOND row — the rects
+# sibling the harness wrote beside the screenshot, id `RS-n.rects` — and without widening the
+# anchor here that row would be read as a header and dropped, so `render_bytes_ok` would hash the
+# PNG and nothing else. The rest of the id space is unchanged: `RS-[0-9]+` still has to be the
+# whole id or the whole id minus this one suffix.
 render_manifest_rows() {
   [ -f "$REPO_ROOT/$RENDER_MANIFEST_REL" ] || return 0
   awk -F'|' '
-    /^[[:space:]]*\|[[:space:]]*RS-[0-9]+[[:space:]]*\|/ {
-      id = $2; png = $5; sha = $6
+    /^[[:space:]]*\|[[:space:]]*RS-[0-9]+(\.rects)?[[:space:]]*\|/ {
+      id = $2; path = $5; sha = $6
       gsub(/^[[:space:]]+|[[:space:]]+$/, "", id)
-      gsub(/^[[:space:]]+|[[:space:]]+$/, "", png)
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", path)
       gsub(/^[[:space:]]+|[[:space:]]+$/, "", sha)
-      printf "%s\t%s\t%s\n", id, png, sha
+      printf "%s\t%s\t%s\n", id, path, sha
     }
   ' "$REPO_ROOT/$RENDER_MANIFEST_REL"
 }
 
-# Every manifested PNG exists, is non-empty, and still hashes to its recorded value. This is the
+# Every manifested artifact exists, is non-empty, and still hashes to its recorded value — the
+# screenshots and, since #711, the rects sibling beside each of them (D-9: this function reads
+# `id/path/sha` positionally and asserts only non-empty plus a sha match, so a `.json` row is
+# covered with no new code and an existing receipt stays valid). This is the
 # PRE-VERDICT half of D-9's idempotence: before a verdict exists the bytes are the evidence a
 # reviewer is about to read, so they must actually be there. After an approve they are not
 # consulted at all — see cmd_3_render.
 render_bytes_ok() {
-  local rows id png sha cur n=0
+  local rows id path sha cur n=0
   rows="$(render_manifest_rows)"
   [ -n "$rows" ] || return 1
-  while IFS="$(printf '\t')" read -r id png sha; do
+  while IFS="$(printf '\t')" read -r id path sha; do
     [ -n "$id" ] || continue
     n=$((n + 1))
-    [ -s "$REPO_ROOT/$png" ] || return 1
-    cur="$(lean_sha256 "$REPO_ROOT/$png")"
+    [ -s "$REPO_ROOT/$path" ] || return 1
+    cur="$(lean_sha256 "$REPO_ROOT/$path")"
     [ -n "$cur" ] && [ "$cur" = "$sha" ] || return 1
   done <<<"$rows"
   [ "$n" -gt 0 ]
@@ -3970,7 +3984,24 @@ render_bytes_ok() {
 PLAN_COMPONENT_COLUMN="why this component"
 PLAN_DIMENSION_COLUMN="dimensions"
 
-# The plan's violations, one human-readable line each; EMPTY output is a conforming plan.
+# ---- the MEASURED-NODE columns (#711) ---------------------------------------------------------
+# `dimensions` stays PROSE and that is the whole of D-1: `figma-faithful` step 3b mandates per-axis
+# fixed/hug/fill plus overflow/truncation in that cell and step 8 self-verifies against it, and
+# `348x32` cannot carry that payload. The machine-readable size therefore lives in its OWN column,
+# with two more stating what the number is about — the key the harness reports the node under, and
+# which declared render state it is measured in.
+#
+# ANCHORED ON THE SAME TABLE as `dimensions`, not declared globally. Three independent existence
+# checks would be satisfied by three unrelated tables, and the comparison needs one row carrying
+# node, RS and px together; `node` in particular is already a column on the resolved-component
+# table, which a document-wide check would happily accept as the answer.
+#
+# LOWERCASE, because the header match lowercases the cell first — a plan's `| RS |` header matches.
+PLAN_NODE_COLUMN="node"
+PLAN_RS_COLUMN="rs"
+PLAN_PX_COLUMN="px"
+
+# The GFM walk both plan readers run on.
 #
 # A SHORT ROW IS A VIOLATION, and deliberately so: GFM lets a row declare fewer cells than its
 # header and renders the remainder blank, so "delete the trailing empty cell" would otherwise be
@@ -3983,9 +4014,14 @@ PLAN_DIMENSION_COLUMN="dimensions"
 # figma-faithful step-7 prose invites — would otherwise have its own example parsed as a real
 # table and its placeholder cells reported as violations. A false red on an artifact the gate
 # just told you to write is the one refusal an author cannot act on.
-plan_violations() { # plan_violations <plan-path>
-  [ -f "$1" ] || return 0
-  awk -v want_c="$PLAN_COMPONENT_COLUMN" -v want_d="$PLAN_DIMENSION_COLUMN" '
+#
+# ONE WALK, TWO EMISSIONS (#711). `plan_violations` grades the plan's shape; `plan_node_rows`
+# hands the render pass the rows it measures against. A second parser would let the two disagree
+# about what a table is, which fences are skipped, and how many cells a row has — and a plan could
+# then satisfy the predicate while the comparison graded rows the predicate never saw.
+_plan_table_walk() { # _plan_table_walk <violations|nodes> <plan-path>
+  awk -v emit="$1" -v want_c="$PLAN_COMPONENT_COLUMN" -v want_d="$PLAN_DIMENSION_COLUMN" \
+      -v want_n="$PLAN_NODE_COLUMN" -v want_r="$PLAN_RS_COLUMN" -v want_p="$PLAN_PX_COLUMN" '
     function trim(x) { gsub(/^[[:space:]]+|[[:space:]]+$/, "", x); return x }
     function cells_of(line,   body, n, i) {
       body = line; sub(/^\|/, "", body); sub(/\|$/, "", body)
@@ -3995,23 +4031,34 @@ plan_violations() { # plan_violations <plan-path>
     }
     function endtable() {
       if (intab && want != "" && rowno < 3) {
-        printf "the table declaring a \"%s\" column carries no data row\n", want
+        if (emit == "violations") printf "the table declaring a \"%s\" column carries no data row\n", want
       }
-      intab = 0; want = ""; rowno = 0; hdrn = 0
+      intab = 0; want = ""; rowno = 0; hdrn = 0; has_d = 0; ci_n = 0; ci_r = 0; ci_p = 0
     }
     {
       line = trim($0)
       if (line ~ /^(```|~~~)/) { endtable(); fenced = !fenced; next }
       if (fenced) { next }
       if (line !~ /^\|/) { endtable(); next }
-      if (!intab) { intab = 1; rowno = 0; want = ""; hdrn = 0 }
+      if (!intab) { intab = 1; rowno = 0; want = ""; hdrn = 0; has_d = 0; ci_n = 0; ci_r = 0; ci_p = 0 }
       rowno++
       n = cells_of(line)
       if (rowno == 1) {
         hdrn = n
         for (i = 1; i <= n; i++) {
           if (tolower(cell[i]) == want_c) { want = want_c; seen_c = 1 }
-          if (tolower(cell[i]) == want_d) { want = want_d; seen_d = 1 }
+          if (tolower(cell[i]) == want_d) { want = want_d; seen_d = 1; has_d = 1 }
+          if (tolower(cell[i]) == want_n) { ci_n = i }
+          if (tolower(cell[i]) == want_r) { ci_r = i }
+          if (tolower(cell[i]) == want_p) { ci_p = i }
+        }
+        # The measured-node columns ride the DIMENSION table (D-6), so their absence is a property
+        # of that table and not of the document — a plan carrying `node` on its component list and
+        # nothing on its dimension table has no row the comparison can key on.
+        if (has_d && emit == "violations") {
+          if (!ci_n) printf "the table declaring a \"%s\" column declares no \"%s\" column — nothing states the key the render harness reports each measured node under\n", want_d, want_n
+          if (!ci_r) printf "the table declaring a \"%s\" column declares no \"%s\" column — nothing states which declared render state each node is measured in\n", want_d, want_r
+          if (!ci_p) printf "the table declaring a \"%s\" column declares no \"%s\" column — nothing states the machine-readable <w>x<h> the render pass compares against the rendered rect\n", want_d, want_p
         }
         next
       }
@@ -4019,11 +4066,19 @@ plan_violations() { # plan_violations <plan-path>
       if (rowno == 2) {
         for (i = 1; i <= n; i++) {
           if (cell[i] !~ /^:?---+:?$/) {   # `---+`, never `-{3,}` — no interval expressions (portability)
-            printf "the table declaring a \"%s\" column has no delimiter row under its header\n", want
+            if (emit == "violations") printf "the table declaring a \"%s\" column has no delimiter row under its header\n", want
             want = ""
             break
           }
         }
+        next
+      }
+      if (emit == "nodes") {
+        # A SHORT ROW OR A MISSING COLUMN IS SKIPPED HERE, never re-reported: both are violations
+        # the predicate above already reds on, and design_plan_gate returns before the render pass
+        # asks for a single row — so re-raising them here could only spend a second budget on one
+        # defect.
+        if (has_d && ci_n && ci_r && ci_p && n >= hdrn) printf "%s\t%s\t%s\n", cell[ci_n], cell[ci_r], cell[ci_p]
         next
       }
       if (n < hdrn) {
@@ -4038,10 +4093,25 @@ plan_violations() { # plan_violations <plan-path>
     }
     END {
       endtable()
+      if (emit != "violations") exit
       if (!seen_c) printf "no table declares a \"%s\" column — the resolved-component list is absent\n", want_c
       if (!seen_d) printf "no table declares a \"%s\" column — the dimension table is absent\n", want_d
     }
-  ' "$1"
+  ' "$2"
+}
+
+# The plan's violations, one human-readable line each; EMPTY output is a conforming plan.
+plan_violations() { # plan_violations <plan-path>
+  [ -f "$1" ] || return 0
+  _plan_table_walk violations "$1"
+}
+
+# The dimension table's data rows as `node<TAB>RS<TAB>px` (#711). EMPTY output means the plan
+# declares no such table — which plan_violations reds on, and design_plan_gate returns for, before
+# the render pass ever calls this.
+plan_node_rows() { # plan_node_rows <plan-path>
+  [ -f "$1" ] || return 0
+  _plan_table_walk nodes "$1"
 }
 
 # Rewrite the FIRST `planned_from:` line in place. First-match on purpose: record_key() reads the
@@ -4182,13 +4252,13 @@ design_plan_gate() {
   local f="$REPO_ROOT/$PLAN_MANIFEST_REL" viol cur prev
 
   if [ ! -f "$f" ]; then
-    block_milestone 3 "spec $SPEC_REL arms the design lane, but no translation plan is written at $PLAN_MANIFEST_REL. Emit the figma-faithful step-7 plan there before rendering anything: a header line 'planned_from: pending' (this gate stamps it), a table with a '$PLAN_COMPONENT_COLUMN' column — one row per resolved component — and a table with a '$PLAN_DIMENSION_COLUMN' column — one row per sized node. Every cell must be filled; an empty cell is the finding."
+    block_milestone 3 "spec $SPEC_REL arms the design lane, but no translation plan is written at $PLAN_MANIFEST_REL. Emit the figma-faithful step-7 plan there before rendering anything: a header line 'planned_from: pending' (this gate stamps it), a table with a '$PLAN_COMPONENT_COLUMN' column — one row per resolved component — and a table with a '$PLAN_DIMENSION_COLUMN' column — one row per sized node, carrying '$PLAN_NODE_COLUMN', '$PLAN_RS_COLUMN' and '$PLAN_PX_COLUMN' columns beside it: the key the render harness reports that node under, which declared render state it is measured in, and its size as <w>×<h> with an integer or '-' per axis. Every cell must be filled; an empty cell is the finding."
     return $?
   fi
 
   viol="$(plan_violations "$f")"
   if [ -n "$viol" ]; then
-    fail_milestone 3 "the translation plan $PLAN_MANIFEST_REL is not complete: $(printf '%s' "$viol" | tr '\n' ';' | sed 's/;$//; s/;/; /g'). The two tables are the whole mechanical contract — a resolved component with no stated reason, and a node with no recorded dimensions, are the two silences this artifact exists to make visible."
+    fail_milestone 3 "the translation plan $PLAN_MANIFEST_REL is not complete: $(printf '%s' "$viol" | tr '\n' ';' | sed 's/;$//; s/;/; /g'). The two tables are the whole mechanical contract — a resolved component with no stated reason, and a node with no recorded dimensions, are the two silences this artifact exists to make visible, and the '$PLAN_PX_COLUMN' column beside the prose one is what the render pass compares against the rendered rect."
     return $?
   fi
 
@@ -4297,11 +4367,145 @@ cmd_plan_review() {
   return 0
 }
 
+# ---- the RENDERED MEASUREMENT (#711) ----------------------------------------------------------
+# #710 made the translation plan a committed artifact whose cells cannot be silently empty, and
+# #693 made the review session write a per-state evidence table. Neither reads a NUMBER: the plan
+# states the design's dimensions, the receipt hashes the pixels, and nothing joins them — which is
+# how a screen rendered at 2.2x the design's width passed every mechanical check (#692).
+#
+# The join is the harness's `<png>.rects.json` sibling, keyed by the plan's node name. Node ->
+# element mapping stays the CONSUMER's: it owns the DOM, and the gate owns only the arithmetic.
+#
+# SCALE-ADAPTIVE, NOT ABSOLUTE (D-2). A browser viewport and a design frame differ as a matter of
+# course, so per RS row the arm takes `r_i = rendered_i / design_i` over the axes the plan states,
+# `k = median(r_i)`, and separates two reds that an absolute comparison would report as one pile of
+# unexplained deltas:
+#
+#   shape   abs(design_i*k - rendered_i) > tolerancePx — THIS node is out of proportion with the
+#           rest of the row, which survives any uniform viewport difference;
+#   scale   abs(design_i*k - design_i)   > tolerancePx — k ITSELF is not explained by tolerance,
+#           i.e. the whole row renders at k. Named ONCE per row rather than once per node, because
+#           "everything is 2.2x" is one fact.
+#
+# The scale arm is the arm with a FAIL-OPEN FLANK, and it is the reason it is guarded separately
+# (D-15): median normalization ABSORBS a uniform factor, so an implementation that lost this check
+# still reds on genuine per-node defects and looks alive while being blind to #692 exactly.
+#
+# THE VIEWPORT IS NOT PINNED (D-3). There is no `viewport` key and no frame width in the plan
+# header: a uniform difference surfaces as one `scale` red naming k, which is more attributable
+# than N unexplained per-node deltas, and a `-` axis stays the escape for a fill-width node. The
+# harness reports CSS pixels (docs/live-render.md), so a `deviceScaleFactor: 2` harness taking a
+# hard red is a harness bug and not a tolerated integer k.
+RECTS_SUFFIX=".rects.json"
+
+# One state's rects entries as `node<TAB>w<TAB>h`, where an axis the harness omitted is `-` and one
+# it reported as something other than a number is `!`. The two absences stay DISTINGUISHABLE on
+# purpose: a node the file does not carry at all produces no line — the "plan node absent from the
+# file" red — while an entry that resolved the node and measured half of it is a different red
+# about the harness, on a different budget.
+rects_entries() { # rects_entries <rects-path>
+  jq -r '
+    to_entries[]
+    | .key as $k
+    | (if (.value | type) != "object" then ["!", "!"]
+       else [ (if (.value | has("width"))  then (if (.value.width  | type) == "number" then (.value.width  | tostring)  else "!" end) else "-" end),
+              (if (.value | has("height")) then (if (.value.height | type) == "number" then (.value.height | tostring) else "!" end) else "-" end) ]
+       end) as $wh
+    | [$k, $wh[0], $wh[1]] | @tsv
+  ' "$1" 2>/dev/null
+}
+
+# One state's findings, one per line as `<class><TAB><finding>`; EMPTY output is a conforming
+# state. Class is the RED BUDGET the finding walks (D-4), split by in-worktree fixability — the
+# criterion #642 already applied to a missing artifact, generalized:
+#
+#   F  a fix attempt: a `px` cell that does not parse, a plan node the rects file does not carry,
+#      an axis the plan states and the file omits, and both comparison reds. Missing-node is
+#      deliberately on this side — otherwise a session earns unlimited free retries by naming
+#      nodes the harness never emits.
+#   B  the absent budget: the harness's own output contract. Not fixable from this worktree.
+#
+# BOTH ROWS ARE ACCUMULATED, never returned on (D-5). With mismatch on the fix budget, a
+# return-on-first-row would spend one of three attempts per node revealed, and the 2.2x-wide screen
+# would hard-stop at attempt 4 having never shown the operator the shape of the problem.
+render_measure_state() { # render_measure_state <rs-id> <plan-rows-tsv> <rects-entries-tsv>
+  local rid="$1" prows="$2" mrows="$3" joined
+  joined="$( { printf '%s\n' "$mrows" | awk -v k=M 'NF { print k "\t" $0 }'
+               printf '%s\n' "$prows" | awk -v k=P 'NF { print k "\t" $0 }'; } )"
+  awk -F'\t' -v rid="$rid" -v tol="$LR_TOLERANCE_PX" -v sep='×' '
+    function abs(x) { return x < 0 ? -x : x }
+    function posint(x) { return (x ~ /^[0-9]+$/ && x + 0 > 0) }
+    function add(cls, msg) { nf++; fcls[nf] = cls; fmsg[nf] = msg }
+    $1 == "M" && $2 != "" { has[$2] = 1; mw[$2] = $3; mh[$2] = $4; next }
+    $1 == "P" && $2 != "" { np++; pnode[np] = $2; ppx[np] = $4 }
+    END {
+      # PASS 1 — parse each plan cell and resolve the axes it states against the file. Every arm
+      # here `continue`s, so one malformed row yields one finding rather than a cascade.
+      for (i = 1; i <= np; i++) {
+        node = pnode[i]; px = ppx[i]
+        p = index(px, sep)
+        if (p == 0 || index(substr(px, p + length(sep)), sep) != 0) {
+          add("F", sprintf("%s: node \"%s\" has a px cell \"%s\", which is not <w>%s<h>", rid, node, px, sep)); continue
+        }
+        dw = substr(px, 1, p - 1); dh = substr(px, p + length(sep))
+        if ((dw != "-" && !posint(dw)) || (dh != "-" && !posint(dh))) {
+          add("F", sprintf("%s: node \"%s\" has a px cell \"%s\" whose axes are not each a positive integer or \"-\"", rid, node, px)); continue
+        }
+        if (!(node in has)) {
+          add("F", sprintf("%s: the plan measures node \"%s\", which the rects file for this state does not carry — a node the harness cannot resolve is omitted from the plan or resolved by the harness, never left to silence", rid, node)); continue
+        }
+        if (mw[node] == "!" || mh[node] == "!") {
+          add("B", sprintf("%s: the rects entry for node \"%s\" is not an object of numeric width/height", rid, node)); continue
+        }
+        if (dw != "-") {
+          if (mw[node] == "-") { add("F", sprintf("%s: the plan states a width for node \"%s\" and the rects entry carries none", rid, node)) }
+          else { nax++; axnode[nax] = node; axname[nax] = "width"; axd[nax] = dw + 0; axr[nax] = mw[node] + 0 }
+        }
+        if (dh != "-") {
+          if (mh[node] == "-") { add("F", sprintf("%s: the plan states a height for node \"%s\" and the rects entry carries none", rid, node)) }
+          else { nax++; axnode[nax] = node; axname[nax] = "height"; axd[nax] = dh + 0; axr[nax] = mh[node] + 0 }
+        }
+      }
+
+      # PASS 2 — the factor the row renders at, then the two reds it separates.
+      if (nax > 0) {
+        for (i = 1; i <= nax; i++) { r[i] = axr[i] / axd[i] }
+        # Insertion sort over one plan row worth of numbers. `asort()` is a gawk extension and
+        # this script has a macOS/one-true-awk lane, so the ordering is spelled out.
+        for (i = 2; i <= nax; i++) {
+          v = r[i]; j = i - 1
+          while (j >= 1 && r[j] > v) { r[j + 1] = r[j]; j-- }
+          r[j + 1] = v
+        }
+        if (nax % 2 == 1) { k = r[(nax + 1) / 2] } else { k = (r[nax / 2] + r[nax / 2 + 1]) / 2 }
+
+        worst = 0; worstd = -1
+        for (i = 1; i <= nax; i++) {
+          if (abs(axd[i] * k - axr[i]) > tol) {
+            add("F", sprintf("%s: node \"%s\" %s is out of proportion with the rest of the row (shape) — design %s, rendered %s, expected %.1f at the row k=%.3f", rid, axnode[i], axname[i], axd[i], axr[i], axd[i] * k, k))
+          }
+          d = abs(axd[i] * k - axd[i])
+          if (d > worstd) { worstd = d; worst = i }
+        }
+        # ONE line for the whole row (AC-7): "everything renders at k" is a single fact, and
+        # repeating it per node is what buries it. The largest-deviation axis rides along as the
+        # evidence, which is also what makes the single-axis case name its node and both numbers.
+        if (worstd > tol) {
+          add("F", sprintf("%s: the whole row renders at k=%.3f (scale), which tolerancePx=%s does not explain — e.g. node \"%s\" %s design %s, rendered %s", rid, k, tol, axnode[worst], axname[worst], axd[worst], axr[worst]))
+        }
+      }
+
+      for (i = 1; i <= nf; i++) { printf "%s\t%s\n", fcls[i], fmsg[i] }
+    }
+  ' <<<"$joined"
+}
+
 # The armed render pass. Returns 0 when the milestone may continue, or fail_milestone's own code
 # (1 or 4) when it may not — cmd_3 propagates it verbatim rather than re-deciding.
 cmd_3_render() {
   local dstate rows n_rows nondefault=0 cur prev out_dir rc
   local r_id r_route r_state png sha ecmd dup manifest_rows="" seen="" seen_ids=""
+  local plan_rows prows mrows rjson rsha stray="" measure_fix="" measure_block=""
 
   dstate="$(design_state "$REPO_ROOT/$SPEC_REL")"
   case "$dstate" in
@@ -4352,6 +4556,16 @@ cmd_3_render() {
     *) fail_milestone 3 "design.liveRender.command declares no {out} placeholder, so there is nowhere for the screenshot to land and nothing to hash: '$LR_COMMAND'"; return $? ;;
   esac
 
+  # The tolerance every measurement red is expressed in, asserted before a single comparison runs.
+  # config-lint owns this rule too, but the config is gitignored and never travels to CI, so the
+  # gate cannot assume anyone linted it — and an unvalidated value would read as 0 in awk, turning
+  # a config typo into a wall of shape reds about the branch.
+  case "$LR_TOLERANCE_PX" in
+    ''|*[!0-9]*)
+      block_milestone 3 "design.liveRender.tolerancePx is '$LR_TOLERANCE_PX', which is not a non-negative whole number of pixels — the rendered-measurement comparison has no tolerance to run against. Fix it (config-lint.sh states the same rule) or drop the key to take the default of 2."
+      return $? ;;
+  esac
+
   rows="$(design_rs_rows < "$REPO_ROOT/$SPEC_REL")"
   n_rows="$(printf '%s\n' "$rows" | grep -c .)" || n_rows=0
   [ "${n_rows:-0}" -ge 1 ] \
@@ -4377,6 +4591,24 @@ cmd_3_render() {
       *'{state}'*) : ;;
       *) fail_milestone 3 "$SPEC_REL declares a non-default render state, but design.liveRender.command carries no {state} placeholder, so the harness would screenshot the default view for every row: '$LR_COMMAND'. Add {state} and have the harness drive the named state, or re-scope the table to the default state alone."; return $? ;;
     esac
+  fi
+
+  # The plan rows the comparison runs on, read through the SAME walk that graded the plan above —
+  # design_plan_gate has already returned 0, so the table exists, declares all four columns and has
+  # no short or empty row.
+  plan_rows="$(plan_node_rows "$REPO_ROOT/$PLAN_MANIFEST_REL")"
+
+  # A plan row naming a state the spec does not declare is measured by nothing, which is the same
+  # silence a missing node is: it reads as a node under review and is compared against no file at
+  # all. Refused BEFORE the harness runs, because rendering every state to then report a plan
+  # defect buys nothing, and joined, because one plan usually gets a whole column wrong at once.
+  stray="$(printf '%s\n' "$plan_rows" | awk -F'\t' -v ids=" $seen_ids " '
+    NF >= 3 && $2 != "" {
+      if (index(toupper(ids), " " toupper($2) " ") == 0) { printf "node \"%s\" is measured in \"%s\"\n", $1, $2 }
+    }')"
+  if [ -n "$stray" ]; then
+    fail_milestone 3 "the translation plan $PLAN_MANIFEST_REL measures nodes in render states $SPEC_REL does not declare: $(printf '%s' "$stray" | tr '\n' ';' | sed 's/;$//; s/;/; /g'). Declared here: $(printf '%s' "$seen_ids" | sed 's/^ *//; s/ /, /g'). A row pointing at a state nobody renders is compared against nothing."
+    return $?
   fi
 
   # PNG bytes never enter history (D-4). The assertion is on the OUTPUT PATH, not on what
@@ -4452,7 +4684,61 @@ cmd_3_render() {
 "
     manifest_rows="$manifest_rows| $r_id | $r_route | $r_state | $RENDER_OUT_REL/$r_id.png | $sha |
 "
+
+    # ---- THE RENDERED MEASUREMENT for this state (#711) --------------------------------------
+    # EVERY declared state owes a rects sibling, including one with nothing to report — that
+    # harness writes `{}`. "The file is missing" and "the file says this state has no measured
+    # node" are different claims, and only the second is a harness that answered.
+    #
+    # The rects row does NOT enter `seen` (D-8). That detector exists to catch a {state}-blind
+    # harness shooting one view twice, which is a claim about SCREENSHOTS; two states that
+    # legitimately report `{}` hash identically and would red as a blind harness for doing exactly
+    # what the contract blesses.
+    rjson="$png$RECTS_SUFFIX"
+    if [ ! -s "$rjson" ]; then
+      measure_block="$measure_block$r_id: no rects sibling at $RENDER_OUT_REL/$r_id.png$RECTS_SUFFIX — every declared render state needs one beside its screenshot, and a state with nothing to report gets an empty object
+"
+      continue
+    fi
+    if ! jq -e 'type == "object"' "$rjson" >/dev/null 2>&1; then
+      measure_block="$measure_block$r_id: the rects sibling at $RENDER_OUT_REL/$r_id.png$RECTS_SUFFIX is not a JSON object keyed by node name
+"
+      continue
+    fi
+    rsha="$(lean_sha256 "$rjson")"
+    [ -n "$rsha" ] \
+      || { fail_milestone 3 "cannot hash $rjson — neither shasum nor sha256sum is on PATH, so no render receipt can be written. Install one and re-run."; return $?; }
+    manifest_rows="$manifest_rows| $r_id.rects | $r_route | $r_state | $RENDER_OUT_REL/$r_id.png$RECTS_SUFFIX | $rsha |
+"
+    prows="$(printf '%s\n' "$plan_rows" | awk -F'\t' -v rid="$r_id" 'NF >= 3 && toupper($2) == toupper(rid)')"
+    mrows="$(rects_entries "$rjson")"
+    while IFS="$(printf '\t')" read -r m_cls m_msg; do
+      [ -n "$m_cls" ] || continue
+      case "$m_cls" in
+        B) measure_block="$measure_block$m_msg
+" ;;
+        *) measure_fix="$measure_fix$m_msg
+" ;;
+      esac
+    done <<<"$(render_measure_state "$r_id" "$prows" "$mrows")"
   done <<<"$rows"
+
+  # THE MEASUREMENT VERDICT, once, over every state (D-5). Raised BEFORE the receipt is written:
+  # a manifest left behind by a failed comparison would be evidence of a render that did not pass.
+  #
+  # THE ABSENT BUDGET WINS when both classes are present, and that is the conservative reading of
+  # D-4 rather than a shortcut. A state whose rects file never arrived was not measured at all, so
+  # the run is stuck on the harness whatever the other states say — and charging a fix attempt for
+  # a defect the worktree cannot reach is the failure #642 split the budgets to avoid. The absent
+  # budget has its own hard stop, so this is not an unbounded free retry.
+  if [ -n "$measure_block" ]; then
+    block_milestone 3 "the render harness supplied no measurement this milestone can read: $(printf '%s' "$measure_block" | tr '\n' ';' | sed 's/;$//; s/;/; /g'). Emitting the sibling is the harness half of the contract (docs/live-render.md) — the gate compares numbers, it cannot resolve a node in your DOM."
+    return $?
+  fi
+  if [ -n "$measure_fix" ]; then
+    fail_milestone 3 "the rendered measurements disagree with the translation plan $PLAN_MANIFEST_REL: $(printf '%s' "$measure_fix" | tr '\n' ';' | sed 's/;$//; s/;/; /g'). Every mismatch is listed rather than the first, so one attempt shows the whole shape of the problem."
+    return $?
+  fi
 
   {
     echo "# lean render manifest — #$ISSUE"
