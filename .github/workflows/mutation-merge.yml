@@ -1,0 +1,175 @@
+# Merge-time mutation sweep — the enforced tier, moved off the clock and onto the event.
+#
+# WHY THIS EXISTS. The two surfaces this joins were mispriced in opposite directions. The
+# PR-lane job costs 10-15s and grades almost nothing: every slow-suite or multi-suite guard
+# defers, which is every core gate suite, so a guard-touching PR routinely merges with its
+# mutants ungraded. The nightly wholesale sweep then re-derived ~570 mutants to re-learn ~438
+# known kills, onto a dashboard the operator does not read — and stayed red for five nights
+# untriaged, which is what a cron verdict decays into. Neither lane was where the information
+# was needed.
+#
+# This one is. It runs on the merge, scoped to the merge's own diff, at the full depth the
+# nightly used to reach — and its verdict lands as a filed issue in the intake queue rather
+# than as a red square on a schedule page.
+#
+# WHY DEFERRAL IS OFF HERE (and must stay ON for the PR lane). All three PR-mode deferral
+# reasons — slow suite, multi-suite killer union, the fast-guard cap — protect one thing: the
+# merge-blocking PR job's time bound. Nothing is waiting on this run, so there is no bound to
+# protect and nothing to trade coverage for. `MUTATION_SWEEP_NO_DEFER` is the named bypass;
+# ci.yml must never set it.
+#
+# QUEUED, NEVER CANCELLED. `cancel-in-progress: false` is the whole point of the concurrency
+# group: every merge is graded on its OWN diff, and a cancelled run's guards would have no
+# lane left to catch them — the next push sweeps its own diff, not the dropped one. Coalescing
+# would save nothing worth having, since runs are async and minutes are free on a public repo.
+#
+# NO PATH FILTER on the trigger, deliberately. The guard universe is a RULE (every tracked
+# non-selftest `*.sh` outside `*/evals/*` and `tests/hooks-smoke/`), so any path list here
+# would be an approximation of it that drifts silently. The sweep already self-scopes and
+# exits green immediately on a diff touching no in-universe guard, which is the same answer at
+# the cost of one runner minute.
+name: mutation-merge
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mutation-merge
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    # Job-level backstop above the operative step bound below, the same shape and the same
+    # reasoning as mutation-sweep.yml: blowing a JOB timeout cancels the job and may skip its
+    # always() steps, while blowing a STEP timeout is an ordinary step failure the job
+    # proceeds past — so the evidence survives. The numbers are sized off the un-deferred
+    # worst case, a merge that touches lean-gate.sh, estimated at 30-45 min. That figure has
+    # never been observed; the run prints its own duration, and a blown bound is a bound edit.
+    timeout-minutes: 75
+    outputs:
+      title_key: ${{ steps.red.outputs.title_key }}
+      body: ${{ steps.red.outputs.body }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # the sweep diffs the merge against its predecessor to scope the guard set
+
+      # The paired selftests this sweep runs need both.
+      - name: install shellcheck + jq
+        run: sudo apt-get update -q && sudo apt-get install -y shellcheck jq
+
+      - name: mutation sweep (merge-scoped, deferral off)
+        id: sweep
+        timeout-minutes: 60
+        env:
+          SKIP_STRESS: '1'          # canonical sweep environment; asserted against the baseline header
+          MUTATION_SWEEP_NO_DEFER: '1'
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -o pipefail
+          mkdir -p sweep-out
+
+          # `github.event.before` is the merge's predecessor on main and is exact for a squash
+          # merge onto linear history. It is NOT always resolvable: an all-zeros value (first
+          # push) or a discarded head (force-push) would abort the sweep on a git error and
+          # file an infra red about GitHub's event payload rather than about this repo. Fall
+          # back to the parent commit, which asks the same question one commit narrower.
+          BASE="$BEFORE"
+          if ! git rev-parse --verify --quiet "${BASE}^{commit}" >/dev/null 2>&1; then
+            BASE="$(git rev-parse --verify --quiet 'HEAD^' 2>/dev/null || true)"
+          fi
+          if [[ -z "$BASE" ]]; then
+            echo "no resolvable diff base (root commit) — nothing to scope a sweep to." \
+              | tee sweep-out/sweep.log
+            exit 0
+          fi
+          echo "diff base: $BASE" | tee sweep-out/sweep.log
+
+          # pipefail + explicit capture: `| tee` would otherwise report TEE's exit code and a
+          # red sweep would leave this step green.
+          rc=0
+          bash tools/mutation-sweep.sh --mode pr --base "$BASE" \
+            --report sweep-out/mutation-report.tsv 2>&1 | tee -a sweep-out/sweep.log || rc=$?
+          echo "sweep rc=$rc"
+          exit "$rc"
+
+      # The two title keys are namespaced so neither standing red suppresses the other under
+      # the dedup rule, and so each triages to the route docs/testing.md already prescribes: a
+      # baseline-absent survivor is a coverage gap in the merged diff and belongs to whoever
+      # wrote the line; everything else the sweep reds on (pool disagreement, unrunnable pair,
+      # catalog anchor drift, unaccounted guard, baseline-missing, sandbox failure) is a
+      # harness fault and belongs to the harness.
+      #
+      # Read out of the run's OWN log, not `gh run view --log-failed`: the run-level log
+      # endpoint 404s while the run is still in progress, which is exactly when this executes,
+      # and degrading to "survivor ids unavailable" would empty the issue of the one fact that
+      # makes it actionable.
+      - name: classify the red
+        id: red
+        if: failure()
+        run: |
+          set -uo pipefail
+          SURV="$(grep -F 'RED: baseline-absent survivor: ' sweep-out/sweep.log \
+                  | sed 's/.*RED: baseline-absent survivor: //' | LC_ALL=C sort -u || true)"
+          OTHER="$(grep -F 'RED:' sweep-out/sweep.log \
+                   | grep -vF 'baseline-absent survivor:' || true)"
+
+          if [[ -n "$SURV" ]]; then
+            KEY='mutation sweep red'
+            LEAD='A merge-time mutation sweep found survivor(s) absent from `tools/mutation-baseline.tsv`. Each is a mutation of a guard this merge touched that its paired suite did not catch.'
+          else
+            KEY='mutation sweep infra red'
+            LEAD='A merge-time mutation sweep failed on a harness fault rather than a coverage gap. Triage per the exit contract in `docs/testing.md`.'
+          fi
+
+          {
+            echo "title_key=$KEY"
+            echo 'body<<MUTATION_MERGE_BODY'
+            echo "$LEAD"
+            if [[ -n "$SURV" ]]; then
+              echo
+              echo 'Survivor ids:'
+              echo '```'
+              echo "$SURV"
+              echo '```'
+            fi
+            if [[ -n "$OTHER" ]]; then
+              echo
+              echo 'Other RED lines:'
+              echo '```'
+              echo "$OTHER"
+              echo '```'
+            fi
+            echo 'MUTATION_MERGE_BODY'
+          } >> "$GITHUB_OUTPUT"
+
+      # always(): a RED run is exactly the run whose evidence matters most, and --report is a
+      # streaming sink, so a step killed at its bound still publishes the rows it reached.
+      - name: publish sweep artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-merge
+          path: sweep-out/
+          if-no-files-found: error
+
+  # A green run files nothing; a red one files, or comments on, exactly one issue. The
+  # fallbacks cover the case the classify step never ran at all (a runner death), where an
+  # unclassified infra red is still better than silence.
+  file-red:
+    needs: sweep
+    if: always() && needs.sweep.result == 'failure'
+    permissions:
+      contents: read
+      issues: write
+    uses: ./.github/workflows/file-issue-on-red.yml
+    with:
+      title_key: ${{ needs.sweep.outputs.title_key || 'mutation sweep infra red' }}
+      body: ${{ needs.sweep.outputs.body || 'The merge-time mutation sweep job failed without producing a classified verdict — read the run log linked below.' }}
+      commit: ${{ github.sha }}
+      run_id: ${{ github.run_id }}

@@ -194,8 +194,11 @@ jobs:
 
   # Test-the-tests, diff-scoped. Mutates only the guards this PR touches and runs their
   # paired selftests; a mutant that SURVIVES is a regression the suite would not have caught.
-  # Guards whose kill set is not a single fast suite defer to the nightly wholesale sweep
-  # rather than being graded against a weaker criterion than the one that produced the baseline.
+  # Guards whose kill set is not a single fast suite defer to mutation-merge.yml — the same
+  # harness on the same diff with the deferral off, run once nothing is waiting on the answer
+  # — rather than being graded here against a weaker criterion than the one that produced the
+  # baseline. This job must NEVER set MUTATION_SWEEP_NO_DEFER: the deferral is what holds a
+  # merge-blocking lane inside its 15-minute bound.
   #
   # ITS OWN JOB, not a step of lint-and-selftests: it was serialized behind ~12 minutes of
   # selftests while carrying its own 15-minute timeout, so on a guard-touching PR it put ~10

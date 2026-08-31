@@ -168,6 +168,20 @@ K_BUDGET="${MUTATION_SWEEP_K:-2}"   # generic mutants per operator per guard
 # path; this repo has already had a gate seam exported into a nested real invocation.
 SLOW_THRESHOLD_S="${MUTATION_SWEEP_SLOW_THRESHOLD_S:-5}"
 PR_FAST_GUARD_CAP=6                 # PR lane: sweep at most this many fast guards
+# THE MERGE-TIME BYPASS. Set to 1, the deferral decision below is skipped WHOLESALE — all
+# three of its reasons, not one — and every in-scope guard is graded. All three exist to
+# protect the PR lane's TIME BOUND, which the merge-time lane does not have: nobody is
+# waiting on a push-to-main sweep, so the reason to run a guard's mutants later rather than
+# now disappears with the wait. It costs no coverage honesty to do so: the multi-suite defer
+# runs the FULL killer union when it runs, which is the same criterion that produced the
+# baseline, so grading under it manufactures no false reds.
+# NOT A KNOB FOR THE PR LANE. .github/workflows/ci.yml must never set it — the PR job is
+# merge-blocking and its 15-minute step bound is what the deferral protects. It is set by
+# .github/workflows/mutation-merge.yml, and by an operator running a local advisory sweep
+# who wants the full picture. Like SLOW_THRESHOLD_S above it is a live leak path into nested
+# invocations, so it is carried in the `seam-scrub` denylist that lean-gate.sh and
+# preflight.sh strip from every lane child, and the companion suite scopes it non-exporting.
+NO_DEFER="${MUTATION_SWEEP_NO_DEFER:-0}"
 # Ceiling on ONE killer invocation, and the bound used for the unmutated precheck (which
 # has no measurement yet — it IS the measurement). Clears the slowest paired suite by a
 # wide margin under runner load: the slowest suite measured 107-120s on the CI lane.
@@ -1078,16 +1092,21 @@ if [[ "$MODE" == "pr" ]]; then
     ks="$(kill_set_for "$g")"
     n=0; for s in $ks; do n=$((n + 1)); done
     defer=""
-    [[ $n -ne 1 ]] && defer="multi-suite union ($n killers)"
-    if [[ -z "$defer" ]]; then
-      for s in $ks; do is_slow "$s" && defer="slow suite ($s, $(suite_seconds "$s")s)"; done
-    fi
-    if [[ -z "$defer" && $fast_count -ge $PR_FAST_GUARD_CAP ]]; then
-      defer="PR-lane cap ($PR_FAST_GUARD_CAP fast guards already swept)"
+    # ONE bypass site for all three reasons, deliberately: a per-arm knob could disable two
+    # of them and leave the third silently in force, and a merge-time run that skipped a
+    # guard would be indistinguishable from one that graded it.
+    if [[ "$NO_DEFER" != "1" ]]; then
+      [[ $n -ne 1 ]] && defer="multi-suite union ($n killers)"
+      if [[ -z "$defer" ]]; then
+        for s in $ks; do is_slow "$s" && defer="slow suite ($s, $(suite_seconds "$s")s)"; done
+      fi
+      if [[ -z "$defer" && $fast_count -ge $PR_FAST_GUARD_CAP ]]; then
+        defer="PR-lane cap ($PR_FAST_GUARD_CAP fast guards already swept)"
+      fi
     fi
     if [[ -n "$defer" ]]; then
       emit_row "$g" "deferred-to-nightly" "${ks// /+}" 0 0 0 "" "" ""
-      info "defer $g -> nightly: $defer"
+      info "defer $g -> merge-time sweep: $defer"
       case "$defer" in
         "multi-suite union"*) defer_multi=$((defer_multi + 1)) ;;
         "slow suite"*)        defer_slow=$((defer_slow + 1)) ;;
@@ -1111,7 +1130,7 @@ if [[ "$MODE" == "pr" ]]; then
     [[ $defer_multi -gt 0 ]] && reasons="${reasons:+$reasons, }multi-suite union: $defer_multi"
     [[ $defer_slow  -gt 0 ]] && reasons="${reasons:+$reasons, }slow suite: $defer_slow"
     [[ $defer_cap   -gt 0 ]] && reasons="${reasons:+$reasons, }PR-lane cap: $defer_cap"
-    ALL_DEFERRED_MSG="PR mode graded NOTHING: all $pr_scope_count in-scope guard(s) deferred to nightly, 0 swept (reasons: $reasons). See tools/mutation-slow-suites.tsv or the nightly mutation-sweep run for real verdicts."
+    ALL_DEFERRED_MSG="PR mode graded NOTHING: all $pr_scope_count in-scope guard(s) deferred to the merge-time sweep, 0 swept (reasons: $reasons). See tools/mutation-slow-suites.tsv, or the mutation-merge run on the commit this lands as, for real verdicts."
     warn "$ALL_DEFERRED_MSG"
     if [[ $ENFORCING -eq 1 ]]; then
       echo "::warning::mutation-sweep: $ALL_DEFERRED_MSG"

@@ -1,0 +1,98 @@
+# file-issue-on-red.yml — the shared "a red lane becomes a filed issue" mechanic.
+#
+# WHY IT IS REUSABLE RATHER THAN COPIED. Two lanes need it today (the merge-time mutation
+# sweep and the monthly wholesale audit) and a third is queued behind an in-flight change to the install-topology lane. The part worth
+# sharing is not the prose — each caller writes its own body — but the DEDUP DECISION, which
+# is the half that can be wrong in a way nobody notices: file on every red and the queue
+# fills with one issue per push; skip on every repeat and the second red is dropped on the
+# floor. One implementation, one place to fix it.
+#
+# THE CONTRACT: file the issue if no open one carries this title key; otherwise COMMENT on
+# the open one. Never skip. A repeat red is new information — a different commit, a
+# different survivor set — and dropping it is how a standing red stops being read.
+#
+# DEDUP IS BY TITLE KEY, NOT BY LABEL. A label has to pre-exist in the repo or
+# `gh issue create --label` errors outright, and the title is already the natural key. The
+# match is a `startswith` over the OPEN issue list rather than a `--search` query: the search
+# index is eventually consistent, so two reds minutes apart can both miss and both file. The
+# listing is not indexed and answers from the API's own state.
+#
+# The key must be a prefix of the title, so callers pass a bare phrase and this workflow
+# appends the commit. Keys in use are namespaced so one lane's standing red cannot suppress
+# another's: `mutation sweep red` (a coverage gap on a merge), `mutation sweep infra red` (a
+# harness fault), `mutation wholesale audit red` (drift/baseline hygiene over the universe).
+#
+# NO `permissions:` BLOCK HERE. A called workflow's jobs run under the CALLING job's
+# permissions, so the grant lives at each call site — where a reviewer reading the caller can
+# see that filing an issue is what it is about to do. Callers need `issues: write`.
+name: file-issue-on-red
+
+on:
+  workflow_call:
+    inputs:
+      title_key:
+        description: 'Dedup key. Matched as a prefix of open issue titles, and used as the new issue title with the short commit appended.'
+        required: true
+        type: string
+      body:
+        description: 'The caller-composed body. Commit and run link are appended here, so a caller states only what its own lane knows.'
+        required: true
+        type: string
+      commit:
+        description: 'The commit the red is about.'
+        required: true
+        type: string
+      run_id:
+        description: 'The workflow run to link.'
+        required: true
+        type: string
+      labels:
+        description: 'Comma-joined labels for a newly filed issue. Each must already exist in the repo. Empty means none.'
+        required: false
+        type: string
+        default: 'bug'
+
+jobs:
+  file:
+    runs-on: ubuntu-latest
+    steps:
+      - name: comment on the open red, or file one
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TITLE_KEY: ${{ inputs.title_key }}
+          BODY_IN: ${{ inputs.body }}
+          COMMIT: ${{ inputs.commit }}
+          RUN_ID: ${{ inputs.run_id }}
+          LABELS: ${{ inputs.labels }}
+        run: |
+          set -uo pipefail
+
+          SHORT="${COMMIT:0:12}"
+          RUN_URL="https://github.com/$GH_REPO/actions/runs/$RUN_ID"
+
+          existing="$(gh issue list --repo "$GH_REPO" --state open --limit 200 \
+                        --json number,title \
+                      | jq -r --arg k "$TITLE_KEY" \
+                          'map(select(.title | startswith($k))) | .[0].number // empty')"
+
+          BODY_FILE="$(mktemp)"
+          {
+            printf '%s\n\n' "$BODY_IN"
+            printf 'Commit: `%s`\n' "$SHORT"
+            printf 'Run: %s\n' "$RUN_URL"
+          } > "$BODY_FILE"
+
+          if [[ -n "$existing" ]]; then
+            echo "already open as #$existing — appending this run rather than filing a duplicate."
+            gh issue comment "$existing" --repo "$GH_REPO" --body-file "$BODY_FILE"
+            exit $?
+          fi
+
+          if [[ -n "$LABELS" ]]; then
+            gh issue create --repo "$GH_REPO" --title "$TITLE_KEY @ $SHORT" \
+              --body-file "$BODY_FILE" --label "$LABELS"
+          else
+            gh issue create --repo "$GH_REPO" --title "$TITLE_KEY @ $SHORT" \
+              --body-file "$BODY_FILE"
+          fi

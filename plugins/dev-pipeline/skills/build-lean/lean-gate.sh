@@ -3685,8 +3685,14 @@ cmd_2() {
 # becomes `env <scrub> bash -c "$cmd"`: functionally identical for a shell command string
 # (preflight.sh runs this repo's own configured lane commands the same way), and the only
 # shape `env` can scrub ahead of.
+#
+# NOT ONLY PIPELINE SEAMS. MUTATION_SWEEP_NO_DEFER is a test-harness knob and earns a row for
+# the same reason: the lane children include a `test` command, and in this repo that command
+# discovers tools/mutation-sweep-selftest.sh, whose cases invoke the real sweep and assert
+# what it defers. An ambient knob would silently re-answer those cases out of an operator's
+# shell. The list is "what must not reach a lane child", not "what second-shift owns".
 # LOCKSTEP-BEGIN seam-scrub subset
-SEAM_SCRUB='SECOND_SHIFT_CONFIG|SECOND_SHIFT_REPO_ROOT|SECOND_SHIFT_EXTENSION_MANIFEST|SECOND_SHIFT_PLUGIN_ROOT|SECOND_SHIFT_REVIEW_TOOLKIT_ROOT|SECOND_SHIFT_DEV_PIPELINE_ROOT|SECOND_SHIFT_DESIGN_TOOLKIT_ROOT|SECOND_SHIFT_SECTION_CATALOG|STATECTL_STATE_DIR|STATECTL_WRITER|DEV_PIPELINE_MODE|BRANCH_PREFIX|KEY_PATTERN|LEAN_ATTEND_MODE'
+SEAM_SCRUB='SECOND_SHIFT_CONFIG|SECOND_SHIFT_REPO_ROOT|SECOND_SHIFT_EXTENSION_MANIFEST|SECOND_SHIFT_PLUGIN_ROOT|SECOND_SHIFT_REVIEW_TOOLKIT_ROOT|SECOND_SHIFT_DEV_PIPELINE_ROOT|SECOND_SHIFT_DESIGN_TOOLKIT_ROOT|SECOND_SHIFT_SECTION_CATALOG|STATECTL_STATE_DIR|STATECTL_WRITER|DEV_PIPELINE_MODE|BRANCH_PREFIX|KEY_PATTERN|LEAN_ATTEND_MODE|MUTATION_SWEEP_NO_DEFER'
 # LOCKSTEP-END seam-scrub
 declare -a SEAM_SCRUB_ENV=()
 IFS='|' read -r -a _seam_scrub_toks <<< "$SEAM_SCRUB"

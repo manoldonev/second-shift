@@ -36,7 +36,9 @@ file); the PR lane's deferral decisions (AC-4).
 - **AC-4**: the PR-lane job's behavior is byte-identical — no change to which guards it
   defers, nor to the `deferred-to-nightly` report enum.
 - **AC-5**: `docs/testing.md`'s "Where it runs" section describes the new topology; the
-  CLAUDE.md mutation paragraph's lane references stay accurate.
+  CLAUDE.md mutation paragraph's lane references stay accurate; and no surviving in-tree
+  comment routes a reader to a lane this change deletes. Historical narrative about past
+  nightly runs is left alone — it records when something happened, not where to look now.
 - **AC-6**: companion-selftest coverage for the new knob — with the knob on, each of the
   three deferral reasons the PR path applies (slow suite, multi-suite union, fast-guard cap)
   grades its guard instead of emitting `deferred-to-nightly`.
@@ -56,7 +58,13 @@ file); the PR lane's deferral decisions (AC-4).
   the enum, per AC-4's own parenthetical.
 - **D-17** is widened: the ledger's shape is one slow-suite case; AC-6 covers all three
   deferral reasons, because D-2 makes the knob responsible for all three and a single-arm
-  case leaves the other two arms ungraded.
+  case leaves the other two arms ungraded. A fourth sub-case pins the knob OFF by default, so
+  a mutant that made the bypass unconditional cannot pass by satisfying the other three.
+- **D-16 / AC-5** widened by one site: `ci.yml`'s `mutation-sweep-pr` header said guards
+  "defer to the nightly wholesale sweep", which after this change routes a reader to a lane
+  that no longer runs at that cadence. It is a comment, so AC-4's behavior guarantee is
+  untouched. `tools/mutation-baseline.tsv`'s eight "confirm at the first nightly" row
+  comments are left alone per OR-3 — they date a seeded row, they do not route.
 - **OR-2** resolved on its stated default: PR #735 (#666) is OPEN at build time, so this PR
   authors `file-issue-on-red.yml` and calls it from its own two workflows; rewiring
   `install-topology.yml` is left to a follow-up rather than editing a file not on `main`.
