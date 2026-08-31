@@ -1,0 +1,19 @@
+{
+  "expected_verdict": "block",
+  "expected_findings": [
+    "RS-4 (the error state — an inline critical banner above the footer with Request re-enabled) is declared by the spec and has NO row in the plan's state-to-code wiring table, so a spec'd affordance ships dead",
+    "no analog screen is named anywhere in the plan for a non-trivial modal, so the implementer will improvise the structure the repo already has a pattern for"
+  ],
+  "acceptable_alternative_severity": "The missing-analog finding may land as a Warning rather than a Blocker; the unwired RS-4 must be a Blocker.",
+  "must_not_flag": [
+    "the `why this component` cells — every one describes what the handoff draws, not the node name",
+    "the `dimensions` table — fully populated, one row per sized node, with an overflow decision each",
+    "the placement decision — stated as page-level and portalled, and the file list edits ReturnsPage.tsx, which agrees",
+    "the file list — the modal, its mount, the hook and a co-located test",
+    "the Decision Ledger — one row, provenance inside the enum",
+    "RS-1, RS-2 and RS-3 — each carries a concrete mechanism",
+    "the absence of a token map table — a design-faithful plan mandates none"
+  ],
+  "layer": "unwired declared state, and a missing analog",
+  "notes": "Two planted defects in the two checks that need the SPEC and the plan read together. The wiring table is present and looks complete on its own; only comparing it against the RS-n rows the plan itself carries exposes RS-4. The missing analog is the second: nothing in the plan is labelled 'analog', and the reviewer has to notice an absence rather than grade a cell."
+}

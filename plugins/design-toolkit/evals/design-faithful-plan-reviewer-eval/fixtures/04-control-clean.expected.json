@@ -1,0 +1,19 @@
+{
+  "expected_verdict": "pass",
+  "expected_findings": [],
+  "must_not_flag": [
+    "the `why this component` cells — every one states what the handoff draws and, for the event-type picker and the signing secret, why the nearer primitive was rejected",
+    "the `dimensions` table — one row per sized node, each with an overflow decision, including the wrap-then-scroll behavior of the chip rows",
+    "the analog — ApiKeyEditor matches the shell, the masked-secret treatment and the validation-gated primary",
+    "the placement decision — stated as a sibling of the endpoint list and the file list edits DeveloperSettingsPage.tsx and registers the route, which agrees",
+    "the state wiring — all four RS-n rows carry a concrete mechanism",
+    "the file list — component, mount, both hooks, a co-located test and the route registration",
+    "the Decision Ledger — three rows, every provenance inside the closed enum, including D-3's legal `deferred`",
+    "the absence of a token map table — a design-faithful plan mandates none, and token-role mapping is graded on the diff by design-faithful-reviewer",
+    "the absence of any recorded handoff CSS custom property values — this reviewer has no handoff access and none is expected in the artifact",
+    "the form column's fixed 560px inline size — a dimension is a measurement, not a spacing token, and no token covers a form-column max",
+    "the signing-secret row composing `TextField` with an `endAdornment` — composing from existing primitives is what the skill asks for, not a hand-rolled primitive"
+  ],
+  "layer": "clean control",
+  "notes": "The control fixture. Every declared bias toward passing is measured here: a campaign that improves recall by destroying calibration has not improved the agent. It is deliberately dense — six components, six sized nodes, four wired states, a route registration — so a reviewer reaching for something to say has plenty of correct content to misread, and every such misread is a d3 fabrication. The two `must_not_flag` entries about the absent token map are the claude-design-specific trap: a reviewer carrying a figma-shaped arithmetic section will demand a table this family's plan step does not mandate."
+}

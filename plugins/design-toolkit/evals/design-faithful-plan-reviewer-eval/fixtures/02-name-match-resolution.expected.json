@@ -1,0 +1,18 @@
+{
+  "expected_verdict": "block",
+  "expected_findings": [
+    "the carrier picker's `why this component` cell resolves `Select` purely by restating the handoff node name and the catalog alias table — a name match with no statement of what the handoff actually draws",
+    "the delay-threshold field's `why this component` cell reads 'closest match' — a filled cell that says nothing, which is the silence the column exists to make visible; `NumberField` renders increment/decrement steppers and the plan never says they are intended"
+  ],
+  "acceptable_alternative_severity": "The carrier-picker finding may land as a Warning rather than a Blocker; the delay-threshold one must be a Blocker (an unjustified resolution to a component whose rendered affordances exceed what the plan describes).",
+  "must_not_flag": [
+    "the `Date Range` and `Clear all` rows — both cells describe what the handoff draws, not the node name",
+    "the `dimensions` table — fully populated, one row per sized node, with an overflow decision each",
+    "the placement decision — stated as a sibling of the results table and the file list edits ExceptionQueuePage.tsx, which agrees",
+    "the analog — ShipmentFilters is a close structural match",
+    "the state wiring — empty, filtered and cleared each carry a mechanism",
+    "the absence of a token map table — a design-faithful plan mandates none"
+  ],
+  "layer": "name-match component resolution",
+  "notes": "The #692 defect verbatim in structure, on a claude-design plan: a node resolved by name to a stepper-rendering control, and a second cell that is filled but empty of content. The fixture is deliberately correct everywhere else, so the only route to a Blocker is grading the CONTENT of the `why this component` cells rather than confirming they are non-empty — which is what the gate's non-empty assertion cannot do."
+}

@@ -34,6 +34,46 @@ Identical to `design-faithful-spec`: `get_project` (assert `PROJECT_TYPE_PROJECT
 (`lib/extractor.mjs`). Apply the `lib/read-plan.mjs` limit classification. `list_projects`
 does not list handoff bundles — open by id only.
 
+## Write the translation plan (pre-implementation gate)
+
+Before writing any code, write the **translation plan** as a file: the resolved-component list
+with a stated reason per component, the per-node dimensions, the chosen analog screen (below), the
+**placement decision** (which container each node mounts under, and at what level), and the file
+list you will create/edit. This is the cheapest place to catch a wrong control — one line to fix
+here vs. the same component spread across call-sites after the build.
+
+**On the lean lane it is an asserted artifact, not prose.** Write it to
+`<plansDir>/<key>-lean-plan.md` — the path `bash G 1 <issue>` derives the spec path from, with
+`-lean-plan.md` in place of `-lean.md`. `lean-gate.sh` milestone 3 refuses an armed ticket
+**before the render pass** unless that file exists, is committed, and carries:
+
+- a header line `planned_from: pending` — the gate stamps this with the branch's plan patch
+  identity and reds until you commit the stamp, so the plan is dated against the code it was
+  written for. On a later round it re-stamps: **re-read the plan against the lines that moved**
+  before committing;
+- a table declaring a **`why this component`** column, one row per resolved component;
+- a table declaring a **`dimensions`** column, one row per sized node.
+
+Every cell of both tables must be filled, and a row may not declare fewer cells than its header.
+That is the whole mechanical contract: an omission has to read as an **empty cell**, not as an
+absent thought. A resolved component with no stated reason is the name-match resolution that ships
+the wrong control; a node with no recorded dimensions is the eyeballed size that ships at 3× the
+design.
+
+**No token map table.** A Claude Design handoff carries CSS custom properties, and mapping them to
+the repo's token roles is graded on the diff by
+[`design-toolkit:design-faithful-reviewer`](../../agents/design-faithful-reviewer.md), not here.
+A table nobody reads is a cell nobody fills — do not add one, and do not copy the figma-faithful
+token table across: the two families' plan steps are deliberately not lockstep.
+
+**Dispatch
+[`design-toolkit:design-faithful-plan-reviewer`](../../agents/design-faithful-plan-reviewer.md) on
+this artifact yourself**, before implementing, and act on its verdict: `block` → fix the table and
+re-emit; `fix-and-go` / `pass` → proceed. The gate cannot run an agent or branch on a verdict, so
+the dispatch stays yours on every lane — the autonomous lean lane included, where it is not
+optional: milestone 3 refuses to render until the reviewer's output is committed at
+`<plansDir>/<key>-lean-plan-review.md`, written by `lean-gate.sh plan-review <issue>`.
+
 ## Implement path (the repo's FE app)
 
 - **Mirror the nearest analog.** Find the closest existing screen/component in the FE app
