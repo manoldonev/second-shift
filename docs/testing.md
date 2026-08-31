@@ -1445,6 +1445,23 @@ reaches them. Monthly costs latency on that rarest class, bounded at ~30 days, a
 nightly whose marginal information was ~zero on any day nothing changed — 570 mutants re-derived
 to re-learn 438 known kills.
 
+**What the monthly lane is FOR: per-operator kill rate, on demand.** The report's
+`survivor_ids` cell says what survives; it has no counterpart for what a suite actually
+*kills*, so no argument about whether a generic operator earns its keep has ever been
+checkable against real numbers. `--verdict-log <path>` closes that: opt-in and mode-agnostic,
+matching the `--report`/`--baseline-out`/`--slow-out` family, it streams one TAB-separated row
+per scored mutant — `<mutant id><TAB><verdict><TAB><killer suite>`, `-` for a survivor — for
+both tiers (generic and `catalog::` ids alike). It costs no new computation: the tally loop
+already holds the mutant id and reads the killer suite out of the verdict record, cache hits
+included, so a memoized kill logs its real killer rather than a blank. `mutation-sweep.yml`
+passes it at both shard invocations, into the same `sweep-out/` directory its
+`mutation-sweep-shard-N` artifact already publishes — shard-local, with no `--mode merge` arm:
+a merged verdict log would need the report's own truncation-detection story, and the operator
+route is cheaper — dispatch the workflow, download the ten shard artifacts, and concatenate
+their `mutation-verdict-log.tsv` files by hand. An unwritable path is a hard red, matching the
+report sink's own or-red guard, never a silent skip. `ci.yml`'s `mutation-sweep-pr` and
+`mutation-merge.yml` pass no such flag and are unaffected.
+
 **A red files an issue, it does not redden a dashboard.** Both non-PR lanes route their verdict
 into the intake queue through `.github/workflows/file-issue-on-red.yml`, deduplicated on a title
 key, labeled `bug` and nothing else — an auto-filed red has had no intake, so it must not read

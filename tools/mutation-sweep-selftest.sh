@@ -2578,6 +2578,58 @@ if [[ $MOK -eq 1 ]]; then
   fi
 fi
 
+echo "(at) --verdict-log — a TAB row per scored mutant, both tiers, '-' for a survivor, a cache hit logs its real killer, an unwritable path is a hard red"
+FX="$(new_fixture strong)"
+printf 'echo-flip\tguard.sh\ts/echo ok/echo mutated/\tan uncovered good-path echo, never checked by the strong killer\n' \
+  >> "$FX/tools/mutation-catalog.tsv"
+fx_commit "$FX" "add a survivable catalog row"
+GSID="$(sid_for "$FX" guard.sh fail-open 1)"
+CSID="catalog::echo-flip"
+baseline_with "$FX" "$CSID"
+OUT_NOFLAG="$( cd "$FX" && enf bash "$SWEEP" --mode full 2>&1 )"; RC_NOFLAG=$?
+OUT="$( cd "$FX" && enf bash "$SWEEP" --mode full --verdict-log "$FX/vlog.tsv" 2>&1 )"; RC=$?
+if [[ $RC -eq 0 && $RC_NOFLAG -eq $RC ]]; then
+  ok "the flag is inert on the run's exit code — identical rc with and without it"
+else
+  bad "(at1) expected identical rc=0 with and without --verdict-log; got $RC_NOFLAG / $RC"
+  printf '%s\n' "$OUT_NOFLAG" | tail -6
+  printf '%s\n' "$OUT" | tail -6
+fi
+HDR="$(head -1 "$FX/vlog.tsv" 2>/dev/null)"
+GROW="$(awk -F'\t' -v s="$GSID" '$1==s' "$FX/vlog.tsv" 2>/dev/null)"
+CROW="$(awk -F'\t' -v s="$CSID" '$1==s' "$FX/vlog.tsv" 2>/dev/null)"
+if [[ "$HDR" == $'mutant_id\tverdict\tkiller_suite' ]] \
+  && [[ "$GROW" == "$GSID"$'\t'"killed"$'\t'"./guard-selftest.sh" ]] \
+  && [[ "$CROW" == "$CSID"$'\t'"survived"$'\t'"-" ]]; then
+  ok "both tiers appear, with the generic id's real killer and '-' for the catalog survivor"
+else
+  bad "(at2) unexpected verdict-log content — header='$HDR' generic-row='$GROW' catalog-row='$CROW'"
+  printf '%s\n' "$OUT" | tail -6
+fi
+
+# A cache hit must log the killer suite out of the memoized record, not a blank.
+CD="$TMPROOT/cache-at"
+FXC="$(new_fixture strong)"
+GSIDC="$(sid_for "$FXC" guard.sh fail-open 1)"
+( cd "$FXC" && cch "$CD" bash "$SWEEP" --mode full --verdict-log "$TMPROOT/at-cold.tsv" ) >/dev/null 2>&1
+OUT2="$( cd "$FXC" && cch "$CD" bash "$SWEEP" --mode full --verdict-log "$TMPROOT/at-warm.tsv" 2>&1 )"
+C2="$(computed "$OUT2")"
+WARMROW="$(awk -F'\t' -v s="$GSIDC" '$1==s' "$TMPROOT/at-warm.tsv" 2>/dev/null)"
+if [[ "${C2:-9}" -eq 0 ]] && [[ "$WARMROW" == "$GSIDC"$'\t'"killed"$'\t'"./guard-selftest.sh" ]]; then
+  ok "a cache-served kill still logs its real killer suite"
+else
+  bad "(at3) warm run computed=${C2:-?}, expected 0; warm row='$WARMROW'"; printf '%s\n' "$OUT2" | tail -6
+fi
+
+# An unwritable log path is a hard red, never a silent skip.
+FXU="$(new_fixture strong)"
+OUT="$( cd "$FXU" && adv bash "$SWEEP" --mode full --verdict-log "/no/such/dir/vlog.tsv" 2>&1 )"; RC=$?
+if [[ $RC -ne 0 ]] && grep -q 'cannot write the verdict log' <<<"$OUT"; then
+  ok "an unwritable --verdict-log path reds by name"
+else
+  bad "(at4) expected a named red for an unwritable path; got rc=$RC"; printf '%s\n' "$OUT" | tail -5
+fi
+
 echo "(j) universe rule — every in-universe guard in the REAL tree is accounted"
 UNIV="$( cd "$REPO_ROOT" && git ls-files '*.sh' \
         | grep -v -- '-selftest\.sh$' | grep -v '/evals/' | grep -v '^tests/hooks-smoke/' | sort )"
