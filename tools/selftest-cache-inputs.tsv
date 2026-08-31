@@ -47,12 +47,24 @@
 # record where it terminated.
 #
 # DERIVE THAT MECHANICALLY, AND OVER PATHS RATHER THAN OVER SCRIPTS. Grep each declared script
-# for its ${BASH_SOURCE[0]}- and $0-rooted path constructions and match every one against the
-# rows below. Two things a prose reading misses. A resolution may target a .md or a .tsv as
-# readily as a .sh, so a sweep scoped to `*.sh` mentions can be accurate and still incomplete.
-# And a target the subject only tests for EXISTENCE is an input too: its absence flips the
-# suite's verdict, while the key — content-addressed over the DECLARED rows alone — does not
-# move, which is a stale pass. Both misses landed on this file's first revision.
+# for the paths it BUILDS FROM A VARIABLE, and match every one against the rows below. Three
+# things a prose reading misses.
+#
+#   (1) A resolution may target a .md or a .tsv as readily as a .sh, so a sweep scoped to
+#       `*.sh` mentions can be accurate and still incomplete.
+#   (2) A target the subject only tests for EXISTENCE is an input too: its absence flips the
+#       suite's verdict, while the key — content-addressed over the DECLARED rows alone — does
+#       not move, which is a stale pass.
+#   (3) TWO ROOTS, and they answer differently. A ${BASH_SOURCE[0]}- or $0-rooted path names a
+#       file shipped BESIDE the subject, and is an input whenever the subject reaches it. A path
+#       rooted at the GRADED TREE ($REPO_ROOT, `git rev-parse --show-toplevel`) is an input only
+#       if the suite runs the subject against a tree that HAS the file — under a mktemp fixture
+#       it usually does not, and the case is asserting the absent branch. Classify each; do not
+#       assume either answer.
+#
+# (1) and (2) landed on this file's first revision. (3) is why grepping for the first root alone
+# cannot reproduce this table: check-lean-chain-selftest.sh's lean-evidence.sh row is a
+# graded-tree resolution and has no ${BASH_SOURCE[0]} form anywhere.
 
 # --- cost-block-selftest.sh (30s) -------------------------------------------------------
 # No `cost-block.sh` sibling exists — the script under test is pipeline-cost-block.sh, one
@@ -89,15 +101,26 @@ plugins/dev-pipeline/tools/cost-block-selftest.sh	plugins/dev-pipeline/tools/gh-
 # DEPTH 3, and where it TERMINATES: claim-issue.sh resolves gh-bot.sh, which resolves an
 # out-of-repo wrapper under $HOME. The closure stops at the in-repo file: a path under $HOME is
 # not tracked, so it has no blob id to key on. Nothing at depth 2 resolves a further file: this
-# is the whole live depth-3 chain in the table, and lean-gate.sh makes seven
+# is the whole live depth-3 chain in the table, and lean-gate.sh makes seven beside-the-subject
 # self-relative path constructions, six of them the .sh rows below and the seventh that .md,
 # and no script they reach makes another.
 #
-# DELIBERATELY OUT: node_modules/.bin/prettier, which case (fp5) uses as an opportunistic live
-# oracle and SKIPS when absent — untracked, so it has no blob id to key on, and CI installs
-# none. And .claude/second-shift.config.json, referenced zero times: the suite stages its own
-# fixture trees, so no machine-local untracked file can enter the key. A declared input that
-# does not exist is rc=2, and that file is absent on CI.
+# DELIBERATELY OUT, and the third entry is the one to read before adding a row here:
+#
+#   node_modules/.bin/prettier, which case (fp5) uses as an opportunistic live oracle and SKIPS
+#   when absent — untracked, so it has no blob id to key on, and CI installs none.
+#
+#   .claude/second-shift.config.json, referenced zero times: the suite stages its own fixture
+#   trees, so no machine-local untracked file can enter the key. A declared input that does not
+#   exist is rc=2, and that file is absent on CI.
+#
+#   scripts/check-frozen-files.sh and scripts/check-changelog-trailer.sh, which cmd_2() resolves
+#   at lean-gate.sh:3612-3613. Those are rooted at the GRADED TREE, not beside the gate, and the
+#   suite's fixture repos never contain them: case (h) asserts precisely the absent branch —
+#   "milestone-2 prints a skip notice when the policy scripts are absent (consumer repo)". The
+#   suite names neither file. Editing this repo's copies cannot move the suite's verdict, so
+#   they are not inputs; rule (3) in the header is what decides that, and rule (1)/(2) alone
+#   would have added two spurious rows.
 #
 # tools/run-selftests.sh is already in the key as the runner's own blob id. It is declared
 # anyway so the closure reads as complete standing alone, rather than requiring the reader to

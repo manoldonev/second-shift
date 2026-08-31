@@ -74,6 +74,27 @@ The suite reads `scripts/check-lean-chain.sh` (subject) and exports `LEAN_EVIDEN
 resolve by default. `lean-evidence.sh` resolves no sibling; the closure terminates at depth 2.
 Every other file the suite touches is written under its own `mktemp` tree.
 
+### Applying the rule to itself found two more things
+
+AC-8's rule, as first written in round 2, scoped the sweep to `${BASH_SOURCE[0]}`- and `$0`-rooted
+constructions. Run against this table's own two suites it does not reproduce the table:
+
+- `check-lean-chain.sh` makes **no** beside-the-subject construction at all. It resolves
+  `lean-evidence.sh` at `:515`, from `$REPO_ROOT` (`git rev-parse --show-toplevel`, `:508`), behind
+  a `${LEAN_EVIDENCE:-…}` default. That file **is** row 131. A rule that cannot find a row already
+  in the table could not have produced the table.
+- `lean-gate.sh` makes two graded-tree constructions the first form also misses —
+  `scripts/check-frozen-files.sh` and `scripts/check-changelog-trailer.sh` at `:3612-3613`. These
+  correctly get **no** row: `REPO_ROOT` is the tree being graded, the suite's fixtures are `mktemp`
+  repos that never contain them, and case (h) asserts exactly that branch — *"milestone-2 prints a
+  skip notice when the policy scripts are absent (consumer repo)"*. The suite names neither file,
+  so editing this repo's copies cannot move its verdict.
+
+Same shape, opposite answers, and neither is reachable from the first root. So the rule now names
+both roots and says the root decides — which is the difference between a rule that explains the
+table and one that merely accompanies it. AC-1 is unchanged by this: both closures were already
+correct. What moved is the statement of how to check them.
+
 ### The example the contract taught from is gone
 
 Running AC-8's rule over `pipeline-cost-block.sh` — the script the depth-2 doctrine cited as its
@@ -124,11 +145,14 @@ suite always run.
 - AC-7: `tools/mutation-sweep-selftest.sh` gains no row, and the TSV header records the derivation
   that ruled it out, so the next contributor reads why rather than re-deriving it.
 - AC-8: the derivation rule that admitted round 1's miss is widened wherever a row-adder reads it —
-  both `tools/selftest-cache-inputs.tsv`'s header and `docs/testing.md`'s contract say to derive
-  over the subject's `${BASH_SOURCE[0]}`- and `$0`-rooted path constructions rather than over the
-  `*.sh` names its prose mentions, and that a target the subject tests for EXISTENCE only is an
-  input like any other. (Added in round 2: the missing row was one line, the rule that let it
-  through is the part that generalizes.)
+  both `tools/selftest-cache-inputs.tsv`'s header and `docs/testing.md`'s contract state it over
+  the paths the subject BUILDS FROM A VARIABLE, in three parts: a resolution may target a `.md` or
+  a `.tsv` as readily as a `.sh`; a target tested for EXISTENCE only is an input like any other;
+  and the ROOT decides the answer, a beside-the-subject root (`${BASH_SOURCE[0]}`, `$0`) being an
+  input whenever the subject reaches it while a graded-tree root (`$REPO_ROOT`) is one only if the
+  suite runs against a tree that has the file. Each part is justified against a row or non-row
+  this table already carries. (Added in round 2; the third part added after the first two failed
+  to reproduce a row already in the table — see the derivation below.)
 
 - AC-9: the depth-2 worked example that `tools/selftest-cache-inputs.tsv`'s header and
   `docs/testing.md`'s contract both teach from names a resolution the tree still makes. The one

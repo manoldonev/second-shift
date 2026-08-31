@@ -479,15 +479,29 @@ and dropping a row is the direction that costs a gate. A stale row is cheap; a s
 teaches the next row-adder to derive against something that is not there, which is why this
 paragraph now points at a resolution the tree still makes.
 
-**Derive that mechanically, over paths rather than over scripts.** Grep the subject for its
-`${BASH_SOURCE[0]}`- and `$0`-rooted path constructions and match every one against the rows, and
-treat a target the subject only tests for EXISTENCE as an input like any other. Both halves earn
-their place: `lean-gate.sh` resolves
-`plugins/design-toolkit/agents/figma-faithful-plan-reviewer.md` and never reads a byte of it, and
-that suite's first declared closure missed it on both counts — a sweep scoped to `*.sh` mentions
-cannot see a `.md`, and nothing about an existence check reads as a dependency. Renaming that file
-takes the suite from green to 39 failures, against a key that hashes the declared rows and so does
-not move.
+**Derive that mechanically, over paths rather than over scripts.** Grep the subject for the paths
+it builds from a variable, and match every one against the rows. Three things a prose reading
+misses, each of which has cost this table a defect:
+
+1. A resolution may target a `.md` or a `.tsv` as readily as a `.sh`, so a sweep scoped to `*.sh`
+   mentions can be accurate and still incomplete.
+2. A target the subject only tests for EXISTENCE is an input like any other. Its absence flips the
+   suite's verdict, while the key — content-addressed over the declared rows alone — does not move.
+3. **The root decides the answer, and there are two.** A `${BASH_SOURCE[0]}`- or `$0`-rooted path
+   names a file shipped beside the subject and is an input whenever the subject reaches it. A path
+   rooted at the *graded tree* (`$REPO_ROOT`, from `git rev-parse --show-toplevel`) is an input
+   only if the suite runs the subject against a tree that has the file — under a `mktemp` fixture
+   it usually does not, and the case is asserting the absent branch.
+
+`lean-gate.sh` resolves `plugins/design-toolkit/agents/figma-faithful-plan-reviewer.md` and never
+reads a byte of it; that closure's first revision missed it on counts 1 and 2 at once, and renaming
+the file takes the suite from green to 39 failures against a key that does not move. Count 3 is why
+the first two are not enough on their own: `check-lean-chain-selftest.sh`'s `lean-evidence.sh` row
+is a graded-tree resolution with no `${BASH_SOURCE[0]}` form anywhere, so a sweep for the first root
+alone cannot even reproduce the rows already in the table — while `lean-gate.sh`'s two graded-tree
+resolutions (`scripts/check-frozen-files.sh` and `scripts/check-changelog-trailer.sh`, at
+`:3612-3613`) correctly get no row, because the suite's fixtures never contain them and its case
+(h) asserts exactly that absent branch. Same shape, opposite answers; classify, do not assume.
 
 `CACHE_EPOCH` is a constant in the runner rather than a knob. The key covers repo content —
 including `run-selftests.sh`'s own bytes, which is property 2 applied to the harness that produces
