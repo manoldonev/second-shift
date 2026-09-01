@@ -122,11 +122,14 @@ the code does not author its own evaluation.
    diff against the base, and `inherited_patch_id`, written every round and `none` on a root.
    `--fidelity` is yours and defaults to `not-applicable`, which on an armed run costs the round
    rather than certifying a design nobody looked at.
-   `--panel` is the comma-separated list of reviewer agent types the round actually **returned a
-   result from** — qualified as `review-lead`'s own plugin-shipped panel names them
-   (`design-toolkit:figma-faithful-reviewer`), read off the fan-out's structured result and not
-   off your selection: a reviewer that went dark is absent from it, which is what makes the key
-   worth reading. It is required on an armed spec, where the gate refuses a list that does not
+   `--panel` is the comma-separated list of reviewer agent types the round actually **obtained a
+   usable result from — whether from the fan-out or from a `review-lead` Step 4b re-dispatch** —
+   qualified as `review-lead`'s own plugin-shipped panel names them
+   (`design-toolkit:figma-faithful-reviewer`), read off those results and not off your
+   selection: a reviewer that is **still** dark after the mandated re-dispatch is absent from it,
+   which is what makes the key worth reading. A reviewer the re-dispatch recovered belongs in the
+   list — its domain was reviewed — and leaving it out would have the armed-spec refusal below
+   reject a round whose fidelity coverage the mandate is what recovered. It is required on an armed spec, where the gate refuses a list that does not
    name the reviewer the handoff host makes mandatory — and by then 5c has already handed such a
    round back, so the refusal is the second line of defence, not the first. Hand-edit none of them
    (quoting a key in the summary is safe — readers take the header), and do not run this from the

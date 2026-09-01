@@ -214,11 +214,16 @@ const fileList = changedFiles.length ? changedFiles.join(', ') : '(see diff)'
 // Mitigations, in order: (1) BOUNDED_EXPLORATION below — the PRIMARY fix; caps the absence-grounding
 // exploration so the reviewer emits instead of stalling. (2) STRUCTURED_OUTPUT_FIRST — emit the
 // structured verdict first; kept (cheap, right on principle) though it is not the stall cure. (3) the
-// one-shot retry in dispatchReviewer() recovers residual stochastic deaths. (4) the dark-reviewer
-// coverage-gap contract (review-lead Synthesis Rules + stages/8-code-review.md) backstops anything
-// that still goes dark, surfaced as a coverage gap and never silently dropped — a NOTE, which is
-// the right calibration only while some domain was actually reviewed. When the WHOLE panel goes
-// dark, review-lead voids the round and answers no merge question at all (its Step 4b-void). Guards:
+// one-shot retry in dispatchReviewer() recovers residual stochastic deaths — but it is BIT-IDENTICAL
+// (same prompt, same tier), so against the maxTurns-with-no-text death it is close to deterministic
+// and both attempts die alike. (4) the dark-reviewer contract (review-lead Step 4b) backstops what
+// still goes dark: the SESSION must re-dispatch once with a changed prompt — a turn-numbered emit
+// deadline and a narrowing to that reviewer's domain, which is the part this file cannot do because
+// it dispatched against the whole range — and only what survives THAT is a coverage gap. A gap is
+// then a NOTE for most reviewers, but a hard "Ready to merge? = No" for security (whose dimension
+// the lead pass skipped precisely because this fan-out spawned it) and a VOID for design fidelity on
+// an armed spec. When the WHOLE panel goes dark, review-lead voids the round and answers no merge
+// question at all (its Step 4b-void). Guards:
 // workflows/runtime-shim-selftest.mjs executes THIS body against the real ladder;
 // workflows/null-reviewer-selftest.mjs Case F pins the load-bearing tokens + emit wiring. reviewer-baseline carries the same principle as documented
 // contract ("Proportionate grounding"); this file is the operative delivery.

@@ -963,6 +963,23 @@ coupling rather than mechanizing it into a guard that cannot fail.
   fetch. Both mutation-verified. #351's `reviewers.tierMap` extends this same entry and gets none
   of its own: it lands inside the `reviewers` subset already covered. The tier ALPHABET is a
   different coupling and IS anchorable — that one is a live `tier-alphabet-parse` group.
+- **The dark-reviewer re-dispatch mandate, across three prose sites** (#769). `review-lead` Step 4b
+  mandates one in-session re-dispatch before a `[Coverage gap]` may be recorded; Step 4b-void case 2
+  reads "still dark after that re-dispatch" as its post-dispatch trigger on an armed spec; and
+  `review-lean` step 5c hands such a round back. One contract, three sites, and a real coupling —
+  loosen the mandate and 5c's trigger stops matching what `review-lead` can produce. **Declined,
+  with no guard added.** The only mechanization available is a grep for prose that must be present,
+  which the `writing-tests` skill forbids outright: it passes on the day the sentence is deleted and
+  re-added verbatim with its meaning inverted around it, so it cannot fail for the reason it exists.
+  The sanctioned alternative, a `LOCKSTEP` anchor, needs byte-identical blocks — and these three
+  deliberately are not: one states a mandate to an executing session, one states a void trigger, one
+  states a hand-back rule, each in its own file's voice. Forcing a shared literal would mean writing
+  three skills' prose to satisfy a grep. **Reviewer-guarded**, which is honest rather than
+  convenient: all three sites are short, two of them sit in the same section of one file, and the
+  behavior they describe is a session's judgment that no selftest in this repo executes. The
+  mechanized half of the same problem is already elsewhere — `check-emit-deadline.sh` holds the
+  turn-numbered deadline the re-dispatch prompt cites as a floor, and it holds it where the number
+  actually lives, in the agent frontmatter and doc.
 - **Test-tier map** (CLAUDE.md's "Where a new test goes" ↔ this document's "Why a tier map at all").
   Two representations of one routing contract, deliberately NOT parallel: one is a three-column
   router keyed by what you are guarding, the other a status table keyed by the classic pyramid
