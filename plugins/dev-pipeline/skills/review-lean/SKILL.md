@@ -128,8 +128,9 @@ the code does not author its own evaluation.
    (`design-toolkit:figma-faithful-reviewer`), read off those results and not off your
    selection: a reviewer that is **still** dark after the mandated re-dispatch is absent from it,
    which is what makes the key worth reading. A reviewer the re-dispatch recovered belongs in the
-   list — its domain was reviewed — and leaving it out would have the armed-spec refusal below
-   reject a round whose fidelity coverage the mandate is what recovered. It is required on an armed spec, where the gate refuses a list that does not
+   list — its domain *was* reviewed — and omitting it would have the armed-spec refusal below
+   reject a round whose fidelity coverage the mandate had just recovered.
+   It is required on an armed spec, where the gate refuses a list that does not
    name the reviewer the handoff host makes mandatory — and by then 5c has already handed such a
    round back, so the refusal is the second line of defence, not the first. Hand-edit none of them
    (quoting a key in the summary is safe — readers take the header), and do not run this from the
