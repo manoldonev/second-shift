@@ -211,7 +211,7 @@ The no-provider row is a **default, not a fallback to nothing**: a repo with no 
 
 **What this dimension asserts.** Both reviewers are design-blind by contract — they verify *the abstraction is right*, not that it matches an unseen design. This dimension covers design-token discipline, logical-vs-physical style props, real-component reuse over hand-rolled primitives, and copy drift against a discoverable spec. **It is not a pixel check** — the pixel loop belongs to the implementing session's self-verify artifact, to `review-lean`'s design-sighted fidelity arm on a design-armed lean run (which scores the render receipt against the handoff frame and records `fidelity:` in the verdict), and to the human reviewer.
 
-**Toolkit-absent on an ARMED spec is a VOID, not a note.** The always-spawn row above is not a preference that degrades — the reviewer cannot be dispatched, so the round cannot be certified. Do not select a substitute, do not proceed with the rest of the panel, and do not answer "Ready to merge?". Emit the Step 4b-void "review did not run" report instead, naming the reviewer the handoff host required and stating that `design-toolkit` is not installed in this session. `review-lean` hands the round back on exactly this shape (its step 5c) and writes no verdict record.
+**Toolkit-absent on an ARMED spec is a VOID, not a note.** The always-spawn row above is not a preference that degrades — the reviewer cannot be dispatched, so the round cannot be certified. Do not select a substitute, do not proceed with the rest of the panel, and do not answer "Ready to merge?". Emit the Step 4b-void "review did not run" report instead, naming the reviewer the handoff host required and stating that `design-toolkit` is not installed in this session. `review-lean` hands the round back on exactly this shape (its step 5c) and writes no verdict record. **Toolkit-absent is the pre-dispatch way in, not the only one**: a fidelity reviewer that IS dispatched on an armed spec and is still dark after Step 4b's re-dispatch voids the round on the same ground — see Step 4b-void case 2.
 
 **Toolkit-absent degrade (unarmed diffs only).** These two agents ship in the `design-toolkit` plugin, not review-toolkit. The condition is that **the dimension was selected** — by *any* row of the map above, the no-provider default included — and the design-toolkit agent type is not available to dispatch in this session. When it holds, **do not select it**; detection is in-session and pre-dispatch, here at Routing. Note it once in the round summary (see "Not-selected ≠ dark" under the Synthesis Rules). Because nothing was ever dispatched, this never reaches `code-review.mjs` and cannot be confused with a dark reviewer.
 
@@ -359,20 +359,42 @@ If `scope-completeness-reviewer` returned `N/A — no issue provided`, include a
 
 ### Step 4b: Dead / dark reviewer accounting
 
-A reviewer that was **selected** but produced no usable result went **dark**. A dark reviewer is NOT a clean PASS and NOT a silent omission — it is a **coverage gap**: its domain was not reviewed this round. Under a pipeline-driven review the fan-out runs inside `code-review.mjs`, which already retried a dark reviewer once on-substrate; do **not** re-dispatch a dark reviewer yourself.
+A reviewer that was **selected** but produced no usable result went **dark**. A dark reviewer is NOT a clean PASS and NOT a silent omission — it is a **coverage gap**: its domain was not reviewed this round. A coverage gap is what remains after the session has *tried*, which is why the re-dispatch below is mandatory before one may be recorded.
 
 Detect darkness from two distinct signals — never from "the array is shorter than I expected" alone:
 
 1. **Died-after-retry (per-reviewer).** The reviewer is **present** in the returned `reviewers[]` as `{ result: null, ... }` (with `{ retried: true, failed: true }` if it also failed its automatic retry). Exactly that reviewer is dark.
 2. **Budget-skipped (all-or-nothing).** The return carries `budgetExhausted: true` and `reviewers` is **empty by construction**. **Every** selected reviewer (the set you chose during Routing / passed as `args.reviewers`) is dark — compare against that selected set to enumerate them.
 
-For each dark reviewer:
+**Re-dispatch once, in-session, before recording anything — signal 1 only.** The fan-out's own retry is a **bit-identical** re-run: same prompt, same tier, same agent. Against the dominant death mode — the `maxTurns` cap reached with no text emitted — that is close to deterministic, so "it already retried" is true and irrelevant: what failed was the **prompt**, and this session is the only layer that can change it. So for each reviewer dark by **`died-after-retry`**, dispatch it once more yourself (Agent tool) before writing a `[Coverage gap]` line for it.
 
-- Add a `[Coverage gap]` line to the **Review Summary** naming the reviewer, its unreviewed domain, and the reason (`died-after-retry` or `budget-exhausted`).
+Two things must make that prompt distinct from the one that died, and neither is optional:
+
+- **A turn-numbered emit deadline** — "by turn N of your M you MUST be writing the report" — stated as a **floor**. Where the agent's own doc already carries a turn-numbered deadline, the doc's number wins; a per-agent number belongs there and is free to be later than the floor.
+- **Narrowing to that reviewer's domain**, using the diff context you already hold. This is the part the substrate cannot do: it dispatched against the whole range, while you know which files and which dimension are actually at issue. The deadline alone is close to a no-op for the reviewers whose dispatch nudge already carries one, so the narrowing is the session's real edge.
+
+**The tier is not a variable.** Re-dispatch the same agent type at the same declared tier the panel selected (including any `reviewers.modelOverrides` tier). Promoting the model produces a *different* review than the panel selected, which is not the same as recovering the one that died.
+
+**Signal 2 is out of scope for the mandate.** Under `budgetExhausted` nothing was dispatched, so there is no failed prompt to change and nothing to re-dispatch *differently*; that case keeps the `[Coverage gap]` accounting below, plus Step 4b-void.
+
+**When the re-dispatch succeeds**, the reviewer is **not** a coverage gap: score its findings like any other reviewer and give its Verdicts row its real verdict. Record the recovery in one **Review Summary** line naming the reviewer, that it went dark, and that an in-session re-dispatch recovered it — e.g. "db-reviewer went dark in the fan-out; an in-session re-dispatch recovered it, and its verdict below is that run's." It also counts as a returned result for `review-lean`'s `--panel` key.
+
+For each reviewer **still dark after** the re-dispatch (and for every reviewer dark by signal 2):
+
+- Add a `[Coverage gap]` line to the **Review Summary** naming the reviewer, its unreviewed domain, the reason (`died-after-retry` or `budget-exhausted`), and — for signal 1 — that the in-session re-dispatch was made and also came back dark.
 - In the **Verdicts** table, its row reads **`Dark (no output)`** in the Verdict column (with `—` findings / confidence) — never Pass, never Fail, never omitted.
 - The **"Ready to merge?"** reasoning MUST acknowledge the reduced coverage (e.g. "db-reviewer + unit-test-mutation-reviewer were dark this round; merge readiness is assessed without them").
 
-A dark reviewer does not by itself force "Ready to merge? = No" (unlike the Scope Completeness Gate) — it forces **visibility**: the human deciding to merge must be told which domains went unreviewed. That calibration is for a *partial* panel, and Step 4b-void below is where it stops applying.
+**What a still-dark reviewer costs depends on which one it is.** A domain that survived two prompt-distinct attempts is genuinely unreviewed, but the consequence is not uniform — for most reviewers the lead pass or a sibling still covered something, and for a few it did not. The set is fixed here, not consumer-configurable:
+
+| Still dark after the re-dispatch | Consequence |
+| --- | --- |
+| `scope-completeness-reviewer` | **"Ready to merge? = No"** — Step 4's rule, unchanged and never converted into a void. |
+| `security-reviewer` | **"Ready to merge? = No"**. This one is not a judgment call: "Security defers when it is spawned" means the lead pass **did not run** its own security section precisely because this reviewer was spawned. Its death therefore leaves the dimension covered by nobody, which is not the shape the visibility calibration was written for. |
+| the design-fidelity reviewer on an **armed** spec | **Void the round** — see Step 4b-void case 2. |
+| `db-reviewer`, `pipeline-reviewer`, `a11y-reviewer`, `unit-test-mutation-reviewer`, any repo-local `reviewers.add` reviewer | **Visibility**, as above: the `[Coverage gap]` line and the "Ready to merge?" acknowledgement, no forced answer. |
+
+Outside those first three rows a dark reviewer does not by itself force "Ready to merge? = No" — it forces **visibility**: the human deciding to merge must be told which domains went unreviewed. That calibration is for a *partial* panel, and Step 4b-void below is where it stops applying.
 
 ### Step 4b-void: an all-dark selected set voids the round only when nothing else reviewed it
 
@@ -383,7 +405,9 @@ The rule above is calibrated for one reviewer dying. When every **selected subag
 **When the round IS void — the two cases:**
 
 1. **Nothing reviewed the range at all**: the lead pass did not complete AND no selected subagent produced a usable result.
-2. **The design-fidelity dimension is unrunnable on an armed spec** — the pre-dispatch case its own section states, which voids the round however well the rest of it went.
+2. **The design-fidelity dimension produced nothing on an armed spec** — however well the rest of the round went. Two ways in, and the void does not distinguish them, because the armed ticket's own dimension is missing either way:
+   - **pre-dispatch**, the case its own section states: the reviewer cannot be dispatched at all (`design-toolkit` absent), detected at Routing;
+   - **post-dispatch**: it was dispatched, went dark by `died-after-retry`, and was **still dark after** the Step 4b re-dispatch. A panel of five green reviewers beside it certifies every dimension except the one the ticket was armed for, which is the same hole the pre-dispatch case names. Do the re-dispatch first — a recovered fidelity reviewer is not a void, it is coverage.
 
 **The scope gate is a hard No, not a void.** A dark `scope-completeness-reviewer` is unchanged by any of this: Step 4 keeps its full force — a `FAIL`, a `BLOCKED` (which is treated identically to `FAIL`), or a dark return all make "Ready to merge?" **No**. It is a real verdict on a round that really happened, so it is never converted into a void, and never into a silent pass because the lead pass covered its other dimensions. The lead pass cannot substitute for it: reading the issue's scope in the same context that wrote the diff is the bias the gate exists to isolate.
 
