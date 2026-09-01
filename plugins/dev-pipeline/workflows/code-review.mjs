@@ -289,12 +289,40 @@ const FINDINGS_EPILOGUE =
 // Bounded exploration / triage — the PRIMARY stall fix (see ROOT CAUSE above for the evidence).
 // Caps the absence-grounding exploration that exhausts a reviewer's turn budget on a large diff.
 // NOT appended to scope-completeness-reviewer, whose job is to exhaustively verify every scope item.
+//
+// THE DEADLINE IS NUMBERED, and that is the half this constant was missing until #768. Bounding
+// the exploration is necessary and was never sufficient: the closing sentence used to read "emit
+// your final result before your budget runs low", which is not a deadline an agent can act on —
+// it has no view of its remaining turns, so the instruction stays unfalsifiable right up to the
+// cap that kills it. Measured: a generic-branch reviewer died on BOTH fan-out attempts with the
+// `turn-budget:` error and no text at all, then returned a grounded verdict in 87s / 17 tool
+// calls when re-dispatched at the SAME tier with nothing added but the numbered deadline below.
+//
+// This is the same finding the PROGRESSIVE_EMIT block records one screen down — "the variable is
+// the deadline, not the budget", evidenced there by security-reviewer surviving at HALF the cap
+// because its agent doc carries an explicit turn-numbered deadline ("By turn 10 of your 15 you
+// MUST be writing the report"). That cure simply never reached this branch, and the agents with a
+// deadline in neither their doc nor this string — figma-faithful, design-faithful, a11y, db,
+// performance, complexity, pipeline — are exactly the population that dies this way.
+//
+// 8 is chosen to be safe at the smallest cap in the panel (security-reviewer's 15, where the
+// proven precedent emits at 10) rather than tuned per reviewer; a per-agent number belongs in the
+// agent doc, which is free to be later than this floor. The re-emit escape is what makes an early
+// number cost nothing — it is PROGRESSIVE_EMIT's last-block-wins property, and parseReviewResult()
+// is already last-match-wins, so re-emission is free here for the same reason it is free there.
 const BOUNDED_EXPLORATION =
   ' TRIAGE FIRST: skim the diff to judge whether it touches your domain at all. If it is' +
   ' docs/config/reformatting — or otherwise has nothing in your domain — emit StructuredOutput' +
   ' immediately (approve, no findings) WITHOUT opening every file. Open files only to ground a' +
   ' SPECIFIC finding you intend to raise; you do NOT have to exhaustively read the whole diff to' +
-  ' assert the ABSENCE of findings. Stop exploring and emit your final result before your budget runs low.'
+  ' assert the ABSENCE of findings.' +
+  ' HARD EMIT DEADLINE: by your 8th tool call at the latest, STOP exploring and write a COMPLETE' +
+  ' result reflecting what you know so far — even if that is approve with no findings, and even if' +
+  ' you feel under-grounded. You may then keep working and re-emit the whole result whenever you' +
+  ' learn something; the LAST complete result wins, so an early one costs you nothing. A review you' +
+  ' never emit is scored exactly like a review that never ran, and your entire domain is then' +
+  ' recorded as unverified — an under-grounded emitted review is strictly more useful than a' +
+  ' perfect unemitted one.'
 
 // The counterpart nudge for the two EXHAUSTIVE reviewers, which cannot take BOUNDED_EXPLORATION
 // without losing the coverage that IS their deliverable (#183). Their death mode is the same
