@@ -1,6 +1,6 @@
 # Skill-vs-bare-session ablation — results and verdicts
 
-**Measured 2026-08-24.** #644, parent #284. The thresholds this report is scored against were fixed
+**Measured 2026-08-24**, with §1's arm-1 re-measurement added **2026-09-01** (#746). #644, parent #284. The thresholds this report is scored against were fixed
 in [`docs/skill-ablation-pre-registration.md`](skill-ablation-pre-registration.md) before any result
 existed; that file has not been edited since. Raw arm outputs are under
 [`docs/plans/skill-ablation/`](plans/skill-ablation/), one file per session, verbatim.
@@ -26,7 +26,7 @@ git log --format='%h %ad %s' --date=short -- docs/plans/skill-ablation/         
 
 | # | surface | metric | result | verdict |
 | --- | --- | --- | --- | --- |
-| 1 | `build-lean` SKILL (48 lines) | mandated-artifact coverage | bare covers 3 of 9 discriminating items | **cut-to-delta** |
+| 1 | `build-lean` SKILL (48 lines) | mandated-artifact coverage | on a consumer-shaped substrate bare covers **3 and 4 of 9** (#746); **no item is cut-eligible** | **cut-to-delta, empty cut** |
 | 1b | the five milestone gates | *inherited* — `docs/gate-ablation.md` | 66% of firings adjudicated `unchanged`; all six keep-earners re-run at the merge boundary | inherited, not re-collected |
 | 2 | `review-lean` SKILL (127 lines) | recall of ground-truth blockers | bare† **4 of 5**, and found 2 real defects the lane's own review missed | **cut-to-delta** |
 | 3 | `plan-interview` + `interviewing-baseline` (312 lines) | recall of operator-ratified decisions | bare **6 of 20** | **keep** |
@@ -98,8 +98,154 @@ M1–M3. Generalising "bare rediscovers the spec, the ledger and the worktree" t
 unwarranted from this evidence, and cutting those three items would strip shipped function to tidy
 the dogfood canary — the exact consumer-capability trap #642 was warned off.
 
-**Successor — #671, arm 1.** Re-run C1's ablated arm in a consumer-shaped checkout (kit installed,
-not in tree) to localise the cut. Until that exists, the cut is recorded and not executed.
+**Successor — #671, arm 1. Run, and reported below.**
+
+### Arm 1 (#746) — re-measured where the gate is not tree source
+
+**Measured 2026-09-01**, on the substrate
+[`docs/skill-ablation-addendum.md`](skill-ablation-addendum.md) §A registers. Same two samples, same
+prompt, same frozen scoring rule. Four arms × two samples; the realised substrate, the invocation and
+the per-session provenance counts are in
+[`c1-build/consumer-substrate.md`](plans/skill-ablation/c1-build/consumer-substrate.md), the per-item
+scores in [`c1-build/scoring.tsv`](plans/skill-ablation/c1-build/scoring.tsv), and the transcripts are
+committed verbatim as `c1-build/consumer-<arm>-<n>-plan.md`.
+
+| arm | kit in the working tree | kit in the object store | `docs/plans/` | bare covers (of 9) |
+| --- | --- | --- | --- | --- |
+| A1-max — *registered* | no | **yes** | yes | 9 / 9 |
+| A1-min — *registered, conditional* | no | **yes** | no | 9 / 9 |
+| A1-sealed — *post-hoc* | no | no | yes | 3 / 4 |
+| A1-sealed-min — *post-hoc* | no | no | no | 1 / 0 |
+
+**The registered pair cannot answer, and the reason is a construction defect, not a result.**
+Deleting `plugins/` from the working tree leaves the whole kit readable with
+`git show HEAD:plugins/dev-pipeline/skills/build-lean/SKILL.md`, and all four registered-arm sessions
+read it there — none of them read anything from the plugin cache. Every item they cover is therefore
+provenance `tree`, which `docs/skill-ablation-addendum.md`:201-222 already reads as **inconclusive**;
+A1-min was the registered remedy for `tree` provenance and inherits the same hole. So both registered
+arms are reported in full and neither licenses a cut. Two disclosed post-hoc arms — the kit removed
+from history as well as from the tree — are what carry the finding, labelled exactly as the sensitivity
+run above is.
+
+**The cut list (AC-6).** Applying the registered reading — an item bare **covers** is cut-eligible,
+an item bare **misses** is kept; a split at n=2 is `undetermined`; and A1-min's rule that coverage
+surviving only where the repository's own artifacts are present is the repository's competence, not
+the session's:
+
+| M-item | sealed 636 / 647 | sealed-min 636 / 647 | disposition |
+| --- | --- | --- | --- |
+| M1 committed spec with numbered `AC-n` | ✓ / ✓ | ✗ / ✗ | **inside the delta — kept** |
+| M2 Decision Ledger with provenance | ✓ / ✓ | ✗ / ✗ | **inside the delta — kept** |
+| M3 lane worktree on a lane branch | ✗ / ✓ | ✗ / ✗ | **undetermined** — not cut-eligible |
+| M4 commits under the bot identity | ✗ / ✗ | ✗ / ✗ | **inside the delta — kept** |
+| M6 ready PR with summary, spec link, `Closes #N` | ✗ / ✗ | ✗ / ✗ | **inside the delta — kept** |
+| M7 cost block from the progress record | ✗ / ✗ | ✗ / ✗ | **inside the delta — kept** |
+| M8 PR marker carrying the run identity | ✗ / ✗ | ✗ / ✗ | **inside the delta — kept** |
+| M9 review authored outside the session | ✓ / ✓ | ✓ / ✗ | **undetermined** — not cut-eligible |
+| M10 close-out | ✗ / ✗ | ✗ / ✗ | **inside the delta — kept** |
+
+**Nothing is cut-eligible.** C1's verdict stays `cut-to-delta` — the frozen table makes `keep`
+unavailable — but the delta is now measured to be the whole 48-line surface, so the cut it names is
+**empty**. That is the strongest statement the frozen threshold permits, and it is a stronger result
+than the caveat it replaces: §1 suspected M1–M3 would not survive a consumer checkout, and the
+measurement says neither those three nor the other six do.
+
+**M6's four `absent` cells, quoted.** The frozen rule
+(`docs/skill-ablation-pre-registration.md`:109) requires that a plan naming "a PR" without
+`ready`/`Closes` score M6 `absent` **and that the wording be quoted in the report**. M6 is *"a
+**ready** (non-draft) PR carrying summary, spec link, `Closes #N`"* (`:95`), scored whole —
+partial credit is unavailable — so two of these four name `Closes` and still miss. The wordings, so
+a reader can adjudicate rather than take the cell on trust:
+
+- **sealed 636** (`consumer-sealed-636-plan.md`:95-96), the body of its "P12 — PR *(me)*" step:
+
+  > Body carries `Part of #605` and `Closes #636` (`check-lean-chain.sh:475` reds otherwise), the
+  > `--list` denominator count, the per-arm red demonstrations, and the residual statement.
+
+  `Closes #636` named; **no spec link and no ready/non-draft**. `absent`.
+
+- **sealed-min 636** (`consumer-sealed-min-636-plan.md`:72):
+
+  > **13. PR.** Body carries `Part of #605` and `Closes #<this ticket>`; the residual restated for
+  > the reviewer; OR-1 and OR-2 recorded as the reversible defaults taken (one row per `envfail`
+  > class; `unwired` permitted indefinitely) with the measurement from step 1 backing OR-1. **You**
+  > review and merge.
+
+  Same shape — `Closes` named, spec link and ready/non-draft absent. `absent`.
+
+- **sealed 647** (`consumer-sealed-647-plan.md`:72):
+
+  > **9. PR** `claude/second-shift-647` → `main`. Body flags the Open Region resolution explicitly,
+  > as the ticket asks.
+
+  Names a PR and nothing the item asks for. `absent`.
+
+- **sealed-min 647** (`consumer-sealed-min-647-plan.md`:28), a row of its artifact table:
+
+  > ```
+  > | 6 | PR | — | Body flagging the Open Region resolution and the AC-1/2/3 upstream status | me — **blocked, no remote** |
+  > ```
+
+  Same, and the step is marked blocked. `absent`.
+
+The two near-misses are the reason the clause exists: without the wording on the page, a reader
+cannot tell them from the clean misses, and both readings score the same cell. For contrast, the
+`covered` cells name every leg — `bare-ablated-636-plan.md`:83 (*"Body carries `Closes #636`, links
+`docs/plans/second-shift-636-lean.md` … Not a draft"*) and `bare-636-plan.md`:94 (*"A **ready,
+non-draft** PR containing: summary, spec link, `Closes #<N>` …"*).
+
+M1 and M2 are the interesting rows. Bare names a committed spec and a Decision Ledger whenever
+`docs/plans/` is present — it reads this repository's own committed lean specs and cites
+`scripts/check-lean-chain.sh`'s requirements by line — and names neither when they are gone. That is
+exactly the A1-min hypothesis, confirmed on the sealed pair.
+
+The corpus in front of those sessions was **126** committed lean specs at `dfd68a47` and **127** at
+`b657907f`. No session read anything close to all of it: the per-session counts under `docs/plans/`
+are 0 to 5 (`consumer-substrate.md`, "What each arm actually read"). Both figures are re-derivable
+at the pinned bases, and neither moves with a later lane run the way a count taken at this arm's own
+base would.
+
+```bash
+git ls-tree -r --name-only dfd68a47 -- docs/plans/ | grep -cE 'second-shift-[0-9]+-lean\.md$'   # 126
+git ls-tree -r --name-only b657907f -- docs/plans/ | grep -cE 'second-shift-[0-9]+-lean\.md$'   # 127
+```
+
+**Nothing read the prose — in the three sealed sessions that looked.** All four had the installed
+cache inside their allowlist; **three** walked into it, and **not one of those opened
+`build-lean/SKILL.md`**, though sealed 636 listed the directory it sits in. Sealed 636 read
+`lean-gate.sh`, `lean-evidence.sh` and `orchestrate-lean.sh`; sealed 647 read `lean-gate.sh`,
+`orchestrate-lean.sh` and a doctor fixture; sealed-min 647 read `lean-gate.sh` only.
+
+**The fourth, sealed-min 636, never referenced the cache at all** — 0 reads under it
+(`consumer-substrate.md`, "What each arm actually read") — and its own transcript records
+`lean-gate.sh` and `orchestrate-lean.sh` as **absent** and declares the work blocked on
+materialising the kit (`consumer-sealed-min-636-plan.md`:7-13, :19). It is evidence for a different
+proposition and is not counted toward this one: the finding needs a session that reached the cache
+and chose the gate over the prose, and that session never reached the cache.
+
+So §1's structural finding holds on this substrate, on **3 of 4** sealed sessions, and sharpens: a
+session re-derives obligations from a gate it can *read*, and an installed plugin's gate is
+reachable — but the prose is not what it reaches for. The fourth is the case that did not look at
+all, and it is reported as that rather than folded into the three.
+
+**Two apparatus findings, reported and not acted on.**
+
+- The frozen recipe's bracketed `--allowedTools "Read,Grep,Glob"` does not restrict the tool surface
+  under `claude -p`; Bash is available and every arm here is Bash-dominated. The check is one command
+  (`consumer-substrate.md`, "The bracketed `--allowedTools` … is inert"). This binds §1's already-scored
+  runs too.
+- **The same object-store leak reached §1's own sensitivity run.** Its ablated arm for #647 recovered
+  `build-lean/SKILL.md` with `git show HEAD:` — the confound that run was added to remove. Re-scoring
+  §1 is outside #746's scope, so it is named here rather than corrected:
+
+  ```bash
+  jq -r 'select(.message.content)|.message.content[]?|select(.type=="tool_use")
+         |((.input.command // .input.file_path // .input.pattern)|tostring)' \
+    ~/.claude/projects/-private-tmp-ablation-644-wt-abl-647/*.jsonl | grep 'git show HEAD:'
+  ```
+
+**The cut stays unexecuted, and now on measurement.** #671's arm 1 was filed to localise it; the
+localisation returns an empty cut list, so there is nothing for a successor to delete.
 
 ---
 
@@ -280,7 +426,7 @@ measurement live, and it contains no results.
 
 | skill | lines | measured | basis | date |
 | --- | --- | --- | --- | --- |
-| `dev-pipeline/build-lean` | 48 | C1 | cut-to-delta; carries M4/M6/M7/M8/M9/M10, where no gate is readable | 2026-08-24 |
+| `dev-pipeline/build-lean` | 48 | C1 + #746 arm 1 | **cut-to-delta with an empty cut** — re-measured on the consumer-shaped substrate (§1): bare covers 3–4 of 9, no item is cut-eligible, M3 and M9 `undetermined` at n=2. The repo-local basis is retired | 2026-09-01 |
 | `dev-pipeline/review-lean` | 127 | C2 | cut-to-delta; **bare-session** recall 0.80 on ground-truth blockers — not the ticket's `/code-review` comparison, which is unmeasured (→ #671 arm 2); delta not yet localised | 2026-08-24 |
 | `intake-toolkit/plan-interview` + `interviewing-baseline` | 312 | C3 | **keep**; bare recall 0.30, delta is the scope-boundary/DEPARTURE class | 2026-08-24 |
 | `intake-toolkit/intake-orchestrator` | 711 | — | **unmeasured — no basis**; no metric here reaches decomposition → successor **#672** | — |
@@ -304,7 +450,10 @@ surviving cut qualifies, and the reasons are evidence, not caution:
 
 - **C1's cut is not self-contained.** Its basis is that a session re-derives M1–M3 from tree-source
   `lean-gate.sh`. That is false in a consumer repo, where the gate is an installed plugin. Executing
-  it would strip shipped function on a repo-local artefact.
+  it would strip shipped function on a repo-local artefact. **Settled by #746 (§1, 2026-09-01):**
+  re-measured on the consumer-shaped substrate, no M-item is cut-eligible. The cut list is empty, so
+  there is no deletion for a successor to execute — the reason it stays unexecuted is now a
+  measurement rather than a caution.
 - **C2's cut is not localisable.** Recall 0.80 says the 127 lines are at best a tie; it does not say
   which lines carry the 0.20. Cutting by guess would be the thing this slice exists to stop.
 - **C3 is a `keep`.**
@@ -316,7 +465,8 @@ rather than as a green sweep that proves something it does not. The successors a
 - **#674** — the config schema's exit-3 claim against a one-caller dispatcher, the second escaped
   blocker from the same arm.
 - **#671** — localise both cuts, and run the comparator the ticket named (`/code-review`) that §2
-  declares this slice did not.
+  declares this slice did not. **Arm 1 (#746) is done** — see §1; it returns an empty cut list. Arms
+  2a (#747) and 2b (#748) are outstanding.
 - **#672** — `intake-orchestrator` (711 lines) and, by the operator's 2026-08-24 amendment,
   `intake-interviewer` (279 lines): 990 unmeasured lines, each owed a basis or an explicit
   no-basis record.
