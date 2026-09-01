@@ -103,8 +103,10 @@ group — the ledger's rows group by the launch-id column (2), one `launch` row 
 start is the group of **the run that produced the merged PR**, not the first group in the
 file.
 
-Three shapes are not that run. What disqualifies each is being **superseded by a later
-spawning group** — not its terminal slug, which is why the rule below reads neither:
+Three shapes are not that run. The first is disqualified by having **spawned nothing at
+all**; **the last two** by being **superseded by a later spawning group**. None of the three
+is disqualified by the terminal slug it wrote, which is why the rule below reads neither that
+slug nor its absence:
 
 - **A group that spawned nothing.** Several refusals end a launch before any session starts: a
   rejected preflight on an unintaken ticket, an unresolvable branch prefix, a staleness
@@ -125,7 +127,8 @@ terminal it wrote, nor for writing none.
 
 Mechanically: keep the groups that spawned, and take the last one whose `launch` timestamp is
 at or before `mergedAt`. The `mergedAt` bound is what stops a launch made *after* the merge
-from taking the slot.
+from taking the slot — but not one made after the *approve*, which is the exception stated
+below the snippet.
 
 ```bash
 merged=$(gh pr view <pr> --json mergedAt --jq .mergedAt)
@@ -140,9 +143,24 @@ awk -F'\t' -v merged="$merged" '
 **The bound is `mergedAt`, so it does not exclude a launch made after the *approve*.** A
 re-launch onto an already-approved lane spawns BUILD before it ever reads the verdict, so it
 writes a `launch` row and a `spawn` row and only then closes out — taking the slot without
-having produced anything. When a group launched later than the approve, take the group
-carrying `terminal … approved … on PR #<n>` instead: that row is the ledger's own answer to
-which run produced the PR.
+having produced anything. When a group launched later than the approve, take the group whose
+`terminal` row opens column 5 with the `approved` slug instead: that row is the ledger's own
+answer to which run produced the PR.
+
+**Key that on the slug, not on the message after it.** Column 5 is `<slug> rc=<n>` followed by
+an optional ` — <message>`; the slug is a closed enum, the message is prose that changes
+between releases. This repo's own corpus already holds approved terminals written both ways:
+`#636` and `#637` write a bare `approved rc=0`, while later runs append `— done — #N approved
+on PR #M.`. A rule anchored on the message text therefore already misses runs the slug
+catches, without anyone having changed the grammar on purpose.
+
+**A ticket can merge with no spawning group at all.** `#644` and `#668` are entirely
+`attended-build-turn` / `attended-review-turn`, `preflight-rejected` and `dry-run` groups, with
+no `spawn` row anywhere in the ledger. The primary rule returns empty and the fallback finds no
+`approved` terminal, so there is no start row to read: `launchToMerged` is `null`, with a note
+beneath the table naming the reason. Do not invent a start from a non-spawning group — a lane
+driven end to end through attended turns is a weak datapoint, and a null that says so is worth
+more than a figure that measures an operator's typing.
 
 **What this figure therefore excludes.** Lane work done inside a discarded group is not in
 `launchToMerged`: the metric is the merged run's wall, not the ticket's total elapsed time.
