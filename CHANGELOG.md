@@ -4,6 +4,36 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v12.2.4
+
+### `design-toolkit` 4.0.5 → 4.0.6
+
+- **An armed claude-design run has no plan-stage reviewer, so its translation plan is still graded by nobody (#750)** (#750)
+  an armed claude-design lean run now has a plan-stage reviewer.
+  Milestone 3 refuses to render until design-faithful-plan-reviewer's verdict is
+  committed, the same mandate the figma family has carried since #710, and the
+  design-faithful skill gained the translation-plan step that produces the
+  artifact it grades. Migration: none — a claude-design ticket that was armed
+  before this now owes one dispatch and one 'lean-gate.sh plan-review' record.
+  an armed claude-design run's translation-plan step now documents the `node`, `RS` and
+  `px` columns milestone 3 asserts on the dimensions table, so a plan written to the step passes
+  the gate instead of spending a fix attempt on a column the step never named.
+  Migration: none.
+
+### `dev-pipeline` 12.2.3 → 12.2.4
+
+- **An armed claude-design run has no plan-stage reviewer, so its translation plan is still graded by nobody (#750)** (#750)
+  an armed claude-design lean run now has a plan-stage reviewer.
+  Milestone 3 refuses to render until design-faithful-plan-reviewer's verdict is
+  committed, the same mandate the figma family has carried since #710, and the
+  design-faithful skill gained the translation-plan step that produces the
+  artifact it grades. Migration: none — a claude-design ticket that was armed
+  before this now owes one dispatch and one 'lean-gate.sh plan-review' record.
+  an armed claude-design run's translation-plan step now documents the `node`, `RS` and
+  `px` columns milestone 3 asserts on the dimensions table, so a plan written to the step passes
+  the gate instead of spending a fix attempt on a column the step never named.
+  Migration: none.
+
 ## v12.2.3
 
 ### `dev-pipeline` 12.2.2 → 12.2.3
