@@ -53,7 +53,26 @@ cannot reach, which *is* the detach.
 
 ## Liveness probe
 
-Recorded at implementation time; see the section appended below the ledger.
+The mutant is #547's escape verbatim — the one `9f2b5d00` deleted — re-applied to milestone 3's
+lane runner in an isolated worktree of this branch:
+
+```
+-    ( cd "$REPO_ROOT" && env ... bash -c "$cmd" ); rc=$?
++    ( cd "$REPO_ROOT" && env ... python3 -c 'import os,sys; os.setsid(); os.execvp("bash",["bash","-c",sys.argv[1]])' "$cmd" ); rc=$?
+```
+
+`bash plugins/dev-pipeline/skills/build-lean/scenario-liveness-selftest.sh`, run there:
+
+```
+PASS: (lean-inline-m3) #566 AC-1: milestone 3 runs inline, detaches nothing, and closes its started/concluded pair
+FAIL: (lean-inline-m3-nv) the lane never ran in the gate's process group — milestone 3 detached
+[scenario-liveness] summary: 81 passed, 1 failed        rc=1
+```
+
+Two things are load-bearing in that output. The hardened case **reds**, so the property #566 AC-1
+bought is still enforced and not merely retired. And it is the **only** case that reds — the happy
+path closes its started/concluded pair under the mutant exactly as before, so nothing else in the
+suite covers the detach. On the unmutated branch the same suite is `82 passed, 0 failed`.
 
 ## Decision Ledger
 
