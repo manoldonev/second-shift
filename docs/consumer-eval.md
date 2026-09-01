@@ -120,9 +120,8 @@ spawning group** — not its terminal slug, which is why the rule below reads ne
   group is what carried the ticket to merge, and the wall between the stranded launch and
   that merge is mostly the gap before someone re-launched.
 
-The last two are disqualified only by that supersession. **When either is itself the last
-spawning group at or before the merge, it did produce the PR and it is the start** — a group
-is never discarded for the terminal it wrote, nor for writing none.
+The last two are disqualified only by that supersession — a group is never discarded for the
+terminal it wrote, nor for writing none.
 
 Mechanically: keep the groups that spawned, and take the last one whose `launch` timestamp is
 at or before `mergedAt`. The `mergedAt` bound is what stops a launch made *after* the merge
@@ -137,6 +136,13 @@ awk -F'\t' -v merged="$merged" '
           if (f[4]=="launch" && (f[2] in spawned) && f[1] <= merged) { print f[1]; exit } } }' \
   "<stateDir>/<issue>-lean-launches.tsv"
 ```
+
+**The bound is `mergedAt`, so it does not exclude a launch made after the *approve*.** A
+re-launch onto an already-approved lane spawns BUILD before it ever reads the verdict, so it
+writes a `launch` row and a `spawn` row and only then closes out — taking the slot without
+having produced anything. When a group launched later than the approve, take the group
+carrying `terminal … approved … on PR #<n>` instead: that row is the ledger's own answer to
+which run produced the PR.
 
 **What this figure therefore excludes.** Lane work done inside a discarded group is not in
 `launchToMerged`: the metric is the merged run's wall, not the ticket's total elapsed time.
@@ -193,7 +199,7 @@ Column contract:
 | --- | --- | --- |
 | `release` | release tag | the tag this eval gates |
 | `ticket` | fixture slot + issue number | `F-1`..`F-5` bind to the five roles in order; the cell also carries that release's issue number, since each release files fresh issues |
-| `launchToMerged` | `HH:MM` or null | first non-rejected `launch` row → PR `mergedAt` |
+| `launchToMerged` | `HH:MM` or null | the last launch group that spawned anything, at or before the merge → PR `mergedAt` |
 | `laneWallMin` | integer or null | the record's first timestamped row → milestone-4 satisfied |
 | `rounds` | integer or null | the verdict record's `rounds:` key |
 | `usd` | decimal, or `unavailable` | never inferred, never estimated |
