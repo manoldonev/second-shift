@@ -110,18 +110,29 @@ appears only on rows written before #718 landed.
 launch group.** The AC prescribes "the first `launch` row … that was not a rejected
 preflight". The issue's own Behavior §4 prescribes something different — "the first `launch`
 row of **the run that produced the merged PR**" — and the two coincide only when exactly one
-launch group survives the preflight filter. They do not coincide on this ticket's own ledger:
-`724-lean-launches.tsv` carries three groups, of which `…223046Z-24696` is a rejected
-preflight, `…223407Z-28860` spawned and stranded with no `terminal` row, and
-`…062648Z-11087` produced the PR. The AC's rule returns the stranded group's `22:34:07Z`; the
-Behavior clause's returns `06:26:48Z`, ~8 hours later, the gap being an operator asleep. The
-same shape is live on #745's ledger. The document implements the Behavior clause and the AC
-follows it, because a metric that exists for release-over-release comparability cannot carry
-an operator's overnight gap. The generalized discard — keep only launch groups that spawned,
-take the last at or before `mergedAt` — subsumes the rejected-preflight exclusion the AC
-names, since a rejected preflight is exactly the group that spawns nothing. Correction of an
-internal inconsistency in the issue, resolved toward the issue's own Behavior section, not a
-scope change.
+launch group survives the preflight filter, which is the minority case in this repo's own
+corpus. Measured over the four most recently merged lean tickets, the AC's rule and the
+Behavior clause's disagree on every one, by 13–15 hours each:
+
+| ticket | merged PR | AC-3's rule | Behavior §4's rule | error |
+| --- | --- | --- | --- | --- |
+| #718 | 734 | `08-30T22:00:07Z` → 14:56 | `08-31T11:39:55Z` → 1:16 | 13:40 |
+| #666 | 735 | `08-30T22:29:36Z` → 16:45 | `08-31T13:45:40Z` → 1:29 | 15:16 |
+| #709 | 736 | `08-30T22:16:20Z` → 15:11 | `08-31T11:58:47Z` → 1:29 | 13:42 |
+| #667 | 733 | `08-30T22:29:39Z` → 14:29 | `08-31T11:39:06Z` → 1:19 | 13:10 |
+
+None of those four ledgers contains a rejected preflight at all (`grep -c preflight-rejected`
+returns 0 on each), so the AC's filter discards nothing and its "first surviving `launch` row"
+is simply the file's first — a group that spawned and stranded, on all four.
+
+The document implements the Behavior clause and the AC follows it, because a metric that
+exists for release-over-release comparability cannot carry an operator's overnight gap. The
+generalized discard — keep only launch groups that spawned, take the last at or before
+`mergedAt` — subsumes the rejected-preflight exclusion the AC names, because a rejected
+preflight spawns nothing; it is not the only refusal that spawns nothing, so the document keys
+on the absent `spawn` row rather than on the terminal slug. Correction of an internal
+inconsistency in the issue, resolved toward the issue's own Behavior section, not a scope
+change.
 
 **AC-3 — `retro-corpus.sh timing` does not source `rounds`.** Its `rounds` field greps
 `round=[0-9]+` out of the progress record, and the current record grammar no longer writes

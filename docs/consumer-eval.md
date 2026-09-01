@@ -103,20 +103,26 @@ group — the ledger's rows group by the launch-id column (2), one `launch` row 
 start is the group of **the run that produced the merged PR**, not the first group in the
 file.
 
-Two shapes are not that run:
+Three shapes are not that run. What disqualifies each is being **superseded by a later
+spawning group** — not its terminal slug, which is why the rule below reads neither:
 
-- **A group that spawned nothing.** A launch onto an unintaken ticket writes a `launch` row
-  and a `terminal` row whose slug begins `preflight-rejected`, and no `spawn` row at all.
-  Counting it would charge the run for the time between the operator noticing and
-  re-launching. This is the only shape that can spawn nothing, so "discard a group with no
-  `spawn` row" and "discard a rejected preflight" are the same discard.
+- **A group that spawned nothing.** Several refusals end a launch before any session starts: a
+  rejected preflight on an unintaken ticket, an unresolvable branch prefix, a staleness
+  premise that expired before round 1's BUILD, a dry run. Each writes a `launch` row, a
+  `terminal` row and no `spawn` row. Counting one would charge the run for the time between
+  the operator noticing and re-launching. This is the one shape that is never the start even
+  when it is the last group: nothing it did could have produced a PR.
+- **A group that spawned and then terminal'd short of merge** — `build-idle`, `rounds-spent`,
+  `review-dark`, a spent fix budget. Real lane work happened; it just is not the work this
+  metric measures, because a later group is what reached the merge.
 - **A group that spawned and then stranded** — a killed session, a machine that slept —
   writing no `terminal` row of any class. Its commits may survive on the branch, but a later
   group is what carried the ticket to merge, and the wall between the stranded launch and
-  that merge is mostly the gap before someone re-launched. When a later spawning group
-  exists, the stranded one is not the start. When it is itself the last group before the
-  merge, it *did* produce the PR and it *is* the start — a terminal-less group is not
-  discarded for being terminal-less.
+  that merge is mostly the gap before someone re-launched.
+
+The last two are disqualified only by that supersession. **When either is itself the last
+spawning group at or before the merge, it did produce the PR and it is the start** — a group
+is never discarded for the terminal it wrote, nor for writing none.
 
 Mechanically: keep the groups that spawned, and take the last one whose `launch` timestamp is
 at or before `mergedAt`. The `mergedAt` bound is what stops a launch made *after* the merge
