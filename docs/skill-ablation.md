@@ -150,16 +150,83 @@ unavailable — but the delta is now measured to be the whole 48-line surface, s
 than the caveat it replaces: §1 suspected M1–M3 would not survive a consumer checkout, and the
 measurement says neither those three nor the other six do.
 
+**M6's four `absent` cells, quoted.** The frozen rule
+(`docs/skill-ablation-pre-registration.md`:109) requires that a plan naming "a PR" without
+`ready`/`Closes` score M6 `absent` **and that the wording be quoted in the report**. M6 is *"a
+**ready** (non-draft) PR carrying summary, spec link, `Closes #N`"* (`:95`), scored whole —
+partial credit is unavailable — so two of these four name `Closes` and still miss. The wordings, so
+a reader can adjudicate rather than take the cell on trust:
+
+- **sealed 636** (`consumer-sealed-636-plan.md`:95-96), the body of its "P12 — PR *(me)*" step:
+
+  > Body carries `Part of #605` and `Closes #636` (`check-lean-chain.sh:475` reds otherwise), the
+  > `--list` denominator count, the per-arm red demonstrations, and the residual statement.
+
+  `Closes #636` named; **no spec link and no ready/non-draft**. `absent`.
+
+- **sealed-min 636** (`consumer-sealed-min-636-plan.md`:72):
+
+  > **13. PR.** Body carries `Part of #605` and `Closes #<this ticket>`; the residual restated for
+  > the reviewer; OR-1 and OR-2 recorded as the reversible defaults taken (one row per `envfail`
+  > class; `unwired` permitted indefinitely) with the measurement from step 1 backing OR-1. **You**
+  > review and merge.
+
+  Same shape — `Closes` named, spec link and ready/non-draft absent. `absent`.
+
+- **sealed 647** (`consumer-sealed-647-plan.md`:72):
+
+  > **9. PR** `claude/second-shift-647` → `main`. Body flags the Open Region resolution explicitly,
+  > as the ticket asks.
+
+  Names a PR and nothing the item asks for. `absent`.
+
+- **sealed-min 647** (`consumer-sealed-min-647-plan.md`:28), a row of its artifact table:
+
+  > ```
+  > | 6 | PR | — | Body flagging the Open Region resolution and the AC-1/2/3 upstream status | me — **blocked, no remote** |
+  > ```
+
+  Same, and the step is marked blocked. `absent`.
+
+The two near-misses are the reason the clause exists: without the wording on the page, a reader
+cannot tell them from the clean misses, and both readings score the same cell. For contrast, the
+`covered` cells name every leg — `bare-ablated-636-plan.md`:83 (*"Body carries `Closes #636`, links
+`docs/plans/second-shift-636-lean.md` … Not a draft"*) and `bare-636-plan.md`:94 (*"A **ready,
+non-draft** PR containing: summary, spec link, `Closes #<N>` …"*).
+
 M1 and M2 are the interesting rows. Bare names a committed spec and a Decision Ledger whenever
-`docs/plans/` is present — it is reading this repository's own 17 committed lean specs and citing
+`docs/plans/` is present — it reads this repository's own committed lean specs and cites
 `scripts/check-lean-chain.sh`'s requirements by line — and names neither when they are gone. That is
 exactly the A1-min hypothesis, confirmed on the sealed pair.
 
-**Nothing read the prose.** All four sealed sessions had the installed cache inside their allowlist;
-they walked to `lean-gate.sh` and `orchestrate-lean.sh` and **not one opened
-`build-lean/SKILL.md`**, though one listed the directory it sits in. §1's structural finding holds on
-this substrate and sharpens: a session re-derives obligations from a gate it can *read*, and an
-installed plugin's gate is reachable — but the prose is not what it reaches for.
+The corpus in front of those sessions was **126** committed lean specs at `dfd68a47` and **127** at
+`b657907f`. No session read anything close to all of it: the per-session counts under `docs/plans/`
+are 0 to 5 (`consumer-substrate.md`, "What each arm actually read"). Both figures are re-derivable
+at the pinned bases, and neither moves with a later lane run the way a count taken at this arm's own
+base would.
+
+```bash
+git ls-tree -r --name-only dfd68a47 -- docs/plans/ | grep -cE 'second-shift-[0-9]+-lean\.md$'   # 126
+git ls-tree -r --name-only b657907f -- docs/plans/ | grep -cE 'second-shift-[0-9]+-lean\.md$'   # 127
+```
+
+**Nothing read the prose — in the three sealed sessions that looked.** All four had the installed
+cache inside their allowlist; **three** walked into it, and **not one of those opened
+`build-lean/SKILL.md`**, though sealed 636 listed the directory it sits in. Sealed 636 read
+`lean-gate.sh`, `lean-evidence.sh` and `orchestrate-lean.sh`; sealed 647 read `lean-gate.sh`,
+`orchestrate-lean.sh` and a doctor fixture; sealed-min 647 read `lean-gate.sh` only.
+
+**The fourth, sealed-min 636, never referenced the cache at all** — 0 reads under it
+(`consumer-substrate.md`, "What each arm actually read") — and its own transcript records
+`lean-gate.sh` and `orchestrate-lean.sh` as **absent** and declares the work blocked on
+materialising the kit (`consumer-sealed-min-636-plan.md`:7-13, :19). It is evidence for a different
+proposition and is not counted toward this one: the finding needs a session that reached the cache
+and chose the gate over the prose, and that session never reached the cache.
+
+So §1's structural finding holds on this substrate, on **3 of 4** sealed sessions, and sharpens: a
+session re-derives obligations from a gate it can *read*, and an installed plugin's gate is
+reachable — but the prose is not what it reaches for. The fourth is the case that did not look at
+all, and it is reported as that rather than folded into the three.
 
 **Two apparatus findings, reported and not acted on.**
 

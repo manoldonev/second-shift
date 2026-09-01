@@ -18,38 +18,34 @@ precedent). No shipped SKILL prose is edited.
 ## Acceptance criteria
 
 Carried verbatim from the issue body, which is the authority surface (#671 carries no numbered
-criteria of its own; these were derived at intake).
+criteria of its own; these were derived at intake). The issue declares them as `**AC-n** —` bold
+paragraphs; they are re-declared here as bullets because that is the form the verdict record's
+reader treats as a declaration rather than a citation. Wording is unchanged.
 
-**AC-1** — Both registered C1 samples re-run: #636 and #647, each given
-`docs/plans/skill-ablation/c1-build/prompt-template.txt` with its ticket appended, unchanged from
-the registered run.
-
-**AC-2** — Each session runs on the substrate registered in `docs/skill-ablation-addendum.md`: gate
-and skills absent from the working tree, installed plugin cache present on disk and readable. The
-realised substrate is verified and recorded per run — which paths were absent, and that the cache
-was reachable — so a reader can tell the arm measured what it claims.
-
-**AC-3** — Scored by the frozen C1 rule at `docs/skill-ablation-pre-registration.md`:104-121,
-unchanged: each of M1–M10 `covered` or `absent`, no partial credit, M5 reported but excluded as
-non-discriminating. A plan naming "a PR" without `ready`/`Closes` scores M6 `absent` and the wording
-is quoted.
-
-**AC-4** — Both transcripts committed verbatim under `docs/plans/skill-ablation/c1-build/`, one file
-per session, under a name distinct from the existing `bare-<n>-plan.md` and
-`bare-ablated-<n>-plan.md` families. `docs/plans/skill-ablation/c1-build/README.md` gains a line
-describing the new family, matching how it already describes the other two.
-
-**AC-5** — `docs/plans/skill-ablation/c1-build/scoring.tsv` carries the new arm's per-item results
-alongside the existing columns, and `docs/skill-ablation.md` is updated in three places: §1, the top
-Verdicts table row 1, and §4's `dev-pipeline/build-lean` row.
-
-**AC-6** — The result is stated as an explicit cut list: which M-items fall inside `build-lean`'s
-delta and which do not. If the bare arm misses M1–M3 on this substrate, those items are inside the
-delta and their prose is retained — that is a narrower `cut-to-delta`, not a `keep`, which the frozen
-threshold table makes unavailable for C1 (`docs/skill-ablation-pre-registration.md`:119).
-
-**AC-7** — `plugins/dev-pipeline/skills/build-lean/SKILL.md` is not edited. Its line count is
-unchanged at 48.
+- AC-1: Both registered C1 samples re-run: #636 and #647, each given
+  `docs/plans/skill-ablation/c1-build/prompt-template.txt` with its ticket appended, unchanged from
+  the registered run.
+- AC-2: Each session runs on the substrate registered in `docs/skill-ablation-addendum.md`: gate
+  and skills absent from the working tree, installed plugin cache present on disk and readable. The
+  realised substrate is verified and recorded per run — which paths were absent, and that the cache
+  was reachable — so a reader can tell the arm measured what it claims.
+- AC-3: Scored by the frozen C1 rule at `docs/skill-ablation-pre-registration.md`:104-121,
+  unchanged: each of M1–M10 `covered` or `absent`, no partial credit, M5 reported but excluded as
+  non-discriminating. A plan naming "a PR" without `ready`/`Closes` scores M6 `absent` and the wording
+  is quoted.
+- AC-4: Both transcripts committed verbatim under `docs/plans/skill-ablation/c1-build/`, one file
+  per session, under a name distinct from the existing `bare-<n>-plan.md` and
+  `bare-ablated-<n>-plan.md` families. `docs/plans/skill-ablation/c1-build/README.md` gains a line
+  describing the new family, matching how it already describes the other two.
+- AC-5: `docs/plans/skill-ablation/c1-build/scoring.tsv` carries the new arm's per-item results
+  alongside the existing columns, and `docs/skill-ablation.md` is updated in three places: §1, the top
+  Verdicts table row 1, and §4's `dev-pipeline/build-lean` row.
+- AC-6: The result is stated as an explicit cut list: which M-items fall inside `build-lean`'s
+  delta and which do not. If the bare arm misses M1–M3 on this substrate, those items are inside the
+  delta and their prose is retained — that is a narrower `cut-to-delta`, not a `keep`, which the frozen
+  threshold table makes unavailable for C1 (`docs/skill-ablation-pre-registration.md`:119).
+- AC-7: `plugins/dev-pipeline/skills/build-lean/SKILL.md` is not edited. Its line count is
+  unchanged at 48.
 
 ## Out of scope
 

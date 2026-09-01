@@ -90,9 +90,17 @@ of the same tree reports **0 differences** for both samples — but its reposito
 fresh commit rather than the pinned commit's history. That is the whole of the seal: the kit is
 absent from the object store as well as from the working tree.
 
-Cache reachability is verified per run from the session's own tool calls, not asserted: every
-`plugins/cache` read is in the transcript log, and the counts are in "What each arm actually read"
-below.
+**How that last row is established, and it is not the same evidence in all eight runs.** Three
+sessions demonstrate reachability from their own tool calls — sealed 636 (7 `plugins/cache`
+references), sealed 647 (9) and sealed-min 647 (4), every one of them in the transcript log and
+counted in "What each arm actually read" below. The other five — max 636, max 647, min 636, min 647
+and **sealed-min 636** — reference the cache **zero** times, so their own tool calls verify nothing
+about it. For those five the basis is the apparatus rather than the session: the invocation above is
+identical across all eight, `--add-dir` included, and the probe under "The cache was not reachable"
+shows that invocation resolving the cache from a sealed checkout. That is weaker than a per-run
+read, and it is recorded as the weaker thing. D-33 is why the distinction is kept rather than
+smoothed over: the first pass had an invocation that looked right and a cache that was in fact
+unreachable, and only a probe revealed it.
 
 A1-min's fourth registered removal, *"the single `.claude/settings.json` allow entry naming
 `lean-gate.sh` by literal path"*, is recorded **`not-reached — not present at either pinned base`**.
@@ -123,7 +131,11 @@ printf '%s' 'Run: ls /Users/mdonev/.claude/plugins/cache/second-shift/dev-pipeli
 ```
 
 The first pass's A1-max transcripts are kept as `consumer-max-confined-<n>-plan.md`, because they
-are the evidence for this finding and for the next one.
+are the evidence for this finding and for the next one. Its other six sessions are **not** retained:
+they realise the same unregistered substrate, they are scored by nothing, and they carry no finding
+the two kept ones do not. AC-4 binds the eight scored transcripts, so nothing is owed for them — but
+the asymmetry is stated here rather than left for a reader to notice, since this section is what
+asks that the first pass be taken as fully disclosed.
 
 ## What each arm actually read
 
@@ -146,12 +158,22 @@ jq -r 'select(.message.content)|.message.content[]?|select(.type=="tool_use")
   ~/.claude/projects/-private-tmp-746-arm1-<arm>-<n>/*.jsonl
 ```
 
-**Not one of the eight read `build-lean/SKILL.md` out of the cache.** The four sealed sessions had
-the cache and walked to `lean-gate.sh`, `orchestrate-lean.sh` and the doctor fixtures; one of them
-listed `skills/build-lean/` and did not open the file. Where the kit was reachable in the tree
-instead, all four of those sessions read `SKILL.md` there. The prose is what a session reaches for
-when it is a file in the repository, and not when it is an installed plugin — which is the
-distinction arm 1 was filed to draw.
+**Not one of the eight read `build-lean/SKILL.md` out of the cache.** Three of the four sealed
+sessions walked into the cache: sealed 636 to `lean-gate.sh`, `lean-evidence.sh` and
+`orchestrate-lean.sh`, sealed 647 to `lean-gate.sh`, `orchestrate-lean.sh` and a doctor fixture,
+sealed-min 647 to `lean-gate.sh` alone. Sealed 636 listed `skills/build-lean/` and did not open the
+file.
+
+**The fourth, sealed-min 636, did not walk anywhere** — 0 in the middle column above, and 0
+references to `plugins/cache` in its log by any tool. Its transcript records `lean-gate.sh` and
+`orchestrate-lean.sh` as absent and stops, blocked on materialising the kit
+(`consumer-sealed-min-636-plan.md`:7-13, :19). It is not evidence that a session with the cache
+prefers the gate to the prose; it is a session that reached neither, and `docs/skill-ablation.md`
+counts it separately for that reason.
+
+Where the kit was reachable in the tree instead, all four A1-max and A1-min sessions read `SKILL.md`
+there. The prose is what a session reaches for when it is a file in the repository, and not when it
+is an installed plugin — which is the distinction arm 1 was filed to draw.
 
 ## The leak — measured, and it is why A1-sealed exists
 
