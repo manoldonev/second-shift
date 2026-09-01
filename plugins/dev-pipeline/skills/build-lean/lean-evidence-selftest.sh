@@ -1177,6 +1177,73 @@ else fail "(sc16) expected the header refusal, got $rc: $out"; fi
 unset VSCORECARD
 write_verdict
 
+# ---- (scw) #760: the `scorecard` subcommand, the WRITE-TIME entry point ---------------------
+# THE ENTRY POINT (sc1)-(sc16) NEVER REACH. Those drive `ac_scorecard_violations` through `all`,
+# entering the file well below the `SUB = scorecard` dispatch, so until now nothing in this suite
+# invoked the subcommand at all — and it is the whole reader `lean-gate.sh verdict` shells out to
+# BEFORE a record exists. It has arms the boundary has not got: a schema it PRINTS so a caller's
+# refusal can quote it, an rc that stays 0 on a violation because the CALLER prices it, and the
+# argument refusals a caller reaches only by getting the invocation wrong.
+#
+# Not a scenario: scenario-liveness-selftest.sh drives `lean-gate.sh verdict`, and its assertions
+# are about the GATE's refusal text — it supplies both flags correctly and never sees these arms.
+#
+# No fixture of its own: $SPEC already declares exactly `AC-1` and $SC_HDR is already the
+# conforming table for it.
+
+# The reader's own constants, lifted out of the tool and RENAMED rather than restated here — the
+# (dd) precedent. An oracle, not a copy: the schema is printed FROM these, so a print block that
+# stops naming one of them reds below, while a constant that legitimately changes moves both
+# sides at once. Empty after the lift means the lift missed, which is a fail, not a pass.
+SCW_HEADING=""; SCW_COLUMNS=""; SCW_SCORES=""
+eval "$(sed -n 's/^AC_SCORECARD_HEADING=/SCW_HEADING=/p
+                s/^AC_SCORECARD_COLUMNS=/SCW_COLUMNS=/p
+                s/^AC_SCORECARD_SCORES=/SCW_SCORES=/p' "$TOOL")"
+
+scw_run() { # scw_run <verdict> <record-body>   → the tool's own output; rc is the tool's own
+  printf '%s' "$2" | bash "$TOOL" scorecard --spec "$SPEC" --verdict "$1" 2>&1
+}
+
+out="$(bash "$TOOL" scorecard --print-schema 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && [ -n "$SCW_HEADING" ] && [ -n "$SCW_COLUMNS" ] && [ -n "$SCW_SCORES" ] \
+   && grep -qF "## $SCW_HEADING" <<<"$out" \
+   && grep -qF "$SCW_COLUMNS" <<<"$out" \
+   && grep -qF "$SCW_SCORES" <<<"$out"; then
+  pass "(scw1) --print-schema exits 0 naming the heading, the column order and the closed score enum the reader itself validates against"
+else fail "(scw1) expected rc=0 and a schema quoting the tool's own constants (heading='$SCW_HEADING' columns='$SCW_COLUMNS' scores='$SCW_SCORES'), got $rc: $out"; fi
+
+out="$(scw_run approve "$SC_HDR| AC-1 | satisfied | read the diff |")"; rc=$?
+if [ "$rc" -eq 0 ] && silent "$out"; then
+  pass "(scw2) a conforming body reconciles silently at write time, so the writer lets the record through"
+else fail "(scw2) expected a silent rc=0 on a conforming body, got $rc: $out"; fi
+
+# THE rc CONTRACT THAT IS NOT THE BOUNDARY'S. The same contradiction through `all` exits 1 —
+# (sc3) asserts that. Here it is a violation LINE on stdout and rc STAYS 0: the writer decides
+# what a violation costs, and a caller that read rc instead of the output would let every
+# contradictory record through while believing it had checked.
+out="$(scw_run approve "$SC_HDR| AC-1 | unsatisfied | the guard is not wired |")"; rc=$?
+if [ "$rc" -eq 0 ] && grep -q 'scored unsatisfied on a verdict=approve record' <<<"$out"; then
+  pass "(scw3) a contradictory body prints its violation and still exits 0 — the caller prices it, this reader only names it"
+else fail "(scw3) expected rc=0 with the self-contradiction named, got $rc: $out"; fi
+
+# The dispatch's own refusals. Each is an environment error rather than a violation, because a
+# caller that cannot say which spec or which verdict it is reconciling has asked no question —
+# and a scorecard that answered anyway would certify against a set nobody supplied.
+out="$(printf '%s' "$SC_HDR| AC-1 | satisfied | read the diff |" | bash "$TOOL" scorecard --verdict approve 2>&1)"; rc=$?
+if [ "$rc" -eq 2 ] && grep -q '\-\-spec <path> is required' <<<"$out"; then
+  pass "(scw4) --spec is required — the declared set comes from the committed spec, never from the record under test"
+else fail "(scw4) expected the missing---spec envfail, got $rc: $out"; fi
+
+out="$(printf '%s' "$SC_HDR| AC-1 | satisfied | read the diff |" | bash "$TOOL" scorecard --spec "$WORK/no-such-spec.md" --verdict approve 2>&1)"; rc=$?
+if [ "$rc" -eq 2 ] && grep -q 'does not exist' <<<"$out"; then
+  pass "(scw5) a --spec path that does not exist is an environment error, not an empty declared set read as nothing to score"
+else fail "(scw5) expected the absent-spec envfail, got $rc: $out"; fi
+
+out="$(printf '%s' "$SC_HDR| AC-1 | satisfied | read the diff |" | bash "$TOOL" scorecard --spec "$SPEC" --verdict merged 2>&1)"; rc=$?
+if [ "$rc" -eq 2 ] && grep -q "must be 'approve' or 'needs-work' (got 'merged')" <<<"$out"; then
+  pass "(scw6) a --verdict outside the two-value enum is refused and quoted back — the section is required on one of them and validated on both"
+else fail "(scw6) expected the verdict-enum envfail quoting the value, got $rc: $out"; fi
+
 # ---- (dd) #443: the class-(b) emitter's own contract ---------------------------------------
 # The REAL function bytes are lifted out of the tool and executed — never re-declared here. A
 # hand-written copy could not fail on a production edit, which is the mirror-harness pattern this
