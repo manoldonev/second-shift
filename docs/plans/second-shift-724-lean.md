@@ -29,8 +29,9 @@ numbers per fixture ticket and the maintainer's judgment over them.
 - **AC-3** **[AMENDED — see "Amendments" below]** For each of the four metrics the document
   prescribes its exact source: lane wall-clock from `retro-corpus.sh timing --state-dir`
   pointed at the consumer's state directory; **rounds from the committed verdict record's
-  `rounds:` header key**; the launch timestamp from the first `launch` row in that run's
-  `<issue>-lean-launches.tsv` that was not a rejected preflight; the merge timestamp from
+  `rounds:` header key**; **the launch timestamp from the `launch` row of the last launch
+  group in that ticket's `<issue>-lean-launches.tsv` that spawned anything at or before the
+  merge**; the merge timestamp from
   `gh pr view --json mergedAt`; and, once the cost-per-merged-PR ticket lands, USD from the
   mechanism it establishes — until then the document states the `unavailable` fallback in
   its place.
@@ -105,6 +106,23 @@ Measured corroboration: every launch row written by the current orchestrator car
 parameters, not four (`branch_key=… build=… review=… rounds=…`); the `continuations=…` field
 appears only on rows written before #718 landed.
 
+**AC-3 — the start rule the AC abbreviates does not hold when a ticket has more than one
+launch group.** The AC prescribes "the first `launch` row … that was not a rejected
+preflight". The issue's own Behavior §4 prescribes something different — "the first `launch`
+row of **the run that produced the merged PR**" — and the two coincide only when exactly one
+launch group survives the preflight filter. They do not coincide on this ticket's own ledger:
+`724-lean-launches.tsv` carries three groups, of which `…223046Z-24696` is a rejected
+preflight, `…223407Z-28860` spawned and stranded with no `terminal` row, and
+`…062648Z-11087` produced the PR. The AC's rule returns the stranded group's `22:34:07Z`; the
+Behavior clause's returns `06:26:48Z`, ~8 hours later, the gap being an operator asleep. The
+same shape is live on #745's ledger. The document implements the Behavior clause and the AC
+follows it, because a metric that exists for release-over-release comparability cannot carry
+an operator's overnight gap. The generalized discard — keep only launch groups that spawned,
+take the last at or before `mergedAt` — subsumes the rejected-preflight exclusion the AC
+names, since a rejected preflight is exactly the group that spawns nothing. Correction of an
+internal inconsistency in the issue, resolved toward the issue's own Behavior section, not a
+scope change.
+
 **AC-3 — `retro-corpus.sh timing` does not source `rounds`.** Its `rounds` field greps
 `round=[0-9]+` out of the progress record, and the current record grammar no longer writes
 that token: measured over this repo's four most recent lean runs, `wallClockMin` is populated
@@ -124,6 +142,15 @@ which is the branch AC-10 itself provides for. The recipe's computability is sep
 demonstrated in the PR body against real recorded runs, so what is outstanding is the
 consumer-repo replay, not the instrument.
 
+**This amendment is not the build session's to make, and is not claimed as one.** The unmet
+precondition sits under the issue's **Dependencies**, not its **Deferred** section, and an
+unmet dependency means the ticket was not ready to build — it is not a licence for the build
+to declare the AC void. The decision is recorded as an intent-gap record at
+`docs/plans/second-shift-724-lean-intent-gap.md`, `ratified: no`, and the merge boundary
+holds the PR red until an operator ratifies it. Whichever way it resolves — the replay runs
+here, or the bootstrap is deferred to its own ticket — this amendment is provisional until
+then.
+
 ## Data Contracts
 
 **Results table** — one row per (release, fixture ticket):
@@ -132,7 +159,7 @@ consumer-repo replay, not the instrument.
 | --- | --- | --- |
 | `release` | release tag | the tag this eval gates |
 | `ticket` | fixture slot + issue number | `F-1`..`F-5` bind to the five roles in order; the cell also carries that release's issue number, since each release files fresh issues |
-| `launchToMerged` | `HH:MM` or null | first non-rejected `launch` row → PR `mergedAt` |
+| `launchToMerged` | `HH:MM` or null | the last launch group that spawned anything, at or before the merge → PR `mergedAt` |
 | `laneWallMin` | integer or null | the record's first timestamped row → milestone-4 satisfied, per `retro-corpus.sh timing` |
 | `rounds` | integer or null | the verdict record's `rounds:` key |
 | `usd` | decimal, or `unavailable` | never inferred, never estimated |
@@ -167,7 +194,7 @@ branch. Every other field is identical.
 | D-6 | Ratchet resolution under the stopping-rule epic | Doc-only: nothing under tools/ or scripts/ is touched, so the ticket is not harness-internal and owes no paired deletion | user-answered |
 | D-7 | Where the fixture specs live | The consumer repo, stack-specific; this repo carries the protocol only | user-answered |
 | D-8 | Where the release-over-release series lives | A committed table in docs/consumer-eval.md, one row per (release, ticket) | user-answered |
-| D-9 | Whether the PR must prove the recipe runs | Yes, one fixture ticket end to end, measured output in the implementing PR body | user-answered |
+| D-9 | Whether the PR must prove the recipe runs | DEPARTURE — no end-to-end fixture ticket ran. The consumer repo is not onboarded from a release pin (the issue's own Dependency), so a replay there would enter a canary-shaped figure into the series as a consumer-shaped baseline. The recipe's computability is demonstrated in the PR body against real recorded ledgers instead. This departure is NOT the build's to decide: it is routed to the operator as the intent-gap record at docs/plans/second-shift-724-lean-intent-gap.md and is unratified until answered | user-answered |
 | D-10 | Where the result durably lands | A comment on the release PR plus the row on main; the branch is force-pushed and the PR body PATCHed on every push to main (.github/workflows/release-pr.yml:94,110) | user-answered |
 | D-11 | Queue order and the USD dependency | The cost-per-merged-PR ticket lands first; USD reads from whatever it establishes, per https://github.com/manoldonev/second-shift/issues/724#issuecomment-5479015792 | ticket-sourced |
 | D-12 | How the pinned base is selected without changing the lane | An alternate config via SECOND_SHIFT_CONFIG; baseBranch is read from it (lean-gate.sh:489,529; orchestrate-lean.sh:357) | codebase-derived |

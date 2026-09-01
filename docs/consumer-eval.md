@@ -87,29 +87,55 @@ The prior segment stays readable; it just does not extend.
 ## The four metrics
 
 Each has one exact source. Nothing here is estimated, and nothing is inferred from a figure
-of a different shape.
+of a different shape. `<stateDir>` below is the consumer config's `paths.pipelineStateDir`
+(default `.claude/pipeline-state`) and `<plansDir>` its `paths.plansDir` (default
+`docs/plans`) — both read from the alternate config, so they resolve in the consumer repo.
 
 | metric | exact source |
 | --- | --- |
-| `launchToMerged` | the first `launch` row in that run's `<stateDir>/<issue>-lean-launches.tsv` **that was not a rejected preflight** → the PR's `mergedAt` from `gh pr view <pr> --json mergedAt`. Computed by hand. |
-| `laneWallMin` | `retro-corpus.sh timing --state-dir <consumer state dir>` — the `wallClockMin` field, which is the record's first timestamped row → `milestone-4 \| satisfied`. |
-| `rounds` | the committed verdict record's `rounds:` header key, at `<plansDir>/<key>-lean-verdict.md`. |
+| `launchToMerged` | the `launch` row of the **last launch group that spawned anything** at or before the merge, in that ticket's `<stateDir>/<issue>-lean-launches.tsv` → the PR's `mergedAt` from `gh pr view <pr> --json mergedAt`. Computed by hand. |
+| `laneWallMin` | `retro-corpus.sh timing --state-dir <stateDir>` — the `wallClockMin` field, which is the record's first timestamped row → `milestone-4 \| satisfied`. |
+| `rounds` | the committed verdict record's `rounds:` header key, at `<plansDir>/<key>-lean-verdict.md` (`<key>` is `<repo-slug>-<issue>`, the repo slug being the `topology.repos` key whose `path` is `.`). |
 | `usd` | once the cost-per-merged-PR ticket lands, whatever mechanism it establishes. **Until then the cell reads `unavailable`** — never a figure inferred from a price table, never an estimate. |
 
-**Why `launchToMerged` skips a rejected preflight.** A launch onto an unintaken ticket writes
-a `launch` row and then a `terminal` row whose slug begins `preflight-rejected`, having
-spawned nothing. Counting it as the start would charge the run for the time between the
-operator noticing and re-launching. Group the ledger's rows by the launch-id column (2) and
-discard any group carrying such a `terminal`; the start is the first `launch` row of the
-first surviving group.
+**Which `launch` row starts the clock.** A ticket routinely carries more than one launch
+group — the ledger's rows group by the launch-id column (2), one `launch` row each — and the
+start is the group of **the run that produced the merged PR**, not the first group in the
+file.
+
+Two shapes are not that run:
+
+- **A group that spawned nothing.** A launch onto an unintaken ticket writes a `launch` row
+  and a `terminal` row whose slug begins `preflight-rejected`, and no `spawn` row at all.
+  Counting it would charge the run for the time between the operator noticing and
+  re-launching. This is the only shape that can spawn nothing, so "discard a group with no
+  `spawn` row" and "discard a rejected preflight" are the same discard.
+- **A group that spawned and then stranded** — a killed session, a machine that slept —
+  writing no `terminal` row of any class. Its commits may survive on the branch, but a later
+  group is what carried the ticket to merge, and the wall between the stranded launch and
+  that merge is mostly the gap before someone re-launched. When a later spawning group
+  exists, the stranded one is not the start. When it is itself the last group before the
+  merge, it *did* produce the PR and it *is* the start — a terminal-less group is not
+  discarded for being terminal-less.
+
+Mechanically: keep the groups that spawned, and take the last one whose `launch` timestamp is
+at or before `mergedAt`. The `mergedAt` bound is what stops a launch made *after* the merge
+from taking the slot.
 
 ```bash
-awk -F'\t' '$4=="terminal" && $5 ~ /^preflight-rejected/ {bad[$2]=1}
-            {rows[NR]=$0}
-            END {for (i=1; i<=NR; i++) { split(rows[i], f, "\t")
-                   if (f[4]=="launch" && !(f[2] in bad)) { print f[1]; exit } }}' \
+merged=$(gh pr view <pr> --json mergedAt --jq .mergedAt)
+awk -F'\t' -v merged="$merged" '
+  $4=="spawn" { spawned[$2]=1 }
+  { rows[NR]=$0 }
+  END { for (i=NR; i>=1; i--) { split(rows[i], f, "\t")
+          if (f[4]=="launch" && (f[2] in spawned) && f[1] <= merged) { print f[1]; exit } } }' \
   "<stateDir>/<issue>-lean-launches.tsv"
 ```
+
+**What this figure therefore excludes.** Lane work done inside a discarded group is not in
+`launchToMerged`: the metric is the merged run's wall, not the ticket's total elapsed time.
+When a ticket's merged run was preceded by discarded groups, say so in a note beneath the
+table with their count, so the figure is not read as the whole story.
 
 **Why `rounds` does not come from `retro-corpus.sh timing`.** That mode reports a `rounds`
 field, but it greps a `round=` token out of the progress record and the current record
@@ -151,6 +177,9 @@ One row per (release, fixture ticket).
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 
 No release has been evaluated yet — the table has no rows.
+
+A row whose merged run was preceded by discarded launch groups carries a note beneath this
+table naming the ticket and their count — see "Which `launch` row starts the clock".
 
 Column contract:
 
