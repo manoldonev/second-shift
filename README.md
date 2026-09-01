@@ -1,12 +1,14 @@
 <p align="center">
-  <img src="docs/second-shift-banner.png" alt="second-shift — the dev team that works while you're away: a ticket goes in, a gate-enforced state machine ships a draft PR" width="800">
+  <img src="docs/second-shift-banner.png" alt="second-shift — no proof, no merge. Your coding agent writes the pull request; a review it can't overrule, tests that survived deliberate sabotage, and a merge check outside the model decide whether it ships." width="800">
 </p>
 
 # second-shift
 
-> The dev team that works while you're away.
+> No proof, no merge.
 
-**second-shift** is a [Claude Code](https://claude.com/claude-code) plugin marketplace for orchestrating autonomous development. Point it at a ticket and it runs the full loop — intake, planning, implementation, verification, multi-agent code review, and a draft PR — as a crash-recoverable state machine inside a single local session. Adopt the whole pipeline, or just the pieces you want (parallel review, structured intake interviews, design-fidelity checks, session auditing).
+**second-shift** is a set of open-source [Claude Code](https://claude.com/claude-code) plugins for autonomous development. Your coding agent takes a ticket and writes the pull request. What decides whether that PR ships is not the agent's word: a review from a session that did not write the code, tests that survived deliberate sabotage, a record of what the agent actually ran, and a merge check in CI that reads those records and refuses when any is missing. The cost of the run is printed on every PR. The merge button stays yours.
+
+It runs on the Claude Code subscription you already pay for, in your repo, in plain git. One config file onboards a repo; the plugins hold nothing repo-specific.
 
 ## Get started
 
@@ -58,7 +60,7 @@ Full onboarding — topologies (monorepo, BE+FE pair), reviewer tuning, extensio
 
 ## Why
 
-Agent-assisted development gets dramatically better when the *process* is engineered, not improvised: gates that fail closed instead of self-asserted claims, review by a panel of specialized reviewers instead of one generalist pass, plans whose load-bearing decisions were elicited from you instead of assumed, and an audit trail of what the agent actually did. second-shift packages that process discipline as installable plugins, with a strict boundary between the generic machinery (here) and everything specific to your repo (one config file + optional knowledge files in your repo).
+Agents write plausible code faster than a team can honestly review it, so the bottleneck moved from writing to deciding, and most tooling answers that with the agent's own report: tests pass, done. second-shift treats that report as a claim, not evidence. Every merge needs records the agent did not author, reconciled mechanically, behind a gate that fails closed when they are absent. The process is engineered rather than improvised: gates that block instead of suggest, review by a panel the author cannot overrule, specs assembled from decisions you ratified one at a time, and an audit ledger of what the agent actually invoked. The generic machinery lives here; everything specific to your repo lives in your repo.
 
 ## Plugins
 
