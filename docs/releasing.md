@@ -44,7 +44,15 @@ and changed paths, and land on an accumulating **release PR**.
    commits get a loud comment naming the previous head, which stays reachable from the PR
    history, but re-applying them is manual.
 
-4. **Merging the release PR tags and publishes** (`.github/workflows/release-publish.yml`):
+4. **Run the consumer-shaped eval before merging** — the protocol is
+   [`consumer-eval.md`](consumer-eval.md). Replay the five fixture tickets through the lean
+   lane in the consumer repo against the pinned eval base, **post the four figures per ticket
+   as a comment on the release PR** (not in its body — the derivation force-pushes the branch
+   and PATCHes the body on every push to `main`), and land the table rows on `main` in their
+   own doc PR. Nothing blocks automatically: the verdict is your judgment over the delta
+   against prior releases, and what is required is that the result is there.
+
+5. **Merging the release PR tags and publishes** (`.github/workflows/release-publish.yml`):
    it creates `vX.Y.Z` on the merge commit and the GitHub Release together, with the body
    assembled from `BREAKING CHANGE:`/`Changelog:` trailers ("Nothing breaks." rendered
    explicitly when there are none) plus the consumer upgrade recipe.
@@ -60,12 +68,14 @@ document. The whole maintainer surface is:
 gh pr list --head release/next --state open --json number,title,url
 gh workflow run release-pr.yml          # only if none is open, or to re-derive on demand
 
-# 2. Resolve the checklist in the PR body, merge it (merging tags + publishes), then verify:
+# 2. Run the consumer-shaped eval (docs/consumer-eval.md) and comment its result on the PR.
+
+# 3. Resolve the checklist in the PR body, merge it (merging tags + publishes), then verify:
 bash plugins/second-shift/skills/onboard/tools/pin-resolve.sh manoldonev/second-shift \
   dev-pipeline review-toolkit intake-toolkit design-toolkit audit-toolkit second-shift
 # expect: refSource "release", ref = the new tag, per-plugin versions matching the tag
 
-# 3. Refresh this machine's plugin state:
+# 4. Refresh this machine's plugin state:
 #    /second-shift:local-dev-refresh
 ```
 
