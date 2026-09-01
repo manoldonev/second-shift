@@ -195,20 +195,38 @@ token row — one line to fix here vs. the same value spread across call-sites a
   written for. On a later round it re-stamps: **re-read the plan against the lines that moved**
   before committing, because nothing else in the lane checks that it still says the right thing;
 - a table declaring a **`why this component`** column, one row per resolved component;
-- a table declaring a **`dimensions`** column, one row per sized node.
+- a table declaring a **`dimensions`** column, one row per sized node, with three machine-read
+  columns beside it — **`node`**, **`RS`** and **`px`**:
+
+  | node | RS | px | dimensions | overflow |
+  | --- | --- | --- | --- | --- |
+  | Filter panel | RS-2 | 320×604 | fixed 320px wide, hug height | none |
+  | Results grid | RS-1 | -×412 | fill width, 12px row gap | scroll-y |
+
+  `node` is the name the repo's live-render harness reports that node under in its
+  `<png>.rects.json` sibling (`docs/live-render.md`); `RS` is the render state the spec declares it
+  is measured in; `px` is `<w>×<h>` with an integer or `-` per axis, `-` being a node with no fixed
+  size on that axis. `dimensions` stays **prose** and keeps the step-3b reading — per-axis
+  fixed/hug/fill, wrap behavior, overflow/truncation — which is what step 9 self-verifies against
+  and what `320×604` cannot carry.
 
 Every cell of both tables must be filled, and a row may not declare fewer cells than its header.
 That is deliberate and it is the whole mechanical contract: an omission has to read as an **empty
 cell**, not as an absent thought. A resolved component with no stated reason is the name-match
 resolution that ships the wrong control; a node with no recorded dimensions is the eyeballed size
-that ships at 3× the design. Nothing here checks that a recorded value is *correct* — that is the
-design-sighted `review-lean` session, scoring `fidelity:` against the render receipt.
+that ships at 3× the design. Milestone 3 does read the `px` numbers: per render state it compares
+them against the sizes the harness measured, scale-adaptively, and names any node out of proportion
+with the rest of its state. That grades the transcription against the code, never against the
+design — whether a recorded value is the *design's* is the design-sighted `review-lean` session,
+scoring `fidelity:` against the render receipt.
 
 **Dispatch
 [`design-toolkit:figma-faithful-plan-reviewer`](../../agents/figma-faithful-plan-reviewer.md) on
 this artifact yourself**, before step 8, and act on its verdict: `block` → fix the table and
-re-emit; `fix-and-go` / `pass` → proceed. The gate asserts the artifact's shape; it cannot run an
-agent or branch on a verdict, so the dispatch stays yours on every lane.
+re-emit; `fix-and-go` / `pass` → proceed. The gate cannot run an agent or branch on a verdict, so
+the dispatch stays yours on every lane — the autonomous lean lane included, where it is not
+optional: milestone 3 refuses to render until the reviewer's output is committed at
+`<plansDir>/<key>-lean-plan-review.md`, written by `lean-gate.sh plan-review <issue>`.
 `design-toolkit:figma-iterate` replaces it with a user checkpoint by design.
 
 ### 8. Implement

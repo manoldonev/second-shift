@@ -49,9 +49,15 @@ the code does not author its own evaluation.
    is defined here. On an inheriting round, read the **prior record's findings** first: a round
    that inherits coverage without seeing what was previously found cannot tell a fixed blocker
    from a re-introduced one, and a blocker the build simply ignored leaves no trace in the delta
-   at all. The committed lean spec is the definition of done: score each numbered `AC-n` as
-   satisfied / unsatisfied / undeterminable, and say which. `approve` iff there are no blockers;
-   any blocker is `needs-work`. Do not soften a blocker to keep a run moving, and do not invent
+   at all. The committed lean spec is the definition of done: score every numbered `AC-n` it
+   **declares** — an id opening a bullet or a heading — in a `## AC scorecard` table in the
+   `--summary-file`. The writer refuses an `approve` without one, and prints the schema. Four
+   scores: `satisfied`, `unsatisfied`, `divergent-inert`, `undeterminable`. Neither `unsatisfied`
+   nor `undeterminable` may stand beside an `approve`. So a divergence you have **measured** as
+   inert is scored `divergent-inert`, carrying `measured: <what you measured>` and
+   `follow-up: <ref>` in its evidence cell — that is the case where a blocker was once forced on
+   a narrowing measured identical across all 63 corpus records. An UNMEASURED divergence is
+   `unsatisfied`. `approve` iff there are no blockers; any blocker is `needs-work`. Do not soften a blocker to keep a run moving, and do not invent
    one to look thorough. **An oracle `AC-n` proved by a CI run whose command and head both match
    this review is verified by citing that run (job, head SHA, conclusion), not by re-running it**
    — execute only when the command or the head differs from what CI ran ([discriminator](../../../../docs/testing.md#citing-a-ci-run-instead-of-re-running-it-review-side)).
@@ -81,15 +87,27 @@ the code does not author its own evaluation.
    | RS-1 | Checkout / populated | unit selector | number field | text input | deviation (AC-3) |
    ```
 
+   **A sizing row cites the measurement, not the picture.** For any row whose `property` is a
+   dimension, the `rendered` cell is the value the harness reported in the state's
+   `<png>.rects.json` sibling — milestone 3 already compared those numbers against the translation
+   plan's `px` column, so quoting them keeps your table and the gate on one set of figures. A
+   number read off the PNG by eye is the thing this column exists instead of.
+
    `verdict` is `match`, or `deviation (<ref>)` where `<ref>` is an `AC-n` or `D-n` **the spec
    declares** — a bare `deviation`, a free-text reason, and a citation the spec does not carry are
    all refused. A cited deviation does not force `fidelity: fail`: the point is that "the ticket
    decided this", which anything can check, replaces "I judged it fine", which nothing can. This
    makes your claim falsifiable by a human reader; it does not verify the render against the
    design, and no gate in this repo does.
-5c. **A voided round is handed back, never recorded.** `review-toolkit:review-lead` voids a round when every
-   reviewer it selected went dark — it then emits a "review did not run" report naming the dark
-   set, and answers no merge question. When that happens, stop before step 6: post the coverage
+5c. **A voided round is handed back, never recorded.** `review-toolkit:review-lead` voids a round in either of
+   two cases: **every** reviewer it selected went dark, **or** — on an armed spec — the
+   provider's mandatory fidelity reviewer went dark, however many of the others returned. It
+   then emits a "review did not run" report naming the dark set, and answers no merge question.
+   The second case is not the first with a lower threshold: on an armed ticket that one
+   reviewer is the round's design coverage, and a panel of five green reviewers beside it
+   certifies every dimension except the one the ticket was armed for. Say **which** reviewer
+   went dark in the hand-back — "the panel was partial" is the report that let this through
+   before. When either case holds, stop before step 6: post the coverage
    gap as the step-8 PR comment, write **no** verdict record, and do not spend the round. Neither
    value is available to you — `needs-work` would report blockers nobody found, and `approve`
    would certify a review that never ran. Same precedent as step 4's missing entry attestation: a
@@ -98,18 +116,26 @@ the code does not author its own evaluation.
    hand-back cannot merge. Say plainly in the comment what went dark and why, so the build
    session knows it is waiting on infrastructure rather than on findings.
 6. Write the record **from the checkout of the PR head**:
-   `bash G verdict <issue> --pr <n> --verdict <approve|needs-work> --rounds <n> --fidelity <pass|fail|not-applicable> --summary-file <path>`
+   `bash G verdict <issue> --pr <n> --verdict <approve|needs-work> --rounds <n> --fidelity <pass|fail|not-applicable> --panel <a,b,c> --summary-file <path>`
    The summary file carries the finding table and the per-AC scoring. The gate writes the
    reconciliation keys itself — including `reviewed_patch_id`, hashed from that checkout's own
    diff against the base, and `inherited_patch_id`, written every round and `none` on a root.
    `--fidelity` is yours and defaults to `not-applicable`, which on an armed run costs the round
-   rather than certifying a design nobody looked at. Hand-edit none of them
+   rather than certifying a design nobody looked at.
+   `--panel` is the comma-separated list of reviewer agent types the round actually **returned a
+   result from** — qualified as `review-toolkit:review-lead`'s own plugin-shipped panel names them
+   (`design-toolkit:figma-faithful-reviewer`), read off the fan-out's structured result and not
+   off your selection: a reviewer that went dark is absent from it, which is what makes the key
+   worth reading. It is required on an armed spec, where the gate refuses a list that does not
+   name the reviewer the handoff host makes mandatory — and by then 5c has already handed such a
+   round back, so the refusal is the second line of defence, not the first. Hand-edit none of them
    (quoting a key in the summary is safe — readers take the header), and do not run this from the
    main checkout: the record would name a patch you never reviewed.
 7. Commit and push the record to the PR's head branch through `bot-commit.sh`, and let it be
    the **last** commit on the branch. It is evidence only once committed — nothing local
-   reaches CI — and it is PATCH-BOUND: milestone 4, the merge boundary and `lean-reconcile.sh`
-   all recompute that hash. Commit nothing else in this session.
+   reaches CI — and it is PATCH-BOUND: the merge boundary and `lean-reconcile.sh` both recompute
+   that hash (milestone 4 stopped doing so at #720, so a stale record now reds in CI rather than
+   in the build lane). Commit nothing else in this session.
 8. Post the findings as one PR comment (the build session reads the PR, not this transcript) —
    through [`gh-bot.sh`](../../tools/gh-bot.sh) when its `--status` is `ok`, plain `gh`
    otherwise. This is a `pr comment` write, which `pr-revision` already mandates the wrapper
@@ -135,15 +161,15 @@ the code does not author its own evaluation.
   round approved that the fix then touched IS in the delta, so it is read again; only what did
   not change is inherited. Read wider than the range whenever the delta looks misleading: more
   reading is always allowed, and a round that read everything is a strictly stronger record.
-- **Approve on the diff, not on the spec's promises.** An unmet `AC-n` is a blocker, and a
-  spec amended after the fact to match the diff is itself a blocker.
+- **Approve on the diff, not on the spec's promises.** A spec amended after the fact to match
+  the diff is a blocker.
 - **A merge-boundary refusal is not a review round.** A red CI step that gates POLICY rather than
-  code — `guard-budget`, the `Changelog:` trailer check, frozen files — is RECORDED and does not by
-  itself make the verdict `needs-work`. The merge boundary already blocks on it, so refusing here
-  buys WHEN it is fixed and not whether, at the price of a full build-and-review pair applying a
-  fix no reviewer judgement shaped. Measured: #637's round 1 returned `needs-work` on exactly one
-  blocker, a red `guard-budget`; the fix was a single empty commit carrying a `Guard-mass:` trailer,
-  and round 2 then re-read the whole diff — 30:40, **58% of that run** (`docs/lane-latency.md`).
+  code — the `Changelog:` trailer check, frozen files — is RECORDED and does not by itself make
+  the verdict `needs-work`. The merge boundary already blocks on it, so refusing here buys WHEN it
+  is fixed and not whether, at the price of a full build-and-review pair applying a fix no
+  reviewer judgement shaped. Measured: #637's round 1 returned `needs-work` on exactly one
+  blocker, a red policy-gate CI step (since deleted, #719); the fix was a single empty trailer
+  commit, and round 2 then re-read the whole diff — 30:40, **58% of that run** (`docs/lane-latency.md`).
   The follow-through needs no new rule: if the policy fix changes a line you reviewed your record is
   void and a round happens anyway, and if it changes none — a trailer commit — your record stands.
   A red CORRECTNESS lane is the opposite and stays a blocker: `lint-and-selftests`, `selftests` and

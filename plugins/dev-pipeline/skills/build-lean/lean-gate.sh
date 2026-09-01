@@ -19,22 +19,22 @@
 # sides, so a review session that provisioned no identity is refused rather than inheriting the
 # build's.
 #
-# FRESHNESS (milestone 4). Four of the five milestones re-derive their answer from the current
-# tree on every sweep, which is what makes `satisfied` a record rather than a cache. Milestone 4
-# cannot — its evaluation is reading a file — so it binds that file to a tree: the record must be
-# COMMITTED, and nothing but the record itself may have changed since.
+# FRESHNESS IS NOT ASKED HERE (#720). Four of the five milestones re-derive their answer from
+# the current tree on every sweep, which is what makes `satisfied` a record rather than a cache.
+# Milestone 4 cannot — its evaluation is reading a file — and until #720 it carried two arms that
+# bound the record to a tree: an INFERRED one keyed on where git says the record was committed,
+# and a DECLARED one keyed on `reviewed_patch_id`.
 #
-# TWO ARMS, and neither subsumes the other. INFERRED freshness asks where git says the record was
-# committed; the DECLARED arm asks what the reviewer stated. They come apart when code lands
-# between the review and the record's commit — the reviewer commits an honest record on top of a
-# head it never read, and inference alone calls that fresh.
+# Both were duplicates. `lean-evidence.sh`'s `arm_freshness` asks the same question, on the same
+# record, through the same `+`/`-` comparison, at every consumer's merge boundary — so a record
+# this gate waved through could not merge, and one it refused was refused there too. The lane's
+# copies bought WHEN the operator learned, at the price of a second implementation that could
+# drift. What milestone 4 still asks is what nothing downstream does: is the record COMMITTED and
+# clean in this tree, does its inheritance chain reach a committed round, is its author distinct
+# from the build's, and — on an armed ticket — is the render receipt bound to this head.
 #
-# The declaration is keyed on `reviewed_patch_id`, not on the `reviewed_head` SHA beside it: a
-# rebase rewrites SHAs and changes no reviewed content, and in a fresh checkout the pre-rebase
-# object does not exist at all. Patch identity is invariant there and still moves on any real
-# change. It does NOT cover a base change that reds the suite with no textual conflict — the
-# verdict correctly still stands there, and the merged result is CI's business. `reviewed_head`
-# is a diagnostic pointer and the input to #597's escape hatch; it gates nothing on its own.
+# `reviewed_head` is still required and still uncompared: it is the input the boundary's escape
+# hatch measures from, so a record lacking it is unusable there and refused here.
 #
 # INHERITANCE (#375). Every round declares `inherited_patch_id` — the reviewed patch of the round
 # whose coverage it inherits, or the literal `none` on a chain root — so a fix round reads the
@@ -115,7 +115,7 @@
 #                                        inherit. Reads only; writes nothing.
 #   lean-gate.sh verdict <issue> --pr <n> --verdict <approve|needs-work> [--rounds <n>]
 #                                        [--fidelity <pass|fail|not-applicable>]
-#                                        [--summary-file <path>]
+#                                        [--panel <a,b,c>] [--summary-file <path>]
 #                                        REVIEW role: write the committed verdict record.
 #                                        --fidelity defaults to not-applicable, which is the
 #                                        fail-closed side on an armed run (milestone 4 wants
@@ -125,14 +125,28 @@
 #                                        (grammar: review-lean/SKILL.md step 5b) — refused here,
 #                                        at the writer, rather than at milestone 4 where it
 #                                        would cost the round.
-#   lean-gate.sh progress <issue> [--satisfied <n> | --infra | --obligations]
-#                                        SCHEDULER role (#492): print an OPAQUE TOKEN over the
-#                                        progress rows that mean the build role advanced. Reads
-#                                        only — it writes nothing and, unlike every other
-#                                        subcommand, does not create the file it reads. The
-#                                        caller compares the token across a spawn and interprets
-#                                        nothing; `--satisfied <n>` narrows it to milestone n's
-#                                        `satisfied` row alone.
+#   lean-gate.sh plan-review <issue> --verdict <pass|fix-and-go|block> --summary-file <path>
+#                                        [--model <m>]
+#                                        BUILD role (#710): write the committed plan-review
+#                                        record, the artifact milestone 3 asserts on an armed run.
+#                                        The build session dispatches the provider's plan reviewer
+#                                        itself — the gate cannot run an agent — and this stamps
+#                                        `reviewed_plan_from` from the checkout so the record
+#                                        cannot claim a tree it was not written against.
+#                                        --summary-file is REQUIRED (the findings verbatim); a
+#                                        `block` the gate must quote needs a body to quote from.
+#                                        A second call overwrites.
+#   lean-gate.sh progress <issue> <--satisfied <n> | --obligations>
+#                                        SCHEDULER role. Reads only — it writes nothing and,
+#                                        unlike every other subcommand, does not create the file
+#                                        it reads. ONE OF THE TWO FLAGS IS REQUIRED: the bare
+#                                        form printed the continuation predicate, and #718 deleted
+#                                        that predicate along with the loop that compared it.
+#                                        `--satisfied <n>` prints an OPAQUE TOKEN over milestone
+#                                        n's `satisfied` rows alone — `m5sat-v1:<count>`, to be
+#                                        COMPARED and never parsed or ordered. Its one caller is
+#                                        orchestrate-lean.sh's close-out arm, asking whether a
+#                                        lane whose worktree is gone ever finished.
 #                                        `--obligations` (#531) prints neither token but a REPORT:
 #                                        one line per milestone-5 obligation with its recorded
 #                                        state, the aggregate's own state, and the teardown
@@ -140,17 +154,7 @@
 #                                        the scheduler's close-out failure message is assembled
 #                                        from them so that it can name WHICH obligation is
 #                                        outstanding without the scheduler reading the record.
-#                                        All three flags are mutually exclusive.
-#                                        `--infra` (#527) prints a DIFFERENT token space,
-#                                        `m3infra-v3:<n>`, over milestone-3 evaluations that began
-#                                        and never concluded — an infrastructure death, derived
-#                                        from residue because a session killed at the turn boundary
-#                                        writes no class. v3 (#566): the predicate is the unclosed
-#                                        count ALONE. The runner-record half retired with the
-#                                        detached runner itself — milestone 3 is inline now, so
-#                                        there are no pid records to scan. `m3infra-v3:0` is the
-#                                        no-death answer; it is never empty. Compare it ACROSS a
-#                                        spawn, never as a level: the record is append-only.
+#                                        The two flags are mutually exclusive.
 #   lean-gate.sh staleness <issue> [--arm ticket|base|both]
 #                                        SCHEDULER role (#515): is this run's premise still true?
 #                                        The TICKET arm asks whether the issue is still open; the
@@ -205,8 +209,8 @@
 #
 # It is reserved CROSS-REPO, and that is its one exposure: a consumer whose lane already exits 3
 # for a genuine failure is reclassified as infrastructure and charged no fix attempt. The failure
-# direction is a run that RETRIES when it should have stopped — bounded by the scheduler's
-# --max-continuations and by INTERRUPTED_BUDGET — never a red branch reported green. There is
+# direction is a run that is CHARGED NO FIX ATTEMPT when it should have been — bounded by
+# INTERRUPTED_BUDGET — never a red branch reported green. There is
 # deliberately no per-lane config opt-out; see docs/config-schema.md.
 #
 # Seams (zero-network selftest; the check-pipeline-chain.sh precedent):
@@ -275,6 +279,11 @@ CURL_CLI="${CURL:-curl}"
 # path, not the resolve-sibling ladder, which exists for CROSS-plugin hops. The seam exists so a
 # selftest can drive the third resolution artifact without minting a token on the machine.
 OVERRIDE_TOOL="${LEAN_OVERRIDE_TOOL:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../tools" && pwd)/operator-override.sh}"
+# The portable evidence payload, which ships in THIS directory and carries the AC-scorecard
+# validator the merge boundary reads with (#622). The write-time layer calls the same
+# implementation rather than keeping a lockstep copy of an awk program: both layers can reach one
+# site, so a second copy would be duplicate machinery with no reader that needs it.
+EVIDENCE_TOOL="${LEAN_EVIDENCE_TOOL:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lean-evidence.sh}"
 PR_FILE=""
 COMMENTS_FILE=""
 ISSUE_FILE=""
@@ -283,9 +292,14 @@ VERDICT_VALUE=""
 VERDICT_PR=""
 VERDICT_ROUNDS=""
 VERDICT_FIDELITY=""
+VERDICT_PANEL=""
+# #710: the plan-review writer's `model:` (D-29). Its own variable rather than LEAN_RUN_MODEL
+# alone, because the dispatch it records may run on a different tier than the session driving it.
+# Initialised EMPTY like every sibling, never from the environment: a same-named variable leaking
+# in from a caller's shell would satisfy a required flag no caller passed.
+VERDICT_MODEL=""
 SUMMARY_FILE=""
 PROGRESS_SATISFIED=""
-PROGRESS_INFRA=0
 # #531 D-12. A third `progress` mode, and a REPORT rather than a token: the scheduler's close-out
 # failure message must name each obligation's own state, and a scheduler that parsed the record to
 # get them would own a reader it has no business owning. This prints the lines; the loop echoes
@@ -313,10 +327,11 @@ ABSENT_BUDGET=10
 # #497 D-7. The INTERRUPTED budget: how many evaluations of one milestone may BEGIN and never
 # conclude before the next call refuses to start another. A third bound, and deliberately the
 # tightest of the three — absence is the contract's own recommended move (build-lean step 3 orders
-# a milestone-1 call before the spec can exist), interruption never is. A full lane can spawn ~9
-# build sessions (MAX_ROUNDS=3 × 1 + MAX_CONTINUATIONS=2, continuations resetting per build phase),
-# each able to interrupt once — so 5 fires on a systematic background-and-exit pattern while
-# staying out of reach of the bad luck an honest run meets (0, occasionally 1-2).
+# a milestone-1 call before the spec can exist), interruption never is. FIXED AT 5, and #718 is why
+# it is now a constant rather than a derivation: it used to be sized off the lane's worst-case spawn
+# count, and that count was the round budget times the continuation budget, which no longer exists.
+# The number it produced was 5, the shape it guards has not moved, and an honest run meets 0 —
+# occasionally 1 or 2 — so 5 still fires only on a systematic background-and-exit pattern.
 INTERRUPTED_BUDGET=5
 
 # #566 RETIRED MILESTONE 3'S SEPARATE, LARGER BOUND. #527 D-7 gave it one (8 against this 5)
@@ -363,13 +378,14 @@ while [ $# -gt 0 ]; do
     --verdict)       VERDICT_VALUE="${2:-}"; shift 2 ;;
     --rounds)        VERDICT_ROUNDS="${2:-}"; shift 2 ;;
     --fidelity)      VERDICT_FIDELITY="${2:-}"; shift 2 ;;
+    --panel)         VERDICT_PANEL="${2:-}"; shift 2 ;;
     --summary-file)  SUMMARY_FILE="${2:-}"; shift 2 ;;
+    --model)         VERDICT_MODEL="${2:-}"; shift 2 ;;
     --satisfied)     PROGRESS_SATISFIED="${2:-}"; shift 2 ;;
-    --infra)         PROGRESS_INFRA=1; shift ;;
     --obligations)   PROGRESS_OBLIGATIONS=1; shift ;;
     --arm)           STALENESS_ARM="${2:-}"; shift 2 ;;
     --ticket-source) TICKET_SOURCE="${2:-}"; shift 2 ;;
-    -h|--help)       sed -n '2,269p' "$0"; exit 0 ;;
+    -h|--help)       sed -n '2,273p' "$0"; exit 0 ;;
     -*)              envfail "unknown option: $1" ;;
     *)
       if [ "$POSITIONAL" -eq 0 ]; then SUB="$1"; POSITIONAL=1
@@ -380,7 +396,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-[ -n "$SUB" ]   || envfail "usage: lean-gate.sh <entry|claim|mark|1..5|all|close-out|teardown|inflight|delta|verdict|progress|staleness> <issue>"
+[ -n "$SUB" ]   || envfail "usage: lean-gate.sh <entry|claim|mark|1..5|all|close-out|teardown|inflight|delta|verdict|plan-review|progress|staleness> <issue>"
 # #611. DEFERRED for `entry`/`claim` alone, and into a REFUSAL rather than a usage error — the
 # absent-ticket case is what that guard is about, and answering it with the same exit 2 a typo'd
 # flag gets is what let a session read "no argument" as "choose one". The assertion is not
@@ -389,12 +405,12 @@ done
 # keeps this refusal verbatim, the milestone calls included (the AC preamble binds only two).
 case "$SUB" in
   entry|claim) : ;;
-  *) [ -n "$ISSUE" ] || envfail "usage: lean-gate.sh <entry|claim|mark|1..5|all|close-out|teardown|inflight|delta|verdict|progress|staleness> <issue>" ;;
+  *) [ -n "$ISSUE" ] || envfail "usage: lean-gate.sh <entry|claim|mark|1..5|all|close-out|teardown|inflight|delta|verdict|plan-review|progress|staleness> <issue>" ;;
 esac
 
 case "$SUB" in
-  entry|claim|mark|1|2|3|4|5|all|close-out|teardown|inflight|delta|verdict|progress|staleness) : ;;
-  *) envfail "unknown subcommand '$SUB' (expected entry|claim|mark|1..5|all|close-out|teardown|inflight|delta|verdict|progress|staleness)" ;;
+  entry|claim|mark|1|2|3|4|5|all|close-out|teardown|inflight|delta|verdict|plan-review|progress|staleness) : ;;
+  *) envfail "unknown subcommand '$SUB' (expected entry|claim|mark|1..5|all|close-out|teardown|inflight|delta|verdict|plan-review|progress|staleness)" ;;
 esac
 
 # Validated at parse time rather than inside cmd_progress, so a typo is a usage error before any
@@ -406,23 +422,20 @@ if [ -n "$PROGRESS_SATISFIED" ]; then
   esac
 fi
 
-# #527 D-6, the same shape and the same reason: a flag that silently selects nothing is a read that
-# answers a question nobody asked. The two flags are MUTUALLY EXCLUSIVE rather than composable —
-# they print different token spaces, and one invocation can only print one of them, so accepting
-# both would have to pick a winner silently.
-if [ "$PROGRESS_INFRA" -eq 1 ]; then
-  [ "$SUB" = "progress" ] || envfail "--infra is only meaningful on 'progress', not '$SUB'."
-  [ -z "$PROGRESS_SATISFIED" ] \
-    || envfail "--infra and --satisfied are different token spaces and cannot be combined — ask for one per call."
-fi
-
-# #531, the same shape again, and mutually exclusive with BOTH of the above for a sharper reason
-# than theirs: this one prints a human-readable report rather than a token at all, so a caller that
-# combined it with either would get two different KINDS of answer on one stream.
+# #531, the same shape again, and mutually exclusive with the flag above for a sharper reason than
+# its own: this one prints a human-readable report rather than a token at all, so a caller that
+# combined the two would get two different KINDS of answer on one stream.
 if [ "$PROGRESS_OBLIGATIONS" -eq 1 ]; then
   [ "$SUB" = "progress" ] || envfail "--obligations is only meaningful on 'progress', not '$SUB'."
-  [ "$PROGRESS_INFRA" -eq 0 ] && [ -z "$PROGRESS_SATISFIED" ] \
-    || envfail "--obligations prints a report, not a token — it cannot be combined with --infra or --satisfied."
+  [ -z "$PROGRESS_SATISFIED" ] \
+    || envfail "--obligations prints a report, not a token — it cannot be combined with --satisfied."
+fi
+
+# #718. ONE OF THE TWO IS REQUIRED, and the refusal names what went away rather than printing a
+# default. The bare form was the continuation predicate; deleting the predicate but leaving the
+# subcommand answering SOMETHING would hand a stale caller a token nothing computes from anymore.
+if [ "$SUB" = "progress" ] && [ "$PROGRESS_OBLIGATIONS" -eq 0 ] && [ -z "$PROGRESS_SATISFIED" ]; then
+  envfail "unknown progress form: bare 'progress <issue>' printed the continuation predicate, which #718 deleted with the loop that read it. Pass --satisfied <n> or --obligations."
 fi
 
 # #515, same shape and for the same reason: an unknown arm must be a usage error before any read
@@ -450,6 +463,13 @@ if [ -n "$TICKET_SOURCE" ]; then
   esac
 fi
 TICKET_SOURCE="${TICKET_SOURCE:-argument}"
+
+# #710, the same parse-time shape as every flag above: `--model` records the tier a plan-review
+# dispatch ran on, and there is no other subcommand it could mean anything to. `verdict` stamps
+# its own `model:` from LEAN_RUN_MODEL and would silently ignore this one.
+if [ -n "$VERDICT_MODEL" ]; then
+  [ "$SUB" = "plan-review" ] || envfail "--model is only meaningful on 'plan-review', not '$SUB'."
+fi
 
 # ---------------------------------------------------------------- roots + config
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" \
@@ -484,10 +504,10 @@ fi
 # #528. The config is a SHARED, mutable file, so a sibling session's edit re-points every live
 # lane's gate mid-run. Announced once per invocation so a re-point is visible rather than inferred.
 #
-# STDERR, via `warn`: orchestrate-lean.sh's progress_token() compares this script's STDOUT
+# STDERR, via `warn`: orchestrate-lean.sh's satisfied_token() compares this script's STDOUT
 # byte-for-byte across two reads, so a stdout announcement would flip that comparison on exactly
-# the re-point this exists to surface — corrupting the continuation predicate instead of exposing
-# the event. SKIPPED on `progress` even on stderr: that subcommand's contract is a bare
+# the re-point this exists to surface — corrupting the close-out's read instead of exposing the
+# event. SKIPPED on `progress` even on stderr: that subcommand's contract is a bare
 # machine-read answer. Every other subcommand gets it.
 [ "$SUB" = "progress" ] || warn "config: $CONFIG"
 
@@ -521,6 +541,11 @@ DESIGN_PROVIDER="$(cfg '.design.provider' '')"
 LR_COMMAND="$(cfg '.design.liveRender.command' '')"
 LR_CWD="$(cfg '.design.liveRender.cwd' '')"
 LR_READY_PROBE="$(cfg '.design.liveRender.readyProbe' '')"
+# #711 D-11. The one tolerance both new milestone-3 reds are expressed in, in PIXELS. The default
+# lives HERE rather than in config-lint, because a consumer that never declares the key must still
+# get the arm: a gate-side default is the value every unconfigured repo runs under, and the lint's
+# job is to refuse a declared one that is not a non-negative integer.
+LR_TOLERANCE_PX="$(cfg '.design.liveRender.tolerancePx' '2')"
 
 # ---------------------------------------------------------------- the tracker adapter
 # ONE resolution, THREE branch sites: the entry note, cmd_claim, and cmd_5. Milestones 1-4 are
@@ -828,6 +853,12 @@ RENDER_MANIFEST_REL="$PLANS_DIR/$REPO_SLUG-$ISSUE-lean-renders.md"
 # suffix is NOT pinned by check-lean-chain.sh: nothing at the merge boundary reads the plan
 # (D-12), and a name pinned there would read as coverage this repo does not have.
 PLAN_MANIFEST_REL="$PLANS_DIR/$REPO_SLUG-$ISSUE-lean-plan.md"
+# THE PLAN REVIEW RECORD (#710). The plan reviewer's committed output — the artifact that makes
+# the plan GRADED rather than merely shaped. Same suffix reasoning a third time: `-lean-plan-review.md`
+# must not end in `-lean.md`. It is not pinned by check-lean-chain.sh either, for the reason the
+# plan is not: nothing at the merge boundary reads the plan or its review, and a name pinned there
+# would read as coverage this repo does not have.
+PLAN_REVIEW_MANIFEST_REL="$PLANS_DIR/$REPO_SLUG-$ISSUE-lean-plan-review.md"
 PROGRESS_FILE="${LEAN_PROGRESS_FILE:-$MAIN_ROOT/$STATE_DIR/$ISSUE-lean-progress.md}"
 
 # ---------------------------------------------------------------- RUN_ID persistence
@@ -971,6 +1002,10 @@ render_patch_id() { # render_patch_id <head-ish>
 # plan would go stale each time a receipt was committed, and re-asserting the plan is not what a
 # fresh screenshot means.
 #
+# AND THE PLAN REVIEW RECORD (#710), for the reason the plan itself is excluded: the record binds
+# to this id, and the FIRST commit of the record would otherwise move the very id it just recorded
+# — a binding that stales itself the moment it is written can never be satisfied.
+#
 # `render_patch_id` deliberately does NOT gain the symmetric third exclusion. Its computation is
 # mirrored by scripts/check-lean-chain.sh, which cannot see this file; a consumer pinning an older
 # boundary ref would then red every armed PR whose branch carries a plan. The ordering makes the
@@ -983,127 +1018,9 @@ plan_patch_id() { # plan_patch_id <head-ish>
   local base id
   base="$(git -C "$REPO_ROOT" merge-base "origin/$BASE_BRANCH" "$1" 2>/dev/null)" || return 0
   [ -n "$base" ] || return 0
-  id="$(git -C "$REPO_ROOT" diff "$base" "$1" -- . ":(exclude)$VERDICT_REL" ":(exclude)$RENDER_MANIFEST_REL" ":(exclude)$PLAN_MANIFEST_REL" 2>/dev/null \
+  id="$(git -C "$REPO_ROOT" diff "$base" "$1" -- . ":(exclude)$VERDICT_REL" ":(exclude)$RENDER_MANIFEST_REL" ":(exclude)$PLAN_MANIFEST_REL" ":(exclude)$PLAN_REVIEW_MANIFEST_REL" 2>/dev/null \
     | git -C "$REPO_ROOT" patch-id --stable 2>/dev/null | cut -d' ' -f1)"
   printf '%s' "$id"
-}
-
-# LOCKSTEP-BEGIN contribution-compare
-# THE BRANCH'S OWN CONTRIBUTION, AS LINES (#597, D-2/D-3/D-4). The escape hatch both freshness
-# readers — this milestone's arms and the merge boundary's — consult when their naive check reds.
-#
-# WHY A HASH CANNOT ANSWER THIS. A patch identity is computed over `diff(merge-base(base, head),
-# head)`, so MERGING THE BASE IN advances the merge-base and moves the id even when the branch
-# alters not one line. On #583 the resolution was a pure union — no new branch line — and the id
-# still moved from 1decd12550cd to 86daf57fb18e, because the CONTEXT lines around the branch's own
-# additions in CLAUDE.md and docs/testing.md had changed underneath them. That cost a review round
-# against an unmoved head and a hand re-stamp.
-#
-# THE COMPARISON THAT CAN. Take the `+`/`-` lines only, per file, each side measured against ITS
-# OWN merge-base, and compare them. Context is excluded on purpose: a base merge moves context, and
-# context is not something a review approves. This is AC-4's "nine-file hash comparison,
-# mechanized" — the one the ticket ran by hand to prove the branch's contribution was identical.
-#
-# THE STATE MACHINE IS ANCHORED ON COLUMN 0, and that is what makes it unambiguous rather than
-# heuristic: inside a hunk EVERY line carries a ' ', '+', '-' or '\' prefix, so a body line reading
-# `diff --git …` or `@@ …` at column 0 cannot exist. A naive `/^[+-]/` over the whole diff would
-# have eaten the `---`/`+++` file headers and — the failure that actually bites in a repo full of
-# markdown and shell — read a removed line beginning `-- ` as one of them.
-contribution_lines() { # contribution_lines <repo-root> <base-ref> <head-ish> <exclude-path>
-  local base
-  git -C "$1" cat-file -e "$3^{commit}" 2>/dev/null || return 1
-  base="$(git -C "$1" merge-base "$2" "$3" 2>/dev/null)" || return 1
-  [ -n "$base" ] || return 1
-  git -C "$1" diff "$base" "$3" -- . ":(exclude)$4" 2>/dev/null | awk '
-    /^diff --git /        { inbody = 0; f = ""; next }
-    !inbody && /^--- /    { p = substr($0, 5); if (p != "/dev/null") { sub(/^a\//, "", p); f = p } next }
-    !inbody && /^\+\+\+ / { p = substr($0, 5); if (p != "/dev/null") { sub(/^b\//, "", p); f = p } next }
-    !inbody && /^@@/      { inbody = 1; next }
-    inbody && /^[+-]/     { print f "\t" $0 }
-  '
-}
-
-# DID THE CONTRIBUTION MOVE — rc 0 identical, 1 moved, 2 not computable.
-#
-# rc=1 prints the ENUMERATION D-6 requires, one `path<TAB>count<TAB>first-offending-line` row per
-# affected file, `LC_ALL=C sort`ed so two runs over one tree cannot disagree about order. The
-# enumeration is the invalidation's PRECONDITION, not its decoration: a caller that cannot name an
-# affected line has the doubt case, and AC-3 says the verdict stands there.
-#
-# rc=2 ON AN EMPTY CONTRIBUTION, either side, and that guard is load-bearing rather than defensive
-# — it is the same one `branch_patch_id`'s header states for `git patch-id`: two failed
-# computations compare EQUAL, so an unguarded reader prints its ✓ having compared nothing. An
-# unresolvable merge-base, a head absent from this checkout's history and an empty measured range
-# all surface here as the same refusal to answer, which is correct: they are all "no comparison
-# was made", and splitting them produces an arm no case can kill.
-#
-# THE CALLER OWNS THE rc=2 POLICY, not this function. D-5 points the two live callers at
-# fail-OPEN — the verdict stands, and the line says so — against every other unreadable-input path
-# in these two tools, which fail closed. That reversal is OR-1, and keeping it in the callers is
-# what makes it a one-line flip rather than a rewrite.
-contribution_delta() { # contribution_delta <repo-root> <base-ref> <old-head> <new-head> <exclude-path>
-  local d rc=0
-  d="$(mktemp -d 2>/dev/null)" || return 2
-  contribution_lines "$1" "$2" "$3" "$5" > "$d/old" 2>/dev/null || rc=2
-  contribution_lines "$1" "$2" "$4" "$5" > "$d/new" 2>/dev/null || rc=2
-  if [ "$rc" -eq 0 ] && { [ ! -s "$d/old" ] || [ ! -s "$d/new" ]; }; then rc=2; fi
-  if [ "$rc" -eq 0 ] && ! cmp -s "$d/old" "$d/new"; then
-    rc=1
-    awk -F'\t' '
-      NR == FNR { n1[$1]++; L1[$1 SUBSEP n1[$1]] = $2; next }
-                { n2[$1]++; L2[$1 SUBSEP n2[$1]] = $2 }
-      END {
-        for (f in n1) seen[f] = 1
-        for (f in n2) seen[f] = 1
-        for (f in seen) {
-          a = (f in n1) ? n1[f] : 0
-          b = (f in n2) ? n2[f] : 0
-          m = (a > b) ? a : b
-          c = 0; first = ""
-          for (i = 1; i <= m; i++) {
-            x = L1[f SUBSEP i]; y = L2[f SUBSEP i]
-            if (x != y) { c++; if (first == "") first = (y != "") ? y : x }
-          }
-          if (c > 0) print f "\t" c "\t" first
-        }
-      }
-    ' "$d/old" "$d/new" | LC_ALL=C sort
-  fi
-  rm -rf "$d"
-  return "$rc"
-}
-
-# The enumeration, as ONE line an operator reads in a single pass. Stdin is contribution_delta's
-# rc=1 output; the shape mirrors the existing arms' `(e.g. X)` style rather than inventing a
-# second one. NO SILENT CAP: past the third file it says how many more there are.
-contribution_summary() { # contribution_summary  (delta rows on stdin)
-  awk -F'\t' '
-    NF == 0 { next }
-    { n++; total += $2; if (n <= 3) { parts = parts (parts == "" ? "" : "; ") $1 ": " $2 " line(s) (e.g. " $3 ")" } }
-    END {
-      if (n == 0) { print "no affected line could be named"; exit }
-      if (n > 3) parts = parts "; and " (n - 3) " more file(s)"
-      print total " reviewed line(s) across " n " file(s) — " parts
-    }
-  '
-}
-# LOCKSTEP-END contribution-compare
-
-# THE GATE-SIDE BINDING (#597 D-3), memoized. Both freshness arms in milestone 4 ask the SAME
-# question — "did the branch's own contribution move between the head the record names and this
-# one" — so they ask it through ONE call site. Two implementations of that question is precisely
-# the drift the lockstep markers exist to prevent, and a second computation could only disagree
-# with the first.
-#
-# The old head is the record's own `reviewed_head` (D-2): no new record key, no schema change, and
-# every in-flight and already-merged record stays readable with no re-stamp obligation.
-CONTRIB_RC=""
-CONTRIB_DETAIL=""
-contribution_state() { # contribution_state <old-head> <new-head> — sets CONTRIB_RC/CONTRIB_DETAIL
-  [ -n "$CONTRIB_RC" ] && return 0
-  CONTRIB_DETAIL="$(contribution_delta "$REPO_ROOT" "origin/$BASE_BRANCH" "$1" "$2" "$VERDICT_REL")"
-  CONTRIB_RC=$?
-  return 0
 }
 
 # ---------------------------------------------------------------- the inheritance chain (#375)
@@ -1413,7 +1330,7 @@ append_absent() { append_line "$(now_iso) | milestone-$1 | absent | $2"; }
 # read zero rows and both append, duplicating the line this function exists to keep singular.
 #
 # AN ATOMIC CLAIM, THEN A PLAIN APPEND — deliberately NOT heal_progress_run_id's temp-plus-rename.
-# That rebuilds the whole file, making this a SECOND rewriter, and progress_token()'s soundness
+# That rebuilds the whole file, making this a SECOND rewriter, and satisfied_token()'s soundness
 # argument rests on there being exactly one: a rebuild can drop a row a concurrent
 # append_attempt/append_absent wrote in the gap, which silently un-charges #494's fix budget (that
 # append fires only on a fresh failure and is never replayed). Append-only keeps the invariant true.
@@ -1449,10 +1366,10 @@ clear_satisfied_claims() { rm -rf "$PROGRESS_FILE".satisfied-*.claim; }
 
 # #531 D-10. THE PER-OBLIGATION ROW, and its verb is load-bearing rather than descriptive.
 #
-# progress_token narrows to milestone n by the FIXED SUBSTRING `| milestone-n | satisfied`, so an
+# satisfied_token narrows to milestone n by the FIXED SUBSTRING `| milestone-n | satisfied`, so an
 # obligation row spelled with that verb would move the scheduler's close-out token the instant the
 # FIRST of the two obligations held — reporting `done` over a run with no closing comment on it.
-# `obligation` collides with nothing: not progress_token's row kinds, not attempt_count's, not
+# `obligation` collides with nothing: not satisfied_token's row kind, not attempt_count's, not
 # absent_count's, not unclosed_count's pair.
 #
 # BOTH DIRECTIONS ARE RECORDED: the scheduler's failure message (D-12) has to name which obligation
@@ -1513,13 +1430,13 @@ absent_count() { count_matches "| milestone-$1 | absent |" "$PROGRESS_FILE" -F; 
 #
 # THE PAYLOAD IS `rc=<n>` because `concluded | satisfied` would put the literal `satisfied` on a
 # bookkeeping line — the collision trap absent_count's note records. NEITHER VERB IS IN
-# progress_token's ROW SET, on purpose.
+# satisfied_token's ROW SET, on purpose.
 append_started()   { append_line "$(now_iso) | milestone-$1 | started |"; }
 append_concluded() { append_line "$(now_iso) | milestone-$1 | concluded | rc=$2"; }
 
 # D-11. The predicate is a DIFFERENCE, not a flag. Both rows are append-only and nothing rewrites
 # them, so `started` minus `concluded` for one milestone is exactly the cumulative number of
-# evaluations that began and never returned — progress_token's soundness argument below ("the
+# evaluations that began and never returned — satisfied_token's soundness argument below ("the
 # selected count cannot go up and back down within a spawn") extends to them unchanged.
 #
 # Both patterns carry the TRAILING separator, for absent_count's reason in the other direction:
@@ -1706,8 +1623,8 @@ entry_row_present() { [ "$(count_matches "$ENTRY_ROW_MARKER" "$PROGRESS_FILE" -F
 
 # #611. The other half of "a checked control, not a prose reminder": the argument the run boundary
 # accepted, and the provenance its caller declared for it. Its OWN `| ticket |` namespace on the
-# teardown row's precedent — nothing reading `| milestone-<n> |` (progress_token, the obligations
-# report) can mistake it for a certified milestone, and the scheduler's continuation predicate is
+# teardown row's precedent — nothing reading `| milestone-<n> |` (satisfied_token, the obligations
+# report) can mistake it for a certified milestone, and the scheduler's milestone-5 read is
 # unmoved by it. DEDUPED on the whole row so a resumed run's second `entry` does not stack
 # identical lines, while a re-entry that declares a DIFFERENT source records that as a new fact.
 record_ticket_resolution() {
@@ -2137,8 +2054,8 @@ EOF
 #
 # NO WORKTREE IS 0, DELIBERATELY. The scheduler also calls this after the close-out, whose last act
 # is teardown, and it is the honest answer besides: a tree that does not exist holds no uncollected
-# work, and `git worktree remove` refuses a dirty one. A BUILD spawn that never cut a worktree is
-# caught by the continuation predicate beside this.
+# work, and `git worktree remove` refuses a dirty one. A BUILD spawn that never cut a worktree
+# leaves no PR either, which is the scheduler's `build-no-pr` stop.
 cmd_inflight() {
   local wt rc paths win_rc=0 win_wt="" win_reason="" win_detail=""
   paths="$(lean_worktrees_for_branch "$LEAN_BRANCH")" || paths=""
@@ -2182,92 +2099,32 @@ EOF
   esac
 }
 
-# ---------------------------------------------------------------- the CONTINUATION PREDICATE
-# #492. `claude -p` exits 0 whenever the model ends its turn cleanly, which is "the model stopped
-# talking", not "the block finished" — so a scheduler reading the spawn's exit status cannot tell
-# a finished build from one that stopped two milestones early with every artifact on disk. This
-# subcommand is the artifact it reads instead (AC-5): one opaque token over the progress rows that
-# mean THE BUILD ROLE ADVANCED. The caller compares the token across a spawn and interprets
-# nothing, which is what keeps orchestrate-lean.sh's "gate exit codes and tracker state, nothing
-# else" boundary intact while it gains a third thing to know.
+# ---------------------------------------------------------------- the CLOSE-OUT's SATISFIED READ
+# #492 put a CONTINUATION PREDICATE here — a token over every row a milestone evaluation writes,
+# read on both sides of a BUILD spawn to decide whether to spawn again — and #718 deleted it with
+# the loop that compared it. What is left is the narrow question that outlived it: with the lane
+# worktree gone, did milestone 5 ever reach `satisfied`? One caller, one call site, one comparison.
 #
-# EXACTLY TWO ROW KINDS (D-1, held at two by #497 D-3). `satisfied` and `attempt` are the only rows
-# a milestone EVALUATION writes. The bookkeeping rows must stay out: `| session | <id>` is appended
-# on every fresh session's `entry` call, so a naive "did the file change" predicate would be TRUE
-# for any spawn that reached step 1; and `started`/`concluded` are written on EVERY continuation, so
-# counting them would make each dead spawn of a background-and-exit session read as advancement and
-# burn the whole `--max-continuations` budget. The in-flight pair is a record for the resuming
-# SESSION, never a signal to the orchestrator.
+# MILESTONE n's `satisfied` ROW ALONE (D-8). `attempt` is excluded on purpose — a close-out that
+# redded milestone 5 advanced the record but did not finish the checklist, and crediting it would
+# be the exact false `done` this read exists to refuse.
 #
-# WHY A COUNT IS A SOUND TOKEN. These rows are append-only, and the single rewriter in this file
-# (heal_progress_run_id) has an exact-string compare bounded to the header — so the count cannot go
-# up and back down within a spawn and read as unchanged. #528 keeps that true under a concurrent
-# writer by making append_satisfied claim-then-append rather than rebuild. The `progress-v1:`
-# generation prefix marks the token space so a caller reaching for `-gt` has to notice this is not
-# an orderable integer.
+# WHY A COUNT IS A SOUND TOKEN. These rows are append-only and the single rewriter in this file
+# (heal_progress_run_id) has an exact-string compare bounded to the header, so the count cannot go
+# up and back down between two reads and read as unchanged; #528 keeps that true under a concurrent
+# writer. The `m5sat-v1:` generation prefix marks the token space so a caller reaching for `-gt`
+# has to notice this is not an orderable integer.
 #
 # NOT in require_entry_attested's set (D-2): this reads the very file an attestation would live in,
 # so gating it there would remove the answer in exactly the state — a spawn that died before
 # `entry` — the scheduler most needs one about.
-progress_token() { # progress_token [<milestone>] — prints the token, never touches the file
-  local pat n
-  if [ -n "${1:-}" ]; then
-    # D-8: milestone n's `satisfied` row ALONE. `attempt` is excluded here on purpose — a
-    # close-out that redded milestone 5 advanced the record but did not finish the checklist,
-    # and crediting it would be the exact false `done` this ticket exists to remove.
-    pat="| milestone-$1 | satisfied"
-  else
-    pat="| milestone-"
-  fi
+satisfied_token() { # satisfied_token <milestone> — prints the token, never touches the file
+  local n
   # ensure_progress_file is deliberately NOT called: this subcommand must not bring into
   # existence the artifact whose absence is itself the answer. count_matches already answers 0
   # for a missing file.
-  if [ -n "${1:-}" ]; then
-    n="$(count_matches "$pat" "$PROGRESS_FILE" -F)"
-  else
-    # One pass, both kinds. -E over two -F greps so the row set is defined in one expression:
-    # the `| milestone-<n> | ` stem followed by either verb, end-anchored for `satisfied` and
-    # carrying the trailing separator for `attempt`, so neither a `budget-exhausted` row nor a
-    # reason string mentioning either word can inflate the count.
-    #
-    # `[|]` and not `\|`: an escaped pipe inside an ERE is a GNU extension that POSIX leaves
-    # undefined, and this file has a macOS/BSD lane. A bracket expression means the same literal
-    # to both, where `\|` is exactly the class of dual form that fails dirty rather than loudly.
-    n="$(count_matches '[|] milestone-[0-9][0-9]* [|] (satisfied$|attempt [|])' "$PROGRESS_FILE" -E)"
-  fi
-  printf 'progress-v1:%s\n' "$n"
-}
-
-# ---------------------------------------------------------------- the INFRA-DEATH READ (#527)
-# THE CLASS IS DERIVED FROM RESIDUE, because nothing is alive to write it. `append_started 3`
-# already flushed and there is no matching `concluded` row: the evaluation began and never
-# returned. SIGKILL cannot be trapped (see the note beside run_milestone's append_started) and the
-# scheduler never invokes a milestone itself, so residue is the only witness there is.
-#
-# LOCATED BY THE PROGRESS RECORD, which the scheduler reads from $MAIN_ROOT deliberately — the
-# record must survive worktree teardown. That is the one handle both sides share.
-#
-# #566 NARROWED THE PREDICATE TO THE UNCLOSED COUNT ALONE — milestone 3 no longer detaches, so
-# there are no runner pid records to scan and the unclosed row is the only residue an interrupted
-# evaluation leaves. THE TOKEN SPACE MOVED TO v3 with it: a caller comparing a v2 reading against a
-# v3 one is comparing two different questions, and the prefix makes that visible instead of
-# arithmetic.
-
-# PRINTED BEHIND A GENERATION PREFIX, like progress_token's, and for the identical reason: this is
-# a number a caller must NOT order.
-#
-# NEVER EMPTY. "No infra death" is `m3infra-v3:0`, because the scheduler's reader rejects an empty
-# token as a broken gate — a legitimate negative answer must not look like one.
-infra_token() {
-  local unclosed n
-  unclosed="$(unclosed_count 3)"
-  n="$unclosed"
-  [ "$n" -lt 0 ] && n=0
-  # The diagnostic, on stderr so it cannot contaminate the token on stdout. It says what was
-  # counted rather than only the verdict, so an operator can tell a clean read from a suppressed
-  # one without re-deriving it.
-  warn "progress --infra: $unclosed unclosed milestone-3 evaluation(s)."
-  printf 'm3infra-v3:%s\n' "$n"
+  n="$(count_matches "| milestone-$1 | satisfied" "$PROGRESS_FILE" -F)"
+  printf 'm5sat-v1:%s\n' "$n"
 }
 
 # ---------------------------------------------------------------- the CLOSE-OUT REPORT (#531)
@@ -2329,11 +2186,7 @@ cmd_progress() {
     obligations_report
     return 0
   fi
-  if [ "$PROGRESS_INFRA" -eq 1 ]; then
-    infra_token
-    return 0
-  fi
-  progress_token "$PROGRESS_SATISFIED"
+  satisfied_token "$PROGRESS_SATISFIED"
   return 0
 }
 
@@ -2791,17 +2644,32 @@ cmd_mark() {
     return 0
   fi
 
-  if [ -n "$PR_FILE" ]; then
-    [ -f "$PR_FILE" ] || envfail "--pr-file '$PR_FILE' does not exist."
-    pr="$(cat "$PR_FILE")"
-  else
-    pr="$("$GH_CLI" pr list --head "$LEAN_BRANCH" --state open \
-          --json number,url --limit 1 2>&1)" \
-      || { warn "✗ mark: could not list PRs for $LEAN_BRANCH: $pr"; return 1; }
-  fi
-  printf '%s' "$pr" | jq -e 'type == "array" and length > 0' >/dev/null 2>&1 \
-    || { warn "✗ mark: no open PR found for branch $LEAN_BRANCH — open it first (checklist step 7)."; return 1; }
+  # #670: RESOLVED THE SAME WAY MILESTONE 5 RESOLVES, which before this was a `--state open`
+  # list of its own. #642 widened milestone 5 to accept a merged PR so close-out would stay
+  # reachable after a merge, but left this call site behind — and cmd_5 calls mark
+  # UNCONDITIONALLY, so the widening bought nothing on the live path: `gh pr list --state open`
+  # answered `[]`, mark returned 1, and milestone 5 blocked on "could not stamp the build
+  # identity". One resolver now serves both, so the two cannot drift apart again.
+  #
+  # The `--pr-file` seam is preserved because resolve_open_pr honors it too — which is also why
+  # the pre-#670 selftest could not see this: its fixture never reached the `pr list` call.
+  # The hint is PARENTHETICAL, not an imperative: resolve_open_pr's error is "no open or merged PR
+  # found" on one path and "could not list PRs" — a transient gh failure — on the other, and
+  # "open it first" would be wrong advice for the second.
+  resolve_open_pr || { warn "✗ mark: $LEAN_PR_ERROR (the lane's PR is opened at checklist step 7)."; return 1; }
+  pr="$LEAN_PR_JSON"
   prnum="$(printf '%s' "$pr" | jq -r '.[0].number')"
+
+  # A MERGED PR TAKES NO NEW MARKER. The marker exists for ONE reader: the merge boundary
+  # (scripts/check-lean-chain.sh), which runs on a `pull_request` event — checklist step 7 says
+  # so in as many words, that a marker posted after the review's push is invisible to the CI run
+  # that gates the merge. Past the merge that reader has already run, so posting here would be a
+  # write with no consumer, on a PR nobody will re-review. Resolving it is still worth doing: the
+  # ordinary path posted the marker at step 7 and milestone 5 only needs to not FAIL on it.
+  if [ "$(printf '%s' "$pr" | jq -r '.[0].state // "OPEN"')" = "MERGED" ]; then
+    say "· mark: PR #$prnum is already MERGED — the identity marker's only reader is the pull_request-event merge boundary, which has already run, so nothing is posted."
+    return 0
+  fi
 
   if [ -n "$COMMENTS_FILE" ]; then
     [ -f "$COMMENTS_FILE" ] || envfail "--comments-file '$COMMENTS_FILE' does not exist."
@@ -2881,31 +2749,133 @@ cmd_mark() {
 # NETWORK, and deliberately NOT part of cmd_all's cheap pre-pass — the issue and its comment trail
 # are read live unless the fixture seams below are set. cmd_1 skips this under LEAN_GATE_OBSERVE=1.
 open_regions_section() { # stdin: the issue body — prints the section's lines, nothing else
+  # #700, two fixes, both about seeing the section AT ALL rather than parsing its rows.
+  #
+  # The heading match is deliberately NOT anchored at end-of-line. `## Open regions (BUILD flags,
+  # does not pause)` — #636 and #622 both carry it — was not recognized as the section, which is
+  # the worst of the three shapes this check got wrong: nothing is misparsed, so no refusal can
+  # fire and the gate clears in silence. The cost is that `## Open regions in other tickets` now
+  # reads as the section too; a false refusal an operator can clear beats a false clear.
+  #
+  # Termination is by heading DEPTH, not by "any heading". A heading-per-region section
+  #
+  #   ## Open regions
+  #   ### OR-1 — Ordering
+  #
+  # ended on its own first region, leaving ZERO non-blank content lines — so it read as an EMPTY
+  # section rather than an unparseable one, and cleared. Deeper headings now stay inside, which is
+  # what makes the content visible to open_regions_defects below.
   awk '
-    tolower($0) ~ /^#+[[:space:]]+open regions[[:space:]]*$/ { insec = 1; next }
-    insec && /^#+[[:space:]]/                                 { insec = 0 }
-    insec                                                     { print }
+    tolower($0) ~ /^#+[[:space:]]+open regions([[:space:]].*)?$/ {
+      insec = 1; match($0, /^#+/); depth = RLENGTH; next
+    }
+    insec && /^#+[[:space:]]/ { match($0, /^#+/); if (RLENGTH <= depth) insec = 0 }
+    insec                     { print }
   '
 }
 
-# Table rows `| <id> | ... | pause-and-ask |` inside the section. The header/separator rows never
-# match — neither carries the literal disposition token in its last cell.
+# Every region the section declares, one `<id><TAB><disposition>` line each, across BOTH shapes
+# the corpus actually uses. An EMPTY disposition means no token was recognizable — a distinct
+# fact from "not pause-and-ask", and one open_regions_defects refuses on rather than swallows.
 #
-# The disposition is the LAST NON-EMPTY cell, not $(NF-1): GFM does not require the trailing pipe,
-# so `| OR-1 | R | pause-and-ask` puts it at $NF, and under $(NF-1) that row scans the Region text,
-# matches nothing, and the gate fails OPEN on a table a renderer accepts.
-pause_and_ask_ids() { # stdin: the issue body
-  open_regions_section | awk -F'|' '
-    /pause-and-ask/ {
-      id = $2; gsub(/^[[:space:]]+|[[:space:]]+$/, "", id)
-      disp = ""
-      for (i = NF; i >= 1; i--) {
-        cell = $i; gsub(/^[[:space:]]+|[[:space:]]+$/, "", cell)
-        if (cell != "") { disp = cell; break }
-      }
-      if (disp == "pause-and-ask" && id != "" && id != "ID") print id
+# TABLE ARM — semantics unchanged (#374). The disposition is the LAST NON-EMPTY cell, not
+# $(NF-1): GFM does not require the trailing pipe, so `| OR-1 | R | pause-and-ask` puts it at
+# $NF, and under $(NF-1) that row scans the Region text, matches nothing, and the gate fails OPEN
+# on a table a renderer accepts. Matching the id against `OR-n` is what drops the header and
+# separator rows — the old `id != "ID"` test, now positive rather than negative.
+#
+# BULLET ARM — new, and the shape that 7 of the 11 issue bodies declaring regions with ids
+# actually use; no issue body has used the table form since #381. A bullet is its first line plus
+# the following MORE-INDENTED lines, because #640 (OR-1, OR-2), #639 (OR-1) and #637 (OR-1) all
+# put the disposition token on a CONTINUATION line — a first-line-only read finds the id and
+# misses the token, and on #639 that token is a live `pause-and-ask`. A blank line does NOT end a
+# bullet: a loose list puts its continuations after one.
+#
+# The bullet arm matches the token as a SUBSTRING where the table arm compares a whole cell, so a
+# bullet naming both resolves to `pause-and-ask` — tested first, deliberately, because a false
+# refusal an operator can clear beats a false clear nobody sees.
+open_region_rows() { # stdin: the issue body
+  open_regions_section | awk '
+    function trim(s) { gsub(/^[[:space:]]+|[[:space:]]+$/, "", s); return s }
+    function disp_of(text) {
+      if (text ~ /pause-and-ask/)               return "pause-and-ask"
+      if (text ~ /reversible-default-and-flag/) return "reversible-default-and-flag"
+      return ""
     }
+    function flush(   id) {
+      if (!inbullet) return
+      inbullet = 0
+      if (match(buf, /OR-[0-9]+/)) {
+        id = substr(buf, RSTART, RLENGTH)
+        print id "\t" disp_of(buf)
+      }
+      buf = ""
+    }
+    /^[[:space:]]*\|/ {
+      flush()
+      n = split($0, C, "|")
+      id = trim(C[2])
+      disp = ""
+      for (i = n; i >= 1; i--) { cell = trim(C[i]); if (cell != "") { disp = cell; break } }
+      if (id ~ /^OR-[0-9]+$/) {
+        if (disp != "pause-and-ask" && disp != "reversible-default-and-flag") disp = ""
+        print id "\t" disp
+      }
+      next
+    }
+    /^[[:space:]]*[-*][[:space:]]/ {
+      flush()
+      buf = $0; inbullet = 1; indent = match($0, /[^[:space:]]/) - 1
+      next
+    }
+    inbullet {
+      if ($0 ~ /^[[:space:]]*$/) next
+      if (match($0, /[^[:space:]]/) - 1 > indent) { buf = buf " " $0; next }
+      flush()
+    }
+    END { flush() }
   '
+}
+
+# The pause-and-ask ids. Unchanged as a CONTRACT — callers still get one id per line, and the
+# header/separator rows still never appear. What changed is that it reads both shapes now.
+pause_and_ask_ids() { # stdin: the issue body
+  open_region_rows | awk -F'\t' '$2 == "pause-and-ask" { print $1 }'
+}
+
+# What a declared source ASSERTS but this parser could not enumerate (#700). One finding per line;
+# nothing at all when the section is absent, blank, the explicit empty form, or fully readable:
+#
+#   unenumerable    the section carries content and no shape matched a single region
+#   nodisp <id>     a region was parsed whose disposition token is unrecognizable
+#
+# This is the fail-closed half, and it is why widening the shapes was not on its own the fix: a
+# parser covering two of three forms reads as complete at review and still clears on the fourth.
+# The same reasoning the `--issue-file` arm below already carries, applied one level in — existing
+# but unparseable is not "declares no region", it is "could not read".
+#
+# Deliberately NOT keyed on "zero pause-and-ask ids": a table declaring only
+# `reversible-default-and-flag` rows, and the explicit empty form, each legitimately yield zero
+# ids, and the first is pinned CLEAR by this suite's (y3) case.
+#
+# The empty form is matched by PREFIX rather than against ledger-lint.sh's OPEN_EMPTY_FORM.
+# Receipt WORDING is ledger-lint's to validate and region ENUMERATION is this gate's — the split
+# `--reconcile` already states — and the issue-body source has no lint at all to teach an operator
+# the canonical sentence, so exact-matching it would refuse a reasonable hand-written
+# "No open regions."
+open_regions_defects() { # open_regions_defects <source-text>
+  local sec rows
+  sec="$(printf '%s\n' "$1" | open_regions_section)"
+  # HERESTRINGS, not `printf | grep -q`. This file runs under `set -o pipefail`, and `grep -q`
+  # exits the moment it matches — so on a section large enough to fill the pipe buffer the writer
+  # takes SIGPIPE and the pipeline reports 141 ON A MATCH. Under `|| return 0` that reads as "the
+  # section has no content" and this function reports no defects: the exact fail-open it exists to
+  # close, reachable only on bodies bigger than the fixtures. Measured at ~20k lines.
+  grep -q '[^[:space:]]' <<< "$sec" || return 0
+  grep -qiE '^[[:space:]]*No open regions' <<< "$sec" && return 0
+  rows="$(printf '%s\n' "$1" | open_region_rows)"
+  [ -n "$rows" ] || { echo "unenumerable"; return 0; }
+  printf '%s\n' "$rows" | awk -F'\t' '$2 == "" { print "nodisp " $1 }'
 }
 
 # A pause-and-ask region's resolution artifact. THREE of them now:
@@ -3025,6 +2995,41 @@ check_pause_and_ask() { # prints a reason on stdout; the vocabulary above says w
     body_ids="$(printf '%s' "$body" | pause_and_ask_ids)"
   fi
 
+
+  # ---- #700: what the sources DECLARE but this parser could not enumerate. Checked before the
+  # region walk, and reported as rc=2 rather than as a milestone failure: a section asserting
+  # regions the gate cannot read is the same "could not read" the two gh arms above report, and
+  # no edit the build role can make fixes it — neither the issue body nor the gitignored receipt
+  # is this session's to edit, which is exactly this file's stated rule for rc=2.
+  #
+  # EVERY source and EVERY region in one message, not the first — the same ergonomic the refusal
+  # further down owes and states: an operator clearing two problems must not pay two runs to
+  # discover the second.
+  local defects="" d
+  if [ -f "$ledger_path" ]; then
+    while IFS= read -r d; do
+      case "$d" in
+        unenumerable) defects="${defects:+$defects; }the pre-flight ledger $ledger_path declares an \"## Open regions\" section in no recognized shape" ;;
+        nodisp\ *)    defects="${defects:+$defects; }the pre-flight ledger $ledger_path declares region ${d#nodisp } with no recognizable disposition" ;;
+      esac
+    done <<EOF
+$(open_regions_defects "$ledger_content")
+EOF
+  fi
+  if [ "$TRACKER_TYPE" != "jira" ]; then
+    while IFS= read -r d; do
+      case "$d" in
+        unenumerable) defects="${defects:+$defects; }issue #$ISSUE's body declares an \"## Open regions\" section in no recognized shape" ;;
+        nodisp\ *)    defects="${defects:+$defects; }issue #$ISSUE's body declares region ${d#nodisp } with no recognizable disposition" ;;
+      esac
+    done <<EOF
+$(open_regions_defects "$body")
+EOF
+  fi
+  if [ -n "$defects" ]; then
+    echo "could not enumerate the open regions declared for #$ISSUE: $defects. A source that declares regions this gate cannot read is not the same fact as one declaring none, and is not treated as one. Accepted shapes: a table row \"| OR-n | region | disposition |\", or a bullet naming an OR-n whose disposition token appears in that bullet (continuation lines count); or the explicit empty form, a line beginning \"No open regions\". The contract is in intake-toolkit's interviewing-baseline skill under \"Open Regions\". Fix the section, then re-run."
+    return 2
+  fi
   ids="$(printf '%s\n%s\n' "$ledger_ids" "$body_ids" | awk 'NF' | sort -u)"
   [ -n "$ids" ] || return 0
 
@@ -3106,6 +3111,129 @@ design_armed() { # design_armed   (spec on stdin)
   '
 }
 # LOCKSTEP-END lean-design-armed
+
+# LOCKSTEP-BEGIN lean-design-provider-family
+# The provider FAMILY an armed spec hands off to, the fidelity reviewer that family makes
+# mandatory, and the token test that reads a `panel:` header (#708, D-12/D-13).
+#
+# TWO READERS, for the reason `design_armed` above has two: lean-gate.sh refuses a bad
+# `--panel` at the verdict WRITER, and scripts/check-lean-chain.sh refuses a bad `panel:` at
+# the merge BOUNDARY. The boundary cannot read config — `design.provider` is gitignored on
+# every consumer and never reaches a CI checkout — so the family must come from the committed
+# spec, and a derivation that differed between the two sides would let a record the writer
+# accepted red the PR, or wave through one it would have refused. Neither divergence is
+# visible from either side alone, which is the whole reason this is a marker block.
+#
+# FIRST RECOGNISED HOST WINS, and every other URL in the section is ignored. A `## Design`
+# section carries prose links — a ticket, a doc, a screenshot host — beside the handoff, so a
+# rule keyed on POSITION would classify by whichever one an author happened to paste first.
+# A section whose links name no provider host prints nothing; both callers turn that into a
+# refusal, never into "no reviewer is mandatory". That is the fail-closed direction: an
+# unclassifiable handoff leaves the mandatory reviewer unnameable, and a check that cannot
+# name what it requires must not report a pass.
+#
+# Host granularity is the registrable domain, plus a path prefix for claude.ai alone:
+# `figma.com` and any subdomain of it are the figma surface, while `claude.ai` at large is
+# the product and only `/design` under it is a handoff.
+design_family() { # design_family   (spec on stdin)
+  awk '
+    tolower($0) ~ /^#+[[:space:]]+design[[:space:]]*$/ { insec = 1; next }
+    insec && /^#+[[:space:]]/ { insec = 0 }
+    insec {
+      s = $0
+      while (match(s, /https?:\/\/[^[:space:]<>")]+/)) {
+        u = substr(s, RSTART, RLENGTH)
+        s = substr(s, RSTART + RLENGTH)
+        sub(/^https?:\/\//, "", u)
+        p = index(u, "/")
+        if (p == 0) { host = u; path = "/" } else { host = substr(u, 1, p - 1); path = substr(u, p) }
+        sub(/[?#].*$/, "", host)
+        sub(/[?#].*$/, "", path)
+        sub(/^[^@]*@/, "", host)
+        sub(/:[0-9]+$/, "", host)
+        host = tolower(host)
+        if (host == "figma.com" || host ~ /\.figma\.com$/) { print "figma"; exit }
+        if (host == "claude.ai" && (path == "/design" || index(path, "/design/") == 1)) { print "claude-design"; exit }
+      }
+    }
+  '
+}
+
+# The reviewer a family makes mandatory. QUALIFIED, because that is how review-lead's own
+# plugin-shipped panel names it and how code-review.mjs hands it back; a bare name would match
+# nothing a review round actually reports. Returns non-zero on an unrecognised family so a
+# caller cannot mistake an empty answer for a satisfied requirement.
+design_family_reviewer() { # design_family_reviewer <family>
+  case "${1:-}" in
+    figma)         printf 'design-toolkit:figma-faithful-reviewer' ;;
+    claude-design) printf 'design-toolkit:design-faithful-reviewer' ;;
+    *)             return 1 ;;
+  esac
+}
+
+# The `panel:` value, read WHOLE and header-anchored. `header_key` cannot serve here: its charset
+# stops at the first character outside [A-Za-z0-9._-], so a qualified comma-separated list
+# truncates to its leading `<plugin>` token — precisely the widening the capability stamp's own
+# comment warned a future list-valued reader it would need. Widening the shared reader instead
+# would change how EVERY key in the schema is read, across its three lockstep members and the
+# chain walk, to serve one key. This reads the one key that needs it, anchored to the same header
+# block for the same reason: `panel` is a word review prose uses, so a first-match-anywhere read
+# would take its value from the reviewer's own findings.
+panel_key() { # panel_key   (record on stdin)
+  awk '
+    /^[A-Za-z_][A-Za-z0-9_]*[:=]/ { hdr = 1 }
+    hdr && /^[[:space:]]*$/       { exit }
+    hdr && /^panel:/ {
+      sub(/^panel:[[:space:]]*/, "")
+      sub(/[[:space:]]+$/, "")
+      printf "%s", $0
+      exit
+    }
+  '
+}
+
+# Exact comma-separated TOKEN match, never a substring. No shipped name is a substring of
+# another today, and that is precisely the property a substring test would stop checking: one
+# reviewer named as a suffix of a second would silently credit the wrong dispatch, and the
+# header this reads is written by the reviewed party. Whitespace around the separators is
+# stripped because the value is hand-typeable on the writer's flag.
+panel_has() { # panel_has <panel-value> <reviewer>
+  local hay
+  hay=",$(printf '%s' "${1:-}" | tr -d '[:space:]'),"
+  case "$hay" in
+    *",${2},"*) return 0 ;;
+  esac
+  return 1
+}
+# LOCKSTEP-END lean-design-provider-family
+
+# The PLAN-stage reviewer a family makes mandatory (#710) — the pre-implementation counterpart of
+# `design_family_reviewer` above, and OUTSIDE the lockstep block on purpose: that block is held
+# verbatim by scripts/check-lean-chain.sh because the merge boundary re-derives the family and the
+# mandatory FIDELITY reviewer from the committed spec. Nothing at the boundary reads the plan or
+# its review (D-12), so a copy there would be coverage this repo does not have — and a function
+# added inside the markers would red the pair for a contract only one side has.
+#
+# BARE, not qualified, and that is the one place it diverges from its sibling. The record's
+# `reviewer:` key is read by header_key, whose charset stops at the first character outside
+# [A-Za-z0-9._-]; a `design-toolkit:`-prefixed value would truncate to `design-toolkit` and the
+# family check would be comparing plugin prefixes. The sibling can be qualified because its
+# consumer is `panel_has`, a token test over a reader widened for exactly that.
+#
+# BOTH FAMILIES, and the `*)` arm is UNREACHABLE DEFENSE rather than a live case. `design_state`
+# refuses an armed spec whose handoff link classifies to neither family, and cmd_3_render reds on
+# that `error:*` before design_plan_gate runs — so no third family reaches this function. The arm
+# stays anyway, fail-closed: every caller reads a non-zero return as "this family has no plan
+# reviewer", never as a satisfied requirement, so a family added above without a reviewer declines
+# the mandate instead of mandating a dispatch nobody can make. It carries no mutation-catalog row
+# for the same reason it is written this way — there is no run that could kill one.
+design_family_plan_reviewer() { # design_family_plan_reviewer <family>
+  case "${1:-}" in
+    figma)         printf 'figma-faithful-plan-reviewer' ;;
+    claude-design) printf 'design-faithful-plan-reviewer' ;;
+    *)             return 1 ;;
+  esac
+}
 
 # The section's body lines, for the gate-side form checks the boundary does not make.
 design_section() { # design_section   (spec on stdin)
@@ -3265,7 +3393,7 @@ fidelity_evidence_violations() { # fidelity_evidence_violations <declared-ids> <
 # is documentation and arms nothing. That is D-8's AND half — under OR, every consumer that ever
 # wrote the heading would be required to own a render harness.
 design_state() { # design_state <spec-path>
-  local spec="$1" sec n_disarm n_reason n_link
+  local spec="$1" sec n_disarm n_reason n_link n_fam ddr_rc
   [ -n "$DESIGN_PROVIDER" ] || { printf 'unarmed'; return 0; }
   [ -f "$spec" ] || { printf 'unarmed'; return 0; }
   sec="$(design_section < "$spec" 2>/dev/null)"
@@ -3280,7 +3408,23 @@ design_state() { # design_state <spec-path>
     n_reason="$(printf '%s\n' "$sec" | grep -ciE '^[[:space:]]*Design:[[:space:]]*none[[:space:]]+[^[:space:]]')" || n_reason=0
     [ "${n_reason:-0}" -ge 1 ] \
       || { printf 'error:the "## Design" section of %s disarms this ticket but states no reason. The form is "Design: none — <reason>": a disarm is a decision, and an undocumented one is indistinguishable from an omission at review time.' "$SPEC_REL"; return 0; }
-    printf 'disarmed'; return 0
+    # #709 D-1/D-4. A per-ticket "Design: none" on a provider repo is a build-session-writable
+    # opt-out of the mandatory render lane, which #705's decisions forbid without a gate-visible
+    # operator override. An unresolved $ISSUE fails CLOSED — never disarmed — because the
+    # override binds per issue and there is nothing to check it against.
+    [ -n "$ISSUE" ] \
+      || { printf 'error:the "## Design" section of %s disarms this ticket, but the issue this run resolves to is unset, so the design-disarm override (which binds per issue) cannot be checked. This is an environment defect, not an authoring one — run this from a context that resolves an issue.' "$SPEC_REL"; return 0; }
+    bash "$OVERRIDE_TOOL" check --gate design-disarm --issue "$ISSUE" --repo-root "$REPO_ROOT" >/dev/null 2>&1
+    ddr_rc=$?
+    case "$ddr_rc" in
+      0) printf 'disarmed'; return 0 ;;
+      1) printf 'error:the "## Design" section of %s disarms this ticket ("Design: none — <reason>") on a repo configured with design.provider "%s", but no design-disarm operator override backs it — a build session cannot opt a ticket out of the mandatory render lane on its own (#705). An attended operator records one: bash %s record --gate design-disarm --scope design-disarm --issue %s --decision '"'"'<what the operator decided, one line>'"'"' --answer '"'"'<their answer, verbatim>'"'"'' \
+        "$SPEC_REL" "$DESIGN_PROVIDER" "$OVERRIDE_TOOL" "$ISSUE"
+         return 0 ;;
+      *) printf 'error:the "## Design" section of %s disarms this ticket, but its design-disarm override record could not be read as a clean answer (override check exit %s; 127 means the mechanism is missing from this install rather than a record being malformed) — that is not the same fact as "no override", and is not treated as one. Fix or remove the record (bash %s lint --record …), then re-run.' \
+        "$SPEC_REL" "$ddr_rc" "$OVERRIDE_TOOL"
+         return 0 ;;
+    esac
   fi
 
   if [ "$(design_armed < "$spec" 2>/dev/null)" != "armed" ]; then
@@ -3294,6 +3438,24 @@ design_state() { # design_state <spec-path>
   n_link="$(printf '%s\n' "$sec" | grep -ciE 'https?://[^[:space:]]+')" || n_link=0
   [ "${n_link:-0}" -ge 1 ] \
     || { printf 'error:the "## Design" section of %s declares render states but no provider handoff link. The review session scores fidelity against the design frame; without the link there is nothing to score against.' "$SPEC_REL"; return 0; }
+
+  # #708 D-13/D-14. The handoff HOST decides which fidelity reviewer an armed round must
+  # dispatch, and scripts/check-lean-chain.sh derives it from this same section because it can
+  # see nothing else. Two refusals, both AUTHORING errors a session fixes in the spec:
+  #
+  #   (a) no recognised provider host. Left to stand, the boundary reds the PR at arm 8 with
+  #       the mandatory reviewer unnameable. Saying so at milestone 1 costs a spec edit
+  #       instead of a review round.
+  #   (b) the host and config design.provider name different families. This gate is the ONLY
+  #       reader that sees both, so it is the only place the disagreement can be reported at
+  #       all. The host wins by construction — it is what CI reads — which makes a mismatch a
+  #       run that renders one provider's states while the boundary demands the other
+  #       provider's reviewer: green on each side of the seam, and wrong.
+  n_fam="$(design_family < "$spec" 2>/dev/null)"
+  [ -n "$n_fam" ] \
+    || { printf 'error:the "## Design" section of %s carries a handoff link, but none this lane recognises as a provider surface. The first recognised link must name figma.com (or a subdomain of it) or claude.ai under /design: the fidelity reviewer an armed round MUST dispatch is derived from that host, by this gate and by the merge boundary alike, and a host neither can classify leaves the mandatory reviewer unnameable.' "$SPEC_REL"; return 0; }
+  [ "$n_fam" = "$DESIGN_PROVIDER" ] \
+    || { printf 'error:the "## Design" section of %s hands off to a %s surface, but config design.provider is "%s". On an armed ticket the HOST decides which fidelity reviewer is mandatory — the merge boundary reads the committed spec and never the config — so this run would render one provider\047s states while the boundary demanded the other provider\047s reviewer. Point the handoff link at the configured provider, or change design.provider.' "$SPEC_REL" "$n_fam" "$DESIGN_PROVIDER"; return 0; }
 
   printf 'armed'
 }
@@ -3343,6 +3505,26 @@ resolve_ledger_lint() {
   resolve_sibling intake-toolkit skills/plan-interview/tools/ledger-lint.sh
 }
 # <<< ledger-lint-resolver
+
+# #710 D-35. Whether design-toolkit ships the plan reviewer this checkout would have to dispatch.
+# The SAME ladder resolve_ledger_lint walks, at the same depth, so an install layout that resolves
+# one resolves the other — a second hand-rolled root walk here would be a third copy of an
+# arithmetic two callers already share.
+#
+# WHAT IT ANSWERS, stated narrowly: the agent contract is ON DISK. It does not answer whether the
+# plugin is ENABLED in this session, which is a harness fact no script can read. So the absent
+# direction is the only one worth acting on, and it is the one worth acting on: without it, a
+# consumer whose design.provider is configured but whose design-toolkit is not installed gets
+# "no plan-review record" — a red naming a dispatch it cannot make.
+resolve_plan_reviewer_agent() { # resolve_plan_reviewer_agent <bare-agent-name>
+  local SCRIPT_DIR PLUGIN_DIR PLUGINS_DIR
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" || return 1
+  # shellcheck disable=SC2034  # read by resolve_sibling() via dynamic scope (resolve-sibling.sh)
+  PLUGIN_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")"
+  # shellcheck disable=SC2034
+  PLUGINS_DIR="$(dirname "$PLUGIN_DIR")"
+  resolve_sibling design-toolkit "agents/$1.md"
+}
 
 # ---------------------------------------------------------------- milestone 1: spec/AC
 # AC-3, as resolved at intake (G-1): existence AT THE PINNED PATH plus >= 1 numbered AC-n,
@@ -3493,8 +3675,14 @@ cmd_2() {
 # becomes `env <scrub> bash -c "$cmd"`: functionally identical for a shell command string
 # (preflight.sh runs this repo's own configured lane commands the same way), and the only
 # shape `env` can scrub ahead of.
+#
+# NOT ONLY PIPELINE SEAMS. MUTATION_SWEEP_NO_DEFER is a test-harness knob and earns a row for
+# the same reason: the lane children include a `test` command, and in this repo that command
+# discovers tools/mutation-sweep-selftest.sh, whose cases invoke the real sweep and assert
+# what it defers. An ambient knob would silently re-answer those cases out of an operator's
+# shell. The list is "what must not reach a lane child", not "what second-shift owns".
 # LOCKSTEP-BEGIN seam-scrub subset
-SEAM_SCRUB='SECOND_SHIFT_CONFIG|SECOND_SHIFT_REPO_ROOT|SECOND_SHIFT_EXTENSION_MANIFEST|SECOND_SHIFT_PLUGIN_ROOT|SECOND_SHIFT_REVIEW_TOOLKIT_ROOT|SECOND_SHIFT_DEV_PIPELINE_ROOT|SECOND_SHIFT_DESIGN_TOOLKIT_ROOT|SECOND_SHIFT_SECTION_CATALOG|STATECTL_STATE_DIR|STATECTL_WRITER|DEV_PIPELINE_MODE|BRANCH_PREFIX|KEY_PATTERN|LEAN_ATTEND_MODE'
+SEAM_SCRUB='SECOND_SHIFT_CONFIG|SECOND_SHIFT_REPO_ROOT|SECOND_SHIFT_EXTENSION_MANIFEST|SECOND_SHIFT_PLUGIN_ROOT|SECOND_SHIFT_REVIEW_TOOLKIT_ROOT|SECOND_SHIFT_DEV_PIPELINE_ROOT|SECOND_SHIFT_DESIGN_TOOLKIT_ROOT|SECOND_SHIFT_SECTION_CATALOG|STATECTL_STATE_DIR|STATECTL_WRITER|DEV_PIPELINE_MODE|BRANCH_PREFIX|KEY_PATTERN|LEAN_ATTEND_MODE|MUTATION_SWEEP_NO_DEFER'
 # LOCKSTEP-END seam-scrub
 declare -a SEAM_SCRUB_ENV=()
 IFS='|' read -r -a _seam_scrub_toks <<< "$SEAM_SCRUB"
@@ -3684,7 +3872,13 @@ lean_resolve_prettier() {
 # Every header key cmd_verdict emits in `key: value` form. The list exists so the format step
 # below can prove it damaged none of them; it is the writer's own emission set, so a key added
 # to the record must be added here too or the guard silently stops covering it.
-LEAN_VERDICT_HEADER_KEYS="run_id session_id rounds pr reviewed_head reviewed_patch_id inherited_patch_id inherited_from_verdict fidelity model"
+LEAN_VERDICT_HEADER_KEYS="run_id session_id rounds pr reviewed_head reviewed_patch_id inherited_patch_id inherited_from_verdict fidelity panel model"
+# Two of those keys carry values `header_key`'s charset TRUNCATES — `inherited_from_verdict` to
+# its leading path segment, `panel` to its leading plugin token — and they belong here anyway.
+# What this loop proves is that formatting did not DAMAGE a key, and the damage a formatter does
+# is to the line anchoring: a reflowed header makes every one of these read empty. The truncated
+# comparison detects that exactly as the untruncated one would. `panel_key` is the reader that
+# needs the whole value, and it is a separate function for that reason.
 
 # Format the verdict record, best-effort, and never at the cost of its header contract (#439,
 # D-4/D-6). Padding cannot help here the way it does for the manifest: the body is arbitrary
@@ -3733,34 +3927,43 @@ lean_format_verdict_record() { # lean_format_verdict_record <path>
   return 0
 }
 
-# The manifest's rows as `RS-n<TAB>pngPath<TAB>sha256`. The `RS-[0-9]+` anchor is what keeps the
+# The manifest's rows as `RS-n<TAB>path<TAB>sha256`. The `RS-[0-9]+` anchor is what keeps the
 # markdown header and separator rows out of the result without a line counter.
+#
+# `.rects` IS PART OF THE ANCHOR (#711). Each state now contributes a SECOND row — the rects
+# sibling the harness wrote beside the screenshot, id `RS-n.rects` — and without widening the
+# anchor here that row would be read as a header and dropped, so `render_bytes_ok` would hash the
+# PNG and nothing else. The rest of the id space is unchanged: `RS-[0-9]+` still has to be the
+# whole id or the whole id minus this one suffix.
 render_manifest_rows() {
   [ -f "$REPO_ROOT/$RENDER_MANIFEST_REL" ] || return 0
   awk -F'|' '
-    /^[[:space:]]*\|[[:space:]]*RS-[0-9]+[[:space:]]*\|/ {
-      id = $2; png = $5; sha = $6
+    /^[[:space:]]*\|[[:space:]]*RS-[0-9]+(\.rects)?[[:space:]]*\|/ {
+      id = $2; path = $5; sha = $6
       gsub(/^[[:space:]]+|[[:space:]]+$/, "", id)
-      gsub(/^[[:space:]]+|[[:space:]]+$/, "", png)
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", path)
       gsub(/^[[:space:]]+|[[:space:]]+$/, "", sha)
-      printf "%s\t%s\t%s\n", id, png, sha
+      printf "%s\t%s\t%s\n", id, path, sha
     }
   ' "$REPO_ROOT/$RENDER_MANIFEST_REL"
 }
 
-# Every manifested PNG exists, is non-empty, and still hashes to its recorded value. This is the
+# Every manifested artifact exists, is non-empty, and still hashes to its recorded value — the
+# screenshots and, since #711, the rects sibling beside each of them (D-9: this function reads
+# `id/path/sha` positionally and asserts only non-empty plus a sha match, so a `.json` row is
+# covered with no new code and an existing receipt stays valid). This is the
 # PRE-VERDICT half of D-9's idempotence: before a verdict exists the bytes are the evidence a
 # reviewer is about to read, so they must actually be there. After an approve they are not
 # consulted at all — see cmd_3_render.
 render_bytes_ok() {
-  local rows id png sha cur n=0
+  local rows id path sha cur n=0
   rows="$(render_manifest_rows)"
   [ -n "$rows" ] || return 1
-  while IFS="$(printf '\t')" read -r id png sha; do
+  while IFS="$(printf '\t')" read -r id path sha; do
     [ -n "$id" ] || continue
     n=$((n + 1))
-    [ -s "$REPO_ROOT/$png" ] || return 1
-    cur="$(lean_sha256 "$REPO_ROOT/$png")"
+    [ -s "$REPO_ROOT/$path" ] || return 1
+    cur="$(lean_sha256 "$REPO_ROOT/$path")"
     [ -n "$cur" ] && [ "$cur" = "$sha" ] || return 1
   done <<<"$rows"
   [ "$n" -gt 0 ]
@@ -3788,7 +3991,24 @@ render_bytes_ok() {
 PLAN_COMPONENT_COLUMN="why this component"
 PLAN_DIMENSION_COLUMN="dimensions"
 
-# The plan's violations, one human-readable line each; EMPTY output is a conforming plan.
+# ---- the MEASURED-NODE columns (#711) ---------------------------------------------------------
+# `dimensions` stays PROSE and that is the whole of D-1: `figma-faithful` step 3b mandates per-axis
+# fixed/hug/fill plus overflow/truncation in that cell and step 8 self-verifies against it, and
+# `348x32` cannot carry that payload. The machine-readable size therefore lives in its OWN column,
+# with two more stating what the number is about — the key the harness reports the node under, and
+# which declared render state it is measured in.
+#
+# ANCHORED ON THE SAME TABLE as `dimensions`, not declared globally. Three independent existence
+# checks would be satisfied by three unrelated tables, and the comparison needs one row carrying
+# node, RS and px together; `node` in particular is already a column on the resolved-component
+# table, which a document-wide check would happily accept as the answer.
+#
+# LOWERCASE, because the header match lowercases the cell first — a plan's `| RS |` header matches.
+PLAN_NODE_COLUMN="node"
+PLAN_RS_COLUMN="rs"
+PLAN_PX_COLUMN="px"
+
+# The GFM walk both plan readers run on.
 #
 # A SHORT ROW IS A VIOLATION, and deliberately so: GFM lets a row declare fewer cells than its
 # header and renders the remainder blank, so "delete the trailing empty cell" would otherwise be
@@ -3801,9 +4021,14 @@ PLAN_DIMENSION_COLUMN="dimensions"
 # figma-faithful step-7 prose invites — would otherwise have its own example parsed as a real
 # table and its placeholder cells reported as violations. A false red on an artifact the gate
 # just told you to write is the one refusal an author cannot act on.
-plan_violations() { # plan_violations <plan-path>
-  [ -f "$1" ] || return 0
-  awk -v want_c="$PLAN_COMPONENT_COLUMN" -v want_d="$PLAN_DIMENSION_COLUMN" '
+#
+# ONE WALK, TWO EMISSIONS (#711). `plan_violations` grades the plan's shape; `plan_node_rows`
+# hands the render pass the rows it measures against. A second parser would let the two disagree
+# about what a table is, which fences are skipped, and how many cells a row has — and a plan could
+# then satisfy the predicate while the comparison graded rows the predicate never saw.
+_plan_table_walk() { # _plan_table_walk <violations|nodes> <plan-path>
+  awk -v emit="$1" -v want_c="$PLAN_COMPONENT_COLUMN" -v want_d="$PLAN_DIMENSION_COLUMN" \
+      -v want_n="$PLAN_NODE_COLUMN" -v want_r="$PLAN_RS_COLUMN" -v want_p="$PLAN_PX_COLUMN" '
     function trim(x) { gsub(/^[[:space:]]+|[[:space:]]+$/, "", x); return x }
     function cells_of(line,   body, n, i) {
       body = line; sub(/^\|/, "", body); sub(/\|$/, "", body)
@@ -3813,23 +4038,34 @@ plan_violations() { # plan_violations <plan-path>
     }
     function endtable() {
       if (intab && want != "" && rowno < 3) {
-        printf "the table declaring a \"%s\" column carries no data row\n", want
+        if (emit == "violations") printf "the table declaring a \"%s\" column carries no data row\n", want
       }
-      intab = 0; want = ""; rowno = 0; hdrn = 0
+      intab = 0; want = ""; rowno = 0; hdrn = 0; has_d = 0; ci_n = 0; ci_r = 0; ci_p = 0
     }
     {
       line = trim($0)
       if (line ~ /^(```|~~~)/) { endtable(); fenced = !fenced; next }
       if (fenced) { next }
       if (line !~ /^\|/) { endtable(); next }
-      if (!intab) { intab = 1; rowno = 0; want = ""; hdrn = 0 }
+      if (!intab) { intab = 1; rowno = 0; want = ""; hdrn = 0; has_d = 0; ci_n = 0; ci_r = 0; ci_p = 0 }
       rowno++
       n = cells_of(line)
       if (rowno == 1) {
         hdrn = n
         for (i = 1; i <= n; i++) {
           if (tolower(cell[i]) == want_c) { want = want_c; seen_c = 1 }
-          if (tolower(cell[i]) == want_d) { want = want_d; seen_d = 1 }
+          if (tolower(cell[i]) == want_d) { want = want_d; seen_d = 1; has_d = 1 }
+          if (tolower(cell[i]) == want_n) { ci_n = i }
+          if (tolower(cell[i]) == want_r) { ci_r = i }
+          if (tolower(cell[i]) == want_p) { ci_p = i }
+        }
+        # The measured-node columns ride the DIMENSION table (D-6), so their absence is a property
+        # of that table and not of the document — a plan carrying `node` on its component list and
+        # nothing on its dimension table has no row the comparison can key on.
+        if (has_d && emit == "violations") {
+          if (!ci_n) printf "the table declaring a \"%s\" column declares no \"%s\" column — nothing states the key the render harness reports each measured node under\n", want_d, want_n
+          if (!ci_r) printf "the table declaring a \"%s\" column declares no \"%s\" column — nothing states which declared render state each node is measured in\n", want_d, want_r
+          if (!ci_p) printf "the table declaring a \"%s\" column declares no \"%s\" column — nothing states the machine-readable <w>x<h> the render pass compares against the rendered rect\n", want_d, want_p
         }
         next
       }
@@ -3837,11 +4073,19 @@ plan_violations() { # plan_violations <plan-path>
       if (rowno == 2) {
         for (i = 1; i <= n; i++) {
           if (cell[i] !~ /^:?---+:?$/) {   # `---+`, never `-{3,}` — no interval expressions (portability)
-            printf "the table declaring a \"%s\" column has no delimiter row under its header\n", want
+            if (emit == "violations") printf "the table declaring a \"%s\" column has no delimiter row under its header\n", want
             want = ""
             break
           }
         }
+        next
+      }
+      if (emit == "nodes") {
+        # A SHORT ROW OR A MISSING COLUMN IS SKIPPED HERE, never re-reported: both are violations
+        # the predicate above already reds on, and design_plan_gate returns before the render pass
+        # asks for a single row — so re-raising them here could only spend a second budget on one
+        # defect.
+        if (has_d && ci_n && ci_r && ci_p && n >= hdrn) printf "%s\t%s\t%s\n", cell[ci_n], cell[ci_r], cell[ci_p]
         next
       }
       if (n < hdrn) {
@@ -3856,10 +4100,25 @@ plan_violations() { # plan_violations <plan-path>
     }
     END {
       endtable()
+      if (emit != "violations") exit
       if (!seen_c) printf "no table declares a \"%s\" column — the resolved-component list is absent\n", want_c
       if (!seen_d) printf "no table declares a \"%s\" column — the dimension table is absent\n", want_d
     }
-  ' "$1"
+  ' "$2"
+}
+
+# The plan's violations, one human-readable line each; EMPTY output is a conforming plan.
+plan_violations() { # plan_violations <plan-path>
+  [ -f "$1" ] || return 0
+  _plan_table_walk violations "$1"
+}
+
+# The dimension table's data rows as `node<TAB>RS<TAB>px` (#711). EMPTY output means the plan
+# declares no such table — which plan_violations reds on, and design_plan_gate returns for, before
+# the render pass ever calls this.
+plan_node_rows() { # plan_node_rows <plan-path>
+  [ -f "$1" ] || return 0
+  _plan_table_walk nodes "$1"
 }
 
 # Rewrite the FIRST `planned_from:` line in place. First-match on purpose: record_key() reads the
@@ -3875,6 +4134,120 @@ plan_stamp() { # plan_stamp <plan-path> <patch-id>
   return 0
 }
 
+# The record's FIRST FINDING, for the `verdict: block` refusal to quote (#710). A refusal that
+# said only "the plan review blocks" would send its reader to open a file to learn what for; the
+# whole economics of this arm is that the fix is one table row, and naming it is what makes that
+# cheap.
+#
+# BODY-ONLY, anchored the way header_key is: the header block runs to the first blank line, and
+# everything after it is the reviewer's prose. Leading markdown headings are skipped because
+# "## Findings" is a section label, not a finding — quoting it would be the same non-answer as
+# quoting nothing. Truncated, because a reviewer's first line can be a paragraph and a refusal is
+# read in a terminal.
+plan_review_first_finding() { # plan_review_first_finding <record-path>
+  [ -f "$1" ] || return 0
+  awk '
+    /^[A-Za-z_][A-Za-z0-9_]*[:=]/ { hdr = 1 }
+    hdr && !body && /^[[:space:]]*$/ { body = 1; next }
+    !body { next }
+    {
+      line = $0
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
+      if (line == "") next
+      if (line ~ /^#+[[:space:]]/) next
+      print substr(line, 1, 240)
+      exit
+    }
+  ' "$1"
+}
+
+# THE PLAN REVIEW ASSERTION (#710, D-3). The plan gate above proves the plan has the SHAPE two
+# tables give it; nothing proved anyone read what was in the cells. `figma-faithful-plan-reviewer`
+# scored 99.17% against the very defects #692 shipped and was dispatched by no autonomous lane, so
+# the capability existed and the ROUTING did not. The gate cannot run an agent, so this takes the
+# verdict record's shape exactly: the build session dispatches, and the gate asserts the committed
+# OUTPUT.
+#
+# ORDER (D-32). At the END of the plan pass — after the plan's own `planned_from` binding is
+# confirmed current, and before cmd_3_render reaches the harness config or a single render
+# command. That is what AC-1 asserts against the render stub: a plan nobody graded costs no
+# screenshots. It also means an approved round does not re-plan, because plan_patch_id excludes
+# the verdict record, the receipt, the plan and this record, so both bindings are still current.
+#
+# THE BUDGET SPLIT (D-33) continues the plan pass's own reading of #642. Absence and staleness
+# name the checklist's next step, so they are `block_milestone`. So is `verdict: block`, and that
+# one is worth stating because the ticket's own gloss reads the other way: the primitive it NAMES
+# is block_milestone, and the read is defensible on #642's criterion — a blocking plan review is
+# the reviewer telling the run to do something it had not done yet, not a fix that failed. A
+# MALFORMED header is a `fail_milestone`: the record was written and what was written is wrong.
+#
+# Takes the plan patch id its caller already computed rather than recomputing it. Two computations
+# of one binding is two things that can disagree, and the caller's is the one the plan was just
+# graded against.
+design_plan_review_gate() { # design_plan_review_gate <plan-patch-id>
+  local cur="$1" f="$REPO_ROOT/$PLAN_REVIEW_MANIFEST_REL" fam rev r_from r_v r_rev r_model finding
+
+  fam="$(design_family < "$REPO_ROOT/$SPEC_REL" 2>/dev/null)"
+  if ! rev="$(design_family_plan_reviewer "$fam")"; then
+    say "milestone-3: the '$fam' design family ships no plan-stage reviewer, so $PLAN_MANIFEST_REL is asserted for shape and graded by nobody. Nothing is required here."
+    return 0
+  fi
+
+  if [ ! -f "$f" ]; then
+    # D-35, and INSIDE the absent branch rather than above it. The refusal's premise is that a
+    # dispatch this arm is about to demand cannot be made — so it belongs where the dispatch is
+    # demanded. Hoisted, it would also red a run whose record is already written and current, in a
+    # checkout that no longer needs the agent because the review already happened.
+    #
+    # envfail, not a milestone red: nothing about the BRANCH was evaluated, and charging a run for
+    # its operator's install is the misreport the infra class exists to prevent.
+    resolve_plan_reviewer_agent "$rev" >/dev/null 2>&1 \
+      || envfail "milestone-3: spec $SPEC_REL arms the design lane on the '$fam' family, whose plan reviewer 'design-toolkit:$rev' this checkout does not ship — searched the monorepo layout and the install cache under both plugins. NOTHING was evaluated and no fix attempt was charged. Install design-toolkit, or disarm the ticket."
+    block_milestone 3 "the translation plan $PLAN_MANIFEST_REL has the right shape and no reader: there is no plan-review record at $PLAN_REVIEW_MANIFEST_REL. Dispatch 'design-toolkit:$rev' (Agent tool) on the committed plan, then record its output — 'lean-gate.sh plan-review $ISSUE --verdict <pass|fix-and-go|block> --summary-file <its findings> --model <the model it ran on>' — commit the record, and re-run milestone 3. The gate cannot run an agent; asserting the committed output is the only shape available to it."
+    return $?
+  fi
+
+  r_from="$(header_key reviewed_plan_from < "$f")"
+  r_v="$(header_key verdict < "$f")"
+  r_rev="$(header_key reviewer < "$f")"
+  r_model="$(header_key model < "$f")"
+
+  # MALFORMED, one refusal naming every defect at once so a second round is not spent learning
+  # about the second one. Header-anchored reads throughout: the body below is the reviewer's own
+  # prose about verdicts, and a first-match-anywhere read would take its answer from there.
+  local bad=""
+  [ -n "$r_from" ] || bad="${bad:+$bad; }no 'reviewed_plan_from:' key, so nothing states which plan was read"
+  case "$r_v" in
+    pass|fix-and-go|block) : ;;
+    "") bad="${bad:+$bad; }no 'verdict:' key" ;;
+    *)  bad="${bad:+$bad; }verdict '$r_v' is outside the enum {pass | fix-and-go | block}" ;;
+  esac
+  [ "$r_rev" = "$rev" ] \
+    || bad="${bad:+$bad; }reviewer '${r_rev:-<absent>}' is not the one $SPEC_REL's handoff host makes mandatory ('$rev')"
+  [ -n "$r_model" ] || bad="${bad:+$bad; }no 'model:' key"
+  if [ -n "$bad" ]; then
+    fail_milestone 3 "the plan-review record $PLAN_REVIEW_MANIFEST_REL is malformed: $bad. Rewrite it with 'lean-gate.sh plan-review $ISSUE' rather than by hand — the writer stamps every key this reads."
+    return $?
+  fi
+
+  if [ "$r_from" != "$cur" ]; then
+    block_milestone 3 "the plan-review record $PLAN_REVIEW_MANIFEST_REL was written against a different tree — it records reviewed_plan_from $(printf '%.12s' "$r_from"), and this branch's plan binding is now $(printf '%.12s' "$cur"). The plan has been re-read against code that moved since; re-dispatch 'design-toolkit:$rev' on it, rewrite the record with 'lean-gate.sh plan-review $ISSUE', and commit. Committing the record itself never stales it: $PLAN_REVIEW_MANIFEST_REL is excluded from the binding, exactly as the plan is."
+    return $?
+  fi
+
+  if [ "$r_v" = "block" ]; then
+    finding="$(plan_review_first_finding "$f")"
+    block_milestone 3 "'design-toolkit:$rev' BLOCKED the translation plan $PLAN_MANIFEST_REL: ${finding:-<the record carries no findings body>}. Fix the plan, re-dispatch, and rewrite the record — the full findings are in $PLAN_REVIEW_MANIFEST_REL. This is the cheap place to be wrong: one table cell here is a build everywhere downstream."
+    return $?
+  fi
+
+  say "milestone-3: translation plan reviewed by $rev (verdict $r_v, reviewed_plan_from $(printf '%.12s' "$r_from")) — $PLAN_REVIEW_MANIFEST_REL."
+  # `fix-and-go` proceeds AS IS (D-30), and does not become a silent pass. A real fix moves nothing
+  # this record binds to, so it is re-dispatched and the record is rewritten; a fix nobody made
+  # ships the finding list into the PR, where review-lean reads the committed record.
+  return 0
+}
+
 # The armed plan pass. Returns 0 when the milestone may continue, or the refusal's own code.
 #
 # THE BUDGET SPLIT (D-11) is #642's criterion applied verbatim: absence, a missing header line and
@@ -3883,22 +4256,31 @@ plan_stamp() { # plan_stamp <plan-path> <patch-id>
 # thing written is wrong, which is exactly a fix that did not work. Without that split an armed
 # run spends two of its three milestone-3 attempts reaching its first render.
 design_plan_gate() {
-  local f="$REPO_ROOT/$PLAN_MANIFEST_REL" viol cur prev
+  local f="$REPO_ROOT/$PLAN_MANIFEST_REL" viol cur prev fam step
 
   if [ ! -f "$f" ]; then
-    block_milestone 3 "spec $SPEC_REL arms the design lane, but no translation plan is written at $PLAN_MANIFEST_REL. Emit the figma-faithful step-7 plan there before rendering anything: a header line 'planned_from: pending' (this gate stamps it), a table with a '$PLAN_COMPONENT_COLUMN' column — one row per resolved component — and a table with a '$PLAN_DIMENSION_COLUMN' column — one row per sized node. Every cell must be filled; an empty cell is the finding."
+    # The plan step is the PROVIDER's, and naming the wrong one sends a claude-design run to read
+    # a figma step whose token table it has no columns for. Both families ship one; the fallback
+    # names figma because that is the family design_state resolves an unrecognized host away from
+    # before this ever runs.
+    fam="$(design_family < "$REPO_ROOT/$SPEC_REL" 2>/dev/null)"
+    case "$fam" in
+      claude-design) step="the design-faithful translation-plan step" ;;
+      *)             step="the figma-faithful step-7 plan" ;;
+    esac
+    block_milestone 3 "spec $SPEC_REL arms the design lane, but no translation plan is written at $PLAN_MANIFEST_REL. Emit $step there before rendering anything: a header line 'planned_from: pending' (this gate stamps it), a table with a '$PLAN_COMPONENT_COLUMN' column — one row per resolved component — and a table with a '$PLAN_DIMENSION_COLUMN' column — one row per sized node, carrying '$PLAN_NODE_COLUMN', '$PLAN_RS_COLUMN' and '$PLAN_PX_COLUMN' columns beside it: the key the render harness reports that node under, which declared render state it is measured in, and its size as <w>×<h> with an integer or '-' per axis. Every cell must be filled; an empty cell is the finding."
     return $?
   fi
 
   viol="$(plan_violations "$f")"
   if [ -n "$viol" ]; then
-    fail_milestone 3 "the translation plan $PLAN_MANIFEST_REL is not complete: $(printf '%s' "$viol" | tr '\n' ';' | sed 's/;$//; s/;/; /g'). The two tables are the whole mechanical contract — a resolved component with no stated reason, and a node with no recorded dimensions, are the two silences this artifact exists to make visible."
+    fail_milestone 3 "the translation plan $PLAN_MANIFEST_REL is not complete: $(printf '%s' "$viol" | tr '\n' ';' | sed 's/;$//; s/;/; /g'). The two tables are the whole mechanical contract — a resolved component with no stated reason, and a node with no recorded dimensions, are the two silences this artifact exists to make visible, and the '$PLAN_PX_COLUMN' column beside the prose one is what the render pass compares against the rendered rect."
     return $?
   fi
 
   cur="$(plan_patch_id HEAD)"
   [ -n "$cur" ] \
-    || { fail_milestone 3 "cannot compute this branch's plan patch identity against origin/$BASE_BRANCH — the merge-base is unresolvable, or the branch's diff excluding $VERDICT_REL, $RENDER_MANIFEST_REL and $PLAN_MANIFEST_REL is empty. Fetch origin/$BASE_BRANCH and re-run; a binding that cannot be computed must not be recorded."; return $?; }
+    || { fail_milestone 3 "cannot compute this branch's plan patch identity against origin/$BASE_BRANCH — the merge-base is unresolvable, or the branch's diff excluding $VERDICT_REL, $RENDER_MANIFEST_REL, $PLAN_MANIFEST_REL and $PLAN_REVIEW_MANIFEST_REL is empty. Fetch origin/$BASE_BRANCH and re-run; a binding that cannot be computed must not be recorded."; return $?; }
 
   if ! grep -qE '^[[:space:]]*planned_from:' "$f" 2>/dev/null; then
     block_milestone 3 "the translation plan $PLAN_MANIFEST_REL carries no 'planned_from:' header, so nothing states which tree it was written against. Add the line 'planned_from: pending' above the tables and re-run — this gate stamps the value, it never invents structure inside an artifact you author."
@@ -3913,7 +4295,8 @@ design_plan_gate() {
       return $?
     fi
     say "milestone-3: translation plan current (planned_from $(printf '%.12s' "$cur")) — $PLAN_MANIFEST_REL."
-    return 0
+    design_plan_review_gate "$cur"
+    return $?
   fi
 
   plan_stamp "$f" "$cur" \
@@ -3922,11 +4305,223 @@ design_plan_gate() {
   return $?
 }
 
+# ---------------------------------------------------------------- plan-review (BUILD role)
+# The WRITER for the record design_plan_review_gate asserts (#710, D-34). Flag style is `verdict`'s
+# and the reason is the same: the value a downstream reader binds to — here `reviewed_plan_from` —
+# is STAMPED from the checkout, never typed, so a record cannot claim a tree it was not written
+# against. A second call overwrites; a re-dispatch after a fix is the ordinary path.
+#
+# `--summary-file` is REQUIRED here where `verdict`'s is optional, and that asymmetry is the whole
+# point of the artifact: a `block` the gate has to quote needs a body to quote from, and a review
+# that recorded a verdict and no findings would leave the fix unnameable — which is the shape this
+# slice exists to end, one level up.
+#
+# EVERY REFUSAL IS `envfail`. Nothing here decides anything about the branch: this is a writer, and
+# its refusals are usage and environment, which is the exit-2 contract this file's header fixes.
+#
+# WRITTEN UNFORMATTED, like the spec and the intent-gap record and unlike the render receipt. The
+# body is arbitrary reviewer markdown, so only an external formatter could shape it, and this gate
+# does not reach the network for one. Format it yourself before committing if your repo's format
+# gate covers the plans directory.
+cmd_plan_review() {
+  local dstate fam rev cur f body
+  dstate="$(design_state "$REPO_ROOT/$SPEC_REL")"
+  case "$dstate" in
+    error:*) envfail "plan-review: ${dstate#error:}" ;;
+    armed)   : ;;
+    *)       envfail "plan-review: $SPEC_REL does not arm the design lane (state '$dstate'), so there is no translation plan to review and nothing would ever read this record." ;;
+  esac
+
+  fam="$(design_family < "$REPO_ROOT/$SPEC_REL" 2>/dev/null)"
+  rev="$(design_family_plan_reviewer "$fam")" \
+    || envfail "plan-review: the '$fam' design family ships no plan-stage reviewer agent, so this record would name a dispatch nobody can make. Every family this gate classifies an armed spec into ships one; a family that does not is unreviewed at the plan stage and milestone 3 says so rather than asserting a record."
+  resolve_plan_reviewer_agent "$rev" >/dev/null 2>&1 \
+    || envfail "plan-review: 'design-toolkit:$rev' is not installed in this checkout — searched the monorepo layout and the install cache under both plugins. A record written without the dispatch it claims to carry is the fabrication this artifact exists to make checkable."
+
+  [ -f "$REPO_ROOT/$PLAN_MANIFEST_REL" ] \
+    || envfail "plan-review: no translation plan at $PLAN_MANIFEST_REL — there is nothing to have reviewed. Write and commit the plan first; 'bash lean-gate.sh 3 $ISSUE' prints its contract."
+
+  case "$VERDICT_VALUE" in
+    pass|fix-and-go|block) : ;;
+    '') envfail "plan-review: --verdict is required and takes pass|fix-and-go|block." ;;
+    *)  envfail "plan-review: --verdict takes pass|fix-and-go|block, got '$VERDICT_VALUE'." ;;
+  esac
+
+  [ -n "$SUMMARY_FILE" ] \
+    || envfail "plan-review: --summary-file is required — the record's body is the reviewer's findings verbatim, and a verdict with no findings names no fix."
+  [ -f "$SUMMARY_FILE" ] || envfail "plan-review: --summary-file '$SUMMARY_FILE' does not exist."
+  body="$(cat "$SUMMARY_FILE")"
+  [ -n "$(printf '%s' "$body" | tr -d '[:space:]')" ] \
+    || envfail "plan-review: --summary-file '$SUMMARY_FILE' is empty."
+
+  VERDICT_MODEL="${VERDICT_MODEL:-${LEAN_RUN_MODEL:-}}"
+  [ -n "$VERDICT_MODEL" ] \
+    || envfail "plan-review: --model is required (or export LEAN_RUN_MODEL) — a review whose model is unrecorded cannot be placed by anyone re-reading the record."
+
+  cur="$(plan_patch_id HEAD)"
+  [ -n "$cur" ] \
+    || envfail "plan-review: cannot compute this branch's plan patch identity against origin/$BASE_BRANCH — the merge-base is unresolvable, or the branch's diff excluding $VERDICT_REL, $RENDER_MANIFEST_REL, $PLAN_MANIFEST_REL and $PLAN_REVIEW_MANIFEST_REL is empty. Fetch origin/$BASE_BRANCH and re-run; a binding that cannot be computed must not be recorded."
+
+  f="$REPO_ROOT/$PLAN_REVIEW_MANIFEST_REL"
+  mkdir -p "$(dirname "$f")" || envfail "plan-review: cannot create '$(dirname "$f")'."
+  {
+    echo "# lean translation-plan review — #$ISSUE"
+    echo ""
+    echo "reviewed_plan_from: $cur"
+    echo "verdict: $VERDICT_VALUE"
+    # BARE, never `design-toolkit:`-qualified — record_key's charset stops at the colon, and a
+    # qualified value would be read back as the plugin prefix alone. design_family_plan_reviewer
+    # is the single derivation both sides use, so writer and reader cannot disagree.
+    echo "reviewer: $rev"
+    echo "model: $VERDICT_MODEL"
+    echo ""
+    printf '%s\n' "$body"
+  } > "$f"
+
+  say "✓ plan-review: $PLAN_REVIEW_MANIFEST_REL written (verdict=$VERDICT_VALUE, reviewer=$rev, model=$VERDICT_MODEL, reviewed_plan_from=$(printf '%.12s' "$cur"))"
+  say "  It is evidence only once COMMITTED — commit it, then re-run milestone 3."
+  return 0
+}
+
+# ---- the RENDERED MEASUREMENT (#711) ----------------------------------------------------------
+# #710 made the translation plan a committed artifact whose cells cannot be silently empty, and
+# #693 made the review session write a per-state evidence table. Neither reads a NUMBER: the plan
+# states the design's dimensions, the receipt hashes the pixels, and nothing joins them — which is
+# how a screen rendered at 2.2x the design's width passed every mechanical check (#692).
+#
+# The join is the harness's `<png>.rects.json` sibling, keyed by the plan's node name. Node ->
+# element mapping stays the CONSUMER's: it owns the DOM, and the gate owns only the arithmetic.
+#
+# SCALE-ADAPTIVE, NOT ABSOLUTE (D-2). A browser viewport and a design frame differ as a matter of
+# course, so per RS row the arm takes `r_i = rendered_i / design_i` over the axes the plan states,
+# `k = median(r_i)`, and separates two reds that an absolute comparison would report as one pile of
+# unexplained deltas:
+#
+#   shape   abs(design_i*k - rendered_i) > tolerancePx — THIS node is out of proportion with the
+#           rest of the row, which survives any uniform viewport difference;
+#   scale   abs(design_i*k - design_i)   > tolerancePx — k ITSELF is not explained by tolerance,
+#           i.e. the whole row renders at k. Named ONCE per row rather than once per node, because
+#           "everything is 2.2x" is one fact.
+#
+# The scale arm is the arm with a FAIL-OPEN FLANK, and it is the reason it is guarded separately
+# (D-15): median normalization ABSORBS a uniform factor, so an implementation that lost this check
+# still reds on genuine per-node defects and looks alive while being blind to #692 exactly.
+#
+# THE VIEWPORT IS NOT PINNED (D-3). There is no `viewport` key and no frame width in the plan
+# header: a uniform difference surfaces as one `scale` red naming k, which is more attributable
+# than N unexplained per-node deltas, and a `-` axis stays the escape for a fill-width node. The
+# harness reports CSS pixels (docs/live-render.md), so a `deviceScaleFactor: 2` harness taking a
+# hard red is a harness bug and not a tolerated integer k.
+RECTS_SUFFIX=".rects.json"
+
+# One state's rects entries as `node<TAB>w<TAB>h`, where an axis the harness omitted is `-` and one
+# it reported as something other than a number is `!`. The two absences stay DISTINGUISHABLE on
+# purpose: a node the file does not carry at all produces no line — the "plan node absent from the
+# file" red — while an entry that resolved the node and measured half of it is a different red
+# about the harness, on a different budget.
+rects_entries() { # rects_entries <rects-path>
+  jq -r '
+    to_entries[]
+    | .key as $k
+    | (if (.value | type) != "object" then ["!", "!"]
+       else [ (if (.value | has("width"))  then (if (.value.width  | type) == "number" then (.value.width  | tostring)  else "!" end) else "-" end),
+              (if (.value | has("height")) then (if (.value.height | type) == "number" then (.value.height | tostring) else "!" end) else "-" end) ]
+       end) as $wh
+    | [$k, $wh[0], $wh[1]] | @tsv
+  ' "$1" 2>/dev/null
+}
+
+# One state's findings, one per line as `<class><TAB><finding>`; EMPTY output is a conforming
+# state. Class is the RED BUDGET the finding walks (D-4), split by in-worktree fixability — the
+# criterion #642 already applied to a missing artifact, generalized:
+#
+#   F  a fix attempt: a `px` cell that does not parse, a plan node the rects file does not carry,
+#      an axis the plan states and the file omits, and both comparison reds. Missing-node is
+#      deliberately on this side — otherwise a session earns unlimited free retries by naming
+#      nodes the harness never emits.
+#   B  the absent budget: the harness's own output contract. Not fixable from this worktree.
+#
+# BOTH ROWS ARE ACCUMULATED, never returned on (D-5). With mismatch on the fix budget, a
+# return-on-first-row would spend one of three attempts per node revealed, and the 2.2x-wide screen
+# would hard-stop at attempt 4 having never shown the operator the shape of the problem.
+render_measure_state() { # render_measure_state <rs-id> <plan-rows-tsv> <rects-entries-tsv>
+  local rid="$1" prows="$2" mrows="$3" joined
+  joined="$( { printf '%s\n' "$mrows" | awk -v k=M 'NF { print k "\t" $0 }'
+               printf '%s\n' "$prows" | awk -v k=P 'NF { print k "\t" $0 }'; } )"
+  awk -F'\t' -v rid="$rid" -v tol="$LR_TOLERANCE_PX" -v sep='×' '
+    function abs(x) { return x < 0 ? -x : x }
+    function posint(x) { return (x ~ /^[0-9]+$/ && x + 0 > 0) }
+    function add(cls, msg) { nf++; fcls[nf] = cls; fmsg[nf] = msg }
+    $1 == "M" && $2 != "" { has[$2] = 1; mw[$2] = $3; mh[$2] = $4; next }
+    $1 == "P" && $2 != "" { np++; pnode[np] = $2; ppx[np] = $4 }
+    END {
+      # PASS 1 — parse each plan cell and resolve the axes it states against the file. Every arm
+      # here `continue`s, so one malformed row yields one finding rather than a cascade.
+      for (i = 1; i <= np; i++) {
+        node = pnode[i]; px = ppx[i]
+        p = index(px, sep)
+        if (p == 0 || index(substr(px, p + length(sep)), sep) != 0) {
+          add("F", sprintf("%s: node \"%s\" has a px cell \"%s\", which is not <w>%s<h>", rid, node, px, sep)); continue
+        }
+        dw = substr(px, 1, p - 1); dh = substr(px, p + length(sep))
+        if ((dw != "-" && !posint(dw)) || (dh != "-" && !posint(dh))) {
+          add("F", sprintf("%s: node \"%s\" has a px cell \"%s\" whose axes are not each a positive integer or \"-\"", rid, node, px)); continue
+        }
+        if (!(node in has)) {
+          add("F", sprintf("%s: the plan measures node \"%s\", which the rects file for this state does not carry — a node the harness cannot resolve is omitted from the plan or resolved by the harness, never left to silence", rid, node)); continue
+        }
+        if (mw[node] == "!" || mh[node] == "!") {
+          add("B", sprintf("%s: the rects entry for node \"%s\" is not an object of numeric width/height", rid, node)); continue
+        }
+        if (dw != "-") {
+          if (mw[node] == "-") { add("F", sprintf("%s: the plan states a width for node \"%s\" and the rects entry carries none", rid, node)) }
+          else { nax++; axnode[nax] = node; axname[nax] = "width"; axd[nax] = dw + 0; axr[nax] = mw[node] + 0 }
+        }
+        if (dh != "-") {
+          if (mh[node] == "-") { add("F", sprintf("%s: the plan states a height for node \"%s\" and the rects entry carries none", rid, node)) }
+          else { nax++; axnode[nax] = node; axname[nax] = "height"; axd[nax] = dh + 0; axr[nax] = mh[node] + 0 }
+        }
+      }
+
+      # PASS 2 — the factor the row renders at, then the two reds it separates.
+      if (nax > 0) {
+        for (i = 1; i <= nax; i++) { r[i] = axr[i] / axd[i] }
+        # Insertion sort over one plan row worth of numbers. `asort()` is a gawk extension and
+        # this script has a macOS/one-true-awk lane, so the ordering is spelled out.
+        for (i = 2; i <= nax; i++) {
+          v = r[i]; j = i - 1
+          while (j >= 1 && r[j] > v) { r[j + 1] = r[j]; j-- }
+          r[j + 1] = v
+        }
+        if (nax % 2 == 1) { k = r[(nax + 1) / 2] } else { k = (r[nax / 2] + r[nax / 2 + 1]) / 2 }
+
+        worst = 0; worstd = -1
+        for (i = 1; i <= nax; i++) {
+          if (abs(axd[i] * k - axr[i]) > tol) {
+            add("F", sprintf("%s: node \"%s\" %s is out of proportion with the rest of the row (shape) — design %s, rendered %s, expected %.1f at the row k=%.3f", rid, axnode[i], axname[i], axd[i], axr[i], axd[i] * k, k))
+          }
+          d = abs(axd[i] * k - axd[i])
+          if (d > worstd) { worstd = d; worst = i }
+        }
+        # ONE line for the whole row (AC-7): "everything renders at k" is a single fact, and
+        # repeating it per node is what buries it. The largest-deviation axis rides along as the
+        # evidence, which is also what makes the single-axis case name its node and both numbers.
+        if (worstd > tol) {
+          add("F", sprintf("%s: the whole row renders at k=%.3f (scale), which tolerancePx=%s does not explain — e.g. node \"%s\" %s design %s, rendered %s", rid, k, tol, axnode[worst], axname[worst], axd[worst], axr[worst]))
+        }
+      }
+
+      for (i = 1; i <= nf; i++) { printf "%s\t%s\n", fcls[i], fmsg[i] }
+    }
+  ' <<<"$joined"
+}
+
 # The armed render pass. Returns 0 when the milestone may continue, or fail_milestone's own code
 # (1 or 4) when it may not — cmd_3 propagates it verbatim rather than re-deciding.
 cmd_3_render() {
   local dstate rows n_rows nondefault=0 cur prev out_dir rc
   local r_id r_route r_state png sha ecmd dup manifest_rows="" seen="" seen_ids=""
+  local plan_rows prows mrows rjson rsha m_cls m_msg stray="" measure_fix="" measure_block=""
 
   dstate="$(design_state "$REPO_ROOT/$SPEC_REL")"
   case "$dstate" in
@@ -3977,6 +4572,16 @@ cmd_3_render() {
     *) fail_milestone 3 "design.liveRender.command declares no {out} placeholder, so there is nowhere for the screenshot to land and nothing to hash: '$LR_COMMAND'"; return $? ;;
   esac
 
+  # The tolerance every measurement red is expressed in, asserted before a single comparison runs.
+  # config-lint owns this rule too, but the config is gitignored and never travels to CI, so the
+  # gate cannot assume anyone linted it — and an unvalidated value would read as 0 in awk, turning
+  # a config typo into a wall of shape reds about the branch.
+  case "$LR_TOLERANCE_PX" in
+    ''|*[!0-9]*)
+      block_milestone 3 "design.liveRender.tolerancePx is '$LR_TOLERANCE_PX', which is not a non-negative whole number of pixels — the rendered-measurement comparison has no tolerance to run against. Fix it (config-lint.sh states the same rule) or drop the key to take the default of 2."
+      return $? ;;
+  esac
+
   rows="$(design_rs_rows < "$REPO_ROOT/$SPEC_REL")"
   n_rows="$(printf '%s\n' "$rows" | grep -c .)" || n_rows=0
   [ "${n_rows:-0}" -ge 1 ] \
@@ -4002,6 +4607,24 @@ cmd_3_render() {
       *'{state}'*) : ;;
       *) fail_milestone 3 "$SPEC_REL declares a non-default render state, but design.liveRender.command carries no {state} placeholder, so the harness would screenshot the default view for every row: '$LR_COMMAND'. Add {state} and have the harness drive the named state, or re-scope the table to the default state alone."; return $? ;;
     esac
+  fi
+
+  # The plan rows the comparison runs on, read through the SAME walk that graded the plan above —
+  # design_plan_gate has already returned 0, so the table exists, declares all four columns and has
+  # no short or empty row.
+  plan_rows="$(plan_node_rows "$REPO_ROOT/$PLAN_MANIFEST_REL")"
+
+  # A plan row naming a state the spec does not declare is measured by nothing, which is the same
+  # silence a missing node is: it reads as a node under review and is compared against no file at
+  # all. Refused BEFORE the harness runs, because rendering every state to then report a plan
+  # defect buys nothing, and joined, because one plan usually gets a whole column wrong at once.
+  stray="$(printf '%s\n' "$plan_rows" | awk -F'\t' -v ids=" $seen_ids " '
+    NF >= 3 && $2 != "" {
+      if (index(toupper(ids), " " toupper($2) " ") == 0) { printf "node \"%s\" is measured in \"%s\"\n", $1, $2 }
+    }')"
+  if [ -n "$stray" ]; then
+    fail_milestone 3 "the translation plan $PLAN_MANIFEST_REL measures nodes in render states $SPEC_REL does not declare: $(printf '%s' "$stray" | tr '\n' ';' | sed 's/;$//; s/;/; /g'). Declared here: $(printf '%s' "$seen_ids" | sed 's/^ *//; s/ /, /g'). A row pointing at a state nobody renders is compared against nothing."
+    return $?
   fi
 
   # PNG bytes never enter history (D-4). The assertion is on the OUTPUT PATH, not on what
@@ -4077,7 +4700,61 @@ cmd_3_render() {
 "
     manifest_rows="$manifest_rows| $r_id | $r_route | $r_state | $RENDER_OUT_REL/$r_id.png | $sha |
 "
+
+    # ---- THE RENDERED MEASUREMENT for this state (#711) --------------------------------------
+    # EVERY declared state owes a rects sibling, including one with nothing to report — that
+    # harness writes `{}`. "The file is missing" and "the file says this state has no measured
+    # node" are different claims, and only the second is a harness that answered.
+    #
+    # The rects row does NOT enter `seen` (D-8). That detector exists to catch a {state}-blind
+    # harness shooting one view twice, which is a claim about SCREENSHOTS; two states that
+    # legitimately report `{}` hash identically and would red as a blind harness for doing exactly
+    # what the contract blesses.
+    rjson="$png$RECTS_SUFFIX"
+    if [ ! -s "$rjson" ]; then
+      measure_block="$measure_block$r_id: no rects sibling at $RENDER_OUT_REL/$r_id.png$RECTS_SUFFIX — every declared render state needs one beside its screenshot, and a state with nothing to report gets an empty object
+"
+      continue
+    fi
+    if ! jq -e 'type == "object"' "$rjson" >/dev/null 2>&1; then
+      measure_block="$measure_block$r_id: the rects sibling at $RENDER_OUT_REL/$r_id.png$RECTS_SUFFIX is not a JSON object keyed by node name
+"
+      continue
+    fi
+    rsha="$(lean_sha256 "$rjson")"
+    [ -n "$rsha" ] \
+      || { fail_milestone 3 "cannot hash $rjson — neither shasum nor sha256sum is on PATH, so no render receipt can be written. Install one and re-run."; return $?; }
+    manifest_rows="$manifest_rows| $r_id.rects | $r_route | $r_state | $RENDER_OUT_REL/$r_id.png$RECTS_SUFFIX | $rsha |
+"
+    prows="$(printf '%s\n' "$plan_rows" | awk -F'\t' -v rid="$r_id" 'NF >= 3 && toupper($2) == toupper(rid)')"
+    mrows="$(rects_entries "$rjson")"
+    while IFS="$(printf '\t')" read -r m_cls m_msg; do
+      [ -n "$m_cls" ] || continue
+      case "$m_cls" in
+        B) measure_block="$measure_block$m_msg
+" ;;
+        *) measure_fix="$measure_fix$m_msg
+" ;;
+      esac
+    done <<<"$(render_measure_state "$r_id" "$prows" "$mrows")"
   done <<<"$rows"
+
+  # THE MEASUREMENT VERDICT, once, over every state (D-5). Raised BEFORE the receipt is written:
+  # a manifest left behind by a failed comparison would be evidence of a render that did not pass.
+  #
+  # THE ABSENT BUDGET WINS when both classes are present, and that is the conservative reading of
+  # D-4 rather than a shortcut. A state whose rects file never arrived was not measured at all, so
+  # the run is stuck on the harness whatever the other states say — and charging a fix attempt for
+  # a defect the worktree cannot reach is the failure #642 split the budgets to avoid. The absent
+  # budget has its own hard stop, so this is not an unbounded free retry.
+  if [ -n "$measure_block" ]; then
+    block_milestone 3 "the render harness supplied no measurement this milestone can read: $(printf '%s' "$measure_block" | tr '\n' ';' | sed 's/;$//; s/;/; /g'). Emitting the sibling is the harness half of the contract (docs/live-render.md) — the gate compares numbers, it cannot resolve a node in your DOM."
+    return $?
+  fi
+  if [ -n "$measure_fix" ]; then
+    fail_milestone 3 "the rendered measurements disagree with the translation plan $PLAN_MANIFEST_REL: $(printf '%s' "$measure_fix" | tr '\n' ';' | sed 's/;$//; s/;/; /g'). Every mismatch is listed rather than the first, so one attempt shows the whole shape of the problem."
+    return $?
+  fi
 
   {
     echo "# lean render manifest — #$ISSUE"
@@ -4319,7 +4996,7 @@ cmd_3() {
 # suite asserts the file is byte- and mtime-identical across a full `all` sweep.
 cmd_4() {
   local rec="$REPO_ROOT/$VERDICT_REL" v_val v_run v_sess b_prog_run b_prog_sess b_cached cand
-  local v_commit v_short stale n_stale v_head v_pid cur_pid v_fresh
+  local v_commit v_head
   local v_inh v_chain v_coverage
   # The handoff moment, and so the one place the P9 reminder is contextual rather than noise.
   # It lives here rather than as another SKILL.md line for the reason the cap exists: stderr is
@@ -4331,15 +5008,16 @@ cmd_4() {
   if [ "$v_val" != "approve" ]; then
     fail_milestone 4 "verdict record $VERDICT_REL reads verdict=${v_val:-<none>}, not verdict=approve" 1; return $?
   fi
-  # The reconciliation keys are what make the record checkable against the audit ledger.
+  # The reconciliation keys, read for the authorship comparison below and for the pass line.
+  # THEIR ABSENCE IS NOT REFUSED HERE (#720). `lean-evidence.sh`'s `arm_verdict` — which
+  # `pr-gates` runs on every consumer's PR, and which every consumer's merge boundary runs —
+  # refuses a record missing either key outright, so a record this milestone waved through on
+  # that ground could not reach a merge anyway. What a local copy bought was WHEN the operator
+  # learns, at the price of a second implementation of one refusal. The empty case stays safe
+  # by construction rather than by a check: the candidate loop below skips empty ids, so an
+  # absent key cannot match a build identity it does not have.
   v_run="$(record_key run_id "$rec")"
   v_sess="$(record_key session_id "$rec")"
-  if [ -z "$v_run" ]; then
-    fail_milestone 4 "verdict record $VERDICT_REL carries no run_id reconciliation key" 5; return $?
-  fi
-  if [ -z "$v_sess" ]; then
-    fail_milestone 4 "verdict record $VERDICT_REL carries no session_id reconciliation key — the review session's audit ledger cannot be located, so the verdict is unreconcilable" 5; return $?
-  fi
   # The DECLARED reviewed head. Absent is refused for the same reason a missing verdict is:
   # nothing is checkable, and an uncheckable claim must not read as a satisfied one. Records
   # written before this key existed are refused too — the remedy is a review round on a
@@ -4379,18 +5057,11 @@ cmd_4() {
     return $?
   fi
 
-  # FRESHNESS — the verdict must cover the tree it is being read against.
-  #
-  # cmd_all states the invariant the other four milestones live by: `satisfied` is a RECORD,
-  # not a CACHE, so every milestone is re-evaluated against the CURRENT tree on every sweep.
-  # Milestone 4 is the one that cannot honor it by re-evaluating, because its evaluation is
-  # reading a file somebody else wrote. Something else has to bind that file to a tree.
-  #
-  # That gap was harmless while the build session wrote the record at review time — the record
-  # and the tree were coupled by the ordering. Once review moved to a separate session it stops
-  # being harmless: "verdict, then more commits" is the ORDINARY shape of the needs-work loop,
-  # and the PR that introduced this separation demonstrated it on itself (verdict committed,
-  # then a follow-up commit rewrote the authorship arms above, and this gate stayed green).
+  # IS THE RECORD ON THE BRANCH AT ALL. Not a freshness check — freshness is the merge
+  # boundary's (#720) — but the precondition every reader downstream of here has: a record
+  # nobody committed is invisible to `pr-gates`, to `lean-evidence.sh` and to a human opening
+  # the PR, so a lane that certified it would hand off a run with no evidence on it at all.
+  # That is a defect only the LANE can see, which is what keeps these two arms local.
   #
   # Derived from git, never from a key in the record: git decides which commit carries the
   # record, and the record's own prose cannot argue with it. The tolerance is exactly one path
@@ -4413,9 +5084,8 @@ cmd_4() {
   # the ordinary case and passes silently — chain roots, and every record predating the key,
   # carry no claim to check. That is what makes this additive.
   #
-  # Placed AFTER the two existence arms above and BEFORE the freshness arms below, which is the
-  # order the questions actually stack: is this record on the branch at all, then what does it
-  # claim to cover, then does that cover the tree in front of us. Asking the middle question
+  # Placed AFTER the two existence arms above, which is the order the questions actually stack:
+  # is this record on the branch at all, and then what does it claim to cover. Asking the second
   # first was wrong in a way only a fixture shows: the walk's search window is anchored at the
   # commit carrying the record, so an UNCOMMITTED round-2 record anchors on the PRIOR round's
   # commit, the window trims that round away, and the legitimate link it declares matches
@@ -4435,32 +5105,13 @@ cmd_4() {
     esac
   fi
 
-  # THE ESCAPE HATCH (#597, D-3). The file list this arm reads is the one a BASE MERGE moves most:
-  # `git diff <verdict-commit> HEAD` counts every file the merge brought in, so on #583 it saw 23
-  # files and redded before the patch-id arm below was ever reached. A fix confined to patch-id
-  # would have satisfied nothing. The question the arm MEANS to ask — did the reviewed content move
-  # — is asked of `contribution_state` when it reds, and only its answer decides.
-  stale="$(git -C "$REPO_ROOT" diff --name-only "$v_commit" HEAD 2>/dev/null | grep -vxF "$VERDICT_REL")"
-  if [ -n "$stale" ]; then
-    v_short="$(git -C "$REPO_ROOT" rev-parse --short "$v_commit" 2>/dev/null)"
-    n_stale="$(printf '%s\n' "$stale" | wc -l | tr -d ' ')"
-    contribution_state "$v_head" HEAD
-    case "$CONTRIB_RC" in
-      1) fail_milestone 4 "verdict record $VERDICT_REL approves $v_short, but the branch's own diff has moved since: $(printf '%s\n' "$CONTRIB_DETAIL" | contribution_summary) — a verdict does not cover code it never saw. Get a new review round on the current head: '/dev-pipeline:review-lean <pr>'." 5
-         return $? ;;
-      0) say "milestone-4: $n_stale file(s) differ between $v_short and this head, but every one of the branch's own +/- lines is unchanged since reviewed_head $(printf '%.12s' "$v_head") — a base advance alone is enough to move that file list, and it altered no reviewed line, so the verdict stands (#597 AC-1)." ;;
-      *) say "milestone-4: $n_stale file(s) differ between $v_short and this head and the +/- comparison could NOT be computed (unresolvable merge-base, a reviewed_head absent from this checkout, or an empty measured range). FAILING OPEN — the verdict stands, per the operator constraint that invalidation requires certainty (#597 D-5/OR-1). This is the one unreadable-input path in this gate that does not fail closed; reverse it by treating rc=2 as an invalidation here and at the merge boundary." ;;
-    esac
-  fi
-
-  # DESIGN FIDELITY (#394, D-7/D-10). Placed AFTER the inferred freshness arm and before the
-  # declared ones, which is one site covering both declared exits — and the order is the point,
-  # not tidiness. A commit landing after the verdict moves BOTH the reviewed patch and the render
-  # binding, so an earlier placement would report a stale manifest for a tree whose real defect
-  # is a stale verdict: the same "one fact printed as three violations" the merge boundary had to
-  # unpick. What survives this ordering is exactly D-10's case — a reviewer who scored round-1
-  # screenshots against round-2 code and committed an honest record on the round-2 head. Nothing
-  # else is stale there, and the manifest is the only thing that can say so.
+  # DESIGN FIDELITY (#394, D-7/D-10). The render binding is checked HERE and not at the merge
+  # boundary's freshness arm, because it is a different question about a different artifact: the
+  # receipt records which code the screenshots were taken from, and a reviewer who scored round-1
+  # screenshots against round-2 code commits an honest record on the round-2 head. Nothing else
+  # is stale there — the code freshness the boundary asks about is fine — and the manifest is
+  # the only thing that can say so. That is D-10's case, and it is why this arm has no duplicate
+  # downstream to defer to.
   #
   # The armed requirement is `pass` and nothing else, INCLUDING absence: a record with no
   # fidelity key on an armed run was written by a review round that never scored the design,
@@ -4471,10 +5122,29 @@ cmd_4() {
   # The manifest arm is D-10's SECOND detector, not its first: review-lean checks staleness
   # before it scores, so this is the backstop for a round that skipped that step or a fix that
   # landed between the scoring and the record.
-  local d_state v_fid m_from cur_render
+  local d_state v_fid v_panel p_rev m_from cur_render
   d_state="$(design_state "$REPO_ROOT/$SPEC_REL")"
   v_fid="$(header_key fidelity < "$rec")"
   if [ "$d_state" = "armed" ]; then
+    # WHO REVIEWED, before WHAT THEY SCORED (#708). The writer already refuses a record whose
+    # panel lacks the mandatory reviewer, so on a healthy lane this arm is silent — it exists
+    # for the record this writer did not produce: one committed before the key existed, one
+    # hand-edited, one written under a spec whose handoff host was repointed afterwards. The
+    # merge boundary makes the identical check on the identical derivation (lockstep
+    # `lean-design-provider-family`), so a lane that passed here cannot red there for this.
+    #
+    # ORDER is deliberate. `fidelity: pass` from a round that never dispatched the fidelity
+    # reviewer is a claim about a dimension nobody covered, and reporting the missing coverage
+    # first names the cause rather than the symptom.
+    v_panel="$(panel_key < "$rec")"
+    if ! p_rev="$(design_family_reviewer "$(design_family < "$REPO_ROOT/$SPEC_REL")")"; then
+      fail_milestone 4 "spec $SPEC_REL arms the design render lane, but its handoff link names no provider surface this lane recognises, so the fidelity reviewer the round had to dispatch cannot be named — and a check that cannot name what it requires must not pass. Fix the '## Design' handoff link and re-run milestone 1." 1
+      return $?
+    fi
+    if [ -z "$v_panel" ] || [ "$v_panel" = "none" ] || ! panel_has "$v_panel" "$p_rev"; then
+      fail_milestone 4 "spec $SPEC_REL arms the design render lane, but $VERDICT_REL reads panel=${v_panel:-<none>}, which does not name $p_rev. An armed round is certified only once the provider's fidelity reviewer actually returned a result; nothing here attests that it ran. Get a round that dispatched it: '/dev-pipeline:review-lean <pr>'." 5
+      return $?
+    fi
     if [ "$v_fid" != "pass" ]; then
       fail_milestone 4 "spec $SPEC_REL arms the design render lane, but $VERDICT_REL reads fidelity=${v_fid:-<none>}, not fidelity=pass — an armed ticket is not approved until a design-sighted round scores its declared render states. Get one: '/dev-pipeline:review-lean <pr>'." 5
       return $?
@@ -4498,47 +5168,18 @@ cmd_4() {
     return $?
   fi
 
-  # The DECLARED arm. Same question as the arm above — does the review cover this tree — asked
-  # against what the record DECLARES rather than the commit it SITS ON, which is the one case
-  # inference cannot see: a reviewer who reads head A, waits while a fix lands at B, and then
-  # commits an honest record on top of B leaves inference with nothing to complain about.
+  # FRESHNESS IS THE MERGE BOUNDARY'S QUESTION (#720). This milestone used to ask it twice — once
+  # by inference (`git diff <verdict-commit> HEAD`) and once against the record's declared
+  # `reviewed_patch_id` — and `lean-evidence.sh`'s `arm_freshness` asks it a third time, on the
+  # same inputs, through the same `contribution-compare` escape hatch, on every consumer's PR.
+  # Two of those three could only ever agree with the third, and when they disagreed it was
+  # because the LANE was stale, not because the verdict was: the fix was still a review round.
   #
-  # What patch identity deliberately does NOT cover: a base change that reds the suite with no
-  # textual conflict. The branch's patch is unchanged there, so the verdict correctly still
-  # stands, and the merged result failing is CI's business.
-  #
-  # #642 DELETED THE SHA-KEYED FALLBACK that used to sit below this arm for records carrying no
-  # `reviewed_patch_id` — two decision points, `m4/head-missing` and `m4/head-tree-diff`, neither
-  # of which had ever fired. They were not merely quiet: cmd_verdict, the only writer, emits the
-  # key unconditionally and `envfail`s rather than omit it, so a record without it predates the
-  # key — and lean-evidence.sh, which `pr-gates` runs on every consumer's PR, refuses exactly
-  # that record class ("declares no reviewed_patch_id"). Whatever those arms answered, the
-  # boundary refused the PR. What replaces them is stricter, not looser: absence is refused here
-  # too, in the same words and the same class as the record's other missing keys.
-  v_pid="$(record_key reviewed_patch_id "$rec")"
-  if [ -z "$v_pid" ]; then
-    fail_milestone 4 "verdict record $VERDICT_REL carries no reviewed_patch_id key, so nothing states which tree the review actually read — and the merge boundary refuses that record class outright. Re-run the review round on a dev-pipeline that writes it: '/dev-pipeline:review-lean <pr>'." 5
-    return $?
-  fi
-  cur_pid="$(branch_patch_id HEAD)"
-  if [ -z "$cur_pid" ]; then
-    fail_milestone 4 "cannot compute this branch's patch identity against origin/$BASE_BRANCH, so there is nothing to compare $VERDICT_REL's reviewed_patch_id against — and a freshness check that cannot run must not report a pass. Fetch origin/$BASE_BRANCH and re-run." 2
-    return $?
-  fi
-  v_fresh="covering the current head (patch-id $(printf '%.12s' "$v_pid"))"
-  # THE SAME ESCAPE HATCH (#597, D-3), asked through the SAME call site as the inferred arm above
-  # so the two cannot answer differently. `branch_patch_id`'s input INCLUDES the merge-base, so
-  # merging the base in moves the id even when the branch alters not one line.
-  if [ "$v_pid" != "$cur_pid" ]; then
-    contribution_state "$v_head" HEAD
-    case "$CONTRIB_RC" in
-      1) fail_milestone 4 "verdict record $VERDICT_REL reviewed patch $(printf '%.12s' "$v_pid"), but this branch's diff against origin/$BASE_BRANCH now hashes to $(printf '%.12s' "$cur_pid") and the branch's own lines moved with it: $(printf '%s\n' "$CONTRIB_DETAIL" | contribution_summary) — content changed after the review, so the verdict does not cover it. Get a new review round: '/dev-pipeline:review-lean <pr>'." 5
-         return $? ;;
-      0) v_fresh="covering the current head — the recorded patch identity $(printf '%.12s' "$v_pid") and this head's $(printf '%.12s' "$cur_pid") differ, which a base advance alone is enough to cause, and every one of the branch's own +/- lines is unchanged since reviewed_head $(printf '%.12s' "$v_head"), so no reviewed line was altered (#597 AC-1)" ;;
-      *) v_fresh="covering the current head — the patch identity moved from $(printf '%.12s' "$v_pid") to $(printf '%.12s' "$cur_pid") and the +/- comparison could NOT be computed, so this milestone FAILED OPEN and the verdict stands (#597 D-5/OR-1)" ;;
-    esac
-  fi
-  pass_milestone 4 "$VERDICT_REL reads verdict=approve, authored by review run $v_run, $v_fresh, $v_coverage"
+  # What is left here is the local routing the scheduler needs and nothing more — absent (5),
+  # not-approve (1), build-authored (6) — plus the arms no boundary check duplicates. A commit
+  # pushed after an approve still costs another round; that refusal is now made once, where the
+  # merge decision is actually taken, instead of once per reader.
+  pass_milestone 4 "$VERDICT_REL reads verdict=approve, authored by review run ${v_run:-<unkeyed>}, $v_coverage"
 }
 
 # ---------------------------------------------------------------- verdict (REVIEW role)
@@ -4553,8 +5194,8 @@ cmd_4() {
 # header records no session id is refused outright: "unverifiable" must never resolve to "fine".
 cmd_verdict() {
   local sess b_prog_sess b_prog_run b_cached rec body c reviewed_head reviewed_patch_id
-  local fid_spec fid_state fid_decl fid_refs fid_bad fid_line
-  local cand inherited_patch_id inherited_from chain
+  local fid_spec fid_state fid_decl fid_refs fid_bad fid_line panel_reviewer fid_disarm_state fid_disarm_ref
+  local cand inherited_patch_id inherited_from chain sc_bad sc_line
   sess="${CLAUDE_CODE_SESSION_ID:-}"
   [ -n "$sess" ] \
     || envfail "verdict: CLAUDE_CODE_SESSION_ID is unset — the review session cannot be identified, so its authorship cannot be separated from the build's."
@@ -4636,6 +5277,28 @@ cmd_verdict() {
     return 1
   fi
 
+  # #709 D-4/D-25. On a DISARMED provider ticket the default/explicit `not-applicable` is stamped
+  # with the design-disarm override's own ref, so the merge boundary (which cannot read the
+  # gitignored config) can validate the yield from the record alone. `design_state()` returns
+  # `disarmed` ONLY once it has already validated a design-disarm override for $ISSUE (its own
+  # comment) — the ref is re-derived with its own direct `--print-ref` call rather than threaded
+  # out of that one, because `design_state`'s answer is read through `$(...)`, and a subshell
+  # cannot hand a second fact back through a global no caller of it can see. A `Design: none`
+  # spec `design_state` cannot resolve to `disarmed` (no override, or one neither reader can
+  # parse) is refused HERE rather than let a bare `not-applicable` paper over the opt-out #705
+  # forbids; the fix is a spec edit or an operator-recorded override, not a re-run.
+  if [ "$VERDICT_FIDELITY" = "not-applicable" ] && [ -n "$DESIGN_PROVIDER" ] && [ -f "$REPO_ROOT/$SPEC_REL" ]; then
+    fid_disarm_state="$(design_state "$REPO_ROOT/$SPEC_REL")"
+    case "$fid_disarm_state" in
+      disarmed)
+        fid_disarm_ref="$(bash "$OVERRIDE_TOOL" check --gate design-disarm --issue "$ISSUE" --repo-root "$REPO_ROOT" --print-ref 2>/dev/null)"
+        VERDICT_FIDELITY="not-applicable (override: $fid_disarm_ref)" ;;
+      error:*)
+        warn "✗ verdict: --fidelity not-applicable, but $SPEC_REL's design arming cannot be resolved: ${fid_disarm_state#error:}"
+        return 1 ;;
+    esac
+  fi
+
   # The reviewed head, DERIVED from the checkout this call runs in — never an argument. The
   # review session works from a checkout of the PR head (review-lean step 3), so HEAD here IS
   # the commit under review; a flag would let the caller name a head it did not read, which is
@@ -4705,6 +5368,35 @@ cmd_verdict() {
   # The pair of conditions is `pass` AND a configured provider. An unarmed `pass` is already
   # refused by milestone 4's own arm in clearer words, and re-refusing it here would break every
   # consumer with no design axis for no gain.
+  # THE PANEL ATTESTATION (#708, D-5/D-17). On an armed ticket the provider's fidelity reviewer
+  # is mandatory, and `panel:` is what makes its absence detectable at all: it names the
+  # reviewer agent types this round actually got a result back from. Refused HERE as well as at
+  # the merge boundary, for the reason the evidence table is — at the writer the fix is one flag
+  # away, at the boundary it costs the round.
+  #
+  # NOT gated on `--fidelity`. A `needs-work` record is evidence too, and the next round
+  # inherits its coverage by reference; a round that never dispatched the mandatory reviewer has
+  # no coverage of that dimension to hand on, whatever verdict it reached.
+  #
+  # `design_state`, not `design_armed`: an unarmed or malformed section must not demand a panel
+  # it has no family to name, and design_state's AND against config `design.provider` is what
+  # leaves every consumer with no design axis untouched by this arm.
+  if [ -n "$DESIGN_PROVIDER" ] && [ -f "$REPO_ROOT/$SPEC_REL" ] \
+     && [ "$(design_state "$REPO_ROOT/$SPEC_REL")" = "armed" ]; then
+    if ! panel_reviewer="$(design_family_reviewer "$(design_family < "$REPO_ROOT/$SPEC_REL")")"; then
+      warn "✗ verdict: $SPEC_REL arms the design lane, but its handoff link names no provider surface this lane recognises, so the reviewer this round was required to dispatch cannot be named. Fix the '## Design' handoff link in the build lane — milestone 1 refuses it there too."
+      return 1
+    fi
+    if [ -z "$VERDICT_PANEL" ]; then
+      warn "✗ verdict: --panel <a,b,c> is required on an armed ticket. It records the reviewer agent types review-lead RETURNED a result from — take the list from the round's structured result, qualified as review-lead's own panel names them — and $SPEC_REL makes $panel_reviewer mandatory. A reviewer that went dark is not in that list, and a round that lost the mandatory one is handed back under review-lean 5c rather than recorded."
+      return 1
+    fi
+    if ! panel_has "$VERDICT_PANEL" "$panel_reviewer"; then
+      warn "✗ verdict: --panel '$VERDICT_PANEL' does not name $panel_reviewer, which $SPEC_REL's handoff host makes mandatory for an armed round. Either routing never selected it — review-lead's always-spawn row on an armed spec — or it went dark, and a dark mandatory reviewer VOIDS the round (review-lean 5c): hand it back, write no record."
+      return 1
+    fi
+  fi
+
   if [ "$VERDICT_FIDELITY" = "pass" ] && [ -n "$DESIGN_PROVIDER" ]; then
     fid_spec="$REPO_ROOT/$SPEC_REL"
     # `design_state` reads an ABSENT spec as `unarmed` — the same answer it gives a consumer with
@@ -4760,6 +5452,47 @@ cmd_verdict() {
   fi
 
   resolve_capability_stamp
+
+  # THE PER-AC SCORECARD (#622 AC-1/AC-2/AC-5). BELOW resolve_capability_stamp deliberately: that
+  # call is an ENVIRONMENT check on the producer's own vocabulary (rc=2, "this tool is
+  # misconfigured"), and diagnosing a reviewer's summary before telling them their gate is broken
+  # sends them to fix the wrong thing. Everything below it still precedes the run-id cache, whose
+  # comment reads "every refusal above has passed, so this is a real review round" — a refusal
+  # after that line would cache a review identity for a round that wrote no record.
+  #
+  # Refused at the WRITER for the reason its two siblings above are: here the fix is one edit to the summary away, at the merge boundary it
+  # costs the round. The validator is `lean-evidence.sh`'s — the same code the boundary runs, and
+  # the same code a hand-written record answers to — so a body that passes here cannot red there
+  # for this.
+  #
+  # NOT gated on the verdict value at this call site. The reader itself requires the section only
+  # on `approve` and validates it whenever it is present, which is the contract; splitting that
+  # decision across two files would put half of it where nobody reading the other half can see it.
+  #
+  # A MISSING SPEC IS REFUSED, not skipped. The declared AC set is the only thing that can say
+  # whether the record is silent about a criterion, and a review run from a checkout without the
+  # spec has read no definition of done — the same reasoning `--fidelity pass` makes above.
+  if [ ! -f "$REPO_ROOT/$SPEC_REL" ]; then
+    warn "✗ verdict: no committed spec at $SPEC_REL, so the record's AC scorecard has no declared criterion set to be reconciled against."
+    warn "  Run the verdict from a checkout of the PR head (review-lean step 3)."
+    return 1
+  fi
+  [ -f "$EVIDENCE_TOOL" ] \
+    || envfail "verdict: the evidence payload carrying the AC-scorecard reader is missing at '$EVIDENCE_TOOL' — the write-time and merge-boundary layers must run the same implementation. Set LEAN_EVIDENCE_TOOL if it lives elsewhere."
+  sc_bad="$(printf '%s\n' "$body" | bash "$EVIDENCE_TOOL" scorecard --spec "$REPO_ROOT/$SPEC_REL" --verdict "$VERDICT_VALUE")" \
+    || envfail "verdict: the AC-scorecard reader could not run (see the message above) — refusing rather than writing a record nothing validated."
+  if [ -n "$sc_bad" ]; then
+    warn "✗ verdict: the AC scorecard in --summary-file does not satisfy the record's own schema:"
+    printf '%s\n' "$sc_bad" | while IFS= read -r sc_line; do warn "    $sc_line"; done
+    # The SHAPE is quoted from the reader rather than restated here. A refusal that named a
+    # heading or a column set the reader does not look for would send a reviewer to write a
+    # section nothing reads — and a second copy of the schema is exactly the drift the single
+    # implementation above exists to prevent.
+    bash "$EVIDENCE_TOOL" scorecard --print-schema 2>/dev/null \
+      | while IFS= read -r sc_line; do warn "  $sc_line"; done
+    return 1
+  fi
+
   rec="$REPO_ROOT/$VERDICT_REL"
   mkdir -p "$(dirname "$rec")" || envfail "verdict: cannot create '$(dirname "$rec")'."
   # Cache the review identity only now — every refusal above has passed, so this is a real
@@ -4789,6 +5522,13 @@ cmd_verdict() {
     # the value. Both readers additionally anchor it to the header (`header_key`), which is the
     # half of that fix covering records this writer did not produce.
     echo "fidelity: $VERDICT_FIDELITY"
+    # UNCONDITIONAL with an explicit `none`, for the reason `inherited_patch_id` is: a key the
+    # writer sometimes omits has no authentic occurrence to win the first-match race, so a
+    # reviewer's own prose supplies the value. `none` is not a reviewer name, so it can never
+    # satisfy the boundary's token test — an unarmed record says "no panel was recorded" in a
+    # form that reads as one, rather than by an absence a reader cannot distinguish from a
+    # writer that never knew the key.
+    echo "panel: ${VERDICT_PANEL:-none}"
     echo "model: ${LEAN_RUN_MODEL:-unknown}"
     # THE PRODUCER'S CAPABILITY STAMP (#445), with NO READER TODAY — and shipped anyway, on
     # purpose. A review-side arm bound to a capability will need to place the generation that
@@ -5133,9 +5873,70 @@ closeout_writer() {
 LEAN_COST_BLOCK=""
 LEAN_COST_SKIP=""
 LEAN_COST_ERROR=""
+LEAN_COST_USD=""
+
+# THE MACHINE-READABLE `cost_usd:` KEY (#723, pre-flight ledger D-1/D-3/D-7/D-8/D-9). Every
+# closed-out run publishes it: a bare decimal (D-8 — no `$`, since the `record_key` idiom's
+# `[A-Za-z0-9._/-]+` charset would read a `$`-prefixed value as an absent key) when a priced
+# block rendered, `unavailable (<reason>)` otherwise, naming which of the two derivable reasons
+# applies (D-7) — a block rendered but its "Cost (USD)" column is absent, or no block rendered at
+# all. Naming which of the tool's four `skip(…)` verdicts caused the second case is NOT available
+# here: closeout_cost_block deliberately does not capture the tool's stderr, and D-7 does not
+# reopen that.
+resolve_cost_usd() { # resolve_cost_usd — sets $LEAN_COST_USD from $LEAN_COST_BLOCK/$LEAN_COST_SKIP
+  local figure
+  if [ -n "$LEAN_COST_BLOCK" ]; then
+    # The only `$N.NN` text the render filter ever emits is the cost cell (see fmt() in
+    # pipeline-cost-block.sh); a block with no such cell is a token-only transcript render.
+    figure="$(printf '%s\n' "$LEAN_COST_BLOCK" | grep -oE '\$[0-9]+\.[0-9]{2}' | head -1 | tr -d '$')"
+    if [ -n "$figure" ]; then
+      LEAN_COST_USD="$figure"
+    else
+      LEAN_COST_USD="unavailable (block rendered, no Cost (USD) column)"
+    fi
+  else
+    LEAN_COST_USD="unavailable (no cost block rendered this run)"
+  fi
+}
+
+# THE PR-DESCRIPTION COPY (D-1: "the PR description's cost-block region"). Computed on demand
+# from the PRISTINE $LEAN_COST_BLOCK, never stored back into it: closeout_comment pastes
+# $LEAN_COST_BLOCK too, and its own copy of the key is the bullet closeout_comment adds itself,
+# OUTSIDE the block (D-9) — that bullet has to survive a run with no block at all, which a
+# block-embedded copy by construction cannot, so the block it pastes stays exactly what the tool
+# rendered rather than saying `cost_usd:` a second time inside it.
+#
+# INSERTED RIGHT AFTER THE BLOCK'S OWN THEMATIC BREAK, not right after the marker and not after
+# the terminator. That still keeps it inside the span closeout_patch_pr_body's own strip discards
+# on every close-out — marker through terminator line — so a re-entered close-out replaces it
+# along with the rest of the block instead of leaving a stale copy behind as preserved "tail" text
+# (the region after the terminator is exactly what that strip treats as a human's own text and
+# never touches).
+#
+# NOT RIGHT AFTER THE MARKER (#723 round 1, finding 1). The renderer's first two lines are the
+# marker (an HTML comment, so a block element on its own) then `---`, which GFM parses as the
+# block's thematic break. Inserting the key between those two lines makes the key line the
+# paragraph text of a SETEXT H2 whose underline is that very `---` — GitHub's own renderer turns
+# `cost_usd: …` into an `<h2>` and swallows the `<hr>` entirely (measured via `POST /markdown`,
+# `mode: gfm`, against a real close-out's block). Inserting after the `---` instead leaves it as an
+# ordinary paragraph line, blank-line-terminated before the next block (`## Pipeline Cost`, an ATX
+# heading — never a setext underline), so no line this function emits can ever read as a heading.
+#
+# NEVER TOUCHES THE MARKER LINE ITSELF: that line is held byte-for-byte to
+# COST_BLOCK_MARKER above, and closeout_patch_pr_body's replacement matches it with `$0 == m`. A
+# line inserted after the break, not appended onto the marker, is what keeps that match intact on
+# the next call.
+cost_block_with_usd_key() { # cost_block_with_usd_key — echoes $LEAN_COST_BLOCK with the key inserted
+  printf '%s\n' "$LEAN_COST_BLOCK" | awk -v m="$COST_BLOCK_MARKER" -v v="$LEAN_COST_USD" '
+    $0 == m { print; marker = 1; next }
+    marker && !ins && $0 == "---" { print; print "cost_usd: " v; ins = 1; next }
+    { print }
+  '
+}
+
 closeout_cost_block() { # closeout_cost_block <pr-url>
   local tool out rc
-  LEAN_COST_BLOCK=""; LEAN_COST_SKIP=""; LEAN_COST_ERROR=""
+  LEAN_COST_BLOCK=""; LEAN_COST_SKIP=""; LEAN_COST_ERROR=""; LEAN_COST_USD=""
   tool="${LEAN_COST_BLOCK_TOOL:-$(dirname "$(dirname "$(cd "$(dirname "$0")" && pwd)")")/tools/pipeline-cost-block.sh}"
   if [ ! -f "$tool" ]; then
     LEAN_COST_ERROR="pipeline-cost-block.sh not found at '$tool', so this run's published figure cannot be derived"
@@ -5152,6 +5953,7 @@ closeout_cost_block() { # closeout_cost_block <pr-url>
     *"$COST_BLOCK_MARKER"*) LEAN_COST_BLOCK="$out" ;;
     *) LEAN_COST_SKIP="the tool exited 0 and rendered no block — a documented skip, named on its own line above" ;;
   esac
+  resolve_cost_usd
   return 0
 }
 
@@ -5197,7 +5999,7 @@ closeout_patch_pr_body() { # closeout_patch_pr_body <pr-number> <current-body>
           { print > (tl) }
     END   { print (seen ? (cut ? "replaced" : "truncated") : "appended") }
   ')"
-  { cat "$dir/head"; printf '%s\n' "$LEAN_COST_BLOCK"; cat "$dir/tail"; } > "$dir/body"
+  { cat "$dir/head"; cost_block_with_usd_key; cat "$dir/tail"; } > "$dir/body"
   out="$("$(closeout_writer)" api -X PATCH "repos/{owner}/{repo}/pulls/$1" \
         -F body=@"$dir/body" --jq .number 2>&1)"; rc=$?
   rm -rf "$dir"
@@ -5230,6 +6032,10 @@ closeout_comment() { # closeout_comment <pr-url>
     echo ""
     echo "- PR: $1"
     echo "- Verdict record: \`$VERDICT_REL\`"
+    # D-3/D-9: this bullet, not the block, is what makes cost_usd present on EVERY closed-out
+    # run — including a full skip, where $LEAN_COST_BLOCK is empty and there is no block to
+    # carry a copy at all. resolve_cost_usd (closeout_cost_block) has always set it by here.
+    echo "- cost_usd: $LEAN_COST_USD"
     if [ -n "$LEAN_COST_BLOCK" ]; then
       echo ""
       printf '%s\n' "$LEAN_COST_BLOCK"
@@ -5663,6 +6469,7 @@ case "$SUB" in
   progress) cmd_progress ;;
   staleness) cmd_staleness ;;
   verdict) cmd_verdict ;;
+  plan-review) cmd_plan_review ;;
   all)     cmd_all ;;
   *)       run_milestone "$SUB" ;;
 esac

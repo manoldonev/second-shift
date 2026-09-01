@@ -23,7 +23,7 @@ package.json can answer), presents ONE accept-or-edit screen, and emits:
 - the repo-committed thin check (`.claude/tools/second-shift-doctor.sh` + a SessionStart nudge)
 - `.claude/SECOND-SHIFT.md` — the consent doc: what installs, what hooks fire, before the trust prompt
 - **(on request)** `.github/workflows/second-shift-ci.yml` + `.claude/tools/second-shift-ci-check.sh` — the server-side backstop: on every PR it config-lints the committed config with the linter shipped at the pinned marketplace ref and asserts the settings ref and lockfile ref agree, so a half-done upgrade PR is caught. Reports a red check; mark it a required status check in branch protection to block merges.
-- **(same request, github tracker)** `.github/workflows/second-shift-unclaim.yml` + `.claude/tools/second-shift-unclaim.sh` — the close-out step neither lane owned: when an issue closes it removes the pipeline's two run-state labels (`tracker.labels.claimed` and `tracker.labels.queue`, resolved from your committed config at run time; never `tracker.labels.blockers`, which holds permanent classifications like `epic`). This is the one emitted workflow that **writes** — `issues: write`, two labels on one issue, which needs the repo's Actions workflow permissions set to read-and-write (a `permissions:` block narrows the repo maximum, it cannot widen it). The lean lane's exit milestone requires an open PR, so a session-side drop would fire while review is still in flight; binding the release to the close event needs no live session and covers a hand-closed issue too.
+- **(same request, github tracker)** `.github/workflows/second-shift-unclaim.yml` + `.claude/tools/second-shift-unclaim.sh` — the close-out step neither lane owned: when an issue closes it removes the pipeline's two run-state labels (`tracker.labels.claimed` and `tracker.labels.queue`, resolved from your committed config at run time; never `tracker.labels.blockers`, which holds permanent classifications like `epic`). This is the one emitted workflow that **writes** — `issues: write`, two labels on one issue, which needs the repo's Actions workflow permissions set to read-and-write (a `permissions:` block narrows the repo maximum, it cannot widen it). The labels go stale when the issue closes, and no lane session is guaranteed to be running then — the lane's exit milestone accepts a merged PR as well as an open one, so close-out can finish long before the close arrives; binding the release to the close event needs no live session and covers a hand-closed issue too.
 - **(same request)** `.github/workflows/second-shift-delta-guard.yml` + `.claude/tools/second-shift-delta-guard.sh` — the delta guard, which is about your **CI bill** rather than your evidence. `review-lean` must commit the verdict record to the PR head as the *last* commit, so on a `pull_request`-triggered CI every lean PR pays a second full run — lint, typecheck, build, the whole test suite — for a markdown file the pipeline wrote itself. The guard is a reusable workflow exposing a `skip` output; you gate your heavy jobs on it with two lines each:
 
   ```yaml
@@ -140,7 +140,7 @@ Two mechanisms compose, and both are needed for a durable pin:
     {
       "extraKnownMarketplaces": {
         "second-shift": {
-          "source": { "source": "github", "repo": "manoldonev/second-shift", "ref": "v12.2.0" }
+          "source": { "source": "github", "repo": "manoldonev/second-shift", "ref": "v12.2.4" }
         }
       }
     }

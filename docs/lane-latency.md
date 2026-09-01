@@ -54,9 +54,9 @@ sessions.
 The lever is **round count**, not session speed. Each round is a build spawn plus a review spawn —
 20 to 45 minutes — and rounds are added by review blockers.
 
-#637 is the case worth staring at. Its round 1 produced exactly one blocker: a guard-budget CI red.
-That was resolved by a single **empty commit carrying only a `Guard-mass:` trailer** — no code line
-changed. Round 2 then re-read the whole diff:
+#637 is the case worth staring at. Its round 1 produced exactly one blocker: a red policy-gate CI
+step (since deleted, #719). That was resolved by a single **empty commit carrying only a policy
+trailer** — no code line changed. Round 2 then re-read the whole diff:
 
 ```
 B2 18:13 + R2 12:27 = 30:40   —   58% of that run's 52:45
@@ -75,7 +75,7 @@ of a full re-read.
 2. **Collapse the review panel (#667).** Review spawns are 10–17 minutes each, two per round, and
    the recorded measurement behind that ticket is that the core four reviewers produced zero
    blockers across 248 record-versions. This cuts every round, not just the spurious ones.
-3. **Do not spend a round on a budget red.** A guard-budget or trailer failure is a CI-shaped
+3. **Do not spend a round on a policy-gate red.** A trailer or frozen-files failure is a CI-shaped
    refusal that no reviewer judgement resolves; routing it through a review round costs a full
    build-and-review pair to apply a mechanical fix.
 

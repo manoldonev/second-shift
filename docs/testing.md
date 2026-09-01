@@ -10,9 +10,10 @@ carries the reasoning and the operator-run adversarial recipe.
 
 [`docs/pipeline-manifesto.md`](pipeline-manifesto.md)'s P4/P5 posture names the register rule;
 this section is its consequence, not a second copy of it. #641 applied it — five files, 180 rows,
-every one a number a command could produce in one call, are gone: two prose-budget baselines (subsumed
-by `scripts/check-guard-budget.sh`, [below](#the-slow-suite-table), and a derived nightly total),
-three independently-drifting suite-timing tables (collapsed into
+every one a number a command could produce in one call, are gone: two prose-budget baselines
+(the shell half subsumed, and later deleted outright by #719 with no replacement; the markdown
+half a derived nightly total, [below](#the-slow-suite-table)), three independently-drifting
+suite-timing tables (collapsed into
 [`tools/selftest-suite-timings.tsv`](#the-slow-suite-table)), and the `install-topology-known-red.tsv`
 allowlist, which had already drained to zero rows before this PR deleted it (see
 [Green here is not green where it ships](#how-the-sweep-runs), the class-guard subsection).
@@ -46,6 +47,15 @@ predates the key; and `lean-evidence.sh`, which `pr-gates` runs on every consume
 that record class outright. Whatever those arms answered, the boundary refused the PR: superseded,
 not merely quiet. Milestone 4 now refuses the class itself, which is strictly tighter than the
 fallback it replaces.
+
+**Deleted (6) at #720, on a DIFFERENT argument.** The six milestone-4 sites behind
+`tools/gate-ablation-classes.tsv`'s `m4/verdict-keys` and `m4/patch-stale` rows were not
+never-fired — `m4/patch-stale` had fired. They were DUPLICATES: `lean-evidence.sh` asks the
+identical questions at the merge boundary, on inputs the lane cannot make disagree, on every
+consumer's PR. A refusal whose only distinct effect is WHEN the operator learns is bought at the
+price of a second implementation of it, so #720 kept the boundary's copy and deleted the lane's.
+Both rows STAY in the classes table — it reads history, not the current gate — and
+`m4/verdict-keys` keeps a live site (`reviewed_head`, whose absence no boundary check refuses).
 
 **Kept: 18 against the pin #642 acted on, 20 against the corpus it ships.** The ticket's warning
 is the load-bearing one: deleting these would remove function from the shipped product to tidy the
@@ -154,8 +164,9 @@ selftest jobs (`lint-and-selftests`, `selftests-bash32`) and the nightly wholesa
 (`wholesale-selftests`; its macos bash-3.2 twin was deleted 2026-08-30 — `selftests-bash32`
 already asks that question on every PR) — inside the sweep it contends with the very suites it re-runs
 from the install cache, which is what the install-topology section below measures.
-`install-topology-selftest.sh` itself runs in its own nightly jobs (`install-topology`,
-`install-topology-bash32`), never alongside a sweep. The maintainer's dogfood lean-gate
+`install-topology-selftest.sh` itself runs in its own event-triggered jobs (`install-topology`,
+`install-topology-bash32` in `install-topology.yml` — push on packaging paths, the release PR, or
+`workflow_dispatch`; it ran nightly before #666), never alongside a sweep. The maintainer's dogfood lean-gate
 milestone-3 lane gets the same exclusion from `tools/selftest-suite-timings.tsv` instead, which it
 applies by default — see the slow-suite table section below. The suite stays *discovered*: the exclusion names
 a path that must keep existing, so renaming the suite reds CI instead of silently
@@ -405,8 +416,7 @@ deliberate:
 - **It records without a second flag.** Property 3 exists because a PR lane would otherwise record
   untrusted content into a store other runs read. This store is machine-local and records the
   operator's own tree — the posture the mutation sweep's cache further down this page already
-  takes — and a store nothing writes can never serve the second sweep this lane exists to speed
-  up.
+  takes — and a store nothing writes can never serve a second sweep at all.
 - **An unusable store is a cold sweep, not an error.** A `--cache-dir` that cannot be created is a
   flag an operator typed that cannot work, and still exits 2. An *injected* store that cannot be
   created is not the tree's fault, so it prints a named notice and runs cold rather than reddening
@@ -417,15 +427,25 @@ deliberate:
   carrying `LEAN_SELFTEST_CACHE_DIR` would otherwise hand it to every lane child by ordinary
   inheritance, and the gate would announce a cold sweep while the runner cached.
 
+**What the lane can actually get from it (#662).** A suite is served here only if it is BOTH rowed
+in `tools/selftest-cache-inputs.tsv` AND not deferred by the slow-suite table above — and the lane's
+`test` command comes from a consumer's config, which in this repo omits `--full`, so every suite at
+or above the table's threshold is deferred before the cache is ever consulted. The suites worth the
+declaration burden are, by construction, the ones above that threshold. A row added for cost
+therefore buys this lane nothing; it buys the two CI selftest jobs, which pass `--full --cache-dir`
+in committed workflow files. What the lane does get is the residue: a rowed suite carrying no
+timings row at all, and so counted as fast — `cost-block-selftest.sh` today.
+
 The store defaults to `${XDG_CACHE_HOME:-~/.cache}/second-shift/lean-selftest`: outside every
 checkout, so a worktree teardown never costs it, and per-machine, which matches a key already
 scoped by OS and bash major. The `--run-one` worker scrubs the variable, so a suite never inherits
 it — the cache is decided once, in the parent, and a suite that nests its own runner keeps meaning
 what it means standalone.
 
-**What it is worth is bounded by the table, not by the seam.** One suite is rowed today, so an
-unchanged-head close-out sweep saves ~30s of the ~9:47 measured in #549. The wiring is what makes
-every row added later pay in the lean lane as well as in CI.
+**What it is worth is bounded by the table, not by the seam.** Three suites are rowed today, and
+an unchanged-head close-out sweep saves the ~30s of `cost-block-selftest.sh` — the only one of the
+three this lane can serve, because it is the only one the slow-suite table does not defer first.
+The #662 note above is the general form: a row bought for cost buys CI, not this lane.
 
 Only PASS is ever recorded, and only by the parent process after the replay has scored the run — a
 red suite, and a suite whose worker died without a verdict, write nothing. That falls out of the
@@ -438,19 +458,51 @@ tell a skip from a suite that quietly stopped being discovered. The summary line
 performed is the faster-green misreading the rest of this section is about.
 
 **Adding a row is the risky edit in that file, not the cheap one.** Derive the input set from the
-suite, never from a ticket: `cost-block-selftest.sh` reads the fixture corpus, the script under
-test, AND the `gh-bot.sh` that script resolves at run time — three things where an eyeball lists
-one.
+suite, never from a ticket: `lean-gate-selftest.sh` reads eight files out of the checkout, the
+gate among them, and those resolve seven more at run time — sixteen rows, the suite's own path
+being the sixteenth, where an eyeball lists two.
 Where a suite's composed set is really its transitive closure — `scenario-liveness-selftest.sh` is
 the worked example, and is deliberately **not** in the table — drop the row. A dropped row costs
 seconds; an under-declared one costs a gate.
 
 **Derive the closure, not the file list.** Neither mechanized rule reaches depth 2: a row set can
 name the suite and its subject and still under-declare, because that subject resolves a third file
-at run time. The shipped set needed one — `pipeline-cost-block.sh` executes its sibling
-`gh-bot.sh`, so `cost-block-selftest.sh`'s row must declare it even though the suite never names
-it. Follow every `$here/`-style resolution out of every declared script until it terminates, and
-say in the row comment where it terminated.
+at run time. The shipped set runs to depth 3: `lean-gate.sh` resolves `claim-issue.sh`, which
+resolves its sibling `gh-bot.sh`, so `lean-gate-selftest.sh` declares a file two removes from
+anything it names. Follow every variable-rooted resolution out of every declared script until it
+terminates, and say in the row comment where it terminated — the rule below is how you enumerate
+them.
+
+That example replaced an earlier one — `pipeline-cost-block.sh` resolving `gh-bot.sh` — which was
+true until #584 deleted the PR-amend ladder that did it. `cost-block-selftest.sh`'s `gh-bot.sh`
+row outlived the resolution and is deliberately kept: an over-declaration costs one spurious miss,
+and dropping a row is the direction that costs a gate. A stale row is cheap; a stale *example*
+teaches the next row-adder to derive against something that is not there, which is why this
+paragraph now points at a resolution the tree still makes.
+
+**Derive that mechanically, over paths rather than over scripts.** Grep the subject for the paths
+it builds from a variable, and match every one against the rows. Three things a prose reading
+misses, each of which has cost this table a defect:
+
+1. A resolution may target a `.md` or a `.tsv` as readily as a `.sh`, so a sweep scoped to `*.sh`
+   mentions can be accurate and still incomplete.
+2. A target the subject only tests for EXISTENCE is an input like any other. Its absence flips the
+   suite's verdict, while the key — content-addressed over the declared rows alone — does not move.
+3. **The root decides the answer, and there are two.** A `${BASH_SOURCE[0]}`- or `$0`-rooted path
+   names a file shipped beside the subject and is an input whenever the subject reaches it. A path
+   rooted at the *graded tree* (`$REPO_ROOT`, from `git rev-parse --show-toplevel`) is an input
+   only if the suite runs the subject against a tree that has the file — under a `mktemp` fixture
+   it usually does not, and the case is asserting the absent branch.
+
+`lean-gate.sh` resolves `plugins/design-toolkit/agents/figma-faithful-plan-reviewer.md` and never
+reads a byte of it; that closure's first revision missed it on counts 1 and 2 at once, and renaming
+the file takes the suite from green to 39 failures against a key that does not move. Count 3 is why
+the first two are not enough on their own: `check-lean-chain-selftest.sh`'s `lean-evidence.sh` row
+is a graded-tree resolution with no `${BASH_SOURCE[0]}` form anywhere, so a sweep for the first root
+alone cannot even reproduce the rows already in the table — while `lean-gate.sh`'s two graded-tree
+resolutions (`scripts/check-frozen-files.sh` and `scripts/check-changelog-trailer.sh`, at
+`:3612-3613`) correctly get no row, because the suite's fixtures never contain them and its case
+(h) asserts exactly that absent branch. Same shape, opposite answers; classify, do not assume.
 
 `CACHE_EPOCH` is a constant in the runner rather than a knob. The key covers repo content —
 including `run-selftests.sh`'s own bytes, which is property 2 applied to the harness that produces
@@ -601,9 +653,10 @@ sibling-resolution defect in `pipeline-doctor-selftest.sh` on the very first nig
 it landed, and on the six after that. Neither half of the loop closed anyway:
 
 - *It ran a day late, and the PR that introduced the defect was long merged.* Since #620 the
-  guard is nightly-only; the PR lane excludes it. So "no new instance needs its own test" holds
-  for **detecting** the class, and stops holding when you want the defect to red on the branch
-  that causes it. Where a cross-plugin resolution is cheap to fabricate — a few `mkdir -p` under
+  guard has been excluded from the PR lane — nightly-only at the time (#666 later moved it to
+  event triggers, and it still excludes the PR lane today). So "no new instance needs its own
+  test" holds for **detecting** the class, and stops holding when you want the defect to red on
+  the branch that causes it. Where a cross-plugin resolution is cheap to fabricate — a few `mkdir -p` under
   a `mktemp -d`, no plugins staged, no suites re-run — put a case in the suite that owns the
   code too: `pipeline-doctor-selftest.sh`'s `(inv-cache)` is the reference. Stage the sibling at
   a version that is **not** the caller's, so rung 2 misses and rung 3 is what has to decide;
@@ -618,7 +671,9 @@ it landed, and on the six after that. Neither half of the loop closed anyway:
   exercised against fixture logs by `tools/install-topology-detail-selftest.sh`.
 
 The general form: **a guard whose red cannot say what it caught is not yet a working guard**,
-and a nightly-only guard is a detection tier, not a PR gate.
+and a guard excluded from the PR lane is a detection tier, not a PR gate — true whether what
+runs it is a clock or, as install-topology's push/release-PR/dispatch triggers are since #666,
+an event.
 
 Its first run, on the authoring machine, scored 51 of 55 shipped suites passing, with 4 failing
 for reasons that turned out to be environment-dependent rather than real: CI scored 49 pass on
@@ -665,26 +720,47 @@ the concurrent figure is essentially this one suite — everything else folds in
 stress-inclusive sweep (no `SKIP_STRESS`, the repo's own pre-commit gate) measured 540s. Know that
 before adding to what it runs.
 
-**It no longer runs on the PR lane at all.** It lives in `.github/workflows/nightly-guards.yml`
-on a nightly cron plus `workflow_dispatch`, and both CI selftest jobs exclude it by path via
-`run-selftests.sh --exclude`. The documented local recipe excludes it too, and since #566 it also
-carries a `tools/selftest-suite-timings.tsv` row, so the lean lane's bounded quick check defers it
-without needing the flag.
+**It no longer runs on the PR lane, and no longer on a clock either (#666).** It lives in
+`.github/workflows/install-topology.yml`, triggered by a push to `main` that touches a plugin
+manifest's `version` (`plugins/*/.claude-plugin/plugin.json`) or the guard script itself — the
+workflow file states why each family is in scope, and why `.claude-plugin/marketplace.json` and
+a shipped suite's own content are deliberately NOT in that filter — by the release PR, or by
+`workflow_dispatch`. Both CI selftest jobs still exclude it by path via `run-selftests.sh
+--exclude`, the documented local recipe excludes it too, and since #566 it also carries a
+`tools/selftest-suite-timings.tsv` row, so the lean lane's bounded quick check defers it without
+needing the flag.
 
 The reasoning is a cost/signal ratio, not a judgment that the guard is worthless — it caught two
 real defects that were green in-tree the whole time, and it stays. But its cost *is* the shipped
 suite set run a second time, which made it the repo's longest job, while the class it guards moves
 only when suites change or when packaging/topology changes. On the median PR it was paying the
-critical path to re-derive the previous night's answer. Inside the sweep it was also contending
+critical path to re-derive the previous merge's answer. Inside the sweep it was also contending
 with the second copy of every suite it stages — the 244s-vs-94s figure above — so it was
 simultaneously the long pole and the thing lengthening everything else.
 
-**The trade, stated plainly:** a packaging or suite regression is now caught within a day instead
-of at PR time. If your change is about how plugins are installed or laid out, that window is not
-good enough — run `bash tools/install-topology-selftest.sh` directly, or dispatch the workflow
-against your branch. Its 1200s `INSTALL_TOPOLOGY_TIMEOUT` is deliberately left alone: it was sized
-for contention that is now gone, but it is a hang detector and re-tightening it needs an
-uncontended measurement the nightly is what will produce. Both lanes are retained, because the two
+**The trade, stated plainly — and the two halves of it differ.** A manifest-version bump or a
+change to the guard script itself is caught at the very next push to `main`, same as before. A
+change to a *shipped suite's own content* is not: the push filter is deliberately narrow (two
+families, not `plugins/**`) precisely so it does not fire once per merge, so that class of
+regression is caught at the next release PR — every plugin ships at its manifest version there,
+regardless of which paths the release PR's own commits touch — or by `workflow_dispatch`, not at
+the next push. Measured over the 40 first-parent merges to `main` before 2026-08-31: 23 touched
+`plugins/**` (the guard's real staged surface) against 4 that touched the push filter's two
+families, 3 of those 4 being release merges themselves — so in practice the push arm rarely fires
+outside a release, and the release cadence is the real bound. Between the `v12.1.0` and `v12.2.0`
+releases (2026-08-26 → 2026-08-30, 4.12 days) 5 first-parent merges touched the guard's staged
+surface — 4 of them non-release merges that fired no push trigger, and the fifth the closing
+release merge itself, whose own plugin.json version bump does match the push filter, so it fired
+once, redundantly with the release-PR trigger already covering it; the retired cron ran 4 times in
+that same window. A clock was still strictly
+worse than this trade, not just slower — its answer barely moved between two nights, and a red run
+sat unread on a cron dashboard this repo's operator does not consume; the mutation nightly hit the
+same failure mode independently. A red run now files a deduplicated GitHub issue instead, so the
+failure has somewhere to be read. If your change touches a shipped suite and you want the answer
+before the next release PR, run `bash tools/install-topology-selftest.sh` directly, or dispatch the
+workflow against your branch. Its 1200s `INSTALL_TOPOLOGY_TIMEOUT` is deliberately left alone: it
+was sized for contention from a nightly run's ambient load, and re-tightening it needs a fresh
+uncontended measurement from the event-triggered runs. Both lanes are retained, because the two
 suites diagnosed above are explicitly environment-dependent and the bash-3.2 lane carries signal
 ubuntu does not.
 
@@ -822,6 +898,20 @@ coupling rather than mechanizing it into a guard that cannot fail.
 
 **Unanchorable — no literal the two sides could share.**
 
+- **The AC-scorecard reader ↔ its write-time caller** (#622). The contract runs at two layers —
+  `lean-gate.sh verdict` refuses a self-contradictory record at write time, `lean-evidence.sh`
+  refuses it at the merge boundary — and the obvious mechanization was a `LOCKSTEP` pair holding
+  two copies of one awk program. **Declined, because the duplication is avoidable rather than
+  necessary**: the two files ship in the same directory, so the writer shells out to
+  `lean-evidence.sh scorecard`, and there is exactly one implementation for a marker to hold. The
+  residual coupling is the REFUSAL MESSAGE — the writer has to tell a reviewer what shape to
+  write — and it is closed the same way, by a `scorecard --print-schema` seam the writer quotes
+  rather than a second copy of the heading and column names. **Behaviorally guarded**:
+  `lean-gate-selftest.sh` case `(vs3)` fails if the refusal stops quoting the reader's own schema
+  line, which is the only way the two could drift while both stayed green. The alternative that
+  was NOT available is the one the override-record reader took: `lean-evidence.sh` must stand
+  alone at a consumer's pinned ref, so the dependency can only run in this direction.
+
 - **The mid-run ticket-liveness re-check ↔ the milestone calls' network-free property** (#650
   `D-11`). Not a duplication but a coupling of a different kind, recorded here because the decision
   is exactly the sort that gets re-litigated: `lean-gate.sh`'s `require_ticket_live` header fixes
@@ -880,6 +970,36 @@ coupling rather than mechanizing it into a guard that cannot fail.
   and a status board into one table serving neither reader. Reviewer-guarded: both tables are
   short, sit in the two files every contributor reads first, and a new tier lands with its own
   suite in the same PR.
+- **The claimed label's release rationale, across seven sites** (#670). Every one of them explains
+  why the label is not dropped session-side: `build-lean/SKILL.md` step 9,
+  `.github/workflows/unclaim-on-close.yml`, both shipped
+  `templates/consumer/second-shift-unclaim.{sh,yml}` headers, `onboard/SKILL.md`'s spoken
+  onboarding line, `schema/second-shift.config.schema.json`'s `claimed` description, and
+  `docs/onboarding.md`. #642 falsified the reason all seven gave — that the exit milestone could
+  not be reached unless the PR was still open — by widening milestone 5 to accept a merged PR, and
+  its AC-9 prose sweep named four files, none of them these. That reason is stated here in
+  INDIRECT SPEECH on purpose: #670's sweep is a `git grep` for the claim's own wording, and a
+  regex cannot tell a live assertion from a quotation labelling the claim as dead. A live doc that
+  quoted the old sentence verbatim would read to that sweep as an eighth site; the verbatim text
+  survives where it is evidence, in the three excluded frozen-record classes below. The premise then survived a further three-round review of the PR that
+  introduced the contradiction, and was found by an ablation's bare session.
+  **Not lockstep-able**: the group would have to be `verbatim`, and these are seven arguments
+  addressed to seven different readers — a build session's checklist instruction, a maintainer's
+  workflow rationale, two consumer-shipped script headers, a line spoken aloud during onboarding,
+  a JSON schema description surfacing in editor tooling, and an onboarding walkthrough. One shared
+  sentence pasted into all seven would flatten prose that is deliberately distinct, which is the
+  cost #604's `verbatim` relation exists to make explicit.
+  **Not the #674 derive-it shape either**, though it is the closer fit: what the sites state is a
+  *design rationale* ("no session is guaranteed to be running when the item closes"), not a set
+  the code enumerates. `check-lane-class-doc.sh` works because `lane_failure_class`'s call sites
+  ARE the reserved set; nothing in `lean-gate.sh` enumerates why a workflow owns a label.
+  **Behaviorally guarded on the half that can be**: the falsifiable half of the old claim was
+  never the prose, it was `cmd_mark`'s `--state open`, and `lean-gate-selftest.sh` cases `(pm7b)`,
+  `(pm7c)` and `(k7b)` now drive it over the live `gh` path. The prose half is reviewer-guarded,
+  and the three frozen-record classes that legitimately still quote the old sentence —
+  `docs/plans/**`, `docs/skill-ablation.md`, and the `dup-scan` corpus fixture — are excluded on
+  purpose, not overlooked: each is a dated record of what a file said on the day it was read, and
+  correcting the quote would destroy the evidence for the finding.
 - **`LEAN_SELFTEST_CACHE_DIR`, writer ↔ reader (#563).** The same coupling one ticket later,
   declined for the same reason. The invisible direction is sharper: a one-sided rename just means
   no lean sweep ever serves from cache again, which looks exactly like a cache that is working and
@@ -901,15 +1021,26 @@ coupling rather than mechanizing it into a guard that cannot fail.
   writer silently un-satisfies all three; a reader-side requirement the writer never emits reds
   every lean PR. The writer spells keys as `echo` lines and the readers as grep/jq patterns.
   Guarded behaviorally, and the guard COMPOSES across sites: `lean-gate-selftest.sh` (p5)/(p7) feed
-  the writer's output to the milestone-4 reader in the same run; (j3)/(j3b)/(u1) pin each key's
-  absence as its own refusal; `check-lean-chain-selftest.sh` (N2)/(N3)/(R1) and
-  `lean-reconcile-selftest.sh` (J3)/(K1) do the same at the other two readers.
+  the writer's output to the milestone-4 reader in the same run; (u1) pins the one key whose absence
+  milestone 4 still refuses on its own (`reviewed_head`); `lean-evidence-selftest.sh` (r) pins the
+  `reviewed_patch_id` class, and `check-lean-chain-selftest.sh` (N2)/(N3)/(R1) and
+  `lean-reconcile-selftest.sh` (J3)/(K1) do the same at the other readers. #720 deleted milestone
+  4's own `run_id`/`session_id`/`reviewed_patch_id` refusals as duplicates of those.
   `reviewed_head:` and `reviewed_patch_id:` are the DERIVED keys — the readers recompute rather than
   extract, so a writer that stamped a short sha would extract cleanly everywhere and then fail every
   comparison. `reviewed_patch_id:` is tighter still: both sides must agree on the base, the diff
-  range AND the excluded path. Composed instead — `lean-gate-selftest.sh` (u3) and the (v) block
-  drive writer-to-reader end to end, and `scenario-liveness-selftest.sh`'s (lean-declared) and
-  (lean-patch-id) legs compose each arm against a record whose INFERRED freshness is green.
+  range AND the excluded path — and since #720 the only reader that COMPARES it is the merge
+  boundary, so the composition lives there: `lean-evidence-selftest.sh` drives writer-to-reader end
+  to end including the #597 base-advance hatch, `lean-gate-selftest.sh` (v6) pins that the writer
+  refuses rather than omitting the key, and (x1) pins that a writer-produced record carries one.
+  `panel:` (#708) is the one key with a reader of its OWN: `header_key`'s charset stops at the first
+  character outside `[A-Za-z0-9._-]`, so a qualified comma-separated list truncates to its leading
+  plugin token, and `panel_key` reads it whole. Widening the shared reader was rejected — it would
+  change how every key in the schema is read, across three lockstep members and the chain walk, to
+  serve one. The key stays in `LEAN_VERDICT_HEADER_KEYS` anyway: what that loop proves is that
+  formatting did not damage the LINE ANCHORING, and the truncated comparison detects a reflow
+  exactly as an untruncated one would. Guarded at the writer by `lean-gate-selftest.sh`'s (fp0)-(fp7)
+  and at the two readers by (fp5)/(fp6) and `check-lean-chain-selftest.sh`'s (X7)-(X11).
   `verdict=` is read FIRST-MATCH at every reader, never counted: the writer appends reviewer prose
   below the keys and review prose quotes verdict values, so a count-anywhere reader passes a record
   whose authoritative first line says needs-work — `lean-gate-selftest.sh` (s) and
@@ -1220,6 +1351,41 @@ rule would also fail most of today's catalog, which names its regression class i
 citing when it was found; read as written above, it does not, and #581 re-verified all 66
 catalog rows against it without deleting any.
 
+**The per-guard cap, and why a count.** No guard may carry more than `MAX_ROWS_PER_GUARD` rows
+in `tools/mutation-catalog.tsv`, declared and enforced in `tools/mutation-sweep-selftest.sh` —
+case (k) reads the committed catalog, case (au) drives the same extractor *and the same lint*
+against fixtures so the arm can be shown to still fail. The value below is the declaration
+itself, held to it by `scripts/check-lockstep-pairs.sh`:
+
+```
+# LOCKSTEP-BEGIN mutation-catalog-per-guard-cap
+MAX_ROWS_PER_GUARD=36
+# LOCKSTEP-END mutation-catalog-per-guard-cap
+```
+
+The wholesale lane's
+`--shard i/N` partition is round-robin over the sorted guard list, so it balances guard **count,
+not cost**, and a guard's mutants are atomic to one residue class: the worst shard is whichever
+holds the most expensive guard, and no value of N moves them apart. `lean-gate.sh` reached 56
+rows against a 212s killer suite and was killed at the 45-minute step bound on two successive
+monthly runs, taking the six unrelated guards in its shard down with it.
+
+It is a measurement rather than a preference — the largest count for that guard ever observed to
+finish inside the bound (24m25s, 54% of it). A row count is a **proxy** for `rows x killer-suite
+seconds`, which is the quantity that actually breaks a shard; a cost-weighted cap would need a
+killer timing for every guard and `tools/selftest-suite-timings.tsv` tables only the slow ones,
+so it would fail open across most of the universe. If you add rows to a guard whose killer is
+slow, price them yourself — the cap will not.
+
+The cap turns the earn-your-keep rule from a floor into a **budget**: a guard at the cap must
+retire a row before it gains one, and both rows are then judged against each other rather than
+against nothing. The one time this has been exercised (#752, 56 → 36), no derivable redundancy
+existed — all 56 seds hit distinct sites and none was a known survivor — so the criterion was:
+*remove the row when the mutant it arms leaves the gate still refusing (it moves which message,
+counter or milestone the refusal names), keep it when the mutant makes the gate stop refusing,
+destroys evidence, or destroys data.* Retired rows stay recoverable from git history; the ticket
+that retires them owes the list.
+
 **A comment line is not a site.** Generic enumeration drops every matched line matching
 `^[[:space:]]*#` before the ordinal counter, so a comment contributes no mutant *and consumes no
 ordinal* — adding or deleting one re-keys nothing. The reason is that a comment flip changes no
@@ -1347,13 +1513,60 @@ because during this harness's own intake the `check-emit-deadline` site moved by
 two runs a day apart, and only the expression-addressed entry survived. The generic tier's
 matching obligation is gone: with content keys there is nothing for an ordinary edit to re-key.
 
-**Where it runs — two surfaces, both in CI.** Diff-scoped on every PR (the `mutation-sweep-pr`
-job) — guards whose kill set is not a single fast suite defer to nightly rather than being graded
-against a weaker criterion than the one that produced the baseline — and wholesale in the nightly
-`mutation-sweep.yml`. Kill verdicts are only comparable inside the canonical environment
-(ubuntu-latest, `SKIP_STRESS=1`), so local runs are advisory and say so.
+**Where it runs — three surfaces, all in CI.**
 
-**There is deliberately no third surface.** Until #580 `lean-gate.sh` milestone 3 ran a
+| Lane | Scope | Deferral | On red |
+| --- | --- | --- | --- |
+| `ci.yml`'s `mutation-sweep-pr` | the PR's diff | ON — a guard is swept only when its kill set is a single fast suite, and only for the first six | reds the PR |
+| `mutation-merge.yml` | the merge's diff, on every push to `main` | OFF (`MUTATION_SWEEP_NO_DEFER`) — nothing is waiting, so there is no time bound to trade coverage for | files an issue |
+| `mutation-sweep.yml` | the whole universe, monthly | n/a (`--mode full` never defers) | files a digest issue |
+
+The PR lane is fast and shallow by design: it costs 10–15s on a merge-blocking path, and the
+deferral is what keeps it there. **The merge lane is where a guard is actually graded** — same
+harness, same `--mode pr` diff scoping, same generic + catalog depth, with all three deferral
+reasons bypassed. It runs against `github.event.before`, queued rather than coalesced, so every
+merge is graded on its own diff.
+
+The monthly lane no longer grades anybody's change — the merge lane took that job. What is left
+for it is the classes no diff-scoped run can see: a baseline that has quietly shrunk, a verdict
+flipped by a third file (the memoization key is deliberately narrow, and says so), a suite edit
+that weakened a guard no merge touched. Those move on nobody's diff, so nothing event-driven
+reaches them. Monthly costs latency on that rarest class, bounded at ~30 days, and buys back a
+nightly whose marginal information was ~zero on any day nothing changed — 570 mutants re-derived
+to re-learn 438 known kills.
+
+**What the monthly lane is FOR: per-operator kill rate, on demand.** The report's
+`survivor_ids` cell says what survives; it has no counterpart for what a suite actually
+*kills*, so no argument about whether a generic operator earns its keep has ever been
+checkable against real numbers. `--verdict-log <path>` closes that: opt-in and mode-agnostic,
+matching the `--report`/`--baseline-out`/`--slow-out` family, it streams one TAB-separated row
+per scored mutant — `<mutant id><TAB><verdict><TAB><killer suite>`, `-` for a survivor — for
+both tiers (generic and `catalog::` ids alike). It costs no new computation: the tally loop
+already holds the mutant id and reads the killer suite out of the verdict record, cache hits
+included, so a memoized kill logs its real killer rather than a blank. `mutation-sweep.yml`
+passes it at both shard invocations, into the same `sweep-out/` directory its
+`mutation-sweep-shard-N` artifact already publishes — shard-local, with no `--mode merge` arm:
+a merged verdict log would need the report's own truncation-detection story, and the operator
+route is cheaper — dispatch the workflow, download the ten shard artifacts, and concatenate
+their `mutation-verdict-log.tsv` files by hand. An unwritable path is a hard red, matching the
+report sink's own or-red guard, never a silent skip. `ci.yml`'s `mutation-sweep-pr` and
+`mutation-merge.yml` pass no such flag and are unaffected.
+
+**A red files an issue, it does not redden a dashboard.** Both non-PR lanes route their verdict
+into the intake queue through `.github/workflows/file-issue-on-red.yml`, deduplicated on a title
+key, labeled `bug` and nothing else — an auto-filed red has had no intake, so it must not read
+as queue-ready. A second red while the first is still open **comments** rather than being
+dropped: a repeat is a different commit and often a different survivor set. Three keys, so that
+no one standing red suppresses another: `mutation sweep red` (a coverage gap on a merge),
+`mutation sweep infra red` (a harness fault — the exit contract's other reds), and
+`mutation wholesale audit red` (the monthly digest). This exists because the nightly it replaces
+ran red for five consecutive nights untriaged: a cron dashboard is where a verdict goes to die.
+
+Kill verdicts are only comparable inside the canonical environment (ubuntu-latest,
+`SKIP_STRESS=1`), so local runs are advisory and say so. `MUTATION_SWEEP_NO_DEFER=1` is settable
+locally for the full picture, and does not change that.
+
+**There is deliberately no fourth surface.** Until #580 `lean-gate.sh` milestone 3 ran a
 `--mode pr` sweep in-session (decision D-18) whenever the target repo carried a
 `tools/mutation-sweep.sh`. It issued the **identical** invocation the PR job above already makes,
 so it was CI-duplicated work idle-blocking a build session — on a contended developer machine,
@@ -1467,14 +1680,14 @@ proves the parallel run really overlapped *first*, since two serial runs would a
 **A suite may not write a literal path outside its own `mktemp` tree.** Two mutants of one guard run
 the same suite at the same time, so a fixed `/tmp/<name>.out` turns an interleaved write-then-read
 into a verdict about the wrong mutant. Three suites carried exactly that and were fixed; case (k)
-lints the whole corpus for it, because the alternative symptom is flake in somebody's nightly.
+lints the whole corpus for it, because the alternative symptom is flake in somebody's sweep.
 
 **The pool presses on the killer time bound, and the direction matters.** Contention makes a suite
 slower and a timeout scores as a **kill** — the direction that *hides* a weak test rather than
 inventing a finding. The bound is `4 ×` the suite's own serially-measured time, floored at 60s, which
 is wide for a single-threaded suite given one worker per core; and every timeout is logged by name
 (`killer timeout (Ns exceeded, scored as KILLED)`), so a bound hit is visible data rather than a
-silent verdict. If a nightly shard starts naming timeouts it did not name before, read that as the
+silent verdict. If a wholesale shard starts naming timeouts it did not name before, read that as the
 pool pressing on the bound, not as the suite getting stronger.
 
 **3. A killed mutant stops at the first `FAIL:`.** The verdict is settled there, so the killer's
@@ -1548,13 +1761,16 @@ a handful of shifted rows.
 **Seed runs force `RC=0`.** A green seed is not a clean seed — `grep 'RED:'` the shard logs
 regardless. A run has shipped a reding baseline on exactly this mistake.
 
-**A green PR does not mean a green nightly.** The PR lane sweeps only guards whose kill set is a
+**A green PR does not mean a graded PR.** The PR lane sweeps only guards whose kill set is a
 single fast suite; everything paired to a slow or multi-suite killer (`lean-gate-selftest`,
 `scenario-liveness-selftest`, anything in `tools/selftest-suite-timings.tsv`) reports
-`deferred-to-nightly` and is **not graded on your PR**.
-Edit one of those and any new survivor surfaces at 03:17 UTC, on someone else's morning. If your
-diff touches a deferred guard, expect to learn about it from the nightly rather than from your PR —
-though content keying means only a site you actually *wrote* can produce one.
+`deferred-to-nightly` and is **not graded on your PR**. The status token still says `nightly`
+because three selftest greps and this document read it and re-keying an enum buys nothing; the
+lane it defers to is now the merge-time sweep on the commit your PR lands as.
+Edit one of those and any new survivor arrives as a filed issue minutes after the merge, addressed
+to whoever wrote the line rather than to whoever opens the Actions page next. If your diff touches
+a deferred guard, expect to learn about it from `mutation-merge` rather than from your PR — though
+content keying means only a site you actually *wrote* can produce one.
 
 **All-deferred is not silently green (#582).** When every in-scope guard defers — 23% of
 guard-touching PRs, measured by the #567 audit, concentrated on `lean-gate.sh` — the job still

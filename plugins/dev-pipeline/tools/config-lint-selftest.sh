@@ -70,6 +70,16 @@ expect_violation invalid-bad-design-provider.json   "design.provider must be fig
 expect_violation invalid-bad-liverender.json        "design.liveRender: unknown keys"
 expect_violation invalid-bad-liverender.json        "design.liveRender.command: required"
 expect_violation invalid-bad-liverender.json        "design.liveRender.cwd: not a topology.repos id"
+# #711 `design.liveRender.tolerancePx`, both rejected shapes. A NUMBER is not enough: the value is
+# a pixel count the gate compares against, so a fractional one is as unusable as a negative one and
+# the two arms of the predicate are separately reachable. The absent and zero cases ride the
+# valid-* glob above (valid-liverender-no-tolerance.json, valid-liverender-tolerance.json) — the
+# key is optional, and 0 is the "exact match or red" boundary a consumer legitimately asks for.
+expect_violation invalid-tolerancepx-negative.json  "design.liveRender.tolerancePx: must be a non-negative integer"
+expect_violation invalid-tolerancepx-fraction.json  "design.liveRender.tolerancePx: must be a non-negative integer"
+# ...and it is a KNOWN key, not one the unknown-keys arm happens to catch. Without this the same
+# violation text would be produced by a lint that never learned the key at all.
+expect_no_violation invalid-tolerancepx-negative.json "design.liveRender: unknown keys"
 # #348 retired stageParams.visualCapture. This fixture no longer carries a BAD viewport — a
 # perfectly well-formed one is enough now, because the key itself is the violation. Renaming the
 # file would break its git history for no gain; the assertion says what it actually proves.

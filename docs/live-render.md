@@ -3,8 +3,10 @@
 `design.liveRender` names one repo-owned render command that `/dev-pipeline:build-lean`'s
 milestone 3 runs: after the design engine implements a screen, the gate runs your command, takes
 the emitted PNG, and hashes it into the render receipt bound to the reviewed patch. **The gate
-compares nothing against the design** — it caches no design frame. The comparison (placement,
-sizing/fill, truncation, default state — never a pixel diff) is the design-sighted
+holds no design frame and diffs no pixels.** It does compare one thing — the sizes the translation
+plan transcribed against the sizes your harness measured in the DOM ([Measured
+sizes](#measured-sizes-the-rectsjson-sibling) below). Everything else about the comparison
+(placement, sizing/fill, truncation, default state) is the design-sighted
 `/dev-pipeline:review-lean` session's, scored as `fidelity:` in the verdict record — and it stays
 that way, by decision: see
 [Why there is no pixel-diff gate](#why-there-is-no-pixel-diff-gate-and-none-is-coming) below.
@@ -24,7 +26,8 @@ the same change (it had no reader left).
   "liveRender": {
     "command": "yarn render:verify --route {route} --state {state} --out {out}",  // required
     "cwd": "fe",                                                  // topology repo id; default: the fe repo
-    "readyProbe": "http://localhost:3000/system/status"           // optional pre-check URL
+    "readyProbe": "http://localhost:3000/system/status",          // optional pre-check URL
+    "tolerancePx": 2                                              // optional; default 2
   }
 }
 ```
@@ -45,6 +48,27 @@ matrix, the PNG hashes and the manifest — **never comparison**, which is the r
   The staged lane never substitutes it.
 - **`{out}`** — an absolute PNG path. Emit exactly one screenshot there; the gate treats a missing
   or zero-byte file as failure.
+- **`{out}.rects.json`** — a second artifact, written beside the screenshot at exactly that path
+  (`…/RS-1.png` ⇒ `…/RS-1.png.rects.json`). A JSON **object keyed by the translation plan's node
+  names** — the first column of its sized-node table — whose values carry the node's rendered
+  `width` and `height` in **CSS pixels**:
+
+  ```json
+  { "Filter panel": { "width": 320, "height": 604 }, "Results grid": { "height": 412 } }
+  ```
+
+  Resolving a node name to a DOM element is **yours**: you own the DOM, and the gate owns only the
+  arithmetic. Emit the object for every declared state, `{}` included — "the file is missing" and
+  "this state has nothing to report" are different claims, and only the second is an answer.
+  A node you cannot resolve is **omitted from the object**, and the gate then reds that node:
+  silence is not a pass, so a node you cannot measure comes out of the plan or gets resolved in
+  the harness. An axis you cannot measure is omitted the same way, and reds the same way if the
+  plan states a number for it.
+
+  **CSS pixels, not device pixels.** A harness screenshotting at `deviceScaleFactor: 2` and
+  reporting device pixels renders a correct implementation at a uniform 2.0 and takes a hard
+  `scale` red — that is a harness bug, and the gate deliberately does not tolerate an integer
+  factor to paper over it.
 - **Placeholders appear UNQUOTED** in the command. The lean gate shell-quotes each substituted
   value itself — a state name is human prose and contains spaces — so `--state {state}` is correct
   and `--state "{state}"` nests the quoting and delivers a literally-quoted argument. Values are
@@ -116,12 +140,31 @@ Handoff: https://<your provider>/file/abc123
 …or the explicit disarm, `Design: none — <reason>`, which is a conscious per-ticket decision and
 is **state-locked**: once a run has armed, switching to the disarm reds at milestones 1 and 3.
 
+**The disarm alone is not enough on a provider repo (#709).** A build session writing `Design:
+none — <reason>` on its own is the opt-out this mechanism exists to forbid, so the gate additionally
+requires a gate-visible `design-disarm` operator override before it accepts the disarm — an
+attended operator, present before the run, records one:
+
+```
+bash <path-to>/operator-override.sh record --gate design-disarm --scope design-disarm \
+  --issue <n> --decision '<what the operator decided, one line>' --answer '<their answer, verbatim>'
+```
+
+With no record, milestone 1 reds naming that exact command. With a valid record, the ticket is
+`disarmed` and the committed verdict carries `fidelity: not-applicable (override: <ref>)`, where
+`<ref>` is `<issue>#<n>` — the record's own block ordinal. The merge boundary resolves that ref
+against the committed record independently of config, which it cannot read on a consumer.
+
 **What the gate does when armed — first, the translation plan.** Before the harness is called
 once, milestone 3 asserts a committed **translation plan** at `<plansDir>/<key>-lean-plan.md` —
 the artifact `design-toolkit:figma-faithful` step 7 writes. It must carry a `planned_from:` header
 (the gate stamps it with the branch's plan patch identity and reds until the stamp is committed),
 a table declaring a **`why this component`** column, and a table declaring a **`dimensions`**
-column, with every cell of both filled and no row shorter than its header. The ordering is the
+column — which since #711 also declares **`node`**, **`RS`** and **`px`** beside it: the key your
+harness reports that node under, which declared render state it is measured in, and its design
+size as `<w>×<h>` with an integer or `-` per axis (`348×32`, `-×32`). Every cell of both tables is
+filled and no row is shorter than its header. `dimensions` stays prose — it carries the per-axis
+fixed/hug/fill and overflow reading `figma-faithful` step 3b takes, which a bare `348×32` cannot. The ordering is the
 point: a wrong token row should red before anything is rendered, because one table cell is the
 cheapest place to fix it.
 
@@ -132,15 +175,29 @@ written and what was written is wrong. That split is what keeps an armed run fro
 its three milestone-3 attempts reaching its first screenshot.
 
 What the plan buys is that an omission reads as an **empty cell** rather than an absent thought.
-Nothing here checks that a recorded component is the right one or a recorded dimension is the
-design's — `design-toolkit:figma-faithful-plan-reviewer`, which the implementing session dispatches
-at step 7, asks those as questions the plan must answer. It is deliberately **not** re-asserted at
-the merge boundary: the boundary re-asserts the verdict chain, and `fidelity: pass` binds to the
-render receipt, not to the plan.
+Nothing in the shape check tells you a recorded component is the right one or a recorded dimension
+is the design's — `design-toolkit:figma-faithful-plan-reviewer` asks those as questions the plan
+must answer.
+
+**And on an armed lean run that dispatch is mandatory, not advisory.** The gate cannot run an
+agent, so it takes the verdict record's shape: the build session dispatches the reviewer on the
+committed plan and writes its output with `lean-gate.sh plan-review <issue> --verdict
+<pass|fix-and-go|block> --summary-file <findings> --model <m>`, which stamps `reviewed_plan_from`
+from the checkout. Milestone 3 then refuses — **before any render command runs** — when the record
+at `<plansDir>/<key>-lean-plan-review.md` is missing, when its `reviewed_plan_from` no longer
+matches the branch's plan binding, or when its verdict is `block`, quoting the first finding.
+`pass` and `fix-and-go` proceed; committing the record never stales it, because that path is
+excluded from the binding exactly as the plan is. A family with no plan-reviewer agent
+(`claude-design` has none today) is unreviewed at this stage and the gate says so rather than
+demanding an artifact nobody can produce.
+
+None of it is re-asserted at the merge boundary: the boundary re-asserts the verdict chain, and
+`fidelity: pass` binds to the render receipt, not to the plan.
 
 **Then the render.** Milestone 3, last — after `extraLanes` — renders every declared row through
-your command, asserts exit 0 and a non-empty PNG per row, and writes a hash manifest at
-`<plansDir>/<key>-lean-renders.md`. PNG bytes never enter history: they
+your command, asserts exit 0 and a non-empty PNG per row, compares the measured sizes (below), and
+writes a hash manifest at `<plansDir>/<key>-lean-renders.md` carrying two rows per state: the
+screenshot, and the `RS-n.rects` sibling. PNG bytes never enter history: they
 land under `.claude/lean-renders/<key>/`, which the gate asserts is git-ignored before it renders.
 Milestone 4 then refuses any verdict that does not score `fidelity: pass`, or whose manifest was
 rendered from different code.
@@ -166,10 +223,61 @@ suppressing the check. Sources of nondeterminism worth pinning in the harness: a
 transitions (disable them), live timestamps and relative-time strings, randomly seeded fixture
 data, font loading, and scrollbar/viewport differences.
 
-**Comparison is still not the gate's.** Nothing here diffs a screenshot against a design frame.
-The gate owns the state matrix, the paths, the hashes and the manifest; the fidelity judgment is
-scored by the `/dev-pipeline:review-lean` session, design-sighted, from a checkout of the reviewed
-head, and recorded as `fidelity:` in the verdict record.
+### Measured sizes: the `.rects.json` sibling
+
+**One number the gate does read.** For each declared state it joins the plan's `px` cells to your
+`.rects.json` entries by node name, and the comparison is **scale-adaptive rather than absolute** —
+a browser viewport and a design frame differ as a matter of course, and pinning a viewport would
+put a second contract on every consumer harness. Per state, over the axes the plan states a number
+for, it takes `r = rendered / design` and `k = median(r)`, then raises two separately named reds,
+both in pixels against `tolerancePx`:
+
+- **`shape`** — `abs(design × k − rendered) > tolerancePx`: this node is out of proportion with the
+  rest of the state. It survives any uniform viewport difference, which is what makes it the
+  interesting one.
+- **`scale`** — `abs(design × k − design) > tolerancePx`: `k` itself is not explained by tolerance,
+  so the whole state renders at `k`. Named **once** per state, because "everything is 2.2×" is one
+  fact, not one fact per node.
+
+A state with one stated axis degenerates to plain absolute comparison, since the median absorbs
+everything: `33` against a design `32` passes at the default tolerance and reds at `tolerancePx: 0`.
+
+Every mismatch across every state is reported **together**, not the first one — a mismatch is on
+the fix budget, and revealing them one per attempt would hard-stop a run at attempt 4 having never
+shown the shape of the problem. The two budgets split on what the worktree can fix: a `shape` or
+`scale` mismatch, an unparseable `px` cell, a plan node your file does not carry, and an axis the
+plan states and your file omits are **fix attempts**; a missing or malformed `.rects.json` is an
+**absent**-budget red, because the harness owns it and no branch edit reaches it.
+
+What this does **not** buy: its ground truth is the Figma value *as the build agent transcribed
+it*, so it catches plan→code drift and stays blind to design→plan drift. That is
+`figma-faithful-plan-reviewer`'s question, asked before any of this runs.
+
+**The rest of the comparison is still not the gate's.** Nothing here diffs a screenshot against a
+design frame. The gate owns the state matrix, the paths, the hashes, the manifest and those two
+size reds; the fidelity judgment is scored by the `/dev-pipeline:review-lean` session,
+design-sighted, from a checkout of the reviewed head, and recorded as `fidelity:` in the verdict
+record.
+
+**The provider's fidelity reviewer is mandatory on an armed spec (#708).** It used to be routed by
+model judgment over `stageParams.webComponentGlobs`, and a miss left a one-line note in the round
+summary while the round proceeded — so an armed ticket could be approved with the design dimension
+never reviewed, and nothing in the record said so. `review-lead` now spawns it unconditionally on
+an armed spec, and a round that lost it to a dark reviewer is **voided** rather than recorded
+(`review-lean` step 5c). The record's `panel:` key is the attestation: the reviewer agent types the
+round actually returned a result from, qualified and comma-separated. Milestone 4 and
+`check-lean-chain.sh` evidence arm 8 both require it to name the provider's reviewer.
+
+WHICH reviewer is derived from the **handoff link's host**, never from `design.provider`: the first
+recognised URL in the `## Design` section naming `figma.com` (or a subdomain) means
+`design-toolkit:figma-faithful-reviewer`; `claude.ai` under `/design` means
+`design-toolkit:design-faithful-reviewer`. The reason is the same one arming has: the merge
+boundary reads a CI checkout where `design.provider` is gitignored and invisible. A handoff host
+neither side can classify is refused at milestone 1, where the remedy is a spec edit, and a host
+that disagrees with the configured provider is refused there too — the gate is the only reader that
+sees both. Like the evidence table below, this is **tamper-evidence**: the panel is agent-written,
+and what it buys is that a silently unrun design dimension has to be actively misstated rather than
+achieved by an omission.
 
 **What the gate does own about that judgment is its SHAPE, not its truth.** An armed
 `--fidelity pass` is refused at the writer unless the review summary carries a
@@ -201,14 +309,13 @@ settings apart — and the dependency would land on every consumer's render harn
 whose whole shape is that the harness owns boot/auth/screenshot and the lane owns nothing that
 needs installing.
 
-The narrower alternative — asserting **measured properties** against the translation plan's
-`dimensions` table — is not refuted, and #701 made it cheaper by turning that plan into a
-committed, gate-asserted artifact. Two things keep it out of the lane for now: its ground truth is
-the Figma value *as the build agent transcribed it*, so it catches plan→code drift and stays blind
-to design→plan drift; and getting the rendered numbers at all needs a breaking addition to the
-command contract above (a second emitted artifact per state). It would need a ticket of its own,
-with those costs priced; none is filed, and this document does not wait on one. **Nothing here
-defers to it.**
+The narrower alternative — asserting **measured properties** against the translation plan — was
+never refuted, and it **shipped** in #711 as [Measured
+sizes](#measured-sizes-the-rectsjson-sibling) above: the plan's `px` column against the harness's
+`.rects.json`, scale-adaptive, on a stated tolerance. It cost exactly what this section priced it
+at — a second emitted artifact per state, breaking for any consumer already armed — and it buys
+exactly what this section said it would, no more: plan→code drift, blind to design→plan drift.
+None of that makes a pixel differ cheaper, and none of the rest of the judgment moved.
 
 So fidelity on this lane is **attested, and the attestation is auditable** — that is the whole
 claim. The evidence table above is what makes contradicting a rubber stamp possible, and it is

@@ -172,6 +172,33 @@ printf '# lean spec\n\n- AC-1: does a thing\n- AC-2: does another\n' > "$TREE/do
 # `reviewed_head` is resolved BEFORE the commit, which is the real shape: the reviewer reads the
 # current head, names it, and commits the record on top. Resolving it afterwards would name the
 # record's own commit and leave every declared-freshness case asserting nothing.
+# The scorecard the record's own spec forces on it (#622). Derived from the CURRENT spec rather
+# than hard-coded, because the cases below swap the spec's AC set several times and a fixed table
+# would score criteria that are no longer declared. It is a fixture generator, not an oracle: the
+# scorecard reader's own arms are asserted in lean-evidence-selftest.sh against LITERAL tables,
+# and the two dedicated cases below (AB*) hand-write theirs.
+scorecard_block() {
+  local ids id
+  ids="$(grep -oE '^[[:space:]]*[-*+][[:space:]]+AC-[0-9]+' "$TREE/docs/plans/acme-42-lean.md" 2>/dev/null \
+         | grep -oE 'AC-[0-9]+' | sort -u -t- -k2,2n)"
+  [ -n "$ids" ] || return 0
+  printf '\n## AC scorecard\n\n| AC-n | score | evidence |\n| --- | --- | --- |\n'
+  for id in $ids; do printf '| %s | satisfied | fixture |\n' "$id"; done
+}
+
+# Insert a key into the record's HEADER BLOCK — the first run of `key: value` lines, which every
+# reader anchors on and which ends at the first blank line. `>> "$VREC"` used to be equivalent,
+# because the fixture records had no body; now they carry a scorecard, so an appended key would
+# land BELOW the blank line where `header_key` cannot see it, and the case would red on an absence
+# it did not mean to create.
+add_header_key() { # add_header_key <key> <value>
+  awk -v k="$1" -v v="$2" '
+    !done && $0 == "" { print k ": " v; done = 1 }
+    { print }
+    END { if (!done) print k ": " v }
+  ' "$VREC" > "$VREC.hk" && mv "$VREC.hk" "$VREC"
+}
+
 write_verdict() { # write_verdict [verdict] [run-id] [session-id] [reviewed-head] [patch-id]
   printf 'verdict=%s\nrun_id: %s\nsession_id: %s\nrounds: 1\nreviewed_head: %s\n' \
     "${1:-approve}" "${2:-r-review-1}" "${3:-sess-review-1}" \
@@ -179,6 +206,12 @@ write_verdict() { # write_verdict [verdict] [run-id] [session-id] [reviewed-head
   # Absent by default: every case above this line gates on the SHA path records predating the
   # patch-id key still take, and (R5) asserts that rather than assuming it.
   [ -n "${5:-}" ] && printf 'reviewed_patch_id: %s\n' "$5" >> "$VREC"
+  # `panel:` (#708) is opt-in through a global rather than a positional, for the same reason:
+  # a record written before the key existed is a shape the boundary has to own, and every case
+  # above the (X) block is one. VPANEL is set where the armed cases begin and is what each panel
+  # case varies.
+  [ -n "${VPANEL:-}" ] && printf 'panel: %s\n' "$VPANEL" >> "$VREC"
+  scorecard_block >> "$VREC"
   commit_tree "verdict ${1:-approve}"
 }
 
@@ -196,6 +229,7 @@ tree_patch_id() { # tree_patch_id <head-ish>
 }
 write_verdict_literal() { # write_verdict_literal <full-record-body>
   printf '%s' "$1" > "$VREC"
+  scorecard_block >> "$VREC"
   commit_tree "verdict (literal fixture)"
 }
 # A lean-SHAPED fixture that must never count as a real artifact.
@@ -255,6 +289,23 @@ out="$(run_gate "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt
 if [ "$rc" -eq 0 ] && silent "$out"; then
   pass "(A) AC-1: a lean PR with spec + approve-verdict + bot claim passes with zero bytes on both streams"
 else fail "(A) expected a silent rc=0, got $rc: $out"; fi
+
+# ---- (A2) #622: the AC scorecard arrives through the DELEGATION ----------------------------
+# This gate reads no scorecard of its own — `lean-evidence.sh` owns the arm, and the reader's
+# grammar is asserted against it directly in lean-evidence-selftest.sh's (sc) block. What only
+# THIS suite can show is that the arm survives the delegation: the payload is invoked here with
+# half its environment supplied by the caller, and an arm that never ran would leave (A) above
+# just as green. The record is HAND-WRITTEN, which is AC-5's case — it never passed a writer.
+# Written directly rather than through write_verdict_literal, which appends a scorecard of its
+# own — two sections would merge and the case would red on the duplicate-row arm instead.
+printf 'verdict=approve\nrun_id: r-review-1\nsession_id: sess-review-1\nrounds: 1\nreviewed_head: %s\n\n## AC scorecard\n\n| AC-n | score | evidence |\n| --- | --- | --- |\n| AC-1 | unsatisfied | not wired |\n| AC-2 | satisfied | fixture |\n' \
+  "$(git -C "$TREE" rev-parse HEAD)" > "$VREC"
+commit_tree "a hand-written record contradicting its own scorecard"
+out="$(run_gate "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'scored unsatisfied on a verdict=approve record' <<<"$out"; then
+  pass "(A2) a hand-written approve contradicting its own scorecard reds through the delegated payload"
+else fail "(A2) expected the delegated scorecard refusal, got rc=$rc: $out"; fi
+write_verdict
 
 # ---- (B) a non-lean, non-pipeline PR is simply not applicable ----------------------------
 # A whole-gate decline is class (b), not (a): nothing was evaluated, and an unevaluated gate that
@@ -823,6 +874,7 @@ write_chain_record() { # write_chain_record <run-id> <session-id> <rounds> <patc
     # The BODY, below the blank line the production writer emits — which is what makes it a body
     # rather than more header. (V6) needs a record whose own findings mention the key.
     [ -n "${7:-}" ] && printf '\n%s\n' "$7"
+    scorecard_block
   } > "$VREC"
   commit_tree "verdict round $3"
 }
@@ -1098,14 +1150,41 @@ write_render_manifest() { # write_render_manifest <rendered-from>
 # The armed spec. `write_verdict` does not emit `fidelity:`, so the record under test carries
 # none until a case adds one — which is the pre-#394 record shape as well as the forgot-the-flag
 # one, and both must be refused on an armed ticket.
-arm_spec() {
+# The HANDOFF URL is a parameter (#708): the boundary derives the mandatory fidelity reviewer
+# from its host, so it is the one field the (X7)+ cases vary while everything else holds still.
+# The default is a figma one because that is what the cases before (X7) were written against —
+# an unrecognised host is now a violation in its own right, which those cases do not assert.
+arm_spec() { # arm_spec [handoff-url]
   {
     printf '# lean spec\n\n- AC-1: does a thing\n- AC-2: does another\n\n'
-    printf '## Design\n\nHandoff: https://design.example.invalid/f/a\n\n'
+    printf '## Design\n\nHandoff: %s\n\n' "${1:-https://www.figma.com/design/AbC123/Prospects}"
     printf '| RS-n | route | state | AC refs |\n| --- | --- | --- | --- |\n'
     printf '| RS-1 | prospects | default | AC-1 |\n'
   } > "$TREE/docs/plans/acme-42-lean.md"
 }
+
+# One armed round end to end: a spec with the given handoff, a receipt bound to that head, and a
+# verdict scoring `fidelity: pass` with the given panel. Each (X7)+ case differs from its
+# neighbours in exactly ONE of those three, which is what keeps the derivation — rather than the
+# artifacts merely being present — the thing under test.
+arm_round() { # arm_round <handoff-url> <panel> <tag>
+  local head pid
+  arm_spec "$1"
+  commit_tree "the spec arms with a $3 handoff"
+  write_render_manifest "$(tree_render_id HEAD)"
+  commit_tree "the receipt bound to that head"
+  head="$(git -C "$TREE" rev-parse HEAD)"
+  pid="$(tree_patch_id HEAD)"
+  VPANEL="$2"
+  write_verdict approve "r-review-$3" "sess-review-$3" "$head" "$pid"
+  add_header_key fidelity pass
+  commit_tree "the record scores fidelity ($3)"
+}
+
+# The panel every armed case below carries unless it is the variable under test. Stated, never
+# derived from production: a fixture that recomputed design_family() would assert whatever that
+# function returned, including nothing.
+VPANEL="review-toolkit:security-reviewer,design-toolkit:figma-faithful-reviewer"
 
 # (X2) ARMED, no receipt committed. The screenshots a fidelity verdict claims to have been scored
 # against are simply not on the branch.
@@ -1142,7 +1221,7 @@ else fail "(X3b) the gate did not resolve the real spec: $out"; fi
 
 # (X4) THE HAPPY PATH: armed spec, committed receipt whose rendered_from is this head's render
 # binding, and a verdict scoring `fidelity: pass`.
-printf 'fidelity: pass\n' >> "$VREC"
+add_header_key fidelity pass
 commit_tree "the record scores fidelity"
 # The receipt's binding excludes the verdict record AND itself, so committing either leaves it
 # unchanged — that is what lets the reviewer commit on top of evidence without invalidating it,
@@ -1160,7 +1239,7 @@ write_render_manifest "0000000000000000000000000000000000000000"
 commit_tree "a receipt for a tree this branch no longer is"
 w_pid="$(tree_patch_id HEAD)"
 write_verdict approve r-review-w3 sess-review-w3 "$(git -C "$TREE" rev-parse HEAD)" "$w_pid"
-printf 'fidelity: pass\n' >> "$VREC"
+add_header_key fidelity pass
 commit_tree "an honest record on top of a stale receipt"
 out="$(run_gate_base "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
 if [ "$rc" -eq 1 ] && grep -q 'records rendered_from' <<<"$out" \
@@ -1182,6 +1261,111 @@ out="$(run_gate_base "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lea
 if [ "$rc" -eq 0 ] && silent "$out"; then
   pass "(X6) an explicit 'Design: none' disarm leaves the boundary's design arm not applicable"
 else fail "(X6) expected a silent disarmed pass, got rc=$rc: $out"; fi
+
+# ---- (X7-X11) evidence 8: the mandatory fidelity reviewer's panel attestation (#708) --------
+# On an armed spec the provider's fidelity reviewer is not optional, and `panel:` lists the
+# reviewers the round actually got a result from — so a reviewer that was never selected and one
+# that went dark are both simply absent from it. WHICH reviewer is derived from the handoff
+# HOST, never from config, for the reason arming is: `design.provider` is gitignored and no CI
+# checkout can read it.
+#
+# (X6) left a DISARMED tree, so each case here re-arms from scratch through `arm_round` and the
+# green case runs first: a block whose only passing member is a violation is a block that would
+# stay green if the arm reported that violation unconditionally.
+
+# (X7) THE HAPPY PATH, host-derived. A figma handoff, and a panel naming the figma reviewer
+# among others — silent green, which is also what proves (X8) and (X9) below are not the arm
+# simply always firing on an armed tree.
+arm_round "https://www.figma.com/design/AbC123/Prospects" \
+          "review-toolkit:security-reviewer,design-toolkit:figma-faithful-reviewer" "x7"
+out="$(run_gate_base "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+if [ "$rc" -eq 0 ] && silent "$out"; then
+  pass "(X7) an armed figma round whose panel names the figma fidelity reviewer passes the boundary, silently"
+else fail "(X7) expected a silent armed-with-panel pass, got rc=$rc: $out"; fi
+
+# (X8) THE RESERVED SEAT IS EMPTY. Same tree shape, same fidelity: pass, a full panel of other
+# reviewers — and the one the handoff host makes mandatory struck from it. This is what a dark
+# fidelity reviewer looks like in the record, and what routing that never selected it looks like:
+# indistinguishable here, and a violation either way.
+arm_round "https://www.figma.com/design/AbC123/Prospects" \
+          "review-toolkit:security-reviewer,review-toolkit:maintainability-reviewer" "x8"
+out="$(run_gate_base "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'design-toolkit:figma-faithful-reviewer' <<<"$out" \
+   && grep -q 'does not name it' <<<"$out"; then
+  pass "(X8) an armed round whose panel omits the host-implied fidelity reviewer reds the boundary, naming the reviewer"
+else fail "(X8) expected the panel-omission violation, got rc=$rc: $out"; fi
+
+# (X8b) SUBSTRING IS NOT MEMBERSHIP. The same panel with the reviewer's name embedded in a longer
+# token: a `case` without the comma anchors, or a bare grep, credits this as a dispatch. Nothing
+# ships such a name today, which is exactly why the property needs pinning — the day one is added
+# is the day a substring test stops discriminating, silently.
+arm_round "https://www.figma.com/design/AbC123/Prospects" \
+          "review-toolkit:security-reviewer,acme:pre-design-toolkit:figma-faithful-reviewer-v2" "x8b"
+out="$(run_gate_base "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'does not name it' <<<"$out"; then
+  pass "(X8b) a panel entry that merely CONTAINS the reviewer's name is not that reviewer — the match is a whole comma-separated token"
+else fail "(X8b) a substring panel entry was credited as a dispatch, got rc=$rc: $out"; fi
+
+# (X9) NO KEY AT ALL — the record a round wrote before `panel:` existed, and the one a hand-edit
+# left behind. #708 D-15 grandfathers neither: without the key nothing in the branch says which
+# reviewers ran, which is the whole condition the key was added to make visible. The `none`
+# sentinel the writer emits on an unarmed run lands here too, and is refused for the same reason.
+arm_round "https://www.figma.com/design/AbC123/Prospects" "" "x9"
+out="$(run_gate_base "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'records no reviewer panel' <<<"$out"; then
+  pass "(X9) an armed record carrying no 'panel:' key at all reds the boundary — nothing is grandfathered"
+else fail "(X9) expected the absent-panel violation, got rc=$rc: $out"; fi
+arm_round "https://www.figma.com/design/AbC123/Prospects" "none" "x9b"
+out="$(run_gate_base "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'records no reviewer panel' <<<"$out"; then
+  pass "(X9b) …and the writer's unarmed 'panel: none' sentinel cannot satisfy an armed one"
+else fail "(X9b) expected the absent-panel violation for the none sentinel, got rc=$rc: $out"; fi
+
+# (X10) THE HOST DECIDES, and the two families are actually distinguished. The same figma panel
+# that passed (X7) fails under a claude.ai/design handoff, and the claude-design reviewer passes
+# it — a derivation that returned one family for everything would fail exactly one of this pair.
+arm_round "https://claude.ai/design/AbC123" \
+          "review-toolkit:security-reviewer,design-toolkit:figma-faithful-reviewer" "x10"
+out="$(run_gate_base "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'design-toolkit:design-faithful-reviewer' <<<"$out"; then
+  pass "(X10) a claude.ai/design handoff demands the design-faithful reviewer — the figma one does not satisfy it"
+else fail "(X10) expected the claude-design family violation, got rc=$rc: $out"; fi
+arm_round "https://claude.ai/design/AbC123" \
+          "review-toolkit:security-reviewer,design-toolkit:design-faithful-reviewer" "x10b"
+out="$(run_gate_base "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+if [ "$rc" -eq 0 ] && silent "$out"; then
+  pass "(X10b) …and the same handoff with the design-faithful reviewer in the panel passes, silently"
+else fail "(X10b) expected a silent claude-design pass, got rc=$rc: $out"; fi
+
+# (X11) AN UNRECOGNISED HOST IS A VIOLATION, not a pass. This is the direction the whole arm
+# would quietly invert in: a derivation that answered "no family" would leave "no reviewer is
+# mandatory", and every armed PR behind an unclassifiable handoff would sail through with the
+# design dimension unrun. The panel here is the one that PASSES (X7), so the red can only be the
+# host.
+arm_round "https://design.example.invalid/f/AbC123" \
+          "review-toolkit:security-reviewer,design-toolkit:figma-faithful-reviewer" "x11"
+out="$(run_gate_base "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'recognises as a provider surface' <<<"$out" \
+   && ! grep -q 'does not name it' <<<"$out"; then
+  pass "(X11) an armed spec whose handoff host names no provider surface reds the boundary rather than exempting it"
+else fail "(X11) expected the unrecognised-host violation alone, got rc=$rc: $out"; fi
+
+# Hand the following blocks back the DISARMED tree (X6) left them, and clear VPANEL with it.
+# Every block below writes its own verdict record and none of them scores fidelity — they were
+# written against a tree where the design arm is not applicable, so leaving it armed would red
+# each of them on THIS arm instead of on its own subject. (X11)'s spec would red on every run.
+{
+  printf '# lean spec\n\n- AC-1: does a thing\n- AC-2: does another\n\n'
+  printf '## Design\n\nDesign: none — no FE surface in this ticket.\n'
+} > "$TREE/docs/plans/acme-42-lean.md"
+commit_tree "the spec disarms the design lane again"
+VPANEL=""
+w_pid="$(tree_patch_id HEAD)"
+write_verdict approve r-review-x11z sess-review-x11z "$(git -C "$TREE" rev-parse HEAD)" "$w_pid"
+out="$(run_gate_base "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+if [ "$rc" -eq 0 ] && silent "$out"; then
+  pass "(X11z) the (X) block hands the following blocks the silent, disarmed tree they were written against"
+else fail "(X11z) the disarmed tree was not restored to green, got rc=$rc: $out"; fi
 
 # ---- (Y) AC-3: the delegated PR-marker identity arm (#359) --------------------------------
 # The boundary now reads the build identity from TWO sources — the bot claim on the issue (the

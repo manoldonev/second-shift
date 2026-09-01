@@ -240,12 +240,13 @@ ERRORS=$(jq -r --argjson shippedTiers "$SHIPPED_TIERS_JSON" '
       + err((.provider? // "") | IN("figma","claude-design") | not; "design.provider must be figma|claude-design")
       + (if (.liveRender != null) then (.liveRender |
           err((type) != "object"; "design.liveRender: must be object")
-          + err(((keys) - ["command","cwd","readyProbe"]) != []; "design.liveRender: unknown keys")
+          + err(((keys) - ["command","cwd","readyProbe","tolerancePx"]) != []; "design.liveRender: unknown keys")
           + err((.command? // "") == ""; "design.liveRender.command: required")
           + err((.command? != null) and ((.command | type) != "string"); "design.liveRender.command: must be string")
           + err((.cwd? != null) and ((.cwd | type) != "string"); "design.liveRender.cwd: must be string")
           + err((.cwd? != null) and ((.cwd | type) == "string") and ($repoIds != []) and ((.cwd as $c | $repoIds | index($c)) == null); "design.liveRender.cwd: not a topology.repos id")
           + err((.readyProbe? != null) and ((.readyProbe | type) != "string"); "design.liveRender.readyProbe: must be string")
+          + err((.tolerancePx? != null) and (((.tolerancePx | type) != "number") or ((.tolerancePx | floor) != .tolerancePx) or (.tolerancePx < 0)); "design.liveRender.tolerancePx: must be a non-negative integer")
         ) else [] end)
     ) else [] end)
   # ---- grillWaivers ----------------------------------------------------------

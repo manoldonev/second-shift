@@ -17,7 +17,7 @@ All extension files sit under the consumer repo's `.claude/second-shift/` direct
 | `.claude/second-shift/review-context.md` | every panel reviewer + review-lead (each self-loads it) | Repo-wide review context: stack orientation, maturity/severity calibration, architectural invariants, known-accepted patterns, and an ownership table pointing at the docs that own enumerable values (the named-section catalog reviewers key on: "Authoring the review-context surface" below). **Database stack** (engine, ORM/ODM/driver, schema/model + data-access globs, migration tooling, special capabilities like vector search) — db-reviewer applies its checks in the terms this section (or `review-context/db-reviewer.md`) declares; absent = db-reviewer infers the stack and lowers confidence |
 | `.claude/second-shift/review-context/<reviewer-name>.md` | exactly that reviewer (self-loaded after the shared file) | Per-reviewer repo rules: severity examples, what-not-to-flag lists, stack resolutions only that reviewer consumes. Basename must be a reviewer in the effective registry — linted fail-closed by `review-toolkit/scripts/check-review-context.sh` (review-lead pre-flight) on top of the manifest glob |
 | `.claude/second-shift/doc-routing.md` | review-toolkit `doc-updater`, and the AC-scoped doc rule in `build-lean` | Change-category → doc-path routing map: for each conceptual code-area category (API/endpoint, DB schema, background worker, decision/domain-constant, frontend, …) the doc(s) that document it, plus which reviewer agents restate those constants. Supplements the repo's `CLAUDE.md` context router when a specific-enough category→doc map is wanted. Absent = fall back to CLAUDE.md's declared doc roots + basename grep |
-| `.claude/second-shift/design-tokens/*.md` | design-toolkit `design-faithful`, `figma-faithful`, `figma-faithful-spec`, `figma-iterate` skills + `design-faithful-reviewer` / `figma-faithful-reviewer` / `figma-faithful-plan-reviewer` | Design-system reference: component catalog, token roles + arithmetic, primitives package, known-good analogs. May declare **multiple surfaces** (fixed-theme value tables vs a branded/host-relative surface) so the plugin stays surface-agnostic |
+| `.claude/second-shift/design-tokens/*.md` | design-toolkit `design-faithful`, `figma-faithful`, `figma-faithful-spec`, `figma-iterate` skills + `design-faithful-reviewer` / `design-faithful-plan-reviewer` / `figma-faithful-reviewer` / `figma-faithful-plan-reviewer` | Design-system reference: component catalog, token roles + arithmetic, primitives package, known-good analogs. May declare **multiple surfaces** (fixed-theme value tables vs a branded/host-relative surface) so the plugin stays surface-agnostic |
 | `.claude/agents/*.md` + config `reviewers.add` | review-lead registry | Whole domain reviewers (e.g. an orders-reviewer); dimensions declared in config for routing/dedup |
 | `.claude/skills/**` | native skill discovery | Knowledge skills (playbooks); no registration needed |
 | `findings.md`, `CLAUDE.md` | session start / all agents | As before — the plugins respect but never require them |
@@ -38,12 +38,19 @@ Authoring litmus questions for the shared core (keep it small — owned facts po
 
 ## Authoring the review-context surface
 
-The shipped reviewers key on **named sections**, not free prose — a section they can't find
-means they infer conservatively from the diff and say so. A section with exactly one reader
-belongs in that reviewer's own `review-context/<reviewer-name>.md` (same content, self-loaded
-by exactly that reviewer); sections with multiple readers stay in the shared core — reviewers
-honor both homes. These are the sections that have readers today (every one optional; write
-only what's true for your repo):
+Review keys on **named sections**, not free prose — a section that can't be found means the
+dimension is inferred conservatively from the diff, and says so. A section with exactly one
+reader belongs in that reviewer's own `review-context/<reviewer-name>.md` (same content);
+sections with multiple readers stay in the shared core — both homes are honored. These are the
+sections that have readers today (every one optional; write only what's true for your repo):
+
+**A "Read by:" line names a dimension, not necessarily a dispatch.** `review-lead` reviews some
+dimensions in-session — its lead pass — rather than spawning a subagent for them, and the lead
+pass loads the shared file plus each of those reviewers' `review-context/<reviewer-name>.md`
+exactly as the subagent would have. So a `review-context/performance-reviewer.md` is read whether
+or not `performance-reviewer` is dispatched this round. The names are kept as the reader tokens
+because they remain effective-registry members and are what the machine-readable catalog's format
+accepts; the semantic is "this section calibrates that dimension, applied by whoever reviews it".
 
 ```markdown
 # Review context — <repo>

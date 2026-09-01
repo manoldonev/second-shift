@@ -1,46 +1,29 @@
 # Nightly standing guards — model-free, like every other lane here.
 #
-# TWO GUARDS, one cron, and the same reasoning puts both here rather than on the PR lane: each is
-# a STANDING MEASUREMENT whose answer barely moves from one PR to the next, and each costs more
-# than that answer is worth on the critical path.
+# ONE GUARD, one cron: wholesale-selftests is a STANDING MEASUREMENT whose answer barely moves
+# from one PR to the next, and costs more than that answer is worth on the critical path.
+# prose-budget rides the same cron for the same reason, at a fraction of the cost.
 #
-#   install-topology     every shipped suite, re-run from a staged install cache outside any git
-#                        repo. Detail below.
 #   wholesale-selftests  the whole sweep with the pass cache BYPASSED (#448). The PR lane skips a
 #                        suite whose declared inputs in tools/selftest-cache-inputs.tsv are
 #                        unchanged; this leg is the backstop that catches an UNDER-declaration,
 #                        within a day, against a tree nobody is waiting on. Its unique
-#                        contribution over the guard above is the suites that ship with no plugin
-#                        — those under tools/, scripts/ and tests/.
+#                        contribution over install-topology (see below) is the suites that ship
+#                        with no plugin — those under tools/, scripts/ and tests/.
 #
-# This file was `install-topology.yml` until the second guard landed; every job here runs
+# install-topology used to run here too, on this same cron. #666 moved it to
+# .github/workflows/install-topology.yml on event triggers (push on packaging paths, the
+# release PR, workflow_dispatch): a clock is the least relevant trigger for a guard whose
+# answer only moves when packaging/layout changes or a release is cut, and its red was
+# rotting on a cron dashboard nobody here reads. See that file for the class it guards and
+# why both a ubuntu and a bash-3.2 lane run it.
+#
+# This file was `install-topology.yml` until wholesale-selftests landed; every job here runs
 # concurrently and blocks nothing. wholesale-selftests has ONE lane, deliberately (same reasoning
 # as prose-budget below): ci.yml's selftests-bash32 already runs the whole sweep under stock bash
 # 3.2 at PR time, and the pass cache this backstop exists to bypass covers exactly the suites in
 # tools/selftest-cache-inputs.tsv — a 3.2 twin here re-ran the same code path to re-ask a
 # question the ubuntu lane already answers. The macos twin was deleted 2026-08-30.
-#
-# WHAT THE CLASS GUARD GUARDS. A shipped suite can pass in this checkout and fail everywhere it is actually
-# installed, because it silently borrows something from the tree it was authored in.
-# tools/install-topology-selftest.sh stages every plugin into a version-keyed install cache
-# outside any git repo, with cwd in a separate consumer directory, and re-runs every shipped
-# suite from there. Two real defects motivated it, both green in-tree the whole time.
-#
-# WHY IT IS NOT ON THE PR LANE. Its cost IS the shipped suite set, run a second time — ~400s on
-# macos and ~205s on ubuntu uncontended, and it was measured at 319s/438s/584s across three runs
-# of one unchanged tree, so the range is the number. Against that, the signal it produces is
-# near-identical from one PR to the next: the class only moves when suites change or when
-# packaging/topology changes. Paying the repo's longest job on every push to re-learn yesterday's
-# answer is what made CI's critical path 17:50. Nightly is where a standing measurement belongs —
-# the same posture the wholesale mutation sweep already takes, and for the same reason.
-#
-# WHAT THAT COSTS. A packaging or suite regression is caught within a day rather than at PR time.
-# That is the deliberate trade; it is not free. `workflow_dispatch` is here so it can be run on
-# demand against a branch that touches packaging, without waiting for the cron.
-#
-# BOTH LANES. Several install-topology-known-red.tsv rows are explicitly environment-dependent,
-# so the bash-3.2 copy carries signal ubuntu does not. Splitting by lane costs nothing here —
-# they run concurrently and block nothing.
 name: nightly-guards
 
 on:
@@ -54,42 +37,13 @@ permissions:
   contents: read
 
 jobs:
-  install-topology:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-
-      # The staged suites need both; this job stands alone, so it states its own tools.
-      - name: install shellcheck + jq
-        run: sudo apt-get update -q && sudo apt-get install -y shellcheck jq
-
-      - name: install-topology class guard
-        run: bash tools/install-topology-selftest.sh
-
-  install-topology-bash32:
-    name: install-topology (macos, bash 3.2)
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v5
-
-      # macOS ships /bin/bash 3.2 and every shipped script claims 3.2 compat, but GitHub's macOS
-      # runners put Homebrew bash 5 first on PATH — so shim PATH to force `#!/usr/bin/env bash`
-      # back to the stock binary. Same idiom as ci.yml's selftests-bash32 job.
-      - name: install-topology class guard under stock bash 3.2
-        run: |
-          mkdir -p /tmp/bash32
-          ln -sf /bin/bash /tmp/bash32/bash
-          export PATH="/tmp/bash32:$PATH"
-          bash --version | head -1
-          bash tools/install-topology-selftest.sh
-
   # The pass cache's backstop (#448). NO --cache-dir, so nothing is skipped and no marker is
   # written: an under-declared input set that let the PR lane skip a suite is caught here, red,
   # by the suite failing wholesale.
   #
-  # IT MUST ASK THE PR LANE'S QUESTION, exactly. Same `--exclude` (the class guard above already
-  # re-runs that suite), and the same SKIP_STRESS asymmetry as ci.yml — unset on ubuntu, '1' on
-  # macos. A backstop running a different question is not a backstop.
+  # IT MUST ASK THE PR LANE'S QUESTION, exactly. Same `--exclude` (install-topology.yml's guard
+  # already re-runs that suite), and the same SKIP_STRESS asymmetry as ci.yml — unset on ubuntu,
+  # '1' on macos. A backstop running a different question is not a backstop.
   wholesale-selftests:
     runs-on: ubuntu-latest
     steps:
@@ -116,14 +70,13 @@ jobs:
       - name: un-deferred sweep bound
         run: bash tools/check-sweep-bound.sh --log "$RUNNER_TEMP/sweep.log"
 
-  # The prose narrative check (#552; reshaped by #641). It reports the instruction layer's size
-  # and flags narrative `#NNN` incident archaeology; it reds only on vacuous coverage (a scan
-  # root that exists but matched nothing). #641 deleted the word-count-vs-baseline ratchet on
-  # both axes — the shell half is scripts/check-guard-budget.sh's job now, and the markdown half
-  # is a derived total with nothing committed behind it — so there is no ceiling left to grow
-  # past. It is ADVISORY TO THE LEAN LANE — build-lean never runs it and a red here blocks no PR
-  # — but "advisory" scopes the lane, not CI, so this job reds like every other guard in this
-  # file.
+  # The prose narrative check (#552; reshaped by #641, #719). It reports the instruction layer's
+  # size and flags narrative `#NNN` incident archaeology; it reds only on vacuous coverage (a scan
+  # root that exists but matched nothing). #641 deleted the word-count-vs-baseline ratchet on both
+  # axes, and #719 deleted the shell-mass guard that had taken over the shell half — so there is
+  # no ceiling left to grow past, on either axis. It is ADVISORY TO THE LEAN LANE — build-lean
+  # never runs it and a red here blocks no PR — but "advisory" scopes the lane, not CI, so this
+  # job reds like every other guard in this file.
   #
   # ONE LANE, deliberately. ci.yml's selftests-bash32 already runs the whole sweep, including
   # prose-budget-selftest.sh, under stock bash 3.2 at PR time. A 3.2 twin here would re-run the

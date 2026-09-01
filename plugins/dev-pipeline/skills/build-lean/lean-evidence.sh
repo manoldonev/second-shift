@@ -131,6 +131,13 @@
 #   lean-evidence.sh check --key N         run the arms against an already-resolved key
 #              [--arms verdict,identity,freshness,intent-gap,override]   default: all five
 #   lean-evidence.sh [all]                 classify, then check every arm (the consumer form)
+#   lean-evidence.sh scorecard --spec <path> --verdict <approve|needs-work>
+#                                          read a verdict-record BODY on stdin and print its AC
+#                                          scorecard violations, one per line; always exit 0.
+#                                          The write-time layer's entry point (#622).
+#   lean-evidence.sh scorecard --print-schema
+#                                          print the reviewer-facing schema, so a caller's refusal
+#                                          quotes it instead of keeping a second copy.
 #
 # Exit 0 = pass or not-applicable; 1 = evidence violation; 2 = usage/environment error.
 #
@@ -145,18 +152,24 @@ DIFF_FILES_FILE=""
 VIOLATIONS_FILE=""
 SUB=""
 KEY=""
+SPEC_PATH=""
+SCORECARD_VERDICT=""
+PRINT_SCHEMA=0
 ARMS="verdict,identity,freshness,intent-gap,override"
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    classify|check|all) SUB="$1"; shift ;;
+    classify|check|all|scorecard) SUB="$1"; shift ;;
     --key)               KEY="${2:-}"; shift 2 ;;
+    --spec)              SPEC_PATH="${2:-}"; shift 2 ;;
+    --verdict)           SCORECARD_VERDICT="${2:-}"; shift 2 ;;
+    --print-schema)      PRINT_SCHEMA=1; shift ;;
     --arms)              ARMS="${2:-}"; shift 2 ;;
     --pr-comments-file)  PR_COMMENTS_FILE="${2:-}"; shift 2 ;;
     --issue-comments-file) ISSUE_COMMENTS_FILE="${2:-}"; shift 2 ;;
     --diff-files-file)   DIFF_FILES_FILE="${2:-}"; shift 2 ;;
     --violations-file)   VIOLATIONS_FILE="${2:-}"; shift 2 ;;
-    -h|--help)           sed -n '2,138p' "$0"; exit 0 ;;
+    -h|--help)           sed -n '2,145p' "$0"; exit 0 ;;
     *) echo "[lean-evidence] unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -238,6 +251,229 @@ postdated_against() { # postdated_against <since>
   [ -n "$PR_CREATED_AT_UTC" ] || return 0
   [[ "$PR_CREATED_AT_UTC" < "$1" ]]
 }
+
+# ---------------------------------------------------------------- the AC scorecard (#622)
+# WHAT THIS IS, AND WHAT IT REFUSES TO BE. `review-lean` tells the reviewer to score every
+# numbered `AC-n` the committed spec declares, and until now that scoring was free prose inside
+# `--summary-file` — read by nobody, checked by nothing. So `verdict=approve` could sit beside an
+# AC the round itself found unmet, or beside an AC the round never looked at, and no downstream
+# reader could tell either case from a clean one.
+#
+# A gate cannot judge whether a diff satisfies `AC-3`. That is model judgment and it stays with
+# the reviewer; nothing here reads the code. What a gate CAN refuse is a SELF-CONTRADICTORY
+# RECORD — an approve carrying its own `unsatisfied` row, an approve carrying a row the reviewer
+# could not evaluate, or an approve silent about a criterion the spec declares. That is the whole
+# contract, and it is why this file's messages never say an AC was or was not met.
+#
+# SINGLE-SITED ON PURPOSE. Both enforcement layers reach this one implementation: the merge
+# boundary calls it in-process through arm_verdict, and `lean-gate.sh verdict` shells out to the
+# `scorecard` subcommand at write time. The sibling fidelity-evidence validator lives in
+# lean-gate.sh and has no boundary twin, so it needed no such split; a LOCKSTEP pair would be a
+# second copy of an awk program for no reader that cannot reach the first.
+#
+# A TABLE and not prose, for the reason the fidelity evidence table is one: the record body is
+# handed to prettier, and `proseWrap: "always"` reflows sentences. A predicate over reflowed
+# prose is fragile; every other artifact these gates parse is already a table.
+AC_SCORECARD_HEADING="AC scorecard"
+AC_SCORECARD_COLUMNS="AC-n|score|evidence"
+# The CLOSED score enum. `divergent-inert` is the severity axis (#565): a divergence the reviewer
+# MEASURED as inert is a warning with an owner, not a round — and it is not free, because a row
+# scored that way must carry both the measurement and the follow-up that owns it. An unknown value
+# is an ERROR rather than a miss, the same posture the override enums take: a score nobody
+# implements must not read as "no finding here".
+AC_SCORECARD_SCORES="satisfied unsatisfied divergent-inert undeterminable"
+
+# The ids the spec DECLARES, space-separated, in declaration order.
+#
+# NOT milestone 1's `(^|[^A-Za-z])AC-[0-9]+` count, which matches every prose MENTION. A spec
+# sentence citing `AC-3` would then demand a scorecard row for an id nothing declares — and a spec
+# that retires an id by naming it does exactly that. Declaration position is the discriminator: an
+# id that OPENS a markdown bullet or a heading, optionally bolded or backticked. Measured against
+# the whole committed corpus at the time this shipped: every lean spec in docs/plans/ declares all
+# of its ACs in that position and none anywhere else.
+spec_declared_acs() { # spec_declared_acs <spec-path>
+  grep -oE '^[[:space:]]*([-*+][[:space:]]+|#+[[:space:]]+)(\*\*|`)?AC-[0-9]+' "$1" 2>/dev/null \
+    | grep -oE 'AC-[0-9]+' | sort -u -t- -k2,2n | tr '\n' ' '
+}
+
+# Whether the spec mentions an `AC-n` AT ALL — milestone 1's own predicate, and the only thing
+# that separates the two ways a declared set can come back empty. A spec with no criteria is not
+# this arm's business: check-lean-chain.sh's artifact arm already refuses it, and milestone 1
+# refuses it before that. A spec that MENTIONS criteria and declares none where this reader looks
+# is the vacuity this arm would otherwise ship with — the scorecard would be complete over the
+# empty set and the record would certify nothing while reading green.
+spec_mentions_ac() { # spec_mentions_ac <spec-path>
+  grep -qE '(^|[^A-Za-z])AC-[0-9]+' "$1" 2>/dev/null && echo 1 || echo 0
+}
+
+# The scorecard's violations, one human-readable line each; EMPTY output is a conforming record.
+# Always exits 0 — the CALLER decides what a violation costs, because the writer refuses and the
+# boundary counts.
+#
+# Scoped, heading-tolerant and trim-then-non-empty exactly as the fidelity evidence reader is, and
+# the header row is likewise THE LINE IMMEDIATELY ABOVE THE `| --- |` SEPARATOR: the data-row
+# anchor cannot find a header whose first cell is a column name, and "first pipe-leading line in
+# the section" breaks on prose containing a `|`.
+#
+# THE SECTION IS REQUIRED ONLY ON `approve`, and validated whenever it is present. A needs-work
+# record is already a refusal — nothing merges on it and no reader gates on its rows — so
+# demanding the table there would be mass with no decision resting on it. Present-but-malformed is
+# still refused either way, so a record cannot carry a scorecard nobody can read.
+ac_scorecard_violations() { # ac_scorecard_violations <declared-ids> <verdict-value> <mentions>  (body on stdin)
+  awk -v declared="$1" -v verdict="$2" -v mentions="$3" -v cols="$AC_SCORECARD_COLUMNS" \
+      -v heading="$AC_SCORECARD_HEADING" -v scores="$AC_SCORECARD_SCORES" '
+    function trim(s) { gsub(/^[[:space:]]+|[[:space:]]+$/, "", s); return s }
+    # A markdown separator: pipes, dashes, colons and space, with at least one dash. Never an
+    # interval expression — those are not portable across the awks this ships on.
+    function issep(s) { return (s ~ /^[[:space:]]*\|[[:space:]:|-]*$/ && s ~ /-/) }
+    # The cells of a leading-pipe markdown row, trimmed. Field 1 is the empty run before the
+    # leading pipe and is dropped by construction; a TRAILING pipe contributes one empty field
+    # that is punctuation, not a cell.
+    function rowcells(s, a,   n, i, k, hi) {
+      delete a
+      n = split(s, RCF, "|")
+      hi = n
+      if (s ~ /\|[[:space:]]*$/) hi = n - 1
+      k = 0
+      for (i = 2; i <= hi; i++) a[++k] = trim(RCF[i])
+      return k
+    }
+    # The text a labelled sub-field carries: everything after `<label>:` up to the next label or
+    # the end. Positions are taken on a lowercased copy, which tolower() leaves the same length
+    # as, so they index the ORIGINAL cell and the reference keeps its case.
+    function subfield(cell, label, other,   lc, a, b, t) {
+      lc = tolower(cell)
+      a = index(lc, label ":")
+      if (a == 0) return ""
+      a = a + length(label) + 1
+      b = index(substr(lc, a), other ":")
+      t = (b > 0) ? substr(cell, a, b - 1) : substr(cell, a)
+      return trim(t)
+    }
+    # A follow-up REFERENCE, not a sentence: `#<n>`, a URL, or a tracker key. `AC-` and `RS-` are
+    # excluded by name — they are ids of THIS schema and of the spec, so accepting one would let a
+    # row cite itself as its own owner and satisfy the arm with nothing outside the record.
+    function isref(s,   k) {
+      if (s ~ /#[0-9]+/) return 1
+      if (s ~ /https?:\/\/[^[:space:]]+/) return 1
+      if (match(s, /[A-Z][A-Z0-9]+-[0-9]+/)) {
+        k = substr(s, RSTART, RLENGTH)
+        sub(/-[0-9]+$/, "", k)
+        if (k != "AC" && k != "RS") return 1
+      }
+      return 0
+    }
+    BEGIN {
+      hre = "^#+[[:space:]]+" tolower(heading) "[[:space:]]*$"
+      ncol = split(cols, want, "|")
+      n = split(declared, d, " ")
+      for (i = 1; i <= n; i++) if (d[i] != "" && !(d[i] in decl)) { decl[d[i]] = 1; declorder[++ndecl] = d[i] }
+      n = split(scores, sv, " ")
+      for (i = 1; i <= n; i++) if (sv[i] != "") okscore[sv[i]] = 1
+    }
+    tolower($0) ~ hre         { insec = 1; found = 1; next }
+    insec && /^#+[[:space:]]/ { insec = 0 }
+    insec                     { sec[++nl] = $0 }
+    END {
+      # THE EMPTY DECLARED SET IS TWO DIFFERENT FACTS, and they are separated FIRST — before the
+      # section is even looked for — because a "your record scores none" message on a spec that
+      # declares none sends the reviewer to write rows for criteria that do not exist.
+      if (ndecl == 0) {
+        if (mentions == 1) print "the committed spec mentions AC-n but declares none where this reader looks — an id must OPEN a markdown bullet or a heading (\"- AC-1: ...\"), because a prose mention is a citation, not a declaration. A scorecard over the empty set would certify nothing and read green"
+        exit
+      }
+      if (!found) {
+        if (verdict == "approve") print "no \"## " heading "\" section — an approve must score every AC-n the spec declares, and this record scores none"
+        exit
+      }
+
+      sepi = 0
+      for (i = 1; i <= nl; i++) if (issep(sec[i])) { sepi = i; break }
+      if (sepi >= 2) {
+        nh = rowcells(sec[sepi - 1], H)
+        hdrok = (nh == ncol)
+        for (i = 1; hdrok && i <= ncol; i++) if (tolower(H[i]) != tolower(want[i])) hdrok = 0
+        if (!hdrok) {
+          got = ""
+          for (i = 1; i <= nh; i++) got = got (i > 1 ? " | " : "") H[i]
+          print "the header row must name exactly " ncol " columns, in order: " cols " — found: " (nh ? got : "<no cells>")
+        }
+      } else if (sepi == 1) {
+        print "the \"| --- |\" separator is the first line of the section, so no header row sits above it"
+      } else {
+        print "no \"| --- |\" separator row, so the header row cannot be located — the header is the line immediately above the separator"
+      }
+
+      nrows = 0
+      for (i = 1; i <= nl; i++) {
+        if (sepi >= 2 && i == sepi - 1) continue          # the header row is not a data row
+        if (sec[i] !~ /^[[:space:]]*\|[[:space:]]*AC-[0-9]+[[:space:]]*\|/) continue
+        nrows++
+        nc = rowcells(sec[i], C)
+        id = C[1]
+        if (nc > ncol) { print "row " nrows " (" id "): " nc " cells, expected exactly " ncol; continue }
+        bad = 0
+        for (j = 1; j <= ncol; j++) if (j > nc || C[j] == "") { print "row " nrows " (" id "): column \"" want[j] "\" is empty"; bad = 1 }
+        if (bad) continue
+        if (!(id in decl)) { print "row " nrows " scores " id ", which the spec does not declare"; continue }
+        # EXACTLY ONE ROW PER DECLARED ID. Two rows scoring one criterion differently is the same
+        # self-contradiction the approve arms refuse, one level down, and taking either would be
+        # the reader choosing the verdict.
+        if (id in seen) { print "row " nrows " (" id "): a second row scores an id already scored — exactly one row per declared AC-n"; continue }
+        seen[id] = 1
+        sc = C[2]
+        if (!(sc in okscore)) { print "row " nrows " (" id "): score \"" sc "\" is not one of: " scores; continue }
+        if (sc == "divergent-inert") {
+          ev = C[3]
+          m = subfield(ev, "measured", "follow-up")
+          f = subfield(ev, "follow-up", "measured")
+          if (m !~ /[A-Za-z0-9]/) print "row " nrows " (" id "): scored divergent-inert but its evidence carries no \"measured: <text>\" — the severity claim IS the measurement, and an unmeasured divergence is an unsatisfied one"
+          if (f == "")            print "row " nrows " (" id "): scored divergent-inert but its evidence carries no \"follow-up: <ref>\" — a divergence that costs no round still needs an owner"
+          else if (!isref(f))     print "row " nrows " (" id "): follow-up \"" f "\" is not a tracker reference (#<n>, a URL, or a KEY-<n>)"
+        }
+        if (verdict == "approve" && sc == "unsatisfied") \
+          print "row " nrows " (" id "): scored unsatisfied on a verdict=approve record — an approve that scores its own criterion unmet is self-contradictory. Either the criterion is met, or the divergence is measured inert (score divergent-inert, with its measurement and follow-up), or the verdict is needs-work"
+        if (verdict == "approve" && sc == "undeterminable") \
+          print "row " nrows " (" id "): scored undeterminable on a verdict=approve record — an unevaluable criterion is never a pass. Determine it, score it divergent-inert with a measurement, or hand the round back"
+      }
+
+      if (nrows == 0) { print "the \"## " heading "\" section carries no data row — a heading and a header row score nothing"; exit }
+      for (i = 1; i <= ndecl; i++) if (!(declorder[i] in seen)) print "no row for " declorder[i] ", which the spec declares"
+    }
+  '
+}
+
+# THE WRITE-TIME LAYER'S ENTRY POINT (#622 AC-5), dispatched HERE — above the repo-root and
+# config resolution every other subcommand needs, and deliberately so. The scorecard reconciles a
+# record body against a spec path it is handed; it reads no branch prefix, no tracker and no
+# committed config, and this repo gitignores its own config, so resolving one first would make the
+# write-time layer refuse on an environment question the check does not ask.
+#
+# `lean-gate.sh verdict` pipes the reviewer's `--summary-file` body in here BEFORE the record
+# exists, so the round is not spent learning what the boundary would have said. Read-only, writes
+# nothing, and exits 0 whatever it finds — the caller decides what a violation costs.
+if [ "$SUB" = "scorecard" ]; then
+  # THE REVIEWER-FACING SCHEMA, printed from the same constants the reader validates against, so
+  # `lean-gate.sh verdict`'s refusal can quote it instead of keeping a second copy. Guidance
+  # lines, ready to print with a caller's own prefix.
+  if [ "$PRINT_SCHEMA" -eq 1 ]; then
+    echo "Section: \"## $AC_SCORECARD_HEADING\". Columns, in order: $AC_SCORECARD_COLUMNS. Every cell non-empty."
+    echo "Exactly one row per AC-n the spec DECLARES — an id that opens a markdown bullet or a heading."
+    echo "Score is one of: $AC_SCORECARD_SCORES."
+    echo "'divergent-inert' additionally needs 'measured: <text>' and 'follow-up: <ref>' in its evidence cell."
+    echo "The gate never judges whether an AC is met — that is the reviewer's. It refuses a record that contradicts"
+    echo "itself, and one silent about a criterion the spec declares."
+    exit 0
+  fi
+  [ -n "$SPEC_PATH" ] || envfail "scorecard: --spec <path> is required — the declared AC-n set comes from the committed spec, never from the record under test."
+  [ -f "$SPEC_PATH" ] || envfail "scorecard: --spec '$SPEC_PATH' does not exist."
+  case "$SCORECARD_VERDICT" in
+    approve|needs-work) : ;;
+    *) envfail "scorecard: --verdict must be 'approve' or 'needs-work' (got '${SCORECARD_VERDICT:-<none>}')." ;;
+  esac
+  ac_scorecard_violations "$(spec_declared_acs "$SPEC_PATH")" "$SCORECARD_VERDICT" "$(spec_mentions_ac "$SPEC_PATH")"
+  exit 0
+fi
 
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" \
   || envfail "not in a git repo — cannot resolve the committed artifacts."
@@ -515,9 +751,10 @@ record_key() { # record_key <key> <path> [charset]
     | head -n1 | sed -E "s/^$1:[[:space:]]*//"
 }
 
-# LOCKSTEP-BEGIN contribution-compare
-# THE BRANCH'S OWN CONTRIBUTION, AS LINES (#597, D-2/D-3/D-4). The escape hatch both freshness
-# readers — this milestone's arms and the merge boundary's — consult when their naive check reds.
+# THE BRANCH'S OWN CONTRIBUTION, AS LINES (#597, D-2/D-3/D-4). The escape hatch this file's
+# freshness arm consults when its naive check reds. It was held in lockstep with a second copy in
+# lean-gate.sh until #720 deleted milestone 4's freshness arms; this is the only copy now, and the
+# merge boundary is the only place the question is asked.
 #
 # WHY A HASH CANNOT ANSWER THIS. A patch identity is computed over `diff(merge-base(base, head),
 # head)`, so MERGING THE BASE IN advances the merge-base and moves the id even when the branch
@@ -564,10 +801,10 @@ contribution_lines() { # contribution_lines <repo-root> <base-ref> <head-ish> <e
 # all surface here as the same refusal to answer, which is correct: they are all "no comparison
 # was made", and splitting them produces an arm no case can kill.
 #
-# THE CALLER OWNS THE rc=2 POLICY, not this function. D-5 points the two live callers at
-# fail-OPEN — the verdict stands, and the line says so — against every other unreadable-input path
-# in these two tools, which fail closed. That reversal is OR-1, and keeping it in the callers is
-# what makes it a one-line flip rather than a rewrite.
+# THE CALLER OWNS THE rc=2 POLICY, not this function. D-5 points the live caller at fail-OPEN —
+# the verdict stands, and the line says so — against every other unreadable-input path in this
+# tool, which fail closed. That reversal is OR-1, and keeping it in the caller is what makes it a
+# one-line flip rather than a rewrite.
 contribution_delta() { # contribution_delta <repo-root> <base-ref> <old-head> <new-head> <exclude-path>
   local d rc=0
   d="$(mktemp -d 2>/dev/null)" || return 2
@@ -614,7 +851,6 @@ contribution_summary() { # contribution_summary  (delta rows on stdin)
     }
   '
 }
-# LOCKSTEP-END contribution-compare
 
 # ---------------------------------------------------------------- classification
 # FAILS CLOSED, and that is a consequence of #413 rather than a belt-and-braces addition. While a
@@ -781,6 +1017,33 @@ arm_verdict() {
     || note_violation "verdict record '$VERDICT' carries no run_id reconciliation key, so its authorship cannot be separated from the build run's."
   [ -n "$VERDICT_SESSION_ID" ] \
     || note_violation "verdict record '$VERDICT' carries no session_id reconciliation key — the review session that produced it cannot be located, so nothing outside the record itself attests the review ran."
+
+  # THE PER-AC SCORECARD (#622). Reconciled against the SPEC, because the declared AC set is the
+  # only thing that can say whether a record is silent about a criterion — the record alone can
+  # never report the row it does not carry.
+  #
+  # A record that never passed the writer is refused HERE, which is the half of the contract the
+  # writer structurally cannot cover: a hand-edited or hand-authored record reaches the boundary
+  # having answered to nothing. That is why this arm exists at all rather than trusting the
+  # write-time refusal.
+  #
+  # NO ARM CUTOFF, deliberately (D-9). Only the record currently at the boundary is ever re-read
+  # and merged records are never re-graded, so the blast radius is one re-run of
+  # `lean-gate.sh verdict` on an in-flight PR. A cutoff here would be a fail-open window on the
+  # exact arm the contract exists to close.
+  #
+  # AN UNRESOLVABLE SPEC IS NOT REFUSED HERE. `all` decides applicability on a lean spec being in
+  # the PR's own diff, and check-lean-chain.sh's own artifact arm refuses a spec that carries no
+  # AC-n — so the only way to arrive with no spec is a hand-invoked `check --key <bogus>`, and
+  # re-refusing it would put a second reader on a question those two already own (#720).
+  local sc_spec sc_line
+  sc_spec="$(find_artifact "$KEY" "$LEAN_SPEC_SUFFIX")" || sc_spec=""
+  if [ -n "$sc_spec" ]; then
+    while IFS= read -r sc_line; do
+      [ -n "$sc_line" ] || continue
+      note_violation "verdict record '$VERDICT' — AC scorecard: $sc_line"
+    done <<< "$(ac_scorecard_violations "$(spec_declared_acs "$REPO_ROOT/$sc_spec")" "$VERDICT_VALUE" "$(spec_mentions_ac "$REPO_ROOT/$sc_spec")" < "$REPO_ROOT/$VERDICT")"
+  fi
 }
 
 # ---------------------------------------------------------------- arm 2: authorship (P10)
@@ -985,13 +1248,24 @@ arm_intent_gap() {
 # the gate that consults a row is both where the read is cheap and where the refusal is
 # actionable. Here the record's own `expiry: run` is validated, which is AC-5's subject.
 #
+# #709 AC-4: it ALSO resolves a verdict's `fidelity: not-applicable (override: <ref>)` claim
+# against this same record — a design-disarm yield the writer cannot commit without a validated
+# override (D-1), so a ref that resolves to nothing is evidence of exactly the tamper this arm
+# exists to catch, whether or not any override record is committed at all.
+#
 # Absence is class (a): most runs record no override at all.
 # LOCKSTEP-BEGIN override-record-reader verbatim
 # The CLOSED enums. Widening either is the phase-2 work #613 defers, and an unknown value is an
 # ERROR rather than a silent miss: a gate name nobody implements must not read as "no override
 # exists", which is the fail-open this whole mechanism is built against.
-OVERRIDE_GATES='intake-unqueued spec-open-region'
-OVERRIDE_SCOPES='intake-attestation open-region-resolution'
+#
+# `design-disarm` (#709): a per-ticket `Design: none` disarm on a repo configured with
+# design.provider is a build-session-writable opt-out of the mandatory render lane, which #705's
+# decisions forbid without an operator-quoted override. It is NOT region-scoped (issue-scoped
+# only, like `intake-unqueued`) and is FORBIDDEN in the persistent register — see
+# register_row_violation() below, operator-override.sh-only since the register is per-tool.
+OVERRIDE_GATES='intake-unqueued spec-open-region design-disarm'
+OVERRIDE_SCOPES='intake-attestation open-region-resolution design-disarm'
 
 # The gate that is region-scoped. A region is REQUIRED for it and forbidden for the other: an
 # open-region override that named no region would clear every region on the ticket at once.
@@ -1087,8 +1361,64 @@ EOF
 }
 # LOCKSTEP-END override-record-reader
 
+# The `fidelity:` value, read WHOLE and header-anchored — the same shape check-lean-chain.sh's
+# `panel_key` is, and for the same reason: `header_key`'s charset stops at the first character
+# outside [A-Za-z0-9._-], so a suffixed value ("not-applicable (override: 709#1)") truncates to
+# its bare enum word there — exactly what every OTHER fidelity: reader wants (#709 D-4), since
+# widening the shared reader for one key would change how every key in the schema is read. This
+# is private to this file's single caller below, which needs the ref past the parenthesis.
+fidelity_key() { # fidelity_key   (record on stdin)
+  awk '
+    /^[A-Za-z_][A-Za-z0-9_]*[:=]/ { hdr = 1 }
+    hdr && /^[[:space:]]*$/       { exit }
+    hdr && /^fidelity:/ {
+      sub(/^fidelity:[[:space:]]*/, "")
+      sub(/[[:space:]]+$/, "")
+      printf "%s", $0
+      exit
+    }
+  '
+}
+
 arm_override() {
-  local rec line why
+  local rec line why vfid ref idx blk_g blk_is found
+
+  # #709 AC-4/D-4. Independent of the well-formedness sweep below, and evaluated even when NO
+  # override record is committed at all: a verdict claiming `fidelity: not-applicable (override:
+  # <ref>)` is a claim of a design-disarm YIELD, and the ref must resolve to an actual
+  # design-disarm block for THIS issue — a record entirely absent and a fidelity line citing one
+  # anyway are the same defect this arm exists to catch, an artifact the boundary is asked to
+  # trust that it cannot verify. `<ref>` ordinals are counted over EVERY block in the record, in
+  # file order, matching `operator-override.sh check --print-ref`'s own numbering — the ref names
+  # the block's position, not its gate-scoped rank.
+  if [ -n "$VERDICT" ]; then
+    vfid="$(fidelity_key < "$REPO_ROOT/$VERDICT")"
+    case "$vfid" in
+      *"(override: "*")")
+        ref="${vfid#*override: }"; ref="${ref%)}"
+        found=0
+        rec="$(find_artifact "$KEY" "$LEAN_OVERRIDE_SUFFIX")" || rec=""
+        if [ -n "$rec" ]; then
+          idx=0
+          while IFS= read -r line; do
+            [ -n "$line" ] || continue
+            idx=$((idx + 1))
+            IFS="$(printf '\037')" read -r blk_g _ blk_is _ <<EOF
+$line
+EOF
+            if [ "$blk_g" = "design-disarm" ] && [ "$blk_is" = "$KEY" ] && [ "${KEY}#${idx}" = "$ref" ]; then
+              found=1; break
+            fi
+          done <<EOF
+$(override_parse_blocks "$REPO_ROOT/$rec")
+EOF
+        fi
+        [ "$found" -eq 1 ] \
+          || note_violation "verdict record '$VERDICT' reads 'fidelity: $vfid', citing design-disarm override ref '$ref', but no committed override record for #$KEY carries a design-disarm block at that ref. A fidelity claim citing an override must resolve to the record it names."
+        ;;
+    esac
+  fi
+
   rec="$(find_artifact "$KEY" "$LEAN_OVERRIDE_SUFFIX")" || rec=""
   [ -n "$rec" ] || return 0
   if [ -z "$(override_parse_blocks "$REPO_ROOT/$rec")" ]; then

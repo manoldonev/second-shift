@@ -49,6 +49,11 @@ trap 'rm -rf "$TMPROOT"' EXIT
 adv() { env -u GITHUB_ACTIONS -u RUNNER_OS -u SKIP_STRESS MUTATION_SWEEP_CACHE=0 "$@"; }
 # Enforcing: the canonical environment, stated explicitly rather than inherited.
 enf() { env GITHUB_ACTIONS=1 RUNNER_OS=Linux SKIP_STRESS=1 MUTATION_SWEEP_CACHE=0 "$@"; }
+# Enforcing WITH the merge-time deferral bypass. NON-EXPORTING, like every other seam this
+# suite drives: exported, the knob would reach the nested real sweeps the deferral cases run
+# and silently re-answer the very assertions they exist to make.
+nodefer() { env GITHUB_ACTIONS=1 RUNNER_OS=Linux SKIP_STRESS=1 MUTATION_SWEEP_CACHE=0 \
+              MUTATION_SWEEP_NO_DEFER=1 "$@"; }
 # Advisory WITH the cache live, in a named directory. $1 = cache dir, rest = command.
 cch() {
   local d="$1"; shift
@@ -791,10 +796,10 @@ echo "(l3b) #582 AC-1/AC-2 — an ALL-deferred PR run warns unmissably and annot
 # This is the SAME fixture as (l3): one in-scope guard, and it defers. That makes it
 # "every in-scope guard deferred" by construction (1/1), the exact scenario #582 fixes: a
 # green PR run that graded nothing. RC stays 0 (this is not a red-build fix) but the run
-# must say so loudly, distinct from the per-guard "defer ... -> nightly" info line already
+# must say so loudly, distinct from the per-guard "defer ... -> merge-time sweep" info line already
 # asserted above.
 if [[ $RC -eq 0 ]] \
-  && grep -q 'WARN: PR mode graded NOTHING: all 1 in-scope guard(s) deferred to nightly, 0 swept' <<<"$OUT" \
+  && grep -q 'WARN: PR mode graded NOTHING: all 1 in-scope guard(s) deferred to the merge-time sweep, 0 swept' <<<"$OUT" \
   && grep -q 'reasons: slow suite: 1' <<<"$OUT" \
   && grep -q '^::warning::mutation-sweep: PR mode graded NOTHING' <<<"$OUT"; then
   ok "all-deferred run warns the count+reason and emits a check-surface annotation"
@@ -946,7 +951,7 @@ fi
 
 echo "(q) PR mode — a multi-killer union defers wholesale, never sweeps a partial union"
 # Invariant: the PR lane sweeps a guard only when its kill set is a SINGLE fast suite. A
-# two-killer union must defer to nightly: sweeping a reduced kill set would grade mutants
+# two-killer union must defer wholesale: sweeping a reduced kill set would grade mutants
 # under a weaker criterion than the one that produced the baseline (manufacturing false
 # reds on a merge-blocking lane), and sweeping the full union blows the lane's time
 # bound, since a surviving mutant runs every killer. Every other case gives kill_set_for
@@ -1001,6 +1006,81 @@ if ! grep -q 'PR mode graded NOTHING' <<<"$OUT" && ! grep -q '^::warning::mutati
   ok "a partial defer (6 swept, 1 deferred) triggers no all-deferred warn or annotation"
 else
   bad "(r) a partial defer wrongly fired the all-deferred warn/annotation"; printf '%s\n' "$OUT" | tail -6
+fi
+
+echo "(r2) the merge-time bypass grades what the PR lane defers — all THREE reasons, not one"
+# Invariant: MUTATION_SWEEP_NO_DEFER=1 disables the deferral decision WHOLESALE. All three
+# reasons exist to protect the PR lane's TIME BOUND, which the merge-time lane does not have,
+# so each must grade under the knob. Covering only one would leave a per-arm regression
+# invisible: a bypass wired into the slow-suite arm alone still reads green on a slow-suite
+# fixture while the cap and the union silently keep deferring, and the merge-time lane would
+# then skip exactly the guards it exists to grade — the topology this ticket replaced.
+#
+# Each sub-case is the SAME FIXTURE as its knob-off twin above — (l3) slow suite, (q)
+# multi-suite union, (r) fast-guard cap — so the pair isolates the knob as what moved the
+# verdict rather than the fixture. Status is read out of the report's own column rather than
+# grepped, so a row that changed shape cannot pass on a substring.
+status_of() { printf '%s\n' "$2" | awk -F'\t' -v g="$1" '$1==g {print $2}' | tail -1; }
+count_status() { printf '%s\n' "$2" | awk -F'\t' -v s="$1" '$2==s {c++} END {print c+0}'; }
+
+# 1/3 — a slow paired suite. The PR lane defers it wholesale ((l3)); merge time grades it.
+FX="$(new_fixture strong)"
+baseline_with "$FX"
+printf '# fixture slow list\n./guard-selftest.sh\t42\t2026-07-29\n' > "$FX/tools/selftest-suite-timings.tsv"
+printf '\n# touched to put this guard in the PR diff\n' >> "$FX/guard.sh"
+( cd "$FX" && git add -A && git -c user.email=f@e.invalid -c user.name=f commit -qm slow ) >/dev/null 2>&1
+OUT="$( cd "$FX" && nodefer bash "$SWEEP" --mode pr --base HEAD~1 2>&1 )"; RC=$?
+if [[ $RC -eq 0 && "$(status_of guard.sh "$OUT")" == "swept" ]] \
+  && [[ "$(count_status deferred-to-nightly "$OUT")" -eq 0 ]]; then
+  ok "the bypass grades a slow-suite guard the PR lane defers"
+else
+  bad "(r2a) expected guard.sh swept and zero defer rows; got rc=$RC status='$(status_of guard.sh "$OUT")'"
+  printf '%s\n' "$OUT" | tail -5
+fi
+
+# 2/3 — a multi-suite killer union. Grading under the FULL union is the same criterion that
+# produced the baseline, which is why disabling this arm manufactures no false reds.
+FX="$(new_fixture strong)"
+baseline_with "$FX"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$FX/second-killer-selftest.sh"
+printf 'guard.sh\t./second-killer-selftest.sh\tsecond killer forms a two-suite union\n' >> "$FX/tools/mutation-pair-map.tsv"
+printf '\n# touched to put this guard in the PR diff\n' >> "$FX/guard.sh"
+( cd "$FX" && git add -A && git -c user.email=f@e.invalid -c user.name=f commit -qm union ) >/dev/null 2>&1
+OUT="$( cd "$FX" && nodefer bash "$SWEEP" --mode pr --base HEAD~1 2>&1 )"; RC=$?
+if [[ $RC -eq 0 && "$(status_of guard.sh "$OUT")" == "swept" ]] \
+  && [[ "$(count_status deferred-to-nightly "$OUT")" -eq 0 ]]; then
+  ok "the bypass grades a two-killer union the PR lane defers"
+else
+  bad "(r2b) expected guard.sh swept and zero defer rows; got rc=$RC status='$(status_of guard.sh "$OUT")'"
+  printf '%s\n' "$OUT" | tail -5
+fi
+
+# 3/3 — the fast-guard cap. Seven guards cross a cap of six; the seventh is deferred at PR
+# time ((r)) and graded here. The 7/0 split pins the cap as bypassed rather than merely
+# raised — a knob that only widened it would still defer at some N.
+FX="$TMPROOT/nodefer-fleet$RANDOM$RANDOM"
+make_fleet_fixture "$FX" 7
+baseline_with "$FX"
+OUT="$( cd "$FX" && nodefer bash "$SWEEP" --mode pr --base HEAD~1 2>&1 )"; RC=$?
+SWEPT_N="$(count_status swept "$OUT")"
+DEFER_N="$(count_status deferred-to-nightly "$OUT")"
+if [[ $RC -eq 0 && "$SWEPT_N" -eq 7 && "$DEFER_N" -eq 0 ]]; then
+  ok "the bypass grades all seven guards, past the six-guard PR cap"
+else
+  bad "(r2c) expected swept=7 deferred=0; got rc=$RC swept=$SWEPT_N deferred=$DEFER_N"
+  printf '%s\n' "$OUT" | tail -6
+fi
+
+# CONTROL — the knob is OFF by default. Without this, a mutant that inverted the test (making
+# the bypass unconditional) would pass every assertion above while silently disarming the PR
+# lane's time bound, and (l3)/(q)/(r) would be the only thing standing between that and a
+# merge-blocking job that runs the whole universe. Same fleet fixture, no knob.
+OUT="$( cd "$FX" && enf bash "$SWEEP" --mode pr --base HEAD~1 2>&1 )"; RC=$?
+if [[ $RC -eq 0 && "$(count_status swept "$OUT")" -eq 6 && "$(count_status deferred-to-nightly "$OUT")" -eq 1 ]]; then
+  ok "with the knob unset the same fixture still defers — the bypass is opt-in"
+else
+  bad "(r2d) expected the default run to defer 1 of 7; got rc=$RC swept=$(count_status swept "$OUT") deferred=$(count_status deferred-to-nightly "$OUT")"
+  printf '%s\n' "$OUT" | tail -6
 fi
 
 echo "(s) leading-hyphen operator matches — the committed cmp rows enumerate real sites"
@@ -2498,6 +2578,58 @@ if [[ $MOK -eq 1 ]]; then
   fi
 fi
 
+echo "(at) --verdict-log — a TAB row per scored mutant, both tiers, '-' for a survivor, a cache hit logs its real killer, an unwritable path is a hard red"
+FX="$(new_fixture strong)"
+printf 'echo-flip\tguard.sh\ts/echo ok/echo mutated/\tan uncovered good-path echo, never checked by the strong killer\n' \
+  >> "$FX/tools/mutation-catalog.tsv"
+fx_commit "$FX" "add a survivable catalog row"
+GSID="$(sid_for "$FX" guard.sh fail-open 1)"
+CSID="catalog::echo-flip"
+baseline_with "$FX" "$CSID"
+OUT_NOFLAG="$( cd "$FX" && enf bash "$SWEEP" --mode full 2>&1 )"; RC_NOFLAG=$?
+OUT="$( cd "$FX" && enf bash "$SWEEP" --mode full --verdict-log "$FX/vlog.tsv" 2>&1 )"; RC=$?
+if [[ $RC -eq 0 && $RC_NOFLAG -eq $RC ]]; then
+  ok "the flag is inert on the run's exit code — identical rc with and without it"
+else
+  bad "(at1) expected identical rc=0 with and without --verdict-log; got $RC_NOFLAG / $RC"
+  printf '%s\n' "$OUT_NOFLAG" | tail -6
+  printf '%s\n' "$OUT" | tail -6
+fi
+HDR="$(head -1 "$FX/vlog.tsv" 2>/dev/null)"
+GROW="$(awk -F'\t' -v s="$GSID" '$1==s' "$FX/vlog.tsv" 2>/dev/null)"
+CROW="$(awk -F'\t' -v s="$CSID" '$1==s' "$FX/vlog.tsv" 2>/dev/null)"
+if [[ "$HDR" == $'mutant_id\tverdict\tkiller_suite' ]] \
+  && [[ "$GROW" == "$GSID"$'\t'"killed"$'\t'"./guard-selftest.sh" ]] \
+  && [[ "$CROW" == "$CSID"$'\t'"survived"$'\t'"-" ]]; then
+  ok "both tiers appear, with the generic id's real killer and '-' for the catalog survivor"
+else
+  bad "(at2) unexpected verdict-log content — header='$HDR' generic-row='$GROW' catalog-row='$CROW'"
+  printf '%s\n' "$OUT" | tail -6
+fi
+
+# A cache hit must log the killer suite out of the memoized record, not a blank.
+CD="$TMPROOT/cache-at"
+FXC="$(new_fixture strong)"
+GSIDC="$(sid_for "$FXC" guard.sh fail-open 1)"
+( cd "$FXC" && cch "$CD" bash "$SWEEP" --mode full --verdict-log "$TMPROOT/at-cold.tsv" ) >/dev/null 2>&1
+OUT2="$( cd "$FXC" && cch "$CD" bash "$SWEEP" --mode full --verdict-log "$TMPROOT/at-warm.tsv" 2>&1 )"
+C2="$(computed "$OUT2")"
+WARMROW="$(awk -F'\t' -v s="$GSIDC" '$1==s' "$TMPROOT/at-warm.tsv" 2>/dev/null)"
+if [[ "${C2:-9}" -eq 0 ]] && [[ "$WARMROW" == "$GSIDC"$'\t'"killed"$'\t'"./guard-selftest.sh" ]]; then
+  ok "a cache-served kill still logs its real killer suite"
+else
+  bad "(at3) warm run computed=${C2:-?}, expected 0; warm row='$WARMROW'"; printf '%s\n' "$OUT2" | tail -6
+fi
+
+# An unwritable log path is a hard red, never a silent skip.
+FXU="$(new_fixture strong)"
+OUT="$( cd "$FXU" && adv bash "$SWEEP" --mode full --verdict-log "/no/such/dir/vlog.tsv" 2>&1 )"; RC=$?
+if [[ $RC -ne 0 ]] && grep -q 'cannot write the verdict log' <<<"$OUT"; then
+  ok "an unwritable --verdict-log path reds by name"
+else
+  bad "(at4) expected a named red for an unwritable path; got rc=$RC"; printf '%s\n' "$OUT" | tail -5
+fi
+
 echo "(j) universe rule — every in-universe guard in the REAL tree is accounted"
 UNIV="$( cd "$REPO_ROOT" && git ls-files '*.sh' \
         | grep -v -- '-selftest\.sh$' | grep -v '/evals/' | grep -v '^tests/hooks-smoke/' | sort )"
@@ -2524,6 +2656,45 @@ if [[ $RC -eq 0 ]] && ! grep -q 'unaccounted guard' <<<"$OUT"; then
 else
   bad "(j) harness accounting disagrees with the direct lint; rc=$RC"; printf '%s\n' "$OUT" | tail -4
 fi
+
+# PER-GUARD CATALOG CAP (#752). The wholesale sweep shards round-robin, so it balances guard
+# COUNT and not cost and a guard's mutants are atomic to one residue class: lean-gate.sh at 56
+# rows against a 212s killer killed its shard at the 45-minute step bound twice, taking six
+# unrelated guards with it. 36 is a MEASUREMENT — the largest count for that guard observed to
+# finish inside the bound — and a count is a proxy for rows x killer-suite seconds. Full
+# derivation and the retirement criterion: docs/testing.md.
+# The value is held to the copy docs/testing.md states, by scripts/check-lockstep-pairs.sh:
+# AC-4 obliges the doc to name it, and nothing else would stop the doc asserting a stale one.
+# LOCKSTEP-BEGIN mutation-catalog-per-guard-cap
+MAX_ROWS_PER_GUARD=36
+# LOCKSTEP-END mutation-catalog-per-guard-cap
+
+# Prints `<guard> <count>`, one line per guard over the cap in $1, sorted; silent when none is.
+# Split out from case (k) so case (au) can drive it against a fixture: a lint that only ever
+# reads the live tree cannot be shown to still fail, and would go quietly dead the day its
+# parsing broke — the failure the real tree is least able to reveal.
+catalog_cap_breaches() {
+  awk -F'\t' -v cap="$MAX_ROWS_PER_GUARD" '
+    /^#/    { next }
+    NF < 2  { next }
+            { n[$2]++ }
+    END     { for (g in n) if (n[g] > cap) printf "%s %d\n", g, n[g] }
+  ' "$1" | LC_ALL=C sort
+}
+
+# The ENFORCING half, split out for the same reason and not the same reason twice: the extractor
+# above only reports, and it is this loop that turns a breach into case (k)'s red. Left inline it
+# would be deletable with both fixture cases still green — the cap would then be parsed, printed
+# and never enforced. Case (au3)/(au4) drive it and read $FAILS in a subshell.
+# Reported per guard rather than as one aggregate: the count is the actionable half — "retire n
+# rows" — and an aggregate would name the file rather than the guard to fix.
+catalog_cap_lint() {
+  local cap_g cap_n
+  while read -r cap_g cap_n; do
+    [[ -n "$cap_g" ]] || continue
+    lint_fail "guard carries $cap_n catalog rows, over the per-guard cap of $MAX_ROWS_PER_GUARD: $cap_g"
+  done <<< "$(catalog_cap_breaches "$1")"
+}
 
 echo "(k) TSV family lint — shape and resolution of every committed mutation-*.tsv"
 lint_fail() { bad "(k) $*"; }
@@ -2577,6 +2748,9 @@ if [[ -f "$REPO_ROOT/tools/mutation-catalog.tsv" ]]; then
       [0-9]*) lint_fail "catalog row '$id' uses a bare line address — D-3 requires a pattern address" ;;
     esac
   done < "$REPO_ROOT/tools/mutation-catalog.tsv"
+  # The cap itself — inside this guard, not after it: with the catalog absent, awk would write an
+  # error to stderr and the arm would silently find no breach.
+  catalog_cap_lint "$REPO_ROOT/tools/mutation-catalog.tsv"
 fi
 # Slow suites: selftest resolves, seconds numeric, measured_at ISO-8601.
 if [[ -f "$REPO_ROOT/tools/selftest-suite-timings.tsv" ]]; then
@@ -2629,6 +2803,75 @@ if [[ -f "$REPO_ROOT/tools/mutation-baseline.tsv" ]]; then
   done < "$REPO_ROOT/tools/mutation-baseline.tsv"
 fi
 [[ $FAILS -eq 0 ]] && ok "TSV family is well-formed and resolves"
+
+echo
+echo "(au) per-guard catalog cap — case (k)'s cap arm, driven against a fixture catalog"
+# Case (k) reads the live tree, which is the right binding for "is the committed catalog legal"
+# and the wrong one for "does this arm still fail" — the live tree is legal by construction the
+# moment it is fixed, so a broken extractor and a compliant catalog are indistinguishable there.
+# These two fixtures separate them, and they are the same function case (k) calls, not a copy.
+CAPFX="$TMPROOT/cap"
+mkdir -p "$CAPFX"
+{
+  printf '# fixture catalog\n'
+  cap_i=1
+  while [[ $cap_i -le $MAX_ROWS_PER_GUARD ]]; do
+    printf 'row-%s\ttools/at-cap.sh\ts/a/b/\tnote\n' "$cap_i"
+    cap_i=$((cap_i + 1))
+  done
+} > "$CAPFX/at-cap.tsv"
+# One over, plus a second guard well under it: the breach must name the offender alone.
+cp "$CAPFX/at-cap.tsv" "$CAPFX/over-cap.tsv"
+{
+  printf 'row-over\ttools/at-cap.sh\ts/a/b/\tnote\n'
+  printf 'other-1\ttools/small.sh\ts/a/b/\tnote\n'
+  printf 'other-2\ttools/small.sh\ts/a/b/\tnote\n'
+} >> "$CAPFX/over-cap.tsv"
+
+CAP_AT="$(catalog_cap_breaches "$CAPFX/at-cap.tsv")"
+if [[ -z "$CAP_AT" ]]; then
+  ok "a guard at exactly $MAX_ROWS_PER_GUARD rows draws no breach"
+else
+  bad "(au1) expected silence at exactly $MAX_ROWS_PER_GUARD rows; got '$CAP_AT'"
+fi
+
+CAP_OVER="$(catalog_cap_breaches "$CAPFX/over-cap.tsv")"
+if [[ "$CAP_OVER" == "tools/at-cap.sh $((MAX_ROWS_PER_GUARD + 1))" ]]; then
+  ok "one row over names the offending guard and its count, and only that guard"
+else
+  bad "(au2) expected 'tools/at-cap.sh $((MAX_ROWS_PER_GUARD + 1))'; got '$CAP_OVER'"
+fi
+
+# The two above assert the EXTRACTOR. These two assert the ENFORCEMENT — that a breach becomes a
+# case (k) failure and not a line on stdout nobody counted. Deleting the loop body inside
+# catalog_cap_lint leaves (au1)/(au2) green, so without these the cap could be parsed, printed
+# and never enforced.
+#
+# Run in THIS shell rather than a command substitution, because a subshell is exactly where a
+# $FAILS increment would not be observable — the real counter is spent and then restored, and
+# the lint's own output is captured rather than printed so it does not read as a live failure.
+CAP_FAILS_BEFORE=$FAILS
+catalog_cap_lint "$CAPFX/over-cap.tsv" > "$CAPFX/over.log" 2>&1
+CAP_OVER_DELTA=$((FAILS - CAP_FAILS_BEFORE))
+FAILS=$CAP_FAILS_BEFORE
+if [[ $CAP_OVER_DELTA -eq 1 ]] \
+   && grep -q "over the per-guard cap of $MAX_ROWS_PER_GUARD: tools/at-cap.sh" "$CAPFX/over.log"; then
+  ok "a breach raises exactly one case (k) failure, not just a printed line"
+else
+  bad "(au3) expected one (k) FAIL naming tools/at-cap.sh; got delta=$CAP_OVER_DELTA"
+  cat "$CAPFX/over.log"
+fi
+
+CAP_FAILS_BEFORE=$FAILS
+catalog_cap_lint "$CAPFX/at-cap.tsv" > "$CAPFX/at.log" 2>&1
+CAP_AT_DELTA=$((FAILS - CAP_FAILS_BEFORE))
+FAILS=$CAP_FAILS_BEFORE
+if [[ $CAP_AT_DELTA -eq 0 && ! -s "$CAPFX/at.log" ]]; then
+  ok "a catalog at the cap raises no failure and prints nothing"
+else
+  bad "(au4) expected no failure and no output at the cap; got delta=$CAP_AT_DELTA"
+  cat "$CAPFX/at.log"
+fi
 
 echo
 if [[ $FAILS -eq 0 ]]; then
