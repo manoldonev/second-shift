@@ -211,7 +211,7 @@ When you are dispatched through the dev-pipeline intake Workflow (`intake-review
       "category": "<checklist section, e.g. Design Decisions>",
       "claim": "<the issue, one sentence — same as the prose description>",
       "impact": "<what goes wrong if unaddressed>",
-      "rationale": "<MANDATORY: your actual reasoning / how you verified — cite file:line where you checked a claim against code. This is what lets the orchestrator accept or DISMISS the finding. Never a one-liner; a bare conclusion without rationale is unusable.>",
+      "rationale": "<REQUIRED: the evidence you checked — cite file:line where you checked a claim against code. This is what lets the orchestrator accept or DISMISS the finding. Never a one-liner; a bare conclusion without rationale is unusable.>",
       "suggestion": "<how to fix the spec, not the code>",
       "confidence": 0,
       "file": "<optional file you grounded against>",
