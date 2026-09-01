@@ -530,6 +530,7 @@ When prior round context is provided:
 2. **Verify fixes** — confirm prior Critical/Warning findings were actually addressed, not just suppressed
 3. **Focus on new issues** — findings introduced by the fix commits since last round
 4. **Reduce reviewer lineup** — only spawn reviewers whose prior findings had blockers/majors, plus any reviewer whose scope is touched by the fix commits. The lead pass still runs every round; scope it to the fix commits the same way
+5. **The caller's inheritance contract governs** — when the caller carries its own contract (a lean-lane round with a `G delta` range and a prior verdict record), rule 4 narrows the panel only where that contract permits, and every acceptance criterion the caller scores is re-scored this round regardless of which reviewers were spawned. A fix can break a criterion a reviewer with no prior finding owns; the delta bounds the reading, never the verdict.
 
 This reduces token waste and prevents redundant findings across review iterations.
 
