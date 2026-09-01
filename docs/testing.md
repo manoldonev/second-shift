@@ -1351,17 +1351,26 @@ rule would also fail most of today's catalog, which names its regression class i
 citing when it was found; read as written above, it does not, and #581 re-verified all 66
 catalog rows against it without deleting any.
 
-**The per-guard cap: 36 rows, and why a count.** No guard may carry more than
-`MAX_ROWS_PER_GUARD` (36) rows in `tools/mutation-catalog.tsv`, declared and enforced in
-`tools/mutation-sweep-selftest.sh` — case (k) reads the committed catalog, case (l) drives the
-same extractor against fixtures so the arm can be shown to still fail. The wholesale lane's
+**The per-guard cap, and why a count.** No guard may carry more than `MAX_ROWS_PER_GUARD` rows
+in `tools/mutation-catalog.tsv`, declared and enforced in `tools/mutation-sweep-selftest.sh` —
+case (k) reads the committed catalog, case (au) drives the same extractor *and the same lint*
+against fixtures so the arm can be shown to still fail. The value below is the declaration
+itself, held to it by `scripts/check-lockstep-pairs.sh`:
+
+```
+# LOCKSTEP-BEGIN mutation-catalog-per-guard-cap
+MAX_ROWS_PER_GUARD=36
+# LOCKSTEP-END mutation-catalog-per-guard-cap
+```
+
+The wholesale lane's
 `--shard i/N` partition is round-robin over the sorted guard list, so it balances guard **count,
 not cost**, and a guard's mutants are atomic to one residue class: the worst shard is whichever
 holds the most expensive guard, and no value of N moves them apart. `lean-gate.sh` reached 56
 rows against a 212s killer suite and was killed at the 45-minute step bound on two successive
 monthly runs, taking the six unrelated guards in its shard down with it.
 
-36 is a measurement rather than a preference — the largest count for that guard ever observed to
+It is a measurement rather than a preference — the largest count for that guard ever observed to
 finish inside the bound (24m25s, 54% of it). A row count is a **proxy** for `rows x killer-suite
 seconds`, which is the quantity that actually breaks a shard; a cost-weighted cap would need a
 killer timing for every guard and `tools/selftest-suite-timings.tsv` tables only the slow ones,

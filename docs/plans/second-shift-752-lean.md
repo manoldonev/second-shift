@@ -55,8 +55,11 @@ OR-1's chosen direction, not an oversight.
   creates: a guard already at the cap must retire a row before it gains one.
 - **AC-6** — `.github/workflows/mutation-sweep.yml` records OR-2's decision at the
   `file-audit-red` condition: the `cancelled` match stays broad, an operator-cancelled dispatch
-  will therefore keep filing a false digest, and the reason the obvious narrowing does not
-  separate the two cases. **No behavior change** — this is a decision of record.
+  will therefore keep filing a false digest, and the reason the obvious narrowing is declined.
+  **No behavior change** — this is a decision of record.
+  *Amended after round 1*, which read "…the reason the obvious narrowing does not separate the
+  two cases". That clause presupposed a mechanism measurement falsified (D-7): the narrowing does
+  separate them. The obligation is unchanged in kind — the recorded reason has to be the true one.
 
 ## The cap: why 36
 
@@ -127,7 +130,7 @@ ids above are the whole restore list.
 | D-4 | Whether the issue title may be freely rewritten | No — it must retain the literal prefix `mutation wholesale audit red`; dedup is `startswith` over open titles (`.github/workflows/file-issue-on-red.yml:77`) | codebase-derived |
 | D-5 | Whether raising the shard count resolves the timeout | It does not — a guard's mutants are atomic to one residue class, so no N moves them off one shard. CORRECTED here: the ledger's supporting figure (that `lean-gate.sh` alone exceeds the bound at any N) was an over-estimate. Killers are reaped at first `FAIL:`, and the guard's catalog DID fit at 36 rows in 24m25s. The conclusion stands on atomicity; the arithmetic behind it does not | codebase-derived |
 | D-6 | How the audit bounds a single guard's sweep cost | OR-1 resolved by the operator: direction D — prune the redundant `lean-gate.sh` rows and add a lint capping rows per guard. A, B and C are ruled out on the record | user-answered |
-| D-7 | Whether `file-audit-red` should separate operator-cancel from runner-death-cancel | OR-2 resolved by the operator: no — leave the `cancelled` match as is. `!cancelled()` is run-level, so it would trade away runner-death detection while preserving the operator-cancel case it appears to fix. Treated as inferred from GitHub's status-function docs, not measured | user-answered |
+| D-7 | Whether `file-audit-red` should separate operator-cancel from runner-death-cancel | OR-2 resolved by the operator: no — leave the `cancelled` match as is. CORRECTED here, on the measurement the resolution itself asked for before anyone revisits the region: the supporting claim (a shard killed at its step bound resolves `cancelled` at the JOB level, so `!cancelled()` would preserve the very case it appears to fix) is false. Measured, a step-bound kill resolves `failure` — runs 33488186736 and 33425785614, `sweep (6)` at ~45m, `merge` `failure` — which is also what this workflow's own STEP-vs-JOB note has said all along, while the operator-cancelled run resolves `cancelled` at the RUN level (33425839962), so a run-level `!cancelled()` would suppress exactly it. The decision stands on what the narrowing RISKS rather than on what it misses: whether a lost runner makes run-level `cancelled()` true is unmeasured, and if it does, the narrowing loses a whole audit to buy back a diluted digest | user-answered |
 | D-8 | Build model sizing | `opus` — two `pause-and-ask` regions remain open, one of them (OR-1) an architectural call that moves the deterministic shard partition the merge job's completeness accounting rests on; the builder must decide a strategy, not execute a resolved one | user-delegated |
 | D-9 | Cap value | 36 — the largest catalog size for this guard measured inside the step bound. Not a round number chosen for headroom | codebase-derived |
 | D-10 | Cap shape: flat row count vs cost-weighted (`rows x killer seconds`) | Flat row count, as OR-1 specifies. A cost-weighted cap is the more faithful model but needs a killer-suite timing for every guard, and `tools/selftest-suite-timings.tsv` tables only the slow ones — so it would fail open on most of the universe while costing more code than the prune saves | codebase-derived |
