@@ -5873,9 +5873,70 @@ closeout_writer() {
 LEAN_COST_BLOCK=""
 LEAN_COST_SKIP=""
 LEAN_COST_ERROR=""
+LEAN_COST_USD=""
+
+# THE MACHINE-READABLE `cost_usd:` KEY (#723, pre-flight ledger D-1/D-3/D-7/D-8/D-9). Every
+# closed-out run publishes it: a bare decimal (D-8 — no `$`, since the `record_key` idiom's
+# `[A-Za-z0-9._/-]+` charset would read a `$`-prefixed value as an absent key) when a priced
+# block rendered, `unavailable (<reason>)` otherwise, naming which of the two derivable reasons
+# applies (D-7) — a block rendered but its "Cost (USD)" column is absent, or no block rendered at
+# all. Naming which of the tool's four `skip(…)` verdicts caused the second case is NOT available
+# here: closeout_cost_block deliberately does not capture the tool's stderr, and D-7 does not
+# reopen that.
+resolve_cost_usd() { # resolve_cost_usd — sets $LEAN_COST_USD from $LEAN_COST_BLOCK/$LEAN_COST_SKIP
+  local figure
+  if [ -n "$LEAN_COST_BLOCK" ]; then
+    # The only `$N.NN` text the render filter ever emits is the cost cell (see fmt() in
+    # pipeline-cost-block.sh); a block with no such cell is a token-only transcript render.
+    figure="$(printf '%s\n' "$LEAN_COST_BLOCK" | grep -oE '\$[0-9]+\.[0-9]{2}' | head -1 | tr -d '$')"
+    if [ -n "$figure" ]; then
+      LEAN_COST_USD="$figure"
+    else
+      LEAN_COST_USD="unavailable (block rendered, no Cost (USD) column)"
+    fi
+  else
+    LEAN_COST_USD="unavailable (no cost block rendered this run)"
+  fi
+}
+
+# THE PR-DESCRIPTION COPY (D-1: "the PR description's cost-block region"). Computed on demand
+# from the PRISTINE $LEAN_COST_BLOCK, never stored back into it: closeout_comment pastes
+# $LEAN_COST_BLOCK too, and its own copy of the key is the bullet closeout_comment adds itself,
+# OUTSIDE the block (D-9) — that bullet has to survive a run with no block at all, which a
+# block-embedded copy by construction cannot, so the block it pastes stays exactly what the tool
+# rendered rather than saying `cost_usd:` a second time inside it.
+#
+# INSERTED RIGHT AFTER THE BLOCK'S OWN THEMATIC BREAK, not right after the marker and not after
+# the terminator. That still keeps it inside the span closeout_patch_pr_body's own strip discards
+# on every close-out — marker through terminator line — so a re-entered close-out replaces it
+# along with the rest of the block instead of leaving a stale copy behind as preserved "tail" text
+# (the region after the terminator is exactly what that strip treats as a human's own text and
+# never touches).
+#
+# NOT RIGHT AFTER THE MARKER (#723 round 1, finding 1). The renderer's first two lines are the
+# marker (an HTML comment, so a block element on its own) then `---`, which GFM parses as the
+# block's thematic break. Inserting the key between those two lines makes the key line the
+# paragraph text of a SETEXT H2 whose underline is that very `---` — GitHub's own renderer turns
+# `cost_usd: …` into an `<h2>` and swallows the `<hr>` entirely (measured via `POST /markdown`,
+# `mode: gfm`, against a real close-out's block). Inserting after the `---` instead leaves it as an
+# ordinary paragraph line, blank-line-terminated before the next block (`## Pipeline Cost`, an ATX
+# heading — never a setext underline), so no line this function emits can ever read as a heading.
+#
+# NEVER TOUCHES THE MARKER LINE ITSELF: that line is held byte-for-byte to
+# COST_BLOCK_MARKER above, and closeout_patch_pr_body's replacement matches it with `$0 == m`. A
+# line inserted after the break, not appended onto the marker, is what keeps that match intact on
+# the next call.
+cost_block_with_usd_key() { # cost_block_with_usd_key — echoes $LEAN_COST_BLOCK with the key inserted
+  printf '%s\n' "$LEAN_COST_BLOCK" | awk -v m="$COST_BLOCK_MARKER" -v v="$LEAN_COST_USD" '
+    $0 == m { print; marker = 1; next }
+    marker && !ins && $0 == "---" { print; print "cost_usd: " v; ins = 1; next }
+    { print }
+  '
+}
+
 closeout_cost_block() { # closeout_cost_block <pr-url>
   local tool out rc
-  LEAN_COST_BLOCK=""; LEAN_COST_SKIP=""; LEAN_COST_ERROR=""
+  LEAN_COST_BLOCK=""; LEAN_COST_SKIP=""; LEAN_COST_ERROR=""; LEAN_COST_USD=""
   tool="${LEAN_COST_BLOCK_TOOL:-$(dirname "$(dirname "$(cd "$(dirname "$0")" && pwd)")")/tools/pipeline-cost-block.sh}"
   if [ ! -f "$tool" ]; then
     LEAN_COST_ERROR="pipeline-cost-block.sh not found at '$tool', so this run's published figure cannot be derived"
@@ -5892,6 +5953,7 @@ closeout_cost_block() { # closeout_cost_block <pr-url>
     *"$COST_BLOCK_MARKER"*) LEAN_COST_BLOCK="$out" ;;
     *) LEAN_COST_SKIP="the tool exited 0 and rendered no block — a documented skip, named on its own line above" ;;
   esac
+  resolve_cost_usd
   return 0
 }
 
@@ -5937,7 +5999,7 @@ closeout_patch_pr_body() { # closeout_patch_pr_body <pr-number> <current-body>
           { print > (tl) }
     END   { print (seen ? (cut ? "replaced" : "truncated") : "appended") }
   ')"
-  { cat "$dir/head"; printf '%s\n' "$LEAN_COST_BLOCK"; cat "$dir/tail"; } > "$dir/body"
+  { cat "$dir/head"; cost_block_with_usd_key; cat "$dir/tail"; } > "$dir/body"
   out="$("$(closeout_writer)" api -X PATCH "repos/{owner}/{repo}/pulls/$1" \
         -F body=@"$dir/body" --jq .number 2>&1)"; rc=$?
   rm -rf "$dir"
@@ -5970,6 +6032,10 @@ closeout_comment() { # closeout_comment <pr-url>
     echo ""
     echo "- PR: $1"
     echo "- Verdict record: \`$VERDICT_REL\`"
+    # D-3/D-9: this bullet, not the block, is what makes cost_usd present on EVERY closed-out
+    # run — including a full skip, where $LEAN_COST_BLOCK is empty and there is no block to
+    # carry a copy at all. resolve_cost_usd (closeout_cost_block) has always set it by here.
+    echo "- cost_usd: $LEAN_COST_USD"
     if [ -n "$LEAN_COST_BLOCK" ]; then
       echo ""
       printf '%s\n' "$LEAN_COST_BLOCK"

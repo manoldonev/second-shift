@@ -8834,22 +8834,23 @@ CO_BLOCK="$(printf '%s\n' '<!-- pipeline-cost-block -->' '---' '' '## Pipeline C
 # Prints the note the command records as its obligation detail; the patched body lands in $CO_SPOOL.
 # shellcheck disable=SC1090,SC2034  # $GATE is the script under test, and the two globals below
 # are exactly the inputs its production body reads.
-co_patch() { # co_patch <current-body>
+co_patch() { # co_patch <current-body> [block, default $CO_BLOCK]
   # CAPTURED BEFORE THE SOURCE, and that is not style. `.` inside a function lends that function's
   # positional parameters to the sourced file, and the gate's own option loop SHIFTS them away — so
   # a `$1` read AFTER the source is unbound, which under this suite's `set -u` kills the subshell
   # and returns an empty note. Every one of these six cases failed that way before it ever reached
   # an assertion about the production code.
-  local co_arg="$1"
+  local co_arg="$1" co_blk="${2:-$CO_BLOCK}"
   rm -f "$CO_SPOOL"
   # EXPORTED, not prefixed, and for TWO reasons that are easy to conflate. The stub is a separate
   # process and sees only the environment, so `CO_SPOOL`/`GH_BOT` have to be exported at all. And a
   # prefix assignment on `.` would not have survived the source anyway — that persistence is POSIX-
   # mode behavior, not this bash's. Either way the failure is silent and reads as "the function
   # returned nothing".
+  # shellcheck disable=SC2030,SC2031  # subshell-local is the point, exactly as in gate().
   ( cd "$TREE" && export CO_SPOOL GH_BOT="$CO_STUB"
     LEAN_GATE_LIB=1 SECOND_SHIFT_CONFIG="$CFG" . "$GATE" >/dev/null 2>&1
-    LEAN_COST_BLOCK="$CO_BLOCK"
+    LEAN_COST_BLOCK="$co_blk"
     closeout_patch_pr_body 9 "$co_arg" >/dev/null 2>&1
     printf '%s' "$LEAN_PATCH_NOTE" )
 }
@@ -8927,6 +8928,181 @@ printf 'not json at all\n' > "$CO_LOG"
 if [ "$(co_row r-co)" = "missing" ]; then
   pass "(co6) an unparseable cost log reads as 'no row', never as one — the count is captured before it is tested"
 else fail "(co6) an unparseable cost log was read as a found row"; fi
+
+# ---- (co7)-(co11) #723: the `cost_usd:` key (pre-flight ledger D-1/D-3/D-7/D-8/D-9) ------------
+# shellcheck disable=SC1090,SC2034  # ditto — the globals below are the function's own inputs.
+co_resolve() { # co_resolve <block> <skip>  — mirrors closeout_cost_block's own resolve step
+  local co_blk="$1" co_skip="$2"
+  ( cd "$TREE" && LEAN_GATE_LIB=1 SECOND_SHIFT_CONFIG="$CFG" . "$GATE" >/dev/null 2>&1
+    LEAN_COST_BLOCK="$co_blk"; LEAN_COST_SKIP="$co_skip"
+    resolve_cost_usd
+    printf 'usd=%s\npristine=%s\ninjected=%s' "$LEAN_COST_USD" "$LEAN_COST_BLOCK" "$(cost_block_with_usd_key)" )
+}
+
+# (co7) A PRICED BLOCK. The only `$N.NN` text the render filter ever emits is the cost cell, so a
+# grep for it recovers exactly the table's own figure with no second call into the tool — a bare
+# decimal, no `$` (D-8). `$LEAN_COST_BLOCK` itself stays PRISTINE — cost_block_with_usd_key
+# computes the PR-description copy on demand rather than mutating the shared block, which is what
+# keeps the closing comment (co10/co11), pasting that same shared block, from saying `cost_usd:`
+# a second time inside it.
+# shellcheck disable=SC2016  # a literal dollar amount in a rendered table, not an expansion.
+co_block="$(printf '%s\n' '<!-- pipeline-cost-block -->' '---' '' '| Scope | Cost |' '|---|---|' '| Run total | $70.41 |' '' 'Cache-hit rate: 90% · Sessions: 2')"
+co_out="$(co_resolve "$co_block" "")"
+if grep -qxF 'usd=70.41' <<<"$co_out" \
+   && ! grep -q '^pristine=.*cost_usd:' <<<"$co_out" \
+   && grep -qxF 'cost_usd: 70.41' <<<"$co_out"; then
+  pass "(co7) a priced block resolves 'cost_usd: 70.41', leaves the shared block pristine, and the PR-description copy carries the same bare figure"
+else fail "(co7) unexpected: $co_out"; fi
+
+# (co7b) THE INSERTED LINE NEVER SITS DIRECTLY ABOVE THE `---` (#723 round 1, finding 1). A
+# CommonMark/GFM paragraph line immediately followed by `---` is a setext H2 underline, which is
+# exactly what happened when the key was inserted right after the marker: GitHub's own renderer
+# turned `cost_usd: …` into an `<h2>` and swallowed the block's `<hr>`. Asserting the first three
+# lines of the injected output verbatim — marker, then `---`, then the key — pins the ONLY
+# placement that cannot read as a setext underline, since the key line is then followed by the
+# blank line the render filter always emits before its next content, never by `---` again.
+co_shape="$(awk '/^injected=/ { sub(/^injected=/, ""); flag = 1 } flag { print }' <<<"$co_out" | sed -n '1p;2p;3p' | tr '\n' '|')"
+if [ "$co_shape" = '<!-- pipeline-cost-block -->|---|cost_usd: 70.41|' ]; then
+  pass "(co7b) the injected key lands right after the block's own '---', never directly above it — the setext-heading trap round 1 caught"
+else fail "(co7b) unexpected shape: $co_shape"; fi
+
+# (co8) A TOKEN-ONLY BLOCK (transcript source, no priced session): a block WAS rendered, but has
+# no `Cost (USD)` column — D-7's first reason, not the second.
+co_block="$(printf '%s\n' '<!-- pipeline-cost-block -->' '---' '' '| Scope | Output |' '|---|---|' '| Run total | 4,200 |' '' 'Cache-hit rate: 10% · Sessions: 1')"
+co_out="$(co_resolve "$co_block" "")"
+if grep -qxF 'usd=unavailable (block rendered, no Cost (USD) column)' <<<"$co_out"; then
+  pass "(co8) a token-only block with no dollar cell resolves 'unavailable (block rendered, …)', never a blank or a fabricated figure"
+else fail "(co8) unexpected: $co_out"; fi
+
+# (co8b) A FULL SKIP: no block at all (D-7's second reason). LEAN_COST_USD still resolves, because
+# the closing comment's own bullet (co11) needs a value on every closed-out run, including this one
+# — but there is no PR-description surface to carry a copy into (D-3: close-out's skip behavior on
+# the PR description is unchanged).
+co_out="$(co_resolve "" "the tool exited 0 and rendered no block")"
+if grep -qxF 'usd=unavailable (no cost block rendered this run)' <<<"$co_out" \
+   && grep -qxF 'pristine=' <<<"$co_out"; then
+  pass "(co8b) a full skip resolves 'unavailable (no cost block …)' with no block for either surface"
+else fail "(co8b) unexpected: $co_out"; fi
+
+# (co9) RE-ENTRY DOES NOT DUPLICATE THE PR-DESCRIPTION KEY. cost_block_with_usd_key inserts the
+# line BEFORE the terminator, inside the span closeout_patch_pr_body's own strip discards on every
+# close-out — so patching the same PR body twice, over the REAL production call
+# (closeout_patch_pr_body calling cost_block_with_usd_key itself, not a hand-built fixture), with
+# two different resolved figures, must leave exactly one `cost_usd:` line, holding the SECOND
+# run's figure. A line placed after the terminator instead would read as the human's own
+# preserved text on the second call and accumulate one stale copy per re-entry — the case this
+# asserts against.
+# shellcheck disable=SC1090,SC2030,SC2031,SC2034  # ditto — subshell-local is the point, as in co_patch.
+co_patch_priced() { # co_patch_priced <current-body> <block> <resolved-usd>
+  local co_arg="$1" co_blk="$2" co_usd="$3"
+  rm -f "$CO_SPOOL"
+  # shellcheck disable=SC2030,SC2031  # subshell-local is the point, exactly as in gate().
+  ( cd "$TREE" && export CO_SPOOL GH_BOT="$CO_STUB"
+    LEAN_GATE_LIB=1 SECOND_SHIFT_CONFIG="$CFG" . "$GATE" >/dev/null 2>&1
+    LEAN_COST_BLOCK="$co_blk"; LEAN_COST_USD="$co_usd"
+    closeout_patch_pr_body 9 "$co_arg" >/dev/null 2>&1 )
+}
+co_block_plain="$(printf '%s\n' '<!-- pipeline-cost-block -->' '---' '' 'Cache-hit rate: 50% · Sessions: 1')"
+co_body="$(printf '%s\n' 'Summary.' '' 'Closes #9')"
+co_patch_priced "$co_body" "$co_block_plain" "10.00"
+co_body2="$(cat "$CO_SPOOL")"
+co_patch_priced "$co_body2" "$co_block_plain" "20.00"
+co_final="$(cat "$CO_SPOOL")"
+co_count="$(grep -c '^cost_usd:' <<<"$co_final")"
+# THE MARKER LINE ITSELF STAYS SINGLE TOO (#723 round 1, finding 3). Dropping cost_block_with_usd_key's
+# `next` on the marker arm would fall through to the catch-all `{ print }` and duplicate the marker
+# line on every insertion — a shape (co1)-(co8b) never catch since none of them re-drives the real
+# production call chain (closeout_patch_pr_body → cost_block_with_usd_key) the way this case does.
+co_marker_count="$(grep -c '^<!-- pipeline-cost-block -->$' <<<"$co_final")"
+if [ "$co_count" -eq 1 ] && [ "$co_marker_count" -eq 1 ] && grep -qF 'cost_usd: 20.00' <<<"$co_final"; then
+  pass "(co9) a second close-out on the same PR leaves exactly one cost_usd line and exactly one marker line, holding the run's own (second) figure"
+else fail "(co9) count=$co_count marker_count=$co_marker_count final=$co_final"; fi
+
+# (co10)-(co11) THE CLOSING COMMENT'S OWN BULLET (D-9: outside the block; D-3: present on EVERY
+# closed-out run, including a full skip where there is no block at all to carry it).
+# shellcheck disable=SC1090,SC2030,SC2031,SC2034  # ditto — subshell-local is the point, as in co_patch.
+co_comment() { # co_comment <block> <skip>
+  # CAPTURED BEFORE THE SOURCE, exactly as co_patch's own comment above explains: `.` inside a
+  # function lends this function's positional parameters to the sourced file, which shifts them
+  # away before a `$1`/`$2` read below the source would see them.
+  local co_blk="$1" co_skip="$2"
+  rm -f "$CO_SPOOL"
+  # shellcheck disable=SC2030,SC2031  # subshell-local is the point, exactly as in gate().
+  ( cd "$TREE" && export CO_SPOOL GH_BOT="$CO_STUB"
+    LEAN_GATE_LIB=1 SECOND_SHIFT_CONFIG="$CFG" . "$GATE" >/dev/null 2>&1
+    ISSUE=9; VERDICT_REL="docs/plans/second-shift-9-lean-verdict.md"
+    LEAN_COST_BLOCK="$co_blk"; LEAN_COST_SKIP="$co_skip"
+    resolve_cost_usd
+    closeout_comment "https://example.invalid/pr/9" >/dev/null 2>&1 )
+  cat "$CO_SPOOL"
+}
+
+# (co10) A PRICED RUN: the bullet carries the bare figure, the block still follows it, and the
+# `cost_usd:` line appears EXACTLY ONCE — as the bullet, never a second time inside the pasted
+# block (which is D-9's whole point: the comment's copy is the bullet, not a block-embedded one).
+# shellcheck disable=SC2016  # a literal dollar amount in a rendered table, not an expansion.
+co_block="$(printf '%s\n' '<!-- pipeline-cost-block -->' '---' '' '| Scope | Cost |' '|---|---|' '| Run total | $70.41 |' '' 'Cache-hit rate: 80% · Sessions: 1')"
+co_comment_out="$(co_comment "$co_block" "")"
+if grep -qxF -- '- cost_usd: 70.41' <<<"$co_comment_out" \
+   && grep -qF '<!-- pipeline-cost-block -->' <<<"$co_comment_out" \
+   && [ "$(grep -c 'cost_usd:' <<<"$co_comment_out")" -eq 1 ]; then
+  pass "(co10) a priced run's closing comment carries exactly one 'cost_usd: 70.41' bullet beside PR/verdict-record; the pasted block itself stays pristine"
+else fail "(co10) unexpected comment: $co_comment_out"; fi
+
+# (co11) A FULL SKIP: the bullet is STILL present, reading 'unavailable (…)' — the case D-3 exists
+# for, since a mutant that guarded the bullet on `[ -n "$LEAN_COST_BLOCK" ]` would pass (co10) and
+# silently drop the key on exactly the runs this ticket's kill criterion most needs it for.
+co_comment_out="$(co_comment "" "the tool exited 0 and rendered no block")"
+if grep -qxF -- '- cost_usd: unavailable (no cost block rendered this run)' <<<"$co_comment_out" \
+   && ! grep -qF 'Pipeline Cost' <<<"$co_comment_out"; then
+  pass "(co11) a full-skip run's closing comment still carries the cost_usd bullet, unconditional on any block existing"
+else fail "(co11) unexpected comment: $co_comment_out"; fi
+
+# ---- (co12)-(co13) #723 round 1, finding 2: closeout_cost_block's OWN resolve_cost_usd call ----
+# resolve_cost_usd is called from exactly one production place: inside closeout_cost_block, right
+# after it decides which arm of the marker `case` fired. Every case above that touches
+# resolve_cost_usd (co_resolve, co_comment) sets $LEAN_COST_BLOCK/$LEAN_COST_SKIP BY HAND and calls
+# it directly — closeout_cost_block itself was never driven, so deleting its call left zero test
+# signal. These two cases drive the real function, stubbing the tool it shells out to via
+# LEAN_COST_BLOCK_TOOL (#590's own seam for exactly this) rather than hand-setting the globals.
+# shellcheck disable=SC1090,SC2030,SC2031,SC2034  # ditto — subshell-local is the point, as in co_patch.
+co_closeout() { # co_closeout <tool-path>
+  local co_tool="$1" co_rc
+  ( cd "$TREE" && LEAN_GATE_LIB=1 SECOND_SHIFT_CONFIG="$CFG" . "$GATE" >/dev/null 2>&1
+    ISSUE=9; LEAN_COST_BLOCK_TOOL="$co_tool"
+    closeout_cost_block "https://example.invalid/pr/9" >/dev/null 2>&1; co_rc=$?
+    printf 'rc=%s\nusd=%s\nskip=%s' "$co_rc" "$LEAN_COST_USD" "$LEAN_COST_SKIP" )
+}
+
+# (co12) A PRICED RUN: the real tool renders a block, closeout_cost_block routes it into
+# $LEAN_COST_BLOCK via the case's first arm, and its own resolve_cost_usd call — not a hand-set
+# global — is what turns that into 'usd=12.34'.
+CO_TOOL_PRICED="$CO_WORK/co-tool-priced.sh"
+cat > "$CO_TOOL_PRICED" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' '<!-- pipeline-cost-block -->' '---' '' '| Scope | Cost |' '|---|---|' '| Run total | $12.34 |' '' 'Cache-hit rate: 90% · Sessions: 2'
+EOF
+chmod +x "$CO_TOOL_PRICED"
+co_out="$(co_closeout "$CO_TOOL_PRICED")"
+if grep -qxF 'rc=0' <<<"$co_out" && grep -qxF 'usd=12.34' <<<"$co_out"; then
+  pass "(co12) closeout_cost_block's own resolve_cost_usd call — the only production call site — resolves the real tool's priced output to 'usd=12.34'"
+else fail "(co12) unexpected: $co_out"; fi
+
+# (co13) A DOCUMENTED SKIP: the real tool exits 0 with no marker in its output, routing into the
+# case's second arm ($LEAN_COST_SKIP set, no block) — and the same resolve_cost_usd call still
+# turns that into the unavailable reason, never a blank $LEAN_COST_USD.
+CO_TOOL_SKIP="$CO_WORK/co-tool-skip.sh"
+cat > "$CO_TOOL_SKIP" <<'EOF'
+#!/usr/bin/env bash
+echo "skip(no-sessions): nothing to report" >&2
+EOF
+chmod +x "$CO_TOOL_SKIP"
+co_out="$(co_closeout "$CO_TOOL_SKIP")"
+if grep -qxF 'rc=0' <<<"$co_out" \
+   && grep -qxF 'usd=unavailable (no cost block rendered this run)' <<<"$co_out" \
+   && grep -q '^skip=the tool exited 0 and rendered no block' <<<"$co_out"; then
+  pass "(co13) closeout_cost_block's documented-skip arm still resolves a real (non-blank) cost_usd value through the same call site"
+else fail "(co13) unexpected: $co_out"; fi
 
 # ---- (vs) #622: the AC scorecard, refused at the WRITER ---------------------------------------
 # WHY THESE ARE PER-TOOL CASES and not only a scenario. The composed leg in
