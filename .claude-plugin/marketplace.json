@@ -5,7 +5,7 @@
     "url": "https://github.com/manoldonev"
   },
   "metadata": {
-    "description": "The dev team that works while you're away — an autonomous-development toolkit for Claude Code: ticket-to-PR pipeline, multi-agent review, elicitation/intake surface, design fidelity, and session auditing. Generic tooling only; each consumer repo supplies static context (one config file) and dynamic context (repo-local knowledge skills).",
+    "description": "No proof, no merge. Claude Code plugins for autonomous development in which the agent writes the PR and never grades its own work: interview-driven intake, outcome-gated build, review in a separate session, a model-free merge boundary, mutation-tested tests, cost on every PR, and a tool-call audit ledger. Generic tooling only; each consumer repo supplies one config file and optional knowledge files.",
     "version": "12.3.0"
   },
   "plugins": [
