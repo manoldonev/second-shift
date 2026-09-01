@@ -277,9 +277,25 @@ jobs:
   # coverage gap on somebody's merge, nor be suppressed by one.
   #
   # `cancelled` is matched alongside `failure` for the same reason the merge-time lane gates on
-  # `!= 'success'`: a shard that blows its 60-minute bound, or whose runner dies, resolves as
-  # `cancelled` and leaves `merge` `skipped`, so a `failure`-only test would let a whole audit
-  # vanish silently. Neither state can arise on a green run.
+  # `!= 'success'`: a needed job can resolve `cancelled` rather than `failure` — every `sweep` job
+  # of an operator-cancelled run does (run 33425839962), and a lost runner is expected to — and a
+  # `failure`-only test would let a whole audit vanish silently. Neither state arises on a green
+  # run.
+  #
+  # AN OPERATOR-CANCELLED RUN THEREFORE FILES, AND THAT IS ACCEPTED (#752). Stopping a duplicate
+  # dispatch by hand files a digest naming every guard unswept though no sweep was lost — which
+  # once re-titled the standing issue to a commit nothing had swept, burying the run that did
+  # carry a finding. The obvious narrowing is `!cancelled()`, and it is declined for what it
+  # RISKS, not because it misses: on the operator cancellation this was filed for (run
+  # 33425839962) the RUN itself resolves `cancelled`, so a run-level `!cancelled()` would
+  # suppress exactly that case. Nor would it cost step-bound detection — a shard killed at its
+  # step bound resolves `failure`, as the STEP-vs-JOB note above says and as runs 33488186736
+  # and 33425785614 measured (`sweep (6)`, ~45m, `failure`, `merge` `failure`), so the `failure`
+  # arm already carries it. What the narrowing would cost is UNMEASURED: a lost runner marks a
+  # JOB `cancelled` with nobody having asked for a cancellation, and whether that makes run-level
+  # `cancelled()` true is not established here. If it does, narrowing silently loses a whole
+  # audit — the failure this match exists to prevent — to buy back a diluted digest. Under that
+  # asymmetry the broad match is the fail-loud choice.
   file-audit-red:
     needs: [sweep, merge]
     if: always() && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled'))
