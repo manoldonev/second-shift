@@ -105,8 +105,9 @@ file.
 
 Three shapes are not that run. The first is disqualified by having **spawned nothing at
 all**; **the last two** by being **superseded by a later spawning group**. None of the three
-is disqualified by the terminal slug it wrote, which is why the rule below reads neither that
-slug nor its absence:
+is disqualified by the terminal slug it wrote, which is why nothing below discards a group on
+its slug. The `approved` slug does appear further down, in the post-approve fallback — and there
+it *selects* the producing run rather than disqualifying anything:
 
 - **A group that spawned nothing.** Several refusals end a launch before any session starts: a
   rejected preflight on an unintaken ticket, an unresolvable branch prefix, a staleness
