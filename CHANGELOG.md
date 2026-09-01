@@ -4,6 +4,59 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v12.3.0
+
+### `dev-pipeline` 12.2.4 → 12.3.0
+
+- **feat(dev-pipeline): cost per merged PR is a committed number (#754)** (#754)
+  lean-gate.sh close-out publishes a cost_usd: <amount|unavailable>
+  key on the closing comment (a bullet, every closed-out run) and the PR
+  description (inside the cost block, whenever one is published), and
+  plugins/dev-pipeline/cost-tracking-setup.md documents a recipe to read it
+  back — with legacy-PR fallback — across the last 10 merged PRs.
+  Migration: none.
+- **a guard's paired suite never invoked the scorecard entry point (#764)** (#764)
+- **BOUNDED_EXPLORATION gets the numbered emit deadline its own root-cause note prescribes (#770)** (#770)
+  Reviewers dispatched on code-review's generic branch now carry a numbered
+  emit deadline, so a reviewer that would have spent its whole turn budget grounding
+  emits a usable verdict instead of dying dark at the cap. Affects every reviewer
+  except scope-completeness and unit-test-mutation, which already carried the
+  equivalent emit-as-you-go nudge.
+  Migration: none.
+- **review-lead's round-2 panel narrowing defers to the lean lane's inheritance contract (#730)** (#730)
+  review-lead's round-2 "reduce reviewer lineup" rule now defers to a
+  caller-supplied inheritance contract (the lean lane's), so a fix that breaks
+  a criterion nobody flagged in round 1 is still re-scored. Migration: none.
+- **the milestone-3 kill guard waits for the lane it is about to kill (#772)** (#772)
+- **feat(review-toolkit): Step 4b mandates the re-dispatch that recovers a dark reviewer (#773)** (#773)
+  review-lead now re-dispatches a reviewer that went dark before
+  recording a coverage gap, and a reviewer still dark afterwards escalates by
+  a declared set — a hard "Ready to merge? = No" for security-reviewer and
+  scope-completeness-reviewer, a voided round for design fidelity on an armed
+  spec, a visibility note for the rest. review-lean's --panel key now counts a
+  reviewer the re-dispatch recovered.
+  Migration: none.
+
+### `review-toolkit` 7.2.3 → 7.3.0
+
+- **fix(review-toolkit): spec-reviewer dispatches on Opus again (#767)** (#767)
+  spec-reviewer no longer dies on an Opus safeguard, so intake's spec
+  review stops going silently dark on its default dispatch. The rationale
+  field's contract is unchanged.
+  Migration: none.
+- **review-lead's round-2 panel narrowing defers to the lean lane's inheritance contract (#730)** (#730)
+  review-lead's round-2 "reduce reviewer lineup" rule now defers to a
+  caller-supplied inheritance contract (the lean lane's), so a fix that breaks
+  a criterion nobody flagged in round 1 is still re-scored. Migration: none.
+- **feat(review-toolkit): Step 4b mandates the re-dispatch that recovers a dark reviewer (#773)** (#773)
+  review-lead now re-dispatches a reviewer that went dark before
+  recording a coverage gap, and a reviewer still dark afterwards escalates by
+  a declared set — a hard "Ready to merge? = No" for security-reviewer and
+  scope-completeness-reviewer, a voided round for design fidelity on an armed
+  spec, a visibility note for the rest. review-lean's --panel key now counts a
+  reviewer the re-dispatch recovered.
+  Migration: none.
+
 ## v12.2.4
 
 ### `design-toolkit` 4.0.5 → 4.0.6
