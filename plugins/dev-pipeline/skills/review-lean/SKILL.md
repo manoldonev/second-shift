@@ -45,7 +45,7 @@ the code does not author its own evaluation.
    by reference to that record; when there is nothing verifiable to inherit it prints the full
    range and says so. There is no flag: the range is derived from the committed records, so a
    round cannot claim a narrower reading than the branch supports, nor forget to declare one.
-5. **Review** over the range step 4 printed. `review-lead` is the implementation — no reviewer
+5. **Review** over the range step 4 printed. `review-toolkit:review-lead` is the implementation — no reviewer
    is defined here. On an inheriting round, read the **prior record's findings** first: a round
    that inherits coverage without seeing what was previously found cannot tell a fixed blocker
    from a re-introduced one, and a blocker the build simply ignored leaves no trace in the delta
@@ -99,7 +99,7 @@ the code does not author its own evaluation.
    decided this", which anything can check, replaces "I judged it fine", which nothing can. This
    makes your claim falsifiable by a human reader; it does not verify the render against the
    design, and no gate in this repo does.
-5c. **A voided round is handed back, never recorded.** `review-lead` voids a round in either of
+5c. **A voided round is handed back, never recorded.** `review-toolkit:review-lead` voids a round in either of
    two cases: **every** reviewer it selected went dark, **or** — on an armed spec — the
    provider's mandatory fidelity reviewer went dark, however many of the others returned. It
    then emits a "review did not run" report naming the dark set, and answers no merge question.
@@ -123,7 +123,7 @@ the code does not author its own evaluation.
    `--fidelity` is yours and defaults to `not-applicable`, which on an armed run costs the round
    rather than certifying a design nobody looked at.
    `--panel` is the comma-separated list of reviewer agent types the round actually **returned a
-   result from** — qualified as `review-lead`'s own plugin-shipped panel names them
+   result from** — qualified as `review-toolkit:review-lead`'s own plugin-shipped panel names them
    (`design-toolkit:figma-faithful-reviewer`), read off the fan-out's structured result and not
    off your selection: a reviewer that went dark is absent from it, which is what makes the key
    worth reading. It is required on an armed spec, where the gate refuses a list that does not
@@ -151,7 +151,7 @@ the code does not author its own evaluation.
   process exit: a `&`-detached command, a probe you mean to report on "when it lands", or an
   armed `Monitor` is abandoned, not deferred. Two build sessions were lost to that shape before
   it was written down. **Your long pole is not one of them.** A `Workflow` dispatch — how
-  `review-lead` fans out — was MEASURED under `-p`: the session is re-entered when the workflow
+  `review-toolkit:review-lead` fans out — was MEASURED under `-p`: the session is re-entered when the workflow
   completes and reports its result normally. So await it. Do not arrange to collect it later,
   and do not restructure the panel around a death it does not have.
 - **One identity per review round.** Re-running a round reuses the cached id; a new round
