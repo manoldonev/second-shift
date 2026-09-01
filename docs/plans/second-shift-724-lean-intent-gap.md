@@ -3,8 +3,8 @@ run_id: 20260831T223407Z-28860
 session_id: 3b2aa7e3-bb3f-4539-b253-1535d6c42ce2
 region: undeclared
 disposition: took the reversible default AC-10's own text provides — every metric `unavailable` with the reason named — and flagged it here for ratification
-ratified: no
-ratified_by:
+ratified: yes
+ratified_by: https://github.com/manoldonev/second-shift/issues/724#issuecomment-5498810911
 
 ## Gap
 
