@@ -1467,7 +1467,7 @@ else fail "(ib3) expected rc=0, no exhaustion row and no interruption notice at 
 # #718 DELETED THE (ir) BLOCK — `progress --infra`, the infra-death read. Six cases ((ir1)-(ir4),
 # (ir9), (ir10)) stood here over their own fixture tree, pinning a token space whose only consumer
 # was orchestrate-lean.sh's continuation loop. The RESIDUE they derived from is still pinned:
-# (if5)/(if5b) below, and scenario-liveness-selftest.sh's (lean-inline-m3)/(lean-inline-m3-nv)
+# (if5) below, and scenario-liveness-selftest.sh's (lean-inline-m3)/(lean-inline-m3-nv)
 # over a real group-killed milestone 3.
 
 # ---- (j) AC-6: milestone 4 blocks on anything but a committed verdict=approve -------------
@@ -8009,21 +8009,6 @@ if [ "$m3_before" -eq 0 ] \
    && [ "$(count_in_progress '| milestone-3 | concluded |')" -eq 0 ]; then
   pass "(if5) a SIGKILLed evaluation leaves started with NO concluded — distinguishable from one that never ran"
 else fail "(if5) expected 0 rows before / 1 started / 0 concluded, got $m3_before / $(count_in_progress '| milestone-3 | started |') / $(count_in_progress '| milestone-3 | concluded |')"; fi
-# #566 SIMPLIFIED THIS BACK TO A STATEMENT ABOUT THE GATE'S OWN GROUP. Between #539 and #566 it
-# could not be one: milestone 3 spawned a runner that the escape path deliberately put in its own
-# SESSION, so the group kill above legitimately left it alive and the case had to reap the
-# recorded runner explicitly before it could claim anything. There is no runner and no record
-# now — milestone 3's evaluation is a child of this process group like every other milestone's —
-# so the group kill is once again the whole story, and the reap loop it needed is deleted rather
-# than left iterating over a glob that can no longer match.
-#
-# THIS IS THE CASE THAT PAYS FOR AC-1's DELETION. If milestone 3 ever detaches again, the sweep it
-# spawned survives this kill and the wait below times out.
-reaped=0
-while kill -0 -"$kill_pgid" 2>/dev/null && [ "$reaped" -lt 50 ]; do sleep 0.1; reaped=$((reaped + 1)); done
-if ! kill -0 -"$kill_pgid" 2>/dev/null; then
-  pass "(if5b) #566 AC-1: killing the gate's own process group leaves no lane child running"
-else fail "(if5b) process group $kill_pgid still has a live member after the group kill — did milestone 3 detach?"; fi
 
 # The milestone the run never reached carries NEITHER row. Without this (if5) would pass against a
 # gate that wrote `started` for every milestone on every call — the two states this ticket exists

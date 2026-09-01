@@ -2339,7 +2339,7 @@ COSESS
   # to fit inside the turn instead of engineered to survive leaving it.
   #
   # WHAT NO FIXTURE CASE CAN FAIL ON, and why this is still a scenario. lean-gate-selftest.sh's
-  # (x3d) asserts the gate does not ANNOUNCE a detached evaluation, and (if5)/(if5b) assert that a
+  # (x3d) asserts the gate does not ANNOUNCE a detached evaluation, and (if5) asserts that a
   # killed evaluation leaves `started` with no `concluded` — over a HAND-WRITTEN progress fixture.
   # Neither composes the piece that decides whether the residue is real: that a milestone 3 killed
   # with its whole process group leaves nothing running behind it and writes exactly that residue
@@ -2408,13 +2408,20 @@ COSESS
   while ! grep -qF "| milestone-3 | started |" "$TE_PROG" 2>/dev/null && [ "$te_waited" -lt 300 ]; do
     sleep 0.1; te_waited=$((te_waited + 1))
   done
+  # THE SIGNAL MUST LAND ON A LANE THAT DEMONSTRABLY EXISTS: a `killpg` delivered mid-fork leaves
+  # the new child in the group, unsignalled, outliving any reap budget shorter than the lane's own
+  # `sleep 20` — 21 escapes in 300 iterations. Widening the budget instead would pass because the
+  # lane EXPIRED. And ABSENCE IS THE DETACH: #547's escape was `setsid(2)`, a group of its own.
+  te_waited=0; te_lane_seen=""
+  while [ -z "$te_lane_seen" ] && [ "$te_waited" -lt 150 ]; do te_lane_seen="$(pgrep -g "$te_kpg" -x sleep)"; sleep 0.1; te_waited=$((te_waited + 1)); done
   kill -9 -"$te_kpg" 2>/dev/null
   wait "$te_kpg" 2>/dev/null
   te_waited=0
   while kill -0 -"$te_kpg" 2>/dev/null && [ "$te_waited" -lt 50 ]; do sleep 0.1; te_waited=$((te_waited + 1)); done
-  # NOTHING SURVIVES THE GROUP KILL — the property AC-1 bought by deleting the escape. If a
-  # detached runner ever comes back, `sleep 20` is still running here and this check fails.
-  if kill -0 -"$te_kpg" 2>/dev/null; then
+  # NOTHING SURVIVES THE GROUP KILL — the property AC-1 bought by deleting the escape.
+  if [ -z "$te_lane_seen" ]; then
+    fail "(lean-inline-m3-nv) the lane never ran in the gate's process group — milestone 3 detached"
+  elif kill -0 -"$te_kpg" 2>/dev/null; then
     fail "(lean-inline-m3-nv) a lane child outlived the gate's process group — milestone 3 detached"
   else
     if [[ "$(re_count "$TE_PROG" '| milestone-3 | started |')" -eq 1 \
