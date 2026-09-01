@@ -1,167 +1,204 @@
 # lean review verdict — #769
 
 verdict=approve
-run_id: review-769-1
-session_id: d7681a85-ce19-429c-8c0b-056d40df2541
-rounds: 1
+run_id: review-769-2
+session_id: 20b8ffb7-600d-4268-8c14-2ac0a9e41401
+rounds: 2
 pr: #773
-reviewed_head: a804b0411a3f7a218c2027eb9a086c3eba10444c
-reviewed_patch_id: f3f14b663bc5832f7a558fea98599863eb5bd05e
-inherited_patch_id: none
-inherited_from_verdict: none
+reviewed_head: 3c9524cc951111e59ee5444dac729def5c3a2210
+reviewed_patch_id: 5b34b418c2b0dc36355b1158a9d57f5194ff55bd
+inherited_patch_id: f3f14b663bc5832f7a558fea98599863eb5bd05e
+inherited_from_verdict: f5ea3ac5bd0d437a4a8c819d09b1a5aa263c8470
 fidelity: not-applicable
 panel: review-toolkit:scope-completeness-reviewer
-model: opus
+model: unknown
 capabilities: pr-marker
 
-# Review — #769 / PR #773, round 1
+# Review — #769 / PR #773, round 2
 
-Range reviewed: `08853051..a804b041` — the whole branch diff (`G delta` printed the FULL range;
-nothing verifiable to inherit, root round). Six files, 206 insertions / 17 deletions.
-Read wider than the range where it was misleading: `plugins/review-toolkit/skills/review-lead/SKILL.md`
-whole (the escalation set has to be scored against the full spawnable panel, not the hunk),
-`plugins/review-toolkit/scripts/check-emit-deadline.sh` and `code-review.mjs`'s `BOUNDED_EXPLORATION`
-(to falsify D-2's and D-11's grounding claims), and `tools/selftest-cache-inputs.tsv` plus the CI
-log (to establish that the green sweep is not a cached one).
-Reviewed from the PR head checkout at `a804b041`; head re-checked at the close of the round and
-unchanged.
+Range reviewed: `f5ea3ac5..HEAD` — the delta `G delta` printed, inheriting the coverage of patch
+`f3f14b663bc5` (round 1's record, `docs/plans/second-shift-769-lean-verdict.md`). The delta is one
+commit, the base merge `3c9524cc` of `origin/main` (#730): 3 files, 9 insertions / 8 deletions.
+
+Read wider than the range throughout, because the delta is misleading here in a specific way: #730
+edits the **same two files** #769 does (`review-lean/SKILL.md`, `review-lead/SKILL.md`), so the
+merged text of a paragraph #769 authored is content no round has read. Every AC was re-measured at
+`3c9524cc` rather than inherited on the strength of an unchanged file — and two of them (AC-7, AC-9)
+had genuinely moved.
+
+Reviewed from the PR head checkout at `3c9524cc`; head re-checked immediately before writing this
+record and unchanged.
+
+Prior round's findings read first (round 1, `approve`, 2 suggestions + 2 pre-existing notes). Both
+suggestions still stand at this head and are carried forward below; neither was a blocker then or now.
 
 ## Verdict
 
-`approve` — no blockers. Two suggestions, two pre-existing notes.
+`approve` — no blockers. Three suggestions, two pre-existing notes.
 
-All eleven ACs are `satisfied`. This is a prose-contract change with one comment-only `.mjs` edit;
-the two claims that could have been decorative — that the substrate's retry is bit-identical, and
-that the emit deadline alone is now a no-op — were both checked against the code rather than taken
-from the spec.
+All eleven ACs are `satisfied` at `3c9524cc`. The base merge did **not** damage #769's contribution,
+and its conflict resolution is better than either side it came from (see Strengths). The scope gate
+returned one blocker-severity finding this round; it does not survive verification, and the
+reasoning is recorded in full below so a human reader can overturn it.
 
-## What was verified rather than read
+## Why this round exists
 
-**The "deadline alone is a no-op" premise (D-2) is true.** `code-review.mjs:318-330`'s
-`BOUNDED_EXPLORATION` carries `HARD EMIT DEADLINE: by your 8th tool call at the latest`, and it is
-appended on the generic dispatch branch (`code-review.mjs:476`). So a session re-dispatch that
-added only a numbered deadline would be re-sending the prompt that died. That is what makes the
-**narrowing** requirement load-bearing rather than a second belt — and the SKILL text says so in
-those terms, generalized (`the reviewers whose dispatch nudge already carries one`) instead of
-hardcoding a count that would rot.
+The base merge is not content-neutral. `check-lean-chain.sh` at this head says so precisely:
 
-**The `security-reviewer` escalation is grounded in a contract already in the file, not asserted.**
-`review-lead` SKILL.md:243 — "Security defers when it is spawned. When the security conditional
-fires, the lead pass's security section is not run." A dark `security-reviewer` therefore leaves
-the dimension covered by nobody, which is materially different from a dark `complexity-reviewer`
-whose dimension the lead pass collapsed. The new table row (`:393`) cites that sentence verbatim.
+> verdict record reviewed patch `f3f14b663bc5`, but this branch's diff against origin/main now
+> hashes to `5b34b418c2b0` and the branch's own lines moved with it: 5 reviewed line(s) across
+> 2 file(s)
 
-**The `check-emit-deadline.sh` citation resolves.** It exists at
-`plugins/review-toolkit/scripts/check-emit-deadline.sh`, and its rules 1-4 do hold the turn number
-in the agent frontmatter and doc, which is what `docs/testing.md:980-981` claims about it. The
-"free to be later than the floor" phrasing is an inference from that lint rather than a quotation
-of it — accurate in effect (rule 3 caps `D <= ceil(2N/3)`, so a per-agent number is bounded above,
-not unbounded), and harmless either way, since a doc number *earlier* than a session floor is a
-stricter emit deadline.
+Both sides of the merge edited #769's own `--panel` paragraph and its `prose-blocker-triage.tsv`
+row, so the resolution had to author new content on the branch's lines. Round 1's record is
+correctly void, and this one replaces it.
 
-**The comment edit is comment-only.** Filtering the `code-review.mjs` hunk to non-`//` changed
-lines leaves zero. The two `LOCKSTEP` blocks in that file (`:105-134` findings-schema, `:359-370`
-progressive-emit) are both outside the edited range, and CI's contract-lockstep step is green.
-`null-reviewer-selftest.mjs` Case F reads this file as text but pins dispatch tokens, none of which
-sit in the edited comment.
+## The scope-gate finding, and why it is not a blocker
 
-**The green sweep is not a cached green.** CI `lint-and-selftests` at this head discovered 78
-suites, excluded 1, ran 77, and cache-skipped exactly three — `lean-gate-selftest.sh`,
-`cost-block-selftest.sh`, `check-lean-chain-selftest.sh`. None of the three declares any file this
-diff touches in `tools/selftest-cache-inputs.tsv`, so no suite was served from cache past an edit
-it grades.
+`scope-completeness-reviewer` returned `request-changes` with one `blocker` (confidence 82):
+issue #769's "What it should say" says *"The deadline is the variable to change, not the tier and
+not the budget."* Step 4b writes the tier half (`review-lead` SKILL.md:376) and says nothing about
+the budget; the reviewer read that as a dropped scope item and pre-empted the mootness argument with
+*"the tier is equally unsettable there and was still written."*
+
+Verified against the issue, the tree and the harness. The finding does not hold, on two independent
+grounds:
+
+1. **The diff covers the item, because the item is a prohibition.** "Not the budget" is satisfied by
+   changing no budget — and no budget is changed anywhere on this branch. The only surface on which a
+   turn budget is settable is `code-review.mjs`'s executable code, which AC-11 pins to comment-only
+   and which I verified mechanically (filtering `git diff origin/main...HEAD` on that file to changed
+   non-comment lines yields zero). This is the diff satisfying a scope item, not a deferral claim.
+2. **The clause is not live on the mandated mechanism, and the tier clause is** — which is exactly
+   the asymmetry the reviewer denied. Step 4b:369 pins the re-dispatch to the **Agent tool**
+   ("dispatch it once more yourself (Agent tool)"), whose parameter set is `subagent_type`, `model`,
+   `prompt`, `description`, `run_in_background`, `isolation`. There is a **model** knob — so a
+   session really can promote the tier, and `reviewers.modelOverrides` is a second live path, which
+   is why SKILL.md:376 had to forbid it. There is **no turn-budget knob**. Writing "and neither is
+   the budget" would forbid something the executing session cannot do.
+
+The principle the issue's sentence states is also already in the repo, unchanged by this diff:
+`code-review.mjs:306-307` and `:342-343` both carry "the variable is the deadline, not the budget",
+with the half-cap `security-reviewer` measurement behind it.
+
+Downgraded to **S-3** below: adding the clause would cost one clause and close the gap for a reader
+who checks the issue against the skill. It changes no behavior, and `prose-blockers.sh`'s own census
+would later have to disposition it as a construct no gate enforces.
+
+## What was re-measured rather than inherited
+
+**AC-7's paragraph is merged content, and the merge kept both sides.** #730 qualified the engine
+name (`review-lead` → `review-toolkit:review-lead`) in the same `--panel` paragraph #769 rewrote.
+`git diff f1fa7def..HEAD -- plugins/dev-pipeline/skills/review-lean/SKILL.md` is **exactly** the
+AC-7 amendment and nothing else — the #769 semantics survived intact and the #730 qualification was
+applied on top. Nothing was dropped in either direction.
+
+**AC-9 is a different measurement than round 1 made.** The merge re-keyed three
+`docs/prose-blocker-triage.tsv` rows, so round 1's green was over keys that no longer exist.
+Re-run at this head: `bash tools/prose-blockers.sh check` → **rc 0**, "✓ zero undispositioned
+constructs" (30 constructs over 52 files; 52 rows). That command's `check()` tests exactly the four
+conditions AC-9 names — undispositioned, unpruned, unresolved, stale — so a wrong key would have
+red it as undispositioned rather than passing quietly. All three pointers verified exact by hand:
+`pb-dd909897` → `:48` (step 5), `pb-ea256f2d` → `:102` (5c), `pb-1c207e51` → `:118` (step 6).
+
+**AC-10's oracle re-run at this head, cited not repeated.** `lint-and-selftests` at
+`3c9524cc` — **success**: step 4 `shellcheck` ✓, step 9 sweep **77 scored, 74 run, 3 served from
+cache, 0 failed**. The three cached suites are `lean-gate-selftest.sh`, `cost-block-selftest.sh` and
+`check-lean-chain-selftest.sh`; I read their `tools/selftest-cache-inputs.tsv` rows and none declares
+a file this diff touches, so no suite was served from cache past an edit it grades. `selftests
+(macos, bash 3.2)` and `mutation-sweep-pr` also success at the same head. No new selftest was added.
+
+**The merge introduced no wrap regression of its own.** `review-lean/SKILL.md` gains two lines over
+100 chars at this head (`:48`, `:102`) — both are byte-identical to `f1fa7def`, i.e. main's, not this
+branch's.
+
+**AC-11 re-confirmed mechanically at this head**, not carried: zero changed non-comment lines in
+`code-review.mjs`; both `LOCKSTEP` regions outside the edit; CI's contract-lockstep step (job step
+11) green.
+
+**The spec-amendment direction test.** AC-11 entered the spec in `7a3df6f4`, the same commit as the
+implementation, and the spec discloses it. It *adds* an obligation (comment-only, and the comment
+must state three named things) rather than relaxing one, and its content is independently verifiable
+— which is the benign direction. Not "a spec amended to match the diff".
 
 ## Findings
 
 | # | severity | site | finding |
 | --- | --- | --- | --- |
-| S-1 | suggestion | `plugins/dev-pipeline/skills/review-lean/SKILL.md:102-104` | 5c's void trigger still reads "the provider's mandatory fidelity reviewer **went dark**", unqualified, while Step 4b-void case 2 now triggers on *still dark after the mandated re-dispatch*. Coherent in substance — 5c delegates the determination outright ("`review-lead` voids a round in either of two cases") and the same file's `--panel` paragraph was amended to name the re-dispatch — so the only residual is a session reading 5c in isolation handing back a round one re-dispatch early. D-9 decided this deliberately and the spec's Out-of-scope section names it; recorded, not required. (`scope-completeness-reviewer`, confidence 82.) |
-| S-2 | suggestion | `plugins/review-toolkit/skills/review-lead/SKILL.md:390-397` | The escalation table's last row enumerates `db-reviewer`, `pipeline-reviewer`, `a11y-reviewer`, `unit-test-mutation-reviewer` and `reviewers.add` adds — exactly D-5's set — but the spawnable panel also contains **the design-fidelity reviewer on an UNARMED spec**, which no row names. It is covered, by the catch-all at `:397` ("Outside those first three rows…"), so the set is complete; it is complete by residue rather than by enumeration, which is the weaker of the two for a table a session reads under time pressure. |
+| S-1 | suggestion | `plugins/dev-pipeline/skills/review-lean/SKILL.md:102-104` | *Carried from round 1, unfixed.* 5c's void trigger still reads "the provider's mandatory fidelity reviewer **went dark**", unqualified, while Step 4b-void case 2 now triggers on *still dark after the mandated re-dispatch*. Coherent in substance — 5c delegates the determination outright ("`review-toolkit:review-lead` voids a round in either of two cases") and the same file's `--panel` paragraph names the re-dispatch. Residual only: a session reading 5c in isolation could hand a round back before trying the re-dispatch the mandate requires. |
+| S-2 | suggestion | `plugins/review-toolkit/skills/review-lead/SKILL.md:390-397` | *Carried from round 1, unfixed.* The escalation table's last row enumerates exactly D-5's set, but the spawnable panel also contains the design-fidelity reviewer on an **unarmed** spec, which no row names. It is covered by the catch-all at `:397`, so the set is complete by residue rather than by enumeration — the weaker of the two for a table read under time pressure. |
+| S-3 | suggestion | `plugins/review-toolkit/skills/review-lead/SKILL.md:376` | *New this round, from the scope gate, downgraded — see the section above.* The issue's "not the tier and not the budget" is written as the tier half only. Extending `:376` to "The tier is not a variable, and neither is the budget" would close the gap for a reader checking the issue against the skill. Non-blocking: the Agent tool the mandate pins to exposes no turn-budget knob, no budget is changed anywhere on this branch, and `code-review.mjs:306-307,342-343` already state the principle. |
 
-## Pre-existing (not blocking this PR)
+## Pre-existing (not this PR's)
 
-- **`review-lean` 5c case 1 vs `review-lead` Step 4b-void case 1 disagree on what an all-dark
-  selected set means.** 5c: "**every** reviewer it selected went dark" → hand back. `review-lead`:
-  an all-dark selected set on top of a *completed lead pass* is explicitly **not** a void, but a
-  partial-coverage round that still answers the verdict. A round in that shape would be handed back
-  by 5c and reported normally by `review-lead`. Unchanged by this diff — 5c's text is byte-identical
-  to base — and outside #769's declared scope, but it is the same interlock family AC-5 tightened,
-  so it is worth a ticket rather than a rediscovery.
+- **5c case 1 and Step 4b-void case 1 still disagree about an all-dark selected set.** 5c: "**every**
+  reviewer it selected went dark" → hand back. `review-lead`: an all-dark selected set on top of a
+  *completed lead pass* is explicitly **not** a void, but a partial-coverage round that answers the
+  verdict. Unchanged by this diff and outside #769's scope, but the same interlock family AC-5
+  tightened — worth a ticket rather than a rediscovery.
 - **`docs/prose-blocker-triage.tsv`'s line-pointer column drifts repo-wide and no gate reads it.**
-  At base, `pb-d06a8f2a` pointed at `review-lead/SKILL.md:178` while the construct sat at `:196`;
-  `pb-85e129b1` pointed at `:140` against `:166`. This PR moves one previously-exact row out of
-  true (`pb-b703544b`, `:164` → construct now at `:168`) while correctly re-keying and re-pointing
-  the row whose content it actually changed (`pb-802149ba` → `pb-57405123`, `:118`, exact).
-  `prose-blockers.sh check` is id-keyed and exits 0 either way, so this is a locator-quality note
-  about the file's convention, not an AC-9 miss.
+  `check()` validates ids, not line numbers. `pb-b703544b` points at `:164` against a construct now at
+  `:169` (it was `:168` at round 1's head; this merge nudged it one further). Locator quality only —
+  `prose-blockers.sh check` is id-keyed and exits 0 either way.
+
+## Merge-boundary state (recorded, not a blocker)
+
+`pr-gates` is red on exactly one step — `lean chain reconciliation`, reporting round 1's record as
+patch-stale. That is this round's reason for existing and this record resolves it. The two policy
+steps ahead of it in the same job passed: frozen files ✓, `Changelog:` trailer ✓, as did pipeline
+chain reconciliation. Every correctness lane is green at `3c9524cc`.
+
+The branch is one commit behind `origin/main` (`9f8a38e7`, #772). That is a mergeability question for
+the merge boundary, not a review finding.
 
 ## Strengths
 
-- **The premise it overturns is falsified with a measurement, not an argument.** "The substrate
-  already retried once" was the stated reason the old rule existed; the PR shows the retry is
-  bit-identical and that an 87-second re-dispatch recovered the dimension, which is what makes the
-  rule change a correction rather than a preference.
-- **The escalation set is conditional where the evidence is conditional.** Converting a blanket
-  visibility note into a blanket hard-No would have been the easy over-correction; grading it by
-  which dimension is actually left uncovered — and grounding the `security-reviewer` row in the
-  lead pass's own deferral clause — is the harder and right shape.
-- **AC-5 widens an existing case instead of adding a third.** A pre-dispatch and a post-dispatch
-  fidelity hole are the same hole, and the diff says so in one place rather than growing the void
-  taxonomy.
-- **The declined guard is declined honestly.** `docs/testing.md`'s new entry states the coupling is
-  real, names why both available mechanizations are wrong here (a prose-presence grep passes the day
-  the sentence is inverted; `LOCKSTEP` needs byte-identical blocks these three deliberately are
-  not), and records "reviewer-guarded" as the disposition — rather than adding a guard that cannot
-  fail for the reason it exists.
-- **Incidental cleanup:** the replaced `code-review.mjs` comment cited `stages/8-code-review.md`,
-  which no longer exists anywhere in the tree. The rewrite drops the dangling reference.
+- **The merge resolution authored a better provenance note than either side it merged.** Both
+  parents re-keyed the `review-lean:118` row and each recorded only its own cause; the resolved row
+  (`pb-1c207e51`) records both — "Re-keyed from `pb-802149ba` by two changes that landed together:
+  the engine name is now qualified `review-toolkit:review-lead`, and the `--panel` definition now
+  counts a reviewer recovered by review-lead Step 4b's mandated re-dispatch. Neither changed what it
+  points at." That is the reconciliation the file's contract asks for, done at the one point where
+  both causes were visible.
+- **The `--panel` conflict was resolved on semantics, not on recency.** #730 touched that paragraph
+  for a naming rule and #769 for its meaning; taking "the newer side" would have silently reverted
+  AC-7. The merged text carries both.
+- **The incoming `review-lead` rule 5 and #769's Step 4b are genuinely orthogonal**, which is not
+  luck worth ignoring on a branch that merged a change to the same section: rule 5 governs round-2
+  panel *selection*, Step 4b governs *recovery after darkness*. A reviewer narrowed away by rule 4 is
+  a Step 4c not-selected, never a coverage gap — the two contracts do not overlap.
 
 ## Panel
 
 | Reviewer | Verdict | Findings | Confidence |
 | --- | --- | --- | --- |
-| Scope Completeness | Pass (approve-with-nits) | 1 | 82 |
+| Scope Completeness | Request-changes → verified, downgraded to S-3 | 1 | 82 |
 | Security | Lead pass — ✅ | 0 | — |
 | Performance | Lead pass — ✅ | 0 | — |
-| Complexity | Lead pass — ✅ | 1 (S-2) | 75 |
+| Complexity | Lead pass — ✅ | 0 | — |
 | Maintainability | Lead pass — ✅ | 0 | — |
 | Test Coverage | Lead pass — ✅ | 0 | — |
 
 `security-reviewer` not selected: no auth / tenancy / session / upload / query-construction surface
-in a prose-and-comment diff, and the repo carries no `.claude/second-shift/review-context/`
-directory — so neither arm of its trigger fired, and the lead pass owns the dimension.
-`a11y-reviewer` + design-fidelity not routed: no changed path matched
-`stageParams.webComponentGlobs` (`apps/web/**/*.{tsx,jsx}`, the default — the repo declares no
-override), and the spec carries no `## Design` section, so the round is unarmed.
-`db-reviewer`, `pipeline-reviewer`, `unit-test-mutation-reviewer`: triggers did not fire. No
-reviewer went dark, so there is no coverage gap and no re-dispatch was owed.
-
-## Merge-boundary state (recorded, not a blocker)
-
-`pr-gates` is red on exactly one step — `lean chain reconciliation`, "no committed verdict record
-(a file named `*-769-lean-verdict.md`)". That is this record's absence, which this round is what
-resolves; the two policy steps ahead of it in the same job (frozen files, `Changelog:` trailer)
-both passed before it failed. Every correctness lane is green at `a804b041`:
-`lint-and-selftests` SUCCESS, `selftests (macos, bash 3.2)` SUCCESS, `mutation-sweep-pr` SUCCESS.
+in a prose-and-tsv delta, and the repo carries no `.claude/second-shift/review-context/` directory —
+neither arm of its trigger fired, so the lead pass owns the dimension. `a11y-reviewer` +
+design-fidelity not routed: no changed path matched `stageParams.webComponentGlobs`
+(`apps/web/**/*.{tsx,jsx}` — the default, no override declared), and the spec carries no `## Design`
+section, so the dimension is unarmed and `fidelity` is `not-applicable`. No reviewer went dark this
+round.
 
 ## AC scorecard
 
 | AC-n | score | evidence |
-| ---- | ----- | -------- |
-| AC-1 | satisfied | `review-lead` SKILL.md:372 — "**Re-dispatch once, in-session, before recording anything — signal 1 only** … dispatch it once more yourself (Agent tool) **before writing a `[Coverage gap]` line for it**", reinforced at `:362` ("a coverage gap is what remains after the session has *tried*, which is why the re-dispatch below is mandatory before one may be recorded"). Same agent type and tier fixed at `:376`. The forbidding sentence is gone: a recursive grep over `*.md` and `*.mjs` outside `docs/plans/` for either half of it — "do not re-dispatch a dark reviewer yourself" and "already retried a dark reviewer once on-substrate" — returns nothing. Not scoped to pipeline-driven rounds: the mandate paragraph carries no "Under a pipeline-driven review" qualifier, which is exactly what the deleted sentence had (D-1, D-12). |
-| AC-2 | satisfied | `:374` bullet 1 — turn-numbered emit deadline, "stated as a **floor**. Where the agent's own doc already carries a turn-numbered deadline, the doc's number wins" (D-11). `:375` bullet 2 — "**Narrowing to that reviewer's domain**, using the diff context you already hold. This is the part the substrate cannot do: it dispatched against the whole range". Both declared non-optional at `:373` ("neither is optional"). Tier stated as not a variable at `:376`, with the reason (a promoted model is a different review, not a recovery). D-2's premise independently confirmed against `code-review.mjs:318-330` + `:476`. |
-| AC-3 | satisfied | Scoping is in the heading itself (`:372`, "— signal 1 only") and restated at `:378`: "**Signal 2 is out of scope for the mandate.** Under `budgetExhausted` nothing was dispatched, so there is no failed prompt to change and nothing to re-dispatch *differently*; that case keeps the `[Coverage gap]` accounting below, plus Step 4b-void." The reason AC-3 requires is present, not just the exclusion (D-3). |
-| AC-4 | satisfied | `:388-395` — a four-row table headed "What a still-dark reviewer costs depends on which one it is", explicitly "fixed here, not consumer-configurable". Rows match D-5 one for one: `scope-completeness-reviewer` hard No citing Step 4 as unchanged; `security-reviewer` hard No naming the grounding ("the lead pass **did not run** its own security section precisely because this reviewer was spawned") — verified against `:243`; armed-spec design fidelity → void; `db-reviewer`/`pipeline-reviewer`/`a11y-reviewer`/`unit-test-mutation-reviewer`/`reviewers.add` → visibility. Not a blanket rule in either direction (D-4). See S-2 for the one member of the spawnable set covered by the `:397` catch-all rather than by a row. |
-| AC-5 | satisfied | `:405-410` — still **two** cases, not three. Case 2 now reads "The design-fidelity dimension **produced nothing** on an armed spec … Two ways in, and the void does not distinguish them", with sub-bullets for pre-dispatch (toolkit-absent, detected at Routing) and post-dispatch (dispatched, `died-after-retry`, still dark after the Step 4b re-dispatch), plus "Do the re-dispatch first — a recovered fidelity reviewer is not a void, it is coverage." The armed-spec section at `:214` was amended to agree: "**Toolkit-absent is the pre-dispatch way in, not the only one** … voids the round on the same ground — see Step 4b-void case 2." Same dimension, same armed condition (D-8). |
-| AC-6 | satisfied | `:380` carries all four required clauses: the recovered reviewer is "**not** a coverage gap"; "score its findings like any other reviewer and give its Verdicts row its real verdict"; "Record the recovery in one **Review Summary** line naming the reviewer, that it went dark, and that an in-session re-dispatch recovered it", with a worked example; and "It also counts as a returned result for `review-lean`'s `--panel` key." Still-dark reviewers keep `Dark (no output)` at `:385` (D-7). |
-| AC-7 | satisfied | `review-lean` SKILL.md:125-133 — `--panel` is now "the reviewer agent types the round actually **obtained a usable result from — whether from the fan-out or from a `review-lead` Step 4b re-dispatch**", read "off those results and not off your selection". Anti-overclaim intent preserved verbatim: "a reviewer that is **still** dark after the mandated re-dispatch is absent from it, which is what makes the key worth reading." The armed-spec rationale D-6 gives is stated in place ("omitting it would have the armed-spec refusal below reject a round whose fidelity coverage the mandate had just recovered"). No gate change was needed or made: `lean-gate.sh`'s panel arm and its `lean-gate-panel-mandatory-reviewer` mutation-catalog row are untouched by this diff, and a recovered reviewer genuinely did return a result, so admitting it does not weaken the refusal. |
-| AC-8 | satisfied | `docs/testing.md:966-981`, under `### Couplings considered and declined` (heading at `:891`; `awk` over 891-995 finds no intervening heading, so the entry is inside the section). Names all three sites, asserts the coupling is real ("loosen the mandate and 5c's trigger stops matching what `review-lead` can produce"), declines the guard, and gives both reasons AC-8 requires — the prose-presence grep "passes on the day the sentence is deleted and re-added verbatim with its meaning inverted around it, so it cannot fail for the reason it exists", and `LOCKSTEP` "needs byte-identical blocks — and these three deliberately are not". Disposition recorded as **reviewer-guarded** (D-10). |
-| AC-9 | satisfied | `bash tools/prose-blockers.sh check` run by this review from the `a804b041` checkout: "census: 30 construct(s) over 52 file(s); record: 52 row(s)" … "✓ zero undispositioned constructs", rc=0. The one row the Step 4b/`--panel` edits re-keyed is reconciled in the same PR: `pb-802149ba` → `pb-57405123`, pointer updated to `review-lean/SKILL.md:118`, which matches the live census exactly, and the note records the re-key and its origin. Not run in CI (`ci.yml:171-172` records prose-blockers.sh as deliberately unwired there), so this is an execution at the reviewed head, not a cited run. See the pre-existing note on the file's locator column, which the check is id-keyed and does not read. |
-| AC-10 | satisfied | Cited, not re-run — same commands, same head (`docs/testing.md`, "Citing a CI run instead of re-running it"). CI run 33541959137 at `a804b041`: `lint-and-selftests` job 99970127459 **SUCCESS**, whose shellcheck step is CLAUDE.md's exact recursive `find` over `*.sh` piped into `xargs -0 shellcheck -e SC1091,SC2015,SC2181`, and whose sweep step is `tools/run-selftests.sh --full --exclude tools/install-topology-selftest.sh` — "78 discovered, 1 excluded, 77 to run"; `selftests (macos, bash 3.2)` job 99970127292 **SUCCESS**; `mutation-sweep-pr` job 99970127555 **SUCCESS**. The cache does not weaken the citation: exactly three suites were served from it (`lean-gate`, `cost-block`, `check-lean-chain`), and no row of `tools/selftest-cache-inputs.tsv` declares any file in this diff as an input to any of them. No new selftest is added (`git diff --stat` adds no selftest file), and no guard is weakened — both `LOCKSTEP` regions of `code-review.mjs` are outside the edited hunk and CI's contract-lockstep step is green. |
-| AC-11 | satisfied | `plugins/dev-pipeline/workflows/code-review.mjs:214-226`. **Comment-only, mechanically:** filtering the file's hunk to changed lines that are not `//` comments yields zero lines. Content states all three things AC-11 asks for — the substrate retry "is BIT-IDENTICAL (same prompt, same tier), so against the maxTurns-with-no-text death it is close to deterministic and both attempts die alike"; "the SESSION must re-dispatch once with a changed prompt — a turn-numbered emit deadline and a narrowing to that reviewer's domain, which is the part this file cannot do because it dispatched against the whole range"; and the graded consequence, "a NOTE for most reviewers, but a hard 'Ready to merge? = No' for security … and a VOID for design fidelity on an armed spec". The stale "a NOTE" framing is gone. S-10 intact. |
-
-## Open Regions
-
-| OR-n | region | disposition |
-| ---- | ------ | ----------- |
-| OR-1 | Whether the D-5 escalation set is consumer-configurable, so a repo-local `reviewers.add` domain reviewer could opt into hard-No | resolved — reversible-default-and-flag accepted. The shipped default is the fixed set, stated as fixed at `review-lead` SKILL.md:388, and adding a config key later is purely additive, so no consumer can have depended on its absence. Correctly flagged in the PR body rather than having paused the build. Not a blocker. |
+| --- | --- | --- |
+| AC-1 | satisfied | `review-lead` SKILL.md:362 ("a coverage gap is what remains after the session has *tried*, which is why the re-dispatch below is mandatory before one may be recorded") and :369 ("**Re-dispatch once, in-session, before recording anything — signal 1 only** … dispatch it once more yourself (Agent tool) before writing a `[Coverage gap]` line for it"). Same agent, same tier at :376. The forbidding sentence is absent from the tree — a grep over `plugins/` and `docs/` finds it only inside the spec's own quotation of the old text. Not scoped to pipeline-driven rounds: :369 opens "The fan-out's own retry", carrying no "Under a pipeline-driven review" qualifier. Re-verified at 3c9524cc. |
+| AC-2 | satisfied | `review-lead` SKILL.md:373 — turn-numbered emit deadline stated as a **floor**, "Where the agent's own doc already carries a turn-numbered deadline, the doc's number wins". :374 — narrowing to the reviewer's domain, with the reason it is the session's edge ("it dispatched against the whole range"). :376 — "**The tier is not a variable.**" All three at 3c9524cc. |
+| AC-3 | satisfied | `review-lead` SKILL.md:378 — "**Signal 2 is out of scope for the mandate.** Under `budgetExhausted` nothing was dispatched, so there is no failed prompt to change and nothing to re-dispatch *differently*; that case keeps the `[Coverage gap]` accounting below, plus Step 4b-void." |
+| AC-4 | satisfied | `review-lead` SKILL.md:388-395 — the table's four rows are exactly D-5's set: `scope-completeness-reviewer` hard No ("Step 4's rule, unchanged"), `security-reviewer` hard No with the grounding quoted from :243 ("Security defers when it is spawned"), armed-spec design fidelity → void, and the four named reviewers + `reviewers.add` adds → visibility. :388 states the set is fixed, not consumer-configurable (OR-1's shipped default). |
+| AC-5 | satisfied | `review-lead` SKILL.md:407-410 — still **two** cases, not three; case 2 now carries `pre-dispatch` and `post-dispatch` sub-bullets, the latter reading "dispatched, went dark by `died-after-retry`, and was **still dark after** the Step 4b re-dispatch … the same hole the pre-dispatch case names". The armed-spec section at :214 states the pre-dispatch void and reads consistently with it. |
+| AC-6 | satisfied | `review-lead` SKILL.md:380 — "**When the re-dispatch succeeds**, the reviewer is **not** a coverage gap: score its findings like any other reviewer and give its Verdicts row its real verdict. Record the recovery in one **Review Summary** line naming the reviewer, that it went dark, and that an in-session re-dispatch recovered it", with a worked example. Still-dark keeps `Dark (no output)` at :384. |
+| AC-7 | satisfied | **Re-measured at 3c9524cc, not inherited** — the base merge edited this exact paragraph. `review-lean` SKILL.md:125-132 reads "the round actually **obtained a usable result from — whether from the fan-out or from a `review-toolkit:review-lead` Step 4b re-dispatch**", and "a reviewer that is **still** dark after the mandated re-dispatch is absent from it". `git diff f1fa7def..HEAD` on this file is exactly this amendment and nothing else, so the merge preserved #769's semantics while applying #730's name qualification. |
+| AC-8 | satisfied | `docs/testing.md:966-982`, under "Couplings considered and declined": names the three sites (Step 4b, Step 4b-void case 2, `review-lean` 5c), states the coupling is real, records **no guard added**, and gives both reasons — a prose-presence grep is forbidden by `writing-tests` because "it passes on the day the sentence is deleted and re-added verbatim with its meaning inverted around it", and `LOCKSTEP` needs byte-identical blocks these three deliberately are not. Marks itself "Reviewer-guarded". |
+| AC-9 | satisfied | **Re-measured at 3c9524cc** — the merge re-keyed three rows, so round 1's green was over keys that no longer exist. `bash tools/prose-blockers.sh check` → rc 0, "✓ zero undispositioned constructs" (30 constructs / 52 files / 52 rows). `check()` tests exactly the four conditions this AC names, and a wrong content-derived key reds as undispositioned rather than passing. Pointers verified by hand: `pb-dd909897`→`:48`, `pb-ea256f2d`→`:102`, `pb-1c207e51`→`:118`, all exact. |
+| AC-10 | satisfied | CI oracle at this exact head, cited rather than re-run (command and head both match): job `lint-and-selftests` at `3c9524cc` **success** — step 4 `shellcheck` ✓; step 9 `run all selftests` "summary: 77 scored, 74 run, 3 served from cache, 0 failed". The 3 cached suites (`lean-gate`, `cost-block`, `check-lean-chain`) declare no file this diff touches in `tools/selftest-cache-inputs.tsv`, so the green is not a cached green. `selftests (macos, bash 3.2)` and `mutation-sweep-pr` also success at `3c9524cc`. No new selftest file added on the branch. |
+| AC-11 | satisfied | **Re-confirmed mechanically at 3c9524cc.** Filtering `git diff origin/main...HEAD -- plugins/dev-pipeline/workflows/code-review.mjs` to changed non-comment lines yields **zero**. The rewritten comment (`:214-229`) states all three required things: that the one-shot retry is BIT-IDENTICAL, that the SESSION must re-dispatch once with a changed prompt (numbered deadline + narrowing), and that a surviving gap is a NOTE for most reviewers, a hard "Ready to merge? = No" for security, and a VOID for armed-spec fidelity. Both `LOCKSTEP` regions sit outside the edit and CI's contract-lockstep step is green. |
