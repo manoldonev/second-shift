@@ -2657,6 +2657,27 @@ else
   bad "(j) harness accounting disagrees with the direct lint; rc=$RC"; printf '%s\n' "$OUT" | tail -4
 fi
 
+# PER-GUARD CATALOG CAP (#752). The wholesale sweep shards round-robin, so it balances guard
+# COUNT and not cost and a guard's mutants are atomic to one residue class: lean-gate.sh at 56
+# rows against a 212s killer killed its shard at the 45-minute step bound twice, taking six
+# unrelated guards with it. 36 is a MEASUREMENT — the largest count for that guard observed to
+# finish inside the bound — and a count is a proxy for rows x killer-suite seconds. Full
+# derivation and the retirement criterion: docs/testing.md.
+MAX_ROWS_PER_GUARD=36
+
+# Prints `<guard> <count>`, one line per guard over the cap in $1, sorted; silent when none is.
+# Split out from case (k) so case (l) can drive it against a fixture: a lint that only ever
+# reads the live tree cannot be shown to still fail, and would go quietly dead the day its
+# parsing broke — the failure the real tree is least able to reveal.
+catalog_cap_breaches() {
+  awk -F'\t' -v cap="$MAX_ROWS_PER_GUARD" '
+    /^#/    { next }
+    NF < 2  { next }
+            { n[$2]++ }
+    END     { for (g in n) if (n[g] > cap) printf "%s %d\n", g, n[g] }
+  ' "$1" | LC_ALL=C sort
+}
+
 echo "(k) TSV family lint — shape and resolution of every committed mutation-*.tsv"
 lint_fail() { bad "(k) $*"; }
 # Exclusions: path must be in-universe, must NOT also carry pair-map rows, reason non-empty.
@@ -2710,6 +2731,12 @@ if [[ -f "$REPO_ROOT/tools/mutation-catalog.tsv" ]]; then
     esac
   done < "$REPO_ROOT/tools/mutation-catalog.tsv"
 fi
+# The cap itself. Reported per guard rather than as one aggregate: the count is the actionable
+# half — "retire n rows" — and an aggregate would name the file rather than the guard to fix.
+while read -r cap_g cap_n; do
+  [[ -n "$cap_g" ]] || continue
+  lint_fail "guard carries $cap_n catalog rows, over the per-guard cap of $MAX_ROWS_PER_GUARD: $cap_g"
+done <<< "$(catalog_cap_breaches "$REPO_ROOT/tools/mutation-catalog.tsv")"
 # Slow suites: selftest resolves, seconds numeric, measured_at ISO-8601.
 if [[ -f "$REPO_ROOT/tools/selftest-suite-timings.tsv" ]]; then
   while IFS=$'\t' read -r s secs when; do
@@ -2761,6 +2788,44 @@ if [[ -f "$REPO_ROOT/tools/mutation-baseline.tsv" ]]; then
   done < "$REPO_ROOT/tools/mutation-baseline.tsv"
 fi
 [[ $FAILS -eq 0 ]] && ok "TSV family is well-formed and resolves"
+
+echo
+echo "(l) per-guard catalog cap — case (k)'s cap arm, driven against a fixture catalog"
+# Case (k) reads the live tree, which is the right binding for "is the committed catalog legal"
+# and the wrong one for "does this arm still fail" — the live tree is legal by construction the
+# moment it is fixed, so a broken extractor and a compliant catalog are indistinguishable there.
+# These two fixtures separate them, and they are the same function case (k) calls, not a copy.
+CAPFX="$TMPROOT/cap"
+mkdir -p "$CAPFX"
+{
+  printf '# fixture catalog\n'
+  cap_i=1
+  while [[ $cap_i -le $MAX_ROWS_PER_GUARD ]]; do
+    printf 'row-%s\ttools/at-cap.sh\ts/a/b/\tnote\n' "$cap_i"
+    cap_i=$((cap_i + 1))
+  done
+} > "$CAPFX/at-cap.tsv"
+# One over, plus a second guard well under it: the breach must name the offender alone.
+cp "$CAPFX/at-cap.tsv" "$CAPFX/over-cap.tsv"
+{
+  printf 'row-over\ttools/at-cap.sh\ts/a/b/\tnote\n'
+  printf 'other-1\ttools/small.sh\ts/a/b/\tnote\n'
+  printf 'other-2\ttools/small.sh\ts/a/b/\tnote\n'
+} >> "$CAPFX/over-cap.tsv"
+
+CAP_AT="$(catalog_cap_breaches "$CAPFX/at-cap.tsv")"
+if [[ -z "$CAP_AT" ]]; then
+  ok "a guard at exactly $MAX_ROWS_PER_GUARD rows draws no breach"
+else
+  bad "(l1) expected silence at exactly $MAX_ROWS_PER_GUARD rows; got '$CAP_AT'"
+fi
+
+CAP_OVER="$(catalog_cap_breaches "$CAPFX/over-cap.tsv")"
+if [[ "$CAP_OVER" == "tools/at-cap.sh $((MAX_ROWS_PER_GUARD + 1))" ]]; then
+  ok "one row over names the offending guard and its count, and only that guard"
+else
+  bad "(l2) expected 'tools/at-cap.sh $((MAX_ROWS_PER_GUARD + 1))'; got '$CAP_OVER'"
+fi
 
 echo
 if [[ $FAILS -eq 0 ]]; then

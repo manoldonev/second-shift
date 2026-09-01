@@ -277,9 +277,20 @@ jobs:
   # coverage gap on somebody's merge, nor be suppressed by one.
   #
   # `cancelled` is matched alongside `failure` for the same reason the merge-time lane gates on
-  # `!= 'success'`: a shard that blows its 60-minute bound, or whose runner dies, resolves as
+  # `!= 'success'`: a shard that blows its step bound, or whose runner dies, resolves as
   # `cancelled` and leaves `merge` `skipped`, so a `failure`-only test would let a whole audit
   # vanish silently. Neither state can arise on a green run.
+  #
+  # AN OPERATOR-CANCELLED RUN THEREFORE FILES, AND THAT IS ACCEPTED (#752). Stopping a duplicate
+  # dispatch by hand resolves the same way a runner death does, so it files a digest naming every
+  # guard unswept though no sweep was lost — which once re-titled the standing issue to a commit
+  # nothing had swept, burying the run that did carry a finding. The obvious narrowing does not
+  # separate the two: `!cancelled()` is a RUN-level status function, false only when the RUN is
+  # cancelled, while a shard killed at its step bound still resolves `cancelled` at the JOB level
+  # and would still file. It would give up runner-death detection and keep the case it appears to
+  # fix. Digest dilution is the cheaper failure, so it is the one kept. The run-vs-job semantics
+  # are inferred from GitHub's status-function docs, not measured; a throwaway dispatch-and-cancel
+  # confirms them before anyone revisits this.
   file-audit-red:
     needs: [sweep, merge]
     if: always() && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled'))
