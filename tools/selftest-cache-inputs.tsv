@@ -84,10 +84,9 @@ plugins/dev-pipeline/tools/cost-block-selftest.sh	plugins/dev-pipeline/tools/gh-
 # The largest declared closure in this file, and every row was read out of the suite.
 #
 # DEPTH 1, what the suite itself reads from the checkout: the gate under test; SKILL.md, whose
-# line count case (f) asserts; tools/fixture-stamp.sh, which it SOURCES for the reaper's
-# ownership stamp; the audit-toolkit hook, the writer half of the ledger contract case (d5)
-# drives; tools/run-selftests.sh, the real runner cases (ic6)/(ic7) wire into a fixture config;
-# and the two gate-ablation tables cases (ac1c)/(ac1d) classify against.
+# line count case (f) asserts; the audit-toolkit hook, the writer half of the ledger contract
+# case (d5) drives; tools/run-selftests.sh, the real runner cases (ic6)/(ic7) wire into a
+# fixture config; and the two gate-ablation tables cases (ac1c)/(ac1d) classify against.
 #
 # DEPTH 2, what lean-gate.sh resolves at run time: branch-prefix.sh and resolve-sibling.sh (both
 # sourced), operator-override.sh (also read directly by the suite's (yo) cases),
@@ -129,7 +128,6 @@ plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	plugins/dev-pipelin
 plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	plugins/dev-pipeline/skills/build-lean/lean-gate.sh
 plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	plugins/dev-pipeline/skills/build-lean/SKILL.md
 plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	plugins/dev-pipeline/skills/build-lean/branch-prefix.sh
-plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	tools/fixture-stamp.sh
 plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	tools/run-selftests.sh
 plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	tools/gate-ablation-adjudication.tsv
 plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	tools/gate-ablation-classes.tsv

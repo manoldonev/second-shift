@@ -72,16 +72,13 @@ sweep inline, bounded by `tools/selftest-suite-timings.tsv` to fit the turn, whi
 detaching it and ending the turn would undo.
 
 **The killed-sweep note.** A foreground attempt that was already killed skipped its suites'
-`trap … EXIT`, and **a private `TMPDIR` relocates the scratch and not the fixtures.** The
-stamped fixture families allocate with `mktemp -d -t <name>`, and on macOS that path resolves
-against `_CS_DARWIN_USER_TEMP_DIR` — a bare `mktemp -d` *is* `-t tmp`, so there is no second
-behavior to fall back on. Those land in one directory shared with every other lane on the machine
-whatever `TMPDIR` says. The explicit-template form `mktemp -d "${TMPDIR:-/tmp}/…"` — the sweep
-runner's own `BASE`, and eleven other scripts — *is* honored, because the shell expands the path
-before `mktemp` runs (measured 2026-08-25; the derivation is in the runbook). The sweep reaps the
-stamped families itself on its way in; for the rest,
-[scrub before re-running](docs/testing.md#when-a-run-is-killed-mid-sweep) — a red the diff cannot
-explain is that litter more often than it is your branch.
+`trap … EXIT`, and whatever those suites had under `mktemp` stays on disk with nothing to remove
+it — every scratch allocation in this repo, including the two big fixture-producing selftests
+since #780, uses the explicit-template form `mktemp -d "${TMPDIR:-/tmp}/…"`, so **a private
+`TMPDIR` relocates all of it**, scratch and fixtures alike, rather than the fixtures landing in
+one directory shared with every other lane on the machine regardless. Nothing reaps a killed run's
+leftovers automatically; [scrub before re-running](docs/testing.md#when-a-run-is-killed-mid-sweep)
+— a red the diff cannot explain is that litter more often than it is your branch.
 
 **`tools/run-selftests.sh` is the sweep — here, in both CI selftest jobs, and in this repo's own
 dogfood lean-gate milestone-3 `test` lane** (the gitignored `.claude/second-shift.config.json`,

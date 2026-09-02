@@ -58,26 +58,6 @@ unset RUN_ID
 # guard covered here rather than merely tolerated.
 export LEAN_GATE_ANY_TREE=1
 
-# Ownership stamp for tools/reap-lean-fixtures.sh (#528): this process's pid, plus its start
-# time. A suite killed by a signal leaves WORK behind with no trap to run; the stamp is what
-# lets the reaper tell a dead run's leftovers from a live one's without guessing from age alone.
-#
-# THE EXPRESSION IS NOT SPELLED OUT HERE. It lives in tools/fixture-stamp.sh, which the reaper
-# sources too: a producer and a consumer that each spell the sanitization their own way agree
-# only by accident of how `ps` pads its lstart column, and on a `ps` that does not pad, the
-# reaper reads a live suite's fixture as unowned and deletes it.
-#
-# OPTIONAL by design — a shipped plugin install carries no tools/ directory, so a suite that
-# cannot find the library builds an UNSTAMPED name and the reaper governs it by the long legacy
-# floor alone. That is the safe direction: no stamp at all beats a stamp the reader would read
-# back as somebody else's.
-STAMP_LIB="$HERE/../../../../tools/fixture-stamp.sh"
-OWN_SEG=""
-if [ -r "$STAMP_LIB" ]; then
-  # shellcheck source=../../../../tools/fixture-stamp.sh
-  . "$STAMP_LIB"
-  OWN_SEG="$(fixture_stamp_own 2>/dev/null)" || OWN_SEG=""
-fi
 # TRAP INSTALLED BEFORE WORK EXISTS (#528). The old order (mktemp, then trap) left a window —
 # five lines, here — where a signal orphaned WORK with nothing registered to remove it. This
 # closes it airtight rather than merely dominant; cleanup() already guards on WORK being set,
@@ -87,11 +67,20 @@ fi
 # each command in the body — suppressing only the newer one is clean locally and reds CI.
 cleanup() { [ -n "${WORK:-}" ] && rm -rf "$WORK"; }
 trap cleanup EXIT
-if [ -n "$OWN_SEG" ]; then
-  WORK="$(mktemp -d -t "leangate.$OWN_SEG.XXXXXX")"
-else
-  WORK="$(mktemp -d -t "leangate.XXXXXX")"
-fi
+# Explicit-template form (#780): a private TMPDIR is honored, unlike `mktemp -d -t` on macOS —
+# so a lane run under its own TMPDIR isolates this fixture instead of sharing one directory
+# with every other worktree and lane on the machine.
+#
+# NORMALIZED WITH `pwd -P`, mirroring orchestrate-lean-selftest.sh, and for a second reason
+# beyond the /var symlink that comment names: macOS's own `$TMPDIR` carries a TRAILING SLASH
+# (`/var/folders/.../T/`), so the raw template yields a double slash
+# (`.../T//leangate.XXXXXX`). The (lt5)/(lt5b) cases below build `git worktree add` paths under
+# WORK and then literal-match them against the gate's own refusal text, which echoes whatever
+# `git worktree list` reports — git canonicalizes the path it registers, collapsing the double
+# slash, so an un-normalized WORK never matches. Resolving once here, before anything is built
+# on top of WORK, keeps every downstream path comparison in this file literal-safe.
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/leangate.XXXXXX")"
+WORK="$(cd "$WORK" && pwd -P)"
 
 # ---------------------------------------------------------------- the tracker stub (#611)
 # `entry`/`claim` now READ the ticket at the run boundary, so every case in this file that
@@ -162,15 +151,19 @@ SPEC="$TREE/docs/plans/acme-7-lean.md"
 VERDICT="$TREE/docs/plans/acme-7-lean-verdict.md"
 
 # #663: THE SUBSTRING NETS BELOW ARE CAST OVER THE GATE'S WORDS, NEVER OVER ITS PATHS.
-# The gate opens every run with `[lean-gate] config: <path>`, and that path is wherever
-# `mktemp -d -t` put this suite's scratch. On Linux `-t` resolves against $TMPDIR, and the
-# nightly mutation sweep runs every killer with TMPDIR pointed at a directory of its own
-# named `mutation-sweep-work.XXXXXX` — so on that lane, and on no other, (i-580a)'s
-# `grep -i mutation` matched the directory the suite was standing in. Both #580 cases failed
-# for that reason on every nightly from 2026-08-20, the pair read as unrunnable, and
-# lean-gate.sh — the most catalog-covered guard in the tree — was scored by nothing at all
-# until #663. The macOS lane never saw it: `mktemp -d -t` there resolves against
-# _CS_DARWIN_USER_TEMP_DIR and ignores TMPDIR outright.
+# The gate opens every run with `[lean-gate] config: <path>`, and that path is wherever this
+# suite's own scratch (WORK, above) landed. The nightly mutation sweep runs every killer with
+# TMPDIR pointed at a directory of its own named `mutation-sweep-work.XXXXXX` — so on that lane,
+# WORK lands inside it, and (i-580a)'s `grep -i mutation` matched the directory the suite was
+# standing in. Both #580 cases failed for that reason on every nightly from 2026-08-20, the pair
+# read as unrunnable, and lean-gate.sh — the most catalog-covered guard in the tree — was scored
+# by nothing at all until #663. Originally this hit only the Linux nightly: WORK was allocated
+# with `mktemp -d -t`, which on Linux resolves against $TMPDIR and on macOS resolves against
+# `_CS_DARWIN_USER_TEMP_DIR`, ignoring TMPDIR outright — so the macOS lane could not reproduce
+# it. #780 switched WORK to the explicit-template form (`mktemp -d "${TMPDIR:-/tmp}/…"`), which
+# removes that asymmetry: WORK now honors TMPDIR on every platform, so the condition this note
+# describes is reachable on macOS too. The fix below does not care which form put WORK there —
+# it keys on `dirname "$WORK"`, computed fresh below, so it holds either way.
 #
 # Tokens are dropped WHOLE, keyed on the fixture root by `index()` rather than by a regex —
 # the root is a path, and escaping one into a pattern is the second half of this same bug.
