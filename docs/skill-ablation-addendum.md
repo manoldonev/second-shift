@@ -300,6 +300,28 @@ property of the challenger.
 above and nothing else. #747 re-runs all three under the amended capture, so one capture mode spans
 the corpus and the samples are comparable by construction rather than by argument.
 
+### A capture must be proven complete before it is scored
+
+The amended capture makes the arm's finding set a property of a **stream file**, and a stream file
+can be short for two very different reasons: the session finished and reported nothing, or the
+session was killed before it could report at all. At face value those are the same artifact — a
+capture with no findings in it — and read as the first, the second is a false negative entering a
+frozen-adjacent registration.
+
+**This is measured, not hypothetical.** A capture taken during this amendment's own re-validation
+was reaped roughly 7 minutes into a 20–30 minute run and left a 2.3 MB, 831-line file carrying no
+terminal `result` event anywhere.
+
+**The check:** classify every capture with `tools/classify-capture.sh` (#779) before reading a
+finding out of it. It exits `0` for a completed successful run, `1` for one that completed but
+failed, `2` for a truncated one, and `3` when it cannot read its input at all.
+
+**The rule:** only an exit-`0` capture is scored. A capture the checker calls `TRUNCATED`, or a
+completed failure, is **discarded and the sample re-run** — never scored, and never recorded as a
+null result. This is the same discipline the pre-run assertion above already applies to the
+repository's shape, extended to the artifact the run produces: a run that fails it does not count
+and is re-built.
+
 ### Validation of the recipe — superseded, and by what
 
 **The claim this subsection used to carry is withdrawn.** It recorded that, measured 2026-09-01,

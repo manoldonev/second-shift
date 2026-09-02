@@ -75,6 +75,11 @@ SC1091,SC2015,SC2181` and `SKIP_STRESS=1 bash tools/run-selftests.sh --exclude
 tools/install-topology-selftest.sh`. No new checked-in script is added: the re-validation
   command is recorded as literal text in §B, so no script arrives without a selftest to exercise
   it.
+- AC-7: §B registers that the arm's capture must be proven **complete before it is scored**: a
+  capture is classified with `tools/classify-capture.sh` (#779), and one it reports as
+  `TRUNCATED` — or as a completed failure — is **discarded and re-run, never scored**. A
+  truncated capture is not a null result. AC-4's own measurement records its classification
+  verdict, so the rule is registered having been applied to itself (D-8).
 
 ## Out of scope
 
@@ -103,6 +108,7 @@ tools/install-topology-selftest.sh`. No new checked-in script is added: the re-v
 | D-5 | Disposition of the three outputs already captured    | Discarded for scoring; retained as this ticket's defect measurement only. #747 re-runs all three under the amended capture, so one capture mode spans the corpus and the samples are comparable by construction.                                                                                                                                                                                                                                     | user-answered    |
 | D-6 | The capture mode varies across samples               | Measured 2026-09-02 under the registered form verbatim: 2 of 3 samples routed to the report tool (C2-a, C2-b), 1 of 3 printed a parseable 15-element JSON array to stdout (C2-c). D-1's stream captures both modes, so no further mechanism is registered. Evidence table in the issue body.                                                                                                                                                         | codebase-derived |
 | D-7 | The §B:264-269 validation claim                      | Rewritten. The recorded two-commit end-to-end run never exercised the report-tool path that two of three real samples take, so it is replaced by D-4's pinned-clone measurement rather than supplemented by it.                                                                                                                                                                                                                                      | codebase-derived |
+| D-8 | The arm's capture must be proven complete before it is scored | §B registers that a capture failing #779's completeness check is discarded rather than scored — a truncated capture is not a null result. #779 ships the check and merges first; this ticket cites it.                                                                                                                                                                                                                                               | user-answered    |
 
 ## Open Regions
 
