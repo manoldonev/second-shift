@@ -1828,3 +1828,98 @@ schedule turns it into noise.
 a periodic audit whose output is *issues and prunes*, executed by the tiers above.
 
 **Cost is real.** The #213 audit ran ~40 agents over ~2.6M tokens. Budget for it deliberately.
+
+## Concurrent-lane tier (operator-run, never CI)
+
+The deterministic tiers all run **one lane at a time**. Nothing above exercises two lanes sharing a
+host, and the surfaces they share are real: one temp directory of stamped fixtures with a reaper
+that walks it on every sweep entry, one selftest pass-cache store, and one CPU with a worker count
+(`SELFTEST_JOBS`) that has no lane awareness. Epic #525 hardened all of that and merged without a
+single two-lane run behind it.
+
+This tier is that run. It is **model-free** — two `lean-gate.sh 3` invocations, no API-billed calls
+— so its only cost is wall-clock, and anyone can re-take it.
+
+**When to run it:** after a change to `tools/run-selftests.sh` job dispatch or its cache,
+to `tools/reap-lean-fixtures.sh` or `tools/fixture-stamp.sh`, or to `lean-gate.sh`'s milestone-3
+block. Those are also the changes that **void the existing record** — there is deliberately no
+automated staleness guard, because a guard is exactly the permanent mass this tier's procedure
+form was chosen instead of.
+
+**What it does not cover:** scheduler- and session-level contention — two full `run-lean` sessions,
+which is the shape that produced #525's motivating pain. A lane here is a gate invocation, not a
+session.
+
+### The recipe
+
+1. **Read the criteria before you measure.**
+   [`docs/plans/second-shift-564-preregistration.md`](plans/second-shift-564-preregistration.md)
+   fixes the four criteria and the arm definitions. A criterion decided after the data is in is
+   not a criterion.
+2. **Cut two lane worktrees on two real branches.** Lane A is whatever you are building. Lane B is
+   any *open* ticket you are not building: `bash G entry <n>` attests it and makes **no tracker
+   write** — no label swap, no comment. Delete `.claude/pipeline-state/<n>-lean-*` afterwards.
+3. **Keep the executable content identical.** `git diff --name-only <A-head> <B-head>` must name
+   nothing outside `docs/`. If a `*.sh`, `*.tsv`, `*.mjs` or `.github/**` path appears, the
+   verdict-equality oracle is void and the run is not scoreable.
+4. **Sample the host throughout.** Every 10s, append load, the live-suite process count, and one
+   row per fixture directory with whether its embedded owner pid is alive:
+
+   ```sh
+   T="${TMPDIR:-/tmp}"
+   while :; do
+     ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+     set -- $(sysctl -n vm.loadavg | tr -d '{}')   # Linux: read /proc/loadavg
+     printf '%s\tload\t%s\t%s\t%s\n' "$ts" "$1" "$2" "$3"
+     for d in "$T"/leangate.* "$T"/orchestrate-lean-selftest.*; do
+       [ -d "$d" ] || continue
+       n=$(basename "$d"); pid=$(printf '%s' "$n" | cut -d. -f2)
+       kill -0 "$pid" 2>/dev/null && s=live || s=dead
+       printf '%s\tfixture\t%s\t%s\n' "$ts" "$n" "$s"
+     done
+     sleep 10
+   done >> samples.tsv
+   ```
+
+   The `live` rows are the load-bearing ones: criterion C-1 is scored by intersecting them with the
+   `[reap-lean-fixtures] removed:` lines in both lanes' logs.
+5. **Take the single-lane baselines first, and commit them.** At least three samples at each
+   per-lane job level you intend to measure, cache off (`LEAN_SELFTEST_CACHE=0`), on a quiet host.
+   A bar keyed to one sample measures variance rather than contention, and a baseline landed after
+   the two-lane numbers is a bar that moved.
+6. **Run the arms.** Each lane under `/usr/bin/time -l`, so CPU time is recorded beside wall time
+   and a reader can tell contention from saturation:
+
+   ```sh
+   ( cd "$WT" && env RUN_ID=<id> SELFTEST_JOBS=<n> LEAN_SELFTEST_CACHE=<0|1> \
+       /usr/bin/time -l bash "$G" 3 <issue> ) > lane.log 2>&1
+   ```
+
+   **Stagger the second lane, do not launch them together.** `run-selftests.sh` reaps on *entry*,
+   before it discovers anything, so two lanes started at the same instant both walk an empty
+   directory and the ownership guard is never asked a question. Hold lane B until a
+   `leangate.*` or `orchestrate-lean-selftest.*` directory belonging to lane A actually exists,
+   and record the trigger time and the directory names — that list is what makes the C-1 score
+   falsifiable. Simultaneous launch is the right shape for the wall-clock arms and the wrong one
+   for the reaper.
+
+   **Scrub the environment if you call `run-selftests.sh` directly.** `lean-gate.sh` passes its
+   lane commands through `SEAM_SCRUB`; a bare invocation does not. A session carrying
+   `LEAN_ATTEND_MODE` false-reds `operator-override-selftest.sh` on its own (43 passed → 41
+   passed, 2 failed), and `LEAN_RUN_MODEL` is not on the scrub list at all. Four suites went red
+   this way during #564's first attempt, identically in both lanes, which reads exactly like a
+   contention finding and is not one. **Always take a single-lane control on the same command.**
+
+   The as-shipped arm (`SELFTEST_JOBS=4` each) is **descriptive only** — two as-shipped lanes are
+   under-subscribed on any host with 10 cores, so an envelope they meet is met by arithmetic. The
+   bar lives on the oversubscribed arm, `SELFTEST_JOBS = ceil(cores × 0.8)` per lane. Cache-on gets
+   its own arm; with the cache live a repeat sweep serves from the store and the sample measures
+   cache luck.
+7. **Score against the file, then write the result down — green or red.** A failed criterion is
+   recorded as failed and filed as a follow-up ticket the record cites. It is not re-scoped, and
+   the record proposes no fix: the deliverable is the honest measurement.
+
+**The record of the last run** is
+[`docs/plans/second-shift-564-evidence.md`](plans/second-shift-564-evidence.md). It stamps both
+lane tree SHAs, the host core count and the date, so a reader can tell whether it still describes
+this tree.
