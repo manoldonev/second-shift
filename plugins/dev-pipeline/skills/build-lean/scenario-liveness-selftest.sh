@@ -402,6 +402,38 @@ LEANBOT
     && pass "(lean-mark) a re-entered milestone 5 finds its own marker and posts nothing" \
     || fail "(lean-mark) re-entry rc=$lm5b, spool=$(cat "$LEAN_BOT_SPOOL" 2>/dev/null)"
 
+  # ---- leg 1c: #783 mark's OWN exit-artifacts check, composed at checklist step 7 ------------
+  # Checklist step 7 calls `mark` directly, right after the PR is opened — before milestone 5
+  # (and a whole review round) ever runs. This composes THAT call: a body missing the spec link
+  # must refuse `mark` itself rather than surface only at close-out (#693/#564's measured cost).
+  cat > "$TMP/lean-pr-nospec.json" <<'LEANPRNS'
+[{ "number": 5, "url": "https://example.invalid/pr/5", "isDraft": false,
+   "body": "Closes #77" }]
+LEANPRNS
+  : > "$LEAN_BOT_SPOOL"
+  lmr=$( ( unset RUN_ID; cd "$LEAN_TREE" && SECOND_SHIFT_CONFIG="$LEAN_CFG" LEAN_PROGRESS_FILE="$LEAN_PROG" \
+           CLAUDE_CODE_SESSION_ID=sess-lean-build GH_BOT="$TMP/lean-bot-stub.sh" GH="${GH:-$LEAN_GH}" \
+           LEAN_BOT_SPOOL="$LEAN_BOT_SPOOL" \
+           bash "$LEAN_GATE" --issue-file "$LEAN_ISSUE_NOREGIONS" mark 77 \
+           --pr-file "$TMP/lean-pr-nospec.json" --comments-file "$TMP/lean-comments-nomarker.json" \
+           2>&1 ) ); lmr_rc=$?
+  if [[ "$lmr_rc" -eq 1 ]] && grep -qF "does not link the committed spec" <<<"$lmr" && [[ ! -s "$LEAN_BOT_SPOOL" ]]; then
+    pass "(lean-mark-body) #783: mark itself refuses a PR body missing the spec link at step 7, and posts nothing"
+  else fail "(lean-mark-body) expected rc=1 naming the missing spec link and no write, rc=$lmr_rc: $lmr / spool=$(cat "$LEAN_BOT_SPOOL" 2>/dev/null)"; fi
+
+  # ...and the SAME session, once the body carries the spec link, posts as normal — the refusal
+  # above was the body's doing, not a broken `mark`.
+  : > "$LEAN_BOT_SPOOL"
+  lmr2=$( ( unset RUN_ID; cd "$LEAN_TREE" && SECOND_SHIFT_CONFIG="$LEAN_CFG" LEAN_PROGRESS_FILE="$LEAN_PROG" \
+            CLAUDE_CODE_SESSION_ID=sess-lean-build GH_BOT="$TMP/lean-bot-stub.sh" GH="${GH:-$LEAN_GH}" \
+            LEAN_BOT_SPOOL="$LEAN_BOT_SPOOL" \
+            bash "$LEAN_GATE" --issue-file "$LEAN_ISSUE_NOREGIONS" mark 77 \
+            --pr-file "$TMP/lean-pr.json" --comments-file "$TMP/lean-comments-nomarker.json" \
+            2>&1 ) ); lmr2_rc=$?
+  if [[ "$lmr2_rc" -eq 0 ]] && grep -q 'run_id: r-lean-1' "$LEAN_BOT_SPOOL" 2>/dev/null; then
+    pass "(lean-mark-body) the same call posts normally once the body carries the spec link"
+  else fail "(lean-mark-body) expected rc=0 and a posted marker once the body is fixed, rc=$lmr2_rc: $lmr2 / spool=$(cat "$LEAN_BOT_SPOOL" 2>/dev/null)"; fi
+
   # ---- leg 2: budget exhaustion -> abort record ----------------------------
   # #642 RE-POINTED THE DRIVER. It used to withhold the record entirely, which was a fix-budget
   # red while milestone 4's absence charged one; the absence now routes to the `absent` verb and

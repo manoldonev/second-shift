@@ -2637,7 +2637,7 @@ LEAN_PR_MARKER_TAG='lean-pr-marker'
 # marker from a DIFFERENT build session does not (D-4). A second session must leave its own, or its
 # identity is invisible at the boundary and it could author its own review.
 cmd_mark() {
-  local pr prnum comments existing body url rc msid recorded
+  local pr prnum comments existing draft body url rc msid recorded
 
   if [ "$BOT_ENABLED" != "true" ]; then
     say "· mark: no bot is enabled for this consumer (tracker.bot.enabled is false, or absent under tracker.type 'jira'), so there is no authenticated writer for a PR marker. The boundary's identity arm runs at reduced strength (printed there); every other arm is unaffected. Configuring a bot restores the marker under either tracker."
@@ -2670,6 +2670,26 @@ cmd_mark() {
     say "· mark: PR #$prnum is already MERGED — the identity marker's only reader is the pull_request-event merge boundary, which has already run, so nothing is posted."
     return 0
   fi
+
+  # #783 D-1/D-2/D-4/D-9. The SAME exit-artifacts obligation cmd_5 asserts at close-out, checked
+  # HERE instead — a step-7 omission now refuses at the point it was created, not after a whole
+  # review round is spent on a PR that was going to hard-stop at close-out anyway (#693/#564).
+  # Zero extra network calls: resolve_open_pr already holds body/isDraft/url above (D-9).
+  # Placed AFTER the merged short-circuit (D-4) — a merged PR takes no new marker and gets no new
+  # refusal either — and BEFORE the idempotency no-op below, so a re-entry whose marker already
+  # exists but whose body has since broken re-verifies instead of no-opping past it.
+  # D-1: a HARD refusal. The ticket's own strand-risk argument for a warn does not survive the
+  # code — an absent marker is not unreadable at the boundary, `lean-evidence.sh`'s identity arm
+  # names it directly ("no bot-authored 'lean-pr-marker' comment on this PR…"), so the check fails
+  # closed exactly like every other refusal here.
+  draft="$(printf '%s' "$pr" | jq -r '.[0].isDraft')"
+  body="$(printf '%s' "$pr" | jq -r '.[0].body // ""')"
+  url="$(printf '%s' "$pr" | jq -r '.[0].url')"
+  pr_exit_artifacts_check "$draft" "$body" "$url" || {
+    warn "✗ mark: PR #$prnum is missing checklist step 7's PR-body obligations: $PR_EXIT_ARTIFACTS_MISSING"
+    warn "  Fix the PR body, then re-run 'bash G mark $ISSUE' — cmd_5 checks the same three obligations again at close-out either way."
+    return 1
+  }
 
   if [ -n "$COMMENTS_FILE" ]; then
     [ -f "$COMMENTS_FILE" ] || envfail "--comments-file '$COMMENTS_FILE' does not exist."
@@ -5663,6 +5683,52 @@ jira_items_section() { # stdin: the PR body — prints the section's lines, noth
   '
 }
 
+# #783 D-2/D-3/D-5/D-11. Checklist step 7's PR-body obligations, as ONE predicate rather than
+# two: cmd_5's close-out `exit-artifacts` obligation and cmd_mark's own step-7 check assert the
+# identical set — non-draft, `Closes #<issue>` (or, under jira, `Closes [<KEY>]` within the
+# `Jira Items` section), and the committed spec link — so one expression serves both rather than
+# two that could drift. NOT a LOCKSTEP pair (D-3): every `LOCKSTEP-BEGIN` id in this repo spans
+# two or more FILES, and both call sites are in this one, where a shared call prevents drift
+# instead of merely detecting it.
+#
+# Sets PR_EXIT_ARTIFACTS_MISSING to a "; "-joined message naming every failing obligation, empty
+# when all three hold. D-5: with exactly one obligation missing the message is byte-identical to
+# the message each caller already produced before this existed, so cmd_5's existing selftest
+# expectations are untouched and only the two/three-failure cases are new text. Returns 0 when
+# all three hold, 1 otherwise — never fails outright, so a caller decides its own reporting verb
+# (cmd_5's fail_obligation, cmd_mark's warn + return 1).
+pr_exit_artifacts_check() { # pr_exit_artifacts_check <isDraft> <body> <url>
+  local draft="$1" body="$2" url="$3" n_closes n_spec
+  local -a exit_artifacts_missing=()
+
+  [ "$draft" = "false" ] \
+    || exit_artifacts_missing+=("PR $url is still a draft (D-27 requires a ready PR)")
+
+  if [ "$TRACKER_TYPE" = "jira" ]; then
+    n_closes="$(printf '%s' "$body" | jira_items_section | grep -c -i -E "closes[[:space:]]+\[$ISSUE\]")" || n_closes=0
+    [ "$n_closes" -ge 1 ] \
+      || exit_artifacts_missing+=("PR body carries no 'Closes [$ISSUE]' under a 'Jira Items' heading")
+  else
+    n_closes="$(printf '%s' "$body" | grep -c -i -E "closes[[:space:]]+#$ISSUE")" || n_closes=0
+    [ "$n_closes" -ge 1 ] \
+      || exit_artifacts_missing+=("PR body carries no 'Closes #$ISSUE'")
+  fi
+
+  # Adapter-INSENSITIVE: the spec is a committed repo path at the same pinned location under
+  # both trackers, so this arm is shared rather than duplicated per adapter.
+  n_spec="$(printf '%s' "$body" | grep -c -F -- "$SPEC_REL")" || n_spec=0
+  [ "$n_spec" -ge 1 ] \
+    || exit_artifacts_missing+=("PR body does not link the committed spec ($SPEC_REL)")
+
+  if [ "${#exit_artifacts_missing[@]}" -eq 0 ]; then
+    PR_EXIT_ARTIFACTS_MISSING=""
+    return 0
+  fi
+  PR_EXIT_ARTIFACTS_MISSING="$(printf '%s; ' "${exit_artifacts_missing[@]}")"
+  PR_EXIT_ARTIFACTS_MISSING="${PR_EXIT_ARTIFACTS_MISSING%; }"
+  return 1
+}
+
 # "Progress file current" is asserted as: milestones 1-4 each left a `satisfied` record.
 #
 # NOT as "the file exists". That check cannot hold: failing any milestone appends an
@@ -5750,23 +5816,8 @@ cmd_5() {
   body="$(printf '%s' "$pr" | jq -r '.[0].body // ""')"
   url="$(printf '%s' "$pr" | jq -r '.[0].url')"
 
-  [ "$draft" = "false" ] || { fail_obligation exit-artifacts "PR $url is still a draft (D-27 requires a ready PR)"; return $?; }
-  # Same capture-first discipline as count_matches — these read a string, not a file.
-  local n_closes n_spec
-  if [ "$TRACKER_TYPE" = "jira" ]; then
-    n_closes="$(printf '%s' "$body" | jira_items_section | grep -c -i -E "closes[[:space:]]+\[$ISSUE\]")" || n_closes=0
-    [ "$n_closes" -ge 1 ] \
-      || { fail_obligation exit-artifacts "PR body carries no 'Closes [$ISSUE]' under a 'Jira Items' heading"; return $?; }
-  else
-    n_closes="$(printf '%s' "$body" | grep -c -i -E "closes[[:space:]]+#$ISSUE")" || n_closes=0
-    [ "$n_closes" -ge 1 ] \
-      || { fail_obligation exit-artifacts "PR body carries no 'Closes #$ISSUE'"; return $?; }
-  fi
-  # Adapter-INSENSITIVE: the spec is a committed repo path at the same pinned location under
-  # both trackers, so the link assertion is shared rather than duplicated per arm.
-  n_spec="$(printf '%s' "$body" | grep -c -F -- "$SPEC_REL")" || n_spec=0
-  [ "$n_spec" -ge 1 ] \
-    || { fail_obligation exit-artifacts "PR body does not link the committed spec ($SPEC_REL)"; return $?; }
+  pr_exit_artifacts_check "$draft" "$body" "$url" \
+    || { fail_obligation exit-artifacts "$PR_EXIT_ARTIFACTS_MISSING"; return $?; }
   append_obligation 5 exit-artifacts met
 
   # Under jira the verdict reference has nowhere else to live: `tracker.writes: false` means
