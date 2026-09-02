@@ -89,30 +89,38 @@ else
 fi
 
 # ---------------------------------------------------------------------------------------
-# (f) AC-3 rc=3 — a missing file cannot be classified.
+# (f) AC-3 rc=3 — a missing file cannot be classified. rc 3 alone does not distinguish this
+# from (g)/(h) below — all three exit 3 — so the message, the only carrier of WHICH read
+# failed, is asserted too.
 # ---------------------------------------------------------------------------------------
 RC="$(run "$TMP/does-not-exist.jsonl")"
-[[ "$RC" -eq 3 ]] \
-  && ok "(f) AC-3: a nonexistent capture file exits 3, not 2 — could-not-read stays distinct from truncated" \
-  || { bad "(f) AC-3: expected rc=3 for a missing file, got rc=$RC"; dump; }
+if [[ "$RC" -eq 3 ]] && grep -qF 'absent or unreadable' "$TMP/out"; then
+  ok "(f) AC-3: a nonexistent capture file exits 3 naming it absent/unreadable, not 2 — could-not-read stays distinct from truncated"
+else
+  bad "(f) AC-3: expected rc=3 naming absent/unreadable for a missing file, got rc=$RC"; dump
+fi
 
 # ---------------------------------------------------------------------------------------
 # (g) AC-3 rc=3 — a line that is not valid JSON is a usage error, not silently skipped or
-# treated as a non-result line.
+# treated as a non-result line. Same rc-3 family as (f)/(h): the message is the discriminator.
 # ---------------------------------------------------------------------------------------
 printf '%s\nnot json at all\n' "$SYS" > "$TMP/malformed.jsonl"
 RC="$(run "$TMP/malformed.jsonl")"
-[[ "$RC" -eq 3 ]] \
-  && ok "(g) AC-3: a line that fails to parse as JSON exits 3 rather than being ignored" \
-  || { bad "(g) AC-3: expected rc=3 for a malformed line, got rc=$RC"; dump; }
+if [[ "$RC" -eq 3 ]] && grep -qF 'not valid JSON' "$TMP/out"; then
+  ok "(g) AC-3: a line that fails to parse as JSON exits 3 naming it invalid, rather than being ignored"
+else
+  bad "(g) AC-3: expected rc=3 naming invalid JSON for a malformed line, got rc=$RC"; dump
+fi
 
 # ---------------------------------------------------------------------------------------
-# (h) AC-3 rc=3 — no argument at all.
+# (h) AC-3 rc=3 — no argument at all. Same rc-3 family as (f)/(g).
 # ---------------------------------------------------------------------------------------
 RC="$(run)"
-[[ "$RC" -eq 3 ]] \
-  && ok "(h) AC-3: no argument exits 3" \
-  || { bad "(h) AC-3: expected rc=3 with no argument, got rc=$RC"; dump; }
+if [[ "$RC" -eq 3 ]] && grep -qF 'usage: classify-capture.sh' "$TMP/out"; then
+  ok "(h) AC-3: no argument exits 3 naming the usage line"
+else
+  bad "(h) AC-3: expected rc=3 naming usage for no argument, got rc=$RC"; dump
+fi
 
 # ---------------------------------------------------------------------------------------
 # (i) AC-4 — two result events: the LAST governs, and the count is surfaced. An early success
@@ -134,9 +142,11 @@ fi
 printf '{"type":"result","subtype":"success","is_error":true}\n{"type":"result","subtype":"success","is_error":false}\n' \
   > "$TMP/multi-recovers.jsonl"
 RC="$(run "$TMP/multi-recovers.jsonl")"
-[[ "$RC" -eq 0 ]] \
-  && ok "(j) AC-4: a later successful result governs over an earlier failed one" \
-  || { bad "(j) AC-4: expected rc=0 (later result wins), got rc=$RC"; dump; }
+if [[ "$RC" -eq 0 ]] && grep -qF 'COMPLETE' "$TMP/out"; then
+  ok "(j) AC-4: a later successful result governs over an earlier failed one, and the line names COMPLETE"
+else
+  bad "(j) AC-4: expected rc=0 naming COMPLETE (later result wins), got rc=$RC"; dump
+fi
 
 # ---------------------------------------------------------------------------------------
 # (k) AC-2 — a result event carrying no is_error key at all is not treated as false: an
@@ -144,9 +154,11 @@ RC="$(run "$TMP/multi-recovers.jsonl")"
 # ---------------------------------------------------------------------------------------
 printf '{"type":"result","subtype":"success"}\n' > "$TMP/no-is-error.jsonl"
 RC="$(run "$TMP/no-is-error.jsonl")"
-[[ "$RC" -eq 1 ]] \
-  && ok "(k) AC-2: a result event with no is_error key fails closed to rc=1, not a silent 0" \
-  || { bad "(k) AC-2: expected rc=1 for a missing is_error key, got rc=$RC"; dump; }
+if [[ "$RC" -eq 1 ]] && grep -qF 'FAILED' "$TMP/out"; then
+  ok "(k) AC-2: a result event with no is_error key fails closed to rc=1, naming FAILED, not a silent 0"
+else
+  bad "(k) AC-2: expected rc=1 naming FAILED for a missing is_error key, got rc=$RC"; dump
+fi
 
 echo
 if [[ "$FAIL" -eq 0 ]]; then
