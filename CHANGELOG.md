@@ -4,6 +4,22 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v12.4.0
+
+### `dev-pipeline` 12.3.0 → 12.4.0
+
+- **fix(dev-pipeline): delete the amended-spec blocker's second clause (#776)** (#776)
+  none — deletes dead prose and reconciles a triage record; no
+  consumer-visible behavior change.
+- **refactor(tools): delete the fixture reaper and the shared-tmpdir condition it existed for (#784)** (#784)
+- **feat(build-lean): mark asserts step 7's PR-body obligations itself (#785)** (#785)
+  `bash G mark <issue>` now refuses (rc=1) a PR whose body is
+  missing checklist step 7's obligations — draft state, `Closes #<issue>`,
+  or the committed spec link — instead of surfacing the same gap only at
+  close-out after a review round is spent. No progress-file row is written
+  and no fix-budget attempt is charged; re-run mark once the body is fixed.
+  Migration: none.
+
 ## v12.3.0
 
 ### `dev-pipeline` 12.2.4 → 12.3.0
