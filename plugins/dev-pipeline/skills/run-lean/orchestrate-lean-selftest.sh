@@ -39,18 +39,6 @@ if [ ! -f "$HERE/../build-lean/branch-prefix.sh" ]; then
   exit 2
 fi
 
-# Ownership stamp for tools/reap-lean-fixtures.sh (#528). The expression is NOT repeated here —
-# it lives in tools/fixture-stamp.sh, sourced by this producer and by the reaper that reads the
-# stamp back, so the two cannot drift into an agreement that holds only on one `ps`. Optional:
-# a shipped plugin install carries no tools/, and an unstamped name is the safe fallback.
-STAMP_LIB="$HERE/../../../../tools/fixture-stamp.sh"
-OWN_SEG=""
-if [ -r "$STAMP_LIB" ]; then
-  # shellcheck source=../../../../tools/fixture-stamp.sh
-  . "$STAMP_LIB"
-  OWN_SEG="$(fixture_stamp_own 2>/dev/null)" || OWN_SEG=""
-fi
-
 # TRAP INSTALLED BEFORE WORK EXISTS (#528), mirroring lean-gate-selftest.sh: the old order
 # (mktemp, then trap) left a window where a signal orphaned WORK with nothing registered to
 # remove it. cleanup() guards on WORK being set, so registering it first is safe.
@@ -59,14 +47,16 @@ fi
 # each command in the body — suppressing only the newer one is clean locally and reds CI.
 cleanup() { [ -n "${WORK:-}" ] && rm -rf "$WORK"; }
 trap cleanup EXIT
+# Explicit-template form (#780): a private TMPDIR is honored, unlike `mktemp -d -t` on macOS —
+# so a lane run under its own TMPDIR isolates this fixture instead of sharing one directory
+# with every other worktree and lane on the machine.
+#
 # `pwd -P` because macOS resolves /var through a symlink to /private/var: the tool reports the
 # worktree path git gives it, and an unresolved fixture path would make the cwd assertions below
-# fail for a reason that has nothing to do with the tool.
-if [ -n "$OWN_SEG" ]; then
-  WORK="$(mktemp -d -t "orchestrate-lean-selftest.$OWN_SEG.XXXXXX")"
-else
-  WORK="$(mktemp -d -t "orchestrate-lean-selftest.XXXXXX")"
-fi
+# fail for a reason that has nothing to do with the tool. That mismatch matters MORE under the
+# explicit-template form, not less — TMPDIR's unresolved and resolved spellings now differ right
+# where WORK is allocated, the same class of divergence -t independently reached via confstr.
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/orchestrate-lean-selftest.XXXXXX")"
 WORK="$(cd "$WORK" && pwd -P)"
 
 ISSUE=7

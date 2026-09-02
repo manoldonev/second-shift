@@ -17,6 +17,16 @@
 # A row naming no discovered suite is a HARD ERROR (run-selftests.sh's existing stale-row
 # posture, applied here too). A suite ABSENT from this file is treated as fast by both consumers.
 #
+# THE DEFERRAL RULE SELECTS PURELY ON MEASURED DURATION (#780). It has no visibility into
+# whether a suite is the sole producer or consumer of a shared-resource class, so a row here can
+# defer every suite that would otherwise exercise that class on a milestone-3 lane — that is what
+# happened to the pre-#780 fixture reaper, whose two producing suites were both deferred while a
+# lane discovered them. The surviving instance of that blind spot is the
+# tools/selftest-cache-inputs.tsv cache: two of its three declaring suites
+# (lean-gate-selftest.sh, check-lean-chain-selftest.sh) are deferred by this table, so a
+# milestone-3 lane has exactly one cacheable suite (cost-block-selftest.sh) to actually exercise
+# the cache-hit path against.
+#
 # threshold-seconds	9
 # baseline-seconds	106
 # allowance-percent	20

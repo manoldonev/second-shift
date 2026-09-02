@@ -380,8 +380,7 @@ RC=$?
 # ---------------------------------------------------------------------------------------
 # (l) --help is range-free: it prints the header comment up to its last line and stops. The
 # alternative — a line range — starts leaking `set -uo pipefail` into the help text the first
-# time anyone edits the prose above it, which is silent and permanent. Same case
-# reap-lean-fixtures-selftest.sh carries for the same idiom.
+# time anyone edits the prose above it, which is silent and permanent.
 # ---------------------------------------------------------------------------------------
 bash "$CHECKER" --help > "$TMP/out" 2>&1
 RC=$?

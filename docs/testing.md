@@ -175,76 +175,74 @@ double-running it.
 ### When a run is killed mid-sweep
 
 A sweep that dies part-way — a foreground agent call hitting the harness's 2-minute cap, a
-Ctrl-C, a `timeout` — skips every suite's `trap … EXIT`. **What a private `TMPDIR` can contain
-depends on which `mktemp` form allocated it, and the two forms in play answer oppositely.**
+Ctrl-C, a `timeout` — skips every suite's `trap … EXIT`, and whatever that suite had under
+`mktemp` stays on disk with nothing to remove it.
 
-The **stamped fixture families** — `lean-gate-selftest.sh` and `orchestrate-lean-selftest.sh`, the
-two big enough to have needed a reaper — allocate with `mktemp -d -t <name>.XXXXXX`, and that form
-ignores `TMPDIR`. On macOS the `-t` path resolves against `_CS_DARWIN_USER_TEMP_DIR` and reaches
-`TMPDIR` only as a fallback for when that confstr is unavailable, which on a Mac it is not; and
-`mktemp -d` with no template *is* the `-t tmp` form, so there is no second behavior to fall back
-on. The **explicit-template** form is the same category as the `-p` control below and behaves
-oppositely: the shell expands the path before `mktemp` ever runs, so it is honored unconditionally.
-Measured 2026-08-25 — the derivation is `-u`, so it creates nothing:
-
-```sh
-PRIV="$(mktemp -d /private/tmp/probe-XXXXXX)"   # a directory that EXISTS
-TMPDIR="$PRIV" /usr/bin/mktemp -u -d             # -> /var/folders/…/T/tmp.…    no template — ignored
-TMPDIR="$PRIV" /usr/bin/mktemp -u -d -t stamp    # -> /var/folders/…/T/stamp.…  -t — ignored
-TMPDIR="$PRIV" /usr/bin/mktemp -u -d -p "$PRIV"  # -> $PRIV/tmp.…               control: a NAMED dir is honored
-TMPDIR="$PRIV" bash -c 'mktemp -u -d "${TMPDIR:-/tmp}/x.XXXXXX"'  # -> $PRIV/x.…   explicit template — honored
-env -u TMPDIR bash -c 'mktemp -u -d "${TMPDIR:-/tmp}/x.XXXXXX"'   # -> /tmp/x.…    …and falls back to /tmp
-```
-
-The `-p` control moving is what makes the two ignored lines a result rather than a harness
-artifact.
-**Point `TMPDIR` at a path that does not exist and this check is vacuous** — it can no longer tell
-"ignored `TMPDIR`" from "fell back because the directory was missing", and both produce the same
-`/var/folders/…` answer.
-
-The explicit template is not a curiosity: `grep -rl 'TMPDIR:-/tmp}/' --include='*.sh' .` finds
-**14** files mentioning it, and reading the 18 lines behind that `-l` leaves **12** that call it, at
-16 sites. The other two only describe the form in a comment and allocate with `-t` themselves
-(`tools/mutation-sweep.sh`, `plugins/intake-toolkit/hooks/exitplan-ledger-gate-selftest.sh`), so
-they belong on the *ignored* side of this split — counting a `-l` without reading its matches puts
-them on the wrong one. Among the twelve is the sweep runner's own state dir: its worklist and cache
-bookkeeping plus each suite's captured `log`/`rc`/`secs`, and a **sibling** of the stamped fixture
-dirs rather than their parent, since a worker runs its suite from the repo root with `TMPDIR`
-untouched (`tools/run-selftests.sh:127-170`):
+**14 shell files use the explicit-template form**,
+`mktemp -d "${TMPDIR:-/tmp}/<name>.XXXXXX"` — the shell expands the path before `mktemp` ever
+runs, so it is honored unconditionally, unlike `mktemp -d -t <name>` (which on macOS resolves
+against `_CS_DARWIN_USER_TEMP_DIR` and ignores `TMPDIR` outright) or a bare `mktemp -d` (which
+*is* `-t tmp` — same resolution, no third form to fall back on). This includes the sweep runner's
+own state dir — its worklist and cache bookkeeping plus each suite's captured `log`/`rc`/`secs`
+(`tools/run-selftests.sh:127-170`):
 
 ```sh
 BASE="$(mktemp -d "${TMPDIR:-/tmp}/run-selftests.XXXXXX")" || die "mktemp failed"
 trap 'rm -rf "$BASE"' EXIT
 ```
 
-So exporting a private `TMPDIR` before a run **does** relocate that `BASE` and the other eleven
-scripts' scratch, and does **not** move the stamped fixture families, which keep landing in the one
-directory shared by every worktree and every concurrent lane on the machine.
+— and, since #780, the two suites big enough to have once needed their own reaper,
+`lean-gate-selftest.sh` and `orchestrate-lean-selftest.sh`. Exporting a private `TMPDIR` before a
+run isolates *these* from every other worktree and concurrent lane on the machine. **It does not
+isolate the rest of the tree.** Counting call sites rather than mentions, and excluding comment
+lines — a naive `grep -l` catches both:
+
+```sh
+git grep -nE 'mktemp[[:space:]]+(-d[[:space:]]+)?-t' -- '*.sh' \
+  | grep -vE ':[0-9]+:[[:space:]]*#' | cut -d: -f1 | sort -u | wc -l   # 34: mktemp -d -t / mktemp -t
+git grep -nE 'mktemp[[:space:]]+-d' -- '*.sh' \
+  | grep -vE ':[0-9]+:[[:space:]]*#' \
+  | grep -vE 'mktemp[[:space:]]+-d[[:space:]]+("|-t)' \
+  | cut -d: -f1 | sort -u | wc -l                                     # 35: bare mktemp -d
+```
+
+At this head that's 34 files on the `mktemp -d -t` / `mktemp -t` spellings and 35 more on the bare
+form — 69 shell files total that a private `TMPDIR` does not isolate, including the two largest
+scratch trees in the repo: `tools/mutation-sweep.sh` (`mutation-sweep-work.XXXXXX` plus its
+per-sandbox dirs, `mktemp -d -t`) and `tools/install-topology-selftest.sh`
+(`install-topology.XXXXXX`, `mktemp -d -t`) — so their scratch keeps landing in the one directory
+every lane on the machine shares regardless of `TMPDIR`. Re-run both commands rather than trust
+these two numbers — they move every time a suite's scratch allocation changes, and a stale digit
+here is worse than none.
 [`CLAUDE.md`](../CLAUDE.md)'s verification recipe is the caller most exposed to this, which is why
 it routes here.
 
-**Most of it is reaped for you, and the residue is usually inert.** `run-selftests.sh` runs
-`tools/reap-lean-fixtures.sh` over `${TMPDIR:-/tmp}` before it discovers anything, clearing the two
-fixture families named above — they stamp owning pid and process start time into their
-`mktemp -t` template, so the reaper deletes only what it can prove is dead and leaves every "could
-not tell" standing. **That pass reaches them because `TMPDIR` arrives already *set*, by launchd, to
-the very directory `-t` resolves to — not because it was aimed there.** *Unset* is not that case:
-with `TMPDIR` genuinely absent the two paths diverge and the pass reaches nothing (measured
-2026-08-25):
+**Nothing reaps a killed run's leftovers for you.** #780 retired the fixture reaper that once ran
+on every sweep entry, once its two producing suites turned out to be in the deferred set on every
+milestone-3 lane — a mechanism that only ever ran over a directory it could never populate. Scrub
+by hand instead:
 
 ```sh
-env -u TMPDIR bash -c 'echo "${TMPDIR:-/tmp}"'   # -> /tmp                 where the reaper looks
-env -u TMPDIR /usr/bin/mktemp -u -d -t stamp     # -> /var/folders/…/T/…   where the fixtures land
+find "${TMPDIR:-/tmp}" -maxdepth 1 \( -name 'leangate.*' -o -name 'orchestrate-lean-selftest.*' \
+  -o -name 'run-selftests.*' \) -mmin +60 -print
 ```
 
-Export a private `TMPDIR` and it sweeps that instead, while the fixtures keep landing where they
-always did. What it does not reach in either case is everything without one of those two stamped
-prefixes, and that residue is mostly harmless now: a suite that stages its fixture root one level
-*below* its `mktemp` dir keeps a neighbor's leftovers outside its own resolution globs, and the
-suites that once resolved across the shared directory assert that nesting with a decoy fixture
-staged at the colliding depth.
+This names the three families this section tracks, not every scratch dir under the default
+`TMPDIR` — the `mktemp -d -t` / `mktemp -t` callers above (`mutation-sweep-work.*`,
+`mutation-sweep-sandbox.*`, `install-topology.*`, and the rest of that set) accumulate there too
+and are outside this glob's alternation. The bare-`mktemp -d` callers are a second, disjoint gap:
+they land under the same `_CS_DARWIN_USER_TEMP_DIR` root but named `tmp.XXXXXXXX` — no
+name-based glob in this recipe can reach them, `-name` or otherwise. Widen the glob for the first
+group; for the second, either re-run the bare-form command above and scrub each named directory,
+or scrub the whole `_CS_DARWIN_USER_TEMP_DIR` root when nothing else is running there. Read the
+caller lists above and add their names, before treating an empty result as "nothing to scrub."
 
-What the residue still costs is diagnosis time, and a wasted fix attempt if you spend one on the
+`-mmin +60` is a floor, not a proof — a directory that old is unlikely to belong to a run still in
+flight, but it is not a live-pid check. Before removing anything a listed path names, `stat` its
+mtime against your own kill and confirm no other worktree on the machine has a lane running: a
+blind `rm -rf` over that glob can delete another lane's live state.
+
+What residue still costs is diagnosis time, and a wasted fix attempt if you spend one on the
 branch. **The tell is a red in a suite the diff cannot reach.** Re-run that suite alone in an
 untouched checkout first: red there too means it is environmental, and the enumeration is read-only:
 
@@ -253,10 +251,8 @@ ls -d "$(env -u TMPDIR mktemp -u -d | xargs dirname)"/*/*/agents
 ```
 
 A match with a `.claude-plugin/plugin.json` beside it is a plugin-shaped leftover; one without is
-some vendor's directory and is none of your business. Before removing anything, `stat` its mtime
-against your own kill — a lane running in another worktree stages fixtures in this same directory,
-and a blind `rm -rf` over that glob deletes its live state. On a `/var/folders/…` path the removal
-can be permission-denied outright, in which case hand the operator one exact command rather than
+some vendor's directory and is none of your business. On a `/var/folders/…` path the removal can
+be permission-denied outright, in which case hand the operator one exact command rather than
 routing around it.
 
 ### The slow-suite table
@@ -1832,19 +1828,17 @@ a periodic audit whose output is *issues and prunes*, executed by the tiers abov
 ## Concurrent-lane tier (operator-run, never CI)
 
 The deterministic tiers all run **one lane at a time**. Nothing above exercises two lanes sharing a
-host, and the surfaces they share are real: one temp directory of stamped fixtures with a reaper
-that walks it on every sweep entry, one selftest pass-cache store, and one CPU with a worker count
-(`SELFTEST_JOBS`) that has no lane awareness. Epic #525 hardened all of that and merged without a
-single two-lane run behind it.
+host, and the surfaces they share are real: one selftest pass-cache store, and one CPU with a
+worker count (`SELFTEST_JOBS`) that has no lane awareness. Epic #525 hardened all of that and
+merged without a single two-lane run behind it.
 
 This tier is that run. It is **model-free** — two `lean-gate.sh 3` invocations, no API-billed calls
 — so its only cost is wall-clock, and anyone can re-take it.
 
-**When to run it:** after a change to `tools/run-selftests.sh` job dispatch or its cache,
-to `tools/reap-lean-fixtures.sh` or `tools/fixture-stamp.sh`, or to `lean-gate.sh`'s milestone-3
-block. Those are also the changes that **void the existing record** — there is deliberately no
-automated staleness guard, because a guard is exactly the permanent mass this tier's procedure
-form was chosen instead of.
+**When to run it:** after a change to `tools/run-selftests.sh` job dispatch or its cache, or to
+`lean-gate.sh`'s milestone-3 block. Those are also the changes that **void the existing record** —
+there is deliberately no automated staleness guard, because a guard is exactly the permanent mass
+this tier's procedure form was chosen instead of.
 
 **What it does not cover:** scheduler- and session-level contention — two full `run-lean` sessions,
 which is the shape that produced #525's motivating pain. A lane here is a gate invocation, not a
@@ -1854,35 +1848,25 @@ session.
 
 1. **Read the criteria before you measure.**
    [`docs/plans/second-shift-564-preregistration.md`](plans/second-shift-564-preregistration.md)
-   fixes the four criteria and the arm definitions. A criterion decided after the data is in is
-   not a criterion.
+   fixes the criteria and the arm definitions (C-1 was retired in #780). A criterion decided
+   after the data is in is not a criterion.
 2. **Cut two lane worktrees on two real branches.** Lane A is whatever you are building. Lane B is
    any *open* ticket you are not building: `bash G entry <n>` attests it and makes **no tracker
    write** — no label swap, no comment. Delete `.claude/pipeline-state/<n>-lean-*` afterwards.
 3. **Keep the executable content identical.** `git diff --name-only <A-head> <B-head>` must name
    nothing outside `docs/`. If a `*.sh`, `*.tsv`, `*.mjs` or `.github/**` path appears, the
    verdict-equality oracle is void and the run is not scoreable.
-4. **Sample the host throughout.** Every 10s, append load, the live-suite process count, and one
-   row per fixture directory with whether its embedded owner pid is alive:
+4. **Sample the host throughout.** Every 10s, append load and the live-suite process count:
 
    ```sh
-   T="${TMPDIR:-/tmp}"
    while :; do
      ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
      set -- $(sysctl -n vm.loadavg | tr -d '{}')   # Linux: read /proc/loadavg
      printf '%s\tload\t%s\t%s\t%s\n' "$ts" "$1" "$2" "$3"
-     for d in "$T"/leangate.* "$T"/orchestrate-lean-selftest.*; do
-       [ -d "$d" ] || continue
-       n=$(basename "$d"); pid=$(printf '%s' "$n" | cut -d. -f2)
-       kill -0 "$pid" 2>/dev/null && s=live || s=dead
-       printf '%s\tfixture\t%s\t%s\n' "$ts" "$n" "$s"
-     done
      sleep 10
    done >> samples.tsv
    ```
 
-   The `live` rows are the load-bearing ones: criterion C-1 is scored by intersecting them with the
-   `[reap-lean-fixtures] removed:` lines in both lanes' logs.
 5. **Take the single-lane baselines first, and commit them.** At least three samples at each
    per-lane job level you intend to measure, cache off (`LEAN_SELFTEST_CACHE=0`), on a quiet host.
    A bar keyed to one sample measures variance rather than contention, and a baseline landed after
@@ -1894,14 +1878,6 @@ session.
    ( cd "$WT" && env RUN_ID=<id> SELFTEST_JOBS=<n> LEAN_SELFTEST_CACHE=<0|1> \
        /usr/bin/time -l bash "$G" 3 <issue> ) > lane.log 2>&1
    ```
-
-   **Stagger the second lane, do not launch them together.** `run-selftests.sh` reaps on *entry*,
-   before it discovers anything, so two lanes started at the same instant both walk an empty
-   directory and the ownership guard is never asked a question. Hold lane B until a
-   `leangate.*` or `orchestrate-lean-selftest.*` directory belonging to lane A actually exists,
-   and record the trigger time and the directory names — that list is what makes the C-1 score
-   falsifiable. Simultaneous launch is the right shape for the wall-clock arms and the wrong one
-   for the reaper.
 
    **Scrub the environment if you call `run-selftests.sh` directly.** `lean-gate.sh` passes its
    lane commands through `SEAM_SCRUB`; a bare invocation does not. A session carrying
@@ -1922,4 +1898,6 @@ session.
 **The record of the last run** is
 [`docs/plans/second-shift-564-evidence.md`](plans/second-shift-564-evidence.md). It stamps both
 lane tree SHAs, the host core count and the date, so a reader can tell whether it still describes
-this tree.
+this tree — and by its own staleness clause it no longer does: #780 deleted the fixture reaper
+and criterion C-1 it scored, so the record describes a pre-#780 tree. C-2, C-3 and C-4 measure
+surfaces this change did not touch.
