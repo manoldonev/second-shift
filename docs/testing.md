@@ -178,13 +178,12 @@ A sweep that dies part-way — a foreground agent call hitting the harness's 2-m
 Ctrl-C, a `timeout` — skips every suite's `trap … EXIT`, and whatever that suite had under
 `mktemp` stays on disk with nothing to remove it.
 
-**Every scratch allocation in this repo uses the explicit-template form**,
+**Some scratch allocations use the explicit-template form**,
 `mktemp -d "${TMPDIR:-/tmp}/<name>.XXXXXX"` — the shell expands the path before `mktemp` ever
 runs, so it is honored unconditionally, unlike `mktemp -d -t <name>` (which on macOS resolves
-against `_CS_DARWIN_USER_TEMP_DIR` and ignores `TMPDIR` outright). `grep -rl 'TMPDIR:-/tmp}/'
---include='*.sh' .` finds every caller, including the sweep runner's own state dir — its worklist
-and cache bookkeeping plus each suite's captured `log`/`rc`/`secs`
-(`tools/run-selftests.sh:127-170`):
+against `_CS_DARWIN_USER_TEMP_DIR` and ignores `TMPDIR` outright). This includes the sweep
+runner's own state dir — its worklist and cache bookkeeping plus each suite's captured
+`log`/`rc`/`secs` (`tools/run-selftests.sh:127-170`):
 
 ```sh
 BASE="$(mktemp -d "${TMPDIR:-/tmp}/run-selftests.XXXXXX")" || die "mktemp failed"
@@ -192,10 +191,16 @@ trap 'rm -rf "$BASE"' EXIT
 ```
 
 — and, since #780, the two suites big enough to have once needed their own reaper,
-`lean-gate-selftest.sh` and `orchestrate-lean-selftest.sh`. So exporting a private `TMPDIR` before
-a run relocates every one of these, uniformly: a lane run under its own `TMPDIR` isolates its own
-scratch and fixtures from every other worktree and concurrent lane on the machine, rather than
-landing in the one directory they all share by default.
+`lean-gate-selftest.sh` and `orchestrate-lean-selftest.sh`. Exporting a private `TMPDIR` before a
+run isolates *these* from every other worktree and concurrent lane on the machine. **It does not
+isolate the rest of the tree**: 33 shell files still call `mktemp -d -t` / `mktemp -t` (a bare
+`mktemp -d` *is* `-t tmp`, so it resolves the same way), and among them are the two largest
+scratch trees in the repo — `tools/mutation-sweep.sh` (`mutation-sweep-work.XXXXXX`, plus its
+per-sandbox dirs) and `tools/install-topology-selftest.sh` (`install-topology.XXXXXX`) — so their
+scratch keeps landing in the one directory every lane on the machine shares regardless of
+`TMPDIR`. `grep -rl 'TMPDIR:-/tmp}/' --include='*.sh' .` finds files that *mention* the
+explicit-template form, not only its callers — counting a hit without reading its matches puts
+some files on the wrong side.
 [`CLAUDE.md`](../CLAUDE.md)'s verification recipe is the caller most exposed to this, which is why
 it routes here.
 
@@ -208,6 +213,12 @@ by hand instead:
 find "${TMPDIR:-/tmp}" -maxdepth 1 \( -name 'leangate.*' -o -name 'orchestrate-lean-selftest.*' \
   -o -name 'run-selftests.*' \) -mmin +60 -print
 ```
+
+This names the three families this section tracks, not every scratch dir under the default
+`TMPDIR` — the `mktemp -d -t` / `mktemp -t` callers above (`mutation-sweep-work.*`,
+`mutation-sweep-sandbox.*`, `install-topology.*`, and the rest of that set) accumulate there too
+and are outside this glob's alternation. Widen it, or read the caller list above and add its
+names, before treating an empty result as "nothing to scrub."
 
 `-mmin +60` is a floor, not a proof — a directory that old is unlikely to belong to a run still in
 flight, but it is not a live-pid check. Before removing anything a listed path names, `stat` its
@@ -1820,8 +1831,8 @@ session.
 
 1. **Read the criteria before you measure.**
    [`docs/plans/second-shift-564-preregistration.md`](plans/second-shift-564-preregistration.md)
-   fixes the four criteria and the arm definitions. A criterion decided after the data is in is
-   not a criterion.
+   fixes the criteria and the arm definitions (C-1 was retired in #780). A criterion decided
+   after the data is in is not a criterion.
 2. **Cut two lane worktrees on two real branches.** Lane A is whatever you are building. Lane B is
    any *open* ticket you are not building: `bash G entry <n>` attests it and makes **no tracker
    write** — no label swap, no comment. Delete `.claude/pipeline-state/<n>-lean-*` afterwards.
