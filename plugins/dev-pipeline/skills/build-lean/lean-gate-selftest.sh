@@ -6199,8 +6199,21 @@ mark_attest sess-mark-3
 # #457's (pm6b) drives mark under jira+bot as its own session; it needs to be in the set too.
 mark_attest sess-mark-jb
 
+# #783: isDraft/body are now READ by cmd_mark itself (its own exit-artifacts check), not just by
+# cmd_5's — so this fixture must already satisfy D-2's three obligations for #8, or every case
+# below that expects mark to reach the identity/idempotency logic would instead be refused by the
+# new check before it gets there.
 cat > "$WORK/pr-mark.json" <<'EOF'
-[{ "number": 9, "url": "https://example.invalid/pr/9" }]
+[{ "number": 9, "url": "https://example.invalid/pr/9", "isDraft": false,
+   "body": "Closes #8\n\nSpec: docs/plans/acme-8-lean.md" }]
+EOF
+# The jira-adapter counterpart (pm6/pm6b run as issue ACME-8, under TRACKER_TYPE jira): the
+# github body above satisfies neither the sectioned 'Closes [ACME-8]' arm nor SPEC_REL for that
+# issue, so a shared fixture would refuse both cases on the new check before their own subject
+# (the no-bot degrade / the jira+bot post) is ever reached.
+cat > "$WORK/pr-mark-jira.json" <<'EOF'
+[{ "number": 9, "url": "https://example.invalid/pr/9", "isDraft": false,
+   "body": "Summary.\n\nSpec: docs/plans/acme-ACME-8-lean.md\n\n### Jira Items\n\nCloses [ACME-8]\n" }]
 EOF
 echo '[]' > "$WORK/pr-mark-none.json"
 
@@ -6261,7 +6274,7 @@ else fail "(pm5) expected a post despite the human marker, rc=$rc: $out / spool=
 # $CFG_JIRA declares no bot block, which is what every jira config looked like while config-lint
 # forbade one; that absence, not the tracker, is what this asserts (#440).
 : > "$BOT_SPOOL"
-out="$(mark_gate "$CFG_JIRA" mark-run-j sess-mark-j mark ACME-8 --pr-file "$WORK/pr-mark.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+out="$(mark_gate "$CFG_JIRA" mark-run-j sess-mark-j mark ACME-8 --pr-file "$WORK/pr-mark-jira.json" --comments-file "$WORK/comments-none.json")"; rc=$?
 if [ "$rc" -eq 0 ] && [ ! -s "$BOT_SPOOL" ] && grep -q 'reduced strength' <<<"$out"; then
   pass "(pm6) with no bot configured, mark writes nothing and says so (reduced strength, printed)"
 else fail "(pm6) expected a printed no-bot degrade with no write, rc=$rc: $out / spool=$(cat "$BOT_SPOOL" 2>/dev/null)"; fi
@@ -6275,7 +6288,7 @@ jq '.tracker.bot = { "enabled": true, "app": { "appName": "acme-pipeline-bot" } 
 jq -e '.tracker.bot.enabled == true and .tracker.type == "jira"' "$CFG_JIRA_BOT" >/dev/null \
   || fail "(pm6b) fixture builder produced no bot block — the case below would assert nothing"
 : > "$BOT_SPOOL"
-out="$(mark_gate "$CFG_JIRA_BOT" mark-run-jb sess-mark-jb mark ACME-8 --pr-file "$WORK/pr-mark.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+out="$(mark_gate "$CFG_JIRA_BOT" mark-run-jb sess-mark-jb mark ACME-8 --pr-file "$WORK/pr-mark-jira.json" --comments-file "$WORK/comments-none.json")"; rc=$?
 if [ "$rc" -eq 0 ] && grep -q 'run_id: mark-run-jb' "$BOT_SPOOL" 2>/dev/null \
    && ! grep -q 'reduced strength' <<<"$out"; then
   pass "(pm6b) a jira consumer WITH a bot posts the PR marker, like any other"
@@ -6332,6 +6345,52 @@ else fail "(pm7b) expected rc=0 naming the merged PR, rc=$rc: $out"; fi
 if [ ! -s "$BOT_SPOOL" ]; then
   pass "(pm7c) #670 D-3: nothing is posted to a merged PR — the marker's only reader has already run"
 else fail "(pm7c) expected NO write to a merged PR, spool=$(cat "$BOT_SPOOL" 2>/dev/null)"; fi
+
+# ---- (pm8)-(pm11) #783: mark's OWN exit-artifacts check (D-1/D-2/D-4/D-5) --------------------
+# The SAME three obligations cmd_5 asserts at close-out (k1)/(k2) above, checked here instead —
+# a step-7 omission now refuses at the point it was created rather than after a whole review
+# round (#693/#564). D-5: with exactly one obligation missing, the message text is
+# byte-identical to cmd_5's own — same substrings (k1)/(k2) already assert.
+cat > "$WORK/pr-mark-draft.json" <<'EOF'
+[{ "number": 9, "url": "https://example.invalid/pr/9", "isDraft": true,
+   "body": "Closes #8\n\nSpec: docs/plans/acme-8-lean.md" }]
+EOF
+cat > "$WORK/pr-mark-nospec.json" <<'EOF'
+[{ "number": 9, "url": "https://example.invalid/pr/9", "isDraft": false, "body": "Closes #8" }]
+EOF
+cat > "$WORK/pr-mark-multi.json" <<'EOF'
+[{ "number": 9, "url": "https://example.invalid/pr/9", "isDraft": true, "body": "nothing here" }]
+EOF
+
+: > "$BOT_SPOOL"
+out="$(mark_gate "$CFG" mark-run-8 sess-mark-1 mark 8 --pr-file "$WORK/pr-mark-draft.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'still a draft' <<<"$out" && [ ! -s "$BOT_SPOOL" ]; then
+  pass "(pm8) #783: mark itself refuses a draft PR at step 7, with cmd_5's own wording, and posts nothing"
+else fail "(pm8) expected rc=1 naming the draft state and no write, rc=$rc: $out / spool=$(cat "$BOT_SPOOL" 2>/dev/null)"; fi
+
+: > "$BOT_SPOOL"
+out="$(mark_gate "$CFG" mark-run-8 sess-mark-1 mark 8 --pr-file "$WORK/pr-mark-nospec.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'does not link the committed spec' <<<"$out" && [ ! -s "$BOT_SPOOL" ]; then
+  pass "(pm9) #783: mark itself refuses a PR body missing the spec link, and posts nothing"
+else fail "(pm9) expected rc=1 naming the missing spec link and no write, rc=$rc: $out / spool=$(cat "$BOT_SPOOL" 2>/dev/null)"; fi
+
+# D-5: TWO obligations missing (draft + no Closes/no spec) join into one message naming both —
+# new text this ticket introduces, since cmd_5's own pre-#783 checks short-circuited on the first.
+: > "$BOT_SPOOL"
+out="$(mark_gate "$CFG" mark-run-8 sess-mark-1 mark 8 --pr-file "$WORK/pr-mark-multi.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'still a draft' <<<"$out" && grep -q "no 'Closes #8'" <<<"$out" \
+   && grep -q 'does not link the committed spec' <<<"$out" && [ ! -s "$BOT_SPOOL" ]; then
+  pass "(pm10) #783 D-5: every failing obligation is named in one joined message, not just the first"
+else fail "(pm10) expected all three obligations named and no write, rc=$rc: $out / spool=$(cat "$BOT_SPOOL" 2>/dev/null)"; fi
+
+# D-4: placement. A PR that already carries THIS run's marker (the idempotency no-op's own
+# fixture, reused) but whose body has since broken must still REFUSE, not no-op past it — the
+# new check sits BEFORE the existing-marker no-op, so a re-entry re-verifies the body.
+: > "$BOT_SPOOL"
+out="$(mark_gate "$CFG" mark-run-1 sess-mark-1 mark 8 --pr-file "$WORK/pr-mark-nospec.json" --comments-file "$WORK/comments-mark-same.json")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'does not link the committed spec' <<<"$out" && ! grep -q 'already carries this run' <<<"$out"; then
+  pass "(pm11) #783 D-4: a re-entry whose marker already exists still refuses when the body has since broken"
+else fail "(pm11) expected the body refusal ahead of the idempotency no-op, rc=$rc: $out"; fi
 
 # ---- (tl) #650 AC-2: the mid-run ticket-liveness re-check ------------------------------------
 # The scheduler asks "is this ticket still open" before every BUILD spawn and cannot ask again
