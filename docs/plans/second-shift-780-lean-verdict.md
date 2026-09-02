@@ -1,174 +1,206 @@
 # lean review verdict — #780
 
 verdict=needs-work
-run_id: review-780-1
-session_id: f394c278-549c-46e9-8b1c-8275a4227e2f
-rounds: 1
+run_id: review-780-2
+session_id: f95f2377-a8be-4ca4-aa01-cedd0fe8c533
+rounds: 2
 pr: #784
-reviewed_head: c3ea669ee43189c258932d175e5d0bf1ca4c5bf6
-reviewed_patch_id: 01bc205fd23b4da03d20c348b89491ce4b0e069e
-inherited_patch_id: none
-inherited_from_verdict: none
+reviewed_head: a87170383629a3857a87b9754e0a71db137632d9
+reviewed_patch_id: 8b616dcf346d6c61109cf244bc7e8096fa2ca1e4
+inherited_patch_id: 01bc205fd23b4da03d20c348b89491ce4b0e069e
+inherited_from_verdict: 16329d57dc5365d9805cd6d56403adc94e743ce1
 fidelity: not-applicable
-panel: review-toolkit:security-reviewer,review-toolkit:scope-completeness-reviewer
+panel: review-toolkit:scope-completeness-reviewer
 model: opus
 capabilities: pr-marker
 
 ## Review Summary
 
-Round 1, full branch range `0978ee14..c3ea669e` (no prior verdict record to inherit from). This is a
-clean, well-argued deletion: the reaper, its stamp library, its selftest, its sweep-entry call site and
-every dependent TSV row come out together, and the two producing suites move to the explicit-template
-`mktemp` form so the shared-directory condition is deleted rather than merely unreaped. Five of the
-seven acceptance criteria are satisfied on measurement. **AC-7 is not.** The docs rewrite that replaces
-the retired `-t`-versus-explicit-template derivation asserts a universal about the tree that is false by
-33 files, and it does so in `CLAUDE.md` — the file every session loads — where it will be read as
-licence to assume a private `TMPDIR` isolates a lane. A second, independent defect: the code commit's
-`Changelog:` trailer is the `none`-plus-prose form that `derive-release.sh` renders as a literal bullet.
+Round 2, inheriting round 1's coverage of patch `01bc205fd23b` and reading the delta
+`16329d57..HEAD` — one commit, `a8717038`, touching `CLAUDE.md` and `docs/testing.md` only. Round
+1's two blockers are both addressed and I close both by measurement: the `Changelog:` trailer is
+now the bare `none.` form on all four branch commits and renders nothing, and the false universal
+("every scratch allocation in this repo uses the explicit-template form") is gone from both homes.
+Round 1's two warnings and its one suggestion are closed too.
 
-Panel: `review-toolkit:security-reviewer` (approve, no findings), `review-toolkit:scope-completeness-reviewer`
-(approve-with-nits, 1 nit @85). No reviewer went dark. `security-reviewer` was selected on the
-destructive-IO surface (`rm -rf` walker deleted, scratch allocation relocated) rather than deferred to
-the lead pass. a11y + design-fidelity not routed: no changed path matched
-`stageParams.webComponentGlobs` (config declares none; default `apps/web/**/*.{tsx,jsx}`), and the spec
-declares no `## Design` section.
+**But the narrowing replaced a false universal with a false specific, in the same two files.**
+Both passages now say "33 shell files still call `mktemp -d -t` / `mktemp -t`". At this head that
+number reproduces from exactly one command — `git grep -l 'mktemp -d -t' -- '*.sh'` — and that set
+**includes the two suites the same sentence exempts**, whose only matches are the `#780` comments
+this PR added. It also excludes the four files that call the `mktemp -t` spelling the claim names.
+The real count of callers is **34**; and since the sentence's own parenthetical states that a bare
+`mktemp -d` resolves the same way, the set of shell files a private `TMPDIR` does **not** isolate
+is **68**. `CLAUDE.md` additionally dropped the bare-`mktemp -d` clause that `main` carried, so on
+that form it is now less informative than before this PR. AC-7 stays unsatisfied.
+
+Panel: `review-toolkit:scope-completeness-reviewer` (approve, no findings; one suppressed note at
+confidence 70). No reviewer went dark, and no re-dispatch was needed. Routing selected one
+subagent: the delta is two Markdown files outside `.claude/`, so the trivial-inert row applies —
+`security-reviewer` not selected (no security surface in a pure-prose delta and no
+`.claude/second-shift/review-context/security-reviewer.md` in the repo; the security dimension is
+the lead pass's this round), and a11y plus design-fidelity not routed (no changed path matched
+`stageParams.webComponentGlobs`, which the config does not declare, so the shipped default
+`apps/web/**/*.{tsx,jsx}` applied; the spec declares no `## Design` section, so the run is
+unarmed and `fidelity` is `not-applicable`).
 
 ## Strengths
 
-- **The deletion is complete and provably so.** `git grep -lE 'reap-lean-fixtures|fixture[-_]stamp' -- . ':!docs/plans/'`
-  returns nothing; `tools/mutation-pair-map.tsv`, `tools/selftest-cache-inputs.tsv` (row *and* its
-  DEPTH-1 prose), and the `tools/check-sweep-bound-selftest.sh` comment cross-reference all move together.
-  No dangling reference survives anywhere in the tree.
-- **OR-1 was actually measured, not predicted.** I re-derived it independently: all four
-  `tools/mutation-catalog.tsv` rows anchored on `tools/run-selftests.sh` still resolve against the
-  post-deletion file (each row's `sed -E` pattern applied to the file produces a diff). The
-  reversible-default was correctly resolved to "no catalog edit", and the PR body says so.
-- **The `pwd -P` added to `lean-gate-selftest.sh` is the right call and its stated reason is true.**
-  macOS `$TMPDIR` carries a trailing slash, so the explicit template yields `…/T//leangate.XXXXXX`;
-  measured directly. Without the normalization the `(lt5)`/`(lt5b)` literal path matches against
-  `git worktree list` output would break. This is the minimum needed to keep the suite green under the
-  new form, not scope creep — and the `#663` comment rewrite correctly re-states that the
-  Linux/macOS asymmetry it described is now gone.
-- **Coverage does not regress.** The two deleted selftest cases and the whole deleted suite covered only
-  the deleted subject. `orchestrate-lean-selftest.sh` (all green) and `lean-gate-selftest.sh` (all green,
-  359 cases) both pass locally under a private `TMPDIR`, and both CI selftest lanes are green at this head.
+- **The narrowing is the right shape and the right two edits.** Round 1's ask was "say that the
+  two fixture families *joined* the explicit-template set, and that the rest of the tree has not",
+  and that is precisely what both passages now do. The dangerous direction is gone: no reader can
+  now come away believing a private `TMPDIR` isolates their lane. The operative advice in both
+  files is correct and actionable regardless of the count defect below.
+- **Round 1's blocker 2 is closed at the mechanism, not just at the wording.** The code commit was
+  amended (`c3ea669e` to `91b33556`) to a bare `Changelog: none.` with the justification moved
+  into unindented body prose above it. Verified by running `derive-release.sh`'s real
+  `extract_trailers` and `render_bullet` awk programs over the branch's actual squash body
+  (`git log --reverse --format=%B origin/main..HEAD`): output is empty, so nothing reaches
+  `CHANGELOG.md`. The amend was message-only — `git diff c3ea669e 91b33556` is empty — so round
+  1's reviewed content, and therefore this round's inheritance, is intact.
+- **The scrub-glob caveat and the stale criteria count are both properly closed.** The new
+  paragraph after the `find` command names the families the alternation misses and tells the
+  reader to widen it before reading an empty result as "nothing to scrub" — round 1's warning. And
+  `docs/testing.md:1834` now reads "fixes the criteria and the arm definitions (C-1 was retired in
+  #780)" — round 1's suggestion, closed with the exact wording it proposed.
+- **The PR body's net-diff line now reproduces from the command it cites.** "-398 lines (389
+  insertions, 787 deletions)" is exactly `git diff origin/main...HEAD --shortstat` at this head,
+  and "-679 excluding the spec and verdict-record commits" is exactly the same command with
+  `':!docs/plans/'`. Round 1's second warning, closed.
 
 ## Critical (must fix before merge)
 
-- **[Maintainability] `CLAUDE.md:75-79` and `docs/testing.md:181-183` (confidence: 97) — the rewrite
-  replaces a true, measured statement with a false universal, in the file every session loads.**
-  `docs/testing.md:181` now reads "**Every scratch allocation in this repo uses the explicit-template
-  form**", and `CLAUDE.md:75-79` "every scratch allocation in this repo … uses the explicit-template form
-  … so **a private `TMPDIR` relocates all of it**, scratch and fixtures alike". Measured at this head:
-  **33 shell files still call `mktemp -d -t` / `mktemp -t`**, and there are **39 bare `mktemp -d`** call
-  sites. Among the `-t` callers are the two largest scratch trees in the repo —
-  `tools/mutation-sweep.sh:1299` (`mutation-sweep-work.XXXXXX`, plus `:1390`'s per-sandbox dirs) and
-  `tools/install-topology-selftest.sh:137` (`install-topology.XXXXXX`) — along with
-  `lean-evidence-selftest.sh`, `lean-reconcile-selftest.sh`, `scenario-liveness-selftest.sh`,
-  `preflight-selftest.sh`, `derive-release.sh` and ~26 others.
-  The failure this causes is the exact one the section exists to prevent: a contributor follows
-  `CLAUDE.md`'s killed-sweep advice, exports a private `TMPDIR`, and concludes their lane is isolated —
-  while every one of those 33 files' scratch still lands in the one `_CS_DARWIN_USER_TEMP_DIR` directory
-  shared with every other worktree and lane on the machine. `mutation-sweep-work.*` colliding with a
-  suite's fixture dir is not hypothetical: it is #663, which this very diff re-narrates in
-  `lean-gate-selftest.sh:161`.
-  The deleted text was *correct* about all of this ("**12** that call it, at 16 sites", with the two
-  mention-only files named), and it carried the caveat "counting a `-l` without reading its matches puts
-  them on the wrong one". The rewrite deletes that caveat and then commits the error it warned about:
-  `grep -rl 'TMPDIR:-/tmp}/' --include='*.sh' .` returns **19** files at this head, of which only **14**
-  have call sites — so "finds every caller" is wrong in both directions at once.
-  AC-7's ask was that the docs *follow* the deletion. Retiring the `-t` derivation is correct and in
-  scope; replacing it with a universal the tree contradicts is not. The fix is a narrowing, not a
-  restoration — say that the two fixture families *joined* the explicit-template set, and that the rest
-  of the tree has not.
+- **[Maintainability] `CLAUDE.md:78` and `docs/testing.md:194` (confidence: 92) — the replacement
+  count is wrong, and its own set contradicts the sentence it appears in.**
 
-- **[Maintainability] commit `c3ea669e` trailer (confidence: 95) — `Changelog: none — <prose>` renders a
-  literal bullet into `CHANGELOG.md`.** The commit writes
-  `Changelog: none — harness-internal test infrastructure, no consumer-visible behavior.`
-  `scripts/derive-release.sh:240-242`'s no-op test is **whole-block**: it strips trailing whitespace and a
-  single trailing period and compares the result to exactly `none`. I ran the real `extract_trailers` and
-  `render_bullet` awk against this commit's body; the output is:
-  ```
-    none — harness-internal test infrastructure, no consumer-visible behavior.
-  ```
-  So the next release PR ships that line under the PR's bullet in `CHANGELOG.md` — precisely the failure
-  mode `derive-release.sh:35-36` records ("an exact 'none' comparison shipped literal '  none.' bullets
-  into CHANGELOG.md for 12 commits before anyone noticed"), in the form that survived the fix. The spec
-  commit `a5ebc38f` gets it right with a bare `Changelog: none.`. CI is green on this — 
-  `check-changelog-trailer.sh` only asserts a trailer is *present* — so nothing downstream catches it.
-  Fix: make the trailer `Changelog: none.` and move the justification into the commit body prose above it.
-  **Standing alone this would not have forced `needs-work`** — it is a trailer-only amend that changes no
-  line of the reviewed diff, so the round's own record would survive it. It is reported as a blocker only
-  because the round is already `needs-work` on the finding above, which makes fixing it free.
+  Both files now say: "33 shell files still call `mktemp -d -t` / `mktemp -t`". Measured at
+  `a8717038`, three separate things are wrong with that:
+
+  1. **It counts the two files it exempts.** `git grep -l 'mktemp -d -t' -- '*.sh'` returns
+     exactly 33 — the quoted figure, and the only command at this head that produces it. Three of
+     those 33 match on comment lines, not call sites, and two of the three are
+     `plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh` (lines 70 and 161) and
+     `plugins/dev-pipeline/skills/run-lean/orchestrate-lean-selftest.sh` (line 50) — the two
+     suites the same sentence names as having *joined* the explicit-template set, matching only
+     because **this PR added those `#780` comments**. The third is
+     `tools/capability-parity-check.sh:120`. So the sentence reads "the rest of the tree has not:
+     33 files", where 33 counts the two files that did.
+  2. **It excludes four callers of the spelling it names.** The claim says "`mktemp -d -t` /
+     `mktemp -t`", but the 33 is a count of the first spelling alone. Four files call only the
+     second: `plugins/dev-pipeline/tools/operator-override.sh:336`,
+     `plugins/dev-pipeline/tools/pipeline-doctor.sh:427`,
+     `plugins/dev-pipeline/tools/preflight.sh:97`, `scripts/check-lean-chain.sh:534`. Counting
+     non-comment matches of either spelling gives **34**.
+  3. **Its own parenthetical doubles the true set, and `CLAUDE.md` lost that parenthetical
+     entirely.** `docs/testing.md:195` states that a bare `mktemp -d` *is* `-t tmp` "so it
+     resolves the same way" — which I confirmed empirically on this machine: under
+     `TMPDIR=/tmp/mkt-probe/`, `mktemp -d` returned
+     `/var/folders/.../T/tmp.bNiUvFUxwU` while the explicit template returned
+     `/tmp/mkt-probe//exp.QLlU5n`. **34 further shell files** call bare `mktemp -d` (zero overlap
+     with the `-t` set), so the set a private `TMPDIR` does not isolate is **68**, not 33.
+     `CLAUDE.md`'s paragraph omits the parenthetical that `main` carried ("a bare `mktemp -d`
+     *is* `-t tmp`, so there is no second behavior to fall back on"), so on the bare form
+     `CLAUDE.md` is now **less** informative than before this PR while carrying a number that
+     reads as the complete count.
+
+  **The failure this causes.** A contributor whose killed suite is one of the 34 bare-`mktemp -d`
+  callers — `cost-block-selftest.sh`, `doctor-selftest.sh`, `gh-bot-selftest.sh`,
+  `claim-selftest.sh` and 30 others — reads `CLAUDE.md`, sees a 33-file set headed by
+  `mutation-sweep.sh` and `install-topology-selftest.sh`, finds their suite in neither, and
+  concludes their leftovers landed in their private `TMPDIR`. They did not: they are in
+  `_CS_DARWIN_USER_TEMP_DIR` under the name `tmp.XXXXXXXX`, which no glob in `docs/testing.md`
+  matches and which neither file now mentions. `docs/testing.md`'s new scrub caveat compounds it
+  by telling the reader to "read the caller list above and add its names" — that list is the `-t`
+  set, so following the instruction still misses half the residue.
+
+  This is the same class as round 1's blocker, one level down, and it is a regression against
+  `main` for that class of file. The remedy is one sentence in each home: quote the honest figure
+  for the whole TMPDIR-ignoring set (68 shell files, or "most of the tree"), name all three forms
+  (`mktemp -d -t`, `mktemp -t`, and bare `mktemp -d`), and restore the bare-form clause to
+  `CLAUDE.md`. Dropping the number entirely would also close it — the qualitative claim carries
+  the advice on its own.
 
 ## Warnings (should fix)
 
-- **[Maintainability] `docs/testing.md:206-208` (confidence: 85) — the hand-scrub command is presented as
-  the reaper's replacement but covers three name classes out of the tree's many.** The `find` globs
-  `leangate.*`, `orchestrate-lean-selftest.*` and `run-selftests.*`. Under the default (launchd) `TMPDIR`
-  the same directory also accumulates `mutation-sweep-work.*`, `mutation-sweep-sandbox.*`,
-  `install-topology.*`, `leanev.*`, `leanrec.*`, `scenario-liveness.*`, `preflight-selftest.*` and the
-  rest of the 33 `-t` families — which is the *majority* of what a killed sweep actually orphans. The
-  deleted prose acknowledged that residue explicitly; the replacement, framed as "Scrub by hand instead:",
-  reads as complete. Widening the alternation, or one sentence saying the list is the big ones and not
-  the whole set, closes it. Same root cause as the first blocker; fixing that one should fix this.
-
-- **[Maintainability] PR body, "Net diff" line (confidence: 90) — the figure is the code commit's stat,
-  labelled as the branch's.** The body says "Net diff: -693 lines (94 insertions, 787 deletions across
-  this PR's commits)". `94/787` is exactly `git show --shortstat c3ea669e`; across *this PR's commits* it
-  is `201/787`, i.e. **-586**. AC-6 asks only that the net diff be negative, and it is on either reading,
-  so this does not move the score — but on the one ticket whose entire ratification bar under #717 *is*
-  the net diff, the stated number should reproduce from the command a reader would run. Either say
-  "excluding the spec commit" or quote -586.
+_None. Round 1's two warnings are both closed._
 
 ## Suggestions (consider)
 
-- **[Maintainability] `docs/testing.md:1820` (confidence: 85, via `scope-completeness-reviewer`;
-  independently confirmed) — the Concurrent-lane recipe still says "the four criteria" after C-1 is
-  dropped.** Step 1 routes the operator to `docs/plans/second-shift-564-preregistration.md`, where C-1 is
-  still defined — and that record is deliberately out of bounds (D-8, and the ticket's Out-of-scope
-  section), so the count can only be reconciled here. Line 1873-1875 does record the void, but a reader
-  who acts on step 1 before reaching it is told to measure a criterion the tier no longer scores.
-  "fixes the criteria and the arm definitions (C-1 was retired in #780)" would settle it.
+- **[Maintainability] `docs/testing.md:181` (confidence: 80) — "**Some** scratch allocations use
+  the explicit-template form" is a bolded hedge where a count would do.** The paragraph's job is
+  to tell a reader which side of the line their suite is on; "some" answers nothing, and the
+  section then spends four sentences reconstructing what the bold line could have stated. If the
+  blocker above is fixed by quoting the real figures, this line can quote the complement and the
+  reconstruction shortens.
 
 ## Plan Compliance
 
-Implementation matches the spec's scope boundary exactly. Nothing in `docs/plans/` was edited (D-8/D-14),
-no guard, selftest case or script was added (D-1/D-14), the deferral rule itself is unchanged with only
-its header prose touched (D-2), the Concurrent-lane tier was not re-run (D-9), `run-selftests.sh`'s pass
-cache is untouched (D-14), and D-11 (trap before `WORK`) and D-15 (`pwd -P`) are both preserved. OR-1 was
-resolved by measurement to its reversible default and flagged in the PR body as required. No scope creep;
-the one addition beyond the letter of AC-3 — `pwd -P` in `lean-gate-selftest.sh` — is load-bearing for the
-change to work at all.
+Implementation still matches the spec's scope boundary. The delta edits only the two documentation
+homes AC-7 names; no `docs/plans/` record was touched (D-8, D-14), no guard, selftest case or
+script was added (D-1, D-14), and no code changed at all this round. D-11 (trap before `WORK`) and
+D-15 (`pwd -P`) both remain in place at this head, re-verified rather than inherited:
+`lean-gate-selftest.sh:69` and `orchestrate-lean-selftest.sh:49` register `trap cleanup EXIT`
+before their line-82 and line-59 `WORK` assignments, and `orchestrate-lean-selftest.sh:60` keeps
+its `pwd -P` normalization. OR-1's resolution is unchanged and still flagged in the PR body.
 
-The single gap is inside AC-7: the docs follow the deletion in structure (reaper paragraph gone, scrub
-command added, C-1 / sampler / stagger rule dropped, record-void noted, `CLAUDE.md` updated) but overshoot
-it in content.
+The one gap remains inside AC-7, and it is the same passage as in round 1 — the docs follow the
+deletion in structure and now in direction, but the specifics they assert are false at their own
+head.
+
+## CI at the reviewed head
+
+Recorded, not treated as a finding. Run `33643417575`, `head_sha a8717038` — the reviewed head:
+
+- `lint-and-selftests` — **pass** (4m08s). This is the full sweep; AC-4's "a full sweep exits 0"
+  is cited from it rather than re-run, per the CI-citation discriminator (same command, same head).
+- `mutation-sweep-pr` — **pass** (14s).
+- `selftests (macos, bash 3.2)` — still in flight at the time of writing.
+- `pr-gates` — **fail**, at step 6, "lean chain reconciliation". This is the structural
+  pre-approve state: the branch's committed verdict record is round 1's `needs-work`, and
+  `check-lean-chain.sh` refuses on it. Steps 3 and 4 — the frozen-files guard and the
+  `Changelog:` trailer guard — both **pass**, so there is no policy-gate red on this branch and
+  nothing in `pr-gates` is a correctness signal about the diff.
 
 ## Pre-existing gaps (not blocking this PR)
 
-- `CLAUDE.md:115` and `docs/testing.md:685` both describe a "64-suite tree". The tree discovers 78 suites
-  at `main` and 77 here, so these figures were already stale before this PR; the deletion moves them by one
-  more. Worth a sweep of the committed suite-count figures at some point — not this ticket's job.
+- `CLAUDE.md:115` and `docs/testing.md:685` still describe a "64-suite tree"; the tree discovers
+  77 suites here. Stale before this PR, moved by one more by the deletion. Round 1 raised it and
+  it is unchanged — still not this ticket's job.
 
 ## Suppressed (below confidence threshold)
 
-- `lean-gate-selftest.sh:~70` (security-reviewer, 40) — scratch moves from the per-user macOS temp dir to
-  `${TMPDIR:-/tmp}`; `mktemp -d` still creates at 0700 atomically, so no predictable-path/symlink exposure.
-- `tools/run-selftests.sh:223` (security-reviewer, 30) — removing the guarded reaper deletes a recursive
-  `rm -rf` code path; this reduces destructive-IO surface rather than adding one.
-- `scope-completeness-reviewer` noted its first sweep exited 1 on four override/attend-mode assertions
-  caused by `LEAN_ATTEND_MODE` / `LEAN_RUN_MODEL` leaking from its shell; the scrubbed re-run was
-  77 run / 0 failed / rc=0. Environmental, not a finding.
+- `scope-completeness-reviewer` (70) — AC-4's "a full sweep exits 0" clause was not independently
+  re-measured by that reviewer at this head, and it grounded the clause on four directly affected
+  suites plus the CI run cited in round 1's record. Its note reports two `orchestrate-lean-selftest.sh`
+  failures locally that reproduce identically on `origin/main`. I did not carry this forward: a
+  second lane (issue #783) was running a full sweep on this machine throughout this round, local
+  suite runs contend across lanes, and `lint-and-selftests` is green at this exact head — which is
+  the stronger evidence and the one AC-4 is scored on.
+
+## Verdicts
+
+| Reviewer | Verdict | Findings | Confidence Range |
+| --- | --- | --- | --- |
+| Scope Completeness | Pass | 0 | — |
+| Security | Lead pass — ✅ | 0 | — |
+| Performance | Lead pass — ✅ | 0 | — |
+| Complexity | Lead pass — ✅ | 0 | — |
+| Maintainability | Lead pass — ❌ | 2 | 80-92 |
+| Test Coverage | Lead pass — ✅ | 0 | — |
+
+**Ready to merge?** No
+
+**Reasoning:** The round-1 blockers are genuinely closed, but the AC-7 narrowing asserts a count
+that is false at its own head and whose set includes the two files the same sentence exempts —
+in `CLAUDE.md`, the file every session loads. One sentence in each home fixes it.
 
 ## AC scorecard
 
 | AC-n | score | evidence |
 | --- | --- | --- |
-| AC-1 | satisfied | The AC-1 grep in the spec (git grep -lE over the two name patterns, excluding docs/plans/) returns nothing, rc=1, at c3ea669e. All three files are deleted in the diff. |
-| AC-2 | satisfied | The `[[ -x "$ROOT/tools/reap-lean-fixtures.sh" ]]` block and its 12-line #528 header comment are gone from tools/run-selftests.sh (-18 lines); the fake-reaper case and its absent-tool control are gone from tools/run-selftests-selftest.sh (-40 lines). |
-| AC-3 | satisfied | Both suites allocate with the explicit-template form. Both keep cleanup() and its trap registered BEFORE WORK is assigned (D-11). orchestrate-lean-selftest.sh:60 keeps `pwd -P` (D-15); lean-gate-selftest.sh gains it, which is necessary rather than creep — macOS $TMPDIR carries a trailing slash so the raw template yields a doubled separator, measured directly, and the (lt5)/(lt5b) literal path matches against `git worktree list` output would break without normalization. Both suites all-green locally under a private TMPDIR. |
-| AC-4 | satisfied | The tools/fixture-stamp.sh rows are gone from tools/selftest-cache-inputs.tsv (row plus its DEPTH-1 prose) and tools/mutation-pair-map.tsv; tools/check-sweep-bound-selftest.sh:383 is reworded. Full sweep exits 0, cited from CI at this exact head rather than re-run: lint-and-selftests pass 5m00s and selftests (macos, bash 3.2) pass 4m20s, run 33640549445 at c3ea669e. Independently corroborated by scope-completeness-reviewer's own scrubbed sweep, 77 run / 0 failed / rc=0. |
-| AC-5 | satisfied | tools/selftest-suite-timings.tsv lines 20-28 record the blind spot as header prose, with no new column and no validator. Its factual claim verified: tools/selftest-cache-inputs.tsv has exactly 3 declaring suites (lean-gate-selftest.sh, check-lean-chain-selftest.sh, cost-block-selftest.sh); the first two carry rows in this table at 212s and 67s, both over its 9s threshold, so both are deferred, leaving cost-block-selftest.sh as the only cacheable suite a milestone-3 lane runs. |
-| AC-6 | satisfied | Net diff is negative. `git diff main...HEAD --shortstat` gives 201 insertions and 787 deletions, i.e. -586 across the branch, and -693 excluding the spec commit. Negative on either reading. The PR body quotes -693 while labelling it "across this PR's commits", a mislabel reported as a warning; it does not move this score. |
-| AC-7 | unsatisfied | Structurally complete: the reaper paragraph is gone, the scrub command added, C-1 and the sampler's fixture half and the stagger rule dropped with C-2 to C-4 retained, the record-void noted at docs/testing.md:1873-1875, and CLAUDE.md's parallel paragraph rewritten. But the replacement prose asserts in both homes that EVERY scratch allocation in the repo uses the explicit-template form, and that a private TMPDIR therefore relocates all of it. Measured false at this head: 33 shell files still call `mktemp -d -t` or `mktemp -t`, and there are 39 bare `mktemp -d` call sites; tools/mutation-sweep.sh:1299 and tools/install-topology-selftest.sh:137 are among them. The claim is load-bearing, since it is the entire answer the section exists to give; it sits in the file every session loads; and it is falsified by a one-line grep. This is a measured divergence, not an unmeasured one, and what it was measured to be is false. |
+| AC-1 | satisfied | Re-measured at a8717038, not inherited: the spec's own grep (git grep -lE over the two name patterns, excluding docs/plans/) returns nothing, rc=1. All three files are deleted in the branch diff. |
+| AC-2 | satisfied | grep -c 'reap-lean-fixtures' returns 0 for both tools/run-selftests.sh and tools/run-selftests-selftest.sh at this head. The entry block plus its header comment (-18 lines) and the fake-reaper case with its absent-tool control (-40 lines) are gone. |
+| AC-3 | satisfied | Both producers allocate with the explicit-template form: lean-gate-selftest.sh:82 and orchestrate-lean-selftest.sh:59. D-11 holds in both — trap cleanup EXIT at lines 69 and 49 respectively, before the WORK assignments. D-15 holds: orchestrate-lean-selftest.sh:60 keeps its pwd -P normalization, and lean-gate-selftest.sh:74 gained the mirror of it. No stamping remains in either. |
+| AC-4 | satisfied | grep -c 'fixture-stamp' returns 0 for both tools/selftest-cache-inputs.tsv and tools/mutation-pair-map.tsv. tools/check-sweep-bound-selftest.sh's comment cross-reference is reworded (the reap-lean-fixtures sentence deleted). "A full sweep exits 0" is cited from CI rather than re-run: lint-and-selftests pass 4m08s in run 33643417575 at head_sha a8717038, the reviewed head, running the same tools/run-selftests.sh sweep. |
+| AC-5 | satisfied | tools/selftest-suite-timings.tsv gains a 10-line header block, prose only — no new column, no validator. Its factual claim re-verified at this head: tools/selftest-cache-inputs.tsv declares exactly 3 suites (lean-gate-selftest.sh, cost-block-selftest.sh, check-lean-chain-selftest.sh); the first and third carry rows in the timings table at 212s and 67s against its 9s threshold, so both are deferred; cost-block-selftest.sh carries no row and is treated as fast, leaving it the only cacheable suite a milestone-3 lane runs. |
+| AC-6 | satisfied | git diff origin/main...HEAD --shortstat gives 389 insertions and 787 deletions, i.e. -398 across the branch, and -679 with ':!docs/plans/'. Negative on both readings, and the PR body now quotes both figures with the commands that produce them. |
+| AC-7 | unsatisfied | Structurally complete and now correct in direction: the reaper paragraph is gone, the scrub command and its widening caveat are in, C-1 plus the sampler's fixture half plus the stagger rule are dropped with C-2 to C-4 retained, the record-void is noted at docs/testing.md:1885, CLAUDE.md's parallel paragraph is rewritten, and the stale "four criteria" count is fixed at docs/testing.md:1834. But the replacement asserts in both homes that 33 shell files still call the non-honoring mktemp forms, and that is false at its own head three ways: the 33 reproduces only from git grep -l over the -d -t spelling alone, whose set includes the two suites the same sentence exempts (matching only on comments this PR added) plus one more comment-only file; it omits the four files calling the mktemp -t spelling the claim also names, so the caller count is 34; and the sentence's own parenthetical about bare mktemp -d, which I confirmed empirically, brings the non-isolated set to 68. CLAUDE.md additionally dropped the bare-form clause main carried. See the Critical finding. |
