@@ -75,13 +75,15 @@ detaching it and ending the turn would undo.
 `trap … EXIT`, and whatever those suites had under `mktemp` stays on disk with nothing to remove
 it. The two big fixture-producing selftests, `lean-gate-selftest.sh` and
 `orchestrate-lean-selftest.sh`, joined the explicit-template form `mktemp -d
-"${TMPDIR:-/tmp}/…"` in #780 — so **a private `TMPDIR` relocates their scratch** — but the rest of
-the tree has not: 33 shell files still call `mktemp -d -t` / `mktemp -t`, including the two
+"${TMPDIR:-/tmp}/…"` in #780 — so **a private `TMPDIR` relocates their scratch** — but most of the
+tree has not: `mktemp -d -t <name>`, plain `mktemp -t`, and bare `mktemp -d` (which *is* `-t tmp`
+— same TMPDIR-ignoring behavior, not a safe third option) are all still in wide use, including the two
 largest scratch trees in the repo (`tools/mutation-sweep.sh`,
-`tools/install-topology-selftest.sh`), so a private `TMPDIR` does not isolate those. Nothing reaps
-a killed run's leftovers automatically;
-[scrub before re-running](docs/testing.md#when-a-run-is-killed-mid-sweep) — a red the diff cannot
-explain is that litter more often than it is your branch.
+`tools/install-topology-selftest.sh`), so a private `TMPDIR` does not isolate those.
+[`docs/testing.md`](docs/testing.md#when-a-run-is-killed-mid-sweep) has the reproducible caller
+count and the scrub recipe — a hardcoded number here would only go stale. Nothing reaps a killed
+run's leftovers automatically; scrub before re-running — a red the diff cannot explain is that
+litter more often than it is your branch.
 
 **`tools/run-selftests.sh` is the sweep — here, in both CI selftest jobs, and in this repo's own
 dogfood lean-gate milestone-3 `test` lane** (the gitignored `.claude/second-shift.config.json`,
