@@ -258,18 +258,59 @@ printf '%s' '/code-review max <branch>' | env -u CLAUDE_CODE_SESSION_ID -u CLAUD
   -u CLAUDE_CODE_ENTRYPOINT -u CLAUDE_CODE_CHILD_SESSION -u CLAUDE_CODE_BRIDGE_SESSION_ID \
   -u CLAUDE_CODE_MESSAGING_SOCKET -u CLAUDE_CODE_MESSAGING_TOKEN -u CLAUDE_CODE_SSE_PORT \
   -u CLAUDE_EFFORT -u CLAUDE_PID \
-  claude -p --model opus --setting-sources '' --allowedTools "Read,Grep,Glob,Bash"
+  claude -p --model opus --setting-sources '' --allowedTools "Read,Grep,Glob,Bash" \
+    --output-format stream-json --verbose
 ```
+
+**`--output-format stream-json --verbose` is a CAPTURE flag pair and nothing else.** The command,
+the model tier (`--model opus`), the effort (`max`), the allowlist (`Read,Grep,Glob,Bash`) and the
+`env -u` set are byte-identical to the form this arm was first registered with. It changes what is
+*recorded*, not what is *run*, so every bias argument registered in the three subsections below —
+model tier, effort, and tool allowlist — holds verbatim. Why it is needed, and what it is asserted
+to capture, is the next subsection.
 
 **No new harness is needed and no second-shift plugin is loaded.** Measured 2026-09-01, under the
 frozen bare-arm recipe and in a tree with `plugins/` fully intact, that invocation shape answers
 `AVAILABLE:yes` / `SECONDSHIFT:no` — the built-in survives `--setting-sources ''`, and the kit does
 not come with it. The command and its output are printed in §A above; it is one probe, re-runnable.
 
-**Measured 2026-09-01, the exact form above was also run end-to-end** against a throwaway two-commit
-repository, and it completed and reported findings. So this is a registered recipe that has been
-executed, not one derived from a description of the command. That run is what the next two
-subsections record; nothing about any C2 sample was run.
+### Why the capture flags are there — the defect they answer
+
+**The built-in does not always answer on stdout.** It may instead route its finding set to a
+structured report tool, and a stdout-only capture discards it. It does this
+**non-deterministically**: measured 2026-09-02, all three registered C2 samples run under the
+pre-amendment form verbatim — same command, model tier, effort and allowlist:
+
+| sample | rc | stdout | capture mode | findings recoverable from stdout |
+| --- | --- | --- | --- | --- |
+| C2-a (`cfba102`) | 0 | 3188 B | report tool | **0 of 15** |
+| C2-b (`f8f7c14`) | 0 | 2897 B | report tool | **0 of 12** |
+| C2-c (`642a6b1`) | 0 | 17326 B | stdout | 15 of 15, as a valid JSON array |
+
+C2-a's stdout opens `I filed the 15 verified findings via the report tool.` and closes offering to
+re-file them; what it carries is the residue that session volunteered *in addition to* the filed
+set — explicitly material "the filed report doesn't" carry. C2-b is the same shape at 12 findings.
+C2-c emitted `Findings below, ranked most-severe first` followed by a parseable 15-element array.
+
+Uniform loss would fail loudly. This does not: a scorer reading the corpus as captured grades C2-c
+on 15 findings and C2-a / C2-b on a handful of volunteered scraps, and records the difference as a
+property of the challenger.
+
+**Disposition of those three outputs: discarded for scoring**, retained as the defect measurement
+above and nothing else. #747 re-runs all three under the amended capture, so one capture mode spans
+the corpus and the samples are comparable by construction rather than by argument.
+
+### Validation of the recipe — superseded, and by what
+
+**The claim this subsection used to carry is withdrawn.** It recorded that, measured 2026-09-01,
+the invocation was run end-to-end against a throwaway two-commit repository and "completed and
+reported findings". That is true and it is not sufficient: a two-commit diff yields a prose answer,
+so the validating measurement never exercised the report-tool path that two of the three real
+samples take. Fixture fidelity is what produced the false green, which is why the replacement below
+runs against a pinned sample clone rather than a hand-built fixture — and why it *replaces* the
+two-commit run rather than being added alongside it.
+
+<!-- MEASUREMENT-PLACEHOLDER -->
 
 ### Model tier — `--model opus`
 
@@ -345,6 +386,24 @@ So the mapping has to be registered, or #747 will be choosing which findings cou
 severity filter, no demotion, no scorer judgment about which ones "were really blockers". The
 frozen hit rule then applies to that set unchanged — same mechanism and same consequence against
 each of the five ground-truth blockers.
+
+**"Reports" spans both sinks, because the built-in uses both.** Under the amended capture the
+challenger's finding set is the **union** of two things the stream carries:
+
+1. the **report tool's input** — the findings the session filed, recorded as the `tool_use` block's
+   payload; and
+2. the findings in the **final assistant text** — the residue a session volunteers in addition to
+   the filed set, and, on a sample that files nothing, the whole of it.
+
+That union is then **deduplicated on same mechanism and same consequence**. The predicate is the
+frozen hit rule's own, quoted rather than invented, so the merge introduces **no new scorer
+judgment**: a pair the hit rule would call one finding against a ground-truth blocker is one
+finding here too. Nothing is dropped for being in only one sink, and nothing is counted twice for
+being in both.
+
+This is a refinement of the sentence above it, not a replacement. Both directions of the mapping's
+registered bias below apply to the union exactly as they applied to the stdout set — the union is
+strictly larger, so it moves recall and the false-blocker count the same way, only further.
 
 Both consequences are registered, because this mapping is not free in one direction:
 

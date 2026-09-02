@@ -17,7 +17,8 @@ Uniform loss would fail loudly. This does not: a reader scoring the corpus as ca
 C2-c on 15 findings and C2-a/C2-b on the handful of scraps those sessions volunteered _in
 addition to_ the filed set, and records the difference as a property of the challenger.
 
-The registration did not catch it because the validating measurement (§B:264-269) ran against a
+The registration did not catch it because the validating measurement — §B's "Measured 2026-09-01,
+the exact form above was also run end-to-end" paragraph — ran against a
 throwaway two-commit repository, whose small diff yields a prose answer. The path two of the
 three real samples take was never exercised.
 
@@ -27,6 +28,11 @@ three real samples take was never exercised.
   three samples the primary finding set is unreadable.
 - D-39 registers that **all** findings count, with no severity filter. A stdout-only capture on
   those two samples yields a self-selected fraction — the one shape that decision rules out.
+
+> **Line citations.** The `docs/skill-ablation-addendum.md` line numbers carried in the Decision
+> Ledger below (`:257-261`, `:264-269`, `:271-295`) are the pre-flight ledger's own text and are
+> anchored to this branch's base, `d8ea88aa`. This PR's own edits move them, so everything outside
+> that table cites §B by subsection heading instead.
 
 ## Scope
 
@@ -42,14 +48,15 @@ invocation is that slice's to choose.
   `claude -p` invocation. The command, the model tier (`--model opus`), the effort (`max`), the
   allowlist (`Read,Grep,Glob,Bash`) and the `env -u` set are otherwise unchanged, and §B says so
   — this changes what is _recorded_, not what is _run_, so the bias arguments registered at
-  :271-295 hold verbatim (D-1).
+  §B's model-tier, effort and allowlist subsections hold verbatim (D-1).
 - AC-2: §B's registered mapping states what composes the arm's finding set under the amended
   capture: the **union** of the report tool's input and the findings in the final assistant
   text, deduplicated on **same mechanism and same consequence** — the frozen hit rule's own
   predicate, so no new scorer judgment enters. It reads as a refinement of the existing "every
   finding the built-in reports is in the challenger's finding set", not a replacement of it: no
   severity filter, no demotion (D-3).
-- AC-3: The §B:264-269 validation claim — the 2026-09-01 two-commit end-to-end run — is
+- AC-3: §B's two-commit end-to-end validation claim — "Measured 2026-09-01, the exact form above
+  was also run end-to-end" — is
   **replaced** by the re-validation of AC-4, not supplemented by it. §B states why the old claim
   was insufficient: the two-commit diff never exercised the report-tool path (D-7).
 - AC-4: §B records the re-validation as executed evidence: the assertion command run verbatim,
@@ -74,7 +81,8 @@ tools/install-topology-selftest.sh`. No new checked-in script is added: the re-v
 - **The three committed challenger transcripts** under `docs/plans/skill-ablation/c2-review/`,
   `scoring.tsv`'s arm columns, and §2 / §4 of `docs/skill-ablation.md`. #747 runs the arms and
   commits them; those are its AC-5 (D-2, S-5, S-6).
-- **The unevaluable post-run assertion at §B:327-330.** None of the three reports names the
+- **The unevaluable post-run assertion** — §B's "Post-run assertion, from the same measurement"
+  paragraph, which requires that the report state the range it reviewed. None of the three reports names the
   range it reviewed, so "the report states the range it reviewed" cannot be evaluated in either
   direction — a real gap, and _not_ one the amended capture closes. The issue narrows explicitly
   to capture ("Proposed change — **capture only**"), D-2 confirms it, and no ledger row disposes
