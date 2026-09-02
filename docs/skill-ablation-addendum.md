@@ -332,7 +332,52 @@ samples take. Fixture fidelity is what produced the false green, which is why th
 runs against a pinned sample clone rather than a hand-built fixture — and why it *replaces* the
 two-commit run rather than being added alongside it.
 
-<!-- MEASUREMENT-PLACEHOLDER -->
+**The replacement, measured 2026-09-02.** Run against the `c2-a-654` pinned clone — the sample
+whose pre-amendment capture lost 15 of 15 findings — with both pins asserted before the run
+(`main` at `dfd68a47`, head at `cfba1022`, `plugins/` absent as 374 working-tree deletions):
+
+```bash
+cd /private/tmp/c2-a-654
+printf '%s' '/code-review max pr-654' | env -u CLAUDE_CODE_SESSION_ID -u CLAUDECODE \
+  -u CLAUDE_CODE_ENTRYPOINT -u CLAUDE_CODE_CHILD_SESSION -u CLAUDE_CODE_BRIDGE_SESSION_ID \
+  -u CLAUDE_CODE_MESSAGING_SOCKET -u CLAUDE_CODE_MESSAGING_TOKEN -u CLAUDE_CODE_SSE_PORT \
+  -u CLAUDE_EFFORT -u CLAUDE_PID \
+  claude -p --model opus --setting-sources '' --allowedTools "Read,Grep,Glob,Bash" \
+    --output-format stream-json --verbose
+```
+
+Exit `0`, empty stderr, ~27 minutes wall. The capture is a 4,489,181-byte, 2036-line stream file.
+
+**Completeness first, per the rule above.** `tools/classify-capture.sh` reports `COMPLETE`
+(exit `0`, `subtype=success`, `is_error=false`), noting 4 `result` events of which the last
+governs. Only then was a finding read out of it. The two captures this re-validation took before
+it both classified `TRUNCATED` (exit `2`) — 2.2 MB/831 lines and 232 KB — and were discarded and
+re-run rather than scored, which is the rule applied to itself rather than merely registered.
+
+**The assertion holds: the report tool's input IS present in the parent stream.** Splitting every
+`tool_use` event by `parent_tool_use_id`:
+
+| stream position | `tool_use` events |
+| --- | --- |
+| subagent (`parent_tool_use_id` set) | 476 — `Bash` 427, `Read` 35, `Grep` 12, `Agent` 1, `ToolSearch` 1 |
+| **parent (`parent_tool_use_id` absent)** | **2 — both `ReportFindings`** |
+
+Each `ReportFindings` call carries `level: "max"` and a 15-element `findings` array, with the
+per-finding `file`/`line`/`summary`/`failure_scenario` fields intact. The second call re-reports a
+refined set — a few `short_summary` strings reworded — so the last one governs, the same reading
+`classify-capture.sh` applies to `result` events. The delegation OR-1 flagged as the risk is real
+and heavy (476 of 478 tool calls are subagent traffic), and the report still lands on the parent:
+`--output-format stream-json --verbose` recovers it, and a stdout-only capture would not have
+recorded the `tool_use` block at all.
+
+**One thing this sample does not show, recorded so it is not read into.** This run also volunteered
+the findings on stdout — its first `result` event carries a 15-element JSON array in a
+15,051-character body — so it is not a pure report-tool-only sample of the C2-a shape, and it is
+not evidence that the amended capture was the *only* way to recover these 15 findings on this run.
+What it establishes is the narrower registered claim: the report tool's input reaches the parent
+stream and the amended flags capture it, which is what the pre-amendment form could not record in
+either direction. The capture mode becomes observable rather than inferred from what stdout
+happened to carry — which is the property the variance table above shows the corpus needs.
 
 ### Model tier — `--model opus`
 
