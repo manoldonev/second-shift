@@ -1,14 +1,14 @@
 # lean review verdict — #780
 
-verdict=needs-work
-run_id: review-780-2
-session_id: f95f2377-a8be-4ca4-aa01-cedd0fe8c533
-rounds: 2
+verdict=approve
+run_id: review-780-3
+session_id: f01284d1-02bf-4384-9ceb-de02a3a77793
+rounds: 3
 pr: #784
-reviewed_head: a87170383629a3857a87b9754e0a71db137632d9
-reviewed_patch_id: 8b616dcf346d6c61109cf244bc7e8096fa2ca1e4
-inherited_patch_id: 01bc205fd23b4da03d20c348b89491ce4b0e069e
-inherited_from_verdict: 16329d57dc5365d9805cd6d56403adc94e743ce1
+reviewed_head: 1871ecd91532ac51b275a4b12f8c7ee2e23a3c03
+reviewed_patch_id: c1c15358826df3fe2e739b0ce4945e3118ea4dfa
+inherited_patch_id: 8b616dcf346d6c61109cf244bc7e8096fa2ca1e4
+inherited_from_verdict: 5325ae98c743abcac0b479e5490b9303d94d8f3c
 fidelity: not-applicable
 panel: review-toolkit:scope-completeness-reviewer
 model: opus
@@ -16,165 +16,167 @@ capabilities: pr-marker
 
 ## Review Summary
 
-Round 2, inheriting round 1's coverage of patch `01bc205fd23b` and reading the delta
-`16329d57..HEAD` — one commit, `a8717038`, touching `CLAUDE.md` and `docs/testing.md` only. Round
-1's two blockers are both addressed and I close both by measurement: the `Changelog:` trailer is
-now the bare `none.` form on all four branch commits and renders nothing, and the false universal
-("every scratch allocation in this repo uses the explicit-template form") is gone from both homes.
-Round 1's two warnings and its one suggestion are closed too.
+Round 3, inheriting round 2's coverage of patch `8b616dcf346d` and reading the delta
+`5325ae98..HEAD` — one commit, `1871ecd9`, touching `CLAUDE.md` and `docs/testing.md` only.
+Round 2's single blocker is closed, and I close it by re-measurement rather than by reading: both
+counts the doc now quotes reproduce exactly at this head, from the doc's own commands. All seven
+acceptance criteria are satisfied. Verdict `approve`.
 
-**But the narrowing replaced a false universal with a false specific, in the same two files.**
-Both passages now say "33 shell files still call `mktemp -d -t` / `mktemp -t`". At this head that
-number reproduces from exactly one command — `git grep -l 'mktemp -d -t' -- '*.sh'` — and that set
-**includes the two suites the same sentence exempts**, whose only matches are the `#780` comments
-this PR added. It also excludes the four files that call the `mktemp -t` spelling the claim names.
-The real count of callers is **34**; and since the sentence's own parenthetical states that a bare
-`mktemp -d` resolves the same way, the set of shell files a private `TMPDIR` does **not** isolate
-is **68**. `CLAUDE.md` additionally dropped the bare-`mktemp -d` clause that `main` carried, so on
-that form it is now less informative than before this PR. AC-7 stays unsatisfied.
+No subagent met a trigger this round beyond `scope-completeness-reviewer` (issue-referenced,
+unconditional), which returned Pass with zero findings. `security-reviewer` not selected: a
+two-file Markdown delta carries no auth / tenancy / session / upload / query-construction surface
+and the repo has no `.claude/second-shift/review-context/security-reviewer.md`; the security
+dimension is covered by the lead pass. a11y + design-fidelity not routed: the repo config declares
+no `stageParams.webComponentGlobs` and no changed path matches the shipped default
+(`apps/web/**/*.{tsx,jsx}`). The spec declares no `## Design` section, so the design-fidelity arm
+is `not-applicable` and step 5b did not run.
 
-Panel: `review-toolkit:scope-completeness-reviewer` (approve, no findings; one suppressed note at
-confidence 70). No reviewer went dark, and no re-dispatch was needed. Routing selected one
-subagent: the delta is two Markdown files outside `.claude/`, so the trivial-inert row applies —
-`security-reviewer` not selected (no security surface in a pure-prose delta and no
-`.claude/second-shift/review-context/security-reviewer.md` in the repo; the security dimension is
-the lead pass's this round), and a11y plus design-fidelity not routed (no changed path matched
-`stageParams.webComponentGlobs`, which the config does not declare, so the shipped default
-`apps/web/**/*.{tsx,jsx}` applied; the spec declares no `## Design` section, so the run is
-unarmed and `fidelity` is `not-applicable`).
+Depth routing: **trivial-inert** — every changed file in the delta is Markdown outside `.claude/`
+(`CLAUDE.md` at repo root qualifies). Same routing as round 2.
 
 ## Strengths
 
-- **The narrowing is the right shape and the right two edits.** Round 1's ask was "say that the
-  two fixture families *joined* the explicit-template set, and that the rest of the tree has not",
-  and that is precisely what both passages now do. The dangerous direction is gone: no reader can
-  now come away believing a private `TMPDIR` isolates their lane. The operative advice in both
-  files is correct and actionable regardless of the count defect below.
-- **Round 1's blocker 2 is closed at the mechanism, not just at the wording.** The code commit was
-  amended (`c3ea669e` to `91b33556`) to a bare `Changelog: none.` with the justification moved
-  into unindented body prose above it. Verified by running `derive-release.sh`'s real
-  `extract_trailers` and `render_bullet` awk programs over the branch's actual squash body
-  (`git log --reverse --format=%B origin/main..HEAD`): output is empty, so nothing reaches
-  `CHANGELOG.md`. The amend was message-only — `git diff c3ea669e 91b33556` is empty — so round
-  1's reviewed content, and therefore this round's inheritance, is intact.
-- **The scrub-glob caveat and the stale criteria count are both properly closed.** The new
-  paragraph after the `find` command names the families the alternation misses and tells the
-  reader to widen it before reading an empty result as "nothing to scrub" — round 1's warning. And
-  `docs/testing.md:1834` now reads "fixes the criteria and the arm definitions (C-1 was retired in
-  #780)" — round 1's suggestion, closed with the exact wording it proposed.
-- **The PR body's net-diff line now reproduces from the command it cites.** "-398 lines (389
-  insertions, 787 deletions)" is exactly `git diff origin/main...HEAD --shortstat` at this head,
-  and "-679 excluding the spec and verdict-record commits" is exactly the same command with
-  `':!docs/plans/'`. Round 1's second warning, closed.
+- **The blocker is closed at the class, not at the digit.** Round 2 blocked on "33 shell files
+  still call `mktemp -d -t` / `mktemp -t`", a figure that counted the two suites the same sentence
+  exempted. The fix does not substitute a corrected constant — it replaces the constant with the
+  two `git grep` pipelines that produce it, filtering the comment lines a naive `grep -l` catches,
+  and follows them with "Re-run both commands rather than trust these two numbers". That is the
+  remedy that survives the next commit, and the commit message names the defect class explicitly.
+
+- **Every number in the delta reproduces at this head, including the one the fix re-derived past
+  the review.** I ran the doc's two commands verbatim in the reviewed checkout: **34** files on the
+  `mktemp -d -t` / `mktemp -t` spellings, **35** on the bare form, `comm -12` over the two sorted
+  sets gives **0** overlap, union **69** — the exact triple the doc asserts. Round 2's record had
+  re-derived 34 for the bare set and 68 for the union; the commit message flags the divergence
+  head-on ("not 33 or the review's own re-derived 68") rather than quietly adopting the reviewer's
+  figure, and the re-derivation is the correct one. I also read all 35 bare-form match lines
+  individually — every one is a genuine `mktemp -d` call site, none is an unquoted explicit
+  template miscounted by the exclusion filter.
+
+- **The `14` is a real count, not a rounded one.** `git grep -nE 'mktemp[[:space:]]+-d[[:space:]]+"' -- '*.sh'`
+  (non-comment) returns 14 lines across 14 files, and all 14 are the documented
+  `mktemp -d "${TMPDIR:-/tmp}/<name>.XXXXXX"` form — no quoted-template caller uses a different
+  spelling. The naive mention-grep the paragraph used to warn about returns 19, so the distinction
+  the old caveat drew is still real and the new number is on the right side of it.
+
+- **The scrub caveat now closes the half of the residue round 2 showed it was missing.** Round 2's
+  failure story was a contributor whose killed suite is a bare-`mktemp -d` caller reading a caveat
+  that told them to "read the caller list above and add its names" — a list that named only the
+  `-t` set. The section now calls the bare-form callers "a second, disjoint gap", names where they
+  land, and gives two concrete remedies. I confirmed the mechanism on this machine: under
+  `TMPDIR=/tmp/mkt-probe-r3/`, a bare `mktemp -d` returned
+  `/var/folders/.../T/tmp.dKnTQ24oSG` — the private `TMPDIR` ignored, exactly as the doc says.
+
+- **`CLAUDE.md` regains what round 2 measured it had lost.** The bare-`mktemp -d` clause `main`
+  carried and round 2's rewrite dropped is back ("which *is* `-t tmp` — same TMPDIR-ignoring
+  behavior, not a safe third option"), all three forms are named, and the file now carries no
+  hardcoded figure at all — it routes to `docs/testing.md` for the count with the reason stated
+  ("a hardcoded number here would only go stale"). For the file every session loads, that is the
+  right side of the trade.
 
 ## Critical (must fix before merge)
 
-- **[Maintainability] `CLAUDE.md:78` and `docs/testing.md:194` (confidence: 92) — the replacement
-  count is wrong, and its own set contradicts the sentence it appears in.**
-
-  Both files now say: "33 shell files still call `mktemp -d -t` / `mktemp -t`". Measured at
-  `a8717038`, three separate things are wrong with that:
-
-  1. **It counts the two files it exempts.** `git grep -l 'mktemp -d -t' -- '*.sh'` returns
-     exactly 33 — the quoted figure, and the only command at this head that produces it. Three of
-     those 33 match on comment lines, not call sites, and two of the three are
-     `plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh` (lines 70 and 161) and
-     `plugins/dev-pipeline/skills/run-lean/orchestrate-lean-selftest.sh` (line 50) — the two
-     suites the same sentence names as having *joined* the explicit-template set, matching only
-     because **this PR added those `#780` comments**. The third is
-     `tools/capability-parity-check.sh:120`. So the sentence reads "the rest of the tree has not:
-     33 files", where 33 counts the two files that did.
-  2. **It excludes four callers of the spelling it names.** The claim says "`mktemp -d -t` /
-     `mktemp -t`", but the 33 is a count of the first spelling alone. Four files call only the
-     second: `plugins/dev-pipeline/tools/operator-override.sh:336`,
-     `plugins/dev-pipeline/tools/pipeline-doctor.sh:427`,
-     `plugins/dev-pipeline/tools/preflight.sh:97`, `scripts/check-lean-chain.sh:534`. Counting
-     non-comment matches of either spelling gives **34**.
-  3. **Its own parenthetical doubles the true set, and `CLAUDE.md` lost that parenthetical
-     entirely.** `docs/testing.md:195` states that a bare `mktemp -d` *is* `-t tmp` "so it
-     resolves the same way" — which I confirmed empirically on this machine: under
-     `TMPDIR=/tmp/mkt-probe/`, `mktemp -d` returned
-     `/var/folders/.../T/tmp.bNiUvFUxwU` while the explicit template returned
-     `/tmp/mkt-probe//exp.QLlU5n`. **34 further shell files** call bare `mktemp -d` (zero overlap
-     with the `-t` set), so the set a private `TMPDIR` does not isolate is **68**, not 33.
-     `CLAUDE.md`'s paragraph omits the parenthetical that `main` carried ("a bare `mktemp -d`
-     *is* `-t tmp`, so there is no second behavior to fall back on"), so on the bare form
-     `CLAUDE.md` is now **less** informative than before this PR while carrying a number that
-     reads as the complete count.
-
-  **The failure this causes.** A contributor whose killed suite is one of the 34 bare-`mktemp -d`
-  callers — `cost-block-selftest.sh`, `doctor-selftest.sh`, `gh-bot-selftest.sh`,
-  `claim-selftest.sh` and 30 others — reads `CLAUDE.md`, sees a 33-file set headed by
-  `mutation-sweep.sh` and `install-topology-selftest.sh`, finds their suite in neither, and
-  concludes their leftovers landed in their private `TMPDIR`. They did not: they are in
-  `_CS_DARWIN_USER_TEMP_DIR` under the name `tmp.XXXXXXXX`, which no glob in `docs/testing.md`
-  matches and which neither file now mentions. `docs/testing.md`'s new scrub caveat compounds it
-  by telling the reader to "read the caller list above and add its names" — that list is the `-t`
-  set, so following the instruction still misses half the residue.
-
-  This is the same class as round 1's blocker, one level down, and it is a regression against
-  `main` for that class of file. The remedy is one sentence in each home: quote the honest figure
-  for the whole TMPDIR-ignoring set (68 shell files, or "most of the tree"), name all three forms
-  (`mktemp -d -t`, `mktemp -t`, and bare `mktemp -d`), and restore the bare-form clause to
-  `CLAUDE.md`. Dropping the number entirely would also close it — the qualitative claim carries
-  the advice on its own.
+_None._
 
 ## Warnings (should fix)
 
-_None. Round 1's two warnings are both closed._
+- **[Scope completeness] PR body (confidence: 88) — the net-diff figures the body quotes are stale
+  at this head, and the body declares the command that falsifies them.**
+
+  The body reads "Net diff: -398 lines (389 insertions, 787 deletions) across this PR's commits
+  (`git diff origin/main...HEAD --shortstat`); -679 excluding the spec and verdict-record commits
+  (`docs/plans/`)". Measured at `1871ecd9`: `--shortstat` gives **442 insertions, 789 deletions**
+  (**-347**), and with `':!docs/plans/'`, **129 insertions, 789 deletions** (**-660**). Both
+  digits moved when round 2's verdict record (+206 lines under `docs/plans/`) and this round's fix
+  landed.
+
+  This is **not** an AC-6 failure and not a blocker: AC-6's bar is that the net diff is negative,
+  which holds on both readings and on every intermediate head. It is flagged because the body
+  cites the producing command by name, and a cell documented as regenerated from a command is read
+  against that command's output — a reader who runs it gets different numbers than the sentence
+  claims. Note the figure is stale **by construction** after every round: this record's own commit
+  will move it again. The fix is a `gh pr edit` on the body, which changes no reviewed line and so
+  does not void this record; do it as part of milestone 5 rather than spending a build round on it.
 
 ## Suggestions (consider)
 
-- **[Maintainability] `docs/testing.md:181` (confidence: 80) — "**Some** scratch allocations use
-  the explicit-template form" is a bolded hedge where a count would do.** The paragraph's job is
-  to tell a reader which side of the line their suite is on; "some" answers nothing, and the
-  section then spends four sentences reconstructing what the bold line could have stated. If the
-  blocker above is fixed by quoting the real figures, this line can quote the complement and the
-  reconstruction shortens.
+- **[Maintainability] `docs/testing.md:181` (confidence: 82) — the `14` is the one number in the
+  section with no command beside it, in a section whose new thesis is that numbers need commands.**
+
+  Two paragraphs below, the doc says of the 34/35 pair: "Re-run both commands rather than trust
+  these two numbers — they move every time a suite's scratch allocation changes, and a stale digit
+  here is worse than none." The bolded `14` above it is exactly such a digit and has neither a
+  command nor the caveat. It is *correct* at this head — I verified it — so this is an internal
+  consistency point rather than an accuracy one, and it closes with one line:
+  `git grep -nE 'mktemp[[:space:]]+-d[[:space:]]+"' -- '*.sh' | grep -vE ':[0-9]+:[[:space:]]*#' | cut -d: -f1 | sort -u | wc -l`
+  reproduces it, and belongs in the same code block as its two complements. Round 2's suggestion
+  asked for a count where "some" stood; this is the follow-through that suggestion implies.
+
+- **[Complexity] `docs/testing.md:213-216` (confidence: 80) — the bare-form pipeline's exclusion
+  filter rests on an unstated assumption.**
+
+  `grep -vE 'mktemp[[:space:]]+-d[[:space:]]+("|-t)'` separates bare callers from explicit-template
+  ones by assuming every explicit template is double-quoted. That holds at this head — I checked
+  all 14 — but an unquoted `mktemp -d ${TMPDIR:-/tmp}/x.XXXXXX` would be silently counted as bare,
+  inflating the 35 with no visible symptom. One clause naming the assumption ("explicit templates
+  in this repo are always quoted, which is what the filter keys on") would make the failure mode
+  legible to whoever re-runs it. Not a correctness problem today.
+
+- **[Maintainability] `docs/testing.md:234-236` (confidence: 78) — "no name-based glob in this
+  recipe can reach them, `-name` or otherwise" is true as scoped and overstated as read.**
+
+  Scoped to *this recipe* the sentence is correct — the alternation names three families and the
+  bare-form dirs are in none of them. But the trailing "`-name` or otherwise" reads as a claim
+  about `-name` in general, and `-name 'tmp.*'` does reach them; what it cannot do is reach them
+  *selectively*, because the name carries no repo identity and would sweep every other tool's
+  scratch under the same root. That distinction is the actual advice, and the doc's own fallback
+  ("scrub the whole root when nothing else is running there") already implies it. Related nit: the
+  illustrative name is written `tmp.XXXXXXXX` (8) where the observed suffix is 10 characters
+  (`tmp.dKnTQ24oSG`), so a reader building `-name 'tmp.????????'` from it would match nothing.
 
 ## Plan Compliance
 
-Implementation still matches the spec's scope boundary. The delta edits only the two documentation
-homes AC-7 names; no `docs/plans/` record was touched (D-8, D-14), no guard, selftest case or
-script was added (D-1, D-14), and no code changed at all this round. D-11 (trap before `WORK`) and
-D-15 (`pwd -P`) both remain in place at this head, re-verified rather than inherited:
-`lean-gate-selftest.sh:69` and `orchestrate-lean-selftest.sh:49` register `trap cleanup EXIT`
-before their line-82 and line-59 `WORK` assignments, and `orchestrate-lean-selftest.sh:60` keeps
-its `pwd -P` normalization. OR-1's resolution is unchanged and still flagged in the PR body.
-
-The one gap remains inside AC-7, and it is the same passage as in round 1 — the docs follow the
-deletion in structure and now in direction, but the specifics they assert are false at their own
-head.
+Implementation matches the spec. The delta touches only the two files AC-7 and D-10 name, adds no
+guard, no selftest case and no script (Out of scope, D-14), edits no `docs/plans/` record beyond
+this round's own, and leaves the deferral rule itself unchanged. The spec has not been amended
+since it was committed at `a5ebc38f` — `git log --oneline origin/main..HEAD -- docs/plans/second-shift-780-lean.md`
+names that commit alone, so nothing in it was rewritten to match a later diff.
 
 ## CI at the reviewed head
 
-Recorded, not treated as a finding. Run `33643417575`, `head_sha a8717038` — the reviewed head:
+Run `33645841301`, `head_sha` `1871ecd9` — the reviewed head exactly. Cited, not re-run:
 
-- `lint-and-selftests` — **pass** (4m08s). This is the full sweep; AC-4's "a full sweep exits 0"
-  is cited from it rather than re-run, per the CI-citation discriminator (same command, same head).
-- `mutation-sweep-pr` — **pass** (14s).
-- `selftests (macos, bash 3.2)` — still in flight at the time of writing.
-- `pr-gates` — **fail**, at step 6, "lean chain reconciliation". This is the structural
-  pre-approve state: the branch's committed verdict record is round 1's `needs-work`, and
-  `check-lean-chain.sh` refuses on it. Steps 3 and 4 — the frozen-files guard and the
-  `Changelog:` trailer guard — both **pass**, so there is no policy-gate red on this branch and
-  nothing in `pr-gates` is a correctness signal about the diff.
+- `lint-and-selftests` — **pass**, 4m22s. This is `tools/run-selftests.sh`, the same sweep AC-4's
+  "a full sweep exits 0" names.
+- `selftests (macos, bash 3.2)` — **pass**, 4m55s.
+- `mutation-sweep-pr` — **pass**, 13s. OR-1's prediction holds: `run-selftests.sh`'s four catalog
+  rows still resolve after the entry block was deleted, with no catalog edit.
+- `install-topology` / `install-topology (macos, bash 3.2)` — skipped; the diff touches no
+  packaging path.
+- `pr-gates` — **fail**, on step 6 "lean chain reconciliation" alone. I read the job's step list
+  via the API: step 3 (frozen files) and step 4 (changelog trailer) both **pass**, as does step 5
+  (pipeline chain reconciliation). So no policy-gate red exists on this branch, and the step-6 red
+  is the ordinary pre-approve structural state — the branch's committed verdict record is round
+  2's `needs-work`. It resolves when this round's record lands.
+
+Locally at the reviewed head, `scripts/check-lane-class-doc.sh` and `scripts/check-lockstep-pairs.sh`
+both exit 0 — the two guards that read prose in the changed files.
+`tools/check-sweep-bound.sh` exits 2 without `--log` here and identically on `main`, so that is its
+argument contract, not a branch red.
 
 ## Pre-existing gaps (not blocking this PR)
 
-- `CLAUDE.md:115` and `docs/testing.md:685` still describe a "64-suite tree"; the tree discovers
-  77 suites here. Stale before this PR, moved by one more by the deletion. Round 1 raised it and
-  it is unchanged — still not this ticket's job.
+- The 69-file TMPDIR-ignoring set is the repo's real state and this ticket deliberately does not
+  reduce it (Out of scope: no new guard, no script). Converting the rest of the tree to the
+  explicit-template form is a separate initiative; the doc's job here is to stop mis-stating which
+  side of the line a suite is on, and it now does.
 
 ## Suppressed (below confidence threshold)
 
-- `scope-completeness-reviewer` (70) — AC-4's "a full sweep exits 0" clause was not independently
-  re-measured by that reviewer at this head, and it grounded the clause on four directly affected
-  suites plus the CI run cited in round 1's record. Its note reports two `orchestrate-lean-selftest.sh`
-  failures locally that reproduce identically on `origin/main`. I did not carry this forward: a
-  second lane (issue #783) was running a full sweep on this machine throughout this round, local
-  suite runs contend across lanes, and `lint-and-selftests` is green at this exact head — which is
-  the stronger evidence and the one AC-4 is scored on.
+- `scope-completeness-reviewer` suppressed the stale PR-body net-diff figures as outside its
+  domain. I promoted it to a Warning above — the scope reviewer is right that AC-6 holds either
+  way, and right that it is not a scope gap, but the body names the producing command, so the
+  claim is checkable and currently false.
 
 ## Verdicts
 
@@ -183,24 +185,25 @@ Recorded, not treated as a finding. Run `33643417575`, `head_sha a8717038` — t
 | Scope Completeness | Pass | 0 | — |
 | Security | Lead pass — ✅ | 0 | — |
 | Performance | Lead pass — ✅ | 0 | — |
-| Complexity | Lead pass — ✅ | 0 | — |
-| Maintainability | Lead pass — ❌ | 2 | 80-92 |
+| Complexity | Lead pass — ✅ | 1 | 80 |
+| Maintainability | Lead pass — ✅ | 2 | 78-82 |
 | Test Coverage | Lead pass — ✅ | 0 | — |
 
-**Ready to merge?** No
+**Ready to merge?** Yes
 
-**Reasoning:** The round-1 blockers are genuinely closed, but the AC-7 narrowing asserts a count
-that is false at its own head and whose set includes the two files the same sentence exempts —
-in `CLAUDE.md`, the file every session loads. One sentence in each home fixes it.
+**Reasoning:** Round 2's blocker is closed at the class rather than the digit — the hardcoded count
+is replaced by the commands that produce it, and every figure the delta asserts reproduces exactly
+in the reviewed checkout. The three remaining points are doc-polish suggestions and one PR-body
+edit that changes no reviewed line.
 
 ## AC scorecard
 
 | AC-n | score | evidence |
 | --- | --- | --- |
-| AC-1 | satisfied | Re-measured at a8717038, not inherited: the spec's own grep (git grep -lE over the two name patterns, excluding docs/plans/) returns nothing, rc=1. All three files are deleted in the branch diff. |
-| AC-2 | satisfied | grep -c 'reap-lean-fixtures' returns 0 for both tools/run-selftests.sh and tools/run-selftests-selftest.sh at this head. The entry block plus its header comment (-18 lines) and the fake-reaper case with its absent-tool control (-40 lines) are gone. |
-| AC-3 | satisfied | Both producers allocate with the explicit-template form: lean-gate-selftest.sh:82 and orchestrate-lean-selftest.sh:59. D-11 holds in both — trap cleanup EXIT at lines 69 and 49 respectively, before the WORK assignments. D-15 holds: orchestrate-lean-selftest.sh:60 keeps its pwd -P normalization, and lean-gate-selftest.sh:74 gained the mirror of it. No stamping remains in either. |
-| AC-4 | satisfied | grep -c 'fixture-stamp' returns 0 for both tools/selftest-cache-inputs.tsv and tools/mutation-pair-map.tsv. tools/check-sweep-bound-selftest.sh's comment cross-reference is reworded (the reap-lean-fixtures sentence deleted). "A full sweep exits 0" is cited from CI rather than re-run: lint-and-selftests pass 4m08s in run 33643417575 at head_sha a8717038, the reviewed head, running the same tools/run-selftests.sh sweep. |
-| AC-5 | satisfied | tools/selftest-suite-timings.tsv gains a 10-line header block, prose only — no new column, no validator. Its factual claim re-verified at this head: tools/selftest-cache-inputs.tsv declares exactly 3 suites (lean-gate-selftest.sh, cost-block-selftest.sh, check-lean-chain-selftest.sh); the first and third carry rows in the timings table at 212s and 67s against its 9s threshold, so both are deferred; cost-block-selftest.sh carries no row and is treated as fast, leaving it the only cacheable suite a milestone-3 lane runs. |
-| AC-6 | satisfied | git diff origin/main...HEAD --shortstat gives 389 insertions and 787 deletions, i.e. -398 across the branch, and -679 with ':!docs/plans/'. Negative on both readings, and the PR body now quotes both figures with the commands that produce them. |
-| AC-7 | unsatisfied | Structurally complete and now correct in direction: the reaper paragraph is gone, the scrub command and its widening caveat are in, C-1 plus the sampler's fixture half plus the stagger rule are dropped with C-2 to C-4 retained, the record-void is noted at docs/testing.md:1885, CLAUDE.md's parallel paragraph is rewritten, and the stale "four criteria" count is fixed at docs/testing.md:1834. But the replacement asserts in both homes that 33 shell files still call the non-honoring mktemp forms, and that is false at its own head three ways: the 33 reproduces only from git grep -l over the -d -t spelling alone, whose set includes the two suites the same sentence exempts (matching only on comments this PR added) plus one more comment-only file; it omits the four files calling the mktemp -t spelling the claim also names, so the caller count is 34; and the sentence's own parenthetical about bare mktemp -d, which I confirmed empirically, brings the non-isolated set to 68. CLAUDE.md additionally dropped the bare-form clause main carried. See the Critical finding. |
+| AC-1 | satisfied | Re-measured at `1871ecd9`: the spec's own oracle, `git grep -lE` over its two name patterns, excluding `docs/plans/`,, returns nothing (rc=1). All three files absent from the tree (`ls` errors on each), and present as full deletions in the branch diff — `tools/reap-lean-fixtures.sh` -201, `tools/fixture-stamp.sh` -64, `tools/reap-lean-fixtures-selftest.sh` -306. |
+| AC-2 | satisfied | `grep -n 'reap' tools/run-selftests.sh tools/run-selftests-selftest.sh` returns nothing at this head. The entry block plus its header comment (-18 lines in `run-selftests.sh`) and the fake-reaper case (-40 in `run-selftests-selftest.sh`) are both gone. |
+| AC-3 | satisfied | Both producers on the explicit-template form: `lean-gate-selftest.sh:82` `mktemp -d "${TMPDIR:-/tmp}/leangate.XXXXXX"` and `orchestrate-lean-selftest.sh:59` `mktemp -d "${TMPDIR:-/tmp}/orchestrate-lean-selftest.XXXXXX"`. D-11 holds in both — `trap cleanup EXIT` at `lean-gate-selftest.sh:69` and `orchestrate-lean-selftest.sh:49`, each before its `WORK` assignment. D-15 holds — `orchestrate-lean-selftest.sh:60` keeps `pwd -P`, and `lean-gate-selftest.sh:83` carries the mirror. No stamping remains in either. |
+| AC-4 | satisfied | `grep -n 'fixture-stamp' tools/selftest-cache-inputs.tsv tools/mutation-pair-map.tsv` returns nothing; the branch diff shows -1 row in the pair map and the input row removed. `tools/check-sweep-bound-selftest.sh`'s comment cross-reference is reworded (-1/+1). "A full sweep exits 0" is cited, not re-run — the command and the head both match: `lint-and-selftests` pass 4m22s in run `33645841301` at `head_sha` `1871ecd9`, running the same `tools/run-selftests.sh`, with `selftests (macos, bash 3.2)` pass 4m55s beside it. |
+| AC-5 | satisfied | `tools/selftest-suite-timings.tsv` gains a 10-line header block, prose only — no new column, no validator, and `check-sweep-bound.sh` parses the file unchanged. Its factual claim re-verified at this head rather than inherited: `tools/selftest-cache-inputs.tsv` declares exactly three suites; `lean-gate-selftest.sh` and `check-lean-chain-selftest.sh` both carry timings rows above the 9s threshold and are deferred, and `cost-block-selftest.sh` carries no row and is treated as fast — so a milestone-3 lane runs exactly one cacheable suite, which is the surviving instance the header names. |
+| AC-6 | satisfied | `git diff origin/main...HEAD --shortstat` at `1871ecd9`: 442 insertions, 789 deletions — **-347**. With `':!docs/plans/'`: 129 insertions, 789 deletions — **-660**. Negative on both readings, which is the whole of AC-6's bar. The PR body still quotes the round-2 figures (-398 / -679) and is stale; recorded as a Warning above, not scored against this AC, because AC-6 constrains the diff and not the body. |
+| AC-7 | satisfied | Round 2's sole blocker is closed and I close it by re-measurement. **The count.** Both `git grep` pipelines the doc now prints reproduce exactly in the reviewed checkout: 34 files on the `mktemp -d -t` / `mktemp -t` spellings, 35 on the bare form, `comm -12` over the sorted sets gives 0 overlap, union 69 — the doc's triple. Neither exempted producer appears in either set (a grep for either producer name over both sets returns nothing), which is precisely what round 2 found false. **All three forms named**, in both homes. **`CLAUDE.md`'s bare-form clause restored**, and the file now carries no hardcoded figure at all, routing to `docs/testing.md` instead. **The scrub caveat's missing half closed** — the bare-form callers are named as a disjoint gap landing under `_CS_DARWIN_USER_TEMP_DIR`, with two remedies; I confirmed the mechanism on this machine (`TMPDIR=/tmp/mkt-probe-r3/` + bare `mktemp -d` → `/var/folders/.../T/tmp.dKnTQ24oSG`). **The rest of AC-7 re-verified, not inherited:** the reaper paragraph is gone from `docs/testing.md`; the manual scrub command is present with its widening caveat; the `-t`-versus-explicit-template *derivation whose conclusion AC-3 falsified* is retired in both homes — `CLAUDE.md` now asserts the opposite and correct thing, that a private `TMPDIR` does relocate the two producers' scratch; the Concurrent-lane tier drops C-1 (`docs/testing.md:1851` records the retirement), its step-4 sampler is load-only with the fixture-row half gone, the stagger rule is absent, and C-2/C-3/C-4 keep live subjects; the record-void is noted at `docs/testing.md:1900-1902`. No `docs/plans/` record is edited — the branch's only `docs/plans/` changes are two new files, the spec and this verdict record. |
