@@ -165,8 +165,7 @@ the code does not author its own evaluation.
   round approved that the fix then touched IS in the delta, so it is read again; only what did
   not change is inherited. Read wider than the range whenever the delta looks misleading: more
   reading is always allowed, and a round that read everything is a strictly stronger record.
-- **Approve on the diff, not on the spec's promises.** A spec amended after the fact to match
-  the diff is a blocker.
+- **Approve on the diff, not on the spec's promises.**
 - **A merge-boundary refusal is not a review round.** A red CI step that gates POLICY rather than
   code — the `Changelog:` trailer check, frozen files — is RECORDED and does not by itself make
   the verdict `needs-work`. The merge boundary already blocks on it, so refusing here buys WHEN it
