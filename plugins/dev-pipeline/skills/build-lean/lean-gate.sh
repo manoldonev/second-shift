@@ -540,6 +540,17 @@ BASE_BRANCH="$(cfg "$HOST_Q as \$h | .topology.repos[\$h].baseBranch" 'main')"
 DESIGN_PROVIDER="$(cfg '.design.provider' '')"
 LR_COMMAND="$(cfg '.design.liveRender.command' '')"
 LR_CWD="$(cfg '.design.liveRender.cwd' '')"
+# WHICH REPO OWNS THE RENDER LANE. Three answers and not two: `host` (cwd unset, or naming this
+# run's own repo — the lane is ours to arm), `sibling` (cwd names ANOTHER repo of the topology, so
+# the lane was never ours), and `unknown` (cwd names no repo in `topology.repos` at all).
+# `unknown` must never collapse into `sibling`: nothing else in this repo validates the key — the
+# schema declares it a free string and config-lint has no rule for it — so a typo reading as
+# "a sibling owns it" would retire the entire design axis silently, which is the quietest possible
+# way to lose a gate. It stays an authoring error, loudly.
+if [ -z "$LR_CWD" ] || [ "$LR_CWD" = "$REPO_SLUG" ]; then LR_OWNER=host
+elif [ "$(cfg ".topology.repos | has(\"$LR_CWD\")" 'false')" = "true" ]; then LR_OWNER=sibling
+else LR_OWNER=unknown
+fi
 LR_READY_PROBE="$(cfg '.design.liveRender.readyProbe' '')"
 # #711 D-11. The one tolerance both new milestone-3 reds are expressed in, in PIXELS. The default
 # lives HERE rather than in config-lint, because a consumer that never declares the key must still
@@ -3415,6 +3426,18 @@ fidelity_evidence_violations() { # fidelity_evidence_violations <declared-ids> <
 design_state() { # design_state <spec-path>
   local spec="$1" sec n_disarm n_reason n_link n_fam ddr_rc
   [ -n "$DESIGN_PROVIDER" ] || { printf 'unarmed'; return 0; }
+  # D-8's AND half again, one level down: the provider arms only the repo that OWNS the render
+  # harness. Arming was the one predicate that never read `LR_OWNER`, so on the NON-hosting repo of
+  # a pair EVERY ticket was required to carry a `## Design` section and every disarm to carry an
+  # attended per-ticket override — to opt out of a lane this same script refuses to run there.
+  # That override is also unpayable by the lane itself, which is what made the gap a stop rather
+  # than a tax: `record` refuses a headless session by design and the build payload is headless, so
+  # the run dead-ended with no PR until a human intervened. A gate whose answer is fixed for 100%
+  # of a repo's tickets carries no signal.
+  case "$LR_OWNER" in
+    sibling) printf 'unarmed'; return 0 ;;
+    unknown) printf 'error:config sets design.liveRender.cwd to "%s", which names no repo in topology.repos — so this gate cannot tell whether the render lane belongs to this repo or to a sibling, and it will not guess (guessing "sibling" would disarm the design axis on a typo). Point it at a topology repo key, or drop the key when this repo owns the harness.' "$LR_CWD"; return 0 ;;
+  esac
   [ -f "$spec" ] || { printf 'unarmed'; return 0; }
   sec="$(design_section < "$spec" 2>/dev/null)"
   if [ -z "$sec" ]; then
@@ -3496,6 +3519,14 @@ design_was_armed() {
 # sites: the milestone that notices first should not read differently from the other.
 design_disarm_locked_msg() {
   printf 'spec %s now disarms the design lane ("Design: none"), but this run already armed it — the progress file carries a "| milestone-3 | armed |" record. Disarming mid-run retires the render evidence a review round would be scored against, so it is refused: restore the "## Design" render-state table, or abandon the run and re-file the ticket with the disarm in its spec from the start.' "$SPEC_REL"
+}
+
+# The state lock's CONFIG-shaped route. `design_disarm_locked_msg` covers a spec edit; this covers
+# a `design.liveRender.cwd` edit that hands the lane to a sibling mid-run. Both retire render
+# evidence a review round would be scored against, so both are refused — the lock cannot care which
+# file the retirement was spelled in, or the cheaper spelling becomes the way around it.
+design_unarm_locked_msg() {
+  printf 'config now unarms the design lane in this repo — design.liveRender.cwd names topology repo "%s" while this run hosts "%s", so the render harness reads as a sibling\047s — but this run already ARMED the lane: the progress file carries a "| milestone-3 | armed |" record. Retiring the render evidence a review round would be scored against is refused whichever file spells the retirement: point design.liveRender.cwd back at "%s", or abandon the run and re-file the ticket with the lane unarmed from the start.' "$LR_CWD" "$REPO_SLUG" "$REPO_SLUG"
 }
 
 # #562: resolves intake-toolkit's ledger-lint.sh across both layouts this script runs from,
@@ -3608,6 +3639,11 @@ cmd_1() {
   dstate="$(design_state "$spec")"
   case "$dstate" in
     error:*)  fail_milestone 1 "${dstate#error:}"; return $? ;;
+    # An unarm is ordinarily nothing to say — it is every consumer with no design axis. It is the
+    # ARMED-then-unarmed run that must not pass: see design_unarm_locked_msg.
+    unarmed)
+      [ "$LR_OWNER" = "sibling" ] && design_was_armed \
+        && { fail_milestone 1 "$(design_unarm_locked_msg)"; return $?; } ;;
     disarmed)
       design_was_armed && { fail_milestone 1 "$(design_disarm_locked_msg)"; return $?; }
       # APPEND, never assign. Since #517 this is no longer the first writer of `note` — the
@@ -4546,7 +4582,10 @@ cmd_3_render() {
   dstate="$(design_state "$REPO_ROOT/$SPEC_REL")"
   case "$dstate" in
     error:*) fail_milestone 3 "${dstate#error:}"; return $? ;;
-    unarmed) return 0 ;;
+    unarmed)
+      [ "$LR_OWNER" = "sibling" ] && design_was_armed \
+        && { fail_milestone 3 "$(design_unarm_locked_msg)"; return $?; }
+      return 0 ;;
     disarmed)
       # The second half of the state lock. Milestone 1 refuses this too, and the duplication is
       # deliberate: milestone 3 is the milestone that WROTE the armed record, and a run resumed
@@ -4579,13 +4618,12 @@ cmd_3_render() {
   [ -n "$LR_COMMAND" ] \
     || { fail_milestone 3 "spec $SPEC_REL arms the design render lane, but the config declares no design.liveRender.command — the harness that owns boot, auth and screenshot is the consumer's, and there is nothing to run. Configure it (docs/live-render.md) or disarm the ticket."; return $?; }
 
-  # cwd names a topology repo; this gate runs in ONE repo's worktree and cannot cd into a
-  # sibling's checkout the way the staged lane's orchestrator could. Name the limitation rather
-  # than silently rendering the wrong tree.
-  if [ -n "$LR_CWD" ] && [ "$LR_CWD" != "$REPO_SLUG" ]; then
-    fail_milestone 3 "design.liveRender.cwd names topology repo '$LR_CWD', but this lean run hosts '$REPO_SLUG' — run the lean lane from the repo that owns the render harness. The lean lane works one repo's worktree; it does not drive a sibling checkout."
-    return $?
-  fi
+  # No cwd-vs-host refusal here any more, and its absence is the point. Reaching this line means
+  # design_state resolved `armed`, which now requires LR_OWNER=host — a sibling-owned lane unarms
+  # and an unresolvable cwd is an authoring error, both decided at milestone 1 where a spec edit is
+  # still cheap. The refusal this block used to raise told the non-hosting repo of a pair to "run
+  # the lean lane from the repo that owns the render harness", which was wrong advice: its backend
+  # tickets belong in its own repo and want no render lane at all.
 
   case "$LR_COMMAND" in
     *'{out}'*) : ;;

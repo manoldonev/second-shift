@@ -25,12 +25,19 @@ the same change (it had no reader left).
   "provider": "figma",
   "liveRender": {
     "command": "yarn render:verify --route {route} --state {state} --out {out}",  // required
-    "cwd": "fe",                                                  // topology repo id; default: the fe repo
+    "cwd": "fe",                                                  // topology repo id that OWNS the harness; unset = this one
     "readyProbe": "http://localhost:3000/system/status",          // optional pre-check URL
     "tolerancePx": 2                                              // optional; default 2
   }
 }
 ```
+
+`cwd` names which repo of the topology owns the harness, and on a multi-repo topology that is also
+**which repo the design lane arms**: `design.provider` is configured once for the pair, so a repo
+that is not the named owner unarms and is asked for neither a `## Design` section nor a
+design-disarm override. Leave `cwd` unset when the repo you run in owns the harness. A value naming
+no `topology.repos` key is a milestone-1 error rather than a silent unarm — otherwise a typo would
+retire the design axis with nothing said.
 
 ## The command contract
 

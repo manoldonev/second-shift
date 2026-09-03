@@ -218,7 +218,7 @@
             },
             "cwd": {
               "type": "string",
-              "description": "Topology repo id (topology.repos key) whose checkout the command runs in. Default: the fe repo when the topology has one, else the sole repo. The gate resolves it to the ticket's worktree, never the main checkout."
+              "description": "Topology repo id (topology.repos key) that owns the harness, and whose checkout the command runs in. Unset means the repo the run hosts. On a multi-repo topology this also decides which repo the design lane ARMS: a repo that is not the named owner unarms, and is asked for neither a per-ticket `## Design` section nor a design-disarm override. A value naming no topology.repos key is a milestone-1 error, never a silent unarm. The gate resolves it to the ticket's worktree, never the main checkout."
             },
             "readyProbe": {
               "type": "string",
