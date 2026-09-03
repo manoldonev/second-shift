@@ -47,14 +47,17 @@ rather than assumed away.
 ## Apparatus failure: the discarded first batch
 
 An earlier control batch was launched from inside the lean BUILD session and was killed when
-that session ended its turn — the runs were its children. The three captures are preserved
-unmodified at `out-killed-infra-20260903/` and are **not scored**:
+that session ended its turn — the runs were its children. The three captures are **not scored**,
+and — like every scored run's raw capture above — they are **not committed**: they stay in the
+run's machine-local scratch (`/private/tmp/c2b-748/out-killed-infra-20260903/`), which no reader
+of this repo can resolve. What is preserved here is the measurement, hashed so the reading can be
+repudiated on a machine that still has them:
 
-| capture | bytes | `result` events | `classify-capture.sh` |
-| --- | --- | --- | --- |
-| `control-r1.stream.json` | 412047 | 0 | exit 2 — **TRUNCATED** |
-| `control-r2.stream.json` | 426267 | 0 | exit 2 — **TRUNCATED** |
-| `control-r3.stream.json` | 498614 | 0 | exit 2 — **TRUNCATED** |
+| capture | bytes | sha256 | `result` events | `classify-capture.sh` |
+| --- | --- | --- | --- | --- |
+| `control-r1.stream.json` | 412047 | `a94bc25aa33dbaa8…` | 0 | exit 2 — **TRUNCATED** |
+| `control-r2.stream.json` | 426267 | `c30e6e428a92f64d…` | 0 | exit 2 — **TRUNCATED** |
+| `control-r3.stream.json` | 498614 | `a29839f5c46011ab…` | 0 | exit 2 — **TRUNCATED** |
 
 Each stops mid-conversation with no terminal `result` event, and every mtime is the second the
 parent session exited. Recorded because a truncated capture read at face value is a clean

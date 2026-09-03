@@ -569,10 +569,10 @@ the §5 precedent separating a verdict from its execution.
   `no-effect`: §C names no score for it. Cut-eligibility still resolves, because only `no-effect` is
   eligible; the gap is in the vocabulary, not the outcome.
 - **The first control batch was killed and is not scored.** It ran as children of a session that
-  ended, leaving three captures with no terminal `result` event. They are preserved unmodified at
-  `c2-review/out-killed-infra-20260903/` in the working notes and disclosed in
-  `ablated-control-654-review.md`; `classify-capture.sh` returns exit 2 on each. The lane gap that
-  produced it is filed (#795).
+  ended, leaving three captures with no terminal `result` event. Those captures are **not
+  committed** — no raw capture in this study is, scored or not — so what survives in-repo is the
+  measurement: `ablated-control-654-review.md` records each one's bytes, sha256 and the exit 2
+  `classify-capture.sh` returns on it. The lane gap that produced it is filed (#795).
 
 ### Recorded separately, as registered
 
@@ -727,7 +727,8 @@ rather than as a green sweep that proves something it does not. The successors a
 - **#671** — localise both cuts, and run the comparator the ticket named (`/code-review`) that §2
   declares this slice did not. **Arm 1 (#746) is done** — see §1; it returns an empty cut list.
   **Arm 2a (#747) is done** — see §2; the named comparator scores the same 0.80 and the verdict
-  holds. Arm 2b (#748) is outstanding.
+  holds. **Arm 2b (#748) is done** — see §2; leave-one-out over all 17 pinned units returns a cut
+  list of three, and the deletion itself is a further successor.
 - **#672** — `intake-orchestrator` (711 lines) and, by the operator's 2026-08-24 amendment,
   `intake-interviewer` (279 lines): 990 unmeasured lines, each owed a basis or an explicit
   no-basis record.
