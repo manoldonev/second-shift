@@ -7,6 +7,17 @@
   `max` on the same head, run under `docs/skill-ablation-addendum.md` §B. Each file records the
   realised invocation and the capture's apparatus, then the session's output verbatim — the report
   tool's payload where it filed one, and every `result` event's assistant text.
+- `ablated-control-<pr>-review.md` and `ablated-<unit>-<pr>-review.md` — the **arm-2b leave-one-out
+  ablation** registered at `docs/skill-ablation-addendum.md` §C: one file per arm, every replicate
+  verbatim under its own `## r<n>` heading. `ablated-control-` is the full unablated 127-line
+  `review-lean` at `8d5d0897`; each `ablated-<unit>-` file is that same text with exactly one unit's
+  registered line range deleted. Every file records the realised invocation and a per-run apparatus
+  table — `classify-capture.sh` verdict, `result` event count, tool calls, and the count of tool
+  inputs naming `review-lean`, which is the ablation's own integrity check that no session read the
+  unablated SKILL off disk.
+- `ablation-units.tsv` — the per-unit result: line range at `8d5d0897`, registered reach, valid and
+  indeterminate run counts, hits, the control's majority, the score, and the disposition against
+  **both** comparators. The bare-arm column is the binding one; see `docs/skill-ablation.md` §2.
 - `scoring.tsv` — per-blocker adjudication. `bare_result` / `adjudication` are the bare arm's;
   `codereview_result` / `codereview_adjudication` are the challenger's.
 

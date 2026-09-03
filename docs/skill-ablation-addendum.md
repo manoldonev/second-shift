@@ -529,7 +529,9 @@ sits outside the denominator the guard claims is its output.*
 ### Subject pin
 
 `plugins/dev-pipeline/skills/review-lean/SKILL.md` at **`8d5d0897c3b57ea0d5349787edfd86c3e4ee46ff`**
-— **127 lines**. Not the current head, which is **188 lines** at this branch's base `8200f1c3`.
+— **127 lines**, the measured surface. Not the head: at this branch's base `8200f1c3` the file was
+**188 lines**, and it has grown since — which is why the subject is pinned by commit rather than by
+count.
 
 The pinned commit is the one the pre-registration itself was committed in, which is what makes it
 the measured file rather than a nearby one. The lines added since are **unmeasured**, and are
