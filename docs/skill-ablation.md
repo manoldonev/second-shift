@@ -391,13 +391,18 @@ converse of B2's claim that `m5/identity-stamp` has no fixture case at all.
 
 Per the registered rule, blockers the challenger raises that no round of the lane's own review
 raised are recorded here and excluded from recall. Across the three samples the challenger reported
-**84 findings** (31 / 19 / 34). **Nine** correspond to a finding some lane round made — enumerated
-so the complement is checkable:
+**84 findings** (31 / 19 / 34), each sample's total being its sinks merged for duplicates. **Nine**
+correspond to a finding some lane round made, enumerated below so each of the nine is checkable —
+the *complement* is not, and the enumeration should not be read as making it so. Only C2-c's
+arithmetic is visible in its transcript (32 findings through the report tool + 13 on stdout = 45
+raw, 11 merges → 34); C2-a and C2-b carry 14 and 12 JSON findings with the rest in prose across 2
+and 5 `result` bodies, so 31 and 19 cannot be re-derived without redoing that merge judgment, which
+is recorded nowhere but in the totals themselves.
 
 | sample | challenger finding | lane round it matches |
 | --- | --- | --- |
 | C2-a | command-position class omits keywords | #654 r1 blocker (the ground truth) |
-| C2-a | `gate-buckets.tsv:67` anchor is a prefix of row 68 | #654 r1 W3 |
+| C2-a | `gate-buckets.tsv:67` anchor is a prefix of row 68 | #654 r1 finding 3 (Warning) |
 | C2-b | seed writes an unignored untracked file | #657 r1 B1 (ground truth) |
 | C2-b | tracked project-scope `Bash(gh:*)` | #657 r1 B2 (ground truth) |
 | C2-b | the `wt == MAIN_ROOT` guard is redundant with never-clobber and untested | #657 r1 W2 |
@@ -415,12 +420,30 @@ fixed — which corroborates that escape set rather than extending it.
 bare arm's two.** The predecessor verified both of its escapes against `main` and filed them; 75 is
 past the point where that is this slice's work, and verifying them is in no AC here. What the count
 is good for is the direction it points, and the frozen table does not consult it at all at 4/5:
-false blockers are read only on a 5/5 run.
+false blockers are read only on a 5/5 run. The ledger row that reads AC-6 this way (D-14) was
+written in the **results** commit rather than the pinned one — after the count was known, and in the
+direction that reduces this slice's work. Disclosed here so the next reader sees the move instead of
+inheriting it.
 
-#### Apparatus, and two things the registration did not anticipate
+#### Apparatus, and three things the registration did not anticipate
 
-All three captures exited `0` with empty stderr and classified `COMPLETE` under
-`tools/classify-capture.sh`, so all three were scored; none was discarded and re-run.
+All three captures exited `0` and classified `COMPLETE` under `tools/classify-capture.sh` — §B's
+whole scoring precondition — so all three were scored; none was discarded and re-run.
+
+**Stderr was empty on two of the three; C2-b's was not.** It carried `Background tasks still running
+after 600s; terminating. Set CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 to wait indefinitely.`
+([recorded with the transcript](plans/skill-ablation/c2-review/codereview-657-review.md)) — the
+harness stopped waiting on delegated subagents at its ceiling, and C2-b is the only capture of the
+three that reached one. It moves no score: exit 0 and `COMPLETE` both held. What it bears on is how
+completely C2-b's set can be read, and that matters because C2-b is also the smallest of the three
+(**19**, against 31 and 34). Its own transcript records the apparatus failing and then recovering —
+`result` 1 of 5 opens *"subagent result delivery was broken in this environment (only the
+conventions angle could report back)"*, `result` 2 records that *"the delivery failure resolved
+itself — their results arrived as task notifications"* with all 10 finder angles back, and `result`
+5 closes *"The review is complete and the ranking stands"*. So the ceiling fired after the session
+had declared itself done rather than mid-review, and what it truncated is whatever a still-running
+task would have added past that point; nothing here measures how much. **Read C2-b's 19 as a floor**
+rather than a settled total, and read the 31 / 19 / 34 spread with that asymmetry in it.
 
 **The capture mode inverted between runs of the same three samples.** The 2026-09-02 measurement
 that motivated the amended capture found C2-a and C2-b routing to the report tool and C2-c printing
@@ -554,8 +577,8 @@ re-measurement that the frozen pre-registration does not describe — `build-lea
 repo-local (§1), and `review-lean`'s was a bare-session recall rather than the `/code-review`
 comparison the ticket named, with its delta unlocalised (§2). The addendum fixes the substrate
 (#746), the challenger invocation (#747) and the attribution rubric (#748) that those arms consume,
-before any of them runs. Arms 1 and 2a have since run against it; 2b has not. Read it alongside this table: it is where the terms of the next
-measurement live, and it contains no results.
+before any of them runs. Arms 1 and 2a have since run against it; 2b has not. Read it alongside this
+table: it is where the terms of the next measurement live, and it contains no results.
 
 | skill | lines | measured | basis | date |
 | --- | --- | --- | --- | --- |
