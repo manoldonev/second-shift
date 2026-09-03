@@ -297,9 +297,30 @@ fi
 DESIGN_PROVIDER="$(jq -r '.design.provider // ""' "$CONFIG")"
 DESIGN_LR="$(jq -r 'if ((.design | type) == "object") and (.design.liveRender != null) then "yes" else "" end' "$CONFIG")"
 if [[ -n "$DESIGN_PROVIDER" && -z "$DESIGN_LR" ]]; then
-  add_finding "T4.design-liverender" "design.liveRender" \
-    "design.provider is \"$DESIGN_PROVIDER\" but design.liveRender is absent — the design axis is on with no render harness behind it." \
-    "Add design.liveRender { command, cwd?, readyProbe? } pointing at the repo's render script. Without it a ticket cannot arm its design lane at all: the green gate renders every declared route and hashes the results into a committed receipt, and there is nothing here to render (docs/live-render.md). $(waiver_hint "T4.design-liverender")"
+  # APPLICABILITY FIRST — the same predicate T2's rendering-surface rows already apply, and for
+  # the same reason: a root with no rendering surface has no render harness to propose and no
+  # disposition to force. On a be-fe-pair the config declares the WHOLE topology, so the backend
+  # repo's own config legitimately carries `design.provider` while the harness lives in the
+  # sibling. Ungated, this fired a FAIL at every backend root on that shape, and the only escape
+  # was a grillWaivers entry excusing a non-problem — "declare, because there is nothing to
+  # adopt", which is precisely what the T2 probe exists to stop.
+  #
+  # #788 taught the BUILD lane this ownership rule via `design.liveRender.cwd`; that key cannot
+  # settle it here, because this check fires only when `liveRender` — and so `cwd` with it — is
+  # ABSENT. Tracked rendering surface is the signal that survives the key's absence, needs no
+  # hardcoded "fe" topology key, and stays correct on a single-repo frontend app.
+  #
+  # Suppression requires CONFIDENCE, so it is gated on a readable work tree: outside one the
+  # probe cannot speak and the finding stands. Retiring the design axis on a repo that does own
+  # the harness would be the silent failure #788 refused, and over-firing is the cheaper error.
+  if [[ "$TRACKED_OK" -eq 1 ]] && [[ "$(count_glob_matches "${WEB_SURFACE_PROBE[@]}")" -eq 0 ]]; then
+    add_noteval "T4.design-liverender" "design.liveRender" \
+      "no tracked file matches the rendering-surface probe ($(join_c "${WEB_SURFACE_PROBE[@]}")) — this root has nothing to render, so the render harness belongs to a sibling repo of the topology and there is no value to propose and nothing to waive here; grill it from the root that owns the surface"
+  else
+    add_finding "T4.design-liverender" "design.liveRender" \
+      "design.provider is \"$DESIGN_PROVIDER\" but design.liveRender is absent — the design axis is on with no render harness behind it." \
+      "Add design.liveRender { command, cwd?, readyProbe? } pointing at the repo's render script. Without it a ticket cannot arm its design lane at all: the green gate renders every declared route and hashes the results into a committed receipt, and there is nothing here to render (docs/live-render.md). $(waiver_hint "T4.design-liverender")"
+  fi
 fi
 
 # --- trigger 5: a declared command that contradicts repo reality (AC-5) --------------------
