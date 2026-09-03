@@ -4,6 +4,20 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v12.4.2
+
+### `second-shift` 8.0.3 → 8.0.4
+
+- **fix(doctor): the design grill asks a root for a render harness only if it renders anything (#790)** (#790)
+  doctor no longer FAILs a repo with no tracked rendering surface for a
+  missing `design.liveRender`. On a be-fe-pair, `design.provider` in the shared
+  config produced a FAIL at the backend root that only a waiver could clear; the
+  check is now reported as not-evaluated there, the way the other
+  rendering-surface checks already were. A repo that does own the surface, and any
+  root outside a readable work tree, is unaffected.
+  Migration: a `grillWaivers` entry added only to silence this FAIL on a
+  non-rendering root can be dropped.
+
 ## v12.4.1
 
 ### `dev-pipeline` 12.4.0 → 12.4.1
