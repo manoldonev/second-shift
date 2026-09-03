@@ -113,6 +113,7 @@ echo "PAYLOAD-STDERR-$n" >&2
   echo "RUN_ID_SET: ${RUN_ID+yes}"
   echo "LEAN_RUN_MODEL: ${LEAN_RUN_MODEL:-<unset>}"
   echo "SESSION_ID_SET: ${CLAUDE_CODE_SESSION_ID+yes}"
+  echo "BG_CEILING: ${CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS:-<unset>}"
 } > "$SPAWN_LOG_DIR/spawn-$n"
 rc="$(sed -n "${n}p" "$SPAWN_RC_FILE" 2>/dev/null)"
 exit "${rc:-0}"
@@ -462,6 +463,20 @@ if grep -q '^LEAN_RUN_MODEL: sonnet$' "$SPAWN_LOG_DIR/spawn-1" \
    && grep -q '^LEAN_RUN_MODEL: opus$' "$SPAWN_LOG_DIR/spawn-2"; then
   pass "(d2) LEAN_RUN_MODEL is set per PHASE — build's model on build, review's on review"
 else fail "(d2) LEAN_RUN_MODEL was not re-set per phase: $(grep -h LEAN_RUN_MODEL "$SPAWN_LOG_DIR"/spawn-*)"; fi
+
+# The ceiling is asserted PRESENT AND FINITE on every spawn, not merely present. Absent, the
+# harness's own 600s default ends the turn under a payload still waiting on a dispatched agent —
+# the `build-no-pr` this env var exists to stop. `0` would also be "set", and would trade that
+# failure for a lane that hangs on a stuck dispatch with no budget to end it, so the assertion
+# rejects it the same as an unset.
+bad=0
+for f in "$SPAWN_LOG_DIR"/spawn-*; do
+  ms="$(sed -n 's/^BG_CEILING: //p' "$f")"
+  case "$ms" in ''|'<unset>'|0|*[!0-9]*) bad=1 ;; esac
+done
+if [ "$bad" -eq 0 ]; then
+  pass "(d3) every spawned session carries a finite non-zero background-wait ceiling"
+else fail "(d3) a spawn carried no usable background-wait ceiling: $(grep -h BG_CEILING "$SPAWN_LOG_DIR"/spawn-*)"; fi
 
 # ---- (e) fresh contexts, never a resumed one --------------------------------------------------
 if grep -qE -- '(^| )-p ' <<<"$(all_argv)" \
