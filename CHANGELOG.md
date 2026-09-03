@@ -4,6 +4,13 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v12.4.3
+
+### `dev-pipeline` 12.4.1 → 12.4.2
+
+- **fix(run-lean): raise the spawned payload's background-wait ceiling above a plan-stage reviewer (#793)** (#793)
+  run-lean now spawns every payload with a 30-minute background-task wait ceiling instead of the harness default of 600s, so a milestone that must dispatch an agent — an armed milestone 3's plan review — no longer ends its turn mid-dispatch and strands the run with no PR. Set LEAN_SPAWN_BG_WAIT_CEILING_MS to override.
+
 ## v12.4.2
 
 ### `second-shift` 8.0.3 → 8.0.4
