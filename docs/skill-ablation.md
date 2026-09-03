@@ -28,14 +28,15 @@ git log --format='%h %ad %s' --date=short -- docs/plans/skill-ablation/         
 | --- | --- | --- | --- | --- |
 | 1 | `build-lean` SKILL (48 lines) | mandated-artifact coverage | on a consumer-shaped substrate bare covers **3 and 4 of 9** (#746); **no item is cut-eligible** | **cut-to-delta, empty cut** |
 | 1b | the five milestone gates | *inherited* — `docs/gate-ablation.md` | 66% of firings adjudicated `unchanged`; all six keep-earners re-run at the merge boundary | inherited, not re-collected |
-| 2 | `review-lean` SKILL (127 lines) | recall of ground-truth blockers | bare† **4 of 5**, and found 2 real defects the lane's own review missed | **cut-to-delta** |
+| 2 | `review-lean` SKILL (127 lines) | recall of ground-truth blockers | bare† **4 of 5**; the built-in `/code-review` also **4 of 5** (#747), missing a different one | **cut-to-delta** |
 | 3 | `plan-interview` + `interviewing-baseline` (312 lines) | recall of operator-ratified decisions | bare **6 of 20** | **keep** |
 | — | `intake-orchestrator` (711 lines) | — | not reached by any metric here | **not adjudicated** → #672 |
 | — | `intake-interviewer` (279 lines) | — | registered in scope; no sample ran its path | **not adjudicated** → #672 |
 
 † **Comparison 2 ran a bare session, not the built-in `/code-review` the ticket names.** The
-departure is declared in §2 with its direction of bias; the verdict is unaffected, the
-`/code-review` comparison is unmeasured, and it is routed to #671 arm 2.
+departure is declared in §2 with its direction of bias; the verdict is unaffected. The
+`/code-review` comparison itself was run as #671 arm 2a and is reported in §2 — same 4/5, missing a
+different blocker.
 
 No comparison exits `undetermined`. **This slice executes no deletion**, and §5 states why that is
 the evidence-supported action rather than a flinch.
@@ -272,14 +273,16 @@ history is what AC-1 is scored on.
 recalled 4 of the 5 ground-truth blockers, over the pre-registered sample, scored by the
 pre-registered rule. It is a **bare-vs-kit** recall, and that is how §4 now titles it. It is **not**
 a `/code-review`-vs-`review-lean` result, and the claim that it is `review-lean`'s P6 basis of
-record *for the comparison the ticket named* is withdrawn. That comparison is **unmeasured**.
+record *for the comparison the ticket named* is withdrawn. That comparison was **unmeasured** until
+arm 2a; it is measured below, and it does not change the verdict.
 
-**Direction of the bias, and why the verdict does not move.** A prompt-only session is the weaker
+**Direction of the bias, and what the measurement did to it.** A prompt-only session is the weaker
 comparator: `/code-review` carries its own review scaffolding, so it should recall at least as much
 as the bare arm did. The substitution can therefore only have *depressed* the challenger's score —
 its failure mode is a false `keep`, never a false cut. C2 cut anyway, at 0.80 against a registered
-3/5–4/5 `cut-to-delta` band. The verdict is unaffected; the title of the number was wrong, and only
-that. Routed to **#671, arm 2** — see *Recorded separately* below.
+3/5–4/5 `cut-to-delta` band. Arm 2a ran the named comparator and the argument **survives, at
+equality rather than with room to spare**: the challenger also scored 4/5. What the argument did
+not anticipate is that the two arms miss *different* blockers, so neither dominates — see below.
 
 ### Result
 
@@ -327,6 +330,156 @@ panel, and surfaced only here. Filed as **#674**; also outside this slice's AC s
 corrects an earlier count of "one" in this section: the bare arm's escape rate on #660 is two of
 two, not one of two.
 
+### Arm 2a (#747) — the challenger the ticket named, measured
+
+The built-in `/code-review` at effort `max`, run 2026-09-03 on the three frozen samples at their
+frozen heads, under the invocation
+[`docs/skill-ablation-addendum.md`](skill-ablation-addendum.md) §B registered before any of it ran.
+Transcripts: [`c2-review/codereview-<pr>-review.md`](plans/skill-ablation/c2-review/), one per
+session, each carrying its realised invocation and the session's output verbatim.
+
+| sample | ground-truth blockers | bare found | `/code-review` found |
+| --- | --- | --- | --- |
+| C2-a #654 | 1 | **0** | **1** |
+| C2-b #657 | 2 | **2** | **2** |
+| C2-c #660 | 2 | **2** | **1** |
+| | **5** | **4** — recall **0.80** | **4** — recall **0.80** |
+
+**The two arms are not nested.** The challenger recalls the #654 blocker the bare arm missed — the
+enumerator's command-position class omitting keyword-preceded calls — naming the class, citing the
+live `lean-gate.sh:420` `else envfail` site by line, and confirming it by execution. It then misses
+#660's B2, which the bare arm hit. Same score, disjoint misses; the union of the two arms is 5/5 and
+neither arm reaches it alone. That is a fact about *these two comparators*, and it is recorded, not
+scored: the frozen metric asks about one challenger at a time, and no registered rule reads a union.
+
+**Governing recall: 0.80** — the higher of the two, per §B's registered rule, which here is also
+both. Registered threshold, unchanged: 3/5 or 4/5 → **`cut-to-delta`**. The verdict does not move.
+
+#### The one miss, quoted and adjudicated
+
+#660's B2 is *"AC-3's fixture-per-reason is unsatisfied for `m5/identity-stamp`"* — the reason has
+no behavioral case, and its only coverage is the static `(ac1b)` site count, which greps call sites
+textually and can never observe that a failed identity stamp records `absent` and charges zero
+attempts.
+
+Nothing in the challenger's 34-finding set names that. The nearest three, quoted verbatim from the
+transcript so the call can be repudiated:
+
+> The genuine evidence for AC-3 lives only in the selftest.
+> — finding 21
+
+That is the **opposite** claim: it asserts the selftest carries AC-3's evidence, where the oracle's
+blocker is that for one of the six reasons it does not.
+
+> `(ac1)`'s "all 18 milestone-4 failure sites carry an explicit class" is no longer true of the file
+> it inspects, and its companion `(ac1b)` cannot detect the regression its own comment names.
+> — finding 28
+
+Same file as the oracle's blocker, and the same complaint about `(ac1b)` being a textual count. But
+the defect is a different one: a verdict-absent site moved to `block_milestone 4 "…" 5` sitting
+outside `(ac1)`'s grep, plus regex gaps in `(ac1b)`. It says nothing about a reason lacking a
+fixture. Same file, different defect — the registered rule scores that a miss.
+
+> Neither AC-8 nor the absent-verb widening is composed by any scenario leg…
+> — finding 27
+
+About `scenario-liveness-selftest.sh`'s composition, and it explicitly concedes the `--pr-file`
+fixtures do execute the path (*"never execute outside a `--pr-file` fixture"*), which is the
+converse of B2's claim that `m5/identity-stamp` has no fixture case at all.
+
+#### Recorded separately, not folded into recall
+
+Per the registered rule, blockers the challenger raises that no round of the lane's own review
+raised are recorded here and excluded from recall. Across the three samples the challenger reported
+**84 findings** (31 / 19 / 34), each sample's total being its sinks merged for duplicates. **Nine**
+correspond to a finding some lane round made, enumerated below so each of the nine is checkable —
+the *complement* is not, and the enumeration should not be read as making it so. Only C2-c's
+arithmetic is visible in its transcript (32 findings through the report tool + 13 on stdout = 45
+raw, 11 merges → 34); C2-a and C2-b carry 14 and 12 JSON findings with the rest in prose across 2
+and 5 `result` bodies, so 31 and 19 cannot be re-derived without redoing that merge judgment, which
+is recorded nowhere but in the totals themselves.
+
+| sample | challenger finding | lane round it matches |
+| --- | --- | --- |
+| C2-a | command-position class omits keywords | #654 r1 blocker (the ground truth) |
+| C2-a | `gate-buckets.tsv:67` anchor is a prefix of row 68 | #654 r1 finding 3 (Warning) |
+| C2-b | seed writes an unignored untracked file | #657 r1 B1 (ground truth) |
+| C2-b | tracked project-scope `Bash(gh:*)` | #657 r1 B2 (ground truth) |
+| C2-b | the `wt == MAIN_ROOT` guard is redundant with never-clobber and untested | #657 r1 W2 |
+| C2-c | the absent-verb demotion skipped `cmd_close_out` | #660 r1 B1 (ground truth) |
+| C2-c | milestone 3 concludes `green gate` over a lane that went red | #660 r2 W1 |
+| C2-c | the manifest was re-cut to a disjoint record set | #660 r1 W1 |
+| C2-c | `docs/testing.md`'s never-fired table disagrees with the report | #660 r1 W1 |
+
+The remaining **75** appear in no round. Two of them re-find the bare arm's own escapes
+independently — `build-lean/SKILL.md:32`'s self-contradiction (**#670**) and
+`docs/config-schema.md`'s exit-3 claim (**#674**), both filed off the bare arm and both since
+fixed — which corroborates that escape set rather than extending it.
+
+**These 75 are recorded as *raised*, not as *confirmed live*, and that is a weaker record than the
+bare arm's two.** The predecessor verified both of its escapes against `main` and filed them; 75 is
+past the point where that is this slice's work, and verifying them is in no AC here. What the count
+is good for is the direction it points, and the frozen table does not consult it at all at 4/5:
+false blockers are read only on a 5/5 run. The ledger row that reads AC-6 this way (D-14) was
+written in the **results** commit rather than the pinned one — after the count was known, and in the
+direction that reduces this slice's work. Disclosed here so the next reader sees the move instead of
+inheriting it.
+
+#### Apparatus, and three things the registration did not anticipate
+
+All three captures exited `0` and classified `COMPLETE` under `tools/classify-capture.sh` — §B's
+whole scoring precondition — so all three were scored; none was discarded and re-run.
+
+**Stderr was empty on two of the three; C2-b's was not.** It carried `Background tasks still running
+after 600s; terminating. Set CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 to wait indefinitely.`
+([recorded with the transcript](plans/skill-ablation/c2-review/codereview-657-review.md)) — the
+harness stopped waiting on delegated subagents at its ceiling, and C2-b is the only capture of the
+three that reached one. It moves no score: exit 0 and `COMPLETE` both held. What it bears on is how
+completely C2-b's set can be read, and that matters because C2-b is also the smallest of the three
+(**19**, against 31 and 34). Its own transcript records the apparatus failing and then recovering —
+`result` 1 of 5 opens *"subagent result delivery was broken in this environment (only the
+conventions angle could report back)"*, `result` 2 records that *"the delivery failure resolved
+itself — their results arrived as task notifications"* with all 10 finder angles back, and `result`
+5 closes *"The review is complete and the ranking stands"*. So the ceiling fired after the session
+had declared itself done rather than mid-review, and what it truncated is whatever a still-running
+task would have added past that point; nothing here measures how much. **Read C2-b's 19 as a floor**
+rather than a settled total, and read the 31 / 19 / 34 spread with that asymmetry in it.
+
+**The capture mode inverted between runs of the same three samples.** The 2026-09-02 measurement
+that motivated the amended capture found C2-a and C2-b routing to the report tool and C2-c printing
+to stdout. This run is the exact reverse: C2-a and C2-b made **no** `ReportFindings` call and put
+their finding sets on stdout, while C2-c filed **32** findings through the report tool and put 13 on
+stdout. Under the pre-amendment stdout-only form this run would have lost 19 of C2-c's 32. The
+non-determinism §B registered is real, it is not sample-keyed, and the amended capture is what makes
+the corpus comparable.
+
+**A session can emit more than one `result` event, and the primary finding set was in the first.**
+The three captures carry 2, 5 and 2 `result` events; on all three the main finding set is in
+`result` 1, with later events adding material as delegated subagents reported back late. §B's
+mapping names "the findings in the final assistant text", which taken literally would discard the
+first result's whole array — the very loss mode the amendment exists to close. The finding set was
+therefore taken as the union over **every** `result` body plus the report payload, deduplicated on
+the frozen hit rule's own predicate. That resolves in the registered bias direction (it can only
+enlarge the challenger's set), and it is recorded here rather than folded in silently. §B is **not**
+edited: amending a registration with results in hand is what it exists to prevent.
+
+**§B's post-run assertion is unevaluable, as #777 predicted.** It requires the report to state the
+range it reviewed; none of the three does, and silence is not "any other range", so no run is
+discarded on it. The range was established independently instead. On C2-a it is positively confirmed:
+the pinned range is exactly 4 commits over 6 files, and the session reports *"All four commits are
+scoped `(dev-pipeline)` but the branch touches zero `plugins/` files (verified: ci.yml, 2 docs, 3
+scripts)"* — a byte-exact description of the pinned range — while citing three files
+(`gate-buckets.tsv`, `ci.yml`, `pipeline-manifesto.md`) that lie outside `HEAD~1..HEAD`. On C2-b and
+C2-c it cannot be confirmed the same way, and does not need to be: each branch's first commit adds
+only the lean spec, so `HEAD~1..HEAD` and the pinned range differ by nothing but that file's initial
+version.
+
+**The file-reading leak, measured rather than assumed.** The clones keep `plugins/` in the working
+tree, because §B registers no removal and the files under review *are* the kit
+(`docs/plans/second-shift-747-lean.md` D-1). One subagent `Bash` call on C2-a read 13 lines of
+`review-lean/SKILL.md`; C2-b and C2-c made none. That read bears on nothing in C2-a's finding set,
+which is entirely about `scripts/check-gate-buckets.sh` and its register.
+
 ### Recorded separately, as registered
 
 P10 independence — the verdict is authored by a session that is not the build session — is a
@@ -335,9 +488,12 @@ addresses the skill's 127 lines of prose. It says nothing about the separate-ses
 which this slice did not measure and does not touch.
 
 **Successor — #671, arm 2.** The delta is not localisable to particular lines from this evidence.
-Measuring which of the 127 lines carries it is the follow-up; until then no line is cut. That arm
-also carries the comparator declared above: `review-lean` against the built-in `/code-review`, on
-the same three samples and the same oracle, which this slice did not measure.
+Measuring which of the 127 lines carries it is the follow-up (**#748**); until then no line is cut.
+The comparator half of that arm is **discharged**: arm 2a above ran `review-lean` against the
+built-in `/code-review` on the same three samples and the same oracle, and the verdict held at
+`cut-to-delta`. The disjoint-miss result sharpens what #748 has to localise — the delta is not "the
+lines that beat a bare prompt", since a scaffolded challenger scores the same 0.80 while missing
+somewhere else entirely.
 
 ---
 
@@ -418,16 +574,16 @@ none may be credited with a pass.**
 **The protocol is extended, not amended, by
 [`docs/skill-ablation-addendum.md`](skill-ablation-addendum.md).** Two of the rows below are owed a
 re-measurement that the frozen pre-registration does not describe — `build-lean`'s basis is
-repo-local (§1), and `review-lean`'s is a bare-session recall rather than the `/code-review`
+repo-local (§1), and `review-lean`'s was a bare-session recall rather than the `/code-review`
 comparison the ticket named, with its delta unlocalised (§2). The addendum fixes the substrate
 (#746), the challenger invocation (#747) and the attribution rubric (#748) that those arms consume,
-before any of them runs. Read it alongside this table: it is where the terms of the next
-measurement live, and it contains no results.
+before any of them runs. Arms 1 and 2a have since run against it; 2b has not. Read it alongside this
+table: it is where the terms of the next measurement live, and it contains no results.
 
 | skill | lines | measured | basis | date |
 | --- | --- | --- | --- | --- |
 | `dev-pipeline/build-lean` | 48 | C1 + #746 arm 1 | **cut-to-delta with an empty cut** — re-measured on the consumer-shaped substrate (§1): bare covers 3–4 of 9, no item is cut-eligible, M3 and M9 `undetermined` at n=2. The repo-local basis is retired | 2026-09-01 |
-| `dev-pipeline/review-lean` | 127 | C2 | cut-to-delta; **bare-session** recall 0.80 on ground-truth blockers — not the ticket's `/code-review` comparison, which is unmeasured (→ #671 arm 2); delta not yet localised | 2026-08-24 |
+| `dev-pipeline/review-lean` | 127 | C2 + #747 arm 2a | **cut-to-delta** on two independent challengers: bare-session recall 0.80, and the built-in `/code-review` at effort `max` also **0.80** — the comparison #644 named, now measured (§2). The two miss different blockers, so neither dominates and the union is 5/5. Delta still not localised → **#748** | 2026-09-03 |
 | `intake-toolkit/plan-interview` + `interviewing-baseline` | 312 | C3 | **keep**; bare recall 0.30, delta is the scope-boundary/DEPARTURE class | 2026-08-24 |
 | `intake-toolkit/intake-orchestrator` | 711 | — | **unmeasured — no basis**; no metric here reaches decomposition → successor **#672** | — |
 | `intake-toolkit/intake-interviewer` | 279 | — | **unmeasured — no basis**; registered in scope, no sample exercised its path → successor **#672** (§3) | — |
@@ -465,8 +621,9 @@ rather than as a green sweep that proves something it does not. The successors a
 - **#674** — the config schema's exit-3 claim against a one-caller dispatcher, the second escaped
   blocker from the same arm.
 - **#671** — localise both cuts, and run the comparator the ticket named (`/code-review`) that §2
-  declares this slice did not. **Arm 1 (#746) is done** — see §1; it returns an empty cut list. Arms
-  2a (#747) and 2b (#748) are outstanding.
+  declares this slice did not. **Arm 1 (#746) is done** — see §1; it returns an empty cut list.
+  **Arm 2a (#747) is done** — see §2; the named comparator scores the same 0.80 and the verdict
+  holds. Arm 2b (#748) is outstanding.
 - **#672** — `intake-orchestrator` (711 lines) and, by the operator's 2026-08-24 amendment,
   `intake-interviewer` (279 lines): 990 unmeasured lines, each owed a basis or an explicit
   no-basis record.
