@@ -212,6 +212,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GH_CLI="${GH:-gh}"
 SPAWN_BIN="${LEAN_SPAWN_BIN:-claude}"
 PERM_MODE="${LEAN_SPAWN_PERMISSION_MODE:-auto}"
+# How long a spawned payload may wait on its own background tasks before the harness ends its turn.
+# Thirty minutes, against a 600s harness default that is shorter than a plan-stage reviewer — see
+# the spawn call for the failure it produced. Overridable so an operator debugging a hung dispatch
+# can shorten it without editing the loop.
+SPAWN_BG_WAIT_CEILING_MS="${LEAN_SPAWN_BG_WAIT_CEILING_MS:-1800000}"
 GATE="${LEAN_GATE:-$SCRIPT_DIR/../build-lean/lean-gate.sh}"
 # #613. Same-plugin sibling, so a plain relative path — no resolve-sibling ladder, which exists
 # for CROSS-plugin hops. The seam is here for the selftest, which must drive the third accepting
@@ -719,7 +724,24 @@ spawn() { # spawn <role> <model> <prompt>
   # token as its own anyway — this is the independent second belt, and it is the one that holds if
   # a future harness ever makes session ids inheritable. It also makes `attend` REFUSE inside a
   # payload, which is what stops a spawned session from minting its own attendance.
+  # THE BACKGROUND-WAIT CEILING IS RAISED, and a payload that must dispatch an agent is why. The
+  # harness terminates a session's wait on its background tasks at 600s by default and then lets the
+  # turn end — so the one shape that breaks on it is a milestone the gate CANNOT satisfy on its own.
+  # An armed milestone 3 is exactly that: its plan-review record is obtainable only by dispatching a
+  # reviewer agent, which the gate says of itself ("The gate cannot run an agent; asserting the
+  # committed output is the only shape available to it"). Past the ceiling the payload signs off
+  # mid-dispatch, `claude -p` exits 0 because the turn ended cleanly, and the loop reads exit 0 with
+  # no PR as `build-no-pr` — a terminal stop over a reviewer that was still running. Measured: a
+  # BUILD session spent 26 minutes, committed four times, and ended on "I'll pick it up when that
+  # notification arrives" for a notification its own exit had made unreachable; an identical
+  # re-launch then produced the record with nothing else changed.
+  #
+  # BOUNDED, NOT UNBOUNDED. The harness offers `0` for an indefinite wait and this deliberately does
+  # not take it: nothing else in this loop is unbounded, and a dispatch that is genuinely hung would
+  # hold the lane open with no budget left to stop it. The default below is far outside any observed
+  # reviewer and still finite, so a stuck agent costs a slow run rather than a permanent one.
   env -u RUN_ID -u LEAN_RUN_MODEL LEAN_RUN_MODEL="$model" LEAN_ATTEND_MODE=headless \
+    CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS="$SPAWN_BG_WAIT_CEILING_MS" \
     "$SPAWN_BIN" --permission-mode "$PERM_MODE" --model "$model" -p "$prompt" 2>&1 \
     | tee -a "$log" >&2
   rc=${PIPESTATUS[0]}
