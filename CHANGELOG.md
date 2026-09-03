@@ -4,6 +4,18 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v12.4.1
+
+### `dev-pipeline` 12.4.0 → 12.4.1
+
+- **fix(build-lean): the design lane arms only the repo that owns the render harness (#788)** (#788)
+  on a multi-repo topology, `design.provider` arms only the repo named
+  by `design.liveRender.cwd`. A consumer whose render harness lives in a sibling
+  repo is no longer asked for a `## Design` section or a `design-disarm`
+  override on the other repo's tickets. A `liveRender.cwd` naming no topology
+  repo is now a milestone-1 error rather than a milestone-3 one.
+  Migration: none.
+
 ## v12.4.0
 
 ### `dev-pipeline` 12.3.0 → 12.4.0
