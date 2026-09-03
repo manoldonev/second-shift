@@ -39,6 +39,13 @@ design-disarm override. Leave `cwd` unset when the repo you run in owns the harn
 no `topology.repos` key is a milestone-1 error rather than a silent unarm — otherwise a typo would
 retire the design axis with nothing said.
 
+`/second-shift:doctor` applies the same ownership rule when `liveRender` is missing altogether —
+the case where there is no `cwd` to read. It asks whether the root it was run in has any tracked
+rendering surface at all, and where there is none it reports the check as not-evaluated rather than
+demanding a render harness from a repo with nothing to render. So on a pair, `design.provider` in
+the shared config no longer produces a doctor FAIL at the backend root. Run doctor from the repo
+that owns the surface to grill the harness itself.
+
 ## The command contract
 
 Your script owns **boot, auth, and screenshot**. The gate owns route derivation, the state

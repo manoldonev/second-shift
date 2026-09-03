@@ -338,6 +338,32 @@ EOF
 run_grill "$R6" "$R6/design-armed.json"
 expect_no_finding "t4 design armed with liveRender → silent" T4.design-liverender
 
+# The be-fe-pair shape. A pair's config declares the WHOLE topology, so the BACKEND repo's own
+# config legitimately carries `design.provider` while the render harness lives in the sibling.
+# Ungated this raised a FAIL at every backend root, escapable only by a grillWaivers entry
+# excusing a non-problem. The check fires only when `liveRender` is ABSENT — so #788's
+# `liveRender.cwd` ownership signal is absent with it, and tracked rendering surface is what
+# settles ownership instead. Byte-identical config to the R6 case above that DOES fire, so the
+# tracked file set is the only difference between them.
+R6B="$(mkrepo t4-be src/main.ts src/orders/orders.service.ts package.json)"
+cfg "$R6B/design-bare.json" <<EOF
+{ $STD_HEAD, "commands": {"app":{}}, "design": {"provider": "figma"} }
+EOF
+run_grill "$R6B" "$R6B/design-bare.json"
+expect_no_finding "t4 design.provider on a root that renders nothing → no FAIL" T4.design-liverender
+expect_noteval "t4 design.provider on a root that renders nothing → not evaluated" \
+  T4.design-liverender "rendering-surface probe"
+
+# Suppression requires CONFIDENCE: outside a readable work tree the probe cannot speak, and a
+# silent retirement of the design axis on a repo that DOES own the harness is the failure #788
+# refused. Over-firing is the cheaper error, so the finding stands.
+R6N="$TMP/t4-nongit"; mkdir -p "$R6N/src"; : > "$R6N/src/main.ts"
+cfg "$R6N/design-bare.json" <<EOF
+{ $STD_HEAD, "commands": {"app":{}}, "design": {"provider": "figma"} }
+EOF
+run_grill "$R6N" "$R6N/design-bare.json"
+expect_finding "t4 design.provider outside a work tree → finding stands" T4.design-liverender "figma"
+
 # --- AC-5: trigger 5 -----------------------------------------------------------------------
 # Case C: `yarn test {file}` LOOKS fine; scripts.test = "vitest" underneath is what hangs. The
 # watcher test therefore runs on the manifest script BODY, never the configured string.
