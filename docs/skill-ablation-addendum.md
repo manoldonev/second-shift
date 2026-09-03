@@ -258,18 +258,126 @@ printf '%s' '/code-review max <branch>' | env -u CLAUDE_CODE_SESSION_ID -u CLAUD
   -u CLAUDE_CODE_ENTRYPOINT -u CLAUDE_CODE_CHILD_SESSION -u CLAUDE_CODE_BRIDGE_SESSION_ID \
   -u CLAUDE_CODE_MESSAGING_SOCKET -u CLAUDE_CODE_MESSAGING_TOKEN -u CLAUDE_CODE_SSE_PORT \
   -u CLAUDE_EFFORT -u CLAUDE_PID \
-  claude -p --model opus --setting-sources '' --allowedTools "Read,Grep,Glob,Bash"
+  claude -p --model opus --setting-sources '' --allowedTools "Read,Grep,Glob,Bash" \
+    --output-format stream-json --verbose
 ```
+
+**`--output-format stream-json --verbose` is a CAPTURE flag pair and nothing else.** The command,
+the model tier (`--model opus`), the effort (`max`), the allowlist (`Read,Grep,Glob,Bash`) and the
+`env -u` set are byte-identical to the form this arm was first registered with. It changes what is
+*recorded*, not what is *run*, so every bias argument registered in the three subsections below —
+model tier, effort, and tool allowlist — holds verbatim. Why it is needed, and what it is asserted
+to capture, is the next subsection.
 
 **No new harness is needed and no second-shift plugin is loaded.** Measured 2026-09-01, under the
 frozen bare-arm recipe and in a tree with `plugins/` fully intact, that invocation shape answers
 `AVAILABLE:yes` / `SECONDSHIFT:no` — the built-in survives `--setting-sources ''`, and the kit does
 not come with it. The command and its output are printed in §A above; it is one probe, re-runnable.
 
-**Measured 2026-09-01, the exact form above was also run end-to-end** against a throwaway two-commit
-repository, and it completed and reported findings. So this is a registered recipe that has been
-executed, not one derived from a description of the command. That run is what the next two
-subsections record; nothing about any C2 sample was run.
+### Why the capture flags are there — the defect they answer
+
+**The built-in does not always answer on stdout.** It may instead route its finding set to a
+structured report tool, and a stdout-only capture discards it. It does this
+**non-deterministically**: measured 2026-09-02, all three registered C2 samples run under the
+pre-amendment form verbatim — same command, model tier, effort and allowlist:
+
+| sample | rc | stdout | capture mode | findings recoverable from stdout |
+| --- | --- | --- | --- | --- |
+| C2-a (`cfba102`) | 0 | 3188 B | report tool | **0 of 15** |
+| C2-b (`f8f7c14`) | 0 | 2897 B | report tool | **0 of 12** |
+| C2-c (`642a6b1`) | 0 | 17326 B | stdout | 15 of 15, as a valid JSON array |
+
+C2-a's stdout opens `I filed the 15 verified findings via the report tool.` and closes offering to
+re-file them; what it carries is the residue that session volunteered *in addition to* the filed
+set — explicitly material "the filed report doesn't" carry. C2-b is the same shape at 12 findings.
+C2-c emitted `Findings below, ranked most-severe first` followed by a parseable 15-element array.
+
+Uniform loss would fail loudly. This does not: a scorer reading the corpus as captured grades C2-c
+on 15 findings and C2-a / C2-b on a handful of volunteered scraps, and records the difference as a
+property of the challenger.
+
+**Disposition of those three outputs: discarded for scoring**, retained as the defect measurement
+above and nothing else. #747 re-runs all three under the amended capture, so one capture mode spans
+the corpus and the samples are comparable by construction rather than by argument.
+
+### A capture must be proven complete before it is scored
+
+The amended capture makes the arm's finding set a property of a **stream file**, and a stream file
+can be short for two very different reasons: the session finished and reported nothing, or the
+session was killed before it could report at all. At face value those are the same artifact — a
+capture with no findings in it — and read as the first, the second is a false negative entering a
+frozen-adjacent registration.
+
+**This is measured, not hypothetical.** A capture taken during this amendment's own re-validation
+was reaped roughly 7 minutes into a 20–30 minute run and left a 2.3 MB, 831-line file carrying no
+terminal `result` event anywhere.
+
+**The check:** classify every capture with `tools/classify-capture.sh` (#779) before reading a
+finding out of it. It exits `0` for a completed successful run, `1` for one that completed but
+failed, `2` for a truncated one, and `3` when it cannot read its input at all.
+
+**The rule:** only an exit-`0` capture is scored. A capture the checker calls `TRUNCATED`, or a
+completed failure, is **discarded and the sample re-run** — never scored, and never recorded as a
+null result. This is the same discipline the pre-run assertion above already applies to the
+repository's shape, extended to the artifact the run produces: a run that fails it does not count
+and is re-built.
+
+### Validation of the recipe — superseded, and by what
+
+**The claim this subsection used to carry is withdrawn.** It recorded that, measured 2026-09-01,
+the invocation was run end-to-end against a throwaway two-commit repository and "completed and
+reported findings". That is true and it is not sufficient: a two-commit diff yields a prose answer,
+so the validating measurement never exercised the report-tool path that two of the three real
+samples take. Fixture fidelity is what produced the false green, which is why the replacement below
+runs against a pinned sample clone rather than a hand-built fixture — and why it *replaces* the
+two-commit run rather than being added alongside it.
+
+**The replacement, measured 2026-09-02.** Run against the `c2-a-654` pinned clone — the sample
+whose pre-amendment capture lost 15 of 15 findings — with both pins asserted before the run
+(`main` at `dfd68a47`, head at `cfba1022`, `plugins/` absent as 374 working-tree deletions):
+
+```bash
+cd /private/tmp/c2-a-654
+printf '%s' '/code-review max pr-654' | env -u CLAUDE_CODE_SESSION_ID -u CLAUDECODE \
+  -u CLAUDE_CODE_ENTRYPOINT -u CLAUDE_CODE_CHILD_SESSION -u CLAUDE_CODE_BRIDGE_SESSION_ID \
+  -u CLAUDE_CODE_MESSAGING_SOCKET -u CLAUDE_CODE_MESSAGING_TOKEN -u CLAUDE_CODE_SSE_PORT \
+  -u CLAUDE_EFFORT -u CLAUDE_PID \
+  claude -p --model opus --setting-sources '' --allowedTools "Read,Grep,Glob,Bash" \
+    --output-format stream-json --verbose
+```
+
+Exit `0`, empty stderr, ~27 minutes wall. The capture is a 4,489,181-byte, 2036-line stream file.
+
+**Completeness first, per the rule above.** `tools/classify-capture.sh` reports `COMPLETE`
+(exit `0`, `subtype=success`, `is_error=false`), noting 4 `result` events of which the last
+governs. Only then was a finding read out of it. The two captures this re-validation took before
+it both classified `TRUNCATED` (exit `2`) — 2.2 MB/831 lines and 232 KB — and were discarded and
+re-run rather than scored, which is the rule applied to itself rather than merely registered.
+
+**The assertion holds: the report tool's input IS present in the parent stream.** Splitting every
+`tool_use` event by `parent_tool_use_id`:
+
+| stream position | `tool_use` events |
+| --- | --- |
+| subagent (`parent_tool_use_id` set) | 476 — `Bash` 427, `Read` 35, `Grep` 12, `Agent` 1, `ToolSearch` 1 |
+| **parent (`parent_tool_use_id` absent)** | **2 — both `ReportFindings`** |
+
+Each `ReportFindings` call carries `level: "max"` and a 15-element `findings` array, with the
+per-finding `file`/`line`/`summary`/`failure_scenario` fields intact. The second call re-reports a
+refined set — a few `short_summary` strings reworded — so the last one governs, the same reading
+`classify-capture.sh` applies to `result` events. The delegation OR-1 flagged as the risk is real
+and heavy (476 of 478 tool calls are subagent traffic), and the report still lands on the parent:
+`--output-format stream-json --verbose` recovers it, and a stdout-only capture would not have
+recorded the `tool_use` block at all.
+
+**One thing this sample does not show, recorded so it is not read into.** This run also volunteered
+the findings on stdout — its first `result` event carries a 15-element JSON array in a
+15,051-character body — so it is not a pure report-tool-only sample of the C2-a shape, and it is
+not evidence that the amended capture was the *only* way to recover these 15 findings on this run.
+What it establishes is the narrower registered claim: the report tool's input reaches the parent
+stream and the amended flags capture it, which is what the pre-amendment form could not record in
+either direction. The capture mode becomes observable rather than inferred from what stdout
+happened to carry — which is the property the variance table above shows the corpus needs.
 
 ### Model tier — `--model opus`
 
@@ -345,6 +453,24 @@ So the mapping has to be registered, or #747 will be choosing which findings cou
 severity filter, no demotion, no scorer judgment about which ones "were really blockers". The
 frozen hit rule then applies to that set unchanged — same mechanism and same consequence against
 each of the five ground-truth blockers.
+
+**"Reports" spans both sinks, because the built-in uses both.** Under the amended capture the
+challenger's finding set is the **union** of two things the stream carries:
+
+1. the **report tool's input** — the findings the session filed, recorded as the `tool_use` block's
+   payload; and
+2. the findings in the **final assistant text** — the residue a session volunteers in addition to
+   the filed set, and, on a sample that files nothing, the whole of it.
+
+That union is then **deduplicated on same mechanism and same consequence**. The predicate is the
+frozen hit rule's own, quoted rather than invented, so the merge introduces **no new scorer
+judgment**: a pair the hit rule would call one finding against a ground-truth blocker is one
+finding here too. Nothing is dropped for being in only one sink, and nothing is counted twice for
+being in both.
+
+This is a refinement of the sentence above it, not a replacement. Both directions of the mapping's
+registered bias below apply to the union exactly as they applied to the stdout set — the union is
+strictly larger, so it moves recall and the false-blocker count the same way, only further.
 
 Both consequences are registered, because this mapping is not free in one direction:
 
