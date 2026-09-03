@@ -4023,6 +4023,90 @@ if [ "$rc" -eq 1 ] && grep -q 'states no reason' <<<"$out"; then
   pass "(dz5) a bare 'Design: none' is refused — the disarm is a decision and must carry one"
 else fail "(dz5) expected the no-reason refusal, rc=$rc: $out"; fi
 
+# ---- (dzp) the design lane arms only the repo that OWNS the render harness -------------------
+# The TOPOLOGY half of D-8's AND. (dz3) covers "a section with no provider"; these cover "a
+# provider whose render harness lives in a sibling repo of the pair" — the non-hosting repo, where
+# the lane cannot run at all and milestone 3 would refuse it if anything ever armed it.
+#
+# Why not a liveness scenario (the scenario-first rule): the composed path an UNARMED run walks to
+# its terminal write is already exercised by every non-design leg over there, and nothing new
+# reaches a terminal write here. What these cases pin is one predicate's answer under one config
+# shape, which is per-tool by the tier map.
+DPAIRCFG="$WORK/dconfig-pair-sibling-harness.json"
+cat > "$DPAIRCFG" <<EOCFG
+{
+  "tracker": { "branchPrefix": "claude/acme-", "labels": { "queue": "ready-for-dev", "claimed": "in-progress" } },
+  "topology": { "repos": { "acme": { "path": ".", "baseBranch": "main" },
+                           "acme-ui": { "path": "../acme-ui", "baseBranch": "main" } } },
+  "paths": { "plansDir": "docs/plans", "pipelineStateDir": ".claude/pipeline-state" },
+  "commands": { "acme": { "lint": null, "typecheck": null, "test": null, "allowUnverified": true } },
+  "design": { "provider": "figma", "liveRender": { "command": "$DSTUB_CMD", "cwd": "acme-ui" } }
+}
+EOCFG
+# Same tree and same spec as the (dz) cases, read through a config whose render harness belongs to
+# the sibling. `dreset_pair` attests against THAT config, since dreset binds its stamp to $DCFG.
+dgate_pair() { ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$DTREE" \
+  && SECOND_SHIFT_CONFIG="$DPAIRCFG" LEAN_PROGRESS_FILE="$DPROG" bash "$GATE" --issue-file "$ISSUE_NOREGIONS" "$@" 2>&1 ); }
+dreset_pair() { rm -f "$DPROG"; { echo "# lean run — issue 55"; echo ""; echo "run_id: r-build-d"; echo "session_id: sess-build-d"; } > "$DPROG"
+                attest_at "$DTREE" "$DPAIRCFG" "$DPROG" 55; }
+
+# (dzp1) no `## Design` section at all — the spec (dz1) reds on where the harness is ours.
+dreset_pair
+printf '# spec\n\n- AC-1: the thing\n' > "$DSPEC"
+dcommit "a spec with no Design section, sibling-owned harness"
+out="$(dgate_pair 1 55)"; rc=$?
+if [ "$rc" -eq 0 ] && ! grep -q 'must carry a "## Design" section' <<<"$out"; then
+  pass "(dzp1) a sibling-owned render harness arms nothing — no '## Design' section is demanded"
+else fail "(dzp1) expected an unarmed pass, rc=$rc: $out"; fi
+
+# (dzp2) THE STOP THIS CLOSES. A `Design: none` spec with NO override recorded. On the hosting
+# repo (dzo1) reds demanding an attended override — which the build payload is structurally unable
+# to record, since `record` refuses a headless session — so every ticket in the non-hosting repo
+# of a pair dead-ended with no PR. Here there is no lane to opt out of, so nothing is demanded.
+dreset_pair
+dov_clear
+printf '# spec\n\n- AC-1: the thing\n\n## Design\n\nDesign: none — no FE surface in this ticket.\n' > "$DSPEC"
+dcommit "a disarmed spec, sibling-owned harness, no override"
+out="$(dgate_pair 1 55)"; rc=$?
+if [ "$rc" -eq 0 ] && ! grep -q 'design-disarm operator override' <<<"$out"; then
+  pass "(dzp2) a sibling-owned harness demands no design-disarm override — the unpayable stop is gone"
+else fail "(dzp2) expected an unarmed pass with no override demanded, rc=$rc: $out"; fi
+
+# (dzp3) cwd naming a repo that is in NO topology — a typo, not a sibling. It must not read as
+# "someone else owns the lane": nothing validates the key (free string in the schema, no
+# config-lint rule), so collapsing it into `unarmed` would retire the design axis silently.
+dcfg "$DSTUB_CMD" "not-a-repo"
+dreset
+dspec_armed
+dcommit "the armed spec, cwd naming no topology repo"
+out="$(dgate 1 55)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'names no repo in topology.repos' <<<"$out"; then
+  pass "(dzp3) design.liveRender.cwd naming no topology repo is an authoring error, never a silent unarm"
+else fail "(dzp3) expected the unresolvable-cwd refusal, rc=$rc: $out"; fi
+dcfg "$DSTUB_CMD"
+
+# (dzp4) the state lock's CONFIG route. A run that already ARMED cannot be unarmed by re-pointing
+# `design.liveRender.cwd` at the sibling — the same escape (dp8) refuses when it is spelled in the
+# spec. The arming record is written before any milestone-3 assertion can red, so the red the
+# arming call takes here is irrelevant to what is being asserted.
+dreset
+dspec_armed
+dcommit "the armed spec, arming before the config flips"
+dgate 3 55 >/dev/null 2>&1
+dzp_armed="$(dcount '| milestone-3 | armed |')"
+out="$(dgate_pair 1 55)"; rc=$?
+if [ "$dzp_armed" -ge 1 ] && [ "$rc" -eq 1 ] && grep -q 'already ARMED the lane' <<<"$out"; then
+  pass "(dzp4) re-pointing cwd at a sibling mid-run cannot retire an armed run's render evidence"
+else fail "(dzp4) armed=$dzp_armed rc=$rc: $out"; fi
+
+# Restore what the fixtures below expect: the shared override in place, the armed spec committed,
+# and a progress file with no arming record.
+dov_attend
+dov_write 'the ticket ships no UI' 'Confirmed — backend-only, disarm it where the fixture needs to.'
+dreset
+dspec_armed
+dcommit "restore the armed spec after the topology cases"
+
 # ---- (dzo) #709: `Design: none` on a provider repo needs a gate-visible design-disarm override
 # D-1 forbids a build session opting a ticket out of the render lane on its own. The three arms
 # mirror (yo)'s spec-open-region cases: no record refuses naming the exact command, a valid
@@ -4724,16 +4808,18 @@ if [ "$rc" -eq 1 ] && grep -q "twice" <<<"$out"; then
   pass "(dr11) a repeated RS id reds — one id, one screenshot file, no silently overwritten evidence"
 else fail "(dr11) expected the duplicate-id refusal, rc=$rc: $out"; fi
 
-# (dr10) cwd naming a repo this run does not host. The lean lane works one worktree; the honest
-# answer is to name the limitation, not to render the wrong tree.
+# (dr10) cwd naming a repo that is in no topology, reaching MILESTONE 3. The fixture topology holds
+# only the host, so "fe" names nothing in it — this was always the typo case, never the sibling
+# case the retired refusal described. It reds here as well as at milestone 1 ((dzp3)) because
+# design_state returns `error:` and both milestones route that to their own fail.
 dreset
 dspec_armed
 dcommit "the armed spec, restored"
 dcfg "$DSTUB_CMD" "fe"
 out="$(dgate 3 55)"; rc=$?
-if [ "$rc" -eq 1 ] && grep -q 'run the lean lane from the repo that owns the render harness' <<<"$out"; then
-  pass "(dr10) design.liveRender.cwd naming a non-host topology repo reds with the limitation named"
-else fail "(dr10) expected the cwd limitation refusal, rc=$rc: $out"; fi
+if [ "$rc" -eq 1 ] && grep -q 'names no repo in topology.repos' <<<"$out"; then
+  pass "(dr10) an unresolvable design.liveRender.cwd reds milestone 3, not only milestone 1"
+else fail "(dr10) expected the unresolvable-cwd refusal, rc=$rc: $out"; fi
 
 # (dr8) the check-ignore RED. PNG bytes must never enter history, and the refusal prints the
 # exact line to add rather than leaving the operator to derive it.
@@ -7872,13 +7958,18 @@ if [ -r "$AC_ADJ" ] && [ -r "$AC_CLS" ]; then
   # WHAT THE TECHNIQUE CANNOT REACH, pinned so a new blind spot has to be looked at rather than
   # inherited. A reason that is a function call, a parameter expansion, or a leading `$VAR` cannot
   # be prefix-classified — the six predicates are all `^`-anchored, and nothing here states the
-  # anchor's text. All ten sit at milestones 1, 3 and 4; the assertion that NONE sits at milestone
-  # 5 is the load-bearing half, because milestone 5 carries three of the six announcement points
-  # and is where both round-1 blockers lived.
+  # anchor's text. All twelve sit at milestones 1, 3 and 4; the assertion that NONE sits at
+  # milestone 5 is the load-bearing half, because milestone 5 carries three of the six
+  # announcement points and is where both round-1 blockers lived.
+  #
+  # The set grew from ten by two when arming learned to read topology: both new sites are the
+  # state lock's config route, `fail_milestone 1|3 "$(design_unarm_locked_msg)"`, and a function
+  # call is unclassifiable for exactly the reason the two `design_disarm_locked_msg` sites already
+  # in this set are. Looked at, not inherited: neither is at milestone 5.
   ac_op5="$(printf '%s\n' "$ac_opaque" | awk -F'\t' '$3 == "5"' | wc -l | tr -d ' ')"
-  if [ "$ac_nopaque" -eq 10 ] && [ "$ac_op5" -eq 0 ]; then
-    pass "(ac1d) #642 AC-3: the 10 reasons (ac1c) cannot classify are pinned, and none is at milestone 5"
-  else fail "(ac1d) the unclassifiable-reason set moved: $ac_nopaque (expected 10), $ac_op5 at milestone 5 (expected 0) — each needs a look before it is inherited: $ac_opaque"; fi
+  if [ "$ac_nopaque" -eq 12 ] && [ "$ac_op5" -eq 0 ]; then
+    pass "(ac1d) #642 AC-3: the 12 reasons (ac1c) cannot classify are pinned, and none is at milestone 5"
+  else fail "(ac1d) the unclassifiable-reason set moved: $ac_nopaque (expected 12), $ac_op5 at milestone 5 (expected 0) — each needs a look before it is inherited: $ac_opaque"; fi
 elif ! git -C "$HERE" rev-parse --show-toplevel >/dev/null 2>&1; then
   echo "  SKIPPED: (ac1c/ac1d) staged install cache — the ablation tables are repo-only, so the exclusion direction is asserted in the repo sweep and not here"
 else
