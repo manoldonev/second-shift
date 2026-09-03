@@ -28,7 +28,7 @@ git log --format='%h %ad %s' --date=short -- docs/plans/skill-ablation/         
 | --- | --- | --- | --- | --- |
 | 1 | `build-lean` SKILL (48 lines) | mandated-artifact coverage | on a consumer-shaped substrate bare covers **3 and 4 of 9** (#746); **no item is cut-eligible** | **cut-to-delta, empty cut** |
 | 1b | the five milestone gates | *inherited* — `docs/gate-ablation.md` | 66% of firings adjudicated `unchanged`; all six keep-earners re-run at the merge boundary | inherited, not re-collected |
-| 2 | `review-lean` SKILL (127 lines) | recall of ground-truth blockers | bare† **4 of 5**; the built-in `/code-review` also **4 of 5** (#747), missing a different one | **cut-to-delta** |
+| 2 | `review-lean` SKILL (127 lines at `8d5d0897`, the measured surface) | recall of ground-truth blockers | bare† **4 of 5**; the built-in `/code-review` also **4 of 5** (#747), missing a different one | **cut-to-delta** |
 | 3 | `plan-interview` + `interviewing-baseline` (312 lines) | recall of operator-ratified decisions | bare **6 of 20** | **keep** |
 | — | `intake-orchestrator` (711 lines) | — | not reached by any metric here | **not adjudicated** → #672 |
 | — | `intake-interviewer` (279 lines) | — | registered in scope; no sample ran its path | **not adjudicated** → #672 |
@@ -484,7 +484,8 @@ which is entirely about `scripts/check-gate-buckets.sh` and its register.
 
 P10 independence — the verdict is authored by a session that is not the build session — is a
 property of the **lane**, and no bare-arm review can exhibit or refute it. `cut-to-delta` here
-addresses the skill's 127 lines of prose. It says nothing about the separate-session boundary,
+addresses the 127 lines of prose at `8d5d0897`, the measured surface. It says nothing about the
+separate-session boundary,
 which this slice did not measure and does not touch.
 
 **Successor — #671, arm 2.** The delta is not localisable to particular lines from this evidence.
@@ -583,7 +584,7 @@ table: it is where the terms of the next measurement live, and it contains no re
 | skill | lines | measured | basis | date |
 | --- | --- | --- | --- | --- |
 | `dev-pipeline/build-lean` | 48 | C1 + #746 arm 1 | **cut-to-delta with an empty cut** — re-measured on the consumer-shaped substrate (§1): bare covers 3–4 of 9, no item is cut-eligible, M3 and M9 `undetermined` at n=2. The repo-local basis is retired | 2026-09-01 |
-| `dev-pipeline/review-lean` | 127 | C2 + #747 arm 2a | **cut-to-delta** on two independent challengers: bare-session recall 0.80, and the built-in `/code-review` at effort `max` also **0.80** — the comparison #644 named, now measured (§2). The two miss different blockers, so neither dominates and the union is 5/5. Delta still not localised → **#748** | 2026-09-03 |
+| `dev-pipeline/review-lean` | 127 @ `8d5d0897` | C2 + #747 arm 2a | **cut-to-delta** on two independent challengers: bare-session recall 0.80, and the built-in `/code-review` at effort `max` also **0.80** — the comparison #644 named, now measured (§2). The two miss different blockers, so neither dominates and the union is 5/5. Delta still not localised → **#748** | 2026-09-03 |
 | `intake-toolkit/plan-interview` + `interviewing-baseline` | 312 | C3 | **keep**; bare recall 0.30, delta is the scope-boundary/DEPARTURE class | 2026-08-24 |
 | `intake-toolkit/intake-orchestrator` | 711 | — | **unmeasured — no basis**; no metric here reaches decomposition → successor **#672** | — |
 | `intake-toolkit/intake-interviewer` | 279 | — | **unmeasured — no basis**; registered in scope, no sample exercised its path → successor **#672** (§3) | — |
