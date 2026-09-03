@@ -6,7 +6,7 @@
   },
   "metadata": {
     "description": "No proof, no merge. Claude Code plugins for autonomous development in which the agent writes the PR and never grades its own work: interview-driven intake, outcome-gated build, review in a separate session, a model-free merge boundary, mutation-tested tests, cost on every PR, and a tool-call audit ledger. Generic tooling only; each consumer repo supplies one config file and optional knowledge files.",
-    "version": "12.4.1"
+    "version": "12.4.2"
   },
   "plugins": [
     {
