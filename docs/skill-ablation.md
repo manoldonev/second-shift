@@ -549,7 +549,7 @@ seventeen on one sample. It does not bind the list above.
 kept by anything here. The subject is pinned by commit precisely because the head count moves with
 every merge.
 
-**#748 emits the list; it executes nothing.** The deletion remains a further successor of #671, per
+**#748 emits the list; it executes nothing.** The deletion is filed as #800, per
 the §5 precedent separating a verdict from its execution.
 
 ### What bounds this arm
@@ -674,7 +674,7 @@ re-measurement that the frozen pre-registration does not describe — `build-lea
 repo-local (§1), and `review-lean`'s was a bare-session recall rather than the `/code-review`
 comparison the ticket named, with its delta unlocalised (§2). The addendum fixes the substrate
 (#746), the challenger invocation (#747) and the attribution rubric (#748) that those arms consume,
-before any of them runs. Arms 1 and 2a have since run against it; 2b has not. Read it alongside this
+before any of them runs. All three arms have since run against it. Read it alongside this
 table: it is where the terms of the next measurement live, and it contains no results.
 
 | skill | lines | measured | basis | date |
@@ -713,9 +713,9 @@ surviving cut qualifies, and the reasons are evidence, not caution:
   reproducing the blocker 3 of 3. No unit carries it — the three `in-reach` units score `no-effect`
   and are cut-eligible, the fourteen `not-reached` ones are recorded `not-reached — no basis` and
   are explicitly **not** cut-eligible on this evidence. So the cut list is non-empty for the first
-  time, and executing it is a further successor rather than this slice's to do — the same
-  verdict/execution split #746 records one bullet up. The list binds the file at `8d5d0897` only;
-  every line added since is unmeasured.
+  time, and executing it is #800 rather than this slice's to do — the same verdict/execution split
+  #746 records one bullet up. The list binds the file at `8d5d0897` only; every line added since is
+  unmeasured.
 - **C3 is a `keep`.**
 
 So AC-5 is satisfied vacuously — no deletion, therefore no orphan — and it is recorded that way
@@ -728,7 +728,10 @@ rather than as a green sweep that proves something it does not. The successors a
   declares this slice did not. **Arm 1 (#746) is done** — see §1; it returns an empty cut list.
   **Arm 2a (#747) is done** — see §2; the named comparator scores the same 0.80 and the verdict
   holds. **Arm 2b (#748) is done** — see §2; leave-one-out over all 17 pinned units returns a cut
-  list of three, and the deletion itself is a further successor.
+  list of three, and the deletion itself is #800. All three arms have run; the epic is closed.
+- **#800** — execute arm 2b's cut list: delete U-5, R-3 and R-4 from `review-lean`, each
+  re-anchored on the current head, or record why a unit is not cut. The list binds `8d5d0897`; the
+  fourteen `not-reached` units and every line added since are out of its scope.
 - **#672** — `intake-orchestrator` (711 lines) and, by the operator's 2026-08-24 amendment,
   `intake-interviewer` (279 lines): 990 unmeasured lines, each owed a basis or an explicit
   no-basis record.
