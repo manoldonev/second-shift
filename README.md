@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/second-shift-banner.png" alt="second-shift — no proof, no merge. Your coding agent writes the pull request; a review it can't overrule, tests that survived deliberate sabotage, and a merge check outside the model decide whether it ships." width="800">
+  <img src="docs/second-shift-hero-v4.png" alt="second-shift — no proof, no merge. Your coding agent writes the pull request; a review it can't overrule, tests that survived deliberate sabotage, and a merge check outside the model decide whether it ships." width="800">
 </p>
 
 # second-shift
