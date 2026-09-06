@@ -1,0 +1,18 @@
+unit	lines_8d5d0897	reach	runs_valid	runs_indet	hits	control_majority	score	vs_bare	vs_codereview
+U-P	6–22	not-reached	1	0	1	HIT 3/3	not-reached--no-basis	no-basis	no-basis
+U-1	26–28	not-reached	1	0	1	HIT 3/3	not-reached--no-basis	no-basis	no-basis
+U-2	29–30	not-reached	1	0	1	HIT 3/3	not-reached--no-basis	no-basis	no-basis
+U-3	31–37	not-reached	1	0	1	HIT 3/3	not-reached--no-basis	no-basis	no-basis
+U-4	38–47	not-reached	1	0	1	HIT 3/3	not-reached--no-basis	no-basis	no-basis
+U-5	48–55	in-reach	3	0	3	HIT 3/3	no-effect	outside-delta	outside-delta
+U-5b	56–66	not-reached	1	0	1	HIT 3/3	not-reached--no-basis	no-basis	no-basis
+U-5c	67–76	not-reached	1	0	1	HIT 3/3	not-reached--no-basis	no-basis	no-basis
+U-6	77–85	not-reached	1	0	1	HIT 3/3	not-reached--no-basis	no-basis	no-basis
+U-7	86–89	not-reached	1	0	1	HIT 3/3	not-reached--no-basis	no-basis	no-basis
+U-8	90–96	not-reached	1	0	1	HIT 3/3	not-reached--no-basis	no-basis	no-basis
+R-1	100–107	not-reached	1	0	1	HIT 3/3	not-reached--no-basis	no-basis	no-basis
+R-2	108–109	not-reached	1	0	1	HIT 3/3	not-reached--no-basis	no-basis	no-basis
+R-3	110–114	in-reach	3	0	3	HIT 3/3	no-effect	outside-delta	outside-delta
+R-4	115–116	in-reach	5	0	4	HIT 3/3	no-effect	outside-delta	outside-delta
+R-5	117–121	not-reached	1	0	1	HIT 3/3	not-reached--no-basis	no-basis	no-basis
+R-6	122–127	not-reached	1	0	1	HIT 3/3	not-reached--no-basis	no-basis	no-basis

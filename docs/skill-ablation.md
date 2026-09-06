@@ -28,7 +28,7 @@ git log --format='%h %ad %s' --date=short -- docs/plans/skill-ablation/         
 | --- | --- | --- | --- | --- |
 | 1 | `build-lean` SKILL (48 lines) | mandated-artifact coverage | on a consumer-shaped substrate bare covers **3 and 4 of 9** (#746); **no item is cut-eligible** | **cut-to-delta, empty cut** |
 | 1b | the five milestone gates | *inherited* — `docs/gate-ablation.md` | 66% of firings adjudicated `unchanged`; all six keep-earners re-run at the merge boundary | inherited, not re-collected |
-| 2 | `review-lean` SKILL (127 lines) | recall of ground-truth blockers | bare† **4 of 5**; the built-in `/code-review` also **4 of 5** (#747), missing a different one | **cut-to-delta** |
+| 2 | `review-lean` SKILL (127 lines at `8d5d0897`, the measured surface) | recall of ground-truth blockers | bare† **4 of 5**; the built-in `/code-review` also **4 of 5** (#747), missing a different one | **cut-to-delta** |
 | 3 | `plan-interview` + `interviewing-baseline` (312 lines) | recall of operator-ratified decisions | bare **6 of 20** | **keep** |
 | — | `intake-orchestrator` (711 lines) | — | not reached by any metric here | **not adjudicated** → #672 |
 | — | `intake-interviewer` (279 lines) | — | registered in scope; no sample ran its path | **not adjudicated** → #672 |
@@ -480,15 +480,112 @@ tree, because §B registers no removal and the files under review *are* the kit
 `review-lean/SKILL.md`; C2-b and C2-c made none. That read bears on nothing in C2-a's finding set,
 which is entirely about `scripts/check-gate-buckets.sh` and its register.
 
+### Arm 2b (#748) — the delta, localised by leave-one-out ablation
+
+Registered at [`docs/skill-ablation-addendum.md`](skill-ablation-addendum.md) §C **before any run**.
+Leave-one-out over the **17 units** of `review-lean/SKILL.md` at `8d5d0897` — the ten numbered
+checklist steps, the six non-negotiable rule bullets and the preamble — against **C2-a** (#654 @
+`cfba102`), the one sample the bare arm missed. Ablating by `##` heading was excluded at
+registration: the file has two, and a 73-line block localises nothing a cut can be executed from.
+
+**The void condition cleared.** §C makes the study void unless the control reproduces the C2-a
+ground-truth blocker in at least 2 of 3 runs. It reproduced in **3 of 3** — each naming
+`scripts/check-gate-buckets.sh:109`, the class `(^|[;&|(){}])`, the omitted shell reserved words,
+the live `lean-gate.sh:420` `else envfail` site, and the denominator consequence. One control run
+counted it: 59 non-comment `envfail` lines, 57 enumerated, the two misses being the definition at
+`:379` (correctly excluded) and `:420` (silently dropped).
+
+**28 runs.** 3 control, 3 × 3 in-reach, 14 × 1 not-reached, plus a **registered n=5 escalation** on
+R-4, which split 2-of-3 and which §C forbids calling on a split. Every capture carries a terminal
+`result` event (`tools/classify-capture.sh` exit 0); **zero indeterminate runs**, so no arm is
+scored on absence. Per-unit results in
+[`c2-review/ablation-units.tsv`](plans/skill-ablation/c2-review/ablation-units.tsv); every arm's
+replicates are committed verbatim as `c2-review/ablated-<unit>-654-review.md`.
+
+**No unit carries the 0.20.** All three units §C predicted `in-reach` score `no-effect` — removing
+each left the ground-truth blocker intact at the arm's majority:
+
+| unit | lines @ `8d5d0897` | what it claims | runs | hits | score |
+| --- | --- | --- | --- | --- | --- |
+| U-5 | 48–55 | the Review step — `review-lead`, per-`AC-n` scoring, approve iff no blockers, do not soften | 3 | 3 | `no-effect` |
+| R-3 | 110–114 | inheritance narrows what you READ, never what you must find | 3 | 3 | `no-effect` |
+| R-4 | 115–116 | approve on the diff, not the spec's promises; an unmet `AC-n` is a blocker | 5 | 4 | `no-effect` |
+
+The reach prediction survived its falsification probe: **all 14 `not-reached` units kept the
+finding**, none was promoted to in-reach, and none is scored `no-effect` — each is recorded
+`not-reached — no basis` and routed to a successor owed a different metric, per §C. Scoring them
+inert would have cut fourteen of seventeen units on evidence that never reached them.
+
+**The one miss, quoted because §C requires it adjudicated rather than asserted.** R-4 r1 named the
+same file and the same consequence but a different mechanism — the hand-declared primitive set
+(`CORPUS`) not covering `warn`/`echo` refusal shapes, rather than the command-position class
+omitting keyword-preceded calls:
+
+> The denominator omits live refusal shapes in three of the five corpus files, and the declared
+> residual describes only a forward-looking risk.
+
+Under the frozen rule (`skill-ablation-pre-registration.md`:147-152) *naming the same file with a
+different defect is a miss*, so it is scored a miss. It is the **bare arm's own recorded failure
+mode on this sample**, reproduced — which is the study's most interesting residue: R-4 appears to
+shift *which* hole a reviewer lands on without being load-bearing for this one. That is a
+hypothesis this arm did not test, not a finding.
+
+### The cut list (AC-6)
+
+Against the **bare arm** — the comparator the 0.80 was taken against and the one §4 titles this
+row by — the delta contains no unit of `review-lean`'s prose that this metric can see:
+
+| disposition | units | basis |
+| --- | --- | --- |
+| **cut-eligible** — outside the delta | U-5, R-3, R-4 | `in-reach`, `no-effect` across all valid runs |
+| **not cut-eligible** — no basis | the other 14 | `not-reached`; the metric cannot see them |
+
+Against the **`/code-review` challenger** the column is degenerate and is recorded rather than
+used: arm 2a **hit** C2-a, so no unit is inside that delta, and reading it as licence would cut all
+seventeen on one sample. It does not bind the list above.
+
+**This list binds the pinned file only.** Every line added to `review-lean/SKILL.md` since
+`8d5d0897` is **unmeasured** — it has been in no arm of any comparison — and is neither cut nor
+kept by anything here. The subject is pinned by commit precisely because the head count moves with
+every merge.
+
+**#748 emits the list; it executes nothing.** The deletion remains a further successor of #671, per
+the §5 precedent separating a verdict from its execution.
+
+### What bounds this arm
+
+- **`review-lead` is absent from every arm, including the control.** U-5 names it as the Review
+  step's implementation and this study never loads it, so a unit that matters only by routing to
+  `review-lead` reads as `no-effect` here. The cut list inherits that limitation.
+- **`--allowedTools` did not restrict.** Every run executed `Bash` despite a `Read,Grep,Glob`
+  allowlist, and one used `Write`. Constant across control and every ablated arm, so it biases no
+  comparison here — but the registered recipe describes a restriction that did not hold. Filed
+  separately (#796).
+- **Two gaps in the rubric itself, found by running it.** §C scores an arm `no-effect` only if the
+  blocker **set** is otherwise indistinguishable, but the controls disagree with each other — one
+  raised two blockers the other two did not — so a set difference cannot be attributed to the
+  ablation without reading, and a `not-reached` arm at n=1 has no way to separate the two. And an
+  arm that keeps the ground-truth blocker while changing the set is neither `carrier` nor
+  `no-effect`: §C names no score for it. Cut-eligibility still resolves, because only `no-effect` is
+  eligible; the gap is in the vocabulary, not the outcome.
+- **The first control batch was killed and is not scored.** It ran as children of a session that
+  ended, leaving three captures with no terminal `result` event. Those captures are **not
+  committed** — no raw capture in this study is, scored or not — so what survives in-repo is the
+  measurement: `ablated-control-654-review.md` records each one's bytes, sha256 and the exit 2
+  `classify-capture.sh` returns on it. The lane gap that produced it is filed (#795).
+
 ### Recorded separately, as registered
 
 P10 independence — the verdict is authored by a session that is not the build session — is a
 property of the **lane**, and no bare-arm review can exhibit or refute it. `cut-to-delta` here
-addresses the skill's 127 lines of prose. It says nothing about the separate-session boundary,
+addresses the 127 lines of prose at `8d5d0897`, the measured surface. It says nothing about the
+separate-session boundary,
 which this slice did not measure and does not touch.
 
-**Successor — #671, arm 2.** The delta is not localisable to particular lines from this evidence.
-Measuring which of the 127 lines carries it is the follow-up (**#748**); until then no line is cut.
+**Successor — #671, arm 2.** The delta was not localisable from the §2 evidence alone. Measuring
+which of the pinned lines carries it was the follow-up, and **#748 has run it** — see *Arm 2b*
+above: no unit of the prose carries the 0.20 on C2-a, three units are cut-eligible and fourteen are
+`not-reached — no basis`. Still no line is cut; #748 emits the list, not the deletion.
 The comparator half of that arm is **discharged**: arm 2a above ran `review-lean` against the
 built-in `/code-review` on the same three samples and the same oracle, and the verdict held at
 `cut-to-delta`. The disjoint-miss result sharpens what #748 has to localise — the delta is not "the
@@ -583,7 +680,7 @@ table: it is where the terms of the next measurement live, and it contains no re
 | skill | lines | measured | basis | date |
 | --- | --- | --- | --- | --- |
 | `dev-pipeline/build-lean` | 48 | C1 + #746 arm 1 | **cut-to-delta with an empty cut** — re-measured on the consumer-shaped substrate (§1): bare covers 3–4 of 9, no item is cut-eligible, M3 and M9 `undetermined` at n=2. The repo-local basis is retired | 2026-09-01 |
-| `dev-pipeline/review-lean` | 127 | C2 + #747 arm 2a | **cut-to-delta** on two independent challengers: bare-session recall 0.80, and the built-in `/code-review` at effort `max` also **0.80** — the comparison #644 named, now measured (§2). The two miss different blockers, so neither dominates and the union is 5/5. Delta still not localised → **#748** | 2026-09-03 |
+| `dev-pipeline/review-lean` | 127 @ `8d5d0897` | C2 + #747 arm 2a | **cut-to-delta** on two independent challengers: bare-session recall 0.80, and the built-in `/code-review` at effort `max` also **0.80** — the comparison #644 named, now measured (§2). The two miss different blockers, so neither dominates and the union is 5/5. Delta **localised** by leave-one-out ablation over the 17 units at `8d5d0897` (#748, 28 runs, control 3/3): no unit carries the 0.20 — U-5, R-3 and R-4 score `no-effect` and are cut-eligible; the other 14 are `not-reached — no basis`. Execution is a further successor (§2) | 2026-09-03 |
 | `intake-toolkit/plan-interview` + `interviewing-baseline` | 312 | C3 | **keep**; bare recall 0.30, delta is the scope-boundary/DEPARTURE class | 2026-08-24 |
 | `intake-toolkit/intake-orchestrator` | 711 | — | **unmeasured — no basis**; no metric here reaches decomposition → successor **#672** | — |
 | `intake-toolkit/intake-interviewer` | 279 | — | **unmeasured — no basis**; registered in scope, no sample exercised its path → successor **#672** (§3) | — |
@@ -610,8 +707,15 @@ surviving cut qualifies, and the reasons are evidence, not caution:
   re-measured on the consumer-shaped substrate, no M-item is cut-eligible. The cut list is empty, so
   there is no deletion for a successor to execute — the reason it stays unexecuted is now a
   measurement rather than a caution.
-- **C2's cut is not localisable.** Recall 0.80 says the 127 lines are at best a tie; it does not say
-  which lines carry the 0.20. Cutting by guess would be the thing this slice exists to stop.
+- **C2's cut is localised, and is still not executed here.** Recall 0.80 said the pinned lines are
+  at best a tie without saying which carry the 0.20; cutting by guess is the thing this slice exists
+  to stop. **Settled by #748 (§2, 2026-09-03):** leave-one-out over all 17 units, 28 runs, control
+  reproducing the blocker 3 of 3. No unit carries it — the three `in-reach` units score `no-effect`
+  and are cut-eligible, the fourteen `not-reached` ones are recorded `not-reached — no basis` and
+  are explicitly **not** cut-eligible on this evidence. So the cut list is non-empty for the first
+  time, and executing it is a further successor rather than this slice's to do — the same
+  verdict/execution split #746 records one bullet up. The list binds the file at `8d5d0897` only;
+  every line added since is unmeasured.
 - **C3 is a `keep`.**
 
 So AC-5 is satisfied vacuously — no deletion, therefore no orphan — and it is recorded that way
@@ -623,7 +727,8 @@ rather than as a green sweep that proves something it does not. The successors a
 - **#671** — localise both cuts, and run the comparator the ticket named (`/code-review`) that §2
   declares this slice did not. **Arm 1 (#746) is done** — see §1; it returns an empty cut list.
   **Arm 2a (#747) is done** — see §2; the named comparator scores the same 0.80 and the verdict
-  holds. Arm 2b (#748) is outstanding.
+  holds. **Arm 2b (#748) is done** — see §2; leave-one-out over all 17 pinned units returns a cut
+  list of three, and the deletion itself is a further successor.
 - **#672** — `intake-orchestrator` (711 lines) and, by the operator's 2026-08-24 amendment,
   `intake-interviewer` (279 lines): 990 unmeasured lines, each owed a basis or an explicit
   no-basis record.
