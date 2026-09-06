@@ -33,7 +33,8 @@ AC-11 is where that is graded.
   `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS` together with the rationale block that motivates them.
   The child's environment arrives instead through `--settings` carrying an `env` object with
   `LEAN_ATTEND_MODE=headless` and `LEAN_RUN_MODEL=<model>` — nothing from the launcher's shell
-  reaches a `--bg` session (D-9). The spawn also passes `--disallowedTools AskUserQuestion` (D-6)
+  reaches a `--bg` session (D-9) — plus the telemetry variables `probe_telemetry` already reads,
+  forwarded only when the launcher carries them (D-27). The spawn also passes `--disallowedTools AskUserQuestion` (D-6)
   and `--name lean-<issue>-<role>-r<round>` (D-4). A dispatch whose output carries no readable
   session id is fail-closed, not scored as a spawn.
 - AC-2: after dispatch, `spawn()` polls `claude agents --json --all` on a fixed cadence, keyed on
@@ -74,10 +75,11 @@ AC-11 is where that is graded.
 - AC-8: the launch ledger records a state, not a return code (D-12). The `spawn` row gains
   `id=<short id>`; the `spawn-end` row's `rc=<n>` becomes `state=<done|failed|stopped|blocked|stuck>`.
   `tools/lane-latency.sh` reads timestamps only and is unaffected.
-- AC-9: `scripts/gate-buckets.tsv` is reconciled (D-13). The `build-session-failed`,
-  `review-session-failed` and `staleness-expired` rows re-anchor onto their edited messages, and
-  `build-blocked`, `review-blocked` and `spawn-unreadable` get rows of their own.
-  `bash scripts/check-gate-buckets.sh` stays green.
+- AC-9: `scripts/gate-buckets.tsv` is reconciled (D-13). `build-session-failed` and
+  `review-session-failed` become ONE row, because the two are now one source site whose slug is
+  composed from the role — the register anchors on source text, and the log keeps both slugs.
+  `staleness-expired` re-anchors onto its edited message, and `blocked` and `spawn-unreadable` get
+  rows of their own. `bash scripts/check-gate-buckets.sh` stays green.
 - AC-10: the suite drives the new transport (D-14). `orchestrate-lean-selftest.sh`'s `claude` fake
   is discriminated on argv the way its `gh` fake already is: `--bg` prints `backgrounded · <id>`
   and records the prompt and the flags, `agents --json --all` is served from a case-written state
@@ -97,7 +99,10 @@ AC-11 is where that is graded.
   paragraph, the "there is no channel into a live `claude -p`" statement on the exit-7 bound, and
   the stream-split header on `spawn`. In `run-lean/SKILL.md`, `review-lean/SKILL.md` and
   `build-lean/SKILL.md`, the passages naming `-p` as the spawn primitive or turn end as process
-  exit. `operator-override.sh`'s `headless` contract gains one sentence: `claude attach` is a
+  exit. Two `lean-gate.sh` header claims this PR falsifies are corrected in place: the build-exit
+  contract's "exits 0 … is `claude -p` ending a turn", and `require_ticket_live`'s "the scheduler
+  structurally cannot, because there is no channel into a running `claude -p`".
+  `operator-override.sh`'s `headless` contract gains one sentence: `claude attach` is a
   keyboard channel into a headless payload, so `headless` means "not attended through the gate",
   not "unreachable". `bash tools/prose-blockers.sh check` stays green, with triage rows added
   last.
@@ -152,3 +157,4 @@ bash tools/prose-blockers.sh check
 | D-24 | Alternatives, recorded as considered and declined | `-p --output-format stream-json`: liveness only, still a print-mode turn that ends on pending background work, still no control channel (#617 option 2). Agent SDK: the vendor-blessed headless surface, with interrupt and permission callbacks, but a Python or TS stratum in a bash lane and the same print-mode turn semantics. Teammates: experimental, interactive lead required, cannot nest. Subagents: share the parent's session id, refused by `cmd_verdict` (#805 body). `--bg` is documented ("the scriptable version for launching an agent from automation scripts"), needs no dependency, and is the only surface measured to handle the pending-work shape natively. | codebase-derived |
 | D-25 | The job record | `~/.claude/jobs/<id>/state.json` and `timeline.jsonl` are harness-written, durable while the session exists (deleted by `claude rm`), and carry `state`, `detail`, `tempo`, `inFlight`, `output.result`, `respawnFlags`, `cliVersion` and per-transition timestamps. Undocumented: the lane reads it only in D-8's primary arm, where its absence degrades to the documented ceiling; `detail` is model-authored prose and is never read (it said "background task running" on every stuck session). D-3 keeps the projects jsonl as the transcript source. The PR body names the record as the operator's fastest post-hoc read. | codebase-derived |
 | D-26 | The issue body's `## Open regions` table was unreadable to milestone 1 | Corrected in place under the bot identity, before any code was written: each disposition cell carried `<token> — <prose>`, and the gate's table arm compares the whole cell against the closed two-value enum, so all four rows scanned as "no recognizable disposition" and milestone 1 refused with rc=2. The tokens are now bare and the reasoning sits below the table as a PARAGRAPH, which is where `intake-toolkit:interviewing-baseline` puts it; a bullet list there re-fires the same refusal, because the bullet arm emits a second row per id and a bullet naming `OR-n` without a token carries an empty disposition. No disposition changed, nothing was resolved by this edit — OR-1, OR-3 and OR-4 are `pause-and-ask` and were already resolved by the operator's `Ratified:` comment, which names all four word-bounded. Disclosed here and in the PR body because a build-authored body edit is otherwise indistinguishable from a self-ratification. | codebase-derived |
+| D-27 | Telemetry configuration on the far side of the transport swap | **Not covered by the receipt (P9), and named here rather than decided quietly.** D-9 enumerated the two variables the lane sets itself and stopped there, but `probe_telemetry` judges a run priceable from the LAUNCHER's `CLAUDE_CODE_ENABLE_TELEMETRY` / `OTEL_*`, and under `-p` the payload inherited exactly those. Dropping them would leave every payload session exporting nothing while preflight still called the run priceable, and `pipeline-cost-block.sh` would fall to its transcript source — tokens recovered, money not. Resolved as behavior preservation rather than as a new capability: the six variables the probe and the cost block already depend on are forwarded through D-9's own `--settings` mechanism, and only when the launcher actually carries one. Reversing it is deleting one loop. | codebase-derived |

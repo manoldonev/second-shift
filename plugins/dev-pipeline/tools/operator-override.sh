@@ -105,10 +105,15 @@ now_iso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 # value IS the self-asserted attendance the epic forbids. A typo lands in the same arm rather
 # than silently reading as attended.
 #
-# Rules 2/3 are why staleness needs no clock. A scheduler-spawned `claude -p` payload gets a
-# FRESH session id, so an operator's token can never read attended inside one; and the run id is
-# what D-2's per-run scoping is stated against. Both are required — degrading to the weaker
-# binding when one is missing would hand back exactly the case the binding exists to catch.
+# Rules 2/3 are why staleness needs no clock. A scheduler-spawned payload gets a FRESH session
+# id, so an operator's token can never read attended inside one; and the run id is what D-2's
+# per-run scoping is stated against. Both are required — degrading to the weaker binding when one
+# is missing would hand back exactly the case the binding exists to catch.
+#
+# `headless` MEANS "NOT ATTENDED THROUGH THE GATE", NOT "UNREACHABLE" (#805). A backgrounded
+# payload can be reached with `claude attach <id>`, which is a keyboard channel into a session
+# this file has already marked headless. That is deliberate and changes nothing here: attendance
+# is a recorded, repudiable artifact minted by `attend`, and typing at a session is not one.
 ATTEND_REASON=""
 resolve_attendance() { # 0 = attended; 1 = headless, with ATTEND_REASON set
   local tok sid rid tsid trid

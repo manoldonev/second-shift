@@ -41,8 +41,8 @@ rescue path, and the fallback if headless sessions ever leave the subscription.
   of your own would put a third identity into a two-identity contract.
 - **Never interpret a finding.** The verdict gate's exit code is the whole signal. Reading the
   record to decide what comes next is content judgment — how this lane grew stage choreography.
-- **Never resume a review context.** Each round's review is a new session (`-p`, never
-  `--resume`): round 2 inheriting round 1's context is round 1 agreeing with itself.
+- **Never resume a review context.** Each round's review is a new backgrounded session
+  (`--bg`, never `--resume`): round 2 inheriting round 1's context is round 1 agreeing with itself.
 - **The velocity principles bind here** ([manifesto](../../../../docs/pipeline-manifesto.md)):
   never idle-block, fan out independent work. A gate that is right but slow is not done.
 

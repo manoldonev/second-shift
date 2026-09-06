@@ -151,13 +151,15 @@ the code does not author its own evaluation.
 ## Rules that are not negotiable
 
 - **Never end a turn with work this turn started and has not collected.** The scheduler spawns
-  this session under `claude -p` exactly as it spawns the build one, and there turn end IS
-  process exit: a `&`-detached command, a probe you mean to report on "when it lands", or an
+  this session with `claude --bg` exactly as it spawns the build one, and there turn end still
+  ends the turn: a `&`-detached command, a probe you mean to report on "when it lands", or an
   armed `Monitor` is abandoned, not deferred. Two build sessions were lost to that shape before
-  it was written down. **Your long pole is not one of them.** A `Workflow` dispatch — how
-  `review-toolkit:review-lead` fans out — was MEASURED under `-p`: the session is re-entered when the workflow
-  completes and reports its result normally. So await it. Do not arrange to collect it later,
-  and do not restructure the panel around a death it does not have.
+  it was written down, and a supervised session that ends its turn over a bare backgrounded
+  command is STOPPED by the scheduler rather than waited on. **Your long pole is not one of
+  them.** A `Workflow` dispatch — how `review-toolkit:review-lead` fans out — was MEASURED: the
+  session is re-entered when the workflow completes and reports its result normally. So await it.
+  Do not arrange to collect it later, and do not restructure the panel around a death it does not
+  have.
 - **One identity per review round.** Re-running a round reuses the cached id; a new round
   after a fix gets a new one, so the rounds stay distinguishable in the ledger.
 - **Inheritance narrows what you READ, never what you must find.** Every `AC-n` is scored every
