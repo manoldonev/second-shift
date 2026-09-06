@@ -1,14 +1,12 @@
 <p align="center">
-  <img src="docs/second-shift-hero-v4.png" alt="second-shift — no proof, no merge. Your coding agent writes the pull request; a review it can't overrule, tests that survived deliberate sabotage, and a merge check outside the model decide whether it ships." width="800">
+  <img src="docs/second-shift-hero-v4.png" alt="second-shift — no proof, no merge. Your agent bluffs; the gate doesn't play."" width="800">
 </p>
 
 # second-shift
 
 > No proof, no merge.
 
-**second-shift** is a set of open-source [Claude Code](https://claude.com/claude-code) plugins for autonomous development. Your coding agent takes a ticket and writes the pull request. What decides whether that PR ships is not the agent's word: a review from a session that did not write the code, tests that survived deliberate sabotage, a record of what the agent actually ran, and a merge check in CI that reads those records and refuses when any is missing. The cost of the run is printed on every PR. The merge button stays yours.
-
-It runs on the Claude Code subscription you already pay for, in your repo, in plain git. One config file onboards a repo; the plugins hold nothing repo-specific.
+**second-shift** is open-source Claude Code plugins for autonomous development. Your agent asks before it builds, proves what it did, and cannot merge its own work. A review it can't overrule, tests that survived sabotage, a ledger of what it actually ran, and a check in CI that refuses without them. Cost on every PR. The merge button stays yours.
 
 ## Get started
 
