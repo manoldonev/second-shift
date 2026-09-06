@@ -552,11 +552,42 @@ every merge.
 **#748 emits the list; it executes nothing.** The deletion is filed as #800, per
 the §5 precedent separating a verdict from its execution.
 
+### Execution (#800)
+
+Re-anchored on the head #800 built against (`review-lean/SKILL.md`, 191 lines):
+
+| unit | pin | head | disposition |
+| --- | --- | --- | --- |
+| U-5 | 48–55 | 48–63 | not cut — kept |
+| R-3 | 110–114 | 163–167 | not cut — kept, byte-identical |
+| R-4 | 115–116 | 168 | cut |
+
+**U-5, kept.** Bound (a) below — `review-lead` absent from every arm — is exactly what U-5's
+opening sentence routes to, so its `no-effect` score describes the missing apparatus, not the
+unit. Re-anchored, the surviving measured text now interleaves with #755's `## AC scorecard`
+block and #683's CI-citation rule; the measured "score each `AC-n` as satisfied / unsatisfied /
+undeterminable" sentence itself was superseded by #755. Deleting the unit would leave the Review
+step carrying a schema with no instruction to review and no reviewer named. Head line 48 also
+carries live census construct `pb-dd909897` (promoted / guard-added, #622).
+
+**R-3, kept.** Byte-identical to the pin. `plugins/review-toolkit/skills/review-lead/SKILL.md:533`
+defers to it by name as "the caller's inheritance contract" (wired at #730) — the same
+`review-lead`-absence bound reaches R-3 too, a fact the bullet below did not previously state. No
+LOCKSTEP marker pairs the two sites, so deleting the referent would silently strand review-lead's
+rule 5.
+
+**R-4, cut.** Head line 168, one line — the second clause was already deleted independently at
+`d8ea88aa` (#753 / PR #776). Zero live references anywhere in the tree; absent from the
+default-tier prose census.
+
 ### What bounds this arm
 
 - **`review-lead` is absent from every arm, including the control.** U-5 names it as the Review
   step's implementation and this study never loads it, so a unit that matters only by routing to
-  `review-lead` reads as `no-effect` here. The cut list inherits that limitation.
+  `review-lead` reads as `no-effect` here. R-3 is exposed by the same mechanism:
+  `plugins/review-toolkit/skills/review-lead/SKILL.md:533` defers to it by name as "the caller's
+  inheritance contract", so a unit that matters only by being *read by* review-lead is equally
+  invisible to a study that never loads it. The cut list inherits that limitation.
 - **`--allowedTools` did not restrict.** Every run executed `Bash` despite a `Read,Grep,Glob`
   allowlist, and one used `Write`. Constant across control and every ablated arm, so it biases no
   comparison here — but the registered recipe describes a restriction that did not hold. Filed
@@ -715,7 +746,8 @@ surviving cut qualifies, and the reasons are evidence, not caution:
   are explicitly **not** cut-eligible on this evidence. So the cut list is non-empty for the first
   time, and executing it is #800 rather than this slice's to do — the same verdict/execution split
   #746 records one bullet up. The list binds the file at `8d5d0897` only; every line added since is
-  unmeasured.
+  unmeasured. **Settled by #800 (§2, 2026-09-07):** R-4 is deleted; U-5 and R-3 are kept, each with
+  a reason on file — see the *Execution (#800)* subsection above.
 - **C3 is a `keep`.**
 
 So AC-5 is satisfied vacuously — no deletion, therefore no orphan — and it is recorded that way
@@ -729,9 +761,9 @@ rather than as a green sweep that proves something it does not. The successors a
   **Arm 2a (#747) is done** — see §2; the named comparator scores the same 0.80 and the verdict
   holds. **Arm 2b (#748) is done** — see §2; leave-one-out over all 17 pinned units returns a cut
   list of three, and the deletion itself is #800. All three arms have run; the epic is closed.
-- **#800** — execute arm 2b's cut list: delete U-5, R-3 and R-4 from `review-lean`, each
-  re-anchored on the current head, or record why a unit is not cut. The list binds `8d5d0897`; the
-  fourteen `not-reached` units and every line added since are out of its scope.
+- **#800 is done** — see §2's *Execution (#800)* subsection: R-4 is deleted, and U-5 and R-3 are
+  kept, each with a reason on file. The list binds `8d5d0897`; the fourteen `not-reached` units and
+  every line added since stayed out of its scope.
 - **#672** — `intake-orchestrator` (711 lines) and, by the operator's 2026-08-24 amendment,
   `intake-interviewer` (279 lines): 990 unmeasured lines, each owed a basis or an explicit
   no-basis record.
