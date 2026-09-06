@@ -134,6 +134,8 @@ if [ "${1:-}" = "agents" ]; then
     ABSENT)     echo '[]'; exit 0 ;;
     NOSTATE)    echo '[{"id":"other","sessionId":"other-full"}]'; exit 0 ;;
   esac
+  # Anything else is served AS a state, which is what lets a case drive a word outside the
+  # documented enum — the shape an agent-view schema change would produce.
   jq -n --arg id "$(cat "$SPAWN_LOG_DIR/last-id" 2>/dev/null)" --arg st "$line" \
     '[{id:$id, sessionId:($id + "-full"), kind:"background", state:$st}]'
   exit 0
@@ -1847,6 +1849,20 @@ for shape in UNREADABLE GARBAGE ABSENT NOSTATE; do
     pass "(bg5/$shape) an unreadable listing fails CLOSED after three polls, names the id, and never reaches the gate"
   else fail "(bg5/$shape) expected rc=1/spawn-unreadable, got rc=$rc / slug=$(slug_of "$out"): $out"; fi
 done
+
+# AN UNMODELLED STATE IS THE SAME FAIL-CLOSED FACT, and it gets its own case because it reaches
+# the counter down a different path: the listing PARSES and the row IS the dispatched session, so
+# every earlier guard passes and only the enum check is left. This is also the case that catches
+# the counter being reset on every readable row — with that reset in place the tolerance is never
+# reached and the loop spins forever on a state it cannot act on, which no other case here can
+# distinguish from a session that is simply taking a while.
+setup_case "reticulating" "$V_APPROVE" "ready-for-dev" "11"
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 1 ] && [ "$(slug_of "$out")" = "spawn-unreadable" ] \
+   && grep -q "unmodelled state 'reticulating' (3 of 3)" <<<"$out" \
+   && [ "$(gate_count)" -eq 0 ]; then
+  pass "(bg5b) a state outside the documented enum accumulates to the same fail-closed refusal — the agent view is a research preview and its enum can move"
+else fail "(bg5b) expected rc=1/spawn-unreadable after three unmodelled reads, got rc=$rc / slug=$(slug_of "$out"): $out"; fi
 
 # ...and the tolerance is THREE, not one. A supervisor killed under a live session leaves the
 # session running and the listing recoverable, so a single bad read is evidence about the listing

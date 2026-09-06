@@ -768,15 +768,19 @@ POLL_TOLERANCE=3
 # true of the sessions it is answering about; it is D-9's mechanism applied to the variables the
 # cost block already depends on, and it adds a key only when the launcher actually carries one.
 spawn_settings() { # spawn_settings <model> — prints the --settings payload
-  local n v out
-  out="$(jq -n -c --arg m "$1" '{env:{LEAN_ATTEND_MODE:"headless",LEAN_RUN_MODEL:$m}}')" || return 1
+  local n v model="$1"
+  # Name/value pairs in the positional list, folded to an object by ONE jq call. Built by
+  # re-setting the arguments rather than in an array, because this file stays bash-3.2-safe for
+  # the macOS lane, and assembled in one call because this runs on every spawn.
+  set -- LEAN_ATTEND_MODE headless LEAN_RUN_MODEL "$model"
   for n in CLAUDE_CODE_ENABLE_TELEMETRY OTEL_METRICS_EXPORTER OTEL_EXPORTER_OTLP_PROTOCOL \
            OTEL_EXPORTER_OTLP_ENDPOINT OTEL_EXPORTER_OTLP_HEADERS OTEL_METRIC_EXPORT_INTERVAL; do
-    v="$(printenv "$n" 2>/dev/null)"
-    [ -n "$v" ] || continue
-    out="$(printf '%s' "$out" | jq -c --arg k "$n" --arg v "$v" '.env[$k] = $v')" || return 1
+    v="$(printenv "$n" 2>/dev/null)" || v=""
+    [ -n "$v" ] && set -- "$@" "$n" "$v"
   done
-  printf '%s' "$out"
+  jq -n -c '{env: ($ARGS.positional
+                   | [ range(0; length; 2) as $i | {key: .[$i], value: .[$i + 1]} ]
+                   | from_entries)}' --args "$@"
 }
 
 # The listing, reduced to one row for one id: `<state><TAB><sessionId>`. Prints nothing and
@@ -874,7 +878,22 @@ poll_session() { # poll_session <role> <lower-role> <id>
       fi
       continue
     fi
-    unread=0
+    # A state this script does not model is a listing it cannot INTERPRET, which is the same fact
+    # as one it cannot read, so it lands on the same counter — the agent view is a documented
+    # research preview and its enum can move. The reset lives HERE, in the recognized arms, rather
+    # than unconditionally above the case: resetting on every non-empty row would pin the
+    # unmodelled count at one, the tolerance would never be reached, and the loop would spin
+    # forever on a state it cannot act on.
+    case "$state" in
+      working|blocked|done|failed|stopped) unread=0 ;;
+      *)
+        unread=$(( unread + 1 ))
+        say "  $role session $id: unmodelled state '$state' ($unread of $POLL_TOLERANCE)."
+        if [ "$unread" -ge "$POLL_TOLERANCE" ]; then
+          terminal spawn-unreadable 1 "$role session $id reported the state '$state' $POLL_TOLERANCE polls running, which is not one of working, blocked, done, failed or stopped. The agent view is a research preview and its state enum can move; this refuses rather than guessing which side of done an unknown word falls on. The worktree and the claim are left in place."
+        fi
+        continue ;;
+    esac
     SPAWN_SID="$sid"
     if [ "$state" != "$prev" ]; then say "  $role session $id: $state"; prev="$state"; fi
 
@@ -914,16 +933,6 @@ poll_session() { # poll_session <role> <lower-role> <id>
             stop_session "$id"; SPAWN_ID=""
             SPAWN_STATE="stuck"; return 0
           fi
-        fi
-        ;;
-      *)
-        # An unmodelled state is a listing this script cannot interpret, which is the same fact
-        # as one it cannot read — counted together, and never scored as done. The agent view is a
-        # documented research preview, so the enum moving is a thing that can happen.
-        unread=$(( unread + 1 ))
-        say "  $role session $id: unmodelled state '$state' ($unread of $POLL_TOLERANCE)."
-        if [ "$unread" -ge "$POLL_TOLERANCE" ]; then
-          terminal spawn-unreadable 1 "$role session $id reported the state '$state' $POLL_TOLERANCE polls running, which is not one of working, blocked, done, failed or stopped. The agent view is a research preview and its state enum can move; this refuses rather than guessing which side of done an unknown word falls on. The worktree and the claim are left in place."
         fi
         ;;
     esac
