@@ -53,15 +53,18 @@ Pre-flight receipt: `.claude/pipeline-state/803-ledger.md`.
   reproduced in ≥2 of 3 control runs (D-4), and `review-lead` actually invoked in ≥2 of 3 control
   runs (D-5). Failing either exits the arm `no basis` — U-5 and R-3 are then reported unscored, and
   no `no-effect` is recorded for either.
-- AC-5: `docs/plans/skill-ablation/c2-review-reviewlead/` carries one capture-record file per arm —
-  `ablated-control-654-review.md`, `ablated-U-5-654-review.md`, `ablated-R-3-654-review.md` — with
-  every replicate's output verbatim under its own `## r<n>` heading, and every near-miss quoted and
+- AC-5: `docs/plans/skill-ablation/c2-review-reviewlead/` carries one capture-record file per arm
+  **that ran** — always `ablated-control-654-review.md`, and `ablated-U-5-654-review.md` /
+  `ablated-R-3-654-review.md` if and only if AC-4's adjudication let those arms proceed — with every
+  replicate's output verbatim under its own `## r<n>` heading, and every near-miss quoted and
   adjudicated against the frozen C2 hit rule (same mechanism **and** same consequence; same file
-  with a different defect is a miss).
+  with a different defect is a miss). Where an arm did not run, the README says so and why; no empty
+  per-arm file is written, since that would misrepresent a run that produced nothing.
 - AC-6: `docs/plans/skill-ablation/c2-review-reviewlead/ablation-units.tsv` gives the machine-readable
   per-unit result for U-5 and R-3: the line range at `8d5d0897`, valid and indeterminate run counts,
-  hits, the control's majority, whether `review-lead` was invoked in that arm, and the score under
-  D-4 — `carrier`, `no-effect` or `undetermined`, never `no-effect` on fewer than 2 valid runs.
+  hits, the control's majority, whether `review-lead` was invoked in that arm, and the score — under
+  D-4 `carrier`, `no-effect` or `undetermined` where the arm ran, and `not-reached — no basis` where
+  AC-4's exit stopped it. Never `no-effect` on fewer than 2 valid runs.
 - AC-7: `docs/skill-ablation.md` §2 gains a new subsection placed immediately after
   *Execution (#800)* and before *What bounds this arm*, reporting: the construction and the single
   variable that moved, AC-4's two adjudications, the per-unit scores, what those scores license
@@ -83,6 +86,13 @@ Pre-flight receipt: `.claude/pipeline-state/803-ledger.md`.
   evidence README. The change is docs-only, so it adds no row to `docs/prose-blocker-triage.tsv` —
   `bash tools/prose-blockers.sh check` is green and its census is unmoved, the corpus being
   `plugins/**` only.
+
+**AC amendment, 2026-09-07, by this build session, after the control ran and before milestone 5.**
+AC-4's registered exit fired: the control delivered `review-lead` as an availability in 3 of 3 runs
+and an invocation in 0 of 3, so the arm exits `no basis` and the two ablated arms were never
+launched. AC-5 and AC-6 were written assuming they would run. Both are **narrowed** to the branch
+AC-4 already spelled out — no obligation is dropped, and the `no basis` branch was registered in
+`docs/skill-ablation-addendum-2.md` before any run. AC-4 itself is unchanged.
 
 ## Out of scope
 
