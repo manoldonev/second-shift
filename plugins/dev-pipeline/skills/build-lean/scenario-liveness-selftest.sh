@@ -1928,6 +1928,18 @@ REGH
     RE_SESSION="$RE_DIR/session"
     cat > "$RE_SESSION" <<'RESESS'
 #!/usr/bin/env bash
+# #805. ONE BINARY, THREE SUBCOMMANDS, because that is what the scheduler now calls: the `--bg`
+# dispatch, `agents --json --all` to read a state, and `stop`. This fake stays SYNCHRONOUS — the
+# payload's real gate work still runs inline on the dispatch call, exactly as it did under `-p` —
+# and the listing then reports that session `done`, which is the state the poll is waiting for.
+# Preflight's own listing read arrives before any spawn and is answered from the same counter,
+# which is 0 there, so it parses and refuses nothing.
+if [ "${1:-}" = "agents" ]; then
+  sid="bg-$(cat "$RE_DIR/spawns" 2>/dev/null || echo 0)"
+  printf '[{"id":"%s","sessionId":"%s-full","kind":"background","state":"done"}]\n' "$sid" "$sid"
+  exit 0
+fi
+if [ "${1:-}" = "stop" ]; then echo "stop ${2:-}" >> "$RE_DIR/session.log"; exit 0; fi
 n=$(( $(cat "$RE_DIR/spawns" 2>/dev/null || echo 0) + 1 ))
 echo "$n" > "$RE_DIR/spawns"
 echo "spawn $n: $*" >> "$RE_DIR/session.log"
@@ -1970,6 +1982,10 @@ case "$*" in
     ;;
   *) exit 1 ;;
 esac
+# The dispatch line the scheduler parses its id out of. Emitted LAST because this fake did the
+# payload's work first: under `--bg` the id is announced before the work, but the poll cannot ask
+# for a state until the dispatch returns, so a synchronous fake reaches the same composition.
+echo "backgrounded · bg-$n"
 exit 0
 RESESS
     chmod +x "$RE_SESSION"
@@ -2000,8 +2016,12 @@ RESESS
     # passes one, and each spawn's identity is the harness's own stamp — here, the fake's export.
     # GH_BOT is unset too, and that is load-bearing rather than hygiene: an ambient one would
     # send cmd_mark's write to a LIVE bot if its no-op branch ever stopped being taken.
+    # #805: LEAN_SPAWN_POLL_SECS is pinned to zero below. The scheduler waits one poll interval
+    # before reading a session's state, so an unpinned interval charges this leg thirty seconds
+    # PER SPAWN — measured, 68s to 323s. What the leg composes is the routing, not the cadence.
     re_run() { # re_run <progress-file> <comments-file>
       ( cd "$LEAN_TREE" && env -u CLAUDE_CODE_SESSION_ID -u RUN_ID -u LEAN_RUN_MODEL -u GH_BOT \
+          LEAN_SPAWN_POLL_SECS=0 \
           GH="$RE_GH" LEAN_SPAWN_BIN="$RE_SESSION" \
           SECOND_SHIFT_CONFIG="$RE_CFG" LEAN_PROGRESS_FILE="$1" RE_COMMENTS_LIVE="$2" \
           RE_DIR="$RE_DIR" RE_WT="$RE_WT" RE_GATE="$LEAN_GATE" RE_KEY="$RE_KEY" \
@@ -2156,6 +2176,18 @@ COC
     CO_SESSION="$CO_DIR/session"
     cat > "$CO_SESSION" <<'COSESS'
 #!/usr/bin/env bash
+# #805. ONE BINARY, THREE SUBCOMMANDS, because that is what the scheduler now calls: the `--bg`
+# dispatch, `agents --json --all` to read a state, and `stop`. This fake stays SYNCHRONOUS — the
+# payload's real gate work still runs inline on the dispatch call, exactly as it did under `-p` —
+# and the listing then reports that session `done`, which is the state the poll is waiting for.
+# Preflight's own listing read arrives before any spawn and is answered from the same counter,
+# which is 0 there, so it parses and refuses nothing.
+if [ "${1:-}" = "agents" ]; then
+  sid="bg-$(cat "$CO_DIR/spawns" 2>/dev/null || echo 0)"
+  printf '[{"id":"%s","sessionId":"%s-full","kind":"background","state":"done"}]\n' "$sid" "$sid"
+  exit 0
+fi
+if [ "${1:-}" = "stop" ]; then echo "stop ${2:-}" >> "$CO_DIR/session.log"; exit 0; fi
 n=$(( $(cat "$CO_DIR/spawns" 2>/dev/null || echo 0) + 1 ))
 echo "$n" > "$CO_DIR/spawns"
 echo "spawn $n: $*" >> "$CO_DIR/session.log"
@@ -2187,6 +2219,7 @@ case "$*" in
     ;;
   *) exit 1 ;;
 esac
+echo "backgrounded · bg-$n"
 exit 0
 COSESS
     chmod +x "$CO_SESSION"
@@ -2215,6 +2248,7 @@ COSESS
       # skip is what a host with no collector produces, and its three obligations must still be
       # recorded met — which is AC-4, asserted below.
       ( cd "$LEAN_TREE" && env -u CLAUDE_CODE_SESSION_ID -u RUN_ID -u LEAN_RUN_MODEL -u GH_BOT \
+          LEAN_SPAWN_POLL_SECS=0 \
           GH="$RE_GH" LEAN_SPAWN_BIN="$CO_SESSION" \
           SECOND_SHIFT_CONFIG="$CO_CFG" LEAN_PROGRESS_FILE="$1" RE_COMMENTS_LIVE="$CO_COMMENTS_LIVE" \
           CO_MODE="$2" OTEL_METRICS_FILE="$CO_DIR/no-such-metrics.jsonl" \
