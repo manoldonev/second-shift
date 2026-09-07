@@ -1,171 +1,152 @@
 # lean review verdict — #805
 
-verdict=approve
-run_id: review-805-3
-session_id: dedc1d6f-deef-41d3-876e-3f3c269338a8
-rounds: 3
+verdict=needs-work
+run_id: review-805-4
+session_id: cbb5948b-615b-452a-9deb-4c2c1d01c69c
+rounds: 4
 pr: #810
-reviewed_head: 9a93630f6d2673373a1d5874432f71ea569cd490
-reviewed_patch_id: a5f2c10ef897f410f30ebee625e99521dd6d4ec0
-inherited_patch_id: a761670383a881a60b2ae1c61036c5b5710e16aa
-inherited_from_verdict: 63843b51da6b09ad8a5c0146ee139f0e9d61f5d4
+reviewed_head: 94933368a5cf96269ce17b8b9a478c07a4ec3ea6
+reviewed_patch_id: 8f00eb89426791d7fedbdcd3f46894af7cbd2620
+inherited_patch_id: a5f2c10ef897f410f30ebee625e99521dd6d4ec0
+inherited_from_verdict: c732ea63553c0f191017215b1bdcd7004b4ed6cb
 fidelity: not-applicable
-panel: review-toolkit:scope-completeness-reviewer,review-toolkit:unit-test-mutation-reviewer,review-toolkit:pipeline-reviewer
-model: opus
+panel: review-toolkit:security-reviewer,review-toolkit:pipeline-reviewer,review-toolkit:unit-test-mutation-reviewer,review-toolkit:scope-completeness-reviewer
+model: unknown
 capabilities: pr-marker
 
-Round 3, delta `63843b51..HEAD` (the single fix commit `9a93630f`, two files), inheriting the
-coverage of patch `a761670383a8` from round 2's record. Read wider than the range where the delta
-was misleading: the whole branch against `origin/main` for AC-11's accounting and for the panel's
-scope read, and `origin/main` itself for the shape of every mechanism the narrowing removed.
+# Review round 4 — #805 / PR #810 — needs-work
 
-**Round 2's blocker is fixed, and this time the fix is guarded by a case that can fail.** `(bg7a)`
-drives mid-flight `staleness-expired` — the arm that genuinely exits from inside the poll loop and
-has a session id by then — and asserts the slug and exit code alongside the transcript, so a run
-that settled normally cannot pass it while proving the opposite. The three closes now have
-disjoint killers, measured as control/mutant pairs in a throwaway worktree at this head:
+Reviewed at `94933368`, delta `c732ea63..HEAD` (four commits, nine files), inheriting round 3's
+coverage of `9a93630f`. Round 3 APPROVED; these four commits landed after it and voided that
+record. They are not a fix round — nothing was outstanding — so this round reads them as new work.
 
-| Mutant | Verdict | Killed by |
+Three blockers, one of them CI-red at this exact head. Everything else below is a warning.
+
+## Blockers
+
+**B-1 — `lint-and-selftests` is RED at this head, and the cause is in the delta.**
+`plugins/dev-pipeline/skills/run-lean/orchestrate-lean-selftest.sh:2015-2016` asserts
+`grep -c "\tspawn\t"` and `grep -c "\tspawn-end\t"`. GNU grep does not read `\t` as a tab in a BRE;
+BSD grep does. So `(bg7f)` passes on `selftests (macos, bash 3.2)` and fails on the ubuntu lane —
+job 101717947557, `1 FAILURE(S)`, `orchestrate-lean-selftest.sh (rc=1)`. The failure message dumps
+the ledger and it contains exactly one `spawn` row, one `spawn-end` row and `state=staleness-expired`,
+so the product is correct and the assertion is what breaks. Measured locally: `/usr/bin/grep -c
+"\tspawn\t"` returns 1, and `/usr/bin/grep -c "$(printf '\t')spawn$(printf '\t')"` also returns 1 —
+the portable form works on both lanes. That second form is the repo's established idiom
+(`lean-gate.sh:1762`, `tools/mutation-sweep.sh:210`, and this same suite's own `:1817`/`:1831`,
+which embed a literal tab); `(bg7f)` is the only place in the tree using `"\t"` inside a grep
+pattern.
+
+**B-2 — the new catalog row `lean-orchestrate-session-ceiling-lowered` is a measured SURVIVOR.**
+Probed at this head in an isolated worktree, suite run directly:
+
+| run | mutation | verdict |
 | --- | --- | --- |
-| control (unmutated) | 124 pass / 0 fail | — |
-| `spawn_close` deleted from `spawn_cleanup` | KILLED, 1 failure | `(bg7a)` — transcript 0 bytes |
-| `spawn_close` deleted from `spawn()` | KILLED, 2 failures | `(y2a)`, `(z1)` |
-| the `SPAWN_CLOSED` idempotency guard dropped | KILLED, 1 failure | `(bg2b)` — "got 2" close blocks |
-| the `failed`/`stopped` handle clear removed | KILLED, 1 failure | `(j1a)` — `stops=[stop sess1]` |
+| control | none | `all green` (rc 0) |
+| mutant | `LEAN_SPAWN_SESSION_CEILING_MS:-7200000` → `:-1800000` (the row's own sed) | `all green` (rc 0) — **SURVIVED** |
 
-Every row reproduces the PR body's own table exactly. Round 2's two remaining warnings are also
-closed: `failed` and `stopped` clear the handle, and the private-HOME comment no longer names the
-job-record read the narrowing deleted.
+Root cause is a duplicated constant: `orchestrate-lean-selftest.sh:423` has `run_tool` export
+`LEAN_SPAWN_SESSION_CEILING_MS="${SESSION_CEILING_OVERRIDE:-7200000}"` on **every** case, so
+`${LEAN_SPAWN_SESSION_CEILING_MS:-7200000}` in the product is unreachable from the suite and what
+`(bg4c)` actually pins is the suite's own copy of the literal. `(bg4c)`'s stated property — "lower
+the default back toward the BUILD distribution and it reds" — is therefore false, and so is
+b4ef1fc8's "killed by bg4c alone". The regression this round exists to fix is the one left
+unguarded. `mutation-sweep-pr` cannot catch it: it reported
+`orchestrate-lean.sh deferred-to-nightly — multi-suite union (2 killers)`, `applied=0`.
+Same masking applies to `LEAN_SPAWN_STALENESS_SECS` (`run_tool` pins `${STALENESS_SECS_OVERRIDE:-0}`),
+so the shipped 300s default is exercised by no case either — see W-8.
 
-No blockers. Two warnings and one measured divergence, below.
+**B-3 — the ratified 30-minute ceiling ships as a 2-hour whole-session ceiling, and the PR body
+still describes the thing the code repudiates.** #805's `Ratified:` comment names "a 30-minute
+silence ceiling as the documented fallback"; AC-3 declares "a bounded silence ceiling (env seam,
+default 30 minutes)". `orchestrate-lean.sh:849` ships `SESSION_CEILING_MS=7200000` bounding total
+session runtime. The measurement behind it is sound and is the strongest thing in the delta (55
+BUILD spawns, median 12.6 min, max 100.5, 11 of 55 past 30 minutes) — but a pre-authorized
+narrowing licenses landing LESS, not re-deciding a ratified parameter. Compounding it, PR body
+bullet 2 tells the operator "A documented wall-clock silence ceiling now bounds it", which is
+verbatim what `orchestrate-lean.sh:833` was written to deny ("THE CEILING IS ON THE WHOLE SESSION,
+NOT ON A SILENCE"). An operator ratifying from the PR body cannot see that the bound moved 30 min →
+2 h or that its semantics changed. Remedy is disclosure plus an operator decision, not a code
+change: name the departure and its measurement in the body, correct the wording, and amend AC-3 (or
+narrow the code back).
 
 ## Warnings
 
-**W-1 — a four-line comment this branch ADDS above `probe_spawn` asserts a preflight listing
-check that exists nowhere on the branch.**
+- **W-1 (carried from round 3, unfixed).** `orchestrate-lean.sh:688-691`, the `D-18` block above
+  `probe_spawn`, still claims "The listing is checked HERE, before a run costs anything… A refusal
+  at preflight is the cheap version of discovering it three unreadable polls into a live session."
+  `probe_spawn`'s body is `command -v` + `[ -x ]`. AC-11 lists that validation among the
+  narrowing's removals. Round 3 scored this a warning and it is unchanged at this head.
+- **W-2** (`unit-test-mutation-reviewer`, conf 88). The `spawn-settings-unwritable` fail-closed
+  guard (`orchestrate-lean.sh:1128`, plus the `|| return 1` inside `spawn_settings`) has no case at
+  all. Its own message states the stakes — dispatching without the block "would spawn a session
+  able to mint its own attendance". A mutant dropping either half survives the suite.
+- **W-3** (conf 85). The two new `SPAWN_STATE="spawn-unreadable"` assignments before the mid-poll
+  `terminal spawn-unreadable` calls exist so the closing ledger row names the refusal rather than
+  `unknown`. No case greps the ledger for `state=spawn-unreadable`, though `(bg7f)` does exactly
+  that for `staleness-expired`.
+- **W-4** (conf 82). `spawn_end_note`'s `rm -f "$SPAWN_SETTINGS_FILE"` — the credential-window
+  narrowing for `OTEL_EXPORTER_OTLP_HEADERS` — is asserted nowhere. Mitigated: `PROBE_DIR` is
+  `mktemp -d` 0700 and the EXIT trap removes it regardless, so this narrows a window rather than
+  being the boundary.
+- **W-5.** The other new row, `lean-orchestrate-poll-staleness-failopen`, was probed at this head
+  and **hangs rather than failing**: with `st_unread` pinned at 0 the tolerance is never reached,
+  the loop spins on `working` at `LEAN_SPAWN_POLL_SECS=0`, and the run was still alive after 5×
+  the control's runtime when it was killed. `(bg7d)` does not return a verdict on it. A timeout is
+  a weaker signature than the row's description ("killed by bg7d, with bg7e holding the other
+  side") claims.
+- **W-6** (`scope-completeness-reviewer`, conf 90). Commit 94933368 lands #811 OR-5 scope —
+  `SECOND_SHIFT_CONFIG` forwarding, `docs/consumer-eval.md`, cases in both suites — and the PR body
+  never mentions `SECOND_SHIFT_CONFIG`, #811, or `consumer-eval.md`, including in the "Two things
+  the receipt did not cover" section that discloses the analogous D-27 telemetry carry. The code is
+  guarded ((d4), (d4a), and the composed `lean-reentry` leg); the disclosure is what is missing, on
+  the surface the operator ratifies from.
+- **W-7.** The PR body is stale for this round throughout: "124 pass / 0 fail" (the suite now
+  carries the round-4 cases and is red on ubuntu), "36s"/"86s" against a committed table now
+  reading 58s/106s, and "317 sites, 165 rows" against a measured `check-gate-buckets.sh` green of
+  **319 sites / 166 rows** at this head. Nothing here is wrong about the code; it all describes an
+  earlier head.
+- **W-8.** `run_tool` pins `LEAN_SPAWN_STALENESS_SECS=${STALENESS_SECS_OVERRIDE:-0}` on every case,
+  so the shipped 300s default is never exercised — `(bg7c)` drives 99999. Same duplicated-constant
+  class as B-2, without a catalog row claiming otherwise.
 
-`orchestrate-lean.sh:652-655` reads: *"D-18. The listing is checked HERE, before a run costs
-anything, because it is the only thing this loop has to tell a finished payload from an abandoned
-one … A refusal at preflight is the cheap version of discovering it three unreadable polls into a
-live session."* `probe_spawn`'s body (`:656-661`) runs `command -v "$SPAWN_BIN"` and
-`[ -x "$SPAWN_BIN" ]` and nothing else — it never invokes `claude agents --json --all` and never
-parses a listing.
+## Verified green at this head, by me
 
-This is newly introduced, not inherited: `origin/main` carries **no comment at all** above
-`probe_spawn`, and the header is a `+` line on this branch. The function body is byte-identical to
-`main`'s, which round 2 verified and this round re-verified — so the comment describes a mechanism
-the narrowing removed and that the branch's own AC-11 lists among the removals ("`probe_spawn`'s
-listing validation"). The branch knows how to record a removal correctly: the silence-ceiling arm
-at `:908-914` states plainly that the private job record is **not** read and why. This site does
-the opposite.
+- `bash scripts/check-gate-buckets.sh` — 319 enumerated refusal sites across 5 files, all bucketed
+  by 166 register rows. The new `spawn-settings-unwritable` row is required by the new terminal
+  site, not a discretionary edit.
+- `orchestrate-lean-selftest.sh` run directly on macOS — `all green`. The ubiquitous local pass is
+  a grep-implementation artifact (B-1), not evidence the suite is sound on both lanes.
+- The read-first/sleep-last restructure: every arm sleeps exactly once per iteration — the two
+  `continue` paths carry their own `sleep "$POLL_SECS"` and the recognised-state path falls to the
+  bottom-of-loop sleep. No path spins, none sleeps twice, and `elapsed_ms` is computed before every
+  branch, so the ceiling stays reachable. Independently traced by `unit-test-mutation-reviewer`.
+- `SPAWN_ENDED` vs `SPAWN_CLOSED`: every run-ending path reaches `spawn_cleanup → spawn_close →
+  spawn_end_note`, both flags are idempotent, and the one window where a settings file outlives its
+  note — the no-id refusal, where `SPAWN_ENDED` is still 1 — is covered by the EXIT trap's
+  `rm -rf "$PROBE_DIR"`. No row can be opened and left unclosed, and none is closed twice.
+- `security-reviewer` returned approve with zero findings: the settings file strictly improves on
+  the argv form it replaces (`ps auxww` / `/proc/<pid>/cmdline` are world-readable; a 0700
+  `mktemp -d` is not), and launcher and payload are the same trust domain.
 
-Scored a warning rather than a blocker on the round-2 precedent for the identical shape — a stale
-comment describing deleted code was carried as a warning there and fixed this round — and because
-it fails the second half of the Critical trigger: no concrete failure follows from it today. The
-remedy is a deletion, not new machinery: drop the header, or reduce it to one sentence saying the
-listing is deliberately NOT validated at preflight. `review-toolkit:scope-completeness-reviewer`
-raised it at confidence 92; confirmed independently against `origin/main`.
+## Merge-boundary refusals, recorded not blocking
 
-**W-2 — the new `failed|stopped` handle clear is guarded for `stopped` only. Reverting the
-`failed` half is invisible to the suite.**
-
-`orchestrate-lean.sh:1013` adds `case "$SPAWN_STATE" in failed|stopped) SPAWN_ID="" ;; esac`, which
-is the correct fix for round 2's warning — both states name a session the supervisor already ended.
-`(j1a)` gained the regression assertions (`! grep -q 'still in flight'`, `[ ! -s "$SPAWN_LOG_DIR/stops" ]`)
-but drives only `stopped`. `(j1)`, the pre-existing sibling that drives `failed`, asserts rc,
-`spawn_count`, `gate_count`, the message substring and the slug — none of the re-stop hygiene.
-
-Measured, control/mutant pairs in an isolated worktree at this head (control: 124 pass / 0 fail):
-
-- `failed|stopped)` → `stopped)` — the `failed` half reverted: **124 pass / 0 fail, all green. SURVIVED.**
-- `failed|stopped)` → `failed)` — the `stopped` half reverted: **KILLED**, exactly one failure,
-  `(j1a)` reporting `stops=[stop sess1]`.
-
-The asymmetry is exactly as `review-toolkit:unit-test-mutation-reviewer` predicted at confidence 85.
-
-Not a blocker, on severity ordering: the behavior this protects is the one round 2 itself classified
-as *"harmless — `stop_session` tolerates a failed stop — but the sentence is false"*. A future
-regression risk on a cosmetic-severity operator message cannot outrank the present defect it
-descends from, and the remedy is three copied assertions — net-additive guard machinery on a file
-whose guard share is already the thing the repo is trying to bend down. Recorded here so the hole
-is addressable rather than undiscovered: the killing assertion for the `failed` arm is `(j1)`
-gaining `(j1a)`'s two checks.
-
-## Suggestions
-
-- Carried unchanged from rounds 1 and 2, untouched by this delta: AC-6's INT/TERM trap still has no
-  case; the forwarded telemetry variables are asserted for none of the six; the malformed-id
-  disjunct of the dispatch guard is undriven; `poll_session` still sleeps before its first read;
-  `OTEL_EXPORTER_OTLP_HEADERS` reaches the child on argv via `--settings` and is readable via `ps`
-  (low severity on a single-operator machine).
-- `(bg2b)`'s count capture is `"$(grep -c … || echo 0)"`. When the file is absent `grep -c` prints
-  `0` **and** exits non-zero, so the fallback appends a second line and `[ "$bg2b_n" -eq 1 ]` errors
-  rather than comparing. It fails in the safe direction — the case reds — so it is a robustness nit,
-  not a defect.
-
-## Verification performed by this review
-
-- `orchestrate-lean-selftest.sh` at the reviewed head, clean env
-  (`env -u LEAN_ATTEND_MODE -u LEAN_RUN_MODEL -u RUN_ID`, stdin closed): **124 pass / 0 fail**,
-  matching the PR body.
-- `scenario-liveness-selftest.sh` at the reviewed head, same clean env: **84 pass / 0 fail**,
-  matching the PR body.
-- Six mutants across two probe runs, every one in a throwaway `git worktree add --detach 9a93630f`,
-  never in the reviewed checkout; both trees restored and removed, and the reviewed worktree
-  verified `git diff --quiet origin/claude/second-shift-805` before this record was written.
-- AC-11's four named removals each re-checked at this head: no `job_idle` and no read of
-  `~/.claude/jobs/<id>/state.json` (the one surviving mention is the `working` arm's comment
-  stating the file is deliberately not read); no `build-blocked` / `review-blocked` slug outside
-  `docs/plans/`; `probe_spawn`'s body byte-identical to `origin/main`'s; the
-  `lean-orchestrate-stuck-idle-read` catalog row absent.
-- All 39 `mutation-catalog.tsv` rows anchored on `orchestrate-lean.sh` or `lean-gate.sh` still bite
-  — each row's `sed -E` expression changes the file. The delta edits no region any row anchors on,
-  so nothing is owed a re-anchor.
-- `bash scripts/check-gate-buckets.sh` green: **317 sites across 5 files, 165 rows**, matching the
-  PR body. `bash scripts/check-lockstep-pairs.sh` green, 30 anchors. `bash tools/prose-blockers.sh check`
-  green, 29 stop-tier constructs, zero undispositioned. `shellcheck -e SC1091,SC2015,SC2181` clean
-  over both changed scripts.
-- CI at this head, cited rather than re-run (run 34072394283, `headSha` 9a93630f, identical to the
-  reviewed head): `lint-and-selftests` **pass** (4m57s), `selftests (macos, bash 3.2)` **pass**
-  (5m20s), `mutation-sweep-pr` **pass** (20s). `pr-gates` is red, which is the lean chain's
-  pre-approve state and not a finding.
+`pr-gates` is red only because round 3's verdict record names patch `a5f2c10ef897` while the branch
+now hashes to `8f00eb894267`. That is this round's record landing, not a finding.
 
 ## AC scorecard
 
 | AC-n | score | evidence |
 | --- | --- | --- |
-| AC-1 | satisfied | Untouched by the delta and re-verified at this head: the `--bg` dispatch, the id read out of the `backgrounded` line, the fail-close on a dispatch yielding no readable id, `--disallowedTools AskUserQuestion`, `--name lean-<issue>-<role>-r<round>` and the `--settings` env block are all present in `spawn()` at `:966-983`. Round 2 verified the deletions (no `SPAWN_BG_WAIT_CEILING_MS`, no `PIPESTATUS` read, no `env -u RUN_ID` on the spawn) and the delta restores none of them. |
-| AC-2 | satisfied | The delta refines this arm and the criterion's postcondition is preserved. `failed`, `stopped` and `blocked` still share one `*)` arm reaching `terminal "$lower-session-failed" 1` with the state named. What changed is that only `blocked` — the one state still running — carries its handle into `spawn_cleanup` to be stopped; `failed` and `stopped` name sessions the supervisor already ended, so the AC's "stops the session" holds as a postcondition on all three while the redundant stop, and the false "still in flight" sentence it printed, are gone. Measured: `(j1a)` asserts the slug, `ended stopped`, the absence of `still in flight` and an empty stops file, and it kills the mutant that reverts the `stopped` half; `(bg2)` still asserts the stop landing for `blocked`. The unguarded `failed` half is W-2. |
-| AC-3 | satisfied | Untouched by the delta. The `working` arm is the wall-clock ceiling alone at `:915-919` — stop, `state=stuck` in the launch ledger, proceed as for `done` — and the harness's private job record is not read; the only mention is the comment at `:908-914` stating that it deliberately is not. `(bg4)` fires the ceiling at zero and asserts the stop and the ledger row; `(bg4a)` is the non-vacuity twin. |
-| AC-4 | satisfied | Untouched. Four not-a-state shapes plus the unmodelled-state arm reach `terminal spawn-unreadable 1` after three polls, and `(bg5a)` proves the counter resets only inside the recognized arms. |
-| AC-5 | satisfied | Untouched, and now driven twice. `staleness_rc` re-runs each tick; rc=7 stops the child then takes `terminal staleness-expired 7` with the partial-operation wording. `(bg7)` asserts rc=7, the slug, one spawn, the mid-flight stop and `index.lock`; the delta's `(bg7a)` drives the same scenario for the transcript invariant and re-asserts rc=7 and the slug as its non-vacuity check. |
-| AC-6 | satisfied | Untouched. `trap 'spawn_cleanup; exit 130' INT` and `trap 'spawn_cleanup; exit 143' TERM` are installed above `terminal`, and `spawn_cleanup` closes the transcript before stopping the id. Scored on the code; that no case exercises the trap is carried as a suggestion, as in rounds 1 and 2. |
-| AC-7 | satisfied | The close mechanism is correct and, as of this delta, fully guarded. `spawn_close` is idempotent via `SPAWN_CLOSED` and sits in `spawn_cleanup`, the funnel every run-ending exit goes through, so `spawn-unreadable` and mid-flight `staleness-expired` no longer leave at 0 bytes the file their own remedies name. Measured this round: deleting it from `spawn_cleanup` reds `(bg7a)` with a 0-byte transcript; deleting it from `spawn()` reds `(y2a)` and `(z1)`; dropping the idempotency flag reds `(bg2b)` with two close blocks. Three disjoint killers, no mutant surviving. |
-| AC-8 | satisfied | Untouched. The `spawn` row carries `id=<short id>` and `spawn-end` carries `state=`; `(bg4)` reads `state=stuck` out of the ledger file. |
-| AC-9 | satisfied | Untouched by the delta and re-verified: `bash scripts/check-gate-buckets.sh` green at this head with **317 sites over 5 files and 165 rows**, the figures the PR body states. The collapsed `$lower-session-failed` row still anchors after the delta's edit to that same terminal's arm, `spawn-unreadable` keeps its own row, and `blocked` has none because it routes through the collapsed one. |
-| AC-10 | satisfied | Round 2's blocker is closed. The enumerated case "the transcript surviving a terminal reached from inside the poll" now exists as `(bg7a)`, driving mid-flight `staleness-expired` — an arm that genuinely exits from within the loop — and it kills the exact mutant round 2 measured surviving: `spawn_close` deleted from `spawn_cleanup` alone reds `(bg7a)` and nothing else. `(bg2b)` is re-aimed at the property its own path has, asserting exactly one close block, and is the unique killer of the dropped `SPAWN_CLOSED` guard. Every other case AC-10 enumerates is present and passing at 124/0; `scenario-liveness-selftest.sh` composes against the transport at 84/0; all 39 catalog anchors on the touched files still bite and the delta re-anchors none. The `failed` arm's unguarded handle clear (W-2) is a property of the round-2 warning fix, not one of the cases AC-10 lists — both `failed` and `stopped` are driven, by `(j1)` and `(j1a)`. |
-| AC-11 | divergent-inert | The disposition holds and all four named removals re-verified individually at this head. What diverges is the arithmetic: the AC states the branch "adds **389** and deletes **92**" executable lines and the PR body states raw `+805 / −178`, net `+627`. measured: at this head the same commands give executable `+406 / −92` and raw `+809 / −178`, net `+631` — the round-3 fix commit added 17 executable lines and the figures were not restated. Inert with respect to what this criterion protects: the sign, the conclusion ("no cut depth reaches the bar"), and the operator's ratification question are all unchanged, and the branch understates rather than flatters itself only in magnitude. The PR body gives the reproducing commands, which do reproduce — they reproduce the current numbers, not the quoted ones. follow-up: #805, whose `Ratified:` comment AC-11 explicitly defers to — the operator's ratification call should be made against `+406 / −92` executable and `+631` net, not the quoted figures. |
-| AC-12 | satisfied | Untouched by the delta and re-verified: zero `claude -p` spawn-primitive claims left in `orchestrate-lean.sh`, and `bash tools/prose-blockers.sh check` green at this head with 29 stop-tier constructs and zero undispositioned. The delta's own prose change is a correction — the private-HOME comment no longer names the deleted job-record read, closing round 2's third warning. W-1 is a prose defect in the same file but outside this criterion's enumerated D-17 list: it describes D-18's removed listing validation, not `-p`'s turn semantics. |
-
-## Panel
-
-`review-toolkit:scope-completeness-reviewer` (approve-with-nits, one finding at confidence 92 —
-W-1, confirmed independently against `origin/main` and adopted), `review-toolkit:unit-test-mutation-reviewer`
-(approve-with-nits, one major at confidence 85 and one minor at 82 — the major is W-2 and its
-predicted survivor was reproduced exactly; the minor independently traced `(bg7a)` and `(bg2b)` as
-non-decorative and agrees with this record's measurement), `review-toolkit:pipeline-reviewer`
-(approve, zero findings). All three returned usable results in the fan-out; no reviewer went dark
-and no Step 4b re-dispatch was needed.
-
-`review-toolkit:security-reviewer` was not selected: the delta carries no authentication, tenancy,
-session-handling, upload or query-construction surface, and the repo has no
-`.claude/second-shift/review-context/security-reviewer.md`, so the lead pass owned the security
-dimension — its one finding is the argv-credential suggestion carried above. The performance,
-complexity, maintainability and test-coverage dimensions are lead-pass dimensions by design; W-1's
-confirmation and the round's mutation measurements are lead-pass work. `review-toolkit:a11y-reviewer`
-and the design-fidelity dimension were not routed: no changed path matched
-`stageParams.webComponentGlobs` (unset in this repo, so the shipped default
-`apps/web/**/*.{tsx,jsx}`).
-
-Design fidelity: the spec declares no `## Design` section, so the dimension is not applicable and
-no fidelity reviewer was routed.
+| AC-1 | divergent-inert | `--bg` dispatch, id read and state return are present and unchanged. The `--settings` env block carries one key AC-1 does not enumerate, `SECOND_SHIFT_CONFIG`. measured: `(d4a)` drives a launcher with no `SECOND_SHIFT_CONFIG` and asserts no key is written, so on every run AC-1 describes the block is exactly AC-1's enumeration; `(d4)` and the composed `lean-reentry` leg cover the forwarding arm. The re-added `env -u RUN_ID` scrubs a variable the AC lists as deleted and is documented as a belt. follow-up: #811 |
+| AC-2 | satisfied | `session_row` polls `agents --json --all` keyed on the returned `sessionId`; `done` proceeds, `failed`/`stopped`/`blocked` reach the collapsed role terminal; `blocked` still has no slug; cadence is `LEAN_SPAWN_POLL_SECS`, default 30 |
+| AC-3 | unsatisfied | AC-3 declares a bounded SILENCE ceiling, env seam, default 30 minutes. `orchestrate-lean.sh:849` ships `SESSION_CEILING_MS=7200000` bounding TOTAL session runtime, renamed `LEAN_SPAWN_SESSION_CEILING_MS`. The measurement behind the change is sound and recorded in-file, but the bound and its semantics both moved and the ratified parameter was re-decided rather than narrowed. See B-3 |
+| AC-4 | satisfied | three consecutive unreadable or unmodelled listings reach `terminal spawn-unreadable 1` naming the id; the counter resets only in the recognised arms |
+| AC-5 | divergent-inert | AC-5's declared outcome — exit 7 as a LIVE abort, the premise re-asked during the session, `claude stop` then `terminal staleness-expired 7` with the revised partial-operation message — holds. measured: the re-ask moved off every tick onto `STALENESS_SECS` (default 300), so detection latency inside the session moves from ≤POLL_SECS to ≤STALENESS_SECS and nothing else does; the cost measured in-file is ~25 tracker round trips plus ~25 base fetches per median BUILD collapsing to ~2. `(bg7c)` drives the throttle. The added fail-closed `staleness-unreadable` arm converts a silent fall-through into a refusal and weakens nothing AC-5 declares. follow-up: #805 |
+| AC-6 | satisfied | `trap 'spawn_cleanup; exit 130' INT` / `exit 143` TERM stop the dispatched id; unchanged this round (the uncased trap is a round-1 carried warning) |
+| AC-7 | satisfied | transcript created at spawn and closed from the funnel; one control line at spawn naming the id and `claude attach`, one per transition, one at spawn-end; `session_reach` keeps the attach sentence off the one arm where the scheduler already stopped the session |
+| AC-8 | satisfied | `spawn` row carries `id=`, `spawn-end` carries `state=`; the close moved into `spawn_end_note` so the three mid-poll terminals no longer leave the row open. The ledger content is correct at this head — the CI failure dump in B-1 is itself the evidence — but the guard for it is broken on the ubuntu lane |
+| AC-9 | divergent-inert | the collapsed `build-session-failed`/`review-session-failed` row, the `staleness-expired` re-anchor and `spawn-unreadable`'s own row are all present and `blocked` still has none. measured: `bash scripts/check-gate-buckets.sh` green at this head, 319 sites / 166 rows; the one row AC-9 does not enumerate, `spawn-settings-unwritable`, is compelled by the new refusal site the same check would otherwise red on. follow-up: #805 |
+| AC-10 | unsatisfied | the suite drives the transport and the new cases are real, but it is RED on the ubuntu CI lane at this head (B-1), and AC-10's catalog obligation is not met: `lean-orchestrate-session-ceiling-lowered` is a probe-measured survivor with no killer in any case (B-2), and `lean-orchestrate-poll-staleness-failopen` is signalled by a hang rather than a case verdict (W-5) |
+| AC-11 | unsatisfied | AC-11's deliverable is the negative "measured at this head". Measured at `94933368`: executable-only **+569 / −99** against the 389/92 the spec and body both carry, and raw **+1193 / −187**, net **+1006**, against the body's +805/−178 / +627. The sign and the conclusion survive; the magnitude the operator's ratification call turns on does not, and this is the second consecutive round the figure went stale on the round's own commits. Commands: `git diff --numstat origin/main -- . ':!docs/plans/'` and the `-U0` awk split the body already names |
+| AC-12 | satisfied | the `-p` prose in `orchestrate-lean.sh`, the three lean `SKILL.md` files, the two `lean-gate.sh` header claims and `operator-override.sh`'s `headless` contract all follow the code; `build-lean/SKILL.md` gained the session-ceiling sentence this round. The `probe_spawn` D-18 block (W-1) is a claim about a removed mechanism rather than a surviving `-p` reference, and is carried from round 3 at its round-3 severity |
