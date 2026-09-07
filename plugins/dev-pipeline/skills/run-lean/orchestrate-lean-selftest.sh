@@ -165,7 +165,14 @@ id="$(sed -n "${n}p" "$SPAWN_ID_FILE" 2>/dev/null)"
 [ -n "$id" ] || id="sess$n"
 if [ "$id" = "NOID" ]; then echo "the session could not be started"; exit 0; fi
 echo "$id" > "$SPAWN_LOG_DIR/last-id"
-echo "backgrounded · $id"
+# THE NAME COLUMN IS THE POINT. The real CLI prints `backgrounded · <id> · <name>` whenever
+# `--name` is passed, and this fake printed only the first two fields — so the id parse could
+# take the LAST field, read back the name on every real spawn, and still be green here and in
+# both CI selftest jobs. Echoed from the argv this fake was actually handed, so a spawn that
+# stops passing `--name` narrows the line here exactly as it would in the product.
+name=""; prev=""
+for a in "$@"; do [ "$prev" = "--name" ] && name="$a"; prev="$a"; done
+if [ -n "$name" ]; then echo "backgrounded · $id · $name"; else echo "backgrounded · $id"; fi
 exit 0
 SH
 chmod +x "$BIN/claude"
