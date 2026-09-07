@@ -4,6 +4,49 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v12.4.4
+
+### `dev-pipeline` 12.4.2 → 12.4.3
+
+- **fix(dev-pipeline): execute arm 2b's cut list for review-lean (#807)** (#807)
+  none. The R-4 bullet's operative clause was already carried
+- **The lean scheduler spawns claude --bg and reads a real session state (#810)** (#810)
+  run-lean spawns each payload with `claude --bg` and polls
+  `claude agents --json --all` for a documented state instead of reading a
+  print-mode exit code. A payload waiting on its own background work is no
+  longer cut off by the wait ceiling; one that ends its turn with nothing in
+  flight is detected and stopped; one that asks a question ends the run as
+  `build-blocked`/`review-blocked` rather than as a silent exit 0 with no PR.
+  Exit 7 now stops the live session instead of bounding damage at one spawn,
+  and every spawn's id reaches the log with `claude attach <id>` beside it.
+  Migration: none — `LEAN_SPAWN_BG_WAIT_CEILING_MS` is retired and replaced by
+  `LEAN_SPAWN_IDLE_CEILING_MS`; `LEAN_SPAWN_POLL_SECS` is new.
+  the lean scheduler's supervised-session transport lands narrowed to the operator's
+  ratified fallback, and its stop messages now name a session id that resolves and a payload
+  transcript that is not empty.
+  Migration: none.
+  the lean scheduler no longer reports a session the supervisor already
+  ended as "still in flight", and no longer stops it a second time.
+  Migration: none.
+  the lean scheduler's session ceiling bounds a whole session rather
+  than a silence and defaults above the measured BUILD duration, so a healthy
+  long-running session is no longer stopped mid-work; an unreadable premise now
+  fails closed DURING a live session as it already did before one, on its own
+  interval rather than every poll tick; every spawn's ledger row is closed
+  whichever way the phase ended; and the payload's environment travels by file
+  rather than on the command line.
+  Migration: none — LEAN_SPAWN_IDLE_CEILING_MS was never released, and is
+  LEAN_SPAWN_SESSION_CEILING_MS on this branch.
+  the lean scheduler now forwards SECOND_SHIFT_CONFIG to each spawned
+  payload, so a run launched with an alternate config reaches the gate instead of
+  silently falling back to the committed one and targeting the wrong base branch.
+  Migration: none — pass an absolute path, since the value travels verbatim.
+- **fix(dev-pipeline): the bg spawn reads the id column, not the name (#816)** (#816)
+  run-lean no longer dies `spawn-unreadable` roughly ninety seconds into every
+  run — the session id was parsed out of the wrong column of the dispatch line, so each
+  poll and each stop addressed a handle the agent listing does not carry.
+  Migration: none.
+
 ## v12.4.3
 
 ### `dev-pipeline` 12.4.1 → 12.4.2
