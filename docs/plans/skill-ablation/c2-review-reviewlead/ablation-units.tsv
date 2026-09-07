@@ -1,0 +1,4 @@
+unit	lines_8d5d0897	reach	runs_valid	runs_indet	hits	control_majority	control_review_lead_invoked	score	basis
+control	1-127 (unablated)	n/a	3	0	2	HIT 2/3	0/3	no-basis--construction-not-delivered	available in 3/3, invoked in 0/3; below the registered 2-of-3 delivery bar
+U-5	48-55	apparatus-bound	0	0	-	HIT 2/3	-	not-reached--no-basis	arm not run; a void control does not proceed to the ablation runs
+R-3	110-114	apparatus-bound	0	0	-	HIT 2/3	-	not-reached--no-basis	arm not run; a void control does not proceed to the ablation runs
