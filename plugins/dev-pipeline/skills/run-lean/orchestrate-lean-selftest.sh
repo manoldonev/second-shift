@@ -146,8 +146,15 @@ if [ "${1:-}" = "stop" ]; then
 fi
 n=$(( $(cat "$SPAWN_LOG_DIR/count" 2>/dev/null || echo 0) + 1 ))
 echo "$n" > "$SPAWN_LOG_DIR/count"
+# #805 review round 4. `--settings` carries a PATH now, not the JSON itself, so a fake that only
+# logged argv would have stopped seeing the child's environment entirely — and (d1)/(d2) would
+# have gone vacuous rather than red. Resolved here, once, so the cases keep asserting on content.
+settings_file=""; prev=""
+for a in "$@"; do [ "$prev" = "--settings" ] && settings_file="$a"; prev="$a"; done
 {
   echo "ARGV: $*"
+  echo "SETTINGS: $(cat "$settings_file" 2>/dev/null)"
+  echo "SETTINGS_PERMS: $(ls -l "$settings_file" 2>/dev/null | cut -c1-10)"
   echo "RUN_ID_SET: ${RUN_ID+yes}"
   echo "LEAN_RUN_MODEL: ${LEAN_RUN_MODEL:-<unset>}"
   echo "LEAN_ATTEND_MODE: ${LEAN_ATTEND_MODE:-<unset>}"
@@ -162,6 +169,18 @@ echo "backgrounded · $id"
 exit 0
 SH
 chmod +x "$BIN/claude"
+
+# THE CLOCK, as a fake. The session ceiling is the one behavior here whose input is elapsed wall
+# time, and without this a case can only drive it by setting the ceiling to zero — which proves
+# the arm fires and says nothing about whether the SHIPPED bound tolerates a long healthy session.
+# That is the discrimination the 30-minute default turned out to need and did not have.
+cat > "$BIN/fakeclock" <<'SH'
+#!/usr/bin/env bash
+n=$(( $(cat "$CLOCK_FILE" 2>/dev/null || echo 0) + 1 ))
+echo "$n" > "$CLOCK_FILE"
+echo $(( 1000000000 + (n - 1) * ${CLOCK_STEP:-60} ))
+SH
+chmod +x "$BIN/fakeclock"
 
 # The tracker fake records EVERY invocation — that recording is what makes the zero-write
 # assertion a measurement rather than a claim — and answers only the two reads the tool makes.
@@ -400,9 +419,16 @@ run_tool() { # run_tool [config] [args...]
          SPAWN_LOG_DIR="$SPAWN_LOG_DIR" AGENTS_STATE_FILE="$AGENTS_STATE_FILE"
          SPAWN_ID_FILE="$SPAWN_ID_FILE" HOME="$CASE_HOME"
          # The poll interval and D-8's ceiling, pinned so the suite never sleeps and the
-         # ceiling arm is reachable in one tick rather than in thirty minutes.
+         # ceiling arm is reachable in one tick rather than in two hours.
          LEAN_SPAWN_POLL_SECS=0
-         LEAN_SPAWN_IDLE_CEILING_MS="${IDLE_CEILING_OVERRIDE:-1800000}"
+         LEAN_SPAWN_SESSION_CEILING_MS="${SESSION_CEILING_OVERRIDE:-7200000}"
+         # ZERO BY DEFAULT, which re-asks the premise on every tick — the behavior every case
+         # written before the cadence existed assumes. Only the case that asserts the THROTTLE
+         # sets it, so the throttle is proved by one case rather than assumed by all of them.
+         LEAN_SPAWN_STALENESS_SECS="${STALENESS_SECS_OVERRIDE:-0}"
+         # Real `date` unless a case drives elapsed time; CLOCK_FILE/CLOCK_STEP arm the fake.
+         LEAN_SPAWN_CLOCK="${CLOCK_OVERRIDE:-date +%s}"
+         CLOCK_FILE="${CLOCK_FILE:-$CASE_HOME/.clock}" CLOCK_STEP="${CLOCK_STEP:-60}"
          GATE_LOG_DIR="$GATE_LOG_DIR" GATE_RC_FILE="$GATE_RC_FILE"
          GH_LOG="$GH_LOG" LABELS_FILE="$LABELS_FILE" PR_FILE="$PR_FILE"
          COMMENTS_FILE="$COMMENTS_FILE" COMMENTS_FAIL="${COMMENTS_FAIL:-}"
@@ -460,6 +486,7 @@ progress_log()   { cat "$GATE_LOG_DIR/progress.log" 2>/dev/null; }
 staleness_reads() { cat "$GATE_LOG_DIR/scount-${1:-loop}" 2>/dev/null || echo 0; }
 staleness_log()   { cat "$GATE_LOG_DIR/staleness.log" 2>/dev/null; }
 spawn_argv()  { sed -n 's/^ARGV: //p' "$SPAWN_LOG_DIR/spawn-$1" 2>/dev/null; }
+spawn_settings_of() { sed -n 's/^SETTINGS: //p' "$SPAWN_LOG_DIR/spawn-$1" 2>/dev/null; }
 all_argv()    { cat "$SPAWN_LOG_DIR"/spawn-* 2>/dev/null; }
 
 echo "[orchestrate-lean-selftest]"
@@ -518,25 +545,48 @@ else fail "(c2) an ambient RUN_ID leaked into the verdict gate"; fi
 # these read argv rather than the fake's environment. A fake cannot model non-inheritance for
 # itself — it is an ordinary child of this shell and sees everything this shell exports — so an
 # env-reading assertion here would now be measuring the harness, not the tool.
-if grep -q '"LEAN_ATTEND_MODE":"headless"' <<<"$(spawn_argv 1)" \
-   && grep -q '"LEAN_ATTEND_MODE":"headless"' <<<"$(spawn_argv 2)"; then
+if grep -q '"LEAN_ATTEND_MODE":"headless"' <<<"$(spawn_settings_of 1)" \
+   && grep -q '"LEAN_ATTEND_MODE":"headless"' <<<"$(spawn_settings_of 2)"; then
   pass "(d1) every spawn is POSITIVELY marked headless through --settings, not merely left unattended"
 else fail "(d1) a spawn carried no headless mark in its --settings: $(all_argv)"; fi
 
-if grep -q '"LEAN_RUN_MODEL":"sonnet"' <<<"$(spawn_argv 1)" \
-   && grep -q '"LEAN_RUN_MODEL":"opus"' <<<"$(spawn_argv 2)"; then
+if grep -q '"LEAN_RUN_MODEL":"sonnet"' <<<"$(spawn_settings_of 1)" \
+   && grep -q '"LEAN_RUN_MODEL":"opus"' <<<"$(spawn_settings_of 2)"; then
   pass "(d2) LEAN_RUN_MODEL is set per PHASE in --settings — build's model on build, review's on review"
 else fail "(d2) LEAN_RUN_MODEL was not re-set per phase: $(all_argv)"; fi
 
-# NEITHER the print-mode ceiling NOR the scrub survives, and both are asserted GONE rather than
-# left to rot. The ceiling existed because a print-mode turn ended over its own pending work; a
-# supervised session stays `working` through it, so re-adding the variable would be re-adding a
-# bound that now cuts a healthy session short. `env -u` would be equally inert — there is nothing
-# to scrub — and leaving it would keep a reader believing inheritance is what the child depends on.
+# THE PRINT-MODE CEILING IS GONE, and stays asserted gone. It existed because a print-mode turn
+# ended over its own pending work; a supervised session stays `working` through it, so re-adding
+# the variable would be re-adding a bound that cuts a healthy session short.
 if ! grep -q 'CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS' "$TOOL" \
    && ! grep -q 'SPAWN_BG_WAIT_CEILING_MS' "$TOOL"; then
   pass "(d3) the print-mode background-wait ceiling is gone with the turn semantics that needed it"
 else fail "(d3) the tool still carries the print-mode wait ceiling"; fi
+
+# THE SCRUB IS NOT GONE — one half of it came back, and this is the case that holds it there.
+# Round 4 of review: D-9 measured that a bg session inherits nothing, and the whole `env -u
+# RUN_ID -u LEAN_RUN_MODEL` scrub was deleted on that measurement. But LEAN_RUN_MODEL is
+# re-asserted in the settings block ((d2) above) and RUN_ID is asserted NOWHERE, so RUN_ID was the
+# one variable whose defense was removed rather than moved — and an inherited RUN_ID keys a
+# child's records to the parent's run, which is a wrong answer no other guard in this repo reads.
+#
+# MEASURABLE PRECISELY BECAUSE THE FAKE CANNOT MODEL NON-INHERITANCE. The fake is an ordinary
+# child of this shell and sees everything it exports, and `run_tool` exports
+# RUN_ID=poisoned-parent-run — so with the scrub removed this case reads `yes` and fails. That is
+# the opposite of (d1)/(d2)'s situation and is what makes it a guard rather than a restatement.
+if ! grep -q '^RUN_ID_SET: yes$' "$SPAWN_LOG_DIR"/spawn-* 2>/dev/null; then
+  pass "(d3a) RUN_ID does not reach a spawned payload — the half of the scrub the settings block does not re-assert is still defended"
+else fail "(d3a) the parent's RUN_ID reached a spawned session: $(cat "$SPAWN_LOG_DIR"/spawn-* 2>/dev/null)"; fi
+
+# ...and the settings block is a FILE, not an argument. `OTEL_EXPORTER_OTLP_HEADERS` is the
+# standard carrier for a collector's auth material, and a command line is world-readable on every
+# platform this runs on while an environment is not — so passing the block as argv would have been
+# strictly more exposed than the `-p` inheritance the forwarding exists to keep at parity.
+if grep -qE -- '--settings /' <<<"$(spawn_argv 1)" \
+   && ! grep -q 'LEAN_ATTEND_MODE' <<<"$(spawn_argv 1)" \
+   && [ -n "$(spawn_settings_of 1)" ]; then
+  pass "(d3b) the child's environment travels by FILE PATH, never in argv — the block is readable to the payload and not to every process on the box"
+else fail "(d3b) the settings block was passed in argv, or no file reached the fake: $(spawn_argv 1)"; fi
 
 # ---- (e) fresh contexts, never a resumed one --------------------------------------------------
 if grep -qE -- '(^| )--bg( |$)' <<<"$(all_argv)" \
@@ -985,7 +1035,7 @@ else fail "(p4) expected rc=0 after a retried close-out, got rc=$rc / $(closeout
 setup_case "" "$V_APPROVE" "ready-for-dev" "11"
 out="$(run_tool "$CFG" "$ISSUE" --build-model opus --review-model sonnet --model-basis 'sized-here: two gates' --review-model-basis 'sized-here: reviewer rate limited')"; rc=$?
 if [ "$rc" -eq 0 ] \
-   && grep -q '"LEAN_RUN_MODEL":"sonnet"' <<<"$(spawn_argv 2)" \
+   && grep -q '"LEAN_RUN_MODEL":"sonnet"' <<<"$(spawn_settings_of 2)" \
    && grep -q 'basis: sized-here: two gates' <<<"$out" \
    && grep -q 'basis: sized-here: reviewer rate limited' <<<"$out"; then
   pass "(k1) --review-model overrides the shipped default, and BOTH --model-basis and --review-model-basis are echoed into the run log"
@@ -1005,7 +1055,7 @@ else fail "(k2) expected rc=2 with 0 spawns, got rc=$rc / $(spawn_count): $out";
 setup_case "" "$V_APPROVE" "ready-for-dev" "11"
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet --review-model sonnet --review-model-basis 'sized-here: rate-limited on opus')"; rc=$?
 if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 2 ] \
-   && grep -q '"LEAN_RUN_MODEL":"sonnet"' <<<"$(spawn_argv 2)" \
+   && grep -q '"LEAN_RUN_MODEL":"sonnet"' <<<"$(spawn_settings_of 2)" \
    && grep -q 'basis: sized-here: rate-limited on opus' <<<"$out"; then
   pass "(k3) a stated --review-model-basis is accepted: the departure reaches the spawn and the reason is echoed"
 else fail "(k3) expected rc=0 with the departure taking and the basis echoed, got rc=$rc / $(spawn_count): $out"; fi
@@ -1014,7 +1064,7 @@ else fail "(k3) expected rc=0 with the departure taking and the basis echoed, go
 # gets the shipped default tier with no basis note in the log.
 setup_case "" "$V_APPROVE" "ready-for-dev" "11"
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
-if [ "$rc" -eq 0 ] && grep -q '"LEAN_RUN_MODEL":"opus"' <<<"$(spawn_argv 2)" \
+if [ "$rc" -eq 0 ] && grep -q '"LEAN_RUN_MODEL":"opus"' <<<"$(spawn_settings_of 2)" \
    && ! grep -q 'review model: opus (basis' <<<"$out"; then
   pass "(k4) omitting --review-model needs no basis, and the review spawn still gets the shipped default tier"
 else fail "(k4) expected rc=0 with the review spawn on the default tier and no basis note, got rc=$rc: $out"; fi
@@ -1022,7 +1072,7 @@ else fail "(k4) expected rc=0 with the review spawn on the default tier and no b
 # AC-3/AC-4: the default passed EXPLICITLY is the default, not a departure — no basis required.
 setup_case "" "$V_APPROVE" "ready-for-dev" "11"
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet --review-model opus)"; rc=$?
-if [ "$rc" -eq 0 ] && grep -q '"LEAN_RUN_MODEL":"opus"' <<<"$(spawn_argv 2)" \
+if [ "$rc" -eq 0 ] && grep -q '"LEAN_RUN_MODEL":"opus"' <<<"$(spawn_settings_of 2)" \
    && ! grep -q 'review model: opus (basis' <<<"$out"; then
   pass "(k5) --review-model opus passed explicitly is the shipped default, not a departure — no basis required"
 else fail "(k5) expected rc=0 with no basis required, got rc=$rc: $out"; fi
@@ -1829,11 +1879,11 @@ else fail "(bg2b) expected exactly one close block, got $bg2b_n: [$(cat "$bg2b_l
 # `stuck`, and the run PROCEEDS exactly as for `done` — which is the half a "detect it and stop"
 # fallback would get wrong, because the GATE is the completion oracle, not this loop.
 setup_case "$(printf 'working\n')" "$V_APPROVE" "ready-for-dev" "11"
-out="$(IDLE_CEILING_OVERRIDE=0 run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
-if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 2 ] && grep -q 'silence ceiling spent' <<<"$out" \
+out="$(SESSION_CEILING_OVERRIDE=0 run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 2 ] && grep -q 'session ceiling spent' <<<"$out" \
    && grep -q 'stop sess1' "$SPAWN_LOG_DIR/stops" 2>/dev/null \
    && grep -q 'state=stuck' "$TREE/.claude/pipeline-state/$ISSUE-lean-launches.tsv" 2>/dev/null; then
-  pass "(bg4) a session silent past the ceiling is stopped, ledgered as stuck, and proceeds as done"
+  pass "(bg4) a session past the session ceiling is stopped, ledgered as stuck, and proceeds as done"
 else fail "(bg4) the ceiling arm did not fire, rc=$rc: $out"; fi
 
 # ...and its NON-VACUITY, which is the case that matters: the identical listing stream UNDER THE
@@ -1843,10 +1893,115 @@ else fail "(bg4) the ceiling arm did not fire, rc=$rc: $out"; fi
 setup_case "$(printf 'working\nworking\nworking\nworking\ndone\n')" "$V_APPROVE" "ready-for-dev" "11"
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
 if [ "$rc" -eq 0 ] \
-   && ! grep -q 'silence ceiling spent' <<<"$out" \
+   && ! grep -q 'session ceiling spent' <<<"$out" \
    && ! grep -q 'stop sess1' "$SPAWN_LOG_DIR/stops" 2>/dev/null; then
   pass "(bg4a) NON-VACUITY: a session working inside the ceiling rides out four ticks untouched — the bound is the clock, not the state"
 else fail "(bg4a) a legitimately working session was stopped, rc=$rc: $out"; fi
+
+# THE CEILING IS ELAPSED TIME, AND THE SHIPPED DEFAULT TOLERATES A LONG HEALTHY SESSION. (bg4) and
+# (bg4a) between them prove the arm fires and does not fire spuriously — but both run with elapsed
+# time pinned at ~0, so neither can say anything about the BOUND, and a default set below the
+# duration of ordinary work would pass both. It was: measured over this lane's own launch ledgers,
+# 11 of 55 BUILD spawns ran past thirty minutes, one of them for 100 minutes, so a 30-minute
+# default would have stopped one healthy BUILD in five mid-work and ledgered it `stuck`. These two
+# cases are the pair that can see that, because the clock is a seam now.
+#
+# (bg4b) drives fifty minutes of `working` past a THIRTY-minute ceiling: it fires.
+setup_case "$(printf 'working\n')" "$V_APPROVE" "ready-for-dev" "11"
+out="$(SESSION_CEILING_OVERRIDE=1800000 CLOCK_OVERRIDE="$BIN/fakeclock" \
+       CLOCK_FILE="$CASE_HOME/.clock-b" CLOCK_STEP=600 \
+       run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 0 ] && grep -q 'session ceiling spent' <<<"$out" \
+   && grep -q 'stop sess1' "$SPAWN_LOG_DIR/stops" 2>/dev/null; then
+  pass "(bg4b) the ceiling is measured in ELAPSED WALL TIME, not in ticks — a session past it is stopped even though every read said working"
+else fail "(bg4b) a session past the ceiling was not stopped, rc=$rc: $out"; fi
+
+# ...and (bg4c) is the one that would have caught the shipped default. IDENTICAL listing stream and
+# an identical fifty minutes of elapsed time, under the ceiling this file actually ships: the
+# session must ride it out and settle on its own. Fail this by lowering SESSION_CEILING_MS back
+# toward the observed BUILD distribution and the regression is named rather than measured later.
+setup_case "$(printf 'working\nworking\nworking\nworking\ndone\n')" "$V_APPROVE" "ready-for-dev" "11"
+out="$(CLOCK_OVERRIDE="$BIN/fakeclock" CLOCK_FILE="$CASE_HOME/.clock-c" CLOCK_STEP=600 \
+       run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 0 ] \
+   && ! grep -q 'session ceiling spent' <<<"$out" \
+   && ! grep -q 'stop sess1' "$SPAWN_LOG_DIR/stops" 2>/dev/null; then
+  pass "(bg4c) FIFTY minutes of healthy work rides out the SHIPPED ceiling untouched — the bound sits above ordinary BUILD durations, not inside them"
+else fail "(bg4c) the shipped ceiling stopped a healthy fifty-minute session, rc=$rc: $out"; fi
+
+# THE STALENESS RE-ASK HAS ITS OWN CADENCE. (bg7) proves the premise is re-asked inside the wait;
+# nothing proved it is re-asked on a SEPARATE clock, and at the poll's own cadence each re-ask is a
+# tracker round trip plus a base fetch — roughly 25 of each for a median BUILD where the pre-#805
+# loop made one per round. Driven by pinning the interval ABOVE the fake clock's total travel, so
+# the scripted exit 7 is never reached and the run settles instead.
+setup_case "$(printf 'working\nworking\ndone\n')" "$V_APPROVE" "ready-for-dev" "11"
+printf '0\n7\n7\n' > "$STALENESS_RC_FILE"
+out="$(STALENESS_SECS_OVERRIDE=99999 CLOCK_OVERRIDE="$BIN/fakeclock" \
+       CLOCK_FILE="$CASE_HOME/.clock-d" CLOCK_STEP=60 \
+       run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(slug_of "$out")" != "staleness-expired" ]; then
+  pass "(bg7c) the in-poll premise re-ask runs on its OWN interval — an expiry scripted inside the wait is not reached when the cadence has not come round"
+else fail "(bg7c) the poll re-asked staleness on the tick clock, rc=$rc / slug=$(slug_of "$out"): $out"; fi
+
+# AN UNREADABLE PREMISE FAILS CLOSED *DURING* A SESSION TOO, which is the arm that did not exist:
+# the pre-spawn call refuses outright on a gate rc that is neither 0 nor 7, and the in-poll copy
+# handled only 7 — so the SAME predicate failed closed before a session and fell silently through
+# during one, and a run whose tracker went unreachable a minute in kept going on a premise nothing
+# had verified. Bounded on POLL_TOLERANCE rather than immediate, because one unreachable read is
+# evidence about the network and killing a healthy forty-minute BUILD over a blipped fetch is the
+# worse of the two failures.
+setup_case "$(printf 'working\n')" "$V_APPROVE" "ready-for-dev" "11"
+printf '0\n1\n1\n1\n' > "$STALENESS_RC_FILE"
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 1 ] && [ "$(slug_of "$out")" = "staleness-unreadable" ] \
+   && grep -q 'stop sess1' "$SPAWN_LOG_DIR/stops" 2>/dev/null \
+   && [ "$(gate_count)" -eq 0 ]; then
+  pass "(bg7d) an unreadable premise DURING a live session fails closed after POLL_TOLERANCE re-asks, stops the session, and never reaches the verdict gate"
+else fail "(bg7d) expected rc=1/staleness-unreadable, got rc=$rc / slug=$(slug_of "$out"): $out"; fi
+
+# ...and its NON-VACUITY, which is the half that makes the tolerance mean something. One bad read
+# followed by a good one must ride through: without this, (bg7d) would pass equally for a tool that
+# refused on the FIRST unreadable premise — the failure mode that would kill a healthy session over
+# one blipped fetch, and the reason the bound is three rather than one.
+setup_case "$(printf 'working\nworking\ndone\n')" "$V_APPROVE" "ready-for-dev" "11"
+printf '0\n1\n0\n0\n' > "$STALENESS_RC_FILE"
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(slug_of "$out")" != "staleness-unreadable" ] \
+   && ! grep -q 'stop sess1' "$SPAWN_LOG_DIR/stops" 2>/dev/null; then
+  pass "(bg7e) NON-VACUITY: a single unreadable premise re-ask is ridden out, not fatal — the counter is consecutive, and one blip is evidence about the network"
+else fail "(bg7e) a single unreadable premise killed the run, rc=$rc / slug=$(slug_of "$out"): $out"; fi
+
+# EVERY OPENED SPAWN ROW IS CLOSED, whichever way the phase ended. The `spawn` row is written
+# before the poll and the close used to be written after it, so the three arms that terminate from
+# INSIDE the poll exited without one — and `tools/lane-latency.sh` reads an unclosed spawn as
+# "not-measurable", a signature it was given for a KILLED scheduler. A mid-poll refusal wearing
+# that signature does not fail; it quietly shrinks the measurable set the lane is gated on.
+setup_case "$(printf 'working\nworking\ndone\n')" "$V_APPROVE" "ready-for-dev" "11"
+printf '0\n0\n7\n' > "$STALENESS_RC_FILE"
+out="$(LAUNCH_ID_OVERRIDE=bg7f-launch run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+# SCOPED TO THIS LAUNCH. The ledger is one file per ticket and every case in this suite appends to
+# it, so an unscoped count would be measuring the whole run and would pass on somebody else's row.
+bg7f_rows="$(grep 'bg7f-launch' "$TREE/.claude/pipeline-state/$ISSUE-lean-launches.tsv" 2>/dev/null)"
+if [ "$rc" -eq 7 ] && [ "$(slug_of "$out")" = "staleness-expired" ] \
+   && [ "$(grep -c "\tspawn\t" <<<"$bg7f_rows")" -eq 1 ] \
+   && [ "$(grep -c "\tspawn-end\t" <<<"$bg7f_rows")" -eq 1 ] \
+   && grep -q 'state=staleness-expired' <<<"$bg7f_rows"; then
+  pass "(bg7f) a terminal reached from INSIDE the poll still closes its LEDGER row, naming the refusal that ended the phase — no spawn is left open"
+else fail "(bg7f) the mid-poll terminal left the spawn row open: [$bg7f_rows]"; fi
+
+# THE `stuck` PATH MUST NOT OFFER A SESSION IT JUST KILLED. `stuck` proceeds exactly as `done`, so
+# it lands on the terminals written for a session the supervisor is still holding — and the ceiling
+# arm STOPS the session before returning. `build-no-pr` therefore told an operator to attach to
+# something this loop had killed three lines earlier, which is the identical false sentence `spawn`
+# already refuses to print for `failed` and `stopped`, missed on the one arm that exits elsewhere.
+setup_case "$(printf 'working\n')" "$V_APPROVE" "ready-for-dev" ""
+out="$(SESSION_CEILING_OVERRIDE=0 run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 1 ] && [ "$(slug_of "$out")" = "build-no-pr" ] \
+   && grep -q 'settled stuck' <<<"$out" \
+   && grep -q 'nothing left to attach to' <<<"$out" \
+   && ! grep -q 'claude attach sess1-full' <<<"$out"; then
+  pass "(bg7g) build-no-pr after a STUCK settlement names the stuck state and does not offer 'claude attach' for a session this scheduler stopped"
+else fail "(bg7g) the stuck path still advertised a dead session, rc=$rc / slug=$(slug_of "$out"): $out"; fi
 
 # D-18, all four not-a-state shapes. Each is fail-closed and none is scored as done: a listing the
 # scheduler cannot read is not evidence about the payload, and #527's posture decides which way an
