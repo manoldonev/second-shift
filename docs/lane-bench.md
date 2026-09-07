@@ -241,5 +241,51 @@ defect naming a test the overlay never reports, an unparseable config, a results
 is not the nineteen-column contract, or a `gh` read that errors. A read that errored is not a read
 that found nothing.
 
-The runner (`lane-bench.sh run`) and the arm wrapper that loads a ref into the payload sessions
-are the successor slice.
+## Running a cell
+
+```bash
+tools/lane-bench.sh run \
+  --arm control --arm-ref <second-shift sha> --substrate <owner>/<repo> \
+  --results <bench-repo>/results.tsv --config <eval config> \
+  --ticket 4 --repeat 2 \
+  --body <bench-repo>/tickets/t4.md --receipt <bench-repo>/receipts/t4.md \
+  --overlay <bench-repo>/overlays/t4 --defects <bench-repo>/defects/t4.tsv
+```
+
+`--skeleton --control-ref <sha>` in place of `--arm-ref` builds the floor from the control
+worktree instead of the arm's whole kit.
+
+**The arm reaches the payload sessions through a wrapper, not through a flag.**
+`tools/lane-bench-arm.sh` is handed to the lane as `LEAN_SPAWN_BIN`; it appends
+`--setting-sources ''` and one `--plugin-dir` per manifest entry to a **session dispatch** and
+`exec`s every other call on that handle — `agents --json --all`, `stop <id>` — through unmodified.
+It is transparent by contract, not by courtesy: the scheduler reads the session id out of the
+child's `backgrounded · <id> · <name>` line **by field position**, so one byte of the wrapper's
+own on stdout would break every spawn. The manifest is written per cell and never checked in; an
+unset, unreadable or empty one, or an entry naming a missing directory, is an exit-2 refusal.
+
+What `run` does, in order: cuts the arm worktree and records `harness_sha` from it and
+`cli_version` from `claude --version`; writes the manifest; **files a fresh issue as the
+operator's own identity** and applies `tracker.labels.queue`; copies the ticket's fixture receipt
+to `<stateDir>/<issue>-ledger.md`, the path the gate computes, so no cell measures the interview;
+launches **the arm worktree's own** `orchestrate-lean.sh` detached under `nohup` with
+`SECOND_SHIFT_CONFIG`, `LEAN_SPAWN_BIN` and `LEAN_ARM_MANIFEST` exported and both models, the
+review-model basis and `--max-rounds 2` passed explicitly; polls the launch ledger for its
+`terminal` row; classifies it; reads each payload session's **resolved model id** out of its
+transcript; appends the row; and calls `score`.
+
+The wrapper is the runner's own sibling and is the same file in every arm — a wrapper that varied
+with the arm would be a confound on the quantity being measured. The **scheduler** is the arm's,
+because the arm ref is the harness under test.
+
+**Four refusals land before the first side effect** — a cell id already in the results file, a
+dirty second-shift checkout, a `harness_sha` or `cli_version` disagreeing with an existing row of
+the same arm, and an eval config whose tracker host is not the substrate. That last one is AC-10's
+rung, and it is compared against an operator-supplied `--substrate <owner>/<repo>` rather than a
+literal in this repository. A refusal that fired after the issue was filed would already have
+written to a tracker, and an exit code cannot take that back.
+
+A cell whose lane never writes a terminal row inside `LEAN_BENCH_CELL_CEILING_SECS` is
+`lane-error` on the slug `no-terminal-row`, and takes the same single re-run. A second
+`lane-error` records the row and exits 1: the row is a fact about the arm, and 1 rather than 2
+says the results file was written.

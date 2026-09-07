@@ -26,10 +26,14 @@
 # the close-out, which terminals under another slug. No results row can hold it. It is listed so
 # the completeness guard can tell an announced member from a missing one (D-17).
 #
-# WHO READS THIS. `lane-bench.sh score` reads it for exactly one thing — validating the
-# `unscorable` class it writes when a cell cannot be scored. Deriving a cell's class from its
-# terminal is `lane-bench.sh run`'s job (#813); this file is that derivation's data, landed with
-# the document that describes it so the two cannot ship apart.
+# WHO READS THIS. Both subcommands. `lane-bench.sh run` derives a cell's class from its terminal
+# slug here — and chooses between a slug's two rows by the PAIR OF CLASSES they offer, never by
+# the slug: `{paused, no-pr}` is decided by a milestone-1 pause-and-ask row in the progress record,
+# `{pr-unapproved, no-pr}` by PR presence on the lane branch. A slug this file does not list, or a
+# pair the runner does not model, is `lane-error` — a cell whose class the bench cannot read is
+# re-run rather than guessed at. The condition column below stays prose for the reader; the code
+# reads the classes. `lane-bench.sh score` reads this file for exactly one thing — validating the
+# `unscorable` class it writes when a cell cannot be scored.
 
 approved	approved	-
 build-no-pr	paused	a milestone-1 `pause-and-ask` row in <stateDir>/<issue>-lean-progress.md
