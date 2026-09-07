@@ -1138,7 +1138,16 @@ spawn() { # spawn <role> <model> <prompt> — returns 0 on done or stuck, termin
            "$prompt" 2>&1)"
   # The id is the whole handle: without it there is no state to poll, no session to stop and
   # nothing to attach to, so a dispatch that did not yield one is not a spawn that happened.
-  id="$(printf '%s\n' "$out" | awk '/backgrounded/ { print $NF; exit }')"
+  # THE ID IS THE THIRD FIELD, NOT THE LAST. The dispatch line carries a NAME column whenever
+  # `--name` is passed — `backgrounded · <id> · <name>` — and this spawn always passes one, so
+  # `$NF` read back the name for every session this scheduler has ever started. A name is
+  # `[A-Za-z0-9-]` by construction, so the charset guard below waved it through as a readable
+  # id, and `session_row` then matched it against `.id` and `.sessionId` and never `.name`:
+  # every poll came back empty, three ticks running, and the run died `spawn-unreadable` about
+  # ninety seconds in with its payload still working and `stop_session` missing it too.
+  # `$3` is the id in that shape and in the two-column `backgrounded · <id>` one the CLI prints
+  # before a prompt is consumed, because `·` is its own whitespace-delimited field in both.
+  id="$(printf '%s\n' "$out" | awk '/backgrounded/ { print $3; exit }')"
   case "$id" in
     ''|*[!A-Za-z0-9-]*)
       terminal spawn-unreadable 1 "the $role spawn produced no readable session id — '$SPAWN_BIN --bg' answered: $(printf '%s' "$out" | tr '\n\t' '  '). Without an id there is no state to poll and no session to stop, so nothing was started that this run can supervise." ;;

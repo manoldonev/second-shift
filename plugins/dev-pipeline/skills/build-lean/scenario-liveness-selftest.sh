@@ -1990,7 +1990,12 @@ esac
 # The dispatch line the scheduler parses its id out of. Emitted LAST because this fake did the
 # payload's work first: under `--bg` the id is announced before the work, but the poll cannot ask
 # for a state until the dispatch returns, so a synchronous fake reaches the same composition.
-echo "backgrounded · bg-$n"
+# THE NAME COLUMN, as the real CLI emits it under `--name` — `backgrounded · <id> · <name>`.
+# A two-column fake let the scheduler's id parse take the last field, read the name back as
+# the id, and stay green through every suite that drives this seam.
+name=""; prev=""
+for a in "$@"; do [ "$prev" = "--name" ] && name="$a"; prev="$a"; done
+if [ -n "$name" ]; then echo "backgrounded · bg-$n · $name"; else echo "backgrounded · bg-$n"; fi
 exit 0
 RESESS
     chmod +x "$RE_SESSION"
@@ -2237,7 +2242,12 @@ case "$*" in
     ;;
   *) exit 1 ;;
 esac
-echo "backgrounded · bg-$n"
+# THE NAME COLUMN, as the real CLI emits it under `--name` — `backgrounded · <id> · <name>`.
+# A two-column fake let the scheduler's id parse take the last field, read the name back as
+# the id, and stay green through every suite that drives this seam.
+name=""; prev=""
+for a in "$@"; do [ "$prev" = "--name" ] && name="$a"; prev="$a"; done
+if [ -n "$name" ]; then echo "backgrounded · bg-$n · $name"; else echo "backgrounded · bg-$n"; fi
 exit 0
 COSESS
     chmod +x "$CO_SESSION"
