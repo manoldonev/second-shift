@@ -427,7 +427,10 @@ lane_bench_class() {
   case "$pair" in
     approved|paused|no-pr|pr-unapproved|unscorable|lane-error) printf '%s' "$pair"; return 0 ;;
     'no-pr paused')
-      if [ -f "$progress" ] && grep -q 'pause-and-ask' "$progress"; then printf 'paused'; else printf 'no-pr'; fi
+      # 2>/dev/null rather than a preceding [ -f ]: a missing progress record and one carrying no
+      # such row are the same answer here, and the two-predicate form only offers a `&&` for a
+      # mutation to flip into an `||` that happens to agree on both fixtures.
+      if grep -q 'pause-and-ask' "$progress" 2>/dev/null; then printf 'paused'; else printf 'no-pr'; fi
       return 0 ;;
     'no-pr pr-unapproved')
       if lane_bench_has_pr "$branch"; then printf 'pr-unapproved'; else printf 'no-pr'; fi

@@ -477,7 +477,7 @@ runcell() { # runcell <results> <arm> <extra args...>
   local r="$1" arm="$2"; shift 2
   env PATH="$BIN:$PATH" HOME="$FAKEHOME" \
       LEAN_BENCH_SS_ROOT="$SS" LEAN_BENCH_LANE_BIN="$LANE" \
-      LEAN_BENCH_POLL_SECS=1 LEAN_BENCH_CELL_CEILING_SECS="${CEIL:-60}" \
+      LEAN_BENCH_POLL_SECS=0.2 LEAN_BENCH_CELL_CEILING_SECS="${CEIL:-60}" \
       bash "$TOOL" run --results "$r" --arm "$arm" --config "$CONFIG" \
         --substrate bench-owner/substrate --overlay "$OVERLAY" --defects "$DEFECTS" \
         --body "$BODY" --receipt "$RECEIPT" "$@" 2>&1
@@ -627,7 +627,7 @@ echo '[]' > "$PR_ANSWER"
 : > "$GH_LOG"
 RO2="$WORK/o2.tsv"; mk_results "$RO2"
 before="$(rows "$RO2")"
-out="$(CEIL=2 runcell "$RO2" ctl --arm-ref "$SS_SHA" --ticket 5 --repeat 1)"; rc=$?
+out="$(CEIL=1 runcell "$RO2" ctl --arm-ref "$SS_SHA" --ticket 5 --repeat 1)"; rc=$?
 creates="$(grep -c '^issue create' "$GH_LOG")"
 if [ "$rc" -eq 1 ] && [ "$(rows "$RO2")" -eq "$((before + 1))" ] && [ "$creates" -eq 2 ] \
    && [ "$(col "$RO2" t5-ctl-r1 9)" = "no-terminal-row" ] \
