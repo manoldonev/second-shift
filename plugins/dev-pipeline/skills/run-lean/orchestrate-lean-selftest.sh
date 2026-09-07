@@ -832,6 +832,7 @@ out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
 if [ "$rc" -eq 1 ] && [ "$(spawn_count)" -eq 1 ] && [ "$(inflight_reads)" -eq 0 ] \
    && [ "$(slug_of "$out")" = "build-no-pr" ] \
    && grep -q 'a human decides' <<<"$out" \
+   && grep -qE "claude attach [A-Za-z0-9-]+' reaches" <<<"$out" \
    && grep -q 'worktree and the claim are left in place' <<<"$out"; then
   pass "(h4) exit 0 with no PR is ONE spawn and a terminal build-no-pr that hands the run to a human"
 else fail "(h4) expected rc=1 / 1 spawn / 0 in-flight reads / slug build-no-pr, got rc=$rc / $(spawn_count) / $(inflight_reads) / '$(slug_of "$out")': $out"; fi
@@ -1773,68 +1774,69 @@ if [ "$(grep -c -- '--json --all' "$SPAWN_LOG_DIR/agents.log" 2>/dev/null)" -ge 
 else fail "(bg1a) a poll did not pass --all: $(cat "$SPAWN_LOG_DIR/agents.log" 2>/dev/null)"; fi
 
 # D-6/D-23. `blocked` is "waiting on you", and nobody is here. Under `-p` this shape was an exit 0
-# with no PR — indistinguishable from a session that finished — so the whole gain is that it is
-# now a named stop. The session is STOPPED rather than left waiting on a keyboard that does not
-# exist, and that stop is asserted, not assumed.
+# with no PR — indistinguishable from a session that finished — so the whole gain is that the state
+# is named. It ends the phase through the terminal `failed` and `stopped` already used, and the
+# session is STOPPED rather than left waiting on a keyboard that does not exist. Both are asserted:
+# a routing that named the state without stopping the session leaves a supervised payload running
+# under a run nobody is supervising.
 setup_case "$(printf 'working\nblocked\n')" "$V_APPROVE" "ready-for-dev" "11"
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
-if [ "$rc" -eq 1 ] && [ "$(slug_of "$out")" = "build-blocked" ] \
+if [ "$rc" -eq 1 ] && [ "$(slug_of "$out")" = "build-session-failed" ] \
    && [ "$(gate_count)" -eq 0 ] \
+   && grep -q 'ended blocked' <<<"$out" \
+   && grep -q 'waiting on an answer' <<<"$out" \
    && grep -q 'stop sess1' "$SPAWN_LOG_DIR/stops" 2>/dev/null; then
-  pass "(bg2) a BUILD session that reads blocked is stopped and named — the exit-0-with-no-PR shape -p could not distinguish"
-else fail "(bg2) expected rc=1/build-blocked with a stop, got rc=$rc / slug=$(slug_of "$out") / stops=[$(cat "$SPAWN_LOG_DIR/stops" 2>/dev/null)]: $out"; fi
+  pass "(bg2) a BUILD session that reads blocked is stopped and ends the phase naming the state — the exit-0-with-no-PR shape -p could not distinguish"
+else fail "(bg2) expected rc=1/build-session-failed with a stop, got rc=$rc / slug=$(slug_of "$out") / stops=[$(cat "$SPAWN_LOG_DIR/stops" 2>/dev/null)]: $out"; fi
 
-# THE SLUG IS COMPOSED FROM THE ROLE, so the two halves of the lane are separable in a log. Driven
-# through the REVIEW spawn, which is the only way to prove the composition rather than a literal.
+# THE SLUG IS COMPOSED FROM THE ROLE, so the two halves of the lane stay separable in a log — the
+# claim AC-9 collapses two register rows onto. Driven through the REVIEW spawn, which is the only
+# way to prove the composition rather than a literal: every other case reaching this line runs
+# BUILD, where `$lower` and the hardcoded word are indistinguishable.
 setup_case "$(printf 'done\nblocked\n')" "$V_APPROVE" "ready-for-dev" "11"
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
-if [ "$rc" -eq 1 ] && [ "$(slug_of "$out")" = "review-blocked" ]; then
-  pass "(bg2a) the blocked slug names the ROLE — build-blocked and review-blocked route differently in a log"
-else fail "(bg2a) expected review-blocked, got slug=$(slug_of "$out"): $out"; fi
+if [ "$rc" -eq 1 ] && [ "$(slug_of "$out")" = "review-session-failed" ]; then
+  pass "(bg2a) the phase-failure slug names the ROLE — build-session-failed and review-session-failed route differently in a log"
+else fail "(bg2a) expected review-session-failed, got slug=$(slug_of "$out"): $out"; fi
 
-# D-8's PRIMARY arm, and the shape that motivates it: a payload whose turn ended over a bare
-# backgrounded command sits at `working` with nothing in flight, forever, released only by a stop.
-# Three consecutive idle reads, then the stop — and then the run PROCEEDS exactly as for `done`,
-# which is the half a "detect it and stop" fallback would get wrong.
-setup_case "$(printf 'working\n')" "$V_APPROVE" "ready-for-dev" "11"
-mkdir -p "$CASE_HOME/.claude/jobs/sess1" "$CASE_HOME/.claude/jobs/sess2"
-for j in sess1 sess2; do
-  jq -n -c '{state:"working", tempo:"idle", detail:"background task running",
-             inFlight:{tasks:0, queued:0}, output:null}' \
-    > "$CASE_HOME/.claude/jobs/$j/state.json"
-done
-out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
-if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 2 ] \
-   && grep -q 'working with nothing in flight' <<<"$out" \
-   && grep -q 'stop sess1' "$SPAWN_LOG_DIR/stops" 2>/dev/null \
-   && grep -q 'state=stuck' "$TREE/.claude/pipeline-state/$ISSUE-lean-launches.tsv" 2>/dev/null; then
-  pass "(bg3) a session working with an IDLE job record is stopped after three ticks, ledgered as stuck, and proceeds as done"
-else fail "(bg3) the stuck fallback did not fire, rc=$rc: $out"; fi
+# THE TRANSCRIPT SURVIVES A TERMINAL, and this is the case that proves it. A run that ends from
+# INSIDE the poll never returns to `spawn`, so a close that lived only after the poll call left a
+# 0-byte file on exactly the paths whose own remedy says to read it. Driven through `blocked`,
+# which is the terminal that says so out loud, with the same projects-jsonl fixture (y2a) uses.
+setup_case "$(printf 'working\nblocked\n')" "$V_APPROVE" "ready-for-dev" "11"
+mkdir -p "$CASE_HOME/.claude/projects/some-cwd-slug"
+jq -n -c '{type:"assistant", message:{content:[{type:"text", text:"FINAL-MESSAGE-FROM-BUILD"}]}}' \
+  > "$CASE_HOME/.claude/projects/some-cwd-slug/sess1-full.jsonl"
+LAUNCH_ID_OVERRIDE=bg2b-launch run_tool "$CFG" "$ISSUE" --build-model sonnet >/dev/null 2>&1
+bg2b_log="$TREE/.claude/pipeline-state/$ISSUE-lean-spawn-bg2b-launch-1-build.log"
+if [ -s "$bg2b_log" ] && grep -q 'FINAL-MESSAGE-FROM-BUILD' "$bg2b_log" 2>/dev/null; then
+  pass "(bg2b) a run that terminals from inside the poll still closes its transcript — the file its own remedy names is not empty"
+else fail "(bg2b) the transcript was not closed on a terminal path: [$(cat "$bg2b_log" 2>/dev/null)]"; fi
 
-# ...and its NON-VACUITY, which is the case that matters: the identical listing stream with a job
-# record showing a task IN FLIGHT must NOT be stopped. Without this, (bg3) would pass just as well
-# for a tool that stopped every working session it saw — which is the print-mode wait ceiling
-# rebuilt by accident, and the exact regression this transport swap exists to remove.
-setup_case "$(printf 'working\nworking\nworking\nworking\ndone\n')" "$V_APPROVE" "ready-for-dev" "11"
-mkdir -p "$CASE_HOME/.claude/jobs/sess1"
-jq -n -c '{state:"working", tempo:"idle", inFlight:{tasks:1, queued:0}, output:null}' \
-  > "$CASE_HOME/.claude/jobs/sess1/state.json"
-out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
-if [ "$rc" -eq 0 ] \
-   && ! grep -q 'working with nothing in flight' <<<"$out" \
-   && ! grep -q 'stop sess1' "$SPAWN_LOG_DIR/stops" 2>/dev/null; then
-  pass "(bg3a) NON-VACUITY: a session working with a task IN FLIGHT rides out four ticks untouched — the fallback reads the record, not the state"
-else fail "(bg3a) a legitimately working session was stopped, rc=$rc: $out"; fi
-
-# D-8's FALLBACK arm. No job record at all — the undocumented file is absent or unparseable — and
-# the documented ceiling takes over. Pinned to zero here so one tick spends it; in production it
-# is today's wait-ceiling number, moved to the side that can act on it.
+# THE SILENCE CEILING, which is the whole of the stuck fallback the narrowed scope keeps. A payload
+# whose turn ended over a bare backgrounded command sits at `working` with nothing left to do,
+# released only by a stop. The ceiling bounds it, the session is stopped, the launch ledger says
+# `stuck`, and the run PROCEEDS exactly as for `done` — which is the half a "detect it and stop"
+# fallback would get wrong, because the GATE is the completion oracle, not this loop.
 setup_case "$(printf 'working\n')" "$V_APPROVE" "ready-for-dev" "11"
 out="$(IDLE_CEILING_OVERRIDE=0 run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
-if [ "$rc" -eq 0 ] && grep -q 'ceiling is spent' <<<"$out" \
-   && grep -q 'stop sess1' "$SPAWN_LOG_DIR/stops" 2>/dev/null; then
-  pass "(bg4) with no readable job record the documented ceiling still bounds a silent session — the undocumented read only ever SHORTENS it"
+if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 2 ] && grep -q 'silence ceiling spent' <<<"$out" \
+   && grep -q 'stop sess1' "$SPAWN_LOG_DIR/stops" 2>/dev/null \
+   && grep -q 'state=stuck' "$TREE/.claude/pipeline-state/$ISSUE-lean-launches.tsv" 2>/dev/null; then
+  pass "(bg4) a session silent past the ceiling is stopped, ledgered as stuck, and proceeds as done"
 else fail "(bg4) the ceiling arm did not fire, rc=$rc: $out"; fi
+
+# ...and its NON-VACUITY, which is the case that matters: the identical listing stream UNDER THE
+# SHIPPED CEILING must ride out untouched. Without this, (bg4) would pass just as well for a tool
+# that stopped every working session it saw — the print-mode wait ceiling rebuilt by accident, and
+# the exact regression this transport swap exists to remove.
+setup_case "$(printf 'working\nworking\nworking\nworking\ndone\n')" "$V_APPROVE" "ready-for-dev" "11"
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 0 ] \
+   && ! grep -q 'silence ceiling spent' <<<"$out" \
+   && ! grep -q 'stop sess1' "$SPAWN_LOG_DIR/stops" 2>/dev/null; then
+  pass "(bg4a) NON-VACUITY: a session working inside the ceiling rides out four ticks untouched — the bound is the clock, not the state"
+else fail "(bg4a) a legitimately working session was stopped, rc=$rc: $out"; fi
 
 # D-18, all four not-a-state shapes. Each is fail-closed and none is scored as done: a listing the
 # scheduler cannot read is not evidence about the payload, and #527's posture decides which way an

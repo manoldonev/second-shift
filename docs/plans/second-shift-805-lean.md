@@ -38,19 +38,20 @@ AC-11 is where that is graded.
   and `--name lean-<issue>-<role>-r<round>` (D-4). A dispatch whose output carries no readable
   session id is fail-closed, not scored as a spawn.
 - AC-2: after dispatch, `spawn()` polls `claude agents --json --all` on a fixed cadence, keyed on
-  the exact `sessionId` returned, and routes the documented state enum: `done` proceeds, `failed`
-  and `stopped` reach the existing `build-session-failed` / `review-session-failed` terminals, and
-  `blocked` reaches the new `build-blocked` / `review-blocked` terminals after `claude stop <id>`
-  — headless, nobody can answer it (D-5, D-6, D-13). The listing flag is `--all`: without it a
+  the exact `sessionId` returned, and routes the documented state enum: `done` proceeds, and `failed`,
+  `stopped` and `blocked` all reach the existing `build-session-failed` /
+  `review-session-failed` terminal, which names the state and stops the session — headless,
+  nobody can answer a blocked one (D-5, D-6, D-13). `blocked` gets no slug of its own: the
+  narrowing below removed it, and the state is carried in the message and the launch ledger. The listing flag is `--all`: without it a
   finished session drops out and the poll would read its own success as a disappearance (D-10).
   The cadence is an env seam defaulting to 30 seconds, so the suite drives the loop without
   sleeping (D-14).
-- AC-3: the stuck fallback (D-8). Three consecutive polls reporting `working` while the session's
-  job record `~/.claude/jobs/<id>/state.json` reports `tempo` idle with `inFlight.tasks` and
-  `inFlight.queued` both zero → `claude stop <id>`, a launch-ledger `state=stuck`, and the run
-  proceeds exactly as for `done`. When that record is absent or does not parse, the fallback is a
-  bounded silence ceiling (env seam, default 30 minutes) reached the same way. `detail` in that
-  record is model-authored prose and is never read.
+- AC-3: the stuck fallback (D-8), **narrowed to its documented arm**. A session reporting
+  `working` past a bounded silence ceiling (env seam, default 30 minutes) → `claude stop <id>`, a
+  launch-ledger `state=stuck`, and the run proceeds exactly as for `done`, because the gate is the
+  completion oracle either way. The harness's private `~/.claude/jobs/<id>/state.json` is **not
+  read**: it named the same shape in ninety seconds rather than thirty minutes, and it was the
+  first thing the narrowing below gave up.
 - AC-4: an unreadable listing is fail-closed (D-18). Three consecutive polls in which
   `claude agents --json --all` fails to run, fails to parse, or does not contain the dispatched id
   end the run with `terminal spawn-unreadable 1` naming that id. A state that could not be read is
@@ -78,21 +79,36 @@ AC-11 is where that is graded.
 - AC-9: `scripts/gate-buckets.tsv` is reconciled (D-13). `build-session-failed` and
   `review-session-failed` become ONE row, because the two are now one source site whose slug is
   composed from the role — the register anchors on source text, and the log keeps both slugs.
-  `staleness-expired` re-anchors onto its edited message, and `blocked` and `spawn-unreadable` get
-  rows of their own. `bash scripts/check-gate-buckets.sh` stays green.
+  `staleness-expired` re-anchors onto its edited message, and `spawn-unreadable` gets a row of its
+  own. `blocked` gets none — it routes through the collapsed row above. `bash scripts/check-gate-buckets.sh` stays green.
 - AC-10: the suite drives the new transport (D-14). `orchestrate-lean-selftest.sh`'s `claude` fake
   is discriminated on argv the way its `gh` fake already is: `--bg` prints `backgrounded · <id>`
   and records the prompt and the flags, `agents --json --all` is served from a case-written state
   file the case advances per call, and `stop` is recorded. The fake never sleeps. New cases cover
-  the poll reaching `done`, `failed`/`stopped`, `blocked`, the stuck fallback, an unreadable
-  listing, the mid-flight exit 7, and the `--settings` env handoff. Any
+  the poll reaching `done`, `failed`/`stopped`, `blocked` through the collapsed terminal, the
+  silence ceiling with its non-vacuity twin, an unreadable listing, the mid-flight exit 7, the
+  `--settings` env handoff, and the transcript surviving a terminal reached from inside the poll. Any
   `tools/mutation-catalog.tsv` row whose sed anchor addresses edited code is re-anchored, and the
   `lean-reentry` leg of `scenario-liveness-selftest.sh` composes against the new transport.
-- AC-11: the net diff is negative. This is a `harness-internal` ticket and that is the ratification
-  bar (#717). The PR body states the figure and the command that produces it. If the poll loop and
-  its fallbacks do not clear the bar, falsifier 5 is taken instead: land only the `:169` comment
-  correction, the session id at dispatch and `claude stop` for exit 7 — and record the negative in
-  the PR body rather than claiming the bar.
+- AC-11: **falsifier 5 fired, the operator's pre-authorized narrowing is taken, and the negative
+  is recorded rather than the bar claimed.** #717's bar for a `harness-internal` ticket is a
+  negative net diff and this ticket does not reach it. What the narrowing removed is gone from the
+  branch: D-8's undocumented job-record read, the `build-blocked` / `review-blocked` slug pair and
+  their register row, `probe_spawn`'s listing validation, and every case and catalog row that
+  addressed them. What it keeps is what the ratification comment itself names as the reduced
+  landing — the prose corrections, the session id at dispatch, and `claude stop` for exit 7 — plus
+  the poll those two require in order to exist at all.
+
+  The recorded negative, measured at this head, is that **no cut depth reaches the bar**, because
+  the cost is the poll loop and the reduced landing keeps the poll loop by construction. Counting
+  executable lines only — comments and blanks excluded on both sides, so the repo's comment
+  density is not what is being measured — the branch adds **389** and deletes **92**. Stripping
+  every comment the branch adds would not close that gap. The intake deletion table was the error:
+  it projected that "a large fraction" of a 1,044-line file was `-p` compensation, and the realized
+  deletions are 83 lines from that file and 178 across the whole branch.
+
+  Whether that buys ratification is the operator's call and is not claimed here. The PR body
+  states both figures and the commands that reproduce them.
 - AC-12: the prose that describes `-p` follows the code (D-17). In `orchestrate-lean.sh`: the
   identity-under-orchestration paragraph's inherit-and-scrub claim, the "why a spawn's exit status
   is not a completion signal" block, the exit-0 interpretation in the three-mechanisms-died
@@ -106,6 +122,24 @@ AC-11 is where that is graded.
   keyboard channel into a headless payload, so `headless` means "not attended through the gate",
   not "unreachable". `bash tools/prose-blockers.sh check` stays green, with triage rows added
   last.
+
+## The narrowing taken
+
+The ratification comment's conditional — *"Net-negative is the bar. If the poll loop does not
+clear it, land only the comment correction, id-at-dispatch and `claude stop` for exit 7, and
+record the negative"* — is a pre-authorized narrowing, not an option to decline. Round 1 measured
+the bar unmet and landed the full scope anyway, arguing the exception; that was the wrong shape,
+and the round was rejected for it. Round 2 takes the disposition.
+
+**Removed by the narrowing:** D-8's primary arm (`job_idle`, the `~/.claude/jobs/<id>/state.json`
+read, and its two cases), the `build-blocked` / `review-blocked` terminals and the
+`gate-buckets.tsv` row that classified them, `probe_spawn`'s session-listing validation, and the
+`lean-orchestrate-stuck-idle-read` mutation-catalog row whose anchor addressed the deleted read.
+
+**Kept, because the reduced landing names them or cannot exist without them:** the `--bg` dispatch
+and the id it yields, `claude stop` on exit 7 and on an interrupted scheduler, the poll that turns
+a dispatched id into a state, the `--settings` env handoff (nothing else reaches the child), the
+transcript, and AC-12's prose corrections.
 
 ## Out of scope
 
@@ -136,14 +170,14 @@ bash tools/prose-blockers.sh check
 | D-3 | Per-role transcript content (ticket OR-2) | File created at spawn (`retro-corpus.sh:391` classifies `orchestrated` on presence). At spawn-end, append the last assistant text from `~/.claude/projects/<cwd-slug>/<sid>.jsonl` — the same content `-p` printed, durable and machine-readable (verified on nine probe sessions). `build-no-pr` remedy names that file and `claude attach <id>` instead of "read the lane log". Sessions are not `claude rm`'d: `rm` keeps the projects jsonl but deletes the job record (D-25) and ends attachability. | user-answered |
 | D-4 | Live view on the control stream | One line at spawn carrying the id and `claude attach <id>`, one line per state transition the poll observes, one at spawn-end. No audit-ledger tail (#804's reader, declined), no heartbeat. #531's stream split holds: control on stdout; the payload no longer reaches stderr at all. The spawn passes `--name lean-<issue>-<role>-r<round>` so the id is recognisable in `claude agents` (documented flag). | user-answered |
 | D-5 | Poll cadence and key (ticket OR-1) | `claude agents --json --all` every 30s (measured cost 0.16s per call), keyed on the exact `sessionId` the spawn returned. State enum read: working, blocked, done, failed, stopped (documented). | user-answered |
-| D-6 | `blocked` under headless (ticket OR-1) | `claude stop <id>` then `terminal build-blocked 1` (or `review-blocked 1`), message carrying the id and, when the record offers it, the documented `waitingFor` value. `blocked` has exactly two sources in this lane (D-23), and nobody can answer either. The spawn passes `--disallowedTools AskUserQuestion`, which removes the tool the way `-p` lacks it (R2: "not available", model continued) — that closes the one prompt source real payloads actually hit (32 calls across 84 sessions). Classifier denials never reach `blocked` (D-22). | user-answered |
+| D-6 | `blocked` under headless (ticket OR-1) | DEPARTURE — the operator's pre-authorized narrowing was taken (falsifier 5), and it removes the build-blocked and review-blocked slugs this row specified. What the row DECIDES is unchanged and shipped: a blocked session is stopped rather than left waiting on a keyboard that does not exist, it ends the phase, and the spawn still passes --disallowedTools AskUserQuestion to remove the one prompt source real payloads reach. Only the terminal it routes to moved, onto the session-failed slug that already existed. The authority is the ratification comment itself, not this session re-deciding. | user-answered |
 | D-7 | Concurrency posture (ticket OR-3) | No change. The poll keys on an exact id; the single-lane assumption (#525, unproven per #564) is about worktrees and the gate, not transport. Recorded: the supervisor makes accidental double-launch easier; `pgrep` of the SCHEDULER still catches it. | user-answered |
-| D-8 | Fallback for a payload stuck at `working` after its turn ended | Two arms. Primary: three consecutive polls (90s) in which `claude agents` says `working` while the job record `~/.claude/jobs/<id>/state.json` says `tempo` idle, `inFlight.tasks` 0 and `inFlight.queued` 0 → `claude stop`, launch-ledger `state=stuck`, then proceed exactly as for `done`. Fallback, when that record is missing or does not parse: state `working` AND the session jsonl's last row is `system` subtype `turn_duration` AND no row written for `LEAN_SPAWN_IDLE_CEILING_MS` (default 1800000, today's wait-ceiling number moved scheduler-side and made observable) → the same stop. Fail-safe by construction: the undocumented record only ever shortens the documented bound. Measured: the bare `sleep N; echo` shape under `run_in_background` had its result delivered inline by the harness in 5 of 7 runs (P4, P4e, and three copies at 22:43), after which the turn ended and the session read `working` indefinitely with `inFlight.tasks` 0 and `output` null, released only by `stop`; the other two runs (P4d, P4f) received a task id and finished `done`. A legitimate turn-ended wait (P4g) reads `tempo` idle with `inFlight.tasks` 1 and re-invokes; Agent dispatch (P4b) and the CLAUDE.md `nohup … > log` shape (P4c) likewise stayed `working`, re-invoked, then `done`. Real payloads use the bare shape in 18 of 62 sessions, so the bound is needed and its speed matters. Amended from the ceiling-only form after the record capture, by the operator. | user-answered |
+| D-8 | Fallback for a payload stuck at `working` after its turn ended | DEPARTURE — same narrowing. The documented arm ships and bounds exactly the shape this row is about: a session reporting working past a wall-clock silence ceiling is stopped, ledgered as stuck, and the run proceeds as for done. The primary arm does not ship — reading the harness's private ~/.claude/jobs/<id>/state.json was the largest single piece of the poll loop that the reduced landing does not name, so it is the first thing the cut gave up. The bound is slower, thirty minutes rather than ninety seconds, and it is never absent. | user-answered |
 | D-9 | Environment handoff to the child | Nothing from the launcher's shell environment reaches a `--bg` session except the documented allowlist (PATH, provider selection): P1 saw LRM and LAM unset; P5 saw a marker var and TERM_PROGRAM unset. `LEAN_ATTEND_MODE=headless` and `LEAN_RUN_MODEL=<model>` are injected with `--settings '{"env":{...}}'` (P6 and C2: both arrived; the docs name a settings `env` block as the mechanism; `respawnFlags` in the job record show the flags persist across a supervisor restart). Harness-applied, not model-controlled, so #613's belt holds. The `env -u RUN_ID -u LEAN_RUN_MODEL` scrub is deleted as dead code. `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS` and its rationale block (`:727-745`) are deleted: a turn that ends with a tracked task pending stays `working` and re-invokes (P4b, P4c, P4g). | codebase-derived |
 | D-10 | Listing flag | `--all` is required: the docs list only "background sessions that are still working or blocked" by default; completed ones need `--all` (the three #549 `done` probes appear only under it). | codebase-derived |
 | D-11 | Worktree relocation (ticket falsifier 3) | None. A session worktree is the explicit `-w, --worktree` flag; `claude rm` removes one only if it exists. Lane worktree handling is unchanged. | codebase-derived |
 | D-12 | Launch-ledger `spawn` and `spawn-end` rows | `rc=N` becomes `state=<done, failed, stopped, blocked, stuck>`; the `spawn` row gains `id=<short id>`. `tools/lane-latency.sh` reads timestamps only; nothing parses `rc=`. | codebase-derived |
-| D-13 | Terminal vocabulary | `build-session-failed` and `review-session-failed` retained, now firing on `failed` and `stopped`; their anchors in `scripts/gate-buckets.tsv:167,178` re-anchor on the message edit. New slugs `build-blocked`, `review-blocked` (D-6) and `spawn-unreadable` (D-18) get rows; `stuck` proceeds as done (D-8); the revised `staleness-expired` message (D-2) re-anchors its row. | codebase-derived |
+| D-13 | Terminal vocabulary | build-session-failed and review-session-failed retained as ONE source site whose slug is composed from the role, now firing on failed, stopped and blocked; their two register rows collapse to one and re-anchor on the message edit. spawn-unreadable gets a row of its own. stuck proceeds as done, and the revised staleness-expired message re-anchors its row. The narrowing removed the separate blocked slugs this row originally added. | codebase-derived |
 | D-14 | Selftest seam | One `claude` fake discriminated on argv, the `gh` fake's precedent (selftest `:123`): `--bg` prints `backgrounded · <id>` and records the prompt and flags, `agents --json --all` is served from a case-written state file the case advances per call, `stop` and `rm` are recorded. The liveness scenario is extended for the poll, the stuck fallback, `blocked`, unreadable listing and the mid-flight exit 7 (writing-tests skill). The fake never sleeps: the poll interval is a seam (`LEAN_SPAWN_POLL_MS`) the suite sets to 0. | codebase-derived |
 | D-15 | P10 boundary | Unchanged. The bg session's own `CLAUDE_CODE_SESSION_ID` equals the listed `sessionId` (P1, C2); no `--session-id`, no `--resume`. The audit ledger opens on the first tool call (present for every probe that ran a tool, mode 0600); a session that never calls a tool has none — `entry` never ran there, so nothing fails open. | codebase-derived |
 | D-16 | `claude logs` | Not part of the design. It fails on finished sessions ("Couldn't read logs") and on live ones returns TUI chrome only. The ticket's "liveness is `claude logs` plus `state`" claim is corrected in the PR body: live view is `claude attach`, post-hoc view is D-3. | codebase-derived |
