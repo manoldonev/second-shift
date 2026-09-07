@@ -59,7 +59,11 @@ repository changes; the base is moved by config alone.
    field is identical. A second difference makes the series measure the config delta.
 3. Select it with `SECOND_SHIFT_CONFIG`, which both the scheduler and the gate already honor
    (`orchestrate-lean.sh:357`, `lean-gate.sh:489`); `baseBranch` is read from the resolved
-   config (`lean-gate.sh:529`).
+   config (`lean-gate.sh:529`). The gate resolves it *inside* the payload session, and under the
+   supervised spawn nothing from the launcher's environment is inherited — so the scheduler
+   forwards `SECOND_SHIFT_CONFIG` explicitly in the spawn's `--settings` env block. Pass an
+   absolute path: the value travels verbatim, and a relative one would resolve against the lane
+   worktree rather than the checkout you launched from.
 4. File the five fixture issues, intake them, and launch the five lanes one at a time.
 5. Their PRs target, and merge into, the **eval base branch**. The consumer's default branch
    is **neither modified nor rewound** — at no point does the eval write to it.

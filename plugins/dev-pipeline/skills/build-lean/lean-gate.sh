@@ -1878,7 +1878,7 @@ worktree_keep() { # worktree_keep <path> <reason> [<detail>]
 # THE ONE QUESTION BOTH SIDES ASK: does this lane worktree hold work that exists nowhere else?
 # Teardown has always asked it — a worktree carrying uncommitted or unpushed work must not be
 # destroyed — and #531 D-3 gives the SCHEDULER the same question at a different boundary: a BUILD
-# session that exits 0 with commits unpushed is `claude -p` ending a turn, not a block finishing,
+# session that settles with commits unpushed is a model ending a turn, not a block finishing,
 # and the round that follows reviews a remote head missing everything BUILD just did.
 #
 # EXTRACTED RATHER THAN RE-DERIVED. Two copies of "is this tree collected" are two answers the
@@ -2311,9 +2311,11 @@ staleness_base_arm() {
 # live payload session.
 #
 # WHAT WAS UNCOVERED. The scheduler asks for the refusal above at preflight and before every BUILD
-# spawn; what nothing asked AFTER `entry` is whether the ticket is still open — and the scheduler
-# structurally cannot, because there is no channel into a running `claude -p`. This is the other
-# side of that boundary, asked by the session itself.
+# spawn; what nothing asked AFTER `entry` was whether the ticket is still open, because there was
+# no channel into a running payload. #805 gave the scheduler one — it re-asks on every poll tick
+# and stops the session — so this is no longer the only such read, and it is still the one that
+# lands at the moment that matters. This is the other side of that boundary, asked by the session
+# itself.
 #
 # `mark` AND NOT A MILESTONE (D-11). `require_ticket_live` fixes "one read per run boundary, never
 # per milestone", and `1`..`5` are recorded as network-free; `mark` already opens a socket and

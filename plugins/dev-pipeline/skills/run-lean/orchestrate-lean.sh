@@ -26,9 +26,9 @@
 # it a new session id and the audit hook opens a live ledger for it — which is what makes
 # `lean-gate.sh entry` satisfiable inside a spawned session and the build-vs-review verdict
 # refusal structural rather than cooperative. This script therefore never passes a session id
-# and never resumes a context. `RUN_ID` and `LEAN_RUN_MODEL` are ordinary env vars and DO
-# inherit, so both are scrubbed on every spawn: an inherited RUN_ID would key a child's records
-# to the parent's run, and an inherited LEAN_RUN_MODEL has already false-red a nested sweep once.
+# and never resumes a context. Nothing from this shell's environment reaches a spawned session
+# either (#805), so the scrub that used to keep an inherited RUN_ID out of a child's records is
+# gone with the leak it defended against; what the payload needs arrives in a `--settings` block.
 #
 # THE ROUND BUDGET. Three rounds; the fourth is a hard stop with no rescue attempt, mirroring
 # the gate's own `rc=4` posture. Two independent routes reach it — the verdict gate returning 4
@@ -36,16 +36,14 @@
 # counter lives in a file a fix round can reset, and a scheduler with no bound of its own would
 # loop forever on a reset counter.
 #
-# WHY A SPAWN'S EXIT STATUS IS NOT A COMPLETION SIGNAL, and why #718 answers that with a HUMAN
-# rather than a retry. `claude -p` exits 0 whenever the model ends its turn cleanly, so a payload
-# that exhausted its context is byte-identical to one that finished. Between #492 and #718 this
-# loop read a THIRD post-spawn state — exited 0, no PR, but the run advanced — and re-spawned on
-# it, on a budget, off two opaque tokens the gate printed for no other reader: three mechanisms
-# guessing whether a session that stopped talking would say more if asked again. BUILD is spawned
-# ONCE per round now. No PR is `build-no-pr`, the run stops, and the operator reads the lane log —
-# the judgement the budget was standing in for. The stranded-work exit is rescued by hand with the
-# recipe in build-lean/SKILL.md; if that rate proves unacceptable, the measurement is the basis for
-# a Stop hook, not a presumption.
+# A SPAWN SETTLES INTO A STATE, NOT AN EXIT CODE (#805). Under `claude -p` this loop read exit 0
+# from a payload that finished, one that exhausted its context, and one that paused on a question
+# nobody could answer — so between #492 and #718 it guessed among them with a continuation budget
+# and two opaque tokens, and #718 replaced the guessing with a human. A supervised session reports
+# `working`, `blocked`, `done`, `failed` or `stopped`, which separates the paused case outright
+# and no longer cuts off the waiting one. #718's answer stands where it still applies: `done` is
+# "the turn ended", not "the work is complete", so the GATE remains the completion oracle, BUILD
+# is spawned ONCE per round, and no PR is `build-no-pr` for a human to read.
 #
 # THE VERDICT GATE'S RC IS A TAXONOMY, NOT A BOOLEAN (#496). Every milestone-4 failure used to
 # return 1, so twenty distinct conditions arrived here as one word — and the loop had exactly one
@@ -75,7 +73,7 @@
 #
 # THREE MECHANISMS DIED WITH THE SPAWN (D-3/D-5): the continuation budget, the advancement-token
 # comparison, and the verified-not-credited rule. All three existed to work around ONE property
-# of a model session — `claude -p` exits 0 whenever the model ends its turn, so a close-out that
+# of a print-mode session — it exits 0 whenever the model ends its turn, so a close-out that
 # stopped early exited 0 and printed `done` over a run with no closing comment on it. A gate
 # command cannot end its turn early. Its exit code IS the verdict, which is already the lane's
 # evidence rule at every other call site, and reading it also removes the acknowledged wart where
@@ -98,8 +96,8 @@
 # `verdict_rc` now runs first; rc=0 skips the review and falls into the close-out rather than
 # stopping, because stopping would strand finished, reviewed work.
 #
-# THE BUILD EXIT CONTRACT IS A GATE CALL, NOT PROSE (#531 D-3/D-4). A BUILD session that exits 0
-# with commits unpushed or a dirty tree is `claude -p` ending a turn, and everything this loop
+# THE BUILD EXIT CONTRACT IS A GATE CALL, NOT PROSE (#531 D-3/D-4). A BUILD session that settles
+# with commits unpushed or a dirty tree is a model ending its turn, and everything this loop
 # reads afterwards is about a REMOTE head missing whatever it did — three occurrences in a single
 # run of one ticket, each costing a full review round, with nothing in the log to tell them from a
 # legitimate one. #535 added a PROSE rule against exactly this, it shipped installed, and the very
@@ -110,8 +108,7 @@
 # it into `bash G all` would
 # spend milestone-5 fix budget on a condition whose remedy is one push, and the directly-invoked
 # two-terminal flow has a human watching by construction. No trap-based push, which the ticket
-# also asked for: SIGKILL is untrappable and under `claude -p` no build-session process survives to
-# carry a trap, so its only host would be spawn() — making this script a source-control writer
+# also asked for: its only host would be spawn(), making this script a source-control writer
 # against its own header two paragraphs up.
 #
 # THE TERMINAL TAXONOMY (#531 D-1). Every run-ending exit prints `terminal: <slug>` before it goes,
@@ -165,10 +162,12 @@
 # exists to exempt — the close-out is a gate call. An approved PR must still land, and a stop
 # there would strand finished, reviewed work rather than save any.
 #
-# WHAT IT CANNOT DO, said out loud so exit 7 is not misread as a promptness guarantee (OR-3): this
-# is a SPAWN-BOUNDARY check and there is no channel into a live `claude -p`, so the incident's 30
-# redundant in-session minutes would still be spent. It bounds the damage at one session, not at
-# zero.
+# AND IT IS NO LONGER ONLY A SPAWN-BOUNDARY CHECK (#805 D-2). `claude stop` is a channel into a
+# live session, so the predicate is re-asked on every poll tick and a run whose premise expires
+# mid-session is stopped where it stands. The incident's 30 redundant in-session minutes are the
+# quantity this now saves; the earlier bound was one session, not zero. One consequence is stated
+# rather than discovered: a stop also ends the payload's running tool process, so a git command
+# killed in progress can leave an index.lock behind in the lane worktree.
 #
 # Usage:
 #   orchestrate-lean.sh <issue> --build-model <model> [options]
@@ -185,6 +184,10 @@
 # Seams (every one has a shipped default pointing at the real thing):
 #   LEAN_SPAWN_BIN               the session binary (default `claude`)
 #   LEAN_SPAWN_PERMISSION_MODE   passed as --permission-mode (default `auto`)
+#   LEAN_SPAWN_POLL_SECS         seconds between session-state polls (default 30)
+#   LEAN_SPAWN_STALENESS_SECS    seconds between in-poll staleness re-checks (default 300)
+#   LEAN_SPAWN_SESSION_CEILING_MS  wall-clock ceiling on ONE session (default 7200000)
+#   LEAN_SPAWN_CLOCK             command printing epoch seconds (default `date +%s`)
 #   LEAN_GATE                    the milestone gate (default: the sibling build-lean skill)
 #   LEAN_OVERRIDE_TOOL           the attendance/override mechanism (default: the sibling tool)
 #   ${GH:-gh}                    the tracker/code-host CLI, read-only here
@@ -212,11 +215,24 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GH_CLI="${GH:-gh}"
 SPAWN_BIN="${LEAN_SPAWN_BIN:-claude}"
 PERM_MODE="${LEAN_SPAWN_PERMISSION_MODE:-auto}"
-# How long a spawned payload may wait on its own background tasks before the harness ends its turn.
-# Thirty minutes, against a 600s harness default that is shorter than a plan-stage reviewer — see
-# the spawn call for the failure it produced. Overridable so an operator debugging a hung dispatch
-# can shorten it without editing the loop.
-SPAWN_BG_WAIT_CEILING_MS="${LEAN_SPAWN_BG_WAIT_CEILING_MS:-1800000}"
+# The in-flight session, its transcript and its ledger row. Declared here because `terminal` reads
+# every one of them and `terminal` is reachable from arg parsing (D-1) — and because `set -u` is on
+# two lines up, so a declaration left beside its user would be an unbound-variable error on exactly
+# the earliest path rather than a missing value.
+SPAWN_ID=""
+SPAWN_LOG=""
+SPAWN_SID=""
+SPAWN_ROLE=""
+SPAWN_STATE=""
+SPAWN_SETTINGS_FILE=""
+SPAWN_N=0
+# 1 until a spawn opens a transcript, so the terminals reachable before the first dispatch — arg
+# parsing, every preflight probe — close nothing.
+SPAWN_CLOSED=1
+# 1 until a spawn's OPENING ledger row is written, which is a DIFFERENT moment from the transcript
+# opening: the transcript opens before the dispatch, the row only once the dispatch yields an id.
+# The no-id refusal falls between the two and must not close a spawn the ledger never opened.
+SPAWN_ENDED=1
 GATE="${LEAN_GATE:-$SCRIPT_DIR/../build-lean/lean-gate.sh}"
 # #613. Same-plugin sibling, so a plain relative path — no resolve-sibling ladder, which exists
 # for CROSS-plugin hops. The seam is here for the selftest, which must drive the third accepting
@@ -275,6 +291,95 @@ launch_note() { # launch_note <event> <detail>
 # carefully.
 say()     { echo "$(now_iso) [orchestrate-lean] $*"; }
 
+# ---- the live control channel ------------------------------------------------------------
+# DEFINED HERE, above `terminal`, and that placement is load-bearing: `terminal` calls
+# spawn_cleanup and is reachable from arg parsing and from every preflight probe — all of which
+# run before the spawning section below is ever executed. A definition beside its siblings there
+# would be a "command not found" on the one path most likely to take it.
+#
+# The channel itself is the reason exit 7 is now an abort rather than a damage bound.
+# Best-effort: a stop that does not land is said out loud and never changes an exit code, because
+# every caller is already on its way to a terminal.
+stop_session() { # stop_session <id>
+  [ -n "${1:-}" ] || return 0
+  "$SPAWN_BIN" stop "$1" >/dev/null 2>&1 \
+    || say "  'claude stop $1' did not complete — that session may still be running."
+}
+
+# D-3. The transcript's closing content. `-p` printed the session's last message and this file
+# caught it; a bg payload never reaches this process at all, so the same text is read back from
+# the harness's own durable record. ADVISORY throughout, on the same reasoning as the file's
+# creation below: a transcript that cannot be completed is a lost convenience.
+#
+# GLOBBED rather than slug-derived: the projects directory name is a harness encoding of the cwd,
+# and re-deriving it here would be this script modelling a private path format.
+transcript_close() { # transcript_close <log> <sessionId>
+  local log="$1" sid="$2" f last
+  [ "$log" = "/dev/null" ] && return 0
+  [ -n "$sid" ] || { printf '\n[orchestrate-lean] no session id — the final message could not be read.\n' >> "$log" 2>/dev/null; return 0; }
+  for f in "$HOME"/.claude/projects/*/"$sid".jsonl; do
+    [ -f "$f" ] || continue
+    last="$(jq -s -r '[ .[] | select(.type == "assistant") | .message.content[]?
+                        | select(.type == "text") | .text ] | last // empty' "$f" 2>/dev/null)"
+    if [ -n "$last" ]; then
+      printf '\n[orchestrate-lean] final message of session %s:\n%s\n' "$sid" "$last" >> "$log" 2>/dev/null
+      return 0
+    fi
+  done
+  printf '\n[orchestrate-lean] session %s left no readable final message.\n' "$sid" >> "$log" 2>/dev/null
+}
+
+# THE TRANSCRIPT IS CLOSED WHEREVER THE RUN ENDS, not only where the spawn returns. Every
+# terminal reached from INSIDE the poll — a blocked session, an unreadable listing, a premise that
+# expired mid-flight — exits without ever coming back to `spawn`, and those are exactly the paths
+# whose remedies tell an operator to read the payload transcript. Closing from the one funnel every
+# run-ending exit already goes through is what keeps that sentence true of all of them. Idempotent,
+# so the settled path and a terminal cannot both append.
+# THE CLOSING LEDGER ROW BELONGS TO THE FUNNEL TOO, for the reason the transcript close does and
+# with a sharper consequence. `poll_session` reaches `terminal` on three of its own arms — an
+# expired premise, an unreadable listing, an unreadable staleness read — and `terminal` exits, so
+# control never returns to `spawn` to write the row there. That left an OPEN spawn row with no
+# close on exactly the paths a run ends badly on, and `tools/lane-latency.sh` reads an unclosed
+# spawn as "not-measurable" — a signature it was given for a KILLED scheduler. A mid-poll refusal
+# wearing a killed scheduler's signature does not fail; it quietly shrinks the measurable set the
+# lane is gated on. Closing from the funnel makes every opened spawn row closed by construction.
+#
+# Guarded on its OWN flag rather than on SPAWN_CLOSED, because the two windows differ by the
+# dispatch: see SPAWN_ENDED's declaration.
+spawn_end_note() {
+  [ "$SPAWN_ENDED" -eq 0 ] || return 0
+  SPAWN_ENDED=1
+  launch_note spawn-end "n=$SPAWN_N role=$SPAWN_ROLE state=${SPAWN_STATE:-unknown}"
+  # The settings file dies with the session it configured (see spawn_settings). It holds whatever
+  # collector credentials the launcher was given, so it is removed here rather than left to the
+  # run's EXIT trap — the EXIT trap is the backstop, not the plan.
+  [ -n "$SPAWN_SETTINGS_FILE" ] && rm -f "$SPAWN_SETTINGS_FILE"
+  SPAWN_SETTINGS_FILE=""
+  return 0
+}
+
+spawn_close() {
+  spawn_end_note
+  [ "$SPAWN_CLOSED" -eq 0 ] || return 0
+  SPAWN_CLOSED=1
+  transcript_close "$SPAWN_LOG" "$SPAWN_SID"
+}
+
+# D-1. ONE LANE, ONE SUPERVISOR. A bg session outlives the shell that dispatched it by design —
+# a gain for an operator attaching to a live run, a hazard here, because an orphan goes on writing
+# records under a RUN_ID nobody is supervising. So an interrupted scheduler takes its child with
+# it, and so does `terminal`, which is the single funnel every other run-ending exit goes through.
+# The ticket's "survives terminal close" gain is deliberately declined for payloads.
+spawn_cleanup() {
+  spawn_close
+  [ -n "$SPAWN_ID" ] || return 0
+  say "session $SPAWN_ID is still in flight — stopping it."
+  stop_session "$SPAWN_ID"
+  SPAWN_ID=""
+}
+trap 'spawn_cleanup; exit 130' INT
+trap 'spawn_cleanup; exit 143' TERM
+
 # #531 D-1. THE TERMINAL TAXONOMY. Counting this file's bare status-1 exits used to return
 # thirteen sites, and one of them — "BUILD advanced but left no open PR" — covered *paused on a
 # question nothing could answer*, *crashed*, and *orphaned its sweep and died*: three different
@@ -299,6 +404,11 @@ say()     { echo "$(now_iso) [orchestrate-lean] $*"; }
 terminal() { # terminal <slug> <exit-code> <message...>
   local slug="$1" code="$2"
   shift 2
+  # D-1's third case, "error". INT and TERM have traps; every other run-ending path is this one,
+  # and a supervised session left behind would go on writing records under a RUN_ID nobody is
+  # supervising. Callers that already stopped their child clear SPAWN_ID, so this is a no-op for
+  # them rather than a second stop.
+  spawn_cleanup
   say "terminal: $slug — $*"
   # #650 AC-1. EVERY exit funnels through here, `envfail` included, so one call site records every
   # launch's outcome — which is the field that turns the ledger from a launch count into something
@@ -336,7 +446,7 @@ while [ $# -gt 0 ]; do
     --max-rounds)         MAX_ROUNDS="${2:-}"; shift 2 ;;
     --max-continuations)  envfail usage-max-continuations "--max-continuations was removed in #718 along with the continuation budget it bounded: BUILD is spawned once per round, and a spawn that leaves no PR ends the run for a human to read. There is no value of this flag to pass." ;;
     --dry-run)            DRY_RUN=1; shift ;;
-    -h|--help)            sed -n '2,208p' "$0"; exit 0 ;;
+    -h|--help)            sed -n '2,211p' "$0"; exit 0 ;;
     -*)                   envfail usage-unknown-option "unknown option: $1" ;;
     *)                    [ -z "$ISSUE" ] && ISSUE="$1" || envfail usage-unexpected-argument "unexpected argument: $1"; shift ;;
   esac
@@ -575,6 +685,11 @@ probe_ticket() {
   esac
 }
 
+# D-18, and ONLY the binary. The narrowing removed the listing validation this probe was specified
+# to carry, so what survives is resolvability: `command -v` plus `[ -x ]`, which answers whether a
+# session can be dispatched at all and says nothing about whether the agent view — a documented
+# research preview whose shape can move under an auto-update — will be readable once one is. That
+# question is answered where it is now asked, in the poll's own fail-closed counter.
 probe_spawn() {
   if command -v "$SPAWN_BIN" >/dev/null 2>&1 || [ -x "$SPAWN_BIN" ]; then
     echo "ok spawn: session binary '$SPAWN_BIN' resolves"; return 0
@@ -594,7 +709,7 @@ probe_gate() {
 # Code exports those only when a metrics EXPORTER is configured — `CLAUDE_CODE_ENABLE_TELEMETRY=1`
 # on its own enables the feature and configures no destination, so every session runs, bills, and
 # exports nothing. The cost block then falls to its transcript source, which recovers tokens but
-# NOT money (a headless `-p` session writes no `cost-state` record), and the run publishes
+# NOT money (a headless payload session writes no `cost-state` record), and the run publishes
 # `totalUsd: null` after the spend has already happened.
 #
 # Measured on #704: four payload sessions, zero rows under any of their session ids, `totalUsd`
@@ -682,78 +797,394 @@ lane_worktree() {
 }
 
 # ---- spawning ---------------------------------------------------------------------------------
-# `-p` and a fresh prompt, never --resume/--continue. A resumed review context carries the
+# A fresh prompt every time, never --resume/--continue. A resumed review context carries the
 # previous round's conclusions into the next one, which is the single failure this lane's
 # separation exists to prevent: round 2 would be round 1 agreeing with itself.
 #
-# #531 D-5. THE STREAM SPLIT. `spawn` ran the child with NO redirection, so the spawned session's
-# stdout and stderr interleaved with this script's control lines on both streams at once, and the
-# run was one undifferentiated log. Three-way separable now:
+# WHY `--bg` AND NOT `-p` (#805). A print-mode spawn exits 0 whenever the model ends its turn, so
+# a payload that exhausted its context, paused on a question, or signed off mid-dispatch was
+# byte-identical to one that finished — and three of this loop's mechanisms existed only to guess
+# between them. A supervised background session answers directly: the id is known AT DISPATCH,
+# `claude agents --json --all` reports a state from a documented enum, and `claude stop` is a live
+# channel into a running payload. #549 declined this branch after testing an asynchronous
+# primitive as if it were a synchronous one, finding "no exit status", and never reading the
+# signal it does carry.
 #
-#   * the terminal still shows everything, which is what an operator watching a live run needs;
-#   * a plain `> control.log` captures ONLY control lines, because the payload is on stderr;
-#   * the per-role file is ONLY payload, and is the durable per-phase timeline.
+# THE IDENTITY BOUNDARY IS UNTOUCHED, which is what makes this a transport swap rather than a
+# contract change. A bg session's own CLAUDE_CODE_SESSION_ID equals the sessionId the listing
+# reports, so the gate's build-vs-review verdict refusal and the audit hook see exactly what they
+# saw under `-p`. No --session-id, no --resume, no session worktree (`-w` is opt-in).
 #
-# `2>&1 | tee` rather than a process substitution, and the choice is mechanical: `> >(tee …)` leaves
-# the tee racing past the child's exit, so the last lines of a phase can land after the control line
-# announcing its end. A pipeline is ordered, and `${PIPESTATUS[0]}` is the child's own status —
-# read explicitly rather than relying on `$?`, which under this pipeline is tee's.
-SPAWN_N=0
-spawn() { # spawn <role> <model> <prompt>
-  local role="$1" model="$2" prompt="$3" rc lower log
+# NOTHING FROM THIS SHELL REACHES THE CHILD, so the `env -u RUN_ID -u LEAN_RUN_MODEL` scrub is
+# gone: an inherited RUN_ID cannot key a child's records to the parent's run because it does not
+# arrive. What the payload needs arrives the documented way instead, in a `--settings` env block.
+#
+# NO STREAM SPLIT AND NO WAIT CEILING. `--bg` returns immediately, so there is no pipeline to
+# order and no ${PIPESTATUS[0]} to read. The print-mode background-wait ceiling went with it: a
+# supervised session waiting on its own background work stays `working` and is re-invoked when
+# that work lands, which is the shape the ceiling was raised to survive. Its bound survives below
+# as a scheduler-side silence ceiling.
+POLL_SECS="${LEAN_SPAWN_POLL_SECS:-30}"
+# THE STALENESS RE-CHECK HAS ITS OWN CADENCE, and it is not the poll's. Reading a session's state
+# is a local call; re-asking the premise is a `gh issue view` round trip PLUS a `git fetch` of the
+# base, and running that every 30s charged a median BUILD ~25 tracker calls and ~25 fetches where
+# the pre-#805 loop made ONE per round. Five minutes keeps D-2's gain — a premise that expires
+# mid-session is still caught inside the same session, which is the whole point — at a tenth of
+# the cost, and the poll stays responsive at 30s because the two no longer share a clock.
+STALENESS_SECS="${LEAN_SPAWN_STALENESS_SECS:-300}"
+# THE CEILING IS ON THE WHOLE SESSION, NOT ON A SILENCE, and the name says so because the earlier
+# one did not. `working` is what a healthy session reports for its entire life, and after the
+# narrowing removed the job record there is nothing left in `agents --json` that separates a
+# payload with nothing to do from one three minutes into a sweep. So this bound cannot be set to
+# "how long is too long to be quiet" — it can only be set above the duration of sessions that are
+# fine, and everything under it is measured rather than intuited.
+#
+# Measured over this lane's own launch ledgers (`spawn` to `spawn-end`, 55 BUILD and 42 REVIEW
+# spawns): BUILD median 12.6 min, max 100.5 min, with 11 of 55 — one in five — past 30 minutes.
+# #805's own round-1 BUILD ran 66 minutes. A 30-minute default would therefore have stopped a
+# fifth of this repo's healthy BUILD sessions mid-work and ledgered each of them `stuck`, which is
+# the print-mode wait ceiling rebuilt by accident and the exact regression this transport swap
+# exists to remove. Two hours clears the observed maximum with room, and still bounds the shape
+# D-8 is about. Shorten it with the seam when you are debugging a hang; do not shorten it as a
+# default without re-measuring the ledger it is set from.
+SESSION_CEILING_MS="${LEAN_SPAWN_SESSION_CEILING_MS:-7200000}"
+# The clock, as a seam. Not hygiene: the ceiling above is the one behavior in this file whose
+# input is elapsed WALL TIME, so without a clock a suite can only drive it by setting the ceiling
+# to zero — which proves the arm fires and cannot tell a bound on silence from a bound on total
+# runtime. That is the discrimination the shipped default turned out to need.
+SPAWN_CLOCK="${LEAN_SPAWN_CLOCK:-date +%s}"
+spawn_now() { $SPAWN_CLOCK; }
+# D-18. Three, not one: a supervisor killed under a live session leaves the session running and
+# the listing recoverable, so a single bad read is evidence about the listing and not about the
+# payload. Three consecutive ones are the other thing.
+POLL_TOLERANCE=3
+
+# THE CHILD'S ENVIRONMENT, and the whole of it. Two variables the lane sets itself, plus whatever
+# telemetry configuration the launcher was given: `probe_telemetry` above judges this run
+# priceable from the launching shell's OTel variables, and under `-p` the child inherited exactly
+# those, so a transport that dropped them would leave every payload session exporting nothing
+# while preflight still reported the run priceable. Forwarding is what keeps that probe's answer
+# true of the sessions it is answering about; it is D-9's mechanism applied to the variables the
+# cost block already depends on, and it adds a key only when the launcher actually carries one.
+# WRITTEN TO A FILE, NOT PRINTED INTO argv. `OTEL_EXPORTER_OTLP_HEADERS` is the standard carrier
+# for a collector's auth material, and a command line is world-readable on every platform this
+# runs on (`ps auxww`, /proc/<pid>/cmdline) while an environment is not — so forwarding it as an
+# argument would have been strictly more exposed than the `-p` inheritance it replaces, which is
+# the one thing this forwarding exists to keep at parity. The file lives inside PROBE_DIR, which
+# `mktemp -d` creates 0700 and the run's EXIT trap removes; spawn_end_note removes it earlier, as
+# soon as the session it configured is over. One file per spawn, because two roles carry two
+# models and the harness is free to read the path after this function has returned.
+spawn_settings() { # spawn_settings <model> — writes the --settings payload, prints its path
+  local n v model="$1" f="$PROBE_DIR/spawn-$SPAWN_N-settings.json"
+  # Name/value pairs in the positional list, folded to an object by ONE jq call. Built by
+  # re-setting the arguments rather than in an array, because this file stays bash-3.2-safe for
+  # the macOS lane, and assembled in one call because this runs on every spawn.
+  set -- LEAN_ATTEND_MODE headless LEAN_RUN_MODEL "$model"
+  # SECOND_SHIFT_CONFIG (#811 OR-5, D-28). Read INSIDE the payload — `lean-gate.sh`, and with it
+  # lean-reconcile.sh, lean-evidence.sh, operator-override.sh, bot-commit.sh, gh-bot.sh,
+  # preflight.sh and pipeline-cost-block.sh all resolve it through the same
+  # `${SECOND_SHIFT_CONFIG:-$MAIN_ROOT/.claude/second-shift.config.json}` ladder. Under `-p` it
+  # INHERITED; under `--bg` nothing does, so it fell back to the committed config with no error at
+  # all, and every launch carrying an alternate one — docs/consumer-eval.md's pinned-base recipe,
+  # the lane bench — silently targeted the wrong base branch. Forwarded VERBATIM, and only when
+  # the launcher actually set it, so an ordinary run still resolves the committed config through
+  # the payload's own ladder rather than through a value this scheduler chose for it.
+  #
+  # The path travels as given, which means a RELATIVE one is resolved against the payload's cwd
+  # and not the launcher's — the lane worktree, not the checkout this was launched from. Pass an
+  # absolute path.
+  [ -n "${SECOND_SHIFT_CONFIG:-}" ] && set -- "$@" SECOND_SHIFT_CONFIG "$SECOND_SHIFT_CONFIG"
+  for n in CLAUDE_CODE_ENABLE_TELEMETRY OTEL_METRICS_EXPORTER OTEL_EXPORTER_OTLP_PROTOCOL \
+           OTEL_EXPORTER_OTLP_ENDPOINT OTEL_EXPORTER_OTLP_HEADERS OTEL_METRIC_EXPORT_INTERVAL; do
+    v="$(printenv "$n" 2>/dev/null)" || v=""
+    [ -n "$v" ] && set -- "$@" "$n" "$v"
+  done
+  jq -n -c '{env: ($ARGS.positional
+                   | [ range(0; length; 2) as $i | {key: .[$i], value: .[$i + 1]} ]
+                   | from_entries)}' --args "$@" > "$f" || return 1
+  # The PATH is the return value, and the caller assigns SPAWN_SETTINGS_FILE from it. This runs
+  # inside a command substitution, so a global set here would be set in a subshell and lost —
+  # and the handle it is lost from is the one spawn_end_note removes the file by.
+  printf '%s' "$f"
+}
+
+# EVERY CONTROL-PLANE CALL GOES THROUGH `$SPAWN_BIN`, not through a literal `claude` (#811 OR-5,
+# D-28): the dispatch, this listing, `stop_session`'s stop, and preflight's resolvability probe.
+# So a `LEAN_SPAWN_BIN` wrapper sees `--bg`, `agents --json --all` and `stop <id>` and must
+# discriminate on argv to serve all three — which is what D-14's fake already does, said here
+# because a wrapper author reads this file rather than the suite.
+#
+# The listing, reduced to one row for one id: `<state><TAB><sessionId>`. Prints nothing and
+# returns non-zero when the call fails, the JSON does not parse, or the id is absent — three
+# conditions the caller counts TOGETHER, because none of them is evidence about the payload and
+# none of them is `done`.
+#
+# `--all` is required. The default listing carries only sessions still working or blocked, so a
+# payload that finished between two ticks would read as a disappearance — the poll would score its
+# own success as an unreadable listing.
+session_row() { # session_row <id>
+  local out
+  out="$("$SPAWN_BIN" agents --json --all 2>/dev/null)" || return 1
+  printf '%s' "$out" | jq -e -r --arg id "$1" \
+    'map(select((.id // "") == $id or (.sessionId // "") == $id))
+     | if length == 0 then empty else "\(.[0].state // "")\t\(.[0].sessionId // "")" end' \
+    2>/dev/null
+}
+
+# HOW TO REACH THE PAYLOAD, which is only sayable while the payload is still there — and on one
+# path it is not. The ceiling arm STOPS the session before returning `stuck`, and `stuck` then
+# proceeds exactly as `done` does, so it lands on the terminals written for a session the
+# supervisor is still holding. Offering `claude attach` there sends an operator at something this
+# loop killed moments earlier, which is the identical false sentence `spawn` already refuses to
+# print for `failed` and `stopped` — missed on the one arm that exits through a different
+# terminal. Said in one place so the next terminal to quote it cannot get it wrong either.
+session_reach() {
+  case "$SPAWN_STATE" in
+    stuck) printf 'that session was STOPPED by this scheduler at the %sms session ceiling, so there is nothing left to attach to and %s is the whole record of it' "$SESSION_CEILING_MS" "$SPAWN_LOG" ;;
+    *)     printf "'claude attach %s' reaches the session itself while the supervisor still holds it" "$SPAWN_SID" ;;
+  esac
+}
+
+# The poll. It sets SPAWN_STATE and returns for the two states the run continues from — `done`,
+# and the `stuck` D-8 defines — and reaches a terminal itself for everything else, because the
+# routing is role-dependent and this is where the role is known. It is NOT run in a command
+# substitution for exactly that reason: an `exit` there would kill a subshell and be invisible.
+#
+# EVERY ARM THAT TERMINATES FROM IN HERE SETS SPAWN_STATE FIRST, so the ledger row `spawn_close`
+# writes on the way out names which refusal ended the phase rather than `unknown`.
+poll_session() { # poll_session <role> <lower-role> <id>
+  local role="$1" lower="$2" id="$3"
+  local row state sid="" prev="" unread=0 st_unread=0 st_rc st_out
+  local started now elapsed_ms last_st
+  SPAWN_STATE=""
+  # WALL CLOCK, not an accumulation of the poll interval. The interval is a seam a caller may set
+  # to zero, and a ceiling counted in intervals would then never be reached — the bound would
+  # silently stop existing for exactly the caller who shortened the loop.
+  started="$(spawn_now)"
+  # Seeded to the START, not to zero: `staleness_rc` ran at the spawn boundary moments ago, so the
+  # first in-poll re-ask is owed one interval from now. Seeding it to zero would re-ask the premise
+  # immediately and pay a tracker round trip to learn what the caller just learned.
+  last_st="$started"
+  # READ FIRST, SLEEP LAST. The loop used to open with its sleep, so every spawn paid a full
+  # interval after the session had already settled — thirty seconds per spawn, which the liveness
+  # scenario had to pin POLL_SECS=0 to escape (measured there at 68s to 323s for the leg). A
+  # session that finished during the dispatch is now seen on the first read.
+  while :; do
+    now="$(spawn_now)"
+    elapsed_ms=$(( ( now - started ) * 1000 ))
+
+    # D-2, and the answer to what #515's exit 7 could not do. The premise was re-asked only at the
+    # spawn boundary, so a run whose ticket closed one minute in kept working for the rest of the
+    # session; the bound was one session, not zero. There is a channel now, so the check moves
+    # inside the wait and the stop is real — on STALENESS_SECS rather than on every tick, because
+    # this is the expensive read in the loop and D-2 is about catching the expiry inside the
+    # session, not about catching it in the first thirty seconds.
+    if [ $(( now - last_st )) -ge "$STALENESS_SECS" ]; then
+      last_st="$now"
+      # CAPTURED, and replayed only when it says something. The gate's line naming which arm fired
+      # IS the operator's evidence and is never paraphrased — but on a clean tick it is two lines
+      # of "nothing has moved", and at this cadence, over a session's life, that is a heartbeat
+      # burying the one-line-per-transition control stream D-4 specifies.
+      st_out="$(staleness_rc 2>&1)"; st_rc=$?
+      case "$st_rc" in
+        0) st_unread=0 ;;
+        7)
+          printf '%s\n' "$st_out"
+          stop_session "$id"; SPAWN_ID=""; SPAWN_STATE="staleness-expired"
+          terminal staleness-expired 7 "HARD STOP: this run's premise expired while the $role session was live — see the gate's line above for which arm fired and what it saw. Session $id was STOPPED mid-flight, which also ends whatever tool it was running, so the lane worktree may hold a partial operation (a git command killed in progress can leave an index.lock). Rebase this branch onto the updated base and re-launch, or abandon the ticket; a re-launch without rebasing re-fires this stop at the same point. Detection and the stop are all this does: nothing was rebased and nothing was reverted. The worktree and the claim are left in place." ;;
+        # FAIL CLOSED, on the same counter shape as the listing below and for the same reason —
+        # not silently, which is what this arm did when it existed only as `if rc -eq 7`. Its twin
+        # at the spawn boundary refuses outright on an unreadable premise; leaving the in-loop copy
+        # with no arm at all made the SAME predicate fail closed before a session and fail open
+        # during one, so a run whose tracker went unreachable a minute in kept going on a premise
+        # nothing had verified for the rest of the session. Bounded rather than immediate because
+        # a single unreachable read is evidence about the network, and killing a healthy
+        # forty-minute BUILD over one blipped fetch is the worse of the two failures.
+        *)
+          st_unread=$(( st_unread + 1 ))
+          printf '%s\n' "$st_out"
+          say "  $role session $id: staleness unreadable, gate exit $st_rc ($st_unread of $POLL_TOLERANCE)."
+          if [ "$st_unread" -ge "$POLL_TOLERANCE" ]; then
+            stop_session "$id"; SPAWN_ID=""; SPAWN_STATE="staleness-unreadable"
+            terminal staleness-unreadable 1 "the staleness check could not be completed $POLL_TOLERANCE re-asks running (last gate exit $st_rc) while the $role session was live — so whether this run's premise still holds is unknown, and it has been unknown for at least $(( POLL_TOLERANCE * STALENESS_SECS )) seconds. Advancing a lane against an unverified premise is what this refuses. Session $id was STOPPED, which also ends whatever tool it was running, so the lane worktree may hold a partial operation. The worktree and the claim are left in place."
+          fi ;;
+      esac
+    fi
+
+    row="$(session_row "$id")"; state=""
+    if [ -n "$row" ]; then
+      state="${row%%	*}"
+      sid="${row#*	}"
+    fi
+    if [ -z "$state" ]; then
+      unread=$(( unread + 1 ))
+      say "  $role session $id: state unreadable ($unread of $POLL_TOLERANCE)."
+      if [ "$unread" -ge "$POLL_TOLERANCE" ]; then
+        SPAWN_STATE="spawn-unreadable"
+        terminal spawn-unreadable 1 "the state of $role session $id could not be read $POLL_TOLERANCE polls running — 'claude agents --json --all' failed, did not parse, or no longer lists it. A state that could not be read is not a state that said done, and reviewing on that guess is what this check exists to prevent. Read the session with 'claude attach $id'; the worktree and the claim are left in place."
+      fi
+      sleep "$POLL_SECS"
+      continue
+    fi
+    # A state this script does not model is a listing it cannot INTERPRET, which is the same fact
+    # as one it cannot read, so it lands on the same counter — the agent view is a documented
+    # research preview and its enum can move. The reset lives HERE, in the recognized arms, rather
+    # than unconditionally above the case: resetting on every non-empty row would pin the
+    # unmodelled count at one, the tolerance would never be reached, and the loop would spin
+    # forever on a state it cannot act on.
+    case "$state" in
+      working|blocked|done|failed|stopped) unread=0 ;;
+      *)
+        unread=$(( unread + 1 ))
+        say "  $role session $id: unmodelled state '$state' ($unread of $POLL_TOLERANCE)."
+        if [ "$unread" -ge "$POLL_TOLERANCE" ]; then
+          SPAWN_STATE="spawn-unreadable"
+          terminal spawn-unreadable 1 "$role session $id reported the state '$state' $POLL_TOLERANCE polls running, which is not one of working, blocked, done, failed or stopped. The agent view is a research preview and its state enum can move; this refuses rather than guessing which side of done an unknown word falls on. The worktree and the claim are left in place."
+        fi
+        sleep "$POLL_SECS"
+        continue ;;
+    esac
+    SPAWN_SID="$sid"
+    if [ "$state" != "$prev" ]; then say "  $role session $id: $state"; prev="$state"; fi
+
+    case "$state" in
+      done)
+        SPAWN_STATE="done"; return 0 ;;
+      # D-6/D-23. `blocked` means "waiting on you", and nobody is here — so it ends the phase
+      # exactly as `failed` and `stopped` do, through the one terminal this loop already had. It
+      # gets no slug of its own: the state is carried in the message and in the launch ledger,
+      # which is where the gain over `-p` actually lands. Returning rather than exiting here is
+      # load-bearing — it is what lets `spawn` close the transcript the remedy names.
+      failed|stopped|blocked)
+        SPAWN_STATE="$state"; return 0 ;;
+      working)
+        # D-8, NARROWED TO ITS DOCUMENTED ARM, and bounded by the whole session rather than by a
+        # silence nothing here can observe. A payload that ends its turn over a bare backgrounded
+        # command has its result delivered inline and then sits at `working` with nothing left to
+        # do — the shape this arm exists for. The harness's own `~/.claude/jobs/<id>/state.json`
+        # named it in ninety seconds and was the ticket's primary arm; the narrowing gave it up,
+        # and what is left cannot tell that payload from a busy one. So the bound is set above the
+        # measured duration of healthy sessions (see SESSION_CEILING_MS) and catches the shape
+        # late rather than catching healthy work early. Proceeding as for `done` is the safe half
+        # either way — the GATE is the completion oracle, not this loop.
+        if [ "$elapsed_ms" -ge "$SESSION_CEILING_MS" ]; then
+          say "  $role session $id: still working with the ${SESSION_CEILING_MS}ms session ceiling spent. Stopping it."
+          stop_session "$id"; SPAWN_ID=""
+          SPAWN_STATE="stuck"; return 0
+        fi
+        ;;
+    esac
+    sleep "$POLL_SECS"
+  done
+}
+
+spawn() { # spawn <role> <model> <prompt> — returns 0 on done or stuck, terminals otherwise
+  local role="$1" model="$2" prompt="$3" lower log out id
   SPAWN_N=$((SPAWN_N + 1))
   lower="$(printf '%s' "$role" | tr '[:upper:]' '[:lower:]')"
   log="$LOG_DIR/$ISSUE-lean-spawn-$LAUNCH_ID-$SPAWN_N-$lower.log"
   say "spawn $role — model=$model — $prompt"
   if [ "$DRY_RUN" -eq 1 ]; then return 0; fi
-  launch_note spawn "n=$SPAWN_N role=$role model=$model"
   # ADVISORY, never fatal (AC-3). A transcript that cannot be opened is a lost convenience; a run
   # stopped over one would be this script deciding that its own logging outranks the work. The
   # mkdir is part of that: round 1's first spawn precedes the BUILD session's own `entry`, so on a
   # checkout that has never run the lane the state dir does not exist yet and every transcript
-  # would degrade for the life of the run.
+  # would degrade for the life of the run. Its PRESENCE is also load-bearing beyond convenience —
+  # `retro-corpus.sh` classifies a run `orchestrated` on it.
   mkdir -p "$LOG_DIR" 2>/dev/null
   if ! ( : > "$log" ) 2>/dev/null; then
-    say "  the payload transcript could not be opened at $log — the run continues and the payload still reaches stderr."
+    say "  the payload transcript could not be opened at $log — the run continues."
     log=/dev/null
   else
     say "  payload transcript: $log"
   fi
+  SPAWN_LOG="$log"
+  SPAWN_SID=""
+  SPAWN_ROLE="$role"
+  SPAWN_CLOSED=0
   # #613. POSITIVELY marked headless, not merely left unattended. The token binds to a session id
-  # and a spawned `claude -p` child gets a fresh one, so a payload could not read the operator's
-  # token as its own anyway — this is the independent second belt, and it is the one that holds if
-  # a future harness ever makes session ids inheritable. It also makes `attend` REFUSE inside a
-  # payload, which is what stops a spawned session from minting its own attendance.
-  # THE BACKGROUND-WAIT CEILING IS RAISED, and a payload that must dispatch an agent is why. The
-  # harness terminates a session's wait on its background tasks at 600s by default and then lets the
-  # turn end — so the one shape that breaks on it is a milestone the gate CANNOT satisfy on its own.
-  # An armed milestone 3 is exactly that: its plan-review record is obtainable only by dispatching a
-  # reviewer agent, which the gate says of itself ("The gate cannot run an agent; asserting the
-  # committed output is the only shape available to it"). Past the ceiling the payload signs off
-  # mid-dispatch, `claude -p` exits 0 because the turn ended cleanly, and the loop reads exit 0 with
-  # no PR as `build-no-pr` — a terminal stop over a reviewer that was still running. Measured: a
-  # BUILD session spent 26 minutes, committed four times, and ended on "I'll pick it up when that
-  # notification arrives" for a notification its own exit had made unreachable; an identical
-  # re-launch then produced the record with nothing else changed.
+  # and a spawned child gets a fresh one, so a payload could not read the operator's token as its
+  # own anyway — this is the independent second belt, and it is the one that holds if a future
+  # harness ever makes session ids inheritable. It also makes `attend` REFUSE inside a payload,
+  # which is what stops a spawned session from minting its own attendance.
   #
-  # BOUNDED, NOT UNBOUNDED. The harness offers `0` for an indefinite wait and this deliberately does
-  # not take it: nothing else in this loop is unbounded, and a dispatch that is genuinely hung would
-  # hold the lane open with no budget left to stop it. The default below is far outside any observed
-  # reviewer and still finite, so a stuck agent costs a slow run rather than a permanent one.
-  env -u RUN_ID -u LEAN_RUN_MODEL LEAN_RUN_MODEL="$model" LEAN_ATTEND_MODE=headless \
-    CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS="$SPAWN_BG_WAIT_CEILING_MS" \
-    "$SPAWN_BIN" --permission-mode "$PERM_MODE" --model "$model" -p "$prompt" 2>&1 \
-    | tee -a "$log" >&2
-  rc=${PIPESTATUS[0]}
-  say "spawn $role exited $rc"
-  # THE CLOSING BRACKET OF THE SPAWN, and without it a payload's duration is not derivable. The
-  # ledger recorded only spawn STARTS, so the interval between two spawn rows is "this session plus
-  # everything the loop did afterwards" — a scheduler that spent ten minutes between spawns and one
-  # that spent two seconds produce identical ledgers. That is precisely the quantity
-  # `tools/lane-latency.sh` gates on, and it is the one number that distinguishes this lane's cost
-  # from the payload's, so it has to be recorded rather than inferred.
-  launch_note spawn-end "n=$SPAWN_N role=$role rc=$rc"
-  return "$rc"
+  # THROUGH `--settings` (D-9), because nothing else reaches a bg session: the launcher's shell
+  # environment is not inherited beyond the harness's own allowlist, so an exported variable here
+  # would simply be absent on the far side. The harness applies this block itself and carries it
+  # across a supervisor restart. What goes in it is spawn_settings' above.
+  #
+  # `--disallowedTools AskUserQuestion` (D-6) removes the one prompt source real payloads reach,
+  # restoring the parity `-p` had for free by not offering the tool at all. Permission decisions
+  # need no flag: the auto-mode classifier auto-denies inside a bg session exactly as it did under
+  # print mode, and the model reads the denial and continues.
+  #
+  # `--name` (D-4) is what makes the row recognisable in `claude agents` while the run is live.
+  #
+  # `env -u RUN_ID` is a BELT, and it is here because the braces are someone else's. D-9 measured
+  # that a bg session inherits nothing from this shell, and the scrub went with that measurement —
+  # but `LEAN_RUN_MODEL` is re-asserted inside the settings block above and `RUN_ID` is asserted
+  # nowhere, so it was the one variable of the two whose defense was removed rather than moved. An
+  # inherited RUN_ID keys a child's records to the parent's run, which is a wrong answer nothing
+  # in this repo would catch, and the guard against it costs one word.
+  local settings
+  settings="$(spawn_settings "$model")" \
+    || terminal spawn-settings-unwritable 1 "the $role spawn's settings block could not be written under $PROBE_DIR — that block is how LEAN_ATTEND_MODE=headless reaches the payload (#613), so dispatching without it would spawn a session able to mint its own attendance. Nothing was started."
+  SPAWN_SETTINGS_FILE="$settings"
+  out="$(env -u RUN_ID "$SPAWN_BIN" --bg \
+           --permission-mode "$PERM_MODE" --model "$model" \
+           --name "lean-$ISSUE-$lower-r${round:-1}" \
+           --disallowedTools AskUserQuestion \
+           --settings "$settings" \
+           "$prompt" 2>&1)"
+  # The id is the whole handle: without it there is no state to poll, no session to stop and
+  # nothing to attach to, so a dispatch that did not yield one is not a spawn that happened.
+  id="$(printf '%s\n' "$out" | awk '/backgrounded/ { print $NF; exit }')"
+  case "$id" in
+    ''|*[!A-Za-z0-9-]*)
+      terminal spawn-unreadable 1 "the $role spawn produced no readable session id — '$SPAWN_BIN --bg' answered: $(printf '%s' "$out" | tr '\n\t' '  '). Without an id there is no state to poll and no session to stop, so nothing was started that this run can supervise." ;;
+  esac
+  SPAWN_ID="$id"
+  launch_note spawn "n=$SPAWN_N role=$role model=$model id=$id"
+  # The spawn row is open from here, so a close is owed from here — see spawn_end_note.
+  SPAWN_ENDED=0
+  say "  session $id — watch it with: claude attach $id"
+
+  poll_session "$role" "$lower" "$id"
+  spawn_close
+  say "spawn $role settled: $SPAWN_STATE"
+  # The closing ledger row is written by `spawn_close` just above, not here: without it a
+  # payload's duration is not derivable — the ledger recorded only spawn STARTS, so the interval
+  # between two spawn rows was "this session plus everything the loop did afterwards", and a
+  # scheduler that spent ten minutes between spawns produced a ledger identical to one that spent
+  # two seconds. That is precisely the quantity `tools/lane-latency.sh` gates on. It carries a
+  # STATE rather than an exit code: `rc=0` was true of a finished session and of an abandoned one
+  # alike, which is the defect this whole transport swap is about. Nothing parses this field.
+  case "$SPAWN_STATE" in
+    # A finished session needs no stop, so this is the one path that clears the handle rather than
+    # leaving `terminal` to use it.
+    done|stuck) SPAWN_ID=""; return 0 ;;
+    # A session the supervisor reports as failed, stopped or blocked is one that will not be saying
+    # more. `failed` is the supervisor giving up rather than a payload crash — it restarts a session
+    # whose process exits and lets it resume — so this is a rarer and stronger signal than the
+    # non-zero exit it replaces; `blocked` is the shape `-p` reported as exit 0 with no PR, and
+    # nobody is here to answer it.
+    #
+    # ONLY `blocked` IS STILL RUNNING, so only `blocked` keeps the handle. `failed` and `stopped`
+    # name sessions the supervisor has already ended, and leaving their handle set makes
+    # `spawn_cleanup` announce "still in flight — stopping it" about a session the listing reported
+    # as finished one line earlier — a false sentence on the one path an operator is reading
+    # closely, and a second stop of a dead id. `terminal`'s own contract already says callers that
+    # ended their child clear SPAWN_ID; this is those callers doing it. Nested rather than a `;;&`
+    # arm, which bash 3.2 does not have.
+    *)
+      case "$SPAWN_STATE" in failed|stopped) SPAWN_ID="" ;; esac
+      # THE SLUG IS COMPOSED FROM THE ROLE, so no static reader can see it at this site. The two
+      # names it resolves to are real terminals that reach the launch ledger and the bench's
+      # results rows, so they are announced the way `review-skipped-approved` is — the scheduler
+      # says its own vocabulary where a grep of the source cannot derive it.
+      say "terminal-vocabulary: build-session-failed and terminal-vocabulary: review-session-failed are the two names this one site composes from the role; the terminal below carries whichever applies."
+      terminal "$lower-session-failed" 1 "$role session $id ended $SPAWN_STATE in round ${round:-1} — blocked means it is waiting on an answer this headless run cannot give. Read the payload transcript at $log, whose last entry is the session's own final message, or 'claude attach $SPAWN_SID' before the session is reaped; the worktree and the claim are left in place." ;;
+  esac
 }
 
 # #496 S4. EVERY match, one per line — the caller decides. `.[0].number` silently picked the first
@@ -884,8 +1315,7 @@ while :; do
     *) terminal staleness-unreadable 1 "the staleness check could not be completed (gate exit $st_rc) — refusing to spawn BUILD against a premise nothing verified." ;;
   esac
 
-  spawn BUILD "$BUILD_MODEL" "/dev-pipeline:build-lean $ISSUE" \
-    || terminal build-session-failed 1 "BUILD session failed in round $round."
+  spawn BUILD "$BUILD_MODEL" "/dev-pipeline:build-lean $ISSUE"
 
   PR="$(resolve_pr)"
   # More than one open PR on this head is not a state to guess through: the review would run on
@@ -934,7 +1364,7 @@ while :; do
     # the push — and the two deleted tokens could not actually tell those apart (#527 measured
     # four launches, zero PRs, the whole budget spent, against a complete implementation). The
     # lane log says which. The worktree and the claim are left in place for a manual rescue.
-    terminal build-no-pr 1 "no open PR on '$BRANCH' after the BUILD session — BUILD ended with no PR, so there is nothing to review and a human decides what happens next. Read the lane log for what the session did. The worktree and the claim are left in place."
+    terminal build-no-pr 1 "no open PR on '$BRANCH' after the BUILD session, which settled $SPAWN_STATE — BUILD ended with no PR, so there is nothing to review and a human decides what happens next. A $SPAWN_STATE settlement is part of the evidence: 'stuck' means this scheduler stopped the session at its ceiling rather than the session finishing, and the work may simply have been unfinished rather than abandoned. What it did is in $SPAWN_LOG, whose last entry is the session's own final message; $(session_reach). The worktree and the claim are left in place."
   fi
   say "PR #$PR is open on $BRANCH."
 
@@ -996,8 +1426,7 @@ while :; do
   else
     review_retries=0
     while :; do
-      spawn REVIEW "$REVIEW_MODEL" "/dev-pipeline:review-lean $PR" \
-        || terminal review-session-failed 1 "REVIEW session failed in round $round."
+      spawn REVIEW "$REVIEW_MODEL" "/dev-pipeline:review-lean $PR"
 
       verdict_rc; rc=$?
       [ "$rc" -eq 5 ] || break
@@ -1014,8 +1443,8 @@ while :; do
     0)
       say "verdict: approve. Closing out."
       # #590 D-3/D-5. NO SPAWN, NO CONTINUATION BUDGET, NO TOKEN COMPARISON. All three existed to
-      # work around one property of a model session: `claude -p` exits 0 whenever the model ends
-      # its turn, so the close-out's exit status could not be trusted and its work had to be read
+      # work around one property of a model session: it ends its turn whenever it decides to, so
+      # the close-out's exit status could not be trusted and its work had to be read
       # back out of the record. A gate command cannot end its turn early — its exit code IS the
       # verdict, which is already the lane's evidence rule at every other call site.
       #

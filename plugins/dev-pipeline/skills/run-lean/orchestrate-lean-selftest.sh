@@ -95,30 +95,92 @@ cat > "$CFG_BAD" <<'JSON'
 JSON
 
 # ---- the fakes -------------------------------------------------------------------------------
-# The session fake records ARGV and the two env vars the contract is about, one file per spawn,
-# so ordering is assertable. Its exit code comes from a file the case writes, popped line by
-# line, which is how a multi-round case scripts a failing session.
+# The session fake is DISCRIMINATED ON ARGV, the `gh` fake's precedent below: one binary answers
+# the dispatch, the listing and the stop, because production calls one binary for all three and a
+# fake split across three files could not catch a call routed to the wrong subcommand.
+#
+# THE DISPATCH records ARGV and the env vars the contract is about, one file per spawn, so
+# ordering is assertable, and prints the harness's own `backgrounded · <id>` line. The id comes
+# from a case-written stream so a case can pin it, or force the no-id shape with `NOID`.
+#
+# THE LISTING is served from a second stream, one line PER POLL rather than per spawn, which is
+# what lets a case script `working, working, done` or drive an unreadable read. Four sentinels
+# stand for the shapes that are not a state: `UNREADABLE` (the call fails), `GARBAGE` (it answers
+# non-JSON), `ABSENT` (a well-formed listing the id is not in) and `NOSTATE` (rows without the
+# field the poll reads). Past the end of a stream the LAST line repeats, so a case that scripts
+# two polls is not handed a third answer it never asked for — `progress`'s convention exactly.
+#
+# IT NEVER SLEEPS. The poll interval is a seam the driver pins to 0, so a case that scripts three
+# polls costs three `sed` reads rather than ninety seconds.
 BIN="$WORK/bin"
 mkdir -p "$BIN"
 cat > "$BIN/claude" <<'SH'
 #!/usr/bin/env bash
+if [ "${1:-}" = "agents" ]; then
+  # PREFLIGHT'S OWN READ IS NOT A POLL. `probe_spawn` parses this listing before anything is
+  # dispatched, so counting it would shift every case's scripted stream by one and silently make
+  # a case that scripts `blocked` on tick 1 assert about tick 0. Discriminated on there being no
+  # dispatched session yet, which is exactly what distinguishes the two callers.
+  if [ ! -f "$SPAWN_LOG_DIR/last-id" ]; then echo '[]'; exit 0; fi
+  n=$(( $(cat "$SPAWN_LOG_DIR/acount" 2>/dev/null || echo 0) + 1 ))
+  echo "$n" > "$SPAWN_LOG_DIR/acount"
+  echo "ARGV: $*" >> "$SPAWN_LOG_DIR/agents.log"
+  line="$(sed -n "${n}p" "$AGENTS_STATE_FILE" 2>/dev/null)"
+  [ -n "$line" ] || line="$(tail -n 1 "$AGENTS_STATE_FILE" 2>/dev/null)"
+  [ -n "$line" ] || line=done
+  case "$line" in
+    UNREADABLE) exit 1 ;;
+    GARBAGE)    echo 'this is not json'; exit 0 ;;
+    ABSENT)     echo '[]'; exit 0 ;;
+    NOSTATE)    echo '[{"id":"other","sessionId":"other-full"}]'; exit 0 ;;
+  esac
+  # Anything else is served AS a state, which is what lets a case drive a word outside the
+  # documented enum — the shape an agent-view schema change would produce.
+  jq -n --arg id "$(cat "$SPAWN_LOG_DIR/last-id" 2>/dev/null)" --arg st "$line" \
+    '[{id:$id, sessionId:($id + "-full"), kind:"background", state:$st}]'
+  exit 0
+fi
+if [ "${1:-}" = "stop" ]; then
+  echo "stop ${2:-}" >> "$SPAWN_LOG_DIR/stops"
+  exit 0
+fi
 n=$(( $(cat "$SPAWN_LOG_DIR/count" 2>/dev/null || echo 0) + 1 ))
 echo "$n" > "$SPAWN_LOG_DIR/count"
-# #531: a real spawned session TALKS, on both streams. Without that the stream-split cases below
-# would be asserting over an empty payload, which any redirection at all satisfies.
-echo "PAYLOAD-STDOUT-$n"
-echo "PAYLOAD-STDERR-$n" >&2
+# #805 review round 4. `--settings` carries a PATH now, not the JSON itself, so a fake that only
+# logged argv would have stopped seeing the child's environment entirely — and (d1)/(d2) would
+# have gone vacuous rather than red. Resolved here, once, so the cases keep asserting on content.
+settings_file=""; prev=""
+for a in "$@"; do [ "$prev" = "--settings" ] && settings_file="$a"; prev="$a"; done
 {
   echo "ARGV: $*"
+  echo "SETTINGS: $(cat "$settings_file" 2>/dev/null)"
+  echo "SETTINGS_PERMS: $(ls -l "$settings_file" 2>/dev/null | cut -c1-10)"
   echo "RUN_ID_SET: ${RUN_ID+yes}"
   echo "LEAN_RUN_MODEL: ${LEAN_RUN_MODEL:-<unset>}"
+  echo "LEAN_ATTEND_MODE: ${LEAN_ATTEND_MODE:-<unset>}"
   echo "SESSION_ID_SET: ${CLAUDE_CODE_SESSION_ID+yes}"
   echo "BG_CEILING: ${CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS:-<unset>}"
 } > "$SPAWN_LOG_DIR/spawn-$n"
-rc="$(sed -n "${n}p" "$SPAWN_RC_FILE" 2>/dev/null)"
-exit "${rc:-0}"
+id="$(sed -n "${n}p" "$SPAWN_ID_FILE" 2>/dev/null)"
+[ -n "$id" ] || id="sess$n"
+if [ "$id" = "NOID" ]; then echo "the session could not be started"; exit 0; fi
+echo "$id" > "$SPAWN_LOG_DIR/last-id"
+echo "backgrounded · $id"
+exit 0
 SH
 chmod +x "$BIN/claude"
+
+# THE CLOCK, as a fake. The session ceiling is the one behavior here whose input is elapsed wall
+# time, and without this a case can only drive it by setting the ceiling to zero — which proves
+# the arm fires and says nothing about whether the SHIPPED bound tolerates a long healthy session.
+# That is the discrimination the 30-minute default turned out to need and did not have.
+cat > "$BIN/fakeclock" <<'SH'
+#!/usr/bin/env bash
+n=$(( $(cat "$CLOCK_FILE" 2>/dev/null || echo 0) + 1 ))
+echo "$n" > "$CLOCK_FILE"
+echo $(( 1000000000 + (n - 1) * ${CLOCK_STEP:-60} ))
+SH
+chmod +x "$BIN/fakeclock"
 
 # The tracker fake records EVERY invocation — that recording is what makes the zero-write
 # assertion a measurement rather than a claim — and answers only the two reads the tool makes.
@@ -253,7 +315,7 @@ chmod +x "$BIN/fake-gate.sh"
 # Every case starts from a clean set of logs so a stale spawn from the previous case cannot be
 # scored as this case's.
 SPAWN_LOG_DIR=""; GATE_LOG_DIR=""; GH_LOG=""; LABELS_FILE=""; PR_FILE=""
-SPAWN_RC_FILE=""; GATE_RC_FILE=""
+AGENTS_STATE_FILE=""; SPAWN_ID_FILE=""; CASE_HOME=""; GATE_RC_FILE=""
 PROGRESS_M5_FILE=""; COMMENTS_FILE=""
 STALENESS_RC_FILE=""; STALENESS_TICKET_RC_FILE=""
 PROGRESS_OBL_FILE=""; INFLIGHT_RC_FILE=""; CLOSEOUT_RC_FILE=""
@@ -268,19 +330,30 @@ CASE_N=0
 V_APPROVE=$'5\n0'                  # one round: nothing usable yet, then approve
 V_NEEDSWORK_APPROVE=$'5\n1\n5\n0'  # round 1 needs-work, round 2 approves
 
-setup_case() { # setup_case <spawn-rcs> <gate-rcs> <labels> <pr>
+# #805: the first parameter is the LISTING stream, not a spawn exit code — a `--bg` dispatch
+# always returns immediately and its status says nothing about the payload. Empty keeps the shape
+# every pre-existing case was written against: the first poll answers `done`.
+setup_case() { # setup_case <agent-states> <gate-rcs> <labels> <pr>
   CASE_N=$((CASE_N + 1))
   local d="$WORK/case-$CASE_N"
   mkdir -p "$d/spawns" "$d/gates"
   SPAWN_LOG_DIR="$d/spawns"; GATE_LOG_DIR="$d/gates"; GH_LOG="$d/gh.log"
   LABELS_FILE="$d/labels"; PR_FILE="$d/pr"; COMMENTS_FILE="$d/comments"
-  SPAWN_RC_FILE="$d/spawn-rcs"; GATE_RC_FILE="$d/gate-rcs"
+  AGENTS_STATE_FILE="$d/agent-states"; SPAWN_ID_FILE="$d/spawn-ids"
+  GATE_RC_FILE="$d/gate-rcs"
+  # #805. A PRIVATE HOME per case, because the tool reads a harness-owned path under it —
+  # `~/.claude/projects/*/<sid>.jsonl`, for the transcript's closing message. Without this the
+  # suite would consult the machine's real session state, so a case would pass or fail on what the
+  # developer's own harness happened to be holding. Empty by default: no final message, which is
+  # the shape every pre-existing case assumes.
+  CASE_HOME="$d/home"; mkdir -p "$CASE_HOME"
+  : > "$SPAWN_ID_FILE"
   PROGRESS_M5_FILE="$d/progress-m5"
   # #515 DEFAULT: EMPTY streams, so every staleness read answers 0 and every pre-existing case
   # keeps meaning what it meant — a clean premise, checked and passed.
   STALENESS_RC_FILE="$d/staleness-rcs"; STALENESS_TICKET_RC_FILE="$d/staleness-ticket-rcs"
   : > "$STALENESS_RC_FILE"; : > "$STALENESS_TICKET_RC_FILE"
-  printf '%s' "$1" > "$SPAWN_RC_FILE"
+  printf '%s' "$1" > "$AGENTS_STATE_FILE"
   printf '%s' "$2" > "$GATE_RC_FILE"
   printf '%s' "$3" > "$LABELS_FILE"
   printf '%s' "$4" > "$PR_FILE"
@@ -340,10 +413,16 @@ run_tool() { # run_tool [config] [args...]
   # UNSET so the tool falls through to its own shipped default. `-u GH` precedes the
   # assignments, so the ordinary case still gets the fake.
   envs=( PATH="$BIN:$PATH"
-         SECOND_SHIFT_CONFIG="$cfg"
          LEAN_SPAWN_BIN="${SPAWN_BIN_OVERRIDE:-$BIN/claude}"
          LEAN_GATE="$BIN/fake-gate.sh"
-         SPAWN_LOG_DIR="$SPAWN_LOG_DIR" SPAWN_RC_FILE="$SPAWN_RC_FILE"
+         SPAWN_LOG_DIR="$SPAWN_LOG_DIR" AGENTS_STATE_FILE="$AGENTS_STATE_FILE"
+         SPAWN_ID_FILE="$SPAWN_ID_FILE" HOME="$CASE_HOME"
+         # The poll interval, pinned so the suite never sleeps. D-8's ceiling is NOT here — see
+         # below.
+         LEAN_SPAWN_POLL_SECS=0
+         # CLOCK_FILE/CLOCK_STEP arm the fake; LEAN_SPAWN_CLOCK itself is set only by the cases
+         # that drive elapsed time, for the reason spelled out below the array.
+         CLOCK_FILE="${CLOCK_FILE:-$CASE_HOME/.clock}" CLOCK_STEP="${CLOCK_STEP:-60}"
          GATE_LOG_DIR="$GATE_LOG_DIR" GATE_RC_FILE="$GATE_RC_FILE"
          GH_LOG="$GH_LOG" LABELS_FILE="$LABELS_FILE" PR_FILE="$PR_FILE"
          COMMENTS_FILE="$COMMENTS_FILE" COMMENTS_FAIL="${COMMENTS_FAIL:-}"
@@ -360,6 +439,30 @@ run_tool() { # run_tool [config] [args...]
          LEAN_LAUNCH_ID="${LAUNCH_ID_OVERRIDE:-}"
          RUN_ID=poisoned-parent-run LEAN_RUN_MODEL=poisoned-parent-model )
   [ "${USE_DEFAULT_GH:-0}" -eq 1 ] || envs+=( GH="$BIN/gh" )
+  # A HARNESS THAT EXPORTS A SEAM ON EVERY CASE MAKES THE PRODUCT'S OWN DEFAULT DEAD CODE.
+  # `${VAR:-default}` in the tool fires only when VAR is unset or empty, so an unconditional
+  # assignment here — even one carrying the identical literal — means no case ever reaches the
+  # shipped fallback, the two numbers match by coincidence, and a case written to guard the
+  # default pins THIS file's duplicate of it instead. Round 4 measured that: the catalog row
+  # lowering the shipped ceiling survived a green suite. So the ceiling is set only when a case
+  # drives it, and every other case runs on the bound the tool actually ships — which is what
+  # makes (bg4c) an assertion about the product.
+  [ -z "${SESSION_CEILING_OVERRIDE:-}" ] || \
+    envs+=( LEAN_SPAWN_SESSION_CEILING_MS="$SESSION_CEILING_OVERRIDE" )
+  # The staleness cadence needs the other shape, because its harness value and its shipped value
+  # genuinely differ: ZERO re-asks the premise on every tick, which is the behavior every case
+  # written before the cadence existed assumes, so zero stays the default here. The opt-out is
+  # USE_DEFAULT_STALENESS, the same shape as GH and SECOND_SHIFT_CONFIG above, and (bg7h)/(bg7i)
+  # use it to bracket the 300 seconds the tool ships.
+  [ "${USE_DEFAULT_STALENESS:-0}" -eq 1 ] || \
+    envs+=( LEAN_SPAWN_STALENESS_SECS="${STALENESS_SECS_OVERRIDE:-0}" )
+  # Same reason as the ceiling: `date +%s` here would shadow the identical `date +%s` there.
+  [ -z "${CLOCK_OVERRIDE:-}" ] || envs+=( LEAN_SPAWN_CLOCK="$CLOCK_OVERRIDE" )
+  # #811 OR-5. Same opt-out shape as GH above, and for the same reason: one case must run with
+  # SECOND_SHIFT_CONFIG genuinely UNSET in the launcher, so the tool falls through to the
+  # payload's own resolution ladder. `-u SECOND_SHIFT_CONFIG` precedes the assignments below, so
+  # an ambient one in the developer's shell cannot make that case pass by accident.
+  [ "${USE_DEFAULT_CONFIG:-0}" -eq 1 ] || envs+=( SECOND_SHIFT_CONFIG="$cfg" )
   # #613. Attendance is OPT-IN per case. Every pre-existing case keeps running with the session
   # id unset — which resolves headless, which is what makes their unchanged wording a real
   # assertion about the headless arm rather than an accident of this harness.
@@ -368,10 +471,14 @@ run_tool() { # run_tool [config] [args...]
   # apart. Every other case keeps the merged view it was written against.
   if [ "${RUN_TOOL_SPLIT:-0}" -eq 1 ]; then
     ( cd "$TREE" \
-      && env -u CLAUDE_CODE_SESSION_ID -u GH "${envs[@]}" bash "$TOOL" "$@" )
+      && env -u CLAUDE_CODE_SESSION_ID -u GH -u SECOND_SHIFT_CONFIG \
+             -u LEAN_SPAWN_SESSION_CEILING_MS -u LEAN_SPAWN_STALENESS_SECS -u LEAN_SPAWN_CLOCK \
+             "${envs[@]}" bash "$TOOL" "$@" )
   else
     ( cd "$TREE" \
-      && env -u CLAUDE_CODE_SESSION_ID -u GH "${envs[@]}" bash "$TOOL" "$@" 2>&1 )
+      && env -u CLAUDE_CODE_SESSION_ID -u GH -u SECOND_SHIFT_CONFIG \
+             -u LEAN_SPAWN_SESSION_CEILING_MS -u LEAN_SPAWN_STALENESS_SECS -u LEAN_SPAWN_CLOCK \
+             "${envs[@]}" bash "$TOOL" "$@" 2>&1 )
   fi
 }
 
@@ -401,6 +508,7 @@ progress_log()   { cat "$GATE_LOG_DIR/progress.log" 2>/dev/null; }
 staleness_reads() { cat "$GATE_LOG_DIR/scount-${1:-loop}" 2>/dev/null || echo 0; }
 staleness_log()   { cat "$GATE_LOG_DIR/staleness.log" 2>/dev/null; }
 spawn_argv()  { sed -n 's/^ARGV: //p' "$SPAWN_LOG_DIR/spawn-$1" 2>/dev/null; }
+spawn_settings_of() { sed -n 's/^SETTINGS: //p' "$SPAWN_LOG_DIR/spawn-$1" 2>/dev/null; }
 all_argv()    { cat "$SPAWN_LOG_DIR"/spawn-* 2>/dev/null; }
 
 echo "[orchestrate-lean-selftest]"
@@ -450,40 +558,97 @@ if ! grep -q '^RUN_ID_SET: yes$' "$GATE_LOG_DIR/call-1" 2>/dev/null; then
   pass "(c2) the gate is called with RUN_ID unset, so it resolves the build run's cached id"
 else fail "(c2) an ambient RUN_ID leaked into the verdict gate"; fi
 
-# ---- (d) env hygiene on every spawn ----------------------------------------------------------
-bad=0
-for f in "$SPAWN_LOG_DIR"/spawn-*; do
-  grep -q '^RUN_ID_SET: yes$' "$f" && bad=1
-done
-if [ "$bad" -eq 0 ]; then
-  pass "(d1) RUN_ID is scrubbed from every spawned session, against a poisoned parent"
-else fail "(d1) the parent's RUN_ID leaked into a spawned session"; fi
+# ---- (d) the child's environment, which is now carried IN ARGV -------------------------------
+# #805 MOVED THIS ASSERTION, and the move is the contract change. Under `-p` the child inherited
+# the launcher's environment, so the guard was a scrub — "RUN_ID must not be visible in there" —
+# and the fake could measure it by reading its own env. Nothing inherits into a `--bg` session, so
+# the scrub has nothing left to defend and the question became the opposite one: does the payload
+# RECEIVE what it needs? That is answerable only from the `--settings` argument, which is why
+# these read argv rather than the fake's environment. A fake cannot model non-inheritance for
+# itself — it is an ordinary child of this shell and sees everything this shell exports — so an
+# env-reading assertion here would now be measuring the harness, not the tool.
+if grep -q '"LEAN_ATTEND_MODE":"headless"' <<<"$(spawn_settings_of 1)" \
+   && grep -q '"LEAN_ATTEND_MODE":"headless"' <<<"$(spawn_settings_of 2)"; then
+  pass "(d1) every spawn is POSITIVELY marked headless through --settings, not merely left unattended"
+else fail "(d1) a spawn carried no headless mark in its --settings: $(all_argv)"; fi
 
-if grep -q '^LEAN_RUN_MODEL: sonnet$' "$SPAWN_LOG_DIR/spawn-1" \
-   && grep -q '^LEAN_RUN_MODEL: opus$' "$SPAWN_LOG_DIR/spawn-2"; then
-  pass "(d2) LEAN_RUN_MODEL is set per PHASE — build's model on build, review's on review"
-else fail "(d2) LEAN_RUN_MODEL was not re-set per phase: $(grep -h LEAN_RUN_MODEL "$SPAWN_LOG_DIR"/spawn-*)"; fi
+if grep -q '"LEAN_RUN_MODEL":"sonnet"' <<<"$(spawn_settings_of 1)" \
+   && grep -q '"LEAN_RUN_MODEL":"opus"' <<<"$(spawn_settings_of 2)"; then
+  pass "(d2) LEAN_RUN_MODEL is set per PHASE in --settings — build's model on build, review's on review"
+else fail "(d2) LEAN_RUN_MODEL was not re-set per phase: $(all_argv)"; fi
 
-# The ceiling is asserted PRESENT AND FINITE on every spawn, not merely present. Absent, the
-# harness's own 600s default ends the turn under a payload still waiting on a dispatched agent —
-# the `build-no-pr` this env var exists to stop. `0` would also be "set", and would trade that
-# failure for a lane that hangs on a stuck dispatch with no budget to end it, so the assertion
-# rejects it the same as an unset.
-bad=0
-for f in "$SPAWN_LOG_DIR"/spawn-*; do
-  ms="$(sed -n 's/^BG_CEILING: //p' "$f")"
-  case "$ms" in ''|'<unset>'|0|*[!0-9]*) bad=1 ;; esac
-done
-if [ "$bad" -eq 0 ]; then
-  pass "(d3) every spawned session carries a finite non-zero background-wait ceiling"
-else fail "(d3) a spawn carried no usable background-wait ceiling: $(grep -h BG_CEILING "$SPAWN_LOG_DIR"/spawn-*)"; fi
+# THE PRINT-MODE CEILING IS GONE, and stays asserted gone. It existed because a print-mode turn
+# ended over its own pending work; a supervised session stays `working` through it, so re-adding
+# the variable would be re-adding a bound that cuts a healthy session short.
+if ! grep -q 'CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS' "$TOOL" \
+   && ! grep -q 'SPAWN_BG_WAIT_CEILING_MS' "$TOOL"; then
+  pass "(d3) the print-mode background-wait ceiling is gone with the turn semantics that needed it"
+else fail "(d3) the tool still carries the print-mode wait ceiling"; fi
+
+# THE SCRUB IS NOT GONE — one half of it came back, and this is the case that holds it there.
+# Round 4 of review: D-9 measured that a bg session inherits nothing, and the whole `env -u
+# RUN_ID -u LEAN_RUN_MODEL` scrub was deleted on that measurement. But LEAN_RUN_MODEL is
+# re-asserted in the settings block ((d2) above) and RUN_ID is asserted NOWHERE, so RUN_ID was the
+# one variable whose defense was removed rather than moved — and an inherited RUN_ID keys a
+# child's records to the parent's run, which is a wrong answer no other guard in this repo reads.
+#
+# MEASURABLE PRECISELY BECAUSE THE FAKE CANNOT MODEL NON-INHERITANCE. The fake is an ordinary
+# child of this shell and sees everything it exports, and `run_tool` exports
+# RUN_ID=poisoned-parent-run — so with the scrub removed this case reads `yes` and fails. That is
+# the opposite of (d1)/(d2)'s situation and is what makes it a guard rather than a restatement.
+if ! grep -q '^RUN_ID_SET: yes$' "$SPAWN_LOG_DIR"/spawn-* 2>/dev/null; then
+  pass "(d3a) RUN_ID does not reach a spawned payload — the half of the scrub the settings block does not re-assert is still defended"
+else fail "(d3a) the parent's RUN_ID reached a spawned session: $(cat "$SPAWN_LOG_DIR"/spawn-* 2>/dev/null)"; fi
+
+# ...and the settings block is a FILE, not an argument. `OTEL_EXPORTER_OTLP_HEADERS` is the
+# standard carrier for a collector's auth material, and a command line is world-readable on every
+# platform this runs on while an environment is not — so passing the block as argv would have been
+# strictly more exposed than the `-p` inheritance the forwarding exists to keep at parity.
+if grep -qE -- '--settings /' <<<"$(spawn_argv 1)" \
+   && ! grep -q 'LEAN_ATTEND_MODE' <<<"$(spawn_argv 1)" \
+   && [ -n "$(spawn_settings_of 1)" ]; then
+  pass "(d3b) the child's environment travels by FILE PATH, never in argv — the block is readable to the payload and not to every process on the box"
+else fail "(d3b) the settings block was passed in argv, or no file reached the fake: $(spawn_argv 1)"; fi
+
+# #811 OR-5. SECOND_SHIFT_CONFIG REACHES THE PAYLOAD, and this is the arm the transport swap broke
+# in silence. The gate resolves it INSIDE the session — lean-gate.sh and seven siblings share one
+# `${SECOND_SHIFT_CONFIG:-$MAIN_ROOT/.claude/second-shift.config.json}` ladder — so under `-p` it
+# inherited and under `--bg` it did not, and a launch carrying an alternate config (the pinned-base
+# eval recipe, the lane bench) fell back to the COMMITTED one and targeted the wrong base branch
+# with no error anywhere. A silent wrong answer, which is why it is asserted on content.
+if grep -q "\"SECOND_SHIFT_CONFIG\":\"$CFG\"" <<<"$(spawn_settings_of 1)" \
+   && grep -q "\"SECOND_SHIFT_CONFIG\":\"$CFG\"" <<<"$(spawn_settings_of 2)"; then
+  pass "(d4) an alternate SECOND_SHIFT_CONFIG is forwarded VERBATIM to every spawn — the payload resolves the config the launcher chose, not the committed one"
+else fail "(d4) SECOND_SHIFT_CONFIG did not reach a spawn: $(spawn_settings_of 1) / $(spawn_settings_of 2)"; fi
+
+# ...and the KEY IS ABSENT when the launcher set none. Without this the forwarding could be
+# unconditional — writing an empty or a scheduler-invented value into the child's environment,
+# which would override the payload's own ladder with a worse answer than inheriting nothing. The
+# committed config is placed at the default path so the run still resolves and the case is
+# measuring the key's absence rather than a refusal.
+setup_case "" "$V_APPROVE" "ready-for-dev" "11"
+mkdir -p "$TREE/.claude"
+cp "$CFG" "$TREE/.claude/second-shift.config.json"
+out="$(USE_DEFAULT_CONFIG=1 run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 0 ] && [ -n "$(spawn_settings_of 1)" ] \
+   && ! grep -q 'SECOND_SHIFT_CONFIG' <<<"$(spawn_settings_of 1)"; then
+  pass "(d4a) a launcher that set no SECOND_SHIFT_CONFIG forwards no key — the payload keeps its own resolution ladder rather than being handed a value the scheduler invented"
+else fail "(d4a) the scheduler forwarded a config key it was never given, rc=$rc: $(spawn_settings_of 1)"; fi
 
 # ---- (e) fresh contexts, never a resumed one --------------------------------------------------
-if grep -qE -- '(^| )-p ' <<<"$(all_argv)" \
+if grep -qE -- '(^| )--bg( |$)' <<<"$(all_argv)" \
    && grep -qE -- '(^| )--model ' <<<"$(all_argv)" \
-   && ! grep -qE -- '--resume|--continue|(^| )-c( |$)' <<<"$(all_argv)"; then
-  pass "(e1) every spawn is a fresh top-level session: -p + --model, no --resume/--continue/-c"
-else fail "(e1) spawn argv carried a resume flag or lost -p/--model: $(all_argv)"; fi
+   && ! grep -qE -- '--resume|--continue|(^| )-c( |$)|(^| )-p ' <<<"$(all_argv)"; then
+  pass "(e1) every spawn is a fresh supervised session: --bg + --model, no -p and no --resume/--continue/-c"
+else fail "(e1) spawn argv carried a resume flag, or lost --bg/--model: $(all_argv)"; fi
+
+# D-6. The one prompt source a real payload reaches is removed at dispatch, which is the parity
+# `-p` had for free by not offering the tool. Without it a payload that asks a question reads
+# `blocked` and ends the run — a stop where print mode simply carried on.
+if ! grep -q 'AskUserQuestion' <<<"$(all_argv | sed 's/--disallowedTools AskUserQuestion//g')" \
+   && [ "$(all_argv | grep -c -- '--disallowedTools AskUserQuestion')" -eq 2 ]; then
+  pass "(e1a) every spawn removes AskUserQuestion, the one prompt source a headless payload can reach"
+else fail "(e1a) a spawn did not disallow AskUserQuestion: $(all_argv)"; fi
 
 # Driven with CLAUDE_CODE_SESSION_ID UNSET in the parent, so a `yes` here can only have come
 # from the scheduler. Running it with the operator's own session id ambient would make this case
@@ -763,6 +928,7 @@ out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
 if [ "$rc" -eq 1 ] && [ "$(spawn_count)" -eq 1 ] && [ "$(inflight_reads)" -eq 0 ] \
    && [ "$(slug_of "$out")" = "build-no-pr" ] \
    && grep -q 'a human decides' <<<"$out" \
+   && grep -qE "claude attach [A-Za-z0-9-]+' reaches" <<<"$out" \
    && grep -q 'worktree and the claim are left in place' <<<"$out"; then
   pass "(h4) exit 0 with no PR is ONE spawn and a terminal build-no-pr that hands the run to a human"
 else fail "(h4) expected rc=1 / 1 spawn / 0 in-flight reads / slug build-no-pr, got rc=$rc / $(spawn_count) / $(inflight_reads) / '$(slug_of "$out")': $out"; fi
@@ -813,12 +979,32 @@ if [ "$rc" -eq 4 ] && [ "$(spawn_count)" -eq 4 ] && [ "$(gate_count)" -eq 4 ] \
 else fail "(i2) expected rc=4 after 2 rounds / 4 gate calls, got rc=$rc / $(spawn_count) spawn(s) / $(gate_count) gate call(s): $out"; fi
 
 # ---- (j) a failing session is a phase failure, not a silent next round ----------------------------
-setup_case "9" "0" "ready-for-dev" "11"
+# #805: the fixture is a STATE the supervisor reports, not a non-zero exit — a `--bg` dispatch
+# always returns 0 and the payload's fate arrives from the listing. `failed` and `stopped` are
+# separate documented states and both end the phase, so both are driven rather than one standing
+# in for the pair.
+setup_case "failed" "0" "ready-for-dev" "11"
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
 if [ "$rc" -eq 1 ] && [ "$(spawn_count)" -eq 1 ] && [ "$(gate_count)" -eq 0 ] \
-   && grep -q 'BUILD session failed' <<<"$out"; then
-  pass "(j1) a nonzero BUILD session stops the run at exit 1 — the gate is never consulted"
-else fail "(j1) expected rc=1 after 1 spawn, got rc=$rc / $(spawn_count): $out"; fi
+   && grep -q 'BUILD session sess1 ended failed' <<<"$out" \
+   && [ "$(slug_of "$out")" = "build-session-failed" ]; then
+  pass "(j1) a BUILD session the supervisor reports as failed stops the run at exit 1 — the gate is never consulted"
+else fail "(j1) expected rc=1 after 1 spawn, got rc=$rc / $(spawn_count) / slug=$(slug_of "$out"): $out"; fi
+
+setup_case "stopped" "0" "ready-for-dev" "11"
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+# The stop hygiene rides on the same case rather than a twin, because it is a property of THIS
+# terminal rather than a scenario of its own: `stopped` is the state where "still in flight" is
+# most obviously false, and the handle `spawn` leaves behind is the only thing that decides it.
+# A tool that keeps the handle here announces a stop of a session the listing just reported as
+# ended, and issues it.
+if [ "$rc" -eq 1 ] && [ "$(gate_count)" -eq 0 ] \
+   && [ "$(slug_of "$out")" = "build-session-failed" ] \
+   && grep -q 'ended stopped' <<<"$out" \
+   && ! grep -q 'still in flight' <<<"$out" \
+   && [ ! -s "$SPAWN_LOG_DIR/stops" ]; then
+  pass "(j1a) 'stopped' is the same phase failure as 'failed' — a session somebody ended is not one that finished, and is not announced as in flight nor stopped a second time"
+else fail "(j1a) expected rc=1 with build-session-failed and no re-stop, got rc=$rc / slug=$(slug_of "$out") / stops=[$(cat "$SPAWN_LOG_DIR/stops" 2>/dev/null)]: $out"; fi
 
 setup_case "" "$V_APPROVE" "ready-for-dev" ""
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
@@ -896,7 +1082,7 @@ else fail "(p4) expected rc=0 after a retried close-out, got rc=$rc / $(closeout
 setup_case "" "$V_APPROVE" "ready-for-dev" "11"
 out="$(run_tool "$CFG" "$ISSUE" --build-model opus --review-model sonnet --model-basis 'sized-here: two gates' --review-model-basis 'sized-here: reviewer rate limited')"; rc=$?
 if [ "$rc" -eq 0 ] \
-   && grep -q '^LEAN_RUN_MODEL: sonnet$' "$SPAWN_LOG_DIR/spawn-2" \
+   && grep -q '"LEAN_RUN_MODEL":"sonnet"' <<<"$(spawn_settings_of 2)" \
    && grep -q 'basis: sized-here: two gates' <<<"$out" \
    && grep -q 'basis: sized-here: reviewer rate limited' <<<"$out"; then
   pass "(k1) --review-model overrides the shipped default, and BOTH --model-basis and --review-model-basis are echoed into the run log"
@@ -916,7 +1102,7 @@ else fail "(k2) expected rc=2 with 0 spawns, got rc=$rc / $(spawn_count): $out";
 setup_case "" "$V_APPROVE" "ready-for-dev" "11"
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet --review-model sonnet --review-model-basis 'sized-here: rate-limited on opus')"; rc=$?
 if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 2 ] \
-   && grep -q '^LEAN_RUN_MODEL: sonnet$' "$SPAWN_LOG_DIR/spawn-2" \
+   && grep -q '"LEAN_RUN_MODEL":"sonnet"' <<<"$(spawn_settings_of 2)" \
    && grep -q 'basis: sized-here: rate-limited on opus' <<<"$out"; then
   pass "(k3) a stated --review-model-basis is accepted: the departure reaches the spawn and the reason is echoed"
 else fail "(k3) expected rc=0 with the departure taking and the basis echoed, got rc=$rc / $(spawn_count): $out"; fi
@@ -925,7 +1111,7 @@ else fail "(k3) expected rc=0 with the departure taking and the basis echoed, go
 # gets the shipped default tier with no basis note in the log.
 setup_case "" "$V_APPROVE" "ready-for-dev" "11"
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
-if [ "$rc" -eq 0 ] && grep -q '^LEAN_RUN_MODEL: opus$' "$SPAWN_LOG_DIR/spawn-2" \
+if [ "$rc" -eq 0 ] && grep -q '"LEAN_RUN_MODEL":"opus"' <<<"$(spawn_settings_of 2)" \
    && ! grep -q 'review model: opus (basis' <<<"$out"; then
   pass "(k4) omitting --review-model needs no basis, and the review spawn still gets the shipped default tier"
 else fail "(k4) expected rc=0 with the review spawn on the default tier and no basis note, got rc=$rc: $out"; fi
@@ -933,7 +1119,7 @@ else fail "(k4) expected rc=0 with the review spawn on the default tier and no b
 # AC-3/AC-4: the default passed EXPLICITLY is the default, not a departure — no basis required.
 setup_case "" "$V_APPROVE" "ready-for-dev" "11"
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet --review-model opus)"; rc=$?
-if [ "$rc" -eq 0 ] && grep -q '^LEAN_RUN_MODEL: opus$' "$SPAWN_LOG_DIR/spawn-2" \
+if [ "$rc" -eq 0 ] && grep -q '"LEAN_RUN_MODEL":"opus"' <<<"$(spawn_settings_of 2)" \
    && ! grep -q 'review model: opus (basis' <<<"$out"; then
   pass "(k5) --review-model opus passed explicitly is the shipped default, not a departure — no basis required"
 else fail "(k5) expected rc=0 with no basis required, got rc=$rc: $out"; fi
@@ -1112,10 +1298,16 @@ else fail "(r10) an absent config was refused, got rc=$rc / $(spawn_count) spawn
 # accepts — is precisely what a fake gate cannot fail on.
 setup_case "" "$V_APPROVE" "ready-for-dev" "11"
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+# #805 CHANGED THE DENOMINATOR, not the wiring. The pre-spawn read is still exactly one per BUILD
+# spawn; D-2 added a read per POLL TICK on top of it, because the premise can now expire while the
+# session is live and there is finally a channel to act on that. Two spawns settling on their
+# first tick is therefore three loop reads — one pre-BUILD, one inside BUILD's tick, one inside
+# REVIEW's — and preflight's ticket-arm read stays at one. Pinned as an exact count rather than a
+# floor, so a read that migrated into the close-out or into a second preflight still reds.
 if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 2 ] \
-   && [ "$(staleness_reads loop)" -eq 1 ] && [ "$(staleness_reads ticket)" -eq 1 ]; then
-  pass "(v1) an approved run reads staleness ONCE for its one build spawn — never before REVIEW, never before the close-out"
-else fail "(v1) expected 2 spawns with 1 loop + 1 ticket read, got $(spawn_count) / $(staleness_reads loop) / $(staleness_reads ticket), rc=$rc: $out"; fi
+   && [ "$(staleness_reads loop)" -eq 3 ] && [ "$(staleness_reads ticket)" -eq 1 ]; then
+  pass "(v1) an approved run reads staleness once before its one build spawn and once per poll tick — never before the close-out"
+else fail "(v1) expected 2 spawns with 3 loop + 1 ticket read, got $(spawn_count) / $(staleness_reads loop) / $(staleness_reads ticket), rc=$rc: $out"; fi
 
 if grep -q "CWD: $TREE" <<<"$(staleness_log)" \
    && ! grep -q 'RUN_ID_SET: yes' <<<"$(staleness_log)"; then
@@ -1133,12 +1325,17 @@ else fail "(v3) the two call sites did not use the arms the contract assigns the
 
 # Round 2's read is a FRESH evaluation, not round 1's answer remembered: the same run passes the
 # check, spends a needs-work round, and is stopped by the check on the way into round 2.
+# #805: the second read is now BUILD's first poll tick rather than round 2's pre-spawn check, so
+# the same scripted stream stops the run one spawn EARLIER — mid-session instead of between
+# rounds. That is the ticket's gain stated as a count: the round-2 spawn this used to pay for is
+# no longer spent, and neither are the minutes round 1's session would have run out.
 setup_case "" $'5\n1' "ready-for-dev" "11"
 printf '0\n7\n' > "$STALENESS_RC_FILE"
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
-if [ "$rc" -eq 7 ] && [ "$(spawn_count)" -eq 2 ] && [ "$(staleness_reads loop)" -eq 2 ]; then
-  pass "(v5) the premise is re-evaluated on every round — a run that was clean in round 1 is stopped entering round 2"
-else fail "(v5) expected rc=7 after 2 spawns and 2 reads, got rc=$rc / $(spawn_count) / $(staleness_reads loop): $out"; fi
+if [ "$rc" -eq 7 ] && [ "$(spawn_count)" -eq 1 ] && [ "$(staleness_reads loop)" -eq 2 ] \
+   && grep -q 'stop sess1' "$SPAWN_LOG_DIR/stops" 2>/dev/null; then
+  pass "(v5) the premise is re-evaluated inside the wait — a run clean at the spawn boundary is stopped mid-session, a round earlier than the boundary check could"
+else fail "(v5) expected rc=7 after 1 spawn and 2 reads, got rc=$rc / $(spawn_count) / $(staleness_reads loop): $out"; fi
 
 setup_case "" "$V_APPROVE" "ready-for-dev" "11"
 printf '7\n' > "$STALENESS_RC_FILE"
@@ -1259,7 +1456,8 @@ run_real_gate() { # run_real_gate <tree>
   ( cd "$1" && env -u CLAUDE_CODE_SESSION_ID -u LEAN_GATE \
       PATH="$BIN:$PATH" GH="$BIN/gh" SECOND_SHIFT_CONFIG="$CFG" \
       LEAN_SPAWN_BIN="$BIN/claude" \
-      SPAWN_LOG_DIR="$SPAWN_LOG_DIR" SPAWN_RC_FILE="$SPAWN_RC_FILE" \
+      SPAWN_LOG_DIR="$SPAWN_LOG_DIR" AGENTS_STATE_FILE="$AGENTS_STATE_FILE" \
+      SPAWN_ID_FILE="$SPAWN_ID_FILE" HOME="$CASE_HOME" LEAN_SPAWN_POLL_SECS=0 \
       GH_LOG="$GH_LOG" LABELS_FILE="$LABELS_FILE" PR_FILE="$PR_FILE" \
       COMMENTS_FILE="$COMMENTS_FILE" STATE_ANSWER="${STATE_ANSWER:-OPEN}" \
       RUN_ID=poisoned-parent-run LEAN_RUN_MODEL=poisoned-parent-model \
@@ -1457,7 +1655,7 @@ x_seen="$x_seen$(x_one usage-missing-build-model "$(run_tool "$CFG" "$ISSUE")")
 setup_case "" "$V_APPROVE" "" "11"
 x_seen="$x_seen$(x_one preflight-rejected "$(run_tool "$CFG" "$ISSUE" --build-model sonnet)")
 "
-setup_case "9" "$V_APPROVE" "ready-for-dev" "11"
+setup_case "failed" "$V_APPROVE" "ready-for-dev" "11"
 x_seen="$x_seen$(x_one build-session-failed "$(run_tool "$CFG" "$ISSUE" --build-model sonnet)")
 "
 setup_case "" "5
@@ -1489,14 +1687,16 @@ RUN_TOOL_SPLIT=1 LAUNCH_ID_OVERRIDE=y-launch run_tool "$CFG" "$ISSUE" --build-mo
 y_rc=$?
 y_out="$(cat "$WORK/case-$CASE_N/stdout")"
 y_err="$(cat "$WORK/case-$CASE_N/stderr")"
+# #805 STRENGTHENED THIS, and the strengthening is the transport's doing: the payload does not
+# reach this process on ANY stream now, so the claim is no longer "control on stdout, payload on
+# stderr" but "control on stdout, and the run's stderr is empty of payload". A spawn's own words
+# live in its transcript, asserted in (y2a).
 if [ "$y_rc" -eq 0 ] \
    && grep -q 'orchestrate-lean' <<<"$y_out" \
-   && ! grep -q 'PAYLOAD-STDOUT-1' <<<"$y_out" \
-   && ! grep -q 'PAYLOAD-STDERR-1' <<<"$y_out" \
-   && grep -q 'PAYLOAD-STDOUT-1' <<<"$y_err" \
-   && grep -q 'PAYLOAD-STDERR-1' <<<"$y_err" \
+   && grep -q 'session sess1' <<<"$y_out" \
+   && ! grep -q 'backgrounded' <<<"$y_out" \
    && ! grep -q '\[orchestrate-lean\]' <<<"$y_err"; then
-  pass "(y1) a plain stdout redirect captures PURE control lines and a spawn's payload — both of its streams — lands on stderr"
+  pass "(y1) a plain stdout redirect captures PURE control lines, and no payload reaches either stream under --bg"
 else fail "(y1) the streams were not separated, rc=$y_rc: stdout=[$y_out] stderr=[$y_err]"; fi
 
 # The per-role transcript, which is the durable half: the terminal and the redirects are both
@@ -1505,11 +1705,34 @@ else fail "(y1) the streams were not separated, rc=$y_rc: stdout=[$y_out] stderr
 # #650 AC-1: the LAUNCH token now sits between the `spawn` stem and the ordinal, so this path
 # pins the whole naming contract — stem, launch, ordinal, role — rather than three quarters of it.
 y_log="$TREE/.claude/pipeline-state/$ISSUE-lean-spawn-y-launch-1-build.log"
-if [ -f "$y_log" ] && grep -q 'PAYLOAD-STDOUT-1' "$y_log" && grep -q 'PAYLOAD-STDERR-1' "$y_log" \
-   && ! grep -q '\[orchestrate-lean\]' "$y_log" \
+if [ -f "$y_log" ] \
    && [ -f "$TREE/.claude/pipeline-state/$ISSUE-lean-spawn-y-launch-2-review.log" ]; then
-  pass "(y2) each spawn leaves a per-ROLE transcript under the pipeline-state dir, carrying payload only"
-else fail "(y2) no clean per-role transcript at $y_log: $(ls "$TREE/.claude/pipeline-state" 2>/dev/null)"; fi
+  pass "(y2) each spawn leaves a per-ROLE transcript under the pipeline-state dir — the file retro-corpus.sh classifies a run 'orchestrated' on"
+else fail "(y2) no per-role transcript at $y_log: $(ls "$TREE/.claude/pipeline-state" 2>/dev/null)"; fi
+
+# D-3. THE TRANSCRIPT'S CLOSING CONTENT, and the one case that proves the READ rather than the
+# file. `-p` printed the session's last message into this file; a bg payload never reaches the
+# process at all, so the same text is recovered from the harness's own projects jsonl. The
+# fixture writes that jsonl under the case's private HOME, keyed on the sessionId the LISTING
+# reported — not the short dispatch id — which is what makes a tool that closed over the wrong
+# one fail here.
+mkdir -p "$CASE_HOME/.claude/projects/some-cwd-slug"
+jq -n -c '{type:"assistant", message:{content:[{type:"text", text:"FINAL-MESSAGE-FROM-BUILD"}]}}' \
+  > "$CASE_HOME/.claude/projects/some-cwd-slug/sess1-full.jsonl"
+setup_case "" "$V_APPROVE" "ready-for-dev" "11"
+mkdir -p "$CASE_HOME/.claude/projects/some-cwd-slug"
+{ jq -n -c '{type:"assistant", message:{content:[{type:"text", text:"AN-EARLIER-MESSAGE"}]}}'
+  jq -n -c '{type:"user", message:{content:"not an assistant row"}}'
+  jq -n -c '{type:"assistant", message:{content:[{type:"text", text:"FINAL-MESSAGE-FROM-BUILD"}]}}'
+} > "$CASE_HOME/.claude/projects/some-cwd-slug/sess1-full.jsonl"
+LAUNCH_ID_OVERRIDE=y2a-launch run_tool "$CFG" "$ISSUE" --build-model sonnet >/dev/null 2>&1
+y2a_log="$TREE/.claude/pipeline-state/$ISSUE-lean-spawn-y2a-launch-1-build.log"
+y2a_rev="$TREE/.claude/pipeline-state/$ISSUE-lean-spawn-y2a-launch-2-review.log"
+if grep -q 'FINAL-MESSAGE-FROM-BUILD' "$y2a_log" 2>/dev/null \
+   && ! grep -q 'AN-EARLIER-MESSAGE' "$y2a_log" 2>/dev/null \
+   && grep -q 'left no readable final message' "$y2a_rev" 2>/dev/null; then
+  pass "(y2a) a spawn-end appends the session's LAST assistant message to its transcript, and says so plainly when there is none"
+else fail "(y2a) transcript close-out wrong: build=[$(cat "$y2a_log" 2>/dev/null)] review=[$(cat "$y2a_rev" 2>/dev/null)]"; fi
 
 # ISO-8601 UTC, matching the gate's now_iso, so scheduler lines and progress-file rows sort against
 # each other without conversion. Asserted over EVERY control line rather than one: a clock on some
@@ -1602,13 +1825,22 @@ else fail "(z5) the ledger did not enumerate z-second's spawns: [$z_sp]"; fi
 # EVERY SPAWN IS CLOSED, which is what makes a payload's duration derivable. Start rows alone give
 # the interval "this session PLUS whatever the loop did next", so a scheduler that spent ten minutes
 # between spawns and one that spent two seconds wrote identical ledgers — and that difference is
-# exactly what `tools/lane-latency.sh` gates on. Paired and rc-carrying, or the metric silently
+# exactly what `tools/lane-latency.sh` gates on. Paired and state-carrying, or the metric silently
 # becomes total wall-clock again.
+#
+# #805 D-12: the closing field is a STATE, not `rc=`. `rc=0` was true of a session that finished
+# and of one that was abandoned, which is the defect the transport swap is about — so the field
+# that an analyst reads has to be the one that separates them. The `spawn` row gains the id,
+# which is what makes a ledger row joinable to `claude agents` and to `claude attach`.
 z_end="$(sed -n "s/.*	z-second	$ISSUE	spawn-end	//p" "$LEDGER" 2>/dev/null)"
+z_start="$(sed -n "s/.*	z-second	$ISSUE	spawn	//p" "$LEDGER" 2>/dev/null)"
 if [ "$(printf '%s\n' "$z_end" | grep -c .)" -eq 2 ] \
-   && grep -q '^n=1 role=BUILD rc=' <<<"$z_end" && grep -q '^n=2 role=REVIEW rc=' <<<"$z_end"; then
-  pass "(z6) every spawn is closed by a spawn-end row carrying its ordinal, role and exit code"
-else fail "(z6) the ledger did not close z-second's spawns: [$z_end]"; fi
+   && grep -q '^n=1 role=BUILD state=done$' <<<"$z_end" \
+   && grep -q '^n=2 role=REVIEW state=done$' <<<"$z_end" \
+   && ! grep -q 'rc=' <<<"$z_end" \
+   && [ "$(printf '%s\n' "$z_start" | grep -c ' id=')" -eq 2 ]; then
+  pass "(z6) every spawn is closed by a spawn-end row carrying its ordinal, role and SETTLED STATE, and opened by one carrying the session id"
+else fail "(z6) the ledger did not close z-second's spawns: start=[$z_start] end=[$z_end]"; fi
 
 # ORDER, not merely presence: a start must precede its own end. Asserted on the file as written,
 # because a pair emitted in the wrong order subtracts to a negative payload and would read as the
@@ -1618,6 +1850,345 @@ if [ "$z_seq" = "spawn spawn-end spawn spawn-end " ]; then
   pass "(z7) starts and ends alternate — a spawn is closed before the next one opens"
 else fail "(z7) the spawn edges are out of order: [$z_seq]"; fi
 
+
+# ---- (bg) #805: the supervised-session contracts --------------------------------------------
+# Everything below drives a state the LISTING reports, which is the signal `-p` did not have.
+# Each case scripts the poll stream directly, so what is under test is the loop's routing rather
+# than any timing: the interval seam is zero and the fake never sleeps.
+
+# THE POLL ITSELF. Three ticks, two of them `working` — the shape a real payload spends most of
+# its life in, and the one `-p`'s wait ceiling used to cut short. Nothing is stopped and no
+# fallback fires: a session that is working is a session the scheduler waits for.
+setup_case "$(printf 'working\nworking\ndone\n')" "$V_APPROVE" "ready-for-dev" "11"
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 2 ] \
+   && grep -q 'session sess1: working' <<<"$out" \
+   && grep -q 'session sess1: done' <<<"$out" \
+   && [ "$(grep -c 'session sess1: working' <<<"$out")" -eq 1 ] \
+   && [ ! -f "$SPAWN_LOG_DIR/stops" ]; then
+  pass "(bg1) a session that stays working is WAITED for, its transitions are reported once each, and nothing is stopped"
+else fail "(bg1) the poll did not ride out a working session, rc=$rc: $out"; fi
+
+# `--all`, asserted on the call the poll actually makes. Without it the listing carries only
+# sessions still working or blocked, so the tick after a payload finishes would find it absent —
+# and the poll would score its own success as three unreadable reads.
+if [ "$(grep -c -- '--json --all' "$SPAWN_LOG_DIR/agents.log" 2>/dev/null)" -ge 3 ]; then
+  pass "(bg1a) every poll asks for the FULL listing, so a session that finished is still in it"
+else fail "(bg1a) a poll did not pass --all: $(cat "$SPAWN_LOG_DIR/agents.log" 2>/dev/null)"; fi
+
+# D-6/D-23. `blocked` is "waiting on you", and nobody is here. Under `-p` this shape was an exit 0
+# with no PR — indistinguishable from a session that finished — so the whole gain is that the state
+# is named. It ends the phase through the terminal `failed` and `stopped` already used, and the
+# session is STOPPED rather than left waiting on a keyboard that does not exist. Both are asserted:
+# a routing that named the state without stopping the session leaves a supervised payload running
+# under a run nobody is supervising.
+setup_case "$(printf 'working\nblocked\n')" "$V_APPROVE" "ready-for-dev" "11"
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 1 ] && [ "$(slug_of "$out")" = "build-session-failed" ] \
+   && [ "$(gate_count)" -eq 0 ] \
+   && grep -q 'ended blocked' <<<"$out" \
+   && grep -q 'waiting on an answer' <<<"$out" \
+   && grep -q 'stop sess1' "$SPAWN_LOG_DIR/stops" 2>/dev/null; then
+  pass "(bg2) a BUILD session that reads blocked is stopped and ends the phase naming the state — the exit-0-with-no-PR shape -p could not distinguish"
+else fail "(bg2) expected rc=1/build-session-failed with a stop, got rc=$rc / slug=$(slug_of "$out") / stops=[$(cat "$SPAWN_LOG_DIR/stops" 2>/dev/null)]: $out"; fi
+
+# THE SLUG IS COMPOSED FROM THE ROLE, so the two halves of the lane stay separable in a log — the
+# claim AC-9 collapses two register rows onto. Driven through the REVIEW spawn, which is the only
+# way to prove the composition rather than a literal: every other case reaching this line runs
+# BUILD, where `$lower` and the hardcoded word are indistinguishable.
+setup_case "$(printf 'done\nblocked\n')" "$V_APPROVE" "ready-for-dev" "11"
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 1 ] && [ "$(slug_of "$out")" = "review-session-failed" ]; then
+  pass "(bg2a) the phase-failure slug names the ROLE — build-session-failed and review-session-failed route differently in a log"
+else fail "(bg2a) expected review-session-failed, got slug=$(slug_of "$out"): $out"; fi
+
+# THE CLOSE IS IDEMPOTENT, and `blocked` is the one path that can prove it. Two closes are reached
+# here and only here: `blocked` RETURNS from the poll, so `spawn`'s own close runs, and then the
+# terminal it routes to runs `spawn_cleanup`'s. `SPAWN_CLOSED` is what makes the second a no-op, so
+# EXACTLY ONE is the assertion — presence alone passes just as happily over a transcript carrying
+# the session's final message twice, which is what dropping the flag would produce. Same
+# projects-jsonl fixture (y2a) uses.
+setup_case "$(printf 'working\nblocked\n')" "$V_APPROVE" "ready-for-dev" "11"
+mkdir -p "$CASE_HOME/.claude/projects/some-cwd-slug"
+jq -n -c '{type:"assistant", message:{content:[{type:"text", text:"FINAL-MESSAGE-FROM-BUILD"}]}}' \
+  > "$CASE_HOME/.claude/projects/some-cwd-slug/sess1-full.jsonl"
+LAUNCH_ID_OVERRIDE=bg2b-launch run_tool "$CFG" "$ISSUE" --build-model sonnet >/dev/null 2>&1
+bg2b_log="$TREE/.claude/pipeline-state/$ISSUE-lean-spawn-bg2b-launch-1-build.log"
+bg2b_n="$(grep -c 'final message of session' "$bg2b_log" 2>/dev/null || echo 0)"
+if [ -s "$bg2b_log" ] && grep -q 'FINAL-MESSAGE-FROM-BUILD' "$bg2b_log" 2>/dev/null \
+   && [ "$bg2b_n" -eq 1 ]; then
+  pass "(bg2b) the path that reaches BOTH closes appends the final message exactly once — the close is idempotent, not merely present"
+else fail "(bg2b) expected exactly one close block, got $bg2b_n: [$(cat "$bg2b_log" 2>/dev/null)]"; fi
+
+# THE SILENCE CEILING, which is the whole of the stuck fallback the narrowed scope keeps. A payload
+# whose turn ended over a bare backgrounded command sits at `working` with nothing left to do,
+# released only by a stop. The ceiling bounds it, the session is stopped, the launch ledger says
+# `stuck`, and the run PROCEEDS exactly as for `done` — which is the half a "detect it and stop"
+# fallback would get wrong, because the GATE is the completion oracle, not this loop.
+setup_case "$(printf 'working\n')" "$V_APPROVE" "ready-for-dev" "11"
+out="$(SESSION_CEILING_OVERRIDE=0 run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 2 ] && grep -q 'session ceiling spent' <<<"$out" \
+   && grep -q 'stop sess1' "$SPAWN_LOG_DIR/stops" 2>/dev/null \
+   && grep -q 'state=stuck' "$TREE/.claude/pipeline-state/$ISSUE-lean-launches.tsv" 2>/dev/null; then
+  pass "(bg4) a session past the session ceiling is stopped, ledgered as stuck, and proceeds as done"
+else fail "(bg4) the ceiling arm did not fire, rc=$rc: $out"; fi
+
+# ...and its NON-VACUITY, which is the case that matters: the identical listing stream UNDER THE
+# SHIPPED CEILING must ride out untouched. Without this, (bg4) would pass just as well for a tool
+# that stopped every working session it saw — the print-mode wait ceiling rebuilt by accident, and
+# the exact regression this transport swap exists to remove.
+setup_case "$(printf 'working\nworking\nworking\nworking\ndone\n')" "$V_APPROVE" "ready-for-dev" "11"
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 0 ] \
+   && ! grep -q 'session ceiling spent' <<<"$out" \
+   && ! grep -q 'stop sess1' "$SPAWN_LOG_DIR/stops" 2>/dev/null; then
+  pass "(bg4a) NON-VACUITY: a session working inside the ceiling rides out four ticks untouched — the bound is the clock, not the state"
+else fail "(bg4a) a legitimately working session was stopped, rc=$rc: $out"; fi
+
+# THE CEILING IS ELAPSED TIME, AND THE SHIPPED DEFAULT TOLERATES A LONG HEALTHY SESSION. (bg4) and
+# (bg4a) between them prove the arm fires and does not fire spuriously — but both run with elapsed
+# time pinned at ~0, so neither can say anything about the BOUND, and a default set below the
+# duration of ordinary work would pass both. It was: measured over this lane's own launch ledgers,
+# 11 of 55 BUILD spawns ran past thirty minutes, one of them for 100 minutes, so a 30-minute
+# default would have stopped one healthy BUILD in five mid-work and ledgered it `stuck`. These two
+# cases are the pair that can see that, because the clock is a seam now.
+#
+# (bg4b) drives fifty minutes of `working` past a THIRTY-minute ceiling: it fires.
+setup_case "$(printf 'working\n')" "$V_APPROVE" "ready-for-dev" "11"
+out="$(SESSION_CEILING_OVERRIDE=1800000 CLOCK_OVERRIDE="$BIN/fakeclock" \
+       CLOCK_FILE="$CASE_HOME/.clock-b" CLOCK_STEP=600 \
+       run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 0 ] && grep -q 'session ceiling spent' <<<"$out" \
+   && grep -q 'stop sess1' "$SPAWN_LOG_DIR/stops" 2>/dev/null; then
+  pass "(bg4b) the ceiling is measured in ELAPSED WALL TIME, not in ticks — a session past it is stopped even though every read said working"
+else fail "(bg4b) a session past the ceiling was not stopped, rc=$rc: $out"; fi
+
+# ...and (bg4c) is the one that catches the shipped default. IDENTICAL listing stream and an
+# identical fifty minutes of elapsed time, with SESSION_CEILING_OVERRIDE unset so the tool reads
+# its OWN `${LEAN_SPAWN_SESSION_CEILING_MS:-7200000}`: the session must ride it out and settle on
+# its own. Lower that literal in orchestrate-lean.sh back toward the observed BUILD distribution
+# and this reds. It did not, before round 4 — run_tool exported the ceiling on every case, so this
+# case pinned the harness's copy of the number and the shipped one was unreachable.
+setup_case "$(printf 'working\nworking\nworking\nworking\ndone\n')" "$V_APPROVE" "ready-for-dev" "11"
+out="$(CLOCK_OVERRIDE="$BIN/fakeclock" CLOCK_FILE="$CASE_HOME/.clock-c" CLOCK_STEP=600 \
+       run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 0 ] \
+   && ! grep -q 'session ceiling spent' <<<"$out" \
+   && ! grep -q 'stop sess1' "$SPAWN_LOG_DIR/stops" 2>/dev/null; then
+  pass "(bg4c) FIFTY minutes of healthy work rides out the SHIPPED ceiling untouched — the bound sits above ordinary BUILD durations, not inside them"
+else fail "(bg4c) the shipped ceiling stopped a healthy fifty-minute session, rc=$rc: $out"; fi
+
+# THE STALENESS RE-ASK HAS ITS OWN CADENCE. (bg7) proves the premise is re-asked inside the wait;
+# nothing proved it is re-asked on a SEPARATE clock, and at the poll's own cadence each re-ask is a
+# tracker round trip plus a base fetch — roughly 25 of each for a median BUILD where the pre-#805
+# loop made one per round. Driven by pinning the interval ABOVE the fake clock's total travel, so
+# the scripted exit 7 is never reached and the run settles instead.
+setup_case "$(printf 'working\nworking\ndone\n')" "$V_APPROVE" "ready-for-dev" "11"
+printf '0\n7\n7\n' > "$STALENESS_RC_FILE"
+out="$(STALENESS_SECS_OVERRIDE=99999 CLOCK_OVERRIDE="$BIN/fakeclock" \
+       CLOCK_FILE="$CASE_HOME/.clock-d" CLOCK_STEP=60 \
+       run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(slug_of "$out")" != "staleness-expired" ]; then
+  pass "(bg7c) the in-poll premise re-ask runs on its OWN interval — an expiry scripted inside the wait is not reached when the cadence has not come round"
+else fail "(bg7c) the poll re-asked staleness on the tick clock, rc=$rc / slug=$(slug_of "$out"): $out"; fi
+
+# AND THE CADENCE HAS A SHIPPED VALUE, which (bg7c) cannot see: it pins the interval at 99999, so
+# it proves the throttle exists and says nothing about where it sits. These two bracket the 300
+# seconds the tool actually ships, both with USE_DEFAULT_STALENESS=1 so LEAN_SPAWN_STALENESS_SECS
+# reaches the tool unset and `${LEAN_SPAWN_STALENESS_SECS:-300}` is the expression under test.
+#
+# (bg7h) travels FOUR minutes — 60s a tick, four ticks — with an expiry scripted from the first
+# in-poll re-ask onward. Under the shipped 300 the cadence never comes round, so the run settles.
+setup_case "$(printf 'working\nworking\nworking\ndone\n')" "$V_APPROVE" "ready-for-dev" "11"
+printf '0\n7\n7\n7\n7\n' > "$STALENESS_RC_FILE"
+out="$(USE_DEFAULT_STALENESS=1 CLOCK_OVERRIDE="$BIN/fakeclock" \
+       CLOCK_FILE="$CASE_HOME/.clock-e" CLOCK_STEP=60 \
+       run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(slug_of "$out")" != "staleness-expired" ]; then
+  pass "(bg7h) FOUR minutes of a live session pays NO premise re-ask under the shipped cadence — the throttle's default sits above a short session, not inside every tick of one"
+else fail "(bg7h) the shipped staleness cadence re-asked inside four minutes, rc=$rc / slug=$(slug_of "$out"): $out"; fi
+
+# ...and (bg7i) is its other half: 200s a tick, so the second tick is 400 seconds in and the
+# cadence HAS come round. The same scripted expiry is reached and the run hard-stops. Together
+# these fail on any move of the shipped 300 in either direction — down past four minutes reds
+# (bg7h), up past seven reds this one — which is the property a single case could not have.
+setup_case "$(printf 'working\nworking\ndone\n')" "$V_APPROVE" "ready-for-dev" "11"
+printf '0\n7\n7\n' > "$STALENESS_RC_FILE"
+out="$(USE_DEFAULT_STALENESS=1 CLOCK_OVERRIDE="$BIN/fakeclock" \
+       CLOCK_FILE="$CASE_HOME/.clock-f" CLOCK_STEP=200 \
+       run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 7 ] && [ "$(slug_of "$out")" = "staleness-expired" ] \
+   && grep -q 'stop sess1' "$SPAWN_LOG_DIR/stops" 2>/dev/null; then
+  pass "(bg7i) once the SHIPPED cadence comes round the premise IS re-asked mid-session, and an expiry found there stops the session — D-2's whole point, on the interval the tool ships"
+else fail "(bg7i) the shipped staleness cadence never came round in seven minutes, rc=$rc / slug=$(slug_of "$out"): $out"; fi
+
+# AN UNREADABLE PREMISE FAILS CLOSED *DURING* A SESSION TOO, which is the arm that did not exist:
+# the pre-spawn call refuses outright on a gate rc that is neither 0 nor 7, and the in-poll copy
+# handled only 7 — so the SAME predicate failed closed before a session and fell silently through
+# during one, and a run whose tracker went unreachable a minute in kept going on a premise nothing
+# had verified. Bounded on POLL_TOLERANCE rather than immediate, because one unreachable read is
+# evidence about the network and killing a healthy forty-minute BUILD over a blipped fetch is the
+# worse of the two failures.
+# THE LISTING STREAM TERMINATES, and that is the difference between this case KILLING the
+# fail-open shape and merely hanging on it. The agents fake repeats its last line forever, so a
+# stream of one `working` leaves a tool whose counter never reaches the tolerance spinning at
+# POLL_SECS=0 — no verdict, just a suite that never returns, which is a weaker signature than a
+# red and one no runner reports as a failure. Four entries ending in `done` give the fail-open
+# tool somewhere to land: it settles, reaches the gate, and reds both assertions below.
+setup_case "$(printf 'working\nworking\nworking\ndone\n')" "$V_APPROVE" "ready-for-dev" "11"
+printf '0\n1\n1\n1\n' > "$STALENESS_RC_FILE"
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 1 ] && [ "$(slug_of "$out")" = "staleness-unreadable" ] \
+   && grep -q 'stop sess1' "$SPAWN_LOG_DIR/stops" 2>/dev/null \
+   && [ "$(gate_count)" -eq 0 ]; then
+  pass "(bg7d) an unreadable premise DURING a live session fails closed after POLL_TOLERANCE re-asks, stops the session, and never reaches the verdict gate"
+else fail "(bg7d) expected rc=1/staleness-unreadable, got rc=$rc / slug=$(slug_of "$out"): $out"; fi
+
+# ...and its NON-VACUITY, which is the half that makes the tolerance mean something. One bad read
+# followed by a good one must ride through: without this, (bg7d) would pass equally for a tool that
+# refused on the FIRST unreadable premise — the failure mode that would kill a healthy session over
+# one blipped fetch, and the reason the bound is three rather than one.
+setup_case "$(printf 'working\nworking\ndone\n')" "$V_APPROVE" "ready-for-dev" "11"
+printf '0\n1\n0\n0\n' > "$STALENESS_RC_FILE"
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(slug_of "$out")" != "staleness-unreadable" ] \
+   && ! grep -q 'stop sess1' "$SPAWN_LOG_DIR/stops" 2>/dev/null; then
+  pass "(bg7e) NON-VACUITY: a single unreadable premise re-ask is ridden out, not fatal — the counter is consecutive, and one blip is evidence about the network"
+else fail "(bg7e) a single unreadable premise killed the run, rc=$rc / slug=$(slug_of "$out"): $out"; fi
+
+# EVERY OPENED SPAWN ROW IS CLOSED, whichever way the phase ended. The `spawn` row is written
+# before the poll and the close used to be written after it, so the three arms that terminate from
+# INSIDE the poll exited without one — and `tools/lane-latency.sh` reads an unclosed spawn as
+# "not-measurable", a signature it was given for a KILLED scheduler. A mid-poll refusal wearing
+# that signature does not fail; it quietly shrinks the measurable set the lane is gated on.
+setup_case "$(printf 'working\nworking\ndone\n')" "$V_APPROVE" "ready-for-dev" "11"
+printf '0\n0\n7\n' > "$STALENESS_RC_FILE"
+out="$(LAUNCH_ID_OVERRIDE=bg7f-launch run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+# SCOPED TO THIS LAUNCH. The ledger is one file per ticket and every case in this suite appends to
+# it, so an unscoped count would be measuring the whole run and would pass on somebody else's row.
+bg7f_rows="$(grep 'bg7f-launch' "$TREE/.claude/pipeline-state/$ISSUE-lean-launches.tsv" 2>/dev/null)"
+if [ "$rc" -eq 7 ] && [ "$(slug_of "$out")" = "staleness-expired" ] \
+   && [ "$(grep -c "$(printf '\t')spawn$(printf '\t')" <<<"$bg7f_rows")" -eq 1 ] \
+   && [ "$(grep -c "$(printf '\t')spawn-end$(printf '\t')" <<<"$bg7f_rows")" -eq 1 ] \
+   && grep -q 'state=staleness-expired' <<<"$bg7f_rows"; then
+  pass "(bg7f) a terminal reached from INSIDE the poll still closes its LEDGER row, naming the refusal that ended the phase — no spawn is left open"
+else fail "(bg7f) the mid-poll terminal left the spawn row open: [$bg7f_rows]"; fi
+
+# THE `stuck` PATH MUST NOT OFFER A SESSION IT JUST KILLED. `stuck` proceeds exactly as `done`, so
+# it lands on the terminals written for a session the supervisor is still holding — and the ceiling
+# arm STOPS the session before returning. `build-no-pr` therefore told an operator to attach to
+# something this loop had killed three lines earlier, which is the identical false sentence `spawn`
+# already refuses to print for `failed` and `stopped`, missed on the one arm that exits elsewhere.
+setup_case "$(printf 'working\n')" "$V_APPROVE" "ready-for-dev" ""
+out="$(SESSION_CEILING_OVERRIDE=0 run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 1 ] && [ "$(slug_of "$out")" = "build-no-pr" ] \
+   && grep -q 'settled stuck' <<<"$out" \
+   && grep -q 'nothing left to attach to' <<<"$out" \
+   && ! grep -q 'claude attach sess1-full' <<<"$out"; then
+  pass "(bg7g) build-no-pr after a STUCK settlement names the stuck state and does not offer 'claude attach' for a session this scheduler stopped"
+else fail "(bg7g) the stuck path still advertised a dead session, rc=$rc / slug=$(slug_of "$out"): $out"; fi
+
+# D-18, all four not-a-state shapes. Each is fail-closed and none is scored as done: a listing the
+# scheduler cannot read is not evidence about the payload, and #527's posture decides which way an
+# unevaluable predicate falls. Driven as four separate cases because they fail through four
+# different code paths in the fake's answer and one of them (NOSTATE) is a listing that PARSES.
+for shape in UNREADABLE GARBAGE ABSENT NOSTATE; do
+  setup_case "$shape" "$V_APPROVE" "ready-for-dev" "11"
+  out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+  if [ "$rc" -eq 1 ] && [ "$(slug_of "$out")" = "spawn-unreadable" ] \
+     && [ "$(gate_count)" -eq 0 ] \
+     && grep -q 'sess1' <<<"$out"; then
+    pass "(bg5/$shape) an unreadable listing fails CLOSED after three polls, names the id, and never reaches the gate"
+  else fail "(bg5/$shape) expected rc=1/spawn-unreadable, got rc=$rc / slug=$(slug_of "$out"): $out"; fi
+done
+
+# AN UNMODELLED STATE IS THE SAME FAIL-CLOSED FACT, and it gets its own case because it reaches
+# the counter down a different path: the listing PARSES and the row IS the dispatched session, so
+# every earlier guard passes and only the enum check is left. This is also the case that catches
+# the counter being reset on every readable row — with that reset in place the tolerance is never
+# reached and the loop spins forever on a state it cannot act on, which no other case here can
+# distinguish from a session that is simply taking a while.
+setup_case "reticulating" "$V_APPROVE" "ready-for-dev" "11"
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 1 ] && [ "$(slug_of "$out")" = "spawn-unreadable" ] \
+   && grep -q "unmodelled state 'reticulating' (3 of 3)" <<<"$out" \
+   && [ "$(gate_count)" -eq 0 ]; then
+  pass "(bg5b) a state outside the documented enum accumulates to the same fail-closed refusal — the agent view is a research preview and its enum can move"
+else fail "(bg5b) expected rc=1/spawn-unreadable after three unmodelled reads, got rc=$rc / slug=$(slug_of "$out"): $out"; fi
+
+# ...and the tolerance is THREE, not one. A supervisor killed under a live session leaves the
+# session running and the listing recoverable, so a single bad read is evidence about the listing
+# and not about the payload. Without this case a tool that gave up on the first one would pass
+# every case above.
+setup_case "$(printf 'UNREADABLE\nUNREADABLE\ndone\n')" "$V_APPROVE" "ready-for-dev" "11"
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 2 ]; then
+  pass "(bg5a) two unreadable polls followed by a state are ridden out — the counter resets on a good read"
+else fail "(bg5a) a recoverable listing ended the run, rc=$rc: $out"; fi
+
+# THE DISPATCH ITSELF can fail to yield an id, and without one there is no state to poll, no
+# session to stop and nothing to attach to — so it is not a spawn that happened. Fail-closed at
+# the same slug, before any poll.
+setup_case "" "$V_APPROVE" "ready-for-dev" "11"
+printf 'NOID\n' > "$SPAWN_ID_FILE"
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 1 ] && [ "$(slug_of "$out")" = "spawn-unreadable" ] \
+   && [ "$(cat "$SPAWN_LOG_DIR/acount" 2>/dev/null || echo 0)" -eq 0 ]; then
+  pass "(bg6) a dispatch that yields no session id is refused before the first poll — nothing was started this run can supervise"
+else fail "(bg6) expected rc=1/spawn-unreadable with no polls, got rc=$rc / slug=$(slug_of "$out"): $out"; fi
+
+# D-2. THE PREMISE IS RE-ASKED INSIDE THE WAIT, which is what makes exit 7 an abort rather than a
+# damage bound. The pre-loop read passes and the poll's second read returns 7, so the only way to
+# reach this terminal is from inside the poll — a tool that checked staleness only at the spawn
+# boundary spawns, waits out the session, and exits 0. The session is stopped, and the message
+# says the tree may hold a partial operation, which a stop can genuinely cause.
+setup_case "$(printf 'working\nworking\ndone\n')" "$V_APPROVE" "ready-for-dev" "11"
+printf '0\n0\n7\n' > "$STALENESS_RC_FILE"
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 7 ] && [ "$(slug_of "$out")" = "staleness-expired" ] \
+   && [ "$(spawn_count)" -eq 1 ] \
+   && grep -q 'stop sess1' "$SPAWN_LOG_DIR/stops" 2>/dev/null \
+   && grep -q 'index.lock' <<<"$out"; then
+  pass "(bg7) a premise that expires WHILE the session is live stops it mid-flight at exit 7, and the message owns the partial-operation risk"
+else fail "(bg7) mid-flight staleness did not abort, rc=$rc / slug=$(slug_of "$out") / stops=[$(cat "$SPAWN_LOG_DIR/stops" 2>/dev/null)]: $out"; fi
+
+# AC-10's "the transcript surviving a terminal reached from INSIDE the poll", and this is the case
+# that holds it. A blocked session returns to `spawn` and is closed there; the two arms that still
+# exit from within the loop — this one, and `spawn-unreadable` — never come back, so their ONLY
+# close is the one in `spawn_cleanup`, the funnel `terminal` goes through. That matters because
+# both of those terminals tell the operator to go read the payload transcript, and before the
+# funnel close existed the file they named was 0 bytes on exactly those paths.
+#
+# Driven through mid-flight staleness rather than through `spawn-unreadable`: this is the arm that
+# has a session id by the time it fires (tick 1 read the listing), so the transcript has real
+# content to carry rather than the no-id notice. Same scenario as (bg7), a separate case because
+# the invariant is the transcript's, not the abort's — and the launch override is what makes the
+# file addressable by name.
+setup_case "$(printf 'working\nworking\ndone\n')" "$V_APPROVE" "ready-for-dev" "11"
+printf '0\n0\n7\n' > "$STALENESS_RC_FILE"
+mkdir -p "$CASE_HOME/.claude/projects/some-cwd-slug"
+jq -n -c '{type:"assistant", message:{content:[{type:"text", text:"FINAL-MESSAGE-FROM-BUILD"}]}}' \
+  > "$CASE_HOME/.claude/projects/some-cwd-slug/sess1-full.jsonl"
+out="$(LAUNCH_ID_OVERRIDE=bg7a-launch run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+bg7a_log="$TREE/.claude/pipeline-state/$ISSUE-lean-spawn-bg7a-launch-1-build.log"
+# NON-VACUITY FIRST. The transcript assertion means nothing unless this run really left through the
+# terminal inside the loop: a case that settled normally would be closed by `spawn` and pass while
+# proving the opposite. So the slug and exit code are asserted alongside the file.
+if [ "$rc" -eq 7 ] && [ "$(slug_of "$out")" = "staleness-expired" ] \
+   && [ -s "$bg7a_log" ] && grep -q 'FINAL-MESSAGE-FROM-BUILD' "$bg7a_log" 2>/dev/null; then
+  pass "(bg7a) a terminal reached from INSIDE the poll still closes its transcript — the file that terminal's own remedy names is not empty"
+else fail "(bg7a) expected rc=7/staleness-expired with a closed transcript, got rc=$rc / slug=$(slug_of "$out") / log=[$(cat "$bg7a_log" 2>/dev/null)]"; fi
+
+# D-4. The id reaches the operator at DISPATCH, with the command that uses it — the property `-p`
+# could not have, because there was no id until the process ended and no channel into it if there
+# had been.
+setup_case "" "$V_APPROVE" "ready-for-dev" "11"
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if grep -q 'session sess1 — watch it with: claude attach sess1' <<<"$out" \
+   && grep -q 'lean-7-build-r1' <<<"$(spawn_argv 1)" \
+   && grep -q 'lean-7-review-r1' <<<"$(spawn_argv 2)"; then
+  pass "(bg8) the session id and its attach command reach the control stream at dispatch, and each spawn is NAMED by issue, role and round"
+else fail "(bg8) the dispatch line or the --name is wrong: $out / $(all_argv)"; fi
 
 # ---- (n) --help prints the header and stops before the code ------------------------------------------
 # BOTH bounds, and the lower one is not decoration: the `Exit: 0 = approved` anchor sits four lines

@@ -1928,9 +1928,26 @@ REGH
     RE_SESSION="$RE_DIR/session"
     cat > "$RE_SESSION" <<'RESESS'
 #!/usr/bin/env bash
+# #805. ONE BINARY, THREE SUBCOMMANDS, because that is what the scheduler now calls: the `--bg`
+# dispatch, `agents --json --all` to read a state, and `stop`. This fake stays SYNCHRONOUS — the
+# payload's real gate work still runs inline on the dispatch call, exactly as it did under `-p` —
+# and the listing then reports that session `done`, which is the state the poll is waiting for.
+# Preflight's own listing read arrives before any spawn and is answered from the same counter,
+# which is 0 there, so it parses and refuses nothing.
+if [ "${1:-}" = "agents" ]; then
+  sid="bg-$(cat "$RE_DIR/spawns" 2>/dev/null || echo 0)"
+  printf '[{"id":"%s","sessionId":"%s-full","kind":"background","state":"done"}]\n' "$sid" "$sid"
+  exit 0
+fi
+if [ "${1:-}" = "stop" ]; then echo "stop ${2:-}" >> "$RE_DIR/session.log"; exit 0; fi
 n=$(( $(cat "$RE_DIR/spawns" 2>/dev/null || echo 0) + 1 ))
 echo "$n" > "$RE_DIR/spawns"
 echo "spawn $n: $*" >> "$RE_DIR/session.log"
+# #811 OR-5. The child's environment travels in a --settings FILE, so the composed leg has to
+# open it to see what the payload actually receives; argv carries only the path.
+sf=""; pv=""
+for a in "$@"; do [ "$pv" = "--settings" ] && sf="$a"; pv="$a"; done
+cat "$sf" 2>/dev/null > "$RE_DIR/settings-$n.json"
 g() { ( unset LEAN_GATE_ANY_TREE; cd "$RE_WT" && bash "$RE_GATE" "$@" ) >> "$RE_DIR/session.log" 2>&1; }
 case "$*" in
   *review-lean*)
@@ -1970,6 +1987,10 @@ case "$*" in
     ;;
   *) exit 1 ;;
 esac
+# The dispatch line the scheduler parses its id out of. Emitted LAST because this fake did the
+# payload's work first: under `--bg` the id is announced before the work, but the poll cannot ask
+# for a state until the dispatch returns, so a synchronous fake reaches the same composition.
+echo "backgrounded · bg-$n"
 exit 0
 RESESS
     chmod +x "$RE_SESSION"
@@ -2000,8 +2021,12 @@ RESESS
     # passes one, and each spawn's identity is the harness's own stamp — here, the fake's export.
     # GH_BOT is unset too, and that is load-bearing rather than hygiene: an ambient one would
     # send cmd_mark's write to a LIVE bot if its no-op branch ever stopped being taken.
+    # #805: LEAN_SPAWN_POLL_SECS is pinned to zero below. The scheduler waits one poll interval
+    # before reading a session's state, so an unpinned interval charges this leg thirty seconds
+    # PER SPAWN — measured, 68s to 323s. What the leg composes is the routing, not the cadence.
     re_run() { # re_run <progress-file> <comments-file>
       ( cd "$LEAN_TREE" && env -u CLAUDE_CODE_SESSION_ID -u RUN_ID -u LEAN_RUN_MODEL -u GH_BOT \
+          LEAN_SPAWN_POLL_SECS=0 \
           GH="$RE_GH" LEAN_SPAWN_BIN="$RE_SESSION" \
           SECOND_SHIFT_CONFIG="$RE_CFG" LEAN_PROGRESS_FILE="$1" RE_COMMENTS_LIVE="$2" \
           RE_DIR="$RE_DIR" RE_WT="$RE_WT" RE_GATE="$LEAN_GATE" RE_KEY="$RE_KEY" \
@@ -2051,6 +2076,19 @@ RESESS
        && "$(cat "$RE_DIR/spawns" 2>/dev/null || echo 0)" -eq 2 ]] \
       && pass "(lean-reentry) the composed chain's record is the GATE's: an entry attestation, one satisfied line per milestone, and a build-session set that is the header alone — two spawns, no close-out session" \
       || fail "(lean-reentry) satisfied=$re_sat entry-rows=$(re_count "$RE_PROG" '| entry | ledger=') header-session=$(re_count "$RE_PROG" 'session_id: sess-lean-re-build') close-session-row=$(re_count "$RE_PROG" '| session | sess-lean-re-close') spawns=$(cat "$RE_DIR/spawns" 2>/dev/null), expected 5/>=1/1/0/2"
+
+    # #811 OR-5, COMPOSED. The per-tool case asserts the scheduler WRITES the key; this asserts it
+    # survives the whole composed dispatch — the leg that actually runs the real scheduler against
+    # the real gate, which is the pair whose config resolution diverged. Under `-p` the value
+    # inherited and nothing had to carry it; under `--bg` a scheduler that dropped it left the gate
+    # resolving the COMMITTED config, so a bench or eval run read the wrong base branch and said
+    # nothing. Asserted on both spawns because the REVIEW half resolves it too.
+    if grep -q "\"SECOND_SHIFT_CONFIG\":\"$RE_CFG\"" "$RE_DIR/settings-1.json" 2>/dev/null \
+       && grep -q "\"SECOND_SHIFT_CONFIG\":\"$RE_CFG\"" "$RE_DIR/settings-2.json" 2>/dev/null; then
+      pass "(lean-reentry) the launcher's SECOND_SHIFT_CONFIG reaches BOTH composed payloads through the settings block — the alternate config the bench and the pinned-base eval depend on is not silently dropped"
+    else
+      fail "(lean-reentry) SECOND_SHIFT_CONFIG did not survive the composed dispatch: [$(cat "$RE_DIR/settings-1.json" 2>/dev/null)]"
+    fi
 
     # ---- non-vacuity for the scheduler leg -------------------------------------------------
     # The leg above would stay green if preflight admitted every claimed ticket. Vary the
@@ -2156,6 +2194,18 @@ COC
     CO_SESSION="$CO_DIR/session"
     cat > "$CO_SESSION" <<'COSESS'
 #!/usr/bin/env bash
+# #805. ONE BINARY, THREE SUBCOMMANDS, because that is what the scheduler now calls: the `--bg`
+# dispatch, `agents --json --all` to read a state, and `stop`. This fake stays SYNCHRONOUS — the
+# payload's real gate work still runs inline on the dispatch call, exactly as it did under `-p` —
+# and the listing then reports that session `done`, which is the state the poll is waiting for.
+# Preflight's own listing read arrives before any spawn and is answered from the same counter,
+# which is 0 there, so it parses and refuses nothing.
+if [ "${1:-}" = "agents" ]; then
+  sid="bg-$(cat "$CO_DIR/spawns" 2>/dev/null || echo 0)"
+  printf '[{"id":"%s","sessionId":"%s-full","kind":"background","state":"done"}]\n' "$sid" "$sid"
+  exit 0
+fi
+if [ "${1:-}" = "stop" ]; then echo "stop ${2:-}" >> "$CO_DIR/session.log"; exit 0; fi
 n=$(( $(cat "$CO_DIR/spawns" 2>/dev/null || echo 0) + 1 ))
 echo "$n" > "$CO_DIR/spawns"
 echo "spawn $n: $*" >> "$CO_DIR/session.log"
@@ -2187,6 +2237,7 @@ case "$*" in
     ;;
   *) exit 1 ;;
 esac
+echo "backgrounded · bg-$n"
 exit 0
 COSESS
     chmod +x "$CO_SESSION"
@@ -2215,6 +2266,7 @@ COSESS
       # skip is what a host with no collector produces, and its three obligations must still be
       # recorded met — which is AC-4, asserted below.
       ( cd "$LEAN_TREE" && env -u CLAUDE_CODE_SESSION_ID -u RUN_ID -u LEAN_RUN_MODEL -u GH_BOT \
+          LEAN_SPAWN_POLL_SECS=0 \
           GH="$RE_GH" LEAN_SPAWN_BIN="$CO_SESSION" \
           SECOND_SHIFT_CONFIG="$CO_CFG" LEAN_PROGRESS_FILE="$1" RE_COMMENTS_LIVE="$CO_COMMENTS_LIVE" \
           CO_MODE="$2" OTEL_METRICS_FILE="$CO_DIR/no-such-metrics.jsonl" \

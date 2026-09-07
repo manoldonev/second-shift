@@ -63,6 +63,8 @@ env-temp-dir	lane-error	-
 env-tracker-type	lane-error	-
 lane-closed-out	lane-error	-
 preflight-rejected	lane-error	-
+spawn-settings-unwritable	lane-error	-
+spawn-unreadable	lane-error	-
 preflight-rejected-resumable	lane-error	-
 staleness-expired	lane-error	-
 staleness-unreadable	lane-error	-
