@@ -145,6 +145,8 @@ scripts/stack-generality-lint.sh::cmp-eq::1330a0cb5d34	seeded by the canonical s
 scripts/stack-generality-lint.sh::cmp-z::ef112262b0d0	seeded by the canonical seed run
 scripts/stack-generality-lint.sh::logic::ef112262b0d0	seeded by the canonical seed run
 tools/classify-capture.sh::default::8f08ececad0b	#779: the `mktemp -d "${TMPDIR:-/tmp}/classify-capture.XXXXXX"` fallback. TMPDIR is the harness's own scratch seam — mutation-sweep.sh's pool sets `TMPDIR="$KILLER_TMPDIR"` before running any killer suite (run_killer), so the default branch is never taken and no case can observe the mutant token. Same class as the ${GH:-gh}/${SECOND_SHIFT_CONFIG:-...} rows this file already carries — a fixture/harness seam, not a coverage gap.
+tools/lane-bench.sh::default::a98c5b90cbb9	The `mktemp -d "${TMPDIR:-/tmp}/lane-bench-score.XXXXXX"` fallback (:161). Identical class to the tools/classify-capture.sh row above: mutation-sweep.sh's pool sets TMPDIR before running any killer, so the default branch is never taken and no case can observe the mutant token.
+tools/lane-bench.sh::default::bfb857ec55a8	The `${GH:-gh}` fallback (:189). tools/lane-bench-selftest.sh binds `export GH="$BIN/gh"` (:123) to inject its argv-discriminated gh fake — that binding IS the seam the suite needs, so the default branch is unreachable in every case by construction. A killer would have to run the real gh.
 # The `${RUN_SELFTESTS_DROP_RC:-}` site in tools/run-selftests.sh had a row here. #448 added
 # `${SELFTEST_CACHE_MAX:-5000}` above it, which IS killed and pushed the equivalent site past the
 # k=2 window — so nothing scores it and no row can state anything true about it. Dropped rather
