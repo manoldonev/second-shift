@@ -417,16 +417,11 @@ run_tool() { # run_tool [config] [args...]
          LEAN_GATE="$BIN/fake-gate.sh"
          SPAWN_LOG_DIR="$SPAWN_LOG_DIR" AGENTS_STATE_FILE="$AGENTS_STATE_FILE"
          SPAWN_ID_FILE="$SPAWN_ID_FILE" HOME="$CASE_HOME"
-         # The poll interval and D-8's ceiling, pinned so the suite never sleeps and the
-         # ceiling arm is reachable in one tick rather than in two hours.
+         # The poll interval, pinned so the suite never sleeps. D-8's ceiling is NOT here — see
+         # below.
          LEAN_SPAWN_POLL_SECS=0
-         LEAN_SPAWN_SESSION_CEILING_MS="${SESSION_CEILING_OVERRIDE:-7200000}"
-         # ZERO BY DEFAULT, which re-asks the premise on every tick — the behavior every case
-         # written before the cadence existed assumes. Only the case that asserts the THROTTLE
-         # sets it, so the throttle is proved by one case rather than assumed by all of them.
-         LEAN_SPAWN_STALENESS_SECS="${STALENESS_SECS_OVERRIDE:-0}"
-         # Real `date` unless a case drives elapsed time; CLOCK_FILE/CLOCK_STEP arm the fake.
-         LEAN_SPAWN_CLOCK="${CLOCK_OVERRIDE:-date +%s}"
+         # CLOCK_FILE/CLOCK_STEP arm the fake; LEAN_SPAWN_CLOCK itself is set only by the cases
+         # that drive elapsed time, for the reason spelled out below the array.
          CLOCK_FILE="${CLOCK_FILE:-$CASE_HOME/.clock}" CLOCK_STEP="${CLOCK_STEP:-60}"
          GATE_LOG_DIR="$GATE_LOG_DIR" GATE_RC_FILE="$GATE_RC_FILE"
          GH_LOG="$GH_LOG" LABELS_FILE="$LABELS_FILE" PR_FILE="$PR_FILE"
@@ -444,6 +439,25 @@ run_tool() { # run_tool [config] [args...]
          LEAN_LAUNCH_ID="${LAUNCH_ID_OVERRIDE:-}"
          RUN_ID=poisoned-parent-run LEAN_RUN_MODEL=poisoned-parent-model )
   [ "${USE_DEFAULT_GH:-0}" -eq 1 ] || envs+=( GH="$BIN/gh" )
+  # A HARNESS THAT EXPORTS A SEAM ON EVERY CASE MAKES THE PRODUCT'S OWN DEFAULT DEAD CODE.
+  # `${VAR:-default}` in the tool fires only when VAR is unset or empty, so an unconditional
+  # assignment here — even one carrying the identical literal — means no case ever reaches the
+  # shipped fallback, the two numbers match by coincidence, and a case written to guard the
+  # default pins THIS file's duplicate of it instead. Round 4 measured that: the catalog row
+  # lowering the shipped ceiling survived a green suite. So the ceiling is set only when a case
+  # drives it, and every other case runs on the bound the tool actually ships — which is what
+  # makes (bg4c) an assertion about the product.
+  [ -z "${SESSION_CEILING_OVERRIDE:-}" ] || \
+    envs+=( LEAN_SPAWN_SESSION_CEILING_MS="$SESSION_CEILING_OVERRIDE" )
+  # The staleness cadence needs the other shape, because its harness value and its shipped value
+  # genuinely differ: ZERO re-asks the premise on every tick, which is the behavior every case
+  # written before the cadence existed assumes, so zero stays the default here. The opt-out is
+  # USE_DEFAULT_STALENESS, the same shape as GH and SECOND_SHIFT_CONFIG above, and (bg7h)/(bg7i)
+  # use it to bracket the 300 seconds the tool ships.
+  [ "${USE_DEFAULT_STALENESS:-0}" -eq 1 ] || \
+    envs+=( LEAN_SPAWN_STALENESS_SECS="${STALENESS_SECS_OVERRIDE:-0}" )
+  # Same reason as the ceiling: `date +%s` here would shadow the identical `date +%s` there.
+  [ -z "${CLOCK_OVERRIDE:-}" ] || envs+=( LEAN_SPAWN_CLOCK="$CLOCK_OVERRIDE" )
   # #811 OR-5. Same opt-out shape as GH above, and for the same reason: one case must run with
   # SECOND_SHIFT_CONFIG genuinely UNSET in the launcher, so the tool falls through to the
   # payload's own resolution ladder. `-u SECOND_SHIFT_CONFIG` precedes the assignments below, so
@@ -457,10 +471,14 @@ run_tool() { # run_tool [config] [args...]
   # apart. Every other case keeps the merged view it was written against.
   if [ "${RUN_TOOL_SPLIT:-0}" -eq 1 ]; then
     ( cd "$TREE" \
-      && env -u CLAUDE_CODE_SESSION_ID -u GH -u SECOND_SHIFT_CONFIG "${envs[@]}" bash "$TOOL" "$@" )
+      && env -u CLAUDE_CODE_SESSION_ID -u GH -u SECOND_SHIFT_CONFIG \
+             -u LEAN_SPAWN_SESSION_CEILING_MS -u LEAN_SPAWN_STALENESS_SECS -u LEAN_SPAWN_CLOCK \
+             "${envs[@]}" bash "$TOOL" "$@" )
   else
     ( cd "$TREE" \
-      && env -u CLAUDE_CODE_SESSION_ID -u GH -u SECOND_SHIFT_CONFIG "${envs[@]}" bash "$TOOL" "$@" 2>&1 )
+      && env -u CLAUDE_CODE_SESSION_ID -u GH -u SECOND_SHIFT_CONFIG \
+             -u LEAN_SPAWN_SESSION_CEILING_MS -u LEAN_SPAWN_STALENESS_SECS -u LEAN_SPAWN_CLOCK \
+             "${envs[@]}" bash "$TOOL" "$@" 2>&1 )
   fi
 }
 
@@ -1945,10 +1963,12 @@ if [ "$rc" -eq 0 ] && grep -q 'session ceiling spent' <<<"$out" \
   pass "(bg4b) the ceiling is measured in ELAPSED WALL TIME, not in ticks — a session past it is stopped even though every read said working"
 else fail "(bg4b) a session past the ceiling was not stopped, rc=$rc: $out"; fi
 
-# ...and (bg4c) is the one that would have caught the shipped default. IDENTICAL listing stream and
-# an identical fifty minutes of elapsed time, under the ceiling this file actually ships: the
-# session must ride it out and settle on its own. Fail this by lowering SESSION_CEILING_MS back
-# toward the observed BUILD distribution and the regression is named rather than measured later.
+# ...and (bg4c) is the one that catches the shipped default. IDENTICAL listing stream and an
+# identical fifty minutes of elapsed time, with SESSION_CEILING_OVERRIDE unset so the tool reads
+# its OWN `${LEAN_SPAWN_SESSION_CEILING_MS:-7200000}`: the session must ride it out and settle on
+# its own. Lower that literal in orchestrate-lean.sh back toward the observed BUILD distribution
+# and this reds. It did not, before round 4 — run_tool exported the ceiling on every case, so this
+# case pinned the harness's copy of the number and the shipped one was unreachable.
 setup_case "$(printf 'working\nworking\nworking\nworking\ndone\n')" "$V_APPROVE" "ready-for-dev" "11"
 out="$(CLOCK_OVERRIDE="$BIN/fakeclock" CLOCK_FILE="$CASE_HOME/.clock-c" CLOCK_STEP=600 \
        run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
@@ -1972,6 +1992,36 @@ if [ "$rc" -eq 0 ] && [ "$(slug_of "$out")" != "staleness-expired" ]; then
   pass "(bg7c) the in-poll premise re-ask runs on its OWN interval — an expiry scripted inside the wait is not reached when the cadence has not come round"
 else fail "(bg7c) the poll re-asked staleness on the tick clock, rc=$rc / slug=$(slug_of "$out"): $out"; fi
 
+# AND THE CADENCE HAS A SHIPPED VALUE, which (bg7c) cannot see: it pins the interval at 99999, so
+# it proves the throttle exists and says nothing about where it sits. These two bracket the 300
+# seconds the tool actually ships, both with USE_DEFAULT_STALENESS=1 so LEAN_SPAWN_STALENESS_SECS
+# reaches the tool unset and `${LEAN_SPAWN_STALENESS_SECS:-300}` is the expression under test.
+#
+# (bg7h) travels FOUR minutes — 60s a tick, four ticks — with an expiry scripted from the first
+# in-poll re-ask onward. Under the shipped 300 the cadence never comes round, so the run settles.
+setup_case "$(printf 'working\nworking\nworking\ndone\n')" "$V_APPROVE" "ready-for-dev" "11"
+printf '0\n7\n7\n7\n7\n' > "$STALENESS_RC_FILE"
+out="$(USE_DEFAULT_STALENESS=1 CLOCK_OVERRIDE="$BIN/fakeclock" \
+       CLOCK_FILE="$CASE_HOME/.clock-e" CLOCK_STEP=60 \
+       run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(slug_of "$out")" != "staleness-expired" ]; then
+  pass "(bg7h) FOUR minutes of a live session pays NO premise re-ask under the shipped cadence — the throttle's default sits above a short session, not inside every tick of one"
+else fail "(bg7h) the shipped staleness cadence re-asked inside four minutes, rc=$rc / slug=$(slug_of "$out"): $out"; fi
+
+# ...and (bg7i) is its other half: 200s a tick, so the second tick is 400 seconds in and the
+# cadence HAS come round. The same scripted expiry is reached and the run hard-stops. Together
+# these fail on any move of the shipped 300 in either direction — down past four minutes reds
+# (bg7h), up past seven reds this one — which is the property a single case could not have.
+setup_case "$(printf 'working\nworking\ndone\n')" "$V_APPROVE" "ready-for-dev" "11"
+printf '0\n7\n7\n' > "$STALENESS_RC_FILE"
+out="$(USE_DEFAULT_STALENESS=1 CLOCK_OVERRIDE="$BIN/fakeclock" \
+       CLOCK_FILE="$CASE_HOME/.clock-f" CLOCK_STEP=200 \
+       run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 7 ] && [ "$(slug_of "$out")" = "staleness-expired" ] \
+   && grep -q 'stop sess1' "$SPAWN_LOG_DIR/stops" 2>/dev/null; then
+  pass "(bg7i) once the SHIPPED cadence comes round the premise IS re-asked mid-session, and an expiry found there stops the session — D-2's whole point, on the interval the tool ships"
+else fail "(bg7i) the shipped staleness cadence never came round in seven minutes, rc=$rc / slug=$(slug_of "$out"): $out"; fi
+
 # AN UNREADABLE PREMISE FAILS CLOSED *DURING* A SESSION TOO, which is the arm that did not exist:
 # the pre-spawn call refuses outright on a gate rc that is neither 0 nor 7, and the in-poll copy
 # handled only 7 — so the SAME predicate failed closed before a session and fell silently through
@@ -1979,7 +2029,13 @@ else fail "(bg7c) the poll re-asked staleness on the tick clock, rc=$rc / slug=$
 # had verified. Bounded on POLL_TOLERANCE rather than immediate, because one unreachable read is
 # evidence about the network and killing a healthy forty-minute BUILD over a blipped fetch is the
 # worse of the two failures.
-setup_case "$(printf 'working\n')" "$V_APPROVE" "ready-for-dev" "11"
+# THE LISTING STREAM TERMINATES, and that is the difference between this case KILLING the
+# fail-open shape and merely hanging on it. The agents fake repeats its last line forever, so a
+# stream of one `working` leaves a tool whose counter never reaches the tolerance spinning at
+# POLL_SECS=0 — no verdict, just a suite that never returns, which is a weaker signature than a
+# red and one no runner reports as a failure. Four entries ending in `done` give the fail-open
+# tool somewhere to land: it settles, reaches the gate, and reds both assertions below.
+setup_case "$(printf 'working\nworking\nworking\ndone\n')" "$V_APPROVE" "ready-for-dev" "11"
 printf '0\n1\n1\n1\n' > "$STALENESS_RC_FILE"
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
 if [ "$rc" -eq 1 ] && [ "$(slug_of "$out")" = "staleness-unreadable" ] \
@@ -2012,8 +2068,8 @@ out="$(LAUNCH_ID_OVERRIDE=bg7f-launch run_tool "$CFG" "$ISSUE" --build-model son
 # it, so an unscoped count would be measuring the whole run and would pass on somebody else's row.
 bg7f_rows="$(grep 'bg7f-launch' "$TREE/.claude/pipeline-state/$ISSUE-lean-launches.tsv" 2>/dev/null)"
 if [ "$rc" -eq 7 ] && [ "$(slug_of "$out")" = "staleness-expired" ] \
-   && [ "$(grep -c "\tspawn\t" <<<"$bg7f_rows")" -eq 1 ] \
-   && [ "$(grep -c "\tspawn-end\t" <<<"$bg7f_rows")" -eq 1 ] \
+   && [ "$(grep -c "$(printf '\t')spawn$(printf '\t')" <<<"$bg7f_rows")" -eq 1 ] \
+   && [ "$(grep -c "$(printf '\t')spawn-end$(printf '\t')" <<<"$bg7f_rows")" -eq 1 ] \
    && grep -q 'state=staleness-expired' <<<"$bg7f_rows"; then
   pass "(bg7f) a terminal reached from INSIDE the poll still closes its LEDGER row, naming the refusal that ended the phase — no spawn is left open"
 else fail "(bg7f) the mid-poll terminal left the spawn row open: [$bg7f_rows]"; fi

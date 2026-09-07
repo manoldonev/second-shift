@@ -685,10 +685,11 @@ probe_ticket() {
   esac
 }
 
-# D-18. The listing is checked HERE, before a run costs anything, because it is the only thing
-# this loop has to tell a finished payload from an abandoned one — and the agent view is a
-# documented research preview, so its shape can move under an auto-update. A refusal at preflight
-# is the cheap version of discovering it three unreadable polls into a live session.
+# D-18, and ONLY the binary. The narrowing removed the listing validation this probe was specified
+# to carry, so what survives is resolvability: `command -v` plus `[ -x ]`, which answers whether a
+# session can be dispatched at all and says nothing about whether the agent view — a documented
+# research preview whose shape can move under an auto-update — will be readable once one is. That
+# question is answered where it is now asked, in the poll's own fail-closed counter.
 probe_spawn() {
   if command -v "$SPAWN_BIN" >/dev/null 2>&1 || [ -x "$SPAWN_BIN" ]; then
     echo "ok spawn: session binary '$SPAWN_BIN' resolves"; return 0

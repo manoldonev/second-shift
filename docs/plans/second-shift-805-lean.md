@@ -47,11 +47,27 @@ AC-11 is where that is graded.
   The cadence is an env seam defaulting to 30 seconds, so the suite drives the loop without
   sleeping (D-14).
 - AC-3: the stuck fallback (D-8), **narrowed to its documented arm**. A session reporting
-  `working` past a bounded silence ceiling (env seam, default 30 minutes) → `claude stop <id>`, a
-  launch-ledger `state=stuck`, and the run proceeds exactly as for `done`, because the gate is the
-  completion oracle either way. The harness's private `~/.claude/jobs/<id>/state.json` is **not
-  read**: it named the same shape in ninety seconds rather than thirty minutes, and it was the
-  first thing the narrowing below gave up.
+  `working` past a bounded WHOLE-SESSION ceiling (env seam, default 2 hours) → `claude stop <id>`,
+  a launch-ledger `state=stuck`, and the run proceeds exactly as for `done`, because the gate is
+  the completion oracle either way. The harness's private `~/.claude/jobs/<id>/state.json` is
+  **not read**: it named the same shape in ninety seconds rather than at a wall-clock bound, and
+  it was the first thing the narrowing below gave up.
+
+  **AMENDED at review round 4, and this is a DEPARTURE from the ratified parameter — read it
+  before ratifying.** The `Ratified:` comment names "a 30-minute SILENCE ceiling", and this AC
+  declared one until now. It cannot be built on this transport. A silence ceiling needs a signal
+  that separates a payload with nothing to do from one three minutes into a sweep, and the only
+  thing that carried it was the job record the same narrowing removed — `working` is what a
+  healthy session reports for its entire life. So the bound that ships measures TOTAL elapsed
+  session time, which is the nearest implementable thing, and its value is measured rather than
+  intuited: over this lane's own launch ledgers, 55 BUILD spawns ran a median of 12.6 minutes and
+  a maximum of 100.5, with 11 of 55 past thirty minutes. A 30-minute bound would therefore have
+  stopped one healthy BUILD in five mid-work and ledgered each `stuck` — the print-mode wait
+  ceiling rebuilt by accident, which is the regression this transport swap exists to remove. Two
+  hours clears the observed maximum with room. Both halves of the departure — the number and the
+  semantics — are the operator's to accept or refuse; the code carries the same reasoning at
+  `orchestrate-lean.sh:833` and the PR body names it as a departure rather than as the ratified
+  thing.
 - AC-4: an unreadable listing is fail-closed (D-18). Three consecutive polls in which
   `claude agents --json --all` fails to run, fails to parse, or does not contain the dispatched id
   end the run with `terminal spawn-unreadable 1` naming that id. A state that could not be read is
@@ -172,7 +188,7 @@ bash tools/prose-blockers.sh check
 | D-5 | Poll cadence and key (ticket OR-1) | `claude agents --json --all` every 30s (measured cost 0.16s per call), keyed on the exact `sessionId` the spawn returned. State enum read: working, blocked, done, failed, stopped (documented). | user-answered |
 | D-6 | `blocked` under headless (ticket OR-1) | DEPARTURE — the operator's pre-authorized narrowing was taken (falsifier 5), and it removes the build-blocked and review-blocked slugs this row specified. What the row DECIDES is unchanged and shipped: a blocked session is stopped rather than left waiting on a keyboard that does not exist, it ends the phase, and the spawn still passes --disallowedTools AskUserQuestion to remove the one prompt source real payloads reach. Only the terminal it routes to moved, onto the session-failed slug that already existed. The authority is the ratification comment itself, not this session re-deciding. | user-answered |
 | D-7 | Concurrency posture (ticket OR-3) | No change. The poll keys on an exact id; the single-lane assumption (#525, unproven per #564) is about worktrees and the gate, not transport. Recorded: the supervisor makes accidental double-launch easier; `pgrep` of the SCHEDULER still catches it. | user-answered |
-| D-8 | Fallback for a payload stuck at `working` after its turn ended | DEPARTURE — same narrowing. The documented arm ships and bounds exactly the shape this row is about: a session reporting working past a wall-clock silence ceiling is stopped, ledgered as stuck, and the run proceeds as for done. The primary arm does not ship — reading the harness's private ~/.claude/jobs/<id>/state.json was the largest single piece of the poll loop that the reduced landing does not name, so it is the first thing the cut gave up. The bound is slower, thirty minutes rather than ninety seconds, and it is never absent. | user-answered |
+| D-8 | Fallback for a payload stuck at `working` after its turn ended | DEPARTURE — same narrowing. The documented arm ships and bounds exactly the shape this row is about: a session reporting working past a wall-clock ceiling is stopped, ledgered as stuck, and the run proceeds as for done. The primary arm does not ship — reading the harness's private ~/.claude/jobs/<id>/state.json was the largest single piece of the poll loop that the reduced landing does not name, so it is the first thing the cut gave up. The bound is slower and coarser: the job record could name the shape in ninety seconds, and what replaces it can only bound TOTAL session runtime, because `working` is what a healthy session reports for its whole life and nothing left in the listing separates idle from busy. It ships at two hours, measured against this lane's own launch ledgers (55 BUILD spawns, median 12.6 min, max 100.5, 11 past thirty minutes). That is a SECOND departure inside this row and a departure from the ratified parameter itself — the receipt names a 30-minute silence ceiling — and it is disclosed under AC-3 and in the PR body for the operator to accept or refuse. It is never absent. | user-answered |
 | D-9 | Environment handoff to the child | Nothing from the launcher's shell environment reaches a `--bg` session except the documented allowlist (PATH, provider selection): P1 saw LRM and LAM unset; P5 saw a marker var and TERM_PROGRAM unset. `LEAN_ATTEND_MODE=headless` and `LEAN_RUN_MODEL=<model>` are injected with `--settings '{"env":{...}}'` (P6 and C2: both arrived; the docs name a settings `env` block as the mechanism; `respawnFlags` in the job record show the flags persist across a supervisor restart). Harness-applied, not model-controlled, so #613's belt holds. The `env -u RUN_ID -u LEAN_RUN_MODEL` scrub is deleted as dead code. `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS` and its rationale block (`:727-745`) are deleted: a turn that ends with a tracked task pending stays `working` and re-invokes (P4b, P4c, P4g). | codebase-derived |
 | D-10 | Listing flag | `--all` is required: the docs list only "background sessions that are still working or blocked" by default; completed ones need `--all` (the three #549 `done` probes appear only under it). | codebase-derived |
 | D-11 | Worktree relocation (ticket falsifier 3) | None. A session worktree is the explicit `-w, --worktree` flag; `claude rm` removes one only if it exists. Lane worktree handling is unchanged. | codebase-derived |
