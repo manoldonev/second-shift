@@ -1943,6 +1943,11 @@ if [ "${1:-}" = "stop" ]; then echo "stop ${2:-}" >> "$RE_DIR/session.log"; exit
 n=$(( $(cat "$RE_DIR/spawns" 2>/dev/null || echo 0) + 1 ))
 echo "$n" > "$RE_DIR/spawns"
 echo "spawn $n: $*" >> "$RE_DIR/session.log"
+# #811 OR-5. The child's environment travels in a --settings FILE, so the composed leg has to
+# open it to see what the payload actually receives; argv carries only the path.
+sf=""; pv=""
+for a in "$@"; do [ "$pv" = "--settings" ] && sf="$a"; pv="$a"; done
+cat "$sf" 2>/dev/null > "$RE_DIR/settings-$n.json"
 g() { ( unset LEAN_GATE_ANY_TREE; cd "$RE_WT" && bash "$RE_GATE" "$@" ) >> "$RE_DIR/session.log" 2>&1; }
 case "$*" in
   *review-lean*)
@@ -2071,6 +2076,19 @@ RESESS
        && "$(cat "$RE_DIR/spawns" 2>/dev/null || echo 0)" -eq 2 ]] \
       && pass "(lean-reentry) the composed chain's record is the GATE's: an entry attestation, one satisfied line per milestone, and a build-session set that is the header alone — two spawns, no close-out session" \
       || fail "(lean-reentry) satisfied=$re_sat entry-rows=$(re_count "$RE_PROG" '| entry | ledger=') header-session=$(re_count "$RE_PROG" 'session_id: sess-lean-re-build') close-session-row=$(re_count "$RE_PROG" '| session | sess-lean-re-close') spawns=$(cat "$RE_DIR/spawns" 2>/dev/null), expected 5/>=1/1/0/2"
+
+    # #811 OR-5, COMPOSED. The per-tool case asserts the scheduler WRITES the key; this asserts it
+    # survives the whole composed dispatch — the leg that actually runs the real scheduler against
+    # the real gate, which is the pair whose config resolution diverged. Under `-p` the value
+    # inherited and nothing had to carry it; under `--bg` a scheduler that dropped it left the gate
+    # resolving the COMMITTED config, so a bench or eval run read the wrong base branch and said
+    # nothing. Asserted on both spawns because the REVIEW half resolves it too.
+    if grep -q "\"SECOND_SHIFT_CONFIG\":\"$RE_CFG\"" "$RE_DIR/settings-1.json" 2>/dev/null \
+       && grep -q "\"SECOND_SHIFT_CONFIG\":\"$RE_CFG\"" "$RE_DIR/settings-2.json" 2>/dev/null; then
+      pass "(lean-reentry) the launcher's SECOND_SHIFT_CONFIG reaches BOTH composed payloads through the settings block — the alternate config the bench and the pinned-base eval depend on is not silently dropped"
+    else
+      fail "(lean-reentry) SECOND_SHIFT_CONFIG did not survive the composed dispatch: [$(cat "$RE_DIR/settings-1.json" 2>/dev/null)]"
+    fi
 
     # ---- non-vacuity for the scheduler leg -------------------------------------------------
     # The leg above would stay green if preflight admitted every claimed ticket. Vary the

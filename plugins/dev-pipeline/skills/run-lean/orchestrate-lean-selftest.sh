@@ -413,7 +413,6 @@ run_tool() { # run_tool [config] [args...]
   # UNSET so the tool falls through to its own shipped default. `-u GH` precedes the
   # assignments, so the ordinary case still gets the fake.
   envs=( PATH="$BIN:$PATH"
-         SECOND_SHIFT_CONFIG="$cfg"
          LEAN_SPAWN_BIN="${SPAWN_BIN_OVERRIDE:-$BIN/claude}"
          LEAN_GATE="$BIN/fake-gate.sh"
          SPAWN_LOG_DIR="$SPAWN_LOG_DIR" AGENTS_STATE_FILE="$AGENTS_STATE_FILE"
@@ -445,6 +444,11 @@ run_tool() { # run_tool [config] [args...]
          LEAN_LAUNCH_ID="${LAUNCH_ID_OVERRIDE:-}"
          RUN_ID=poisoned-parent-run LEAN_RUN_MODEL=poisoned-parent-model )
   [ "${USE_DEFAULT_GH:-0}" -eq 1 ] || envs+=( GH="$BIN/gh" )
+  # #811 OR-5. Same opt-out shape as GH above, and for the same reason: one case must run with
+  # SECOND_SHIFT_CONFIG genuinely UNSET in the launcher, so the tool falls through to the
+  # payload's own resolution ladder. `-u SECOND_SHIFT_CONFIG` precedes the assignments below, so
+  # an ambient one in the developer's shell cannot make that case pass by accident.
+  [ "${USE_DEFAULT_CONFIG:-0}" -eq 1 ] || envs+=( SECOND_SHIFT_CONFIG="$cfg" )
   # #613. Attendance is OPT-IN per case. Every pre-existing case keeps running with the session
   # id unset — which resolves headless, which is what makes their unchanged wording a real
   # assertion about the headless arm rather than an accident of this harness.
@@ -453,10 +457,10 @@ run_tool() { # run_tool [config] [args...]
   # apart. Every other case keeps the merged view it was written against.
   if [ "${RUN_TOOL_SPLIT:-0}" -eq 1 ]; then
     ( cd "$TREE" \
-      && env -u CLAUDE_CODE_SESSION_ID -u GH "${envs[@]}" bash "$TOOL" "$@" )
+      && env -u CLAUDE_CODE_SESSION_ID -u GH -u SECOND_SHIFT_CONFIG "${envs[@]}" bash "$TOOL" "$@" )
   else
     ( cd "$TREE" \
-      && env -u CLAUDE_CODE_SESSION_ID -u GH "${envs[@]}" bash "$TOOL" "$@" 2>&1 )
+      && env -u CLAUDE_CODE_SESSION_ID -u GH -u SECOND_SHIFT_CONFIG "${envs[@]}" bash "$TOOL" "$@" 2>&1 )
   fi
 }
 
@@ -587,6 +591,31 @@ if grep -qE -- '--settings /' <<<"$(spawn_argv 1)" \
    && [ -n "$(spawn_settings_of 1)" ]; then
   pass "(d3b) the child's environment travels by FILE PATH, never in argv — the block is readable to the payload and not to every process on the box"
 else fail "(d3b) the settings block was passed in argv, or no file reached the fake: $(spawn_argv 1)"; fi
+
+# #811 OR-5. SECOND_SHIFT_CONFIG REACHES THE PAYLOAD, and this is the arm the transport swap broke
+# in silence. The gate resolves it INSIDE the session — lean-gate.sh and seven siblings share one
+# `${SECOND_SHIFT_CONFIG:-$MAIN_ROOT/.claude/second-shift.config.json}` ladder — so under `-p` it
+# inherited and under `--bg` it did not, and a launch carrying an alternate config (the pinned-base
+# eval recipe, the lane bench) fell back to the COMMITTED one and targeted the wrong base branch
+# with no error anywhere. A silent wrong answer, which is why it is asserted on content.
+if grep -q "\"SECOND_SHIFT_CONFIG\":\"$CFG\"" <<<"$(spawn_settings_of 1)" \
+   && grep -q "\"SECOND_SHIFT_CONFIG\":\"$CFG\"" <<<"$(spawn_settings_of 2)"; then
+  pass "(d4) an alternate SECOND_SHIFT_CONFIG is forwarded VERBATIM to every spawn — the payload resolves the config the launcher chose, not the committed one"
+else fail "(d4) SECOND_SHIFT_CONFIG did not reach a spawn: $(spawn_settings_of 1) / $(spawn_settings_of 2)"; fi
+
+# ...and the KEY IS ABSENT when the launcher set none. Without this the forwarding could be
+# unconditional — writing an empty or a scheduler-invented value into the child's environment,
+# which would override the payload's own ladder with a worse answer than inheriting nothing. The
+# committed config is placed at the default path so the run still resolves and the case is
+# measuring the key's absence rather than a refusal.
+setup_case "" "$V_APPROVE" "ready-for-dev" "11"
+mkdir -p "$TREE/.claude"
+cp "$CFG" "$TREE/.claude/second-shift.config.json"
+out="$(USE_DEFAULT_CONFIG=1 run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 0 ] && [ -n "$(spawn_settings_of 1)" ] \
+   && ! grep -q 'SECOND_SHIFT_CONFIG' <<<"$(spawn_settings_of 1)"; then
+  pass "(d4a) a launcher that set no SECOND_SHIFT_CONFIG forwards no key — the payload keeps its own resolution ladder rather than being handed a value the scheduler invented"
+else fail "(d4a) the scheduler forwarded a config key it was never given, rc=$rc: $(spawn_settings_of 1)"; fi
 
 # ---- (e) fresh contexts, never a resumed one --------------------------------------------------
 if grep -qE -- '(^| )--bg( |$)' <<<"$(all_argv)" \

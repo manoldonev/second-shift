@@ -879,6 +879,20 @@ spawn_settings() { # spawn_settings <model> — writes the --settings payload, p
   # re-setting the arguments rather than in an array, because this file stays bash-3.2-safe for
   # the macOS lane, and assembled in one call because this runs on every spawn.
   set -- LEAN_ATTEND_MODE headless LEAN_RUN_MODEL "$model"
+  # SECOND_SHIFT_CONFIG (#811 OR-5, D-28). Read INSIDE the payload — `lean-gate.sh`, and with it
+  # lean-reconcile.sh, lean-evidence.sh, operator-override.sh, bot-commit.sh, gh-bot.sh,
+  # preflight.sh and pipeline-cost-block.sh all resolve it through the same
+  # `${SECOND_SHIFT_CONFIG:-$MAIN_ROOT/.claude/second-shift.config.json}` ladder. Under `-p` it
+  # INHERITED; under `--bg` nothing does, so it fell back to the committed config with no error at
+  # all, and every launch carrying an alternate one — docs/consumer-eval.md's pinned-base recipe,
+  # the lane bench — silently targeted the wrong base branch. Forwarded VERBATIM, and only when
+  # the launcher actually set it, so an ordinary run still resolves the committed config through
+  # the payload's own ladder rather than through a value this scheduler chose for it.
+  #
+  # The path travels as given, which means a RELATIVE one is resolved against the payload's cwd
+  # and not the launcher's — the lane worktree, not the checkout this was launched from. Pass an
+  # absolute path.
+  [ -n "${SECOND_SHIFT_CONFIG:-}" ] && set -- "$@" SECOND_SHIFT_CONFIG "$SECOND_SHIFT_CONFIG"
   for n in CLAUDE_CODE_ENABLE_TELEMETRY OTEL_METRICS_EXPORTER OTEL_EXPORTER_OTLP_PROTOCOL \
            OTEL_EXPORTER_OTLP_ENDPOINT OTEL_EXPORTER_OTLP_HEADERS OTEL_METRIC_EXPORT_INTERVAL; do
     v="$(printenv "$n" 2>/dev/null)" || v=""
@@ -893,6 +907,12 @@ spawn_settings() { # spawn_settings <model> — writes the --settings payload, p
   printf '%s' "$f"
 }
 
+# EVERY CONTROL-PLANE CALL GOES THROUGH `$SPAWN_BIN`, not through a literal `claude` (#811 OR-5,
+# D-28): the dispatch, this listing, `stop_session`'s stop, and preflight's resolvability probe.
+# So a `LEAN_SPAWN_BIN` wrapper sees `--bg`, `agents --json --all` and `stop <id>` and must
+# discriminate on argv to serve all three — which is what D-14's fake already does, said here
+# because a wrapper author reads this file rather than the suite.
+#
 # The listing, reduced to one row for one id: `<state><TAB><sessionId>`. Prints nothing and
 # returns non-zero when the call fails, the JSON does not parse, or the id is absent — three
 # conditions the caller counts TOGETHER, because none of them is evidence about the payload and
