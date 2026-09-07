@@ -1178,6 +1178,11 @@ spawn() { # spawn <role> <model> <prompt> — returns 0 on done or stuck, termin
     # arm, which bash 3.2 does not have.
     *)
       case "$SPAWN_STATE" in failed|stopped) SPAWN_ID="" ;; esac
+      # THE SLUG IS COMPOSED FROM THE ROLE, so no static reader can see it at this site. The two
+      # names it resolves to are real terminals that reach the launch ledger and the bench's
+      # results rows, so they are announced the way `review-skipped-approved` is — the scheduler
+      # says its own vocabulary where a grep of the source cannot derive it.
+      say "terminal-vocabulary: build-session-failed and terminal-vocabulary: review-session-failed are the two names this one site composes from the role; the terminal below carries whichever applies."
       terminal "$lower-session-failed" 1 "$role session $id ended $SPAWN_STATE in round ${round:-1} — blocked means it is waiting on an answer this headless run cannot give. Read the payload transcript at $log, whose last entry is the session's own final message, or 'claude attach $SPAWN_SID' before the session is reaped; the worktree and the claim are left in place." ;;
   esac
 }
