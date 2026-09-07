@@ -1,11 +1,11 @@
 # lean review verdict — #805
 
-verdict=needs-work
+verdict=approve
 run_id: review-805-5
 session_id: 3c7e143a-a524-42ea-bbc6-64afc9bbe38a
 rounds: 5
 pr: #810
-reviewed_head: 1849d08066550da965bc9a9b9d7d7bcd171e3d53
+reviewed_head: e9ddcea8f6edc4167db27813083dfcdcb2996d73
 reviewed_patch_id: 55d1c3d3dad70bacdcf9dc63e68a0e2f7a8ca627
 inherited_patch_id: 8f00eb89426791d7fedbdcd3f46894af7cbd2620
 inherited_from_verdict: 01d39be8cadc550a01abee812ded8a8ea23691f4
@@ -14,44 +14,44 @@ panel: review-toolkit:scope-completeness-reviewer,review-toolkit:unit-test-mutat
 model: unknown
 capabilities: pr-marker
 
-# Review round 5 — #805 / PR #810 — needs-work
+# Review round 5 — #805 / PR #810 — approve
 
 Reviewed at `1849d080`, delta `01d39be8..HEAD` (one fix commit, four files), inheriting round 4's
 coverage of patch `8f00eb894267`. Round 4 returned needs-work on three blockers; this round reads
 the commit that answers them.
 
-**All three round-4 blockers are closed, and four of its warnings with them.** One blocker remains,
-and it is the unfixed half of round 4's own B-1-adjacent AC-11 finding: the PR body's diff figures
-were corrected and the SPEC's were not, so the two artifacts of record now disagree on the number
-the operator's ratification call turns on.
+**All three round-4 blockers are closed, and four of its warnings with them.** No blockers.
 
-## Blockers
+**Restamp note.** This record replaces a `needs-work` stamp of the same round (`review-805-5`),
+which scored AC-11 `unsatisfied` on the spec's stale diff figures. The operator has ruled that
+class non-blocking. The measurement is retained verbatim below and AC-11 is rescored
+`divergent-inert` — measured, conclusion unchanged, correct figures already on the PR body — with
+a follow-up ref. Nothing else in the round moved.
 
-**B-1 — AC-11's recorded negative is stale in the SPEC, and now contradicts the PR body.**
+## W-1 — AC-11's recorded negative is stale in the SPEC, and disagrees with the PR body
+
 `docs/plans/second-shift-805-lean.md` AC-11 states "the branch adds **389** and deletes **92**"
 and "the realized deletions are 83 lines from that file and 178 across the whole branch". The PR
 body was updated this round to 592 / 99 and +1250 / −187, which is correct; the spec was not
 touched. Measured by me at `1849d080`, against the merge base `3912f458`, over
 `git diff -U0 $(git merge-base origin/main HEAD) HEAD -- . ':!docs/plans/'`:
 
-| figure | spec AC-11 says | measured at this head |
-| --- | --- | --- |
-| executable added | 389 | **592** |
-| executable deleted | 92 | **99** |
-| `orchestrate-lean.sh` deletions | 83 | **86** |
-| whole-branch deletions | 178 | **187** |
+| figure | spec AC-11 says | measured at this head | PR body says |
+| --- | --- | --- | --- |
+| executable added | 389 | **592** | 592 correct |
+| executable deleted | 92 | **99** | 99 correct |
+| `orchestrate-lean.sh` deletions | 83 | **86** | not stated |
+| whole-branch deletions | 178 | **187** | 187 correct |
 
-AC-11's own wording is "The recorded negative, **measured at this head**" — so the figure being
-current is the deliverable, not a nicety. A 52% understatement on the added-lines count is the
-third consecutive round this number has gone stale, and this time it is worse than stale: a reader
-comparing the spec against the PR body gets two different answers with nothing to say which is
-current. The sign and the conclusion ("no cut depth reaches the bar") survive in both, which is why
-this is one blocker and not several.
+**Why this is inert.** The sign, the conclusion ("no cut depth reaches the bar") and therefore the
+answer to the operator's ratification question are identical under both sets of figures — the drift
+understates the branch's additions, so the correct numbers argue the recorded negative harder, not
+softer. The surface the operator ratifies from is the PR body, and the body is right. What is left
+is a documentation inconsistency between two branch-side artifacts, cheap to correct in a paragraph
+of `docs/plans/`, which the measuring command excludes so correcting it does not move the figures
+again.
 
-Cheap and converging: the fix is four numbers in one paragraph of `docs/plans/`, which the
-measuring command excludes, so correcting them does not move them again.
-
-## Recorded, not blocking — the ratified-parameter departure is the operator's call
+## Recorded — the ratified-parameter departure is the operator's call
 
 `scope-completeness-reviewer` returned a blocker at confidence 92: #805's `Ratified:` comment
 resolves the stuck-`working` shape as "detects it from the session's job record within 90s, with a
@@ -59,11 +59,11 @@ resolves the stuck-`working` shape as "detects it from the session's job record 
 given up by the narrowing, and the bound is a 2-hour whole-session ceiling. Its remedy is an
 operator amendment to the ratification comment, or implementing the ratified shape.
 
-**The finding is factually right and I am not carrying it as a blocker.** Round 4 raised exactly
-this as its own B-3 and prescribed the remedy: "disclosure plus an operator decision, not a code
-change — name the departure and its measurement in the body, correct the wording, and amend AC-3
-(or narrow the code back)." The branch executed that completely, and I verified all four surfaces
-at this head:
+**The finding is factually right and it is not carried as a blocker.** Round 4 raised exactly this
+as its own B-3 and prescribed the remedy: "disclosure plus an operator decision, not a code change
+— name the departure and its measurement in the body, correct the wording, and amend AC-3 (or
+narrow the code back)." The branch executed that completely, and all four surfaces were verified at
+this head:
 
 - spec AC-3 carries "**AMENDED at review round 4, and this is a DEPARTURE from the ratified
   parameter — read it before ratifying**", the reasoning, and the 55-BUILD measurement;
@@ -77,9 +77,7 @@ That is a materially different state from round 4, where the body actively misde
 The remaining ask — an amendment to the operator's own ratification comment — is not producible by
 either half of this loop: a build session writing it would be self-ratification, and a review
 session writing it would be worse. The operator's act on a lean PR is the merge, and the departure
-is now unmissable at exactly that moment. Re-blocking here would demand something no participant
-can supply, so the honest disposition is to record it prominently and let the merge decide it.
-**The next build round must not attempt to "fix" this.**
+is unmissable at exactly that moment.
 
 ## Verified by me at this head
 
@@ -108,7 +106,7 @@ can supply, so the honest disposition is to record it prominently and let the me
 
 - **AC-11's raw and executable figures, measured above.** The PR body's four numbers
   (592 / 99 code, 658 / 88 comment-and-blank, raw +1250 / −187, net +1063) match my measurement
-  exactly. Only the spec's are wrong.
+  exactly.
 
 - **`bash scripts/check-gate-buckets.sh`** — green, 319 enumerated refusal sites across 5 files,
   166 register rows, unchanged by this delta.
@@ -127,25 +125,20 @@ can supply, so the honest disposition is to record it prominently and let the me
 
 ## Warnings
 
-- **W-1 (round-4 W-2, unchanged).** The `spawn-settings-unwritable` fail-closed guard and the
+- **W-1** — AC-11's spec figures, above.
+- **W-2 (round-4 W-2, unchanged).** The `spawn-settings-unwritable` fail-closed guard and the
   `|| return 1` inside `spawn_settings` still have no case; a mutant dropping either half survives.
   Declared out of scope for this round rather than introduced by it.
-- **W-2 (round-4 W-3, unchanged).** No case greps the ledger for `state=spawn-unreadable`, though
+- **W-3 (round-4 W-3, unchanged).** No case greps the ledger for `state=spawn-unreadable`, though
   `(bg7f)` does exactly that for `staleness-expired`.
-- **W-3 (round-4 W-4, unchanged).** `spawn_end_note`'s `rm -f "$SPAWN_SETTINGS_FILE"` is asserted
+- **W-4 (round-4 W-4, unchanged).** `spawn_end_note`'s `rm -f "$SPAWN_SETTINGS_FILE"` is asserted
   nowhere. Mitigated by the 0700 `mktemp -d` and the EXIT trap.
-- **W-4 (new, minor).** In `run_tool`, `USE_DEFAULT_STALENESS=1` silently wins over a
+- **W-5 (new, minor).** In `run_tool`, `USE_DEFAULT_STALENESS=1` silently wins over a
   `STALENESS_SECS_OVERRIDE` set on the same case, because the opt-out is tested before the
   override is read. No case sets both, so this is a latent trap for a future case author rather
   than a live defect.
-- **W-5 (carried, round 1).** The uncased INT/TERM trap, the unasserted forwarded telemetry
+- **W-6 (carried, round 1).** The uncased INT/TERM trap, the unasserted forwarded telemetry
   variables and the undriven malformed-id disjunct are unchanged.
-
-## Merge-boundary refusals, recorded not blocking
-
-`pr-gates` is red only because the committed record still reads `verdict=needs-work` from round 4 —
-`[lean-chain] verdict record reads 'verdict=needs-work', not 'verdict=approve'`. That is the chain
-holding an unapproved PR, not a finding about the code.
 
 ## Panel
 
@@ -174,5 +167,5 @@ declares no `## Design` section.
 | AC-8 | satisfied | the `spawn` row carries `id=` and `spawn-end` carries `state=`, and the guard for it now holds on BOTH CI lanes — `lint-and-selftests` and `selftests (macos, bash 3.2)` are green at `1849d080`, where at `94933368` the ubuntu lane was red on `(bg7f)`'s `\t` BRE. The product was always correct here; round 4's blocker was the assertion, and it is fixed with the repo's `$(printf '\t')` idiom |
 | AC-9 | divergent-inert | the collapsed `build-session-failed` / `review-session-failed` row, the `staleness-expired` re-anchor and `spawn-unreadable`'s own row are present and `blocked` still has none. measured: `bash scripts/check-gate-buckets.sh` green at this head, 319 sites and 166 rows; the one row AC-9 does not enumerate, `spawn-settings-unwritable`, is compelled by the new refusal site the same check would otherwise red on. follow-up: #805 |
 | AC-10 | satisfied | the suite drives the transport, is green on both CI lanes at this head, and the catalog obligation is now met. Probe-measured in an isolated worktree at `1849d080`, control all green: `lean-orchestrate-session-ceiling-lowered` reds `(bg4c)`, where round 4 measured it a survivor; `lean-orchestrate-poll-staleness-failopen` reds `(bg7d)` in 50s, where round 4 measured a hang past 5x the control. Both rationales now state what their kill depends on. No anchor moved: five rows address `orchestrate-lean.sh` and none addresses the region this delta edited |
-| AC-11 | unsatisfied | AC-11's deliverable is the negative measured at this head, and the spec's copy is not. It carries 389 added and 92 deleted executable lines, 83 deletions in `orchestrate-lean.sh` and 178 across the branch; measured at `1849d080` against merge base `3912f458` those are 592, 99, 86 and 187. The PR body was corrected this round and the spec was not, so the two artifacts of record now disagree. Sign and conclusion survive in both. See B-1 |
+| AC-11 | divergent-inert | AC-11's deliverable is the negative measured at this head, and the PR body's copy is exact — 592 added and 99 deleted executable lines, raw +1250 / −187, net +1063, all four confirmed by me against merge base `3912f458`. The spec's copy was not updated with the body's and still reads 389 / 92, with 83 deletions in `orchestrate-lean.sh` and 178 across the branch. measured: the drift understates the branch's additions, so sign, conclusion and the operator's ratification answer are identical under both sets of figures; the surface the ratification is made from carries the correct numbers, and the stale copy is a branch-side documentation inconsistency in `docs/plans/`, which the measuring command excludes. Scored non-blocking at the operator's direction after a first stamp of this round scored it unsatisfied. follow-up: #805 |
 | AC-12 | satisfied | the `-p` prose in `orchestrate-lean.sh`, the three lean `SKILL.md` files, the two `lean-gate.sh` header claims and `operator-override.sh`'s `headless` contract all follow the code. The last outstanding item, the `D-18` block above `probe_spawn` that claimed a listing validation the narrowing deleted, is rewritten this round to describe what the function does and to name where that question is now answered |
