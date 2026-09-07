@@ -144,7 +144,10 @@ MISSING="$(printf '%s' "$ROW" | awk -F"$TAB" '{ for (i = 1; i <= 10; i++) if ($i
 # ---- the seeded defects ------------------------------------------------------------------------
 # Read into parallel indexed arrays: bash 3.2 has no associative arrays.
 D_ID=(); D_TEST=(); D_RE=()
-while IFS="$TAB" read -r d_id d_file d_desc d_test d_re; do
+# `|| [ -n "$d_id" ]`: a hand-authored TSV whose last row carries no trailing newline would
+# otherwise be read into the vars and then dropped, silently shrinking review_catch's
+# denominator and skipping that defect's D-6 detector-pair refusal.
+while IFS="$TAB" read -r d_id d_file d_desc d_test d_re || [ -n "$d_id" ]; do
   case "$d_id" in ''|'#'*) continue ;; esac
   [ "$d_id" = "id" ] && continue
   [ -n "$d_test" ] || die "seeded defect '$d_id' carries no test_id"
@@ -237,7 +240,9 @@ AT_HEAD=0
 i=0
 while [ "$i" -lt "$SEEDED" ]; do
   t="${D_TEST[$i]}"
-  line="$(grep -E "^TEST[[:space:]]+${t}[[:space:]]+(PASS|FAIL)[[:space:]]*$" "$RUN_OUT" | head -n1)"
+  # Matched as literal fields, not as a pattern: a test id carrying an ERE metacharacter
+  # would otherwise match more TEST lines than its own and mis-score defects_at_head.
+  line="$(awk -v t="$t" 'NF == 3 && $1 == "TEST" && $2 == t && ($3 == "PASS" || $3 == "FAIL") { print; exit }' "$RUN_OUT")"
   [ -n "$line" ] || die "seeded defect '${D_ID[$i]}' names test id '$t', which the overlay's run.sh did not report at $PR_HEAD — the detector pair is broken, and scoring it as 'not present' would credit the arm for a test that never ran"
   case "$line" in *FAIL) AT_HEAD=$((AT_HEAD + 1)) ;; esac
   i=$((i + 1))

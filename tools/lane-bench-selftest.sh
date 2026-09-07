@@ -181,6 +181,22 @@ if [ -z "$(col "$R" t1-skeleton-r1 13)" ] && [ -z "$(col "$R" t1-skeleton-r1 19)
   pass "(a5) only the --cell row is written"
 else fail "(a5) a second row was written"; fi
 
+# The seeded-defect list is hand-authored by the operator, so its last row may carry no trailing
+# newline. Dropping it would shrink review_catch's DENOMINATOR silently: the same lane would score
+# a flattering 2/2 instead of 2/3, and the dropped defect's D-6 detector-pair refusal would never
+# run. The fraction is the assertion — a count of rows read would pass on a scorer that read them
+# and then scored something else.
+NONL="$WORK/defects-nonl.tsv"
+printf '%s' "$(cat "$DEFECTS")" > "$NONL"
+[ -n "$(tail -c1 "$NONL")" ] || fail "(a6) fixture is not newline-less — the case cannot fail for the reason it names"
+R1B="$WORK/a-nonl.tsv"; mk_results "$R1B"
+out="$(bash "$TOOL" score --results "$R1B" --cell t4-control-r2 --issue "$ISSUE" --config "$CONFIG" \
+        --overlay "$OVERLAY" --defects "$NONL" 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(col "$R1B" t4-control-r2 18)" = "2/3" ] \
+   && [ "$(col "$R1B" t4-control-r2 16)" = "1" ]; then
+  pass "(a6) a defect list whose last row has no trailing newline is read whole — review_catch keeps all three in its denominator"
+else fail "(a6) rc=$rc catch=$(col "$R1B" t4-control-r2 18) at_head=$(col "$R1B" t4-control-r2 16) out: $out"; fi
+
 # ================================================================= (b) idempotence
 prev="$(col "$R" t4-control-r2 19)"
 sleep 1
