@@ -124,7 +124,11 @@ BRANCH="${BRANCH_PREFIX}${ISSUE}"
 VERDICT_REL="$PLANS_DIR/$REPO_SLUG-$ISSUE-lean-verdict.md"
 
 # ---- the results row ---------------------------------------------------------------------------
-head -n1 "$RESULTS" | grep -qxF "$HEADER" \
+# Compared as a whole string rather than by piping the header into a quiet matcher: a producer
+# that dies inside a pipeline is indistinguishable from a genuine non-match, and this is the
+# check standing between the scorer and rewriting a file whose columns mean something else.
+HDR_LINE="$(head -n1 "$RESULTS")" || die "cannot read the header line of $RESULTS"
+[ "$HDR_LINE" = "$HEADER" ] \
   || die "$RESULTS does not carry the 19-column header this scorer writes against — refusing to rewrite a file whose shape it cannot vouch for"
 
 ROW="$(awk -F"$TAB" -v c="$CELL" 'NR > 1 && $1 == c { print; found = 1; exit } END { exit !found }' "$RESULTS")" \
