@@ -1000,9 +1000,18 @@ spawn() { # spawn <role> <model> <prompt> — returns 0 on done or stuck, termin
     # more. `failed` is the supervisor giving up rather than a payload crash — it restarts a session
     # whose process exits and lets it resume — so this is a rarer and stronger signal than the
     # non-zero exit it replaces; `blocked` is the shape `-p` reported as exit 0 with no PR, and
-    # nobody is here to answer it. SPAWN_ID is still set, so `terminal` stops whichever of them is
-    # still running before it exits.
-    *) terminal "$lower-session-failed" 1 "$role session $id ended $SPAWN_STATE in round ${round:-1} — blocked means it is waiting on an answer this headless run cannot give. Read the payload transcript at $log, whose last entry is the session's own final message, or 'claude attach $SPAWN_SID' before the session is reaped; the worktree and the claim are left in place." ;;
+    # nobody is here to answer it.
+    #
+    # ONLY `blocked` IS STILL RUNNING, so only `blocked` keeps the handle. `failed` and `stopped`
+    # name sessions the supervisor has already ended, and leaving their handle set makes
+    # `spawn_cleanup` announce "still in flight — stopping it" about a session the listing reported
+    # as finished one line earlier — a false sentence on the one path an operator is reading
+    # closely, and a second stop of a dead id. `terminal`'s own contract already says callers that
+    # ended their child clear SPAWN_ID; this is those callers doing it. Nested rather than a `;;&`
+    # arm, which bash 3.2 does not have.
+    *)
+      case "$SPAWN_STATE" in failed|stopped) SPAWN_ID="" ;; esac
+      terminal "$lower-session-failed" 1 "$role session $id ended $SPAWN_STATE in round ${round:-1} — blocked means it is waiting on an answer this headless run cannot give. Read the payload transcript at $log, whose last entry is the session's own final message, or 'claude attach $SPAWN_SID' before the session is reaped; the worktree and the claim are left in place." ;;
   esac
 }
 

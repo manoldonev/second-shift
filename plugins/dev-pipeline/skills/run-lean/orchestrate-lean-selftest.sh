@@ -322,12 +322,11 @@ setup_case() { # setup_case <agent-states> <gate-rcs> <labels> <pr>
   LABELS_FILE="$d/labels"; PR_FILE="$d/pr"; COMMENTS_FILE="$d/comments"
   AGENTS_STATE_FILE="$d/agent-states"; SPAWN_ID_FILE="$d/spawn-ids"
   GATE_RC_FILE="$d/gate-rcs"
-  # #805. A PRIVATE HOME per case, because the tool reads two harness-owned paths under it —
-  # `~/.claude/jobs/<id>/state.json` for D-8's idle read and `~/.claude/projects/*/<sid>.jsonl`
-  # for the transcript's closing message. Without this the suite would consult the machine's real
-  # session state, so a case would pass or fail on what the developer's own harness happened to
-  # be holding. Empty by default: no job record (D-8 degrades to its ceiling) and no final
-  # message, which is the shape every pre-existing case assumes.
+  # #805. A PRIVATE HOME per case, because the tool reads a harness-owned path under it —
+  # `~/.claude/projects/*/<sid>.jsonl`, for the transcript's closing message. Without this the
+  # suite would consult the machine's real session state, so a case would pass or fail on what the
+  # developer's own harness happened to be holding. Empty by default: no final message, which is
+  # the shape every pre-existing case assumes.
   CASE_HOME="$d/home"; mkdir -p "$CASE_HOME"
   : > "$SPAWN_ID_FILE"
   PROGRESS_M5_FILE="$d/progress-m5"
@@ -897,11 +896,18 @@ else fail "(j1) expected rc=1 after 1 spawn, got rc=$rc / $(spawn_count) / slug=
 
 setup_case "stopped" "0" "ready-for-dev" "11"
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+# The stop hygiene rides on the same case rather than a twin, because it is a property of THIS
+# terminal rather than a scenario of its own: `stopped` is the state where "still in flight" is
+# most obviously false, and the handle `spawn` leaves behind is the only thing that decides it.
+# A tool that keeps the handle here announces a stop of a session the listing just reported as
+# ended, and issues it.
 if [ "$rc" -eq 1 ] && [ "$(gate_count)" -eq 0 ] \
    && [ "$(slug_of "$out")" = "build-session-failed" ] \
-   && grep -q 'ended stopped' <<<"$out"; then
-  pass "(j1a) 'stopped' is the same phase failure as 'failed' — a session somebody ended is not one that finished"
-else fail "(j1a) expected rc=1 with build-session-failed, got rc=$rc / slug=$(slug_of "$out"): $out"; fi
+   && grep -q 'ended stopped' <<<"$out" \
+   && ! grep -q 'still in flight' <<<"$out" \
+   && [ ! -s "$SPAWN_LOG_DIR/stops" ]; then
+  pass "(j1a) 'stopped' is the same phase failure as 'failed' — a session somebody ended is not one that finished, and is not announced as in flight nor stopped a second time"
+else fail "(j1a) expected rc=1 with build-session-failed and no re-stop, got rc=$rc / slug=$(slug_of "$out") / stops=[$(cat "$SPAWN_LOG_DIR/stops" 2>/dev/null)]: $out"; fi
 
 setup_case "" "$V_APPROVE" "ready-for-dev" ""
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
@@ -1799,19 +1805,23 @@ if [ "$rc" -eq 1 ] && [ "$(slug_of "$out")" = "review-session-failed" ]; then
   pass "(bg2a) the phase-failure slug names the ROLE — build-session-failed and review-session-failed route differently in a log"
 else fail "(bg2a) expected review-session-failed, got slug=$(slug_of "$out"): $out"; fi
 
-# THE TRANSCRIPT SURVIVES A TERMINAL, and this is the case that proves it. A run that ends from
-# INSIDE the poll never returns to `spawn`, so a close that lived only after the poll call left a
-# 0-byte file on exactly the paths whose own remedy says to read it. Driven through `blocked`,
-# which is the terminal that says so out loud, with the same projects-jsonl fixture (y2a) uses.
+# THE CLOSE IS IDEMPOTENT, and `blocked` is the one path that can prove it. Two closes are reached
+# here and only here: `blocked` RETURNS from the poll, so `spawn`'s own close runs, and then the
+# terminal it routes to runs `spawn_cleanup`'s. `SPAWN_CLOSED` is what makes the second a no-op, so
+# EXACTLY ONE is the assertion — presence alone passes just as happily over a transcript carrying
+# the session's final message twice, which is what dropping the flag would produce. Same
+# projects-jsonl fixture (y2a) uses.
 setup_case "$(printf 'working\nblocked\n')" "$V_APPROVE" "ready-for-dev" "11"
 mkdir -p "$CASE_HOME/.claude/projects/some-cwd-slug"
 jq -n -c '{type:"assistant", message:{content:[{type:"text", text:"FINAL-MESSAGE-FROM-BUILD"}]}}' \
   > "$CASE_HOME/.claude/projects/some-cwd-slug/sess1-full.jsonl"
 LAUNCH_ID_OVERRIDE=bg2b-launch run_tool "$CFG" "$ISSUE" --build-model sonnet >/dev/null 2>&1
 bg2b_log="$TREE/.claude/pipeline-state/$ISSUE-lean-spawn-bg2b-launch-1-build.log"
-if [ -s "$bg2b_log" ] && grep -q 'FINAL-MESSAGE-FROM-BUILD' "$bg2b_log" 2>/dev/null; then
-  pass "(bg2b) a run that terminals from inside the poll still closes its transcript — the file its own remedy names is not empty"
-else fail "(bg2b) the transcript was not closed on a terminal path: [$(cat "$bg2b_log" 2>/dev/null)]"; fi
+bg2b_n="$(grep -c 'final message of session' "$bg2b_log" 2>/dev/null || echo 0)"
+if [ -s "$bg2b_log" ] && grep -q 'FINAL-MESSAGE-FROM-BUILD' "$bg2b_log" 2>/dev/null \
+   && [ "$bg2b_n" -eq 1 ]; then
+  pass "(bg2b) the path that reaches BOTH closes appends the final message exactly once — the close is idempotent, not merely present"
+else fail "(bg2b) expected exactly one close block, got $bg2b_n: [$(cat "$bg2b_log" 2>/dev/null)]"; fi
 
 # THE SILENCE CEILING, which is the whole of the stuck fallback the narrowed scope keeps. A payload
 # whose turn ended over a bare backgrounded command sits at `working` with nothing left to do,
@@ -1901,6 +1911,33 @@ if [ "$rc" -eq 7 ] && [ "$(slug_of "$out")" = "staleness-expired" ] \
    && grep -q 'index.lock' <<<"$out"; then
   pass "(bg7) a premise that expires WHILE the session is live stops it mid-flight at exit 7, and the message owns the partial-operation risk"
 else fail "(bg7) mid-flight staleness did not abort, rc=$rc / slug=$(slug_of "$out") / stops=[$(cat "$SPAWN_LOG_DIR/stops" 2>/dev/null)]: $out"; fi
+
+# AC-10's "the transcript surviving a terminal reached from INSIDE the poll", and this is the case
+# that holds it. A blocked session returns to `spawn` and is closed there; the two arms that still
+# exit from within the loop — this one, and `spawn-unreadable` — never come back, so their ONLY
+# close is the one in `spawn_cleanup`, the funnel `terminal` goes through. That matters because
+# both of those terminals tell the operator to go read the payload transcript, and before the
+# funnel close existed the file they named was 0 bytes on exactly those paths.
+#
+# Driven through mid-flight staleness rather than through `spawn-unreadable`: this is the arm that
+# has a session id by the time it fires (tick 1 read the listing), so the transcript has real
+# content to carry rather than the no-id notice. Same scenario as (bg7), a separate case because
+# the invariant is the transcript's, not the abort's — and the launch override is what makes the
+# file addressable by name.
+setup_case "$(printf 'working\nworking\ndone\n')" "$V_APPROVE" "ready-for-dev" "11"
+printf '0\n0\n7\n' > "$STALENESS_RC_FILE"
+mkdir -p "$CASE_HOME/.claude/projects/some-cwd-slug"
+jq -n -c '{type:"assistant", message:{content:[{type:"text", text:"FINAL-MESSAGE-FROM-BUILD"}]}}' \
+  > "$CASE_HOME/.claude/projects/some-cwd-slug/sess1-full.jsonl"
+out="$(LAUNCH_ID_OVERRIDE=bg7a-launch run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+bg7a_log="$TREE/.claude/pipeline-state/$ISSUE-lean-spawn-bg7a-launch-1-build.log"
+# NON-VACUITY FIRST. The transcript assertion means nothing unless this run really left through the
+# terminal inside the loop: a case that settled normally would be closed by `spawn` and pass while
+# proving the opposite. So the slug and exit code are asserted alongside the file.
+if [ "$rc" -eq 7 ] && [ "$(slug_of "$out")" = "staleness-expired" ] \
+   && [ -s "$bg7a_log" ] && grep -q 'FINAL-MESSAGE-FROM-BUILD' "$bg7a_log" 2>/dev/null; then
+  pass "(bg7a) a terminal reached from INSIDE the poll still closes its transcript — the file that terminal's own remedy names is not empty"
+else fail "(bg7a) expected rc=7/staleness-expired with a closed transcript, got rc=$rc / slug=$(slug_of "$out") / log=[$(cat "$bg7a_log" 2>/dev/null)]"; fi
 
 # D-4. The id reaches the operator at DISPATCH, with the command that uses it — the property `-p`
 # could not have, because there was no id until the process ended and no channel into it if there
