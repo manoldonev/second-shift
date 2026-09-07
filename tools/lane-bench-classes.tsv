@@ -1,0 +1,80 @@
+# lane-bench-classes.tsv — the lane bench's terminal-class map (#812 AC-1, D-5/D-16/D-17).
+#
+# Columns: slug <TAB> class <TAB> condition
+#
+# slug       A terminal slug of the lean lane's scheduler. The set is DERIVED, not curated:
+#            tools/lane-bench-selftest.sh reads every command-position `terminal <slug>` and
+#            `envfail <slug>` call site out of the shipped orchestrate-lean.sh, plus the one
+#            `terminal-vocabulary:` announcement, and requires this file to name exactly that
+#            set in BOTH directions. A slug added to the scheduler with no row here reds; a row
+#            here naming no live site reds. That is what makes docs/lane-bench.md's claim to
+#            cover "the lane's full slug vocabulary" falsifiable rather than prose.
+# class      One of approved | paused | no-pr | pr-unapproved | lane-error | unscorable,
+#            or `-` for the one announced member that is not a terminal (see below).
+# condition  `-` when the class follows from the slug alone; otherwise the extra fact the
+#            runner must read to choose, stated as the runner's own predicate.
+#
+# THE MAP IS THE EPIC'S, TAKEN VERBATIM (D-16). It is not re-reasoned here, and two of its calls
+# would not survive being re-reasoned from the slug text alone: `lane-closed-out` and the whole
+# `closeout-*` family are `lane-error` although all four sit downstream of an approve verdict,
+# because what the bench measures is a cell that ran to its own terminal, and a cell that could
+# not finish its bookkeeping is re-run rather than scored. Changing a class is an epic decision,
+# not a maintenance edit.
+#
+# `-` CLASS, ONE ROW. `review-skipped-approved` is announced with the scheduler's
+# `terminal-vocabulary:` prefix but no `terminal` call carries it: the run says it and falls into
+# the close-out, which terminals under another slug. No results row can hold it. It is listed so
+# the completeness guard can tell an announced member from a missing one (D-17).
+#
+# WHO READS THIS. `lane-bench.sh score` reads it for exactly one thing — validating the
+# `unscorable` class it writes when a cell cannot be scored. Deriving a cell's class from its
+# terminal is `lane-bench.sh run`'s job (#813); this file is that derivation's data, landed with
+# the document that describes it so the two cannot ship apart.
+
+approved	approved	-
+build-no-pr	paused	a milestone-1 `pause-and-ask` row in <stateDir>/<issue>-lean-progress.md
+build-no-pr	no-pr	no such row
+build-session-failed	no-pr	-
+review-session-failed	no-pr	-
+rounds-spent	pr-unapproved	a PR exists on the lane branch
+rounds-spent	no-pr	no PR on the lane branch
+review-dark	pr-unapproved	a PR exists on the lane branch
+review-dark	no-pr	no PR on the lane branch
+verdict-gate-failed	pr-unapproved	a PR exists on the lane branch
+verdict-gate-failed	no-pr	no PR on the lane branch
+verdict-budget-spent	pr-unapproved	a PR exists on the lane branch
+verdict-budget-spent	no-pr	no PR on the lane branch
+verdict-self-authored	pr-unapproved	a PR exists on the lane branch
+verdict-self-authored	no-pr	no PR on the lane branch
+pr-ambiguous	unscorable	-
+build-inflight	lane-error	-
+build-inflight-unreadable	lane-error	-
+closeout-incomplete	lane-error	-
+closeout-inflight	lane-error	-
+closeout-inflight-unreadable	lane-error	-
+dry-run	lane-error	-
+env-branch-prefix	lane-error	-
+env-branch-prefix-lib	lane-error	-
+env-config-unparseable	lane-error	-
+env-git-common-dir	lane-error	-
+env-main-root	lane-error	-
+env-no-git-repo	lane-error	-
+env-temp-dir	lane-error	-
+env-tracker-type	lane-error	-
+lane-closed-out	lane-error	-
+preflight-rejected	lane-error	-
+preflight-rejected-resumable	lane-error	-
+staleness-expired	lane-error	-
+staleness-unreadable	lane-error	-
+usage-empty-review-model	lane-error	-
+usage-max-continuations	lane-error	-
+usage-max-rounds	lane-error	-
+usage-missing-build-model	lane-error	-
+usage-missing-issue	lane-error	-
+usage-review-model-basis	lane-error	-
+usage-unexpected-argument	lane-error	-
+usage-unknown-option	lane-error	-
+verdict-gate-unreadable	lane-error	-
+verdict-progress-unreadable	lane-error	-
+worktree-missing	lane-error	-
+review-skipped-approved	-	announced by the scheduler, never a terminal — no results row can hold it

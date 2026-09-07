@@ -580,6 +580,105 @@ rule 5.
 `d8ea88aa` (#753 / PR #776). Zero live references anywhere in the tree; absent from the
 default-tier prose census.
 
+### Re-measured with `review-lead` loaded (#803)
+
+#800 kept U-5 and R-3 on the bound *"`review-lead` is absent from every arm"* rather than on a
+measurement. This arm supplies one: arm 2b's frozen §C harness, same subject pin (`8d5d0897`), same
+sample (C2-a, #654 @ `cfba102`), same prompt assembly, with **one addition** —
+`--plugin-dir` pointing at the shipping `review-toolkit`, so `review-lead` is discoverable.
+Registered in advance at
+[`docs/skill-ablation-addendum-2.md`](skill-ablation-addendum-2.md), which also fixes why the
+*shipping* plugin is loaded rather than the clone's own copy: `review-lead` at `cfba102` predates
+#730 and carries no rule naming R-3, so loading it would have re-created the confound one layer
+down.
+
+**The arm exits `no basis` — construction not delivered.** Not because the control could not
+review, but because no run ever reached the implementation.
+
+| condition | registered bar | measured | verdict |
+| --- | --- | --- | --- |
+| control reproduces the C2-a ground-truth blocker | ≥ 2 of 3 | **2 of 3** (r1 HIT, r2 HIT, r3 miss) | clears |
+| control actually **invokes** `review-lead` | ≥ 2 of 3 | **0 of 3** | fails |
+
+The two conditions are independent, and both are recorded — reporting only the one that failed
+would hide that the review half of the construction behaved normally. r3's miss is a same-file,
+different-defect finding (`exit "$violations"` wrapping modulo 256 at `:300`), scored a miss under
+the frozen hit rule and quoted verbatim in
+[`c2-review-reviewlead/ablated-control-654-review.md`](plans/skill-ablation/c2-review-reviewlead/ablated-control-654-review.md).
+
+**Availability was delivered; invocation was not.** Every run's `init` event lists
+`review-toolkit:review-lead` under `slash_commands`, all 18 reviewer agents under `agents`, and both
+`Skill` and `Task` under `tools`. Across three captures: 0 `Skill` calls, 0 `Task` dispatches, 0 tool
+inputs naming `review-lead`. Each session reviewed the diff directly with `Grep`, `Bash` and `Read`
+— exactly as arm 2b's plugin-free control did. All three captures carry a terminal `result` event
+(`tools/classify-capture.sh` exit 0); zero indeterminate runs, so nothing here is scored on absence.
+
+Per the asymmetry registered before the runs, a control below the delivery bar scores nothing, and
+under §C a void control does not proceed to the ablation runs. So **U-5 and R-3 are unscored**, the
+two ablated arms were never launched, and no `no-effect` is recorded for either unit. Per-unit rows
+in [`c2-review-reviewlead/ablation-units.tsv`](plans/skill-ablation/c2-review-reviewlead/ablation-units.tsv).
+
+**#800's keeps are untouched.** They were never contingent on this measurement: R-3's referent at
+`review-lead/SKILL.md:533` is unpaired by any `LOCKSTEP` marker, and U-5's head text interleaves with
+#755 and #683. What this arm removes is not the keeps but the *hope* that an ablation could have
+overturned them.
+
+#### What the exit actually establishes
+
+The generalizing question this ticket asked was whether a study that never loads the implementation
+a unit routes to can produce a `no-effect` that means anything. The answer is sharper than a score
+would have been, and it is a fact about harnesses rather than about these two units:
+
+> **Making an implementation discoverable does not make a one-shot review session route to it.**
+
+`review-lean`'s U-5 says `review-lead` "is the implementation — no reviewer is defined here". Under
+a piped-prompt harness that supplies U-5 as *text* rather than as a loaded skill, that sentence
+produced no dispatch in 3 of 3 runs even with the skill, the agents and the `Skill` tool all on
+offer. So the routing U-5 describes is not reachable by adding a flag; it is a property of the lane
+that invokes `review-lean` as a skill, which is the thing no bare-arm construction models.
+
+That is the empirical basis for addendum 2's registered rule — fixed **before** these runs, so it is
+not a conclusion shaped by them:
+
+> A unit whose function is routing to an implementation the harness does not load is
+> apparatus-bound. It scores `not-reached — no basis`, never `no-effect`.
+
+The rule now binds a case it was written for and a case it was not: U-5 and R-3 are apparatus-bound
+under a harness that *does* load the implementation, because loading is not invoking. Arm 2b's
+[`c2-review/ablation-units.tsv`](plans/skill-ablation/c2-review/ablation-units.tsv) stays frozen —
+it correctly describes what the pinned run produced under the construction it names.
+
+#### The coarse 18th unit — a sighting, as registered
+
+§C's fallback 1 promotes `review-lead`-as-a-whole to a coarse 18th unit when the control is re-run
+with it available. Side by side: arm 2b's control hit 3 of 3, this one 2 of 3. **That is a sighting,
+not a score**, and it is reported as one. The two batches are days and two CLI versions apart
+(2.1.241 → 2.1.263), §C already recorded that its own three control runs disagreed with each other,
+and — decisively — the flag delivered no invocation, so there is no `review-lead` effect present in
+this control to attribute anything to.
+
+#### Bounds of this construction
+
+- **The whole `review-toolkit` plugin loads**, not `review-lead` alone — three skills and 18 agents,
+  the minimal loadable unit that makes `review-lead` functional. Nothing here is attributable to
+  `review-lead` alone. Moot in the event, since nothing in the plugin was used.
+- **Deliberately not era-consistent:** pinned subject and sample, current implementation.
+- **`--allowedTools` still does not restrict.** The `init` tool set carries `Bash`, `Write`, `Edit`,
+  `Task` and `Skill` despite a `Read,Grep,Glob` allowlist, and every run executed `Bash` —
+  reproducing #796 on CLI 2.1.263. Separately, and *not* what #796 recorded, the default permission
+  mode denied 4–5 individual `Bash` invocations per run: read-only shapes ran, executing a repo
+  script did not. That is not incidental — r3, the miss, says in its own output that it could not
+  run the guard and reproduced its greps instead. Arm 2b's captures are not committed, so whether
+  its control met the same denials cannot be checked; it is recorded as observed, not as a
+  difference. Per OR-3, nothing was changed to force parity.
+
+#### What a successor would have to change
+
+Not a flag. The construction that would measure U-5's routing has to make the session *behave like
+the lane* — `review-lean` loaded as a skill and invoked, rather than pasted in as prompt text —
+which changes the substrate the whole of §2 is measured on. That is a different comparison, not a
+further arm of this one, and it is not filed here.
+
 ### What bounds this arm
 
 - **`review-lead` is absent from every arm, including the control.** U-5 names it as the Review
@@ -764,6 +863,16 @@ rather than as a green sweep that proves something it does not. The successors a
 - **#800 is done** — see §2's *Execution (#800)* subsection: R-4 is deleted, and U-5 and R-3 are
   kept, each with a reason on file. The list binds `8d5d0897`; the fourteen `not-reached` units and
   every line added since stayed out of its scope.
+- **#803 is done, and it returns `no basis`** — see §2's *Re-measured with `review-lead` loaded
+  (#803)* subsection. Re-running arm 2b's harness with `review-lead` discoverable delivered the
+  availability and not the invocation: the skill, its 18 agents and the `Skill` tool were on offer in
+  3 of 3 control runs and used in 0 of 3, below the 2-of-3 delivery bar registered before the runs.
+  So U-5 and R-3 stay **unscored**, the ablated arms were never launched, and #800's two keeps are
+  unchanged — they never depended on this measurement. What the arm establishes instead is general:
+  making an implementation discoverable does not make a one-shot review session route to it, so
+  routing prose is apparatus-bound under any bare-arm construction. The rule that follows from it is
+  registered in [`docs/skill-ablation-addendum-2.md`](skill-ablation-addendum-2.md), fixed before the
+  runs.
 - **#672** — `intake-orchestrator` (711 lines) and, by the operator's 2026-08-24 amendment,
   `intake-interviewer` (279 lines): 990 unmeasured lines, each owed a basis or an explicit
   no-basis record.
