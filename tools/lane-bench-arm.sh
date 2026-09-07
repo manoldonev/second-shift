@@ -26,6 +26,9 @@
 #   LEAN_ARM_ADD_DIRS   optional. One absolute directory per line, appended as `--add-dir` on a
 #                       session dispatch only — the worktrees directory the lane gate builds in.
 #                       The series records what it was set to (lane-bench SERIES.md, OR-4).
+#   LEAN_ARM_ALLOWED_TOOLS  optional. One tool name per line, passed as `--allowedTools` on a
+#                       session dispatch only — the harness tools the gate's flow reaches for
+#                       (`EnterWorktree`, `ExitWorktree`). Recorded beside the directories.
 #
 # EXIT: whatever the session binary exits · 2 a refusal on stderr, nothing exec'd.
 set -uo pipefail
@@ -84,6 +87,18 @@ if [ "$DISPATCH" -eq 1 ]; then
     while IFS= read -r d; do
       [ -n "$d" ] && set -- "$@" --add-dir "$d"
     done <<< "$LEAN_ARM_ADD_DIRS"
+  fi
+  # THE OTHER GRANT, same dry run: with the directory allowed the BUILD session still ended
+  # `blocked` — on `EnterWorktree`, the harness tool it reached for to move into the lane
+  # worktree, which asks for approval under empty setting sources whatever the permission mode.
+  # `LEAN_ARM_ALLOWED_TOOLS` names tools to allow, one per line, passed as one `--allowedTools`
+  # on a dispatch and on nothing else. Allowed, not disallowed: the payload keeps the tool set the
+  # harness gives it, identically in every arm.
+  if [ -n "${LEAN_ARM_ALLOWED_TOOLS:-}" ]; then
+    set -- "$@" --allowedTools
+    while IFS= read -r t; do
+      [ -n "$t" ] && set -- "$@" "$t"
+    done <<< "$LEAN_ARM_ALLOWED_TOOLS"
   fi
 fi
 
