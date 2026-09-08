@@ -1927,6 +1927,74 @@ if [ -s "$bg2b_log" ] && grep -q 'FINAL-MESSAGE-FROM-BUILD' "$bg2b_log" 2>/dev/n
   pass "(bg2b) the path that reaches BOTH closes appends the final message exactly once — the close is idempotent, not merely present"
 else fail "(bg2b) expected exactly one close block, got $bg2b_n: [$(cat "$bg2b_log" 2>/dev/null)]"; fi
 
+# THE TURN ORACLE (the private eval substrate's dry run). After a payload signs off, the agent
+# view's word is a summary of its closing prose: a BUILD that ended "PR ready for review; awaiting
+# review-lean" — PR open, marker posted, nothing pending — was listed `blocked`, and #813's was
+# listed `working` for an hour. The tool now reads the transcript: a last assistant record with
+# `stop_reason` `end_turn` and no backgrounded command left outstanding is a turn that ENDED, and
+# the run proceeds as for `done` — the GATE decides completeness. Four fixtures, one per shape:
+#   (bg2c) blocked, turn ended                      → proceeds; ledger says done; session stopped
+#   (bg2d) blocked, turn ended, a background command still running → stays blocked (D-8's shape)
+#   (bg2e) blocked, turn parked on a tool call      → stays blocked (a genuine prompt)
+#   (bg2f) working forever, turn ended              → proceeds on the first poll, never `stuck`
+# Written as records in the harness's own transcript shape, because that is what the oracle reads.
+ended_transcript() { # ended_transcript <path> [pending|parked]
+  local f="$1" shape="${2:-}"
+  mkdir -p "$(dirname "$f")"
+  jq -n -c '{type:"user", message:{role:"user", content:"/dev-pipeline:build-lean 11"}}' > "$f"
+  if [ "$shape" = "pending" ]; then
+    jq -n -c '{type:"assistant", message:{stop_reason:"tool_use", content:[{type:"tool_use", id:"toolu_bg1", name:"Bash", input:{command:"nohup sleep 999", run_in_background:true}}]}}' >> "$f"
+    jq -n -c '{type:"user", message:{role:"user", content:[{type:"tool_result", tool_use_id:"toolu_bg1", content:"Command running in background with ID: b1. Output is being written to: /tmp/b1.output"}]}}' >> "$f"
+  fi
+  if [ "$shape" = "parked" ]; then
+    jq -n -c '{type:"assistant", message:{stop_reason:"tool_use", content:[{type:"tool_use", id:"toolu_p1", name:"Bash", input:{command:"git push"}}]}}' >> "$f"
+    jq -n -c '{type:"user", message:{role:"user", content:[{type:"tool_result", tool_use_id:"toolu_p1", content:"the permission was denied"}]}}' >> "$f"
+    return 0
+  fi
+  jq -n -c '{type:"assistant", message:{stop_reason:"end_turn", content:[{type:"text", text:"PR #11 ready for review; awaiting /dev-pipeline:review-lean verdict"}]}}' >> "$f"
+}
+
+# BUILD settles on its first poll — the transcript has already ended when it reads `blocked` — so
+# the second line is REVIEW's: the stream is positional per poll and repeats its last line, and a
+# one-line stream would hand the review session the word too, with no transcript to read past it.
+setup_case "$(printf 'blocked\ndone\n')" "$V_APPROVE" "ready-for-dev" "11"
+ended_transcript "$CASE_HOME/.claude/projects/some-cwd-slug/sess1-full.jsonl"
+out="$(LAUNCH_ID_OVERRIDE=bg2c-launch run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+bg2c_end="$(sed -n "s/.*	bg2c-launch	$ISSUE	spawn-end	//p" "$TREE/.claude/pipeline-state/$ISSUE-lean-launches.tsv" 2>/dev/null)"
+if [ "$rc" -eq 0 ] && [ "$(slug_of "$out")" = "approved" ] \
+   && grep -q '^n=1 role=BUILD state=done$' <<<"$bg2c_end" \
+   && grep -q '^n=2 role=REVIEW ' <<<"$bg2c_end" \
+   && grep -q 'listed blocked, but its transcript' <<<"$out" \
+   && grep -q 'stop sess1' "$SPAWN_LOG_DIR/stops" 2>/dev/null; then
+  pass "(bg2c) a BUILD listed blocked whose transcript's last turn ENDED settles as done, is stopped, and the run proceeds to REVIEW — the summary's word does not end a finished lane"
+else fail "(bg2c) expected rc=0/approved with BUILD state=done, got rc=$rc / slug=$(slug_of "$out") / end=[$bg2c_end] / stops=[$(cat "$SPAWN_LOG_DIR/stops" 2>/dev/null)]: $out"; fi
+
+setup_case "$(printf 'working\nblocked\n')" "$V_APPROVE" "ready-for-dev" "11"
+ended_transcript "$CASE_HOME/.claude/projects/some-cwd-slug/sess1-full.jsonl" pending
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 1 ] && [ "$(slug_of "$out")" = "build-session-failed" ] && grep -q 'ended blocked' <<<"$out"; then
+  pass "(bg2d) a turn that ended over a backgrounded command still running is NOT ended — blocked keeps its terminal; D-8's shape is told apart by the record"
+else fail "(bg2d) expected build-session-failed, got rc=$rc / slug=$(slug_of "$out"): $out"; fi
+
+setup_case "$(printf 'working\nblocked\n')" "$V_APPROVE" "ready-for-dev" "11"
+ended_transcript "$CASE_HOME/.claude/projects/some-cwd-slug/sess1-full.jsonl" parked
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 1 ] && [ "$(slug_of "$out")" = "build-session-failed" ] && grep -q 'ended blocked' <<<"$out"; then
+  pass "(bg2e) a turn parked on a tool call — the genuine prompt nobody will answer — keeps blocked's terminal"
+else fail "(bg2e) expected build-session-failed, got rc=$rc / slug=$(slug_of "$out"): $out"; fi
+
+# BUILD reads `working` on its one poll and settles there; the second line is REVIEW's.
+setup_case "$(printf 'working\ndone\n')" "$V_APPROVE" "ready-for-dev" "11"
+ended_transcript "$CASE_HOME/.claude/projects/some-cwd-slug/sess1-full.jsonl"
+out="$(LAUNCH_ID_OVERRIDE=bg2f-launch run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+bg2f_end="$(sed -n "s/.*	bg2f-launch	$ISSUE	spawn-end	//p" "$TREE/.claude/pipeline-state/$ISSUE-lean-launches.tsv" 2>/dev/null)"
+if [ "$rc" -eq 0 ] && [ "$(slug_of "$out")" = "approved" ] \
+   && grep -q '^n=1 role=BUILD state=done$' <<<"$bg2f_end" \
+   && ! grep -q 'stuck' <<<"$bg2f_end" \
+   && grep -q 'listed working, but its transcript' <<<"$out"; then
+  pass "(bg2f) a BUILD listed working forever whose turn ENDED settles as done on the poll that sees it — #813's hour, and the ceiling's two, are not spent on a finished session"
+else fail "(bg2f) expected rc=0/approved with BUILD state=done and no stuck, got rc=$rc / slug=$(slug_of "$out") / end=[$bg2f_end]: $out"; fi
+
 # THE SILENCE CEILING, which is the whole of the stuck fallback the narrowed scope keeps. A payload
 # whose turn ended over a bare backgrounded command sits at `working` with nothing left to do,
 # released only by a stop. The ceiling bounds it, the session is stopped, the launch ledger says

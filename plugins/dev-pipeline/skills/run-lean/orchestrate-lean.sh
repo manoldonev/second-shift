@@ -45,6 +45,17 @@
 # "the turn ended", not "the work is complete", so the GATE remains the completion oracle, BUILD
 # is spawned ONCE per round, and no PR is `build-no-pr` for a human to read.
 #
+# AND THE STATE AFTER THE FINAL TURN IS A SUMMARY, NOT A READING (the private eval substrate's
+# dry run). Once a payload's last turn ends, the agent view's word is derived from its closing
+# prose: a BUILD that signed off "PR ready for review; awaiting review-lean" — PR open, marker
+# posted, no prompt pending — was listed `blocked`, and the same sign-off on #813 was listed
+# `working` for an hour until an operator typed into the session. Neither is `done`, and a
+# headless run cannot wait for a keyboard. So `blocked` and `working` are both checked against
+# the transcript itself (`turn_ended`): a last turn that ended with no background command still
+# outstanding settles as `done` and the GATE decides, exactly as above. A turn still open — a tool
+# call waiting on a permission nobody will grant — keeps `blocked`'s terminal and `working`'s
+# ceiling.
+#
 # THE VERDICT GATE'S RC IS A TAXONOMY, NOT A BOOLEAN (#496). Every milestone-4 failure used to
 # return 1, so twenty distinct conditions arrived here as one word — and the loop had exactly one
 # response to it: spend a round, re-spawn BUILD. Two of those conditions make that response wrong
@@ -329,6 +340,45 @@ transcript_close() { # transcript_close <log> <sessionId>
   printf '\n[orchestrate-lean] session %s left no readable final message.\n' "$sid" >> "$log" 2>/dev/null
 }
 
+# THE TURN ORACLE. Whether a session's last turn has ended, read from the transcript — the same
+# harness-owned record `transcript_close` globs, for the same reason: a bg payload never reaches
+# this process, and the agent view's state after the final turn is a summary of the closing
+# prose (see the header). Three things must hold, and all three are structural:
+#   1. the last message-bearing record is an assistant record with `stop_reason` `end_turn` — a
+#      turn parked on a tool call (a permission prompt nobody will answer) ends on `tool_use`,
+#      and a turn the harness is about to continue has a user record or a queued notification
+#      after it;
+#   2. no backgrounded command is still outstanding — one whose result said it was left running
+#      and that no later `<task-notification>` has named. D-8's shape, told apart from a finished
+#      one by the record rather than by a ceiling; a result delivered inline names no task and
+#      counts as collected;
+#   3. the transcript exists and parses. Missing or unreadable is NOT "ended": the poll then
+#      falls through to the arm it always had, which is the fail-closed half.
+# Answers 0 for ended, 1 otherwise. Never prints.
+turn_ended() { # turn_ended <sessionId>
+  local sid="$1" f verdict
+  [ -n "$sid" ] || return 1
+  for f in "$HOME"/.claude/projects/*/"$sid".jsonl; do
+    [ -f "$f" ] || continue
+    verdict="$(jq -s -r '
+      def texts: (.message.content // .content // "")
+        | if type == "array" then map(.text? // "") | join("\n") elif type == "string" then . else "" end;
+      def result_text: if type == "array" then map(.text? // "") | join("\n") elif type == "string" then . else "" end;
+      ([ .[] | select(.type == "user" or .type == "assistant" or .type == "queue-operation") ] | last) as $last
+      | ((($last.type // "") == "assistant") and (($last.message.stop_reason // "") == "end_turn")) as $ended
+      | ([ .[] | select(.type == "user") | .message.content[]? | select(.type == "tool_result")
+            | select((.content | result_text) | test("running in background with ID|moved to the background"))
+            | .tool_use_id ]) as $left_running
+      | ([ .[] | select(.type == "user" or .type == "queue-operation") | texts
+            | [ scan("<tool-use-id>([^<]+)</tool-use-id>") ] | flatten[] ]) as $notified
+      | if $ended and ((($left_running - $notified) | length) == 0) then "ended" else "open" end
+    ' "$f" 2>/dev/null)"
+    [ "$verdict" = "ended" ] && return 0
+    return 1
+  done
+  return 1
+}
+
 # THE TRANSCRIPT IS CLOSED WHEREVER THE RUN ENDS, not only where the spawn returns. Every
 # terminal reached from INSIDE the poll — a blocked session, an unreadable listing, a premise that
 # expired mid-flight — exits without ever coming back to `spawn`, and those are exactly the paths
@@ -446,7 +496,7 @@ while [ $# -gt 0 ]; do
     --max-rounds)         MAX_ROUNDS="${2:-}"; shift 2 ;;
     --max-continuations)  envfail usage-max-continuations "--max-continuations was removed in #718 along with the continuation budget it bounded: BUILD is spawned once per round, and a spawn that leaves no PR ends the run for a human to read. There is no value of this flag to pass." ;;
     --dry-run)            DRY_RUN=1; shift ;;
-    -h|--help)            sed -n '2,211p' "$0"; exit 0 ;;
+    -h|--help)            sed -n '2,222p' "$0"; exit 0 ;;
     -*)                   envfail usage-unknown-option "unknown option: $1" ;;
     *)                    [ -z "$ISSUE" ] && ISSUE="$1" || envfail usage-unexpected-argument "unexpected argument: $1"; shift ;;
   esac
@@ -1050,14 +1100,39 @@ poll_session() { # poll_session <role> <lower-role> <id>
     case "$state" in
       done)
         SPAWN_STATE="done"; return 0 ;;
+      failed|stopped)
+        SPAWN_STATE="$state"; return 0 ;;
       # D-6/D-23. `blocked` means "waiting on you", and nobody is here — so it ends the phase
       # exactly as `failed` and `stopped` do, through the one terminal this loop already had. It
       # gets no slug of its own: the state is carried in the message and in the launch ledger,
       # which is where the gain over `-p` actually lands. Returning rather than exiting here is
       # load-bearing — it is what lets `spawn` close the transcript the remedy names.
-      failed|stopped|blocked)
+      #
+      # UNLESS THE TURN HAS ALREADY ENDED. The word is a summary of the closing prose once the
+      # payload has signed off (header), and a BUILD that ended "PR ready for review; awaiting
+      # review-lean" with the PR open and nothing pending was listed exactly here. `turn_ended`
+      # reads the transcript instead; ended with nothing outstanding is `done`, and the GATE
+      # decides completeness as it always did. Stopped first, because the supervisor is still
+      # holding a session that will never be asked anything (D-1: one lane, one supervisor).
+      blocked)
+        if turn_ended "$sid"; then
+          say "  $role session $id: listed $state, but its transcript's last turn ended with nothing outstanding — settling as done; the GATE decides completeness. Stopping the session."
+          stop_session "$id"; SPAWN_ID=""
+          SPAWN_STATE="done"; return 0
+        fi
         SPAWN_STATE="$state"; return 0 ;;
       working)
+        # THE SAME ORACLE FIRST. #813's BUILD sat here for an hour after signing off — `working`
+        # was the summary's word for "awaiting review-lean" — and only an operator's keystroke
+        # moved it. Headless, that is the ceiling below spent on a finished session, once per
+        # cell. A turn that ended with no background command outstanding is the D-8 shape's
+        # finished twin, told apart by the record; it settles as `done` now rather than as
+        # `stuck` two hours on.
+        if turn_ended "$sid"; then
+          say "  $role session $id: listed $state, but its transcript's last turn ended with nothing outstanding — settling as done; the GATE decides completeness. Stopping the session."
+          stop_session "$id"; SPAWN_ID=""
+          SPAWN_STATE="done"; return 0
+        fi
         # D-8, NARROWED TO ITS DOCUMENTED ARM, and bounded by the whole session rather than by a
         # silence nothing here can observe. A payload that ends its turn over a bare backgrounded
         # command has its result delivered inline and then sits at `working` with nothing left to
@@ -1066,7 +1141,8 @@ poll_session() { # poll_session <role> <lower-role> <id>
         # and what is left cannot tell that payload from a busy one. So the bound is set above the
         # measured duration of healthy sessions (see SESSION_CEILING_MS) and catches the shape
         # late rather than catching healthy work early. Proceeding as for `done` is the safe half
-        # either way — the GATE is the completion oracle, not this loop.
+        # either way — the GATE is the completion oracle, not this loop. The oracle above takes
+        # the finished sessions off this arm; what reaches the ceiling now is a turn still open.
         if [ "$elapsed_ms" -ge "$SESSION_CEILING_MS" ]; then
           say "  $role session $id: still working with the ${SESSION_CEILING_MS}ms session ceiling spent. Stopping it."
           stop_session "$id"; SPAWN_ID=""
