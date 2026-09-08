@@ -1098,7 +1098,17 @@ poll_session() { # poll_session <role> <lower-role> <id>
     if [ "$state" != "$prev" ]; then say "  $role session $id: $state"; prev="$state"; fi
 
     case "$state" in
+      # #827. A SETTLED SESSION IS STOPPED, and that is what bounds the machine. This is the
+      # common terminal — two per lane run — and it was the one arm that left its session alone:
+      # the supervisor kept a resident process per finished session (220-390 MB measured, the
+      # listing row's `pid`) until something else killed it, and seven of them took a bench driver
+      # out mid-cell. Whether a session listed `done` should hold a process at all is the
+      # harness's question, reported there and not answerable here. The scheduler is correct on
+      # its own terms either way: D-1 is one lane, one supervisor, so a session this loop has
+      # settled is never spoken to again and the stop costs nothing. Best-effort like every other
+      # call to it — a stop that does not land is said out loud and changes no exit code.
       done)
+        stop_session "$id"
         SPAWN_STATE="done"; return 0 ;;
       failed|stopped)
         SPAWN_STATE="$state"; return 0 ;;
@@ -1245,7 +1255,8 @@ spawn() { # spawn <role> <model> <prompt> — returns 0 on done or stuck, termin
   # STATE rather than an exit code: `rc=0` was true of a finished session and of an abandoned one
   # alike, which is the defect this whole transport swap is about. Nothing parses this field.
   case "$SPAWN_STATE" in
-    # A finished session needs no stop, so this is the one path that clears the handle rather than
+    # Both states arrive with their session already stopped — `stuck` by the ceiling arm, `done`
+    # by the settling arm since #827 — so this is the one path that clears the handle rather than
     # leaving `terminal` to use it.
     done|stuck) SPAWN_ID=""; return 0 ;;
     # A session the supervisor reports as failed, stopped or blocked is one that will not be saying
