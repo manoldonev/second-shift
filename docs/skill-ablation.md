@@ -234,7 +234,10 @@ all, and it is reported as that rather than folded into the three.
 - The frozen recipe's bracketed `--allowedTools "Read,Grep,Glob"` does not restrict the tool surface
   under `claude -p`; Bash is available and every arm here is Bash-dominated. The check is one command
   (`consumer-substrate.md`, "The bracketed `--allowedTools` … is inert"). This binds §1's already-scored
-  runs too.
+  runs too. **Diagnosed 2026-09-08 (#796): the flag allows, it does not remove — `--tools` is the one
+  that bounds the built-in set.** See
+  [`docs/skill-ablation-recipe-correction.md`](skill-ablation-recipe-correction.md); the
+  pre-registration is not edited.
 - **The same object-store leak reached §1's own sensitivity run.** Its ablated arm for #647 recovered
   `build-lean/SKILL.md` with `git show HEAD:` — the confound that run was added to remove. Re-scoring
   §1 is outside #746's scope, so it is named here rather than corrected:
@@ -665,7 +668,9 @@ this control to attribute anything to.
 - **Deliberately not era-consistent:** pinned subject and sample, current implementation.
 - **`--allowedTools` still does not restrict.** The `init` tool set carries `Bash`, `Write`, `Edit`,
   `Task` and `Skill` despite a `Read,Grep,Glob` allowlist, and every run executed `Bash` —
-  reproducing #796 on CLI 2.1.263. Separately, and *not* what #796 recorded, the default permission
+  reproducing #796 on CLI 2.1.263. It never will: the flag auto-approves rather than removes, and
+  [`docs/skill-ablation-recipe-correction.md`](skill-ablation-recipe-correction.md) records the
+  measurement and the `--tools` form the next family registers instead. Separately, and *not* what #796 recorded, the default permission
   mode denied 4–5 individual `Bash` invocations per run: read-only shapes ran, executing a repo
   script did not. That is not incidental — r3, the miss, says in its own output that it could not
   run the guard and reproduced its greps instead. Arm 2b's captures are not committed, so whether
@@ -690,7 +695,9 @@ further arm of this one, and it is not filed here.
 - **`--allowedTools` did not restrict.** Every run executed `Bash` despite a `Read,Grep,Glob`
   allowlist, and one used `Write`. Constant across control and every ablated arm, so it biases no
   comparison here — but the registered recipe describes a restriction that did not hold. Filed
-  separately (#796).
+  separately (#796) and closed there:
+  [`docs/skill-ablation-recipe-correction.md`](skill-ablation-recipe-correction.md) has the
+  measured flag contract. Nothing here is re-run.
 - **Two gaps in the rubric itself, found by running it.** §C scores an arm `no-effect` only if the
   blocker **set** is otherwise indistinguishable, but the controls disagree with each other — one
   raised two blockers the other two did not — so a set difference cannot be attributed to the

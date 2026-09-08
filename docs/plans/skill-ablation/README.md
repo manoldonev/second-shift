@@ -25,3 +25,10 @@ it demands `ANTHROPIC_API_KEY` and this machine authenticates by OAuth. The env 
 build session's own spawn environment out of the child.
 
 CLI `2.1.241`, model `opus`, 2026-08-24. Wall-clock per session in `bare-arm-timings.tsv`.
+
+**Correction, 2026-09-08 (#796). The command above is recorded as run and is not edited — but
+`--allowedTools` did not bound these arms, and could not have.** It is an auto-approve list layered
+on the permission mode, not a restriction: every arm kept `Bash`, `Edit` and `Write`, and the
+transcripts show them used. `--tools "Read,Grep,Glob"` is the flag that removes the rest, measured
+in [`../../skill-ablation-recipe-correction.md`](../../skill-ablation-recipe-correction.md), and it
+is what a future arm meant to be read-only registers here.
