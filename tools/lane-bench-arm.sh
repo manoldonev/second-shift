@@ -23,6 +23,15 @@
 #
 #   LEAN_ARM_MANIFEST   required. One plugin directory per line, absolute. Written per cell by
 #                       `lane-bench.sh run`; there are no checked-in manifests.
+#   LEAN_ARM_ADD_DIRS   optional. One absolute directory per line, appended as `--add-dir` on a
+#                       session dispatch only — the worktrees directory the lane gate builds in.
+#                       The series records what it was set to (lane-bench SERIES.md, OR-4).
+#   LEAN_ARM_ALLOWED_TOOLS  optional. One permission rule per line, passed as `--allowedTools` on a
+#                       session dispatch only — e.g. `Bash(git worktree add:*)`, the out-of-cwd
+#                       write auto mode's classifier judges inconsistently. Recorded in SERIES.md.
+#   LEAN_ARM_DISALLOWED_TOOLS  optional. One tool per line, passed as a second `--disallowedTools`
+#                       (merges with the scheduler's) — the harness tools no allow can approve in a
+#                       headless session (`EnterWorktree`, `ExitWorktree`).
 #
 # EXIT: whatever the session binary exits · 2 a refusal on stderr, nothing exec'd.
 set -uo pipefail
@@ -70,6 +79,39 @@ if [ "$DISPATCH" -eq 1 ]; then
   for d in "${ENTRIES[@]}"; do
     set -- "$@" --plugin-dir "$d"
   done
+  # THE ONE GRANT (lane-bench #2, epic OR-4). Under `--setting-sources ''` a payload runs with no
+  # permission grants at all, and `--permission-mode auto` alone stops the BUILD session the moment
+  # the gate works inside the lane worktree — a sibling of the checkout, outside the session's
+  # cwd — so the dry run ended `blocked` with no PR. `LEAN_ARM_ADD_DIRS` names the directories to
+  # allow, one absolute path per line, appended as `--add-dir` on a dispatch and on nothing else.
+  # It is the bench's to set, identical across arms, and recorded in the series' SERIES.md; empty
+  # means no grant, which is the pre-dry-run behaviour.
+  if [ -n "${LEAN_ARM_ADD_DIRS:-}" ]; then
+    while IFS= read -r d; do
+      [ -n "$d" ] && set -- "$@" --add-dir "$d"
+    done <<< "$LEAN_ARM_ADD_DIRS"
+  fi
+  # THE OTHER GRANT, same dry run: with the directory allowed, auto mode's Bash classifier still
+  # judged `git worktree add ../<dir>` inconsistently — passed on one cell, `blocked` on the next.
+  # `LEAN_ARM_ALLOWED_TOOLS` names permission rules to allow, one per line, passed as one
+  # `--allowedTools` on a dispatch and on nothing else — narrow rules for the writes the gate
+  # must make, identically in every arm.
+  if [ -n "${LEAN_ARM_ALLOWED_TOOLS:-}" ]; then
+    set -- "$@" --allowedTools
+    while IFS= read -r t; do
+      [ -n "$t" ] && set -- "$@" "$t"
+    done <<< "$LEAN_ARM_ALLOWED_TOOLS"
+  fi
+  # AND ITS MIRROR. Some harness tools cannot be allowed at all — `EnterWorktree` asks for a
+  # confirmation whatever `--allowedTools` says, so a headless payload that reaches for it ends
+  # `blocked`. Those are DISALLOWED, the way the scheduler already disallows `AskUserQuestion`, and
+  # the payload uses `cd`. A second `--disallowedTools` merges with the scheduler's (probed).
+  if [ -n "${LEAN_ARM_DISALLOWED_TOOLS:-}" ]; then
+    set -- "$@" --disallowedTools
+    while IFS= read -r t; do
+      [ -n "$t" ] && set -- "$@" "$t"
+    done <<< "$LEAN_ARM_DISALLOWED_TOOLS"
+  fi
 fi
 
 exec claude "$@"
