@@ -115,7 +115,7 @@
 #                                        inherit. Reads only; writes nothing.
 #   lean-gate.sh verdict <issue> --pr <n> --verdict <approve|needs-work> [--rounds <n>]
 #                                        [--fidelity <pass|fail|not-applicable>]
-#                                        [--panel <a,b,c>] [--summary-file <path>]
+#                                        --panel <a,b,c> [--summary-file <path>]
 #                                        REVIEW role: write the committed verdict record.
 #                                        --fidelity defaults to not-applicable, which is the
 #                                        fail-closed side on an armed run (milestone 4 wants
@@ -124,7 +124,10 @@
 #                                        `## Design fidelity evidence` table in --summary-file
 #                                        (grammar: review-lean/SKILL.md step 5b) — refused here,
 #                                        at the writer, rather than at milestone 4 where it
-#                                        would cost the round.
+#                                        would cost the round. --panel is REQUIRED on every
+#                                        ticket and must name at least one reviewer: a round
+#                                        whose whole panel went dark is void under review-lean
+#                                        5c and is handed back, not recorded (#825).
 #   lean-gate.sh plan-review <issue> --verdict <pass|fix-and-go|block> --summary-file <path>
 #                                        [--model <m>]
 #                                        BUILD role (#710): write the committed plan-review
@@ -385,7 +388,7 @@ while [ $# -gt 0 ]; do
     --obligations)   PROGRESS_OBLIGATIONS=1; shift ;;
     --arm)           STALENESS_ARM="${2:-}"; shift 2 ;;
     --ticket-source) TICKET_SOURCE="${2:-}"; shift 2 ;;
-    -h|--help)       sed -n '2,273p' "$0"; exit 0 ;;
+    -h|--help)       sed -n '2,276p' "$0"; exit 0 ;;
     -*)              envfail "unknown option: $1" ;;
     *)
       if [ "$POSITIONAL" -eq 0 ]; then SUB="$1"; POSITIONAL=1
@@ -3240,6 +3243,24 @@ panel_has() { # panel_has <panel-value> <reviewer>
 }
 # LOCKSTEP-END lean-design-provider-family
 
+# The reviewer names a `--panel` value actually declares (#825). OUTSIDE the lockstep block above
+# on purpose: the merge boundary re-derives the design family from the committed spec, but this
+# reads the WRITER's own flag, which the boundary never sees — a copy there would be coverage for
+# a contract only one side has.
+#
+# `none` is dropped, case-insensitively, because it is this schema's own "no panel" sentinel and
+# not a reviewer: a value made of nothing but that declares nobody. Empty tokens go with it, so
+# `,`, ` , ` and a trailing comma all read as the empty panel they are. Everything else survives
+# verbatim — the qualified `<plugin>:<agent>` names `panel_has` tokenizes are untouched by this.
+#
+# `[:blank:]`, NOT `[:space:]` as the sibling uses: the sibling strips a value that is still one
+# line, and this one has already split it. `[:space:]` includes the newline, so it would splice
+# every token back into a single word — and `none,none` would then read as the reviewer
+# `nonenone` and be accepted, which is the exact value class this exists to refuse.
+panel_reviewers() { # panel_reviewers <panel-value>
+  printf '%s' "${1:-}" | tr ',' '\n' | tr -d '[:blank:]' | grep -ivx 'none' | grep -v '^$'
+}
+
 # The PLAN-stage reviewer a family makes mandatory (#710) — the pre-implementation counterpart of
 # `design_family_reviewer` above, and OUTSIDE the lockstep block on purpose: that block is held
 # verbatim by scripts/check-lean-chain.sh because the merge boundary re-derives the family and the
@@ -5457,6 +5478,29 @@ cmd_verdict() {
     fi
   fi
 
+  # THE EMPTY PANEL (#825). `review-lean` 5c: when EVERY reviewer the round selected went dark the
+  # round is VOIDED — post the coverage gap, write no record, spend no round, because an `approve`
+  # would certify a review that never ran. That was prose only, and `--panel` was a free string, so
+  # a REVIEW session whose whole panel failed to resolve wrote `panel: none` beside
+  # `verdict=approve`, milestone 4 read the record as satisfied, and the lane terminated
+  # `approved` on a review nothing had performed. This is 5c as a gate condition.
+  #
+  # UNCONDITIONAL, which is the point: the armed arm above fires only where a design provider is
+  # configured, and the round that shipped this defect had no design axis at all. It sits AFTER
+  # that arm so an armed ticket still gets the message naming the mandatory reviewer it lost.
+  #
+  # A REFUSAL ON WRITE, never a new reader rule. Records committed before this carry `panel: none`
+  # legitimately, and every reader still parses them exactly as it did — retro-refusing merged
+  # history would red it for a defect no edit to it can fix.
+  #
+  # `panel_reviewers`, not `[ -z "$VERDICT_PANEL" ]`: the sentinel and a value of nothing but
+  # separators are the two shapes a dark round actually produces, and an emptiness test sees
+  # neither of them.
+  if [ -z "$(panel_reviewers "$VERDICT_PANEL")" ]; then
+    warn "✗ verdict: --panel '${VERDICT_PANEL:-<empty>}' names no reviewer. A round that obtained a result from nobody is VOID under review-lean 5c: hand it back with the coverage gap posted, write no record, spend no round — an 'approve' here would certify a review that never ran. If reviewers did return, pass their agent types qualified as review-lead names them (e.g. review-toolkit:security-reviewer)."
+    return 1
+  fi
+
   if [ "$VERDICT_FIDELITY" = "pass" ] && [ -n "$DESIGN_PROVIDER" ]; then
     fid_spec="$REPO_ROOT/$SPEC_REL"
     # `design_state` reads an ABSENT spec as `unarmed` — the same answer it gives a consumer with
@@ -5582,12 +5626,12 @@ cmd_verdict() {
     # the value. Both readers additionally anchor it to the header (`header_key`), which is the
     # half of that fix covering records this writer did not produce.
     echo "fidelity: $VERDICT_FIDELITY"
-    # UNCONDITIONAL with an explicit `none`, for the reason `inherited_patch_id` is: a key the
-    # writer sometimes omits has no authentic occurrence to win the first-match race, so a
-    # reviewer's own prose supplies the value. `none` is not a reviewer name, so it can never
-    # satisfy the boundary's token test — an unarmed record says "no panel was recorded" in a
-    # form that reads as one, rather than by an absence a reader cannot distinguish from a
-    # writer that never knew the key.
+    # UNCONDITIONAL, for the reason `inherited_patch_id` is: a key the writer sometimes omits has
+    # no authentic occurrence to win the first-match race, so a reviewer's own prose supplies the
+    # value. The `none` default is now UNREACHABLE from here — #825's refusal above guarantees a
+    # value — and stays because a keyless record is the one shape no reader can interpret, and
+    # because `none` remains the value BOTH readers must go on parsing: records committed before
+    # that refusal carry it legitimately.
     echo "panel: ${VERDICT_PANEL:-none}"
     echo "model: ${LEAN_RUN_MODEL:-unknown}"
     # THE PRODUCER'S CAPABILITY STAMP (#445), with NO READER TODAY — and shipped anyway, on

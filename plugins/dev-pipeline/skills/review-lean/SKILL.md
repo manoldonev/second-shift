@@ -111,10 +111,11 @@ the code does not author its own evaluation.
    gap as the step-8 PR comment, write **no** verdict record, and do not spend the round. Neither
    value is available to you — `needs-work` would report blockers nobody found, and `approve`
    would certify a review that never ran. Same precedent as step 4's missing entry attestation: a
-   round with no coverage is not yours to certify. The separation still holds without a gate,
-   because `check-lean-chain.sh` treats an absent verdict record as already a violation, so a
-   hand-back cannot merge. Say plainly in the comment what went dark and why, so the build
-   session knows it is waiting on infrastructure rather than on findings.
+   round with no coverage is not yours to certify. This is not prose alone: `bash G verdict`
+   refuses a `--panel` that names no reviewer, so the first case cannot be recorded even by a
+   session that reasons its way past this rule, and `check-lean-chain.sh` still treats the absent
+   record as a violation, so a hand-back cannot merge. Say plainly in the comment what went dark
+   and why, so the build session knows it is waiting on infrastructure rather than on findings.
 6. Write the record **from the checkout of the PR head**:
    `bash G verdict <issue> --pr <n> --verdict <approve|needs-work> --rounds <n> --fidelity <pass|fail|not-applicable> --panel <a,b,c> --summary-file <path>`
    The summary file carries the finding table and the per-AC scoring. The gate writes the

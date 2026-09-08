@@ -187,9 +187,11 @@ further candidate is 21.
 
 ## Comparability
 
-**`rounds` and `wall_min` compare within an arm only.** An arm without `review-toolkit` cannot
-produce a verdict record at all — `review-lean`'s implementation is that plugin's `review-lead` —
-so every one of its cells terminates `review-dark`, spends no round and spawns no second build.
+**`rounds` and `wall_min` compare within an arm only.** `review-lean`'s implementation is
+`review-toolkit`'s `review-lead`, so an arm without that plugin obtains a result from no reviewer
+at all — and the verdict gate refuses a `--panel` that names none (review-lean 5c, #825), so an
+arm with no reviewer available writes no verdict record: every one of its cells terminates
+`review-dark`, spends no round and spawns no second build.
 Its `rounds` and `wall_min` are structurally smaller for a reason that has nothing to do with lane
 quality, and `review_catch` is structurally `n/a`. Comparing those two columns across arms
 measures the asymmetry, not the kit. The columns that compare across arms are the test and defect

@@ -2655,12 +2655,20 @@ reset_progress
 P_SCORECARD="$WORK/p-scorecard.md"
 printf '## AC scorecard\n\n| AC-n | score | evidence |\n| --- | --- | --- |\n| AC-1 | satisfied | fixture |\n' > "$P_SCORECARD"
 
+# THE PANEL every writer case that is not ABOUT the panel carries (#825). The writer refuses a
+# `--panel` naming no reviewer on EVERY ticket now, armed or not, so a fixture that omitted the
+# flag would be refused for that and never reach its own subject. One reviewer is enough: the
+# X/Y/Z/P trees are unarmed, so no MANDATORY name is derived against them — the cases that pin
+# THAT arm are (fp2)/(fp4), on the armed D tree.
+UPANEL="review-toolkit:security-reviewer"
+
 # Every arm here is a refusal that fails CLOSED. The subcommand is the only write path to the
 # verdict record, and it lives in this script solely so the pinned name table has one
 # derivation — not because the build role may reach it.
 verdict_cmd() { # verdict_cmd <session-id> <run-id|""> [args...]
   local sid="$1" rid="$2"
   shift 2
+  case " $* " in *" --panel "*) : ;; *) set -- "$@" --panel "$UPANEL" ;; esac
   # DEFAULTED, the idiom dverdict already uses for `--panel` and for the same reason: an approve
   # now needs an AC scorecard over the ids $SPEC declares (#622), and a case about the identity
   # arms or the `--pr` grammar should not have to restate that contract to reach its subject. A
@@ -3194,6 +3202,7 @@ printf '## AC scorecard\n\n| AC-n | score | evidence |\n| --- | --- | --- |\n| A
 xverdict() { # xverdict <session-id> <run-id> [args...]
   local sid="$1" rid="$2"; shift 2
   case " $* " in *" --summary-file "*) : ;; *) set -- "$@" --summary-file "$SCORECARD_AC1" ;; esac
+  case " $* " in *" --panel "*) : ;; *) set -- "$@" --panel "$UPANEL" ;; esac
   rm -f "$XTREE/.claude/pipeline-state/9-review-run-id"
   ( unset RUN_ID; cd "$XTREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$XPROG" \
     CLAUDE_CODE_SESSION_ID="$sid" RUN_ID="$rid" bash "$GATE" verdict 9 "$@" 2>&1 )
@@ -3390,6 +3399,7 @@ ygate() { ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$YTREE" && SECOND_SHIFT_CON
 yverdict() { # yverdict <session-id> <run-id> [args...]
   local sid="$1" rid="$2"; shift 2
   case " $* " in *" --summary-file "*) : ;; *) set -- "$@" --summary-file "$SCORECARD_AC1" ;; esac
+  case " $* " in *" --panel "*) : ;; *) set -- "$@" --panel "$UPANEL" ;; esac
   rm -f "$YPROG"; { echo "# lean run — issue 11"; echo ""; echo "run_id: r-build-y"; echo "session_id: sess-build-y"; } > "$YPROG"
   attest_at "$YTREE" "$CFG" "$YPROG" 11
   rm -f "$YTREE/.claude/pipeline-state/11-review-run-id"
@@ -3465,6 +3475,7 @@ zgate() { ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$ZTREE" && SECOND_SHIFT_CON
 zverdict() { # zverdict <session-id> <run-id> [args...]
   local sid="$1" rid="$2"; shift 2
   case " $* " in *" --summary-file "*) : ;; *) set -- "$@" --summary-file "$SCORECARD_AC1" ;; esac
+  case " $* " in *" --panel "*) : ;; *) set -- "$@" --panel "$UPANEL" ;; esac
   rm -f "$ZPROG"; { echo "# lean run — issue 12"; echo ""; echo "run_id: r-build-z"; echo "session_id: sess-build-z"; } > "$ZPROG"
   attest_at "$ZTREE" "$CFG" "$ZPROG" 12
   rm -f "$ZTREE/.claude/pipeline-state/12-review-run-id"
@@ -5362,9 +5373,9 @@ else fail "(fe10) expected both non-pass values to write, rc=$rc rc2=$rc2: $out 
 out="$( unset RUN_ID; cd "$DTREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$DPROG" \
         CLAUDE_CODE_SESSION_ID=sess-review-e11 RUN_ID=r-review-e11 \
         bash "$GATE" verdict 55 --pr 55 --verdict approve --fidelity pass \
-             --summary-file "$SCORECARD_AC1" 2>&1 )"; rc=$?
+             --panel "$UPANEL" --summary-file "$SCORECARD_AC1" 2>&1 )"; rc=$?
 if [ "$rc" -eq 0 ]; then
-  pass "(fe11) with no design.provider configured the writer demands nothing — the obligation is provider-gated"
+  pass "(fe11) with no design.provider configured the writer demands no evidence table — the obligation is provider-gated"
 else fail "(fe11) an unarmed consumer was refused at the writer, rc=$rc: $out"; fi
 
 # (fe12) AC-8: a DISARMED spec scoring `pass`. design_state has four outcomes, not two, and
@@ -5541,17 +5552,83 @@ if [ "$rc" -eq 5 ] && grep -q 'panel=<none>' <<<"$out"; then
   pass "(fp6) an armed record carrying no panel key is refused too — nothing is grandfathered"
 else fail "(fp6) expected rc=5 naming the absent panel, got rc=$rc: $out"; fi
 
-# (fp7) THE UNARMED CONSUMER is untouched. Same tree, same spec, read through a config with no
-# design axis — the pairing that keeps the obligation provider-gated. Every consumer without a
-# design lane would otherwise be unable to write a verdict at all.
+# (fp7) THE UNARMED CONSUMER owes no MANDATORY reviewer. Same tree, same spec, read through a
+# config with no design axis — the pairing that keeps THIS obligation provider-gated. The panel it
+# passes is the very one (fp2) is refused for: it omits the figma reviewer, and unarmed that is
+# simply the truth. Every consumer without a design lane would otherwise be unable to write a
+# verdict at all. The panel must NAME someone — that arm is unconditional and is (fq1)-(fq5).
 out="$( unset RUN_ID; cd "$DTREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$DPROG" \
         CLAUDE_CODE_SESSION_ID=sess-review-p7 RUN_ID=r-review-p7 \
         bash "$GATE" verdict 55 --pr 55 --verdict approve \
-             --summary-file "$SCORECARD_AC1" 2>&1 )"; rc=$?
+             --panel "$UPANEL" --summary-file "$SCORECARD_AC1" 2>&1 )"; rc=$?
 fp7_panel="$(dpanelkey "$DVERDICT")"
-if [ "$rc" -eq 0 ] && [ "$fp7_panel" = "none" ]; then
-  pass "(fp7) with no design.provider configured the writer demands no panel, and records the 'none' sentinel rather than an absence"
-else fail "(fp7) unarmed write rc=$rc panel='$fp7_panel' (expected 0 / none): $out"; fi
+if [ "$rc" -eq 0 ] && [ "$fp7_panel" = "$UPANEL" ]; then
+  pass "(fp7) with no design.provider configured a panel that omits the mandatory reviewer writes — the mandate is provider-gated"
+else fail "(fp7) unarmed write rc=$rc panel='$fp7_panel' (expected 0 / $UPANEL): $out"; fi
+
+# ---- (fq) the EMPTY panel: review-lean 5c as a gate condition (#825) ------------------------
+# 5c voids a round in which EVERY reviewer the round selected went dark: hand it back, post the
+# coverage gap, write NO record, spend no round. That was prose and `--panel` was a free string,
+# so a REVIEW session whose four reviewers all failed to resolve wrote `panel: none` beside
+# `verdict=approve`, the gate took it, and the lane terminated `approved` on a review nothing had
+# performed. These cases drive the UNARMED config deliberately: (fp1) already covers a missing
+# flag on an armed ticket, and the round that shipped the defect had no design axis at all, so an
+# armed fixture would prove nothing about the shape it arrived in.
+#
+# Not a scenario: scenario-liveness-selftest.sh's (ld-p) block composes the same refusal through
+# the real writer against a lane tree; these pin the three VALUES that reach it, which a scenario
+# asserting one composed path cannot enumerate.
+uverdict() { # uverdict <session-id> <run-id> [args...] — the UNARMED writer, panel undefaulted
+  local sid="$1" rid="$2"; shift 2
+  ( unset RUN_ID; cd "$DTREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$DPROG" \
+    CLAUDE_CODE_SESSION_ID="$sid" RUN_ID="$rid" bash "$GATE" verdict 55 --pr 55 \
+      --summary-file "$SCORECARD_AC1" "$@" 2>&1 )
+}
+fq_before="$(cat "$DVERDICT" 2>/dev/null)"
+
+out="$(uverdict sess-review-q1 r-review-q1 --verdict approve --panel none)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'names no reviewer' <<<"$out" && grep -q '5c' <<<"$out"; then
+  pass "(fq1) --panel none is refused — the schema's own sentinel is not a reviewer, and the refusal names 5c"
+else fail "(fq1) expected the empty-panel refusal naming 5c, rc=$rc: $out"; fi
+
+out="$(uverdict sess-review-q2 r-review-q2 --verdict approve --panel '')"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'names no reviewer' <<<"$out"; then
+  pass "(fq2) an empty --panel is refused on an unarmed ticket too — the arm is not provider-gated"
+else fail "(fq2) expected the empty-panel refusal, rc=$rc: $out"; fi
+
+# (fq3) SEPARATORS ARE NOT NAMES. `[ -z "$VERDICT_PANEL" ]` passes this string, which is why the
+# arm reads the value's TOKENS rather than its emptiness.
+out="$(uverdict sess-review-q3 r-review-q3 --verdict approve --panel ' , none , ')"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'names no reviewer' <<<"$out"; then
+  pass "(fq3) a panel of nothing but separators and the 'none' sentinel is refused"
+else fail "(fq3) a separators-only panel was accepted, rc=$rc: $out"; fi
+
+# (fq3b) THE SENTINEL, TWICE. The arm splits on commas and then strips blanks; stripping
+# `[:space:]` instead would splice the tokens back into the single word `nonenone`, which is not
+# the sentinel and would be credited as a reviewer. This is the case that separates the two.
+out="$(uverdict sess-review-q3b r-review-q3b --verdict approve --panel 'none,none')"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'names no reviewer' <<<"$out"; then
+  pass "(fq3b) a panel of two 'none' tokens is refused — the tokens are read apart, not spliced"
+else fail "(fq3b) 'none,none' was credited as a reviewer, rc=$rc: $out"; fi
+
+# (fq4) NOTHING WAS WRITTEN by any of the three. 5c's rule is that a void round leaves no record,
+# not merely that the call exits non-zero: without this the refusals could be scored on rc while a
+# half-written record sat on disk for milestone 4 to read as a verdict.
+fq_after="$(cat "$DVERDICT" 2>/dev/null)"
+if [ "$fq_before" = "$fq_after" ]; then
+  pass "(fq4) none of the three refusals touched the verdict record — a void round writes nothing"
+else fail "(fq4) an empty-panel refusal wrote to $DVERDICT"; fi
+
+# (fq5) ...and a real panel still writes, through the same call shape the three refusals used —
+# the vacuity guard, without which (fq1)-(fq4) would pass just as well against a writer that had
+# stopped writing altogether. Two QUALIFIED names, so the refusal cannot have narrowed what the
+# flag accepts.
+FQ_PANEL="review-toolkit:security-reviewer,review-toolkit:a11y-reviewer"
+out="$(uverdict sess-review-q5 r-review-q5 --verdict approve --panel "$FQ_PANEL")"; rc=$?
+fq5_panel="$(dpanelkey "$DVERDICT")"
+if [ "$rc" -eq 0 ] && [ "$fq5_panel" = "$FQ_PANEL" ]; then
+  pass "(fq5) a real panel still writes, and the record carries both qualified names back whole"
+else fail "(fq5) rc=$rc panel='$fq5_panel' expected '$FQ_PANEL': $out"; fi
 
 # Restore a green armed record for anything downstream that reads this tree.
 dspec_armed
@@ -6040,7 +6117,7 @@ else fail "(ea6) expected rc=2 from delta, got $rc: $out"; fi
 pseed_unattested
 out="$( cd "$PTREE" && CLAUDE_CODE_SESSION_ID=sess-p-review SECOND_SHIFT_CONFIG="$CFG" \
         LEAN_PROGRESS_FILE="$PPROG" RUN_ID=r-p-review-2 bash "$GATE" verdict 8 --pr 3 --verdict approve \
-        --summary-file "$P_SCORECARD" 2>&1 )"; rc=$?
+        --panel "$UPANEL" --summary-file "$P_SCORECARD" 2>&1 )"; rc=$?
 if grep -qF '[lean-gate] verdict:' <<<"$out" \
    && ! grep -qF 'no entry attestation' <<<"$out"; then
   pass "(ea7) verdict is exempt from the build-role precondition (D-5) — it reaches its own evaluation"
@@ -7702,7 +7779,7 @@ else
   cp "$YVERDICT" "$WORK/held-pc-verdict.md" 2>/dev/null
   out="$( unset RUN_ID; cd "$YTREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$YPROG" \
           CLAUDE_CODE_SESSION_ID=sess-review-pc3 RUN_ID=r-review-pc3 \
-          bash "$BADDIR/lean-gate.sh" verdict 11 --pr 91 --verdict approve --rounds 1 2>&1 )"; rc=$?
+          bash "$BADDIR/lean-gate.sh" verdict 11 --pr 91 --verdict approve --rounds 1 --panel "$UPANEL" 2>&1 )"; rc=$?
   if [ "$rc" -eq 2 ] && grep -q 'not in the closed capability vocabulary' <<<"$out" \
      && ! grep -q 'not-a-capability' "$YVERDICT" 2>/dev/null; then
     pass "(pc3) a producer token outside the closed vocabulary refuses instead of stamping it"

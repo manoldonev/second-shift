@@ -591,11 +591,17 @@ LEANPRNS
   #
   # The REAL `verdict` subcommand, from a review identity distinct on both axes — a hand-written
   # record would compose a state no review session produces and would skip the refusal entirely.
+  # THE PANEL every writer call in this file carries unless the case IS about the panel (#825).
+  # The writer refuses a `--panel` naming no reviewer on every ticket, armed or not, so a call
+  # that omitted it would be refused for that and never reach the scorecard grammar it is here
+  # to compose.
+  LEAN_UPANEL="review-toolkit:security-reviewer"
   lean_verdict() { # lean_verdict <session-id> <run-id> <scorecard-file>
     rm -f "$LEAN_TREE/.claude/pipeline-state/77-review-run-id"
     ( unset RUN_ID GH_BOT; cd "$LEAN_TREE" && SECOND_SHIFT_CONFIG="$LEAN_CFG" \
       LEAN_PROGRESS_FILE="$LEAN_PROG" CLAUDE_CODE_SESSION_ID="$1" RUN_ID="$2" \
-      bash "$LEAN_GATE" verdict 77 --pr 5 --verdict approve --summary-file "$3" 2>&1 )
+      bash "$LEAN_GATE" verdict 77 --pr 5 --verdict approve --panel "$LEAN_UPANEL" \
+      --summary-file "$3" 2>&1 )
   }
   printf '## AC scorecard\n\n| AC-n | score | evidence |\n| --- | --- | --- |\n| AC-1 | unsatisfied | the guard is not wired |\n' \
     > "$TMP/lean-scorecard-bad.md"
@@ -1742,7 +1748,17 @@ LEANDC
   # resolves the claim against (proved generically by lean-evidence-selftest.sh's (ov6)-(ov9),
   # which check-lean-chain.sh delegates to in full).
   rm -f "$LEAN_DOVERDICT"
-  ld_o3="$(lean_doverdict sess-lean-do-review r-lean-do-review --pr 890 --verdict approve --summary-file "$LEAN_SCORECARD" 2>&1)"; ld_o3_rc=$?
+  # (c0) FIRST, and on this lane on purpose (#825). review-lean 5c voids a round whose whole panel
+  # went dark; the armed arm proved in (lean-design-panel) never fires here, because this ticket's
+  # provider is DISARMED — so this is the composed path for the shape that shipped the defect: a
+  # lane with no reviewer available at all, reaching the real writer with `panel: none` and an
+  # `approve`. It must hand back and leave no record for milestone 4 to read.
+  ld_o0="$(lean_doverdict sess-lean-do-rev0 r-lean-do-rev0 --pr 890 --verdict approve --panel none --summary-file "$LEAN_SCORECARD" 2>&1)"; ld_o0_rc=$?
+  if [[ "$ld_o0_rc" -eq 1 ]] && grep -q 'names no reviewer' <<<"$ld_o0" && [[ ! -f "$LEAN_DOVERDICT" ]]; then
+    pass "(lean-design-override) #825: a disarmed-provider round whose panel names nobody is handed back, and writes no record"
+  else fail "(lean-design-override) expected the empty-panel hand-back with no record, rc=$ld_o0_rc record=$([[ -f "$LEAN_DOVERDICT" ]] && echo written || echo none): $ld_o0"; fi
+
+  ld_o3="$(lean_doverdict sess-lean-do-review r-lean-do-review --pr 890 --verdict approve --panel "$LEAN_UPANEL" --summary-file "$LEAN_SCORECARD" 2>&1)"; ld_o3_rc=$?
   if [[ "$ld_o3_rc" -eq 0 ]] && grep -q '^fidelity: not-applicable (override: 89#1)$' "$LEAN_DOVERDICT" 2>/dev/null; then
     pass "(lean-design-override) #709 AC-2: the written verdict carries 'fidelity: not-applicable (override: 89#1)'"
   else fail "(lean-design-override) expected the verdict to carry the override ref, rc=$ld_o3_rc: $ld_o3; verdict: $(cat "$LEAN_DOVERDICT" 2>/dev/null)"; fi
@@ -1958,7 +1974,7 @@ case "$*" in
     export CLAUDE_CODE_SESSION_ID=sess-lean-re-review RUN_ID=r-lean-re-review
     printf '## AC scorecard\n\n| AC-n | score | evidence |\n| --- | --- | --- |\n| AC-1 | %s | composed re-entry |\n' \
       "${RE_SCORE:-satisfied}" > "$RE_DIR/scorecard.md"
-    g verdict "$RE_KEY" --pr "$RE_PR_NUM" --verdict approve --summary-file "$RE_DIR/scorecard.md" || exit 1
+    g verdict "$RE_KEY" --pr "$RE_PR_NUM" --verdict approve --panel review-toolkit:security-reviewer --summary-file "$RE_DIR/scorecard.md" || exit 1
     git -C "$RE_WT" add -A >/dev/null 2>&1
     git -C "$RE_WT" commit -q -m "review session commits its verdict record" >/dev/null 2>&1 || exit 1
     # #531: the PUSH, which every commit in these legs now carries. review-lean step 6 pushes the
@@ -2220,7 +2236,7 @@ case "$*" in
     export CLAUDE_CODE_SESSION_ID=sess-lean-co-review RUN_ID=r-lean-co-review
     printf '## AC scorecard\n\n| AC-n | score | evidence |\n| --- | --- | --- |\n| AC-1 | satisfied | composed close-out |\n' \
       > "$CO_DIR/scorecard.md"
-    g verdict "$CO_KEY" --pr "$CO_PR_NUM" --verdict approve --summary-file "$CO_DIR/scorecard.md" || exit 1
+    g verdict "$CO_KEY" --pr "$CO_PR_NUM" --verdict approve --panel review-toolkit:security-reviewer --summary-file "$CO_DIR/scorecard.md" || exit 1
     git -C "$CO_WT" add -A >/dev/null 2>&1
     git -C "$CO_WT" commit -q -m "review session commits its verdict record" >/dev/null 2>&1 || exit 1
     git -C "$CO_WT" push -q origin "HEAD:refs/heads/$CO_BRANCH" >/dev/null 2>&1 || exit 1
