@@ -125,6 +125,14 @@ if [ "${1:-}" = "agents" ]; then
   n=$(( $(cat "$SPAWN_LOG_DIR/acount" 2>/dev/null || echo 0) + 1 ))
   echo "$n" > "$SPAWN_LOG_DIR/acount"
   echo "ARGV: $*" >> "$SPAWN_LOG_DIR/agents.log"
+  # #815 THE SIGNAL SEAM. A signal case needs the run to be interrupted at a point where a session
+  # is genuinely in flight, and a suite whose every other seam is pinned to zero finishes far too
+  # fast to be raced from outside. So the signal is delivered from IN HERE: this fake is a child of
+  # the orchestrator, running while SPAWN_ID is set, and it signals the pid `pidwrap` recorded.
+  # Reached only past the last-id check above, so preflight's own read is never the one that fires.
+  if [ -n "${SIGNAL_KILL:-}" ] && [ -s "${SIGNAL_PID_FILE:-/nonexistent}" ]; then
+    kill -"$SIGNAL_KILL" "$(cat "$SIGNAL_PID_FILE")" 2>/dev/null
+  fi
   line="$(sed -n "${n}p" "$AGENTS_STATE_FILE" 2>/dev/null)"
   [ -n "$line" ] || line="$(tail -n 1 "$AGENTS_STATE_FILE" 2>/dev/null)"
   [ -n "$line" ] || line=done
@@ -188,6 +196,17 @@ echo "$n" > "$CLOCK_FILE"
 echo $(( 1000000000 + (n - 1) * ${CLOCK_STEP:-60} ))
 SH
 chmod +x "$BIN/fakeclock"
+
+# #815. THE PID THE TRAP LIVES IN. `run_tool` reaches the tool through a subshell and `env`, so
+# neither `$!` nor a fake's `$PPID` names the process the signal traps are installed in. This
+# records its own pid and then EXECS, which preserves it — so the number in the file IS the
+# orchestrator. Armed only by the cases that signal; every other case runs the tool directly.
+cat > "$BIN/pidwrap" <<'SH'
+#!/usr/bin/env bash
+echo $$ > "$SIGNAL_PID_FILE"
+exec "$@"
+SH
+chmod +x "$BIN/pidwrap"
 
 # The tracker fake records EVERY invocation — that recording is what makes the zero-write
 # assertion a measurement rather than a claim — and answers only the two reads the tool makes.
@@ -444,6 +463,9 @@ run_tool() { # run_tool [config] [args...]
          # unset — so every pre-existing case still exercises the PRODUCTION token expression and
          # only the cases that assert a transcript path pin one.
          LEAN_LAUNCH_ID="${LAUNCH_ID_OVERRIDE:-}"
+         # #815: harness-internal seams, not product ones — empty on every case but the two
+         # signal cases, and the fake tests them for emptiness rather than defaulting on them.
+         SIGNAL_KILL="${SIGNAL_KILL:-}" SIGNAL_PID_FILE="${SIGNAL_PID_FILE:-}"
          RUN_ID=poisoned-parent-run LEAN_RUN_MODEL=poisoned-parent-model )
   [ "${USE_DEFAULT_GH:-0}" -eq 1 ] || envs+=( GH="$BIN/gh" )
   # A HARNESS THAT EXPORTS A SEAM ON EVERY CASE MAKES THE PRODUCT'S OWN DEFAULT DEAD CODE.
@@ -476,7 +498,13 @@ run_tool() { # run_tool [config] [args...]
   [ -z "${ATTEND_SESSION:-}" ] || envs+=( CLAUDE_CODE_SESSION_ID="$ATTEND_SESSION" )
   # #531 D-5: the two streams now carry different KINDS of line, so one case has to see them
   # apart. Every other case keeps the merged view it was written against.
-  if [ "${RUN_TOOL_SPLIT:-0}" -eq 1 ]; then
+  if [ -n "${SIGNAL_PID_FILE:-}" ]; then
+    # #815: same invocation, reached through `pidwrap` so the run's own pid is addressable.
+    ( cd "$TREE" \
+      && env -u CLAUDE_CODE_SESSION_ID -u GH -u SECOND_SHIFT_CONFIG \
+             -u LEAN_SPAWN_SESSION_CEILING_MS -u LEAN_SPAWN_STALENESS_SECS -u LEAN_SPAWN_CLOCK \
+             "${envs[@]}" bash "$BIN/pidwrap" bash "$TOOL" "$@" 2>&1 )
+  elif [ "${RUN_TOOL_SPLIT:-0}" -eq 1 ]; then
     ( cd "$TREE" \
       && env -u CLAUDE_CODE_SESSION_ID -u GH -u SECOND_SHIFT_CONFIG \
              -u LEAN_SPAWN_SESSION_CEILING_MS -u LEAN_SPAWN_STALENESS_SECS -u LEAN_SPAWN_CLOCK \
@@ -2264,6 +2292,51 @@ if grep -q 'session sess1 — watch it with: claude attach sess1' <<<"$out" \
    && grep -q 'lean-7-review-r1' <<<"$(spawn_argv 2)"; then
   pass "(bg8) the session id and its attach command reach the control stream at dispatch, and each spawn is NAMED by issue, role and round"
 else fail "(bg8) the dispatch line or the --name is wrong: $out / $(all_argv)"; fi
+
+# ---- (sig) #815 D-1: an interrupted scheduler takes its child with it, AND exits as killed -----
+# THE INVARIANT: the two signal traps are the only thing standing between an interrupted lane and
+# an orphan — a bg session outlives the shell that dispatched it, so a scheduler that dies without
+# running `spawn_cleanup` leaves a payload writing records under a RUN_ID nobody supervises. The
+# traps also carry the shell's 128+signo convention outward, which is how the launcher that
+# spawned THIS process tells "interrupted" from "refused": every refusal in this file exits
+# through `terminal` with a small status, so a scheduler that answered 30 or 43 would be read as
+# one of those instead of as a signal.
+#
+# NO SCENARIO COVERS IT. scenario-liveness-selftest.sh composes a single run's verdict path against
+# the real gate; nothing there sends a signal, and signal disposition is not a verdict.
+#
+# The whole run happens inside the fake, on purpose. Signalling from outside would mean racing a
+# suite whose poll interval is pinned to zero, and backgrounding the tool to get a pid would set
+# SIGINT to SIG_IGN for the child — which bash then refuses to let the tool trap at all, so the
+# INT case could not exist in that shape. Delivered from the listing fake instead: it runs as the
+# orchestrator's child with a session already dispatched, which is the exact state the trap is for.
+#
+# BOTH assertions are load-bearing and they fail in different directions. The exit code alone
+# cannot see a DELETED trap — bash's own default for an untrapped SIGTERM is also 143 — and the
+# stop record alone cannot see a WRONG code. Together they pin the trap's body and its status.
+run_signal_case() { # run_signal_case <signal> <name>
+  SIGNAL_KILL="$1"
+  SIGNAL_PID_FILE="$WORK/$2.pid"
+  rm -f "$SIGNAL_PID_FILE"
+  out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; SIG_RC=$?
+  SIGNAL_KILL=""; SIGNAL_PID_FILE=""
+}
+
+setup_case "$(printf 'working\ndone\n')" "$V_APPROVE" "ready-for-dev" "11"
+run_signal_case TERM sig-term
+if [ "$SIG_RC" -eq 143 ] \
+   && grep -q 'stop sess1' "$SPAWN_LOG_DIR/stops" 2>/dev/null \
+   && grep -q 'still in flight — stopping it' <<<"$out"; then
+  pass "(sig1) SIGTERM mid-poll stops the in-flight session and exits 143, the status a killed shell reports"
+else fail "(sig1) expected rc=143 with sess1 stopped, got rc=$SIG_RC / stops=[$(cat "$SPAWN_LOG_DIR/stops" 2>/dev/null)]: $out"; fi
+
+setup_case "$(printf 'working\ndone\n')" "$V_APPROVE" "ready-for-dev" "11"
+run_signal_case INT sig-int
+if [ "$SIG_RC" -eq 130 ] \
+   && grep -q 'stop sess1' "$SPAWN_LOG_DIR/stops" 2>/dev/null \
+   && grep -q 'still in flight — stopping it' <<<"$out"; then
+  pass "(sig2) SIGINT mid-poll stops the in-flight session and exits 130, the status a killed shell reports"
+else fail "(sig2) expected rc=130 with sess1 stopped, got rc=$SIG_RC / stops=[$(cat "$SPAWN_LOG_DIR/stops" 2>/dev/null)]: $out"; fi
 
 # ---- (n) --help prints the header and stops before the code ------------------------------------------
 # BOTH bounds, and the lower one is not decoration: the `Exit: 0 = approved` anchor sits four lines
