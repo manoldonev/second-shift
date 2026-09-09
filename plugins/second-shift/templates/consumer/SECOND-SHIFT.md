@@ -12,7 +12,7 @@ repo enables {{PLUGIN_LIST}}) — `/second-shift:doctor` verifies the install ag
 ## What each plugin installs and when its code runs
 
 ### dev-pipeline
-- Skills: `run-lean` (the lane's front door, invoked as `/dev-pipeline:run-lean` — a scheduler that spawns the two blocks below in fresh sessions and authors nothing), `build-lean` (the build half, invoked as `/dev-pipeline:build-lean <ticket>`, gated by five artifact milestones), `review-lean` (the review half, invoked as `/dev-pipeline:review-lean <pr>` from its own session — a build run cannot author its own verdict), `pipeline-retro`, `perf-retro`, `pr-revision` — loaded only when invoked.
+- Skills: `run` (the lane's front door, invoked as `/dev-pipeline:run` — a scheduler that spawns the two blocks below in fresh sessions and authors nothing), `build` (the build half, invoked as `/dev-pipeline:build <ticket>`, gated by five artifact milestones), `review` (the review half, invoked as `/dev-pipeline:review <pr>` from its own session — a build run cannot author its own verdict), `pipeline-retro`, `perf-retro`, `pr-revision` — loaded only when invoked.
 - Hook: a PreToolUse gate on `git commit` commands (normal and bot-identity forms) that runs the repo's type-check on staged changes during pipeline commits.
 - Shell tools (`lean-gate.sh`, `lean-reconcile.sh`, `config-lint.sh`, `pipeline-doctor.sh`…) run only when the lane or a `/second-shift:*` command invokes them; run records live in `.claude/pipeline-state/`.
 
@@ -38,7 +38,7 @@ repo enables {{PLUGIN_LIST}}) — `/second-shift:doctor` verifies the install ag
   `.github/workflows/second-shift-ci.yml` + `.claude/tools/second-shift-ci-check.sh`. These run
   in **GitHub Actions on your PRs** (not in a Claude session — no session cost). Three checks:
   config-lint the committed config at the pinned marketplace ref; assert the settings ref and
-  lockfile ref agree; and, on a `/dev-pipeline:run-lean` PR, assert the merge-boundary evidence
+  lockfile ref agree; and, on a `/dev-pipeline:run` PR, assert the merge-boundary evidence
   the lean lane is supposed to leave — a committed approve-verdict carrying reconciliation keys,
   a review identity distinct from the build run's, a verdict covering *this* head, and no
   unratified intent-gap record. The workflow only reports a check; it blocks a merge only if you

@@ -14,7 +14,7 @@ body:
     attributes:
       label: What happened
       description: What you ran, what you expected, and what the pipeline did instead.
-      placeholder: "Ran /dev-pipeline:run-lean 42; expected a ready PR, got a hard stop on milestone 3."
+      placeholder: "Ran /dev-pipeline:run 42; expected a ready PR, got a hard stop on milestone 3."
     validations:
       required: true
   - type: textarea

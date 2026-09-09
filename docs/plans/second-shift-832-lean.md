@@ -31,9 +31,10 @@ tracked file outside the frozen record set and the alias directories themselves 
 - `LEAN_*` identifiers and the guard-script filenames (`lean-gate.sh`, `lean-evidence.sh`, …) —
   the epic's other deliverable. None of the three files here contains a `LEAN_` token, so the two
   do not collide.
-- The surviving `lean lane` / `lean evidence` **prose** phrases in these files. The epic measured
-  in-scope prose in the sibling plugins as its own quantity; re-spelling it here would double-count
-  against that measurement. See D-1.
+- The surviving bare `lean` / `-lean` **prose** in these files — including
+  `schema/second-shift.config.schema.json`'s `gates.render` description, which names the `build-lean`
+  *skill* rather than an invocation. That class is repo-wide and #831 approved it as a separate
+  deliverable. See D-1 and D-5, which name every surviving site inside this diff's files.
 - `docs/plans/`, `CHANGELOG.md` — historical records, never rewritten.
 - Any plugin `version` field.
 
@@ -66,10 +67,11 @@ every row below is a build-time decision.
 
 | ID | Decision | Resolution | Provenance |
 | --- | --- | --- | --- |
-| D-1 | Whether to also re-spell the surviving `lean lane` / `lean evidence` prose in the three edited files | No. #831 measures "in-scope prose in the four sibling plugins" (95 word-bounded lines) as a quantity its other deliverable is sized against, and `plugins/second-shift/templates/consumer/SECOND-SHIFT.md` is inside that count. This ticket's ACs bind the *invocation* spelling only, so the edit stops at the invocation and the parenthetical it sits in. `docs/config-schema.md:61` already reads `/dev-pipeline:run` alongside unchanged `lean lane` prose, so the mixed state is the one #829 already shipped and not a state this ticket introduces | codebase-derived |
-| D-2 | Whether AC-5 earns a shipped regression guard | No. A guard for AC-5 would assert the absence of a prose string, which is exactly the no-prose-presence-guards rule the `writing-tests` skill states. AC-5 is a one-time verification recorded in the PR, and the aliases' own deletion at the next major retires the class | codebase-derived |
+| D-1 | Whether to also re-spell the surviving bare `lean` / `-lean` PROSE in the edited files | No. Measured, the bare-name class is repo-wide — dozens of sites across `docs/`, `plugins/` and `tools/`, much of it inside the frozen ablation studies that are never rewritten — and #831 approved that sweep as a separate deliverable with `LANE_` as the replacement vocabulary. The ticket fences on the word *invocation*, which is what makes this slice a four-line edit rather than that sweep. Three prose sites survive inside the edited files and are named so none is silently left: template line 42 ("the lean lane is supposed to leave"), line 46 ("The lean evidence check is fail-closed") and line 75 ("The lean lane's review half") | codebase-derived |
+| D-2 | Whether AC-5 earns a shipped regression guard | No. A guard for AC-5 would assert the absence of a prose string, which is exactly the no-prose-presence-guards rule the `writing-tests` skill states. AC-5 is a one-time verification recorded in this PR, and the aliases' deletion at the next major retires the class outright | codebase-derived |
 | D-3 | Whether this repo's own `.claude/SECOND-SHIFT.md` needs the same edit | No — measured 0 hits for all three fixed strings. It is a rendered copy that was already current; the template under `plugins/` is the shipped source and the only site that drifts | codebase-derived |
-| D-4 | Whether `tests/issue-forms-selftest.sh` needs updating alongside AC-3 | No. That suite asserts each form's field ids and required-ness, never placeholder text, so the placeholder edit moves nothing it reads | codebase-derived |
+| D-4 | Whether `tests/issue-forms-selftest.sh` needs updating alongside AC-3 | No. That suite asserts each form's field ids and required-ness (`expect_required pipeline-aborted what-happened true`), never placeholder text, so the placeholder edit moves nothing it reads | codebase-derived |
+| D-5 | Whether `schema/second-shift.config.schema.json:213` ("Arms a repo-owned render command on build-lean milestone 3") is in scope | No, and it is the closest call in this diff. It names the *skill*, not an invocation, so AC-5's fixed-string greps do not reach it, and AC-2 fences the schema edit to the `ticketTag` description. Disclosed rather than fixed, because `schema/` is not one of the four sibling plugins the epic measured its prose sweep over — so this line, and the `ticketTag` description's own surviving "the lean lane", are orphaned between the two deliverables unless #831 picks them up explicitly | codebase-derived |
 
 ## Notes
 
