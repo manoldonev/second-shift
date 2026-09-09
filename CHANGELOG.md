@@ -4,6 +4,28 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v12.4.5
+
+### `dev-pipeline` 12.4.3 → 12.4.4
+
+- **fix(dev-pipeline): run-lean reads the transcript before believing blocked or working (#819)** (#819)
+  run-lean no longer ends a lane build-session-failed, or waits
+  out the session ceiling, on a BUILD session that has already signed off
+  — the transcript's own end-of-turn is read before the agent view's word.
+  Migration: none.
+- **test(dev-pipeline): the scheduler's signal traps get the two cases that kill their mutants (#824)** (#824)
+- **fix(dev-pipeline): the verdict gate refuses an empty panel (review-lean 5c) (#826)** (#826)
+  `lean-gate.sh verdict` refuses a `--panel` that names no reviewer — empty,
+  `none`, or only separators — and writes no record, so review-lean 5c's hand-back is a
+  gate condition rather than prose and a lane with no reviewer available terminates
+  `review-dark` instead of `approved`. `--panel` is now required on every ticket, not
+  only an armed one.
+  Migration: none — verdict records written before this are read unchanged.
+- **fix(dev-pipeline): run-lean stops a session it settled as done (#828)** (#828)
+  run-lean stops each supervised session as it settles `done`, instead
+  of leaving the finished session's process resident until something else reaps
+  it. Migration: none.
+
 ## v12.4.4
 
 ### `dev-pipeline` 12.4.2 → 12.4.3
