@@ -4,6 +4,44 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v12.5.0
+
+### `dev-pipeline` 12.4.4 → 12.5.0
+
+- **feat(dev-pipeline): the pipeline drops its "lean" name (#829)** (#829)
+  the pipeline's three skills are renamed to /dev-pipeline:run, /dev-pipeline:build
+  and /dev-pipeline:review. The -lean spellings still resolve as deprecated aliases for one
+  minor and are removed in the next major. The staged lane's merge-boundary gate
+  (scripts/check-pipeline-chain.sh) is deleted, so a hand-cut branch carrying no committed
+  spec is now claimed by no chain gate.
+  Migration: a consumer that advances its second-shift pin past this release must also refresh
+  its vendored second-shift-ci-check.sh (re-run /second-shift:onboard), because that copy
+  fetches lean-evidence.sh by its pre-move path and a moved path is reported as drift.
+
+### `intake-toolkit` 4.2.1 → 4.3.0
+
+- **feat(dev-pipeline): the pipeline drops its "lean" name (#829)** (#829)
+  the pipeline's three skills are renamed to /dev-pipeline:run, /dev-pipeline:build
+  and /dev-pipeline:review. The -lean spellings still resolve as deprecated aliases for one
+  minor and are removed in the next major. The staged lane's merge-boundary gate
+  (scripts/check-pipeline-chain.sh) is deleted, so a hand-cut branch carrying no committed
+  spec is now claimed by no chain gate.
+  Migration: a consumer that advances its second-shift pin past this release must also refresh
+  its vendored second-shift-ci-check.sh (re-run /second-shift:onboard), because that copy
+  fetches lean-evidence.sh by its pre-move path and a moved path is reported as drift.
+
+### `second-shift` 8.0.4 → 8.1.0
+
+- **feat(dev-pipeline): the pipeline drops its "lean" name (#829)** (#829)
+  the pipeline's three skills are renamed to /dev-pipeline:run, /dev-pipeline:build
+  and /dev-pipeline:review. The -lean spellings still resolve as deprecated aliases for one
+  minor and are removed in the next major. The staged lane's merge-boundary gate
+  (scripts/check-pipeline-chain.sh) is deleted, so a hand-cut branch carrying no committed
+  spec is now claimed by no chain gate.
+  Migration: a consumer that advances its second-shift pin past this release must also refresh
+  its vendored second-shift-ci-check.sh (re-run /second-shift:onboard), because that copy
+  fetches lean-evidence.sh by its pre-move path and a moved path is reported as drift.
+
 ## v12.4.5
 
 ### `dev-pipeline` 12.4.3 → 12.4.4
