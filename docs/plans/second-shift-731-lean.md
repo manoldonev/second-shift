@@ -24,8 +24,8 @@ emitter of the stage trail it demands.
   `scripts/gate-buckets.tsv`, `docs/prose-blocker-triage.tsv`, `tools/capability-parity.tsv`,
   `.claude/settings.json`, the sibling-relative `../build-lean/…` loads in `orchestrate-lean.sh`, and
   the consumer CI template's `fetch_at_ref` path (D-15). Oracle: `git grep -n
-  'skills/\(run\|build\|review\)-lean' -- ':!docs/plans/' ':!CHANGELOG.md'` returns only the three
-  alias-stub directories of AC-2.
+  'skills/\(run\|build\|review\)-lean' -- ':!docs/plans/' ':!CHANGELOG.md'` returns ZERO lines — the three
+  alias-stub SKILL.md files of AC-2 name only the new skills in their bodies.
 - **AC-2** — `/dev-pipeline:run-lean`, `/dev-pipeline:build-lean` and `/dev-pipeline:review-lean`
   still resolve, as `SKILL.md` stubs at the old paths whose entire body is a deprecation notice and a
   delegation to the new skill. Each stub is **9 lines**, under the 15-line bound. The `Changelog:`
@@ -63,8 +63,18 @@ emitter of the stage trail it demands.
   ran it and its 2 `tools/mutation-baseline.tsv` rows are gone. `scenario-liveness-selftest.sh`'s
   lane-routing leg is **rewritten, not deleted** (D-8): with one gate the two-gate "exactly one claims
   it" relation is vacuous, so `(lr1)`/`(lr2)`/`(lr3)` now assert the surviving gate's classification
-  directly over one tree and one branch shape, moving only the diff. The deletion carries a base-tree
-  mutation proof that it costs no coverage.
+  directly over one tree and one branch shape, moving only the diff.
+
+  **The base-tree mutation proof, and a correction to D-8.** D-8 asserted the deletion "costs no
+  coverage"; measured, the deleted suite *did* carry classifier coverage, so the claim only holds if
+  a surviving suite still kills what it killed. Two mutants were applied to `lean-evidence.sh`'s
+  `classify()` — **M1** replacing the key-matched `case` with an unconditional `key_spec="$f"; break`,
+  and **M2** flipping `APPLICABLE=1` to `0` on the resolved-key arm. At the **base** tree
+  `scripts/check-pipeline-chain-selftest.sh` KILLS both (rc=1 each), and is clean on the unmutated
+  tree. At **head** both are killed by three surviving suites — `scenario-liveness-selftest.sh`
+  (rc=4, `(lr1)` among the failing cases, so the rewritten leg is non-vacuous),
+  `check-lean-chain-selftest.sh` (rc=75) and `lean-evidence-selftest.sh` (rc=72) — and all three are
+  green on the unmutated head. Every kill the deleted suite provided is therefore still provided.
 
 ## Decision Ledger
 
@@ -87,6 +97,7 @@ emitter of the stage trail it demands.
 | D-15 | `plugins/second-shift/templates/consumer/second-shift-ci-check.sh` fetches `plugins/dev-pipeline/skills/build-lean/lean-evidence.sh` from the marketplace repo AT THE CONSUMER'S PINNED REF, and S-11 put the consumer templates out of scope | The PATH follows the move, per AC-1; S-11's carve-out was about prose, and a fetch path that 404s is not prose. No dual-path fallback: the script's own doctrine is that a moved path IS drift and must be reported, which makes pin-and-template a pair that moves together. The consequence is disclosed rather than absorbed — a consumer advancing its pin past this release must also refresh its vendored copy of that script, and that migration note goes in this ticket's `Changelog:` trailer and PR body, not slice 2's | codebase-derived |
 | D-16 | Whether the four `docs/skill-ablation*.md` study records take the skill-name rename | No. They are pinned-measurement records — "`review-lean`'s SKILL.md, 127 lines at `8d5d0897`" — and the name is how a reader reaches the measured bytes with `git show`. Same class as `docs/plans/`, which AC-8 never rewrites. Their AC-3-pattern hits ARE fixed; only the skill-name mentions stay | codebase-derived |
 | D-17 | Which words replace the retired ones, so the substitution is one rule rather than per-site taste | "the lean lane" and "lean-lane" become "the pipeline"; "a lean PR" becomes "a pipeline PR"; "the lean gate" becomes "the milestone gate"; "the lean session" becomes "the build session"; "the lean spec" becomes "the committed spec". Skill invocations are namespaced everywhere, per D-11. Where a comment names an IDENTIFIER it keeps naming it: `lean-gate.sh`, `lean-lanes.tsv`, `lean-pr-marker`, and the quoted commit subject at `lean-gate.sh:6452` are unchanged | codebase-derived |
+| D-18 | D-8's premise that the deletion "costs no coverage" is stated, not measured | Measured, and it is wrong as stated: `check-pipeline-chain-selftest.sh` KILLS both classifier mutants at the base tree, so it did carry coverage. The claim survives in a weaker and true form — every kill it provided is still provided at head by three surviving suites. AC-10 carries the numbers. Recorded rather than smoothed over, because a reviewer reading D-8 alone would take the stronger claim as established | codebase-derived |
 
 ## Open Regions
 
