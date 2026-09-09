@@ -523,6 +523,13 @@ run_tool() { # run_tool [config] [args...]
 slug_of() { sed -n 's/.*\] terminal: \([a-z][a-z-]*\) —.*/\1/p' <<<"$1"; }
 
 spawn_count() { cat "$SPAWN_LOG_DIR/count" 2>/dev/null || echo 0; }
+# #827: how many times a given session was stopped. COUNTED rather than merely present, because
+# the settling stop made presence stop discriminating: a session stopped as it finished and one
+# cut short while working both leave a line here, and the cases below that exist to prove a
+# healthy session is NOT cut short need to say which. Capture-then-default for the reason
+# `attempt_count` spells out — on no match `grep -c` prints 0 and exits 1, so a bare `|| echo 0`
+# emits "0\n0" and every `-eq` through it rejects it as a non-integer.
+stops_of() { local n; n="$(grep -c "^stop $1\$" "$SPAWN_LOG_DIR/stops" 2>/dev/null)" || n=0; [ -n "$n" ] || n=0; echo "$n"; }
 closeout_count() { cat "$GATE_LOG_DIR/ccount" 2>/dev/null || echo 0; }
 set_closeout_rcs() { printf '%s\n' "$1" > "$CLOSEOUT_RC_FILE"; }
 gate_count()  { cat "$GATE_LOG_DIR/count" 2>/dev/null || echo 0; }
@@ -1892,17 +1899,24 @@ else fail "(z7) the spawn edges are out of order: [$z_seq]"; fi
 # than any timing: the interval seam is zero and the fake never sleeps.
 
 # THE POLL ITSELF. Three ticks, two of them `working` — the shape a real payload spends most of
-# its life in, and the one `-p`'s wait ceiling used to cut short. Nothing is stopped and no
-# fallback fires: a session that is working is a session the scheduler waits for.
+# its life in, and the one `-p`'s wait ceiling used to cut short. No fallback fires: a session
+# that is working is a session the scheduler waits for.
+#
+# #827: AND EACH SETTLED SESSION IS STOPPED, exactly once, on the tick that reads it `done`. Both
+# spawns of an approving run reach that arm — it is the lane's common terminal, two per run — and
+# it was the one arm that left its session alone: every finished BUILD and REVIEW kept a resident
+# harness process until something else killed it, and a machine running cells accumulated one per
+# spawn until it ran out of memory. Asserted as a count on BOTH ids, so a fix that stopped only
+# the BUILD half, or stopped one session twice, is not this.
 setup_case "$(printf 'working\nworking\ndone\n')" "$V_APPROVE" "ready-for-dev" "11"
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
 if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 2 ] \
    && grep -q 'session sess1: working' <<<"$out" \
    && grep -q 'session sess1: done' <<<"$out" \
    && [ "$(grep -c 'session sess1: working' <<<"$out")" -eq 1 ] \
-   && [ ! -f "$SPAWN_LOG_DIR/stops" ]; then
-  pass "(bg1) a session that stays working is WAITED for, its transitions are reported once each, and nothing is stopped"
-else fail "(bg1) the poll did not ride out a working session, rc=$rc: $out"; fi
+   && [ "$(stops_of sess1)" -eq 1 ] && [ "$(stops_of sess2)" -eq 1 ]; then
+  pass "(bg1) a session that stays working is WAITED for, its transitions are reported once each, and BOTH settled sessions are stopped exactly once — the resident process a done session leaves is not the scheduler's to keep"
+else fail "(bg1) the poll did not ride out a working session or did not stop what it settled, rc=$rc / stops=[$(cat "$SPAWN_LOG_DIR/stops" 2>/dev/null)]: $out"; fi
 
 # `--all`, asserted on the call the poll actually makes. Without it the listing carries only
 # sessions still working or blocked, so the tick after a payload finishes would find it absent —
@@ -2044,9 +2058,9 @@ setup_case "$(printf 'working\nworking\nworking\nworking\ndone\n')" "$V_APPROVE"
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
 if [ "$rc" -eq 0 ] \
    && ! grep -q 'session ceiling spent' <<<"$out" \
-   && ! grep -q 'stop sess1' "$SPAWN_LOG_DIR/stops" 2>/dev/null; then
-  pass "(bg4a) NON-VACUITY: a session working inside the ceiling rides out four ticks untouched — the bound is the clock, not the state"
-else fail "(bg4a) a legitimately working session was stopped, rc=$rc: $out"; fi
+   && [ "$(stops_of sess1)" -eq 1 ]; then
+  pass "(bg4a) NON-VACUITY: a session working inside the ceiling rides out four ticks untouched — the bound is the clock, not the state, and its ONE stop is the settling one"
+else fail "(bg4a) a legitimately working session was stopped mid-flight, rc=$rc / stops=[$(cat "$SPAWN_LOG_DIR/stops" 2>/dev/null)]: $out"; fi
 
 # THE CEILING IS ELAPSED TIME, AND THE SHIPPED DEFAULT TOLERATES A LONG HEALTHY SESSION. (bg4) and
 # (bg4a) between them prove the arm fires and does not fire spuriously — but both run with elapsed
@@ -2077,9 +2091,9 @@ out="$(CLOCK_OVERRIDE="$BIN/fakeclock" CLOCK_FILE="$CASE_HOME/.clock-c" CLOCK_ST
        run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
 if [ "$rc" -eq 0 ] \
    && ! grep -q 'session ceiling spent' <<<"$out" \
-   && ! grep -q 'stop sess1' "$SPAWN_LOG_DIR/stops" 2>/dev/null; then
+   && [ "$(stops_of sess1)" -eq 1 ]; then
   pass "(bg4c) FIFTY minutes of healthy work rides out the SHIPPED ceiling untouched — the bound sits above ordinary BUILD durations, not inside them"
-else fail "(bg4c) the shipped ceiling stopped a healthy fifty-minute session, rc=$rc: $out"; fi
+else fail "(bg4c) the shipped ceiling stopped a healthy fifty-minute session, rc=$rc / stops=[$(cat "$SPAWN_LOG_DIR/stops" 2>/dev/null)]: $out"; fi
 
 # THE STALENESS RE-ASK HAS ITS OWN CADENCE. (bg7) proves the premise is re-asked inside the wait;
 # nothing proved it is re-asked on a SEPARATE clock, and at the poll's own cadence each re-ask is a
@@ -2155,7 +2169,7 @@ setup_case "$(printf 'working\nworking\ndone\n')" "$V_APPROVE" "ready-for-dev" "
 printf '0\n1\n0\n0\n' > "$STALENESS_RC_FILE"
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
 if [ "$rc" -eq 0 ] && [ "$(slug_of "$out")" != "staleness-unreadable" ] \
-   && ! grep -q 'stop sess1' "$SPAWN_LOG_DIR/stops" 2>/dev/null; then
+   && [ "$(stops_of sess1)" -eq 1 ]; then
   pass "(bg7e) NON-VACUITY: a single unreadable premise re-ask is ridden out, not fatal — the counter is consecutive, and one blip is evidence about the network"
 else fail "(bg7e) a single unreadable premise killed the run, rc=$rc / slug=$(slug_of "$out"): $out"; fi
 

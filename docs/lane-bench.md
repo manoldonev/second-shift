@@ -185,6 +185,10 @@ interrupt it.
 A series baseline is control and skeleton at the full tier: 7 × 2 × 3 = **42 lane runs**. Each
 further candidate is 21.
 
+**A series relies on the scheduler stopping every session it settles** (#827): each lane run spawns
+two, and a machine working through dozens of cells otherwise accumulates one resident process per
+spawn until it runs out of memory mid-cell.
+
 ## Comparability
 
 **`rounds` and `wall_min` compare within an arm only.** `review-lean`'s implementation is
