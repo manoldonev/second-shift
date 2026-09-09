@@ -4,6 +4,16 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v12.5.1
+
+### `dev-pipeline` 12.5.0 → 12.5.1
+
+- **fix(dev-pipeline): the scheduler's transcript readers follow CLAUDE_CONFIG_DIR (#835)** (#835)
+  the scheduler resolves payload transcripts through CLAUDE_CONFIG_DIR,
+  so a machine with a relocated Claude home no longer ends every finished BUILD as
+  build-session-failed with an empty transcript to diagnose it from.
+  Migration: none.
+
 ## v12.5.0
 
 ### `dev-pipeline` 12.4.4 → 12.5.0
