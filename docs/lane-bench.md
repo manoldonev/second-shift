@@ -7,7 +7,7 @@ up every time a plugin, a skill, a reviewer agent or a gate is proposed for dele
 cutting this make the lane worse, and by how much?**
 
 That question has, until now, been settled by argument. The lane bench settles it with a measured
-delta against a fixed control: replay a fixed corpus of tickets through the lean lane once per
+delta against a fixed control: replay a fixed corpus of tickets through the pipeline once per
 **harness arm**, on a synthetic repo built for the purpose, and score each run against a hidden
 acceptance-test overlay and a list of seeded defects. The score is deterministic — two mechanical
 detectors per defect, no judge model — so a cell scored today and re-scored next month gives the
@@ -191,9 +191,9 @@ spawn until it runs out of memory mid-cell.
 
 ## Comparability
 
-**`rounds` and `wall_min` compare within an arm only.** `review-lean`'s implementation is
+**`rounds` and `wall_min` compare within an arm only.** `/dev-pipeline:review`'s implementation is
 `review-toolkit`'s `review-lead`, so an arm without that plugin obtains a result from no reviewer
-at all — and the verdict gate refuses a `--panel` that names none (review-lean 5c, #825), so an
+at all — and the verdict gate refuses a `--panel` that names none (/dev-pipeline:review 5c, #825), so an
 arm with no reviewer available writes no verdict record: every one of its cells terminates
 `review-dark`, spends no round and spawns no second build.
 Its `rounds` and `wall_min` are structurally smaller for a reason that has nothing to do with lane

@@ -51,7 +51,7 @@ repo enables {{PLUGIN_LIST}}) — `/second-shift:doctor` verifies the install ag
   reads the PR's comment trail, so the job needs `contents: read` **plus `issues: read` and
   `pull-requests: read`**. A `permissions:` key replaces the workflow defaults wholesale — any
   scope you leave out is `none`, with no public-repo exception — so dropping either read denies
-  that call and reds every lean PR with an environment error. Read scopes only: the job executes
+  that call and reds every pipeline PR with an environment error. Read scopes only: the job executes
   a script fetched from the marketplace repo at your pinned ref, which inherits this token.
 - **Its gate strength depends on your bot, not on your tracker.** The build run's identity
   comes from a bot-authored marker comment the harness posts on the PR, and the verdict's

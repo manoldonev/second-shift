@@ -27,20 +27,20 @@ TMP="$(mktemp -d "${TMPDIR:-/tmp}/stack-generality-selftest.XXXXXX")" || exit 2
 trap 'rm -rf "$TMP"' EXIT
 
 FIX="$TMP/fixture"
-LANES="plugins/dev-pipeline/skills"      # the three lean lane-contract SKILLs (#348)
+LANES="plugins/dev-pipeline/skills"      # the three pipeline-contract SKILLs (#348)
 
 # A minimal clean tree mirroring the guarded paths. The doc-updater BODY deliberately
 # mentions `.project/` — the legitimate case the frontmatter-only scope must not flag.
 build_fixture() {
   rm -rf "$FIX"
-  mkdir -p "$FIX/$LANES/build-lean" "$FIX/$LANES/review-lean" "$FIX/$LANES/run-lean" \
+  mkdir -p "$FIX/$LANES/build" "$FIX/$LANES/review" "$FIX/$LANES/run" \
            "$FIX/$LANES/pipeline-retro" \
            "$FIX/plugins/dev-pipeline/tools" \
            "$FIX/plugins/review-toolkit/agents" \
            "$FIX/plugins/review-toolkit/skills/mutation-review"
-  printf 'resolve conventions via the doc router\n' > "$FIX/$LANES/build-lean/SKILL.md"
-  printf 'scans the declared documentation roots\n'  > "$FIX/$LANES/review-lean/SKILL.md"
-  printf 'generic scheduler prose\n'                 > "$FIX/$LANES/run-lean/SKILL.md"
+  printf 'resolve conventions via the doc router\n' > "$FIX/$LANES/build/SKILL.md"
+  printf 'scans the declared documentation roots\n'  > "$FIX/$LANES/review/SKILL.md"
+  printf 'generic scheduler prose\n'                 > "$FIX/$LANES/run/SKILL.md"
   printf 'AC-coverage audit greps the diff for (AC-n) test titles\n' \
     > "$FIX/$LANES/pipeline-retro/SKILL.md"
   printf -- '---\nname: doc-updater\ndescription: routes via the declared doc roots\n---\nbody may say never assume .project/ — that is the anti-pattern prose\n' \
@@ -64,9 +64,9 @@ if [[ "$rc" -eq 0 ]]; then ok "clean fixture exits 0 (incl. .project/ in doc-upd
 
 # 2. Seeded .project/ literal in a stage file → fails.
 build_fixture
-printf 'read .project/reference/conventions.md first\n' >> "$FIX/$LANES/build-lean/SKILL.md"
+printf 'read .project/reference/conventions.md first\n' >> "$FIX/$LANES/build/SKILL.md"
 rc="$(lint_rc "$FIX")"
-if [[ "$rc" -ge 1 ]]; then ok "seeded .project/ in build-lean/SKILL.md fails (rc=$rc)"; else bad "seeded .project/ in a lane contract not caught"; fi
+if [[ "$rc" -ge 1 ]]; then ok "seeded .project/ in build/SKILL.md fails (rc=$rc)"; else bad "seeded .project/ in a lane contract not caught"; fi
 
 # 3. Seeded .project/ in doc-updater FRONTMATTER → fails (the other direction of the scope).
 build_fixture
@@ -77,7 +77,7 @@ if [[ "$rc" -ge 1 ]]; then ok "seeded .project/ in doc-updater frontmatter fails
 
 # 4. Seeded unit-testing reference in a .md → fails.
 build_fixture
-printf 'see the unit-testing skill\n' >> "$FIX/$LANES/review-lean/SKILL.md"
+printf 'see the unit-testing skill\n' >> "$FIX/$LANES/review/SKILL.md"
 rc="$(lint_rc "$FIX")"
 if [[ "$rc" -ge 1 ]]; then ok "seeded unit-testing ref in .md fails (rc=$rc)"; else bad "unit-testing ref in .md not caught"; fi
 

@@ -312,12 +312,12 @@ if [[ -z "$SELFTEST_CACHE_HIT" ]]; then
 _FAILS_BEFORE_SWEEP=$FAILS
 
 # --- 5. lean gate (the safety net must work on THIS machine) --------------------
-# #348 retired the staged state machine. The lean lane's gate is what a run's five
+# #348 retired the staged state machine. The pipeline's gate is what a run's five
 # milestones are asserted by, so it takes this section's place.
-if out=$(bash "$PLUGIN_DIR/skills/build-lean/lean-gate-selftest.sh" 2>&1); then
+if out=$(bash "$PLUGIN_DIR/skills/build/lean-gate-selftest.sh" 2>&1); then
   ok "lean-gate selftest: $(tail -1 <<< "$out" | sed 's/\[self-test\] //')"
 else
-  bad "lean-gate selftest FAILED — the lean lane's milestone gate is broken on this machine. Output tail:"
+  bad "lean-gate selftest FAILED — the pipeline's milestone gate is broken on this machine. Output tail:"
   tail -5 <<< "$out" | sed 's/^/[doctor]        /'
 fi
 
@@ -411,7 +411,7 @@ fi
 # instead is the boundary a lean run is actually judged at: lean-evidence.sh
 # reads the committed verdict record's verdict, authoring identity, patch freshness and
 # ratification, and a consumer's CI fetches it at its pinned ref.
-if out=$(bash "$PLUGIN_DIR/skills/build-lean/lean-evidence-selftest.sh" 2>&1); then
+if out=$(bash "$PLUGIN_DIR/skills/build/lean-evidence-selftest.sh" 2>&1); then
   ok "lean-evidence selftest: $(tail -1 <<< "$out" | sed 's/\[self-test\] //')"
 else
   bad "lean-evidence selftest FAILED — the merge-boundary evidence reader (verdict / identity / freshness / ratification) is broken on this machine. Output tail:"
@@ -544,7 +544,7 @@ if [[ -d "$STATE_DIR_D" ]]; then
     # <<< stale-claim-classify <<<
     if [[ -n "$stale_line" ]]; then
       stale_found=1
-      warn "stale claim: ${stale_line} — no liveness signal available (a long silent stage looks identical); if no session owns it: resume with '/dev-pipeline:run-lean ${stale_line%% *}', or release the claim by hand with the in-progress -> queue label swap via the bot wrapper"
+      warn "stale claim: ${stale_line} — no liveness signal available (a long silent stage looks identical); if no session owns it: resume with '/dev-pipeline:run ${stale_line%% *}', or release the claim by hand with the in-progress -> queue label swap via the bot wrapper"
     fi
   done
   [[ "$stale_found" == "0" ]] && ok "no stale in_progress claims (>=30 min since last state write)"

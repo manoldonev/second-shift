@@ -33,18 +33,18 @@
 #
 # suite<TAB>seconds<TAB>measured_at
 tools/install-topology-selftest.sh	584	2026-08-20
-plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	212	2026-08-30
+plugins/dev-pipeline/skills/build/lean-gate-selftest.sh	212	2026-08-30
 tools/mutation-sweep-selftest.sh	135	2026-08-20
-plugins/dev-pipeline/skills/build-lean/scenario-liveness-selftest.sh	106	2026-09-07
+plugins/dev-pipeline/skills/build/scenario-liveness-selftest.sh	106	2026-09-07
 scripts/check-lean-chain-selftest.sh	67	2026-08-21
-plugins/dev-pipeline/skills/run-lean/orchestrate-lean-selftest.sh	58	2026-09-07
-plugins/dev-pipeline/skills/build-lean/lean-evidence-selftest.sh	26	2026-08-21
+plugins/dev-pipeline/skills/run/orchestrate-lean-selftest.sh	58	2026-09-07
+plugins/dev-pipeline/skills/build/lean-evidence-selftest.sh	26	2026-08-21
 plugins/dev-pipeline/tools/retro-corpus-selftest.sh	22	2026-08-20
 plugins/second-shift/skills/onboard/tools/config-grill-selftest.sh	17	2026-08-20
 plugins/dev-pipeline/tools/preflight-selftest.sh	15	2026-08-20
 tools/prose-blockers-selftest.sh	15	2026-08-21
 plugins/second-shift/skills/doctor/tools/doctor-selftest.sh	13	2026-08-20
 tools/run-selftests-selftest.sh	12	2026-08-21
-plugins/dev-pipeline/skills/build-lean/lean-reconcile-selftest.sh	10	2026-08-17
+plugins/dev-pipeline/skills/build/lean-reconcile-selftest.sh	10	2026-08-17
 tools/lane-bench-selftest.sh	11	2026-09-07
 plugins/intake-toolkit/hooks/exitplan-ledger-gate-selftest.sh	5	2026-07-31

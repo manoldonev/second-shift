@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# orchestrate-lean.sh — the lean lane's scheduler. It spawns the payload blocks and reads
+# orchestrate-lean.sh — the pipeline's scheduler. It spawns the payload blocks and reads
 # their outcomes. It authors nothing.
 #
 # WHY THIS IS A SCRIPT AND NOT A PROSE CHECKLIST (#397 D-1). The rest of this lane is
@@ -47,7 +47,7 @@
 #
 # AND THE STATE AFTER THE FINAL TURN IS A SUMMARY, NOT A READING (the private eval substrate's
 # dry run). Once a payload's last turn ends, the agent view's word is derived from its closing
-# prose: a BUILD that signed off "PR ready for review; awaiting review-lean" — PR open, marker
+# prose: a BUILD that signed off "PR ready for review; awaiting /dev-pipeline:review" — PR open, marker
 # posted, no prompt pending — was listed `blocked`, and the same sign-off on #813 was listed
 # `working` for an hour until an operator typed into the session. Neither is `done`, and a
 # headless run cannot wait for a keyboard. So `blocked` and `working` are both checked against
@@ -125,7 +125,7 @@
 # THE TERMINAL TAXONOMY (#531 D-1). Every run-ending exit prints `terminal: <slug>` before it goes,
 # so a log can be routed on the CONDITION rather than on a prose match that moves with the wording.
 # The slugs are in the LOG and not in the exit contract: the codes below are unchanged, nothing in
-# this lane branches on an exit-1 subclass, and run-lean/SKILL.md — which enumerates the codes —
+# this lane branches on an exit-1 subclass, and run/SKILL.md — which enumerates the codes —
 # sits at exactly the 60-line cap its own selftest asserts.
 #
 # THE LOG IS THREE-WAY SEPARABLE (#531 D-5/D-6). `spawn` ran the child with no redirection, so its
@@ -139,7 +139,7 @@
 #
 # RE-ENTERING A RUN THE LANE STOPPED ITSELF (#500). Every non-zero exit above leaves the worktree
 # and the claim in place, and the operator is told to re-run once the reject is fixed. That was
-# unreachable: `claim` (build-lean step 2) swaps the queue label for the claimed one, and preflight
+# unreachable: `claim` (/dev-pipeline:build step 2) swaps the queue label for the claimed one, and preflight
 # demanded the queue label — so the lane consumed, at step 2, the one token its own front door
 # required, and every run it stopped landed in a state it could not re-enter.
 #
@@ -154,7 +154,7 @@
 # check-lean-chain.sh evidence 3 already treats as authoritative, under the same
 # `.user.type == "Bot"` trust filter — issue comments are writable by any account on a public repo,
 # so an operator-posted marker is not evidence the harness ran. Re-entry costs no tracker write: it
-# restores nothing, and build-lean skips its claim when the run is already claimed.
+# restores nothing, and /dev-pipeline:build skips its claim when the run is already claimed.
 #
 # THE RUN'S PREMISE CAN EXPIRE WHILE THE RUN IS IN FLIGHT (#515). Everything above reads tracker
 # and base state exactly once, at preflight, and never again: a continuation inherits the original
@@ -199,7 +199,7 @@
 #   LEAN_SPAWN_STALENESS_SECS    seconds between in-poll staleness re-checks (default 300)
 #   LEAN_SPAWN_SESSION_CEILING_MS  wall-clock ceiling on ONE session (default 7200000)
 #   LEAN_SPAWN_CLOCK             command printing epoch seconds (default `date +%s`)
-#   LEAN_GATE                    the milestone gate (default: the sibling build-lean skill)
+#   LEAN_GATE                    the milestone gate (default: the sibling /dev-pipeline:build skill)
 #   LEAN_OVERRIDE_TOOL           the attendance/override mechanism (default: the sibling tool)
 #   ${GH:-gh}                    the tracker/code-host CLI, read-only here
 #   SECOND_SHIFT_CONFIG          override the resolved config path
@@ -244,7 +244,7 @@ SPAWN_CLOSED=1
 # opening: the transcript opens before the dispatch, the row only once the dispatch yields an id.
 # The no-id refusal falls between the two and must not close a spawn the ledger never opened.
 SPAWN_ENDED=1
-GATE="${LEAN_GATE:-$SCRIPT_DIR/../build-lean/lean-gate.sh}"
+GATE="${LEAN_GATE:-$SCRIPT_DIR/../build/lean-gate.sh}"
 # #613. Same-plugin sibling, so a plain relative path — no resolve-sibling ladder, which exists
 # for CROSS-plugin hops. The seam is here for the selftest, which must drive the third accepting
 # state without a real attendance token on the machine running it.
@@ -443,7 +443,7 @@ trap 'spawn_cleanup; exit 143' TERM
 # could ever kill. Keep it in words.
 #
 # THE SLUG IS IN THE LOG, NOT IN THE EXIT CONTRACT, and that is deliberate rather than a
-# compromise. The eight documented exit codes below are unchanged: run-lean/SKILL.md enumerates
+# compromise. The eight documented exit codes below are unchanged: run/SKILL.md enumerates
 # them and sits at exactly the 60-line cap its selftest asserts, so thirteen codes cannot be
 # documented there — and nothing in this lane branches on an exit-1 subclass. The harm the ticket
 # names is an unclassifiable LOG, not a caller that cannot branch, so that is where the fix lands.
@@ -820,8 +820,8 @@ say "build model: $BUILD_MODEL (basis: $MODEL_BASIS) · review model: $REVIEW_MO
 # ---- the work branch and its worktree ---------------------------------------------------------
 # One prefix resolver for the whole marketplace; this script asks it the same question the gate
 # and the evidence payload ask, rather than re-deriving `<prefix><key>` a fourth time.
-# shellcheck source=../build-lean/branch-prefix.sh
-. "$SCRIPT_DIR/../build-lean/branch-prefix.sh" || envfail env-branch-prefix-lib "cannot load the sibling branch-prefix.sh."
+# shellcheck source=../build/branch-prefix.sh
+. "$SCRIPT_DIR/../build/branch-prefix.sh" || envfail env-branch-prefix-lib "cannot load the sibling branch-prefix.sh."
 
 BRANCH_KEY="$ISSUE"
 [ "$TRACKER_TYPE" = "jira" ] && BRANCH_KEY="$(printf '%s' "$ISSUE" | tr '[:upper:]' '[:lower:]')"
@@ -1120,7 +1120,7 @@ poll_session() { # poll_session <role> <lower-role> <id>
       #
       # UNLESS THE TURN HAS ALREADY ENDED. The word is a summary of the closing prose once the
       # payload has signed off (header), and a BUILD that ended "PR ready for review; awaiting
-      # review-lean" with the PR open and nothing pending was listed exactly here. `turn_ended`
+      # /dev-pipeline:review" with the PR open and nothing pending was listed exactly here. `turn_ended`
       # reads the transcript instead; ended with nothing outstanding is `done`, and the GATE
       # decides completeness as it always did. Stopped first, because the supervisor is still
       # holding a session that will never be asked anything (D-1: one lane, one supervisor).
@@ -1133,7 +1133,7 @@ poll_session() { # poll_session <role> <lower-role> <id>
         SPAWN_STATE="$state"; return 0 ;;
       working)
         # THE SAME ORACLE FIRST. #813's BUILD sat here for an hour after signing off — `working`
-        # was the summary's word for "awaiting review-lean" — and only an operator's keystroke
+        # was the summary's word for "awaiting /dev-pipeline:review" — and only an operator's keystroke
         # moved it. Headless, that is the ceiling below spent on a finished session, once per
         # cell. A turn that ended with no background command outstanding is the D-8 shape's
         # finished twin, told apart by the record; it settles as `done` now rather than as
@@ -1317,7 +1317,7 @@ staleness_rc() {
   ( cd "$MAIN_ROOT" && env -u RUN_ID bash "$GATE" staleness "$ISSUE" )
 }
 
-# #531 D-3. THE BUILD EXIT CONTRACT, mechanized as a gate call rather than as build-lean prose.
+# #531 D-3. THE BUILD EXIT CONTRACT, mechanized as a gate call rather than as /dev-pipeline:build prose.
 # #535 added a prose rule against ending a turn with work in flight, it shipped installed, and the
 # very next run ignored it — which is the class #166 exists for. The predicate itself is the one
 # `teardown` already refuses on, extracted so that the boundary and the cleanup cannot drift into
@@ -1385,8 +1385,8 @@ satisfied_token() { # satisfied_token <milestone>
 
 if [ "$DRY_RUN" -eq 1 ]; then
   say "dry run: branch=$BRANCH · gate=$GATE · $MAX_ROUNDS round(s) of BUILD → REVIEW → verdict"
-  spawn BUILD "$BUILD_MODEL" "/dev-pipeline:build-lean $ISSUE"
-  spawn REVIEW "$REVIEW_MODEL" "/dev-pipeline:review-lean <pr>"
+  spawn BUILD "$BUILD_MODEL" "/dev-pipeline:build $ISSUE"
+  spawn REVIEW "$REVIEW_MODEL" "/dev-pipeline:review <pr>"
   terminal dry-run 0 "dry run: nothing was spawned."
 fi
 
@@ -1411,7 +1411,7 @@ while :; do
     *) terminal staleness-unreadable 1 "the staleness check could not be completed (gate exit $st_rc) — refusing to spawn BUILD against a premise nothing verified." ;;
   esac
 
-  spawn BUILD "$BUILD_MODEL" "/dev-pipeline:build-lean $ISSUE"
+  spawn BUILD "$BUILD_MODEL" "/dev-pipeline:build $ISSUE"
 
   PR="$(resolve_pr)"
   # More than one open PR on this head is not a state to guess through: the review would run on
@@ -1420,7 +1420,7 @@ while :; do
     terminal pr-ambiguous 1 "more than one open PR on '$BRANCH' ($(printf '%s' "$PR" | tr '\n' ' ')) — the lane cannot choose which one this run is about. Close or retarget the extras and re-launch."
   fi
   # #531 AC-5. THE BUILD EXIT CONTRACT, and it is gated on there BEING a PR, which is where the
-  # harm lives: the round that follows hands `review-lean` a PR whose REMOTE head is missing
+  # harm lives: the round that follows hands `/dev-pipeline:review` a PR whose REMOTE head is missing
   # everything the build session just did. Measured three times in a single run of one ticket,
   # each costing a full review round with nothing in the log to distinguish it from a legitimate
   # one; the worst shape had BUILD correctly rebase onto a moved base AND find a real defect the
@@ -1436,11 +1436,11 @@ while :; do
   # arm below a genuine environment error rather than the ordinary state of a young lane.
   #
   # TERMINAL, restoring #531's original posture (#718). #652 argued for a recovery spawn instead:
-  # the work is in the lane worktree, build-lean resumes at the first unsatisfied milestone, so a
+  # the work is in the lane worktree, /dev-pipeline:build resumes at the first unsatisfied milestone, so a
   # fresh session re-derives nothing and just pushes. True — and it is still one more session spent
   # guessing that the next one will behave differently. #531's reading is the one that survives:
   # the remedy is a single push from a tree that still exists, which an operator performs in
-  # seconds from the recipe in build-lean/SKILL.md. Both the worktree and the claim are left
+  # seconds from the recipe in build/SKILL.md. Both the worktree and the claim are left
   # standing for exactly that.
   if [ -n "$PR" ]; then
     inflight_rc; if_rc=$?
@@ -1522,14 +1522,14 @@ while :; do
   else
     review_retries=0
     while :; do
-      spawn REVIEW "$REVIEW_MODEL" "/dev-pipeline:review-lean $PR"
+      spawn REVIEW "$REVIEW_MODEL" "/dev-pipeline:review $PR"
 
       verdict_rc; rc=$?
       [ "$rc" -eq 5 ] || break
 
       review_retries=$((review_retries + 1))
       if [ "$review_retries" -gt "$MAX_REVIEW_RETRIES" ]; then
-        terminal review-dark 5 "HARD STOP: the REVIEW session left no verdict record usable against the current head, twice. No round was spent and no BUILD session was spawned — BUILD has nothing to fix when the review half is what failed. Run '/dev-pipeline:review-lean $PR' by hand and read its output; the worktree and the claim are left in place."
+        terminal review-dark 5 "HARD STOP: the REVIEW session left no verdict record usable against the current head, twice. No round was spent and no BUILD session was spawned — BUILD has nothing to fix when the review half is what failed. Run '/dev-pipeline:review $PR' by hand and read its output; the worktree and the claim are left in place."
       fi
       say "no verdict record usable against the current head — re-spawning REVIEW ($review_retries of $MAX_REVIEW_RETRIES). No round spent, no BUILD spawn."
     done

@@ -1,4 +1,4 @@
-# Gate ablation over the lean run corpus
+# Gate ablation over the pipeline run corpus
 
 Which of the lane's blocking gates has ever changed what shipped, measured rather than argued.
 
@@ -64,7 +64,7 @@ than left out, because a gate absent from a table reads as a gate that never fir
 | the wrong-tree refusal (`rc=9`) | refuses before touching the progress file, by design | its fire count is unknown; it may be the lane's most frequent refusal |
 | the unattested-entry refusal | `entry` records only its success | unknown |
 | usage and environment errors (`envfail`) | deliberately outside the fix budget, so nothing is appended | unknown |
-| every scheduler decision (`run-lean`) | the scheduler reads exit codes and authors nothing | unknown; the scheduler is not in this corpus at all |
+| every scheduler decision (`/dev-pipeline:run`) | the scheduler reads exit codes and authors nothing | unknown; the scheduler is not in this corpus at all |
 | `teardown` and `handoff` rows | recorded, but neither is a gate refusing | out of scope, not unmeasured |
 
 **Out of corpus.** 47 stage-era records (`{issue}.json`, a top-level `stages` key) describe gates

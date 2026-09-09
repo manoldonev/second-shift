@@ -24,7 +24,7 @@ on:
 #                           for the build run's bot marker, and the linked ISSUE's, for the
 #                           producer capability stamp saying whether the harness that ran could
 #                           post that marker at all. Without these scopes the marker read is
-#                           denied, the payload reports an environment error, and every lean PR
+#                           denied, the payload reports an environment error, and every pipeline PR
 #                           reds with a message pointing at the step env rather than at the
 #                           token; the stamp read DECLINES instead, leaving the arm inert —
 #                           quieter, and a weaker boundary than the one you installed.
@@ -44,7 +44,7 @@ jobs:
       # fetch-depth: 0 is load-bearing for the lean-evidence check, not hygiene. That check
       # recomputes the branch's patch identity from merge-base(base, head), which a depth-1
       # checkout cannot resolve — and an unresolvable identity is reported as a failure, not
-      # waved through, so a shallow checkout reds every lean PR rather than silently exempting
+      # waved through, so a shallow checkout reds every pipeline PR rather than silently exempting
       # one. Ordinary PRs are unaffected either way.
       - uses: actions/checkout@v4
         with:

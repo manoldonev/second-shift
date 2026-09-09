@@ -335,7 +335,7 @@ fi
 # --- C1: the scanned set spans EVERY workflow directory that exists ------------------------
 # A lint anchored to a directory list reports a confident green while never having opened the
 # files outside it — the self-neutralization class this lint exists to prevent, turned on the
-# lint itself. Until the lean lane's in-build reviewer became a separate review session, the shape
+# lint itself. Until the pipeline's in-build reviewer became a separate review session, the shape
 # of this case was "the default scan covers MORE files than skills/run alone". With one
 # directory left that comparison is unsatisfiable, and re-anchoring it to "the counts are
 # equal" would assert nothing about a directory added later.

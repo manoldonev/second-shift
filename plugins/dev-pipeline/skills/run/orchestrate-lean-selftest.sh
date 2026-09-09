@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# orchestrate-lean-selftest.sh — proves orchestrate-lean.sh, the lean lane's scheduler.
+# orchestrate-lean-selftest.sh — proves orchestrate-lean.sh, the pipeline's scheduler.
 #
 # Tier justification (CLAUDE.md's map): one script's behavior against fixtures ⇒ a per-tool
 # behavioral selftest. What it guards is the loop's CONTROL FLOW — preflight's reject-and-stop,
@@ -12,7 +12,7 @@
 # real thing — `LEAN_SPAWN_BIN` (the session binary), `LEAN_GATE` (the milestone gate) and
 # `${GH:-gh}` — so the whole suite drives fakes that RECORD what they were given. That is also
 # this suite's honest ceiling, stated rather than papered over: it proves the scheduler's loop,
-# and cannot prove that a real `claude -p` build session completes build-lean unattended. CI is
+# and cannot prove that a real `claude -p` build session completes /dev-pipeline:build unattended. CI is
 # model-free by design; that fidelity is provable only by an operator-run end-to-end.
 #
 # Anti-vacuity: the tool's existence is asserted up front with a distinct exit 2, and the fakes
@@ -34,8 +34,8 @@ if [ ! -f "$TOOL" ]; then
   echo "FATAL: $TOOL does not exist — the suite has nothing to prove. This is the anti-vacuity guard." >&2
   exit 2
 fi
-if [ ! -f "$HERE/../build-lean/branch-prefix.sh" ]; then
-  echo "FATAL: the sibling build-lean/branch-prefix.sh is absent — the tool sources it, so every case below would fail for the same uninformative reason." >&2
+if [ ! -f "$HERE/../build/branch-prefix.sh" ]; then
+  echo "FATAL: the sibling build/branch-prefix.sh is absent — the tool sources it, so every case below would fail for the same uninformative reason." >&2
   exit 2
 fi
 
@@ -426,7 +426,7 @@ set_claim_trail() { # set_claim_trail <author-type> <run-id>
         body: "<!-- stage: lean-claimed -->\n<!-- run_id: decoy-operator-forged -->" },
       { user: { type: $t,     login: "pipeline-bot" },
         body: ("<!-- dev-pipeline -->\n<!-- run_id: " + $r
-               + " -->\n<!-- stage: lean-claimed -->\n\nClaimed by build-lean.") } ]' \
+               + " -->\n<!-- stage: lean-claimed -->\n\nClaimed by /dev-pipeline:build.") } ]' \
     > "$COMMENTS_FILE"
 }
 
@@ -571,8 +571,8 @@ opus" "11"
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
 if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 2 ] && [ "$(gate_count)" -eq 2 ] \
    && [ "$(closeout_count)" -eq 1 ] \
-   && grep -q 'build-lean 7' <<<"$(spawn_argv 1)" \
-   && grep -q 'review-lean 11' <<<"$(spawn_argv 2)"; then
+   && grep -q 'dev-pipeline:build 7' <<<"$(spawn_argv 1)" \
+   && grep -q 'dev-pipeline:review 11' <<<"$(spawn_argv 2)"; then
   pass "(b) approve ⇒ BUILD → REVIEW(pr from the tracker) → a close-out GATE CALL, exit 0 — #590 deleted the third spawn"
 else fail "(b) expected rc=0 with 2 spawns / 2 gate calls / 1 close-out, got rc=$rc / $(spawn_count) / $(gate_count) / $(closeout_count): $out"; fi
 
@@ -945,8 +945,8 @@ setup_case "" "$V_NEEDSWORK_APPROVE" "ready-for-dev" "11"
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
 if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 4 ] && [ "$(gate_count)" -eq 4 ] \
    && [ "$(closeout_count)" -eq 1 ] \
-   && grep -q 'build-lean 7' <<<"$(spawn_argv 3)" \
-   && grep -q 'review-lean 11' <<<"$(spawn_argv 4)"; then
+   && grep -q 'dev-pipeline:build 7' <<<"$(spawn_argv 3)" \
+   && grep -q 'dev-pipeline:review 11' <<<"$(spawn_argv 4)"; then
   pass "(h1) needs-work ⇒ a fresh fix BUILD then a fresh REVIEW, then the close-out call on the approve"
 else fail "(h1) expected 4 spawns / 4 gate calls / 1 close-out, got rc=$rc / $(spawn_count) / $(gate_count) / $(closeout_count): $out"; fi
 
@@ -1198,7 +1198,7 @@ else fail "(m1) expected an ungated jira run naming the tracker, got rc=$rc / $(
 
 setup_case "" "$V_APPROVE" "" "11"
 out="$(run_tool "$CFG_JIRA" ACME-7 --build-model sonnet)"; rc=$?
-if [ "$rc" -eq 0 ] && grep -q 'build-lean ACME-7' <<<"$(spawn_argv 1)" \
+if [ "$rc" -eq 0 ] && grep -q 'dev-pipeline:build ACME-7' <<<"$(spawn_argv 1)" \
    && grep -q "^CWD: $WORK/wt$" "$GATE_LOG_DIR/call-1" 2>/dev/null; then
   pass "(m2) the jira key reaches the payload unlowercased while the BRANCH is lowercased"
 else fail "(m2) expected a clean jira run, got rc=$rc: $out"; fi
@@ -1234,8 +1234,8 @@ setup_case "" $'5\n5\n0' "ready-for-dev" "11"
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
 if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 3 ] && [ "$(gate_count)" -eq 3 ] \
    && [ "$(closeout_count)" -eq 1 ] \
-   && grep -q 'review-lean 11' <<<"$(spawn_argv 2)" \
-   && grep -q 'review-lean 11' <<<"$(spawn_argv 3)" \
+   && grep -q 'dev-pipeline:review 11' <<<"$(spawn_argv 2)" \
+   && grep -q 'dev-pipeline:review 11' <<<"$(spawn_argv 3)" \
    && grep -q 'No round spent, no BUILD spawn' <<<"$out"; then
   pass "(r1) a class-5 read re-spawns REVIEW — not BUILD — and spends no round"
 else fail "(r1) expected rc=0 with build,review,review and 3 gate calls, got rc=$rc / $(spawn_count) spawn(s) / $(gate_count) gate call(s): $out"; fi
@@ -1254,8 +1254,8 @@ else fail "(r2) expected rc=5 after 3 spawns / 3 gate calls, got rc=$rc / $(spaw
 
 # The BUILD spawn count is the load-bearing half of (r1)/(r2): a class-5 that fell through to the
 # needs-work arm would look similar in exit code from some angles but would have re-spawned BUILD.
-if [ "$(grep -l 'build-lean' "$SPAWN_LOG_DIR"/spawn-* 2>/dev/null | wc -l | tr -d ' ')" -eq 1 ]; then
-  pass "(r3) across both dark reviews exactly ONE build-lean session ran — BUILD is never asked to fix a review-half failure"
+if [ "$(grep -l 'dev-pipeline:build' "$SPAWN_LOG_DIR"/spawn-* 2>/dev/null | wc -l | tr -d ' ')" -eq 1 ]; then
+  pass "(r3) across both dark reviews exactly ONE /dev-pipeline:build session ran — BUILD is never asked to fix a review-half failure"
 else fail "(r3) a class-5 round spawned BUILD again: $(all_argv)"; fi
 
 # Class 6 — an integrity refusal is TERMINAL. Scripted with a second gate rc that would approve,
@@ -1577,8 +1577,8 @@ else fail "(t2) expected rc=1 / 1 spawn / slug build-inflight-unreadable, got rc
 setup_case "" "0" "ready-for-dev" "11"
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
 if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 1 ] && [ "$(closeout_count)" -eq 1 ] \
-   && grep -q 'build-lean 7' <<<"$(spawn_argv 1)" \
-   && ! grep -q 'review-lean' <<<"$(all_argv)" \
+   && grep -q 'dev-pipeline:build 7' <<<"$(spawn_argv 1)" \
+   && ! grep -q 'dev-pipeline:review' <<<"$(all_argv)" \
    && grep -q 'review-skipped-approved' <<<"$out"; then
   pass "(u1) an already-approved head spawns NO review and falls into the close-out, naming the state it passed through"
 else fail "(u1) expected rc=0 with 1 build spawn, 1 close-out and no review, got rc=$rc / $(spawn_count) / $(closeout_count): $(all_argv)"; fi
@@ -1588,7 +1588,7 @@ else fail "(u1) expected rc=0 with 1 build spawn, 1 close-out and no review, got
 # has covered — must spawn the review.
 setup_case "" "$V_APPROVE" "ready-for-dev" "11"
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
-if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 2 ] && grep -q 'review-lean 11' <<<"$(spawn_argv 2)"; then
+if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 2 ] && grep -q 'dev-pipeline:review 11' <<<"$(spawn_argv 2)"; then
   pass "(u2) non-vacuity: a head with no usable verdict still gets its REVIEW spawn — the skip is a comparison, not a blanket refusal"
 else fail "(u2) expected rc=0 with 2 spawns and a review, got rc=$rc / $(spawn_count): $(all_argv)"; fi
 
@@ -1608,7 +1608,7 @@ set_m5_tokens 'm5-1
 m5-0'
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
 if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 1 ] \
-   && ! grep -q 'review-lean' <<<"$(all_argv)" \
+   && ! grep -q 'dev-pipeline:review' <<<"$(all_argv)" \
    && grep -q 'lane-closed-out' <<<"$out"; then
   pass "(vr1) AC-2: rc=3 with a satisfied milestone 5 ends the run COMPLETE and spawns NO review against an unmoved head"
 else fail "(vr1) expected rc=0, 1 spawn and no review, got rc=$rc / $(spawn_count): $(all_argv)
@@ -1622,7 +1622,7 @@ set_m5_tokens 'm5-0
 m5-0'
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
 if [ "$rc" -eq 1 ] && [ "$(spawn_count)" -eq 1 ] \
-   && ! grep -q 'review-lean' <<<"$(all_argv)" \
+   && ! grep -q 'dev-pipeline:review' <<<"$(all_argv)" \
    && grep -q 'worktree-missing' <<<"$out"; then
   pass "(vr2) rc=3 with an unsatisfied milestone 5 is still the worktree-missing stop, and still spawns no review"
 else fail "(vr2) expected rc=1 with worktree-missing and no review, got rc=$rc / $(spawn_count): $(all_argv)
@@ -1633,7 +1633,7 @@ $out"; fi
 setup_case "" "2" "ready-for-dev" "11"
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
 if [ "$rc" -eq 2 ] && [ "$(spawn_count)" -eq 1 ] \
-   && ! grep -q 'review-lean' <<<"$(all_argv)" \
+   && ! grep -q 'dev-pipeline:review' <<<"$(all_argv)" \
    && grep -q 'verdict-gate-unreadable' <<<"$out"; then
   pass "(vr3) rc=2 hard-stops before the REVIEW spawn — a review cannot clear a gate that never evaluated one"
 else fail "(vr3) expected rc=2 with no review spawn, got rc=$rc / $(spawn_count): $(all_argv)
@@ -1644,7 +1644,7 @@ $out"; fi
 # composition with the ordinary needs-work code still spends a round and spawns.
 setup_case "" "$V_NEEDSWORK_APPROVE" "ready-for-dev" "11"
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
-if [ "$rc" -eq 0 ] && grep -q 'review-lean 11' <<<"$(all_argv)"; then
+if [ "$rc" -eq 0 ] && grep -q 'dev-pipeline:review 11' <<<"$(all_argv)"; then
   pass "(vr4) non-vacuity: the ordinary verdict codes still spawn their REVIEW — the new routes are keyed on 2/3, not a blanket refusal"
 else fail "(vr4) expected the ordinary path to still review, got rc=$rc: $(all_argv)"; fi
 
@@ -1971,7 +1971,7 @@ else fail "(bg2b) expected exactly one close block, got $bg2b_n: [$(cat "$bg2b_l
 
 # THE TURN ORACLE (the private eval substrate's dry run). After a payload signs off, the agent
 # view's word is a summary of its closing prose: a BUILD that ended "PR ready for review; awaiting
-# review-lean" — PR open, marker posted, nothing pending — was listed `blocked`, and #813's was
+# /dev-pipeline:review" — PR open, marker posted, nothing pending — was listed `blocked`, and #813's was
 # listed `working` for an hour. The tool now reads the transcript: a last assistant record with
 # `stop_reason` `end_turn` and no backgrounded command left outstanding is a turn that ENDED, and
 # the run proceeds as for `done` — the GATE decides completeness. Four fixtures, one per shape:
@@ -1983,7 +1983,7 @@ else fail "(bg2b) expected exactly one close block, got $bg2b_n: [$(cat "$bg2b_l
 ended_transcript() { # ended_transcript <path> [pending|parked]
   local f="$1" shape="${2:-}"
   mkdir -p "$(dirname "$f")"
-  jq -n -c '{type:"user", message:{role:"user", content:"/dev-pipeline:build-lean 11"}}' > "$f"
+  jq -n -c '{type:"user", message:{role:"user", content:"/dev-pipeline:build 11"}}' > "$f"
   if [ "$shape" = "pending" ]; then
     jq -n -c '{type:"assistant", message:{stop_reason:"tool_use", content:[{type:"tool_use", id:"toolu_bg1", name:"Bash", input:{command:"nohup sleep 999", run_in_background:true}}]}}' >> "$f"
     jq -n -c '{type:"user", message:{role:"user", content:[{type:"tool_result", tool_use_id:"toolu_bg1", content:"Command running in background with ID: b1. Output is being written to: /tmp/b1.output"}]}}' >> "$f"
@@ -1993,7 +1993,7 @@ ended_transcript() { # ended_transcript <path> [pending|parked]
     jq -n -c '{type:"user", message:{role:"user", content:[{type:"tool_result", tool_use_id:"toolu_p1", content:"the permission was denied"}]}}' >> "$f"
     return 0
   fi
-  jq -n -c '{type:"assistant", message:{stop_reason:"end_turn", content:[{type:"text", text:"PR #11 ready for review; awaiting /dev-pipeline:review-lean verdict"}]}}' >> "$f"
+  jq -n -c '{type:"assistant", message:{stop_reason:"end_turn", content:[{type:"text", text:"PR #11 ready for review; awaiting /dev-pipeline:review verdict"}]}}' >> "$f"
 }
 
 # BUILD settles on its first poll — the transcript has already ended when it reads `blocked` — so

@@ -1,19 +1,19 @@
 # Live-render verify — wiring a consumer render harness
 
-`design.liveRender` names one repo-owned render command that `/dev-pipeline:build-lean`'s
+`design.liveRender` names one repo-owned render command that `/dev-pipeline:build`'s
 milestone 3 runs: after the design engine implements a screen, the gate runs your command, takes
 the emitted PNG, and hashes it into the render receipt bound to the reviewed patch. **The gate
 holds no design frame and diffs no pixels.** It does compare one thing — the sizes the translation
 plan transcribed against the sizes your harness measured in the DOM ([Measured
 sizes](#measured-sizes-the-rectsjson-sibling) below). Everything else about the comparison
 (placement, sizing/fill, truncation, default state) is the design-sighted
-`/dev-pipeline:review-lean` session's, scored as `fidelity:` in the verdict record — and it stays
+`/dev-pipeline:review` session's, scored as `fidelity:` in the verdict record — and it stays
 that way, by decision: see
 [Why there is no pixel-diff gate](#why-there-is-no-pixel-diff-gate-and-none-is-coming) below.
 Without the key an armed ticket reds; without a provider, nothing arms. See
-[Lean-lane wiring](#lean-lane-wiring) below.
+[Pipeline wiring](#pipeline-wiring) below.
 
-**One blocking posture.** A failure on this key reds the lean gate. A consumer whose harness
+**One blocking posture.** A failure on this key reds the milestone gate. A consumer whose harness
 was written against an older, tolerant posture is now on the strict one.
 The advisory smoke-capture it was contrasted with, `stageParams.visualCapture`, was retired in
 the same change (it had no reader left).
@@ -55,10 +55,10 @@ matrix, the PNG hashes and the manifest — **never comparison**, which is the r
 - **`{route}`** — the app-relative leaf below your feature mount path (e.g. `prospects`,
   `prospects/new`). The harness owns any shell/org/tenant prefix (`/admin/{orgSlug}/offers/…`) —
   operator-specific segments come from the operator's env, never from second-shift config.
-- **`{state}`** — *lean lane only, optional.* The render state named by the spec's `| RS-n |` row
+- **`{state}`** — *pipeline only, optional.* The render state named by the spec's `| RS-n |` row
   (e.g. `filters expanded`). Your harness maps the name to whatever it takes to reach that view
   and screenshots it. Declare `{state}` in the command whenever any ticket declares a state other
-  than `default`; the lean gate refuses the mismatch rather than shooting the default view twice.
+  than `default`; the milestone gate refuses the mismatch rather than shooting the default view twice.
   The staged lane never substitutes it.
 - **`{out}`** — an absolute PNG path. Emit exactly one screenshot there; the gate treats a missing
   or zero-byte file as failure.
@@ -83,7 +83,7 @@ matrix, the PNG hashes and the manifest — **never comparison**, which is the r
   reporting device pixels renders a correct implementation at a uniform 2.0 and takes a hard
   `scale` red — that is a harness bug, and the gate deliberately does not tolerate an integer
   factor to paper over it.
-- **Placeholders appear UNQUOTED** in the command. The lean gate shell-quotes each substituted
+- **Placeholders appear UNQUOTED** in the command. The milestone gate shell-quotes each substituted
   value itself — a state name is human prose and contains spaces — so `--state {state}` is correct
   and `--state "{state}"` nests the quoting and delivers a literally-quoted argument. Values are
   substituted literally: a route carrying a query string (`?tab=new&sort=asc`) and a state
@@ -128,9 +128,9 @@ A worked example: a Vite MIFE mounted in a platform admin shell, backed by a sib
    for the auth-state file (e.g. `E2E_AUTH_STATE`) so a worktree run can point at the operator's
    maintained state — or set the credential env vars and let the setup project mint a fresh one.
 
-## Lean-lane wiring
+## Pipeline wiring
 
-`/dev-pipeline:build-lean` reads `design.liveRender` directly. The `extraLanes` workaround this
+`/dev-pipeline:build` reads `design.liveRender` directly. The `extraLanes` workaround this
 section used to describe is **superseded** — an opaque lane retained no screenshot, named no
 state, and bound nothing to a review, which is exactly how a *passing* render came to verify a
 screen's default collapsed state.
@@ -269,7 +269,7 @@ it*, so it catches plan→code drift and stays blind to design→plan drift. Tha
 
 **The rest of the comparison is still not the gate's.** Nothing here diffs a screenshot against a
 design frame. The gate owns the state matrix, the paths, the hashes, the manifest and those two
-size reds; the fidelity judgment is scored by the `/dev-pipeline:review-lean` session,
+size reds; the fidelity judgment is scored by the `/dev-pipeline:review` session,
 design-sighted, from a checkout of the reviewed head, and recorded as `fidelity:` in the verdict
 record.
 
@@ -278,7 +278,7 @@ model judgment over `stageParams.webComponentGlobs`, and a miss left a one-line 
 summary while the round proceeded — so an armed ticket could be approved with the design dimension
 never reviewed, and nothing in the record said so. `review-lead` now spawns it unconditionally on
 an armed spec, and a round that lost it to a dark reviewer is **voided** rather than recorded
-(`review-lean` step 5c). The record's `panel:` key is the attestation: the reviewer agent types the
+(`/dev-pipeline:review` step 5c). The record's `panel:` key is the attestation: the reviewer agent types the
 round actually returned a result from, qualified and comma-separated. Milestone 4 and
 `check-lean-chain.sh` evidence arm 8 both require it to name the provider's reviewer.
 
@@ -299,7 +299,7 @@ achieved by an omission.
 (`RS-n | frame node | property | design | rendered | verdict`), every cell populated, one or more
 rows for each declared `RS-n` and none for a state the spec does not declare, and a `verdict` cell
 reading `match` or `deviation (<AC-n|D-n>)` citing a criterion the spec actually carries. The
-grammar is published to its producer in `review-lean/SKILL.md` step 5b.
+grammar is published to its producer in `review/SKILL.md` step 5b.
 
 That is **tamper-evidence, not fidelity.** It converts a one-word header nobody could falsify into
 a record a human can read and contradict, and raises the cost of a rubber stamp from typing a word

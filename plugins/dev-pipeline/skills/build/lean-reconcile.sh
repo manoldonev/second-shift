@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# lean-reconcile.sh — the OPERATOR's pre-merge check on a lean PR (D-48, AC-16).
+# lean-reconcile.sh — the OPERATOR's pre-merge check on a pipeline PR (D-48, AC-16).
 #
 # THE OWNER, not a forerunner. This header used to read "DEFERS TO #292" — a general
 # run-reconcile verifier that would take ownership when it landed. #292 was closed as
 # moot-via-#348: it was scoped to staged-lane records, which no longer exist,
 # and this script is the successor rather than a placeholder for one. Ownership is settled,
 # so the deferral is dropped — but the scope discipline it carried is not: this stays the
-# lean lane's pre-merge reconciliation and does not grow into a general attestation tool.
+# pipeline's pre-merge reconciliation and does not grow into a general attestation tool.
 #
 # RUN THIS YOURSELF, NOT FROM THE RUN. Self-reconciliation is not evidence: a run checking
 # its own records proves nothing an adversarial (or merely reward-hacking) agent could not
@@ -34,7 +34,7 @@
 #      is this reader's alone, and it is what the merge boundary's new guarantee rests on: with
 #      inheritance, "this tree was reviewed" means "a chain of INDEPENDENT reviews covered it".
 #      One session writing round 1 and then inheriting its own coverage in round 2 produces a
-#      chain that resolves perfectly while being a single review — and review-lean's own rule
+#      chain that resolves perfectly while being a single review — and /dev-pipeline:review's own rule
 #      ("a NEW review context produces the next verdict — never this one resumed") is what makes
 #      that a contract rather than a preference. Absence of a chain is the ordinary case and is
 #      printed. Deliberately NOT checked here: that each link's commit is an ancestor of the one
@@ -455,7 +455,7 @@ else
     fi
     case " $CHAIN_SESSIONS " in
       *" $CHAIN_SESS "*)
-        CHAIN_BROKEN="round $CHAIN_ROUND was authored by session '$CHAIN_SESS', which already authored another round in this chain — a chain of inherited coverage must be a sequence of INDEPENDENT reviews, and review-lean requires a new review context per round"
+        CHAIN_BROKEN="round $CHAIN_ROUND was authored by session '$CHAIN_SESS', which already authored another round in this chain — a chain of inherited coverage must be a sequence of INDEPENDENT reviews, and /dev-pipeline:review requires a new review context per round"
         break ;;
     esac
     CHAIN_SESSIONS="$CHAIN_SESSIONS $CHAIN_SESS"

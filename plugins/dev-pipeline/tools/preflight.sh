@@ -189,7 +189,7 @@ fi
 # --- Section 2: Target Confirmation echo (read-only) ------------------------------
 # The resolved config the first real run will operate on — tracker, repos, branch
 # and worktree-path STRINGS (computed, never created: no state is initialized and no
-# git worktree add runs). Defaults mirror the lean lane's resolution sites.
+# git worktree add runs). Defaults mirror the pipeline's resolution sites.
 hdr "Target Confirmation (resolved targets)"
 TRACKER_TYPE=github; TRACKER_WRITES=true; BRANCH_PREFIX="claude/acme-"; KEY_PATTERN=""
 TOPO=standalone; QUEUE_LABEL="ready-for-dev"; CLAIMED_LABEL="in-progress"

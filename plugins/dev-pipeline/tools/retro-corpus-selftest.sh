@@ -148,11 +148,11 @@ else
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════════════
-# AC-5: open-prs — flags a lean PR verdict-less when its issue's comments carry no reference to
-# the expected verdict-record path; does not flag one that does; ignores a non-lean PR entirely.
+# AC-5: open-prs — flags a pipeline PR verdict-less when its issue's comments carry no reference to
+# the expected verdict-record path; does not flag one that does; ignores a non-pipeline PR entirely.
 #
 # WHAT "NON-LEAN" MEANS HERE CHANGED (#413). Both lanes cut `<branchPrefix><key>` branches, so
-# 703 below sits on the SAME namespace as the two lean PRs and is distinguished only by carrying
+# 703 below sits on the SAME namespace as the two pipeline PRs and is distinguished only by carrying
 # no lean spec in its own file list. Under the retired namespace filter it was excluded for
 # free; now excluding it is the discriminator's job, and a regression there reports every staged
 # PR as abandoned lean work.
@@ -178,7 +178,7 @@ VL701="$(jq -r '.[] | select(.issue == 701) | .verdictLess' <<<"$OUT")"
 VL702="$(jq -r '.[] | select(.issue == 702) | .verdictLess' <<<"$OUT")"
 HAS703="$(jq -r '[.[].issue] | index(703) != null' <<<"$OUT")"
 if [ "$N" = "2" ] && [ "$VL701" = "true" ] && [ "$VL702" = "false" ] && [ "$HAS703" = "false" ]; then
-  pass "(AC-5) open-prs: flags the verdict-less lean PR, clears the referenced one, ignores the staged PR"
+  pass "(AC-5) open-prs: flags the verdict-less pipeline PR, clears the referenced one, ignores the staged PR"
 else
   fail "(AC-5) n=$N vl701=$VL701 vl702=$VL702 has703=$HAS703 — got $OUT"
 fi

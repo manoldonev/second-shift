@@ -77,7 +77,7 @@ Removed from the working tree, and nothing else:
 
 | path | why |
 | --- | --- |
-| `plugins/` (whole tree) | every `SKILL.md`, every `agents/*.md`, **and** `plugins/dev-pipeline/skills/build-lean/lean-gate.sh` with the rest of `plugins/dev-pipeline/tools/`. The gate is the whole point: §1's ablated run covered M1–M3 by citing `lean-gate.sh:2663`, `:890`, `:1852` by line. |
+| `plugins/` (whole tree) | every `SKILL.md`, every `agents/*.md`, **and** `plugins/dev-pipeline/skills/build/lean-gate.sh` with the rest of `plugins/dev-pipeline/tools/`. The gate is the whole point: §1's ablated run covered M1–M3 by citing `lean-gate.sh:2663`, `:890`, `:1852` by line. |
 | `.claude-plugin/` | the marketplace manifest. Not load-bearing for discovery (see the measurement below), removed so the tree contains no marketplace surface at all. |
 
 **By what means: a throwaway `git clone` of this repository**, checked out at the sample's pinned
@@ -195,7 +195,7 @@ The frozen scoring rule (`docs/skill-ablation-pre-registration.md`:104-109) scor
 
 This is what makes the arm readable at all. The substrate deliberately leaves the cache reachable,
 so a bare arm may cover an item by *walking to the kit*. Without provenance, "bare covered M1" and
-"bare read `build-lean/SKILL.md` out of the cache" are the same row — and telling those two apart is
+"bare read `build/SKILL.md` out of the cache" are the same row — and telling those two apart is
 the entire question arm 1 was filed to answer.
 
 ### Outcome reading, fixed now — including a conflict the parent tickets carry
@@ -528,7 +528,7 @@ sits outside the denominator the guard claims is its output.*
 
 ### Subject pin
 
-`plugins/dev-pipeline/skills/review-lean/SKILL.md` at **`8d5d0897c3b57ea0d5349787edfd86c3e4ee46ff`**
+`plugins/dev-pipeline/skills/review/SKILL.md` at **`8d5d0897c3b57ea0d5349787edfd86c3e4ee46ff`**
 — **127 lines**, the measured surface. Not the head: at this branch's base `8200f1c3` the file was
 **188 lines**, and it has grown since — which is why the subject is pinned by commit rather than by
 count.

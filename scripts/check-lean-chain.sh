@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# check-lean-chain.sh — merge-boundary evidence gate for /dev-pipeline:run-lean PRs.
+# check-lean-chain.sh — merge-boundary evidence gate for /dev-pipeline:run PRs.
 #
-# A SIBLING of check-pipeline-chain.sh, deliberately not a mode of it (D-45): the two gates
-# check different evidence sets. They no longer cover disjoint branch NAMESPACES — both lanes
-# cut `<tracker.branchPrefix><key>` branches (#413) — so what keeps them disjoint is that both
-# ask the same classifier which lane a PR belongs to.
+# THE ONLY chain gate at the merge boundary. It had a sibling, check-pipeline-chain.sh, which
+# read the staged lane's stage-marker trail; #731 deleted it, nothing having emitted that trail
+# since #348. Applicability is settled by one classifier reading the committed spec in the PR's
+# own diff, never by a branch namespace — both lanes cut `<tracker.branchPrefix><key>` (#413).
 #
-# WHY THIS EXISTS. build-lean spends as few tokens as possible IN the run, which means almost
+# WHY THIS EXISTS. /dev-pipeline:build spends as few tokens as possible IN the run, which means almost
 # every in-run record is written by the agent being checked. That is fine — as long as the
 # binding evidence contract lives somewhere the agent cannot reach. This is that somewhere:
 # a model-free check at the merge boundary, costing zero run tokens (D-47). It fails an
@@ -94,7 +94,7 @@
 #
 #      SCOPED HONESTLY. This holds for the armed path only. A spec that never carries a
 #      `## Design` section is indistinguishable here from honest unarmed work — the residual
-#      defense is review-lean's blocker on an unjustified disarm in a provider repo, which is a
+#      defense is /dev-pipeline:review's blocker on an unjustified disarm in a provider repo, which is a
 #      judgment this model-free gate cannot make.
 #
 # HONEST ALTITUDE: like its sibling, this is tamper-EVIDENCE, not proof. The agent writes
@@ -121,15 +121,15 @@
 # NON-VACUOUS BY CONSTRUCTION. Applicability is the committed lean spec in the PR's own diff,
 # keyed to the PR's own issue — and nothing else (#413). There is no branch-shaped arm: both
 # lanes cut `<tracker.branchPrefix><key>` branches, so a namespace test would classify every
-# staged PR as lean. Keying the artifact to the PR's issue is what stops the arm over-reaching
-# in the other direction: a staged PR that merely edits some older ticket's lean spec resolves
+# staged PR as a pipeline PR. Keying the artifact to the PR's issue is what stops the arm
+# over-reaching in the other direction: a PR that merely edits some older ticket's spec resolves
 # its own key, finds no spec for it, and stays with the pipeline gate. Selftest-fixture paths
 # are excluded from the scan because fixtures are lean-shaped on purpose.
 #
-# The rule and its mirror image live in ONE place, plugins/dev-pipeline/skills/build-lean/
-# lean-evidence.sh, which this gate and check-pipeline-chain.sh both delegate to. "No PR is
-# applicable to both gates" therefore holds by construction rather than by two implementations
-# agreeing about a namespace.
+# The rule lives in ONE place, plugins/dev-pipeline/skills/build/lean-evidence.sh, which this
+# gate delegates to. It used to have a mirror image in check-pipeline-chain.sh, and "no PR is
+# applicable to both gates" held by construction; with that gate deleted (#731) a PR this
+# classifier declines is now claimed by no merge-boundary chain gate at all.
 #
 # CONSUMER PORTABILITY, and the delegation that follows from it (#359). This FILE stays
 # second-shift-only: it reconciles against tracker COMMENTS, which a read-only tracker
@@ -176,7 +176,7 @@
 #   GH_TOKEN                required for the live path
 #   LEAN_COMMENT_AUTHOR     optional  exact bot login; absent degrades to "any Bot author"
 #
-# Seams (zero-network selftest, the check-pipeline-chain.sh precedent):
+# Seams (zero-network selftest):
 #   ${GH:-gh}                  the CLI used for the comment fetch
 #   --comments-file <path>     read the ISSUE comment trail from a JSON fixture
 #   --diff-files-file <path>   read the PR's changed-file list from a newline-delimited fixture
@@ -243,7 +243,7 @@ inapplicable() { # inapplicable <arm> <disposition> <reason>
 
 # The claim comment's stage token, plus the producer capability contract it also carries (#445).
 # THIS FILE READS ONLY THE TAG — its claim arm below counts bot-authored claim comments, and a
-# one-sided rename would empty that set and red every honest lean PR. The stamp key and the
+# one-sided rename would empty that set and red every honest pipeline PR. The stamp key and the
 # capability vocabulary are in the same block because they are one contract written by one
 # producer (lean-gate.sh, the canonical side); the arm bound to a capability lives in the
 # delegated payload, lean-evidence.sh. lean-reconcile.sh keeps an unbound copy of the tag: it is
@@ -512,7 +512,7 @@ REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" \
 # in CI the checkout IS the marketplace repo, so the committed path is the authority, and a
 # `$HERE/..`-relative walk would silently resolve to a different tree in a worktree layout.
 # Missing is fatal — a boundary that cannot reach half its evidence must not report a pass.
-PAYLOAD="${LEAN_EVIDENCE:-$REPO_ROOT/plugins/dev-pipeline/skills/build-lean/lean-evidence.sh}"
+PAYLOAD="${LEAN_EVIDENCE:-$REPO_ROOT/plugins/dev-pipeline/skills/build/lean-evidence.sh}"
 [[ -f "$PAYLOAD" ]] \
   || envfail "the portable evidence payload is missing at '$PAYLOAD' — this gate delegates its verdict, identity, ratification and patch-id arms to it and cannot evaluate them alone. Set LEAN_EVIDENCE if it lives elsewhere."
 
@@ -575,7 +575,7 @@ if [[ "$APPLICABLE" -eq 0 ]]; then
   exit 0
 fi
 
-# A lean PR on a branch outside the namespace, naming no issue. The payload classifies it
+# A pipeline PR on a branch outside the namespace, naming no issue. The payload classifies it
 # applicable on purpose rather than declining — a PR both gates decline is the hole this
 # boundary exists to close — so the refusal lands here, and it is a VIOLATION (rc=1) with a
 # remedy, not an environment error.
@@ -765,7 +765,7 @@ fi
 # ---- (9) evidence 5: the verdict covers the head being merged ----------------------------
 # Skipped when there is no verdict record — already a violation, and "unverifiable freshness"
 # on top of "no verdict" is noise. The tolerance is exactly one path, the record itself,
-# because the review session commits nothing else (review-lean step 6).
+# because the review session commits nothing else (/dev-pipeline:review step 6).
 #
 # #374 AC-4/5/6: VACUITY. "Fresh" is a claim about an approve — a needs-work record is not
 # stale or fresh, because there is nothing for either arm to be measured against: the record
@@ -822,7 +822,7 @@ elif [[ -n "$VERDICT" ]]; then
   # AND-ed: running both would re-impose the rebase refusal the patch-id exists to remove, since
   # this checkout holds no pre-rebase object to resolve the SHA against.
   if [[ -z "$VERDICT_REVIEWED_HEAD" ]]; then
-    note_violation "verdict record '$VERDICT' carries no reviewed_head key, so nothing states which commit the review actually read. Re-run the review round on a dev-pipeline that writes it: '/dev-pipeline:review-lean <pr>'."
+    note_violation "verdict record '$VERDICT' carries no reviewed_head key, so nothing states which commit the review actually read. Re-run the review round on a dev-pipeline that writes it: '/dev-pipeline:review <pr>'."
   elif [[ -n "$VERDICT_REVIEWED_PATCH_ID" ]]; then
     # DELEGATED. The patch-id computation — its base, its range and its exclusion of the record
     # — is the one part of freshness a consumer can run unchanged, and the one part that MUST
@@ -1008,7 +1008,7 @@ fi
 
 # ---- (13) verdict -----------------------------------------------------------------------
 if [[ "$violations" -gt 0 ]]; then
-  echo "[lean-chain] ✗ $violations evidence artifact(s) missing for lean PR on #$KEY." >&2
+  echo "[lean-chain] ✗ $violations evidence artifact(s) missing for pipeline PR on #$KEY." >&2
   echo "[lean-chain]   The remedy is producing the missing artifact — there is no waiver." >&2
   exit 1
 fi

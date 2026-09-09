@@ -988,7 +988,7 @@ else fail "(bb4) --help did not print exactly the header, rc=$rc: $out"; fi
 # regression the suite would not have caught, and these are what its first run on this guard
 # reported.
 
-# A lean PR whose body names no issue, on a branch OUTSIDE the namespace — so nothing resolves
+# A pipeline PR whose body names no issue, on a branch OUTSIDE the namespace — so nothing resolves
 # a key. Everything downstream keys on that number (the verdict record, the intent-gap record,
 # the arms' file lookups), so resolving nothing and continuing would run every arm against the
 # empty key and report "no committed verdict record" for an issue that was never identified.
@@ -996,14 +996,14 @@ else fail "(bb4) --help did not print exactly the header, rc=$rc: $out"; fi
 # to `exit 0` passed the whole suite.
 #
 # It must be a REFUSAL and not a decline: this PR is outside the pipeline namespace too, so the
-# pipeline gate exempts it. A decline here would leave a lean PR gated by neither boundary.
+# pipeline gate exempts it. A decline here would leave a pipeline PR gated by neither boundary.
 out="$( cd "$TREE" && PIPELINE_BRANCH_PREFIX="claude/acme-" \
         PR_HEAD_REF="hand/made-branch" PR_HEAD_SHA="$(git -C "$TREE" rev-parse HEAD)" PR_BASE_REF=main \
         PR_BODY="A body that references nothing at all." \
         bash "$TOOL" all --pr-comments-file "$WORK/markers-good.json" \
         --diff-files-file "$WORK/diff-lean.txt" 2>&1 )"; rc=$?
 if [ "$rc" -eq 1 ] && grep -q 'no resolvable issue reference' <<<"$out"; then
-  pass "(cc1) a lean PR whose body resolves no issue key is refused, not run against an empty key"
+  pass "(cc1) a pipeline PR whose body resolves no issue key is refused, not run against an empty key"
 else fail "(cc1) expected rc=1 on an unresolvable issue reference, got $rc: $out"; fi
 
 # THE LIVE FETCH PATH. Every case above hands its trails in through the fixture seams, which

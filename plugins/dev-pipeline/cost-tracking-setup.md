@@ -2,14 +2,14 @@
 
 **Opt-in, local, experimental.** The dev-pipeline works fine without this. If you want each PR to carry a cost block in its description, follow the steps below.
 
-The goal: the lean lane computes the block twice — the build session at [`build-lean`](skills/build-lean/SKILL.md) step 7, and the gate's `close-out` command at step 9 (#590) — by invoking `pipeline-cost-block.sh --stateless --issue <n>`, and puts it into both the PR description and the run's closing comment. The script reads OTel metrics emitted under the run's session ids, clamps them to the run's own wall-clock fence so a co-resident run or a `/dev-pipeline:pipeline-retro` session sharing the same `session.id` doesn't leak in, and renders one cost block to stdout (or to `--out`).
+The goal: the pipeline computes the block twice — the build session at [`/dev-pipeline:build`](skills/build/SKILL.md) step 7, and the gate's `close-out` command at step 9 (#590) — by invoking `pipeline-cost-block.sh --stateless --issue <n>`, and puts it into both the PR description and the run's closing comment. The script reads OTel metrics emitted under the run's session ids, clamps them to the run's own wall-clock fence so a co-resident run or a `/dev-pipeline:pipeline-retro` session sharing the same `session.id` doesn't leak in, and renders one cost block to stdout (or to `--out`).
 
 ```bash
 pipeline-cost-block.sh --stateless --issue <n> [--close-out] [--prs <ref[,ref…]>] [--out <file>]
 pipeline-cost-block.sh --stateless --sessions <id[,id…]> --start <iso> --end <iso> [--out <file>]
 ```
 
-**State-less mode is the script's only mode** (#574 deleted the stateful branch, unreachable since #348 removed its only writer), and it is deliberately inert on everything a state file used to carry: it amends no PR — the session pastes the block itself — and records no `costBlockApplied`. It is no longer inert on the cost log: `--close-out` writes one `cost-log.jsonl` row per run again (#546), retiring the live half of D-36. The reasoning that half rested on was that a stage-less harness would contaminate a per-stage corpus; what it actually produced was a corpus that ended on 2026-07-31, the day the lean era began, leaving cost-effectiveness — one of the two ratified goal axes — with nothing to be measured against. The lean row carries `byTier` where a staged row carried `byLabel`, so the two eras are told apart by which key is present rather than by a marker field. D-36's other half, "lean runs are out of the perf corpus", was already superseded by #565, which derives the lean timing profile from the progress records via `retro-corpus.sh timing`. That same record is what `--issue <n>` reads the fence and the session ids off, so neither is a caller's reconstruction any more.
+**State-less mode is the script's only mode** (#574 deleted the stateful branch, unreachable since #348 removed its only writer), and it is deliberately inert on everything a state file used to carry: it amends no PR — the session pastes the block itself — and records no `costBlockApplied`. It is no longer inert on the cost log: `--close-out` writes one `cost-log.jsonl` row per run again (#546), retiring the live half of D-36. The reasoning that half rested on was that a stage-less harness would contaminate a per-stage corpus; what it actually produced was a corpus that ended on 2026-07-31, the day the pipeline era began, leaving cost-effectiveness — one of the two ratified goal axes — with nothing to be measured against. The pipeline row carries `byTier` where a staged row carried `byLabel`, so the two eras are told apart by which key is present rather than by a marker field. D-36's other half, "pipeline runs are out of the perf corpus", was already superseded by #565, which derives the pipeline timing profile from the progress records via `retro-corpus.sh timing`. That same record is what `--issue <n>` reads the fence and the session ids off, so neither is a caller's reconstruction any more.
 
 Opting in is just steps 1–3 below (collector + telemetry env + bot wrapper) — no per-engineer hook wiring. Each id you pass is a native Claude Code session UUID (`$CLAUDE_CODE_SESSION_ID`), the same value the OTel exporter tags datapoints with as `session.id`, which is what lets the cost block match them.
 
@@ -127,11 +127,11 @@ Exporting the same vars from `~/.zshrc`, or wrapping `claude` in an alias, works
 
 ## 4. (No hook wiring step)
 
-Cost tracking does not need a Stop hook. The build session invokes `pipeline-cost-block.sh --stateless` directly at `build-lean` step 7, before it opens the PR; `lean-gate.sh close-out` invokes it again at step 9, with `--close-out`, and publishes that second block.
+Cost tracking does not need a Stop hook. The build session invokes `pipeline-cost-block.sh --stateless` directly at `/dev-pipeline:build` step 7, before it opens the PR; `lean-gate.sh close-out` invokes it again at step 9, with `--close-out`, and publishes that second block.
 
 ## 5. Verify end-to-end
 
-1. Run a lean issue (`/dev-pipeline:run-lean <issue>`, or `/dev-pipeline:build-lean <issue>` directly). Each session it spawns records its `$CLAUDE_CODE_SESSION_ID` as a `| session |` row in `.claude/pipeline-state/{issue}-lean-progress.md`.
+1. Run a lean issue (`/dev-pipeline:run <issue>`, or `/dev-pipeline:build <issue>` directly). Each session it spawns records its `$CLAUDE_CODE_SESSION_ID` as a `| session |` row in `.claude/pipeline-state/{issue}-lean-progress.md`.
 2. Tail the collector output: `tail -f ~/.claude/otel-metrics/metrics.jsonl` — you should see JSON lines within a few seconds of the session emitting.
 3. At step 7 the build session computes the block from those ids and the run's fence, and pastes it into the PR description; at step 9 `bash lean-gate.sh close-out <issue>` re-computes it over the run's now-complete fence, replaces the step-7 block in the description, and carries it in the closing comment. Success is the block appearing in the PR — nothing is recorded in a state file, by design.
 
@@ -185,15 +185,15 @@ gh pr list --state merged --limit 60 --json number,mergedAt,body,headRefName | j
       + (if .usd then (.usd | tostring) else "—" end) + "\t(\(.src))" )
   , ( if ($priced | length) > 0 then
         "mean: $" + (( ($priced | map(.usd) | add / length) * 100 | round ) / 100 | tostring)
-          + " over \($priced | length) of the last \($n) merged lean PRs; \($n - ($priced | length)) unpriced"
+          + " over \($priced | length) of the last \($n) merged pipeline PRs; \($n - ($priced | length)) unpriced"
       else
-        "mean: n/a — 0 of the last \($n) merged lean PRs are priced"
+        "mean: n/a — 0 of the last \($n) merged pipeline PRs are priced"
       end )
 '
 ```
 
 `--limit 60` over `gh pr list` fetches the raw merge window before the `headRefName` filter narrows
-it to lean PRs; raise it if your repo merges non-lean PRs often enough that 60 doesn't cover 10
+it to pipeline PRs; raise it if your repo merges non-pipeline PRs often enough that 60 doesn't cover 10
 lean ones. An unconfigured (empty) `tracker.branchPrefix` makes `startswith("")` true for every
 row, so the filter is a no-op and the recipe degrades to the unfiltered window.
 
@@ -232,7 +232,7 @@ The rollup lives in the block, and — under `--close-out` — in one `cost-log.
 
 ### Manual re-run after an OTel query failure
 
-The cost block is **best-effort** — the run's work is already done when it logs `skip(otel-error)`. Its exit contract (#188): **exit 0** whenever it ran or reported a documented skip; **non-zero (rc 2)** only when it could not be given what it needs — a missing `--sessions`/fence, or a positional-issue invocation (the retired stateful entry point, refused by name since #574). On the lean lane the enforcement is the artifact, not a field: `build-lean` step 7 requires the block in the PR description and step 9 repeats it in the closing comment.
+The cost block is **best-effort** — the run's work is already done when it logs `skip(otel-error)`. Its exit contract (#188): **exit 0** whenever it ran or reported a documented skip; **non-zero (rc 2)** only when it could not be given what it needs — a missing `--sessions`/fence, or a positional-issue invocation (the retired stateful entry point, refused by name since #574). On the pipeline the enforcement is the artifact, not a field: `/dev-pipeline:build` step 7 requires the block in the PR description and step 9 repeats it in the closing comment.
 
 1. **Fix the precondition that made the query fail.** Usually one of:
    - the OTel collector wasn't reachable / wasn't running when the sub-step ran — start it (steps 1–2 above) and confirm `~/.claude/otel-metrics/metrics.jsonl` is non-empty;

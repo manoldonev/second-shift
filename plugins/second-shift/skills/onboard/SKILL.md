@@ -143,7 +143,7 @@ Ask AT MOST one AskUserQuestion batch, containing ONLY (skip any that detection 
         private key; the pipeline pre-flight enforces the wrapper unconditionally for the
         github tracker.)" If yes, point at the dev-pipeline bot bootstrap
         (`install-gh-bot.sh` in the dev-pipeline tools) as the follow-up; if no, note that
-        the first `/dev-pipeline:run-lean` pre-flight will fail until one exists — this is
+        the first `/dev-pipeline:run` pre-flight will fail until one exists — this is
         a pipeline requirement, not an onboard requirement.
      b. Queue labels: "Create the six required queue labels now?" On yes, print AND run:
         `gh label create ready-for-dev`, `needs-spec-work`, `needs-plan-review`,
@@ -445,7 +445,7 @@ pairs; there is no second question:
    instructions: pick a small ticket with no external-infrastructure ACs;
    `tracker.branchPrefix` is already set (skips branch-identity derivation); the
    bot/labels wall was already handled in Step 3 for the github tracker; run
-   `/dev-pipeline:run-lean <ticket>`.
+   `/dev-pipeline:run <ticket>`.
 6. Remind: commit `.claude/settings.json`, `.claude/second-shift.config.json`,
    `.claude/second-shift.lock.json`, `.claude/tools/second-shift-doctor.sh`, and
    `.claude/SECOND-SHIFT.md` in one PR — **plus**, per CI workflow accepted at Step 3 item 9,
@@ -458,13 +458,13 @@ pairs; there is no second question:
    guard is a file nobody will remember to connect later.
 7. **Confirmed pair → offer the sibling's own onboard, and say the FE rule out loud.** This
    run's `be-fe-pair` config (drafted at Step 3) is unchanged and still covers both sides for the
-   deprecated staged lane. The lean lane needs more: `/dev-pipeline:run-lean` routes by
+   deprecated staged lane. The lean lane needs more: `/dev-pipeline:run` routes by
    invocation cwd and has no per-repo worktree map, so the sibling ALSO needs its own
    standalone onboard to be worked from its own checkout. Print: "The sibling repo needs
-   its own onboard too, for `/dev-pipeline:run-lean`: `cd <sibling path>` (from the
+   its own onboard too, for `/dev-pipeline:run`: `cd <sibling path>` (from the
    detected sibling candidates), then run `/second-shift:onboard` there. Detection reports
    `standalone` from that side, so it drafts its own independent config, bot identity, and
-   worktrees dir with no further prompts. **FE-tagged tickets run `/dev-pipeline:run-lean`
+   worktrees dir with no further prompts. **FE-tagged tickets run `/dev-pipeline:run`
    from the FE repo**, not from here. This leaves the FE command table in two places on
    purpose: `commands.fe` here, read only by the staged lane, and `commands.<fe-id>` in the
    FE repo's own config — the same table with nothing keeping the two in sync. Edit the FE

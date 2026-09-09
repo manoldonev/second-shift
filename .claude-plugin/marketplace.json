@@ -12,7 +12,7 @@
     {
       "name": "dev-pipeline",
       "source": "./plugins/dev-pipeline",
-      "description": "Autonomous ticket → intake → build → review → merge-boundary pipeline, gated by lean's five artifact milestones (outcome-gated blocks, portable merge-boundary evidence, tracker adapters github|jira)."
+      "description": "Autonomous ticket → intake → build → review → merge-boundary pipeline, gated by five artifact milestones (outcome-gated blocks, portable merge-boundary evidence, tracker adapters github|jira)."
     },
     {
       "name": "review-toolkit",

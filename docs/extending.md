@@ -38,7 +38,7 @@ You have a repo-, org-, or domain-specific need. Walk it down this list; the fir
 deleted, and #569 retired the config keys: `config-lint` now rejects each by name. They are not
 an answer to anything, which is why they are out of a table whose contract is "the first row that
 fits is your answer". Their shape is kept as a **design record** in §3.6–3.8, because whether the
-lean lane grows a consumer-pluggable blocking gate is still an open product question and that
+pipeline grows a consumer-pluggable blocking gate is still an open product question and that
 argument is worth not re-deriving. If you carry any of the three in a config today, delete
 them — see [`migrations/v1-to-v2.md`](migrations/v1-to-v2.md).
 
@@ -67,7 +67,7 @@ Every `stageParams` key defaults to the plugin's current literal, so an empty co
     // it in; the default set is JS/TS-centric and treats *.md and *.sh as zero-coverage —
     // true for a TS app, false when shell IS the product.
     // CURRENTLY UNCONSUMED: preflight.sh was the only runtime caller that resolved this
-    // key, and that read went with the staged lane (#348). The lean lane's milestone-3
+    // key, and that read went with the staged lane (#348). The pipeline's milestone-3
     // verify has deliberately no inert lane, and the pre-commit type-check hook carries
     // its own hardcoded carve-out instead of reading config. config-lint still accepts
     // the key, so setting it stays legal and today changes nothing.
@@ -153,7 +153,7 @@ An opt-in axis, off unless the key is present:
 { "design": { "provider": "figma" } }        // or "claude-design"
 ```
 
-`figma` selects the figma-faithful skills and requires a Figma MCP connection; `claude-design` selects the design-faithful skills and requires DesignSync. Same fail-closed posture as every gate: if the provider's prerequisite is missing at run time, the design steps fail closed rather than degrading silently. Absent key = a run behaves exactly like a non-design run. The design-system reference itself (component catalog, token roles) is knowledge — it lives in `.claude/second-shift/design-tokens/*.md`, an extension file per §3.4. To make the live-render verify gate actually execute (a repo-owned render command the gate screenshots through, blocking on `build-lean` milestone 3), add the optional `design.liveRender` block — see [`live-render.md`](live-render.md).
+`figma` selects the figma-faithful skills and requires a Figma MCP connection; `claude-design` selects the design-faithful skills and requires DesignSync. Same fail-closed posture as every gate: if the provider's prerequisite is missing at run time, the design steps fail closed rather than degrading silently. Absent key = a run behaves exactly like a non-design run. The design-system reference itself (component catalog, token roles) is knowledge — it lives in `.claude/second-shift/design-tokens/*.md`, an extension file per §3.4. To make the live-render verify gate actually execute (a repo-owned render command the gate screenshots through, blocking on `/dev-pipeline:build` milestone 3), add the optional `design.liveRender` block — see [`live-render.md`](live-render.md).
 
 ### 3.6 `stageWorkflows` — a blocking gate owned by you (EP-6) — **RETIRED (#569)**
 
@@ -161,7 +161,7 @@ An opt-in axis, off unless the key is present:
 > was dispatched by the staged lane, deleted in #348; #569 removed the key from the schema and
 > `config-lint` now rejects it by name. The section is kept, in the **past tense**, because the
 > shape argument is the legitimate part: whether second-shift keeps consumer-pluggable blocking
-> gates and delegate seams at all, and what would dispatch them on the lean lane, is an open
+> gates and delegate seams at all, and what would dispatch them on the pipeline, is an open
 > product decision, and
 > this is the record it would start from. Everything below describes a mechanism **as it was
 > designed**, not one you can turn on. Nothing here is current behavior.
@@ -191,7 +191,7 @@ The `workflow` was either `"<plugin>:<relpath>"` (a companion pack's script, §4
 > was dispatched by the staged lane, deleted in #348; #569 removed the key from the schema and
 > `config-lint` now rejects it by name. The section is kept, in the **past tense**, because the
 > shape argument is the legitimate part: whether second-shift keeps consumer-pluggable blocking
-> gates and delegate seams at all, and what would dispatch them on the lean lane, is an open
+> gates and delegate seams at all, and what would dispatch them on the pipeline, is an open
 > product decision, and
 > this is the record it would start from. Everything below describes a mechanism **as it was
 > designed**, not one you can turn on. Nothing here is current behavior.
@@ -201,7 +201,7 @@ The `workflow` was either `"<plugin>:<relpath>"` (a companion pack's script, §4
 > rejection is the only mechanism that reaches them. Re-adding a key later is a minor release;
 > removing one is breaking — so the retirement happened in the window #348 already opened.
 
-The need it answered: certain implementation work done by a specialist agent instead of the inline implementer — a migrations specialist for schema changes, a codegen agent for a generated surface. (The lean lane is outcome-gated and silent on *how* a diff is produced, so a build session may still dispatch such an agent by choice. What has no lean home is the declared, config-routed, pre-flight-validated form.)
+The need it answered: certain implementation work done by a specialist agent instead of the inline implementer — a migrations specialist for schema changes, a codegen agent for a generated surface. (The pipeline is outcome-gated and silent on *how* a diff is produced, so a build session may still dispatch such an agent by choice. What has no lean home is the declared, config-routed, pre-flight-validated form.)
 
 ```jsonc
 // NOT VALID CONFIG — config-lint rejects this key by name (#569). Shown as designed.
@@ -221,7 +221,7 @@ The need it answered: certain implementation work done by a specialist agent ins
 > was dispatched by the staged lane, deleted in #348; #569 removed the key from the schema and
 > `config-lint` now rejects it by name. The section is kept, in the **past tense**, because the
 > shape argument is the legitimate part: whether second-shift keeps consumer-pluggable blocking
-> gates and delegate seams at all, and what would dispatch them on the lean lane, is an open
+> gates and delegate seams at all, and what would dispatch them on the pipeline, is an open
 > product decision, and
 > this is the record it would start from. Everything below describes a mechanism **as it was
 > designed**, not one you can turn on. Nothing here is current behavior.
@@ -231,7 +231,7 @@ The need it answered: certain implementation work done by a specialist agent ins
 > rejection is the only mechanism that reaches them. Re-adding a key later is a minor release;
 > removing one is breaking — so the retirement happened in the window #348 already opened.
 
-The need it answered: an extra reviewer of the *plan itself* — a QA-tier review of the test strategy for a surface, an ADR-compliance check — able to block a bad plan before any code was written. The lean lane has no plan gate for one to be additive to; the spec is judged at the merge boundary by `review-lean`, after the diff exists.
+The need it answered: an extra reviewer of the *plan itself* — a QA-tier review of the test strategy for a surface, an ADR-compliance check — able to block a bad plan before any code was written. The pipeline has no plan gate for one to be additive to; the spec is judged at the merge boundary by `/dev-pipeline:review`, after the diff exists.
 
 ```jsonc
 // NOT VALID CONFIG — config-lint rejects this key by name (#569). Shown as designed.
