@@ -3,16 +3,16 @@
 Active when config `tracker.type: jira`. The read-only model: the
 operator supplies a JIRA key, and the pipeline treats the tracker as **read-only**
 (`tracker.writes: false`). It fetches the ticket via the Atlassian MCP and never
-transitions or comments — the run’s audit trail is the run’s own record (the lean
-lane’s progress file, `.claude/pipeline-state/<key>-lean-progress.md`) plus the PR
+transitions or comments — the run’s audit trail is the run’s own record (the
+pipeline’s progress file, `.claude/pipeline-state/<key>-lean-progress.md`) plus the PR
 metadata.
 
 > **The "No JIRA writes" principle.** Nothing in the lane calls an Atlassian write tool
 > (`transitionJiraIssue`, `addCommentToJiraIssue`, `editJiraIssue`, …). This keeps a run
 > to a single outward-facing write — the PR — and avoids a redundant approval gate.
 
-The table below is this adapter's operation contract. The lean lane’s gate-sensitive
-operations are tabulated in [`../README.md`](../README.md#the-lean-lane-dev-pipelinerun-lean).
+The table below is this adapter's operation contract. The pipeline’s gate-sensitive
+operations are tabulated in [`../README.md`](../README.md#the-pipeline-dev-pipelinerun).
 
 > **Ready, never draft.** The **ready** (non-draft) PR contract holds under both trackers —
 > `lean-gate.sh` milestone 5 rejects a draft on either adapter. The draft-PR carve-out that
@@ -33,7 +33,7 @@ is a fetch-time prerequisite failure, surfaced by the intake surface.
 
 | Operation | jira implementation |
 | --- | --- |
-| **pickup** | Operator supplies the JIRA key on invocation (`/dev-pipeline:run-lean GH-540`). No queue, no claim, no label mutation. |
+| **pickup** | Operator supplies the JIRA key on invocation (`/dev-pipeline:run GH-540`). No queue, no claim, no label mutation. |
 | **fetch-ticket** | `getJiraIssue` for the body; `getJiraIssueRemoteIssueLinks` → `getConfluencePage` for linked design/spec pages — under whichever namespace the session exposes (see **Prerequisite**). |
 | **predecessor-read** (`sub-issues-sequential` ordering) | ***SKIP-with-note.*** Both reads the github adapter pays — the candidate's body and the predecessor's state — are session-side MCP here, unreachable from a shell tool, so `../../predecessor-gate.sh` is never invoked (the **preflight-read** precedent). **Ordering is operator-enforced with no machine gate:** the ordered sub-ticket specs presented at decomposition carry the `Predecessor:` / `Successor:` trailers and the "start this only once `<predecessor>` is done" note, and the operator honors that sequence when supplying the next key. The trailer-rendering rule exists here solely for that presented spec text. |
 | **post-status-comment** | *no-op.* Progress is written to the lane's progress file only. |
@@ -48,7 +48,7 @@ is a fetch-time prerequisite failure, surfaced by the intake surface.
 With JIRA the branch prefix is typically a per-user short name, not the git username.
 Set it explicitly in config (`tracker.branchPrefix: "jdoe/"`) or derive it once from
 existing `*/gh-*` branches and confirm with the operator before cutting the worktree
-(build-lean step 3). Config is the durable home; detection is the first-run convenience.
+(/dev-pipeline:build step 3). Config is the durable home; detection is the first-run convenience.
 The staged lane's Stage-2 detection step that used to own this is deleted (#348), so
 **config is now the only durable home** — an unset `branchPrefix` is an operator prompt,
 not a cached derivation.
@@ -63,7 +63,7 @@ ticket summary prefix (`[BE]`, `[FE]`, `[Core]`) routes work to one or both repo
 **The per-repo PR fan-out did not survive #348.** The staged lane's Stage 9 opened one
 draft PR per target repo with cross-repo companion links; that capability is recorded
 `dropped` in [`tools/capability-parity.tsv`](../../../../../tools/capability-parity.tsv).
-Under the lean lane a pair consumer **runs the lane once per repo** — the cross-repo
+Under the pipeline a pair consumer **runs the lane once per repo** — the cross-repo
 split happens at intake, which files one ticket per target repo. `ticketTag` is therefore
 advisory routing for whoever launches the session, not a gate input.
 

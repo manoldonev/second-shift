@@ -37,7 +37,7 @@ DOCTOR="${PIPELINE_DOCTOR:-$SCRIPT_DIR/pipeline-doctor.sh}"
 RESOLVE_SIBLING="${RESOLVE_SIBLING_SH:-$SCRIPT_DIR/resolve-sibling.sh}"
 # resolve_sibling()'s SECOND caller (#562), read for its prep lines only: (rs1)/(rs3) below
 # drive both callers' real hop arithmetic, and lean-gate.sh's is not this plugin's tools/ depth.
-LEAN_GATE="${LEAN_GATE_SH:-$SCRIPT_DIR/../skills/build-lean/lean-gate.sh}"
+LEAN_GATE="${LEAN_GATE_SH:-$SCRIPT_DIR/../skills/build/lean-gate.sh}"
 
 PASS=0
 FAIL=0
@@ -592,7 +592,7 @@ else
   rs_stage() {
     local root="$1" v; shift
     mkdir -p "$root/dev-pipeline/$RS_MYVER/tools" \
-             "$root/dev-pipeline/$RS_MYVER/skills/build-lean"
+             "$root/dev-pipeline/$RS_MYVER/skills/build"
     for v in "$@"; do
       mkdir -p "$root/intake-toolkit/$v/${RS_REL%/*}"
       echo "$v" > "$root/intake-toolkit/$v/$RS_REL"
@@ -600,7 +600,7 @@ else
     # lean-gate.sh's caller: two directories under its plugin root, resolving through
     # resolve_ledger_lint()'s own hop arithmetic.
     printf '%s\n%s\n%s\nresolve_ledger_lint\n' 'set -uo pipefail' "$RS_BLOCK" "$RS_GATE_PREP" \
-      > "$root/dev-pipeline/$RS_MYVER/skills/build-lean/gate-caller.sh"
+      > "$root/dev-pipeline/$RS_MYVER/skills/build/gate-caller.sh"
     # pipeline-doctor.sh's caller: one directory under its plugin root, its top-level prep
     # lines then the same call it makes at :402.
     printf '%s\n%s\n%s\nresolve_sibling intake-toolkit %s\n' \
@@ -609,7 +609,7 @@ else
   }
   rs_run() { # $1 = cache root, $2 = gate|doctor
     case "$2" in
-      gate)   bash "$1/dev-pipeline/$RS_MYVER/skills/build-lean/gate-caller.sh" 2>/dev/null ;;
+      gate)   bash "$1/dev-pipeline/$RS_MYVER/skills/build/gate-caller.sh" 2>/dev/null ;;
       doctor) bash "$1/dev-pipeline/$RS_MYVER/tools/doctor-caller.sh" 2>/dev/null ;;
     esac
   }
@@ -659,7 +659,7 @@ fi
 #
 # THREE ARMS, because the doctor delegates in three shapes and the invariant is the
 # same for each: `$SCRIPT_DIR/<name>` (a sibling file), `$PLUGIN_DIR/<relpath>`
-# (elsewhere in this plugin — where the lean gate, lean evidence and null-reviewer
+# (elsewhere in this plugin — where the milestone gate, lean evidence and null-reviewer
 # suites live), and `resolve_sibling <plugin> <relpath>` (another plugin). A shape
 # with no arm is a shape where the 5h2 break recurs unseen, so the arm set tracks the
 # doctor's actual delegation forms rather than the two that were easiest to reach.
@@ -792,10 +792,10 @@ inv_probe() { # inv_probe <arm> <injected-line> <expect>
 # the extraction sees the same shape it sees in the real doctor.
 INV_INJECT_SCRIPT='bash "$SCRIPT_DIR/definitely-deleted-selftest.sh"'
 # shellcheck disable=SC2016  # same literal-text match as above.
-INV_INJECT_PLUGIN='bash "$PLUGIN_DIR/skills/build-lean/definitely-deleted-selftest.sh"'
+INV_INJECT_PLUGIN='bash "$PLUGIN_DIR/skills/build/definitely-deleted-selftest.sh"'
 INV_INJECT_SIBLING='resolve_sibling review-toolkit scripts/definitely-deleted-selftest.sh'
 inv_probe script  "$INV_INJECT_SCRIPT"  'definitely-deleted-selftest.sh'
-inv_probe plugin  "$INV_INJECT_PLUGIN"  'skills/build-lean/definitely-deleted-selftest.sh'
+inv_probe plugin  "$INV_INJECT_PLUGIN"  'skills/build/definitely-deleted-selftest.sh'
 inv_probe sibling "$INV_INJECT_SIBLING" 'review-toolkit/scripts/definitely-deleted-selftest.sh'
 
 # ---------------------------------------------------------------------------
@@ -885,7 +885,7 @@ PLUGINS_ROOT="$INV_SAVED_PLUGINS_ROOT"
 # not parse — every -selftest basename the doctor invokes, comment lines excluded — so a
 # delegation FORM with no arm reds here even though no arm knows to look for it.
 # BASENAME granularity is forced, not chosen. The three arms emit three DIFFERENT path
-# shapes ("claim-selftest.sh", "skills/build-lean/x-selftest.sh", "<plugin> scripts/y.sh"),
+# shapes ("claim-selftest.sh", "skills/build/x-selftest.sh", "<plugin> scripts/y.sh"),
 # and the declared side reads raw doctor text where the same paths are written with
 # $SCRIPT_DIR / $PLUGIN_DIR / resolve_sibling prefixes. Normalizing to a common full path
 # would require the declared side to KNOW those three shapes — which is exactly the

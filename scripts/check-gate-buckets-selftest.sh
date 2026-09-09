@@ -47,9 +47,9 @@ WORK="$(mktemp -d "${TMPDIR:-/tmp}/gate-buckets-selftest.XXXXXX")" || exit 1
 trap 'rm -rf "$WORK"' EXIT
 
 TAB="$(printf '\t')"
-LG='plugins/dev-pipeline/skills/build-lean/lean-gate.sh'
-LE='plugins/dev-pipeline/skills/build-lean/lean-evidence.sh'
-OL='plugins/dev-pipeline/skills/run-lean/orchestrate-lean.sh'
+LG='plugins/dev-pipeline/skills/build/lean-gate.sh'
+LE='plugins/dev-pipeline/skills/build/lean-evidence.sh'
+OL='plugins/dev-pipeline/skills/run/orchestrate-lean.sh'
 OO='plugins/dev-pipeline/tools/operator-override.sh'
 CC='scripts/check-lean-chain.sh'
 

@@ -387,7 +387,7 @@ containment is the load-bearing part and the hashing is not. Four properties, al
 
 1. **Fail-closed by default, twice.** A suite with no row is always run, and the cache as a whole
    is off unless a store is named — `--cache-dir` on argv, or `$LEAN_SELFTEST_CACHE_DIR` from the
-   lean lane below. The mandated local recipe in `CLAUDE.md` names neither, so a bare local sweep
+   pipeline below. The mandated local recipe in `CLAUDE.md` names neither, so a bare local sweep
    is still cold — and so is the nightly leg below.
 2. **Self-inclusion is mandatory.** A row set must name the suite itself, and — where the naming
    convention resolves it, `<stem>-selftest.sh` beside `<stem>.sh` — the script under test. A row
@@ -402,7 +402,7 @@ containment is the load-bearing part and the hashing is not. Four properties, al
    `--cache-dir`, on both lanes, asking the PR lane's exact question. An under-declaration surfaces
    within a day, against a tree nobody is waiting on.
 
-**The lean lane is the third participant (#563).** `lean-gate.sh` milestone 3 runs a `test`
+**The pipeline is the third participant (#563).** `lean-gate.sh` milestone 3 runs a `test`
 command it does not own — that string lives in a consumer's `.claude/second-shift.config.json`,
 gitignored in this repo — so it cannot add a flag to it. It exports `LEAN_SELFTEST_CACHE_DIR`
 instead, and `run-selftests.sh` reads that when argv named no store. Argv wins, and unset is a no-op, so both CI lanes, the nightly leg and the
@@ -510,7 +510,7 @@ overflows, with the same fail-closed consequence.
 This is the inverse of the mutation sweep's cache further down this page, which is local-only and
 disables itself in the enforcing lane. The difference is which side holds the authority: there CI
 is the authority and must run cold; here CI is the thing being sped up, and the authority is the
-nightly wholesale leg. The lean lane's use of this same mechanism sits on the mutation sweep's
+nightly wholesale leg. The pipeline's use of this same mechanism sits on the mutation sweep's
 side of that line — its store is local, it records, and it is never anyone's authority — which is
 why it can record without the second flag CI withholds.
 
@@ -723,7 +723,7 @@ workflow file states why each family is in scope, and why `.claude-plugin/market
 a shipped suite's own content are deliberately NOT in that filter — by the release PR, or by
 `workflow_dispatch`. Both CI selftest jobs still exclude it by path via `run-selftests.sh
 --exclude`, the documented local recipe excludes it too, and since #566 it also carries a
-`tools/selftest-suite-timings.tsv` row, so the lean lane's bounded quick check defers it without
+`tools/selftest-suite-timings.tsv` row, so the pipeline's bounded quick check defers it without
 needing the flag.
 
 The reasoning is a cost/signal ratio, not a judgment that the guard is worthless — it caught two
@@ -784,7 +784,7 @@ sweep — so it must not see the caller's own `SECOND_SHIFT_CONFIG` / `SECOND_SH
 etc.: an ambient value silently re-roots the child, producing spurious failures unrelated to
 the code under review (#34's ~20 of them). Both files carry the scrub independently — one
 `SEAM_SCRUB` denylist, `env -u`'d at every child-invocation site — because they reach that lane
-shape via two different code paths (the lean gate's milestone-3 sweep vs preflight's one-pass
+shape via two different code paths (the milestone gate's milestone-3 sweep vs preflight's one-pass
 doctor sweep), kept honest by a `subset-of` LOCKSTEP group rather than a shared import (neither
 is importable by the other).
 
@@ -962,7 +962,7 @@ coupling rather than mechanizing it into a guard that cannot fail.
 - **The dark-reviewer re-dispatch mandate, across three prose sites** (#769). `review-lead` Step 4b
   mandates one in-session re-dispatch before a `[Coverage gap]` may be recorded; Step 4b-void case 2
   reads "still dark after that re-dispatch" as its post-dispatch trigger on an armed spec; and
-  `review-lean` step 5c hands such a round back. One contract, three sites, and a real coupling —
+  `/dev-pipeline:review` step 5c hands such a round back. One contract, three sites, and a real coupling —
   loosen the mandate and 5c's trigger stops matching what `review-lead` can produce. **Declined,
   with no guard added.** The only mechanization available is a grep for prose that must be present,
   which the `writing-tests` skill forbids outright: it passes on the day the sentence is deleted and
@@ -984,7 +984,7 @@ coupling rather than mechanizing it into a guard that cannot fail.
   short, sit in the two files every contributor reads first, and a new tier lands with its own
   suite in the same PR.
 - **The claimed label's release rationale, across seven sites** (#670). Every one of them explains
-  why the label is not dropped session-side: `build-lean/SKILL.md` step 9,
+  why the label is not dropped session-side: `build/SKILL.md` step 9,
   `.github/workflows/unclaim-on-close.yml`, both shipped
   `templates/consumer/second-shift-unclaim.{sh,yml}` headers, `onboard/SKILL.md`'s spoken
   onboarding line, `schema/second-shift.config.schema.json`'s `claimed` description, and
@@ -1032,7 +1032,7 @@ coupling rather than mechanizing it into a guard that cannot fail.
 - **lean verdict-record key schema** — one writer (`lean-gate.sh`'s `verdict`) and three readers
   (`lean-gate.sh` milestone 4, `check-lean-chain.sh`, `lean-reconcile.sh`). Dropping a key on the
   writer silently un-satisfies all three; a reader-side requirement the writer never emits reds
-  every lean PR. The writer spells keys as `echo` lines and the readers as grep/jq patterns.
+  every pipeline PR. The writer spells keys as `echo` lines and the readers as grep/jq patterns.
   Guarded behaviorally, and the guard COMPOSES across sites: `lean-gate-selftest.sh` (p5)/(p7) feed
   the writer's output to the milestone-4 reader in the same run; (u1) pins the one key whose absence
   milestone 4 still refuses on its own (`reviewed_head`); `lean-evidence-selftest.sh` (r) pins the
@@ -1085,10 +1085,10 @@ coupling rather than mechanizing it into a guard that cannot fail.
   where nobody is watching. A change that adds or tightens a mandated section MUST move both, and
   the check is empirical: build a receipt verbatim to the prose and lint it.
 - **`ticketTag` semantics** — three sites state it: `docs/config-schema.md`'s topology row, the
-  schema's own `description` (which renders in every consumer's editor), and `run-lean/SKILL.md`,
+  schema's own `description` (which renders in every consumer's editor), and `run/SKILL.md`,
   the lane that reads it. The lane's reading is advisory only, and the docs must describe it that
   way. Markdown prose, a JSON string and SKILL prose share no quoted literal. Guarded by
-  `check-config-shadowing.sh`, which pins `run-lean/SKILL.md` to `ticketTag`. Revisit if a fourth
+  `check-config-shadowing.sh`, which pins `run/SKILL.md` to `ticketTag`. Revisit if a fourth
   site restates the semantics.
 - **schema `planFilePattern` default ↔ preflight.sh's hardcoded copy.** Real — the copy is the
   fallback used when a consumer sets no override, so a one-sided edit resolves a path the schema no
@@ -1100,7 +1100,7 @@ coupling rather than mechanizing it into a guard that cannot fail.
   Printing alone would not have been coverage; the assertions are.
 - **lean artifact discriminator** — `lean-evidence.sh`'s `classify()` ↔ `retro-corpus.sh`'s
   `open-prs` (#413). Both decide "is this PR lean" the same way, and a one-sided edit leaves the
-  retro corpus silently reporting live lean PRs as verdict-less. NOT delegable, which is why the
+  retro corpus silently reporting live pipeline PRs as verdict-less. NOT delegable, which is why the
   copy exists: the gates classify the PR they are running ON, from a PR context that lets
   `classify()` resolve one key and diff one range; `open-prs` classifies a LIST of other PRs from a
   single `gh pr list --json files` call, where an open PR's spec is committed on its own branch, so
@@ -1183,7 +1183,7 @@ coupling rather than mechanizing it into a guard that cannot fail.
   hook from a linked worktree and assert their reader finds the result, so a writer-side drift reds
   a reader's suite.
 - **The unbound `lean-producer-capabilities` TAG copies** in `lean-reconcile.sh` and
-  `run-lean/orchestrate-lean.sh`. Neither is a merge-boundary gate, and drift in either fails CLOSED
+  `run/orchestrate-lean.sh`. Neither is a merge-boundary gate, and drift in either fails CLOSED
   and loudly instead of silently weakening a boundary — which is what earns a marker in the first
   place. A drifted tag in the scheduler's #500 re-entry probe stops re-entry being recognized, so
   the operator meets a preflight reject on the next stopped run, never a green PR.
@@ -1236,11 +1236,6 @@ coupling rather than mechanizing it into a guard that cannot fail.
   cache, and `check-emit-deadline-selftest.sh`'s B6-B9 drive the real script from staged monorepo
   and cache shapes. Revisit if a SIXTH site grows the ladder, or if any further pair converges on
   identical hop constants.
-- **`check-pipeline-chain.sh`'s `REQUIRED_MARKERS`.** The generated `case` region and the schema
-  table that held the other copies are both gone, so there is no pair to express. It kept its
-  markers after that, on the reasoning that a future row would then be cheap; #604 removed them,
-  because under discovery a marker with no counterpart reads as a pair and is not one.
-  `check-pipeline-chain-selftest.sh` asserts the list parses non-empty, so a rename fails loudly.
 
 **What does NOT belong in a lockstep group**, from the manifest's own header and kept here: a pair
 already mechanically enforced elsewhere — model tiers (`check-model-tiers.sh`), the reviewer
@@ -1840,7 +1835,7 @@ This tier is that run. It is **model-free** — two `lean-gate.sh 3` invocations
 there is deliberately no automated staleness guard, because a guard is exactly the permanent mass
 this tier's procedure form was chosen instead of.
 
-**What it does not cover:** scheduler- and session-level contention — two full `run-lean` sessions,
+**What it does not cover:** scheduler- and session-level contention — two full `/dev-pipeline:run` sessions,
 which is the shape that produced #525's motivating pain. A lane here is a gate invocation, not a
 session.
 

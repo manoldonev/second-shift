@@ -2,7 +2,7 @@
 # lane-bench.sh — the lane bench's scorer. `docs/lane-bench.md` is the protocol; this is the
 # half of it that a machine can check.
 #
-# WHY THIS EXISTS. The bench replays a fixed corpus of tickets through the lean lane once per
+# WHY THIS EXISTS. The bench replays a fixed corpus of tickets through the pipeline once per
 # harness arm, so that a change to second-shift is kept or reverted from a measured delta rather
 # than from an argument. That only works if the score is deterministic: a cell scored today and
 # the same cell re-scored next month must produce the same numbers, and neither may be a
@@ -361,7 +361,7 @@ lane_bench_cell() {
   # checkout's scheduler against the arm's plugins would measure a kit nobody ships. The WRAPPER,
   # by contrast, is this runner's sibling and is constant across arms: a wrapper that varied with
   # the arm would be a confound on the quantity being measured (#811 D-51).
-  LANE_BIN="${LEAN_BENCH_LANE_BIN:-$ARM_WT/plugins/dev-pipeline/skills/run-lean/orchestrate-lean.sh}"
+  LANE_BIN="${LEAN_BENCH_LANE_BIN:-$ARM_WT/plugins/dev-pipeline/skills/run/orchestrate-lean.sh}"
   [ -r "$LANE_BIN" ] || die "no readable lane scheduler at $LANE_BIN"
   log="$WORK/cell-$CELL_ISSUE-lane.log"
 

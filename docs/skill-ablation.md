@@ -50,7 +50,7 @@ the evidence-supported action rather than a flinch.
 The registered protocol put a bare session in the repository worktree. **In this repository the
 kit's own prose is a file in that worktree**, and both bare sessions read it: the C1 plans cite
 `bash G entry <N>`, `ledger-carry-forward.sh`, "4-column plan rows" and "the disarm state-locks the
-moment milestone 3 arms" — vocabulary that exists nowhere but `build-lean/SKILL.md`. Under the
+moment milestone 3 arms" — vocabulary that exists nowhere but `build/SKILL.md`. Under the
 registered scoring that run covers **9 of 9** discriminating items, which the registered threshold
 reads as `delete`.
 
@@ -120,7 +120,7 @@ committed verbatim as `c1-build/consumer-<arm>-<n>-plan.md`.
 
 **The registered pair cannot answer, and the reason is a construction defect, not a result.**
 Deleting `plugins/` from the working tree leaves the whole kit readable with
-`git show HEAD:plugins/dev-pipeline/skills/build-lean/SKILL.md`, and all four registered-arm sessions
+`git show HEAD:plugins/dev-pipeline/skills/build/SKILL.md`, and all four registered-arm sessions
 read it there — none of them read anything from the plugin cache. Every item they cover is therefore
 provenance `tree`, which `docs/skill-ablation-addendum.md`:201-222 already reads as **inconclusive**;
 A1-min was the registered remedy for `tree` provenance and inherits the same hole. So both registered
@@ -213,7 +213,7 @@ git ls-tree -r --name-only b657907f -- docs/plans/ | grep -cE 'second-shift-[0-9
 
 **Nothing read the prose — in the three sealed sessions that looked.** All four had the installed
 cache inside their allowlist; **three** walked into it, and **not one of those opened
-`build-lean/SKILL.md`**, though sealed 636 listed the directory it sits in. Sealed 636 read
+`build/SKILL.md`**, though sealed 636 listed the directory it sits in. Sealed 636 read
 `lean-gate.sh`, `lean-evidence.sh` and `orchestrate-lean.sh`; sealed 647 read `lean-gate.sh`,
 `orchestrate-lean.sh` and a doctor fixture; sealed-min 647 read `lean-gate.sh` only.
 
@@ -239,7 +239,7 @@ all, and it is reported as that rather than folded into the three.
   [`docs/skill-ablation-recipe-correction.md`](skill-ablation-recipe-correction.md); the
   pre-registration is not edited.
 - **The same object-store leak reached §1's own sensitivity run.** Its ablated arm for #647 recovered
-  `build-lean/SKILL.md` with `git show HEAD:` — the confound that run was added to remove. Re-scoring
+  `build/SKILL.md` with `git show HEAD:` — the confound that run was added to remove. Re-scoring
   §1 is outside #746's scope, so it is named here rather than corrected:
 
   ```bash
@@ -313,7 +313,7 @@ scored a miss. It is also a finding the lane's review did not make.
 ### What bare found that three rounds of lane review did not
 
 On #660 the bare session raised two blockers absent from the lane's round-1, round-2 and round-3
-records. **Both are live on `main` today**, and both are now filed. `build-lean/SKILL.md:32` says,
+records. **Both are live on `main` today**, and both are now filed. `build/SKILL.md:32` says,
 in one sentence:
 
 > …asserts milestone 5 — **which a MERGED PR satisfies as well as an open one** (#642), so
@@ -415,7 +415,7 @@ is recorded nowhere but in the totals themselves.
 | C2-c | `docs/testing.md`'s never-fired table disagrees with the report | #660 r1 W1 |
 
 The remaining **75** appear in no round. Two of them re-find the bare arm's own escapes
-independently — `build-lean/SKILL.md:32`'s self-contradiction (**#670**) and
+independently — `build/SKILL.md:32`'s self-contradiction (**#670**) and
 `docs/config-schema.md`'s exit-3 claim (**#674**), both filed off the bare arm and both since
 fixed — which corroborates that escape set rather than extending it.
 
@@ -474,19 +474,19 @@ scoped `(dev-pipeline)` but the branch touches zero `plugins/` files (verified: 
 scripts)"* — a byte-exact description of the pinned range — while citing three files
 (`gate-buckets.tsv`, `ci.yml`, `pipeline-manifesto.md`) that lie outside `HEAD~1..HEAD`. On C2-b and
 C2-c it cannot be confirmed the same way, and does not need to be: each branch's first commit adds
-only the lean spec, so `HEAD~1..HEAD` and the pinned range differ by nothing but that file's initial
+only the committed spec, so `HEAD~1..HEAD` and the pinned range differ by nothing but that file's initial
 version.
 
 **The file-reading leak, measured rather than assumed.** The clones keep `plugins/` in the working
 tree, because §B registers no removal and the files under review *are* the kit
 (`docs/plans/second-shift-747-lean.md` D-1). One subagent `Bash` call on C2-a read 13 lines of
-`review-lean/SKILL.md`; C2-b and C2-c made none. That read bears on nothing in C2-a's finding set,
+`review/SKILL.md`; C2-b and C2-c made none. That read bears on nothing in C2-a's finding set,
 which is entirely about `scripts/check-gate-buckets.sh` and its register.
 
 ### Arm 2b (#748) — the delta, localised by leave-one-out ablation
 
 Registered at [`docs/skill-ablation-addendum.md`](skill-ablation-addendum.md) §C **before any run**.
-Leave-one-out over the **17 units** of `review-lean/SKILL.md` at `8d5d0897` — the ten numbered
+Leave-one-out over the **17 units** of `review/SKILL.md` at `8d5d0897` — the ten numbered
 checklist steps, the six non-negotiable rule bullets and the preamble — against **C2-a** (#654 @
 `cfba102`), the one sample the bare arm missed. Ablating by `##` heading was excluded at
 registration: the file has two, and a 73-line block localises nothing a cut can be executed from.
@@ -547,7 +547,7 @@ Against the **`/code-review` challenger** the column is degenerate and is record
 used: arm 2a **hit** C2-a, so no unit is inside that delta, and reading it as licence would cut all
 seventeen on one sample. It does not bind the list above.
 
-**This list binds the pinned file only.** Every line added to `review-lean/SKILL.md` since
+**This list binds the pinned file only.** Every line added to `review/SKILL.md` since
 `8d5d0897` is **unmeasured** — it has been in no arm of any comparison — and is neither cut nor
 kept by anything here. The subject is pinned by commit precisely because the head count moves with
 every merge.
@@ -557,7 +557,7 @@ the §5 precedent separating a verdict from its execution.
 
 ### Execution (#800)
 
-Re-anchored on the head #800 built against (`review-lean/SKILL.md`, 191 lines):
+Re-anchored on the head #800 built against (`review/SKILL.md`, 191 lines):
 
 | unit | pin | head | disposition |
 | --- | --- | --- | --- |

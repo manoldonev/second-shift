@@ -13,7 +13,7 @@ This repo IS the second-shift marketplace, and it consumes itself as the dogfood
 | `.claude-plugin/marketplace.json` → `metadata.version` | `scripts/derive-release.sh`, on the release PR |
 
 A feature PR that touches any of them is rejected by CI (`scripts/check-frozen-files.sh`).
-This applies to **every** contributor, human or agent — including `/dev-pipeline:run-lean`. A
+This applies to **every** contributor, human or agent — including `/dev-pipeline:run`. A
 pipeline run must not bump a version or append a changelog entry "to follow repo
 convention": that convention was retired in #119, and doing it now turns the PR red.
 
@@ -110,7 +110,7 @@ out and you want the answer before pushing.
 **The recipe above runs COLD, and that is deliberate.** CI additionally passes `--cache-dir`, which
 lets a suite with a row in `tools/selftest-cache-inputs.tsv` be skipped when the content of every
 declared input is unchanged. The runner participates only where a store is named — that flag, or
-the `LEAN_SELFTEST_CACHE_DIR` the lean gate exports into its own milestone-3 lane (#563) — and the
+the `LEAN_SELFTEST_CACHE_DIR` the milestone gate exports into its own milestone-3 lane (#563) — and the
 recipe above names neither, so what you run locally is still a full sweep. See
 [`docs/testing.md`](docs/testing.md) for the contract, and add a row there only when you can
 enumerate a suite's inputs exactly.

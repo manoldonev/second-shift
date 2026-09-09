@@ -61,7 +61,7 @@ The ticket names one comparison; the surface has two separable halves.
   firings are adjudicated `unchanged`, and all six keep-earners are re-run at the merge boundary.
   That evidence is **inherited and cited, not re-collected** — re-running it would spend this
   slice's budget reproducing a committed answer.
-- **The skill** — `plugins/dev-pipeline/skills/build-lean/SKILL.md`, 48 lines — is what nothing has
+- **The skill** — `plugins/dev-pipeline/skills/build/SKILL.md`, 48 lines — is what nothing has
   measured, and is what this comparison collects.
 
 ### Metric — proxy, and labelled as one

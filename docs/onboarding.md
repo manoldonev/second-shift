@@ -24,7 +24,7 @@ package.json can answer), presents ONE accept-or-edit screen, and emits:
 - `.claude/SECOND-SHIFT.md` — the consent doc: what installs, what hooks fire, before the trust prompt
 - **(on request)** `.github/workflows/second-shift-ci.yml` + `.claude/tools/second-shift-ci-check.sh` — the server-side backstop: on every PR it config-lints the committed config with the linter shipped at the pinned marketplace ref and asserts the settings ref and lockfile ref agree, so a half-done upgrade PR is caught. Reports a red check; mark it a required status check in branch protection to block merges.
 - **(same request, github tracker)** `.github/workflows/second-shift-unclaim.yml` + `.claude/tools/second-shift-unclaim.sh` — the close-out step neither lane owned: when an issue closes it removes the pipeline's two run-state labels (`tracker.labels.claimed` and `tracker.labels.queue`, resolved from your committed config at run time; never `tracker.labels.blockers`, which holds permanent classifications like `epic`). This is the one emitted workflow that **writes** — `issues: write`, two labels on one issue, which needs the repo's Actions workflow permissions set to read-and-write (a `permissions:` block narrows the repo maximum, it cannot widen it). The labels go stale when the issue closes, and no lane session is guaranteed to be running then — the lane's exit milestone accepts a merged PR as well as an open one, so close-out can finish long before the close arrives; binding the release to the close event needs no live session and covers a hand-closed issue too.
-- **(same request)** `.github/workflows/second-shift-delta-guard.yml` + `.claude/tools/second-shift-delta-guard.sh` — the delta guard, which is about your **CI bill** rather than your evidence. `review-lean` must commit the verdict record to the PR head as the *last* commit, so on a `pull_request`-triggered CI every lean PR pays a second full run — lint, typecheck, build, the whole test suite — for a markdown file the pipeline wrote itself. The guard is a reusable workflow exposing a `skip` output; you gate your heavy jobs on it with two lines each:
+- **(same request)** `.github/workflows/second-shift-delta-guard.yml` + `.claude/tools/second-shift-delta-guard.sh` — the delta guard, which is about your **CI bill** rather than your evidence. `/dev-pipeline:review` must commit the verdict record to the PR head as the *last* commit, so on a `pull_request`-triggered CI every pipeline PR pays a second full run — lint, typecheck, build, the whole test suite — for a markdown file the pipeline wrote itself. The guard is a reusable workflow exposing a `skip` output; you gate your heavy jobs on it with two lines each:
 
   ```yaml
   jobs:
@@ -67,9 +67,9 @@ exception to no-vendoring: both files verify plugin presence, they are not plugi
 Rolling this out to a whole team — trust flow, opt-outs, upgrades, rollback, the managed
 variant — is its own playbook: [`team-rollout.md`](team-rollout.md).
 
-### Pair repos (BE/FE) under the lean lane
+### Pair repos (BE/FE) under the pipeline
 
-`/dev-pipeline:run-lean` routes by invocation cwd — it has no per-repo worktree map. A
+`/dev-pipeline:run` routes by invocation cwd — it has no per-repo worktree map. A
 confirmed pair's `topology.type: be-fe-pair` config (unchanged, `be`+`fe` entries) stays a
 legal shape and other readers still honour it, but nothing fans a run out across both repos
 any more: the staged lane that did, `/dev-pipeline:run`, was deleted in #348. Working the
@@ -81,7 +81,7 @@ from the same pair.
 
 `topology.repos.<id>.ticketTag` on the host's `be`/`fe` entries (e.g. `"[BE]"` / `"[FE]"`)
 is **advisory only** — no gate reads it (a retired lane resolved `TARGET_REPOS`
-from it as a gate input; that reader was deleted in #348). What it does is route the lane: whoever launches `/dev-pipeline:run-lean`
+from it as a gate input; that reader was deleted in #348). What it does is route the lane: whoever launches `/dev-pipeline:run`
 — an operator or the scheduler itself — reads the tag to pick the repo checkout to launch from. **FE-tagged tickets run from the FE
 repo.** The `intake-orchestrator` skill enforces the corresponding discipline at
 ticket-filing time: a title carrying both pair tags, or neither, is rejected before spec
@@ -117,7 +117,7 @@ repo is UI-shaped or a design MCP is connected (accepting it also offers the opt
 (`enabledPlugins` with just `review-toolkit@second-shift: true`) — *community-supported, not
 CI-tested*. Everything else is possible via `enabledPlugins: false` and yours to own, with **one
 exception**: `audit-toolkit` off while `dev-pipeline` is on is not a supported combination.
-`audit-toolkit` ships the hook that writes the per-session audit ledger, the lean lane's entry
+`audit-toolkit` ships the hook that writes the per-session audit ledger, the pipeline's entry
 gate refuses to start without a live one, and `/second-shift:doctor` FAILs on the pairing rather
 than warning. Disable both together if the repo does not run the lane.
 
@@ -201,7 +201,7 @@ bash "${CLAUDE_PLUGIN_ROOT:-<dev-pipeline-plugin-root>}/tools/config-lint.sh" \
 
 `/second-shift:onboard` walks you through both of these; if you onboarded manually, the
 first pipeline run enforces them — the bot wrapper and the claim's queue label are
-load-bearing for `/dev-pipeline:run-lean` and for `/dev-pipeline:build-lean` invoked
+load-bearing for `/dev-pipeline:run` and for `/dev-pipeline:build` invoked
 directly — so handle them now rather than mid-run:
 
 - **The six queue labels.** Pre-flight requires `ready-for-dev`, `needs-spec-work`,
@@ -233,7 +233,7 @@ Detection only covers JS package managers plus a Makefile fallback. On any other
 `commands.<id>` lane as `null`. **That table is a starting point, not a finished config** —
 fill in your repo's real commands. Until at least one verifying lane (`lint`, `typecheck`,
 `test`, or an `extraLanes` entry) is configured, `preflight` warns and withholds its
-`pipeline-ready` verdict, and the lean gate's milestone 3 refuses a run that verified
+`pipeline-ready` verdict, and the milestone gate's milestone 3 refuses a run that verified
 nothing. If
 verifying nothing is genuinely intended (a docs-only repo, say), set
 `commands.<id>.allowUnverified: true` so the choice is explicit rather than an oversight.
@@ -354,7 +354,7 @@ Three layers, in order:
 2. **Install state**: `/second-shift:doctor` — installed plugins vs the lockfile, settings
    pin, shadow collisions (see §0).
 3. **Runtime environment**: `pipeline-doctor.sh` (dev-pipeline plugin, `tools/`)
-   — tracker CLI/auth, bot wrapper, labels, node, the lean gate. Different layer from
+   — tracker CLI/auth, bot wrapper, labels, node, the milestone gate. Different layer from
    `/second-shift:doctor`; both exist on purpose. Extension files are checked at pre-flight
    by `check-extensions.sh` against the shipped manifest (a typo'd extension filename is
    loud, never silently ignored).
@@ -365,7 +365,7 @@ Then a first run on a small, self-contained ticket. The front door is a schedule
 lane's blocks — it spawns each in a fresh session and reads its outcome, authoring nothing:
 
 ```text
-/dev-pipeline:run-lean <ticket>
+/dev-pipeline:run <ticket>
 ```
 
 **It takes two sessions, and that is the design.** The build block stops at milestone 4 and
@@ -375,8 +375,8 @@ wait in between. Driven by hand — the two-terminal flow, and the rescue path �
 two blocks, unchanged:
 
 ```text
-/dev-pipeline:build-lean <ticket>
-/dev-pipeline:review-lean <pr>
+/dev-pipeline:build <ticket>
+/dev-pipeline:review <pr>
 ```
 
 — which produces findings on the PR and commits the verdict record that milestone 4 and the
@@ -385,14 +385,14 @@ build session cannot shortcut it: `lean-gate.sh verdict` refuses to run inside t
 session at all. A verdict also has to cover the head it is read against, so pushing more
 commits after an approve costs another review round.
 
-Autonomous mode is safe to trust on day one because it never guesses: `build-lean`'s entry
+Autonomous mode is safe to trust on day one because it never guesses: `/dev-pipeline:build`'s entry
 gate refuses without a live audit ledger, and on a GitHub tracker the session also refuses
 without the queue label (a read-only tracker has no queue). Both fire before any work begins,
 and every milestone gate **fail-fasts with a written reason** instead of asking — `.claude/pipeline-state/<issue>-lean-progress.md` tells you exactly why. Two tips for a clean
 first run: set `tracker.branchPrefix` in config (skips runtime branch-identity derivation,
 which has nothing to match in a repo with no prior pipeline branches), and pick a ticket with
 no external-infrastructure ACs. When a run stops mid-way, the debugging path is the two-terminal
-manual flow — invoke `/dev-pipeline:build-lean` and `/dev-pipeline:review-lean` directly, which
+manual flow — invoke `/dev-pipeline:build` and `/dev-pipeline:review` directly, which
 is the same block the scheduler drives.
 
 **Sequencing note (migrating repos with vendored copies):** delete the repo-local files that shadow plugin-shipped names, commit, and **start a fresh session** before the dry-run — deleting same-named skills mid-session invalidates that session's skill registry and every `Skill(<plugin>:<name>)` call returns "Unknown skill" until restart ([`namespaces.md`](namespaces.md) rule 6).

@@ -9,7 +9,7 @@
 # no-mirror-harnesses rule).
 #
 # THE SCENARIO EACH CASE GUARDS is stated on the case, and none of them is covered by
-# plugins/dev-pipeline/skills/build-lean/scenario-liveness-selftest.sh: that suite composes the
+# plugins/dev-pipeline/skills/build/scenario-liveness-selftest.sh: that suite composes the
 # lean gate's own verdict paths, and this tool is not on one. It reads a lane's leavings from
 # outside, after the lane is over, in a repo the gate never touches.
 set -uo pipefail
@@ -17,7 +17,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 TOOL="$HERE/lane-bench.sh"
 CLASSES="$HERE/lane-bench-classes.tsv"
-ORCH="$(cd "$HERE/.." && pwd)/plugins/dev-pipeline/skills/run-lean/orchestrate-lean.sh"
+ORCH="$(cd "$HERE/.." && pwd)/plugins/dev-pipeline/skills/run/orchestrate-lean.sh"
 # The explicit-template form, which IS honored by a private TMPDIR (docs/testing.md), unlike the
 # `-t` form the two big stamped fixture families use.
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/lane-bench-selftest.XXXXXX")"

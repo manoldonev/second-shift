@@ -8,11 +8,11 @@
 # head branch, and to be the LAST commit on it. In a consumer whose CI runs on `pull_request`,
 # that push fires a second full run — lint, typecheck, build, the whole unit suite — whose only
 # content is a markdown file the pipeline wrote itself. Measured on a real consumer: a complete
-# re-run of a ~570-test lane for a docs-only commit, on every lean PR.
+# re-run of a ~570-test lane for a docs-only commit, on every pipeline PR.
 #
 # WHY NOT `paths-ignore`. It is the natural reach and it is a no-op here: for `pull_request`
 # events GitHub evaluates path filters against the WHOLE PR diff (base…head), not the
-# incremental push. Every lean PR contains source changes, so every lean PR matches the filter
+# incremental push. Every pipeline PR contains source changes, so every pipeline PR matches the filter
 # regardless of what the last commit touched. `paths-ignore` only helps `push`-triggered
 # workflows. Stated here because it will otherwise be proposed again and quietly fail.
 #
@@ -78,7 +78,7 @@
 set -uo pipefail
 
 # The verdict record's filename suffix. Pinned here AND in
-# plugins/dev-pipeline/skills/build-lean/lean-evidence.sh, which cannot see this file: this one
+# plugins/dev-pipeline/skills/build/lean-evidence.sh, which cannot see this file: this one
 # is committed into a CONSUMER repo, that one is fetched at the consumer's pinned marketplace
 # ref. A one-sided rename would leave this guard classifying every verdict commit as an ordinary
 # one — which costs only runner minutes and reports nothing, so nothing would ever notice.

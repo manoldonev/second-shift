@@ -6,8 +6,8 @@ to the tracker (`tracker.writes: true`).
 
 ## Implementation
 
-The github adapter is shell tools at the tools root (`../../`) plus the lean lane's
-GitHub-shaped steps in [`build-lean/SKILL.md`](../../../skills/build-lean/SKILL.md). It
+The github adapter is shell tools at the tools root (`../../`) plus the pipeline's
+GitHub-shaped steps in [`build/SKILL.md`](../../../skills/build/SKILL.md). It
 has no scripts of its own in this directory — see [`../README.md`](../README.md) ("Why
 the github tools live in `../`").
 
@@ -21,9 +21,9 @@ at the enforcing script rather than at a doc restating it.
 | Atomic claim (queue label swap, add-before-remove, confirm-add) | [`../../claim-issue.sh`](../../claim-issue.sh) — selftest `../../claim-selftest.sh` |
 | Bot wrapper bootstrap (GitHub App key → installation token → `gh-as-bot.sh`) | [`../../install-gh-bot.sh`](../../install-gh-bot.sh) |
 | Bot-identity contract (which writes use `$GH_BOT`; REST-canonical forms) | [`../../gh-bot.sh`](../../gh-bot.sh); config surface in [`docs/config-schema.md`](../../../../../docs/config-schema.md) (`tracker.bot.*`) |
-| Queue pickup + do-not-pick-up guard | [`build-lean/SKILL.md`](../../../skills/build-lean/SKILL.md) step 1 (queue-label confirm) and [`../../preflight.sh`](../../preflight.sh) (read-only queue head) |
+| Queue pickup + do-not-pick-up guard | [`build/SKILL.md`](../../../skills/build/SKILL.md) step 1 (queue-label confirm) and [`../../preflight.sh`](../../preflight.sh) (read-only queue head) |
 | Pre-claim predecessor ordering for `sub-issues-sequential` (trailer extraction + verdict; the two tracker reads are the caller's, the tool is pure logic) | [`../../predecessor-gate.sh`](../../predecessor-gate.sh) — selftest `../../predecessor-gate-selftest.sh`; caller is the intake surface (`intake-orchestrator`) |
-| PR creation + `Closes #<issue>` | [`build-lean/SKILL.md`](../../../skills/build-lean/SKILL.md) step 7 |
+| PR creation + `Closes #<issue>` | [`build/SKILL.md`](../../../skills/build/SKILL.md) step 7 |
 
 ## Config
 

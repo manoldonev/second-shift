@@ -237,7 +237,7 @@ if [[ "$CACHE_WRITE" -eq 1 && -z "$CACHE_DIR" ]]; then
   die "--cache-write requires --cache-dir"
 fi
 
-# ---- the lean lane's store (#563) ------------------------------------------------------
+# ---- the pipeline's store (#563) ------------------------------------------------------
 # The SECOND activation path, and the only one that is not argv. lean-gate.sh milestone 3 cannot
 # rewrite the `test` command it runs — that string lives in a consumer's config, gitignored here
 # — so it hands the store down the one channel it does own: an env assignment prepended to the
@@ -253,7 +253,7 @@ fi
 # --cache-write from the PR lane because there an untrusted branch would record into a store
 # other runs read; this store is machine-local and records the operator's own tree, the posture
 # tools/mutation-sweep.sh's cache already takes. And a store that is never written can never be
-# served from: the lean lane's whole case is the SECOND sweep of an unmoved head.
+# served from: the pipeline's whole case is the SECOND sweep of an unmoved head.
 CACHE_FROM_ENV=0
 if [[ -z "$CACHE_DIR" && -n "${LEAN_SELFTEST_CACHE_DIR:-}" ]]; then
   CACHE_DIR="$LEAN_SELFTEST_CACHE_DIR"

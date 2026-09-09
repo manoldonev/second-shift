@@ -51,11 +51,11 @@ be the first thing it forbids.
   neither writes the other's record.
 
 **P1/P2 posture:** stated in block form — receipts and outcome gates. The stage machinery is gone
-from the tree: #348 deleted the staged `run` lane, so the lean lane is the only lane. Rollback and
+from the tree: #348 deleted the staged `run` lane, so the pipeline is the only lane. Rollback and
 the ablation's staged arm are served by a marketplace pin of the last stage-carrying release, whose
 version literal is recorded in #348's `Migration:` trailer — and so in that release's changelog
 entry — rather than restated here, where it would rot. P10 is mechanically enforced rather than
-owed: the lean lane's verdict record is written by a
+owed: the pipeline's verdict record is written by a
 separate top-level review session carrying its own identity, and a record carrying the build run's
 identity — or naming the build session as its author — is refused both in-gate and at the merge
 boundary. The in-build reviewer is deleted, and with it the dispatch-failure fallback that let a
@@ -81,7 +81,7 @@ replaced: [`docs/testing.md`](testing.md) names which registers survive it and w
 ## The three velocity principles
 
 Operator-stated, from running the manual lane: it is slow, over-strict, and waits in vain. These
-bind **every** block of the lane — the scheduler, `build-lean`, `review-lean`, and the gates —
+bind **every** block of the lane — the scheduler, `/dev-pipeline:build`, `/dev-pipeline:review`, and the gates —
 retrospectively, not only new code. They sit beside P1–P10 rather than inside them: P4 is about
 what a run *spends*, and these are about what it *waits for*. Like the ten, they are a judgment
 aid and a review criterion, not a gate; a lint that policed their wording would be the first thing
@@ -219,27 +219,28 @@ Two partial controls remain, and neither is a substitute:
 The `check-frozen-files.sh` advisory row exists for exactly this state: it makes a workflow edit
 *visible* in the PR log without failing the run. It is fast feedback, never enforcement.
 
-### Rung-1 limitation, stated rather than papered over
+### Rung-1 limitation, kept after the rung was removed
 
-The chain-reconciliation check (`scripts/check-pipeline-chain.sh`) reads its `branchPrefix` and
-plan-path constants from `env:` entries on the `pr-gates` job, because the runtime config is
-gitignored and absent in CI. Nothing reconciles those constants against the real config — a stale
-`PIPELINE_BRANCH_PREFIX` matches zero branches and the check degrades to a silent no-op on every PR.
+Rung 1 was the chain-reconciliation check (`scripts/check-pipeline-chain.sh`). It read its
+`branchPrefix` and plan-path constants from `env:` entries on the `pr-gates` job, because the
+runtime config is gitignored and absent in CI, and nothing reconciled those constants against the
+real config — a stale `PIPELINE_BRANCH_PREFIX` matched zero branches and the check degraded to a
+silent no-op on every PR.
 
-With the freeze unavailable, **rung 1 is self-neutralizable**: those constants live in
-`.github/workflows/ci.yml`, the same agent-editable file the gate runs from, and no server-side
-control prevents a run from editing it. The one bound that does hold is visibility — the check echoes
-the resolved prefix on every not-applicable verdict, so a stale or emptied constant shows up in each
-PR's log rather than passing silently.
+With the freeze unavailable that made **rung 1 self-neutralizable**: those constants lived in
+`.github/workflows/ci.yml`, the same agent-editable file the gate ran from, and no server-side
+control prevents a run from editing it. The one bound that held was visibility — the check echoed
+the resolved prefix on every not-applicable verdict.
 
-Rung 1 is therefore **tamper-evidence, not proof**, and on this repo it is weaker than the design
-assumed: every record it reads — tracker comments, the PR body, the committed plan — is agent-written,
-and so is the gate's own configuration. Harness attestation is rung 2's job.
+#731 deleted the check: nothing had emitted the stage-marker trail it demanded since #348, so it
+was unsatisfiable while still live. The limitation stays recorded because the shape recurs — every
+record such a gate reads is agent-written, and so is its own configuration. Rung 1 was
+**tamper-evidence, not proof**. Harness attestation is rung 2's job.
 
-### The lean gate, which escapes the limitation outright
+### The milestone gate, which escapes the limitation outright
 
 `pr-gates` once carried a third constant, `LEAN_BRANCH_PREFIX`, naming a separate `lean/` branch
-namespace for the lean harness's merge-boundary gate (`scripts/check-lean-chain.sh`). It is retired:
+namespace for the pipeline's merge-boundary gate (`scripts/check-lean-chain.sh`). It is retired:
 both lanes now cut `<tracker.branchPrefix><key>` branches, so there is no lean namespace to name and
 that gate holds **no** branch-derived applicability input at all.
 
@@ -247,9 +248,9 @@ Applicability is the key-matched lean spec committed in the PR's own diff — an
 produced, read out of the diff being merged. There is no prefix to go stale and no constant to
 empty, so the self-neutralization mode above has nothing to act on here: a run wanting to escape
 this gate would have to remove its own spec from its own PR, which is the evidence the gate exists
-to demand. `check-pipeline-chain.sh` takes the mirror-image exclusion by calling the same
-classifier, so "no PR is applicable to both gates" holds by construction rather than by two
-constants staying consistent with each other.
+to demand. It is also the only chain gate left: the mirror-image exclusion that kept it and
+`check-pipeline-chain.sh` disjoint went with that script in #731, so a PR this classifier declines
+is now claimed by no chain gate rather than handed to the other one.
 
 The generalizable rule, and the reason this is worth recording next to the limitation it escapes: a
 CI constant is self-neutralizable when it is the **sole** applicability input. Replace it with an
@@ -257,7 +258,7 @@ artifact-derived trigger and there is no kill switch left to reach.
 
 ### What a new gate arm ships with
 
-Both merge-boundary gates are silent when every arm is satisfied and loud only where something
+The merge-boundary gate is silent when every arm is satisfied and loud only where something
 could not be evaluated. A new arm therefore ships with three things, not one, and none of them is
 optional:
 

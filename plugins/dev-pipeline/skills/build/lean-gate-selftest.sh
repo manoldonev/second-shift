@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# lean-gate-selftest.sh — behavioral suite for the build-lean milestone gates.
+# lean-gate-selftest.sh — behavioral suite for the /dev-pipeline:build milestone gates.
 #
 # Every case drives the REAL lean-gate.sh against a throwaway git tree and a synthetic config,
 # through the script's documented seams (LEAN_PROGRESS_FILE, SECOND_SHIFT_CONFIG, --pr-file,
@@ -10,7 +10,7 @@
 #        or diagnostic re-runs silently inflate the fix-budget counter.
 #   (c*) the D-19 hard stop — 3 attempts, the 4th red exits 4.
 #   (e*) AC-9's MUTUAL non-prefix-match. A one-directional reading passes with a derived
-#        prefix of `lean/`, which would make every pipeline PR applicable to the lean gate.
+#        prefix of `lean/`, which would make every pipeline PR applicable to the milestone gate.
 #   (g)  G-2 — `satisfied` is a RECORD, not a CACHE. `all` must re-evaluate a milestone that
 #        already has a satisfied line, or a green gate from before a fix round certifies code
 #        that never passed it.
@@ -42,7 +42,7 @@ unset LEAN_RUN_MODEL
 # finds an id the comment fixture's marker does not carry, and posts a marker instead of
 # skipping — with `gate()` having unset `GH_BOT`, which reds the case.
 #
-# The variable is exported by every real run: build-lean's checklist step 2 says to export it. So
+# The variable is exported by every real run: /dev-pipeline:build's checklist step 2 says to export it. So
 # the failure lands on an operator's own machine, inside milestone 3, on a case unrelated to
 # whatever is in flight — and passes standalone, which is the worst shape a false red can have.
 # Unset it once here rather than at each call site; every case that needs a value sets one.
@@ -1889,7 +1889,7 @@ else fail "(m3) expected 'run_id: selftest-run-306' from the cache, got: $out"; 
 
 # An EVALUATION may READ the build identity, never ESTABLISH one. With no cache on disk yet —
 # a run that never exported RUN_ID, a state dir cleaned after a retro — a REVIEW session doing
-# the natural thing (`bash G 4 <issue>` to check the record it just wrote, which review-lean
+# the natural thing (`bash G 4 <issue>` to check the record it just wrote, which /dev-pipeline:review
 # forbids nowhere) would otherwise CREATE the cache holding its own id. Milestone 4 compares
 # the record against that very file, so it would then refuse a valid, review-authored record
 # on every subsequent call, burning a fix attempt each time until the budget hard-stops.
@@ -1948,7 +1948,7 @@ rm -f "$RUN_ID_CACHE"
 
 # ---- (q) a REVIEW session checking the record it wrote must not red it ---------------------
 # Milestone 4 compared the verdict's run_id against $RESOLVED_RUN_ID — "whoever is running this
-# command" — which is a BUILD identity only when a build session is the caller. review-lean
+# command" — which is a BUILD identity only when a build session is the caller. /dev-pipeline:review
 # SKILL.md step 1 requires the review session to export its own RUN_ID, and nothing forbids it
 # from running `bash G 4 <issue>` to check the record it just wrote; that call resolved the
 # review id, matched the record by construction, and refused it. Under overwrite-caching the
@@ -1996,7 +1996,7 @@ mtime_of() { # mtime_of <file> -> epoch seconds, or "" when neither dialect reso
 seed_build_progress r-build-1 sess-build-1
 printf '# spec\n\n- AC-1: a thing\n' > "$SPEC"
 # Committed on its OWN, before the record is written. `commit_tree` stages everything, so
-# folding this into the verdict commit would put a code change inside it — a shape review-lean
+# folding this into the verdict commit would put a code change inside it — a shape /dev-pipeline:review
 # step 6 forbids ("commit nothing else in this session") and which both freshness arms refuse.
 commit_tree "spec settles before the review"
 write_review_verdict
@@ -2733,7 +2733,7 @@ else fail "(p6) review-cache='$(cat "$REVIEW_CACHE" 2>/dev/null)' build-cache-ex
 
 # ...and the record the REVIEW role just wrote is exactly what the BUILD role's milestone 4
 # accepts. Asserting the two halves compose is the point; each half passing alone is not.
-# The commit is the review session's own next step (review-lean step 6) and milestone 4 now
+# The commit is the review session's own next step (/dev-pipeline:review step 6) and milestone 4 now
 # requires it: an uncommitted record is invisible to everything downstream.
 commit_tree "review session commits its record"
 out="$(gate 4 7)"; rc=$?
@@ -3287,7 +3287,7 @@ if [ "$rc" -eq 6 ] && grep -q "BUILD run's identity" <<<"$out"; then
 else fail "(x3c) expected the P10 refusal on an inheriting round, got $rc: $out"; fi
 
 # (x4) SELF-INHERITANCE, the failure the "differs from this round's patch" clause exists for.
-# review-lean re-runs a round on its cached identity, and at that moment the newest committed
+# /dev-pipeline:review re-runs a round on its cached identity, and at that moment the newest committed
 # record IS this round's own. Without the clause the re-run would inherit itself, which every
 # reader then refuses as a loop — a correct round made permanently unmergeable by being checked.
 xseed_build
@@ -3596,7 +3596,7 @@ if [ "$rc" -eq 0 ] && grep -q 'inheriting 1 verified earlier round' <<<"$out"; t
   pass "(z4b) committed, the same record passes with its one link — so (z4) turned on the commit and nothing else"
 else fail "(z4b) expected a 1-link pass once committed, got rc=$rc: $out"; fi
 
-# (z5) A ROUND MAY NOT LINK TO ITS OWN EARLIER VERSION. review-lean permits re-running a round on
+# (z5) A ROUND MAY NOT LINK TO ITS OWN EARLIER VERSION. /dev-pipeline:review permits re-running a round on
 # its cached identity; if the branch moved in between, that round's own committed record differs
 # from the current tree on CONTENT and so passes the "differs" clause while being the same review.
 # The link it produces resolves for two readers — milestone 4 and the merge boundary each count a
@@ -4603,7 +4603,7 @@ else fail "(dpr3) rc=$rc attempts=$(dcount '| milestone-3 | attempt |') renders=
 
 # (dpr4) AC-3, the other side: `fix-and-go` PROCEEDS. It is a real value in the enum and not a
 # synonym for `block` — a reviewer that found something worth writing down and nothing worth
-# stopping for ships the list into the PR, where review-lean reads the committed record.
+# stopping for ships the list into the PR, where /dev-pipeline:review reads the committed record.
 dplanrev_sync "$DSYNCCFG" fix-and-go
 dclear_render
 dreset
@@ -5566,7 +5566,7 @@ if [ "$rc" -eq 0 ] && [ "$fp7_panel" = "$UPANEL" ]; then
   pass "(fp7) with no design.provider configured a panel that omits the mandatory reviewer writes — the mandate is provider-gated"
 else fail "(fp7) unarmed write rc=$rc panel='$fp7_panel' (expected 0 / $UPANEL): $out"; fi
 
-# ---- (fq) the EMPTY panel: review-lean 5c as a gate condition (#825) ------------------------
+# ---- (fq) the EMPTY panel: /dev-pipeline:review 5c as a gate condition (#825) ------------------------
 # 5c voids a round in which EVERY reviewer the round selected went dark: hand it back, post the
 # coverage gap, write NO record, spend no round. That was prose and `--panel` was a free string,
 # so a REVIEW session whose four reviewers all failed to resolve wrote `panel: none` beside
@@ -5641,7 +5641,7 @@ dverdict sess-review-p9 r-review-p9 --pr 55 --verdict approve --fidelity pass --
 dcommit "a green armed record, restored"
 
 # ---- (dpx) #711: the RENDERED MEASUREMENT ---------------------------------------------------
-# The gap this closes, in the ticket's own words: milestone 3 renders and hashes, review-lean 5b
+# The gap this closes, in the ticket's own words: milestone 3 renders and hashes, /dev-pipeline:review 5b
 # writes an evidence table the writer checks for SHAPE, and no gate read a NUMBER — so a screen
 # rendered at 2.2x the design's width passed every mechanical check (#692). The plan already
 # recorded the design side (#710); this block is the rendered side arriving.
@@ -6697,7 +6697,7 @@ if [ "$mfirst_session" = "sess-mark-1" ] && [ -z "$mfirst_nohdr" ] \
 else fail "(ms5) session rows entered the session_id: race — with-header '$mfirst_session', header-less '$mfirst_nohdr'"; fi
 
 # AC-4/D-3/D-5. A REVIEW session may READ an identity, never establish one. `bash G 4` is the
-# call review-lean makes against the build's progress file; if it recorded a session, that
+# call /dev-pipeline:review makes against the build's progress file; if it recorded a session, that
 # session could then whitelist itself and mark — the silent-inheritance failure the role-keyed
 # run-id split already exists to prevent. Paired: the milestone call first, then the mark.
 : > "$BOT_SPOOL"
@@ -7182,7 +7182,7 @@ if wt_registered "$p"; then
 else fail "(wt8) 'all' destroyed a worktree, rc=$rc: $out"; fi
 
 # --- (wt20)-(wt22) #530: a SECOND worktree on the same branch is a SANCTIONED state, not a -------
-# violated expectation — review-lean cuts its own checkout of the PR head, and the build worktree
+# violated expectation — /dev-pipeline:review cuts its own checkout of the PR head, and the build worktree
 # is not guaranteed to still be there. `lean_worktree_for_branch`'s first-match return orphaned
 # whichever one it did not see; these pin that both are now accounted for.
 # Issue numbers 120-122, not 26-28: the entry-sweep qualification block below already owns
@@ -7509,14 +7509,14 @@ if [ "$claim_kept" -eq 1 ] && ! wt_registered "$p32"; then
 else fail "(wt18) claim_kept=$claim_kept, still registered after entry=$(wt_registered "$p32" && echo yes || echo no): $out / $out2"; fi
 
 # The main-checkout guard inside the removal itself, which the sweep's own skip hides. An
-# operator who checked the lean branch out in the main checkout and ran teardown must be told,
+# operator who checked the lane branch out in the main checkout and ran teardown must be told,
 # not have git's "is a main working tree" error surface as an unexplained failure.
 git -C "$WTREE" checkout -q -b claude/acme-33
 git -C "$WTREE" update-ref refs/remotes/origin/claude/acme-33 "$(git -C "$WTREE" rev-parse HEAD)"
 out="$(wgate "$WTREE" teardown 33)"; rc=$?
 git -C "$WTREE" checkout -q main
 if [ "$rc" -eq 0 ] && wt_registered "$WTREE" && grep -qF 'it is the main checkout' <<<"$out"; then
-  pass "(wt19) teardown refuses the main checkout by name, even when the lean branch is checked out there"
+  pass "(wt19) teardown refuses the main checkout by name, even when the lane branch is checked out there"
 else fail "(wt19) expected a named refusal on the main checkout, rc=$rc: $out"; fi
 
 
@@ -8181,7 +8181,7 @@ else fail "(if2) expected one 'concluded | rc=1' and no rc=0, got rc=$rc: $(grep
 
 # THE SOUNDNESS CASE, and the reason the conclusion is its own verb rather than the `satisfied`
 # line closing the `started` one. append_satisfied is idempotent by construction, and CLAUDE.md
-# mandates a `bash G all` before build-lean's close-out step — so under the issue's own sketch
+# mandates a `bash G all` before /dev-pipeline:build's close-out step — so under the issue's own sketch
 # every honest run would end its record with a phantom unclosed row. Three passing evaluations of
 # one milestone: three started, three concluded, still exactly one satisfied.
 reset_progress

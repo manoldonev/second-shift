@@ -40,9 +40,9 @@ fail() { echo "[stack-generality] ✗ $1" >&2; violations=$((violations + 1)); }
 # they take the slot — the leg guards "the dev-pipeline's own contract prose carries no
 # birth-stack doc root", and that claim is about whichever files hold the contract.
 PROJECT_FILEWIDE=(
-  "plugins/dev-pipeline/skills/build-lean/SKILL.md"
-  "plugins/dev-pipeline/skills/review-lean/SKILL.md"
-  "plugins/dev-pipeline/skills/run-lean/SKILL.md"
+  "plugins/dev-pipeline/skills/build/SKILL.md"
+  "plugins/dev-pipeline/skills/review/SKILL.md"
+  "plugins/dev-pipeline/skills/run/SKILL.md"
 )
 for f in "${PROJECT_FILEWIDE[@]}"; do
   if [[ ! -f "$ROOT/$f" ]]; then

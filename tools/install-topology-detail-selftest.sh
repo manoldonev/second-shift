@@ -19,7 +19,7 @@
 # constraint holds under event triggers, so the fix still matters.
 #
 # WHY NO SCENARIO COVERS IT (CLAUDE.md scenario-first rule): scenario-liveness-selftest.sh
-# composes verdict paths through the lean gate to a terminal WRITE. This path is inside a
+# composes verdict paths through the milestone gate to a terminal WRITE. This path is inside a
 # selftest harness that runs outside any pipeline run, writes nothing, and is reached only
 # when another suite has already exited non-zero. There is no verdict path to compose it onto.
 #

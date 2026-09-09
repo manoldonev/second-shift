@@ -215,7 +215,7 @@ the blocker column for all four, with the dark surface concentrated in the same 
 window adds is that the reviewing session already re-derives these dimensions under the Sub-Agent
 Trust Model, so the dispatch was being paid twice rather than being the only thing covering them.
 
-That premise holds by construction on the lean lane — `review-lean` reviews from a session that did
+That premise holds by construction on the pipeline — `/dev-pipeline:review` reviews from a session that did
 not author the change — and it does not hold on `pr-revision`, which runs review-lead in dispatch
 mode from the session that wrote the fix, making the four author self-review there. Accepted, not
 fixed: that review is advisory and non-blocking by its own contract, and the four's blocker yield

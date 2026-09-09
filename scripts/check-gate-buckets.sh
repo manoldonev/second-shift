@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-gate-buckets.sh — every refusal site in the lean lane declares its yield bucket, and an
+# check-gate-buckets.sh — every refusal site in the pipeline declares its yield bucket, and an
 # unclassified one reds (#636, item 2 of the #605 epic).
 #
 # WHY THIS EXISTS: docs/pipeline-manifesto.md defines the buckets in prose — a `gates-llm` gate
@@ -104,9 +104,9 @@ OVERRIDE_REL="plugins/dev-pipeline/tools/operator-override.sh"
 envfail() { echo "[gate-buckets] $1" >&2; exit 2; }
 
 # The corpus: `<repo-relative path>:<space-separated refusal primitives>`, one per line.
-CORPUS='plugins/dev-pipeline/skills/build-lean/lean-gate.sh:fail_milestone block_milestone fail_obligation block_obligation ticket_refuse envfail
-plugins/dev-pipeline/skills/build-lean/lean-evidence.sh:note_violation envfail
-plugins/dev-pipeline/skills/run-lean/orchestrate-lean.sh:terminal envfail
+CORPUS='plugins/dev-pipeline/skills/build/lean-gate.sh:fail_milestone block_milestone fail_obligation block_obligation ticket_refuse envfail
+plugins/dev-pipeline/skills/build/lean-evidence.sh:note_violation envfail
+plugins/dev-pipeline/skills/run/orchestrate-lean.sh:terminal envfail
 plugins/dev-pipeline/tools/operator-override.sh:envfail
 scripts/check-lean-chain.sh:note_violation fail envfail'
 

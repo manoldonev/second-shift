@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scenario-liveness-selftest.sh — composed-path liveness for the lean lane's declared verdicts.
+# scenario-liveness-selftest.sh — composed-path liveness for the pipeline's declared verdicts.
 #
 # NOT per-tool fixture accretion. Every other selftest in this tree verifies one
 # component's own contract; this one asserts that a COMPOSED path still reaches its
@@ -9,19 +9,19 @@
 #
 # Scenarios:
 #
-#   lean legs     the build-lean progress-file line chain and gate exit codes across the
+#   lean legs     the /dev-pipeline:build progress-file line chain and gate exit codes across the
 #                 three verdict paths: the fix budget of 3, the 4th-red hard stop, the
 #                 abort record, counters surviving re-entry, and the session-executed claim
 #   lean-closeout a close-out that discharged only ONE of milestone 5's two obligations,
 #                 continued once by the scheduler through to the terminal write (#531). The
 #                 acceptance evidence for #525: the falsifiable form of "a run completes".
-#   lean-reentry  the LEAN lane's scheduler, composed: preflight's re-entry admission
+#   lean-reentry  the pipeline's scheduler, composed: preflight's re-entry admission
 #                 (claimed label + a bot-authored claim marker) driven through the real
 #                 orchestrate-lean.sh and the real lean-gate.sh in a real worktree, to the
 #                 close-out's milestone-5 record — the terminal write the scheduler's own
 #                 close-out check reads back
-#   lane routing  exactly one merge-boundary gate claims any given PR (#413) — a property of
-#                 the PAIR of chain gates, invisible to either gate's own suite
+#   lane routing  which PRs the surviving merge-boundary gate claims (#413), composed through
+#                 check-lean-chain.sh rather than driven at the classifier directly
 #
 # Scope boundary: scenarios exercise the MECHANICAL chain. Agent-prose gates (the
 # scope reviewer, review-lead synthesis) appear only as their mechanical shadows —
@@ -37,7 +37,7 @@
 #   - Design mode. The mode is contractually interactive/MCP-backed and headless
 #     fail-closes by design. (The engine-enum drift guard died with the design-sync
 #     engine and its selftest, #574; milestone 3's render lane is the design gate.)
-#   - A REAL `claude -p` session re-entering a run the lean lane stopped itself.
+#   - A REAL `claude -p` session re-entering a run the pipeline stopped itself.
 #     The (lean-reentry) leg below composes the scheduler with the real gate over
 #     a SCRIPTED session binary, which is its stated ceiling — CI is model-free by
 #     design, and orchestrate-lean-selftest.sh:11-16 records the same boundary for
@@ -97,7 +97,7 @@ trap 'rm -rf "$TMP"' EXIT INT TERM
 cd "$TMP" || exit 99
 
 # ─────────────────────────────────────────────────────────────────────────────
-# LEAN LEGS (build-lean) — the composed progress-file line chain and gate exit codes
+# LEAN LEGS (/dev-pipeline:build) — the composed progress-file line chain and gate exit codes
 # across the three verdict paths.
 #
 # These are the assertion site for the failure economics the issue pins in PROSE but
@@ -110,13 +110,13 @@ cd "$TMP" || exit 99
 # is checked (the label swap itself is claim-issue.sh's contract, proven by claim-selftest.sh).
 # ─────────────────────────────────────────────────────────────────────────────
 echo
-echo "── lean legs (build-lean)"
+echo "── lean legs (/dev-pipeline:build)"
 
 # $HERE, not BASH_SOURCE: this suite cd's to $TMP above, so BASH_SOURCE is relative by the
 # time we get here and would resolve against the temp dir. $HERE was captured absolutely
 # before that cd for exactly this reason.
 #
-# Absence is a FAILURE, not a skip. build-lean ships in this repo, so a missing gate means the
+# Absence is a FAILURE, not a skip. /dev-pipeline:build ships in this repo, so a missing gate means the
 # legs below never ran — and a skipped leg reporting PASS is the vacuous green this whole
 # suite exists to prevent. (It bit these very legs once: a bad path resolved to a skip and
 # the suite reported 32/32 having asserted nothing about lean.)
@@ -194,7 +194,7 @@ LEANGH
   LEAN_SPEC="$LEAN_TREE/docs/plans/acme-77-lean.md"
   LEAN_VERDICT="$LEAN_TREE/docs/plans/acme-77-lean-verdict.md"
 
-  # The verdict record is REVIEW-authored throughout these legs. build-lean's session
+  # The verdict record is REVIEW-authored throughout these legs. /dev-pipeline:build's session
   # cannot produce it, so a leg composing a build-authored record would compose a state no
   # real run can reach — and the chain would prove nothing about the run it claims to model.
   # The build identities are seeded explicitly rather than left to the gate's stamping, so
@@ -278,7 +278,7 @@ LEANGH
   printf '## AC scorecard\n\n| AC-n | score | evidence |\n| --- | --- | --- |\n| AC-1 | satisfied | scenario fixture |\n' > "$LEAN_SCORECARD"
   # The spec is committed on its OWN, before the review reads it. `lean_commit` stages
   # everything, so folding it into the verdict commit would put a code change inside the record's
-  # commit — a shape review-lean step 6 forbids and both freshness arms refuse. What is left is
+  # commit — a shape /dev-pipeline:review step 6 forbids and both freshness arms refuse. What is left is
   # the state a real branch is in the moment the review session has pushed: the record's commit
   # is the head, and the head it names is the commit right below it.
   lean_commit "build session pushes the spec"
@@ -1008,7 +1008,7 @@ LEANCFGJ
   printf '{"tool":"Bash"}\n' > "$LEAN_TREE/.claude/audit/sess-lean-jira-build.jsonl"
   printf '# spec\n\n- AC-1: a thing\n' > "$LEAN_TREE/docs/plans/acme-$LEAN_JKEY-lean.md"
   # The spec commits FIRST and on its own. `lean_commit` stages everything, so one combined
-  # commit would put a code change inside the verdict's commit — a shape review-lean step 6
+  # commit would put a code change inside the verdict's commit — a shape /dev-pipeline:review step 6
   # forbids, and one both freshness arms refuse.
   lean_commit "jira leg: build session pushes the spec"
   # P10 applies to the jira arm unchanged — the adapter moves the tracker WRITE, never the
@@ -1593,7 +1593,7 @@ LEANDC
 
   # (a) THE WRITER. A dark mandatory reviewer reaches the review session as a panel WITHOUT it —
   # code-review.mjs excludes a reviewer it got no result from — so the two shapes that matter
-  # are the flag omitted and a panel naming only the reviewers that did return. review-lean 5c
+  # are the flag omitted and a panel naming only the reviewers that did return. /dev-pipeline:review 5c
   # hands such a round back; this is the assertion that it cannot instead be quietly downgraded
   # into a record. The committed record must be byte-untouched by either attempt.
   lean_dseed
@@ -1748,7 +1748,7 @@ LEANDC
   # resolves the claim against (proved generically by lean-evidence-selftest.sh's (ov6)-(ov9),
   # which check-lean-chain.sh delegates to in full).
   rm -f "$LEAN_DOVERDICT"
-  # (c0) FIRST, and on this lane on purpose (#825). review-lean 5c voids a round whose whole panel
+  # (c0) FIRST, and on this lane on purpose (#825). /dev-pipeline:review 5c voids a round whose whole panel
   # went dark; the armed arm proved in (lean-design-panel) never fires here, because this ticket's
   # provider is DISARMED — so this is the composed path for the shape that shipped the defect: a
   # lane with no reviewer available at all, reaching the real writer with `panel: none` and an
@@ -1786,9 +1786,9 @@ LEANDC
   # A re-entry admission is recorded in NO artifact — #510 kept the predicate read-only so the
   # scheduler's "writes nothing" premise stays true — so the leg keys on the scheduler's own
   # `ok intake: re-entry` line and the marker's run id alongside rc and the milestone-5 row.
-  RE_ORCH="$HERE/../run-lean/orchestrate-lean.sh"
+  RE_ORCH="$HERE/../run/orchestrate-lean.sh"
   if [[ ! -f "$RE_ORCH" ]]; then
-    # Absence is a FAILURE, the same posture the lean legs above take: run-lean SHIPS in this
+    # Absence is a FAILURE, the same posture the lean legs above take: /dev-pipeline:run SHIPS in this
     # plugin, so a missing scheduler means this leg never ran — and a skipped leg reporting PASS
     # is the vacuous green this suite exists to prevent.
     fail "(lean-reentry) orchestrate-lean.sh not found at $RE_ORCH — the scheduler leg did not run"
@@ -1937,7 +1937,7 @@ REGH
     chmod +x "$RE_GH"
 
     # The session fake. It dispatches on the PROMPT in ARGV plus a spawn counter — the close-out
-    # is a SECOND build-lean spawn — and it advances the run ONLY by calling the REAL gate.
+    # is a SECOND /dev-pipeline:build spawn — and it advances the run ONLY by calling the REAL gate.
     # Hand-written progress rows are the mirror-harness failure CLAUDE.md forbids: a copy cannot
     # fail on a production edit, so the leg would stay green after the gate's writer and the
     # scheduler's reader drifted apart, which is precisely the drift a composed leg exists for.
@@ -1966,7 +1966,7 @@ for a in "$@"; do [ "$pv" = "--settings" ] && sf="$a"; pv="$a"; done
 cat "$sf" 2>/dev/null > "$RE_DIR/settings-$n.json"
 g() { ( unset LEAN_GATE_ANY_TREE; cd "$RE_WT" && bash "$RE_GATE" "$@" ) >> "$RE_DIR/session.log" 2>&1; }
 case "$*" in
-  *review-lean*)
+  *dev-pipeline:review*)
     # A DISTINCT identity on BOTH axes, or milestone 4 refuses the record on authorship (P10)
     # before freshness is ever reached. The record comes from the REAL `verdict` subcommand: the
     # patch id it stamps is the thing milestone 4 recomputes, so a hand-written one would compose
@@ -1977,18 +1977,18 @@ case "$*" in
     g verdict "$RE_KEY" --pr "$RE_PR_NUM" --verdict approve --panel review-toolkit:security-reviewer --summary-file "$RE_DIR/scorecard.md" || exit 1
     git -C "$RE_WT" add -A >/dev/null 2>&1
     git -C "$RE_WT" commit -q -m "review session commits its verdict record" >/dev/null 2>&1 || exit 1
-    # #531: the PUSH, which every commit in these legs now carries. review-lean step 6 pushes the
+    # #531: the PUSH, which every commit in these legs now carries. /dev-pipeline:review step 6 pushes the
     # record — the merge boundary reads it off the PR — and the scheduler's in-flight check reads
     # exactly that. A fixture that committed without pushing would be modelling the DEFECT.
     git -C "$RE_WT" push -q origin "HEAD:refs/heads/$RE_BRANCH" >/dev/null 2>&1 || exit 1
     ;;
-  *build-lean*)
+  *dev-pipeline:build*)
     # SKILL.md step 2 is SKIPPED, which is the whole shape of a re-entry: the marker is posted
     # and the labels are swapped already. The run's ESTABLISHED id is exported rather than
     # minted, so `entry` seeds the cache with the id the marker on the ticket carries.
     #
     # ONE build spawn, and no close-out spawn — #590 made the close-out a gate call the scheduler
-    # invokes itself. A second build-lean spawn reaching here means the scheduler took the no-PR
+    # invokes itself. A second /dev-pipeline:build spawn reaching here means the scheduler took the no-PR
     # continuation path, which this leg's fixtures do not produce.
     export CLAUDE_CODE_SESSION_ID=sess-lean-re-build RUN_ID="$RE_RUN"
     printf '{"tool":"Bash"}\n' > "$RE_LEDGER_DIR/sess-lean-re-build.jsonl"
@@ -2232,7 +2232,7 @@ echo "$n" > "$CO_DIR/spawns"
 echo "spawn $n: $*" >> "$CO_DIR/session.log"
 g() { ( unset LEAN_GATE_ANY_TREE; cd "$CO_WT" && bash "$CO_GATE" "$@" ) >> "$CO_DIR/session.log" 2>&1; }
 case "$*" in
-  *review-lean*)
+  *dev-pipeline:review*)
     export CLAUDE_CODE_SESSION_ID=sess-lean-co-review RUN_ID=r-lean-co-review
     printf '## AC scorecard\n\n| AC-n | score | evidence |\n| --- | --- | --- |\n| AC-1 | satisfied | composed close-out |\n' \
       > "$CO_DIR/scorecard.md"
@@ -2241,8 +2241,8 @@ case "$*" in
     git -C "$CO_WT" commit -q -m "review session commits its verdict record" >/dev/null 2>&1 || exit 1
     git -C "$CO_WT" push -q origin "HEAD:refs/heads/$CO_BRANCH" >/dev/null 2>&1 || exit 1
     ;;
-  *build-lean*)
-    # ONE build spawn now, and no close-out spawn at all — #590 deleted it. A second build-lean
+  *dev-pipeline:build*)
+    # ONE build spawn now, and no close-out spawn at all — #590 deleted it. A second /dev-pipeline:build
     # spawn reaching here means the scheduler took the no-PR continuation path, which this leg's
     # fixtures do not produce; it would show up as a spawn count of 3.
     export CLAUDE_CODE_SESSION_ID=sess-lean-co-build RUN_ID="$CO_RUN"
@@ -2544,34 +2544,35 @@ COSESS
 
 fi
 
-# LANE ROUTING (#413) — exactly one merge-boundary gate claims any given PR
-# WHY THIS IS A SCENARIO AND NOT TWO FIXTURE CASES. Both lanes now cut branches under
-# `<tracker.branchPrefix><key>`, so the branch name no longer separates them; what does is that
-# BOTH gates ask lean-evidence.sh's classify() which lane owns a PR. That is a property of the
-# PAIR. Each gate's own suite drives it in isolation and cannot see the two failure modes that
-# matter — a PR claimed by BOTH (double-gated, and the lean one then reds on a stage trail its
-# lane never emits) and a PR claimed by NEITHER (the vacuous green the whole boundary exists to
-# prevent). Composing them over ONE tree and ONE branch shape is the only way to assert
-# "exactly one".
+# LANE ROUTING (#413) — which PRs the merge-boundary gate claims
+# WHY THIS IS A SCENARIO AND NOT A FIXTURE CASE. This leg used to assert "exactly one of the two
+# chain gates claims any PR". #731 deleted the second gate, check-pipeline-chain.sh, so that
+# relation is vacuous: there is no pair left to be disjoint from. What survives, and is still
+# invisible to check-lean-chain.sh's own suite, is that the boundary's applicability is settled
+# by the classifier over the PR's own DIFF — not by the branch name, which every lane shares
+# since #413. So the legs below hold ONE tree and ONE branch shape fixed and move only the diff,
+# asserting the claim directly through the real gate rather than at classify() in isolation.
+#
+# The declines are now recorded as UNCLAIMED, not as "the other gate has it": after #731 a PR
+# this classifier declines is gated by no chain gate at all.
 echo
-echo "── lane routing (both merge-boundary gates over one PR)"
+echo "── lane routing (the merge-boundary gate over one PR)"
 
 LR_ROOT="$HERE/../../../.."
 LR_LEAN="$LR_ROOT/scripts/check-lean-chain.sh"
-LR_PIPE="$LR_ROOT/scripts/check-pipeline-chain.sh"
 LR_EV="$HERE/lean-evidence.sh"
-# BOTH chain gates live in the marketplace repo's `scripts/`, and both are second-shift-only by
-# construction — their own headers say not to ship them to a consumer. So when this suite runs
+# The chain gate lives in the marketplace repo's `scripts/` and is second-shift-only by
+# construction — its own header says not to ship it to a consumer. So when this suite runs
 # from a STAGED INSTALL CACHE (tools/install-topology-selftest.sh re-runs every shipped suite
-# there), they are correctly absent and these legs have nothing to compose. Skipping is right
+# there), it is correctly absent and these legs have nothing to compose. Skipping is right
 # there and WRONG here, so the two cases are told apart by the marketplace manifest, which only
-# the repo root carries: absent gates inside the repo stay a hard failure.
-if [[ ! -f "$LR_LEAN" || ! -f "$LR_PIPE" || ! -f "$LR_EV" ]] \
+# the repo root carries: an absent gate inside the repo stays a hard failure.
+if [[ ! -f "$LR_LEAN" || ! -f "$LR_EV" ]] \
    && [[ ! -f "$LR_ROOT/.claude-plugin/marketplace.json" ]]; then
-  echo "  skip: lane routing — the chain gates are marketplace-repo-only and this tree is an installed plugin cache"
-elif [[ ! -f "$LR_LEAN" || ! -f "$LR_PIPE" || ! -f "$LR_EV" ]]; then
+  echo "  skip: lane routing — the chain gate is marketplace-repo-only and this tree is an installed plugin cache"
+elif [[ ! -f "$LR_LEAN" || ! -f "$LR_EV" ]]; then
   # In the repo, absence is a FAILURE, not a skip — the same posture the lean legs above take.
-  fail "(lr) a chain gate or the classifier is missing — lane routing did not run (lean=$LR_LEAN pipe=$LR_PIPE ev=$LR_EV)"
+  fail "(lr) the chain gate or the classifier is missing — lane routing did not run (lean=$LR_LEAN ev=$LR_EV)"
 else
   LR_TREE="$TMP/lr-tree"
   mkdir -p "$LR_TREE/docs/plans"
@@ -2604,19 +2605,9 @@ else
       PR_BASE_REF=main PR_BODY="$LR_BODY" PR_CREATED_AT="$LR_OPEN" \
       LEAN_EVIDENCE="$LR_EV" bash "$LR_LEAN" --comments-file "$LR_EMPTY" \
       --diff-files-file "$1" 2>&1 )"
-    # Since #443 the lean gate's decline is its class-(b) line — the only thing it writes on a
+    # Since #443 the milestone gate's decline is its class-(b) line — the only thing it writes on a
     # green run — so the token is `lean-chain: not-applicable`, not the retired prose sentence.
     if grep -q 'lean-chain: not-applicable' <<<"$out"; then echo declined; else echo applicable; fi
-  }
-  lr_pipe() { # lr_pipe <diff-file> -> applicable|declined
-    local out
-    out="$( cd "$LR_TREE" && PIPELINE_BRANCH_PREFIX="$LR_PREFIX" \
-      PIPELINE_PLAN_PATTERN="docs/plans/acme-{issueKey}.md" \
-      PR_HEAD_REF="${LR_PREFIX}77" PR_HEAD_SHA="$LR_SHA" \
-      PR_BASE_REF=main PR_BODY="$LR_BODY" PR_CREATED_AT="$LR_OPEN" \
-      LEAN_EVIDENCE="$LR_EV" bash "$LR_PIPE" --comments-file "$LR_EMPTY" \
-      --diff-files-file "$1" 2>&1 )"
-    if grep -q 'chain check not applicable' <<<"$out"; then echo declined; else echo applicable; fi
   }
   # The same composition, output verbatim, for the cutoff leg below — which reads WHICH lines the
   # boundary wrote rather than only whether it claimed the PR.
@@ -2646,31 +2637,36 @@ EOF
    "body": "<!-- dev-pipeline -->\n<!-- run_id: r-lr-build -->\n<!-- session_id: sess-lr-build -->\n<!-- stage: lean-claimed -->" }]
 EOF
 
-  # (lr1) A LEAN PR: the same namespace a staged one uses, distinguished only by its spec.
+  # (lr1) A PIPELINE PR: the key-matched spec is in the diff, so the gate claims it. The branch
+  # name is held identical across all three legs, which is what makes the diff the whole claim.
   LR_DIFF_LEAN="$TMP/lr-diff-lean.txt"
   printf 'src/thing.ts\ndocs/plans/acme-77-lean.md\n' > "$LR_DIFF_LEAN"
-  lr_a="$(lr_lean "$LR_DIFF_LEAN")"; lr_b="$(lr_pipe "$LR_DIFF_LEAN")"
-  [[ "$lr_a" == "applicable" && "$lr_b" == "declined" ]] \
-    && pass "(lr1) a lean PR on the shared namespace routes to the LEAN gate only" \
-    || fail "(lr1) lean PR routing — lean=$lr_a pipeline=$lr_b"
+  lr_a="$(lr_lean "$LR_DIFF_LEAN")"
+  [[ "$lr_a" == "applicable" ]] \
+    && pass "(lr1) a pipeline PR on the shared namespace is claimed by the merge-boundary gate" \
+    || fail "(lr1) pipeline PR routing — lean=$lr_a (want applicable)"
 
-  # (lr2) A STAGED PR on the SAME branch shape. The only thing that moved is the diff, which is
-  # the entire claim: the discriminator is the artifact, not the name.
+  # (lr2) The SAME branch shape carrying a plan file WITHOUT the spec suffix. Only the diff moved,
+  # and the gate declines: the discriminator is the artifact, not the name. Before #731 this PR
+  # was the staged gate's; it is now claimed by nothing, which is the accepted consequence of
+  # deleting a gate whose stage trail nothing had emitted since #348.
   LR_DIFF_STAGED="$TMP/lr-diff-staged.txt"
   printf 'src/thing.ts\ndocs/plans/acme-77.md\n' > "$LR_DIFF_STAGED"
-  lr_a="$(lr_lean "$LR_DIFF_STAGED")"; lr_b="$(lr_pipe "$LR_DIFF_STAGED")"
-  [[ "$lr_a" == "declined" && "$lr_b" == "applicable" ]] \
-    && pass "(lr2) a staged PR on the SAME branch shape routes to the PIPELINE gate only" \
-    || fail "(lr2) staged PR routing — lean=$lr_a pipeline=$lr_b"
+  lr_a="$(lr_lean "$LR_DIFF_STAGED")"
+  [[ "$lr_a" == "declined" ]] \
+    && pass "(lr2) a PR carrying no key-matched spec on the SAME branch shape is unclaimed" \
+    || fail "(lr2) unclaimed-PR routing — lean=$lr_a (want declined)"
 
-  # (lr3) The cross-key case, where a suffix-only artifact test would lose BOTH gates: a staged
-  # PR that merely edits some other ticket's lean spec must stay with the pipeline gate.
+  # (lr3) The cross-key case. A suffix-only artifact test would claim this PR; the gate must not,
+  # because the spec in the diff belongs to ANOTHER ticket. Non-vacuity for (lr2): the two legs
+  # differ only in whether the `-lean.md` suffix is present, so a classifier that keyed on the
+  # suffix alone would split them.
   LR_DIFF_OTHER="$TMP/lr-diff-other.txt"
   printf 'src/thing.ts\ndocs/plans/acme-99-lean.md\n' > "$LR_DIFF_OTHER"
-  lr_a="$(lr_lean "$LR_DIFF_OTHER")"; lr_b="$(lr_pipe "$LR_DIFF_OTHER")"
-  [[ "$lr_a" == "declined" && "$lr_b" == "applicable" ]] \
-    && pass "(lr3) a PR carrying ANOTHER ticket's lean spec is not orphaned — the pipeline gate keeps it" \
-    || fail "(lr3) cross-key routing — lean=$lr_a pipeline=$lr_b"
+  lr_a="$(lr_lean "$LR_DIFF_OTHER")"
+  [[ "$lr_a" == "declined" ]] \
+    && pass "(lr3) a PR carrying ANOTHER ticket's spec is not claimed on that spec's account" \
+    || fail "(lr3) cross-key routing — lean=$lr_a (want declined)"
 
   # (lr4) #444: the PAYLOAD's arm cutoff, composed through the delegating boundary. The other
   # new verdict path this ticket adds — its sibling, the entry precondition's de-block, composes

@@ -26,11 +26,11 @@ fi
 
 # (3) a tree where the branch-prefix reader is stripped must fail (base/prefix
 # generalization regression tripwire — issue #8). Since #348 the namespace is owned by
-# build-lean/branch-prefix.sh.
+# build/branch-prefix.sh.
 TMP2="$(mktemp -d)"; trap 'rm -rf "$TMP" "$TMP2"' EXIT
 cp -R "$DP/." "$TMP2/"
-grep -v "tracker.branchPrefix" "$TMP2/skills/build-lean/branch-prefix.sh" > "$TMP2/bp.tmp"
-mv "$TMP2/bp.tmp" "$TMP2/skills/build-lean/branch-prefix.sh"
+grep -v "tracker.branchPrefix" "$TMP2/skills/build/branch-prefix.sh" > "$TMP2/bp.tmp"
+mv "$TMP2/bp.tmp" "$TMP2/skills/build/branch-prefix.sh"
 if bash "$CHECK" "$TMP2" >"$TMP/shadow2.out" 2>&1; then
   bad "stripped branchPrefix reader should FAIL but passed"
 else

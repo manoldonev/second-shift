@@ -25,7 +25,7 @@
 # backlog signal pipeline-retro's existing unattended branch reports — open lean-prefixed
 # PRs whose linked issue has no comment yet referencing the verdict-record path. It reuses
 # milestone 5's own predicate (`lean-gate.sh cmd_5`'s closing-comment check), swept across
-# every open lean PR instead of one issue, so it needs no branch checkout.
+# every open pipeline PR instead of one issue, so it needs no branch checkout.
 #
 # `timing` mode is #565's piece: a per-run timing profile derived from the SAME artifact-schema
 # records `corpus` selects, with no new record, no new key and no new write on any lane. The
@@ -111,8 +111,8 @@ REPO_SLUG="$(cfg "$HOST_Q" 'acme')"
 # retired `'claude/acme-'` default is not restored as a local fallback — a placeholder namespace
 # silently matches nothing here, which reads as "no open lean work" rather than as a
 # misconfiguration.
-# shellcheck source=../skills/build-lean/branch-prefix.sh
-. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../skills/build-lean" && pwd)/branch-prefix.sh"
+# shellcheck source=../skills/build/branch-prefix.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../skills/build" && pwd)/branch-prefix.sh"
 BRANCH_PREFIX=""
 if [ "$SUB" = "open-prs" ]; then
   BRANCH_PREFIX="$(resolve_branch_prefix \
@@ -203,7 +203,7 @@ cmd_corpus() {
   # both behavioral guards.
   #
   # era: "artifact" rows pass through untouched. An artifact stem is `{issue}-lean-progress`
-  # and can never equal its ticketKey, so a cross-era key would DELETE the lean row whenever a
+  # and can never equal its ticketKey, so a cross-era key would DELETE the pipeline row whenever a
   # stage-era live file existed for the same ticket — discarding a genuinely distinct run's
   # cost, against perf-retro's own "an abort is a real cost" doctrine.
   #
@@ -433,14 +433,14 @@ cmd_timing() {
 }
 
 # ============================================================== open-prs mode
-# THE LEAN DISCRIMINATOR IS THE ARTIFACT, NOT THE NAMESPACE (#413). Both lanes now cut
-# `<branchPrefix><key>` branches, so the prefix that used to select lean PRs here selects
+# THE PIPELINE DISCRIMINATOR IS THE ARTIFACT, NOT THE NAMESPACE (#413). Both lanes now cut
+# `<branchPrefix><key>` branches, so the prefix that used to select pipeline PRs here selects
 # STAGED ones too — and a staged PR has no lean verdict record by construction, so a
 # namespace-only filter would report every one of them as "verdict-less" work the harness
 # abandoned. The prefix survives only as the KEY derivation; what makes a candidate lean is a
 # non-fixture `*-<key>-lean.md` in the PR's OWN file list.
 #
-# The PR's file list, and not the local checkout: an OPEN lean PR's spec is committed on its
+# The PR's file list, and not the local checkout: an OPEN pipeline PR's spec is committed on its
 # branch and is not on the base, so a working-tree test would reject every candidate this mode
 # exists to find. It rides along on the same `gh pr list` call.
 cmd_open_prs() {
@@ -459,7 +459,7 @@ cmd_open_prs() {
   # A row with no `files` key cannot be classified, and classifying it by namespace alone is
   # the exact conflation above. An unsupplied field is an environment error, never a skip.
   printf '%s' "$prs" | jq -e 'all(has("files"))' >/dev/null 2>&1 \
-    || { echo "retro-corpus.sh: open-pr list rows carry no 'files' — the lean discriminator reads the PR's changed files (gh pr list --json ...,files)." >&2; exit 2; }
+    || { echo "retro-corpus.sh: open-pr list rows carry no 'files' — the pipeline discriminator reads the PR's changed files (gh pr list --json ...,files)." >&2; exit 2; }
 
   n="$(jq 'length' <<<"$prs")"
   local i=0

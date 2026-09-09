@@ -115,7 +115,7 @@ falsifies. Recorded because the cheaper probe is the one a later reader would re
 
 Identical to §C, so the scores are readable beside arm 2b's:
 
-- **Subject:** `plugins/dev-pipeline/skills/review-lean/SKILL.md` at
+- **Subject:** `plugins/dev-pipeline/skills/review/SKILL.md` at
   **`8d5d0897c3b57ea0d5349787edfd86c3e4ee46ff`** — 127 lines, the measured surface.
 - **Sample:** C2-a — PR #654 @ `cfba102`, diff range `dfd68a47..cfba1022`.
 - **Oracle:** the frozen C2-a ground-truth blocker, quoted from §C so the hit rule has a fixed
@@ -132,7 +132,7 @@ Identical to §C, so the scores are readable beside arm 2b's:
 
 Ablating a unit means deleting exactly its line range, as in §C.
 
-**The head text is not used.** `review-lean/SKILL.md` is 190 lines at this branch's base. Moving the
+**The head text is not used.** `review/SKILL.md` is 190 lines at this branch's base. Moving the
 subject and the harness in the same arm would make a moved score unattributable, which is the
 question this arm asks. A consequence is recorded rather than avoided: U-5's measured text was
 partly superseded at head by #755's `## AC scorecard` block, so this arm measures the pinned unit,

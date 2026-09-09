@@ -25,17 +25,17 @@ CONTRIBUTING snippet).
    that does nothing until you add its `needs:`/`if:` lines to your own heavy workflow; wire it
    in the SAME PR, or it becomes a file nobody remembers to connect).
 4. Dry-run: pick a small ticket with no external-infrastructure acceptance criteria and
-   run `/dev-pipeline:run-lean <ticket>` end to end before inviting the team. It schedules
-   `build-lean` and `review-lean` for you; driving those two by hand is the same lane, and
+   run `/dev-pipeline:run <ticket>` end to end before inviting the team. It schedules
+   `/dev-pipeline:build` and `/dev-pipeline:review` for you; driving those two by hand is the same lane, and
    is the path to fall back on when a run needs rescuing.
 
 **A BE/FE pair needs Day 0 a second time, in the sibling repo.** Step 2's confirmed-pair
 `be-fe-pair` config is unchanged and stays a legal shape, but no lane fans a run out across
-both repos any more — the staged lane that did was deleted in #348. The lean lane has no
-per-repo worktree map, so working the pair from `/dev-pipeline:run-lean` needs
+both repos any more — the staged lane that did was deleted in #348. The pipeline has no
+per-repo worktree map, so working the pair from `/dev-pipeline:run` needs
 the sibling onboarded on its own too — its own config, own bot identity, own worktrees dir
 (detection reports plain `standalone` from that side, no extra prompts). See
-[onboarding.md § Pair repos](onboarding.md#pair-repos-befe-under-the-lean-lane).
+[onboarding.md § Pair repos](onboarding.md#pair-repos-befe-under-the-pipeline).
 **FE-tagged tickets run from the FE repo's own champion setup.**
 
 **Champion's-machine caveat:** the machine that develops or first registers the

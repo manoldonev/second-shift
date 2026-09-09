@@ -45,8 +45,8 @@ and changed paths, and land on an accumulating **release PR**.
    history, but re-applying them is manual.
 
 4. **Run the consumer-shaped eval before merging** — the protocol is
-   [`consumer-eval.md`](consumer-eval.md). Replay the five fixture tickets through the lean
-   lane in the consumer repo against the pinned eval base, **post the four figures per ticket
+   [`consumer-eval.md`](consumer-eval.md). Replay the five fixture tickets through the pipeline
+   in the consumer repo against the pinned eval base, **post the four figures per ticket
    as a comment on the release PR** (not in its body — the derivation force-pushes the branch
    and PATCHes the body on every push to `main`), and land the table rows on `main` in their
    own doc PR. Nothing blocks automatically: the verdict is your judgment over the delta

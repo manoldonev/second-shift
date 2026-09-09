@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# gate-ablation.sh — paper ablation of the lean lane's gates over the run corpus (#609).
+# gate-ablation.sh — paper ablation of the pipeline's gates over the run corpus (#609).
 #
 # WHAT THIS ANSWERS. The mutation sweep holds every shell guard to one bar: name the regression
 # class only you catch. The lane's own blocking gates have never been held to it. This is the

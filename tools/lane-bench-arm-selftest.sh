@@ -9,8 +9,8 @@
 # THE SCENARIO EACH CASE GUARDS is that the wrapper is invisible to the scheduler in exactly the
 # ways `orchestrate-lean.sh` depends on: the id it parses out of stdout by field position, the
 # exit status it reads, and the two control-plane calls it makes on the same handle. None of that
-# is covered by plugins/dev-pipeline/skills/build-lean/scenario-liveness-selftest.sh, which
-# composes the lean gate's own verdict paths — this script is not on one and is never invoked by
+# is covered by plugins/dev-pipeline/skills/build/scenario-liveness-selftest.sh, which
+# composes the milestone gate's own verdict paths — this script is not on one and is never invoked by
 # the gate.
 set -uo pipefail
 
@@ -53,7 +53,7 @@ printf '%s\n%s\n' "$WORK/arm/plugins/dev-pipeline" "$WORK/arm/plugins/audit-tool
 # reproduced whole rather than sampled because the claim under test is "reaches the binary
 # verbatim", and a case passing three of six flags could not fail for the reason it names.
 SETTINGS="$WORK/spawn-1-settings.json"; echo '{"env":{}}' > "$SETTINGS"
-PROMPT='/dev-pipeline:build-lean 42'
+PROMPT='/dev-pipeline:build 42'
 dispatch() { # dispatch <manifest>
   LEAN_ARM_MANIFEST="$1" bash "$TOOL" --bg \
     --permission-mode auto --model opus \

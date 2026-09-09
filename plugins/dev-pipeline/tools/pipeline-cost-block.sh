@@ -7,7 +7,7 @@
 #         pipeline-cost-block.sh --stateless --sessions <id[,id…]> \
 #                                --start <iso> --end <iso> [--out <file>]
 # Exit:   0 = ran, or logged a documented skip (no metrics, no collector, rotated-out,
-#         …). 2 = usage error. The caller (build-lean checklist steps 7 and 9) invokes
+#         …). 2 = usage error. The caller (/dev-pipeline:build checklist steps 7 and 9) invokes
 #         this without checking rc, so a non-zero exit surfaces in the run summary but
 #         never blocks completion.
 #
@@ -18,7 +18,7 @@
 # `--stateless` flag is kept REQUIRED so the surviving caller's invocation shape is
 # unchanged; a positional-issue invocation now errors with this pointer instead of
 # resolving a state file nothing writes. The block is emitted to stdout or --out and no
-# PR body is amended — the lean session pastes it into the PR description and the closing
+# PR body is amended — the build session pastes it into the PR description and the closing
 # comment itself, so re-adding the retired bot-identity amend ladder would buy access to a
 # body the caller already owns.
 #
@@ -42,7 +42,7 @@
 #
 # THE COST-LOG ROW (#546). `--close-out` appends or updates one row per run in
 # ${COST_LOG_FILE:-<stateDir>/cost-log.jsonl}, restoring the cross-run cost corpus that
-# ended on 2026-07-31 when the lean era began — cost-effectiveness is one of the two
+# ended on 2026-07-31 when the pipeline era began — cost-effectiveness is one of the two
 # ratified goal axes and had nothing left to be measured against. This supersedes the live
 # half of D-36 (its perf-corpus half was already retired by #565).
 #
@@ -199,7 +199,7 @@ record_key() { # record_key <key> <file>
 # LOCKSTEP-END lean-record-key
 
 # What counts as a timestamped row, and therefore what the fence is measured between. Held
-# byte-identical to retro-corpus.sh, which derives the lean TIMING profile from the same rows
+# byte-identical to retro-corpus.sh, which derives the pipeline TIMING profile from the same rows
 # (#565): a record whose stamp shape moved would silently give one reader a fence and the other
 # a span, and both would keep reporting confident numbers about different windows.
 # LOCKSTEP-BEGIN lean-progress-ts-re
@@ -234,7 +234,7 @@ if [ -n "$ARG_ISSUE" ]; then
   case "$ARG_ISSUE" in
     # THE KEY SHAPE IS THE TRACKER'S, NOT GITHUB'S — the same class #634 widened in
     # operator-override.sh, missed here. This was `[!0-9]` — numbers only — so under a
-    # non-numeric tracker the lean lane's close-out could never publish a figure: the gate
+    # non-numeric tracker the pipeline's close-out could never publish a figure: the gate
     # passes the run's own ticket key straight through, and every one of those keys was
     # rejected as malformed. The value is a record-path component and a JSON string here
     # (the cost-log row already calls it `ticketKey`), never a number, so nothing downstream
@@ -244,7 +244,7 @@ if [ -n "$ARG_ISSUE" ]; then
     ''|*[!0-9A-Za-z._-]*) log "--issue takes an issue key, got '$ARG_ISSUE'"; exit 2 ;;
   esac
   [ -n "$MAIN_ROOT" ] \
-    || { log "--issue $ARG_ISSUE: not in a git repo, so the lean progress record is unresolvable — pass --sessions/--start/--end instead"; exit 2; }
+    || { log "--issue $ARG_ISSUE: not in a git repo, so the progress record is unresolvable — pass --sessions/--start/--end instead"; exit 2; }
   PROGRESS_FILE="${LEAN_PROGRESS_FILE:-$(state_dir)/$ARG_ISSUE-lean-progress.md}"
   [ -r "$PROGRESS_FILE" ] \
     || { log "--issue $ARG_ISSUE: no readable lean progress record at $PROGRESS_FILE — nothing to derive a fence or a session set from"; exit 2; }
@@ -294,7 +294,7 @@ fi
   || { log "--stateless requires both --start <iso> and --end <iso> (the time fence), or --issue <n> to derive them"; exit 2; }
 
 # Session set: HANDED to this mode by its caller (comma- or whitespace-separated);
-# the lean progress file is its carrier, which is why AC-14's reconciliation keys are
+# the progress file is its carrier, which is why AC-14's reconciliation keys are
 # load-bearing here rather than forward-looking.
 SESSIONS=$(printf '%s' "$ARG_SESSIONS" | tr ',' '\n' | tr ' ' '\n' | awk 'NF' | sort -u)
 
@@ -740,7 +740,7 @@ fi
 
 # ────────────────────────────────────────────────────────────────────────────
 # Duration: the supplied fence is the only span this mode knows. There is no PR
-# split — the lean session posts one block in one closing comment.
+# split — the build session posts one block in one closing comment.
 # ────────────────────────────────────────────────────────────────────────────
 STARTED_AT="$ARG_START"
 COMPLETED_AT="$ARG_END"
@@ -919,7 +919,7 @@ if [ "$CLOSE_OUT" -eq 1 ]; then
 fi
 
 # ────────────────────────────────────────────────────────────────────────────
-# Emit. No PR body is amended — the lean session pastes the block into the PR description
+# Emit. No PR body is amended — the build session pastes the block into the PR description
 # at step 7 and into its one closing comment at step 9, where it also replaces the earlier
 # snapshot in the body (keyed on the marker line below).
 # ────────────────────────────────────────────────────────────────────────────

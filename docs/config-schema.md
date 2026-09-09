@@ -18,11 +18,11 @@ Principles:
 - **If two forks differed on a value, it's config.** If they differed on *behavior*, it's a config-selected adapter (`tracker`, or the `design` provider axis) or a gate.
 - **No domain knowledge in config.** Prose-shaped knowledge goes to extension files ([`extension-points.md`](extension-points.md)); config stays enumerable and lintable.
 - `configVersion` bumps only on breaking schema changes; plugins support one version per release. The migration contract and per-version upgrade docs live in [`migrations/`](migrations/README.md); config-lint fails older/newer configs with the pointer, never a bare "invalid".
-- **A `commands.<host>` lane runs in a scrubbed child env.** `preflight.sh` and `lean-gate.sh` milestone 3 both spawn every configured lane command (`lint`/`typecheck`/`test`/`format`/`lanes`/`extraLanes`) with the pipeline's own seam vars (`SECOND_SHIFT_CONFIG`, `STATECTL_STATE_DIR`, and related overrides) stripped from its environment (`env -u`) — a lane command that is itself second-shift tooling (dogfooding) must not see the caller's pipeline state. The denylist itself is stated once, as `SEAM_SCRUB` inside the `LOCKSTEP-BEGIN seam-scrub` markers in [`lean-gate.sh`](../plugins/dev-pipeline/skills/build-lean/lean-gate.sh); the stage doc that used to carry this note died with the staged lane in #348.
+- **A `commands.<host>` lane runs in a scrubbed child env.** `preflight.sh` and `lean-gate.sh` milestone 3 both spawn every configured lane command (`lint`/`typecheck`/`test`/`format`/`lanes`/`extraLanes`) with the pipeline's own seam vars (`SECOND_SHIFT_CONFIG`, `STATECTL_STATE_DIR`, and related overrides) stripped from its environment (`env -u`) — a lane command that is itself second-shift tooling (dogfooding) must not see the caller's pipeline state. The denylist itself is stated once, as `SEAM_SCRUB` inside the `LOCKSTEP-BEGIN seam-scrub` markers in [`lean-gate.sh`](../plugins/dev-pipeline/skills/build/lean-gate.sh); the stage doc that used to carry this note died with the staged lane in #348.
 - **Exit code `3` is RESERVED on a verify lane: "this failed for reasons that are not the branch."**
   Exactly one lane reads it. `lean-gate.sh` milestone 3 reads a `3` from a **blocking** verify lane
   as infrastructure: it reds with exit `7` — *nothing was evaluated* — instead of `1`, charges **no
-  fix attempt**, and the lean scheduler re-spawns the build session rather than reporting an idle
+  fix attempt**, and the scheduler re-spawns the build session rather than reporting an idle
   one. Everywhere else the code classifies nothing, because there is nothing left to classify:
   #642 demoted the other verify lanes to advisory, so a `3` there is recorded like any other red
   and the milestone continues past it.
@@ -56,9 +56,9 @@ Principles:
 - **`ticketTag` is advisory, and only advisory.** It keys off
   `topology.repos.<id>.ticketTag` on a confirmed pair's `be`+`fe` entries. It used to read two
   ways: a retired lane resolved `TARGET_REPOS` from it as a gate input and failed
-  closed on an unrecognized title, while the lean lane treated it as a hint. #348 deleted the
+  closed on an unrecognized title, while the pipeline treated it as a hint. #348 deleted the
   staged lane, so only the advisory reading remains — no gate reads it, `lean-gate.sh`
-  included, and the sibling's own separate standalone onboard (needed for `run-lean` — see
-  [`onboarding.md` § Pair repos (BE/FE)](onboarding.md#pair-repos-befe-under-the-lean-lane))
+  included, and the sibling's own separate standalone onboard (needed for `/dev-pipeline:run` — see
+  [`onboarding.md` § Pair repos (BE/FE)](onboarding.md#pair-repos-befe-under-the-pipeline))
   carries no `ticketTag` of its own. The `intake-orchestrator` skill reads it as ticket-title
   routing policy, not a gate. Neither reading changes the other.

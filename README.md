@@ -44,14 +44,14 @@ claude
 Then pick a small, self-contained ticket and let the pipeline run it — autonomous is the only mode you need. The front door is a scheduler: it drives the lane's blocks in fresh sessions and reads their outcomes.
 
 ```text
-/dev-pipeline:run-lean <ticket>
+/dev-pipeline:run <ticket>
 ```
 
-The blocks it drives stay individually invokable, which is the manual two-terminal flow and the rescue path. `build-lean` takes the ticket to a ready PR, gated by five artifact milestones, then stops at the review milestone and hands off — a session that grades its own work is not an independent review. `review-lean` runs against the PR from its own session and commits the verdict the merge boundary reads:
+The blocks it drives stay individually invokable, which is the manual two-terminal flow and the rescue path. `/dev-pipeline:build` takes the ticket to a ready PR, gated by five artifact milestones, then stops at the review milestone and hands off — a session that grades its own work is not an independent review. `/dev-pipeline:review` runs against the PR from its own session and commits the verdict the merge boundary reads:
 
 ```text
-/dev-pipeline:build-lean <ticket>
-/dev-pipeline:review-lean <pr>
+/dev-pipeline:build <ticket>
+/dev-pipeline:review <pr>
 ```
 
 Full onboarding — topologies (monorepo, BE+FE pair), reviewer tuning, extension files — is in [`docs/onboarding.md`](docs/onboarding.md); the JIRA tracker's setup and behavioral delta live in [the JIRA tracker README](plugins/dev-pipeline/tools/tracker/jira/README.md). To keep collaborators on the same toolset, commit the settings pin `onboard` writes (`extraKnownMarketplaces` + `enabledPlugins` in `.claude/settings.json`); track latest only in a canary.
@@ -64,7 +64,7 @@ Agents write plausible code faster than a team can honestly review it, so the bo
 
 | Plugin | What you get |
 | --- | --- |
-| **dev-pipeline** | Ticket → PR across intake → build → review → merge-boundary blocks, gated by lean's five artifact milestones — a thin scheduler (`/dev-pipeline:run-lean`) over payload blocks that stay individually invokable (`/dev-pipeline:build-lean`, `/dev-pipeline:review-lean`). Portable merge-boundary evidence (`lean-evidence`), tracker adapters (GitHub Issues with bot-identity claiming, or read-only JIRA), cost tracking, post-run retrospective. |
+| **dev-pipeline** | Ticket → PR across intake → build → review → merge-boundary blocks, gated by lean's five artifact milestones — a thin scheduler (`/dev-pipeline:run`) over payload blocks that stay individually invokable (`/dev-pipeline:build`, `/dev-pipeline:review`). Portable merge-boundary evidence (`lean-evidence`), tracker adapters (GitHub Issues with bot-identity claiming, or read-only JIRA), cost tracking, post-run retrospective. |
 | **review-toolkit** | `review-lead` parallel multi-agent review: security, performance, maintainability, complexity, db, scope-completeness, test-coverage reviewers under a shared confidence protocol; mutation-review of unit tests; commit-time consistency gates. |
 | **intake-toolkit** | The elicitation surface: `/intake-toolkit:intake` front door, requirement and decomposition interviews, `plan-interview` that turns design decisions into a machine-lintable Decision Ledger, `grill-me` plan stress-testing. |
 | **design-toolkit** | Design-fidelity translation and review (`design-faithful`), with an optional Figma-MCP-backed mode (`figma-faithful`) and `figma-iterate` — an interactive fast-path for quick Figma iteration that swaps pipeline ceremony for one batched discrepancy checkpoint — plus a Playwright CLI helper. |

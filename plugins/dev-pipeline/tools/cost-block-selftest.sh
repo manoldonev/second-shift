@@ -116,7 +116,7 @@ else
 fi
 
 echo
-echo "=== AC-8: the state-less contract (build-lean checklist step 7's invocation) ==="
+echo "=== AC-8: the state-less contract (/dev-pipeline:build checklist step 7's invocation) ==="
 MINI_METRICS="$FIX/single-session-mini.jsonl"
 MINI_SESSION="aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
 SL_OUT="$TMP/stateless-block.md"
@@ -638,7 +638,7 @@ NUL_ERR="$(issue_stderr_at "$RT3" 920)"; NUL_RC=$?
 # THE REGRESSION GUARD. Every case above passes a github issue NUMBER — the one shape a
 # non-numeric tracker never has — which is how a guard those consumers could not get past
 # stayed green for this tool's whole life. #634 widened the same class in operator-override.sh
-# and did not reach here, so the lean lane's close-out still died on a jira-shaped key: the gate
+# and did not reach here, so the pipeline's close-out still died on a jira-shaped key: the gate
 # hands it the run's own ticket key and the tool called it malformed. On the old guard this
 # answers rc=2 with "takes an issue number"; the record is never even looked for.
 RT4="$TMP/lean-repo-jira-key"

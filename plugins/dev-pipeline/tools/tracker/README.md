@@ -18,11 +18,11 @@ Two adapters ship:
 Every tracker touch resolves through one of these abstract operations. The adapter
 column tells the operator/agent what each resolves to under the active `tracker.type`.
 Operations marked *no-op* under a tracker are deliberately absent there — a
-`tracker.writes: false` adapter’s audit trail is the run’s own record (the lean lane’s
+`tracker.writes: false` adapter’s audit trail is the run’s own record (the pipeline’s
 progress file) plus the PR metadata, not the ticket.
 
-The table below is the adapter-wide contract, shared by the intake surface and the lean
-lane; the lean lane’s own gate-sensitive operations follow it.
+The table below is the adapter-wide contract, shared by the intake surface and the
+pipeline; the lane’s own gate-sensitive operations follow it.
 
 | Operation | github (`tracker.type: github`) | jira (`tracker.type: jira`) |
 | --- | --- | --- |
@@ -36,14 +36,14 @@ lane; the lean lane’s own gate-sensitive operations follow it.
 | **branch name** — the work branch | `<branchPrefix><key>` (`claude/acme-42`) | `<branchPrefix><key>` (`jdoe/gh-540`) |
 | **PR ticket reference** — link the PR back | `Closes #<key>` | `Closes [<KEY>]` in the template’s `### Jira Items` section |
 
-### The lean lane (`/dev-pipeline:run-lean`)
+### The pipeline (`/dev-pipeline:run`)
 
-The lean lane is the only lane, and it has no state file: its records are the progress
-file plus three committed artifacts. [`lean-gate.sh`](../../skills/build-lean/lean-gate.sh)
+The pipeline is the only lane, and it has no state file: its records are the progress
+file plus three committed artifacts. [`lean-gate.sh`](../../skills/build/lean-gate.sh)
 resolves the same `tracker.type` (absent ⇒ `github`) and branches at tracker-sensitive
 sites. Milestones 1–4 are adapter-insensitive — a committed spec, two repo policy scripts,
 the config command table, a committed verdict record — and stay that way.
-[`lean-reconcile.sh`](../../skills/build-lean/lean-reconcile.sh) resolves the same key on the same
+[`lean-reconcile.sh`](../../skills/build/lean-reconcile.sh) resolves the same key on the same
 terms, and branches at its own tracker-sensitive sites. Both reject an unrecognized value
 rather than falling through to an arm.
 
@@ -52,7 +52,7 @@ rather than falling through to an arm.
 | **entry** — SKILL.md step 1’s queue-label confirm | confirm the queue label; a missing one is a reject, no prompting | *not applicable* — no queue, no label; the gate prints the adapter note and the operator supplies the key |
 | **claim** (`lean-gate.sh claim`) | two bot-wrapper writes: the label swap plus a `lean-claimed` marker comment | *no tracker write.* The run-id/claim record still lands in the progress file — the anchor the reconcile row below reads — and `GH_BOT` is not required |
 | **exit** (`lean-gate.sh 5`) | ready PR carrying `Closes #<key>` + the spec link, plus a closing comment referencing the verdict record | ready PR carrying `Closes [<KEY>]` under a `Jira Items` heading, the spec link, and the verdict-record path **in the body**; the comment trail is never read |
-| **reconcile** — the operator’s pre-merge check ([`lean-reconcile.sh`](../../skills/build-lean/lean-reconcile.sh)) | every arm; check (1) compares the bot claim comment’s `run_id` against the progress file’s | **all but one.** Check (1)’s claim arm is skipped and the fetch is never attempted, so the run makes no `gh` call; every other arm runs unchanged. The dropped arm is named in the output and on the closing line. `--comments-file` is refused here |
+| **reconcile** — the operator’s pre-merge check ([`lean-reconcile.sh`](../../skills/build/lean-reconcile.sh)) | every arm; check (1) compares the bot claim comment’s `run_id` against the progress file’s | **all but one.** Check (1)’s claim arm is skipped and the fetch is never attempted, so the run makes no `gh` call; every other arm runs unchanged. The dropped arm is named in the output and on the closing line. `--comments-file` is refused here |
 
 The **ready-PR** requirement is adapter-independent: `lean-gate.sh` milestone 5 rejects a
 draft on either adapter. There is no promotion step for a draft to advance out of.

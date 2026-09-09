@@ -20,7 +20,7 @@ BEFORE the prompt.
 ## What each plugin installs and when its code runs
 
 ### dev-pipeline
-- Skills: `run-lean` (the lane's front door, invoked as `/dev-pipeline:run-lean`), `build-lean`, `review-lean`, `pipeline-retro`, `perf-retro`, `pr-revision` — loaded only when invoked.
+- Skills: `/dev-pipeline:run` (the lane's front door, invoked as `/dev-pipeline:run`), `/dev-pipeline:build`, `/dev-pipeline:review`, `pipeline-retro`, `perf-retro`, `pr-revision` — loaded only when invoked.
 - Hook: a PreToolUse gate on `git commit` commands (normal and bot-identity forms) that runs the repo's type-check on staged changes during pipeline commits.
 - Shell tools (`lean-gate.sh`, `lean-reconcile.sh`, `config-lint.sh`, `pipeline-doctor.sh`…) run only when the lane or a `/second-shift:*` command invokes them; run records live in `.claude/pipeline-state/`.
 

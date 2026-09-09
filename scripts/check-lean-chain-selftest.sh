@@ -1,15 +1,14 @@
 #!/usr/bin/env bash
-# check-lean-chain-selftest.sh — behavioral suite for the lean merge-boundary gate.
+# check-lean-chain-selftest.sh — behavioral suite for the merge-boundary gate.
 #
 # Zero-network by construction: every case drives check-lean-chain.sh through its two fixture
-# seams (--comments-file, --diff-files-file), following the check-pipeline-chain-selftest.sh
-# precedent. No `gh`, no git remote.
+# seams (--comments-file, --diff-files-file). No `gh`, no git remote.
 #
 # The two cases the acceptance criteria name explicitly are (C) and (D) — they are the ones
 # that make this gate non-vacuous and non-double-classifying, and each has a failure mode that
 # a prefix-only reading would miss:
 #   (C) a ZERO-MATCHING lean prefix with lean artifacts present must STILL be applicable —
-#       otherwise a stale constant silently exempts every lean PR.
+#       otherwise a stale constant silently exempts every pipeline PR.
 #   (D) a PIPELINE-prefixed PR carrying lean-shaped files must NOT be applicable — otherwise
 #       the PR delivering this very feature red-lines itself on its own fixtures.
 #
@@ -101,7 +100,7 @@ echo '[]' > "$WORK/comments-empty.json"
 # payload, so every case needs the payload itself and a PR marker trail to reach it. Both are
 # EXPORTED once rather than threaded through each call: the fixture tree is a throwaway repo
 # with no plugins/ directory, and the seam is the payload's input, not this gate's.
-export LEAN_EVIDENCE="$HERE/../plugins/dev-pipeline/skills/build-lean/lean-evidence.sh"
+export LEAN_EVIDENCE="$HERE/../plugins/dev-pipeline/skills/build/lean-evidence.sh"
 [ -f "$LEAN_EVIDENCE" ] || { echo "  FAIL: the evidence payload is missing at $LEAN_EVIDENCE" >&2; exit 1; }
 
 # The DEFAULT marker trail: one bot marker carrying the same build identity the claim comment
@@ -242,7 +241,7 @@ commit_tree "spec + fixtures"
 write_verdict
 
 printf 'docs/plans/acme-42-lean.md\ndocs/plans/acme-42-lean-verdict.md\n' > "$WORK/diff-lean.txt"
-printf 'scripts/fixtures/acme-99-lean.md\nplugins/dev-pipeline/skills/build-lean/lean-gate.sh\n' > "$WORK/diff-fixture-only.txt"
+printf 'scripts/fixtures/acme-99-lean.md\nplugins/dev-pipeline/skills/build/lean-gate.sh\n' > "$WORK/diff-fixture-only.txt"
 printf 'README.md\n' > "$WORK/diff-plain.txt"
 
 BODY_GOOD='Implements the thing.
@@ -287,7 +286,7 @@ echo "[check-lean-chain-selftest]"
 # AC-1 (#443) rides here: every arm on this run is class (a), so the gate writes NOTHING.
 out="$(run_gate "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
 if [ "$rc" -eq 0 ] && silent "$out"; then
-  pass "(A) AC-1: a lean PR with spec + approve-verdict + bot claim passes with zero bytes on both streams"
+  pass "(A) AC-1: a pipeline PR with spec + approve-verdict + bot claim passes with zero bytes on both streams"
 else fail "(A) expected a silent rc=0, got $rc: $out"; fi
 
 # ---- (A2) #622: the AC scorecard arrives through the DELEGATION ----------------------------
@@ -328,7 +327,7 @@ if [ "$rc" -eq 1 ] && ! grep -q 'not-applicable' <<<"$out"; then
 else fail "(C) expected rc=1 via the artifact arm, got rc=$rc: $out"; fi
 
 # ---- (D) MANDATED: pipeline-prefixed PR carrying lean-shaped files is NOT applicable -----
-# This is the PR that delivers the lean lane itself: pipeline-authored, and it necessarily carries
+# This is the PR that delivers the pipeline itself: pipeline-authored, and it necessarily carries
 # lean-shaped fixture files. Double-classifying it would make the feature unshippable.
 out="$(run_gate "claude/acme-303" "$WORK/comments-empty.json" "$WORK/diff-lean.txt")"; rc=$?
 if [ "$rc" -eq 0 ] && class_b "$out" "lean-chain:not-applicable"; then
@@ -356,7 +355,7 @@ else fail "(G) expected rc=1 for an out-of-window claim, got $rc: $out"; fi
 mv "$TREE/docs/plans/acme-42-lean-verdict.md" "$WORK/held-verdict.md"
 out="$(run_gate "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
 if [ "$rc" -eq 1 ] && grep -q 'no committed verdict record' <<<"$out"; then
-  pass "(H) a lean PR with no committed verdict record fails"
+  pass "(H) a pipeline PR with no committed verdict record fails"
 else fail "(H) expected rc=1 on a missing verdict record, got rc=$rc: $out"; fi
 mv "$WORK/held-verdict.md" "$TREE/docs/plans/acme-42-lean-verdict.md"
 
@@ -418,7 +417,7 @@ else fail "(K) expected rc=2 naming PIPELINE_BRANCH_PREFIX, got $rc: $out"; fi
 # ---- (L) NON-VACUITY: a zero-matching namespace still classifies -------------------------
 # The successor of the retired mutual-non-prefix-match assertion, and a stronger property than
 # it was. With applicability keyed on the artifact alone, a constant that matches NO branch
-# cannot exempt a lean PR — the key falls back to the body and the spec still classifies it.
+# cannot exempt a pipeline PR — the key falls back to the body and the spec still classifies it.
 # A prefix-shaped kill switch no longer exists to be tested for.
 #
 # Asserted on APPLICABILITY and not the exit code, for the reason (M2) records: the fixture at
@@ -428,10 +427,10 @@ else fail "(K) expected rc=2 naming PIPELINE_BRANCH_PREFIX, got $rc: $out"; fi
 # would have to say so in a class-(b) line, and its absence is exactly "it classified this PR".
 out="$(run_gate "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "zzz-matches-nothing/")"; rc=$?
 if ! grep -q 'not-applicable' <<<"$out"; then
-  pass "(L) a zero-matching branch namespace cannot exempt a lean PR — the artifact still classifies it"
+  pass "(L) a zero-matching branch namespace cannot exempt a pipeline PR — the artifact still classifies it"
 else fail "(L) expected the artifact arm to fire under a zero-matching prefix, got $rc: $out"; fi
 
-# ---- (M) a lean PR with no issue reference fails -----------------------------------------
+# ---- (M) a pipeline PR with no issue reference fails -----------------------------------------
 # Driven on a branch OUTSIDE the namespace: a prefixed branch always resolves its key from its
 # own suffix, so this refusal is reachable only where nothing else can name the issue. And it
 # must be a refusal rather than a decline — such a PR is exempt from the pipeline gate too, so
@@ -441,7 +440,7 @@ out="$( cd "$TREE" && PIPELINE_BRANCH_PREFIX="claude/acme-" \
         PR_HEAD_SHA="$(git -C "$TREE" rev-parse HEAD)" \
         bash "$GATE" --comments-file "$WORK/comments-good.json" --diff-files-file "$WORK/diff-lean.txt" 2>&1 )"; rc=$?
 if [ "$rc" -eq 1 ] && grep -q 'no resolvable issue reference' <<<"$out"; then
-  pass "(M) a lean PR with no 'Closes #N' fails rather than being exempted"
+  pass "(M) a pipeline PR with no 'Closes #N' fails rather than being exempted"
 else fail "(M) expected rc=1 on an unresolvable issue reference, got $rc: $out"; fi
 
 # ...and the FALLBACK resolves: `Part of #N` is the shape a sub-issue of a program epic carries,

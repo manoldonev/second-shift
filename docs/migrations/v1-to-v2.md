@@ -72,7 +72,7 @@ mutation gate even when `commands.<host>.unitTestScope` is set (previously ignor
 ### Staged-lane removal (#348) — `/dev-pipeline:run` and `stageParams.visualCapture`
 
 The ten-stage `statectl` lane is deleted. `/dev-pipeline:run` no longer exists in releases from
-this one on; the lean lane (`/dev-pipeline:run-lean`, and the `build-lean`/`review-lean` blocks
+this one on; the pipeline (`/dev-pipeline:run`, and the `/dev-pipeline:build`/`/dev-pipeline:review` blocks
 it schedules) is the only lane. **A consumer that still needs the staged lane keeps it by
 pinning the marketplace to the last stage-carrying release** — the concrete version is named in
 the release notes for this change and in #348.
@@ -84,7 +84,7 @@ Two consumer-visible consequences beyond the lane itself:
   never gated. Its only consumer died with the stage, so it became a dead key: set it and
   nothing happens. config-lint now rejects it with a pointer here. The **blocking**
   design-fidelity check is a different key and is unaffected — see
-  [`live-render.md`](../live-render.md) for `design.liveRender`, which the lean gate's milestone
+  [`live-render.md`](../live-render.md) for `design.liveRender`, which the milestone gate's milestone
   3 runs per ticket and receipts. Delete `stageParams.visualCapture` from your config; there is
   no replacement for the advisory capture itself.
 
@@ -119,14 +119,14 @@ arm is gone too.
 
 - **`stageWorkflows`** — for a blocking check of your own, use **`commands.<repo>.extraLanes`**:
   an additive verify lane with a real `failureClass`, run by `lean-gate.sh` milestone 3.
-- **`implementDelegates`** — the lean lane is outcome-gated and says nothing about *how* a diff
+- **`implementDelegates`** — the pipeline is outcome-gated and says nothing about *how* a diff
   is produced, so a build session may still dispatch the same specialist agent by choice. What
   has no replacement is the declared, config-routed, pre-flight-validated form.
-- **`planGates`** — no replacement. There is no plan gate on the lean lane for one to be
-  additive to; the spec is judged at the merge boundary by `review-lean`, after the diff exists.
+- **`planGates`** — no replacement. There is no plan gate on the pipeline for one to be
+  additive to; the spec is judged at the merge boundary by `/dev-pipeline:review`, after the diff exists.
 
 The shape of all three is kept as a **design record** in [`extending.md`](../extending.md)
-§3.6-3.8, because whether the lean lane grows a consumer-pluggable blocking gate is an open
+§3.6-3.8, because whether the pipeline grows a consumer-pluggable blocking gate is an open
 product question. Removing a key is the breaking change and re-adding one is a minor, so the
 retirement happened inside the window #348 already opened — if the answer later turns out to be
 yes, a key comes back for free (and EP-6 would need a new one regardless: `stageWorkflows[].stage`

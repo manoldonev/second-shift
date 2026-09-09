@@ -156,7 +156,7 @@ cmd_attend() {
   [ -n "${CLAUDE_CODE_SESSION_ID:-}" ] \
     || envfail "no CLAUDE_CODE_SESSION_ID — there is no session identity to bind to, so a token minted here could not be told apart from any other. Run this from the session that is attending."
   [ -n "${RUN_ID:-}" ] \
-    || envfail "no RUN_ID — the token binds to run identity (the per-run scoping the record is stated against). Export the run's id first, the same export build-lean's step 2 already requires: export RUN_ID=<token>"
+    || envfail "no RUN_ID — the token binds to run identity (the per-run scoping the record is stated against). Export the run's id first, the same export /dev-pipeline:build's step 2 already requires: export RUN_ID=<token>"
   tok="$(token_path)"
   mkdir -p "$(dirname "$tok")" 2>/dev/null \
     || envfail "cannot create $(dirname "$tok") to hold the attendance token."
@@ -177,7 +177,7 @@ cmd_state() {
 # ---------------------------------------------------------------- the record
 record_path() { printf '%s\n' "$1/$PLANS_DIR/$REPO_SLUG-$2-lean-override.md"; }
 
-# THE RECORD READER, held in LOCKSTEP with plugins/dev-pipeline/skills/build-lean/lean-evidence.sh.
+# THE RECORD READER, held in LOCKSTEP with plugins/dev-pipeline/skills/build/lean-evidence.sh.
 #
 # WHY A COPY AND NOT A SOURCE. A consumer's CI fetches lean-evidence.sh ALONE, at a pinned ref,
 # through second-shift-ci-check.sh — one file, no sibling, no plugin tree. A `source` there would

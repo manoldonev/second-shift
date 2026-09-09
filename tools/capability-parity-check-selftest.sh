@@ -66,14 +66,14 @@ P='plugins/dev-pipeline/retired'
 #   HARNESSED a .mjs successor dispatched ONLY from a selftest harness — case (dd).
 #   DISPATCHER the one production file that dispatches ENGINE by scriptPath. Rewritable, so
 #             (ee)/(ff) can break the dispatch two different ways without touching anything else.
-ENFORCER='plugins/dev-pipeline/skills/build-lean/lean-gate.sh'
+ENFORCER='plugins/dev-pipeline/skills/build/lean-gate.sh'
 ENGINE='plugins/dev-pipeline/workflows/engine.mjs'
 ORPHAN='plugins/dev-pipeline/workflows/orphan.mjs'
 HARNESSED='plugins/dev-pipeline/workflows/harnessed.mjs'
-DISPATCHER="$SANDBOX/plugins/dev-pipeline/skills/build-lean/SKILL.md"
+DISPATCHER="$SANDBOX/plugins/dev-pipeline/skills/build/SKILL.md"
 HARNESS="$SANDBOX/plugins/dev-pipeline/workflows/harness-selftest.mjs"
 
-mkdir -p "$SANDBOX/plugins/dev-pipeline/skills/build-lean" "$SANDBOX/plugins/dev-pipeline/workflows"
+mkdir -p "$SANDBOX/plugins/dev-pipeline/skills/build" "$SANDBOX/plugins/dev-pipeline/workflows"
 : > "$SANDBOX/$ENFORCER"
 : > "$SANDBOX/$ENGINE"
 : > "$SANDBOX/$ORPHAN"

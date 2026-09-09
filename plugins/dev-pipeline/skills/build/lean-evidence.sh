@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# lean-evidence.sh — the PORTABLE half of the lean lane's merge-boundary evidence gate.
+# lean-evidence.sh — the PORTABLE half of the pipeline's merge-boundary evidence gate.
 #
 # WHY THIS FILE EXISTS. scripts/check-lean-chain.sh is second-shift-only by construction: it
 # reconciles against tracker COMMENTS, which a read-only tracker posts none of, and its own
-# header says not to ship it to a consumer. That left the lean lane with a harness a consumer
+# header says not to ship it to a consumer. That left the pipeline with a harness a consumer
 # can adopt and enforcement it cannot — the promotion prerequisite #343 named. The arms below
 # are the ones that need no tracker at all, extracted so a consumer's CI can fetch and run
 # THESE BYTES at its pinned marketplace ref while this repo's own gate delegates to the same
@@ -253,7 +253,7 @@ postdated_against() { # postdated_against <since>
 }
 
 # ---------------------------------------------------------------- the AC scorecard (#622)
-# WHAT THIS IS, AND WHAT IT REFUSES TO BE. `review-lean` tells the reviewer to score every
+# WHAT THIS IS, AND WHAT IT REFUSES TO BE. `/dev-pipeline:review` tells the reviewer to score every
 # numbered `AC-n` the committed spec declares, and until now that scoring was free prose inside
 # `--summary-file` — read by nobody, checked by nothing. So `verdict=approve` could sit beside an
 # AC the round itself found unmet, or beside an AC the round never looked at, and no downstream
@@ -494,11 +494,13 @@ cfg() { # cfg <jq-filter> <default>
   echo "$2"
 }
 
-# ONE NAMESPACE, ONE PREFIX (#413). The lean lane no longer cuts branches under a `lean/`
+# ONE NAMESPACE, ONE PREFIX (#413). The pipeline no longer cuts branches under a `lean/`
 # namespace of its own — it uses `<tracker.branchPrefix><key>`, the staged lane's formula. So
 # there is no lean prefix to derive, no pair to hold mutually non-prefix-matching, and no
-# branch-shaped classification arm at all: what makes a PR lean is the committed spec in its
-# own diff, which is what classify() below reads.
+# branch-shaped classification arm at all: what makes a PR a PIPELINE PR is the committed spec
+# in its own diff, which is what classify() below reads. The spec keeps its `-lean.md` suffix —
+# that suffix is the MECHANISM this file detects, not the name of the lane, and renaming it
+# would be a compatibility contract with every consumer repo that already holds such files.
 PIPELINE_PREFIX="${PIPELINE_BRANCH_PREFIX:-}"
 [ -n "$PIPELINE_PREFIX" ] || PIPELINE_PREFIX="$(cfg '.tracker.branchPrefix' '')"
 # Still fatal when unresolvable, for a NEW reason: the prefix is what lets classify() take the
@@ -517,7 +519,7 @@ PIPELINE_PREFIX="${PIPELINE_BRANCH_PREFIX:-}"
 # is a contract violation waiting to be parsed as data. stderr reaches the same CI job log, so
 # the notice is exactly as visible.
 if [ -n "${LEAN_BRANCH_PREFIX:-}" ]; then
-  echo "[lean-evidence] notice: LEAN_BRANCH_PREFIX ('$LEAN_BRANCH_PREFIX') is retired and ignored — lean classification is keyed on the committed spec, not on a branch namespace. Drop it from the workflow." >&2
+  echo "[lean-evidence] notice: LEAN_BRANCH_PREFIX ('$LEAN_BRANCH_PREFIX') is retired and ignored — pipeline-PR classification is keyed on the committed spec, not on a branch namespace. Drop it from the workflow." >&2
 fi
 
 # Absent ⇒ github is a FAIL-SAFE, not a back-compat allowance, and matches lean-gate.sh's own
@@ -857,7 +859,7 @@ contribution_summary() { # contribution_summary  (delta rows on stdin)
 # branch-namespace arm classified independently, an unreadable diff cost only the artifact arm and
 # the prefix arm still spoke, so returning empty here was safe. That arm is gone: the scan below is
 # the WHOLE classifier, and an empty file list is indistinguishable from "carries no lean spec" —
-# a lean PR would then be reported non-applicable and waved through the merge boundary by the one
+# a pipeline PR would then be reported non-applicable and waved through the merge boundary by the one
 # gate that owns it. So the two conditions arm_freshness() already treats as environment errors are
 # environment errors here too, on the same posture this file states twice: a check which cannot run
 # must not report one.
@@ -872,7 +874,7 @@ changed_files() {
   local mb
   mb="$(git -C "$REPO_ROOT" merge-base "origin/$PR_BASE_REF" "${PR_HEAD_SHA:-HEAD}" 2>/dev/null)"
   [ -n "$mb" ] \
-    || envfail "cannot resolve the merge-base of origin/$PR_BASE_REF and ${PR_HEAD_SHA:-HEAD} — a full-history checkout of the base is required (fetch-depth: 0). Classifying on a diff this gate cannot read would report 'not lean' for a lean PR."
+    || envfail "cannot resolve the merge-base of origin/$PR_BASE_REF and ${PR_HEAD_SHA:-HEAD} — a full-history checkout of the base is required (fetch-depth: 0). Classifying on a diff this gate cannot read would report 'not lean' for a pipeline PR."
   git -C "$REPO_ROOT" diff --name-only "$mb".."${PR_HEAD_SHA:-HEAD}" \
     || envfail "git diff --name-only $mb..${PR_HEAD_SHA:-HEAD} failed — the changed-file list is unreadable, and an unreadable list is not an empty one."
 }
@@ -885,7 +887,7 @@ RESOLVED_KEY=""
 # KEY FIRST, THEN THE ARTIFACT (#413, D-14). The order is load-bearing and it inverted here:
 # with both lanes on one branch namespace, applicability can no longer be "some lean-shaped
 # file is in the diff" — a staged PR that merely edits an older ticket's lean spec would then
-# be pulled into this gate and out of the pipeline gate at the same time. What makes a PR lean
+# be pulled into this gate and out of the pipeline gate at the same time. What makes a PR one
 # is the spec for THIS PR's OWN key, so the key has to be resolved before the scan.
 #
 # The branch suffix is the PREFERRED source, and the PR body only the fallback. A body is
@@ -950,14 +952,14 @@ classify() {
   if [ -n "$RESOLVED_KEY" ]; then
     # THE SOLE ARM, and non-vacuous by construction. There is no branch-shaped arm left and
     # none is wanted: the namespace no longer distinguishes the lanes, so a namespace arm would
-    # classify every staged PR as lean. Keying it to the PR's own issue is what stops the
-    # mirror error — a staged PR that merely edits some OLDER ticket's lean spec is not lean.
+    # classify every staged PR as a pipeline PR. Keying it to the PR's own issue is what stops
+    # the mirror error — a PR that merely edits some OLDER ticket's spec is not one.
     SPEC_IN_DIFF="$key_spec"
     if [ -n "$key_spec" ]; then
       APPLICABLE=1
       TRIGGER="lean-artifact ($key_spec)"
     else
-      # Declined, but say what was seen: "a lean spec is present and it is not yours" is the
+      # Declined, but say what was seen: "a spec is present and it is not yours" is the
       # one decline an operator will want to argue with.
       SPEC_IN_DIFF="$any_spec"
     fi
@@ -966,7 +968,7 @@ classify() {
 
   # NO KEY. A prefixed branch always resolves one from its own suffix, so arriving here means a
   # hand-made branch outside the namespace (or one whose suffix does not parse). If such a
-  # branch nonetheless commits a lean spec, it is lean work with no traceable source issue —
+  # branch nonetheless commits a spec, it is pipeline work with no traceable source issue —
   # APPLICABLE, so the caller refuses it and demands the reference. Declining instead would
   # exempt it from this gate while the pipeline gate exempts it for not being prefixed, and a
   # PR both gates wave through is the hole the whole boundary exists to close.
@@ -1178,7 +1180,7 @@ arm_freshness() {
     return 0
   fi
   if [ -z "$VERDICT_REVIEWED_PATCH_ID" ]; then
-    note_violation "verdict record '$VERDICT' declares no reviewed_patch_id, so nothing states which tree the review actually read. Re-run the review round: '/dev-pipeline:review-lean <pr>'."
+    note_violation "verdict record '$VERDICT' declares no reviewed_patch_id, so nothing states which tree the review actually read. Re-run the review round: '/dev-pipeline:review <pr>'."
     return 0
   fi
   [ -n "${PR_HEAD_SHA:-}" ] \
@@ -1450,7 +1452,7 @@ run_arms() {
   case ",$ARMS," in *,override,*)    arm_override ;; esac
   emit_count
   if [ "$violations" -gt 0 ]; then
-    echo "[lean-evidence] ✗ $violations evidence artifact(s) missing for the lean PR on #$KEY." >&2
+    echo "[lean-evidence] ✗ $violations evidence artifact(s) missing for the pipeline PR on #$KEY." >&2
     echo "[lean-evidence]   The remedy is producing the missing artifact — there is no waiver." >&2
     return 1
   fi

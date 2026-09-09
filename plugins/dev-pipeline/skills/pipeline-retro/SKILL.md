@@ -1,6 +1,6 @@
 ---
 name: pipeline-retro
-description: 'Post-run retrospective for a dev-pipeline run: independent eval re-scoring, contract-deviation audit, and improvement routing. Run after a /dev-pipeline:run-lean run completes (or aborts); also reads the pre-#348 staged-run corpus.'
+description: 'Post-run retrospective for a dev-pipeline run: independent eval re-scoring, contract-deviation audit, and improvement routing. Run after a /dev-pipeline:run run completes (or aborts); also reads the pre-#348 staged-run corpus.'
 ---
 
 # Pipeline Retro
@@ -73,7 +73,7 @@ search first so repeat retros don't re-propose it.
 Walk the run's trail against the skill contracts. For each item answer: complied / deviated-and-surfaced / **deviated-silently** (the worst class — see the review-toolkit:review-lead incident that motivated this skill):
 
 Items 1 and 3 below audit mechanics `lean-gate.sh`'s outcome-gated milestones do not produce
-by design (build-lean is "OUTCOME-gated, not process-prescribed" — its own header), and
+by design (/dev-pipeline:build is "OUTCOME-gated, not process-prescribed" — its own header), and
 run-identity reconciliation is already owned by `lean-reconcile.sh`, the operator-run
 pre-merge check. Item 2 reads AC-n from the committed lean spec
 (`docs/plans/{repo-slug}-{issue}-lean.md`) and item 3 reads the Decision Ledger from that

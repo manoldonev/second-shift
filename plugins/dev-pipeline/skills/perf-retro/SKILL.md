@@ -96,7 +96,7 @@ Across the corpus from Step 1, triaged by Step 2, build the table every candidat
 - **Per-dispatch latency** from audit-ledger `SubagentStop` differencing, where ledgers exist. When no ledger covers the window, **omit the column entirely** rather than showing partial rows that read as complete.
 - **Cost rows** where the cost log covers the run.
 - **Scheduler overhead** (`bash tools/lane-latency.sh --dir <state-dir>`), for the runs driven by
-  `run-lean`. It is the one column that separates THIS LANE's cost from the payload's:
+  `/dev-pipeline:run`. It is the one column that separates THIS LANE's cost from the payload's:
   `(terminal − launch) − Σ(spawn-end − spawn)`, everything outside a model session. Measured at
   **2 seconds** on the two runs `docs/lane-latency.md` derives by hand, so a run reporting more is
   the finding — and a run whose ledger predates the `spawn-end` rows reports `not-measurable` and

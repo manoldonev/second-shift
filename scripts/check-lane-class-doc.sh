@@ -65,7 +65,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="${1:-$(cd "$HERE/.." && pwd)}"
 [[ -n "$ROOT" && -d "$ROOT" ]] || { echo "[lane-class] FATAL: root is not a directory: '$ROOT'" >&2; exit 99; }
 
-GATE_REL="plugins/dev-pipeline/skills/build-lean/lean-gate.sh"
+GATE_REL="plugins/dev-pipeline/skills/build/lean-gate.sh"
 DOC_REL="docs/config-schema.md"
 GATE="$ROOT/$GATE_REL"
 DOC="$ROOT/$DOC_REL"

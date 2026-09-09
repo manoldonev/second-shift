@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# lean-gate.sh — the five milestone gates of /dev-pipeline:build-lean, plus the entry
+# lean-gate.sh — the five milestone gates of /dev-pipeline:build, plus the entry
 # precondition and the claim helper.
 #
-# WHY THIS EXISTS: build-lean is OUTCOME-gated, not process-prescribed. The harness asserts
+# WHY THIS EXISTS: /dev-pipeline:build is OUTCOME-gated, not process-prescribed. The harness asserts
 # ARTIFACTS at five ordered milestones and is deliberately silent about the path between them.
 # Everything this script checks is a file, an exit code, or a tracker record.
 #
@@ -122,11 +122,11 @@
 #                                        `pass`); `fail` with `approve` is refused. On an ARMED
 #                                        ticket `pass` additionally requires a conforming
 #                                        `## Design fidelity evidence` table in --summary-file
-#                                        (grammar: review-lean/SKILL.md step 5b) — refused here,
+#                                        (grammar: review/SKILL.md step 5b) — refused here,
 #                                        at the writer, rather than at milestone 4 where it
 #                                        would cost the round. --panel is REQUIRED on every
 #                                        ticket and must name at least one reviewer: a round
-#                                        whose whole panel went dark is void under review-lean
+#                                        whose whole panel went dark is void under /dev-pipeline:review
 #                                        5c and is handed back, not recorded (#825).
 #   lean-gate.sh plan-review <issue> --verdict <pass|fix-and-go|block> --summary-file <path>
 #                                        [--model <m>]
@@ -216,7 +216,7 @@
 # INTERRUPTED_BUDGET — never a red branch reported green. There is
 # deliberately no per-lane config opt-out; see docs/config-schema.md.
 #
-# Seams (zero-network selftest; the check-pipeline-chain.sh precedent):
+# Seams (zero-network selftest):
 #   ${GH:-gh}                the CLI used for reads, including the sweep's PR-state lookup
 #   ${CURL:-curl}            the client used for design.liveRender.readyProbe (#394). The only
 #                            outbound call milestone 3 can make, and only when a consumer
@@ -329,7 +329,7 @@ ABSENT_BUDGET=10
 
 # #497 D-7. The INTERRUPTED budget: how many evaluations of one milestone may BEGIN and never
 # conclude before the next call refuses to start another. A third bound, and deliberately the
-# tightest of the three — absence is the contract's own recommended move (build-lean step 3 orders
+# tightest of the three — absence is the contract's own recommended move (/dev-pipeline:build step 3 orders
 # a milestone-1 call before the spec can exist), interruption never is. FIXED AT 5, and #718 is why
 # it is now a constant rather than a derivation: it used to be sized off the lane's worst-case spawn
 # count, and that count was the round budget times the continuation budget, which no longer exists.
@@ -596,7 +596,7 @@ esac
 # ONE derivation, three consumers: this script, scripts/check-lean-chain.sh (running in CI
 # with no access to any local convention), and lean-reconcile.sh. A name invented at any
 # one of those sites instead of derived here is a drift the CI gate surfaces as a red merge
-# boundary on every lean PR — see the plan's pinned-name-table section.
+# boundary on every pipeline PR — see the plan's pinned-name-table section.
 
 # The BRANCH. `<branchPrefix><key>` (#413). Lean and staged SHARE one namespace, so nothing
 # downstream may classify lean-vs-staged by branch name; that discriminator is the committed lean
@@ -891,7 +891,7 @@ resolve_cached_id() { # resolve_cached_id <cache-path> <persist:0|1>
   if [ -n "${RUN_ID:-}" ]; then
     # SEED-ONCE, as the comment above has always said ("the FIRST time it is seen"). The
     # pre-existing form re-wrote on every call, which is a different thing and a harmful one
-    # now that a second role exists: review-lean SKILL.md step 1 REQUIRES the review session to
+    # now that a second role exists: /dev-pipeline:review SKILL.md step 1 REQUIRES the review session to
     # export its own RUN_ID, and nothing forbids it from running `bash G 4 <issue>` to check
     # the record it just wrote. Under overwrite semantics that call replaced the BUILD identity
     # with the review one, and milestone 4 — which compares the verdict against this very file
@@ -1119,7 +1119,7 @@ inherited_key_at() { # inherited_key_at <commit>
 # The round this one inherits coverage FROM: the most recent COMMITTED version of the record
 # whose reviewed patch DIFFERS from the tree being reviewed now.
 #
-# "Differs" is not a tidy-up — it is what makes a same-round re-run idempotent. review-lean
+# "Differs" is not a tidy-up — it is what makes a same-round re-run idempotent. /dev-pipeline:review
 # re-runs a round on its cached identity, and at that point the newest committed record IS this
 # round's own; without the clause it would inherit from itself, which every reader then refuses
 # as a loop. A prior record predating `reviewed_patch_id` cannot be inherited from either: the
@@ -1140,7 +1140,7 @@ inherited_key_at() { # inherited_key_at <commit>
 # expensive when a verifiable independent link is sitting one step further back.
 #
 # Both ids are compared because either alone is defeatable by the ordinary operation of the
-# lane: review-lean provisions a fresh RUN_ID per round but a re-run of the SAME round reuses
+# lane: /dev-pipeline:review provisions a fresh RUN_ID per round but a re-run of the SAME round reuses
 # the cached one, while a session that outlives a round carries its id into the next.
 #
 # Prints "<patch-id> <commit>", or NOTHING when there is nothing to inherit.
@@ -1585,7 +1585,7 @@ fail_milestone() {
 #
 # A SECOND COUNTER RATHER THAN FREE: free absence removes the only thing bounding a session that
 # loops on step 3 forever. Bounded on its own much larger budget (D-2), reusing `rc=4` so
-# build-lean's existing hard-stop handling covers it with no new operator path.
+# /dev-pipeline:build's existing hard-stop handling covers it with no new operator path.
 #
 # #642 WIDENED IT past #494's single site. The set is exactly the reasons docs/gate-ablation.md
 # adjudicates `unchanged` — every one an ANNOUNCEMENT that the checklist's next step has not
@@ -1755,7 +1755,7 @@ lean_worktrees() {
 }
 
 # #530: PLURAL by construction. A second worktree on the same branch is a SANCTIONED state, not
-# a violated expectation — review-lean cuts its own checkout of the PR head, and the build
+# a violated expectation — /dev-pipeline:review cuts its own checkout of the PR head, and the build
 # worktree is not guaranteed to still be there when it does. A singular `lean_worktree_for_branch`
 # that returned on the first match left every caller blind to the second tree, which is what
 # accumulated the stray worktrees this fixes. One path per line; both current callers iterate, so
@@ -2421,7 +2421,7 @@ cmd_entry() {
   if [ ! -s "$ledger" ]; then
     if audit_toolkit_opted_out; then
       warn "✗ entry: audit-toolkit is disabled in this repo's settings, so no hook writes the ledger at '$ledger'. Refusing to start."
-      warn "  The lean lane requires it: re-enable \"audit-toolkit@<marketplace>\" in .claude/settings.json (or settings.local.json) and restart the session."
+      warn "  The pipeline requires it: re-enable \"audit-toolkit@<marketplace>\" in .claude/settings.json (or settings.local.json) and restart the session."
     else
       warn "✗ entry: audit ledger '$ledger' is missing or empty — the hook ledger is not live. Refusing to start."
       warn "  Every lean record carries reconciliation keys; without a ledger the run is unverifiable at the merge boundary."
@@ -2530,9 +2530,10 @@ cmd_claim() {
   bash "$helper" "$ISSUE" --queue "$QUEUE_LABEL" --claimed "$CLAIMED_LABEL" \
     || { warn "✗ claim: label swap failed — '$QUEUE_LABEL' left intact."; return 1; }
 
-  # (ii) the marker comment. `lean-claimed`, NEVER `stage: claimed` — a lean-distinct
-  # marker so this comment can never pollute check-pipeline-chain.sh's run-family
-  # selection if the same issue is later run through full `run`.
+  # (ii) the marker comment. `lean-claimed`, NEVER `stage: claimed` — a tag outside the
+  # staged lane's marker family. That family's only reader, check-pipeline-chain.sh, was
+  # deleted in #731; the tag stays distinct because every consumer of this marker greps for
+  # it by name.
   # The claim comment is the ONLY build-side record CI can see (the progress file is
   # gitignored and never reaches a checkout), so it carries BOTH build identities, not just
   # the run id. run_id is agent-CHOSEN — a build session that wanted to review itself needs
@@ -2551,7 +2552,7 @@ cmd_claim() {
     echo "<!-- $LEAN_CAPABILITY_KEY: $LEAN_CAPABILITY_STAMP -->"
     echo "<!-- stage: $LEAN_CLAIM_MARKER_TAG -->"
     echo ""
-    echo "🤖 Claimed by \`/dev-pipeline:build-lean\`."
+    echo "🤖 Claimed by \`/dev-pipeline:build\`."
   } > "$body"
   url="$("${GH_BOT:?GH_BOT must point at the bot wrapper}" api -X POST \
         "repos/{owner}/{repo}/issues/$ISSUE/comments" -F body=@"$body" --jq .html_url 2>&1)"
@@ -2645,8 +2646,8 @@ LEAN_PR_MARKER_TAG='lean-pr-marker'
 # compares the verdict record's identity against EVERY marker here.
 #
 # STEP 7, NOT MILESTONE 5 ALONE. A PR comment fires no `pull_request` event, and the last CI run on
-# a lean PR is the review session's verdict-record push — so a marker first written at milestone 5
-# is invisible to the run that gates the merge and reds every lean PR until someone re-runs the job.
+# a pipeline PR is the review session's verdict-record push — so a marker first written at milestone 5
+# is invisible to the run that gates the merge and reds every pipeline PR until someone re-runs the job.
 # The checklist calls this at PR-open and cmd_5 calls it again; the second call is a no-op.
 #
 # IDEMPOTENT BY IDENTITY, not by presence: a marker carrying THIS run's id suppresses the write, a
@@ -2763,7 +2764,7 @@ cmd_mark() {
     echo "<!-- session_id: ${CLAUDE_CODE_SESSION_ID:-unset} -->"
     echo "<!-- stage: $LEAN_PR_MARKER_TAG -->"
     echo ""
-    echo "🤖 Built by \`/dev-pipeline:build-lean\`. This comment carries the build run's identity at"
+    echo "🤖 Built by \`/dev-pipeline:build\`. This comment carries the build run's identity at"
     echo "the merge boundary — the review verdict must carry a different one."
   } > "$body"
   url="$("${GH_BOT:?GH_BOT must point at the bot wrapper}" api -X POST \
@@ -3558,7 +3559,7 @@ design_unarm_locked_msg() {
 # this repo's manifest calls worse than none). resolve-sibling.sh's header explains the split:
 # the ladder is shared, and each caller keeps its own hop count from its file to its plugin
 # root, computed the same way pipeline-doctor.sh computes PLUGIN_DIR/PLUGINS_DIR for itself.
-# This file sits two directories under its plugin root (skills/build-lean), where
+# This file sits two directories under its plugin root (skills/build), where
 # pipeline-doctor.sh sits one (tools) — the differing depth pipeline-doctor.sh's own D-4
 # argued from is real, but it bears only on the three lines below, not on the ladder itself.
 # Those globals are exactly what the ladder reads: PLUGIN_DIR (rung 2 — this plugin's own
@@ -3800,7 +3801,7 @@ lean_extra_lanes_diff() {
 }
 
 # ---------------------------------------------------------------- milestone 3: design render
-# #394. The lean lane's answer to three failure classes observed on a design-driven consumer
+# #394. The pipeline's answer to three failure classes observed on a design-driven consumer
 # run: a NON-BLOCKING render degrade shipped a PR with five real visual defects; a PASSING
 # render captured the screen's default collapsed state and verified nothing; and the
 # design-blind panel reviewer passed while saying it could not verify against the design frame.
@@ -3814,10 +3815,10 @@ lean_extra_lanes_diff() {
 # The COST, stated rather than discovered: a manifest write reds the milestone until it is
 # committed, and `render_patch_id` moves on ANY commit, so a run with several fix rounds spends
 # several of its three milestone-3 attempts on re-render/commit cycles. D-2 accepted that. What
-# it buys is that no approved lean PR can carry render evidence for code it does not contain.
+# it buys is that no approved pipeline PR can carry render evidence for code it does not contain.
 #
 # What this gate does NOT do: compare anything. Comparison against the design frame is review
-# judgment (D-5) and lives in the review-lean session. Here the command is opaque — the gate
+# judgment (D-5) and lives in the /dev-pipeline:review session. Here the command is opaque — the gate
 # owns the state matrix, the output paths, the hashes and the manifest, and nothing else.
 RENDER_OUT_REL=".claude/lean-renders/$ISSUE"
 
@@ -4054,8 +4055,8 @@ render_bytes_ok() {
 # cheapest place to catch a wrong token row". Nothing read it. It was prose a build session emitted
 # and then implemented against, so both checks written to grade it reached nothing: the plan
 # reviewer's only sizing finding is scoped to a repeating/wrapping group, and component-resolution
-# suitability was deferred to an agent that, at the time, returned N/A on every lean-lane spec
-# (narrowed by #704's AC-4 — a lean-lane spec is in scope for it now).
+# suitability was deferred to an agent that, at the time, returned N/A on every pipeline spec
+# (narrowed by #704's AC-4 — a pipeline spec is in scope for it now).
 #
 # WHAT THIS ARM BUYS, stated as narrowly as #693's evidence table states its own: not fidelity, and
 # not that the plan is right. It makes the plan a COMMITTED, PATCH-BOUND artifact with two tables
@@ -4323,7 +4324,7 @@ design_plan_review_gate() { # design_plan_review_gate <plan-patch-id>
   say "milestone-3: translation plan reviewed by $rev (verdict $r_v, reviewed_plan_from $(printf '%.12s' "$r_from")) — $PLAN_REVIEW_MANIFEST_REL."
   # `fix-and-go` proceeds AS IS (D-30), and does not become a silent pass. A real fix moves nothing
   # this record binds to, so it is re-dispatched and the record is rewritten; a fix nobody made
-  # ships the finding list into the PR, where review-lean reads the committed record.
+  # ships the finding list into the PR, where /dev-pipeline:review reads the committed record.
   return 0
 }
 
@@ -4645,7 +4646,7 @@ cmd_3_render() {
   # design_state resolved `armed`, which now requires LR_OWNER=host — a sibling-owned lane unarms
   # and an unresolvable cwd is an authoring error, both decided at milestone 1 where a spec edit is
   # still cheap. The refusal this block used to raise told the non-hosting repo of a pair to "run
-  # the lean lane from the repo that owns the render harness", which was wrong advice: its backend
+  # the pipeline from the repo that owns the render harness", which was wrong advice: its backend
   # tickets belong in its own repo and want no render lane at all.
 
   case "$LR_COMMAND" in
@@ -5084,7 +5085,7 @@ cmd_4() {
   # read exactly when it applies, prose is read on every run. NO DETECTION happens here — the
   # refusal is the merge boundary's alone (check-lean-chain.sh evidence 6), and a second in-run
   # copy would be the duplicate machinery D-47 rules out, not defense in depth.
-  [ -f "$rec" ] || { block_milestone 4 "no committed verdict record at $VERDICT_REL — hand off to '/dev-pipeline:review-lean <pr>'. If this run wrote an intent-gap record, ratify it before that handoff: the merge boundary refuses one still reading 'ratified: no'." 5; return $?; }
+  [ -f "$rec" ] || { block_milestone 4 "no committed verdict record at $VERDICT_REL — hand off to '/dev-pipeline:review <pr>'. If this run wrote an intent-gap record, ratify it before that handoff: the merge boundary refuses one still reading 'ratified: no'." 5; return $?; }
   v_val="$(record_verdict "$rec")"
   if [ "$v_val" != "approve" ]; then
     fail_milestone 4 "verdict record $VERDICT_REL reads verdict=${v_val:-<none>}, not verdict=approve" 1; return $?
@@ -5105,7 +5106,7 @@ cmd_4() {
   # refreshed plugin, which is always available, so no transitional pass is warranted.
   v_head="$(record_key reviewed_head "$rec")"
   if [ -z "$v_head" ]; then
-    fail_milestone 4 "verdict record $VERDICT_REL carries no reviewed_head key, so nothing states which commit the review actually read. Re-run the review round on a dev-pipeline that writes it: '/dev-pipeline:review-lean <pr>'." 5; return $?
+    fail_milestone 4 "verdict record $VERDICT_REL carries no reviewed_head key, so nothing states which commit the review actually read. Re-run the review round on a dev-pipeline that writes it: '/dev-pipeline:review <pr>'." 5; return $?
   fi
 
   # AUTHORSHIP (P10). TWO build identities are compared, and both are FILE-BACKED:
@@ -5146,7 +5147,7 @@ cmd_4() {
   #
   # Derived from git, never from a key in the record: git decides which commit carries the
   # record, and the record's own prose cannot argue with it. The tolerance is exactly one path
-  # — the record itself — because the review session commits nothing else (review-lean step 6).
+  # — the record itself — because the review session commits nothing else (/dev-pipeline:review step 6).
   v_commit="$(git -C "$REPO_ROOT" log -1 --format=%H -- "$VERDICT_REL" 2>/dev/null)"
   if [ -z "$v_commit" ]; then
     fail_milestone 4 "verdict record $VERDICT_REL exists but was never committed — a local file is not evidence, and nothing downstream can see it. Commit and push it to the PR's head branch. The gate formats this record itself when a local prettier resolves; the spec and any intent-gap record it does not, so format those before committing if this repo's format gate covers $PLANS_DIR." 5
@@ -5181,7 +5182,7 @@ cmd_4() {
     v_chain="$(chain_walk "$v_inh" "$(record_key rounds "$rec")" "$v_commit")"
     case "$v_chain" in
       "ok "*) v_coverage="inheriting ${v_chain#ok } verified earlier round(s)" ;;
-      *)      fail_milestone 4 "verdict record $VERDICT_REL: ${v_chain#break } Get a review round that reads the full diff: '/dev-pipeline:review-lean <pr>'." 5
+      *)      fail_milestone 4 "verdict record $VERDICT_REL: ${v_chain#break } Get a review round that reads the full diff: '/dev-pipeline:review <pr>'." 5
               return $? ;;
     esac
   fi
@@ -5200,7 +5201,7 @@ cmd_4() {
   # — records predating the key carry none — but a value that IS present must be
   # `not-applicable`, so a `pass` cannot be parked on an unarmed run and inherited later.
   #
-  # The manifest arm is D-10's SECOND detector, not its first: review-lean checks staleness
+  # The manifest arm is D-10's SECOND detector, not its first: /dev-pipeline:review checks staleness
   # before it scores, so this is the backstop for a round that skipped that step or a fix that
   # landed between the scoring and the record.
   local d_state v_fid v_panel p_rev m_from cur_render
@@ -5223,11 +5224,11 @@ cmd_4() {
       return $?
     fi
     if [ -z "$v_panel" ] || [ "$v_panel" = "none" ] || ! panel_has "$v_panel" "$p_rev"; then
-      fail_milestone 4 "spec $SPEC_REL arms the design render lane, but $VERDICT_REL reads panel=${v_panel:-<none>}, which does not name $p_rev. An armed round is certified only once the provider's fidelity reviewer actually returned a result; nothing here attests that it ran. Get a round that dispatched it: '/dev-pipeline:review-lean <pr>'." 5
+      fail_milestone 4 "spec $SPEC_REL arms the design render lane, but $VERDICT_REL reads panel=${v_panel:-<none>}, which does not name $p_rev. An armed round is certified only once the provider's fidelity reviewer actually returned a result; nothing here attests that it ran. Get a round that dispatched it: '/dev-pipeline:review <pr>'." 5
       return $?
     fi
     if [ "$v_fid" != "pass" ]; then
-      fail_milestone 4 "spec $SPEC_REL arms the design render lane, but $VERDICT_REL reads fidelity=${v_fid:-<none>}, not fidelity=pass — an armed ticket is not approved until a design-sighted round scores its declared render states. Get one: '/dev-pipeline:review-lean <pr>'." 5
+      fail_milestone 4 "spec $SPEC_REL arms the design render lane, but $VERDICT_REL reads fidelity=${v_fid:-<none>}, not fidelity=pass — an armed ticket is not approved until a design-sighted round scores its declared render states. Get one: '/dev-pipeline:review <pr>'." 5
       return $?
     fi
     m_from="$(record_key rendered_from "$REPO_ROOT/$RENDER_MANIFEST_REL")"
@@ -5293,7 +5294,7 @@ cmd_verdict() {
   fi
   if [ "$sess" = "$b_prog_sess" ]; then
     warn "✗ verdict: this IS the build session ($sess) — the build session may not author its own review verdict (P10)."
-    warn "  Run the review from a fresh top-level session: /dev-pipeline:review-lean <pr>."
+    warn "  Run the review from a fresh top-level session: /dev-pipeline:review <pr>."
     return 1
   fi
 
@@ -5352,7 +5353,7 @@ cmd_verdict() {
   esac
   # Refused at the WRITER, where the contradiction is one flag away from being fixed, rather
   # than only at milestone 4 where it costs the round. A design failure is a blocker by
-  # definition, and a blocker is `needs-work` — review-lean's own rule, enforced here.
+  # definition, and a blocker is `needs-work` — /dev-pipeline:review's own rule, enforced here.
   if [ "$VERDICT_FIDELITY" = "fail" ] && [ "$VERDICT_VALUE" = "approve" ]; then
     warn "✗ verdict: --fidelity fail cannot accompany --verdict approve — a design-fidelity failure is a blocker, and any blocker is needs-work."
     return 1
@@ -5381,7 +5382,7 @@ cmd_verdict() {
   fi
 
   # The reviewed head, DERIVED from the checkout this call runs in — never an argument. The
-  # review session works from a checkout of the PR head (review-lean step 3), so HEAD here IS
+  # review session works from a checkout of the PR head (/dev-pipeline:review step 3), so HEAD here IS
   # the commit under review; a flag would let the caller name a head it did not read, which is
   # the exact failure the key exists to catch. Running `verdict` from the wrong checkout writes
   # a head that does not match, and every reader refuses it. That is fail-closed, and visible.
@@ -5428,7 +5429,7 @@ cmd_verdict() {
     body="$(cat "$SUMMARY_FILE")"
   fi
 
-  # THE ARMED EVIDENCE OBLIGATION (#693). `review-lean` step 5b already mandates comparing per RS
+  # THE ARMED EVIDENCE OBLIGATION (#693). `/dev-pipeline:review` step 5b already mandates comparing per RS
   # row "scoring each one in the summary"; the obligation existed and nothing checked it —
   # `--summary-file` was read as opaque text and no reader anywhere parsed it for shape. So the
   # armed lane's whole fidelity claim rested on one model's sighted comparison recorded as one
@@ -5469,16 +5470,16 @@ cmd_verdict() {
       return 1
     fi
     if [ -z "$VERDICT_PANEL" ]; then
-      warn "✗ verdict: --panel <a,b,c> is required on an armed ticket. It records the reviewer agent types review-lead RETURNED a result from — take the list from the round's structured result, qualified as review-lead's own panel names them — and $SPEC_REL makes $panel_reviewer mandatory. A reviewer that went dark is not in that list, and a round that lost the mandatory one is handed back under review-lean 5c rather than recorded."
+      warn "✗ verdict: --panel <a,b,c> is required on an armed ticket. It records the reviewer agent types review-lead RETURNED a result from — take the list from the round's structured result, qualified as review-lead's own panel names them — and $SPEC_REL makes $panel_reviewer mandatory. A reviewer that went dark is not in that list, and a round that lost the mandatory one is handed back under /dev-pipeline:review 5c rather than recorded."
       return 1
     fi
     if ! panel_has "$VERDICT_PANEL" "$panel_reviewer"; then
-      warn "✗ verdict: --panel '$VERDICT_PANEL' does not name $panel_reviewer, which $SPEC_REL's handoff host makes mandatory for an armed round. Either routing never selected it — review-lead's always-spawn row on an armed spec — or it went dark, and a dark mandatory reviewer VOIDS the round (review-lean 5c): hand it back, write no record."
+      warn "✗ verdict: --panel '$VERDICT_PANEL' does not name $panel_reviewer, which $SPEC_REL's handoff host makes mandatory for an armed round. Either routing never selected it — review-lead's always-spawn row on an armed spec — or it went dark, and a dark mandatory reviewer VOIDS the round (/dev-pipeline:review 5c): hand it back, write no record."
       return 1
     fi
   fi
 
-  # THE EMPTY PANEL (#825). `review-lean` 5c: when EVERY reviewer the round selected went dark the
+  # THE EMPTY PANEL (#825). `/dev-pipeline:review` 5c: when EVERY reviewer the round selected went dark the
   # round is VOIDED — post the coverage gap, write no record, spend no round, because an `approve`
   # would certify a review that never ran. That was prose only, and `--panel` was a free string, so
   # a REVIEW session whose whole panel failed to resolve wrote `panel: none` beside
@@ -5497,7 +5498,7 @@ cmd_verdict() {
   # separators are the two shapes a dark round actually produces, and an emptiness test sees
   # neither of them.
   if [ -z "$(panel_reviewers "$VERDICT_PANEL")" ]; then
-    warn "✗ verdict: --panel '${VERDICT_PANEL:-<empty>}' names no reviewer. A round that obtained a result from nobody is VOID under review-lean 5c: hand it back with the coverage gap posted, write no record, spend no round — an 'approve' here would certify a review that never ran. If reviewers did return, pass their agent types qualified as review-lead names them (e.g. review-toolkit:security-reviewer)."
+    warn "✗ verdict: --panel '${VERDICT_PANEL:-<empty>}' names no reviewer. A round that obtained a result from nobody is VOID under /dev-pipeline:review 5c: hand it back with the coverage gap posted, write no record, spend no round — an 'approve' here would certify a review that never ran. If reviewers did return, pass their agent types qualified as review-lead names them (e.g. review-toolkit:security-reviewer)."
     return 1
   fi
 
@@ -5509,7 +5510,7 @@ cmd_verdict() {
     # is what makes them distinguishable at this call site.
     if [ ! -f "$fid_spec" ]; then
       warn "✗ verdict: --fidelity pass, but this checkout carries no spec at $SPEC_REL — there is nothing that could have armed a design lane, and nothing to score the evidence against."
-      warn "  Run the verdict from a checkout of the PR head (review-lean step 3)."
+      warn "  Run the verdict from a checkout of the PR head (/dev-pipeline:review step 3)."
       return 1
     fi
     fid_state="$(design_state "$fid_spec")"
@@ -5550,7 +5551,7 @@ cmd_verdict() {
       printf '%s\n' "$fid_bad" | while IFS= read -r fid_line; do warn "    $fid_line"; done
       warn "  Columns, in order, case-insensitive: $FIDELITY_EVIDENCE_COLUMNS. Every cell non-empty."
       warn "  'verdict' is 'match', or 'deviation (<AC-n|D-n>)' naming a criterion $SPEC_REL declares. A cited deviation does not force fidelity=fail."
-      warn "  The grammar is in review-lean/SKILL.md step 5b. It makes the fidelity claim FALSIFIABLE by a human reader; it does not verify the render against the design, and no gate here does."
+      warn "  The grammar is in review/SKILL.md step 5b. It makes the fidelity claim FALSIFIABLE by a human reader; it does not verify the render against the design, and no gate here does."
       return 1
     fi
   fi
@@ -5578,7 +5579,7 @@ cmd_verdict() {
   # spec has read no definition of done — the same reasoning `--fidelity pass` makes above.
   if [ ! -f "$REPO_ROOT/$SPEC_REL" ]; then
     warn "✗ verdict: no committed spec at $SPEC_REL, so the record's AC scorecard has no declared criterion set to be reconciled against."
-    warn "  Run the verdict from a checkout of the PR head (review-lean step 3)."
+    warn "  Run the verdict from a checkout of the PR head (/dev-pipeline:review step 3)."
     return 1
   fi
   [ -f "$EVIDENCE_TOOL" ] \
@@ -5691,7 +5692,7 @@ cmd_delta() {
   # the START of a round and the cache is written at the END of one, so at this moment the cache
   # holds the PREVIOUS round's id — passing it would skip exactly the record this round means to
   # inherit and degrade every fix round to a full re-read, which is the cost the feature exists
-  # to remove. review-lean step 1 has the round's own RUN_ID exported by the time this runs.
+  # to remove. /dev-pipeline:review step 1 has the round's own RUN_ID exported by the time this runs.
   # Absent (an operator poking at the range by hand) both are empty and nothing is skipped,
   # which is the pre-existing behavior.
   this_run="${RUN_ID:-}"
@@ -6153,8 +6154,8 @@ closeout_patch_pr_body() { # closeout_patch_pr_body <pr-number> <current-body>
 }
 
 # (4) THE CLOSING COMMENT — github only. NO HTML MARKER, deliberately: a `<!-- stage: … -->` token
-# here would enrol this comment in check-pipeline-chain.sh's run-family selection, which is the
-# pollution the claim marker's own lean-distinct tag exists to avoid. Its machine consumer keys on
+# would once have enrolled this comment in the staged lane's run-family selection, and that reader
+# is gone since #731 — but none of this comment's consumers wants a marker either. They key on
 # CONTENT — the verdict-record path — which is also exactly what `verdict-reference` asserts, and
 # what retro-corpus's open-PRs mode filters on without ever reading the author.
 LEAN_COMMENT_ERROR=""
@@ -6163,7 +6164,7 @@ closeout_comment() { # closeout_comment <pr-url>
   LEAN_COMMENT_ERROR=""
   file="$(mktemp -t lean-closeout-comment.XXXXXX)" || envfail "mktemp failed."
   {
-    echo "🤖 Closed out by \`/dev-pipeline:build-lean\`."
+    echo "🤖 Closed out by \`/dev-pipeline:build\`."
     echo ""
     echo "- PR: $1"
     echo "- Verdict record: \`$VERDICT_REL\`"
@@ -6347,7 +6348,7 @@ run_milestone() {
   # that backgrounds this gate and ends its turn on every continuation; charging attempt_count()
   # would bill an operator Ctrl-C against a budget that means "a fix did not work", re-conflating
   # the difficulty signal #494 spent a ticket separating. So: its own counter, its own budget, and
-  # `rc=4` reused rather than a new code invented — build-lean's existing hard-stop handling
+  # `rc=4` reused rather than a new code invented — /dev-pipeline:build's existing hard-stop handling
   # (append the reason, one abort comment, keep the worktree and the claim) covers it unchanged.
   if [ "$unclosed" -ge "$budget" ]; then
     append_line "$(now_iso) | milestone-$n | interrupted-exhausted | $unclosed unconcluded"
@@ -6431,17 +6432,17 @@ cmd_all() {
 # the real fix budget. Placing it here rather than inside each cmd_* closes every start-at-
 # milestone-N path at once, including `all`'s cheap pre-pass.
 #
-# `delta` is in the set even though the REVIEW session invokes it (review-lean step 4), so a
+# `delta` is in the set even though the REVIEW session invokes it (/dev-pipeline:review step 4), so a
 # review of an unattested build is refused with a remedy only the build side can apply. That is
 # intended: a reviewer must not certify a run whose ledger never existed. `verdict` is NOT in the
 # set — a symmetric review-side ledger precondition is D-5's follow-up, gated on #417, because
-# review-lean step 3 works in the build run's leftover worktree and would false-red every honest
+# /dev-pipeline:review step 3 works in the build run's leftover worktree and would false-red every honest
 # review until that path split is fixed.
 #
 # The refusal names its SECOND cause too. The progress file is host-local and gitignored, so it
 # never travels with the branch: from a clone that is not a worktree of the build host, an
 # attested run looks identical to an unattested one, and the remedy the message gives cannot be
-# applied from there. That mostly bites `delta`, which the review session runs — review-lean
+# applied from there. That mostly bites `delta`, which the review session runs — /dev-pipeline:review
 # step 3 says "any checkout of that branch works", which for this one call it does not.
 #
 # AND IT DECLARES WHEN IT TOOK EFFECT (#444). This precondition is itself an arm that landed
@@ -6568,7 +6569,7 @@ require_entry_attested() {
 
 # #141, and FIRST: a wrong-tree call must report the wrong tree, not whatever the tree it landed
 # in happens to be missing. `verdict` joins this set although it is outside the one below —
-# review-lean owns it, and its record names a patch identity computed from THIS checkout's diff.
+# /dev-pipeline:review owns it, and its record names a patch identity computed from THIS checkout's diff.
 case "$SUB" in
   1|2|3|4|5|all|delta|verdict|close-out) require_lane_tree ;;
 esac

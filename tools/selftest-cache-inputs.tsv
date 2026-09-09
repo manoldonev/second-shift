@@ -124,22 +124,22 @@ plugins/dev-pipeline/tools/cost-block-selftest.sh	plugins/dev-pipeline/tools/gh-
 # tools/run-selftests.sh is already in the key as the runner's own blob id. It is declared
 # anyway so the closure reads as complete standing alone, rather than requiring the reader to
 # know what the key mixes in behind it.
-plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh
-plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	plugins/dev-pipeline/skills/build-lean/lean-gate.sh
-plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	plugins/dev-pipeline/skills/build-lean/SKILL.md
-plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	plugins/dev-pipeline/skills/build-lean/branch-prefix.sh
-plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	tools/run-selftests.sh
-plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	tools/gate-ablation-adjudication.tsv
-plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	tools/gate-ablation-classes.tsv
-plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	plugins/audit-toolkit/hooks/audit-tool-calls.sh
-plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	plugins/dev-pipeline/tools/operator-override.sh
-plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	plugins/dev-pipeline/tools/resolve-sibling.sh
-plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	plugins/dev-pipeline/tools/claim-issue.sh
-plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	plugins/dev-pipeline/tools/pipeline-cost-block.sh
-plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	plugins/dev-pipeline/tools/gh-bot.sh
-plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	plugins/intake-toolkit/skills/plan-interview/tools/ledger-lint.sh
-plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	plugins/design-toolkit/agents/figma-faithful-plan-reviewer.md
-plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	plugins/dev-pipeline/skills/build-lean/lean-evidence.sh
+plugins/dev-pipeline/skills/build/lean-gate-selftest.sh	plugins/dev-pipeline/skills/build/lean-gate-selftest.sh
+plugins/dev-pipeline/skills/build/lean-gate-selftest.sh	plugins/dev-pipeline/skills/build/lean-gate.sh
+plugins/dev-pipeline/skills/build/lean-gate-selftest.sh	plugins/dev-pipeline/skills/build/SKILL.md
+plugins/dev-pipeline/skills/build/lean-gate-selftest.sh	plugins/dev-pipeline/skills/build/branch-prefix.sh
+plugins/dev-pipeline/skills/build/lean-gate-selftest.sh	tools/run-selftests.sh
+plugins/dev-pipeline/skills/build/lean-gate-selftest.sh	tools/gate-ablation-adjudication.tsv
+plugins/dev-pipeline/skills/build/lean-gate-selftest.sh	tools/gate-ablation-classes.tsv
+plugins/dev-pipeline/skills/build/lean-gate-selftest.sh	plugins/audit-toolkit/hooks/audit-tool-calls.sh
+plugins/dev-pipeline/skills/build/lean-gate-selftest.sh	plugins/dev-pipeline/tools/operator-override.sh
+plugins/dev-pipeline/skills/build/lean-gate-selftest.sh	plugins/dev-pipeline/tools/resolve-sibling.sh
+plugins/dev-pipeline/skills/build/lean-gate-selftest.sh	plugins/dev-pipeline/tools/claim-issue.sh
+plugins/dev-pipeline/skills/build/lean-gate-selftest.sh	plugins/dev-pipeline/tools/pipeline-cost-block.sh
+plugins/dev-pipeline/skills/build/lean-gate-selftest.sh	plugins/dev-pipeline/tools/gh-bot.sh
+plugins/dev-pipeline/skills/build/lean-gate-selftest.sh	plugins/intake-toolkit/skills/plan-interview/tools/ledger-lint.sh
+plugins/dev-pipeline/skills/build/lean-gate-selftest.sh	plugins/design-toolkit/agents/figma-faithful-plan-reviewer.md
+plugins/dev-pipeline/skills/build/lean-gate-selftest.sh	plugins/dev-pipeline/skills/build/lean-evidence.sh
 
 #   #622 added a SIXTH beside-the-subject resolution, and it is the one that matters most to
 #   this table: `lean-gate.sh verdict` shells out to lean-evidence.sh for the AC-scorecard
@@ -157,4 +157,4 @@ plugins/dev-pipeline/skills/build-lean/lean-gate-selftest.sh	plugins/dev-pipelin
 # mktemp tree.
 scripts/check-lean-chain-selftest.sh	scripts/check-lean-chain-selftest.sh
 scripts/check-lean-chain-selftest.sh	scripts/check-lean-chain.sh
-scripts/check-lean-chain-selftest.sh	plugins/dev-pipeline/skills/build-lean/lean-evidence.sh
+scripts/check-lean-chain-selftest.sh	plugins/dev-pipeline/skills/build/lean-evidence.sh

@@ -25,7 +25,7 @@ trap 'rm -rf "$BASE"' EXIT
 # run_runner <fixture-root> [args...] -> writes $OUT, sets $RC
 #
 # LEAN_SELFTEST_CACHE_DIR (#563) is SCRUBBED, and the scrub is not hygiene:
-# the lean gate exports a STORE too, and an inherited one would turn the cache ON in every case
+# the milestone gate exports a STORE too, and an inherited one would turn the cache ON in every case
 # below that asserts nothing is served without --cache-dir.
 #
 # EVERY DIRECT INVOCATION BELOW CARRIES THE SAME SCRUB, and until #613 the policy was stated here
@@ -183,7 +183,7 @@ done
 # itself — and the hostile store in front of it is the assertion, not scenery. Without the scrub
 # an ambient store activates the pass cache (`cache: activated from LEAN_SELFTEST_CACHE_DIR`),
 # and this case then runs a cached sweep while claiming to measure a cold one. That is not
-# hypothetical: the lean gate exports a store into every milestone-3 child, one of which is the
+# hypothetical: the milestone gate exports a store into every milestone-3 child, one of which is the
 # sweep that runs this file, so the leak surfaces only on a machine whose operator carries the
 # variable. Setting one here makes a dropped scrub fail EVERYWHERE instead of only there — which
 # is why the assertion is two-sided: the jobs number AND the absence of the activation line.
@@ -905,7 +905,7 @@ DUPES="$(grep -v '^#' "$HERE/selftest-suite-timings.tsv" | grep -v '^$' | cut -f
                   || fail "slow-table: duplicate row(s) in the committed table: $DUPES"
 
 # =========================================================================================
-# #563 — THE LEAN LANE'S ACTIVATION PATH.
+# #563 — THE PIPELINE'S ACTIVATION PATH.
 #
 # lean-gate.sh milestone 3 cannot pass a flag to a `test` command it does not own, so it hands
 # the store down as $LEAN_SELFTEST_CACHE_DIR. That is a SECOND way to turn a cache on, and the

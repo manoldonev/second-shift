@@ -3,7 +3,7 @@
 CI here is model-free by design, so nothing it runs can answer the question a release
 actually turns on: **is the kit better or worse to use than it was last release?** This
 document is the protocol for the one measurement CI structurally cannot make — replay a
-fixed corpus of five tickets through the lean lane **in a consumer repo, with the kit
+fixed corpus of five tickets through the pipeline **in a consumer repo, with the kit
 installed rather than in tree**, and record what it cost.
 
 The output is four numbers per fixture ticket and the maintainer's judgment over them. There

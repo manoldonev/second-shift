@@ -259,7 +259,7 @@ jobs:
     # Gaining a scope here is a question about the CONSUMER template too. If the arm needing it
     # lives in the delegated payload (lean-evidence.sh), then
     # plugins/second-shift/templates/consumer/second-shift-ci.yml needs the same scope, and
-    # without it every adopting repo's lean PRs red on an environment error. If it lives only in
+    # without it every adopting repo's pipeline PRs red on an environment error. If it lives only in
     # check-lean-chain.sh, the template must NOT get it — an unused scope there is a standing
     # escalation for a job that executes a fetched script. Reasoned out in docs/testing.md
     # (the `lean evidence TOKEN SCOPES` entry under *Couplings considered and declined*).
@@ -298,44 +298,17 @@ jobs:
           BASE_REF: ${{ github.base_ref }}
         run: bash scripts/check-changelog-trailer.sh "origin/$BASE_REF"
 
-      # T2 rung 1: a pipeline-authored PR must carry a complete, single-family, key-consistent
-      # stage trail as of PR open. Same env-not-interpolation discipline as BASE_REF above,
-      # and it matters more here: a PR body is far more attacker-controllable than a ref name.
+      # The pipeline's merge-boundary gate, and the ONLY chain gate now: #731 deleted the
+      # staged lane's `check-pipeline-chain.sh`, whose stage-marker trail nothing had emitted
+      # since #348, so there is no sibling left to keep disjoint from. A PR is claimed when
+      # `lean-evidence.sh` classifies it — the committed spec in the PR's own diff — which
+      # also means a hand-cut branch on the same namespace is claimed by no gate at all.
       #
-      # PIPELINE_COMMENT_AUTHOR is deliberately NOT set. The check already restricts the trail
-      # to `user.type == "Bot"`, which is what closes the drive-by-comment attack (this repo is
-      # public, so anyone can comment on an issue). Pinning the exact bot login would only
-      # additionally exclude *other* GitHub Apps, and it would write an app identity into a
-      # committed file plus add a third constant that can go stale. Set it if that trade flips.
-      #
-      # PR_BASE_REF and PR_HEAD_SHA are additional to the PR_* set the stage-trail arms need:
-      # this check now delegates its lean exclusion to lean-evidence.sh (#413), which reads the
-      # PR's CHANGED FILES and therefore needs a base to diff against. Without them the
-      # classifier sees an empty diff, reports every lean PR as non-lean, and this gate reds it
-      # on a stage trail the lean lane never emits. Same head-commit discipline as the lean
-      # gate's step below.
-      - name: pipeline chain reconciliation (pipeline-authored PRs carry a complete stage trail)
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          PR_BASE_REF: ${{ github.base_ref }}
-          PR_BODY: ${{ github.event.pull_request.body }}
-          PR_CREATED_AT: ${{ github.event.pull_request.created_at }}
-        run: bash scripts/check-pipeline-chain.sh
-
-      # The lean harness's own merge-boundary gate. A SIBLING of the check above, not a mode of
-      # it: the two read different evidence sets. They no longer cover disjoint branch
-      # NAMESPACES — #413 put both lanes on `<tracker.branchPrefix><key>` — so what keeps exactly
-      # one of them claiming a PR is the committed lean spec, and both resolve that through the
-      # SAME classifier (lean-evidence.sh) rather than by two agreeing implementations.
-      #
-      # PR_BASE_REF is load-bearing for both steps, not a convenience: the classifier's sole
-      # applicability arm scans the PR's changed files, which needs a base to diff against, and
-      # it exits 2 rather than reporting "not lean" when it cannot. Dropping this key reds both
-      # gates instead of silently exempting the PR from them. Same env-not-interpolation
-      # discipline throughout.
+      # PR_BASE_REF is load-bearing, not a convenience: the classifier's sole applicability
+      # arm scans the PR's changed files, which needs a base to diff against, and it exits 2
+      # rather than reporting "not lean" when it cannot. Dropping this key reds the gate
+      # instead of silently exempting the PR from it. Same env-not-interpolation discipline
+      # throughout.
       #
       # PR_HEAD_SHA is the freshness check's measuring point and must be the HEAD COMMIT, not
       # `HEAD`: on a pull_request event actions/checkout resolves refs/pull/N/merge, so HEAD is
@@ -345,9 +318,9 @@ jobs:
       # PR_NUMBER is the delegated payload's input, not this script's: the build run's identity
       # is a bot marker comment on the PR, and the arm reading it fetches that trail by number.
       # Absent, the payload exits 2 and this gate propagates it — a check that cannot run is
-      # never scored as a pass, so dropping this constant reds every lean PR rather than
+      # never scored as a pass, so dropping this constant reds every pipeline PR rather than
       # quietly waiving the authorship comparison.
-      - name: lean chain reconciliation (lean PRs carry their evidence set)
+      - name: lean chain reconciliation (pipeline PRs carry their evidence set)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}

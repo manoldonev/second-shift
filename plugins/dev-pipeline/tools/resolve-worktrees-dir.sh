@@ -6,7 +6,7 @@
 # #348 deleted the staged lane, and with it the other five (the intake step's pin, the
 # worktree step's be-fe-pair loop and its single-repo block — worktree-add plus a
 # separate persist fence — and the cleanup step's intake-pin backstop). The
-# lean lane cuts its worktree by hand per `build-lean` step 3, so it is not a caller.
+# pipeline cuts its worktree by hand per `/dev-pipeline:build` step 3, so it is not a caller.
 #
 # `worktreesDir` is documented as OPTIONAL with a default of `../<repo>-worktrees`
 # (schema/second-shift.config.schema.json) — but before this script existed, three call
