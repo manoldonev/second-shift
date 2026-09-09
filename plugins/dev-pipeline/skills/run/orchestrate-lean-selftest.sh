@@ -342,6 +342,7 @@ chmod +x "$BIN/fake-gate.sh"
 # scored as this case's.
 SPAWN_LOG_DIR=""; GATE_LOG_DIR=""; GH_LOG=""; LABELS_FILE=""; PR_FILE=""
 AGENTS_STATE_FILE=""; SPAWN_ID_FILE=""; CASE_HOME=""; GATE_RC_FILE=""
+CASE_CONFIG_DIR=""
 PROGRESS_M5_FILE=""; COMMENTS_FILE=""
 STALENESS_RC_FILE=""; STALENESS_TICKET_RC_FILE=""
 PROGRESS_OBL_FILE=""; INFLIGHT_RC_FILE=""; CLOSEOUT_RC_FILE=""
@@ -373,6 +374,9 @@ setup_case() { # setup_case <agent-states> <gate-rcs> <labels> <pr>
   # developer's own harness happened to be holding. Empty by default: no final message, which is
   # the shape every pre-existing case assumes.
   CASE_HOME="$d/home"; mkdir -p "$CASE_HOME"
+  # Cleared per case alongside it: a relocated config dir is one case's fixture, and a leaked one
+  # would point the next case's transcript read at the previous case's tree.
+  CASE_CONFIG_DIR=""
   : > "$SPAWN_ID_FILE"
   PROGRESS_M5_FILE="$d/progress-m5"
   # #515 DEFAULT: EMPTY streams, so every staleness read answers 0 and every pre-existing case
@@ -443,6 +447,13 @@ run_tool() { # run_tool [config] [args...]
          LEAN_GATE="$BIN/fake-gate.sh"
          SPAWN_LOG_DIR="$SPAWN_LOG_DIR" AGENTS_STATE_FILE="$AGENTS_STATE_FILE"
          SPAWN_ID_FILE="$SPAWN_ID_FILE" HOME="$CASE_HOME"
+         # PINNED, NOT INHERITED, and this completes the private-HOME isolation above rather than
+         # decorating it. The tool roots the transcript glob at `CLAUDE_CONFIG_DIR` when it is
+         # set, so a developer whose own harness sets it — a machine routing more than one seat —
+         # would have every transcript case read that real directory no matter what HOME says.
+         # Defaulted to the case's own `.claude` so the pre-existing cases keep the layout they
+         # were written against; the case that relocates it sets CASE_CONFIG_DIR.
+         CLAUDE_CONFIG_DIR="${CASE_CONFIG_DIR:-$CASE_HOME/.claude}"
          # The poll interval, pinned so the suite never sleeps. D-8's ceiling is NOT here — see
          # below.
          LEAN_SPAWN_POLL_SECS=0
@@ -1974,8 +1985,10 @@ else fail "(bg2b) expected exactly one close block, got $bg2b_n: [$(cat "$bg2b_l
 # /dev-pipeline:review" — PR open, marker posted, nothing pending — was listed `blocked`, and #813's was
 # listed `working` for an hour. The tool now reads the transcript: a last assistant record with
 # `stop_reason` `end_turn` and no backgrounded command left outstanding is a turn that ENDED, and
-# the run proceeds as for `done` — the GATE decides completeness. Four fixtures, one per shape:
+# the run proceeds as for `done` — the GATE decides completeness. Five fixtures: four for the
+# shapes the oracle reads, and one for where it reads them from.
 #   (bg2c) blocked, turn ended                      → proceeds; ledger says done; session stopped
+#   (bg2g) blocked, turn ended, projects tree relocated by CLAUDE_CONFIG_DIR → proceeds anyway
 #   (bg2d) blocked, turn ended, a background command still running → stays blocked (D-8's shape)
 #   (bg2e) blocked, turn parked on a tool call      → stays blocked (a genuine prompt)
 #   (bg2f) working forever, turn ended              → proceeds on the first poll, never `stuck`
@@ -2010,6 +2023,31 @@ if [ "$rc" -eq 0 ] && [ "$(slug_of "$out")" = "approved" ] \
    && grep -q 'stop sess1' "$SPAWN_LOG_DIR/stops" 2>/dev/null; then
   pass "(bg2c) a BUILD listed blocked whose transcript's last turn ENDED settles as done, is stopped, and the run proceeds to REVIEW — the summary's word does not end a finished lane"
 else fail "(bg2c) expected rc=0/approved with BUILD state=done, got rc=$rc / slug=$(slug_of "$out") / end=[$bg2c_end] / stops=[$(cat "$SPAWN_LOG_DIR/stops" 2>/dev/null)]: $out"; fi
+
+# (bg2g) THE SAME SETTLE, WITH THE RECORD WHERE THE HARNESS ACTUALLY PUT IT. bg2c above proves the
+# oracle reads an ended turn; it cannot prove the reader FINDS the transcript, because its fixture
+# writes to the one path a default install uses. `CLAUDE_CONFIG_DIR` relocates the whole durable
+# record, and both readers glob it — so this case moves the projects tree out from under
+# `$HOME/.claude` entirely and leaves nothing behind at the default. A reader rooted at the default
+# then matches no file, which is indistinguishable from "no transcript": `turn_ended` answers not-
+# ended and the finished BUILD terminates the run as `build-session-failed`, while
+# `transcript_close` writes the empty final message that is the operator's only diagnostic. Both
+# halves are asserted here, because the two failures are one root cause and a case covering only
+# the settle would leave the diagnostic silently broken.
+setup_case "$(printf 'blocked\ndone\n')" "$V_APPROVE" "ready-for-dev" "11"
+CASE_CONFIG_DIR="$CASE_HOME/elsewhere/config"
+ended_transcript "$CASE_CONFIG_DIR/projects/some-cwd-slug/sess1-full.jsonl"
+out="$(LAUNCH_ID_OVERRIDE=bg2g-launch run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+bg2g_end="$(sed -n "s/.*	bg2g-launch	$ISSUE	spawn-end	//p" "$TREE/.claude/pipeline-state/$ISSUE-lean-launches.tsv" 2>/dev/null)"
+bg2g_log="$TREE/.claude/pipeline-state/$ISSUE-lean-spawn-bg2g-launch-1-build.log"
+if [ "$rc" -eq 0 ] && [ "$(slug_of "$out")" = "approved" ] \
+   && [ ! -d "$CASE_HOME/.claude/projects" ] \
+   && grep -q '^n=1 role=BUILD state=done$' <<<"$bg2g_end" \
+   && grep -q '^n=2 role=REVIEW ' <<<"$bg2g_end" \
+   && grep -q 'listed blocked, but its transcript' <<<"$out" \
+   && grep -q 'awaiting /dev-pipeline:review verdict' "$bg2g_log" 2>/dev/null; then
+  pass "(bg2g) both transcript readers root at CLAUDE_CONFIG_DIR — a relocated projects tree still settles the finished BUILD as done AND still yields its final message"
+else fail "(bg2g) expected rc=0/approved with BUILD state=done and a recovered final message, got rc=$rc / slug=$(slug_of "$out") / end=[$bg2g_end] / log=[$(cat "$bg2g_log" 2>/dev/null)]: $out"; fi
 
 setup_case "$(printf 'working\nblocked\n')" "$V_APPROVE" "ready-for-dev" "11"
 ended_transcript "$CASE_HOME/.claude/projects/some-cwd-slug/sess1-full.jsonl" pending
