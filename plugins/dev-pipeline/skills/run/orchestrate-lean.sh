@@ -324,11 +324,22 @@ stop_session() { # stop_session <id>
 #
 # GLOBBED rather than slug-derived: the projects directory name is a harness encoding of the cwd,
 # and re-deriving it here would be this script modelling a private path format.
+#
+# ROOTED AT `CLAUDE_CONFIG_DIR` WHERE IT IS SET, because only the encoding below the root is
+# private — the root itself is configurable, and a machine routing more than one seat moves the
+# whole durable record with it, transcripts included. Rooting at the default there makes the glob
+# match nothing, and BOTH readers spell an unmatched glob as their own fail-closed answer: an
+# empty final message here, and a turn that never counts as ended in `turn_ended`. Neither can say
+# "the file was somewhere else", so the two failures compound — a BUILD that finished ends its run
+# as `build-session-failed`, and the transcript the terminal names for the diagnosis is the one
+# this function just wrote empty. Both roots are tried because only the harness knows which it
+# wrote under; unset, the two patterns are identical and the second pass costs one glob.
 transcript_close() { # transcript_close <log> <sessionId>
   local log="$1" sid="$2" f last
   [ "$log" = "/dev/null" ] && return 0
   [ -n "$sid" ] || { printf '\n[orchestrate-lean] no session id — the final message could not be read.\n' >> "$log" 2>/dev/null; return 0; }
-  for f in "$HOME"/.claude/projects/*/"$sid".jsonl; do
+  for f in "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/projects/*/"$sid".jsonl \
+           "$HOME"/.claude/projects/*/"$sid".jsonl; do
     [ -f "$f" ] || continue
     last="$(jq -s -r '[ .[] | select(.type == "assistant") | .message.content[]?
                         | select(.type == "text") | .text ] | last // empty' "$f" 2>/dev/null)"
@@ -355,10 +366,15 @@ transcript_close() { # transcript_close <log> <sessionId>
 #   3. the transcript exists and parses. Missing or unreadable is NOT "ended": the poll then
 #      falls through to the arm it always had, which is the fail-closed half.
 # Answers 0 for ended, 1 otherwise. Never prints.
+#
+# The root is resolved exactly as `transcript_close` resolves it, and for the reason spelled out
+# there: condition 3 cannot tell "no such transcript" from "not looking where it was written", so
+# a mis-rooted glob silently disarms the oracle both false-settle arms depend on.
 turn_ended() { # turn_ended <sessionId>
   local sid="$1" f verdict
   [ -n "$sid" ] || return 1
-  for f in "$HOME"/.claude/projects/*/"$sid".jsonl; do
+  for f in "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/projects/*/"$sid".jsonl \
+           "$HOME"/.claude/projects/*/"$sid".jsonl; do
     [ -f "$f" ] || continue
     verdict="$(jq -s -r '
       def texts: (.message.content // .content // "")
