@@ -109,8 +109,8 @@ Each `-selftest.sh` follows its subject.
     the `pr-gates` job, not a required status check — branch protection keys on the JOB, and a
     consumer's own evidence job is named `second-shift evidence` — so renaming it would migrate
     no settings and red no merge. It is frozen for the reader instead: the name is how an
-    operator reading a red `pr-gates` log finds the arm that failed, and six frozen verdict
-    records under `docs/plans/` quote it verbatim. Churn with no reader served.
+    operator reading a red `pr-gates` log finds the arm that failed, and the frozen verdict
+    records under `docs/plans/` quote it verbatim — dozens of them. Churn with no reader served.
   - **`plugins/intake-toolkit/skills/plan-interview/tools/dup-scan-fixtures/corpus-live.json`** —
     a frozen calibration corpus of real issue text; `dup-scan.sh` says so in its own header.
   - **the eval records' narrative** — `CLOSEOUT-BASELINE.md` and its siblings under
