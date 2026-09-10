@@ -23,6 +23,10 @@
 # ZERO NETWORK, zero fixtures beyond a mktemp scratch file.
 #
 # bash-3.2-safe; runs in CI via the '*-selftest.sh' discovery loop.
+# SC2016 is disabled file-wide: `probe` takes its snippet as a SINGLE-QUOTED string on purpose —
+# the body is evaluated in a child shell, where `$V` must still be a variable reference and not
+# this shell's (empty) expansion. Every hit shellcheck reports here is that idiom working.
+# shellcheck disable=SC2016
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"

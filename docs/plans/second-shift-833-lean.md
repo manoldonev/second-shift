@@ -72,8 +72,10 @@ Each `-selftest.sh` follows its subject.
   side that reads the register — `boundary-evidence.sh` carries the same constant inside the
   `override-record-reader` LOCKSTEP block for its message text and consults no file — so the
   fallback lands there, outside the block, and the block stays byte-identical on both sides.
-- **AC-5** — Outside the compatibility sites AC-2 and AC-4 introduce, and outside `docs/plans/` and
-  `CHANGELOG.md`, no tracked file carries a `LEAN_` token. Verified with a **fixed-string** grep
+- **AC-5** — Outside the compatibility sites AC-2 and AC-4 introduce — which include the suite that
+  proves them (`lane-env-selftest.sh`), the two `tools/mutation-catalog.tsv` rows that mutate them,
+  and the docs and register notes that describe them, none of which would exist without the
+  fallback — and outside `docs/plans/` and `CHANGELOG.md`, no tracked file carries a `LEAN_` token. Verified with a **fixed-string** grep
   (`git grep -F 'LEAN_'`). `git grep -E '\bLEAN_'` returns zero despite the real matches — `\b` is
   not honored on this path, so that idiom reports success having changed nothing.
 - **AC-6** — Every path-keyed register that anchors on a renamed script is re-anchored:
