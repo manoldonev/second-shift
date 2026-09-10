@@ -746,6 +746,77 @@ LEANPRNS
 
   lean_seed_progress r-lean-1 sess-lean-build
 
+  # ---- leg 3h: P9 as a gate — the departure refusal and the review's hand-back, composed --------
+  # CLAUDE.md's obligation: a new gate contract extends this scenario for every verdict path it
+  # touches. Two paths here. (1) Milestone 1: the same receipt as (lean-receipt), and a spec that
+  # marks its one bound row `DEPARTURE — …` — the shape the private eval substrate's series 1
+  # shipped and approved. Refuses naming P9 until the intent-gap record exists, then passes with
+  # the count disclosed. (2) Milestone 4: the review's `--hand-back ratification` writes the record
+  # and no verdict, and the same gate the scheduler polls classifies the branch 11 — through `4`
+  # AND through `all`, so the pre-pass cannot launder it into its own 1 — and back to the
+  # ordinary 5 once `ratified:` flips. The per-tool suite proves each call in isolation; only the
+  # composed leg shows the record one call writes is the record the next one reads.
+  printf '%s\n' '# receipt' '## Decision Ledger' \
+    '| ID | Decision | Resolution | Provenance | Kind |' \
+    '| --- | --- | --- | --- | --- |' \
+    '| D-1 | Fix scope | Both call sites | user-answered | intent |' \
+    > "$LEAN_RECEIPT"
+  LEAN_GAP="$LEAN_TREE/docs/plans/acme-77-lean-intent-gap.md"
+  rm -f "$LEAN_GAP"
+  cp "$TMP/held-lean-spec-517.md" "$LEAN_SPEC"
+  {
+    printf '\n## Decision Ledger\n'
+    printf '| ID | Decision | Resolution | Provenance |\n'
+    printf '| --- | --- | --- | --- |\n'
+    printf '| D-1 | Fix scope | DEPARTURE — narrowed to the import path | user-answered |\n'
+  } >> "$LEAN_SPEC"
+  lean_seed_progress r-lean-1 sess-lean-build
+  p9_dep_out="$(lean_gate 1 77 2>&1)"; p9_dep=$?
+  printf 'issue: 77\nrun_id: r-lean-1\nsession_id: sess-lean-build\nregion: undeclared\ndisposition: reversible-default-and-flag\nratified: no\nratified_by:\n\n## Gap\n\nD-1 narrowed.\n' > "$LEAN_GAP"
+  lean_commit "build records the departure as an intent gap"
+  lean_seed_progress r-lean-1 sess-lean-build
+  p9_rec_out="$(lean_gate 1 77 2>&1)"; p9_rec=$?
+
+  [[ "$p9_dep" -eq 1 && "$p9_rec" -eq 0 ]] \
+    && grep -q 'departs from 1 ratified intent row(s)' <<< "$p9_dep_out" \
+    && grep -q 'P9' <<< "$p9_dep_out" \
+    && grep -q 'acme-77-lean-intent-gap.md' <<< "$p9_dep_out" \
+    && grep -q '1 bound, 0 carried, 1 departure(s)' <<< "$p9_rec_out" \
+    && pass "(lean-p9-departure) a DEPARTURE from a user-answered receipt row reds milestone 1 naming P9 and the record path, and passes once the intent-gap record is on the branch" \
+    || fail "(lean-p9-departure) dep=$p9_dep rec=$p9_rec, expected 1/0. dep-out=$p9_dep_out rec-out=$p9_rec_out"
+
+  # (2) the hand-back. No verdict on the tree, no record: the review session hands the round back.
+  rm -f "$LEAN_GAP"
+  [[ -f "$LEAN_VERDICT" ]] && mv "$LEAN_VERDICT" "$TMP/held-lean-verdict-p9.md"
+  lean_commit "tree with no verdict and no record"
+  printf 'AC-2 of the issue says 7; receipt row D-2 (user-answered) says 3; the spec ships 3. Which governs is a human ruling.\n' > "$TMP/lean-p9-gap.md"
+  lean_seed_progress r-lean-1 sess-lean-build
+  rm -f "$LEAN_TREE/.claude/pipeline-state/77-review-run-id"
+  p9_hb_out="$( unset RUN_ID GH_BOT; cd "$LEAN_TREE" && SECOND_SHIFT_CONFIG="$LEAN_CFG" \
+    LEAN_PROGRESS_FILE="$LEAN_PROG" CLAUDE_CODE_SESSION_ID=sess-lean-review-p9 RUN_ID=r-lean-review-p9 \
+    bash "$LEAN_GATE" verdict 77 --pr 5 --hand-back ratification --summary-file "$TMP/lean-p9-gap.md" 2>&1 )"; p9_hb=$?
+  p9_hb_verdict=0; [[ -f "$LEAN_VERDICT" ]] && p9_hb_verdict=1
+  lean_commit "review session commits the hand-back record"
+  lean_seed_progress r-lean-1 sess-lean-build
+  lean_gate 4 77 >/dev/null 2>&1; p9_m4=$?
+  lean_gate all 77 >/dev/null 2>&1; p9_all=$?
+  sed -i.bak 's/^ratified: no$/ratified: yes/' "$LEAN_GAP" && rm -f "$LEAN_GAP.bak"
+  lean_commit "operator ratifies the record"
+  lean_seed_progress r-lean-1 sess-lean-build
+  lean_gate 4 77 >/dev/null 2>&1; p9_m4_rat=$?
+
+  [[ "$p9_hb" -eq 0 && "$p9_hb_verdict" -eq 0 && "$p9_m4" -eq 11 && "$p9_all" -eq 11 && "$p9_m4_rat" -eq 5 ]] \
+    && grep -q 'disposition: pause-and-ask' "$LEAN_GAP" \
+    && grep -q 'session_id: sess-lean-review-p9' "$LEAN_GAP" \
+    && pass "(lean-p9-handback) the review's --hand-back writes the intent-gap record and no verdict; milestone 4 and 'all' both classify the branch 11, and a ratified record is the ordinary 5 again" \
+    || fail "(lean-p9-handback) hb=$p9_hb verdict-written=$p9_hb_verdict m4=$p9_m4 all=$p9_all ratified-m4=$p9_m4_rat, expected 0/0/11/11/5. hb-out=$p9_hb_out"
+
+  rm -f "$LEAN_GAP" "$LEAN_RECEIPT"
+  cp "$TMP/held-lean-spec-517.md" "$LEAN_SPEC"
+  [[ -f "$TMP/held-lean-verdict-p9.md" ]] && mv "$TMP/held-lean-verdict-p9.md" "$LEAN_VERDICT"
+  lean_commit "leg 3h restored"
+  lean_seed_progress r-lean-1 sess-lean-build
+
   # ---- leg 3f: the attended-operator override, composed (#613) --------------
   # CLAUDE.md's obligation again: a new gate contract extends this scenario for every verdict
   # path it touches, and #613 gives milestone 1 a THIRD way to clear a pause-and-ask region.

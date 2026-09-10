@@ -211,6 +211,13 @@ One record per issue, one `ratified:` key covering it; a second gap resets it to
 committing the flip moves the branch, it costs a fresh review round — land ratification before
 the review handoff where you can.
 
+The review half writes the same record when its round's only blocker is a ratification question
+(`/dev-pipeline:review` 5d, via `lean-gate.sh verdict --hand-back ratification`): `region:
+undeclared`, `disposition: pause-and-ask`, `ratified: no`, the `## Gap` being the reviewer's own
+statement, and the run/session ids the review's. The reader side is unchanged — the merge
+boundary gates on `ratified:`/`ratified_by:` and milestone 4 on `disposition:`/`ratified:` —
+so who authored the record does not change what clears it.
+
 ## Who emits what
 
 Each intake-role skill keeps its own purpose and trigger; what unifies them is the ledger:

@@ -128,6 +128,15 @@
 #                                        ticket and must name at least one reviewer: a round
 #                                        whose whole panel went dark is void under /dev-pipeline:review
 #                                        5c and is handed back, not recorded (#825).
+#   lean-gate.sh verdict <issue> --pr <n> --hand-back ratification --summary-file <path>
+#                                        REVIEW role, the P9 hand-back (review/SKILL.md 5d): the
+#                                        round's one blocker is "which of two ratified artifacts
+#                                        governs", which is a human ruling and not a finding. Writes
+#                                        the intent-gap record (region undeclared, disposition
+#                                        pause-and-ask, ratified no) with --summary-file as its
+#                                        `## Gap`, and NO verdict record; refuses when a record
+#                                        already exists. Milestone 4 then exits 11 and the
+#                                        scheduler stops the lane `review-paused`.
 #   lean-gate.sh plan-review <issue> --verdict <pass|fix-and-go|block> --summary-file <path>
 #                                        [--model <m>]
 #                                        BUILD role (#710): write the committed plan-review
@@ -195,6 +204,11 @@
 #           spent. Its own integer because the remedy is POSITIONAL, and because this is the one
 #           failure mode that otherwise does not fail at all: every answer here is derived from the
 #           tree the process is in, so from the wrong one the gate is confidently wrong.
+#      11 = milestone 4 only: HANDED BACK (P9) — no verdict record, and the branch carries an
+#           intent-gap record reading `disposition: pause-and-ask` / `ratified: no`. The lane is
+#           waiting on an OPERATOR ruling, not on a review: a re-spawned review would hand the same
+#           question back. Its own integer because the scheduler's remedy is to stop the lane
+#           `review-paused`, spending no round and no review retry.
 #      10 = UNRESOLVABLE TICKET ARGUMENT (#611): `entry`/`claim` were given no ticket, or one that
 #           does not validate, does not exist, is closed with no evidence this run claimed it, or
 #           disagrees with the lane branch — that last arm binds `mark` and `teardown` too. Nothing
@@ -301,6 +315,8 @@ VERDICT_PANEL=""
 # Initialised EMPTY like every sibling, never from the environment: a same-named variable leaking
 # in from a caller's shell would satisfy a required flag no caller passed.
 VERDICT_MODEL=""
+# The P9 hand-back (review/SKILL.md 5d). Empty like every sibling; `ratification` is its one value.
+VERDICT_HANDBACK=""
 SUMMARY_FILE=""
 PROGRESS_SATISFIED=""
 # #531 D-12. A third `progress` mode, and a REPORT rather than a token: the scheduler's close-out
@@ -383,12 +399,13 @@ while [ $# -gt 0 ]; do
     --fidelity)      VERDICT_FIDELITY="${2:-}"; shift 2 ;;
     --panel)         VERDICT_PANEL="${2:-}"; shift 2 ;;
     --summary-file)  SUMMARY_FILE="${2:-}"; shift 2 ;;
+    --hand-back)     VERDICT_HANDBACK="${2:-}"; shift 2 ;;
     --model)         VERDICT_MODEL="${2:-}"; shift 2 ;;
     --satisfied)     PROGRESS_SATISFIED="${2:-}"; shift 2 ;;
     --obligations)   PROGRESS_OBLIGATIONS=1; shift ;;
     --arm)           STALENESS_ARM="${2:-}"; shift 2 ;;
     --ticket-source) TICKET_SOURCE="${2:-}"; shift 2 ;;
-    -h|--help)       sed -n '2,276p' "$0"; exit 0 ;;
+    -h|--help)       sed -n '2,290p' "$0"; exit 0 ;;
     -*)              envfail "unknown option: $1" ;;
     *)
       if [ "$POSITIONAL" -eq 0 ]; then SUB="$1"; POSITIONAL=1
@@ -3607,7 +3624,7 @@ resolve_plan_reviewer_agent() { # resolve_plan_reviewer_agent <bare-agent-name>
 # file "exists" means, and check-lean-chain.sh keys its artifact scan off the same shape.
 cmd_1() {
   local spec="$REPO_ROOT/$SPEC_REL" n reason pa_rc dstate note="" lint="" lint_out lint_rc
-  local receipt rec_out rec_rc
+  local receipt rec_out rec_rc departed
   # #494: ABSENCE, not a failed fix — block_milestone, whose line kind attempt_count() cannot
   # see. This is the call SKILL.md step 3 orders before the spec can exist.
   [ -f "$spec" ] || { block_milestone 1 "no committed spec at $SPEC_REL"; return $?; }
@@ -3643,7 +3660,22 @@ cmd_1() {
       || envfail "milestone-1: intake-toolkit's ledger-lint.sh could not be resolved (checked the monorepo layout and the install cache under both plugins) — cannot reconcile $SPEC_REL against the pre-flight ledger. Fix the install."
     rec_out="$(bash "$lint" --reconcile "$receipt" "$spec" 2>&1)"; rec_rc=$?
     case "$rec_rc" in
-      0) note="$note, ${rec_out#ledger-lint: reconcile: }" ;;
+      0)
+        note="$note, ${rec_out#ledger-lint: reconcile: }"
+        # P9 AS A GATE. The reconcile arm already COUNTS a `DEPARTURE — <reason>` row against a
+        # `user-answered`/`user-delegated` receipt row and, until this, printed the count on the
+        # pass line and cleared. Measured on the private eval substrate's series 1: the one build
+        # that wrote such a row ("DEPARTURE — the ledger answered 3 days; this build ships 7")
+        # shipped the wrong value and was approved, and no cell of 63 wrote an intent-gap record
+        # for it. A departure from a ratified intent row IS a decision the receipt covered being
+        # re-made, which is P9's own definition of the thing the build may not do alone — so the
+        # count refuses unless the record exists. Existence, not ratification: ratifying is the
+        # merge boundary's arm (lean-evidence.sh), and a build cannot ratify its own record.
+        # `gates-signal`: the record is a file the build role writes; no human is needed to clear it.
+        departed="$(printf '%s\n' "$rec_out" | grep -oE '[0-9]+ departure\(s\)' | head -n1 | cut -d' ' -f1)"
+        if [ "${departed:-0}" -gt 0 ] && [ ! -f "$REPO_ROOT/$INTENT_GAP_REL" ]; then
+          fail_milestone 1 "spec $SPEC_REL departs from $departed ratified intent row(s) of the pre-flight ledger with no intent-gap record — a decision the receipt covered is not the build's to re-make (P9). Write $INTENT_GAP_REL (schema: interviewing-baseline, 'The intent-gap record') naming the departed row and the disposition followed, or carry the row forward as the receipt resolved it."; return $?
+        fi ;;
       # A fix the build role can make — edit the committed spec — so it spends a fix attempt,
       # exactly as #562's provenance lint does two blocks up.
       1) fail_milestone 1 "spec $SPEC_REL does not reconcile with the pre-flight ledger $receipt: $rec_out"; return $? ;;
@@ -5078,13 +5110,26 @@ cmd_3() {
 # suite asserts the file is byte- and mtime-identical across a full `all` sweep.
 cmd_4() {
   local rec="$REPO_ROOT/$VERDICT_REL" v_val v_run v_sess b_prog_run b_prog_sess b_cached cand
-  local v_commit v_head
+  local v_commit v_head gap
   local v_inh v_chain v_coverage
   # The handoff moment, and so the one place the P9 reminder is contextual rather than noise.
   # It lives here rather than as another SKILL.md line for the reason the cap exists: stderr is
   # read exactly when it applies, prose is read on every run. NO DETECTION happens here — the
   # refusal is the merge boundary's alone (check-lean-chain.sh evidence 6), and a second in-run
   # copy would be the duplicate machinery D-47 rules out, not defense in depth.
+  # THE HANDED-BACK CLASS (P9), read BEFORE the absent-record class: an unratified `pause-and-ask`
+  # intent-gap record beside no verdict means the round was handed back for a human ruling — by the
+  # review (`verdict --hand-back ratification`, review/SKILL.md 5d) or by a build that paused on a
+  # declared region. Reported as 5, the scheduler would re-spawn a review that hands the same
+  # question back and then stop `review-dark`; the series-1 shape was worse — a `needs-work` per
+  # round until `rounds-spent`. Class 11 is "stop, and wait for the operator". Keys are read the way
+  # region_resolved reads them; `ratified: yes` falls through to the ordinary absent-record class,
+  # because a ratified record is exactly the state a review round should now be spawned against.
+  gap="$REPO_ROOT/$INTENT_GAP_REL"
+  if [ ! -f "$rec" ] && [ -f "$gap" ] && [ "$(record_key disposition "$gap")" = "pause-and-ask" ] \
+     && [ "$(record_key ratified "$gap")" = "no" ]; then
+    block_milestone 4 "no verdict record at $VERDICT_REL, and $INTENT_GAP_REL is an unratified pause-and-ask intent gap — the lane is HANDED BACK for a human ruling (P9), not waiting on a review. Ratify it out of band (an operator comment on the issue; then 'ratified: yes' and that comment's URL in 'ratified_by:'), commit the flip, and hand off to '/dev-pipeline:review <pr>'." 11; return $?
+  fi
   [ -f "$rec" ] || { block_milestone 4 "no committed verdict record at $VERDICT_REL — hand off to '/dev-pipeline:review <pr>'. If this run wrote an intent-gap record, ratify it before that handoff: the merge boundary refuses one still reading 'ratified: no'." 5; return $?; }
   v_val="$(record_verdict "$rec")"
   if [ "$v_val" != "approve" ]; then
@@ -5277,7 +5322,7 @@ cmd_4() {
 cmd_verdict() {
   local sess b_prog_sess b_prog_run b_cached rec body c reviewed_head reviewed_patch_id
   local fid_spec fid_state fid_decl fid_refs fid_bad fid_line panel_reviewer fid_disarm_state fid_disarm_ref
-  local cand inherited_patch_id inherited_from chain sc_bad sc_line
+  local cand inherited_patch_id inherited_from chain sc_bad sc_line gap
   sess="${CLAUDE_CODE_SESSION_ID:-}"
   [ -n "$sess" ] \
     || envfail "verdict: CLAUDE_CODE_SESSION_ID is unset — the review session cannot be identified, so its authorship cannot be separated from the build's."
@@ -5311,6 +5356,64 @@ cmd_verdict() {
     fi
   done
 
+  # THE P9 HAND-BACK (review/SKILL.md 5d). Same identity checks as a verdict — a build session may
+  # not hand its own work back to a human any more than it may approve it — then a different
+  # artifact: the intent-gap record, and NO verdict. The record's schema is interviewing-baseline's;
+  # the keys the readers gate on (`region`, `disposition`, `ratified`, `ratified_by`) are written
+  # here, `## Gap` is the reviewer's own statement from --summary-file, and the run/session ids are
+  # this review's, which is honest: the review is the author. Exists-refuses rather than
+  # overwrites: one record per issue, and a ratified one is an operator's artifact.
+  if [ -n "$VERDICT_HANDBACK" ]; then
+    [ "$VERDICT_HANDBACK" = "ratification" ] \
+      || envfail "verdict: --hand-back takes 'ratification' (got '$VERDICT_HANDBACK') — the one hand-back this writer records is a ratification blocker (review/SKILL.md 5d)."
+    [ -z "$VERDICT_VALUE" ] \
+      || envfail "verdict: --hand-back and --verdict are exclusive — a handed-back round has no verdict; that is what handing back means (5d)."
+    [ -n "$VERDICT_PR" ] || envfail "verdict: --pr <number> is required — the record names the PR it handed back."
+    VERDICT_PR="${VERDICT_PR#\#}"
+    case "$VERDICT_PR" in
+      ''|*[!0-9]*|0) envfail "verdict: --pr must be a positive integer (got '$VERDICT_PR')." ;;
+    esac
+    [ -n "$SUMMARY_FILE" ] \
+      || envfail "verdict: --hand-back ratification requires --summary-file <path> — the record's '## Gap' is the reviewer's own statement of which two artifacts disagree, on what, and why neither reading is the review's to pick."
+    [ -f "$SUMMARY_FILE" ] || envfail "verdict: --summary-file '$SUMMARY_FILE' does not exist."
+    gap="$REPO_ROOT/$INTENT_GAP_REL"
+    if [ -f "$gap" ]; then
+      warn "✗ verdict: $INTENT_GAP_REL already exists (disposition: $(record_key disposition "$gap"), ratified: $(record_key ratified "$gap")) — one record per issue. Unratified: the lane is already handed back, so post the comment and stop. Ratified, and this round found a second gap: edit it by hand — a second gap resets 'ratified:' to no (interviewing-baseline)."
+      return 1
+    fi
+    reviewed_head="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null)" \
+      || envfail "verdict: cannot resolve HEAD in '$REPO_ROOT' — there is no commit to name as the handed-back head. Run this from a checkout of the PR's head branch."
+    mkdir -p "$(dirname "$gap")" || envfail "verdict: cannot create '$(dirname "$gap")'."
+    mkdir -p "$(dirname "$REVIEW_RUN_ID_CACHE")" 2>/dev/null \
+      && printf '%s' "$RESOLVED_RUN_ID" > "$REVIEW_RUN_ID_CACHE"
+    {
+      echo "# Intent gap — #$ISSUE, handed back by the review"
+      echo ""
+      echo "issue: $ISSUE"
+      echo "run_id: $RESOLVED_RUN_ID"
+      echo "session_id: $sess"
+      echo "region: undeclared"
+      echo "disposition: pause-and-ask"
+      echo "ratified: no"
+      echo "ratified_by:"
+      echo "pr: #$VERDICT_PR"
+      echo "reviewed_head: $reviewed_head"
+      echo ""
+      echo "## Gap"
+      echo ""
+      cat "$SUMMARY_FILE"
+      echo ""
+      echo "## Disposition followed"
+      echo ""
+      echo "Paused and asked. The review round found that two ratified artifacts disagree and that choosing"
+      echo "between them is a human ruling, not a review finding (P9) — so it wrote this record instead of a"
+      echo "verdict. Ratification is an operator comment on issue #$ISSUE; then set \`ratified: yes\` and that"
+      echo "comment's URL in \`ratified_by:\` above, commit, and re-run \`/dev-pipeline:review $VERDICT_PR\`."
+    } > "$gap"
+    say "✓ verdict: HANDED BACK — $INTENT_GAP_REL written (region undeclared, disposition pause-and-ask, ratified no) and NO verdict record."
+    say "  Commit and push it to the PR's head branch, post the gap as the PR comment, and stop. Milestone 4 reads it as exit 11 and the scheduler stops the lane 'review-paused' until an operator ratifies it."
+    return 0
+  fi
   case "$VERDICT_VALUE" in
     approve|needs-work) : ;;
     *) envfail "verdict: --verdict must be 'approve' or 'needs-work' (got '$VERDICT_VALUE')." ;;
