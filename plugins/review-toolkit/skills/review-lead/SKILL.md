@@ -52,6 +52,7 @@ The panel named throughout this skill is the **plugin-shipped generic registry**
 
 - `reviewers.add[]` — repo-local reviewer agents living in the repo's `.claude/agents/` (referenced **bare**, e.g. `orders-reviewer`). Each entry declares `dimensions[]` (a routing/dedup hint — treat those dimensions as the reviewer's domain when deciding whether to spawn it and when merging its findings). Register these alongside the plugin panel; spawn them per their declared domain the same way the conditional reviewers below are spawned.
 - `reviewers.remove[]` — plugin-shipped reviewers disabled in this repo (e.g. `db-reviewer` in a pure-FE repo). Never spawn a removed reviewer; omit its Verdicts row.
+- `reviewers.default[]` — plugin-shipped reviewers this repo dispatches **unconditionally on the pipeline path** (see "The pipeline default panel" under Reviewer Routing), named the way `reviewers.remove[]` names them. Purely additive: it can put a reviewer INTO the pipeline default panel and can never take one out — subtraction stays `reviewers.remove[]`'s, which this key does not override. Read on every path; it selects nothing when the pipeline default panel was not declared, because on every other path those reviewers already have their surface triggers.
 - `reviewers.modelOverrides{}` — per-reviewer model-tier override applied when dispatching (e.g. `security-reviewer: opus` in one repo, `sonnet` in another). The `code-review.mjs` fan-out reads these; pass the overridden tier, not the agent-frontmatter default.
 
 If the config is absent or has no `reviewers` block, the effective registry is exactly the plugin panel. Repo-local `add` reviewers are referenced **bare**, and plugin-shipped reviewers **qualified** (`docs/namespaces.md` rule 2) — that asymmetry is the disambiguation between roots, and it is what the panel above is spelled to satisfy. The names in the panel are dispatch names: they reach `agent({ agentType })` through `code-review.mjs`, so a bare plugin name there is not a stylistic choice but an agent type that does not resolve. `check-reviewer-references.sh` enforces both halves.
@@ -188,6 +189,74 @@ changed is that routing no longer selects them. Their Verdicts rows are still re
 | **repo-local domain reviewers** | Registered via config `reviewers.add`; spawn per the `dimensions[]` each declares (e.g. an `orders-reviewer` on orders-domain paths). Never suppressed by depth routing.                                                                                                     |
 
 When in doubt about whether a domain reviewer is relevant, spawn it — a "no issues found" response is cheap.
+
+### The pipeline default panel
+
+**A caller may declare it; this skill never infers it.** There is no mode sniff, no cwd test and no
+config flag that turns it on: a caller that wants the trimmed panel says so in the invocation, and
+a caller that says nothing gets the table above exactly as written. `/dev-pipeline:review` declares
+it (its step 5); the standalone `/review-toolkit:review-lead` invocation and `dev-pipeline:pr-revision`
+do not, and their routing is unchanged.
+
+**What it changes.** When the pipeline default panel is declared, three rows of the
+Conditionally-spawn table do **not** fire on their surface triggers:
+
+| Reviewer | Under the pipeline default panel |
+| --- | --- |
+| `security-reviewer` | Not selected by its surface trigger. The security dimension is the lead pass's, which is the existing fallback for exactly this case — "Security defers when it is spawned" runs in the other direction here, so nothing is uncovered. |
+| `a11y-reviewer` | Not selected by `$WEB_COMPONENT_GLOBS`. |
+| `unit-test-mutation-reviewer` | Not selected by the mutation-surface trigger or by `unitTestSurface.action == strengthen`. |
+
+Every other row is untouched: `scope-completeness-reviewer` still spawns whenever a tracker issue
+is referenced, `db-reviewer` and `pipeline-reviewer` keep their surface triggers, repo-local
+`reviewers.add` reviewers keep theirs, and the design-fidelity dimension is unchanged in both its
+armed-spec and unarmed-diff forms. The lead-pass dimensions are unaffected — they were never
+dispatched.
+
+**Why.** Measured over 25 pipeline fan-outs, those three were selected on 12, 20 and 24 of them,
+produced 35 findings between them, and moved zero hidden tests and zero seeded-defect detectors.
+`scope-completeness-reviewer` is the only panel member in that corpus that ever blocked, and the
+only one whose gate is structural (the Scope Completeness Gate below). The trim is not a cost
+measure — it saves no wall at all, since the three run in parallel with the longest dispatch. It
+is a membership rule: a panel seat that never moves an outcome reads as coverage without being
+coverage.
+
+**Opting one back in.** Either carrier selects; both are read at Routing, and their effects union.
+
+1. **Per ticket — a Decision Ledger row in the committed spec.** The spec found by Process step 4
+   (Plan/Spec Awareness) carries a `## Decision Ledger` table. A row selects opt-ins when its
+   Decision cell is exactly `review panel`, its Resolution cell is a comma-separated list of the
+   **short** names `security`, `a11y`, `unit-test-mutation`, and its Provenance is `user-answered`
+   or `user-delegated`. Any other provenance — `codebase-derived`, `deferred`, `assistant-proposed`
+   — selects nothing: an opt-in is an operator's intent, and a row the assistant wrote for itself
+   is not one.
+
+   ```
+   | D-4 | review panel | security, a11y | user-answered | intent |
+   ```
+
+2. **Per repo — config `reviewers.default[]`.** An array of plugin-shipped reviewer names spelled
+   the way `reviewers.remove[]` spells them (`security-reviewer`, not `security`). Every name in
+   it is dispatched unconditionally on the pipeline path. The two carriers use two spellings
+   because the config key sits beside `remove[]` and is validated against the shipped registry by
+   the same string compare (`check-reviewer-references.sh`, `DEFAULT-UNKNOWN`), while the ledger
+   row is prose an operator types. Read both; do not translate one into the other silently.
+
+**An unrecognized name selects nothing and is never silent.** A name in either carrier that is not
+a reviewer in the effective registry — a typo, a short name in the config, a full name in the
+ledger row, a reviewer this repo `remove`d — selects nobody. Name it once in the Review Summary
+(e.g. "opt-in `sekurity` not recognized; no reviewer selected for it"). It is never a blocker and
+never a `[Coverage gap]`: nothing was selected, so nothing went dark. Under a trimmed default a
+silently-dropped opt-in is indistinguishable from a green round, which is the one failure this
+rule exists to prevent.
+
+**Say which panel ran.** One Review Summary line, always, when the pipeline default panel was
+declared — e.g. "panel: pipeline default (scope-completeness only); opt-ins taken: security
+(ledger D-4), unit-test-mutation (config `reviewers.default`)", or "…; no opt-ins taken". The
+reader has to be able to tell a trimmed panel from a full one that happened to match no trigger.
+The three not-selected reviewers get no separate Step 4c note in this case — this line is that
+note, and the two would say the same thing twice. Their Verdicts rows follow Step 4c: omitted,
+except `security-reviewer`, whose row reads `Lead pass — ✅/❌` because the lead pass covered it.
 
 ### Design-fidelity dimension
 
@@ -426,6 +495,12 @@ A reviewer that was **never selected** is a different case from a dark reviewer:
 - **Design-toolkit not installed.** A changed path *did* match and the provider map selected a fidelity reviewer — by any row, **the no-provider default included** — but the design-toolkit agent type is not available to dispatch (Routing detected this pre-dispatch). Note once: "design-fidelity dimension not run — design-toolkit not installed". `a11y-reviewer` is unaffected and still spawns. The trigger is selection, not a declared `design.provider`: on the default row no provider is declared and the dimension is still selected, so a provider-keyed condition would make this note unreachable for the commonest consumer.
 
 All three are **a note, never a blocker, and never silent** — and none is a red.
+
+Under **the pipeline default panel** the first two bullets are superseded for the three opt-in
+reviewers: they were not selected because the declared panel does not select them, not because a
+trigger failed to fire, and the panel line under "The pipeline default panel" is their single
+note. The unmatched-globs bullet still applies to the design-fidelity dimension, which the trim
+does not touch.
 
 ### Step 5: Cross-Reviewer Self-Check
 

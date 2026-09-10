@@ -167,6 +167,11 @@
           "items": { "type": "string" },
           "description": "Plugin-shipped reviewers to disable in this repo (e.g. db-reviewer in an FE repo)."
         },
+        "default": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Plugin-shipped reviewers this repo dispatches UNCONDITIONALLY on the pipeline path, on top of the trimmed default panel (#838: /dev-pipeline:review defaults its fan-out to scope-completeness-reviewer, and security-reviewer / a11y-reviewer / unit-test-mutation-reviewer become opt-in). Purely ADDITIVE — it can add a reviewer to that panel and never subtract one; dropping a shipped reviewer stays reviewers.remove's job. The per-TICKET carrier for the same opt-in is a `review panel` row in the committed spec's Decision Ledger. Names are the plugin-shipped bare names, spelled as reviewers.remove spells them; config-lint.sh types the array and check-reviewer-references.sh validates the names against the review-lead registry (DEFAULT-UNKNOWN), the same split as remove[]."
+        },
         "modelOverrides": {
           "type": "object",
           "description": "Per-agent model-tier override, keyed by any agent the .mjs dispatch tables model — the review-lead panel reviewers, the intake fan-out agents, and the structured-emitter transcription sink (EP-4; the named mutation-executor override left with its engine, #574). Observed need: security-reviewer opus in one repo, sonnet in another. check-model-tiers validates .mjs tables against frontmatter + these overrides. Values must be tiers this consumer's subscription can actually dispatch — an inaccessible tier surfaces as a dead reviewer and the gate fails closed. `fable` is override-only: never a shipped default, and a check-model-tiers error if it appears in a shipped dispatch table.",

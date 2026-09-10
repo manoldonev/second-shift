@@ -46,7 +46,17 @@ the code does not author its own evaluation.
    range and says so. There is no flag: the range is derived from the committed records, so a
    round cannot claim a narrower reading than the branch supports, nor forget to declare one.
 5. **Review** over the range step 4 printed. `review-toolkit:review-lead` is the implementation — no reviewer
-   is defined here. On an inheriting round, read the **prior record's findings** first: a round
+   is defined here. **Declare the pipeline default panel when you invoke it** (#838): the fan-out
+   defaults to `scope-completeness-reviewer`, and `security-reviewer`, `a11y-reviewer` and
+   `unit-test-mutation-reviewer` are selected only by an opt-in. `review-lead` never infers this —
+   a declaration it does not receive leaves the surface triggers in force, which is what keeps the
+   standalone invocation and `pr-revision` unchanged. The two opt-in carriers it reads are the
+   committed spec's `## Decision Ledger` (a `review panel` row with `user-answered` /
+   `user-delegated` provenance, naming the short forms `security`, `a11y`, `unit-test-mutation`)
+   and config `reviewers.default[]` (the same names `reviewers.remove[]` uses). Nothing here is a
+   gate: the panel that ran is evidenced by `--panel` and by the Review Summary's panel line, and
+   the design-fidelity dimension is untouched by the trim — `bash G verdict` still refuses a
+   `--panel` without it on an armed spec. On an inheriting round, read the **prior record's findings** first: a round
    that inherits coverage without seeing what was previously found cannot tell a fixed blocker
    from a re-introduced one, and a blocker the build simply ignored leaves no trace in the delta
    at all. The committed lean spec is the definition of done: score every numbered `AC-n` it

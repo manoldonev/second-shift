@@ -30,6 +30,7 @@ You have a repo-, org-, or domain-specific need. Walk it down this list; the fir
 | Add a **blocking check of your own** that must pass (a linter, a contract check, a custom test suite, a schema-diff gate, a license scan, a codegen-drift check) | `commands.<repo>.extraLanes` (EP-2) | config | always |
 | Add **domain knowledge** a shipped agent should read (blocker mutants, security rules, review context, design tokens, doc routing) | an **extension file** under `.claude/second-shift/` | knowledge | additive to that agent |
 | Add a **whole new reviewer** dimension for this repo | a repo-local agent in `.claude/agents/` + `reviewers.add` | config + agent | it's a reviewer |
+| Put a **shipped reviewer the pipeline no longer dispatches by default** (security, a11y, unit-test-mutation) back in every pipeline round here | `reviewers.default` config (§3.3b) | config | it's a reviewer |
 | Turn on **design-fidelity** review against Figma or Claude-Design | `design.provider` config | config | fail-closed gate |
 | Ship any of the above **across many repos in your org**, versioned and pinned | a **companion pack** plugin (EP-5) that the config points at | its own plugin | per the mechanism it uses |
 
@@ -128,6 +129,32 @@ A whole review dimension the shipped panel doesn't cover. Write the agent where 
 ```
 
 review-lead now dispatches it alongside the shipped reviewers under the same confidence protocol; `dimensions` is a dedup/routing hint. `check-reviewer-references.sh` unions the plugin registry with your `reviewers.add`, so a registered agent with no file (or a file registered nowhere, or one shadowing a shipped reviewer name) fails the lint. Repo-local agents are referenced **bare**; that's how the two roots disambiguate ([`namespaces.md`](namespaces.md) rule 2). To *drop* a shipped reviewer instead (e.g. db-reviewer in a pure-FE repo), that's `reviewers.remove` — a subtraction, hence config, hence one auditable line.
+
+### 3.3b `reviewers.default` — put a reviewer back in the pipeline's panel
+
+On the pipeline path (`/dev-pipeline:review`) the review fan-out defaults to `scope-completeness-reviewer` alone. `security-reviewer`, `a11y-reviewer` and `unit-test-mutation-reviewer` keep their agents and their surface triggers everywhere else — a standalone `review-lead` invocation and `pr-revision` are unchanged — but on a pipeline round they are selected only when someone opts them in. Measured over 25 pipeline fan-outs, those three produced 35 findings and moved no hidden test and no seeded-defect detector; `scope-completeness-reviewer` was the only one that ever blocked.
+
+This key is the **per-repo** opt-in. A repo whose pipeline rounds should always carry the security dimension as a dispatched reviewer says so once:
+
+```jsonc
+{
+  "reviewers": {
+    "default": ["security-reviewer"]
+  }
+}
+```
+
+Names are spelled the way `reviewers.remove` spells them. `config-lint.sh` types the array; `check-reviewer-references.sh` validates each name against the shipped registry and denies on `DEFAULT-UNKNOWN`, so a typo is a failed lint rather than a reviewer that silently never runs.
+
+**It is additive and only additive.** `reviewers.default` can put a reviewer *into* the pipeline's panel; it can never take one out, and naming a subset does not drop the reviewers you left out. Dropping a shipped reviewer is still `reviewers.remove`'s job (§1) — which is why the "the two places that can subtract" rule up top is still exactly two.
+
+The **per-ticket** opt-in is not config at all: a row in the committed spec's `## Decision Ledger` whose Decision cell is `review panel`, whose Resolution is a comma-separated list of the short names `security`, `a11y`, `unit-test-mutation`, and whose provenance is `user-answered` or `user-delegated`.
+
+```
+| D-4 | review panel | security, a11y | user-answered | intent |
+```
+
+Either carrier selects, and their effects union. A name neither recognizes selects nothing and is reported in the round's Review Summary.
 
 ### 3.4 Extension file — domain knowledge for a shipped agent
 
