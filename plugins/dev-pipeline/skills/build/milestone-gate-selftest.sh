@@ -40,17 +40,22 @@ fail() { echo "  FAIL: $1" >&2; FAILS=$((FAILS + 1)); }
 # scheduler at any pin predating the rename exports it. An `unset` that clears one of a fallback
 # PAIR is not hermeticity, it is hermeticity's shape.
 unset LANE_RUN_MODEL LEAN_RUN_MODEL
-# The same pairing for the other knobs this suite scrubs per case: `LANE_GATE`,
-# `LANE_SELFTEST_CACHE_DIR`, `LANE_SELFTEST_CACHE` and `LANE_GATE_ANY_TREE` — the last exported
-# suite-wide here and `unset` per case to RE-ARM the lane-tree assertion, which an ambient retired
-# half would keep disarmed. Their retired halves are cleared once here so a per-case `unset` or
-# `env -u` on the current name is the whole answer rather than half of one.
+# The same pairing for the other knobs this suite scrubs per case: `LANE_SELFTEST_CACHE_DIR`,
+# `LANE_SELFTEST_CACHE` and `LANE_GATE_ANY_TREE` — the last exported suite-wide here and `unset`
+# per case to RE-ARM the lane-tree assertion, which an ambient retired half would keep disarmed.
+# Their retired halves are cleared once here so a per-case `unset` or `env -u` on the current name
+# is the whole answer rather than half of one.
 #
 # `LEAN_SELFTEST_CACHE` is a token in its own right, not a prefix of the `_DIR` one beside it.
 # Clearing only `_DIR` left the bare knob resolving through the fallback, and `docs/testing.md`
 # hands operators `LANE_SELFTEST_CACHE=0` in two recipes — a shell still carrying the pre-rename
 # spelling of either one falsified (pg5), (pg8), (sc1) and (sc2).
-unset LEAN_GATE LEAN_SELFTEST_CACHE_DIR LEAN_SELFTEST_CACHE LEAN_GATE_ANY_TREE
+#
+# There is no bare `LANE_GATE` knob: `LANE_GATE_ANY_TREE`, `LANE_GATE_OBSERVE` and `LANE_GATE_LIB`
+# are each their own token and nothing reads the stem, so a `LEAN_GATE` in this list would scrub a
+# name no reader resolves — a defense that cannot fail, which is the shape this file's hermeticity
+# rules exist to refuse.
+unset LEAN_SELFTEST_CACHE_DIR LEAN_SELFTEST_CACHE LEAN_GATE_ANY_TREE
 
 # ATTENDANCE, both spellings (#833). Nothing in this file names the knob, but the gate shells out
 # to operator-override.sh, which reads it: an ambient `headless` turns every override arm into the
