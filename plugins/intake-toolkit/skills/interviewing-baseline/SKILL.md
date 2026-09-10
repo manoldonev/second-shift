@@ -212,9 +212,9 @@ committing the flip moves the branch, it costs a fresh review round — land rat
 the review handoff where you can.
 
 The review half writes the same record when its round's only blocker is a ratification question
-(`/dev-pipeline:review` 5d, via `lean-gate.sh verdict --hand-back ratification`): `region:
-undeclared`, `disposition: pause-and-ask`, `ratified: no`, the `## Gap` being the reviewer's own
-statement, and the run/session ids the review's. The reader side is unchanged — the merge
+(the review skill's hand-back rule, through the gate's `verdict --hand-back ratification`):
+`region: undeclared`, `disposition: pause-and-ask`, `ratified: no`, the `## Gap` being the
+reviewer's own statement, and the run/session ids the review's. The reader side is unchanged — the merge
 boundary gates on `ratified:`/`ratified_by:` and milestone 4 on `disposition:`/`ratified:` —
 so who authored the record does not change what clears it.
 
