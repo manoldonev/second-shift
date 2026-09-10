@@ -22,6 +22,13 @@
 # bash-3.2-safe; runs in CI via the '*-selftest.sh' discovery loop.
 set -uo pipefail
 
+# HERMETICITY, retired half (#833). This suite scrubs the `LANE_GATE` and `LANE_SPAWN_*` seams to reach a documented
+# absent-value default. The reader takes the current spelling first and falls back to the retired
+# one, so an ambient LEAN_GATE would walk straight through a scrub that named only the
+# current name — and the scheduler at any pin predating the rename exports exactly that. Cleared
+# ONCE here rather than paired at every call site below.
+unset LEAN_GATE LEAN_SPAWN_CLOCK LEAN_SPAWN_SESSION_CEILING_MS LEAN_SPAWN_STALENESS_SECS
+
 HERE="$(cd "$(dirname "$0")" && pwd)"
 TOOL="$HERE/orchestrate.sh"
 

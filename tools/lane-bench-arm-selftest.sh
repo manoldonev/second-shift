@@ -14,6 +14,13 @@
 # the gate.
 set -uo pipefail
 
+# HERMETICITY, retired half (#833). This suite scrubs `LANE_ARM_MANIFEST` to reach a documented
+# absent-value default. The reader takes the current spelling first and falls back to the retired
+# one, so an ambient LEAN_ARM_MANIFEST would walk straight through a scrub that named only the
+# current name — and the scheduler at any pin predating the rename exports exactly that. Cleared
+# ONCE here rather than paired at every call site below.
+unset LEAN_ARM_MANIFEST
+
 HERE="$(cd "$(dirname "$0")" && pwd)"
 TOOL="$HERE/lane-bench-arm.sh"
 # The explicit-template form, which IS honored by a private TMPDIR (docs/testing.md).

@@ -11,6 +11,13 @@
 # make the default arm of that expansion unreachable and its mutants unkillable.
 set -uo pipefail
 
+# HERMETICITY, retired half (#833). This suite scrubs `LANE_SELFTEST_CACHE_DIR` to reach a documented
+# absent-value default. The reader takes the current spelling first and falls back to the retired
+# one, so an ambient LEAN_SELFTEST_CACHE_DIR would walk straight through a scrub that named only the
+# current name — and the scheduler at any pin predating the rename exports exactly that. Cleared
+# ONCE here rather than paired at every call site below.
+unset LEAN_SELFTEST_CACHE_DIR
+
 FAILS=0
 ok()   { echo "  pass:  $1"; }
 fail() { echo "  FAIL:  $1"; FAILS=$((FAILS + 1)); }

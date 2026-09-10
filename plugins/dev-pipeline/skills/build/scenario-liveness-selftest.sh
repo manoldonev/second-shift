@@ -74,6 +74,13 @@
 # outcomes (a refused milestone, a hard stop), so a global `-e` would abort the harness on
 # its own passing cases.
 set -uo pipefail
+
+# HERMETICITY, retired half (#833). This suite scrubs `LANE_GATE` and `LANE_RUN_MODEL` to reach a documented
+# absent-value default. The reader takes the current spelling first and falls back to the retired
+# one, so an ambient LEAN_GATE would walk straight through a scrub that named only the
+# current name — and the scheduler at any pin predating the rename exports exactly that. Cleared
+# ONCE here rather than paired at every call site below.
+unset LEAN_GATE LEAN_RUN_MODEL
 unset SECOND_SHIFT_CONFIG SECOND_SHIFT_REPO_ROOT SECOND_SHIFT_EXTENSION_MANIFEST BRANCH_PREFIX
 
 # #141: the lane-tree assertion, DISARMED for the legs whose fixture is a bare `git init` tree and

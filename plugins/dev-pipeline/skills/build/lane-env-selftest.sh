@@ -178,6 +178,7 @@ fi
 
 missing=""
 knobs=0
+ALL_KNOBS=" "
 while IFS= read -r f; do
   case "$f" in *-selftest.sh|*/lane-env.sh|lane-env.sh) continue ;; esac
   [ -f "$SCAN_ROOT/$f" ] || continue
@@ -193,6 +194,7 @@ while IFS= read -r f; do
   for t in $reads; do
     grep -qE "(^|[[:space:];(])$t=" "$SCAN_ROOT/$f" && continue
     knobs=$((knobs + 1))
+    case " $ALL_KNOBS " in *" $t "*) : ;; *) ALL_KNOBS="$ALL_KNOBS$t " ;; esac
     printf '%s\n' "$promoted" | grep -qx "$t" || missing="$missing$(basename "$f"):$t "
   done
 done < <(scan_list)
@@ -223,6 +225,49 @@ done < <(scan_list)
 if [ -z "$plus" ]; then
   pass "(m) no reader distinguishes a set-but-empty LANE_ knob from an unset one"
 else fail "(m) promote-in-place is unsafe — these files test set-vs-unset on a LANE_ knob: $plus"; fi
+
+# ---- (n) a file that CLEARS a knob must clear BOTH spellings ----------------------------------
+# The mirror image of (l). A suite or a lane that scrubs `LANE_X` — at suite scope, or per case
+# with `env -u` — is reaching for the documented ABSENT-value behavior. After the fallback shipped,
+# the ambient export in the wild is the RETIRED one, so clearing half a pair is not hermeticity, it
+# is hermeticity's shape: the value walks straight through and the default under test is silently
+# falsified. Measured on this ticket — milestone-gate-selftest.sh's suite-scope
+# `unset LANE_RUN_MODEL` let the scheduler's `LEAN_RUN_MODEL` reach `(m1b)` and `(p5)` again.
+#
+# PER FILE, not per line: clearing the retired twin ONCE at suite scope covers every case below it,
+# and that is the better shape — it states the file's hermeticity where a reader looks for it
+# instead of repeating a pair at thirty call sites.
+leaky=""
+defenses=0
+while IFS= read -r sf; do
+  [ -f "$SCAN_ROOT/$sf" ] || continue
+  sf_code="$(sed 's/^[[:space:]]*#.*$//' "$SCAN_ROOT/$sf" 2>/dev/null)"
+  sf_scrubs="$(grep -E '(unset |[ (]-u )[A-Z_ ]*LANE_' <<<"$sf_code" 2>/dev/null)" || sf_scrubs=""
+  [ -n "$sf_scrubs" ] || continue
+  # The retired side is collected SEPARATELY: a suite-scope `unset LEAN_GATE …` names no LANE_
+  # token at all, so the census above cannot see it, and checking against that census alone would
+  # refuse the very shape this case asks for.
+  sf_retired="$(grep -E '(unset |[ (]-u )[A-Z_ ]*LEAN_' <<<"$sf_code" 2>/dev/null)" || sf_retired=""
+  for t in $ALL_KNOBS; do
+    case "$sf_scrubs" in
+      *"unset "*"$t"*|*"-u $t"*) : ;;
+      *) continue ;;
+    esac
+    defenses=$((defenses + 1))
+    retired="LEAN_${t#LANE_}"
+    case "$sf_retired" in
+      *"unset "*"$retired"*|*"-u $retired"*) : ;;
+      *) leaky="$leaky$(basename "$sf"):$t " ;;
+    esac
+  done
+done < <(scan_list)
+if [ "$defenses" -eq 0 ]; then
+  fail "(n) no LANE_ knob is scrubbed anywhere under $SCAN_ROOT — the pairing rule is measuring nothing"
+elif [ -n "$leaky" ]; then
+  fail "(n) $defenses (file, knob) scrub pair(s) found, and these clear only the current spelling, so the retired one still resolves: $leaky"
+else
+  pass "(n) all $defenses (file, knob) scrub pair(s) clear the retired spelling too"
+fi
 
 echo "[lane-env-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 exit "$FAILS"
