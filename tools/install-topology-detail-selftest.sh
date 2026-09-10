@@ -167,7 +167,7 @@ esac
 # happened to contain. The fixture log carries a PASS line on purpose: these arms must not
 # read it at all, and the whole #664 disease is a red quoting a line that had just succeeded.
 # ---------------------------------------------------------------------------
-t6_log='  PASS: milestone-1 fails when the lean spec is absent'
+t6_log='  PASS: milestone-1 fails when the lane spec is absent'
 
 t6_out="$(detail 124 "$t6_log")"
 case "$t6_out" in
@@ -182,7 +182,7 @@ case "$t6_out" in
 esac
 
 # 143 = SIGTERM. Observed for real: an outer reaper took the process group mid-suite, and the
-# detail read `rc=143 — PASS: milestone-1 fails when the lean spec is absent` — a red naming an
+# detail read `rc=143 — PASS: milestone-1 fails when the lane spec is absent` — a red naming an
 # assertion that had just passed, on a tree with nothing wrong with it.
 for t6_sig in 129 130 137 143 164; do
   t6_out="$(detail "$t6_sig" "$t6_log")"

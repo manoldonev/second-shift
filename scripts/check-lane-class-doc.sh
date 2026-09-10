@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # check-lane-class-doc.sh — docs/config-schema.md's reserved-exit-3 claim is DERIVED from
-# lean-gate.sh's dispatch, never asserted beside it (#674).
+# milestone-gate.sh's dispatch, never asserted beside it (#674).
 #
 # WHY THIS EXISTS. `docs/config-schema.md` states the cross-repo contract for a verify lane's
 # reserved exit code `3`: which lanes it is read on, and what milestone 3 does with it. #642
@@ -10,7 +10,7 @@
 # Nothing coupled the prose to the shell, so nothing could red.
 #
 # THIS IS NOT A PROSE-PRESENCE GUARD. It does not check that a word is still in a markdown file.
-# It reads the CALLER SET out of `lean-gate.sh` and requires the doc's rows to name exactly that
+# It reads the CALLER SET out of `milestone-gate.sh` and requires the doc's rows to name exactly that
 # set — so it fails for a reason no reader of the doc's own diff could see, which is the property
 # the prose-presence class structurally lacks (docs/testing.md, tier map).
 #
@@ -65,7 +65,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="${1:-$(cd "$HERE/.." && pwd)}"
 [[ -n "$ROOT" && -d "$ROOT" ]] || { echo "[lane-class] FATAL: root is not a directory: '$ROOT'" >&2; exit 99; }
 
-GATE_REL="plugins/dev-pipeline/skills/build/lean-gate.sh"
+GATE_REL="plugins/dev-pipeline/skills/build/milestone-gate.sh"
 DOC_REL="docs/config-schema.md"
 GATE="$ROOT/$GATE_REL"
 DOC="$ROOT/$DOC_REL"

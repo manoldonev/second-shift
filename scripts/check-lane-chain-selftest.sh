@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# check-lean-chain-selftest.sh — behavioral suite for the merge-boundary gate.
+# check-lane-chain-selftest.sh — behavioral suite for the merge-boundary gate.
 #
-# Zero-network by construction: every case drives check-lean-chain.sh through its two fixture
+# Zero-network by construction: every case drives check-lane-chain.sh through its two fixture
 # seams (--comments-file, --diff-files-file). No `gh`, no git remote.
 #
 # The two cases the acceptance criteria name explicitly are (C) and (D) — they are the ones
@@ -16,7 +16,7 @@
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-GATE="$HERE/check-lean-chain.sh"
+GATE="$HERE/check-lane-chain.sh"
 
 FAILS=0
 pass() { echo "  PASS: $1"; }
@@ -31,7 +31,7 @@ trap cleanup EXIT
 
 # ---------------------------------------------------------------- fixtures
 # THE FIXTURE CLOCK SITS AFTER THE DELEGATED PAYLOAD'S CUTOFFS (#444). This gate delegates its
-# identity arm to lean-evidence.sh, which now declines when the PR opened before that arm's
+# identity arm to boundary-evidence.sh, which now declines when the PR opened before that arm's
 # contract took effect — so a fixture PR dated in January would make every identity case here a
 # vacuous `postdated` decline while the suite stayed exactly as green as before. Ordering is what
 # matters within the file (claim ≤ PR-open < a late claim); the absolute values only have to
@@ -100,12 +100,12 @@ echo '[]' > "$WORK/comments-empty.json"
 # payload, so every case needs the payload itself and a PR marker trail to reach it. Both are
 # EXPORTED once rather than threaded through each call: the fixture tree is a throwaway repo
 # with no plugins/ directory, and the seam is the payload's input, not this gate's.
-export LEAN_EVIDENCE="$HERE/../plugins/dev-pipeline/skills/build/lean-evidence.sh"
-[ -f "$LEAN_EVIDENCE" ] || { echo "  FAIL: the evidence payload is missing at $LEAN_EVIDENCE" >&2; exit 1; }
+export LANE_EVIDENCE="$HERE/../plugins/dev-pipeline/skills/build/boundary-evidence.sh"
+[ -f "$LANE_EVIDENCE" ] || { echo "  FAIL: the evidence payload is missing at $LANE_EVIDENCE" >&2; exit 1; }
 
 # The DEFAULT marker trail: one bot marker carrying the same build identity the claim comment
 # carries (r-abc123 / sess-build-1), which is what a real run leaves. Cases about the marker
-# itself override LEAN_PR_COMMENTS_FILE per call.
+# itself override LANE_PR_COMMENTS_FILE per call.
 cat > "$WORK/pr-markers-good.json" <<EOF
 [
   { "user": { "type": "Bot", "login": "acme-bot" },
@@ -131,7 +131,7 @@ cat > "$WORK/pr-markers-two.json" <<EOF
     "body": "<!-- run_id: r-review-1 -->\n<!-- session_id: sess-build-2 -->\n<!-- stage: lean-pr-marker -->" }
 ]
 EOF
-export LEAN_PR_COMMENTS_FILE="$WORK/pr-markers-good.json"
+export LANE_PR_COMMENTS_FILE="$WORK/pr-markers-good.json"
 
 # Committed artifacts live in a throwaway git repo so the gate's `git rev-parse` and its
 # find-based artifact scan operate on a controlled tree rather than the real repo.
@@ -139,7 +139,7 @@ TREE="$WORK/tree"
 VREC="$TREE/docs/plans/acme-42-lean-verdict.md"
 mkdir -p "$TREE/docs/plans" "$TREE/scripts/fixtures"
 git -C "$TREE" init -q 2>/dev/null
-git -C "$TREE" config user.email lean@example.invalid
+git -C "$TREE" config user.email lane@example.invalid
 git -C "$TREE" config user.name lean-selftest
 
 # The fixture carries real COMMITS, not just files. Evidence 5 measures the verdict record's
@@ -160,7 +160,7 @@ printf 'seed\n' > "$TREE/README.md"
 commit_tree "base"
 git -C "$TREE" update-ref refs/remotes/origin/main HEAD
 
-printf '# lean spec\n\n- AC-1: does a thing\n- AC-2: does another\n' > "$TREE/docs/plans/acme-42-lean.md"
+printf '# lane spec\n\n- AC-1: does a thing\n- AC-2: does another\n' > "$TREE/docs/plans/acme-42-lean.md"
 # The build claim carries r-abc123; the verdict is REVIEW-authored, so it carries its own
 # identity and names its own session. A verdict reusing r-abc123 is case (N).
 #
@@ -174,7 +174,7 @@ printf '# lean spec\n\n- AC-1: does a thing\n- AC-2: does another\n' > "$TREE/do
 # The scorecard the record's own spec forces on it (#622). Derived from the CURRENT spec rather
 # than hard-coded, because the cases below swap the spec's AC set several times and a fixed table
 # would score criteria that are no longer declared. It is a fixture generator, not an oracle: the
-# scorecard reader's own arms are asserted in lean-evidence-selftest.sh against LITERAL tables,
+# scorecard reader's own arms are asserted in boundary-evidence-selftest.sh against LITERAL tables,
 # and the two dedicated cases below (AB*) hand-write theirs.
 scorecard_block() {
   local ids id
@@ -241,7 +241,7 @@ commit_tree "spec + fixtures"
 write_verdict
 
 printf 'docs/plans/acme-42-lean.md\ndocs/plans/acme-42-lean-verdict.md\n' > "$WORK/diff-lean.txt"
-printf 'scripts/fixtures/acme-99-lean.md\nplugins/dev-pipeline/skills/build/lean-gate.sh\n' > "$WORK/diff-fixture-only.txt"
+printf 'scripts/fixtures/acme-99-lean.md\nplugins/dev-pipeline/skills/build/milestone-gate.sh\n' > "$WORK/diff-fixture-only.txt"
 printf 'README.md\n' > "$WORK/diff-plain.txt"
 
 BODY_GOOD='Implements the thing.
@@ -274,13 +274,13 @@ silent() { [ -z "$1" ]; }
 # emit into this class, and the shape — stream, prefix, arm, closed disposition — is the thing
 # this ticket fixes for them. A line that drifted to two, or to a fifth disposition, is the
 # regression, and only a full-line anchor sees it.
-CLASS_B_RE='^\[lean-(chain|evidence)\]   · [a-z][a-z-]*: (not-applicable|reduced-strength|postdated|inert) — .'
+CLASS_B_RE='^\[(lane-chain|boundary-evidence)\]   · [a-z][a-z-]*: (not-applicable|reduced-strength|postdated|inert) — .'
 class_b() { # class_b <output> [expected-arm:disposition]
   [ "$(printf '%s\n' "$1" | grep -cE "$CLASS_B_RE")" = "1" ] || return 1
-  [ -z "${2:-}" ] || grep -qE "^\[lean-(chain|evidence)\]   · ${2%%:*}: ${2##*:} — " <<<"$1"
+  [ -z "${2:-}" ] || grep -qE "^\[(lane-chain|boundary-evidence)\]   · ${2%%:*}: ${2##*:} — " <<<"$1"
 }
 
-echo "[check-lean-chain-selftest]"
+echo "[check-lane-chain-selftest]"
 
 # ---- (A) happy path: lean-prefixed branch with all three artifacts -----------------------
 # AC-1 (#443) rides here: every arm on this run is class (a), so the gate writes NOTHING.
@@ -290,8 +290,8 @@ if [ "$rc" -eq 0 ] && silent "$out"; then
 else fail "(A) expected a silent rc=0, got $rc: $out"; fi
 
 # ---- (A2) #622: the AC scorecard arrives through the DELEGATION ----------------------------
-# This gate reads no scorecard of its own — `lean-evidence.sh` owns the arm, and the reader's
-# grammar is asserted against it directly in lean-evidence-selftest.sh's (sc) block. What only
+# This gate reads no scorecard of its own — `boundary-evidence.sh` owns the arm, and the reader's
+# grammar is asserted against it directly in boundary-evidence-selftest.sh's (sc) block. What only
 # THIS suite can show is that the arm survives the delegation: the payload is invoked here with
 # half its environment supplied by the caller, and an arm that never ran would leave (A) above
 # just as green. The record is HAND-WRITTEN, which is AC-5's case — it never passed a writer.
@@ -310,7 +310,7 @@ write_verdict
 # A whole-gate decline is class (b), not (a): nothing was evaluated, and an unevaluated gate that
 # printed nothing would be indistinguishable from one that checked everything.
 out="$(run_gate "someone/hotfix" "$WORK/comments-empty.json" "$WORK/diff-plain.txt")"; rc=$?
-if [ "$rc" -eq 0 ] && class_b "$out" "lean-chain:not-applicable"; then
+if [ "$rc" -eq 0 ] && class_b "$out" "lane-chain:not-applicable"; then
   pass "(B) AC-3: an ordinary PR declines in exactly one class-(b) line"
 else fail "(B) expected a one-line not-applicable exit 0, got rc=$rc: $out"; fi
 
@@ -323,20 +323,20 @@ else fail "(B) expected a one-line not-applicable exit 0, got rc=$rc: $out"; fi
 # so "no class-(b) decline" is exactly "it classified this PR".
 out="$(run_gate "some/other-branch" "$WORK/comments-empty.json" "$WORK/diff-lean.txt" "zzz-matches-nothing/")"; rc=$?
 if [ "$rc" -eq 1 ] && ! grep -q 'not-applicable' <<<"$out"; then
-  pass "(C) zero-matching prefix + lean spec in diff ⇒ applicable via the artifact arm, and fails on the missing claim"
+  pass "(C) zero-matching prefix + lane spec in diff ⇒ applicable via the artifact arm, and fails on the missing claim"
 else fail "(C) expected rc=1 via the artifact arm, got rc=$rc: $out"; fi
 
 # ---- (D) MANDATED: pipeline-prefixed PR carrying lean-shaped files is NOT applicable -----
 # This is the PR that delivers the pipeline itself: pipeline-authored, and it necessarily carries
 # lean-shaped fixture files. Double-classifying it would make the feature unshippable.
 out="$(run_gate "claude/acme-303" "$WORK/comments-empty.json" "$WORK/diff-lean.txt")"; rc=$?
-if [ "$rc" -eq 0 ] && class_b "$out" "lean-chain:not-applicable"; then
+if [ "$rc" -eq 0 ] && class_b "$out" "lane-chain:not-applicable"; then
   pass "(D) pipeline-prefixed PR carrying lean-shaped files is not double-classified"
 else fail "(D) expected a not-applicable exit 0, got rc=$rc: $out"; fi
 
 # ---- (E) fixture paths are excluded from the artifact scan -------------------------------
 out="$(run_gate "some/other-branch" "$WORK/comments-empty.json" "$WORK/diff-fixture-only.txt" "zzz-matches-nothing/")"; rc=$?
-if [ "$rc" -eq 0 ] && class_b "$out" "lean-chain:not-applicable"; then
+if [ "$rc" -eq 0 ] && class_b "$out" "lane-chain:not-applicable"; then
   pass "(E) a lean-shaped file under fixtures/ does not trigger applicability"
 else fail "(E) expected fixture paths to be excluded, got rc=$rc: $out"; fi
 
@@ -376,9 +376,9 @@ printf 'late change after a needs-work verdict\n' > "$TREE/docs/plans/notes-374.
 commit_tree "code lands after a needs-work verdict"
 out="$(run_gate "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
 # BOTH prefixes (#359). Half the arms now come from the delegated payload, which signs its
-# own refusals `[lean-evidence]`; counting only this gate's prefix would score a two-violation
+# own refusals `[boundary-evidence]`; counting only this gate's prefix would score a two-violation
 # run as one and let a regression that re-duplicated a delegated arm pass unnoticed.
-n_violations="$(printf '%s' "$out" | grep -cE '^\[lean-(chain|evidence)\]   ✗')"
+n_violations="$(printf '%s' "$out" | grep -cE '^\[(lane-chain|boundary-evidence)\]   ✗')"
 if [ "$rc" -eq 1 ] \
    && grep -q '2 evidence artifact(s) missing' <<<"$out" \
    && [ "$n_violations" -eq 2 ] \
@@ -391,12 +391,12 @@ else fail "(I2) expected exactly 2 violations with the freshness arms silent, go
 write_verdict
 
 # ---- (J) a spec with no AC-n fails -------------------------------------------------------
-printf '# lean spec\n\nNo criteria here.\n' > "$TREE/docs/plans/acme-42-lean.md"; commit_tree 'spec without AC-n'
+printf '# lane spec\n\nNo criteria here.\n' > "$TREE/docs/plans/acme-42-lean.md"; commit_tree 'spec without AC-n'
 out="$(run_gate "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
 if [ "$rc" -eq 1 ] && grep -q 'no numbered AC-n' <<<"$out"; then
   pass "(J) a committed spec with no AC-n fails (the definition of done must exist)"
 else fail "(J) expected rc=1 on an AC-less spec, got rc=$rc: $out"; fi
-printf '# lean spec\n\n- AC-1: does a thing\n' > "$TREE/docs/plans/acme-42-lean.md"; commit_tree 'spec restored'
+printf '# lane spec\n\n- AC-1: does a thing\n' > "$TREE/docs/plans/acme-42-lean.md"; commit_tree 'spec restored'
 
 # ---- (K) an unresolvable namespace constant is FATAL, never exempt -----------------------
 # ONE constant now (#413): the delegated key derivation strips it off the head ref, so an empty
@@ -560,7 +560,7 @@ if [ "$rc" -eq 0 ] && silent "$out"; then
 else fail "(O2) expected a silent rc=0 after a new review round, got rc=$rc: $out"; fi
 
 # ---- (P) the verdict VALUE is read first-match, never counted across the file -------------
-# `lean-gate.sh verdict --summary-file` appends the reviewer's prose below the keys, and review
+# `milestone-gate.sh verdict --summary-file` appends the reviewer's prose below the keys, and review
 # prose discusses verdicts: the committed record for #237 carries the token twice for exactly
 # this reason. A count-anywhere reader passes a record whose authoritative first line reads
 # needs-work — a fail-OPEN on the single predicate this whole gate rests on.
@@ -835,7 +835,7 @@ else fail "(U3) expected a silent rc=0 after a clean replay, got rc=$rc: $out"; 
 # one commit, so `git log -1 -- <record>` finds the head and the INFERRED arm is green. Without
 # that shape the case would red on inference and prove nothing about this arm.
 u_pid_pre="$(tree_patch_id HEAD)"
-printf '# lean spec\n\n- AC-1: does a thing, resolved differently by the rebase\n' > "$TREE/docs/plans/acme-42-lean.md"
+printf '# lane spec\n\n- AC-1: does a thing, resolved differently by the rebase\n' > "$TREE/docs/plans/acme-42-lean.md"
 printf 'verdict=approve\nrun_id: r-review-7\nsession_id: sess-review-7\nrounds: 1\nreviewed_head: %s\nreviewed_patch_id: %s\n' \
   "$(git -C "$TREE" rev-parse HEAD)" "$u_pid_pre" > "$VREC"
 commit_tree "a conflict resolution changes a line, committed with the record"
@@ -895,7 +895,7 @@ else fail "(V1) expected a silent rc=0 on a chain root, got rc=$rc: $out"; fi
 
 # ROUND 2, inheriting round 1: the ordinary fix round. The fix touches the spec, which round 1
 # already read — so the delta is non-empty and the head's patch identity has genuinely moved.
-printf '# lean spec\n\n- AC-1: does a thing\n- AC-2: does another, fixed after round 1\n' > "$TREE/docs/plans/acme-42-lean.md"
+printf '# lane spec\n\n- AC-1: does a thing\n- AC-2: does another, fixed after round 1\n' > "$TREE/docs/plans/acme-42-lean.md"
 commit_tree "the fix round 1 asked for"
 v_pid2="$(tree_patch_id HEAD)"
 [ "$v_pid2" != "$v_pid1" ] || fail "(V2-fixture) the fix did not move the patch identity — (V2) would assert nothing"
@@ -954,7 +954,7 @@ else fail "(V4) expected rc=1 on a dangling link, got rc=$rc: $out"; fi
 # Round 4's own link resolves; round 3's — left dangling by the case above — does not. A message
 # naming round 4 would send the operator to the wrong record, and a generic "chain is stale"
 # would name neither.
-printf '# lean spec\n\n- AC-1: does a thing\n- AC-2: does another, fixed again\n' > "$TREE/docs/plans/acme-42-lean.md"
+printf '# lane spec\n\n- AC-1: does a thing\n- AC-2: does another, fixed again\n' > "$TREE/docs/plans/acme-42-lean.md"
 commit_tree "a further fix round"
 v_pid4="$(tree_patch_id HEAD)"
 write_chain_record r-review-v4 sess-review-v4 4 "$v_pid4" "$v_pid_rev" "$v_r1_commit"
@@ -1009,7 +1009,7 @@ else fail "(V6a) expected a silent rc=0, got rc=$rc: $out"; fi
 # walk stops there and the chain is complete; a first-match walk follows the body into a link that
 # dangles and reds. That is what keeps this case rc-observable after #443 removed the printed
 # count it used to pin, and it is why (V6a) is ordered ahead of it rather than after.
-printf '# lean spec\n\n- AC-1: does a thing\n- AC-2: and a sixth-round fix\n' > "$TREE/docs/plans/acme-42-lean.md"
+printf '# lane spec\n\n- AC-1: does a thing\n- AC-2: and a sixth-round fix\n' > "$TREE/docs/plans/acme-42-lean.md"
 commit_tree "the round-5 fix"
 v_pid6="$(tree_patch_id HEAD)"
 write_chain_record r-review-v6 sess-review-v6 6 "$v_pid6" "$v_pid_root" "$v_r1_commit"
@@ -1155,7 +1155,7 @@ write_render_manifest() { # write_render_manifest <rendered-from>
 # an unrecognised host is now a violation in its own right, which those cases do not assert.
 arm_spec() { # arm_spec [handoff-url]
   {
-    printf '# lean spec\n\n- AC-1: does a thing\n- AC-2: does another\n\n'
+    printf '# lane spec\n\n- AC-1: does a thing\n- AC-2: does another\n\n'
     printf '## Design\n\nHandoff: %s\n\n' "${1:-https://www.figma.com/design/AbC123/Prospects}"
     printf '| RS-n | route | state | AC refs |\n| --- | --- | --- | --- |\n'
     printf '| RS-1 | prospects | default | AC-1 |\n'
@@ -1250,7 +1250,7 @@ else fail "(X5) expected the stale-receipt violation alone, got rc=$rc: $out"; f
 # declaring the explicit disarm, the arm is not applicable and the boundary says so. This is what
 # makes (X2)/(X3)/(X5) turn on ARMING rather than on the artifacts being present.
 {
-  printf '# lean spec\n\n- AC-1: does a thing\n- AC-2: does another\n\n'
+  printf '# lane spec\n\n- AC-1: does a thing\n- AC-2: does another\n\n'
   printf '## Design\n\nDesign: none — no FE surface in this ticket.\n'
 } > "$TREE/docs/plans/acme-42-lean.md"
 commit_tree "the spec disarms the design lane"
@@ -1354,7 +1354,7 @@ else fail "(X11) expected the unrecognised-host violation alone, got rc=$rc: $ou
 # written against a tree where the design arm is not applicable, so leaving it armed would red
 # each of them on THIS arm instead of on its own subject. (X11)'s spec would red on every run.
 {
-  printf '# lean spec\n\n- AC-1: does a thing\n- AC-2: does another\n\n'
+  printf '# lane spec\n\n- AC-1: does a thing\n- AC-2: does another\n\n'
   printf '## Design\n\nDesign: none — no FE surface in this ticket.\n'
 } > "$TREE/docs/plans/acme-42-lean.md"
 commit_tree "the spec disarms the design lane again"
@@ -1372,12 +1372,12 @@ else fail "(X11z) the disarmed tree was not restored to green, got rc=$rc: $out"
 # being decorative: (X6) left a tree that passes, so each one below changes only the marker
 # trail. Nothing here re-asserts the (N) block's comparisons; the claim identity stays r-abc123
 # and distinct throughout, so a refusal can only have come from the delegated arm.
-out="$(LEAN_PR_COMMENTS_FILE="$WORK/pr-markers-none.json" run_gate_base "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+out="$(LANE_PR_COMMENTS_FILE="$WORK/pr-markers-none.json" run_gate_base "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
 if [ "$rc" -eq 1 ] && grep -q "no bot-authored 'lean-pr-marker' comment" <<<"$out"; then
   pass "(Y1) a PR carrying no build marker is refused — zero markers is missing evidence, not a vacuous pass"
 else fail "(Y1) expected rc=1 on an unmarked PR, got rc=$rc: $out"; fi
 
-out="$(LEAN_PR_COMMENTS_FILE="$WORK/pr-markers-human.json" run_gate_base "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+out="$(LANE_PR_COMMENTS_FILE="$WORK/pr-markers-human.json" run_gate_base "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
 if [ "$rc" -eq 1 ] && grep -q 'none bot-authored' <<<"$out"; then
   pass "(Y2) an operator-posted marker does not satisfy the arm (the trust filter, on a public repo)"
 else fail "(Y2) expected the trust filter to reject a human marker, got rc=$rc: $out"; fi
@@ -1388,7 +1388,7 @@ else fail "(Y2) expected the trust filter to reject a human marker, got rc=$rc: 
 # build session wrote about its own code.
 w_pid="$(tree_patch_id HEAD)"
 write_verdict approve r-review-1 sess-review-1 "$(git -C "$TREE" rev-parse HEAD)" "$w_pid"
-out="$(LEAN_PR_COMMENTS_FILE="$WORK/pr-markers-two.json" run_gate_base "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+out="$(LANE_PR_COMMENTS_FILE="$WORK/pr-markers-two.json" run_gate_base "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
 if [ "$rc" -eq 1 ] && grep -q "BUILD run's identity" <<<"$out"; then
   pass "(Y3) a verdict matching the SECOND build session's marker is refused (D-4: every marker, not the first)"
 else fail "(Y3) expected rc=1 against the second marker, got rc=$rc: $out"; fi
@@ -1396,7 +1396,7 @@ else fail "(Y3) expected rc=1 against the second marker, got rc=$rc: $out"; fi
 # ...and the same trail with a verdict identity no marker carries still passes, so (Y3) turns on
 # the match rather than on the trail having two entries.
 write_verdict approve r-review-9 sess-review-9 "$(git -C "$TREE" rev-parse HEAD)" "$w_pid"
-out="$(LEAN_PR_COMMENTS_FILE="$WORK/pr-markers-two.json" run_gate_base "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+out="$(LANE_PR_COMMENTS_FILE="$WORK/pr-markers-two.json" run_gate_base "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
 if [ "$rc" -eq 0 ] && silent "$out"; then
   pass "(Y4) two markers neither of which the verdict carries still passes"
 else fail "(Y4) expected a silent rc=0 against two non-matching markers, got rc=$rc: $out"; fi
@@ -1416,8 +1416,8 @@ cat > "$WORK/comments-pretoken.json" <<EOF
     "body": "<!-- dev-pipeline -->\n<!-- run_id: r-abc123 -->\n<!-- session_id: sess-build-1 -->\n<!-- stage: lean-claimed -->\n\nClaimed." }
 ]
 EOF
-out="$(LEAN_PR_COMMENTS_FILE="$WORK/pr-markers-none.json" run_gate_base "claude/acme-42" "$WORK/comments-pretoken.json" "$WORK/diff-lean.txt" "main")"; rc=$?
-if [ "$rc" -eq 0 ] && grep -qE '^\[lean-evidence\]   · identity: inert — ' <<<"$out" \
+out="$(LANE_PR_COMMENTS_FILE="$WORK/pr-markers-none.json" run_gate_base "claude/acme-42" "$WORK/comments-pretoken.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+if [ "$rc" -eq 0 ] && grep -qE '^\[boundary-evidence\]   · identity: inert — ' <<<"$out" \
    && ! grep -q "no bot-authored 'lean-pr-marker' comment" <<<"$out"; then
   pass "(Y5) a pre-token claim trail sends the delegated identity arm inert instead of refusing (#445)"
 else fail "(Y5) expected an inert decline through the delegation, got rc=$rc: $out"; fi
@@ -1455,7 +1455,7 @@ EOF
 
 # `pr-markers-none.json` is a VIOLATION inside the window — (Y1) above asserts exactly that on
 # this same tree — so rc=0 here can only mean the arm declined, never that it passed.
-out="$(PR_OPEN_AT_OVERRIDE="$OLD_PR_OPEN_AT" LEAN_PR_COMMENTS_FILE="$WORK/pr-markers-none.json" \
+out="$(PR_OPEN_AT_OVERRIDE="$OLD_PR_OPEN_AT" LANE_PR_COMMENTS_FILE="$WORK/pr-markers-none.json" \
        run_gate_base "claude/acme-42" "$WORK/comments-old.json" "$WORK/diff-lean.txt" "main")"; rc=$?
 if [ "$rc" -eq 0 ] && class_b "$out" "identity:postdated"; then
   pass "(Z1) AC-1: a PR opened before the payload's cutoff is exempted from the marker arm, in one class-(b) line"
@@ -1463,7 +1463,7 @@ else fail "(Z1) expected a delegated postdated decline, got rc=$rc: $out"; fi
 
 # ...and the issue-side arm carries NO cutoff (AC-5). Same pre-cutoff PR, same declining payload,
 # and the boundary still reds — on the claim comparison the payload cannot make.
-out="$(PR_OPEN_AT_OVERRIDE="$OLD_PR_OPEN_AT" LEAN_PR_COMMENTS_FILE="$WORK/pr-markers-none.json" \
+out="$(PR_OPEN_AT_OVERRIDE="$OLD_PR_OPEN_AT" LANE_PR_COMMENTS_FILE="$WORK/pr-markers-none.json" \
        run_gate_base "claude/acme-42" "$WORK/comments-old-collide.json" "$WORK/diff-lean.txt" "main")"; rc=$?
 if [ "$rc" -eq 1 ] && grep -q "BUILD run's identity" <<<"$out" \
    && grep -q 'identity: postdated' <<<"$out"; then
@@ -1473,13 +1473,13 @@ else fail "(Z2) expected the claim arm to fire on a pre-cutoff PR, got rc=$rc: $
 # The delegation itself is fail-closed. A payload this gate cannot reach means half the evidence
 # is unevaluated, and an unevaluable check must not report a pass — the mode that would otherwise
 # arrive silently the first time the payload moves.
-out="$(LEAN_EVIDENCE="$WORK/no-such-payload.sh" run_gate_base "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
+out="$(LANE_EVIDENCE="$WORK/no-such-payload.sh" run_gate_base "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?
 if [ "$rc" -eq 2 ] && grep -q 'portable evidence payload is missing' <<<"$out"; then
   pass "(Y5) an unreachable evidence payload is an environment error, never a pass"
 else fail "(Y5) expected rc=2 on a missing payload, got rc=$rc: $out"; fi
 
 # ---- (AA) evidence 7b: the boundary keeps DELEGATING the override arm (#613) ---------------
-# CHAIN-LEVEL, and that is the whole point of putting it here. lean-evidence-selftest.sh drives
+# CHAIN-LEVEL, and that is the whole point of putting it here. boundary-evidence-selftest.sh drives
 # the override arm's payload directly, so it stays green when `delegate override` is deleted from
 # the gate — the boundary would then validate nothing while reporting clean. A TYPO is worse than
 # a deletion: `run_arms` matches `*,override,*`, so a misspelled arm name runs ZERO arms, emits
@@ -1519,5 +1519,5 @@ if [ "$rc" -eq 0 ] && silent "$out"; then
   pass "(AA2) a well-formed override record passes the boundary with zero bytes"
 else fail "(AA2) expected a silent rc=0 on a well-formed override record, got rc=$rc: $out"; fi
 
-echo "[check-lean-chain-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
+echo "[check-lane-chain-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 exit "$FAILS"

@@ -264,7 +264,7 @@ d=$(tree m)
 sh_block "$d/a.sh" demo "" "VALUE='x|y'"
 sh_block "$d/b.sh" demo "" "VALUE='x|y'"
 {
-  echo "The denylist is stated once, inside the \`$B seam-scrub\` markers in lean-gate.sh."
+  echo "The denylist is stated once, inside the \`$B seam-scrub\` markers in milestone-gate.sh."
   echo "See also \`$E seam-scrub\`."
 } > "$d/prose.md"
 printf "sed 's|// %s findings-schema||' \"\$TARGET\" > \"\$TARGET.m\"\n" "$B" > "$d/code.sh"

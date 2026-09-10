@@ -15,7 +15,7 @@ The table below is this adapter's operation contract. The pipeline’s gate-sens
 operations are tabulated in [`../README.md`](../README.md#the-pipeline-dev-pipelinerun).
 
 > **Ready, never draft.** The **ready** (non-draft) PR contract holds under both trackers —
-> `lean-gate.sh` milestone 5 rejects a draft on either adapter. The draft-PR carve-out that
+> `milestone-gate.sh` milestone 5 rejects a draft on either adapter. The draft-PR carve-out that
 > used to apply here belonged to the staged lane's manual promotion step, deleted in #348;
 > there is no promotion step left for a draft to advance out of.
 
@@ -79,7 +79,7 @@ advisory routing for whoever launches the session, not a gate input.
 ```
 
 `tracker.bot` is **optional here, not forbidden** (#440). JIRA repos don’t claim through a
-bot — there is no queue race, and `lean-gate.sh claim` writes nothing to the tracker either
+bot — there is no queue race, and `milestone-gate.sh claim` writes nothing to the tracker either
 way. But the bot's other job is write identity on the **code host**, and source control is
 GitHub under this adapter too: PR comments, the step-7 PR marker, the cost-block PATCH and
 the git committer are all GitHub writes that happen on every run. Configure a bot and they

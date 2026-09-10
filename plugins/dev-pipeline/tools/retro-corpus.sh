@@ -16,15 +16,15 @@
 # A future non-lean implementation that reuses this receipt shape is covered by construction.
 #
 # Model identity (issue #347 comment, ratified 2026-08-03): an artifact-schema row's `model`
-# field reads the `model:` key `lean-gate.sh` now writes into the progress record (and, when
+# field reads the `model:` key `milestone-gate.sh` now writes into the progress record (and, when
 # present, the verdict record) — no new per-run artifact, just one more key on the existing
-# ones. A record written before that key existed, or with LEAN_RUN_MODEL never exported at
+# ones. A record written before that key existed, or with LANE_RUN_MODEL never exported at
 # record-creation time, reads "unknown" — a corpus label, not an error.
 #
 # `open-prs` mode is the second, narrower piece of #347's scope: the operator-visible
 # backlog signal pipeline-retro's existing unattended branch reports — open lean-prefixed
 # PRs whose linked issue has no comment yet referencing the verdict-record path. It reuses
-# milestone 5's own predicate (`lean-gate.sh cmd_5`'s closing-comment check), swept across
+# milestone 5's own predicate (`milestone-gate.sh cmd_5`'s closing-comment check), swept across
 # every open pipeline PR instead of one issue, so it needs no branch checkout.
 #
 # `timing` mode is #565's piece: a per-run timing profile derived from the SAME artifact-schema
@@ -47,7 +47,7 @@
 #   retro-corpus.sh timing   [--window N] [--state-dir <dir>] [--json]
 #   retro-corpus.sh open-prs [--pr-list-file <path>] [--comments-dir <dir>] [--json]
 #
-# Seams (zero-network selftest, the lean-gate.sh precedent):
+# Seams (zero-network selftest, the milestone-gate.sh precedent):
 #   STATECTL_STATE_DIR / SECOND_SHIFT_CONFIG / --state-dir   corpus: state-dir resolution
 #   ${GH:-gh}                                                open-prs: the CLI used for reads
 #   --pr-list-file <path>     open-prs: read the open-PR list from a JSON fixture instead of
@@ -120,9 +120,9 @@ if [ "$SUB" = "open-prs" ]; then
     "$(cfg '.tracker.keyPattern' '')" "$MAIN_ROOT")" || exit 2
 fi
 
-# Same first-match key:value idiom lean-gate.sh / lean-reconcile.sh use on these records,
+# Same first-match key:value idiom milestone-gate.sh / reconcile.sh use on these records,
 # widened to allow `/` — unlike their run_id/session_id/verdict= keys, `verdict_record:`
-# and `spec:` carry repo-relative PATHS, and lean-gate.sh's own character class truncates
+# and `spec:` carry repo-relative PATHS, and milestone-gate.sh's own character class truncates
 # at the first slash (never triggered there, since it re-derives those paths from config
 # instead of reading them back — this reader intentionally does read them back).
 # LOCKSTEP-BEGIN lean-record-key
@@ -264,7 +264,7 @@ TS_RE='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z'
 first_row_ts() { grep -oE "$TS_RE" "$1" 2>/dev/null | head -n1; }
 
 # milestone_ts <file> <n> <state> — every timestamp of `| milestone-<n> | <state>`, in file
-# order. `satisfied` is idempotent (lean-gate.sh's append_satisfied returns early, D-41), so its
+# order. `satisfied` is idempotent (milestone-gate.sh's append_satisfied returns early, D-41), so its
 # result is one line or none and NO rule anywhere selects a "last" occurrence (AC-3).
 milestone_ts() {
   grep -oE "$TS_RE \| milestone-$2 \| $3" "$1" 2>/dev/null | cut -c1-20
@@ -435,7 +435,7 @@ cmd_timing() {
 # ============================================================== open-prs mode
 # THE PIPELINE DISCRIMINATOR IS THE ARTIFACT, NOT THE NAMESPACE (#413). Both lanes now cut
 # `<branchPrefix><key>` branches, so the prefix that used to select pipeline PRs here selects
-# STAGED ones too — and a staged PR has no lean verdict record by construction, so a
+# STAGED ones too — and a staged PR has no verdict record by construction, so a
 # namespace-only filter would report every one of them as "verdict-less" work the harness
 # abandoned. The prefix survives only as the KEY derivation; what makes a candidate lean is a
 # non-fixture `*-<key>-lean.md` in the PR's OWN file list.
@@ -476,7 +476,7 @@ cmd_open_prs() {
     esac
     issue="${head#"$BRANCH_PREFIX"}"
     case "$issue" in ''|*[!0-9]*) continue ;; esac
-    # Key-matched and non-fixture, the same test lean-evidence.sh's classify() applies. The
+    # Key-matched and non-fixture, the same test boundary-evidence.sh's classify() applies. The
     # fixture exclusion matters here for the same reason it matters there: this repo's own
     # selftest trees carry deliberately lean-shaped files.
     printf '%s\n' "$specs" \

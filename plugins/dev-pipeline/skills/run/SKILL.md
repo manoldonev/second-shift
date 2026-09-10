@@ -5,7 +5,7 @@ description: The pipeline's front door — one ticket in, a merged-ready PR out.
 
 # run
 
-You are the scheduler, not a stage. `orchestrate-lean.sh` (`O`, here) runs the loop; your job is
+You are the scheduler, not a stage. `orchestrate.sh` (`O`, here) runs the loop; your job is
 the three things it leaves to you, then getting out of its way.
 
 The blocks it drives — `/dev-pipeline:build` and `/dev-pipeline:review` — stay

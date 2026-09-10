@@ -7,7 +7,7 @@
 # run's merge decision changes. A gate whose removal changes no decision across the corpus is
 # ceremony with a measurement behind it.
 #
-# THE SUBSTRATE. Every lean run leaves `{issue}-lean-progress.md` — append-only, timestamped, and
+# THE SUBSTRATE. Every lane run leaves `{issue}-lean-progress.md` — append-only, timestamped, and
 # gitignored. Its `attempt` / `absent` rows ARE the gate's firings; its `obligation` rows name the
 # sub-milestone identity where the gate writes one. Every reviewed run leaves a COMMITTED verdict
 # record whose `inherited_patch_id` / `reviewed_patch_id` pair is the only patch-level content-diff

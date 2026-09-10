@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# lean-evidence-selftest.sh — behavioral suite for the portable merge-boundary evidence arms.
+# boundary-evidence-selftest.sh — behavioral suite for the portable merge-boundary evidence arms.
 #
-# Zero-network by construction: every case drives lean-evidence.sh through its two fixture
-# seams (--pr-comments-file, --diff-files-file), the check-lean-chain-selftest.sh precedent.
+# Zero-network by construction: every case drives boundary-evidence.sh through its two fixture
+# seams (--pr-comments-file, --diff-files-file), the check-lane-chain-selftest.sh precedent.
 # No `gh`, no git remote.
 #
-# WHAT THIS SUITE IS FOR that the boundary's own suite is not. check-lean-chain-selftest.sh
+# WHAT THIS SUITE IS FOR that the boundary's own suite is not. check-lane-chain-selftest.sh
 # drives these arms through a delegating caller that supplies half the environment; a consumer
 # runs this file DIRECTLY, with prefixes derived from a committed config it alone can see and
 # a `tracker.type` that may reduce one arm's strength. Those two resolution paths, and the
@@ -15,7 +15,7 @@
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TOOL="$HERE/lean-evidence.sh"
+TOOL="$HERE/boundary-evidence.sh"
 
 FAILS=0
 pass() { echo "  PASS: $1"; }
@@ -37,7 +37,7 @@ GAPREC="$TREE/docs/plans/acme-42-lean-intent-gap.md"
 OVREC="$TREE/docs/plans/acme-42-lean-override.md"
 mkdir -p "$TREE/docs/plans" "$TREE/scripts/fixtures" "$TREE/.claude"
 git -C "$TREE" init -q 2>/dev/null
-git -C "$TREE" config user.email lean@example.invalid
+git -C "$TREE" config user.email lane@example.invalid
 git -C "$TREE" config user.name lean-selftest
 
 # `add -A` is safe here and nowhere else: this is a throwaway repo under $WORK.
@@ -47,7 +47,7 @@ printf 'seed\n' > "$TREE/README.md"
 commit_tree "base"
 git -C "$TREE" update-ref refs/remotes/origin/main HEAD
 
-printf '# lean spec\n\n- AC-1: does a thing\n' > "$SPEC"
+printf '# lane spec\n\n- AC-1: does a thing\n' > "$SPEC"
 printf '# fixture\n- AC-9: fixture only\n' > "$TREE/scripts/fixtures/acme-99-lean.md"
 commit_tree "spec + fixtures"
 
@@ -244,13 +244,13 @@ silent() { [ -z "$1" ]; }
 # emit into this class, and the shape — stream, prefix, arm, closed disposition — is the thing
 # this ticket fixes for them. A line that drifted to two, or to a fifth disposition, is the
 # regression, and only a full-line anchor sees it.
-CLASS_B_RE='^\[lean-evidence\]   · [a-z][a-z-]*: (not-applicable|reduced-strength|postdated|inert) — .'
+CLASS_B_RE='^\[boundary-evidence\]   · [a-z][a-z-]*: (not-applicable|reduced-strength|postdated|inert) — .'
 class_b() { # class_b <output> [expected-arm:disposition]
   [ "$(printf '%s\n' "$1" | grep -cE "$CLASS_B_RE")" = "1" ] || return 1
-  [ -z "${2:-}" ] || grep -qE "^\[lean-evidence\]   · ${2%%:*}: ${2##*:} — " <<<"$1"
+  [ -z "${2:-}" ] || grep -qE "^\[boundary-evidence\]   · ${2%%:*}: ${2##*:} — " <<<"$1"
 }
 
-echo "[lean-evidence-selftest]"
+echo "[boundary-evidence-selftest]"
 
 # ---- (a) the happy path -------------------------------------------------------------------
 # AC-1/AC-6: the head ref carries the STAGED prefix, because that is now the only namespace
@@ -266,7 +266,7 @@ else fail "(a) expected a silent rc=0, got $rc: $out"; fi
 # A whole-gate decline is class (b), not (a): nothing was evaluated, and an unevaluated gate that
 # printed nothing would be indistinguishable from one that checked everything.
 out="$(ev "someone/hotfix" "$WORK/markers-none.json" "$WORK/diff-plain.txt")"; rc=$?
-if [ "$rc" -eq 0 ] && class_b "$out" "lean-evidence:not-applicable"; then
+if [ "$rc" -eq 0 ] && class_b "$out" "boundary-evidence:not-applicable"; then
   pass "(b) AC-3: a non-lean branch declines in exactly one class-(b) line"
 else fail "(b) expected a one-line not-applicable pass, got $rc: $out"; fi
 
@@ -282,26 +282,26 @@ if [ "$rc" -eq 0 ] && silent "$out"; then
   pass "(c) a legacy lean/-prefixed PR still classifies, via the body key and the artifact"
 else fail "(c) expected the legacy namespace to classify (and so run silently), got $rc: $out"; fi
 
-# THE MIRROR ERROR, and the reason applicability is KEY-MATCHED rather than "any lean spec".
+# THE MIRROR ERROR, and the reason applicability is KEY-MATCHED rather than "any lane spec".
 # This branch's key is 303; the diff carries #42's spec. A suffix-only test would pull an
 # unrelated PR into this gate and out of the pipeline gate at the same time.
 out="$(ev "claude/acme-303" "$WORK/markers-good.json" "$WORK/diff-lean.txt")"; rc=$?
-if [ "$rc" -eq 0 ] && class_b "$out" "lean-evidence:not-applicable" \
+if [ "$rc" -eq 0 ] && class_b "$out" "boundary-evidence:not-applicable" \
    && grep -q 'resolved key: 303' <<<"$out"; then
-  pass "(d) a PR carrying some OTHER ticket's lean spec is not classified lean"
+  pass "(d) a PR carrying some OTHER ticket's lane spec is not classified lean"
 else fail "(d) expected not-applicable on a key mismatch, got $rc: $out"; fi
 
 out="$(ev "some/other-branch" "$WORK/markers-good.json" "$WORK/diff-fixture-only.txt")"; rc=$?
-if [ "$rc" -eq 0 ] && class_b "$out" "lean-evidence:not-applicable"; then
+if [ "$rc" -eq 0 ] && class_b "$out" "boundary-evidence:not-applicable"; then
   pass "(e) lean-SHAPED fixture paths never make a PR applicable"
 else fail "(e) expected fixture paths to be excluded, got $rc: $out"; fi
 
 # AC-11: a consumer's workflow may still set the retired constant from an older pin. It is
 # announced and ignored — NEVER an envfail, which would red every such repo's PRs. And the
 # notice goes to stderr, so `classify`'s key=value block stays parseable (see bb1).
-out="$(LEAN_BRANCH_PREFIX="lean/acme-" ev "claude/acme-42" "$WORK/markers-good.json" "$WORK/diff-lean.txt")"; rc=$?
-if [ "$rc" -eq 0 ] && grep -q "LEAN_BRANCH_PREFIX ('lean/acme-') is retired and ignored" <<<"$out"; then
-  pass "(f) a retired LEAN_BRANCH_PREFIX is announced and ignored, not an environment error"
+out="$(LANE_BRANCH_PREFIX="lean/acme-" ev "claude/acme-42" "$WORK/markers-good.json" "$WORK/diff-lean.txt")"; rc=$?
+if [ "$rc" -eq 0 ] && grep -q "LANE_BRANCH_PREFIX ('lean/acme-') is retired and ignored" <<<"$out"; then
+  pass "(f) a retired LANE_BRANCH_PREFIX is announced and ignored, not an environment error"
 else fail "(f) expected the deprecation notice with a clean pass, got $rc: $out"; fi
 
 # ---- (g) the verdict arm ------------------------------------------------------------------
@@ -685,7 +685,7 @@ else fail "(z2) expected the branch key to win, got $rc: $out"; fi
 out="$(PIPELINE_PREFIX_OVERRIDE="zzz-matches-nothing/" ev "claude/acme-303" "$WORK/markers-good.json" "$WORK/diff-lean.txt")"; rc=$?
 if [ "$rc" -eq 0 ] && silent "$out"; then
   pass "(z3) an env namespace overrides the committed config rather than losing to it"
-else fail "(z3) expected the env prefix to win (a silent lean run, not a 303 decline), got $rc: $out"; fi
+else fail "(z3) expected the env prefix to win (a silent lane run, not a 303 decline), got $rc: $out"; fi
 
 # ---- (aa) AC-6: the no-bot degrade, per-arm and DISCLOSED -----------------------------------
 # A consumer with no authenticated writer cannot post a marker that survives the Bot filter, so
@@ -737,9 +737,9 @@ if [ "$rc" -eq 0 ] && class_b "$out" "identity:reduced-strength"; then
   pass "(ab3) github with tracker.bot.enabled false degrades too, in one class-(b) line"
 else fail "(ab3) expected the no-bot degrade under github, got $rc: $out"; fi
 
-# LEAN_BOT_ENABLED wins over the committed config, the same precedence LEAN_TRACKER_TYPE has —
+# LANE_BOT_ENABLED wins over the committed config, the same precedence LANE_TRACKER_TYPE has —
 # and it is the seam this repo's own CI needs, since it gitignores its config and reads nothing.
-out="$( cd "$TREE" && LEAN_BOT_ENABLED=true PR_CREATED_AT="$PR_OPEN_AT" \
+out="$( cd "$TREE" && LANE_BOT_ENABLED=true PR_CREATED_AT="$PR_OPEN_AT" \
         SECOND_SHIFT_CONFIG="$WORK/config-github-nobot.json" \
         PR_HEAD_REF="claude/acme-42" PR_HEAD_SHA="$(git -C "$TREE" rev-parse HEAD)" \
         PR_BASE_REF="main" PR_BODY="$BODY_GOOD" \
@@ -747,7 +747,7 @@ out="$( cd "$TREE" && LEAN_BOT_ENABLED=true PR_CREATED_AT="$PR_OPEN_AT" \
                          --issue-comments-file "$WORK/claim-stamped.json" \
                          --diff-files-file "$WORK/diff-lean.txt" 2>&1 )"; rc=$?
 if [ "$rc" -eq 1 ] && ! grep -q 'identity: reduced-strength' <<<"$out"; then
-  pass "(ab4) LEAN_BOT_ENABLED overrides the committed tracker.bot.enabled"
+  pass "(ab4) LANE_BOT_ENABLED overrides the committed tracker.bot.enabled"
 else fail "(ab4) expected the env override to force the arm on, got $rc: $out"; fi
 
 # ---- (ac) #444: the identity arm declares when its contract took effect ---------------------
@@ -813,7 +813,7 @@ else fail "(ac5) expected postdated to win over the no-bot degrade, got $rc: $ou
 # read as coverage while proving nothing.
 if ! grep -nE '(^|[^[:alnum:]_-])date[[:space:]]+-[dr]([[:space:]]|$)' "$TOOL" >/dev/null; then
   pass "(ac6) AC-8: the cutoff comparison invokes neither 'date -d' nor 'date -r'"
-else fail "(ac6) a GNU/BSD-split date form reached lean-evidence.sh: $(grep -nE '(^|[^[:alnum:]_-])date[[:space:]]+-[dr]([[:space:]]|$)' "$TOOL")"; fi
+else fail "(ac6) a GNU/BSD-split date form reached boundary-evidence.sh: $(grep -nE '(^|[^[:alnum:]_-])date[[:space:]]+-[dr]([[:space:]]|$)' "$TOOL")"; fi
 
 # ---- (ad) #445: an arm enforces only what its producer's generation ships -------------------
 # EVERY CASE HERE RUNS ON `markers-none.json`, the trail that is a VIOLATION whenever the arm
@@ -909,7 +909,7 @@ else fail "(bb1) classify output is not the documented contract, rc=$rc: $out"; 
 # `classify`'s STDOUT is machine-read by two delegating gates, so it must carry key=value lines
 # and nothing else — including when the retired constant triggers its deprecation notice. The
 # notice belongs on stderr; a prose line inside the block would be parsed as data.
-out="$( cd "$TREE" && PIPELINE_BRANCH_PREFIX="claude/acme-" LEAN_BRANCH_PREFIX="lean/acme-" \
+out="$( cd "$TREE" && PIPELINE_BRANCH_PREFIX="claude/acme-" LANE_BRANCH_PREFIX="lean/acme-" \
         PR_HEAD_REF="claude/acme-42" PR_BODY="$BODY_GOOD" PR_BASE_REF=main \
         bash "$TOOL" classify --diff-files-file "$WORK/diff-lean.txt" 2>/dev/null )"; rc=$?
 if [ "$rc" -eq 0 ] && [ "$(printf '%s\n' "$out" | grep -cv '^[a-z_]*=')" = "0" ]; then
@@ -919,7 +919,7 @@ else fail "(bb1b) classify stdout carried a non-key=value line, rc=$rc: $out"; f
 # ---- (bb2) the artifact scan FAILS CLOSED on a diff it cannot read -------------------------
 # The three cases below drive the LIVE git path (no --diff-files-file), which is what CI takes.
 # They exist because #413 made this scan the SOLE applicability arm: with the branch-namespace
-# arm gone, "the diff was unreadable" and "the PR carries no lean spec" produce the same empty
+# arm gone, "the diff was unreadable" and "the PR carries no lane spec" produce the same empty
 # file list, and the second is a merge-boundary exemption. Each asserts rc=2 AND that no
 # `applicable=` line was emitted — a silent `applicable=0` is the exact failure being closed,
 # and it is also what a producer envfailing inside a `< <( )` process substitution would print,
@@ -1018,13 +1018,13 @@ mkdir -p "$WORK/bin"
 cat > "$WORK/bin/gh" <<'GHSTUB'
 #!/usr/bin/env bash
 case "$*" in
-  *"/issues/$LEAN_EV_PR/comments"*) cat "$LEAN_EV_MARKERS" ;;
-  *)                                cat "$LEAN_EV_CLAIMS" ;;
+  *"/issues/$LANE_EV_PR/comments"*) cat "$LANE_EV_MARKERS" ;;
+  *)                                cat "$LANE_EV_CLAIMS" ;;
 esac
 GHSTUB
 chmod +x "$WORK/bin/gh"
-out="$( cd "$TREE" && PATH="$WORK/bin:$PATH" LEAN_EV_MARKERS="$WORK/markers-good.json" \
-        LEAN_EV_CLAIMS="$WORK/claim-stamped.json" LEAN_EV_PR=9 \
+out="$( cd "$TREE" && PATH="$WORK/bin:$PATH" LANE_EV_MARKERS="$WORK/markers-good.json" \
+        LANE_EV_CLAIMS="$WORK/claim-stamped.json" LANE_EV_PR=9 \
         PIPELINE_BRANCH_PREFIX="claude/acme-" PR_CREATED_AT="$PR_OPEN_AT" \
         PR_HEAD_REF="claude/acme-42" PR_HEAD_SHA="$(git -C "$TREE" rev-parse HEAD)" PR_BASE_REF=main \
         PR_BODY="$BODY_GOOD" PR_NUMBER=9 GH_REPO="acme/acme" \
@@ -1035,7 +1035,7 @@ else fail "(cc2) expected the live-fetch path to pass silently, got $rc: $out"; 
 
 # ---- (sc) #622: the per-AC scorecard, at the merge boundary --------------------------------
 # THE HALF THE WRITER STRUCTURALLY CANNOT COVER. Every record below is HAND-WRITTEN — none of
-# them passed `lean-gate.sh verdict` — which is the case AC-5 names: a record that answered to
+# them passed `milestone-gate.sh verdict` — which is the case AC-5 names: a record that answered to
 # nothing at write time still answers here. That is also why these live as per-tool cases rather
 # than only as a scenario: the composed leg in scenario-liveness-selftest.sh drives the WRITER,
 # and a writer refusal is a different reader from this one.
@@ -1140,7 +1140,7 @@ else fail "(sc13) expected the enum refusal on needs-work, got $rc: $out"; fi
 # green — so a spec that mentions criteria and declares none where this reader looks is refused
 # rather than read as having none.
 sc_spec_held="$(cat "$SPEC")"
-printf '# lean spec\n\nThe rule in AC-1 is stated in prose, not declared.\n' > "$SPEC"
+printf '# lane spec\n\nThe rule in AC-1 is stated in prose, not declared.\n' > "$SPEC"
 # COMMITTED before the record is written, or the freshness arm reds on the spec edit itself and
 # the case reports a violation it is not about.
 commit_tree "a spec that mentions AC-n without declaring one"
@@ -1151,10 +1151,10 @@ else fail "(sc14) expected the undeclared-set refusal, got $rc: $out"; fi
 printf '%s\n' "$sc_spec_held" > "$SPEC"
 commit_tree "the declaring spec restored"
 
-# ...and a spec with NO criteria at all is NOT this arm's business: check-lean-chain.sh's
+# ...and a spec with NO criteria at all is NOT this arm's business: check-lane-chain.sh's
 # artifact arm already refuses it, and milestone 1 refuses it before that. The two empty-set
 # cases are separated so neither message is sent to a reviewer the other was written for.
-printf '# lean spec\n\nNo criteria here.\n' > "$SPEC"
+printf '# lane spec\n\nNo criteria here.\n' > "$SPEC"
 commit_tree "a spec with no criteria at all"
 out="$(sc_run approve "")"; rc=$?
 if [ "$rc" -eq 0 ] && silent "$out"; then
@@ -1180,12 +1180,12 @@ write_verdict
 # ---- (scw) #760: the `scorecard` subcommand, the WRITE-TIME entry point ---------------------
 # THE ENTRY POINT (sc1)-(sc16) NEVER REACH. Those drive `ac_scorecard_violations` through `all`,
 # entering the file well below the `SUB = scorecard` dispatch, so until now nothing in this suite
-# invoked the subcommand at all — and it is the whole reader `lean-gate.sh verdict` shells out to
+# invoked the subcommand at all — and it is the whole reader `milestone-gate.sh verdict` shells out to
 # BEFORE a record exists. It has arms the boundary has not got: a schema it PRINTS so a caller's
 # refusal can quote it, an rc that stays 0 on a violation because the CALLER prices it, and the
 # argument refusals a caller reaches only by getting the invocation wrong.
 #
-# Not a scenario: scenario-liveness-selftest.sh drives `lean-gate.sh verdict`, and its assertions
+# Not a scenario: scenario-liveness-selftest.sh drives `milestone-gate.sh verdict`, and its assertions
 # are about the GATE's refusal text — it supplies both flags correctly and never sees these arms.
 #
 # No fixture of its own: $SPEC already declares exactly `AC-1` and $SC_HDR is already the
@@ -1253,7 +1253,7 @@ emit_probe() { # emit_probe <arm> <disposition> <reason>
   # BOTH codes: shellcheck >=0.10 reports SC2329 on the function, 0.9 (CI) reports SC2317 on each
   # command in the body — suppressing only the newer one is clean locally and reds CI.
   ( envfail() { echo "$1" >&2; exit 2; }
-    eval "$(grep '^LEAN_OUTPUT_DISPOSITIONS=' "$TOOL")"
+    eval "$(grep '^LANE_OUTPUT_DISPOSITIONS=' "$TOOL")"
     eval "$(awk '/^inapplicable\(\) \{/,/^\}$/' "$TOOL")"
     inapplicable "$1" "$2" "$3" )
 }
@@ -1271,5 +1271,5 @@ if [ "$rc" -eq 2 ] && grep -q 'not a class-(b) disposition' <<<"$out"; then
   pass "(dd2) a disposition outside the closed set is an environment error, not a new vocabulary word"
 else fail "(dd2) expected rc=2 on an unknown disposition, got $rc: $out"; fi
 
-echo "[lean-evidence-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
+echo "[boundary-evidence-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 exit "$FAILS"

@@ -28,7 +28,7 @@ cd "$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "not in a git repo";
 
 # Same main-checkout anchor the writer uses, held byte-identical to it by the
 # `audit-ledger-dir` LOCKSTEP markers. A bare `.claude/audit` here
-# reported nothing at all when run from a linked worktree — which is where lean runs live,
+# reported nothing at all when run from a linked worktree — which is where lane runs live,
 # and where the ledger being swept is NOT.
 # LOCKSTEP-BEGIN audit-ledger-dir
 audit_ledger_dir() { # audit_ledger_dir <base-dir> — the main checkout's .claude/audit

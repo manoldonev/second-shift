@@ -152,7 +152,7 @@ The per-slug map is **data**, not prose:
 [`tools/lane-bench-classes.tsv`](../tools/lane-bench-classes.tsv). It is not duplicated here,
 because a second copy would be a paragraph nothing can check. The file covers the lane
 scheduler's **full slug vocabulary**, and `tools/lane-bench-selftest.sh` holds that claim to
-account: it derives the vocabulary out of the shipped `orchestrate-lean.sh` call sites and reds
+account: it derives the vocabulary out of the shipped `orchestrate.sh` call sites and reds
 when the table and the scheduler disagree in either direction, or when the derivation itself stops
 matching the scheduler's shape.
 
@@ -264,7 +264,7 @@ tools/lane-bench.sh run \
 worktree instead of the arm's whole kit.
 
 **The arm reaches the payload sessions through a wrapper, not through a flag.**
-`tools/lane-bench-arm.sh` is handed to the lane as `LEAN_SPAWN_BIN`; it appends
+`tools/lane-bench-arm.sh` is handed to the lane as `LANE_SPAWN_BIN`; it appends
 `--setting-sources ''` and one `--plugin-dir` per manifest entry to a **session dispatch** and
 `exec`s every other call on that handle — `agents --json --all`, `stop <id>` — through unmodified.
 It is transparent by contract, not by courtesy: the scheduler reads the session id out of the
@@ -276,8 +276,8 @@ What `run` does, in order: cuts the arm worktree and records `harness_sha` from 
 `cli_version` from `claude --version`; writes the manifest; **files a fresh issue as the
 operator's own identity** and applies `tracker.labels.queue`; copies the ticket's fixture receipt
 to `<stateDir>/<issue>-ledger.md`, the path the gate computes, so no cell measures the interview;
-launches **the arm worktree's own** `orchestrate-lean.sh` detached under `nohup` with
-`SECOND_SHIFT_CONFIG`, `LEAN_SPAWN_BIN` and `LEAN_ARM_MANIFEST` exported and both models, the
+launches **the arm worktree's own** `orchestrate.sh` detached under `nohup` with
+`SECOND_SHIFT_CONFIG`, `LANE_SPAWN_BIN` and `LANE_ARM_MANIFEST` exported and both models, the
 review-model basis and `--max-rounds 2` passed explicitly; polls the launch ledger for its
 `terminal` row; classifies it; reads each payload session's **resolved model id** out of its
 transcript; appends the row; and calls `score`.
@@ -293,7 +293,7 @@ rung, and it is compared against an operator-supplied `--substrate <owner>/<repo
 literal in this repository. A refusal that fired after the issue was filed would already have
 written to a tracker, and an exit code cannot take that back.
 
-A cell whose lane never writes a terminal row inside `LEAN_BENCH_CELL_CEILING_SECS` is
+A cell whose lane never writes a terminal row inside `LANE_BENCH_CELL_CEILING_SECS` is
 `lane-error` on the slug `no-terminal-row`, and takes the same single re-run. A second
 `lane-error` records the row and exits 1: the row is a fact about the arm, and 1 rather than 2
 says the results file was written.

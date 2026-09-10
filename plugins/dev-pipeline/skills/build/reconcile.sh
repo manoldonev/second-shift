@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# lean-reconcile.sh — the OPERATOR's pre-merge check on a pipeline PR (D-48, AC-16).
+# reconcile.sh — the OPERATOR's pre-merge check on a pipeline PR (D-48, AC-16).
 #
 # THE OWNER, not a forerunner. This header used to read "DEFERS TO #292" — a general
 # run-reconcile verifier that would take ownership when it landed. #292 was closed as
@@ -13,7 +13,7 @@
 # also produce. The whole value here is that a human invokes it, out-of-band, against records
 # the run has already finished writing.
 #
-# WHAT IT CLOSES. check-lean-chain.sh (CI) proves the committed/tracker artifacts EXIST and
+# WHAT IT CLOSES. check-lane-chain.sh (CI) proves the committed/tracker artifacts EXIST and
 # are internally consistent. It cannot prove the review actually RAN IN ITS OWN SESSION — a
 # sufficiently determined agent could write a verdict record having dispatched nothing. This
 # script closes that path against the one record the agent does not author: the harness-written
@@ -25,7 +25,7 @@
 #   4. RUN_ID is consistent across the claim comment and the progress file (both build-side),
 #      and the verdict's run identity DIFFERS from them,
 #   5. the record DECLARES the head it reviewed, and its own commit descends from that head.
-#      This is the third reader of that key, alongside milestone 4 and check-lean-chain.sh.
+#      This is the third reader of that key, alongside milestone 4 and check-lane-chain.sh.
 #      What it adds over those two is COHERENCE rather than currency: they compare the declared
 #      head against a moving head, whereas a record whose own commit does not descend from the
 #      commit it names is internally incoherent wherever the branch has since gone.
@@ -41,7 +41,7 @@
 #      inheriting it. On a lean branch the record path is linear and HEAD-anchored, so that
 #      predicate holds by construction — an arm no fixture can red is coverage in appearance only.
 #   7. the BUILD run recorded an entry attestation (#416) — the one arm here about the build's own
-#      start rather than the review. `lean-gate.sh` refuses build-role subcommands without it, but
+#      start rather than the review. `milestone-gate.sh` refuses build-role subcommands without it, but
 #      that binds only runs made after it shipped and only on the build host; this is the sole
 #      mechanical route to detecting an unattested build on a run that already merged.
 #
@@ -66,7 +66,7 @@
 # "failed", which "this adapter has one arm fewer" is not.
 #
 # Usage:
-#   lean-reconcile.sh <issue> [--session-id <id>] [--comments-file <path>]
+#   reconcile.sh <issue> [--session-id <id>] [--comments-file <path>]
 #     --session-id  the BUILD session, when the progress file records none.
 #                   The REVIEW session is never passed in: it comes from the verdict record,
 #                   because letting the operator name it would let a wrong guess reconcile a
@@ -76,8 +76,8 @@
 #   ${GH:-gh}                the CLI used for the claim-comment read (github arm only)
 #   --comments-file <path>   read the comment trail from a JSON fixture (github arm only;
 #                            refused under jira, where no comment trail is read at all)
-#   LEAN_PROGRESS_FILE       override the resolved progress-file path
-#   LEAN_AUDIT_DIR           override the resolved audit-ledger directory. FIXTURE-ONLY, and
+#   LANE_PROGRESS_FILE       override the resolved progress-file path
+#   LANE_AUDIT_DIR           override the resolved audit-ledger directory. FIXTURE-ONLY, and
 #                            deliberately not promoted to an operator escape hatch: the honest
 #                            ceiling stated above is "forge a second session's hook ledger with
 #                            coherent timestamps", and a sanctioned directory override lowers it
@@ -89,13 +89,21 @@
 # Exit 0 = reconciled; 1 = a reconciliation failure; 2 = usage/environment error.
 set -uo pipefail
 
+# #833: the pipeline's environment knobs are spelled `LANE_*`; the retired `LEAN_*` spellings still
+# resolve, once, with a stderr notice. Promoted IN PLACE here, before the first read, so every
+# `${LANE_*:-<default>}` site below keeps its own default unchanged.
+# shellcheck source=lane-env.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lane-env.sh" \
+  || { echo "FATAL: cannot load lane-env.sh — the LANE_/LEAN_ compatibility reader" >&2; exit 1; }
+lane_env_promote LANE_PROGRESS_FILE LANE_AUDIT_DIR
+
 GH_CLI="${GH:-gh}"
 COMMENTS_FILE=""
 SESSION_ID=""
 ISSUE=""
 
-say()     { echo "[lean-reconcile] $*"; }
-envfail() { echo "[lean-reconcile] $*" >&2; exit 2; }
+say()     { echo "[reconcile] $*"; }
+envfail() { echo "[reconcile] $*" >&2; exit 2; }
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -106,7 +114,7 @@ while [ $# -gt 0 ]; do
     *)               [ -z "$ISSUE" ] && ISSUE="$1" || envfail "unexpected argument: $1"; shift ;;
   esac
 done
-[ -n "$ISSUE" ] || envfail "usage: lean-reconcile.sh <issue> [--session-id <id>] [--comments-file <path>]"
+[ -n "$ISSUE" ] || envfail "usage: reconcile.sh <issue> [--session-id <id>] [--comments-file <path>]"
 
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || envfail "not in a git repo."
 _common="$(git rev-parse --git-common-dir 2>/dev/null)" || envfail "cannot resolve --git-common-dir."
@@ -130,13 +138,13 @@ REPO_SLUG="$(cfg "$HOST_Q" 'acme')"
 # ---- the tracker adapter -------------------------------------------------------------------
 # ONE resolution, ONE branch site: check (1)'s comment fetch. EVERY OTHER check reads git,
 # the progress file, the verdict record and the audit ledger, and must stay adapter-insensitive
-# — a second branch here would make this script a second tracker authority beside lean-gate.sh.
+# — a second branch here would make this script a second tracker authority beside milestone-gate.sh.
 #
 # Absent ⇒ github is a FAIL-SAFE, not back-compat: config-lint.sh already requires the key to be
 # github|jira, so no lint-clean config omits it, and github is the safe side for a config that
 # never reached the lint — the arm that DEMANDS a claim comment fails loudly, where the jira arm
 # would quietly attest less than the operator thinks. An UNRECOGNIZED value is a loud error and
-# not a fall-through, so a typo cannot silently pick an arm. lean-gate.sh's enum, verbatim.
+# not a fall-through, so a typo cannot silently pick an arm. milestone-gate.sh's enum, verbatim.
 TRACKER_TYPE="$(cfg '.tracker.type' 'github')"
 case "$TRACKER_TYPE" in
   github|jira) : ;;
@@ -152,19 +160,19 @@ if [ "$TRACKER_TYPE" = "jira" ] && [ -n "$COMMENTS_FILE" ]; then
 fi
 
 VERDICT_REL="$PLANS_DIR/$REPO_SLUG-$ISSUE-lean-verdict.md"
-PROGRESS_FILE="${LEAN_PROGRESS_FILE:-$MAIN_ROOT/$STATE_DIR/$ISSUE-lean-progress.md}"
-AUDIT_DIR="${LEAN_AUDIT_DIR:-$MAIN_ROOT/.claude/audit}"
+PROGRESS_FILE="${LANE_PROGRESS_FILE:-$MAIN_ROOT/$STATE_DIR/$ISSUE-lean-progress.md}"
+AUDIT_DIR="${LANE_AUDIT_DIR:-$MAIN_ROOT/.claude/audit}"
 
 failures=0
-bad() { echo "[lean-reconcile]   ✗ $1" >&2; failures=$((failures + 1)); }
-ok()  { echo "[lean-reconcile]   ✓ $1"; }
+bad() { echo "[reconcile]   ✗ $1" >&2; failures=$((failures + 1)); }
+ok()  { echo "[reconcile]   ✓ $1"; }
 
 # capture-first counting; never `grep -c … || echo 0` (that prints 0 twice on no match).
 count_in() { local n; n="$(grep -c "$@" 2>/dev/null)" || n=0; [ -n "$n" ] || n=0; echo "$n"; }
 
 # ---- inputs ------------------------------------------------------------------------------
-[ -f "$REPO_ROOT/$VERDICT_REL" ] || { echo "[lean-reconcile] ✗ no committed verdict record at $VERDICT_REL" >&2; exit 1; }
-[ -f "$PROGRESS_FILE" ]          || { echo "[lean-reconcile] ✗ no progress file at $PROGRESS_FILE" >&2; exit 1; }
+[ -f "$REPO_ROOT/$VERDICT_REL" ] || { echo "[reconcile] ✗ no committed verdict record at $VERDICT_REL" >&2; exit 1; }
+[ -f "$PROGRESS_FILE" ]          || { echo "[reconcile] ✗ no progress file at $PROGRESS_FILE" >&2; exit 1; }
 
 say "reconciling #$ISSUE"
 say "  verdict record: $VERDICT_REL"
@@ -184,7 +192,7 @@ extract_key_at() { # extract_key_at <key> <commit>
     | grep -oE "$1:[[:space:]]*[A-Za-z0-9._-]+" 2>/dev/null | head -n1 | sed -E "s/^$1:[[:space:]]*//"
 }
 
-# LOCKSTEP: held byte-identical to lean-gate.sh, the canonical side, which carries the reasoning.
+# LOCKSTEP: held byte-identical to milestone-gate.sh, the canonical side, which carries the reasoning.
 # LOCKSTEP-BEGIN lean-inherited-key
 # Any key of the verdict record, read from its HEADER BLOCK only. Record on stdin; prints
 # nothing when the key is absent from that block.
@@ -265,7 +273,7 @@ else
     COMMENTS="$(cat "$COMMENTS_FILE")"
   else
     COMMENTS="$("$GH_CLI" api "repos/{owner}/{repo}/issues/$ISSUE/comments" --paginate 2>&1)" || {
-      echo "[lean-reconcile] comment fetch failed for #$ISSUE:" >&2
+      echo "[reconcile] comment fetch failed for #$ISSUE:" >&2
       printf '%s\n' "$COMMENTS" >&2
       exit 2
     }
@@ -470,8 +478,8 @@ fi
 
 # ---- (6) the BUILD run recorded its entry attestation (#416) --------------------------------
 # Every arm above reasons about the REVIEW session. This one is about the build's own start: did
-# the run establish that its audit ledger was live before it began? `lean-gate.sh entry` records
-# that in the progress file, and `lean-gate.sh` refuses every build-role subcommand without it —
+# the run establish that its audit ledger was live before it began? `milestone-gate.sh entry` records
+# that in the progress file, and `milestone-gate.sh` refuses every build-role subcommand without it —
 # but that refusal only binds runs made after it shipped, and it is local to the build host.
 # This is the only mechanical route to detecting an unattested build on a run that already
 # merged, which is exactly how #416 was found: two runs in a consumer that could not write a
@@ -486,11 +494,11 @@ fi
 if grep -qF "| entry | ledger=" "$PROGRESS_FILE" 2>/dev/null; then
   ok "the build run recorded an entry attestation ($(grep -F '| entry | ledger=' "$PROGRESS_FILE" | head -n1 | sed -E 's/^.*\| (lines=.*)$/\1/'))"
 else
-  bad "the progress file records no entry attestation — nothing establishes that the build session's audit ledger was live when the run started, so this run's records cannot be reconciled against a harness trace at all (\`lean-gate.sh entry $ISSUE\` was never run, or predates it)"
+  bad "the progress file records no entry attestation — nothing establishes that the build session's audit ledger was live when the run started, so this run's records cannot be reconciled against a harness trace at all (\`milestone-gate.sh entry $ISSUE\` was never run, or predates it)"
 fi
 
 if [ "$failures" -gt 0 ]; then
-  echo "[lean-reconcile] ✗ $failures reconciliation failure(s) for #$ISSUE — do NOT merge until resolved." >&2
+  echo "[reconcile] ✗ $failures reconciliation failure(s) for #$ISSUE — do NOT merge until resolved." >&2
   exit 1
 fi
 # The closing line carries the reduced-evidence qualifier too, not only the check site: an

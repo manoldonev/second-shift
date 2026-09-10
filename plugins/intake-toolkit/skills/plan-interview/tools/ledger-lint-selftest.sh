@@ -623,7 +623,7 @@ out=$(bash "$LINT" --reconcile "$TMP/rc-receipt.md" "$TMP/rc-plan-departed.md" 2
   && pass "(ll-rc5) the same reversal marked DEPARTURE with a reason → 0, counted as a departure not a carry" \
   || fail "(ll-rc5) declared departure — rc=$rc out=$out"
 
-# (ll-rc6) a marker with no reason. Mirrors the `Design: none — <reason>` disarm the lean gate
+# (ll-rc6) a marker with no reason. Mirrors the `Design: none — <reason>` disarm the milestone gate
 # already refuses at this milestone: a bare marker is a departure nobody has to justify, which
 # makes the whole mode a formality one word wide.
 rc_plan 'DEPARTURE —' > "$TMP/rc-plan-bare.md"
@@ -702,7 +702,7 @@ fi
 chmod 644 "$TMP/rc-receipt-unreadable.md"
 
 # (ll-rc12) MODE ISOLATION, the (ll-y)/(ll-as) obligation for this mode. Reconcile mode runs
-# INSTEAD of the structural checks — the lean gate lints each document in its own mode — so a
+# INSTEAD of the structural checks — the milestone gate lints each document in its own mode — so a
 # plan that reconciles perfectly while being structurally broken must still reconcile clean
 # here AND still fail default mode. Without both halves the case cannot tell "the structural
 # checks were skipped" from "the plan happened to be well-formed".

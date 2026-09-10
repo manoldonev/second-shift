@@ -143,12 +143,12 @@ jobs:
       - name: contract lockstep blocks (discovered from LOCKSTEP markers)
         run: bash scripts/check-lockstep-pairs.sh
 
-      # The reserved-exit-3 contract in docs/config-schema.md, held to lean-gate.sh's actual
+      # The reserved-exit-3 contract in docs/config-schema.md, held to milestone-gate.sh's actual
       # dispatch. Same class as the lockstep step above and wired for the same reason: the
       # glob-discovered selftest proves the guard works, it never runs it against the real pair.
       # #660 demoted three lanes and the doc went on claiming them, through that PR's three
       # review rounds and its full panel, because the file it lived in was in no diff they read.
-      - name: reserved exit-3 lane set (docs/config-schema.md vs lean-gate.sh)
+      - name: reserved exit-3 lane set (docs/config-schema.md vs milestone-gate.sh)
         run: bash scripts/check-lane-class-doc.sh
 
       # No vendor model identity in the runnable eval surface under plugins/*/evals/**. The
@@ -165,7 +165,7 @@ jobs:
       - name: capability parity register (tools/capability-parity.tsv)
         run: bash tools/capability-parity-check.sh
 
-      # Every refusal site in the lean lane declares its yield bucket. Same class as the two
+      # Every refusal site in the lane declares its yield bucket. Same class as the two
       # steps above — an enumerator plus a register that must cover its output exactly — and it
       # lives HERE rather than in pr-gates deliberately: it reads five files off the tree and
       # needs none of that job's environment block. #610 D-9 left prose-blockers.sh's coverage
@@ -257,12 +257,12 @@ jobs:
     # reads — the PR's marker trail, and the issue's claim trail, which carries both the build
     # identity and the producer capability stamp the bound arms gate on.
     # Gaining a scope here is a question about the CONSUMER template too. If the arm needing it
-    # lives in the delegated payload (lean-evidence.sh), then
+    # lives in the delegated payload (boundary-evidence.sh), then
     # plugins/second-shift/templates/consumer/second-shift-ci.yml needs the same scope, and
     # without it every adopting repo's pipeline PRs red on an environment error. If it lives only in
-    # check-lean-chain.sh, the template must NOT get it — an unused scope there is a standing
+    # check-lane-chain.sh, the template must NOT get it — an unused scope there is a standing
     # escalation for a job that executes a fetched script. Reasoned out in docs/testing.md
-    # (the `lean evidence TOKEN SCOPES` entry under *Couplings considered and declined*).
+    # (the `boundary evidence TOKEN SCOPES` entry under *Couplings considered and declined*).
     permissions:
       contents: read
       issues: read
@@ -275,10 +275,10 @@ jobs:
     # the resolved prefix on every not-applicable verdict. Residual risk is recorded in
     # docs/pipeline-manifesto.md's T0 note.
     env:
-      # ONE namespace for both lanes (#413) — the lean harness cuts `<branchPrefix><key>`
-      # branches too, so the separate LEAN_BRANCH_PREFIX constant that used to sit here is
+      # ONE namespace for both lanes (#413) — the lane harness cuts `<branchPrefix><key>`
+      # branches too, so the separate LANE_BRANCH_PREFIX constant that used to sit here is
       # retired. Neither chain gate classifies on the branch name any more: both delegate to
-      # lean-evidence.sh, which reads the committed lean spec in the PR's own diff.
+      # boundary-evidence.sh, which reads the committed lane spec in the PR's own diff.
       PIPELINE_BRANCH_PREFIX: claude/second-shift-
       PIPELINE_PLAN_PATTERN: docs/plans/acme-{issueKey}.md
     steps:
@@ -301,7 +301,7 @@ jobs:
       # The pipeline's merge-boundary gate, and the ONLY chain gate now: #731 deleted the
       # staged lane's `check-pipeline-chain.sh`, whose stage-marker trail nothing had emitted
       # since #348, so there is no sibling left to keep disjoint from. A PR is claimed when
-      # `lean-evidence.sh` classifies it — the committed spec in the PR's own diff — which
+      # `boundary-evidence.sh` classifies it — the committed spec in the PR's own diff — which
       # also means a hand-cut branch on the same namespace is claimed by no gate at all.
       #
       # PR_BASE_REF is load-bearing, not a convenience: the classifier's sole applicability
@@ -330,7 +330,7 @@ jobs:
           PR_BODY: ${{ github.event.pull_request.body }}
           PR_CREATED_AT: ${{ github.event.pull_request.created_at }}
           PR_BASE_REF: ${{ github.base_ref }}
-        run: bash scripts/check-lean-chain.sh
+        run: bash scripts/check-lane-chain.sh
 
   # Gates that run ONLY on the release PR: the old version-bump discipline (every
   # content-changed plugin carries its derived bump — same script, new call site) and the

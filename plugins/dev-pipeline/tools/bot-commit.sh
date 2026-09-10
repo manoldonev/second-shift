@@ -25,7 +25,7 @@
 #   3. <main checkout>/.claude/second-shift.config.json
 # Candidate 3 is the load-bearing one: the consumer config is commonly gitignored, so it is
 # NEVER checked out into a pipeline worktree. The main checkout is anchored via
-# `--git-common-dir` → dirname — the same idiom as lean-gate.sh's state resolution and
+# `--git-common-dir` → dirname — the same idiom as milestone-gate.sh's state resolution and
 # pipeline-cost-block.sh _repo_root(). Anchoring on `--show-toplevel` (the
 # pre-#110 behavior) resolves to the WORKTREE, so every candidate missed, the bot read as
 # disabled, and pipeline commits silently landed under the operator's identity — recorded in

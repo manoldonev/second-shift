@@ -48,16 +48,16 @@
 set -uo pipefail
 
 # Denylist of vars that must NOT leak into a configured command-lane child process
-# (run_lane() below) — see lean-gate.sh's matching SEAM_SCRUB for the full rationale (#34),
+# (run_lane() below) — see milestone-gate.sh's matching SEAM_SCRUB for the full rationale (#34),
 # including why MUTATION_SWEEP_NO_DEFER (a test-harness knob rather than a pipeline seam)
-# belongs here. SUPERSET of lean-gate.sh's list: this file also carries its own
+# belongs here. SUPERSET of milestone-gate.sh's list: this file also carries its own
 # PREFLIGHT_DOCTOR_CMD seam, so the relation is `subset-of` and not `verbatim` — declared on
-# the marker below, with `subset` on lean-gate.sh's copy. Two copies rather than one import
+# the marker below, with `subset` on milestone-gate.sh's copy. Two copies rather than one import
 # because neither file is importable by the other: they reach the same lane shape by two code
 # paths (the gate's milestone-3 sweep vs this file's one-pass doctor sweep). No comments inside
 # the marker block itself — they would break check-lockstep-pairs.sh's first_enum.
 # LOCKSTEP-BEGIN seam-scrub superset
-SEAM_SCRUB='SECOND_SHIFT_CONFIG|SECOND_SHIFT_REPO_ROOT|SECOND_SHIFT_EXTENSION_MANIFEST|SECOND_SHIFT_PLUGIN_ROOT|SECOND_SHIFT_REVIEW_TOOLKIT_ROOT|SECOND_SHIFT_DEV_PIPELINE_ROOT|SECOND_SHIFT_DESIGN_TOOLKIT_ROOT|SECOND_SHIFT_SECTION_CATALOG|STATECTL_STATE_DIR|STATECTL_WRITER|DEV_PIPELINE_MODE|BRANCH_PREFIX|KEY_PATTERN|LEAN_ATTEND_MODE|MUTATION_SWEEP_NO_DEFER|PREFLIGHT_DOCTOR_CMD'
+SEAM_SCRUB='SECOND_SHIFT_CONFIG|SECOND_SHIFT_REPO_ROOT|SECOND_SHIFT_EXTENSION_MANIFEST|SECOND_SHIFT_PLUGIN_ROOT|SECOND_SHIFT_REVIEW_TOOLKIT_ROOT|SECOND_SHIFT_DEV_PIPELINE_ROOT|SECOND_SHIFT_DESIGN_TOOLKIT_ROOT|SECOND_SHIFT_SECTION_CATALOG|STATECTL_STATE_DIR|STATECTL_WRITER|DEV_PIPELINE_MODE|BRANCH_PREFIX|KEY_PATTERN|LANE_ATTEND_MODE|LEAN_ATTEND_MODE|MUTATION_SWEEP_NO_DEFER|PREFLIGHT_DOCTOR_CMD'
 # LOCKSTEP-END seam-scrub
 
 declare -a SEAM_SCRUB_ENV=()
@@ -330,10 +330,10 @@ if [[ -f "$CFG" ]] && command -v jq >/dev/null 2>&1; then
     # cover (Python, bun, cargo, go) correctly drafts every lane null rather than
     # guessing — but an all-null table then passes config-lint and prints only per-lane
     # SKIPs, so the adopter is never told the table is unfinished. The predicate mirrors
-    # lean-gate.sh milestone 3's zero-verifying-lane check (which reds naming the opt-out):
+    # milestone-gate.sh milestone 3's zero-verifying-lane check (which reds naming the opt-out):
     # VERIFYING lanes are lint/typecheck/test and extraLanes[]. lanes[] is SETUP-only, and
     # format never verifies — so neither counts here. Keep this set in lockstep with
-    # lean-gate.sh; an early warning that disagrees with the late gate is worse than no
+    # milestone-gate.sh; an early warning that disagrees with the late gate is worse than no
     # warning. (docs/testing.md records why this pair is not mechanized.)
     VERIFYING=$(jq -r --arg h "$HOST_ID" '
       ([.commands[$h] | .lint, .typecheck, .test | select(. != null and . != "")] | length)
@@ -342,7 +342,7 @@ if [[ -f "$CFG" ]] && command -v jq >/dev/null 2>&1; then
     if [[ "${VERIFYING:-0}" -eq 0 ]]; then
       if [[ "$ALLOW_UNVERIFIED" == "true" ]]; then
         # The deliberate opt-out: already explicit in the config, so it stays silent
-        # here and lean-gate.sh milestone 3 names the opt-out in its own labeled skip.
+        # here and milestone-gate.sh milestone 3 names the opt-out in its own labeled skip.
         skipn "no verifying lane for '$HOST_ID' — allowUnverified opt-out is set, so this is deliberate"
       else
         UNVERIFIED=1

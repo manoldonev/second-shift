@@ -176,7 +176,7 @@ scenario latest-lock      plugin-list-behind.json  settings-green.json     marke
 mkdir -p "$TMP/shadow-skill/.claude/skills/build"
 scenario shadow-skill     plugin-list-green.json   settings-green.json     marketplace-list-pinned.json  0 "shadows plugin-shipped"
 # #416/D-7: `audit-toolkit` off WHILE `dev-pipeline` is on is not an opt-out, it is a broken
-# lean lane — its entry gate refuses to start without the ledger audit-toolkit's hook writes.
+# lane — its entry gate refuses to start without the ledger audit-toolkit's hook writes.
 # This scenario asserted exit 0 until that landed; it is re-keyed, not deleted, because the
 # combination it fixtures is exactly the one that produced two unattested merged runs.
 mkdir -p "$TMP/opt-out/.claude"; cp "$FIX/settings-optout.local.json" "$TMP/opt-out/.claude/settings.local.json"
@@ -281,7 +281,7 @@ else check "report-state-excerpt" 1; echo "$sout" | sed 's/^/      /' | head -20
 
 # --report state excerpt, LEAN PREFERENCE (#348). The abort form asks the filer to paste the
 # tail of `<issue>-lean-progress.md`, and asserts the --report bundle already carries it. The
-# lean lane writes that markdown and NO json at all, so a `*.json`-only glob answers "no
+# lane writes that markdown and NO json at all, so a `*.json`-only glob answers "no
 # pipeline runs recorded" on the exact failure mode the form is aimed at — the bundle claim
 # would be false. Preference is keyed on the CLASS, not on mtime: the progress record here is
 # deliberately the OLDER file, so selecting by mtime alone picks the json and reds this case.
@@ -307,7 +307,7 @@ if grep -qF "lean-era-abort-reason" <<< "$lout" \
    && ! grep -qF "no pipeline runs recorded" <<< "$lout"; then check "report-state-excerpt-lean-preferred" 0
 else check "report-state-excerpt-lean-preferred" 1; echo "$lout" | sed 's/^/      /' | head -20; fi
 
-# ...and WITHIN the lean class, newest still wins — so the preference above is a class filter
+# ...and WITHIN the progress-record class, newest still wins — so the preference above is a class filter
 # layered on the -nt selection, not a replacement for it.
 #
 # #585. THE NEWER FILE MUST SORT BEFORE THE OLDER ONE. state_excerpt()'s scan is a

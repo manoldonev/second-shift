@@ -128,7 +128,7 @@ exit 0
 
 ### Scope
 
-The full verify suite (`format`, `lint`, `type-check`, `test`) runs at the gate — `lean-gate.sh` milestone 3. This hook is intentionally scoped to `type-check` only: it must be fast enough not to slow down the commit-per-chunk workflow while the implementation is being written.
+The full verify suite (`format`, `lint`, `type-check`, `test`) runs at the gate — `milestone-gate.sh` milestone 3. This hook is intentionally scoped to `type-check` only: it must be fast enough not to slow down the commit-per-chunk workflow while the implementation is being written.
 
 If the hook denies a commit mid-implementation, fix the type error before retrying. Do not remove the hook to work around failures.
 

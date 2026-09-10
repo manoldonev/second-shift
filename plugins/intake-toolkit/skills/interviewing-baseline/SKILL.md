@@ -125,10 +125,11 @@ Explicit empty form, for genuinely trivial scope:
 No open regions — every decision in scope is ratified.
 ```
 
-**The shapes the lean gate can read.** This section is not only read by people: milestone 1 of
-`build-lean` enumerates its regions from **two** declared sources — this receipt, and the issue
-body — and refuses on a `pause-and-ask` region with no resolution artifact. So the shape is load-
-bearing, and a section it cannot enumerate is refused rather than passed over (#700):
+**The shapes the milestone gate can read.** This section is not only read by people: milestone 1
+of the pipeline's BUILD session enumerates its regions from **two** declared sources — this
+receipt, and the issue body — and refuses on a `pause-and-ask` region with no resolution artifact.
+So the shape is load-bearing, and a section it cannot enumerate is refused rather than passed
+over (#700):
 
 | Where | Accepted |
 | --- | --- |
@@ -205,7 +206,7 @@ ratified_by:
 The header keys are read **first-match**, so `ratified:` sits above the prose that discusses it.
 Ratification is an operator act out of band — a comment on the issue — and the record then
 carries `ratified: yes` plus that comment's URL in `ratified_by:`. A `yes` citing nothing is not
-ratification — the merge boundary (`scripts/check-lean-chain.sh`) is where that is settled.
+ratification — the merge boundary (`scripts/check-lane-chain.sh`) is where that is settled.
 
 One record per issue, one `ratified:` key covering it; a second gap resets it to `no`. Because
 committing the flip moves the branch, it costs a fresh review round — land ratification before

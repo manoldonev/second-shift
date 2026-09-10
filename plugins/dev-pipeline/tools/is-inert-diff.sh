@@ -65,7 +65,7 @@
 #   (.claude/hooks/pre-commit-typecheck.sh) reuses this same carve-out, kept in lockstep
 #   with this file by its pre-commit-typecheck-selftest.sh.
 #
-# .claude/**/*.tsv — pipeline-internal data (e.g. .claude/lean-overrides.tsv) read
+# .claude/**/*.tsv — pipeline-internal data (e.g. .claude/lane-overrides.tsv) read
 #   only by a shell tool. Zero coverage per the shared rationale, and it
 #   is outside the prettier format-glob *.{ts,tsx,js,json,md}, so the INERT-lane
 #   `prettier --check` already skips it. Anchor is deliberately .claude/-scoped: a .tsv

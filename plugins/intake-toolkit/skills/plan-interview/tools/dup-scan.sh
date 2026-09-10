@@ -142,7 +142,7 @@ fi
 command -v jq >/dev/null 2>&1 || { echo "dup-scan: jq is required" >&2; exit 2; }
 
 # ---------------------------------------------------------------- config
-# Same anchor lean-gate.sh uses: the config lives in the MAIN checkout, so a lane
+# Same anchor milestone-gate.sh uses: the config lives in the MAIN checkout, so a lane
 # worktree resolves it through --git-common-dir rather than its own root.
 if [ -n "${SECOND_SHIFT_CONFIG:-}" ]; then
   CONFIG="$SECOND_SHIFT_CONFIG"

@@ -381,7 +381,7 @@ two blocks, unchanged:
 
 — which produces findings on the PR and commits the verdict record that milestone 4 and the
 merge boundary both read. Until it runs, the PR's `lean chain` check is red on purpose, and the
-build session cannot shortcut it: `lean-gate.sh verdict` refuses to run inside the build
+build session cannot shortcut it: `milestone-gate.sh verdict` refuses to run inside the build
 session at all. A verdict also has to cover the head it is read against, so pushing more
 commits after an approve costs another review round.
 

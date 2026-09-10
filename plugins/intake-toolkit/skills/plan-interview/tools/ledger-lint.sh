@@ -79,12 +79,12 @@
 #   | D-4 | Scope of the fix | DEPARTURE — narrowed to the one call site, because |
 #
 # The reason after `DEPARTURE` is REQUIRED, mirroring the `Design: none — <reason>`
-# disarm the lean gate already enforces at the same milestone: a departure is a
+# disarm the milestone gate already enforces at the same milestone: a departure is a
 # decision, and an undocumented one is indistinguishable from an omission.
 #
 # The mode is INERT when the receipt binds no rows, and it is deliberately narrow:
 # it runs no structural check on either document (the caller lints those in default
-# mode) and it says nothing about the receipt's `OR-n` regions, which the lean gate's
+# mode) and it says nothing about the receipt's `OR-n` regions, which the milestone gate's
 # own `check_pause_and_ask` already owns. What it cannot do is notice a row the
 # interview never wrote down — the same ceiling receipt mode has.
 #
@@ -133,7 +133,7 @@ violate() { echo "ledger-lint: VIOLATION: $1" >&2; VIOLATIONS=$((VIOLATIONS + 1)
 # Mechanical canonical of the interviewing-baseline provenance enum.
 # SINGLE-SITED, and deliberately: this file holds the only MACHINE copy of the enum. The
 # prose mirrors in interviewing-baseline are a markdown table, which neither relation can
-# compare against a shell assignment, and #517/#562 both declined to give lean-gate.sh a
+# compare against a shell assignment, and #517/#562 both declined to give milestone-gate.sh a
 # second parser for exactly this reason. Guarded behaviorally by ledger-lint-selftest.sh.
 # The LOCKSTEP markers that once wrapped THIS assignment named two pairs that no longer
 # exist; removed in #604.
@@ -160,7 +160,7 @@ SURFACE_EMPTY_FORM='No user-visible surface — this change renders nothing a us
 
 # The section detector, ONE copy. Both check 1 and reconcile mode ask this question, and
 # a second in-file copy is the shape #562's review round already named: two greps that agree
-# only until somebody widens one. (lean-gate.sh's own copy is the deliberate exception the
+# only until somebody widens one. (milestone-gate.sh's own copy is the deliberate exception the
 # manifest records — a caller that must answer before it can decide whether to call at all.)
 has_ledger_section() { # has_ledger_section <path>
   grep -qiE '^(#{1,6}[[:space:]]+|\*\*)[[:space:]]*decision ledger' "$1"
@@ -177,7 +177,7 @@ trim() {
 # ---- RECONCILE MODE (#517) ---------------------------------------------------
 # Runs INSTEAD of the structural checks below and exits: the caller lints each
 # document in its own mode, and doing both here would report a plan's malformed row
-# twice under two different sentences. The lean gate makes exactly these two calls.
+# twice under two different sentences. The milestone gate makes exactly these two calls.
 
 # OR-1's default normalization, and the whole of what "the same Resolution" means.
 # Every run of whitespace collapses to one space and the ends are trimmed, so a

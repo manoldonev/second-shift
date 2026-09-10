@@ -22,7 +22,7 @@ BEFORE the prompt.
 ### dev-pipeline
 - Skills: `/dev-pipeline:run` (the lane's front door, invoked as `/dev-pipeline:run`), `/dev-pipeline:build`, `/dev-pipeline:review`, `pipeline-retro`, `perf-retro`, `pr-revision` — loaded only when invoked.
 - Hook: a PreToolUse gate on `git commit` commands (normal and bot-identity forms) that runs the repo's type-check on staged changes during pipeline commits.
-- Shell tools (`lean-gate.sh`, `lean-reconcile.sh`, `config-lint.sh`, `pipeline-doctor.sh`…) run only when the lane or a `/second-shift:*` command invokes them; run records live in `.claude/pipeline-state/`.
+- Shell tools (`milestone-gate.sh`, `reconcile.sh`, `config-lint.sh`, `pipeline-doctor.sh`…) run only when the lane or a `/second-shift:*` command invokes them; run records live in `.claude/pipeline-state/`.
 
 ### review-toolkit
 - Skills: `review-lead`, `mutation-review`, `reviewer-baseline` — loaded only when invoked.

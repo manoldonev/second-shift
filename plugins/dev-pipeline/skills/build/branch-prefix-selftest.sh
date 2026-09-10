@@ -221,7 +221,7 @@ if [ "$rc" -eq 0 ] && [ -z "$out" ]; then
 else fail "(f2) sourcing produced output or a non-zero status, rc=$rc: $out"; fi
 
 # ---- (h) the INVERSE question: does a branch belong to an already-resolved namespace? (#442) --
-# lean-gate.sh's worktree sweep asks this of every registered worktree before it will look a
+# milestone-gate.sh's worktree sweep asks this of every registered worktree before it will look a
 # branch up on the tracker, so a wrong answer here IS the sweep's blast radius. The cases that
 # matter are the ones a `case "$ref" in "$prefix"*)` string test gets wrong — that is the obvious
 # implementation, and it accepts branches that are not work branches at all.
@@ -257,7 +257,7 @@ if [ "$out" = '[0-9]+|[A-Za-z]+-[0-9]+|X-[0-9]+' ]; then
 else fail "(h5) unexpected key patterns: $out"; fi
 
 # ---- (i) bp_branch_key: the extraction half of the same parse (#611) --------------------------
-# lean-gate.sh derives THIS RUN's ticket from the cwd's branch and refuses when it disagrees with
+# milestone-gate.sh derives THIS RUN's ticket from the cwd's branch and refuses when it disagrees with
 # the argument, so a wrong answer here is a refusal on an honest run or a silent pass on a
 # mismatched one. The cases that matter are the ones a bare `${ref#$prefix}` gets wrong: it is
 # the obvious implementation, and it happily reports a key for a branch that is not a work branch
