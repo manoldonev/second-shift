@@ -187,8 +187,7 @@ while IFS= read -r f; do
   # continuations first — a promote list long enough to wrap would otherwise read as half a list,
   # which fails in the SAFE direction but for a reason no reader of the diff could see.
   f_code="$(sed 's/^[[:space:]]*#.*$//' "$SCAN_ROOT/$f" 2>/dev/null)"
-  reads="$(printf '%s\n' "$f_code" \
-             | grep -oE '\$\{LANE_[A-Z0-9_]+:-' | sed 's/^\${//; s/:-$//' | sort -u)"
+  reads="$(grep -oE '\$\{LANE_[A-Z0-9_]+:-' <<<"$f_code" | sed 's/^\${//; s/:-$//' | sort -u)"
   [ -n "$reads" ] || continue
   promoted="$(awk '{ while (sub(/\\$/, "")) { if ((getline nxt) <= 0) break; $0 = $0 nxt } print }' "$SCAN_ROOT/$f" 2>/dev/null \
                 | grep -oE 'lane_env(_promote)?[ ][A-Z_0-9 ]*' | grep -oE 'LANE_[A-Z0-9_]+' | sort -u)"
@@ -200,9 +199,8 @@ while IFS= read -r f; do
     # name quoted inside a MESSAGE string — `(LANE_ATTEND_MODE=headless)`, `(LANE_SELFTEST_CACHE=0)`
     # — and dropped four knobs from the census that (l) and (n) BOTH walk. One of them was
     # LANE_ATTEND_MODE, whose half-cleared scrub (n) exists to catch and could not see.
-    printf '%s\n' "$f_code" \
-      | grep -qE "(^[[:space:]]*|[;&|][[:space:]]*|[[:space:]](export|local|readonly|declare)[[:space:]]+)$t=" \
-      && continue
+    grep -qE "(^[[:space:]]*|[;&|][[:space:]]*|[[:space:]](export|local|readonly|declare)[[:space:]]+)$t=" \
+      <<<"$f_code" && continue
     knobs=$((knobs + 1))
     case " $ALL_KNOBS " in *" $t "*) : ;; *) ALL_KNOBS="$ALL_KNOBS$t " ;; esac
     printf '%s\n' "$promoted" | grep -qx "$t" || missing="$missing$(basename "$f"):$t "
