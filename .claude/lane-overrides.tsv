@@ -1,4 +1,4 @@
-# lean-overrides.tsv — the PERSISTENT operator-override register (#613).
+# lane-overrides.tsv — the PERSISTENT operator-override register (#613).
 #
 # Read by plugins/dev-pipeline/tools/operator-override.sh and validated at the merge boundary.
 # Almost every override belongs in the per-issue record instead

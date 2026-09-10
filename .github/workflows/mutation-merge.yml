@@ -48,7 +48,7 @@ jobs:
     # reasoning as mutation-sweep.yml: blowing a JOB timeout cancels the job and may skip its
     # always() steps, while blowing a STEP timeout is an ordinary step failure the job
     # proceeds past — so the evidence survives. The numbers are sized off the un-deferred
-    # worst case, a merge that touches lean-gate.sh, estimated at 30-45 min. That figure has
+    # worst case, a merge that touches milestone-gate.sh, estimated at 30-45 min. That figure has
     # never been observed; the run prints its own duration, and a blown bound is a bound edit.
     timeout-minutes: 75
     outputs:

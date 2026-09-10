@@ -518,9 +518,9 @@ grep -q 'Sessions: 2' "$D_OUT" \
   || bad "(AC-2) expected 'Sessions: 2' in the derived block"
 
 # --- AC-3/AC-4: the review session, and the title that must move with it -----
-grep -qE '^\| Session total \(lean run' "$D_OUT" \
+grep -qE '^\| Session total \(lane run' "$D_OUT" \
   && ok "(AC-4) with no verdict record the row keeps the build-only title" \
-  || bad "(AC-4) pre-review block should read 'Session total (lean run …)'"
+  || bad "(AC-4) pre-review block should read 'Session total (lane run …)'"
 
 # The derivation summary's `(review included)` suffix is the ONLY operator-visible signal that
 # the union fired, and AC-3 makes the degrade deliberately silent: a close-out accidentally run
@@ -572,7 +572,7 @@ issue_block "$OS_OUT" --sessions "$S1"
   && ok "(AC-5) --sessions overrides the derived set while the fence stays derived: \$1.00" \
   || bad "(AC-5) --sessions override expected 1.00, got '$(block_total "$OS_OUT")'"
 
-grep -qE '^\| Session total \(lean run' "$OS_OUT" \
+grep -qE '^\| Session total \(lane run' "$OS_OUT" \
   && ok "(AC-4/AC-5) a hand-supplied set drops the review title with it" \
   || bad "(AC-4/AC-5) an overridden set must not keep claiming build + review"
 

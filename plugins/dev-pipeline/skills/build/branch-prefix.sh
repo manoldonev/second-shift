@@ -32,7 +32,7 @@
 #                    [--key-pattern <ere>] [--repo <dir>]
 # Usage (sourced): defines resolve_branch_prefix(), plus the two helpers a caller needs to ask
 #   the INVERSE question — "is this branch in the namespace?" — without re-deriving the parse
-#   (lean-gate.sh's worktree sweep, #442):
+#   (milestone-gate.sh's worktree sweep, #442):
 #   resolve_branch_prefix <configured> <tracker-type> <key-pattern> [<repo-dir>]
 #   bp_key_re <tracker-type> <key-pattern>
 #   bp_is_work_branch <ref> <prefix> <tracker-type> <key-pattern>

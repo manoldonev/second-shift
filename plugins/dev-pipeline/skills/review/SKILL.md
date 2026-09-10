@@ -11,7 +11,7 @@ run's milestone 4 and the merge boundary both read.
 This runs as its own top-level session, and that is the entire point: the session that wrote
 the code does not author its own evaluation.
 
-`G` = `lean-gate.sh` in the sibling `build/` skill directory.
+`G` = `milestone-gate.sh` in the sibling `build/` skill directory.
 
 > **Tracker delta (`tracker.type: jira`, `writes: false`).** The checklist below is the
 > **github** default. Under jira: the issue key resolves from `Closes [<KEY>]` under
@@ -59,7 +59,7 @@ the code does not author its own evaluation.
    `--panel` without it on an armed spec. On an inheriting round, read the **prior record's findings** first: a round
    that inherits coverage without seeing what was previously found cannot tell a fixed blocker
    from a re-introduced one, and a blocker the build simply ignored leaves no trace in the delta
-   at all. The committed lean spec is the definition of done: score every numbered `AC-n` it
+   at all. The committed lane spec is the definition of done: score every numbered `AC-n` it
    **declares** — an id opening a bullet or a heading — in a `## AC scorecard` table in the
    `--summary-file`. The writer refuses an `approve` without one, and prints the schema. Four
    scores: `satisfied`, `unsatisfied`, `divergent-inert`, `undeterminable`. Neither `unsatisfied`
@@ -123,7 +123,7 @@ the code does not author its own evaluation.
    would certify a review that never ran. Same precedent as step 4's missing entry attestation: a
    round with no coverage is not yours to certify. This is not prose alone: `bash G verdict`
    refuses a `--panel` that names no reviewer, so the first case cannot be recorded even by a
-   session that reasons its way past this rule, and `check-lean-chain.sh` still treats the absent
+   session that reasons its way past this rule, and `check-lane-chain.sh` still treats the absent
    record as a violation, so a hand-back cannot merge. Say plainly in the comment what went dark
    and why, so the build session knows it is waiting on infrastructure rather than on findings.
 6. Write the record **from the checkout of the PR head**:
@@ -148,7 +148,7 @@ the code does not author its own evaluation.
    main checkout: the record would name a patch you never reviewed.
 7. Commit and push the record to the PR's head branch through `bot-commit.sh`, and let it be
    the **last** commit on the branch. It is evidence only once committed — nothing local
-   reaches CI — and it is PATCH-BOUND: the merge boundary and `lean-reconcile.sh` both recompute
+   reaches CI — and it is PATCH-BOUND: the merge boundary and `reconcile.sh` both recompute
    that hash (milestone 4 stopped doing so at #720, so a stale record now reds in CI rather than
    in the build lane). Commit nothing else in this session.
 8. Post the findings as one PR comment (the build session reads the PR, not this transcript) —

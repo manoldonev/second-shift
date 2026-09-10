@@ -15,7 +15,7 @@ verdict dimension carries the bulk and "fixtures 1-3 pass >= 3/3 runs" reads str
 
 One dimension is worded differently here, and deliberately. This agent has a fourth reachable
 output -- `N/A`, its explicit-input refusal -- and #704's AC-4 exists because that refusal fires
-on a lean-lane spec, which is the one input shape the check "a token table is not a visual
+on a lane spec, which is the one input shape the check "a token table is not a visual
 contract" was written for. So `N/A` is scored as a WRONG VERDICT on every fixture in this set,
 not as an abstention: all four fixtures are design artifacts, and declining one is the failure
 being measured. The pre-AC-4 baseline is expected to score 0 on fixture 01 for exactly that
@@ -68,7 +68,7 @@ VOCABULARY
 - Map to the expected vocabulary: `block` -> "block". `fix-and-go` and `pass` -> "pass".
 - **`N/A` is a WRONG verdict on every fixture in this set.** All four fixtures are design
   artifacts. If the reviewer returned `N/A`, or declined to run the checklist because the input
-  "is not a figma-faithful spec" / "has no Copy Index" / "is a lean-lane spec", score
+  "is not a figma-faithful spec" / "has no Copy Index" / "is a lane spec", score
   d1 = 0 and d2 = 0 regardless of anything else it said. Score d3 on whatever findings it did
   emit (usually none, which scores 2).
 - "Blocker" = a finding the reviewer itself marked `[Blocker]`, or emitted with
@@ -112,7 +112,7 @@ d3_no_fabrication (0, 1 or 2) -- no findings against content the spec does not c
     exist).
 
   Note the asymmetry on `must_not_flag` entries that name an ABSENT section (for example "the
-  absence of a Copy Index -- this is a lean-lane spec"): raising that absence as a Blocker IS a
+  absence of a Copy Index -- this is a lane spec"): raising that absence as a Blocker IS a
   `must_not_flag` violation. Naming it as a check that had no input on this artifact shape is
   NOT -- that is the behavior the entry asks for.
 

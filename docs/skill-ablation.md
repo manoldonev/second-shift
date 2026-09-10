@@ -56,7 +56,7 @@ reads as `delete`.
 
 That number measures a session that read the skill, not a bare one. So a **disclosed, post-hoc
 sensitivity run** was added: the same tickets, the same prompt, in a checkout with every
-`plugins/**/SKILL.md` and `plugins/**/agents/*.md` deleted and all other code — `lean-gate.sh`
+`plugins/**/SKILL.md` and `plugins/**/agents/*.md` deleted and all other code — `milestone-gate.sh`
 included — left in place.
 
 | item | registered run | ablated run | in both ablated? |
@@ -80,8 +80,8 @@ bar, it only declines to act on a measurement that has been shown to be measurin
 
 ### What the ablated run actually shows
 
-The three items bare still covers, it covers by reading `lean-gate.sh` — the ablated sessions cite
-`lean-gate.sh:2663`, `:890`, `:1852` by line and derive the spec path, the ledger schema and the
+The three items bare still covers, it covers by reading `milestone-gate.sh` — the ablated sessions cite
+`milestone-gate.sh:2663`, `:890`, `:1852` by line and derive the spec path, the ledger schema and the
 worktree from the gate's own code. One of them even noticed the ablation ("if the deleted
 `SKILL.md` files red the suite…").
 
@@ -93,7 +93,7 @@ So the finding is structural, and it is the more interesting half:
 
 ### The caveat that bounds the cut, and blocks executing it here
 
-This repository is the canary, so `lean-gate.sh` is *tree source*. **In a consumer repo it is an
+This repository is the canary, so `milestone-gate.sh` is *tree source*. **In a consumer repo it is an
 installed plugin, not a file in the working tree**, and a bare session there re-derives none of
 M1–M3. Generalising "bare rediscovers the spec, the ledger and the worktree" to consumers is
 unwarranted from this evidence, and cutting those three items would strip shipped function to tidy
@@ -160,7 +160,7 @@ a reader can adjudicate rather than take the cell on trust:
 
 - **sealed 636** (`consumer-sealed-636-plan.md`:95-96), the body of its "P12 — PR *(me)*" step:
 
-  > Body carries `Part of #605` and `Closes #636` (`check-lean-chain.sh:475` reds otherwise), the
+  > Body carries `Part of #605` and `Closes #636` (`check-lane-chain.sh:475` reds otherwise), the
   > `--list` denominator count, the per-arm red demonstrations, and the residual statement.
 
   `Closes #636` named; **no spec link and no ready/non-draft**. `absent`.
@@ -197,7 +197,7 @@ non-draft** PR containing: summary, spec link, `Closes #<N>` …"*).
 
 M1 and M2 are the interesting rows. Bare names a committed spec and a Decision Ledger whenever
 `docs/plans/` is present — it reads this repository's own committed lean specs and cites
-`scripts/check-lean-chain.sh`'s requirements by line — and names neither when they are gone. That is
+`scripts/check-lane-chain.sh`'s requirements by line — and names neither when they are gone. That is
 exactly the A1-min hypothesis, confirmed on the sealed pair.
 
 The corpus in front of those sessions was **126** committed lean specs at `dfd68a47` and **127** at
@@ -214,12 +214,12 @@ git ls-tree -r --name-only b657907f -- docs/plans/ | grep -cE 'second-shift-[0-9
 **Nothing read the prose — in the three sealed sessions that looked.** All four had the installed
 cache inside their allowlist; **three** walked into it, and **not one of those opened
 `build/SKILL.md`**, though sealed 636 listed the directory it sits in. Sealed 636 read
-`lean-gate.sh`, `lean-evidence.sh` and `orchestrate-lean.sh`; sealed 647 read `lean-gate.sh`,
-`orchestrate-lean.sh` and a doctor fixture; sealed-min 647 read `lean-gate.sh` only.
+`milestone-gate.sh`, `boundary-evidence.sh` and `orchestrate.sh`; sealed 647 read `milestone-gate.sh`,
+`orchestrate.sh` and a doctor fixture; sealed-min 647 read `milestone-gate.sh` only.
 
 **The fourth, sealed-min 636, never referenced the cache at all** — 0 reads under it
 (`consumer-substrate.md`, "What each arm actually read") — and its own transcript records
-`lean-gate.sh` and `orchestrate-lean.sh` as **absent** and declares the work blocked on
+`milestone-gate.sh` and `orchestrate.sh` as **absent** and declares the work blocked on
 materialising the kit (`consumer-sealed-min-636-plan.md`:7-13, :19). It is evidence for a different
 proposition and is not counted toward this one: the finding needs a session that reached the cache
 and chose the gate over the prose, and that session never reached the cache.
@@ -304,7 +304,7 @@ Registered threshold: 4/5 → `cut-to-delta`.
 ### The one miss, and why it is scored a miss
 
 On #654 the lane's blocker was that the enumerator's command-position class **omits
-keyword-preceded calls**, so `else envfail …` at `lean-gate.sh:420` sits outside the denominator.
+keyword-preceded calls**, so `else envfail …` at `milestone-gate.sh:420` sits outside the denominator.
 The bare session found a *different* hole in the same guard — refusal sites that use **no declared
 primitive at all** (`require_ticket_still_open → exit 7`) — with the same consequence and a
 different mechanism. The registered rule says same file plus different defect is a miss, so it is
@@ -327,7 +327,7 @@ Filed as **#670**; not fixed here, being outside this slice's AC set.
 
 The second is `docs/config-schema.md:22–33`, which still asserts that a verify lane's reserved exit
 `3` "applies to the fixed `lint`/`typecheck`/`test` keys and to every `extraLanes` entry". One grep
-falsifies it: `lane_failure_class` in `lean-gate.sh:3783` has exactly **one** caller — `typecheck`,
+falsifies it: `lane_failure_class` in `milestone-gate.sh:3783` has exactly **one** caller — `typecheck`,
 at `:3856` — after #660's lane demotion. It survived that PR's three review rounds and its full
 panel, and surfaced only here. Filed as **#674**; also outside this slice's AC set. This paragraph
 corrects an earlier count of "one" in this section: the bare arm's escape rate on #660 is two of
@@ -350,7 +350,7 @@ session, each carrying its realised invocation and the session's output verbatim
 
 **The two arms are not nested.** The challenger recalls the #654 blocker the bare arm missed — the
 enumerator's command-position class omitting keyword-preceded calls — naming the class, citing the
-live `lean-gate.sh:420` `else envfail` site by line, and confirming it by execution. It then misses
+live `milestone-gate.sh:420` `else envfail` site by line, and confirming it by execution. It then misses
 #660's B2, which the bare arm hit. Same score, disjoint misses; the union of the two arms is 5/5 and
 neither arm reaches it alone. That is a fact about *these two comparators*, and it is recorded, not
 scored: the frozen metric asks about one challenger at a time, and no registered rule reads a union.
@@ -494,7 +494,7 @@ registration: the file has two, and a 73-line block localises nothing a cut can 
 **The void condition cleared.** §C makes the study void unless the control reproduces the C2-a
 ground-truth blocker in at least 2 of 3 runs. It reproduced in **3 of 3** — each naming
 `scripts/check-gate-buckets.sh:109`, the class `(^|[;&|(){}])`, the omitted shell reserved words,
-the live `lean-gate.sh:420` `else envfail` site, and the denominator consequence. One control run
+the live `milestone-gate.sh:420` `else envfail` site, and the denominator consequence. One control run
 counted it: 59 non-comment `envfail` lines, 57 enumerated, the two misses being the definition at
 `:379` (correctly excluded) and `:420` (silently dropped).
 
@@ -839,7 +839,7 @@ The ticket's reversible default is delete-in-slice when the deletion is self-con
 surviving cut qualifies, and the reasons are evidence, not caution:
 
 - **C1's cut is not self-contained.** Its basis is that a session re-derives M1–M3 from tree-source
-  `lean-gate.sh`. That is false in a consumer repo, where the gate is an installed plugin. Executing
+  `milestone-gate.sh`. That is false in a consumer repo, where the gate is an installed plugin. Executing
   it would strip shipped function on a repo-local artefact. **Settled by #746 (§1, 2026-09-01):**
   re-measured on the consumer-shaped substrate, no M-item is cut-eligible. The cut list is empty, so
   there is no deletion for a successor to execute — the reason it stays unexecuted is now a

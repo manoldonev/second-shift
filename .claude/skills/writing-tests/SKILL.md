@@ -54,7 +54,7 @@ paired selftests; a mutant that survives is a regression the suite would not hav
 diff-scoped on every PR (the `mutation-sweep-pr` CI job, which defers every slow or multi-suite
 guard), diff-scoped again on the merge with that deferral off (`mutation-merge.yml` — **this is
 where your guard is actually graded**, and its verdict arrives as a filed issue, not as a red
-square), and wholesale monthly. **Those three are the only places it runs** — the lean gate's
+square), and wholesale monthly. **Those three are the only places it runs** — the milestone gate's
 milestone 3 does not sweep, and #580 deleted the lane that did, because it made the identical
 invocation the PR job already makes. Survivors are
 **data**, not a red build — only a

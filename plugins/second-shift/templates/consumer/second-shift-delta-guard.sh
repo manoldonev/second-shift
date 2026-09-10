@@ -4,7 +4,7 @@
 #
 #   may this repo's heavy CI jobs be skipped for this push?
 #
-# WHAT IT IS FOR. `review-lean` requires the verdict record to be committed, pushed to the PR's
+# WHAT IT IS FOR. `/dev-pipeline:review` requires the verdict record to be committed, pushed to the PR's
 # head branch, and to be the LAST commit on it. In a consumer whose CI runs on `pull_request`,
 # that push fires a second full run — lint, typecheck, build, the whole unit suite — whose only
 # content is a markdown file the pipeline wrote itself. Measured on a real consumer: a complete
@@ -44,8 +44,8 @@
 #     record stops appearing in the PR's file list, so it stops being reviewable in place.
 #   * The patch-binding invariant — `reviewed_patch_id` recomputed from the branch's own diff,
 #     which is what makes "approved" mean "approved THIS tree" — is load-bearing in three
-#     places: build milestone 4 (lean-gate.sh), the merge boundary (lean-evidence.sh), and
-#     lean-reconcile.sh. All three recompute it against the branch. Moving the record off the
+#     places: build milestone 4 (milestone-gate.sh), the merge boundary (boundary-evidence.sh), and
+#     reconcile.sh. All three recompute it against the branch. Moving the record off the
 #     branch breaks the "last commit on it" property all three depend on.
 #
 # The cost being solved here is minutes of runner time. That is not worth trading a committed
@@ -78,13 +78,13 @@
 set -uo pipefail
 
 # The verdict record's filename suffix. Pinned here AND in
-# plugins/dev-pipeline/skills/build/lean-evidence.sh, which cannot see this file: this one
+# plugins/dev-pipeline/skills/build/boundary-evidence.sh, which cannot see this file: this one
 # is committed into a CONSUMER repo, that one is fetched at the consumer's pinned marketplace
 # ref. A one-sided rename would leave this guard classifying every verdict commit as an ordinary
 # one — which costs only runner minutes and reports nothing, so nothing would ever notice.
 # Hence the marker: the comment must stay OUTSIDE it, since `verbatim` compares the whole block.
 # LOCKSTEP-BEGIN lean-verdict-suffix
-LEAN_VERDICT_SUFFIX='-lean-verdict.md'
+LANE_VERDICT_SUFFIX='-lean-verdict.md'
 # LOCKSTEP-END lean-verdict-suffix
 
 SKIP=false
@@ -147,8 +147,8 @@ FILE_COUNT="$(grep -c '[^[:space:]]' <<<"$FILES")"
 # count check is the line a future "surely two verdict records are still docs-only" edit relaxes.
 CHANGED="$(head -n1 <<<"$FILES")"
 case "$CHANGED" in
-  *"$LEAN_VERDICT_SUFFIX") : ;;
-  *) decide_no "the head commit's one path is '$CHANGED', not a lean verdict record (*$LEAN_VERDICT_SUFFIX) — runs in full" ;;
+  *"$LANE_VERDICT_SUFFIX") : ;;
+  *) decide_no "the head commit's one path is '$CHANGED', not a verdict record (*$LANE_VERDICT_SUFFIX) — runs in full" ;;
 esac
 
 # ------------------------------------------------------------------ (3) the trust condition (AC-2)
@@ -186,11 +186,11 @@ PARENT_STATES="$(printf '%s' "$RUNS_JSON" | jq -r \
   || decide_unknown "'$CHANGED' is a verdict-record commit, but the Actions API response for parent $PARENT was unreadable — runs in full"
 
 if grep -qxF 'completed/success' <<<"$PARENT_STATES"; then
-  REASON="'$CHANGED' is a lean verdict-record commit and parent $PARENT already has a completed, successful run of this workflow ($GUARD_EVENT_NAME) — heavy jobs skipped"
+  REASON="'$CHANGED' is a verdict-record commit and parent $PARENT already has a completed, successful run of this workflow ($GUARD_EVENT_NAME) — heavy jobs skipped"
   SKIP=true
   emit
 fi
 
 SEEN="$(printf '%s' "$PARENT_STATES" | tr '\n' ' ')"
 [ -n "${SEEN// /}" ] || SEEN="none"
-decide_no "'$CHANGED' is a lean verdict-record commit, but parent $PARENT has no completed successful run of this workflow for '$GUARD_EVENT_NAME' (saw: $SEEN) — the code commit's run was cancelled, failed, or never happened, so the lane runs in full"
+decide_no "'$CHANGED' is a verdict-record commit, but parent $PARENT has no completed successful run of this workflow for '$GUARD_EVENT_NAME' (saw: $SEEN) — the code commit's run was cancelled, failed, or never happened, so the lane runs in full"

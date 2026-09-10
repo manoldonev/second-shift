@@ -137,7 +137,7 @@
 # and a guard-only key would serve the stale SURVIVED forever.
 #
 # The key is narrow, and NOT sound: a THIRD file can flip a verdict with the guard and its
-# suites byte-identical — `lean-gate.sh` shells out to four sibling scripts.
+# suites byte-identical — `milestone-gate.sh` shells out to four sibling scripts.
 # A whole-tree key would be sound and would
 # also drop the hit rate to zero, since the sweep sandboxes HEAD and every fix round is a new
 # commit. What bounds the unsoundness is the lane: the cache is neither read nor written when
@@ -186,7 +186,7 @@ PR_FAST_GUARD_CAP=6                 # PR lane: sweep at most this many fast guar
 # merge-blocking and its 15-minute step bound is what the deferral protects. It is set by
 # .github/workflows/mutation-merge.yml, and by an operator running a local advisory sweep
 # who wants the full picture. Like SLOW_THRESHOLD_S above it is a live leak path into nested
-# invocations, so it is carried in the `seam-scrub` denylist that lean-gate.sh and
+# invocations, so it is carried in the `seam-scrub` denylist that milestone-gate.sh and
 # preflight.sh strip from every lane child, and the companion suite scopes it non-exporting.
 NO_DEFER="${MUTATION_SWEEP_NO_DEFER:-0}"
 # Ceiling on ONE killer invocation, and the bound used for the unmutated precheck (which
@@ -200,7 +200,7 @@ KILLER_TIMEOUT_MIN_S="${MUTATION_SWEEP_KILLER_MIN_S:-60}"
 # Live processes allowed in ONE killer's process group. Sized off measurement, not taste:
 # the seven heaviest paired suites were sampled in this exact shape (own process group,
 # `ps -A -o pgid=`) and peak between 6 and 9 — scenario-liveness 9, cost-block 8,
-# doctor 6, check-lean-chain 7. 100 therefore clears the
+# doctor 6, check-lane-chain 7. 100 therefore clears the
 # measured ceiling by more than 10x, with room for suites that fan out harder than
 # anything here does today, while still catching a forking guard within seconds of it
 # starting. Overridable so the companion selftest can trip it on a handful of processes
@@ -226,7 +226,7 @@ fi
 # ----------------------------------------------------------------------- cache
 # ADVISORY LANE ONLY. The cache is neither read nor written when GITHUB_ACTIONS is set (see
 # below, once ENFORCING is known). The key is deliberately NARROW — the mutated guard and its
-# suites — and that key is not quite sound in this tree: `lean-gate.sh` shells out to four
+# suites — and that key is not quite sound in this tree: `milestone-gate.sh` shells out to four
 # sibling scripts, so a THIRD file can flip a verdict with both keyed files byte-identical.
 # A whole-tree key would be sound and
 # would also drop the hit rate to zero, since the sweep sandboxes HEAD and every fix round is
@@ -1318,7 +1318,7 @@ UNRUN_GUARDS=""
 # the class was undiagnosable in CI by construction and every occurrence died as "no idea".
 PRE_LOG_LINES="${MUTATION_SWEEP_PRE_LOG_LINES:-40}"
 # AND WHY A BLIND TAIL IS NOT ENOUGH. A suite reports its failures where they happen and keeps
-# going, so on a long one the FAIL lines are nowhere near the end: lean-gate-selftest.sh exited 2
+# going, so on a long one the FAIL lines are nowhere near the end: milestone-gate-selftest.sh exited 2
 # on every nightly from 2026-08-20 on, and each of those reds printed forty PASS lines and the
 # suite's own summary, naming neither failing case. The tail answers "did it get anywhere at
 # all"; the matches answer "which case", and only the second is actionable. Both are printed,
@@ -2022,7 +2022,7 @@ while [[ $i -lt ${#GL_GUARD[@]} ]]; do
       # the threshold while absent from the committed list keeps its guard in the PR lane,
       # where every mutant that makes the guard spin costs the full killer bound — enough of
       # them and the job dies on its own ceiling BEFORE finish() ever runs, so a warn deferred
-      # to the report is precisely the one nobody sees. lean-gate-selftest.sh reached 143s
+      # to the report is precisely the one nobody sees. milestone-gate-selftest.sh reached 143s
       # this way and took three PR runs with it, each reading only as "timed out after 15
       # minutes". Emitting at measurement time is what makes the diagnosis outlive the
       # timeout it diagnoses. Warn, never red: the list is a cost record, and a stale row

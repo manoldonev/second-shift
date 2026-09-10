@@ -37,7 +37,7 @@ Run: `bash "${CLAUDE_PLUGIN_ROOT}/skills/onboard/tools/detect.sh"` and parse the
 ## Step 2 — Resolve the pin
 Run: `bash "${CLAUDE_PLUGIN_ROOT}/skills/onboard/tools/pin-resolve.sh" manoldonev/second-shift dev-pipeline review-toolkit intake-toolkit audit-toolkit second-shift` — add `design-toolkit` if (and only if) the design question below is answered yes.
 `audit-toolkit` is not an optional bundle member alongside `dev-pipeline`: it ships the hook that
-writes the per-session audit ledger, which the lean lane's entry gate requires. State that on the
+writes the per-session audit ledger, which the lane's entry gate requires. State that on the
 review screen, so the human knows why this one has no opt-out.
 `refSource == "tag-fallback"` → include one line in the review screen: "(pinned to tag
 <ref>; this marketplace has not cut a GitHub Release yet)". Resolution failure → ABORT
@@ -186,7 +186,7 @@ Ask AT MOST one AskUserQuestion batch, containing ONLY (skip any that detection 
      to remove two labels from one closing issue, and needs the repo's Actions workflow
      permissions set to read-and-write. Under a non-github tracker the unclaim half is skipped
      — there is no label vocabulary. On no / a non-Actions repo, emit nothing (absent = off).
-     The same acceptance also emits **(c) the delta guard**: the lean lane's review half must
+     The same acceptance also emits **(c) the delta guard**: the lane's review half must
      commit the verdict record to the PR head as the LAST commit, which on a
      `pull_request`-triggered CI fires a second full run — lint, typecheck, build, the whole
      test suite — for a markdown file the pipeline wrote itself. The guard lets those jobs skip
@@ -302,7 +302,7 @@ Target state in `.claude/settings.json` (MERGE — never clobber unrelated keys)
     (+ "design-toolkit@second-shift": true when accepted)
 `audit-toolkit@second-shift` is written unconditionally, so onboard itself has no opt-out path to
 close. What it cannot stop is a later hand edit flipping it to `false` (or a `settings.local.json`
-overriding it): that breaks the lean lane outright, and `/second-shift:doctor` FAILs on the
+overriding it): that breaks the lane outright, and `/second-shift:doctor` FAILs on the
 combination rather than warning.
 If the existing file already carries that `false`, do not silently preserve it: flag it on the
 review screen and merge the `true` in.
@@ -460,7 +460,7 @@ pairs; there is no second question:
    guard is a file nobody will remember to connect later.
 7. **Confirmed pair → offer the sibling's own onboard, and say the FE rule out loud.** This
    run's `be-fe-pair` config (drafted at Step 3) is unchanged and still covers both sides for the
-   deprecated staged lane. The lean lane needs more: `/dev-pipeline:run` routes by
+   deprecated staged lane. The lane needs more: `/dev-pipeline:run` routes by
    invocation cwd and has no per-repo worktree map, so the sibling ALSO needs its own
    standalone onboard to be worked from its own checkout. Print: "The sibling repo needs
    its own onboard too, for `/dev-pipeline:run`: `cd <sibling path>` (from the

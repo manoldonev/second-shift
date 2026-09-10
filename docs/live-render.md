@@ -97,7 +97,7 @@ matrix, the PNG hashes and the manifest — **never comparison**, which is the r
   it costs an attempt.
 - **`readyProbe`** — declare your harness's external prerequisite (typically a sibling BE health
   endpoint) so the gate fails fast with the probe URL instead of waiting out a render timeout.
-  Under the blocking lean posture this is what keeps an environmental red cheap: pay a probe, not
+  Under the blocking lane posture this is what keeps an environmental red cheap: pay a probe, not
   a timeout, for the same attempt.
 
 ## Reference harness shape (Playwright, MIFE-in-shell)
@@ -136,7 +136,7 @@ state, and bound nothing to a review, which is exactly how a *passing* render ca
 screen's default collapsed state.
 
 **Arming is per ticket, and takes two things at once.** Config `design.provider` must be set, AND
-the committed lean spec must carry a `## Design` section. A provider with no section reds
+the committed lane spec must carry a `## Design` section. A provider with no section reds
 milestone 1; a section in a repo with no provider arms nothing. The section takes one of two
 forms:
 
@@ -193,9 +193,9 @@ Nothing in the shape check tells you a recorded component is the right one or a 
 is the design's — `design-toolkit:figma-faithful-plan-reviewer` asks those as questions the plan
 must answer.
 
-**And on an armed lean run that dispatch is mandatory, not advisory.** The gate cannot run an
+**And on an armed lane run that dispatch is mandatory, not advisory.** The gate cannot run an
 agent, so it takes the verdict record's shape: the build session dispatches the reviewer on the
-committed plan and writes its output with `lean-gate.sh plan-review <issue> --verdict
+committed plan and writes its output with `milestone-gate.sh plan-review <issue> --verdict
 <pass|fix-and-go|block> --summary-file <findings> --model <m>`, which stamps `reviewed_plan_from`
 from the checkout. Milestone 3 then refuses — **before any render command runs** — when the record
 at `<plansDir>/<key>-lean-plan-review.md` is missing, when its `reviewed_plan_from` no longer
@@ -280,7 +280,7 @@ never reviewed, and nothing in the record said so. `review-lead` now spawns it u
 an armed spec, and a round that lost it to a dark reviewer is **voided** rather than recorded
 (`/dev-pipeline:review` step 5c). The record's `panel:` key is the attestation: the reviewer agent types the
 round actually returned a result from, qualified and comma-separated. Milestone 4 and
-`check-lean-chain.sh` evidence arm 8 both require it to name the provider's reviewer.
+`check-lane-chain.sh` evidence arm 8 both require it to name the provider's reviewer.
 
 WHICH reviewer is derived from the **handoff link's host**, never from `design.provider`: the first
 recognised URL in the `## Design` section naming `figma.com` (or a subdomain) means

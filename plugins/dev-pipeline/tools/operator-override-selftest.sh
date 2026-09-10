@@ -5,8 +5,8 @@
 # Tier justification (CLAUDE.md's map): one script's behavior against fixtures ⇒ a per-tool
 # behavioral selftest. What it guards is the MECHANISM's own contract — which inputs read as
 # headless, what a forged token does and does not buy, and when a yield is refused. The two
-# consumers' composed paths are guarded where they live (orchestrate-lean-selftest.sh's intake
-# probe, lean-gate-selftest.sh's open-region cases, scenario-liveness-selftest.sh's milestone-1
+# consumers' composed paths are guarded where they live (orchestrate-selftest.sh's intake
+# probe, milestone-gate-selftest.sh's open-region cases, scenario-liveness-selftest.sh's milestone-1
 # chain); no scenario there can reach the resolution ladder's individual rungs, because a
 # scenario drives one composed verdict and this file drives eight distinct token states.
 #
@@ -49,7 +49,7 @@ cat > "$REPO/.claude/second-shift.config.json" <<'CFG'
 {"configVersion":2,"topology":{"repos":{"acme":{"path":".","baseBranch":"main"}}},"tracker":{"type":"github","branchPrefix":"claude/acme-"}}
 CFG
 RECORD="$REPO/docs/plans/acme-42-lean-override.md"
-REGISTER="$REPO/.claude/lean-overrides.tsv"
+REGISTER="$REPO/.claude/lane-overrides.tsv"
 
 # The fake tracker. STATE is read from a file the cases rewrite, so one fake covers the open,
 # closed and unreadable arms without three scripts.
@@ -64,12 +64,18 @@ chmod +x "$GHFAKE"
 export GH_STATE_FILE="$WORK/gh-state"
 echo OPEN > "$GH_STATE_FILE"
 
+# ATTENDANCE, retired half (#833). `ov()` clears `LANE_ATTEND_MODE` per call so the mode under
+# test is the one the caller passes. The reader falls back to the retired `LEAN_ATTEND_MODE`, so
+# clearing the current name alone lets the scheduler's ambient `headless` resolve straight through
+# — which is 23 of this suite's 43 cases. Cleared ONCE here rather than paired at the `env -u`.
+unset LEAN_ATTEND_MODE
+
 # One invocation shape. Identity is passed per call rather than exported, because half the cases
 # are ABOUT an identity being absent and an exported one would leak into them.
 ov() { # ov <run-id-or-empty> <session-id-or-empty> <mode-or-empty> <args...>
   local r="$1" s="$2" m="$3"; shift 3
-  env -u RUN_ID -u CLAUDE_CODE_SESSION_ID -u LEAN_ATTEND_MODE \
-      ${r:+RUN_ID="$r"} ${s:+CLAUDE_CODE_SESSION_ID="$s"} ${m:+LEAN_ATTEND_MODE="$m"} \
+  env -u RUN_ID -u CLAUDE_CODE_SESSION_ID -u LANE_ATTEND_MODE \
+      ${r:+RUN_ID="$r"} ${s:+CLAUDE_CODE_SESSION_ID="$s"} ${m:+LANE_ATTEND_MODE="$m"} \
       SECOND_SHIFT_REPO_ROOT="$REPO" GH="$GHFAKE" bash "$TOOL" "$@"
 }
 
@@ -445,7 +451,7 @@ rm -f "$REGISTER" "$RECORD"
 # guard exports, which would leave the same defect alive for anyone running this suite directly.
 # And it comes LAST, after every assertion the absent artifact does not touch, so a skip costs
 # the other 29 cases nothing.
-SHIPPED="$HERE/../../../.claude/lean-overrides.tsv"
+SHIPPED="$HERE/../../../.claude/lane-overrides.tsv"
 if [ -f "$SHIPPED" ]; then
   out="$(ov r1 s1 '' lint --register "$SHIPPED" 2>&1)"; rc=$?
   if [ "$rc" -eq 0 ]; then pass "(m6) this repo's own shipped register lints clean"
@@ -456,6 +462,6 @@ echo
 echo "operator-override.sh: $PASSES passed, $FAILS failed"
 [ "$FAILS" -eq 0 ] || exit 1
 if [ ! -f "$SHIPPED" ]; then
-  echo "SKIP: the repo's .claude/lean-overrides.tsv is a consumer-repo artifact that ships in no plugin, so from an install cache its absence measures nothing — (m6) alone is skipped."
+  echo "SKIP: the repo's .claude/lane-overrides.tsv is a consumer-repo artifact that ships in no plugin, so from an install cache its absence measures nothing — (m6) alone is skipped."
   exit 77
 fi

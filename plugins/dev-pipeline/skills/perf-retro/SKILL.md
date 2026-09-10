@@ -25,10 +25,10 @@ The corpus lives in the **main checkout**, resolved the way the state helper res
 
 **Era-aware (#347).** The corpus is not one schema. Full-pipeline runs are stage-schema
 (`{issue}.json`, a top-level `stages` key); lean/block runs are artifact-schema
-(`{issue}-lean-progress.md` plus a committed verdict record) — a lean run has no `stages`
+(`{issue}-lean-progress.md` plus a committed verdict record) — a lane run has no `stages`
 object at all, so it never enters the corpus through the old `*.json`-only enumeration.
 `retro-corpus.sh corpus` enumerates BOTH eras side by side, labeled, and does not error when
-one era has zero rows (a corpus that is entirely lean runs is a normal input, not a failure):
+one era has zero rows (a corpus that is entirely lane runs is a normal input, not a failure):
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/tools/retro-corpus.sh" corpus --window 15 --json
@@ -55,7 +55,7 @@ staged schema's session list and no run has written one since #348 deleted that 
 
 **Model identity (#347 comment, ratified 2026-08-03).** Corpus rows carry `model` so
 cross-model deltas are queryable — an `era: "artifact"` row reads it from the progress/verdict
-record's `model:` key (`lean-gate.sh`, when `LEAN_RUN_MODEL` was exported at record-creation
+record's `model:` key (`milestone-gate.sh`, when `LANE_RUN_MODEL` was exported at record-creation
 time). Report it as a corpus
 dimension (group candidates or fidelity notes by `model` where the profile shows a difference)
 — never bucket by, or hardcode, a specific vendor model string here; that neutrality is owned

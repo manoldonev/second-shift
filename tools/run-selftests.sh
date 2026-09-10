@@ -69,7 +69,7 @@
 #   --cache-dir   marker store for the pass cache. Absent, no suite is ever skipped.
 #   --cache-write additionally RECORD passes into that store. Requires --cache-dir.
 #
-#   $LEAN_SELFTEST_CACHE_DIR is the same store handed down by lean-gate.sh milestone 3, which
+#   $LANE_SELFTEST_CACHE_DIR is the same store handed down by milestone-gate.sh milestone 3, which
 #   cannot pass a flag to a lane command it does not own — see #563 below. Argv wins; unset is
 #   a no-op; recording is on for that path and the reasoning is at the reading site.
 #
@@ -77,11 +77,49 @@
 # a stale exclusion, a malformed cache-input table, or a discovered/run count disagreement.
 # 3 (#527) when there were failures and EVERY one of them is the no-verdict infrastructure class —
 # the workers died rather than the suites failing, so the sweep learned nothing about the tree.
-# Mixed infra-and-real is 1, because a red branch is still a red branch. lean-gate.sh milestone 3
+# Mixed infra-and-real is 1, because a red branch is still a red branch. milestone-gate.sh milestone 3
 # reads 3 from any verify lane as infrastructure and charges no fix attempt.
 #
 # NOT `set -e`: this harness runs other people's suites and SCORES their exit codes.
 set -uo pipefail
+
+# #833: the pipeline's environment knobs are spelled `LANE_*`; the retired `LEAN_*` spellings still
+# resolve, once, with a stderr notice, and are promoted IN PLACE below so the `${LANE_*:-…}` read
+# site keeps its own default. INLINE rather than sourced from the sibling `lane-env.sh`: this
+# runner must work from a COPY of its own single file — the cache's runner-axis cases in
+# run-selftests-selftest.sh copy it into a fixture tree and run it there, which is how the runner's
+# own bytes are proven to be on the cache key. The two copies are pinned by the LOCKSTEP anchor
+# below, not by prose.
+# LOCKSTEP-BEGIN lane-env-fallback
+LANE_ENV_WARNED=' '
+lane_env() { # lane_env <dest-var> <LANE_NAME> [default] [retired-name]
+  local __lane_new="$2" __lane_old="${4:-LEAN_${2#LANE_}}"
+  if [ -n "${!__lane_new+set}" ]; then
+    printf -v "$1" '%s' "${!__lane_new}"
+  elif [ -n "${!__lane_old+set}" ]; then
+    case "$LANE_ENV_WARNED" in
+      *" $__lane_old "*) : ;;
+      *) LANE_ENV_WARNED="$LANE_ENV_WARNED$__lane_old "
+         printf '[lane-env] notice: %s is the retired spelling of %s and still resolves. Export %s instead; the retired name is removed at the next major.\n' \
+           "$__lane_old" "$__lane_new" "$__lane_new" >&2 ;;
+    esac
+    printf -v "$1" '%s' "${!__lane_old}"
+  else
+    printf -v "$1" '%s' "${3-}"
+  fi
+}
+
+# The common case: a knob whose new spelling is `LANE_` + the retired suffix, resolved IN PLACE so
+# every existing `${LANE_X:-<default>}` read site keeps its own default and needs no edit. Setting
+# an absent token to the empty string is deliberate and safe: every read site uses `:-`, under
+# which empty and unset are the same answer, and no site in this repo distinguishes them (`+` forms
+# are absent by construction — the companion selftest asserts it).
+lane_env_promote() { # lane_env_promote <LANE_NAME>...
+  local __lane_n
+  for __lane_n in "$@"; do lane_env "$__lane_n" "$__lane_n"; done
+}
+# LOCKSTEP-END lane-env-fallback
+lane_env_promote LANE_SELFTEST_CACHE_DIR
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(dirname "$HERE")"   # HERE is already absolute and resolved, so its dirname is too
@@ -132,7 +170,7 @@ if [[ "${1:-}" == "--run-one" ]]; then
   # The parent's test-only seams are stripped for the same reason: a nested runner must not
   # inherit an instruction to truncate its own worklist or to suppress its own verdicts.
   #
-  # LEAN_SELFTEST_CACHE_DIR (#563) is stripped on the same principle, and it is not a test-only
+  # LANE_SELFTEST_CACHE_DIR (#563) is stripped on the same principle, and it is not a test-only
   # seam: the cache is decided ONCE, in the parent, and a worker never touches the store. Left
   # inheritable, a suite that nests its own runner — run-selftests-selftest.sh does exactly that
   # — would silently start caching under the dogfood sweep while the same suite run standalone
@@ -147,7 +185,7 @@ if [[ "${1:-}" == "--run-one" ]]; then
   # through this same emitter, so the two are commensurable.
   W_T0="$(date +%s)"
   ( cd "$W_ROOT" && env -u RUN_SELFTESTS_DROP_LAST -u RUN_SELFTESTS_DROP_RC \
-       -u LEAN_SELFTEST_CACHE_DIR bash "$W_SUITE" ) \
+       -u LANE_SELFTEST_CACHE_DIR -u LEAN_SELFTEST_CACHE_DIR bash "$W_SUITE" ) \
     > "$W_OUT/$W_IDX.log" 2>&1
   W_RC=$?   # captured BEFORE anything else runs — a later test would overwrite $?
   W_SECS=$(( $(date +%s) - W_T0 ))
@@ -188,7 +226,7 @@ ROOT="$(cd "$ROOT" && pwd)"
 # ---- the slow-suite table (#566) -------------------------------------------------------
 # ON BY DEFAULT, and `--full` is the opt-out. The inverse — an opt-in `--quick` — was rejected
 # at intake for a reason that is structural rather than stylistic: the only caller that WANTS
-# the bound is lean-gate.sh milestone 3, which runs a `test` command out of a consumer's
+# the bound is milestone-gate.sh milestone 3, which runs a `test` command out of a consumer's
 # gitignored config. An opt-in flag would therefore have to be added by hand to an untracked
 # file that no gate can read, so "did the bound actually apply?" would be unanswerable in
 # review and unverifiable in CI. Default-on inverts that: the sweeps of record (both CI
@@ -238,7 +276,7 @@ if [[ "$CACHE_WRITE" -eq 1 && -z "$CACHE_DIR" ]]; then
 fi
 
 # ---- the pipeline's store (#563) ------------------------------------------------------
-# The SECOND activation path, and the only one that is not argv. lean-gate.sh milestone 3 cannot
+# The SECOND activation path, and the only one that is not argv. milestone-gate.sh milestone 3 cannot
 # rewrite the `test` command it runs — that string lives in a consumer's config, gitignored here
 # — so it hands the store down the one channel it does own: an env assignment prepended to the
 # lane's invocation. This is the reading end of that coupling.
@@ -255,11 +293,11 @@ fi
 # tools/mutation-sweep.sh's cache already takes. And a store that is never written can never be
 # served from: the pipeline's whole case is the SECOND sweep of an unmoved head.
 CACHE_FROM_ENV=0
-if [[ -z "$CACHE_DIR" && -n "${LEAN_SELFTEST_CACHE_DIR:-}" ]]; then
-  CACHE_DIR="$LEAN_SELFTEST_CACHE_DIR"
+if [[ -z "$CACHE_DIR" && -n "${LANE_SELFTEST_CACHE_DIR:-}" ]]; then
+  CACHE_DIR="$LANE_SELFTEST_CACHE_DIR"
   CACHE_WRITE=1
   CACHE_FROM_ENV=1
-  echo "[run-selftests] cache: activated from LEAN_SELFTEST_CACHE_DIR (recording on) — $CACHE_DIR"
+  echo "[run-selftests] cache: activated from LANE_SELFTEST_CACHE_DIR (recording on) — $CACHE_DIR"
 fi
 
 # ---- hashing -------------------------------------------------------------------------
@@ -297,7 +335,7 @@ if [[ -n "$CACHE_DIR" ]] && ! mkdir -p "$CACHE_DIR" 2>/dev/null; then
   # fault, and dying on it would let an unwritable $HOME red a milestone about something else
   # entirely — so that path joins the two disable arms above and runs cold, named.
   [[ "$CACHE_FROM_ENV" -eq 1 ]] || die "--cache-dir is not creatable: $CACHE_DIR"
-  echo "[run-selftests] cache disabled: LEAN_SELFTEST_CACHE_DIR is not creatable: $CACHE_DIR"
+  echo "[run-selftests] cache disabled: LANE_SELFTEST_CACHE_DIR is not creatable: $CACHE_DIR"
   CACHE_DIR=""; CACHE_WRITE=0
 fi
 if [[ -n "$CACHE_DIR" ]]; then
@@ -678,7 +716,7 @@ if [[ -n "$FAILED" ]]; then
   count="$(printf '%s' "$FAILED" | grep -c .)"
   echo "[run-selftests] summary: $RAN scored, $((RAN - CACHED)) run, $CACHED served from cache, $count failed ($INFRA infrastructure)" >&2
   # #527 AC-1. THE RESERVED CODE, and it is reserved rather than merely returned: a consumer wires
-  # this runner (or any other suite runner) into `commands.<host>.test`, and lean-gate.sh milestone
+  # this runner (or any other suite runner) into `commands.<host>.test`, and milestone-gate.sh milestone
   # 3 reads a 3 from ANY verify lane as "this told us nothing about the branch". So the condition
   # has to be ALL, never ANY — one genuinely red suite alongside a killed worker is still a red
   # branch, and reporting that as infrastructure would be the fail-open direction: a broken branch
