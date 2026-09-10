@@ -117,16 +117,24 @@ if [ "$(cat "$WORK/out")" = "fromold|fromnew|[]" ]; then
 else fail "(i) got '$(cat "$WORK/out")'"; fi
 
 # ---- (j) END TO END in a shipped script that SOURCES the lib ----------------------------------
-# lane-bench-arm.sh refuses on an unreadable manifest and NAMES the path it was handed, so the
-# retired export is proven to have reached the reader rather than merely to have been noticed.
-ARM="$ROOT/tools/lane-bench-arm.sh"
-if [ ! -f "$ARM" ]; then
-  fail "(j) $ARM is missing — the sourcing wiring has no witness"
+# `operator-override.sh state` answers `marked-headless` ONLY when the attend-mode knob resolved,
+# and `no-session-identity` when it did not — two different words for two different reads, so this
+# proves the retired export reached the reader rather than merely that a notice was printed.
+#
+# The witness is a script that SHIPS in this plugin, deliberately: install-topology-selftest.sh
+# re-runs every shipped suite from a staged install cache where the repo's own tools/ does not
+# exist, and a case that reached for one would red there while proving nothing about the install.
+OVR="$HERE/../../tools/operator-override.sh"
+if [ ! -f "$OVR" ]; then
+  fail "(j) $OVR is missing — the sourcing wiring has no witness"
 else
-  out="$(LEAN_ARM_MANIFEST="$WORK/no-such-manifest" bash "$ARM" 2>&1)"
-  if grep -qF "$WORK/no-such-manifest" <<<"$out" && grep -qF 'LEAN_ARM_MANIFEST is the retired spelling' <<<"$out"; then
+  with="$(cd "$WORK" && env -u CLAUDE_CODE_SESSION_ID LEAN_ATTEND_MODE=headless bash "$OVR" state 2>&1)"
+  without="$(cd "$WORK" && env -u CLAUDE_CODE_SESSION_ID -u LEAN_ATTEND_MODE -u LANE_ATTEND_MODE bash "$OVR" state 2>&1)"
+  if grep -q 'marked-headless' <<<"$with" \
+     && grep -q 'LEAN_ATTEND_MODE is the retired spelling' <<<"$with" \
+     && ! grep -q 'marked-headless' <<<"$without"; then
     pass "(j) a sourcing script honors the retired spelling end to end"
-  else fail "(j) lane-bench-arm.sh did not read LEAN_ARM_MANIFEST: $out"; fi
+  else fail "(j) operator-override.sh did not read LEAN_ATTEND_MODE — with='$with' without='$without'"; fi
 fi
 
 # ---- (k) END TO END in the PORTABLE payload, which carries the twin INLINE ---------------------
@@ -152,26 +160,40 @@ fi
 # assign itself IS an environment knob; every one of them must be promoted, or the retired
 # spelling of that knob silently stops resolving. Fails closed: an empty discovered set is a
 # FAIL, because a derivation that found nothing proves nothing.
+#
+# TWO TOPOLOGIES. In the repo the file set is `git ls-files`. From a STAGED INSTALL CACHE — where
+# install-topology-selftest.sh re-runs every shipped suite and there is no git repo at all — it is
+# a walk of the installed plugin root. The derivation is the same either way; only the census
+# differs, and the fail-closed floor below is what stops the no-git case from passing vacuously.
+if SCAN_ROOT="$(cd "$ROOT" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null)" && [ -n "$SCAN_ROOT" ]; then
+  scan_list() { ( cd "$SCAN_ROOT" && git ls-files '*.sh' ); }
+else
+  SCAN_ROOT="$(cd "$HERE/../.." && pwd)"
+  scan_list() { ( cd "$SCAN_ROOT" && find . -name '*.sh' -type f | sed 's|^\./||' ); }
+fi
+
 missing=""
 knobs=0
 while IFS= read -r f; do
+  case "$f" in *-selftest.sh|*/lane-env.sh|lane-env.sh) continue ;; esac
+  [ -f "$SCAN_ROOT/$f" ] || continue
   # CODE ONLY on the read side: a `#`-leading line is documentation, and this repo's own compat
   # header quotes the `${LANE_X:-<default>}` shape it describes. On the promote side, fold line
   # continuations first — a promote list long enough to wrap would otherwise read as half a list,
   # which fails in the SAFE direction but for a reason no reader of the diff could see.
-  reads="$(sed 's/^[[:space:]]*#.*$//' "$f" 2>/dev/null \
+  reads="$(sed 's/^[[:space:]]*#.*$//' "$SCAN_ROOT/$f" 2>/dev/null \
              | grep -oE '\$\{LANE_[A-Z0-9_]+:-' | sed 's/^\${//; s/:-$//' | sort -u)"
   [ -n "$reads" ] || continue
-  promoted="$(awk '{ while (sub(/\\$/, "")) { if ((getline nxt) <= 0) break; $0 = $0 nxt } print }' "$f" 2>/dev/null \
+  promoted="$(awk '{ while (sub(/\\$/, "")) { if ((getline nxt) <= 0) break; $0 = $0 nxt } print }' "$SCAN_ROOT/$f" 2>/dev/null \
                 | grep -oE 'lane_env(_promote)?[ ][A-Z_0-9 ]*' | grep -oE 'LANE_[A-Z0-9_]+' | sort -u)"
   for t in $reads; do
-    grep -qE "(^|[[:space:];(])$t=" "$f" && continue
+    grep -qE "(^|[[:space:];(])$t=" "$SCAN_ROOT/$f" && continue
     knobs=$((knobs + 1))
     printf '%s\n' "$promoted" | grep -qx "$t" || missing="$missing$(basename "$f"):$t "
   done
-done < <(cd "$ROOT" && git ls-files '*.sh' | grep -v -- '-selftest\.sh$' | grep -v 'lane-env\.sh$' | sed "s|^|$ROOT/|")
+done < <(scan_list)
 if [ "$knobs" -eq 0 ]; then
-  fail "(l) the derivation found NO environment knobs at all — it is measuring nothing"
+  fail "(l) the derivation found NO environment knobs at all under $SCAN_ROOT — it is measuring nothing"
 elif [ -n "$missing" ]; then
   fail "(l) $knobs knob(s) discovered, and these are read without a retired-spelling fallback: $missing"
 else
@@ -180,21 +202,20 @@ fi
 
 # ---- (m) nothing distinguishes set-from-unset, which is what makes (g)/(i) safe ----------------
 # lane_env_promote DEFINES an absent knob as the empty string. That is behavior-preserving only
-# while every reader uses `:-`, under which empty and unset are one answer. A `${LANE_X+…}` or
-# `${LANE_X:+…}` reader would start seeing "set" for a knob nobody exported.
-# CODE ONLY, for the same reason (l) reads code only — this case's own two explanatory lines
-# above quote the very shape it forbids, and a guard that matches its own prose is measuring its
-# comment rather than the repo.
+# while every reader uses `:-`, under which empty and unset are one answer. A reader that tested
+# set-vs-unset on a LANE_ knob would start seeing "set" for one nobody exported.
+#
+# A here-string rather than a pipeline into a quiet grep: a dead producer scores as "no match",
+# which here would read as "the repo is clean" — the fail-open shape
+# scripts/check-fail-open-shapes.sh exists to refuse, and a false clean is this case's own failure
+# mode. (The shape is named in words on purpose; spelling it literally would make this comment
+# match that guard's census.)
 plus=""
 while IFS= read -r cand; do
-  # A here-string rather than a pipeline into a quiet grep: a dead producer scores as "no match",
-  # which here would read as "the repo is clean" — the fail-open shape
-  # scripts/check-fail-open-shapes.sh exists to refuse, and a false clean is this case's own
-  # failure mode. (The shape is named in words on purpose; spelling it literally would make this
-  # comment match that guard's census.)
-  cand_code="$(sed 's/^[[:space:]]*#.*$//' "$ROOT/$cand" 2>/dev/null)"
+  [ -f "$SCAN_ROOT/$cand" ] || continue
+  cand_code="$(sed 's/^[[:space:]]*#.*$//' "$SCAN_ROOT/$cand" 2>/dev/null)"
   grep -qE '\$\{LANE_[A-Z0-9_]+:?\+' <<<"$cand_code" && plus="$plus$cand "
-done < <(cd "$ROOT" && git grep -lE '\$\{LANE_[A-Z0-9_]+:?\+' -- '*.sh' 2>/dev/null)
+done < <(scan_list)
 if [ -z "$plus" ]; then
   pass "(m) no reader distinguishes a set-but-empty LANE_ knob from an unset one"
 else fail "(m) promote-in-place is unsafe — these files test set-vs-unset on a LANE_ knob: $plus"; fi
