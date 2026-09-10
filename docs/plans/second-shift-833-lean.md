@@ -183,6 +183,34 @@ re-measured at this head and are stated here as measured, per "re-measure inheri
   word-bounded lines rather than 95, under this spec's own regex. Neither figure is load-bearing:
   AC-5 and AC-13 are verified by a grep returning empty, not by matching a count.
 
+- **The fallback falsified four suites, and the guard meant to catch that was blind.** The
+  scheduler exports `LEAN_ATTEND_MODE=headless` into every session it spawns. Main's
+  `operator-override-selftest.sh` cleared exactly that name per call; renaming the scrub to
+  `LANE_ATTEND_MODE` left the ambient retired half resolving through AC-2's own fallback, and 23
+  of that suite's 43 cases went red — plus `milestone-gate-selftest.sh`,
+  `scenario-liveness-selftest.sh` and `orchestrate-selftest.sh`, none of which name the knob but
+  all of which drive the reader that does. `lane-env-selftest.sh` case (n) grades exactly this
+  shape and could not see it: its census skipped any knob the file appeared to assign itself, and
+  that test read the RAW file at any position a space or `(` could precede — so
+  `(LANE_ATTEND_MODE=headless)` inside an error message, and a doc-header line, counted as
+  assignments. Four knobs were dropped that way and none of them was a real local variable. The
+  test is now comment-stripped and narrowed to positions where a shell assignment can stand; the
+  census goes 36 → 39, and (n) then named two further half-cleared pairs on `LANE_GATE_ANY_TREE`,
+  whose retired half would have kept the lane-tree assertion disarmed on a re-arming case. AC-14
+  is what surfaced this: the milestone-3 lane runs under the gate's own seam scrub and was green
+  throughout.
+- **AC-8's deletions dangle seventeen live pointers, and AC-13 covers them.** #834 cleared the
+  three shipped *invocations* while the aliases still resolved; these are the references that
+  become dangling only once the directories are gone — the design toolkit's ten "the
+  design-sighted `review-lean` session" pointers, review-lead's three, intake's four, the consumer
+  delta-guard's header, both `schema/second-shift.config.schema.json` descriptions (AC-12), the
+  nightly-guards comment, and the register notes in `capability-parity.tsv`,
+  `mutation-catalog.tsv` and `prose-blocker-triage.tsv` that describe the lane in the present
+  tense. `mutation-baseline.tsv`'s row 57 keeps its `run-lean`: it names the workflow directory
+  #345 deleted, and renaming it would falsify what was measured. Re-keying
+  `interviewing-baseline/SKILL.md`'s construct moved its `docs/prose-blocker-triage.tsv` row id
+  from pb-5b5b5d3c to pb-1bb19015 — content-hashed ids, working as designed.
+
 ## Open Regions
 
 | ID | Region | Disposition |
