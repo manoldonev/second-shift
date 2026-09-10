@@ -227,9 +227,11 @@ coverage.
    (Plan/Spec Awareness) carries a `## Decision Ledger` table. A row selects opt-ins when its
    Decision cell is exactly `review panel`, its Resolution cell is a comma-separated list of the
    **short** names `security`, `a11y`, `unit-test-mutation`, and its Provenance is `user-answered`
-   or `user-delegated`. Any other provenance — `codebase-derived`, `deferred`, `assistant-proposed`
-   — selects nothing: an opt-in is an operator's intent, and a row the assistant wrote for itself
-   is not one.
+   or `user-delegated` — the two `intent`-kind values of the ledger's closed provenance enum. Any
+   other provenance selects nothing: an opt-in is an operator's intent, and `codebase-derived` /
+   `deferred` are not that. `ticket-sourced` is excluded too, though it is operator-originated:
+   the two carriers are already enough surface, and widening them is a change to the ledger
+   contract rather than to this routing rule.
 
    ```
    | D-4 | review panel | security, a11y | user-answered | intent |
