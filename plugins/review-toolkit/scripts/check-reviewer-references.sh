@@ -35,6 +35,15 @@
 #                      nowhere (not in the effective registry; not skip-tagged)
 #   (c) REMOVE-UNKNOWN — reviewers.remove names a reviewer the plugin registry never
 #                      shipped (a stale/typo delta)
+#   (c2) DEFAULT-UNKNOWN — reviewers.default names a reviewer the plugin registry never
+#                      shipped. Same class as (c) and the same reason it is checked HERE
+#                      rather than in config-lint.sh: only this script parses the panel.
+#                      default[] is the per-repo opt-in into the pipeline default panel
+#                      (#838); a typo there silently un-selects a reviewer the repo asked
+#                      for, and a silent un-selection is exactly what the trimmed default
+#                      makes expensive to notice. default[] does NOT enter the effective
+#                      registry — it says which registered reviewers the pipeline path
+#                      dispatches unconditionally, not which reviewers exist.
 #   (d) SHADOW       — a consumer .claude/agents/<name>.md shadows a plugin-shipped
 #                      agent name (the drift tripwire; see docs/namespaces.md rule 5)
 #   (e) QUALIFY      — a panel entry backed by a PLUGIN agent file is not spelled with
@@ -265,9 +274,11 @@ plugin_registry=$(printf '%s\n%s\n%s\n' "$preflight" "$routing" "$verdict" | sor
 # --- Config deltas ---------------------------------------------------------
 adds=""
 removes=""
+defaults=""
 if [ -n "$CONFIG" ] && [ -f "$CONFIG" ]; then
     adds=$(jq -r '.reviewers.add[]?.name // empty' "$CONFIG" 2>/dev/null | grep -v '^$' | sort -u)
     removes=$(jq -r '.reviewers.remove[]? // empty' "$CONFIG" 2>/dev/null | grep -v '^$' | sort -u)
+    defaults=$(jq -r '.reviewers.default[]? // empty' "$CONFIG" 2>/dev/null | grep -v '^$' | sort -u)
 fi
 
 # effective_registry = (plugin_registry − removes) + adds
@@ -291,6 +302,13 @@ while IFS= read -r r; do
     grep -qx "$r" <<< "$plugin_registry" \
         || errors+=("REMOVE-UNKNOWN: reviewers.remove names '$r' but it is not a plugin-shipped reviewer (absent from the review-lead registry)")
 done <<< "$removes"
+
+# --- (c2) DEFAULT-UNKNOWN: every default must name a plugin-shipped reviewer ---
+while IFS= read -r d; do
+    [ -z "$d" ] && continue
+    grep -qx "$d" <<< "$plugin_registry" \
+        || errors+=("DEFAULT-UNKNOWN: reviewers.default names '$d' but it is not a plugin-shipped reviewer (absent from the review-lead registry)")
+done <<< "$defaults"
 
 # --- (a) DANGLING: every effective entry must resolve to an agent file ------
 #     plugin-origin names resolve in ANY of the three roots; reviewers.add names

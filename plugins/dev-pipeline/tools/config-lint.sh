@@ -197,10 +197,12 @@ ERRORS=$(jq -r --argjson shippedTiers "$SHIPPED_TIERS_JSON" '
   + ((.reviewers // {}) |
       (["haiku","sonnet","opus","fable"]) as $models
       | ($shippedTiers + ((.tierMap // {}) | if type == "object" then keys else [] end)) as $tiers
-      | err(((keys) - ["add","remove","modelOverrides","tierMap"]) != []; "reviewers: unknown keys")
+      | err(((keys) - ["add","remove","default","modelOverrides","tierMap"]) != []; "reviewers: unknown keys")
       + err((.add? != null) and ((.add | type) != "array"); "reviewers.add: must be array")
       + err((.remove? != null) and ((.remove | type) != "array"); "reviewers.remove: must be array")
       + ((.remove // []) | if type == "array" then (map(select((type) != "string")) | if length > 0 then ["reviewers.remove: every entry must be a string"] else [] end) else [] end)
+      + err((.default? != null) and ((.default | type) != "array"); "reviewers.default: must be array")
+      + ((.default // []) | if type == "array" then (map(select((type) != "string")) | if length > 0 then ["reviewers.default: every entry must be a string"] else [] end) else [] end)
       + ((.add // []) | to_entries | map(
           err((.value.name? // "") == ""; "reviewers.add[" + (.key|tostring) + "].name: required")
         ) | add // [])

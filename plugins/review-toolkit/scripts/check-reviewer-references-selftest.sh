@@ -12,6 +12,8 @@
 #   (a) DANGLING         plugin-dangling (registry entry, no agent file)        -> exit 1
 #   (b) ORPHAN           plugin + consumer-orphan (reviewer file, not in config)-> exit 1
 #   (c) REMOVE-UNKNOWN   plugin + consumer-remove-unknown (removes a non-plugin)-> exit 1
+#   (c2) DEFAULT-UNKNOWN plugin + consumer-default-unknown (defaults a non-plugin)-> exit 1
+#   default-green        plugin + consumer-default-green (defaults a panel member)-> exit 0
 #   (d) SHADOW           plugin + consumer-shadow (shadows plugin agent name)   -> exit 1
 #   add+override         plugin + consumer-add-override (add + modelOverride)   -> exit 0
 #   design-present       plugin-design + design-toolkit sibling root supplied   -> exit 0, no notice
@@ -115,6 +117,25 @@ run_cli "$PLUGIN" "$FX/consumer-remove-unknown" "$FX/consumer-remove-unknown/.cl
 if [ $? -eq 0 ]; then fail "(c) remove-unknown expected exit 1"; else
   grep -q "REMOVE-UNKNOWN:.*db-reviewer" "$TMP/.stderr" && ok "(c) REMOVE-UNKNOWN: stale remove delta -> exit 1 + message" \
     || fail "(c) remove-unknown: exit 1 but no REMOVE-UNKNOWN line (stderr: $(cat "$TMP/.stderr"))"
+fi
+
+# (c2) DEFAULT-UNKNOWN — reviewers.default names db-reviewer, not in the plugin registry.
+# The per-repo opt-in into the trimmed pipeline panel (#838): a name the registry never
+# shipped selects nobody, and under a trimmed default that silence is the whole cost.
+run_cli "$PLUGIN" "$FX/consumer-default-unknown" "$FX/consumer-default-unknown/.claude/second-shift.config.json"
+if [ $? -eq 0 ]; then fail "(c2) default-unknown expected exit 1"; else
+  grep -q "DEFAULT-UNKNOWN:.*db-reviewer" "$TMP/.stderr" && ok "(c2) DEFAULT-UNKNOWN: opt-in names a non-plugin reviewer -> exit 1 + message" \
+    || fail "(c2) default-unknown: exit 1 but no DEFAULT-UNKNOWN line (stderr: $(cat "$TMP/.stderr"))"
+fi
+
+# default-green — reviewers.default naming a real panel member is silent, and does NOT
+# make that name an `add` (no consumer agent file exists for it, and none is demanded).
+run_cli "$PLUGIN" "$FX/consumer-default-green" "$FX/consumer-default-green/.claude/second-shift.config.json"
+if [ $? -eq 0 ]; then
+  grep -q "DEFAULT-UNKNOWN" "$TMP/.stderr" && fail "default-green: exit 0 but a DEFAULT-UNKNOWN line was printed" \
+    || ok "default-green: opt-in names a panel member -> exit 0, no message"
+else
+  fail "default-green expected exit 0 (stderr: $(cat "$TMP/.stderr"))"
 fi
 
 # (d) SHADOW — consumer security-reviewer.md shadows the plugin-shipped agent name
