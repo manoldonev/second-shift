@@ -1015,7 +1015,7 @@ coupling rather than mechanizing it into a guard that cannot fail.
   correcting the quote would destroy the evidence for the finding.
 - **`LANE_SELFTEST_CACHE_DIR`, writer ↔ reader (#563).** The same coupling one ticket later,
   declined for the same reason. The invisible direction is sharper: a one-sided rename just means
-  no lean sweep ever serves from cache again, which looks exactly like a cache that is working and
+  no lane sweep ever serves from cache again, which looks exactly like a cache that is working and
   never hitting. Guarded on BOTH sides — `milestone-gate-selftest.sh` (sc1)-(sc3) spawn a real lane child
   that must report the announced store, and `run-selftests-selftest.sh`'s #563 cases drive the
   runner through the variable rather than the flag.
@@ -1029,7 +1029,7 @@ coupling rather than mechanizing it into a guard that cannot fail.
   polarities. #642 moved that wiring off `commands.acme.test`, which no longer refuses; the contract
   is unchanged, only the key it is driven through. The ends are pinned alone too:
   `run-selftests-selftest.sh`'s AC-1 cases on the writer, (ic1)-(ic5) on the reader.
-- **lean verdict-record key schema** — one writer (`milestone-gate.sh`'s `verdict`) and three readers
+- **verdict-record key schema** — one writer (`milestone-gate.sh`'s `verdict`) and three readers
   (`milestone-gate.sh` milestone 4, `check-lane-chain.sh`, `reconcile.sh`). Dropping a key on the
   writer silently un-satisfies all three; a reader-side requirement the writer never emits reds
   every pipeline PR. The writer spells keys as `echo` lines and the readers as grep/jq patterns.
@@ -1098,7 +1098,7 @@ coupling rather than mechanizing it into a guard that cannot fail.
   substitution the stages use and PRINTS the result, and `preflight-selftest.sh` run 18 asserts on
   that printed line — both the unmigrated-override case and the migrated-pattern over-match negative.
   Printing alone would not have been coverage; the assertions are.
-- **lean artifact discriminator** — `boundary-evidence.sh`'s `classify()` ↔ `retro-corpus.sh`'s
+- **lane artifact discriminator** — `boundary-evidence.sh`'s `classify()` ↔ `retro-corpus.sh`'s
   `open-prs` (#413). Both decide "is this PR lean" the same way, and a one-sided edit leaves the
   retro corpus silently reporting live pipeline PRs as verdict-less. NOT delegable, which is why the
   copy exists: the gates classify the PR they are running ON, from a PR context that lets
@@ -1111,7 +1111,7 @@ coupling rather than mechanizing it into a guard that cannot fail.
   fixture PR array carrying another ticket's spec and a fixture-pathed spec and asserts neither
   casts a vote — with (AC-5) as the non-vacuity side. Revisit if the `-lean.md` suffix is ever
   hoisted into the config schema.
-- **lean ARTIFACT-NAME suffixes (#359)** — `check-lane-chain.sh`'s name table ↔ `boundary-evidence.sh`'s.
+- **lane ARTIFACT-NAME suffixes (#359)** — `check-lane-chain.sh`'s name table ↔ `boundary-evidence.sh`'s.
   The two sets are deliberately DIFFERENT: `-lean-renders.md` belongs only to the chain gate and
   `-lean-intent-gap.md` only to the payload, so `verbatim` would compare unlike sets and fail on a
   correct tree, while `subset-of` reads a lone suffix rather than an enum and would assert nothing.
@@ -1121,7 +1121,7 @@ coupling rather than mechanizing it into a guard that cannot fail.
   delta guard is COMMITTED INTO a consumer repo rather than fetched at the pinned ref, so no
   end-to-end run in this tree can observe that pair. Revisit the rest if OR-1 lands and the sets
   converge.
-- **lean ARM CUTOFFS (#444)** — the two `since:` comparators, and NOT for want of an anchor. They
+- **lane ARM CUTOFFS (#444)** — the two `since:` comparators, and NOT for want of an anchor. They
   are not one contract: the payload compares an already-UTC `PR_CREATED_AT` supplied by the
   workflow, while the gate normalizes a git author date carrying an arbitrary offset through
   `TZ=UTC git log --date=format-local`. The `since:` values are MEANT to differ — each anchors to
@@ -1131,7 +1131,7 @@ coupling rather than mechanizing it into a guard that cannot fail.
   offsets in both directions, `check-lane-chain-selftest.sh` (Z1)/(Z2), and this repo's own
   `pr-gates` executing the payload on every PR. Revisit if a shared normalization helper is ever
   hoisted into a file both can reach.
-- **lean evidence TOKEN SCOPES (#359)** — the `permissions:` block in this repo's `ci.yml`
+- **boundary evidence TOKEN SCOPES (#359)** — the `permissions:` block in this repo's `ci.yml`
   (`pr-gates`) ↔ `templates/consumer/second-shift-ci.yml`. Declined NOT for want of an anchor: the
   two blocks do collapse to the same string today. They are not one contract. The host job
   additionally runs `check-lane-chain.sh`'s issue-side claim arm, which a read-only tracker has no
@@ -1204,7 +1204,7 @@ coupling rather than mechanizing it into a guard that cannot fail.
   that justified dropping it became load-bearing. It was declined as non-byte-anchorable, and what
   made that SAFE was that `check-lane-chain.sh` did not classify on the prefix alone. That
   compensating control is now the whole rule: the lane cuts `<branchPrefix><key>`, there is no
-  second prefix, and applicability is the key-matched lean spec in the PR's diff and nothing else.
+  second prefix, and applicability is the key-matched lane spec in the PR's diff and nothing else.
   Both sides ceased to exist, along with the mutual non-prefix-match property they asserted.
 - **lean branch-prefix DERIVATION (#359)** — deleted with its subject in #413. It pinned
   `lean_branch_prefix()` across `milestone-gate.sh` and `boundary-evidence.sh`; both copies are gone.

@@ -2,7 +2,7 @@
 #
 # Columns: slug <TAB> class <TAB> condition
 #
-# slug       A terminal slug of the lean lane's scheduler. The set is DERIVED, not curated:
+# slug       A terminal slug of the lane's scheduler. The set is DERIVED, not curated:
 #            tools/lane-bench-selftest.sh reads every command-position `terminal <slug>` and
 #            `envfail <slug>` call site out of the shipped orchestrate.sh, plus the one
 #            `terminal-vocabulary:` announcement, and requires this file to name exactly that

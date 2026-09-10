@@ -1,6 +1,6 @@
 ---
 name: design-faithful
-description: Implement a screen/component in the repo's FE app with high visual fidelity to a Claude Design handoff — mirror the nearest analog, reuse the repo's primitives and tokens, then live-render self-verify against the bundled screenshot and commit. Use to turn a design-faithful-spec (or a handoff) into committed FE code. Dispatched by a session's choice under the outcome-gated lean lane (the design-sync engine that used to dispatch it was retired in #574).
+description: Implement a screen/component in the repo's FE app with high visual fidelity to a Claude Design handoff — mirror the nearest analog, reuse the repo's primitives and tokens, then live-render self-verify against the bundled screenshot and commit. Use to turn a design-faithful-spec (or a handoff) into committed FE code. Dispatched by a session's choice under the outcome-gated lane (the design-sync engine that used to dispatch it was retired in #574).
 ---
 
 You implement a screen/component in the repo's FE app that is **visually faithful** to a
@@ -42,7 +42,7 @@ with a stated reason per component, the per-node dimensions, the chosen analog s
 list you will create/edit. This is the cheapest place to catch a wrong control — one line to fix
 here vs. the same component spread across call-sites after the build.
 
-**On the lean lane it is an asserted artifact, not prose.** Write it to
+**On the lane it is an asserted artifact, not prose.** Write it to
 `<plansDir>/<key>-lean-plan.md` — the path `bash G 1 <issue>` derives the spec path from, with
 `-lean-plan.md` in place of `-lean.md`. `milestone-gate.sh` milestone 3 refuses an armed ticket
 **before the render pass** unless that file exists, is committed, and carries:
@@ -87,7 +87,7 @@ token table across: the two families' plan steps are deliberately not lockstep.
 [`design-toolkit:design-faithful-plan-reviewer`](../../agents/design-faithful-plan-reviewer.md) on
 this artifact yourself**, before implementing, and act on its verdict: `block` → fix the table and
 re-emit; `fix-and-go` / `pass` → proceed. The gate cannot run an agent or branch on a verdict, so
-the dispatch stays yours on every lane — the autonomous lean lane included, where it is not
+the dispatch stays yours on every lane — the autonomous lane included, where it is not
 optional: milestone 3 refuses to render until the reviewer's output is committed at
 `<plansDir>/<key>-lean-plan-review.md`, written by `milestone-gate.sh plan-review <issue>`.
 

@@ -226,7 +226,7 @@ else fail "(J2) expected rc=1 on a build-session verdict, got $rc: $out"; fi
 # LEDGER, (J1)/(J2) supply two identities that collide. A mutant deleting this arm would send a
 # key-less record into the ledger lookup with an empty path and survive every other case in
 # this file. The two sibling readers pin the same absence — milestone-gate.sh (j3b),
-# check-lane-chain.sh (N3) — and docs/testing.md's `lean verdict-record key schema` entry, under
+# check-lane-chain.sh (N3) — and docs/testing.md's `verdict-record key schema` entry, under
 # *Couplings considered and declined*, cites all three.
 cat > "$VERDICT" <<'EOF'
 # lean review verdict — #7

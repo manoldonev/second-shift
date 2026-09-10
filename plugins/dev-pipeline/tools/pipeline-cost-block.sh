@@ -1,5 +1,5 @@
 #!/bin/bash
-# pipeline-cost-block.sh — compute a session-window OTel cost block for a lean run.
+# pipeline-cost-block.sh — compute a session-window OTel cost block for a lane run.
 # Invoked explicitly by the caller (this is NOT a Stop hook).
 #
 # Usage:  pipeline-cost-block.sh --stateless --issue <n> [--close-out]
@@ -782,10 +782,10 @@ render_block() {
   # label says that instead of implying the run failed to record timestamps.
   #
   # The SCOPE moves with the set (#546). Once the review session is unioned in, the row is no
-  # longer one session's spend and must not keep saying so: "Session total (lean run)" over a
+  # longer one session's spend and must not keep saying so: "Session total (lane run)" over a
   # build+review set is precisely the class of confidently-wrong figure this mode exists to
   # stop, just one field over from the fence.
-  local total_note="lean run — no stage windows by design"
+  local total_note="lane run — no stage windows by design"
   local total_scope="Session total"
   if [ "$REVIEW_SESSION_INCLUDED" -eq 1 ]; then
     total_scope="Run total"

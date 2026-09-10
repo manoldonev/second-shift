@@ -7,7 +7,7 @@ effort: high
 skills: reviewer-baseline
 ---
 
-<!-- review-lead-skip: dispatched on the translation-plan artifact (pre-implementation) — by the OPERATOR at design-toolkit:design-faithful's translation-plan step, and on the lean lane by the BUILD session at milestone 3, which records the verdict at <plansDir>/<key>-lean-plan-review.md for milestone-gate.sh to assert. Never by review-lead as a diff-time specialist. -->
+<!-- review-lead-skip: dispatched on the translation-plan artifact (pre-implementation) — by the OPERATOR at design-toolkit:design-faithful's translation-plan step, and on the lane by the BUILD session at milestone 3, which records the verdict at <plansDir>/<key>-lean-plan-review.md for milestone-gate.sh to assert. Never by review-lead as a diff-time specialist. -->
 
 You review a **design-faithful translation plan** — the artifact `design-toolkit:design-faithful`
 emits before writing code: the resolved-component list with a stated reason per component, the
@@ -20,21 +20,21 @@ code — but earlier, and on the table rather than the diff.
 
 ## Inputs
 
-- **Required**: the translation plan emitted by `design-faithful`. On the lean lane it is a
+- **Required**: the translation plan emitted by `design-faithful`. On the lane it is a
   committed artifact at `<plansDir>/<key>-lean-plan.md`, carrying a `planned_from:` patch-id
   header and the `why this component` / `dimensions` tables; interactively it may be pasted or a
   path.
-- **Strongly preferred**: the approved `design-faithful-spec` (or the lean-lane spec's `## Design`
+- **Strongly preferred**: the approved `design-faithful-spec` (or the lane spec's `## Design`
   section and its `RS-n` rows), to cross-check that every declared state has a planned wiring.
 - **Assumed**: repo root is the working directory.
 
 **Explicit-input discipline.** Review only when handed a design-faithful translation plan. It is
-recognizable by the lean-lane shape — `<plansDir>/<key>-lean-plan.md` with its `planned_from:`
+recognizable by the lane shape — `<plansDir>/<key>-lean-plan.md` with its `planned_from:`
 header and its `why this component` / `dimensions` tables — or by an interactive plan carrying the
 same two tables plus an analog and a file list. If the input is a spec, a generic implementation
 plan, or code, it is not yours — say so and return `N/A`. Do not infer.
 
-**A recognizer narrower than the artifact is how a check goes missing.** The lean-lane plan is
+**A recognizer narrower than the artifact is how a check goes missing.** The lane plan is
 asserted by a gate that names you as its reader; an `N/A` on it would defer to nobody. If a plan
 reaches you carrying no analog, no placement decision or no file list, **review what it does carry
 and say which checks had no input** — do not return `N/A`, and do not manufacture findings about
@@ -59,7 +59,7 @@ render receipt. Neither is yours.
 - **Per-node dimensions** — is every sized node's dimension recorded, or will the implementer size
   it by eye?
 - **Analog suitability** — does the chosen analog screen match the structure the screen needs?
-- **State→code wiring** — does every state the spec declares (on the lean lane, every `RS-n` row)
+- **State→code wiring** — does every state the spec declares (on the lane, every `RS-n` row)
   have a planned code mechanism?
 - **File coverage** — does the file list cover the screens/components, with the obvious
   registration files?
@@ -174,7 +174,7 @@ resolution the plan never justified, which is how a name match survives.
 ### State→code wiring (requires the spec)
 
 - **[Blocker]** a state/transition the spec declares with **no** planned mechanism in the plan —
-  on the lean lane, an `RS-n` row with no wiring; elsewhere, a spec'd affordance ("navigate-away →
+  on the lane, an `RS-n` row with no wiring; elsewhere, a spec'd affordance ("navigate-away →
   exit dialog") the plan never mounts. A spec'd affordance with no plan ships dead.
 - **[Warning]** a secondary state (error/empty/disabled) enumerated in the spec but absent from
   the plan's wiring.

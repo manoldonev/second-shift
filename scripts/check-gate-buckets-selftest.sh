@@ -109,7 +109,7 @@ fail()    { echo "$1" >&2; exit 1; }
 envfail() { echo "$1" >&2; exit 2; }
 note_violation() { echo "$1" >&2; }
 check() {
-  note_violation "no committed lean spec"
+  note_violation "no committed lane spec"
   [ -n "$BODY" ] || fail "PR body carries no resolvable issue reference"
   [ -n "$ROOT" ] || envfail "no repo root"
 }
@@ -124,7 +124,7 @@ EOF
     row "$OL::terminal"       gates-signal 'terminal preflight-rejected 2 '                      - 'fixture: objective probe failure.'
     row "$OL::envfail"        not-a-gate   'envfail env-'                                        - 'environment refusal — fixture.'
     row "$OO::envfail"        not-a-gate   'envfail '                                            - 'usage error — fixture.'
-    row "$CC::note_violation" gates-signal 'note_violation "no committed lean spec"'             - 'fixture: objective absence.'
+    row "$CC::note_violation" gates-signal 'note_violation "no committed lane spec"'             - 'fixture: objective absence.'
     row "$CC::fail"           gates-signal 'fail "PR body carries no resolvable issue reference"' - 'fixture: objective absence.'
     row "$CC::envfail"        not-a-gate   'envfail '                                            - 'environment refusal — fixture.'
   } > "$d/scripts/gate-buckets.tsv"

@@ -57,7 +57,7 @@ redact_config() { # $1 = config path
 }
 
 # Newest pipeline-state record → the abort-relevant rows. What the feedback forms ask
-# for is the TAIL of the lean lane's <issue>-lean-progress.md: every hard stop appends
+# for is the TAIL of the lane's <issue>-lean-progress.md: every hard stop appends
 # its reason there as an `attempt` row followed by `concluded | rc=`. So the markdown
 # progress record is what this looks for FIRST — the lane that can abort is the lane
 # that has to be excerptable, and it writes no JSON at all. A repo carrying leftover
@@ -152,7 +152,7 @@ emit_report() {
   echo '```'
   echo
   echo "### pipeline-state excerpt (newest run)"
-  # Unlabelled fence: the excerpt is a markdown progress tail on the lean lane and JSON only
+  # Unlabelled fence: the excerpt is a markdown progress tail on the lane and JSON only
   # on the pre-lean fallback, so a `json` label would mis-highlight the common case.
   echo '```'
   state_excerpt
@@ -335,9 +335,9 @@ ok "shadow scan complete"
 
 # --- 6. opt-out scan (informational, once, never shaming) ----------------------
 # ONE exception to "informational" (#416, D-7): `audit-toolkit` off while `dev-pipeline` is on is
-# not an opt-out, it is a broken lane. The lean lane's entry gate fails closed on a missing audit
+# not an opt-out, it is a broken lane. The lane's entry gate fails closed on a missing audit
 # ledger, and the hook that writes that ledger ships in audit-toolkit — so in that combination
-# every lean run refuses at step 1, and the two runs that motivated #416 got that far only because
+# every lane run refuses at step 1, and the two runs that motivated #416 got that far only because
 # nothing enforced the refusal. A repo that adopted review-toolkit or intake-toolkit alone has no
 # lane to protect and keeps the warn.
 #
@@ -377,7 +377,7 @@ for f in "$SETTINGS" "$LOCAL_SETTINGS" "$USER_SETTINGS"; do
   for k in $opted; do
     pname="${k%@*}"
     if [[ "$pname" == "audit-toolkit" && "$DP_ENABLED" -eq 1 ]]; then
-      bad "$pname disabled in $(basename "$f") while dev-pipeline is enabled — the lean lane refuses to start without a live audit ledger, and audit-toolkit ships the hook that writes it. Re-enable \"$k\": true and restart the session, or disable dev-pipeline if this repo does not run the lane."
+      bad "$pname disabled in $(basename "$f") while dev-pipeline is enabled — the lane refuses to start without a live audit ledger, and audit-toolkit ships the hook that writes it. Re-enable \"$k\": true and restart the session, or disable dev-pipeline if this repo does not run the lane."
     else
       warn "$pname disabled in $(basename "$f") — you're opting out of its capabilities (see .claude/SECOND-SHIFT.md inventory). That's sanctioned; doctor won't mention it again this run."
     fi

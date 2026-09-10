@@ -609,7 +609,7 @@ esac
 # boundary on every pipeline PR — see the plan's pinned-name-table section.
 
 # The BRANCH. `<branchPrefix><key>` (#413). Lean and staged SHARE one namespace, so nothing
-# downstream may classify lean-vs-staged by branch name; that discriminator is the committed lean
+# downstream may classify lane-vs-staged by branch name; that discriminator is the committed lean
 # spec, resolved in boundary-evidence.sh. The prefix comes from branch-prefix.sh, the one implementation
 # of the resolution order (config, else the dominant remote-branch prefix, else refuse). There is
 # deliberately no `claude/acme-` default: it wrote a placeholder org slug into real branch names.
@@ -2434,7 +2434,7 @@ cmd_entry() {
       warn "  The pipeline requires it: re-enable \"audit-toolkit@<marketplace>\" in .claude/settings.json (or settings.local.json) and restart the session."
     else
       warn "✗ entry: audit ledger '$ledger' is missing or empty — the hook ledger is not live. Refusing to start."
-      warn "  Every lean record carries reconciliation keys; without a ledger the run is unverifiable at the merge boundary."
+      warn "  Every lane record carries reconciliation keys; without a ledger the run is unverifiable at the merge boundary."
     fi
     return 1
   fi
@@ -3627,7 +3627,7 @@ cmd_1() {
   # #562: a committed Decision Ledger's provenance is validated, reusing ledger-lint.sh rather
   # than re-implementing its enum — a second copy would be exactly the duplicate machinery this
   # repo's manifest calls worse than none (interviewing-baseline is the canonical source).
-  # Conditional on the section being PRESENT: whether a lean spec carries one at all is #517's
+  # Conditional on the section being PRESENT: whether a lane spec carries one at all is #517's
   # row-presence question, not this one's provenance-validity question, so an AC-n-only spec with
   # no Decision Ledger section is unaffected, exactly as it is today.
   if grep -qiE '^(#{1,6}[[:space:]]+|\*\*)[[:space:]]*decision ledger' "$spec"; then
@@ -6302,7 +6302,7 @@ cmd_close_out() {
 # this wrapper — true, but not the only observe path. #496 promoted the seam to a SCHEDULER read,
 # and orchestrate.sh's verdict_rc runs `LANE_GATE_OBSERVE=1 bash "$GATE" 4 "$ISSUE"` as a
 # TOP-LEVEL invocation, which the dispatch case at the bottom of this file routes straight through
-# here. Without the arm below, every round of every lean run would have the scheduler's read
+# here. Without the arm below, every round of every lane run would have the scheduler's read
 # writing build-role rows into the record — the exact "records nothing" contract #496 exists for.
 # So observe PREDICTS exhaustion from the count already on file, exactly as fail_milestone and
 # block_milestone do, and writes neither half of the pair.

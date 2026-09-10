@@ -11,7 +11,7 @@
 #   (b) ref lockstep — assert .claude/settings.json's marketplace ref matches
 #       .claude/second-shift.lock.json's ref. A half-done upgrade PR bumps one but not
 #       the other; this is the drift signal. (Ported from second-shift:doctor doctor.sh.)
-#   (c) lean evidence — on a lean-lane PR, assert the merge-boundary evidence set the harness
+#   (c) boundary evidence — on a lane PR, assert the merge-boundary evidence set the harness
 #       is supposed to have left behind: a committed approve-verdict carrying reconciliation
 #       keys, a review identity distinct from the build run's, a verdict covering THIS head,
 #       and no unratified intent-gap record. Same fetch-at-pinned-ref shape as (a), against
@@ -153,7 +153,7 @@ else
   fi
 fi
 
-# --- (c) lean-lane merge-boundary evidence ----------------------------------
+# --- (c) lane merge-boundary evidence ----------------------------------
 # Applicability, the issue key and every arm live in the fetched payload — this side only
 # supplies the PR context and maps the payload's exit code onto this file's FAIL/WARN
 # vocabulary. Deliberately so: a consumer and the marketplace repo must reach the SAME verdict
@@ -168,7 +168,7 @@ if [ -z "${SECOND_SHIFT_BOUNDARY_EVIDENCE:-}" ] && [ -n "${SECOND_SHIFT_LEAN_EVI
   SECOND_SHIFT_BOUNDARY_EVIDENCE="$SECOND_SHIFT_LEAN_EVIDENCE"
 fi
 if [ -z "${PR_HEAD_REF:-}" ]; then
-  ok "lean evidence: no PR context (not a pull_request run) — not applicable"
+  ok "boundary evidence: no PR context (not a pull_request run) — not applicable"
 elif fetch_at_ref "boundary-evidence" "plugins/dev-pipeline/skills/build/boundary-evidence.sh" "${SECOND_SHIFT_BOUNDARY_EVIDENCE:-}"; then
   EV="$FETCHED"
   bash "$EV" all
@@ -184,9 +184,9 @@ elif fetch_at_ref "boundary-evidence" "plugins/dev-pipeline/skills/build/boundar
   # readings are told apart by the payload's one-line decline, not by a recital: a decline says
   # `boundary-evidence: not-applicable`, and its absence means the evidence is complete.
   case "$EV_RC" in
-    0) ok   "lean evidence: complete, or not a pipeline PR — a 'boundary-evidence: not-applicable' line above says which" ;;
-    1) bad  "lean evidence: the pipeline PR is missing merge-boundary evidence (see the payload output above)" ;;
-    *) bad  "lean evidence: the check could not run (exit $EV_RC) — the workflow is not supplying what the payload at '$LOCK_REF' needs; a check that cannot run must not report a pass" ;;
+    0) ok   "boundary evidence: complete, or not a pipeline PR — a 'boundary-evidence: not-applicable' line above says which" ;;
+    1) bad  "boundary evidence: the pipeline PR is missing merge-boundary evidence (see the payload output above)" ;;
+    *) bad  "boundary evidence: the check could not run (exit $EV_RC) — the workflow is not supplying what the payload at '$LOCK_REF' needs; a check that cannot run must not report a pass" ;;
   esac
   [ -z "${SECOND_SHIFT_BOUNDARY_EVIDENCE:-}" ] && rm -f "$EV"
 fi

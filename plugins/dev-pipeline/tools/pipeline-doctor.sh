@@ -311,7 +311,7 @@ fi
 if [[ -z "$SELFTEST_CACHE_HIT" ]]; then
 _FAILS_BEFORE_SWEEP=$FAILS
 
-# --- 5. lean gate (the safety net must work on THIS machine) --------------------
+# --- 5. milestone gate (the safety net must work on THIS machine) --------------------
 # #348 retired the staged state machine. The pipeline's gate is what a run's five
 # milestones are asserted by, so it takes this section's place.
 if out=$(bash "$PLUGIN_DIR/skills/build/milestone-gate-selftest.sh" 2>&1); then
@@ -408,7 +408,7 @@ fi
 
 # --- 5i. lean merge-boundary evidence (portable verdict/identity/freshness) ------
 # The staged lane's deterministic verify runner died with it (#348). What stands here
-# instead is the boundary a lean run is actually judged at: boundary-evidence.sh
+# instead is the boundary a lane run is actually judged at: boundary-evidence.sh
 # reads the committed verdict record's verdict, authoring identity, patch freshness and
 # ratification, and a consumer's CI fetches it at its pinned ref.
 if out=$(bash "$PLUGIN_DIR/skills/build/boundary-evidence-selftest.sh" 2>&1); then

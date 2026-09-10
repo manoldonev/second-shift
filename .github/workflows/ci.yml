@@ -165,7 +165,7 @@ jobs:
       - name: capability parity register (tools/capability-parity.tsv)
         run: bash tools/capability-parity-check.sh
 
-      # Every refusal site in the lean lane declares its yield bucket. Same class as the two
+      # Every refusal site in the lane declares its yield bucket. Same class as the two
       # steps above — an enumerator plus a register that must cover its output exactly — and it
       # lives HERE rather than in pr-gates deliberately: it reads five files off the tree and
       # needs none of that job's environment block. #610 D-9 left prose-blockers.sh's coverage
@@ -262,7 +262,7 @@ jobs:
     # without it every adopting repo's pipeline PRs red on an environment error. If it lives only in
     # check-lane-chain.sh, the template must NOT get it — an unused scope there is a standing
     # escalation for a job that executes a fetched script. Reasoned out in docs/testing.md
-    # (the `lean evidence TOKEN SCOPES` entry under *Couplings considered and declined*).
+    # (the `boundary evidence TOKEN SCOPES` entry under *Couplings considered and declined*).
     permissions:
       contents: read
       issues: read
@@ -275,10 +275,10 @@ jobs:
     # the resolved prefix on every not-applicable verdict. Residual risk is recorded in
     # docs/pipeline-manifesto.md's T0 note.
     env:
-      # ONE namespace for both lanes (#413) — the lean harness cuts `<branchPrefix><key>`
+      # ONE namespace for both lanes (#413) — the lane harness cuts `<branchPrefix><key>`
       # branches too, so the separate LANE_BRANCH_PREFIX constant that used to sit here is
       # retired. Neither chain gate classifies on the branch name any more: both delegate to
-      # boundary-evidence.sh, which reads the committed lean spec in the PR's own diff.
+      # boundary-evidence.sh, which reads the committed lane spec in the PR's own diff.
       PIPELINE_BRANCH_PREFIX: claude/second-shift-
       PIPELINE_PLAN_PATTERN: docs/plans/acme-{issueKey}.md
     steps:

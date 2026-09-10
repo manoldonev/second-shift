@@ -39,11 +39,11 @@ repo enables {{PLUGIN_LIST}}) — `/second-shift:doctor` verifies the install ag
   in **GitHub Actions on your PRs** (not in a Claude session — no session cost). Three checks:
   config-lint the committed config at the pinned marketplace ref; assert the settings ref and
   lockfile ref agree; and, on a `/dev-pipeline:run` PR, assert the merge-boundary evidence
-  the lean lane is supposed to leave — a committed approve-verdict carrying reconciliation keys,
+  the lane is supposed to leave — a committed approve-verdict carrying reconciliation keys,
   a review identity distinct from the build run's, a verdict covering *this* head, and no
   unratified intent-gap record. The workflow only reports a check; it blocks a merge only if you
   mark it a required status check in branch protection.
-- **The lean evidence check is fail-closed.** Missing evidence is a failure, and so is a check
+- **The boundary evidence check is fail-closed.** Missing evidence is a failure, and so is a check
   that could not run: a moved script path at your pinned ref (HTTP 404) or a shallow checkout is
   reported as drift, never waved through green. Only a network/auth blip fetching the script is
   a non-fatal warning. Nothing about it is model-driven and it makes no API-billed calls.
@@ -72,7 +72,7 @@ repo enables {{PLUGIN_LIST}}) — `/second-shift:doctor` verifies the install ag
 
 - Optional committed CI files (same acceptance again):
   `.github/workflows/second-shift-delta-guard.yml` + `.claude/tools/second-shift-delta-guard.sh`.
-  **GitHub Actions, read-only, and inert until you wire it in.** The lean lane's review half
+  **GitHub Actions, read-only, and inert until you wire it in.** The lane's review half
   must commit its verdict record to the PR head as the *last* commit, which on a
   `pull_request`-triggered CI costs a second full run of your lane for a markdown file. This
   reusable workflow classifies that commit and exposes a `skip` output; you gate your own heavy

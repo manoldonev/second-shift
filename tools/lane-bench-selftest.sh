@@ -10,7 +10,7 @@
 #
 # THE SCENARIO EACH CASE GUARDS is stated on the case, and none of them is covered by
 # plugins/dev-pipeline/skills/build/scenario-liveness-selftest.sh: that suite composes the
-# lean gate's own verdict paths, and this tool is not on one. It reads a lane's leavings from
+# milestone gate's own verdict paths, and this tool is not on one. It reads a lane's leavings from
 # outside, after the lane is over, in a repo the gate never touches.
 set -uo pipefail
 

@@ -57,7 +57,7 @@ OUTCOME="ok"
 [ "$EVENT" = "PostToolUseFailure" ] && OUTCOME="fail"
 
 # WHERE THE LEDGER LIVES. Anchored on the MAIN checkout, never on the directory the
-# session happens to be running in. A lean run works in a linked worktree by contract,
+# session happens to be running in. A lane run works in a linked worktree by contract,
 # and every reader resolves `--git-common-dir/..`: milestone-gate.sh's `entry` precondition and
 # reconcile.sh. Writing beside the worktree instead
 # put the ledger where none of them look, with two opposite failure modes — an honest
@@ -78,7 +78,7 @@ OUTCOME="ok"
 # resulting absent ledger, which is where the refusal is actionable.
 #
 # LOCKSTEP, and this WRITER is the canonical side; audit-history.sh (the sweeper) holds the
-# identical block. Both must land on `--git-common-dir/..`, because the lean readers
+# identical block. Both must land on `--git-common-dir/..`, because the lane readers
 # (milestone-gate.sh's `entry`, reconcile.sh) all do, and the writer disagreeing with them
 # produced two opposite failures: an honest worktree run refused at `entry` for a ledger it had
 # just written, and a verdict record naming a session reconcile could not resolve — which reads

@@ -37,7 +37,7 @@ GAPREC="$TREE/docs/plans/acme-42-lean-intent-gap.md"
 OVREC="$TREE/docs/plans/acme-42-lean-override.md"
 mkdir -p "$TREE/docs/plans" "$TREE/scripts/fixtures" "$TREE/.claude"
 git -C "$TREE" init -q 2>/dev/null
-git -C "$TREE" config user.email lean@example.invalid
+git -C "$TREE" config user.email lane@example.invalid
 git -C "$TREE" config user.name lean-selftest
 
 # `add -A` is safe here and nowhere else: this is a throwaway repo under $WORK.
@@ -47,7 +47,7 @@ printf 'seed\n' > "$TREE/README.md"
 commit_tree "base"
 git -C "$TREE" update-ref refs/remotes/origin/main HEAD
 
-printf '# lean spec\n\n- AC-1: does a thing\n' > "$SPEC"
+printf '# lane spec\n\n- AC-1: does a thing\n' > "$SPEC"
 printf '# fixture\n- AC-9: fixture only\n' > "$TREE/scripts/fixtures/acme-99-lean.md"
 commit_tree "spec + fixtures"
 
@@ -282,13 +282,13 @@ if [ "$rc" -eq 0 ] && silent "$out"; then
   pass "(c) a legacy lean/-prefixed PR still classifies, via the body key and the artifact"
 else fail "(c) expected the legacy namespace to classify (and so run silently), got $rc: $out"; fi
 
-# THE MIRROR ERROR, and the reason applicability is KEY-MATCHED rather than "any lean spec".
+# THE MIRROR ERROR, and the reason applicability is KEY-MATCHED rather than "any lane spec".
 # This branch's key is 303; the diff carries #42's spec. A suffix-only test would pull an
 # unrelated PR into this gate and out of the pipeline gate at the same time.
 out="$(ev "claude/acme-303" "$WORK/markers-good.json" "$WORK/diff-lean.txt")"; rc=$?
 if [ "$rc" -eq 0 ] && class_b "$out" "boundary-evidence:not-applicable" \
    && grep -q 'resolved key: 303' <<<"$out"; then
-  pass "(d) a PR carrying some OTHER ticket's lean spec is not classified lean"
+  pass "(d) a PR carrying some OTHER ticket's lane spec is not classified lean"
 else fail "(d) expected not-applicable on a key mismatch, got $rc: $out"; fi
 
 out="$(ev "some/other-branch" "$WORK/markers-good.json" "$WORK/diff-fixture-only.txt")"; rc=$?
@@ -685,7 +685,7 @@ else fail "(z2) expected the branch key to win, got $rc: $out"; fi
 out="$(PIPELINE_PREFIX_OVERRIDE="zzz-matches-nothing/" ev "claude/acme-303" "$WORK/markers-good.json" "$WORK/diff-lean.txt")"; rc=$?
 if [ "$rc" -eq 0 ] && silent "$out"; then
   pass "(z3) an env namespace overrides the committed config rather than losing to it"
-else fail "(z3) expected the env prefix to win (a silent lean run, not a 303 decline), got $rc: $out"; fi
+else fail "(z3) expected the env prefix to win (a silent lane run, not a 303 decline), got $rc: $out"; fi
 
 # ---- (aa) AC-6: the no-bot degrade, per-arm and DISCLOSED -----------------------------------
 # A consumer with no authenticated writer cannot post a marker that survives the Bot filter, so
@@ -919,7 +919,7 @@ else fail "(bb1b) classify stdout carried a non-key=value line, rc=$rc: $out"; f
 # ---- (bb2) the artifact scan FAILS CLOSED on a diff it cannot read -------------------------
 # The three cases below drive the LIVE git path (no --diff-files-file), which is what CI takes.
 # They exist because #413 made this scan the SOLE applicability arm: with the branch-namespace
-# arm gone, "the diff was unreadable" and "the PR carries no lean spec" produce the same empty
+# arm gone, "the diff was unreadable" and "the PR carries no lane spec" produce the same empty
 # file list, and the second is a merge-boundary exemption. Each asserts rc=2 AND that no
 # `applicable=` line was emitted — a silent `applicable=0` is the exact failure being closed,
 # and it is also what a producer envfailing inside a `< <( )` process substitution would print,
@@ -1140,7 +1140,7 @@ else fail "(sc13) expected the enum refusal on needs-work, got $rc: $out"; fi
 # green — so a spec that mentions criteria and declares none where this reader looks is refused
 # rather than read as having none.
 sc_spec_held="$(cat "$SPEC")"
-printf '# lean spec\n\nThe rule in AC-1 is stated in prose, not declared.\n' > "$SPEC"
+printf '# lane spec\n\nThe rule in AC-1 is stated in prose, not declared.\n' > "$SPEC"
 # COMMITTED before the record is written, or the freshness arm reds on the spec edit itself and
 # the case reports a violation it is not about.
 commit_tree "a spec that mentions AC-n without declaring one"
@@ -1154,7 +1154,7 @@ commit_tree "the declaring spec restored"
 # ...and a spec with NO criteria at all is NOT this arm's business: check-lane-chain.sh's
 # artifact arm already refuses it, and milestone 1 refuses it before that. The two empty-set
 # cases are separated so neither message is sent to a reviewer the other was written for.
-printf '# lean spec\n\nNo criteria here.\n' > "$SPEC"
+printf '# lane spec\n\nNo criteria here.\n' > "$SPEC"
 commit_tree "a spec with no criteria at all"
 out="$(sc_run approve "")"; rc=$?
 if [ "$rc" -eq 0 ] && silent "$out"; then

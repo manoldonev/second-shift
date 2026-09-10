@@ -139,7 +139,7 @@ TREE="$WORK/tree"
 VREC="$TREE/docs/plans/acme-42-lean-verdict.md"
 mkdir -p "$TREE/docs/plans" "$TREE/scripts/fixtures"
 git -C "$TREE" init -q 2>/dev/null
-git -C "$TREE" config user.email lean@example.invalid
+git -C "$TREE" config user.email lane@example.invalid
 git -C "$TREE" config user.name lean-selftest
 
 # The fixture carries real COMMITS, not just files. Evidence 5 measures the verdict record's
@@ -160,7 +160,7 @@ printf 'seed\n' > "$TREE/README.md"
 commit_tree "base"
 git -C "$TREE" update-ref refs/remotes/origin/main HEAD
 
-printf '# lean spec\n\n- AC-1: does a thing\n- AC-2: does another\n' > "$TREE/docs/plans/acme-42-lean.md"
+printf '# lane spec\n\n- AC-1: does a thing\n- AC-2: does another\n' > "$TREE/docs/plans/acme-42-lean.md"
 # The build claim carries r-abc123; the verdict is REVIEW-authored, so it carries its own
 # identity and names its own session. A verdict reusing r-abc123 is case (N).
 #
@@ -274,10 +274,10 @@ silent() { [ -z "$1" ]; }
 # emit into this class, and the shape — stream, prefix, arm, closed disposition — is the thing
 # this ticket fixes for them. A line that drifted to two, or to a fifth disposition, is the
 # regression, and only a full-line anchor sees it.
-CLASS_B_RE='^\[lean-(chain|evidence)\]   · [a-z][a-z-]*: (not-applicable|reduced-strength|postdated|inert) — .'
+CLASS_B_RE='^\[(lane-chain|boundary-evidence)\]   · [a-z][a-z-]*: (not-applicable|reduced-strength|postdated|inert) — .'
 class_b() { # class_b <output> [expected-arm:disposition]
   [ "$(printf '%s\n' "$1" | grep -cE "$CLASS_B_RE")" = "1" ] || return 1
-  [ -z "${2:-}" ] || grep -qE "^\[lean-(chain|evidence)\]   · ${2%%:*}: ${2##*:} — " <<<"$1"
+  [ -z "${2:-}" ] || grep -qE "^\[(lane-chain|boundary-evidence)\]   · ${2%%:*}: ${2##*:} — " <<<"$1"
 }
 
 echo "[check-lane-chain-selftest]"
@@ -310,7 +310,7 @@ write_verdict
 # A whole-gate decline is class (b), not (a): nothing was evaluated, and an unevaluated gate that
 # printed nothing would be indistinguishable from one that checked everything.
 out="$(run_gate "someone/hotfix" "$WORK/comments-empty.json" "$WORK/diff-plain.txt")"; rc=$?
-if [ "$rc" -eq 0 ] && class_b "$out" "lean-chain:not-applicable"; then
+if [ "$rc" -eq 0 ] && class_b "$out" "lane-chain:not-applicable"; then
   pass "(B) AC-3: an ordinary PR declines in exactly one class-(b) line"
 else fail "(B) expected a one-line not-applicable exit 0, got rc=$rc: $out"; fi
 
@@ -323,20 +323,20 @@ else fail "(B) expected a one-line not-applicable exit 0, got rc=$rc: $out"; fi
 # so "no class-(b) decline" is exactly "it classified this PR".
 out="$(run_gate "some/other-branch" "$WORK/comments-empty.json" "$WORK/diff-lean.txt" "zzz-matches-nothing/")"; rc=$?
 if [ "$rc" -eq 1 ] && ! grep -q 'not-applicable' <<<"$out"; then
-  pass "(C) zero-matching prefix + lean spec in diff ⇒ applicable via the artifact arm, and fails on the missing claim"
+  pass "(C) zero-matching prefix + lane spec in diff ⇒ applicable via the artifact arm, and fails on the missing claim"
 else fail "(C) expected rc=1 via the artifact arm, got rc=$rc: $out"; fi
 
 # ---- (D) MANDATED: pipeline-prefixed PR carrying lean-shaped files is NOT applicable -----
 # This is the PR that delivers the pipeline itself: pipeline-authored, and it necessarily carries
 # lean-shaped fixture files. Double-classifying it would make the feature unshippable.
 out="$(run_gate "claude/acme-303" "$WORK/comments-empty.json" "$WORK/diff-lean.txt")"; rc=$?
-if [ "$rc" -eq 0 ] && class_b "$out" "lean-chain:not-applicable"; then
+if [ "$rc" -eq 0 ] && class_b "$out" "lane-chain:not-applicable"; then
   pass "(D) pipeline-prefixed PR carrying lean-shaped files is not double-classified"
 else fail "(D) expected a not-applicable exit 0, got rc=$rc: $out"; fi
 
 # ---- (E) fixture paths are excluded from the artifact scan -------------------------------
 out="$(run_gate "some/other-branch" "$WORK/comments-empty.json" "$WORK/diff-fixture-only.txt" "zzz-matches-nothing/")"; rc=$?
-if [ "$rc" -eq 0 ] && class_b "$out" "lean-chain:not-applicable"; then
+if [ "$rc" -eq 0 ] && class_b "$out" "lane-chain:not-applicable"; then
   pass "(E) a lean-shaped file under fixtures/ does not trigger applicability"
 else fail "(E) expected fixture paths to be excluded, got rc=$rc: $out"; fi
 
@@ -378,7 +378,7 @@ out="$(run_gate "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt
 # BOTH prefixes (#359). Half the arms now come from the delegated payload, which signs its
 # own refusals `[boundary-evidence]`; counting only this gate's prefix would score a two-violation
 # run as one and let a regression that re-duplicated a delegated arm pass unnoticed.
-n_violations="$(printf '%s' "$out" | grep -cE '^\[lean-(chain|evidence)\]   ✗')"
+n_violations="$(printf '%s' "$out" | grep -cE '^\[(lane-chain|boundary-evidence)\]   ✗')"
 if [ "$rc" -eq 1 ] \
    && grep -q '2 evidence artifact(s) missing' <<<"$out" \
    && [ "$n_violations" -eq 2 ] \
@@ -391,12 +391,12 @@ else fail "(I2) expected exactly 2 violations with the freshness arms silent, go
 write_verdict
 
 # ---- (J) a spec with no AC-n fails -------------------------------------------------------
-printf '# lean spec\n\nNo criteria here.\n' > "$TREE/docs/plans/acme-42-lean.md"; commit_tree 'spec without AC-n'
+printf '# lane spec\n\nNo criteria here.\n' > "$TREE/docs/plans/acme-42-lean.md"; commit_tree 'spec without AC-n'
 out="$(run_gate "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
 if [ "$rc" -eq 1 ] && grep -q 'no numbered AC-n' <<<"$out"; then
   pass "(J) a committed spec with no AC-n fails (the definition of done must exist)"
 else fail "(J) expected rc=1 on an AC-less spec, got rc=$rc: $out"; fi
-printf '# lean spec\n\n- AC-1: does a thing\n' > "$TREE/docs/plans/acme-42-lean.md"; commit_tree 'spec restored'
+printf '# lane spec\n\n- AC-1: does a thing\n' > "$TREE/docs/plans/acme-42-lean.md"; commit_tree 'spec restored'
 
 # ---- (K) an unresolvable namespace constant is FATAL, never exempt -----------------------
 # ONE constant now (#413): the delegated key derivation strips it off the head ref, so an empty
@@ -835,7 +835,7 @@ else fail "(U3) expected a silent rc=0 after a clean replay, got rc=$rc: $out"; 
 # one commit, so `git log -1 -- <record>` finds the head and the INFERRED arm is green. Without
 # that shape the case would red on inference and prove nothing about this arm.
 u_pid_pre="$(tree_patch_id HEAD)"
-printf '# lean spec\n\n- AC-1: does a thing, resolved differently by the rebase\n' > "$TREE/docs/plans/acme-42-lean.md"
+printf '# lane spec\n\n- AC-1: does a thing, resolved differently by the rebase\n' > "$TREE/docs/plans/acme-42-lean.md"
 printf 'verdict=approve\nrun_id: r-review-7\nsession_id: sess-review-7\nrounds: 1\nreviewed_head: %s\nreviewed_patch_id: %s\n' \
   "$(git -C "$TREE" rev-parse HEAD)" "$u_pid_pre" > "$VREC"
 commit_tree "a conflict resolution changes a line, committed with the record"
@@ -895,7 +895,7 @@ else fail "(V1) expected a silent rc=0 on a chain root, got rc=$rc: $out"; fi
 
 # ROUND 2, inheriting round 1: the ordinary fix round. The fix touches the spec, which round 1
 # already read — so the delta is non-empty and the head's patch identity has genuinely moved.
-printf '# lean spec\n\n- AC-1: does a thing\n- AC-2: does another, fixed after round 1\n' > "$TREE/docs/plans/acme-42-lean.md"
+printf '# lane spec\n\n- AC-1: does a thing\n- AC-2: does another, fixed after round 1\n' > "$TREE/docs/plans/acme-42-lean.md"
 commit_tree "the fix round 1 asked for"
 v_pid2="$(tree_patch_id HEAD)"
 [ "$v_pid2" != "$v_pid1" ] || fail "(V2-fixture) the fix did not move the patch identity — (V2) would assert nothing"
@@ -954,7 +954,7 @@ else fail "(V4) expected rc=1 on a dangling link, got rc=$rc: $out"; fi
 # Round 4's own link resolves; round 3's — left dangling by the case above — does not. A message
 # naming round 4 would send the operator to the wrong record, and a generic "chain is stale"
 # would name neither.
-printf '# lean spec\n\n- AC-1: does a thing\n- AC-2: does another, fixed again\n' > "$TREE/docs/plans/acme-42-lean.md"
+printf '# lane spec\n\n- AC-1: does a thing\n- AC-2: does another, fixed again\n' > "$TREE/docs/plans/acme-42-lean.md"
 commit_tree "a further fix round"
 v_pid4="$(tree_patch_id HEAD)"
 write_chain_record r-review-v4 sess-review-v4 4 "$v_pid4" "$v_pid_rev" "$v_r1_commit"
@@ -1009,7 +1009,7 @@ else fail "(V6a) expected a silent rc=0, got rc=$rc: $out"; fi
 # walk stops there and the chain is complete; a first-match walk follows the body into a link that
 # dangles and reds. That is what keeps this case rc-observable after #443 removed the printed
 # count it used to pin, and it is why (V6a) is ordered ahead of it rather than after.
-printf '# lean spec\n\n- AC-1: does a thing\n- AC-2: and a sixth-round fix\n' > "$TREE/docs/plans/acme-42-lean.md"
+printf '# lane spec\n\n- AC-1: does a thing\n- AC-2: and a sixth-round fix\n' > "$TREE/docs/plans/acme-42-lean.md"
 commit_tree "the round-5 fix"
 v_pid6="$(tree_patch_id HEAD)"
 write_chain_record r-review-v6 sess-review-v6 6 "$v_pid6" "$v_pid_root" "$v_r1_commit"
@@ -1155,7 +1155,7 @@ write_render_manifest() { # write_render_manifest <rendered-from>
 # an unrecognised host is now a violation in its own right, which those cases do not assert.
 arm_spec() { # arm_spec [handoff-url]
   {
-    printf '# lean spec\n\n- AC-1: does a thing\n- AC-2: does another\n\n'
+    printf '# lane spec\n\n- AC-1: does a thing\n- AC-2: does another\n\n'
     printf '## Design\n\nHandoff: %s\n\n' "${1:-https://www.figma.com/design/AbC123/Prospects}"
     printf '| RS-n | route | state | AC refs |\n| --- | --- | --- | --- |\n'
     printf '| RS-1 | prospects | default | AC-1 |\n'
@@ -1250,7 +1250,7 @@ else fail "(X5) expected the stale-receipt violation alone, got rc=$rc: $out"; f
 # declaring the explicit disarm, the arm is not applicable and the boundary says so. This is what
 # makes (X2)/(X3)/(X5) turn on ARMING rather than on the artifacts being present.
 {
-  printf '# lean spec\n\n- AC-1: does a thing\n- AC-2: does another\n\n'
+  printf '# lane spec\n\n- AC-1: does a thing\n- AC-2: does another\n\n'
   printf '## Design\n\nDesign: none — no FE surface in this ticket.\n'
 } > "$TREE/docs/plans/acme-42-lean.md"
 commit_tree "the spec disarms the design lane"
@@ -1354,7 +1354,7 @@ else fail "(X11) expected the unrecognised-host violation alone, got rc=$rc: $ou
 # written against a tree where the design arm is not applicable, so leaving it armed would red
 # each of them on THIS arm instead of on its own subject. (X11)'s spec would red on every run.
 {
-  printf '# lean spec\n\n- AC-1: does a thing\n- AC-2: does another\n\n'
+  printf '# lane spec\n\n- AC-1: does a thing\n- AC-2: does another\n\n'
   printf '## Design\n\nDesign: none — no FE surface in this ticket.\n'
 } > "$TREE/docs/plans/acme-42-lean.md"
 commit_tree "the spec disarms the design lane again"

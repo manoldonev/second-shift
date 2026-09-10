@@ -228,7 +228,7 @@ LEANGH
   # counter — an identical re-write stages nothing, which would leave the record holding an
   # earlier round's commit while the tree moved on and red the leg on freshness instead of on
   # what it composes.
-  git -C "$LANE_TREE" config user.email lean@example.invalid
+  git -C "$LANE_TREE" config user.email lane@example.invalid
   git -C "$LANE_TREE" config user.name lean-scenario
   printf '.claude/\n' > "$LANE_TREE/.gitignore"
   lean_commit() { git -C "$LANE_TREE" add -A >/dev/null 2>&1
@@ -1229,7 +1229,7 @@ LEANELC
   LANE_DTREE="$TMP/lean-dtree"
   mkdir -p "$LANE_DTREE/docs/plans" "$LANE_DTREE/.claude"
   git -C "$LANE_DTREE" init -q
-  git -C "$LANE_DTREE" config user.email lean@example.invalid
+  git -C "$LANE_DTREE" config user.email lane@example.invalid
   git -C "$LANE_DTREE" config user.name lean-scenario
   printf '.claude/\n' > "$LANE_DTREE/.gitignore"
   LANE_DSTUB="$TMP/lean-render-stub.sh"
@@ -2581,7 +2581,7 @@ else
   git -C "$LR_TREE" config user.name lr-scenario
   git -C "$LR_TREE" config commit.gpgsign false
   echo "staged plan" > "$LR_TREE/docs/plans/acme-77.md"
-  printf '# lean spec\n\n- AC-1: does a thing\n' > "$LR_TREE/docs/plans/acme-77-lean.md"
+  printf '# lane spec\n\n- AC-1: does a thing\n' > "$LR_TREE/docs/plans/acme-77-lean.md"
   git -C "$LR_TREE" add -A >/dev/null 2>&1
   git -C "$LR_TREE" commit -qm "fixture: both lanes' artifacts for #77" >/dev/null 2>&1
 
@@ -2606,8 +2606,8 @@ else
       LANE_EVIDENCE="$LR_EV" bash "$LR_LEAN" --comments-file "$LR_EMPTY" \
       --diff-files-file "$1" 2>&1 )"
     # Since #443 the milestone gate's decline is its class-(b) line — the only thing it writes on a
-    # green run — so the token is `lean-chain: not-applicable`, not the retired prose sentence.
-    if grep -q 'lean-chain: not-applicable' <<<"$out"; then echo declined; else echo applicable; fi
+    # green run — so the token is `lane-chain: not-applicable`, not the retired prose sentence.
+    if grep -q 'lane-chain: not-applicable' <<<"$out"; then echo declined; else echo applicable; fi
   }
   # The same composition, output verbatim, for the cutoff leg below — which reads WHICH lines the
   # boundary wrote rather than only whether it claimed the PR.

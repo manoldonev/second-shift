@@ -201,7 +201,7 @@ The `workflow` was either `"<plugin>:<relpath>"` (a companion pack's script, §4
 > rejection is the only mechanism that reaches them. Re-adding a key later is a minor release;
 > removing one is breaking — so the retirement happened in the window #348 already opened.
 
-The need it answered: certain implementation work done by a specialist agent instead of the inline implementer — a migrations specialist for schema changes, a codegen agent for a generated surface. (The pipeline is outcome-gated and silent on *how* a diff is produced, so a build session may still dispatch such an agent by choice. What has no lean home is the declared, config-routed, pre-flight-validated form.)
+The need it answered: certain implementation work done by a specialist agent instead of the inline implementer — a migrations specialist for schema changes, a codegen agent for a generated surface. (The pipeline is outcome-gated and silent on *how* a diff is produced, so a build session may still dispatch such an agent by choice. What has no home on the lane is the declared, config-routed, pre-flight-validated form.)
 
 ```jsonc
 // NOT VALID CONFIG — config-lint rejects this key by name (#569). Shown as designed.
@@ -332,18 +332,18 @@ tier that still dispatch, registered and auditable. This block is valid config; 
 **And the two seams that are gone.** The block below is **not valid config** — `config-lint`
 rejects all three of these keys by name (#569). It is reproduced because the tier's *shape*
 argument depends on it: the point of the study is that a QA tier wants a gating moment at the
-plan and a different author at the implementation, and neither has a lean home today.
+plan and a different author at the implementation, and neither has a home on the lane today.
 
 ```jsonc
 // RETIRED IN #569 — DO NOT PUT THIS IN A CONFIG. Design record only (§3.7-3.8).
 {
   // gate the PLAN (§3.8). As designed: block a ticket whose API-test strategy is wrong
-  // before any code exists. No lean equivalent — the spec is judged at the merge boundary.
+  // before any code exists. No equivalent on the lane — the spec is judged at the merge boundary.
   "planGates": [
     { "name": "api-plan", "surface": "tests/api/**", "agent": "acme-qa-pack:api-test-plan-reviewer" }
   ],
   // route the WRITING (§3.7). As designed: route API-test work to the specialist instead of
-  // the inline implementer. A lean build session may still dispatch the same agent by
+  // the inline implementer. A lane build session may still dispatch the same agent by
   // choice — what is gone is the declared, config-routed form.
   "implementDelegates": [
     { "surface": "tests/api/**", "agent": "acme-qa-pack:api-test-coder" }
@@ -362,7 +362,7 @@ api-testing/*.md
 
 | Gating moment | Seam | What runs | Fails how | Status |
 | --- | --- | --- | --- | --- |
-| plan review | `planGates` (EP-8) | `api-test-plan-reviewer` judges the plan's test strategy | `block` → `plan-reviewer-block` | **retired #569** — no lean equivalent |
+| plan review | `planGates` (EP-8) | `api-test-plan-reviewer` judges the plan's test strategy | `block` → `plan-reviewer-block` | **retired #569** — no equivalent on the lane |
 | implement | `implementDelegates` (EP-7) | `api-test-coder` writes `tests/api/**` | output passes the unchanged scope + downstream gates | **retired #569** — a session may still choose the agent |
 | verify | `extraLanes` (EP-2) | the API suite runs | nonzero → `TEST_FAILURE`, standard budget | live (`milestone-gate.sh` milestone 3) |
 | code review | `reviewers.add` | `api-test-reviewer` reviews the tests | its verdict folds into the review round | live (`review-lead`) |

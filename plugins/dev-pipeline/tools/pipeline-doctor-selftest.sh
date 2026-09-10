@@ -659,7 +659,7 @@ fi
 #
 # THREE ARMS, because the doctor delegates in three shapes and the invariant is the
 # same for each: `$SCRIPT_DIR/<name>` (a sibling file), `$PLUGIN_DIR/<relpath>`
-# (elsewhere in this plugin — where the milestone gate, lean evidence and null-reviewer
+# (elsewhere in this plugin — where the milestone gate, boundary evidence and null-reviewer
 # suites live), and `resolve_sibling <plugin> <relpath>` (another plugin). A shape
 # with no arm is a shape where the 5h2 break recurs unseen, so the arm set tracks the
 # doctor's actual delegation forms rather than the two that were easiest to reach.

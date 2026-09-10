@@ -16,7 +16,7 @@ whether any historical run's merge decision changes.
 
 ### What is measured
 
-Every lean run leaves `{issue}-lean-progress.md` — append-only, timestamped, and gitignored. Its
+Every lane run leaves `{issue}-lean-progress.md` — append-only, timestamped, and gitignored. Its
 `attempt` and `absent` rows **are** the gate's firings; its `obligation` rows name the sub-milestone
 identity where the gate writes one. Those records are the corpus, and `tools/gate-ablation.sh` scores
 each firing in two deliberately different columns:

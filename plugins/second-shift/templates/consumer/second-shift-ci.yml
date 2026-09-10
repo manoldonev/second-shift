@@ -19,7 +19,7 @@ on:
 # `none`, and GitHub documents no public-repo exception — so each arm's reads must be stated
 # here or they are denied at runtime:
 #   contents:               checkout, and the pinned-ref fetch of the check scripts.
-#   issues + pull-requests: the lean evidence arm reads TWO trails through the same endpoint
+#   issues + pull-requests: the boundary evidence arm reads TWO trails through the same endpoint
 #                           (GET /repos/{owner}/{repo}/issues/{number}/comments) — THIS PR's,
 #                           for the build run's bot marker, and the linked ISSUE's, for the
 #                           producer capability stamp saying whether the harness that ran could
@@ -49,18 +49,18 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: second-shift evidence checks (config-lint @ pinned ref + ref lockstep + lean evidence)
+      - name: second-shift evidence checks (config-lint @ pinned ref + ref lockstep + boundary evidence)
         # The PR context rides in the ENVIRONMENT, never interpolated into the run line: a PR
         # body is attacker-controllable, and `${{ }}` splicing into a shell command is
         # injectable. PR_HEAD_SHA must be the HEAD COMMIT and not `HEAD` — on a pull_request
         # event actions/checkout resolves refs/pull/N/merge, so HEAD is merge(base, head) and
         # every base-side commit since the branch point would read as a post-review change.
-        # On workflow_dispatch these are all empty and the lean check reports not-applicable.
+        # On workflow_dispatch these are all empty and the boundary-evidence check reports not-applicable.
         #
         # PR_CREATED_AT is the cutoff every `since:`-bearing evidence arm compares itself
         # against: an arm whose contract took effect after this PR opened declines instead of
         # enforcing against a build session that finished before the contract existed. The
-        # payload treats it as OPTIONAL — a workflow predating this line is not red, its lean
+        # payload treats it as OPTIONAL — a workflow predating this line is not red, its lane
         # PRs just take the declining path — so adding it here is what restores full strength.
         env:
           GH_TOKEN: ${{ github.token }}

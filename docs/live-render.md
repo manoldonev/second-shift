@@ -97,7 +97,7 @@ matrix, the PNG hashes and the manifest — **never comparison**, which is the r
   it costs an attempt.
 - **`readyProbe`** — declare your harness's external prerequisite (typically a sibling BE health
   endpoint) so the gate fails fast with the probe URL instead of waiting out a render timeout.
-  Under the blocking lean posture this is what keeps an environmental red cheap: pay a probe, not
+  Under the blocking lane posture this is what keeps an environmental red cheap: pay a probe, not
   a timeout, for the same attempt.
 
 ## Reference harness shape (Playwright, MIFE-in-shell)
@@ -136,7 +136,7 @@ state, and bound nothing to a review, which is exactly how a *passing* render ca
 screen's default collapsed state.
 
 **Arming is per ticket, and takes two things at once.** Config `design.provider` must be set, AND
-the committed lean spec must carry a `## Design` section. A provider with no section reds
+the committed lane spec must carry a `## Design` section. A provider with no section reds
 milestone 1; a section in a repo with no provider arms nothing. The section takes one of two
 forms:
 
@@ -193,7 +193,7 @@ Nothing in the shape check tells you a recorded component is the right one or a 
 is the design's — `design-toolkit:figma-faithful-plan-reviewer` asks those as questions the plan
 must answer.
 
-**And on an armed lean run that dispatch is mandatory, not advisory.** The gate cannot run an
+**And on an armed lane run that dispatch is mandatory, not advisory.** The gate cannot run an
 agent, so it takes the verdict record's shape: the build session dispatches the reviewer on the
 committed plan and writes its output with `milestone-gate.sh plan-review <issue> --verdict
 <pass|fix-and-go|block> --summary-file <findings> --model <m>`, which stamps `reviewed_plan_from`

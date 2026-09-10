@@ -181,7 +181,7 @@ Based on the issue body and labels, classify as:
 `topology.type: be-fe-pair` — reading
 `topology.repos.<id>.ticketTag` (e.g. `"[BE]"` / `"[FE]"` on the `be`/`fe` entries; no
 new field, no onboarding change). A `standalone` or `monorepo` repo has no `ticketTag` at
-all and nothing to check here — skip straight to Step 2. Under the lean lane this reading
+all and nothing to check here — skip straight to Step 2. Under the lane this reading
 is **intake policy, never a gate**: `milestone-gate.sh` does not read `ticketTag` and this check
 does not touch it either — it is this skill deciding whether to proceed, not a mechanic
 `milestone-gate.sh` enforces.
@@ -464,7 +464,7 @@ The write operations below are the **github** adapter (`tracker.writes: true`) _
 **`no-split`:**
 
 1. Post spec review results + resolved decisions as issue comment _(jira: tracker delta.)_
-2. Return control to the caller (the lean lane's build half cuts the worktree at its checklist step 3)
+2. Return control to the caller (the lane's build half cuts the worktree at its checklist step 3)
 
 **`sub-issues` (parallel) and `sub-issues-sequential` (ordered)** — one creation flow, two label/trailer postures:
 

@@ -75,7 +75,7 @@ Walk the run's trail against the skill contracts. For each item answer: complied
 Items 1 and 3 below audit mechanics `milestone-gate.sh`'s outcome-gated milestones do not produce
 by design (/dev-pipeline:build is "OUTCOME-gated, not process-prescribed" — its own header), and
 run-identity reconciliation is already owned by `reconcile.sh`, the operator-run
-pre-merge check. Item 2 reads AC-n from the committed lean spec
+pre-merge check. Item 2 reads AC-n from the committed lane spec
 (`docs/plans/{repo-slug}-{issue}-lean.md`) and item 3 reads the Decision Ledger from that
 same spec.
 

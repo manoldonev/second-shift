@@ -8,7 +8,7 @@ evals exist.
 
 | Fixture | Planted defect | Expected verdict |
 | --- | --- | --- |
-| `01-lean-spec-no-visual-contract` | a lean-lane spec: token table plus embedded translation plan, no Copy Index, **no visual contract** for any rendered node | `block`, and **not** `N/A` |
+| `01-lean-spec-no-visual-contract` | a lane spec: token table plus embedded translation plan, no Copy Index, **no visual contract** for any rendered node | `block`, and **not** `N/A` |
 | `02-placeholder-copy` | a full spec whose Copy Index still carries `{Description}`, `{Label}` and an `Option 1` component-default string | `block` |
 | `03-unresolvable-node-ref` | a screen referenced by a "DEV-READY" section link at `node-id=0-1` rather than the frame's own `fileKey` + `nodeId` | `block` |
 | `04-control-clean` | none — complete inventory, visual contract, copy, field map and state coverage | `pass` |
@@ -17,7 +17,7 @@ evals exist.
 
 Fixture 01 is #704's fixture 3 and the oracle for its AC-4. Before that change the agent's
 explicit-input discipline fired on "no Copy Index / Components / Screens sections" and its prompt
-said outright that *every* lean-lane input returns `N/A` — so the checklist row written for
+said outright that *every* lane input returns `N/A` — so the checklist row written for
 exactly this case, "a token table is not a visual contract", never ran on the lane where it was
 needed.
 
@@ -46,5 +46,5 @@ REVIEWER_MODEL=<version-pinned-id> JUDGE_MODEL=<version-pinned-id> ./run.sh "my-
 ```
 
 The prompt template deliberately does **not** say what shape the input is. Whether the agent
-reviews a lean-lane spec or declines it is the measurement; a template that pre-classified the
+reviews a lane spec or declines it is the measurement; a template that pre-classified the
 input would grade the template.

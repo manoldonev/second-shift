@@ -260,7 +260,7 @@ inapplicable() { # inapplicable <arm> <disposition> <reason>
 # under the other OS and would need a runtime split this file must not carry (bash 3.2).
 # `PR_CREATED_AT` arrives already UTC from `github.event.pull_request.created_at`; the gate's
 # sibling comparator normalizes a git author date instead, which is why the two are not one
-# shared helper — see docs/testing.md, `lean ARM CUTOFFS` under *Couplings considered and declined*.
+# shared helper — see docs/testing.md, `lane ARM CUTOFFS` under *Couplings considered and declined*.
 CUTOFF_RE='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$'
 
 # Echo the usable cutoff, or nothing when there is none to compare against. OR-1: a value that
@@ -325,7 +325,7 @@ AC_SCORECARD_SCORES="satisfied unsatisfied divergent-inert undeterminable"
 # sentence citing `AC-3` would then demand a scorecard row for an id nothing declares — and a spec
 # that retires an id by naming it does exactly that. Declaration position is the discriminator: an
 # id that OPENS a markdown bullet or a heading, optionally bolded or backticked. Measured against
-# the whole committed corpus at the time this shipped: every lean spec in docs/plans/ declares all
+# the whole committed corpus at the time this shipped: every lane spec in docs/plans/ declares all
 # of its ACs in that position and none anywhere else.
 spec_declared_acs() { # spec_declared_acs <spec-path>
   grep -oE '^[[:space:]]*([-*+][[:space:]]+|#+[[:space:]]+)(\*\*|`)?AC-[0-9]+' "$1" 2>/dev/null \
@@ -894,7 +894,7 @@ contribution_summary() { # contribution_summary  (delta rows on stdin)
 # FAILS CLOSED, and that is a consequence of #413 rather than a belt-and-braces addition. While a
 # branch-namespace arm classified independently, an unreadable diff cost only the artifact arm and
 # the prefix arm still spoke, so returning empty here was safe. That arm is gone: the scan below is
-# the WHOLE classifier, and an empty file list is indistinguishable from "carries no lean spec" —
+# the WHOLE classifier, and an empty file list is indistinguishable from "carries no lane spec" —
 # a pipeline PR would then be reported non-applicable and waved through the merge boundary by the one
 # gate that owns it. So the two conditions arm_freshness() already treats as environment errors are
 # environment errors here too, on the same posture this file states twice: a check which cannot run
@@ -922,7 +922,7 @@ RESOLVED_KEY=""
 
 # KEY FIRST, THEN THE ARTIFACT (#413, D-14). The order is load-bearing and it inverted here:
 # with both lanes on one branch namespace, applicability can no longer be "some lean-shaped
-# file is in the diff" — a staged PR that merely edits an older ticket's lean spec would then
+# file is in the diff" — a staged PR that merely edits an older ticket's lane spec would then
 # be pulled into this gate and out of the pipeline gate at the same time. What makes a PR one
 # is the spec for THIS PR's OWN key, so the key has to be resolved before the scan.
 #
@@ -961,7 +961,7 @@ classify() {
   resolve_key
 
   # Two scans in one pass. KEY_SPEC is the spec for THIS PR's key and is what applicability
-  # turns on. ANY_SPEC is any other lean spec in the diff, kept for two distinct jobs below —
+  # turns on. ANY_SPEC is any other lane spec in the diff, kept for two distinct jobs below —
   # neither of them "classify on it".
   # Resolved in THIS shell, never in a `< <(changed_files)` process substitution: that runs the
   # producer in a subshell, where an envfail's exit is swallowed and the reader sees a clean EOF —
@@ -1070,7 +1070,7 @@ arm_verdict() {
   # `milestone-gate.sh verdict` on an in-flight PR. A cutoff here would be a fail-open window on the
   # exact arm the contract exists to close.
   #
-  # AN UNRESOLVABLE SPEC IS NOT REFUSED HERE. `all` decides applicability on a lean spec being in
+  # AN UNRESOLVABLE SPEC IS NOT REFUSED HERE. `all` decides applicability on a lane spec being in
   # the PR's own diff, and check-lane-chain.sh's own artifact arm refuses a spec that carries no
   # AC-n — so the only way to arrive with no spec is a hand-invoked `check --key <bogus>`, and
   # re-refusing it would put a second reader on a question those two already own (#720).
@@ -1515,14 +1515,14 @@ case "$SUB" in
       # inside its reason — a decline is otherwise indistinguishable from "never ran", and the two
       # reasons a decline can have (no key, or no key-matched spec) are the two things an operator
       # needs to tell apart before arguing a misclassification.
-      inapplicable boundary-evidence not-applicable "non-lean change on head branch '${PR_HEAD_REF:-<unset>}' — resolved key: ${RESOLVED_KEY:-<none>} (pipeline prefix: $PIPELINE_PREFIX), and no lean spec for it is in this PR's diff."
+      inapplicable boundary-evidence not-applicable "non-lean change on head branch '${PR_HEAD_REF:-<unset>}' — resolved key: ${RESOLVED_KEY:-<none>} (pipeline prefix: $PIPELINE_PREFIX), and no lane spec for it is in this PR's diff."
       exit 0
     fi
-    # Reachable only on a branch outside the namespace: this PR commits a lean spec and names
+    # Reachable only on a branch outside the namespace: this PR commits a lane spec and names
     # no issue, so there is nothing to reconcile the evidence against. A refusal, never a
     # waiver — see classify()'s NO KEY note.
     [ -n "$RESOLVED_KEY" ] || {
-      echo "[boundary-evidence]   ✗ PR body carries no resolvable issue reference ('Closes #N' or 'Closes [KEY]') and the head branch '$PR_HEAD_REF' is outside the configured namespace, but this PR commits a lean spec. Add the reference." >&2
+      echo "[boundary-evidence]   ✗ PR body carries no resolvable issue reference ('Closes #N' or 'Closes [KEY]') and the head branch '$PR_HEAD_REF' is outside the configured namespace, but this PR commits a lane spec. Add the reference." >&2
       exit 1
     }
     KEY="$RESOLVED_KEY"

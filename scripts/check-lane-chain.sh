@@ -11,7 +11,7 @@
 # binding evidence contract lives somewhere the agent cannot reach. This is that somewhere:
 # a model-free check at the merge boundary, costing zero run tokens (D-47). It fails an
 # applicable PR unless all of this evidence exists:
-#   1. a committed lean spec carrying >= 1 numbered AC-n (the definition of done),
+#   1. a committed lane spec carrying >= 1 numbered AC-n (the definition of done),
 #   2. a committed verdict record reading `verdict=approve` (so a hand-typed local progress
 #      line cannot reach a merge — only a committed, diffable artifact can),
 #   3. a bot-authored `lean-claimed` comment on the linked issue, windowed at PR-open,
@@ -118,7 +118,7 @@
 # There is deliberately NO verbose flag. An opt-in that restores the recital restores the problem,
 # one CI job at a time, and a flag nobody sets is a code path nobody reads.
 #
-# NON-VACUOUS BY CONSTRUCTION. Applicability is the committed lean spec in the PR's own diff,
+# NON-VACUOUS BY CONSTRUCTION. Applicability is the committed lane spec in the PR's own diff,
 # keyed to the PR's own issue — and nothing else (#413). There is no branch-shaped arm: both
 # lanes cut `<tracker.branchPrefix><key>` branches, so a namespace test would classify every
 # staged PR as a pipeline PR. Keying the artifact to the PR's issue is what stops the arm
@@ -207,12 +207,12 @@ while [[ $# -gt 0 ]]; do
     --comments-file)   COMMENTS_FILE="${2:-}"; shift 2 ;;
     --diff-files-file) DIFF_FILES_FILE="${2:-}"; shift 2 ;;
     -h|--help) sed -n '2,190p' "$0"; exit 0 ;;
-    *) echo "[lean-chain] unknown argument: $1" >&2; exit 2 ;;
+    *) echo "[lane-chain] unknown argument: $1" >&2; exit 2 ;;
   esac
 done
 
-fail()    { echo "[lean-chain] ✗ $1" >&2; exit 1; }
-envfail() { echo "[lean-chain] $1" >&2; exit 2; }
+fail()    { echo "[lane-chain] ✗ $1" >&2; exit 1; }
+envfail() { echo "[lane-chain] $1" >&2; exit 2; }
 
 # LOCKSTEP, canonical side (#443). `LANE_OUTPUT_DISPOSITIONS` is the closed vocabulary a
 # class-(b) line ("this arm could not evaluate") may name. Both merge-boundary gates declare
@@ -232,7 +232,7 @@ LANE_OUTPUT_DISPOSITIONS='not-applicable reduced-strength postdated inert'
 
 # The class-(b) emitter, and the ONLY way this file writes on a green path. Shape:
 #
-#   [lean-chain]   · <arm>: <disposition> — <reason>
+#   [lane-chain]   · <arm>: <disposition> — <reason>
 #
 # STDOUT, one line, disposition drawn from the closed set above. `postdated` and `inert` have no
 # call site here yet; they are the successors' and are declared now so the vocabulary is fixed
@@ -246,7 +246,7 @@ inapplicable() { # inapplicable <arm> <disposition> <reason>
     *" $2 "*) : ;;
     *) envfail "internal: '$2' is not a class-(b) disposition (arm '$1'). The vocabulary is closed: $LANE_OUTPUT_DISPOSITIONS." ;;
   esac
-  echo "[lean-chain]   · $1: $2 — $3"
+  echo "[lane-chain]   · $1: $2 — $3"
 }
 
 # The claim comment's stage token, plus the producer capability contract it also carries (#445).
@@ -559,7 +559,7 @@ delegate() { # delegate <arms...>   — runs the payload's `check` for the named
 # from a committed config while this gate reaches it from job-level constants — and a boundary
 # that classified differently from the one a consumer runs would make every cross-repo bug
 # report unreproducible. The rules themselves (key from the branch suffix, else the body with
-# `Closes` beating `Part of`; then a key-matched non-fixture lean spec in the diff) are
+# `Closes` beating `Part of`; then a key-matched non-fixture lane spec in the diff) are
 # documented at the payload.
 CLASSIFY="$(bash "$PAYLOAD" classify "${PAYLOAD_ARGS[@]+"${PAYLOAD_ARGS[@]}"}")" || exit $?
 APPLICABLE="$(printf '%s\n' "$CLASSIFY" | sed -n 's/^applicable=//p' | head -n1)"
@@ -575,11 +575,11 @@ LANE_SPEC_IN_DIFF="$(printf '%s\n' "$CLASSIFY" | sed -n 's/^spec_in_diff=//p' | 
 if [[ "$APPLICABLE" -eq 0 ]]; then
   # CLASS (b): the whole gate could not evaluate. ONE line, carrying what the payload resolved
   # inside its reason — a decline is otherwise indistinguishable from "never ran", and the
-  # "a lean spec IS present and it is not yours" case is the one decline an operator argues with.
+  # "a lane spec IS present and it is not yours" case is the one decline an operator argues with.
   DECLINE_NOTE=""
   [[ -n "$LANE_SPEC_IN_DIFF" ]] \
-    && DECLINE_NOTE=" A lean-marked spec IS present ($LANE_SPEC_IN_DIFF) but it is not this PR's key — classified to the pipeline chain gate, not this one."
-  inapplicable lean-chain not-applicable "non-lean change on head branch '$PR_HEAD_REF' — resolved key: ${KEY:-<none>} (branch namespace: $PIPELINE_BRANCH_PREFIX).$DECLINE_NOTE"
+    && DECLINE_NOTE=" A lane-marked spec IS present ($LANE_SPEC_IN_DIFF) but it is not this PR's key — classified to the pipeline chain gate, not this one."
+  inapplicable lane-chain not-applicable "non-lane change on head branch '$PR_HEAD_REF' — resolved key: ${KEY:-<none>} (branch namespace: $PIPELINE_BRANCH_PREFIX).$DECLINE_NOTE"
   exit 0
 fi
 
@@ -588,12 +588,12 @@ fi
 # boundary exists to close — so the refusal lands here, and it is a VIOLATION (rc=1) with a
 # remedy, not an environment error.
 [[ -n "$KEY" ]] \
-  || fail "PR body carries no resolvable issue reference ('Closes #N' or 'Part of #N') and the head branch is outside '$PIPELINE_BRANCH_PREFIX', but this PR commits a lean spec. Add the reference."
+  || fail "PR body carries no resolvable issue reference ('Closes #N' or 'Part of #N') and the head branch is outside '$PIPELINE_BRANCH_PREFIX', but this PR commits a lane spec. Add the reference."
 
 violations=0
-note_violation() { echo "[lean-chain]   ✗ $1" >&2; violations=$((violations + 1)); }
+note_violation() { echo "[lane-chain]   ✗ $1" >&2; violations=$((violations + 1)); }
 
-# ---- (5) evidence 1: a committed lean spec carrying >= 1 AC-n ----------------------------
+# ---- (5) evidence 1: a committed lane spec carrying >= 1 AC-n ----------------------------
 SPEC=""
 if [[ -n "$LANE_SPEC_IN_DIFF" && -f "$REPO_ROOT/$LANE_SPEC_IN_DIFF" ]]; then
   SPEC="$LANE_SPEC_IN_DIFF"
@@ -608,7 +608,7 @@ else
 fi
 
 if [[ -z "$SPEC" ]]; then
-  note_violation "no committed lean spec (a file named *$LANE_SPEC_SUFFIX for #$KEY). The spec IS the definition of done; without it nothing constrains the change."
+  note_violation "no committed lane spec (a file named *$LANE_SPEC_SUFFIX for #$KEY). The spec IS the definition of done; without it nothing constrains the change."
 else
   ac_count="$(grep -cE '(^|[^A-Za-z])AC-[0-9]+' "$REPO_ROOT/$SPEC" 2>/dev/null)" || ac_count=0
   if [[ "${ac_count:-0}" -lt 1 ]]; then
@@ -679,7 +679,7 @@ else
   COMMENTS="$("$GH_CLI" api "repos/$GH_REPO/issues/$KEY/comments" --paginate 2>&1)" || {
     # A failed fetch is an ENVIRONMENT error, never a silent pass: fail-open here would waive
     # the whole gate on any rate limit or transient 5xx.
-    echo "[lean-chain] comment fetch failed for issue #$KEY:" >&2
+    echo "[lane-chain] comment fetch failed for issue #$KEY:" >&2
     printf '%s\n' "$COMMENTS" >&2
     exit 2
   }
@@ -1016,7 +1016,7 @@ fi
 
 # ---- (13) verdict -----------------------------------------------------------------------
 if [[ "$violations" -gt 0 ]]; then
-  echo "[lean-chain] ✗ $violations evidence artifact(s) missing for pipeline PR on #$KEY." >&2
-  echo "[lean-chain]   The remedy is producing the missing artifact — there is no waiver." >&2
+  echo "[lane-chain] ✗ $violations evidence artifact(s) missing for pipeline PR on #$KEY." >&2
+  echo "[lane-chain]   The remedy is producing the missing artifact — there is no waiver." >&2
   exit 1
 fi

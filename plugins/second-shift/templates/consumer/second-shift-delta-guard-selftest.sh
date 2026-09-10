@@ -2,7 +2,7 @@
 # second-shift-delta-guard-selftest.sh — hermetic selftest for the consumer CI delta guard.
 #
 # Contract under test (#542): the guard writes `skip=true` to $GITHUB_OUTPUT for exactly one
-# shape — a head commit whose whole delta is one lean verdict record, whose parent already has
+# shape — a head commit whose whole delta is one verdict record, whose parent already has
 # a COMPLETED SUCCESSFUL run of the CALLING workflow for the SAME event — and `skip=false` for
 # everything else, including everything it could not read.
 #

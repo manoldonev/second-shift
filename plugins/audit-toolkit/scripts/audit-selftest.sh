@@ -48,7 +48,7 @@ git -C "$TREE" config user.name t
 printf '.claude/\n' > "$TREE/.gitignore"
 git -C "$TREE" add .gitignore >/dev/null 2>&1
 git -C "$TREE" commit -q -m "fixture" >/dev/null 2>&1
-# A LINKED WORKTREE, which is what a lean run works in. It needs a commit to exist, hence
+# A LINKED WORKTREE, which is what a lane run works in. It needs a commit to exist, hence
 # the fixture commit above.
 WT="$WORK/wt"
 git -C "$TREE" worktree add -q -b wt-branch "$WT" >/dev/null 2>&1
@@ -214,7 +214,7 @@ expected="ts,session_id,event,tool,subagent,command_name,target,outcome"
 #
 # Invariant guarded: the hook resolves the ledger directory as `--git-common-dir/..` of
 # ${CLAUDE_PROJECT_DIR:-$CWD} — the MAIN checkout — because every reader does. It used to
-# write beside the worktree, so a lean run's ledger landed where milestone-gate.sh's `entry`,
+# write beside the worktree, so a lane run's ledger landed where milestone-gate.sh's `entry`,
 # and reconcile.sh do not look: an honest run refused
 # at the door, and a verdict record naming a session reconcile could not resolve, which
 # reads as forgery.

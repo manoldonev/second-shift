@@ -153,7 +153,7 @@ fi
 #
 # WHAT "NON-LEAN" MEANS HERE CHANGED (#413). Both lanes cut `<branchPrefix><key>` branches, so
 # 703 below sits on the SAME namespace as the two pipeline PRs and is distinguished only by carrying
-# no lean spec in its own file list. Under the retired namespace filter it was excluded for
+# no lane spec in its own file list. Under the retired namespace filter it was excluded for
 # free; now excluding it is the discriminator's job, and a regression there reports every staged
 # PR as abandoned lean work.
 # ═══════════════════════════════════════════════════════════════════════════════════
@@ -184,7 +184,7 @@ else
 fi
 
 # The discriminator is KEY-MATCHED, not "any lean-shaped file": a staged PR that merely edits an
-# older ticket's lean spec is not abandoned lean work. And a lean-SHAPED fixture path casts no
+# older ticket's lane spec is not abandoned lean work. And a lean-SHAPED fixture path casts no
 # vote, for the same reason it does not at the merge boundary — this repo's trees carry
 # deliberately lean-shaped fixtures.
 PRLIST2="$D/prs2.json"
@@ -371,7 +371,7 @@ else
 fi
 
 if [ "$E340" = "artifact,stage" ]; then
-  pass "(289 AC-4) a lean record is never keyed by the dedup — it survives alongside a stage-era live file of the same ticket"
+  pass "(289 AC-4) a lane record is never keyed by the dedup — it survives alongside a stage-era live file of the same ticket"
 else
   fail "(289 AC-4) expected both eras for ticket 340, got eras=$E340 — got $OUT"
 fi

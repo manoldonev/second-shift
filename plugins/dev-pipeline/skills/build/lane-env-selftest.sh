@@ -182,7 +182,14 @@ fi
 # lane_env_promote DEFINES an absent knob as the empty string. That is behavior-preserving only
 # while every reader uses `:-`, under which empty and unset are one answer. A `${LANE_X+…}` or
 # `${LANE_X:+…}` reader would start seeing "set" for a knob nobody exported.
-plus="$(cd "$ROOT" && git grep -lE '\$\{LANE_[A-Z0-9_]+:?\+' -- '*.sh' 2>/dev/null)"
+# CODE ONLY, for the same reason (l) reads code only — this case's own two explanatory lines
+# above quote the very shape it forbids, and a guard that matches its own prose is measuring its
+# comment rather than the repo.
+plus=""
+while IFS= read -r cand; do
+  sed 's/^[[:space:]]*#.*$//' "$ROOT/$cand" 2>/dev/null \
+    | grep -qE '\$\{LANE_[A-Z0-9_]+:?\+' && plus="$plus$cand "
+done < <(cd "$ROOT" && git grep -lE '\$\{LANE_[A-Z0-9_]+:?\+' -- '*.sh' 2>/dev/null)
 if [ -z "$plus" ]; then
   pass "(m) no reader distinguishes a set-but-empty LANE_ knob from an unset one"
 else fail "(m) promote-in-place is unsafe — these files test set-vs-unset on a LANE_ knob: $plus"; fi

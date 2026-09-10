@@ -19,6 +19,19 @@ Principles:
 - **No domain knowledge in config.** Prose-shaped knowledge goes to extension files ([`extension-points.md`](extension-points.md)); config stays enumerable and lintable.
 - `configVersion` bumps only on breaking schema changes; plugins support one version per release. The migration contract and per-version upgrade docs live in [`migrations/`](migrations/README.md); config-lint fails older/newer configs with the pointer, never a bare "invalid".
 - **A `commands.<host>` lane runs in a scrubbed child env.** `preflight.sh` and `milestone-gate.sh` milestone 3 both spawn every configured lane command (`lint`/`typecheck`/`test`/`format`/`lanes`/`extraLanes`) with the pipeline's own seam vars (`SECOND_SHIFT_CONFIG`, `STATECTL_STATE_DIR`, and related overrides) stripped from its environment (`env -u`) — a lane command that is itself second-shift tooling (dogfooding) must not see the caller's pipeline state. The denylist itself is stated once, as `SEAM_SCRUB` inside the `LOCKSTEP-BEGIN seam-scrub` markers in [`milestone-gate.sh`](../plugins/dev-pipeline/skills/build/milestone-gate.sh); the stage doc that used to carry this note died with the staged lane in #348.
+- **Environment knobs are spelled `LANE_*`; the retired `LEAN_*` spellings still resolve.** Every
+  knob the pipeline's scripts read from the environment — `LANE_ATTEND_MODE`, `LANE_RUN_MODEL`,
+  `LANE_SELFTEST_CACHE_DIR`, `LANE_GATE_OBSERVE` and the rest — was spelled `LEAN_*` before the
+  lane dropped that name. Both resolve: the current spelling wins, and a retired one is read with a
+  one-time notice on **stderr** naming its replacement (never on stdout, which callers parse). The
+  fallback is one implementation, [`lane-env.sh`](../plugins/dev-pipeline/skills/build/lane-env.sh),
+  sourced by every script that reads a knob and carried INLINE by `boundary-evidence.sh`, which
+  ships as a single portable file. Two knobs did not rename mechanically, because the lane-bench
+  family already says "lane": `LEAN_BENCH_SS_ROOT` is now `LANE_BENCH_ROOT` and
+  `LEAN_BENCH_LANE_BIN` is `LANE_BENCH_BIN`. **The retired spellings are removed at the next
+  major** — a run that emits the notice is telling you to update an export, not that anything is
+  broken. `.claude/lean-overrides.tsv` is read the same way, under its new name
+  `.claude/lane-overrides.tsv`.
 - **Exit code `3` is RESERVED on a verify lane: "this failed for reasons that are not the branch."**
   Exactly one lane reads it. `milestone-gate.sh` milestone 3 reads a `3` from a **blocking** verify lane
   as infrastructure: it reds with exit `7` — *nothing was evaluated* — instead of `1`, charges **no

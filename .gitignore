@@ -42,7 +42,7 @@
 # these tokens). Keep it on disk locally for self-consumption runs; do not version it.
 .claude/second-shift.config.json
 
-# run-lean lane logs — the scheduler's per-ticket `orchestrate.sh` transcripts
+# run-lane logs — the scheduler's per-ticket `orchestrate.sh` transcripts
 # (`.claude/logs/run-lean-<issue>.log`, plus its `.<reason>-<n>` incident spills). Machine-local
 # and regenerated per run, but unlike the paths above these accumulate across every lane the
 # operator has ever launched here, so an unignored directory is both diff noise and a standing

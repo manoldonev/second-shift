@@ -435,7 +435,7 @@ cmd_timing() {
 # ============================================================== open-prs mode
 # THE PIPELINE DISCRIMINATOR IS THE ARTIFACT, NOT THE NAMESPACE (#413). Both lanes now cut
 # `<branchPrefix><key>` branches, so the prefix that used to select pipeline PRs here selects
-# STAGED ones too — and a staged PR has no lean verdict record by construction, so a
+# STAGED ones too — and a staged PR has no verdict record by construction, so a
 # namespace-only filter would report every one of them as "verdict-less" work the harness
 # abandoned. The prefix survives only as the KEY derivation; what makes a candidate lean is a
 # non-fixture `*-<key>-lean.md` in the PR's OWN file list.

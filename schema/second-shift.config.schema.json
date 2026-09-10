@@ -64,7 +64,7 @@
           "description": "github only: the queue/claim/blocker label vocabulary by ROLE (not a flat list). Every functional site reads these roles — the queue-label confirm at build-lean step 1, the claim label-swap, the do-not-pick-up guard, claim-issue.sh, and pipeline-doctor — and the pre-flight existence check verifies their union. Absent → the shipped defaults. Config home for the previously-hardcoded label literals (F75); a consumer with custom labels sets these once and every site follows.",
           "properties": {
             "queue": { "type": "string", "description": "The label the pipeline picks work from and drops at claim. A crashed claim swap can leave it behind, so the unclaim workflow /second-shift:onboard emits also releases it when the item CLOSES. Default \"ready-for-dev\"." },
-            "claimed": { "type": "string", "description": "The label added atomically at claim. It stays on for as long as the work is in flight — including through review, and past a merge, since the lean lane's exit milestone accepts a merged PR as well as an open one — and is released when the tracker item CLOSES, by the unclaim workflow /second-shift:onboard emits. Default \"in-progress\"." },
+            "claimed": { "type": "string", "description": "The label added atomically at claim. It stays on for as long as the work is in flight — including through review, and past a merge, since the lane's exit milestone accepts a merged PR as well as an open one — and is released when the tracker item CLOSES, by the unclaim workflow /second-shift:onboard emits. Default \"in-progress\"." },
             "blockers": { "type": "array", "items": { "type": "string" }, "description": "Labels that block auto-pickup (an issue carrying any is skipped). Default [\"epic\",\"needs-intake-review\",\"needs-spec-work\",\"needs-plan-review\"]." }
           }
         }
@@ -88,7 +88,7 @@
               "path": { "type": "string", "minLength": 1, "description": "Relative to the config's repo root; \".\" for the host repo." },
               "baseBranch": { "type": "string", "minLength": 1, "description": "The integration mainline PRs target (repos in a pair may differ, e.g. BE alpha / FE main)." },
               "worktreesDir": { "type": "string", "description": "Where pipeline worktrees are created for this repo (default ../<repo>-worktrees)." },
-              "ticketTag": { "type": "string", "description": "Ticket-title tag routing work to this repo (e.g. \"[BE]\"). No lane gates on it: the lean lane (/dev-pipeline:run) treats it as advisory routing for whoever launches the session, read by the intake-orchestrator skill as ticket-filing policy. The staged lane that read it as a gate input was deleted in #348." }
+              "ticketTag": { "type": "string", "description": "Ticket-title tag routing work to this repo (e.g. \"[BE]\"). No lane gates on it: the lane (/dev-pipeline:run) treats it as advisory routing for whoever launches the session, read by the intake-orchestrator skill as ticket-filing policy. The staged lane that read it as a gate input was deleted in #348." }
             }
           }
         }
@@ -214,7 +214,7 @@
           "properties": {
             "command": {
               "type": "string",
-              "description": "Repo-owned render script with {route} and {out} placeholders, plus an optional {state} the lean lane substitutes, e.g. \"yarn render:verify --route {route} --state {state} --out {out}\". {route} is the app-relative leaf below the feature mount path (the harness owns any shell/org prefix); {state} is the render state named by a lean spec's | RS-n | row, and is REQUIRED in the template whenever a ticket declares a state other than `default`; the harness owns boot/auth/screenshot and must emit a PNG at {out}, exiting nonzero with a clear message on failure. Placeholders must appear UNQUOTED — the lean gate shell-quotes each substituted value. See docs/live-render.md."
+              "description": "Repo-owned render script with {route} and {out} placeholders, plus an optional {state} the lane substitutes, e.g. \"yarn render:verify --route {route} --state {state} --out {out}\". {route} is the app-relative leaf below the feature mount path (the harness owns any shell/org prefix); {state} is the render state named by a lane spec's | RS-n | row, and is REQUIRED in the template whenever a ticket declares a state other than `default`; the harness owns boot/auth/screenshot and must emit a PNG at {out}, exiting nonzero with a clear message on failure. Placeholders must appear UNQUOTED — the milestone gate shell-quotes each substituted value. See docs/live-render.md."
             },
             "cwd": {
               "type": "string",

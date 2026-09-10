@@ -1,4 +1,4 @@
-# Where a lean run's hours go
+# Where a lane run's hours go
 
 Derived from the launch ledgers, not from impressions. Every figure below is a subtraction between
 two timestamps in `.claude/pipeline-state/<issue>-lean-launches.tsv`, and the arm-b figures come

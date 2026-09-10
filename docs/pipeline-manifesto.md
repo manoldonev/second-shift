@@ -244,7 +244,7 @@ namespace for the pipeline's merge-boundary gate (`scripts/check-lane-chain.sh`)
 both lanes now cut `<tracker.branchPrefix><key>` branches, so there is no lean namespace to name and
 that gate holds **no** branch-derived applicability input at all.
 
-Applicability is the key-matched lean spec committed in the PR's own diff — an artifact the harness
+Applicability is the key-matched lane spec committed in the PR's own diff — an artifact the harness
 produced, read out of the diff being merged. There is no prefix to go stale and no constant to
 empty, so the self-neutralization mode above has nothing to act on here: a run wanting to escape
 this gate would have to remove its own spec from its own PR, which is the evidence the gate exists

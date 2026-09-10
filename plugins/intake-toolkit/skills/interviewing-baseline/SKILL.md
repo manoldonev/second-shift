@@ -125,7 +125,7 @@ Explicit empty form, for genuinely trivial scope:
 No open regions — every decision in scope is ratified.
 ```
 
-**The shapes the lean gate can read.** This section is not only read by people: milestone 1 of
+**The shapes the milestone gate can read.** This section is not only read by people: milestone 1 of
 `build-lean` enumerates its regions from **two** declared sources — this receipt, and the issue
 body — and refuses on a `pause-and-ask` region with no resolution artifact. So the shape is load-
 bearing, and a section it cannot enumerate is refused rather than passed over (#700):

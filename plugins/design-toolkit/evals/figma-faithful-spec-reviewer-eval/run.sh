@@ -36,7 +36,7 @@ shift || true
 : "${JUDGE_MODEL:?JUDGE_MODEL is required — set it to a version-pinned model id}"
 
 # The agent takes a spec artifact by path, so the fixture path goes straight in. What the template
-# must NOT do is tell the agent what shape the input is: fixture 01 is a lean-lane spec, and
+# must NOT do is tell the agent what shape the input is: fixture 01 is a lane spec, and
 # whether the agent reviews it or declines it as "not a figma-faithful spec" is the thing #704's
 # AC-4 measures. A prompt that pre-classified the input would grade the prompt, not the agent.
 python3 "$KIT/run-eval.py" \

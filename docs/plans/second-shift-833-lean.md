@@ -37,7 +37,14 @@ Each `-selftest.sh` follows its subject.
 - The six subjects above and their five selftests, plus every caller.
 - Every `LEAN_*` identifier in a tracked file outside the frozen sets, renamed `LANE_*`, with a
   read-time fallback at every ENVIRONMENT-read site.
-- The nine path-keyed registers, re-anchored.
+- The path-keyed registers, re-anchored.
+- `plugins/dev-pipeline/skills/build/lane-env.sh` — one implementation of the AC-2/AC-3 fallback,
+  sourced by the nine scripts that read a knob and carried inline (LOCKSTEP `lane-env-fallback`) by
+  the portable `boundary-evidence.sh` — with `lane-env-selftest.sh` beside it and two
+  `tools/mutation-catalog.tsv` rows grading that suite.
+- `SECOND_SHIFT_LEAN_EVIDENCE`, the consumer template's own seam, renamed
+  `SECOND_SHIFT_BOUNDARY_EVIDENCE` with its own inline fallback: it carries the literal `LEAN_`
+  that AC-5's fixed-string grep would otherwise find.
 - The three deprecated alias skill directories, deleted.
 - Prose and schema `description` strings naming a renamed script by path.
 
@@ -61,7 +68,10 @@ Each `-selftest.sh` follows its subject.
 - **AC-3** — The fallback warns **once per process per distinct token, on stderr, never on stdout**
   (D-6). These scripts' stdout is parsed by callers.
 - **AC-4** — `.claude/lane-overrides.tsv` is read new-name-first with a fallback to
-  `.claude/lean-overrides.tsv` (D-4), in both readers that resolve the register.
+  `.claude/lean-overrides.tsv` (D-4). Measured at this head: `operator-override.sh` is the ONLY
+  side that reads the register — `boundary-evidence.sh` carries the same constant inside the
+  `override-record-reader` LOCKSTEP block for its message text and consults no file — so the
+  fallback lands there, outside the block, and the block stays byte-identical on both sides.
 - **AC-5** — Outside the compatibility sites AC-2 and AC-4 introduce, and outside `docs/plans/` and
   `CHANGELOG.md`, no tracked file carries a `LEAN_` token. Verified with a **fixed-string** grep
   (`git grep -F 'LEAN_'`). `git grep -E '\bLEAN_'` returns zero despite the real matches — `\b` is
@@ -85,9 +95,27 @@ Each `-selftest.sh` follows its subject.
   `LANE_PR_MARKER_TAG`; only the value and the anchor are frozen. Also untouched: the artifact
   families (`-lean.md`, `-lean-verdict.md`, `-lean-renders.md`, `-lean-intent-gap.md`,
   `-lean-override.md`, `{issue}-lean-progress.md`, `{issue}-lean-launches.tsv`, `lean-lanes.tsv`,
-  the `-lean-spawn-` log stem) **and the `# lean run — issue <n>` title line inside the progress
-  record**, which names the same family from inside it; historical records under `docs/plans/`;
-  `CHANGELOG.md`; and the `01-lean-spec-*` eval fixtures.
+  the `-lean-spawn-` log stem) **and the four `# lean …` title lines the gate writes INSIDE those
+  records** (`# lean run — issue <n>`, `# lean translation-plan review`, `# lean render manifest`,
+  `# lean review verdict`), each of which names its own frozen family from inside it; historical
+  records under `docs/plans/`; `CHANGELOG.md`; and the `01-lean-spec-*` eval fixtures.
+
+  Five more members of this class surfaced during implementation and are frozen for the same
+  reason — a name a reader outside this diff resolves by:
+  - **the `lean chain reconciliation` CI job name** (`.github/workflows/ci.yml`, and the
+    `` `lean chain` `` check the docs tell an operator to look for). A required status check is
+    keyed BY NAME in branch protection, here and in every consumer that gates on it, so renaming
+    it is a settings migration and not a code change — and it would red this PR's own merge.
+  - **`plugins/intake-toolkit/skills/plan-interview/tools/dup-scan-fixtures/corpus-live.json`** —
+    a frozen calibration corpus of real issue text; `dup-scan.sh` says so in its own header.
+  - **`docs/skill-ablation*.md`** — measurements of a text pinned at a named commit. Their PATH
+    references move with the rename; their quoted `review-lean` / `build-lean` SUBJECTS do not,
+    because rewriting them would falsify what was measured.
+  - **the retired `lean/` branch namespace** (#413), which `boundary-evidence.sh` still classifies
+    and its suite still covers. It names history, and history did not change.
+  - **audit-toolkit's adjectival "lean"** (`the lean audit`, `lean version has none`) — the word
+    there means *lightweight*, not *this pipeline*, and rewriting it would make the sentence false.
+    Likewise `pre-lean`, which names an era.
 - **AC-10** — `plugins/second-shift/templates/consumer/second-shift-ci-check.sh` names the new
   `boundary-evidence.sh` path, and its selftest's asserted string moves with it. This is a
   **consumer migration** (D-5): `onboard` copies that script into every onboarded repo, and an
@@ -98,11 +126,16 @@ Each `-selftest.sh` follows its subject.
 - **AC-12** — Prose naming a renamed script by path carries the new path: `CLAUDE.md`,
   `docs/testing.md`, `docs/config-schema.md`, `docs/releasing.md`, `docs/lane-bench.md`,
   `docs/pipeline-manifesto.md`, and the `description` strings in
-  `schema/second-shift.config.schema.json` (which still parses: `jq empty`).
+  `schema/second-shift.config.schema.json` (which still parses: `jq empty`). Measured at this head,
+  `docs/releasing.md` names NO renamed script by path — the AC is satisfied there by having nothing
+  to change, which is recorded rather than left to look like an omission.
 - **AC-13** — The word-bounded sibling-plugin `lean` lines (86 at this head, across
   `plugins/audit-toolkit`, `plugins/design-toolkit`, `plugins/intake-toolkit`,
   `plugins/review-toolkit` and `plugins/second-shift`) name the current spellings; prose using
-  "lean" as a concept noun reads as "the lane".
+  "lean" as a concept noun reads as "the lane". What deliberately survives is the frozen class
+  AC-9 enumerates plus fixture strings and era names inside suites (`capability-parity.tsv`'s
+  staged-vs-lean comparison columns, the selftests' progress-record fixtures) — none of it a name
+  a reader resolves to a file.
 - **AC-14** — The full sweep is green:
   `SKIP_STRESS=1 bash tools/run-selftests.sh --full --exclude tools/install-topology-selftest.sh`.
   **And** `bash tools/install-topology-selftest.sh` passes directly — this is a layout change to
@@ -169,3 +202,6 @@ of one lane, not a re-release, which is what makes the default legitimate. Named
 - `bash tools/install-topology-selftest.sh`
 - `git grep -F 'LEAN_' -- ':!docs/plans' ':!CHANGELOG.md'` — every surviving hit is a documented
   compatibility site.
+- `bash plugins/dev-pipeline/skills/build/lane-env-selftest.sh` — AC-2 and AC-3 directly, including
+  two end-to-end cases (one sourcing script, one inline-twin script) and a coverage derivation that
+  reds if a knob is ever read without its fallback.

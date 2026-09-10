@@ -1,5 +1,5 @@
 # gate-buckets.tsv — the yield bucket of every refusal site scripts/check-gate-buckets.sh
-# enumerates in the lean lane (#636, item 2 of the #605 epic).
+# enumerates in the lane (#636, item 2 of the #605 epic).
 #
 # TAB-separated. Columns:
 #   key <TAB> bucket <TAB> anchor <TAB> yield <TAB> why
@@ -201,7 +201,7 @@ scripts/check-lane-chain.sh::note_violation	gates-signal	note_violation "$CHAIN_
 scripts/check-lane-chain.sh::note_violation	gates-signal	note_violation "committed spec '$SPEC' carries no numbered AC-n criterion."	-	the fact is objective: the committed spec either carries a numbered AC-n or it does not — a grep over a committed file.
 scripts/check-lane-chain.sh::note_violation	gates-llm	note_violation "found $any '$LANE_CLAIM_MARKER_TAG' marker(s) on #$KEY, but none that	-	forgery defense. Claim markers exist on the ticket but none is bot-authored: an operator-posted marker is trivially forgeable by anyone with write access, so accepting it would let a session manufacture the evidence that it ran. Independence, not attendance, is what is missing — an attended session's hand-posted marker is exactly the artifact this refuses.
 scripts/check-lane-chain.sh::note_violation	gates-llm	note_violation "no bot-authored '$LANE_CLAIM_MARKER_TAG' comment on #$KEY at or befor	-	the same forgery defense on the absent arm: no bot-authored claim marker at or before PR-open, so the run left no evidence it ever claimed the ticket. The bot identity is the part a session cannot mint.
-scripts/check-lane-chain.sh::note_violation	gates-signal	note_violation "no committed lean spec (a file named *$LANE_SPEC_SUFFIX for #$KEY). T	-	the fact is objective: a file matching the lean spec suffix for this key is committed on the branch, or it is not. The spec IS the definition of done; without it nothing constrains the change, and no operator presence supplies one.
+scripts/check-lane-chain.sh::note_violation	gates-signal	note_violation "no committed lane spec (a file named *$LANE_SPEC_SUFFIX for #$KEY). T	-	the fact is objective: a file matching the lane spec suffix for this key is committed on the branch, or it is not. The spec IS the definition of done; without it nothing constrains the change, and no operator presence supplies one.
 scripts/check-lane-chain.sh::note_violation	gates-signal	note_violation "render receipt '$RENDERS' carries no 'rendered_from:' key, so nothing	-	the fact is objective: the receipt either carries a `rendered_from:` key or it does not, so it can or cannot be dated against the code being merged.
 scripts/check-lane-chain.sh::note_violation	gates-signal	note_violation "render receipt '$RENDERS' records rendered_from ${RENDERED_FROM:0:12}	-	the fact is objective and hashed: the receipt's rendered_from and the branch's current render identity are equal or they are not.
 scripts/check-lane-chain.sh::note_violation	gates-signal	note_violation "spec '$SPEC' arms the design render lane, but no render receipt (a fi	-	the fact is objective: the spec arms the design render lane and no render receipt is committed. The screenshots a fidelity verdict was scored against either exist on the branch or they do not.

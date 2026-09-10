@@ -49,7 +49,7 @@ the code does not author its own evaluation.
    is defined here. On an inheriting round, read the **prior record's findings** first: a round
    that inherits coverage without seeing what was previously found cannot tell a fixed blocker
    from a re-introduced one, and a blocker the build simply ignored leaves no trace in the delta
-   at all. The committed lean spec is the definition of done: score every numbered `AC-n` it
+   at all. The committed lane spec is the definition of done: score every numbered `AC-n` it
    **declares** — an id opening a bullet or a heading — in a `## AC scorecard` table in the
    `--summary-file`. The writer refuses an `approve` without one, and prints the schema. Four
    scores: `satisfied`, `unsatisfied`, `divergent-inert`, `undeterminable`. Neither `unsatisfied`

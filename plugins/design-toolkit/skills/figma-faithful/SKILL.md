@@ -129,7 +129,7 @@ code's current spacing.
   cards is a **grid** with equal fixed-width columns (an incomplete last row keeps its column
   width — **no stretch**), NOT a flex row with `flexGrow:1` (which stretches the last row to
   fill). State sizing/fill/overflow per node in the step-7 plan's `dimensions` table — a
-  token-only read misses stretch, fixed height, and truncation entirely, and on the lean lane a
+  token-only read misses stretch, fixed height, and truncation entirely, and on the lane a
   plan with **no** dimension row for a control-bearing screen is a plan-review Blocker in its own
   right: that silence is what ships a 32px control at 107px.
 
@@ -185,7 +185,7 @@ node mounts under, and at what level), the **per-node dimensions** from step 3b,
 (step 6), and the file list you will create/edit. This is the cheapest place to catch a wrong
 token row — one line to fix here vs. the same value spread across call-sites after the build.
 
-**On the lean lane it is an asserted artifact, not prose.** Write it to
+**On the lane it is an asserted artifact, not prose.** Write it to
 `<plansDir>/<key>-lean-plan.md` — the path `bash G 1 <issue>` derives the spec path from, with
 `-lean-plan.md` in place of `-lean.md`. `milestone-gate.sh` milestone 3 refuses an armed ticket
 **before the render pass** unless that file exists, is committed, and carries:
@@ -224,7 +224,7 @@ scoring `fidelity:` against the render receipt.
 [`design-toolkit:figma-faithful-plan-reviewer`](../../agents/figma-faithful-plan-reviewer.md) on
 this artifact yourself**, before step 8, and act on its verdict: `block` → fix the table and
 re-emit; `fix-and-go` / `pass` → proceed. The gate cannot run an agent or branch on a verdict, so
-the dispatch stays yours on every lane — the autonomous lean lane included, where it is not
+the dispatch stays yours on every lane — the autonomous lane included, where it is not
 optional: milestone 3 refuses to render until the reviewer's output is committed at
 `<plansDir>/<key>-lean-plan-review.md`, written by `milestone-gate.sh plan-review <issue>`.
 `design-toolkit:figma-iterate` replaces it with a user checkpoint by design.
@@ -242,7 +242,7 @@ are mandatory where the surface renders RTL.
 Re-read your own styling / token usage against the step-3 token table — every value must trace
 to a token or a justified named constant. This is self-attestation by the same agent that wrote
 the code, so it is the weakest link; the real enforcement is that the **token table exists as a
-visible artifact** a reviewer can check against — on the lean lane the design-sighted
+visible artifact** a reviewer can check against — on the lane the design-sighted
 `review-lean` session, scoring `fidelity:` against the render receipt. There is no pixel-diff
 gate in this repo.
 

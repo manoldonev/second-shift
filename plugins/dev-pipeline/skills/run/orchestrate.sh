@@ -18,7 +18,7 @@
 # judgment call that must be stated in the log rather than buried in a heuristic here.
 #
 # WHAT IT WRITES. Nothing. Not a tracker comment, not a label, not an artifact — every write in
-# a lean run is made by a payload block under its own identity. That is not politeness: the
+# a lane run is made by a payload block under its own identity. That is not politeness: the
 # merge boundary compares the verdict record's identity against the build run's, and a
 # scheduler that wrote records would be a third identity in a two-identity contract.
 #

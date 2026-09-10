@@ -148,7 +148,7 @@ FILE_COUNT="$(grep -c '[^[:space:]]' <<<"$FILES")"
 CHANGED="$(head -n1 <<<"$FILES")"
 case "$CHANGED" in
   *"$LANE_VERDICT_SUFFIX") : ;;
-  *) decide_no "the head commit's one path is '$CHANGED', not a lean verdict record (*$LANE_VERDICT_SUFFIX) — runs in full" ;;
+  *) decide_no "the head commit's one path is '$CHANGED', not a verdict record (*$LANE_VERDICT_SUFFIX) — runs in full" ;;
 esac
 
 # ------------------------------------------------------------------ (3) the trust condition (AC-2)
@@ -186,11 +186,11 @@ PARENT_STATES="$(printf '%s' "$RUNS_JSON" | jq -r \
   || decide_unknown "'$CHANGED' is a verdict-record commit, but the Actions API response for parent $PARENT was unreadable — runs in full"
 
 if grep -qxF 'completed/success' <<<"$PARENT_STATES"; then
-  REASON="'$CHANGED' is a lean verdict-record commit and parent $PARENT already has a completed, successful run of this workflow ($GUARD_EVENT_NAME) — heavy jobs skipped"
+  REASON="'$CHANGED' is a verdict-record commit and parent $PARENT already has a completed, successful run of this workflow ($GUARD_EVENT_NAME) — heavy jobs skipped"
   SKIP=true
   emit
 fi
 
 SEEN="$(printf '%s' "$PARENT_STATES" | tr '\n' ' ')"
 [ -n "${SEEN// /}" ] || SEEN="none"
-decide_no "'$CHANGED' is a lean verdict-record commit, but parent $PARENT has no completed successful run of this workflow for '$GUARD_EVENT_NAME' (saw: $SEEN) — the code commit's run was cancelled, failed, or never happened, so the lane runs in full"
+decide_no "'$CHANGED' is a verdict-record commit, but parent $PARENT has no completed successful run of this workflow for '$GUARD_EVENT_NAME' (saw: $SEEN) — the code commit's run was cancelled, failed, or never happened, so the lane runs in full"

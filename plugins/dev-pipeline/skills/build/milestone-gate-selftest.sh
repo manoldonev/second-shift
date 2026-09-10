@@ -26,7 +26,7 @@ FAILS=0
 pass() { echo "  PASS: $1"; }
 fail() { echo "  FAIL: $1" >&2; FAILS=$((FAILS + 1)); }
 
-# HERMETICITY. `LANE_RUN_MODEL` is a documented seam of the gate, so a lean run that stamps
+# HERMETICITY. `LANE_RUN_MODEL` is a documented seam of the gate, so a lane run that stamps
 # its model honestly has it EXPORTED — and (m1b)/(p5) below assert the absent-value default
 # `unknown`, which that export silently falsifies. The suite inherited the ambient value for
 # this one variable, so those two cases red on exactly the machines the lane runs on and pass
@@ -284,7 +284,7 @@ echo "[milestone-gate-selftest]"
 reset_progress
 out="$(gate 1 7)"; rc=$?
 if [ "$rc" -eq 1 ] && grep -q 'no committed spec' <<<"$out"; then
-  pass "(a1) milestone-1 fails when the lean spec is absent"
+  pass "(a1) milestone-1 fails when the lane spec is absent"
 else fail "(a1) expected rc=1, got $rc: $out"; fi
 
 printf '# spec\n\nNothing numbered here.\n' > "$SPEC"
@@ -588,7 +588,7 @@ else fail "(d4) expected rc=0 on a live ledger, got $rc: $out"; fi
 # (d5) THE FALSE REFUSAL. Every case above hands the gate a hand-written ledger, so all of
 # them agree with `cmd_entry` about the path by construction and none can catch the reader
 # and the WRITER disagreeing. They did: the audit hook wrote beside the worktree while this
-# gate reads `--git-common-dir/..`, so a lean run — which works in a linked worktree by
+# gate reads `--git-common-dir/..`, so a lane run — which works in a linked worktree by
 # contract — was refused at the door for a ledger it had just written correctly.
 #
 # So this case drives the REAL hook rather than synthesizing its output. It is deliberately
@@ -755,7 +755,7 @@ if grep -q 'allowUnverified opt-out is set' <<<"$out"; then
 else fail "(i-392) expected the allowUnverified opt-out notice, got: $out"; fi
 
 # ...and the same run's AUDIT RECORD, asserted on $PROG rather than $out. The notice on stdout
-# evaporates with the shell; the progress line is what says, at reconcile time, that a lean run
+# evaporates with the shell; the progress line is what says, at reconcile time, that a lane run
 # reported green having verified nothing. A grep of $out cannot fail when the sibling
 # `append_line` is deleted, so the printed half is no oracle for the recorded half.
 if grep -qF 'milestone-3 | skipped | no verifying lane configured — allowUnverified opt-out' "$PROG"; then
@@ -3064,7 +3064,7 @@ else fail "(n15) expected rc=0 on an all-caps heading, got $rc: $out"; fi
 # UNCONDITIONAL — so jira is no longer a blanket short-circuit, and the four cases below prove
 # the reachability is genuine rather than an accident of an unrelated fixture never hitting it.
 mkdir -p "$TREE/docs/plans"
-printf '# lean spec — %s\n\n- **AC-1**: the jira arm reaches milestone 1.\n' "$JKEY" > "$TREE/$JSPEC_REL"
+printf '# lane spec — %s\n\n- **AC-1**: the jira arm reaches milestone 1.\n' "$JKEY" > "$TREE/$JSPEC_REL"
 commit_tree "jira spec fixture"
 JLEDGER_OR1="$WORK/ledger-jira-or1.md"
 printf '## Open Regions\n\n| ID | Region | Disposition |\n| --- | --- | --- |\n| OR-1 | Ordering guarantee | pause-and-ask |\n' > "$JLEDGER_OR1"
@@ -8305,7 +8305,7 @@ else fail "(if9) the satisfied count moved '$sat_before' -> '$sat_after' over $(
 
 # THE OBSERVE SEAM. #496 promoted it to a SCHEDULER read — orchestrate.sh runs
 # `LANE_GATE_OBSERVE=1 bash G 4 <issue>` at top level, which the dispatch routes through
-# run_milestone — so the pair must be suppressed there or every round of every lean run has the
+# run_milestone — so the pair must be suppressed there or every round of every lane run has the
 # scheduler writing build-role rows. The `all` pre-pass bypasses run_milestone by construction;
 # this call does not, which is why it is the one asserted.
 reset_progress

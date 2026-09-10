@@ -18,7 +18,7 @@ Outcome-gated harness. `milestone-gate.sh` (`G`, here) asserts artifacts; **how*
 2. `bash G claim <issue>` — the two bot-wrapper writes (label swap + `lean-claimed` marker).
    Export `RUN_ID` first (neutral token, `[A-Za-z0-9._-]+`); it keys every record, and only `entry`/`claim` cache it to `<issue>-run-id` for the later fresh-shell calls to resolve.
    **Skip this step on a re-entry** — the marker is posted and the labels are swapped already, so a second claim only re-writes correct state. Export the run's ESTABLISHED id instead of minting one (`cat <issue>-run-id`, or the id preflight named): the cache seeds once and never clobbers, so a fresh token here would leave the run's records split across two identities.
-3. Cut a worktree on `<lean prefix><issue>` from the configured base. `bash G 1 <issue>` prints
+3. Cut a worktree on `<lane prefix><issue>` from the configured base. `bash G 1 <issue>` prints
    the exact spec path it wants. An unresolved `pause-and-ask` Open Region needs an operator
    comment before it will pass.
 4. **Write the spec/AC file** at that path, ≥ 1 numbered `AC-n`. It is the living definition of done: if scope changes, amend the `AC-n` set *before* milestone 5. A pre-flight `<issue>-ledger.md` is binding input when present: each `user-answered`/`user-delegated` row is carried into a `## Decision Ledger` table row under the same `D-n` id and Resolution text, or marked `DEPARTURE — <reason>`. Project them with `ledger-carry-forward.sh <ledger>` rather than retyping — receipt rows are five columns, plan rows four.

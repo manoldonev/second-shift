@@ -162,20 +162,20 @@ ev_run() { # ev_run <dir> <stub-rc>
 
 make_repo "$TMP/ev" "v9.9.0" "v9.9.0" "manoldonev/second-shift"
 out="$(ev_run "$TMP/ev" 0)"; rc=$?
-check "lean evidence complete: exit 0 (AC-2)"          "$([ "$rc" -eq 0 ] && echo 0 || echo 1)"
-check "lean evidence complete: reports OK (AC-2)"      "$(grep -q "OK    lean evidence" <<<"$out" && echo 0 || echo 1)"
-check "lean evidence: the payload actually ran"        "$(grep -q "stub speaking" <<<"$out" && echo 0 || echo 1)"
+check "boundary evidence complete: exit 0 (AC-2)"          "$([ "$rc" -eq 0 ] && echo 0 || echo 1)"
+check "boundary evidence complete: reports OK (AC-2)"      "$(grep -q "OK    boundary evidence" <<<"$out" && echo 0 || echo 1)"
+check "boundary evidence: the payload actually ran"        "$(grep -q "stub speaking" <<<"$out" && echo 0 || echo 1)"
 
 out="$(ev_run "$TMP/ev" 1)"; rc=$?
-check "lean evidence violation: exit >=1 (AC-2)"       "$([ "$rc" -ge 1 ] && echo 0 || echo 1)"
-check "lean evidence violation: FAIL names it (AC-2)"  "$(grep -q "missing merge-boundary evidence" <<<"$out" && echo 0 || echo 1)"
+check "boundary evidence violation: exit >=1 (AC-2)"       "$([ "$rc" -ge 1 ] && echo 0 || echo 1)"
+check "boundary evidence violation: FAIL names it (AC-2)"  "$(grep -q "missing merge-boundary evidence" <<<"$out" && echo 0 || echo 1)"
 
 # exit 2 is the payload saying it could not run — a missing input this template owns. FAIL, not
 # the transient "could not verify" WARN: failing it open would waive the arm on a workflow that
 # quietly stopped passing PR_BASE_REF, and the gate would read green forever after.
 out="$(ev_run "$TMP/ev" 2)"; rc=$?
-check "lean evidence unrunnable: exit >=1, not a warn-green (AC-2)" "$([ "$rc" -ge 1 ] && echo 0 || echo 1)"
-check "lean evidence unrunnable: FAIL says it could not run"        "$(grep -q "could not run" <<<"$out" && echo 0 || echo 1)"
+check "boundary evidence unrunnable: exit >=1, not a warn-green (AC-2)" "$([ "$rc" -ge 1 ] && echo 0 || echo 1)"
+check "boundary evidence unrunnable: FAIL says it could not run"        "$(grep -q "could not run" <<<"$out" && echo 0 || echo 1)"
 
 # No PR context at all (a workflow_dispatch run): not applicable, and never a failure.
 out="$(cd "$TMP/ev" && SECOND_SHIFT_CONFIG_LINT="$STUB" STUB_RC=0 SECOND_SHIFT_BOUNDARY_EVIDENCE="$EVSTUB" bash "$TOOL")"; rc=$?
@@ -184,14 +184,14 @@ check "no PR context: reported not applicable"         "$(grep -q "no PR context
 check "no PR context: the payload did not run"         "$(grep -q "stub speaking" <<<"$out" && echo 1 || echo 0)"
 
 # A MOVED PAYLOAD PATH is drift (AC-2). The 404 stub answers every fetch, so the config-lint arm
-# fails too — this asserts the lean arm's own 404 line, which is the one that would otherwise
+# fails too — this asserts the boundary-evidence arm's own 404 line, which is the one that would otherwise
 # be missing entirely if the path were never fetched.
 make_repo "$TMP/ev404" "v9.9.0" "v9.9.0" "manoldonev/second-shift"
 out="$(cd "$TMP/ev404" && env -u SECOND_SHIFT_CONFIG_LINT -u SECOND_SHIFT_BOUNDARY_EVIDENCE \
         PATH="$TMP/bin404:$PATH" PR_HEAD_REF="claude/acme-42" PR_HEAD_SHA=deadbeef PR_BASE_REF=main \
         PR_NUMBER=9 PR_BODY="Closes #42" GH_REPO="acme/acme" bash "$TOOL")"; rc=$?
-check "lean payload 404: exit >=1 (a moved path IS drift) (AC-2)" "$([ "$rc" -ge 1 ] && echo 0 || echo 1)"
-check "lean payload 404: FAIL names the payload path and the 404 (AC-2)" \
+check "boundary-evidence payload 404: exit >=1 (a moved path IS drift) (AC-2)" "$([ "$rc" -ge 1 ] && echo 0 || echo 1)"
+check "boundary-evidence payload 404: FAIL names the payload path and the 404 (AC-2)" \
   "$(grep -q "boundary-evidence: plugins/dev-pipeline/skills/build/boundary-evidence.sh does not exist" <<<"$out" \
      && grep -q "HTTP 404" <<<"$out" && echo 0 || echo 1)"
 
@@ -199,8 +199,8 @@ check "lean payload 404: FAIL names the payload path and the 404 (AC-2)" \
 out="$(cd "$TMP/ev404" && env -u SECOND_SHIFT_CONFIG_LINT -u SECOND_SHIFT_BOUNDARY_EVIDENCE \
         PATH="$TMP/binnet:$PATH" PR_HEAD_REF="claude/acme-42" PR_HEAD_SHA=deadbeef PR_BASE_REF=main \
         PR_NUMBER=9 PR_BODY="Closes #42" GH_REPO="acme/acme" bash "$TOOL")"; rc=$?
-check "lean payload network error: exit 0 (non-fatal WARN)" "$([ "$rc" -eq 0 ] && echo 0 || echo 1)"
-check "lean payload network error: says could not verify"   "$(grep -q "boundary-evidence: could not verify" <<<"$out" && echo 0 || echo 1)"
+check "boundary-evidence payload network error: exit 0 (non-fatal WARN)" "$([ "$rc" -eq 0 ] && echo 0 || echo 1)"
+check "boundary-evidence payload network error: says could not verify"   "$(grep -q "boundary-evidence: could not verify" <<<"$out" && echo 0 || echo 1)"
 
 # (10 · #359) the emitted workflow supplies what the payload needs. Each of these is an input
 # whose absence makes the payload exit 2 — which the arm above scores FAIL — so a template that

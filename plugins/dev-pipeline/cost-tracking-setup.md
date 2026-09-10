@@ -131,7 +131,7 @@ Cost tracking does not need a Stop hook. The build session invokes `pipeline-cos
 
 ## 5. Verify end-to-end
 
-1. Run a lean issue (`/dev-pipeline:run <issue>`, or `/dev-pipeline:build <issue>` directly). Each session it spawns records its `$CLAUDE_CODE_SESSION_ID` as a `| session |` row in `.claude/pipeline-state/{issue}-lean-progress.md`.
+1. Run a lane issue (`/dev-pipeline:run <issue>`, or `/dev-pipeline:build <issue>` directly). Each session it spawns records its `$CLAUDE_CODE_SESSION_ID` as a `| session |` row in `.claude/pipeline-state/{issue}-lean-progress.md`.
 2. Tail the collector output: `tail -f ~/.claude/otel-metrics/metrics.jsonl` — you should see JSON lines within a few seconds of the session emitting.
 3. At step 7 the build session computes the block from those ids and the run's fence, and pastes it into the PR description; at step 9 `bash milestone-gate.sh close-out <issue>` re-computes it over the run's now-complete fence, replaces the step-7 block in the description, and carries it in the closing comment. Success is the block appearing in the PR — nothing is recorded in a state file, by design.
 

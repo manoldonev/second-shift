@@ -79,12 +79,12 @@
 #   | D-4 | Scope of the fix | DEPARTURE — narrowed to the one call site, because |
 #
 # The reason after `DEPARTURE` is REQUIRED, mirroring the `Design: none — <reason>`
-# disarm the lean gate already enforces at the same milestone: a departure is a
+# disarm the milestone gate already enforces at the same milestone: a departure is a
 # decision, and an undocumented one is indistinguishable from an omission.
 #
 # The mode is INERT when the receipt binds no rows, and it is deliberately narrow:
 # it runs no structural check on either document (the caller lints those in default
-# mode) and it says nothing about the receipt's `OR-n` regions, which the lean gate's
+# mode) and it says nothing about the receipt's `OR-n` regions, which the milestone gate's
 # own `check_pause_and_ask` already owns. What it cannot do is notice a row the
 # interview never wrote down — the same ceiling receipt mode has.
 #
@@ -177,7 +177,7 @@ trim() {
 # ---- RECONCILE MODE (#517) ---------------------------------------------------
 # Runs INSTEAD of the structural checks below and exits: the caller lints each
 # document in its own mode, and doing both here would report a plan's malformed row
-# twice under two different sentences. The lean gate makes exactly these two calls.
+# twice under two different sentences. The milestone gate makes exactly these two calls.
 
 # OR-1's default normalization, and the whole of what "the same Resolution" means.
 # Every run of whitespace collapses to one space and the ends are trimmed, so a
