@@ -104,12 +104,21 @@ Each `-selftest.sh` follows its subject.
 
   Five more members of this class surfaced during implementation and are frozen for the same
   reason — a name a reader outside this diff resolves by:
-  - **the `lean chain reconciliation` CI job name** (`.github/workflows/ci.yml`, and the
-    `` `lean chain` `` check the docs tell an operator to look for). A required status check is
-    keyed BY NAME in branch protection, here and in every consumer that gates on it, so renaming
-    it is a settings migration and not a code change — and it would red this PR's own merge.
+  - **the `lean chain reconciliation` STEP name** (`.github/workflows/ci.yml`, and the
+    `` `lean chain` `` name the docs tell an operator to look for). It is a `- name:` step inside
+    the `pr-gates` job, not a required status check — branch protection keys on the JOB, and a
+    consumer's own evidence job is named `second-shift evidence` — so renaming it would migrate
+    no settings and red no merge. It is frozen for the reader instead: the name is how an
+    operator reading a red `pr-gates` log finds the arm that failed, and six frozen verdict
+    records under `docs/plans/` quote it verbatim. Churn with no reader served.
   - **`plugins/intake-toolkit/skills/plan-interview/tools/dup-scan-fixtures/corpus-live.json`** —
     a frozen calibration corpus of real issue text; `dup-scan.sh` says so in its own header.
+  - **the eval records' narrative** — `CLOSEOUT-BASELINE.md` and its siblings under
+    `plugins/*/evals/`, which `scripts/check-eval-model-identity.sh` already classifies as
+    "a landed record of a run, not runnable machinery". Three lines there use `lean` as a concept
+    noun (`figma-faithful-plan-reviewer-eval` :62, `figma-faithful-spec-reviewer-eval` :47, :64).
+    They are dated readings that describe the lane as it stood on the day they were taken;
+    converting them would make a record describe a world that did not exist when it was written.
   - **`docs/skill-ablation*.md`** — measurements of a text pinned at a named commit. Their PATH
     references move with the rename; their quoted `review-lean` / `build-lean` SUBJECTS do not,
     because rewriting them would falsify what was measured.
@@ -181,7 +190,10 @@ re-measured at this head and are stated here as measured, per "re-measure inheri
   families. AC-6's obligation is unchanged in kind: re-anchor what actually anchors.
 - **D-8's 121 distinct tokens measures 120 here**, and the sibling-plugin class measures 86
   word-bounded lines rather than 95, under this spec's own regex. Neither figure is load-bearing:
-  AC-5 and AC-13 are verified by a grep returning empty, not by matching a count.
+  AC-5 is verified by a grep returning empty, not by matching a count. AC-13's is NOT empty and is
+  not meant to be: what it returns is the frozen class above — the artifact families, the fixture
+  strings, the era names inside suites, and the eval records' narrative — read and classified
+  rather than counted.
 
 - **The fallback falsified four suites, and the guard meant to catch that was blind.** The
   scheduler exports `LEAN_ATTEND_MODE=headless` into every session it spawns. Main's
@@ -209,7 +221,29 @@ re-measured at this head and are stated here as measured, per "re-measure inheri
   tense. `mutation-baseline.tsv`'s row 57 keeps its `run-lean`: it names the workflow directory
   #345 deleted, and renaming it would falsify what was measured. Re-keying
   `interviewing-baseline/SKILL.md`'s construct moved its `docs/prose-blocker-triage.tsv` row id
-  from pb-5b5b5d3c to pb-1bb19015 — content-hashed ids, working as designed.
+  from pb-5b5b5d3c to pb-1bb19015, and round 2's re-wording moved it again to pb-efe96c8c —
+  content-hashed ids, working as designed.
+- **Re-pointing those seventeen at `/dev-pipeline:*` was the wrong repair, and CI said so.**
+  `docs/namespaces.md` rule 3(a) forbids the `dev-pipeline:` token anywhere in the four toolkits,
+  so the spelling that fixes the dangle breaks the one-directional dependency the rule exists to
+  hold: a consumer who installed only `design-toolkit` would be told to invoke a command their
+  machine does not have. The round-2 repair names the ROLE the sibling can rely on rather than a
+  command it cannot resolve — "the design-sighted REVIEW session" (design-toolkit ×10), "the
+  pipeline's REVIEW session" and "the REVIEW session's `--panel` key" (review-lead ×3), "a
+  pipeline run" / "the BUILD session's step 4" (intake ×4), "a REVIEW session loading
+  `review-lead`" (audit-history). Bare `dev-pipeline` is untouched by the rule and is used
+  throughout those toolkits already; what is forbidden is the namespace token, so no sentence
+  needed to lose its subject.
+- **Case (n)'s own match was the fail-open shape it exists to refuse.** Every knob in this family
+  is a PREFIX of another — `LANE_GATE` of `LANE_GATE_ANY_TREE`, `LANE_SELFTEST_CACHE` of
+  `LANE_SELFTEST_CACHE_DIR` — and (n) tested membership with a substring glob, so a LONGER scrub
+  satisfied the requirement for a SHORTER token on both halves of the pair. It reported
+  `milestone-gate-selftest.sh` clean while that file cleared `LEAN_SELFTEST_CACHE_DIR` and left
+  `LEAN_SELFTEST_CACHE` resolving: four cases went red under `LEAN_SELFTEST_CACHE=0`, which is
+  the retired spelling of a knob `docs/testing.md` hands operators in two recipes. (n) now
+  compares whole tokens — an awk pass that reads `unset`/`-u` operand lists, with `;` still
+  terminating one — and it names the pair. Measured: green at 18 pairs with the scrub fixed,
+  and `(n) … milestone-gate-selftest.sh:LANE_SELFTEST_CACHE` with the scrub reverted.
 
 ## Open Regions
 
