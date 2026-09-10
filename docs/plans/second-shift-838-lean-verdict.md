@@ -1,191 +1,162 @@
 # lean review verdict — #838
 
-verdict=needs-work
-run_id: review-838-1
-session_id: 41956201-cb9d-4409-9d2d-0ccaf375caad
-rounds: 1
+verdict=approve
+run_id: review-838-2
+session_id: f3e79133-eb41-4125-af86-def6d284ac7b
+rounds: 2
 pr: #841
-reviewed_head: e3cc5216ff7f4811b6f83e5c1610e2e9b3a7fc69
-reviewed_patch_id: 7a6d02643dea34422bfacfd264e6fc8217e3dced
-inherited_patch_id: none
-inherited_from_verdict: none
+reviewed_head: 53812cc505e10ad4440c346e92673d84b60e3021
+reviewed_patch_id: 9bc3c7b94c87e4e56c33555e12ceae7516c5ce29
+inherited_patch_id: 7a6d02643dea34422bfacfd264e6fc8217e3dced
+inherited_from_verdict: a761b6c83955a4fbcba700c23141a8d46b69c69a
 fidelity: not-applicable
 panel: review-toolkit:scope-completeness-reviewer
 model: opus
 capabilities: pr-marker
 
-Round 1 over the full branch diff (`3113cb95..e3cc5216`, 17 files, +379/−4) — `G delta 838`
-printed the FULL range: nothing verifiable to inherit.
+Round 2 over the delta `a761b6c8..53812cc5` (2 files, +5/−5, both prose) — `G delta 838` printed
+that range and named the round-1 record as the inheritance source (`reviewed_patch_id`
+`7a6d02643dea`). The delta is the fix commit for round 1's two blockers and nothing else.
 
-Panel: `review-toolkit:scope-completeness-reviewer` (the only subagent whose trigger fired — an
-issue is referenced). Lead pass covered performance, complexity, maintainability, test coverage,
-and security (its conditional did not fire: no auth/tenancy/session/upload/query-construction
-surface in the diff, and the repo carries no `review-context/security-reviewer.md`). a11y and the
-design-fidelity dimension were not routed: no changed path matches
-`stageParams.webComponentGlobs` (unset → `apps/web/**/*.{tsx,jsx}`), and the spec disarms design
-with `Design: none` — justified, this repo declares no `design.provider`.
+Panel: `review-toolkit:scope-completeness-reviewer` — the only subagent whose trigger fired (an
+issue is referenced; it spawns unconditionally). Lead pass covered performance, complexity,
+maintainability, test coverage and security. Not-selected notes, per Step 4c:
 
-Verdict: **needs-work** on two blockers. The work itself is sound: every machine-checkable arm was
-probed and reds, and the three-arm guard story holds. Both blockers are in the shipped prose.
+- `security-reviewer` not selected: no auth / tenancy / session / upload / query-construction
+  surface in a 5-line prose delta, and the repo carries no
+  `.claude/second-shift/review-context/security-reviewer.md`. The lead pass owns the dimension.
+- `a11y-reviewer` + design-fidelity not routed: no changed path matched
+  `stageParams.webComponentGlobs` (unset → `apps/web/**/*.{tsx,jsx}`), and the spec disarms design
+  with `Design: none` — justified, this repo declares no `design.provider`.
 
-## Blockers
+Verdict: **approve**. Both round-1 blockers are fixed, both fixes were verified by executing the
+guard that caught them, and the delta introduced nothing new.
 
-### B-1 — `dev-pipeline:` namespace tokens in a toolkit plugin; `lint-and-selftests` is RED at this head
+## Round 1 blockers — both cleared
 
-`plugins/review-toolkit/skills/review-lead/SKILL.md:197-198` introduces two `dev-pipeline:`
-namespace tokens into a toolkit plugin, which `docs/namespaces.md` rule 3(a) forbids:
+### B-1 — `dev-pipeline:` namespace tokens in a toolkit — CLEARED
 
-```
-197: a caller that says nothing gets the table above exactly as written. `/dev-pipeline:review` declares
-198: it (its step 5); the standalone `/review-toolkit:review-lead` invocation and `dev-pipeline:pr-revision`
-```
+`plugins/review-toolkit/skills/review-lead/SKILL.md:197-199` now reads "The pipeline's review
+session declares it (its step 5); the standalone `/review-toolkit:review-lead` invocation and the
+pipeline's `pr-revision` skill do not". Both `dev-pipeline:` tokens are gone.
 
-- CI, head `e3cc5216`: run `34519497176`, job `103013166937` (`lint-and-selftests`) — step
-  **"namespace direction check (docs/namespaces.md rule 3)"** = `failure`; every other step in that
-  job succeeded.
-- Reproduced locally with the workflow's own command: the grep over the four toolkit roots returns
-  exactly those two lines.
-- New, not inherited: `git show 3113cb95:plugins/review-toolkit/skills/review-lead/SKILL.md |
-  grep -c 'dev-pipeline:'` → `0`.
+Verified by running CI's own command from this checkout — the workflow step's exact `TOOLKITS`
+array and both greps (`.github/workflows/ci.yml:176-194`):
 
-This is a red CORRECTNESS lane, not a policy gate, so it is a blocker rather than a recorded
-merge-boundary refusal.
+- rule 3(a) — `grep -rn 'dev-pipeline:'` over the four toolkit roots → no match (rc 1).
+- rule 3(b) — the hard-path grep → no match (rc 1).
 
-**Fix:** the same file already refers to the pipeline the allowed way twice — line 31 ("from
-another skill running in the main session, e.g., dev-pipeline") and line 427 ("in dev-pipeline
-`auto` mode"). Say "the pipeline review session declares it (its step 5); the standalone
-`/review-toolkit:review-lead` invocation and the pipeline's `pr-revision` skill do not."
-`/review-toolkit:review-lead` is a review-toolkit token and stays.
+The replacement is *stricter* than the file's own pre-existing usage, not merely compliant: lines
+31 and 427 already carry a bare `dev-pipeline` (allowed — rule 3(a) matches the namespace token),
+and the new wording avoids even that. The referent is not dangling: the file establishes "the
+pipeline" as the caller at lines 8, 14, 35, 55 and 140, and "its step 5" resolves to a real
+checklist step — `plugins/dev-pipeline/skills/review/SKILL.md:48-58` declares the panel and names
+both carriers, which is AC-5.
 
-### B-2 — the documented per-ticket opt-in row is a 5-column RECEIPT row, and the committed spec's lint rejects it
+### B-2 — the illustrative opt-in row's arity — CLEARED
 
-Two sites, both under prose that says the row lives in the **committed spec**:
+Both sites now show the 4-column spec-mode row, and only the trailing `| intent` was dropped:
 
-- `plugins/review-toolkit/skills/review-lead/SKILL.md:237` — under "1. **Per ticket — a Decision
-  Ledger row in the committed spec.** The spec found by Process step 4 … carries a
-  `## Decision Ledger` table."
-- `docs/extending.md:154` — under "The **per-ticket** opt-in … a row in the committed spec's
-  `## Decision Ledger`".
+- `plugins/review-toolkit/skills/review-lead/SKILL.md:237`
+- `docs/extending.md:154`
 
-Both show:
+Measured, both directions, with the shipped linter
+(`plugins/intake-toolkit/skills/plan-interview/tools/ledger-lint.sh`):
 
-```
-| D-4 | review panel | security, a11y | user-answered | intent |
-```
+- the documented row as it now reads → `ledger-lint: 1 ledger row(s)` / `ledger-lint: OK`, exit 0.
+- the row as round 1 found it (control) → `VIOLATION: malformed ledger row (expected 4 columns:
+  ID | Decision | Resolution | Provenance)`, exit 1.
 
-That is the **receipt** arity. `ledger-lint.sh` sets `EXPECTED_CELLS` by mode:
-`COLUMN_SHAPE='4 columns: ID | Decision | Resolution | Provenance'` by default, and the
-5-column `… | Kind` form only under `--receipt`. Measured — a spec carrying the documented row:
+No site was missed: `grep -rn '| review panel |'` over `docs/` and `plugins/` returns exactly the
+two fixed sites plus two occurrences inside the round-1 verdict record itself, which correctly
+quote the defect as historical evidence. `plugins/dev-pipeline/skills/review/SKILL.md` describes
+the carrier in prose and carries no illustrative row, so there was nothing to fix there.
 
-```
-ledger-lint: VIOLATION: malformed ledger row (expected 4 columns: ID | Decision | Resolution | Provenance): | D-4 | review panel | security, a11y | user-answered | intent |
-ledger-lint: FAIL — 1 violation(s)
-```
+Dropping the `Kind` cell loses no information: the surrounding prose at `SKILL.md:230-233` states
+that the two accepted provenances are "the two `intent`-kind values of the ledger's closed
+provenance enum", and in spec mode there is no `Kind` column for the cell to occupy — showing one
+was the defect.
 
-Milestone 1 lints that section — the spec's own D-2 says so ("milestone 1 already lints that
-section"). So an operator who copies the example into a spec gets a milestone-1 red; and a reader
-who anchors on a 5-cell template against a real 4-cell row can fail to match it, which is a
-**silently** dropped opt-in — the one failure the section's own "never silent" rule exists to
-prevent, and the one this design makes expensive to notice.
-
-The prose itself is correct and is what AC-2 requires; only the illustration is wrong, and in a
-4-column row Provenance is still cell 4, so the reading rule is unambiguous.
-
-**Fix:** drop the trailing `| intent` at both sites, or keep the 5-column form only where the
-receipt is being discussed and show the 4-column spec row beside it.
+The committed spec's own ledger still lints clean at this head: `14 ledger row(s)` / `OK`.
 
 ## Warnings
 
-### W-1 — #838's body was never narrowed to the ratified receipt, so the scope gate blocks every round
+### W-1 (carried from round 1, unchanged) — #838's body was never narrowed to the ratified receipt
 
-`scope-completeness-reviewer` returned `block` on two items (confidence 92 and 85), both accurate
-readings of #838's Proposal paragraph:
+`scope-completeness-reviewer` returned `block` on the same two items as round 1, at confidence 92
+and 90, and reached round 1's disposition independently: both are accurate readings of #838's
+Proposal paragraph, and neither is a defect in this diff.
 
-1. the ticket-label carrier (`review:security`, `review:a11y`, `review:mutation`) ships nowhere;
-   the new per-repo config key `reviewers.default[]` substitutes for it;
-2. "the existing surface triggers stay as the *opt-in* condition's second half rather than the
-   default" — the diff drops them outright (`SKILL.md:242`, "dispatched unconditionally on the
-   pipeline path"). The two readings diverge on `a11y-reviewer` opted in with no glob match.
+1. The ticket-label carrier (`review:security`, `review:a11y`, `review:mutation`) ships nowhere;
+   the per-repo config key `reviewers.default[]` substitutes for it.
+2. #838's body says the surface triggers "stay as the *opt-in* condition's second half"; the diff
+   drops them outright (`SKILL.md:242`, "dispatched unconditionally on the pipeline path"). The
+   readings diverge on `a11y-reviewer` opted in with no glob match.
 
-**Neither is a defect in this diff.** Both are ratified operator decisions in the pre-flight
-receipt `.claude/pipeline-state/838-ledger.md`:
+Both are ratified operator decisions in the pre-flight receipt
+`.claude/pipeline-state/838-ledger.md` — D-2 and D-1, both `user-answered` / `intent` — and both
+are carried verbatim into the committed spec's Decision Ledger, which milestone 1's
+`ledger-lint --reconcile` binds. **A scope-gate block is overridden outright by a `user-answered`
+pre-flight ledger row**, which is why this is a warning rather than a blocker, and why round 1's
+classification is carried rather than escalated.
 
-- D-2, `user-answered` / `intent`: "Two carriers, either selects… **No tracker label, no jira
-  mirror.**"
-- D-1, `user-answered` / `intent`: "Their surface triggers are **DROPPED** on the pipeline path:
-  only an explicit opt-in dispatches them."
+Re-verified at this head, not assumed: `gh issue view 838` shows the body still names the
+ticket-label carrier and the second-half clause. The remedy is unchanged and is operator action,
+not build action — narrow #838's body to D-1/D-2 with `gh issue edit --body-file`. Until then the
+gate blocks every round of this PR and any successor. No follow-up issue for the body-vs-receipt
+gate behavior exists yet, though the spec's `### Out`, the receipt's S-7 and #838's own
+§"Two things … 2." each promise one.
 
-Both were written 2026-09-10 18:44Z — four minutes **before** the build claimed the ticket
-(claim comment `createdAt` 2026-09-10T18:48:04Z) — and both are carried verbatim into the
-committed spec's Decision Ledger, which milestone 1's `ledger-lint --reconcile` binds. A pre-flight
-receipt is binding input that overrides the issue as filed, so the build built what it was told to
-build.
+### W-2 (carried from round 1, unchanged) — the two carriers spell reviewers two different ways
 
-What is unresolved is the record, not the code: `userContentEdits` on #838 is **empty** — the body
-has never been edited — so it still reads the other way and will keep blocking every round of
-this PR and any successor. No follow-up issue for the body-vs-receipt gate behavior exists either,
-though the spec's `### Out`, the receipt's S-7 and #838's own §"Two things … 2." all promise one.
-The recorded remedy is to narrow the body to D-1/D-2 rather than carry the exception. Operator
-action, not build action.
-
-### W-2 — the two carriers spell reviewers two different ways
-
-The ledger row takes short names (`security`) and the config key takes full names
-(`security-reviewer`). Deliberate and flagged — D-10 names the asymmetry and the SKILL.md
-paragraph explains why ("the config key sits beside `remove[]` and is validated against the shipped
-registry by the same string compare … while the ledger row is prose an operator types"). Noted
-rather than contested: it is a real ergonomics cost, and the unrecognized-name rule (AC-3) is what
-keeps a cross-spelled name visible instead of silent.
+The ledger row takes short names (`security`), the config key full names (`security-reviewer`).
+Deliberate, flagged at D-10, and explained in the shipped prose. Noted, not contested.
 
 ## Suppressed (below threshold)
 
-- `plugins/review-toolkit/scripts/check-reviewer-references.sh:307-311` — Confidence: 45 — the
-  `defaults` loop duplicates the `removes` loop rather than sharing a helper. Three lines, and the
-  duplication is what makes `default[]` fail the same way `remove[]` does (D-12). Consistent.
-- `docs/prose-blocker-triage.tsv:50` — Confidence: 50 — the row re-key (`pb-dd909897` →
-  `pb-b9763de2`) touches a file the spec's `### In` list does not name. It is the mandated
-  consequence of editing the review step's prose (ids are content-derived), and
-  `bash tools/prose-blockers.sh check` is clean at this head. Not scope creep worth a finding.
+- `plugins/review-toolkit/skills/review-lead/SKILL.md:197` — Confidence: 40 — "The pipeline's
+  review session declares it (its step 5)" attaches a checklist step to a *session* rather than to
+  the skill the session runs. The file already speaks of sessions running skills (line 14), and no
+  reader is misled. Below threshold.
 
 ## Strengths
 
-- **The guard arms were verified, not asserted.** I probed all three independently in a throwaway
-  worktree at this head, and each reds by exactly the new case: the `reviewers.default` array check
-  → `✗ invalid-reviewers-default-type.json fails`; the `reviewers` key allowlist → `✗
-  valid-reviewers-default.json passes`; `DEFAULT-UNKNOWN` → `FAIL (c2) default-unknown expected
-  exit 1`. CI's `mutation-sweep-pr` at this head (job `103013166924`) agrees — neither new catalog
-  row appears in its survivor list.
-- **The name check is in the right script.** D-12's reasoning holds on inspection: `config-lint.sh`
-  never reads review-lead's SKILL.md, so `default[]` gets the same type-check / name-check split
-  `remove[]` already has, and the two keys now fail the same way for the same reason.
-- **`default[]` stays out of the effective registry** (D-13), and the `default-green` fixture
-  asserts exactly that — a `default` entry demands no consumer agent file, which is what keeps it
-  from silently behaving like an `add`.
-- **The trim does not touch the design-fidelity gate.** `lean-gate.sh` `design_family` / `panel_has`
-  and `check-lean-chain.sh` arm 8 both key on the armed-spec case only; neither imposes a minimum
-  panel breadth, so a one-reviewer `--panel` is compatible with both by construction.
+- **The fix is exactly the blocker set and nothing else.** +5/−5 across two files, both sites of
+  each blocker, no opportunistic edits and no scope creep into a round whose job was to clear two
+  named defects.
+- **Both fixes were verified by re-running the guard that caught them**, in both directions for
+  B-2 — the linter accepts the new row and still rejects the old one, so the fix is confirmed to
+  be the thing that changed the answer rather than a linter that accepts anything.
+- **The prose fix preserves the normative content and costs no precision.** AC-1's "a caller
+  declares it, this skill never infers it", AC-2's two carriers with their exact cells, and AC-11's
+  additive-only claim all survive the rewording verbatim; only the identifying token changed.
+- **No collateral in the content-derived registries.** `bash tools/prose-blockers.sh check` is
+  clean (29 constructs / 52 rows, zero undispositioned) even though the delta edits prose whose
+  ids are content-derived, and `check-reviewer-references.sh` exits 0.
 
 ## AC scorecard
 
 | AC-n | score | evidence |
 | --- | --- | --- |
-| AC-1 | satisfied | `review-lead/SKILL.md:193-214` — "A caller may declare it; this skill never infers it", the three-row suppression table, "Every other row is untouched" (210), and "a caller that says nothing gets the table above exactly as written". |
-| AC-2 | satisfied | `SKILL.md:224-246` names both carriers with exactly the required cells: Decision `review panel`, Resolution a comma-separated list of `security`/`a11y`/`unit-test-mutation`, Provenance `user-answered` or `user-delegated`, and "Any other provenance selects nothing". Config carrier spelled as `remove[]` spells it. The illustrative row's arity is wrong (B-2), but the normative prose is what this AC asks for. |
-| AC-3 | satisfied | `SKILL.md:247-254` — "selects nobody. Name it once in the Review Summary … It is never a blocker and never a `[Coverage gap]`". |
-| AC-4 | satisfied | `SKILL.md:255-262` carries the panel line and "Their Verdicts rows follow Step 4c: omitted, except `security-reviewer`, whose row reads `Lead pass — ✅/❌`". The fourth clause is D-6's "as today" — a no-change assertion; nothing in the diff alters `panel:`, and `review/SKILL.md:55` states it where `--panel` actually lives. |
-| AC-5 | satisfied | `plugins/dev-pipeline/skills/review/SKILL.md:49-58` declares the panel and names both carriers and where each is read from. |
-| AC-6 | satisfied | `schema/second-shift.config.schema.json` — `reviewers.default` is an array of strings with a description, `reviewers.additionalProperties` is still `false` (read back with jq), and `jq empty` on the file is clean. |
-| AC-7 | satisfied | `config-lint.sh:200,204-205`; measured — the valid fixture lints clean, the non-array fixture says `reviewers.default: must be array`, the non-string-entry fixture says `reviewers.default: every entry must be a string`, and `valid-reviewers-default.json` no longer trips `reviewers: unknown keys`. |
-| AC-8 | satisfied | `config-lint-selftest.sh:68-75` plus the `valid-*.json` sweep at line 28. Probed at this head: reverting the allowlist reds "✗ valid-reviewers-default.json passes"; the catalog mutant on the array check reds "✗ invalid-reviewers-default-type.json fails". |
-| AC-9 | satisfied | `check-reviewer-references.sh:306-311` emits `DEFAULT-UNKNOWN: reviewers.default names '<n>' but it is not a plugin-shipped reviewer …` and exits 1; the `default-green` fixture proves silence on a registry member. The `effective_registry` computation is untouched in the diff. |
-| AC-10 | satisfied | `check-reviewer-references-selftest.sh:122-140` (case `(c2)` plus `default-green`), backed by two fixtures. Probed: the catalog mutant kills by exactly "FAIL (c2) default-unknown expected exit 1". |
-| AC-11 | satisfied | `docs/extending.md:149` states additive-only and re-affirms the §1 claim; `docs/extending.md:19` still reads "The two places that *can* subtract — `reviewers.remove` and `gates`". |
-| AC-12 | satisfied | `onboard/SKILL.md:139-140` enumerates `.default` alongside `.add`, `.remove`, `.modelOverrides`, `.tierMap`. |
-| AC-13 | satisfied | Two rows added (`config-lint-reviewers-default-type`, `reviewer-references-default-unknown`); the diff shows no other row changed. Both probed to kill by exactly the AC-8 / AC-10 cases at this head, and neither appears in CI `mutation-sweep-pr`'s survivor list (job `103013166924`). |
-| AC-14 | satisfied | Cited from CI at head `e3cc5216`, run `34519497176`: job `103013166937` steps `shellcheck` = success, `validate JSON (manifests, schema, fixtures)` = success, `run all selftests` = success; job `103013167013` (`selftests (macos, bash 3.2)`) = success. Same commands, same head, so not re-run. The same job's separate namespace-direction step fails — that is B-1, and it is not one of AC-14's three oracles. |
+| AC-1 | satisfied | `review-lead/SKILL.md:193-214` — "A caller may declare it; this skill never infers it", "no mode sniff, no cwd test and no config flag", the three-row suppression table, "Every other row is untouched" (210), and "a caller that says nothing gets the table above exactly as written". The delta reworded only which caller declares it; the normative content is unchanged. |
+| AC-2 | satisfied | `SKILL.md:224-246` names both carriers with exactly the required cells: Decision `review panel`, Resolution a comma-separated list of `security`/`a11y`/`unit-test-mutation`, Provenance `user-answered` or `user-delegated`, and "Any other provenance selects nothing". Config carrier spelled as `remove[]` spells it. Round 1's B-2 caveat is discharged — the illustrative row is now 4-column and lints clean. |
+| AC-3 | satisfied | `SKILL.md:247-254` — "selects nobody. Name it once in the Review Summary … It is never a blocker and never a `[Coverage gap]`". Untouched by the delta. |
+| AC-4 | satisfied | `SKILL.md:255-262` carries the panel line and "Their Verdicts rows follow Step 4c: omitted, except `security-reviewer`, whose row reads `Lead pass — ✅/❌`"; `SKILL.md:500-504` supersedes the Step 4c bullets for the three opt-in reviewers. `panel:` is stated where `--panel` lives, `review/SKILL.md:57-59`. Untouched by the delta. |
+| AC-5 | satisfied | `plugins/dev-pipeline/skills/review/SKILL.md:48-58` declares the panel and names both carriers and where each is read from. Untouched by the delta; re-read at this head because B-1's fix now points at it ("its step 5"). |
+| AC-6 | satisfied | Re-read at this head: `schema/second-shift.config.schema.json` → `reviewers.properties.default` is `{"type":"array","items":{"type":"string"}}` with a description, and `reviewers.additionalProperties` is `false`. `jq empty` over every `*.json` in the tree is clean. |
+| AC-7 | satisfied | `config-lint.sh:200,204-205`; the AC-8 selftest exercises all three arms and passed in the sweep below. Inherited from round 1's measurement; code unchanged in the delta. |
+| AC-8 | satisfied | `config-lint-selftest.sh:68-75` plus the `valid-*.json` sweep at line 28; the suite ran green in this round's own full sweep. Round 1 probed both directions with the catalog mutants applied. |
+| AC-9 | satisfied | `check-reviewer-references.sh:306-311` emits `DEFAULT-UNKNOWN: …` and exits 1; re-run at this head over the real tree → exit 0 (silent on a registry-clean repo, which is the AC's second half). |
+| AC-10 | satisfied | `check-reviewer-references-selftest.sh:122-140` (case `(c2)` plus `default-green`), backed by two fixtures; green in this round's sweep. |
+| AC-11 | satisfied | Re-read at this head: `docs/extending.md:149` states additive-only ("can put a reviewer *into* the pipeline's panel; it can never take one out") and re-affirms the §1 claim; `docs/extending.md:19` still reads "The two places that *can* subtract — `reviewers.remove` and `gates`". |
+| AC-12 | satisfied | `onboard/SKILL.md:139` enumerates `.default` alongside `.add`, `.remove`, `.modelOverrides`, `.tierMap`. |
+| AC-13 | satisfied | Re-read at this head: `tools/mutation-catalog.tsv:54` (`config-lint-reviewers-default-type`) and `:68` (`reviewer-references-default-unknown`), each naming its AC-8 / AC-10 killer case. The delta touches no `.tsv`, so no existing row moved. |
+| AC-14 | satisfied | **Measured at this head, not cited** — CI run `34521666447` was still `in_progress`, so the oracle was executed locally instead: the `find ... -name '*.sh'` sweep into `shellcheck -e SC1091,SC2015,SC2181` → exit 0, no output; the `find ... -name '*.json'` sweep into `jq empty` → exit 0, no output; `SKIP_STRESS=1 bash tools/run-selftests.sh --full --exclude tools/install-topology-selftest.sh` → `summary: 78 scored, 78 run, 0 served from cache, 0 failed`, exit 0. |
 
 ## Merge-boundary state (recorded, not a blocker)
 
-`pr-gates` is red at this head on its "lean chain reconciliation" step alone; reproduced locally,
-the sole violation is `✗ no committed verdict record (a file named *-838-lean-verdict.md)` — the
-artifact this round produces. Its frozen-files and `Changelog:` trailer steps both pass.
+`pr-gates`'s "lean chain reconciliation" step is red at this head because the committed record is
+round 1's, whose `reviewed_patch_id` no longer matches the branch. That is exactly the artifact
+this round produces, and it clears when this record lands. The frozen-files and `Changelog:`
+trailer steps were green at the previous head and the delta touches neither a frozen file nor a
+commit trailer.
