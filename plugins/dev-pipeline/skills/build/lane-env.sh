@@ -12,6 +12,12 @@
 # stdout is PARSED by their callers, and the busiest tokens are read at dozens of sites, so a
 # per-read notice would both flood a gate log and risk breaking a reader.
 #
+# STDERR IS NOT INVISIBLE. A caller that captures `2>&1` and compares the result gets this line
+# inside the value it is asserting on — this repo's own suites do that routinely, and it is what
+# turned one leaked token into four red cases rather than two. The notice firing is a symptom, so
+# the fix belongs where the retired spelling reaches the process (scrub BOTH halves of a pair),
+# never in a filter here.
+#
 # Sourced, not executed — it defines one function and one accumulator and dispatches nothing.
 # `boundary-evidence.sh` carries the LOCKSTEP twin of the block below inline instead of sourcing
 # this file, because it is the PORTABLE payload a consumer's CI fetches as a single file at a

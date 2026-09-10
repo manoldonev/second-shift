@@ -245,26 +245,54 @@ else fail "(m) promote-in-place is unsafe — these files test set-vs-unset on a
 # PER FILE, not per line: clearing the retired twin ONCE at suite scope covers every case below it,
 # and that is the better shape — it states the file's hermeticity where a reader looks for it
 # instead of repeating a pair at thirty call sites.
+#
+# WHOLE TOKENS, both halves. Every knob here is a PREFIX of another one — `LANE_GATE` of
+# `LANE_GATE_ANY_TREE`, `LANE_SELFTEST_CACHE` of `LANE_SELFTEST_CACHE_DIR` — so a substring test
+# scores the LONGER scrub as defending the SHORTER token and calls a half-cleared pair clean.
+# That is the fail-open shape this case exists to refuse, arriving in the case itself: with the
+# substring form, milestone-gate-selftest.sh's `unset LEAN_SELFTEST_CACHE_DIR` satisfied the
+# requirement for the bare `LEAN_SELFTEST_CACHE`, which was NOT cleared, and four of that suite's
+# cases were falsified by an ambient export of it. The same relation applies to the counting half:
+# a file scrubbing only `LANE_SELFTEST_CACHE_DIR` used to be counted as defending
+# `LANE_SELFTEST_CACHE`, inflating `defenses` with a pair nobody wrote.
+scrub_token_set() {   # $1 = comment-stripped code, $2 = LANE_ | LEAN_ -> " TOK TOK "
+  # `(`/`)`/`;`/`|`/`&` become their own words first, so `$( unset X` yields `unset` and a
+  # trailing `LANE_X;` yields `LANE_X` — and a `;` still TERMINATES an `unset` operand list,
+  # which is what keeps `unset LANE_A; foo LANE_B` from claiming LANE_B.
+  awk -v pfx="$2" '
+    { gsub(/[();|&]/, " & ")
+      for (i = 1; i <= NF; i++) {
+        if ($i == "unset") {
+          for (j = i + 1; j <= NF && $j ~ /^[A-Za-z_][A-Za-z0-9_]*$/; j++)
+            if (index($j, pfx) == 1) print $j
+          i = j - 1
+        } else if ($i == "-u" && i < NF && $(i + 1) ~ /^[A-Za-z_][A-Za-z0-9_]*$/) {
+          if (index($(i + 1), pfx) == 1) print $(i + 1)
+          i++
+        }
+      }
+    }' <<<"$1" | sort -u | tr '\n' ' '
+}
 leaky=""
 defenses=0
 while IFS= read -r sf; do
   [ -f "$SCAN_ROOT/$sf" ] || continue
   sf_code="$(sed 's/^[[:space:]]*#.*$//' "$SCAN_ROOT/$sf" 2>/dev/null)"
-  sf_scrubs="$(grep -E '(unset |[ (]-u )[A-Z_ ]*LANE_' <<<"$sf_code" 2>/dev/null)" || sf_scrubs=""
-  [ -n "$sf_scrubs" ] || continue
+  sf_scrubs=" $(scrub_token_set "$sf_code" LANE_)"
+  [ "$sf_scrubs" != " " ] || continue
   # The retired side is collected SEPARATELY: a suite-scope `unset LEAN_GATE …` names no LANE_
   # token at all, so the census above cannot see it, and checking against that census alone would
   # refuse the very shape this case asks for.
-  sf_retired="$(grep -E '(unset |[ (]-u )[A-Z_ ]*LEAN_' <<<"$sf_code" 2>/dev/null)" || sf_retired=""
+  sf_retired=" $(scrub_token_set "$sf_code" LEAN_)"
   for t in $ALL_KNOBS; do
     case "$sf_scrubs" in
-      *"unset "*"$t"*|*"-u $t"*) : ;;
+      *" $t "*) : ;;
       *) continue ;;
     esac
     defenses=$((defenses + 1))
     retired="LEAN_${t#LANE_}"
     case "$sf_retired" in
-      *"unset "*"$retired"*|*"-u $retired"*) : ;;
+      *" $retired "*) : ;;
       *) leaky="$leaky$(basename "$sf"):$t " ;;
     esac
   done
