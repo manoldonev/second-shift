@@ -1292,6 +1292,17 @@ if [ "$rc" -eq 6 ] && [ "$(spawn_count)" -eq 2 ] && [ "$(gate_count)" -eq 2 ] \
   pass "(r4) a class-6 integrity refusal exits 6 immediately — nothing re-spawned, no round spent, and the message names P10"
 else fail "(r4) expected rc=6 after 2 spawns / 2 gate calls, got rc=$rc / $(spawn_count) / $(gate_count): $out"; fi
 
+# Class 11 — the P9 hand-back is a STOP for the operator, not a review retry and not a fix round.
+# Scripted as a 5 (the pre-review read) then an 11 after the REVIEW spawn: a fall-through to the
+# class-5 loop would show as a second REVIEW spawn, and to the needs-work arm as a BUILD one.
+setup_case "" $'5\n11' "ready-for-dev" "11"
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 1 ] && [ "$(spawn_count)" -eq 2 ] && [ "$(gate_count)" -eq 2 ] \
+   && [ "$(slug_of "$out")" = "review-paused" ] && grep -q 'P9' <<<"$out" \
+   && [ "$(grep -l 'dev-pipeline:build' "$SPAWN_LOG_DIR"/spawn-* 2>/dev/null | wc -l | tr -d ' ')" -eq 1 ]; then
+  pass "(r4b) a class-11 read after the review is a terminal review-paused naming P9 — no second REVIEW, no BUILD, no round spent"
+else fail "(r4b) expected rc=1 / 2 spawns / 2 gate calls / slug review-paused, got rc=$rc / $(spawn_count) / $(gate_count) / '$(slug_of "$out")': $out"; fi
+
 # AC-6: across a whole approved round the scheduler's verdict read records NOTHING. It used to run
 # the gate's recording path, so every non-approve verdict it merely READ spent the BUILD role's
 # milestone-4 fix budget — the "this script writes nothing" premise was false at exactly one site.

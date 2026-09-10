@@ -1603,6 +1603,12 @@ while :; do
       terminal approved 0 "done — #$ISSUE approved on PR #$PR."
       ;;
     1) say "verdict: needs-work." ;;
+    # #P9 hand-back. The gate read an unratified `pause-and-ask` intent-gap record beside no verdict
+    # (review/SKILL.md 5d, or a build that paused on a declared region). The remedy is an OPERATOR
+    # ruling, so neither a review retry (it hands the same question back) nor a fix round (there
+    # is nothing to fix) is spent. Series 1 on the private eval substrate measured the alternative:
+    # a `needs-work` per round on the same ratification blocker until `rounds-spent`.
+    11) terminal review-paused 1 "PAUSED: the branch carries an unratified pause-and-ask intent-gap record and no verdict — the round was handed back for a human ruling (P9). Ratify the record (an operator comment on #$ISSUE, then 'ratified: yes' plus that URL in 'ratified_by:', committed to the PR head), then re-enter from the top; the worktree and the claim are left in place." ;;
     6) terminal verdict-self-authored 6 "HARD STOP: the verdict record is authored by the build run or the build session (P10) — generation may not author its own evaluation, and that is not something a retry can clear. No round spent, nothing re-spawned. The merge boundary refuses this record too; produce one from a separate review session." ;;
     4) terminal verdict-budget-spent 4 "HARD STOP: the verdict gate exhausted its fix budget. No rescue attempt — re-entry is from the top." ;;
     # 2 and 3 are deliberately absent here: #597 D-1 routes both AHEAD of the REVIEW spawn above,

@@ -424,15 +424,33 @@ if [ "$rc" -eq 1 ] && grep -q 'no departure marker' <<<"$out"; then
   pass "(a10) #517 AC-3: a bound row re-decided without a DEPARTURE marker refuses milestone 1"
 else fail "(a10) expected rc=1 on an unflagged reversal, got $rc: $out"; fi
 
-# (a11) the declared departure passes — and AC-8, the pass line disclosing what was reconciled.
-# The COUNTS are asserted, not just the presence of a note: a note reading "0 bound" would sit
-# in the same place and say nothing, which is the shape a silently-inert check hides behind.
+# (a11) P9 AS A GATE: a reasoned DEPARTURE from a bound intent row is a decision the receipt
+# covered being re-made, so it refuses — naming P9 and the record path — unless the intent-gap
+# record exists on the branch. Before this the count was printed on the pass line and cleared;
+# series 1 of the private eval substrate shipped the one such departure (7 days over a
+# user-answered 3) and approved it. Spends a fix attempt: writing the record is the build's edit.
+INTENT_GAP="$TREE/docs/plans/acme-7-lean-intent-gap.md"
 reset_progress
+rm -f "$INTENT_GAP"
 rc_spec 'DEPARTURE — narrowed to the import path; the export path is dead code'
 out="$(gate --ledger-file "$RC_RECEIPT" 1 7)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'departs from 1 ratified intent row(s)' <<<"$out" \
+   && grep -q 'P9' <<<"$out" && grep -q 'docs/plans/acme-7-lean-intent-gap.md' <<<"$out" \
+   && [ "$(count_in_progress '| milestone-1 | attempt |')" -eq 1 ]; then
+  pass "(a11) P9: a DEPARTURE from a user-delegated receipt row with no intent-gap record refuses milestone 1, names P9 and the record path, and spends a fix attempt"
+else fail "(a11) expected rc=1 naming P9 and the record path plus one attempt line, got $rc / $(count_in_progress '| milestone-1 | attempt |'): $out"; fi
+
+# (a11b) ...and the same tree with the record present passes — AC-8's disclosure of the counts is
+# still asserted, not just the presence of a note: a note reading "0 bound" would sit in the same
+# place and say nothing. EXISTENCE clears it, not ratification: ratifying is the merge boundary's
+# arm, and a record the build could only pass by ratifying itself would be self-ratification.
+reset_progress
+printf 'issue: 7\nrun_id: r\nsession_id: s\nregion: undeclared\ndisposition: reversible-default-and-flag\nratified: no\nratified_by:\n\n## Gap\n\nD-3 narrowed.\n' > "$INTENT_GAP"
+out="$(gate --ledger-file "$RC_RECEIPT" 1 7)"; rc=$?
 if [ "$rc" -eq 0 ] && grep -q '2 bound, 1 carried, 1 departure(s)' <<<"$out"; then
-  pass "(a11) #517 AC-4/AC-8: a reasoned DEPARTURE passes, and the pass line discloses the counts"
-else fail "(a11) expected rc=0 with the reconciliation counts on the pass line, got $rc: $out"; fi
+  pass "(a11b) #517 AC-4/AC-8: a reasoned DEPARTURE with the intent-gap record on the branch passes, and the pass line discloses the counts"
+else fail "(a11b) expected rc=0 with the reconciliation counts on the pass line, got $rc: $out"; fi
+rm -f "$INTENT_GAP"
 
 # (a12) ABSENT receipt is inert (AC-7). Most tickets never went through pre-flight, so the
 # common case must not acquire a note at all — a pass line that grew one for every run would
@@ -2767,6 +2785,48 @@ commit_tree "review session commits its record"
 out="$(gate 4 7)"; rc=$?
 if [ "$rc" -eq 0 ]; then pass "(p7) milestone-4 accepts the record written by the review role"
 else fail "(p7) expected rc=0 from milestone-4 on a review-written record, got $rc: $out"; fi
+
+# ---- (hb) the P9 hand-back: a ratification blocker writes the intent-gap record, no verdict -----
+# review/SKILL.md 5d. Measured on the private eval substrate's series 1: a review whose only
+# blocker was "which of two ratified artifacts governs" wrote `needs-work` twice and the lane
+# ended `rounds-spent`; the shape the gate now records is the record and an exit-11 milestone 4.
+gate_obs4() { ( unset RUN_ID; cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LANE_PROGRESS_FILE="$PROG" \
+  LANE_GATE_OBSERVE=1 bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 4 7 2>&1 ); }
+mv "$VERDICT" "$WORK/held-p7-verdict.md"
+rm -f "$INTENT_GAP"
+printf 'The spec ships 3 per receipt row D-2 (user-answered); issue AC-2 says 7. Only a human can say which governs.\n' > "$WORK/hb-gap.md"
+seed_build_progress r-build-1 sess-build-1
+out="$(verdict_cmd sess-review-9 r-review-9 --pr 12 --hand-back ratification --summary-file "$WORK/hb-gap.md")"; rc=$?
+if [ "$rc" -eq 0 ] && [ -f "$INTENT_GAP" ] && [ ! -f "$VERDICT" ] \
+   && grep -qF 'region: undeclared' "$INTENT_GAP" && grep -qF 'disposition: pause-and-ask' "$INTENT_GAP" \
+   && grep -qF 'ratified: no' "$INTENT_GAP" && grep -qF 'session_id: sess-review-9' "$INTENT_GAP" \
+   && grep -qF 'Only a human can say which governs.' "$INTENT_GAP" && grep -q 'HANDED BACK' <<<"$out"; then
+  pass "(hb1) --hand-back ratification writes the intent-gap record (undeclared / pause-and-ask / ratified no, the review's ids, the summary as the gap) and NO verdict record"
+else fail "(hb1) expected rc=0 with the record and no verdict, got $rc: $out
+$(cat "$INTENT_GAP" 2>/dev/null)"; fi
+out="$(gate_obs4)"; rc=$?
+if [ "$rc" -eq 11 ] && grep -q 'HANDED BACK' <<<"$out" && grep -q 'P9' <<<"$out"; then
+  pass "(hb2) milestone-4 classifies the handed-back branch 11 — not the absent-record 5 a review retry would answer"
+else fail "(hb2) expected rc=11 naming the hand-back, got $rc: $out"; fi
+out="$(verdict_cmd sess-review-9 r-review-9 --pr 12 --hand-back ratification --summary-file "$WORK/hb-gap.md")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'already exists' <<<"$out"; then
+  pass "(hb3) a second hand-back on the same issue refuses — one record per issue, never overwritten"
+else fail "(hb3) expected rc=1 on an existing record, got $rc: $out"; fi
+out="$(verdict_cmd sess-review-9 r-review-9 --pr 12 --hand-back ratification --verdict needs-work --summary-file "$WORK/hb-gap.md")"; rc=$?
+if [ "$rc" -eq 2 ] && grep -q 'exclusive' <<<"$out"; then
+  pass "(hb4) --hand-back beside --verdict is a usage refusal — a handed-back round has no verdict"
+else fail "(hb4) expected rc=2 on the exclusive pair, got $rc: $out"; fi
+out="$(verdict_cmd sess-build-1 r-review-9 --pr 12 --hand-back ratification --summary-file "$WORK/hb-gap.md")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'this IS the build session' <<<"$out"; then
+  pass "(hb5) the build session cannot hand its own work back either — the P10 identity checks run before the hand-back"
+else fail "(hb5) expected the P10 refusal from the build session, got $rc: $out"; fi
+sed -i.bak 's/^ratified: no$/ratified: yes/' "$INTENT_GAP" && rm -f "$INTENT_GAP.bak"
+out="$(gate_obs4)"; rc=$?
+if [ "$rc" -eq 5 ]; then
+  pass "(hb6) once the record reads ratified: yes the branch is the ordinary absent-record 5 — a review round is what it needs now"
+else fail "(hb6) expected rc=5 on a ratified record with no verdict, got $rc: $out"; fi
+rm -f "$INTENT_GAP"
+mv "$WORK/held-p7-verdict.md" "$VERDICT"
 
 # ---- (r) the verdict role validates its value-args -----------------------------------------
 # --pr lands verbatim in a COMMITTED evidence artifact, so it is validated like the other two
@@ -7954,14 +8014,16 @@ else fail "(ac1) milestone-4 site mapping drifted: $m4_calls call(s), class sign
 # round 1 added the two `cmd_close_out` arms — m5/progress-current and m5/exit-artifacts:no-open-pr
 # — that `cmd_5` had already re-verbed and close-out had not (8 -> 10).
 # The literal-prefix `"[a-z]` is what excludes block_obligation's own `block_milestone 5 "$2"`.
+# 10 -> 11 with the P9 hand-back: milestone 4's `handed back` class-11 site is an absent verb on
+# purpose — an unratified pause-and-ask record beside no verdict is waited on, never fixed.
 #
 # THIS COUNT IS THE INCLUSION DIRECTION AND NOTHING MORE. It was green across both of round 1's
 # blocker sites, because a `fail_milestone` carrying one of the six predicates leaves it untouched.
 # (ac1c) below is the half that can see that; neither case replaces the other.
 m_block="$(grep -cE 'block_milestone [145] "[a-z]|block_obligation [a-z-]+ "' "$GATE")"
-if [ "$m_block" -eq 10 ]; then
-  pass "(ac1b) #642 AC-3: all 10 announcement-class refusal sites route to the absent verb, over the 6 points the ablation report adjudicates 'unchanged'"
-else fail "(ac1b) absent-verb site count drifted: $m_block (expected 10) — $(grep -nE 'block_milestone [145] "[a-z]|block_obligation [a-z-]+ "' "$GATE")"; fi
+if [ "$m_block" -eq 11 ]; then
+  pass "(ac1b) #642 AC-3: all 11 announcement-class refusal sites route to the absent verb, over the 6 points the ablation report adjudicates 'unchanged' plus the P9 hand-back"
+else fail "(ac1b) absent-verb site count drifted: $m_block (expected 11) — $(grep -nE 'block_milestone [145] "[a-z]|block_obligation [a-z-]+ "' "$GATE")"; fi
 
 # ---- (ac1c)/(ac1d) #642 AC-3, round 1: THE EXCLUSION DIRECTION -----------------------------
 # (ac1b) above counts absent-verb sites and asserts a total. That is the INCLUSION direction, and

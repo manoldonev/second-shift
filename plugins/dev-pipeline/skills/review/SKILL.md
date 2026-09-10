@@ -116,6 +116,23 @@ the code does not author its own evaluation.
    session that reasons its way past this rule, and `check-lane-chain.sh` still treats the absent
    record as a violation, so a hand-back cannot merge. Say plainly in the comment what went dark
    and why, so the build session knows it is waiting on infrastructure rather than on findings.
+5d. **A ratification blocker is handed back, never recorded as `needs-work`.** When the round's
+   one blocker is that two ratified artifacts disagree — the committed spec carries a receipt row
+   the issue's own AC contradicts, or the reverse — and "which of the two governs" is the whole
+   finding, that is a human ruling (P9), not a defect a build session can fix. A `needs-work` here
+   costs a fix round that changes nothing and, on the second one, `rounds-spent`; measured that
+   way twice on the private eval substrate's series 1. Instead: write the intent-gap record and
+   **no** verdict — `bash G verdict <issue> --pr <n> --hand-back ratification --summary-file <path>`,
+   where the summary file is your own statement of the two artifacts, the value each one fixes,
+   and why neither reading is yours to pick. The gate writes it at the issue's
+   `-lean-intent-gap.md` path with `region: undeclared`, `disposition: pause-and-ask`,
+   `ratified: no`, and refuses if a record already exists (one per issue). Commit and push it
+   through `bot-commit.sh` as the branch's last commit, post the same statement as the step-8 PR
+   comment, and stop. Milestone 4 then reads the branch as **handed back** (exit 11) and the
+   scheduler stops the lane `review-paused` rather than re-spawning a review that would hand the
+   same question back. A code defect beside the ratification question is still `needs-work`, and
+   the ratification question then goes in the findings as a blocker the build cannot clear — the
+   hand-back is for the round whose only blocker is the ruling.
 6. Write the record **from the checkout of the PR head**:
    `bash G verdict <issue> --pr <n> --verdict <approve|needs-work> --rounds <n> --fidelity <pass|fail|not-applicable> --panel <a,b,c> --summary-file <path>`
    The summary file carries the finding table and the per-AC scoring. The gate writes the

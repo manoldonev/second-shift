@@ -44,6 +44,7 @@ rounds-spent	pr-unapproved	a PR exists on the lane branch
 rounds-spent	no-pr	no PR on the lane branch
 review-dark	pr-unapproved	a PR exists on the lane branch
 review-dark	no-pr	no PR on the lane branch
+review-paused	paused	-
 verdict-gate-failed	pr-unapproved	a PR exists on the lane branch
 verdict-gate-failed	no-pr	no PR on the lane branch
 verdict-budget-spent	pr-unapproved	a PR exists on the lane branch
