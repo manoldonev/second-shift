@@ -186,13 +186,23 @@ while IFS= read -r f; do
   # header quotes the `${LANE_X:-<default>}` shape it describes. On the promote side, fold line
   # continuations first — a promote list long enough to wrap would otherwise read as half a list,
   # which fails in the SAFE direction but for a reason no reader of the diff could see.
-  reads="$(sed 's/^[[:space:]]*#.*$//' "$SCAN_ROOT/$f" 2>/dev/null \
+  f_code="$(sed 's/^[[:space:]]*#.*$//' "$SCAN_ROOT/$f" 2>/dev/null)"
+  reads="$(printf '%s\n' "$f_code" \
              | grep -oE '\$\{LANE_[A-Z0-9_]+:-' | sed 's/^\${//; s/:-$//' | sort -u)"
   [ -n "$reads" ] || continue
   promoted="$(awk '{ while (sub(/\\$/, "")) { if ((getline nxt) <= 0) break; $0 = $0 nxt } print }' "$SCAN_ROOT/$f" 2>/dev/null \
                 | grep -oE 'lane_env(_promote)?[ ][A-Z_0-9 ]*' | grep -oE 'LANE_[A-Z0-9_]+' | sort -u)"
   for t in $reads; do
-    grep -qE "(^|[[:space:];(])$t=" "$SCAN_ROOT/$f" && continue
+    # A file that ASSIGNS the knob itself is not reading an environment knob there, so it is not
+    # this census's business. The test is narrow on PURPOSE: comment-stripped, and only where a
+    # shell assignment can actually stand — line start, after a `;`/`&`/`|`, or after
+    # export/local/readonly/declare. Accepting a bare `(` or any whitespace matched the knob's own
+    # name quoted inside a MESSAGE string — `(LANE_ATTEND_MODE=headless)`, `(LANE_SELFTEST_CACHE=0)`
+    # — and dropped four knobs from the census that (l) and (n) BOTH walk. One of them was
+    # LANE_ATTEND_MODE, whose half-cleared scrub (n) exists to catch and could not see.
+    printf '%s\n' "$f_code" \
+      | grep -qE "(^[[:space:]]*|[;&|][[:space:]]*|[[:space:]](export|local|readonly|declare)[[:space:]]+)$t=" \
+      && continue
     knobs=$((knobs + 1))
     case " $ALL_KNOBS " in *" $t "*) : ;; *) ALL_KNOBS="$ALL_KNOBS$t " ;; esac
     printf '%s\n' "$promoted" | grep -qx "$t" || missing="$missing$(basename "$f"):$t "

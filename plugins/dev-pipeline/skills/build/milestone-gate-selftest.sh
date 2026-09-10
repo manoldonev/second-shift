@@ -40,10 +40,18 @@ fail() { echo "  FAIL: $1" >&2; FAILS=$((FAILS + 1)); }
 # scheduler at any pin predating the rename exports it. An `unset` that clears one of a fallback
 # PAIR is not hermeticity, it is hermeticity's shape.
 unset LANE_RUN_MODEL LEAN_RUN_MODEL
-# The same pairing for the other two knobs this suite scrubs per case: `LANE_GATE` and
-# `LANE_SELFTEST_CACHE_DIR`. Their retired halves are cleared once here so a per-case `env -u`
-# on the current name is the whole answer rather than half of one.
-unset LEAN_GATE LEAN_SELFTEST_CACHE_DIR
+# The same pairing for the other knobs this suite scrubs per case: `LANE_GATE`,
+# `LANE_SELFTEST_CACHE_DIR` and `LANE_GATE_ANY_TREE` — the last exported suite-wide here and
+# `unset` per case to RE-ARM the lane-tree assertion, which an ambient retired half would keep
+# disarmed. Their retired halves are cleared once here so a per-case `unset` or `env -u` on the
+# current name is the whole answer rather than half of one.
+unset LEAN_GATE LEAN_SELFTEST_CACHE_DIR LEAN_GATE_ANY_TREE
+
+# ATTENDANCE, both spellings (#833). Nothing in this file names the knob, but the gate shells out
+# to operator-override.sh, which reads it: an ambient `headless` turns every override arm into the
+# refusal path and reds cases that have nothing to do with attendance. The scheduler exports it on
+# every payload it spawns, under whichever spelling its pin predates, so both halves go.
+unset LANE_ATTEND_MODE LEAN_ATTEND_MODE
 
 # `RUN_ID` is the same class, and it hid behind a per-helper defense that did not cover every
 # call site. `gate()` unsets it, and so does every `entry` call but one: (d5)'s linked-worktree

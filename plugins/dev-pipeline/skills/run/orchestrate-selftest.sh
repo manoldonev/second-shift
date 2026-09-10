@@ -28,6 +28,11 @@ set -uo pipefail
 # current name — and the scheduler at any pin predating the rename exports exactly that. Cleared
 # ONCE here rather than paired at every call site below.
 unset LEAN_GATE LEAN_SPAWN_CLOCK LEAN_SPAWN_SESSION_CEILING_MS LEAN_SPAWN_STALENESS_SECS
+# ATTENDANCE, both spellings (#833). The spawn-settings cases assert that the scheduler WRITES
+# `LANE_ATTEND_MODE: headless` into the block it hands the payload; an ambient value of either
+# spelling is a second source for the same fact, and `-u` on the current name alone leaves the
+# retired one resolving through the fallback.
+unset LANE_ATTEND_MODE LEAN_ATTEND_MODE
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 TOOL="$HERE/orchestrate.sh"

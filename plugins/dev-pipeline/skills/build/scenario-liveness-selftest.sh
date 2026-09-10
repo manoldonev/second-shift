@@ -80,7 +80,12 @@ set -uo pipefail
 # one, so an ambient LEAN_GATE would walk straight through a scrub that named only the
 # current name — and the scheduler at any pin predating the rename exports exactly that. Cleared
 # ONCE here rather than paired at every call site below.
-unset LEAN_GATE LEAN_RUN_MODEL
+unset LEAN_GATE LEAN_RUN_MODEL LEAN_GATE_ANY_TREE
+# ATTENDANCE, both spellings (#833). Nothing in this file names the knob, but the gate shells out
+# to operator-override.sh, which reads it: an ambient `headless` turns every override arm into the
+# refusal path and reds cases that have nothing to do with attendance. The scheduler exports it on
+# every payload it spawns, under whichever spelling its pin predates, so both halves go.
+unset LANE_ATTEND_MODE LEAN_ATTEND_MODE
 unset SECOND_SHIFT_CONFIG SECOND_SHIFT_REPO_ROOT SECOND_SHIFT_EXTENSION_MANIFEST BRANCH_PREFIX
 
 # #141: the lane-tree assertion, DISARMED for the legs whose fixture is a bare `git init` tree and
