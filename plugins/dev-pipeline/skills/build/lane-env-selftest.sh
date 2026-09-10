@@ -187,8 +187,13 @@ fi
 # comment rather than the repo.
 plus=""
 while IFS= read -r cand; do
-  sed 's/^[[:space:]]*#.*$//' "$ROOT/$cand" 2>/dev/null \
-    | grep -qE '\$\{LANE_[A-Z0-9_]+:?\+' && plus="$plus$cand "
+  # A here-string rather than a pipeline into a quiet grep: a dead producer scores as "no match",
+  # which here would read as "the repo is clean" — the fail-open shape
+  # scripts/check-fail-open-shapes.sh exists to refuse, and a false clean is this case's own
+  # failure mode. (The shape is named in words on purpose; spelling it literally would make this
+  # comment match that guard's census.)
+  cand_code="$(sed 's/^[[:space:]]*#.*$//' "$ROOT/$cand" 2>/dev/null)"
+  grep -qE '\$\{LANE_[A-Z0-9_]+:?\+' <<<"$cand_code" && plus="$plus$cand "
 done < <(cd "$ROOT" && git grep -lE '\$\{LANE_[A-Z0-9_]+:?\+' -- '*.sh' 2>/dev/null)
 if [ -z "$plus" ]; then
   pass "(m) no reader distinguishes a set-but-empty LANE_ knob from an unset one"
