@@ -35,7 +35,7 @@ fi
 
 The artifact schema: progress record, committed verdict record, hook ledger, PR/tracker
 trail (`docs/pipeline-manifesto.md` P3's three-record reconciliation). No `{issue}.json`,
-no `{issue}-eval.json` self-score, no stage checkpoints — `lean-gate.sh`'s five milestone
+no `{issue}-eval.json` self-score, no stage checkpoints — `milestone-gate.sh`'s five milestone
 gates ARE this run's completion evidence.
 
 ```bash
@@ -72,9 +72,9 @@ search first so repeat retros don't re-propose it.
 
 Walk the run's trail against the skill contracts. For each item answer: complied / deviated-and-surfaced / **deviated-silently** (the worst class — see the review-toolkit:review-lead incident that motivated this skill):
 
-Items 1 and 3 below audit mechanics `lean-gate.sh`'s outcome-gated milestones do not produce
+Items 1 and 3 below audit mechanics `milestone-gate.sh`'s outcome-gated milestones do not produce
 by design (/dev-pipeline:build is "OUTCOME-gated, not process-prescribed" — its own header), and
-run-identity reconciliation is already owned by `lean-reconcile.sh`, the operator-run
+run-identity reconciliation is already owned by `reconcile.sh`, the operator-run
 pre-merge check. Item 2 reads AC-n from the committed lean spec
 (`docs/plans/{repo-slug}-{issue}-lean.md`) and item 3 reads the Decision Ledger from that
 same spec.
@@ -102,8 +102,8 @@ If a finding is already covered by an open issue: do **not** re-file or silently
 
 **Enforcement-mechanism ladder (apply to every drift-class finding).** When a finding shows the executing LLM bent or forgot a written rule, propose the CHEAPEST mechanism on this ladder that closes it — and say which rung you chose and why the cheaper rungs don't suffice:
 
-1. **Gate precondition on evidence shape** — can a milestone assertion refuse the outcome because the evidence a compliant run necessarily produces is absent? Cheapest; no new artifacts. (Precedent: `lean-gate.sh`'s per-milestone preconditions and its `4`/`5` terminal gates.)
-2. **Bash helper owning commands + bookkeeping** — the rule governs _command execution_ (suites, git, gh, counters): a helper runs the commands and does its own accounting, removing the honesty burden entirely. (Precedent: `lean-gate.sh` owning the milestone fix-attempt budget; `is-inert-diff.sh`; `claim-issue.sh`.)
+1. **Gate precondition on evidence shape** — can a milestone assertion refuse the outcome because the evidence a compliant run necessarily produces is absent? Cheapest; no new artifacts. (Precedent: `milestone-gate.sh`'s per-milestone preconditions and its `4`/`5` terminal gates.)
+2. **Bash helper owning commands + bookkeeping** — the rule governs _command execution_ (suites, git, gh, counters): a helper runs the commands and does its own accounting, removing the honesty burden entirely. (Precedent: `milestone-gate.sh` owning the milestone fix-attempt budget; `is-inert-diff.sh`; `claim-issue.sh`.)
 3. **`.mjs` Workflow sequencer** — ONLY when the rule sequences _multiple agent dispatches_ with enum verdicts; the script enforces the ordering/verdict mapping and returns one auditable ledger. (Precedent: `code-review.mjs`.) Do not reach for this before exhausting rungs 1–2 — it buys observability the cheaper rungs already give, at higher cost, and each schema-forced dispatch adds StructuredOutput-staller surface.
 4. **Retro audit + accept** — the rule is judgment (deviations completeness, plan grounding quality): scripting it produces compliance theater; this skill IS the enforcement. Route as process note.
 

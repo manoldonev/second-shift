@@ -47,11 +47,11 @@ WORK="$(mktemp -d "${TMPDIR:-/tmp}/gate-buckets-selftest.XXXXXX")" || exit 1
 trap 'rm -rf "$WORK"' EXIT
 
 TAB="$(printf '\t')"
-LG='plugins/dev-pipeline/skills/build/lean-gate.sh'
-LE='plugins/dev-pipeline/skills/build/lean-evidence.sh'
-OL='plugins/dev-pipeline/skills/run/orchestrate-lean.sh'
+LG='plugins/dev-pipeline/skills/build/milestone-gate.sh'
+LE='plugins/dev-pipeline/skills/build/boundary-evidence.sh'
+OL='plugins/dev-pipeline/skills/run/orchestrate.sh'
 OO='plugins/dev-pipeline/tools/operator-override.sh'
-CC='scripts/check-lean-chain.sh'
+CC='scripts/check-lane-chain.sh'
 
 row() { printf '%s%s%s%s%s%s%s%s%s\n' "$1" "$TAB" "$2" "$TAB" "$3" "$TAB" "$4" "$TAB" "$5"; }
 

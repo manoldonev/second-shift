@@ -15,7 +15,7 @@
 # artifacts never read as a dirty tree. (Surfaced by the #1 dogfooding retro.)
 .claude/worktrees/
 
-# Lean-lane design render output — the screenshots `lean-gate.sh` milestone 3 captures for a
+# Lean-lane design render output — the screenshots `milestone-gate.sh` milestone 3 captures for a
 # design-armed ticket. The bytes never enter history; the committed evidence is the hash
 # manifest at <plansDir>/<key>-lean-renders.md. The gate asserts this path is ignored BEFORE it
 # renders and prints this exact line when it is not, so the rule is part of the contract rather
@@ -24,7 +24,7 @@
 .claude/lean-renders/
 
 # The operator's machine-local Claude allowlist. Ignored here rather than only in a personal
-# global ignore file, because `lean-gate.sh entry` COPIES it into each lane worktree (#647) and
+# global ignore file, because `milestone-gate.sh entry` COPIES it into each lane worktree (#647) and
 # refuses to when the destination path is not ignored — an untracked file there would make
 # `git status --porcelain` non-empty, and that is the predicate the entry sweep and the
 # scheduler's in-flight boundary both read to decide whether a lane worktree still holds work.
@@ -42,7 +42,7 @@
 # these tokens). Keep it on disk locally for self-consumption runs; do not version it.
 .claude/second-shift.config.json
 
-# run-lean lane logs — the scheduler's per-ticket `orchestrate-lean.sh` transcripts
+# run-lean lane logs — the scheduler's per-ticket `orchestrate.sh` transcripts
 # (`.claude/logs/run-lean-<issue>.log`, plus its `.<reason>-<n>` incident spills). Machine-local
 # and regenerated per run, but unlike the paths above these accumulate across every lane the
 # operator has ever launched here, so an unignored directory is both diff noise and a standing

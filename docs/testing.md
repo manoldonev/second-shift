@@ -43,14 +43,14 @@ the argument is what makes the bucket checkable:
 **Deleted (2).** `m4/head-missing` and `m4/head-tree-diff`, the pre-patch-id SHA tail milestone 4
 fell through to for a verdict record carrying no `reviewed_patch_id`. `cmd_verdict` — the only
 writer — emits that key unconditionally and `envfail`s rather than omit it, so a record without it
-predates the key; and `lean-evidence.sh`, which `pr-gates` runs on every consumer's PR, refuses
+predates the key; and `boundary-evidence.sh`, which `pr-gates` runs on every consumer's PR, refuses
 that record class outright. Whatever those arms answered, the boundary refused the PR: superseded,
 not merely quiet. Milestone 4 now refuses the class itself, which is strictly tighter than the
 fallback it replaces.
 
 **Deleted (6) at #720, on a DIFFERENT argument.** The six milestone-4 sites behind
 `tools/gate-ablation-classes.tsv`'s `m4/verdict-keys` and `m4/patch-stale` rows were not
-never-fired — `m4/patch-stale` had fired. They were DUPLICATES: `lean-evidence.sh` asks the
+never-fired — `m4/patch-stale` had fired. They were DUPLICATES: `boundary-evidence.sh` asks the
 identical questions at the merge boundary, on inputs the lane cannot make disagree, on every
 consumer's PR. A refusal whose only distinct effect is WHEN the operator learns is bought at the
 price of a second implementation of it, so #720 kept the boundary's copy and deleted the lane's.
@@ -127,7 +127,7 @@ SKIP_STRESS=1 bash tools/run-selftests.sh --full
 
 **`--full` is what makes that a full sweep.** Since #566 the bare invocation is the *bounded
 quick check*: it applies `tools/selftest-suite-timings.tsv` as exclusions by default, which is the
-form `lean-gate.sh` milestone 3 gets. Every caller that wants the whole set — both CI selftest
+form `milestone-gate.sh` milestone 3 gets. Every caller that wants the whole set — both CI selftest
 jobs, both nightly wholesale lanes, and the local recipe in [`CLAUDE.md`](../CLAUDE.md) — passes
 `--full`. See [the slow-suite table](#the-slow-suite-table) below.
 
@@ -153,7 +153,7 @@ follows:
 | --- | --- |
 | any suite exits non-zero | exit 1, every failing suite named with its code |
 | a worker dies without writing a verdict | that suite scores `rc=125`, named as infra — never as a pass |
-| **every** failing suite is that infra class | exit **3**, the reserved code (#527) — the workers died, so the sweep learned nothing about the tree. `lean-gate.sh` milestone 3 reads a 3 from a **blocking** verify lane as "nothing was evaluated": it reds with 7 and charges no fix attempt. Since #642 that is `typecheck` alone — `lint`, `test` and extraLanes report without refusing, so on those an exit 3 is recorded like any other red and classifies nothing. Mixed infra-and-real stays exit 1, because a red branch is still a red branch. See [`config-schema.md`](config-schema.md) for the cross-repo contract |
+| **every** failing suite is that infra class | exit **3**, the reserved code (#527) — the workers died, so the sweep learned nothing about the tree. `milestone-gate.sh` milestone 3 reads a 3 from a **blocking** verify lane as "nothing was evaluated": it reds with 7 and charges no fix attempt. Since #642 that is `typecheck` alone — `lint`, `test` and extraLanes report without refusing, so on those an exit 3 is recorded like any other red and classifies nothing. Mixed infra-and-real stays exit 1, because a red branch is still a red branch. See [`config-schema.md`](config-schema.md) for the cross-repo contract |
 | discovered-minus-excluded ≠ suites actually run | exit 2, `silent truncation` — a faster sweep that ran fewer suites is the failure mode this design is most exposed to |
 | `--exclude` matches no discovered suite | exit 2, `stale exclusion` — the same stale-row posture the slow-suite table applies to its own rows |
 | no suites discovered, or every suite excluded | exit 2 — a sweep that runs nothing is never green |
@@ -166,7 +166,7 @@ already asks that question on every PR) — inside the sweep it contends with th
 from the install cache, which is what the install-topology section below measures.
 `install-topology-selftest.sh` itself runs in its own event-triggered jobs (`install-topology`,
 `install-topology-bash32` in `install-topology.yml` — push on packaging paths, the release PR, or
-`workflow_dispatch`; it ran nightly before #666), never alongside a sweep. The maintainer's dogfood lean-gate
+`workflow_dispatch`; it ran nightly before #666), never alongside a sweep. The maintainer's dogfood milestone-gate
 milestone-3 lane gets the same exclusion from `tools/selftest-suite-timings.tsv` instead, which it
 applies by default — see the slow-suite table section below. The suite stays *discovered*: the exclusion names
 a path that must keep existing, so renaming the suite reds CI instead of silently
@@ -192,7 +192,7 @@ trap 'rm -rf "$BASE"' EXIT
 ```
 
 — and, since #780, the two suites big enough to have once needed their own reaper,
-`lean-gate-selftest.sh` and `orchestrate-lean-selftest.sh`. Exporting a private `TMPDIR` before a
+`milestone-gate-selftest.sh` and `orchestrate-selftest.sh`. Exporting a private `TMPDIR` before a
 run isolates *these* from every other worktree and concurrent lane on the machine. **It does not
 isolate the rest of the tree.** Counting call sites rather than mentions, and excluding comment
 lines — a naive `grep -l` catches both:
@@ -223,7 +223,7 @@ milestone-3 lane — a mechanism that only ever ran over a directory it could ne
 by hand instead:
 
 ```sh
-find "${TMPDIR:-/tmp}" -maxdepth 1 \( -name 'leangate.*' -o -name 'orchestrate-lean-selftest.*' \
+find "${TMPDIR:-/tmp}" -maxdepth 1 \( -name 'leangate.*' -o -name 'orchestrate-selftest.*' \
   -o -name 'run-selftests.*' \) -mmin +60 -print
 ```
 
@@ -257,7 +257,7 @@ routing around it.
 
 ### The slow-suite table
 
-`lean-gate.sh` milestone 3 runs the sweep as a **single blocking call inside the harness turn**,
+`milestone-gate.sh` milestone 3 runs the sweep as a **single blocking call inside the harness turn**,
 which reaps at roughly 120s. Until #566 the lane paid for that bound with a detached runner, a
 marker/rejoin protocol, a milestone-3-only interrupted budget and a lane registry — ~1,300 lines of
 supervision, guards included, whose only job was surviving a limit it is cheaper to stay under.
@@ -270,7 +270,7 @@ supervision, guards included, whose only job was surviving a limit it is cheaper
 `selftest-slow-suites.tsv`), `tools/check-sweep-bound.sh`'s baseline (as
 `selftest-sweep-baseline.tsv`), and `tools/mutation-sweep.sh`'s own slow list (as
 `mutation-slow-suites.tsv`) — independently drifting copies of the *same measurement* for the
-suites they shared (`lean-gate-selftest.sh` was 141s in both, by coincidence, not by any
+suites they shared (`milestone-gate-selftest.sh` was 141s in both, by coincidence, not by any
 reconciling mechanism). They are one file now, one row per suite, one date. Each consumer keeps its
 own threshold as a `# `-prefixed comment directive in the same file rather than a separate one:
 `run-selftests.sh` and `check-sweep-bound.sh` share `# threshold-seconds` (9s); `mutation-sweep.sh`
@@ -280,7 +280,7 @@ is still a hard error; a suite absent from the file is still treated as fast by 
 
 | Caller | Passes | Runs |
 | --- | --- | --- |
-| `lean-gate.sh 3` (via the consumer's `test` command) | nothing | the table is applied — the bounded quick check |
+| `milestone-gate.sh 3` (via the consumer's `test` command) | nothing | the table is applied — the bounded quick check |
 | both CI selftest jobs | `--full` | everything |
 | both nightly wholesale lanes | `--full` | everything |
 | CLAUDE.md's contributor recipe | `--full` | everything |
@@ -386,7 +386,7 @@ containment is the load-bearing part and the hashing is not. Four properties, al
 `tools/run-selftests-selftest.sh` against fixture trees:
 
 1. **Fail-closed by default, twice.** A suite with no row is always run, and the cache as a whole
-   is off unless a store is named — `--cache-dir` on argv, or `$LEAN_SELFTEST_CACHE_DIR` from the
+   is off unless a store is named — `--cache-dir` on argv, or `$LANE_SELFTEST_CACHE_DIR` from the
    pipeline below. The mandated local recipe in `CLAUDE.md` names neither, so a bare local sweep
    is still cold — and so is the nightly leg below.
 2. **Self-inclusion is mandatory.** A row set must name the suite itself, and — where the naming
@@ -402,9 +402,9 @@ containment is the load-bearing part and the hashing is not. Four properties, al
    `--cache-dir`, on both lanes, asking the PR lane's exact question. An under-declaration surfaces
    within a day, against a tree nobody is waiting on.
 
-**The pipeline is the third participant (#563).** `lean-gate.sh` milestone 3 runs a `test`
+**The pipeline is the third participant (#563).** `milestone-gate.sh` milestone 3 runs a `test`
 command it does not own — that string lives in a consumer's `.claude/second-shift.config.json`,
-gitignored in this repo — so it cannot add a flag to it. It exports `LEAN_SELFTEST_CACHE_DIR`
+gitignored in this repo — so it cannot add a flag to it. It exports `LANE_SELFTEST_CACHE_DIR`
 instead, and `run-selftests.sh` reads that when argv named no store. Argv wins, and unset is a no-op, so both CI lanes, the nightly leg and the
 local recipe resolve exactly what they resolve today. Three differences from the CI path, all
 deliberate:
@@ -417,10 +417,10 @@ deliberate:
   flag an operator typed that cannot work, and still exits 2. An *injected* store that cannot be
   created is not the tree's fault, so it prints a named notice and runs cold rather than reddening
   a milestone about something else entirely.
-- **It has an off switch.** `LEAN_SELFTEST_CACHE=0` runs the lane cold, announced — the same
+- **It has an off switch.** `LANE_SELFTEST_CACHE=0` runs the lane cold, announced — the same
   escape hatch as `MUTATION_SWEEP_CACHE=0`, and the thing that makes a suspicious green
   re-checkable. It **scrubs** rather than merely declining to export: an operator already
-  carrying `LEAN_SELFTEST_CACHE_DIR` would otherwise hand it to every lane child by ordinary
+  carrying `LANE_SELFTEST_CACHE_DIR` would otherwise hand it to every lane child by ordinary
   inheritance, and the gate would announce a cold sweep while the runner cached.
 
 **What the lane can actually get from it (#662).** A suite is served here only if it is BOTH rowed
@@ -454,7 +454,7 @@ tell a skip from a suite that quietly stopped being discovered. The summary line
 performed is the faster-green misreading the rest of this section is about.
 
 **Adding a row is the risky edit in that file, not the cheap one.** Derive the input set from the
-suite, never from a ticket: `lean-gate-selftest.sh` reads eight files out of the checkout, the
+suite, never from a ticket: `milestone-gate-selftest.sh` reads eight files out of the checkout, the
 gate among them, and those resolve seven more at run time — sixteen rows, the suite's own path
 being the sixteenth, where an eyeball lists two.
 Where a suite's composed set is really its transitive closure — `scenario-liveness-selftest.sh` is
@@ -463,8 +463,8 @@ seconds; an under-declared one costs a gate.
 
 **Derive the closure, not the file list.** Neither mechanized rule reaches depth 2: a row set can
 name the suite and its subject and still under-declare, because that subject resolves a third file
-at run time. The shipped set runs to depth 3: `lean-gate.sh` resolves `claim-issue.sh`, which
-resolves its sibling `gh-bot.sh`, so `lean-gate-selftest.sh` declares a file two removes from
+at run time. The shipped set runs to depth 3: `milestone-gate.sh` resolves `claim-issue.sh`, which
+resolves its sibling `gh-bot.sh`, so `milestone-gate-selftest.sh` declares a file two removes from
 anything it names. Follow every variable-rooted resolution out of every declared script until it
 terminates, and say in the row comment where it terminated — the rule below is how you enumerate
 them.
@@ -490,12 +490,12 @@ misses, each of which has cost this table a defect:
    only if the suite runs the subject against a tree that has the file — under a `mktemp` fixture
    it usually does not, and the case is asserting the absent branch.
 
-`lean-gate.sh` resolves `plugins/design-toolkit/agents/figma-faithful-plan-reviewer.md` and never
+`milestone-gate.sh` resolves `plugins/design-toolkit/agents/figma-faithful-plan-reviewer.md` and never
 reads a byte of it; that closure's first revision missed it on counts 1 and 2 at once, and renaming
 the file takes the suite from green to 39 failures against a key that does not move. Count 3 is why
-the first two are not enough on their own: `check-lean-chain-selftest.sh`'s `lean-evidence.sh` row
+the first two are not enough on their own: `check-lane-chain-selftest.sh`'s `boundary-evidence.sh` row
 is a graded-tree resolution with no `${BASH_SOURCE[0]}` form anywhere, so a sweep for the first root
-alone cannot even reproduce the rows already in the table — while `lean-gate.sh`'s two graded-tree
+alone cannot even reproduce the rows already in the table — while `milestone-gate.sh`'s two graded-tree
 resolutions (`scripts/check-frozen-files.sh` and `scripts/check-changelog-trailer.sh`, at
 `:3612-3613`) correctly get no row, because the suite's fixtures never contain them and its case
 (h) asserts exactly that absent branch. Same shape, opposite answers; classify, do not assume.
@@ -777,7 +777,7 @@ observed); only the observation moved, from 244s to ≥600s, because under the s
 the contending load is the whole sweep rather than one second copy.
 
 **A consumer's configured lane runs in a scrubbed child env.** `preflight.sh` and
-`lean-gate.sh` both spawn a `commands.<host>` command (`lint`/`typecheck`/`test`/`format`/
+`milestone-gate.sh` both spawn a `commands.<host>` command (`lint`/`typecheck`/`test`/`format`/
 `lanes`/`extraLanes`) as a `bash -c` child of the pipeline session. When this repo dogfoods
 itself, that child IS second-shift tooling — the configured `test` command is the selftest
 sweep — so it must not see the caller's own `SECOND_SHIFT_CONFIG` / `SECOND_SHIFT_REPO_ROOT` /
@@ -789,7 +789,7 @@ doctor sweep), kept honest by a `subset-of` LOCKSTEP group rather than a shared 
 is importable by the other).
 
 The relation is declared at the two sites — `superset` on preflight, `subset` on the gate — and
-asserts `preflight ⊇ lean-gate` directly.
+asserts `preflight ⊇ milestone-gate` directly.
 
 This is a different concern from the `unset SECOND_SHIFT_CONFIG …` lines at the top of several
 *direct-invocation* selftests (`preflight-selftest.sh`, `scenario-liveness-selftest.sh`, etc.):
@@ -865,7 +865,7 @@ through that PR's three review rounds and its full panel — because the file it
 diff anyone read, and no marker could have caught it: there was no second copy to compare against.
 
 `scripts/check-lane-class-doc.sh` is the shape that fits. It **derives** the reserved set by
-walking `lean-gate.sh`'s `lane_failure_class` call sites, and requires the doc's marker-delimited
+walking `milestone-gate.sh`'s `lane_failure_class` call sites, and requires the doc's marker-delimited
 rows to name exactly that set, in both directions. It is not a prose-presence guard — it fails for
 a fact that lives in another file, which is precisely what grepping a markdown file for a word
 cannot do.
@@ -895,33 +895,33 @@ coupling rather than mechanizing it into a guard that cannot fail.
 **Unanchorable — no literal the two sides could share.**
 
 - **The AC-scorecard reader ↔ its write-time caller** (#622). The contract runs at two layers —
-  `lean-gate.sh verdict` refuses a self-contradictory record at write time, `lean-evidence.sh`
+  `milestone-gate.sh verdict` refuses a self-contradictory record at write time, `boundary-evidence.sh`
   refuses it at the merge boundary — and the obvious mechanization was a `LOCKSTEP` pair holding
   two copies of one awk program. **Declined, because the duplication is avoidable rather than
   necessary**: the two files ship in the same directory, so the writer shells out to
-  `lean-evidence.sh scorecard`, and there is exactly one implementation for a marker to hold. The
+  `boundary-evidence.sh scorecard`, and there is exactly one implementation for a marker to hold. The
   residual coupling is the REFUSAL MESSAGE — the writer has to tell a reviewer what shape to
   write — and it is closed the same way, by a `scorecard --print-schema` seam the writer quotes
   rather than a second copy of the heading and column names. **Behaviorally guarded**:
-  `lean-gate-selftest.sh` case `(vs3)` fails if the refusal stops quoting the reader's own schema
+  `milestone-gate-selftest.sh` case `(vs3)` fails if the refusal stops quoting the reader's own schema
   line, which is the only way the two could drift while both stayed green. The alternative that
-  was NOT available is the one the override-record reader took: `lean-evidence.sh` must stand
+  was NOT available is the one the override-record reader took: `boundary-evidence.sh` must stand
   alone at a consumer's pinned ref, so the dependency can only run in this direction.
 
 - **The mid-run ticket-liveness re-check ↔ the milestone calls' network-free property** (#650
   `D-11`). Not a duplication but a coupling of a different kind, recorded here because the decision
-  is exactly the sort that gets re-litigated: `lean-gate.sh`'s `require_ticket_live` header fixes
+  is exactly the sort that gets re-litigated: `milestone-gate.sh`'s `require_ticket_live` header fixes
   "one read per run boundary, never per milestone", and `1`..`5` are documented as making no
   network call. The mid-run re-check would save the most time at milestone 3's start — that is
   where a run whose ticket closed underneath it actually burns its minutes — and it is placed on
   `mark` instead, which already opens a socket and already writes, so the property holds unbroken.
   Nothing anchors the two sides: one is a comment stating an invariant, the other is the absence of
-  a call. **Behaviorally guarded on the half that can be**: `lean-gate-selftest.sh` case `(tl4)`
+  a call. **Behaviorally guarded on the half that can be**: `milestone-gate-selftest.sh` case `(tl4)`
   fails if the guard is widened past the direct `mark` subcommand. The milestone half is guarded by
   the property itself — the suite's gh stub fails loudly on an unstubbed call, so a milestone call
   that grew a tracker read would surface as a named stub miss rather than as a silent socket.
 
-- **`render_patch_id()` ↔ `check-lean-chain.sh`'s render-id computation, on the #694 plan
+- **`render_patch_id()` ↔ `check-lane-chain.sh`'s render-id computation, on the #694 plan
   exclusion.** The gate now derives a THIRD identity, `plan_patch_id()`, which excludes the verdict
   record, the render receipt and the translation plan. The symmetric change — teaching
   `render_patch_id()` to exclude the plan too — was considered and **declined**: that function is
@@ -936,11 +936,11 @@ coupling rather than mechanizing it into a guard that cannot fail.
   and restales the receipt, forcing a re-render nothing else asked for. That converges in a single
   pass rather than looping (the receipt is excluded from both identities, so re-rendering cannot
   restale itself), and the boundary-skew argument carries the decision on its own; the cost is one
-  wasted render pass, not a livelock. **Behaviorally guarded**: `lean-gate-selftest.sh`'s `(dp7)`
+  wasted render pass, not a livelock. **Behaviorally guarded**: `milestone-gate-selftest.sh`'s `(dp7)`
   pins that the stamp converges rather than looping, and `(di*)` still pin the receipt's idempotence
   across the same commits.
 
-- **preflight ↔ gate zero-verifying-lane predicate.** Real against `lean-gate.sh` milestone 3,
+- **preflight ↔ gate zero-verifying-lane predicate.** Real against `milestone-gate.sh` milestone 3,
   which reds naming the opt-out where `preflight.sh` only warns. preflight computes an aggregated
   VERIFYING count inline; the gate reads `allowUnverified`/`lanes`/`extraLanes` into separate
   variables under a different jq arg name. Reaching a byte-identical block means restructuring
@@ -1005,77 +1005,77 @@ coupling rather than mechanizing it into a guard that cannot fail.
   **Not the #674 derive-it shape either**, though it is the closer fit: what the sites state is a
   *design rationale* ("no session is guaranteed to be running when the item closes"), not a set
   the code enumerates. `check-lane-class-doc.sh` works because `lane_failure_class`'s call sites
-  ARE the reserved set; nothing in `lean-gate.sh` enumerates why a workflow owns a label.
+  ARE the reserved set; nothing in `milestone-gate.sh` enumerates why a workflow owns a label.
   **Behaviorally guarded on the half that can be**: the falsifiable half of the old claim was
-  never the prose, it was `cmd_mark`'s `--state open`, and `lean-gate-selftest.sh` cases `(pm7b)`,
+  never the prose, it was `cmd_mark`'s `--state open`, and `milestone-gate-selftest.sh` cases `(pm7b)`,
   `(pm7c)` and `(k7b)` now drive it over the live `gh` path. The prose half is reviewer-guarded,
   and the three frozen-record classes that legitimately still quote the old sentence —
   `docs/plans/**`, `docs/skill-ablation.md`, and the `dup-scan` corpus fixture — are excluded on
   purpose, not overlooked: each is a dated record of what a file said on the day it was read, and
   correcting the quote would destroy the evidence for the finding.
-- **`LEAN_SELFTEST_CACHE_DIR`, writer ↔ reader (#563).** The same coupling one ticket later,
+- **`LANE_SELFTEST_CACHE_DIR`, writer ↔ reader (#563).** The same coupling one ticket later,
   declined for the same reason. The invisible direction is sharper: a one-sided rename just means
   no lean sweep ever serves from cache again, which looks exactly like a cache that is working and
-  never hitting. Guarded on BOTH sides — `lean-gate-selftest.sh` (sc1)-(sc3) spawn a real lane child
+  never hitting. Guarded on BOTH sides — `milestone-gate-selftest.sh` (sc1)-(sc3) spawn a real lane child
   that must report the announced store, and `run-selftests-selftest.sh`'s #563 cases drive the
   runner through the variable rather than the flag.
 - **The reserved verify-lane INFRASTRUCTURE exit code (#527), writer ↔ reader.**
-  `tools/run-selftests.sh` raises 3 when every failing suite is its no-verdict class; `lean-gate.sh`
+  `tools/run-selftests.sh` raises 3 when every failing suite is its no-verdict class; `milestone-gate.sh`
   milestone 3 reads 3 from a blocking verify lane as "nothing was evaluated" and charges no fix
   attempt. The two sites share a NUMBER, not a block. Not left reviewer-guarded, which is where this
-  differs from the ceiling above: `lean-gate-selftest.sh` (ic6)/(ic7) COMPOSE the pair — the real
+  differs from the ceiling above: `milestone-gate-selftest.sh` (ic6)/(ic7) COMPOSE the pair — the real
   runner, over a fixture tree whose every suite dies without a verdict, wired into
   `commands.acme.typecheck` exactly as a consumer would wire it — so a one-sided change reds in both
   polarities. #642 moved that wiring off `commands.acme.test`, which no longer refuses; the contract
   is unchanged, only the key it is driven through. The ends are pinned alone too:
   `run-selftests-selftest.sh`'s AC-1 cases on the writer, (ic1)-(ic5) on the reader.
-- **lean verdict-record key schema** — one writer (`lean-gate.sh`'s `verdict`) and three readers
-  (`lean-gate.sh` milestone 4, `check-lean-chain.sh`, `lean-reconcile.sh`). Dropping a key on the
+- **lean verdict-record key schema** — one writer (`milestone-gate.sh`'s `verdict`) and three readers
+  (`milestone-gate.sh` milestone 4, `check-lane-chain.sh`, `reconcile.sh`). Dropping a key on the
   writer silently un-satisfies all three; a reader-side requirement the writer never emits reds
   every pipeline PR. The writer spells keys as `echo` lines and the readers as grep/jq patterns.
-  Guarded behaviorally, and the guard COMPOSES across sites: `lean-gate-selftest.sh` (p5)/(p7) feed
+  Guarded behaviorally, and the guard COMPOSES across sites: `milestone-gate-selftest.sh` (p5)/(p7) feed
   the writer's output to the milestone-4 reader in the same run; (u1) pins the one key whose absence
-  milestone 4 still refuses on its own (`reviewed_head`); `lean-evidence-selftest.sh` (r) pins the
-  `reviewed_patch_id` class, and `check-lean-chain-selftest.sh` (N2)/(N3)/(R1) and
-  `lean-reconcile-selftest.sh` (J3)/(K1) do the same at the other readers. #720 deleted milestone
+  milestone 4 still refuses on its own (`reviewed_head`); `boundary-evidence-selftest.sh` (r) pins the
+  `reviewed_patch_id` class, and `check-lane-chain-selftest.sh` (N2)/(N3)/(R1) and
+  `reconcile-selftest.sh` (J3)/(K1) do the same at the other readers. #720 deleted milestone
   4's own `run_id`/`session_id`/`reviewed_patch_id` refusals as duplicates of those.
   `reviewed_head:` and `reviewed_patch_id:` are the DERIVED keys — the readers recompute rather than
   extract, so a writer that stamped a short sha would extract cleanly everywhere and then fail every
   comparison. `reviewed_patch_id:` is tighter still: both sides must agree on the base, the diff
   range AND the excluded path — and since #720 the only reader that COMPARES it is the merge
-  boundary, so the composition lives there: `lean-evidence-selftest.sh` drives writer-to-reader end
-  to end including the #597 base-advance hatch, `lean-gate-selftest.sh` (v6) pins that the writer
+  boundary, so the composition lives there: `boundary-evidence-selftest.sh` drives writer-to-reader end
+  to end including the #597 base-advance hatch, `milestone-gate-selftest.sh` (v6) pins that the writer
   refuses rather than omitting the key, and (x1) pins that a writer-produced record carries one.
   `panel:` (#708) is the one key with a reader of its OWN: `header_key`'s charset stops at the first
   character outside `[A-Za-z0-9._-]`, so a qualified comma-separated list truncates to its leading
   plugin token, and `panel_key` reads it whole. Widening the shared reader was rejected — it would
   change how every key in the schema is read, across three lockstep members and the chain walk, to
-  serve one. The key stays in `LEAN_VERDICT_HEADER_KEYS` anyway: what that loop proves is that
+  serve one. The key stays in `LANE_VERDICT_HEADER_KEYS` anyway: what that loop proves is that
   formatting did not damage the LINE ANCHORING, and the truncated comparison detects a reflow
-  exactly as an untruncated one would. Guarded at the writer by `lean-gate-selftest.sh`'s (fp0)-(fp7)
-  and at the two readers by (fp5)/(fp6) and `check-lean-chain-selftest.sh`'s (X7)-(X11).
+  exactly as an untruncated one would. Guarded at the writer by `milestone-gate-selftest.sh`'s (fp0)-(fp7)
+  and at the two readers by (fp5)/(fp6) and `check-lane-chain-selftest.sh`'s (X7)-(X11).
   `verdict=` is read FIRST-MATCH at every reader, never counted: the writer appends reviewer prose
   below the keys and review prose quotes verdict values, so a count-anywhere reader passes a record
-  whose authoritative first line says needs-work — `lean-gate-selftest.sh` (s) and
-  `check-lean-chain-selftest.sh` (P) drive exactly that record. `fidelity:` (#394) is guarded the
+  whose authoritative first line says needs-work — `milestone-gate-selftest.sh` (s) and
+  `check-lane-chain-selftest.sh` (P) drive exactly that record. `fidelity:` (#394) is guarded the
   same composed way, and its VALUE is armed-ness-relative, which no literal can pin. Revisit if a
   fourth reader lands, or if any site starts parsing the record as structured data.
 - **The chain-WALK loop** around the `lean-inherited-key` extraction, which each reader also copies.
   The three are not one literal and cannot be made into one without harm: each phrases its own
-  diagnostic, each uses its host's list idiom, and `check-lean-chain.sh` must additionally scope
+  diagnostic, each uses its host's list idiom, and `check-lane-chain.sh` must additionally scope
   `git log` to `$PR_HEAD_SHA` because CI's checkout carries base-side history the PR never authored.
   Forcing them verbatim would delete the differences, which are the point. Guarded from three sides:
-  `lean-gate-selftest.sh` (x6)/(x7)/(y2), `check-lean-chain-selftest.sh` (V3)/(V3b)/(V4)/(V5),
-  `lean-reconcile-selftest.sh` (N3)/(N6).
+  `milestone-gate-selftest.sh` (x6)/(x7)/(y2), `check-lane-chain-selftest.sh` (V3)/(V3b)/(V4)/(V5),
+  `reconcile-selftest.sh` (N3)/(N6).
 - **intake-receipt vocabulary** (Kind enum, open-region and surface disposition enums, the two
   explicit empty forms, the intent-gap record schema). `interviewing-baseline/SKILL.md` states it in
-  prose and tables; `ledger-lint.sh` holds the only machine copies; `check-lean-chain.sh` reads the
+  prose and tables; `ledger-lint.sh` holds the only machine copies; `check-lane-chain.sh` reads the
   record's `ratified:`/`ratified_by:` keys. A Kind value added to the doc and not the lint is a
   value the receipt gate rejects with a message naming the enum the author just read. The doc side
   is a markdown table of prose descriptions, not a quoted literal. The empty forms ARE quoted
   literals on the lint side but sit inside fenced code blocks on the doc side, where neither
   relation reaches. Guarded by `ledger-lint-selftest.sh` (ll-o)-(ll-as) and
-  `check-lean-chain-selftest.sh` (R0)-(R4). **Note the deliberate NON-coupling:** the chain gate
+  `check-lane-chain-selftest.sh` (R0)-(R4). **Note the deliberate NON-coupling:** the chain gate
   checks ratification ONLY and does not re-validate `disposition:` — a second copy in CI would
   create exactly the pair this entry declines to create. **The SKILL layer is a caller class of its
   own:** `intake-orchestrator/SKILL.md` Step 5.5 prescribes the receipt shape and then runs
@@ -1098,7 +1098,7 @@ coupling rather than mechanizing it into a guard that cannot fail.
   substitution the stages use and PRINTS the result, and `preflight-selftest.sh` run 18 asserts on
   that printed line — both the unmigrated-override case and the migrated-pattern over-match negative.
   Printing alone would not have been coverage; the assertions are.
-- **lean artifact discriminator** — `lean-evidence.sh`'s `classify()` ↔ `retro-corpus.sh`'s
+- **lean artifact discriminator** — `boundary-evidence.sh`'s `classify()` ↔ `retro-corpus.sh`'s
   `open-prs` (#413). Both decide "is this PR lean" the same way, and a one-sided edit leaves the
   retro corpus silently reporting live pipeline PRs as verdict-less. NOT delegable, which is why the
   copy exists: the gates classify the PR they are running ON, from a PR context that lets
@@ -1106,16 +1106,16 @@ coupling rather than mechanizing it into a guard that cannot fail.
   single `gh pr list --json files` call, where an open PR's spec is committed on its own branch, so
   a working-tree file test would reject every candidate it exists to find. One side spells the test
   as shell `case` patterns over a `find` walk, the other as a `grep -v` chain plus a `grep -qE` over
-  a JSON array. Guarded on both sides against the same two mistakes: `lean-evidence-selftest.sh`
+  a JSON array. Guarded on both sides against the same two mistakes: `boundary-evidence-selftest.sh`
   (d)/(z2) pin the key match, and `retro-corpus-selftest.sh` (AC-5b) drives `open-prs` over a
   fixture PR array carrying another ticket's spec and a fixture-pathed spec and asserts neither
   casts a vote — with (AC-5) as the non-vacuity side. Revisit if the `-lean.md` suffix is ever
   hoisted into the config schema.
-- **lean ARTIFACT-NAME suffixes (#359)** — `check-lean-chain.sh`'s name table ↔ `lean-evidence.sh`'s.
+- **lean ARTIFACT-NAME suffixes (#359)** — `check-lane-chain.sh`'s name table ↔ `boundary-evidence.sh`'s.
   The two sets are deliberately DIFFERENT: `-lean-renders.md` belongs only to the chain gate and
   `-lean-intent-gap.md` only to the payload, so `verbatim` would compare unlike sets and fail on a
   correct tree, while `subset-of` reads a lone suffix rather than an enum and would assert nothing.
-  Guarded end to end: `check-lean-chain-selftest.sh`'s (A) happy path and (S0)-(S4) drive a real
+  Guarded end to end: `check-lane-chain-selftest.sh`'s (A) happy path and (S0)-(S4) drive a real
   fixture tree, so a suffix that diverged stops locating the artifact. The VERDICT suffix alone DOES
   carry markers (#542) — not a reversal, but a third holder with a different transport: the consumer
   delta guard is COMMITTED INTO a consumer repo rather than fetched at the pinned ref, so no
@@ -1126,15 +1126,15 @@ coupling rather than mechanizing it into a guard that cannot fail.
   workflow, while the gate normalizes a git author date carrying an arbitrary offset through
   `TZ=UTC git log --date=format-local`. The `since:` values are MEANT to differ — each anchors to
   the merge that made its own arm binding. The duplication is forced by deployment shape: a
-  consumer's CI checkout has `lean-evidence.sh` and nothing else. Guarded by
-  `lean-evidence-selftest.sh` (ac1)-(ac6), `lean-gate-selftest.sh` (eb1)-(eb7) including two non-UTC
-  offsets in both directions, `check-lean-chain-selftest.sh` (Z1)/(Z2), and this repo's own
+  consumer's CI checkout has `boundary-evidence.sh` and nothing else. Guarded by
+  `boundary-evidence-selftest.sh` (ac1)-(ac6), `milestone-gate-selftest.sh` (eb1)-(eb7) including two non-UTC
+  offsets in both directions, `check-lane-chain-selftest.sh` (Z1)/(Z2), and this repo's own
   `pr-gates` executing the payload on every PR. Revisit if a shared normalization helper is ever
   hoisted into a file both can reach.
 - **lean evidence TOKEN SCOPES (#359)** — the `permissions:` block in this repo's `ci.yml`
   (`pr-gates`) ↔ `templates/consumer/second-shift-ci.yml`. Declined NOT for want of an anchor: the
   two blocks do collapse to the same string today. They are not one contract. The host job
-  additionally runs `check-lean-chain.sh`'s issue-side claim arm, which a read-only tracker has no
+  additionally runs `check-lane-chain.sh`'s issue-side claim arm, which a read-only tracker has no
   counterpart for, so the sets coincide by present need, not by definition. A `verbatim` relation
   would bind them in the wrong direction — a scope the HOST later needs would become a scope every
   consumer's workflow is forced to grant, the standing escalation the template's own comment
@@ -1143,7 +1143,7 @@ coupling rather than mechanizing it into a guard that cannot fail.
   the file, so a commented-out scope cannot satisfy it) plus the no-write-scope rule; the host side
   executes that read on every PR, where an assertion would restate what CI already proves. Revisit
   if the host's block gains a scope — check whether the arm needing it lives in the payload (then
-  the template needs it too) or only in `check-lean-chain.sh` (then it must not).
+  the template needs it too) or only in `check-lane-chain.sh` (then it must not).
 - **`config-grill.sh`'s restated RUNTIME-resolved defaults** ↔ the stages that resolve them.
   Quoting the SCHEMA default would be a lie the consumer cannot act on: nothing injects schema
   defaults into a config, so the value in force is the fallback in the stage. `webComponentGlobs`'s
@@ -1177,13 +1177,13 @@ coupling rather than mechanizing it into a guard that cannot fail.
   row's `keys_unsorted` equals the documented field list exactly, so a field added, renamed or
   reordered in the hook without the docs following fails the suite. Mechanical on both legs, by two
   mechanisms.
-- **The audit ledger dir's THIRD site** — `lean-gate.sh` derives `MAIN_ROOT` for many purposes
+- **The audit ledger dir's THIRD site** — `milestone-gate.sh` derives `MAIN_ROOT` for many purposes
   beyond the ledger, so it shares no anchorable bytes with the `audit-ledger-dir` block. Held by
-  fixtures instead: `lean-gate-selftest.sh` and `lean-reconcile-selftest.sh` each drive the REAL
+  fixtures instead: `milestone-gate-selftest.sh` and `reconcile-selftest.sh` each drive the REAL
   hook from a linked worktree and assert their reader finds the result, so a writer-side drift reds
   a reader's suite.
-- **The unbound `lean-producer-capabilities` TAG copies** in `lean-reconcile.sh` and
-  `run/orchestrate-lean.sh`. Neither is a merge-boundary gate, and drift in either fails CLOSED
+- **The unbound `lean-producer-capabilities` TAG copies** in `reconcile.sh` and
+  `run/orchestrate.sh`. Neither is a merge-boundary gate, and drift in either fails CLOSED
   and loudly instead of silently weakening a boundary — which is what earns a marker in the first
   place. A drifted tag in the scheduler's #500 re-entry probe stops re-entry being recognized, so
   the operator meets a preflight reject on the next stopped run, never a green PR.
@@ -1199,15 +1199,15 @@ coupling rather than mechanizing it into a guard that cannot fail.
   `get_code_connect_map`, its terminal sentence forbids transcribing from a static image, and it
   deliberately omits the parent-frame capture. A `verbatim` relation would fail on the first
   legitimate edit to either side.
-- **lean branch prefix** (#413) — `ci.yml`'s `LEAN_BRANCH_PREFIX` ↔ `lean-gate.sh`'s runtime
+- **lean branch prefix** (#413) — `ci.yml`'s `LANE_BRANCH_PREFIX` ↔ `milestone-gate.sh`'s runtime
   derivation of a `lean/` namespace. Recorded rather than silently dropped, because the reasoning
   that justified dropping it became load-bearing. It was declined as non-byte-anchorable, and what
-  made that SAFE was that `check-lean-chain.sh` did not classify on the prefix alone. That
+  made that SAFE was that `check-lane-chain.sh` did not classify on the prefix alone. That
   compensating control is now the whole rule: the lane cuts `<branchPrefix><key>`, there is no
   second prefix, and applicability is the key-matched lean spec in the PR's diff and nothing else.
   Both sides ceased to exist, along with the mutual non-prefix-match property they asserted.
 - **lean branch-prefix DERIVATION (#359)** — deleted with its subject in #413. It pinned
-  `lean_branch_prefix()` across `lean-gate.sh` and `lean-evidence.sh`; both copies are gone.
+  `lean_branch_prefix()` across `milestone-gate.sh` and `boundary-evidence.sh`; both copies are gone.
 - **per-ticket corpus dedup (#289).** `retro-corpus.sh` is the sole carrier of the
   basename-equals-ticketKey supersedes rule. Its behavior stays guarded by
   `retro-corpus-selftest.sh` (289 AC-1)/(AC-2)/(AC-3) — live-supersedes-snapshot,
@@ -1296,9 +1296,9 @@ only be reached through whatever subcommand happens to call it. When no subcomma
 branch, the tempting move is to re-declare the helper in the suite, which is the mirror harness
 this repo forbids: a copy cannot fail on a production edit.
 
-`lean-gate.sh` answers it with `LEAN_GATE_LIB`. Set it, source the script, and it defines its
+`milestone-gate.sh` answers it with `LANE_GATE_LIB`. Set it, source the script, and it defines its
 functions and returns before the dispatch; the suite then calls the real production body. It is
-what `lean-gate-selftest.sh`'s `(fp1)`–`(fp4)` use to fixture `md_table_prettier` against
+what `milestone-gate-selftest.sh`'s `(fp1)`–`(fp4)` use to fixture `md_table_prettier` against
 byte-exact goldens, including a width case no render the gate can perform would reach.
 
 One caveat, and it bites under `set -u`: the script's own argument parser consumes the inert
@@ -1374,7 +1374,7 @@ MAX_ROWS_PER_GUARD=36
 The wholesale lane's
 `--shard i/N` partition is round-robin over the sorted guard list, so it balances guard **count,
 not cost**, and a guard's mutants are atomic to one residue class: the worst shard is whichever
-holds the most expensive guard, and no value of N moves them apart. `lean-gate.sh` reached 56
+holds the most expensive guard, and no value of N moves them apart. `milestone-gate.sh` reached 56
 rows against a 212s killer suite and was killed at the 45-minute step bound on two successive
 monthly runs, taking the six unrelated guards in its shard down with it.
 
@@ -1574,7 +1574,7 @@ Kill verdicts are only comparable inside the canonical environment (ubuntu-lates
 `SKIP_STRESS=1`), so local runs are advisory and say so. `MUTATION_SWEEP_NO_DEFER=1` is settable
 locally for the full picture, and does not change that.
 
-**There is deliberately no fourth surface.** Until #580 `lean-gate.sh` milestone 3 ran a
+**There is deliberately no fourth surface.** Until #580 `milestone-gate.sh` milestone 3 ran a
 `--mode pr` sweep in-session (decision D-18) whenever the target repo carried a
 `tools/mutation-sweep.sh`. It issued the **identical** invocation the PR job above already makes,
 so it was CI-duplicated work idle-blocking a build session — on a contended developer machine,
@@ -1606,7 +1606,7 @@ sha256(mutation-sweep.sh) + sha256(mutated guard) + sha256(each paired suite, in
 ```
 
 **The key is narrow, and it is not sound.** A third file can flip a verdict with the guard and all
-its suites byte-identical: `lean-gate.sh` shells out to four sibling scripts, and
+its suites byte-identical: `milestone-gate.sh` shells out to four sibling scripts, and
 `cost-block-selftest.sh` reaches `pipeline-cost-block.sh`'s own resolution of `gh-bot.sh`.
 A whole-tree key would be sound — and would also
 drop the hit rate to zero, since the sweep sandboxes HEAD and every fix round is a new commit.
@@ -1659,7 +1659,7 @@ It is also where **slow-list drift is warned**, and the placement is the point. 
 grown past the 5s bar while absent from `tools/selftest-suite-timings.tsv` keeps its guard in the PR
 lane, where every mutant that makes the guard spin costs the full killer bound; enough of them and
 the job dies on its own 15-minute ceiling — before the report, and therefore before any warn the
-report would have carried. `lean-gate-selftest.sh` reached **143s** against that 5s bar exactly this
+report would have carried. `milestone-gate-selftest.sh` reached **143s** against that 5s bar exactly this
 way, and the three PR runs it killed read only as "timed out". Warning from the precheck is what
 makes the diagnosis outlive the timeout it diagnoses. It stays a warn, never a red: the list is a
 cost record, and a stale row costs wall clock rather than correctness. Fix it by adding the row in
@@ -1770,7 +1770,7 @@ a handful of shifted rows.
 regardless. A run has shipped a reding baseline on exactly this mistake.
 
 **A green PR does not mean a graded PR.** The PR lane sweeps only guards whose kill set is a
-single fast suite; everything paired to a slow or multi-suite killer (`lean-gate-selftest`,
+single fast suite; everything paired to a slow or multi-suite killer (`milestone-gate-selftest`,
 `scenario-liveness-selftest`, anything in `tools/selftest-suite-timings.tsv`) reports
 `deferred-to-nightly` and is **not graded on your PR**. The status token still says `nightly`
 because three selftest greps and this document read it and re-keying an enum buys nothing; the
@@ -1781,7 +1781,7 @@ a deferred guard, expect to learn about it from `mutation-merge` rather than fro
 content keying means only a site you actually *wrote* can produce one.
 
 **All-deferred is not silently green (#582).** When every in-scope guard defers — 23% of
-guard-touching PRs, measured by the #567 audit, concentrated on `lean-gate.sh` — the job still
+guard-touching PRs, measured by the #567 audit, concentrated on `milestone-gate.sh` — the job still
 exits 0, but it no longer reads the same as "swept your guards, found no new survivors". It prints
 an unmissable `WARN:` line naming the count and the reason(s), and, on real CI, a `::warning::`
 check-surface annotation plus a job-summary block when `GITHUB_STEP_SUMMARY` is set. Sweeping at
@@ -1827,11 +1827,11 @@ host, and the surfaces they share are real: one selftest pass-cache store, and o
 worker count (`SELFTEST_JOBS`) that has no lane awareness. Epic #525 hardened all of that and
 merged without a single two-lane run behind it.
 
-This tier is that run. It is **model-free** — two `lean-gate.sh 3` invocations, no API-billed calls
+This tier is that run. It is **model-free** — two `milestone-gate.sh 3` invocations, no API-billed calls
 — so its only cost is wall-clock, and anyone can re-take it.
 
 **When to run it:** after a change to `tools/run-selftests.sh` job dispatch or its cache, or to
-`lean-gate.sh`'s milestone-3 block. Those are also the changes that **void the existing record** —
+`milestone-gate.sh`'s milestone-3 block. Those are also the changes that **void the existing record** —
 there is deliberately no automated staleness guard, because a guard is exactly the permanent mass
 this tier's procedure form was chosen instead of.
 
@@ -1863,21 +1863,21 @@ session.
    ```
 
 5. **Take the single-lane baselines first, and commit them.** At least three samples at each
-   per-lane job level you intend to measure, cache off (`LEAN_SELFTEST_CACHE=0`), on a quiet host.
+   per-lane job level you intend to measure, cache off (`LANE_SELFTEST_CACHE=0`), on a quiet host.
    A bar keyed to one sample measures variance rather than contention, and a baseline landed after
    the two-lane numbers is a bar that moved.
 6. **Run the arms.** Each lane under `/usr/bin/time -l`, so CPU time is recorded beside wall time
    and a reader can tell contention from saturation:
 
    ```sh
-   ( cd "$WT" && env RUN_ID=<id> SELFTEST_JOBS=<n> LEAN_SELFTEST_CACHE=<0|1> \
+   ( cd "$WT" && env RUN_ID=<id> SELFTEST_JOBS=<n> LANE_SELFTEST_CACHE=<0|1> \
        /usr/bin/time -l bash "$G" 3 <issue> ) > lane.log 2>&1
    ```
 
-   **Scrub the environment if you call `run-selftests.sh` directly.** `lean-gate.sh` passes its
+   **Scrub the environment if you call `run-selftests.sh` directly.** `milestone-gate.sh` passes its
    lane commands through `SEAM_SCRUB`; a bare invocation does not. A session carrying
-   `LEAN_ATTEND_MODE` false-reds `operator-override-selftest.sh` on its own (43 passed → 41
-   passed, 2 failed), and `LEAN_RUN_MODEL` is not on the scrub list at all. Four suites went red
+   `LANE_ATTEND_MODE` false-reds `operator-override-selftest.sh` on its own (43 passed → 41
+   passed, 2 failed), and `LANE_RUN_MODEL` is not on the scrub list at all. Four suites went red
    this way during #564's first attempt, identically in both lanes, which reads exactly like a
    contention finding and is not one. **Always take a single-lane control on the same command.**
 

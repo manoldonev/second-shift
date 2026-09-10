@@ -67,7 +67,7 @@ done
 ROOT="${SECOND_SHIFT_REPO_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || echo .)}"
 CONFIG="${SECOND_SHIFT_CONFIG:-$ROOT/.claude/second-shift.config.json}"
 
-# Same shape as lean-gate.sh's resolver, deliberately: an absent, unparseable or
+# Same shape as milestone-gate.sh's resolver, deliberately: an absent, unparseable or
 # key-less config yields the shipped default rather than an error.
 #
 # THE MARKETPLACE REPO ITSELF HAS NO READABLE CONFIG HERE — it gitignores its own,

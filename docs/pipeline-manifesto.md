@@ -239,8 +239,8 @@ record such a gate reads is agent-written, and so is its own configuration. Rung
 
 ### The milestone gate, which escapes the limitation outright
 
-`pr-gates` once carried a third constant, `LEAN_BRANCH_PREFIX`, naming a separate `lean/` branch
-namespace for the pipeline's merge-boundary gate (`scripts/check-lean-chain.sh`). It is retired:
+`pr-gates` once carried a third constant, `LANE_BRANCH_PREFIX`, naming a separate `lean/` branch
+namespace for the pipeline's merge-boundary gate (`scripts/check-lane-chain.sh`). It is retired:
 both lanes now cut `<tracker.branchPrefix><key>` branches, so there is no lean namespace to name and
 that gate holds **no** branch-derived applicability input at all.
 
@@ -279,6 +279,6 @@ optional:
 
 The obligation is stated here rather than enforced by a test, deliberately: a guard that grepped
 this paragraph would assert only that prose contains words. The enforcement is the mechanism —
-`LEAN_OUTPUT_DISPOSITIONS` is a closed set both gates declare and a lockstep row binds, the emitter
+`LANE_OUTPUT_DISPOSITIONS` is a closed set both gates declare and a lockstep row binds, the emitter
 refuses a disposition outside it, and both suites anchor every green-path line whole, so an arm
 that starts narrating or stops disclosing reds a case rather than a paragraph.

@@ -7,7 +7,7 @@
 # flag that happens to be present.
 #
 # THE SCENARIO EACH CASE GUARDS is that the wrapper is invisible to the scheduler in exactly the
-# ways `orchestrate-lean.sh` depends on: the id it parses out of stdout by field position, the
+# ways `orchestrate.sh` depends on: the id it parses out of stdout by field position, the
 # exit status it reads, and the two control-plane calls it makes on the same handle. None of that
 # is covered by plugins/dev-pipeline/skills/build/scenario-liveness-selftest.sh, which
 # composes the milestone gate's own verdict paths — this script is not on one and is never invoked by
@@ -49,13 +49,13 @@ for d in $SIX; do printf '%s\n' "$d" >> "$M6"; done
 M2="$WORK/manifest-2"
 printf '%s\n%s\n' "$WORK/arm/plugins/dev-pipeline" "$WORK/arm/plugins/audit-toolkit" > "$M2"
 
-# The scheduler's own dispatch argv, verbatim from orchestrate-lean.sh's spawn call site. It is
+# The scheduler's own dispatch argv, verbatim from orchestrate.sh's spawn call site. It is
 # reproduced whole rather than sampled because the claim under test is "reaches the binary
 # verbatim", and a case passing three of six flags could not fail for the reason it names.
 SETTINGS="$WORK/spawn-1-settings.json"; echo '{"env":{}}' > "$SETTINGS"
 PROMPT='/dev-pipeline:build 42'
 dispatch() { # dispatch <manifest>
-  LEAN_ARM_MANIFEST="$1" bash "$TOOL" --bg \
+  LANE_ARM_MANIFEST="$1" bash "$TOOL" --bg \
     --permission-mode auto --model opus \
     --name lean-42-build-r1 \
     --disallowedTools AskUserQuestion \
@@ -114,33 +114,33 @@ if [ "$rc" -eq 9 ]; then
 else fail "(c4) child exited 9, wrapper exited $rc"; fi
 
 # ================================================================= (d) the other two control-plane calls
-# `orchestrate-lean.sh` polls with `agents --json --all` and stops with `stop <id>` through this
+# `orchestrate.sh` polls with `agents --json --all` and stops with `stop <id>` through this
 # same handle. An appended --plugin-dir there is at best ignored and at worst makes the listing
 # unparseable, which the poll counts against the PAYLOAD rather than against the wrapper.
-LEAN_ARM_MANIFEST="$M6" bash "$TOOL" agents --json --all >/dev/null 2>&1
+LANE_ARM_MANIFEST="$M6" bash "$TOOL" agents --json --all >/dev/null 2>&1
 if [ "$(printf 'agents\n--json\n--all\n')" = "$(cat "$ARGV_LOG")" ]; then
   pass "(d1) 'agents --json --all' reaches the binary unmodified"
 else fail "(d1) argv was: $(tr '\n' ' ' < "$ARGV_LOG")"; fi
 
-LEAN_ARM_MANIFEST="$M6" bash "$TOOL" stop sess0001 >/dev/null 2>&1
+LANE_ARM_MANIFEST="$M6" bash "$TOOL" stop sess0001 >/dev/null 2>&1
 if [ "$(printf 'stop\nsess0001\n')" = "$(cat "$ARGV_LOG")" ]; then
   pass "(d2) 'stop <id>' reaches the binary unmodified"
 else fail "(d2) argv was: $(tr '\n' ' ' < "$ARGV_LOG")"; fi
 
 # `-p` and `--print` are dispatches too: the bench is not the only caller shape, and a wrapper
 # that recognised only `--bg` would silently un-ablate any print-mode arm.
-LEAN_ARM_MANIFEST="$M2" bash "$TOOL" -p "say hi" >/dev/null 2>&1
+LANE_ARM_MANIFEST="$M2" bash "$TOOL" -p "say hi" >/dev/null 2>&1
 if grep -q -- '^--plugin-dir$' "$ARGV_LOG"; then
   pass "(d3) a '-p' argv is a dispatch and gets the flags"
 else fail "(d3) -p was treated as a control-plane call: $(tr '\n' ' ' < "$ARGV_LOG")"; fi
-LEAN_ARM_MANIFEST="$M2" bash "$TOOL" --print "say hi" >/dev/null 2>&1
+LANE_ARM_MANIFEST="$M2" bash "$TOOL" --print "say hi" >/dev/null 2>&1
 if grep -q -- '^--plugin-dir$' "$ARGV_LOG"; then
   pass "(d4) a '--print' argv is a dispatch and gets the flags"
 else fail "(d4) --print was treated as a control-plane call: $(tr '\n' ' ' < "$ARGV_LOG")"; fi
 
 # `--bare` is the caller's to pass and the wrapper's neither to add nor to refuse: it kills
 # subscription auth, so a wrapper that added one would make every cell API-billed.
-LEAN_ARM_MANIFEST="$M2" bash "$TOOL" --bg --bare "say hi" >/dev/null 2>&1; rc=$?
+LANE_ARM_MANIFEST="$M2" bash "$TOOL" --bg --bare "say hi" >/dev/null 2>&1; rc=$?
 if [ "$rc" -eq 0 ] && [ "$(grep -c -- '^--bare$' "$ARGV_LOG")" = "1" ]; then
   pass "(d5) a caller's --bare passes through once and is not refused; the wrapper adds none"
 else fail "(d5) rc=$rc --bare count=$(grep -c -- '^--bare$' "$ARGV_LOG")"; fi
@@ -159,33 +159,33 @@ refuses() { # refuses <label> <expected-fragment> -- <env assignment...>
   else fail "$label — rc=$rc argv=$(wc -c < "$ARGV_LOG" | tr -d ' ') bytes err=$err"; fi
 }
 
-refuses "(e1) an unset LEAN_ARM_MANIFEST refuses on stderr and execs nothing" \
-        "LEAN_ARM_MANIFEST is unset" -- -u LEAN_ARM_MANIFEST
+refuses "(e1) an unset LANE_ARM_MANIFEST refuses on stderr and execs nothing" \
+        "LANE_ARM_MANIFEST is unset" -- -u LANE_ARM_MANIFEST
 refuses "(e2) a manifest naming no readable file refuses" \
-        "names no readable file" -- "LEAN_ARM_MANIFEST=$WORK/no-such-manifest"
+        "names no readable file" -- "LANE_ARM_MANIFEST=$WORK/no-such-manifest"
 
 UNREADABLE="$WORK/manifest-unreadable"; cp "$M2" "$UNREADABLE"; chmod 000 "$UNREADABLE"
 if [ -r "$UNREADABLE" ]; then
   fail "(e3) fixture is still readable — the case cannot fail for the reason it names (running as root?)"
 else
   refuses "(e3) a manifest that exists but cannot be read refuses, rather than being read as empty" \
-          "names no readable file" -- "LEAN_ARM_MANIFEST=$UNREADABLE"
+          "names no readable file" -- "LANE_ARM_MANIFEST=$UNREADABLE"
 fi
 
 EMPTY="$WORK/manifest-empty"; printf '\n\n' > "$EMPTY"
 refuses "(e4) a manifest of blank lines only is empty and refuses — not a zero-plugin dispatch" \
-        "is empty" -- "LEAN_ARM_MANIFEST=$EMPTY"
+        "is empty" -- "LANE_ARM_MANIFEST=$EMPTY"
 
 GHOST="$WORK/manifest-ghost"
 printf '%s\n%s\n' "$WORK/arm/plugins/dev-pipeline" "$WORK/arm/plugins/not-here" > "$GHOST"
 refuses "(e5) an entry naming a directory that does not exist refuses BEFORE any flag is appended" \
-        "names a directory that does not exist" -- "LEAN_ARM_MANIFEST=$GHOST"
+        "names a directory that does not exist" -- "LANE_ARM_MANIFEST=$GHOST"
 
 # The refusal is about the bench's configuration, so it binds the control-plane calls too: a
 # `stop` that succeeded against a broken manifest would let a cell discover the breakage only at
 # the moment it spawned, after the issue was filed and the receipt written.
 : > "$ARGV_LOG"
-err="$(env -u LEAN_ARM_MANIFEST bash "$TOOL" agents --json --all 2>&1 >/dev/null)"; rc=$?
+err="$(env -u LANE_ARM_MANIFEST bash "$TOOL" agents --json --all 2>&1 >/dev/null)"; rc=$?
 if [ "$rc" -eq 2 ] && [ ! -s "$ARGV_LOG" ]; then
   pass "(e6) a control-plane call refuses on a broken manifest too — the refusal is about the bench, not about this argv"
 else fail "(e6) rc=$rc err=$err"; fi

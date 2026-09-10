@@ -96,7 +96,7 @@
     },
     "commands": {
       "type": "object",
-      "description": "Command truth table per logical repo id (keys must exist in topology.repos). null = lane not available in this repo; lean-gate.sh milestone 3 and preflight.sh both skip a null lane rather than inventing one.",
+      "description": "Command truth table per logical repo id (keys must exist in topology.repos). null = lane not available in this repo; milestone-gate.sh milestone 3 and preflight.sh both skip a null lane rather than inventing one.",
       "minProperties": 1,
       "additionalProperties": {
         "type": "object",
@@ -107,7 +107,7 @@
           "typecheck": { "type": ["string", "null"] },
           "test": { "type": ["string", "null"] },
           "format": { "type": ["string", "null"] },
-          "allowUnverified": { "type": "boolean", "description": "Zero-lane safety valve. When no verifying lane is configured (lint/typecheck/test all null and extraLanes empty), preflight.sh withholds its pipeline-ready verdict and lean-gate.sh milestone 3 reds naming the opt-out — unless this is true, which declares the opt-out deliberate. Inert when any verifying lane is configured." },
+          "allowUnverified": { "type": "boolean", "description": "Zero-lane safety valve. When no verifying lane is configured (lint/typecheck/test all null and extraLanes empty), preflight.sh withholds its pipeline-ready verdict and milestone-gate.sh milestone 3 reds naming the opt-out — unless this is true, which declares the opt-out deliberate. Inert when any verifying lane is configured." },
           "lanes": {
             "type": "array",
             "description": "SETUP-ONLY steps run sequentially BEFORE the built-in lint/typecheck/test trio (e.g. dependency install, workspace-package builds for apps/*, packages/*). Every lane failure is classed INFRA (environment/setup), NOT a code defect — a lane never gets the TEST_FAILURE/TYPE_ERROR fix budget. Do NOT put a test/lint/typecheck command here (e.g. `poetry run pytest`): its failures would be misreported as environment errors and bypass the fix budget. For additive VERIFY-style lanes that carry a real failure class and the standard fix budget, use extraLanes (EP-2) below.",
@@ -124,7 +124,7 @@
           },
           "extraLanes": {
             "type": "array",
-            "description": "EP-2: additive verify lanes. Run sequentially AFTER the built-in SUITE lanes, never interleaving or replacing them. Results land under namespaced ext:<name> keys in the verify summary (canonical keys unreachable). No advisory mode — a lane blocks lean-gate.sh milestone 3 or it does not exist.",
+            "description": "EP-2: additive verify lanes. Run sequentially AFTER the built-in SUITE lanes, never interleaving or replacing them. Results land under namespaced ext:<name> keys in the verify summary (canonical keys unreachable). No advisory mode — a lane blocks milestone-gate.sh milestone 3 or it does not exist.",
             "items": {
               "type": "object",
               "additionalProperties": false,
@@ -136,7 +136,7 @@
                 "failureClass": {
                   "type": "string",
                   "enum": ["FORMAT", "LINT_AUTOFIX", "TYPE_ERROR", "TEST_FAILURE", "PLAN_CMD_FAILURE", "INFRA"],
-                  "description": "MUST be an existing closed failure-taxonomy value — extensions borrow the taxonomy, never extend it. Blocking; the attempt-budget behavior belongs to the consuming lane (lean-gate's 3-attempt milestone budget)."
+                  "description": "MUST be an existing closed failure-taxonomy value — extensions borrow the taxonomy, never extend it. Blocking; the attempt-budget behavior belongs to the consuming lane (milestone-gate's 3-attempt milestone budget)."
                 }
               }
             }
@@ -183,7 +183,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "plansDir": { "type": "string", "default": "docs/plans", "description": "Directory (worktree-relative) holding the lane's per-ticket records — the spec/AC file, the review verdict record, and the design render receipt. Default = the plugin's current literal; a consumer that sets it has it honored. Read by lean-gate.sh (which resolves every milestone artifact under it), lean-reconcile.sh and retro-corpus.sh." },
+        "plansDir": { "type": "string", "default": "docs/plans", "description": "Directory (worktree-relative) holding the lane's per-ticket records — the spec/AC file, the review verdict record, and the design render receipt. Default = the plugin's current literal; a consumer that sets it has it honored. Read by milestone-gate.sh (which resolves every milestone artifact under it), reconcile.sh and retro-corpus.sh." },
         "pipelineStateDir": { "type": "string", "default": ".claude/pipeline-state" }
       }
     },
@@ -192,7 +192,7 @@
       "description": "Optional pipeline gates/capabilities. Everything defaults to off; a gate that is on but missing its prerequisites must fail closed at run time.",
       "additionalProperties": false,
       "properties": {
-        "mutation": { "type": "boolean", "default": false, "description": "false declares the mutation seam deliberately off (an explicit off-switch a reader can see, as opposed to the silent absence of a sweep). Absent/true = the seam is expected. The mutation seam is repo-carried AND repo-run: ship tools/mutation-sweep.sh and wire it on your own merge boundary. No second-shift gate executes it — #580 retired the lean-gate milestone-3 lane that used to, because it duplicated the PR check. So this key is the declared INTENT that onboard's config-grill grades that plumbing against, and has never been a switch any gate reads." }
+        "mutation": { "type": "boolean", "default": false, "description": "false declares the mutation seam deliberately off (an explicit off-switch a reader can see, as opposed to the silent absence of a sweep). Absent/true = the seam is expected. The mutation seam is repo-carried AND repo-run: ship tools/mutation-sweep.sh and wire it on your own merge boundary. No second-shift gate executes it — #580 retired the milestone-gate milestone-3 lane that used to, because it duplicated the PR check. So this key is the declared INTENT that onboard's config-grill grades that plumbing against, and has never been a switch any gate reads." }
       }
     },
     "design": {

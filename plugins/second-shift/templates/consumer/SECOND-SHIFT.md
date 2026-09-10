@@ -14,7 +14,7 @@ repo enables {{PLUGIN_LIST}}) — `/second-shift:doctor` verifies the install ag
 ### dev-pipeline
 - Skills: `run` (the lane's front door, invoked as `/dev-pipeline:run` — a scheduler that spawns the two blocks below in fresh sessions and authors nothing), `build` (the build half, invoked as `/dev-pipeline:build <ticket>`, gated by five artifact milestones), `review` (the review half, invoked as `/dev-pipeline:review <pr>` from its own session — a build run cannot author its own verdict), `pipeline-retro`, `perf-retro`, `pr-revision` — loaded only when invoked.
 - Hook: a PreToolUse gate on `git commit` commands (normal and bot-identity forms) that runs the repo's type-check on staged changes during pipeline commits.
-- Shell tools (`lean-gate.sh`, `lean-reconcile.sh`, `config-lint.sh`, `pipeline-doctor.sh`…) run only when the lane or a `/second-shift:*` command invokes them; run records live in `.claude/pipeline-state/`.
+- Shell tools (`milestone-gate.sh`, `reconcile.sh`, `config-lint.sh`, `pipeline-doctor.sh`…) run only when the lane or a `/second-shift:*` command invokes them; run records live in `.claude/pipeline-state/`.
 
 ### review-toolkit
 - Skills: `review-lead`, `mutation-review`, `reviewer-baseline` — loaded only when invoked.

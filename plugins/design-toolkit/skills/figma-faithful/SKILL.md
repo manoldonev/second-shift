@@ -187,7 +187,7 @@ token row — one line to fix here vs. the same value spread across call-sites a
 
 **On the lean lane it is an asserted artifact, not prose.** Write it to
 `<plansDir>/<key>-lean-plan.md` — the path `bash G 1 <issue>` derives the spec path from, with
-`-lean-plan.md` in place of `-lean.md`. `lean-gate.sh` milestone 3 refuses an armed ticket
+`-lean-plan.md` in place of `-lean.md`. `milestone-gate.sh` milestone 3 refuses an armed ticket
 **before the render pass** unless that file exists, is committed, and carries:
 
 - a header line `planned_from: pending` — the gate stamps this with the branch's plan patch
@@ -226,7 +226,7 @@ this artifact yourself**, before step 8, and act on its verdict: `block` → fix
 re-emit; `fix-and-go` / `pass` → proceed. The gate cannot run an agent or branch on a verdict, so
 the dispatch stays yours on every lane — the autonomous lean lane included, where it is not
 optional: milestone 3 refuses to render until the reviewer's output is committed at
-`<plansDir>/<key>-lean-plan-review.md`, written by `lean-gate.sh plan-review <issue>`.
+`<plansDir>/<key>-lean-plan-review.md`, written by `milestone-gate.sh plan-review <issue>`.
 `design-toolkit:figma-iterate` replaces it with a user checkpoint by design.
 
 ### 8. Implement

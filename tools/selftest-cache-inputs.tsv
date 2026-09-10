@@ -41,8 +41,8 @@
 # AND THE SET IS THE TRANSITIVE CLOSURE, not the files the suite names. Neither of the rules
 # above can reach depth 2: a suite whose own path and whose subject are both declared still
 # under-declares if that SUBJECT resolves a third file at run time. The live example runs to
-# depth 3: lean-gate.sh resolves claim-issue.sh, which resolves gh-bot.sh beside itself, so
-# lean-gate-selftest.sh declares a file two removes from anything it names. When you add a row,
+# depth 3: milestone-gate.sh resolves claim-issue.sh, which resolves gh-bot.sh beside itself, so
+# milestone-gate-selftest.sh declares a file two removes from anything it names. When you add a row,
 # follow every variable-rooted resolution out of every declared script until it terminates, and
 # record where it terminated. The next block is how you enumerate them.
 #
@@ -63,7 +63,7 @@
 #       assume either answer.
 #
 # (1) and (2) landed on this file's first revision. (3) is why grepping for the first root alone
-# cannot reproduce this table: check-lean-chain-selftest.sh's lean-evidence.sh row is a
+# cannot reproduce this table: check-lane-chain-selftest.sh's boundary-evidence.sh row is a
 # graded-tree resolution and has no ${BASH_SOURCE[0]} form anywhere.
 
 # --- cost-block-selftest.sh (30s) -------------------------------------------------------
@@ -79,8 +79,9 @@ plugins/dev-pipeline/tools/cost-block-selftest.sh	plugins/dev-pipeline/tools/cos
 plugins/dev-pipeline/tools/cost-block-selftest.sh	plugins/dev-pipeline/tools/pipeline-cost-block.sh
 plugins/dev-pipeline/tools/cost-block-selftest.sh	plugins/dev-pipeline/cost-tracking-fixtures
 plugins/dev-pipeline/tools/cost-block-selftest.sh	plugins/dev-pipeline/tools/gh-bot.sh
+plugins/dev-pipeline/tools/cost-block-selftest.sh	plugins/dev-pipeline/skills/build/lane-env.sh
 
-# --- lean-gate-selftest.sh (212s) --------------------------------------------------------
+# --- milestone-gate-selftest.sh (212s) --------------------------------------------------------
 # The largest declared closure in this file, and every row was read out of the suite.
 #
 # DEPTH 1, what the suite itself reads from the checkout: the gate under test; SKILL.md, whose
@@ -88,7 +89,7 @@ plugins/dev-pipeline/tools/cost-block-selftest.sh	plugins/dev-pipeline/tools/gh-
 # case (d5) drives; tools/run-selftests.sh, the real runner cases (ic6)/(ic7) wire into a
 # fixture config; and the two gate-ablation tables cases (ac1c)/(ac1d) classify against.
 #
-# DEPTH 2, what lean-gate.sh resolves at run time: branch-prefix.sh and resolve-sibling.sh (both
+# DEPTH 2, what milestone-gate.sh resolves at run time: branch-prefix.sh and resolve-sibling.sh (both
 # sourced), operator-override.sh (also read directly by the suite's (yo) cases),
 # claim-issue.sh, pipeline-cost-block.sh, and — through resolve_sibling — two cross-plugin
 # targets. One is intake-toolkit's ledger-lint.sh, which milestone 1 uses to lint and reconcile
@@ -100,7 +101,7 @@ plugins/dev-pipeline/tools/cost-block-selftest.sh	plugins/dev-pipeline/tools/gh-
 # DEPTH 3, and where it TERMINATES: claim-issue.sh resolves gh-bot.sh, which resolves an
 # out-of-repo wrapper under $HOME. The closure stops at the in-repo file: a path under $HOME is
 # not tracked, so it has no blob id to key on. Nothing at depth 2 resolves a further file: this
-# is the whole live depth-3 chain in the table, and lean-gate.sh makes seven beside-the-subject
+# is the whole live depth-3 chain in the table, and milestone-gate.sh makes seven beside-the-subject
 # self-relative path constructions, six of them the .sh rows below and the seventh that .md,
 # and no script they reach makes another.
 #
@@ -114,7 +115,7 @@ plugins/dev-pipeline/tools/cost-block-selftest.sh	plugins/dev-pipeline/tools/gh-
 #   exist is rc=2, and that file is absent on CI.
 #
 #   scripts/check-frozen-files.sh and scripts/check-changelog-trailer.sh, which cmd_2() resolves
-#   at lean-gate.sh:3612-3613. Those are rooted at the GRADED TREE, not beside the gate, and the
+#   at milestone-gate.sh:3612-3613. Those are rooted at the GRADED TREE, not beside the gate, and the
 #   suite's fixture repos never contain them: case (h) asserts precisely the absent branch —
 #   "milestone-2 prints a skip notice when the policy scripts are absent (consumer repo)". The
 #   suite names neither file. Editing this repo's copies cannot move the suite's verdict, so
@@ -124,37 +125,47 @@ plugins/dev-pipeline/tools/cost-block-selftest.sh	plugins/dev-pipeline/tools/gh-
 # tools/run-selftests.sh is already in the key as the runner's own blob id. It is declared
 # anyway so the closure reads as complete standing alone, rather than requiring the reader to
 # know what the key mixes in behind it.
-plugins/dev-pipeline/skills/build/lean-gate-selftest.sh	plugins/dev-pipeline/skills/build/lean-gate-selftest.sh
-plugins/dev-pipeline/skills/build/lean-gate-selftest.sh	plugins/dev-pipeline/skills/build/lean-gate.sh
-plugins/dev-pipeline/skills/build/lean-gate-selftest.sh	plugins/dev-pipeline/skills/build/SKILL.md
-plugins/dev-pipeline/skills/build/lean-gate-selftest.sh	plugins/dev-pipeline/skills/build/branch-prefix.sh
-plugins/dev-pipeline/skills/build/lean-gate-selftest.sh	tools/run-selftests.sh
-plugins/dev-pipeline/skills/build/lean-gate-selftest.sh	tools/gate-ablation-adjudication.tsv
-plugins/dev-pipeline/skills/build/lean-gate-selftest.sh	tools/gate-ablation-classes.tsv
-plugins/dev-pipeline/skills/build/lean-gate-selftest.sh	plugins/audit-toolkit/hooks/audit-tool-calls.sh
-plugins/dev-pipeline/skills/build/lean-gate-selftest.sh	plugins/dev-pipeline/tools/operator-override.sh
-plugins/dev-pipeline/skills/build/lean-gate-selftest.sh	plugins/dev-pipeline/tools/resolve-sibling.sh
-plugins/dev-pipeline/skills/build/lean-gate-selftest.sh	plugins/dev-pipeline/tools/claim-issue.sh
-plugins/dev-pipeline/skills/build/lean-gate-selftest.sh	plugins/dev-pipeline/tools/pipeline-cost-block.sh
-plugins/dev-pipeline/skills/build/lean-gate-selftest.sh	plugins/dev-pipeline/tools/gh-bot.sh
-plugins/dev-pipeline/skills/build/lean-gate-selftest.sh	plugins/intake-toolkit/skills/plan-interview/tools/ledger-lint.sh
-plugins/dev-pipeline/skills/build/lean-gate-selftest.sh	plugins/design-toolkit/agents/figma-faithful-plan-reviewer.md
-plugins/dev-pipeline/skills/build/lean-gate-selftest.sh	plugins/dev-pipeline/skills/build/lean-evidence.sh
+plugins/dev-pipeline/skills/build/milestone-gate-selftest.sh	plugins/dev-pipeline/skills/build/milestone-gate-selftest.sh
+plugins/dev-pipeline/skills/build/milestone-gate-selftest.sh	plugins/dev-pipeline/skills/build/milestone-gate.sh
+plugins/dev-pipeline/skills/build/milestone-gate-selftest.sh	plugins/dev-pipeline/skills/build/SKILL.md
+plugins/dev-pipeline/skills/build/milestone-gate-selftest.sh	plugins/dev-pipeline/skills/build/branch-prefix.sh
+plugins/dev-pipeline/skills/build/milestone-gate-selftest.sh	tools/run-selftests.sh
+plugins/dev-pipeline/skills/build/milestone-gate-selftest.sh	tools/gate-ablation-adjudication.tsv
+plugins/dev-pipeline/skills/build/milestone-gate-selftest.sh	tools/gate-ablation-classes.tsv
+plugins/dev-pipeline/skills/build/milestone-gate-selftest.sh	plugins/audit-toolkit/hooks/audit-tool-calls.sh
+plugins/dev-pipeline/skills/build/milestone-gate-selftest.sh	plugins/dev-pipeline/tools/operator-override.sh
+plugins/dev-pipeline/skills/build/milestone-gate-selftest.sh	plugins/dev-pipeline/tools/resolve-sibling.sh
+plugins/dev-pipeline/skills/build/milestone-gate-selftest.sh	plugins/dev-pipeline/tools/claim-issue.sh
+plugins/dev-pipeline/skills/build/milestone-gate-selftest.sh	plugins/dev-pipeline/tools/pipeline-cost-block.sh
+plugins/dev-pipeline/skills/build/milestone-gate-selftest.sh	plugins/dev-pipeline/tools/gh-bot.sh
+plugins/dev-pipeline/skills/build/milestone-gate-selftest.sh	plugins/intake-toolkit/skills/plan-interview/tools/ledger-lint.sh
+plugins/dev-pipeline/skills/build/milestone-gate-selftest.sh	plugins/design-toolkit/agents/figma-faithful-plan-reviewer.md
+plugins/dev-pipeline/skills/build/milestone-gate-selftest.sh	plugins/dev-pipeline/skills/build/boundary-evidence.sh
+plugins/dev-pipeline/skills/build/milestone-gate-selftest.sh	plugins/dev-pipeline/skills/build/lane-env.sh
 
 #   #622 added a SIXTH beside-the-subject resolution, and it is the one that matters most to
-#   this table: `lean-gate.sh verdict` shells out to lean-evidence.sh for the AC-scorecard
+#   this table: `milestone-gate.sh verdict` shells out to boundary-evidence.sh for the AC-scorecard
 #   reader, so the writer's refusal moves whenever that reader does. Without the row, a change
-#   to lean-evidence.sh alone would leave this suite served from cache while the behavior it
+#   to boundary-evidence.sh alone would leave this suite served from cache while the behavior it
 #   grades had moved — the exact staleness the table exists to prevent, on a file the sibling
 #   suite below already declares for the same reason.
 
-# --- check-lean-chain-selftest.sh (67s) --------------------------------------------------
+# --- check-lane-chain-selftest.sh (67s) --------------------------------------------------
 # The smallest closure of the three, and it terminates at depth 2. The suite reads the gate
-# under test and exports LEAN_EVIDENCE at lean-evidence.sh — the portable payload the gate
+# under test and exports LANE_EVIDENCE at boundary-evidence.sh — the portable payload the gate
 # delegates its verdict, identity, freshness and patch-id arms to, and which it would resolve
-# by that same path with the variable unset. lean-evidence.sh resolves no sibling of its own,
+# by that same path with the variable unset. boundary-evidence.sh resolves no sibling of its own,
 # so the closure stops there. Everything else the suite touches it writes under its own
 # mktemp tree.
-scripts/check-lean-chain-selftest.sh	scripts/check-lean-chain-selftest.sh
-scripts/check-lean-chain-selftest.sh	scripts/check-lean-chain.sh
-scripts/check-lean-chain-selftest.sh	plugins/dev-pipeline/skills/build/lean-evidence.sh
+scripts/check-lane-chain-selftest.sh	scripts/check-lane-chain-selftest.sh
+scripts/check-lane-chain-selftest.sh	scripts/check-lane-chain.sh
+scripts/check-lane-chain-selftest.sh	plugins/dev-pipeline/skills/build/boundary-evidence.sh
+scripts/check-lane-chain-selftest.sh	plugins/dev-pipeline/skills/build/lane-env.sh
+
+# --- lane-env.sh, on all three closures (#833) -------------------------------------------
+# The LANE_/LEAN_ compatibility reader. milestone-gate.sh, check-lane-chain.sh and
+# pipeline-cost-block.sh all SOURCE it at run time, so its blob id belongs in each of their
+# suites' keys: an edit that changed which spelling resolves, or dropped the notice, would
+# otherwise leave all three served from cache while the behavior they grade had moved.
+# boundary-evidence.sh carries the LOCKSTEP twin INLINE and is already declared above on the
+# two closures that reach it, so it earns no second row.

@@ -14,7 +14,7 @@ reason?**
 | #636 | **2 s** |
 | #637 | **2 s** |
 
-Between spawns the loop makes a handful of direct `lean-gate.sh` calls — staleness, PR resolution,
+Between spawns the loop makes a handful of direct `milestone-gate.sh` calls — staleness, PR resolution,
 in-flight, verdict — each a subprocess of roughly a second. Against spawns measured in tens of
 minutes, everything the scheduler itself does rounds to zero. **There is no scheduler latency to
 optimise.** A run's duration is its payload sessions, and any change that does not shorten or

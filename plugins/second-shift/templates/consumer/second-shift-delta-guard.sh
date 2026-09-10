@@ -44,8 +44,8 @@
 #     record stops appearing in the PR's file list, so it stops being reviewable in place.
 #   * The patch-binding invariant — `reviewed_patch_id` recomputed from the branch's own diff,
 #     which is what makes "approved" mean "approved THIS tree" — is load-bearing in three
-#     places: build milestone 4 (lean-gate.sh), the merge boundary (lean-evidence.sh), and
-#     lean-reconcile.sh. All three recompute it against the branch. Moving the record off the
+#     places: build milestone 4 (milestone-gate.sh), the merge boundary (boundary-evidence.sh), and
+#     reconcile.sh. All three recompute it against the branch. Moving the record off the
 #     branch breaks the "last commit on it" property all three depend on.
 #
 # The cost being solved here is minutes of runner time. That is not worth trading a committed
@@ -78,13 +78,13 @@
 set -uo pipefail
 
 # The verdict record's filename suffix. Pinned here AND in
-# plugins/dev-pipeline/skills/build/lean-evidence.sh, which cannot see this file: this one
+# plugins/dev-pipeline/skills/build/boundary-evidence.sh, which cannot see this file: this one
 # is committed into a CONSUMER repo, that one is fetched at the consumer's pinned marketplace
 # ref. A one-sided rename would leave this guard classifying every verdict commit as an ordinary
 # one — which costs only runner minutes and reports nothing, so nothing would ever notice.
 # Hence the marker: the comment must stay OUTSIDE it, since `verbatim` compares the whole block.
 # LOCKSTEP-BEGIN lean-verdict-suffix
-LEAN_VERDICT_SUFFIX='-lean-verdict.md'
+LANE_VERDICT_SUFFIX='-lean-verdict.md'
 # LOCKSTEP-END lean-verdict-suffix
 
 SKIP=false
@@ -147,8 +147,8 @@ FILE_COUNT="$(grep -c '[^[:space:]]' <<<"$FILES")"
 # count check is the line a future "surely two verdict records are still docs-only" edit relaxes.
 CHANGED="$(head -n1 <<<"$FILES")"
 case "$CHANGED" in
-  *"$LEAN_VERDICT_SUFFIX") : ;;
-  *) decide_no "the head commit's one path is '$CHANGED', not a lean verdict record (*$LEAN_VERDICT_SUFFIX) — runs in full" ;;
+  *"$LANE_VERDICT_SUFFIX") : ;;
+  *) decide_no "the head commit's one path is '$CHANGED', not a lean verdict record (*$LANE_VERDICT_SUFFIX) — runs in full" ;;
 esac
 
 # ------------------------------------------------------------------ (3) the trust condition (AC-2)

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# orchestrate-lean.sh — the pipeline's scheduler. It spawns the payload blocks and reads
+# orchestrate.sh — the pipeline's scheduler. It spawns the payload blocks and reads
 # their outcomes. It authors nothing.
 #
 # WHY THIS IS A SCRIPT AND NOT A PROSE CHECKLIST (#397 D-1). The rest of this lane is
-# script-gated — lean-gate.sh, lean-evidence.sh, lean-reconcile.sh, check-lean-chain.sh — and
+# script-gated — milestone-gate.sh, boundary-evidence.sh, reconcile.sh, check-lane-chain.sh — and
 # every checked-in script in this repo is exercised by some selftest. A loop that lived only in
 # SKILL.md would leave the three rules that matter here (the round budget's hard stop, "never
 # resume a review context", and preflight's reject-and-stop) as honor-system: nothing could fail
@@ -24,7 +24,7 @@
 #
 # IDENTITY UNDER ORCHESTRATION. Each spawn is a fresh top-level session, so the harness stamps
 # it a new session id and the audit hook opens a live ledger for it — which is what makes
-# `lean-gate.sh entry` satisfiable inside a spawned session and the build-vs-review verdict
+# `milestone-gate.sh entry` satisfiable inside a spawned session and the build-vs-review verdict
 # refusal structural rather than cooperative. This script therefore never passes a session id
 # and never resumes a context. Nothing from this shell's environment reaches a spawned session
 # either (#805), so the scrub that used to keep an inherited RUN_ID out of a child's records is
@@ -151,7 +151,7 @@
 #
 # Tracker-only, deliberately: the `<issue>-run-id` cache is local state, and consulting it would
 # make preflight's answer depend on which machine is asking. The marker is the same artifact
-# check-lean-chain.sh evidence 3 already treats as authoritative, under the same
+# check-lane-chain.sh evidence 3 already treats as authoritative, under the same
 # `.user.type == "Bot"` trust filter — issue comments are writable by any account on a public repo,
 # so an operator-posted marker is not evidence the harness ran. Re-entry costs no tracker write: it
 # restores nothing, and /dev-pipeline:build skips its claim when the run is already claimed.
@@ -181,7 +181,7 @@
 # killed in progress can leave an index.lock behind in the lane worktree.
 #
 # Usage:
-#   orchestrate-lean.sh <issue> --build-model <model> [options]
+#   orchestrate.sh <issue> --build-model <model> [options]
 #     --build-model <m>    REQUIRED. The model for every BUILD-role session.
 #     --review-model <m>   Defaults to the shipped review tier. REVIEW is the higher-stakes read.
 #     --review-model-basis <text>
@@ -193,14 +193,14 @@
 #     --dry-run            Print the schedule and exit 0 without spawning anything.
 #
 # Seams (every one has a shipped default pointing at the real thing):
-#   LEAN_SPAWN_BIN               the session binary (default `claude`)
-#   LEAN_SPAWN_PERMISSION_MODE   passed as --permission-mode (default `auto`)
-#   LEAN_SPAWN_POLL_SECS         seconds between session-state polls (default 30)
-#   LEAN_SPAWN_STALENESS_SECS    seconds between in-poll staleness re-checks (default 300)
-#   LEAN_SPAWN_SESSION_CEILING_MS  wall-clock ceiling on ONE session (default 7200000)
-#   LEAN_SPAWN_CLOCK             command printing epoch seconds (default `date +%s`)
-#   LEAN_GATE                    the milestone gate (default: the sibling /dev-pipeline:build skill)
-#   LEAN_OVERRIDE_TOOL           the attendance/override mechanism (default: the sibling tool)
+#   LANE_SPAWN_BIN               the session binary (default `claude`)
+#   LANE_SPAWN_PERMISSION_MODE   passed as --permission-mode (default `auto`)
+#   LANE_SPAWN_POLL_SECS         seconds between session-state polls (default 30)
+#   LANE_SPAWN_STALENESS_SECS    seconds between in-poll staleness re-checks (default 300)
+#   LANE_SPAWN_SESSION_CEILING_MS  wall-clock ceiling on ONE session (default 7200000)
+#   LANE_SPAWN_CLOCK             command printing epoch seconds (default `date +%s`)
+#   LANE_GATE                    the milestone gate (default: the sibling /dev-pipeline:build skill)
+#   LANE_OVERRIDE_TOOL           the attendance/override mechanism (default: the sibling tool)
 #   ${GH:-gh}                    the tracker/code-host CLI, read-only here
 #   SECOND_SHIFT_CONFIG          override the resolved config path
 #
@@ -222,10 +222,20 @@
 #       re-launch the same command.
 set -uo pipefail
 
+# #833: the pipeline's environment knobs are spelled `LANE_*`; the retired `LEAN_*` spellings still
+# resolve, once, with a stderr notice. Promoted IN PLACE here, before the first read, so every
+# `${LANE_*:-<default>}` site below keeps its own default unchanged.
+# shellcheck source=../build/lane-env.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../build" && pwd)/lane-env.sh" \
+  || { echo "FATAL: cannot load lane-env.sh — the LANE_/LEAN_ compatibility reader" >&2; exit 1; }
+lane_env_promote LANE_SPAWN_BIN LANE_SPAWN_PERMISSION_MODE LANE_SPAWN_POLL_SECS \
+  LANE_SPAWN_STALENESS_SECS LANE_SPAWN_SESSION_CEILING_MS LANE_SPAWN_CLOCK LANE_GATE \
+  LANE_OVERRIDE_TOOL LANE_LAUNCH_ID
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GH_CLI="${GH:-gh}"
-SPAWN_BIN="${LEAN_SPAWN_BIN:-claude}"
-PERM_MODE="${LEAN_SPAWN_PERMISSION_MODE:-auto}"
+SPAWN_BIN="${LANE_SPAWN_BIN:-claude}"
+PERM_MODE="${LANE_SPAWN_PERMISSION_MODE:-auto}"
 # The in-flight session, its transcript and its ledger row. Declared here because `terminal` reads
 # every one of them and `terminal` is reachable from arg parsing (D-1) — and because `set -u` is on
 # two lines up, so a declaration left beside its user would be an unbound-variable error on exactly
@@ -244,11 +254,11 @@ SPAWN_CLOSED=1
 # opening: the transcript opens before the dispatch, the row only once the dispatch yields an id.
 # The no-id refusal falls between the two and must not close a spawn the ledger never opened.
 SPAWN_ENDED=1
-GATE="${LEAN_GATE:-$SCRIPT_DIR/../build/lean-gate.sh}"
+GATE="${LANE_GATE:-$SCRIPT_DIR/../build/milestone-gate.sh}"
 # #613. Same-plugin sibling, so a plain relative path — no resolve-sibling ladder, which exists
 # for CROSS-plugin hops. The seam is here for the selftest, which must drive the third accepting
 # state without a real attendance token on the machine running it.
-OVERRIDE_TOOL="${LEAN_OVERRIDE_TOOL:-$SCRIPT_DIR/../../tools/operator-override.sh}"
+OVERRIDE_TOOL="${LANE_OVERRIDE_TOOL:-$SCRIPT_DIR/../../tools/operator-override.sh}"
 
 ISSUE=""
 BUILD_MODEL=""
@@ -300,7 +310,7 @@ launch_note() { # launch_note <event> <detail>
 # caught build-session prose. Control is stdout, all of it; the PAYLOAD is what goes to stderr now
 # (see spawn), which is what makes the two mechanically separable rather than a matter of reading
 # carefully.
-say()     { echo "$(now_iso) [orchestrate-lean] $*"; }
+say()     { echo "$(now_iso) [orchestrate] $*"; }
 
 # ---- the live control channel ------------------------------------------------------------
 # DEFINED HERE, above `terminal`, and that placement is load-bearing: `terminal` calls
@@ -337,18 +347,18 @@ stop_session() { # stop_session <id>
 transcript_close() { # transcript_close <log> <sessionId>
   local log="$1" sid="$2" f last
   [ "$log" = "/dev/null" ] && return 0
-  [ -n "$sid" ] || { printf '\n[orchestrate-lean] no session id — the final message could not be read.\n' >> "$log" 2>/dev/null; return 0; }
+  [ -n "$sid" ] || { printf '\n[orchestrate] no session id — the final message could not be read.\n' >> "$log" 2>/dev/null; return 0; }
   for f in "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/projects/*/"$sid".jsonl \
            "$HOME"/.claude/projects/*/"$sid".jsonl; do
     [ -f "$f" ] || continue
     last="$(jq -s -r '[ .[] | select(.type == "assistant") | .message.content[]?
                         | select(.type == "text") | .text ] | last // empty' "$f" 2>/dev/null)"
     if [ -n "$last" ]; then
-      printf '\n[orchestrate-lean] final message of session %s:\n%s\n' "$sid" "$last" >> "$log" 2>/dev/null
+      printf '\n[orchestrate] final message of session %s:\n%s\n' "$sid" "$last" >> "$log" 2>/dev/null
       return 0
     fi
   done
-  printf '\n[orchestrate-lean] session %s left no readable final message.\n' "$sid" >> "$log" 2>/dev/null
+  printf '\n[orchestrate] session %s left no readable final message.\n' "$sid" >> "$log" 2>/dev/null
 }
 
 # THE TURN ORACLE. Whether a session's last turn has ended, read from the transcript — the same
@@ -518,7 +528,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-[ -n "$ISSUE" ] || envfail usage-missing-issue "usage: orchestrate-lean.sh <issue> --build-model <model> [options]"
+[ -n "$ISSUE" ] || envfail usage-missing-issue "usage: orchestrate.sh <issue> --build-model <model> [options]"
 [ -n "$BUILD_MODEL" ] || envfail usage-missing-build-model "--build-model is required: this scheduler does not size tickets. Read the ticket's opus/sonnet label, or size it yourself and say so via --model-basis."
 [ -n "$REVIEW_MODEL" ] || envfail usage-empty-review-model "--review-model was given an empty value."
 # A departure from the shipped review tier costs nothing today, and that is the whole defect
@@ -557,7 +567,7 @@ cfg() {
   echo "$2"
 }
 # Absent ⇒ github, and an unrecognized value is a loud error rather than a fall-through — the
-# same enum lean-gate.sh and lean-reconcile.sh hold, for the same reason: a typo must not
+# same enum milestone-gate.sh and reconcile.sh hold, for the same reason: a typo must not
 # silently pick the arm that attests less.
 TRACKER_TYPE="$(cfg '.tracker.type' 'github')"
 case "$TRACKER_TYPE" in
@@ -565,12 +575,12 @@ case "$TRACKER_TYPE" in
   *) envfail env-tracker-type "unrecognized tracker.type '$TRACKER_TYPE' — expected github or jira." ;;
 esac
 QUEUE_LABEL="$(cfg '.tracker.labels.queue' 'ready-for-dev')"
-# The same default lean-gate.sh carries, because the re-entry arm below reads back the label the
+# The same default milestone-gate.sh carries, because the re-entry arm below reads back the label the
 # gate's own `claim` wrote. A consumer that renamed one and not the other would have re-entry
 # silently stop matching, which is why both resolve from the same config key.
 CLAIMED_LABEL="$(cfg '.tracker.labels.claimed' 'in-progress')"
-# The claim marker's stage tag. A FOURTH copy of lean-gate.sh's LEAN_CLAIM_MARKER_TAG, and
-# deliberately NOT a LOCKSTEP site — see docs/testing.md, which records this and lean-reconcile.sh
+# The claim marker's stage tag. A FOURTH copy of milestone-gate.sh's LANE_CLAIM_MARKER_TAG, and
+# deliberately NOT a LOCKSTEP site — see docs/testing.md, which records this and reconcile.sh
 # as the two unbound copies under *Couplings considered and declined*. Drift here fails CLOSED
 # (re-entry stops being recognized, loudly, on the next stopped run) rather than silently
 # weakening a merge boundary, which is what earns a row.
@@ -605,11 +615,11 @@ LOG_DIR="$MAIN_ROOT/$STATE_DIR"
 # NEXT enumeration harder rather than easier. The stamp keeps discovery flat and makes the launch a
 # FIELD in the name instead of a level in the path.
 #
-# `LEAN_LAUNCH_ID` IS A SEAM, not a knob for operators: a token carrying the current second and
+# `LANE_LAUNCH_ID` IS A SEAM, not a knob for operators: a token carrying the current second and
 # this process's pid is unique in production and unassertable in a fixture, so the suite pins it.
 # Seconds AND pid, because two launches of one ticket inside the same second are a re-launch after
 # an instant preflight reject — the exact shape whose evidence this exists to keep.
-LAUNCH_ID="${LEAN_LAUNCH_ID:-$(now_iso | tr -d ':-')-$$}"
+LAUNCH_ID="${LANE_LAUNCH_ID:-$(now_iso | tr -d ':-')-$$}"
 LAUNCH_LEDGER="$LOG_DIR/$ISSUE-lean-launches.tsv"
 launch_note launch "branch_key=$ISSUE build=$BUILD_MODEL review=$REVIEW_MODEL rounds=$MAX_ROUNDS"
 
@@ -620,7 +630,7 @@ launch_note launch "branch_key=$ISSUE build=$BUILD_MODEL review=$REVIEW_MODEL ro
 # style choice. Report-everything because the operator's next action is "fix the preflight", and
 # a first-failure abort makes that two round trips where the evidence for both was already in
 # hand on the first.
-PROBE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/orchestrate-lean.XXXXXX")" || envfail env-temp-dir "cannot create a temp dir."
+PROBE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/orchestrate.XXXXXX")" || envfail env-temp-dir "cannot create a temp dir."
 trap 'rm -rf "$PROBE_DIR"' EXIT
 
 # #500 D-1/D-7. The run id off this lane's own claim marker, or empty when there is none.
@@ -633,7 +643,7 @@ trap 'rm -rf "$PROBE_DIR"' EXIT
 # and that this arm must apply too, on a repo where anyone can post a comment — is
 # `.user.type == "Bot"`, which only the API response carries.
 #
-# UNWINDOWED and `first`, where check-lean-chain.sh windows at PR-open: preflight has no PR to
+# UNWINDOWED and `first`, where check-lane-chain.sh windows at PR-open: preflight has no PR to
 # window at, and `first` names what that boundary will hold this run's verdict against (D-6).
 claim_marker_run_id() {
   local comments
@@ -658,7 +668,7 @@ probe_intake() {
   #
   # Under any other tracker there is nothing to read: this script has no jira query path, and the
   # operator attestation that used to stand in for one was persisted nowhere, so it enforced no
-  # checkable property. Say that intake is ungated here and pass — the same answer lean-gate.sh
+  # checkable property. Say that intake is ungated here and pass — the same answer milestone-gate.sh
   # already gives for this condition rather than inventing a second, stricter one.
   if [ "$TRACKER_TYPE" != "github" ]; then
     echo "ok intake: tracker '$TRACKER_TYPE' exposes no queue label — intake is not gated here."
@@ -739,7 +749,7 @@ probe_ticket() {
   # announces its resolved config path there. That belongs in a run's record, not inlined into the
   # one-line preflight verdict a human reads. Filtered AFTER `rc` is taken, never by piping the
   # capture itself — a trailing `grep` would report its own status as the gate's.
-  out="$(printf '%s\n' "$out" | grep -v '^\[lean-gate\] config: ')"
+  out="$(printf '%s\n' "$out" | grep -v '^\[milestone-gate\] config: ')"
   case "$rc" in
     0) echo "ok ticket: $out"; return 0 ;;
     7) echo "FAIL ticket: $out"
@@ -760,14 +770,14 @@ probe_spawn() {
   if command -v "$SPAWN_BIN" >/dev/null 2>&1 || [ -x "$SPAWN_BIN" ]; then
     echo "ok spawn: session binary '$SPAWN_BIN' resolves"; return 0
   fi
-  echo "FAIL spawn: session binary '$SPAWN_BIN' does not resolve (set LEAN_SPAWN_BIN)"; return 1
+  echo "FAIL spawn: session binary '$SPAWN_BIN' does not resolve (set LANE_SPAWN_BIN)"; return 1
 }
 
 probe_gate() {
   if [ -r "$GATE" ]; then
     echo "ok gate: milestone gate at $GATE"; return 0
   fi
-  echo "FAIL gate: no readable milestone gate at $GATE (set LEAN_GATE)"; return 1
+  echo "FAIL gate: no readable milestone gate at $GATE (set LANE_GATE)"; return 1
 }
 
 # #704. TELEMETRY WITHOUT AN EXPORTER IS THE ONE MISCONFIGURATION THAT COSTS A WHOLE RUN SILENTLY.
@@ -881,7 +891,7 @@ lane_worktree() {
 # reports, so the gate's build-vs-review verdict refusal and the audit hook see exactly what they
 # saw under `-p`. No --session-id, no --resume, no session worktree (`-w` is opt-in).
 #
-# NOTHING FROM THIS SHELL REACHES THE CHILD, so the `env -u RUN_ID -u LEAN_RUN_MODEL` scrub is
+# NOTHING FROM THIS SHELL REACHES THE CHILD, so the `env -u RUN_ID -u LANE_RUN_MODEL` scrub is
 # gone: an inherited RUN_ID cannot key a child's records to the parent's run because it does not
 # arrive. What the payload needs arrives the documented way instead, in a `--settings` env block.
 #
@@ -890,14 +900,14 @@ lane_worktree() {
 # supervised session waiting on its own background work stays `working` and is re-invoked when
 # that work lands, which is the shape the ceiling was raised to survive. Its bound survives below
 # as a scheduler-side silence ceiling.
-POLL_SECS="${LEAN_SPAWN_POLL_SECS:-30}"
+POLL_SECS="${LANE_SPAWN_POLL_SECS:-30}"
 # THE STALENESS RE-CHECK HAS ITS OWN CADENCE, and it is not the poll's. Reading a session's state
 # is a local call; re-asking the premise is a `gh issue view` round trip PLUS a `git fetch` of the
 # base, and running that every 30s charged a median BUILD ~25 tracker calls and ~25 fetches where
 # the pre-#805 loop made ONE per round. Five minutes keeps D-2's gain — a premise that expires
 # mid-session is still caught inside the same session, which is the whole point — at a tenth of
 # the cost, and the poll stays responsive at 30s because the two no longer share a clock.
-STALENESS_SECS="${LEAN_SPAWN_STALENESS_SECS:-300}"
+STALENESS_SECS="${LANE_SPAWN_STALENESS_SECS:-300}"
 # THE CEILING IS ON THE WHOLE SESSION, NOT ON A SILENCE, and the name says so because the earlier
 # one did not. `working` is what a healthy session reports for its entire life, and after the
 # narrowing removed the job record there is nothing left in `agents --json` that separates a
@@ -913,12 +923,12 @@ STALENESS_SECS="${LEAN_SPAWN_STALENESS_SECS:-300}"
 # exists to remove. Two hours clears the observed maximum with room, and still bounds the shape
 # D-8 is about. Shorten it with the seam when you are debugging a hang; do not shorten it as a
 # default without re-measuring the ledger it is set from.
-SESSION_CEILING_MS="${LEAN_SPAWN_SESSION_CEILING_MS:-7200000}"
+SESSION_CEILING_MS="${LANE_SPAWN_SESSION_CEILING_MS:-7200000}"
 # The clock, as a seam. Not hygiene: the ceiling above is the one behavior in this file whose
 # input is elapsed WALL TIME, so without a clock a suite can only drive it by setting the ceiling
 # to zero — which proves the arm fires and cannot tell a bound on silence from a bound on total
 # runtime. That is the discrimination the shipped default turned out to need.
-SPAWN_CLOCK="${LEAN_SPAWN_CLOCK:-date +%s}"
+SPAWN_CLOCK="${LANE_SPAWN_CLOCK:-date +%s}"
 spawn_now() { $SPAWN_CLOCK; }
 # D-18. Three, not one: a supervisor killed under a live session leaves the session running and
 # the listing recoverable, so a single bad read is evidence about the listing and not about the
@@ -945,9 +955,9 @@ spawn_settings() { # spawn_settings <model> — writes the --settings payload, p
   # Name/value pairs in the positional list, folded to an object by ONE jq call. Built by
   # re-setting the arguments rather than in an array, because this file stays bash-3.2-safe for
   # the macOS lane, and assembled in one call because this runs on every spawn.
-  set -- LEAN_ATTEND_MODE headless LEAN_RUN_MODEL "$model"
-  # SECOND_SHIFT_CONFIG (#811 OR-5, D-28). Read INSIDE the payload — `lean-gate.sh`, and with it
-  # lean-reconcile.sh, lean-evidence.sh, operator-override.sh, bot-commit.sh, gh-bot.sh,
+  set -- LANE_ATTEND_MODE headless LANE_RUN_MODEL "$model"
+  # SECOND_SHIFT_CONFIG (#811 OR-5, D-28). Read INSIDE the payload — `milestone-gate.sh`, and with it
+  # reconcile.sh, boundary-evidence.sh, operator-override.sh, bot-commit.sh, gh-bot.sh,
   # preflight.sh and pipeline-cost-block.sh all resolve it through the same
   # `${SECOND_SHIFT_CONFIG:-$MAIN_ROOT/.claude/second-shift.config.json}` ladder. Under `-p` it
   # INHERITED; under `--bg` nothing does, so it fell back to the committed config with no error at
@@ -976,7 +986,7 @@ spawn_settings() { # spawn_settings <model> — writes the --settings payload, p
 
 # EVERY CONTROL-PLANE CALL GOES THROUGH `$SPAWN_BIN`, not through a literal `claude` (#811 OR-5,
 # D-28): the dispatch, this listing, `stop_session`'s stop, and preflight's resolvability probe.
-# So a `LEAN_SPAWN_BIN` wrapper sees `--bg`, `agents --json --all` and `stop <id>` and must
+# So a `LANE_SPAWN_BIN` wrapper sees `--bg`, `agents --json --all` and `stop <id>` and must
 # discriminate on argv to serve all three — which is what D-14's fake already does, said here
 # because a wrapper author reads this file rather than the suite.
 #
@@ -1224,13 +1234,13 @@ spawn() { # spawn <role> <model> <prompt> — returns 0 on done or stuck, termin
   #
   # `env -u RUN_ID` is a BELT, and it is here because the braces are someone else's. D-9 measured
   # that a bg session inherits nothing from this shell, and the scrub went with that measurement —
-  # but `LEAN_RUN_MODEL` is re-asserted inside the settings block above and `RUN_ID` is asserted
+  # but `LANE_RUN_MODEL` is re-asserted inside the settings block above and `RUN_ID` is asserted
   # nowhere, so it was the one variable of the two whose defense was removed rather than moved. An
   # inherited RUN_ID keys a child's records to the parent's run, which is a wrong answer nothing
   # in this repo would catch, and the guard against it costs one word.
   local settings
   settings="$(spawn_settings "$model")" \
-    || terminal spawn-settings-unwritable 1 "the $role spawn's settings block could not be written under $PROBE_DIR — that block is how LEAN_ATTEND_MODE=headless reaches the payload (#613), so dispatching without it would spawn a session able to mint its own attendance. Nothing was started."
+    || terminal spawn-settings-unwritable 1 "the $role spawn's settings block could not be written under $PROBE_DIR — that block is how LANE_ATTEND_MODE=headless reaches the payload (#613), so dispatching without it would spawn a session able to mint its own attendance. Nothing was started."
   SPAWN_SETTINGS_FILE="$settings"
   out="$(env -u RUN_ID "$SPAWN_BIN" --bg \
            --permission-mode "$PERM_MODE" --model "$model" \
@@ -1316,11 +1326,11 @@ resolve_pr() {
 # THROUGH THE OBSERVE SEAM (#496 S3). This was the last RECORDING gate call the scheduler made:
 # every non-approve verdict it merely READ appended a milestone-4 attempt line and spent the build
 # role's fix budget — so the premise that this script writes nothing was false at exactly one site.
-# `LEAN_GATE_OBSERVE=1` returns the same taxonomy and records nothing, budget exhaustion included.
+# `LANE_GATE_OBSERVE=1` returns the same taxonomy and records nothing, budget exhaustion included.
 verdict_rc() {
   local wt
   wt="$(lane_worktree)" || return 3
-  ( cd "$wt" && env -u RUN_ID LEAN_GATE_OBSERVE=1 bash "$GATE" 4 "$ISSUE" )
+  ( cd "$wt" && env -u RUN_ID LANE_GATE_OBSERVE=1 bash "$GATE" 4 "$ISSUE" )
 }
 
 # #515. Both arms, from MAIN_ROOT and with RUN_ID scrubbed, for two reasons: the branch ref and the

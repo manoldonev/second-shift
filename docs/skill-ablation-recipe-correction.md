@@ -68,4 +68,4 @@ claude -p --model opus --setting-sources '' --tools "Read,Grep,Glob"
 
 `--allowedTools` stays correct wherever it is used in its documented sense — a permission rule that
 pre-approves a call the classifier would otherwise stop. `tools/lane-bench-arm.sh` uses it that way
-via `LEAN_ARM_ALLOWED_TOOLS` and is not affected by anything here.
+via `LANE_ARM_ALLOWED_TOOLS` and is not affected by anything here.

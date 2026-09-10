@@ -64,7 +64,7 @@ Agents write plausible code faster than a team can honestly review it, so the bo
 
 | Plugin | What you get |
 | --- | --- |
-| **dev-pipeline** | Ticket → PR across intake → build → review → merge-boundary blocks, gated by lean's five artifact milestones — a thin scheduler (`/dev-pipeline:run`) over payload blocks that stay individually invokable (`/dev-pipeline:build`, `/dev-pipeline:review`). Portable merge-boundary evidence (`lean-evidence`), tracker adapters (GitHub Issues with bot-identity claiming, or read-only JIRA), cost tracking, post-run retrospective. |
+| **dev-pipeline** | Ticket → PR across intake → build → review → merge-boundary blocks, gated by lean's five artifact milestones — a thin scheduler (`/dev-pipeline:run`) over payload blocks that stay individually invokable (`/dev-pipeline:build`, `/dev-pipeline:review`). Portable merge-boundary evidence (`boundary-evidence`), tracker adapters (GitHub Issues with bot-identity claiming, or read-only JIRA), cost tracking, post-run retrospective. |
 | **review-toolkit** | `review-lead` parallel multi-agent review: security, performance, maintainability, complexity, db, scope-completeness, test-coverage reviewers under a shared confidence protocol; mutation-review of unit tests; commit-time consistency gates. |
 | **intake-toolkit** | The elicitation surface: `/intake-toolkit:intake` front door, requirement and decomposition interviews, `plan-interview` that turns design decisions into a machine-lintable Decision Ledger, `grill-me` plan stress-testing. |
 | **design-toolkit** | Design-fidelity translation and review (`design-faithful`), with an optional Figma-MCP-backed mode (`figma-faithful`) and `figma-iterate` — an interactive fast-path for quick Figma iteration that swaps pipeline ceremony for one batched discrepancy checkpoint — plus a Playwright CLI helper. |
@@ -85,7 +85,7 @@ The full taxonomy — what goes in config vs knowledge files vs run state, and t
 ## Design principles
 
 - **Local-first, subscription-first.** The core path is one interactive session on your machine. Nothing requires API-billed cloud surfaces; anything that would is a config gate, off by default.
-- **Gates over vibes.** Milestone completion is enforced by tools (`lean-gate`, `lean-evidence`, ledger/config lint, commit hooks), not by the model asserting success. Optional gates fail closed when their prerequisites are missing.
+- **Gates over vibes.** Milestone completion is enforced by tools (`milestone-gate`, `boundary-evidence`, ledger/config lint, commit hooks), not by the model asserting success. Optional gates fail closed when their prerequisites are missing.
 - **Nothing repo-specific in the plugins.** If two adopters would differ on a value it's config; if they'd differ in knowledge it's an extension file. This boundary is CI-enforced where it can be.
 - **Selftests everywhere.** Every shell tool ships a selftest; CI runs them all, model-free.
 

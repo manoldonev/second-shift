@@ -105,7 +105,7 @@ You have a check the built-in lanes don't cover (a custom lint, a contract test,
 }
 ```
 
-Extra lanes run **sequentially after** the built-in SUITE lanes, never interleaving or replacing them; results land under a namespaced `ext:openapi-drift` key so canonical lane keys stay unreachable. There is no advisory mode: a lane blocks `lean-gate.sh` milestone 3 or it doesn't exist. `failureClass` must be one of the closed taxonomy values (`FORMAT`, `LINT_AUTOFIX`, `TYPE_ERROR`, `TEST_FAILURE`, `PLAN_CMD_FAILURE`, `INFRA`) — extensions borrow the taxonomy, they never extend it — and the lane gets the standard 2-attempt fix budget.
+Extra lanes run **sequentially after** the built-in SUITE lanes, never interleaving or replacing them; results land under a namespaced `ext:openapi-drift` key so canonical lane keys stay unreachable. There is no advisory mode: a lane blocks `milestone-gate.sh` milestone 3 or it doesn't exist. `failureClass` must be one of the closed taxonomy values (`FORMAT`, `LINT_AUTOFIX`, `TYPE_ERROR`, `TEST_FAILURE`, `PLAN_CMD_FAILURE`, `INFRA`) — extensions borrow the taxonomy, they never extend it — and the lane gets the standard 2-attempt fix budget.
 
 A build/compile step (`ng build`, `tsc --noEmit --project ...`) is a common `extraLanes` use: it's blocking, runs after the trio, and — unlike a lint or unit-test lane — catches breaks a spec doesn't happen to exercise (e.g. an Angular AOT template referencing a nonexistent property, invisible to `typecheck`/`test` unless some spec transitively imports the broken component). `failureClass: "TYPE_ERROR"` fits: the class already covers compile-time breaks the type-check lane didn't catch. `/second-shift:onboard` drafts this automatically when it detects a build command.
 
@@ -171,7 +171,7 @@ An opt-in axis, off unless the key is present:
 > rejection is the only mechanism that reaches them. Re-adding a key later is a minor release;
 > removing one is breaking — so the retirement happened in the window #348 already opened.
 
-The need it answered: something heavier than a verify command — a real workflow that ran at a chosen stage and blocked completion. A schema-compatibility gate before implementation, a codegen-drift check, a license scan. (For that need today, reach for `extraLanes` (§3.2): it is a blocking verify lane with a real `failureClass`, and it is read by `lean-gate.sh` milestone 3.)
+The need it answered: something heavier than a verify command — a real workflow that ran at a chosen stage and blocked completion. A schema-compatibility gate before implementation, a codegen-drift check, a license scan. (For that need today, reach for `extraLanes` (§3.2): it is a blocking verify lane with a real `failureClass`, and it is read by `milestone-gate.sh` milestone 3.)
 
 ```jsonc
 // NOT VALID CONFIG — config-lint rejects this key by name (#569). Shown as designed.
@@ -242,7 +242,7 @@ The need it answered: an extra reviewer of the *plan itself* — a QA-tier revie
 }
 ```
 
-As designed, each plan gate ran **after** the built-in plan gates (plan-reviewer, design FE-spec, unit-test-plan) as an additive trinary reviewer over the plan, appearing in the gate ledger as `plan-gate:<name>`; `surface` (optional) scoped it to plans touching that glob, and a `block` mapped to the existing `plan-reviewer-block` reason (no per-extension enum value) — able to make a passing plan review *block*, never to waive a built-in gate. It was conceived as the plan-stage counterpart of `extraLanes` and `reviewers.add`, but that symmetry no longer holds: **those two still run** — `extraLanes` is read by `lean-gate.sh` milestone 3 and `reviewers.add` by `review-lead` — while this seam has no dispatcher. `agent` is `"<plugin>:<agent>"` or a bare repo-local name; unresolvable fails closed at pre-flight.
+As designed, each plan gate ran **after** the built-in plan gates (plan-reviewer, design FE-spec, unit-test-plan) as an additive trinary reviewer over the plan, appearing in the gate ledger as `plan-gate:<name>`; `surface` (optional) scoped it to plans touching that glob, and a `block` mapped to the existing `plan-reviewer-block` reason (no per-extension enum value) — able to make a passing plan review *block*, never to waive a built-in gate. It was conceived as the plan-stage counterpart of `extraLanes` and `reviewers.add`, but that symmetry no longer holds: **those two still run** — `extraLanes` is read by `milestone-gate.sh` milestone 3 and `reviewers.add` by `review-lead` — while this seam has no dispatcher. `agent` is `"<plugin>:<agent>"` or a bare repo-local name; unresolvable fails closed at pre-flight.
 
 ### 3.9 Companion pack — package the above for the whole org
 
@@ -311,7 +311,7 @@ tier that still dispatch, registered and auditable. This block is valid config; 
 
 ```jsonc
 {
-  // RUN the suite — LIVE: read by lean-gate.sh milestone 3. The API suite is a blocking
+  // RUN the suite — LIVE: read by milestone-gate.sh milestone 3. The API suite is a blocking
   // verify lane, gated to when API surface changed.
   "commands": {
     "<repo-id>": {
@@ -364,7 +364,7 @@ api-testing/*.md
 | --- | --- | --- | --- | --- |
 | plan review | `planGates` (EP-8) | `api-test-plan-reviewer` judges the plan's test strategy | `block` → `plan-reviewer-block` | **retired #569** — no lean equivalent |
 | implement | `implementDelegates` (EP-7) | `api-test-coder` writes `tests/api/**` | output passes the unchanged scope + downstream gates | **retired #569** — a session may still choose the agent |
-| verify | `extraLanes` (EP-2) | the API suite runs | nonzero → `TEST_FAILURE`, standard budget | live (`lean-gate.sh` milestone 3) |
+| verify | `extraLanes` (EP-2) | the API suite runs | nonzero → `TEST_FAILURE`, standard budget | live (`milestone-gate.sh` milestone 3) |
 | code review | `reviewers.add` | `api-test-reviewer` reviews the tests | its verdict folds into the review round | live (`review-lead`) |
 
 Every one of these **adds** a gate or a unit of work; not one can waive a shipped check — an API-test tier can only make a green run *red* (a bad plan, a failing suite, a rejected review), which is exactly the fork-vs-extend line from §1. And because the wiring lives in the consumer's config, anyone auditing the repo sees the whole tier in one file — while the *implementation* (agents, skill) is versioned and pinned in the pack, bumped independently.

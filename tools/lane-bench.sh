@@ -69,14 +69,27 @@
 # results file untouched.
 #
 # Seams, each with a shipped default pointing at the real thing:
-#   LEAN_BENCH_SS_ROOT            the second-shift checkout arms are cut from (default: this
+#   LANE_BENCH_ROOT            the second-shift checkout arms are cut from (default: this
 #                                 script's own repository)
-#   LEAN_BENCH_LANE_BIN           the lane scheduler (default: the ARM worktree's own)
-#   LEAN_BENCH_POLL_SECS          seconds between launch-ledger reads (default 30)
-#   LEAN_BENCH_CELL_CEILING_SECS  wall-clock bound on one cell (default 28800)
+#   LANE_BENCH_BIN           the lane scheduler (default: the ARM worktree's own)
+#   LANE_BENCH_POLL_SECS          seconds between launch-ledger reads (default 30)
+#   LANE_BENCH_CELL_CEILING_SECS  wall-clock bound on one cell (default 28800)
 #   STATECTL_STATE_DIR            the substrate's pipeline state dir, retro-corpus.sh's ladder
 #   ${GH:-gh}                     the tracker/code-host CLI
 set -uo pipefail
+
+# #833: the pipeline's environment knobs are spelled `LANE_*`; the retired `LEAN_*` spellings still
+# resolve, once, with a stderr notice. Promoted IN PLACE here, before the first read, so every
+# `${LANE_*:-<default>}` site below keeps its own default unchanged.
+# shellcheck source=../plugins/dev-pipeline/skills/build/lane-env.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../plugins/dev-pipeline/skills/build" && pwd)/lane-env.sh" \
+  || { echo "FATAL: cannot load lane-env.sh — the LANE_/LEAN_ compatibility reader" >&2; exit 1; }
+lane_env_promote LANE_BENCH_POLL_SECS LANE_BENCH_CELL_CEILING_SECS
+# Two tokens whose retired spelling is NOT `LEAN_` + the current suffix: the bench family already
+# says "lane" for its own concept, so the mechanical `LANE_BENCH_LANE_BIN` / `LANE_BENCH_SS_ROOT`
+# double the noun and do not ship (#833 AC-15). Their retired names are passed explicitly.
+lane_env LANE_BENCH_ROOT LANE_BENCH_ROOT '' LEAN_BENCH_SS_ROOT
+lane_env LANE_BENCH_BIN  LANE_BENCH_BIN  '' LEAN_BENCH_LANE_BIN
 
 TAB=$'\t'
 SELF="$(basename "$0")"
@@ -212,7 +225,7 @@ cmd_run() {
 
   # ---- the arm ---------------------------------------------------------------------------------
   local SS_ROOT
-  SS_ROOT="${LEAN_BENCH_SS_ROOT:-$(cd "$HERE/.." && pwd)}"
+  SS_ROOT="${LANE_BENCH_ROOT:-$(cd "$HERE/.." && pwd)}"
   git -C "$SS_ROOT" rev-parse --git-dir >/dev/null 2>&1 || die "$SS_ROOT is not a git repository — there is no second-shift checkout to cut an arm worktree from"
   # An arm is a COMMIT. A dirty checkout would put uncommitted work in front of the payload
   # sessions under a `harness_sha` that does not describe it, and every row of that arm would then
@@ -326,7 +339,7 @@ cmd_run() {
 # 0.10+ reports SC2329 on the function, 0.9.0 (what CI installs) reports SC2317 on its body.
 lane_bench_run_cleanup() {
   [ -n "${ARM_WT:-}" ] && [ -d "$ARM_WT" ] \
-    && git -C "${LEAN_BENCH_SS_ROOT:-$(cd "$HERE/.." && pwd)}" worktree remove --force "$ARM_WT" >/dev/null 2>&1
+    && git -C "${LANE_BENCH_ROOT:-$(cd "$HERE/.." && pwd)}" worktree remove --force "$ARM_WT" >/dev/null 2>&1
   [ -n "${WORK:-}" ] && rm -rf "$WORK"
   return 0
 }
@@ -343,7 +356,7 @@ lane_bench_cell() {
   CELL_ISSUE="$(printf '%s\n' "$url" | sed -n 's#.*/issues/\([0-9][0-9]*\).*#\1#p' | tail -n1)"
   [ -n "$CELL_ISSUE" ] || die "gh filed the cell's issue but printed no issue URL to read a number out of: $url"
 
-  # THE QUEUE LABEL IS THE LANE'S INTAKE EVIDENCE. Without it `orchestrate-lean.sh` rejects the
+  # THE QUEUE LABEL IS THE LANE'S INTAKE EVIDENCE. Without it `orchestrate.sh` rejects the
   # launch at preflight with the resumable code, and the cell would measure a refusal.
   local lbl
   lbl="$( (cd "$ROOT" && "$GH_CLI" issue edit "$CELL_ISSUE" --repo "$SUBSTRATE" --add-label "$QUEUE_LABEL") 2>&1 )" \
@@ -361,7 +374,7 @@ lane_bench_cell() {
   # checkout's scheduler against the arm's plugins would measure a kit nobody ships. The WRAPPER,
   # by contrast, is this runner's sibling and is constant across arms: a wrapper that varied with
   # the arm would be a confound on the quantity being measured (#811 D-51).
-  LANE_BIN="${LEAN_BENCH_LANE_BIN:-$ARM_WT/plugins/dev-pipeline/skills/run/orchestrate-lean.sh}"
+  LANE_BIN="${LANE_BENCH_BIN:-$ARM_WT/plugins/dev-pipeline/skills/run/orchestrate.sh}"
   [ -r "$LANE_BIN" ] || die "no readable lane scheduler at $LANE_BIN"
   log="$WORK/cell-$CELL_ISSUE-lane.log"
 
@@ -369,8 +382,8 @@ lane_bench_cell() {
   # passed explicitly and the round cap is 2, per the protocol's cost bound; the review basis is
   # fixed text so the same string appears on every cell of every arm and cannot become a variable.
   ( cd "$ROOT" || exit 1
-    export LEAN_SPAWN_BIN="$HERE/lane-bench-arm.sh"
-    export LEAN_ARM_MANIFEST="$MANIFEST"
+    export LANE_SPAWN_BIN="$HERE/lane-bench-arm.sh"
+    export LANE_ARM_MANIFEST="$MANIFEST"
     export SECOND_SHIFT_CONFIG="$CFG_ABS"
     nohup bash "$LANE_BIN" "$CELL_ISSUE" \
       --build-model opus --review-model opus \
@@ -379,8 +392,8 @@ lane_bench_cell() {
   ) || die "could not launch the lane for $SUBSTRATE#$CELL_ISSUE"
 
   local poll ceiling deadline term
-  poll="${LEAN_BENCH_POLL_SECS:-30}"
-  ceiling="${LEAN_BENCH_CELL_CEILING_SECS:-28800}"
+  poll="${LANE_BENCH_POLL_SECS:-30}"
+  ceiling="${LANE_BENCH_CELL_CEILING_SECS:-28800}"
   deadline=$(( $(date +%s) + ceiling ))
   term=""
   while : ; do
@@ -484,7 +497,7 @@ lane_bench_wall() {
 # `--model opus` is an alias that moves with releases (#811 D-46), so the row carries what the
 # session actually ran. The ledger's spawn row records the CLI's SHORT id while the transcript is
 # named for the full one, so the read globs on that id as a PREFIX — the glob-not-slug-derivation
-# precedent of orchestrate-lean.sh's transcript_close, widened by one wildcard. More than one
+# precedent of orchestrate.sh's transcript_close, widened by one wildcard. More than one
 # match is a refusal: two sessions whose ids share a prefix are two candidate answers, and picking
 # the first would put another session's model id on this row.
 lane_bench_model() {

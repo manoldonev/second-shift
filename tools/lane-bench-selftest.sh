@@ -17,7 +17,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 TOOL="$HERE/lane-bench.sh"
 CLASSES="$HERE/lane-bench-classes.tsv"
-ORCH="$(cd "$HERE/.." && pwd)/plugins/dev-pipeline/skills/run/orchestrate-lean.sh"
+ORCH="$(cd "$HERE/.." && pwd)/plugins/dev-pipeline/skills/run/orchestrate.sh"
 # The explicit-template form, which IS honored by a private TMPDIR (docs/testing.md), unlike the
 # `-t` form the two big stamped fixture families use.
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/lane-bench-selftest.XXXXXX")"
@@ -395,8 +395,8 @@ fi
 # THE SCENARIO THESE GUARD is a cell's bookkeeping: which tracker it is allowed to write to, what
 # it hands the lane, what it reads back out of the lane's leavings, and that a matrix resumed
 # after an interruption cannot double-count a cell. The lane itself is a STUB at the
-# `LEAN_BENCH_LANE_BIN` seam (#811 D-34): driving the real `orchestrate-lean.sh` behind a `claude`
-# fake would be a second copy of `orchestrate-lean-selftest.sh` with this file's name on it, and
+# `LANE_BENCH_BIN` seam (#811 D-34): driving the real `orchestrate.sh` behind a `claude`
+# fake would be a second copy of `orchestrate-selftest.sh` with this file's name on it, and
 # what is under test here is the runner, not the scheduler.
 
 # ---- a second-shift checkout to cut arms from ---------------------------------------------------
@@ -427,11 +427,11 @@ cat > "$LANE" <<'SH'
 #!/usr/bin/env bash
 issue="$1"
 { echo "ARGV: $*"
-  echo "LEAN_SPAWN_BIN=${LEAN_SPAWN_BIN:-}"
-  echo "LEAN_ARM_MANIFEST=${LEAN_ARM_MANIFEST:-}"
+  echo "LANE_SPAWN_BIN=${LANE_SPAWN_BIN:-}"
+  echo "LANE_ARM_MANIFEST=${LANE_ARM_MANIFEST:-}"
   echo "SECOND_SHIFT_CONFIG=${SECOND_SHIFT_CONFIG:-}"
   echo "CWD=$PWD"; } >> "$LANE_LOG"
-[ -n "${LEAN_ARM_MANIFEST:-}" ] && cp "$LEAN_ARM_MANIFEST" "$LANE_MANIFEST_COPY"
+[ -n "${LANE_ARM_MANIFEST:-}" ] && cp "$LANE_ARM_MANIFEST" "$LANE_MANIFEST_COPY"
 sd="$PWD/.claude/pipeline-state"
 mkdir -p "$sd"
 term="$(head -n1 "$LANE_TERM_SEQ")"
@@ -476,8 +476,8 @@ STATE="$SUB/.claude/pipeline-state"
 runcell() { # runcell <results> <arm> <extra args...>
   local r="$1" arm="$2"; shift 2
   env PATH="$BIN:$PATH" HOME="$FAKEHOME" \
-      LEAN_BENCH_SS_ROOT="$SS" LEAN_BENCH_LANE_BIN="$LANE" \
-      LEAN_BENCH_POLL_SECS=0.2 LEAN_BENCH_CELL_CEILING_SECS="${CEIL:-60}" \
+      LANE_BENCH_ROOT="$SS" LANE_BENCH_BIN="$LANE" \
+      LANE_BENCH_POLL_SECS=0.2 LANE_BENCH_CELL_CEILING_SECS="${CEIL:-60}" \
       bash "$TOOL" run --results "$r" --arm "$arm" --config "$CONFIG" \
         --substrate bench-owner/substrate --overlay "$OVERLAY" --defects "$DEFECTS" \
         --body "$BODY" --receipt "$RECEIPT" "$@" 2>&1
@@ -517,10 +517,10 @@ else fail "(k2) score columns: $(col "$RK" t1-ctl-r1 13) / $(col "$RK" t1-ctl-r1
 # What the lane was handed. Each of the three is load-bearing: without SECOND_SHIFT_CONFIG the
 # payload silently falls back to the committed config and targets the wrong base branch, and
 # without the other two the session loads the machine's own kit instead of the arm's.
-if grep -q "LEAN_SPAWN_BIN=$HERE/lane-bench-arm.sh" "$LANE_LOG" \
+if grep -q "LANE_SPAWN_BIN=$HERE/lane-bench-arm.sh" "$LANE_LOG" \
    && grep -q "SECOND_SHIFT_CONFIG=$CONFIG" "$LANE_LOG" \
    && grep -q "CWD=$SUB" "$LANE_LOG"; then
-  pass "(k3) the lane is launched from the substrate root with the arm wrapper as LEAN_SPAWN_BIN and the eval config forwarded"
+  pass "(k3) the lane is launched from the substrate root with the arm wrapper as LANE_SPAWN_BIN and the eval config forwarded"
 else fail "(k3) lane env: $(cat "$LANE_LOG")"; fi
 
 if grep -q -- '--build-model opus --review-model opus' "$LANE_LOG" \

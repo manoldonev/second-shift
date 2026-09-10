@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# orchestrate-lean-selftest.sh — proves orchestrate-lean.sh, the pipeline's scheduler.
+# orchestrate-selftest.sh — proves orchestrate.sh, the pipeline's scheduler.
 #
 # Tier justification (CLAUDE.md's map): one script's behavior against fixtures ⇒ a per-tool
 # behavioral selftest. What it guards is the loop's CONTROL FLOW — preflight's reject-and-stop,
@@ -9,7 +9,7 @@
 # does BETWEEN two sessions, which no single-session composition can reach.
 #
 # ZERO NETWORK, ZERO MODEL. Every seam is an env override with a shipped default pointing at the
-# real thing — `LEAN_SPAWN_BIN` (the session binary), `LEAN_GATE` (the milestone gate) and
+# real thing — `LANE_SPAWN_BIN` (the session binary), `LANE_GATE` (the milestone gate) and
 # `${GH:-gh}` — so the whole suite drives fakes that RECORD what they were given. That is also
 # this suite's honest ceiling, stated rather than papered over: it proves the scheduler's loop,
 # and cannot prove that a real `claude -p` build session completes /dev-pipeline:build unattended. CI is
@@ -23,7 +23,7 @@
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-TOOL="$HERE/orchestrate-lean.sh"
+TOOL="$HERE/orchestrate.sh"
 
 PASSES=0
 FAILS=0
@@ -39,7 +39,7 @@ if [ ! -f "$HERE/../build/branch-prefix.sh" ]; then
   exit 2
 fi
 
-# TRAP INSTALLED BEFORE WORK EXISTS (#528), mirroring lean-gate-selftest.sh: the old order
+# TRAP INSTALLED BEFORE WORK EXISTS (#528), mirroring milestone-gate-selftest.sh: the old order
 # (mktemp, then trap) left a window where a signal orphaned WORK with nothing registered to
 # remove it. cleanup() guards on WORK being set, so registering it first is safe.
 # shellcheck disable=SC2317,SC2329  # invoked indirectly by the EXIT trap below.
@@ -56,7 +56,7 @@ trap cleanup EXIT
 # fail for a reason that has nothing to do with the tool. That mismatch matters MORE under the
 # explicit-template form, not less — TMPDIR's unresolved and resolved spellings now differ right
 # where WORK is allocated, the same class of divergence -t independently reached via confstr.
-WORK="$(mktemp -d "${TMPDIR:-/tmp}/orchestrate-lean-selftest.XXXXXX")"
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/orchestrate-selftest.XXXXXX")"
 WORK="$(cd "$WORK" && pwd -P)"
 
 ISSUE=7
@@ -164,8 +164,8 @@ for a in "$@"; do [ "$prev" = "--settings" ] && settings_file="$a"; prev="$a"; d
   echo "SETTINGS: $(cat "$settings_file" 2>/dev/null)"
   echo "SETTINGS_PERMS: $(ls -l "$settings_file" 2>/dev/null | cut -c1-10)"
   echo "RUN_ID_SET: ${RUN_ID+yes}"
-  echo "LEAN_RUN_MODEL: ${LEAN_RUN_MODEL:-<unset>}"
-  echo "LEAN_ATTEND_MODE: ${LEAN_ATTEND_MODE:-<unset>}"
+  echo "LANE_RUN_MODEL: ${LANE_RUN_MODEL:-<unset>}"
+  echo "LANE_ATTEND_MODE: ${LANE_ATTEND_MODE:-<unset>}"
   echo "SESSION_ID_SET: ${CLAUDE_CODE_SESSION_ID+yes}"
   echo "BG_CEILING: ${CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS:-<unset>}"
 } > "$SPAWN_LOG_DIR/spawn-$n"
@@ -325,13 +325,13 @@ fi
 n=$(( $(cat "$GATE_LOG_DIR/count" 2>/dev/null || echo 0) + 1 ))
 echo "$n" > "$GATE_LOG_DIR/count"
 { echo "ARGV: $*"; echo "CWD: $PWD"; echo "RUN_ID_SET: ${RUN_ID+yes}"
-  echo "OBSERVE: ${LEAN_GATE_OBSERVE:-<unset>}"; } > "$GATE_LOG_DIR/call-$n"
+  echo "OBSERVE: ${LANE_GATE_OBSERVE:-<unset>}"; } > "$GATE_LOG_DIR/call-$n"
 # #496 AC-6, modelled at the seam the scheduler actually controls: the REAL gate appends a
 # milestone-4 attempt line on every recording red, so a fake that is called WITHOUT the observe
 # seam stands in for exactly that write. The gate suite owns the other half — that observe mode
 # really does record nothing — so nothing here re-implements the gate's logic, it only records
 # which mode it was asked for.
-[ "${LEAN_GATE_OBSERVE:-0}" = "1" ] || echo "attempt $*" >> "$GATE_LOG_DIR/attempts"
+[ "${LANE_GATE_OBSERVE:-0}" = "1" ] || echo "attempt $*" >> "$GATE_LOG_DIR/attempts"
 rc="$(sed -n "${n}p" "$GATE_RC_FILE" 2>/dev/null)"
 exit "${rc:-0}"
 SH
@@ -434,7 +434,7 @@ set_claim_trail() { # set_claim_trail <author-type> <run-id>
     > "$COMMENTS_FILE"
 }
 
-# RUN_ID and LEAN_RUN_MODEL are POISONED in the parent on purpose: they are ordinary env vars
+# RUN_ID and LANE_RUN_MODEL are POISONED in the parent on purpose: they are ordinary env vars
 # that DO inherit, and the whole scrub contract is invisible against a parent that never set them.
 run_tool() { # run_tool [config] [args...]
   local cfg="$1"; shift
@@ -443,8 +443,8 @@ run_tool() { # run_tool [config] [args...]
   # UNSET so the tool falls through to its own shipped default. `-u GH` precedes the
   # assignments, so the ordinary case still gets the fake.
   envs=( PATH="$BIN:$PATH"
-         LEAN_SPAWN_BIN="${SPAWN_BIN_OVERRIDE:-$BIN/claude}"
-         LEAN_GATE="$BIN/fake-gate.sh"
+         LANE_SPAWN_BIN="${SPAWN_BIN_OVERRIDE:-$BIN/claude}"
+         LANE_GATE="$BIN/fake-gate.sh"
          SPAWN_LOG_DIR="$SPAWN_LOG_DIR" AGENTS_STATE_FILE="$AGENTS_STATE_FILE"
          SPAWN_ID_FILE="$SPAWN_ID_FILE" HOME="$CASE_HOME"
          # PINNED, NOT INHERITED, and this completes the private-HOME isolation above rather than
@@ -456,8 +456,8 @@ run_tool() { # run_tool [config] [args...]
          CLAUDE_CONFIG_DIR="${CASE_CONFIG_DIR:-$CASE_HOME/.claude}"
          # The poll interval, pinned so the suite never sleeps. D-8's ceiling is NOT here — see
          # below.
-         LEAN_SPAWN_POLL_SECS=0
-         # CLOCK_FILE/CLOCK_STEP arm the fake; LEAN_SPAWN_CLOCK itself is set only by the cases
+         LANE_SPAWN_POLL_SECS=0
+         # CLOCK_FILE/CLOCK_STEP arm the fake; LANE_SPAWN_CLOCK itself is set only by the cases
          # that drive elapsed time, for the reason spelled out below the array.
          CLOCK_FILE="${CLOCK_FILE:-$CASE_HOME/.clock}" CLOCK_STEP="${CLOCK_STEP:-60}"
          GATE_LOG_DIR="$GATE_LOG_DIR" GATE_RC_FILE="$GATE_RC_FILE"
@@ -470,14 +470,14 @@ run_tool() { # run_tool [config] [args...]
          STALENESS_RC_FILE="$STALENESS_RC_FILE"
          STALENESS_TICKET_RC_FILE="$STALENESS_TICKET_RC_FILE"
          STATE_ANSWER="${STATE_ANSWER:-OPEN}"
-         # #650 AC-1. EMPTY by default, and `${LEAN_LAUNCH_ID:-...}` in the tool treats empty as
+         # #650 AC-1. EMPTY by default, and `${LANE_LAUNCH_ID:-...}` in the tool treats empty as
          # unset — so every pre-existing case still exercises the PRODUCTION token expression and
          # only the cases that assert a transcript path pin one.
-         LEAN_LAUNCH_ID="${LAUNCH_ID_OVERRIDE:-}"
+         LANE_LAUNCH_ID="${LAUNCH_ID_OVERRIDE:-}"
          # #815: harness-internal seams, not product ones — empty on every case but the two
          # signal cases, and the fake tests them for emptiness rather than defaulting on them.
          SIGNAL_KILL="${SIGNAL_KILL:-}" SIGNAL_PID_FILE="${SIGNAL_PID_FILE:-}"
-         RUN_ID=poisoned-parent-run LEAN_RUN_MODEL=poisoned-parent-model )
+         RUN_ID=poisoned-parent-run LANE_RUN_MODEL=poisoned-parent-model )
   [ "${USE_DEFAULT_GH:-0}" -eq 1 ] || envs+=( GH="$BIN/gh" )
   # A HARNESS THAT EXPORTS A SEAM ON EVERY CASE MAKES THE PRODUCT'S OWN DEFAULT DEAD CODE.
   # `${VAR:-default}` in the tool fires only when VAR is unset or empty, so an unconditional
@@ -488,16 +488,16 @@ run_tool() { # run_tool [config] [args...]
   # drives it, and every other case runs on the bound the tool actually ships — which is what
   # makes (bg4c) an assertion about the product.
   [ -z "${SESSION_CEILING_OVERRIDE:-}" ] || \
-    envs+=( LEAN_SPAWN_SESSION_CEILING_MS="$SESSION_CEILING_OVERRIDE" )
+    envs+=( LANE_SPAWN_SESSION_CEILING_MS="$SESSION_CEILING_OVERRIDE" )
   # The staleness cadence needs the other shape, because its harness value and its shipped value
   # genuinely differ: ZERO re-asks the premise on every tick, which is the behavior every case
   # written before the cadence existed assumes, so zero stays the default here. The opt-out is
   # USE_DEFAULT_STALENESS, the same shape as GH and SECOND_SHIFT_CONFIG above, and (bg7h)/(bg7i)
   # use it to bracket the 300 seconds the tool ships.
   [ "${USE_DEFAULT_STALENESS:-0}" -eq 1 ] || \
-    envs+=( LEAN_SPAWN_STALENESS_SECS="${STALENESS_SECS_OVERRIDE:-0}" )
+    envs+=( LANE_SPAWN_STALENESS_SECS="${STALENESS_SECS_OVERRIDE:-0}" )
   # Same reason as the ceiling: `date +%s` here would shadow the identical `date +%s` there.
-  [ -z "${CLOCK_OVERRIDE:-}" ] || envs+=( LEAN_SPAWN_CLOCK="$CLOCK_OVERRIDE" )
+  [ -z "${CLOCK_OVERRIDE:-}" ] || envs+=( LANE_SPAWN_CLOCK="$CLOCK_OVERRIDE" )
   # #811 OR-5. Same opt-out shape as GH above, and for the same reason: one case must run with
   # SECOND_SHIFT_CONFIG genuinely UNSET in the launcher, so the tool falls through to the
   # payload's own resolution ladder. `-u SECOND_SHIFT_CONFIG` precedes the assignments below, so
@@ -513,17 +513,17 @@ run_tool() { # run_tool [config] [args...]
     # #815: same invocation, reached through `pidwrap` so the run's own pid is addressable.
     ( cd "$TREE" \
       && env -u CLAUDE_CODE_SESSION_ID -u GH -u SECOND_SHIFT_CONFIG \
-             -u LEAN_SPAWN_SESSION_CEILING_MS -u LEAN_SPAWN_STALENESS_SECS -u LEAN_SPAWN_CLOCK \
+             -u LANE_SPAWN_SESSION_CEILING_MS -u LANE_SPAWN_STALENESS_SECS -u LANE_SPAWN_CLOCK \
              "${envs[@]}" bash "$BIN/pidwrap" bash "$TOOL" "$@" 2>&1 )
   elif [ "${RUN_TOOL_SPLIT:-0}" -eq 1 ]; then
     ( cd "$TREE" \
       && env -u CLAUDE_CODE_SESSION_ID -u GH -u SECOND_SHIFT_CONFIG \
-             -u LEAN_SPAWN_SESSION_CEILING_MS -u LEAN_SPAWN_STALENESS_SECS -u LEAN_SPAWN_CLOCK \
+             -u LANE_SPAWN_SESSION_CEILING_MS -u LANE_SPAWN_STALENESS_SECS -u LANE_SPAWN_CLOCK \
              "${envs[@]}" bash "$TOOL" "$@" )
   else
     ( cd "$TREE" \
       && env -u CLAUDE_CODE_SESSION_ID -u GH -u SECOND_SHIFT_CONFIG \
-             -u LEAN_SPAWN_SESSION_CEILING_MS -u LEAN_SPAWN_STALENESS_SECS -u LEAN_SPAWN_CLOCK \
+             -u LANE_SPAWN_SESSION_CEILING_MS -u LANE_SPAWN_STALENESS_SECS -u LANE_SPAWN_CLOCK \
              "${envs[@]}" bash "$TOOL" "$@" 2>&1 )
   fi
 }
@@ -564,7 +564,7 @@ spawn_argv()  { sed -n 's/^ARGV: //p' "$SPAWN_LOG_DIR/spawn-$1" 2>/dev/null; }
 spawn_settings_of() { sed -n 's/^SETTINGS: //p' "$SPAWN_LOG_DIR/spawn-$1" 2>/dev/null; }
 all_argv()    { cat "$SPAWN_LOG_DIR"/spawn-* 2>/dev/null; }
 
-echo "[orchestrate-lean-selftest]"
+echo "[orchestrate-selftest]"
 
 # ---- (a) usage: the scheduler refuses to size a ticket ---------------------------------------
 setup_case "" "" "ready-for-dev" "5"
@@ -620,15 +620,15 @@ else fail "(c2) an ambient RUN_ID leaked into the verdict gate"; fi
 # these read argv rather than the fake's environment. A fake cannot model non-inheritance for
 # itself — it is an ordinary child of this shell and sees everything this shell exports — so an
 # env-reading assertion here would now be measuring the harness, not the tool.
-if grep -q '"LEAN_ATTEND_MODE":"headless"' <<<"$(spawn_settings_of 1)" \
-   && grep -q '"LEAN_ATTEND_MODE":"headless"' <<<"$(spawn_settings_of 2)"; then
+if grep -q '"LANE_ATTEND_MODE":"headless"' <<<"$(spawn_settings_of 1)" \
+   && grep -q '"LANE_ATTEND_MODE":"headless"' <<<"$(spawn_settings_of 2)"; then
   pass "(d1) every spawn is POSITIVELY marked headless through --settings, not merely left unattended"
 else fail "(d1) a spawn carried no headless mark in its --settings: $(all_argv)"; fi
 
-if grep -q '"LEAN_RUN_MODEL":"sonnet"' <<<"$(spawn_settings_of 1)" \
-   && grep -q '"LEAN_RUN_MODEL":"opus"' <<<"$(spawn_settings_of 2)"; then
-  pass "(d2) LEAN_RUN_MODEL is set per PHASE in --settings — build's model on build, review's on review"
-else fail "(d2) LEAN_RUN_MODEL was not re-set per phase: $(all_argv)"; fi
+if grep -q '"LANE_RUN_MODEL":"sonnet"' <<<"$(spawn_settings_of 1)" \
+   && grep -q '"LANE_RUN_MODEL":"opus"' <<<"$(spawn_settings_of 2)"; then
+  pass "(d2) LANE_RUN_MODEL is set per PHASE in --settings — build's model on build, review's on review"
+else fail "(d2) LANE_RUN_MODEL was not re-set per phase: $(all_argv)"; fi
 
 # THE PRINT-MODE CEILING IS GONE, and stays asserted gone. It existed because a print-mode turn
 # ended over its own pending work; a supervised session stays `working` through it, so re-adding
@@ -640,7 +640,7 @@ else fail "(d3) the tool still carries the print-mode wait ceiling"; fi
 
 # THE SCRUB IS NOT GONE — one half of it came back, and this is the case that holds it there.
 # Round 4 of review: D-9 measured that a bg session inherits nothing, and the whole `env -u
-# RUN_ID -u LEAN_RUN_MODEL` scrub was deleted on that measurement. But LEAN_RUN_MODEL is
+# RUN_ID -u LANE_RUN_MODEL` scrub was deleted on that measurement. But LANE_RUN_MODEL is
 # re-asserted in the settings block ((d2) above) and RUN_ID is asserted NOWHERE, so RUN_ID was the
 # one variable whose defense was removed rather than moved — and an inherited RUN_ID keys a
 # child's records to the parent's run, which is a wrong answer no other guard in this repo reads.
@@ -658,13 +658,13 @@ else fail "(d3a) the parent's RUN_ID reached a spawned session: $(cat "$SPAWN_LO
 # platform this runs on while an environment is not — so passing the block as argv would have been
 # strictly more exposed than the `-p` inheritance the forwarding exists to keep at parity.
 if grep -qE -- '--settings /' <<<"$(spawn_argv 1)" \
-   && ! grep -q 'LEAN_ATTEND_MODE' <<<"$(spawn_argv 1)" \
+   && ! grep -q 'LANE_ATTEND_MODE' <<<"$(spawn_argv 1)" \
    && [ -n "$(spawn_settings_of 1)" ]; then
   pass "(d3b) the child's environment travels by FILE PATH, never in argv — the block is readable to the payload and not to every process on the box"
 else fail "(d3b) the settings block was passed in argv, or no file reached the fake: $(spawn_argv 1)"; fi
 
 # #811 OR-5. SECOND_SHIFT_CONFIG REACHES THE PAYLOAD, and this is the arm the transport swap broke
-# in silence. The gate resolves it INSIDE the session — lean-gate.sh and seven siblings share one
+# in silence. The gate resolves it INSIDE the session — milestone-gate.sh and seven siblings share one
 # `${SECOND_SHIFT_CONFIG:-$MAIN_ROOT/.claude/second-shift.config.json}` ladder — so under `-p` it
 # inherited and under `--bg` it did not, and a launch carrying an alternate config (the pinned-base
 # eval recipe, the lane bench) fell back to the COMMITTED one and targeted the wrong base branch
@@ -788,7 +788,7 @@ if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 2 ] \
 else fail "(s1) expected rc=0 with 2 spawns and a named re-entry, got rc=$rc / $(spawn_count) spawn(s): $out"; fi
 
 # The claimed label defaults to `in-progress` here — the fixture config sets no
-# `.tracker.labels.claimed` — which is the same shipped default lean-gate.sh's `claim` writes. A
+# `.tracker.labels.claimed` — which is the same shipped default milestone-gate.sh's `claim` writes. A
 # tool that resolved a different one could not have matched the label above at all.
 #
 # ANTI-VACUITY for (s1): the accept must have come from the comment READ, on the call that carries
@@ -1135,7 +1135,7 @@ else fail "(p4) expected rc=0 after a retried close-out, got rc=$rc / $(closeout
 setup_case "" "$V_APPROVE" "ready-for-dev" "11"
 out="$(run_tool "$CFG" "$ISSUE" --build-model opus --review-model sonnet --model-basis 'sized-here: two gates' --review-model-basis 'sized-here: reviewer rate limited')"; rc=$?
 if [ "$rc" -eq 0 ] \
-   && grep -q '"LEAN_RUN_MODEL":"sonnet"' <<<"$(spawn_settings_of 2)" \
+   && grep -q '"LANE_RUN_MODEL":"sonnet"' <<<"$(spawn_settings_of 2)" \
    && grep -q 'basis: sized-here: two gates' <<<"$out" \
    && grep -q 'basis: sized-here: reviewer rate limited' <<<"$out"; then
   pass "(k1) --review-model overrides the shipped default, and BOTH --model-basis and --review-model-basis are echoed into the run log"
@@ -1155,7 +1155,7 @@ else fail "(k2) expected rc=2 with 0 spawns, got rc=$rc / $(spawn_count): $out";
 setup_case "" "$V_APPROVE" "ready-for-dev" "11"
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet --review-model sonnet --review-model-basis 'sized-here: rate-limited on opus')"; rc=$?
 if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 2 ] \
-   && grep -q '"LEAN_RUN_MODEL":"sonnet"' <<<"$(spawn_settings_of 2)" \
+   && grep -q '"LANE_RUN_MODEL":"sonnet"' <<<"$(spawn_settings_of 2)" \
    && grep -q 'basis: sized-here: rate-limited on opus' <<<"$out"; then
   pass "(k3) a stated --review-model-basis is accepted: the departure reaches the spawn and the reason is echoed"
 else fail "(k3) expected rc=0 with the departure taking and the basis echoed, got rc=$rc / $(spawn_count): $out"; fi
@@ -1164,7 +1164,7 @@ else fail "(k3) expected rc=0 with the departure taking and the basis echoed, go
 # gets the shipped default tier with no basis note in the log.
 setup_case "" "$V_APPROVE" "ready-for-dev" "11"
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
-if [ "$rc" -eq 0 ] && grep -q '"LEAN_RUN_MODEL":"opus"' <<<"$(spawn_settings_of 2)" \
+if [ "$rc" -eq 0 ] && grep -q '"LANE_RUN_MODEL":"opus"' <<<"$(spawn_settings_of 2)" \
    && ! grep -q 'review model: opus (basis' <<<"$out"; then
   pass "(k4) omitting --review-model needs no basis, and the review spawn still gets the shipped default tier"
 else fail "(k4) expected rc=0 with the review spawn on the default tier and no basis note, got rc=$rc: $out"; fi
@@ -1172,7 +1172,7 @@ else fail "(k4) expected rc=0 with the review spawn on the default tier and no b
 # AC-3/AC-4: the default passed EXPLICITLY is the default, not a departure — no basis required.
 setup_case "" "$V_APPROVE" "ready-for-dev" "11"
 out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet --review-model opus)"; rc=$?
-if [ "$rc" -eq 0 ] && grep -q '"LEAN_RUN_MODEL":"opus"' <<<"$(spawn_settings_of 2)" \
+if [ "$rc" -eq 0 ] && grep -q '"LANE_RUN_MODEL":"opus"' <<<"$(spawn_settings_of 2)" \
    && ! grep -q 'review model: opus (basis' <<<"$out"; then
   pass "(k5) --review-model opus passed explicitly is the shipped default, not a departure — no basis required"
 else fail "(k5) expected rc=0 with no basis required, got rc=$rc: $out"; fi
@@ -1236,7 +1236,7 @@ else fail "(m4) the shipped tracker-CLI default did not resolve, rc=$rc: $out"; 
 # ---- (r) #496: the verdict gate's rc is a taxonomy, and each class gets its own action -----------
 # The gate here is a FAKE whose rc is popped from a fixture file, which is the point: these cases
 # are about what the SCHEDULER does with a class, never about which condition produces it. The
-# real gate's classification is the gate suite's to prove — a mutation of lean-gate.sh cannot red
+# real gate's classification is the gate suite's to prove — a mutation of milestone-gate.sh cannot red
 # anything below, and a case here that claimed otherwise would be asserting nothing.
 
 # Class 5 — no verdict usable against this head. No BUILD spawn, no round spent: exactly one
@@ -1345,7 +1345,7 @@ else fail "(r10) an absent config was refused, got rc=$rc / $(spawn_count) spawn
 # ---- (v) #515: the run's premise is re-checked before every BUILD spawn, and only those --------
 # What this block owns is the scheduler's WIRING — which call sites exist, with which arm, in which
 # order, and how each rc routes. What it deliberately does NOT own is whether the predicate is
-# right: that is lean-gate-selftest.sh's (st*) block, which drives the real subcommand against a
+# right: that is milestone-gate-selftest.sh's (st*) block, which drives the real subcommand against a
 # real remote and a real fetch. (v13)/(v14) are the matched pair here that joins the two, because
 # the seam between them — the scheduler invoking a subcommand and an arm the real gate actually
 # accepts — is precisely what a fake gate cannot fail on.
@@ -1471,7 +1471,7 @@ else fail "(v14c) expected the telemetry-off ok line and no WARN, got rc=$rc: $o
 # actual git ranges. Everything above would stay green if the scheduler asked the gate for a
 # subcommand or an arm the real gate rejects; this fails on exactly that, and on the rc integer.
 #
-# LEAN_GATE is UNSET here on purpose — the tool falls through to its shipped default, so the
+# LANE_GATE is UNSET here on purpose — the tool falls through to its shipped default, so the
 # default is asserted to point at the real sibling gate rather than merely documented to.
 v_git() { git -C "$1" -c user.email=t@example.invalid -c user.name=t -c commit.gpgsign=false "${@:2}"; }
 
@@ -1506,14 +1506,14 @@ make_real_fixture() { # make_real_fixture <dir> <file-the-base-moves-into>
 }
 
 run_real_gate() { # run_real_gate <tree>
-  ( cd "$1" && env -u CLAUDE_CODE_SESSION_ID -u LEAN_GATE \
+  ( cd "$1" && env -u CLAUDE_CODE_SESSION_ID -u LANE_GATE \
       PATH="$BIN:$PATH" GH="$BIN/gh" SECOND_SHIFT_CONFIG="$CFG" \
-      LEAN_SPAWN_BIN="$BIN/claude" \
+      LANE_SPAWN_BIN="$BIN/claude" \
       SPAWN_LOG_DIR="$SPAWN_LOG_DIR" AGENTS_STATE_FILE="$AGENTS_STATE_FILE" \
-      SPAWN_ID_FILE="$SPAWN_ID_FILE" HOME="$CASE_HOME" LEAN_SPAWN_POLL_SECS=0 \
+      SPAWN_ID_FILE="$SPAWN_ID_FILE" HOME="$CASE_HOME" LANE_SPAWN_POLL_SECS=0 \
       GH_LOG="$GH_LOG" LABELS_FILE="$LABELS_FILE" PR_FILE="$PR_FILE" \
       COMMENTS_FILE="$COMMENTS_FILE" STATE_ANSWER="${STATE_ANSWER:-OPEN}" \
-      RUN_ID=poisoned-parent-run LEAN_RUN_MODEL=poisoned-parent-model \
+      RUN_ID=poisoned-parent-run LANE_RUN_MODEL=poisoned-parent-model \
       bash "$TOOL" "$ISSUE" --build-model sonnet 2>&1 )
 }
 
@@ -1556,7 +1556,7 @@ else fail "(n0) SKILL.md not found at $SKILL"; fi
 # a single run of one ticket, each costing a full review round, with nothing in the log to tell it
 # from a legitimate one.
 #
-# THE GATE ANSWERS, THIS SCRIPT ROUTES. The predicate itself is lean-gate-selftest.sh's to prove
+# THE GATE ANSWERS, THIS SCRIPT ROUTES. The predicate itself is milestone-gate-selftest.sh's to prove
 # (it owns the real git conditions); what is asserted here is what an 8 ROUTES TO, which no
 # gate-side case can reach.
 #
@@ -1745,10 +1745,10 @@ y_err="$(cat "$WORK/case-$CASE_N/stderr")"
 # stderr" but "control on stdout, and the run's stderr is empty of payload". A spawn's own words
 # live in its transcript, asserted in (y2a).
 if [ "$y_rc" -eq 0 ] \
-   && grep -q 'orchestrate-lean' <<<"$y_out" \
+   && grep -q 'orchestrate' <<<"$y_out" \
    && grep -q 'session sess1' <<<"$y_out" \
    && ! grep -q 'backgrounded' <<<"$y_out" \
-   && ! grep -q '\[orchestrate-lean\]' <<<"$y_err"; then
+   && ! grep -q '\[orchestrate\]' <<<"$y_err"; then
   pass "(y1) a plain stdout redirect captures PURE control lines, and no payload reaches either stream under --bg"
 else fail "(y1) the streams were not separated, rc=$y_rc: stdout=[$y_out] stderr=[$y_err]"; fi
 
@@ -1790,8 +1790,8 @@ else fail "(y2a) transcript close-out wrong: build=[$(cat "$y2a_log" 2>/dev/null
 # ISO-8601 UTC, matching the gate's now_iso, so scheduler lines and progress-file rows sort against
 # each other without conversion. Asserted over EVERY control line rather than one: a clock on some
 # of them is a timeline with holes in it.
-y_bad="$(grep '\[orchestrate-lean\]' <<<"$y_out" | grep -cvE '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z \[orchestrate-lean\]')" || y_bad=0
-y_all="$(grep -c '\[orchestrate-lean\]' <<<"$y_out")" || y_all=0
+y_bad="$(grep '\[orchestrate\]' <<<"$y_out" | grep -cvE '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z \[orchestrate\]')" || y_bad=0
+y_all="$(grep -c '\[orchestrate\]' <<<"$y_out")" || y_all=0
 if [ "$y_all" -ge 5 ] && [ "$y_bad" -eq 0 ]; then
   pass "(y3) every one of the $y_all control lines carries an ISO-8601 UTC instant in the gate's own format"
 else fail "(y3) $y_bad of $y_all control lines were unstamped: $y_out"; fi
@@ -2120,8 +2120,8 @@ else fail "(bg4b) a session past the ceiling was not stopped, rc=$rc: $out"; fi
 
 # ...and (bg4c) is the one that catches the shipped default. IDENTICAL listing stream and an
 # identical fifty minutes of elapsed time, with SESSION_CEILING_OVERRIDE unset so the tool reads
-# its OWN `${LEAN_SPAWN_SESSION_CEILING_MS:-7200000}`: the session must ride it out and settle on
-# its own. Lower that literal in orchestrate-lean.sh back toward the observed BUILD distribution
+# its OWN `${LANE_SPAWN_SESSION_CEILING_MS:-7200000}`: the session must ride it out and settle on
+# its own. Lower that literal in orchestrate.sh back toward the observed BUILD distribution
 # and this reds. It did not, before round 4 — run_tool exported the ceiling on every case, so this
 # case pinned the harness's copy of the number and the shipped one was unreachable.
 setup_case "$(printf 'working\nworking\nworking\nworking\ndone\n')" "$V_APPROVE" "ready-for-dev" "11"
@@ -2149,8 +2149,8 @@ else fail "(bg7c) the poll re-asked staleness on the tick clock, rc=$rc / slug=$
 
 # AND THE CADENCE HAS A SHIPPED VALUE, which (bg7c) cannot see: it pins the interval at 99999, so
 # it proves the throttle exists and says nothing about where it sits. These two bracket the 300
-# seconds the tool actually ships, both with USE_DEFAULT_STALENESS=1 so LEAN_SPAWN_STALENESS_SECS
-# reaches the tool unset and `${LEAN_SPAWN_STALENESS_SECS:-300}` is the expression under test.
+# seconds the tool actually ships, both with USE_DEFAULT_STALENESS=1 so LANE_SPAWN_STALENESS_SECS
+# reaches the tool unset and `${LANE_SPAWN_STALENESS_SECS:-300}` is the expression under test.
 #
 # (bg7h) travels FOUR minutes — 60s a tick, four ticks — with an expiry scripted from the first
 # in-poll re-ask onward. Under the shipped 300 the cadence never comes round, so the run settles.
@@ -2403,5 +2403,5 @@ if [ "$rc" -eq 0 ] && grep -qF 'Exit: 0 = approved' <<<"$out" \
   pass "(n) --help prints through the last header line and stops before the code"
 else fail "(n) --help did not print exactly the header, rc=$rc: $out"; fi
 
-echo "[orchestrate-lean-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
+echo "[orchestrate-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 exit "$FAILS"

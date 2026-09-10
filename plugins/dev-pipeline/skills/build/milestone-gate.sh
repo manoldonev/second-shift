@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# lean-gate.sh — the five milestone gates of /dev-pipeline:build, plus the entry
+# milestone-gate.sh — the five milestone gates of /dev-pipeline:build, plus the entry
 # precondition and the claim helper.
 #
 # WHY THIS EXISTS: /dev-pipeline:build is OUTCOME-gated, not process-prescribed. The harness asserts
@@ -8,8 +8,8 @@
 #
 # TRUST POSTURE (D-47) — read this before adding a check here. Every record this script writes is
 # written by the agent being checked, so it is at best tamper-EVIDENT. The binding evidence
-# contract lives at the model-free merge boundary (scripts/check-lean-chain.sh) and in
-# lean-reconcile.sh. The fix-budget counter here is cost-control, NOT integrity. Do not add an
+# contract lives at the model-free merge boundary (scripts/check-lane-chain.sh) and in
+# reconcile.sh. The fix-budget counter here is cost-control, NOT integrity. Do not add an
 # integrity check here and call it enforcement. RUN_ID is agent-CHOSEN and the session id is
 # agent-OVERRIDABLE, so do not describe this as stronger than those two describe themselves.
 #
@@ -25,7 +25,7 @@
 # bound the record to a tree: an INFERRED one keyed on where git says the record was committed,
 # and a DECLARED one keyed on `reviewed_patch_id`.
 #
-# Both were duplicates. `lean-evidence.sh`'s `arm_freshness` asks the same question, on the same
+# Both were duplicates. `boundary-evidence.sh`'s `arm_freshness` asks the same question, on the same
 # record, through the same `+`/`-` comparison, at every consumer's merge boundary — so a record
 # this gate waved through could not merge, and one it refused was refused there too. The lane's
 # copies bought WHEN the operator learned, at the price of a second implementation that could
@@ -50,7 +50,7 @@
 # dies on a rebase. `inherited_from_verdict` is a human pointer; no reader gates on it.
 #
 # Usage:
-#   lean-gate.sh entry  <issue> [--ticket-source argument|lane-branch|lane-registry]
+#   milestone-gate.sh entry  <issue> [--ticket-source argument|lane-branch|lane-registry]
 #                                        entry precondition: the session's audit ledger is live.
 #                                        On success it RECORDS that fact in the progress file;
 #                                        every build-role subcommand below refuses with exit 2
@@ -65,19 +65,19 @@
 #                                        session launched in the worktree inherits the operator's
 #                                        allowlist instead of gambling on the classifier.
 #                                        Advisory — it cannot change entry's verdict.
-#   lean-gate.sh claim  <issue> [--ticket-source ...]
+#   milestone-gate.sh claim  <issue> [--ticket-source ...]
 #                                        the two bot-wrapper claim writes (AC-15/D-49).
 #                                        Under tracker.type: jira it makes NO tracker write and
 #                                        needs no GH_BOT — it records the run id and returns.
-#   lean-gate.sh <1..5> <issue>          evaluate one milestone. Milestone 1 also refuses when
+#   milestone-gate.sh <1..5> <issue>          evaluate one milestone. Milestone 1 also refuses when
 #                                        the issue declares an Open Region dispositioned
 #                                        `pause-and-ask` with no resolution artifact (AC-8).
-#   lean-gate.sh all    <issue>          a cheap, read-only pre-pass evaluates milestones 1 and
+#   milestone-gate.sh all    <issue>          a cheap, read-only pre-pass evaluates milestones 1 and
 #                                        4 first (no network, no fix-budget attempt) and reports
 #                                        every already-unsatisfiable one before running the real
 #                                        1..5 progression, so a stale verdict record is reported
 #                                        without paying milestone 3's green gate first.
-#   lean-gate.sh teardown <issue>        destroy this run's worktree (#442). Checklist step 9's
+#   milestone-gate.sh teardown <issue>        destroy this run's worktree (#442). Checklist step 9's
 #                                        final act, deliberately OUTSIDE the 1..5 progression:
 #                                        `all` runs milestones 1-5 and is mandated BEFORE that
 #                                        step, so a self-removing milestone 5 would delete the
@@ -88,7 +88,7 @@
 #                                        removed, kept-with-reason or nothing-to-remove — in its
 #                                        own namespace, so nothing reading `| milestone-<n> |`
 #                                        can mistake a hygiene outcome for a certified one.
-#   lean-gate.sh inflight <issue>        SCHEDULER role (#531): does this lane's worktree hold work
+#   milestone-gate.sh inflight <issue>        SCHEDULER role (#531): does this lane's worktree hold work
 #                                        that exists nowhere else? The same dirty-tree /
 #                                        unpushed-head predicate teardown refuses on, exposed
 #                                        read-only at the boundary where a BUILD session that
@@ -97,7 +97,7 @@
 #                                        collected (a missing worktree included — nothing that does
 #                                        not exist holds work); 8 = it still holds work, naming
 #                                        which arm fired; 1 = the read could not be completed.
-#   lean-gate.sh close-out <issue>       BUILD role (#590): perform the close-out's writes, then
+#   milestone-gate.sh close-out <issue>       BUILD role (#590): perform the close-out's writes, then
 #                                        assert milestone 5, then tear the lane down. It
 #                                        re-computes the run's published cost block (which is
 #                                        also what writes the cross-run corpus row), replaces the
@@ -109,11 +109,11 @@
 #                                        close-out artifact. It then calls milestone 5 unchanged
 #                                        and, ONLY on its rc=0, `teardown`. `5` on its own is
 #                                        untouched and stays a pure verifier.
-#   lean-gate.sh delta  <issue>          REVIEW role: print the range this round must READ —
+#   milestone-gate.sh delta  <issue>          REVIEW role: print the range this round must READ —
 #                                        the delta since the tree the last round covered, or the
 #                                        full branch diff when there is nothing verifiable to
 #                                        inherit. Reads only; writes nothing.
-#   lean-gate.sh verdict <issue> --pr <n> --verdict <approve|needs-work> [--rounds <n>]
+#   milestone-gate.sh verdict <issue> --pr <n> --verdict <approve|needs-work> [--rounds <n>]
 #                                        [--fidelity <pass|fail|not-applicable>]
 #                                        --panel <a,b,c> [--summary-file <path>]
 #                                        REVIEW role: write the committed verdict record.
@@ -128,7 +128,7 @@
 #                                        ticket and must name at least one reviewer: a round
 #                                        whose whole panel went dark is void under /dev-pipeline:review
 #                                        5c and is handed back, not recorded (#825).
-#   lean-gate.sh plan-review <issue> --verdict <pass|fix-and-go|block> --summary-file <path>
+#   milestone-gate.sh plan-review <issue> --verdict <pass|fix-and-go|block> --summary-file <path>
 #                                        [--model <m>]
 #                                        BUILD role (#710): write the committed plan-review
 #                                        record, the artifact milestone 3 asserts on an armed run.
@@ -139,7 +139,7 @@
 #                                        --summary-file is REQUIRED (the findings verbatim); a
 #                                        `block` the gate must quote needs a body to quote from.
 #                                        A second call overwrites.
-#   lean-gate.sh progress <issue> <--satisfied <n> | --obligations>
+#   milestone-gate.sh progress <issue> <--satisfied <n> | --obligations>
 #                                        SCHEDULER role. Reads only — it writes nothing and,
 #                                        unlike every other subcommand, does not create the file
 #                                        it reads. ONE OF THE TWO FLAGS IS REQUIRED: the bare
@@ -148,7 +148,7 @@
 #                                        `--satisfied <n>` prints an OPAQUE TOKEN over milestone
 #                                        n's `satisfied` rows alone — `m5sat-v1:<count>`, to be
 #                                        COMPARED and never parsed or ordered. Its one caller is
-#                                        orchestrate-lean.sh's close-out arm, asking whether a
+#                                        orchestrate.sh's close-out arm, asking whether a
 #                                        lane whose worktree is gone ever finished.
 #                                        `--obligations` (#531) prints neither token but a REPORT:
 #                                        one line per milestone-5 obligation with its recorded
@@ -158,7 +158,7 @@
 #                                        from them so that it can name WHICH obligation is
 #                                        outstanding without the scheduler reading the record.
 #                                        The two flags are mutually exclusive.
-#   lean-gate.sh staleness <issue> [--arm ticket|base|both]
+#   milestone-gate.sh staleness <issue> [--arm ticket|base|both]
 #                                        SCHEDULER role (#515): is this run's premise still true?
 #                                        The TICKET arm asks whether the issue is still open; the
 #                                        BASE arm asks whether the base has moved into files this
@@ -221,7 +221,7 @@
 #   ${CURL:-curl}            the client used for design.liveRender.readyProbe (#394). The only
 #                            outbound call milestone 3 can make, and only when a consumer
 #                            configures the probe — the suite points it at a stub.
-#   LEAN_PROGRESS_FILE       override the resolved progress-file path
+#   LANE_PROGRESS_FILE       override the resolved progress-file path
 #   SECOND_SHIFT_CONFIG      override the resolved config path
 #   --pr-file <path>         milestone 5: read the PR record from a JSON fixture
 #   --comments-file <path>   milestone 5 and milestone 1's pause-and-ask check: read the issue
@@ -235,16 +235,16 @@
 #                            Regions table is read ALONGSIDE the issue body, not instead of it
 #                            — a region declared in either source is seen — while its `D-n`
 #                            rows are the only source for the carry-forward check.
-#   LEAN_COST_BLOCK_TOOL     #590: the pipeline-cost-block.sh the close-out invokes. Default: the
+#   LANE_COST_BLOCK_TOOL     #590: the pipeline-cost-block.sh the close-out invokes. Default: the
 #                            sibling under tools/. A selftest points it at a stub so the close-out
 #                            can be driven with no OTel collector and no metrics on disk.
 #   COST_LOG_FILE            #546/#590: the cross-run cost log the close-out reads its own row
 #                            back from. Default: cost-log.jsonl beneath the state dir. Shared
 #                            with pipeline-cost-block.sh, which writes it.
-#   LEAN_RUN_MODEL           #347: the `model:` key stamped into the progress/verdict record
+#   LANE_RUN_MODEL           #347: the `model:` key stamped into the progress/verdict record
 #                            at creation time (retro-corpus.sh's corpus-aggregation key).
 #                            Read once, not cached; absent reads "unknown", never an error.
-#   LEAN_GATE_OBSERVE=1      #496: EVALUATE WITHOUT RECORDING. Milestones 1 and 4 return their
+#   LANE_GATE_OBSERVE=1      #496: EVALUATE WITHOUT RECORDING. Milestones 1 and 4 return their
 #                            ordinary exit code — including the taxonomy above and a spent budget's
 #                            4 — while appending no `attempt`/`absent` line, consuming no budget
 #                            and writing no `satisfied` line. `cmd_all`'s cheap pre-pass uses it,
@@ -253,40 +253,50 @@
 #                            NOT IN `SEAM_SCRUB`, so a verify lane the gate runs inherits it. The
 #                            register is a `subset-of` lockstep row against preflight.sh (which
 #                            carries the superset) and is not widenable from this side alone.
-#   LEAN_GATE_TEST_STALL_DIR #528: TEST-ONLY, never set in CI or by an operator — the loop it
+#   LANE_GATE_TEST_STALL_DIR #528: TEST-ONLY, never set in CI or by an operator — the loop it
 #                            gates is otherwise unreachable. Pauses append_satisfied/
 #                            heal_progress_run_id between their absence check and their write,
 #                            so a selftest can force two same-issue writers to both observe
 #                            "absent" before either commits — the one race shape a real
 #                            concurrent run cannot be driven through deterministically.
 #                            Bounded (10s) so a broken harness cannot hang a real run.
-#   LEAN_GATE_ANY_TREE=1     #141: DISARM THE LANE-TREE ASSERTION — let `1`..`5`, `all`, `delta`
+#   LANE_GATE_ANY_TREE=1     #141: DISARM THE LANE-TREE ASSERTION — let `1`..`5`, `all`, `delta`
 #                            and `verdict` grade whatever checkout they are invoked from. It
 #                            ANNOUNCES on stderr every time it disarms a call, naming the branch
 #                            found and the lane branch expected: a guard nobody can see disarmed
 #                            is a guard nobody can audit, and the precedent is this file's own
 #                            unconditional config-path announcement.
-#                            Its consumer is a SUITE, not an operator — lean-gate-selftest.sh and
+#                            Its consumer is a SUITE, not an operator — milestone-gate-selftest.sh and
 #                            scenario-liveness-selftest.sh drive the guarded subcommands against
 #                            bare-`git init` fixture trees, over many issue keys and three branch
 #                            prefixes, and one tree cannot be on nine lane branches at once. A run
 #                            that wants a different tree graded should move, not disarm.
-#                            NOT IN `SEAM_SCRUB`, exactly like `LEAN_GATE_OBSERVE` above.
+#                            NOT IN `SEAM_SCRUB`, exactly like `LANE_GATE_OBSERVE` above.
 #
 # bash 3.2 compatible (macOS ships it, and CI has a bash-3.2 lane).
 set -uo pipefail
+
+# #833: the pipeline's environment knobs are spelled `LANE_*`; the retired `LEAN_*` spellings still
+# resolve, once, with a stderr notice. Promoted IN PLACE here, before the first read, so every
+# `${LANE_*:-<default>}` site below keeps its own default unchanged.
+# shellcheck source=lane-env.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lane-env.sh" \
+  || { echo "FATAL: cannot load lane-env.sh — the LANE_/LEAN_ compatibility reader" >&2; exit 1; }
+lane_env_promote LANE_OVERRIDE_TOOL LANE_EVIDENCE_TOOL LANE_GATE_LIB LANE_PROGRESS_FILE \
+  LANE_GATE_TEST_STALL_DIR LANE_RUN_MODEL LANE_GATE_OBSERVE LANE_GATE_ANY_TREE \
+  LANE_SELFTEST_CACHE LANE_SELFTEST_CACHE_DIR LANE_COST_BLOCK_TOOL
 
 GH_CLI="${GH:-gh}"
 CURL_CLI="${CURL:-curl}"
 # #613. The attendance/override mechanism, a same-plugin sibling two hops up — a plain relative
 # path, not the resolve-sibling ladder, which exists for CROSS-plugin hops. The seam exists so a
 # selftest can drive the third resolution artifact without minting a token on the machine.
-OVERRIDE_TOOL="${LEAN_OVERRIDE_TOOL:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../tools" && pwd)/operator-override.sh}"
+OVERRIDE_TOOL="${LANE_OVERRIDE_TOOL:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../tools" && pwd)/operator-override.sh}"
 # The portable evidence payload, which ships in THIS directory and carries the AC-scorecard
 # validator the merge boundary reads with (#622). The write-time layer calls the same
 # implementation rather than keeping a lockstep copy of an awk program: both layers can reach one
 # site, so a second copy would be duplicate machinery with no reader that needs it.
-EVIDENCE_TOOL="${LEAN_EVIDENCE_TOOL:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lean-evidence.sh}"
+EVIDENCE_TOOL="${LANE_EVIDENCE_TOOL:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/boundary-evidence.sh}"
 PR_FILE=""
 COMMENTS_FILE=""
 ISSUE_FILE=""
@@ -296,7 +306,7 @@ VERDICT_PR=""
 VERDICT_ROUNDS=""
 VERDICT_FIDELITY=""
 VERDICT_PANEL=""
-# #710: the plan-review writer's `model:` (D-29). Its own variable rather than LEAN_RUN_MODEL
+# #710: the plan-review writer's `model:` (D-29). Its own variable rather than LANE_RUN_MODEL
 # alone, because the dispatch it records may run on a different tier than the session driving it.
 # Initialised EMPTY like every sibling, never from the environment: a same-named variable leaking
 # in from a caller's shell would satisfy a required flag no caller passed.
@@ -353,16 +363,16 @@ INTERRUPTED_BUDGET=5
 LANE_INFRA_RC=3
 INFRA_CLASS=7
 
-say()  { echo "[lean-gate] $*"; }
-warn() { echo "[lean-gate] $*" >&2; }
-envfail() { echo "[lean-gate] $*" >&2; exit 2; }
+say()  { echo "[milestone-gate] $*"; }
+warn() { echo "[milestone-gate] $*" >&2; }
+envfail() { echo "[milestone-gate] $*" >&2; exit 2; }
 
 # ---------------------------------------------------------------- argument parsing
 SUB=""
 ISSUE=""
 POSITIONAL=0
 
-# LIBRARY MODE (#439). `LEAN_GATE_LIB=1 . lean-gate.sh` leaves the helpers defined and dispatches
+# LIBRARY MODE (#439). `LANE_GATE_LIB=1 . milestone-gate.sh` leaves the helpers defined and dispatches
 # nothing. It exists so a selftest can drive production functions directly rather than keeping a
 # hand-copied twin — a mirror harness cannot fail on a production edit. No run sets it; every
 # documented seam still applies.
@@ -370,7 +380,7 @@ POSITIONAL=0
 # CAVEAT for anyone sourcing it: the parser below consumes the placeholders, so the sourcing
 # scope's own positional parameters are gone afterwards. Copy what you need out of `$1` BEFORE
 # the `.`, or `set -u` bites.
-[ -n "${LEAN_GATE_LIB:-}" ] && set -- entry 0
+[ -n "${LANE_GATE_LIB:-}" ] && set -- entry 0
 while [ $# -gt 0 ]; do
   case "$1" in
     --pr-file)       PR_FILE="${2:-}"; shift 2 ;;
@@ -399,7 +409,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-[ -n "$SUB" ]   || envfail "usage: lean-gate.sh <entry|claim|mark|1..5|all|close-out|teardown|inflight|delta|verdict|plan-review|progress|staleness> <issue>"
+[ -n "$SUB" ]   || envfail "usage: milestone-gate.sh <entry|claim|mark|1..5|all|close-out|teardown|inflight|delta|verdict|plan-review|progress|staleness> <issue>"
 # #611. DEFERRED for `entry`/`claim` alone, and into a REFUSAL rather than a usage error — the
 # absent-ticket case is what that guard is about, and answering it with the same exit 2 a typo'd
 # flag gets is what let a session read "no argument" as "choose one". The assertion is not
@@ -408,7 +418,7 @@ done
 # keeps this refusal verbatim, the milestone calls included (the AC preamble binds only two).
 case "$SUB" in
   entry|claim) : ;;
-  *) [ -n "$ISSUE" ] || envfail "usage: lean-gate.sh <entry|claim|mark|1..5|all|close-out|teardown|inflight|delta|verdict|plan-review|progress|staleness> <issue>" ;;
+  *) [ -n "$ISSUE" ] || envfail "usage: milestone-gate.sh <entry|claim|mark|1..5|all|close-out|teardown|inflight|delta|verdict|plan-review|progress|staleness> <issue>" ;;
 esac
 
 case "$SUB" in
@@ -469,7 +479,7 @@ TICKET_SOURCE="${TICKET_SOURCE:-argument}"
 
 # #710, the same parse-time shape as every flag above: `--model` records the tier a plan-review
 # dispatch ran on, and there is no other subcommand it could mean anything to. `verdict` stamps
-# its own `model:` from LEAN_RUN_MODEL and would silently ignore this one.
+# its own `model:` from LANE_RUN_MODEL and would silently ignore this one.
 if [ -n "$VERDICT_MODEL" ]; then
   [ "$SUB" = "plan-review" ] || envfail "--model is only meaningful on 'plan-review', not '$SUB'."
 fi
@@ -507,7 +517,7 @@ fi
 # #528. The config is a SHARED, mutable file, so a sibling session's edit re-points every live
 # lane's gate mid-run. Announced once per invocation so a re-point is visible rather than inferred.
 #
-# STDERR, via `warn`: orchestrate-lean.sh's satisfied_token() compares this script's STDOUT
+# STDERR, via `warn`: orchestrate.sh's satisfied_token() compares this script's STDOUT
 # byte-for-byte across two reads, so a stdout announcement would flip that comparison on exactly
 # the re-point this exists to surface — corrupting the close-out's read instead of exposing the
 # event. SKIPPED on `progress` even on stderr: that subcommand's contract is a bare
@@ -538,7 +548,7 @@ BASE_BRANCH="$(cfg "$HOST_Q as \$h | .topology.repos[\$h].baseBranch" 'main')"
 # render harness it never configured.
 #
 # Config is read here and NOWHERE at the merge boundary — CI never sees this gitignored file — so
-# check-lean-chain.sh derives armed-ness from the committed spec alone. The two agree on every spec
+# check-lane-chain.sh derives armed-ness from the committed spec alone. The two agree on every spec
 # that can reach a merge, because a malformed section never gets past milestone 1.
 DESIGN_PROVIDER="$(cfg '.design.provider' '')"
 LR_COMMAND="$(cfg '.design.liveRender.command' '')"
@@ -579,7 +589,7 @@ esac
 # A SECOND axis, deliberately (#440): whether an authenticated GitHub writer exists. The tracker
 # answers "is there an issue to write to"; the bot answers "is there an identity to write as".
 # Source control is GitHub under both adapters, so `cmd_mark` — which writes to the PR — keys on
-# this and not on TRACKER_TYPE. Same tracker-derived default lean-evidence.sh applies, and for
+# this and not on TRACKER_TYPE. Same tracker-derived default boundary-evidence.sh applies, and for
 # the same reason: a config declaring no bot at all meant "no writer" under jira, where the lint
 # used to forbid the block, and meant nothing in particular under github, where the strict
 # reading has always stood.
@@ -593,14 +603,14 @@ case "$BOT_ENABLED" in
 esac
 
 # ---------------------------------------------------------------- the pinned name table
-# ONE derivation, three consumers: this script, scripts/check-lean-chain.sh (running in CI
-# with no access to any local convention), and lean-reconcile.sh. A name invented at any
+# ONE derivation, three consumers: this script, scripts/check-lane-chain.sh (running in CI
+# with no access to any local convention), and reconcile.sh. A name invented at any
 # one of those sites instead of derived here is a drift the CI gate surfaces as a red merge
 # boundary on every pipeline PR — see the plan's pinned-name-table section.
 
 # The BRANCH. `<branchPrefix><key>` (#413). Lean and staged SHARE one namespace, so nothing
 # downstream may classify lean-vs-staged by branch name; that discriminator is the committed lean
-# spec, resolved in lean-evidence.sh. The prefix comes from branch-prefix.sh, the one implementation
+# spec, resolved in boundary-evidence.sh. The prefix comes from branch-prefix.sh, the one implementation
 # of the resolution order (config, else the dominant remote-branch prefix, else refuse). There is
 # deliberately no `claude/acme-` default: it wrote a placeholder org slug into real branch names.
 # shellcheck source=branch-prefix.sh
@@ -681,7 +691,7 @@ fi
 
 # LIBRARY MODE dispatches nothing, so it resolves nothing either: its placeholder args exist only
 # to satisfy the parser, and refusing them would break the one consumer that sources this file.
-if [ -z "${LEAN_GATE_LIB:-}" ]; then
+if [ -z "${LANE_GATE_LIB:-}" ]; then
 
   # (i) ABSENT. Two messages, one code. From a lane cwd the gate can say what the caller PROBABLY
   # meant — and still refuses, because saying it and acting on it are different things.
@@ -813,10 +823,10 @@ require_ticket_live() {
       || ticket_refuse "#$ISSUE is $state and its comment trail could not be read, so this run's own claim evidence cannot be checked." \
            "$GH_CLI said: $(printf '%s' "$comments" | tr '\n' ' ')"
   fi
-  # BOT-authored and carrying THIS run's id — the same two filters check-lean-chain.sh applies at
+  # BOT-authored and carrying THIS run's id — the same two filters check-lane-chain.sh applies at
   # the merge boundary. An operator-posted marker is not evidence the harness ran, and a marker
   # from some other run is not evidence THIS one claimed anything.
-  marker="$(printf '%s' "$comments" | jq -r --arg tag "$LEAN_CLAIM_MARKER_TAG" --arg id "$RESOLVED_RUN_ID" '
+  marker="$(printf '%s' "$comments" | jq -r --arg tag "$LANE_CLAIM_MARKER_TAG" --arg id "$RESOLVED_RUN_ID" '
       [ (. // [])[] | select((.user.type // "") == "Bot")
         | select((.body // "") | contains("<!-- stage: " + $tag + " -->"))
         | select((.body // "") | contains("<!-- run_id: " + $id + " -->")) ] | length' 2>/dev/null)" || marker=0
@@ -830,13 +840,13 @@ require_ticket_live() {
       claim) ticket_refuse "#$ISSUE is $state. This run's claim evidence is on it, so the run is real — but a claim WRITE against a closed ticket is not." \
                "Skip step 2 on a re-entry (the marker is posted and the labels are swapped already) and continue at the first unsatisfied milestone." ;;
     esac
-    say "entry: #$ISSUE is $state, but carries the '$CLAIMED_LABEL' label and this run's own bot-authored '$LEAN_CLAIM_MARKER_TAG' marker (run_id '$RESOLVED_RUN_ID')."
+    say "entry: #$ISSUE is $state, but carries the '$CLAIMED_LABEL' label and this run's own bot-authored '$LANE_CLAIM_MARKER_TAG' marker (run_id '$RESOLVED_RUN_ID')."
     say "  Admitted as a RE-ENTRY so close-out and \`teardown\` can still run. This waives the open check and nothing else — it is not a fresh claim."
     return 0
   fi
 
   ticket_refuse "#$ISSUE is $state, and nothing on it evidences that this run ever claimed it." \
-    "Looked for the '$CLAIMED_LABEL' label AND a bot-authored '$LEAN_CLAIM_MARKER_TAG' marker carrying run_id '$RESOLVED_RUN_ID'; found label=$(grep -qxF "$CLAIMED_LABEL" <<<"$labels" && echo yes || echo no), marker=$marker." \
+    "Looked for the '$CLAIMED_LABEL' label AND a bot-authored '$LANE_CLAIM_MARKER_TAG' marker carrying run_id '$RESOLVED_RUN_ID'; found label=$(grep -qxF "$CLAIMED_LABEL" <<<"$labels" && echo yes || echo no), marker=$marker." \
     "Starting a run on a closed ticket is a run whose premise is already false."
 }
 
@@ -847,37 +857,37 @@ case "$TRACKER_TYPE" in
   jira) BRANCH_KEY="$(printf '%s' "$ISSUE" | tr '[:upper:]' '[:lower:]')" ;;
   *)    BRANCH_KEY="$ISSUE" ;;
 esac
-LEAN_BRANCH="$BRANCH_PREFIX$BRANCH_KEY"
+LANE_BRANCH="$BRANCH_PREFIX$BRANCH_KEY"
 
 SPEC_REL="$PLANS_DIR/$REPO_SLUG-$ISSUE-lean.md"
 VERDICT_REL="$PLANS_DIR/$REPO_SLUG-$ISSUE-lean-verdict.md"
-# Same suffix check-lean-chain.sh's LEAN_INTENT_GAP_SUFFIX pins independently (it has no
+# Same suffix check-lane-chain.sh's LANE_INTENT_GAP_SUFFIX pins independently (it has no
 # access to this derivation from CI) — milestone 1's pause-and-ask check (AC-8) is the first
 # BUILD-side reader of this record.
 INTENT_GAP_REL="$PLANS_DIR/$REPO_SLUG-$ISSUE-lean-intent-gap.md"
 # The render manifest (#394). The suffix is `-lean-renders.md` and NOT `-lean.md` for a
-# mechanical reason: check-lean-chain.sh scans the diff for the FIRST path ending in
+# mechanical reason: check-lane-chain.sh scans the diff for the FIRST path ending in
 # `-lean.md` and calls it the spec, so a name that also ended there would shadow the real
 # spec on the boundary's artifact arm. Same reasoning that gave the verdict record its own
-# suffix. check-lean-chain.sh pins this suffix independently — it cannot see this derivation.
+# suffix. check-lane-chain.sh pins this suffix independently — it cannot see this derivation.
 RENDER_MANIFEST_REL="$PLANS_DIR/$REPO_SLUG-$ISSUE-lean-renders.md"
 # The TRANSLATION PLAN (#694), the design lane's other committed artifact. Same suffix reasoning
 # as the render receipt above — `-lean-plan.md` must not end in `-lean.md`, or the boundary's
 # first-match spec scan would pick it up and call it the spec. Unlike the render receipt this
-# suffix is NOT pinned by check-lean-chain.sh: nothing at the merge boundary reads the plan
+# suffix is NOT pinned by check-lane-chain.sh: nothing at the merge boundary reads the plan
 # (D-12), and a name pinned there would read as coverage this repo does not have.
 PLAN_MANIFEST_REL="$PLANS_DIR/$REPO_SLUG-$ISSUE-lean-plan.md"
 # THE PLAN REVIEW RECORD (#710). The plan reviewer's committed output — the artifact that makes
 # the plan GRADED rather than merely shaped. Same suffix reasoning a third time: `-lean-plan-review.md`
-# must not end in `-lean.md`. It is not pinned by check-lean-chain.sh either, for the reason the
+# must not end in `-lean.md`. It is not pinned by check-lane-chain.sh either, for the reason the
 # plan is not: nothing at the merge boundary reads the plan or its review, and a name pinned there
 # would read as coverage this repo does not have.
 PLAN_REVIEW_MANIFEST_REL="$PLANS_DIR/$REPO_SLUG-$ISSUE-lean-plan-review.md"
-PROGRESS_FILE="${LEAN_PROGRESS_FILE:-$MAIN_ROOT/$STATE_DIR/$ISSUE-lean-progress.md}"
+PROGRESS_FILE="${LANE_PROGRESS_FILE:-$MAIN_ROOT/$STATE_DIR/$ISSUE-lean-progress.md}"
 
 # ---------------------------------------------------------------- RUN_ID persistence
 # This tool is routinely invoked as ONE-SHOT subprocesses, so an export in the `claim` call is gone
-# by the next one and every later record stamps `run_id: unset` — the mismatch lean-reconcile.sh
+# by the next one and every later record stamps `run_id: unset` — the mismatch reconcile.sh
 # exists to catch. So: cache the id the FIRST time it is seen, and resolve from the cache whenever
 # $RUN_ID is absent from a call's own environment.
 #
@@ -938,7 +948,7 @@ esac
 seed_run_id_cache() { resolve_cached_id "$RUN_ID_CACHE" 1 >/dev/null; }
 
 # First `<key>: <token>` in a file, HTML-comment or bare form. Deliberately the SAME extraction
-# shape lean-reconcile.sh uses on the same records — two readers of one schema that disagreed
+# shape reconcile.sh uses on the same records — two readers of one schema that disagreed
 # about what a key looks like would be a silent divergence, not a loud one.
 #
 # Correct for every key the writer emits UNCONDITIONALLY, and only for those: the authentic
@@ -1021,7 +1031,7 @@ render_patch_id() { # render_patch_id <head-ish>
 # — a binding that stales itself the moment it is written can never be satisfied.
 #
 # `render_patch_id` deliberately does NOT gain the symmetric third exclusion. Its computation is
-# mirrored by scripts/check-lean-chain.sh, which cannot see this file; a consumer pinning an older
+# mirrored by scripts/check-lane-chain.sh, which cannot see this file; a consumer pinning an older
 # boundary ref would then red every armed PR whose branch carries a plan. The ordering makes the
 # exclusion unnecessary anyway — the plan is asserted and committed BEFORE the render pass ever
 # computes an id, so committing it never restales a receipt that does not yet exist (D-10).
@@ -1047,15 +1057,15 @@ record_key_at() { # record_key_at <key> <commit>
 }
 
 # LOCKSTEP, canonical side (#375). This awk program is held byte-identical by the record's two
-# other readers — scripts/check-lean-chain.sh and lean-reconcile.sh — because all three parse
+# other readers — scripts/check-lane-chain.sh and reconcile.sh — because all three parse
 # the SAME literal in a file-format-neutral form that needs no adaptation to the host dialect.
 # There was nothing to invent, so declining to check it would only have been declining to check.
 # The coupling is one-directional in the dangerous way: a reader that kept the OLD first-match
 # extraction still parses every correct record identically and diverges only on the adversarial
 # one, so drift here is invisible to every green run — and it is not hypothetical, since the
 # three-reader agreement is what made the pre-fix blind spot uniform rather than caught.
-# Behavioral guards sit under it at each reader and compose writer-to-reader: lean-gate-selftest.sh
-# (z1)/(z2)/(z3), check-lean-chain-selftest.sh (V6)/(V6b), lean-reconcile-selftest.sh (N7)/(N7b).
+# Behavioral guards sit under it at each reader and compose writer-to-reader: milestone-gate-selftest.sh
+# (z1)/(z2)/(z3), check-lane-chain-selftest.sh (V6)/(V6b), reconcile-selftest.sh (N7)/(N7b).
 # The markers catch what those cannot — a fourth reader added later with a hand-copied extraction.
 # LOCKSTEP-BEGIN lean-inherited-key
 # Any key of the verdict record, read from its HEADER BLOCK only. Record on stdin; prints
@@ -1130,7 +1140,7 @@ inherited_key_at() { # inherited_key_at <commit>
 # round after the branch moved leaves this round's own earlier record committed with a patch id
 # that differs from the current tree, so it qualifies as a candidate on content while being the
 # same review. The resulting link resolves for two of the three readers — milestone 4 and the
-# merge boundary both count it and credit one more round than happened — while lean-reconcile.sh
+# merge boundary both count it and credit one more round than happened — while reconcile.sh
 # refuses it as a chain that is one review wearing two hats. Skipping it here is a fix at the
 # writer, so no reader ever sees the shape the three of them disagree about.
 #
@@ -1210,8 +1220,8 @@ chain_walk() { # chain_walk <inherited-patch-id> <declaring-round> [declaring-co
 }
 
 # ---------------------------------------------------------------- progress-file primitives
-# Append-only markdown. Line shapes are PINNED — check-lean-chain.sh does not read this
-# file (it is gitignored and never reaches CI), but lean-reconcile.sh does, and the
+# Append-only markdown. Line shapes are PINNED — check-lane-chain.sh does not read this
+# file (it is gitignored and never reaches CI), but reconcile.sh does, and the
 # fix-budget counter is derived from it.
 #
 #   <iso> | entry | ledger=<path> | lines=<n> | telemetry=<off|nocoll|on> | session=<id>
@@ -1228,14 +1238,14 @@ chain_walk() { # chain_walk <inherited-patch-id> <declaring-round> [declaring-co
 #   <iso> | milestone-3 | advisory | <reason>          # #642 — a demoted lane reported a red
 #
 # The `session` row is the BUILD-SESSION SET (#446). It spells the id WITHOUT a `session_id:` key:
-# `record_key` here and `extract_key` in lean-reconcile.sh take the FIRST match in the file, and the
+# `record_key` here and `extract_key` in reconcile.sh take the FIRST match in the file, and the
 # header must keep winning that race. Reconciliation keys (AC-14) ride in the header so a run stays
 # reconcilable by whatever reads it later.
 now_iso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
 # The header is written ONCE at creation, and `entry` creates the file BEFORE SKILL.md orders the
 # RUN_ID export — so on an ordinary run it is stamped `unset`. Left unhealed that is not cosmetic:
-# lean-reconcile.sh's arm (1) compares the bot claim comment's run_id against this header's, so an
+# reconcile.sh's arm (1) compares the bot claim comment's run_id against this header's, so an
 # honest github run reds at the merge boundary with the real id on one side and `unset` on the
 # other. Heal the field.
 #
@@ -1247,15 +1257,15 @@ now_iso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 # Matching the literal `unset` is a narrowing, not a second guard — the cache compare already makes
 # a rewrite of an established id a no-op — so a surviving mutant on the two lines below is not a
 # coverage hole. It is there to keep a healed run from spawning awk on every append.
-# TEST-ONLY, like LEAN_GATE_OBSERVE above — never set in CI or by an operator. Pauses the caller
+# TEST-ONLY, like LANE_GATE_OBSERVE above — never set in CI or by an operator. Pauses the caller
 # between its absence check and its write so a selftest can force two same-issue writers to both
 # observe "absent", the one shape a real race cannot be driven through deterministically. Bounded
 # (10s) so a broken harness cannot hang a real run.
 _lean_gate_test_stall() { # _lean_gate_test_stall <label>
-  [ -n "${LEAN_GATE_TEST_STALL_DIR:-}" ] || return 0
-  : > "$LEAN_GATE_TEST_STALL_DIR/ready.$1.$$"
+  [ -n "${LANE_GATE_TEST_STALL_DIR:-}" ] || return 0
+  : > "$LANE_GATE_TEST_STALL_DIR/ready.$1.$$"
   local waited=0
-  while [ ! -e "$LEAN_GATE_TEST_STALL_DIR/go" ] && [ "$waited" -lt 100 ]; do
+  while [ ! -e "$LANE_GATE_TEST_STALL_DIR/go" ] && [ "$waited" -lt 100 ]; do
     sleep 0.1; waited=$((waited + 1))
   done
 }
@@ -1298,13 +1308,13 @@ ensure_progress_file() {
       # The COMPOSED name, not only its prefix (#413). A reader that rebuilt it as
       # `<branch_prefix><issue>` would be right under github and wrong under jira, where the
       # key is lowercased — pipeline-retro's PR lookup is exactly such a reader.
-      echo "branch: $LEAN_BRANCH"
+      echo "branch: $LANE_BRANCH"
       echo "spec: $SPEC_REL"
       echo "verdict_record: $VERDICT_REL"
       # #347: a corpus-aggregation key, not a new artifact — read once, here, at record
       # creation. No env var carries the session's own model identity today, so this is
       # opt-in: absent, retro-corpus.sh reads it as "unknown", a label, not an error.
-      echo "model: ${LEAN_RUN_MODEL:-unknown}"
+      echo "model: ${LANE_RUN_MODEL:-unknown}"
       echo ""
     } > "$PROGRESS_FILE"
   fi
@@ -1465,7 +1475,7 @@ unclosed_count() { # unclosed_count <milestone>
 
 # ---------------------------------------------------------------- the build-session SET (#446)
 # `mark` stamps a session id onto the PR marker, and that field is the STRONGER of the two
-# comparisons lean-evidence.sh's arm_identity makes: run_id is agent-CHOSEN, the session id is
+# comparisons boundary-evidence.sh's arm_identity makes: run_id is agent-CHOSEN, the session id is
 # harness-assigned. Read straight from the ambient environment, the documented manual recovery —
 # run from the REVIEW session, the only place a missing marker becomes visible — stamped the review
 # session as the build session, and the boundary reported an independent review as a P10 self-review.
@@ -1534,7 +1544,7 @@ record_build_session() {
 
 # A failed milestone: record the attempt, then decide retry-vs-hard-stop.
 #
-# THE OBSERVE SEAM (#374 AC-1..3, promoted by #496). `LEAN_GATE_OBSERVE=1` calls a milestone body
+# THE OBSERVE SEAM (#374 AC-1..3, promoted by #496). `LANE_GATE_OBSERVE=1` calls a milestone body
 # to learn whether it would fail WITHOUT recording anything. Recording stays the real 1..5 loop's
 # job; a pre-pass that recorded would double-count every attempt it shares with the real call
 # further down the same `all` sweep. It reports EXHAUSTION as its own value, predicted from the
@@ -1554,7 +1564,7 @@ record_build_session() {
 # did increment.
 fail_milestone() {
   local n="$1" reason="$2" class="${3:-1}" count
-  if [ "${LEAN_GATE_OBSERVE:-0}" = "1" ]; then
+  if [ "${LANE_GATE_OBSERVE:-0}" = "1" ]; then
     warn "✗ milestone-$n (observe): $reason"
     [ "$class" = "$INFRA_CLASS" ] && return "$INFRA_CLASS"
     count="$(attempt_count "$n")"
@@ -1597,7 +1607,7 @@ fail_milestone() {
 # round, and a scheduler that read a bare 1 there would re-spawn BUILD to fix nothing.
 block_milestone() { # block_milestone <milestone> <reason> [class]
   local n="$1" reason="$2" class="${3:-1}" count
-  if [ "${LEAN_GATE_OBSERVE:-0}" = "1" ]; then
+  if [ "${LANE_GATE_OBSERVE:-0}" = "1" ]; then
     count="$(absent_count "$n")"
     warn "✗ milestone-$n (observe): $reason"
     [ "$count" -ge "$ABSENT_BUDGET" ] && return 4
@@ -1615,7 +1625,7 @@ block_milestone() { # block_milestone <milestone> <reason> [class]
 }
 
 pass_milestone() {
-  if [ "${LEAN_GATE_OBSERVE:-0}" = "1" ]; then
+  if [ "${LANE_GATE_OBSERVE:-0}" = "1" ]; then
     say "✓ milestone-$1 (observe)${2:+: $2}"
     return 0
   fi
@@ -1809,7 +1819,7 @@ EOF
 # land a file the harness ignores, which reads exactly as green as a working remedy.
 seed_lane_worktree_settings() {
   local paths wt rel src dst
-  paths="$(lean_worktrees_for_branch "$LEAN_BRANCH")" || return 0
+  paths="$(lean_worktrees_for_branch "$LANE_BRANCH")" || return 0
   [ -n "$paths" ] || return 0
   while IFS= read -r wt; do
     [ -n "$wt" ] || continue
@@ -1873,7 +1883,7 @@ WORKTREE_KEEP_REASON=""
 worktree_keep() { # worktree_keep <path> <reason> [<detail>]
   WORKTREE_KEEP_REASON="$2"
   warn "  keeping $1 — $2."
-  if [ -n "${3:-}" ]; then printf '%s\n' "$3" | sed 's/^/[lean-gate]     /' >&2; fi
+  if [ -n "${3:-}" ]; then printf '%s\n' "$3" | sed 's/^/[milestone-gate]     /' >&2; fi
   warn "  remove it by hand once that is resolved: git -C '$MAIN_ROOT' worktree remove '$1'"
 }
 
@@ -1966,7 +1976,7 @@ worktree_destroy() { # worktree_destroy <path> <branch>
 lane_apply_selftest_cache() {
   local store
   # THE OFF SWITCH HAS TO SCRUB, not merely decline to export. An operator who already carries
-  # LEAN_SELFTEST_CACHE_DIR in their environment hands it to every lane child by ordinary
+  # LANE_SELFTEST_CACHE_DIR in their environment hands it to every lane child by ordinary
   # inheritance, so a bare `return` here would announce a cold sweep and run a cached one — the
   # fail-open shape the switch exists to remove, wearing the fix's own output.
   #
@@ -1976,16 +1986,16 @@ lane_apply_selftest_cache() {
   # rather than as a scrub. That constraint died with the lane job ceiling — this is now the LAST
   # entry and `-u` would reach — but the empty assignment is kept because the reader treats empty
   # as absent, so the two are the same no-op and swapping them would be an unrelated edit.
-  if [ "${LEAN_SELFTEST_CACHE:-1}" = "0" ]; then
-    say "milestone-3: selftest pass cache DISABLED (LEAN_SELFTEST_CACHE=0) — this sweep runs cold."
-    SEAM_SCRUB_ENV+=("LEAN_SELFTEST_CACHE_DIR=")
+  if [ "${LANE_SELFTEST_CACHE:-1}" = "0" ]; then
+    say "milestone-3: selftest pass cache DISABLED (LANE_SELFTEST_CACHE=0) — this sweep runs cold."
+    SEAM_SCRUB_ENV+=("LANE_SELFTEST_CACHE_DIR=")
     return 0
   fi
-  store="${LEAN_SELFTEST_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/second-shift/lean-selftest}"
+  store="${LANE_SELFTEST_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/second-shift/lean-selftest}"
   [ -n "$store" ] || return 0
   say "milestone-3: selftest pass cache store $store."
-  say "  exported as LEAN_SELFTEST_CACHE_DIR to every lane command below: ADVERTISED, not enforced. A command that does not read it runs exactly as before."
-  SEAM_SCRUB_ENV+=("LEAN_SELFTEST_CACHE_DIR=$store")
+  say "  exported as LANE_SELFTEST_CACHE_DIR to every lane command below: ADVERTISED, not enforced. A command that does not read it runs exactly as before."
+  SEAM_SCRUB_ENV+=("LANE_SELFTEST_CACHE_DIR=$store")
   return 0
 }
 
@@ -2015,13 +2025,13 @@ append_teardown() { # append_teardown <outcome> <detail>
 
 cmd_teardown() {
   local wt paths rest="" own="" order removed_paths="" removed=0 kept_lines=""
-  paths="$(lean_worktrees_for_branch "$LEAN_BRANCH")" || paths=""
+  paths="$(lean_worktrees_for_branch "$LANE_BRANCH")" || paths=""
   if [ -z "$paths" ]; then
-    say "teardown: no registered worktree is on $LEAN_BRANCH — nothing to remove."
-    append_teardown absent "no registered worktree on $LEAN_BRANCH"
+    say "teardown: no registered worktree is on $LANE_BRANCH — nothing to remove."
+    append_teardown absent "no registered worktree on $LANE_BRANCH"
     return 0
   fi
-  say "teardown: $LEAN_BRANCH"
+  say "teardown: $LANE_BRANCH"
   # #530: every registered worktree on the branch is accounted for, not just the first match — a
   # second one is the sanctioned shape a review session's own checkout leaves. The caller's own
   # tree ($REPO_ROOT) is ordered LAST and never skipped: `git worktree remove` can remove the
@@ -2037,7 +2047,7 @@ EOF
   while IFS= read -r wt; do
     [ -n "$wt" ] || continue
     WORKTREE_KEEP_REASON=""
-    if worktree_destroy "$wt" "$LEAN_BRANCH"; then
+    if worktree_destroy "$wt" "$LANE_BRANCH"; then
       removed=$((removed + 1))
       removed_paths="${removed_paths:+$removed_paths, }$wt"
     else
@@ -2072,9 +2082,9 @@ EOF
 # leaves no PR either, which is the scheduler's `build-no-pr` stop.
 cmd_inflight() {
   local wt rc paths win_rc=0 win_wt="" win_reason="" win_detail=""
-  paths="$(lean_worktrees_for_branch "$LEAN_BRANCH")" || paths=""
+  paths="$(lean_worktrees_for_branch "$LANE_BRANCH")" || paths=""
   if [ -z "$paths" ]; then
-    say "inflight: no registered worktree is on $LEAN_BRANCH — there is no tree that could be holding work."
+    say "inflight: no registered worktree is on $LANE_BRANCH — there is no tree that could be holding work."
     return 0
   fi
   # #530 D-1/D-3: every registered worktree on the branch is read, not just the first match, and
@@ -2085,7 +2095,7 @@ cmd_inflight() {
   # its own reason here — it just does not go on to own the terminal answer below.
   while IFS= read -r wt; do
     [ -n "$wt" ] || continue
-    worktree_inflight "$wt" "$LEAN_BRANCH"; rc=$?
+    worktree_inflight "$wt" "$LANE_BRANCH"; rc=$?
     case "$rc" in
       8) warn "  inflight: $wt STILL HOLDS WORK — $INFLIGHT_REASON."
          if [ "$win_rc" != 8 ]; then
@@ -2101,13 +2111,13 @@ cmd_inflight() {
 $paths
 EOF
   case "$win_rc" in
-    0) say "inflight: clean — every registered tree on $LEAN_BRANCH has a clean status and every commit on origin/$LEAN_BRANCH."
+    0) say "inflight: clean — every registered tree on $LANE_BRANCH has a clean status and every commit on origin/$LANE_BRANCH."
        return 0 ;;
-    8) warn "[lean-gate] ✗ inflight: $win_wt STILL HOLDS WORK — $win_reason."
-       if [ -n "$win_detail" ]; then printf '%s\n' "$win_detail" | sed 's/^/[lean-gate]     /' >&2; fi
+    8) warn "[milestone-gate] ✗ inflight: $win_wt STILL HOLDS WORK — $win_reason."
+       if [ -n "$win_detail" ]; then printf '%s\n' "$win_detail" | sed 's/^/[milestone-gate]     /' >&2; fi
        warn "  Nothing outside this worktree has a copy, so a review would read a head missing it. Commit and push from $win_wt, then re-launch."
        return 8 ;;
-    *) warn "[lean-gate] ✗ inflight: the predicate could not be evaluated for $win_wt — $win_reason."
+    *) warn "[milestone-gate] ✗ inflight: the predicate could not be evaluated for $win_wt — $win_reason."
        warn "  Refusing to report a tree nothing could read as collected: an unreadable answer is not a clean one."
        return 1 ;;
   esac
@@ -2158,7 +2168,7 @@ satisfied_token() { # satisfied_token <milestone> — prints the token, never to
 # CLOSING COMMENT HAS NO ROW OF ITS OWN: `verdict-reference` already asserts it, and a sixth row
 # would answer the same question twice and disagree with itself the moment one adapter's surface
 # moved.
-LEAN_M5_OBLIGATIONS='cost-block cost-log-row pr-cost-block exit-artifacts verdict-reference'
+LANE_M5_OBLIGATIONS='cost-block cost-log-row pr-cost-block exit-artifacts verdict-reference'
 
 # `met` WINS over `unmet` when both are on file, and that is the only sound reading of an
 # append-only record: the pair is a HISTORY, so a fix round that turned an outstanding obligation
@@ -2176,7 +2186,7 @@ obligation_state() { # obligation_state <milestone> <name>
 
 obligations_report() {
   local name td
-  for name in $LEAN_M5_OBLIGATIONS; do
+  for name in $LANE_M5_OBLIGATIONS; do
     printf 'milestone-5 obligation %s: %s\n' "$name" "$(obligation_state 5 "$name")"
   done
   # The aggregate, stated ALONGSIDE its parts rather than left to be inferred from them: it is
@@ -2253,7 +2263,7 @@ staleness_ticket_arm() {
   fi
   local state
   state="$("$GH_CLI" issue view "$ISSUE" --json state --jq '.state' 2>/dev/null)" || {
-    warn "[lean-gate] ✗ staleness: could not read #$ISSUE's state via '$GH_CLI' — refusing to treat an unreadable tracker as an open ticket."
+    warn "[milestone-gate] ✗ staleness: could not read #$ISSUE's state via '$GH_CLI' — refusing to treat an unreadable tracker as an open ticket."
     return 1; }
   case "$state" in
     # D-7: ANY closed state. The motivating ticket closed NOT_PLANNED, so narrowing to `completed`
@@ -2261,13 +2271,13 @@ staleness_ticket_arm() {
     # deliberately is not.
     OPEN)   say "staleness: ticket arm clean — #$ISSUE is still OPEN."; return 0 ;;
     CLOSED) say "staleness: TICKET ARM FIRED — #$ISSUE is CLOSED, so this run's premise is already false."; return 7 ;;
-    *)      warn "[lean-gate] ✗ staleness: '$GH_CLI' answered an unrecognized state '$state' for #$ISSUE — refusing to guess whether the ticket is open."
+    *)      warn "[milestone-gate] ✗ staleness: '$GH_CLI' answered an unrecognized state '$state' for #$ISSUE — refusing to guess whether the ticket is open."
             return 1 ;;
   esac
 }
 
 staleness_base_arm() {
-  local ref="refs/heads/$LEAN_BRANCH" mb base_files branch_files overlap n
+  local ref="refs/heads/$LANE_BRANCH" mb base_files branch_files overlap n
   # D-9. On round 1's first pass the branch does not exist yet, so there is no range to compare.
   # A skip is NOT the fail-closed case above: nothing failed to be read, there was nothing to read.
   if ! git -C "$MAIN_ROOT" show-ref --verify --quiet "$ref"; then
@@ -2277,11 +2287,11 @@ staleness_base_arm() {
   # D-12: the fetch belongs here and not to the scheduler, whose zero-write premise is about
   # tracker writes and lane artifacts under a run's identity. A remote-tracking ref is local cache.
   git -C "$MAIN_ROOT" fetch --quiet origin "$BASE_BRANCH" 2>/dev/null || {
-    warn "[lean-gate] ✗ staleness: could not fetch origin/$BASE_BRANCH — a stale remote-tracking ref would answer 'nothing moved', which is indistinguishable from a clean check."
+    warn "[milestone-gate] ✗ staleness: could not fetch origin/$BASE_BRANCH — a stale remote-tracking ref would answer 'nothing moved', which is indistinguishable from a clean check."
     return 1; }
   mb="$(git -C "$MAIN_ROOT" merge-base "origin/$BASE_BRANCH" "$ref" 2>/dev/null)"
   [ -n "$mb" ] || {
-    warn "[lean-gate] ✗ staleness: cannot resolve merge-base(origin/$BASE_BRANCH, $ref), so this branch's start point is unknown and no range can be compared."
+    warn "[milestone-gate] ✗ staleness: cannot resolve merge-base(origin/$BASE_BRANCH, $ref), so this branch's start point is unknown and no range can be compared."
     return 1; }
   base_files="$(git -C "$MAIN_ROOT" diff --name-only "$mb" "origin/$BASE_BRANCH" 2>/dev/null)"
   branch_files="$(git -C "$MAIN_ROOT" diff --name-only "$mb" "$ref" 2>/dev/null)"
@@ -2335,11 +2345,11 @@ require_ticket_still_open() {
   staleness_ticket_arm; rc=$?
   case "$rc" in
     0) return 0 ;;
-    7) warn "[lean-gate] ✗ $SUB: THE TICKET CLOSED UNDER THIS RUN. Nothing was marked and nothing was written — the PR carries no build-identity marker from this call, so no handoff is half-made."
+    7) warn "[milestone-gate] ✗ $SUB: THE TICKET CLOSED UNDER THIS RUN. Nothing was marked and nothing was written — the PR carries no build-identity marker from this call, so no handoff is half-made."
        warn "  This session's own time is already spent; what this refusal saves is the review round after it. Do not hand off."
        warn "  If the work should still land, re-open #$ISSUE and re-invoke. If it should not, the worktree and the claim are left in place for a manual rescue."
        exit 7 ;;
-    *) warn "[lean-gate] ✗ $SUB: the ticket's liveness could not be read, so whether this run's premise still holds is unknown."
+    *) warn "[milestone-gate] ✗ $SUB: the ticket's liveness could not be read, so whether this run's premise still holds is unknown."
        warn "  Fail closed, on the arm's own precedent: an unreadable tracker is not an open ticket, and a marker posted on that guess is the handoff this check exists to stop."
        exit 2 ;;
   esac
@@ -2447,7 +2457,7 @@ cmd_entry() {
       ;;
   esac
   # The durable half (D-3/D-10). The progress file already survives worktree teardown, is
-  # already what lean-reconcile.sh reads, and is the only build-side record outliving the
+  # already what reconcile.sh reads, and is the only build-side record outliving the
   # session. Later readers check PRESENCE ONLY — nothing re-resolves a ledger path from inside
   # a worktree, which is what lets this land independently of #417.
   #
@@ -2490,13 +2500,13 @@ cmd_entry() {
 }
 
 # ---------------------------------------------------------------- claim (AC-15 / D-49)
-# TWO bot-wrapper writes. Both must be the bot: check-lean-chain.sh filters the comment
+# TWO bot-wrapper writes. Both must be the bot: check-lane-chain.sh filters the comment
 # trail on `.user.type == "Bot"`, so an operator-posted claim comment is INVISIBLE to it
 # and the merge-boundary gate would fail a legitimately-claimed PR.
 #
 # Under jira (`tracker.writes: false`) there is NO claim: no queue to race for, no label to
 # swap, and no comment to post. What survives is the RECORD — the progress-file header
-# carries the run id and session id, which is lean-reconcile.sh's anchor and the only thing
+# carries the run id and session id, which is reconcile.sh's anchor and the only thing
 # a later call can resolve `RUN_ID` from. So this path still runs, still writes that header,
 # and never touches `$GH_BOT` (a hard `:?` failure below).
 #
@@ -2538,7 +2548,7 @@ cmd_claim() {
   # gitignored and never reaches a checkout), so it carries BOTH build identities, not just
   # the run id. run_id is agent-CHOSEN — a build session that wanted to review itself needs
   # only pick a second string — whereas the session id is harness-assigned. Carrying it here
-  # is what lets check-lean-chain.sh compare the stronger of the two at the merge boundary.
+  # is what lets check-lane-chain.sh compare the stronger of the two at the merge boundary.
   #
   # It also carries this producer's CAPABILITY STAMP (#445). The claim comment is the one
   # build-side artifact EVERY github generation writes, which is what lets a merge-boundary arm
@@ -2549,8 +2559,8 @@ cmd_claim() {
     echo "<!-- dev-pipeline -->"
     echo "<!-- run_id: $RESOLVED_RUN_ID -->"
     echo "<!-- session_id: ${CLAUDE_CODE_SESSION_ID:-unset} -->"
-    echo "<!-- $LEAN_CAPABILITY_KEY: $LEAN_CAPABILITY_STAMP -->"
-    echo "<!-- stage: $LEAN_CLAIM_MARKER_TAG -->"
+    echo "<!-- $LANE_CAPABILITY_KEY: $LANE_CAPABILITY_STAMP -->"
+    echo "<!-- stage: $LANE_CLAIM_MARKER_TAG -->"
     echo ""
     echo "🤖 Claimed by \`/dev-pipeline:build\`."
   } > "$body"
@@ -2581,24 +2591,24 @@ cmd_claim() {
 # reviewed party soften a build-side arm.
 #
 # THE SHARED BLOCK holds three literals, not one:
-#   LEAN_CLAIM_MARKER_TAG  the claim comment's stage token — written here, read by
-#                          lean-evidence.sh (which reads the stamp off it) and by
-#                          scripts/check-lean-chain.sh (whose claim arm counts it).
-#                          lean-reconcile.sh keeps an unbound copy of the literal: it is an
+#   LANE_CLAIM_MARKER_TAG  the claim comment's stage token — written here, read by
+#                          boundary-evidence.sh (which reads the stamp off it) and by
+#                          scripts/check-lane-chain.sh (whose claim arm counts it).
+#                          reconcile.sh keeps an unbound copy of the literal: it is an
 #                          operator-run reconciler rather than a merge-boundary gate, and it
 #                          carried that copy before this contract existed.
-#   LEAN_CAPABILITY_KEY    the stamp's key, in the claim comment and in the verdict record.
-#   LEAN_CAPABILITIES      the CLOSED vocabulary of capability tokens, comma-separated. Each side
+#   LANE_CAPABILITY_KEY    the stamp's key, in the claim comment and in the verdict record.
+#   LANE_CAPABILITIES      the CLOSED vocabulary of capability tokens, comma-separated. Each side
 #                          validates its OWN token against it — the producer the subset it ships,
 #                          the reader the token its arm requires — so a one-sided rename reds
 #                          loudly on the side that renamed, instead of silently producing a stamp
-#                          no reader can ever match. Same posture as LEAN_OUTPUT_DISPOSITIONS.
+#                          no reader can ever match. Same posture as LANE_OUTPUT_DISPOSITIONS.
 # LOCKSTEP-BEGIN lean-producer-capabilities
-LEAN_CLAIM_MARKER_TAG='lean-claimed'
+LANE_CLAIM_MARKER_TAG='lean-claimed'
 # shellcheck disable=SC2034  # each reader binds a SUBSET of these; the block is one contract.
-LEAN_CAPABILITY_KEY='capabilities'
+LANE_CAPABILITY_KEY='capabilities'
 # shellcheck disable=SC2034  # ditto — unused here is the point, not an oversight.
-LEAN_CAPABILITIES='pr-marker'
+LANE_CAPABILITIES='pr-marker'
 # LOCKSTEP-END lean-producer-capabilities
 
 # WHAT THIS GENERATION SHIPS — deliberately OUTSIDE the shared block, because it is the one thing
@@ -2608,41 +2618,41 @@ LEAN_CAPABILITIES='pr-marker'
 # COMMA-SEPARATED, and that is the wire format too. The stamp rides inside an HTML comment closed
 # by ` -->`, so a space-separated list would need a capture charset containing a space and would
 # swallow the closing dashes; a comma-separated one stops cleanly at the space.
-LEAN_PRODUCER_CAPABILITIES='pr-marker'
+LANE_PRODUCER_CAPABILITIES='pr-marker'
 
 # Validated at the point of use, into a global, NEVER through a `$(…)` helper: envfail exits, and
 # an exit inside a command substitution kills only the subshell — the caller would then stamp an
 # empty capability list and every bound arm downstream would go inert on an honest run.
-LEAN_CAPABILITY_STAMP=""
+LANE_CAPABILITY_STAMP=""
 resolve_capability_stamp() {
   local c
-  [ -n "$LEAN_CAPABILITY_STAMP" ] && return 0
-  for c in $(printf '%s' "$LEAN_PRODUCER_CAPABILITIES" | tr ',' ' '); do
-    case ",$LEAN_CAPABILITIES," in
+  [ -n "$LANE_CAPABILITY_STAMP" ] && return 0
+  for c in $(printf '%s' "$LANE_PRODUCER_CAPABILITIES" | tr ',' ' '); do
+    case ",$LANE_CAPABILITIES," in
       *",$c,"*) : ;;
-      *) envfail "internal: '$c' is not in the closed capability vocabulary ('$LEAN_CAPABILITIES'). Stamping a token no reader can match would arm nothing and disarm everything bound to it." ;;
+      *) envfail "internal: '$c' is not in the closed capability vocabulary ('$LANE_CAPABILITIES'). Stamping a token no reader can match would arm nothing and disarm everything bound to it." ;;
     esac
   done
-  LEAN_CAPABILITY_STAMP="$LEAN_PRODUCER_CAPABILITIES"
+  LANE_CAPABILITY_STAMP="$LANE_PRODUCER_CAPABILITIES"
   return 0
 }
 
 # ---------------------------------------------------------------- the PR marker (#359 / D-2)
 # LOCKSTEP-BEGIN lean-pr-marker
-# The PR marker's stage token. WRITTEN by lean-gate.sh's `mark` subcommand, READ by the
+# The PR marker's stage token. WRITTEN by milestone-gate.sh's `mark` subcommand, READ by the
 # identity arm here. A one-sided rename silently empties the marker set, and an empty set is
 # indistinguishable from "the harness never ran" — so the reader would refuse every honest PR
 # while a reader that failed open would accept every dishonest one. Neither file can see the
 # other's spelling, hence the marker block.
 #
 # `lean-pr-marker`, NEVER `lean-claimed`: the claim marker lives on the ISSUE and is windowed
-# at PR-open by check-lean-chain.sh, and a token that matched both would let an issue-side
+# at PR-open by check-lane-chain.sh, and a token that matched both would let an issue-side
 # comment satisfy a PR-side arm.
-LEAN_PR_MARKER_TAG='lean-pr-marker'
+LANE_PR_MARKER_TAG='lean-pr-marker'
 # LOCKSTEP-END lean-pr-marker
 
 # THE PR AND NOT THE ISSUE (D-2): the build run's identity has to be readable by a check that knows
-# nothing about the tracker, and source control is GitHub for every adapter. lean-evidence.sh
+# nothing about the tracker, and source control is GitHub for every adapter. boundary-evidence.sh
 # compares the verdict record's identity against EVERY marker here.
 #
 # STEP 7, NOT MILESTONE 5 ALONE. A PR comment fires no `pull_request` event, and the last CI run on
@@ -2673,12 +2683,12 @@ cmd_mark() {
   # The hint is PARENTHETICAL, not an imperative: resolve_open_pr's error is "no open or merged PR
   # found" on one path and "could not list PRs" — a transient gh failure — on the other, and
   # "open it first" would be wrong advice for the second.
-  resolve_open_pr || { warn "✗ mark: $LEAN_PR_ERROR (the lane's PR is opened at checklist step 7)."; return 1; }
-  pr="$LEAN_PR_JSON"
+  resolve_open_pr || { warn "✗ mark: $LANE_PR_ERROR (the lane's PR is opened at checklist step 7)."; return 1; }
+  pr="$LANE_PR_JSON"
   prnum="$(printf '%s' "$pr" | jq -r '.[0].number')"
 
   # A MERGED PR TAKES NO NEW MARKER. The marker exists for ONE reader: the merge boundary
-  # (scripts/check-lean-chain.sh), which runs on a `pull_request` event — checklist step 7 says
+  # (scripts/check-lane-chain.sh), which runs on a `pull_request` event — checklist step 7 says
   # so in as many words, that a marker posted after the review's push is invisible to the CI run
   # that gates the merge. Past the merge that reader has already run, so posting here would be a
   # write with no consumer, on a PR nobody will re-review. Resolving it is still worth doing: the
@@ -2696,7 +2706,7 @@ cmd_mark() {
   # refusal either — and BEFORE the idempotency no-op below, so a re-entry whose marker already
   # exists but whose body has since broken re-verifies instead of no-opping past it.
   # D-1: a HARD refusal. The ticket's own strand-risk argument for a warn does not survive the
-  # code — an absent marker is not unreadable at the boundary, `lean-evidence.sh`'s identity arm
+  # code — an absent marker is not unreadable at the boundary, `boundary-evidence.sh`'s identity arm
   # names it directly ("no bot-authored 'lean-pr-marker' comment on this PR…"), so the check fails
   # closed exactly like every other refusal here.
   draft="$(printf '%s' "$pr" | jq -r '.[0].isDraft')"
@@ -2722,7 +2732,7 @@ cmd_mark() {
   # marker body always closes the id with ` -->`, and an open-ended match would let a marker
   # for `lean-359-ab` suppress the write for `lean-359-a` — a silently unmarked second session,
   # which is the exact hole D-4 closes.
-  existing="$(printf '%s' "$comments" | jq -r --arg tag "$LEAN_PR_MARKER_TAG" --arg run "$RESOLVED_RUN_ID" \
+  existing="$(printf '%s' "$comments" | jq -r --arg tag "$LANE_PR_MARKER_TAG" --arg run "$RESOLVED_RUN_ID" \
     '[ .[]
        | select((.user.type // "") == "Bot")
        | select((.body // "") | test("<!--[[:space:]]*stage:[[:space:]]*" + $tag + "[[:space:]]*-->"))
@@ -2747,7 +2757,7 @@ cmd_mark() {
   if ! session_in_build_set "$msid"; then
     recorded="$(build_session_set | tr '\n' ' ' | sed -e 's/[[:space:]]*$//')"
     warn "✗ mark: this session ('${msid:-unset}') is not a recorded BUILD session for #$ISSUE — refusing to stamp it onto the PR marker."
-    warn "  session_id is the strongest identity the merge boundary compares; a marker carrying a REVIEW session's id makes lean-evidence.sh report an independent review as a P10 self-review, and no re-run or second marker clears it."
+    warn "  session_id is the strongest identity the merge boundary compares; a marker carrying a REVIEW session's id makes boundary-evidence.sh report an independent review as a P10 self-review, and no re-run or second marker clears it."
     if [ -z "$recorded" ]; then
       warn "  The harness recorded no build session in $PROGRESS_FILE. Run 'bash G entry $ISSUE' from the session that built this branch."
     else
@@ -2762,7 +2772,7 @@ cmd_mark() {
     echo "<!-- dev-pipeline -->"
     echo "<!-- run_id: $RESOLVED_RUN_ID -->"
     echo "<!-- session_id: ${CLAUDE_CODE_SESSION_ID:-unset} -->"
-    echo "<!-- stage: $LEAN_PR_MARKER_TAG -->"
+    echo "<!-- stage: $LANE_PR_MARKER_TAG -->"
     echo ""
     echo "🤖 Built by \`/dev-pipeline:build\`. This comment carries the build run's identity at"
     echo "the merge boundary — the review verdict must carry a different one."
@@ -2784,7 +2794,7 @@ cmd_mark() {
 # unaffected (AC-10).
 #
 # NETWORK, and deliberately NOT part of cmd_all's cheap pre-pass — the issue and its comment trail
-# are read live unless the fixture seams below are set. cmd_1 skips this under LEAN_GATE_OBSERVE=1.
+# are read live unless the fixture seams below are set. cmd_1 skips this under LANE_GATE_OBSERVE=1.
 open_regions_section() { # stdin: the issue body — prints the section's lines, nothing else
   # #700, two fixes, both about seeing the section AT ALL rather than parsing its rows.
   #
@@ -3107,7 +3117,7 @@ EOF
 }
 
 # ---------------------------------------------------------------- the design axis: arming
-# LOCKSTEP, canonical side (#394). `design_armed` is held verbatim by scripts/check-lean-chain.sh,
+# LOCKSTEP, canonical side (#394). `design_armed` is held verbatim by scripts/check-lane-chain.sh,
 # which gates the merge on it. The coupling is unusually sharp because the two readers have
 # DIFFERENT INPUTS and must still agree: this gate ANDs the predicate against config
 # `design.provider`, the boundary cannot (the config never reaches a CI checkout) and so runs it
@@ -3121,7 +3131,7 @@ EOF
 # Armed-ness exactly as the COMMITTED SPEC declares it. Spec on stdin; prints `armed`, or
 # nothing at all.
 #
-# TWO READERS, which is why this is a marker block and not a private helper: check-lean-chain.sh
+# TWO READERS, which is why this is a marker block and not a private helper: check-lane-chain.sh
 # must reach the same answer from a CI checkout that cannot see the runtime config at all (it is
 # gitignored on every consumer, this repo included). A boundary that decided armed-ness
 # differently from the gate would either wave an armed PR through with no evidence or red an
@@ -3153,8 +3163,8 @@ design_armed() { # design_armed   (spec on stdin)
 # The provider FAMILY an armed spec hands off to, the fidelity reviewer that family makes
 # mandatory, and the token test that reads a `panel:` header (#708, D-12/D-13).
 #
-# TWO READERS, for the reason `design_armed` above has two: lean-gate.sh refuses a bad
-# `--panel` at the verdict WRITER, and scripts/check-lean-chain.sh refuses a bad `panel:` at
+# TWO READERS, for the reason `design_armed` above has two: milestone-gate.sh refuses a bad
+# `--panel` at the verdict WRITER, and scripts/check-lane-chain.sh refuses a bad `panel:` at
 # the merge BOUNDARY. The boundary cannot read config — `design.provider` is gitignored on
 # every consumer and never reaches a CI checkout — so the family must come from the committed
 # spec, and a derivation that differed between the two sides would let a record the writer
@@ -3264,7 +3274,7 @@ panel_reviewers() { # panel_reviewers <panel-value>
 
 # The PLAN-stage reviewer a family makes mandatory (#710) — the pre-implementation counterpart of
 # `design_family_reviewer` above, and OUTSIDE the lockstep block on purpose: that block is held
-# verbatim by scripts/check-lean-chain.sh because the merge boundary re-derives the family and the
+# verbatim by scripts/check-lane-chain.sh because the merge boundary re-derives the family and the
 # mandatory FIDELITY reviewer from the committed spec. Nothing at the boundary reads the plan or
 # its review (D-12), so a copy there would be coverage this repo does not have — and a function
 # added inside the markers would red the pair for a contract only one side has.
@@ -3507,7 +3517,7 @@ design_state() { # design_state <spec-path>
     || { printf 'error:the "## Design" section of %s declares render states but no provider handoff link. The review session scores fidelity against the design frame; without the link there is nothing to score against.' "$SPEC_REL"; return 0; }
 
   # #708 D-13/D-14. The handoff HOST decides which fidelity reviewer an armed round must
-  # dispatch, and scripts/check-lean-chain.sh derives it from this same section because it can
+  # dispatch, and scripts/check-lane-chain.sh derives it from this same section because it can
   # see nothing else. Two refusals, both AUTHORING errors a session fixes in the spec:
   #
   #   (a) no recognised provider host. Left to stand, the boundary reds the PR at arm 8 with
@@ -3604,7 +3614,7 @@ resolve_plan_reviewer_agent() { # resolve_plan_reviewer_agent <bare-agent-name>
 # ---------------------------------------------------------------- milestone 1: spec/AC
 # AC-3, as resolved at intake (G-1): existence AT THE PINNED PATH plus >= 1 numbered AC-n,
 # and NO further content assertion. The path predicate is not an extra check — it is which
-# file "exists" means, and check-lean-chain.sh keys its artifact scan off the same shape.
+# file "exists" means, and check-lane-chain.sh keys its artifact scan off the same shape.
 cmd_1() {
   local spec="$REPO_ROOT/$SPEC_REL" n reason pa_rc dstate note="" lint="" lint_out lint_rc
   local receipt rec_out rec_rc
@@ -3678,7 +3688,7 @@ cmd_1() {
     armed)    note="$note, design lane ARMED" ;;
   esac
 
-  if [ "${LEAN_GATE_OBSERVE:-0}" != "1" ]; then
+  if [ "${LANE_GATE_OBSERVE:-0}" != "1" ]; then
     reason="$(check_pause_and_ask)"; pa_rc=$?
     # #532. rc 2 = the read failed, so the answer is UNKNOWN — an environment error, never a
     # fix attempt. Raised HERE and not inside the function: `envfail` exits, and an exit inside
@@ -3751,7 +3761,7 @@ cmd_2() {
 # SECOND_SHIFT_CONFIG/STATECTL_STATE_DIR silently re-roots or re-states it, the same class
 # #34 found in the previous verify runner, which held this denylist until #348. This file is
 # now the SUBSET side of the `seam-scrub` group, with preflight.sh declared its `superset`
-# (it also scrubs PREFLIGHT_DOCTOR_CMD) — lean-gate needs nothing narrower or wider. `eval "$cmd"`
+# (it also scrubs PREFLIGHT_DOCTOR_CMD) — milestone-gate needs nothing narrower or wider. `eval "$cmd"`
 # becomes `env <scrub> bash -c "$cmd"`: functionally identical for a shell command string
 # (preflight.sh runs this repo's own configured lane commands the same way), and the only
 # shape `env` can scrub ahead of.
@@ -3762,7 +3772,7 @@ cmd_2() {
 # what it defers. An ambient knob would silently re-answer those cases out of an operator's
 # shell. The list is "what must not reach a lane child", not "what second-shift owns".
 # LOCKSTEP-BEGIN seam-scrub subset
-SEAM_SCRUB='SECOND_SHIFT_CONFIG|SECOND_SHIFT_REPO_ROOT|SECOND_SHIFT_EXTENSION_MANIFEST|SECOND_SHIFT_PLUGIN_ROOT|SECOND_SHIFT_REVIEW_TOOLKIT_ROOT|SECOND_SHIFT_DEV_PIPELINE_ROOT|SECOND_SHIFT_DESIGN_TOOLKIT_ROOT|SECOND_SHIFT_SECTION_CATALOG|STATECTL_STATE_DIR|STATECTL_WRITER|DEV_PIPELINE_MODE|BRANCH_PREFIX|KEY_PATTERN|LEAN_ATTEND_MODE|MUTATION_SWEEP_NO_DEFER'
+SEAM_SCRUB='SECOND_SHIFT_CONFIG|SECOND_SHIFT_REPO_ROOT|SECOND_SHIFT_EXTENSION_MANIFEST|SECOND_SHIFT_PLUGIN_ROOT|SECOND_SHIFT_REVIEW_TOOLKIT_ROOT|SECOND_SHIFT_DEV_PIPELINE_ROOT|SECOND_SHIFT_DESIGN_TOOLKIT_ROOT|SECOND_SHIFT_SECTION_CATALOG|STATECTL_STATE_DIR|STATECTL_WRITER|DEV_PIPELINE_MODE|BRANCH_PREFIX|KEY_PATTERN|LANE_ATTEND_MODE|LEAN_ATTEND_MODE|MUTATION_SWEEP_NO_DEFER'
 # LOCKSTEP-END seam-scrub
 declare -a SEAM_SCRUB_ENV=()
 IFS='|' read -r -a _seam_scrub_toks <<< "$SEAM_SCRUB"
@@ -3952,7 +3962,7 @@ lean_resolve_prettier() {
 # Every header key cmd_verdict emits in `key: value` form. The list exists so the format step
 # below can prove it damaged none of them; it is the writer's own emission set, so a key added
 # to the record must be added here too or the guard silently stops covering it.
-LEAN_VERDICT_HEADER_KEYS="run_id session_id rounds pr reviewed_head reviewed_patch_id inherited_patch_id inherited_from_verdict fidelity panel model"
+LANE_VERDICT_HEADER_KEYS="run_id session_id rounds pr reviewed_head reviewed_patch_id inherited_patch_id inherited_from_verdict fidelity panel model"
 # Two of those keys carry values `header_key`'s charset TRUNCATES — `inherited_from_verdict` to
 # its leading path segment, `panel` to its leading plugin token — and they belong here anyway.
 # What this loop proves is that formatting did not DAMAGE a key, and the damage a formatter does
@@ -3988,7 +3998,7 @@ lean_format_verdict_record() { # lean_format_verdict_record <path>
     warn "verdict: '$pf --write' failed on $VERDICT_REL — the unformatted record is kept."
     return 0
   fi
-  for k in $LEAN_VERDICT_HEADER_KEYS; do
+  for k in $LANE_VERDICT_HEADER_KEYS; do
     b="$(header_key "$k" < "$tmp")"
     a="$(header_key "$k" < "$f")"
     if [ "$b" != "$a" ]; then
@@ -4283,7 +4293,7 @@ design_plan_review_gate() { # design_plan_review_gate <plan-patch-id>
     # its operator's install is the misreport the infra class exists to prevent.
     resolve_plan_reviewer_agent "$rev" >/dev/null 2>&1 \
       || envfail "milestone-3: spec $SPEC_REL arms the design lane on the '$fam' family, whose plan reviewer 'design-toolkit:$rev' this checkout does not ship — searched the monorepo layout and the install cache under both plugins. NOTHING was evaluated and no fix attempt was charged. Install design-toolkit, or disarm the ticket."
-    block_milestone 3 "the translation plan $PLAN_MANIFEST_REL has the right shape and no reader: there is no plan-review record at $PLAN_REVIEW_MANIFEST_REL. Dispatch 'design-toolkit:$rev' (Agent tool) on the committed plan, then record its output — 'lean-gate.sh plan-review $ISSUE --verdict <pass|fix-and-go|block> --summary-file <its findings> --model <the model it ran on>' — commit the record, and re-run milestone 3. The gate cannot run an agent; asserting the committed output is the only shape available to it."
+    block_milestone 3 "the translation plan $PLAN_MANIFEST_REL has the right shape and no reader: there is no plan-review record at $PLAN_REVIEW_MANIFEST_REL. Dispatch 'design-toolkit:$rev' (Agent tool) on the committed plan, then record its output — 'milestone-gate.sh plan-review $ISSUE --verdict <pass|fix-and-go|block> --summary-file <its findings> --model <the model it ran on>' — commit the record, and re-run milestone 3. The gate cannot run an agent; asserting the committed output is the only shape available to it."
     return $?
   fi
 
@@ -4306,12 +4316,12 @@ design_plan_review_gate() { # design_plan_review_gate <plan-patch-id>
     || bad="${bad:+$bad; }reviewer '${r_rev:-<absent>}' is not the one $SPEC_REL's handoff host makes mandatory ('$rev')"
   [ -n "$r_model" ] || bad="${bad:+$bad; }no 'model:' key"
   if [ -n "$bad" ]; then
-    fail_milestone 3 "the plan-review record $PLAN_REVIEW_MANIFEST_REL is malformed: $bad. Rewrite it with 'lean-gate.sh plan-review $ISSUE' rather than by hand — the writer stamps every key this reads."
+    fail_milestone 3 "the plan-review record $PLAN_REVIEW_MANIFEST_REL is malformed: $bad. Rewrite it with 'milestone-gate.sh plan-review $ISSUE' rather than by hand — the writer stamps every key this reads."
     return $?
   fi
 
   if [ "$r_from" != "$cur" ]; then
-    block_milestone 3 "the plan-review record $PLAN_REVIEW_MANIFEST_REL was written against a different tree — it records reviewed_plan_from $(printf '%.12s' "$r_from"), and this branch's plan binding is now $(printf '%.12s' "$cur"). The plan has been re-read against code that moved since; re-dispatch 'design-toolkit:$rev' on it, rewrite the record with 'lean-gate.sh plan-review $ISSUE', and commit. Committing the record itself never stales it: $PLAN_REVIEW_MANIFEST_REL is excluded from the binding, exactly as the plan is."
+    block_milestone 3 "the plan-review record $PLAN_REVIEW_MANIFEST_REL was written against a different tree — it records reviewed_plan_from $(printf '%.12s' "$r_from"), and this branch's plan binding is now $(printf '%.12s' "$cur"). The plan has been re-read against code that moved since; re-dispatch 'design-toolkit:$rev' on it, rewrite the record with 'milestone-gate.sh plan-review $ISSUE', and commit. Committing the record itself never stales it: $PLAN_REVIEW_MANIFEST_REL is excluded from the binding, exactly as the plan is."
     return $?
   fi
 
@@ -4419,7 +4429,7 @@ cmd_plan_review() {
     || envfail "plan-review: 'design-toolkit:$rev' is not installed in this checkout — searched the monorepo layout and the install cache under both plugins. A record written without the dispatch it claims to carry is the fabrication this artifact exists to make checkable."
 
   [ -f "$REPO_ROOT/$PLAN_MANIFEST_REL" ] \
-    || envfail "plan-review: no translation plan at $PLAN_MANIFEST_REL — there is nothing to have reviewed. Write and commit the plan first; 'bash lean-gate.sh 3 $ISSUE' prints its contract."
+    || envfail "plan-review: no translation plan at $PLAN_MANIFEST_REL — there is nothing to have reviewed. Write and commit the plan first; 'bash milestone-gate.sh 3 $ISSUE' prints its contract."
 
   case "$VERDICT_VALUE" in
     pass|fix-and-go|block) : ;;
@@ -4434,9 +4444,9 @@ cmd_plan_review() {
   [ -n "$(printf '%s' "$body" | tr -d '[:space:]')" ] \
     || envfail "plan-review: --summary-file '$SUMMARY_FILE' is empty."
 
-  VERDICT_MODEL="${VERDICT_MODEL:-${LEAN_RUN_MODEL:-}}"
+  VERDICT_MODEL="${VERDICT_MODEL:-${LANE_RUN_MODEL:-}}"
   [ -n "$VERDICT_MODEL" ] \
-    || envfail "plan-review: --model is required (or export LEAN_RUN_MODEL) — a review whose model is unrecorded cannot be placed by anyone re-reading the record."
+    || envfail "plan-review: --model is required (or export LANE_RUN_MODEL) — a review whose model is unrecorded cannot be placed by anyone re-reading the record."
 
   cur="$(plan_patch_id HEAD)"
   [ -n "$cur" ] \
@@ -5083,7 +5093,7 @@ cmd_4() {
   # The handoff moment, and so the one place the P9 reminder is contextual rather than noise.
   # It lives here rather than as another SKILL.md line for the reason the cap exists: stderr is
   # read exactly when it applies, prose is read on every run. NO DETECTION happens here — the
-  # refusal is the merge boundary's alone (check-lean-chain.sh evidence 6), and a second in-run
+  # refusal is the merge boundary's alone (check-lane-chain.sh evidence 6), and a second in-run
   # copy would be the duplicate machinery D-47 rules out, not defense in depth.
   [ -f "$rec" ] || { block_milestone 4 "no committed verdict record at $VERDICT_REL — hand off to '/dev-pipeline:review <pr>'. If this run wrote an intent-gap record, ratify it before that handoff: the merge boundary refuses one still reading 'ratified: no'." 5; return $?; }
   v_val="$(record_verdict "$rec")"
@@ -5091,7 +5101,7 @@ cmd_4() {
     fail_milestone 4 "verdict record $VERDICT_REL reads verdict=${v_val:-<none>}, not verdict=approve" 1; return $?
   fi
   # The reconciliation keys, read for the authorship comparison below and for the pass line.
-  # THEIR ABSENCE IS NOT REFUSED HERE (#720). `lean-evidence.sh`'s `arm_verdict` — which
+  # THEIR ABSENCE IS NOT REFUSED HERE (#720). `boundary-evidence.sh`'s `arm_verdict` — which
   # `pr-gates` runs on every consumer's PR, and which every consumer's merge boundary runs —
   # refuses a record missing either key outright, so a record this milestone waved through on
   # that ground could not reach a merge anyway. What a local copy bought was WHEN the operator
@@ -5130,7 +5140,7 @@ cmd_4() {
   for cand in "$b_cached" "$b_prog_run"; do
     [ -n "$cand" ] || continue
     if [ "$v_run" = "$cand" ]; then
-      fail_milestone 4 "verdict record $VERDICT_REL carries the BUILD run's identity ('$v_run') — the session that wrote the code may not author its own review verdict (P10). Produce the record from a separate review session: 'lean-gate.sh verdict $ISSUE --pr <n> --verdict approve'." 6
+      fail_milestone 4 "verdict record $VERDICT_REL carries the BUILD run's identity ('$v_run') — the session that wrote the code may not author its own review verdict (P10). Produce the record from a separate review session: 'milestone-gate.sh verdict $ISSUE --pr <n> --verdict approve'." 6
       return $?
     fi
   done
@@ -5141,7 +5151,7 @@ cmd_4() {
 
   # IS THE RECORD ON THE BRANCH AT ALL. Not a freshness check — freshness is the merge
   # boundary's (#720) — but the precondition every reader downstream of here has: a record
-  # nobody committed is invisible to `pr-gates`, to `lean-evidence.sh` and to a human opening
+  # nobody committed is invisible to `pr-gates`, to `boundary-evidence.sh` and to a human opening
   # the PR, so a lane that certified it would hand off a run with no evidence on it at all.
   # That is a defect only the LANE can see, which is what keeps these two arms local.
   #
@@ -5252,7 +5262,7 @@ cmd_4() {
 
   # FRESHNESS IS THE MERGE BOUNDARY'S QUESTION (#720). This milestone used to ask it twice — once
   # by inference (`git diff <verdict-commit> HEAD`) and once against the record's declared
-  # `reviewed_patch_id` — and `lean-evidence.sh`'s `arm_freshness` asks it a third time, on the
+  # `reviewed_patch_id` — and `boundary-evidence.sh`'s `arm_freshness` asks it a third time, on the
   # same inputs, through the same `contribution-compare` escape hatch, on every consumer's PR.
   # Two of those three could only ever agree with the third, and when they disagreed it was
   # because the LANE was stale, not because the verdict was: the fix was still a review round.
@@ -5566,7 +5576,7 @@ cmd_verdict() {
   # after that line would cache a review identity for a round that wrote no record.
   #
   # Refused at the WRITER for the reason its two siblings above are: here the fix is one edit to the summary away, at the merge boundary it
-  # costs the round. The validator is `lean-evidence.sh`'s — the same code the boundary runs, and
+  # costs the round. The validator is `boundary-evidence.sh`'s — the same code the boundary runs, and
   # the same code a hand-written record answers to — so a body that passes here cannot red there
   # for this.
   #
@@ -5583,7 +5593,7 @@ cmd_verdict() {
     return 1
   fi
   [ -f "$EVIDENCE_TOOL" ] \
-    || envfail "verdict: the evidence payload carrying the AC-scorecard reader is missing at '$EVIDENCE_TOOL' — the write-time and merge-boundary layers must run the same implementation. Set LEAN_EVIDENCE_TOOL if it lives elsewhere."
+    || envfail "verdict: the evidence payload carrying the AC-scorecard reader is missing at '$EVIDENCE_TOOL' — the write-time and merge-boundary layers must run the same implementation. Set LANE_EVIDENCE_TOOL if it lives elsewhere."
   sc_bad="$(printf '%s\n' "$body" | bash "$EVIDENCE_TOOL" scorecard --spec "$REPO_ROOT/$SPEC_REL" --verdict "$VERDICT_VALUE")" \
     || envfail "verdict: the AC-scorecard reader could not run (see the message above) — refusing rather than writing a record nothing validated."
   if [ -n "$sc_bad" ]; then
@@ -5634,7 +5644,7 @@ cmd_verdict() {
     # because `none` remains the value BOTH readers must go on parsing: records committed before
     # that refusal carry it legitimately.
     echo "panel: ${VERDICT_PANEL:-none}"
-    echo "model: ${LEAN_RUN_MODEL:-unknown}"
+    echo "model: ${LANE_RUN_MODEL:-unknown}"
     # THE PRODUCER'S CAPABILITY STAMP (#445), with NO READER TODAY — and shipped anyway, on
     # purpose. A review-side arm bound to a capability will need to place the generation that
     # wrote the record it is reading, and a stamp introduced only when that arm lands would find
@@ -5645,7 +5655,7 @@ cmd_verdict() {
     #
     # Comma-separated, so a future reader must widen `record_key`'s default charset (which stops
     # at `,`) rather than silently read the first token as the whole list.
-    echo "$LEAN_CAPABILITY_KEY: $LEAN_CAPABILITY_STAMP"
+    echo "$LANE_CAPABILITY_KEY: $LANE_CAPABILITY_STAMP"
     echo ""
     if [ -n "$body" ]; then printf '%s\n' "$body"; fi
   } > "$rec"
@@ -5836,21 +5846,21 @@ m5_missing_milestones() { # prints the unsatisfied milestone numbers, space-pref
 # The lane's one open PR, resolved once. EXTRACTED rather than duplicated for #590's close-out:
 # two readers of "which PR is this lane's" that could disagree would let the command write its
 # cost block onto one PR and the milestone assert against another.
-LEAN_PR_JSON=""
-LEAN_PR_ERROR=""
-resolve_open_pr() { # 0 = $LEAN_PR_JSON holds a one-element array; 1 = $LEAN_PR_ERROR says why
+LANE_PR_JSON=""
+LANE_PR_ERROR=""
+resolve_open_pr() { # 0 = $LANE_PR_JSON holds a one-element array; 1 = $LANE_PR_ERROR says why
   local pr
-  LEAN_PR_JSON=""; LEAN_PR_ERROR=""
+  LANE_PR_JSON=""; LANE_PR_ERROR=""
   if [ -n "$PR_FILE" ]; then
     [ -f "$PR_FILE" ] || envfail "--pr-file '$PR_FILE' does not exist."
     pr="$(cat "$PR_FILE")"
   else
-    pr="$("$GH_CLI" pr list --head "$LEAN_BRANCH" --state all \
+    pr="$("$GH_CLI" pr list --head "$LANE_BRANCH" --state all \
           --json number,url,body,isDraft,state --limit 20 2>&1)" \
-      || { warn "$pr"; LEAN_PR_ERROR="could not list PRs for $LEAN_BRANCH"; return 1; }
+      || { warn "$pr"; LANE_PR_ERROR="could not list PRs for $LANE_BRANCH"; return 1; }
   fi
   printf '%s' "$pr" | jq -e 'type == "array"' >/dev/null 2>&1 \
-    || { LEAN_PR_ERROR="could not list PRs for $LEAN_BRANCH"; return 1; }
+    || { LANE_PR_ERROR="could not list PRs for $LANE_BRANCH"; return 1; }
   # #642: A MERGED PR SATISFIES THE SAME OBLIGATION AN OPEN ONE DOES. The obligation is that the
   # PR reached its terminal state carrying its exit artifacts, and merged is more terminal than
   # open. Requiring `open` made `close-out` permanently unreachable once an operator merged first:
@@ -5868,8 +5878,8 @@ resolve_open_pr() { # 0 = $LEAN_PR_JSON holds a one-element array; 1 = $LEAN_PR_
         [ .[] | select((.state // "OPEN") == "OPEN") ]
       + [ .[] | select((.state // "OPEN") == "MERGED") ] | .[0:1]' 2>/dev/null)"
   printf '%s' "$pr" | jq -e 'type == "array" and length > 0' >/dev/null 2>&1 \
-    || { LEAN_PR_ERROR="no open or merged PR found for branch $LEAN_BRANCH"; return 1; }
-  LEAN_PR_JSON="$pr"
+    || { LANE_PR_ERROR="no open or merged PR found for branch $LANE_BRANCH"; return 1; }
+  LANE_PR_JSON="$pr"
   return 0
 }
 
@@ -5894,8 +5904,8 @@ cmd_5() {
   # `verdict-reference` is the surface that points at the committed verdict record — the closing
   # comment on the issue under github, and the PR body under a `writes: false` tracker, which is
   # the same obligation discharged where the adapter allows.
-  resolve_open_pr || { block_obligation exit-artifacts "$LEAN_PR_ERROR"; return $?; }
-  pr="$LEAN_PR_JSON"
+  resolve_open_pr || { block_obligation exit-artifacts "$LANE_PR_ERROR"; return $?; }
+  pr="$LANE_PR_JSON"
 
   draft="$(printf '%s' "$pr" | jq -r '.[0].isDraft')"
   body="$(printf '%s' "$pr" | jq -r '.[0].body // ""')"
@@ -5951,7 +5961,7 @@ cmd_5() {
 }
 
 # ---------------------------------------------------------------- the CLOSE-OUT (#590)
-# WHY THIS IS A SUBCOMMAND AND NOT A SESSION. After the approve, orchestrate-lean.sh spawned a
+# WHY THIS IS A SUBCOMMAND AND NOT A SESSION. After the approve, orchestrate.sh spawned a
 # third full model session on the run's BUILD model whose entire output was a fixed sequence of
 # commands: re-compute the cost block, replace it in the PR description, post one closing comment,
 # assert milestone 5, tear the lane down. Not one of those is a judgment, and paying a
@@ -5969,7 +5979,7 @@ cmd_5() {
 # IT IS NOT A SECOND MILESTONE 5 (D-1). `bash G 5` is unchanged and stays a pure verifier: this
 # command WRITES and then calls it, so a caller who wants to re-assert without writing still has
 # one, and nothing re-keys the scheduler's satisfied-token predicate, the `all` progression,
-# retro-corpus or lean-reconcile.
+# retro-corpus or reconcile.
 #
 # ORDER IS LOAD-BEARING. The progress precondition first, so a run whose earlier milestones never
 # passed is refused BEFORE anything public is written — declining to certify such a run is
@@ -6006,10 +6016,10 @@ closeout_writer() {
 # close a run out. A NON-ZERO exit is the opposite and is refused: it means the fence or the
 # session set could not be derived at all, which is exactly the confidently-wrong published figure
 # #546 exists to stop.
-LEAN_COST_BLOCK=""
-LEAN_COST_SKIP=""
-LEAN_COST_ERROR=""
-LEAN_COST_USD=""
+LANE_COST_BLOCK=""
+LANE_COST_SKIP=""
+LANE_COST_ERROR=""
+LANE_COST_USD=""
 
 # THE MACHINE-READABLE `cost_usd:` KEY (#723, pre-flight ledger D-1/D-3/D-7/D-8/D-9). Every
 # closed-out run publishes it: a bare decimal (D-8 — no `$`, since the `record_key` idiom's
@@ -6019,25 +6029,25 @@ LEAN_COST_USD=""
 # all. Naming which of the tool's four `skip(…)` verdicts caused the second case is NOT available
 # here: closeout_cost_block deliberately does not capture the tool's stderr, and D-7 does not
 # reopen that.
-resolve_cost_usd() { # resolve_cost_usd — sets $LEAN_COST_USD from $LEAN_COST_BLOCK/$LEAN_COST_SKIP
+resolve_cost_usd() { # resolve_cost_usd — sets $LANE_COST_USD from $LANE_COST_BLOCK/$LANE_COST_SKIP
   local figure
-  if [ -n "$LEAN_COST_BLOCK" ]; then
+  if [ -n "$LANE_COST_BLOCK" ]; then
     # The only `$N.NN` text the render filter ever emits is the cost cell (see fmt() in
     # pipeline-cost-block.sh); a block with no such cell is a token-only transcript render.
-    figure="$(printf '%s\n' "$LEAN_COST_BLOCK" | grep -oE '\$[0-9]+\.[0-9]{2}' | head -1 | tr -d '$')"
+    figure="$(printf '%s\n' "$LANE_COST_BLOCK" | grep -oE '\$[0-9]+\.[0-9]{2}' | head -1 | tr -d '$')"
     if [ -n "$figure" ]; then
-      LEAN_COST_USD="$figure"
+      LANE_COST_USD="$figure"
     else
-      LEAN_COST_USD="unavailable (block rendered, no Cost (USD) column)"
+      LANE_COST_USD="unavailable (block rendered, no Cost (USD) column)"
     fi
   else
-    LEAN_COST_USD="unavailable (no cost block rendered this run)"
+    LANE_COST_USD="unavailable (no cost block rendered this run)"
   fi
 }
 
 # THE PR-DESCRIPTION COPY (D-1: "the PR description's cost-block region"). Computed on demand
-# from the PRISTINE $LEAN_COST_BLOCK, never stored back into it: closeout_comment pastes
-# $LEAN_COST_BLOCK too, and its own copy of the key is the bullet closeout_comment adds itself,
+# from the PRISTINE $LANE_COST_BLOCK, never stored back into it: closeout_comment pastes
+# $LANE_COST_BLOCK too, and its own copy of the key is the bullet closeout_comment adds itself,
 # OUTSIDE the block (D-9) — that bullet has to survive a run with no block at all, which a
 # block-embedded copy by construction cannot, so the block it pastes stays exactly what the tool
 # rendered rather than saying `cost_usd:` a second time inside it.
@@ -6062,8 +6072,8 @@ resolve_cost_usd() { # resolve_cost_usd — sets $LEAN_COST_USD from $LEAN_COST_
 # COST_BLOCK_MARKER above, and closeout_patch_pr_body's replacement matches it with `$0 == m`. A
 # line inserted after the break, not appended onto the marker, is what keeps that match intact on
 # the next call.
-cost_block_with_usd_key() { # cost_block_with_usd_key — echoes $LEAN_COST_BLOCK with the key inserted
-  printf '%s\n' "$LEAN_COST_BLOCK" | awk -v m="$COST_BLOCK_MARKER" -v v="$LEAN_COST_USD" '
+cost_block_with_usd_key() { # cost_block_with_usd_key — echoes $LANE_COST_BLOCK with the key inserted
+  printf '%s\n' "$LANE_COST_BLOCK" | awk -v m="$COST_BLOCK_MARKER" -v v="$LANE_COST_USD" '
     $0 == m { print; marker = 1; next }
     marker && !ins && $0 == "---" { print; print "cost_usd: " v; ins = 1; next }
     { print }
@@ -6072,22 +6082,22 @@ cost_block_with_usd_key() { # cost_block_with_usd_key — echoes $LEAN_COST_BLOC
 
 closeout_cost_block() { # closeout_cost_block <pr-url>
   local tool out rc
-  LEAN_COST_BLOCK=""; LEAN_COST_SKIP=""; LEAN_COST_ERROR=""; LEAN_COST_USD=""
-  tool="${LEAN_COST_BLOCK_TOOL:-$(dirname "$(dirname "$(cd "$(dirname "$0")" && pwd)")")/tools/pipeline-cost-block.sh}"
+  LANE_COST_BLOCK=""; LANE_COST_SKIP=""; LANE_COST_ERROR=""; LANE_COST_USD=""
+  tool="${LANE_COST_BLOCK_TOOL:-$(dirname "$(dirname "$(cd "$(dirname "$0")" && pwd)")")/tools/pipeline-cost-block.sh}"
   if [ ! -f "$tool" ]; then
-    LEAN_COST_ERROR="pipeline-cost-block.sh not found at '$tool', so this run's published figure cannot be derived"
+    LANE_COST_ERROR="pipeline-cost-block.sh not found at '$tool', so this run's published figure cannot be derived"
     return 1
   fi
   # stdout is the block; the tool's stderr is the operator's evidence and is deliberately not
   # captured, so a skip verdict is READ rather than swallowed into a variable nobody prints.
   out="$(bash "$tool" --stateless --issue "$ISSUE" --close-out --prs "$1")"; rc=$?
   if [ "$rc" -ne 0 ]; then
-    LEAN_COST_ERROR="pipeline-cost-block.sh exited $rc — the run's fence or session set could not be derived, so there is no honest figure to publish (its own line above says which)"
+    LANE_COST_ERROR="pipeline-cost-block.sh exited $rc — the run's fence or session set could not be derived, so there is no honest figure to publish (its own line above says which)"
     return 1
   fi
   case "$out" in
-    *"$COST_BLOCK_MARKER"*) LEAN_COST_BLOCK="$out" ;;
-    *) LEAN_COST_SKIP="the tool exited 0 and rendered no block — a documented skip, named on its own line above" ;;
+    *"$COST_BLOCK_MARKER"*) LANE_COST_BLOCK="$out" ;;
+    *) LANE_COST_SKIP="the tool exited 0 and rendered no block — a documented skip, named on its own line above" ;;
   esac
   resolve_cost_usd
   return 0
@@ -6096,16 +6106,16 @@ closeout_cost_block() { # closeout_cost_block <pr-url>
 # (2) THE CORPUS ROW. Asserted, not assumed: the write happens inside the tool above, so without
 # a read-back the obligation would be "we ran a command", which is what the whole ticket is about.
 # Identity is (ticketKey, runId), the pair the tool keys its replace-or-append on.
-LEAN_COST_LOG=""
+LANE_COST_LOG=""
 closeout_cost_log_row() {
   local n
-  LEAN_COST_LOG="${COST_LOG_FILE:-$MAIN_ROOT/$STATE_DIR/cost-log.jsonl}"
-  [ -f "$LEAN_COST_LOG" ] || return 1
+  LANE_COST_LOG="${COST_LOG_FILE:-$MAIN_ROOT/$STATE_DIR/cost-log.jsonl}"
+  [ -f "$LANE_COST_LOG" ] || return 1
   # CAPTURE FIRST, then test. `jq -s` over a log that does not parse errors with EMPTY output, and
   # an unguarded numeric test on an empty string is a syntax error that reads as "no row".
   n="$(jq -s --arg k "$ISSUE" --arg r "$RESOLVED_RUN_ID" \
         '[ .[] | select(((.ticketKey // "") == $k) and ((.runId // "") == $r)) ] | length' \
-        "$LEAN_COST_LOG" 2>/dev/null)" || n=""
+        "$LANE_COST_LOG" 2>/dev/null)" || n=""
   case "$n" in ''|*[!0-9]*) return 1 ;; esac
   [ "$n" -ge 1 ]
 }
@@ -6118,11 +6128,11 @@ closeout_cost_log_row() {
 # delete a human's own text on the one run where somebody had written below it. So the strip ends
 # at the renderer's own last line, whose prefix is held to it by the marker block above; a body
 # whose marker has no terminator after it is REPORTED rather than quietly truncated.
-LEAN_PATCH_NOTE=""
-LEAN_PATCH_ERROR=""
+LANE_PATCH_NOTE=""
+LANE_PATCH_ERROR=""
 closeout_patch_pr_body() { # closeout_patch_pr_body <pr-number> <current-body>
   local dir state out rc
-  LEAN_PATCH_NOTE=""; LEAN_PATCH_ERROR=""
+  LANE_PATCH_NOTE=""; LANE_PATCH_ERROR=""
   dir="$(mktemp -d -t lean-closeout.XXXXXX)" || envfail "mktemp failed."
   : > "$dir/head"; : > "$dir/tail"
   # CR-stripped first: a body round-tripped through the GitHub API carries CRLF, and `$0 == m`
@@ -6140,16 +6150,16 @@ closeout_patch_pr_body() { # closeout_patch_pr_body <pr-number> <current-body>
         -F body=@"$dir/body" --jq .number 2>&1)"; rc=$?
   rm -rf "$dir"
   if [ "$rc" -ne 0 ]; then
-    LEAN_PATCH_ERROR="could not replace the cost block in PR #$1's description: $out"
+    LANE_PATCH_ERROR="could not replace the cost block in PR #$1's description: $out"
     return 1
   fi
   case "$state" in
-    truncated) LEAN_PATCH_NOTE="replaced, but the previous block had no terminator line — anything below it was not preserved"
+    truncated) LANE_PATCH_NOTE="replaced, but the previous block had no terminator line — anything below it was not preserved"
                warn "· close-out: PR #$1's earlier cost block carried no '$COST_BLOCK_TERMINATOR' line, so the replacement could not tell where it ended. Text below it was not preserved." ;;
-    appended)  LEAN_PATCH_NOTE="appended — the description carried no earlier block" ;;
-    *)         LEAN_PATCH_NOTE="replaced in place" ;;
+    appended)  LANE_PATCH_NOTE="appended — the description carried no earlier block" ;;
+    *)         LANE_PATCH_NOTE="replaced in place" ;;
   esac
-  say "✓ close-out: PR #$1's cost block $LEAN_PATCH_NOTE."
+  say "✓ close-out: PR #$1's cost block $LANE_PATCH_NOTE."
   return 0
 }
 
@@ -6158,10 +6168,10 @@ closeout_patch_pr_body() { # closeout_patch_pr_body <pr-number> <current-body>
 # is gone since #731 — but none of this comment's consumers wants a marker either. They key on
 # CONTENT — the verdict-record path — which is also exactly what `verdict-reference` asserts, and
 # what retro-corpus's open-PRs mode filters on without ever reading the author.
-LEAN_COMMENT_ERROR=""
+LANE_COMMENT_ERROR=""
 closeout_comment() { # closeout_comment <pr-url>
   local file out rc
-  LEAN_COMMENT_ERROR=""
+  LANE_COMMENT_ERROR=""
   file="$(mktemp -t lean-closeout-comment.XXXXXX)" || envfail "mktemp failed."
   {
     echo "🤖 Closed out by \`/dev-pipeline:build\`."
@@ -6169,19 +6179,19 @@ closeout_comment() { # closeout_comment <pr-url>
     echo "- PR: $1"
     echo "- Verdict record: \`$VERDICT_REL\`"
     # D-3/D-9: this bullet, not the block, is what makes cost_usd present on EVERY closed-out
-    # run — including a full skip, where $LEAN_COST_BLOCK is empty and there is no block to
+    # run — including a full skip, where $LANE_COST_BLOCK is empty and there is no block to
     # carry a copy at all. resolve_cost_usd (closeout_cost_block) has always set it by here.
-    echo "- cost_usd: $LEAN_COST_USD"
-    if [ -n "$LEAN_COST_BLOCK" ]; then
+    echo "- cost_usd: $LANE_COST_USD"
+    if [ -n "$LANE_COST_BLOCK" ]; then
       echo ""
-      printf '%s\n' "$LEAN_COST_BLOCK"
+      printf '%s\n' "$LANE_COST_BLOCK"
     fi
   } > "$file"
   out="$("$(closeout_writer)" api -X POST \
         "repos/{owner}/{repo}/issues/$ISSUE/comments" -F body=@"$file" --jq .html_url 2>&1)"; rc=$?
   rm -f "$file"
   if [ "$rc" -ne 0 ]; then
-    LEAN_COMMENT_ERROR="could not post the closing comment on #$ISSUE: $out"
+    LANE_COMMENT_ERROR="could not post the closing comment on #$ISSUE: $out"
     return 1
   fi
   say "✓ close-out: closing comment posted on #$ISSUE ($out)"
@@ -6194,7 +6204,7 @@ cmd_close_out() {
   # MILESTONES 1-4 FIRST, RECORDING, and this is the mandate the deleted session used to carry.
   # Checklist step 9 ordered `bash G all` before the close-out because a milestone satisfied before
   # a fix round is stale, and — load-bearing rather than hygienic — milestone 4 has NO other
-  # recorder: the scheduler reads the verdict through `LEAN_GATE_OBSERVE=1`, which by contract
+  # recorder: the scheduler reads the verdict through `LANE_GATE_OBSERVE=1`, which by contract
   # writes no satisfied row. Without this loop the progress precondition below could never hold and
   # no lane could ever close out.
   #
@@ -6219,7 +6229,7 @@ cmd_close_out() {
   #
   # The first arm is defensive and unreachable from HERE — the 1..4 loop above appends the very
   # satisfied rows m5_missing_milestones tests for, so no input reaches it. It is re-verbed anyway
-  # and guarded statically: lean-gate-selftest.sh's (ac1c) classifies every charging-verb reason
+  # and guarded statically: milestone-gate-selftest.sh's (ac1c) classifies every charging-verb reason
   # through the production predicate table, which is the only technique that can reach an arm no
   # fixture can drive. (co1) drives the second.
   missing="$(m5_missing_milestones)"
@@ -6228,36 +6238,36 @@ cmd_close_out() {
     return $?
   fi
 
-  resolve_open_pr || { block_obligation exit-artifacts "$LEAN_PR_ERROR"; return $?; }
-  pr="$LEAN_PR_JSON"
+  resolve_open_pr || { block_obligation exit-artifacts "$LANE_PR_ERROR"; return $?; }
+  pr="$LANE_PR_JSON"
   prnum="$(printf '%s' "$pr" | jq -r '.[0].number')"
   url="$(printf '%s' "$pr" | jq -r '.[0].url')"
   body="$(printf '%s' "$pr" | jq -r '.[0].body // ""')"
 
-  closeout_cost_block "$url" || { fail_obligation cost-block "$LEAN_COST_ERROR"; return $?; }
+  closeout_cost_block "$url" || { fail_obligation cost-block "$LANE_COST_ERROR"; return $?; }
   # NOT a `${VAR:-default}` carrying an apostrophe: inside double quotes bash opens a quote on it
   # and the file stops parsing several hundred lines later, which is a `bash -n` failure rather
   # than a runtime one but is worth not re-discovering.
   detail="recomputed over the fence this run recorded"
-  [ -n "$LEAN_COST_SKIP" ] && detail="$LEAN_COST_SKIP"
+  [ -n "$LANE_COST_SKIP" ] && detail="$LANE_COST_SKIP"
   append_obligation 5 cost-block met "$detail"
 
-  if [ -n "$LEAN_COST_SKIP" ]; then
-    append_obligation 5 cost-log-row met "no rollup, no row — $LEAN_COST_SKIP"
+  if [ -n "$LANE_COST_SKIP" ]; then
+    append_obligation 5 cost-log-row met "no rollup, no row — $LANE_COST_SKIP"
   elif closeout_cost_log_row; then
-    append_obligation 5 cost-log-row met "$LEAN_COST_LOG"
-    say "✓ close-out: the cross-run cost corpus carries this run's row ($LEAN_COST_LOG)."
+    append_obligation 5 cost-log-row met "$LANE_COST_LOG"
+    say "✓ close-out: the cross-run cost corpus carries this run's row ($LANE_COST_LOG)."
   else
-    fail_obligation cost-log-row "a cost block was rendered but $LEAN_COST_LOG carries no row for (ticketKey=$ISSUE, runId=$RESOLVED_RUN_ID) — the corpus write did not land, so this run would be missing from the only cross-run cost record"
+    fail_obligation cost-log-row "a cost block was rendered but $LANE_COST_LOG carries no row for (ticketKey=$ISSUE, runId=$RESOLVED_RUN_ID) — the corpus write did not land, so this run would be missing from the only cross-run cost record"
     return $?
   fi
 
-  if [ -n "$LEAN_COST_SKIP" ]; then
-    append_obligation 5 pr-cost-block met "nothing to publish — $LEAN_COST_SKIP"
+  if [ -n "$LANE_COST_SKIP" ]; then
+    append_obligation 5 pr-cost-block met "nothing to publish — $LANE_COST_SKIP"
   elif closeout_patch_pr_body "$prnum" "$body"; then
-    append_obligation 5 pr-cost-block met "$LEAN_PATCH_NOTE"
+    append_obligation 5 pr-cost-block met "$LANE_PATCH_NOTE"
   else
-    fail_obligation pr-cost-block "$LEAN_PATCH_ERROR"
+    fail_obligation pr-cost-block "$LANE_PATCH_ERROR"
     return $?
   fi
 
@@ -6267,7 +6277,7 @@ cmd_close_out() {
   if [ "$TRACKER_TYPE" = "jira" ]; then
     say "· close-out: tracker '$TRACKER_TYPE' is read-only — no closing comment; the PR body carries the verdict reference."
   else
-    closeout_comment "$url" || { fail_obligation verdict-reference "$LEAN_COMMENT_ERROR"; return $?; }
+    closeout_comment "$url" || { fail_obligation verdict-reference "$LANE_COMMENT_ERROR"; return $?; }
   fi
 
   cmd_5 || return $?
@@ -6288,9 +6298,9 @@ cmd_close_out() {
 # five separate call sites.
 #
 # THE OBSERVE ARM IS NOT OPTIONAL HERE, and #497's own receipt (D-10) got this wrong: it reasoned
-# that cmd_all's pre-pass calls `LEAN_GATE_OBSERVE=1 cmd_1`/`cmd_4` directly and therefore bypasses
+# that cmd_all's pre-pass calls `LANE_GATE_OBSERVE=1 cmd_1`/`cmd_4` directly and therefore bypasses
 # this wrapper — true, but not the only observe path. #496 promoted the seam to a SCHEDULER read,
-# and orchestrate-lean.sh's verdict_rc runs `LEAN_GATE_OBSERVE=1 bash "$GATE" 4 "$ISSUE"` as a
+# and orchestrate.sh's verdict_rc runs `LANE_GATE_OBSERVE=1 bash "$GATE" 4 "$ISSUE"` as a
 # TOP-LEVEL invocation, which the dispatch case at the bottom of this file routes straight through
 # here. Without the arm below, every round of every lean run would have the scheduler's read
 # writing build-role rows into the record — the exact "records nothing" contract #496 exists for.
@@ -6332,7 +6342,7 @@ run_milestone() {
   # writes a pidfile, a marker and a log; more to the point, the only caller that observes is
   # cmd_all's pre-pass, which evaluates 1 and 4 alone precisely to avoid paying for milestone 3.
   # A caller that sets the seam by hand on `3` is asking to watch it, not to survive it.
-  if [ "${LEAN_GATE_OBSERVE:-0}" = "1" ]; then
+  if [ "${LANE_GATE_OBSERVE:-0}" = "1" ]; then
     [ "$unclosed" -ge "$budget" ] && return 4
     case "$n" in
       1) cmd_1 ;;
@@ -6392,7 +6402,7 @@ run_milestone() {
 # record already reads `needs-work` used to pay the whole green gate before learning that,
 # knowable, fact — the pre-pass reports it first instead.
 #
-# LEAN_GATE_OBSERVE=1 makes cmd_1/cmd_4 report-only (see fail_milestone/pass_milestone): neither
+# LANE_GATE_OBSERVE=1 makes cmd_1/cmd_4 report-only (see fail_milestone/pass_milestone): neither
 # consumes a fix-budget attempt nor writes a `satisfied` record here, so nothing is double-counted
 # against the real calls in the loop below. Both are evaluated even when the first already failed
 # (AC-3) — an operator fixing two cheap assertions should not need two runs to learn about both.
@@ -6405,8 +6415,8 @@ run_milestone() {
 cmd_all() {
   local n rc rc1 rc4
 
-  LEAN_GATE_OBSERVE=1 cmd_1; rc1=$?
-  LEAN_GATE_OBSERVE=1 cmd_4; rc4=$?
+  LANE_GATE_OBSERVE=1 cmd_1; rc1=$?
+  LANE_GATE_OBSERVE=1 cmd_4; rc4=$?
   if [ "$rc1" -ne 0 ] || [ "$rc4" -ne 0 ]; then
     say "all: pre-pass found an already-unsatisfiable cheap assertion — stopping before milestone-3."
     case "$rc4" in 0|1) : ;; *) return "$rc4" ;; esac
@@ -6501,26 +6511,26 @@ require_lane_tree() {
   # ANNOUNCED UNCONDITIONALLY when it disarms, on the config-path announcement's precedent: a
   # guard nobody can see disarmed is a guard nobody can audit, and the whole failure mode here is
   # a plausible answer about the wrong tree.
-  if [ "${LEAN_GATE_ANY_TREE:-0}" = "1" ]; then
+  if [ "${LANE_GATE_ANY_TREE:-0}" = "1" ]; then
     # The wording avoids the token `ARMED` deliberately: milestone 1's design-arming cases grep
     # the merged output for it, and `DISARMED` is a substring match away from reding them.
-    warn "note: $SUB: LEAN_GATE_ANY_TREE=1 — the lane-tree assertion is OFF for this call. Grading $REPO_ROOT, which is on '$head'; this run's lane branch is '$LEAN_BRANCH'."
+    warn "note: $SUB: LANE_GATE_ANY_TREE=1 — the lane-tree assertion is OFF for this call. Grading $REPO_ROOT, which is on '$head'; this run's lane branch is '$LANE_BRANCH'."
     return 0
   fi
 
-  [ "$head" = "$LEAN_BRANCH" ] && return 0
+  [ "$head" = "$LANE_BRANCH" ] && return 0
 
-  warn "✗ $SUB: WRONG TREE — $REPO_ROOT is on '$head', not this run's lane branch '$LEAN_BRANCH'."
+  warn "✗ $SUB: WRONG TREE — $REPO_ROOT is on '$head', not this run's lane branch '$LANE_BRANCH'."
   warn "  Nothing was evaluated: no record was written, no budget was spent and no fix attempt was charged. Every answer this subcommand gives is derived from the checkout it runs in, so from here it would grade the wrong branch and report a confident verdict about it (#141)."
-  paths="$(lean_worktrees_for_branch "$LEAN_BRANCH")" || paths=""
+  paths="$(lean_worktrees_for_branch "$LANE_BRANCH")" || paths=""
   if [ -n "$paths" ]; then
-    warn "  Re-run from a checkout on '$LEAN_BRANCH':"
-    printf '%s\n' "$paths" | sed 's/^/[lean-gate]     /' >&2
+    warn "  Re-run from a checkout on '$LANE_BRANCH':"
+    printf '%s\n' "$paths" | sed 's/^/[milestone-gate]     /' >&2
   else
-    warn "  No worktree on '$LEAN_BRANCH' is registered in this clone. Cut one:"
-    warn "    git -C '$MAIN_ROOT' worktree add <path> '$LEAN_BRANCH'"
+    warn "  No worktree on '$LANE_BRANCH' is registered in this clone. Cut one:"
+    warn "    git -C '$MAIN_ROOT' worktree add <path> '$LANE_BRANCH'"
   fi
-  warn "  A detached HEAD reads back as 'HEAD' and refuses here for the same reason — check the branch out by NAME. On a fork-origin PR \`gh pr checkout\` names the local branch <owner>-<branch>, which also refuses; \`git switch -c '$LEAN_BRANCH'\` makes it checkable."
+  warn "  A detached HEAD reads back as 'HEAD' and refuses here for the same reason — check the branch out by NAME. On a fork-origin PR \`gh pr checkout\` names the local branch <owner>-<branch>, which also refuses; \`git switch -c '$LANE_BRANCH'\` makes it checkable."
   exit 9
 }
 
@@ -6538,8 +6548,8 @@ require_entry_attested() {
     # conflating "you skipped `entry`" with "your checkout is broken" sends the operator to the
     # wrong one. AC-3's leniency has no analogue here: that exists for a consumer's committed
     # workflow no operator action can retroactively fix, whereas a fetch fixes this.
-    echo "[lean-gate] ✗ $SUB: cannot resolve merge-base(origin/$BASE_BRANCH, HEAD), so this branch's start date is unknown and the entry precondition's cutoff cannot be evaluated." >&2
-    echo "[lean-gate]   Fetch origin/$BASE_BRANCH in this checkout and re-run. A precondition that cannot be placed in time must not be waived." >&2
+    echo "[milestone-gate] ✗ $SUB: cannot resolve merge-base(origin/$BASE_BRANCH, HEAD), so this branch's start date is unknown and the entry precondition's cutoff cannot be evaluated." >&2
+    echo "[milestone-gate]   Fetch origin/$BASE_BRANCH in this checkout and re-run. A precondition that cannot be placed in time must not be waived." >&2
     exit 2
   fi
   start="$(branch_start_utc "$mb")"
@@ -6552,20 +6562,20 @@ require_entry_attested() {
     # D-6. One plain notice, in this file's own `note:` idiom rather than a third copy of the
     # class-(b) disposition vocabulary. Silence was rejected: a de-block is not a satisfied
     # precondition but one that never applied, and the operator must be able to tell which.
-    echo "[lean-gate] note: $SUB: this branch started at $start, before the entry precondition took effect ($ENTRY_SINCE), so it is not refused for lacking an attestation it could not have recorded." >&2
-    echo "[lean-gate]   Nothing was attested and no entry row was written — the run is de-blocked, not credited. Later readers still see no entry row." >&2
+    echo "[milestone-gate] note: $SUB: this branch started at $start, before the entry precondition took effect ($ENTRY_SINCE), so it is not refused for lacking an attestation it could not have recorded." >&2
+    echo "[milestone-gate]   Nothing was attested and no entry row was written — the run is de-blocked, not credited. Later readers still see no entry row." >&2
     return 0
   fi
 
-  echo "[lean-gate] ✗ $SUB: this run has no entry attestation in $PROGRESS_FILE." >&2
-  echo "[lean-gate]   \`bash G entry $ISSUE\` was never recorded, so nothing establishes that the session's audit ledger was live when the run started — and a run with no ledger is unreconcilable at the merge boundary (#416)." >&2
-  echo "[lean-gate]   Run \`bash G entry $ISSUE\` (idempotent) and retry. No fix-budget attempt was charged." >&2
-  echo "[lean-gate]   Or the record is simply out of reach: that file is host-local and gitignored, so a checkout not sharing the build host's state dir cannot see an attestation that exists. Re-run from the build worktree before handing this back." >&2
+  echo "[milestone-gate] ✗ $SUB: this run has no entry attestation in $PROGRESS_FILE." >&2
+  echo "[milestone-gate]   \`bash G entry $ISSUE\` was never recorded, so nothing establishes that the session's audit ledger was live when the run started — and a run with no ledger is unreconcilable at the merge boundary (#416)." >&2
+  echo "[milestone-gate]   Run \`bash G entry $ISSUE\` (idempotent) and retry. No fix-budget attempt was charged." >&2
+  echo "[milestone-gate]   Or the record is simply out of reach: that file is host-local and gitignored, so a checkout not sharing the build host's state dir cannot see an attestation that exists. Re-run from the build worktree before handing this back." >&2
   exit 2
 }
 
 # LIBRARY MODE stops here (#439): helpers are defined, nothing is attested, nothing dispatches.
-[ -n "${LEAN_GATE_LIB:-}" ] && return 0
+[ -n "${LANE_GATE_LIB:-}" ] && return 0
 
 # #141, and FIRST: a wrong-tree call must report the wrong tree, not whatever the tree it landed
 # in happens to be missing. `verdict` joins this set although it is outside the one below —

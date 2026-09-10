@@ -7,7 +7,7 @@ effort: high
 skills: reviewer-baseline
 ---
 
-<!-- review-lead-skip: dispatched on the translation-plan artifact (pre-implementation) — by the OPERATOR at design-toolkit:design-faithful's translation-plan step, and on the lean lane by the BUILD session at milestone 3, which records the verdict at <plansDir>/<key>-lean-plan-review.md for lean-gate.sh to assert. Never by review-lead as a diff-time specialist. -->
+<!-- review-lead-skip: dispatched on the translation-plan artifact (pre-implementation) — by the OPERATOR at design-toolkit:design-faithful's translation-plan step, and on the lean lane by the BUILD session at milestone 3, which records the verdict at <plansDir>/<key>-lean-plan-review.md for milestone-gate.sh to assert. Never by review-lead as a diff-time specialist. -->
 
 You review a **design-faithful translation plan** — the artifact `design-toolkit:design-faithful`
 emits before writing code: the resolved-component list with a stated reason per component, the

@@ -100,7 +100,7 @@ Merge those keys into your existing `~/.claude/settings.json` (don't replace the
 ps eww -p <claude-pid> | tr ' ' '\n' | grep CLAUDE_CODE_ENABLE_TELEMETRY
 ```
 
-Setting it ad hoc per terminal instead is exactly what makes cost reporting depend on which window you happened to launch from: one repo's sessions carry the variable, another's carry nothing, and the difference only surfaces at the end of a run as an empty cost block. `pipeline-doctor.sh` and `lean-gate.sh entry` both warn when the shell they run in is not exporting.
+Setting it ad hoc per terminal instead is exactly what makes cost reporting depend on which window you happened to launch from: one repo's sessions carry the variable, another's carry nothing, and the difference only surfaces at the end of a run as an empty cost block. `pipeline-doctor.sh` and `milestone-gate.sh entry` both warn when the shell they run in is not exporting.
 
 **Per-repo alternative: [direnv](https://direnv.net/).** Use this when you want telemetry in some repos and not others.
 
@@ -127,13 +127,13 @@ Exporting the same vars from `~/.zshrc`, or wrapping `claude` in an alias, works
 
 ## 4. (No hook wiring step)
 
-Cost tracking does not need a Stop hook. The build session invokes `pipeline-cost-block.sh --stateless` directly at `/dev-pipeline:build` step 7, before it opens the PR; `lean-gate.sh close-out` invokes it again at step 9, with `--close-out`, and publishes that second block.
+Cost tracking does not need a Stop hook. The build session invokes `pipeline-cost-block.sh --stateless` directly at `/dev-pipeline:build` step 7, before it opens the PR; `milestone-gate.sh close-out` invokes it again at step 9, with `--close-out`, and publishes that second block.
 
 ## 5. Verify end-to-end
 
 1. Run a lean issue (`/dev-pipeline:run <issue>`, or `/dev-pipeline:build <issue>` directly). Each session it spawns records its `$CLAUDE_CODE_SESSION_ID` as a `| session |` row in `.claude/pipeline-state/{issue}-lean-progress.md`.
 2. Tail the collector output: `tail -f ~/.claude/otel-metrics/metrics.jsonl` — you should see JSON lines within a few seconds of the session emitting.
-3. At step 7 the build session computes the block from those ids and the run's fence, and pastes it into the PR description; at step 9 `bash lean-gate.sh close-out <issue>` re-computes it over the run's now-complete fence, replaces the step-7 block in the description, and carries it in the closing comment. Success is the block appearing in the PR — nothing is recorded in a state file, by design.
+3. At step 7 the build session computes the block from those ids and the run's fence, and pastes it into the PR description; at step 9 `bash milestone-gate.sh close-out <issue>` re-computes it over the run's now-complete fence, replaces the step-7 block in the description, and carries it in the closing comment. Success is the block appearing in the PR — nothing is recorded in a state file, by design.
 
 For ad-hoc verification without a run, hand it any session id and fence:
 
@@ -148,7 +148,7 @@ An empty-looking block here means the query found no `claude_code.cost.usage` da
 
 ## 6. Cost per merged PR
 
-`lean-gate.sh close-out` (step 9) publishes a `cost_usd:` key on both surfaces it writes — a
+`milestone-gate.sh close-out` (step 9) publishes a `cost_usd:` key on both surfaces it writes — a
 bullet on the closing comment (present on every closed-out run, github only) and a line inside
 the PR description's cost block (present whenever a block is published). The value is a bare
 decimal (`cost_usd: 70.41`, no `$`) when a priced block rendered, or `unavailable (<reason>)`

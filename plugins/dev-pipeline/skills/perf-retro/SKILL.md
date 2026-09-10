@@ -55,7 +55,7 @@ staged schema's session list and no run has written one since #348 deleted that 
 
 **Model identity (#347 comment, ratified 2026-08-03).** Corpus rows carry `model` so
 cross-model deltas are queryable — an `era: "artifact"` row reads it from the progress/verdict
-record's `model:` key (`lean-gate.sh`, when `LEAN_RUN_MODEL` was exported at record-creation
+record's `model:` key (`milestone-gate.sh`, when `LANE_RUN_MODEL` was exported at record-creation
 time). Report it as a corpus
 dimension (group candidates or fidelity notes by `model` where the profile shows a difference)
 — never bucket by, or hardcode, a specific vendor model string here; that neutrality is owned

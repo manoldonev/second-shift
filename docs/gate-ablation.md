@@ -134,7 +134,7 @@ claiming inherited coverage from a patch id no committed record carries.
 
 > **Superseded for `m4/patch-stale` (#720, 2026-08-31).** Its incident is real and its keep was
 > earned — but it was earned by the CHECK, not by the check being made in the build lane.
-> `lean-evidence.sh`'s `arm_freshness` asks the identical question at the merge boundary, on
+> `boundary-evidence.sh`'s `arm_freshness` asks the identical question at the merge boundary, on
 > inputs the lane cannot make disagree, on every consumer's PR — so #720 deleted milestone 4's two
 > copies and kept the boundary's. The same #720 argument retires the three `m4/verdict-keys` sites
 > that `arm_verdict` duplicates; the row keeps its `reviewed_head` arm, which has no counterpart
@@ -166,7 +166,7 @@ is the successor slice's starting point rather than a result of this one:
 | `m3/lint` | `lint-and-selftests` → *shellcheck* |
 | `m3/test` | `lint-and-selftests` → *run all selftests* |
 | `m3/extra-lane` (mutation) | `mutation-sweep-pr` |
-| every `m4/*` | `pr-gates` → *lean chain reconciliation* (`check-lean-chain.sh`) |
+| every `m4/*` | `pr-gates` → *lean chain reconciliation* (`check-lane-chain.sh`) |
 | every `m1/*` and `m5/*` | nothing — these are lane-local by construction |
 
 What a milestone-3 gate buys, on this evidence, is **when** a failure is caught, not whether. What

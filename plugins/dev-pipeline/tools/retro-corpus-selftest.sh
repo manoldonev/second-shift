@@ -3,10 +3,10 @@
 #
 # Every case executes the REAL script against a generated corpus and asserts on what it
 # emits. Fixtures are hand-written in the REAL shapes the two producing tools emit
-# (stage-schema JSON; lean-gate.sh-shaped progress/verdict records) rather
+# (stage-schema JSON; milestone-gate.sh-shaped progress/verdict records) rather
 # than driving those tools end-to-end — the same choice makes for
 # the same reason: the point here is the READER's era-detection and aggregation, and the two
-# WRITERS have their own coverage — lean-gate-selftest.sh for the surviving writer, and
+# WRITERS have their own coverage — milestone-gate-selftest.sh for the surviving writer, and
 # a since-deleted suite for the staged one, removed in #348 along with that writer. The
 # staged-era fixtures stay: the READER must still aggregate that historical corpus.
 #
@@ -36,7 +36,7 @@ git -C "$TREE" config user.email t@example.invalid
 git -C "$TREE" config user.name t
 # tracker.branchPrefix + the "second-shift" repo slug drive both the derived lean prefix
 # (open-prs mode) and the verdict-record path formula — must match the fixture PR/comment
-# data below, the same way lean-gate-selftest.sh's own synthetic config does.
+# data below, the same way milestone-gate-selftest.sh's own synthetic config does.
 jq -n '{
   tracker: {branchPrefix: "claude/second-shift-"},
   topology: {repos: {"second-shift": {path: ".", baseBranch: "main"}}},
@@ -67,7 +67,7 @@ mksnapshot() {
 }
 
 # mkprogress <dir> <issue> <firstTs> [model-line]  — the exact header shape
-# lean-gate.sh's ensure_progress_file()/append_line write, with an optional trailing
+# milestone-gate.sh's ensure_progress_file()/append_line write, with an optional trailing
 # `model:` line (omitted entirely reproduces a pre-#347 record).
 mkprogress() {
   local dir="$1" issue="$2" ts="$3" modelline="${4:-}"
@@ -449,7 +449,7 @@ fi
 
 run_timing() { ( cd "$TREE" && bash "$TOOL" timing --state-dir "$1" --json "${@:2}" ); }
 
-# mktiming <dir> <issue> [model] — header in lean-gate.sh's exact shape, body rows on STDIN.
+# mktiming <dir> <issue> [model] — header in milestone-gate.sh's exact shape, body rows on STDIN.
 # An empty model argument reproduces a record written before the `model:` key existed.
 mktiming() {
   local dir="$1" issue="$2" modelline="${3:-}"
@@ -703,7 +703,7 @@ else
   fail "(565 AC-12/AC-13) 910=$(tf "$OUT" 910 .orchestrated) 911=$(tf "$OUT" 911 .orchestrated) manual-rows=$MANUAL"
 fi
 
-# ── 912: `satisfied` is idempotent in production (lean-gate.sh's append_satisfied returns
+# ── 912: `satisfied` is idempotent in production (milestone-gate.sh's append_satisfied returns
 # early, D-41), so a second one cannot occur — which is exactly why this fixture is worth
 # writing. It pins that NO rule anywhere selects a "last" occurrence: under a last-occurrence
 # rule the two spans below swap to 1=50,2=10.

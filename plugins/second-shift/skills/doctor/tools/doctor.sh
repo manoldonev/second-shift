@@ -67,7 +67,7 @@ redact_config() { # $1 = config path
 #
 # The tail is deliberately UNREDACTED, unlike the config section beside it in the same
 # paste-ready bundle. Progress rows are gate-authored markers, with one exception:
-# lean-gate.sh appends check-frozen-files.sh's captured output verbatim as a milestone-2
+# milestone-gate.sh appends check-frozen-files.sh's captured output verbatim as a milestone-2
 # advisory row. That output is this repo's own guard today, and the bundle header tells
 # the reader to review before posting, which is what keeps the widening bounded. Should a
 # progress row ever start carrying third-party or environment-derived text, this excerpt
@@ -364,7 +364,7 @@ DP_ENABLED=0; [[ "$dp_true" -eq 1 && "$dp_false" -eq 0 ]] && DP_ENABLED=1
 # edit AC-6's onboard paragraph warns about. Reading only the local/user pair left an opt-out in
 # the committed file SILENTLY green (not even the warn) while the identical flip in
 # settings.local.json FAILed, so three shipped statements promised a catch doctor could not
-# make. lean-gate.sh's audit_toolkit_opted_out() treats a `false` in any of these files as the
+# make. milestone-gate.sh's audit_toolkit_opted_out() treats a `false` in any of these files as the
 # opt-out; this loop is the half that disagreed, and the asymmetry was the whole defect.
 #
 # Any `false` disables, wherever it sits — deliberately NOT the mirror of DP_ENABLED's rule

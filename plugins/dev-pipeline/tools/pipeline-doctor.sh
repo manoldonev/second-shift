@@ -18,7 +18,7 @@ set -uo pipefail
 
 # The hop arithmetic resolve_sibling() depends on, kept caller-side because the hop count is
 # the one thing that legitimately differs between its callers (this file sits one directory
-# under its plugin root; lean-gate.sh sits two). Sentinel-delimited so
+# under its plugin root; milestone-gate.sh sits two). Sentinel-delimited so
 # pipeline-doctor-selftest.sh can lift these lines and run them at this real depth instead of
 # injecting their results — see resolve-sibling.sh's header.
 # >>> plugin-dirs
@@ -36,7 +36,7 @@ PLUGINS_DIR="$(cd "$PLUGIN_DIR/.." && pwd)"
 
 # resolve_sibling(): resolves a sibling-plugin file across BOTH layouts the doctor runs from —
 # monorepo checkout and version-keyed install cache. Lives in resolve-sibling.sh (#562), which
-# lean-gate.sh also sources for its own sibling lookup rather than re-deriving the ladder; see
+# milestone-gate.sh also sources for its own sibling lookup rather than re-deriving the ladder; see
 # that file's header for why the caller keeps its own SCRIPT_DIR/PLUGINS_DIR hop count and only
 # the ladder itself is shared.
 # shellcheck source=resolve-sibling.sh
@@ -279,7 +279,7 @@ else
 fi
 
 # --- 4b. Internal selftest sweep — fingerprint cache -----------------------------
-# Sections 5-5j re-run this TOOLKIT's own behavioral selftests (lean-gate alone is
+# Sections 5-5j re-run this TOOLKIT's own behavioral selftests (milestone-gate alone is
 # ~90s+) so a consumer's actual bash/jq/node — which can and does diverge from
 # second-shift's own CI runner (macOS ships bash 3.2) — gets proven, not assumed.
 # That guarantee is a property of (a) the installed plugin tree's CONTENTS and (b)
@@ -303,7 +303,7 @@ if [[ -f "$_CACHE_FILE" ]]; then
   _cache_age=$(( _CACHE_NOW - _cached_at ))
   if [[ -z "$_fp_tree" && "$_cached_env" == "$_FP_ENV" && "$_cache_age" -ge 0 && "$_cache_age" -lt "$_CACHE_TTL" ]]; then
     SELFTEST_CACHE_HIT=1
-    ok "internal selftest sweep: cached clean ($(( _cache_age / 60 )) min ago, same plugin tree + interpreter versions — lean-gate/claim/config-lint/etc. skipped; delete $_CACHE_FILE to force a re-run)"
+    ok "internal selftest sweep: cached clean ($(( _cache_age / 60 )) min ago, same plugin tree + interpreter versions — milestone-gate/claim/config-lint/etc. skipped; delete $_CACHE_FILE to force a re-run)"
   fi
 fi
 # <<< selftest-cache-gate <<<
@@ -314,10 +314,10 @@ _FAILS_BEFORE_SWEEP=$FAILS
 # --- 5. lean gate (the safety net must work on THIS machine) --------------------
 # #348 retired the staged state machine. The pipeline's gate is what a run's five
 # milestones are asserted by, so it takes this section's place.
-if out=$(bash "$PLUGIN_DIR/skills/build/lean-gate-selftest.sh" 2>&1); then
-  ok "lean-gate selftest: $(tail -1 <<< "$out" | sed 's/\[self-test\] //')"
+if out=$(bash "$PLUGIN_DIR/skills/build/milestone-gate-selftest.sh" 2>&1); then
+  ok "milestone-gate selftest: $(tail -1 <<< "$out" | sed 's/\[self-test\] //')"
 else
-  bad "lean-gate selftest FAILED — the pipeline's milestone gate is broken on this machine. Output tail:"
+  bad "milestone-gate selftest FAILED — the pipeline's milestone gate is broken on this machine. Output tail:"
   tail -5 <<< "$out" | sed 's/^/[doctor]        /'
 fi
 
@@ -408,13 +408,13 @@ fi
 
 # --- 5i. lean merge-boundary evidence (portable verdict/identity/freshness) ------
 # The staged lane's deterministic verify runner died with it (#348). What stands here
-# instead is the boundary a lean run is actually judged at: lean-evidence.sh
+# instead is the boundary a lean run is actually judged at: boundary-evidence.sh
 # reads the committed verdict record's verdict, authoring identity, patch freshness and
 # ratification, and a consumer's CI fetches it at its pinned ref.
-if out=$(bash "$PLUGIN_DIR/skills/build/lean-evidence-selftest.sh" 2>&1); then
-  ok "lean-evidence selftest: $(tail -1 <<< "$out" | sed 's/\[self-test\] //')"
+if out=$(bash "$PLUGIN_DIR/skills/build/boundary-evidence-selftest.sh" 2>&1); then
+  ok "boundary-evidence selftest: $(tail -1 <<< "$out" | sed 's/\[self-test\] //')"
 else
-  bad "lean-evidence selftest FAILED — the merge-boundary evidence reader (verdict / identity / freshness / ratification) is broken on this machine. Output tail:"
+  bad "boundary-evidence selftest FAILED — the merge-boundary evidence reader (verdict / identity / freshness / ratification) is broken on this machine. Output tail:"
   tail -5 <<< "$out" | sed 's/^/[doctor]        /'
 fi
 

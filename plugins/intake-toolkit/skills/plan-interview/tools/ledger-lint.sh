@@ -133,7 +133,7 @@ violate() { echo "ledger-lint: VIOLATION: $1" >&2; VIOLATIONS=$((VIOLATIONS + 1)
 # Mechanical canonical of the interviewing-baseline provenance enum.
 # SINGLE-SITED, and deliberately: this file holds the only MACHINE copy of the enum. The
 # prose mirrors in interviewing-baseline are a markdown table, which neither relation can
-# compare against a shell assignment, and #517/#562 both declined to give lean-gate.sh a
+# compare against a shell assignment, and #517/#562 both declined to give milestone-gate.sh a
 # second parser for exactly this reason. Guarded behaviorally by ledger-lint-selftest.sh.
 # The LOCKSTEP markers that once wrapped THIS assignment named two pairs that no longer
 # exist; removed in #604.
@@ -160,7 +160,7 @@ SURFACE_EMPTY_FORM='No user-visible surface — this change renders nothing a us
 
 # The section detector, ONE copy. Both check 1 and reconcile mode ask this question, and
 # a second in-file copy is the shape #562's review round already named: two greps that agree
-# only until somebody widens one. (lean-gate.sh's own copy is the deliberate exception the
+# only until somebody widens one. (milestone-gate.sh's own copy is the deliberate exception the
 # manifest records — a caller that must answer before it can decide whether to call at all.)
 has_ledger_section() { # has_ledger_section <path>
   grep -qiE '^(#{1,6}[[:space:]]+|\*\*)[[:space:]]*decision ledger' "$1"

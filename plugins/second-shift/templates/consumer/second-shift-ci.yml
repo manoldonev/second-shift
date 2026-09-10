@@ -41,7 +41,7 @@ jobs:
     name: second-shift evidence
     runs-on: ubuntu-latest
     steps:
-      # fetch-depth: 0 is load-bearing for the lean-evidence check, not hygiene. That check
+      # fetch-depth: 0 is load-bearing for the boundary-evidence check, not hygiene. That check
       # recomputes the branch's patch identity from merge-base(base, head), which a depth-1
       # checkout cannot resolve — and an unresolvable identity is reported as a failure, not
       # waved through, so a shallow checkout reds every pipeline PR rather than silently exempting

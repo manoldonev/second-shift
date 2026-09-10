@@ -195,7 +195,7 @@ must answer.
 
 **And on an armed lean run that dispatch is mandatory, not advisory.** The gate cannot run an
 agent, so it takes the verdict record's shape: the build session dispatches the reviewer on the
-committed plan and writes its output with `lean-gate.sh plan-review <issue> --verdict
+committed plan and writes its output with `milestone-gate.sh plan-review <issue> --verdict
 <pass|fix-and-go|block> --summary-file <findings> --model <m>`, which stamps `reviewed_plan_from`
 from the checkout. Milestone 3 then refuses — **before any render command runs** — when the record
 at `<plansDir>/<key>-lean-plan-review.md` is missing, when its `reviewed_plan_from` no longer
@@ -280,7 +280,7 @@ never reviewed, and nothing in the record said so. `review-lead` now spawns it u
 an armed spec, and a round that lost it to a dark reviewer is **voided** rather than recorded
 (`/dev-pipeline:review` step 5c). The record's `panel:` key is the attestation: the reviewer agent types the
 round actually returned a result from, qualified and comma-separated. Milestone 4 and
-`check-lean-chain.sh` evidence arm 8 both require it to name the provider's reviewer.
+`check-lane-chain.sh` evidence arm 8 both require it to name the provider's reviewer.
 
 WHICH reviewer is derived from the **handoff link's host**, never from `design.provider`: the first
 recognised URL in the `## Design` section naming `figma.com` (or a subdomain) means

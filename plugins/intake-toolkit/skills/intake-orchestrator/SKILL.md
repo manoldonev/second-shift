@@ -182,9 +182,9 @@ Based on the issue body and labels, classify as:
 `topology.repos.<id>.ticketTag` (e.g. `"[BE]"` / `"[FE]"` on the `be`/`fe` entries; no
 new field, no onboarding change). A `standalone` or `monorepo` repo has no `ticketTag` at
 all and nothing to check here — skip straight to Step 2. Under the lean lane this reading
-is **intake policy, never a gate**: `lean-gate.sh` does not read `ticketTag` and this check
+is **intake policy, never a gate**: `milestone-gate.sh` does not read `ticketTag` and this check
 does not touch it either — it is this skill deciding whether to proceed, not a mechanic
-`lean-gate.sh` enforces.
+`milestone-gate.sh` enforces.
 
 **The check.** The predicate is the **configured tag values**, not bracket shape. Resolve
 them first, with `contains` semantics:
@@ -233,7 +233,7 @@ exists to set; present the same comment content to the operator and STOP, per th
 existing jira escalation posture.
 
 Both rejects are terminal and are caught before a single agent dispatches. The **both** case
-is a filing defect: one ticket cannot span two repos, because `lean-gate.sh` routes by
+is a filing defect: one ticket cannot span two repos, because `milestone-gate.sh` routes by
 invocation cwd and works exactly one repo's worktree. The work is not refused, it is
 re-shaped — into ordered per-repo tickets at Step 4.
 

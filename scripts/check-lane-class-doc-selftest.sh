@@ -30,7 +30,7 @@ bad() { echo "  FAIL: $1" >&2; FAIL=$((FAIL + 1)); }
 TMP=$(mktemp -d -t lane-class-selftest.XXXXXX) || { echo "[lane-class-selftest] FATAL: mktemp failed"; exit 99; }
 trap 'rm -rf "$TMP"' EXIT INT TERM
 
-GATE_REL="plugins/dev-pipeline/skills/build/lean-gate.sh"
+GATE_REL="plugins/dev-pipeline/skills/build/milestone-gate.sh"
 DOC_REL="docs/config-schema.md"
 
 run() { bash "$CHECKER" "$1" >"$TMP/out" 2>&1; echo $?; }

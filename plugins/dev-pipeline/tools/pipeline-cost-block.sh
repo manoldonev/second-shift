@@ -106,6 +106,14 @@
 # change to any caller or to the emitted shape.
 
 set -uo pipefail
+
+# #833: the pipeline's environment knobs are spelled `LANE_*`; the retired `LEAN_*` spellings still
+# resolve, once, with a stderr notice. Promoted IN PLACE here, before the first read, so every
+# `${LANE_*:-<default>}` site below keeps its own default unchanged.
+# shellcheck source=../skills/build/lane-env.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../skills/build" && pwd)/lane-env.sh" \
+  || { echo "FATAL: cannot load lane-env.sh — the LANE_/LEAN_ compatibility reader" >&2; exit 1; }
+lane_env_promote LANE_PROGRESS_FILE
 log() { echo "[pipeline-cost-block] $*" >&2; }
 
 # Telemetry-id → tier map (see TIER BUCKETING above). Keys are family substrings matched
@@ -117,7 +125,7 @@ TIER_FAMILY_MAP='{"opus":"reasoning","sonnet":"code","haiku":"emit"}'
 TIER_ORDER='{"reasoning":1,"code":2,"emit":3,"unknown":4}'
 
 # The two literals that BOUND a rendered block inside a PR description, and the reason they are
-# held to a copy rather than left inline in the jq program below. lean-gate.sh's close-out
+# held to a copy rather than left inline in the jq program below. milestone-gate.sh's close-out
 # REPLACES a stale block in a body it does not otherwise own: it strips from the marker line
 # through the first following line carrying the terminator prefix, and leaves everything after it
 # untouched. If the renderer's last line moved and the stripper's did not, that strip would run to
@@ -162,7 +170,7 @@ fi
 # Derivation from the run's own record (#546). See DERIVED INPUTS in the header.
 # ────────────────────────────────────────────────────────────────────────────
 # The MAIN checkout, not the worktree: the progress record lives there so it survives
-# worktree teardown. Same --git-common-dir anchor lean-gate.sh and retro-corpus.sh use.
+# worktree teardown. Same --git-common-dir anchor milestone-gate.sh and retro-corpus.sh use.
 # The VERDICT record is the other way round — it is a committed artifact of the branch, so
 # it is resolved against the cwd's toplevel, which during close-out is the lane worktree.
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
@@ -186,9 +194,9 @@ state_dir() {
   printf '%s\n' "$MAIN_ROOT/$(cfg '.paths.pipelineStateDir' '.claude/pipeline-state')"
 }
 
-# The record's key:value header reader. This is retro-corpus.sh's variant, not lean-gate.sh's:
+# The record's key:value header reader. This is retro-corpus.sh's variant, not milestone-gate.sh's:
 # the character class allows `/` because `verdict_record:` carries a repo-relative PATH, and
-# lean-gate.sh's narrower class truncates one at the first slash (never triggered there, since
+# milestone-gate.sh's narrower class truncates one at the first slash (never triggered there, since
 # it re-derives that path from config instead of reading it back — both readers here do read
 # it back). Held to that copy by the markers, so the two path-reading readers cannot drift.
 # LOCKSTEP-BEGIN lean-record-key
@@ -207,7 +215,7 @@ TS_RE='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z'
 # LOCKSTEP-END lean-progress-ts-re
 
 # ---------------------------------------------------------------- the build-session SET (#446)
-# A verbatim copy of lean-gate.sh's, held by the markers rather than extracted — it is the
+# A verbatim copy of milestone-gate.sh's, held by the markers rather than extracted — it is the
 # definition the `mark` refusal already uses, and #546's whole point is that this reader must
 # not invent a second one. `record_key` above is the wider variant; for `session_id`, whose
 # values are UUIDs, the two classes cannot disagree.
@@ -245,7 +253,7 @@ if [ -n "$ARG_ISSUE" ]; then
   esac
   [ -n "$MAIN_ROOT" ] \
     || { log "--issue $ARG_ISSUE: not in a git repo, so the progress record is unresolvable — pass --sessions/--start/--end instead"; exit 2; }
-  PROGRESS_FILE="${LEAN_PROGRESS_FILE:-$(state_dir)/$ARG_ISSUE-lean-progress.md}"
+  PROGRESS_FILE="${LANE_PROGRESS_FILE:-$(state_dir)/$ARG_ISSUE-lean-progress.md}"
   [ -r "$PROGRESS_FILE" ] \
     || { log "--issue $ARG_ISSUE: no readable lean progress record at $PROGRESS_FILE — nothing to derive a fence or a session set from"; exit 2; }
 

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# lean-gate-selftest.sh — behavioral suite for the /dev-pipeline:build milestone gates.
+# milestone-gate-selftest.sh — behavioral suite for the /dev-pipeline:build milestone gates.
 #
-# Every case drives the REAL lean-gate.sh against a throwaway git tree and a synthetic config,
-# through the script's documented seams (LEAN_PROGRESS_FILE, SECOND_SHIFT_CONFIG, --pr-file,
+# Every case drives the REAL milestone-gate.sh against a throwaway git tree and a synthetic config,
+# through the script's documented seams (LANE_PROGRESS_FILE, SECOND_SHIFT_CONFIG, --pr-file,
 # --comments-file). Zero network.
 #
 # The cases that matter most are the ones a plausible-looking implementation gets wrong:
@@ -19,21 +19,21 @@
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-GATE="$HERE/lean-gate.sh"
+GATE="$HERE/milestone-gate.sh"
 SKILL="$HERE/SKILL.md"
 
 FAILS=0
 pass() { echo "  PASS: $1"; }
 fail() { echo "  FAIL: $1" >&2; FAILS=$((FAILS + 1)); }
 
-# HERMETICITY. `LEAN_RUN_MODEL` is a documented seam of the gate, so a lean run that stamps
+# HERMETICITY. `LANE_RUN_MODEL` is a documented seam of the gate, so a lean run that stamps
 # its model honestly has it EXPORTED — and (m1b)/(p5) below assert the absent-value default
 # `unknown`, which that export silently falsifies. The suite inherited the ambient value for
 # this one variable, so those two cases red on exactly the machines the lane runs on and pass
 # everywhere else: an environment artifact that surfaces at milestone 3 reading like a code
 # defect in whatever diff happens to be in flight. Unset it once here so every case starts
 # from the documented absent state; (m1c) sets it explicitly for the other direction.
-unset LEAN_RUN_MODEL
+unset LANE_RUN_MODEL
 
 # `RUN_ID` is the same class, and it hid behind a per-helper defense that did not cover every
 # call site. `gate()` unsets it, and so does every `entry` call but one: (d5)'s linked-worktree
@@ -56,7 +56,7 @@ unset RUN_ID
 # reason `unset RUN_ID` above is: the seam has to reach every invocation, including the dozen that
 # bypass `gate()`. The (wt*) block below unsets it in its own subshells, which is what keeps the
 # guard covered here rather than merely tolerated.
-export LEAN_GATE_ANY_TREE=1
+export LANE_GATE_ANY_TREE=1
 
 # TRAP INSTALLED BEFORE WORK EXISTS (#528). The old order (mktemp, then trap) left a window —
 # five lines, here — where a signal orphaned WORK with nothing registered to remove it. This
@@ -71,7 +71,7 @@ trap cleanup EXIT
 # so a lane run under its own TMPDIR isolates this fixture instead of sharing one directory
 # with every other worktree and lane on the machine.
 #
-# NORMALIZED WITH `pwd -P`, mirroring orchestrate-lean-selftest.sh, and for a second reason
+# NORMALIZED WITH `pwd -P`, mirroring orchestrate-selftest.sh, and for a second reason
 # beyond the /var symlink that comment names: macOS's own `$TMPDIR` carries a TRAILING SLASH
 # (`/var/folders/.../T/`), so the raw template yields a double slash
 # (`.../T//leangate.XXXXXX`). The (lt5)/(lt5b) cases below build `git worktree add` paths under
@@ -85,7 +85,7 @@ WORK="$(cd "$WORK" && pwd -P)"
 # ---------------------------------------------------------------- the tracker stub (#611)
 # `entry`/`claim` now READ the ticket at the run boundary, so every case in this file that
 # attests would otherwise open a socket — against a repo the fixture does not have. The stub is
-# EXPORTED suite-wide, on `LEAN_GATE_ANY_TREE`'s precedent: the seam has to reach the dozen call
+# EXPORTED suite-wide, on `LANE_GATE_ANY_TREE`'s precedent: the seam has to reach the dozen call
 # sites that bypass `gate()` (attest_at, pgate, tdgate, jw_gate), and a per-call pin would leave
 # whichever one was added next silently live. Cases that want a different answer override `GH`
 # for their own invocation, exactly as the pre-existing `gh-dead.sh` cases already do.
@@ -151,12 +151,12 @@ SPEC="$TREE/docs/plans/acme-7-lean.md"
 VERDICT="$TREE/docs/plans/acme-7-lean-verdict.md"
 
 # #663: THE SUBSTRING NETS BELOW ARE CAST OVER THE GATE'S WORDS, NEVER OVER ITS PATHS.
-# The gate opens every run with `[lean-gate] config: <path>`, and that path is wherever this
+# The gate opens every run with `[milestone-gate] config: <path>`, and that path is wherever this
 # suite's own scratch (WORK, above) landed. The nightly mutation sweep runs every killer with
 # TMPDIR pointed at a directory of its own named `mutation-sweep-work.XXXXXX` — so on that lane,
 # WORK lands inside it, and (i-580a)'s `grep -i mutation` matched the directory the suite was
 # standing in. Both #580 cases failed for that reason on every nightly from 2026-08-20, the pair
-# read as unrunnable, and lean-gate.sh — the most catalog-covered guard in the tree — was scored
+# read as unrunnable, and milestone-gate.sh — the most catalog-covered guard in the tree — was scored
 # by nothing at all until #663. Originally this hit only the Linux nightly: WORK was allocated
 # with `mktemp -d -t`, which on Linux resolves against $TMPDIR and on macOS resolves against
 # `_CS_DARWIN_USER_TEMP_DIR`, ignoring TMPDIR outright — so the macOS lane could not reproduce
@@ -193,7 +193,7 @@ gate() { # gate <args...>  — always from inside the fixture tree
   # (SKILL.md step 2 tells operators/agents to export it for a real run) leaks through —
   # bash subshells inherit the parent's exported environment by default — and (m1)/(m3)
   # spuriously fail asserting the real run's id where the fixture expects `unset` or its
-  # own cached value. SECOND_SHIFT_CONFIG/LEAN_PROGRESS_FILE are already pinned per-call
+  # own cached value. SECOND_SHIFT_CONFIG/LANE_PROGRESS_FILE are already pinned per-call
   # for the same reason; RUN_ID was the one seam left open to ambient leakage.
   #
   # unset CLAUDE_CODE_SESSION_ID, for the same reason and a sharper consequence. When the
@@ -219,7 +219,7 @@ gate() { # gate <args...>  — always from inside the fixture tree
     # else, which is what keeps every other case's `headless` reading a real assertion.
     # shellcheck disable=SC2030,SC2031
     [ -n "$BUILD_RID" ] && export RUN_ID="$BUILD_RID"
-    cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" \
+    cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LANE_PROGRESS_FILE="$PROG" \
     bash "$GATE" --issue-file "$ISSUE_NOREGIONS" "$@" 2>&1 )
 }
 # $BUILD_SID: the OPT-IN seam past the unset above, and empty for every case that does not ask.
@@ -262,7 +262,7 @@ attest_at() { # attest_at <tree> <config> <progress-file> <issue>
   # would hide that production behavior behind a fixture knob: the header would be right in
   # the suite and `unset` in the field.
   ( unset RUN_ID; cd "$1" && CLAUDE_CODE_SESSION_ID="$ENTRY_SID" SECOND_SHIFT_CONFIG="$2" \
-    LEAN_PROGRESS_FILE="$3" bash "$GATE" entry "$4" >/dev/null 2>&1 )
+    LANE_PROGRESS_FILE="$3" bash "$GATE" entry "$4" >/dev/null 2>&1 )
 }
 # The unattested form, for the (p*) cases that are ABOUT the missing row. Every other case
 # wants the attested one — that is the state a run following SKILL.md step 1 is in.
@@ -278,7 +278,7 @@ seed_progress_1_to_4() {
   attest_at "$TREE" "$CFG" "$PROG" 7
 }
 
-echo "[lean-gate-selftest]"
+echo "[milestone-gate-selftest]"
 
 # ---- (a) milestone 1: existence at the pinned path + >= 1 AC-n, and nothing else ---------
 reset_progress
@@ -427,7 +427,7 @@ else fail "(a12) expected a silent rc=0 with no receipt, got $rc: $out"; fi
 # TWO calls, because the ordinary one is not attributable. #533's check_pause_and_ask reports
 # the same fact for the same file, so deleting the reconciliation entirely leaves the first
 # assertion passing — measured, not assumed. The OBSERVE call is the discriminator: that check
-# sits under the observe guard and is skipped there, so under LEAN_GATE_OBSERVE=1 the only
+# sits under the observe guard and is skipped there, so under LANE_GATE_OBSERVE=1 the only
 # reader left that can refuse an unreadable receipt is this one.
 reset_progress
 rc_spec
@@ -437,7 +437,7 @@ if [ -r "$RC_UNREADABLE" ]; then
   fail "(a13) precondition: chmod 000 left the receipt readable (running as root?) — the fail-open arm is unverified"
 else
   out="$(gate --ledger-file "$RC_UNREADABLE" 1 7)"; rc=$?
-  obs_out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" LEAN_GATE_OBSERVE=1 \
+  obs_out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LANE_PROGRESS_FILE="$PROG" LANE_GATE_OBSERVE=1 \
               bash "$GATE" --issue-file "$ISSUE_NOREGIONS" --ledger-file "$RC_UNREADABLE" 1 7 2>&1 )"; obs_rc=$?
   if [ "$rc" -eq 2 ] && grep -q 'could not read pre-flight ledger' <<<"$out" \
      && [ "$obs_rc" -eq 2 ] && grep -q 'while reconciling it against' <<<"$obs_out" \
@@ -453,12 +453,12 @@ chmod 644 "$RC_UNREADABLE"
 # next direct call refuses. The counterpart half is asserted too: observing records nothing.
 reset_progress
 rc_spec; grep -v 'D-3' "$SPEC" > "$SPEC.tmp" && mv "$SPEC.tmp" "$SPEC"
-out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" LEAN_GATE_OBSERVE=1 \
+out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LANE_PROGRESS_FILE="$PROG" LANE_GATE_OBSERVE=1 \
         bash "$GATE" --issue-file "$ISSUE_NOREGIONS" --ledger-file "$RC_RECEIPT" 1 7 2>&1 )"; rc=$?
 if [ "$rc" -eq 1 ] && grep -q 'does not reconcile' <<<"$out" \
    && [ "$(count_in_progress '| milestone-1 |')" -eq 0 ]; then
   pass "(a14) #517 AC-7: the reconciliation is evaluated in the observe pass and records nothing there"
-else fail "(a14) expected rc=1 with an empty progress record under LEAN_GATE_OBSERVE, got $rc / $(count_in_progress '| milestone-1 |'): $out"; fi
+else fail "(a14) expected rc=1 with an empty progress record under LANE_GATE_OBSERVE, got $rc / $(count_in_progress '| milestone-1 |'): $out"; fi
 
 reset_progress
 printf '# spec\n\n- AC-1: a thing\n- AC-2: another\n' > "$SPEC"
@@ -557,20 +557,20 @@ mv "$held_spec_494" "$SPEC"
 
 # ---- (d) AC-14 entry gate ----------------------------------------------------------------
 reset_progress
-out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" \
+out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LANE_PROGRESS_FILE="$PROG" \
         env -u CLAUDE_CODE_SESSION_ID -u RUN_ID bash "$GATE" entry 7 2>&1 )"; rc=$?
 if [ "$rc" -eq 1 ] && grep -q 'CLAUDE_CODE_SESSION_ID is unset' <<<"$out"; then
   pass "(d1) entry refuses when the session id is unresolvable"
 else fail "(d1) expected rc=1 on an unset session id, got $rc: $out"; fi
 
 : > "$TREE/.claude/audit/sess-empty.jsonl"
-out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" \
+out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LANE_PROGRESS_FILE="$PROG" \
         env -u RUN_ID CLAUDE_CODE_SESSION_ID=sess-empty bash "$GATE" entry 7 2>&1 )"; rc=$?
 if [ "$rc" -eq 1 ] && grep -q 'missing or empty' <<<"$out"; then
   pass "(d2) entry refuses on an EMPTY ledger — directory existence is not the test"
 else fail "(d2) expected rc=1 on an empty ledger, got $rc: $out"; fi
 
-out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" \
+out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LANE_PROGRESS_FILE="$PROG" \
         env -u RUN_ID CLAUDE_CODE_SESSION_ID=sess-absent bash "$GATE" entry 7 2>&1 )"; rc=$?
 if [ "$rc" -eq 1 ]; then pass "(d3) entry refuses when no ledger file exists for the session"
 else fail "(d3) expected rc=1 on an absent ledger, got $rc: $out"; fi
@@ -580,7 +580,7 @@ else fail "(d3) expected rc=1 on an absent ledger, got $rc: $out"; fi
 # operator exports one for a real run) writes that id into the fixture tree — and milestone 5's
 # marker check then resolves an identity no fixture carries. It cost a milestone-3 red on #359.
 printf '{"tool":"Bash"}\n{"tool":"Read"}\n' > "$TREE/.claude/audit/sess-live.jsonl"
-out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" \
+out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LANE_PROGRESS_FILE="$PROG" \
         env -u RUN_ID CLAUDE_CODE_SESSION_ID=sess-live bash "$GATE" entry 7 2>&1 )"; rc=$?
 if [ "$rc" -eq 0 ]; then pass "(d4) entry passes on a live, non-empty ledger"
 else fail "(d4) expected rc=0 on a live ledger, got $rc: $out"; fi
@@ -604,7 +604,7 @@ else fail "(d4) expected rc=0 on a live ledger, got $rc: $out"; fi
 # case took its not-found branch and red the suite — the exact class
 # tools/install-topology-selftest.sh stages for. Same ladder as
 # check-model-tiers.sh's resolve_sibling_plugin_root(). NOT a lockstep pair with the copy in
-# lean-reconcile-selftest.sh: each suite resolves its own sibling independently and drift
+# reconcile-selftest.sh: each suite resolves its own sibling independently and drift
 # between them breaks nothing — the shared thing is a technique, not a contract.
 HOOK_REPO="$HERE/../../../audit-toolkit/hooks/audit-tool-calls.sh"
 HOOK="$HOOK_REPO"
@@ -634,7 +634,7 @@ else
     # write path — which is green in CI (no ambient RUN_ID) and red for any operator who followed
     # SKILL.md step 2 and kept theirs exported. CLAUDE_CODE_SESSION_ID stays set on purpose: this
     # case is about the worktree ledger the hook wrote under sess-wt.
-    out="$( cd "$WT_ENTRY" && env -u RUN_ID SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" \
+    out="$( cd "$WT_ENTRY" && env -u RUN_ID SECOND_SHIFT_CONFIG="$CFG" LANE_PROGRESS_FILE="$PROG" \
             CLAUDE_CODE_SESSION_ID=sess-wt bash "$GATE" entry 7 2>&1 )"; rc=$?
     if [ "$rc" -eq 0 ]; then
       pass "(d5) entry passes in a linked worktree whose ledger the REAL hook wrote"
@@ -690,7 +690,7 @@ else fail "(e3b) github branch name mismatch: $(grep '^branch:' "$PROG" 2>/dev/n
 # and takes the refusal path.
 CFG_NOPREFIX="$WORK/config-noprefix.json"
 jq 'del(.tracker.branchPrefix)' "$CFG" > "$CFG_NOPREFIX"
-out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_NOPREFIX" LEAN_PROGRESS_FILE="$WORK/p3.md" \
+out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_NOPREFIX" LANE_PROGRESS_FILE="$WORK/p3.md" \
         bash "$GATE" 1 7 2>&1 )"; rc=$?
 if [ "$rc" -eq 2 ] && grep -q 'refusing to guess' <<<"$out" \
    && ! grep -qF 'claude/acme-' <<<"$out"; then
@@ -805,14 +805,14 @@ git -C "$M580_TREE" update-ref refs/remotes/origin/main HEAD
 M580_PROG="$WORK/m580-prog.md"
 attest_at "$M580_TREE" "$CFG" "$M580_PROG" 7
 out="$( cd "$M580_TREE" && ( unset RUN_ID CLAUDE_CODE_SESSION_ID GH_BOT
-  SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$M580_PROG" \
+  SECOND_SHIFT_CONFIG="$CFG" LANE_PROGRESS_FILE="$M580_PROG" \
   bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 3 7 2>&1 ) )"; rc=$?
 if [ "$rc" -eq 0 ] && [ ! -e "$M580_MARK" ] && ! grep -qi 'mutation' <<<"$(scrub_fixture_paths "$out")"; then
   pass "(i-580b) AC-1: milestone 3 never invokes a repo-carried tools/mutation-sweep.sh"
 else fail "(i-580b) expected a green milestone-3 with the sweep untouched, got rc=$rc marker=$([ -e "$M580_MARK" ] && cat "$M580_MARK" || echo absent): $out"; fi
 
 # ---- (i-580d) #663: the negative net does not match the FIXTURE'S OWN PATH ----------------
-# The regression that cost lean-gate.sh its whole mutation coverage, pinned deterministically
+# The regression that cost milestone-gate.sh its whole mutation coverage, pinned deterministically
 # instead of being left to the one lane that produces the condition. The gate is handed a
 # config whose PATH carries the word the two cases above grep for; before the scrub, both of
 # them failed on exactly this and the suite exited 2 with the sweep unable to say why.
@@ -824,7 +824,7 @@ mkdir -p "$M663_DIR"
 cp "$CFG" "$M663_DIR/config.json"
 reset_progress
 out="$( cd "$TREE" && ( unset RUN_ID CLAUDE_CODE_SESSION_ID GH_BOT
-  SECOND_SHIFT_CONFIG="$M663_DIR/config.json" LEAN_PROGRESS_FILE="$PROG" \
+  SECOND_SHIFT_CONFIG="$M663_DIR/config.json" LANE_PROGRESS_FILE="$PROG" \
   bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 3 7 2>&1 ) )"; rc=$?
 m663="$(scrub_fixture_paths "$out")"
 # The rc arm is asserted alongside: a scrub that emptied the output entirely would satisfy the
@@ -850,7 +850,7 @@ jq 'del(.commands.acme.allowUnverified)' "$CFG" > "$CFG_NOOPT"
 # AC-1: zero verifying lanes configured, no opt-out -> milestone 3 reds naming the resolved
 # host slug, the config path, and allowUnverified.
 reset_progress
-out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_NOOPT" LEAN_PROGRESS_FILE="$PROG" \
+out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_NOOPT" LANE_PROGRESS_FILE="$PROG" \
         bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 3 7 2>&1 )"; rc=$?
 if [ "$rc" -eq 1 ] && grep -q "no verifying lane configured for 'acme'" <<<"$out" \
    && grep -qF "$CFG_NOOPT" <<<"$out" && grep -q 'allowUnverified' <<<"$out"; then
@@ -873,7 +873,7 @@ else fail "(iz1b) no milestone-3 attempt record in $PROG: $(cat "$PROG" 2>/dev/n
 CFG_NOCMDS="$WORK/config-nocommands.json"
 jq 'del(.commands)' "$CFG" > "$CFG_NOCMDS"
 reset_progress
-out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_NOCMDS" LEAN_PROGRESS_FILE="$PROG" \
+out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_NOCMDS" LANE_PROGRESS_FILE="$PROG" \
         bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 3 7 2>&1 )"; rc=$?
 if [ "$rc" -eq 1 ] && grep -q "no verifying lane configured for 'acme'" <<<"$out" \
    && grep -qF "$CFG_NOCMDS" <<<"$out" && grep -q 'allowUnverified' <<<"$out"; then
@@ -886,7 +886,7 @@ else fail "(iz2) expected rc=1 naming acme/$CFG_NOCMDS/allowUnverified, got $rc:
 # invisible by writing a placeholder org slug into real branch names.
 CFG_ABSENT="$WORK/no-such-config.json"
 reset_progress
-out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_ABSENT" LEAN_PROGRESS_FILE="$PROG" \
+out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_ABSENT" LANE_PROGRESS_FILE="$PROG" \
         bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 3 7 2>&1 )"; rc=$?
 if [ "$rc" -eq 2 ] && grep -q 'refusing to guess' <<<"$out" \
    && ! grep -qF 'claude/acme-' <<<"$out"; then
@@ -898,7 +898,7 @@ else fail "(iz2b) expected rc=2 refusing to guess, got $rc: $out"; fi
 CFG_ONEKEY="$WORK/config-onekey.json"
 jq 'del(.commands.acme.allowUnverified) | .commands.acme.lint = "true"' "$CFG" > "$CFG_ONEKEY"
 reset_progress
-out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_ONEKEY" LEAN_PROGRESS_FILE="$PROG" \
+out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_ONEKEY" LANE_PROGRESS_FILE="$PROG" \
         bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 3 7 2>&1 )"; rc=$?
 if [ "$rc" -eq 0 ] && ! grep -q 'allowUnverified' <<<"$out"; then
   pass "(iz3) AC-2: one fixed key configured -> guard stays inert, no allowUnverified mention"
@@ -913,7 +913,7 @@ jq 'del(.commands.acme.allowUnverified)
     | .commands.acme.extraLanes = [{"name":"scoped","when":["docs/nope/**"],"commands":["true"],"failureClass":"TEST_FAILURE"}]' \
   "$CFG" > "$CFG_WHENONLY"
 reset_progress
-out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_WHENONLY" LEAN_PROGRESS_FILE="$PROG" \
+out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_WHENONLY" LANE_PROGRESS_FILE="$PROG" \
         bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 3 7 2>&1 )"; rc=$?
 if [ "$rc" -eq 0 ] && grep -qF "extra lane 'scoped' — skipped" <<<"$out" \
    && ! grep -q 'allowUnverified' <<<"$out"; then
@@ -967,7 +967,7 @@ gate_el() { # gate_el <config-file> <progress-file> <args...>
   # the build-role precondition will let milestone 3 run at all. Idempotent, and none of these
   # cases is ABOUT the row — that is (p*)'s job.
   attest_at "$EL_TREE" "$cfg" "$prog" 7
-  ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$EL_TREE" && SECOND_SHIFT_CONFIG="$cfg" LEAN_PROGRESS_FILE="$prog" \
+  ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$EL_TREE" && SECOND_SHIFT_CONFIG="$cfg" LANE_PROGRESS_FILE="$prog" \
     bash "$GATE" --issue-file "$EL_ISSUE" "$@" 2>&1 )
 }
 
@@ -1073,7 +1073,7 @@ git -C "$EL_TREE_NB" add -A >/dev/null 2>&1 && git -C "$EL_TREE_NB" commit -q -m
 # Deliberately NO `update-ref refs/remotes/origin/main` — the base is unresolvable.
 cfg="$(el_cfg '[{"name":"scoped","when":["src/**/*.tsx"],"commands":["echo hi"],"failureClass":"TEST_FAILURE"}]')"
 attest_at "$EL_TREE_NB" "$cfg" "$WORK/el-prog-nb.md" 7
-out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$EL_TREE_NB" && SECOND_SHIFT_CONFIG="$cfg" LEAN_PROGRESS_FILE="$WORK/el-prog-nb.md" \
+out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$EL_TREE_NB" && SECOND_SHIFT_CONFIG="$cfg" LANE_PROGRESS_FILE="$WORK/el-prog-nb.md" \
         bash "$GATE" --issue-file "$EL_ISSUE" 3 7 2>&1 )"; rc=$?
 if [ "$rc" -eq 1 ] && grep -q "cannot resolve origin/main to evaluate 'when'" <<<"$out"; then
   pass "(i11) AC-8: an unresolvable base reds milestone 3 fail-closed (not a silent skip)"
@@ -1137,7 +1137,7 @@ printf 'x\n' > "$EL_TREE_TOP/src/App.tsx"
 git -C "$EL_TREE_TOP" add -A >/dev/null 2>&1 && git -C "$EL_TREE_TOP" commit -q -m "top-level tsx" >/dev/null 2>&1
 cfg="$(el_cfg '[{"name":"tsx-lane","when":["src/**/*.tsx"],"commands":["echo should-not-run"],"failureClass":"TEST_FAILURE"}]')"
 attest_at "$EL_TREE_TOP" "$cfg" "$WORK/el-prog-top.md" 7
-out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$EL_TREE_TOP" && SECOND_SHIFT_CONFIG="$cfg" LEAN_PROGRESS_FILE="$WORK/el-prog-top.md" \
+out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$EL_TREE_TOP" && SECOND_SHIFT_CONFIG="$cfg" LANE_PROGRESS_FILE="$WORK/el-prog-top.md" \
         bash "$GATE" --issue-file "$EL_ISSUE" 3 7 2>&1 )"; rc=$?
 if [ "$rc" -eq 0 ] && grep -qF "extra lane 'tsx-lane' — skipped" <<<"$out" \
    && ! grep -q 'should-not-run' <<<"$out"; then
@@ -1158,7 +1158,7 @@ printf 'y\n' > "$EL_TREE_NEST/src/a/App.tsx"
 git -C "$EL_TREE_NEST" add -A >/dev/null 2>&1 && git -C "$EL_TREE_NEST" commit -q -m "nested tsx" >/dev/null 2>&1
 cfg="$(el_cfg '[{"name":"tsx-lane","when":["src/**/*.tsx"],"commands":["echo did-run"],"failureClass":"TEST_FAILURE"}]')"
 attest_at "$EL_TREE_NEST" "$cfg" "$WORK/el-prog-nest.md" 7
-out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$EL_TREE_NEST" && SECOND_SHIFT_CONFIG="$cfg" LEAN_PROGRESS_FILE="$WORK/el-prog-nest.md" \
+out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$EL_TREE_NEST" && SECOND_SHIFT_CONFIG="$cfg" LANE_PROGRESS_FILE="$WORK/el-prog-nest.md" \
         bash "$GATE" --issue-file "$EL_ISSUE" 3 7 2>&1 )"; rc=$?
 if [ "$rc" -eq 0 ] && grep -qF "extra lane 'tsx-lane' » echo did-run" <<<"$out"; then
   pass "(i15) AC-4: 'src/**/*.tsx' DOES match a nested 'src/a/App.tsx'"
@@ -1253,10 +1253,10 @@ gate_el "$IC8_ORD" "$prog" 3 7 >/dev/null 2>&1
 gate_el "$IC8_ORD" "$prog" 3 7 >/dev/null 2>&1
 ic_before="$(el_count_in '| milestone-3 |' "$prog")"
 out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$EL_TREE" && SECOND_SHIFT_CONFIG="$IC8_INF" \
-        LEAN_PROGRESS_FILE="$prog" LEAN_GATE_OBSERVE=1 \
+        LANE_PROGRESS_FILE="$prog" LANE_GATE_OBSERVE=1 \
         bash "$GATE" --issue-file "$EL_ISSUE" 3 7 2>&1 )"; rc=$?
 out2="$( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$EL_TREE" && SECOND_SHIFT_CONFIG="$IC8_ORD" \
-         LEAN_PROGRESS_FILE="$prog" LEAN_GATE_OBSERVE=1 \
+         LANE_PROGRESS_FILE="$prog" LANE_GATE_OBSERVE=1 \
          bash "$GATE" --issue-file "$EL_ISSUE" 3 7 2>&1 )"; rc2=$?
 if [ "$rc" -eq 7 ] && [ "$rc2" -eq 4 ] \
    && [ "$(el_count_in '| milestone-3 |' "$prog")" -eq "$ic_before" ]; then
@@ -1362,7 +1362,7 @@ else fail "(ad5) expected rc=1 on a zero-lane tree, got rc=$rc: $out"; fi
 cfg="$(ic_cfg '.commands.acme.test = "exit 1"')"
 prog="$WORK/ad-prog-count1.md"
 out="$(gate_el "$cfg" "$prog" 3 7)"; rc=$?
-if [ "$rc" -eq 0 ] && grep -qFx '[lean-gate] ✓ milestone-3: green gate (1 advisory)' <<<"$out"; then
+if [ "$rc" -eq 0 ] && grep -qFx '[milestone-gate] ✓ milestone-3: green gate (1 advisory)' <<<"$out"; then
   pass "(ad6) #668 AC-1: one advisory lane — the terminal line carries the count"
 else fail "(ad6) expected rc=0 and a counted terminal line, got rc=$rc: $out"; fi
 
@@ -1371,7 +1371,7 @@ else fail "(ad6) expected rc=0 and a counted terminal line, got rc=$rc: $out"; f
 cfg="$(ic_cfg '.commands.acme.lint = "exit 1" | .commands.acme.test = "exit 1"')"
 prog="$WORK/ad-prog-count2.md"
 out="$(gate_el "$cfg" "$prog" 3 7)"; rc=$?
-if [ "$rc" -eq 0 ] && grep -qFx '[lean-gate] ✓ milestone-3: green gate (2 advisory)' <<<"$out" \
+if [ "$rc" -eq 0 ] && grep -qFx '[milestone-gate] ✓ milestone-3: green gate (2 advisory)' <<<"$out" \
    && [ "$(el_count_in '| milestone-3 | advisory |' "$prog")" -eq 2 ]; then
   pass "(ad7) #668 AC-1: the count tracks the advisory rows actually written, not a fixed suffix"
 else fail "(ad7) expected rc=0, a '(2 advisory)' terminal line and 2 advisory rows, got rc=$rc: $out"; fi
@@ -1382,7 +1382,7 @@ else fail "(ad7) expected rc=0, a '(2 advisory)' terminal line and 2 advisory ro
 cfg="$(ic_cfg '.commands.acme.test = "true"')"
 prog="$WORK/ad-prog-count0.md"
 out="$(gate_el "$cfg" "$prog" 3 7)"; rc=$?
-if [ "$rc" -eq 0 ] && grep -qFx '[lean-gate] ✓ milestone-3: green gate' <<<"$out" \
+if [ "$rc" -eq 0 ] && grep -qFx '[milestone-gate] ✓ milestone-3: green gate' <<<"$out" \
    && [ "$(el_count_in '| milestone-3 | advisory |' "$prog")" -eq 0 ]; then
   pass "(ad8) #668 AC-2: zero advisories leaves the terminal line unchanged, byte for byte"
 else fail "(ad8) expected the unqualified terminal line on a clean run, got rc=$rc: $out"; fi
@@ -1421,7 +1421,7 @@ ib_seed() { # ib_seed <progress-file> <milestone> <n-unclosed>
 gate_ib() { # gate_ib <progress-file> <args...>
   local prog="$1"; shift
   ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$IB_TREE" && SECOND_SHIFT_CONFIG="$CFG" \
-    LEAN_PROGRESS_FILE="$prog" bash "$GATE" --issue-file "$EL_ISSUE" "$@" 2>&1 )
+    LANE_PROGRESS_FILE="$prog" bash "$GATE" --issue-file "$EL_ISSUE" "$@" 2>&1 )
 }
 
 prog="$WORK/ib-prog-m1.md"; rm -f "$prog"; ib_seed "$prog" 1 5
@@ -1459,7 +1459,7 @@ else fail "(ib3) expected rc=0, no exhaustion row and no interruption notice at 
 
 # #718 DELETED THE (ir) BLOCK — `progress --infra`, the infra-death read. Six cases ((ir1)-(ir4),
 # (ir9), (ir10)) stood here over their own fixture tree, pinning a token space whose only consumer
-# was orchestrate-lean.sh's continuation loop. The RESIDUE they derived from is still pinned:
+# was orchestrate.sh's continuation loop. The RESIDUE they derived from is still pinned:
 # (if5) below, and scenario-liveness-selftest.sh's (lean-inline-m3)/(lean-inline-m3-nv)
 # over a real group-killed milestone 3.
 
@@ -1482,7 +1482,7 @@ else fail "(ib3) expected rc=0, no exhaustion row and no interruption notice at 
 fixture_patch_id() { # fixture_patch_id [head-ish]
   # Copied out BEFORE the `.`: sourcing consumes the sourcing scope's positional parameters.
   local fp_head="${1:-HEAD}"
-  ( cd "$TREE" && LEAN_GATE_LIB=1 SECOND_SHIFT_CONFIG="$CFG" . "$GATE" >/dev/null 2>&1 \
+  ( cd "$TREE" && LANE_GATE_LIB=1 SECOND_SHIFT_CONFIG="$CFG" . "$GATE" >/dev/null 2>&1 \
     && REPO_ROOT="$TREE" BASE_BRANCH=main VERDICT_REL="docs/plans/acme-7-lean-verdict.md" \
        branch_patch_id "$fp_head" )
 }
@@ -1509,8 +1509,8 @@ if [ "$rc" -eq 1 ] && grep -q 'reads verdict=needs-work, not verdict=approve' <<
 else fail "(j2) expected rc=1 on needs-work, got $rc: $out"; fi
 
 # #720 deleted (j3)/(j3b) with the arms they pinned: the run_id and session_id key refusals were
-# duplicates of lean-evidence.sh's arm_verdict, which every consumer's merge boundary runs.
-# lean-evidence-selftest.sh pins that record class there.
+# duplicates of boundary-evidence.sh's arm_verdict, which every consumer's merge boundary runs.
+# boundary-evidence-selftest.sh pins that record class there.
 reset_progress
 write_review_verdict
 out="$(gate 4 7)"; rc=$?
@@ -1521,7 +1521,7 @@ else fail "(j4) expected rc=0, got $rc: $out"; fi
 # This block used to drive `m4/head-missing` and `m4/head-tree-diff`, the two arms milestone 4
 # fell through to for a record carrying no `reviewed_patch_id`. #642 deleted both. They were not
 # merely never-fired: cmd_verdict, the only writer, emits that key unconditionally and envfails
-# rather than omit it, and lean-evidence.sh — which `pr-gates` runs on every consumer's PR —
+# rather than omit it, and boundary-evidence.sh — which `pr-gates` runs on every consumer's PR —
 # refuses a record without it outright. Whatever those arms answered, the boundary refused the PR.
 #
 # What is left is the pair of key requirements, and they are strictly tighter than the fallback
@@ -1535,8 +1535,8 @@ if [ "$rc" -eq 5 ] && grep -q 'no reviewed_head key' <<<"$out"; then
 else fail "(u1) expected rc=5 on a head-less approve, got $rc: $out"; fi
 
 # #720 deleted (u2) and its non-vacuity companion (u3): the reviewed_patch_id-absent refusal that
-# #642 put here is the same one lean-evidence.sh's arm_freshness makes at the merge boundary
-# ("declares no reviewed_patch_id"), pinned there by lean-evidence-selftest.sh (r). (u1) above
+# #642 put here is the same one boundary-evidence.sh's arm_freshness makes at the merge boundary
+# ("declares no reviewed_patch_id"), pinned there by boundary-evidence-selftest.sh (r). (u1) above
 # stays because `reviewed_head`'s absence has NO counterpart downstream. What still pins that the
 # real writer stamps the key is (x1), which reads it out of a writer-produced record.
 
@@ -1741,7 +1741,7 @@ if [ "$(count_in_progress '| milestone-5 | absent |')" -ge 1 ] \
 else fail "(k11) expected an absent row, 0 attempts and a met verdict-reference, got $(count_in_progress '| milestone-5 | absent |') / $(count_in_progress '| milestone-5 | attempt |') / $(count_in_progress '| milestone-5 | obligation | verdict-reference | met'): $(cat "$PROG")"; fi
 
 # ---- (ob) #531 D-10: milestone 5 reports its two obligations SEPARATELY -------------------
-# THE DEFECT. `orchestrate-lean.sh` could only say "the closing comment, the exit artifacts and
+# THE DEFECT. `orchestrate.sh` could only say "the closing comment, the exit artifacts and
 # the worktree teardown are all unaccounted for", because a milestone-5 red left one `attempt`
 # line and nothing else — so every recovery started with a human reading the record. What is
 # asserted here is the record's shape; the scheduler's use of it is its own suite's.
@@ -1832,7 +1832,7 @@ else fail "(l2) expected rc=2 with no issue, got $rc"; fi
 # `bash G <n> <issue>` runs as its own one-shot subprocess (only cwd persists across tool
 # calls, not shell state), so the export was gone by milestone 1 and the progress-file header
 # stamped `run_id: unset` — a mismatch against the claim comment / verdict record that
-# lean-reconcile.sh exists to catch. The fix caches the id to `<issue>-run-id` on the first
+# reconcile.sh exists to catch. The fix caches the id to `<issue>-run-id` on the first
 # call that sees it in its own env, and resolves later calls from that cache.
 RUN_ID_CACHE="$TREE/.claude/pipeline-state/7-run-id"
 rm -f "$RUN_ID_CACHE"
@@ -1843,7 +1843,7 @@ if grep -q '^run_id: unset$' <<<"$out"; then
   pass "(m1) with no RUN_ID and no cache, the header stamps run_id: unset (unchanged default)"
 else fail "(m1) expected 'run_id: unset' in the header, got: $out"; fi
 if grep -q '^model: unknown$' <<<"$out"; then
-  pass "(m1b) ensure_progress_file() stamps model: unknown when LEAN_RUN_MODEL is unset (#347)"
+  pass "(m1b) ensure_progress_file() stamps model: unknown when LANE_RUN_MODEL is unset (#347)"
 else fail "(m1b) expected 'model: unknown' in the header, got: $out"; fi
 
 # The other direction of the same seam, which nothing covered: (m1b) alone reads as "the model
@@ -1860,10 +1860,10 @@ else fail "(m1b) expected 'model: unknown' in the header, got: $out"; fi
 # — the stamp is a property of the run, not of whichever milestone happens to execute first —
 # and the case keeps its full strength: a hardcoded `unknown` still fails here.
 reset_progress_unattested
-( export LEAN_RUN_MODEL=selftest-model-357; attest_at "$TREE" "$CFG" "$PROG" 7 )
+( export LANE_RUN_MODEL=selftest-model-357; attest_at "$TREE" "$CFG" "$PROG" 7 )
 out="$(cat "$PROG" 2>/dev/null)"
 if grep -q '^model: selftest-model-357$' <<<"$out"; then
-  pass "(m1c) ensure_progress_file() stamps the LEAN_RUN_MODEL value when one IS set (#347)"
+  pass "(m1c) ensure_progress_file() stamps the LANE_RUN_MODEL value when one IS set (#347)"
 else fail "(m1c) expected 'model: selftest-model-357' in the header, got: $out"; fi
 
 reset_progress
@@ -1872,7 +1872,7 @@ rm -f "$RUN_ID_CACHE"
 # identity, for the reason (m4) pins. `entry` is the cheaper of the two to drive here (a
 # session id and a non-empty ledger, both already fixtured above; `claim` needs the bot
 # wrapper), and it is also the first call of a real run, which is what (m3) then continues.
-out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" \
+out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LANE_PROGRESS_FILE="$PROG" \
         CLAUDE_CODE_SESSION_ID=sess-live RUN_ID="selftest-run-306" bash "$GATE" entry 7 2>&1 )"; rc=$?
 if [ "$rc" -eq 0 ] && [ "$(cat "$RUN_ID_CACHE" 2>/dev/null)" = "selftest-run-306" ]; then
   pass "(m2) a build-role call made WITH RUN_ID in its env caches it to <issue>-run-id"
@@ -1896,7 +1896,7 @@ else fail "(m3) expected 'run_id: selftest-run-306' from the cache, got: $out"; 
 # Seed-once alone does not cover this: there is nothing to lose the race to.
 reset_progress
 rm -f "$RUN_ID_CACHE"
-out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" \
+out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LANE_PROGRESS_FILE="$PROG" \
         RUN_ID="r-review-poison" bash "$GATE" 4 7 2>&1 )"
 if [ ! -e "$RUN_ID_CACHE" ]; then
   pass "(m4) a milestone EVALUATION with RUN_ID set does not create the build run-id cache"
@@ -1957,7 +1957,7 @@ rm -f "$RUN_ID_CACHE"
 seed_build_progress r-build-1 sess-build-1
 mkdir -p "$(dirname "$RUN_ID_CACHE")"; printf 'r-build-1' > "$RUN_ID_CACHE"
 write_review_verdict
-out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" \
+out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LANE_PROGRESS_FILE="$PROG" \
         RUN_ID=r-review-1 bash "$GATE" 4 7 2>&1 )"; rc=$?
 if [ "$rc" -eq 0 ]; then
   pass "(q1) milestone-4 passes when the REVIEW session runs it with its own RUN_ID exported"
@@ -2055,7 +2055,7 @@ gate_m3() {
     # shellcheck disable=SC2030,SC2031  # subshell-local is the point: the identity must reach
     # this one gate invocation and no other, exactly like the unset it re-opens.
     [ -n "$BUILD_SID" ] && export CLAUDE_CODE_SESSION_ID="$BUILD_SID"
-    cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_M3" LEAN_PROGRESS_FILE="$PROG" \
+    cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_M3" LANE_PROGRESS_FILE="$PROG" \
     bash "$GATE" --issue-file "$ISSUE_NOREGIONS" "$@" 2>&1 )
 }
 bgate_m3() { BUILD_SID="$ENTRY_SID" gate_m3 "$@"; }
@@ -2238,7 +2238,7 @@ before="$(attempts_1)"
 printf '#!/bin/sh\necho "gh: connection refused" >&2\nexit 1\n' > "$WORK/gh-dead.sh"
 chmod +x "$WORK/gh-dead.sh"
 out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID
-        cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" \
+        cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LANE_PROGRESS_FILE="$PROG" \
         GH="$WORK/gh-dead.sh" bash "$GATE" 1 7 2>&1 )"; rc=$?
 after="$(attempts_1)"
 if [ "$rc" -eq 2 ] && grep -q 'could not read issue' <<<"$out" && [ "$before" = "$after" ]; then
@@ -2570,7 +2570,7 @@ ov_clear() { rm -f "$OV_REC" "$TREE/.claude/pipeline-state/attend-$OV_SID.token"
 if [ ! -f "$OVT" ]; then
   fail "(yo0) the override mechanism at $OVT is absent — every case below would pass vacuously"
 else
-  pass "(yo0) the override mechanism resolves at the path lean-gate.sh defaults to"
+  pass "(yo0) the override mechanism resolves at the path milestone-gate.sh defaults to"
 
   # (yo1) the YIELD. An override naming OR-1 clears the region with an empty comment trail and no
   # intent-gap record at all.
@@ -2649,7 +2649,7 @@ PAA2
 fi
 reset_progress
 
-# ---- (p) the REVIEW role: lean-gate.sh verdict ---------------------------------------------
+# ---- (p) the REVIEW role: milestone-gate.sh verdict ---------------------------------------------
 # $SPEC declares exactly `AC-1` from here to the end of the (r) block, so this is the minimum
 # conforming scorecard for every approve written below (#622).
 P_SCORECARD="$WORK/p-scorecard.md"
@@ -2675,10 +2675,10 @@ verdict_cmd() { # verdict_cmd <session-id> <run-id|""> [args...]
   # case that IS about the scorecard passes its own, and wins — the parser takes the last flag.
   case " $* " in *" --summary-file "*) : ;; *) set -- "$@" --summary-file "$P_SCORECARD" ;; esac
   if [ -n "$rid" ]; then
-    ( unset RUN_ID; cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" \
+    ( unset RUN_ID; cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LANE_PROGRESS_FILE="$PROG" \
       CLAUDE_CODE_SESSION_ID="$sid" RUN_ID="$rid" bash "$GATE" verdict 7 "$@" 2>&1 )
   else
-    ( unset RUN_ID; cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" \
+    ( unset RUN_ID; cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LANE_PROGRESS_FILE="$PROG" \
       CLAUDE_CODE_SESSION_ID="$sid" bash "$GATE" verdict 7 "$@" 2>&1 )
   fi
 }
@@ -2798,7 +2798,7 @@ fi
 rm -f "$REVIEW_CACHE"
 
 # ---- (t) THE RECORD MUST BE ON THE BRANCH ---------------------------------------------------
-# Not freshness — #720 moved that question to the merge boundary, where lean-evidence.sh's
+# Not freshness — #720 moved that question to the merge boundary, where boundary-evidence.sh's
 # arm_freshness is the one reader of it. What is left here is the precondition every downstream
 # reader has: a record nobody committed is invisible to `pr-gates`, to the merge boundary and to
 # a human opening the PR, so a lane that certified it would hand off a run carrying no evidence
@@ -2810,7 +2810,7 @@ if [ "$rc" -eq 0 ]; then pass "(t1) milestone-4 passes when the verdict's commit
 else fail "(t1) expected rc=0 on a fresh verdict, got $rc: $out"; fi
 
 # #720 deleted (t2): the inferred freshness arm it pinned is gone from milestone 4, and
-# lean-evidence.sh's arm_freshness asks the same question at the merge boundary. (t3), its
+# boundary-evidence.sh's arm_freshness asks the same question at the merge boundary. (t3), its
 # remedy half, went with it — a remedy for a refusal that no longer exists asserts nothing.
 # (t1) stays: it is the ordinary green, and the (t4)/(t5) uncommitted cases below still need it.
 printf '# spec\n\n- AC-1: a thing\n- AC-2: added after the review\n' > "$SPEC"
@@ -2884,7 +2884,7 @@ JVERDICT_REL="docs/plans/acme-$JKEY-lean-verdict.md"
 gate_cfg() { # gate_cfg <config> <progress-file> <args...>
   # unset RUN_ID CLAUDE_CODE_SESSION_ID: same ambient-leak pinning as gate(); see its comment.
   local cfg="$1" prog="$2"; shift 2
-  ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$TREE" && SECOND_SHIFT_CONFIG="$cfg" LEAN_PROGRESS_FILE="$prog" bash "$GATE" "$@" 2>&1 )
+  ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$TREE" && SECOND_SHIFT_CONFIG="$cfg" LANE_PROGRESS_FILE="$prog" bash "$GATE" "$@" 2>&1 )
 }
 seed_progress_1_to_4_at() {
   rm -f "$1"
@@ -2989,12 +2989,12 @@ rm -f "$SPY_LOG" "$PROG_J" "$TREE/.claude/pipeline-state/$JKEY-run-id"
 attest_at "$TREE" "$CFG_JIRA" "$PROG_J" "$JKEY"
 
 out="$( cd "$TREE" && env -u GH_BOT PATH="$WORK/bin:$PATH" SECOND_SHIFT_CONFIG="$CFG_JIRA" \
-        LEAN_PROGRESS_FILE="$PROG_J" RUN_ID="jira-run-1" bash "$GATE" claim "$JKEY" 2>&1 )"; rc=$?
+        LANE_PROGRESS_FILE="$PROG_J" RUN_ID="jira-run-1" bash "$GATE" claim "$JKEY" 2>&1 )"; rc=$?
 if [ "$rc" -eq 0 ] && [ ! -s "$SPY_LOG" ]; then
   pass "(n9) jira claim exits 0 with NO GH_BOT in the environment and makes zero tracker calls"
 else fail "(n9) expected rc=0 and an empty spy log, got rc=$rc, log='$(cat "$SPY_LOG" 2>/dev/null)': $out"; fi
 
-# The record is the point: no write happens, but lean-reconcile.sh's run-id anchor must
+# The record is the point: no write happens, but reconcile.sh's run-id anchor must
 # still land or the run stops being reconcilable. The header this asserts against was created
 # `unset` by `entry` above — SKILL.md's own ordering — so this also pins the heal: without it
 # the anchor freezes at `unset` and reconcile arm (1) reds every honest run.
@@ -3004,13 +3004,13 @@ else fail "(n10) progress file missing the jira claim record: $(cat "$PROG_J" 2>
 
 # ---- the entry note ------------------------------------------------------------------------
 printf '{"tool":"Bash"}\n' > "$TREE/.claude/audit/sess-jira.jsonl"
-out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_JIRA" LEAN_PROGRESS_FILE="$PROG_J" \
+out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_JIRA" LANE_PROGRESS_FILE="$PROG_J" \
         env -u RUN_ID CLAUDE_CODE_SESSION_ID=sess-jira bash "$GATE" entry "$JKEY" 2>&1 )"; rc=$?
 if [ "$rc" -eq 0 ] && grep -q 'no queue label to confirm' <<<"$out"; then
   pass "(n11) entry prints the jira adapter note — step 1's label reject has no jira meaning"
 else fail "(n11) expected the jira entry note, got rc=$rc: $out"; fi
 
-out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" \
+out="$( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LANE_PROGRESS_FILE="$PROG" \
         env -u RUN_ID CLAUDE_CODE_SESSION_ID=sess-jira bash "$GATE" entry 7 2>&1 )"; rc=$?
 if [ "$rc" -eq 0 ] && ! grep -q 'no queue label to confirm' <<<"$out"; then
   pass "(n12) the github arm prints no adapter note"
@@ -3116,8 +3116,8 @@ rm -f "$TREE/.claude/pipeline-state/$JKEY-run-id"
 # ---- (v) the verdict WRITER still refuses an unresolvable base ------------------------------
 # #720 deleted milestone 4's two freshness arms, and with them (v0)-(v4), (v5), (vb-baseline),
 # (vb0)-(vb4a) — every case whose subject was a comparison this gate no longer makes. The question
-# they drove is asked once now, by lean-evidence.sh's arm_freshness at the merge boundary, and
-# lean-evidence-selftest.sh's (r)/(s2)/(s4) pin it there including the #597 fail-open route.
+# they drove is asked once now, by boundary-evidence.sh's arm_freshness at the merge boundary, and
+# boundary-evidence-selftest.sh's (r)/(s2)/(s4) pin it there including the #597 fail-open route.
 #
 # (v6) is NOT one of those. Its subject is `cmd_verdict`, the WRITER, which still resolves the
 # branch's patch identity and still `envfail`s rather than omit the key — and after #720 that
@@ -3125,7 +3125,7 @@ rm -f "$TREE/.claude/pipeline-state/$JKEY-run-id"
 # one outright, so it is the arm with the most to lose from going unpinned, not the least.
 #
 # D-5 vacuity, WRITE side. A record written with the key silently OMITTED reads downstream as
-# "written before the key existed", which lean-evidence.sh refuses on every consumer's PR — so a
+# "written before the key existed", which boundary-evidence.sh refuses on every consumer's PR — so a
 # missing base here would produce an unmergeable record at review time, invisibly.
 #
 # seed_build_progress is load-bearing, not tidy-up: the cases above ran after reset_progress, so
@@ -3141,7 +3141,7 @@ jq '.topology.repos.acme.baseBranch = "no-such-base"' "$CFG" > "$CFG_NOBASE"
   || fail "(v6-fixture) the no-base config was not built — (v6) would run against the real base"
 seed_build_progress r-build-1 sess-build-1
 rm -f "$REVIEW_CACHE"
-out="$( unset RUN_ID; cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_NOBASE" LEAN_PROGRESS_FILE="$PROG" \
+out="$( unset RUN_ID; cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_NOBASE" LANE_PROGRESS_FILE="$PROG" \
         CLAUDE_CODE_SESSION_ID=sess-review-9 RUN_ID=r-review-9 \
         bash "$GATE" verdict 7 --pr 12 --verdict approve 2>&1 )"; rc=$?
 if [ "$rc" -eq 2 ] && grep -q 'cannot compute the branch' <<<"$out"; then
@@ -3151,7 +3151,7 @@ else fail "(v6) expected rc=2 from the writer on an unresolvable base, got $rc: 
 
 # ---- (w) --help prints the header, and only the header ------------------------------------
 # `sed -n '2,Np'` is a hand-maintained line number: growing the header silently truncates the
-# help text. check-lean-chain-selftest.sh case (T) has guarded its sibling for exactly this;
+# help text. check-lane-chain-selftest.sh case (T) has guarded its sibling for exactly this;
 # this file had no such case, which is why a green sweep said nothing when the header here grew
 # by 8 lines and the range stayed at 2,75p — dropping the whole Seams block from --help.
 #
@@ -3189,7 +3189,7 @@ xcommit() {
   git -C "$XTREE" add -A >/dev/null 2>&1
   git -C "$XTREE" commit -q --allow-empty -m "${1:-fixture}" >/dev/null 2>&1
 }
-xgate() { ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$XTREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$XPROG" bash "$GATE" "$@" 2>&1 ); }
+xgate() { ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$XTREE" && SECOND_SHIFT_CONFIG="$CFG" LANE_PROGRESS_FILE="$XPROG" bash "$GATE" "$@" 2>&1 ); }
 # THE AC SCORECARD an approve now has to carry (#622). The X/Y/Z/D fixture trees each declare
 # exactly `AC-1`, so one conforming table serves every writer case that is not ABOUT the
 # scorecard; the (sc) block below passes its own literal tables. Defaulted in the wrappers by the
@@ -3204,7 +3204,7 @@ xverdict() { # xverdict <session-id> <run-id> [args...]
   case " $* " in *" --summary-file "*) : ;; *) set -- "$@" --summary-file "$SCORECARD_AC1" ;; esac
   case " $* " in *" --panel "*) : ;; *) set -- "$@" --panel "$UPANEL" ;; esac
   rm -f "$XTREE/.claude/pipeline-state/9-review-run-id"
-  ( unset RUN_ID; cd "$XTREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$XPROG" \
+  ( unset RUN_ID; cd "$XTREE" && SECOND_SHIFT_CONFIG="$CFG" LANE_PROGRESS_FILE="$XPROG" \
     CLAUDE_CODE_SESSION_ID="$sid" RUN_ID="$rid" bash "$GATE" verdict 9 "$@" 2>&1 )
 }
 xseed_build() { rm -f "$XPROG"; { echo "# lean run — issue 9"; echo ""; echo "run_id: r-build-x"; echo "session_id: sess-build-x"; } > "$XPROG"
@@ -3395,7 +3395,7 @@ ycommit() {
   git -C "$YTREE" add -A >/dev/null 2>&1
   git -C "$YTREE" commit -q --allow-empty -m "${1:-fixture}" >/dev/null 2>&1
 }
-ygate() { ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$YTREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$YPROG" bash "$GATE" "$@" 2>&1 ); }
+ygate() { ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$YTREE" && SECOND_SHIFT_CONFIG="$CFG" LANE_PROGRESS_FILE="$YPROG" bash "$GATE" "$@" 2>&1 ); }
 yverdict() { # yverdict <session-id> <run-id> [args...]
   local sid="$1" rid="$2"; shift 2
   case " $* " in *" --summary-file "*) : ;; *) set -- "$@" --summary-file "$SCORECARD_AC1" ;; esac
@@ -3403,7 +3403,7 @@ yverdict() { # yverdict <session-id> <run-id> [args...]
   rm -f "$YPROG"; { echo "# lean run — issue 11"; echo ""; echo "run_id: r-build-y"; echo "session_id: sess-build-y"; } > "$YPROG"
   attest_at "$YTREE" "$CFG" "$YPROG" 11
   rm -f "$YTREE/.claude/pipeline-state/11-review-run-id"
-  ( unset RUN_ID; cd "$YTREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$YPROG" \
+  ( unset RUN_ID; cd "$YTREE" && SECOND_SHIFT_CONFIG="$CFG" LANE_PROGRESS_FILE="$YPROG" \
     CLAUDE_CODE_SESSION_ID="$sid" RUN_ID="$rid" bash "$GATE" verdict 11 "$@" 2>&1 )
 }
 ykey() { grep -oE "$1:[[:space:]]*[A-Za-z0-9._-]+" "$YVERDICT" 2>/dev/null | head -n1 | sed -E "s/^$1:[[:space:]]*//"; }
@@ -3471,7 +3471,7 @@ zcommit() {
   git -C "$ZTREE" add -A >/dev/null 2>&1
   git -C "$ZTREE" commit -q --allow-empty -m "${1:-fixture}" >/dev/null 2>&1
 }
-zgate() { ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$ZTREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$ZPROG" bash "$GATE" "$@" 2>&1 ); }
+zgate() { ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$ZTREE" && SECOND_SHIFT_CONFIG="$CFG" LANE_PROGRESS_FILE="$ZPROG" bash "$GATE" "$@" 2>&1 ); }
 zverdict() { # zverdict <session-id> <run-id> [args...]
   local sid="$1" rid="$2"; shift 2
   case " $* " in *" --summary-file "*) : ;; *) set -- "$@" --summary-file "$SCORECARD_AC1" ;; esac
@@ -3479,7 +3479,7 @@ zverdict() { # zverdict <session-id> <run-id> [args...]
   rm -f "$ZPROG"; { echo "# lean run — issue 12"; echo ""; echo "run_id: r-build-z"; echo "session_id: sess-build-z"; } > "$ZPROG"
   attest_at "$ZTREE" "$CFG" "$ZPROG" 12
   rm -f "$ZTREE/.claude/pipeline-state/12-review-run-id"
-  ( unset RUN_ID; cd "$ZTREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$ZPROG" \
+  ( unset RUN_ID; cd "$ZTREE" && SECOND_SHIFT_CONFIG="$CFG" LANE_PROGRESS_FILE="$ZPROG" \
     CLAUDE_CODE_SESSION_ID="$sid" RUN_ID="$rid" bash "$GATE" verdict 12 "$@" 2>&1 )
 }
 zkey() { grep -oE "$1:[[:space:]]*[A-Za-z0-9._-]+" "$ZVERDICT" 2>/dev/null | head -n1 | sed -E "s/^$1:[[:space:]]*//"; }
@@ -3600,7 +3600,7 @@ else fail "(z4b) expected a 1-link pass once committed, got rc=$rc: $out"; fi
 # its cached identity; if the branch moved in between, that round's own committed record differs
 # from the current tree on CONTENT and so passes the "differs" clause while being the same review.
 # The link it produces resolves for two readers — milestone 4 and the merge boundary each count a
-# round that never happened — and lean-reconcile.sh refuses it, so three readers disagree about a
+# round that never happened — and reconcile.sh refuses it, so three readers disagree about a
 # record the production writer emitted. Fixed at the writer: the candidate is skipped and the
 # search continues to the last INDEPENDENT round, which is round 1 here.
 printf 'the branch moves between two runs of round 2\n' > "$ZTREE/subject.txt"
@@ -3799,7 +3799,7 @@ dplan_sync() { # dplan_sync [config]
   git -C "$DTREE" rev-parse --verify -q refs/remotes/origin/main >/dev/null 2>&1 || return 0
   cp "$DPROG" "$DSYNCPROG" 2>/dev/null || return 0
   ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$DTREE" \
-    && SECOND_SHIFT_CONFIG="$cfg" LEAN_PROGRESS_FILE="$DPROG" \
+    && SECOND_SHIFT_CONFIG="$cfg" LANE_PROGRESS_FILE="$DPROG" \
        bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 3 55 ) >/dev/null 2>&1
   mv "$DSYNCPROG" "$DPROG" 2>/dev/null
   if ! git -C "$DTREE" diff --quiet HEAD -- docs/plans/acme-55-lean-plan.md 2>/dev/null \
@@ -3833,7 +3833,7 @@ dplanrev_sync() { # dplanrev_sync [config] [verdict]
   [ -f "$DPLAN" ] || return 0
   git -C "$DTREE" rev-parse --verify -q refs/remotes/origin/main >/dev/null 2>&1 || return 0
   ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$DTREE" \
-    && SECOND_SHIFT_CONFIG="$cfg" LEAN_PROGRESS_FILE="$DPROG" \
+    && SECOND_SHIFT_CONFIG="$cfg" LANE_PROGRESS_FILE="$DPROG" \
        bash "$GATE" plan-review 55 --verdict "$v" --summary-file "$DFINDINGS" --model stub-model ) >/dev/null 2>&1
   if ! git -C "$DTREE" diff --quiet HEAD -- docs/plans/acme-55-lean-plan-review.md 2>/dev/null \
      || [ -z "$(git -C "$DTREE" log -1 --format=%H -- docs/plans/acme-55-lean-plan-review.md 2>/dev/null)" ]; then
@@ -3851,11 +3851,11 @@ dcommit() {
   dplan_sync
 }
 dgate() { ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$DTREE" \
-  && SECOND_SHIFT_CONFIG="$DCFG" LEAN_PROGRESS_FILE="$DPROG" bash "$GATE" --issue-file "$ISSUE_NOREGIONS" "$@" 2>&1 ); }
+  && SECOND_SHIFT_CONFIG="$DCFG" LANE_PROGRESS_FILE="$DPROG" bash "$GATE" --issue-file "$ISSUE_NOREGIONS" "$@" 2>&1 ); }
 # The UNARMED reader: the same tree and the same spec, read through a config with no design axis.
 # That pairing is the AND→OR mutant's executioner — under OR the section alone would arm.
 dgate_nodesign() { ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$DTREE" \
-  && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$DPROG" bash "$GATE" --issue-file "$ISSUE_NOREGIONS" "$@" 2>&1 ); }
+  && SECOND_SHIFT_CONFIG="$CFG" LANE_PROGRESS_FILE="$DPROG" bash "$GATE" --issue-file "$ISSUE_NOREGIONS" "$@" 2>&1 ); }
 # The panel an armed round must carry (#708): the fixture config declares `design.provider: figma`
 # and dspec_armed hands off to a figma host, so the figma fidelity reviewer is the mandatory one.
 # Written out rather than derived — a fixture that recomputed design_family() would assert
@@ -3870,12 +3870,12 @@ dverdict() { # dverdict <session-id> <run-id> [args...]
   # and wins: the gate's parser takes the last occurrence of a flag.
   case " $* " in *" --panel "*) : ;; *) set -- "$@" --panel "$DPANEL" ;; esac
   case " $* " in *" --summary-file "*) : ;; *) set -- "$@" --summary-file "$SCORECARD_AC1" ;; esac
-  ( unset RUN_ID; cd "$DTREE" && SECOND_SHIFT_CONFIG="$DCFG" LEAN_PROGRESS_FILE="$DPROG" \
+  ( unset RUN_ID; cd "$DTREE" && SECOND_SHIFT_CONFIG="$DCFG" LANE_PROGRESS_FILE="$DPROG" \
     CLAUDE_CODE_SESSION_ID="$sid" RUN_ID="$rid" bash "$GATE" verdict 55 "$@" 2>&1 )
 }
 dreset() { rm -f "$DPROG"; { echo "# lean run — issue 55"; echo ""; echo "run_id: r-build-d"; echo "session_id: sess-build-d"; } > "$DPROG"
            attest_at "$DTREE" "$DCFG" "$DPROG" 55; }
-# CAPTURE FIRST, default on the assignment — the trap lean-gate.sh's own count_matches()
+# CAPTURE FIRST, default on the assignment — the trap milestone-gate.sh's own count_matches()
 # documents: on zero matches `grep -c` PRINTS "0" *and* exits 1, so a trailing `|| echo 0`
 # emits a second "0" and every arithmetic test on the result then trips "integer expression
 # expected" and reads as false. A counter that silently returns "0\n0" fails the exact
@@ -3945,7 +3945,7 @@ dreckey() { # dreckey <key> <file>
   # scope with no positional parameters at all.
   local k="$1" f="$2"
   # shellcheck disable=SC1090  # $GATE is the script under test, sourced in its own library mode.
-  ( cd "$TREE" && LEAN_GATE_LIB=1 SECOND_SHIFT_CONFIG="$CFG" . "$GATE" >/dev/null 2>&1 && record_key "$k" "$f" )
+  ( cd "$TREE" && LANE_GATE_LIB=1 SECOND_SHIFT_CONFIG="$CFG" . "$GATE" >/dev/null 2>&1 && record_key "$k" "$f" )
 }
 
 # The `panel:` value, through the GATE's own reader rather than a grep spelled here. `record_key`
@@ -3956,7 +3956,7 @@ dreckey() { # dreckey <key> <file>
 dpanelkey() { # dpanelkey <file>
   local f="$1"
   # shellcheck disable=SC1090  # $GATE is the script under test, sourced in its own library mode.
-  ( cd "$TREE" && LEAN_GATE_LIB=1 SECOND_SHIFT_CONFIG="$CFG" . "$GATE" >/dev/null 2>&1 && panel_key < "$f" )
+  ( cd "$TREE" && LANE_GATE_LIB=1 SECOND_SHIFT_CONFIG="$CFG" . "$GATE" >/dev/null 2>&1 && panel_key < "$f" )
 }
 
 dmode ok
@@ -4057,7 +4057,7 @@ EOCFG
 # Same tree and same spec as the (dz) cases, read through a config whose render harness belongs to
 # the sibling. `dreset_pair` attests against THAT config, since dreset binds its stamp to $DCFG.
 dgate_pair() { ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$DTREE" \
-  && SECOND_SHIFT_CONFIG="$DPAIRCFG" LEAN_PROGRESS_FILE="$DPROG" bash "$GATE" --issue-file "$ISSUE_NOREGIONS" "$@" 2>&1 ); }
+  && SECOND_SHIFT_CONFIG="$DPAIRCFG" LANE_PROGRESS_FILE="$DPROG" bash "$GATE" --issue-file "$ISSUE_NOREGIONS" "$@" 2>&1 ); }
 dreset_pair() { rm -f "$DPROG"; { echo "# lean run — issue 55"; echo ""; echo "run_id: r-build-d"; echo "session_id: sess-build-d"; } > "$DPROG"
                 attest_at "$DTREE" "$DPAIRCFG" "$DPROG" 55; }
 
@@ -4128,7 +4128,7 @@ dcommit "restore the armed spec after the topology cases"
 if [ ! -f "$DOVT" ]; then
   fail "(dzo0) the override mechanism at $DOVT is absent — every case below would pass vacuously"
 else
-  pass "(dzo0) the override mechanism resolves at the path lean-gate.sh defaults to"
+  pass "(dzo0) the override mechanism resolves at the path milestone-gate.sh defaults to"
 
   # (dzo1) NO RECORD: milestone 1 reds naming the exact remedy command, on the same disarmed
   # spec (dz2) accepts once an override backs it.
@@ -4263,7 +4263,7 @@ grep -q '"claude-design"' "$DCFG_CD" \
   || fail "(dz10-fixture) the claude-design config was not built — (dz10) would assert nothing"
 dreset
 out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$DTREE" \
-        && SECOND_SHIFT_CONFIG="$DCFG_CD" LEAN_PROGRESS_FILE="$DPROG" \
+        && SECOND_SHIFT_CONFIG="$DCFG_CD" LANE_PROGRESS_FILE="$DPROG" \
            bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 1 55 2>&1 )"; rc=$?
 if [ "$rc" -eq 0 ] && grep -q 'design lane ARMED' <<<"$out"; then
   pass "(dz10) the same claude.ai/design handoff ARMS under a claude-design provider — the derivation has two answers"
@@ -4658,7 +4658,7 @@ sed 's/"provider": "figma"/"provider": "claude-design"/' "$DCFG" > "$DCDCFG"
 DCDSYNCCFG="$WORK/dsync-config-claude-design.json"
 sed 's/"provider": "figma"/"provider": "claude-design"/' "$DSYNCCFG" > "$DCDSYNCCFG"
 dgate_cd() { ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$DTREE" \
-  && SECOND_SHIFT_CONFIG="$DCDCFG" LEAN_PROGRESS_FILE="$DPROG" bash "$GATE" --issue-file "$ISSUE_NOREGIONS" "$@" 2>&1 ); }
+  && SECOND_SHIFT_CONFIG="$DCDCFG" LANE_PROGRESS_FILE="$DPROG" bash "$GATE" --issue-file "$ISSUE_NOREGIONS" "$@" 2>&1 ); }
 sed 's#https://www.figma.com/design/AbC123/Prospects#https://claude.ai/design/AbC123/Prospects#' "$DSPEC" > "$DSPEC.tmp" && mv "$DSPEC.tmp" "$DSPEC"
 dclear_render
 dcommit_raw "the same armed ticket, handed off to a claude-design surface"
@@ -4707,7 +4707,7 @@ dcommit_raw "restore the translation plan"
 # here where `verdict`'s is optional for the reason (dpr3) demonstrates: a `block` the gate has to
 # quote needs a body to quote from.
 dwriter() { ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$DTREE" \
-  && SECOND_SHIFT_CONFIG="$DSYNCCFG" LEAN_PROGRESS_FILE="$DPROG" bash "$GATE" plan-review 55 "$@" 2>&1 ); }
+  && SECOND_SHIFT_CONFIG="$DSYNCCFG" LANE_PROGRESS_FILE="$DPROG" bash "$GATE" plan-review 55 "$@" 2>&1 ); }
 sed 's#https://claude.ai/design/AbC123/Prospects#https://www.figma.com/design/AbC123/Prospects#' "$DSPEC" > "$DSPEC.tmp" && mv "$DSPEC.tmp" "$DSPEC"
 dclear_render
 dcommit_raw "hand the ticket back to the figma surface"
@@ -5115,7 +5115,7 @@ jq '.topology.repos.acme.baseBranch = "no-such-base"' "$DCFG" > "$DCFG_NOBASE"
   || fail "(ac-d2-fixture) the no-base design config was not built — (ac-d2) would run against the real base"
 dreset
 out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$DTREE" \
-        && SECOND_SHIFT_CONFIG="$DCFG_NOBASE" LEAN_PROGRESS_FILE="$DPROG" \
+        && SECOND_SHIFT_CONFIG="$DCFG_NOBASE" LANE_PROGRESS_FILE="$DPROG" \
         bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 4 55 2>&1 )"; rc=$?
 if [ "$rc" -eq 2 ] && grep -q 'render patch identity' <<<"$out"; then
   pass "(ac-d2) an uncomputable render patch identity is class 2 — an environment error, never a review round"
@@ -5370,7 +5370,7 @@ else fail "(fe10) expected both non-pass values to write, rc=$rc rc2=$rc2: $out 
 # (fe11) AC-7's OTHER half: an UNARMED consumer. Same tree, same spec, read through a config with
 # no design axis — the pairing that keeps the AND honest. Milestone 4 refuses this record in its
 # own words; the writer must not, or every consumer with no design axis breaks.
-out="$( unset RUN_ID; cd "$DTREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$DPROG" \
+out="$( unset RUN_ID; cd "$DTREE" && SECOND_SHIFT_CONFIG="$CFG" LANE_PROGRESS_FILE="$DPROG" \
         CLAUDE_CODE_SESSION_ID=sess-review-e11 RUN_ID=r-review-e11 \
         bash "$GATE" verdict 55 --pr 55 --verdict approve --fidelity pass \
              --panel "$UPANEL" --summary-file "$SCORECARD_AC1" 2>&1 )"; rc=$?
@@ -5459,7 +5459,7 @@ devidence
 # what makes its absence detectable: it lists the reviewers the round actually got a result back
 # from, so "never selected" and "went dark" are the same shape here and both are refused. These
 # cases drive the WRITER and milestone 4; the merge boundary's identical arm is
-# check-lean-chain-selftest.sh's (X7)-(X11), over the same lockstep derivation.
+# check-lane-chain-selftest.sh's (X7)-(X11), over the same lockstep derivation.
 #
 # (fp0) runs first and is the vacuity guard: everything below asserts nothing if the fixture's
 # armed round could not be written at all.
@@ -5483,7 +5483,7 @@ dcommit "the green armed record for the panel cases"
 # (fp1) NO PANEL AT ALL. `--panel` is bypassed here rather than defaulted, which is the one thing
 # every other case in this suite relies on dverdict not doing.
 fp_before="$(cat "$DVERDICT" 2>/dev/null)"
-out="$( unset RUN_ID; cd "$DTREE" && SECOND_SHIFT_CONFIG="$DCFG" LEAN_PROGRESS_FILE="$DPROG" \
+out="$( unset RUN_ID; cd "$DTREE" && SECOND_SHIFT_CONFIG="$DCFG" LANE_PROGRESS_FILE="$DPROG" \
         CLAUDE_CODE_SESSION_ID=sess-review-p1 RUN_ID=r-review-p1 \
         bash "$GATE" verdict 55 --pr 55 --verdict approve --fidelity pass --summary-file "$DEVIDENCE" 2>&1 )"; rc=$?
 fp_after="$(cat "$DVERDICT" 2>/dev/null)"
@@ -5557,7 +5557,7 @@ else fail "(fp6) expected rc=5 naming the absent panel, got rc=$rc: $out"; fi
 # passes is the very one (fp2) is refused for: it omits the figma reviewer, and unarmed that is
 # simply the truth. Every consumer without a design lane would otherwise be unable to write a
 # verdict at all. The panel must NAME someone — that arm is unconditional and is (fq1)-(fq5).
-out="$( unset RUN_ID; cd "$DTREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$DPROG" \
+out="$( unset RUN_ID; cd "$DTREE" && SECOND_SHIFT_CONFIG="$CFG" LANE_PROGRESS_FILE="$DPROG" \
         CLAUDE_CODE_SESSION_ID=sess-review-p7 RUN_ID=r-review-p7 \
         bash "$GATE" verdict 55 --pr 55 --verdict approve \
              --panel "$UPANEL" --summary-file "$SCORECARD_AC1" 2>&1 )"; rc=$?
@@ -5580,7 +5580,7 @@ else fail "(fp7) unarmed write rc=$rc panel='$fp7_panel' (expected 0 / $UPANEL):
 # asserting one composed path cannot enumerate.
 uverdict() { # uverdict <session-id> <run-id> [args...] — the UNARMED writer, panel undefaulted
   local sid="$1" rid="$2"; shift 2
-  ( unset RUN_ID; cd "$DTREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$DPROG" \
+  ( unset RUN_ID; cd "$DTREE" && SECOND_SHIFT_CONFIG="$CFG" LANE_PROGRESS_FILE="$DPROG" \
     CLAUDE_CODE_SESSION_ID="$sid" RUN_ID="$rid" bash "$GATE" verdict 55 --pr 55 \
       --summary-file "$SCORECARD_AC1" "$@" 2>&1 )
 }
@@ -5888,7 +5888,7 @@ pgate() { # pgate <args...> — a build session's own environment: session id se
   # on a colleague's laptop. Unset both; the cases that need a state set them explicitly.
   ( unset RUN_ID CLAUDE_CODE_ENABLE_TELEMETRY OTEL_EXPORTER_OTLP_ENDPOINT
     cd "$PTREE" && CLAUDE_CODE_SESSION_ID="$PSID" SECOND_SHIFT_CONFIG="$CFG" \
-    LEAN_PROGRESS_FILE="$PPROG" bash "$GATE" --issue-file "$ISSUE_NOREGIONS" "$@" 2>&1 )
+    LANE_PROGRESS_FILE="$PPROG" bash "$GATE" --issue-file "$ISSUE_NOREGIONS" "$@" 2>&1 )
 }
 pgate_tel() { # pgate_tel <VAR=value…> -- <args…> — same, with an explicit telemetry environment
   local envs=()
@@ -5896,7 +5896,7 @@ pgate_tel() { # pgate_tel <VAR=value…> -- <args…> — same, with an explicit
   shift
   ( unset RUN_ID CLAUDE_CODE_ENABLE_TELEMETRY OTEL_EXPORTER_OTLP_ENDPOINT
     cd "$PTREE" && env "${envs[@]}" CLAUDE_CODE_SESSION_ID="$PSID" SECOND_SHIFT_CONFIG="$CFG" \
-    LEAN_PROGRESS_FILE="$PPROG" bash "$GATE" --issue-file "$ISSUE_NOREGIONS" "$@" 2>&1 )
+    LANE_PROGRESS_FILE="$PPROG" bash "$GATE" --issue-file "$ISSUE_NOREGIONS" "$@" 2>&1 )
 }
 # Capture-then-default, never `grep -c … || echo 0`: on zero matches grep PRINTS "0" *and*
 # exits 1, so the fallback appends a second "0" and every `-eq` against it throws. This suite's
@@ -6067,7 +6067,7 @@ printf 'p fixture content, so the branch diff is non-empty\n' > "$PTREE/content.
 git -C "$PTREE" add -A >/dev/null 2>&1
 git -C "$PTREE" commit -q -m "p fixture content" >/dev/null 2>&1
 # shellcheck disable=SC1090  # $GATE is the script under test; following it is the point.
-p_pid="$( cd "$PTREE" && LEAN_GATE_LIB=1 SECOND_SHIFT_CONFIG="$CFG" . "$GATE" >/dev/null 2>&1 \
+p_pid="$( cd "$PTREE" && LANE_GATE_LIB=1 SECOND_SHIFT_CONFIG="$CFG" . "$GATE" >/dev/null 2>&1 \
           && REPO_ROOT="$PTREE" BASE_BRANCH=main VERDICT_REL="docs/plans/acme-8-lean-verdict.md" \
              branch_patch_id HEAD )"
 printf 'verdict=approve\nrun_id: r-p-review\nsession_id: sess-p-review\nrounds: 1\nreviewed_head: %s\nreviewed_patch_id: %s\n' \
@@ -6116,9 +6116,9 @@ else fail "(ea6) expected rc=2 from delta, got $rc: $out"; fi
 # `verdict:` — so requiring one and forbidding the other pins that control got past the gate.
 pseed_unattested
 out="$( cd "$PTREE" && CLAUDE_CODE_SESSION_ID=sess-p-review SECOND_SHIFT_CONFIG="$CFG" \
-        LEAN_PROGRESS_FILE="$PPROG" RUN_ID=r-p-review-2 bash "$GATE" verdict 8 --pr 3 --verdict approve \
+        LANE_PROGRESS_FILE="$PPROG" RUN_ID=r-p-review-2 bash "$GATE" verdict 8 --pr 3 --verdict approve \
         --panel "$UPANEL" --summary-file "$P_SCORECARD" 2>&1 )"; rc=$?
-if grep -qF '[lean-gate] verdict:' <<<"$out" \
+if grep -qF '[milestone-gate] verdict:' <<<"$out" \
    && ! grep -qF 'no entry attestation' <<<"$out"; then
   pass "(ea7) verdict is exempt from the build-role precondition (D-5) — it reaches its own evaluation"
 else fail "(ea7) verdict was gated by the entry precondition, rc=$rc: $out"; fi
@@ -6133,7 +6133,7 @@ git -C "$PNOLEDGER" config user.email t@example.invalid
 git -C "$PNOLEDGER" config user.name t
 git -C "$PNOLEDGER" commit -q --allow-empty -m base >/dev/null 2>&1
 pn_entry() { ( unset RUN_ID; cd "$PNOLEDGER" && CLAUDE_CODE_SESSION_ID=sess-absent \
-               SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$WORK/pnprogress.md" \
+               SECOND_SHIFT_CONFIG="$CFG" LANE_PROGRESS_FILE="$WORK/pnprogress.md" \
                bash "$GATE" entry 8 2>&1 ); }
 rm -f "$PNOLEDGER/.claude/settings.json" "$PNOLEDGER/.claude/settings.local.json"
 out="$(pn_entry)"; rc=$?
@@ -6163,7 +6163,7 @@ else fail "(ea10) the settings read became a second authority, rc=$rc: $out"; fi
 # `entry` creates the progress file, and SKILL.md orders it BEFORE the RUN_ID export — so on
 # every honest run the header is born `run_id: unset`. #322 closed that freeze by keeping
 # `entry` from creating the file at all, a remedy this precondition cannot keep. The heal is
-# what replaces it, and it is load-bearing: lean-reconcile.sh arm (1) compares the claim
+# what replaces it, and it is load-bearing: reconcile.sh arm (1) compares the claim
 # comment's run_id against this header, so an unhealed `unset` reds a clean run at the merge
 # boundary. Neither direction is a fixture nicety.
 PSTATE="$PTREE/.claude/pipeline-state"
@@ -6174,7 +6174,7 @@ if grep -q '^run_id: unset$' "$PPROG" 2>/dev/null; then frozen_at_entry=1; else 
 # ad-hoc RUN_ID on one must not reach the header: the header has to carry the id `claim` wrote
 # and reconcile compares against, not whatever shell ran a gate in between.
 ( cd "$PTREE" && CLAUDE_CODE_SESSION_ID="$PSID" SECOND_SHIFT_CONFIG="$CFG" \
-  LEAN_PROGRESS_FILE="$PPROG" RUN_ID=p-drive-by bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 1 8 >/dev/null 2>&1 )
+  LANE_PROGRESS_FILE="$PPROG" RUN_ID=p-drive-by bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 1 8 >/dev/null 2>&1 )
 if [ "$frozen_at_entry" -eq 1 ] && grep -q '^run_id: unset$' "$PPROG" 2>/dev/null; then
   pass "(ea11) an ad-hoc RUN_ID on a milestone call cannot stamp the header — only an established identity may"
 else fail "(ea11) frozen_at_entry=$frozen_at_entry, header now: $(grep '^run_id:' "$PPROG" 2>/dev/null)"; fi
@@ -6182,7 +6182,7 @@ else fail "(ea11) frozen_at_entry=$frozen_at_entry, header now: $(grep '^run_id:
 # ...and the establishing call heals it. `entry` is idempotent, so re-running it with the id
 # exported is exactly the recovery an operator who read step 2 second would make.
 out="$( cd "$PTREE" && CLAUDE_CODE_SESSION_ID="$PSID" SECOND_SHIFT_CONFIG="$CFG" \
-        LEAN_PROGRESS_FILE="$PPROG" RUN_ID=p-build-1 bash "$GATE" entry 8 2>&1 )"; rc=$?
+        LANE_PROGRESS_FILE="$PPROG" RUN_ID=p-build-1 bash "$GATE" entry 8 2>&1 )"; rc=$?
 if [ "$rc" -eq 0 ] && grep -q '^run_id: p-build-1$' "$PPROG" 2>/dev/null \
    && [ "$(pcount '| entry | ledger=')" -eq 1 ]; then
   pass "(ea12) the first call to establish a run identity heals the frozen header, without duplicating the row"
@@ -6216,7 +6216,7 @@ eb_build() { # eb_build <author-date> — a branch whose one commit past origin/
 }
 ebgate() { # ebgate <args...> — an UNATTESTED run: no entry row is ever written in this block
   ( unset RUN_ID CLAUDE_CODE_SESSION_ID
-    cd "$EBTREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$EBPROG" \
+    cd "$EBTREE" && SECOND_SHIFT_CONFIG="$CFG" LANE_PROGRESS_FILE="$EBPROG" \
     bash "$GATE" --issue-file "$ISSUE_NOREGIONS" "$@" 2>&1 )
 }
 # Capture-then-default, for the reason pcount above spells out: on zero matches `grep -c` PRINTS
@@ -6301,10 +6301,10 @@ else fail "(eb6) expected the merge-base envfail, rc=$rc: $out"; fi
 # read as coverage while proving nothing.
 if ! grep -nE '(^|[^[:alnum:]_-])date[[:space:]]+-[dr]([[:space:]]|$)' "$GATE" >/dev/null; then
   pass "(eb7) AC-8: the cutoff comparison invokes neither 'date -d' nor 'date -r'"
-else fail "(eb7) a GNU/BSD-split date form reached lean-gate.sh: $(grep -nE '(^|[^[:alnum:]_-])date[[:space:]]+-[dr]([[:space:]]|$)' "$GATE")"; fi
+else fail "(eb7) a GNU/BSD-split date form reached milestone-gate.sh: $(grep -nE '(^|[^[:alnum:]_-])date[[:space:]]+-[dr]([[:space:]]|$)' "$GATE")"; fi
 
 # ---- (pm) AC-4: the PR build-identity marker (#359) -----------------------------------------
-# The WRITER half of the boundary's identity arm. lean-evidence.sh compares the verdict record
+# The WRITER half of the boundary's identity arm. boundary-evidence.sh compares the verdict record
 # against every marker this posts; without a writer that arm refuses every honest PR, and with
 # a writer that posts unconditionally the trail fills with duplicates on every resumed run.
 #
@@ -6325,7 +6325,7 @@ MPROG="$WORK/progress-mark.md"
 mark_gate() { # mark_gate <config> <run-id> <session-id> <args...>
   local cfg="$1" rid="$2" sid="$3"; shift 3
   ( cd "$TREE" && RUN_ID="$rid" CLAUDE_CODE_SESSION_ID="$sid" SECOND_SHIFT_CONFIG="$cfg" \
-      LEAN_PROGRESS_FILE="$MPROG" GH_BOT="$WORK/bot-stub.sh" BOT_SPOOL="$BOT_SPOOL" \
+      LANE_PROGRESS_FILE="$MPROG" GH_BOT="$WORK/bot-stub.sh" BOT_SPOOL="$BOT_SPOOL" \
       bash "$GATE" --issue-file "$ISSUE_NOREGIONS" "$@" 2>&1 )
 }
 
@@ -6339,7 +6339,7 @@ mark_attest() { # mark_attest <session-id>
   mkdir -p "$TREE/.claude/audit"
   printf '{"tool":"Bash"}\n' > "$TREE/.claude/audit/$1.jsonl"
   ( unset RUN_ID; cd "$TREE" && CLAUDE_CODE_SESSION_ID="$1" SECOND_SHIFT_CONFIG="$CFG" \
-      LEAN_PROGRESS_FILE="$MPROG" bash "$GATE" --issue-file "$ISSUE_NOREGIONS" entry 8 >/dev/null 2>&1 )
+      LANE_PROGRESS_FILE="$MPROG" bash "$GATE" --issue-file "$ISSUE_NOREGIONS" entry 8 >/dev/null 2>&1 )
 }
 mcount() { # mcount <fixed-string>
   local n
@@ -6603,7 +6603,7 @@ else fail "(tl4) the mid-run refusal fired on the landing path, rc=$rc: $out"; f
 # agent-chosen; the session id is harness-assigned) and it was read from the ambient environment.
 # The documented recovery for a stranded marker is run from the REVIEW session — the only place
 # the omission becomes visible — so following it stamped the review session as the build session
-# and lean-evidence.sh reported an honest, independent review as a P10 self-review. Neither a
+# and boundary-evidence.sh reported an honest, independent review as a P10 self-review. Neither a
 # re-run (idempotent on run_id alone) nor a corrective second marker (the boundary compares
 # EVERY marker) clears that, so the only fix is refusing to write it in the first place.
 
@@ -6674,7 +6674,7 @@ if [ "$rc" -eq 0 ] && grep -q 'session_id: sess-mark-2' "$BOT_SPOOL" 2>/dev/null
 else fail "(ms4) expected the ambient id on the marker, rc=$rc: $out / spool=$(cat "$BOT_SPOOL" 2>/dev/null)"; fi
 
 # AC-9/D-13. The appended row must stay OUT of the `session_id:` first-match race — the same
-# extraction lean-reconcile.sh:304 and cmd_verdict:2001 both perform, and both call whatever it
+# extraction reconcile.sh:304 and cmd_verdict:2001 both perform, and both call whatever it
 # returns THE build session. Two fixtures, because a header-bearing file alone cannot see the
 # regression: there the header wins the race by position no matter how the row is spelled. The
 # discriminating shape is a progress file with NO session_id header — what seed_progress_1_to_4
@@ -6685,7 +6685,7 @@ printf '# lean run — issue 8\n\nrun_id: r-nohdr\n' > "$MPROG_NOHDR"
 mkdir -p "$TREE/.claude/audit"
 printf '{"tool":"Bash"}\n' > "$TREE/.claude/audit/sess-nohdr.jsonl"
 ( unset RUN_ID; cd "$TREE" && CLAUDE_CODE_SESSION_ID=sess-nohdr SECOND_SHIFT_CONFIG="$CFG" \
-    LEAN_PROGRESS_FILE="$MPROG_NOHDR" bash "$GATE" --issue-file "$ISSUE_NOREGIONS" entry 8 >/dev/null 2>&1 )
+    LANE_PROGRESS_FILE="$MPROG_NOHDR" bash "$GATE" --issue-file "$ISSUE_NOREGIONS" entry 8 >/dev/null 2>&1 )
 first_of() { # first_of <file> — record_key's own extraction, performed independently
   grep -oE 'session_id:[[:space:]]*[A-Za-z0-9._-]+' "$1" 2>/dev/null | head -n1 | sed -E 's/^session_id:[[:space:]]*//'
 }
@@ -6717,12 +6717,12 @@ mkdir -p "$TREE/.claude/audit"
 printf '{"tool":"Bash"}\n' > "$TREE/.claude/audit/sess-claim-entry.jsonl"
 printf '{"tool":"Bash"}\n' > "$TREE/.claude/audit/sess-claim-1.jsonl"
 ( unset RUN_ID; cd "$TREE" && CLAUDE_CODE_SESSION_ID=sess-claim-entry SECOND_SHIFT_CONFIG="$CFG_JIRA" \
-    LEAN_PROGRESS_FILE="$CPROG" bash "$GATE" entry "$JKEY" >/dev/null 2>&1 )
+    LANE_PROGRESS_FILE="$CPROG" bash "$GATE" entry "$JKEY" >/dev/null 2>&1 )
 ( unset RUN_ID; cd "$TREE" && CLAUDE_CODE_SESSION_ID=sess-claim-1 SECOND_SHIFT_CONFIG="$CFG_JIRA" \
-    LEAN_PROGRESS_FILE="$CPROG" bash "$GATE" claim "$JKEY" >/dev/null 2>&1 )
+    LANE_PROGRESS_FILE="$CPROG" bash "$GATE" claim "$JKEY" >/dev/null 2>&1 )
 : > "$BOT_SPOOL"
 out="$( cd "$TREE" && RUN_ID=mark-run-c CLAUDE_CODE_SESSION_ID=sess-claim-1 SECOND_SHIFT_CONFIG="$CFG" \
-        LEAN_PROGRESS_FILE="$CPROG" GH_BOT="$WORK/bot-stub.sh" BOT_SPOOL="$BOT_SPOOL" \
+        LANE_PROGRESS_FILE="$CPROG" GH_BOT="$WORK/bot-stub.sh" BOT_SPOOL="$BOT_SPOOL" \
         bash "$GATE" --issue-file "$ISSUE_NOREGIONS" mark 8 \
         --pr-file "$WORK/pr-mark.json" --comments-file "$WORK/comments-none.json" 2>&1 )"; rc=$?
 if [ "$rc" -eq 0 ] && grep -q 'session_id: sess-claim-1' "$BOT_SPOOL" 2>/dev/null; then
@@ -6734,7 +6734,7 @@ else fail "(ms7) claim did not record its session, rc=$rc: $out / progress=$(cat
 # resolve to "fine".
 : > "$BOT_SPOOL"
 out="$( cd "$TREE" && RUN_ID=mark-run-x CLAUDE_CODE_SESSION_ID=sess-mark-1 SECOND_SHIFT_CONFIG="$CFG" \
-        LEAN_PROGRESS_FILE="$WORK/progress-absent.md" GH_BOT="$WORK/bot-stub.sh" BOT_SPOOL="$BOT_SPOOL" \
+        LANE_PROGRESS_FILE="$WORK/progress-absent.md" GH_BOT="$WORK/bot-stub.sh" BOT_SPOOL="$BOT_SPOOL" \
         bash "$GATE" --issue-file "$ISSUE_NOREGIONS" mark 8 \
         --pr-file "$WORK/pr-mark.json" --comments-file "$WORK/comments-none.json" 2>&1 )"; rc=$?
 if [ "$rc" -eq 1 ] && [ ! -s "$BOT_SPOOL" ] && grep -q 'recorded no build session' <<<"$out"; then
@@ -6748,7 +6748,7 @@ else fail "(ms8) expected the fail-closed refusal, rc=$rc: $out / spool=$(cat "$
 printf '# lean run — issue 8\n\nrun_id: r-vac\nsession_id: unset\n' > "$WORK/progress-vacuous.md"
 : > "$BOT_SPOOL"
 out="$( unset CLAUDE_CODE_SESSION_ID; cd "$TREE" && RUN_ID=mark-run-v SECOND_SHIFT_CONFIG="$CFG" \
-        LEAN_PROGRESS_FILE="$WORK/progress-vacuous.md" GH_BOT="$WORK/bot-stub.sh" BOT_SPOOL="$BOT_SPOOL" \
+        LANE_PROGRESS_FILE="$WORK/progress-vacuous.md" GH_BOT="$WORK/bot-stub.sh" BOT_SPOOL="$BOT_SPOOL" \
         bash "$GATE" --issue-file "$ISSUE_NOREGIONS" mark 8 \
         --pr-file "$WORK/pr-mark.json" --comments-file "$WORK/comments-none.json" 2>&1 )"; rc=$?
 if [ "$rc" -eq 1 ] && [ ! -s "$BOT_SPOOL" ] && grep -q 'recorded no build session' <<<"$out"; then
@@ -6762,7 +6762,7 @@ else fail "(ms9) the vacuous comparison passed, rc=$rc: $out / spool=$(cat "$BOT
 printf '# lean run — issue 8\n\nrun_id: r-inflight\nsession_id: sess-inflight\n' > "$WORK/progress-inflight.md"
 : > "$BOT_SPOOL"
 out="$( cd "$TREE" && RUN_ID=mark-run-i CLAUDE_CODE_SESSION_ID=sess-inflight SECOND_SHIFT_CONFIG="$CFG" \
-        LEAN_PROGRESS_FILE="$WORK/progress-inflight.md" GH_BOT="$WORK/bot-stub.sh" BOT_SPOOL="$BOT_SPOOL" \
+        LANE_PROGRESS_FILE="$WORK/progress-inflight.md" GH_BOT="$WORK/bot-stub.sh" BOT_SPOOL="$BOT_SPOOL" \
         bash "$GATE" --issue-file "$ISSUE_NOREGIONS" mark 8 \
         --pr-file "$WORK/pr-mark.json" --comments-file "$WORK/comments-none.json" 2>&1 )"; rc=$?
 if [ "$rc" -eq 0 ] && grep -q 'session_id: sess-inflight' "$BOT_SPOOL" 2>/dev/null; then
@@ -6792,7 +6792,7 @@ else fail "(ms11) mark wrote to the progress file: rows=$(mcount '| session | ')
 
 # md_table_prettier through the real production body: no copy of the padder exists in this file.
 # shellcheck disable=SC1090  # $GATE is the script under test; following it is the point.
-mdtab() { ( cd "$TREE" && LEAN_GATE_LIB=1 SECOND_SHIFT_CONFIG="$CFG" . "$GATE" >/dev/null 2>&1 \
+mdtab() { ( cd "$TREE" && LANE_GATE_LIB=1 SECOND_SHIFT_CONFIG="$CFG" . "$GATE" >/dev/null 2>&1 \
             && md_table_prettier ); }
 
 # FP_IN/FP_WANT are reassigned in place through (fp1)-(fp4), so a live oracle reading them at the
@@ -6920,7 +6920,7 @@ mdrows() { # mdrows <manifest-file>
   local m="$1"
   # shellcheck disable=SC1090,SC2034  # $GATE is the script under test, and the two assignments
   # are read by the sourced production function rather than by anything in this file.
-  ( cd "$TREE" && LEAN_GATE_LIB=1 SECOND_SHIFT_CONFIG="$CFG" . "$GATE" >/dev/null 2>&1 \
+  ( cd "$TREE" && LANE_GATE_LIB=1 SECOND_SHIFT_CONFIG="$CFG" . "$GATE" >/dev/null 2>&1 \
     && REPO_ROOT="$(dirname "$m")" && RENDER_MANIFEST_REL="$(basename "$m")" && render_manifest_rows )
 }
 sed -e 's/  */ /g' "$DMANIFEST" > "$WORK/fp-legacy-renders.md"
@@ -7087,7 +7087,7 @@ pr_fixture() { printf '%s' "$2" > "$WPR/$(printf '%s' "$1" | tr '/' '_').json"; 
 wgate() { # wgate <cwd> <args...>
   local cwd="$1"; shift
   ( unset RUN_ID GH_BOT; cd "$cwd" && CLAUDE_CODE_SESSION_ID="$WSID" SECOND_SHIFT_CONFIG="$CFG" \
-    LEAN_PROGRESS_FILE="$WPROG" GH="$WREAL/gh-wt-stub.sh" PR_FIXTURE_DIR="$WPR" \
+    LANE_PROGRESS_FILE="$WPROG" GH="$WREAL/gh-wt-stub.sh" PR_FIXTURE_DIR="$WPR" \
     bash "$GATE" --issue-file "$ISSUE_NOREGIONS" "$@" 2>&1 )
 }
 wt_registered() { git -C "$WTREE" worktree list --porcelain 2>/dev/null | grep -qxF "worktree $1"; }
@@ -7336,7 +7336,7 @@ git -C "$WTREE" worktree prune >/dev/null 2>&1
 # anchors on `| milestone-<n> |`.
 TDPROG="$WREAL/td-progress.md"
 tdgate() { ( unset RUN_ID GH_BOT; cd "$WTREE" && CLAUDE_CODE_SESSION_ID="$WSID" \
-             SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$TDPROG" \
+             SECOND_SHIFT_CONFIG="$CFG" LANE_PROGRESS_FILE="$TDPROG" \
              GH="$WREAL/gh-wt-stub.sh" PR_FIXTURE_DIR="$WPR" \
              bash "$GATE" --issue-file "$ISSUE_NOREGIONS" "$@" 2>&1 ) }
 td_count() { local n; [ -f "$TDPROG" ] || { echo 0; return 0; }
@@ -7492,7 +7492,7 @@ jq '.tracker.type = "jira" | .tracker.writes = false | .tracker.branchPrefix = "
   "$CFG" > "$CFG_JIRA_WT"
 jwt() { # jwt <sub> <key>
   ( unset RUN_ID GH_BOT; cd "$WTREE" && CLAUDE_CODE_SESSION_ID="$WSID" SECOND_SHIFT_CONFIG="$CFG_JIRA_WT" \
-    LEAN_PROGRESS_FILE="$WREAL/wt-jira-progress.md" GH="$WREAL/gh-wt-stub.sh" PR_FIXTURE_DIR="$WPR" \
+    LANE_PROGRESS_FILE="$WREAL/wt-jira-progress.md" GH="$WREAL/gh-wt-stub.sh" PR_FIXTURE_DIR="$WPR" \
     RUN_ID=wt-jira bash "$GATE" "$1" "$2" 2>&1 )
 }
 # `claim` is a build-role call and exits 2 without an entry attestation, so the attestation has
@@ -7616,7 +7616,7 @@ else fail "(ws6) the copy overwrote a file the worktree already had, rc=$rc: $ou
 # #663: THE HARM ARM IS PLATFORM-BLIND, AND THE CANONICAL LANE IS THE BLIND SIDE. `[ ! -e <target> ]`
 # asks whether the write happened, and on Linux it never does — GNU `cp` refuses to write through a
 # dangling symlink on its own ("not writing through dangling symlink"), so the `-L` conjunct has no
-# observable consequence there and the catalog's `lean-gate-settings-clobber-dangling` mutant
+# observable consequence there and the catalog's `milestone-gate-settings-clobber-dangling` mutant
 # SURVIVED the first ubuntu sweep to score this guard in ten days (run 33316017803, shard 6, serially
 # re-verified). BSD `cp` follows the link and writes, which is why the same mutant dies locally —
 # a guard that only fires on the developer's laptop.
@@ -7738,9 +7738,9 @@ rm -f "$CPCPROG"; : > "$CLAIM_SPOOL"
 mkdir -p "$TREE/.claude/audit"
 printf '{"tool":"Bash"}\n' > "$TREE/.claude/audit/sess-pc-1.jsonl"
 ( unset RUN_ID; cd "$TREE" && CLAUDE_CODE_SESSION_ID=sess-pc-1 SECOND_SHIFT_CONFIG="$CFG_BOT" \
-    LEAN_PROGRESS_FILE="$CPCPROG" bash "$GATE" entry 8 >/dev/null 2>&1 )
+    LANE_PROGRESS_FILE="$CPCPROG" bash "$GATE" entry 8 >/dev/null 2>&1 )
 out="$( cd "$TREE" && RUN_ID=pc-run-1 CLAUDE_CODE_SESSION_ID=sess-pc-1 SECOND_SHIFT_CONFIG="$CFG_BOT" \
-        LEAN_PROGRESS_FILE="$CPCPROG" GH_BOT="$WORK/claim-bot-stub.sh" CLAIM_SPOOL="$CLAIM_SPOOL" \
+        LANE_PROGRESS_FILE="$CPCPROG" GH_BOT="$WORK/claim-bot-stub.sh" CLAIM_SPOOL="$CLAIM_SPOOL" \
         bash "$GATE" --issue-file "$ISSUE_NOREGIONS" claim 8 2>&1 )"; rc=$?
 if [ "$rc" -eq 0 ] && grep -q 'stage: lean-claimed' "$CLAIM_SPOOL" 2>/dev/null \
    && grep -q 'capabilities: pr-marker' "$CLAIM_SPOOL" 2>/dev/null; then
@@ -7768,18 +7768,18 @@ else fail "(pc2) expected a stamped verdict record, rc=$rc: $out / record=$(cat 
 BADDIR="$WORK/gate-badcap"
 mkdir -p "$BADDIR"
 cp "$(dirname "$GATE")"/*.sh "$BADDIR"/
-sed -e "s/^LEAN_PRODUCER_CAPABILITIES='pr-marker'\$/LEAN_PRODUCER_CAPABILITIES='not-a-capability'/" \
-  "$GATE" > "$BADDIR/lean-gate.sh"
-if ! grep -q "^LEAN_PRODUCER_CAPABILITIES='not-a-capability'\$" "$BADDIR/lean-gate.sh"; then
+sed -e "s/^LANE_PRODUCER_CAPABILITIES='pr-marker'\$/LANE_PRODUCER_CAPABILITIES='not-a-capability'/" \
+  "$GATE" > "$BADDIR/milestone-gate.sh"
+if ! grep -q "^LANE_PRODUCER_CAPABILITIES='not-a-capability'\$" "$BADDIR/milestone-gate.sh"; then
   fail "(pc3) the mutation did not apply — the case would assert nothing"
 else
   rm -f "$YPROG"; { echo "# lean run — issue 11"; echo ""; echo "run_id: r-build-y"; echo "session_id: sess-build-y"; } > "$YPROG"
   attest_at "$YTREE" "$CFG" "$YPROG" 11
   rm -f "$YTREE/.claude/pipeline-state/11-review-run-id"
   cp "$YVERDICT" "$WORK/held-pc-verdict.md" 2>/dev/null
-  out="$( unset RUN_ID; cd "$YTREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$YPROG" \
+  out="$( unset RUN_ID; cd "$YTREE" && SECOND_SHIFT_CONFIG="$CFG" LANE_PROGRESS_FILE="$YPROG" \
           CLAUDE_CODE_SESSION_ID=sess-review-pc3 RUN_ID=r-review-pc3 \
-          bash "$BADDIR/lean-gate.sh" verdict 11 --pr 91 --verdict approve --rounds 1 --panel "$UPANEL" 2>&1 )"; rc=$?
+          bash "$BADDIR/milestone-gate.sh" verdict 11 --pr 91 --verdict approve --rounds 1 --panel "$UPANEL" 2>&1 )"; rc=$?
   if [ "$rc" -eq 2 ] && grep -q 'not in the closed capability vocabulary' <<<"$out" \
      && ! grep -q 'not-a-capability' "$YVERDICT" 2>/dev/null; then
     pass "(pc3) a producer token outside the closed vocabulary refuses instead of stamping it"
@@ -7794,7 +7794,7 @@ fi
 PGPROG="$WORK/pg-progress.md"
 pgprog() { # pgprog <args...>
   ( unset RUN_ID CLAUDE_CODE_SESSION_ID GH_BOT
-    cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PGPROG" \
+    cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LANE_PROGRESS_FILE="$PGPROG" \
     bash "$GATE" progress 77 "$@" 2>&1 )
 }
 
@@ -7847,7 +7847,7 @@ else fail "(pg7) --satisfied 5 was not scoped to milestone 5: $M5_NOW -> $(pgpro
 PG_ABSENT="$WORK/pg-absent.md"
 rm -f "$PG_ABSENT"
 out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID GH_BOT
-        cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PG_ABSENT" \
+        cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LANE_PROGRESS_FILE="$PG_ABSENT" \
         bash "$GATE" progress 78 --satisfied 5 2>&1 )"; rc=$?
 if [ "$rc" -eq 0 ] && [ "$out" = "m5sat-v1:0" ] && [ ! -f "$PG_ABSENT" ]; then
   pass "(pg8) with no progress record at all the token is well-defined and the file is NOT created"
@@ -7858,7 +7858,7 @@ else fail "(pg8) expected m5sat-v1:0 with no file created, rc=$rc out='$out' exi
 # predicate unavailable in exactly the state the scheduler most needs an answer about. Without
 # the control below, (pg8) would also pass against a gate that never enforced anything.
 out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID GH_BOT
-        cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PG_ABSENT" \
+        cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LANE_PROGRESS_FILE="$PG_ABSENT" \
         bash "$GATE" 1 78 2>&1 )"; rc=$?
 if [ "$rc" -eq 2 ] && grep -q 'no entry attestation' <<<"$out"; then
   pass "(pg9) the positive control: a build-role call on that same unattested run DOES refuse"
@@ -7875,7 +7875,7 @@ if [ "$rc" -eq 2 ] && grep -q 'takes a milestone number' <<<"$out"; then
 else fail "(pg11) expected rc=2 on a non-numeric --satisfied, got rc=$rc: $out"; fi
 
 out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID GH_BOT
-        cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PGPROG" \
+        cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LANE_PROGRESS_FILE="$PGPROG" \
         bash "$GATE" delta 77 --satisfied 5 2>&1 )"; rc=$?
 if [ "$rc" -eq 2 ] && grep -q "only meaningful on 'progress'" <<<"$out"; then
   pass "(pg12) --satisfied on a subcommand that ignores it is a refusal, not a silently dropped flag"
@@ -7907,7 +7907,7 @@ else fail "(pg13) expected rc=2 with an 'unknown progress form' refusal, got rc=
 #
 # 20 -> 14 at #720: SIX sites deleted, five class 5 (run_id, session_id and reviewed_patch_id key
 # absence; the inferred and declared patch-stale arms) and one class 2 (patch identity
-# uncomputable). Each re-asked a question lean-evidence.sh's arm_verdict/arm_freshness answers at
+# uncomputable). Each re-asked a question boundary-evidence.sh's arm_verdict/arm_freshness answers at
 # the merge boundary on every consumer's PR, so a record this milestone waved through on those
 # grounds could not reach a merge anyway. The class TWO count falls to one, which is the shape to
 # watch: the sole remaining environment-class site is the armed render-identity one, so a future
@@ -7951,7 +7951,7 @@ else fail "(ac1b) absent-verb site count drifted: $m_block (expected 10) — $(g
 # a one-file change. The `<issue>:<point>` override key form is stripped to its point.
 #
 # `$VAR`-ONLY REASONS ARE RESOLVED, to every literal `VAR="…"` assignment in the gate. The
-# blocker's second site is `fail_milestone 5 "$LEAN_PR_ERROR"` — a guard reading source literals
+# blocker's second site is `fail_milestone 5 "$LANE_PR_ERROR"` — a guard reading source literals
 # alone would have caught exactly half of it and reported a green on the other half.
 #
 # WHY A PREFIX SUFFICES. All six announcement predicates are `^`-anchored, so a reason's leading
@@ -8081,7 +8081,7 @@ reset_progress
 write_review_verdict needs-work
 obs_before="$(count_in_progress '| milestone-4 |')"
 out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID
-        cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" LEAN_GATE_OBSERVE=1 \
+        cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LANE_PROGRESS_FILE="$PROG" LANE_GATE_OBSERVE=1 \
         bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 4 7 2>&1 )"; rc=$?
 if [ "$rc" -eq 1 ] && [ "$(count_in_progress '| milestone-4 |')" -eq "$obs_before" ] \
    && grep -q 'reads verdict=needs-work' <<<"$out"; then
@@ -8107,7 +8107,7 @@ printf 'verdict=approve\n' > "$VERDICT"; commit_tree "a keyless record, to spend
 for _ in 1 2 3 4; do gate 4 7 >/dev/null 2>&1; done
 obs_lines="$(count_in_progress '| milestone-4 |')"
 out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID
-        cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" LEAN_GATE_OBSERVE=1 \
+        cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LANE_PROGRESS_FILE="$PROG" LANE_GATE_OBSERVE=1 \
         bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 4 7 2>&1 )"; rc=$?
 mv "$WORK/held-verdict-ac2.md" "$VERDICT"
 if [ "$rc" -eq 4 ] && [ "$(count_in_progress '| milestone-4 |')" -eq "$obs_lines" ]; then
@@ -8123,7 +8123,7 @@ jq empty "$CFG_CORRUPT" >/dev/null 2>&1 \
   && fail "(ac7-fixture) the corrupt config parses, so (ac7) would assert nothing"
 reset_progress
 out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID
-        cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_CORRUPT" LEAN_PROGRESS_FILE="$PROG" \
+        cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_CORRUPT" LANE_PROGRESS_FILE="$PROG" \
         bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 1 7 2>&1 )"; rc=$?
 if [ "$rc" -eq 2 ] && grep -q 'not parseable JSON' <<<"$out"; then
   pass "(ac7) a config that exists but does not parse is a refusal, not a silent fall-through to the defaults"
@@ -8137,7 +8137,7 @@ else fail "(ac7) expected rc=2 naming the parse failure, got rc=$rc: $out"; fi
 # which is the state the resolver was built for, not a way around it.
 git -C "$TREE" update-ref refs/remotes/origin/claude/acme-7 HEAD
 out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID
-        cd "$TREE" && SECOND_SHIFT_CONFIG="$WORK/no-such-config.json" LEAN_PROGRESS_FILE="$PROG" \
+        cd "$TREE" && SECOND_SHIFT_CONFIG="$WORK/no-such-config.json" LANE_PROGRESS_FILE="$PROG" \
         bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 1 7 2>&1 )"; rc=$?
 if [ "$rc" -eq 0 ]; then
   pass "(ac8) an ABSENT config still resolves the shipped defaults — the guard fails closed on corruption only"
@@ -8154,7 +8154,7 @@ jq --arg m "$MARK497" '.commands.acme.test = ("touch " + ($m | @sh))' "$CFG" > "
 gate_497() {
   ( unset RUN_ID CLAUDE_CODE_SESSION_ID GH_BOT
     # shellcheck disable=SC2030,SC2031  # subshell-local is the point, exactly as in gate().
-    cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_497" LEAN_PROGRESS_FILE="$PROG" \
+    cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_497" LANE_PROGRESS_FILE="$PROG" \
     bash "$GATE" --issue-file "$ISSUE_NOREGIONS" "$@" 2>&1 )
 }
 
@@ -8212,7 +8212,7 @@ m3_before="$(count_in_progress '| milestone-3 |')"
 set -m
 ( unset RUN_ID CLAUDE_CODE_SESSION_ID GH_BOT
   # shellcheck disable=SC2030,SC2031  # subshell-local is the point, exactly as in gate().
-  cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_KILL" LEAN_PROGRESS_FILE="$PROG" \
+  cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG_KILL" LANE_PROGRESS_FILE="$PROG" \
   bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 3 7 >/dev/null 2>&1 ) &
 kill_pgid=$!
 set +m
@@ -8303,15 +8303,15 @@ if [ "$sat_before" = "$sat_after" ] \
   pass "(if9) a churn of started/concluded rows adds no satisfied row"
 else fail "(if9) the satisfied count moved '$sat_before' -> '$sat_after' over $(count_in_progress '| milestone-1 | started |') started rows"; fi
 
-# THE OBSERVE SEAM. #496 promoted it to a SCHEDULER read — orchestrate-lean.sh runs
-# `LEAN_GATE_OBSERVE=1 bash G 4 <issue>` at top level, which the dispatch routes through
+# THE OBSERVE SEAM. #496 promoted it to a SCHEDULER read — orchestrate.sh runs
+# `LANE_GATE_OBSERVE=1 bash G 4 <issue>` at top level, which the dispatch routes through
 # run_milestone — so the pair must be suppressed there or every round of every lean run has the
 # scheduler writing build-role rows. The `all` pre-pass bypasses run_milestone by construction;
 # this call does not, which is why it is the one asserted.
 reset_progress
 obs_before="$(count_in_progress '| milestone-1 |')"
 out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID
-        cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" LEAN_GATE_OBSERVE=1 \
+        cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LANE_PROGRESS_FILE="$PROG" LANE_GATE_OBSERVE=1 \
         bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 1 7 2>&1 )"; rc=$?
 if [ "$rc" -eq 0 ] && [ "$(count_in_progress '| milestone-1 |')" -eq "$obs_before" ]; then
   pass "(if10) a top-level observed evaluation writes neither half of the pair"
@@ -8324,7 +8324,7 @@ started_line="$(grep -F '| milestone-1 | started |' "$PROG" | head -n1)"
 for _ in 1 2 3 4 5; do printf '%s\n' "$started_line" >> "$PROG"; done
 obs_before="$(count_in_progress '| milestone-1 |')"
 out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID
-        cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" LEAN_GATE_OBSERVE=1 \
+        cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LANE_PROGRESS_FILE="$PROG" LANE_GATE_OBSERVE=1 \
         bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 1 7 2>&1 )"; rc=$?
 if [ "$rc" -eq 4 ] && [ "$(count_in_progress '| milestone-1 |')" -eq "$obs_before" ]; then
   pass "(if11) a spent interrupted budget is reported through the observe seam as 4, with no line written"
@@ -8421,7 +8421,7 @@ chmod +x "$STW/bin/gh"
 ST_GH_LOG="$STW/gh.log"
 : > "$ST_GH_LOG"
 
-# NO LEAN_PROGRESS_FILE override, deliberately: (st15) asserts the subcommand creates no progress
+# NO LANE_PROGRESS_FILE override, deliberately: (st15) asserts the subcommand creates no progress
 # file at the path the gate resolves on its own, which an override would move out from under it.
 # NO entry attestation is ever recorded in this block either — (st15) also asserts that this
 # subcommand is reachable without one, and every case above it silently depends on that being true.
@@ -8563,17 +8563,17 @@ else fail "(st17) expected rc=1 from an unresolvable merge-base, got rc=$rc: $ou
 # What CANNOT be asserted here is that a suite is then skipped: that is the runner's contract and
 # tools/run-selftests-selftest.sh's #563 cases own it, driven through this very variable. The
 # coupling between the two sides is a variable NAME, which docs/testing.md records as declined
-# under LEAN_SELFTEST_CACHE_DIR, and which this case pins behaviorally, from the writer's side,
+# under LANE_SELFTEST_CACHE_DIR, and which this case pins behaviorally, from the writer's side,
 # so a rename here leaves a child reporting `unset`.
 sc_xdg="$WORK/sc-xdg"
-# The single quotes are the assertion: $LEAN_SELFTEST_CACHE_DIR must expand in the CHILD the gate
+# The single quotes are the assertion: $LANE_SELFTEST_CACHE_DIR must expand in the CHILD the gate
 # spawns. Expanding it here would compare this suite's environment against itself.
 # shellcheck disable=SC2016
-cfg="$(el_cfg '[{"name":"store-probe","commands":["echo child-store=${LEAN_SELFTEST_CACHE_DIR:-unset}"],"failureClass":"TEST_FAILURE"}]')"
+cfg="$(el_cfg '[{"name":"store-probe","commands":["echo child-store=${LANE_SELFTEST_CACHE_DIR:-unset}"],"failureClass":"TEST_FAILURE"}]')"
 prog="$WORK/el-prog-store.md"
 attest_at "$EL_TREE" "$cfg" "$prog" 7
-out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID LEAN_SELFTEST_CACHE_DIR LEAN_SELFTEST_CACHE
-        cd "$EL_TREE" && SECOND_SHIFT_CONFIG="$cfg" LEAN_PROGRESS_FILE="$prog" \
+out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID LANE_SELFTEST_CACHE_DIR LANE_SELFTEST_CACHE
+        cd "$EL_TREE" && SECOND_SHIFT_CONFIG="$cfg" LANE_PROGRESS_FILE="$prog" \
         XDG_CACHE_HOME="$sc_xdg" \
         bash "$GATE" --issue-file "$EL_ISSUE" 3 7 2>&1 )"; rc=$?
 sc_child="$(printf '%s\n' "$out" | sed -n 's/^child-store=//p' | head -1)"
@@ -8591,9 +8591,9 @@ else fail "(sc1) expected the announced default store to reach the child, got rc
 # against a DEFAULT store the environment does not carry; this case pins the resolution.
 prog="$WORK/el-prog-store-override.md"
 attest_at "$EL_TREE" "$cfg" "$prog" 7
-out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID LEAN_SELFTEST_CACHE
-        cd "$EL_TREE" && SECOND_SHIFT_CONFIG="$cfg" LEAN_PROGRESS_FILE="$prog" \
-        XDG_CACHE_HOME="$sc_xdg" LEAN_SELFTEST_CACHE_DIR="$WORK/sc-operator-store" \
+out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID LANE_SELFTEST_CACHE
+        cd "$EL_TREE" && SECOND_SHIFT_CONFIG="$cfg" LANE_PROGRESS_FILE="$prog" \
+        XDG_CACHE_HOME="$sc_xdg" LANE_SELFTEST_CACHE_DIR="$WORK/sc-operator-store" \
         bash "$GATE" --issue-file "$EL_ISSUE" 3 7 2>&1 )"; rc=$?
 if [ "$rc" -eq 0 ] && grep -qF "selftest pass cache store $WORK/sc-operator-store" <<<"$out" \
    && ! grep -qF "$sc_xdg/second-shift/lean-selftest" <<<"$out"; then
@@ -8608,18 +8608,18 @@ else fail "(sc2) expected the operator store to be the announced one, got rc=$rc
 prog="$WORK/el-prog-store-off.md"
 attest_at "$EL_TREE" "$cfg" "$prog" 7
 out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID
-        cd "$EL_TREE" && SECOND_SHIFT_CONFIG="$cfg" LEAN_PROGRESS_FILE="$prog" \
-        XDG_CACHE_HOME="$sc_xdg" LEAN_SELFTEST_CACHE_DIR="$WORK/sc-ambient-store" \
-        LEAN_SELFTEST_CACHE=0 \
+        cd "$EL_TREE" && SECOND_SHIFT_CONFIG="$cfg" LANE_PROGRESS_FILE="$prog" \
+        XDG_CACHE_HOME="$sc_xdg" LANE_SELFTEST_CACHE_DIR="$WORK/sc-ambient-store" \
+        LANE_SELFTEST_CACHE=0 \
         bash "$GATE" --issue-file "$EL_ISSUE" 3 7 2>&1 )"; rc=$?
 sc_child="$(printf '%s\n' "$out" | sed -n 's/^child-store=//p' | head -1)"
 if [ "$rc" -eq 0 ] && [ "$sc_child" = "unset" ] \
-   && grep -qF 'selftest pass cache DISABLED (LEAN_SELFTEST_CACHE=0)' <<<"$out"; then
+   && grep -qF 'selftest pass cache DISABLED (LANE_SELFTEST_CACHE=0)' <<<"$out"; then
   pass "(sc3) the off switch scrubs an AMBIENT store out of the lane child, not just the export"
 else fail "(sc3) an ambient store survived the off switch, got rc=$rc child='$sc_child': $out"; fi
 
 # ---- (lt) #141: THE LANE-TREE ASSERTION ------------------------------------------------------
-# Every case here `unset LEAN_GATE_ANY_TREE` in its own subshell, undoing the suite-wide export at
+# Every case here `unset LANE_GATE_ANY_TREE` in its own subshell, undoing the suite-wide export at
 # the top of this file. That export is what lets the other ~200 guarded calls run against fixture
 # trees at all; these are the cases the guard is actually covered by, so leaving it set here would
 # make the whole block vacuous.
@@ -8653,8 +8653,8 @@ ltgate() { local t="$1" i="$2"; shift 2
   # guarded, and under a dead CLI that call now refuses at the run boundary instead — leaving the
   # case asserting "not rc=9" about an invocation that never reached the guard at all. Both stubs
   # are network-free; only this one lets the arm mean what the case says it means.
-  ( unset RUN_ID CLAUDE_CODE_SESSION_ID GH_BOT LEAN_GATE_ANY_TREE
-    cd "$t" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$LT_PROG" GH="$GH_STUB" \
+  ( unset RUN_ID CLAUDE_CODE_SESSION_ID GH_BOT LANE_GATE_ANY_TREE
+    cd "$t" && SECOND_SHIFT_CONFIG="$CFG" LANE_PROGRESS_FILE="$LT_PROG" GH="$GH_STUB" \
     bash "$GATE" --issue-file "$ISSUE_NOREGIONS" "$@" "$i" 2>&1 )
 }
 
@@ -8750,19 +8750,19 @@ else fail "(lt6) the entry precondition preempted the tree guard, rc=$rc: $out";
 # (lt7) The opt-out disarms, and ANNOUNCES that it did. A guard nobody can see disarmed is a guard
 # nobody can audit — the announcement is the seam's whole safety property.
 out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID GH_BOT
-        cd "$LT_MAIN" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$LT_PROG" \
-        GH="$WORK/gh-dead.sh" LEAN_GATE_ANY_TREE=1 bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 1 31 2>&1 )"; rc=$?
-if [ "$rc" -ne 9 ] && grep -q 'LEAN_GATE_ANY_TREE=1' <<<"$out" \
+        cd "$LT_MAIN" && SECOND_SHIFT_CONFIG="$CFG" LANE_PROGRESS_FILE="$LT_PROG" \
+        GH="$WORK/gh-dead.sh" LANE_GATE_ANY_TREE=1 bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 1 31 2>&1 )"; rc=$?
+if [ "$rc" -ne 9 ] && grep -q 'LANE_GATE_ANY_TREE=1' <<<"$out" \
    && grep -q "is on '$LT_OFF'" <<<"$out" && grep -q "claude/acme-31" <<<"$out"; then
-  pass "(lt7) LEAN_GATE_ANY_TREE=1 disarms the assertion and announces it, naming both the branch found and the one expected"
+  pass "(lt7) LANE_GATE_ANY_TREE=1 disarms the assertion and announces it, naming both the branch found and the one expected"
 else fail "(lt7) expected an announced disarm, rc=$rc: $out"; fi
 
 # (lt7a) The announcement is a DIAGNOSTIC and rides stderr, like every other one this file emits.
 # Same reasoning as (rc5a): the machine-read answer is stdout, and a note there is a parse hazard.
 lt7_stdout="$( unset RUN_ID CLAUDE_CODE_SESSION_ID GH_BOT
-               cd "$LT_MAIN" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$LT_PROG" \
-               GH="$WORK/gh-dead.sh" LEAN_GATE_ANY_TREE=1 bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 1 31 2>/dev/null )"
-if ! grep -q 'LEAN_GATE_ANY_TREE' <<<"$lt7_stdout"; then
+               cd "$LT_MAIN" && SECOND_SHIFT_CONFIG="$CFG" LANE_PROGRESS_FILE="$LT_PROG" \
+               GH="$WORK/gh-dead.sh" LANE_GATE_ANY_TREE=1 bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 1 31 2>/dev/null )"
+if ! grep -q 'LANE_GATE_ANY_TREE' <<<"$lt7_stdout"; then
   pass "(lt7a) the disarm announcement goes to stderr and never to stdout"
 else fail "(lt7a) the disarm note polluted stdout: $lt7_stdout"; fi
 
@@ -8775,7 +8775,7 @@ else fail "(lt7a) the disarm note polluted stdout: $lt7_stdout"; fi
 #
 # TWO TREES, because the contract's two halves need opposite cwds: TK_MAIN is a shared checkout
 # that is on no lane at all (so nothing is inferable from it), TK_LANE is a worktree ON
-# `claude/acme-77` (the re-entry shape). LEAN_GATE_ANY_TREE is unset in both — the suite-wide
+# `claude/acme-77` (the re-entry shape). LANE_GATE_ANY_TREE is unset in both — the suite-wide
 # disarm would make the cwd arms vacuous, which is the failure mode the (wt*) block already
 # taught this file to guard against.
 TK_MAIN="$WORK/tk-main"
@@ -8799,14 +8799,14 @@ TK_PROG="$WORK/tk-prog.md"
 # reads the tracker through $GH and never through that seam, and a fixture flag the production
 # path does not consult would read as coverage it is not.
 tkgate() { # tkgate <args…> — from the shared checkout, on no lane
-  ( unset RUN_ID GH_BOT LEAN_GATE_ANY_TREE
+  ( unset RUN_ID GH_BOT LANE_GATE_ANY_TREE
     cd "$TK_MAIN" && CLAUDE_CODE_SESSION_ID="$TK_SID" SECOND_SHIFT_CONFIG="$CFG" \
-    LEAN_PROGRESS_FILE="$TK_PROG" bash "$GATE" "$@" 2>&1 )
+    LANE_PROGRESS_FILE="$TK_PROG" bash "$GATE" "$@" 2>&1 )
 }
 tklane() { # tklane <args…> — from the lane worktree, on claude/acme-77
-  ( unset RUN_ID GH_BOT LEAN_GATE_ANY_TREE
+  ( unset RUN_ID GH_BOT LANE_GATE_ANY_TREE
     cd "$TK_LANE" && CLAUDE_CODE_SESSION_ID="$TK_SID" SECOND_SHIFT_CONFIG="$CFG" \
-    LEAN_PROGRESS_FILE="$TK_PROG" bash "$GATE" "$@" 2>&1 )
+    LANE_PROGRESS_FILE="$TK_PROG" bash "$GATE" "$@" 2>&1 )
 }
 
 # --- failure case 1: ABSENT ---------------------------------------------------------------
@@ -8865,7 +8865,7 @@ if [ "$rc" -eq 10 ] && grep -q 'nothing on it evidences that this run ever claim
 else fail "(tk5) expected the closed-no-evidence reason, got $rc: $out"; fi
 
 # The waiver, and its two halves. The marker must be BOT-authored AND carry THIS run's id — the
-# same pair check-lean-chain.sh applies at the merge boundary — and the label must be present.
+# same pair check-lane-chain.sh applies at the merge boundary — and the label must be present.
 TK_MARKER="$WORK/tk-marker.json"
 cat > "$TK_MARKER" <<'JSON'
 [{"user":{"type":"Bot"},"body":"<!-- run_id: tk-run-1 -->\n<!-- stage: lean-claimed -->\n"}]
@@ -8877,9 +8877,9 @@ JSON
 
 tkre() { # tkre <comments-fixture> <args…> — a re-entry: this run's id established
   local f="$1"; shift
-  ( unset GH_BOT LEAN_GATE_ANY_TREE
+  ( unset GH_BOT LANE_GATE_ANY_TREE
     cd "$TK_MAIN" && RUN_ID=tk-run-1 CLAUDE_CODE_SESSION_ID="$TK_SID" SECOND_SHIFT_CONFIG="$CFG" \
-    LEAN_PROGRESS_FILE="$TK_PROG" STUB_GH_STATE=CLOSED STUB_GH_LABELS=in-progress \
+    LANE_PROGRESS_FILE="$TK_PROG" STUB_GH_STATE=CLOSED STUB_GH_LABELS=in-progress \
     STUB_GH_COMMENTS="$(cat "$f")" bash "$GATE" "$@" 2>&1 )
 }
 
@@ -8981,7 +8981,7 @@ else fail "(tk11a) expected rc=2 on a non-boundary subcommand, got $rc: $out"; f
 # because the deferral that made `entry` refuse with 10 is spelled as a case on $SUB, and a
 # regression widening that case is invisible from either side alone.
 out="$(tkgate 3)"; rc=$?
-if [ "$rc" -eq 2 ] && grep -q 'usage: lean-gate.sh' <<<"$out"; then
+if [ "$rc" -eq 2 ] && grep -q 'usage: milestone-gate.sh' <<<"$out"; then
   pass "(tk12) the milestone calls keep their exit-2 usage error on an absent argument"
 else fail "(tk12) expected rc=2 from a milestone call with no issue, got $rc: $out"; fi
 
@@ -8989,9 +8989,9 @@ else fail "(tk12) expected rc=2 from a milestone call with no issue, got $rc: $o
 # `entry` seeds `<issue>-run-id`, and seed-once never clobbers — so a cache written for a number
 # the gate then refused would hand this run's identity to whatever real run later took it.
 rm -rf "$TK_MAIN/.claude/pipeline-state"
-( unset GH_BOT LEAN_GATE_ANY_TREE
+( unset GH_BOT LANE_GATE_ANY_TREE
   cd "$TK_MAIN" && RUN_ID=tk-stray CLAUDE_CODE_SESSION_ID="$TK_SID" SECOND_SHIFT_CONFIG="$CFG" \
-  LEAN_PROGRESS_FILE="$TK_PROG" STUB_GH_STATE=CLOSED bash "$GATE" entry 4242 >/dev/null 2>&1 )
+  LANE_PROGRESS_FILE="$TK_PROG" STUB_GH_STATE=CLOSED bash "$GATE" entry 4242 >/dev/null 2>&1 )
 if [ ! -e "$TK_MAIN/.claude/pipeline-state/4242-run-id" ]; then
   pass "(tk13) a refused boundary call leaves no run-id cache behind for the ticket it refused"
 else fail "(tk13) the refusal seeded $(cat "$TK_MAIN/.claude/pipeline-state/4242-run-id")"; fi
@@ -8999,9 +8999,9 @@ else fail "(tk13) the refusal seeded $(cat "$TK_MAIN/.claude/pipeline-state/4242
 # --- the jira arm: adapter-aware shape, and a liveness read it does not have ---------------
 TK_CFG_JIRA="$WORK/tk-config-jira.json"
 sed -e 's/"branchPrefix": "claude\/acme-"/"branchPrefix": "claude\/acme-", "type": "jira", "keyPattern": "[A-Z]+-[0-9]+"/' "$CFG" > "$TK_CFG_JIRA"
-tkj() { ( unset RUN_ID GH_BOT LEAN_GATE_ANY_TREE
+tkj() { ( unset RUN_ID GH_BOT LANE_GATE_ANY_TREE
           cd "$TK_MAIN" && CLAUDE_CODE_SESSION_ID="$TK_SID" SECOND_SHIFT_CONFIG="$TK_CFG_JIRA" \
-          LEAN_PROGRESS_FILE="$TK_PROG" bash "$GATE" "$@" 2>&1 ); }
+          LANE_PROGRESS_FILE="$TK_PROG" bash "$GATE" "$@" 2>&1 ); }
 out="$(tkj entry 4242)"; rc=$?
 if [ "$rc" -eq 10 ] && grep -q 'not a valid jira key' <<<"$out"; then
   pass "(tk14) AC-1: validation is adapter-aware — a bare number is not a key under jira"
@@ -9054,10 +9054,10 @@ co_patch() { # co_patch <current-body> [block, default $CO_BLOCK]
   # returned nothing".
   # shellcheck disable=SC2030,SC2031  # subshell-local is the point, exactly as in gate().
   ( cd "$TREE" && export CO_SPOOL GH_BOT="$CO_STUB"
-    LEAN_GATE_LIB=1 SECOND_SHIFT_CONFIG="$CFG" . "$GATE" >/dev/null 2>&1
-    LEAN_COST_BLOCK="$co_blk"
+    LANE_GATE_LIB=1 SECOND_SHIFT_CONFIG="$CFG" . "$GATE" >/dev/null 2>&1
+    LANE_COST_BLOCK="$co_blk"
     closeout_patch_pr_body 9 "$co_arg" >/dev/null 2>&1
-    printf '%s' "$LEAN_PATCH_NOTE" )
+    printf '%s' "$LANE_PATCH_NOTE" )
 }
 
 # (co1) A BLOCK IN THE MIDDLE. Everything above it survives, the block is replaced, and — the case
@@ -9117,7 +9117,7 @@ co_row() { # co_row <run-id>
   # source and is gone by the time the function below reads it — which reads as "the row is not in
   # the log". The two prefixes that remain are needed only DURING the source, which is why they
   # are still prefixes.
-  ( cd "$TREE" && LEAN_GATE_LIB=1 SECOND_SHIFT_CONFIG="$CFG" . "$GATE" >/dev/null 2>&1
+  ( cd "$TREE" && LANE_GATE_LIB=1 SECOND_SHIFT_CONFIG="$CFG" . "$GATE" >/dev/null 2>&1
     COST_LOG_FILE="$CO_LOG"; ISSUE=8; RESOLVED_RUN_ID="$co_arg"
     closeout_cost_log_row && echo found || echo missing )
 }
@@ -9138,15 +9138,15 @@ else fail "(co6) an unparseable cost log was read as a found row"; fi
 # shellcheck disable=SC1090,SC2034  # ditto — the globals below are the function's own inputs.
 co_resolve() { # co_resolve <block> <skip>  — mirrors closeout_cost_block's own resolve step
   local co_blk="$1" co_skip="$2"
-  ( cd "$TREE" && LEAN_GATE_LIB=1 SECOND_SHIFT_CONFIG="$CFG" . "$GATE" >/dev/null 2>&1
-    LEAN_COST_BLOCK="$co_blk"; LEAN_COST_SKIP="$co_skip"
+  ( cd "$TREE" && LANE_GATE_LIB=1 SECOND_SHIFT_CONFIG="$CFG" . "$GATE" >/dev/null 2>&1
+    LANE_COST_BLOCK="$co_blk"; LANE_COST_SKIP="$co_skip"
     resolve_cost_usd
-    printf 'usd=%s\npristine=%s\ninjected=%s' "$LEAN_COST_USD" "$LEAN_COST_BLOCK" "$(cost_block_with_usd_key)" )
+    printf 'usd=%s\npristine=%s\ninjected=%s' "$LANE_COST_USD" "$LANE_COST_BLOCK" "$(cost_block_with_usd_key)" )
 }
 
 # (co7) A PRICED BLOCK. The only `$N.NN` text the render filter ever emits is the cost cell, so a
 # grep for it recovers exactly the table's own figure with no second call into the tool — a bare
-# decimal, no `$` (D-8). `$LEAN_COST_BLOCK` itself stays PRISTINE — cost_block_with_usd_key
+# decimal, no `$` (D-8). `$LANE_COST_BLOCK` itself stays PRISTINE — cost_block_with_usd_key
 # computes the PR-description copy on demand rather than mutating the shared block, which is what
 # keeps the closing comment (co10/co11), pasting that same shared block, from saying `cost_usd:`
 # a second time inside it.
@@ -9179,7 +9179,7 @@ if grep -qxF 'usd=unavailable (block rendered, no Cost (USD) column)' <<<"$co_ou
   pass "(co8) a token-only block with no dollar cell resolves 'unavailable (block rendered, …)', never a blank or a fabricated figure"
 else fail "(co8) unexpected: $co_out"; fi
 
-# (co8b) A FULL SKIP: no block at all (D-7's second reason). LEAN_COST_USD still resolves, because
+# (co8b) A FULL SKIP: no block at all (D-7's second reason). LANE_COST_USD still resolves, because
 # the closing comment's own bullet (co11) needs a value on every closed-out run, including this one
 # — but there is no PR-description surface to carry a copy into (D-3: close-out's skip behavior on
 # the PR description is unchanged).
@@ -9203,8 +9203,8 @@ co_patch_priced() { # co_patch_priced <current-body> <block> <resolved-usd>
   rm -f "$CO_SPOOL"
   # shellcheck disable=SC2030,SC2031  # subshell-local is the point, exactly as in gate().
   ( cd "$TREE" && export CO_SPOOL GH_BOT="$CO_STUB"
-    LEAN_GATE_LIB=1 SECOND_SHIFT_CONFIG="$CFG" . "$GATE" >/dev/null 2>&1
-    LEAN_COST_BLOCK="$co_blk"; LEAN_COST_USD="$co_usd"
+    LANE_GATE_LIB=1 SECOND_SHIFT_CONFIG="$CFG" . "$GATE" >/dev/null 2>&1
+    LANE_COST_BLOCK="$co_blk"; LANE_COST_USD="$co_usd"
     closeout_patch_pr_body 9 "$co_arg" >/dev/null 2>&1 )
 }
 co_block_plain="$(printf '%s\n' '<!-- pipeline-cost-block -->' '---' '' 'Cache-hit rate: 50% · Sessions: 1')"
@@ -9234,9 +9234,9 @@ co_comment() { # co_comment <block> <skip>
   rm -f "$CO_SPOOL"
   # shellcheck disable=SC2030,SC2031  # subshell-local is the point, exactly as in gate().
   ( cd "$TREE" && export CO_SPOOL GH_BOT="$CO_STUB"
-    LEAN_GATE_LIB=1 SECOND_SHIFT_CONFIG="$CFG" . "$GATE" >/dev/null 2>&1
+    LANE_GATE_LIB=1 SECOND_SHIFT_CONFIG="$CFG" . "$GATE" >/dev/null 2>&1
     ISSUE=9; VERDICT_REL="docs/plans/second-shift-9-lean-verdict.md"
-    LEAN_COST_BLOCK="$co_blk"; LEAN_COST_SKIP="$co_skip"
+    LANE_COST_BLOCK="$co_blk"; LANE_COST_SKIP="$co_skip"
     resolve_cost_usd
     closeout_comment "https://example.invalid/pr/9" >/dev/null 2>&1 )
   cat "$CO_SPOOL"
@@ -9255,7 +9255,7 @@ if grep -qxF -- '- cost_usd: 70.41' <<<"$co_comment_out" \
 else fail "(co10) unexpected comment: $co_comment_out"; fi
 
 # (co11) A FULL SKIP: the bullet is STILL present, reading 'unavailable (…)' — the case D-3 exists
-# for, since a mutant that guarded the bullet on `[ -n "$LEAN_COST_BLOCK" ]` would pass (co10) and
+# for, since a mutant that guarded the bullet on `[ -n "$LANE_COST_BLOCK" ]` would pass (co10) and
 # silently drop the key on exactly the runs this ticket's kill criterion most needs it for.
 co_comment_out="$(co_comment "" "the tool exited 0 and rendered no block")"
 if grep -qxF -- '- cost_usd: unavailable (no cost block rendered this run)' <<<"$co_comment_out" \
@@ -9266,21 +9266,21 @@ else fail "(co11) unexpected comment: $co_comment_out"; fi
 # ---- (co12)-(co13) #723 round 1, finding 2: closeout_cost_block's OWN resolve_cost_usd call ----
 # resolve_cost_usd is called from exactly one production place: inside closeout_cost_block, right
 # after it decides which arm of the marker `case` fired. Every case above that touches
-# resolve_cost_usd (co_resolve, co_comment) sets $LEAN_COST_BLOCK/$LEAN_COST_SKIP BY HAND and calls
+# resolve_cost_usd (co_resolve, co_comment) sets $LANE_COST_BLOCK/$LANE_COST_SKIP BY HAND and calls
 # it directly — closeout_cost_block itself was never driven, so deleting its call left zero test
 # signal. These two cases drive the real function, stubbing the tool it shells out to via
-# LEAN_COST_BLOCK_TOOL (#590's own seam for exactly this) rather than hand-setting the globals.
+# LANE_COST_BLOCK_TOOL (#590's own seam for exactly this) rather than hand-setting the globals.
 # shellcheck disable=SC1090,SC2030,SC2031,SC2034  # ditto — subshell-local is the point, as in co_patch.
 co_closeout() { # co_closeout <tool-path>
   local co_tool="$1" co_rc
-  ( cd "$TREE" && LEAN_GATE_LIB=1 SECOND_SHIFT_CONFIG="$CFG" . "$GATE" >/dev/null 2>&1
-    ISSUE=9; LEAN_COST_BLOCK_TOOL="$co_tool"
+  ( cd "$TREE" && LANE_GATE_LIB=1 SECOND_SHIFT_CONFIG="$CFG" . "$GATE" >/dev/null 2>&1
+    ISSUE=9; LANE_COST_BLOCK_TOOL="$co_tool"
     closeout_cost_block "https://example.invalid/pr/9" >/dev/null 2>&1; co_rc=$?
-    printf 'rc=%s\nusd=%s\nskip=%s' "$co_rc" "$LEAN_COST_USD" "$LEAN_COST_SKIP" )
+    printf 'rc=%s\nusd=%s\nskip=%s' "$co_rc" "$LANE_COST_USD" "$LANE_COST_SKIP" )
 }
 
 # (co12) A PRICED RUN: the real tool renders a block, closeout_cost_block routes it into
-# $LEAN_COST_BLOCK via the case's first arm, and its own resolve_cost_usd call — not a hand-set
+# $LANE_COST_BLOCK via the case's first arm, and its own resolve_cost_usd call — not a hand-set
 # global — is what turns that into 'usd=12.34'.
 CO_TOOL_PRICED="$CO_WORK/co-tool-priced.sh"
 cat > "$CO_TOOL_PRICED" <<'EOF'
@@ -9294,8 +9294,8 @@ if grep -qxF 'rc=0' <<<"$co_out" && grep -qxF 'usd=12.34' <<<"$co_out"; then
 else fail "(co12) unexpected: $co_out"; fi
 
 # (co13) A DOCUMENTED SKIP: the real tool exits 0 with no marker in its output, routing into the
-# case's second arm ($LEAN_COST_SKIP set, no block) — and the same resolve_cost_usd call still
-# turns that into the unavailable reason, never a blank $LEAN_COST_USD.
+# case's second arm ($LANE_COST_SKIP set, no block) — and the same resolve_cost_usd call still
+# turns that into the unavailable reason, never a blank $LANE_COST_USD.
 CO_TOOL_SKIP="$CO_WORK/co-tool-skip.sh"
 cat > "$CO_TOOL_SKIP" <<'EOF'
 #!/usr/bin/env bash
@@ -9313,7 +9313,7 @@ else fail "(co13) unexpected: $co_out"; fi
 # WHY THESE ARE PER-TOOL CASES and not only a scenario. The composed leg in
 # scenario-liveness-selftest.sh drives one review session through the writer to a terminal write
 # and one that contradicts itself to a stop — which is the ECONOMICS, not the grammar. The
-# grammar's arms are here (the writer's refusal) and in lean-evidence-selftest.sh's (sc) block
+# grammar's arms are here (the writer's refusal) and in boundary-evidence-selftest.sh's (sc) block
 # (the boundary's, over records that never passed a writer at all). Neither reader can stand in
 # for the other: the writer holds a `--summary-file` and no record, the boundary holds a record
 # and no flags.
@@ -9350,9 +9350,9 @@ else fail "(vs2) rc=$rc cached=$vs_cached record-changed=$([ "$vs_rec_before" = 
 
 # THE REFUSAL QUOTES THE READER'S OWN SCHEMA rather than a second copy of it. This is what makes
 # "the message and the reader cannot drift" mechanical: the writer shells out to
-# `lean-evidence.sh scorecard --print-schema`, so a heading or column set changed in one place
+# `boundary-evidence.sh scorecard --print-schema`, so a heading or column set changed in one place
 # cannot leave the other sending reviewers to write a section nothing reads.
-vs_schema="$(bash "$HERE/lean-evidence.sh" scorecard --print-schema 2>/dev/null | head -n1)"
+vs_schema="$(bash "$HERE/boundary-evidence.sh" scorecard --print-schema 2>/dev/null | head -n1)"
 if [ -n "$vs_schema" ] && grep -qF "$vs_schema" <<<"$out"; then
   pass "(vs3) the writer's refusal prints the reader's own schema line, so the two cannot drift apart"
 else fail "(vs3) the refusal did not quote the reader's schema ('$vs_schema'): $out"; fi
@@ -9419,5 +9419,5 @@ else fail "(vs10) expected the absent-spec refusal, rc=$rc: $out"; fi
 mv "$WORK/vs-held-spec.md" "$XSPEC"
 xcommit "the spec restored"
 
-echo "[lean-gate-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
+echo "[milestone-gate-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 exit "$FAILS"

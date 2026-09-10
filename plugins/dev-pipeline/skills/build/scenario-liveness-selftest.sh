@@ -17,11 +17,11 @@
 #                 acceptance evidence for #525: the falsifiable form of "a run completes".
 #   lean-reentry  the pipeline's scheduler, composed: preflight's re-entry admission
 #                 (claimed label + a bot-authored claim marker) driven through the real
-#                 orchestrate-lean.sh and the real lean-gate.sh in a real worktree, to the
+#                 orchestrate.sh and the real milestone-gate.sh in a real worktree, to the
 #                 close-out's milestone-5 record — the terminal write the scheduler's own
 #                 close-out check reads back
 #   lane routing  which PRs the surviving merge-boundary gate claims (#413), composed through
-#                 check-lean-chain.sh rather than driven at the classifier directly
+#                 check-lane-chain.sh rather than driven at the classifier directly
 #
 # Scope boundary: scenarios exercise the MECHANICAL chain. Agent-prose gates (the
 # scope reviewer, review-lead synthesis) appear only as their mechanical shadows —
@@ -40,14 +40,14 @@
 #   - A REAL `claude -p` session re-entering a run the pipeline stopped itself.
 #     The (lean-reentry) leg below composes the scheduler with the real gate over
 #     a SCRIPTED session binary, which is its stated ceiling — CI is model-free by
-#     design, and orchestrate-lean-selftest.sh:11-16 records the same boundary for
+#     design, and orchestrate-selftest.sh:11-16 records the same boundary for
 #     itself. Reversing it means an operator-run end to end, which is not a CI
 #     artifact, so this is a contract boundary rather than debt.
 #
 #   - The #141 lane-tree assertion's REFUSE path. Exit 9 stops the run before any
 #     downstream component observes it, so there is no composed verdict path for a
 #     scenario to reach a terminal write along — a scenario for it would be a
-#     per-tool case in scenario clothing (lean-gate-selftest.sh's (lt*) block owns
+#     per-tool case in scenario clothing (milestone-gate-selftest.sh's (lt*) block owns
 #     it). Its PASS direction is composed here for free and not by accident: the
 #     (lean-reentry) and (lean-closeout) legs below define `g()` as a subshell that
 #     cds into a REAL worktree on `claude/acme-<key>`, so a wrong predicate in that
@@ -83,7 +83,7 @@ unset SECOND_SHIFT_CONFIG SECOND_SHIFT_REPO_ROOT SECOND_SHIFT_EXTENSION_MANIFEST
 # (lean-closeout) legs are the exception: each cuts a REAL `git worktree` on
 # `claude/acme-<key>` and unsets this again inside its own `g()`, which is where the guard's PASS
 # direction is composed rather than merely tolerated (#141 D-5).
-export LEAN_GATE_ANY_TREE=1
+export LANE_GATE_ANY_TREE=1
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -120,15 +120,15 @@ echo "── lean legs (/dev-pipeline:build)"
 # legs below never ran — and a skipped leg reporting PASS is the vacuous green this whole
 # suite exists to prevent. (It bit these very legs once: a bad path resolved to a skip and
 # the suite reported 32/32 having asserted nothing about lean.)
-LEAN_GATE="$HERE/lean-gate.sh"
-if [[ ! -x "$LEAN_GATE" ]]; then
-  fail "(lean) lean-gate.sh not found or not executable at $LEAN_GATE — the lean legs did not run"
+LANE_GATE="$HERE/milestone-gate.sh"
+if [[ ! -x "$LANE_GATE" ]]; then
+  fail "(lean) milestone-gate.sh not found or not executable at $LANE_GATE — the lean legs did not run"
 else
-  LEAN_TREE="$TMP/lean-tree"
-  mkdir -p "$LEAN_TREE/docs/plans" "$LEAN_TREE/.claude/audit"
-  git -C "$LEAN_TREE" init -q
-  LEAN_CFG="$TMP/lean-config.json"
-  cat > "$LEAN_CFG" <<'LEANCFG'
+  LANE_TREE="$TMP/lean-tree"
+  mkdir -p "$LANE_TREE/docs/plans" "$LANE_TREE/.claude/audit"
+  git -C "$LANE_TREE" init -q
+  LANE_CFG="$TMP/lean-config.json"
+  cat > "$LANE_CFG" <<'LEANCFG'
 {
   "tracker": { "branchPrefix": "claude/acme-", "labels": { "queue": "ready-for-dev", "claimed": "in-progress" } },
   "topology": { "repos": { "acme": { "path": ".", "baseBranch": "main" } } },
@@ -136,20 +136,20 @@ else
   "commands": { "acme": { "lint": null, "typecheck": null, "test": null, "allowUnverified": true } }
 }
 LEANCFG
-  LEAN_PROG="$TMP/lean-progress.md"
+  LANE_PROG="$TMP/lean-progress.md"
   # No Open Regions section, so milestone 1's pause-and-ask check (#374) no-ops before it would
   # ever need a live `gh issue view` or comment-trail fetch — these legs are zero-network by
-  # construction, same reasoning as lean-gate-selftest.sh's own default. --issue-file is FIRST,
+  # construction, same reasoning as milestone-gate-selftest.sh's own default. --issue-file is FIRST,
   # so a leg's own --issue-file in "$@" is a later occurrence and overrides it.
-  LEAN_ISSUE_NOREGIONS="$TMP/lean-issue-noregions.json"
-  printf '{"body": "# issue\\n\\nNo Open Regions section here.\\n"}' > "$LEAN_ISSUE_NOREGIONS"
+  LANE_ISSUE_NOREGIONS="$TMP/lean-issue-noregions.json"
+  printf '{"body": "# issue\\n\\nNo Open Regions section here.\\n"}' > "$LANE_ISSUE_NOREGIONS"
   # #611: the run boundary READS the ticket now, so `entry` is no longer zero-network by the
   # `--issue-file` argument alone — that seam covers milestone 1's body read and not this one.
   # The stub restores the property for every leg below, which is what lets them keep asserting
   # the CHAIN rather than dying at its first call. Steered per leg by STUB_GH_*, exactly as the
   # per-tool suite's stub is.
-  LEAN_GH="$TMP/lean-gh-stub.sh"
-  cat > "$LEAN_GH" <<'LEANGH'
+  LANE_GH="$TMP/lean-gh-stub.sh"
+  cat > "$LANE_GH" <<'LEANGH'
 #!/usr/bin/env bash
 set -uo pipefail
 if [ -n "${STUB_GH_FAIL:-}" ]; then printf '%s\n' "$STUB_GH_FAIL" >&2; exit 1; fi
@@ -164,35 +164,35 @@ case "${1:-}/${2:-}" in
   *) echo "lean-gh-stub: unstubbed call: $*" >&2; exit 1 ;;
 esac
 LEANGH
-  chmod +x "$LEAN_GH"
+  chmod +x "$LANE_GH"
   # #416: the build-role precondition reads an entry attestation these legs must now COMPOSE,
   # not seed — which means a live per-session ledger and a session id the legs control. Pinning
   # it here (rather than inheriting the ambient one) is what makes the legs behave identically
   # in a Claude Code session, where CLAUDE_CODE_SESSION_ID is exported, and in CI, where it is
   # not: the fixture's session identity is always the fixture's.
   #
-  # unset RUN_ID GH_BOT: the same ambient-leak pinning lean-gate-selftest.sh applies to its own
+  # unset RUN_ID GH_BOT: the same ambient-leak pinning milestone-gate-selftest.sh applies to its own
   # helper. Load-bearing since #359 — milestone 5 calls cmd_mark, whose no-op test keys on the
   # resolved run id, so an operator's exported RUN_ID makes these legs stamp an identity the
   # fixtures do not carry, and an ambient GH_BOT would send that write to a LIVE bot.
   # CLAUDE_CODE_SESSION_ID is PINNED rather than unset — the stronger form of the same fix, and
   # the one #416 requires, since the attestation the legs compose reads THIS session's ledger.
-  LEAN_SID="sess-lean-build"
-  printf '{"tool":"Bash"}\n' > "$LEAN_TREE/.claude/audit/$LEAN_SID.jsonl"
-  lean_gate() { ( unset RUN_ID GH_BOT; cd "$LEAN_TREE" && SECOND_SHIFT_CONFIG="$LEAN_CFG" LEAN_PROGRESS_FILE="$LEAN_PROG" \
-                  CLAUDE_CODE_SESSION_ID="$LEAN_SID" GH="${GH:-$LEAN_GH}" \
-                  bash "$LEAN_GATE" --issue-file "$LEAN_ISSUE_NOREGIONS" "$@" 2>&1 ); }
-  lean_count() { if [[ -f "$LEAN_PROG" ]]; then local n; n=$(grep -cF "$1" "$LEAN_PROG" 2>/dev/null) || n=0; echo "$n"; else echo 0; fi; }
+  LANE_SID="sess-lean-build"
+  printf '{"tool":"Bash"}\n' > "$LANE_TREE/.claude/audit/$LANE_SID.jsonl"
+  lean_gate() { ( unset RUN_ID GH_BOT; cd "$LANE_TREE" && SECOND_SHIFT_CONFIG="$LANE_CFG" LANE_PROGRESS_FILE="$LANE_PROG" \
+                  CLAUDE_CODE_SESSION_ID="$LANE_SID" GH="${GH:-$LANE_GH}" \
+                  bash "$LANE_GATE" --issue-file "$LANE_ISSUE_NOREGIONS" "$@" 2>&1 ); }
+  lean_count() { if [[ -f "$LANE_PROG" ]]; then local n; n=$(grep -cF "$1" "$LANE_PROG" 2>/dev/null) || n=0; echo "$n"; else echo 0; fi; }
   # #496: the same call through the observe seam. A separate helper rather than an assignment
   # prefixed to `lean_gate` — a `VAR=x func` prefix on a shell FUNCTION does not reliably scope to
   # the call, and a seam that leaked into the legs below would silence their recording assertions.
-  lean_gate_observe() { ( unset RUN_ID GH_BOT; cd "$LEAN_TREE" && SECOND_SHIFT_CONFIG="$LEAN_CFG" \
-                  LEAN_PROGRESS_FILE="$LEAN_PROG" CLAUDE_CODE_SESSION_ID="$LEAN_SID" LEAN_GATE_OBSERVE=1 \
-                  GH="${GH:-$LEAN_GH}" \
-                  bash "$LEAN_GATE" --issue-file "$LEAN_ISSUE_NOREGIONS" "$@" 2>&1 ); }
+  lean_gate_observe() { ( unset RUN_ID GH_BOT; cd "$LANE_TREE" && SECOND_SHIFT_CONFIG="$LANE_CFG" \
+                  LANE_PROGRESS_FILE="$LANE_PROG" CLAUDE_CODE_SESSION_ID="$LANE_SID" LANE_GATE_OBSERVE=1 \
+                  GH="${GH:-$LANE_GH}" \
+                  bash "$LANE_GATE" --issue-file "$LANE_ISSUE_NOREGIONS" "$@" 2>&1 ); }
 
-  LEAN_SPEC="$LEAN_TREE/docs/plans/acme-77-lean.md"
-  LEAN_VERDICT="$LEAN_TREE/docs/plans/acme-77-lean-verdict.md"
+  LANE_SPEC="$LANE_TREE/docs/plans/acme-77-lean.md"
+  LANE_VERDICT="$LANE_TREE/docs/plans/acme-77-lean-verdict.md"
 
   # The verdict record is REVIEW-authored throughout these legs. /dev-pipeline:build's session
   # cannot produce it, so a leg composing a build-authored record would compose a state no
@@ -200,15 +200,15 @@ LEANGH
   # The build identities are seeded explicitly rather than left to the gate's stamping, so
   # the authorship comparison has two known sides in every leg.
   lean_seed_progress() { # lean_seed_progress <build-run-id> <build-session-id>
-    rm -f "$LEAN_PROG"
-    { echo "# lean run — issue 77"; echo ""; echo "run_id: $1"; echo "session_id: $2"; } > "$LEAN_PROG"
+    rm -f "$LANE_PROG"
+    { echo "# lean run — issue 77"; echo ""; echo "run_id: $1"; echo "session_id: $2"; } > "$LANE_PROG"
     # The build run-id CACHE, which is what a real run leaves behind and what every later
     # fresh-shell call resolves its identity from. Seeded explicitly rather than left to
     # resolve as `unset`: milestone 5 stamps the PR marker with this value (#359), so a leg
     # composing an unset identity would compose a marker no real run writes. It is seeded
     # BEFORE the entry call below so that call resolves the same identity the header carries.
-    mkdir -p "$LEAN_TREE/.claude/pipeline-state"
-    printf '%s' "$1" > "$LEAN_TREE/.claude/pipeline-state/77-run-id"
+    mkdir -p "$LANE_TREE/.claude/pipeline-state"
+    printf '%s' "$1" > "$LANE_TREE/.claude/pipeline-state/77-run-id"
     # The entry attestation comes from the REAL `entry` subcommand, never a seeded line: a
     # hand-written row would keep every leg green after the writer and the reader drifted apart,
     # which is the shape of failure #416 itself was.
@@ -218,30 +218,30 @@ LEANGH
   # only thing the refusal leg below varies. The run-id cache is seeded here too, precisely so
   # the missing attestation row is the only difference between the two states.
   lean_seed_unattested() { # lean_seed_unattested <build-run-id> <build-session-id>
-    rm -f "$LEAN_PROG"
-    { echo "# lean run — issue 77"; echo ""; echo "run_id: $1"; echo "session_id: $2"; } > "$LEAN_PROG"
-    mkdir -p "$LEAN_TREE/.claude/pipeline-state"
-    printf '%s' "$1" > "$LEAN_TREE/.claude/pipeline-state/77-run-id"
+    rm -f "$LANE_PROG"
+    { echo "# lean run — issue 77"; echo ""; echo "run_id: $1"; echo "session_id: $2"; } > "$LANE_PROG"
+    mkdir -p "$LANE_TREE/.claude/pipeline-state"
+    printf '%s' "$1" > "$LANE_TREE/.claude/pipeline-state/77-run-id"
   }
   # Milestone 4 binds the record to a tree: it must be COMMITTED and nothing but the record
   # itself may have changed since. So the legs commit, and each verdict write advances a round
   # counter — an identical re-write stages nothing, which would leave the record holding an
   # earlier round's commit while the tree moved on and red the leg on freshness instead of on
   # what it composes.
-  git -C "$LEAN_TREE" config user.email lean@example.invalid
-  git -C "$LEAN_TREE" config user.name lean-scenario
-  printf '.claude/\n' > "$LEAN_TREE/.gitignore"
-  lean_commit() { git -C "$LEAN_TREE" add -A >/dev/null 2>&1
-                  git -C "$LEAN_TREE" commit -q --allow-empty -m "${1:-lean fixture}" >/dev/null 2>&1; }
+  git -C "$LANE_TREE" config user.email lean@example.invalid
+  git -C "$LANE_TREE" config user.name lean-scenario
+  printf '.claude/\n' > "$LANE_TREE/.gitignore"
+  lean_commit() { git -C "$LANE_TREE" add -A >/dev/null 2>&1
+                  git -C "$LANE_TREE" commit -q --allow-empty -m "${1:-lean fixture}" >/dev/null 2>&1; }
   lean_commit "lean fixture tree"
   # The patch-id freshness arm measures the branch's diff from merge-base(origin/<base>, HEAD),
   # so the fixture carries the remote-tracking ref a real checkout would have. #642 deleted the
   # SHA fallback every other leg used to take, so EVERY record here now carries the key.
-  git -C "$LEAN_TREE" update-ref refs/remotes/origin/main HEAD
+  git -C "$LANE_TREE" update-ref refs/remotes/origin/main HEAD
   # The key, computed by the PRODUCTION function through library mode — never a copy of its
   # formula. #642 made it mandatory at milestone 4, so a fixture record without one is refused
   # before the arm the leg is about is ever reached.
-  # shellcheck disable=SC1090  # $LEAN_GATE is the script under test; following it is the point.
+  # shellcheck disable=SC1090  # $LANE_GATE is the script under test; following it is the point.
   # SECOND_SHIFT_CONFIG is not optional here: sourcing the gate resolves branch-prefix.sh, which
   # ENVFAILS when neither a configured prefix nor a parseable remote branch names one — and an
   # envfail inside a `.` kills the sourcing shell, not just this substitution.
@@ -250,32 +250,32 @@ LEANGH
   # `$1` below an unbound-variable error rather than an empty string.
   lean_pid() { # lean_pid <tree> <verdict-rel> [head-ish]
     local lp_tree="$1" lp_rel="$2" lp_head="${3:-HEAD}"
-    ( cd "$lp_tree" && LEAN_GATE_LIB=1 SECOND_SHIFT_CONFIG="$LEAN_CFG" . "$LEAN_GATE" >/dev/null 2>&1 \
+    ( cd "$lp_tree" && LANE_GATE_LIB=1 SECOND_SHIFT_CONFIG="$LANE_CFG" . "$LANE_GATE" >/dev/null 2>&1 \
       && REPO_ROOT="$lp_tree" BASE_BRANCH=main VERDICT_REL="$lp_rel" branch_patch_id "$lp_head" )
   }
   # `reviewed_head` is resolved BEFORE the commit, which is the shape a real round has: the
   # reviewer reads the current head, names it, and commits the record on top of it. Resolving it
   # after would name the record's own commit and leave the declared arm asserting nothing.
-  LEAN_ROUND=0
+  LANE_ROUND=0
   lean_write_verdict() { # lean_write_verdict <verdict> <run-id> <session-id> [reviewed-head]
-    LEAN_ROUND=$((LEAN_ROUND + 1))
-    local lwv_head="${4:-$(git -C "$LEAN_TREE" rev-parse HEAD)}"
+    LANE_ROUND=$((LANE_ROUND + 1))
+    local lwv_head="${4:-$(git -C "$LANE_TREE" rev-parse HEAD)}"
     printf 'verdict=%s\nrun_id: %s\nsession_id: %s\nrounds: %s\nreviewed_head: %s\nreviewed_patch_id: %s\n' \
-      "$1" "$2" "$3" "$LEAN_ROUND" "$lwv_head" \
-      "$(lean_pid "$LEAN_TREE" docs/plans/acme-77-lean-verdict.md "$lwv_head")" > "$LEAN_VERDICT"
-    lean_commit "review verdict $1 (round $LEAN_ROUND)"
+      "$1" "$2" "$3" "$LANE_ROUND" "$lwv_head" \
+      "$(lean_pid "$LANE_TREE" docs/plans/acme-77-lean-verdict.md "$lwv_head")" > "$LANE_VERDICT"
+    lean_commit "review verdict $1 (round $LANE_ROUND)"
   }
 
   # ---- leg 1: all-green -> exit artifacts ----------------------------------
   lean_seed_progress r-lean-1 sess-lean-build
-  printf '# spec\n\n- AC-1: a thing\n' > "$LEAN_SPEC"
+  printf '# spec\n\n- AC-1: a thing\n' > "$LANE_SPEC"
   # THE SCORECARD an approve now has to carry (#622). Every spec in this suite declares exactly
   # `AC-1`, so one conforming table serves every `verdict` call below — the scorecard reader's own
-  # arms are per-tool (lean-evidence-selftest.sh); what the legs here compose is that a review
+  # arms are per-tool (boundary-evidence-selftest.sh); what the legs here compose is that a review
   # session which scores its spec reaches the terminal write, and the (lean-sc-nv) leg that one
   # which contradicts itself does not.
-  LEAN_SCORECARD="$TMP/lean-scorecard.md"
-  printf '## AC scorecard\n\n| AC-n | score | evidence |\n| --- | --- | --- |\n| AC-1 | satisfied | scenario fixture |\n' > "$LEAN_SCORECARD"
+  LANE_SCORECARD="$TMP/lean-scorecard.md"
+  printf '## AC scorecard\n\n| AC-n | score | evidence |\n| --- | --- | --- |\n| AC-1 | satisfied | scenario fixture |\n' > "$LANE_SCORECARD"
   # The spec is committed on its OWN, before the review reads it. `lean_commit` stages
   # everything, so folding it into the verdict commit would put a code change inside the record's
   # commit — a shape /dev-pipeline:review step 6 forbids and both freshness arms refuse. What is left is
@@ -322,7 +322,7 @@ LEANC
   # opt-out path is traversed by the composed run and pinned by nothing.
   [[ "$(lean_count "| milestone-3 | skipped | no verifying lane configured")" -eq 1 ]] \
     && pass "(lean-zv-skip) the declared zero-lane opt-out composes into a recorded progress line" \
-    || fail "(lean-zv-skip) the composed green run left no opt-out record in $LEAN_PROG"
+    || fail "(lean-zv-skip) the composed green run left no opt-out record in $LANE_PROG"
 
   # AC-15's second write. What is pinned is not "a comment exists" but that it is
   # BOT-authored and carries the run id — an operator-posted comment is invisible to the
@@ -352,11 +352,11 @@ LEANC
   # The bot wrapper is stubbed, not mocked away: what is asserted is the BYTES posted, because
   # the boundary reads `run_id`/`session_id` out of that body and a marker missing either is
   # indistinguishable to it from no marker at all.
-  LEAN_BOT_SPOOL="$TMP/lean-bot-spool.txt"
+  LANE_BOT_SPOOL="$TMP/lean-bot-spool.txt"
   cat > "$TMP/lean-bot-stub.sh" <<'LEANBOT'
 #!/usr/bin/env bash
 for a in "$@"; do
-  case "$a" in body=@*) cat "${a#body=@}" >> "$LEAN_BOT_SPOOL" ;; esac
+  case "$a" in body=@*) cat "${a#body=@}" >> "$LANE_BOT_SPOOL" ;; esac
 done
 echo "https://example.invalid/pr/5#issuecomment-1"
 LEANBOT
@@ -368,39 +368,39 @@ LEANBOT
   # NO re-seed: cmd_5 asserts milestones 1-4 each left a `satisfied` record, and
   # lean_seed_progress wipes exactly those. This leg runs on the state leg 1 just composed,
   # which is also the only state a real run reaches milestone 5 in.
-  : > "$LEAN_BOT_SPOOL"
+  : > "$LANE_BOT_SPOOL"
   # unset RUN_ID, then let the identity resolve from the CACHE lean_seed_progress wrote — which
   # is what a real run does, since only entry/claim establish it and every later call reads it
   # back. Passing one explicitly here would test a shape no run has, and inheriting an ambient
   # one makes the leg stamp an identity the fixture never carries.
-  lm5=$( ( unset RUN_ID; cd "$LEAN_TREE" && SECOND_SHIFT_CONFIG="$LEAN_CFG" LEAN_PROGRESS_FILE="$LEAN_PROG" \
+  lm5=$( ( unset RUN_ID; cd "$LANE_TREE" && SECOND_SHIFT_CONFIG="$LANE_CFG" LANE_PROGRESS_FILE="$LANE_PROG" \
            CLAUDE_CODE_SESSION_ID=sess-lean-build GH_BOT="$TMP/lean-bot-stub.sh" \
-           LEAN_BOT_SPOOL="$LEAN_BOT_SPOOL" \
-           bash "$LEAN_GATE" --issue-file "$LEAN_ISSUE_NOREGIONS" 5 77 \
+           LANE_BOT_SPOOL="$LANE_BOT_SPOOL" \
+           bash "$LANE_GATE" --issue-file "$LANE_ISSUE_NOREGIONS" 5 77 \
            --pr-file "$TMP/lean-pr.json" --comments-file "$TMP/lean-comments-nomarker.json" \
            >/dev/null 2>&1; echo $? ) )
   if [[ "$lm5" -eq 0 ]] \
-     && grep -q 'stage: lean-pr-marker' "$LEAN_BOT_SPOOL" 2>/dev/null \
-     && grep -q 'run_id: r-lean-1' "$LEAN_BOT_SPOOL" 2>/dev/null \
-     && grep -q 'session_id: sess-lean-build' "$LEAN_BOT_SPOOL" 2>/dev/null; then
+     && grep -q 'stage: lean-pr-marker' "$LANE_BOT_SPOOL" 2>/dev/null \
+     && grep -q 'run_id: r-lean-1' "$LANE_BOT_SPOOL" 2>/dev/null \
+     && grep -q 'session_id: sess-lean-build' "$LANE_BOT_SPOOL" 2>/dev/null; then
     pass "(lean-mark) a composed milestone 5 stamps the PR with the build run's identity — both keys, bot-authored"
   else
-    fail "(lean-mark) rc=$lm5, spool=$(cat "$LEAN_BOT_SPOOL" 2>/dev/null)"
+    fail "(lean-mark) rc=$lm5, spool=$(cat "$LANE_BOT_SPOOL" 2>/dev/null)"
   fi
 
   # ...and the run that already stamped does not stamp again. The mandated pre-close `all`
   # sweep re-enters milestone 5, so a writer that posted unconditionally would leave one marker
   # per sweep on every PR the lane ever opens.
-  : > "$LEAN_BOT_SPOOL"
-  lm5b=$( ( unset RUN_ID; cd "$LEAN_TREE" && SECOND_SHIFT_CONFIG="$LEAN_CFG" LEAN_PROGRESS_FILE="$LEAN_PROG" \
+  : > "$LANE_BOT_SPOOL"
+  lm5b=$( ( unset RUN_ID; cd "$LANE_TREE" && SECOND_SHIFT_CONFIG="$LANE_CFG" LANE_PROGRESS_FILE="$LANE_PROG" \
             CLAUDE_CODE_SESSION_ID=sess-lean-build GH_BOT="$TMP/lean-bot-stub.sh" \
-            LEAN_BOT_SPOOL="$LEAN_BOT_SPOOL" \
-            bash "$LEAN_GATE" --issue-file "$LEAN_ISSUE_NOREGIONS" 5 77 \
+            LANE_BOT_SPOOL="$LANE_BOT_SPOOL" \
+            bash "$LANE_GATE" --issue-file "$LANE_ISSUE_NOREGIONS" 5 77 \
             --pr-file "$TMP/lean-pr.json" --comments-file "$TMP/lean-comments.json" \
             >/dev/null 2>&1; echo $? ) )
-  [[ "$lm5b" -eq 0 && ! -s "$LEAN_BOT_SPOOL" ]] \
+  [[ "$lm5b" -eq 0 && ! -s "$LANE_BOT_SPOOL" ]] \
     && pass "(lean-mark) a re-entered milestone 5 finds its own marker and posts nothing" \
-    || fail "(lean-mark) re-entry rc=$lm5b, spool=$(cat "$LEAN_BOT_SPOOL" 2>/dev/null)"
+    || fail "(lean-mark) re-entry rc=$lm5b, spool=$(cat "$LANE_BOT_SPOOL" 2>/dev/null)"
 
   # ---- leg 1c: #783 mark's OWN exit-artifacts check, composed at checklist step 7 ------------
   # Checklist step 7 calls `mark` directly, right after the PR is opened — before milestone 5
@@ -410,29 +410,29 @@ LEANBOT
 [{ "number": 5, "url": "https://example.invalid/pr/5", "isDraft": false,
    "body": "Closes #77" }]
 LEANPRNS
-  : > "$LEAN_BOT_SPOOL"
-  lmr=$( ( unset RUN_ID; cd "$LEAN_TREE" && SECOND_SHIFT_CONFIG="$LEAN_CFG" LEAN_PROGRESS_FILE="$LEAN_PROG" \
-           CLAUDE_CODE_SESSION_ID=sess-lean-build GH_BOT="$TMP/lean-bot-stub.sh" GH="${GH:-$LEAN_GH}" \
-           LEAN_BOT_SPOOL="$LEAN_BOT_SPOOL" \
-           bash "$LEAN_GATE" --issue-file "$LEAN_ISSUE_NOREGIONS" mark 77 \
+  : > "$LANE_BOT_SPOOL"
+  lmr=$( ( unset RUN_ID; cd "$LANE_TREE" && SECOND_SHIFT_CONFIG="$LANE_CFG" LANE_PROGRESS_FILE="$LANE_PROG" \
+           CLAUDE_CODE_SESSION_ID=sess-lean-build GH_BOT="$TMP/lean-bot-stub.sh" GH="${GH:-$LANE_GH}" \
+           LANE_BOT_SPOOL="$LANE_BOT_SPOOL" \
+           bash "$LANE_GATE" --issue-file "$LANE_ISSUE_NOREGIONS" mark 77 \
            --pr-file "$TMP/lean-pr-nospec.json" --comments-file "$TMP/lean-comments-nomarker.json" \
            2>&1 ) ); lmr_rc=$?
-  if [[ "$lmr_rc" -eq 1 ]] && grep -qF "does not link the committed spec" <<<"$lmr" && [[ ! -s "$LEAN_BOT_SPOOL" ]]; then
+  if [[ "$lmr_rc" -eq 1 ]] && grep -qF "does not link the committed spec" <<<"$lmr" && [[ ! -s "$LANE_BOT_SPOOL" ]]; then
     pass "(lean-mark-body) #783: mark itself refuses a PR body missing the spec link at step 7, and posts nothing"
-  else fail "(lean-mark-body) expected rc=1 naming the missing spec link and no write, rc=$lmr_rc: $lmr / spool=$(cat "$LEAN_BOT_SPOOL" 2>/dev/null)"; fi
+  else fail "(lean-mark-body) expected rc=1 naming the missing spec link and no write, rc=$lmr_rc: $lmr / spool=$(cat "$LANE_BOT_SPOOL" 2>/dev/null)"; fi
 
   # ...and the SAME session, once the body carries the spec link, posts as normal — the refusal
   # above was the body's doing, not a broken `mark`.
-  : > "$LEAN_BOT_SPOOL"
-  lmr2=$( ( unset RUN_ID; cd "$LEAN_TREE" && SECOND_SHIFT_CONFIG="$LEAN_CFG" LEAN_PROGRESS_FILE="$LEAN_PROG" \
-            CLAUDE_CODE_SESSION_ID=sess-lean-build GH_BOT="$TMP/lean-bot-stub.sh" GH="${GH:-$LEAN_GH}" \
-            LEAN_BOT_SPOOL="$LEAN_BOT_SPOOL" \
-            bash "$LEAN_GATE" --issue-file "$LEAN_ISSUE_NOREGIONS" mark 77 \
+  : > "$LANE_BOT_SPOOL"
+  lmr2=$( ( unset RUN_ID; cd "$LANE_TREE" && SECOND_SHIFT_CONFIG="$LANE_CFG" LANE_PROGRESS_FILE="$LANE_PROG" \
+            CLAUDE_CODE_SESSION_ID=sess-lean-build GH_BOT="$TMP/lean-bot-stub.sh" GH="${GH:-$LANE_GH}" \
+            LANE_BOT_SPOOL="$LANE_BOT_SPOOL" \
+            bash "$LANE_GATE" --issue-file "$LANE_ISSUE_NOREGIONS" mark 77 \
             --pr-file "$TMP/lean-pr.json" --comments-file "$TMP/lean-comments-nomarker.json" \
             2>&1 ) ); lmr2_rc=$?
-  if [[ "$lmr2_rc" -eq 0 ]] && grep -q 'run_id: r-lean-1' "$LEAN_BOT_SPOOL" 2>/dev/null; then
+  if [[ "$lmr2_rc" -eq 0 ]] && grep -q 'run_id: r-lean-1' "$LANE_BOT_SPOOL" 2>/dev/null; then
     pass "(lean-mark-body) the same call posts normally once the body carries the spec link"
-  else fail "(lean-mark-body) expected rc=0 and a posted marker once the body is fixed, rc=$lmr2_rc: $lmr2 / spool=$(cat "$LEAN_BOT_SPOOL" 2>/dev/null)"; fi
+  else fail "(lean-mark-body) expected rc=0 and a posted marker once the body is fixed, rc=$lmr2_rc: $lmr2 / spool=$(cat "$LANE_BOT_SPOOL" 2>/dev/null)"; fi
 
   # ---- leg 2: budget exhaustion -> abort record ----------------------------
   # #642 RE-POINTED THE DRIVER. It used to withhold the record entirely, which was a fix-budget
@@ -440,8 +440,8 @@ LEANPRNS
   # spends nothing (AC-3), so it can no longer exhaust a budget. A record that is PRESENT and
   # keyless is the same class (5) through the counter that still counts.
   lean_seed_progress r-lean-1 sess-lean-build
-  mv "$LEAN_VERDICT" "$TMP/held-lean-verdict.md"
-  printf 'verdict=approve\n' > "$LEAN_VERDICT"
+  mv "$LANE_VERDICT" "$TMP/held-lean-verdict.md"
+  printf 'verdict=approve\n' > "$LANE_VERDICT"
   lean_commit "a keyless record, to drive the fix budget"
   lean_rcs=""
   for _ in 1 2 3 4; do lean_gate 4 77 >/dev/null 2>&1; lean_rcs="$lean_rcs$?"; done
@@ -460,7 +460,7 @@ LEANPRNS
   # rather than re-spawning BUILD to fix nothing. Same tree, a fresh record, so the counters below
   # are this leg's own.
   lean_seed_progress r-lean-1 sess-lean-build
-  rm -f "$LEAN_VERDICT"
+  rm -f "$LANE_VERDICT"
   lean_commit "the keyless record is withdrawn"
   lean_abs_rcs=""
   for _ in 1 2 3 4; do lean_gate 4 77 >/dev/null 2>&1; lean_abs_rcs="$lean_abs_rcs$?"; done
@@ -470,7 +470,7 @@ LEANPRNS
      && "$(lean_count 'budget-exhausted')" -eq 0 ]] \
     && pass "(lean-absent-verdict) #642: four calls against an absent verdict record compose to 'absent' rows, class 5 throughout, and no fix budget spent" \
     || fail "(lean-absent-verdict) rcs=$lean_abs_rcs absent=$(lean_count '| milestone-4 | absent |') attempts=$(lean_count '| milestone-4 | attempt |') exhausted=$(lean_count 'budget-exhausted'), expected 5555/4/0/0"
-  mv "$TMP/held-lean-verdict.md" "$LEAN_VERDICT" 2>/dev/null || true
+  mv "$TMP/held-lean-verdict.md" "$LANE_VERDICT" 2>/dev/null || true
 
   # ---- leg 3: needs-work -> fix-loop re-entry ------------------------------
   # Round 2 arrives from a NEW review context, so it carries a new review identity — that is
@@ -503,10 +503,10 @@ LEANPRNS
   lean_gate all 77 >/dev/null 2>&1; tx_nw_all=$?
 
   lean_seed_progress r-lean-1 sess-lean-build
-  mv "$LEAN_VERDICT" "$TMP/held-lean-verdict-tx.md"
+  mv "$LANE_VERDICT" "$TMP/held-lean-verdict-tx.md"
   lean_gate 4 77 >/dev/null 2>&1; tx_absent=$?
   lean_gate all 77 >/dev/null 2>&1; tx_absent_all=$?
-  mv "$TMP/held-lean-verdict-tx.md" "$LEAN_VERDICT"
+  mv "$TMP/held-lean-verdict-tx.md" "$LANE_VERDICT"
 
   lean_seed_progress r-lean-1 sess-lean-build
   lean_write_verdict approve r-lean-1 sess-lean-review-tx2
@@ -538,7 +538,7 @@ LEANPRNS
   lean_write_verdict approve r-lean-review-tx4 sess-lean-review-tx4
 
   # ---- leg 4: P10 — the same chain reds on a build-authored verdict ---------
-  # The composed counterpart to lean-gate-selftest's (n) cases. Everything else in leg 1 is
+  # The composed counterpart to milestone-gate-selftest's (n) cases. Everything else in leg 1 is
   # left exactly as it was; ONLY the verdict's authorship changes, so a green here would mean
   # the milestone-4 link in the chain is not carrying the check at all.
   lean_seed_progress r-lean-1 sess-lean-build
@@ -556,15 +556,15 @@ LEANPRNS
   # the #597 base-advance escape hatch they shared — so the legs that composed them across a
   # later commit, a rebase and a base merge went with them: they asserted a contract this chain
   # no longer carries, and leaving them would have made this scenario claim one that does not
-  # exist. The question is asked once now, by lean-evidence.sh's arm_freshness at the merge
-  # boundary, and lean-evidence-selftest.sh composes it there.
+  # exist. The question is asked once now, by boundary-evidence.sh's arm_freshness at the merge
+  # boundary, and boundary-evidence-selftest.sh composes it there.
   #
   # What COMPOSES here still is the pair no boundary check duplicates: a record predating the
   # `reviewed_head` key is refused rather than grandfathered, and the class it is refused in
   # survives the walk. Everything else in leg 1 is left exactly as it was, so a green would mean
   # the milestone-4 link is not carrying the check at all.
   lean_seed_progress r-lean-1 sess-lean-build
-  printf 'verdict=approve\nrun_id: r-lean-review-7\nsession_id: sess-lean-review-7\nrounds: 7\n' > "$LEAN_VERDICT"
+  printf 'verdict=approve\nrun_id: r-lean-review-7\nsession_id: sess-lean-review-7\nrounds: 7\n' > "$LANE_VERDICT"
   lean_commit "a key-less record, as written before reviewed_head existed"
   lean_gate 4 77 >/dev/null 2>&1; decl3=$?
   [[ "$decl3" -eq 5 ]] \
@@ -586,8 +586,8 @@ LEANPRNS
   # CLAUDE.md: a new gate contract must extend this scenario. What only a composed leg shows is
   # the ECONOMICS — that a self-contradictory record never becomes one, so the lane stops at the
   # handoff instead of carrying a contradiction to the merge boundary and spending a round there.
-  # The grammar's own arms are per-tool: the writer's in lean-gate-selftest.sh's (vs) block, the
-  # boundary's in lean-evidence-selftest.sh's (sc) block, over records that never passed a writer.
+  # The grammar's own arms are per-tool: the writer's in milestone-gate-selftest.sh's (vs) block, the
+  # boundary's in boundary-evidence-selftest.sh's (sc) block, over records that never passed a writer.
   #
   # The REAL `verdict` subcommand, from a review identity distinct on both axes — a hand-written
   # record would compose a state no review session produces and would skip the refusal entirely.
@@ -595,27 +595,27 @@ LEANPRNS
   # The writer refuses a `--panel` naming no reviewer on every ticket, armed or not, so a call
   # that omitted it would be refused for that and never reach the scorecard grammar it is here
   # to compose.
-  LEAN_UPANEL="review-toolkit:security-reviewer"
+  LANE_UPANEL="review-toolkit:security-reviewer"
   lean_verdict() { # lean_verdict <session-id> <run-id> <scorecard-file>
-    rm -f "$LEAN_TREE/.claude/pipeline-state/77-review-run-id"
-    ( unset RUN_ID GH_BOT; cd "$LEAN_TREE" && SECOND_SHIFT_CONFIG="$LEAN_CFG" \
-      LEAN_PROGRESS_FILE="$LEAN_PROG" CLAUDE_CODE_SESSION_ID="$1" RUN_ID="$2" \
-      bash "$LEAN_GATE" verdict 77 --pr 5 --verdict approve --panel "$LEAN_UPANEL" \
+    rm -f "$LANE_TREE/.claude/pipeline-state/77-review-run-id"
+    ( unset RUN_ID GH_BOT; cd "$LANE_TREE" && SECOND_SHIFT_CONFIG="$LANE_CFG" \
+      LANE_PROGRESS_FILE="$LANE_PROG" CLAUDE_CODE_SESSION_ID="$1" RUN_ID="$2" \
+      bash "$LANE_GATE" verdict 77 --pr 5 --verdict approve --panel "$LANE_UPANEL" \
       --summary-file "$3" 2>&1 )
   }
   printf '## AC scorecard\n\n| AC-n | score | evidence |\n| --- | --- | --- |\n| AC-1 | unsatisfied | the guard is not wired |\n' \
     > "$TMP/lean-scorecard-bad.md"
 
   lean_seed_progress r-lean-1 sess-lean-build
-  rm -f "$LEAN_VERDICT"; lean_commit "the record the refused round must not resurrect"
+  rm -f "$LANE_VERDICT"; lean_commit "the record the refused round must not resurrect"
   lean_sc_bad_out="$(lean_verdict sess-lean-review-sc r-lean-review-sc "$TMP/lean-scorecard-bad.md")"; lean_sc_bad=$?
-  lean_sc_bad_rec=0; [[ -f "$LEAN_VERDICT" ]] && lean_sc_bad_rec=1
+  lean_sc_bad_rec=0; [[ -f "$LANE_VERDICT" ]] && lean_sc_bad_rec=1
   lean_gate 4 77 >/dev/null 2>&1; lean_sc_bad_m4=$?
 
   # ...and the SAME session, the SAME tree, differing only in the scorecard, reaches the write
   # and milestone 4's pass. That pair is the non-vacuity: neither half means anything alone.
   lean_seed_progress r-lean-1 sess-lean-build
-  lean_sc_ok_out="$(lean_verdict sess-lean-review-sc2 r-lean-review-sc2 "$LEAN_SCORECARD")"; lean_sc_ok=$?
+  lean_sc_ok_out="$(lean_verdict sess-lean-review-sc2 r-lean-review-sc2 "$LANE_SCORECARD")"; lean_sc_ok=$?
   # Both outputs ride into the failure message below: a green half that reds tells you nothing
   # unless you can see what the writer said about it.
   lean_commit "review session commits its verdict record"
@@ -637,7 +637,7 @@ LEANPRNS
   # ---- non-vacuity ---------------------------------------------------------
   # An all-green leg that stays green over a broken tree proves nothing.
   lean_seed_progress r-lean-1 sess-lean-build
-  mv "$LEAN_SPEC" "$TMP/held-lean-spec.md"
+  mv "$LANE_SPEC" "$TMP/held-lean-spec.md"
   lean_gate 1 77 >/dev/null 2>&1; lean_nv=$?
   [[ "$lean_nv" -ne 0 ]] \
     && pass "(lean-nv) non-vacuity: the same leg reds when the spec is absent" \
@@ -671,7 +671,7 @@ LEANPRNS
   # absent calls above bought milestone 1 nothing, so a CONTENT failure gets its full 3 attempts
   # and the 4th hard-stops. Under the pre-#494 conflation this sequence reads 4444 and the abort
   # record lands three calls early.
-  printf '# spec\n\nNothing numbered here.\n' > "$LEAN_SPEC"
+  printf '# spec\n\nNothing numbered here.\n' > "$LANE_SPEC"
   ab_content=""
   for _ in 1 2 3 4; do lean_gate 1 77 >/dev/null 2>&1; ab_content="$ab_content$?"; done
   [[ "$ab_content" == "1114" && "$(lean_count 'budget-exhausted')" -ge 1 \
@@ -679,7 +679,7 @@ LEANPRNS
     && pass "(lean-absent) after three absent calls a CONTENT failure still reaches its 4th-red abort record with the full budget" \
     || fail "(lean-absent) content sequence was $ab_content, budget-exhausted=$(lean_count 'budget-exhausted'), satisfied=$(lean_count '| milestone-1 | satisfied'), expected 1114/>=1/0"
 
-  mv "$TMP/held-lean-spec.md" "$LEAN_SPEC"
+  mv "$TMP/held-lean-spec.md" "$LANE_SPEC"
   lean_seed_progress r-lean-1 sess-lean-build
 
   # ---- leg 3e: the pre-flight receipt, composed (#517) ----------------------
@@ -695,20 +695,20 @@ LEANPRNS
   # The receipt is written at the DEFAULT path rather than through --ledger-file, so the leg
   # composes the real $MAIN_ROOT/$STATE_DIR/<issue>-ledger.md resolution too. It is removed
   # again at the end: it would otherwise change milestone 1 for every leg below.
-  LEAN_RECEIPT="$LEAN_TREE/.claude/pipeline-state/77-ledger.md"
-  mkdir -p "$LEAN_TREE/.claude/pipeline-state"
+  LANE_RECEIPT="$LANE_TREE/.claude/pipeline-state/77-ledger.md"
+  mkdir -p "$LANE_TREE/.claude/pipeline-state"
   printf '%s\n' '# receipt' '## Decision Ledger' \
     '| ID | Decision | Resolution | Provenance | Kind |' \
     '| --- | --- | --- | --- | --- |' \
     '| D-1 | Fix scope | Both call sites | user-answered | intent |' \
     '| D-2 | Cache TTL | 5 minutes | codebase-derived | fact |' \
-    > "$LEAN_RECEIPT"
-  cp "$LEAN_SPEC" "$TMP/held-lean-spec-517.md"
+    > "$LANE_RECEIPT"
+  cp "$LANE_SPEC" "$TMP/held-lean-spec-517.md"
 
   # The spec leg 1 committed carries no Decision Ledger at all — the state the founding
   # incident shipped in, and the state every spec in this suite is otherwise in. That is why
   # the refusal here names the missing SECTION rather than the individual row: the per-row
-  # naming is lean-gate-selftest.sh's (a9), and what this leg owns is the composed path.
+  # naming is milestone-gate-selftest.sh's (a9), and what this leg owns is the composed path.
   lean_seed_progress r-lean-1 sess-lean-build
   rcp_all_out="$(lean_gate all 77 2>&1)"; rcp_all=$?
   rcp_pre_attempt=$(lean_count '| milestone-1 | attempt |')
@@ -722,15 +722,15 @@ LEANPRNS
     printf '| ID | Decision | Resolution | Provenance |\n'
     printf '| --- | --- | --- | --- |\n'
     printf '| D-1 | Fix scope | Both call sites | user-answered |\n'
-  } >> "$LEAN_SPEC"
+  } >> "$LANE_SPEC"
   lean_seed_progress r-lean-1 sess-lean-build
   rcp_fixed_out="$(lean_gate 1 77 2>&1)"; rcp_fixed=$?
 
   # NON-VACUITY, and the inertness contract: put the dropped-row spec back, take the RECEIPT
   # away, and the same call passes. Without this the leg cannot tell "the reconciliation
   # refused" from "this spec was refused for some other reason all along".
-  cp "$TMP/held-lean-spec-517.md" "$LEAN_SPEC"
-  rm -f "$LEAN_RECEIPT"
+  cp "$TMP/held-lean-spec-517.md" "$LANE_SPEC"
+  rm -f "$LANE_RECEIPT"
   lean_seed_progress r-lean-1 sess-lean-build
   rcp_inert_out="$(lean_gate 1 77 2>&1)"; rcp_inert=$?
 
@@ -752,7 +752,7 @@ LEANPRNS
   #
   # What only a composed leg can show is the SPLIT the mechanism is built on. The per-tool suites
   # each see one side: operator-override-selftest.sh proves the tool with no gate, and
-  # lean-gate-selftest.sh's (yo*) block proves the gate against records it writes itself. Neither
+  # milestone-gate-selftest.sh's (yo*) block proves the gate against records it writes itself. Neither
   # can show the real sequence, which crosses a session boundary — an ATTENDED operator records
   # the answer, and a HEADLESS payload later reads it. `lean_gate` unsets RUN_ID, so every call
   # below resolves headless without being told to; that is not a convenience, it is the leg.
@@ -760,14 +760,14 @@ LEANPRNS
   # The pass direction is what makes this a liveness scenario rather than a refusal test: after
   # the override the run walks on to a satisfied milestone 1, so the chain the fix budget and the
   # later milestones hang off is intact.
-  LEAN_OVT="$HERE/../../tools/operator-override.sh"
-  LEAN_ISSUE_PAA="$TMP/lean-issue-paa.json"
-  printf '{"body": "# issue\\n\\n## Open Regions\\n\\n| ID | Region | Disposition |\\n| --- | --- | --- |\\n| OR-1 | Ordering guarantee | pause-and-ask |\\n"}' > "$LEAN_ISSUE_PAA"
+  LANE_OVT="$HERE/../../tools/operator-override.sh"
+  LANE_ISSUE_PAA="$TMP/lean-issue-paa.json"
+  printf '{"body": "# issue\\n\\n## Open Regions\\n\\n| ID | Region | Disposition |\\n| --- | --- | --- |\\n| OR-1 | Ordering guarantee | pause-and-ask |\\n"}' > "$LANE_ISSUE_PAA"
   echo '[]' > "$TMP/lean-comments-empty.json"
-  ov_gate() { lean_gate "$@" --issue-file "$LEAN_ISSUE_PAA" --comments-file "$TMP/lean-comments-empty.json"; }
+  ov_gate() { lean_gate "$@" --issue-file "$LANE_ISSUE_PAA" --comments-file "$TMP/lean-comments-empty.json"; }
 
-  if [[ ! -f "$LEAN_OVT" ]]; then
-    fail "(lean-override) the override mechanism at $LEAN_OVT is absent — this leg would pass vacuously"
+  if [[ ! -f "$LANE_OVT" ]]; then
+    fail "(lean-override) the override mechanism at $LANE_OVT is absent — this leg would pass vacuously"
   else
     lean_seed_progress r-lean-1 sess-lean-build
     ovl_before=$(lean_count '| milestone-1 | attempt |')
@@ -777,19 +777,19 @@ LEANPRNS
     # The operator's side: a REAL attended session, minting a real token and writing a real
     # record through the real tool. Its run and session ids are the operator's, deliberately
     # unrelated to the build run's — which is what the gate must not care about at read time.
-    ( cd "$LEAN_TREE" && env RUN_ID=r-operator CLAUDE_CODE_SESSION_ID=sess-operator \
-        SECOND_SHIFT_CONFIG="$LEAN_CFG" bash "$LEAN_OVT" attend ) >/dev/null 2>&1
-    ( cd "$LEAN_TREE" && env RUN_ID=r-operator CLAUDE_CODE_SESSION_ID=sess-operator \
-        SECOND_SHIFT_CONFIG="$LEAN_CFG" bash "$LEAN_OVT" record \
+    ( cd "$LANE_TREE" && env RUN_ID=r-operator CLAUDE_CODE_SESSION_ID=sess-operator \
+        SECOND_SHIFT_CONFIG="$LANE_CFG" bash "$LANE_OVT" attend ) >/dev/null 2>&1
+    ( cd "$LANE_TREE" && env RUN_ID=r-operator CLAUDE_CODE_SESSION_ID=sess-operator \
+        SECOND_SHIFT_CONFIG="$LANE_CFG" bash "$LANE_OVT" record \
         --gate spec-open-region --scope open-region-resolution --issue 77 --region OR-1 \
         --decision 'append-only ordering, per the operator' \
-        --answer 'Append-only is fine. Go.' --repo-root "$LEAN_TREE" ) >/dev/null 2>&1
-    git -C "$LEAN_TREE" add -A >/dev/null 2>&1
-    git -C "$LEAN_TREE" commit -q -m "operator override for OR-1" >/dev/null 2>&1
+        --answer 'Append-only is fine. Go.' --repo-root "$LANE_TREE" ) >/dev/null 2>&1
+    git -C "$LANE_TREE" add -A >/dev/null 2>&1
+    git -C "$LANE_TREE" commit -q -m "operator override for OR-1" >/dev/null 2>&1
 
     ovl_yield_out="$(ov_gate 1 77 2>&1)"; ovl_yield=$?
-    ovl_state="$( cd "$LEAN_TREE" && env -u RUN_ID -u CLAUDE_CODE_SESSION_ID \
-        SECOND_SHIFT_CONFIG="$LEAN_CFG" bash "$LEAN_OVT" state 2>&1 )"
+    ovl_state="$( cd "$LANE_TREE" && env -u RUN_ID -u CLAUDE_CODE_SESSION_ID \
+        SECOND_SHIFT_CONFIG="$LANE_CFG" bash "$LANE_OVT" state 2>&1 )"
 
     [[ "$ovl_refuse" -eq 1 && "$ovl_after" -eq $((ovl_before + 1)) && "$ovl_yield" -eq 0 ]] \
       && grep -q 'region OR-1' <<< "$ovl_refuse_out" \
@@ -801,15 +801,15 @@ LEANPRNS
     # NON-VACUITY, the same shape (lean-nv) uses for the spec: remove the record and the identical
     # call must red again. Without it, a gate that had stopped checking regions at all would pass
     # the leg above.
-    rm -f "$LEAN_TREE/docs/plans/acme-77-lean-override.md"
-    git -C "$LEAN_TREE" add -A >/dev/null 2>&1
-    git -C "$LEAN_TREE" commit -q -m "drop the operator override" >/dev/null 2>&1
+    rm -f "$LANE_TREE/docs/plans/acme-77-lean-override.md"
+    git -C "$LANE_TREE" add -A >/dev/null 2>&1
+    git -C "$LANE_TREE" commit -q -m "drop the operator override" >/dev/null 2>&1
     lean_seed_progress r-lean-1 sess-lean-build
     ov_gate 1 77 >/dev/null 2>&1; ovl_nv=$?
     [[ "$ovl_nv" -ne 0 ]] \
       && pass "(lean-override-nv) non-vacuity: the same call reds once the record is gone" \
       || fail "(lean-override-nv) milestone 1 passed with the override record removed — the leg is vacuous"
-    rm -rf "$LEAN_TREE/.claude/pipeline-state/attend-sess-operator.token"
+    rm -rf "$LANE_TREE/.claude/pipeline-state/attend-sess-operator.token"
   fi
 
   lean_seed_progress r-lean-1 sess-lean-build
@@ -828,19 +828,19 @@ LEANPRNS
   #
   # The PASS direction is what makes this liveness rather than a refusal test: rewrite the very
   # same regions in a shape the parser reads, and the run walks on to a satisfied milestone 1.
-  LEAN_ISSUE_UNENUM="$TMP/lean-issue-unenum.json"
-  printf '{"body": "# issue\\n\\n## Open regions\\n\\n- Completeness of the watcher taxonomy; whether it covers every shape is not derivable.\\n"}' > "$LEAN_ISSUE_UNENUM"
-  LEAN_ISSUE_READABLE="$TMP/lean-issue-readable.json"
-  printf '{"body": "# issue\\n\\n## Open regions\\n\\n- OR-1: completeness of the watcher taxonomy. reversible-default-and-flag, default as listed.\\n"}' > "$LEAN_ISSUE_READABLE"
+  LANE_ISSUE_UNENUM="$TMP/lean-issue-unenum.json"
+  printf '{"body": "# issue\\n\\n## Open regions\\n\\n- Completeness of the watcher taxonomy; whether it covers every shape is not derivable.\\n"}' > "$LANE_ISSUE_UNENUM"
+  LANE_ISSUE_READABLE="$TMP/lean-issue-readable.json"
+  printf '{"body": "# issue\\n\\n## Open regions\\n\\n- OR-1: completeness of the watcher taxonomy. reversible-default-and-flag, default as listed.\\n"}' > "$LANE_ISSUE_READABLE"
 
   lean_seed_progress r-lean-1 sess-lean-build
   une_before=$(lean_count '| milestone-1 | attempt |')
-  une_refuse_out="$(lean_gate 1 77 --issue-file "$LEAN_ISSUE_UNENUM" --comments-file "$TMP/lean-comments-empty.json" 2>&1)"; une_refuse=$?
+  une_refuse_out="$(lean_gate 1 77 --issue-file "$LANE_ISSUE_UNENUM" --comments-file "$TMP/lean-comments-empty.json" 2>&1)"; une_refuse=$?
   une_after=$(lean_count '| milestone-1 | attempt |')
 
   # The same section, rewritten into a shape the parser reads — and deliberately a REVERSIBLE
   # region, so what clears it is enumerability and not the region going away.
-  une_pass_out="$(lean_gate 1 77 --issue-file "$LEAN_ISSUE_READABLE" --comments-file "$TMP/lean-comments-empty.json" 2>&1)"; une_pass=$?
+  une_pass_out="$(lean_gate 1 77 --issue-file "$LANE_ISSUE_READABLE" --comments-file "$TMP/lean-comments-empty.json" 2>&1)"; une_pass=$?
   une_pass_after=$(lean_count '| milestone-1 | attempt |')
 
   [[ "$une_refuse" -eq 2 && "$une_after" -eq "$une_before" && "$une_pass" -eq 0 && "$une_pass_after" -eq "$une_before" ]] \
@@ -850,10 +850,10 @@ LEANPRNS
 
   # NON-VACUITY, the shape (lean-override-nv) uses: the readable fixture must be capable of
   # refusing, or the pass direction above proves only that milestone 1 stopped reading sections.
-  LEAN_ISSUE_READABLE_PAA="$TMP/lean-issue-readable-paa.json"
-  printf '{"body": "# issue\\n\\n## Open regions\\n\\n- OR-1: completeness of the watcher taxonomy. pause-and-ask, nobody owns it.\\n"}' > "$LEAN_ISSUE_READABLE_PAA"
+  LANE_ISSUE_READABLE_PAA="$TMP/lean-issue-readable-paa.json"
+  printf '{"body": "# issue\\n\\n## Open regions\\n\\n- OR-1: completeness of the watcher taxonomy. pause-and-ask, nobody owns it.\\n"}' > "$LANE_ISSUE_READABLE_PAA"
   lean_seed_progress r-lean-1 sess-lean-build
-  une_nv_out="$(lean_gate 1 77 --issue-file "$LEAN_ISSUE_READABLE_PAA" --comments-file "$TMP/lean-comments-empty.json" 2>&1)"; une_nv=$?
+  une_nv_out="$(lean_gate 1 77 --issue-file "$LANE_ISSUE_READABLE_PAA" --comments-file "$TMP/lean-comments-empty.json" 2>&1)"; une_nv=$?
   [[ "$une_nv" -eq 1 ]] && grep -q 'region OR-1' <<< "$une_nv_out" \
     && pass "(lean-unenumerable-nv) non-vacuity: the same bullet shape dispositioned pause-and-ask still reaches the unresolved-region refusal" \
     || fail "(lean-unenumerable-nv) expected rc=1 naming OR-1, got $une_nv: $une_nv_out"
@@ -864,8 +864,8 @@ LEANPRNS
   # Same CLAUDE.md obligation: the interrupted budget's rc=4 is a new verdict path. The per-tool
   # suite proves the pair and the bound against one milestone in isolation, including the real
   # SIGKILL. What only a composed leg can show is the SEAM the scheduler reads it through — an
-  # exhausted interrupted budget must reach `LEAN_GATE_OBSERVE=1` as a 4 while recording nothing,
-  # or orchestrate-lean's verdict read would either miss the hard stop or write build-role rows
+  # exhausted interrupted budget must reach `LANE_GATE_OBSERVE=1` as a 4 while recording nothing,
+  # or orchestrate's verdict read would either miss the hard stop or write build-role rows
   # into the record on every round.
   #
   # The tree here is fully green — leg 1 walked milestones 1-5 on it and the spec is back — so
@@ -873,9 +873,9 @@ LEANPRNS
   # DUPLICATING what the real writer just produced, not by hand-spelling a shape that would keep
   # passing after the writer moved.
   lean_gate 1 77 >/dev/null 2>&1; in_seed=$?
-  in_started="$(grep -F '| milestone-1 | started |' "$LEAN_PROG" 2>/dev/null | head -n1)"
-  in_concluded="$(grep -F '| milestone-1 | concluded |' "$LEAN_PROG" 2>/dev/null | head -n1)"
-  for _ in 1 2 3 4 5; do printf '%s\n' "$in_started" >> "$LEAN_PROG"; done
+  in_started="$(grep -F '| milestone-1 | started |' "$LANE_PROG" 2>/dev/null | head -n1)"
+  in_concluded="$(grep -F '| milestone-1 | concluded |' "$LANE_PROG" 2>/dev/null | head -n1)"
+  for _ in 1 2 3 4 5; do printf '%s\n' "$in_started" >> "$LANE_PROG"; done
   in_rows_before="$(lean_count '| milestone-1 |')"
   lean_gate_observe 1 77 >/dev/null 2>&1; in_obs=$?
   in_rows_obs="$(lean_count '| milestone-1 |')"
@@ -883,7 +883,7 @@ LEANPRNS
   # THE DISCRIMINATOR: the bound is on UNCLOSED rows, not on how many evaluations have ever run.
   # Closing them — the state an uninterrupted run is always in — restores the milestone. Without
   # this the leg passes for a gate that simply stops working after six calls.
-  for _ in 1 2 3 4 5; do printf '%s\n' "$in_concluded" >> "$LEAN_PROG"; done
+  for _ in 1 2 3 4 5; do printf '%s\n' "$in_concluded" >> "$LANE_PROG"; done
   lean_gate 1 77 >/dev/null 2>&1; in_cleared=$?
   [[ -n "$in_started" && -n "$in_concluded" && "$in_seed" -eq 0 \
      && "$in_obs" -eq 4 && "$in_rows_obs" -eq "$in_rows_before" \
@@ -905,7 +905,7 @@ LEANPRNS
   lean_seed_unattested r-lean-1 sess-lean-build
   lean_gate all 77 >/dev/null 2>&1; ea_all=$?
   lean_gate 4 77 >/dev/null 2>&1; ea_m4=$?
-  ea_attempts=$(grep -cF '| milestone-' "$LEAN_PROG" 2>/dev/null) || ea_attempts=0
+  ea_attempts=$(grep -cF '| milestone-' "$LANE_PROG" 2>/dev/null) || ea_attempts=0
   # ...and the same tree, one `entry` call later, walks the whole progression again.
   lean_seed_progress r-lean-1 sess-lean-build
   ea_healed_out="$(lean_gate 1 77)"; ea_healed=$?
@@ -922,22 +922,22 @@ LEANPRNS
   #
   # The tree is the same fully-green one leg 3b uses, so the only thing under test is the missing
   # or wrong argument. `entry` is called with none, then with a ticket the lane branch contradicts.
-  rm -f "$LEAN_PROG"
-  tr_none="$( ( unset RUN_ID GH_BOT; cd "$LEAN_TREE" && SECOND_SHIFT_CONFIG="$LEAN_CFG" \
-                LEAN_PROGRESS_FILE="$LEAN_PROG" CLAUDE_CODE_SESSION_ID="$LEAN_SID" \
-                GH="${GH:-$LEAN_GH}" bash "$LEAN_GATE" entry 2>&1 ) )"; tr_none_rc=$?
-  tr_rows_after=0; [[ -f "$LEAN_PROG" ]] && tr_rows_after=1
+  rm -f "$LANE_PROG"
+  tr_none="$( ( unset RUN_ID GH_BOT; cd "$LANE_TREE" && SECOND_SHIFT_CONFIG="$LANE_CFG" \
+                LANE_PROGRESS_FILE="$LANE_PROG" CLAUDE_CODE_SESSION_ID="$LANE_SID" \
+                GH="${GH:-$LANE_GH}" bash "$LANE_GATE" entry 2>&1 ) )"; tr_none_rc=$?
+  tr_rows_after=0; [[ -f "$LANE_PROG" ]] && tr_rows_after=1
   # ...and the run is genuinely unstarted: `all` still refuses for want of the attestation the
   # refused call never wrote. A refusal that printed and proceeded would heal here.
   lean_gate all 77 >/dev/null 2>&1; tr_all=$?
   # The other half, on a branch this tree IS on: the argument and the checkout disagree.
-  git -C "$LEAN_TREE" branch -f claude/acme-77 HEAD >/dev/null 2>&1
-  tr_head="$(git -C "$LEAN_TREE" rev-parse --abbrev-ref HEAD)"
-  git -C "$LEAN_TREE" checkout -q claude/acme-77 2>/dev/null
-  tr_wrong="$( ( unset RUN_ID GH_BOT LEAN_GATE_ANY_TREE; cd "$LEAN_TREE" && SECOND_SHIFT_CONFIG="$LEAN_CFG" \
-                 LEAN_PROGRESS_FILE="$LEAN_PROG" CLAUDE_CODE_SESSION_ID="$LEAN_SID" \
-                 GH="${GH:-$LEAN_GH}" bash "$LEAN_GATE" entry 78 2>&1 ) )"; tr_wrong_rc=$?
-  git -C "$LEAN_TREE" checkout -q "$tr_head" 2>/dev/null
+  git -C "$LANE_TREE" branch -f claude/acme-77 HEAD >/dev/null 2>&1
+  tr_head="$(git -C "$LANE_TREE" rev-parse --abbrev-ref HEAD)"
+  git -C "$LANE_TREE" checkout -q claude/acme-77 2>/dev/null
+  tr_wrong="$( ( unset RUN_ID GH_BOT LANE_GATE_ANY_TREE; cd "$LANE_TREE" && SECOND_SHIFT_CONFIG="$LANE_CFG" \
+                 LANE_PROGRESS_FILE="$LANE_PROG" CLAUDE_CODE_SESSION_ID="$LANE_SID" \
+                 GH="${GH:-$LANE_GH}" bash "$LANE_GATE" entry 78 2>&1 ) )"; tr_wrong_rc=$?
+  git -C "$LANE_TREE" checkout -q "$tr_head" 2>/dev/null
   # ...and naming the run the tree is actually on starts it, which is what makes the pair evidence
   # rather than a gate that refuses everything.
   lean_seed_progress r-lean-1 sess-lean-build
@@ -960,15 +960,15 @@ LEANPRNS
   # leaves the tree byte-identical for the legs below, which is load-bearing since leg 4 onward
   # keeps composing milestone 4's patch-id freshness against this same history.
   lean_seed_unattested r-lean-1 sess-lean-build
-  ec_head="$(git -C "$LEAN_TREE" rev-parse HEAD)"
-  ec_origin="$(git -C "$LEAN_TREE" rev-parse refs/remotes/origin/main)"
-  git -C "$LEAN_TREE" update-ref refs/remotes/origin/main "$ec_head"
+  ec_head="$(git -C "$LANE_TREE" rev-parse HEAD)"
+  ec_origin="$(git -C "$LANE_TREE" rev-parse refs/remotes/origin/main)"
+  git -C "$LANE_TREE" update-ref refs/remotes/origin/main "$ec_head"
   GIT_AUTHOR_DATE='2026-08-07T13:22:50Z' lean_commit "work authored before the precondition existed"
   ec_out="$(lean_gate 1 77)"; ec_rc=$?
   ec_rows="$(lean_count '| entry | ledger=')"
   ec_satisfied="$(lean_count '| milestone-1 | satisfied')"
-  git -C "$LEAN_TREE" reset --hard -q "$ec_head"
-  git -C "$LEAN_TREE" update-ref refs/remotes/origin/main "$ec_origin"
+  git -C "$LANE_TREE" reset --hard -q "$ec_head"
+  git -C "$LANE_TREE" update-ref refs/remotes/origin/main "$ec_origin"
   # ...and the DISCRIMINATOR: the identical unattested state on the un-aged branch is still
   # refused. Without it the leg passes for a precondition that stopped guarding anything at all.
   lean_gate 1 77 >/dev/null 2>&1; ec_paired=$?
@@ -977,15 +977,15 @@ LEANPRNS
     || fail "(lean-entry-since) rc=$ec_rc entry-rows=$ec_rows milestone-1-records=$ec_satisfied paired=$ec_paired, expected 0/0/≥1/2: $ec_out"
 
   # ---- leg 4: the jira adapter, composed end to end ------------------------
-  # The three adapter branch sites are proven in ISOLATION by lean-gate-selftest.sh's (n*)
+  # The three adapter branch sites are proven in ISOLATION by milestone-gate-selftest.sh's (n*)
   # cases. What only a composed leg can show is that they CHAIN: that the progress file
   # cmd_claim creates while making zero tracker writes is the same file milestones 1-5 later
   # satisfy, and that the milestones documented as adapter-INSENSITIVE really are — under an
   # alphanumeric ticket key, where every derived path (docs/plans/acme-ACME-7-lean.md) has a
   # different shape than the numeric case the other legs walk. Those are prose claims at
   # three surfaces with no oracle behind them until here.
-  LEAN_CFG_J="$TMP/lean-config-jira.json"
-  cat > "$LEAN_CFG_J" <<'LEANCFGJ'
+  LANE_CFG_J="$TMP/lean-config-jira.json"
+  cat > "$LANE_CFG_J" <<'LEANCFGJ'
 {
   "tracker": { "type": "jira", "writes": false, "branchPrefix": "abc/", "keyPattern": "[A-Z]+-[0-9]+" },
   "topology": { "repos": { "acme": { "path": ".", "baseBranch": "main" } } },
@@ -993,20 +993,20 @@ LEANPRNS
   "commands": { "acme": { "lint": null, "typecheck": null, "test": null, "allowUnverified": true } }
 }
 LEANCFGJ
-  LEAN_PROG_J="$TMP/lean-progress-jira.md"
-  LEAN_JKEY="ACME-7"
+  LANE_PROG_J="$TMP/lean-progress-jira.md"
+  LANE_JKEY="ACME-7"
   # env -u GH_BOT is load-bearing, not hygiene: the github arm dies on `${GH_BOT:?}`, so a leg
   # that completes without it in the environment is evidence the jira arm never reached there.
   # CLAUDE_CODE_SESSION_ID is the BUILD identity — `claim` stamps it into the progress file, and
   # milestone 4 compares it against the review session id in the committed record.
-  lean_gate_j() { ( cd "$LEAN_TREE" && env -u GH_BOT SECOND_SHIFT_CONFIG="$LEAN_CFG_J" \
-                    LEAN_PROGRESS_FILE="$LEAN_PROG_J" RUN_ID="r-lean-j" GH="${GH:-$LEAN_GH}" \
-                    CLAUDE_CODE_SESSION_ID="sess-lean-jira-build" bash "$LEAN_GATE" "$@" 2>&1 ); }
-  lean_count_j() { if [[ -f "$LEAN_PROG_J" ]]; then local n; n=$(grep -cF "$1" "$LEAN_PROG_J" 2>/dev/null) || n=0; echo "$n"; else echo 0; fi; }
+  lean_gate_j() { ( cd "$LANE_TREE" && env -u GH_BOT SECOND_SHIFT_CONFIG="$LANE_CFG_J" \
+                    LANE_PROGRESS_FILE="$LANE_PROG_J" RUN_ID="r-lean-j" GH="${GH:-$LANE_GH}" \
+                    CLAUDE_CODE_SESSION_ID="sess-lean-jira-build" bash "$LANE_GATE" "$@" 2>&1 ); }
+  lean_count_j() { if [[ -f "$LANE_PROG_J" ]]; then local n; n=$(grep -cF "$1" "$LANE_PROG_J" 2>/dev/null) || n=0; echo "$n"; else echo 0; fi; }
 
-  rm -f "$LEAN_PROG_J" "$LEAN_TREE/.claude/pipeline-state/$LEAN_JKEY-run-id"
-  printf '{"tool":"Bash"}\n' > "$LEAN_TREE/.claude/audit/sess-lean-jira-build.jsonl"
-  printf '# spec\n\n- AC-1: a thing\n' > "$LEAN_TREE/docs/plans/acme-$LEAN_JKEY-lean.md"
+  rm -f "$LANE_PROG_J" "$LANE_TREE/.claude/pipeline-state/$LANE_JKEY-run-id"
+  printf '{"tool":"Bash"}\n' > "$LANE_TREE/.claude/audit/sess-lean-jira-build.jsonl"
+  printf '# spec\n\n- AC-1: a thing\n' > "$LANE_TREE/docs/plans/acme-$LANE_JKEY-lean.md"
   # The spec commits FIRST and on its own. `lean_commit` stages everything, so one combined
   # commit would put a code change inside the verdict's commit — a shape /dev-pipeline:review step 6
   # forbids, and one both freshness arms refuse.
@@ -1017,13 +1017,13 @@ LEANCFGJ
   # refuses it on authorship/freshness before the adapter is ever reached. `reviewed_head` is
   # the head as of the review, resolved before the record's own commit.
   printf 'verdict=approve\nrun_id: r-lean-jreview\nsession_id: sess-lean-jira-review\nrounds: 1\nreviewed_head: %s\nreviewed_patch_id: %s\n' \
-    "$(git -C "$LEAN_TREE" rev-parse HEAD)" \
-    "$(lean_pid "$LEAN_TREE" "docs/plans/acme-$LEAN_JKEY-lean-verdict.md")" \
-    > "$LEAN_TREE/docs/plans/acme-$LEAN_JKEY-lean-verdict.md"
+    "$(git -C "$LANE_TREE" rev-parse HEAD)" \
+    "$(lean_pid "$LANE_TREE" "docs/plans/acme-$LANE_JKEY-lean-verdict.md")" \
+    > "$LANE_TREE/docs/plans/acme-$LANE_JKEY-lean-verdict.md"
   lean_commit "jira leg: review verdict"
   cat > "$TMP/lean-pr-jira.json" <<LEANPRJ
 [{ "number": 6, "url": "https://example.invalid/pr/6", "isDraft": false,
-   "body": "Summary.\n\nSpec: docs/plans/acme-$LEAN_JKEY-lean.md\nVerdict: docs/plans/acme-$LEAN_JKEY-lean-verdict.md\n\n### Jira Items\n\nCloses [$LEAN_JKEY]\n" }]
+   "body": "Summary.\n\nSpec: docs/plans/acme-$LANE_JKEY-lean.md\nVerdict: docs/plans/acme-$LANE_JKEY-lean-verdict.md\n\n### Jira Items\n\nCloses [$LANE_JKEY]\n" }]
 LEANPRJ
   # EMPTY, not merely comment-less: under tracker.writes: false there is no trail to read, and
   # the same empty trail is a hard failure on the github legs above. That contrast IS the leg.
@@ -1031,13 +1031,13 @@ LEANPRJ
 
   # `entry` FIRST, as SKILL.md step 1 orders it and as the precondition now requires — the
   # jira arm's claim is a build-role subcommand like any other.
-  lean_gate_j entry "$LEAN_JKEY" >/dev/null 2>&1; je=$?
-  lean_gate_j claim "$LEAN_JKEY" >/dev/null 2>&1; jc=$?
-  lean_gate_j 1 "$LEAN_JKEY" >/dev/null 2>&1; j1=$?
-  lean_gate_j 2 "$LEAN_JKEY" >/dev/null 2>&1; j2=$?
-  lean_gate_j 3 "$LEAN_JKEY" >/dev/null 2>&1; j3=$?
-  lean_gate_j 4 "$LEAN_JKEY" >/dev/null 2>&1; j4=$?
-  lean_gate_j 5 "$LEAN_JKEY" --pr-file "$TMP/lean-pr-jira.json" \
+  lean_gate_j entry "$LANE_JKEY" >/dev/null 2>&1; je=$?
+  lean_gate_j claim "$LANE_JKEY" >/dev/null 2>&1; jc=$?
+  lean_gate_j 1 "$LANE_JKEY" >/dev/null 2>&1; j1=$?
+  lean_gate_j 2 "$LANE_JKEY" >/dev/null 2>&1; j2=$?
+  lean_gate_j 3 "$LANE_JKEY" >/dev/null 2>&1; j3=$?
+  lean_gate_j 4 "$LANE_JKEY" >/dev/null 2>&1; j4=$?
+  lean_gate_j 5 "$LANE_JKEY" --pr-file "$TMP/lean-pr-jira.json" \
               --comments-file "$TMP/lean-comments-none.json" >/dev/null 2>&1; j5=$?
   [[ "$je$jc$j1$j2$j3$j4$j5" == "0000000" ]] \
     && pass "(lean-jira) entry + claim + milestones 1-5 all exit 0 under tracker.type: jira, with no GH_BOT and an empty comment trail" \
@@ -1063,9 +1063,9 @@ LEANPRJ
   # the artifact the whole gate exists to surface.
   cat > "$TMP/lean-pr-jira-nv.json" <<LEANPRJNV
 [{ "number": 6, "url": "https://example.invalid/pr/6", "isDraft": false,
-   "body": "Summary.\n\nSpec: docs/plans/acme-$LEAN_JKEY-lean.md\n\n### Jira Items\n\nCloses [$LEAN_JKEY]\n" }]
+   "body": "Summary.\n\nSpec: docs/plans/acme-$LANE_JKEY-lean.md\n\n### Jira Items\n\nCloses [$LANE_JKEY]\n" }]
 LEANPRJNV
-  lean_gate_j 5 "$LEAN_JKEY" --pr-file "$TMP/lean-pr-jira-nv.json" \
+  lean_gate_j 5 "$LANE_JKEY" --pr-file "$TMP/lean-pr-jira-nv.json" \
               --comments-file "$TMP/lean-comments-none.json" >/dev/null 2>&1; jnv=$?
   [[ "$jnv" -ne 0 ]] \
     && pass "(lean-jira-nv) non-vacuity: the same leg reds when the PR body drops the verdict-record path" \
@@ -1076,18 +1076,18 @@ LEANPRJNV
   # verdict. Re-write the record carrying the BUILD session id and milestone 4 must refuse on
   # the jira arm exactly as it does on github.
   printf 'verdict=approve\nrun_id: r-lean-j\nsession_id: sess-lean-jira-build\nrounds: 2\n' \
-    > "$LEAN_TREE/docs/plans/acme-$LEAN_JKEY-lean-verdict.md"
+    > "$LANE_TREE/docs/plans/acme-$LANE_JKEY-lean-verdict.md"
   lean_commit "jira leg: build-authored verdict (must be refused)"
-  lean_gate_j 4 "$LEAN_JKEY" >/dev/null 2>&1; jp10=$?
+  lean_gate_j 4 "$LANE_JKEY" >/dev/null 2>&1; jp10=$?
   [[ "$jp10" -ne 0 ]] \
     && pass "(lean-jira-p10) a build-authored verdict is refused on the jira arm too — the adapter is no authorship loophole" \
     || fail "(lean-jira-p10) milestone-4 accepted a verdict carrying the build session id under jira"
 
   # ---- extraLanes composition (#379) — the skip and red verdict paths, end to end --------
-  # NOT a duplicate of lean-gate-selftest.sh's per-tool AC coverage (that suite drives
+  # NOT a duplicate of milestone-gate-selftest.sh's per-tool AC coverage (that suite drives
   # milestone 3 alone against dozens of shapes): this is the composed-verdict-path
   # obligation the repo's own testing rule names — a fresh, isolated tree because legs 1-7
-  # and the jira sub-section above leave $LEAN_TREE mid-rebase/branch-switched, unrelated to
+  # and the jira sub-section above leave $LANE_TREE mid-rebase/branch-switched, unrelated to
   # this composition.
   EL_TREE="$TMP/lean-el-tree"
   mkdir -p "$EL_TREE/docs/plans" "$EL_TREE/.claude/audit"
@@ -1105,15 +1105,15 @@ LEANPRJNV
   printf '{"body": "# issue\\n\\nNo Open Regions section here.\\n"}' > "$EL_ISSUE"
   el_cfg() { # el_cfg <label> <extraLanes-json>
     local out="$TMP/lean-el-cfg-$1.json"
-    jq --argjson el "$2" '.commands.acme.extraLanes = $el' "$LEAN_CFG" > "$out" 2>/dev/null
+    jq --argjson el "$2" '.commands.acme.extraLanes = $el' "$LANE_CFG" > "$out" 2>/dev/null
     printf '%s' "$out"
   }
   EL_SID="sess-lean-el-build"
   printf '{"tool":"Bash"}\n' > "$EL_TREE/.claude/audit/$EL_SID.jsonl"
   el_gate() { # el_gate <config-file> <progress-file> <args...>
     local cfg="$1" prog="$2"; shift 2
-    ( unset RUN_ID GH_BOT; cd "$EL_TREE" && SECOND_SHIFT_CONFIG="$cfg" LEAN_PROGRESS_FILE="$prog" \
-      CLAUDE_CODE_SESSION_ID="$EL_SID" GH="${GH:-$LEAN_GH}" bash "$LEAN_GATE" --issue-file "$EL_ISSUE" "$@" 2>&1 )
+    ( unset RUN_ID GH_BOT; cd "$EL_TREE" && SECOND_SHIFT_CONFIG="$cfg" LANE_PROGRESS_FILE="$prog" \
+      CLAUDE_CODE_SESSION_ID="$EL_SID" GH="${GH:-$LANE_GH}" bash "$LANE_GATE" --issue-file "$EL_ISSUE" "$@" 2>&1 )
   }
   # Each extraLanes case gets its own progress file, so each composes its own `entry` first.
   el_attest() { el_gate "$1" "$2" entry 777 >/dev/null 2>&1; }
@@ -1205,7 +1205,7 @@ LEANELC
   # nothing else, and the guard's red branch is the only thing that moved. Reuses the EL
   # substrate: same isolated tree, same spec/verdict commits, no extraLanes anywhere.
   ZV_CFG="$TMP/lean-zv-cfg.json"
-  jq 'del(.commands.acme.allowUnverified)' "$LEAN_CFG" > "$ZV_CFG"
+  jq 'del(.commands.acme.allowUnverified)' "$LANE_CFG" > "$ZV_CFG"
   ZV_PROG="$TMP/lean-zv-prog.md"
   el_attest "$ZV_CFG" "$ZV_PROG"
   out="$(el_gate "$ZV_CFG" "$ZV_PROG" all 777)"; zvr=$?
@@ -1222,28 +1222,28 @@ LEANELC
   # proves is that the armed lane rides the SAME chain everything else does: the same fix
   # budget, the same hard stop, the same milestone-4 handoff, the same milestone-5 terminal
   # write. An armed run that quietly grew its own failure economics would be invisible to
-  # lean-gate-selftest.sh, which drives each milestone alone.
+  # milestone-gate-selftest.sh, which drives each milestone alone.
   #
   # Its OWN tree and config: every leg above ran unarmed, and arming is config-keyed, so the
-  # shared LEAN_CFG cannot carry a provider without changing what those legs compose.
-  LEAN_DTREE="$TMP/lean-dtree"
-  mkdir -p "$LEAN_DTREE/docs/plans" "$LEAN_DTREE/.claude"
-  git -C "$LEAN_DTREE" init -q
-  git -C "$LEAN_DTREE" config user.email lean@example.invalid
-  git -C "$LEAN_DTREE" config user.name lean-scenario
-  printf '.claude/\n' > "$LEAN_DTREE/.gitignore"
-  LEAN_DSTUB="$TMP/lean-render-stub.sh"
-  LEAN_DMODE="$TMP/lean-render-mode"
+  # shared LANE_CFG cannot carry a provider without changing what those legs compose.
+  LANE_DTREE="$TMP/lean-dtree"
+  mkdir -p "$LANE_DTREE/docs/plans" "$LANE_DTREE/.claude"
+  git -C "$LANE_DTREE" init -q
+  git -C "$LANE_DTREE" config user.email lean@example.invalid
+  git -C "$LANE_DTREE" config user.name lean-scenario
+  printf '.claude/\n' > "$LANE_DTREE/.gitignore"
+  LANE_DSTUB="$TMP/lean-render-stub.sh"
+  LANE_DMODE="$TMP/lean-render-mode"
   # The rects sibling every declared state owes (#711). Its payload is a file the legs rewrite, so
   # the composed chain can be walked with measurements that agree with the plan and again with
   # measurements that do not, without touching anything else the legs assert on.
-  LEAN_DRECTS="$TMP/lean-render-rects.json"
-  cat > "$LEAN_DSTUB" <<LEANSTUB
+  LANE_DRECTS="$TMP/lean-render-rects.json"
+  cat > "$LANE_DSTUB" <<LEANSTUB
 #!/usr/bin/env bash
-MODEF="$LEAN_DMODE"
-RECTSF="$LEAN_DRECTS"
+MODEF="$LANE_DMODE"
+RECTSF="$LANE_DRECTS"
 LEANSTUB
-  cat >> "$LEAN_DSTUB" <<'LEANSTUB'
+  cat >> "$LANE_DSTUB" <<'LEANSTUB'
 route=""; state=""; out=""
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -1262,34 +1262,34 @@ case "$mode" in
 esac
 exit 0
 LEANSTUB
-  LEAN_DCFG="$TMP/lean-config-design.json"
-  cat > "$LEAN_DCFG" <<LEANDCFG
+  LANE_DCFG="$TMP/lean-config-design.json"
+  cat > "$LANE_DCFG" <<LEANDCFG
 {
   "tracker": { "branchPrefix": "claude/acme-", "labels": { "queue": "ready-for-dev", "claimed": "in-progress" } },
   "topology": { "repos": { "acme": { "path": ".", "baseBranch": "main" } } },
   "paths": { "plansDir": "docs/plans", "pipelineStateDir": ".claude/pipeline-state" },
   "commands": { "acme": { "lint": null, "typecheck": null, "test": null, "allowUnverified": true } },
   "design": { "provider": "figma",
-              "liveRender": { "command": "bash $LEAN_DSTUB --route {route} --state {state} --out {out}" } }
+              "liveRender": { "command": "bash $LANE_DSTUB --route {route} --state {state} --out {out}" } }
 }
 LEANDCFG
-  LEAN_DPROG="$TMP/lean-progress-design.md"
-  LEAN_DSPEC="$LEAN_DTREE/docs/plans/acme-88-lean.md"
-  LEAN_DSID="sess-lean-d-build"
-  mkdir -p "$LEAN_DTREE/.claude/audit"
-  printf '{"tool":"Bash"}\n' > "$LEAN_DTREE/.claude/audit/$LEAN_DSID.jsonl"
-  lean_dgate() { ( unset RUN_ID GH_BOT; cd "$LEAN_DTREE" && SECOND_SHIFT_CONFIG="$LEAN_DCFG" LEAN_PROGRESS_FILE="$LEAN_DPROG" \
-                   CLAUDE_CODE_SESSION_ID="$LEAN_DSID" GH="${GH:-$LEAN_GH}" \
-                   bash "$LEAN_GATE" --issue-file "$LEAN_ISSUE_NOREGIONS" "$@" 2>&1 ); }
+  LANE_DPROG="$TMP/lean-progress-design.md"
+  LANE_DSPEC="$LANE_DTREE/docs/plans/acme-88-lean.md"
+  LANE_DSID="sess-lean-d-build"
+  mkdir -p "$LANE_DTREE/.claude/audit"
+  printf '{"tool":"Bash"}\n' > "$LANE_DTREE/.claude/audit/$LANE_DSID.jsonl"
+  lean_dgate() { ( unset RUN_ID GH_BOT; cd "$LANE_DTREE" && SECOND_SHIFT_CONFIG="$LANE_DCFG" LANE_PROGRESS_FILE="$LANE_DPROG" \
+                   CLAUDE_CODE_SESSION_ID="$LANE_DSID" GH="${GH:-$LANE_GH}" \
+                   bash "$LANE_GATE" --issue-file "$LANE_ISSUE_NOREGIONS" "$@" 2>&1 ); }
   # The armed ticket's translation plan (#694) and its sync. Every armed milestone-3 call below
   # reaches the render pass only through the plan gate, so the plan has to be committed and
   # current whenever the tree moves — otherwise the design legs would compose over a red they
   # never meant to assert. The stamp comes from PRODUCTION: the gate writes `planned_from`, this
   # never derives a patch id, which would be the mirror harness docs/testing.md forbids.
-  LEAN_DPLAN="$LEAN_DTREE/docs/plans/acme-88-lean-plan.md"
-  LEAN_DSYNCCFG="$TMP/lean-config-design-nosync.json"
-  LEAN_DSYNCPROG="$TMP/lean-progress-design-presync.md"
-  cat > "$LEAN_DSYNCCFG" <<LEANSYNCCFG
+  LANE_DPLAN="$LANE_DTREE/docs/plans/acme-88-lean-plan.md"
+  LANE_DSYNCCFG="$TMP/lean-config-design-nosync.json"
+  LANE_DSYNCPROG="$TMP/lean-progress-design-presync.md"
+  cat > "$LANE_DSYNCCFG" <<LEANSYNCCFG
 {
   "tracker": { "branchPrefix": "claude/acme-", "labels": { "queue": "ready-for-dev", "claimed": "in-progress" } },
   "topology": { "repos": { "acme": { "path": ".", "baseBranch": "main" } } },
@@ -1305,73 +1305,73 @@ LEANSYNCCFG
       printf '| Filter panel | @acme/ui Drawer | the frame draws a right-edge sheet over a scrim |\n\n'
       printf '| node | RS | px | dimensions | overflow |\n| --- | --- | --- | --- | --- |\n'
       printf '| Filter panel | RS-2 | 320×604 | fixed 320px wide, hug height | none |\n'
-    } > "$LEAN_DPLAN"
+    } > "$LANE_DPLAN"
   }
   # The measurements that AGREE with the plan above. Every design leg below composes over this, so
   # a leg that means to assert something else rewrites it and puts it back.
-  LEAN_DRECTS_OK='{ "Filter panel": { "width": 320, "height": 604 } }'
-  printf '%s\n' "$LEAN_DRECTS_OK" > "$LEAN_DRECTS"
+  LANE_DRECTS_OK='{ "Filter panel": { "width": 320, "height": 604 } }'
+  printf '%s\n' "$LANE_DRECTS_OK" > "$LANE_DRECTS"
   # Save-and-restore the REAL progress file: milestone 3 is only reachable through the entry
   # attestation lean_dseed writes, so a fresh one would refuse before the plan pass and stamp
   # nothing — silently. Restoring keeps the attempt/lock counters the legs assert on identical.
   lean_dplan_sync() {
-    [ -f "$LEAN_DPLAN" ] || return 0
-    git -C "$LEAN_DTREE" rev-parse --verify -q refs/remotes/origin/main >/dev/null 2>&1 || return 0
-    cp "$LEAN_DPROG" "$LEAN_DSYNCPROG" 2>/dev/null || return 0
-    ( unset RUN_ID GH_BOT CLAUDE_CODE_SESSION_ID; cd "$LEAN_DTREE" \
-      && SECOND_SHIFT_CONFIG="$LEAN_DSYNCCFG" LEAN_PROGRESS_FILE="$LEAN_DPROG" \
-         CLAUDE_CODE_SESSION_ID="$LEAN_DSID" GH="${GH:-$LEAN_GH}" \
-         bash "$LEAN_GATE" --issue-file "$LEAN_ISSUE_NOREGIONS" 3 88 ) >/dev/null 2>&1
-    mv "$LEAN_DSYNCPROG" "$LEAN_DPROG" 2>/dev/null
-    if ! git -C "$LEAN_DTREE" diff --quiet HEAD -- docs/plans/acme-88-lean-plan.md 2>/dev/null \
-       || [ -z "$(git -C "$LEAN_DTREE" log -1 --format=%H -- docs/plans/acme-88-lean-plan.md 2>/dev/null)" ]; then
-      git -C "$LEAN_DTREE" add docs/plans/acme-88-lean-plan.md >/dev/null 2>&1
-      git -C "$LEAN_DTREE" commit -q -m "stamp the translation plan" >/dev/null 2>&1
+    [ -f "$LANE_DPLAN" ] || return 0
+    git -C "$LANE_DTREE" rev-parse --verify -q refs/remotes/origin/main >/dev/null 2>&1 || return 0
+    cp "$LANE_DPROG" "$LANE_DSYNCPROG" 2>/dev/null || return 0
+    ( unset RUN_ID GH_BOT CLAUDE_CODE_SESSION_ID; cd "$LANE_DTREE" \
+      && SECOND_SHIFT_CONFIG="$LANE_DSYNCCFG" LANE_PROGRESS_FILE="$LANE_DPROG" \
+         CLAUDE_CODE_SESSION_ID="$LANE_DSID" GH="${GH:-$LANE_GH}" \
+         bash "$LANE_GATE" --issue-file "$LANE_ISSUE_NOREGIONS" 3 88 ) >/dev/null 2>&1
+    mv "$LANE_DSYNCPROG" "$LANE_DPROG" 2>/dev/null
+    if ! git -C "$LANE_DTREE" diff --quiet HEAD -- docs/plans/acme-88-lean-plan.md 2>/dev/null \
+       || [ -z "$(git -C "$LANE_DTREE" log -1 --format=%H -- docs/plans/acme-88-lean-plan.md 2>/dev/null)" ]; then
+      git -C "$LANE_DTREE" add docs/plans/acme-88-lean-plan.md >/dev/null 2>&1
+      git -C "$LANE_DTREE" commit -q -m "stamp the translation plan" >/dev/null 2>&1
     fi
     lean_dplanrev_sync
   }
   # The plan-REVIEW record (#710) — the other half of what an armed milestone 3 now demands before
   # it renders. PRODUCTION's writer stamps `reviewed_plan_from`; this never derives a patch id.
-  LEAN_DFINDINGS="$TMP/lean-design-plan-findings.md"
-  printf '## Findings\n\nB1: the results grid is planned at a fixed 320px where the frame hugs.\n' > "$LEAN_DFINDINGS"
+  LANE_DFINDINGS="$TMP/lean-design-plan-findings.md"
+  printf '## Findings\n\nB1: the results grid is planned at a fixed 320px where the frame hugs.\n' > "$LANE_DFINDINGS"
   lean_dplanrev_sync() {
-    [ -f "$LEAN_DPLAN" ] || return 0
-    git -C "$LEAN_DTREE" rev-parse --verify -q refs/remotes/origin/main >/dev/null 2>&1 || return 0
-    ( unset RUN_ID GH_BOT; cd "$LEAN_DTREE" \
-      && SECOND_SHIFT_CONFIG="$LEAN_DSYNCCFG" LEAN_PROGRESS_FILE="$LEAN_DPROG" \
-         CLAUDE_CODE_SESSION_ID="$LEAN_DSID" GH="${GH:-$LEAN_GH}" \
-         bash "$LEAN_GATE" plan-review 88 --verdict pass --summary-file "$LEAN_DFINDINGS" --model stub-model ) >/dev/null 2>&1
-    if ! git -C "$LEAN_DTREE" diff --quiet HEAD -- docs/plans/acme-88-lean-plan-review.md 2>/dev/null \
-       || [ -z "$(git -C "$LEAN_DTREE" log -1 --format=%H -- docs/plans/acme-88-lean-plan-review.md 2>/dev/null)" ]; then
-      git -C "$LEAN_DTREE" add docs/plans/acme-88-lean-plan-review.md >/dev/null 2>&1
-      git -C "$LEAN_DTREE" commit -q -m "record the plan review" >/dev/null 2>&1
+    [ -f "$LANE_DPLAN" ] || return 0
+    git -C "$LANE_DTREE" rev-parse --verify -q refs/remotes/origin/main >/dev/null 2>&1 || return 0
+    ( unset RUN_ID GH_BOT; cd "$LANE_DTREE" \
+      && SECOND_SHIFT_CONFIG="$LANE_DSYNCCFG" LANE_PROGRESS_FILE="$LANE_DPROG" \
+         CLAUDE_CODE_SESSION_ID="$LANE_DSID" GH="${GH:-$LANE_GH}" \
+         bash "$LANE_GATE" plan-review 88 --verdict pass --summary-file "$LANE_DFINDINGS" --model stub-model ) >/dev/null 2>&1
+    if ! git -C "$LANE_DTREE" diff --quiet HEAD -- docs/plans/acme-88-lean-plan-review.md 2>/dev/null \
+       || [ -z "$(git -C "$LANE_DTREE" log -1 --format=%H -- docs/plans/acme-88-lean-plan-review.md 2>/dev/null)" ]; then
+      git -C "$LANE_DTREE" add docs/plans/acme-88-lean-plan-review.md >/dev/null 2>&1
+      git -C "$LANE_DTREE" commit -q -m "record the plan review" >/dev/null 2>&1
     fi
   }
-  lean_dcommit() { git -C "$LEAN_DTREE" add -A >/dev/null 2>&1
-                   git -C "$LEAN_DTREE" commit -q --allow-empty -m "${1:-lean design fixture}" >/dev/null 2>&1
+  lean_dcommit() { git -C "$LANE_DTREE" add -A >/dev/null 2>&1
+                   git -C "$LANE_DTREE" commit -q --allow-empty -m "${1:-lean design fixture}" >/dev/null 2>&1
                    lean_dplan_sync; }
-  lean_dseed() { rm -f "$LEAN_DPROG"
-                 { echo "# lean run — issue 88"; echo ""; echo "run_id: r-lean-d"; echo "session_id: sess-lean-d-build"; } > "$LEAN_DPROG"
+  lean_dseed() { rm -f "$LANE_DPROG"
+                 { echo "# lean run — issue 88"; echo ""; echo "run_id: r-lean-d"; echo "session_id: sess-lean-d-build"; } > "$LANE_DPROG"
                  lean_dgate entry 88 >/dev/null 2>&1; }
   lean_dverdict() { # lean_dverdict <session> <run-id> [args...]
     local sid="$1" rid="$2"; shift 2
-    rm -f "$LEAN_DTREE/.claude/pipeline-state/88-review-run-id"
-    ( unset RUN_ID; cd "$LEAN_DTREE" && SECOND_SHIFT_CONFIG="$LEAN_DCFG" LEAN_PROGRESS_FILE="$LEAN_DPROG" \
-      CLAUDE_CODE_SESSION_ID="$sid" RUN_ID="$rid" bash "$LEAN_GATE" verdict 88 "$@" 2>&1 )
+    rm -f "$LANE_DTREE/.claude/pipeline-state/88-review-run-id"
+    ( unset RUN_ID; cd "$LANE_DTREE" && SECOND_SHIFT_CONFIG="$LANE_DCFG" LANE_PROGRESS_FILE="$LANE_DPROG" \
+      CLAUDE_CODE_SESSION_ID="$sid" RUN_ID="$rid" bash "$LANE_GATE" verdict 88 "$@" 2>&1 )
   }
   {
     printf '# spec\n\n- AC-1: a thing\n\n## Design\n\nHandoff: https://www.figma.com/design/AbC123/Prospects\n\n'
     printf '| RS-n | route | state | AC refs |\n| --- | --- | --- | --- |\n'
     printf '| RS-1 | prospects | default | AC-1 |\n| RS-2 | prospects | filters expanded | AC-1 |\n'
-  } > "$LEAN_DSPEC"
+  } > "$LANE_DSPEC"
   # The reviewer the handoff host above makes mandatory (#708). Written out rather than derived
   # so the fixture states the expected answer instead of re-deriving production's — a derivation
   # here would pass whatever design_family() happened to return, including nothing.
-  LEAN_DPANEL="review-toolkit:security-reviewer,design-toolkit:figma-faithful-reviewer"
+  LANE_DPANEL="review-toolkit:security-reviewer,design-toolkit:figma-faithful-reviewer"
 
   # The evidence table an armed `--fidelity pass` write demands (#693), scored against the two
   # states the spec above declares.
-  LEAN_DEVIDENCE="$TMP/lean-design-evidence.md"
+  LANE_DEVIDENCE="$TMP/lean-design-evidence.md"
   {
     printf '## Design fidelity evidence\n\n'
     printf '| RS-n | frame node | property | design | rendered | verdict |\n'
@@ -1380,10 +1380,10 @@ LEANSYNCCFG
     printf '| RS-2 | Prospects / filters expanded | panel width | 320px | 288px | deviation (AC-1) |\n'
     printf '\n## AC scorecard\n\n| AC-n | score | evidence |\n| --- | --- | --- |\n'
     printf '| AC-1 | satisfied | scenario fixture |\n'
-  } > "$LEAN_DEVIDENCE"
+  } > "$LANE_DEVIDENCE"
   lean_dcommit "base"
-  git -C "$LEAN_DTREE" update-ref refs/remotes/origin/main HEAD
-  printf 'the work\n' > "$LEAN_DTREE/subject.txt"
+  git -C "$LANE_DTREE" update-ref refs/remotes/origin/main HEAD
+  printf 'the work\n' > "$LANE_DTREE/subject.txt"
   lean_dcommit "the build session pushes the armed spec"
 
   # ---- design leg 0: the translation plan gates the render pass (#694) -------------------
@@ -1395,58 +1395,58 @@ LEANSYNCCFG
   lean_dseed
   ld_prcs=""
   for _ in 1 2 3; do lean_dgate 3 88 >/dev/null 2>&1; ld_prcs="$ld_prcs$?"; done
-  ld_pattempts=$(grep -cF '| milestone-3 | attempt |' "$LEAN_DPROG" 2>/dev/null) || ld_pattempts=0
-  ld_parmed=$(grep -cF '| milestone-3 | armed |' "$LEAN_DPROG" 2>/dev/null) || ld_parmed=0
+  ld_pattempts=$(grep -cF '| milestone-3 | attempt |' "$LANE_DPROG" 2>/dev/null) || ld_pattempts=0
+  ld_parmed=$(grep -cF '| milestone-3 | armed |' "$LANE_DPROG" 2>/dev/null) || ld_parmed=0
   [[ "$ld_prcs" == "111" && "$ld_pattempts" -eq 0 && "$ld_parmed" -eq 1 \
-     && ! -d "$LEAN_DTREE/.claude/lean-renders/88" ]] \
+     && ! -d "$LANE_DTREE/.claude/lean-renders/88" ]] \
     && pass "(lean-design-plan) an armed run with no translation plan reds before any render, arms the lock, and spends no fix attempt" \
-    || fail "(lean-design-plan) rcs=$ld_prcs attempts=$ld_pattempts armed=$ld_parmed rendered=$([[ -d "$LEAN_DTREE/.claude/lean-renders/88" ]] && echo yes || echo no)"
+    || fail "(lean-design-plan) rcs=$ld_prcs attempts=$ld_pattempts armed=$ld_parmed rendered=$([[ -d "$LANE_DTREE/.claude/lean-renders/88" ]] && echo yes || echo no)"
 
   # #710, composed: a plan with the right SHAPE and no reader still reds, and it reds on the same
   # terms — before the harness is called, on the absent budget. The plan is written and stamped
   # here WITHOUT its review record, which is the one state a per-tool fixture cannot show riding
   # the whole chain: the sequence below is what a real armed run walks through in order.
   lean_dplan_write
-  git -C "$LEAN_DTREE" add -A >/dev/null 2>&1
-  git -C "$LEAN_DTREE" commit -q -m "the translation plan, unreviewed" >/dev/null 2>&1
+  git -C "$LANE_DTREE" add -A >/dev/null 2>&1
+  git -C "$LANE_DTREE" commit -q -m "the translation plan, unreviewed" >/dev/null 2>&1
   lean_dseed
   lean_dgate 3 88 >/dev/null 2>&1   # the gate stamps planned_from here
-  git -C "$LEAN_DTREE" add -A >/dev/null 2>&1
-  git -C "$LEAN_DTREE" commit -q -m "commit the plan stamp" >/dev/null 2>&1
+  git -C "$LANE_DTREE" add -A >/dev/null 2>&1
+  git -C "$LANE_DTREE" commit -q -m "commit the plan stamp" >/dev/null 2>&1
   lean_dseed
   ld_rrcs=""
   for _ in 1 2 3; do lean_dgate 3 88 >/dev/null 2>&1; ld_rrcs="$ld_rrcs$?"; done
-  ld_rattempts=$(grep -cF '| milestone-3 | attempt |' "$LEAN_DPROG" 2>/dev/null) || ld_rattempts=0
-  [[ "$ld_rrcs" == "111" && "$ld_rattempts" -eq 0 && ! -d "$LEAN_DTREE/.claude/lean-renders/88" ]] \
+  ld_rattempts=$(grep -cF '| milestone-3 | attempt |' "$LANE_DPROG" 2>/dev/null) || ld_rattempts=0
+  [[ "$ld_rrcs" == "111" && "$ld_rattempts" -eq 0 && ! -d "$LANE_DTREE/.claude/lean-renders/88" ]] \
     && pass "(lean-design-plan-review) a SHAPED but ungraded plan reds before any render and spends no fix attempt — the same economics the plan's own absence walks" \
-    || fail "(lean-design-plan-review) rcs=$ld_rrcs attempts=$ld_rattempts rendered=$([[ -d "$LEAN_DTREE/.claude/lean-renders/88" ]] && echo yes || echo no)"
+    || fail "(lean-design-plan-review) rcs=$ld_rrcs attempts=$ld_rattempts rendered=$([[ -d "$LANE_DTREE/.claude/lean-renders/88" ]] && echo yes || echo no)"
 
   lean_dcommit "the translation plan"
   lean_dseed
   ld_pok="$(lean_dgate 3 88 2>&1)"
   if grep -q 'translation plan current' <<<"$ld_pok" \
      && grep -q 'translation plan reviewed by figma-faithful-plan-reviewer' <<<"$ld_pok" \
-     && [[ -d "$LEAN_DTREE/.claude/lean-renders/88" ]]; then
+     && [[ -d "$LANE_DTREE/.claude/lean-renders/88" ]]; then
     pass "(lean-design-plan) …and once it is committed and stamped the SAME chain walks past it into the render pass"
   else
     fail "(lean-design-plan) the committed plan did not release the render pass: $ld_pok"
   fi
-  rm -rf "$LEAN_DTREE/.claude/lean-renders/88"
-  rm -f "$LEAN_DTREE/docs/plans/acme-88-lean-renders.md"
+  rm -rf "$LANE_DTREE/.claude/lean-renders/88"
+  rm -f "$LANE_DTREE/docs/plans/acme-88-lean-renders.md"
 
   # ---- design leg 1: a blocking render red walks the SAME budget to the hard stop --------
   # D-2's whole point: there is no degraded state, so an unreachable render harness spends the
   # milestone's attempts and hard-stops exactly as a failing test suite does. If the armed lane
   # had its own economics this sequence would not be 1/1/1/4.
   lean_dseed
-  printf 'fail\n' > "$LEAN_DMODE"
+  printf 'fail\n' > "$LANE_DMODE"
   lean_drcs=""
   for _ in 1 2 3 4; do lean_dgate 3 88 >/dev/null 2>&1; lean_drcs="$lean_drcs$?"; done
   [[ "$lean_drcs" == "1114" ]] \
     && pass "(lean-design-budget) a blocking render failure spends the shared 3-attempt budget and hard-stops (rc=4)" \
     || fail "(lean-design-budget) exit sequence was $lean_drcs, expected 1114"
-  lean_darmed=$(grep -cF '| milestone-3 | armed |' "$LEAN_DPROG" 2>/dev/null) || lean_darmed=0
-  lean_dattempts=$(grep -cF '| milestone-3 | attempt |' "$LEAN_DPROG" 2>/dev/null) || lean_dattempts=0
+  lean_darmed=$(grep -cF '| milestone-3 | armed |' "$LANE_DPROG" 2>/dev/null) || lean_darmed=0
+  lean_dattempts=$(grep -cF '| milestone-3 | attempt |' "$LANE_DPROG" 2>/dev/null) || lean_dattempts=0
   [[ "$lean_darmed" -eq 1 && "$lean_dattempts" -eq 4 ]] \
     && pass "(lean-design-budget) the armed record is written once and counts for nothing — 4 attempts, 1 lock" \
     || fail "(lean-design-budget) armed=$lean_darmed attempts=$lean_dattempts, expected 1 and 4"
@@ -1461,18 +1461,18 @@ LEANSYNCCFG
   # The payload is the #692 defect verbatim: every stated axis at a common factor, which every
   # `shape` test forgives and only the `scale` arm names. The SAME tree then goes green once the
   # measurements agree, so the red is the comparison and not something incidental to the fixture.
-  printf 'ok\n' > "$LEAN_DMODE"
-  printf '%s\n' '{ "Filter panel": { "width": 640, "height": 1208 } }' > "$LEAN_DRECTS"
-  LEAN_DRENDREC="$LEAN_DTREE/docs/plans/acme-88-lean-renders.md"
-  rm -f "$LEAN_DRENDREC"
+  printf 'ok\n' > "$LANE_DMODE"
+  printf '%s\n' '{ "Filter panel": { "width": 640, "height": 1208 } }' > "$LANE_DRECTS"
+  LANE_DRENDREC="$LANE_DTREE/docs/plans/acme-88-lean-renders.md"
+  rm -f "$LANE_DRENDREC"
   lean_dseed
   ld_meas_out="$(lean_dgate 3 88 2>&1)"; ld_meas=$?
-  ld_mattempts=$(grep -cF '| milestone-3 | attempt |' "$LEAN_DPROG" 2>/dev/null) || ld_mattempts=0
-  ld_meas_receipt=0; [[ -f "$LEAN_DRENDREC" ]] && ld_meas_receipt=1
-  printf '%s\n' "$LEAN_DRECTS_OK" > "$LEAN_DRECTS"
+  ld_mattempts=$(grep -cF '| milestone-3 | attempt |' "$LANE_DPROG" 2>/dev/null) || ld_mattempts=0
+  ld_meas_receipt=0; [[ -f "$LANE_DRENDREC" ]] && ld_meas_receipt=1
+  printf '%s\n' "$LANE_DRECTS_OK" > "$LANE_DRECTS"
   lean_dseed
   ld_meas_ok_out="$(lean_dgate 3 88 2>&1)"
-  ld_meas_ok_receipt=0; [[ -f "$LEAN_DRENDREC" ]] && ld_meas_ok_receipt=1
+  ld_meas_ok_receipt=0; [[ -f "$LANE_DRENDREC" ]] && ld_meas_ok_receipt=1
   # THE RECEIPT IS THE ORACLE for the green half, not an exit code: it is written only after the
   # comparison passes, and a first receipt reds for needing a commit whatever the measurements
   # said. The red half asserts the mirror — a failed comparison leaves NO receipt behind, so a
@@ -1484,11 +1484,11 @@ LEANSYNCCFG
   else
     fail "(lean-design-measure) rc=$ld_meas attempts=$ld_mattempts receipt=$ld_meas_receipt/$ld_meas_ok_receipt: $ld_meas_out"
   fi
-  rm -rf "$LEAN_DTREE/.claude/lean-renders/88"
-  rm -f "$LEAN_DTREE/docs/plans/acme-88-lean-renders.md"
+  rm -rf "$LANE_DTREE/.claude/lean-renders/88"
+  rm -f "$LANE_DTREE/docs/plans/acme-88-lean-renders.md"
 
   # ---- design leg 2: the receipt commits, then milestone 4 refuses an unscored verdict ----
-  printf 'ok\n' > "$LEAN_DMODE"
+  printf 'ok\n' > "$LANE_DMODE"
   lean_dseed
   lean_dgate 3 88 >/dev/null 2>&1; ld_render=$?
   lean_dcommit "the render receipt"
@@ -1500,7 +1500,7 @@ LEANSYNCCFG
 
   # A review round that scored no fidelity: the handoff must round-trip, not certify.
   lean_dseed
-  lean_dverdict sess-lean-d-review r-lean-d-review --pr 8 --verdict approve --panel "$LEAN_DPANEL" --summary-file "$LEAN_SCORECARD" >/dev/null 2>&1
+  lean_dverdict sess-lean-d-review r-lean-d-review --pr 8 --verdict approve --panel "$LANE_DPANEL" --summary-file "$LANE_SCORECARD" >/dev/null 2>&1
   lean_dcommit "a verdict that scored no fidelity"
   lean_dseed
   lean_dgate 4 88 >/dev/null 2>&1; ld_nofid=$?
@@ -1512,11 +1512,11 @@ LEANSYNCCFG
   # cached for a round that wrote nothing. lean_dverdict clears that cache before every call, so
   # its absence afterwards is measured rather than assumed.
   lean_dseed
-  ld_rec_before="$(cat "$LEAN_DTREE/docs/plans/acme-88-lean-verdict.md" 2>/dev/null)"
-  ld_noev_out="$(lean_dverdict sess-lean-d-review-noev r-lean-d-review-noev --pr 8 --verdict approve --fidelity pass --panel "$LEAN_DPANEL" --summary-file "$LEAN_SCORECARD" 2>&1)"; ld_noev=$?
-  ld_rec_after="$(cat "$LEAN_DTREE/docs/plans/acme-88-lean-verdict.md" 2>/dev/null)"
+  ld_rec_before="$(cat "$LANE_DTREE/docs/plans/acme-88-lean-verdict.md" 2>/dev/null)"
+  ld_noev_out="$(lean_dverdict sess-lean-d-review-noev r-lean-d-review-noev --pr 8 --verdict approve --fidelity pass --panel "$LANE_DPANEL" --summary-file "$LANE_SCORECARD" 2>&1)"; ld_noev=$?
+  ld_rec_after="$(cat "$LANE_DTREE/docs/plans/acme-88-lean-verdict.md" 2>/dev/null)"
   ld_noev_cache=0
-  [[ -e "$LEAN_DTREE/.claude/pipeline-state/88-review-run-id" ]] && ld_noev_cache=1
+  [[ -e "$LANE_DTREE/.claude/pipeline-state/88-review-run-id" ]] && ld_noev_cache=1
   if [[ "$ld_noev" -eq 1 && "$ld_rec_before" == "$ld_rec_after" && "$ld_noev_cache" -eq 0 ]] \
      && grep -q 'Design fidelity evidence' <<<"$ld_noev_out"; then
     pass "(lean-design-evidence) an armed 'pass' with no evidence table is refused at the writer — the committed record is untouched and no review identity is cached"
@@ -1526,14 +1526,14 @@ LEANSYNCCFG
 
   # ...and a stale receipt under an otherwise-fresh verdict — D-10's backstop, composed.
   lean_dseed
-  lean_dverdict sess-lean-d-review2 r-lean-d-review2 --pr 8 --verdict approve --fidelity pass --panel "$LEAN_DPANEL" --summary-file "$LEAN_DEVIDENCE" >/dev/null 2>&1
+  lean_dverdict sess-lean-d-review2 r-lean-d-review2 --pr 8 --verdict approve --fidelity pass --panel "$LANE_DPANEL" --summary-file "$LANE_DEVIDENCE" >/dev/null 2>&1
   lean_dcommit "a verdict scoring fidelity pass"
   lean_dseed
   lean_dgate 4 88 >/dev/null 2>&1; ld_pass=$?
-  printf 'a fix lands after the render\n' > "$LEAN_DTREE/subject.txt"
+  printf 'a fix lands after the render\n' > "$LANE_DTREE/subject.txt"
   lean_dcommit "a fix, leaving the receipt behind"
   lean_dseed
-  lean_dverdict sess-lean-d-review3 r-lean-d-review3 --pr 8 --verdict approve --fidelity pass --panel "$LEAN_DPANEL" --summary-file "$LEAN_DEVIDENCE" >/dev/null 2>&1
+  lean_dverdict sess-lean-d-review3 r-lean-d-review3 --pr 8 --verdict approve --fidelity pass --panel "$LANE_DPANEL" --summary-file "$LANE_DEVIDENCE" >/dev/null 2>&1
   lean_dcommit "an honest record on top of a stale receipt"
   lean_dseed
   lean_dgate 4 88 >/dev/null 2>&1; ld_stale=$?
@@ -1550,16 +1550,16 @@ LEANSYNCCFG
   lean_dgate 3 88 >/dev/null 2>&1
   lean_dcommit "the re-rendered receipt for the fixed head"
   lean_dseed
-  lean_dverdict sess-lean-d-review4 r-lean-d-review4 --pr 8 --verdict approve --fidelity pass --panel "$LEAN_DPANEL" --summary-file "$LEAN_DEVIDENCE" >/dev/null 2>&1
+  lean_dverdict sess-lean-d-review4 r-lean-d-review4 --pr 8 --verdict approve --fidelity pass --panel "$LANE_DPANEL" --summary-file "$LANE_DEVIDENCE" >/dev/null 2>&1
   lean_dcommit "the round-2 record on the fresh receipt"
-  rm -rf "$LEAN_DTREE/.claude/lean-renders/88"
+  rm -rf "$LANE_DTREE/.claude/lean-renders/88"
   cat > "$TMP/lean-design-pr.json" <<'LEANDPR'
 [{ "number": 8, "url": "https://example.invalid/pr/8", "isDraft": false,
    "body": "Closes #88\n\nSpec: docs/plans/acme-88-lean.md" }]
 LEANDPR
   # The build run-id cache, and the PR marker milestone 5 stamps with it (#359).
-  mkdir -p "$LEAN_DTREE/.claude/pipeline-state"
-  printf 'r-lean-d' > "$LEAN_DTREE/.claude/pipeline-state/88-run-id"
+  mkdir -p "$LANE_DTREE/.claude/pipeline-state"
+  printf 'r-lean-d' > "$LANE_DTREE/.claude/pipeline-state/88-run-id"
   cat > "$TMP/lean-design-comments.json" <<'LEANDC'
 [{ "user": { "type": "Bot" }, "created_at": "2026-01-01T00:00:00Z",
    "body": "<!-- run_id: r-lean-d -->\n<!-- stage: lean-claimed -->" },
@@ -1578,7 +1578,7 @@ LEANDC
   [[ "$ldf1$ldf2$ldf3$ldf4$ldf5" == "00000" ]] \
     && pass "(lean-design-terminal) post-approve, milestones 1-5 all exit 0 with every rendered PNG deleted" \
     || fail "(lean-design-terminal) exit codes were $ldf1$ldf2$ldf3$ldf4$ldf5, expected 00000"
-  [[ ! -d "$LEAN_DTREE/.claude/lean-renders/88" ]] \
+  [[ ! -d "$LANE_DTREE/.claude/lean-renders/88" ]] \
     && pass "(lean-design-terminal) and nothing re-rendered — the receipt's binding alone carried the sweep" \
     || fail "(lean-design-terminal) the post-approve sweep re-rendered, which would void the verdict it just earned"
 
@@ -1597,10 +1597,10 @@ LEANDC
   # hands such a round back; this is the assertion that it cannot instead be quietly downgraded
   # into a record. The committed record must be byte-untouched by either attempt.
   lean_dseed
-  ld_p_before="$(cat "$LEAN_DTREE/docs/plans/acme-88-lean-verdict.md" 2>/dev/null)"
-  ld_p_nopanel="$(lean_dverdict sess-lean-d-p1 r-lean-d-p1 --pr 8 --verdict approve --fidelity pass --summary-file "$LEAN_DEVIDENCE" 2>&1)"; ld_p1=$?
-  ld_p_dark="$(lean_dverdict sess-lean-d-p2 r-lean-d-p2 --pr 8 --verdict approve --fidelity pass --panel "review-toolkit:security-reviewer,review-toolkit:maintainability-reviewer" --summary-file "$LEAN_DEVIDENCE" 2>&1)"; ld_p2=$?
-  ld_p_after="$(cat "$LEAN_DTREE/docs/plans/acme-88-lean-verdict.md" 2>/dev/null)"
+  ld_p_before="$(cat "$LANE_DTREE/docs/plans/acme-88-lean-verdict.md" 2>/dev/null)"
+  ld_p_nopanel="$(lean_dverdict sess-lean-d-p1 r-lean-d-p1 --pr 8 --verdict approve --fidelity pass --summary-file "$LANE_DEVIDENCE" 2>&1)"; ld_p1=$?
+  ld_p_dark="$(lean_dverdict sess-lean-d-p2 r-lean-d-p2 --pr 8 --verdict approve --fidelity pass --panel "review-toolkit:security-reviewer,review-toolkit:maintainability-reviewer" --summary-file "$LANE_DEVIDENCE" 2>&1)"; ld_p2=$?
+  ld_p_after="$(cat "$LANE_DTREE/docs/plans/acme-88-lean-verdict.md" 2>/dev/null)"
   if [[ "$ld_p1" -eq 1 && "$ld_p2" -eq 1 && "$ld_p_before" == "$ld_p_after" ]] \
      && grep -q -- '--panel' <<<"$ld_p_nopanel" \
      && grep -q 'design-toolkit:figma-faithful-reviewer' <<<"$ld_p_dark"; then
@@ -1615,16 +1615,16 @@ LEANDC
   # bindings (reviewed_patch_id and the render binding), so nothing else about this tree goes
   # stale: a red below is the panel arm and cannot be anything else. The green half runs first,
   # on the unmodified record, so a leg that reds for an unrelated reason is not read as a pass.
-  LD_CHAIN="$HERE/../../../../scripts/check-lean-chain.sh"
-  LD_CEV="$HERE/lean-evidence.sh"
+  LD_CHAIN="$HERE/../../../../scripts/check-lane-chain.sh"
+  LD_CEV="$HERE/boundary-evidence.sh"
   LD_CEMPTY="$TMP/lean-design-chain-comments.json"; echo '[]' > "$LD_CEMPTY"
   LD_CDIFF="$TMP/lean-design-chain-files.txt"
   printf 'subject.txt\ndocs/plans/acme-88-lean.md\ndocs/plans/acme-88-lean-renders.md\ndocs/plans/acme-88-lean-verdict.md\n' > "$LD_CDIFF"
   ld_boundary() { # ld_boundary -> the merge boundary's own output over this armed tree
-    ( cd "$LEAN_DTREE" && PIPELINE_BRANCH_PREFIX="claude/acme-" \
-      PR_HEAD_REF="claude/acme-88" PR_HEAD_SHA="$(git -C "$LEAN_DTREE" rev-parse HEAD)" \
+    ( cd "$LANE_DTREE" && PIPELINE_BRANCH_PREFIX="claude/acme-" \
+      PR_HEAD_REF="claude/acme-88" PR_HEAD_SHA="$(git -C "$LANE_DTREE" rev-parse HEAD)" \
       PR_BASE_REF=main PR_BODY="Closes #88" PR_CREATED_AT="2026-07-30T12:00:00Z" \
-      LEAN_EVIDENCE="$LD_CEV" bash "$LD_CHAIN" --comments-file "$LD_CEMPTY" \
+      LANE_EVIDENCE="$LD_CEV" bash "$LD_CHAIN" --comments-file "$LD_CEMPTY" \
       --diff-files-file "$LD_CDIFF" 2>&1 )
   }
   # The boundary is a MARKETPLACE-REPO artifact, absent by construction from a staged install
@@ -1643,8 +1643,8 @@ LEANDC
       ld_pnl_b_ok="$(ld_boundary)"
       # ONE fact changed: the mandatory reviewer struck from the panel the round recorded.
       awk '/^panel:/ { print "panel: review-toolkit:security-reviewer"; next } { print }' \
-        "$LEAN_DTREE/docs/plans/acme-88-lean-verdict.md" > "$TMP/lean-design-panel-edit.md" \
-        && mv "$TMP/lean-design-panel-edit.md" "$LEAN_DTREE/docs/plans/acme-88-lean-verdict.md"
+        "$LANE_DTREE/docs/plans/acme-88-lean-verdict.md" > "$TMP/lean-design-panel-edit.md" \
+        && mv "$TMP/lean-design-panel-edit.md" "$LANE_DTREE/docs/plans/acme-88-lean-verdict.md"
       lean_dcommit "a record whose panel lost the mandatory reviewer"
       lean_dseed
       lean_dgate 4 88 >/dev/null 2>&1; ld_pnl_m4_bad=$?
@@ -1662,14 +1662,14 @@ LEANDC
   # (c) AN UNRECOGNISED HANDOFF HOST is a violation, not a pass — the failure this whole arm
   # would degrade into if the derivation ever returned "no family" as "no reviewer required".
   # Milestone 1 is where the gate says so, because the fix is a spec edit.
-  ld_p_savedspec="$(cat "$LEAN_DSPEC")"
+  ld_p_savedspec="$(cat "$LANE_DSPEC")"
   {
     printf '# spec\n\n- AC-1: a thing\n\n## Design\n\nHandoff: https://design.example.invalid/f/a\n\n'
     printf '| RS-n | route | state | AC refs |\n| --- | --- | --- | --- |\n'
     printf '| RS-1 | prospects | default | AC-1 |\n'
-  } > "$LEAN_DSPEC"
+  } > "$LANE_DSPEC"
   ld_p_host="$(lean_dgate 1 88 2>&1)"; ld_p_hostrc=$?
-  printf '%s\n' "$ld_p_savedspec" > "$LEAN_DSPEC"
+  printf '%s\n' "$ld_p_savedspec" > "$LANE_DSPEC"
   [[ "$ld_p_hostrc" -ne 0 ]] && grep -q 'recognises as a provider surface' <<<"$ld_p_host" \
     && pass "(lean-design-panel) an armed section whose handoff host names no provider surface reds at milestone 1 rather than arming a reviewer nobody can name" \
     || fail "(lean-design-panel) rc=$ld_p_hostrc: $ld_p_host"
@@ -1687,7 +1687,7 @@ LEANDC
   # already armed and the same chain must red — at milestone 1, before any of it.
   {
     printf '# spec\n\n- AC-1: a thing\n\n## Design\n\nDesign: none — reconsidered mid-run.\n'
-  } > "$LEAN_DSPEC"
+  } > "$LANE_DSPEC"
   lean_dgate 1 88 >/dev/null 2>&1; ld_nv=$?
   [[ "$ld_nv" -ne 0 ]] \
     && pass "(lean-design-nv) non-vacuity: the same chain reds when the armed spec is disarmed mid-run" \
@@ -1698,100 +1698,100 @@ LEANDC
   # the `| milestone-3 | armed |` lock the (lean-design-nv) leg just proved, so a disarm on it
   # can never be a legitimate first-time one — exactly the confound #709's own mechanism must
   # NOT be judged through. This leg proves what the per-tool suites (operator-override-selftest,
-  # lean-gate-selftest, lean-evidence-selftest) cannot: that the SAME real gate binary, driven
+  # milestone-gate-selftest, boundary-evidence-selftest) cannot: that the SAME real gate binary, driven
   # through the SAME entry precondition every other leg in this file uses, refuses a build
   # session's own disarm on a provider repo and then yields once an operator's override is on
   # disk — end to end, not against a fixture that assumes the mechanism already ran.
-  LEAN_DOISSUE=89
-  LEAN_DOPROG="$TMP/lean-progress-design-override.md"
-  LEAN_DOSPEC="$LEAN_DTREE/docs/plans/acme-89-lean.md"
-  LEAN_DOVERDICT="$LEAN_DTREE/docs/plans/acme-89-lean-verdict.md"
-  LEAN_DOVT="$HERE/../../tools/operator-override.sh"
-  lean_dogate() { ( unset RUN_ID GH_BOT; cd "$LEAN_DTREE" && SECOND_SHIFT_CONFIG="$LEAN_DCFG" LEAN_PROGRESS_FILE="$LEAN_DOPROG" \
-                   CLAUDE_CODE_SESSION_ID="$LEAN_DSID" GH="${GH:-$LEAN_GH}" \
-                   bash "$LEAN_GATE" --issue-file "$LEAN_ISSUE_NOREGIONS" "$@" 2>&1 ); }
-  lean_doseed() { rm -f "$LEAN_DOPROG"
-                  { echo "# lean run — issue $LEAN_DOISSUE"; echo ""; echo "run_id: r-lean-do"; echo "session_id: sess-lean-do-build"; } > "$LEAN_DOPROG"
-                  lean_dogate entry "$LEAN_DOISSUE" >/dev/null 2>&1; }
+  LANE_DOISSUE=89
+  LANE_DOPROG="$TMP/lean-progress-design-override.md"
+  LANE_DOSPEC="$LANE_DTREE/docs/plans/acme-89-lean.md"
+  LANE_DOVERDICT="$LANE_DTREE/docs/plans/acme-89-lean-verdict.md"
+  LANE_DOVT="$HERE/../../tools/operator-override.sh"
+  lean_dogate() { ( unset RUN_ID GH_BOT; cd "$LANE_DTREE" && SECOND_SHIFT_CONFIG="$LANE_DCFG" LANE_PROGRESS_FILE="$LANE_DOPROG" \
+                   CLAUDE_CODE_SESSION_ID="$LANE_DSID" GH="${GH:-$LANE_GH}" \
+                   bash "$LANE_GATE" --issue-file "$LANE_ISSUE_NOREGIONS" "$@" 2>&1 ); }
+  lean_doseed() { rm -f "$LANE_DOPROG"
+                  { echo "# lean run — issue $LANE_DOISSUE"; echo ""; echo "run_id: r-lean-do"; echo "session_id: sess-lean-do-build"; } > "$LANE_DOPROG"
+                  lean_dogate entry "$LANE_DOISSUE" >/dev/null 2>&1; }
   lean_doverdict() { # lean_doverdict <session> <run-id> [args...]
     local sid="$1" rid="$2"; shift 2
-    rm -f "$LEAN_DTREE/.claude/pipeline-state/$LEAN_DOISSUE-review-run-id"
-    ( unset RUN_ID; cd "$LEAN_DTREE" && SECOND_SHIFT_CONFIG="$LEAN_DCFG" LEAN_PROGRESS_FILE="$LEAN_DOPROG" \
-      CLAUDE_CODE_SESSION_ID="$sid" RUN_ID="$rid" bash "$LEAN_GATE" verdict "$LEAN_DOISSUE" "$@" 2>&1 )
+    rm -f "$LANE_DTREE/.claude/pipeline-state/$LANE_DOISSUE-review-run-id"
+    ( unset RUN_ID; cd "$LANE_DTREE" && SECOND_SHIFT_CONFIG="$LANE_DCFG" LANE_PROGRESS_FILE="$LANE_DOPROG" \
+      CLAUDE_CODE_SESSION_ID="$sid" RUN_ID="$rid" bash "$LANE_GATE" verdict "$LANE_DOISSUE" "$@" 2>&1 )
   }
   {
     printf '# spec\n\n- AC-1: a thing\n\n## Design\n\nDesign: none — no FE surface in this ticket.\n'
-  } > "$LEAN_DOSPEC"
+  } > "$LANE_DOSPEC"
   lean_doseed
-  git -C "$LEAN_DTREE" add -A >/dev/null 2>&1
-  git -C "$LEAN_DTREE" commit -q -m "issue 89: a disarmed provider spec, no override" >/dev/null 2>&1
+  git -C "$LANE_DTREE" add -A >/dev/null 2>&1
+  git -C "$LANE_DTREE" commit -q -m "issue 89: a disarmed provider spec, no override" >/dev/null 2>&1
 
   # (a) no override on disk: milestone 1 reds, naming the exact remedy.
-  ld_o1="$(lean_dogate 1 "$LEAN_DOISSUE" 2>&1)"; ld_o1_rc=$?
+  ld_o1="$(lean_dogate 1 "$LANE_DOISSUE" 2>&1)"; ld_o1_rc=$?
   if [[ "$ld_o1_rc" -ne 0 ]] && grep -q 'no design-disarm operator override backs it' <<<"$ld_o1"; then
     pass "(lean-design-override) #709 AC-1: a disarmed provider ticket with no override reds milestone 1"
   else fail "(lean-design-override) expected a refusal naming the override, rc=$ld_o1_rc: $ld_o1"; fi
 
   # (b) an attended operator records one, and the SAME chain yields.
-  ( cd "$LEAN_DTREE" && env RUN_ID=r-lean-do-ov CLAUDE_CODE_SESSION_ID=sess-lean-do-ov SECOND_SHIFT_CONFIG="$LEAN_DCFG" \
-      bash "$LEAN_DOVT" attend ) >/dev/null 2>&1
-  ( cd "$LEAN_DTREE" && env RUN_ID=r-lean-do-ov CLAUDE_CODE_SESSION_ID=sess-lean-do-ov SECOND_SHIFT_CONFIG="$LEAN_DCFG" \
-      bash "$LEAN_DOVT" record --gate design-disarm --scope design-disarm --issue "$LEAN_DOISSUE" \
+  ( cd "$LANE_DTREE" && env RUN_ID=r-lean-do-ov CLAUDE_CODE_SESSION_ID=sess-lean-do-ov SECOND_SHIFT_CONFIG="$LANE_DCFG" \
+      bash "$LANE_DOVT" attend ) >/dev/null 2>&1
+  ( cd "$LANE_DTREE" && env RUN_ID=r-lean-do-ov CLAUDE_CODE_SESSION_ID=sess-lean-do-ov SECOND_SHIFT_CONFIG="$LANE_DCFG" \
+      bash "$LANE_DOVT" record --gate design-disarm --scope design-disarm --issue "$LANE_DOISSUE" \
       --decision "the ticket ships no UI" --answer "Confirmed — backend-only, disarm it." \
-      --repo-root "$LEAN_DTREE" ) >/dev/null 2>&1
-  ld_o2="$(lean_dogate 1 "$LEAN_DOISSUE" 2>&1)"; ld_o2_rc=$?
+      --repo-root "$LANE_DTREE" ) >/dev/null 2>&1
+  ld_o2="$(lean_dogate 1 "$LANE_DOISSUE" 2>&1)"; ld_o2_rc=$?
   if [[ "$ld_o2_rc" -eq 0 ]] && grep -q 'disarmed' <<<"$ld_o2"; then
     pass "(lean-design-override) #709 AC-2: the same chain yields once the operator's override is on disk"
   else fail "(lean-design-override) expected rc=0 disarmed, rc=$ld_o2_rc: $ld_o2"; fi
 
   # (c) the committed verdict stamps the override's own ref — the artifact the merge boundary
-  # resolves the claim against (proved generically by lean-evidence-selftest.sh's (ov6)-(ov9),
-  # which check-lean-chain.sh delegates to in full).
-  rm -f "$LEAN_DOVERDICT"
+  # resolves the claim against (proved generically by boundary-evidence-selftest.sh's (ov6)-(ov9),
+  # which check-lane-chain.sh delegates to in full).
+  rm -f "$LANE_DOVERDICT"
   # (c0) FIRST, and on this lane on purpose (#825). /dev-pipeline:review 5c voids a round whose whole panel
   # went dark; the armed arm proved in (lean-design-panel) never fires here, because this ticket's
   # provider is DISARMED — so this is the composed path for the shape that shipped the defect: a
   # lane with no reviewer available at all, reaching the real writer with `panel: none` and an
   # `approve`. It must hand back and leave no record for milestone 4 to read.
-  ld_o0="$(lean_doverdict sess-lean-do-rev0 r-lean-do-rev0 --pr 890 --verdict approve --panel none --summary-file "$LEAN_SCORECARD" 2>&1)"; ld_o0_rc=$?
-  if [[ "$ld_o0_rc" -eq 1 ]] && grep -q 'names no reviewer' <<<"$ld_o0" && [[ ! -f "$LEAN_DOVERDICT" ]]; then
+  ld_o0="$(lean_doverdict sess-lean-do-rev0 r-lean-do-rev0 --pr 890 --verdict approve --panel none --summary-file "$LANE_SCORECARD" 2>&1)"; ld_o0_rc=$?
+  if [[ "$ld_o0_rc" -eq 1 ]] && grep -q 'names no reviewer' <<<"$ld_o0" && [[ ! -f "$LANE_DOVERDICT" ]]; then
     pass "(lean-design-override) #825: a disarmed-provider round whose panel names nobody is handed back, and writes no record"
-  else fail "(lean-design-override) expected the empty-panel hand-back with no record, rc=$ld_o0_rc record=$([[ -f "$LEAN_DOVERDICT" ]] && echo written || echo none): $ld_o0"; fi
+  else fail "(lean-design-override) expected the empty-panel hand-back with no record, rc=$ld_o0_rc record=$([[ -f "$LANE_DOVERDICT" ]] && echo written || echo none): $ld_o0"; fi
 
-  ld_o3="$(lean_doverdict sess-lean-do-review r-lean-do-review --pr 890 --verdict approve --panel "$LEAN_UPANEL" --summary-file "$LEAN_SCORECARD" 2>&1)"; ld_o3_rc=$?
-  if [[ "$ld_o3_rc" -eq 0 ]] && grep -q '^fidelity: not-applicable (override: 89#1)$' "$LEAN_DOVERDICT" 2>/dev/null; then
+  ld_o3="$(lean_doverdict sess-lean-do-review r-lean-do-review --pr 890 --verdict approve --panel "$LANE_UPANEL" --summary-file "$LANE_SCORECARD" 2>&1)"; ld_o3_rc=$?
+  if [[ "$ld_o3_rc" -eq 0 ]] && grep -q '^fidelity: not-applicable (override: 89#1)$' "$LANE_DOVERDICT" 2>/dev/null; then
     pass "(lean-design-override) #709 AC-2: the written verdict carries 'fidelity: not-applicable (override: 89#1)'"
-  else fail "(lean-design-override) expected the verdict to carry the override ref, rc=$ld_o3_rc: $ld_o3; verdict: $(cat "$LEAN_DOVERDICT" 2>/dev/null)"; fi
+  else fail "(lean-design-override) expected the verdict to carry the override ref, rc=$ld_o3_rc: $ld_o3; verdict: $(cat "$LANE_DOVERDICT" 2>/dev/null)"; fi
 
   # ---- leg 8: the SCHEDULER's re-entry admission, composed to a terminal write (#514) -----
   # Same CLAUDE.md obligation as legs 3b/3c/3d: a new gate contract extends the liveness
-  # scenario for every verdict path it touches. #510 gave orchestrate-lean.sh's preflight a
+  # scenario for every verdict path it touches. #510 gave orchestrate.sh's preflight a
   # SECOND accepting state — the claimed label AND this lane's bot-authored `lean-claimed`
-  # marker — and it is covered only by orchestrate-lean-selftest.sh, which drives a FAKE gate
+  # marker — and it is covered only by orchestrate-selftest.sh, which drives a FAKE gate
   # and a fake session binary. That is the component checked against itself; no scenario ever
   # composed an admitted re-entry through to a terminal state.
   #
   # THIS IS THE FIRST LEG IN THIS FILE TO INVOKE THE SCHEDULER AT ALL, which is why it composes
-  # the whole lane rather than the admission alone: real orchestrate-lean.sh -> real
-  # lean-gate.sh -> a real `git worktree` on the work branch -> the close-out's
+  # the whole lane rather than the admission alone: real orchestrate.sh -> real
+  # milestone-gate.sh -> a real `git worktree` on the work branch -> the close-out's
   # `| milestone-5 | satisfied` row. That row is the very token the scheduler's own close-out
   # check reads back, so preflight is genuinely ON the path to a terminal state — which is what
   # makes the non-vacuity arm below mechanical rather than a claim.
   #
   # ITS CEILING, stated rather than papered over: the session binary is a SCRIPT. This proves
   # the scheduler composes with the gate; it cannot prove a real `claude -p` build session
-  # re-enters. CI is model-free by design, and orchestrate-lean-selftest.sh:11-16 states the
+  # re-enters. CI is model-free by design, and orchestrate-selftest.sh:11-16 states the
   # same ceiling for itself. That fidelity is provable only by an operator-run end to end.
   #
   # A re-entry admission is recorded in NO artifact — #510 kept the predicate read-only so the
   # scheduler's "writes nothing" premise stays true — so the leg keys on the scheduler's own
   # `ok intake: re-entry` line and the marker's run id alongside rc and the milestone-5 row.
-  RE_ORCH="$HERE/../run/orchestrate-lean.sh"
+  RE_ORCH="$HERE/../run/orchestrate.sh"
   if [[ ! -f "$RE_ORCH" ]]; then
     # Absence is a FAILURE, the same posture the lean legs above take: /dev-pipeline:run SHIPS in this
     # plugin, so a missing scheduler means this leg never ran — and a skipped leg reporting PASS
     # is the vacuous green this suite exists to prevent.
-    fail "(lean-reentry) orchestrate-lean.sh not found at $RE_ORCH — the scheduler leg did not run"
+    fail "(lean-reentry) orchestrate.sh not found at $RE_ORCH — the scheduler leg did not run"
   else
     RE_KEY=55
     RE_BRANCH="claude/acme-$RE_KEY"
@@ -1799,14 +1799,14 @@ LEANDC
     RE_PR_NUM=21
     RE_DIR="$TMP/lean-reentry"
     RE_WT="$TMP/lean-reentry-wt"
-    RE_LEDGER_DIR="$LEAN_TREE/.claude/audit"
+    RE_LEDGER_DIR="$LANE_TREE/.claude/audit"
     mkdir -p "$RE_DIR"
     re_count() { # re_count <file> <fixed-string>
       if [[ -f "$1" ]]; then local n; n=$(grep -cF "$2" "$1" 2>/dev/null) || n=0; echo "$n"; else echo 0; fi; }
 
     # ITS OWN config, progress file and issue key (never legs 1-7's), because those legs thread
     # shared mutable state in order — leg 1b explicitly runs on the state leg 1 left. An own key
-    # also keeps the `<key>-run-id` cache and the marker fixtures clear of them. $LEAN_TREE is
+    # also keeps the `<key>-run-id` cache and the marker fixtures clear of them. $LANE_TREE is
     # reused as MAIN_ROOT deliberately: the scheduler resolves the lane worktree from
     # `git worktree list --porcelain` and MAIN_ROOT from `--git-common-dir`, so a stub directory
     # would leave the one piece of git parsing in that script unexercised.
@@ -1867,11 +1867,11 @@ REC
     jq '(.[] | select((.body // "") | test("stage: lean-claimed")) | .user.type) = "User"' \
       "$RE_COMMENTS" > "$RE_COMMENTS_NV"
 
-    # ONE fake tracker CLI, injected via GH= and serving BOTH scripts — orchestrate-lean.sh and
-    # lean-gate.sh resolve their client identically (`${GH:-gh}`), so one seam covers the pair.
+    # ONE fake tracker CLI, injected via GH= and serving BOTH scripts — orchestrate.sh and
+    # milestone-gate.sh resolve their client identically (`${GH:-gh}`), so one seam covers the pair.
     # The gate's --pr-file / --comments-file / --issue-file seams the legs above use are NOT
     # available here: the scheduler passes none of them to the gate subprocesses it spawns.
-    # Written fresh rather than shared with orchestrate-lean-selftest.sh's — a fake gh is not
+    # Written fresh rather than shared with orchestrate-selftest.sh's — a fake gh is not
     # production logic, so a second copy is not a mirror harness, and coupling the two would let
     # one suite's fixture edit red the other.
     RE_GH="$RE_DIR/gh"
@@ -1901,7 +1901,7 @@ case "$1" in
       # no longer open" sets RE_PR_OPEN, and it sets it to an empty array.
       #
       # LAST OF THE THREE, and that ordering is the contract, not tidiness. It splits the former
-      # CATCH-ALL and nothing else: orchestrate-lean.sh:731 asks `--state open --json number --jq`
+      # CATCH-ALL and nothing else: orchestrate.sh:731 asks `--state open --json number --jq`
       # and must keep getting $RE_PR_NUMS, and the entry sweep's `--json number,state` must keep
       # getting $RE_PR_ALL. Placed first, this arm captured both and served them a shape neither
       # parses — ten legs red, none of them about state.
@@ -1964,7 +1964,7 @@ echo "spawn $n: $*" >> "$RE_DIR/session.log"
 sf=""; pv=""
 for a in "$@"; do [ "$pv" = "--settings" ] && sf="$a"; pv="$a"; done
 cat "$sf" 2>/dev/null > "$RE_DIR/settings-$n.json"
-g() { ( unset LEAN_GATE_ANY_TREE; cd "$RE_WT" && bash "$RE_GATE" "$@" ) >> "$RE_DIR/session.log" 2>&1; }
+g() { ( unset LANE_GATE_ANY_TREE; cd "$RE_WT" && bash "$RE_GATE" "$@" ) >> "$RE_DIR/session.log" 2>&1; }
 case "$*" in
   *dev-pipeline:review*)
     # A DISTINCT identity on BOTH axes, or milestone 4 refuses the record on authorship (P10)
@@ -2023,34 +2023,34 @@ RESESS
     # idempotent and the progress file is keyed by issue, so the scheduler's close-out check —
     # which demands a NEW row — cannot move its token over a record that already carries one.
     rm -f "$RE_PROG" "$RE_PROG_NV" "$RE_GH_LOG" "$RE_DIR/spawns" "$RE_DIR/session.log" \
-          "$LEAN_TREE/.claude/pipeline-state/$RE_KEY-run-id" \
-          "$LEAN_TREE/.claude/pipeline-state/$RE_KEY-review-run-id"
+          "$LANE_TREE/.claude/pipeline-state/$RE_KEY-run-id" \
+          "$LANE_TREE/.claude/pipeline-state/$RE_KEY-review-run-id"
     # A REAL remote, which none of the legs above needed: they hand-set `refs/remotes/origin/main`
     # with `update-ref`, but the staleness base arm FETCHES, and a fetch it cannot complete is
     # exit 1 by design rather than a clean answer. Pushed at the branch point, so the arm's answer
-    # here is "the base has not moved" — the FIRING path is owned by orchestrate-lean-selftest.sh's
+    # here is "the base has not moved" — the FIRING path is owned by orchestrate-selftest.sh's
     # (v13)/(v14), which drive the same real gate against a base that did move.
     RE_ORIGIN="$RE_DIR/origin.git"
     rm -rf "$RE_ORIGIN"
     git init -q --bare "$RE_ORIGIN" >/dev/null 2>&1
-    git -C "$LEAN_TREE" remote remove origin >/dev/null 2>&1
-    git -C "$LEAN_TREE" remote add origin "$RE_ORIGIN" >/dev/null 2>&1
-    git -C "$LEAN_TREE" push -q origin HEAD:refs/heads/main >/dev/null 2>&1
-    git -C "$LEAN_TREE" worktree add -q -b "$RE_BRANCH" "$RE_WT" HEAD >/dev/null 2>&1; re_wt=$?
+    git -C "$LANE_TREE" remote remove origin >/dev/null 2>&1
+    git -C "$LANE_TREE" remote add origin "$RE_ORIGIN" >/dev/null 2>&1
+    git -C "$LANE_TREE" push -q origin HEAD:refs/heads/main >/dev/null 2>&1
+    git -C "$LANE_TREE" worktree add -q -b "$RE_BRANCH" "$RE_WT" HEAD >/dev/null 2>&1; re_wt=$?
 
     # CLAUDE_CODE_SESSION_ID is UNSET on the scheduler, which is the real shape: it never sets or
     # passes one, and each spawn's identity is the harness's own stamp — here, the fake's export.
     # GH_BOT is unset too, and that is load-bearing rather than hygiene: an ambient one would
     # send cmd_mark's write to a LIVE bot if its no-op branch ever stopped being taken.
-    # #805: LEAN_SPAWN_POLL_SECS is pinned to zero below. The scheduler waits one poll interval
+    # #805: LANE_SPAWN_POLL_SECS is pinned to zero below. The scheduler waits one poll interval
     # before reading a session's state, so an unpinned interval charges this leg thirty seconds
     # PER SPAWN — measured, 68s to 323s. What the leg composes is the routing, not the cadence.
     re_run() { # re_run <progress-file> <comments-file>
-      ( cd "$LEAN_TREE" && env -u CLAUDE_CODE_SESSION_ID -u RUN_ID -u LEAN_RUN_MODEL -u GH_BOT \
-          LEAN_SPAWN_POLL_SECS=0 \
-          GH="$RE_GH" LEAN_SPAWN_BIN="$RE_SESSION" \
-          SECOND_SHIFT_CONFIG="$RE_CFG" LEAN_PROGRESS_FILE="$1" RE_COMMENTS_LIVE="$2" \
-          RE_DIR="$RE_DIR" RE_WT="$RE_WT" RE_GATE="$LEAN_GATE" RE_KEY="$RE_KEY" \
+      ( cd "$LANE_TREE" && env -u CLAUDE_CODE_SESSION_ID -u RUN_ID -u LANE_RUN_MODEL -u GH_BOT \
+          LANE_SPAWN_POLL_SECS=0 \
+          GH="$RE_GH" LANE_SPAWN_BIN="$RE_SESSION" \
+          SECOND_SHIFT_CONFIG="$RE_CFG" LANE_PROGRESS_FILE="$1" RE_COMMENTS_LIVE="$2" \
+          RE_DIR="$RE_DIR" RE_WT="$RE_WT" RE_GATE="$LANE_GATE" RE_KEY="$RE_KEY" \
           RE_RUN="$RE_RUN" RE_PR_NUM="$RE_PR_NUM" RE_LEDGER_DIR="$RE_LEDGER_DIR" \
           RE_BRANCH="$RE_BRANCH" \
           RE_LABELS="$RE_LABELS" RE_BODY="$RE_BODY" RE_STATE="$RE_STATE" \
@@ -2125,7 +2125,7 @@ RESESS
       && pass "(lean-reentry-nv) non-vacuity: the same composition on a trail with no bot-authored marker rejects at exit 2, spawns nothing, and reaches no terminal write" \
       || fail "(lean-reentry-nv) rc=$re_nv_rc spawns=$re_nv_spawns milestone-5-rows=$(re_count "$RE_PROG_NV" '| milestone-5 | satisfied'), expected 2/0/0: $re_nv_out"
 
-    git -C "$LEAN_TREE" worktree remove --force "$RE_WT" >/dev/null 2>&1
+    git -C "$LANE_TREE" worktree remove --force "$RE_WT" >/dev/null 2>&1
 
     # LEG 9 WAS AN INFRASTRUCTURE KILL COMPOSED THROUGH TO A TERMINAL WRITE (#527), and #718
     # deleted the route it composed: a real `kill -9` on milestone 3's group, then the scheduler
@@ -2146,8 +2146,8 @@ RESESS
     # spawned session's record moved, while this one runs the actual writer.
     #
     # WHY IT STILL HAS TO BE COMPOSED, in legs 8 and 9's terms. Both halves remain covered against
-    # themselves — lean-gate-selftest.sh drives the obligation rows against fixtures, and
-    # orchestrate-lean-selftest.sh's (p*) block drives the retry against a FAKE gate whose exit
+    # themselves — milestone-gate-selftest.sh drives the obligation rows against fixtures, and
+    # orchestrate-selftest.sh's (p*) block drives the retry against a FAKE gate whose exit
     # codes a case scripts. Neither can fail if the gate's WRITER and the scheduler's READER
     # disagree, and #590 D-5 is exactly a decision about that: the scheduler now trusts an exit
     # code, so a gate that redded without reding — or that satisfied milestone 5 on a run with no
@@ -2230,7 +2230,7 @@ if [ "${1:-}" = "stop" ]; then echo "stop ${2:-}" >> "$CO_DIR/session.log"; exit
 n=$(( $(cat "$CO_DIR/spawns" 2>/dev/null || echo 0) + 1 ))
 echo "$n" > "$CO_DIR/spawns"
 echo "spawn $n: $*" >> "$CO_DIR/session.log"
-g() { ( unset LEAN_GATE_ANY_TREE; cd "$CO_WT" && bash "$CO_GATE" "$@" ) >> "$CO_DIR/session.log" 2>&1; }
+g() { ( unset LANE_GATE_ANY_TREE; cd "$CO_WT" && bash "$CO_GATE" "$@" ) >> "$CO_DIR/session.log" 2>&1; }
 case "$*" in
   *dev-pipeline:review*)
     export CLAUDE_CODE_SESSION_ID=sess-lean-co-review RUN_ID=r-lean-co-review
@@ -2278,29 +2278,29 @@ COSESS
       # question is only whether the composed path still REACHES its terminal write.
       [ "$2" = "merged" ] && { fail_mode=""; co_pr="$CO_PR_MERGED"; co_pr_open="$CO_PR_NONE"; }
       rm -f "$CO_DIR/spawns" "$CO_DIR/session.log" "$CO_GH_LOG" "$CO_DIR/post-refused" \
-            "$LEAN_TREE/.claude/pipeline-state/$CO_KEY-run-id" \
-            "$LEAN_TREE/.claude/pipeline-state/$CO_KEY-review-run-id"
+            "$LANE_TREE/.claude/pipeline-state/$CO_KEY-run-id" \
+            "$LANE_TREE/.claude/pipeline-state/$CO_KEY-review-run-id"
       cp "$CO_COMMENTS_PARTIAL" "$CO_COMMENTS_LIVE"
-      git -C "$LEAN_TREE" worktree remove --force "$CO_WT" >/dev/null 2>&1
-      git -C "$LEAN_TREE" branch -D "$CO_BRANCH" >/dev/null 2>&1
+      git -C "$LANE_TREE" worktree remove --force "$CO_WT" >/dev/null 2>&1
+      git -C "$LANE_TREE" branch -D "$CO_BRANCH" >/dev/null 2>&1
       git -C "$RE_ORIGIN" update-ref -d "refs/heads/$CO_BRANCH" >/dev/null 2>&1
-      git -C "$LEAN_TREE" update-ref -d "refs/remotes/origin/$CO_BRANCH" >/dev/null 2>&1
-      git -C "$LEAN_TREE" worktree add -q -b "$CO_BRANCH" "$CO_WT" HEAD >/dev/null 2>&1
+      git -C "$LANE_TREE" update-ref -d "refs/remotes/origin/$CO_BRANCH" >/dev/null 2>&1
+      git -C "$LANE_TREE" worktree add -q -b "$CO_BRANCH" "$CO_WT" HEAD >/dev/null 2>&1
       # OTEL_METRICS_FILE points at nothing, deliberately: the close-out's cost re-compute is the
       # REAL pipeline-cost-block.sh, and a leg whose verdict moved with whatever the operator's
       # collector happened to have on disk would be a scenario about this machine. The documented
       # skip is what a host with no collector produces, and its three obligations must still be
       # recorded met — which is AC-4, asserted below.
-      ( cd "$LEAN_TREE" && env -u CLAUDE_CODE_SESSION_ID -u RUN_ID -u LEAN_RUN_MODEL -u GH_BOT \
-          LEAN_SPAWN_POLL_SECS=0 \
-          GH="$RE_GH" LEAN_SPAWN_BIN="$CO_SESSION" \
-          SECOND_SHIFT_CONFIG="$CO_CFG" LEAN_PROGRESS_FILE="$1" RE_COMMENTS_LIVE="$CO_COMMENTS_LIVE" \
+      ( cd "$LANE_TREE" && env -u CLAUDE_CODE_SESSION_ID -u RUN_ID -u LANE_RUN_MODEL -u GH_BOT \
+          LANE_SPAWN_POLL_SECS=0 \
+          GH="$RE_GH" LANE_SPAWN_BIN="$CO_SESSION" \
+          SECOND_SHIFT_CONFIG="$CO_CFG" LANE_PROGRESS_FILE="$1" RE_COMMENTS_LIVE="$CO_COMMENTS_LIVE" \
           CO_MODE="$2" OTEL_METRICS_FILE="$CO_DIR/no-such-metrics.jsonl" \
           COST_LOG_FILE="$CO_DIR/cost-log.jsonl" \
           GH_POST_FAIL="$fail_mode" GH_POST_FAIL_FLAG="$CO_DIR/post-refused" \
           GH_POST_SINK="$CO_COMMENTS_LIVE" \
           GH_POST_BODY_MARK="Closed out. Verdict record: $CO_VERDICT_REL" \
-          CO_DIR="$CO_DIR" CO_WT="$CO_WT" CO_GATE="$LEAN_GATE" CO_KEY="$CO_KEY" \
+          CO_DIR="$CO_DIR" CO_WT="$CO_WT" CO_GATE="$LANE_GATE" CO_KEY="$CO_KEY" \
           CO_RUN="$CO_RUN" CO_PR_NUM="$CO_PR_NUM" CO_LEDGER_DIR="$RE_LEDGER_DIR" \
           CO_BRANCH="$CO_BRANCH" \
           RE_LABELS="$CO_LABELS" RE_BODY="$CO_BODY" RE_STATE="$CO_STATE" \
@@ -2389,7 +2389,7 @@ COSESS
     # cmd_5 calls cmd_mark unconditionally, so on the live path the widening bought nothing:
     # `[]` came back, mark returned 1, and milestone 5 blocked on "could not stamp the build
     # identity". Composed here because that is where the two halves meet — the per-tool cases
-    # (lean-gate-selftest's (pm7b)/(k7b)) can each be right while the path between them is not.
+    # (milestone-gate-selftest's (pm7b)/(k7b)) can each be right while the path between them is not.
     CO_PROG_MG="$CO_DIR/progress-merged.md"
     rm -f "$CO_PROG_MG"
     co_mg_out="$(co_run "$CO_PROG_MG" merged)"; co_mg_rc=$?
@@ -2404,7 +2404,7 @@ COSESS
     # fake must actually have been asked for open PRs and actually have answered none". It could
     # not fail. After this fix NOTHING in the gate narrows to open PRs — that IS the fix — so the
     # only `--state open` line the composed lane writes is the scheduler's own `resolve_pr`
-    # (orchestrate-lean.sh:731), which carries `--jq` and is therefore answered by the arm ABOVE
+    # (orchestrate.sh:731), which carries `--jq` and is therefore answered by the arm ABOVE
     # the `--state` one, with the PR number rather than "none". The grep matched a query the
     # `--state` arm never saw: deleting that arm outright left the whole suite green, 76/76. An
     # assertion certifying a path it never crosses is the same defect #670 exists to repair, so
@@ -2438,7 +2438,7 @@ COSESS
       && pass "(lean-closeout-merged-fixture) the fake really does discriminate: an \`--state open\` narrowing gets \`[]\` where \`--state all\` gets the MERGED record — so a resolver that asked the pre-#670 way would still be starved" \
       || fail "(lean-closeout-merged-fixture) --state open returned length=$co_mg_open_len (want 0) and --state all returned state=$co_mg_all_state (want MERGED), so the fixture cannot distinguish the two"
 
-    git -C "$LEAN_TREE" worktree remove --force "$CO_WT" >/dev/null 2>&1
+    git -C "$LANE_TREE" worktree remove --force "$CO_WT" >/dev/null 2>&1
   fi
 
   # ============ #566: milestone 3 is INLINE, and its residue is what the scheduler reads ====
@@ -2448,7 +2448,7 @@ COSESS
   # the runner, the marker, the rejoin, the lane registry — because the evaluation is now bounded
   # to fit inside the turn instead of engineered to survive leaving it.
   #
-  # WHAT NO FIXTURE CASE CAN FAIL ON, and why this is still a scenario. lean-gate-selftest.sh's
+  # WHAT NO FIXTURE CASE CAN FAIL ON, and why this is still a scenario. milestone-gate-selftest.sh's
   # (x3d) asserts the gate does not ANNOUNCE a detached evaluation, and (if5) asserts that a
   # killed evaluation leaves `started` with no `concluded` — over a HAND-WRITTEN progress fixture.
   # Neither composes the piece that decides whether the residue is real: that a milestone 3 killed
@@ -2479,13 +2479,13 @@ COSESS
   te_gate() { # te_gate <config> <args...> — stderr MERGED, for reading the gate's report
     local cfg="$1"; shift
     ( cd "$TE_TREE" && env -u RUN_ID -u GH_BOT CLAUDE_CODE_SESSION_ID="$TE_SID" \
-        SECOND_SHIFT_CONFIG="$cfg" LEAN_PROGRESS_FILE="$TE_PROG" GH="${GH:-$LEAN_GH}" \
-        bash "$LEAN_GATE" --issue-file "$LEAN_ISSUE_NOREGIONS" "$@" 2>&1 )
+        SECOND_SHIFT_CONFIG="$cfg" LANE_PROGRESS_FILE="$TE_PROG" GH="${GH:-$LANE_GH}" \
+        bash "$LANE_GATE" --issue-file "$LANE_ISSUE_NOREGIONS" "$@" 2>&1 )
   }
 
   # ---- the happy path: an inline evaluation concludes, and the read says "no death" ---------
   TE_CFG_OK="$TE_DIR/config-ok.json"
-  jq '.commands.acme.test = "true"' "$LEAN_CFG" > "$TE_CFG_OK"
+  jq '.commands.acme.test = "true"' "$LANE_CFG" > "$TE_CFG_OK"
   rm -f "$TE_PROG"
   te_gate "$TE_CFG_OK" entry "$TE_KEY" >/dev/null 2>&1
   te_ok_out="$(te_gate "$TE_CFG_OK" 3 "$TE_KEY")"; te_ok_rc=$?
@@ -2505,13 +2505,13 @@ COSESS
   # what happened — and an evaluation whose `concluded` row is written unconditionally leaves a
   # killed run indistinguishable from a finished one, which is the shape #527 was filed about.
   TE_CFG_BLOCK="$TE_DIR/config-block.json"
-  jq '.commands.acme.test = "sleep 20"' "$LEAN_CFG" > "$TE_CFG_BLOCK"
+  jq '.commands.acme.test = "sleep 20"' "$LANE_CFG" > "$TE_CFG_BLOCK"
   rm -f "$TE_PROG"
   te_gate "$TE_CFG_BLOCK" entry "$TE_KEY" >/dev/null 2>&1
   set -m
   ( cd "$TE_TREE" && env -u RUN_ID -u GH_BOT CLAUDE_CODE_SESSION_ID="$TE_SID" \
-      SECOND_SHIFT_CONFIG="$TE_CFG_BLOCK" LEAN_PROGRESS_FILE="$TE_PROG" \
-      bash "$LEAN_GATE" --issue-file "$LEAN_ISSUE_NOREGIONS" 3 "$TE_KEY" ) >/dev/null 2>&1 &
+      SECOND_SHIFT_CONFIG="$TE_CFG_BLOCK" LANE_PROGRESS_FILE="$TE_PROG" \
+      bash "$LANE_GATE" --issue-file "$LANE_ISSUE_NOREGIONS" 3 "$TE_KEY" ) >/dev/null 2>&1 &
   te_kpg=$!
   set +m
   te_waited=0
@@ -2548,7 +2548,7 @@ fi
 # WHY THIS IS A SCENARIO AND NOT A FIXTURE CASE. This leg used to assert "exactly one of the two
 # chain gates claims any PR". #731 deleted the second gate, check-pipeline-chain.sh, so that
 # relation is vacuous: there is no pair left to be disjoint from. What survives, and is still
-# invisible to check-lean-chain.sh's own suite, is that the boundary's applicability is settled
+# invisible to check-lane-chain.sh's own suite, is that the boundary's applicability is settled
 # by the classifier over the PR's own DIFF — not by the branch name, which every lane shares
 # since #413. So the legs below hold ONE tree and ONE branch shape fixed and move only the diff,
 # asserting the claim directly through the real gate rather than at classify() in isolation.
@@ -2559,8 +2559,8 @@ echo
 echo "── lane routing (the merge-boundary gate over one PR)"
 
 LR_ROOT="$HERE/../../../.."
-LR_LEAN="$LR_ROOT/scripts/check-lean-chain.sh"
-LR_EV="$HERE/lean-evidence.sh"
+LR_LEAN="$LR_ROOT/scripts/check-lane-chain.sh"
+LR_EV="$HERE/boundary-evidence.sh"
 # The chain gate lives in the marketplace repo's `scripts/` and is second-shift-only by
 # construction — its own header says not to ship it to a consumer. So when this suite runs
 # from a STAGED INSTALL CACHE (tools/install-topology-selftest.sh re-runs every shipped suite
@@ -2603,7 +2603,7 @@ else
     out="$( cd "$LR_TREE" && PIPELINE_BRANCH_PREFIX="$LR_PREFIX" \
       PR_HEAD_REF="${LR_PREFIX}77" PR_HEAD_SHA="$LR_SHA" \
       PR_BASE_REF=main PR_BODY="$LR_BODY" PR_CREATED_AT="$LR_OPEN" \
-      LEAN_EVIDENCE="$LR_EV" bash "$LR_LEAN" --comments-file "$LR_EMPTY" \
+      LANE_EVIDENCE="$LR_EV" bash "$LR_LEAN" --comments-file "$LR_EMPTY" \
       --diff-files-file "$1" 2>&1 )"
     # Since #443 the milestone gate's decline is its class-(b) line — the only thing it writes on a
     # green run — so the token is `lean-chain: not-applicable`, not the retired prose sentence.
@@ -2615,7 +2615,7 @@ else
     ( cd "$LR_TREE" && PIPELINE_BRANCH_PREFIX="$LR_PREFIX" \
       PR_HEAD_REF="${LR_PREFIX}77" PR_HEAD_SHA="$LR_SHA" \
       PR_BASE_REF=main PR_BODY="$LR_BODY" PR_CREATED_AT="$2" \
-      LEAN_EVIDENCE="$LR_EV" bash "$LR_LEAN" --comments-file "${3:-$LR_EMPTY}" \
+      LANE_EVIDENCE="$LR_EV" bash "$LR_LEAN" --comments-file "${3:-$LR_EMPTY}" \
       --diff-files-file "$1" 2>&1 )
   }
 
@@ -2671,7 +2671,7 @@ EOF
   # (lr4) #444: the PAYLOAD's arm cutoff, composed through the delegating boundary. The other
   # new verdict path this ticket adds — its sibling, the entry precondition's de-block, composes
   # in the (lean-entry-since) leg above. Only a composed run shows the exemption SURVIVING
-  # delegation: check-lean-chain.sh shells out to the payload and folds back a violation COUNT,
+  # delegation: check-lane-chain.sh shells out to the payload and folds back a violation COUNT,
   # so a class-(b) decline that the boundary miscounted as a violation, or a cutoff the delegated
   # environment never reached, is invisible to the payload's own suite.
   #

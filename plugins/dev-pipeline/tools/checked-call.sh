@@ -9,7 +9,7 @@
 # `2>/dev/null` discarding the one clue.
 #
 # The contract is the RETURN CODE VOCABULARY, and it is shared beyond this function:
-# `lean-gate.sh`'s check_pause_and_ask uses the same numbers for the capture-shaped version of
+# `milestone-gate.sh`'s check_pause_and_ask uses the same numbers for the capture-shaped version of
 # the same defect: a capture whose failure arm returned 0, where 0 meant "clear". One rule
 # covers both — **2 means you may not treat this as a negative.**
 #

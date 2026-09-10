@@ -77,7 +77,7 @@ Removed from the working tree, and nothing else:
 
 | path | why |
 | --- | --- |
-| `plugins/` (whole tree) | every `SKILL.md`, every `agents/*.md`, **and** `plugins/dev-pipeline/skills/build/lean-gate.sh` with the rest of `plugins/dev-pipeline/tools/`. The gate is the whole point: §1's ablated run covered M1–M3 by citing `lean-gate.sh:2663`, `:890`, `:1852` by line. |
+| `plugins/` (whole tree) | every `SKILL.md`, every `agents/*.md`, **and** `plugins/dev-pipeline/skills/build/milestone-gate.sh` with the rest of `plugins/dev-pipeline/tools/`. The gate is the whole point: §1's ablated run covered M1–M3 by citing `milestone-gate.sh:2663`, `:890`, `:1852` by line. |
 | `.claude-plugin/` | the marketplace manifest. Not load-bearing for discovery (see the measurement below), removed so the tree contains no marketplace surface at all. |
 
 **By what means: a throwaway `git clone` of this repository**, checked out at the sample's pinned
@@ -145,7 +145,7 @@ The consequence for the construction is precise, and it cuts both ways:
 | the installed plugin cache, readable | a consumer machine has it; hiding it would starve the arm | **advantages bare** — it can walk to the kit if it thinks to |
 | `CLAUDE.md` | the frozen protocol keeps it in both arms and marks what it mandates non-discriminating (`docs/skill-ablation-pre-registration.md`:34) | frozen; not this file's to change |
 | `.claude/second-shift.config.json` | an onboarded consumer has a committed one; here it is gitignored, so it is **copied in** from the operator's checkout | advantages bare |
-| `.claude/settings.json`, `.claude/SECOND-SHIFT.md`, `.claude/second-shift.lock.json`, `.claude/lean-overrides.tsv` | a consumer onboarded by `/second-shift:onboard` has these | advantages bare |
+| `.claude/settings.json`, `.claude/SECOND-SHIFT.md`, `.claude/second-shift.lock.json`, `.claude/lane-overrides.tsv` | a consumer onboarded by `/second-shift:onboard` has these | advantages bare |
 | `docs/`, `scripts/`, `tools/`, `tests/`, `schema/`, `.github/` | the repository's own code and docs, not the kit | advantages bare |
 
 Every bias runs the same way — toward bare covering **more**. That is deliberate and it is what
@@ -233,8 +233,8 @@ that are *instances of the very things being scored* — a plan that has read a 
 lean specs can name a spec file, a ledger and a worktree with no general competence at all:
 
 - `docs/plans/` — the committed `second-shift-*-lean.md` specs (17 of them at this file's own base, `8200f1c3`; the count moves with every lane run), plus this study's own evidence tree
-- `.claude/SECOND-SHIFT.md`, `.claude/second-shift.lock.json`, `.claude/lean-overrides.tsv`
-- the single `.claude/settings.json` allow entry naming `lean-gate.sh` by literal path
+- `.claude/SECOND-SHIFT.md`, `.claude/second-shift.lock.json`, `.claude/lane-overrides.tsv`
+- the single `.claude/settings.json` allow entry naming `milestone-gate.sh` by literal path
 
 `.claude/second-shift.config.json` and `CLAUDE.md` **stay** — a consumer has both, and the frozen
 protocol pins the second.
