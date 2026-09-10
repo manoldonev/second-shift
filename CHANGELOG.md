@@ -4,6 +4,173 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v13.0.0
+
+### `audit-toolkit` 4.0.1 → 5.0.0
+
+- **The pipeline's guards and LEAN_ identifiers drop the lean name (#839)** (#839)
+  the pipeline's guards are renamed — `lean-gate.sh` is `milestone-gate.sh`,
+  `lean-evidence.sh` is `boundary-evidence.sh`, `lean-reconcile.sh` is `reconcile.sh`,
+  `orchestrate-lean.sh` is `orchestrate.sh`, `check-lean-chain.sh` is `check-lane-chain.sh`,
+  and `.claude/lean-overrides.tsv` is `.claude/lane-overrides.tsv`. `LEAN_*` environment
+  knobs are `LANE_*`; the old spelling still resolves with a one-time stderr notice and is
+  removed at the next major.
+  Migration: (1) re-copy `plugins/second-shift/templates/consumer/second-shift-ci-check.sh`
+  into your repo — an existing copy fetches `lean-evidence.sh` by literal path at your
+  pinned ref and its CI breaks the moment you bump the pin to this release; (2) rename
+  `.claude/lean-overrides.tsv` to `.claude/lane-overrides.tsv` when you carry one;
+  (3) `/dev-pipeline:build-lean`, `:review-lean` and `:run-lean` no longer resolve — use
+  `/dev-pipeline:build`, `:review` and `:run`.
+  **BREAKING:** `second-shift-ci-check.sh` must be re-copied into every onboarded repo, and the three `-lean` skill aliases are removed.
+
+### `design-toolkit` 4.0.6 → 5.0.0
+
+- **The pipeline's guards and LEAN_ identifiers drop the lean name (#839)** (#839)
+  the pipeline's guards are renamed — `lean-gate.sh` is `milestone-gate.sh`,
+  `lean-evidence.sh` is `boundary-evidence.sh`, `lean-reconcile.sh` is `reconcile.sh`,
+  `orchestrate-lean.sh` is `orchestrate.sh`, `check-lean-chain.sh` is `check-lane-chain.sh`,
+  and `.claude/lean-overrides.tsv` is `.claude/lane-overrides.tsv`. `LEAN_*` environment
+  knobs are `LANE_*`; the old spelling still resolves with a one-time stderr notice and is
+  removed at the next major.
+  Migration: (1) re-copy `plugins/second-shift/templates/consumer/second-shift-ci-check.sh`
+  into your repo — an existing copy fetches `lean-evidence.sh` by literal path at your
+  pinned ref and its CI breaks the moment you bump the pin to this release; (2) rename
+  `.claude/lean-overrides.tsv` to `.claude/lane-overrides.tsv` when you carry one;
+  (3) `/dev-pipeline:build-lean`, `:review-lean` and `:run-lean` no longer resolve — use
+  `/dev-pipeline:build`, `:review` and `:run`.
+  **BREAKING:** `second-shift-ci-check.sh` must be re-copied into every onboarded repo, and the three `-lean` skill aliases are removed.
+
+### `dev-pipeline` 12.5.1 → 13.0.0
+
+- **The pipeline's guards and LEAN_ identifiers drop the lean name (#839)** (#839)
+  the pipeline's guards are renamed — `lean-gate.sh` is `milestone-gate.sh`,
+  `lean-evidence.sh` is `boundary-evidence.sh`, `lean-reconcile.sh` is `reconcile.sh`,
+  `orchestrate-lean.sh` is `orchestrate.sh`, `check-lean-chain.sh` is `check-lane-chain.sh`,
+  and `.claude/lean-overrides.tsv` is `.claude/lane-overrides.tsv`. `LEAN_*` environment
+  knobs are `LANE_*`; the old spelling still resolves with a one-time stderr notice and is
+  removed at the next major.
+  Migration: (1) re-copy `plugins/second-shift/templates/consumer/second-shift-ci-check.sh`
+  into your repo — an existing copy fetches `lean-evidence.sh` by literal path at your
+  pinned ref and its CI breaks the moment you bump the pin to this release; (2) rename
+  `.claude/lean-overrides.tsv` to `.claude/lane-overrides.tsv` when you carry one;
+  (3) `/dev-pipeline:build-lean`, `:review-lean` and `:run-lean` no longer resolve — use
+  `/dev-pipeline:build`, `:review` and `:run`.
+  **BREAKING:** `second-shift-ci-check.sh` must be re-copied into every onboarded repo, and the three `-lean` skill aliases are removed.
+- **fix(dev-pipeline): P9 is a gate — a departure from a ratified intent row needs an intent-gap record (#840)** (#840)
+  milestone 1 refuses a spec that departs from a user-answered or
+  user-delegated receipt row without an intent-gap record on the branch (P9);
+  `lean-gate.sh verdict --hand-back ratification` writes that record from the
+  review side with no verdict, milestone 4 returns the new exit 11 on it, and
+  the scheduler's new `review-paused` terminal stops the lane for an operator
+  ruling instead of spending rounds. Migration: a spec that already carries a
+  `DEPARTURE — <reason>` row against an intent row now needs the record before
+  milestone 1 clears; `tools/lane-bench-classes.tsv` maps `review-paused` to
+  `paused`.
+- **review-lead's default panel on the pipeline path: scope-completeness only, the rest opt-in (#841)** (#841)
+  /dev-pipeline:review now fans out to scope-completeness-reviewer by
+  default; security-reviewer, a11y-reviewer and unit-test-mutation-reviewer are
+  opt-in, selected by a `review panel` Decision Ledger row in the ticket's spec
+  or by the new `reviewers.default[]` config key. Every other invocation path is
+  unchanged, as are db/pipeline/repo-local reviewers and design fidelity.
+  Migration: none — a repo that wants one of the three on every pipeline round
+  adds it to `reviewers.default[]`.
+  the review-lead panel docs illustrate the per-ticket opt-in row with
+  the 4-column committed-spec arity instead of the 5-column receipt arity, so an
+  operator copying it no longer trips the spec's ledger lint.
+  Migration: none.
+
+### `intake-toolkit` 4.3.0 → 5.0.0
+
+- **The pipeline's guards and LEAN_ identifiers drop the lean name (#839)** (#839)
+  the pipeline's guards are renamed — `lean-gate.sh` is `milestone-gate.sh`,
+  `lean-evidence.sh` is `boundary-evidence.sh`, `lean-reconcile.sh` is `reconcile.sh`,
+  `orchestrate-lean.sh` is `orchestrate.sh`, `check-lean-chain.sh` is `check-lane-chain.sh`,
+  and `.claude/lean-overrides.tsv` is `.claude/lane-overrides.tsv`. `LEAN_*` environment
+  knobs are `LANE_*`; the old spelling still resolves with a one-time stderr notice and is
+  removed at the next major.
+  Migration: (1) re-copy `plugins/second-shift/templates/consumer/second-shift-ci-check.sh`
+  into your repo — an existing copy fetches `lean-evidence.sh` by literal path at your
+  pinned ref and its CI breaks the moment you bump the pin to this release; (2) rename
+  `.claude/lean-overrides.tsv` to `.claude/lane-overrides.tsv` when you carry one;
+  (3) `/dev-pipeline:build-lean`, `:review-lean` and `:run-lean` no longer resolve — use
+  `/dev-pipeline:build`, `:review` and `:run`.
+  **BREAKING:** `second-shift-ci-check.sh` must be re-copied into every onboarded repo, and the three `-lean` skill aliases are removed.
+- **fix(dev-pipeline): P9 is a gate — a departure from a ratified intent row needs an intent-gap record (#840)** (#840)
+  milestone 1 refuses a spec that departs from a user-answered or
+  user-delegated receipt row without an intent-gap record on the branch (P9);
+  `lean-gate.sh verdict --hand-back ratification` writes that record from the
+  review side with no verdict, milestone 4 returns the new exit 11 on it, and
+  the scheduler's new `review-paused` terminal stops the lane for an operator
+  ruling instead of spending rounds. Migration: a spec that already carries a
+  `DEPARTURE — <reason>` row against an intent row now needs the record before
+  milestone 1 clears; `tools/lane-bench-classes.tsv` maps `review-paused` to
+  `paused`.
+
+### `review-toolkit` 7.3.0 → 8.0.0
+
+- **The pipeline's guards and LEAN_ identifiers drop the lean name (#839)** (#839)
+  the pipeline's guards are renamed — `lean-gate.sh` is `milestone-gate.sh`,
+  `lean-evidence.sh` is `boundary-evidence.sh`, `lean-reconcile.sh` is `reconcile.sh`,
+  `orchestrate-lean.sh` is `orchestrate.sh`, `check-lean-chain.sh` is `check-lane-chain.sh`,
+  and `.claude/lean-overrides.tsv` is `.claude/lane-overrides.tsv`. `LEAN_*` environment
+  knobs are `LANE_*`; the old spelling still resolves with a one-time stderr notice and is
+  removed at the next major.
+  Migration: (1) re-copy `plugins/second-shift/templates/consumer/second-shift-ci-check.sh`
+  into your repo — an existing copy fetches `lean-evidence.sh` by literal path at your
+  pinned ref and its CI breaks the moment you bump the pin to this release; (2) rename
+  `.claude/lean-overrides.tsv` to `.claude/lane-overrides.tsv` when you carry one;
+  (3) `/dev-pipeline:build-lean`, `:review-lean` and `:run-lean` no longer resolve — use
+  `/dev-pipeline:build`, `:review` and `:run`.
+  **BREAKING:** `second-shift-ci-check.sh` must be re-copied into every onboarded repo, and the three `-lean` skill aliases are removed.
+- **review-lead's default panel on the pipeline path: scope-completeness only, the rest opt-in (#841)** (#841)
+  /dev-pipeline:review now fans out to scope-completeness-reviewer by
+  default; security-reviewer, a11y-reviewer and unit-test-mutation-reviewer are
+  opt-in, selected by a `review panel` Decision Ledger row in the ticket's spec
+  or by the new `reviewers.default[]` config key. Every other invocation path is
+  unchanged, as are db/pipeline/repo-local reviewers and design fidelity.
+  Migration: none — a repo that wants one of the three on every pipeline round
+  adds it to `reviewers.default[]`.
+  the review-lead panel docs illustrate the per-ticket opt-in row with
+  the 4-column committed-spec arity instead of the 5-column receipt arity, so an
+  operator copying it no longer trips the spec's ledger lint.
+  Migration: none.
+
+### `second-shift` 8.1.0 → 9.0.0
+
+- **The shipped pointers name the current pipeline skills (#834)** (#834)
+  the shipped consumer template, the config schema's ticketTag
+  description and the pipeline-aborted issue form now name /dev-pipeline:run,
+  /dev-pipeline:build and /dev-pipeline:review instead of the deprecated -lean
+  aliases. A repo onboarded from here on is pointed at the current spelling.
+  Migration: none — the -lean aliases still resolve, so an already-copied
+  template keeps working.
+- **The pipeline's guards and LEAN_ identifiers drop the lean name (#839)** (#839)
+  the pipeline's guards are renamed — `lean-gate.sh` is `milestone-gate.sh`,
+  `lean-evidence.sh` is `boundary-evidence.sh`, `lean-reconcile.sh` is `reconcile.sh`,
+  `orchestrate-lean.sh` is `orchestrate.sh`, `check-lean-chain.sh` is `check-lane-chain.sh`,
+  and `.claude/lean-overrides.tsv` is `.claude/lane-overrides.tsv`. `LEAN_*` environment
+  knobs are `LANE_*`; the old spelling still resolves with a one-time stderr notice and is
+  removed at the next major.
+  Migration: (1) re-copy `plugins/second-shift/templates/consumer/second-shift-ci-check.sh`
+  into your repo — an existing copy fetches `lean-evidence.sh` by literal path at your
+  pinned ref and its CI breaks the moment you bump the pin to this release; (2) rename
+  `.claude/lean-overrides.tsv` to `.claude/lane-overrides.tsv` when you carry one;
+  (3) `/dev-pipeline:build-lean`, `:review-lean` and `:run-lean` no longer resolve — use
+  `/dev-pipeline:build`, `:review` and `:run`.
+  **BREAKING:** `second-shift-ci-check.sh` must be re-copied into every onboarded repo, and the three `-lean` skill aliases are removed.
+- **review-lead's default panel on the pipeline path: scope-completeness only, the rest opt-in (#841)** (#841)
+  /dev-pipeline:review now fans out to scope-completeness-reviewer by
+  default; security-reviewer, a11y-reviewer and unit-test-mutation-reviewer are
+  opt-in, selected by a `review panel` Decision Ledger row in the ticket's spec
+  or by the new `reviewers.default[]` config key. Every other invocation path is
+  unchanged, as are db/pipeline/repo-local reviewers and design fidelity.
+  Migration: none — a repo that wants one of the three on every pipeline round
+  adds it to `reviewers.default[]`.
+  the review-lead panel docs illustrate the per-ticket opt-in row with
+  the 4-column committed-spec arity instead of the 5-column receipt arity, so an
+  operator copying it no longer trips the spec's ledger lint.
+  Migration: none.
+
 ## v12.5.1
 
 ### `dev-pipeline` 12.5.0 → 12.5.1
