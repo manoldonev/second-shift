@@ -217,7 +217,7 @@ resolution that ships the wrong control; a node with no recorded dimensions is t
 that ships at 3× the design. Milestone 3 does read the `px` numbers: per render state it compares
 them against the sizes the harness measured, scale-adaptively, and names any node out of proportion
 with the rest of its state. That grades the transcription against the code, never against the
-design — whether a recorded value is the *design's* is the design-sighted `/dev-pipeline:review` session,
+design — whether a recorded value is the *design's* is the design-sighted REVIEW session,
 scoring `fidelity:` against the render receipt.
 
 **Dispatch
@@ -242,9 +242,8 @@ are mandatory where the surface renders RTL.
 Re-read your own styling / token usage against the step-3 token table — every value must trace
 to a token or a justified named constant. This is self-attestation by the same agent that wrote
 the code, so it is the weakest link; the real enforcement is that the **token table exists as a
-visible artifact** a reviewer can check against — on the lane the design-sighted
-`/dev-pipeline:review` session, scoring `fidelity:` against the render receipt. There is no pixel-diff
-gate in this repo.
+visible artifact** a reviewer can check against — on the lane the design-sighted REVIEW session,
+scoring `fidelity:` against the render receipt. There is no pixel-diff gate in this repo.
 
 Then re-open the **parent** frame screenshot (not just the node) and confirm: (a) every gap
 between top-level blocks matches a step-3b row, (b) the component nests at the same level as the

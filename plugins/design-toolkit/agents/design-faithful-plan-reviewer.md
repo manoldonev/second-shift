@@ -48,7 +48,7 @@ arithmetic for you to re-derive. That is a real difference from
 `design-toolkit:figma-faithful-plan-reviewer`, not an omission: a section with no columns to read
 produces either silence or fabrication. Whether a mapped token role is the right one is graded on
 the **diff**, by `design-toolkit:design-faithful-reviewer`, and whether a rendered value matches
-the design is graded by the design-sighted `/dev-pipeline:review` session scoring `fidelity:` against the
+the design is graded by the design-sighted REVIEW session scoring `fidelity:` against the
 render receipt. Neither is yours.
 
 ## Scope — your unique slice only
@@ -79,7 +79,7 @@ rather than naming one:
   sees no code, and `design-faithful-reviewer` declares reuse and token discipline, not a
   resolution grep. Say the gap exists if the plan's file list makes it doubtful; do not attribute
   it to an agent that will not run it.
-- **Whether a recorded value is itself what the design shows** → the design-sighted `/dev-pipeline:review`
+- **Whether a recorded value is itself what the design shows** → the design-sighted REVIEW
   session, which scores `fidelity:` against the render receipt milestone 3 produces. That is the
   reader that sees both sides. It is **not** a pixel-diff — no such gate exists in this repo — so
   do not defer to one.
