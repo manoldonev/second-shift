@@ -194,9 +194,9 @@ When in doubt about whether a domain reviewer is relevant, spawn it — a "no is
 
 **A caller may declare it; this skill never infers it.** There is no mode sniff, no cwd test and no
 config flag that turns it on: a caller that wants the trimmed panel says so in the invocation, and
-a caller that says nothing gets the table above exactly as written. `/dev-pipeline:review` declares
-it (its step 5); the standalone `/review-toolkit:review-lead` invocation and `dev-pipeline:pr-revision`
-do not, and their routing is unchanged.
+a caller that says nothing gets the table above exactly as written. The pipeline's review session
+declares it (its step 5); the standalone `/review-toolkit:review-lead` invocation and the
+pipeline's `pr-revision` skill do not, and their routing is unchanged.
 
 **What it changes.** When the pipeline default panel is declared, three rows of the
 Conditionally-spawn table do **not** fire on their surface triggers:
@@ -234,7 +234,7 @@ coverage.
    contract rather than to this routing rule.
 
    ```
-   | D-4 | review panel | security, a11y | user-answered | intent |
+   | D-4 | review panel | security, a11y | user-answered |
    ```
 
 2. **Per repo — config `reviewers.default[]`.** An array of plugin-shipped reviewer names spelled

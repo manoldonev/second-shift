@@ -151,7 +151,7 @@ Names are spelled the way `reviewers.remove` spells them. `config-lint.sh` types
 The **per-ticket** opt-in is not config at all: a row in the committed spec's `## Decision Ledger` whose Decision cell is `review panel`, whose Resolution is a comma-separated list of the short names `security`, `a11y`, `unit-test-mutation`, and whose provenance is `user-answered` or `user-delegated`.
 
 ```
-| D-4 | review panel | security, a11y | user-answered | intent |
+| D-4 | review panel | security, a11y | user-answered |
 ```
 
 Either carrier selects, and their effects union. A name neither recognizes selects nothing and is reported in the round's Review Summary.
