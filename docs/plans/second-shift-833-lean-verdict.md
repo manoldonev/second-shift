@@ -1,253 +1,285 @@
 # lean review verdict — #833
 
-verdict=needs-work
-run_id: review-833-1
-session_id: 73dc2a6b-18d5-49b5-ab49-2ff840de0e03
-rounds: 1
+verdict=approve
+run_id: review-833-2
+session_id: f973e172-4c4a-4b07-b285-8f9dcd60ad8f
+rounds: 2
 pr: #839
-reviewed_head: 4e984e1d113be12aaa3b1c2d49955f43af29c0e4
-reviewed_patch_id: 8c39e7ecc8ceface6e5e022bea590f6c33b324ff
-inherited_patch_id: none
-inherited_from_verdict: none
+reviewed_head: f3b9a631f2e6f5f783bbdb762e85674d87b288d8
+reviewed_patch_id: d775685fb7f0e5d7b2f0bd632640e06feb11195f
+inherited_patch_id: 8c39e7ecc8ceface6e5e022bea590f6c33b324ff
+inherited_from_verdict: 4c83dc580f2cba66c9774e1f77ab46bef430011f
 fidelity: not-applicable
 panel: review-toolkit:scope-completeness-reviewer
 model: opus
 capabilities: pr-marker
 
-# Review round 1 — PR #839 / issue #833
+# Review round 2 — PR #839 / issue #833
 
-Range read: `3113cb95..4e984e1d` (root round, full branch diff — 140 files, +3151/−2341).
-Reviewed from a checkout of the PR head at `4e984e1d113be12aaa3b1c2d49955f43af29c0e4`.
+Range read: `4c83dc58..f3b9a631` (5 commits, 17 files, +119/−41), inheriting the coverage of
+patch `8c39e7ec` from `docs/plans/second-shift-833-lean-verdict.md` (round 1). Reviewed from a
+checkout of the PR head at `f3b9a631f2e6f5f783bbdb762e85674d87b288d8`. Every AC-n was re-scored
+against the whole spec, not only the delta.
 
-**Verdict: needs-work.** Two blockers. The rename itself is well executed — every subject and
-selftest moved, all ten path-keyed registers carry zero stale anchors, the frozen wire values and
-LOCKSTEP anchors are intact, and the three inline twins of the compatibility reader are
-byte-identical. Both blockers are in the *consequences* of the change, not in the renames.
+**Verdict: approve.** Round 1's two blockers are both closed, and both fixes were verified by
+execution rather than by reading the diff. Three warnings remain, all of them factual errors in
+prose the diff itself wrote this round; none changes behavior and none has a gate that reads it.
+
+## Round 1's blockers
+
+### 1 — `dev-pipeline:` in the sibling toolkits — **FIXED**
+
+`docs/namespaces.md` rule 3, run at this head with the workflow's own two greps
+(`.github/workflows/ci.yml:176-194`), against the same four toolkit roots:
+
+```
+rule 3(a)  grep -rn 'dev-pipeline:' plugins/{review,intake,design,audit}-toolkit …   -> 0 hits
+rule 3(b)  grep -rnE 'dev-pipeline/(workflows|model-tiering)|\.\./dev-pipeline/' …   -> 0 hits
+```
+
+(Run with `/usr/bin/grep`; the interactive shell aliases `grep` to a wrapper whose `-E`
+alternation semantics differ, and the first measurement of these two was taken with it.)
+
+Corroborated by CI: `lint-and-selftests` **passes** at `f3b9a631`
+([job 103015698176](https://github.com/manoldonev/second-shift/actions/runs/34520256551/job/103015698176)),
+the job whose *namespace direction check* step was the only red at the round-1 head.
+
+The repair is the right one and not merely the one that clears the grep. All 18 flagged lines across
+12 files — 19 occurrences of the token, one line carrying two — now
+names the ROLE a sibling can rely on — "the design-sighted REVIEW session", "the pipeline's REVIEW
+session", "the BUILD session's step 4", "a pipeline run" — rather than a command a
+`design-toolkit`-only consumer cannot resolve. Bare `dev-pipeline` survives throughout, so no
+sentence lost its subject, and no site was repaired by deleting the reference.
+
+And the deletion it repairs is complete: `git grep -nE '(build-lean|review-lean|run-lean)' --
+':!docs/plans' ':!CHANGELOG.md'` returns **32 hits, all in the AC-9-frozen class** —
+`docs/skill-ablation*.md`'s pinned measurements and `dup-scan`'s live corpus. Zero in any shipped
+skill, agent or register.
+
+### 2 — the half-cleared `LANE_SELFTEST_CACHE` pair, and (n)'s blind match — **FIXED**
+
+Both halves verified by execution in an isolated worktree at `f3b9a631` (never the reviewed one):
+
+**The leak is closed.** `LEAN_SELFTEST_CACHE=0 bash …/milestone-gate-selftest.sh` →
+**621 PASS, all green, rc=0**, with **zero** `[lane-env] notice:` lines anywhere in the output.
+Round 1 measured 4 failures — (pg5), (pg8), (sc1), (sc2) — on this exact command at `4e984e1`.
+
+**The guard is live, not decorative.** Mutating only the fix — reverting
+`milestone-gate-selftest.sh:58` to `unset LEAN_SELFTEST_CACHE_DIR LEAN_GATE_ANY_TREE`:
+
+```
+control (unmutated)  PASS: (n) all 18 (file, knob) scrub pair(s) clear the retired spelling too
+mutant               FAIL: (n) 18 (file, knob) scrub pair(s) found, and these clear only the
+                           current spelling …: milestone-gate-selftest.sh:LANE_SELFTEST_CACHE
+```
+
+**And the whole-token change is what makes that possible.** Re-applying the OLD substring form on
+top of the same mutant, with nothing else changed:
+
+```
+substring form + mutant   PASS: (n) all 22 (file, knob) scrub pair(s) clear the retired spelling too
+```
+
+— a green report over a live defect. This reproduces the PR body's `22 → 18` claim exactly, and
+confirms the four it drops were defenses the substring match invented rather than defenses removed.
+
+The new `scrub_token_set()` awk was read against the tree it scans rather than in the abstract. Its
+narrowings are safe on this corpus: no `unset -v`/`-f` anywhere (`0` hits), no quoted `unset`
+operand (`0`), no trailing-comment `unset LANE_/LEAN_` that could be miscounted as a defense (`0`),
+and no `unset` operand list wrapped across a line continuation. `;`/`|`/`&`/`()` are split into
+their own words before scanning, so `$( unset X` yields the operator and a `;` still terminates an
+operand list.
 
 ## Findings
 
 | # | Severity | Where | Finding |
 | --- | --- | --- | --- |
-| 1 | **Blocker** | 12 files across the four sibling toolkits | AC-8's alias deletion was repaired by re-pointing the dangling pointers at `/dev-pipeline:*`, which `docs/namespaces.md` rule 3(a) forbids inside a toolkit. **`lint-and-selftests` is RED at this head.** |
-| 2 | **Blocker** | `milestone-gate-selftest.sh:48` vs `:8593`, `:8612` | The `LANE_SELFTEST_CACHE` / `LEAN_SELFTEST_CACHE` scrub pair is half-cleared, so a documented operator export falsifies four cases through AC-2's own fallback — and `lane-env-selftest.sh` case (n), added to catch exactly this, scores the pair clean because its match is a substring. |
-| 3 | Warning | `docs/plans/second-shift-833-lean.md` AC-9 | The rationale for freezing `lean chain reconciliation` is factually wrong: it is a *step* name, not a required status check. |
-| 4 | Warning | two `CLOSEOUT-BASELINE.md` files | AC-13's concept-noun rule leaves two "the lean lane's build session" lines unconverted. |
-| 5 | Note | `lane-env.sh:35` | The stderr notice lands inside any caller that captures `2>&1` — two of finding 2's four failures are that, not the leaked value. |
+| 1 | Warning | `docs/plans/second-shift-833-lean.md:105` | AC-9 says "**Five** more members of this class surfaced" and then enumerates **six** bullets. The PR body says six. |
+| 2 | Warning | `milestone-gate-selftest.sh:54-56`, and the same claim in the spec and PR body | The stated reason for dropping `LEAN_GATE` from the retired-half scrub — "there is no bare `LANE_GATE` knob … nothing reads the stem" — is false. The removal is still correct; the premise is not, and two sibling suites depend on it being false. |
+| 3 | Warning | `docs/prose-blocker-triage.tsv:88,89` | This round's `interviewing-baseline/SKILL.md` re-wording added a line at `:128` and shifted two sibling rows' anchors off by one; `:140` and `:146` are blank lines at this head. |
+| 4 | Note | `lane-env-selftest.sh:293` | `retired="LEAN_${t#LANE_}"` derives the retired spelling mechanically, which is wrong for AC-15's two non-prefix pairs. Latent — nothing scrubs either token today — and it fails closed. |
 
-### 1 — BLOCKER: 18 `dev-pipeline:` references introduced into the sibling toolkits; `lint-and-selftests` is red
+### 1 — WARNING: AC-9's "five more members" enumerates six
 
-CI job [102995894789](https://github.com/manoldonev/second-shift/actions/runs/34514332895/job/102995894789),
-step **namespace direction check (docs/namespaces.md rule 3)**:
-
-```
-##[error]rule 3(a): a toolkit references the dev-pipeline: namespace
-##[error]Process completed with exit code 1.
-```
-
-Every other step in that job passed, including `run all selftests`. This is the only red step.
-
-Measured at both ends of the range, with the guard's own grep:
+`docs/plans/second-shift-833-lean.md:105` opens the frozen sub-list with "Five more members of this
+class surfaced during implementation", and the bullets under it are:
 
 ```
-grep -rn 'dev-pipeline:' plugins/review-toolkit plugins/intake-toolkit plugins/design-toolkit \
-  plugins/audit-toolkit --include='*.md' --include='*.mjs' --include='*.sh' --include='*.json'
-  HEAD (4e984e1) -> 18 hits in 12 files
-  base (3113cb9) -> 0
+107  the `lean chain reconciliation` STEP name
+114  corpus-live.json
+116  the eval records' narrative            <- added this round (round 1's finding 4)
+122  docs/skill-ablation*.md
+125  the retired `lean/` branch namespace
+127  audit-toolkit's adjectival "lean"
 ```
 
-The 12 files: `review-lead/SKILL.md` (3), `intake/SKILL.md`, `interviewing-baseline/SKILL.md`,
-`plan-interview/SKILL.md` (4 between them), the four `design-toolkit/agents/*.md` and three
-`design-toolkit/skills/*/SKILL.md` (10), `audit-history/SKILL.md` (1).
+Six. The PR body's own version of the paragraph says "Six more members of that class surfaced". The
+list is the authority and every item on it is correctly frozen, so no AC's outcome moves — but the
+branch's last commit (`f3b9a63`, "the frozen-step rationale drops a wrong count") was specifically
+about removing a wrong count from this same paragraph, and left the one two lines above it.
 
-This is the direct cost of AC-8: #834 cleared the shipped *invocations* while the aliases still
-resolved, and the spec's own departures section counts the seventeen pointers that become dangling
-once the directories go. Re-spelling them `/dev-pipeline:review` fixes the dangle and trips rule
-3(a), which exists so a toolkit stays installable without dev-pipeline — a consumer who installed
-only `design-toolkit` is now told to invoke a command their machine does not have.
+### 2 — WARNING: "nothing reads the stem" is false; the removal is right for a different reason
 
-**This is a correctness lane, not a policy gate.** The merge-boundary carve-out covers gates that
-score release hygiene (the `Changelog:` trailer, frozen files) and are cleared by a mechanical
-commit. This one scores plugin coupling, is enforced in `lint-and-selftests`, and its fix is a
-wording decision across ten shipped files that a reviewer's judgement has to shape — which spelling
-replaces the alias without naming the sibling namespace. It stays a blocker.
+`ff05a6c` drops `LEAN_GATE` from `milestone-gate-selftest.sh`'s suite-scope scrub, on this recorded
+ground (`:54-56`, and restated in the spec's departures section and the PR body):
 
-Worth deciding deliberately rather than by search-and-replace: the guard forbids the `dev-pipeline:`
-token, so `/dev-pipeline:review` is out, and the sentences need a phrasing that survives it (the
-pre-#834 text said "the design-sighted `review-lean` session", i.e. named no namespace at all).
+> There is no bare `LANE_GATE` knob: `LANE_GATE_ANY_TREE`, `LANE_GATE_OBSERVE` and `LANE_GATE_LIB`
+> are each their own token and nothing reads the stem …
 
-### 2 — BLOCKER: the fallback re-opens a hermeticity hole, and the new guard is blind to it
-
-`LANE_SELFTEST_CACHE` is a promoted knob (`milestone-gate.sh:287`), so the retired
-`LEAN_SELFTEST_CACHE` resolves through AC-2's fallback. The suite's retired-half scrub does not
-name it:
+`LANE_GATE` is a bare knob, and it is read exactly as a knob:
 
 ```
-milestone-gate-selftest.sh:48   unset LEAN_GATE LEAN_SELFTEST_CACHE_DIR LEAN_GATE_ANY_TREE
-milestone-gate-selftest.sh:8593 out="$( unset RUN_ID … LANE_SELFTEST_CACHE_DIR LANE_SELFTEST_CACHE
-milestone-gate-selftest.sh:8612 out="$( unset RUN_ID … LANE_SELFTEST_CACHE
+orchestrate.sh:231-232   lane_env_promote LANE_SPAWN_BIN … LANE_SPAWN_CLOCK LANE_GATE \
+                           LANE_OVERRIDE_TOOL LANE_LAUNCH_ID
+orchestrate.sh:257       GATE="${LANE_GATE:-$SCRIPT_DIR/../build/milestone-gate.sh}"
 ```
 
-`LEAN_SELFTEST_CACHE_DIR` is scrubbed; `LEAN_SELFTEST_CACHE` is not.
-
-**Measured**, cold, in an isolated worktree at `4e984e1`:
-
-```
-LEAN_SELFTEST_CACHE=0 bash plugins/dev-pipeline/skills/build/milestone-gate-selftest.sh
-  -> 617 PASS, 4 FAILURE(S)
-     (pg5) an attempt row moved the milestone-5-scoped token
-     (pg8) expected m5sat-v1:0 with no file created
-     (sc1) expected the announced default store to reach the child … child='unset'
-     (sc2) expected the operator store to be the announced one
-   every one carrying: [lane-env] notice: LEAN_SELFTEST_CACHE is the retired spelling of
-   LANE_SELFTEST_CACHE and still resolves.
-```
-
-**New, not pre-existing.** On `3113cb9` the same two cases read
-`unset RUN_ID … LEAN_SELFTEST_CACHE_DIR LEAN_SELFTEST_CACHE` (`lean-gate-selftest.sh:8575`, `:8594`)
-and there was no second spelling to leak, so the ambient was fully controlled. This PR renames the
-scrub to the current spelling and leaves the retired half resolving.
-
-**The knob is one the repo tells operators to export.** `docs/testing.md:420` — "It has an off
-switch. `LANE_SELFTEST_CACHE=0` runs the lane cold, announced"; and the measurement recipe at
-`docs/testing.md:1873` hands the operator `env RUN_ID=<id> SELFTEST_JOBS=<n> LANE_SELFTEST_CACHE=<0|1>`.
-Anyone whose shell still carries the pre-rename spelling of that recipe reds four cases.
-
-**The sweep does not shield it.** `tools/run-selftests.sh:188` scrubs
-`-u LANE_SELFTEST_CACHE_DIR -u LEAN_SELFTEST_CACHE_DIR` and nothing else, so the ambient reaches
-every suite — AC-14's own command reds under it too.
-
-**Why `lane-env-selftest.sh` case (n) says the pair is clean.** Its retired-half test is a substring
-glob over the whole file's scrub lines:
+It is in `lane-env-selftest.sh`'s own `ALL_KNOBS` census for that reason, and two sibling suites
+clear its retired half deliberately, each saying so in the same words this note contradicts:
 
 ```
-case "$sf_retired" in
-  *"unset "*"$retired"*|*"-u $retired"*) : ;;      # $retired = LEAN_SELFTEST_CACHE
+orchestrate-selftest.sh:25-30        "This suite scrubs the `LANE_GATE` and `LANE_SPAWN_*` seams
+scenario-liveness-selftest.sh:78-83   … an ambient LEAN_GATE would walk straight through a scrub
+                                        that named only the current name"
+                                      unset LEAN_GATE …
 ```
 
-and `LEAN_SELFTEST_CACHE_DIR` *contains* `LEAN_SELFTEST_CACHE`, so the `_DIR` scrub satisfies the
-requirement for the bare token. Extracting (n)'s own logic and running it against this file:
+`scenario-liveness-selftest.sh:1801` runs the real `orchestrate.sh`, so that is not a precaution
+against a hypothetical reader. The PR body's supporting clause — "the only `LEAN_GATE` on `main` was a
+local variable holding a path" — is wrong the same way: `main`'s `orchestrate-lean.sh:247` is
+`GATE="${LEAN_GATE:-…}"` and `:202` documents it in the script's own knob list.
+
+**The removal itself is correct.** `milestone-gate-selftest.sh` sets `GATE="$HERE/milestone-gate.sh"`
+at `:22` and never invokes `orchestrate.sh`, so no reader of `LANE_GATE` runs under it and the scrub
+was inert *there*. The honest reason is scope — "this suite drives no reader of that knob" — not
+nonexistence. As written, the note argues equally for deleting `LEAN_GATE` from
+`orchestrate-selftest.sh:30` and `scenario-liveness-selftest.sh:83`, where it is load-bearing, and
+`lane-env-selftest.sh` case (n) would not catch that: (n) requires the retired half only for knobs a
+file also scrubs under the CURRENT spelling, and neither suite `unset`s bare `LANE_GATE`.
+
+Same class as round 1's finding 3, which this round corrected: a correct decision recorded on a
+premise that does not survive one look at the code.
+
+### 3 — WARNING: two triage anchors now point at blank lines
+
+`add2330` grew `interviewing-baseline/SKILL.md`'s milestone-gate paragraph from four lines to five
+(`@@ -125,10 +125,11 @@`) and shifted everything below it. `docs/prose-blocker-triage.tsv` still
+anchors two rows at the pre-shift positions:
 
 ```
-LANE_SELFTEST_CACHE -> scrub COUNTED ; (n) says PAIRED
-                       (literal 'LEAN_SELFTEST_CACHE' present as its own token? NO)
+row 88  pb-be1ceaa2  …/interviewing-baseline/SKILL.md:140   -> blank line (construct is at :141)
+row 89  pb-db3589f8  …/interviewing-baseline/SKILL.md:146   -> blank line (construct is at :147)
 ```
 
-The scrub-detection side has the same shape, so a file that scrubs only `LANE_SELFTEST_CACHE_DIR`
-would also be counted as defending `LANE_SELFTEST_CACHE`. The same prefix relation is latent on
-`LANE_GATE` against `LANE_GATE_ANY_TREE` / `_OBSERVE` / `_LIB` / `_TEST_STALL_DIR` — those happen to
-be genuinely paired today, so no second leak, but (n) cannot tell the difference.
+At `main` and at the round-1 head `4c83dc58`, `:140` was the "Put an `OR-n` on every region" bullet
+and `:146` the "environment refusal … spends none of milestone 1's fix budget" paragraph — exactly
+what those two rows describe.
 
-This matters beyond the one knob: the spec's departures section presents (n) as the guard that
-found and closed this class after it falsified four suites. It closed the instances it could see.
-A guard that reports PAIRED on a superstring is the fail-open shape, in the file whose whole
-purpose is to refuse it — and the ticket's own history is the argument for fixing it here rather
-than filing it. Word-boundary the match (both halves) and re-run; expect (n) to name this pair.
+Not a red, and correctly so: `tools/prose-blockers.sh` derives identity from content ("relocating a
+rule within a file — or between files — re-keys nothing", `:30-31`), and `bash tools/prose-blockers.sh
+check` is green at this head (29 constructs / 52 rows, zero undispositioned). But the same commit
+re-keyed `pb-1bb19015 → pb-efe96c8c` in that file, so the register was already open; the two sibling
+line numbers are a two-character fix left on the table. Neighbours are unaffected: `pb-0fcf3243`
+(`:183`) is a `prose-deleted` historical row, and every `figma-faithful/SKILL.md` anchor (`:51`,
+`:188`, `:223`) sits above that file's `-1` line at `:242`.
 
-### 3 — WARNING: AC-9's reason for freezing `lean chain reconciliation` does not hold
+### 4 — NOTE: (n)'s retired-spelling derivation is wrong for AC-15's two pairs
 
-AC-9 freezes the name on the ground that it is "a required status check keyed BY NAME in branch
-protection, here and in every consumer that gates on it, so renaming it is a settings migration …
-and it would red this PR's own merge."
-
-It is a **step** name inside the `pr-gates` job (`.github/workflows/ci.yml:323`,
-`- name: lean chain reconciliation (pipeline PRs carry their evidence set)`). Branch protection keys
-on the job, `pr-gates`. Renaming the step is a one-line change that migrates no settings and reds no
-merge.
-
-Freezing it is still the right outcome — it is churn with no payoff — but the recorded reason is
-false, and a future ticket reading AC-9 would refuse a legitimate rename on a premise that does not
-survive one look at the workflow. Correct the rationale rather than the freeze.
-
-### 4 — WARNING: two AC-13 concept-noun lines survive
-
-```
-plugins/design-toolkit/evals/figma-faithful-plan-reviewer-eval/CLOSEOUT-BASELINE.md:62
-  … #705 closed it: the lean lane's build session dispatches this agent at milestone 3 …
-plugins/design-toolkit/evals/figma-faithful-spec-reviewer-eval/CLOSEOUT-BASELINE.md:64
-  … The agent is the only reachable spec-side owner on the lean lane, and …
-```
-
-Of the 10 word-bounded sibling-plugin `lean` lines left at this head, eight are AC-9's frozen class
-(audit-toolkit's adjectival "lean" ×4, the `dup-scan` corpus ×2, `doctor-selftest.sh`'s `PRE-LEAN`
-and its frozen `# lean run` fixture). These two are neither: they are prose using "lean" as a
-concept noun, which AC-13 says reads as "the lane". Neither file is touched by this PR and neither
-line names anything that dangles, so the cost is cosmetic — but the spec claims AC-13 is "verified
-by a grep returning empty", and that grep does not return empty. Either convert them or record them
-in the departures section the way `docs/skill-ablation*.md` is recorded.
-
-### 5 — NOTE: the deprecation notice reaches `2>&1` captures
-
-Two of finding 2's four failures — (pg5) and (pg8) — do not fail on the leaked *value*; they fail
-because `[lane-env] notice: …` lands inside output the case captured with `2>&1` and compared. D-6
-picked stderr because "these scripts' stdout is PARSED by their callers", which is right, but this
-repo's own suites routinely capture both streams. Nothing else in the tree hits it at this head, so
-it is not a blocker on its own — it is what makes finding 2 cost four cases instead of two, and it
-is worth a line in `lane-env.sh`'s header so the next caller knows.
+`lane-env-selftest.sh:293` computes `retired="LEAN_${t#LANE_}"`. AC-15's two knobs are renamed, not
+re-prefixed — `LANE_BENCH_ROOT` ← `LEAN_BENCH_SS_ROOT`, `LANE_BENCH_BIN` ← `LEAN_BENCH_LANE_BIN` —
+so for those the derivation names tokens that do not exist. Latent only: neither is `unset` or
+`env -u`'d anywhere (`0` hits), so (n) never derives them, and if one ever is, (n) reds on a
+correctly-paired file rather than passing a leak. The safe direction, and `lane-env-selftest.sh:111`
+already records that these two "cannot be derived" — worth the same sentence beside the derivation
+itself.
 
 ## Dismissed
 
-- **`SECOND_SHIFT_LEAN_EVIDENCE` is outside AC-5's exemption** (scope-completeness-reviewer, 82).
-  The spec's Scope → In names it explicitly: "`SECOND_SHIFT_LEAN_EVIDENCE`, the consumer template's
-  own seam, renamed `SECOND_SHIFT_BOUNDARY_EVIDENCE` with its own inline fallback: it carries the
-  literal `LEAN_` that AC-5's fixed-string grep would otherwise find." In scope, and correct.
-- **`boundary-evidence.sh` is not executable after the rename** (suppressed, 60). `100644` at both
-  `3113cb9` and HEAD — the mode is unchanged, and it is a fetched payload invoked via `bash`.
-- **AC-14 has no evidence on the branch** (scope-completeness-reviewer, blocker, 88). Answered by
-  execution rather than by the PR body — see the AC-14 row below.
+- **AC-14's sweep evidence is recorded at `4e984e1`, three functional commits behind the head**
+  (`scope-completeness-reviewer`, blocker, 88). The observation is accurate about the *committed*
+  record and is the right thing for that reviewer to raise; it is answered by execution this round,
+  at `f3b9a631`, for both halves of AC-14 — see the AC-14 row. Same disposition as round 1's
+  identical finding. This verdict record is where that measurement becomes committed evidence.
+- **Two `CLOSEOUT-BASELINE.md` concept-noun lines survive** (`scope-completeness-reviewer`,
+  suppressed, 70). Round 1's finding 4 offered "either convert them or record them"; round 2
+  recorded them, in AC-9's frozen class rather than the departures section, which is the stronger
+  of the two placements. Verified the three cited lines exist and read as claimed
+  (`figma-faithful-plan-reviewer-eval:62`, `figma-faithful-spec-reviewer-eval:47,:64`).
+- **`gate-ablation-adjudication.tsv` is named by AC-6 with "(14)" but is unchanged**
+  (`scope-completeness-reviewer`, suppressed, 65). Correct and already dispositioned: the spec's
+  departures section drops it from AC-6 on the measured ground that all 14 hits are
+  `<issue>-lean-progress.md` citations, a frozen artifact family. Re-measured: 0 retired basenames.
 
 ## Verification performed this round
 
-- `git grep -F 'LEAN_' -- ':!docs/plans' ':!CHANGELOG.md'` → 23 files; read every hit, all are
-  documented compatibility sites. (The PR body says 22 — off by one, immaterial to the AC.)
-- Token-set comparison base→head: every `LEAN_*` token on `3113cb9` has a `LANE_*` counterpart at
-  HEAD; no knob was dropped.
-- Independent promote census: every `${LANE_X:-…}` environment read in a non-selftest script is
-  covered by a `lane_env_promote` / `lane_env` call in its own file (line continuations folded).
-- `${LANE_X+…}` / `${LANE_X-…}` audit → zero, so promote-in-place is behavior-preserving as claimed.
-- LOCKSTEP `lane-env-fallback`: `lane-env.sh`, `boundary-evidence.sh` and `run-selftests.sh` twins
-  are byte-identical (`md5` 8b28caf236231b904139df395adc2e45).
-- `lane_env` executed under stock `/bin/bash` 3.2.57: indirection and `printf -v` resolve, the
-  notice is stderr-only, and it fires once per token per process.
-- Ten path-keyed registers grepped for the six retired basenames → 0 stale anchors each.
-- `LEAN_SELFTEST_CACHE=0 bash …/milestone-gate-selftest.sh` at 4e984e1 → 4 failures (finding 2).
-- `bash tools/install-topology-selftest.sh` at 4e984e1, run alone → see AC-14.
+Executed from a checkout of the PR head at `f3b9a631`, in a **scheduler-spawned session with
+`LEAN_ATTEND_MODE=headless` and `LEAN_RUN_MODEL=opus` ambient** — the retired spellings this PR's
+fallback resolves, and the exact environment the round-1 hermeticity defect lived in:
+
+- `SKIP_STRESS=1 bash tools/run-selftests.sh --full --exclude tools/install-topology-selftest.sh`
+  → **79 scored, 79 run, 0 served from cache, 0 failed**, rc=0. Cold: no `--cache-dir`.
+- `bash tools/install-topology-selftest.sh` → **54 ran, 54 passed, 3 skipped, 0 red**, rc=0, run alone on an otherwise idle host
+- `LEAN_SELFTEST_CACHE=0 bash …/milestone-gate-selftest.sh` → 621 PASS, all green, rc=0, zero
+  `[lane-env] notice` lines in captured output (round 1: 4 failures at `4e984e1`).
+- Mutation probe on the fix, isolated worktree: scrub reverted → (n) reds naming the pair; scrub
+  reverted + substring match restored → (n) greens at 22 pairs. Both halves of the round-1 blocker
+  are independently load-bearing.
+- `docs/namespaces.md` rule 3(a) and 3(b) with the workflow's own greps → 0 hits each.
+- `bash tools/prose-blockers.sh check` → green, 29 constructs / 52 rows, zero undispositioned.
+- `git grep -F 'LEAN_' -- ':!docs/plans' ':!CHANGELOG.md'` → 23 files, unchanged from round 1;
+  the two the delta touched are both documented compatibility sites. Control: `git grep -E '\bLEAN_'`
+  → 0, as the spec warns.
+- Ten path-keyed registers re-grepped for the six retired basenames → 0 each.
+- `tools/mutation-catalog.tsv`'s two `lane-env` rows: both `sed` anchors still resolve in
+  `lane-env.sh` (comment-only change this round). No catalog row targets a `-selftest.sh` — 0 of
+  155 — so the guard-vs-subject convention is unchanged, not sidestepped.
+- Commit trailers across all 17 branch commits; frozen files (`CHANGELOG.md`, `plugin.json`,
+  `marketplace.json`) untouched.
+- CI at `f3b9a631`: `lint-and-selftests` pass, `selftests (macos, bash 3.2)` pass,
+  `mutation-sweep-pr` pass.
 
 ## AC scorecard
 
 | AC-n | score | evidence |
 | --- | --- | --- |
-| AC-1 | satisfied | `git ls-files` matches none of the six retired basenames or their selftests; 11 `git mv`s; the only surviving textual references are four compat-site mentions that name the retired path *as* retired (`operator-override.sh:306,313`, `second-shift-ci-check.sh:162`, `docs/config-schema.md:33`) |
-| AC-2 | satisfied | `lane-env.sh` reads `LANE_*` first, falls back to `LEAN_*`; independent census confirms every `${LANE_X:-…}` environment read in a non-selftest script is promoted in its own file; no `LEAN_` token from the base lacks a `LANE_` counterpart at HEAD; verified executing under bash 3.2.57 |
-| AC-3 | satisfied | executed: `LEAN_ATTEND_MODE=headless` + two `lane_env` reads of the same token emit exactly one `[lane-env] notice:` line, on fd 2, nothing on fd 1; `lane-env-selftest.sh` cases (g)–(k) drive the same end to end through both a sourcing script and the inline twin |
-| AC-4 | satisfied | `operator-override.sh:313-325` — `override_register_path()` takes `.claude/lane-overrides.tsv` first, falls back to `.claude/lean-overrides.tsv` with a one-time stderr notice, and sits outside the `override-record-reader` LOCKSTEP block, which stays byte-identical on both sides |
-| AC-5 | satisfied | `git grep -F 'LEAN_' -- ':!docs/plans' ':!CHANGELOG.md'` → 23 files; each hit read and classified as a documented compatibility site (2 fallback readers, 9 sourcing scripts, 5 suite-scope retired-half scrubs, `lane-env-selftest.sh`, 1 catalog row, docs/register notes). `git grep -E '\bLEAN_'` returns zero on this path, as the spec warns |
-| AC-6 | satisfied | all ten registers grepped for the six retired basenames (`lean-gate`, `lean-evidence`, `lean-reconcile`, `orchestrate-lean`, `check-lean-chain`, `lean-overrides`) → 0 hits each, including the two the departures section drops from the list |
-| AC-7 | satisfied | no `tools/mutation-catalog.tsv` row id names a renamed script; the surviving `lean-*` ids name frozen artifact families (plan / open-regions / measure records), which AC-9 freezes and re-keying would falsify. `mutation-sweep-pr` green at this head |
-| AC-8 | satisfied | `plugins/dev-pipeline/skills/` holds `build perf-retro pipeline-retro pr-revision review run` — the three alias directories are gone. The cost of the deletion is finding 1, scored under AC-13 |
-| AC-9 | satisfied | `LANE_PR_MARKER_TAG='lean-pr-marker'` with `LOCKSTEP-BEGIN lean-pr-marker` intact in both `milestone-gate.sh:2641,2651` and `boundary-evidence.sh:627,637` — name moved, value and anchor frozen; all four `# lean …` title lines present; `lean chain reconciliation` unchanged at `ci.yml:323`. Its stated *rationale* is wrong (finding 3) but the freeze itself is correct |
-| AC-10 | satisfied | `second-shift-ci-check.sh:172` fetches `plugins/dev-pipeline/skills/build/boundary-evidence.sh`; the retired `SECOND_SHIFT_LEAN_EVIDENCE` seam still resolves once with a stderr notice at `:166-168` |
-| AC-11 | satisfied | `f7aab59` is `feat(dev-pipeline)!:` with a `Changelog:` trailer naming the `second-shift-ci-check.sh` re-copy and the alias removal, plus a `BREAKING CHANGE:` footer; the other twelve commits carry `Changelog: none.` with no trailing prose |
-| AC-12 | satisfied | zero stale script paths in `CLAUDE.md`, `docs/testing.md`, `docs/config-schema.md`, `docs/releasing.md`, `docs/lane-bench.md`, `docs/pipeline-manifesto.md` or the schema; `jq empty schema/second-shift.config.schema.json` clean |
-| AC-13 | unsatisfied | the re-pointing introduced 18 `dev-pipeline:` references across 12 sibling-toolkit files (0 at `3113cb9`), violating `docs/namespaces.md` rule 3(a) and redding `lint-and-selftests` at this head — finding 1; and two `CLOSEOUT-BASELINE.md` concept-noun lines are unconverted — finding 4 |
-| AC-14 | satisfied | (a) `run all selftests` green in CI job 102995894789 (linux) and `selftests (macos, bash 3.2)` job 102995894418 green, both at 4e984e1; CI adds `--cache-dir`, which the build's own cold local run (79 scored / 79 run / 0 cached / 0 failed) covers. (b) executed this round: `bash tools/install-topology-selftest.sh` at 4e984e1 — **54 ran, 54 passed, 3 skipped, 0 red**, matching the PR body. A first attempt reported 1 red on `orchestrate-selftest.sh` (sig2), a signal-timing case, while a second heavy suite shared the host; re-run alone it is green |
-| AC-15 | satisfied | `LANE_BENCH_LANE_BIN` and `LANE_BENCH_SS_ROOT` appear only inside comments explaining why they do not ship; `lane-bench.sh:91-92` wires `LANE_BENCH_ROOT`/`LANE_BENCH_BIN` each to its own retired spelling via `lane_env`'s fourth argument |
+| AC-1 | satisfied | Re-measured at this head: `git ls-files` matches none of the six retired basenames or their selftests. Inherited from round 1, which read the 11 `git mv`s and classified the four surviving retired-path mentions as compat sites that name the path *as* retired |
+| AC-2 | satisfied | Inherited from round 1 (fallback reader, promote census, bash 3.2.57 execution). Re-measured this round: `lane-env-selftest.sh` (l) reports **39** discovered knobs, all promoted, green in the cold sweep at this head. The delta's own change is to (n), not to the reader |
+| AC-3 | satisfied | Inherited from round 1 (one notice per token per process, fd 2 only, end to end through both a sourcing script and the inline twin). Re-measured: green at this head, and independently — `LEAN_SELFTEST_CACHE=0 …/milestone-gate-selftest.sh` produced **zero** notice lines in 621 passing cases, which is the same assertion from the caller's side |
+| AC-4 | satisfied | Inherited from round 1: `operator-override.sh:313-325` reads `.claude/lane-overrides.tsv` first with a one-time stderr fallback, outside the `override-record-reader` LOCKSTEP block, which stays byte-identical. Untouched by the delta |
+| AC-5 | satisfied | Re-measured: `git grep -F 'LEAN_' -- ':!docs/plans' ':!CHANGELOG.md'` → 23 files, identical to round 1's set. The two the delta touched (`lane-env-selftest.sh`, `milestone-gate-selftest.sh`) are the suite that proves the fallback and a suite-scope retired-half scrub — both named exemptions. `git grep -E '\bLEAN_'` → 0, as the spec warns |
+| AC-6 | satisfied | Re-measured at this head: all ten registers (the eight AC-6 names plus `mutation-exclusions.tsv` and `gate-ablation-adjudication.tsv`) grepped for the six retired basenames → **0 hits each** |
+| AC-7 | satisfied | Inherited from round 1. Re-measured: no catalog row id names a renamed script; both `lane-env` rows' mutation anchors still resolve in `lane-env.sh`; `mutation-sweep-pr` green in CI at this head |
+| AC-8 | satisfied | `plugins/dev-pipeline/skills/` holds `build perf-retro pipeline-retro pr-revision review run` — the three alias directories are gone. Its consequence, round 1's blocker 1, is closed under AC-13 |
+| AC-9 | satisfied | Re-measured: `LANE_PR_MARKER_TAG='lean-pr-marker'` with `LOCKSTEP-BEGIN lean-pr-marker` intact in `boundary-evidence.sh:627,637`; all four `# lean …` title lines present at `milestone-gate.sh:1302,4458,4852,5618`; `lean chain reconciliation` unchanged at `ci.yml:323`. Round 1's finding 3 is fixed — the corrected rationale ("a `- name:` step inside `pr-gates`, not a required status check") is verified true: `gh pr checks` keys on `pr-gates`, and the step name appears only at `:323`. The three eval-record lines round 1 raised are now enumerated in this AC's frozen class. Finding 1 (the list says six, the sentence says five) is in this AC's prose and moves nothing it freezes |
+| AC-10 | satisfied | Inherited from round 1: `second-shift-ci-check.sh:172` fetches the new `boundary-evidence.sh` path; the retired `SECOND_SHIFT_LEAN_EVIDENCE` seam resolves once with a stderr notice at `:166-168`. Untouched by the delta |
+| AC-11 | satisfied | Re-measured across all 17 branch commits: `f7aab59` is `feat(dev-pipeline)!:` with a `Changelog:` trailer naming the `second-shift-ci-check.sh` re-copy and the alias removal, plus a `BREAKING CHANGE:` footer; the other sixteen carry `Changelog: none.` with only a `Co-Authored-By` line after it. No frozen file is touched |
+| AC-12 | satisfied | Inherited from round 1 (zero stale script paths in the six named docs or the schema). Re-measured: `jq empty schema/second-shift.config.schema.json` clean, and the schema's two `description` strings no longer name a deleted alias |
+| AC-13 | satisfied | Round 1 scored this `unsatisfied` on two grounds and both are answered. (a) `docs/namespaces.md` rule 3(a)/3(b) → 0 hits each at this head with the workflow's own greps, and `lint-and-selftests` passes in CI at `f3b9a631`; the 19 sites now name a role rather than a namespace, so the dangle is repaired without breaking the one-directional dependency. (b) The two `CLOSEOUT-BASELINE.md` concept-noun lines are recorded — in AC-9's frozen class, with a third alongside them. No `build-lean`/`review-lean`/`run-lean` reference survives in any shipped skill, agent or register: 32 hits remain and all 32 are AC-9-frozen measurements or the frozen `dup-scan` corpus |
+| AC-14 | satisfied | Both halves executed at **this head**, not inherited. (a) `SKIP_STRESS=1 bash tools/run-selftests.sh --full --exclude tools/install-topology-selftest.sh` → 79 scored, 79 run, 0 served from cache, 0 failed, rc=0 — cold, and from a scheduler-spawned session carrying ambient `LEAN_ATTEND_MODE` and `LEAN_RUN_MODEL`, which is the environment the hermeticity work is for. (b) `bash tools/install-topology-selftest.sh` → **54 ran, 54 passed, 3 skipped, 0 red**, rc=0, run alone on an otherwise idle host. CI corroborates (a) on two platforms with `--cache-dir`; (b) has no CI to cite at this head — its workflow is `skipping`, the push filter being deliberately too narrow for a shipped-suite content change, which is why it was run directly |
+| AC-15 | satisfied | Re-measured: `LANE_BENCH_LANE_BIN` and `LANE_BENCH_SS_ROOT` appear only inside two comments explaining why they do not ship (`lane-env-selftest.sh:111`, `lane-bench.sh:89`); `lane-bench.sh` wires `LANE_BENCH_ROOT`/`LANE_BENCH_BIN` each to its own retired spelling. Finding 4 is about the guard's derivation for these two, not about what ships |
 
 ## Design fidelity
 
 Not applicable. The spec disarms with `Design: none — this change renames files, identifiers and
 prose. It renders no UI, adds no screen and no component, and the repo configures no
-`design.provider`.` Confirmed: `jq '.design'` on the resolved config returns null, and no changed
-path is a web-component surface. The disarm is justified on a repo that configures no provider.
+`design.provider`.` Re-confirmed at this head: `jq '.design'` on the resolved config returns null,
+`stageParams.webComponentGlobs` is unset, and no changed path is a web-component surface. The
+disarm is justified on a repo that configures no provider, and the delta does not arm it.
 
 ## Panel
 
-`review-toolkit:scope-completeness-reviewer` returned. Performance, maintainability, complexity and
-test-coverage were the lead pass's this round; `security-reviewer` was not selected — the diff
-carries no authentication, tenancy, upload or external-input query-construction surface and the repo
-carries no `review-context/security-reviewer.md`, so the lead pass owned the security dimension and
-found nothing. No reviewer went dark.
+`review-toolkit:scope-completeness-reviewer` was selected and returned (`request-changes`, one
+blocker, dismissed above with its own measurement). No other subagent met a trigger: no security
+surface in the diff and no `.claude/second-shift/review-context/security-reviewer.md` in the repo,
+so the security dimension was the lead pass's; no DB, queue-processor or co-located-unit-spec
+surface; and no changed path matched `stageParams.webComponentGlobs` (unset → the shipped default
+`apps/web/**/*.{tsx,jsx}`), so a11y and the design-fidelity dimension were not routed. Performance,
+maintainability, complexity and test-coverage were the lead pass's this round, as the collapsed
+panel intends. No reviewer went dark.
 
 ## Merge-boundary state (recorded, not a finding)
 
-`pr-gates` is red at 9s — the chain gate cannot be green before an approve record exists. Recorded,
-not scored.
+`pr-gates` is red at 7s, on its `lean chain reconciliation` step only:
+`✗ verdict record … reads 'verdict=needs-work', not 'verdict=approve' — freshness is undefined for
+a non-approve record`. That is the chain gate reading round 1's record; it cannot be green before
+an approve record exists. Every other CI job at this head is green or correctly skipped.
