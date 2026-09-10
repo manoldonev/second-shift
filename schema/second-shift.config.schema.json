@@ -61,7 +61,7 @@
         "labels": {
           "type": "object",
           "additionalProperties": false,
-          "description": "github only: the queue/claim/blocker label vocabulary by ROLE (not a flat list). Every functional site reads these roles — the queue-label confirm at build-lean step 1, the claim label-swap, the do-not-pick-up guard, claim-issue.sh, and pipeline-doctor — and the pre-flight existence check verifies their union. Absent → the shipped defaults. Config home for the previously-hardcoded label literals (F75); a consumer with custom labels sets these once and every site follows.",
+          "description": "github only: the queue/claim/blocker label vocabulary by ROLE (not a flat list). Every functional site reads these roles — the queue-label confirm at /dev-pipeline:build step 1, the claim label-swap, the do-not-pick-up guard, claim-issue.sh, and pipeline-doctor — and the pre-flight existence check verifies their union. Absent → the shipped defaults. Config home for the previously-hardcoded label literals (F75); a consumer with custom labels sets these once and every site follows.",
           "properties": {
             "queue": { "type": "string", "description": "The label the pipeline picks work from and drops at claim. A crashed claim swap can leave it behind, so the unclaim workflow /second-shift:onboard emits also releases it when the item CLOSES. Default \"ready-for-dev\"." },
             "claimed": { "type": "string", "description": "The label added atomically at claim. It stays on for as long as the work is in flight — including through review, and past a merge, since the lane's exit milestone accepts a merged PR as well as an open one — and is released when the tracker item CLOSES, by the unclaim workflow /second-shift:onboard emits. Default \"in-progress\"." },
@@ -210,7 +210,7 @@
           "type": "object",
           "additionalProperties": false,
           "required": ["command"],
-          "description": "Arms a repo-owned render command on build-lean milestone 3. Config alone arms nothing: the gate additionally requires a per-ticket `## Design` section in the committed spec, and once a ticket arms, the disarm state-locks. Failure is BLOCKING on the run's shared 3-attempt fix budget, with no degraded state — the milestone renders every RS row, hashes them into a committed receipt, and reds until that receipt is committed. See docs/live-render.md.",
+          "description": "Arms a repo-owned render command on milestone-gate.sh milestone 3. Config alone arms nothing: the gate additionally requires a per-ticket `## Design` section in the committed spec, and once a ticket arms, the disarm state-locks. Failure is BLOCKING on the run's shared 3-attempt fix budget, with no degraded state — the milestone renders every RS row, hashes them into a committed receipt, and reds until that receipt is committed. See docs/live-render.md.",
           "properties": {
             "command": {
               "type": "string",

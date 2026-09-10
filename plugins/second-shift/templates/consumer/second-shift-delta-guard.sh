@@ -4,7 +4,7 @@
 #
 #   may this repo's heavy CI jobs be skipped for this push?
 #
-# WHAT IT IS FOR. `review-lean` requires the verdict record to be committed, pushed to the PR's
+# WHAT IT IS FOR. `/dev-pipeline:review` requires the verdict record to be committed, pushed to the PR's
 # head branch, and to be the LAST commit on it. In a consumer whose CI runs on `pull_request`,
 # that push fires a second full run — lint, typecheck, build, the whole unit suite — whose only
 # content is a markdown file the pipeline wrote itself. Measured on a real consumer: a complete

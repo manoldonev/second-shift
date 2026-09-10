@@ -68,7 +68,7 @@ here vs. the same component spread across call-sites after the build.
   numbers: per render state it compares them against the sizes the harness measured,
   scale-adaptively, and names any node out of proportion with the rest of its state. That grades
   the transcription against the code, never against the handoff — whether a recorded value is the
-  *design's* is the design-sighted `review-lean` session, scoring `fidelity:` against the render
+  *design's* is the design-sighted `/dev-pipeline:review` session, scoring `fidelity:` against the render
   receipt.
 
 Every cell of both tables must be filled, and a row may not declare fewer cells than its header.
