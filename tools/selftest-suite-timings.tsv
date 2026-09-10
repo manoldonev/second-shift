@@ -1,7 +1,7 @@
 # selftest-suite-timings.tsv — one row per suite whose measured cost feeds two independent
 # consumers (#641, replacing tools/selftest-slow-suites.tsv and tools/mutation-slow-suites.tsv,
 # which independently drifted while recording the SAME measurement for overlapping suites at
-# different dates — e.g. lean-gate-selftest.sh was 141s in both, by coincidence, not by any
+# different dates — e.g. milestone-gate-selftest.sh was 141s in both, by coincidence, not by any
 # reconciling mechanism). One row per suite now, one date.
 #
 # EACH CONSUMER APPLIES ITS OWN THRESHOLD, moved out of this file and into the consumer that
@@ -23,7 +23,7 @@
 # happened to the pre-#780 fixture reaper, whose two producing suites were both deferred while a
 # lane discovered them. The surviving instance of that blind spot is the
 # tools/selftest-cache-inputs.tsv cache: two of its three declaring suites
-# (lean-gate-selftest.sh, check-lean-chain-selftest.sh) are deferred by this table, so a
+# (milestone-gate-selftest.sh, check-lane-chain-selftest.sh) are deferred by this table, so a
 # milestone-3 lane has exactly one cacheable suite (cost-block-selftest.sh) to actually exercise
 # the cache-hit path against.
 #
@@ -33,18 +33,18 @@
 #
 # suite<TAB>seconds<TAB>measured_at
 tools/install-topology-selftest.sh	584	2026-08-20
-plugins/dev-pipeline/skills/build/lean-gate-selftest.sh	212	2026-08-30
+plugins/dev-pipeline/skills/build/milestone-gate-selftest.sh	212	2026-08-30
 tools/mutation-sweep-selftest.sh	135	2026-08-20
 plugins/dev-pipeline/skills/build/scenario-liveness-selftest.sh	106	2026-09-07
-scripts/check-lean-chain-selftest.sh	67	2026-08-21
-plugins/dev-pipeline/skills/run/orchestrate-lean-selftest.sh	58	2026-09-07
-plugins/dev-pipeline/skills/build/lean-evidence-selftest.sh	26	2026-08-21
+scripts/check-lane-chain-selftest.sh	67	2026-08-21
+plugins/dev-pipeline/skills/run/orchestrate-selftest.sh	58	2026-09-07
+plugins/dev-pipeline/skills/build/boundary-evidence-selftest.sh	26	2026-08-21
 plugins/dev-pipeline/tools/retro-corpus-selftest.sh	22	2026-08-20
 plugins/second-shift/skills/onboard/tools/config-grill-selftest.sh	17	2026-08-20
 plugins/dev-pipeline/tools/preflight-selftest.sh	15	2026-08-20
 tools/prose-blockers-selftest.sh	15	2026-08-21
 plugins/second-shift/skills/doctor/tools/doctor-selftest.sh	13	2026-08-20
 tools/run-selftests-selftest.sh	12	2026-08-21
-plugins/dev-pipeline/skills/build/lean-reconcile-selftest.sh	10	2026-08-17
+plugins/dev-pipeline/skills/build/reconcile-selftest.sh	10	2026-08-17
 tools/lane-bench-selftest.sh	11	2026-09-07
 plugins/intake-toolkit/hooks/exitplan-ledger-gate-selftest.sh	5	2026-07-31

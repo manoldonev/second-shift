@@ -118,7 +118,7 @@ delegate agent file could **block a run** on behalf of a dispatcher that no long
 arm is gone too.
 
 - **`stageWorkflows`** — for a blocking check of your own, use **`commands.<repo>.extraLanes`**:
-  an additive verify lane with a real `failureClass`, run by `lean-gate.sh` milestone 3.
+  an additive verify lane with a real `failureClass`, run by `milestone-gate.sh` milestone 3.
 - **`implementDelegates`** — the pipeline is outcome-gated and says nothing about *how* a diff
   is produced, so a build session may still dispatch the same specialist agent by choice. What
   has no replacement is the declared, config-routed, pre-flight-validated form.
@@ -151,7 +151,7 @@ upgraded past #348, saw no error, and kept believing their mutation gate ran).
 
 - **`unitTestScope`** — the mutation seam is repo-carried now: ship an executable
   `tools/mutation-sweep.sh` at your repo root. (As of #580 it is repo-**run** too — wire it on
-  your own merge boundary; the `lean-gate.sh` milestone-3 lane that used to run it is retired)
+  your own merge boundary; the `milestone-gate.sh` milestone-3 lane that used to run it is retired)
   (`--mode pr --base origin/<baseBranch>` — `docs/onboarding.md`).
   `gates.mutation` remains the declared intent (`false` is the explicit off-switch a reader
   can see); it is unchanged by this removal.

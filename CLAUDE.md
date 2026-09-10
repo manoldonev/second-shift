@@ -67,14 +67,14 @@ call requesting 600000ms was still SIGKILLed at exactly 2m 0s (re-measured 2026-
 the harness's `run_in_background`: it stays harness-tracked, so it is collected in the same turn
 rather than abandoned at turn end. A *bare* backgrounded command is not that shape and has been
 reaped at 2 minutes too — do not budget on it. This covers the sweep above, any single slow suite
-run on its own, and `tools/mutation-sweep.sh`. **`lean-gate.sh 3` is the exception**: it runs the
+run on its own, and `tools/mutation-sweep.sh`. **`milestone-gate.sh 3` is the exception**: it runs the
 sweep inline, bounded by `tools/selftest-suite-timings.tsv` to fit the turn, which is what a session
 detaching it and ending the turn would undo.
 
 **The killed-sweep note.** A foreground attempt that was already killed skipped its suites'
 `trap … EXIT`, and whatever those suites had under `mktemp` stays on disk with nothing to remove
-it. The two big fixture-producing selftests, `lean-gate-selftest.sh` and
-`orchestrate-lean-selftest.sh`, joined the explicit-template form `mktemp -d
+it. The two big fixture-producing selftests, `milestone-gate-selftest.sh` and
+`orchestrate-selftest.sh`, joined the explicit-template form `mktemp -d
 "${TMPDIR:-/tmp}/…"` in #780 — so **a private `TMPDIR` relocates their scratch** — but most of the
 tree has not: `mktemp -d -t <name>`, plain `mktemp -t`, and bare `mktemp -d` (which *is* `-t tmp`
 — same TMPDIR-ignoring behavior, not a safe third option) are all still in wide use, including the two
@@ -86,7 +86,7 @@ run's leftovers automatically; scrub before re-running — a red the diff cannot
 litter more often than it is your branch.
 
 **`tools/run-selftests.sh` is the sweep — here, in both CI selftest jobs, and in this repo's own
-dogfood lean-gate milestone-3 `test` lane** (the gitignored `.claude/second-shift.config.json`,
+dogfood milestone-gate milestone-3 `test` lane** (the gitignored `.claude/second-shift.config.json`,
 at a wider `--jobs 10` but the same runner — not a hand-rolled `find | xargs` pipeline). It
 discovers every `*-selftest.sh`, runs `SELFTEST_JOBS` (default 4) of them at a time, and replays
 each suite's output as one contiguous `::group::`-framed block in a deterministic order that does
@@ -110,7 +110,7 @@ out and you want the answer before pushing.
 **The recipe above runs COLD, and that is deliberate.** CI additionally passes `--cache-dir`, which
 lets a suite with a row in `tools/selftest-cache-inputs.tsv` be skipped when the content of every
 declared input is unchanged. The runner participates only where a store is named — that flag, or
-the `LEAN_SELFTEST_CACHE_DIR` the milestone gate exports into its own milestone-3 lane (#563) — and the
+the `LANE_SELFTEST_CACHE_DIR` the milestone gate exports into its own milestone-3 lane (#563) — and the
 recipe above names neither, so what you run locally is still a full sweep. See
 [`docs/testing.md`](docs/testing.md) for the contract, and add a row there only when you can
 enumerate a suite's inputs exactly.

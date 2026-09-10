@@ -21,7 +21,7 @@
 #
 # PLUS A FOURTH VALUE THAT IS NOT A BUCKET. `not-a-gate` is what the closed enum needs so that
 # the shape enumerator's over-enumeration has a home: the `envfail` usage and environment refusals
-# (`PR_HEAD_SHA is unset`, `mktemp failed`, `unknown argument`) and `orchestrate-lean.sh`'s
+# (`PR_HEAD_SHA is unset`, `mktemp failed`, `unknown argument`) and `orchestrate.sh`'s
 # exit-0 `terminal` success calls are all provably enumerated by the shape and are none of the
 # three. A `not-a-gate` row must say which of the three it is instead, and that is checked.
 #
@@ -33,8 +33,8 @@
 # "exactly one disposition" read literally — a site claimed by two rows that DISAGREE about its
 # bucket has no answer, and without this the looser anchor would decide it silently.
 #
-# THE CORPUS IS FIVE FILES, declared in CORPUS below. `lean-evidence.sh` is in it because that is
-# where the merge-boundary checks actually RUN — check-lean-chain.sh delegates the
+# THE CORPUS IS FIVE FILES, declared in CORPUS below. `boundary-evidence.sh` is in it because that is
+# where the merge-boundary checks actually RUN — check-lane-chain.sh delegates the
 # verdict/identity/freshness/ratification arms to it — so a register that classified the chain
 # script's own two refusal primitives and delegated the rest would be the vacuous coverage this
 # guard exists to prevent.
@@ -46,7 +46,7 @@
 # claim (scripts/check-fail-open-shapes.sh:69 is the precedent):
 #   * comment lines (`^\s*#`) — a mention is not a call site.
 #   * helper DEFINITION lines, excluded by the file's WHOLE declared primitive set rather than by
-#     the primitive being enumerated. `orchestrate-lean.sh`'s `envfail() { terminal "$1" 2 "$2"; }`
+#     the primitive being enumerated. `orchestrate.sh`'s `envfail() { terminal "$1" 2 "$2"; }`
 #     is one line that defines one primitive and calls another; excluding only `envfail`'s own
 #     name would leave that line enumerated as a `terminal` site, which is a definition, not a gate.
 #   * ARGUMENT positions. The primitive must sit where a COMMAND may start, and that is the
@@ -104,11 +104,11 @@ OVERRIDE_REL="plugins/dev-pipeline/tools/operator-override.sh"
 envfail() { echo "[gate-buckets] $1" >&2; exit 2; }
 
 # The corpus: `<repo-relative path>:<space-separated refusal primitives>`, one per line.
-CORPUS='plugins/dev-pipeline/skills/build/lean-gate.sh:fail_milestone block_milestone fail_obligation block_obligation ticket_refuse envfail
-plugins/dev-pipeline/skills/build/lean-evidence.sh:note_violation envfail
-plugins/dev-pipeline/skills/run/orchestrate-lean.sh:terminal envfail
+CORPUS='plugins/dev-pipeline/skills/build/milestone-gate.sh:fail_milestone block_milestone fail_obligation block_obligation ticket_refuse envfail
+plugins/dev-pipeline/skills/build/boundary-evidence.sh:note_violation envfail
+plugins/dev-pipeline/skills/run/orchestrate.sh:terminal envfail
 plugins/dev-pipeline/tools/operator-override.sh:envfail
-scripts/check-lean-chain.sh:note_violation fail envfail'
+scripts/check-lane-chain.sh:note_violation fail envfail'
 
 TAB="$(printf '\t')"
 
@@ -139,7 +139,7 @@ enumerate() {
 # The corpus check runs HERE, in the main shell, and NOT inside enumerate(). `envfail` exits, and
 # an exit inside the `$(enumerate)` below would kill only the subshell — leaving SITES holding a
 # partial denominator and the run continuing against it, which is failing open in the very act of
-# checking. lean-gate.sh:3443 spells out the same trap for the same reason.
+# checking. milestone-gate.sh:3443 spells out the same trap for the same reason.
 while IFS=: read -r _cf _cp; do
   [[ -n "$_cf" ]] || continue
   [[ -f "$ROOT/$_cf" ]] || envfail "corpus file is missing: $_cf — the denominator cannot be computed, so nothing here is a disposition disagreement. Fix CORPUS or restore the file."
@@ -156,7 +156,7 @@ violations=0
 fail() { echo "[gate-buckets] ✗ $1" >&2; violations=$((violations + 1)); }
 
 # The yield vocabulary is READ, never copied. `OVERRIDE_GATES` already carries a lockstep twin in
-# lean-evidence.sh; a third copy here would owe a marker and would be one more thing to drift.
+# boundary-evidence.sh; a third copy here would owe a marker and would be one more thing to drift.
 [[ -f "$ROOT/$OVERRIDE_REL" ]] || envfail "cannot read the yield vocabulary: $OVERRIDE_REL is missing"
 YIELD_VOCAB="$(sed -nE "s/^OVERRIDE_(GATES|SCOPES)='([^']*)'.*/\\2/p" "$ROOT/$OVERRIDE_REL" | tr '\n' ' ')"
 [[ -n "${YIELD_VOCAB// /}" ]] || envfail "$OVERRIDE_REL declares no OVERRIDE_GATES/OVERRIDE_SCOPES values — AC-5's safety arm would pass vacuously against an empty vocabulary"

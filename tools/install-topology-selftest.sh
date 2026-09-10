@@ -261,7 +261,7 @@ while IFS= read -r line; do
     # Killed by a signal, so it never reached a verdict — infra, like 124 and 125, and named
     # rather than described (#664). Without this arm the loose sweep below quotes whatever the
     # suite had printed before it died, which for a suite killed mid-run is its last PASSING
-    # line: `rc=143 — PASS: milestone-1 fails when the lean spec is absent` was a real red from
+    # line: `rc=143 — PASS: milestone-1 fails when the lane spec is absent` was a real red from
     # this guard, and it points a reader at an assertion that had just succeeded. The usual
     # source is an outer reaper — a harness turn boundary, a CI job cancellation — taking the
     # whole process group, which is a fact about the run, not about the suite.

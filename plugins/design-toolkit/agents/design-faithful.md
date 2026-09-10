@@ -1,6 +1,6 @@
 ---
 name: design-faithful
-description: Implements a screen/component in the repo's FE app with high visual fidelity to a Claude Design handoff (mirror analog, reuse the repo's primitives, live-render self-verify) and commits via bot identity. Dispatched by a session's choice under the outcome-gated lean lane (its former dispatcher, the design-sync engine, was retired in #574); not a review-lead specialist.
+description: Implements a screen/component in the repo's FE app with high visual fidelity to a Claude Design handoff (mirror analog, reuse the repo's primitives, live-render self-verify) and commits via bot identity. Dispatched by a session's choice under the outcome-gated lane (its former dispatcher, the design-sync engine, was retired in #574); not a review-lead specialist.
 tools: '*'
 model: sonnet
 effort: high

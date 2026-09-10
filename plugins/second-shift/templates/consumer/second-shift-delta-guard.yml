@@ -2,7 +2,7 @@
 # /second-shift:onboard (#542). A REUSABLE workflow: it runs nothing of yours, it only answers
 # whether your heavy jobs may be skipped for this push.
 #
-# WHAT IT SAVES. The lean lane's review half must commit the verdict record to the PR's head
+# WHAT IT SAVES. The lane's review half must commit the verdict record to the PR's head
 # branch as the LAST commit. On a `pull_request`-triggered CI that push fires a second full run
 # — lint, typecheck, build, the whole test suite — for a markdown file the pipeline wrote
 # itself. This guard reports `skip=true` for exactly that commit, and only when the code
@@ -52,7 +52,7 @@ on:
     outputs:
       skip:
         description: >-
-          "true" when this push's head commit is exactly a lean verdict record AND the parent
+          "true" when this push's head commit is exactly a verdict record AND the parent
           SHA already has a completed, successful run of the calling workflow for the same
           event. "false" in every other case, including every case the guard could not read.
         value: ${{ jobs.guard.outputs.skip }}

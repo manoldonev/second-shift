@@ -215,7 +215,7 @@ The independent checks at spec time are the **human approval gate** plus the ste
 visible artifact the approver diffs). The sibling `design-toolkit:figma-faithful-reviewer` agent
 reviews **implementation** diffs, not this spec — and it is static, so it confirms styling uses the
 right abstractions and components are real, **not** that copy, values, or states match Figma. Those
-remain the approval gate's job — and on the lean lane, the design-sighted `review-lean` session
+remain the approval gate's job — and on the lane, the design-sighted REVIEW session
 scoring `fidelity:` against the render receipt. No pixel-diff or screenshot-diff gate exists in
 this repo; do not defer to one. The
 spec is also written to pass a general spec reviewer's blocker-level checks (goal, scope, Actors,

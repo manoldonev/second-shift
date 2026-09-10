@@ -669,7 +669,7 @@ fi
 echo "(g4) unrunnable pair — the FAILING CASES are named even when they scroll off the tail"
 # #663. (g2) proves the snapshot survives; it does NOT prove the snapshot is USEFUL, because its
 # needle is the last thing the fixture prints. A real suite reports each failure where it happens
-# and keeps going, so on lean-gate-selftest.sh — 550+ cases — the two FAIL lines sat hundreds of
+# and keeps going, so on milestone-gate-selftest.sh — 550+ cases — the two FAIL lines sat hundreds of
 # lines above the end, and the blind `tail -40` showed forty PASSes and the summary on every
 # nightly from 2026-08-20 on. The guard is the SEPARATION: this killer names its failing case
 # FIRST and then buries it under more than PRE_LOG_LINES of passing chatter, so a tail-only
@@ -810,7 +810,7 @@ fi
 echo "(l4) slow-list drift is warned AT MEASUREMENT — the diagnosis outlives the timeout it diagnoses"
 # A suite that grows past the threshold while absent from the list keeps its guard in the PR
 # lane, where the cost lands on every mutant that makes the guard spin. That is how
-# lean-gate-selftest.sh reached 143s against a 5s bar and took three PR runs with it, each
+# milestone-gate-selftest.sh reached 143s against a 5s bar and took three PR runs with it, each
 # reading only as "timed out after 15 minutes" — because a warn emitted in the report is not
 # reached by a job that dies before the report. Hence the placement: the warn fires from the
 # precheck, where the measurement is taken, not from finish().
@@ -2658,7 +2658,7 @@ else
 fi
 
 # PER-GUARD CATALOG CAP (#752). The wholesale sweep shards round-robin, so it balances guard
-# COUNT and not cost and a guard's mutants are atomic to one residue class: lean-gate.sh at 56
+# COUNT and not cost and a guard's mutants are atomic to one residue class: milestone-gate.sh at 56
 # rows against a 212s killer killed its shard at the 45-minute step bound twice, taking six
 # unrelated guards with it. 36 is a MEASUREMENT — the largest count for that guard observed to
 # finish inside the bound — and a count is a proxy for rows x killer-suite seconds. Full

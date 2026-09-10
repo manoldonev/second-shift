@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-lean-chain.sh — merge-boundary evidence gate for /dev-pipeline:run PRs.
+# check-lane-chain.sh — merge-boundary evidence gate for /dev-pipeline:run PRs.
 #
 # THE ONLY chain gate at the merge boundary. It had a sibling, check-pipeline-chain.sh, which
 # read the staged lane's stage-marker trail; #731 deleted it, nothing having emitted that trail
@@ -11,7 +11,7 @@
 # binding evidence contract lives somewhere the agent cannot reach. This is that somewhere:
 # a model-free check at the merge boundary, costing zero run tokens (D-47). It fails an
 # applicable PR unless all of this evidence exists:
-#   1. a committed lean spec carrying >= 1 numbered AC-n (the definition of done),
+#   1. a committed lane spec carrying >= 1 numbered AC-n (the definition of done),
 #   2. a committed verdict record reading `verdict=approve` (so a hand-typed local progress
 #      line cannot reach a merge — only a committed, diffable artifact can),
 #   3. a bot-authored `lean-claimed` comment on the linked issue, windowed at PR-open,
@@ -100,7 +100,7 @@
 # HONEST ALTITUDE: like its sibling, this is tamper-EVIDENCE, not proof. The agent writes
 # artifacts 1 and 2. Forging one is easy; forging all three consistently, across a committed
 # diff and a bot-authenticated tracker comment, is what this makes detectable. Harness
-# attestation is lean-reconcile.sh's job.
+# attestation is reconcile.sh's job.
 #
 # THREE OUTPUT CLASSES (#443). Reciting every arm on a passing run teaches nothing and buries the
 # lines that matter; reciting none makes a gate that checked nothing indistinguishable from one
@@ -112,13 +112,13 @@
 #       until the verdict is known; a failing run's refusal already names the arm it came from.
 #   (b) COULD NOT EVALUATE — exactly one line, on the green path. Mandatory rather than permitted:
 #       an arm that quietly declines to run is the vacuous pass this gate refuses everywhere else.
-#       Shape pinned below, identically to lean-evidence.sh's, because the successors to #443 emit
+#       Shape pinned below, identically to boundary-evidence.sh's, because the successors to #443 emit
 #       into this class and must not each invent one.
 #   FAILURE output is unchanged — as loud and as specific as it ever was.
 # There is deliberately NO verbose flag. An opt-in that restores the recital restores the problem,
 # one CI job at a time, and a flag nobody sets is a code path nobody reads.
 #
-# NON-VACUOUS BY CONSTRUCTION. Applicability is the committed lean spec in the PR's own diff,
+# NON-VACUOUS BY CONSTRUCTION. Applicability is the committed lane spec in the PR's own diff,
 # keyed to the PR's own issue — and nothing else (#413). There is no branch-shaped arm: both
 # lanes cut `<tracker.branchPrefix><key>` branches, so a namespace test would classify every
 # staged PR as a pipeline PR. Keying the artifact to the PR's issue is what stops the arm
@@ -126,7 +126,7 @@
 # its own key, finds no spec for it, and stays with the pipeline gate. Selftest-fixture paths
 # are excluded from the scan because fixtures are lean-shaped on purpose.
 #
-# The rule lives in ONE place, plugins/dev-pipeline/skills/build/lean-evidence.sh, which this
+# The rule lives in ONE place, plugins/dev-pipeline/skills/build/boundary-evidence.sh, which this
 # gate delegates to. It used to have a mirror image in check-pipeline-chain.sh, and "no PR is
 # applicable to both gates" held by construction; with that gate deleted (#731) a PR this
 # classifier declines is now claimed by no merge-boundary chain gate at all.
@@ -134,7 +134,7 @@
 # CONSUMER PORTABILITY, and the delegation that follows from it (#359). This FILE stays
 # second-shift-only: it reconciles against tracker COMMENTS, which a read-only tracker
 # (`tracker.writes: false`) posts none of. But most of the evidence above needs no tracker at
-# all, and that half now lives in plugin payload — `lean-evidence.sh`, beside lean-gate.sh —
+# all, and that half now lives in plugin payload — `boundary-evidence.sh`, beside milestone-gate.sh —
 # which a consumer's CI fetches at its pinned marketplace ref. This gate CALLS that file rather
 # than holding a second copy of those arms:
 #
@@ -156,7 +156,7 @@
 # attacker-controllable, and ci.yml documents this convention):
 #   PIPELINE_BRANCH_PREFIX  required  e.g. "claude/second-shift-" — the ONE work-branch
 #                                     namespace, and the anchor the delegated key derivation
-#                                     strips. LEAN_BRANCH_PREFIX is retired (#413).
+#                                     strips. LANE_BRANCH_PREFIX is retired (#413).
 #   PR_HEAD_REF             required  the PR's head branch name
 #   PR_BODY                 required-ish  the PR body (empty is legal; it just fails to resolve)
 #   PR_CREATED_AT           required  ISO-8601; the PR-open observation point
@@ -174,21 +174,29 @@
 #                                     retargeted elsewhere reds here, which is fail-closed.
 #   GH_REPO                 required for the live path  "<owner>/<repo>"
 #   GH_TOKEN                required for the live path
-#   LEAN_COMMENT_AUTHOR     optional  exact bot login; absent degrades to "any Bot author"
+#   LANE_COMMENT_AUTHOR     optional  exact bot login; absent degrades to "any Bot author"
 #
 # Seams (zero-network selftest):
 #   ${GH:-gh}                  the CLI used for the comment fetch
 #   --comments-file <path>     read the ISSUE comment trail from a JSON fixture
 #   --diff-files-file <path>   read the PR's changed-file list from a newline-delimited fixture
-#   LEAN_PR_COMMENTS_FILE      read the PR marker trail from a JSON fixture. An ENV seam, alone
+#   LANE_PR_COMMENTS_FILE      read the PR marker trail from a JSON fixture. An ENV seam, alone
 #                              among the three, because it is not this script's input: it is
 #                              forwarded verbatim to the delegated payload, and every real input
 #                              this gate takes already arrives by environment.
-#   LEAN_EVIDENCE               path to lean-evidence.sh, when it is not at the committed
+#   LANE_EVIDENCE               path to boundary-evidence.sh, when it is not at the committed
 #                              location below (a vendored fork, or a selftest driving a copy)
 #
 # Exit 0 = pass or not-applicable; 1 = evidence violation; 2 = usage/environment error.
 set -uo pipefail
+
+# #833: the pipeline's environment knobs are spelled `LANE_*`; the retired `LEAN_*` spellings still
+# resolve, once, with a stderr notice. Promoted IN PLACE here, before the first read, so every
+# `${LANE_*:-<default>}` site below keeps its own default unchanged.
+# shellcheck source=../plugins/dev-pipeline/skills/build/lane-env.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../plugins/dev-pipeline/skills/build" && pwd)/lane-env.sh" \
+  || { echo "FATAL: cannot load lane-env.sh — the LANE_/LEAN_ compatibility reader" >&2; exit 1; }
+lane_env_promote LANE_EVIDENCE LANE_PR_COMMENTS_FILE LANE_COMMENT_AUTHOR
 
 GH_CLI="${GH:-gh}"
 COMMENTS_FILE=""
@@ -199,17 +207,17 @@ while [[ $# -gt 0 ]]; do
     --comments-file)   COMMENTS_FILE="${2:-}"; shift 2 ;;
     --diff-files-file) DIFF_FILES_FILE="${2:-}"; shift 2 ;;
     -h|--help) sed -n '2,190p' "$0"; exit 0 ;;
-    *) echo "[lean-chain] unknown argument: $1" >&2; exit 2 ;;
+    *) echo "[lane-chain] unknown argument: $1" >&2; exit 2 ;;
   esac
 done
 
-fail()    { echo "[lean-chain] ✗ $1" >&2; exit 1; }
-envfail() { echo "[lean-chain] $1" >&2; exit 2; }
+fail()    { echo "[lane-chain] ✗ $1" >&2; exit 1; }
+envfail() { echo "[lane-chain] $1" >&2; exit 2; }
 
-# LOCKSTEP, canonical side (#443). `LEAN_OUTPUT_DISPOSITIONS` is the closed vocabulary a
+# LOCKSTEP, canonical side (#443). `LANE_OUTPUT_DISPOSITIONS` is the closed vocabulary a
 # class-(b) line ("this arm could not evaluate") may name. Both merge-boundary gates declare
 # their own copy: this file cannot source the payload it delegates to (it fetches it at a pinned
-# ref in a consumer, and resolves it from the repo root here), and lean-evidence.sh must stand
+# ref in a consumer, and resolves it from the repo root here), and boundary-evidence.sh must stand
 # alone in a consumer's CI where this file does not exist at all.
 # WHY IT MUST NOT DRIFT, and why a READER is the injured party rather than a writer: both files
 # emit into class (b), and the disposition is the token their readers branch on. A vocabulary
@@ -219,12 +227,12 @@ envfail() { echo "[lean-chain] $1" >&2; exit 2; }
 # the literal under the same variable name with no comments between the markers — the emitter
 # that consumes it, and this prose, sit deliberately OUTSIDE.
 # LOCKSTEP-BEGIN lean-output-dispositions
-LEAN_OUTPUT_DISPOSITIONS='not-applicable reduced-strength postdated inert'
+LANE_OUTPUT_DISPOSITIONS='not-applicable reduced-strength postdated inert'
 # LOCKSTEP-END lean-output-dispositions
 
 # The class-(b) emitter, and the ONLY way this file writes on a green path. Shape:
 #
-#   [lean-chain]   · <arm>: <disposition> — <reason>
+#   [lane-chain]   · <arm>: <disposition> — <reason>
 #
 # STDOUT, one line, disposition drawn from the closed set above. `postdated` and `inert` have no
 # call site here yet; they are the successors' and are declared now so the vocabulary is fixed
@@ -234,38 +242,38 @@ LEAN_OUTPUT_DISPOSITIONS='not-applicable reduced-strength postdated inert'
 # be widened at a call site has no closed vocabulary, and the reader that classifies these lines
 # would silently start seeing a token it has no rule for.
 inapplicable() { # inapplicable <arm> <disposition> <reason>
-  case " $LEAN_OUTPUT_DISPOSITIONS " in
+  case " $LANE_OUTPUT_DISPOSITIONS " in
     *" $2 "*) : ;;
-    *) envfail "internal: '$2' is not a class-(b) disposition (arm '$1'). The vocabulary is closed: $LEAN_OUTPUT_DISPOSITIONS." ;;
+    *) envfail "internal: '$2' is not a class-(b) disposition (arm '$1'). The vocabulary is closed: $LANE_OUTPUT_DISPOSITIONS." ;;
   esac
-  echo "[lean-chain]   · $1: $2 — $3"
+  echo "[lane-chain]   · $1: $2 — $3"
 }
 
 # The claim comment's stage token, plus the producer capability contract it also carries (#445).
 # THIS FILE READS ONLY THE TAG — its claim arm below counts bot-authored claim comments, and a
 # one-sided rename would empty that set and red every honest pipeline PR. The stamp key and the
 # capability vocabulary are in the same block because they are one contract written by one
-# producer (lean-gate.sh, the canonical side); the arm bound to a capability lives in the
-# delegated payload, lean-evidence.sh. lean-reconcile.sh keeps an unbound copy of the tag: it is
+# producer (milestone-gate.sh, the canonical side); the arm bound to a capability lives in the
+# delegated payload, boundary-evidence.sh. reconcile.sh keeps an unbound copy of the tag: it is
 # an operator-run reconciler rather than a merge-boundary gate.
 # LOCKSTEP-BEGIN lean-producer-capabilities
-LEAN_CLAIM_MARKER_TAG='lean-claimed'
+LANE_CLAIM_MARKER_TAG='lean-claimed'
 # shellcheck disable=SC2034  # each reader binds a SUBSET of these; the block is one contract.
-LEAN_CAPABILITY_KEY='capabilities'
+LANE_CAPABILITY_KEY='capabilities'
 # shellcheck disable=SC2034  # ditto — unused here is the point, not an oversight.
-LEAN_CAPABILITIES='pr-marker'
+LANE_CAPABILITIES='pr-marker'
 # LOCKSTEP-END lean-producer-capabilities
 
-# SINGLE-SITED, and not for want of a counterpart: lean-evidence.sh pins its own name table,
+# SINGLE-SITED, and not for want of a counterpart: boundary-evidence.sh pins its own name table,
 # but the two sets are deliberately DIFFERENT — `-lean-renders.md` belongs only here and
 # `-lean-intent-gap.md` only there — so no relation over them is honest. It carried LOCKSTEP
 # markers with no row until #604, which reads as coverage this file never had. Guarded
-# end-to-end instead: check-lean-chain-selftest.sh's (A) and (S0)-(S4) drive a real fixture
+# end-to-end instead: check-lane-chain-selftest.sh's (A) and (S0)-(S4) drive a real fixture
 # tree, so a diverged suffix stops locating the artifact. Re-add markers on both sides only
 # if the sets ever converge.
 # The lean-marked name shapes, suffix-anchored. `*-lean.md` must never match the verdict
 # record (`*-lean-verdict.md`) — that is why both are anchored at the END of the filename
-# rather than matched as substrings. lean-gate.sh derives the same two names from config;
+# rather than matched as substrings. milestone-gate.sh derives the same two names from config;
 # here they are patterns, because CI has no access to the gitignored runtime config.
 #
 # `-lean-renders.md` (#394) is anchored for the same reason and with the same care: it must not
@@ -273,11 +281,11 @@ LEAN_CAPABILITIES='pr-marker'
 # call it the spec.
 #
 # `-lean-intent-gap.md` is NOT here any more (#359): the ratification arm moved to
-# lean-evidence.sh, which pins that suffix itself. Only the names this file still reads live
+# boundary-evidence.sh, which pins that suffix itself. Only the names this file still reads live
 # here — an unread constant is a claim about coverage the code does not make.
-LEAN_SPEC_SUFFIX='-lean.md'
-LEAN_VERDICT_SUFFIX='-lean-verdict.md'
-LEAN_RENDER_SUFFIX='-lean-renders.md'
+LANE_SPEC_SUFFIX='-lean.md'
+LANE_VERDICT_SUFFIX='-lean-verdict.md'
+LANE_RENDER_SUFFIX='-lean-renders.md'
 
 # Fixture paths are lean-shaped ON PURPOSE (the selftests below need lean-looking files), so
 # they must never make a PR applicable. Anything under a fixtures dir is out of the scan.
@@ -297,8 +305,8 @@ record_key_at() { # record_key_at <key> <commit> <path>
     | grep -oE "$1:[[:space:]]*[A-Za-z0-9._-]+" 2>/dev/null | head -n1 | sed -E "s/^$1:[[:space:]]*//"
 }
 
-# LOCKSTEP: this awk program is held byte-identical to lean-gate.sh (the canonical side, which
-# both writes the record and reads it back) and to lean-reconcile.sh. The reasoning lives at the
+# LOCKSTEP: this awk program is held byte-identical to milestone-gate.sh (the canonical side, which
+# both writes the record and reads it back) and to reconcile.sh. The reasoning lives at the
 # canonical side. Note this file's own chain-WALK loop around it is deliberately NOT a member —
 # it must scope `git log` to $PR_HEAD_SHA, which the other two must not.
 # LOCKSTEP-BEGIN lean-inherited-key
@@ -360,7 +368,7 @@ inherited_key_at() { # inherited_key_at <commit> <path>
   git -C "$REPO_ROOT" show "$1:$2" 2>/dev/null | inherited_key
 }
 
-# LOCKSTEP: held verbatim to lean-gate.sh, the canonical side, which carries the reasoning.
+# LOCKSTEP: held verbatim to milestone-gate.sh, the canonical side, which carries the reasoning.
 # Only the NARROW arming decision is shared: the gate ANDs it against config `design.provider`,
 # which this file cannot — the config is gitignored on every consumer and never reaches a CI
 # checkout — so the boundary runs the predicate alone.
@@ -368,7 +376,7 @@ inherited_key_at() { # inherited_key_at <commit> <path>
 # Armed-ness exactly as the COMMITTED SPEC declares it. Spec on stdin; prints `armed`, or
 # nothing at all.
 #
-# TWO READERS, which is why this is a marker block and not a private helper: check-lean-chain.sh
+# TWO READERS, which is why this is a marker block and not a private helper: check-lane-chain.sh
 # must reach the same answer from a CI checkout that cannot see the runtime config at all (it is
 # gitignored on every consumer, this repo included). A boundary that decided armed-ness
 # differently from the gate would either wave an armed PR through with no evidence or red an
@@ -400,8 +408,8 @@ design_armed() { # design_armed   (spec on stdin)
 # The provider FAMILY an armed spec hands off to, the fidelity reviewer that family makes
 # mandatory, and the token test that reads a `panel:` header (#708, D-12/D-13).
 #
-# TWO READERS, for the reason `design_armed` above has two: lean-gate.sh refuses a bad
-# `--panel` at the verdict WRITER, and scripts/check-lean-chain.sh refuses a bad `panel:` at
+# TWO READERS, for the reason `design_armed` above has two: milestone-gate.sh refuses a bad
+# `--panel` at the verdict WRITER, and scripts/check-lane-chain.sh refuses a bad `panel:` at
 # the merge BOUNDARY. The boundary cannot read config — `design.provider` is gitignored on
 # every consumer and never reaches a CI checkout — so the family must come from the committed
 # spec, and a derivation that differed between the two sides would let a record the writer
@@ -512,16 +520,16 @@ REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" \
 # in CI the checkout IS the marketplace repo, so the committed path is the authority, and a
 # `$HERE/..`-relative walk would silently resolve to a different tree in a worktree layout.
 # Missing is fatal — a boundary that cannot reach half its evidence must not report a pass.
-PAYLOAD="${LEAN_EVIDENCE:-$REPO_ROOT/plugins/dev-pipeline/skills/build/lean-evidence.sh}"
+PAYLOAD="${LANE_EVIDENCE:-$REPO_ROOT/plugins/dev-pipeline/skills/build/boundary-evidence.sh}"
 [[ -f "$PAYLOAD" ]] \
-  || envfail "the portable evidence payload is missing at '$PAYLOAD' — this gate delegates its verdict, identity, ratification and patch-id arms to it and cannot evaluate them alone. Set LEAN_EVIDENCE if it lives elsewhere."
+  || envfail "the portable evidence payload is missing at '$PAYLOAD' — this gate delegates its verdict, identity, ratification and patch-id arms to it and cannot evaluate them alone. Set LANE_EVIDENCE if it lives elsewhere."
 
 # One invocation shape for every delegated call. The payload's own violation COUNT is read back
 # through --violations-file and folded into this gate's total: collapsing "2 artifacts missing"
 # into "1 delegated call failed" would drop the only quantity an operator triages by, and the
 # combined line is the one a reader of the job log sees.
 PAYLOAD_ARGS=()
-[[ -n "${LEAN_PR_COMMENTS_FILE:-}" ]] && PAYLOAD_ARGS+=(--pr-comments-file "$LEAN_PR_COMMENTS_FILE")
+[[ -n "${LANE_PR_COMMENTS_FILE:-}" ]] && PAYLOAD_ARGS+=(--pr-comments-file "$LANE_PR_COMMENTS_FILE")
 # The ISSUE trail this gate already holds is the capability stamp's carrier (#445), so the payload
 # is handed the same fixture rather than left to fetch a second copy. In the LIVE path there is no
 # fixture and the payload fetches for itself — which is also the only path a consumer running the
@@ -551,7 +559,7 @@ delegate() { # delegate <arms...>   — runs the payload's `check` for the named
 # from a committed config while this gate reaches it from job-level constants — and a boundary
 # that classified differently from the one a consumer runs would make every cross-repo bug
 # report unreproducible. The rules themselves (key from the branch suffix, else the body with
-# `Closes` beating `Part of`; then a key-matched non-fixture lean spec in the diff) are
+# `Closes` beating `Part of`; then a key-matched non-fixture lane spec in the diff) are
 # documented at the payload.
 CLASSIFY="$(bash "$PAYLOAD" classify "${PAYLOAD_ARGS[@]+"${PAYLOAD_ARGS[@]}"}")" || exit $?
 APPLICABLE="$(printf '%s\n' "$CLASSIFY" | sed -n 's/^applicable=//p' | head -n1)"
@@ -560,18 +568,18 @@ APPLICABLE="$(printf '%s\n' "$CLASSIFY" | sed -n 's/^applicable=//p' | head -n1)
 # (a). The payload still emits it; the DECLINE path below is where an operator needs the detail,
 # and that path builds its own reason from `key=` and `spec_in_diff=`.
 KEY="$(printf '%s\n' "$CLASSIFY" | sed -n 's/^key=//p' | head -n1)"
-LEAN_SPEC_IN_DIFF="$(printf '%s\n' "$CLASSIFY" | sed -n 's/^spec_in_diff=//p' | head -n1)"
+LANE_SPEC_IN_DIFF="$(printf '%s\n' "$CLASSIFY" | sed -n 's/^spec_in_diff=//p' | head -n1)"
 [[ -n "$APPLICABLE" ]] \
   || envfail "the evidence payload returned no applicability verdict — refusing to guess. Output was: $CLASSIFY"
 
 if [[ "$APPLICABLE" -eq 0 ]]; then
   # CLASS (b): the whole gate could not evaluate. ONE line, carrying what the payload resolved
   # inside its reason — a decline is otherwise indistinguishable from "never ran", and the
-  # "a lean spec IS present and it is not yours" case is the one decline an operator argues with.
+  # "a lane spec IS present and it is not yours" case is the one decline an operator argues with.
   DECLINE_NOTE=""
-  [[ -n "$LEAN_SPEC_IN_DIFF" ]] \
-    && DECLINE_NOTE=" A lean-marked spec IS present ($LEAN_SPEC_IN_DIFF) but it is not this PR's key — classified to the pipeline chain gate, not this one."
-  inapplicable lean-chain not-applicable "non-lean change on head branch '$PR_HEAD_REF' — resolved key: ${KEY:-<none>} (branch namespace: $PIPELINE_BRANCH_PREFIX).$DECLINE_NOTE"
+  [[ -n "$LANE_SPEC_IN_DIFF" ]] \
+    && DECLINE_NOTE=" A lane-marked spec IS present ($LANE_SPEC_IN_DIFF) but it is not this PR's key — classified to the pipeline chain gate, not this one."
+  inapplicable lane-chain not-applicable "non-lane change on head branch '$PR_HEAD_REF' — resolved key: ${KEY:-<none>} (branch namespace: $PIPELINE_BRANCH_PREFIX).$DECLINE_NOTE"
   exit 0
 fi
 
@@ -580,27 +588,27 @@ fi
 # boundary exists to close — so the refusal lands here, and it is a VIOLATION (rc=1) with a
 # remedy, not an environment error.
 [[ -n "$KEY" ]] \
-  || fail "PR body carries no resolvable issue reference ('Closes #N' or 'Part of #N') and the head branch is outside '$PIPELINE_BRANCH_PREFIX', but this PR commits a lean spec. Add the reference."
+  || fail "PR body carries no resolvable issue reference ('Closes #N' or 'Part of #N') and the head branch is outside '$PIPELINE_BRANCH_PREFIX', but this PR commits a lane spec. Add the reference."
 
 violations=0
-note_violation() { echo "[lean-chain]   ✗ $1" >&2; violations=$((violations + 1)); }
+note_violation() { echo "[lane-chain]   ✗ $1" >&2; violations=$((violations + 1)); }
 
-# ---- (5) evidence 1: a committed lean spec carrying >= 1 AC-n ----------------------------
+# ---- (5) evidence 1: a committed lane spec carrying >= 1 AC-n ----------------------------
 SPEC=""
-if [[ -n "$LEAN_SPEC_IN_DIFF" && -f "$REPO_ROOT/$LEAN_SPEC_IN_DIFF" ]]; then
-  SPEC="$LEAN_SPEC_IN_DIFF"
+if [[ -n "$LANE_SPEC_IN_DIFF" && -f "$REPO_ROOT/$LANE_SPEC_IN_DIFF" ]]; then
+  SPEC="$LANE_SPEC_IN_DIFF"
 else
   # Prefix-arm PRs need not have the spec in THIS diff (a resumed run may have committed it
   # earlier), so fall back to locating it in the tree by the pinned suffix + issue key.
   while IFS= read -r f; do
     is_fixture_path "$f" && continue
-    case "$f" in *"$LEAN_VERDICT_SUFFIX") continue ;; esac
-    case "$(basename "$f")" in *"-$KEY$LEAN_SPEC_SUFFIX") SPEC="${f#"$REPO_ROOT/"}"; break ;; esac
-  done < <(find "$REPO_ROOT" -name "*$LEAN_SPEC_SUFFIX" -type f 2>/dev/null)
+    case "$f" in *"$LANE_VERDICT_SUFFIX") continue ;; esac
+    case "$(basename "$f")" in *"-$KEY$LANE_SPEC_SUFFIX") SPEC="${f#"$REPO_ROOT/"}"; break ;; esac
+  done < <(find "$REPO_ROOT" -name "*$LANE_SPEC_SUFFIX" -type f 2>/dev/null)
 fi
 
 if [[ -z "$SPEC" ]]; then
-  note_violation "no committed lean spec (a file named *$LEAN_SPEC_SUFFIX for #$KEY). The spec IS the definition of done; without it nothing constrains the change."
+  note_violation "no committed lane spec (a file named *$LANE_SPEC_SUFFIX for #$KEY). The spec IS the definition of done; without it nothing constrains the change."
 else
   ac_count="$(grep -cE '(^|[^A-Za-z])AC-[0-9]+' "$REPO_ROOT/$SPEC" 2>/dev/null)" || ac_count=0
   if [[ "${ac_count:-0}" -lt 1 ]]; then
@@ -612,8 +620,8 @@ fi
 VERDICT=""
 while IFS= read -r f; do
   is_fixture_path "${f#"$REPO_ROOT/"}" && continue
-  case "$(basename "$f")" in *"-$KEY$LEAN_VERDICT_SUFFIX") VERDICT="${f#"$REPO_ROOT/"}"; break ;; esac
-done < <(find "$REPO_ROOT" -name "*$LEAN_VERDICT_SUFFIX" -type f 2>/dev/null)
+  case "$(basename "$f")" in *"-$KEY$LANE_VERDICT_SUFFIX") VERDICT="${f#"$REPO_ROOT/"}"; break ;; esac
+done < <(find "$REPO_ROOT" -name "*$LANE_VERDICT_SUFFIX" -type f 2>/dev/null)
 
 VERDICT_RUN_ID=""
 VERDICT_SESSION_ID=""
@@ -634,18 +642,18 @@ if [[ -n "$VERDICT" ]]; then
   # the claim-identity half). Reading a value is not asserting one — every refusal about these
   # keys is emitted above.
   #
-  # FIRST-MATCH, never a count over the whole file. `lean-gate.sh verdict --summary-file`
+  # FIRST-MATCH, never a count over the whole file. `milestone-gate.sh verdict --summary-file`
   # appends the reviewer's own prose below these keys, and review prose discusses verdicts:
   # the committed record for #237 carries `verdict=approve` on line 3 and again on line 9
   # inside a sentence about the previous round. A count-anywhere reader passes a record whose
   # authoritative first line says `needs-work`. Line-anchoring was rejected instead of this
   # because the earliest records write the key as a bullet or table cell, and an anchor would
-  # reclassify already-merged evidence as unreadable. lean-gate.sh's record_verdict() is the
+  # reclassify already-merged evidence as unreadable. milestone-gate.sh's record_verdict() is the
   # same read on the same file.
   verdict_value="$(grep -oE 'verdict=[A-Za-z-]+' "$REPO_ROOT/$VERDICT" 2>/dev/null | head -n1 | sed -E 's/^verdict=//')"
   # `session_id:` does not contain the substring `run_id:`, so the two extractions cannot
   # capture each other; head -n1 keeps the first occurrence of each, matching the shape
-  # lean-gate.sh and lean-reconcile.sh read the same record with.
+  # milestone-gate.sh and reconcile.sh read the same record with.
   VERDICT_RUN_ID="$(grep -oE 'run_id:[[:space:]]*[A-Za-z0-9._-]+' "$REPO_ROOT/$VERDICT" 2>/dev/null | head -n1 | sed -E 's/run_id:[[:space:]]*//')"
   VERDICT_SESSION_ID="$(grep -oE 'session_id:[[:space:]]*[A-Za-z0-9._-]+' "$REPO_ROOT/$VERDICT" 2>/dev/null | head -n1 | sed -E 's/session_id:[[:space:]]*//')"
   # Same first-match shape, same charset. No other key in the record contains the substring
@@ -671,7 +679,7 @@ else
   COMMENTS="$("$GH_CLI" api "repos/$GH_REPO/issues/$KEY/comments" --paginate 2>&1)" || {
     # A failed fetch is an ENVIRONMENT error, never a silent pass: fail-open here would waive
     # the whole gate on any rate limit or transient 5xx.
-    echo "[lean-chain] comment fetch failed for issue #$KEY:" >&2
+    echo "[lane-chain] comment fetch failed for issue #$KEY:" >&2
     printf '%s\n' "$COMMENTS" >&2
     exit 2
   }
@@ -697,30 +705,30 @@ CLAIM_FILTER='
     | select((.body // "") | test("<!--[[:space:]]*stage:[[:space:]]*" + $tag + "[[:space:]]*-->"))
   ]'
 
-CLAIMED="$(printf '%s' "$COMMENTS" | jq -r --arg author "${LEAN_COMMENT_AUTHOR:-}" --arg at "$PR_CREATED_AT" \
-  --arg tag "$LEAN_CLAIM_MARKER_TAG" "$CLAIM_FILTER | length")"
+CLAIMED="$(printf '%s' "$COMMENTS" | jq -r --arg author "${LANE_COMMENT_AUTHOR:-}" --arg at "$PR_CREATED_AT" \
+  --arg tag "$LANE_CLAIM_MARKER_TAG" "$CLAIM_FILTER | length")"
 
 # The build run's identity as CI can see it. Same filter as the count above — reading the id
 # off a comment that did not pass the trust/window filter would let an outsider's marker (or a
 # later re-claim) define what "the build run" means for this PR.
-CLAIM_RUN_ID="$(printf '%s' "$COMMENTS" | jq -r --arg author "${LEAN_COMMENT_AUTHOR:-}" --arg at "$PR_CREATED_AT" \
-  --arg tag "$LEAN_CLAIM_MARKER_TAG" \
+CLAIM_RUN_ID="$(printf '%s' "$COMMENTS" | jq -r --arg author "${LANE_COMMENT_AUTHOR:-}" --arg at "$PR_CREATED_AT" \
+  --arg tag "$LANE_CLAIM_MARKER_TAG" \
   "$CLAIM_FILTER | map((.body // \"\") | capture(\"run_id:[[:space:]]*(?<r>[A-Za-z0-9._-]+)\").r? // \"\") | map(select(. != \"\")) | first // \"\"")"
 
 # The build SESSION as CI can see it, when the claim carries one. `session_id:` does not
 # contain the substring `run_id:`, so the capture above cannot have consumed it.
-CLAIM_SESSION_ID="$(printf '%s' "$COMMENTS" | jq -r --arg author "${LEAN_COMMENT_AUTHOR:-}" --arg at "$PR_CREATED_AT" \
-  --arg tag "$LEAN_CLAIM_MARKER_TAG" \
+CLAIM_SESSION_ID="$(printf '%s' "$COMMENTS" | jq -r --arg author "${LANE_COMMENT_AUTHOR:-}" --arg at "$PR_CREATED_AT" \
+  --arg tag "$LANE_CLAIM_MARKER_TAG" \
   "$CLAIM_FILTER | map((.body // \"\") | capture(\"session_id:[[:space:]]*(?<r>[A-Za-z0-9._-]+)\").r? // \"\") | map(select(. != \"\" and . != \"unset\")) | first // \"\"")"
 
 if [[ "${CLAIMED:-0}" -lt 1 ]]; then
   # shellcheck disable=SC2016  # $tag is a jq variable, bound with --arg.
-  any="$(printf '%s' "$COMMENTS" | jq -r --arg tag "$LEAN_CLAIM_MARKER_TAG" \
+  any="$(printf '%s' "$COMMENTS" | jq -r --arg tag "$LANE_CLAIM_MARKER_TAG" \
     '[ .[] | select((.body // "") | test("<!--[[:space:]]*stage:[[:space:]]*" + $tag + "[[:space:]]*-->")) ] | length')"
   if [[ "${any:-0}" -gt 0 ]]; then
-    note_violation "found $any '$LEAN_CLAIM_MARKER_TAG' marker(s) on #$KEY, but none that are bot-authored AND at or before PR-open ($PR_CREATED_AT). An operator-posted claim is not evidence the harness ran."
+    note_violation "found $any '$LANE_CLAIM_MARKER_TAG' marker(s) on #$KEY, but none that are bot-authored AND at or before PR-open ($PR_CREATED_AT). An operator-posted claim is not evidence the harness ran."
   else
-    note_violation "no bot-authored '$LEAN_CLAIM_MARKER_TAG' comment on #$KEY at or before PR-open ($PR_CREATED_AT). The run left no claim record."
+    note_violation "no bot-authored '$LANE_CLAIM_MARKER_TAG' comment on #$KEY at or before PR-open ($PR_CREATED_AT). The run left no claim record."
   fi
 fi
 
@@ -752,7 +760,7 @@ if [[ -n "$VERDICT" && -n "$VERDICT_RUN_ID" && -n "$VERDICT_SESSION_ID" ]]; then
     # writer carried a session id have none, and there is no remedy available: the comment
     # must fall inside the immutable PR-open window, so it cannot be re-posted for an open PR.
     # Refusing here would strand those PRs with no action that clears the gate. The run_id arm
-    # above still applies to them, and lean-reconcile.sh makes the session comparison
+    # above still applies to them, and reconcile.sh makes the session comparison
     # out-of-band against the progress file, which is not window-bound.
     #
     # CLASS (b), not (a): only HALF the comparison ran, so the arm did not fully evaluate and
@@ -928,7 +936,7 @@ delegate intent-gap
 # know the ticket was disarmed, but it can always check that a cited ref is real.
 #
 # DELEGATED in full, and the payload holds a LOCKSTEP copy of the reader rather than shelling out
-# to the mechanism's own binary: a consumer's CI fetches lean-evidence.sh alone, at a pinned ref,
+# to the mechanism's own binary: a consumer's CI fetches boundary-evidence.sh alone, at a pinned ref,
 # so a sibling call there would resolve to nothing and this boundary would pass on evidence it
 # never read.
 delegate override
@@ -943,11 +951,11 @@ if [[ -n "$SPEC" ]]; then
     RENDERS=""
     while IFS= read -r f; do
       is_fixture_path "${f#"$REPO_ROOT/"}" && continue
-      case "$(basename "$f")" in *"-$KEY$LEAN_RENDER_SUFFIX") RENDERS="${f#"$REPO_ROOT/"}"; break ;; esac
-    done < <(find "$REPO_ROOT" -name "*$LEAN_RENDER_SUFFIX" -type f 2>/dev/null)
+      case "$(basename "$f")" in *"-$KEY$LANE_RENDER_SUFFIX") RENDERS="${f#"$REPO_ROOT/"}"; break ;; esac
+    done < <(find "$REPO_ROOT" -name "*$LANE_RENDER_SUFFIX" -type f 2>/dev/null)
 
     if [[ -z "$RENDERS" ]]; then
-      note_violation "spec '$SPEC' arms the design render lane, but no render receipt (a file named *-$KEY$LEAN_RENDER_SUFFIX) is committed. The screenshots a fidelity verdict was scored against are not in this branch, so nothing here attests that any render happened."
+      note_violation "spec '$SPEC' arms the design render lane, but no render receipt (a file named *-$KEY$LANE_RENDER_SUFFIX) is committed. The screenshots a fidelity verdict was scored against are not in this branch, so nothing here attests that any render happened."
     elif [[ -z "$VERDICT" ]]; then
       # CLASS (b): the arm is ARMED and applicable, but fidelity cannot be scored without a record
       # to read it from. The missing verdict is already a violation above; this line reports that
@@ -987,7 +995,7 @@ if [[ -n "$SPEC" ]]; then
         else
           # The render binding: the branch's patch identity with BOTH self-referential artifacts
           # excluded — the verdict record (as evidence 5 excludes it) and the receipt itself,
-          # which records this very value. lean-gate.sh's render_patch_id() computes the same
+          # which records this very value. milestone-gate.sh's render_patch_id() computes the same
           # thing from the build side; the two must agree on base, range and exclusions or every
           # correct receipt reads stale.
           [[ -n "${PR_BASE_REF:-}" ]] \
@@ -1008,7 +1016,7 @@ fi
 
 # ---- (13) verdict -----------------------------------------------------------------------
 if [[ "$violations" -gt 0 ]]; then
-  echo "[lean-chain] ✗ $violations evidence artifact(s) missing for pipeline PR on #$KEY." >&2
-  echo "[lean-chain]   The remedy is producing the missing artifact — there is no waiver." >&2
+  echo "[lane-chain] ✗ $violations evidence artifact(s) missing for pipeline PR on #$KEY." >&2
+  echo "[lane-chain]   The remedy is producing the missing artifact — there is no waiver." >&2
   exit 1
 fi

@@ -40,7 +40,7 @@
 # Exit codes:
 #   attend  0 minted; 2 refused (no identity, or marked headless)
 #   state   0 always — the ANSWER is on stdout ("attended" / "headless <reason>"); 2 only for a
-#           self-asserted LEAN_ATTEND_MODE value, which is an environment error and not a state
+#           self-asserted LANE_ATTEND_MODE value, which is an environment error and not a state
 #   record  0 written; 2 refused (headless, bad enum, or an unwritable root)
 #   check   0 a matching unexpired override exists (YIELD); 1 none (REFUSE);
 #           2 something exists but could not be read or is malformed (UNKNOWN — never a negative)
@@ -50,7 +50,7 @@
 # this as a negative. Both consumers turn it into a fail-closed refusal with its own message.
 #
 # Env seams (every one has a shipped default pointing at the real thing):
-#   LEAN_ATTEND_MODE        `headless` marks this process tree headless. NO positive value is
+#   LANE_ATTEND_MODE        `headless` marks this process tree headless. NO positive value is
 #                           honored — see resolve_attendance().
 #   RUN_ID                  the run identity the token and record bind to.
 #   CLAUDE_CODE_SESSION_ID  the session identity, and what makes staleness structural.
@@ -62,6 +62,14 @@
 
 set -uo pipefail
 
+# #833: the pipeline's environment knobs are spelled `LANE_*`; the retired `LEAN_*` spellings still
+# resolve, once, with a stderr notice. Promoted IN PLACE here, before the first read, so every
+# `${LANE_*:-<default>}` site below keeps its own default unchanged.
+# shellcheck source=../skills/build/lane-env.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../skills/build" && pwd)/lane-env.sh" \
+  || { echo "FATAL: cannot load lane-env.sh — the LANE_/LEAN_ compatibility reader" >&2; exit 1; }
+lane_env_promote LANE_ATTEND_MODE
+
 GH_CLI="${GH:-gh}"
 
 usage() { sed -n '2,61p' "$0"; }
@@ -70,7 +78,7 @@ say() { echo "[operator-override] $1"; }
 
 # ---------------------------------------------------------------- roots and config
 # MAIN_ROOT is the shared checkout — `git rev-parse --git-common-dir` then up one, the idiom
-# lean-gate.sh and bot-commit.sh already use. The TOKEN lives there on purpose: a lane worktree
+# milestone-gate.sh and bot-commit.sh already use. The TOKEN lives there on purpose: a lane worktree
 # is cut and destroyed inside one run, and a token that died with it would make every re-entry
 # read headless for a reason that has nothing to do with who is watching.
 if [ -n "${SECOND_SHIFT_REPO_ROOT:-}" ]; then
@@ -117,10 +125,10 @@ now_iso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 ATTEND_REASON=""
 resolve_attendance() { # 0 = attended; 1 = headless, with ATTEND_REASON set
   local tok sid rid tsid trid
-  case "${LEAN_ATTEND_MODE:-}" in
+  case "${LANE_ATTEND_MODE:-}" in
     "")        : ;;
     headless)  ATTEND_REASON="marked-headless"; return 1 ;;
-    *) envfail "LEAN_ATTEND_MODE='$LEAN_ATTEND_MODE' is not a value this reads. Only 'headless' is honored — attendance is never self-asserted, it is minted by an operator running '$(basename "$0") attend'." ;;
+    *) envfail "LANE_ATTEND_MODE='$LANE_ATTEND_MODE' is not a value this reads. Only 'headless' is honored — attendance is never self-asserted, it is minted by an operator running '$(basename "$0") attend'." ;;
   esac
   sid="${CLAUDE_CODE_SESSION_ID:-}"
   [ -n "$sid" ] || { ATTEND_REASON="no-session-identity"; return 1; }
@@ -140,7 +148,7 @@ resolve_attendance() { # 0 = attended; 1 = headless, with ATTEND_REASON set
 # other's token, and the session id is the component that cannot be inherited.
 token_path() { printf '%s\n' "$MAIN_ROOT/$STATE_DIR/attend-${CLAUDE_CODE_SESSION_ID:-none}.token"; }
 
-# The same first-match header read the intent-gap record uses (lean-gate.sh's record_key). Kept
+# The same first-match header read the intent-gap record uses (milestone-gate.sh's record_key). Kept
 # to that character class so a value that is not an identity-shaped token reads as ABSENT rather
 # than as a partial match.
 record_key() { # record_key <key> <file>
@@ -150,8 +158,8 @@ record_key() { # record_key <key> <file>
 
 cmd_attend() {
   local tok
-  case "${LEAN_ATTEND_MODE:-}" in
-    headless) envfail "this process tree is marked headless (LEAN_ATTEND_MODE=headless) — the scheduler sets it on every payload it spawns. Attendance cannot be minted here; run the lane from your own session." ;;
+  case "${LANE_ATTEND_MODE:-}" in
+    headless) envfail "this process tree is marked headless (LANE_ATTEND_MODE=headless) — the scheduler sets it on every payload it spawns. Attendance cannot be minted here; run the lane from your own session." ;;
   esac
   [ -n "${CLAUDE_CODE_SESSION_ID:-}" ] \
     || envfail "no CLAUDE_CODE_SESSION_ID — there is no session identity to bind to, so a token minted here could not be told apart from any other. Run this from the session that is attending."
@@ -177,9 +185,9 @@ cmd_state() {
 # ---------------------------------------------------------------- the record
 record_path() { printf '%s\n' "$1/$PLANS_DIR/$REPO_SLUG-$2-lean-override.md"; }
 
-# THE RECORD READER, held in LOCKSTEP with plugins/dev-pipeline/skills/build/lean-evidence.sh.
+# THE RECORD READER, held in LOCKSTEP with plugins/dev-pipeline/skills/build/boundary-evidence.sh.
 #
-# WHY A COPY AND NOT A SOURCE. A consumer's CI fetches lean-evidence.sh ALONE, at a pinned ref,
+# WHY A COPY AND NOT A SOURCE. A consumer's CI fetches boundary-evidence.sh ALONE, at a pinned ref,
 # through second-shift-ci-check.sh — one file, no sibling, no plugin tree. A `source` there would
 # resolve to nothing, and the boundary would report a pass on evidence it never read. This is the
 # checked-call.sh situation exactly, and it takes the same remedy: a byte-identical copy the
@@ -206,9 +214,9 @@ OVERRIDE_SCOPES='intake-attestation open-region-resolution design-disarm'
 OVERRIDE_REGION_SCOPED_GATE='spec-open-region'
 
 # The register is at a FIXED path, deliberately unlike every other artifact here. The merge
-# boundary reads it and the merge boundary has no config — the same reasoning check-lean-chain.sh
+# boundary reads it and the merge boundary has no config — the same reasoning check-lane-chain.sh
 # already applies to its own constants.
-OVERRIDE_REGISTER_REL='.claude/lean-overrides.tsv'
+OVERRIDE_REGISTER_REL='.claude/lane-overrides.tsv'
 
 override_in_enum() { # override_in_enum <value> <space-separated set>
   case " $2 " in *" $1 "*) return 0 ;; esac
@@ -294,6 +302,27 @@ EOF
   [ "${ans:-0}" -ge 1 ] || { echo "no quoted operator answer under '### Operator answer' — a decision nobody stated is not an override"; return; }
 }
 # LOCKSTEP-END override-record-reader
+
+# #833: the register moved from `.claude/lean-overrides.tsv`. `/second-shift:onboard` writes it
+# into consumer repos and the absent-register path is a PASS rather than an error, so a hard
+# rename would make an existing operator override silently stop applying — the failure is a run
+# that proceeds unoverridden, not one that says why. New name first, retired name second, and the
+# fallback ANNOUNCES on stderr so the repo gets renamed rather than living on the old path
+# forever. Outside the LOCKSTEP block above because only this side READS the register: the
+# boundary payload carries the constant for its message text alone.
+OVERRIDE_REGISTER_REL_RETIRED='.claude/lean-overrides.tsv'
+
+override_register_path() { # override_register_path <repo-root>
+  if [ -f "$1/$OVERRIDE_REGISTER_REL" ]; then printf '%s' "$1/$OVERRIDE_REGISTER_REL"; return 0; fi
+  if [ -f "$1/$OVERRIDE_REGISTER_REL_RETIRED" ]; then
+    [ -n "${OVERRIDE_REGISTER_RETIRED_WARNED:-}" ] || {
+      OVERRIDE_REGISTER_RETIRED_WARNED=1
+      echo "[operator-override] notice: reading the retired $OVERRIDE_REGISTER_REL_RETIRED — rename it to $OVERRIDE_REGISTER_REL. The old path still resolves and is removed at the next major." >&2
+    }
+    printf '%s' "$1/$OVERRIDE_REGISTER_REL_RETIRED"; return 0
+  fi
+  printf '%s' "$1/$OVERRIDE_REGISTER_REL"
+}
 
 cmd_record() {
   local gate="" scope="" issue="" region="none" decision="" answer="" root="" path n line why staged
@@ -493,7 +522,7 @@ EOF
   # nothing for it. An expired or unevaluable row is rc 2 and reds the run HERE, at the first
   # consumer that consults it — which is what "reds the next run" means in practice.
   local reg rrc ex
-  reg="$root/$OVERRIDE_REGISTER_REL"
+  reg="$(override_register_path "$root")"
   if [ -f "$reg" ]; then
     while IFS= read -r line; do
       [ -n "$line" ] || continue

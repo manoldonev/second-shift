@@ -10,7 +10,7 @@
 # the merge runs on ubuntu, where `awk` resolves through /etc/alternatives to GNU Awk 5.2.1. An
 # edit here is unverified until that job is green; see the seeding note above report().
 #
-# Row grammar (lean-gate.sh's append_line / append_obligation):
+# Row grammar (milestone-gate.sh's append_line / append_obligation):
 #   TS | milestone-N | started |
 #   TS | milestone-N | satisfied
 #   TS | milestone-N | attempt | <reason>

@@ -74,7 +74,7 @@ jobs:
   # size and flags narrative `#NNN` incident archaeology; it reds only on vacuous coverage (a scan
   # root that exists but matched nothing). #641 deleted the word-count-vs-baseline ratchet on both
   # axes, and #719 deleted the shell-mass guard that had taken over the shell half — so there is
-  # no ceiling left to grow past, on either axis. It is ADVISORY TO THE LEAN LANE — build-lean
+  # no ceiling left to grow past, on either axis. It is ADVISORY TO THE LANE — /dev-pipeline:build
   # never runs it and a red here blocks no PR — but "advisory" scopes the lane, not CI, so this
   # job reds like every other guard in this file.
   #

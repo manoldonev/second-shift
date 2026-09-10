@@ -58,8 +58,8 @@ repository changes; the base is moved by config alone.
    one field**: `topology.repos.<host>.baseBranch`, naming that eval base branch. Every other
    field is identical. A second difference makes the series measure the config delta.
 3. Select it with `SECOND_SHIFT_CONFIG`, which both the scheduler and the gate already honor
-   (`orchestrate-lean.sh:357`, `lean-gate.sh:489`); `baseBranch` is read from the resolved
-   config (`lean-gate.sh:529`). The gate resolves it *inside* the payload session, and under the
+   (`orchestrate.sh:357`, `milestone-gate.sh:489`); `baseBranch` is read from the resolved
+   config (`milestone-gate.sh:529`). The gate resolves it *inside* the payload session, and under the
    supervised spawn nothing from the launcher's environment is inherited — so the scheduler
    forwards `SECOND_SHIFT_CONFIG` explicitly in the spawn's `--settings` env block. Pass an
    absolute path: the value travels verbatim, and a relative one would resolve against the lane
@@ -77,7 +77,7 @@ that can change under the series without the series showing it — the shipped r
 default in particular is a constant a release is free to move.
 
 ```bash
-SECOND_SHIFT_CONFIG=<eval-config> orchestrate-lean.sh <issue> \
+SECOND_SHIFT_CONFIG=<eval-config> orchestrate.sh <issue> \
   --build-model <m> --review-model <m> --max-rounds <n>
 ```
 

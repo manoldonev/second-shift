@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# lean-reconcile-selftest.sh — behavioral suite for the operator-side lean verifier (AC-16).
+# reconcile-selftest.sh — behavioral suite for the operator-side lean verifier (AC-16).
 #
-# Drives the REAL lean-reconcile.sh against a throwaway git repo with a synthetic audit
+# Drives the REAL reconcile.sh against a throwaway git repo with a synthetic audit
 # ledger, verdict record, progress file and comment fixture. Zero network.
 #
 # The arms that carry the value are each a distinct fabrication path:
@@ -22,7 +22,7 @@
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TOOL="$HERE/lean-reconcile.sh"
+TOOL="$HERE/reconcile.sh"
 
 FAILS=0
 pass() { echo "  PASS: $1"; }
@@ -69,9 +69,9 @@ PROG="$WORK/progress.md"
 
 write_progress() { # write_progress <run-id> <session-id>
   write_progress_unattested "$1" "$2"
-  # #416's row. `lean-gate.sh entry` writes it; this file's subject is the READER, so the shape
+  # #416's row. `milestone-gate.sh entry` writes it; this file's subject is the READER, so the shape
   # is reproduced here rather than driven through the gate — the two are kept honest by
-  # lean-gate-selftest.sh's (ea1), which pins the same shape against the writer.
+  # milestone-gate-selftest.sh's (ea1), which pins the same shape against the writer.
   echo "2026-01-01T00:00:00Z | entry | ledger=$AUDIT/$2.jsonl | lines=2 | session=$2" >> "$PROG"
 }
 # The same file WITHOUT the entry row — a build that never attested, which is the state both
@@ -132,11 +132,11 @@ commit_verdict() { # commit_verdict <committer-date>
 }
 
 reconcile() { # reconcile <comments-file>
-  ( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" LEAN_AUDIT_DIR="$AUDIT" \
+  ( cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LANE_PROGRESS_FILE="$PROG" LANE_AUDIT_DIR="$AUDIT" \
     bash "$TOOL" 7 --comments-file "$1" 2>&1 )
 }
 
-echo "[lean-reconcile-selftest]"
+echo "[reconcile-selftest]"
 
 # ---- (A) fully consistent run reconciles --------------------------------------------------
 write_progress "$RUN_ID" "$SESSION"
@@ -225,8 +225,8 @@ else fail "(J2) expected rc=1 on a build-session verdict, got $rc: $out"; fi
 # a fall-through, and nothing else here reaches it: (C) supplies a session id and removes its
 # LEDGER, (J1)/(J2) supply two identities that collide. A mutant deleting this arm would send a
 # key-less record into the ledger lookup with an empty path and survive every other case in
-# this file. The two sibling readers pin the same absence — lean-gate.sh (j3b),
-# check-lean-chain.sh (N3) — and docs/testing.md's `lean verdict-record key schema` entry, under
+# this file. The two sibling readers pin the same absence — milestone-gate.sh (j3b),
+# check-lane-chain.sh (N3) — and docs/testing.md's `verdict-record key schema` entry, under
 # *Couplings considered and declined*, cites all three.
 cat > "$VERDICT" <<'EOF'
 # lean review verdict — #7
@@ -532,7 +532,7 @@ jq '. + {tracker: {type: "gitlab"}}' "$CFG" > "$WORK/config-bogus.json"
 
 reconcile_as() { # reconcile_as <config> [extra args...]
   local c="$1"; shift
-  ( cd "$TREE" && SECOND_SHIFT_CONFIG="$c" LEAN_PROGRESS_FILE="$PROG" LEAN_AUDIT_DIR="$AUDIT" \
+  ( cd "$TREE" && SECOND_SHIFT_CONFIG="$c" LANE_PROGRESS_FILE="$PROG" LANE_AUDIT_DIR="$AUDIT" \
     GH="$GHSTUB" PATH="$WORK/bin:$PATH" bash "$TOOL" 7 "$@" 2>&1 )
 }
 p_restore() { # p_restore <committer-date> — put the good round-5 record back
@@ -624,7 +624,7 @@ else fail "(P9) expected rc=1 on a dangling link under jira, got $rc: $out"; fi
 p_restore "2026-01-01T14:25:00Z"
 
 # ---- (R) the SHIPPED ledger path, with the REAL hook as its writer ---------------------------
-# Every case above sets LEAN_AUDIT_DIR, so the default resolution — `--git-common-dir/..`, the
+# Every case above sets LANE_AUDIT_DIR, so the default resolution — `--git-common-dir/..`, the
 # only one a real operator run takes — is exercised by nothing here, and the ledger it points at
 # is synthesized by write_ledger(), which agrees with the reader by construction.
 #
@@ -645,7 +645,7 @@ p_restore "2026-01-01T14:25:00Z"
 # cache (`<root>/<plugin>/<version>/...`). A fixed `../../../` resolves only in the first, so
 # from every install this case took its not-found branch and red the suite — the exact class
 # tools/install-topology-selftest.sh stages for. Same ladder as check-model-tiers.sh's
-# resolve_sibling_plugin_root(). NOT a lockstep pair with the copy in lean-gate-selftest.sh:
+# resolve_sibling_plugin_root(). NOT a lockstep pair with the copy in milestone-gate-selftest.sh:
 # each suite resolves its own sibling independently and drift between them breaks nothing —
 # the shared thing is a technique, not a contract.
 HOOK_REPO="$HERE/../../../audit-toolkit/hooks/audit-tool-calls.sh"
@@ -673,7 +673,7 @@ else
   else
     printf '%s' "{\"session_id\":\"$REVIEW_SESSION_WT\",\"cwd\":\"$WT_REC\",\"hook_event_name\":\"PostToolUse\",\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"$WT_REC/x\"}}" \
       | CLAUDE_PROJECT_DIR="$WT_REC" "$HOOK"
-    out="$( cd "$WT_REC" && SECOND_SHIFT_CONFIG="$CFG" LEAN_PROGRESS_FILE="$PROG" \
+    out="$( cd "$WT_REC" && SECOND_SHIFT_CONFIG="$CFG" LANE_PROGRESS_FILE="$PROG" \
             bash "$TOOL" 7 --comments-file "$WORK/comments-good.json" 2>&1 )"
     if grep -q "review session $REVIEW_SESSION_WT is distinct from the build session and has a live ledger" <<<"$out" \
        && ! grep -q 'no review-session audit ledger' <<<"$out"; then
@@ -731,5 +731,5 @@ else fail "(O) --help did not print exactly the header, rc=$rc: $out"; fi
 # see (CLAUDE.md forbids adding them). Case (O) above still proves the header is printed by
 # --help, which is the only mechanical property of it that matters.
 
-echo "[lean-reconcile-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
+echo "[reconcile-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 exit "$FAILS"

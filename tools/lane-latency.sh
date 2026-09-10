@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# lane-latency.sh — how much of a lean run's wall-clock the SCHEDULER is responsible for.
+# lane-latency.sh — how much of a lane run's wall-clock the SCHEDULER is responsible for.
 #
 # WHY THIS EXISTS. "/dev-pipeline:run takes hours" is true and was, until this tool, unfalsifiable as a
 # statement about the scheduler. A run's total is dominated by payload sessions — 10 to 50 minutes

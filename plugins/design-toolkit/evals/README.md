@@ -115,9 +115,9 @@ downstream binds to the absent one.
 **Two of the three are at a ceiling, and that is itself the result.** The plan reviewer caught
 every #692 defect 3/3 on the first try — so #692's failure was *dispatch*, not capability: when
 this was measured, that agent was dispatched by the operator at `figma-faithful` step 7 and by
-nothing else. #705 closed the routing gap: the lean lane's build session now dispatches it at
+nothing else. #705 closed the routing gap: the lane's build session now dispatches it at
 milestone 3 and commits its verdict, and the gate asserts the record.
 
 The spec reviewer's deficit is one fixture: `01-lean-spec-no-visual-contract` scored **0/3**,
-declining a lean-lane spec as `N/A` in every run — the defect #704's AC-4 fixes, and the one place
+declining a lane spec as `N/A` in every run — the defect #704's AC-4 fixes, and the one place
 a #707 campaign has room to move a number.

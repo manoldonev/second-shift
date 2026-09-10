@@ -36,7 +36,7 @@ shift || true
 : "${JUDGE_MODEL:?JUDGE_MODEL is required — set it to a version-pinned model id}"
 
 # The agent normally receives a translation plan by path from `design-faithful`'s
-# translation-plan step, or reads the committed lean-lane artifact. Here the fixture file IS the
+# translation-plan step, or reads the committed lane artifact. Here the fixture file IS the
 # plan, so it takes the path directly — no override of the reviewer's input discipline is needed,
 # only the anchor that the fixture is the whole input and there is no surrounding branch to
 # inspect.

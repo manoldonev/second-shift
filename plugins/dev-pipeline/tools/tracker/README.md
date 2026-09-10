@@ -3,7 +3,7 @@
 The dev-pipeline is tracker-agnostic in its machinery and tracker-specific only at
 its edges. Which adapter is active is decided by **config `tracker.type`** (layer 1
 per [`docs/context-model.md`](../../../../docs/context-model.md)); the machinery
-(`lean-gate.sh`, `lean-reconcile.sh`, and the shared tools in [`../`](..)) is layer-0
+(`milestone-gate.sh`, `reconcile.sh`, and the shared tools in [`../`](..)) is layer-0
 and identical for both.
 
 Two adapters ship:
@@ -39,32 +39,32 @@ pipeline; the lane’s own gate-sensitive operations follow it.
 ### The pipeline (`/dev-pipeline:run`)
 
 The pipeline is the only lane, and it has no state file: its records are the progress
-file plus three committed artifacts. [`lean-gate.sh`](../../skills/build/lean-gate.sh)
+file plus three committed artifacts. [`milestone-gate.sh`](../../skills/build/milestone-gate.sh)
 resolves the same `tracker.type` (absent ⇒ `github`) and branches at tracker-sensitive
 sites. Milestones 1–4 are adapter-insensitive — a committed spec, two repo policy scripts,
 the config command table, a committed verdict record — and stay that way.
-[`lean-reconcile.sh`](../../skills/build/lean-reconcile.sh) resolves the same key on the same
+[`reconcile.sh`](../../skills/build/reconcile.sh) resolves the same key on the same
 terms, and branches at its own tracker-sensitive sites. Both reject an unrecognized value
 rather than falling through to an arm.
 
 | Operation | github | jira |
 | --- | --- | --- |
 | **entry** — SKILL.md step 1’s queue-label confirm | confirm the queue label; a missing one is a reject, no prompting | *not applicable* — no queue, no label; the gate prints the adapter note and the operator supplies the key |
-| **claim** (`lean-gate.sh claim`) | two bot-wrapper writes: the label swap plus a `lean-claimed` marker comment | *no tracker write.* The run-id/claim record still lands in the progress file — the anchor the reconcile row below reads — and `GH_BOT` is not required |
-| **exit** (`lean-gate.sh 5`) | ready PR carrying `Closes #<key>` + the spec link, plus a closing comment referencing the verdict record | ready PR carrying `Closes [<KEY>]` under a `Jira Items` heading, the spec link, and the verdict-record path **in the body**; the comment trail is never read |
-| **reconcile** — the operator’s pre-merge check ([`lean-reconcile.sh`](../../skills/build/lean-reconcile.sh)) | every arm; check (1) compares the bot claim comment’s `run_id` against the progress file’s | **all but one.** Check (1)’s claim arm is skipped and the fetch is never attempted, so the run makes no `gh` call; every other arm runs unchanged. The dropped arm is named in the output and on the closing line. `--comments-file` is refused here |
+| **claim** (`milestone-gate.sh claim`) | two bot-wrapper writes: the label swap plus a `lean-claimed` marker comment | *no tracker write.* The run-id/claim record still lands in the progress file — the anchor the reconcile row below reads — and `GH_BOT` is not required |
+| **exit** (`milestone-gate.sh 5`) | ready PR carrying `Closes #<key>` + the spec link, plus a closing comment referencing the verdict record | ready PR carrying `Closes [<KEY>]` under a `Jira Items` heading, the spec link, and the verdict-record path **in the body**; the comment trail is never read |
+| **reconcile** — the operator’s pre-merge check ([`reconcile.sh`](../../skills/build/reconcile.sh)) | every arm; check (1) compares the bot claim comment’s `run_id` against the progress file’s | **all but one.** Check (1)’s claim arm is skipped and the fetch is never attempted, so the run makes no `gh` call; every other arm runs unchanged. The dropped arm is named in the output and on the closing line. `--comments-file` is refused here |
 
-The **ready-PR** requirement is adapter-independent: `lean-gate.sh` milestone 5 rejects a
+The **ready-PR** requirement is adapter-independent: `milestone-gate.sh` milestone 5 rejects a
 draft on either adapter. There is no promotion step for a draft to advance out of.
 
 > **Partial integrity backstop under jira.** lean has two integrity checks, and they diverge
-> here. `lean-reconcile.sh` (operator-run) keeps every arm but one: only the claim-comment
+> here. `reconcile.sh` (operator-run) keeps every arm but one: only the claim-comment
 > comparison needs a tracker, and the rest read git, the progress file, the verdict record and
 > the audit ledger — including the P10 authorship check, which is what the
 > generation-must-not-author-evaluation separation rests on. It states which arm did not run, so
 > a green jira reconcile cannot be read as the full github-strength attestation.
 >
-> The merge boundary `scripts/check-lean-chain.sh` (CI) remains **github-only**: it keys off the
+> The merge boundary `scripts/check-lane-chain.sh` (CI) remains **github-only**: it keys off the
 > bot-authored `lean-claimed` comment, which this adapter posts none of. A jira run therefore has
 > an operator-run backstop and no automated one; adapting the CI gate is out of this lane’s scope
 > and tracked separately.
@@ -87,7 +87,7 @@ draft on either adapter. There is no promotion step for a draft to advance out o
   and render `Predecessor:` / `Successor:` trailer keys in the adapter's own key shape.
 - `tracker.branchPrefix` — the branch namespace prepended to the key (`claude/acme-`
   github, a per-user `jdoe/` jira). Consumed by the lane's branch derivation
-  (`lean-gate.sh`, SKILL.md step 3).
+  (`milestone-gate.sh`, SKILL.md step 3).
 - `tracker.bot.*` — the bot identity for the pipeline's **GitHub** writes
   (`enabled`, `envVar`, `wrapperPath`, `app.{clientId,appName,privateKeyFilename,installationId}`).
   Legal under **either** tracker: the key is scoped to the code host, not to the tracker, and
@@ -98,6 +98,6 @@ draft on either adapter. There is no promotion step for a draft to advance out o
 
 `claim-issue.sh`, `install-gh-bot.sh`, and `claim-selftest.sh` are the github
 adapter’s implementation and stay at `../` (the tools root) because a web of
-drift-parity checks (`claim-selftest.sh`, `pipeline-doctor.sh`, `lean-gate.sh`'s
+drift-parity checks (`claim-selftest.sh`, `pipeline-doctor.sh`, `milestone-gate.sh`'s
 `claim` arm) pins their paths. `github/README.md` points at them; this directory is
 the adapter *contract*, not a second copy of the scripts.

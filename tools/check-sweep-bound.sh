@@ -2,7 +2,7 @@
 # check-sweep-bound.sh — the missing-row counterpart to the slow-suite table's stale-row error
 # (#629; the table is tools/selftest-suite-timings.tsv since #641).
 #
-# WHY THIS EXISTS. The table keeps lean-gate.sh milestone 3's local sweep inside the harness's
+# WHY THIS EXISTS. The table keeps milestone-gate.sh milestone 3's local sweep inside the harness's
 # ~120s reap by deferring every suite at or above its declared threshold. Membership is a
 # MEASUREMENT TAKEN ONCE, and the rule that keeps it true — re-measure when you change what a
 # listed suite does — was a sentence in that file's own header with nothing behind it. A new or
