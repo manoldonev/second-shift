@@ -192,6 +192,9 @@
 #           * milestone 3 (#527): a BLOCKING verify lane raised the reserved infrastructure code —
 #             see below. Since #642 that is `typecheck` alone; `lint`, `test` and extraLanes are
 #             advisory and classify nothing. The remedy is to RE-INVOKE.
+#           * milestone 3: the armed render's `design.liveRender.readyProbe` did not answer,
+#             across every reading. An external prerequisite the build does not own, whose remedy is
+#             to start it — so it belongs here rather than on the fix budget, which it used to spend.
 #           * `mark` (#650): the ticket closed under this run. Same remedy as the staleness arm's,
 #             hence the same integer. `cmd_5`/`cmd_close_out` call `cmd_mark` as a function and
 #             never reach it, so the landing path stays open by design.
@@ -235,6 +238,10 @@
 #   ${CURL:-curl}            the client used for design.liveRender.readyProbe (#394). The only
 #                            outbound call milestone 3 can make, and only when a consumer
 #                            configures the probe — the suite points it at a stub.
+#   READY_PROBE_TRIES        how many readings that probe takes before it gives up (default 3),
+#   READY_PROBE_TIMEOUT      the per-reading timeout in seconds (default 10), and
+#   READY_PROBE_BACKOFF      the pause between readings in seconds (default 2). Set TRIES=1 and
+#                            BACKOFF=0 to drive the exhausted path without sleeping.
 #   LANE_PROGRESS_FILE       override the resolved progress-file path
 #   SECOND_SHIFT_CONFIG      override the resolved config path
 #   --pr-file <path>         milestone 5: read the PR record from a JSON fixture
@@ -379,6 +386,21 @@ INTERRUPTED_BUDGET=5
 LANE_INFRA_RC=3
 INFRA_CLASS=7
 
+# THE READINESS PROBE'S PATIENCE, and why it has any.
+#
+# The probe runs at the worst moment available to it, by construction: immediately after the verify
+# lanes, so on a consumer whose extraLanes build the app the machine is still saturated when the
+# first packet goes out. A health endpoint that pings its own datastores can queue well past a
+# single timeout there and answer instantly a second later — which is the shape observed in the
+# field: one failed probe between two successful ones, the same server process listening throughout.
+#
+# So one reading is not evidence the prerequisite is down; it is evidence the machine was busy.
+# Three readings spaced over a few seconds are, and they cost nothing on the happy path, where the
+# first one answers. Overridable so the suite can drive the exhausted path without sleeping.
+READY_PROBE_TRIES="${READY_PROBE_TRIES:-3}"
+READY_PROBE_TIMEOUT="${READY_PROBE_TIMEOUT:-10}"
+READY_PROBE_BACKOFF="${READY_PROBE_BACKOFF:-2}"
+
 say()  { echo "[milestone-gate] $*"; }
 warn() { echo "[milestone-gate] $*" >&2; }
 envfail() { echo "[milestone-gate] $*" >&2; exit 2; }
@@ -415,7 +437,7 @@ while [ $# -gt 0 ]; do
     --obligations)   PROGRESS_OBLIGATIONS=1; shift ;;
     --arm)           STALENESS_ARM="${2:-}"; shift 2 ;;
     --ticket-source) TICKET_SOURCE="${2:-}"; shift 2 ;;
-    -h|--help)       sed -n '2,290p' "$0"; exit 0 ;;
+    -h|--help)       sed -n '2,297p' "$0"; exit 0 ;;
     -*)              envfail "unknown option: $1" ;;
     *)
       if [ "$POSITIONAL" -eq 0 ]; then SUB="$1"; POSITIONAL=1
@@ -4782,10 +4804,43 @@ cmd_3_render() {
   fi
 
   # (c) RENDER.
+  #
+  # AND IT IS INFRA_CLASS WHATEVER THE READING SAYS. Nothing about this branch was evaluated:
+  # the remedy the message itself gives is "start it", which is an operator action, and a fix attempt
+  # spent on a service the build does not own buys nothing. It used to charge one, so a probe that
+  # flaked three times could exhaust milestone 3's whole budget and hard-stop a run at rc=4 having
+  # certified nothing — the failure mode this arm exists to report, inflicted by the arm reporting it.
   if [ -n "$LR_READY_PROBE" ]; then
     say "milestone-3: readyProbe » $LR_READY_PROBE"
-    if ! "$CURL_CLI" -fsS --max-time 10 -o /dev/null "$LR_READY_PROBE" >/dev/null 2>&1; then
-      fail_milestone 3 "design.liveRender.readyProbe '$LR_READY_PROBE' is not reachable — the render harness's declared external prerequisite is down. Start it and re-run. (This fails fast on purpose: waiting out a render timeout costs the same attempt and tells you less.)"
+    probe_try=1
+    probe_ok=0
+    probe_why=""
+    while [ "$probe_try" -le "$READY_PROBE_TRIES" ]; do
+      # `-w %{http_code}` and NO `-f`, so the two failure families stay distinguishable: a transport
+      # failure (refused, DNS, timeout) leaves curl's own exit code and a 000 status, while a server
+      # that answered leaves its status. `-f` collapsed both into one non-zero exit with every stream
+      # discarded, which is why a field failure here could only be diagnosed by elimination — the
+      # prerequisite's health endpoint aggregates its datastore connections and returns 503 when one
+      # blips, and that is indistinguishable from "down" once the code is thrown away.
+      probe_code="$("$CURL_CLI" -sS -o /dev/null -w '%{http_code}' --max-time "$READY_PROBE_TIMEOUT" "$LR_READY_PROBE" 2>/dev/null)"
+      probe_rc=$?
+      case "$probe_code" in
+        2??|3??) [ "$probe_rc" -eq 0 ] && probe_ok=1 ;;
+      esac
+      [ "$probe_ok" -eq 1 ] && break
+      if [ "$probe_rc" -ne 0 ]; then
+        probe_why="curl exit $probe_rc (no HTTP response)"
+      else
+        probe_why="HTTP $probe_code"
+      fi
+      if [ "$probe_try" -lt "$READY_PROBE_TRIES" ]; then
+        say "milestone-3: readyProbe reading $probe_try/$READY_PROBE_TRIES got no answer yet — $probe_why, retrying in ${READY_PROBE_BACKOFF}s"
+        [ "$READY_PROBE_BACKOFF" -gt 0 ] && sleep "$READY_PROBE_BACKOFF"
+      fi
+      probe_try=$((probe_try + 1))
+    done
+    if [ "$probe_ok" -ne 1 ]; then
+      fail_milestone 3 "design.liveRender.readyProbe '$LR_READY_PROBE' did not answer in $READY_PROBE_TRIES reading(s) at ${READY_PROBE_TIMEOUT}s each — last reading: $probe_why. The render harness's declared external prerequisite is unhealthy. An HTTP status means it ANSWERED and reported itself unwell, which for an aggregate health endpoint usually means one of its own dependencies rather than the service; a curl exit means nothing answered at all. Start it and re-invoke. (It fails here rather than at the render: waiting out a render timeout tells you less and takes longer.)" "$INFRA_CLASS"
       return $?
     fi
   fi

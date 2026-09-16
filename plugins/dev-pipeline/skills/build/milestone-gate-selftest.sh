@@ -3732,6 +3732,34 @@ DVERDICT="$DTREE/docs/plans/acme-55-lean-verdict.md"
 DMANIFEST="$DTREE/docs/plans/acme-55-lean-renders.md"
 DPROG="$WORK/dprogress.md"
 DCFG="$WORK/dconfig.json"
+# The CURL seam: a readyProbe client whose answer the case chooses. It mimics real curl under
+# `-w %{http_code}` — the status on stdout, 000 when nothing answered — so the gate's two failure
+# families stay distinguishable here too.
+#   down       nothing answers, ever (curl exit 7, the transport family)
+#   unhealthy  the service ANSWERS 503. The field shape: an aggregate health endpoint whose own
+#              remote datastore connection blipped. The service is up; `-f` used to make this
+#              indistinguishable from `down`, which is exactly the diagnosis that got lost.
+#   flaky      refuses the FIRST reading and answers every one after — one bad reading is not a
+#              verdict. State lives in a counter file, since each reading is its own process.
+DPROBE="$WORK/probe-stub.sh"
+DPROBE_COUNT="$WORK/probe-count"
+cat > "$DPROBE" <<EOPROBE
+#!/usr/bin/env bash
+case "\${DPROBE_MODE:-down}" in
+  unhealthy) printf '503'; exit 0 ;;
+  flaky)
+    n=0
+    [ -f "$DPROBE_COUNT" ] && n="\$(cat "$DPROBE_COUNT")"
+    n=\$((n + 1))
+    printf '%s' "\$n" > "$DPROBE_COUNT"
+    if [ "\$n" -ge 2 ]; then printf '200'; exit 0; fi
+    printf '000'; exit 7
+    ;;
+  *) printf '000'; exit 7 ;;
+esac
+EOPROBE
+chmod +x "$DPROBE"
+
 DSTUB="$WORK/render-stub.sh"
 DCALLS="$WORK/stub-calls.log"
 DMODE="$WORK/stub-mode"
@@ -3787,10 +3815,10 @@ esac
 exit 0
 EOSTUB
 
-dcfg() { # dcfg <liveRender-command-or-empty> [cwd] [tolerancePx]
-  local cmd="${1:-}" cwd="${2:-}" tol="${3:-}" lr=""
+dcfg() { # dcfg <liveRender-command-or-empty> [cwd] [tolerancePx] [readyProbe]
+  local cmd="${1:-}" cwd="${2:-}" tol="${3:-}" probe="${4:-}" lr=""
   if [ -n "$cmd" ]; then
-    lr=", \"liveRender\": { \"command\": \"$cmd\"$([ -n "$cwd" ] && printf ', "cwd": "%s"' "$cwd")$([ -n "$tol" ] && printf ', "tolerancePx": %s' "$tol") }"
+    lr=", \"liveRender\": { \"command\": \"$cmd\"$([ -n "$cwd" ] && printf ', "cwd": "%s"' "$cwd")$([ -n "$tol" ] && printf ', "tolerancePx": %s' "$tol")$([ -n "$probe" ] && printf ', \"readyProbe\": \"%s\"' "$probe") }"
   fi
   cat > "$DCFG" <<EOCFG
 {
@@ -4850,6 +4878,64 @@ dclear_render
 dcommit_raw "restore the armed spec and its plan, clearing the render evidence"
 dplan_sync
 dclear_render
+
+# (dr-probe1) AN UNREACHABLE readyProbe IS INFRASTRUCTURE, NOT A FIX ATTEMPT.
+# Two assertions, and the second is the one the change exists for: rc=7 (INFRA_CLASS, "nothing was
+# evaluated, re-invoke") rather than 1, and NO `attempt` row appended. It used to charge, so three
+# flaky probes could exhaust milestone 3's budget and hard-stop a run at rc=4 having certified
+# nothing — the arm inflicting the failure mode it exists to report.
+# TRIES=1/BACKOFF=0 so the exhausted path is reached without sleeping.
+dreset
+dclear_render
+dcfg "$DSTUB_CMD" "" "" "http://127.0.0.1:9/down"
+dp_before="$(dnum grep -c 'attempt' "$DPROG")"
+out="$(READY_PROBE_TRIES=1 READY_PROBE_BACKOFF=0 CURL="$DPROBE" DPROBE_MODE=down dgate 3 55)"; rc=$?
+dp_after="$(dnum grep -c 'attempt' "$DPROG")"
+if [ "$rc" -eq 7 ] && [ "$dp_before" -eq "$dp_after" ] && grep -q 'did not answer in' <<<"$out"; then
+  pass "(dr-probe1) an unreachable readyProbe raises INFRA_CLASS and charges no fix attempt"
+else fail "(dr-probe1) rc=$rc attempts $dp_before->$dp_after: $out"; fi
+
+# (dr-probe2) ...and ONE bad reading is not a verdict. The observed field failure was a single
+# non-answer between two successes against a server that never restarted — a remote, VPN-gated
+# dependency blipping, not the prerequisite being down. The stub refuses its first reading and
+# answers the second, and the gate must carry on INTO the render.
+# The two messages are worded apart on purpose ("no answer yet" vs "did not answer in"), so this
+# case cannot pass by matching the give-up text in a retry line.
+dreset
+dclear_render
+rm -f "$DPROBE_COUNT"
+dcfg "$DSTUB_CMD" "" "" "http://127.0.0.1:9/flaky"
+out="$(READY_PROBE_TRIES=3 READY_PROBE_BACKOFF=0 CURL="$DPROBE" DPROBE_MODE=flaky dgate 3 55)"; rc=$?
+if [ "$rc" -ne 7 ] && grep -q 'no answer yet' <<<"$out" && ! grep -q 'did not answer in' <<<"$out" \
+   && grep -q 'render RS-1' <<<"$out"; then
+  pass "(dr-probe2) a readyProbe that answers on a later reading carries on into the render"
+else fail "(dr-probe2) expected recovery past the probe, rc=$rc: $out"; fi
+
+# (dr-probe3) THE SHAPE THAT ACTUALLY BIT, and the one `-f` used to hide. The service ANSWERS — it
+# is not down — and reports itself unwell with a 503, because an aggregate health endpoint folds its
+# own remote datastore connections into its status and one of them blipped. It is still not ready,
+# so the milestone must refuse; but the refusal has to SAY "HTTP 503", because that is the whole
+# difference between "start your server" and "your server is up and its upstream flickered".
+dreset
+dclear_render
+dcfg "$DSTUB_CMD" "" "" "http://127.0.0.1:9/unhealthy"
+out="$(READY_PROBE_TRIES=1 READY_PROBE_BACKOFF=0 CURL="$DPROBE" DPROBE_MODE=unhealthy dgate 3 55)"; rc=$?
+# Anchored on the REPORTED FIELD, not the bare phrase: the refusal's own prose explains what a curl
+# exit would have meant, so a loose `! grep 'curl exit'` matches the explanation and never the datum.
+if [ "$rc" -eq 7 ] && grep -q 'last reading: HTTP 503' <<<"$out"; then
+  pass "(dr-probe3) a readyProbe answering 503 refuses as infrastructure AND names the status"
+else fail "(dr-probe3) expected an HTTP 503 refusal, rc=$rc: $out"; fi
+
+
+# Hand the (dr) cases back the state they assume: no readyProbe in the config, and NO RENDER
+# EVIDENCE IN THE TREE. The second half is not hygiene — (dr-probe2) renders for real, and the next
+# case to commit sweeps whatever it left in, after which (dr1) re-renders the same bytes, matches an
+# already-committed receipt and passes green instead of demanding the commit it exists to demand.
+dreset
+dclear_render
+rm -f "$DPROBE_COUNT"
+dcfg "$DSTUB_CMD"
+
 
 # ---- (dr) AC-3: the render pass ----------------------------------------------------------
 # (dr7) the template must carry {out} — there is otherwise nowhere for a screenshot to land.
