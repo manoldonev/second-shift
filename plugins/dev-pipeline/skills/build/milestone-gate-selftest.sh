@@ -3732,7 +3732,7 @@ DVERDICT="$DTREE/docs/plans/acme-55-lean-verdict.md"
 DMANIFEST="$DTREE/docs/plans/acme-55-lean-renders.md"
 DPROG="$WORK/dprogress.md"
 DCFG="$WORK/dconfig.json"
-# The CURL seam: a readyProbe client whose answer the case chooses. It mimics real curl under
+# The CURL seam (#845): a readyProbe client whose answer the case chooses. It mimics real curl under
 # `-w %{http_code}` — the status on stdout, 000 when nothing answered — so the gate's two failure
 # families stay distinguishable here too.
 #   down       nothing answers, ever (curl exit 7, the transport family)
@@ -4879,7 +4879,7 @@ dcommit_raw "restore the armed spec and its plan, clearing the render evidence"
 dplan_sync
 dclear_render
 
-# (dr-probe1) AN UNREACHABLE readyProbe IS INFRASTRUCTURE, NOT A FIX ATTEMPT.
+# (dr-probe1) #845. AN UNREACHABLE readyProbe IS INFRASTRUCTURE, NOT A FIX ATTEMPT.
 # Two assertions, and the second is the one the change exists for: rc=7 (INFRA_CLASS, "nothing was
 # evaluated, re-invoke") rather than 1, and NO `attempt` row appended. It used to charge, so three
 # flaky probes could exhaust milestone 3's budget and hard-stop a run at rc=4 having certified

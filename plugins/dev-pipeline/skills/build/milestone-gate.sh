@@ -192,7 +192,7 @@
 #           * milestone 3 (#527): a BLOCKING verify lane raised the reserved infrastructure code —
 #             see below. Since #642 that is `typecheck` alone; `lint`, `test` and extraLanes are
 #             advisory and classify nothing. The remedy is to RE-INVOKE.
-#           * milestone 3: the armed render's `design.liveRender.readyProbe` did not answer,
+#           * milestone 3 (#845): the armed render's `design.liveRender.readyProbe` did not answer,
 #             across every reading. An external prerequisite the build does not own, whose remedy is
 #             to start it — so it belongs here rather than on the fix budget, which it used to spend.
 #           * `mark` (#650): the ticket closed under this run. Same remedy as the staleness arm's,
@@ -241,7 +241,7 @@
 #   READY_PROBE_TRIES        how many readings that probe takes before it gives up (default 3),
 #   READY_PROBE_TIMEOUT      the per-reading timeout in seconds (default 10), and
 #   READY_PROBE_BACKOFF      the pause between readings in seconds (default 2). Set TRIES=1 and
-#                            BACKOFF=0 to drive the exhausted path without sleeping.
+#                            BACKOFF=0 to drive the exhausted path without sleeping (#845).
 #   LANE_PROGRESS_FILE       override the resolved progress-file path
 #   SECOND_SHIFT_CONFIG      override the resolved config path
 #   --pr-file <path>         milestone 5: read the PR record from a JSON fixture
@@ -386,7 +386,7 @@ INTERRUPTED_BUDGET=5
 LANE_INFRA_RC=3
 INFRA_CLASS=7
 
-# THE READINESS PROBE'S PATIENCE, and why it has any.
+# #845. THE READINESS PROBE'S PATIENCE, and why it has any.
 #
 # The probe runs at the worst moment available to it, by construction: immediately after the verify
 # lanes, so on a consumer whose extraLanes build the app the machine is still saturated when the
@@ -4805,7 +4805,7 @@ cmd_3_render() {
 
   # (c) RENDER.
   #
-  # AND IT IS INFRA_CLASS WHATEVER THE READING SAYS. Nothing about this branch was evaluated:
+  # AND IT IS INFRA_CLASS WHATEVER THE READING SAYS (#845). Nothing about this branch was evaluated:
   # the remedy the message itself gives is "start it", which is an operator action, and a fix attempt
   # spent on a service the build does not own buys nothing. It used to charge one, so a probe that
   # flaked three times could exhaust milestone 3's whole budget and hard-stop a run at rc=4 having
