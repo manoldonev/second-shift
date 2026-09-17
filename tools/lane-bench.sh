@@ -78,19 +78,6 @@
 #   ${GH:-gh}                     the tracker/code-host CLI
 set -uo pipefail
 
-# #833: the pipeline's environment knobs are spelled `LANE_*`; the retired `LEAN_*` spellings still
-# resolve, once, with a stderr notice. Promoted IN PLACE here, before the first read, so every
-# `${LANE_*:-<default>}` site below keeps its own default unchanged.
-# shellcheck source=../plugins/dev-pipeline/skills/build/lane-env.sh
-. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../plugins/dev-pipeline/skills/build" && pwd)/lane-env.sh" \
-  || { echo "FATAL: cannot load lane-env.sh — the LANE_/LEAN_ compatibility reader" >&2; exit 2; }
-lane_env_promote LANE_BENCH_POLL_SECS LANE_BENCH_CELL_CEILING_SECS
-# Two tokens whose retired spelling is NOT `LEAN_` + the current suffix: the bench family already
-# says "lane" for its own concept, so the mechanical `LANE_BENCH_LANE_BIN` / `LANE_BENCH_SS_ROOT`
-# double the noun and do not ship (#833 AC-15). Their retired names are passed explicitly.
-lane_env LANE_BENCH_ROOT LANE_BENCH_ROOT '' LEAN_BENCH_SS_ROOT
-lane_env LANE_BENCH_BIN  LANE_BENCH_BIN  '' LEAN_BENCH_LANE_BIN
-
 TAB=$'\t'
 SELF="$(basename "$0")"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

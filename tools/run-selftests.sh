@@ -82,45 +82,6 @@
 #
 # NOT `set -e`: this harness runs other people's suites and SCORES their exit codes.
 set -uo pipefail
-
-# #833: the pipeline's environment knobs are spelled `LANE_*`; the retired `LEAN_*` spellings still
-# resolve, once, with a stderr notice, and are promoted IN PLACE below so the `${LANE_*:-…}` read
-# site keeps its own default. INLINE rather than sourced from the sibling `lane-env.sh`: this
-# runner must work from a COPY of its own single file — the cache's runner-axis cases in
-# run-selftests-selftest.sh copy it into a fixture tree and run it there, which is how the runner's
-# own bytes are proven to be on the cache key. The two copies are pinned by the LOCKSTEP anchor
-# below, not by prose.
-# LOCKSTEP-BEGIN lane-env-fallback
-LANE_ENV_WARNED=' '
-lane_env() { # lane_env <dest-var> <LANE_NAME> [default] [retired-name]
-  local __lane_new="$2" __lane_old="${4:-LEAN_${2#LANE_}}"
-  if [ -n "${!__lane_new+set}" ]; then
-    printf -v "$1" '%s' "${!__lane_new}"
-  elif [ -n "${!__lane_old+set}" ]; then
-    case "$LANE_ENV_WARNED" in
-      *" $__lane_old "*) : ;;
-      *) LANE_ENV_WARNED="$LANE_ENV_WARNED$__lane_old "
-         printf '[lane-env] notice: %s is the retired spelling of %s and still resolves. Export %s instead; the retired name is removed at the next major.\n' \
-           "$__lane_old" "$__lane_new" "$__lane_new" >&2 ;;
-    esac
-    printf -v "$1" '%s' "${!__lane_old}"
-  else
-    printf -v "$1" '%s' "${3-}"
-  fi
-}
-
-# The common case: a knob whose new spelling is `LANE_` + the retired suffix, resolved IN PLACE so
-# every existing `${LANE_X:-<default>}` read site keeps its own default and needs no edit. Setting
-# an absent token to the empty string is deliberate and safe: every read site uses `:-`, under
-# which empty and unset are the same answer, and no site in this repo distinguishes them (`+` forms
-# are absent by construction — the companion selftest asserts it).
-lane_env_promote() { # lane_env_promote <LANE_NAME>...
-  local __lane_n
-  for __lane_n in "$@"; do lane_env "$__lane_n" "$__lane_n"; done
-}
-# LOCKSTEP-END lane-env-fallback
-lane_env_promote LANE_SELFTEST_CACHE_DIR
-
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(dirname "$HERE")"   # HERE is already absolute and resolved, so its dirname is too
 # Property 2 applied one level up: this file is the harness that PRODUCES every verdict the
@@ -185,7 +146,7 @@ if [[ "${1:-}" == "--run-one" ]]; then
   # through this same emitter, so the two are commensurable.
   W_T0="$(date +%s)"
   ( cd "$W_ROOT" && env -u RUN_SELFTESTS_DROP_LAST -u RUN_SELFTESTS_DROP_RC \
-       -u LANE_SELFTEST_CACHE_DIR -u LEAN_SELFTEST_CACHE_DIR bash "$W_SUITE" ) \
+       -u LANE_SELFTEST_CACHE_DIR bash "$W_SUITE" ) \
     > "$W_OUT/$W_IDX.log" 2>&1
   W_RC=$?   # captured BEFORE anything else runs — a later test would overwrite $?
   W_SECS=$(( $(date +%s) - W_T0 ))

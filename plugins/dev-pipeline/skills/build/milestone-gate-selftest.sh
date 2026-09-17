@@ -33,35 +33,13 @@ fail() { echo "  FAIL: $1" >&2; FAILS=$((FAILS + 1)); }
 # everywhere else: an environment artifact that surfaces at milestone 3 reading like a code
 # defect in whatever diff happens to be in flight. Unset it once here so every case starts
 # from the documented absent state; (m1c) sets it explicitly for the other direction.
-#
-# BOTH SPELLINGS (#833). The gate reads `LANE_RUN_MODEL` first and falls back to the retired
-# `LEAN_RUN_MODEL`, so clearing only the current name leaves the ambient retired one resolving
-# straight through this defense — which is precisely the machines the lane runs on, since the
-# scheduler at any pin predating the rename exports it. An `unset` that clears one of a fallback
-# PAIR is not hermeticity, it is hermeticity's shape.
-unset LANE_RUN_MODEL LEAN_RUN_MODEL
-# The same pairing for the other knobs this suite scrubs per case: `LANE_SELFTEST_CACHE_DIR`,
-# `LANE_SELFTEST_CACHE` and `LANE_GATE_ANY_TREE` — the last exported suite-wide here and `unset`
-# per case to RE-ARM the lane-tree assertion, which an ambient retired half would keep disarmed.
-# Their retired halves are cleared once here so a per-case `unset` or `env -u` on the current name
-# is the whole answer rather than half of one.
-#
-# `LEAN_SELFTEST_CACHE` is a token in its own right, not a prefix of the `_DIR` one beside it.
-# Clearing only `_DIR` left the bare knob resolving through the fallback, and `docs/testing.md`
-# hands operators `LANE_SELFTEST_CACHE=0` in two recipes — a shell still carrying the pre-rename
-# spelling of either one falsified (pg5), (pg8), (sc1) and (sc2).
-#
-# There is no bare `LANE_GATE` knob: `LANE_GATE_ANY_TREE`, `LANE_GATE_OBSERVE` and `LANE_GATE_LIB`
-# are each their own token and nothing reads the stem, so a `LEAN_GATE` in this list would scrub a
-# name no reader resolves — a defense that cannot fail, which is the shape this file's hermeticity
-# rules exist to refuse.
-unset LEAN_SELFTEST_CACHE_DIR LEAN_SELFTEST_CACHE LEAN_GATE_ANY_TREE
+unset LANE_RUN_MODEL
 
-# ATTENDANCE, both spellings (#833). Nothing in this file names the knob, but the gate shells out
-# to operator-override.sh, which reads it: an ambient `headless` turns every override arm into the
+# ATTENDANCE. Nothing in this file names the knob, but the gate shells out to
+# operator-override.sh, which reads it: an ambient `headless` turns every override arm into the
 # refusal path and reds cases that have nothing to do with attendance. The scheduler exports it on
-# every payload it spawns, under whichever spelling its pin predates, so both halves go.
-unset LANE_ATTEND_MODE LEAN_ATTEND_MODE
+# every payload it spawns.
+unset LANE_ATTEND_MODE
 
 # `RUN_ID` is the same class, and it hid behind a per-helper defense that did not cover every
 # call site. `gate()` unsets it, and so does every `entry` call but one: (d5)'s linked-worktree

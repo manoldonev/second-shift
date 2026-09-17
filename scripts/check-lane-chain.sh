@@ -190,14 +190,6 @@
 # Exit 0 = pass or not-applicable; 1 = evidence violation; 2 = usage/environment error.
 set -uo pipefail
 
-# #833: the pipeline's environment knobs are spelled `LANE_*`; the retired `LEAN_*` spellings still
-# resolve, once, with a stderr notice. Promoted IN PLACE here, before the first read, so every
-# `${LANE_*:-<default>}` site below keeps its own default unchanged.
-# shellcheck source=../plugins/dev-pipeline/skills/build/lane-env.sh
-. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../plugins/dev-pipeline/skills/build" && pwd)/lane-env.sh" \
-  || { echo "FATAL: cannot load lane-env.sh — the LANE_/LEAN_ compatibility reader" >&2; exit 2; }
-lane_env_promote LANE_EVIDENCE LANE_PR_COMMENTS_FILE LANE_COMMENT_AUTHOR
-
 GH_CLI="${GH:-gh}"
 COMMENTS_FILE=""
 DIFF_FILES_FILE=""

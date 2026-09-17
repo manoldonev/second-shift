@@ -107,13 +107,6 @@
 
 set -uo pipefail
 
-# #833: the pipeline's environment knobs are spelled `LANE_*`; the retired `LEAN_*` spellings still
-# resolve, once, with a stderr notice. Promoted IN PLACE here, before the first read, so every
-# `${LANE_*:-<default>}` site below keeps its own default unchanged.
-# shellcheck source=../skills/build/lane-env.sh
-. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../skills/build" && pwd)/lane-env.sh" \
-  || { echo "FATAL: cannot load lane-env.sh — the LANE_/LEAN_ compatibility reader" >&2; exit 2; }
-lane_env_promote LANE_PROGRESS_FILE
 log() { echo "[pipeline-cost-block] $*" >&2; }
 
 # Telemetry-id → tier map (see TIER BUCKETING above). Keys are family substrings matched

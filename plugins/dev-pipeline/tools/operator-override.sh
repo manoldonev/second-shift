@@ -62,14 +62,6 @@
 
 set -uo pipefail
 
-# #833: the pipeline's environment knobs are spelled `LANE_*`; the retired `LEAN_*` spellings still
-# resolve, once, with a stderr notice. Promoted IN PLACE here, before the first read, so every
-# `${LANE_*:-<default>}` site below keeps its own default unchanged.
-# shellcheck source=../skills/build/lane-env.sh
-. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../skills/build" && pwd)/lane-env.sh" \
-  || { echo "FATAL: cannot load lane-env.sh — the LANE_/LEAN_ compatibility reader" >&2; exit 2; }
-lane_env_promote LANE_ATTEND_MODE
-
 GH_CLI="${GH:-gh}"
 
 usage() { sed -n '2,61p' "$0"; }
@@ -303,24 +295,10 @@ EOF
 }
 # LOCKSTEP-END override-record-reader
 
-# #833: the register moved from `.claude/lean-overrides.tsv`. `/second-shift:onboard` writes it
-# into consumer repos and the absent-register path is a PASS rather than an error, so a hard
-# rename would make an existing operator override silently stop applying — the failure is a run
-# that proceeds unoverridden, not one that says why. New name first, retired name second, and the
-# fallback ANNOUNCES on stderr so the repo gets renamed rather than living on the old path
-# forever. Outside the LOCKSTEP block above because only this side READS the register: the
-# boundary payload carries the constant for its message text alone.
-OVERRIDE_REGISTER_REL_RETIRED='.claude/lean-overrides.tsv'
-
+# The register lives at one path. `/second-shift:onboard` writes it into consumer repos, and the
+# absent-register path is a PASS rather than an error, so this resolver never refuses — a repo
+# without a register simply has no persistent override.
 override_register_path() { # override_register_path <repo-root>
-  if [ -f "$1/$OVERRIDE_REGISTER_REL" ]; then printf '%s' "$1/$OVERRIDE_REGISTER_REL"; return 0; fi
-  if [ -f "$1/$OVERRIDE_REGISTER_REL_RETIRED" ]; then
-    [ -n "${OVERRIDE_REGISTER_RETIRED_WARNED:-}" ] || {
-      OVERRIDE_REGISTER_RETIRED_WARNED=1
-      echo "[operator-override] notice: reading the retired $OVERRIDE_REGISTER_REL_RETIRED — rename it to $OVERRIDE_REGISTER_REL. The old path still resolves and is removed at the next major." >&2
-    }
-    printf '%s' "$1/$OVERRIDE_REGISTER_REL_RETIRED"; return 0
-  fi
   printf '%s' "$1/$OVERRIDE_REGISTER_REL"
 }
 

@@ -297,16 +297,6 @@
 # bash 3.2 compatible (macOS ships it, and CI has a bash-3.2 lane).
 set -uo pipefail
 
-# #833: the pipeline's environment knobs are spelled `LANE_*`; the retired `LEAN_*` spellings still
-# resolve, once, with a stderr notice. Promoted IN PLACE here, before the first read, so every
-# `${LANE_*:-<default>}` site below keeps its own default unchanged.
-# shellcheck source=lane-env.sh
-. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lane-env.sh" \
-  || { echo "FATAL: cannot load lane-env.sh — the LANE_/LEAN_ compatibility reader" >&2; exit 2; }
-lane_env_promote LANE_OVERRIDE_TOOL LANE_EVIDENCE_TOOL LANE_GATE_LIB LANE_PROGRESS_FILE \
-  LANE_GATE_TEST_STALL_DIR LANE_RUN_MODEL LANE_GATE_OBSERVE LANE_GATE_ANY_TREE \
-  LANE_SELFTEST_CACHE LANE_SELFTEST_CACHE_DIR LANE_COST_BLOCK_TOOL
-
 GH_CLI="${GH:-gh}"
 CURL_CLI="${CURL:-curl}"
 # #613. The attendance/override mechanism, a same-plugin sibling two hops up — a plain relative
@@ -3826,7 +3816,7 @@ cmd_2() {
 # what it defers. An ambient knob would silently re-answer those cases out of an operator's
 # shell. The list is "what must not reach a lane child", not "what second-shift owns".
 # LOCKSTEP-BEGIN seam-scrub subset
-SEAM_SCRUB='SECOND_SHIFT_CONFIG|SECOND_SHIFT_REPO_ROOT|SECOND_SHIFT_EXTENSION_MANIFEST|SECOND_SHIFT_PLUGIN_ROOT|SECOND_SHIFT_REVIEW_TOOLKIT_ROOT|SECOND_SHIFT_DEV_PIPELINE_ROOT|SECOND_SHIFT_DESIGN_TOOLKIT_ROOT|SECOND_SHIFT_SECTION_CATALOG|STATECTL_STATE_DIR|STATECTL_WRITER|DEV_PIPELINE_MODE|BRANCH_PREFIX|KEY_PATTERN|LANE_ATTEND_MODE|LEAN_ATTEND_MODE|MUTATION_SWEEP_NO_DEFER'
+SEAM_SCRUB='SECOND_SHIFT_CONFIG|SECOND_SHIFT_REPO_ROOT|SECOND_SHIFT_EXTENSION_MANIFEST|SECOND_SHIFT_PLUGIN_ROOT|SECOND_SHIFT_REVIEW_TOOLKIT_ROOT|SECOND_SHIFT_DEV_PIPELINE_ROOT|SECOND_SHIFT_DESIGN_TOOLKIT_ROOT|SECOND_SHIFT_SECTION_CATALOG|STATECTL_STATE_DIR|STATECTL_WRITER|DEV_PIPELINE_MODE|BRANCH_PREFIX|KEY_PATTERN|LANE_ATTEND_MODE|MUTATION_SWEEP_NO_DEFER'
 # LOCKSTEP-END seam-scrub
 declare -a SEAM_SCRUB_ENV=()
 IFS='|' read -r -a _seam_scrub_toks <<< "$SEAM_SCRUB"

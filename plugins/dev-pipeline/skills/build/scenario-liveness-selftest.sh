@@ -75,17 +75,11 @@
 # its own passing cases.
 set -uo pipefail
 
-# HERMETICITY, retired half (#833). This suite scrubs `LANE_GATE` and `LANE_RUN_MODEL` to reach a documented
-# absent-value default. The reader takes the current spelling first and falls back to the retired
-# one, so an ambient LEAN_GATE would walk straight through a scrub that named only the
-# current name — and the scheduler at any pin predating the rename exports exactly that. Cleared
-# ONCE here rather than paired at every call site below.
-unset LEAN_GATE LEAN_RUN_MODEL LEAN_GATE_ANY_TREE
-# ATTENDANCE, both spellings (#833). Nothing in this file names the knob, but the gate shells out
-# to operator-override.sh, which reads it: an ambient `headless` turns every override arm into the
+# ATTENDANCE. Nothing in this file names the knob, but the gate shells out to
+# operator-override.sh, which reads it: an ambient `headless` turns every override arm into the
 # refusal path and reds cases that have nothing to do with attendance. The scheduler exports it on
-# every payload it spawns, under whichever spelling its pin predates, so both halves go.
-unset LANE_ATTEND_MODE LEAN_ATTEND_MODE
+# every payload it spawns.
+unset LANE_ATTEND_MODE
 unset SECOND_SHIFT_CONFIG SECOND_SHIFT_REPO_ROOT SECOND_SHIFT_EXTENSION_MANIFEST BRANCH_PREFIX
 
 # #141: the lane-tree assertion, DISARMED for the legs whose fixture is a bare `git init` tree and
