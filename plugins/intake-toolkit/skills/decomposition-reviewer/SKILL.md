@@ -48,8 +48,10 @@ Read every ticket once. Build a mental model of:
 
 Dispatch `codebase-explorer` by invoking the `intake-review.mjs` Workflow with the `codebase-explorer` subset, passing the combined scope of all tickets:
 
+**Stage the script first.** The `Workflow` tool resolves neither a bare filename nor the plugin cache's own absolute path (see `docs/namespaces.md` rule 3): resolve `*/workflows/intake-review.mjs` under the marketplace root — `$SKILL_DIR/../../../..`, excluding `*/fixtures/*` — copy it into the session scratchpad, and dispatch that copy.
+
 ```
-Workflow({ scriptPath: "intake-review.mjs",
+Workflow({ scriptPath: "<staged>/intake-review.mjs",
            // config carries ONLY the keys this script reads — `reviewers` alone.
            args: { issue, issueBody, agents: ["codebase-explorer"],
                    config: { reviewers: CONFIG.reviewers } } })

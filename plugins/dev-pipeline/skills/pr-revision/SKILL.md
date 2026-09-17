@@ -265,8 +265,10 @@ Same commands as the main verify lane: run the configured format, lint, type-che
 
 Run `review-toolkit:review-lead` on only the files changed by this revision. review-toolkit:review-lead dispatches its reviewer fan-out through the `code-review.mjs` Workflow (the single dispatch substrate); pass this revision's worktree + committed range as the script args:
 
+**Stage the script into the session scratchpad and dispatch that copy** — the `Workflow` tool accepts neither a bare filename nor the plugin cache's own path. `review-toolkit:review-lead`'s "Pre-flight: dispatch substrate" owns the resolution recipe; the `scriptPath` below is the staged copy, not a cache path.
+
 ```
-Workflow({ scriptPath: "../dev-pipeline/workflows/code-review.mjs",
+Workflow({ scriptPath: "<staged>/code-review.mjs",
            // args.config carries ONLY the config keys THIS script reads — never the whole
            // parsed config. code-review.mjs reads `reviewers` (per-agent model overrides)
            // and `tracker` (`tracker.type` branches scope-completeness-reviewer's fetch).
