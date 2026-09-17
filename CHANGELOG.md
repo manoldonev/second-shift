@@ -4,6 +4,23 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v13.0.1
+
+### `dev-pipeline` 13.0.0 → 13.0.1
+
+- **fix(review-toolkit): stage workflow scripts before dispatching them (#846)** (#846)
+  review-lead, pr-revision, decomposition-reviewer and intake-orchestrator now stage their Workflow script into the session scratchpad before dispatching it; the previously documented bare-filename and plugin-cache paths were both refused by the Workflow tool.
+
+### `intake-toolkit` 5.0.0 → 5.0.1
+
+- **fix(review-toolkit): stage workflow scripts before dispatching them (#846)** (#846)
+  review-lead, pr-revision, decomposition-reviewer and intake-orchestrator now stage their Workflow script into the session scratchpad before dispatching it; the previously documented bare-filename and plugin-cache paths were both refused by the Workflow tool.
+
+### `review-toolkit` 8.0.0 → 8.0.1
+
+- **fix(review-toolkit): stage workflow scripts before dispatching them (#846)** (#846)
+  review-lead, pr-revision, decomposition-reviewer and intake-orchestrator now stage their Workflow script into the session scratchpad before dispatching it; the previously documented bare-filename and plugin-cache paths were both refused by the Workflow tool.
+
 ## v13.0.0
 
 ### `audit-toolkit` 4.0.1 → 5.0.0
