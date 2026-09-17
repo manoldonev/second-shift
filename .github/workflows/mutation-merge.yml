@@ -44,13 +44,22 @@ concurrency:
 jobs:
   sweep:
     runs-on: ubuntu-latest
+    env:
+      # The step bound, written ONCE. The step below enforces it and the red body quotes it, so an
+      # issue filed on a bound kill cannot name a bound this lane no longer has.
+      SWEEP_STEP_TIMEOUT_MIN: '150'
     # Job-level backstop above the operative step bound below, the same shape and the same
     # reasoning as mutation-sweep.yml: blowing a JOB timeout cancels the job and may skip its
     # always() steps, while blowing a STEP timeout is an ordinary step failure the job
-    # proceeds past — so the evidence survives. The numbers are sized off the un-deferred
-    # worst case, a merge that touches milestone-gate.sh, estimated at 30-45 min. That figure has
-    # never been observed; the run prints its own duration, and a blown bound is a bound edit.
-    timeout-minutes: 75
+    # proceeds past — so the evidence survives. The pair is sized off the merge that blew the
+    # previous 60/75: e3f9607b5bbd (#839, 141 files, 67 of them .sh), whose scope is 35 guards and
+    # 374 mutants. Running every one of those to suite completion costs 13116 suite-seconds at the
+    # figures in tools/selftest-suite-timings.tsv — 109 min at the 2 workers this runner gets —
+    # plus serial re-verification of the 51 known survivors and the site derivation, so ~130 min
+    # with nothing exiting early. The run that blew the old bound reached ~80% of that work in its
+    # 60 minutes. 9964 of the 13116 are milestone-gate.sh's 47 mutants against a 212s suite, so
+    # this is really that one guard's bound, and it moves when that suite's cost moves.
+    timeout-minutes: 170
     outputs:
       title_key: ${{ steps.red.outputs.title_key }}
       body: ${{ steps.red.outputs.body }}
@@ -65,7 +74,7 @@ jobs:
 
       - name: mutation sweep (merge-scoped, deferral off)
         id: sweep
-        timeout-minutes: 60
+        timeout-minutes: ${{ fromJSON(env.SWEEP_STEP_TIMEOUT_MIN) }}
         env:
           SKIP_STRESS: '1'          # canonical sweep environment; asserted against the baseline header
           MUTATION_SWEEP_NO_DEFER: '1'
@@ -119,7 +128,29 @@ jobs:
           OTHER="$(grep -F 'RED:' sweep-out/sweep.log \
                    | grep -vF 'baseline-absent survivor:' || true)"
 
-          if [[ -n "$SURV" ]]; then
+          # A BOUND KILL is read off the sweep's OWN terminal line. GitHub exposes no "this step
+          # timed out" signal to a later step — `steps.sweep.outcome` is `failure` either way — but
+          # `finish()` is the single exit path of tools/mutation-sweep.sh (green and red both reach
+          # it) and always prints one `timing: Ns wall` line, and the only other way out, `die()`,
+          # prints `FATAL:`. A failed step whose log carries neither never reached a verdict, and
+          # the one thing on this lane that cuts a run short is the step's own timeout-minutes.
+          # No log at all falls through to the generic lead: that is a step that died before it
+          # wrote one, which is not a bound kill.
+          TIMED_OUT=0
+          if [[ -f sweep-out/sweep.log ]] \
+             && ! grep -qF '[mutation-sweep] timing: ' sweep-out/sweep.log \
+             && ! grep -qF '[mutation-sweep] FATAL: ' sweep-out/sweep.log; then
+            TIMED_OUT=1
+          fi
+          GRADED="$(grep -cF '[mutation-sweep] swept ' sweep-out/sweep.log || true)"
+
+          # The bound kill is tested FIRST, ahead of the survivor branch: a run cancelled after
+          # printing a survivor still graded only part of its scope, and `mutation sweep red`
+          # asserts a completed verdict that run does not have. Its ids are carried in the body.
+          if [[ "$TIMED_OUT" -eq 1 ]]; then
+            KEY='mutation sweep infra red'
+            LEAD="The merge-time mutation sweep step was cancelled at its \`timeout-minutes\` bound of ${SWEEP_STEP_TIMEOUT_MIN} minutes, after grading ${GRADED} of this merge's in-scope guard(s). It reached no verdict, so those guards are UNGRADED — not green. The file's own rule applies: a blown bound is a bound edit (\`.github/workflows/mutation-merge.yml\`)."
+          elif [[ -n "$SURV" ]]; then
             KEY='mutation sweep red'
             LEAD="A merge-time mutation sweep found survivor(s) absent from \`tools/mutation-baseline.tsv\`. Each is a mutation of a guard this merge touched that its paired suite did not catch."
           else
@@ -133,7 +164,11 @@ jobs:
             echo "$LEAD"
             if [[ -n "$SURV" ]]; then
               echo
-              echo 'Survivor ids:'
+              if [[ "$TIMED_OUT" -eq 1 ]]; then
+                echo 'Survivor ids reached before the bound (partial — the sweep did not finish):'
+              else
+                echo 'Survivor ids:'
+              fi
               echo '```'
               echo "$SURV"
               echo '```'
