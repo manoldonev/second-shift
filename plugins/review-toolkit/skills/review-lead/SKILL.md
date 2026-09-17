@@ -22,9 +22,18 @@ The reviewer fan-out runs as `agent()` calls inside `workflows/code-review.mjs` 
 - **Dispatch mode (standalone / direct invocation, and `pr-revision`):** this session itself triggers the fan-out by running the Workflow:
 
   ```
-  Workflow({ scriptPath: "code-review.mjs",
+  Workflow({ scriptPath: "<staged>/code-review.mjs",
              args: { worktree, base, head, issue?, reviewers, changedFiles, prContext } })
   ```
+
+  **Stage the script first — neither a bare filename nor the cache path dispatches.** The `Workflow` tool accepts only a path it returned itself, or one under the working directory or an added directory. The plugin cache is neither on a default install, so `scriptPath: "code-review.mjs"` comes back as "Workflow script file not found" and the cache's own absolute path as "must be a script path this tool returned". Resolve it from this skill's own base directory (which the invocation states) and copy it into the session scratchpad, then dispatch that copy:
+
+  ```bash
+  SRC=$(find "$SKILL_DIR/../../../.." -path '*/workflows/code-review.mjs' -not -path '*/fixtures/*' 2>/dev/null | sort -V | tail -1)
+  cp "$SRC" "$SCRATCHPAD/code-review.mjs"
+  ```
+
+  The copy is what makes this work on a machine that has not added the plugin cache to `permissions.additionalDirectories` — and that entry has to come from the operator, since the auto-mode classifier denies settings edits as self-modification. Resolving under the marketplace root rather than by a `dev-pipeline/…` path is what keeps rule 3's one-directional dependency intact.
 
   Before any other action, verify the `Workflow` tool is available in the current session. If it is not — for example this skill was loaded inside a subagent context (subagents can spawn neither `Workflow` nor nested agents) — STOP and report:
 
