@@ -30,8 +30,8 @@
 #                       session dispatch only — e.g. `Bash(git worktree add:*)`, the out-of-cwd
 #                       write auto mode's classifier judges inconsistently. Recorded in SERIES.md.
 #   LANE_ARM_DISALLOWED_TOOLS  optional. One tool per line, passed as a second `--disallowedTools`
-#                       (merges with the scheduler's) — for harness tools no allow can approve in a
-#                       headless session beyond the ones the scheduler already disallows.
+#                       (merges with the scheduler's) — the harness tools no allow can approve in a
+#                       headless session (`EnterWorktree`, `ExitWorktree`).
 #
 # EXIT: whatever the session binary exits · 2 a refusal on stderr, nothing exec'd.
 set -uo pipefail
@@ -113,8 +113,8 @@ if [ "$DISPATCH" -eq 1 ]; then
   fi
   # AND ITS MIRROR. Some harness tools cannot be allowed at all — `EnterWorktree` asks for a
   # confirmation whatever `--allowedTools` says, so a headless payload that reaches for it ends
-  # `blocked`. The scheduler disallows the ones known today; this knob adds more for a cell. A
-  # second `--disallowedTools` merges with the scheduler's (probed).
+  # `blocked`. Those are DISALLOWED, the way the scheduler already disallows `AskUserQuestion`, and
+  # the payload uses `cd`. A second `--disallowedTools` merges with the scheduler's (probed).
   if [ -n "${LANE_ARM_DISALLOWED_TOOLS:-}" ]; then
     set -- "$@" --disallowedTools
     while IFS= read -r t; do
