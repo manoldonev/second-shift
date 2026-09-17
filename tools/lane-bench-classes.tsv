@@ -61,6 +61,8 @@ dry-run	lane-error	-
 env-branch-prefix	lane-error	-
 env-branch-prefix-lib	lane-error	-
 env-config-unparseable	lane-error	-
+env-detach-log-dir	lane-error	-
+env-detach-perl	lane-error	-
 env-git-common-dir	lane-error	-
 env-main-root	lane-error	-
 env-no-git-repo	lane-error	-

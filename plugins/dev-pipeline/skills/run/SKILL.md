@@ -22,8 +22,8 @@ rescue path, and the fallback if headless sessions ever leave the subscription.
    No label? Size it yourself, pass your pick, and say why in `--model-basis`
    (`sized-here: <one line>`) — that line is the whole detector for a missing label.
 3. **Run it.** `bash O <issue> --build-model <m> --model-basis label --detach` — then watch the log
-   it prints until its last line, `detached run exited rc=<n>`. `--detach` is not optional from an
-   agent session: a foreground call is reaped long before a run ends. Between phases
+   it prints until its last line, `detached run exited rc=<n>`. From an agent session, `--detach` is
+   the launch that works: a foreground call is reaped long before a run ends. Between phases
    there is no human in the middle: build → review chains the moment the PR exists.
 4. **Read the exit code, and nothing else.** `0` approved and closed out · `1` a phase failed ·
    `2` preflight rejected · `3` preflight rejected, RESUMABLE — the ticket is unintaken ·
