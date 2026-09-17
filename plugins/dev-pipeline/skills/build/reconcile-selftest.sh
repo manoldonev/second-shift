@@ -156,6 +156,19 @@ if [ "$rc" -eq 1 ] && grep -q 'no committed verdict record' <<<"$out"; then
 else fail "(B) expected rc=1, got $rc: $out"; fi
 mv "$WORK/held.md" "$VERDICT"
 
+# ---- (B2) a missing PROGRESS file is a hard stop too ----------------------------------------
+# (B)'s sibling, and the one that was uncovered: the progress record is where the run's identity
+# lives, so reconciling without it can only ever be an unverifiable pass. With the refusal gone
+# the guard walks on and every identity comparison below reads an empty string against an empty
+# string — the shape that AGREES. The mutation sweep promoted this site into its scored window
+# when the lane-env load line stopped being an `exit 1`, and it survived.
+mv "$PROG" "$WORK/held-prog.md"
+out="$(reconcile "$WORK/comments-good.json")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'no progress file' <<<"$out"; then
+  pass "(B2) a missing progress file fails"
+else fail "(B2) expected rc=1, got $rc: $out"; fi
+mv "$WORK/held-prog.md" "$PROG"
+
 # ---- (C) the verdict names a review session the harness never saw --------------------------
 # The fabrication path: a verdict written having reviewed nothing. The build session's ledger
 # is intact and busy — which is precisely why the OLD anchor (a dispatch row in THAT ledger)
