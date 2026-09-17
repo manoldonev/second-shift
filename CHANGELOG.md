@@ -4,6 +4,20 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v13.1.0
+
+### `dev-pipeline` 13.0.1 → 13.1.0
+
+- **feat(dev-pipeline): runs launch detached and never park on worktree prompts (#849)** (#849)
+  /dev-pipeline:run no longer ends a run as build-session-failed
+  when the BUILD session tries to enter its lane worktree with the harness
+  worktree tool; spawned sessions are denied EnterWorktree/ExitWorktree.
+  Migration: none.
+  /dev-pipeline:run launches with `orchestrate.sh --detach`, which
+  returns at once and logs the run to <pipelineStateDir>/<issue>-lean-run-*.log,
+  ending with `detached run exited rc=<n>`.
+  Migration: none.
+
 ## v13.0.1
 
 ### `dev-pipeline` 13.0.0 → 13.0.1
