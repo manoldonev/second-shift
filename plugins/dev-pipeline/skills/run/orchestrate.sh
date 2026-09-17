@@ -191,6 +191,10 @@
 #                          or `sized-here: touches two gates`. Default `label`.
 #     --max-rounds <n>     Default 3. The n+1th is the hard stop.
 #     --dry-run            Print the schedule and exit 0 without spawning anything.
+#     --detach             Validate the arguments here, then run in a new session (under
+#                          `caffeinate` where it exists) and exit 0 at once, printing the pid and
+#                          the log path. The log's last line is `detached run exited rc=<n>`, the
+#                          exit code below. How a caller whose commands are time-capped launches.
 #
 # Seams (every one has a shipped default pointing at the real thing):
 #   LANE_SPAWN_BIN               the session binary (default `claude`)
@@ -271,6 +275,7 @@ MAX_ROUNDS=3
 # into an expensive one, and the bound is the point.
 MAX_REVIEW_RETRIES=1
 DRY_RUN=0
+DETACH=0
 
 # #531 D-6. THE CLOCK, in the gate's own `now_iso` format, so scheduler control lines and
 # progress-file rows sort against each other without conversion. Reconstructing one run's phase
@@ -513,6 +518,9 @@ terminal() { # terminal <slug> <exit-code> <message...>
 }
 envfail() { terminal "$1" 2 "$2"; }
 
+# The argv a detached run re-executes with — everything but the flag that asked for it.
+KEEP_ARGS=()
+for _a in "$@"; do [ "$_a" = "--detach" ] || KEEP_ARGS+=("$_a"); done
 while [ $# -gt 0 ]; do
   case "$1" in
     --build-model)        BUILD_MODEL="${2:-}"; shift 2 ;;
@@ -522,7 +530,8 @@ while [ $# -gt 0 ]; do
     --max-rounds)         MAX_ROUNDS="${2:-}"; shift 2 ;;
     --max-continuations)  envfail usage-max-continuations "--max-continuations was removed in #718 along with the continuation budget it bounded: BUILD is spawned once per round, and a spawn that leaves no PR ends the run for a human to read. There is no value of this flag to pass." ;;
     --dry-run)            DRY_RUN=1; shift ;;
-    -h|--help)            sed -n '2,222p' "$0"; exit 0 ;;
+    --detach)             DETACH=1; shift ;;
+    -h|--help)            sed -n '2,226p' "$0"; exit 0 ;;
     -*)                   envfail usage-unknown-option "unknown option: $1" ;;
     *)                    [ -z "$ISSUE" ] && ISSUE="$1" || envfail usage-unexpected-argument "unexpected argument: $1"; shift ;;
   esac
@@ -598,6 +607,30 @@ CLAIM_MARKER_TAG='lean-claimed'
 # and PR metadata.
 STATE_DIR="$(cfg '.paths.pipelineStateDir' '.claude/pipeline-state')"
 LOG_DIR="$MAIN_ROOT/$STATE_DIR"
+
+# --detach. A run lasts 30 minutes to hours, and a caller whose commands are reaped on a clock —
+# an agent session's Bash tool — cannot host it in the foreground. Each such caller used to
+# hand-roll its own detached launcher, guessing this script's path and tripping its permission
+# classifier on the way. The detach lives here instead, AFTER argument validation, so a usage
+# error still fails in the caller's own command with exit 2. `setsid` puts the run in a new
+# session, out of reach of a reap aimed at the caller's process group; macOS ships no `setsid`
+# binary, so perl's POSIX binding makes the call. `caffeinate` holds off idle sleep, which on a
+# laptop ends every payload session mid-response. The trailing line carries the run's own exit
+# code, so a watcher reads the same taxonomy the foreground caller would have.
+if [ "$DETACH" = "1" ]; then
+  command -v perl >/dev/null 2>&1 || envfail env-detach-perl "--detach needs perl for setsid; run in the foreground instead."
+  mkdir -p "$LOG_DIR" 2>/dev/null || envfail env-detach-log-dir "--detach cannot create $LOG_DIR for the run's log."
+  DETACH_LOG="$LOG_DIR/$ISSUE-lean-run-$(now_iso | tr -d ':-')-$$.log"
+  _wrap=()
+  command -v caffeinate >/dev/null 2>&1 && _wrap=(caffeinate -dims)
+  # shellcheck disable=SC2016  # the inner script expands in the child, not here
+  nohup perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV or die "exec: $!\n"' -- \
+    ${_wrap[@]+"${_wrap[@]}"} bash -c \
+    'bash "$@"; rc=$?; echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) [orchestrate] detached run exited rc=$rc"' \
+    _ "$0" "${KEEP_ARGS[@]}" > "$DETACH_LOG" 2>&1 < /dev/null &
+  say "detached: pid $! · log $DETACH_LOG · its last line will be 'detached run exited rc=<n>'"
+  exit 0
+fi
 
 # #650 AC-1. THE LAUNCH TOKEN, and the evidence-destruction it removes.
 #
@@ -1225,10 +1258,13 @@ spawn() { # spawn <role> <model> <prompt> — returns 0 on done or stuck, termin
   # would simply be absent on the far side. The harness applies this block itself and carries it
   # across a supervisor restart. What goes in it is spawn_settings' above.
   #
-  # `--disallowedTools AskUserQuestion` (D-6) removes the one prompt source real payloads reach,
-  # restoring the parity `-p` had for free by not offering the tool at all. Permission decisions
-  # need no flag: the auto-mode classifier auto-denies inside a bg session exactly as it did under
-  # print mode, and the model reads the denial and continues.
+  # `--disallowedTools` (D-6) removes the prompt sources a headless payload can reach, restoring
+  # the parity `-p` had for free by not offering them at all. `AskUserQuestion` is the question
+  # one. `EnterWorktree` and `ExitWorktree` are the other kind: they ask for a confirmation that
+  # neither the auto-mode classifier nor `--allowedTools` can answer, so a BUILD that reaches for
+  # one after cutting its lane worktree is listed `blocked` and ends the run. Without them the
+  # payload uses `cd`, as it did under `-p`. Every other permission decision needs no flag: the
+  # classifier auto-denies inside a bg session, and the model reads the denial and continues.
   #
   # `--name` (D-4) is what makes the row recognisable in `claude agents` while the run is live.
   #
@@ -1245,7 +1281,7 @@ spawn() { # spawn <role> <model> <prompt> — returns 0 on done or stuck, termin
   out="$(env -u RUN_ID "$SPAWN_BIN" --bg \
            --permission-mode "$PERM_MODE" --model "$model" \
            --name "lean-$ISSUE-$lower-r${round:-1}" \
-           --disallowedTools AskUserQuestion \
+           --disallowedTools AskUserQuestion EnterWorktree ExitWorktree \
            --settings "$settings" \
            "$prompt" 2>&1)"
   # The id is the whole handle: without it there is no state to poll, no session to stop and

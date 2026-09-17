@@ -707,13 +707,15 @@ if grep -qE -- '(^| )--bg( |$)' <<<"$(all_argv)" \
   pass "(e1) every spawn is a fresh supervised session: --bg + --model, no -p and no --resume/--continue/-c"
 else fail "(e1) spawn argv carried a resume flag, or lost --bg/--model: $(all_argv)"; fi
 
-# D-6. The one prompt source a real payload reaches is removed at dispatch, which is the parity
-# `-p` had for free by not offering the tool. Without it a payload that asks a question reads
-# `blocked` and ends the run — a stop where print mode simply carried on.
-if ! grep -q 'AskUserQuestion' <<<"$(all_argv | sed 's/--disallowedTools AskUserQuestion//g')" \
-   && [ "$(all_argv | grep -c -- '--disallowedTools AskUserQuestion')" -eq 2 ]; then
-  pass "(e1a) every spawn removes AskUserQuestion, the one prompt source a headless payload can reach"
-else fail "(e1a) a spawn did not disallow AskUserQuestion: $(all_argv)"; fi
+# D-6. The prompt sources a real payload reaches are removed at dispatch, which is the parity
+# `-p` had for free by not offering them. Without them a payload that asks a question, or that
+# enters its lane worktree through the harness tool, reads `blocked` and ends the run — a stop
+# where print mode simply carried on.
+DISALLOW='--disallowedTools AskUserQuestion EnterWorktree ExitWorktree '
+if ! grep -qE 'AskUserQuestion|EnterWorktree|ExitWorktree' <<<"$(all_argv | sed "s/$DISALLOW//g")" \
+   && [ "$(all_argv | grep -c -- "$DISALLOW")" -eq 2 ]; then
+  pass "(e1a) every spawn removes AskUserQuestion, EnterWorktree and ExitWorktree, the prompt sources a headless payload can reach"
+else fail "(e1a) a spawn did not disallow the headless prompt sources: $(all_argv)"; fi
 
 # Driven with CLAUDE_CODE_SESSION_ID UNSET in the parent, so a `yes` here can only have come
 # from the scheduler. Running it with the operator's own session id ambient would make this case
@@ -1203,6 +1205,47 @@ if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -eq 0 ] && [ "$(gate_count)" -eq 0 ] \
    && grep -q "branch=$BRANCH" <<<"$out"; then
   pass "(l) --dry-run reports the resolved branch and schedule without spawning"
 else fail "(l) expected a spawn-free dry run, got rc=$rc / $(spawn_count): $out"; fi
+
+# ---- (l2) --detach returns at once and the run carries on without its caller -----------------------
+# The launch an agent session can make: its commands are reaped on a clock, so the scheduler must
+# outlive the call that started it and report its exit code somewhere a watcher can read it.
+detach_log_of() { sed -n 's/.*detached: pid [0-9]* · log \(.*\) · its last line.*/\1/p' <<<"$1"; }
+detach_wait() { # detach_wait <log> — the exit line, or empty after ~30s
+  local i=0
+  while [ "$i" -lt 150 ]; do
+    grep -q 'detached run exited rc=' "$1" 2>/dev/null && break
+    sleep 0.2; i=$((i + 1))
+  done
+  grep -o 'detached run exited rc=[0-9]*' "$1" 2>/dev/null
+}
+setup_case "" "$V_APPROVE" "ready-for-dev" "11"
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet --dry-run --detach)"; rc=$?
+dlog="$(detach_log_of "$out")"
+if [ "$rc" -eq 0 ] && [ -n "$dlog" ] && ! grep -q 'terminal:' <<<"$out" \
+   && [ "$(detach_wait "$dlog")" = "detached run exited rc=0" ] \
+   && grep -q "terminal: dry-run" "$dlog" && grep -q "branch=$BRANCH" "$dlog" \
+   && [ "$(spawn_count)" -eq 0 ]; then
+  pass "(l2) --detach exits 0 before the schedule runs, and the detached run writes the schedule and its own rc=0 to the printed log"
+else fail "(l2) expected an immediate detach and a logged dry run, got rc=$rc: $out / log: $(cat "$dlog" 2>/dev/null)"; fi
+
+# The exit line carries the RUN's code, not the launcher's: an unintaken ticket rejects with the
+# same code detached as in the foreground.
+setup_case "" "$V_APPROVE" "" "11"
+run_tool "$CFG" "$ISSUE" --build-model sonnet >/dev/null 2>&1; fg_rc=$?
+setup_case "" "$V_APPROVE" "" "11"
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet --detach)"; rc=$?
+dlog="$(detach_log_of "$out")"
+if [ "$rc" -eq 0 ] && [ "$fg_rc" -ne 0 ] && [ -n "$dlog" ] \
+   && [ "$(detach_wait "$dlog")" = "detached run exited rc=$fg_rc" ]; then
+  pass "(l3) a detached run's exit line carries the run's own non-zero code ($fg_rc), not the launcher's 0"
+else fail "(l3) expected 'detached run exited rc=$fg_rc', got rc=$rc: $out / log: $(cat "$dlog" 2>/dev/null)"; fi
+
+# A usage error never detaches: it is the caller's own command that must fail.
+setup_case "" "$V_APPROVE" "ready-for-dev" "11"
+out="$(run_tool "$CFG" "$ISSUE" --detach 2>&1)"; rc=$?
+if [ "$rc" -eq 2 ] && ! grep -q 'detached:' <<<"$out"; then
+  pass "(l4) --detach with a usage error fails in the foreground with exit 2 and starts nothing"
+else fail "(l4) expected a foreground exit 2, got rc=$rc: $out"; fi
 
 # ---- (m) the tracker adapters -----------------------------------------------------------------------
 # The ticket carries NO label, which is what makes this case non-vacuous: delete the non-github arm

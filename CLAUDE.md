@@ -52,6 +52,14 @@ to *product* repos where AI tooling is incidental. Here the AI tooling IS the pr
 new capability is `feat:` — typing it `chore:` silently downgrades a minor release to a
 patch.
 
+## A bench finding about how sessions are launched is fixed in the scheduler
+
+When the lane bench (`tools/lane-bench*.sh`) finds that a spawned session cannot run as launched
+(a prompt it cannot answer, a missing grant, a wrong flag), the fix lands in
+`plugins/dev-pipeline/skills/run/orchestrate.sh`. A `LANE_ARM_*` knob in the bench wrapper may
+carry it for a cell, but never as the only fix: the bench fixed `EnterWorktree` that way
+in #818, and the scheduler shipped without the fix until real runs stopped as `blocked`.
+
 ## Verification
 
 ```bash
