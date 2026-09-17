@@ -65,7 +65,7 @@ dispatch() { # dispatch <manifest>
   LANE_ARM_MANIFEST="$1" bash "$TOOL" --bg \
     --permission-mode auto --model opus \
     --name lean-42-build-r1 \
-    --disallowedTools AskUserQuestion \
+    --disallowedTools AskUserQuestion EnterWorktree ExitWorktree \
     --settings "$SETTINGS" \
     "$PROMPT" 2>"$WORK/err"
 }
@@ -74,7 +74,7 @@ dispatch() { # dispatch <manifest>
 out="$(dispatch "$M6")"; rc=$?
 EXP="$WORK/expect-6"
 { printf -- '--bg\n--permission-mode\nauto\n--model\nopus\n--name\nlean-42-build-r1\n'
-  printf -- '--disallowedTools\nAskUserQuestion\n--settings\n%s\n%s\n' "$SETTINGS" "$PROMPT"
+  printf -- '--disallowedTools\nAskUserQuestion\nEnterWorktree\nExitWorktree\n--settings\n%s\n%s\n' "$SETTINGS" "$PROMPT"
   printf -- '--setting-sources\n\n'
   for d in $SIX; do printf -- '--plugin-dir\n%s\n' "$d"; done
 } > "$EXP"
@@ -93,7 +93,7 @@ else fail "(a2) --setting-sources at line ${n:-none} is followed by '$(sed -n "$
 out="$(dispatch "$M2")"; rc=$?
 EXP2="$WORK/expect-2"
 { printf -- '--bg\n--permission-mode\nauto\n--model\nopus\n--name\nlean-42-build-r1\n'
-  printf -- '--disallowedTools\nAskUserQuestion\n--settings\n%s\n%s\n' "$SETTINGS" "$PROMPT"
+  printf -- '--disallowedTools\nAskUserQuestion\nEnterWorktree\nExitWorktree\n--settings\n%s\n%s\n' "$SETTINGS" "$PROMPT"
   printf -- '--setting-sources\n\n'
   printf -- '--plugin-dir\n%s\n--plugin-dir\n%s\n' "$WORK/arm/plugins/dev-pipeline" "$WORK/arm/plugins/audit-toolkit"
 } > "$EXP2"

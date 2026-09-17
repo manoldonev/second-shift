@@ -707,13 +707,15 @@ if grep -qE -- '(^| )--bg( |$)' <<<"$(all_argv)" \
   pass "(e1) every spawn is a fresh supervised session: --bg + --model, no -p and no --resume/--continue/-c"
 else fail "(e1) spawn argv carried a resume flag, or lost --bg/--model: $(all_argv)"; fi
 
-# D-6. The one prompt source a real payload reaches is removed at dispatch, which is the parity
-# `-p` had for free by not offering the tool. Without it a payload that asks a question reads
-# `blocked` and ends the run — a stop where print mode simply carried on.
-if ! grep -q 'AskUserQuestion' <<<"$(all_argv | sed 's/--disallowedTools AskUserQuestion//g')" \
-   && [ "$(all_argv | grep -c -- '--disallowedTools AskUserQuestion')" -eq 2 ]; then
-  pass "(e1a) every spawn removes AskUserQuestion, the one prompt source a headless payload can reach"
-else fail "(e1a) a spawn did not disallow AskUserQuestion: $(all_argv)"; fi
+# D-6. The prompt sources a real payload reaches are removed at dispatch, which is the parity
+# `-p` had for free by not offering them. Without them a payload that asks a question, or that
+# enters its lane worktree through the harness tool, reads `blocked` and ends the run — a stop
+# where print mode simply carried on.
+DISALLOW='--disallowedTools AskUserQuestion EnterWorktree ExitWorktree '
+if ! grep -qE 'AskUserQuestion|EnterWorktree|ExitWorktree' <<<"$(all_argv | sed "s/$DISALLOW//g")" \
+   && [ "$(all_argv | grep -c -- "$DISALLOW")" -eq 2 ]; then
+  pass "(e1a) every spawn removes AskUserQuestion, EnterWorktree and ExitWorktree, the prompt sources a headless payload can reach"
+else fail "(e1a) a spawn did not disallow the headless prompt sources: $(all_argv)"; fi
 
 # Driven with CLAUDE_CODE_SESSION_ID UNSET in the parent, so a `yes` here can only have come
 # from the scheduler. Running it with the operator's own session id ambient would make this case

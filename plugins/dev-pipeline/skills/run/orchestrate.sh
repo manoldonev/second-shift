@@ -1225,10 +1225,13 @@ spawn() { # spawn <role> <model> <prompt> — returns 0 on done or stuck, termin
   # would simply be absent on the far side. The harness applies this block itself and carries it
   # across a supervisor restart. What goes in it is spawn_settings' above.
   #
-  # `--disallowedTools AskUserQuestion` (D-6) removes the one prompt source real payloads reach,
-  # restoring the parity `-p` had for free by not offering the tool at all. Permission decisions
-  # need no flag: the auto-mode classifier auto-denies inside a bg session exactly as it did under
-  # print mode, and the model reads the denial and continues.
+  # `--disallowedTools` (D-6) removes the prompt sources a headless payload can reach, restoring
+  # the parity `-p` had for free by not offering them at all. `AskUserQuestion` is the question
+  # one. `EnterWorktree` and `ExitWorktree` are the other kind: they ask for a confirmation that
+  # neither the auto-mode classifier nor `--allowedTools` can answer, so a BUILD that reaches for
+  # one after cutting its lane worktree is listed `blocked` and ends the run. Without them the
+  # payload uses `cd`, as it did under `-p`. Every other permission decision needs no flag: the
+  # classifier auto-denies inside a bg session, and the model reads the denial and continues.
   #
   # `--name` (D-4) is what makes the row recognisable in `claude agents` while the run is live.
   #
@@ -1245,7 +1248,7 @@ spawn() { # spawn <role> <model> <prompt> — returns 0 on done or stuck, termin
   out="$(env -u RUN_ID "$SPAWN_BIN" --bg \
            --permission-mode "$PERM_MODE" --model "$model" \
            --name "lean-$ISSUE-$lower-r${round:-1}" \
-           --disallowedTools AskUserQuestion \
+           --disallowedTools AskUserQuestion EnterWorktree ExitWorktree \
            --settings "$settings" \
            "$prompt" 2>&1)"
   # The id is the whole handle: without it there is no state to poll, no session to stop and
