@@ -596,7 +596,7 @@ pinned; the producer by versioned plugin install into an operator's local cache 
 the same version, so no version-keyed check can observe them skew. An arm added without allowing
 for that is enforced against runs whose build session finished before the contract existed, and
 which had no remedy at all. So an arm ships with: (1) its producer's **capability stamp**,
-declared in the shared `lean-producer-capabilities` block and written onto an artifact that
+declared in the shared `lane-producer-capabilities` block and written onto an artifact that
 *every* producer generation already writes — the claim comment, never the artifact the arm itself
 demands, which would be circular; (2) a **not-applicable path**, one class-(b) `inert` line and
 zero violations, whenever the stamp does not place the run inside the arm's contract; and
@@ -1060,7 +1060,7 @@ coupling rather than mechanizing it into a guard that cannot fail.
   `check-lane-chain-selftest.sh` (P) drive exactly that record. `fidelity:` (#394) is guarded the
   same composed way, and its VALUE is armed-ness-relative, which no literal can pin. Revisit if a
   fourth reader lands, or if any site starts parsing the record as structured data.
-- **The chain-WALK loop** around the `lean-inherited-key` extraction, which each reader also copies.
+- **The chain-WALK loop** around the `lane-inherited-key` extraction, which each reader also copies.
   The three are not one literal and cannot be made into one without harm: each phrases its own
   diagnostic, each uses its host's list idiom, and `check-lane-chain.sh` must additionally scope
   `git log` to `$PR_HEAD_SHA` because CI's checkout carries base-side history the PR never authored.
@@ -1182,7 +1182,7 @@ coupling rather than mechanizing it into a guard that cannot fail.
   fixtures instead: `milestone-gate-selftest.sh` and `reconcile-selftest.sh` each drive the REAL
   hook from a linked worktree and assert their reader finds the result, so a writer-side drift reds
   a reader's suite.
-- **The unbound `lean-producer-capabilities` TAG copies** in `reconcile.sh` and
+- **The unbound `lane-producer-capabilities` TAG copies** in `reconcile.sh` and
   `run/orchestrate.sh`. Neither is a merge-boundary gate, and drift in either fails CLOSED
   and loudly instead of silently weakening a boundary — which is what earns a marker in the first
   place. A drifted tag in the scheduler's #500 re-entry probe stops re-entry being recognized, so
@@ -1207,7 +1207,7 @@ coupling rather than mechanizing it into a guard that cannot fail.
   second prefix, and applicability is the key-matched lane spec in the PR's diff and nothing else.
   Both sides ceased to exist, along with the mutual non-prefix-match property they asserted.
 - **lean branch-prefix DERIVATION (#359)** — deleted with its subject in #413. It pinned
-  `lean_branch_prefix()` across `milestone-gate.sh` and `boundary-evidence.sh`; both copies are gone.
+  `lane_branch_prefix()` across `milestone-gate.sh` and `boundary-evidence.sh`; both copies are gone.
 - **per-ticket corpus dedup (#289).** `retro-corpus.sh` is the sole carrier of the
   basename-equals-ticketKey supersedes rule. Its behavior stays guarded by
   `retro-corpus-selftest.sh` (289 AC-1)/(AC-2)/(AC-3) — live-supersedes-snapshot,

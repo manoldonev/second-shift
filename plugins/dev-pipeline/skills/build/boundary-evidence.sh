@@ -181,9 +181,9 @@ note_violation() { echo "[boundary-evidence]   ✗ $1" >&2; violations=$((violat
 
 # LOCKSTEP: held verbatim to scripts/check-lane-chain.sh, the canonical side, which carries the
 # reasoning. Nothing may sit between the markers — `verbatim` compares the whole block.
-# LOCKSTEP-BEGIN lean-output-dispositions
+# LOCKSTEP-BEGIN lane-output-dispositions
 LANE_OUTPUT_DISPOSITIONS='not-applicable reduced-strength postdated inert'
-# LOCKSTEP-END lean-output-dispositions
+# LOCKSTEP-END lane-output-dispositions
 
 # The class-(b) emitter, and the ONLY way this file writes on a green path. Shape:
 #
@@ -579,9 +579,9 @@ LANE_SPEC_SUFFIX='-lean.md'
 # fetched at the pinned ref. A one-sided rename leaves that guard classifying every verdict
 # commit as an ordinary one — the lane simply runs in full, costing minutes and reporting
 # nothing, so nothing would ever surface it. The other two suffixes have no such holder.
-# LOCKSTEP-BEGIN lean-verdict-suffix
+# LOCKSTEP-BEGIN lane-verdict-suffix
 LANE_VERDICT_SUFFIX='-lean-verdict.md'
-# LOCKSTEP-END lean-verdict-suffix
+# LOCKSTEP-END lane-verdict-suffix
 LANE_INTENT_GAP_SUFFIX='-lean-intent-gap.md'
 # #613. Same suffix operator-override.sh's record_path() builds; the two are held apart only by
 # this literal, exactly as the intent-gap suffix is.
@@ -619,13 +619,13 @@ LANE_PR_MARKER_TAG='lean-pr-marker'
 #
 # The block below is shared with milestone-gate.sh (the writer) and scripts/check-lane-chain.sh (which
 # reads the claim tag for its own claim arm); see the writer for what each literal is for.
-# LOCKSTEP-BEGIN lean-producer-capabilities
+# LOCKSTEP-BEGIN lane-producer-capabilities
 LANE_CLAIM_MARKER_TAG='lean-claimed'
 # shellcheck disable=SC2034  # each reader binds a SUBSET of these; the block is one contract.
 LANE_CAPABILITY_KEY='capabilities'
 # shellcheck disable=SC2034  # ditto — unused here is the point, not an oversight.
 LANE_CAPABILITIES='pr-marker'
-# LOCKSTEP-END lean-producer-capabilities
+# LOCKSTEP-END lane-producer-capabilities
 
 # Resolved ONCE per run, from the claim trail. Three outcomes the caller must keep apart:
 #   declared-set  a bot-authored claim comment carries a stamp — CAPABILITY_STAMP is the UNION

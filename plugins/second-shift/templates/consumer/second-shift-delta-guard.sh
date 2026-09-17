@@ -83,9 +83,9 @@ set -uo pipefail
 # ref. A one-sided rename would leave this guard classifying every verdict commit as an ordinary
 # one — which costs only runner minutes and reports nothing, so nothing would ever notice.
 # Hence the marker: the comment must stay OUTSIDE it, since `verbatim` compares the whole block.
-# LOCKSTEP-BEGIN lean-verdict-suffix
+# LOCKSTEP-BEGIN lane-verdict-suffix
 LANE_VERDICT_SUFFIX='-lean-verdict.md'
-# LOCKSTEP-END lean-verdict-suffix
+# LOCKSTEP-END lane-verdict-suffix
 
 SKIP=false
 REASON=""

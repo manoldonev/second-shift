@@ -7083,7 +7083,7 @@ else fail "(fp7) the reader disagrees between the two forms: padded=[$(mdrows "$
 dcommit "the padded render receipt"
 
 # ---- the verdict record's format step -------------------------------------------------------
-# A fake prettier at the rung lean_resolve_prettier actually probes, so these cases exercise the
+# A fake prettier at the rung lane_resolve_prettier actually probes, so these cases exercise the
 # resolver too. `mode` decides what it does to the file, which is how one fixture covers both
 # the benign path and the header-destroying one without needing prettier installed.
 FP_NM="$DTREE/node_modules/.bin"
@@ -7335,7 +7335,7 @@ else fail "(wt8) 'all' destroyed a worktree, rc=$rc: $out"; fi
 
 # --- (wt20)-(wt22) #530: a SECOND worktree on the same branch is a SANCTIONED state, not a -------
 # violated expectation — /dev-pipeline:review cuts its own checkout of the PR head, and the build worktree
-# is not guaranteed to still be there. `lean_worktree_for_branch`'s first-match return orphaned
+# is not guaranteed to still be there. `lane_worktree_for_branch`'s first-match return orphaned
 # whichever one it did not see; these pin that both are now accounted for.
 # Issue numbers 120-122, not 26-28: the entry-sweep qualification block below already owns
 # 26-29 for its own fixtures, and `wt_make`'s `-b` add fails silently (2>/dev/null) on a branch

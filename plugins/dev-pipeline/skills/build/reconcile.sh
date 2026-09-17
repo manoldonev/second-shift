@@ -185,7 +185,7 @@ extract_key_at() { # extract_key_at <key> <commit>
 }
 
 # LOCKSTEP: held byte-identical to milestone-gate.sh, the canonical side, which carries the reasoning.
-# LOCKSTEP-BEGIN lean-inherited-key
+# LOCKSTEP-BEGIN lane-inherited-key
 # Any key of the verdict record, read from its HEADER BLOCK only. Record on stdin; prints
 # nothing when the key is absent from that block.
 #
@@ -236,7 +236,7 @@ inherited_key() { # inherited_key   (record on stdin)
   v="$(header_key inherited_patch_id)"
   [ "$v" = "none" ] || printf '%s' "$v"
 }
-# LOCKSTEP-END lean-inherited-key
+# LOCKSTEP-END lane-inherited-key
 
 # The header-anchored read against a COMMITTED version of the record — what a chain walk needs,
 # since every round but the newest exists solely in that path's git history.

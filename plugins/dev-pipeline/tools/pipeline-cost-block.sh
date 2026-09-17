@@ -123,10 +123,10 @@ TIER_ORDER='{"reasoning":1,"code":2,"emit":3,"unknown":4}'
 # through the first following line carrying the terminator prefix, and leaves everything after it
 # untouched. If the renderer's last line moved and the stripper's did not, that strip would run to
 # end-of-file and silently delete whatever a human had appended below the block.
-# LOCKSTEP-BEGIN lean-cost-block-bounds
+# LOCKSTEP-BEGIN lane-cost-block-bounds
 COST_BLOCK_MARKER='<!-- pipeline-cost-block -->'
 COST_BLOCK_TERMINATOR='Cache-hit rate: '
-# LOCKSTEP-END lean-cost-block-bounds
+# LOCKSTEP-END lane-cost-block-bounds
 
 STATELESS=0
 ARG_SESSIONS=""
@@ -192,27 +192,27 @@ state_dir() {
 # milestone-gate.sh's narrower class truncates one at the first slash (never triggered there, since
 # it re-derives that path from config instead of reading it back — both readers here do read
 # it back). Held to that copy by the markers, so the two path-reading readers cannot drift.
-# LOCKSTEP-BEGIN lean-record-key
+# LOCKSTEP-BEGIN lane-record-key
 record_key() { # record_key <key> <file>
   [ -f "$2" ] || return 0
   grep -oE "$1:[[:space:]]*[A-Za-z0-9._/-]+" "$2" 2>/dev/null | head -n1 | sed -E "s/^$1:[[:space:]]*//"
 }
-# LOCKSTEP-END lean-record-key
+# LOCKSTEP-END lane-record-key
 
 # What counts as a timestamped row, and therefore what the fence is measured between. Held
 # byte-identical to retro-corpus.sh, which derives the pipeline TIMING profile from the same rows
 # (#565): a record whose stamp shape moved would silently give one reader a fence and the other
 # a span, and both would keep reporting confident numbers about different windows.
-# LOCKSTEP-BEGIN lean-progress-ts-re
+# LOCKSTEP-BEGIN lane-progress-ts-re
 TS_RE='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z'
-# LOCKSTEP-END lean-progress-ts-re
+# LOCKSTEP-END lane-progress-ts-re
 
 # ---------------------------------------------------------------- the build-session SET (#446)
 # A verbatim copy of milestone-gate.sh's, held by the markers rather than extracted — it is the
 # definition the `mark` refusal already uses, and #546's whole point is that this reader must
 # not invent a second one. `record_key` above is the wider variant; for `session_id`, whose
 # values are UUIDs, the two classes cannot disagree.
-# LOCKSTEP-BEGIN lean-session-set
+# LOCKSTEP-BEGIN lane-session-set
 build_session_set() { # one build session id per line, deduped; never empty, never 'unset'
   local hdr
   [ -f "$PROGRESS_FILE" ] || return 0
@@ -225,7 +225,7 @@ build_session_set() { # one build session id per line, deduped; never empty, nev
   } | awk '$0 != "" && $0 != "unset" && !seen[$0]++'
   return 0
 }
-# LOCKSTEP-END lean-session-set
+# LOCKSTEP-END lane-session-set
 
 PROGRESS_FILE=""
 RUN_ID_VALUE=""
