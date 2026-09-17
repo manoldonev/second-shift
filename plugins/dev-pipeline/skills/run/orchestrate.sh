@@ -231,7 +231,7 @@ set -uo pipefail
 # `${LANE_*:-<default>}` site below keeps its own default unchanged.
 # shellcheck source=../build/lane-env.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../build" && pwd)/lane-env.sh" \
-  || { echo "FATAL: cannot load lane-env.sh — the LANE_/LEAN_ compatibility reader" >&2; exit 1; }
+  || { echo "FATAL: cannot load lane-env.sh — the LANE_/LEAN_ compatibility reader" >&2; exit 2; }
 lane_env_promote LANE_SPAWN_BIN LANE_SPAWN_PERMISSION_MODE LANE_SPAWN_POLL_SECS \
   LANE_SPAWN_STALENESS_SECS LANE_SPAWN_SESSION_CEILING_MS LANE_SPAWN_CLOCK LANE_GATE \
   LANE_OVERRIDE_TOOL LANE_LAUNCH_ID

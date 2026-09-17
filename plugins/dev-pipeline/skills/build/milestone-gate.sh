@@ -302,7 +302,7 @@ set -uo pipefail
 # `${LANE_*:-<default>}` site below keeps its own default unchanged.
 # shellcheck source=lane-env.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lane-env.sh" \
-  || { echo "FATAL: cannot load lane-env.sh — the LANE_/LEAN_ compatibility reader" >&2; exit 1; }
+  || { echo "FATAL: cannot load lane-env.sh — the LANE_/LEAN_ compatibility reader" >&2; exit 2; }
 lane_env_promote LANE_OVERRIDE_TOOL LANE_EVIDENCE_TOOL LANE_GATE_LIB LANE_PROGRESS_FILE \
   LANE_GATE_TEST_STALL_DIR LANE_RUN_MODEL LANE_GATE_OBSERVE LANE_GATE_ANY_TREE \
   LANE_SELFTEST_CACHE LANE_SELFTEST_CACHE_DIR LANE_COST_BLOCK_TOOL
@@ -5476,7 +5476,7 @@ cmd_verdict() {
       echo "comment's URL in \`ratified_by:\` above, commit, and re-run \`/dev-pipeline:review $VERDICT_PR\`."
     } > "$gap"
     say "✓ verdict: HANDED BACK — $INTENT_GAP_REL written (region undeclared, disposition pause-and-ask, ratified no) and NO verdict record."
-    say "  Commit and push it to the PR's head branch, post the gap as the PR comment, and stop. Milestone 4 reads it as exit 11 and the scheduler stops the lane 'review-paused' until an operator ratifies it."
+    say "  Commit and push it to the PR's head branch, post the gap as the PR comment, and stop. Milestone 4 reads it as rc 11 and the scheduler stops the lane 'review-paused' until an operator ratifies it."
     return 0
   fi
   case "$VERDICT_VALUE" in
