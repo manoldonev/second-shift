@@ -111,6 +111,14 @@ assigned in place. The load-failure branches go with the `source` lines that nee
 - **AC-13** — The 10 LOCKSTEP block ids spelled `lean-*` are renamed to `lane-*`. `lean-pr-marker`
   is **not** — its id equals `LANE_PR_MARKER_TAG`'s on-the-wire value, which AC-8 freezes.
   `check-lockstep-pairs.sh` stays green, which is what proves each pair's two sites moved together.
+- **AC-14** — `operator-override-selftest.sh` scrubs `LANE_ATTEND_MODE` suite-wide. Its `(s)` cases
+  invoke the tool DIRECTLY rather than through `ov()`, so an ambient `headless` — which the
+  scheduler exports onto every payload it spawns — reaches `attend` and `state` and turns both into
+  the refusal path. The hole predates this PR: the suite's only suite-wide attendance scrub named
+  the RETIRED half, which never covered the current spelling, so `(s1)`/`(s2)` red on a lane
+  machine at `origin/main` too. Deleting that scrub under AC-5 is what made it reproducible rather
+  than what caused it, and the other five suites this PR touches already scrub the current name
+  suite-wide. Measured: 43/43 green with `LANE_ATTEND_MODE=headless` exported.
 
 ## Open Regions
 

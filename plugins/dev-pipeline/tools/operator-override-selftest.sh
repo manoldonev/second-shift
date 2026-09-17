@@ -64,6 +64,13 @@ chmod +x "$GHFAKE"
 export GH_STATE_FILE="$WORK/gh-state"
 echo OPEN > "$GH_STATE_FILE"
 
+# ATTENDANCE. `ov()` clears `LANE_ATTEND_MODE` per call, but the (s) cases invoke the tool
+# DIRECTLY to exercise the git-common-dir resolution, so the scheduler's ambient `headless` — it
+# exports the knob onto every payload it spawns — reaches `attend` and `state` and turns both into
+# the refusal path. Cleared suite-wide here, which is what the other suites that shell out to this
+# tool already do.
+unset LANE_ATTEND_MODE
+
 # One invocation shape. Identity is passed per call rather than exported, because half the cases
 # are ABOUT an identity being absent and an exported one would leak into them.
 ov() { # ov <run-id-or-empty> <session-id-or-empty> <mode-or-empty> <args...>
