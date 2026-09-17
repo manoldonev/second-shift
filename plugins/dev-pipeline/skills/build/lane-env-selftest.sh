@@ -305,5 +305,55 @@ else
   pass "(n) all $defenses (file, knob) scrub pair(s) clear the retired spelling too"
 fi
 
+# ---- (o) a guard that cannot LOAD the lib REFUSES, and refuses as an ENVIRONMENT error --------
+# `. lib || { echo FATAL; exit 2; }` is dead text in every other suite in this tree, because every
+# other suite runs from a checkout that HAS the lib. So the branch shipped into eight guards
+# unexercised, and the merge-time mutation sweep scored its `exit 1` as an unkilled fail-open site
+# twice before this case existed. What would break silently is the operator's answer: a lib that
+# went missing under a partial install is an ENVIRONMENT fault, and a guard that answers it with
+# the same rc it uses for "your evidence is bad" sends the reader looking at their branch.
+#
+# WHY HERE and not a scenario: the refusal fires before arg parsing, before the config resolves
+# and before any tracker read, so no composed verdict path in scenario-liveness-selftest.sh can
+# reach it — a scenario necessarily runs these guards from a tree that has the lib. This is the
+# LIB's own contract, seen from the consumer side, which is what this suite is.
+#
+# THE CENSUS IS DERIVED, like (l) and (n): every non-selftest `*.sh` whose CODE sources lane-env.sh.
+# A ninth guard wired to the lib is covered the day it lands, and a guard that quietly stops
+# sourcing it leaves the census — which is why the floor below fails CLOSED.
+#
+# BOTH halves are asserted, and the FATAL line is the load-bearing one. Run with no arguments from
+# an empty tree, most of these guards refuse with rc 2 anyway (usage), so rc alone would score a
+# guard whose branch was DELETED as passing. The stderr line can only be there if the branch fired.
+NOENV="$WORK/noenv"
+case "$LIB" in
+  "$SCAN_ROOT"/*) mkdir -p "$NOENV/$(dirname "${LIB#"$SCAN_ROOT"/}")" ;;
+esac
+sourcers=0
+unrefused=""
+while IFS= read -r gf; do
+  case "$gf" in *-selftest.sh) continue ;; esac
+  [ -f "$SCAN_ROOT/$gf" ] || continue
+  gf_code="$(sed 's/^[[:space:]]*#.*$//' "$SCAN_ROOT/$gf" 2>/dev/null)"
+  grep -qE '^[[:space:]]*\.[[:space:]].*/lane-env\.sh"' <<<"$gf_code" || continue
+  sourcers=$((sourcers + 1))
+  # The lib's DIRECTORY exists in the mirror and only the file is missing, so the guard's own
+  # `cd .../lane-env.sh` resolution is what fails — not the `cd` above it, which is a different
+  # fault with the same rc and would let this case pass without ever reaching the branch.
+  mkdir -p "$NOENV/$(dirname "$gf")"
+  cp "$SCAN_ROOT/$gf" "$NOENV/$gf"
+  gerr="$(bash "$NOENV/$gf" 2>&1 >/dev/null)"
+  grc=$?
+  [ "$grc" -eq 2 ] || unrefused="$unrefused$(basename "$gf"):rc=$grc "
+  grep -qF 'cannot load lane-env.sh' <<<"$gerr" || unrefused="$unrefused$(basename "$gf"):no-FATAL-line "
+done < <(scan_list)
+if [ "$sourcers" -eq 0 ]; then
+  fail "(o) nothing under $SCAN_ROOT sources lane-env.sh — the census is measuring nothing"
+elif [ -n "$unrefused" ]; then
+  fail "(o) $sourcers sourcing guard(s) found, and these do not refuse with rc 2 and the FATAL line when the lib is absent: $unrefused"
+else
+  pass "(o) all $sourcers sourcing guard(s) refuse with rc 2 and the FATAL line when lane-env.sh cannot be loaded"
+fi
+
 echo "[lane-env-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS FAILURE(S)")"
 exit "$FAILS"

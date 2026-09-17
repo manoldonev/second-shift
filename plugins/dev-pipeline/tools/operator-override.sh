@@ -67,7 +67,7 @@ set -uo pipefail
 # `${LANE_*:-<default>}` site below keeps its own default unchanged.
 # shellcheck source=../skills/build/lane-env.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../skills/build" && pwd)/lane-env.sh" \
-  || { echo "FATAL: cannot load lane-env.sh — the LANE_/LEAN_ compatibility reader" >&2; exit 1; }
+  || { echo "FATAL: cannot load lane-env.sh — the LANE_/LEAN_ compatibility reader" >&2; exit 2; }
 lane_env_promote LANE_ATTEND_MODE
 
 GH_CLI="${GH:-gh}"

@@ -83,7 +83,7 @@ set -uo pipefail
 # `${LANE_*:-<default>}` site below keeps its own default unchanged.
 # shellcheck source=../plugins/dev-pipeline/skills/build/lane-env.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../plugins/dev-pipeline/skills/build" && pwd)/lane-env.sh" \
-  || { echo "FATAL: cannot load lane-env.sh — the LANE_/LEAN_ compatibility reader" >&2; exit 1; }
+  || { echo "FATAL: cannot load lane-env.sh — the LANE_/LEAN_ compatibility reader" >&2; exit 2; }
 lane_env_promote LANE_BENCH_POLL_SECS LANE_BENCH_CELL_CEILING_SECS
 # Two tokens whose retired spelling is NOT `LEAN_` + the current suffix: the bench family already
 # says "lane" for its own concept, so the mechanical `LANE_BENCH_LANE_BIN` / `LANE_BENCH_SS_ROOT`
