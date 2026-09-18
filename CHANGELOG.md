@@ -4,6 +4,33 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v14.0.0
+
+### `dev-pipeline` 13.1.0 → 14.0.0
+
+- **The lane-env load failure is executed, and refuses as an environment error (#852)** (#852)
+  the eight pipeline guards that load lane-env.sh now exit 2, not 1, when the
+  library cannot be loaded — the same code each already uses for a usage or environment
+  error. A caller keying on rc 1 for that case sees 2.
+  Migration: none.
+- **The retired LEAN_ spellings and the lean-overrides path are removed at the next major (#854)** (#854)
+  the LANE_/LEAN_ compatibility layer is removed. Migration: export LANE_* instead
+  of any LEAN_* knob; rename .claude/lean-overrides.tsv to .claude/lane-overrides.tsv if you
+  carry one; export SECOND_SHIFT_BOUNDARY_EVIDENCE instead of SECOND_SHIFT_LEAN_EVIDENCE;
+  and re-copy second-shift-ci-check.sh into your repo. A retired spelling left in place is
+  now inert rather than an error.
+  **BREAKING:** the retired LEAN_* environment spellings, the .claude/lean-overrides.tsv register path, and the SECOND_SHIFT_LEAN_EVIDENCE seam no longer resolve. They are ignored silently, so a stale export produces an unoverridden run rather than an error.
+
+### `second-shift` 9.0.0 → 10.0.0
+
+- **The retired LEAN_ spellings and the lean-overrides path are removed at the next major (#854)** (#854)
+  the LANE_/LEAN_ compatibility layer is removed. Migration: export LANE_* instead
+  of any LEAN_* knob; rename .claude/lean-overrides.tsv to .claude/lane-overrides.tsv if you
+  carry one; export SECOND_SHIFT_BOUNDARY_EVIDENCE instead of SECOND_SHIFT_LEAN_EVIDENCE;
+  and re-copy second-shift-ci-check.sh into your repo. A retired spelling left in place is
+  now inert rather than an error.
+  **BREAKING:** the retired LEAN_* environment spellings, the .claude/lean-overrides.tsv register path, and the SECOND_SHIFT_LEAN_EVIDENCE seam no longer resolve. They are ignored silently, so a stale export produces an unoverridden run rather than an error.
+
 ## v13.1.0
 
 ### `dev-pipeline` 13.0.1 → 13.1.0
