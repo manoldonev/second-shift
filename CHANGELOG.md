@@ -4,6 +4,35 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v14.0.1
+
+### `design-toolkit` 5.0.0 → 5.0.1
+
+- **fix(review-toolkit,design-toolkit,dev-pipeline): escalate the retry, and hold figma-faithful-reviewer to an emit deadline (#856)** (#856)
+  The review fan-out no longer retries a dead reviewer bit-identically
+  — an attempt that returns empty text is retried with an escalating "stop
+  exploring and emit now" mandate, which is what a turn-cap death needs and a
+  verbatim repeat cannot give it. figma-faithful-reviewer gains a turn-numbered
+  emit deadline and is enrolled in the emit-deadline lint.
+
+### `dev-pipeline` 14.0.0 → 14.0.1
+
+- **fix(review-toolkit,design-toolkit,dev-pipeline): escalate the retry, and hold figma-faithful-reviewer to an emit deadline (#856)** (#856)
+  The review fan-out no longer retries a dead reviewer bit-identically
+  — an attempt that returns empty text is retried with an escalating "stop
+  exploring and emit now" mandate, which is what a turn-cap death needs and a
+  verbatim repeat cannot give it. figma-faithful-reviewer gains a turn-numbered
+  emit deadline and is enrolled in the emit-deadline lint.
+
+### `review-toolkit` 8.0.1 → 8.0.2
+
+- **fix(review-toolkit,design-toolkit,dev-pipeline): escalate the retry, and hold figma-faithful-reviewer to an emit deadline (#856)** (#856)
+  The review fan-out no longer retries a dead reviewer bit-identically
+  — an attempt that returns empty text is retried with an escalating "stop
+  exploring and emit now" mandate, which is what a turn-cap death needs and a
+  verbatim repeat cannot give it. figma-faithful-reviewer gains a turn-numbered
+  emit deadline and is enrolled in the emit-deadline lint.
+
 ## v14.0.0
 
 ### `dev-pipeline` 13.1.0 → 14.0.0
