@@ -226,16 +226,6 @@
 #       re-launch the same command.
 set -uo pipefail
 
-# #833: the pipeline's environment knobs are spelled `LANE_*`; the retired `LEAN_*` spellings still
-# resolve, once, with a stderr notice. Promoted IN PLACE here, before the first read, so every
-# `${LANE_*:-<default>}` site below keeps its own default unchanged.
-# shellcheck source=../build/lane-env.sh
-. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../build" && pwd)/lane-env.sh" \
-  || { echo "FATAL: cannot load lane-env.sh — the LANE_/LEAN_ compatibility reader" >&2; exit 2; }
-lane_env_promote LANE_SPAWN_BIN LANE_SPAWN_PERMISSION_MODE LANE_SPAWN_POLL_SECS \
-  LANE_SPAWN_STALENESS_SECS LANE_SPAWN_SESSION_CEILING_MS LANE_SPAWN_CLOCK LANE_GATE \
-  LANE_OVERRIDE_TOOL LANE_LAUNCH_ID
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GH_CLI="${GH:-gh}"
 SPAWN_BIN="${LANE_SPAWN_BIN:-claude}"

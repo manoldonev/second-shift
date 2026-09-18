@@ -297,16 +297,6 @@
 # bash 3.2 compatible (macOS ships it, and CI has a bash-3.2 lane).
 set -uo pipefail
 
-# #833: the pipeline's environment knobs are spelled `LANE_*`; the retired `LEAN_*` spellings still
-# resolve, once, with a stderr notice. Promoted IN PLACE here, before the first read, so every
-# `${LANE_*:-<default>}` site below keeps its own default unchanged.
-# shellcheck source=lane-env.sh
-. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lane-env.sh" \
-  || { echo "FATAL: cannot load lane-env.sh — the LANE_/LEAN_ compatibility reader" >&2; exit 2; }
-lane_env_promote LANE_OVERRIDE_TOOL LANE_EVIDENCE_TOOL LANE_GATE_LIB LANE_PROGRESS_FILE \
-  LANE_GATE_TEST_STALL_DIR LANE_RUN_MODEL LANE_GATE_OBSERVE LANE_GATE_ANY_TREE \
-  LANE_SELFTEST_CACHE LANE_SELFTEST_CACHE_DIR LANE_COST_BLOCK_TOOL
-
 GH_CLI="${GH:-gh}"
 CURL_CLI="${CURL:-curl}"
 # #613. The attendance/override mechanism, a same-plugin sibling two hops up — a plain relative
@@ -1106,7 +1096,7 @@ record_key_at() { # record_key_at <key> <commit>
 # Behavioral guards sit under it at each reader and compose writer-to-reader: milestone-gate-selftest.sh
 # (z1)/(z2)/(z3), check-lane-chain-selftest.sh (V6)/(V6b), reconcile-selftest.sh (N7)/(N7b).
 # The markers catch what those cannot — a fourth reader added later with a hand-copied extraction.
-# LOCKSTEP-BEGIN lean-inherited-key
+# LOCKSTEP-BEGIN lane-inherited-key
 # Any key of the verdict record, read from its HEADER BLOCK only. Record on stdin; prints
 # nothing when the key is absent from that block.
 #
@@ -1157,7 +1147,7 @@ inherited_key() { # inherited_key   (record on stdin)
   v="$(header_key inherited_patch_id)"
   [ "$v" = "none" ] || printf '%s' "$v"
 }
-# LOCKSTEP-END lean-inherited-key
+# LOCKSTEP-END lane-inherited-key
 
 # The header-anchored read against a COMMITTED version of the record — what a chain walk needs,
 # since every round but the newest exists solely in that path's git history.
@@ -1300,7 +1290,7 @@ now_iso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 # between its absence check and its write so a selftest can force two same-issue writers to both
 # observe "absent", the one shape a real race cannot be driven through deterministically. Bounded
 # (10s) so a broken harness cannot hang a real run.
-_lean_gate_test_stall() { # _lean_gate_test_stall <label>
+_lane_gate_test_stall() { # _lane_gate_test_stall <label>
   [ -n "${LANE_GATE_TEST_STALL_DIR:-}" ] || return 0
   : > "$LANE_GATE_TEST_STALL_DIR/ready.$1.$$"
   local waited=0
@@ -1314,7 +1304,7 @@ heal_progress_run_id() {
   [ "$RESOLVED_RUN_ID" != "unset" ] || return 0
   [ "$(cat "$RUN_ID_CACHE" 2>/dev/null)" = "$RESOLVED_RUN_ID" ] || return 0
   [ "$(count_matches '^run_id: unset$' "$PROGRESS_FILE")" -gt 0 ] || return 0
-  _lean_gate_test_stall heal
+  _lane_gate_test_stall heal
   # #528: a UNIQUE temp, not the fixed "$PROGRESS_FILE.heal" sibling this used to write — two
   # concurrent heals (same-issue re-entry, never a cross-lane race: STATE_DIR is issue-keyed)
   # no longer stomp each other's in-flight write. `mktemp` creates it atomically; same
@@ -1413,7 +1403,7 @@ append_absent() { append_line "$(now_iso) | milestone-$1 | absent | $2"; }
 append_satisfied() {
   ensure_progress_file
   [ "$(count_matches "| milestone-$1 | satisfied" "$PROGRESS_FILE" -F)" -eq 0 ] || return 0
-  _lean_gate_test_stall "satisfied-$1"
+  _lane_gate_test_stall "satisfied-$1"
   local claim="$PROGRESS_FILE.satisfied-$1.claim"
   mkdir "$claim" 2>/dev/null || return 0
   if [ "$(count_matches "| milestone-$1 | satisfied" "$PROGRESS_FILE" -F)" -eq 0 ]; then
@@ -1536,7 +1526,7 @@ unclosed_count() { # unclosed_count <milestone>
 # a cost block counting a wider or narrower set than `mark` refuses on is a figure that reads
 # correct while attributing a run's money to the wrong number of sessions — the exact defect that
 # mode exists to close, and one no green run can surface.
-# LOCKSTEP-BEGIN lean-session-set
+# LOCKSTEP-BEGIN lane-session-set
 build_session_set() { # one build session id per line, deduped; never empty, never 'unset'
   local hdr
   [ -f "$PROGRESS_FILE" ] || return 0
@@ -1549,7 +1539,7 @@ build_session_set() { # one build session id per line, deduped; never empty, nev
   } | awk '$0 != "" && $0 != "unset" && !seen[$0]++'
   return 0
 }
-# LOCKSTEP-END lean-session-set
+# LOCKSTEP-END lane-session-set
 
 session_in_build_set() { # session_in_build_set <session-id>
   local want="$1" have
@@ -1795,7 +1785,7 @@ telemetry_state() {
 # the only parseable form — the human listing pads columns with spaces and brackets the branch,
 # so it breaks on any path containing one. Detached and bare entries emit no `branch` line and
 # are therefore skipped, which is right: neither is a lane worktree.
-lean_worktrees() {
+lane_worktrees() {
   git -C "$MAIN_ROOT" worktree list --porcelain 2>/dev/null | awk '
     /^worktree / { p = substr($0, 10); next }
     /^branch /   { b = substr($0, 8); sub(/^refs\/heads\//, "", b);
@@ -1805,11 +1795,11 @@ lean_worktrees() {
 
 # #530: PLURAL by construction. A second worktree on the same branch is a SANCTIONED state, not
 # a violated expectation — /dev-pipeline:review cuts its own checkout of the PR head, and the build
-# worktree is not guaranteed to still be there when it does. A singular `lean_worktree_for_branch`
+# worktree is not guaranteed to still be there when it does. A singular `lane_worktree_for_branch`
 # that returned on the first match left every caller blind to the second tree, which is what
 # accumulated the stray worktrees this fixes. One path per line; both current callers iterate, so
 # there is no remaining consumer of a first-match form.
-lean_worktrees_for_branch() { # lean_worktrees_for_branch <branch> -> one path per line, or nothing
+lane_worktrees_for_branch() { # lane_worktrees_for_branch <branch> -> one path per line, or nothing
   local p b found=1
   while IFS="$(printf '\t')" read -r p b; do
     [ -n "$b" ] || continue
@@ -1817,7 +1807,7 @@ lean_worktrees_for_branch() { # lean_worktrees_for_branch <branch> -> one path p
     printf '%s\n' "$p"
     found=0
   done <<EOF
-$(lean_worktrees)
+$(lane_worktrees)
 EOF
   return "$found"
 }
@@ -1858,7 +1848,7 @@ EOF
 # land a file the harness ignores, which reads exactly as green as a working remedy.
 seed_lane_worktree_settings() {
   local paths wt rel src dst
-  paths="$(lean_worktrees_for_branch "$LANE_BRANCH")" || return 0
+  paths="$(lane_worktrees_for_branch "$LANE_BRANCH")" || return 0
   [ -n "$paths" ] || return 0
   while IFS= read -r wt; do
     [ -n "$wt" ] || continue
@@ -2064,7 +2054,7 @@ append_teardown() { # append_teardown <outcome> <detail>
 
 cmd_teardown() {
   local wt paths rest="" own="" order removed_paths="" removed=0 kept_lines=""
-  paths="$(lean_worktrees_for_branch "$LANE_BRANCH")" || paths=""
+  paths="$(lane_worktrees_for_branch "$LANE_BRANCH")" || paths=""
   if [ -z "$paths" ]; then
     say "teardown: no registered worktree is on $LANE_BRANCH — nothing to remove."
     append_teardown absent "no registered worktree on $LANE_BRANCH"
@@ -2121,7 +2111,7 @@ EOF
 # leaves no PR either, which is the scheduler's `build-no-pr` stop.
 cmd_inflight() {
   local wt rc paths win_rc=0 win_wt="" win_reason="" win_detail=""
-  paths="$(lean_worktrees_for_branch "$LANE_BRANCH")" || paths=""
+  paths="$(lane_worktrees_for_branch "$LANE_BRANCH")" || paths=""
   if [ -z "$paths" ]; then
     say "inflight: no registered worktree is on $LANE_BRANCH — there is no tree that could be holding work."
     return 0
@@ -2452,7 +2442,7 @@ cmd_entry_sweep() {
     say "  sweep: $br has no open PR ($n_all closed or merged) — removing its worktree"
     if worktree_destroy "$wt" "$br"; then removed=$((removed + 1)); else kept=$((kept + 1)); fi
   done <<EOF
-$(lean_worktrees)
+$(lane_worktrees)
 EOF
   [ "$considered" -gt 0 ] || return 0
   say "  sweep: $considered lane worktree(s) considered, $removed removed, $kept kept."
@@ -2642,13 +2632,13 @@ cmd_claim() {
 #                          the reader the token its arm requires — so a one-sided rename reds
 #                          loudly on the side that renamed, instead of silently producing a stamp
 #                          no reader can ever match. Same posture as LANE_OUTPUT_DISPOSITIONS.
-# LOCKSTEP-BEGIN lean-producer-capabilities
+# LOCKSTEP-BEGIN lane-producer-capabilities
 LANE_CLAIM_MARKER_TAG='lean-claimed'
 # shellcheck disable=SC2034  # each reader binds a SUBSET of these; the block is one contract.
 LANE_CAPABILITY_KEY='capabilities'
 # shellcheck disable=SC2034  # ditto — unused here is the point, not an oversight.
 LANE_CAPABILITIES='pr-marker'
-# LOCKSTEP-END lean-producer-capabilities
+# LOCKSTEP-END lane-producer-capabilities
 
 # WHAT THIS GENERATION SHIPS — deliberately OUTSIDE the shared block, because it is the one thing
 # here that is not a shared contract: it is this build of this file's own answer, and a later
@@ -3166,7 +3156,7 @@ EOF
 # shared: the richer form validation below (handoff link, the neither-armed-nor-disarmed refusal,
 # the reason required on a disarm) is authoring feedback given at milestone 1, so a spec failing
 # it never reaches a merge and the boundary needs no opinion about it.
-# LOCKSTEP-BEGIN lean-design-armed
+# LOCKSTEP-BEGIN lane-design-armed
 # Armed-ness exactly as the COMMITTED SPEC declares it. Spec on stdin; prints `armed`, or
 # nothing at all.
 #
@@ -3196,9 +3186,9 @@ design_armed() { # design_armed   (spec on stdin)
     END { if (rows && !disarmed) print "armed" }
   '
 }
-# LOCKSTEP-END lean-design-armed
+# LOCKSTEP-END lane-design-armed
 
-# LOCKSTEP-BEGIN lean-design-provider-family
+# LOCKSTEP-BEGIN lane-design-provider-family
 # The provider FAMILY an armed spec hands off to, the fidelity reviewer that family makes
 # mandatory, and the token test that reads a `panel:` header (#708, D-12/D-13).
 #
@@ -3291,7 +3281,7 @@ panel_has() { # panel_has <panel-value> <reviewer>
   esac
   return 1
 }
-# LOCKSTEP-END lean-design-provider-family
+# LOCKSTEP-END lane-design-provider-family
 
 # The reviewer names a `--panel` value actually declares (#825). OUTSIDE the lockstep block above
 # on purpose: the merge boundary re-derives the design family from the committed spec, but this
@@ -3382,7 +3372,7 @@ design_rs_rows() { # design_rs_rows   (spec on stdin)
 # references, paired numbers, and a citation that resolves in a patch-bound spec.
 #
 # A TABLE and not prose, because the record body is handed to prettier
-# (`lean_format_verdict_record`) and `proseWrap: "always"` reflows sentences — a predicate over
+# (`lane_format_verdict_record`) and `proseWrap: "always"` reflows sentences — a predicate over
 # reflowed prose is fragile, and every other artifact this gate parses is already a table.
 FIDELITY_EVIDENCE_HEADING="Design fidelity evidence"
 FIDELITY_EVIDENCE_COLUMNS="RS-n|frame node|property|design|rendered|verdict"
@@ -3826,7 +3816,7 @@ cmd_2() {
 # what it defers. An ambient knob would silently re-answer those cases out of an operator's
 # shell. The list is "what must not reach a lane child", not "what second-shift owns".
 # LOCKSTEP-BEGIN seam-scrub subset
-SEAM_SCRUB='SECOND_SHIFT_CONFIG|SECOND_SHIFT_REPO_ROOT|SECOND_SHIFT_EXTENSION_MANIFEST|SECOND_SHIFT_PLUGIN_ROOT|SECOND_SHIFT_REVIEW_TOOLKIT_ROOT|SECOND_SHIFT_DEV_PIPELINE_ROOT|SECOND_SHIFT_DESIGN_TOOLKIT_ROOT|SECOND_SHIFT_SECTION_CATALOG|STATECTL_STATE_DIR|STATECTL_WRITER|DEV_PIPELINE_MODE|BRANCH_PREFIX|KEY_PATTERN|LANE_ATTEND_MODE|LEAN_ATTEND_MODE|MUTATION_SWEEP_NO_DEFER'
+SEAM_SCRUB='SECOND_SHIFT_CONFIG|SECOND_SHIFT_REPO_ROOT|SECOND_SHIFT_EXTENSION_MANIFEST|SECOND_SHIFT_PLUGIN_ROOT|SECOND_SHIFT_REVIEW_TOOLKIT_ROOT|SECOND_SHIFT_DEV_PIPELINE_ROOT|SECOND_SHIFT_DESIGN_TOOLKIT_ROOT|SECOND_SHIFT_SECTION_CATALOG|STATECTL_STATE_DIR|STATECTL_WRITER|DEV_PIPELINE_MODE|BRANCH_PREFIX|KEY_PATTERN|LANE_ATTEND_MODE|MUTATION_SWEEP_NO_DEFER'
 # LOCKSTEP-END seam-scrub
 declare -a SEAM_SCRUB_ENV=()
 IFS='|' read -r -a _seam_scrub_toks <<< "$SEAM_SCRUB"
@@ -3841,7 +3831,7 @@ unset _seam_tok _seam_scrub_toks
 # beneath it. #348 left this file the sole carrier, so the selftest is the only thing holding
 # the dialect — which is why this is its own function, pinnable directly rather than through
 # cmd_3's plumbing.
-lean_when_matches() { # lean_when_matches <glob> <changed-files, newline-separated>
+lane_when_matches() { # lane_when_matches <glob> <changed-files, newline-separated>
   local glob="$1" changed="$2" f
   while IFS= read -r f; do
     [ -n "$f" ] || continue
@@ -3857,7 +3847,7 @@ lean_when_matches() { # lean_when_matches <glob> <changed-files, newline-separat
 # verified nothing. Prints the changed-file list on success (possibly empty — a real inert
 # diff); prints nothing and returns 1 when the base cannot be resolved. Callers must gate on
 # the return code, never on empty output alone.
-lean_extra_lanes_diff() {
+lane_extra_lanes_diff() {
   local base
   base="$(git -C "$REPO_ROOT" merge-base "origin/$BASE_BRANCH" HEAD 2>/dev/null)" || return 1
   [ -n "$base" ] || return 1
@@ -3921,7 +3911,7 @@ subst() { # subst <template> <placeholder> <replacement>
 # with the ubuntu runner's perl, sha256sum is coreutils, and this script has a bash-3.2/macOS
 # lane. Prints nothing when neither exists, which every caller must treat as a refusal — an
 # empty hash compared against an empty hash would agree while hashing nothing.
-lean_sha256() { # lean_sha256 <file>
+lane_sha256() { # lane_sha256 <file>
   if command -v shasum >/dev/null 2>&1; then
     shasum -a 256 "$1" 2>/dev/null | cut -d' ' -f1
   elif command -v sha256sum >/dev/null 2>&1; then
@@ -3997,7 +3987,7 @@ md_table_prettier() {
 # a gate call reach the network. `commands.<repo>.format` cannot supply this either — in at least
 # one consumer it is bound to the CHECK variant (`yarn format:check`). No new config key: this
 # resolver needs no consumer onboarding.
-lean_resolve_prettier() {
+lane_resolve_prettier() {
   local wt="$REPO_ROOT" mr="$MAIN_ROOT"
   # SINGLE-SITED: the header above says it — nothing outside this file holds these rungs now.
   # The markers outlived their counterpart and were removed in #604; a marker with no second
@@ -4038,9 +4028,9 @@ LANE_VERDICT_HEADER_KEYS="run_id session_id rounds pr reviewed_head reviewed_pat
 #
 # Never fails the call. A formatter that is absent, or that exits non-zero, or that damages the
 # header, all land on the same posture: keep the record readable, warn once, continue.
-lean_format_verdict_record() { # lean_format_verdict_record <path>
+lane_format_verdict_record() { # lane_format_verdict_record <path>
   local f="$1" pf tmp k b a
-  pf="$(lean_resolve_prettier)" || pf=""
+  pf="$(lane_resolve_prettier)" || pf=""
   if [ -z "$pf" ]; then
     warn "verdict: no prettier under $REPO_ROOT/node_modules/.bin or $MAIN_ROOT/node_modules/.bin — $VERDICT_REL is written unformatted, and this gate does not reach the network to fetch one. If this repo's format gate covers $PLANS_DIR, format the record before committing it."
     return 0
@@ -4107,7 +4097,7 @@ render_bytes_ok() {
     [ -n "$id" ] || continue
     n=$((n + 1))
     [ -s "$REPO_ROOT/$path" ] || return 1
-    cur="$(lean_sha256 "$REPO_ROOT/$path")"
+    cur="$(lane_sha256 "$REPO_ROOT/$path")"
     [ -n "$cur" ] && [ "$cur" = "$sha" ] || return 1
   done <<<"$rows"
   [ "$n" -gt 0 ]
@@ -4864,7 +4854,7 @@ cmd_3_render() {
       || { fail_milestone 3 "render $r_id ($r_route » $r_state) failed (rc=$rc): $ecmd"; return $?; }
     [ -s "$png" ] \
       || { fail_milestone 3 "render $r_id ($r_route » $r_state) exited 0 but wrote no PNG bytes at $png — the harness must emit exactly one non-empty screenshot at {out}."; return $?; }
-    sha="$(lean_sha256 "$png")"
+    sha="$(lane_sha256 "$png")"
     [ -n "$sha" ] \
       || { fail_milestone 3 "cannot hash $png — neither shasum nor sha256sum is on PATH, so no render receipt can be written. Install one and re-run."; return $?; }
     # The {state}-BLIND-HARNESS detector. Two rows that name different states and produce
@@ -4900,7 +4890,7 @@ cmd_3_render() {
 "
       continue
     fi
-    rsha="$(lean_sha256 "$rjson")"
+    rsha="$(lane_sha256 "$rjson")"
     [ -n "$rsha" ] \
       || { fail_milestone 3 "cannot hash $rjson — neither shasum nor sha256sum is on PATH, so no render receipt can be written. Install one and re-run."; return $?; }
     manifest_rows="$manifest_rows| $r_id.rects | $r_route | $r_state | $RENDER_OUT_REL/$r_id.png$RECTS_SUFFIX | $rsha |
@@ -5116,7 +5106,7 @@ cmd_3() {
       el_run=1
       if [ "$el_when_count" -gt 0 ]; then
         if [ "$el_diff_done" -eq 0 ]; then
-          el_diff="$(lean_extra_lanes_diff)"; el_diff_rc=$?; el_diff_done=1
+          el_diff="$(lane_extra_lanes_diff)"; el_diff_rc=$?; el_diff_done=1
         fi
         if [ "$el_diff_rc" -ne 0 ]; then
           fail_milestone 3 "extraLanes[$el_i] ('$el_name'): cannot resolve origin/$BASE_BRANCH to evaluate 'when' — fetch it and re-run"; return $?
@@ -5125,7 +5115,7 @@ cmd_3() {
         local wi wglob
         for (( wi=0; wi<el_when_count; wi++ )); do
           wglob="$(jq -r --argjson i "$el_i" --argjson j "$wi" '.[$i].when[$j]' <<<"$el_lanes")"
-          if lean_when_matches "$wglob" "$el_diff"; then el_run=1; break; fi
+          if lane_when_matches "$wglob" "$el_diff"; then el_run=1; break; fi
         done
       fi
 
@@ -5323,7 +5313,7 @@ cmd_4() {
     # for the record this writer did not produce: one committed before the key existed, one
     # hand-edited, one written under a spec whose handoff host was repointed afterwards. The
     # merge boundary makes the identical check on the identical derivation (lockstep
-    # `lean-design-provider-family`), so a lane that passed here cannot red there for this.
+    # `lane-design-provider-family`), so a lane that passed here cannot red there for this.
     #
     # ORDER is deliberate. `fidelity: pass` from a round that never dispatched the fidelity
     # reviewer is a claim about a dimension nobody covered, and reporting the missing coverage
@@ -5820,8 +5810,8 @@ cmd_verdict() {
 
   # The record lands in $PLANS_DIR, which sits inside the format gate of at least one consumer,
   # and the body is reviewer-authored markdown this writer cannot pre-shape. Best-effort, and
-  # header-safe — see lean_format_verdict_record.
-  lean_format_verdict_record "$rec"
+  # header-safe — see lane_format_verdict_record.
+  lane_format_verdict_record "$rec"
 
   say "✓ verdict: $VERDICT_REL written (verdict=$VERDICT_VALUE, run_id=$RESOLVED_RUN_ID, round $VERDICT_ROUNDS, reviewed_head=$reviewed_head, reviewed_patch_id=$reviewed_patch_id, fidelity=$VERDICT_FIDELITY)"
   if [ -n "$inherited_patch_id" ]; then
@@ -6150,10 +6140,10 @@ cmd_5() {
 # through the first following line carrying the terminator prefix and leaves everything after it
 # untouched, so a renderer whose last line moved while this did not would make that strip run to
 # end-of-file and silently delete whatever a human had appended below the block.
-# LOCKSTEP-BEGIN lean-cost-block-bounds
+# LOCKSTEP-BEGIN lane-cost-block-bounds
 COST_BLOCK_MARKER='<!-- pipeline-cost-block -->'
 COST_BLOCK_TERMINATOR='Cache-hit rate: '
-# LOCKSTEP-END lean-cost-block-bounds
+# LOCKSTEP-END lane-cost-block-bounds
 
 # The authenticated writer for the close-out's two source-control writes. The bot wherever the
 # consumer configured one — the identity every other close-out artifact already carries — and the
@@ -6680,7 +6670,7 @@ require_lane_tree() {
 
   warn "✗ $SUB: WRONG TREE — $REPO_ROOT is on '$head', not this run's lane branch '$LANE_BRANCH'."
   warn "  Nothing was evaluated: no record was written, no budget was spent and no fix attempt was charged. Every answer this subcommand gives is derived from the checkout it runs in, so from here it would grade the wrong branch and report a confident verdict about it (#141)."
-  paths="$(lean_worktrees_for_branch "$LANE_BRANCH")" || paths=""
+  paths="$(lane_worktrees_for_branch "$LANE_BRANCH")" || paths=""
   if [ -n "$paths" ]; then
     warn "  Re-run from a checkout on '$LANE_BRANCH':"
     printf '%s\n' "$paths" | sed 's/^/[milestone-gate]     /' >&2

@@ -36,7 +36,6 @@
 # network) always runs regardless.
 #
 # Env seams (testing / vendored fork): SECOND_SHIFT_CONFIG_LINT and SECOND_SHIFT_BOUNDARY_EVIDENCE
-#   (the retired SECOND_SHIFT_LEAN_EVIDENCE still resolves, once, with a stderr notice)
 #   — paths to local copies of config-lint.sh / boundary-evidence.sh. When set, the fetch is
 #   skipped and the local file is run instead (the selftest's no-network seam; also lets a
 #   private-fork consumer vendor either script).
@@ -159,14 +158,6 @@ fi
 # vocabulary. Deliberately so: a consumer and the marketplace repo must reach the SAME verdict
 # from the same bytes, and any rule restated here would be a rule that can drift out from
 # under the pin.
-# #833: the seam was `SECOND_SHIFT_LEAN_EVIDENCE` while the payload was `lean-evidence.sh`. A
-# vendored-fork consumer may still export the retired spelling, and dropping it silently would
-# send this check back to fetching over the network — a WARN on a blip, not the vendored answer
-# the operator asked for. Promoted ONCE, on stderr, never onto this file's stdout vocabulary.
-if [ -z "${SECOND_SHIFT_BOUNDARY_EVIDENCE:-}" ] && [ -n "${SECOND_SHIFT_LEAN_EVIDENCE:-}" ]; then
-  echo "notice: SECOND_SHIFT_LEAN_EVIDENCE is the retired spelling of SECOND_SHIFT_BOUNDARY_EVIDENCE and still resolves. Export SECOND_SHIFT_BOUNDARY_EVIDENCE instead; the retired name is removed at the next major." >&2
-  SECOND_SHIFT_BOUNDARY_EVIDENCE="$SECOND_SHIFT_LEAN_EVIDENCE"
-fi
 if [ -z "${PR_HEAD_REF:-}" ]; then
   ok "boundary evidence: no PR context (not a pull_request run) — not applicable"
 elif fetch_at_ref "boundary-evidence" "plugins/dev-pipeline/skills/build/boundary-evidence.sh" "${SECOND_SHIFT_BOUNDARY_EVIDENCE:-}"; then

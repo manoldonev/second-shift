@@ -33,35 +33,13 @@ fail() { echo "  FAIL: $1" >&2; FAILS=$((FAILS + 1)); }
 # everywhere else: an environment artifact that surfaces at milestone 3 reading like a code
 # defect in whatever diff happens to be in flight. Unset it once here so every case starts
 # from the documented absent state; (m1c) sets it explicitly for the other direction.
-#
-# BOTH SPELLINGS (#833). The gate reads `LANE_RUN_MODEL` first and falls back to the retired
-# `LEAN_RUN_MODEL`, so clearing only the current name leaves the ambient retired one resolving
-# straight through this defense — which is precisely the machines the lane runs on, since the
-# scheduler at any pin predating the rename exports it. An `unset` that clears one of a fallback
-# PAIR is not hermeticity, it is hermeticity's shape.
-unset LANE_RUN_MODEL LEAN_RUN_MODEL
-# The same pairing for the other knobs this suite scrubs per case: `LANE_SELFTEST_CACHE_DIR`,
-# `LANE_SELFTEST_CACHE` and `LANE_GATE_ANY_TREE` — the last exported suite-wide here and `unset`
-# per case to RE-ARM the lane-tree assertion, which an ambient retired half would keep disarmed.
-# Their retired halves are cleared once here so a per-case `unset` or `env -u` on the current name
-# is the whole answer rather than half of one.
-#
-# `LEAN_SELFTEST_CACHE` is a token in its own right, not a prefix of the `_DIR` one beside it.
-# Clearing only `_DIR` left the bare knob resolving through the fallback, and `docs/testing.md`
-# hands operators `LANE_SELFTEST_CACHE=0` in two recipes — a shell still carrying the pre-rename
-# spelling of either one falsified (pg5), (pg8), (sc1) and (sc2).
-#
-# There is no bare `LANE_GATE` knob: `LANE_GATE_ANY_TREE`, `LANE_GATE_OBSERVE` and `LANE_GATE_LIB`
-# are each their own token and nothing reads the stem, so a `LEAN_GATE` in this list would scrub a
-# name no reader resolves — a defense that cannot fail, which is the shape this file's hermeticity
-# rules exist to refuse.
-unset LEAN_SELFTEST_CACHE_DIR LEAN_SELFTEST_CACHE LEAN_GATE_ANY_TREE
+unset LANE_RUN_MODEL
 
-# ATTENDANCE, both spellings (#833). Nothing in this file names the knob, but the gate shells out
-# to operator-override.sh, which reads it: an ambient `headless` turns every override arm into the
+# ATTENDANCE. Nothing in this file names the knob, but the gate shells out to
+# operator-override.sh, which reads it: an ambient `headless` turns every override arm into the
 # refusal path and reds cases that have nothing to do with attendance. The scheduler exports it on
-# every payload it spawns, under whichever spelling its pin predates, so both halves go.
-unset LANE_ATTEND_MODE LEAN_ATTEND_MODE
+# every payload it spawns.
+unset LANE_ATTEND_MODE
 
 # `RUN_ID` is the same class, and it hid behind a per-helper defense that did not cover every
 # call site. `gate()` unsets it, and so does every `entry` call but one: (d5)'s linked-worktree
@@ -7105,7 +7083,7 @@ else fail "(fp7) the reader disagrees between the two forms: padded=[$(mdrows "$
 dcommit "the padded render receipt"
 
 # ---- the verdict record's format step -------------------------------------------------------
-# A fake prettier at the rung lean_resolve_prettier actually probes, so these cases exercise the
+# A fake prettier at the rung lane_resolve_prettier actually probes, so these cases exercise the
 # resolver too. `mode` decides what it does to the file, which is how one fixture covers both
 # the benign path and the header-destroying one without needing prettier installed.
 FP_NM="$DTREE/node_modules/.bin"
@@ -7357,7 +7335,7 @@ else fail "(wt8) 'all' destroyed a worktree, rc=$rc: $out"; fi
 
 # --- (wt20)-(wt22) #530: a SECOND worktree on the same branch is a SANCTIONED state, not a -------
 # violated expectation — /dev-pipeline:review cuts its own checkout of the PR head, and the build worktree
-# is not guaranteed to still be there. `lean_worktree_for_branch`'s first-match return orphaned
+# is not guaranteed to still be there. `lane_worktree_for_branch`'s first-match return orphaned
 # whichever one it did not see; these pin that both are now accounted for.
 # Issue numbers 120-122, not 26-28: the entry-sweep qualification block below already owns
 # 26-29 for its own fixtures, and `wt_make`'s `-b` add fails silently (2>/dev/null) on a branch

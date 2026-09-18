@@ -36,15 +36,6 @@
 # EXIT: whatever the session binary exits · 2 a refusal on stderr, nothing exec'd.
 set -uo pipefail
 
-# #833: the pipeline's environment knobs are spelled `LANE_*`; the retired `LEAN_*` spellings still
-# resolve, once, with a stderr notice. Promoted IN PLACE here, before the first read, so every
-# `${LANE_*:-<default>}` site below keeps its own default unchanged.
-# shellcheck source=../plugins/dev-pipeline/skills/build/lane-env.sh
-. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../plugins/dev-pipeline/skills/build" && pwd)/lane-env.sh" \
-  || { echo "FATAL: cannot load lane-env.sh — the LANE_/LEAN_ compatibility reader" >&2; exit 2; }
-lane_env_promote LANE_ARM_MANIFEST LANE_ARM_ADD_DIRS LANE_ARM_ALLOWED_TOOLS \
-  LANE_ARM_DISALLOWED_TOOLS
-
 die() { echo "[lane-bench-arm] $*" >&2; exit 2; }
 
 # VALIDATED ON EVERY INVOCATION, dispatch or not. A bench whose manifest is unreadable is

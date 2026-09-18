@@ -599,7 +599,7 @@ NOTS_OUT="$( cd "$RT" && OTEL_METRICS_FILE="$MET" COST_BLOCK_SKIP_FLUSH=1 \
 # would answer identically if it were deleted. These two repos are the only inputs that
 # separate it from its default. `SECOND_SHIFT_CONFIG` is unset deliberately: the ladder under
 # test is the one an unconfigured lane session actually takes.
-mk_lean_repo() { # mk_lean_repo <root> <state-subdir> <issue> — a throwaway repo + record
+mk_lane_repo() { # mk_lane_repo <root> <state-subdir> <issue> — a throwaway repo + record
   mkdir -p "$1/$2" "$1/.claude"
   git -C "$1" init -q 2>/dev/null
   printf '# lean run — issue %s\n\nrun_id: run-%s\nsession_id: %s\n\n%s | entry | telemetry=on\n%s | milestone-3 | concluded | rc=0\n' \
@@ -614,7 +614,7 @@ issue_stderr_at() { # issue_stderr_at <root> <issue> — the summary, from insid
 # A config that MOVES the state dir. Ignore it — read the default dir instead — and the record
 # is not there at all, so the run refuses rather than deriving a fence from the wrong run.
 RT2="$TMP/lean-repo-cfgdir"
-mk_lean_repo "$RT2" "custom-state" 910
+mk_lane_repo "$RT2" "custom-state" 910
 printf '{"configVersion":2,"paths":{"pipelineStateDir":"custom-state"}}\n' \
   > "$RT2/.claude/second-shift.config.json"
 CFG_ERR="$(issue_stderr_at "$RT2" 910)"; CFG_RC=$?
@@ -627,7 +627,7 @@ CFG_ERR="$(issue_stderr_at "$RT2" 910)"; CFG_RC=$?
 # state dir literally named `null`. So this repo, not the config-less ones above, is what makes
 # the `!= "null"` half load-bearing.
 RT3="$TMP/lean-repo-cfgnull"
-mk_lean_repo "$RT3" ".claude/pipeline-state" 920
+mk_lane_repo "$RT3" ".claude/pipeline-state" 920
 printf '{"configVersion":2,"tracker":{"type":"github"}}\n' > "$RT3/.claude/second-shift.config.json"
 NUL_ERR="$(issue_stderr_at "$RT3" 920)"; NUL_RC=$?
 { [[ "$NUL_RC" -eq 0 ]] && grep -q ".claude/pipeline-state/920-lean-progress.md" <<<"$NUL_ERR"; } \
@@ -642,7 +642,7 @@ NUL_ERR="$(issue_stderr_at "$RT3" 920)"; NUL_RC=$?
 # hands it the run's own ticket key and the tool called it malformed. On the old guard this
 # answers rc=2 with "takes an issue number"; the record is never even looked for.
 RT4="$TMP/lean-repo-jira-key"
-mk_lean_repo "$RT4" ".claude/pipeline-state" PROJ-123
+mk_lane_repo "$RT4" ".claude/pipeline-state" PROJ-123
 KEY_ERR="$(issue_stderr_at "$RT4" PROJ-123)"; KEY_RC=$?
 { [[ "$KEY_RC" -eq 0 ]] && grep -q ".claude/pipeline-state/PROJ-123-lean-progress.md" <<<"$KEY_ERR"; } \
   && ok "(#634-class) a non-numeric tracker key reaches its record instead of being refused as malformed" \

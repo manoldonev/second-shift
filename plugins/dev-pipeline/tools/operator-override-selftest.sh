@@ -64,11 +64,12 @@ chmod +x "$GHFAKE"
 export GH_STATE_FILE="$WORK/gh-state"
 echo OPEN > "$GH_STATE_FILE"
 
-# ATTENDANCE, retired half (#833). `ov()` clears `LANE_ATTEND_MODE` per call so the mode under
-# test is the one the caller passes. The reader falls back to the retired `LEAN_ATTEND_MODE`, so
-# clearing the current name alone lets the scheduler's ambient `headless` resolve straight through
-# — which is 23 of this suite's 43 cases. Cleared ONCE here rather than paired at the `env -u`.
-unset LEAN_ATTEND_MODE
+# ATTENDANCE. `ov()` clears `LANE_ATTEND_MODE` per call, but the (s) cases invoke the tool
+# DIRECTLY to exercise the git-common-dir resolution, so the scheduler's ambient `headless` — it
+# exports the knob onto every payload it spawns — reaches `attend` and `state` and turns both into
+# the refusal path. Cleared suite-wide here, which is what the other suites that shell out to this
+# tool already do.
+unset LANE_ATTEND_MODE
 
 # One invocation shape. Identity is passed per call rather than exported, because half the cases
 # are ABOUT an identity being absent and an exported one would leak into them.

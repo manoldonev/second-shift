@@ -144,43 +144,6 @@
 # macOS ships /bin/bash 3.2; this file stays 3.2-compatible. No `set -e` — the violation
 # counter IS the control flow.
 set -uo pipefail
-
-# #833: the pipeline's environment knobs are spelled `LANE_*`; the retired `LEAN_*` spellings still
-# resolve, once, with a stderr notice, and are promoted IN PLACE below so every `${LANE_*:-…}` read
-# site keeps its own default. INLINE rather than sourced from the sibling `lane-env.sh`: this file
-# is the PORTABLE payload a consumer's CI fetches as ONE file at a pinned ref, with nothing beside
-# it to source. The two copies are pinned by the LOCKSTEP anchor below, not by prose.
-# LOCKSTEP-BEGIN lane-env-fallback
-LANE_ENV_WARNED=' '
-lane_env() { # lane_env <dest-var> <LANE_NAME> [default] [retired-name]
-  local __lane_new="$2" __lane_old="${4:-LEAN_${2#LANE_}}"
-  if [ -n "${!__lane_new+set}" ]; then
-    printf -v "$1" '%s' "${!__lane_new}"
-  elif [ -n "${!__lane_old+set}" ]; then
-    case "$LANE_ENV_WARNED" in
-      *" $__lane_old "*) : ;;
-      *) LANE_ENV_WARNED="$LANE_ENV_WARNED$__lane_old "
-         printf '[lane-env] notice: %s is the retired spelling of %s and still resolves. Export %s instead; the retired name is removed at the next major.\n' \
-           "$__lane_old" "$__lane_new" "$__lane_new" >&2 ;;
-    esac
-    printf -v "$1" '%s' "${!__lane_old}"
-  else
-    printf -v "$1" '%s' "${3-}"
-  fi
-}
-
-# The common case: a knob whose new spelling is `LANE_` + the retired suffix, resolved IN PLACE so
-# every existing `${LANE_X:-<default>}` read site keeps its own default and needs no edit. Setting
-# an absent token to the empty string is deliberate and safe: every read site uses `:-`, under
-# which empty and unset are the same answer, and no site in this repo distinguishes them (`+` forms
-# are absent by construction — the companion selftest asserts it).
-lane_env_promote() { # lane_env_promote <LANE_NAME>...
-  local __lane_n
-  for __lane_n in "$@"; do lane_env "$__lane_n" "$__lane_n"; done
-}
-# LOCKSTEP-END lane-env-fallback
-lane_env_promote LANE_TRACKER_TYPE LANE_BOT_ENABLED LANE_MARKER_AUTHOR LANE_BRANCH_PREFIX
-
 GH_CLI="${GH:-gh}"
 PR_COMMENTS_FILE=""
 ISSUE_COMMENTS_FILE=""
@@ -218,9 +181,9 @@ note_violation() { echo "[boundary-evidence]   ✗ $1" >&2; violations=$((violat
 
 # LOCKSTEP: held verbatim to scripts/check-lane-chain.sh, the canonical side, which carries the
 # reasoning. Nothing may sit between the markers — `verbatim` compares the whole block.
-# LOCKSTEP-BEGIN lean-output-dispositions
+# LOCKSTEP-BEGIN lane-output-dispositions
 LANE_OUTPUT_DISPOSITIONS='not-applicable reduced-strength postdated inert'
-# LOCKSTEP-END lean-output-dispositions
+# LOCKSTEP-END lane-output-dispositions
 
 # The class-(b) emitter, and the ONLY way this file writes on a green path. Shape:
 #
@@ -616,9 +579,9 @@ LANE_SPEC_SUFFIX='-lean.md'
 # fetched at the pinned ref. A one-sided rename leaves that guard classifying every verdict
 # commit as an ordinary one — the lane simply runs in full, costing minutes and reporting
 # nothing, so nothing would ever surface it. The other two suffixes have no such holder.
-# LOCKSTEP-BEGIN lean-verdict-suffix
+# LOCKSTEP-BEGIN lane-verdict-suffix
 LANE_VERDICT_SUFFIX='-lean-verdict.md'
-# LOCKSTEP-END lean-verdict-suffix
+# LOCKSTEP-END lane-verdict-suffix
 LANE_INTENT_GAP_SUFFIX='-lean-intent-gap.md'
 # #613. Same suffix operator-override.sh's record_path() builds; the two are held apart only by
 # this literal, exactly as the intent-gap suffix is.
@@ -656,13 +619,13 @@ LANE_PR_MARKER_TAG='lean-pr-marker'
 #
 # The block below is shared with milestone-gate.sh (the writer) and scripts/check-lane-chain.sh (which
 # reads the claim tag for its own claim arm); see the writer for what each literal is for.
-# LOCKSTEP-BEGIN lean-producer-capabilities
+# LOCKSTEP-BEGIN lane-producer-capabilities
 LANE_CLAIM_MARKER_TAG='lean-claimed'
 # shellcheck disable=SC2034  # each reader binds a SUBSET of these; the block is one contract.
 LANE_CAPABILITY_KEY='capabilities'
 # shellcheck disable=SC2034  # ditto — unused here is the point, not an oversight.
 LANE_CAPABILITIES='pr-marker'
-# LOCKSTEP-END lean-producer-capabilities
+# LOCKSTEP-END lane-producer-capabilities
 
 # Resolved ONCE per run, from the claim trail. Three outcomes the caller must keep apart:
 #   declared-set  a bot-authored claim comment carries a stamp — CAPABILITY_STAMP is the UNION

@@ -190,14 +190,6 @@
 # Exit 0 = pass or not-applicable; 1 = evidence violation; 2 = usage/environment error.
 set -uo pipefail
 
-# #833: the pipeline's environment knobs are spelled `LANE_*`; the retired `LEAN_*` spellings still
-# resolve, once, with a stderr notice. Promoted IN PLACE here, before the first read, so every
-# `${LANE_*:-<default>}` site below keeps its own default unchanged.
-# shellcheck source=../plugins/dev-pipeline/skills/build/lane-env.sh
-. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../plugins/dev-pipeline/skills/build" && pwd)/lane-env.sh" \
-  || { echo "FATAL: cannot load lane-env.sh — the LANE_/LEAN_ compatibility reader" >&2; exit 2; }
-lane_env_promote LANE_EVIDENCE LANE_PR_COMMENTS_FILE LANE_COMMENT_AUTHOR
-
 GH_CLI="${GH:-gh}"
 COMMENTS_FILE=""
 DIFF_FILES_FILE=""
@@ -226,9 +218,9 @@ envfail() { echo "[lane-chain] $1" >&2; exit 2; }
 # see the other's spelling. `verbatim` compares the ENTIRE block, which is why both sides declare
 # the literal under the same variable name with no comments between the markers — the emitter
 # that consumes it, and this prose, sit deliberately OUTSIDE.
-# LOCKSTEP-BEGIN lean-output-dispositions
+# LOCKSTEP-BEGIN lane-output-dispositions
 LANE_OUTPUT_DISPOSITIONS='not-applicable reduced-strength postdated inert'
-# LOCKSTEP-END lean-output-dispositions
+# LOCKSTEP-END lane-output-dispositions
 
 # The class-(b) emitter, and the ONLY way this file writes on a green path. Shape:
 #
@@ -256,13 +248,13 @@ inapplicable() { # inapplicable <arm> <disposition> <reason>
 # producer (milestone-gate.sh, the canonical side); the arm bound to a capability lives in the
 # delegated payload, boundary-evidence.sh. reconcile.sh keeps an unbound copy of the tag: it is
 # an operator-run reconciler rather than a merge-boundary gate.
-# LOCKSTEP-BEGIN lean-producer-capabilities
+# LOCKSTEP-BEGIN lane-producer-capabilities
 LANE_CLAIM_MARKER_TAG='lean-claimed'
 # shellcheck disable=SC2034  # each reader binds a SUBSET of these; the block is one contract.
 LANE_CAPABILITY_KEY='capabilities'
 # shellcheck disable=SC2034  # ditto — unused here is the point, not an oversight.
 LANE_CAPABILITIES='pr-marker'
-# LOCKSTEP-END lean-producer-capabilities
+# LOCKSTEP-END lane-producer-capabilities
 
 # SINGLE-SITED, and not for want of a counterpart: boundary-evidence.sh pins its own name table,
 # but the two sets are deliberately DIFFERENT — `-lean-renders.md` belongs only here and
@@ -309,7 +301,7 @@ record_key_at() { # record_key_at <key> <commit> <path>
 # both writes the record and reads it back) and to reconcile.sh. The reasoning lives at the
 # canonical side. Note this file's own chain-WALK loop around it is deliberately NOT a member —
 # it must scope `git log` to $PR_HEAD_SHA, which the other two must not.
-# LOCKSTEP-BEGIN lean-inherited-key
+# LOCKSTEP-BEGIN lane-inherited-key
 # Any key of the verdict record, read from its HEADER BLOCK only. Record on stdin; prints
 # nothing when the key is absent from that block.
 #
@@ -360,7 +352,7 @@ inherited_key() { # inherited_key   (record on stdin)
   v="$(header_key inherited_patch_id)"
   [ "$v" = "none" ] || printf '%s' "$v"
 }
-# LOCKSTEP-END lean-inherited-key
+# LOCKSTEP-END lane-inherited-key
 
 # The header-anchored read against a COMMITTED version of the record — what a chain walk needs,
 # since every round but the newest exists solely in that path's git history.
@@ -372,7 +364,7 @@ inherited_key_at() { # inherited_key_at <commit> <path>
 # Only the NARROW arming decision is shared: the gate ANDs it against config `design.provider`,
 # which this file cannot — the config is gitignored on every consumer and never reaches a CI
 # checkout — so the boundary runs the predicate alone.
-# LOCKSTEP-BEGIN lean-design-armed
+# LOCKSTEP-BEGIN lane-design-armed
 # Armed-ness exactly as the COMMITTED SPEC declares it. Spec on stdin; prints `armed`, or
 # nothing at all.
 #
@@ -402,9 +394,9 @@ design_armed() { # design_armed   (spec on stdin)
     END { if (rows && !disarmed) print "armed" }
   '
 }
-# LOCKSTEP-END lean-design-armed
+# LOCKSTEP-END lane-design-armed
 
-# LOCKSTEP-BEGIN lean-design-provider-family
+# LOCKSTEP-BEGIN lane-design-provider-family
 # The provider FAMILY an armed spec hands off to, the fidelity reviewer that family makes
 # mandatory, and the token test that reads a `panel:` header (#708, D-12/D-13).
 #
@@ -497,7 +489,7 @@ panel_has() { # panel_has <panel-value> <reviewer>
   esac
   return 1
 }
-# LOCKSTEP-END lean-design-provider-family
+# LOCKSTEP-END lane-design-provider-family
 
 # ---- (1) env constants: fail closed, never "exempt" -------------------------------------
 # An unresolvable prefix must never degrade into "not applicable". Same posture as the
