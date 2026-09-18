@@ -88,6 +88,7 @@ async function main() {
       ['ceiling: true', 'ceiling-timeout diagnostic flag (#219) on the reused died-after-retry marker'],
       ['PROGRESSIVE_EMIT', 'emit-as-you-go nudge for the exhaustive reviewers (#183) — the turn-cap cure'],
       ['turn-budget:', 'cap-death error string, kept distinct from the text-contract miss (#183)'],
+      ['ESCALATED_EMIT', 'escalating-retry nudge (#855) — without it the retry is bit-identical and reproduces the cap death'],
     ]
     for (const [tok, why] of tokens) {
       src.includes(tok)
@@ -114,6 +115,22 @@ async function main() {
     boundedAppends === 1
       ? pass('F wiring: BOUNDED_EXPLORATION stays on exactly the 1 generic branch')
       : fail(`F wiring: BOUNDED_EXPLORATION is appended to ${boundedAppends} branch(es), expected 1 (generic only)`)
+
+    // ESCALATED_EMIT is wired at the DISPATCH, not at a prompt branch: it applies to whichever
+    // reviewer died, so it cannot be counted the way the two branch nudges are. What must hold is
+    // that it is conditional on the previous attempt having written NOTHING — appending it to
+    // every retry would cut short a parse-miss agent that was recoverable, and appending it to
+    // attempt 0 would bound every review by 8 tool calls. Both regressions read as a passing
+    // review round, so nothing else would catch them.
+    const escalateGated = /escalate\s*=\s*attempt\s*>\s*0\s*&&\s*!String\(lastText/.test(src)
+    escalateGated
+      ? pass('F wiring: ESCALATED_EMIT is gated on attempt > 0 AND empty previous text')
+      : fail('F wiring: ESCALATED_EMIT is no longer gated on (attempt > 0 && previous text empty) — a parse-miss retry would be told to stop exploring, or attempt 0 would be bounded at 8 tool calls')
+
+    const escalateWired = /agent\(prompt \+ \(escalate \? ESCALATED_EMIT : ''\) \+ FINDINGS_EPILOGUE/.test(src)
+    escalateWired
+      ? pass('F wiring: ESCALATED_EMIT reaches the dispatch prompt')
+      : fail('F wiring: ESCALATED_EMIT is defined but no longer reaches agent() — the retry is bit-identical again (#855)')
   }
 
   console.log(`\n[null-reviewer-selftest] ${PASS} passed, ${FAIL} failed`)

@@ -114,7 +114,30 @@ DEFAULT_CAP=15
 # header above — a nudge in place, a death anyway — and it earns the same conclusion: the
 # dispatch-time nudge and the agent-doc deadline are independent mitigations, and a demonstrated
 # death earns both, not either.
-DEADLINE_AT_DEFAULT="${DEADLINE_AT_DEFAULT:-plan-reviewer spec-reviewer test-coverage-reviewer maintainability-reviewer}"
+#
+# figma-faithful-reviewer is the fifth, and it is the spec-reviewer shape a third time (#855). A
+# consumer's design-ARMED review round dispatched it and it died on BOTH fan-out attempts: 18 tool
+# calls each against maxTurns 15, empty final text, agents_error 0 — the cap signature exactly. The
+# session then re-dispatched it by hand at the SAME cap, SAME tier, SAME agent, adding nothing but a
+# turn-numbered deadline and a narrowed file list, and it returned a grounded verdict in 20 tool
+# calls. Its dispatch already carried BOUNDED_EXPLORATION, whose own numbered deadline ("by your 8th
+# tool call") is sized for the smallest domain in the panel — and this agent must load the repo's
+# design-token reference before it can assert anything, so it blows past 8 with nothing written and
+# then has no second anchor.
+#
+# It is NOT in docs/review-panel-yield.md's dark column, and that is not a refusal: P-8 records the
+# design-fidelity dimension at ZERO dispatches over that corpus and scores it "not decided" rather
+# than clean. An undecidable cell is not a measured zero, so the direct observation above is the
+# whole evidence base, and it is the predicate this list asks for.
+#
+# WHY ONLY THIS ONE. design-faithful-reviewer is the same shape — sibling provider of the same
+# dimension, same cap, same missing deadline — and a11y, db, performance, complexity and pipeline
+# are named in code-review.mjs's ROOT CAUSE block as the same vulnerable population. None of them
+# has a demonstrated death, so none is enrolled: the header's rule is deliberate, and enrolling the
+# default-cap panel on a sibling's evidence is the larger decision it forbids. They are covered in
+# the meantime by ESCALATED_EMIT (#855), which changes the ask on a retry after an empty-text death
+# for whichever agent died, and needs no enrollment to reach them.
+DEADLINE_AT_DEFAULT="${DEADLINE_AT_DEFAULT:-plan-reviewer spec-reviewer test-coverage-reviewer maintainability-reviewer figma-faithful-reviewer}"
 
 # The jq binary. A seam, not a configuration knob — see the Env note above.
 JQ="${EMIT_DEADLINE_JQ:-jq}"

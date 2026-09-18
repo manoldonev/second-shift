@@ -143,3 +143,11 @@ Per `reviewer-baseline` — under schema dispatch emit via `StructuredOutput` pe
 
 - `Evidence:` the untokenized literal / hardcoded hex-or-rem / physical prop / hand-rolled element.
 - `Recommendation:` the token / palette path / sizing helper / logical prop / catalog component to use instead (cite the relevant reference rule).
+
+## Time-boxing (hard backstop)
+
+By **turn 10** (of your 15 maximum) you MUST be writing your result. No further tool use after turn 10 except emitting it. If a file you intended to open is still unread at turn 10, emit anyway and name the gap — `unable to verify — pointer needed: <specific file or fact>` — rather than dropping it silently. A review cut short by this deadline must **not** return `approve` with zero findings: an unread component is not evidence that its styling is tokenized, and a caller that records the domain as reviewed would be wrong.
+
+Loading the repo's design-system reference counts against this budget. Read it **once**, early, and work from what it declared — re-opening it per component is the commonest way this deadline is missed.
+
+**Never end a turn mid-investigation** with a sentence like "let me check one more thing" without a finalized result in the same turn. A review you never emit is scored exactly like a review that never ran, and your entire domain is then recorded as unverified — an under-grounded emitted review is strictly more useful than a perfect unemitted one.
