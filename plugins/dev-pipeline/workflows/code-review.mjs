@@ -214,12 +214,13 @@ const fileList = changedFiles.length ? changedFiles.join(', ') : '(see diff)'
 // Mitigations, in order: (1) BOUNDED_EXPLORATION below — the PRIMARY fix; caps the absence-grounding
 // exploration so the reviewer emits instead of stalling. (2) STRUCTURED_OUTPUT_FIRST — emit the
 // structured verdict first; kept (cheap, right on principle) though it is not the stall cure. (3) the
-// one-shot retry in dispatchReviewer() recovers residual stochastic deaths — but it is BIT-IDENTICAL
-// (same prompt, same tier), so against the maxTurns-with-no-text death it is close to deterministic
-// and both attempts die alike. (4) the dark-reviewer contract (review-lead Step 4b) backstops what
-// still goes dark: the SESSION must re-dispatch once with a changed prompt — a turn-numbered emit
-// deadline and a narrowing to that reviewer's domain, which is the part this file cannot do because
-// it dispatched against the whole range — and only what survives THAT is a coverage gap. A gap is
+// one-shot retry in dispatchReviewer() recovers residual stochastic deaths, and since #855 it
+// ESCALATES against the deterministic one: an attempt that returns EMPTY text is retried with
+// ESCALATED_EMIT appended, never bit-identically, because a verbatim retry of a turn-cap death just
+// reproduces it. (4) the dark-reviewer contract (review-lead Step 4b) backstops what still goes
+// dark: the SESSION must re-dispatch once, and its edge over rung 3 is the NARROWING to that
+// reviewer's domain — the part this file cannot do, because it dispatched against the whole range —
+// and only what survives THAT is a coverage gap. A gap is
 // then a NOTE for most reviewers, but a hard "Ready to merge? = No" for security (whose dimension
 // the lead pass skipped precisely because this fan-out spawned it) and a VOID for design fidelity on
 // an armed spec. When the WHOLE panel goes dark, review-lead voids the round and answers no merge
@@ -369,6 +370,36 @@ const PROGRESSIVE_EMIT =
   ' then recorded as unverified.'
 // LOCKSTEP-END progressive-emit
 
+// The RETRY nudge, appended only when attempt 0 came back with EMPTY text (#855).
+//
+// Until this existed the retry was BIT-IDENTICAL — same prompt, same tier, same agent — which is
+// worthless against a death that is deterministic rather than stochastic. The ROOT CAUSE block
+// above says so, and deferred the cure to the session ("the SESSION must re-dispatch once with a
+// changed prompt"). That works and stays as the third rung (review-lead Step 4b), but it spends a
+// full dark round first, and on a design-ARMED spec that round is VOID rather than merely reduced
+// — the fidelity reviewer's darkness answers no merge question at all. Doing it here on attempt 2
+// is the same cure one rung earlier.
+//
+// Appended ONLY on empty text, never on a parse miss. The two deaths want opposite things: an
+// agent that wrote an unparseable block needs the FORMAT restated, which the emitter rung below
+// already owns; an agent that wrote nothing needs permission to stop reading. Telling a
+// parse-miss agent to cut its exploration short would trade a recoverable result for a thinner one.
+//
+// The number restates BOUNDED_EXPLORATION's 8 as an absolute, because this attempt has evidence
+// the first one blew past it: the agent already demonstrated that its own reading of "by your 8th
+// tool call" did not bind. Measured on the run that motivated this (#855): the same agent, same
+// tier, same cap, died twice at 18 tool calls with empty text, then returned a grounded verdict in
+// 20 when re-dispatched with a numbered deadline and a narrowed ask.
+const ESCALATED_EMIT =
+  ' RETRY — YOUR PREVIOUS ATTEMPT AT THIS EXACT REVIEW DIED HAVING WRITTEN NOTHING. It ran out of' +
+  ' turns still exploring, so its entire domain was recorded as unverified. Do not repeat that' +
+  ' shape. STOP EXPLORING NOW and emit a COMPLETE result from what you can establish in your' +
+  ' first 8 tool calls, even if that is approve with no findings and even if you feel' +
+  ' under-grounded. Name anything you could not reach as `unable to verify — pointer needed:' +
+  ' <specific file or fact>` rather than opening it. You may re-emit the whole block later if you' +
+  ' learn more — the LAST complete block wins — but the first one must exist before you read' +
+  ' anything further.'
+
 // Per-reviewer wall-clock ceiling (#219). The Workflow runtime's own agent-stall loop
 // (multiple attempts × a no-progress window) can let a genuinely wedged reviewer burn
 // ~90 min before agent() settles — observed in run #183, where one dark reviewer added
@@ -487,12 +518,17 @@ const dispatchReviewer = async (requested) => {
   // synthesis keys on { result: null } + { retried: true, failed: true } and must keep doing so.
   let lastText = null
   for (let attempt = 0; attempt < 2; attempt++) {
+    // The retry ESCALATES rather than repeating (#855) — but only against the empty-text death,
+    // which is the deterministic one. `lastText` is unset on attempt 0 and holds attempt 0's text
+    // on attempt 1, so this is also the test for "the previous attempt wrote nothing": a parse
+    // miss leaves a non-empty string here and takes the unchanged prompt.
+    const escalate = attempt > 0 && !String(lastText ?? '').trim()
     let text
     try {
-      text = await agent(prompt + FINDINGS_EPILOGUE, {
+      text = await agent(prompt + (escalate ? ESCALATED_EMIT : '') + FINDINGS_EPILOGUE, {
         agentType: dispatched,
         model,
-        label: attempt === 0 ? dispatched : `${dispatched} (retry)`,
+        label: attempt === 0 ? dispatched : `${dispatched} (retry${escalate ? ', escalated' : ''})`,
         phase: 'Review',
       })
     } catch (err) {
@@ -504,7 +540,10 @@ const dispatchReviewer = async (requested) => {
     const parsed = parseReviewResult(text)
     if (parsed && validateShape(parsed, FINDINGS_SCHEMA)) return { agentType: requested, result: parsed }
     lastText = text
-    log(`${dispatched}: text-contract miss (${/REVIEW_RESULT/.test(String(text ?? '')) ? 'invalid json' : 'no sentinel'})${attempt === 0 ? ' — retrying once' : ''}`)
+    const emptyText = !String(text ?? '').trim()
+    log(
+      `${dispatched}: text-contract miss (${/REVIEW_RESULT/.test(String(text ?? '')) ? 'invalid json' : emptyText ? 'empty text' : 'no sentinel'})${attempt === 0 ? (emptyText ? ' — retrying once, escalated' : ' — retrying once') : ''}`
+    )
   }
   if (/REVIEW_RESULT/.test(String(lastText ?? ''))) {
     try {
