@@ -6,7 +6,7 @@
   },
   "metadata": {
     "description": "Open-source plugins for Claude Code: ask, build, review. Every install gets decisions put to you one at a time and recorded, and a review from a separate session with a committed verdict. Generic tooling only; each consumer repo supplies one config file and optional knowledge files.",
-    "version": "14.0.1"
+    "version": "14.0.2"
   },
   "plugins": [
     {
