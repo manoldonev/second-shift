@@ -1,6 +1,6 @@
 # Skill-vs-bare-session ablation — results and verdicts
 
-**Measured 2026-08-24**, with §1's arm-1 re-measurement added **2026-09-01** (#746). #644, parent #284. The thresholds this report is scored against were fixed
+**Measured 2026-08-24**, with §1's arm-1 re-measurement added **2026-09-01** (#746) and §3's intake arms **2026-09-19** (#672). #644, parent #284. The thresholds this report is scored against were fixed
 in [`docs/skill-ablation-pre-registration.md`](skill-ablation-pre-registration.md) before any result
 existed; that file has not been edited since. Raw arm outputs are under
 [`docs/plans/skill-ablation/`](plans/skill-ablation/), one file per session, verbatim.
@@ -30,8 +30,8 @@ git log --format='%h %ad %s' --date=short -- docs/plans/skill-ablation/         
 | 1b | the five milestone gates | *inherited* — `docs/gate-ablation.md` | 66% of firings adjudicated `unchanged`; all six keep-earners re-run at the merge boundary | inherited, not re-collected |
 | 2 | `review-lean` SKILL (127 lines at `8d5d0897`, the measured surface) | recall of ground-truth blockers | bare† **4 of 5**; the built-in `/code-review` also **4 of 5** (#747), missing a different one | **cut-to-delta** |
 | 3 | `plan-interview` + `interviewing-baseline` (312 lines) | recall of operator-ratified decisions | bare **6 of 20** | **keep** |
-| — | `intake-orchestrator` (711 lines) | — | not reached by any metric here | **not adjudicated** → #672 |
-| — | `intake-interviewer` (279 lines) | — | registered in scope; no sample ran its path | **not adjudicated** → #672 |
+| 4 | `intake-orchestrator` (711 lines) | coverage-gap recall over 6 planted cross-child gaps (#672) | bare **6 of 6**, kit **6 of 6** — both at ceiling | registered rule: `delete`; **adjudicated `no basis — ceiling`** (operator departure, §3) |
+| 5 | `intake-interviewer` (279 lines) | *proxy* — first-turn recall of 6 material ambiguities (#672) | bare **6 of 6**, kit **6 of 6** — both at ceiling | registered rule: `delete`; **adjudicated `no basis — ceiling`** (operator departure, §3) |
 
 † **Comparison 2 ran a bare session, not the built-in `/code-review` the ticket names.** The
 departure is declared in §2 with its direction of bias; the verdict is unaffected. The
@@ -765,28 +765,54 @@ mechanism made a whole causal story irrelevant. Its misses are not random:
 
 That is the surviving delta, and it is what `keep` is keeping.
 
-### Not adjudicated
+### `intake-orchestrator` and `intake-interviewer` — run, no basis (#672)
 
-`intake-orchestrator`, 711 lines and the largest skill in the tree, produces **decomposition**, not
-a ledger. This metric does not reach it. It is recorded as unmeasured rather than credited with a
-pass, and filed as **#672** — the highest-value target for the next slice.
+Both were `not adjudicated` here until #672: C3's ledger-recall metric does not reach
+decomposition, and no C3 sample ran `intake-interviewer`'s own input. #672 registered a metric for
+each in [`docs/skill-ablation-addendum-3.md`](skill-ablation-addendum-3.md) before any run, and ran
+them on the lane bench's private synthetic substrate; the numbers are in
+[`docs/plans/skill-ablation/c4-intake/`](plans/skill-ablation/c4-intake/).
 
-**`intake-interviewer` (279 lines) exits with no verdict, and this is the record of it.** The
-ticket's scope item 3 names it alongside `plan-interview`, and the pre-registration declares it "in
-scope insofar as it produces the same artifact". That premise holds — it does emit a Decision
-Ledger, in the five-column receipt shape, per the `interviewing-baseline` contract. What did not
-hold is the sample. C3 handed each arm an **already-filed issue body** (#650, #643, #597) and scored
-recall against the `user-answered` rows of committed *lean-spec* ledgers — the four-column plan
-ledger `plan-interview` produces at pre-flight. An issue body is `intake-interviewer`'s **output**,
-not its input, and no sample ran its path: an unstructured bug report or rough idea taken to an
-issue-ready body plus a receipt-shape ledger. C3 therefore measured the surface downstream of it and
-never the surface itself. So it reaches **no verdict and no measured basis**: not a `keep`, not a
-`cut-to-delta`, and explicitly not a pass by association with `plan-interview`. Raised as blocker
-B2 of PR 673 round 1; declared here, in the spec's Decision Ledger (`D-8`), and in the PR body.
-**Successor: #672**, whose
-body was extended by operator amendment on 2026-08-24 to cover `intake-interviewer` on the same
-terms as `intake-orchestrator` — whatever adjudication method lands there covers both, and each
-exits with either a measured basis or an explicit no-basis record, never silence.
+| skill | metric | sample | kit caught | bare caught | registered rule | adjudicated |
+| --- | --- | --- | --- | --- | --- | --- |
+| `intake-orchestrator` | coverage-gap recall | 3 epic roles × 2 planted gaps (two between-children, two no-owner follow-up, two vacuous child) | 6/6 | **6/6** | `delete` | **`no basis — ceiling`** |
+| `intake-interviewer` | *proxy:* first-turn ambiguity recall | 3 rough requests × 2 material ambiguities | 6/6 | **6/6** | `delete` | **`no basis — ceiling`** |
+
+Registered rule for both: `delete` when bare catches ≥ kit and all 6. Every item was caught in
+**3 of 3** replicates of both arms, not merely on majority. The construction was delivered in full:
+the skill was invoked in 18 of 18 kit runs, and the orchestrator's `spec-reviewer` +
+`codebase-explorer` fan-out was dispatched in 9 of 9. The kit cost 2.6× the bare arm's wall-clock
+on decomposition (165 s against 63 s per run).
+
+**What the bare arm did, read after scoring.** It named the shared pricing helper a new quote
+figure has to flow through, said the business settings carry no default to take a "usual" value
+from, named the mock handlers and seed a contract change strands, found the toggle constants file,
+and said in so many words that two of the template epic's four workstreams were already built. On
+the rough requests it asked which surfaces to translate and who writes the translated menu text,
+what "done" means on the board and whether hidden quotes stay reachable, and whether a tasting is
+charged and separately scheduled. The detector audit is in the evidence README.
+
+**Operator departure: the registered rule's `delete` is not adopted.** The registered rule reads
+bare ≥ kit and all 6 as `delete`. Here both arms sat at the ceiling on every item in every
+replicate, so the sample could not separate them, and a rule that a ceiling meets trivially has
+measured nothing about the skill. The gold was also authored by the build session under the
+ticket's OR-1 default, minutes before the runs: the party that scored the comparison wrote its answer
+key. And the bare catches are facts a session can look up in the substrate's code, not the
+cross-child ownership failure (#465) the metric was chosen to reach. The operator ruled on the PR
+([ruling](https://github.com/manoldonev/second-shift/pull/860#issuecomment-5742243801)) that both skills exit **`no basis — ceiling`**. The addendum is a registration and
+stays unedited; its mechanical output is reported above beside the ruling, so a reader can repudiate
+the call rather than take it on trust. **Neither skill is credited with a basis by this slice, in
+either direction.**
+
+**What a successor needs to reach a verdict.** Gaps authored by a party other than the builder
+and hash-pinned before it sees them; gaps of the cross-child ownership class (#465: a follow-up that
+every child defers, with no owner) rather than facts a session can look up; and a void rule,
+registered before any run, that a result with both arms at ceiling is `no basis`, not `delete`.
+Beyond that, the metrics here would still not reach the tracker writes `intake-orchestrator` owns on
+the github path, its `decomposition-reviewer` hand-off, or `intake-interviewer`'s multi-turn
+interview and receipt ledger. Not filed here.
+
+**No deletion follows from this slice.** There is no `delete` verdict to execute.
 
 ### Rows no pre-flight session could reach
 
@@ -802,8 +828,8 @@ re-scoring: the registered denominator is 20 and it governs.
 ## 4 — P6 bases (AC-4)
 
 `docs/pipeline-manifesto.md` P6 obliges a *re-measured* basis rather than an inherited one. Twenty-six
-skills ship. **Three surfaces were measured, covering four of them. The other twenty-two were not, and
-none may be credited with a pass.**
+skills ship. **Three surfaces were measured, covering four of them.** #672 ran two more to a ceiling that yields
+no basis (§3). **The other twenty-two were not measured, and none may be credited with a pass.**
 
 **The protocol is extended, not amended, by
 [`docs/skill-ablation-addendum.md`](skill-ablation-addendum.md).** Two of the rows below are owed a
@@ -819,17 +845,17 @@ table: it is where the terms of the next measurement live, and it contains no re
 | `dev-pipeline/build-lean` | 48 | C1 + #746 arm 1 | **cut-to-delta with an empty cut** — re-measured on the consumer-shaped substrate (§1): bare covers 3–4 of 9, no item is cut-eligible, M3 and M9 `undetermined` at n=2. The repo-local basis is retired | 2026-09-01 |
 | `dev-pipeline/review-lean` | 127 @ `8d5d0897` | C2 + #747 arm 2a | **cut-to-delta** on two independent challengers: bare-session recall 0.80, and the built-in `/code-review` at effort `max` also **0.80** — the comparison #644 named, now measured (§2). The two miss different blockers, so neither dominates and the union is 5/5. Delta **localised** by leave-one-out ablation over the 17 units at `8d5d0897` (#748, 28 runs, control 3/3): no unit carries the 0.20 — U-5, R-3 and R-4 score `no-effect` and are cut-eligible; the other 14 are `not-reached — no basis`. Execution is a further successor (§2) | 2026-09-03 |
 | `intake-toolkit/plan-interview` + `interviewing-baseline` | 312 | C3 | **keep**; bare recall 0.30, delta is the scope-boundary/DEPARTURE class | 2026-08-24 |
-| `intake-toolkit/intake-orchestrator` | 711 | — | **unmeasured — no basis**; no metric here reaches decomposition → successor **#672** | — |
-| `intake-toolkit/intake-interviewer` | 279 | — | **unmeasured — no basis**; registered in scope, no sample exercised its path → successor **#672** (§3) | — |
+| `intake-toolkit/intake-orchestrator` | 711 | #672 (addendum 3) | **unmeasured — no basis (ceiling)**; run under addendum 3, bare 6/6 = kit 6/6 in 3 of 3 replicates. The registered rule's `delete` was not adopted: an operator departure, §3 | 2026-09-19 |
+| `intake-toolkit/intake-interviewer` | 279 | #672 (addendum 3) | **unmeasured — no basis (ceiling)**; proxy run under addendum 3, bare 6/6 = kit 6/6. The registered rule's `delete` was not adopted: an operator departure, §3 | 2026-09-19 |
 | `review-toolkit/review-lead` | 446 | — | **unmeasured — no basis** | — |
 | `second-shift/onboard` | 472 | — | **unmeasured — no basis** | — |
 | `dev-pipeline/pr-revision` | 385 | — | **unmeasured — no basis** | — |
 | `design-toolkit/figma-faithful` | 300 | — | **unmeasured — no basis** | — |
 | the remaining 16 | — | — | **unmeasured — no basis** | — |
 
-The measured surfaces total **487 lines of 4,951**. That ratio, not any single verdict, is this
-report's headline: **90% of the shipped product still has no re-measured basis against the current
-model generation.**
+The measured surfaces total **487 lines of 4,951**. #672's 990 lines were run but returned no basis,
+so they are not counted. That ratio, not any single verdict, is this report's headline: **90% of the shipped product
+still has no re-measured basis against the current model generation.**
 
 ---
 
@@ -880,6 +906,8 @@ rather than as a green sweep that proves something it does not. The successors a
   routing prose is apparatus-bound under any bare-arm construction. The rule that follows from it is
   registered in [`docs/skill-ablation-addendum-2.md`](skill-ablation-addendum-2.md), fixed before the
   runs.
-- **#672** — `intake-orchestrator` (711 lines) and, by the operator's 2026-08-24 amendment,
-  `intake-interviewer` (279 lines): 990 unmeasured lines, each owed a basis or an explicit
-  no-basis record.
+- **#672 is done, and it returns `no basis — ceiling` for both skills.** See §3's *run, no basis*
+  subsection. Under [`docs/skill-ablation-addendum-3.md`](skill-ablation-addendum-3.md), registered
+  before the runs, both arms caught all six planted items for each skill. The registered rule reads
+  that as `delete`, and the operator ruled it a ceiling instead. There is no deletion to execute.
+  The requirements for a successor re-measurement are in §3.
