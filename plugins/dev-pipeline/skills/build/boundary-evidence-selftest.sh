@@ -349,6 +349,47 @@ if [ "$rc" -eq 1 ] && grep -q 'no session_id reconciliation key' <<<"$out"; then
 else fail "(j) expected rc=1 on a session_id-less verdict, got $rc: $out"; fi
 write_verdict
 
+# ---- (ci) #640: the zero-CI key --------------------------------------------------------------
+# This boundary cannot observe the merge ref (it runs IN a checkout of it), so it refuses on what
+# the writer stamped. write_verdict emits no `ci_state:` — the pre-key record AC-3 must pass.
+with_ci_state() { # with_ci_state <verdict> <value> — the key in the HEADER, after reviewed_head
+  write_verdict "$1"
+  awk -v v="$2" '{ print } /^reviewed_head:/ { print "ci_state: " v }' "$VREC" > "$VREC.new" && mv "$VREC.new" "$VREC"
+  commit_tree "verdict $1 at ci_state $2"
+}
+for ci in never-evaluated unknown bogus; do
+  with_ci_state approve "$ci"
+  out="$(ev "claude/acme-42" "$WORK/markers-good.json" "$WORK/diff-lean.txt")"; rc=$?
+  if [ "$rc" -eq 1 ] && grep -qF "approves at 'ci_state: $ci'" <<<"$out"; then
+    pass "(ci-$ci) AC-2: an approve stamped ci_state: $ci is refused at the boundary"
+  else fail "(ci-$ci) expected rc=1 refusing ci_state $ci, got $rc: $out"; fi
+done
+
+with_ci_state approve evaluated
+out="$(ev "claude/acme-42" "$WORK/markers-good.json" "$WORK/diff-lean.txt")"; rc=$?
+if [ "$rc" -eq 0 ]; then pass "(ci-evaluated) non-vacuity: an approve stamped evaluated passes"
+else fail "(ci-evaluated) expected rc=0, got $rc: $out"; fi
+
+write_verdict
+out="$(ev "claude/acme-42" "$WORK/markers-good.json" "$WORK/diff-lean.txt")"; rc=$?
+if [ "$rc" -eq 0 ] && ! grep -q 'ci_state' <<<"$out"; then
+  pass "(ci-absent) AC-3: a record with no ci_state key passes exactly as before the key existed"
+else fail "(ci-absent) expected rc=0 with no ci_state finding, got $rc: $out"; fi
+
+# Header-anchored: a reviewer's own body saying never-evaluated cannot red a pre-key record.
+write_verdict; printf '\nci_state: never-evaluated\n' >> "$VREC"; commit_tree "ci_state in the body only"
+out="$(ev "claude/acme-42" "$WORK/markers-good.json" "$WORK/diff-lean.txt")"; rc=$?
+if [ "$rc" -eq 0 ]; then pass "(ci-body) a ci_state line in the body is not the header key"
+else fail "(ci-body) expected rc=0, got $rc: $out"; fi
+
+# AC-5 at the boundary: a needs-work record is refused for being needs-work, never for its ci_state.
+with_ci_state needs-work never-evaluated
+out="$(ev "claude/acme-42" "$WORK/markers-good.json" "$WORK/diff-lean.txt")"; rc=$?
+if [ "$rc" -eq 1 ] && ! grep -q 'approves at' <<<"$out"; then
+  pass "(ci-needs-work) the zero-CI arm judges approves only"
+else fail "(ci-needs-work) expected the not-approve refusal alone, got $rc: $out"; fi
+write_verdict
+
 # ---- (k) the identity arm (P10 / D-2 / D-4) -----------------------------------------------
 write_verdict approve r-build-1 sess-review-2
 out="$(ev "claude/acme-42" "$WORK/markers-good.json" "$WORK/diff-lean.txt")"; rc=$?

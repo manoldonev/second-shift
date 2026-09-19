@@ -72,6 +72,10 @@
 #   milestone-gate.sh <1..5> <issue>          evaluate one milestone. Milestone 1 also refuses when
 #                                        the issue declares an Open Region dispositioned
 #                                        `pause-and-ask` with no resolution artifact (AC-8).
+#   milestone-gate.sh 4 <issue> --pr <n>      SCHEDULER form (#640): with no verdict record, also
+#                                        read the PR's merge ref and return 12 when CI has never
+#                                        evaluated the head. Without --pr, milestone 4 makes no
+#                                        network read.
 #   milestone-gate.sh all    <issue>          a cheap, read-only pre-pass evaluates milestones 1 and
 #                                        4 first (no network, no fix-budget attempt) and reports
 #                                        every already-unsatisfiable one before running the real
@@ -128,6 +132,9 @@
 #                                        ticket and must name at least one reviewer: a round
 #                                        whose whole panel went dark is void under /dev-pipeline:review
 #                                        5c and is handed back, not recorded (#825).
+#                                        `approve` is refused while PR <n>'s merge ref is absent
+#                                        (CI never evaluated the head) or unreadable (#640), and
+#                                        every record is stamped `ci_state:`.
 #   milestone-gate.sh verdict <issue> --pr <n> --hand-back ratification --summary-file <path>
 #                                        REVIEW role, the P9 hand-back (review/SKILL.md 5d): the
 #                                        round's one blocker is "which of two ratified artifacts
@@ -212,6 +219,11 @@
 #           waiting on an OPERATOR ruling, not on a review: a re-spawned review would hand the same
 #           question back. Its own integer because the scheduler's remedy is to stop the lane
 #           `review-paused`, spending no round and no review retry.
+#      12 = milestone 4 with `--pr` only: NEVER EVALUATED (#640) — no verdict record, and the PR's
+#           merge ref is absent, so CI has never run against the head. A review round could only
+#           record `needs-work` (the writer refuses `approve` at this state), so the scheduler stops
+#           the lane `ci-never-evaluated` before spawning one. Its own integer because the remedy
+#           is neither a review nor a BUILD fix: get CI to run, then re-enter.
 #      10 = UNRESOLVABLE TICKET ARGUMENT (#611): `entry`/`claim` were given no ticket, or one that
 #           does not validate, does not exist, is closed with no evidence this run claimed it, or
 #           disagrees with the lane branch — that last arm binds `mark` and `teardown` too. Nothing
@@ -242,6 +254,13 @@
 #   READY_PROBE_TIMEOUT      the per-reading timeout in seconds (default 10), and
 #   READY_PROBE_BACKOFF      the pause between readings in seconds (default 2). Set TRIES=1 and
 #                            BACKOFF=0 to drive the exhausted path without sleeping (#845).
+#   LANE_PR_REMOTE           #640: the remote whose refs/pull/<n>/{head,merge} the merge-ref read
+#                            lists with `git ls-remote` (default `origin`). The suites point it
+#                            at a local bare repository, so the read stays offline.
+#   MERGE_REF_TRIES          how many listings that read takes before a present head with no
+#                            merge ref is called never-evaluated (default 3) — GitHub creates the
+#                            merge ref asynchronously after a push — and
+#   MERGE_REF_BACKOFF        the pause between listings in seconds (default 5).
 #   LANE_PROGRESS_FILE       override the resolved progress-file path
 #   SECOND_SHIFT_CONFIG      override the resolved config path
 #   --pr-file <path>         milestone 5: read the PR record from a JSON fixture
@@ -317,6 +336,7 @@ VERDICT_PR=""
 VERDICT_ROUNDS=""
 VERDICT_FIDELITY=""
 VERDICT_PANEL=""
+VERDICT_CI_STATE=""
 # #710: the plan-review writer's `model:` (D-29). Its own variable rather than LANE_RUN_MODEL
 # alone, because the dispatch it records may run on a different tier than the session driving it.
 # Initialised EMPTY like every sibling, never from the environment: a same-named variable leaking
@@ -427,7 +447,7 @@ while [ $# -gt 0 ]; do
     --obligations)   PROGRESS_OBLIGATIONS=1; shift ;;
     --arm)           STALENESS_ARM="${2:-}"; shift 2 ;;
     --ticket-source) TICKET_SOURCE="${2:-}"; shift 2 ;;
-    -h|--help)       sed -n '2,297p' "$0"; exit 0 ;;
+    -h|--help)       sed -n '2,316p' "$0"; exit 0 ;;
     -*)              envfail "unknown option: $1" ;;
     *)
       if [ "$POSITIONAL" -eq 0 ]; then SUB="$1"; POSITIONAL=1
@@ -4006,7 +4026,7 @@ lane_resolve_prettier() {
 # Every header key cmd_verdict emits in `key: value` form. The list exists so the format step
 # below can prove it damaged none of them; it is the writer's own emission set, so a key added
 # to the record must be added here too or the guard silently stops covering it.
-LANE_VERDICT_HEADER_KEYS="run_id session_id rounds pr reviewed_head reviewed_patch_id inherited_patch_id inherited_from_verdict fidelity panel model"
+LANE_VERDICT_HEADER_KEYS="run_id session_id rounds pr reviewed_head reviewed_patch_id inherited_patch_id inherited_from_verdict fidelity panel ci_state model"
 # Two of those keys carry values `header_key`'s charset TRUNCATES — `inherited_from_verdict` to
 # its leading path segment, `panel` to its leading plugin token — and they belong here anyway.
 # What this loop proves is that formatting did not DAMAGE a key, and the damage a formatter does
@@ -5163,6 +5183,29 @@ cmd_3() {
 # READ-ONLY BY CONSTRUCTION. This milestone never writes to the verdict record — not to create it,
 # not to stamp it, not to "normalize" it. The moment it can, the P10 separation is decorative. The
 # suite asserts the file is byte- and mtime-identical across a full `all` sweep.
+# THE MERGE-REF READ (#640). Prints `evaluated`, `never-evaluated` or `unknown` for PR <n>.
+# `refs/pull/<n>/merge` exists only once GitHub has computed a test merge, and `pr-gates` runs on
+# that ref — so its absence means CI has never evaluated the head. Its presence says nothing
+# about red or green, and no caller may read it that way.
+#
+# THE HEAD REF IS THE POSITIVE CONTROL. A listing that succeeds but carries no
+# `refs/pull/<n>/head` came from a remote that does not serve this PR's refs at all, where a
+# missing merge ref proves nothing — so it is `unknown`, exactly like a listing that failed.
+# `never-evaluated` is only ever the head present and the merge ref absent, re-read
+# MERGE_REF_TRIES times because GitHub creates the merge ref asynchronously after a push.
+merge_ref_state() { # merge_ref_state <pr-number>
+  local pr="$1" remote="${LANE_PR_REMOTE:-origin}" tries="${MERGE_REF_TRIES:-3}" n=0 out
+  while :; do
+    n=$((n + 1))
+    out="$(git -C "$REPO_ROOT" ls-remote "$remote" "refs/pull/$pr/head" "refs/pull/$pr/merge" 2>/dev/null)" \
+      || { printf 'unknown'; return 0; }
+    case "$out" in *"refs/pull/$pr/head"*) : ;; *) printf 'unknown'; return 0 ;; esac
+    case "$out" in *"refs/pull/$pr/merge"*) printf 'evaluated'; return 0 ;; esac
+    [ "$n" -lt "$tries" ] || { printf 'never-evaluated'; return 0; }
+    sleep "${MERGE_REF_BACKOFF:-5}"
+  done
+}
+
 cmd_4() {
   local rec="$REPO_ROOT/$VERDICT_REL" v_val v_run v_sess b_prog_run b_prog_sess b_cached cand
   local v_commit v_head gap
@@ -5184,6 +5227,23 @@ cmd_4() {
   if [ ! -f "$rec" ] && [ -f "$gap" ] && [ "$(record_key disposition "$gap")" = "pause-and-ask" ] \
      && [ "$(record_key ratified "$gap")" = "no" ]; then
     block_milestone 4 "no verdict record at $VERDICT_REL, and $INTENT_GAP_REL is an unratified pause-and-ask intent gap — the lane is HANDED BACK for a human ruling (P9), not waiting on a review. Ratify it out of band (an operator comment on the issue; then 'ratified: yes' and that comment's URL in 'ratified_by:'), commit the flip, and hand off to '/dev-pipeline:review <pr>'." 11; return $?
+  fi
+  # ZERO CI (#640), ahead of the absent-record class and only when the caller names the PR. The
+  # scheduler does, so a lane whose PR CI never evaluated stops BEFORE a review is spawned: that
+  # review could only write `needs-work` (the writer refuses `approve` here), and a round would be
+  # spent learning it. Without `--pr` this milestone stays network-free — `all`'s pre-pass and a
+  # build session's own `G 4` pass none.
+  if [ ! -f "$rec" ] && [ -n "$VERDICT_PR" ]; then
+    VERDICT_PR="${VERDICT_PR#\#}"
+    case "$VERDICT_PR" in
+      *[!0-9]*|0) envfail "milestone-4: --pr must be a positive integer (got '$VERDICT_PR')." ;;
+    esac
+    case "$(merge_ref_state "$VERDICT_PR")" in
+      never-evaluated)
+        block_milestone 4 "no verdict record at $VERDICT_REL, and CI has never evaluated PR #$VERDICT_PR — refs/pull/$VERDICT_PR/merge is absent (ci_state: never-evaluated), which is usually a PR born conflicting. A review now could only record needs-work, so none is spawned. Get CI to run against the head (bring the base in), then re-enter. Red vs green is not read." 12; return $? ;;
+      unknown)
+        block_milestone 4 "no verdict record at $VERDICT_REL, and PR #$VERDICT_PR's merge ref could not be read (ci_state: unknown) — whether CI ever evaluated the head is not known, and a review is not spawned on a guess." 2; return $? ;;
+    esac
   fi
   [ -f "$rec" ] || { block_milestone 4 "no committed verdict record at $VERDICT_REL — hand off to '/dev-pipeline:review <pr>'. If this run wrote an intent-gap record, ratify it before that handoff: the merge boundary refuses one still reading 'ratified: no'." 5; return $?; }
   v_val="$(record_verdict "$rec")"
@@ -5500,6 +5560,22 @@ cmd_verdict() {
     ''|*[!0-9]*|0) envfail "verdict: --rounds must be a positive integer (got '$VERDICT_ROUNDS')." ;;
   esac
 
+  # ZERO CI (#640). Read before every other refusal, because it is the one no edit to the round's
+  # own work can clear. `needs-work` stays writable at every state — a round may find a real
+  # defect by hand, as #597 r1 did — so only `approve` is refused, and the state is stamped into
+  # the record either way for the merge boundary, which cannot observe the ref itself.
+  VERDICT_CI_STATE="$(merge_ref_state "$VERDICT_PR")"
+  if [ "$VERDICT_VALUE" = "approve" ]; then
+    case "$VERDICT_CI_STATE" in
+      never-evaluated)
+        warn "✗ verdict: approve refused — refs/pull/$VERDICT_PR/merge is absent, so CI has never evaluated PR #$VERDICT_PR's head (ci_state: never-evaluated). Only whether CI ran is read here, never whether it was red or green."
+        warn "  Do not re-run for an approve: stop, and the lane re-enters once CI has run (a PR born conflicting has no merge ref until the base is brought in). A needs-work verdict for a blocker found by hand is still writable."
+        return 1 ;;
+      unknown)
+        envfail "verdict: approve refused — PR #$VERDICT_PR's merge ref could not be read from '${LANE_PR_REMOTE:-origin}' (ci_state: unknown), so whether CI ever evaluated the head is not known. An environment refusal, not a verdict: restore access to the remote and re-run." ;;
+    esac
+  fi
+
   # DESIGN FIDELITY (#394, D-7). Defaults to `not-applicable`, which is the FAIL-CLOSED side: on an
   # armed run milestone 4 demands `pass`, so a round that forgot the flag is refused rather than
   # certifying a design it never looked at. On an unarmed run the default is simply the truth.
@@ -5792,6 +5868,10 @@ cmd_verdict() {
     # because `none` remains the value BOTH readers must go on parsing: records committed before
     # that refusal carry it legitimately.
     echo "panel: ${VERDICT_PANEL:-none}"
+    # UNCONDITIONAL (#640), for the reason every key above is, and because the merge boundary
+    # reads its ABSENCE as a record predating the key — so a writer that sometimes omitted it
+    # would open that fail-open on purpose.
+    echo "ci_state: $VERDICT_CI_STATE"
     echo "model: ${LANE_RUN_MODEL:-unknown}"
     # THE PRODUCER'S CAPABILITY STAMP (#445), with NO READER TODAY — and shipped anyway, on
     # purpose. A review-side arm bound to a capability will need to place the generation that
@@ -5813,7 +5893,7 @@ cmd_verdict() {
   # header-safe — see lane_format_verdict_record.
   lane_format_verdict_record "$rec"
 
-  say "✓ verdict: $VERDICT_REL written (verdict=$VERDICT_VALUE, run_id=$RESOLVED_RUN_ID, round $VERDICT_ROUNDS, reviewed_head=$reviewed_head, reviewed_patch_id=$reviewed_patch_id, fidelity=$VERDICT_FIDELITY)"
+  say "✓ verdict: $VERDICT_REL written (verdict=$VERDICT_VALUE, run_id=$RESOLVED_RUN_ID, round $VERDICT_ROUNDS, reviewed_head=$reviewed_head, reviewed_patch_id=$reviewed_patch_id, fidelity=$VERDICT_FIDELITY, ci_state=$VERDICT_CI_STATE)"
   if [ -n "$inherited_patch_id" ]; then
     say "  inheriting the coverage of patch $(printf '%.12s' "$inherited_patch_id") — this round's own reading is the delta since that tree."
   else

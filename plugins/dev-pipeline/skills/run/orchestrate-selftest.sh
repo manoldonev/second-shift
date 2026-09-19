@@ -608,8 +608,8 @@ else fail "(b2) the resolved PR was not reported: $out"; fi
 
 # ---- (c) the gate runs in the lane WORKTREE, with no ambient run id --------------------------
 if grep -q "^CWD: $WORK/wt$" "$GATE_LOG_DIR/call-1" 2>/dev/null \
-   && grep -q '^ARGV: 4 7$' "$GATE_LOG_DIR/call-1" 2>/dev/null; then
-  pass "(c1) the verdict gate is invoked as '4 <issue>' from the lane worktree, not the main checkout"
+   && grep -q '^ARGV: 4 7 --pr 11$' "$GATE_LOG_DIR/call-1" 2>/dev/null; then
+  pass "(c1) the verdict gate is invoked as '4 <issue> --pr <n>' from the lane worktree, not the main checkout"
 else fail "(c1) gate call 1 was wrong: $(cat "$GATE_LOG_DIR/call-1" 2>/dev/null)"; fi
 
 if ! grep -q '^RUN_ID_SET: yes$' "$GATE_LOG_DIR/call-1" 2>/dev/null; then
@@ -1351,8 +1351,8 @@ else fail "(r5) expected 4 gate calls and 0 recording-path calls, got rc=$rc / $
 # ...and the seam is asserted on the CALL, not only through the fake's bookkeeping, so a rename of
 # the variable cannot pass this by accident.
 if grep -q '^OBSERVE: 1$' "$GATE_LOG_DIR/call-1" 2>/dev/null \
-   && grep -q '^ARGV: 4 7$' "$GATE_LOG_DIR/call-1" 2>/dev/null; then
-  pass "(r6) the verdict gate is invoked as '4 <issue>' with the observe seam set"
+   && grep -q '^ARGV: 4 7 --pr 11$' "$GATE_LOG_DIR/call-1" 2>/dev/null; then
+  pass "(r6) the verdict gate is invoked as '4 <issue> --pr <n>' with the observe seam set"
 else fail "(r6) the verdict call carried no observe seam: $(cat "$GATE_LOG_DIR/call-1" 2>/dev/null)"; fi
 
 # The positive control for (r5): the fake DOES record when the seam is absent. Without it, a fake
@@ -1708,6 +1708,29 @@ if [ "$rc" -eq 2 ] && [ "$(spawn_count)" -eq 1 ] \
   pass "(vr3) rc=2 hard-stops before the REVIEW spawn — a review cannot clear a gate that never evaluated one"
 else fail "(vr3) expected rc=2 with no review spawn, got rc=$rc / $(spawn_count): $(all_argv)
 $out"; fi
+
+# rc=12 (#640 AC-4): CI has never evaluated the PR, so an approve cannot be written and a review
+# could only spend a round learning it. It stops ahead of the spawn like 2 and 3 — no REVIEW, no
+# BUILD re-spawn, no second round — and the verdict read is the one that names the PR.
+setup_case "" "12" "ready-for-dev" "11"
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 1 ] && [ "$(spawn_count)" -eq 1 ] && [ "$(gate_count)" -eq 1 ] \
+   && ! grep -q 'dev-pipeline:review' <<<"$(all_argv)" \
+   && [ "$(slug_of "$out")" = "ci-never-evaluated" ] \
+   && ! grep -q 'round 2 of' <<<"$out" \
+   && grep -q -- '--pr 11' "$GATE_LOG_DIR/call-1"; then
+  pass "(vr5) rc=12 stops ci-never-evaluated before the REVIEW spawn — one BUILD, no review, no second round, and the read named the PR"
+else fail "(vr5) expected rc=1 / 1 spawn / slug ci-never-evaluated / --pr 11 on the read, got rc=$rc / $(spawn_count) / '$(slug_of "$out")' / $(grep ARGV "$GATE_LOG_DIR/call-1" 2>/dev/null): $out"; fi
+
+# The same code AFTER a review (the ref vanished while it ran and the writer refused its
+# approve) is the same stop — not the class-5 re-spawn, not a fix round.
+setup_case "" $'5\n12' "ready-for-dev" "11"
+out="$(run_tool "$CFG" "$ISSUE" --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 1 ] && [ "$(spawn_count)" -eq 2 ] \
+   && [ "$(slug_of "$out")" = "ci-never-evaluated" ] \
+   && [ "$(grep -l 'dev-pipeline:build' "$SPAWN_LOG_DIR"/spawn-* 2>/dev/null | wc -l | tr -d ' ')" -eq 1 ]; then
+  pass "(vr6) rc=12 after the review is the same ci-never-evaluated stop — no second REVIEW, no BUILD re-spawn"
+else fail "(vr6) expected rc=1 / 2 spawns / slug ci-never-evaluated, got rc=$rc / $(spawn_count) / '$(slug_of "$out")': $out"; fi
 
 # NON-VACUITY for the whole block. (u2) already proves rc=5 spawns a review; this proves the two
 # new routes are keyed on the CODE and not on some incidental property of the fixture — the same

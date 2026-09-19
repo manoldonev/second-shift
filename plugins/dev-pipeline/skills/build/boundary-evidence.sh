@@ -986,6 +986,23 @@ VERDICT_RUN_ID=""
 VERDICT_SESSION_ID=""
 VERDICT_REVIEWED_PATCH_ID=""
 VERDICT_REVIEWED_HEAD=""
+VERDICT_CI_STATE=""
+
+# The `ci_state:` value (#640), header-anchored. The writer emits it unconditionally, but a record
+# predating the key has no authentic occurrence, and an unanchored read would let the reviewer's
+# own body supply one.
+ci_state_key() { # ci_state_key   (record on stdin)
+  awk '
+    /^[A-Za-z_][A-Za-z0-9_]*[:=]/ { hdr = 1 }
+    hdr && /^[[:space:]]*$/       { exit }
+    hdr && /^ci_state:/ {
+      sub(/^ci_state:[[:space:]]*/, "")
+      sub(/[[:space:]]+$/, "")
+      printf "%s", $0
+      exit
+    }
+  '
+}
 
 load_verdict() {
   VERDICT="$(find_artifact "$KEY" "$LANE_VERDICT_SUFFIX")" || VERDICT=""
@@ -1003,6 +1020,7 @@ load_verdict() {
   # already-merged record already carries it and none of them needs a re-stamp for this boundary to
   # gain the escape hatch. `reviewed_patch_id:` does not contain the substring `reviewed_head:`.
   VERDICT_REVIEWED_HEAD="$(record_key reviewed_head "$REPO_ROOT/$VERDICT")"
+  VERDICT_CI_STATE="$(ci_state_key < "$REPO_ROOT/$VERDICT")"
   return 0
 }
 
@@ -1018,6 +1036,15 @@ arm_verdict() {
     || note_violation "verdict record '$VERDICT' carries no run_id reconciliation key, so its authorship cannot be separated from the build run's."
   [ -n "$VERDICT_SESSION_ID" ] \
     || note_violation "verdict record '$VERDICT' carries no session_id reconciliation key — the review session that produced it cannot be located, so nothing outside the record itself attests the review ran."
+
+  # ZERO CI (#640). This boundary runs in a checkout of the PR's merge ref, so when CI never
+  # evaluated the head it never runs at all — re-deriving the ref here would be vacuous. What it
+  # CAN refuse is an approve whose writer stamped that it saw no merge ref, or could not read one.
+  # AN ABSENT KEY PASSES: a record written before the key existed carries none, and refusing it
+  # would red every open lane PR the day this lands (fail-open row in scripts/fail-open-sites.tsv).
+  if [ "$VERDICT_VALUE" = "approve" ] && [ -n "$VERDICT_CI_STATE" ] && [ "$VERDICT_CI_STATE" != "evaluated" ]; then
+    note_violation "verdict record '$VERDICT' approves at 'ci_state: $VERDICT_CI_STATE' — its writer saw no evidence CI ever evaluated the PR's head (never-evaluated: the merge ref was absent; unknown: it could not be read). An approve needs 'evaluated'; re-run the review once CI has run."
+  fi
 
   # THE PER-AC SCORECARD (#622). Reconciled against the SPEC, because the declared AC set is the
   # only thing that can say whether a record is silent about a criterion — the record alone can

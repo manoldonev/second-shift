@@ -88,6 +88,23 @@ trap cleanup EXIT
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/leangate.XXXXXX")"
 WORK="$(cd "$WORK" && pwd -P)"
 
+# THE PR REMOTE (#640). The verdict writer and milestone 4's `--pr` form list
+# refs/pull/<n>/{head,merge} on LANE_PR_REMOTE, and a fixture tree has no GitHub behind it. Every
+# case gets a local bare repository serving both refs for every PR number, so an approve reads
+# `ci_state: evaluated` and the suite stays offline; the zero-CI cases build their own.
+mk_pr_remote() { # mk_pr_remote <dir> <head|merge> <pr...>
+  local d="$1" kind="$2" c pr; shift 2
+  git init -q --bare "$d" || return 1
+  c="$(git -C "$d" -c user.name=fixture -c user.email=fixture@example.invalid \
+         commit-tree "$(git -C "$d" hash-object -t tree -w --stdin </dev/null)" -m pr-refs)" || return 1
+  for pr in "$@"; do
+    echo "create refs/pull/$pr/head $c"
+    [ "$kind" = merge ] && echo "create refs/pull/$pr/merge $c"
+  done | git -C "$d" update-ref --stdin
+}
+mk_pr_remote "$WORK/pr-remote-evaluated.git" merge $(seq 1 999) || { echo "cannot build the PR remote fixture" >&2; exit 2; }
+export LANE_PR_REMOTE="$WORK/pr-remote-evaluated.git" MERGE_REF_BACKOFF=0
+
 # ---------------------------------------------------------------- the tracker stub (#611)
 # `entry`/`claim` now READ the ticket at the run boundary, so every case in this file that
 # attests would otherwise open a socket — against a repo the fixture does not have. The stub is
@@ -2707,6 +2724,8 @@ verdict_cmd() { # verdict_cmd <session-id> <run-id|""> [args...]
   fi
 }
 
+header_ci_state() { awk '/^[A-Za-z_][A-Za-z0-9_]*[:=]/{h=1} h&&/^[[:space:]]*$/{exit} h&&/^ci_state:/{sub(/^ci_state:[[:space:]]*/,"");print;exit}' "$VERDICT" 2>/dev/null; }
+
 seed_build_progress r-build-1 sess-build-1
 rm -f "$VERDICT" "$REVIEW_CACHE" "$RUN_ID_CACHE"
 
@@ -2763,6 +2782,84 @@ commit_tree "review session commits its record"
 out="$(gate 4 7)"; rc=$?
 if [ "$rc" -eq 0 ]; then pass "(p7) milestone-4 accepts the record written by the review role"
 else fail "(p7) expected rc=0 from milestone-4 on a review-written record, got $rc: $out"; fi
+
+# ---- (zc) #640: an approve may not stand at zero CI --------------------------------------------
+# The writer reads refs/pull/<n>/{head,merge} on LANE_PR_REMOTE. Three remotes: the suite's own
+# (both refs, every PR — `evaluated`), one serving only PR 12's head (`never-evaluated` for 12, and
+# `unknown` for any other PR, since a remote with no head ref proves nothing), and a path that is
+# not a repository at all (`unknown`: the listing fails).
+mv "$VERDICT" "$WORK/held-zc-verdict.md"
+ZC_HEAD_ONLY="$WORK/pr-remote-head-only.git"
+mk_pr_remote "$ZC_HEAD_ONLY" head 12
+ZC_DEAD="$WORK/pr-remote-absent.git"
+zc_gate4() { ( unset RUN_ID; cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LANE_PROGRESS_FILE="$PROG" \
+  LANE_GATE_OBSERVE=1 bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 4 7 "$@" 2>&1 ); }
+
+out="$(LANE_PR_REMOTE="$ZC_HEAD_ONLY" verdict_cmd sess-review-9 r-review-9 --pr 12 --verdict approve)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'ci_state: never-evaluated' <<<"$out" && grep -q 'red or green' <<<"$out" \
+   && [ ! -f "$VERDICT" ]; then
+  pass "(zc1) AC-1: approve with the merge ref absent is refused, naming never-evaluated and disclaiming red vs green, and writes nothing"
+else fail "(zc1) expected rc=1 naming never-evaluated and no record, got rc=$rc: $out"; fi
+
+out="$(LANE_PR_REMOTE="$ZC_HEAD_ONLY" verdict_cmd sess-review-9 r-review-9 --pr 12 --verdict needs-work)"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(header_ci_state)" = "never-evaluated" ] && grep -qF 'verdict=needs-work' "$VERDICT"; then
+  pass "(zc2) AC-5: needs-work at zero CI still writes, and stamps ci_state: never-evaluated"
+else fail "(zc2) expected a needs-work record stamped never-evaluated, rc=$rc: $out
+$(cat "$VERDICT" 2>/dev/null)"; fi
+rm -f "$VERDICT"
+
+out="$(LANE_PR_REMOTE="$ZC_DEAD" verdict_cmd sess-review-9 r-review-9 --pr 12 --verdict approve)"; rc=$?
+if [ "$rc" -eq 2 ] && grep -q 'ci_state: unknown' <<<"$out" && [ ! -f "$VERDICT" ]; then
+  pass "(zc3) AC-6: approve over an unreadable remote is an environment refusal (rc 2) naming unknown, never read as either state"
+else fail "(zc3) expected rc=2 naming unknown and no record, got rc=$rc: $out"; fi
+
+out="$(LANE_PR_REMOTE="$ZC_HEAD_ONLY" verdict_cmd sess-review-9 r-review-9 --pr 55 --verdict approve)"; rc=$?
+if [ "$rc" -eq 2 ] && grep -q 'ci_state: unknown' <<<"$out"; then
+  pass "(zc4) a remote that serves no head ref for the PR is unknown, not never-evaluated — absence there proves nothing"
+else fail "(zc4) expected rc=2 naming unknown, got rc=$rc: $out"; fi
+
+out="$(LANE_PR_REMOTE="$ZC_DEAD" verdict_cmd sess-review-9 r-review-9 --pr 12 --verdict needs-work)"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(header_ci_state)" = "unknown" ]; then
+  pass "(zc5) D-2: needs-work over an unreadable remote writes, stamping ci_state: unknown"
+else fail "(zc5) expected a needs-work record stamped unknown, rc=$rc: $out"; fi
+rm -f "$VERDICT"
+
+out="$(verdict_cmd sess-review-9 r-review-9 --pr 12 --verdict approve)"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(header_ci_state)" = "evaluated" ]; then
+  pass "(zc6) non-vacuity: with the merge ref present the same approve writes, stamped ci_state: evaluated"
+else fail "(zc6) expected an approve stamped evaluated, rc=$rc: $out"; fi
+rm -f "$VERDICT"
+
+# Milestone 4's scheduler form. Observe mode, so nothing here spends budget.
+out="$(LANE_PR_REMOTE="$ZC_HEAD_ONLY" zc_gate4 --pr 12)"; rc=$?
+if [ "$rc" -eq 12 ] && grep -q 'CI has never evaluated PR #12' <<<"$out"; then
+  pass "(zc7) AC-4: milestone 4 --pr with no record and no merge ref answers class 12"
+else fail "(zc7) expected rc=12, got rc=$rc: $out"; fi
+
+out="$(LANE_PR_REMOTE="$ZC_DEAD" zc_gate4 --pr 12)"; rc=$?
+if [ "$rc" -eq 2 ] && grep -q 'ci_state: unknown' <<<"$out"; then
+  pass "(zc8) D-3: milestone 4 --pr over an unreadable remote answers 2, the scheduler's existing unreadable stop"
+else fail "(zc8) expected rc=2, got rc=$rc: $out"; fi
+
+out="$(zc_gate4 --pr 12)"; rc=$?
+if [ "$rc" -eq 5 ]; then
+  pass "(zc9) non-vacuity: with the merge ref present milestone 4 --pr is the ordinary absent-record class 5"
+else fail "(zc9) expected rc=5, got rc=$rc: $out"; fi
+
+out="$(LANE_PR_REMOTE="$ZC_DEAD" zc_gate4)"; rc=$?
+if [ "$rc" -eq 5 ]; then
+  pass "(zc10) AC-7: without --pr milestone 4 makes no merge-ref read — an unreachable remote changes nothing"
+else fail "(zc10) expected rc=5 with no --pr, got rc=$rc: $out"; fi
+
+# A committed needs-work record wins over the ref: class 12 is a no-record answer only, so the
+# BUILD role still gets its ordinary `fix the blockers` class.
+( LANE_PR_REMOTE="$ZC_HEAD_ONLY" verdict_cmd sess-review-9 r-review-9 --pr 12 --verdict needs-work >/dev/null 2>&1 )
+out="$(LANE_PR_REMOTE="$ZC_HEAD_ONLY" zc_gate4 --pr 12)"; rc=$?
+if [ "$rc" -eq 1 ]; then
+  pass "(zc11) a needs-work record at zero CI is still class 1 — the zero-CI class fires only where no record exists"
+else fail "(zc11) expected rc=1, got rc=$rc: $out"; fi
+rm -f "$VERDICT"
+mv "$WORK/held-zc-verdict.md" "$VERDICT"
 
 # ---- (hb) the P9 hand-back: a ratification blocker writes the intent-gap record, no verdict -----
 # review/SKILL.md 5d. Measured on the private eval substrate's series 1: a review whose only
@@ -8080,14 +8177,16 @@ else fail "(ac1) milestone-4 site mapping drifted: $m4_calls call(s), class sign
 # The literal-prefix `"[a-z]` is what excludes block_obligation's own `block_milestone 5 "$2"`.
 # 10 -> 11 with the P9 hand-back: milestone 4's `handed back` class-11 site is an absent verb on
 # purpose — an unratified pause-and-ask record beside no verdict is waited on, never fixed.
+# 11 -> 13 with #640: milestone 4's `--pr` zero-CI arms (class 12, and class 2 when the merge ref
+# is unreadable) are absent verbs too — CI not having run is waited on, never fixed by BUILD.
 #
 # THIS COUNT IS THE INCLUSION DIRECTION AND NOTHING MORE. It was green across both of round 1's
 # blocker sites, because a `fail_milestone` carrying one of the six predicates leaves it untouched.
 # (ac1c) below is the half that can see that; neither case replaces the other.
 m_block="$(grep -cE 'block_milestone [145] "[a-z]|block_obligation [a-z-]+ "' "$GATE")"
-if [ "$m_block" -eq 11 ]; then
-  pass "(ac1b) #642 AC-3: all 11 announcement-class refusal sites route to the absent verb, over the 6 points the ablation report adjudicates 'unchanged' plus the P9 hand-back"
-else fail "(ac1b) absent-verb site count drifted: $m_block (expected 11) — $(grep -nE 'block_milestone [145] "[a-z]|block_obligation [a-z-]+ "' "$GATE")"; fi
+if [ "$m_block" -eq 13 ]; then
+  pass "(ac1b) #642 AC-3: all 13 announcement-class refusal sites route to the absent verb, over the 6 points the ablation report adjudicates 'unchanged' plus the P9 hand-back and the two zero-CI arms"
+else fail "(ac1b) absent-verb site count drifted: $m_block (expected 13) — $(grep -nE 'block_milestone [145] "[a-z]|block_obligation [a-z-]+ "' "$GATE")"; fi
 
 # ---- (ac1c)/(ac1d) #642 AC-3, round 1: THE EXCLUSION DIRECTION -----------------------------
 # (ac1b) above counts absent-verb sites and asserts a total. That is the INCLUSION direction, and

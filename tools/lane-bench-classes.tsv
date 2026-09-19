@@ -52,6 +52,7 @@ verdict-budget-spent	no-pr	no PR on the lane branch
 verdict-self-authored	pr-unapproved	a PR exists on the lane branch
 verdict-self-authored	no-pr	no PR on the lane branch
 pr-ambiguous	unscorable	-
+ci-never-evaluated	lane-error	-
 build-inflight	lane-error	-
 build-inflight-unreadable	lane-error	-
 closeout-incomplete	lane-error	-

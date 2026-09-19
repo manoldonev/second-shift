@@ -123,8 +123,8 @@ else
       continue
     fi
     case "$rdisp" in
-      converted|safe|out-of-scope|not-a-site) : ;;
-      *) fail "$rfile: unknown disposition '$rdisp' (converted | safe | out-of-scope | not-a-site)"; continue ;;
+      converted|safe|out-of-scope|not-a-site|by-design) : ;;
+      *) fail "$rfile: unknown disposition '$rdisp' (converted | safe | out-of-scope | not-a-site | by-design)"; continue ;;
     esac
     if [[ ! -f "$ROOT/$rfile" ]]; then
       fail "$rfile: dispositioned file does not exist — the row is stale"
@@ -142,6 +142,12 @@ else
     if [[ "$rdisp" == "converted" ]]; then
       if [[ "$hits" -gt 0 ]]; then
         fail "$rfile: row is marked 'converted' but its anchor still covers a live \`| grep -q\` site — the conversion was reverted, or the anchor points at the wrong line"
+      fi
+    elif [[ "$rdisp" == "by-design" ]]; then
+      # A deliberate fail-open that is not a pipeline site (a key-absence fallthrough), so it
+      # claims no enumerated site — and must not, or it would excuse one under the wrong name.
+      if [[ "$hits" -gt 0 ]]; then
+        fail "$rfile: row is marked 'by-design' but its anchor covers a live \`| grep -q\` site — a pipeline site needs 'safe' or a conversion, not a design note"
       fi
     elif [[ "$hits" -eq 0 ]]; then
       fail "$rfile: row disposes of '$ranchor' as '$rdisp', but the enumeration finds no such site — the row outlived what it excused. Drop it, or mark it 'converted'."
