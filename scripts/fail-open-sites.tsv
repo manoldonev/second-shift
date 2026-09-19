@@ -5,7 +5,10 @@
 #   file <TAB> disposition <TAB> anchor <TAB> why
 #
 # file        Repo-root-relative path.
-# disposition converted | safe | out-of-scope | not-a-site
+# disposition converted | safe | out-of-scope | not-a-site | by-design
+#             `by-design` records a DELIBERATE fail-open that is not a `| grep -q` site —
+#             a key whose absence reads as "today's behavior". It is checked like `converted`:
+#             the anchor must resolve, and must not cover a live enumerated site.
 # anchor      A distinctive substring of the site's LINE. Text, never a line number: a
 #             `file:line` key would red on every unrelated edit above it, and a guard that
 #             cries wolf gets baselined away. The anchor must still appear in the file
@@ -44,3 +47,5 @@ plugins/dev-pipeline/tools/checked-call-selftest.sh	not-a-site	pipeline it repla
 scripts/check-changelog-trailer-selftest.sh	not-a-site	if grep -qE 'git log .*--format=%B	The match sits inside a quoted grep PATTERN — that suite greps its gate FOR the shape. There is no pipeline here.
 scripts/check-eval-model-identity-selftest.sh	not-a-site	# run. Deliberately NOT	A comment explaining why the shape was avoided.
 plugins/dev-pipeline/skills/build/milestone-gate-selftest.sh	out-of-scope	git -C "$WNIG" worktree list --porcelain 2>/dev/null | grep -qxF	Selftest-internal, and the sibling of the $WTREE row above. A dead producer inside a test harness reds the suite; it cannot mislead production.
+# --- by-design: deliberate fail-opens that are not pipeline sites ------------------------
+plugins/dev-pipeline/skills/build/boundary-evidence.sh	by-design	[ -n "$VERDICT_CI_STATE" ] && [ "$VERDICT_CI_STATE" != "evaluated" ]	A verdict record with no `ci_state:` key passes the zero-CI arm (#640 AC-3). Records written before the key existed carry none, and refusing on absence would red every open lane PR the day it landed — the `reviewed_patch_id` precedent. The writer emits the key unconditionally, so only a pre-key or hand-edited record takes this path.

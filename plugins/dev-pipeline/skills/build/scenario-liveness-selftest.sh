@@ -102,6 +102,23 @@ TMP=$(mktemp -d -t scenario-liveness.XXXXXX)
 trap 'rm -rf "$TMP"' EXIT INT TERM
 cd "$TMP" || exit 99
 
+# THE PR REMOTE (#640). The verdict writer and milestone 4's `--pr` form list
+# refs/pull/<n>/{head,merge} on LANE_PR_REMOTE, and a fixture tree has no GitHub behind it. Every
+# case gets a local bare repository serving both refs for every PR number, so an approve reads
+# `ci_state: evaluated` and the suite stays offline; the zero-CI cases build their own.
+mk_pr_remote() { # mk_pr_remote <dir> <head|merge> <pr...>
+  local d="$1" kind="$2" c pr; shift 2
+  git init -q --bare "$d" || return 1
+  c="$(git -C "$d" -c user.name=fixture -c user.email=fixture@example.invalid \
+         commit-tree "$(git -C "$d" hash-object -t tree -w --stdin </dev/null)" -m pr-refs)" || return 1
+  for pr in "$@"; do
+    echo "create refs/pull/$pr/head $c"
+    [ "$kind" = merge ] && echo "create refs/pull/$pr/merge $c"
+  done | git -C "$d" update-ref --stdin
+}
+mk_pr_remote "$TMP/pr-remote-evaluated.git" merge $(seq 1 999) || { echo "cannot build the PR remote fixture" >&2; exit 99; }
+export LANE_PR_REMOTE="$TMP/pr-remote-evaluated.git" MERGE_REF_BACKOFF=0
+
 # ─────────────────────────────────────────────────────────────────────────────
 # LEAN LEGS (/dev-pipeline:build) — the composed progress-file line chain and gate exit codes
 # across the three verdict paths.
@@ -633,6 +650,31 @@ LEANPRNS
     pass "(lean-scorecard) a round that scores its own criterion unsatisfied writes NO record and leaves milestone 4 absent; the same round with a conforming scorecard reaches the write and passes"
   else
     fail "(lean-scorecard) bad: rc=$lane_sc_bad record=$lane_sc_bad_rec m4=$lane_sc_bad_m4 (want 1/0/5); ok: rc=$lane_sc_ok m4=$lane_sc_ok_m4 (want 0/0): $lane_sc_bad_out / $lane_sc_ok_out"
+  fi
+
+  # ---- leg 3f: zero CI, composed writer -> milestone 4 (#640) ---------------
+  # CLAUDE.md: a new gate contract extends this scenario. The composed fact: a round whose PR CI
+  # never evaluated writes NO approve, and the scheduler's milestone-4 read of that same tree
+  # answers class 12 (stop, spawn nothing) rather than 5 (spawn a review). The remote serves PR 5's
+  # head and no merge ref. Every `LANE_PR_REMOTE=` prefix sits inside a command substitution, so
+  # it cannot leak past its call. The non-vacuity half is the same tree with the ref present.
+  mk_pr_remote "$TMP/pr-remote-zc.git" head 5
+  lane_seed_progress r-lean-1 sess-lean-build
+  rm -f "$LANE_VERDICT"; lane_commit "no record before the zero-CI round"
+  lane_zc_out="$(LANE_PR_REMOTE="$TMP/pr-remote-zc.git" lane_verdict sess-lean-review-zc r-lean-review-zc "$LANE_SCORECARD")"; lane_zc=$?
+  lane_zc_rec=0; [[ -f "$LANE_VERDICT" ]] && lane_zc_rec=1
+  lane_zc_m4_out="$(LANE_PR_REMOTE="$TMP/pr-remote-zc.git" lane_gate_observe 4 77 --pr 5)"; lane_zc_m4=$?
+  lane_zc_ok_m4_out="$(lane_gate_observe 4 77 --pr 5)"; lane_zc_ok_m4=$?
+  lane_zc_ok_out="$(lane_verdict sess-lean-review-zc2 r-lean-review-zc2 "$LANE_SCORECARD")"; lane_zc_ok=$?
+  lane_commit "review session commits its verdict record"
+  lane_gate 4 77 >/dev/null 2>&1; lane_zc_ok_final=$?
+  if [[ "$lane_zc" -eq 1 && "$lane_zc_rec" -eq 0 && "$lane_zc_m4" -eq 12 \
+        && "$lane_zc_ok_m4" -eq 5 && "$lane_zc_ok" -eq 0 && "$lane_zc_ok_final" -eq 0 ]] \
+     && grep -q 'ci_state: never-evaluated' <<<"$lane_zc_out" \
+     && grep -q '^ci_state: evaluated' "$LANE_VERDICT"; then
+    pass "(lean-zero-ci) with no merge ref the approve writes nothing and the scheduler read is class 12; with the ref, the same round is class 5 before and approves through milestone 4 after"
+  else
+    fail "(lean-zero-ci) zc: rc=$lane_zc record=$lane_zc_rec m4=$lane_zc_m4 (want 1/0/12); ok: m4-before=$lane_zc_ok_m4 rc=$lane_zc_ok m4-after=$lane_zc_ok_final (want 5/0/0): $lane_zc_out / $lane_zc_m4_out / $lane_zc_ok_m4_out / $lane_zc_ok_out"
   fi
 
   # Hand the tree back to the shape the legs below inherit: a hand-written record on the

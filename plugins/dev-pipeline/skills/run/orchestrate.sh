@@ -1353,10 +1353,14 @@ resolve_pr() {
 # every non-approve verdict it merely READ appended a milestone-4 attempt line and spent the build
 # role's fix budget — so the premise that this script writes nothing was false at exactly one site.
 # `LANE_GATE_OBSERVE=1` returns the same taxonomy and records nothing, budget exhaustion included.
+#
+# `--pr` (#640) arms milestone 4's merge-ref read: with no verdict record on a PR CI has never
+# evaluated, it answers 12 instead of 5, so the pre-spawn chain stops the lane before a review is
+# spent learning that an approve cannot be written.
 verdict_rc() {
   local wt
   wt="$(lane_worktree)" || return 3
-  ( cd "$wt" && env -u RUN_ID LANE_GATE_OBSERVE=1 bash "$GATE" 4 "$ISSUE" )
+  ( cd "$wt" && env -u RUN_ID LANE_GATE_OBSERVE=1 bash "$GATE" 4 "$ISSUE" --pr "$PR" )
 }
 
 # #515. Both arms, from MAIN_ROOT and with RUN_ID scrubbed, for two reasons: the branch ref and the
@@ -1571,6 +1575,11 @@ while :; do
     terminal lane-closed-out 0 "done — #$ISSUE closed out on PR #$PR. The lane worktree is gone because teardown removed it and milestone 5 is satisfied, which is a FINISHED run, not a missing one. No REVIEW spawned against an unmoved head (#597 AC-2)."
   elif [ "$rc" -eq 2 ]; then
     terminal verdict-gate-unreadable 2 "the verdict gate could not run against '$BRANCH' (exit 2) — an environment refusal, not a verdict. No REVIEW spawned: a review round cannot clear a gate that never evaluated one."
+  elif [ "$rc" -eq 12 ]; then
+    # #640 D-1. CI has never evaluated PR #$PR's head (its merge ref is absent), and the writer
+    # refuses an approve in that state — so a review could only cost a round to learn it. The
+    # remedy is getting CI to run, which is the operator's; re-entry from the top is cheap.
+    terminal ci-never-evaluated 1 "STOPPED: CI has never evaluated PR #$PR — refs/pull/$PR/merge is absent, usually a PR born conflicting. An approve cannot be recorded in that state, so no REVIEW was spawned and no round spent. Get CI to run against the head (bring the base in), then re-launch; the worktree and the claim are left in place."
   else
     review_retries=0
     while :; do
@@ -1635,6 +1644,9 @@ while :; do
     # is nothing to fix) is spent. Series 1 on the private eval substrate measured the alternative:
     # a `needs-work` per round on the same ratification blocker until `rounds-spent`.
     11) terminal review-paused 1 "PAUSED: the branch carries an unratified pause-and-ask intent-gap record and no verdict — the round was handed back for a human ruling (P9). Ratify the record (an operator comment on #$ISSUE, then 'ratified: yes' plus that URL in 'ratified_by:', committed to the PR head), then re-enter from the top; the worktree and the claim are left in place." ;;
+    # The same stop after a review: the ref vanished while it ran, and the writer refused the
+    # approve it would otherwise have recorded.
+    12) terminal ci-never-evaluated 1 "STOPPED: CI has never evaluated PR #$PR — refs/pull/$PR/merge is absent, so the review could not record an approve. No further REVIEW spawned and no round spent. Get CI to run against the head (bring the base in), then re-launch; the worktree and the claim are left in place." ;;
     6) terminal verdict-self-authored 6 "HARD STOP: the verdict record is authored by the build run or the build session (P10) — generation may not author its own evaluation, and that is not something a retry can clear. No round spent, nothing re-spawned. The merge boundary refuses this record too; produce one from a separate review session." ;;
     4) terminal verdict-budget-spent 4 "HARD STOP: the verdict gate exhausted its fix budget. No rescue attempt — re-entry is from the top." ;;
     # 2 and 3 are deliberately absent here: #597 D-1 routes both AHEAD of the REVIEW spawn above,

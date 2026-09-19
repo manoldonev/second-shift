@@ -113,6 +113,28 @@ if [[ $rc -ge 1 ]] && grep -q "marked 'converted' but its anchor still covers a 
   ok "(g5) a reverted conversion -> red; 'converted' is a claim the enumeration can refute"
 else bad "(g5) expected the reverted-conversion red, rc=$rc: $out"; fi
 
+# `by-design` (#640): a deliberate fail-open that is not a pipeline site. Accepted beside the
+# fixture's dispositioned site when its anchor resolves to a non-site line...
+D="$(new_fixture bydesign)"
+# shellcheck disable=SC2016  # the fixture line is literal shell, never expanded here.
+echo '[ -n "$KEY" ] || exit 0' >> "$D/tools/probe.sh"
+# shellcheck disable=SC2016  # same literal, as the row's anchor.
+printf 'tools/probe.sh%sby-design%s[ -n "$KEY" ] || exit 0%sfixture: absent key passes.\n' \
+  "$TAB" "$TAB" "$TAB" >> "$D/scripts/fail-open-sites.tsv"
+out="$(run_guard "$D")"; rc=$?
+if [[ $rc -eq 0 ]]; then
+  ok "(g5b) a 'by-design' row anchored on a non-site line -> clean"
+else bad "(g5b) expected clean, rc=$rc: $out"; fi
+
+# ...and refused when its anchor is a live `| grep -q` site, which it would otherwise excuse.
+D="$(new_fixture bydesign-site)"
+printf '# fixture table\ntools/probe.sh%sby-design%ssome-producer --list | grep -q wanted%sfixture: misfiled site.\n' \
+  "$TAB" "$TAB" "$TAB" > "$D/scripts/fail-open-sites.tsv"
+out="$(run_guard "$D")"; rc=$?
+if [[ $rc -ge 1 ]] && grep -q "marked 'by-design' but its anchor covers a live" <<<"$out"; then
+  ok "(g5c) a 'by-design' row covering a live site -> red; it is not a way to excuse a pipeline"
+else bad "(g5c) expected the by-design-covers-site red, rc=$rc: $out"; fi
+
 D="$(new_fixture baddisp)"
 printf '# fixture table\ntools/probe.sh%sprobably-fine%ssome-producer --list | grep -q wanted%sfixture.\n' \
   "$TAB" "$TAB" "$TAB" > "$D/scripts/fail-open-sites.tsv"

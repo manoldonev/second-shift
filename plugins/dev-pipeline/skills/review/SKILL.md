@@ -163,6 +163,10 @@ the code does not author its own evaluation.
    round back, so the refusal is the second line of defence, not the first. Hand-edit none of them
    (quoting a key in the summary is safe — readers take the header), and do not run this from the
    main checkout: the record would name a patch you never reviewed.
+   If the gate refuses the approve at `ci_state: never-evaluated`, CI has never run on this PR:
+   do not retry it and do not rewrite a clean round as `needs-work` to get a record through. Post
+   the refusal as the PR comment and stop — the lane re-enters once CI has run. A blocker you found
+   by hand is still a `needs-work` record.
 7. Commit and push the record to the PR's head branch through `bot-commit.sh`, and let it be
    the **last** commit on the branch. It is evidence only once committed — nothing local
    reaches CI — and it is PATCH-BOUND: the merge boundary and `reconcile.sh` both recompute
