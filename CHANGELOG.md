@@ -4,6 +4,32 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v14.0.2
+
+### `audit-toolkit` 5.0.0 → 5.0.1
+
+- **docs: describe what ships — ask, build, review (#862)** (#862)
+  the README, marketplace description and three skill sentences
+  now describe what ships (ask, build, review) instead of a merge-boundary
+  proof and a mutation figure. No behavior change.
+  Migration: none.
+
+### `dev-pipeline` 14.0.1 → 14.0.2
+
+- **docs: describe what ships — ask, build, review (#862)** (#862)
+  the README, marketplace description and three skill sentences
+  now describe what ships (ask, build, review) instead of a merge-boundary
+  proof and a mutation figure. No behavior change.
+  Migration: none.
+
+### `review-toolkit` 8.0.2 → 8.0.3
+
+- **docs: describe what ships — ask, build, review (#862)** (#862)
+  the README, marketplace description and three skill sentences
+  now describe what ships (ask, build, review) instead of a merge-boundary
+  proof and a mutation figure. No behavior change.
+  Migration: none.
+
 ## v14.0.1
 
 ### `design-toolkit` 5.0.0 → 5.0.1
