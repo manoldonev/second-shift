@@ -5,7 +5,7 @@
     "url": "https://github.com/manoldonev"
   },
   "metadata": {
-    "description": "The dev team that works while you're away. It asks before it builds, and writes down who decided what: open decisions go to you one at a time and are recorded, and a separate session reviews the result and commits its verdict. Generic tooling only; each consumer repo supplies one config file and optional knowledge files.",
+    "description": "The dev team that works while you’re away. It asks before it builds, and writes down who decided what: open decisions go to you one at a time and are recorded, and a separate session reviews the result and commits its verdict. Generic tooling only; each consumer repo supplies one config file and optional knowledge files.",
     "version": "14.0.2"
   },
   "plugins": [
