@@ -1,6 +1,8 @@
 # second-shift
 
-> Open-source plugins for Claude Code: ask, build, review.
+> The dev team that works while you're away.
+>
+> *It asks before it builds, and writes down who decided what.*
 
 **second-shift** asks, builds and reviews. Before the agent builds, it puts the open design decisions to you one at a time and records your answers in the spec. It then takes the ticket to a pull request, and a separate session, not the one that wrote the code, reviews it and commits its verdict to the branch. Every install gets both records: the decisions you made, and a review its author did not write. Opt-in: design-fidelity review when a design provider is configured, a cost block on the PR, and a CI merge check that reads the records. The merge button stays yours.
 
