@@ -1,6 +1,10 @@
+<p align="center">
+  <img src="docs/second-shift-hero-v5.png" alt="second-shift — the dev team that works while you’re away. It asks before it builds, and writes down who decided what." width="900">
+</p>
+
 # second-shift
 
-> The dev team that works while you're away.
+> The dev team that works while you’re away.
 >
 > *It asks before it builds, and writes down who decided what.*
 
