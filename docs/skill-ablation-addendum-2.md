@@ -1,5 +1,7 @@
 # Skill-vs-bare-session ablation — addendum 2: the `review-lead`-loaded re-measurement of U-5 and R-3
 
+> Population: dogfood repo only; not evidence about consumer repos.
+
 **This file EXTENDS the frozen protocol and [`docs/skill-ablation-addendum.md`](skill-ablation-addendum.md);
 it amends neither.** Registered 2026-09-07, before any run of the arm it governs exists. Where a
 frozen rule or an addendum-1 rule already governs, **that rule wins**, and this file mirrors it

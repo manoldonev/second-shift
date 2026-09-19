@@ -1,5 +1,7 @@
 # Reviewer panel — return rate, yield and cost (#661)
 
+> Population: dogfood repo only; not evidence about consumer repos.
+
 What each `review-lead` panelist returned for what it cost, over a pinned corpus of review rounds,
 and the per-class dispatch decision that follows. Filed under #661 as the measurement that must
 exist *before* a dispatch change; the routing edit that consumes it is #667's.

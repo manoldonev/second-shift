@@ -11,7 +11,7 @@
 # (docs/testing.md) already accepted within-a-day detection as the trade for keeping it off the
 # PR lane, but a clock is the least relevant trigger for it: the guard's answer only moves when
 # packaging/layout changes or a release is cut, and its red was rotting on a cron dashboard
-# nobody here reads — the mutation nightly hit the same failure mode, independently.
+# nobody here reads.
 #
 # TRIGGERS. Three, each answering "did the layout this guard reproduces just change":
 #   - push to main, filtered to the packaging/layout paths below — a narrow filter, not

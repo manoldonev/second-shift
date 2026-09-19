@@ -49,10 +49,7 @@
 # The nightly wholesale sweep (.github/workflows/nightly-guards.yml) runs with no --cache-dir at
 # all, so an under-declaration surfaces within a day against a tree nobody is waiting on.
 #
-# THIS INVERTS tools/mutation-sweep.sh's cache, whose idiom the hashing and marker mechanics here
-# are lifted from: that one is local-only and disables itself in the enforcing lane, because CI is
-# the authority there and must run cold. Here CI is the thing being sped up, and the authority is
-# the nightly leg.
+# CI is the thing being sped up here, and the authority is the nightly leg.
 #
 # USAGE
 #   run-selftests.sh [--exclude <repo-relative-path>]... [--jobs <n>] [--root <dir>]
@@ -60,8 +57,7 @@
 #
 #   --exclude     repeatable. Lifts a suite out of THIS sweep while leaving it discovered, so it
 #                 can run in its own CI job. An exclusion matching no discovered suite is a HARD
-#                 ERROR — the same stale-row posture mutation-baseline.tsv already carries,
-#                 applied to a stale workflow argument.
+#                 ERROR — a stale workflow argument fails loudly, not silently.
 #   --full        do NOT apply tools/selftest-suite-timings.tsv. The sweep of record passes this;
 #                 see #566 below for why the table is on by default and the opt-out is explicit.
 #   --jobs        concurrency; defaults to $SELFTEST_JOBS, itself defaulting to 4 (the recipe).
@@ -203,9 +199,7 @@ ROOT="$(cd "$ROOT" && pwd)"
 # suites it has never measured. Absent, every suite is treated as fast.
 #
 # THE THRESHOLD HAS ONE HOME (#641, carried over from #629): the table's own
-# `# threshold-seconds` directive, read here and by tools/check-sweep-bound.sh so the two
-# cannot drift onto different numbers. mutation-sweep.sh's separate, hardcoded 5s bar means the
-# table also carries rows below THIS threshold — filtered out here at read time.
+# `# threshold-seconds` directive. A row below it is filtered out here at read time.
 SLOW_SUITES="$ROOT/tools/selftest-suite-timings.tsv"
 if [[ "$FULL" -eq 0 && -f "$SLOW_SUITES" ]]; then
   SLOW_THRESHOLD_S="$(sed -n "s/^# threshold-seconds${TAB}\\([0-9][0-9]*\\)[[:space:]]*\$/\\1/p" "$SLOW_SUITES" | head -1)"
@@ -222,12 +216,6 @@ if [[ "$FULL" -eq 0 && -f "$SLOW_SUITES" ]]; then
   done < "$SLOW_SUITES"
 fi
 
-# "a whole number", and NOT the longer phrasing tools/mutation-sweep.sh uses for the same check:
-# that wording embeds one of the two tokens the equality operator in tools/mutation-operators.tsv
-# enumerates, so the sweep reads a die MESSAGE as a mutation site. The flip then lands in prose
-# nothing can kill, burning one of that operator's two budgeted ordinals and displacing a real
-# comparison out of the swept window. (This comment is under the same constraint, and says so
-# rather than naming the tokens: an explanation that spells them out recreates the site twice.)
 [[ "$CACHE_MAX" =~ ^[0-9]+$ ]] || die "SELFTEST_CACHE_MAX must be a whole number, got: $CACHE_MAX"
 # --cache-write without a store is a workflow that THINKS it is recording passes and is not.
 # Refusing beats accepting it: a lane silently recording nothing looks identical to a lane whose
@@ -250,8 +238,8 @@ fi
 #
 # RECORDING IS ON for this path, which is the one place it departs from CI's split. CI withholds
 # --cache-write from the PR lane because there an untrusted branch would record into a store
-# other runs read; this store is machine-local and records the operator's own tree, the posture
-# tools/mutation-sweep.sh's cache already takes. And a store that is never written can never be
+# other runs read; this store is machine-local and records the operator's own tree. And a store
+# that is never written can never be
 # served from: the pipeline's whole case is the SECOND sweep of an unmoved head.
 CACHE_FROM_ENV=0
 if [[ -z "$CACHE_DIR" && -n "${LANE_SELFTEST_CACHE_DIR:-}" ]]; then
@@ -262,7 +250,7 @@ if [[ -z "$CACHE_DIR" && -n "${LANE_SELFTEST_CACHE_DIR:-}" ]]; then
 fi
 
 # ---- hashing -------------------------------------------------------------------------
-# The picker tools/mutation-sweep.sh already carries: shasum ships with macOS and with the
+# shasum ships with macOS and with the
 # ubuntu runner's perl, sha256sum is coreutils. `git hash-object` needs no repository — it is a
 # pure blob hash — which is what lets a fixture tree outside any repo exercise this. If either
 # tool is missing the cache disables itself rather than keying on something weaker: a cache that
@@ -472,7 +460,7 @@ cache_manifest() { # $1 = suite relpath -> writes $BASE/cache-manifest/<slug>; 1
 
 cache_marker() { printf '%s/%s/%s' "$CACHE_DIR" "${1:0:2}" "$1"; }
 
-# FAIL SAFE, the same posture mutation-sweep.sh's cache_get takes: anything that is not exactly
+# FAIL SAFE: anything that is not exactly
 # the one well-formed record line is a MISS, and a miss costs a real run. There is deliberately
 # no path here that turns an unreadable or truncated marker into a pass.
 cache_hit() { # $1 = key
@@ -597,10 +585,8 @@ while IFS="$TAB" read -r idx suite key; do
   if [[ -f "$BASE/hits/$idx" ]]; then
     CACHED=$((CACHED + 1))
     # The elapsed field is a literal dash, never a number and never blank. A cached suite did
-    # not run, so it HAS no elapsed — and tools/check-sweep-bound.sh reds on a field it cannot
-    # parse rather than treating an unmeasured suite as a free one. The nightly lane that runs
-    # that check passes no store at all, so this arm never reaches it; the dash is what keeps
-    # that a fact about the log rather than an assumption about the caller.
+    # not run, so it HAS no elapsed — and a dash cannot be mistaken for a measured time, so a
+    # reader of the log never takes an unmeasured suite for a free one.
     echo "::group::cached  -  $suite"
     echo "[run-selftests] cache hit — this exact content already passed on this lane, so the suite was not re-run."
     echo "[run-selftests]   key: $key"

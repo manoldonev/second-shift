@@ -7,8 +7,8 @@
 # on the contiguity of the replayed blocks.
 #
 # TMPDIR IS UNSET for every invocation. The runner allocates its scratch under
-# `${TMPDIR:-/tmp}`, and mutation-sweep's killers export TMPDIR — leaving it inherited would
-# make the default arm of that expansion unreachable and its mutants unkillable.
+# `${TMPDIR:-/tmp}` — leaving TMPDIR inherited would make the default arm of that expansion
+# unreachable from this suite.
 set -uo pipefail
 
 FAILS=0
@@ -1015,10 +1015,9 @@ run_runner "$RE2" --cache-dir "$BASE/blocker/store"
 # #629/AC-1 — every frame line carries the suite's elapsed seconds, and the exit-code contract
 # is untouched by it.
 #
-# THE SUB-SECOND ARM IS THE ONE THAT MATTERS. tools/check-sweep-bound.sh sums these across ~60
-# suites, most of which finish inside a second; an emitter that rounded those to 0 would let the
-# un-deferred set grow by half a minute without its total moving, which is the exact drift the
-# sum exists to see. So a suite that takes no measurable time is charged ONE second, and that is
+# THE SUB-SECOND ARM IS THE ONE THAT MATTERS. Most suites finish inside a second; an emitter
+# that rounded those to 0 would let a log summed across ~60 suites understate the un-deferred
+# set by half a minute. So a suite that takes no measurable time is charged ONE second, and that is
 # asserted as a literal rather than as "some number".
 #
 # The failing suite is here for two reasons: its frame must carry the time AND still carry

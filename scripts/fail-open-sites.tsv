@@ -33,7 +33,6 @@ plugins/second-shift/skills/doctor/tools/scope-shadows.sh	safe	cut -f1 <<< "$row
 # --- out-of-scope: as the ticket scopes them ----------------------------------------------
 plugins/dev-pipeline/skills/build/milestone-gate-selftest.sh	out-of-scope	git -C "$WTREE" worktree list --porcelain 2>/dev/null | grep -qxF	Selftest-internal. A dead producer inside a test harness reds the suite; it cannot mislead production.
 plugins/dev-pipeline/skills/build/scenario-liveness-selftest.sh	out-of-scope	| grep -q "run '$RE_RUN'"	Selftest-internal.
-tools/mutation-sweep-selftest.sh	out-of-scope	head -1 "$FX/report.tsv" | grep -q	Selftest-internal.
 plugins/dev-pipeline/tools/checked-call-selftest.sh	out-of-scope	say_nomatch 2>/dev/null | grep -qi -e playwright	The replaced shape, executed ON PURPOSE by case (c10) so the collapse it has is pinned by a run rather than asserted in a comment.
 plugins/dev-pipeline/tools/checked-call-selftest.sh	out-of-scope	die_7 2>/dev/null | grep -qi -e playwright	The other half of that same demonstration — the arm whose rc must equal the one above.
 # --- not-a-site: the recipe's own textual false positives, recorded not filtered -----------

@@ -1,6 +1,29 @@
 # second-shift — repo conventions
 
-This repo IS the second-shift marketplace, and it consumes itself as the dogfooding canary.
+This repo IS the second-shift marketplace. It consumes itself as a smoke test, not as evidence:
+what the product should do is measured on consumer repos' committed records.
+
+## The guiding light: no silent decisions
+
+*"Model for intelligence, harness for law, ledger for memory."* In plain words: *"No silent
+decisions. Every material decision in a ticket has a named owner — the ticket, a human's answer,
+the codebase, or an explicit deferral — and a departure the agent discloses still needs a human's
+signature before it merges: telling is not deciding. Ask, build and review all serve that one
+idea; we hold that the asking is the make-or-break step, and we have dated the test that could
+prove it wrong. We develop it against what consumer records show, never against this repo's own
+lane."*
+
+**Admission.** A ticket enters the lane only with (a) a row id from the operator's consumer
+scoreboard that is a blocker or an extra round, or (b) a failure of documented shipped behavior
+reproduced in a consumer run or from a consumer clone's `origin/main`. A red seen only in this
+repo's dogfood lane, the lane bench or the selftests is fixed by hand or not filed.
+
+**Only the operator queues or launches the lane in this repo.** A session never applies
+`ready-for-dev` (intake slices use the no-queue-label form), never records an unintaken-gate
+operator override, never runs `orchestrate.sh`, and never invokes `/dev-pipeline:build` or the
+gate's `entry` / `claim` on a ticket the operator has not queued; on the scheduler's exit 3 it
+stops. It writes the admission evidence into the ticket body and stops. A new file under
+`tools/` or `scripts/` merges only if the same PR deletes a larger one.
 
 ## Never edit release artifacts in a feature PR
 
@@ -54,8 +77,9 @@ patch.
 
 ## A bench finding about how sessions are launched is fixed in the scheduler
 
-When the lane bench (`tools/lane-bench*.sh`) finds that a spawned session cannot run as launched
-(a prompt it cannot answer, a missing grant, a wrong flag), the fix lands in
+The admission rule above decides whether a bench finding is worked at all. When one is, and the
+lane bench (`tools/lane-bench*.sh`) found that a spawned session cannot run as launched (a prompt
+it cannot answer, a missing grant, a wrong flag), the fix lands in
 `plugins/dev-pipeline/skills/run/orchestrate.sh`. A `LANE_ARM_*` knob in the bench wrapper may
 carry it for a cell, but never as the only fix: the bench fixed `EnterWorktree` that way
 in #818, and the scheduler shipped without the fix until real runs stopped as `blocked`.
@@ -75,7 +99,7 @@ call requesting 600000ms was still SIGKILLed at exactly 2m 0s (re-measured 2026-
 the harness's `run_in_background`: it stays harness-tracked, so it is collected in the same turn
 rather than abandoned at turn end. A *bare* backgrounded command is not that shape and has been
 reaped at 2 minutes too — do not budget on it. This covers the sweep above, any single slow suite
-run on its own, and `tools/mutation-sweep.sh`. **`milestone-gate.sh 3` is the exception**: it runs the
+run on its own. **`milestone-gate.sh 3` is the exception**: it runs the
 sweep inline, bounded by `tools/selftest-suite-timings.tsv` to fit the turn, which is what a session
 detaching it and ending the turn would undo.
 
@@ -85,9 +109,9 @@ it. The two big fixture-producing selftests, `milestone-gate-selftest.sh` and
 `orchestrate-selftest.sh`, joined the explicit-template form `mktemp -d
 "${TMPDIR:-/tmp}/…"` in #780 — so **a private `TMPDIR` relocates their scratch** — but most of the
 tree has not: `mktemp -d -t <name>`, plain `mktemp -t`, and bare `mktemp -d` (which *is* `-t tmp`
-— same TMPDIR-ignoring behavior, not a safe third option) are all still in wide use, including the two
-largest scratch trees in the repo (`tools/mutation-sweep.sh`,
-`tools/install-topology-selftest.sh`), so a private `TMPDIR` does not isolate those.
+— same TMPDIR-ignoring behavior, not a safe third option) are all still in wide use, including the
+largest scratch tree in the repo (`tools/install-topology-selftest.sh`), so a private `TMPDIR`
+does not isolate those.
 [`docs/testing.md`](docs/testing.md#when-a-run-is-killed-mid-sweep) has the reproducible caller
 count and the scrub recipe — a hardcoded number here would only go stale. Nothing reaps a killed
 run's leftovers automatically; scrub before re-running — a red the diff cannot explain is that
@@ -96,8 +120,7 @@ litter more often than it is your branch.
 **`tools/run-selftests.sh` is the sweep — here, in both CI selftest jobs, and in this repo's own
 dogfood milestone-gate milestone-3 `test` lane** (the gitignored `.claude/second-shift.config.json`,
 at a wider `--jobs 10` but the same runner — not a hand-rolled `find | xargs` pipeline).
-`SKIP_STRESS=1` is yours to set or omit — the runner never sets it, which is what keeps the
-mutation baseline's environment check meaningful.
+`SKIP_STRESS=1` is yours to set or omit — the runner never sets it.
 
 **The `--exclude` is why this recipe is ~3 minutes instead of ~10.**
 `tools/install-topology-selftest.sh` re-runs every *shipped* suite from a staged install cache, so
@@ -135,28 +158,19 @@ Genuine exceptions, one kind:
   `runtime-shim-selftest.mjs` drives it on every run), `_effective-registry.sh`,
   `install-gh-bot.sh`, and the eval runners.
 
-**This register is authoritative; `tools/mutation-exclusions.tsv` defers to it.** The mutation
-sweep needs the same "no kill criterion exists" facts in machine-readable form, so two of its
-exclusion rows restate entries from the list above — and each cites this register as its origin
-rather than asserting an independent rationale. Dropping an entry here obliges dropping its row
-there. Rows in that file with no counterpart here (local operator tooling, the sweep's own
-recursion guard) are the sweep's alone.
-
 ### Adding or changing a test
 
 The tier map (where a new guard goes), the scenario-first rule, the no-prose-presence-guards and
-no-mirror-harnesses rules, the mjs-seam grep exception, and the mutation-sweep obligations live in
-the `writing-tests` skill — it loads when you touch a test. Full contract:
+no-mirror-harnesses rules and the mjs-seam grep exception live in the `writing-tests` skill — it loads when you touch a test. Full contract:
 [`docs/testing.md`](docs/testing.md).
 
-**Two things in there bind ordinary PRs, not just test authorship:** editing a guard's CODE
-re-anchors its `tools/mutation-catalog.tsv` rows, and a new gate contract must extend the liveness
-scenario. Read the skill before either.
+**One thing in there binds ordinary PRs, not just test authorship:** a new gate contract must
+extend the liveness scenario. Read the skill before adding one.
 
 Testing: [`docs/testing.md`](docs/testing.md) — the tier map, the runtime shim, and the operator-run adversarial recipe.
 
 Release process: [`docs/releasing.md`](docs/releasing.md) — the checklist of record.
 
-Release eval: [`docs/consumer-eval.md`](docs/consumer-eval.md) — the consumer-shaped replay every release records, its four metrics and their exact sources.
+Consumer evaluation: [`docs/consumer-eval.md`](docs/consumer-eval.md) — releases record no replay; evaluation is the operator's read of consumer verdict records, plus the pinned-base recipe a one-off replay uses.
 
 Enforcement principles: [`docs/pipeline-manifesto.md`](docs/pipeline-manifesto.md) — P1–P10, the trust boundary, and the T0 note. A judgment aid, not a gate.

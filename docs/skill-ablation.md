@@ -1,5 +1,7 @@
 # Skill-vs-bare-session ablation — results and verdicts
 
+> Population: dogfood repo only; not evidence about consumer repos.
+
 **Measured 2026-08-24**, with §1's arm-1 re-measurement added **2026-09-01** (#746). #644, parent #284. The thresholds this report is scored against were fixed
 in [`docs/skill-ablation-pre-registration.md`](skill-ablation-pre-registration.md) before any result
 existed; that file has not been edited since. Raw arm outputs are under

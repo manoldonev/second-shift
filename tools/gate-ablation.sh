@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # gate-ablation.sh — paper ablation of the pipeline's gates over the run corpus (#609).
 #
-# WHAT THIS ANSWERS. The mutation sweep holds every shell guard to one bar: name the regression
-# class only you catch. The lane's own blocking gates have never been held to it. This is the
-# transplant of that idea onto the gates — disable one on paper and ask whether any historical
+# WHAT THIS ANSWERS. Every blocking gate should meet one bar: name the regression class only it
+# catches. This holds the lane's gates to it — disable one on paper and ask whether any historical
 # run's merge decision changes. A gate whose removal changes no decision across the corpus is
 # ceremony with a measurement behind it.
 #

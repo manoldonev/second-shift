@@ -28,8 +28,7 @@ name: nightly-guards
 
 on:
   schedule:
-    # 02:41 UTC — off the hour, and clear of the 03:17 mutation sweep so the two standing
-    # measurements do not contend for runners.
+    # 02:41 UTC — off the hour.
     - cron: '41 2 * * *'
   workflow_dispatch:
 
@@ -54,21 +53,8 @@ jobs:
       - name: install shellcheck + jq
         run: sudo apt-get update -q && sudo apt-get install -y shellcheck jq
 
-      # pipefail, because the capture is what the bound check reads and `tee` would otherwise
-      # report ITS exit code — a red sweep would leave this step green.
       - name: wholesale selftest sweep, cache bypassed
-        run: |
-          set -o pipefail
-          bash tools/run-selftests.sh --full --exclude tools/install-topology-selftest.sh 2>&1 \
-            | tee "$RUNNER_TEMP/sweep.log"
-
-      # THE ONE EXECUTION SURFACE (#629). Not the PR lane: a PR runner is noisier and a single
-      # slow-end sample would red an honest PR. Not the macos twin either — the baseline is one
-      # committed number, and two machine classes checked against it would make it meaningless
-      # for both. It runs after the sweep and only when the sweep was green: a red sweep is the
-      # headline, and its timings describe a tree that failed.
-      - name: un-deferred sweep bound
-        run: bash tools/check-sweep-bound.sh --log "$RUNNER_TEMP/sweep.log"
+        run: bash tools/run-selftests.sh --full --exclude tools/install-topology-selftest.sh
 
   # The prose narrative check (#552; reshaped by #641, #719). It reports the instruction layer's
   # size and flags narrative `#NNN` incident archaeology; it reds only on vacuous coverage (a scan

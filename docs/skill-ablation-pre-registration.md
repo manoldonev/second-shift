@@ -1,5 +1,7 @@
 # Skill-vs-bare-session ablation — pre-registration
 
+> Population: dogfood repo only; not evidence about consumer repos.
+
 **Registered 2026-08-24, before any result was collected.** #644. This file is written once and is
 not edited afterwards; the results live in `docs/skill-ablation.md` and the raw arm outputs under
 `docs/skill-ablation/`. That ordering is the point, and it is checkable:

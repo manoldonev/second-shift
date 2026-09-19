@@ -165,9 +165,8 @@ EOF
 mkdir -p "$D/docs/plans"
 # shellcheck disable=SC2016  # fixture TEXT.
 printf 'A verdict record quoting `historic-producer --list | grep -q wanted`.\n' > "$D/docs/plans/old-lean-verdict.md"
-# A .tsv is data everywhere in this repo, and tools/mutation-catalog.tsv is a corpus of
-# DELIBERATELY BROKEN shell: a row describing the reintroduction of either banned shape must
-# not red the guard for describing it. Both shapes, in one table, on purpose — and the arm
+# A .tsv is data everywhere in this repo: a row quoting either banned shape must not red the
+# guard for quoting it. Both shapes, in one table, on purpose — and the arm
 # that excuses them anchors on the path separator, because these lines reach it as
 # `relpath:line:text` and a `\.tsv$` would have tested the end of the TEXT.
 # shellcheck disable=SC2016  # fixture TEXT.

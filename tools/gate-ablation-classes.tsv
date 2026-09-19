@@ -12,8 +12,8 @@
 # `earn_your_keep` (#641) names the regression class this point ALONE catches — the class no
 # other row in this table, and no other gate, already accounts for — and cites a dated incident
 # where one exists. gate-ablation.awk reads only the first five columns; this one is read by a
-# human deciding whether a point still earns its refusal, the same discipline
-# docs/testing.md's earn-your-keep rule applies to mutation-catalog.tsv rows.
+# human deciding whether a point still earns its refusal: a point that names no class of its
+# own is a candidate for removal.
 #
 # Order is significant WITHIN a milestone (first match wins) and is the render order of the
 # decision-points table. Patterns are anchored where the gate message is anchored.

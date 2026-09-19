@@ -20,14 +20,10 @@ allowlist, which had already drained to zero rows before this PR deleted it (see
 
 What survives is everything a human, not a command, decided:
 `tools/gate-ablation-adjudication.tsv`, `tools/gate-ablation-classes.tsv`,
-`docs/prose-blocker-triage.tsv`, `tools/mutation-catalog.tsv`, `tools/mutation-operators.tsv`,
-`tools/mutation-exclusions.tsv`, `tools/mutation-pair-map.tsv`, `scripts/fail-open-sites.tsv`,
-`tools/capability-parity.tsv`,
+`scripts/fail-open-sites.tsv`, `tools/capability-parity.tsv`,
 `plugins/dev-pipeline/tools/review-harness-fixtures/review-harness-manifest.tsv`,
-`tools/selftest-cache-inputs.tsv`, `tools/mutation-baseline.tsv` — each row states something no
-`find`/`wc`/`git ls-tree` could re-derive: a regression class, an adjudicated disposition, a
-reasoned exclusion. See [Test-the-tests](#test-the-tests-the-mutation-sweep), the earn-your-keep
-rule, for the discipline that keeps *those* honest.
+`tools/selftest-cache-inputs.tsv` — each row states something no `find`/`wc`/`git ls-tree` could
+re-derive: a regression class, an adjudicated disposition, a reasoned exclusion.
 
 ### Never-fired decision points: the #642 reachability verdict
 
@@ -128,7 +124,7 @@ SKIP_STRESS=1 bash tools/run-selftests.sh --full
 **`--full` is what makes that a full sweep.** Since #566 the bare invocation is the *bounded
 quick check*: it applies `tools/selftest-suite-timings.tsv` as exclusions by default, which is the
 form `milestone-gate.sh` milestone 3 gets. Every caller that wants the whole set — both CI selftest
-jobs, both nightly wholesale lanes, and the local recipe in [`CLAUDE.md`](../CLAUDE.md) — passes
+jobs, the nightly wholesale lane, and the local recipe in [`CLAUDE.md`](../CLAUDE.md) — passes
 `--full`. See [the slow-suite table](#the-slow-suite-table) below.
 
 `tools/run-selftests.sh --full` discovers every `*-selftest.sh` under the repo, runs `SELFTEST_JOBS`
@@ -199,19 +195,18 @@ lines — a naive `grep -l` catches both:
 
 ```sh
 git grep -nE 'mktemp[[:space:]]+(-d[[:space:]]+)?-t' -- '*.sh' \
-  | grep -vE ':[0-9]+:[[:space:]]*#' | cut -d: -f1 | sort -u | wc -l   # 34: mktemp -d -t / mktemp -t
+  | grep -vE ':[0-9]+:[[:space:]]*#' | cut -d: -f1 | sort -u | wc -l   # 31: mktemp -d -t / mktemp -t
 git grep -nE 'mktemp[[:space:]]+-d' -- '*.sh' \
   | grep -vE ':[0-9]+:[[:space:]]*#' \
   | grep -vE 'mktemp[[:space:]]+-d[[:space:]]+("|-t)' \
-  | cut -d: -f1 | sort -u | wc -l                                     # 35: bare mktemp -d
+  | cut -d: -f1 | sort -u | wc -l                                     # 34: bare mktemp -d
 ```
 
-At this head that's 34 files on the `mktemp -d -t` / `mktemp -t` spellings and 35 more on the bare
-form — 69 shell files total that a private `TMPDIR` does not isolate, including the two largest
-scratch trees in the repo: `tools/mutation-sweep.sh` (`mutation-sweep-work.XXXXXX` plus its
-per-sandbox dirs, `mktemp -d -t`) and `tools/install-topology-selftest.sh`
-(`install-topology.XXXXXX`, `mktemp -d -t`) — so their scratch keeps landing in the one directory
-every lane on the machine shares regardless of `TMPDIR`. Re-run both commands rather than trust
+At this head that's 31 files on the `mktemp -d -t` / `mktemp -t` spellings and 34 more on the bare
+form — 65 shell files total that a private `TMPDIR` does not isolate, including the largest
+scratch tree in the repo, `tools/install-topology-selftest.sh` (`install-topology.XXXXXX`,
+`mktemp -d -t`) — so its scratch keeps landing in the one directory every lane on the machine
+shares regardless of `TMPDIR`. Re-run both commands rather than trust
 these two numbers — they move every time a suite's scratch allocation changes, and a stale digit
 here is worse than none.
 [`CLAUDE.md`](../CLAUDE.md)'s verification recipe is the caller most exposed to this, which is why
@@ -228,8 +223,8 @@ find "${TMPDIR:-/tmp}" -maxdepth 1 \( -name 'leangate.*' -o -name 'orchestrate-s
 ```
 
 This names the three families this section tracks, not every scratch dir under the default
-`TMPDIR` — the `mktemp -d -t` / `mktemp -t` callers above (`mutation-sweep-work.*`,
-`mutation-sweep-sandbox.*`, `install-topology.*`, and the rest of that set) accumulate there too
+`TMPDIR` — the `mktemp -d -t` / `mktemp -t` callers above (`install-topology.*` and the rest of
+that set) accumulate there too
 and are outside this glob's alternation. The bare-`mktemp -d` callers are a second, disjoint gap:
 they land under the same `_CS_DARWIN_USER_TEMP_DIR` root but named `tmp.XXXXXXXX` — no
 name-based glob in this recipe can reach them, `-name` or otherwise. Widen the glob for the first
@@ -266,23 +261,16 @@ supervision, guards included, whose only job was surviving a limit it is cheaper
 `suite<TAB>seconds<TAB>measured_at` — and `run-selftests.sh` applies rows at or above its own
 `# threshold-seconds` directive as exclusions **by default**.
 
-**One table, three consumers (#641).** The file used to be three: this one (as
-`selftest-slow-suites.tsv`), `tools/check-sweep-bound.sh`'s baseline (as
-`selftest-sweep-baseline.tsv`), and `tools/mutation-sweep.sh`'s own slow list (as
-`mutation-slow-suites.tsv`) — independently drifting copies of the *same measurement* for the
-suites they shared (`milestone-gate-selftest.sh` was 141s in both, by coincidence, not by any
-reconciling mechanism). They are one file now, one row per suite, one date. Each consumer keeps its
-own threshold as a `# `-prefixed comment directive in the same file rather than a separate one:
-`run-selftests.sh` and `check-sweep-bound.sh` share `# threshold-seconds` (9s); `mutation-sweep.sh`
-applies its own lower, hardcoded 5s bar in code, so the file legitimately carries rows between the
-two — real to the mutation lane, filtered out here at read time. A row naming no discovered suite
-is still a hard error; a suite absent from the file is still treated as fast by every consumer.
+**One table, one consumer.** `run-selftests.sh` is the only reader, and the threshold is a
+`# threshold-seconds` comment directive in the same file (9s); a row below it is ignored at read
+time. A row naming no discovered suite is a hard error; a suite absent from the file is treated as
+fast.
 
 | Caller | Passes | Runs |
 | --- | --- | --- |
 | `milestone-gate.sh 3` (via the consumer's `test` command) | nothing | the table is applied — the bounded quick check |
 | both CI selftest jobs | `--full` | everything |
-| both nightly wholesale lanes | `--full` | everything |
+| the nightly wholesale lane | `--full` | everything |
 | CLAUDE.md's contributor recipe | `--full` | everything |
 
 **Default-on, with an explicit opt-out, and the direction is load-bearing.** The only caller that
@@ -307,53 +295,8 @@ would under-state `EXPECTED` and red an honest sweep — and it is the normal ca
 `--full` does not read the table at all, so a stale or malformed row cannot red the sweep of
 record. Cases: `run-selftests-selftest.sh`'s `slow-table:` block.
 
-#### The bound on what the table did *not* defer
-
-The table's membership rule — *every suite at or above the declared threshold is listed, and
-re-measure when you change what a listed suite does* — used to be a sentence in its own header
-with nothing behind it. A suite that grew, or arrived untabled, walked the un-deferred sum back
-toward milestone 3's reap, where the lane is not slow but **unpassable**: nothing is detached, so
-a reaped call loses its work, and five of those hard-stop the run.
-
-`tools/check-sweep-bound.sh` is that rule as code. Measuring and judging are split:
-`run-selftests.sh` prints each suite's elapsed seconds on its existing frame line
-(`::group::pass  3s  path/to-selftest.sh`) and judges nothing, so its exit-code contract keeps
-meaning exactly what it meant. The checker sums the suites the table did *not* defer and compares
-that total to the `# baseline-seconds`/`# allowance-percent` directives in
-`tools/selftest-suite-timings.tsv` (#641: the same unified file as the slow-suite table above,
-not a separate `selftest-sweep-baseline.tsv`).
-
-| | |
-| --- | --- |
-| Reds on | the aggregate exceeding the committed baseline by more than its stated allowance |
-| Warns on | one un-tabled suite at or above the table's `# threshold-seconds` directive, aggregate still inside |
-| Also reds on | a log that is absent, whose elapsed fields do not parse, that names a suite discovery did not produce, or that covers only part of the un-deferred set |
-| Runs in | `nightly-guards.yml`'s ubuntu wholesale lane, and nowhere else |
-
-**A single suite over threshold is a warning, never a red.** One wall-clock sample of one suite is
-a range rather than a point — this repo has 319/438/584s recorded for the same unchanged tree — so
-staking a lane's status on it would buy flake. The aggregate is the quantity that actually breaks
-milestone 3, and it is the only thing that reds.
-
-**Nightly only, and one lane of it.** PR runners are noisier and a single slow-end sample would red
-an honest PR. The macos twin is left out for a different reason: the baseline is one committed
-number, and checking two machine classes against it would make it meaningless for both.
-
-**A sub-second suite is charged one whole second.** The consumer is a sum over ~60 suites, most of
-which finish instantly; rounding those to zero would let the set grow by half a minute without the
-total moving. Baseline and checked sum come through the same emitter, so they stay commensurable —
-the total is not the wall clock of a serial sweep and is not meant to be.
-
-**Re-baselining is an explicit reviewed commit.** Two directive lines in
-`tools/selftest-suite-timings.tsv`, changed by hand, with the commit saying what was measured,
-when, and on which lane — never an automatic rewrite. The alternative remedy is to table the
-grower, which the red names beside it. Cases: `tools/check-sweep-bound-selftest.sh`, plus
-`run-selftests-selftest.sh`'s `#629/AC-1` block for the emitter.
-
-
 `SKIP_STRESS` is never set by the runner. The ubuntu lane omits it and the macos lane sets it;
-that asymmetry predates this script and is preserved, and the mutation baseline's environment
-check is only meaningful because the harness does not export it on its own.
+that asymmetry predates this script and is preserved.
 
 Discovery is `*-selftest.sh` only. The three `*-selftest.mjs` files are executed by
 `workflows-mjs-selftest.sh`, which is itself in the glob; widening discovery would run them twice.
@@ -399,7 +342,7 @@ containment is the load-bearing part and the hashing is not. Four properties, al
    passing — belt-and-braces with GitHub's own scoping, which already confines a PR-created cache
    to that branch and denies cache writes to forks entirely.
 4. **The nightly ignores it.** `.github/workflows/nightly-guards.yml` runs the whole sweep with no
-   `--cache-dir`, on both lanes, asking the PR lane's exact question. An under-declaration surfaces
+   `--cache-dir`, asking the PR lane's exact question. An under-declaration surfaces
    within a day, against a tree nobody is waiting on.
 
 **The pipeline is the third participant (#563).** `milestone-gate.sh` milestone 3 runs a `test`
@@ -411,14 +354,12 @@ deliberate:
 
 - **It records without a second flag.** Property 3 exists because a PR lane would otherwise record
   untrusted content into a store other runs read. This store is machine-local and records the
-  operator's own tree — the posture the mutation sweep's cache further down this page already
-  takes — and a store nothing writes can never serve a second sweep at all.
+  operator's own tree, and a store nothing writes can never serve a second sweep at all.
 - **An unusable store is a cold sweep, not an error.** A `--cache-dir` that cannot be created is a
   flag an operator typed that cannot work, and still exits 2. An *injected* store that cannot be
   created is not the tree's fault, so it prints a named notice and runs cold rather than reddening
   a milestone about something else entirely.
-- **It has an off switch.** `LANE_SELFTEST_CACHE=0` runs the lane cold, announced — the same
-  escape hatch as `MUTATION_SWEEP_CACHE=0`, and the thing that makes a suspicious green
+- **It has an off switch.** `LANE_SELFTEST_CACHE=0` runs the lane cold, announced — the thing that makes a suspicious green
   re-checkable. It **scrubs** rather than merely declining to export: an operator already
   carrying `LANE_SELFTEST_CACHE_DIR` would otherwise hand it to every lane child by ordinary
   inheritance, and the gate would announce a cold sweep while the runner cached.
@@ -507,12 +448,9 @@ verdict with every declared input byte-identical; bumping the epoch invalidates 
 every lane in one character, and the next run is a full cold sweep. `SELFTEST_CACHE_MAX` (default 5000) clears the store when it
 overflows, with the same fail-closed consequence.
 
-This is the inverse of the mutation sweep's cache further down this page, which is local-only and
-disables itself in the enforcing lane. The difference is which side holds the authority: there CI
-is the authority and must run cold; here CI is the thing being sped up, and the authority is the
-nightly wholesale leg. The pipeline's use of this same mechanism sits on the mutation sweep's
-side of that line — its store is local, it records, and it is never anyone's authority — which is
-why it can record without the second flag CI withholds.
+Here CI is the thing being sped up, and the authority is the nightly wholesale leg, which runs
+cold. The pipeline's use of this same mechanism is never anyone's authority — its store is local
+and it records — which is why it can record without the second flag CI withholds.
 
 ### Citing a CI run instead of re-running it (review side)
 
@@ -570,7 +508,6 @@ pyramid, plus one tier that is honest about being outside CI.
 | Contract | `check-lockstep-pairs.sh` — `LOCKSTEP` marker groups discovered from the tree and compared; `check-lane-class-doc.sh` — a doc claim DERIVED from the code it describes; + registry and schema lints (config-lint ↔ schema, model tiers, text-contract carriers) | Established |
 | Integration | `scenario-liveness-selftest.sh` — composed verdict paths through real scripts to a terminal write | Established, extending |
 | Runtime | `workflows/runtime-shim-selftest.mjs` — executes real Workflow `.mjs` bodies with injected fakes | Established (#214) |
-| Mutation | Repo-level sweep: canned mutants applied to guarded scripts, paired selftest must go red | Planned |
 | Install topology | `tools/install-topology-selftest.sh` — every shipped suite re-run from a version-keyed install cache | Established (#419) |
 | Adversarial | Model-tier audit workflows — **operator-run, never CI** | This document |
 
@@ -750,8 +687,7 @@ release merge itself, whose own plugin.json version bump does match the push fil
 once, redundantly with the release-PR trigger already covering it; the retired cron ran 4 times in
 that same window. A clock was still strictly
 worse than this trade, not just slower — its answer barely moved between two nights, and a red run
-sat unread on a cron dashboard this repo's operator does not consume; the mutation nightly hit the
-same failure mode independently. A red run now files a deduplicated GitHub issue instead, so the
+sat unread on a cron dashboard this repo's operator does not consume. A red run now files a deduplicated GitHub issue instead, so the
 failure has somewhere to be read. If your change touches a shipped suite and you want the answer
 before the next release PR, run `bash tools/install-topology-selftest.sh` directly, or dispatch the
 workflow against your branch. Its 1200s `INSTALL_TOPOLOGY_TIMEOUT` is deliberately left alone: it
@@ -882,15 +818,15 @@ Two properties are what make the class safe to reuse:
 
 Reach for this when a document asserts something enumerable about shipped code. Reach for a
 `LOCKSTEP` marker when the two sides are copies of each other. When neither fits, the coupling is
-unanchorable and belongs in the list below.
+unanchorable: leave it unmechanized rather than build a guard that cannot fail.
 
 ### Couplings considered and declined
 
 Moved here from the manifest by #604. Each is a real duplication someone reasoned about and chose
 not to mechanize, with the reason and — in almost every case — the behavioral guard that carries it
 instead. A coupling recorded as declined is a decision that stays visible; one merely omitted is a
-decision that gets re-litigated. CLAUDE.md sanctions exactly this: record a real but unanchorable
-coupling rather than mechanizing it into a guard that cannot fail.
+decision that gets re-litigated. The list is kept as that record; a change does not owe it a new
+entry.
 
 **Unanchorable — no literal the two sides could share.**
 
@@ -1321,471 +1257,6 @@ cannot pass, and that passes review only because it never runs. Splice the row i
 nothing, and neither CI nor a local sweep will tell you which — this lane has no node by design,
 so the branch skips there forever. Put a real binary on `PATH` and run the suite before believing
 it. The same move applies to any fixture whose guard is "when X resolves".
-
-## Test-the-tests: the mutation sweep
-
-Every tier above answers "is this behavior guarded?". None answers "does the guard actually fail
-when the behavior breaks?" — and that is what "every new guard ships a red-on-mutation demo" asks
-each author to do by hand, once, at authoring time. `tools/mutation-sweep.sh` makes it a standing
-measurement instead: it mutates the repo's shell guards, runs their paired selftests, and reports
-which mutants **survive**. A survivor is a regression the suite would not have caught.
-
-**Pairing is a rule, not a list.** Every git-tracked `*.sh` that is not a `*-selftest.sh` and is
-not under `*/evals/*` or `tests/hooks-smoke/` must resolve to its killer(s) via directory-scoped
-same-stem pairing, a `tools/mutation-pair-map.tsv` row, or a reasoned
-`tools/mutation-exclusions.tsv` row. An unaccounted guard is red — that is what keeps the data
-files honest as the tree grows, and why adding a guard with a cross-named suite means adding a
-map row. Same-stem is directory-scoped, never basename-anywhere: two `second-shift-doctor.sh`
-files exist at different paths, and only one of them is swept.
-
-**Two mutant tiers, deliberately asymmetric on validity.** Generic operators
-(`tools/mutation-operators.tsv`) are machine-enumerated over every paired guard, so a mutant that
-will not parse is a harness artifact — skipped and logged, never red. Catalog mutants
-(`tools/mutation-catalog.tsv`) are hand-authored against named sites, so a sed that no longer
-applies, or yields invalid output, is **anchor drift = red** — the
-`check-lockstep-pairs-selftest.sh` convention.
-
-**The earn-your-keep rule, scoped.** A register row survives only if it names the regression
-class it — and nothing else already in the corpus — catches. It binds **catalog rows and
-execution surfaces**: every `tools/mutation-catalog.tsv` `note` states what a survivor would
-mean (or, for a timeout-kill row, what a lapse would cost), and a row that cannot say this has
-no reason to exist. It does **not** bind baseline rows that record "unkillable by construction"
-— a comment site or a structurally-inert flip that no fixture, and no fixture that could exist,
-would ever kill. Applying the rule to those deletes the row that exists to *accept* a permanent
-survivor, which reds the next sweep on exactly the site the row was baselined to explain. That
-class shrinks by removing the site from enumeration (comment exclusion, above), never by
-deleting the row that documents an accepted one. Read literally — "with a dated incident" — the
-rule would also fail most of today's catalog, which names its regression class in prose without
-citing when it was found; read as written above, it does not, and #581 re-verified all 66
-catalog rows against it without deleting any.
-
-**The per-guard cap, and why a count.** No guard may carry more than `MAX_ROWS_PER_GUARD` rows
-in `tools/mutation-catalog.tsv`, declared and enforced in `tools/mutation-sweep-selftest.sh` —
-case (k) reads the committed catalog, case (au) drives the same extractor *and the same lint*
-against fixtures so the arm can be shown to still fail. The value below is the declaration
-itself, held to it by `scripts/check-lockstep-pairs.sh`:
-
-```
-# LOCKSTEP-BEGIN mutation-catalog-per-guard-cap
-MAX_ROWS_PER_GUARD=36
-# LOCKSTEP-END mutation-catalog-per-guard-cap
-```
-
-The wholesale lane's
-`--shard i/N` partition is round-robin over the sorted guard list, so it balances guard **count,
-not cost**, and a guard's mutants are atomic to one residue class: the worst shard is whichever
-holds the most expensive guard, and no value of N moves them apart. `milestone-gate.sh` reached 56
-rows against a 212s killer suite and was killed at the 45-minute step bound on two successive
-monthly runs, taking the six unrelated guards in its shard down with it.
-
-It is a measurement rather than a preference — the largest count for that guard ever observed to
-finish inside the bound (24m25s, 54% of it). A row count is a **proxy** for `rows x killer-suite
-seconds`, which is the quantity that actually breaks a shard; a cost-weighted cap would need a
-killer timing for every guard and `tools/selftest-suite-timings.tsv` tables only the slow ones,
-so it would fail open across most of the universe. If you add rows to a guard whose killer is
-slow, price them yourself — the cap will not.
-
-The cap turns the earn-your-keep rule from a floor into a **budget**: a guard at the cap must
-retire a row before it gains one, and both rows are then judged against each other rather than
-against nothing. The one time this has been exercised (#752, 56 → 36), no derivable redundancy
-existed — all 56 seds hit distinct sites and none was a known survivor — so the criterion was:
-*remove the row when the mutant it arms leaves the gate still refusing (it moves which message,
-counter or milestone the refusal names), keep it when the mutant makes the gate stop refusing,
-destroys evidence, or destroys data.* Retired rows stay recoverable from git history; the ticket
-that retires them owes the list.
-
-**A comment line is not a site.** Generic enumeration drops every matched line matching
-`^[[:space:]]*#` before the ordinal counter, so a comment contributes no mutant *and consumes no
-ordinal* — adding or deleting one re-keys nothing. The reason is that a comment flip changes no
-reachable behavior, so nothing can kill it: each such site was a permanent baseline row asserting
-only that a comment cannot be killed, and at `k=2` they routinely occupied ordinals 1 and 2 and
-pushed the guard's real code sites out of the swept window entirely. Measured on the tree that
-carried the change: **41 of 142 ordinal-keyed baseline rows** were comment sites and are gone,
-**6** surviving rows re-keyed, and **28** real code sites moved from beyond-budget into budget.
-Two residues are accepted rather than discovered: the rule is LEADING `#` only, so a trailing
-comment on a code line still enumerates (the operator matches are substring EREs — 4 of those 142
-rows sit on a code line containing a `#`), and `#`-headed heredoc *payload* stops enumerating with
-real comments (0 such lines in today's swept universe). The heredoc- and quote-aware classifier
-that would fix both is roughly an order of magnitude more code and would live inside
-`tools/mutation-sweep.sh`, the one file the sweep is forbidden to sweep — unguardable parsing
-shipped to delete register rows is a net add. When an operator's matched lines were *all*
-comments, the report's `sites_comment_only` cell says so per operator, so that state never reads
-as "no applicable site".
-
-**Survivors are data, not a red build.** Only a survivor absent from `tools/mutation-baseline.tsv`,
-or a named infra failure (`baseline-missing`, `baseline-environment-mismatch`,
-`baseline-keying-mismatch`, `site-key collision`, `no-sha-binary`, an unrunnable pair,
-an unaccounted guard, sandbox failure, `pool disagreement`), reds a lane. A baselined survivor is
-report-only; a baselined survivor that is now killed is a warn to shrink the baseline.
-
-**An unrunnable pair is infra red.** Every killer must exit 0 against the unmutated sandbox before
-any of its guard's mutants are scored, so a broken or environment-starved suite can never report
-its guard as fully killed.
-
-**A survivor that would red the lane is re-derived serially first.** The worker pool has been
-observed scoring a mutant `SURVIVED` that its own paired selftest demonstrably kills — twice in one
-nightly, on the same idiom a third guard killed in that same run, which is what proves the verdict
-was not a fact about the code. So before a baseline-absent survivor is allowed to red anything, the
-mutant blob is re-installed and its **full ordered kill set** re-run once, serially, on a sandbox no
-worker has touched: the pool is the suspect, so the oracle must not use it. If the serial run kills,
-the corrected `KILLED` verdict goes into the report, the counts and the cache, and the lane reds
-with `pool disagreement` instead — naming the harness rather than accusing an innocent guard. Free
-on a green run (zero baseline-absent survivors is zero extra suite runs), and seed mode re-verifies
-every survivor before it writes the baseline, because seed is the one lane that would otherwise
-record a fabricated survivor permanently and silently. The gate is asymmetric on purpose: survivors
-are the only class that reds, so a mutant the pool wrongly scores KILLED is still invisible.
-
-**Every killer runs under a wall-clock bound**, and a timed-out killer counts as a **kill**,
-logged by name. The bound is per suite — `4 x the suite's measured unmutated time`, floored at 60s
-and capped at `MUTATION_SWEEP_KILLER_TIMEOUT_S` (300s) — because a *flat* bound bounds one killer
-but not a *shard*: a guard whose mutants all spin costs `k` x the bound. The first bounded seed run
-showed exactly that gap. Nine shards went green, including the two that had been fatal, each naming
-its own culprit; one shard still burned a 60-minute budget against a ~15-minute cost model, and its
-job timeout destroyed both the log and the artifact, so it yielded nothing. Scaling to the suite
-puts the saving where the mutants are (the fast suites) and leaves the slow end's margin alone. This is not a tuning knob — it is what makes
-the sweep diagnosable at all. A mutant can make its guard *spin*: `cmp-z` inverts the EOF-tolerance
-clause of the standard read idiom (`while IFS= read -r line || [[ -n "$line" ]]` becomes
-`|| [[ -z "$line" ]]`), which at EOF is permanently true. An unbounded killer then blocks its shard
-forever — no further `swept` line, death by job timeout, log blob unfinalized, no artifact — which
-is how two successive 10-shard nightlies lost the same three shards without yielding one datapoint.
-Counting the timeout as a kill follows Stryker and PIT: the suite did surface the defect, and
-scoring it a survivor would red the build on a mutant nothing can kill.
-
-**A shard that blows its bound no longer publishes nothing** — the "no artifact" half of the
-account above is history, not the current mechanism. Two changes, and neither is the fix alone:
-`--report` is the **streaming sink** rather than a buffer copied in `finish()`, so the report file
-exists from the sweep's first moment and the upload step (which reds on an empty directory) always
-has something to publish; and the `sweep shard` **step** carries its own `timeout-minutes`, so
-blowing it is an ordinary step failure the job survives — the log finalizes and the `if: always()`
-upload runs — instead of a job cancellation. Be exact about what each buys: swept guards' rows are
-emitted after the whole worker pool finishes, so a shard killed *during* the pool publishes the
-report header and shard 1's excluded-guard rows, and its per-mutant evidence is in the **log** that
-the step bound rescued. What tells the two apart afterwards is the non-dotted `mutation-complete`
-marker, which only `finish()` writes: merge reds by name (`merge truncated`) on a report that
-arrives without one, and keys its seed/enforcing arity check on completed shards only, so a
-truncation is never misreported as a mode mismatch.
-
-None of that reaches the *other* death class. The 83-84 minute "lost communication with the server"
-failures run no step at all, so the streamed report dies on the runner with everything else;
-covering those would need out-of-band publication. Partial-evidence coverage is not total coverage.
-
-Three tracked guards carry that idiom, and the `k` budget — not any property of the guards — is
-what decided which were armed: `predecessor-gate.sh` held it at `cmp-z` ordinal 1 and killed its
-shard, while `scaffold-review-context.sh` holds it at ordinal 5
-and was never mutated at `k=2`. Budget is not safety. That fourth site is now armed by the
-`scaffold-spin-at-eof` **catalog** row rather than by raising `MUTATION_SWEEP_K`, which would have
-armed every other guard's ordinals 3–5 for the sake of one named site; `k` is unchanged, so no
-baseline re-seed and no cache-key change follow. Its expected verdict is a kill by timeout, a class
-the catalog's header block now documents explicitly — such a row's value is the arming plus
-anchor-drift loudness, not a survivor prediction.
-
-What kept that site invisible for two nightlies was the report, not the budget: a guard with no
-applicable site and a guard whose sites all sit past `k` produced the same silence. The report TSV
-column **`sites_beyond_budget`** ends that. It carries per-operator detail in the plus-joined
-`paired_selftest` style (`cmp-z:3`), counts only sites the enumerator declined for budget — an
-unparseable or no-op flip is a harness artifact, not darkness — and is **report-only, never red**,
-the posture `tools/mutation-operators.tsv` already states for non-application. `sites_comment_only`
-was appended after it on the same terms. Both go on the END of the row because `report_row()` in
-the companion selftest reads `$5/$6/$7` positionally and `--mode merge` compares shard headers
-byte-wise.
-
-**The standing `k=2` question is re-derived, not inherited.** It used to rest on "every site past
-ordinal 2 is dark sweep-wide", measured while comment lines were still sites — and that measurement
-counted a displacement whose dominant cause has since been removed. Excluding comments moved **28**
-real code sites from beyond-budget into budget and vacated **43** unkillable ones from the `k=2`
-window, so the darkness the argument pointed at was substantially bookkeeping rather than budget.
-What survives the re-derivation is the *pair of examples above*, and they survive intact: neither
-`predecessor-gate.sh`'s `cmp-z` ordinal 1 nor `scaffold-review-context.sh`'s ordinal 5 is a comment
-line, so both ordinals are unchanged by the exclusion and "budget is not safety" still holds on its
-own evidence. The question of whether `k=2` is the right budget therefore stays open — but it is
-now open against the post-exclusion measurement, and re-arguing it means re-measuring, not quoting
-the pre-#579 numbers.
-
-**Generic survivor ids are content-keyed, so identity is not positional.** A site's id is
-`<guard>::<operator>::<key>`, where `<key>` is 12 hex of a sha256 over the whitespace-normalized
-matched line plus that line's occurrence index among the operator's *normalization-identical*
-matched lines in the same guard. Inserting a killable line above a site, moving a block (whether or
-not the move re-indents it), adding or deleting a comment, and raising `k` all re-key **nothing**.
-Only editing a site's own line, or removing one of its normalization-identical siblings from
-earlier in the file, changes a key. `git patch-id` was rejected for the job precisely because it
-hashes a hunk's *context* lines, which is the sensitivity this keying exists to remove.
-
-Derive an id without a scoring run with `bash tools/mutation-sweep.sh --emit-site-keys`, which
-prints `<guard><TAB><operator><TAB><ordinal><TAB><key>` for every enumerated site. The ordinal is
-still emitted — the **budget** is positional even though identity is not, and `k` still admits the
-first two applicable sites in file order — but nothing keys on it.
-
-**One obligation lands on ordinary PRs.** Editing a guard re-anchors any catalog row addressing
-it. Catalog rows are pattern-addressed for exactly that reason — a bare line address is rejected,
-because during this harness's own intake the `check-emit-deadline` site moved by 68 lines between
-two runs a day apart, and only the expression-addressed entry survived. The generic tier's
-matching obligation is gone: with content keys there is nothing for an ordinary edit to re-key.
-
-**Where it runs — three surfaces, all in CI.**
-
-| Lane | Scope | Deferral | On red |
-| --- | --- | --- | --- |
-| `ci.yml`'s `mutation-sweep-pr` | the PR's diff | ON — a guard is swept only when its kill set is a single fast suite, and only for the first six | reds the PR |
-| `mutation-merge.yml` | the merge's diff, on every push to `main` | OFF (`MUTATION_SWEEP_NO_DEFER`) — nothing is waiting, so there is no time bound to trade coverage for | files an issue |
-| `mutation-sweep.yml` | the whole universe, monthly | n/a (`--mode full` never defers) | files a digest issue |
-
-The PR lane is fast and shallow by design: it costs 10–15s on a merge-blocking path, and the
-deferral is what keeps it there. **The merge lane is where a guard is actually graded** — same
-harness, same `--mode pr` diff scoping, same generic + catalog depth, with all three deferral
-reasons bypassed. It runs against `github.event.before`, queued rather than coalesced, so every
-merge is graded on its own diff.
-
-The monthly lane no longer grades anybody's change — the merge lane took that job. What is left
-for it is the classes no diff-scoped run can see: a baseline that has quietly shrunk, a verdict
-flipped by a third file (the memoization key is deliberately narrow, and says so), a suite edit
-that weakened a guard no merge touched. Those move on nobody's diff, so nothing event-driven
-reaches them. Monthly costs latency on that rarest class, bounded at ~30 days, and buys back a
-nightly whose marginal information was ~zero on any day nothing changed — 570 mutants re-derived
-to re-learn 438 known kills.
-
-**What the monthly lane is FOR: per-operator kill rate, on demand.** The report's
-`survivor_ids` cell says what survives; it has no counterpart for what a suite actually
-*kills*, so no argument about whether a generic operator earns its keep has ever been
-checkable against real numbers. `--verdict-log <path>` closes that: opt-in and mode-agnostic,
-matching the `--report`/`--baseline-out`/`--slow-out` family, it streams one TAB-separated row
-per scored mutant — `<mutant id><TAB><verdict><TAB><killer suite>`, `-` for a survivor — for
-both tiers (generic and `catalog::` ids alike). It costs no new computation: the tally loop
-already holds the mutant id and reads the killer suite out of the verdict record, cache hits
-included, so a memoized kill logs its real killer rather than a blank. `mutation-sweep.yml`
-passes it at both shard invocations, into the same `sweep-out/` directory its
-`mutation-sweep-shard-N` artifact already publishes — shard-local, with no `--mode merge` arm:
-a merged verdict log would need the report's own truncation-detection story, and the operator
-route is cheaper — dispatch the workflow, download the ten shard artifacts, and concatenate
-their `mutation-verdict-log.tsv` files by hand. An unwritable path is a hard red, matching the
-report sink's own or-red guard, never a silent skip. `ci.yml`'s `mutation-sweep-pr` and
-`mutation-merge.yml` pass no such flag and are unaffected.
-
-**A red files an issue, it does not redden a dashboard.** Both non-PR lanes route their verdict
-into the intake queue through `.github/workflows/file-issue-on-red.yml`, deduplicated on a title
-key, labeled `bug` and nothing else — an auto-filed red has had no intake, so it must not read
-as queue-ready. A second red while the first is still open **comments** rather than being
-dropped: a repeat is a different commit and often a different survivor set. Three keys, so that
-no one standing red suppresses another: `mutation sweep red` (a coverage gap on a merge),
-`mutation sweep infra red` (a harness fault — the exit contract's other reds), and
-`mutation wholesale audit red` (the monthly digest). This exists because the nightly it replaces
-ran red for five consecutive nights untriaged: a cron dashboard is where a verdict goes to die.
-
-Kill verdicts are only comparable inside the canonical environment (ubuntu-latest,
-`SKIP_STRESS=1`), so local runs are advisory and say so. `MUTATION_SWEEP_NO_DEFER=1` is settable
-locally for the full picture, and does not change that.
-
-**There is deliberately no fourth surface.** Until #580 `milestone-gate.sh` milestone 3 ran a
-`--mode pr` sweep in-session (decision D-18) whenever the target repo carried a
-`tools/mutation-sweep.sh`. It issued the **identical** invocation the PR job above already makes,
-so it was CI-duplicated work idle-blocking a build session — on a contended developer machine,
-where a killed sweep orphans fixtures that poison later sweeps because macOS `mktemp -d` ignores
-`TMPDIR`. It was measured before it was deleted: over 28 branches (2026-08-11..18), 17 of 22
-guard-touching PRs produced 11–71 verdicts each at ~5s wall in CI, so the merge boundary
-re-derives the same truth for free. The seam is therefore repo-carried **and repo-run**: a
-consumer that ships its own `tools/mutation-sweep.sh` wires its own CI for it, and no shipped
-gate looks for that file.
-
-
-### What it costs, and the three things that stopped it costing that
-
-The sweep's wall time is `Σ over guards (mutants × paired-suite seconds)`, and for a long time every
-one of those seconds was serial on one core — 256s for a three-guard diff, paid once per **fix
-round** rather than once per PR. Three levers removed it, and each is visible in the run's own output
-rather than asserted here.
-
-**Every run prints what it cost.** The closing `timing:` line reports wall seconds, how many verdicts
-were computed by actually running a paired suite, how many came from the cache, and the pool size. A
-claim about the speedup is checkable against that line; a remembered figure is not a measurement.
-
-**1. Verdicts are memoized — in the advisory lane only.** The key is:
-
-```
-sha256(mutation-sweep.sh) + sha256(mutated guard) + sha256(each paired suite, in kill order)
-                          + MUTATION_SWEEP_K + environment (RUNNER_OS, SKIP_STRESS,
-                            killer-bound knobs, MUTATION_SWEEP_EARLY_EXIT, MUTATION_SWEEP_FAIL_PATTERN)
-```
-
-**The key is narrow, and it is not sound.** A third file can flip a verdict with the guard and all
-its suites byte-identical: `milestone-gate.sh` shells out to four sibling scripts, and
-`cost-block-selftest.sh` reaches `pipeline-cost-block.sh`'s own resolution of `gh-bot.sh`.
-A whole-tree key would be sound — and would also
-drop the hit rate to zero, since the sweep sandboxes HEAD and every fix round is a new commit.
-
-What makes that an acceptable trade rather than an unsound one is **the lane**: the cache is neither
-read nor written when `GITHUB_ACTIONS` is set. A stale verdict can therefore only make a *local,
-advisory* run optimistic, and the cost of that is learning about a baseline-absent survivor one CI
-cycle later. **CI is the authority and always runs cold.** `MUTATION_SWEEP_CACHE=0` disables it
-locally too.
-
-**Invalidation, exhaustively.** Editing the guard; editing *any* paired suite; editing
-`mutation-sweep.sh` itself; changing `k`, `RUNNER_OS`, `SKIP_STRESS`, a killer-bound knob, or the
-early-exit trigger (`MUTATION_SWEEP_EARLY_EXIT`, `MUTATION_SWEEP_FAIL_PATTERN`). Three are worth
-naming. Editing the **suite** matters because adding a test case can kill a previously-surviving
-mutant, so a cache keyed on the guard alone would serve a stale `SURVIVED` forever — green, wrong,
-and invisible in the report. Editing **this harness** matters because a change to the kill criterion,
-the early-exit trigger or the killer bounds changes what a verdict *means*; hashing the file itself
-removes the human discipline a hand-bumped schema constant would need. The stated cost of that:
-a PR editing the harness runs fully cold. And the **kill criterion knobs** are in the key for the
-same reason the killer bounds are — a run under a custom `MUTATION_SWEEP_FAIL_PATTERN` scores
-against a different definition of "killed", which the precheck's every-run assertion does not
-close: that assertion covers the *unmutated* suite only.
-
-**`MUTATION_SWEEP_JOBS` is deliberately NOT in the key, and that residual persists.** Pool
-contention can turn a would-be survivor into a timeout `KILL`, and once cached that verdict is
-served back at any pool size — including `JOBS=1`. Keying on it would cost most of the hit rate,
-since the loop this cache exists for re-runs at one pool size. The residual leans the safe way
-(it hides a weak test rather than inventing a finding), CI never reads the cache, and
-`MUTATION_SWEEP_CACHE=0` is the escape hatch when a survivor set is in doubt.
-
-**Storage.** `${XDG_CACHE_HOME:-~/.cache}/second-shift/mutation-sweep/<repo-basename>/`, overridable
-with `MUTATION_SWEEP_CACHE_DIR`. Outside every checkout and never committed — an in-repo untracked
-directory would also make `git status --porcelain` non-empty, which has broken a working-tree
-attestation before. Per repo rather than per machine, because two checkouts can hold identical guards
-and suites while differing in one of those third files. A corrupt or unreadable entry is a **miss**,
-never a pass: the reader requires exactly one well-formed record line and falls back to a real run
-otherwise. The store is bounded (`MUTATION_SWEEP_CACHE_MAX`, default 20000) and clears wholesale when
-it exceeds that, which costs one cold run.
-
-**The precheck is skipped, not cached.** Every killer must be green on the unmutated sandbox before
-any of its guard's mutants are scored — and that precheck is itself a paired-suite execution, so a
-run claiming "zero executions" has to skip it. A guard whose every mutant hits the cache skips its
-precheck entirely; a guard with even one miss pays it. The precheck also runs **serially, once per
-distinct suite, before the pool**: its timings set every killer bound and feed
-`tools/selftest-suite-timings.tsv` (#641: shared with `run-selftests.sh`/`check-sweep-bound.sh`,
-which apply their own, separate 9s threshold to the same file), so taking them under the pool's
-own contention would measure the pool rather than the suite.
-
-It is also where **slow-list drift is warned**, and the placement is the point. A suite that has
-grown past the 5s bar while absent from `tools/selftest-suite-timings.tsv` keeps its guard in the PR
-lane, where every mutant that makes the guard spin costs the full killer bound; enough of them and
-the job dies on its own 15-minute ceiling — before the report, and therefore before any warn the
-report would have carried. `milestone-gate-selftest.sh` reached **143s** against that 5s bar exactly this
-way, and the three PR runs it killed read only as "timed out". Warning from the precheck is what
-makes the diagnosis outlive the timeout it diagnoses. It stays a warn, never a red: the list is a
-cost record, and a stale row costs wall clock rather than correctness. Fix it by adding the row in
-an ordinary PR.
-
-**2. Mutants run in a pool.** One sandbox per worker, created lazily and reset between items — so
-no two concurrently-running mutants share a tree, and disk stays at `pool × ~7MB` rather than growing
-with the mutant count. Size defaults to `min(cores-2, 8)` and is set by `MUTATION_SWEEP_JOBS`;
-`MUTATION_SWEEP_JOBS=1` is the serial harness exactly.
-
-**Reset means the whole tree, not the mutated path.** Reverting the one file a mutant was spliced
-into leaves behind everything the killer *created*, and that is not inert: the operator alphabet
-writes one placeholder token into every guard it mutates, making the token a shared namespace on
-disk. A mutant whose `mkdir -p "${VAR:-real}"` became `mkdir -p __MUTANT_DEFAULT__` is killed
-correctly and leaves the directory; a later mutant in that sandbox whose
-`mktemp "${TMPDIR:-/tmp}/x.XXXXXX"` became `mktemp __MUTANT_DEFAULT__/x.XXXXXX` then succeeds where
-it had to fail, and is scored SURVIVED on its predecessor's litter. So each item is applied to a
-sandbox cleaned of untracked *and* ignored files, the oracle's reused sandbox included. Case (al)
-holds the line.
-
-The report is a function of the work list and nothing else: every verdict is written to its own file
-and read back in item order, so a parallel run's survivor set, counts and report TSV are
-**byte-identical** to a serial run's. Case (ac) of `mutation-sweep-selftest.sh` proves it — and
-proves the parallel run really overlapped *first*, since two serial runs would also agree.
-
-**A suite may not write a literal path outside its own `mktemp` tree.** Two mutants of one guard run
-the same suite at the same time, so a fixed `/tmp/<name>.out` turns an interleaved write-then-read
-into a verdict about the wrong mutant. Three suites carried exactly that and were fixed; case (k)
-lints the whole corpus for it, because the alternative symptom is flake in somebody's sweep.
-
-**The pool presses on the killer time bound, and the direction matters.** Contention makes a suite
-slower and a timeout scores as a **kill** — the direction that *hides* a weak test rather than
-inventing a finding. The bound is `4 ×` the suite's own serially-measured time, floored at 60s, which
-is wide for a single-threaded suite given one worker per core; and every timeout is logged by name
-(`killer timeout (Ns exceeded, scored as KILLED)`), so a bound hit is visible data rather than a
-silent verdict. If a wholesale shard starts naming timeouts it did not name before, read that as the
-pool pressing on the bound, not as the suite getting stronger.
-
-**3. A killed mutant stops at the first `FAIL:`.** The verdict is settled there, so the killer's
-process group is reaped rather than run to completion, and the line is logged so an early kill is
-never silent.
-
-The trigger rests on an invariant — **a green suite emits no `FAIL:` line** — and the harness
-**asserts it every run** rather than trusting the one-off corpus measurement that established it
-(63/63 suites, zero such lines). The unmutated precheck checks its own output, and a suite that
-passes *while printing the trigger* is an **unrunnable pair**, named and red. That is the same class
-as a suite that cannot run at all, and for the same reason: neither may be allowed to report its
-guard as fully killed, since every mutant of that guard would otherwise be scored KILLED on prose.
-`MUTATION_SWEEP_EARLY_EXIT=0` disables early exit; `MUTATION_SWEEP_FAIL_PATTERN` changes what it
-looks for.
-
-A reaped suite never runs its own `trap … EXIT`, so killers run with `TMPDIR` pointed at a
-per-item scratch directory the harness removes unconditionally — early exit and both killer bounds
-included.
-
-### Runbook: the sweep just reded
-
-**`baseline-absent survivor: <guard>::<operator>::<key>`** — usually your own doing: you wrote a
-line the paired suite does not exercise. The red line *is* the answer. Copy each named id into
-`tools/mutation-baseline.tsv` as `<survivor_id><TAB><note>` and commit it **in the PR that wrote
-the site**. No dispatch needed — the failing log already names every id. Before pasting, read the
-mutant: since ids are content-keyed, a survivor that appears here sits on a line this diff *wrote
-or edited* rather than on one a shift renumbered — which usually means the test you added does not
-test anything.
-
-**`baseline-keying-mismatch: … declares '<header>', this sweep keys survivors 'content-v1'`** —
-the baseline was written under a different identity function, so *every* row would report
-`now KILLED` and *every* survivor `baseline-absent`. Checked in every mode, advisory runs included,
-because a doubled false signal does its worst damage on the run nobody re-reads in CI. Migrate the
-file rather than re-seeding it: `bash tools/mutation-sweep.sh --emit-site-keys` gives the
-`<guard>/<operator>/<ordinal> → <key>` mapping, and re-keying the rows preserves the curated notes
-a `--seed` run would flatten.
-
-**`site-key collision: two enumerated sites of <op> on <guard> both key to <key>`** — a 12-hex
-truncation collision between two sites that normalize *differently* (the occurrence index already
-separates ones that normalize the same). It ranges over every enumerated site, not just the emitted
-ones, so it fires before a rising `k` could turn it into two rows silently sharing one identity.
-
-**`no-sha-binary`** — neither `sha256sum` nor `shasum` resolves and a site key had to be computed.
-Identity is content-derived, so the sweep reds rather than inventing one. Fired lazily, at the
-first key: `--mode merge` and a nothing-to-sweep PR run compute no keys and stay green.
-
-**`pool disagreement: <id> was scored SURVIVED by the worker pool but is KILLED by a serial
-re-run`** — the harness contradicting itself. The named mutant is already reported as `KILLED`;
-nothing is wrong with the guard or its suite, and **a baseline row is the one thing that must not
-be added** — a row asserts that no kill criterion exists, and this line is the proof one does.
-The lane is red so the pool race stays under pressure, not because the tree is. Read it as a
-harness bug report and route it to the pool-isolation work.
-
-**`catalog anchor drift: catalog::<id> left <guard> byte-identical`** — a hand-authored
-`tools/mutation-catalog.tsv` sed no longer matches. Either the anchor moved (re-anchor the row
-against the new text) or the branch it guarded is gone (strike the row). Do not invent a site to
-re-anchor onto; if the behavior left, the row leaves with it.
-
-**`unaccounted guard`** — a new `*.sh` with no killer. Give it a same-stem `*-selftest.sh`, a
-`tools/mutation-pair-map.tsv` row, or a reasoned `tools/mutation-exclusions.tsv` row.
-
-**`pair-map guard does not exist`** — you deleted a guard and left its rows behind. Delete them too,
-catalog rows included.
-
-**Re-seeding the whole baseline** is a `workflow_dispatch` of `mutation-sweep.yml` with
-`seed=true` — the explicit re-baseline override, which never enforces. That is the *only* entry
-point: seed mode otherwise triggers on an absent baseline, and a `schedule` run never seeds. Reach
-for it when the baseline is wholesale stale (a mass rename, a `MUTATION_SWEEP_K` change), not for
-a handful of shifted rows.
-
-**Seed runs force `RC=0`.** A green seed is not a clean seed — `grep 'RED:'` the shard logs
-regardless. A run has shipped a reding baseline on exactly this mistake.
-
-**A green PR does not mean a graded PR.** The PR lane sweeps only guards whose kill set is a
-single fast suite; everything paired to a slow or multi-suite killer (`milestone-gate-selftest`,
-`scenario-liveness-selftest`, anything in `tools/selftest-suite-timings.tsv`) reports
-`deferred-to-nightly` and is **not graded on your PR**. The status token still says `nightly`
-because three selftest greps and this document read it and re-keying an enum buys nothing; the
-lane it defers to is now the merge-time sweep on the commit your PR lands as.
-Edit one of those and any new survivor arrives as a filed issue minutes after the merge, addressed
-to whoever wrote the line rather than to whoever opens the Actions page next. If your diff touches
-a deferred guard, expect to learn about it from `mutation-merge` rather than from your PR — though
-content keying means only a site you actually *wrote* can produce one.
-
-**All-deferred is not silently green (#582).** When every in-scope guard defers — 23% of
-guard-touching PRs, measured by the #567 audit, concentrated on `milestone-gate.sh` — the job still
-exits 0, but it no longer reads the same as "swept your guards, found no new survivors". It prints
-an unmissable `WARN:` line naming the count and the reason(s), and, on real CI, a `::warning::`
-check-surface annotation plus a job-summary block when `GITHUB_STEP_SUMMARY` is set. Sweeping at
-least one guard is unchanged — the warn fires only when the graded count is exactly zero.
 
 ## Adversarial tier (operator-run, never CI)
 
