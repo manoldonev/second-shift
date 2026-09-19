@@ -25,12 +25,16 @@ complete). `skill_calls` counts `Skill` tool calls naming the skill under test. 
 
 ## Tally (majority of 3 per role)
 
-| skill | kit caught | bare caught | registered verdict |
-| --- | --- | --- | --- |
-| `intake-orchestrator` | 6 / 6 | 6 / 6 | `delete` — bare ≥ kit and all 6 |
-| `intake-interviewer` | 6 / 6 | 6 / 6 | `delete` — bare ≥ kit and all 6 |
+| skill | kit caught | bare caught | registered verdict | adjudicated |
+| --- | --- | --- | --- | --- |
+| `intake-orchestrator` | 6 / 6 | 6 / 6 | `delete` — bare ≥ kit and all 6 | `no basis — ceiling` |
+| `intake-interviewer` | 6 / 6 | 6 / 6 | `delete` — bare ≥ kit and all 6 | `no basis — ceiling` |
 
-Every gap was caught in 3 of 3 runs of both arms, not merely on majority.
+Every gap was caught in 3 of 3 runs of both arms, not merely on majority. With both arms at the
+ceiling, the comparison does not separate them. The operator ruled on the PR
+(https://github.com/manoldonev/second-shift/pull/860#issuecomment-5742243801) that the result is
+`no basis — ceiling`, not the registered rule's `delete`. The departure and its reasoning are in
+`docs/skill-ablation.md` §3.
 
 ## Detector audit
 
