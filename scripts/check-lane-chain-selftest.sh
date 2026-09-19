@@ -932,8 +932,7 @@ else fail "(V3) expected a silent rc=0 after a revert, got rc=$rc: $out"; fi
 # own inherited id and the pool equal to the bounded walk's starting pool, so the unbounded walk
 # is the bounded walk plus one self-link with an IDENTICAL terminal state. No exit code, no
 # violation message and no round attribution can differ. The bound's site (`CHAIN_PAST -eq 1`)
-# is `cmp-eq` ordinal 6 in this guard and sits outside the sweep's K=2 window, so nothing the
-# mutation sweep exercises is lost; what remains here is that the record still resolves and the
+# therefore has no kill criterion a run can observe; what remains here is that the record still resolves and the
 # run stays silent, with (V4)/(V5) carrying the arm's kill criteria.
 write_chain_record r-review-v3 sess-review-v3 3 "$v_pid_rev" "$v_pid_rev" "$v_r1_commit"
 out="$(run_gate_base "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt" "main")"; rc=$?

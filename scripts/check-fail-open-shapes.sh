@@ -69,10 +69,9 @@ SELF_EXCLUDE='scripts/check-fail-open-shapes\.sh|scripts/check-fail-open-shapes-
 # Two data exclusions, both for the same reason — the file is never executed, so a shape in it
 # is quoted shell, not a call site:
 #   docs/plans/   the run-artifact archive: frozen specs and verdict records.
-#   *.tsv         every table in this repo, and pointedly tools/mutation-*.tsv, which is a
-#                 CORPUS OF DELIBERATELY BROKEN SHELL. Scanning it for banned shapes is a
-#                 category error: a catalog row whose whole job is to describe reintroducing
-#                 one would red the guard for saying so.
+#   *.tsv         every table in this repo. A table is data: scanning it for banned shapes is
+#                 a category error, and a register row whose note quotes one would red the
+#                 guard for saying so.
 # Both arms match against `relpath:line:text`, which is why the .tsv arm anchors on the path
 # separator rather than on `$` — end-of-line here is the end of the matched TEXT.
 # .claude/pipeline-state and .claude/audit are gitignored operator state (lane logs, audit ledgers)

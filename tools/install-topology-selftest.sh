@@ -58,15 +58,9 @@ SELF="$HERE/$(basename "${BASH_SOURCE[0]}")"
 # re-litigated by hand, which is the exact cost the named-timeout line exists to remove.
 # The rule is unchanged; only the observation it is applied to is.
 #
-# (An earlier reading of this had the bound guarding a specific `until ! pgrep -f` waiter in
-# that suite. No such waiter exists in this tree — `grep -rn pgrep` finds only
-# mutation-sweep-selftest.sh's orphan COUNT. The bound stands on the contention measurement
-# above; it is not defending against that mechanism.)
-#
 # `timeout(1)` is deliberately not used: it is absent from stock macOS, one of this repo's
-# two CI lanes. The `set -m` + reap-the-process-group idiom below is lifted from
-# tools/mutation-sweep.sh's bounded killer, which documents why killing the pid alone is not
-# enough (a spinning grandchild survives it).
+# two CI lanes. The `set -m` + reap-the-process-group idiom below is there because killing the
+# pid alone is not enough (a spinning grandchild survives it).
 SUITE_TIMEOUT="${INSTALL_TOPOLOGY_TIMEOUT:-1200}"
 set -m
 

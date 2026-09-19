@@ -1,5 +1,7 @@
 # Gate ablation over the pipeline run corpus
 
+> Population: dogfood repo only; not evidence about consumer repos.
+
 Which of the lane's blocking gates has ever changed what shipped, measured rather than argued.
 
 The mutation sweep holds every shell guard to one bar: name the regression class only you catch.

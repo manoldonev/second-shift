@@ -24,13 +24,9 @@
 # malformed declaration reds locally rather than waiting for CI to read it.
 #
 # WHAT BELONGS HERE. Only suites whose cost is worth the declaration burden. Cost is measured
-# in tools/selftest-suite-timings.tsv (which replaced tools/mutation-slow-suites.tsv in #641;
-# the earlier landing set was chosen off that deleted file). Two suites have been considered
-# and DROPPED because a composed set IS its transitive closure and cannot be enumerated stably
-# from the suite: scenario-liveness-selftest.sh, and mutation-sweep-selftest.sh — the latter's
-# case (j) enumerates `git ls-files '*.sh'` over the whole repository and its TSV-family lint
-# greps the content of every tracked *-selftest.sh, so its verdict moves with any .sh file
-# anywhere in the tree. Directory rows cannot express that either: the universe is the TRACKED
+# in tools/selftest-suite-timings.tsv. A suite whose composed set IS its transitive closure
+# cannot be enumerated stably from the suite and is DROPPED (scenario-liveness-selftest.sh is
+# one). Directory rows cannot express a set like that either when its universe is the TRACKED
 # set, while a directory row contributes every regular file beneath it, untracked included.
 # Dropping a row is always safe: the suite simply always runs.
 #

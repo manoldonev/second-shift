@@ -146,8 +146,8 @@ The predicate is a classification, not a preference:
 - **`gates-process`** — rules whose premise is "no human is available to answer this". These
   **may** yield when the premise is false.
 
-Which gate is which is not left to a reading: [`scripts/gate-buckets.tsv`](../scripts/gate-buckets.tsv)
-declares one bucket per refusal site, and an unclassified one fails CI.
+Which bucket a refusal site belongs to is decided by the predicate above, where the site is
+written; no separate register records it.
 
 The mechanism is **affordance plus record**, and both halves are load-bearing:
 

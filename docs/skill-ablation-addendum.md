@@ -1,5 +1,7 @@
 # Skill-vs-bare-session ablation — addendum: substrate, challenger, attribution rubric
 
+> Population: dogfood repo only; not evidence about consumer repos.
+
 **This file EXTENDS the frozen protocol; it does not amend it.** Registered 2026-09-01, before any
 result from #746, #747 or #748 exists. Every rule below is additive: it fixes something
 [`docs/skill-ablation-pre-registration.md`](skill-ablation-pre-registration.md) left open or does

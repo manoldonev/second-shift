@@ -1,10 +1,9 @@
 # The lane bench
 
-[`docs/consumer-eval.md`](consumer-eval.md) asks whether a release is better or worse to use than
-the last one, and answers it with four numbers and the maintainer's judgment. It is deliberately
-un-automated, and it is deliberately about a *release*. It cannot answer the question that comes
-up every time a plugin, a skill, a reviewer agent or a gate is proposed for deletion: **would
-cutting this make the lane worse, and by how much?**
+[`docs/consumer-eval.md`](consumer-eval.md) evaluates the kit by the operator's read of consumer
+verdict records. That read cannot answer the question that comes up every time a plugin, a skill,
+a reviewer agent or a gate is proposed for deletion: **would cutting this make the lane worse, and
+by how much?**
 
 That question has, until now, been settled by argument. The lane bench settles it with a measured
 delta against a fixed control: replay a fixed corpus of tickets through the pipeline once per
@@ -67,7 +66,7 @@ arm session that could read the answer sheet would be scoring itself.
 
 **Each cell files a fresh issue.** Lane state is keyed on the issue number and none of it is
 deleted, so a reused issue would report series-to-series elapsed time as run time and the figure
-would still look like a run — the same trap `docs/consumer-eval.md` names for its own corpus.
+would still look like a run.
 
 ## The gold
 

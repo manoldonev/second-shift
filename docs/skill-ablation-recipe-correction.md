@@ -1,5 +1,7 @@
 # Skill-vs-bare-session ablation — recipe correction: `--allowedTools` never bounded an arm
 
+> Population: dogfood repo only; not evidence about consumer repos.
+
 **Recorded 2026-09-08. #796.** This file corrects a *reading* of the frozen bare-arm recipe. It does
 not amend the recipe, and it changes no score.
 

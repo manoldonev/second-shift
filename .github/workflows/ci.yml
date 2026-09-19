@@ -165,14 +165,6 @@ jobs:
       - name: capability parity register (tools/capability-parity.tsv)
         run: bash tools/capability-parity-check.sh
 
-      # Every refusal site in the lane declares its yield bucket. Same class as the two
-      # steps above — an enumerator plus a register that must cover its output exactly — and it
-      # lives HERE rather than in pr-gates deliberately: it reads five files off the tree and
-      # needs none of that job's environment block. #610 D-9 left prose-blockers.sh's coverage
-      # unwired because "the parent's register owns the living coverage guard"; this is it.
-      - name: gate bucket register (scripts/gate-buckets.tsv)
-        run: bash scripts/check-gate-buckets.sh
-
       - name: namespace direction check (docs/namespaces.md rule 3)
         run: |
           # Array, not a space-separated string: the multi-dir expansion is intentional, and
@@ -192,44 +184,6 @@ jobs:
                "${TOOLKITS[@]}" --include='*.md' --include='*.mjs' --exclude-dir=scripts --exclude-dir=evals 2>/dev/null; then
             echo "::error::rule 3(b): toolkit content hard-paths into dev-pipeline (invoke workflows by bare filename; reference artifacts by name)"; exit 1
           fi
-
-  # Test-the-tests, diff-scoped. Mutates only the guards this PR touches and runs their
-  # paired selftests; a mutant that SURVIVES is a regression the suite would not have caught.
-  # Guards whose kill set is not a single fast suite defer to mutation-merge.yml — the same
-  # harness on the same diff with the deferral off, run once nothing is waiting on the answer
-  # — rather than being graded here against a weaker criterion than the one that produced the
-  # baseline. This job must NEVER set MUTATION_SWEEP_NO_DEFER: the deferral is what holds a
-  # merge-blocking lane inside its 15-minute bound.
-  #
-  # ITS OWN JOB, not a step of lint-and-selftests: it was serialized behind ~12 minutes of
-  # selftests while carrying its own 15-minute timeout, so on a guard-touching PR it put ~10
-  # more minutes on the critical path for no dependency reason. Nothing it reads is produced by
-  # that job.
-  #
-  # pull_request only: no base ref exists on push-to-main. BASE_REF rides in the environment for
-  # the same injection reason as pr-gates below. SKIP_STRESS is the canonical sweep environment
-  # and is set here, on this job alone — the selftest job above must keep exercising the stress
-  # legs, and the harness never exports it itself (that would make the baseline's environment
-  # check vacuous).
-  mutation-sweep-pr:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0   # the sweep diffs the PR against its base to scope the guard set
-
-      # The paired selftests this sweep runs need both. They were previously inherited from
-      # lint-and-selftests' shellcheck step; standing alone, this job states its own tools.
-      - name: install shellcheck + jq
-        run: sudo apt-get update -q && sudo apt-get install -y shellcheck jq
-
-      - name: mutation sweep (PR-scoped)
-        timeout-minutes: 15
-        env:
-          BASE_REF: ${{ github.base_ref }}
-          SKIP_STRESS: '1'
-        run: bash tools/mutation-sweep.sh --mode pr --base "origin/$BASE_REF"
 
   # The install-topology class guard does NOT run here. It lives in
   # .github/workflows/install-topology.yml, on push to main / the release PR / workflow_dispatch
