@@ -204,8 +204,8 @@ the code does not author its own evaluation.
   commit, and round 2 then re-read the whole diff — 30:40, **58% of that run** (`docs/lane-latency.md`).
   The follow-through needs no new rule: if the policy fix changes a line you reviewed your record is
   void and a round happens anyway, and if it changes none — a trailer commit — your record stands.
-  A red CORRECTNESS lane is the opposite and stays a blocker: `lint-and-selftests`, `selftests` and
-  `mutation-sweep-pr` are evidence about the code, and an `AC-n` one of them contradicts is
+  A red CORRECTNESS lane is the opposite and stays a blocker: a lint or test job (here,
+  `lint-and-selftests` and `selftests`) is evidence about the code, and an `AC-n` one of them contradicts is
   unsatisfied however green the diff looks.
 - **Four design blockers, on an armed run.** A fidelity failure against any RS row; a PNG whose
   hash disagrees with the receipt in your own checkout; a `Design: none` disarm you cannot justify

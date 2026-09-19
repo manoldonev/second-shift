@@ -67,7 +67,7 @@ this single anchor, rather than a new copy being added beside them.
 
 **P4/P5 posture (#641, #719):** the asymmetry this closes — P2/P3's growth principles gate
 mechanically; P4/P5's restraint principles did not, for months, despite this document saying so in
-its own text. P4/P5 are enforced by the operator at filing time (#717's `harness-internal` rule),
+its own text. P4/P5 are enforced by the operator at filing time (the admission rule in [`CLAUDE.md`](../CLAUDE.md)),
 not by a script; the last script that tried policed itself into an empty-trailer review round
 (#637).
 
@@ -119,6 +119,9 @@ Nothing inside the session is proof. The agent executes with file access, so loc
 files, receipts, even the hook-written audit ledger — are at best tamper-*evident*. The
 tamper-*proof* line is the merge boundary: CI checks plus branch protection, which the agent cannot
 edit from a run.
+
+**Posture where the boundary workflow is not installed:** the local gates are a completion oracle
+and a quality checklist, not proof.
 
 P3 is satisfied by **three-record reconciliation**: (a) the hook-written tool ledger
 (harness-recorded, outside model control); (b) the harness-written run records — the progress

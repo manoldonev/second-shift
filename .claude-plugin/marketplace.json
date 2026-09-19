@@ -5,7 +5,7 @@
     "url": "https://github.com/manoldonev"
   },
   "metadata": {
-    "description": "No proof, no merge. Claude Code plugins for autonomous development in which the agent writes the PR and never grades its own work: interview-driven intake, outcome-gated build, review in a separate session, a model-free merge boundary, mutation-tested tests, cost on every PR, and a tool-call audit ledger. Generic tooling only; each consumer repo supplies one config file and optional knowledge files.",
+    "description": "Open-source plugins for Claude Code: ask, build, review. Every install gets decisions put to you one at a time and recorded, and a review from a separate session with a committed verdict. Generic tooling only; each consumer repo supplies one config file and optional knowledge files.",
     "version": "14.0.1"
   },
   "plugins": [

@@ -96,9 +96,10 @@ Across the corpus from Step 1, triaged by Step 2, build the table every candidat
 - **Per-dispatch latency** from audit-ledger `SubagentStop` differencing, where ledgers exist. When no ledger covers the window, **omit the column entirely** rather than showing partial rows that read as complete.
 - **Cost rows** where the cost log covers the run.
 - **Scheduler overhead** (`bash tools/lane-latency.sh --dir <state-dir>`), for the runs driven by
-  `/dev-pipeline:run`. It is the one column that separates THIS LANE's cost from the payload's:
+  `/dev-pipeline:run`, in a repo that carries that tool (second-shift does; it does not ship in a
+  plugin, so elsewhere omit the column). It is the one column that separates THIS LANE's cost from the payload's:
   `(terminal − launch) − Σ(spawn-end − spawn)`, everything outside a model session. Measured at
-  **2 seconds** on the two runs `docs/lane-latency.md` derives by hand, so a run reporting more is
+  **2 seconds** on the two runs second-shift's `docs/lane-latency.md` derives by hand, so a run reporting more is
   the finding — and a run whose ledger predates the `spawn-end` rows reports `not-measurable` and
   belongs in the fidelity column, never scored as zero. Omit the column entirely when no ledger in
   the window carries both edges, on the same rule as per-dispatch latency above.

@@ -1,16 +1,12 @@
-<p align="center">
-  <img src="docs/second-shift-hero-v4.png" alt="second-shift — no proof, no merge. Your agent bluffs; the gate doesn't play."" width="800">
-</p>
-
 # second-shift
 
-> No proof, no merge.
+> Open-source plugins for Claude Code: ask, build, review.
 
-**second-shift** is open-source Claude Code plugins for autonomous development. Your agent asks before it builds, proves what it did, and cannot merge its own work. A review it can't overrule, tests that survived sabotage, a ledger of what it actually ran, and a check in CI that refuses without them. Cost on every PR. The merge button stays yours.
+**second-shift** asks, builds and reviews. Before the agent builds, it puts the open design decisions to you one at a time and records your answers in the spec. It then takes the ticket to a pull request, and a separate session, not the one that wrote the code, reviews it and commits its verdict to the branch. Every install gets both records: the decisions you made, and a review its author did not write. Opt-in: design-fidelity review when a design provider is configured, a cost block on the PR, and a CI merge check that reads the records. The merge button stays yours.
 
 ## Get started
 
-Requirements: Claude Code ≥ 2.x, `bash`, `jq`, `git`, `node` (the review and mutation Workflow gates run under it), and the `gh` CLI — the build block opens PRs via `gh pr create` for **every** tracker, JIRA runs included. Tracker extras: an Atlassian MCP connection for the JIRA tracker; a Figma MCP only if you enable the figma gate.
+Requirements: Claude Code ≥ 2.x, `bash`, `jq`, `git`, `node` (the review and intake Workflows run under it), and the `gh` CLI — the build block opens PRs via `gh pr create` for **every** tracker, JIRA runs included. Tracker extras: an Atlassian MCP connection for the JIRA tracker; a Figma MCP only if you enable the figma gate. GitHub tracker: the six queue labels and a GitHub-App bot identity ([`docs/onboarding.md` §2b](docs/onboarding.md#2b-prerequisites-the-first-run-enforces-github-tracker)).
 
 Onboarding is three commands and one skill invocation:
 
@@ -58,7 +54,7 @@ Full onboarding — topologies (monorepo, BE+FE pair), reviewer tuning, extensio
 
 ## Why
 
-Agents write plausible code faster than a team can honestly review it, so the bottleneck moved from writing to deciding, and most tooling answers that with the agent's own report: tests pass, done. second-shift treats that report as a claim, not evidence. Every merge needs records the agent did not author, reconciled mechanically, behind a gate that fails closed when they are absent. The process is engineered rather than improvised: gates that block instead of suggest, review by a panel the author cannot overrule, specs assembled from decisions you ratified one at a time, and an audit ledger of what the agent actually invoked. The generic machinery lives here; everything specific to your repo lives in your repo.
+Agents write plausible code faster than a team can honestly review it, so the bottleneck moved from writing to deciding. second-shift starts with the asking: open decisions go to you one at a time and land in a Decision Ledger the build works from, instead of being guessed. The review then runs in a session that did not write the code, and its verdict is committed next to the change, so what was decided and what was judged are both on record. An audit ledger of what the agent actually invoked is one plugin away. The generic machinery lives here; everything specific to your repo lives in your repo.
 
 ## Plugins
 

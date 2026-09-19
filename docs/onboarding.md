@@ -72,7 +72,7 @@ variant — is its own playbook: [`team-rollout.md`](team-rollout.md).
 `/dev-pipeline:run` routes by invocation cwd — it has no per-repo worktree map. A
 confirmed pair's `topology.type: be-fe-pair` config (unchanged, `be`+`fe` entries) stays a
 legal shape and other readers still honour it, but nothing fans a run out across both repos
-any more: the staged lane that did, `/dev-pipeline:run`, was deleted in #348. Working the
+any more: the staged lane that did was deleted. Working the
 pair therefore needs one thing: **the sibling repo onboards separately, on its own.** `cd` into it and run `/second-shift:onboard` there too — detection reports plain
 `standalone` from that side (the sibling-candidate probe is directional), so it drafts its
 own independent config (itself at `path: "."`), its own bot identity, its own worktrees
@@ -81,7 +81,7 @@ from the same pair.
 
 `topology.repos.<id>.ticketTag` on the host's `be`/`fe` entries (e.g. `"[BE]"` / `"[FE]"`)
 is **advisory only** — no gate reads it (a retired lane resolved `TARGET_REPOS`
-from it as a gate input; that reader was deleted in #348). What it does is route the lane: whoever launches `/dev-pipeline:run`
+from it as a gate input; that reader is gone). What it does is route the lane: whoever launches `/dev-pipeline:run`
 — an operator or the scheduler itself — reads the tag to pick the repo checkout to launch from. **FE-tagged tickets run from the FE
 repo.** The `intake-orchestrator` skill enforces the corresponding discipline at
 ticket-filing time: a title carrying both pair tags, or neither, is rejected before spec
@@ -268,12 +268,11 @@ Field reference — including `extraLanes` and `allowUnverified` — is in
 A passing suite proves the tests run, not that they would catch anything. The check for that is
 **yours to carry and yours to run**. Nothing in second-shift executes it for you.
 
-**This changed in #580, and the change is the whole section.** The green gate used to run an
+**The green gate no longer runs it.** It used to run an
 executable `tools/mutation-sweep.sh` at your repo root as the last step of the verification
 milestone, and to print `mutation sweep SKIPPED` when there was none. It no longer looks for that
-file at all. The lane issued the identical invocation this repo's own PR CI job already made, so
-it was duplicated work idle-blocking a build session; deleting it costs nothing a merge boundary
-was not already re-deriving.
+file at all: it duplicated work a PR check on the merge boundary re-derives anyway, and it
+idle-blocked a build session while doing it.
 
 **If you carry a sweep, wire it yourself.** The invocation the retired lane used is a reasonable
 starting point for a CI job of your own:
@@ -285,7 +284,7 @@ bash tools/mutation-sweep.sh --mode pr --base origin/<baseBranch>
 - **Invocation** — run from your repo root, with `<baseBranch>` taken from your config's
   `topology.repos.<id>.baseBranch`. `--mode pr` means diff-scoped: only what this branch changed.
 - **Put it on the merge boundary, not in the session.** A gate that blocks an interactive run on
-  work the PR checks already do is the exact cost #580 removed; a required status check on the PR
+  work the PR checks already do is the exact cost that removal saved; a required status check on the PR
   is where the answer is cheap and is re-derived for free.
 - **Deterministic, and no model calls.** Whatever you wire, keep it reproducible from the tree
   alone and free of API spend. A sweep that needs the network or an LLM belongs in an
@@ -297,9 +296,9 @@ bash tools/mutation-sweep.sh --mode pr --base origin/<baseBranch>
 What the sweep does inside is entirely your choice — a Stryker or `mutmut` wrapper, a per-spec
 harness that flips operators and re-runs the affected file, a shell-guard sweep. `gates.mutation`
 declares the intent and buys no sweep on its own — it never armed the retired lane either (that
-branched on the file's presence), and it survives #580 unchanged as the declared-intent signal
+branched on the file's presence), and it survives that removal unchanged as the declared-intent signal
 `/second-shift:doctor` and `config-grill` grade your plumbing against
-(`commands.<id>.unitTestScope`/`testFile` were retired in #574).
+(`commands.<id>.unitTestScope`/`testFile` are retired).
 
 Environment sanity for all of the above in one command: `pipeline-doctor.sh` (ships in the
 dev-pipeline plugin at `tools/pipeline-doctor.sh`, config-aware since 2.0.7 —

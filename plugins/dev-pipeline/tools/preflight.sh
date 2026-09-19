@@ -49,8 +49,8 @@ set -uo pipefail
 
 # Denylist of vars that must NOT leak into a configured command-lane child process
 # (run_lane() below) — see milestone-gate.sh's matching SEAM_SCRUB for the full rationale (#34),
-# including why MUTATION_SWEEP_NO_DEFER (a test-harness knob rather than a pipeline seam)
-# belongs here. SUPERSET of milestone-gate.sh's list: this file also carries its own
+# including why MUTATION_SWEEP_NO_DEFER (a knob of a since-deleted test harness, now inert
+# residue) is still listed. SUPERSET of milestone-gate.sh's list: this file also carries its own
 # PREFLIGHT_DOCTOR_CMD seam, so the relation is `subset-of` and not `verbatim` — declared on
 # the marker below, with `subset` on milestone-gate.sh's copy. Two copies rather than one import
 # because neither file is importable by the other: they reach the same lane shape by two code

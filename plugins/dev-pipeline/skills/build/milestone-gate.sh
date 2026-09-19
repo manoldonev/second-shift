@@ -1999,9 +1999,8 @@ worktree_destroy() { # worktree_destroy <path> <branch>
 # declared nothing always runs.
 #
 # ADVERTISED, NOT ENFORCED: a `test` command that is vitest or pytest never reads it. The store
-# lives OUTSIDE every checkout — a teardown must not cost the operator their cache — and carries the
-# same 0-valued off switch as the mutation sweep's: a cache you cannot turn off is a green you
-# cannot re-check.
+# lives OUTSIDE every checkout — a teardown must not cost the operator their cache — and carries a
+# 0-valued off switch: a cache you cannot turn off is a green you cannot re-check.
 lane_apply_selftest_cache() {
   local store
   # THE OFF SWITCH HAS TO SCRUB, not merely decline to export. An operator who already carries
@@ -3319,8 +3318,7 @@ panel_reviewers() { # panel_reviewers <panel-value>
 # that `error:*` before design_plan_gate runs — so no third family reaches this function. The arm
 # stays anyway, fail-closed: every caller reads a non-zero return as "this family has no plan
 # reviewer", never as a satisfied requirement, so a family added above without a reviewer declines
-# the mandate instead of mandating a dispatch nobody can make. It carries no mutation-catalog row
-# for the same reason it is written this way — there is no run that could kill one.
+# the mandate instead of mandating a dispatch nobody can make.
 design_family_plan_reviewer() { # design_family_plan_reviewer <family>
   case "${1:-}" in
     figma)         printf 'figma-faithful-plan-reviewer' ;;
@@ -3810,11 +3808,11 @@ cmd_2() {
 # (preflight.sh runs this repo's own configured lane commands the same way), and the only
 # shape `env` can scrub ahead of.
 #
-# NOT ONLY PIPELINE SEAMS. MUTATION_SWEEP_NO_DEFER is a test-harness knob and earns a row for
-# the same reason: the lane children include a `test` command, and in this repo that command
-# discovers tools/mutation-sweep-selftest.sh, whose cases invoke the real sweep and assert
-# what it defers. An ambient knob would silently re-answer those cases out of an operator's
-# shell. The list is "what must not reach a lane child", not "what second-shift owns".
+# NOT ONLY PIPELINE SEAMS. MUTATION_SWEEP_NO_DEFER was a test-harness knob of this repo's
+# mutation-sweep selftest, which its `test` lane used to run; that sweep is deleted, so the token
+# is inert residue — scrubbing a variable nothing sets is harmless, and it goes when this pair is
+# next edited for a consumer reason. The list is "what must not reach a lane child", not "what
+# second-shift owns".
 # LOCKSTEP-BEGIN seam-scrub subset
 SEAM_SCRUB='SECOND_SHIFT_CONFIG|SECOND_SHIFT_REPO_ROOT|SECOND_SHIFT_EXTENSION_MANIFEST|SECOND_SHIFT_PLUGIN_ROOT|SECOND_SHIFT_REVIEW_TOOLKIT_ROOT|SECOND_SHIFT_DEV_PIPELINE_ROOT|SECOND_SHIFT_DESIGN_TOOLKIT_ROOT|SECOND_SHIFT_SECTION_CATALOG|STATECTL_STATE_DIR|STATECTL_WRITER|DEV_PIPELINE_MODE|BRANCH_PREFIX|KEY_PATTERN|LANE_ATTEND_MODE|MUTATION_SWEEP_NO_DEFER'
 # LOCKSTEP-END seam-scrub
@@ -3907,7 +3905,7 @@ subst() { # subst <template> <placeholder> <replacement>
   printf '%s' "$out$t"
 }
 
-# The shasum/sha256sum picker tools/mutation-sweep.sh already uses: shasum ships with macOS and
+# A shasum/sha256sum picker: shasum ships with macOS and
 # with the ubuntu runner's perl, sha256sum is coreutils, and this script has a bash-3.2/macOS
 # lane. Prints nothing when neither exists, which every caller must treat as a refusal — an
 # empty hash compared against an empty hash would agree while hashing nothing.
@@ -5142,9 +5140,9 @@ cmd_3() {
   # LAST in milestone 3, after extraLanes, on the same rule: cheap deterministic lanes first, then
   # the expensive ones. A no-op on every unarmed run.
   #
-  # #580 retired a repo-carried `tools/mutation-sweep.sh --mode pr` run from this slot: it made the
-  # IDENTICAL invocation the `mutation-sweep-pr` CI job already makes. Do not re-add it — the
-  # duplication is the whole reason it went, and #642 applied the same reading to `lint`/`test`.
+  # A repo-carried `tools/mutation-sweep.sh --mode pr` run used to sit in this slot: it repeated a
+  # check the PR's own CI makes. Do not re-add it — the duplication is the whole reason it went,
+  # and the same reading made `lint`/`test` advisory.
   cmd_3_render; rc=$?
   [ "$rc" -eq 0 ] || return "$rc"
 

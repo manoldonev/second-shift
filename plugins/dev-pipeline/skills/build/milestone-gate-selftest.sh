@@ -158,12 +158,11 @@ VERDICT="$TREE/docs/plans/acme-7-lean-verdict.md"
 
 # #663: THE SUBSTRING NETS BELOW ARE CAST OVER THE GATE'S WORDS, NEVER OVER ITS PATHS.
 # The gate opens every run with `[milestone-gate] config: <path>`, and that path is wherever this
-# suite's own scratch (WORK, above) landed. The nightly mutation sweep runs every killer with
-# TMPDIR pointed at a directory of its own named `mutation-sweep-work.XXXXXX` — so on that lane,
-# WORK lands inside it, and (i-580a)'s `grep -i mutation` matched the directory the suite was
-# standing in. Both #580 cases failed for that reason on every nightly from 2026-08-20, the pair
-# read as unrunnable, and milestone-gate.sh — the most catalog-covered guard in the tree — was scored
-# by nothing at all until #663. Originally this hit only the Linux nightly: WORK was allocated
+# suite's own scratch (WORK, above) landed. This repo's former nightly mutation sweep ran every
+# killer with TMPDIR pointed at a directory of its own named `mutation-sweep-work.XXXXXX` — so on
+# that lane WORK landed inside it, and (i-580a)'s `grep -i mutation` matched the directory the
+# suite was standing in; both #580 cases failed for that reason until #663. Any TMPDIR whose path
+# carries a word the nets look for reproduces it. Originally this hit only the Linux nightly: WORK was allocated
 # with `mktemp -d -t`, which on Linux resolves against $TMPDIR and on macOS resolves against
 # `_CS_DARWIN_USER_TEMP_DIR`, ignoring TMPDIR outright — so the macOS lane could not reproduce
 # it. #780 switched WORK to the explicit-template form (`mktemp -d "${TMPDIR:-/tmp}/…"`), which
@@ -1004,8 +1003,8 @@ if [ "$rc" -eq 0 ] && grep -qF "extra lane 'ok-lane' » echo hi" <<<"$out"; then
 else fail "(i2) expected rc=0 and the lane's command printed, got rc=$rc: $out"; fi
 
 # AC-1, as #642 left it: a failing lane REPORTS, naming BOTH the lane and the failing command,
-# and milestone 3 continues. `mutation-sweep-pr` and `lint-and-selftests` re-run what extraLanes
-# carry at the merge boundary, so refusing here bought when, not whether.
+# and milestone 3 continues. A consumer's PR checks re-run what extraLanes carry at the merge
+# boundary, so refusing here bought when, not whether.
 cfg="$(el_cfg '[{"name":"boom","commands":["exit 7"],"failureClass":"TEST_FAILURE"}]')"
 prog="$WORK/el-prog-boom.md"
 out="$(gate_el "$cfg" "$prog" 3 7)"; rc=$?
