@@ -8177,14 +8177,16 @@ else fail "(ac1) milestone-4 site mapping drifted: $m4_calls call(s), class sign
 # The literal-prefix `"[a-z]` is what excludes block_obligation's own `block_milestone 5 "$2"`.
 # 10 -> 11 with the P9 hand-back: milestone 4's `handed back` class-11 site is an absent verb on
 # purpose — an unratified pause-and-ask record beside no verdict is waited on, never fixed.
+# 11 -> 13 with #640: milestone 4's `--pr` zero-CI arms (class 12, and class 2 when the merge ref
+# is unreadable) are absent verbs too — CI not having run is waited on, never fixed by BUILD.
 #
 # THIS COUNT IS THE INCLUSION DIRECTION AND NOTHING MORE. It was green across both of round 1's
 # blocker sites, because a `fail_milestone` carrying one of the six predicates leaves it untouched.
 # (ac1c) below is the half that can see that; neither case replaces the other.
 m_block="$(grep -cE 'block_milestone [145] "[a-z]|block_obligation [a-z-]+ "' "$GATE")"
-if [ "$m_block" -eq 11 ]; then
-  pass "(ac1b) #642 AC-3: all 11 announcement-class refusal sites route to the absent verb, over the 6 points the ablation report adjudicates 'unchanged' plus the P9 hand-back"
-else fail "(ac1b) absent-verb site count drifted: $m_block (expected 11) — $(grep -nE 'block_milestone [145] "[a-z]|block_obligation [a-z-]+ "' "$GATE")"; fi
+if [ "$m_block" -eq 13 ]; then
+  pass "(ac1b) #642 AC-3: all 13 announcement-class refusal sites route to the absent verb, over the 6 points the ablation report adjudicates 'unchanged' plus the P9 hand-back and the two zero-CI arms"
+else fail "(ac1b) absent-verb site count drifted: $m_block (expected 13) — $(grep -nE 'block_milestone [145] "[a-z]|block_obligation [a-z-]+ "' "$GATE")"; fi
 
 # ---- (ac1c)/(ac1d) #642 AC-3, round 1: THE EXCLUSION DIRECTION -----------------------------
 # (ac1b) above counts absent-verb sites and asserts a total. That is the INCLUSION direction, and
