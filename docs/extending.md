@@ -35,8 +35,8 @@ You have a repo-, org-, or domain-specific need. Walk it down this list; the fir
 | Ship any of the above **across many repos in your org**, versioned and pinned | a **companion pack** plugin (EP-5) that the config points at | its own plugin | per the mechanism it uses |
 
 **Three rows used to sit in that table and no longer do.** `stageWorkflows` (EP-6),
-`implementDelegates` (EP-7) and `planGates` (EP-8) were dispatched by the ten-stage lane #348
-deleted, and #569 retired the config keys: `config-lint` now rejects each by name. They are not
+`implementDelegates` (EP-7) and `planGates` (EP-8) were dispatched by the ten-stage lane, which
+was deleted, and their config keys were retired with it: `config-lint` now rejects each by name. They are not
 an answer to anything, which is why they are out of a table whose contract is "the first row that
 fits is your answer". Their shape is kept as a **design record** in §3.6–3.8, because whether the
 pipeline grows a consumer-pluggable blocking gate is still an open product question and that
@@ -68,7 +68,7 @@ Every `stageParams` key defaults to the plugin's current literal, so an empty co
     // it in; the default set is JS/TS-centric and treats *.md and *.sh as zero-coverage —
     // true for a TS app, false when shell IS the product.
     // CURRENTLY UNCONSUMED: preflight.sh was the only runtime caller that resolved this
-    // key, and that read went with the staged lane (#348). The pipeline's milestone-3
+    // key, and that read went with the staged lane. The pipeline's milestone-3
     // verify has deliberately no inert lane, and the pre-commit type-check hook carries
     // its own hardcoded carve-out instead of reading config. config-lint still accepts
     // the key, so setting it stays legal and today changes nothing.
@@ -277,7 +277,7 @@ When the extension files or reviewers above would be copied across many of your 
 
 ## 4. The companion-pack contract (EP-5)
 
-A **companion pack** is your own private plugin — same distribution mechanics as second-shift, different visibility — that carries the org-wide half of your extension surface: shared domain reviewers and shared knowledge files. (It used to carry shared workflow scripts and delegate agents too — the EP-6/EP-7 targets — but #569 retired the config keys that referenced them; see §3.6–3.7.) It's the concrete form of the "org/platform overlay" (layer 2) named in [`context-model.md`](context-model.md): author org knowledge once, version it, pin it, instead of vendoring it into every repo.
+A **companion pack** is your own private plugin — same distribution mechanics as second-shift, different visibility — that carries the org-wide half of your extension surface: shared domain reviewers and shared knowledge files. (It used to carry shared workflow scripts and delegate agents too — the EP-6/EP-7 targets — but the config keys that referenced them are retired; see §3.6–3.7.) It's the concrete form of the "org/platform overlay" (layer 2) named in [`context-model.md`](context-model.md): author org knowledge once, version it, pin it, instead of vendoring it into every repo.
 
 A consumer repo enables the companion pack alongside second-shift and then *references* its contents from `.claude/second-shift.config.json` — `reviewers.add` for its reviewers — and declares its knowledge files in `.known-extensions` (§4.3). The pack itself never edits a consumer's config; wiring is always the consumer's auditable choice.
 
@@ -295,7 +295,7 @@ They upgrade independently: bumping your org pack's domain rules is a companion-
 Everything a companion pack exposes is addressed `<pack>:<name>`, exactly like the shipped plugins ([`namespaces.md`](namespaces.md)):
 
 - **Agents** referenced from config carry the qualifier: a pack reviewer registered via `reviewers.add` is dispatched by its qualified name, `"acme-platform:api-test-reviewer"`. (A repo-*local* agent stays bare — that's the disambiguation between the two roots.)
-- **Workflows** a pack ships use the same `"<pack>:<relpath>"` form wherever the Workflow tool resolves one; it searches the installed-plugin path, so never hard-code a filesystem path into another plugin. No *config* key points at one any more — the two that did (`stageWorkflows`, `implementDelegates`) were retired in #569.
+- **Workflows** a pack ships use the same `"<pack>:<relpath>"` form wherever the Workflow tool resolves one; it searches the installed-plugin path, so never hard-code a filesystem path into another plugin. No *config* key points at one any more — the two that did (`stageWorkflows`, `implementDelegates`) are retired.
 
 The qualifier is what lets `check-reviewer-references.sh` tell "shipped", "companion", and "repo-local" apart, and what keeps a pack from silently shadowing a shipped name.
 
@@ -317,7 +317,7 @@ platform/*.md
 
 > **Half of this study is a historical record — read §3.6-3.8 first.** Three of the five
 > mechanisms it composes (`stageWorkflows`, `implementDelegates`, `planGates`) lost their
-> dispatcher in #348 and lost their config keys in #569: `config-lint` rejects them by name, so
+> dispatcher with the staged lane and then their config keys: `config-lint` rejects them by name, so
 > a config carrying them **fails pre-flight**. The `extraLanes`, `reviewers.add` and
 > extension-file halves still run, and the config block below carries only those.
 > The retired halves are shown separately, as design record, because this is the only worked
@@ -357,12 +357,12 @@ tier that still dispatch, registered and auditable. This block is valid config; 
 ```
 
 **And the two seams that are gone.** The block below is **not valid config** — `config-lint`
-rejects all three of these keys by name (#569). It is reproduced because the tier's *shape*
+rejects all three of these keys by name. It is reproduced because the tier's *shape*
 argument depends on it: the point of the study is that a QA tier wants a gating moment at the
 plan and a different author at the implementation, and neither has a home on the lane today.
 
 ```jsonc
-// RETIRED IN #569 — DO NOT PUT THIS IN A CONFIG. Design record only (§3.7-3.8).
+// RETIRED — DO NOT PUT THIS IN A CONFIG. Design record only (§3.7-3.8).
 {
   // gate the PLAN (§3.8). As designed: block a ticket whose API-test strategy is wrong
   // before any code exists. No equivalent on the lane — the spec is judged at the merge boundary.
@@ -389,8 +389,8 @@ api-testing/*.md
 
 | Gating moment | Seam | What runs | Fails how | Status |
 | --- | --- | --- | --- | --- |
-| plan review | `planGates` (EP-8) | `api-test-plan-reviewer` judges the plan's test strategy | `block` → `plan-reviewer-block` | **retired #569** — no equivalent on the lane |
-| implement | `implementDelegates` (EP-7) | `api-test-coder` writes `tests/api/**` | output passes the unchanged scope + downstream gates | **retired #569** — a session may still choose the agent |
+| plan review | `planGates` (EP-8) | `api-test-plan-reviewer` judges the plan's test strategy | `block` → `plan-reviewer-block` | **retired** — no equivalent on the lane |
+| implement | `implementDelegates` (EP-7) | `api-test-coder` writes `tests/api/**` | output passes the unchanged scope + downstream gates | **retired** — a session may still choose the agent |
 | verify | `extraLanes` (EP-2) | the API suite runs | nonzero → `TEST_FAILURE`, standard budget | live (`milestone-gate.sh` milestone 3) |
 | code review | `reviewers.add` | `api-test-reviewer` reviews the tests | its verdict folds into the review round | live (`review-lead`) |
 
@@ -400,4 +400,4 @@ Every one of these **adds** a gate or a unit of work; not one can waive a shippe
 
 ---
 
-**In one breath:** config for values and switches; extension files to add evidence; `extraLanes` to add a blocking verify gate and `reviewers.add` to add a review dimension — both registered from config so they're auditable; a companion pack to ship any of it across an org, two-pinned and namespaced. (The plan-gate and delegate seams that once sat alongside them were retired in #569 and survive only as the design record in §3.6-3.8.) And through all of it: extensions add, they never subtract; if your change could turn a red run green, you wanted a fork.
+**In one breath:** config for values and switches; extension files to add evidence; `extraLanes` to add a blocking verify gate and `reviewers.add` to add a review dimension — both registered from config so they're auditable; a companion pack to ship any of it across an org, two-pinned and namespaced. (The plan-gate and delegate seams that once sat alongside them are retired and survive only as the design record in §3.6-3.8.) And through all of it: extensions add, they never subtract; if your change could turn a red run green, you wanted a fork.

@@ -160,7 +160,7 @@ mv "$WORK/held.md" "$VERDICT"
 # (B)'s sibling, and the one that was uncovered: the progress record is where the run's identity
 # lives, so reconciling without it can only ever be an unverifiable pass. With the refusal gone
 # the guard walks on and every identity comparison below reads an empty string against an empty
-# string — the shape that AGREES. The mutation sweep scores this site, and it survived.
+# string — the shape that AGREES. A mutant of this site survived this repo's former mutation sweep.
 mv "$PROG" "$WORK/held-prog.md"
 out="$(reconcile "$WORK/comments-good.json")"; rc=$?
 if [ "$rc" -eq 1 ] && grep -q 'no progress file' <<<"$out"; then

@@ -25,10 +25,11 @@ HISTORY="$SCRIPT_DIR/audit-history.sh"
 # only became true once the writer moved to the main-checkout anchor:
 #   - Smoke ledgers used to be written into the operator's own .claude/audit/ and deleted
 #     again by a trap. A run interrupted between the two left rows behind in live evidence.
-#   - The mutation sweep runs suites from a sandbox WORKTREE. Post-anchor, a hook driven
-#     from there resolves to the REAL main checkout, so the suite would write into live
-#     evidence and then look for its rows somewhere else — every assertion failing for a
-#     reason that has nothing to do with the mutant under test.
+#   - A runner that executes suites from a sandbox WORKTREE (this repo's former mutation
+#     sweep did). Post-anchor, a hook driven from there resolves to the REAL main checkout,
+#     so the suite would write into live evidence and then look for its rows somewhere
+#     else — every assertion failing for a reason that has nothing to do with the change
+#     under test.
 #
 # `pwd -P` is load-bearing: on macOS `mktemp -d` hands back /var/folders/… while git records
 # and prints the physical /private/var/folders/… . Comparing the two would fail on a path
