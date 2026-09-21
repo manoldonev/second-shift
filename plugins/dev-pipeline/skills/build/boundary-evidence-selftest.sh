@@ -550,6 +550,16 @@ out="$(ev "claude/acme-42" "$WORK/markers-good.json" "$WORK/diff-lean.txt")"; rc
 if [ "$rc" -eq 0 ] && silent "$out"; then
   pass "(y) a ratified, cited intent-gap record passes"
 else fail "(y) expected a silent rc=0 on a ratified gap, got $rc: $out"; fi
+
+# (y2) #866: the DELEGATED form. The build ratifies its own record before the handoff and cites
+# the consumer's committed standing-delegation line by blob permalink, not an issue comment.
+printf 'issue: 42\nrun_id: r-build\nratified: yes\nratified_by: https://github.com/acme/acme/blob/0123456789abcdef0123456789abcdef01234567/CLAUDE.md#L12\n\n## Gap\n\nCovered by the standing delegation.\n' > "$GAPREC"
+commit_tree "ratified by standing delegation"
+write_verdict
+out="$(ev "claude/acme-42" "$WORK/markers-good.json" "$WORK/diff-lean.txt")"; rc=$?
+if [ "$rc" -eq 0 ] && silent "$out"; then
+  pass "(y2) a build-written record citing the committed delegation line by permalink passes"
+else fail "(y2) expected a silent rc=0 on a delegated ratification, got $rc: $out"; fi
 rm -f "$GAPREC"; commit_tree "gap cleared"
 write_verdict
 

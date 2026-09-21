@@ -1044,6 +1044,12 @@ render_patch_id() { # render_patch_id <head-ish>
   printf '%s' "$id"
 }
 
+# ONE TEXT, TWO READERS: milestone 4's fidelity arm and the direct-`mark` guard. The guard stops a
+# stale receipt before the handoff; milestone 4 is the backstop for one that got past it.
+render_receipt_stale_msg() { # render_receipt_stale_msg <rendered_from> <current-render-id>
+  printf '%s' "$RENDER_MANIFEST_REL records rendered_from $(printf '%.12s' "$1"), but this branch now renders from $(printf '%.12s' "$2") — the approved fidelity was scored against screenshots of different code. Re-run milestone 3, commit the fresh receipt, and get a new review round."
+}
+
 # The PLAN binding (#694): the same identity again, with the render receipt AND the plan itself
 # excluded. Three exclusions rather than two, and each one is forced by a different livelock.
 #
@@ -2381,6 +2387,27 @@ require_ticket_still_open() {
        warn "  Fail closed, on the arm's own precedent: an unreadable tracker is not an open ticket, and a marker posted on that guess is the handoff this check exists to stop."
        exit 2 ;;
   esac
+}
+
+# A STALE RENDER RECEIPT STOPS HERE, not at review. A commit after milestone 3 — a docs edit, a
+# ratification — moves the render identity, and the reviewer used to find it and spend a round
+# that changed no code. `mark` is the build's last gate call before the handoff, so the build
+# re-renders instead.
+#
+# DIRECT SUBCOMMAND ONLY, for the reason given above: close-out calls `cmd_mark` as a function,
+# and a merged branch has no render identity left to compare. It sits BEFORE `cmd_mark`, so it
+# runs when no bot is configured too. It refuses only on a computed mismatch: an uncomputable
+# identity or an absent receipt is milestone 4's to refuse, in its own words.
+require_render_receipt_fresh() {
+  local m_from cur
+  [ "$(design_state "$REPO_ROOT/$SPEC_REL")" = "armed" ] || return 0
+  m_from="$(record_key rendered_from "$REPO_ROOT/$RENDER_MANIFEST_REL")"
+  cur="$(render_patch_id HEAD)"
+  if [ -n "$m_from" ] && [ -n "$cur" ] && [ "$m_from" != "$cur" ]; then
+    warn "✗ $SUB: $(render_receipt_stale_msg "$m_from" "$cur")"
+    exit 1
+  fi
+  return 0
 }
 
 cmd_staleness() {
@@ -5340,7 +5367,7 @@ cmd_4() {
       return $?
     fi
     if [ "$m_from" != "$cur_render" ]; then
-      fail_milestone 4 "$RENDER_MANIFEST_REL records rendered_from $(printf '%.12s' "$m_from"), but this branch now renders from $(printf '%.12s' "$cur_render") — the approved fidelity was scored against screenshots of different code. Re-run milestone 3, commit the fresh receipt, and get a new review round." 1
+      fail_milestone 4 "$(render_receipt_stale_msg "$m_from" "$cur_render")" 1
       return $?
     fi
   elif [ -n "$v_fid" ] && [ "$v_fid" != "not-applicable" ]; then
@@ -5460,8 +5487,9 @@ cmd_verdict() {
       echo ""
       echo "Paused and asked. The review round found that two ratified artifacts disagree and that choosing"
       echo "between them is a human ruling, not a review finding (P9) — so it wrote this record instead of a"
-      echo "verdict. Ratification is an operator comment on issue #$ISSUE; then set \`ratified: yes\` and that"
-      echo "comment's URL in \`ratified_by:\` above, commit, and re-run \`/dev-pipeline:review $VERDICT_PR\`."
+      echo "verdict. To ratify, set \`ratified: yes\` and put the signer's URL in \`ratified_by:\` above: an"
+      echo "operator comment on issue #$ISSUE, or the blob permalink to the repo's committed standing-delegation"
+      echo "line (interviewing-baseline). Commit, and re-run \`/dev-pipeline:review $VERDICT_PR\`."
     } > "$gap"
     say "✓ verdict: HANDED BACK — $INTENT_GAP_REL written (region undeclared, disposition pause-and-ask, ratified no) and NO verdict record."
     say "  Commit and push it to the PR's head branch, post the gap as the PR comment, and stop. Milestone 4 reads it as rc 11 and the scheduler stops the lane 'review-paused' until an operator ratifies it."
@@ -6747,7 +6775,7 @@ esac
 # and after the cwd arm at (iii) — which already binds `mark` — has established that the argument
 # and the tree name the same run. `mark` is the only subcommand in this arm; see the function.
 case "$SUB" in
-  mark) require_ticket_still_open ;;
+  mark) require_ticket_still_open; require_render_receipt_fresh ;;
 esac
 
 case "$SUB" in

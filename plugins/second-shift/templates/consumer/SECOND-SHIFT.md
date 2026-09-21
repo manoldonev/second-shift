@@ -43,6 +43,13 @@ repo enables {{PLUGIN_LIST}}) — `/second-shift:doctor` verifies the install ag
   a review identity distinct from the build run's, a verdict covering *this* head, and no
   unratified intent-gap record. The workflow only reports a check; it blocks a merge only if you
   mark it a required status check in branch protection.
+- **Ratification can be delegated.** When a build hits a decision its ticket never covered, it
+  writes an intent-gap record that must read `ratified: yes` with a URL in `ratified_by:` before
+  it merges. To let the build ratify on your behalf, commit one line to your `CLAUDE.md`, for
+  example `Ratification of intent-gap records is delegated to the agent.` The build then cites
+  that line's GitHub blob permalink (`https://github.com/<owner>/<repo>/blob/<sha>/CLAUDE.md#L<n>`)
+  and ratifies before the review, so ratification never costs a review round. Without the line,
+  cite an operator's comment on the issue instead.
 - **The boundary evidence check is fail-closed.** Missing evidence is a failure, and so is a check
   that could not run: a moved script path at your pinned ref (HTTP 404) or a shallow checkout is
   reported as drift, never waved through green. Only a network/auth blip fetching the script is

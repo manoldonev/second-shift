@@ -143,6 +143,9 @@ the code does not author its own evaluation.
    same question back. A code defect beside the ratification question is still `needs-work`, and
    the ratification question then goes in the findings as a blocker the build cannot clear — the
    hand-back is for the round whose only blocker is the ruling.
+   An intent-gap record that is only waiting on ratification is neither a blocker nor a hand-back: its `ratified:` state
+   is not a review finding. The build ratifies before the handoff, and the merge boundary settles
+   the rest.
 6. Write the record **from the checkout of the PR head**:
    `bash G verdict <issue> --pr <n> --verdict <approve|needs-work> --rounds <n> --fidelity <pass|fail|not-applicable> --panel <a,b,c> --summary-file <path>`
    The summary file carries the finding table and the per-AC scoring. The gate writes the

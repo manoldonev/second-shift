@@ -204,13 +204,22 @@ ratified_by:
 ```
 
 The header keys are read **first-match**, so `ratified:` sits above the prose that discusses it.
-Ratification is an operator act out of band — a comment on the issue — and the record then
-carries `ratified: yes` plus that comment's URL in `ratified_by:`. A `yes` citing nothing is not
-ratification — the merge boundary (`scripts/check-lane-chain.sh`) is where that is settled.
+The record carries `ratified: yes` plus a URL in `ratified_by:` that says who signed it. Two
+citations are valid:
 
-One record per issue, one `ratified:` key covering it; a second gap resets it to `no`. Because
-committing the flip moves the branch, it costs a fresh review round — land ratification before
-the review handoff where you can.
+- **A standing delegation.** The consumer commits one line to its CLAUDE.md (or an equivalent
+  committed doc) delegating ratification to the agent. The build then ratifies its own record
+  before the handoff, and `ratified_by:` is a GitHub blob permalink to that line
+  (`https://github.com/<owner>/<repo>/blob/<sha>/CLAUDE.md#L<n>`). It needs no tracker write, so it
+  works under `writes: false` too.
+- **An operator's comment** on the issue, cited by that comment's URL.
+
+A `yes` citing nothing is not ratification. The merge boundary (`scripts/check-lane-chain.sh`)
+settles it.
+
+One record per issue, one `ratified:` key covering it; a second gap resets it to `no`. Committing
+the flip moves the branch, so a flip after the review costs a fresh round. Ratify before the
+review handoff.
 
 The review half writes the same record when its round's only blocker is a ratification question
 (the review skill's hand-back rule, through the gate's `verdict --hand-back ratification`):
