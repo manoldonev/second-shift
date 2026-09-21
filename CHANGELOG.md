@@ -4,6 +4,52 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v14.0.4
+
+### `design-toolkit` 5.0.1 → 5.0.2
+
+- **First-impression docs and onboard match the reworked lane (#875)** (#875)
+  /second-shift:onboard drafts `tracker.bot.enabled: true` when you
+  choose a GitHub bot identity, and its first-run instructions run
+  /intake-toolkit:intake before /dev-pipeline:run. Its review screen explains
+  `tracker.writes: false` and the pipeline's default review panel, and its CI
+  offer names the merge-boundary evidence check it installs.
+  Migration: a github repo onboarded with a bot but without
+  `tracker.bot.enabled: true` adds that key to its config.
+
+### `dev-pipeline` 14.0.3 → 14.0.4
+
+- **First-impression docs and onboard match the reworked lane (#875)** (#875)
+  /second-shift:onboard drafts `tracker.bot.enabled: true` when you
+  choose a GitHub bot identity, and its first-run instructions run
+  /intake-toolkit:intake before /dev-pipeline:run. Its review screen explains
+  `tracker.writes: false` and the pipeline's default review panel, and its CI
+  offer names the merge-boundary evidence check it installs.
+  Migration: a github repo onboarded with a bot but without
+  `tracker.bot.enabled: true` adds that key to its config.
+
+### `review-toolkit` 8.0.4 → 8.0.5
+
+- **First-impression docs and onboard match the reworked lane (#875)** (#875)
+  /second-shift:onboard drafts `tracker.bot.enabled: true` when you
+  choose a GitHub bot identity, and its first-run instructions run
+  /intake-toolkit:intake before /dev-pipeline:run. Its review screen explains
+  `tracker.writes: false` and the pipeline's default review panel, and its CI
+  offer names the merge-boundary evidence check it installs.
+  Migration: a github repo onboarded with a bot but without
+  `tracker.bot.enabled: true` adds that key to its config.
+
+### `second-shift` 10.0.1 → 10.0.2
+
+- **First-impression docs and onboard match the reworked lane (#875)** (#875)
+  /second-shift:onboard drafts `tracker.bot.enabled: true` when you
+  choose a GitHub bot identity, and its first-run instructions run
+  /intake-toolkit:intake before /dev-pipeline:run. Its review screen explains
+  `tracker.writes: false` and the pipeline's default review panel, and its CI
+  offer names the merge-boundary evidence check it installs.
+  Migration: a github repo onboarded with a bot but without
+  `tracker.bot.enabled: true` adds that key to its config.
+
 ## v14.0.3
 
 ### `dev-pipeline` 14.0.2 → 14.0.3
