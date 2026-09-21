@@ -553,6 +553,24 @@ if [ "$rc" -eq 0 ] && silent "$out"; then
   pass "(x) an intent-gap record reading 'decided_by: user-delegated' passes"
 else fail "(x) expected a silent rc=0 on a delegated gap, got $rc: $out"; fi
 
+printf 'decided_by: user-answered\nissue: 42\n\n## Gap\n\nThe operator answered it.\n' > "$GAPREC"
+commit_tree "answered intent gap"
+write_verdict
+out="$(ev "claude/acme-42" "$WORK/markers-good.json" "$WORK/diff-lean.txt")"; rc=$?
+if [ "$rc" -eq 0 ] && silent "$out"; then
+  pass "(x2) an intent-gap record reading 'decided_by: user-answered' passes"
+else fail "(x2) expected a silent rc=0 on an answered gap, got $rc: $out"; fi
+
+# (x3) the legacy pair needs BOTH halves: a record with no `decided_by:` key and an uncited
+# `ratified: yes` is the run asserting the human agreed, and stays undecided.
+printf 'issue: 42\nratified: yes\nratified_by:\n\n## Gap\n\nSomething the receipt did not cover.\n' > "$GAPREC"
+commit_tree "legacy ratified but uncited"
+write_verdict
+out="$(ev "claude/acme-42" "$WORK/markers-good.json" "$WORK/diff-lean.txt")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q "reads 'decided_by: <none>'" <<<"$out"; then
+  pass "(x3) a legacy 'ratified: yes' citing no URL is refused"
+else fail "(x3) expected rc=1 on an uncited legacy record, got $rc: $out"; fi
+
 printf 'issue: 42\nratified: yes\nratified_by: https://example.invalid/issues/42#issuecomment-7\n\n## Gap\n\nCovered.\n' > "$GAPREC"
 commit_tree "legacy ratified and cited"
 write_verdict

@@ -2270,6 +2270,17 @@ else fail "(y8d) expected rc=1 — the legacy pair in prose must not resolve OR-
 rm -f "$GAP"; commit_tree "remove legacy-quoting intent-gap fixture"
 reset_progress
 
+# (y8e) the legacy pair needs BOTH halves: no `decided_by:` key and an uncited `ratified: yes`
+# does not clear the region, or the old key alone would bypass pause-and-ask.
+printf 'region: OR-1\nratified: yes\nratified_by:\n' > "$GAP"
+commit_tree "legacy uncited intent-gap for OR-1"
+out="$(gate 1 7 --issue-file "$WORK/issue-or1-paa.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'region OR-1' <<<"$out"; then
+  pass "(y8e) a legacy 'ratified: yes' citing no URL does not clear a pause-and-ask region"
+else fail "(y8e) expected rc=1 — an uncited legacy record must not resolve OR-1, got $rc: $out"; fi
+rm -f "$GAP"; commit_tree "remove legacy uncited intent-gap fixture"
+reset_progress
+
 # (y9)-(y11) #532: "could not read the issue" is not "the issue declares no region", and it is
 # not a failed FIX either. Both gh arms already printed a reason, so both already refused —
 # what they could not do was refuse for the right REASON: an unreadable tracker spent one of
