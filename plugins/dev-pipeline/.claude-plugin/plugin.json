@@ -1,7 +1,7 @@
 {
   "name": "dev-pipeline",
   "description": "Autonomous pipeline from an intaken ticket to a reviewed PR — build and review in separate sessions, gated by five artifact milestones — a thin scheduler (/dev-pipeline:run) over payload blocks that stay individually invokable (/dev-pipeline:build, /dev-pipeline:review). Tracker adapters (github|jira), a Workflow-based review fan-out, retro; opt-in cost block and merge-boundary evidence. Reads per-repo static context from .claude/second-shift.config.json.",
-  "version": "14.0.3",
+  "version": "14.0.4",
   "author": {
     "name": "Manol Donev"
   }
