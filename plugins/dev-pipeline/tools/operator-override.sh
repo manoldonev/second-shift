@@ -11,7 +11,7 @@
 # TRUST POSTURE, stated rather than implied. Nothing in-session is tamper-proof; the repo's trust
 # boundary says so and this file does not pretend otherwise.
 #   - The TOKEN is tamper-evident only. Forging it buys a pause, never a yield.
-#   - The RECORD is the yield's evidence, at the intent-gap ratification trust level:
+#   - The RECORD is the yield's evidence, at the intent-gap record's trust level:
 #     session-writable, committed, PR-visible, merge-boundary-validated, repudiable at review.
 #   - The residual — this file edited to skip its own bookkeeping — is the standing local-gate
 #     posture, caught at review as a diff. docs/pipeline-manifesto.md states it.

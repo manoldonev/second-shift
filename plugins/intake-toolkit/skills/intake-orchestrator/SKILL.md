@@ -95,7 +95,7 @@ finished slice list is the most seductive draft there is, because it looks like 
 than a set of decisions. Where you escalate (thresholds, ambiguous boundaries, contested
 coupling), take the answers **one decision at a time** and assemble the slices from them —
 never present the whole decomposition and invite corrections. Every sub-issue body is assembled
-from ratified ledger rows plus declared open regions; a slice boundary nobody disposed of is a
+from decided ledger rows plus declared open regions; a slice boundary nobody disposed of is a
 decision you made wearing the costume of a finding.
 
 ## Inputs
@@ -428,7 +428,7 @@ is a sibling-skill path, not the cross-plugin resolution the bot-writes note abo
 
 A red lint is not a formatting complaint, and it has two distinct causes.
 
-**A ratification failure.** An `intent` row backed by `codebase-derived` / `ticket-sourced` /
+**A provenance failure.** An `intent` row backed by `codebase-derived` / `ticket-sourced` /
 `deferred` means you recorded a decision *you* made as one the human made — either ask them, or
 reclassify it honestly (a derived fact, or an `open` row under a declared region). Do not edit
 the Kind cell to clear the lint.

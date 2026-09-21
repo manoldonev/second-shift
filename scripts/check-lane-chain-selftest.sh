@@ -96,7 +96,7 @@ EOF
 echo '[]' > "$WORK/comments-empty.json"
 
 # ---- the PR marker trail (#359) ------------------------------------------------------------
-# The gate delegates its verdict / identity / ratification / patch-id arms to the plugin
+# The gate delegates its verdict / identity / intent-gap / patch-id arms to the plugin
 # payload, so every case needs the payload itself and a PR marker trail to reach it. Both are
 # EXPORTED once rather than threaded through each call: the fixture tree is a throwaway repo
 # with no plugins/ directory, and the seam is the payload's input, not this gate's.
@@ -658,7 +658,7 @@ if ! grep -q 'reviewed_patch_id' "$VREC" 2>/dev/null; then
   pass "(R5) the (R) records carry no reviewed_patch_id, so that block does gate on the SHA fallback"
 else fail "(R5) the (R) block is no longer exercising the SHA fallback: $(cat "$VREC" 2>/dev/null)"; fi
 
-# ---- (S) evidence 6: an unratified intent-gap record blocks the merge (P9) ----------------
+# ---- (S) evidence 7: every intent-gap record names who decided (P9) -----------------------
 # A decision that surfaced during BUILD and was not in the receipt routes back through this
 # record instead of becoming a silent choice. Every arm below leaves the rest of (A) intact —
 # spec, approve verdict, bot claim, both freshness arms — so a failure here can only be the
@@ -675,10 +675,10 @@ GAPREC="$TREE/docs/plans/acme-42-lean-intent-gap.md"
 # verdict bytes are identical leave the record's last-touching commit behind the gap file's,
 # and evidence 5 then fails the arm for staleness rather than for what it asserts.
 GAP_ROUND=0
-write_gap() { # write_gap <ratified> [ratified_by]
+write_gap() { # write_gap <decided_by> — the header line every writer puts above the prose
   GAP_ROUND=$((GAP_ROUND + 1))
-  printf 'issue: 42\nrun_id: r-abc123\nsession_id: sess-build-1\nregion: OR-1\ndisposition: pause-and-ask\nratified: %s\nratified_by: %s\n\n## Gap\n\nThe receipt never covered the retry ceiling.\n' \
-    "$1" "${2:-}" > "$GAPREC"
+  printf 'decided_by: %s\nissue: 42\nrun_id: r-abc123\nsession_id: sess-build-1\nregion: OR-1\ndisposition: pause-and-ask\n\n## Gap\n\nThe receipt never covered the retry ceiling.\n' \
+    "$1" > "$GAPREC"
   commit_tree "intent-gap record (round $GAP_ROUND)"
   write_verdict approve "r-review-gap-$GAP_ROUND" "sess-review-gap-$GAP_ROUND"
 }
@@ -686,7 +686,7 @@ write_gap() { # write_gap <ratified> [ratified_by]
 # (S0) a lean-SHAPED intent-gap record under fixtures/ must not count as one — the same
 # exclusion every other artifact scan applies, and without it this suite's own fixtures would
 # block the PR that ships them.
-printf 'ratified: no\n' > "$TREE/scripts/fixtures/acme-42-lean-intent-gap.md"
+printf 'decided_by: pending\n' > "$TREE/scripts/fixtures/acme-42-lean-intent-gap.md"
 commit_tree "fixture-path intent-gap record"
 write_verdict approve r-review-fx sess-review-fx
 out="$(run_gate "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
@@ -696,52 +696,54 @@ else fail "(S0) expected a silent rc=0, got rc=$rc: $out"; fi
 
 # (S0b) ...and neither does a real, non-fixture record belonging to a DIFFERENT issue. This is
 # the arm (S0) cannot reach: the fixture exclusion and the `-$KEY` scoping are separate
-# predicates, and a scan that dropped the key would let any open issue's unratified gap block
-# this PR — or, worse, let a neighbouring issue's ratified one certify it. Ordered before every
+# predicates, and a scan that dropped the key would let any open issue's undecided gap block
+# this PR — or, worse, let a neighbouring issue's decided one certify it. Ordered before every
 # acme-42 record below so nothing else can be the thing that satisfies the scan.
-printf 'issue: 99\nratified: no\n\n## Gap\n\nA different issue, still unratified.\n' \
+printf 'decided_by: pending\nissue: 99\n\n## Gap\n\nA different issue, still undecided.\n' \
   > "$TREE/docs/plans/acme-99-lean-intent-gap.md"
 commit_tree "another issue's intent-gap record"
 write_verdict approve r-review-xkey sess-review-xkey
 out="$(run_gate "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
 if [ "$rc" -eq 0 ] && silent "$out"; then
-  pass "(S0b) an unratified intent-gap record for another issue does not bind this PR"
+  pass "(S0b) an undecided intent-gap record for another issue does not bind this PR"
 else fail "(S0b) expected a silent rc=0, got rc=$rc: $out"; fi
 
 # (S1) the refusal itself.
-write_gap no
+write_gap pending
 out="$(run_gate "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
-if [ "$rc" -eq 1 ] && grep -q "reads 'ratified: no'" <<<"$out"; then
-  pass "(S1) an unratified intent-gap record blocks the merge boundary"
-else fail "(S1) expected rc=1 on an unratified intent gap, got rc=$rc: $out"; fi
+if [ "$rc" -eq 1 ] && grep -q "reads 'decided_by: pending'" <<<"$out"; then
+  pass "(S1) an intent-gap record that names no decider blocks the merge boundary"
+else fail "(S1) expected rc=1 on an undecided intent gap, got rc=$rc: $out"; fi
 
-# (S2) `ratified: yes` with nothing cited is a self-ratification — the build run asserting the
-# human agreed. Distinct from (S1): the header reads exactly what the gate wants to see, and
-# only the citation stands between a run and ratifying its own gap.
-write_gap yes
-out="$(run_gate "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
-if [ "$rc" -eq 1 ] && grep -q 'cites no' <<<"$out"; then
-  pass "(S2) 'ratified: yes' with no cited operator comment is refused"
-else fail "(S2) expected rc=1 on an uncited ratification, got rc=$rc: $out"; fi
-
-# (S3) ...and ratifying it clears the gate. Without this arm S1/S2 could be permanent
-# breakage rather than a check with a remedy.
-write_gap yes 'https://example.invalid/tracker/42#issuecomment-7'
+# (S2) ...and naming the decider clears the gate. `user-delegated` is the honest value for the
+# agent acting under the operator's standing instruction, and the boundary accepts it. Without
+# this arm S1 could be permanent breakage rather than a check with a remedy.
+write_gap user-delegated
 out="$(run_gate "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
 if [ "$rc" -eq 0 ] && silent "$out"; then
-  pass "(S3) a ratified intent-gap record citing the operator comment passes"
-else fail "(S3) expected a silent rc=0 on a ratified intent gap, got rc=$rc: $out"; fi
+  pass "(S2) an intent-gap record reading 'decided_by: user-delegated' passes"
+else fail "(S2) expected a silent rc=0 on a delegated intent gap, got rc=$rc: $out"; fi
 
-# (S4) the ratified value is read FIRST-MATCH, like every other key on these records: the
-# record's own prose describes the gap, and gap prose says the word. A count-anywhere reader
-# would certify a record whose header says `no`.
-printf 'issue: 42\nratified: no\nratified_by: https://example.invalid/tracker/42#issuecomment-7\n\n## Gap\n\nThe earlier round recorded ratified: yes; this one reopened it.\n' > "$GAPREC"
-commit_tree "intent-gap record whose prose quotes the other value"
-write_verdict approve r-review-gap-4 sess-review-gap-4
+# (S3) a legacy record — no `decided_by:` key, the old pair — still counts as decided.
+GAP_ROUND=$((GAP_ROUND + 1))
+printf 'issue: 42\nregion: OR-1\ndisposition: pause-and-ask\nratified: yes\nratified_by: https://example.invalid/tracker/42#issuecomment-7\n\n## Gap\n\nThe receipt never covered the retry ceiling.\n' > "$GAPREC"
+commit_tree "legacy intent-gap record (round $GAP_ROUND)"
+write_verdict approve "r-review-gap-$GAP_ROUND" "sess-review-gap-$GAP_ROUND"
 out="$(run_gate "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
-if [ "$rc" -eq 1 ] && grep -q "reads 'ratified: no'" <<<"$out"; then
-  pass "(S4) a 'ratified: no' record whose body quotes 'ratified: yes' is still refused"
-else fail "(S4) expected rc=1 on a reopened intent gap, got rc=$rc: $out"; fi
+if [ "$rc" -eq 0 ] && silent "$out"; then
+  pass "(S3) a legacy ratified intent-gap record citing the operator comment passes"
+else fail "(S3) expected a silent rc=0 on a legacy ratified intent gap, got rc=$rc: $out"; fi
+
+# (S4) the decider is read FIRST-MATCH with the default charset, like every other key on these
+# records: the record's own prose describes the gap, and gap prose quotes the key. A reader that
+# narrowed its charset to the accepted values would skip the `pending` header and certify the quote.
+printf 'decided_by: pending\nissue: 42\n\n## Gap\n\nOnce decided this will read decided_by: user-delegated.\n' > "$GAPREC"
+commit_tree "intent-gap record whose prose quotes a decider"
+write_verdict approve r-review-gap-q sess-review-gap-q
+out="$(run_gate "claude/acme-42" "$WORK/comments-good.json" "$WORK/diff-lean.txt")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q "reads 'decided_by: pending'" <<<"$out"; then
+  pass "(S4) a 'decided_by: pending' record whose body quotes 'decided_by: user-delegated' is still refused"
+else fail "(S4) expected rc=1 on a pending intent gap, got rc=$rc: $out"; fi
 
 # ---- (T) --help prints the header, and only the header -----------------------------------
 # `sed -n '2,Np'` is a hand-maintained line number: growing the header silently truncates the
@@ -760,7 +762,7 @@ else fail "(T) --help did not print exactly the header, rc=$rc: $out"; fi
 # no reviewed line. Patch identity is invariant across a clean replay and still moves on any
 # real change, including the conflict resolution the SHA arm could not distinguish from one.
 #
-# Evidence 6 is cleared first, and deliberately: (S4) leaves an unratified intent-gap record
+# Evidence 7 is cleared first, and deliberately: (S4) leaves an undecided intent-gap record
 # behind, which reds every case here for a reason none of them is about. Absence is the ordinary
 # state for that evidence — the gate prints it rather than refusing — so removing the record
 # isolates this block on evidence 5 without weakening anything the (S) block asserts.

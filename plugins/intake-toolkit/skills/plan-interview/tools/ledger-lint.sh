@@ -22,7 +22,7 @@
 #      github.com-shaped pattern.
 #   5. No duplicate D-n ids.
 #
-# RECEIPT MODE (`--receipt`) adds the ratification bar. An INTAKE receipt is a
+# RECEIPT MODE (`--receipt`) adds the provenance bar. An INTAKE receipt is a
 # stronger artifact than an in-plan ledger: it is what a build run is handed as
 # the definition of settled intent, so it has to distinguish a decision the
 # human made from a fact somebody derived. Provenance alone cannot express that
@@ -147,7 +147,7 @@ EMPTY_FORM='No material decisions — all choices codebase-derived.'
 
 # Receipt-mode vocabulary. Single-sited on purpose: nothing else copies these, so
 # they need no lockstep row. The merge-boundary gate reads the intent-gap record's
-# `ratified:` key and deliberately does NOT re-validate dispositions — a second
+# `decided_by:` key and deliberately does NOT re-validate dispositions — a second
 # copy of an enum is duplicate machinery, which this repo's manifest calls worse
 # than none.
 KIND_ENUM='intent|fact|open'
@@ -360,7 +360,7 @@ while IFS= read -r line; do
     violate "$id row: 'ticket-sourced' provenance requires the Resolution cell to cite the source comment by URL (https://...)"
   fi
 
-  # ---- Receipt check A: the ratification bar --------------------------------
+  # ---- Receipt check A: the provenance bar ---------------------------------
   # The whole point of the Kind axis. An `intent` row asserts a human resolved
   # it, so only the two human-attributed provenance values may back that claim;
   # everything else is a derived fact or a parked decision wearing an intent
@@ -370,7 +370,7 @@ while IFS= read -r line; do
     case "$kind" in
       intent)
         if ! [[ "$provenance" =~ ^(${INTENT_PROVENANCE})$ ]]; then
-          violate "$id row: kind 'intent' requires provenance from {${INTENT_PROVENANCE//|/ | }}, got '$provenance' — an intent-resolving row backed by a derived or parked provenance is unratified. Ask the human, or reclassify the row (kind 'fact' for a derived fact, kind 'open' mapped to a declared open region)."
+          violate "$id row: kind 'intent' requires provenance from {${INTENT_PROVENANCE//|/ | }}, got '$provenance' — an intent-resolving row backed by a derived or parked provenance names no human decision. Ask the human, or reclassify the row (kind 'fact' for a derived fact, kind 'open' mapped to a declared open region)."
         fi
         ;;
       fact)

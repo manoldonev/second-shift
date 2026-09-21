@@ -14,7 +14,7 @@
 #   (c) boundary evidence — on a lane PR, assert the merge-boundary evidence set the harness
 #       is supposed to have left behind: a committed approve-verdict carrying reconciliation
 #       keys, a review identity distinct from the build run's, a verdict covering THIS head,
-#       and no unratified intent-gap record. Same fetch-at-pinned-ref shape as (a), against
+#       and every intent-gap record naming who decided. Same fetch-at-pinned-ref shape as (a), against
 #       boundary-evidence.sh. Not applicable to an ordinary PR, which it says and moves on.
 #
 # WHY (c) IS HERE AND NOT ITS OWN WORKFLOW. A second workflow is a second required status check

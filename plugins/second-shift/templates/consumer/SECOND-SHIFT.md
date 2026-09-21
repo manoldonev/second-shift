@@ -40,8 +40,8 @@ repo enables {{PLUGIN_LIST}}) — `/second-shift:doctor` verifies the install ag
   config-lint the committed config at the pinned marketplace ref; assert the settings ref and
   lockfile ref agree; and, on a `/dev-pipeline:run` PR, assert the merge-boundary evidence
   the lane is supposed to leave — a committed approve-verdict carrying reconciliation keys,
-  a review identity distinct from the build run's, a verdict covering *this* head, and no
-  unratified intent-gap record. The workflow only reports a check; it blocks a merge only if you
+  a review identity distinct from the build run's, a verdict covering *this* head, and every
+  intent-gap record naming who decided. The workflow only reports a check; it blocks a merge only if you
   mark it a required status check in branch protection.
 - **The boundary evidence check is fail-closed.** Missing evidence is a failure, and so is a check
   that could not run: a moved script path at your pinned ref (HTTP 404) or a shallow checkout is

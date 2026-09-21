@@ -158,8 +158,7 @@ matching the scheduler's shape.
 Two families need a fact beyond the slug, and carry it in the row's `condition` column:
 `build-no-pr` is `paused` with a milestone-1 `pause-and-ask` row in the progress record and
 `no-pr` without one, and the five verdict-side stops are `pr-unapproved` with a PR on the branch
-and `no-pr` without. `review-paused` — the review handed the round back with an unratified
-`pause-and-ask` intent-gap record and no verdict (P9) — is `paused` from the slug alone. A slug
+and `no-pr` without. A slug
 the table does not list is `lane-error` — a cell is re-run, not scored,
 on a class the bench cannot read.
 

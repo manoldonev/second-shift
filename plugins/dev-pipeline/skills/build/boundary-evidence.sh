@@ -745,7 +745,7 @@ find_artifact() { # find_artifact <key> <suffix>
 }
 
 # FIRST-MATCH, never a count over the whole file. These records carry the reviewer's own prose
-# below their header keys, and review prose discusses verdicts and ratification: a
+# below their header keys, and review prose discusses verdicts and deciders: a
 # count-anywhere reader passes a record whose authoritative first line says otherwise.
 record_key() { # record_key <key> <path> [charset]
   grep -oE "$1:[[:space:]]*${3:-[A-Za-z0-9._-]+}" "$2" 2>/dev/null \
@@ -1215,27 +1215,34 @@ arm_freshness() {
   fi
 }
 
-# ---------------------------------------------------------------- arm 4: ratification (P9)
-# RATIFICATION AND NOTHING ELSE. The record's disposition is deliberately not re-validated
+# ---------------------------------------------------------------- arm 4: who decided (P9)
+# WHO DECIDED AND NOTHING ELSE. The record's disposition is deliberately not re-validated
 # against the receipt's enum — that enum is single-sited in ledger-lint.sh, and a second copy
 # here would be the duplicate machinery the lockstep manifest calls worse than none.
 arm_intent_gap() {
-  local gap ratified by
+  local gap decided ratified by
   # ABSENCE IS CLASS (a), not class (b) (#443). Most runs surface no gap, and "the receipt already
   # covered everything" is a SATISFIED arm — nothing went unevaluated. It used to be printed so a
   # log reader could tell it from "the arm never ran"; that distinction now rides the fact that a
   # class-(b) line would be there if the arm could not run.
   gap="$(find_artifact "$KEY" "$LANE_INTENT_GAP_SUFFIX")" || gap=""
   [ -n "$gap" ] || return 0
-  # `ratified_by:` cannot be captured by the `ratified:` read — the character after `ratified`
-  # is `_`, not `:`.
-  ratified="$(record_key ratified "$REPO_ROOT/$gap" '[A-Za-z]+')"
-  by="$(record_key ratified_by "$REPO_ROOT/$gap" 'https://[^[:space:]]+')"
-  if [ "$ratified" != "yes" ]; then
-    note_violation "intent-gap record '$gap' reads 'ratified: ${ratified:-<none>}' — a decision the receipt never covered is still the build run's own call, and P9 routes it back to the human before it merges. Ratify it and record the comment URL as 'ratified_by:'."
-  elif [ -z "$by" ]; then
-    note_violation "intent-gap record '$gap' claims 'ratified: yes' but cites no 'ratified_by:' URL — a ratification the run wrote about itself is a self-ratification. Cite the operator's comment."
+  # The FIRST `decided_by:` value, read with the default charset and compared afterwards. A
+  # narrowed charset would filter, not check: it skips the `pending` header and matches a quote
+  # in the prose below it.
+  decided="$(record_key decided_by "$REPO_ROOT/$gap")"
+  case "$decided" in
+    user-answered|user-delegated) return 0 ;;
+  esac
+  if [ -z "$decided" ]; then
+    # A record with NO `decided_by:` key predates it: the legacy pair still reads as decided.
+    # `ratified_by:` cannot be captured by the `ratified:` read — the character after `ratified`
+    # is `_`, not `:`.
+    ratified="$(record_key ratified "$REPO_ROOT/$gap")"
+    by="$(record_key ratified_by "$REPO_ROOT/$gap" '[^[:space:]]+')"
+    case "$ratified:$by" in yes:https://?*) return 0 ;; esac
   fi
+  note_violation "intent-gap record '$gap' reads 'decided_by: ${decided:-<none>}' — a decision the receipt never covered must name who decided before it merges (P9). Set 'decided_by:' to 'user-answered' (the operator answered it) or 'user-delegated' (decided under the operator's standing delegation)."
 }
 
 # ---------------------------------------------------------------- arm 5: operator overrides (#613)

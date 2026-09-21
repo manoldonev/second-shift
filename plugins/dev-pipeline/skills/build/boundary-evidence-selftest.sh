@@ -519,37 +519,47 @@ if [ "$rc" -eq 1 ] && grep -q 'now hashes to' <<<"$out"; then
 else fail "(u) expected rc=1 after a post-review commit, got $rc: $out"; fi
 write_verdict
 
-# ---- (v) the ratification arm (P9) --------------------------------------------------------
+# ---- (v) the intent-gap arm: who decided (P9) ---------------------------------------------
 # Absence is the ordinary case and CLASS (a) since #443 — nothing went unevaluated, so nothing is
-# printed. The arm's kill criteria are (w)/(x) below, which are unchanged.
+# printed. The arm's kill criteria are (w)/(w2) below.
 out="$(ev "claude/acme-42" "$WORK/markers-good.json" "$WORK/diff-lean.txt")"; rc=$?
 if [ "$rc" -eq 0 ] && silent "$out"; then
   pass "(v) absence of an intent-gap record is the ordinary case, and is silent"
 else fail "(v) expected a silent pass with no gap record, got $rc: $out"; fi
 
-printf 'issue: 42\nratified: no\nratified_by:\n\n## Gap\n\nSomething the receipt did not cover.\n' > "$GAPREC"
-commit_tree "unratified intent gap"
+printf 'decided_by: pending\nissue: 42\n\n## Gap\n\nSomething the receipt did not cover.\n' > "$GAPREC"
+commit_tree "undecided intent gap"
 write_verdict
 out="$(ev "claude/acme-42" "$WORK/markers-good.json" "$WORK/diff-lean.txt")"; rc=$?
-if [ "$rc" -eq 1 ] && grep -q "reads 'ratified: no'" <<<"$out"; then
-  pass "(w) an unratified intent-gap record blocks the merge boundary"
-else fail "(w) expected rc=1 on an unratified gap, got $rc: $out"; fi
+if [ "$rc" -eq 1 ] && grep -q "reads 'decided_by: pending'" <<<"$out"; then
+  pass "(w) an intent-gap record that names no decider blocks the merge boundary"
+else fail "(w) expected rc=1 on an undecided gap, got $rc: $out"; fi
 
-printf 'issue: 42\nratified: yes\nratified_by:\n\n## Gap\n\nSomething the receipt did not cover.\n' > "$GAPREC"
-commit_tree "ratified but uncited"
+# (w2) FIRST MATCH, default charset: the legacy pair is read only when the record has NO
+# `decided_by:` key, so a `pending` header over prose quoting the old pair stays undecided.
+printf 'decided_by: pending\nissue: 42\n\n## Gap\n\nThe old form read:\nratified: yes\nratified_by: https://example.invalid/issues/42#issuecomment-7\n' > "$GAPREC"
+commit_tree "undecided intent gap quoting the legacy pair"
 write_verdict
 out="$(ev "claude/acme-42" "$WORK/markers-good.json" "$WORK/diff-lean.txt")"; rc=$?
-if [ "$rc" -eq 1 ] && grep -q 'cites no' <<<"$out"; then
-  pass "(x) a 'ratified: yes' citing no operator comment is a self-ratification, and is refused"
-else fail "(x) expected rc=1 on an uncited ratification, got $rc: $out"; fi
+if [ "$rc" -eq 1 ] && grep -q "reads 'decided_by: pending'" <<<"$out"; then
+  pass "(w2) a 'decided_by: pending' header is not cleared by a prose quote of the legacy ratified pair"
+else fail "(w2) expected rc=1 on a pending header over a quoted legacy pair, got $rc: $out"; fi
 
-printf 'issue: 42\nratified: yes\nratified_by: https://example.invalid/issues/42#issuecomment-7\n\n## Gap\n\nCovered.\n' > "$GAPREC"
-commit_tree "ratified and cited"
+printf 'decided_by: user-delegated\nissue: 42\n\n## Gap\n\nDecided under standing delegation.\n' > "$GAPREC"
+commit_tree "delegated intent gap"
 write_verdict
 out="$(ev "claude/acme-42" "$WORK/markers-good.json" "$WORK/diff-lean.txt")"; rc=$?
 if [ "$rc" -eq 0 ] && silent "$out"; then
-  pass "(y) a ratified, cited intent-gap record passes"
-else fail "(y) expected a silent rc=0 on a ratified gap, got $rc: $out"; fi
+  pass "(x) an intent-gap record reading 'decided_by: user-delegated' passes"
+else fail "(x) expected a silent rc=0 on a delegated gap, got $rc: $out"; fi
+
+printf 'issue: 42\nratified: yes\nratified_by: https://example.invalid/issues/42#issuecomment-7\n\n## Gap\n\nCovered.\n' > "$GAPREC"
+commit_tree "legacy ratified and cited"
+write_verdict
+out="$(ev "claude/acme-42" "$WORK/markers-good.json" "$WORK/diff-lean.txt")"; rc=$?
+if [ "$rc" -eq 0 ] && silent "$out"; then
+  pass "(y) a legacy record with no decided_by key, ratified and cited, still passes"
+else fail "(y) expected a silent rc=0 on a legacy ratified gap, got $rc: $out"; fi
 rm -f "$GAPREC"; commit_tree "gap cleared"
 write_verdict
 

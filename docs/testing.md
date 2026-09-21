@@ -1006,13 +1006,13 @@ entry.
 - **intake-receipt vocabulary** (Kind enum, open-region and surface disposition enums, the two
   explicit empty forms, the intent-gap record schema). `interviewing-baseline/SKILL.md` states it in
   prose and tables; `ledger-lint.sh` holds the only machine copies; `check-lane-chain.sh` reads the
-  record's `ratified:`/`ratified_by:` keys. A Kind value added to the doc and not the lint is a
+  record's `decided_by:` key. A Kind value added to the doc and not the lint is a
   value the receipt gate rejects with a message naming the enum the author just read. The doc side
   is a markdown table of prose descriptions, not a quoted literal. The empty forms ARE quoted
   literals on the lint side but sit inside fenced code blocks on the doc side, where neither
   relation reaches. Guarded by `ledger-lint-selftest.sh` (ll-o)-(ll-as) and
   `check-lane-chain-selftest.sh` (R0)-(R4). **Note the deliberate NON-coupling:** the chain gate
-  checks ratification ONLY and does not re-validate `disposition:` — a second copy in CI would
+  checks who decided ONLY and does not re-validate `disposition:` — a second copy in CI would
   create exactly the pair this entry declines to create. **The SKILL layer is a caller class of its
   own:** `intake-orchestrator/SKILL.md` Step 5.5 prescribes the receipt shape and then runs
   `ledger-lint.sh --receipt` on what it just prescribed, and `intake-interviewer/SKILL.md`

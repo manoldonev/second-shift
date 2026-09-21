@@ -6,9 +6,9 @@ what the product should do is measured on consumer repos' committed records.
 ## The guiding light: no silent decisions
 
 *"Model for intelligence, harness for law, ledger for memory."* In plain words: *"No silent
-decisions. Every material decision in a ticket has a named owner — the ticket, a human's answer,
-the codebase, or an explicit deferral — and a departure the agent discloses still needs a human's
-signature before it merges: telling is not deciding. Ask, build and review all serve that one
+decisions. Every material decision names who made it — the ticket, a human's answer, the
+codebase, an explicit deferral, or the agent under your standing delegation — and a departure from
+the record is written down, never buried. Ask, build and review all serve that one
 idea; we hold that the asking is the make-or-break step, and we have dated the test that could
 prove it wrong. We develop it against what consumer records show, never against this repo's own
 lane."*
