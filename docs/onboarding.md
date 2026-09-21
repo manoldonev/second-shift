@@ -22,7 +22,7 @@ package.json can answer), presents ONE accept-or-edit screen, and emits:
 - `.claude/second-shift.lock.json` — the plugin→version contract `/second-shift:doctor` verifies against
 - the repo-committed thin check (`.claude/tools/second-shift-doctor.sh` + a SessionStart nudge)
 - `.claude/SECOND-SHIFT.md` — the consent doc: what installs, what hooks fire, before the trust prompt
-- **(on request)** `.github/workflows/second-shift-ci.yml` + `.claude/tools/second-shift-ci-check.sh` — the server-side backstop: on every PR it config-lints the committed config with the linter shipped at the pinned marketplace ref and asserts the settings ref and lockfile ref agree, so a half-done upgrade PR is caught. Reports a red check; mark it a required status check in branch protection to block merges.
+- **(on request)** `.github/workflows/second-shift-ci.yml` + `.claude/tools/second-shift-ci-check.sh` — on every PR it config-lints the committed config with the linter shipped at the pinned marketplace ref and asserts the settings ref and lockfile ref agree, so a half-done upgrade PR is caught. On a pipeline PR it also runs the merge-boundary evidence check (`boundary-evidence.sh`), which fails closed: it reds a pipeline PR with no approve verdict, a verdict written by the build's own identity, a verdict that does not cover the PR's current head, or an intent-gap record that names no decider. The head check is the one that stops a branch merging on a verdict that predates its last commits. Reports a red check; mark it a required status check in branch protection to block merges.
 - **(same request, github tracker)** `.github/workflows/second-shift-unclaim.yml` + `.claude/tools/second-shift-unclaim.sh` — the close-out step neither lane owned: when an issue closes it removes the pipeline's two run-state labels (`tracker.labels.claimed` and `tracker.labels.queue`, resolved from your committed config at run time; never `tracker.labels.blockers`, which holds permanent classifications like `epic`). This is the one emitted workflow that **writes** — `issues: write`, two labels on one issue, which needs the repo's Actions workflow permissions set to read-and-write (a `permissions:` block narrows the repo maximum, it cannot widen it). The labels go stale when the issue closes, and no lane session is guaranteed to be running then — the lane's exit milestone accepts a merged PR as well as an open one, so close-out can finish long before the close arrives; binding the release to the close event needs no live session and covers a hand-closed issue too.
 - **(same request)** `.github/workflows/second-shift-delta-guard.yml` + `.claude/tools/second-shift-delta-guard.sh` — the delta guard, which is about your **CI bill** rather than your evidence. `/dev-pipeline:review` must commit the verdict record to the PR head as the *last* commit, so on a `pull_request`-triggered CI every pipeline PR pays a second full run — lint, typecheck, build, the whole test suite — for a markdown file the pipeline wrote itself. The guard is a reusable workflow exposing a `skip` output; you gate your heavy jobs on it with two lines each:
 
@@ -152,7 +152,7 @@ Two mechanisms compose, and both are needed for a durable pin:
     claude plugin install dev-pipeline@second-shift --scope project   # records version + git SHA
     ```
 
-Upgrading = a PR that bumps the `ref` in settings **and** `.claude/second-shift.lock.json` together (the full recipe: [`releasing.md`](releasing.md) §6; verify with `/second-shift:doctor`), then `claude plugin marketplace update second-shift` + reinstall, then the repo's validation gates re-run (config-lint, selftests, a dry-run ticket). Breaking schema changes carry a migration doc in [`migrations/`](migrations/README.md) — config-lint points at it. One caveat: a **user-level** marketplace registration with the same name (typical on the machine that developed the marketplace) is ref-less and takes precedence locally — the project-settings `ref` is what protects everyone else, and `claude plugin list` should confirm the expected version after any update.
+Upgrading = a PR that bumps the `ref` in settings **and** `.claude/second-shift.lock.json` together (the full recipe: [`releasing.md`](releasing.md) §6; verify with `/second-shift:doctor`), then `claude plugin marketplace update second-shift` + reinstall, then the repo's validation gates re-run (config-lint, selftests, a dry-run ticket). Breaking schema changes carry a migration doc in [`migrations/`](migrations/README.md) — config-lint points at it. Breaking changes that are not schema changes (a renamed script your repo vendors, a retired environment knob) are listed there too, and in each release's `CHANGELOG.md` entry; read both before bumping across a major. One caveat: a **user-level** marketplace registration with the same name (typical on the machine that developed the marketplace) is ref-less and takes precedence locally — the project-settings `ref` is what protects everyone else, and `claude plugin list` should confirm the expected version after any update.
 
 ## 2. Write the static context
 
@@ -195,7 +195,7 @@ bash "${CLAUDE_PLUGIN_ROOT:-<dev-pipeline-plugin-root>}/tools/config-lint.sh" \
   .claude/second-shift.config.json
 ```
 
-(The pipeline runs this itself at startup — Pre-flight, `dev-pipeline` SKILL — and fails fast on violations.)
+(`/second-shift:onboard` runs it before writing, and `preflight.sh` and `/second-shift:doctor` run it again. The lane itself does not re-lint at startup, so re-run one of them after hand-editing the config.)
 
 ## 2b. Prerequisites the first run enforces (GitHub tracker)
 
@@ -215,16 +215,18 @@ directly — so handle them now rather than mid-run:
   ```
 
 - **A GitHub-App bot identity.** The pipeline claims issues and pushes commits as a bot
-  (clean audit trail; your personal identity never authors autonomous writes). Pre-flight
-  checks the bot wrapper FIRST, unconditionally, for the GitHub tracker. You need a GitHub
-  App (issues+contents write) and its private key; the dev-pipeline plugin ships the
-  bootstrap — resolve the plugin root via `claude plugin list --json` → `installPath`, then
-  run its `tools/install-gh-bot.sh`. No bot yet = the run aborts at pre-flight with a
-  written reason; that is a pipeline requirement, not an onboarding failure.
+  (clean audit trail; your personal identity never authors autonomous writes). The claim
+  step goes through the bot wrapper for the GitHub tracker and refuses when it is not
+  enabled. You need a GitHub App (issues+contents write) and its private key; the
+  dev-pipeline plugin ships the bootstrap — resolve the plugin root via
+  `claude plugin list --json` → `installPath`, then run its `tools/install-gh-bot.sh` — and
+  the config must carry `tracker.bot.enabled: true` (the wrapper reads it, and defaults to
+  off). No bot yet = the build stops at its claim with a written reason; that is a pipeline
+  requirement, not an onboarding failure.
 
 Neither applies to the JIRA tracker (reads via the Atlassian MCP; `writes: false` is the
 default posture). Both trackers need `gh` regardless — the build block opens the PR with
-`gh pr create` — plus `node` for the review and mutation Workflow gates.
+`gh pr create` — plus `node` for the review and intake Workflows.
 
 ### Finish the command table — and give it a setup lane
 
@@ -238,16 +240,9 @@ nothing. If
 verifying nothing is genuinely intended (a docs-only repo, say), set
 `commands.<id>.allowUnverified: true` so the choice is explicit rather than an oversight.
 
-**A configured lane can still never run.** The verify sweep skips the suite for an "inert" diff —
-one whose every changed path is zero-coverage for a JS/TS suite — and the shipped inert
-set includes `*.md` and `*.sh`. On a repo where those ARE the product (a shell toolchain,
-a docs site, a Python project whose tooling lives in shell), every real diff classifies
-inert, your correctly-configured `lint`/`test` never execute, and the sweep reports
-`skipped (inert diff)` — a false green that looks like a pass. If that is your stack, set
-`stageParams.inertPattern` to an ERE that leaves your product's file types OUT of the
-inert set; it replaces the shipped default outright. `preflight` warns when the effective
-pattern makes your configured lanes unreachable, so you find out before a run rather than
-after one.
+The milestone gate runs your configured lanes on every diff; it has no "inert diff" skip.
+`stageParams.inertPattern` is still schema-legal, but nothing reads it today (see
+[`extending.md`](extending.md)), so setting it changes nothing.
 
 Then add a **setup lane**. The pipeline works in a `git worktree` — a fresh checkout that
 starts with no `node_modules` and no `.venv`, since both are gitignored. Verify lanes that
@@ -301,13 +296,14 @@ branched on the file's presence), and it survives that removal unchanged as the 
 (`commands.<id>.unitTestScope`/`testFile` are retired).
 
 Environment sanity for all of the above in one command: `pipeline-doctor.sh` (ships in the
-dev-pipeline plugin at `tools/pipeline-doctor.sh`, config-aware since 2.0.7 —
+dev-pipeline plugin at `tools/pipeline-doctor.sh`, config-aware —
 probes only what YOUR tracker and command table actually use).
 
 ## 3. Optional: dynamic context
 
 - **Knowledge skills** — ordinary repo-local skills in `.claude/skills/`; discovered natively, no registration.
 - **Domain reviewers** — repo-local agents in `.claude/agents/`, registered via config `reviewers.add`.
+- **The pipeline's review panel** — `/dev-pipeline:review` dispatches `scope-completeness-reviewer` by default. `security-reviewer`, `a11y-reviewer` and `unit-test-mutation-reviewer` run on a pipeline round only when opted in: per ticket, by a `review panel` row in the spec's Decision Ledger, or per repo, by listing them in `reviewers.default`. Standalone `review-lead` still routes by what the diff touches.
 - **Extension files** — documented hook points the generic agents read when present ([`extension-points.md`](extension-points.md)): blocker-mutant lists, domain security rules, design-token references.
 - `findings.md`, `CLAUDE.md` — as before; the plugins never require them but respect them.
 
@@ -354,16 +350,20 @@ Three layers, in order:
    pin, shadow collisions (see §0).
 3. **Runtime environment**: `pipeline-doctor.sh` (dev-pipeline plugin, `tools/`)
    — tracker CLI/auth, bot wrapper, labels, node, the milestone gate. Different layer from
-   `/second-shift:doctor`; both exist on purpose. Extension files are checked at pre-flight
-   by `check-extensions.sh` against the shipped manifest (a typo'd extension filename is
-   loud, never silently ignored).
+   `/second-shift:doctor`; both exist on purpose. Extension files are checked by
+   `preflight.sh` through `check-extensions.sh` against the shipped manifest (a typo'd
+   extension filename is loud, never silently ignored).
 
 Then the read-only preflight — the onboarding finish line. `/second-shift:onboard` runs it as its final step; manually, resolve the dev-pipeline install path (`claude plugin list --json` → `.installPath`) and run `bash "<installPath>/tools/preflight.sh"`. It echoes the resolved targets, runs the config gates and the environment doctor, performs one tracker READ (no claim), executes every non-null command lane once (source-mutating lanes are skipped with a note), and writes `.claude/pipeline-state/preflight-report.md` — zero tracker/git/remote mutations, so the first mutating contact happens only after everything else is proven green.
 
-Then a first run on a small, self-contained ticket. The front door is a scheduler over the
-lane's blocks — it spawns each in a fresh session and reads its outcome, authoring nothing:
+Then a first run on a small, self-contained ticket. Intake it first: `/intake-toolkit:intake`
+puts the ticket's open decisions to you and records them, and on a GitHub tracker it applies the
+`ready-for-dev` queue label the lane requires (without it the scheduler exits 3, "unintaken").
+On JIRA nothing checks this, so the discipline is yours. The front door is then a scheduler over
+the lane's blocks — it spawns each in a fresh session and reads its outcome, authoring nothing:
 
 ```text
+/intake-toolkit:intake <ticket>
 /dev-pipeline:run <ticket>
 ```
 
@@ -378,9 +378,8 @@ two blocks, unchanged:
 /dev-pipeline:review <pr>
 ```
 
-— which produces findings on the PR and commits the verdict record that milestone 4 and the
-merge boundary both read. Until it runs, the PR's `lean chain` check is red on purpose, and the
-build session cannot shortcut it: `milestone-gate.sh verdict` refuses to run inside the build
+— which produces findings on the PR and commits the verdict record that milestone 4 (and, if
+you opted into the CI check, the merge boundary) reads. The build session cannot shortcut it: `milestone-gate.sh verdict` refuses to run inside the build
 session at all. A verdict also has to cover the head it is read against, so pushing more
 commits after an approve costs another review round.
 

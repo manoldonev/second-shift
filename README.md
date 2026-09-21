@@ -12,7 +12,7 @@
 
 ## Get started
 
-Requirements: Claude Code ≥ 2.x, `bash`, `jq`, `git`, `node` (the review and intake Workflows run under it), and the `gh` CLI — the build block opens PRs via `gh pr create` for **every** tracker, JIRA runs included. Tracker extras: an Atlassian MCP connection for the JIRA tracker; a Figma MCP only if you enable the figma gate. GitHub tracker: the six queue labels and a GitHub-App bot identity ([`docs/onboarding.md` §2b](docs/onboarding.md#2b-prerequisites-the-first-run-enforces-github-tracker)).
+Requirements: Claude Code ≥ 2.x, `bash`, `jq`, `git`, `node` (the review and intake Workflows run under it), and the `gh` CLI — the build block opens PRs via `gh pr create` for **every** tracker, JIRA runs included. Tracker extras: an Atlassian MCP connection for the JIRA tracker; a Figma MCP only if you set `design.provider` to `figma`. GitHub tracker: the six queue labels and a GitHub-App bot identity ([`docs/onboarding.md` §2b](docs/onboarding.md#2b-prerequisites-the-first-run-enforces-github-tracker)).
 
 Onboarding is three commands and one skill invocation:
 
@@ -31,7 +31,7 @@ claude
 /second-shift:onboard
 ```
 
-`onboard` detects your tracker, topology, and command truth table with provenance, shows one accept-or-edit screen, and writes three files — the config, the pinned settings block, and the lockfile — validated with `config-lint` in-loop. It finishes by telling you which plugins to install and reminding you to restart the session (plugin registration happens at session start).
+`onboard` detects your tracker, topology, and command truth table with provenance, shows one accept-or-edit screen, and writes the config, the pinned settings block and the lockfile — validated with `config-lint` in-loop — plus a short `.claude/SECOND-SHIFT.md` that tells collaborators what was installed. It finishes by telling you which plugins to install and reminding you to restart the session (plugin registration happens at session start).
 
 ```jsonc
 // What onboard writes (the config is still yours to edit) — .claude/second-shift.config.json
@@ -43,13 +43,14 @@ claude
 }
 ```
 
-Then pick a small, self-contained ticket and let the pipeline run it — autonomous is the only mode you need. The front door is a scheduler: it drives the lane's blocks in fresh sessions and reads their outcomes.
+Then pick a small, self-contained ticket. Ask first: intake puts the ticket's open decisions to you one at a time and records your answers. On the GitHub tracker it also queues the ticket with the `ready-for-dev` label, and the lane refuses a ticket without it (exit 3, "unintaken"). Then let the pipeline run it — autonomous is the only mode you need. The front door is a scheduler: it drives the lane's blocks in fresh sessions and reads their outcomes.
 
 ```text
+/intake-toolkit:intake <ticket>
 /dev-pipeline:run <ticket>
 ```
 
-The blocks it drives stay individually invokable, which is the manual two-terminal flow and the rescue path. `/dev-pipeline:build` takes the ticket to a ready PR, gated by five artifact milestones, then stops at the review milestone and hands off — a session that grades its own work is not an independent review. `/dev-pipeline:review` runs against the PR from its own session and commits the verdict the merge boundary reads:
+The blocks it drives stay individually invokable, which is the manual two-terminal flow and the rescue path. `/dev-pipeline:build` takes the ticket to a ready PR, gated by five artifact milestones, then stops at the review milestone and hands off — a session that grades its own work is not an independent review. `/dev-pipeline:review` runs against the PR from its own session and commits the verdict to the branch:
 
 ```text
 /dev-pipeline:build <ticket>
@@ -60,17 +61,17 @@ Full onboarding — topologies (monorepo, BE+FE pair), reviewer tuning, extensio
 
 ## Why
 
-Agents write plausible code faster than a team can honestly review it, so the bottleneck moved from writing to deciding. second-shift starts with the asking: open decisions go to you one at a time and land in a Decision Ledger the build works from, instead of being guessed. The review then runs in a session that did not write the code, and its verdict is committed next to the change, so what was decided and what was judged are both on record. An audit ledger of what the agent actually invoked is one plugin away. The generic machinery lives here; everything specific to your repo lives in your repo.
+Agents write plausible code faster than a team can honestly review it, so the bottleneck moved from writing to deciding. second-shift starts with the asking: open decisions go to you one at a time and land in a Decision Ledger the build works from, instead of being guessed. The review then runs in a session that did not write the code, and its verdict is committed next to the change, so what was decided and what was judged are both on record. An audit ledger records what the agent actually invoked. The generic machinery lives here; everything specific to your repo lives in your repo.
 
 ## Plugins
 
 | Plugin | What you get |
 | --- | --- |
-| **dev-pipeline** | Ticket → PR across intake → build → review → merge-boundary blocks, gated by the lane's five artifact milestones — a thin scheduler (`/dev-pipeline:run`) over payload blocks that stay individually invokable (`/dev-pipeline:build`, `/dev-pipeline:review`). Portable merge-boundary evidence (`boundary-evidence`), tracker adapters (GitHub Issues with bot-identity claiming, or read-only JIRA), cost tracking, post-run retrospective. |
-| **review-toolkit** | `review-lead` parallel multi-agent review: security, performance, maintainability, complexity, db, scope-completeness, test-coverage reviewers under a shared confidence protocol; mutation-review of unit tests; commit-time consistency gates. |
+| **dev-pipeline** | An intaken ticket → a reviewed PR: build and review in separate sessions, gated by the lane's five artifact milestones — a thin scheduler (`/dev-pipeline:run`) over blocks that stay individually invokable (`/dev-pipeline:build`, `/dev-pipeline:review`). Tracker adapters (GitHub Issues with bot-identity claiming, or read-only JIRA), post-run retrospective. Opt-in: a cost block on the PR, and a CI merge check (`boundary-evidence`) that refuses a pipeline PR whose verdict is missing, self-authored, or older than its head. |
+| **review-toolkit** | `review-lead` parallel multi-agent review — scope-completeness, security, performance, maintainability, complexity, db, pipeline, a11y, test-coverage and unit-test-mutation reviewers under a shared confidence protocol; commit-time consistency gates. On the pipeline path `/dev-pipeline:review` dispatches scope-completeness only; the rest are opt-in per ticket (a `review panel` Decision Ledger row) or per repo (`reviewers.default` in the config). Standalone `review-lead` routes by what the diff touches. |
 | **intake-toolkit** | The elicitation surface: `/intake-toolkit:intake` front door, requirement and decomposition interviews, `plan-interview` that turns design decisions into a machine-lintable Decision Ledger, `grill-me` plan stress-testing. |
-| **design-toolkit** | Design-fidelity translation and review (`design-faithful`), with an optional Figma-MCP-backed mode (`figma-faithful`) and `figma-iterate` — an interactive fast-path for quick Figma iteration that swaps pipeline ceremony for one batched discrepancy checkpoint — plus a Playwright CLI helper. |
-| **audit-toolkit** | A per-repo tool-call audit ledger (what the agent *actually* invoked), with `/audit-toolkit:audit` and cross-session history queries. |
+| **design-toolkit** | Design-fidelity translation and review (`design-faithful`), with an optional Figma-MCP-backed mode (`figma-faithful`) and `figma-iterate` — an interactive fast-path for quick Figma iteration that swaps pipeline ceremony for one batched discrepancy checkpoint. |
+| **audit-toolkit** | A per-repo tool-call audit ledger (what the agent *actually* invoked), with `/audit-toolkit:audit` and cross-session history queries. Required alongside dev-pipeline: the build refuses to start without a live ledger. |
 | **second-shift** | Onboarding + health for the marketplace itself: `/second-shift:onboard` writes your repo's config, settings pin, and lockfile from provenance-first detection; `/second-shift:doctor` verifies install state against the lockfile. Install at user scope; it bootstraps everything else. |
 
 Each plugin ships its own selftests and evals; the marketplace CI is fully model-free (shellcheck, selftests, schema fixtures). The supported install is the full suite pinned to a release tag (`/second-shift:onboard` writes exactly that); review-only is a documented, community-supported downgrade.
@@ -87,13 +88,14 @@ The full taxonomy — what goes in config vs knowledge files vs run state, and t
 ## Design principles
 
 - **Local-first, subscription-first.** The core path is one interactive session on your machine. Nothing requires API-billed cloud surfaces; anything that would is a config gate, off by default.
-- **Gates over vibes.** Milestone completion is enforced by tools (`milestone-gate`, `boundary-evidence`, ledger/config lint, commit hooks), not by the model asserting success. Optional gates fail closed when their prerequisites are missing.
+- **Build and review never share a session.** The verdict is written by a session that did not write the code, committed next to it, and the lane never merges its own PR.
+- **Gates over vibes.** Milestone completion is enforced by tools (`milestone-gate`, ledger/config lint, commit hooks), not by the model asserting success. Optional gates fail closed when their prerequisites are missing.
 - **Nothing repo-specific in the plugins.** If two adopters would differ on a value it's config; if they'd differ in knowledge it's an extension file. This boundary is CI-enforced where it can be.
-- **Selftests everywhere.** Every shell tool ships a selftest; CI runs them all, model-free.
+- **Selftests everywhere.** Every shell tool is exercised by a selftest; CI runs them all, model-free.
 
 ## Docs
 
-[`onboarding.md`](docs/onboarding.md) · [`team-rollout.md`](docs/team-rollout.md) · [`extending.md`](docs/extending.md) · [`config-schema.md`](docs/config-schema.md) · [`context-model.md`](docs/context-model.md) · [`extension-points.md`](docs/extension-points.md) · [`namespaces.md`](docs/namespaces.md) · [`releasing.md`](docs/releasing.md) · [`migrations/`](docs/migrations/README.md)
+[`onboarding.md`](docs/onboarding.md) · [`team-rollout.md`](docs/team-rollout.md) · [`extending.md`](docs/extending.md) · [`config-schema.md`](docs/config-schema.md) · [`context-model.md`](docs/context-model.md) · [`extension-points.md`](docs/extension-points.md) · [`namespaces.md`](docs/namespaces.md) · [`releasing.md`](docs/releasing.md) · [`migrations/`](docs/migrations/README.md) · [`CHANGELOG.md`](CHANGELOG.md)
 
 ## License
 

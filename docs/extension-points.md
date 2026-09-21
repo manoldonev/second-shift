@@ -138,8 +138,9 @@ never an invisible block; don't quote claims examples inside extension files:
 ```
 ````
 
-`claims-lint.sh` (dev-pipeline) evaluates the blocks at every pipeline pre-flight, inside
-onboarding `preflight.sh`, and behind the doctor's quiet summary line. The contract:
+`claims-lint.sh` (dev-pipeline) evaluates the blocks inside `preflight.sh` (which onboarding
+runs, and which you can re-run at any time) and behind the doctor's quiet summary line; the
+lane itself does not run it. The contract:
 
 - **`reverify-by` is mandatory and load-bearing; probes are optional accelerators.** Negative-existence
   claims cannot be proven by grep (auth landing as middleware keeps a string probe green), so
@@ -151,7 +152,7 @@ onboarding `preflight.sh`, and behind the doctor's quiet summary line. The contr
   strings are parse failures; extensions gain no execution surface. Every probe pairs an
   applicability assertion: the probed root must exist, so a moved tree reports `probe-broken`,
   never a silent pass.
-- **Severity by failure class:** expired `reverify-by` → pre-flight **FAIL** naming the claim id
+- **Severity by failure class:** expired `reverify-by` → `preflight.sh` / doctor **FAIL** naming the claim id
   (regardless of probe outcome — a passing probe never suppresses the expiry); failing probe →
   loud **WARN** with remediation (re-verify and edit the prose — date-bumping without a prose
   change is an audit smell, and a failing probe can coexist with a still-correct claim);
@@ -208,7 +209,7 @@ consumer whose subscription lacks a model class uses instead of forking the plug
 
 ### `check-extensions.sh` (manifest lint — EP-3)
 
-The plugin ships a versioned **manifest** of known extension-file names/globs ([`tools/extension-manifest.txt`](../plugins/dev-pipeline/tools/extension-manifest.txt)); `check-extensions.sh` runs at pre-flight and **fails closed** on any file under a consumer's `.claude/second-shift/` that matches no manifest entry. This converts "missing extension = generic behavior" from silent degradation into a checked contract — a typo'd `blocker-mutants.md.md` is loud, not silently ignored. A new well-known file in a future plugin version is discoverable via a manifest entry; an unrecognized file today is a config-lint failure.
+The plugin ships a versioned **manifest** of known extension-file names/globs ([`tools/extension-manifest.txt`](../plugins/dev-pipeline/tools/extension-manifest.txt)); `check-extensions.sh` runs inside `preflight.sh` and **fails closed** on any file under a consumer's `.claude/second-shift/` that matches no manifest entry. This converts "missing extension = generic behavior" from silent degradation into a checked contract — a typo'd `blocker-mutants.md.md` is loud, not silently ignored. A new well-known file in a future plugin version is discoverable via a manifest entry; an unrecognized file today is a config-lint failure.
 
 **Companion-pack / repo-local extensions** the stock manifest doesn't ship (e.g. an org QA pack's `api-testing/*.md`) are declared, additive-only and auditable, in a consumer-maintained `.claude/second-shift/.known-extensions` file (one glob per line) that `check-extensions.sh` unions onto the shipped manifest.
 
