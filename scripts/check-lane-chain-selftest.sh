@@ -171,11 +171,8 @@ printf '# lane spec\n\n- AC-1: does a thing\n- AC-2: does another\n' > "$TREE/do
 # `reviewed_head` is resolved BEFORE the commit, which is the real shape: the reviewer reads the
 # current head, names it, and commits the record on top. Resolving it afterwards would name the
 # record's own commit and leave every declared-freshness case asserting nothing.
-# The scorecard the record's own spec forces on it (#622). Derived from the CURRENT spec rather
-# than hard-coded, because the cases below swap the spec's AC set several times and a fixed table
-# would score criteria that are no longer declared. It is a fixture generator, not an oracle: the
-# scorecard reader's own arms are asserted in boundary-evidence-selftest.sh against LITERAL tables,
-# and the two dedicated cases below (AB*) hand-write theirs.
+# The scorecard the CURRENT spec forces on the record (#622) — a fixture generator, not an oracle;
+# the reader's arms are asserted against literal tables in boundary-evidence-selftest.sh.
 scorecard_block() {
   local ids id
   ids="$(grep -oE '^[[:space:]]*[-*+][[:space:]]+AC-[0-9]+' "$TREE/docs/plans/acme-42-lean.md" 2>/dev/null \
@@ -185,11 +182,8 @@ scorecard_block() {
   for id in $ids; do printf '| %s | satisfied | fixture |\n' "$id"; done
 }
 
-# Insert a key into the record's HEADER BLOCK — the first run of `key: value` lines, which every
-# reader anchors on and which ends at the first blank line. `>> "$VREC"` used to be equivalent,
-# because the fixture records had no body; now they carry a scorecard, so an appended key would
-# land BELOW the blank line where `header_key` cannot see it, and the case would red on an absence
-# it did not mean to create.
+# Insert a key into the record's HEADER BLOCK (up to the first blank line) — an appended key would
+# land below the scorecard, where `header_key` cannot see it.
 add_header_key() { # add_header_key <key> <value>
   awk -v k="$1" -v v="$2" '
     !done && $0 == "" { print k ": " v; done = 1 }
@@ -290,13 +284,8 @@ if [ "$rc" -eq 0 ] && silent "$out"; then
 else fail "(A) expected a silent rc=0, got $rc: $out"; fi
 
 # ---- (A2) #622: the AC scorecard arrives through the DELEGATION ----------------------------
-# This gate reads no scorecard of its own — `boundary-evidence.sh` owns the arm, and the reader's
-# grammar is asserted against it directly in boundary-evidence-selftest.sh's (sc) block. What only
-# THIS suite can show is that the arm survives the delegation: the payload is invoked here with
-# half its environment supplied by the caller, and an arm that never ran would leave (A) above
-# just as green. The record is HAND-WRITTEN, which is AC-5's case — it never passed a writer.
-# Written directly rather than through write_verdict_literal, which appends a scorecard of its
-# own — two sections would merge and the case would red on the duplicate-row arm instead.
+# What only this suite shows is that the arm survives the delegation. Hand-written, not through
+# write_verdict_literal, whose own scorecard would merge with this one.
 printf 'verdict=approve\nrun_id: r-review-1\nsession_id: sess-review-1\nrounds: 1\nreviewed_head: %s\n\n## AC scorecard\n\n| AC-n | score | evidence |\n| --- | --- | --- |\n| AC-1 | unsatisfied | not wired |\n| AC-2 | satisfied | fixture |\n' \
   "$(git -C "$TREE" rev-parse HEAD)" > "$VREC"
 commit_tree "a hand-written record contradicting its own scorecard"

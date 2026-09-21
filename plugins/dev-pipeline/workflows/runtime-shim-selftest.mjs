@@ -289,6 +289,17 @@ console.log('── Case H: args.config subset delivery (#77)')
   const p = String(calls[0]?.prompt ?? '')
   ok('H3a the scope-completeness prompt was actually dispatched (anti-vacuity)', /Verify scope completeness/.test(p))
   ok('H3b no tracker key falls back to the gh issue view fetch', /gh issue view/.test(p) && !/Atlassian MCP/.test(p))
+  ok('H3c no spec arg names no decision record', !/Decision record/.test(p))
+}
+{
+  // H4 — a lane spec path reaches the scope reviewer as evidence, the path and nothing else (#868).
+  const { calls } = await runCodeReview([findingsBlock()], {
+    reviewers: ['review-toolkit:scope-completeness-reviewer'],
+    issue: '77',
+    spec: 'docs/plans/x-77-lean.md',
+    config: { reviewers: {} },
+  })
+  ok('H4 the spec path is forwarded to the scope reviewer', /Decision record: the committed lane spec `docs\/plans\/x-77-lean\.md`/.test(String(calls[0]?.prompt ?? '')))
 }
 
 // ---------------------------------------------------------------------------

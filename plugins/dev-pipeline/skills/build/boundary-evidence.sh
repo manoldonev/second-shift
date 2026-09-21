@@ -132,12 +132,12 @@
 #              [--arms verdict,identity,freshness,intent-gap,override]   default: all five
 #   boundary-evidence.sh [all]                 classify, then check every arm (the consumer form)
 #   boundary-evidence.sh scorecard --spec <path> --verdict <approve|needs-work>
-#                                          read a verdict-record BODY on stdin and print its AC
-#                                          scorecard violations, one per line; always exit 0.
-#                                          The write-time layer's entry point (#622).
-#   boundary-evidence.sh scorecard --print-schema
-#                                          print the reviewer-facing schema, so a caller's refusal
-#                                          quotes it instead of keeping a second copy.
+#                                          read a verdict-record BODY on stdin and print its
+#                                          scorecard violations (the Decision scorecard when the
+#                                          spec declares intent rows, else the AC scorecard), one
+#                                          per line; always exit 0. The write-time entry point.
+#   boundary-evidence.sh scorecard --print-schema [--spec <path>]
+#                                          print the reviewer-facing schema that spec keys.
 #
 # Exit 0 = pass or not-applicable; 1 = evidence violation; 2 = usage/environment error.
 #
@@ -251,83 +251,75 @@ postdated_against() { # postdated_against <since>
   [[ "$PR_CREATED_AT_UTC" < "$1" ]]
 }
 
-# ---------------------------------------------------------------- the AC scorecard (#622)
-# WHAT THIS IS, AND WHAT IT REFUSES TO BE. `/dev-pipeline:review` tells the reviewer to score every
-# numbered `AC-n` the committed spec declares, and until now that scoring was free prose inside
-# `--summary-file` — read by nobody, checked by nothing. So `verdict=approve` could sit beside an
-# AC the round itself found unmet, or beside an AC the round never looked at, and no downstream
-# reader could tell either case from a clean one.
+# ---------------------------------------------------------------- the scorecard (#622, #868)
+# `/dev-pipeline:review` scores the spec's definition of done in a table in `--summary-file`. A
+# gate cannot judge whether a diff honors `D-2` or satisfies `AC-3` — that is the reviewer's, and
+# nothing here reads code. What it refuses is a SELF-CONTRADICTORY RECORD: an approve carrying its
+# own failing row, a row the reviewer could not evaluate, or silence about an id the spec declares.
 #
-# A gate cannot judge whether a diff satisfies `AC-3`. That is model judgment and it stays with
-# the reviewer; nothing here reads the code. What a gate CAN refuse is a SELF-CONTRADICTORY
-# RECORD — an approve carrying its own `unsatisfied` row, an approve carrying a row the reviewer
-# could not evaluate, or an approve silent about a criterion the spec declares. That is the whole
-# contract, and it is why this file's messages never say an AC was or was not met.
-#
-# SINGLE-SITED ON PURPOSE. Both enforcement layers reach this one implementation: the merge
-# boundary calls it in-process through arm_verdict, and `milestone-gate.sh verdict` shells out to the
-# `scorecard` subcommand at write time. The sibling fidelity-evidence validator lives in
-# milestone-gate.sh and has no boundary twin, so it needed no such split; a LOCKSTEP pair would be a
-# second copy of an awk program for no reader that cannot reach the first.
-#
-# A TABLE and not prose, for the reason the fidelity evidence table is one: the record body is
-# handed to prettier, and `proseWrap: "always"` reflows sentences. A predicate over reflowed
-# prose is fragile; every other artifact these gates parse is already a table.
+# KEYED BY THE SPEC. A spec whose `## Decision Ledger` declares intent rows (`user-answered` /
+# `user-delegated` provenance) is scored row by row in a `## Decision scorecard`: those rows are
+# the operator's, and the `AC-n` list is the build's own. Any other spec keeps the `## AC
+# scorecard`. One implementation, reached in-process by the boundary's arm_verdict and through the
+# `scorecard` subcommand by `milestone-gate.sh verdict` at write time. A TABLE and not prose,
+# because prettier reflows prose and a predicate over reflowed sentences is fragile.
 AC_SCORECARD_HEADING="AC scorecard"
 AC_SCORECARD_COLUMNS="AC-n|score|evidence"
-# The CLOSED score enum. `divergent-inert` is the severity axis (#565): a divergence the reviewer
-# MEASURED as inert is a warning with an owner, not a round — and it is not free, because a row
-# scored that way must carry both the measurement and the follow-up that owns it. An unknown value
-# is an ERROR rather than a miss, the same posture the override enums take: a score nobody
-# implements must not read as "no finding here".
+# Closed enums: an unknown score is an error, not a miss. `divergent-inert` (#565) is a divergence
+# MEASURED as inert, and must carry the measurement and the follow-up that owns it.
 AC_SCORECARD_SCORES="satisfied unsatisfied divergent-inert undeterminable"
+D_SCORECARD_HEADING="Decision scorecard"
+D_SCORECARD_COLUMNS="D-n|score|evidence"
+# `departed` is legal only on a spec row marked `DEPARTURE`, and only with the decider named.
+D_SCORECARD_SCORES="honored violated departed undeterminable"
 
-# The ids the spec DECLARES, space-separated, in declaration order.
-#
-# NOT milestone 1's `(^|[^A-Za-z])AC-[0-9]+` count, which matches every prose MENTION. A spec
-# sentence citing `AC-3` would then demand a scorecard row for an id nothing declares — and a spec
-# that retires an id by naming it does exactly that. Declaration position is the discriminator: an
-# id that OPENS a markdown bullet or a heading, optionally bolded or backticked. Measured against
-# the whole committed corpus at the time this shipped: every lane spec in docs/plans/ declares all
-# of its ACs in that position and none anywhere else.
+# The `AC-n` ids the spec DECLARES — an id that OPENS a markdown bullet or a heading, optionally
+# bolded or backticked. Not every prose MENTION: a spec retiring an id by naming it would otherwise
+# demand a row for an id nothing declares.
 spec_declared_acs() { # spec_declared_acs <spec-path>
   grep -oE '^[[:space:]]*([-*+][[:space:]]+|#+[[:space:]]+)(\*\*|`)?AC-[0-9]+' "$1" 2>/dev/null \
     | grep -oE 'AC-[0-9]+' | sort -u -t- -k2,2n | tr '\n' ' '
 }
 
-# Whether the spec mentions an `AC-n` AT ALL — milestone 1's own predicate, and the only thing
-# that separates the two ways a declared set can come back empty. A spec with no criteria is not
-# this arm's business: check-lane-chain.sh's artifact arm already refuses it, and milestone 1
-# refuses it before that. A spec that MENTIONS criteria and declares none where this reader looks
-# is the vacuity this arm would otherwise ship with — the scorecard would be complete over the
-# empty set and the record would certify nothing while reading green.
+# Whether the spec mentions an `AC-n` at all (milestone 1's predicate). It separates a spec with
+# no criteria — not this reader's business — from one that mentions criteria and declares none,
+# where a scorecard over the empty set would certify nothing and read green.
 spec_mentions_ac() { # spec_mentions_ac <spec-path>
   grep -qE '(^|[^A-Za-z])AC-[0-9]+' "$1" 2>/dev/null && echo 1 || echo 0
 }
 
-# The scorecard's violations, one human-readable line each; EMPTY output is a conforming record.
-# Always exits 0 — the CALLER decides what a violation costs, because the writer refuses and the
-# boundary counts.
-#
-# Scoped, heading-tolerant and trim-then-non-empty exactly as the fidelity evidence reader is, and
-# the header row is likewise THE LINE IMMEDIATELY ABOVE THE `| --- |` SEPARATOR: the data-row
-# anchor cannot find a header whose first cell is a column name, and "first pipe-leading line in
-# the section" breaks on prose containing a `|`.
-#
-# THE SECTION IS REQUIRED ONLY ON `approve`, and validated whenever it is present. A needs-work
-# record is already a refusal — nothing merges on it and no reader gates on its rows — so
-# demanding the table there would be mass with no decision resting on it. Present-but-malformed is
-# still refused either way, so a record cannot carry a scorecard nobody can read.
-ac_scorecard_violations() { # ac_scorecard_violations <declared-ids> <verdict-value> <mentions>  (body on stdin)
-  awk -v declared="$1" -v verdict="$2" -v mentions="$3" -v cols="$AC_SCORECARD_COLUMNS" \
-      -v heading="$AC_SCORECARD_HEADING" -v scores="$AC_SCORECARD_SCORES" '
+# The spec's intent rows, space-separated: every `| D-n |` row whose Provenance (4th cell) is
+# `user-answered` / `user-delegated` — ledger-lint's reconcile predicate, which keys on provenance
+# because the committed ledger has no Kind cell. With `departed`, only those whose Resolution opens
+# with the `DEPARTURE` marker, read the way ledger-lint reads it.
+spec_intent_rows() { # spec_intent_rows <spec-path> [departed]
+  awk -v only="${2:-}" '
+    /^\|[[:space:]]*D-[0-9]+[[:space:]]*\|/ {
+      s = $0; gsub(/\\\|/, "", s)
+      if (split(s, c, "|") < 5) next
+      for (i = 2; i <= 5; i++) gsub(/^[[:space:]]+|[[:space:]]+$/, "", c[i])
+      if (c[5] != "user-answered" && c[5] != "user-delegated") next
+      if (only == "departed" && c[4] !~ /^DEPARTURE([^A-Za-z0-9-]|$)/) next
+      print c[2]
+    }' "$1" 2>/dev/null | sort -u -t- -k2,2n | tr '\n' ' '
+}
+
+# The violations, one human-readable line each; EMPTY output is a conforming record. Always exits
+# 0 — the writer refuses, the boundary counts. The section is REQUIRED only on `approve` (a
+# needs-work record gates nothing) and validated whenever present. The header row is THE LINE
+# IMMEDIATELY ABOVE THE `| --- |` SEPARATOR, the fidelity evidence reader's rule.
+scorecard_violations() { # scorecard_violations <spec-path> <verdict-value>  (record body on stdin)
+  local declared kind
+  declared="$(spec_intent_rows "$1")"
+  if [ -n "$declared" ]; then kind=D; else kind=AC; declared="$(spec_declared_acs "$1")"; fi
+  awk -v kind="$kind" -v declared="$declared" -v departures="$(spec_intent_rows "$1" departed)" \
+      -v verdict="$2" -v mentions="$(spec_mentions_ac "$1")" \
+      -v acs="$AC_SCORECARD_HEADING#$AC_SCORECARD_COLUMNS#$AC_SCORECARD_SCORES" \
+      -v ds="$D_SCORECARD_HEADING#$D_SCORECARD_COLUMNS#$D_SCORECARD_SCORES" '
     function trim(s) { gsub(/^[[:space:]]+|[[:space:]]+$/, "", s); return s }
-    # A markdown separator: pipes, dashes, colons and space, with at least one dash. Never an
-    # interval expression — those are not portable across the awks this ships on.
+    # A markdown separator: pipes, dashes, colons and space, with at least one dash.
     function issep(s) { return (s ~ /^[[:space:]]*\|[[:space:]:|-]*$/ && s ~ /-/) }
-    # The cells of a leading-pipe markdown row, trimmed. Field 1 is the empty run before the
-    # leading pipe and is dropped by construction; a TRAILING pipe contributes one empty field
-    # that is punctuation, not a cell.
+    # The trimmed cells of a leading-pipe row; a TRAILING pipe is punctuation, not a cell.
     function rowcells(s, a,   n, i, k, hi) {
       delete a
       n = split(s, RCF, "|")
@@ -337,9 +329,7 @@ ac_scorecard_violations() { # ac_scorecard_violations <declared-ids> <verdict-va
       for (i = 2; i <= hi; i++) a[++k] = trim(RCF[i])
       return k
     }
-    # The text a labelled sub-field carries: everything after `<label>:` up to the next label or
-    # the end. Positions are taken on a lowercased copy, which tolower() leaves the same length
-    # as, so they index the ORIGINAL cell and the reference keeps its case.
+    # The text after `<label>:` up to the next `<other>:` or the end, case kept.
     function subfield(cell, label, other,   lc, a, b, t) {
       lc = tolower(cell)
       a = index(lc, label ":")
@@ -349,9 +339,8 @@ ac_scorecard_violations() { # ac_scorecard_violations <declared-ids> <verdict-va
       t = (b > 0) ? substr(cell, a, b - 1) : substr(cell, a)
       return trim(t)
     }
-    # A follow-up REFERENCE, not a sentence: `#<n>`, a URL, or a tracker key. `AC-` and `RS-` are
-    # excluded by name — they are ids of THIS schema and of the spec, so accepting one would let a
-    # row cite itself as its own owner and satisfy the arm with nothing outside the record.
+    # A follow-up REFERENCE: `#<n>`, a URL, or a tracker key — never an `AC-`/`RS-` id of this
+    # record, which would let a row cite itself as its own owner.
     function isref(s,   k) {
       if (s ~ /#[0-9]+/) return 1
       if (s ~ /https?:\/\/[^[:space:]]+/) return 1
@@ -363,10 +352,15 @@ ac_scorecard_violations() { # ac_scorecard_violations <declared-ids> <verdict-va
       return 0
     }
     BEGIN {
+      split((kind == "D") ? ds : acs, sch, "#")
+      heading = sch[1]; cols = sch[2]; scores = sch[3]
+      idre = "^[[:space:]]*\\|[[:space:]]*" kind "-[0-9]+[[:space:]]*\\|"
       hre = "^#+[[:space:]]+" tolower(heading) "[[:space:]]*$"
       ncol = split(cols, want, "|")
       n = split(declared, d, " ")
       for (i = 1; i <= n; i++) if (d[i] != "" && !(d[i] in decl)) { decl[d[i]] = 1; declorder[++ndecl] = d[i] }
+      n = split(departures, d, " ")
+      for (i = 1; i <= n; i++) if (d[i] != "") dep[d[i]] = 1
       n = split(scores, sv, " ")
       for (i = 1; i <= n; i++) if (sv[i] != "") okscore[sv[i]] = 1
     }
@@ -374,15 +368,15 @@ ac_scorecard_violations() { # ac_scorecard_violations <declared-ids> <verdict-va
     insec && /^#+[[:space:]]/ { insec = 0 }
     insec                     { sec[++nl] = $0 }
     END {
-      # THE EMPTY DECLARED SET IS TWO DIFFERENT FACTS, and they are separated FIRST — before the
-      # section is even looked for — because a "your record scores none" message on a spec that
-      # declares none sends the reviewer to write rows for criteria that do not exist.
+      # The empty declared set is reported before the section is looked for, so a spec that
+      # declares nothing never sends the reviewer to write rows for criteria that do not exist.
       if (ndecl == 0) {
         if (mentions == 1) print "the committed spec mentions AC-n but declares none where this reader looks — an id must OPEN a markdown bullet or a heading (\"- AC-1: ...\"), because a prose mention is a citation, not a declaration. A scorecard over the empty set would certify nothing and read green"
         exit
       }
       if (!found) {
-        if (verdict == "approve") print "no \"## " heading "\" section — an approve must score every AC-n the spec declares, and this record scores none"
+        if (verdict == "approve" && kind == "D") print "no \"## " heading "\" section — the spec declares decision-record intent rows (" trim(declared) "), and an approve must score every one of them against the code"
+        else if (verdict == "approve") print "no \"## " heading "\" section — an approve must score every AC-n the spec declares, and this record scores none"
         exit
       }
 
@@ -406,7 +400,7 @@ ac_scorecard_violations() { # ac_scorecard_violations <declared-ids> <verdict-va
       nrows = 0
       for (i = 1; i <= nl; i++) {
         if (sepi >= 2 && i == sepi - 1) continue          # the header row is not a data row
-        if (sec[i] !~ /^[[:space:]]*\|[[:space:]]*AC-[0-9]+[[:space:]]*\|/) continue
+        if (sec[i] !~ idre) continue
         nrows++
         nc = rowcells(sec[i], C)
         id = C[1]
@@ -414,63 +408,68 @@ ac_scorecard_violations() { # ac_scorecard_violations <declared-ids> <verdict-va
         bad = 0
         for (j = 1; j <= ncol; j++) if (j > nc || C[j] == "") { print "row " nrows " (" id "): column \"" want[j] "\" is empty"; bad = 1 }
         if (bad) continue
-        if (!(id in decl)) { print "row " nrows " scores " id ", which the spec does not declare"; continue }
-        # EXACTLY ONE ROW PER DECLARED ID. Two rows scoring one criterion differently is the same
-        # self-contradiction the approve arms refuse, one level down, and taking either would be
-        # the reader choosing the verdict.
-        if (id in seen) { print "row " nrows " (" id "): a second row scores an id already scored — exactly one row per declared AC-n"; continue }
+        if (!(id in decl)) { print "row " nrows " scores " id ", which the spec does not declare" (kind == "D" ? " as an intent row" : ""); continue }
+        # Two rows scoring one id differently would leave the reader choosing the verdict.
+        if (id in seen) { print "row " nrows " (" id "): a second row scores an id already scored — exactly one row per declared " want[1]; continue }
         seen[id] = 1
         sc = C[2]
+        ev = C[3]
         if (!(sc in okscore)) { print "row " nrows " (" id "): score \"" sc "\" is not one of: " scores; continue }
         if (sc == "divergent-inert") {
-          ev = C[3]
           m = subfield(ev, "measured", "follow-up")
           f = subfield(ev, "follow-up", "measured")
           if (m !~ /[A-Za-z0-9]/) print "row " nrows " (" id "): scored divergent-inert but its evidence carries no \"measured: <text>\" — the severity claim IS the measurement, and an unmeasured divergence is an unsatisfied one"
           if (f == "")            print "row " nrows " (" id "): scored divergent-inert but its evidence carries no \"follow-up: <ref>\" — a divergence that costs no round still needs an owner"
           else if (!isref(f))     print "row " nrows " (" id "): follow-up \"" f "\" is not a tracker reference (#<n>, a URL, or a KEY-<n>)"
         }
-        if (verdict == "approve" && sc == "unsatisfied") \
+        if (verdict != "approve") continue
+        if (sc == "unsatisfied") \
           print "row " nrows " (" id "): scored unsatisfied on a verdict=approve record — an approve that scores its own criterion unmet is self-contradictory. Either the criterion is met, or the divergence is measured inert (score divergent-inert, with its measurement and follow-up), or the verdict is needs-work"
-        if (verdict == "approve" && sc == "undeterminable") \
-          print "row " nrows " (" id "): scored undeterminable on a verdict=approve record — an unevaluable criterion is never a pass. Determine it, score it divergent-inert with a measurement, or hand the round back"
+        if (sc == "violated") \
+          print "row " nrows " (" id "): scored violated on a verdict=approve record — code that breaks a decision-record row is a blocker. Either the code honors the row, or the build declares the departure and names who decided it, or the verdict is needs-work"
+        if (sc == "undeterminable") \
+          print "row " nrows " (" id "): scored undeterminable on a verdict=approve record — an unevaluable " (kind == "D" ? "decision row" : "criterion") " is never a pass. Determine it" (kind == "D" ? "" : ", score it divergent-inert with a measurement,") " or hand the round back"
+        if (sc == "departed" && !(id in dep)) \
+          print "row " nrows " (" id "): scored departed, but the spec row carries no \"DEPARTURE — <reason>\" marker — a departure the build did not declare is scored violated"
+        else if (sc == "departed" && subfield(ev, "decided_by", "decided_by") !~ /^user-(answered|delegated)([^A-Za-z0-9-]|$)/) \
+          print "row " nrows " (" id "): scored departed on a verdict=approve record without \"decided_by: user-answered\" or \"decided_by: user-delegated\" in its evidence — a departure nobody is named as deciding is a blocker"
       }
 
       if (nrows == 0) { print "the \"## " heading "\" section carries no data row — a heading and a header row score nothing"; exit }
-      for (i = 1; i <= ndecl; i++) if (!(declorder[i] in seen)) print "no row for " declorder[i] ", which the spec declares"
+      for (i = 1; i <= ndecl; i++) if (!(declorder[i] in seen)) print "no row for " declorder[i] ", which the spec declares" (kind == "D" ? " as an intent row" : "")
     }
   '
 }
 
-# THE WRITE-TIME LAYER'S ENTRY POINT (#622 AC-5), dispatched HERE — above the repo-root and
-# config resolution every other subcommand needs, and deliberately so. The scorecard reconciles a
-# record body against a spec path it is handed; it reads no branch prefix, no tracker and no
-# committed config, and this repo gitignores its own config, so resolving one first would make the
-# write-time layer refuse on an environment question the check does not ask.
-#
-# `milestone-gate.sh verdict` pipes the reviewer's `--summary-file` body in here BEFORE the record
-# exists, so the round is not spent learning what the boundary would have said. Read-only, writes
-# nothing, and exits 0 whatever it finds — the caller decides what a violation costs.
+# THE WRITE-TIME ENTRY POINT, dispatched above the repo-root and config resolution every other
+# subcommand needs: it reconciles a body against the spec path it is handed and reads nothing
+# else, so an unresolvable config must not refuse it. Read-only; exits 0 whatever it finds.
 if [ "$SUB" = "scorecard" ]; then
-  # THE REVIEWER-FACING SCHEMA, printed from the same constants the reader validates against, so
-  # `milestone-gate.sh verdict`'s refusal can quote it instead of keeping a second copy. Guidance
-  # lines, ready to print with a caller's own prefix.
+  # The reviewer-facing schema, printed from the constants the reader validates against so the
+  # writer's refusal quotes it instead of keeping a second copy. With `--spec`, the one that spec keys.
   if [ "$PRINT_SCHEMA" -eq 1 ]; then
-    echo "Section: \"## $AC_SCORECARD_HEADING\". Columns, in order: $AC_SCORECARD_COLUMNS. Every cell non-empty."
-    echo "Exactly one row per AC-n the spec DECLARES — an id that opens a markdown bullet or a heading."
-    echo "Score is one of: $AC_SCORECARD_SCORES."
-    echo "'divergent-inert' additionally needs 'measured: <text>' and 'follow-up: <ref>' in its evidence cell."
-    echo "The gate never judges whether an AC is met — that is the reviewer's. It refuses a record that contradicts"
-    echo "itself, and one silent about a criterion the spec declares."
+    if [ -n "$SPEC_PATH" ] && [ -n "$(spec_intent_rows "$SPEC_PATH")" ]; then
+      echo "Section: \"## $D_SCORECARD_HEADING\". Columns, in order: $D_SCORECARD_COLUMNS. Every cell non-empty."
+      echo "Exactly one row per decision-record intent row the spec declares — a | D-n | row with user-answered or user-delegated provenance: $(spec_intent_rows "$SPEC_PATH")"
+      echo "Score is one of: $D_SCORECARD_SCORES."
+      echo "'departed' is legal only on a spec row marked 'DEPARTURE — <reason>', and its evidence cell names 'decided_by: <user-answered|user-delegated>'."
+    else
+      echo "Section: \"## $AC_SCORECARD_HEADING\". Columns, in order: $AC_SCORECARD_COLUMNS. Every cell non-empty."
+      echo "Exactly one row per AC-n the spec DECLARES — an id that opens a markdown bullet or a heading."
+      echo "Score is one of: $AC_SCORECARD_SCORES."
+      echo "'divergent-inert' additionally needs 'measured: <text>' and 'follow-up: <ref>' in its evidence cell."
+    fi
+    echo "The gate never judges the code — that is the reviewer's. It refuses a record that contradicts"
+    echo "itself, and one silent about an id the spec declares."
     exit 0
   fi
-  [ -n "$SPEC_PATH" ] || envfail "scorecard: --spec <path> is required — the declared AC-n set comes from the committed spec, never from the record under test."
+  [ -n "$SPEC_PATH" ] || envfail "scorecard: --spec <path> is required — the declared id set comes from the committed spec, never from the record under test."
   [ -f "$SPEC_PATH" ] || envfail "scorecard: --spec '$SPEC_PATH' does not exist."
   case "$SCORECARD_VERDICT" in
     approve|needs-work) : ;;
     *) envfail "scorecard: --verdict must be 'approve' or 'needs-work' (got '${SCORECARD_VERDICT:-<none>}')." ;;
   esac
-  ac_scorecard_violations "$(spec_declared_acs "$SPEC_PATH")" "$SCORECARD_VERDICT" "$(spec_mentions_ac "$SPEC_PATH")"
+  scorecard_violations "$SPEC_PATH" "$SCORECARD_VERDICT"
   exit 0
 fi
 
@@ -1019,31 +1018,18 @@ arm_verdict() {
   [ -n "$VERDICT_SESSION_ID" ] \
     || note_violation "verdict record '$VERDICT' carries no session_id reconciliation key — the review session that produced it cannot be located, so nothing outside the record itself attests the review ran."
 
-  # THE PER-AC SCORECARD (#622). Reconciled against the SPEC, because the declared AC set is the
-  # only thing that can say whether a record is silent about a criterion — the record alone can
-  # never report the row it does not carry.
-  #
-  # A record that never passed the writer is refused HERE, which is the half of the contract the
-  # writer structurally cannot cover: a hand-edited or hand-authored record reaches the boundary
-  # having answered to nothing. That is why this arm exists at all rather than trusting the
-  # write-time refusal.
-  #
-  # NO ARM CUTOFF, deliberately (D-9). Only the record currently at the boundary is ever re-read
-  # and merged records are never re-graded, so the blast radius is one re-run of
-  # `milestone-gate.sh verdict` on an in-flight PR. A cutoff here would be a fail-open window on the
-  # exact arm the contract exists to close.
-  #
-  # AN UNRESOLVABLE SPEC IS NOT REFUSED HERE. `all` decides applicability on a lane spec being in
-  # the PR's own diff, and check-lane-chain.sh's own artifact arm refuses a spec that carries no
-  # AC-n — so the only way to arrive with no spec is a hand-invoked `check --key <bogus>`, and
-  # re-refusing it would put a second reader on a question those two already own (#720).
+  # THE SCORECARD (#622, #868), reconciled against the SPEC — the record alone can never report the
+  # row it does not carry. This is the half the writer cannot cover: a hand-written record reaches
+  # the boundary having answered to nothing. No arm cutoff (D-9): only the record at the boundary is
+  # re-read, so the blast radius is one re-run of `milestone-gate.sh verdict` on an in-flight PR. An
+  # unresolvable spec is not refused here; check-lane-chain.sh's artifact arm owns that (#720).
   local sc_spec sc_line
   sc_spec="$(find_artifact "$KEY" "$LANE_SPEC_SUFFIX")" || sc_spec=""
   if [ -n "$sc_spec" ]; then
     while IFS= read -r sc_line; do
       [ -n "$sc_line" ] || continue
-      note_violation "verdict record '$VERDICT' — AC scorecard: $sc_line"
-    done <<< "$(ac_scorecard_violations "$(spec_declared_acs "$REPO_ROOT/$sc_spec")" "$VERDICT_VALUE" "$(spec_mentions_ac "$REPO_ROOT/$sc_spec")" < "$REPO_ROOT/$VERDICT")"
+      note_violation "verdict record '$VERDICT' — scorecard: $sc_line"
+    done <<< "$(scorecard_violations "$REPO_ROOT/$sc_spec" "$VERDICT_VALUE" < "$REPO_ROOT/$VERDICT")"
   fi
 }
 

@@ -59,15 +59,21 @@ the code does not author its own evaluation.
    `--panel` without it on an armed spec. On an inheriting round, read the **prior record's findings** first: a round
    that inherits coverage without seeing what was previously found cannot tell a fixed blocker
    from a re-introduced one, and a blocker the build simply ignored leaves no trace in the delta
-   at all. The committed lane spec is the definition of done: score every numbered `AC-n` it
-   **declares** — an id opening a bullet or a heading — in a `## AC scorecard` table in the
-   `--summary-file`. The writer refuses an `approve` without one, and prints the schema. Four
-   scores: `satisfied`, `unsatisfied`, `divergent-inert`, `undeterminable`. Neither `unsatisfied`
-   nor `undeterminable` may stand beside an `approve`. So a divergence you have **measured** as
-   inert is scored `divergent-inert`, carrying `measured: <what you measured>` and
-   `follow-up: <ref>` in its evidence cell — that is the case where a blocker was once forced on
-   a narrowing measured identical across all 63 corpus records. An UNMEASURED divergence is
-   `unsatisfied`. `approve` iff there are no blockers; any blocker is `needs-work`. Do not soften a blocker to keep a run moving, and do not invent
+   at all. **Score the decision record.** When the committed spec's `## Decision Ledger` declares
+   intent rows (`user-answered` / `user-delegated` provenance), `review-lead` hands the spec path
+   to `scope-completeness-reviewer`, which scores every such row against the code; transcribe its
+   table, do not re-score it, as `## Decision scorecard` — columns `D-n`, `score`, `evidence`,
+   one row per intent row, and no AC scorecard beside it. Scores: `honored`, `violated`,
+   `departed` (only on a spec row marked `DEPARTURE`, its evidence naming
+   `decided_by: <user-answered|user-delegated>`), `undeterminable`. A violated, undeterminable
+   or undecided row is a blocker. Know the limit: that ledger is build-authored, and its fidelity
+   to the gitignored receipt is attested only by milestone 1's `ledger-lint --reconcile` on the
+   build host, when the receipt exists there. A spec with no intent rows is scored by its
+   declared `AC-n` (an id opening a bullet or a heading) in a `## AC scorecard`: `satisfied`,
+   `unsatisfied`, `divergent-inert` (a divergence you **measured** as inert, carrying
+   `measured: <what>` and `follow-up: <ref>`), `undeterminable`; an unmeasured divergence is
+   `unsatisfied`. The writer refuses an `approve` beside a failing row or without the table it
+   expects, and prints the schema. `approve` iff there are no blockers; any blocker is `needs-work`. Do not soften a blocker to keep a run moving, and do not invent
    one to look thorough. **An oracle `AC-n` proved by a CI run whose command and head both match
    this review is verified by citing that run (job, head SHA, conclusion), not by re-running it**
    — execute only when the command or the head differs from what CI ran ([discriminator](../../../../docs/testing.md#citing-a-ci-run-instead-of-re-running-it-review-side)).
@@ -126,14 +132,13 @@ the code does not author its own evaluation.
    session that reasons its way past this rule, and `check-lane-chain.sh` still treats the absent
    record as a violation, so a hand-back cannot merge. Say plainly in the comment what went dark
    and why, so the build session knows it is waiting on infrastructure rather than on findings.
-5d. **A disagreement between the code and the decision record is an ordinary finding.** When the
-   committed spec departs from a receipt row, or the issue's own AC contradicts one, record it in
-   the findings like any other. The build resolves it by writing the departure in the intent-gap
-   record with `decided_by:` — `user-delegated` when it acts on the operator's standing
-   instruction — and the merge boundary reads that name. No verdict is withheld for it.
+5d. **Where the ticket and the decision record disagree, the record governs.** A departure is
+   not withheld for a signature: the build writes it in the intent-gap record, whose `## Gap`
+   names the `D-n` and whose `decided_by:` names who decided (`user-delegated` under the
+   operator's standing instruction), and the Decision scorecard reads it as `departed`.
 6. Write the record **from the checkout of the PR head**:
    `bash G verdict <issue> --pr <n> --verdict <approve|needs-work> --rounds <n> --fidelity <pass|fail|not-applicable> --panel <a,b,c> --summary-file <path>`
-   The summary file carries the finding table and the per-AC scoring. The gate writes the
+   The summary file carries the finding table and the scorecard. The gate writes the
    reconciliation keys itself — including `reviewed_patch_id`, hashed from that checkout's own
    diff against the base, and `inherited_patch_id`, written every round and `none` on a root.
    `--fidelity` is yours and defaults to `not-applicable`, which on an armed run costs the round

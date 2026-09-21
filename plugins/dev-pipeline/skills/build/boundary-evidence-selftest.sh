@@ -1061,14 +1061,9 @@ if [ "$rc" -eq 0 ] && silent "$out"; then
   pass "(cc2) the identity arm fetches BOTH its marker trail and its capability stamp through the live gh path"
 else fail "(cc2) expected the live-fetch path to pass silently, got $rc: $out"; fi
 
-# ---- (sc) #622: the per-AC scorecard, at the merge boundary --------------------------------
-# THE HALF THE WRITER STRUCTURALLY CANNOT COVER. Every record below is HAND-WRITTEN — none of
-# them passed `milestone-gate.sh verdict` — which is the case AC-5 names: a record that answered to
-# nothing at write time still answers here. That is also why these live as per-tool cases rather
-# than only as a scenario: the composed leg in scenario-liveness-selftest.sh drives the WRITER,
-# and a writer refusal is a different reader from this one.
-#
-# The fixture spec declares exactly `AC-1`, so every table below is complete or deliberately not.
+# ---- (sc) #622: the AC scorecard, at the merge boundary -------------------------------------
+# Every record below is HAND-WRITTEN — it never passed the writer, the half only this reader
+# covers. The fixture spec declares exactly `AC-1`.
 sc_run() { # sc_run <verdict> <scorecard-body>
   VSCORECARD="$2" write_verdict "$1"
   ev "claude/acme-42" "$WORK/markers-good.json" "$WORK/diff-lean.txt"
@@ -1085,9 +1080,7 @@ if [ "$rc" -eq 0 ] && silent "$out"; then
   pass "(sc1) an approve scoring every declared AC-n satisfied passes the boundary silently"
 else fail "(sc1) expected a silent rc=0 on a conforming scorecard, got $rc: $out"; fi
 
-# The MIGRATION arm (D-9): fail-closed from this release, with no cutoff. Every record written
-# before the section existed reads exactly like one whose section was stripped afterwards, so a
-# grace window would be a fail-open on the arm this contract exists to close.
+# No cutoff (D-9): a pre-section record reads exactly like a stripped one.
 out="$(sc_run approve "")"; rc=$?
 if [ "$rc" -eq 1 ] && grep -q 'no "## AC scorecard" section' <<<"$out"; then
   pass "(sc2) an approve carrying no scorecard at all is refused — the fail-closed migration"
@@ -1103,8 +1096,6 @@ if [ "$rc" -eq 1 ] && grep -q 'scored undeterminable on a verdict=approve record
   pass "(sc4) an approve carrying an undeterminable row is refused — an unevaluable answer is never a pass (D-6)"
 else fail "(sc4) expected the undeterminable/approve refusal, got $rc: $out"; fi
 
-# SILENCE, not contradiction. This is the second half of D-1 and the one a record can never
-# report on its own: the missing row is invisible to any reader that does not hold the spec.
 out="$(sc_run approve "$SC_HDR| AC-9 | satisfied | scored something else |")"; rc=$?
 if [ "$rc" -eq 1 ] && grep -q 'no row for AC-1, which the spec declares' <<<"$out" \
    && grep -q 'scores AC-9, which the spec does not declare' <<<"$out"; then
@@ -1138,39 +1129,27 @@ if [ "$rc" -eq 1 ] && grep -q 'carries no "follow-up: <ref>"' <<<"$out"; then
   pass "(sc10) AC-2: divergent-inert without a follow-up is refused — a divergence that costs no round still needs an owner"
 else fail "(sc10) expected the missing-follow-up refusal, got $rc: $out"; fi
 
-# The follow-up must point OUTSIDE the record. `AC-1` is an id of this very schema, so accepting
-# it would let a row cite itself as its own owner and satisfy the arm with nothing filed.
 out="$(sc_run approve "$SC_HDR| AC-1 | divergent-inert | measured: inert; follow-up: AC-1 |")"; rc=$?
 if [ "$rc" -eq 1 ] && grep -q 'is not a tracker reference' <<<"$out"; then
   pass "(sc11) AC-2: a follow-up citing an id of the record's own schema is not an owner"
 else fail "(sc11) expected the non-reference refusal, got $rc: $out"; fi
 
 # ---- scope: the section is REQUIRED on approve and VALIDATED whenever present ---------------
-# A needs-work record is already a refusal — nothing merges on it — so demanding the table there
-# would be mass with no decision resting on it. The arm must be silent about it, and it is the
-# `not approve` violation alone that fires.
 out="$(sc_run needs-work "")"; rc=$?
-if [ "$rc" -eq 1 ] && ! grep -q 'AC scorecard' <<<"$out" \
+if [ "$rc" -eq 1 ] && ! grep -q 'scorecard:' <<<"$out" \
    && grep -q "reads 'verdict=needs-work'" <<<"$out"; then
   pass "(sc12) a needs-work record owes no scorecard — the section is required only where an approve rests on it"
 else fail "(sc12) expected no scorecard violation on needs-work, got $rc: $out"; fi
 
-# ...and present-but-malformed is still refused on a needs-work record, so a record cannot carry
-# a scorecard nobody can read.
 out="$(sc_run needs-work "$SC_HDR| AC-1 | ok | looks fine |")"; rc=$?
 if [ "$rc" -eq 1 ] && grep -q 'score "ok" is not one of' <<<"$out"; then
   pass "(sc13) a malformed scorecard is refused whether or not the verdict rests on it"
 else fail "(sc13) expected the enum refusal on needs-work, got $rc: $out"; fi
 
-# ---- the vacuity this arm would otherwise ship with (D-18) ---------------------------------
-# "Declared" is a POSITION, not a mention. Milestone 1's own predicate counts every prose
-# citation, and a scorecard complete over an empty declared set certifies nothing while reading
-# green — so a spec that mentions criteria and declares none where this reader looks is refused
-# rather than read as having none.
+# ---- (D-18) "declared" is a POSITION, not a mention: an empty declared set certifies nothing --
 sc_spec_held="$(cat "$SPEC")"
 printf '# lane spec\n\nThe rule in AC-1 is stated in prose, not declared.\n' > "$SPEC"
-# COMMITTED before the record is written, or the freshness arm reds on the spec edit itself and
-# the case reports a violation it is not about.
+# Committed first, or the freshness arm reds on the spec edit itself.
 commit_tree "a spec that mentions AC-n without declaring one"
 out="$(sc_run approve "$SC_HDR| AC-1 | satisfied | read the diff |")"; rc=$?
 if [ "$rc" -eq 1 ] && grep -q 'mentions AC-n but declares none where this reader looks' <<<"$out"; then
@@ -1179,9 +1158,7 @@ else fail "(sc14) expected the undeclared-set refusal, got $rc: $out"; fi
 printf '%s\n' "$sc_spec_held" > "$SPEC"
 commit_tree "the declaring spec restored"
 
-# ...and a spec with NO criteria at all is NOT this arm's business: check-lane-chain.sh's
-# artifact arm already refuses it, and milestone 1 refuses it before that. The two empty-set
-# cases are separated so neither message is sent to a reviewer the other was written for.
+# ...and a spec with NO criteria at all is check-lane-chain.sh's and milestone 1's business.
 printf '# lane spec\n\nNo criteria here.\n' > "$SPEC"
 commit_tree "a spec with no criteria at all"
 out="$(sc_run approve "")"; rc=$?
@@ -1206,23 +1183,9 @@ unset VSCORECARD
 write_verdict
 
 # ---- (scw) #760: the `scorecard` subcommand, the WRITE-TIME entry point ---------------------
-# THE ENTRY POINT (sc1)-(sc16) NEVER REACH. Those drive `ac_scorecard_violations` through `all`,
-# entering the file well below the `SUB = scorecard` dispatch, so until now nothing in this suite
-# invoked the subcommand at all — and it is the whole reader `milestone-gate.sh verdict` shells out to
-# BEFORE a record exists. It has arms the boundary has not got: a schema it PRINTS so a caller's
-# refusal can quote it, an rc that stays 0 on a violation because the CALLER prices it, and the
-# argument refusals a caller reaches only by getting the invocation wrong.
-#
-# Not a scenario: scenario-liveness-selftest.sh drives `milestone-gate.sh verdict`, and its assertions
-# are about the GATE's refusal text — it supplies both flags correctly and never sees these arms.
-#
-# No fixture of its own: $SPEC already declares exactly `AC-1` and $SC_HDR is already the
-# conforming table for it.
-
-# The reader's own constants, lifted out of the tool and RENAMED rather than restated here — the
-# (dd) precedent. An oracle, not a copy: the schema is printed FROM these, so a print block that
-# stops naming one of them reds below, while a constant that legitimately changes moves both
-# sides at once. Empty after the lift means the lift missed, which is a fail, not a pass.
+# (sc1)-(sc16) enter through `all`, below this dispatch; `milestone-gate.sh verdict` enters here.
+# Its own arms: the printed schema, rc 0 on a violation (the caller prices it), argument refusals.
+# The reader's constants are lifted and RENAMED, not restated (the (dd) precedent).
 SCW_HEADING=""; SCW_COLUMNS=""; SCW_SCORES=""
 eval "$(sed -n 's/^AC_SCORECARD_HEADING=/SCW_HEADING=/p
                 s/^AC_SCORECARD_COLUMNS=/SCW_COLUMNS=/p
@@ -1245,18 +1208,12 @@ if [ "$rc" -eq 0 ] && silent "$out"; then
   pass "(scw2) a conforming body reconciles silently at write time, so the writer lets the record through"
 else fail "(scw2) expected a silent rc=0 on a conforming body, got $rc: $out"; fi
 
-# THE rc CONTRACT THAT IS NOT THE BOUNDARY'S. The same contradiction through `all` exits 1 —
-# (sc3) asserts that. Here it is a violation LINE on stdout and rc STAYS 0: the writer decides
-# what a violation costs, and a caller that read rc instead of the output would let every
-# contradictory record through while believing it had checked.
+# Through `all` this exits 1 (sc3); here it is a violation LINE and rc stays 0.
 out="$(scw_run approve "$SC_HDR| AC-1 | unsatisfied | the guard is not wired |")"; rc=$?
 if [ "$rc" -eq 0 ] && grep -q 'scored unsatisfied on a verdict=approve record' <<<"$out"; then
   pass "(scw3) a contradictory body prints its violation and still exits 0 — the caller prices it, this reader only names it"
 else fail "(scw3) expected rc=0 with the self-contradiction named, got $rc: $out"; fi
 
-# The dispatch's own refusals. Each is an environment error rather than a violation, because a
-# caller that cannot say which spec or which verdict it is reconciling has asked no question —
-# and a scorecard that answered anyway would certify against a set nobody supplied.
 out="$(printf '%s' "$SC_HDR| AC-1 | satisfied | read the diff |" | bash "$TOOL" scorecard --verdict approve 2>&1)"; rc=$?
 if [ "$rc" -eq 2 ] && grep -q '\-\-spec <path> is required' <<<"$out"; then
   pass "(scw4) --spec is required — the declared set comes from the committed spec, never from the record under test"
@@ -1271,6 +1228,58 @@ out="$(printf '%s' "$SC_HDR| AC-1 | satisfied | read the diff |" | bash "$TOOL" 
 if [ "$rc" -eq 2 ] && grep -q "must be 'approve' or 'needs-work' (got 'merged')" <<<"$out"; then
   pass "(scw6) a --verdict outside the two-value enum is refused and quoted back — the section is required on one of them and validated on both"
 else fail "(scw6) expected the verdict-enum envfail quoting the value, got $rc: $out"; fi
+
+# ---- (scd) #868: a spec with intent rows keys the Decision scorecard (D-3 is a fact row) -----
+SCD_SPEC="$WORK/scd-spec.md"
+printf '%s\n' '# lane spec' '' '- **AC-1** — a' '' '## Decision Ledger' '' \
+  '| ID | Decision | Resolution | Provenance |' '| --- | --- | --- | --- |' \
+  '| D-1 | a | the resolution | user-answered |' '| D-2 | b | DEPARTURE — narrowed | user-delegated |' \
+  '| D-3 | c | a fact | codebase-derived |' > "$SCD_SPEC"
+SCD_HDR='
+## Decision scorecard
+
+| D-n | score | evidence |
+| --- | --- | --- |
+'
+scd_run() { printf '%s' "$2" | bash "$TOOL" scorecard --spec "$SCD_SPEC" --verdict "$1" 2>&1; }
+
+out="$(scd_run approve "$SCD_HDR| D-1 | honored | a.sh:3 |
+| D-2 | departed | a.sh:9; decided_by: user-delegated |")"; rc=$?
+if [ "$rc" -eq 0 ] && silent "$out"; then
+  pass "(scd1) every intent row scored, the declared departure naming its decider — silent"
+else fail "(scd1) expected a silent conforming Decision scorecard, got $rc: $out"; fi
+
+out="$(scd_run approve "$SC_HDR| AC-1 | satisfied | read the diff |")"
+if grep -q 'no "## Decision scorecard" section' <<<"$out"; then
+  pass "(scd2) an approve carrying only the AC scorecard on a spec with intent rows is refused — no legacy arm"
+else fail "(scd2) expected the missing Decision scorecard refusal, got: $out"; fi
+
+out="$(scd_run approve "$SCD_HDR| D-1 | violated | a.sh:3 ignores it |
+| D-2 | departed | a.sh:9; decided_by: pending |
+| D-3 | honored | x |")"
+if grep -q '(D-1): scored violated on a verdict=approve' <<<"$out" \
+   && grep -q '(D-2): scored departed on a verdict=approve record without "decided_by: user-answered"' <<<"$out" \
+   && grep -q 'scores D-3, which the spec does not declare as an intent row' <<<"$out"; then
+  pass "(scd3) a violated row, an undecided departure and a fact row scored as intent are each refused beside approve"
+else fail "(scd3) expected the violated/undecided/undeclared refusals, got: $out"; fi
+
+out="$(scd_run approve "$SCD_HDR| D-1 | departed | a.sh:3; decided_by: user-answered |")"
+if grep -q '(D-1): scored departed, but the spec row carries no "DEPARTURE' <<<"$out" \
+   && grep -q 'no row for D-2, which the spec declares as an intent row' <<<"$out"; then
+  pass "(scd4) a departure the spec never declared, and a missing intent row, are refused"
+else fail "(scd4) expected the undeclared-departure and missing-row refusals, got: $out"; fi
+
+out="$(scd_run needs-work "$SCD_HDR| D-1 | violated | a.sh:3 |
+| D-2 | undeterminable | no signal |")"; rc=$?
+if [ "$rc" -eq 0 ] && silent "$out"; then
+  pass "(scd5) a needs-work record may carry failing rows — they are the reason it is needs-work"
+else fail "(scd5) expected silence on needs-work, got $rc: $out"; fi
+
+out="$(bash "$TOOL" scorecard --print-schema --spec "$SCD_SPEC" 2>&1)"
+if grep -qF '## Decision scorecard' <<<"$out" && grep -qF 'honored violated departed undeterminable' <<<"$out" \
+   && grep -qF 'D-1 D-2' <<<"$out"; then
+  pass "(scd6) --print-schema --spec quotes the Decision schema and the intent rows that spec declares"
+else fail "(scd6) expected the Decision schema, got: $out"; fi
 
 # ---- (dd) #443: the class-(b) emitter's own contract ---------------------------------------
 # The REAL function bytes are lifted out of the tool and executed — never re-declared here. A

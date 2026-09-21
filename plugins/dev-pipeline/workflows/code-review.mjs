@@ -148,13 +148,14 @@ const FINDINGS_SCHEMA = {
 //                  The merge-base is resolved BY GIT at reviewer-run time via three-dot, not
 //                  computed here: Workflow scripts have no Bash/filesystem access.
 //   issue        — GitHub issue number (drives scope-completeness; omit to skip it)
+//   spec         — optional committed lane spec path; scope-completeness scores its decision record
 //   reviewers    — array of agentType strings already selected per review-lead routing
 //   changedFiles — array of changed paths (context for the prompt)
 //   prContext    — optional free-text branch/PR context
 // `args` arrives as the value passed to Workflow's `args` input. Defensive: it may
 // be an object, or (per the Workflow contract's stringified-args caveat) a JSON string.
 const a = typeof args === 'string' ? JSON.parse(args) : args || {}
-const { worktree, base, head, issue, reviewers = [], changedFiles = [], prContext = '', config = {} } = a
+const { worktree, base, head, issue, spec, reviewers = [], changedFiles = [], prContext = '', config = {} } = a
 // Per-reviewer model-tier overrides from the consumer config (bare-keyed).
 const modelOverrides = (config && config.reviewers && config.reviewers.modelOverrides) || {}
 // Consumer tier retargeting, MERGED per tier over the shipped default (#351): a config
@@ -484,7 +485,9 @@ const dispatchReviewer = async (requested) => {
       `Verify scope completeness for ${ref}. ` +
       `Branch head \`${head}\` vs base \`${base}\`; repo worktree \`${worktree}\` ` +
       `(run \`git -C ${worktree} diff ${range}\` to see the change). ` +
-      `${fetchInstr} and classify each scope item against the diff. Return your verdict and findings.` +
+      `${fetchInstr} and classify each scope item against the diff. ` +
+      (spec ? `Decision record: the committed lane spec \`${spec}\`. ` : '') +
+      `Return your verdict and findings.` +
       PROGRESSIVE_EMIT
   } else if (bare(dispatched) === 'unit-test-mutation-reviewer') {
     prompt =

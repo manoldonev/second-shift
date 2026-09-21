@@ -2738,10 +2738,7 @@ verdict_cmd() { # verdict_cmd <session-id> <run-id|""> [args...]
   local sid="$1" rid="$2"
   shift 2
   case " $* " in *" --panel "*) : ;; *) set -- "$@" --panel "$UPANEL" ;; esac
-  # DEFAULTED, the idiom dverdict already uses for `--panel` and for the same reason: an approve
-  # now needs an AC scorecard over the ids $SPEC declares (#622), and a case about the identity
-  # arms or the `--pr` grammar should not have to restate that contract to reach its subject. A
-  # case that IS about the scorecard passes its own, and wins — the parser takes the last flag.
+  # DEFAULTED like `--panel` (#622): a case about the scorecard passes its own, and the last flag wins.
   case " $* " in *" --summary-file "*) : ;; *) set -- "$@" --summary-file "$P_SCORECARD" ;; esac
   if [ -n "$rid" ]; then
     ( unset RUN_ID; cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LANE_PROGRESS_FILE="$PROG" \
@@ -3260,11 +3257,8 @@ xcommit() {
   git -C "$XTREE" commit -q --allow-empty -m "${1:-fixture}" >/dev/null 2>&1
 }
 xgate() { ( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$XTREE" && SECOND_SHIFT_CONFIG="$CFG" LANE_PROGRESS_FILE="$XPROG" bash "$GATE" "$@" 2>&1 ); }
-# THE AC SCORECARD an approve now has to carry (#622). The X/Y/Z/D fixture trees each declare
-# exactly `AC-1`, so one conforming table serves every writer case that is not ABOUT the
-# scorecard; the (sc) block below passes its own literal tables. Defaulted in the wrappers by the
-# same idiom dverdict already uses for `--panel`, and for the same reason: a case about the fix
-# budget or the inheritance chain should not have to restate this contract to reach its subject.
+# THE AC SCORECARD an approve has to carry (#622). The X/Y/Z/D trees each declare exactly `AC-1`;
+# defaulted in the wrappers like `--panel`, so a case not ABOUT the scorecard need not restate it.
 SCORECARD_AC1="$WORK/scorecard-ac1.md"
 printf '## AC scorecard\n\n| AC-n | score | evidence |\n| --- | --- | --- |\n| AC-1 | satisfied | fixture |\n' > "$SCORECARD_AC1"
 : > "$WORK/vs-empty.md"
@@ -3575,9 +3569,7 @@ ZBODY="$WORK/zbody-1.md"
   echo "inherited_patch_id: deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
   echo "inherited_from_verdict: 1111111111111111111111111111111111111111"
   echo '```'
-  # The scorecard an approve now needs (#622). Appended rather than replacing the body: this
-  # case is about the reader taking the HEADER's value over one quoted in the findings, and the
-  # quoted block above is the whole point of it.
+  # The scorecard an approve needs (#622), appended: the quoted block above is this case's point.
   cat "$Z_SCORECARD"
 } > "$ZBODY"
 out="$(zverdict sess-review-z1 r-review-z1 --pr 92 --verdict approve --rounds 1 --summary-file "$ZBODY")"; rc=$?
@@ -3612,9 +3604,7 @@ ZBODY2="$WORK/zbody-2.md"
   echo '```'
   echo "inherited_patch_id: $Z_PID1"
   echo '```'
-  # The scorecard an approve now needs (#622). Appended rather than replacing the body: this
-  # case is about the reader taking the HEADER's value over one quoted in the findings, and the
-  # quoted block above is the whole point of it.
+  # The scorecard an approve needs (#622), appended: the quoted block above is this case's point.
   cat "$Z_SCORECARD"
 } > "$ZBODY2"
 out="$(zverdict sess-review-z2 r-review-z2 --pr 92 --verdict approve --rounds 2 --summary-file "$ZBODY2")"; rc=$?
@@ -9496,16 +9486,8 @@ if grep -qxF 'rc=0' <<<"$co_out" \
 else fail "(co13) unexpected: $co_out"; fi
 
 # ---- (vs) #622: the AC scorecard, refused at the WRITER ---------------------------------------
-# WHY THESE ARE PER-TOOL CASES and not only a scenario. The composed leg in
-# scenario-liveness-selftest.sh drives one review session through the writer to a terminal write
-# and one that contradicts itself to a stop — which is the ECONOMICS, not the grammar. The
-# grammar's arms are here (the writer's refusal) and in boundary-evidence-selftest.sh's (sc) block
-# (the boundary's, over records that never passed a writer at all). Neither reader can stand in
-# for the other: the writer holds a `--summary-file` and no record, the boundary holds a record
-# and no flags.
-#
-# The X tree's spec declares exactly `AC-1`, and every case below passes its own table rather
-# than the wrapper's default.
+# The writer's arms; the boundary's are boundary-evidence-selftest.sh's (sc), the economics the
+# liveness scenario's. The X tree's spec declares exactly `AC-1`; each case passes its own table.
 vs_body() { # vs_body <rows...>  — a conforming section wrapper around the given row(s)
   { printf '## AC scorecard\n\n| AC-n | score | evidence |\n| --- | --- | --- |\n'
     printf '%s\n' "$1"; } > "$WORK/vs-body.md"

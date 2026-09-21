@@ -23,7 +23,7 @@ The reviewer fan-out runs as `agent()` calls inside `workflows/code-review.mjs` 
 
   ```
   Workflow({ scriptPath: "<staged>/code-review.mjs",
-             args: { worktree, base, head, issue?, reviewers, changedFiles, prContext } })
+             args: { worktree, base, head, issue?, spec?, reviewers, changedFiles, prContext } })
   ```
 
   **Stage the script first — neither a bare filename nor the cache path dispatches.** The `Workflow` tool accepts only a path it returned itself, or one under the working directory or an added directory. The plugin cache is neither on a default install, so `scriptPath: "code-review.mjs"` comes back as "Workflow script file not found" and the cache's own absolute path as "must be a script path this tool returned". Resolve it from this skill's own base directory (which the invocation states) and copy it into the session scratchpad, then dispatch that copy:
@@ -370,6 +370,7 @@ The dispatch prompt should contain:
 
 1. **GitHub issue number** (e.g., `#758` or `758`).
 2. **Branch and base** (e.g., `claude/repo-758` vs `main`).
+3. **The committed lane spec path**, when Process step 4 found one (the Workflow's `spec` arg). The reviewer scores that spec's decision record itself; pass the path, never its rows.
 
 What the dispatch prompt MUST NOT contain:
 
@@ -430,7 +431,7 @@ For every finding from a sub-reviewer, classify it:
 
 If `scope-completeness-reviewer` was spawned and returned `FAIL` or `BLOCKED`, the consolidated "Ready to merge?" verdict **MUST** be "No" regardless of any other reviewer's verdict. This is a hard gate, not a heuristic. (`BLOCKED` means the subagent could not fetch the issue — treat it identically to `FAIL`.)
 
-- Each `[unsatisfied]` scope item is included as a `Critical [Scope completeness]` finding in the Critical section, with the unsatisfied item, the reason, and the question "is this item covered by the diff somewhere I missed, or does it need to be added to the PR or explicitly deferred in the issue body?"
+- Each `[unsatisfied]` scope item, and each decision row scored `violated`, `undeterminable` or `departed` with no named decider, is included as a `Critical [Scope completeness]` finding in the Critical section, with the unsatisfied item, the reason, and the question "is this item covered by the diff somewhere I missed, or does it need to be added to the PR or explicitly deferred in the issue body?"
 - The orchestrator's prompt (the user's invocation) does not override this gate. Claims like "that's deferred" or "out of scope here" are not evidence — only the diff covering the item, or the issue body explicitly deferring it (with a linked follow-up issue), satisfies a scope item.
 - If the user pushes back ("but it really is out of scope"), the response is to either (a) cover the item in the diff, or (b) update the issue body with explicit deferral language and re-run the gate.
 - **Autonomous-pipeline caveat:** remediation (b) edits a GitHub issue's acceptance criteria — a **human-authority action** the `auto`-mode permission classifier denies, and one no agent should take unprompted. So in dev-pipeline `auto` mode a scope blocker with **no code remedy** is not cleared by the synthesis loop; carry it into your verdict as an unresolved blocker and let the merge boundary hold it, rather than clearing or deferring it yourself. Do not reach for an input-requesting prompt to record the deferral — that breaks the `auto`-mode no-prompts invariant and hangs a headless run. (Standalone `/review-lead` and `interactive` mode may still ask.)
