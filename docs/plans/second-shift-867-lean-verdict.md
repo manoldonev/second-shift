@@ -1,14 +1,14 @@
 # lean review verdict — #867
 
-verdict=needs-work
-run_id: review-867-1
-session_id: e4125a5b-074b-4ff5-b22e-e8726d57648c
-rounds: 1
+verdict=approve
+run_id: review-867-2
+session_id: 85889c97-6274-4e01-9ceb-8a87c2c68cf0
+rounds: 2
 pr: #874
-reviewed_head: 68be90d47143201a90d4410c35d08982425991c6
-reviewed_patch_id: c1d29cc9a08dea755a60f7994f4585f13fd9f235
-inherited_patch_id: none
-inherited_from_verdict: none
+reviewed_head: c5c3b92b65a3aa4f64069971143a6b32b32e7925
+reviewed_patch_id: e0c9d20ffd4702e40d29298abcb190d3d0c03e83
+inherited_patch_id: c1d29cc9a08dea755a60f7994f4585f13fd9f235
+inherited_from_verdict: e4360fbe821375f404886b009cdbfcfd8db10bac
 fidelity: not-applicable
 panel: review-toolkit:scope-completeness-reviewer
 model: opus
@@ -16,38 +16,38 @@ capabilities: pr-marker
 
 ## Review Summary
 
-Round 1, full range `be5b44cf..68be90d4`. Panel: pipeline default (scope-completeness only), no opt-ins taken. security-reviewer was not selected because the declared panel does not select it, so the lead pass covered security. a11y and design-fidelity were not routed because no web-component path changed. The spec's `## Design` section is absent, so fidelity is `not-applicable`.
+Round 2. This round read `e4360fbe..c5c3b92b`, the delta `G delta` printed, and inherits the rest from round 1's record, whose findings were read first. Panel: pipeline default (scope-completeness only), no opt-ins taken. security-reviewer was not selected because the declared panel does not select it, so the lead pass covered security. a11y and design-fidelity were not routed because no web-component path changed. The spec has no `## Design` section, so fidelity is `not-applicable`.
 
-The mechanism is right. `tracker.writes` is derived with preflight.sh's default, the deny list lives in one place, both roles go through the one spawn, and the github spawn line is unchanged. `orchestrate-selftest.sh` passes at this head: 150 PASS, 0 FAIL, rc=0, run locally because CI's `lint-and-selftests` was still pending. The `pr-gates` red is only the missing verdict record, which this round supplies.
+Both round-1 blockers are fixed.
 
-Two blockers, both small.
+- **Finding 1 (missing `addTeamworkGraphContext`) is fixed.** It is now on `ATLASSIAN_WRITE_TOOLS`. I checked the list against the live Atlassian Rovo MCP tool list loaded in this session. Its 14 write tools are all on the list: `addCommentToJiraIssue`, `addWorklogToJiraIssue`, `addTeamworkGraphContext`, `createCompassComponent`, `createCompassComponentRelationship`, `createCompassCustomFieldDefinition`, `createConfluenceFooterComment`, `createConfluenceInlineComment`, `createConfluencePage`, `createIssueLink`, `createJiraIssue`, `editJiraIssue`, `transitionJiraIssue` and `updateConfluencePage`. Every remaining tool is a read (`get*`, `search*`, `fetch`, `lookupJiraAccountId`, `atlassianUserInfo`), and none of them is on the list.
+- **Finding 2 ((m2a) asserted 5 of 13) is fixed.** (m2a) now loops over all 14 names under all three namespaces, in both spawns.
+- **Nit 3 is fixed.** The loop variables are `unset` after the loop, and nothing later reads them.
+
+`orchestrate-selftest.sh` passes at `c5c3b92b`, run locally because CI's `lint-and-selftests` was still pending: all green, 0 FAIL, rc=0. That includes (e1a), (e1b), (m2a) and (m2b). The `pr-gates` red is only the missing verdict record for this head, which this round supplies.
 
 ## Findings
 
-| # | Severity | Where | Finding |
-| --- | --- | --- | --- |
-| 1 | blocker | `plugins/dev-pipeline/skills/run/orchestrate.sh:588` | **`addTeamworkGraphContext` is an Atlassian write tool, and the list leaves it off.** I read the live MCP tool description this session. It "Adds a relationship between two entities in the Teamwork Graph (e.g. linking two Jira work items, marking one as blocking another, attaching a remote link, or connecting a Jira work item to an Atlas project or goal)". That is the same write `createIssueLink` makes, and `createIssueLink` is on the list. The PR body's reading that it "adds context to the session" is its own inference, and it does not hold. A lane session under `tracker.writes: false` can still link or block the ticket it is graded against. Fix: add `addTeamworkGraphContext` to `ATLASSIAN_WRITE_TOOLS`. The other 13 names match every write tool the live Rovo MCP exposes. |
-| 2 | blocker | `plugins/dev-pipeline/skills/run/orchestrate-selftest.sh:1274` | **(m2a) asserts 5 of the 13 listed names, and AC-3 asks for every listed write tool.** Dropping, say, `createCompassComponent` or `addWorklogToJiraIssue` from the scheduler's list stays green. Fix: have the (m2a) loop cover the full list, including the name from finding 1. |
-| 3 | nit | `plugins/dev-pipeline/skills/run/orchestrate.sh:595` | The loop variables `_tool` and `_ns` leak into the script's global scope. This is harmless, and not a blocker. |
+None this round.
 
 ## AC scorecard
 
-| AC | Score | Evidence |
+| AC-n | score | evidence |
 | --- | --- | --- |
-| AC-1 | unsatisfied | The list is one variable. Every name is appended under all three namespaces only when writes is false, and no read tool is on it. But the list omits `addTeamworkGraphContext`, which the live MCP describes as creating Jira issue links, blocks and remote links. So "every Atlassian write tool" does not hold (finding 1). |
-| AC-2 | satisfied | On the github default and on an explicit `writes: true`, `DISALLOWED_TOOLS` is exactly `AskUserQuestion EnterWorktree ExitWorktree`. Selftests (e1a), (e1b) and (m2b) pass at this head. |
-| AC-3 | unsatisfied | (e1b) covers the github arm with no `mcp__` tool and passes. (m2a) runs a jira config with no `writes` key and checks read tools are absent. But it asserts only 5 of the 13 listed write tools, and the AC asks for every one (finding 2). |
-| AC-4 | satisfied | The README's "No JIRA writes" paragraph now names the enforcer (the scheduler's `--disallowedTools` under `tracker.writes: false`, all three namespaces, read tools kept). It also names the boundary: a `/dev-pipeline:build` or `/dev-pipeline:review` invoked directly is operator-attended and not covered. |
+| AC-1 | satisfied | `ATLASSIAN_WRITE_TOOLS` (orchestrate.sh:589) holds exactly the live MCP's 14 write tools, and no read tool. Each name is appended under all three namespaces only when `TRACKER_WRITES` is false. That value is derived with preflight.sh's default, and an explicit key wins. Both roles go through the one spawn. |
+| AC-2 | satisfied | On the github default and on an explicit `writes: true`, `DISALLOWED_TOOLS` is only `AskUserQuestion EnterWorktree ExitWorktree`. (e1a), (e1b) and (m2b) pass at `c5c3b92b`. |
+| AC-3 | satisfied | (m2a) uses a jira config with no `writes` key. It checks every listed write tool (all 14) under all three namespaces in both spawns, and checks that no read tool is present. (e1b) checks that the github default has no Atlassian tool. Both pass at `c5c3b92b`. |
+| AC-4 | satisfied | The round-1 score carries over, because README.md is outside this delta. The paragraph names the enforcer and the boundary for a directly invoked build or review. |
 
 ## Verdicts
 
 | Reviewer | Verdict | Findings | Confidence Range |
 | --- | --- | --- | --- |
 | Scope Completeness | Pass | 0 | — |
-| Security | Lead pass — ❌ | 1 (finding 1) | 95 |
+| Security | Lead pass — ✅ | 0 | — |
 | Performance | Lead pass — ✅ | 0 | — |
 | Complexity | Lead pass — ✅ | 0 | — |
-| Maintainability | Lead pass — ✅ | 1 nit | 80 |
-| Test Coverage | Lead pass — ❌ | 1 (finding 2) | 90 |
+| Maintainability | Lead pass — ✅ | 0 | — |
+| Test Coverage | Lead pass — ✅ | 0 | — |
 
-**Ready to merge?** No. Both fixes are small, about two lines plus the test loop.
+**Ready to merge?** Yes. Both round-1 blockers and the nit are fixed, and the selftest passes at the reviewed head.
