@@ -589,18 +589,9 @@ LEANPRNS
   lane_write_verdict approve r-lean-review-10 sess-lean-review-10
 
   # ---- leg 3e: the AC scorecard, composed writer -> milestone 4 (#622) ------
-  # CLAUDE.md: a new gate contract must extend this scenario. What only a composed leg shows is
-  # the ECONOMICS — that a self-contradictory record never becomes one, so the lane stops at the
-  # handoff instead of carrying a contradiction to the merge boundary and spending a round there.
-  # The grammar's own arms are per-tool: the writer's in milestone-gate-selftest.sh's (vs) block, the
-  # boundary's in boundary-evidence-selftest.sh's (sc) block, over records that never passed a writer.
-  #
-  # The REAL `verdict` subcommand, from a review identity distinct on both axes — a hand-written
-  # record would compose a state no review session produces and would skip the refusal entirely.
-  # THE PANEL every writer call in this file carries unless the case IS about the panel (#825).
-  # The writer refuses a `--panel` naming no reviewer on every ticket, armed or not, so a call
-  # that omitted it would be refused for that and never reach the scorecard grammar it is here
-  # to compose.
+  # The composed leg shows the ECONOMICS: a self-contradictory record never becomes one, so the
+  # lane stops at the handoff instead of spending a round at the boundary. Real `verdict`, from a
+  # review identity distinct on both axes; every writer call carries a reviewer `--panel` (#825).
   LANE_UPANEL="review-toolkit:security-reviewer"
   lane_verdict() { # lane_verdict <session-id> <run-id> <scorecard-file>
     rm -f "$LANE_TREE/.claude/pipeline-state/77-review-run-id"
@@ -763,6 +754,7 @@ LEANPRNS
     '| ID | Decision | Resolution | Provenance | Kind |' \
     '| --- | --- | --- | --- | --- |' \
     '| D-1 | Fix scope | Both call sites | user-answered | intent |' \
+    '| D-2 | Retry | Keep the retry | user-answered | intent |' \
     > "$LANE_RECEIPT"
   LANE_GAP="$LANE_TREE/docs/plans/acme-77-lean-intent-gap.md"
   rm -f "$LANE_GAP"
@@ -772,6 +764,7 @@ LEANPRNS
     printf '| ID | Decision | Resolution | Provenance |\n'
     printf '| --- | --- | --- | --- |\n'
     printf '| D-1 | Fix scope | DEPARTURE — narrowed to the import path | user-answered |\n'
+    printf '| D-2 | Retry | Keep the retry | user-answered |\n'
   } >> "$LANE_SPEC"
   lane_seed_progress r-lean-1 sess-lean-build
   p9_dep_out="$(lane_gate 1 77 2>&1)"; p9_dep=$?
@@ -784,9 +777,37 @@ LEANPRNS
     && grep -q 'departs from 1 recorded intent row(s)' <<< "$p9_dep_out" \
     && grep -q 'P9' <<< "$p9_dep_out" \
     && grep -q 'acme-77-lean-intent-gap.md' <<< "$p9_dep_out" \
-    && grep -q '1 bound, 0 carried, 1 departure(s)' <<< "$p9_rec_out" \
+    && grep -q '2 bound, 1 carried, 1 departure(s)' <<< "$p9_rec_out" \
     && pass "(lean-p9-departure) a DEPARTURE from a user-answered receipt row reds milestone 1 naming P9 and the record path, and passes once the intent-gap record is on the branch" \
     || fail "(lean-p9-departure) dep=$p9_dep rec=$p9_rec, expected 1/0. dep-out=$p9_dep_out rec-out=$p9_rec_out"
+
+  # #868: the same spec keys the DECISION scorecard (departed D-1, D-2), writer -> m4 -> boundary.
+  cp "$LANE_VERDICT" "$TMP/held-dsc-verdict.md"
+  dsc_card() { printf '## Decision scorecard\n\n| D-n | score | evidence |\n| --- | --- | --- |\n| D-1 | departed | src/a.ts:3; decided_by: user-delegated |\n| D-2 | %s | src/a.ts:9 |\n' "$1" > "$TMP/lean-dsc-$1.md"; }
+  dsc_card violated; dsc_card honored
+  lane_seed_progress r-lean-1 sess-lean-build
+  rm -f "$LANE_VERDICT"; lane_commit "the record the refused rounds must not resurrect"
+  dsc_bad_out="$(lane_verdict sess-lean-review-dsc r-lean-review-dsc "$TMP/lean-dsc-violated.md")"; dsc_bad=$?
+  dsc_ac_out="$(lane_verdict sess-lean-review-dsc1 r-lean-review-dsc1 "$LANE_SCORECARD")"; dsc_ac=$?
+  dsc_rec=0; [[ -f "$LANE_VERDICT" ]] && dsc_rec=1
+  lane_seed_progress r-lean-1 sess-lean-build
+  dsc_ok_out="$(lane_verdict sess-lean-review-dsc2 r-lean-review-dsc2 "$TMP/lean-dsc-honored.md")"; dsc_ok=$?
+  lane_commit "review session commits its verdict record"
+  lane_gate 4 77 >/dev/null 2>&1; dsc_m4=$?
+  dsc_boundary() { ( cd "$LANE_TREE" && SECOND_SHIFT_CONFIG="$LANE_CFG" bash "$HERE/boundary-evidence.sh" check --key 77 --arms verdict 2>&1 ); }
+  dsc_b_out="$(dsc_boundary)"; dsc_b=$?
+  # ...and the boundary is not vacuous: the same record hand-edited to score D-2 violated reds there.
+  sed -i.bak 's/| D-2 | honored |/| D-2 | violated |/' "$LANE_VERDICT"; dsc_e_out="$(dsc_boundary)"
+  if [[ "$dsc_bad" -eq 1 && "$dsc_ac" -eq 1 && "$dsc_rec" -eq 0 && "$dsc_ok" -eq 0 && "$dsc_m4" -eq 0 && "$dsc_b" -eq 0 ]] \
+     && grep -q '(D-2): scored violated on a verdict=approve record' <<<"$dsc_bad_out" \
+     && grep -q 'no "## Decision scorecard" section' <<<"$dsc_ac_out" \
+     && ! grep -q 'scorecard' <<<"$dsc_b_out" && grep -q 'scorecard: row 2 (D-2): scored violated' <<<"$dsc_e_out"; then
+    pass "(lean-decision-scorecard) a spec with intent rows refuses a violated row and an AC-only scorecard at the writer; the conforming round passes milestone 4 and the boundary, which reds the same record hand-edited to violated"
+  else
+    fail "(lean-decision-scorecard) bad=$dsc_bad ac=$dsc_ac record=$dsc_rec ok=$dsc_ok m4=$dsc_m4 boundary=$dsc_b (want 1/1/0/0/0/0): $dsc_bad_out / $dsc_ac_out / $dsc_ok_out / $dsc_b_out / edited: $dsc_e_out"
+  fi
+  rm -f "$LANE_VERDICT.bak"
+  cp "$TMP/held-dsc-verdict.md" "$LANE_VERDICT"
 
   rm -f "$LANE_GAP" "$LANE_RECEIPT"
   cp "$TMP/held-lean-spec-517.md" "$LANE_SPEC"
