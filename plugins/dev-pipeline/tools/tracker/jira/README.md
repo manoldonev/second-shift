@@ -10,6 +10,11 @@ metadata.
 > **The "No JIRA writes" principle.** Nothing in the lane calls an Atlassian write tool
 > (`transitionJiraIssue`, `addCommentToJiraIssue`, `editJiraIssue`, …). This keeps a run
 > to a single outward-facing write — the PR — and avoids a redundant approval gate.
+> **What enforces it:** under `tracker.writes: false`, `/dev-pipeline:run` starts every BUILD
+> and REVIEW session without the Atlassian write tools (the scheduler's `--disallowedTools`
+> list, under all three namespaces below); the read tools stay. **Where it stops:** a
+> `/dev-pipeline:build` or `/dev-pipeline:review` the operator invokes directly is
+> operator-attended and keeps whatever tools that session has.
 
 The table below is this adapter's operation contract. The pipeline’s gate-sensitive
 operations are tabulated in [`../README.md`](../README.md#the-pipeline-dev-pipelinerun).
