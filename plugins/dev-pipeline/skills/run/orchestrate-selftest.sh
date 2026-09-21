@@ -709,6 +709,9 @@ if ! grep -qE 'AskUserQuestion|EnterWorktree|ExitWorktree' <<<"$(all_argv | sed 
    && [ "$(all_argv | grep -c -- "$DISALLOW")" -eq 2 ]; then
   pass "(e1a) every spawn removes AskUserQuestion, EnterWorktree and ExitWorktree, the prompt sources a headless payload can reach"
 else fail "(e1a) a spawn did not disallow the headless prompt sources: $(all_argv)"; fi
+if ! grep -q 'mcp__' <<<"$(all_argv)"; then
+  pass "(e1b) a github tracker writes, so no spawn removes an Atlassian tool"
+else fail "(e1b) a github spawn removed MCP tools: $(all_argv)"; fi
 
 # Driven with CLAUDE_CODE_SESSION_ID UNSET in the parent, so a `yes` here can only have come
 # from the scheduler. Running it with the operator's own session id ambient would make this case
@@ -1261,6 +1264,31 @@ if [ "$rc" -eq 0 ] && grep -q 'dev-pipeline:build ACME-7' <<<"$(spawn_argv 1)" \
    && grep -q "^CWD: $WORK/wt$" "$GATE_LOG_DIR/call-1" 2>/dev/null; then
   pass "(m2) the jira key reaches the payload unlowercased while the BRANCH is lowercased"
 else fail "(m2) expected a clean jira run, got rc=$rc: $out"; fi
+
+# The "No JIRA writes" principle, enforced at dispatch. CFG_JIRA carries no `writes` key, so the
+# jira default (read-only) is what is exercised; a scheduler that read the key but not its default
+# reds here. Both roles go through the one spawn call, so both spawns are checked.
+jira_deny_ok=1
+for n in 1 2; do
+  argv="$(spawn_argv "$n")"
+  for t in addCommentToJiraIssue editJiraIssue transitionJiraIssue createJiraIssue updateConfluencePage; do
+    for ns in mcp__atlassian__ mcp__plugin_atlassian_atlassian__ mcp__claude_ai_Atlassian_Rovo__; do
+      grep -q -- " $ns$t " <<<"$argv " || jira_deny_ok=0
+    done
+  done
+  grep -qE 'getJiraIssue|getConfluencePage' <<<"$argv" && jira_deny_ok=0
+done
+if [ "$rc" -eq 0 ] && [ "$jira_deny_ok" -eq 1 ]; then
+  pass "(m2a) a read-only tracker's BUILD and REVIEW spawns are started without the Atlassian write tools, under all three namespaces, and keep the read tools"
+else fail "(m2a) a jira spawn kept an Atlassian write tool or lost a read tool: $(all_argv)"; fi
+
+CFG_JIRA_W="$WORK/config-jira-writes.json"
+jq '.tracker.writes = true' "$CFG_JIRA" > "$CFG_JIRA_W"
+setup_case "" "$V_APPROVE" "" "11"
+out="$(run_tool "$CFG_JIRA_W" ACME-7 --build-model sonnet)"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(spawn_count)" -gt 0 ] && ! grep -q 'mcp__' <<<"$(all_argv)"; then
+  pass "(m2b) an explicit tracker.writes: true overrides the jira default and removes no Atlassian tool"
+else fail "(m2b) expected no MCP tool removed under writes: true, got rc=$rc: $(all_argv)"; fi
 
 setup_case "" "$V_APPROVE" "ready-for-dev" "11"
 out="$(run_tool "$CFG_BAD" "$ISSUE" --build-model sonnet)"; rc=$?

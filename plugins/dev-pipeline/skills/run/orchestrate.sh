@@ -573,6 +573,31 @@ case "$TRACKER_TYPE" in
   github|jira) : ;;
   *) envfail env-tracker-type "unrecognized tracker.type '$TRACKER_TYPE' — expected github or jira." ;;
 esac
+# `tracker.writes`, with the default preflight.sh derives: github writes, every other tracker does
+# not. Read here with jq rather than through `cfg`, whose null-means-default would also swallow an
+# explicit `false`.
+TRACKER_WRITES=true
+[ "$TRACKER_TYPE" = github ] || TRACKER_WRITES=false
+if [ -f "$CONFIG" ]; then
+  TRACKER_WRITES="$(jq -r --arg d "$TRACKER_WRITES" 'if .tracker.writes != null then .tracker.writes else $d end' "$CONFIG")"
+fi
+# The JIRA adapter's "No JIRA writes" principle, enforced: under a read-only tracker every spawned
+# session is started without the Atlassian WRITE tools, so a lane session cannot edit the ticket it
+# is graded against. Read tools stay — fetch-ticket needs them. Each name is removed under all three
+# namespaces the adapter README lists, because which one a session gets depends on how it
+# registered the MCP.
+ATLASSIAN_WRITE_TOOLS="addCommentToJiraIssue addWorklogToJiraIssue createIssueLink createJiraIssue
+  editJiraIssue transitionJiraIssue createConfluencePage updateConfluencePage
+  createConfluenceFooterComment createConfluenceInlineComment createCompassComponent
+  createCompassComponentRelationship createCompassCustomFieldDefinition"
+DISALLOWED_TOOLS=(AskUserQuestion EnterWorktree ExitWorktree)
+if [ "$TRACKER_WRITES" = false ]; then
+  for _tool in $ATLASSIAN_WRITE_TOOLS; do
+    for _ns in mcp__atlassian__ mcp__plugin_atlassian_atlassian__ mcp__claude_ai_Atlassian_Rovo__; do
+      DISALLOWED_TOOLS+=("$_ns$_tool")
+    done
+  done
+fi
 QUEUE_LABEL="$(cfg '.tracker.labels.queue' 'ready-for-dev')"
 # The same default milestone-gate.sh carries, because the re-entry arm below reads back the label the
 # gate's own `claim` wrote. A consumer that renamed one and not the other would have re-entry
@@ -1255,6 +1280,7 @@ spawn() { # spawn <role> <model> <prompt> — returns 0 on done or stuck, termin
   # one after cutting its lane worktree is listed `blocked` and ends the run. Without them the
   # payload uses `cd`, as it did under `-p`. Every other permission decision needs no flag: the
   # classifier auto-denies inside a bg session, and the model reads the denial and continues.
+  # Under a read-only tracker the list also carries the Atlassian write tools (DISALLOWED_TOOLS).
   #
   # `--name` (D-4) is what makes the row recognisable in `claude agents` while the run is live.
   #
@@ -1271,7 +1297,7 @@ spawn() { # spawn <role> <model> <prompt> — returns 0 on done or stuck, termin
   out="$(env -u RUN_ID "$SPAWN_BIN" --bg \
            --permission-mode "$PERM_MODE" --model "$model" \
            --name "lean-$ISSUE-$lower-r${round:-1}" \
-           --disallowedTools AskUserQuestion EnterWorktree ExitWorktree \
+           --disallowedTools "${DISALLOWED_TOOLS[@]}" \
            --settings "$settings" \
            "$prompt" 2>&1)"
   # The id is the whole handle: without it there is no state to poll, no session to stop and
