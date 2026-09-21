@@ -1,6 +1,6 @@
 ---
 name: run
-description: The pipeline's front door — one ticket in, a merged-ready PR out. A scheduler: it spawns /dev-pipeline:build and /dev-pipeline:review in fresh sessions, reads gate exit codes and tracker state, and authors nothing. Expects a ticket with paid-off intake (queue-labeled on GitHub, operator-attested under jira).
+description: The pipeline's front door — one ticket in, a merge-ready PR out. A scheduler: it spawns /dev-pipeline:build and /dev-pipeline:review in fresh sessions, reads gate exit codes and tracker state, and authors nothing. Expects a ticket with paid-off intake (queue-labeled on GitHub; under jira intake is not checked, so run /intake-toolkit:intake first).
 ---
 
 # run

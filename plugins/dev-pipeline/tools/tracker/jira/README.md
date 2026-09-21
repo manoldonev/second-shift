@@ -38,25 +38,23 @@ is a fetch-time prerequisite failure, surfaced by the intake surface.
 
 | Operation | jira implementation |
 | --- | --- |
-| **pickup** | Operator supplies the JIRA key on invocation (`/dev-pipeline:run GH-540`). No queue, no claim, no label mutation. |
+| **pickup** | Operator supplies the JIRA key on invocation (`/dev-pipeline:run PROJ-540`). No queue, no claim, no label mutation. |
 | **fetch-ticket** | `getJiraIssue` for the body; `getJiraIssueRemoteIssueLinks` → `getConfluencePage` for linked design/spec pages — under whichever namespace the session exposes (see **Prerequisite**). |
 | **predecessor-read** (`sub-issues-sequential` ordering) | ***SKIP-with-note.*** Both reads the github adapter pays — the candidate's body and the predecessor's state — are session-side MCP here, unreachable from a shell tool, so `../../predecessor-gate.sh` is never invoked (the **preflight-read** precedent). **Ordering is operator-enforced with no machine gate:** the ordered sub-ticket specs presented at decomposition carry the `Predecessor:` / `Successor:` trailers and the "start this only once `<predecessor>` is done" note, and the operator honors that sequence when supplying the next key. The trailer-rendering rule exists here solely for that presented spec text. |
 | **post-status-comment** | *no-op.* Progress is written to the lane's progress file only. |
 | **set-status** | *no-op.* The ticket stays in its current JIRA status for the whole run. |
 | **create-sub-tickets** (`sub-issues` verdict) | Present ≤5 recommended sub-ticket specs to the operator; make **no** JIRA writes. The operator creates and re-queues them. |
 | **close-out** | *no-op.* |
-| **branch name** | `<branchPrefix><key-lowercased>`; `branchPrefix` is a per-user identifier + `/` (e.g. `jdoe/` → `jdoe/gh-540`). |
+| **branch name** | `<branchPrefix><key-lowercased>`; `branchPrefix` is a per-user identifier + `/` (e.g. `jdoe/` → `jdoe/proj-540`). |
 | **PR ticket reference** | Fill the repo’s `pull_request_template.md` `### Jira Items` with `Closes [<KEY>]`; the branch/PR are still on GitHub (`gh pr create`, ready — see **Ready, never draft** above). |
 
 ## Deriving `branchPrefix` (the user identifier)
 
 With JIRA the branch prefix is typically a per-user short name, not the git username.
-Set it explicitly in config (`tracker.branchPrefix: "jdoe/"`) or derive it once from
-existing `*/gh-*` branches and confirm with the operator before cutting the worktree
-(/dev-pipeline:build step 3). Config is the durable home; detection is the first-run convenience.
-The staged lane's Stage-2 detection step that used to own this is deleted (#348), so
-**config is now the only durable home** — an unset `branchPrefix` is an operator prompt,
-not a cached derivation.
+Set it explicitly in config (`tracker.branchPrefix: "jdoe/"`). When it is unset, the gate
+derives it from the dominant prefix among existing remote branches for your key pattern, and
+refuses (exit 2) when there is nothing to derive from — it never prompts, because spawned lane
+sessions cannot ask. Config is the durable home; derivation is the fallback.
 
 ## Topology note
 

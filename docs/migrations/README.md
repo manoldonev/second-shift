@@ -24,3 +24,22 @@ filename from `configVersion` alone. So [`v1-to-v2.md`](v1-to-v2.md) carries **b
 migrations under explicit part headings: part 1 the retroactive marketplace-v2.0.0 key
 removals, part 2 the `configVersion` 1 → 2 retirement of the `planFilePattern` slice token.
 Later `vN-to-vN+1.md` docs are configVersion-only; this collision is not expected to recur.
+
+## Breaking changes that are not config changes
+
+These leave `configVersion` alone, so config-lint cannot point at them, and a stale copy in your
+repo is not reported by any tool. Each is also in that release's `CHANGELOG.md` entry.
+
+- **v13.0.0** — the pipeline's scripts were renamed (`lean-gate.sh` → `milestone-gate.sh`,
+  `lean-evidence.sh` → `boundary-evidence.sh`, `lean-reconcile.sh` → `reconcile.sh`,
+  `orchestrate-lean.sh` → `orchestrate.sh`) and the `/dev-pipeline:*-lean` skill aliases were
+  removed; use `/dev-pipeline:run`, `:build` and `:review`. If you carry the CI workflow,
+  re-copy `plugins/second-shift/templates/consumer/second-shift-ci-check.sh` into
+  `.claude/tools/` — an older copy fetches `lean-evidence.sh` and reds every PR once the pin moves.
+- **v14.0.0** — the retired spellings stopped resolving, **silently**: export `LANE_*` instead
+  of any `LEAN_*` knob, rename `.claude/lean-overrides.tsv` to `.claude/lane-overrides.tsv`, and
+  export `SECOND_SHIFT_BOUNDARY_EVIDENCE` instead of `SECOND_SHIFT_LEAN_EVIDENCE`. A leftover old
+  spelling is ignored, so a run proceeds without the override rather than failing.
+- **Next major** — intent-gap records carry `decided_by:` (`user-answered` or `user-delegated`).
+  A record that has only the legacy `ratified: yes` + `ratified_by:` pair still counts as decided
+  until then; add `decided_by:` to any open one before bumping.

@@ -18,7 +18,7 @@ repo enables {{PLUGIN_LIST}}) — `/second-shift:doctor` verifies the install ag
 
 ### review-toolkit
 - Skills: `review-lead`, `mutation-review`, `reviewer-baseline` — loaded only when invoked.
-- Agents: the 17-strong reviewer panel (security, performance, maintainability, complexity, db, scope-completeness, test-coverage, a11y, spec, plan, mutation reviewers, review-lead synthesis, …) — dispatched only by review runs.
+- Agents: the reviewer panel (scope-completeness, security, performance, maintainability, complexity, db, pipeline, a11y, test-coverage, unit-test-mutation, spec, plan reviewers, …) — dispatched only by review runs. A pipeline review round dispatches scope-completeness only unless the config's `reviewers.default` or the ticket's Decision Ledger opts others in.
 - Hooks: two PreToolUse gates on `git commit` commands — reviewer-reference drift check and model-tier lockstep check.
 
 ### intake-toolkit

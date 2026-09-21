@@ -12,7 +12,7 @@
     {
       "name": "dev-pipeline",
       "source": "./plugins/dev-pipeline",
-      "description": "Autonomous ticket → intake → build → review → merge-boundary pipeline, gated by five artifact milestones (outcome-gated blocks, portable merge-boundary evidence, tracker adapters github|jira)."
+      "description": "Autonomous intaken-ticket → reviewed-PR pipeline: build and review in separate sessions, gated by five artifact milestones (outcome-gated blocks, tracker adapters github|jira, opt-in merge-boundary evidence)."
     },
     {
       "name": "review-toolkit",
@@ -22,7 +22,7 @@
     {
       "name": "intake-toolkit",
       "source": "./plugins/intake-toolkit",
-      "description": "Elicitation surface: intake front door, intake-interviewer, intake-orchestrator, plan-interview with Decision Ledger, grill-me, decomposition/spec reviewers."
+      "description": "Elicitation surface: intake front door, intake-interviewer, intake-orchestrator, plan-interview with Decision Ledger, grill-me, decomposition-reviewer, implementability-probe."
     },
     {
       "name": "design-toolkit",

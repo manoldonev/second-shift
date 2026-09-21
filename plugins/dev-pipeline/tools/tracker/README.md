@@ -57,17 +57,17 @@ rather than falling through to an arm.
 The **ready-PR** requirement is adapter-independent: `milestone-gate.sh` milestone 5 rejects a
 draft on either adapter. There is no promotion step for a draft to advance out of.
 
-> **Partial integrity backstop under jira.** lean has two integrity checks, and they diverge
-> here. `reconcile.sh` (operator-run) keeps every arm but one: only the claim-comment
+> **Partial integrity backstop under jira.** The pipeline has two integrity checks, and they
+> diverge here. `reconcile.sh` (operator-run) keeps every arm but one: only the claim-comment
 > comparison needs a tracker, and the rest read git, the progress file, the verdict record and
 > the audit ledger — including the P10 authorship check, which is what the
 > generation-must-not-author-evaluation separation rests on. It states which arm did not run, so
 > a green jira reconcile cannot be read as the full github-strength attestation.
 >
-> The merge boundary `scripts/check-lane-chain.sh` (CI) remains **github-only**: it keys off the
-> bot-authored `lean-claimed` comment, which this adapter posts none of. A jira run therefore has
-> an operator-run backstop and no automated one; adapting the CI gate is out of this lane’s scope
-> and tracked separately.
+> The automated one is the opt-in CI merge check (`second-shift-ci-check.sh`, which runs
+> [`boundary-evidence.sh`](../../skills/build/boundary-evidence.sh)). It keys on the bot, not the
+> tracker: a jira repo that configures `tracker.bot` is gated at full strength, and one without a
+> bot gets the identity arm reported unavailable (see [the jira README](jira/README.md)).
 
 > **Atlassian MCP namespace (jira fetch).** Do not hardcode a single prefix: the MCP's
 > tool namespace depends on how the session registered the server — `mcp__atlassian__*`

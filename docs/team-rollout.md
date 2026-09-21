@@ -81,6 +81,11 @@ validation gates — or just run `/second-shift:local-dev-refresh`, which does t
 update + per-plugin upgrade (including project-scope stragglers in the current repo)
 and prints the before → after version delta.
 
+Across a major, read the release's `CHANGELOG.md` entry and
+[`migrations/`](migrations/README.md) before merging: a breaking change can require a
+repo-side step no tool performs for you (re-copying a vendored CI script, renaming a
+register file, changing an exported environment knob).
+
 - **Laggards converge lazily:** anyone who hasn't updated gets doctor's two remediation
   commands next session (version-behind, exact commands printed). Completion signal =
   doctor silence across the team.
@@ -117,7 +122,9 @@ required CI on the committed artifacts and branch protection. `/second-shift:onb
 can emit that CI on request (`.github/workflows/second-shift-ci.yml` + the committed
 `second-shift-ci-check.sh`): on every PR it config-lints the committed config at the
 pinned marketplace ref and asserts the settings ref and lockfile ref agree, so a
-half-done upgrade PR is caught server-side. It reports a red check; you make it a *gate*
+half-done upgrade PR is caught server-side, and on a pipeline PR it runs the merge-boundary
+evidence check, which reds a PR whose verdict is missing, self-authored or older than its
+head. It reports a red check; you make it a *gate*
 by marking "second-shift evidence" a required status check in branch protection. That's
 why doctor says "missing your accelerators" instead of anything compliance-shaped: 80%
 adoption plus server-side enforcement beats 100% by nagging.

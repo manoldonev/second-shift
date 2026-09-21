@@ -27,7 +27,7 @@ You have a repo-, org-, or domain-specific need. Walk it down this list; the fir
 | You want to… | Use | Layer | Blocking? |
 | --- | --- | --- | --- |
 | Change a **value** the plugin hardcodes (a path, a URL, a command, a label set, a plan-file name) | `stageParams` / `commands` / `paths` config | config | n/a |
-| Add a **blocking check of your own** that must pass (a linter, a contract check, a custom test suite, a schema-diff gate, a license scan, a codegen-drift check) | `commands.<repo>.extraLanes` (EP-2) | config | always |
+| Add a **check of your own** to every run (a linter, a contract check, a custom test suite, a schema-diff gate, a license scan, a codegen-drift check) | `commands.<repo>.extraLanes` (EP-2) | config | no — advisory on milestone 3; block it in your own CI |
 | Add **domain knowledge** a shipped agent should read (blocker mutants, security rules, review context, design tokens, doc routing) | an **extension file** under `.claude/second-shift/` | knowledge | additive to that agent |
 | Add a **whole new reviewer** dimension for this repo | a repo-local agent in `.claude/agents/` + `reviewers.add` | config + agent | it's a reviewer |
 | Put a **shipped reviewer the pipeline no longer dispatches by default** (security, a11y, unit-test-mutation) back in every pipeline round here | `reviewers.default` config (§3.3b) | config | it's a reviewer |
@@ -84,7 +84,7 @@ Pure parameterization — no ordering, no logic. A published key that nothing ac
 
 The mirror-image rot — a key nothing *sets*, so the shipped default silently matches nothing in your repo — is caught by [`config-grill.sh`](../plugins/second-shift/skills/onboard/tools/config-grill.sh), which `/second-shift:onboard` runs on its draft before the accept-or-edit screen and `/second-shift:doctor` runs on the committed config. `config-lint` cannot see any of it: absence is legal for every optional key, so a structural validator never looks at the tree, and a capability that is off simply never runs while the run still reports green. The grill does look, names what you get for setting the key, and forces a disposition — fix it, or declare it in the top-level `grillWaivers` object (`{"<check id>": "<reason>"}`), the same deliberate-declared-opt-out shape as `commands.<repo>.allowUnverified`. Field reference: [`config-schema.md`](config-schema.md).
 
-### 3.2 `extraLanes` — add a blocking verify command
+### 3.2 `extraLanes` — add a verify command
 
 You have a check the built-in lanes don't cover (a custom lint, a contract test, an i18n audit). Add it as an extra lane on the relevant repo:
 
@@ -106,9 +106,9 @@ You have a check the built-in lanes don't cover (a custom lint, a contract test,
 }
 ```
 
-Extra lanes run **sequentially after** the built-in SUITE lanes, never interleaving or replacing them; results land under a namespaced `ext:openapi-drift` key so canonical lane keys stay unreachable. There is no advisory mode: a lane blocks `milestone-gate.sh` milestone 3 or it doesn't exist. `failureClass` must be one of the closed taxonomy values (`FORMAT`, `LINT_AUTOFIX`, `TYPE_ERROR`, `TEST_FAILURE`, `PLAN_CMD_FAILURE`, `INFRA`) — extensions borrow the taxonomy, they never extend it — and the lane gets the standard 2-attempt fix budget.
+Extra lanes run **sequentially after** the built-in SUITE lanes, never interleaving or replacing them; results land under a namespaced `ext:openapi-drift` key so canonical lane keys stay unreachable. Extra lanes are **advisory**: a red one is recorded as a `milestone-3 | advisory` row and costs no fix attempt, and milestone 3 blocks only on `typecheck`. To make a lane blocking, run the same command as a required check in your own CI. `failureClass` must be one of the closed taxonomy values (`FORMAT`, `LINT_AUTOFIX`, `TYPE_ERROR`, `TEST_FAILURE`, `PLAN_CMD_FAILURE`, `INFRA`) — extensions borrow the taxonomy, they never extend it — and the lane gets the standard 2-attempt fix budget.
 
-A build/compile step (`ng build`, `tsc --noEmit --project ...`) is a common `extraLanes` use: it's blocking, runs after the trio, and — unlike a lint or unit-test lane — catches breaks a spec doesn't happen to exercise (e.g. an Angular AOT template referencing a nonexistent property, invisible to `typecheck`/`test` unless some spec transitively imports the broken component). `failureClass: "TYPE_ERROR"` fits: the class already covers compile-time breaks the type-check lane didn't catch. `/second-shift:onboard` drafts this automatically when it detects a build command.
+A build/compile step (`ng build`, `tsc --noEmit --project ...`) is a common `extraLanes` use: it runs after the trio, and — unlike a lint or unit-test lane — catches breaks a spec doesn't happen to exercise (e.g. an Angular AOT template referencing a nonexistent property, invisible to `typecheck`/`test` unless some spec transitively imports the broken component). `failureClass: "TYPE_ERROR"` fits: the class already covers compile-time breaks the type-check lane didn't catch. `/second-shift:onboard` drafts this automatically when it detects a build command.
 
 ### 3.3 `reviewers.add` — a repo-local reviewer
 
@@ -295,7 +295,7 @@ They upgrade independently: bumping your org pack's domain rules is a companion-
 Everything a companion pack exposes is addressed `<pack>:<name>`, exactly like the shipped plugins ([`namespaces.md`](namespaces.md)):
 
 - **Agents** referenced from config carry the qualifier: a pack reviewer registered via `reviewers.add` is dispatched by its qualified name, `"acme-platform:api-test-reviewer"`. (A repo-*local* agent stays bare — that's the disambiguation between the two roots.)
-- **Workflows** a pack ships use the same `"<pack>:<relpath>"` form wherever the Workflow tool resolves one; it searches the installed-plugin path, so never hard-code a filesystem path into another plugin. No *config* key points at one any more — the two that did (`stageWorkflows`, `implementDelegates`) are retired.
+- **Workflows** a pack ships use the same `"<pack>:<relpath>"` form in references. The Workflow tool resolves neither a bare filename nor a plugin-cache path, so a caller resolves the pack's install path and stages the script into its session scratchpad before dispatching it (as `review-lead`'s pre-flight does); never hard-code a filesystem path into another plugin. No *config* key points at one any more — the two that did (`stageWorkflows`, `implementDelegates`) are retired.
 
 The qualifier is what lets `check-reviewer-references.sh` tell "shipped", "companion", and "repo-local" apart, and what keeps a pack from silently shadowing a shipped name.
 
@@ -338,8 +338,8 @@ tier that still dispatch, registered and auditable. This block is valid config; 
 
 ```jsonc
 {
-  // RUN the suite — LIVE: read by milestone-gate.sh milestone 3. The API suite is a blocking
-  // verify lane, gated to when API surface changed.
+  // RUN the suite — LIVE: read by milestone-gate.sh milestone 3. The API suite is an advisory
+  // verify lane (block on it in your own CI), gated to when API surface changed.
   "commands": {
     "<repo-id>": {
       "extraLanes": [
@@ -400,4 +400,4 @@ Every one of these **adds** a gate or a unit of work; not one can waive a shippe
 
 ---
 
-**In one breath:** config for values and switches; extension files to add evidence; `extraLanes` to add a blocking verify gate and `reviewers.add` to add a review dimension — both registered from config so they're auditable; a companion pack to ship any of it across an org, two-pinned and namespaced. (The plan-gate and delegate seams that once sat alongside them are retired and survive only as the design record in §3.6-3.8.) And through all of it: extensions add, they never subtract; if your change could turn a red run green, you wanted a fork.
+**In one breath:** config for values and switches; extension files to add evidence; `extraLanes` to add an advisory verify lane and `reviewers.add` to add a review dimension — both registered from config so they're auditable; a companion pack to ship any of it across an org, two-pinned and namespaced. (The plan-gate and delegate seams that once sat alongside them are retired and survive only as the design record in §3.6-3.8.) And through all of it: extensions add, they never subtract; if your change could turn a red run green, you wanted a fork.

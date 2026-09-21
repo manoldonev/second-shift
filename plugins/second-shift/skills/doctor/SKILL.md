@@ -1,6 +1,6 @@
 ---
 name: doctor
-description: Verify this repo's second-shift install/config state against the committed lockfile - never-installed, enabled-but-not-installed, version drift (behind AND ahead), project-scope records a user-scope one makes redundant, ref-less marketplace shadowing, skill/agent shadow collisions, opt-outs, config-lint. Prints exact remediation commands, scoped to the record that actually loads. Run after cloning, after upgrades, whenever the toolkit feels absent.
+description: Verify this repo's second-shift install/config state against the committed lockfile - prerequisites, settings/lockfile ref lockstep, never-installed, enabled-but-not-installed, version drift (behind AND ahead), project-scope records a user-scope one makes redundant, ref-less marketplace shadowing, skill/agent shadow collisions, opt-outs (audit-toolkit off with dev-pipeline on is a FAIL), config-lint, claims-lint, config grill. Prints exact remediation commands, scoped to the record that actually loads. Run after cloning, after upgrades, whenever the toolkit feels absent.
 ---
 
 You are `/second-shift:doctor`.
@@ -10,8 +10,9 @@ You are `/second-shift:doctor`.
    WARNs, then the summary. Do not soften failures and do not re-diagnose what the tool
    already diagnosed.
 3. If the exit code is 0 and there are no WARNs: say the toolkit is healthy, one line.
-4. Tone contract: missing plugins are "missing accelerators", not violations — the gate of
-   record is server-side CI, this is fast local feedback.
+4. Tone contract: missing plugins are "missing accelerators", not violations — this is fast
+   local feedback, and the only merge-blocking check is the opt-in CI workflow, where the repo
+   installed it.
 5. If the user asks about pipeline RUNTIME issues (gh auth, node, labels, milestone-gate), point
    them to dev-pipeline's pipeline-doctor: it ships inside the dev-pipeline plugin at
    `tools/pipeline-doctor.sh` (resolve via `claude plugin list --json`
@@ -25,7 +26,9 @@ review false positive) or asks for a report bundle, run doctor with `--report`:
 `bash "${CLAUDE_PLUGIN_ROOT}/skills/doctor/tools/doctor.sh" --report`
 
 It prints one paste-ready Markdown block — the normal doctor output, `claude plugin list --json`,
-the **redacted** config, and the newest `.claude/pipeline-state/` excerpt (the `.failureContext` of
-the last run) — sized to drop straight into the matching issue form under `.github/ISSUE_TEMPLATE/`.
+the **redacted** config, context coverage, and the tail of the newest run's
+`<issue>-lean-progress.md` from `.claude/pipeline-state/` (its last gate rows, including the stop
+reason) — sized to drop straight into the matching issue form in the second-shift repo's
+`.github/ISSUE_TEMPLATE/` (pipeline aborted, config-lint disagreement, review false positive).
 Relay it verbatim. Sensitive-shaped config values are auto-redacted, but remind the user to glance
 over it before posting. `--report` always exits 0 — it assembles, it does not gate.

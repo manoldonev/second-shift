@@ -240,7 +240,7 @@ CANDIDATES=("src/app/**/*.{html,ts}" "src/**/*.vue" "app/**/*.tsx" "src/**/*.{ts
 PROBE_GLOBS=("${WEB_SURFACE_PROBE[@]}")
 t2_key "T2.webComponentGlobs" "stageParams.webComponentGlobs" \
   '(.stageParams.webComponentGlobs // []) | .[]' \
-  "This glob is the whole trigger for a11y-reviewer AND the design-fidelity dimension: while it matches nothing, neither is ever routed and every review looks clean because they never ran."
+  "This glob is the trigger for a11y-reviewer AND the design-fidelity dimension (on a pipeline round a11y-reviewer also needs an opt-in): while it matches nothing, neither is ever routed and every review looks clean because they never ran."
 
 DEFAULT_GLOBS=("*.{ts,tsx,js,json,md}")
 CANDIDATES=("*.{ts,tsx,js,jsx,json,md}" "*.{py,md,json}" "*.{sh,md,json,yml}" "*.{go,md,json}" "*.{rs,md,toml}")

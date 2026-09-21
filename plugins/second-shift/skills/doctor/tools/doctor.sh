@@ -61,7 +61,7 @@ redact_config() { # $1 = config path
 # its reason there as an `attempt` row followed by `concluded | rc=`. So the markdown
 # progress record is what this looks for FIRST — the lane that can abort is the lane
 # that has to be excerptable, and it writes no JSON at all. A repo carrying leftover
-# JSON state from a pre-lean run falls back to projecting the four fields that schema
+# JSON state from a pre-milestone-lane run falls back to projecting the four fields that schema
 # had. Each glob is guarded against literal-pattern expansion when the dir is
 # empty/absent (a fresh clone has no runs).
 #
@@ -90,7 +90,7 @@ state_excerpt() {
     done
   fi
   if [[ -n "$newest" ]]; then
-    echo "// $(basename "$newest") (pre-lean JSON state)"
+    echo "// $(basename "$newest") (legacy JSON state)"
     jq '{ticketKey, status, currentStage, failureContext}' "$newest" 2>/dev/null \
       || echo "(state file unreadable or invalid JSON)"
   else
@@ -153,7 +153,7 @@ emit_report() {
   echo
   echo "### pipeline-state excerpt (newest run)"
   # Unlabelled fence: the excerpt is a markdown progress tail on the lane and JSON only
-  # on the pre-lean fallback, so a `json` label would mis-highlight the common case.
+  # on the legacy JSON fallback, so a `json` label would mis-highlight the common case.
   echo '```'
   state_excerpt
   echo '```'
