@@ -589,7 +589,7 @@ fi
 ATLASSIAN_WRITE_TOOLS="addCommentToJiraIssue addWorklogToJiraIssue createIssueLink createJiraIssue
   editJiraIssue transitionJiraIssue createConfluencePage updateConfluencePage
   createConfluenceFooterComment createConfluenceInlineComment createCompassComponent
-  createCompassComponentRelationship createCompassCustomFieldDefinition"
+  createCompassComponentRelationship createCompassCustomFieldDefinition addTeamworkGraphContext"
 DISALLOWED_TOOLS=(AskUserQuestion EnterWorktree ExitWorktree)
 if [ "$TRACKER_WRITES" = false ]; then
   for _tool in $ATLASSIAN_WRITE_TOOLS; do
@@ -597,6 +597,7 @@ if [ "$TRACKER_WRITES" = false ]; then
       DISALLOWED_TOOLS+=("$_ns$_tool")
     done
   done
+  unset _tool _ns
 fi
 QUEUE_LABEL="$(cfg '.tracker.labels.queue' 'ready-for-dev')"
 # The same default milestone-gate.sh carries, because the re-entry arm below reads back the label the

@@ -1271,7 +1271,10 @@ else fail "(m2) expected a clean jira run, got rc=$rc: $out"; fi
 jira_deny_ok=1
 for n in 1 2; do
   argv="$(spawn_argv "$n")"
-  for t in addCommentToJiraIssue editJiraIssue transitionJiraIssue createJiraIssue updateConfluencePage; do
+  for t in addCommentToJiraIssue addWorklogToJiraIssue createIssueLink createJiraIssue editJiraIssue \
+           transitionJiraIssue createConfluencePage updateConfluencePage createConfluenceFooterComment \
+           createConfluenceInlineComment createCompassComponent createCompassComponentRelationship \
+           createCompassCustomFieldDefinition addTeamworkGraphContext; do
     for ns in mcp__atlassian__ mcp__plugin_atlassian_atlassian__ mcp__claude_ai_Atlassian_Rovo__; do
       grep -q -- " $ns$t " <<<"$argv " || jira_deny_ok=0
     done
