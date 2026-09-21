@@ -5280,6 +5280,15 @@ if [ "$rc" -eq 0 ]; then
   pass "(ac-d3) restored, the same evaluation passes — (ac-d1)/(ac-d2) each turned on their one fact"
 else fail "(ac-d3) the restored fixture is not green, so the two cases above proved nothing: rc=$rc: $out"; fi
 
+# (dm0) #866 AC-3, the control for (dm2): on this fresh receipt a direct `mark` clears the
+# render guard and reaches cmd_mark, which stops at its own PR lookup — the fixture has no PR.
+DM_REACHED='no open or merged PR found'
+dreset
+out="$(dgate mark 55)"; rc=$?
+if grep -q "$DM_REACHED" <<<"$out" && ! grep -q 'renders from' <<<"$out"; then
+  pass "(dm0) #866: a direct mark on an armed spec with a fresh render receipt reaches cmd_mark"
+else fail "(dm0) expected mark to pass the render guard, rc=$rc: $out"; fi
+
 # (dm1) D-10's BACKSTOP. Everything else here is fresh — the verdict is the last commit, so both
 # freshness arms are green — and only the receipt is stale, which is precisely a reviewer who
 # scored round-1 screenshots against round-2 code and then committed an honest record.
@@ -5294,6 +5303,27 @@ if [ "$rc" -eq 1 ] && grep -q 'renders from' <<<"$out" \
    && ! grep -q 'file(s) changed after it' <<<"$out"; then
   pass "(dm1) a stale render receipt reds milestone 4 on a tree whose verdict freshness is green"
 else fail "(dm1) expected the stale-receipt refusal alone, rc=$rc: $out"; fi
+
+# (dm2) #866 AC-1/AC-3: the SAME stale receipt, stopped at the handoff instead. A direct `mark`
+# refuses with milestone 4's text before cmd_mark runs. Per-tool, not a scenario leg: the liveness
+# scenario composes no armed render lane (its header excludes design mode), so its `mark` legs
+# only ever take this guard's unarmed no-op path.
+dreset
+out="$(dgate mark 55)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'renders from' <<<"$out" && grep -q 'Re-run milestone 3' <<<"$out" \
+   && ! grep -q "$DM_REACHED" <<<"$out"; then
+  pass "(dm2) #866: a direct mark refuses a stale render receipt before the handoff, with milestone 4's text"
+else fail "(dm2) expected the stale-receipt refusal at mark, rc=$rc: $out"; fi
+
+# (dm3) ...and only on an ARMED spec: the same tree read through the no-design config is unarmed,
+# so mark proceeds.
+dreset
+out="$( unset RUN_ID CLAUDE_CODE_SESSION_ID; cd "$DTREE" \
+        && SECOND_SHIFT_CONFIG="$CFG" LANE_PROGRESS_FILE="$DPROG" \
+        bash "$GATE" --issue-file "$ISSUE_NOREGIONS" mark 55 2>&1 )"; rc=$?
+if ! grep -q 'renders from' <<<"$out"; then
+  pass "(dm3) #866: an unarmed spec is never refused at mark for its render receipt"
+else fail "(dm3) expected no render refusal on an unarmed spec, rc=$rc: $out"; fi
 
 # (fd6) the UNARMED transition allowance: a record with no fidelity key at all — every record
 # written before this key existed — still passes. Read through the no-design config, which is
