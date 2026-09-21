@@ -4,6 +4,113 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v14.0.3
+
+### `dev-pipeline` 14.0.2 → 14.0.3
+
+- **Record-form defects must not cost a review round (#870)** (#870)
+  `mark` refuses a stale render receipt on an armed ticket before the handoff; an
+  intent-gap record can be ratified by the build under a standing delegation committed to the
+  consumer's CLAUDE.md, cited by blob permalink in `ratified_by:`, and a pending ratification is
+  no longer a review finding.
+  Migration: to let builds ratify, commit a delegation line to CLAUDE.md (see SECOND-SHIFT.md).
+  Installing second-shift-ci.yml as a required check is recommended: its freshness arm is what
+  refuses a head that moved after its verdict.
+- **Record who decided instead of waiting for a signature (#872)** (#872)
+  the lane no longer waits for a ratification signature. An
+  intent-gap record names who decided, including the agent acting under
+  standing delegation; review no longer withholds a verdict to hand the round
+  back, and the `review-paused` state is gone.
+  Migration: a record with no `decided_by:` key that carries `ratified: yes`
+  with its `ratified_by:` URL still counts as decided, until the next major
+  removes the legacy read; any other record needs `decided_by:`
+  (`user-answered` or `user-delegated`) before it merges at a boundary that
+  checks it, and a pause-and-ask region needs `user-answered`, a comment
+  naming it, or an operator override.
+- **Review scores the code against the decision record (#873)** (#873)
+  review scores every decision-record intent row of the lane spec
+  (honored / violated / departed / undeterminable) in a `## Decision scorecard`,
+  and the verdict writer and merge boundary refuse an approve beside a violated,
+  undeterminable or undecided departed row. Specs with no intent rows keep the
+  `## AC scorecard`. The scope reviewer grades only ticket items no row covers;
+  where the ticket and the record disagree, the record governs.
+  Migration: an approved-but-unmerged PR whose spec declares intent rows and
+  whose verdict carries only an AC scorecard goes red at the merge boundary and
+  takes one fresh review round under the new skill.
+- **A read-only tracker's lane sessions start without Atlassian write tools (#874)** (#874)
+  under `tracker.writes: false`, sessions `/dev-pipeline:run`
+  spawns can no longer call Atlassian write tools (JIRA or Confluence),
+  so a lane cannot edit the ticket it is graded against. Read tools stay.
+  Migration: none.
+
+### `intake-toolkit` 5.0.1 → 5.0.2
+
+- **Record-form defects must not cost a review round (#870)** (#870)
+  `mark` refuses a stale render receipt on an armed ticket before the handoff; an
+  intent-gap record can be ratified by the build under a standing delegation committed to the
+  consumer's CLAUDE.md, cited by blob permalink in `ratified_by:`, and a pending ratification is
+  no longer a review finding.
+  Migration: to let builds ratify, commit a delegation line to CLAUDE.md (see SECOND-SHIFT.md).
+  Installing second-shift-ci.yml as a required check is recommended: its freshness arm is what
+  refuses a head that moved after its verdict.
+- **Record who decided instead of waiting for a signature (#872)** (#872)
+  the lane no longer waits for a ratification signature. An
+  intent-gap record names who decided, including the agent acting under
+  standing delegation; review no longer withholds a verdict to hand the round
+  back, and the `review-paused` state is gone.
+  Migration: a record with no `decided_by:` key that carries `ratified: yes`
+  with its `ratified_by:` URL still counts as decided, until the next major
+  removes the legacy read; any other record needs `decided_by:`
+  (`user-answered` or `user-delegated`) before it merges at a boundary that
+  checks it, and a pause-and-ask region needs `user-answered`, a comment
+  naming it, or an operator override.
+
+### `review-toolkit` 8.0.3 → 8.0.4
+
+- **Record who decided instead of waiting for a signature (#872)** (#872)
+  the lane no longer waits for a ratification signature. An
+  intent-gap record names who decided, including the agent acting under
+  standing delegation; review no longer withholds a verdict to hand the round
+  back, and the `review-paused` state is gone.
+  Migration: a record with no `decided_by:` key that carries `ratified: yes`
+  with its `ratified_by:` URL still counts as decided, until the next major
+  removes the legacy read; any other record needs `decided_by:`
+  (`user-answered` or `user-delegated`) before it merges at a boundary that
+  checks it, and a pause-and-ask region needs `user-answered`, a comment
+  naming it, or an operator override.
+- **Review scores the code against the decision record (#873)** (#873)
+  review scores every decision-record intent row of the lane spec
+  (honored / violated / departed / undeterminable) in a `## Decision scorecard`,
+  and the verdict writer and merge boundary refuse an approve beside a violated,
+  undeterminable or undecided departed row. Specs with no intent rows keep the
+  `## AC scorecard`. The scope reviewer grades only ticket items no row covers;
+  where the ticket and the record disagree, the record governs.
+  Migration: an approved-but-unmerged PR whose spec declares intent rows and
+  whose verdict carries only an AC scorecard goes red at the merge boundary and
+  takes one fresh review round under the new skill.
+
+### `second-shift` 10.0.0 → 10.0.1
+
+- **Record-form defects must not cost a review round (#870)** (#870)
+  `mark` refuses a stale render receipt on an armed ticket before the handoff; an
+  intent-gap record can be ratified by the build under a standing delegation committed to the
+  consumer's CLAUDE.md, cited by blob permalink in `ratified_by:`, and a pending ratification is
+  no longer a review finding.
+  Migration: to let builds ratify, commit a delegation line to CLAUDE.md (see SECOND-SHIFT.md).
+  Installing second-shift-ci.yml as a required check is recommended: its freshness arm is what
+  refuses a head that moved after its verdict.
+- **Record who decided instead of waiting for a signature (#872)** (#872)
+  the lane no longer waits for a ratification signature. An
+  intent-gap record names who decided, including the agent acting under
+  standing delegation; review no longer withholds a verdict to hand the round
+  back, and the `review-paused` state is gone.
+  Migration: a record with no `decided_by:` key that carries `ratified: yes`
+  with its `ratified_by:` URL still counts as decided, until the next major
+  removes the legacy read; any other record needs `decided_by:`
+  (`user-answered` or `user-delegated`) before it merges at a boundary that
+  checks it, and a pause-and-ask region needs `user-answered`, a comment
+  naming it, or an operator override.
+
 ## v14.0.2
 
 ### `audit-toolkit` 5.0.0 → 5.0.1
