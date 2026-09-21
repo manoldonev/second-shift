@@ -154,7 +154,7 @@ rc=$(lint_rc "$TMP/quoting-bad.md")
   && pass "(ll-n) same quote-laden row, illegal provenance → still rejected, 1" \
   || fail "(ll-n) quote-laden discrimination — got rc=$rc"
 
-echo "[ledger-lint-selftest] receipt mode (--receipt): the ratification bar"
+echo "[ledger-lint-selftest] receipt mode (--receipt): the provenance bar"
 
 # The receipt fixture, reduced to the one row each case mutates, so a case's
 # failure names a single cause. Built from the fixture rather than hand-written
@@ -205,14 +205,14 @@ for prov in codebase-derived ticket-sourced deferred; do
     || fail "(ll-q) intent row backed by '$prov' — rc=$rc err=$err"
 done
 
-# (ll-r) the bar DISCRIMINATES: the same row, ratified, passes. Without this the
+# (ll-r) the bar DISCRIMINATES: the same row, user-answered, passes. Without this the
 # case above is satisfied by a mode that rejects everything.
 printf '%s\n' '| D-1 | Rate limit for the import endpoint | 100/min | user-answered | intent |' > "$TMP/row.md"
 receipt_with "$TMP/row.md" "$OPEN_EMPTY" > "$TMP/ratified.md"
 rc=$(lint_rc --receipt "$TMP/ratified.md")
 [[ "$rc" -eq 0 ]] \
   && pass "(ll-r) same row, user-answered → 0" \
-  || fail "(ll-r) ratified intent row — got rc=$rc"
+  || fail "(ll-r) user-answered intent row — got rc=$rc"
 
 # (ll-s) a `fact` row backed by a human-attributed provenance is the mirror
 # error — a decision relabeled as a derived fact.
@@ -356,7 +356,7 @@ err=$(bash "$LINT" --receipt "$TMP/or-dupe.md" 2>&1 >/dev/null || true)
 echo "[ledger-lint-selftest] receipt mode (--receipt): the surface inventory"
 
 # The inventory's cases all share one well-formed ledger, so a failure names a
-# surface-row cause and not a ratification-bar one. D-1 and D-2 exist, D-9 does not
+# surface-row cause and not a provenance-bar one. D-1 and D-2 exist, D-9 does not
 # — that asymmetry is what the dangling-citation case rides on.
 printf '%s\n' '| D-1 | Rate limit for the import endpoint | 100/min | user-answered | intent |
 | D-2 | Empty-list copy | "Nothing imported yet" | user-answered | intent |' > "$TMP/surface-ledger.md"

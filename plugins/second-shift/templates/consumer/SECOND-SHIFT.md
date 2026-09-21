@@ -40,16 +40,15 @@ repo enables {{PLUGIN_LIST}}) — `/second-shift:doctor` verifies the install ag
   config-lint the committed config at the pinned marketplace ref; assert the settings ref and
   lockfile ref agree; and, on a `/dev-pipeline:run` PR, assert the merge-boundary evidence
   the lane is supposed to leave — a committed approve-verdict carrying reconciliation keys,
-  a review identity distinct from the build run's, a verdict covering *this* head, and no
-  unratified intent-gap record. The workflow only reports a check; it blocks a merge only if you
+  a review identity distinct from the build run's, a verdict covering *this* head, and every
+  intent-gap record naming who decided. The workflow only reports a check; it blocks a merge only if you
   mark it a required status check in branch protection.
-- **Ratification can be delegated.** When a build hits a decision its ticket never covered, it
-  writes an intent-gap record that must read `ratified: yes` with a URL in `ratified_by:` before
-  it merges. To let the build ratify on your behalf, commit one line to your `CLAUDE.md`, for
-  example `Ratification of intent-gap records is delegated to the agent.` The build then cites
-  that line's GitHub blob permalink (`https://github.com/<owner>/<repo>/blob/<sha>/CLAUDE.md#L<n>`)
-  and ratifies before the review, so ratification never costs a review round. Without the line,
-  cite an operator's comment on the issue instead.
+- **Every decision names who made it.** When a build hits a decision its ticket never covered, it
+  writes an intent-gap record whose `decided_by:` says who made the call: `user-answered` when you
+  answered it, or `user-delegated` when the agent decided under your standing delegation. Nothing
+  waits for a signature, and it never costs a review round. A declared pause-and-ask region is the
+  one exception: it is a question for you, so it clears only on your answer, a comment naming it,
+  or an operator override.
 - **The boundary evidence check is fail-closed.** Missing evidence is a failure, and so is a check
   that could not run: a moved script path at your pinned ref (HTTP 404) or a shallow checkout is
   reported as drift, never waved through green. Only a network/auth blip fetching the script is

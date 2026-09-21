@@ -410,11 +410,11 @@ fi
 # The staged lane's deterministic verify runner died with it (#348). What stands here
 # instead is the boundary a lane run is actually judged at: boundary-evidence.sh
 # reads the committed verdict record's verdict, authoring identity, patch freshness and
-# ratification, and a consumer's CI fetches it at its pinned ref.
+# the intent-gap record's decider, and a consumer's CI fetches it at its pinned ref.
 if out=$(bash "$PLUGIN_DIR/skills/build/boundary-evidence-selftest.sh" 2>&1); then
   ok "boundary-evidence selftest: $(tail -1 <<< "$out" | sed 's/\[self-test\] //')"
 else
-  bad "boundary-evidence selftest FAILED — the merge-boundary evidence reader (verdict / identity / freshness / ratification) is broken on this machine. Output tail:"
+  bad "boundary-evidence selftest FAILED — the merge-boundary evidence reader (verdict / identity / freshness / intent-gap) is broken on this machine. Output tail:"
   tail -5 <<< "$out" | sed 's/^/[doctor]        /'
 fi
 

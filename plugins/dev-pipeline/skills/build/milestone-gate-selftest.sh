@@ -411,7 +411,7 @@ reset_progress
 rm -f "$INTENT_GAP"
 rc_spec 'DEPARTURE — narrowed to the import path; the export path is dead code'
 out="$(gate --ledger-file "$RC_RECEIPT" 1 7)"; rc=$?
-if [ "$rc" -eq 1 ] && grep -q 'departs from 1 ratified intent row(s)' <<<"$out" \
+if [ "$rc" -eq 1 ] && grep -q 'departs from 1 recorded intent row(s)' <<<"$out" \
    && grep -q 'P9' <<<"$out" && grep -q 'docs/plans/acme-7-lean-intent-gap.md' <<<"$out" \
    && [ "$(count_in_progress '| milestone-1 | attempt |')" -eq 1 ]; then
   pass "(a11) P9: a DEPARTURE from a user-delegated receipt row with no intent-gap record refuses milestone 1, names P9 and the record path, and spends a fix attempt"
@@ -419,10 +419,10 @@ else fail "(a11) expected rc=1 naming P9 and the record path plus one attempt li
 
 # (a11b) ...and the same tree with the record present passes — AC-8's disclosure of the counts is
 # still asserted, not just the presence of a note: a note reading "0 bound" would sit in the same
-# place and say nothing. EXISTENCE clears it, not ratification: ratifying is the merge boundary's
-# arm, and a record the build could only pass by ratifying itself would be self-ratification.
+# place and say nothing. EXISTENCE clears it: a `pending` record passes here, because reading who
+# decided is the merge boundary's arm, not milestone 1's.
 reset_progress
-printf 'issue: 7\nrun_id: r\nsession_id: s\nregion: undeclared\ndisposition: reversible-default-and-flag\nratified: no\nratified_by:\n\n## Gap\n\nD-3 narrowed.\n' > "$INTENT_GAP"
+printf 'decided_by: pending\nissue: 7\nrun_id: r\nsession_id: s\nregion: undeclared\ndisposition: reversible-default-and-flag\n\n## Gap\n\nD-3 narrowed.\n' > "$INTENT_GAP"
 out="$(gate --ledger-file "$RC_RECEIPT" 1 7)"; rc=$?
 if [ "$rc" -eq 0 ] && grep -q '2 bound, 1 carried, 1 departure(s)' <<<"$out"; then
   pass "(a11b) #517 AC-4/AC-8: a reasoned DEPARTURE with the intent-gap record on the branch passes, and the pass line discloses the counts"
@@ -2176,15 +2176,15 @@ if [ "$rc" -eq 1 ] && grep -q 'region OR-1' <<<"$out"; then
   pass "(y3c) a comment naming OR-10 does not resolve OR-1 (word-boundary match, not substring)"
 else fail "(y3c) expected rc=1 — OR-10 must not satisfy OR-1, got $rc: $out"; fi
 
-# (y4) AC-8: a ratified intent-gap record naming the region IS a resolution artifact, even
-# with an empty comment trail.
+# (y4) AC-8: an intent-gap record naming the region and reading `decided_by: user-answered` IS a
+# resolution artifact, even with an empty comment trail.
 reset_progress
 GAP="$TREE/docs/plans/acme-7-lean-intent-gap.md"
-printf 'region: OR-1\nratified: yes\nratified_by: https://example.invalid/issues/7#issuecomment-1\n' > "$GAP"
-commit_tree "ratified intent-gap for OR-1"
+printf 'decided_by: user-answered\nregion: OR-1\n' > "$GAP"
+commit_tree "answered intent-gap for OR-1"
 out="$(gate 1 7 --issue-file "$WORK/issue-or1-paa.json" --comments-file "$WORK/comments-none.json")"; rc=$?
-if [ "$rc" -eq 0 ]; then pass "(y4) AC-8: a ratified intent-gap record naming the region clears the refusal"
-else fail "(y4) expected rc=0 with a ratified intent-gap record for OR-1, got $rc: $out"; fi
+if [ "$rc" -eq 0 ]; then pass "(y4) AC-8: an intent-gap record reading 'decided_by: user-answered' for the region clears the refusal"
+else fail "(y4) expected rc=0 with an answered intent-gap record for OR-1, got $rc: $out"; fi
 rm -f "$GAP"; commit_tree "remove intent-gap fixture"
 
 # (y5) AC-9: reversible-default-and-flag alone never refuses.
@@ -2219,20 +2219,66 @@ if [ "$rc" -eq 1 ] && [ "$n" -eq 1 ] && grep -q 'regions OR-1, OR-3' <<<"$out"; 
   pass "(y7) AC-16: two unresolved regions are reported together, in a single refusal"
 else fail "(y7) expected rc=1 with 1 refusal naming both OR-1 and OR-3, got rc=$rc refusals=$n: $out"; fi
 
-# (y8) AC-18: the `ratified: yes` conjunct on the intent-gap resolution arm. (y4) covers a
-# ratified record and (y2) covers the file being absent — but `ratified: no` is indistinguishable
-# from absence to both, so dropping the conjunct would let an UNRATIFIED record clear a
-# pause-and-ask region with the whole suite green. That is the inverse of the merge boundary's
-# own `ratified: no` refusal (P9).
+# (y8) AC-18: the `decided_by: user-answered` conjunct on the intent-gap resolution arm. (y4)
+# covers an answered record and (y2) covers the file being absent — but `pending` is
+# indistinguishable from absence to both, so dropping the conjunct would let an UNDECIDED record
+# clear a pause-and-ask region with the whole suite green. That is the inverse of the merge
+# boundary's own refusal of a record that names no decider (P9).
 reset_progress
 GAP="$TREE/docs/plans/acme-7-lean-intent-gap.md"
-printf 'region: OR-1\nratified: no\n' > "$GAP"
-commit_tree "unratified intent-gap for OR-1"
+printf 'decided_by: pending\nregion: OR-1\n' > "$GAP"
+commit_tree "undecided intent-gap for OR-1"
 out="$(gate 1 7 --issue-file "$WORK/issue-or1-paa.json" --comments-file "$WORK/comments-none.json")"; rc=$?
 if [ "$rc" -eq 1 ] && grep -q 'region OR-1' <<<"$out"; then
-  pass "(y8) AC-18: an intent-gap record reading 'ratified: no' does not clear the region"
-else fail "(y8) expected rc=1 — an unratified intent-gap record must not resolve OR-1, got $rc: $out"; fi
-rm -f "$GAP"; commit_tree "remove unratified intent-gap fixture"
+  pass "(y8) AC-18: an intent-gap record reading 'decided_by: pending' does not clear the region"
+else fail "(y8) expected rc=1 — an undecided intent-gap record must not resolve OR-1, got $rc: $out"; fi
+rm -f "$GAP"; commit_tree "remove undecided intent-gap fixture"
+reset_progress
+
+# (y8b) D-2: a DELEGATED record does not clear a pause-and-ask region. The region is a question
+# for the human; the agent deciding under standing delegation has not asked it. The merge
+# boundary accepts `user-delegated` — this arm must not.
+printf 'decided_by: user-delegated\nregion: OR-1\n' > "$GAP"
+commit_tree "delegated intent-gap for OR-1"
+out="$(gate 1 7 --issue-file "$WORK/issue-or1-paa.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'region OR-1' <<<"$out"; then
+  pass "(y8b) an intent-gap record reading 'decided_by: user-delegated' does not clear a pause-and-ask region"
+else fail "(y8b) expected rc=1 — a delegated record must not resolve OR-1, got $rc: $out"; fi
+rm -f "$GAP"; commit_tree "remove delegated intent-gap fixture"
+reset_progress
+
+# (y8c) FIRST MATCH, default charset: a `pending` header wins over a prose quote of the answered
+# value below it. A reader that narrowed its charset to the accepted values would skip the header
+# and take the quote.
+printf 'decided_by: pending\nregion: OR-1\n\n## Gap\n\nOnce answered this reads decided_by: user-answered.\n' > "$GAP"
+commit_tree "pending intent-gap quoting the answered value"
+out="$(gate 1 7 --issue-file "$WORK/issue-or1-paa.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'region OR-1' <<<"$out"; then
+  pass "(y8c) a 'decided_by: pending' header is not cleared by a prose quote of 'decided_by: user-answered'"
+else fail "(y8c) expected rc=1 — the prose quote must not resolve OR-1, got $rc: $out"; fi
+rm -f "$GAP"; commit_tree "remove quoting intent-gap fixture"
+reset_progress
+
+# (y8d) the legacy pair is read ONLY when the record has no `decided_by:` key. A `pending` header
+# over prose quoting the old pair stays undecided.
+printf 'decided_by: pending\nregion: OR-1\n\n## Gap\n\nThe old form read:\nratified: yes\nratified_by: https://example.invalid/issues/7#issuecomment-1\n' > "$GAP"
+commit_tree "pending intent-gap quoting the legacy pair"
+out="$(gate 1 7 --issue-file "$WORK/issue-or1-paa.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'region OR-1' <<<"$out"; then
+  pass "(y8d) a 'decided_by: pending' header is not cleared by a prose quote of the legacy ratified pair"
+else fail "(y8d) expected rc=1 — the legacy pair in prose must not resolve OR-1, got $rc: $out"; fi
+rm -f "$GAP"; commit_tree "remove legacy-quoting intent-gap fixture"
+reset_progress
+
+# (y8e) the legacy pair needs BOTH halves: no `decided_by:` key and an uncited `ratified: yes`
+# does not clear the region, or the old key alone would bypass pause-and-ask.
+printf 'region: OR-1\nratified: yes\nratified_by:\n' > "$GAP"
+commit_tree "legacy uncited intent-gap for OR-1"
+out="$(gate 1 7 --issue-file "$WORK/issue-or1-paa.json" --comments-file "$WORK/comments-none.json")"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'region OR-1' <<<"$out"; then
+  pass "(y8e) a legacy 'ratified: yes' citing no URL does not clear a pause-and-ask region"
+else fail "(y8e) expected rc=1 — an uncited legacy record must not resolve OR-1, got $rc: $out"; fi
+rm -f "$GAP"; commit_tree "remove legacy uncited intent-gap fixture"
 reset_progress
 
 # (y9)-(y11) #532: "could not read the issue" is not "the issue declares no region", and it is
@@ -2571,7 +2617,7 @@ reset_progress
 reset_progress
 
 # ---- (yo) #613 AC-4: the operator-override route through the same refusal --------------------
-# THE THIRD RESOLUTION ARTIFACT. (y3) covers the tracker comment and (y4) the ratified intent-gap
+# THE THIRD RESOLUTION ARTIFACT. (y3) covers the tracker comment and (y4) the answered intent-gap
 # record; these cover an override recorded by a present operator. The pairing that matters is
 # (yo3)/(yo4): the token changes what the refusal SAYS and never what it decides.
 OVT="$HERE/../../tools/operator-override.sh"
@@ -2762,48 +2808,6 @@ commit_tree "review session commits its record"
 out="$(gate 4 7)"; rc=$?
 if [ "$rc" -eq 0 ]; then pass "(p7) milestone-4 accepts the record written by the review role"
 else fail "(p7) expected rc=0 from milestone-4 on a review-written record, got $rc: $out"; fi
-
-# ---- (hb) the P9 hand-back: a ratification blocker writes the intent-gap record, no verdict -----
-# review/SKILL.md 5d. Measured on the private eval substrate's series 1: a review whose only
-# blocker was "which of two ratified artifacts governs" wrote `needs-work` twice and the lane
-# ended `rounds-spent`; the shape the gate now records is the record and an exit-11 milestone 4.
-gate_obs4() { ( unset RUN_ID; cd "$TREE" && SECOND_SHIFT_CONFIG="$CFG" LANE_PROGRESS_FILE="$PROG" \
-  LANE_GATE_OBSERVE=1 bash "$GATE" --issue-file "$ISSUE_NOREGIONS" 4 7 2>&1 ); }
-mv "$VERDICT" "$WORK/held-p7-verdict.md"
-rm -f "$INTENT_GAP"
-printf 'The spec ships 3 per receipt row D-2 (user-answered); issue AC-2 says 7. Only a human can say which governs.\n' > "$WORK/hb-gap.md"
-seed_build_progress r-build-1 sess-build-1
-out="$(verdict_cmd sess-review-9 r-review-9 --pr 12 --hand-back ratification --summary-file "$WORK/hb-gap.md")"; rc=$?
-if [ "$rc" -eq 0 ] && [ -f "$INTENT_GAP" ] && [ ! -f "$VERDICT" ] \
-   && grep -qF 'region: undeclared' "$INTENT_GAP" && grep -qF 'disposition: pause-and-ask' "$INTENT_GAP" \
-   && grep -qF 'ratified: no' "$INTENT_GAP" && grep -qF 'session_id: sess-review-9' "$INTENT_GAP" \
-   && grep -qF 'Only a human can say which governs.' "$INTENT_GAP" && grep -q 'HANDED BACK' <<<"$out"; then
-  pass "(hb1) --hand-back ratification writes the intent-gap record (undeclared / pause-and-ask / ratified no, the review's ids, the summary as the gap) and NO verdict record"
-else fail "(hb1) expected rc=0 with the record and no verdict, got $rc: $out
-$(cat "$INTENT_GAP" 2>/dev/null)"; fi
-out="$(gate_obs4)"; rc=$?
-if [ "$rc" -eq 11 ] && grep -q 'HANDED BACK' <<<"$out" && grep -q 'P9' <<<"$out"; then
-  pass "(hb2) milestone-4 classifies the handed-back branch 11 — not the absent-record 5 a review retry would answer"
-else fail "(hb2) expected rc=11 naming the hand-back, got $rc: $out"; fi
-out="$(verdict_cmd sess-review-9 r-review-9 --pr 12 --hand-back ratification --summary-file "$WORK/hb-gap.md")"; rc=$?
-if [ "$rc" -eq 1 ] && grep -q 'already exists' <<<"$out"; then
-  pass "(hb3) a second hand-back on the same issue refuses — one record per issue, never overwritten"
-else fail "(hb3) expected rc=1 on an existing record, got $rc: $out"; fi
-out="$(verdict_cmd sess-review-9 r-review-9 --pr 12 --hand-back ratification --verdict needs-work --summary-file "$WORK/hb-gap.md")"; rc=$?
-if [ "$rc" -eq 2 ] && grep -q 'exclusive' <<<"$out"; then
-  pass "(hb4) --hand-back beside --verdict is a usage refusal — a handed-back round has no verdict"
-else fail "(hb4) expected rc=2 on the exclusive pair, got $rc: $out"; fi
-out="$(verdict_cmd sess-build-1 r-review-9 --pr 12 --hand-back ratification --summary-file "$WORK/hb-gap.md")"; rc=$?
-if [ "$rc" -eq 1 ] && grep -q 'this IS the build session' <<<"$out"; then
-  pass "(hb5) the build session cannot hand its own work back either — the P10 identity checks run before the hand-back"
-else fail "(hb5) expected the P10 refusal from the build session, got $rc: $out"; fi
-sed -i.bak 's/^ratified: no$/ratified: yes/' "$INTENT_GAP" && rm -f "$INTENT_GAP.bak"
-out="$(gate_obs4)"; rc=$?
-if [ "$rc" -eq 5 ]; then
-  pass "(hb6) once the record reads ratified: yes the branch is the ordinary absent-record 5 — a review round is what it needs now"
-else fail "(hb6) expected rc=5 on a ratified record with no verdict, got $rc: $out"; fi
-rm -f "$INTENT_GAP"
-mv "$WORK/held-p7-verdict.md" "$VERDICT"
 
 # ---- (r) the verdict role validates its value-args -----------------------------------------
 # --pr lands verbatim in a COMMITTED evidence artifact, so it is validated like the other two
@@ -3162,8 +3166,9 @@ if [ "$rc" -eq 1 ] && grep -q 'region OR-1' <<<"$out"; then
   pass "(n16c) a comment naming OR-1 does not resolve it under jira — no comment trail this check reads"
 else fail "(n16c) expected rc=1 (comment trail ignored) under tracker.type: jira, got $rc: $out"; fi
 
-# (n16d) the tracker-agnostic resolution artifact still works: a ratified intent-gap record
-# clears the same ledger region under jira, with no comment trail available at all.
+# (n16d) the tracker-agnostic resolution artifact still works, in its LEGACY form: a record with no
+# `decided_by:` key carrying `ratified: yes` plus an https `ratified_by:` clears the same ledger
+# region under jira, with no comment trail available at all.
 JGAP="$TREE/docs/plans/acme-$JKEY-lean-intent-gap.md"
 printf 'region: OR-1\nratified: yes\nratified_by: https://example.invalid/browse/%s#comment-1\n' "$JKEY" > "$JGAP"
 commit_tree "ratified intent-gap for jira OR-1"
@@ -8107,16 +8112,14 @@ else fail "(ac1) milestone-4 site mapping drifted: $m4_calls call(s), class sign
 # round 1 added the two `cmd_close_out` arms — m5/progress-current and m5/exit-artifacts:no-open-pr
 # — that `cmd_5` had already re-verbed and close-out had not (8 -> 10).
 # The literal-prefix `"[a-z]` is what excludes block_obligation's own `block_milestone 5 "$2"`.
-# 10 -> 11 with the P9 hand-back: milestone 4's `handed back` class-11 site is an absent verb on
-# purpose — an unratified pause-and-ask record beside no verdict is waited on, never fixed.
 #
 # THIS COUNT IS THE INCLUSION DIRECTION AND NOTHING MORE. It was green across both of round 1's
 # blocker sites, because a `fail_milestone` carrying one of the six predicates leaves it untouched.
 # (ac1c) below is the half that can see that; neither case replaces the other.
 m_block="$(grep -cE 'block_milestone [145] "[a-z]|block_obligation [a-z-]+ "' "$GATE")"
-if [ "$m_block" -eq 11 ]; then
-  pass "(ac1b) #642 AC-3: all 11 announcement-class refusal sites route to the absent verb, over the 6 points the ablation report adjudicates 'unchanged' plus the P9 hand-back"
-else fail "(ac1b) absent-verb site count drifted: $m_block (expected 11) — $(grep -nE 'block_milestone [145] "[a-z]|block_obligation [a-z-]+ "' "$GATE")"; fi
+if [ "$m_block" -eq 10 ]; then
+  pass "(ac1b) #642 AC-3: all 10 announcement-class refusal sites route to the absent verb, over the 6 points the ablation report adjudicates 'unchanged'"
+else fail "(ac1b) absent-verb site count drifted: $m_block (expected 10) — $(grep -nE 'block_milestone [145] "[a-z]|block_obligation [a-z-]+ "' "$GATE")"; fi
 
 # ---- (ac1c)/(ac1d) #642 AC-3, round 1: THE EXCLUSION DIRECTION -----------------------------
 # (ac1b) above counts absent-verb sites and asserts a total. That is the INCLUSION direction, and

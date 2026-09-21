@@ -64,10 +64,10 @@
 #      never by commit SHA — a SHA link dies on a rebase, and this fresh checkout is exactly
 #      where that is unrecoverable. Absence is the ordinary case: a round-1 record inherits
 #      nothing, and neither does any record written before the key existed.
-#   7. RATIFICATION (P9): if the run wrote an intent-gap record — a decision implementation
-#      surfaced that the receipt did not cover — that record reads `ratified: yes` and cites
-#      the operator comment that ratified it. Absence of a record is the ordinary case and is
-#      printed, not silently skipped.
+#   7. WHO DECIDED (P9): if the run wrote an intent-gap record — a decision implementation
+#      surfaced that the receipt did not cover — every intent-gap record names who decided:
+#      its `decided_by:` reads `user-answered` or `user-delegated`. Absence of a record is the
+#      ordinary case and is printed, not silently skipped.
 #   7b. OPERATOR OVERRIDES (#613): every present override record parses and satisfies its own
 #      schema — gate, authority scope, region, identity binding, per-run expiry, and a quoted
 #      operator answer. A gate that yielded to an attended operator did so on this record; an
@@ -139,7 +139,7 @@
 # than holding a second copy of those arms:
 #
 #   delegated:  classification (applicability + issue key), evidence 2 (the verdict record),
-#               evidence 4's PR-marker half, evidence 7 (ratification), and evidence 5's
+#               evidence 4's PR-marker half, evidence 7 (who decided), and evidence 5's
 #               DECLARED patch-id arm.
 #   kept here:  evidence 1 (the spec), evidence 3 (the bot claim on the ISSUE), evidence 4's
 #               claim-identity half, evidence 5's INFERRED and `reviewed_head` arms — legacy
@@ -272,7 +272,7 @@ LANE_CAPABILITIES='pr-marker'
 # end in `-lean.md`, or the artifact arm's FIRST-match spec scan would pick a render receipt and
 # call it the spec.
 #
-# `-lean-intent-gap.md` is NOT here any more (#359): the ratification arm moved to
+# `-lean-intent-gap.md` is NOT here any more (#359): the intent-gap arm moved to
 # boundary-evidence.sh, which pins that suffix itself. Only the names this file still reads live
 # here — an unread constant is a claim about coverage the code does not make.
 LANE_SPEC_SUFFIX='-lean.md'
@@ -514,7 +514,7 @@ REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" \
 # Missing is fatal — a boundary that cannot reach half its evidence must not report a pass.
 PAYLOAD="${LANE_EVIDENCE:-$REPO_ROOT/plugins/dev-pipeline/skills/build/boundary-evidence.sh}"
 [[ -f "$PAYLOAD" ]] \
-  || envfail "the portable evidence payload is missing at '$PAYLOAD' — this gate delegates its verdict, identity, ratification and patch-id arms to it and cannot evaluate them alone. Set LANE_EVIDENCE if it lives elsewhere."
+  || envfail "the portable evidence payload is missing at '$PAYLOAD' — this gate delegates its verdict, identity, intent-gap and patch-id arms to it and cannot evaluate them alone. Set LANE_EVIDENCE if it lives elsewhere."
 
 # One invocation shape for every delegated call. The payload's own violation COUNT is read back
 # through --violations-file and folded into this gate's total: collapsing "2 artifacts missing"
@@ -890,14 +890,14 @@ if [[ -n "$VERDICT" ]]; then
   fi
 fi
 
-# ---- (11) evidence 7: no unratified intent-gap record (P9) -------------------------------
+# ---- (11) evidence 7: every intent-gap record names who decided (P9) ---------------------
 # A decision that surfaces during BUILD and is not in the receipt is not a failure — it is
 # ordinary operation, and the intent-gap record is the channel it routes back through instead
 # of becoming a silent choice. What must not happen is the merge landing while that decision
 # is still the build run's own call. The record is a committed artifact for the same reason
 # the verdict is: a local note nobody can diff is not evidence.
 #
-# The gate checks RATIFICATION and nothing else. It deliberately does not re-validate the
+# The gate checks WHO DECIDED and nothing else. It deliberately does not re-validate the
 # record's disposition against the receipt's enum — that enum is single-sited in
 # ledger-lint.sh, and a second copy here would be the duplicate machinery the lockstep
 # manifest calls worse than none.
@@ -905,8 +905,8 @@ fi
 # ABSENCE IS LEGAL, and PRINTED. Most runs surface no gap, so "no record" is the common case
 # rather than a missing artifact — but it is announced, so a reader of the log can tell
 # "nothing surfaced" from "the arm never ran".
-# DELEGATED in full: the record's location, its `ratified:` value and its `ratified_by:`
-# citation are all committed-artifact reads with no tracker in them. P9's routing is identical
+# DELEGATED in full: the record's location and its `decided_by:` value are committed-artifact
+# reads with no tracker in them. P9's routing is identical
 # for a consumer, so a second copy here would be the duplicate machinery the lockstep manifest
 # calls worse than none.
 delegate intent-gap
@@ -915,8 +915,8 @@ delegate intent-gap
 # A gates-process gate may yield to an attended operator, and when it does the yield's evidence
 # is a committed record quoting that operator's own answer. This holds the record to its schema
 # so nothing yields on an artifact the boundary cannot read afterwards — the same posture the
-# ratification arm above takes toward the intent-gap record, one rung down: that one asks whether
-# a human signed off, this one asks whether what they signed is legible.
+# intent-gap arm above takes toward the intent-gap record, one rung down: that one asks who
+# decided, this one asks whether the answer an operator gave is legible.
 #
 # NOT a judgment about whether the yield was warranted. That is the reviewer's, and committing
 # the record is precisely what puts it in front of them to repudiate.

@@ -20,7 +20,7 @@ Rules for every interviewing turn, regardless of which skill is running:
 5. **Never re-ask.** A question answered earlier in the session — or already resolved in the artifact under discussion — is settled. If the user declines to answer, record it (`TBD` in a ticket draft; `deferred` in a Decision Ledger) and move on.
 6. **"Your call" is a valid answer.** When the user delegates a decision, record the recommendation as the resolution with provenance `user-delegated` — do not re-open it later.
 7. **Disambiguate domain nouns before drafting.** A noun with >1 plausible schema referent (`git grep` over the repo's data-schema definitions, plus adjacent service interfaces) is forced to a choice by question — never picked by word-similarity.
-8. **No draft-first (P8).** Never present a finished artifact ahead of the decisions it encodes. Nobody holds a complete picture of what they want until something concrete pushes back, and a full draft pushes back on everything at once: the human is reduced to correcting a fait accompli, and the decisions they would have made differently arrive as edits instead of choices. So: **the agent proposes per decision, the human disposes per decision**, and the artifact is *assembled from ledger rows* once they exist. A draft is legitimate as the residue of ratified rows — never as the opening move, and never as a way to "give them something to react to."
+8. **No draft-first (P8).** Never present a finished artifact ahead of the decisions it encodes. Nobody holds a complete picture of what they want until something concrete pushes back, and a full draft pushes back on everything at once: the human is reduced to correcting a fait accompli, and the decisions they would have made differently arrive as edits instead of choices. So: **the agent proposes per decision, the human disposes per decision**, and the artifact is *assembled from ledger rows* once they exist. A draft is legitimate as the residue of decided rows — never as the opening move, and never as a way to "give them something to react to."
 
    **Batch-blessing is the same violation wearing an interview's clothes**, and it is named here because it does not look like a draft: collapsing N open decisions into a table of agent-chosen defaults and asking for one blanket approval. It reads as a turn — there are options on the screen, the human answers — while being the exact inverse of one, because a single "looks fine" cannot distinguish the rows they actually considered from the rows they skimmed. It *manufactures* agreement instead of reaching it. Presenting many resolved rows for the record is fine; presenting many *unresolved* ones for one approval is not. If a batch is genuinely uncontroversial, that is a claim the rows are immaterial — drop them from the register (rule: don't pad it) rather than blessing them wholesale.
 
@@ -71,7 +71,7 @@ actually settled. Run `ledger-lint.sh --receipt <path>` over it.
 
 ### The Kind axis
 
-Provenance alone cannot express the ratification bar. The failure mode is a row that resolves
+Provenance alone cannot express the bar a receipt needs. The failure mode is a row that resolves
 intent while wearing a `codebase-derived` label, so any rule keyed on provenance is circular.
 Receipt rows therefore carry a fifth `Kind` cell:
 
@@ -93,8 +93,8 @@ The provenance enum is unchanged — this adds an axis, it does not fork the voc
 cell is receipt-only: an in-plan Decision Ledger stays four columns, and the lint enforces the
 arity of whichever artifact it was pointed at.
 
-**The bar:** an `intent` row backed by `codebase-derived`, `ticket-sourced`, or `deferred` is
-unratified, and the lint rejects it. That is how comprehension debt becomes countable rather
+**The bar:** an `intent` row backed by `codebase-derived`, `ticket-sourced`, or `deferred` names
+no human decision, and the lint rejects it. That is how comprehension debt becomes countable rather
 than sensed.
 
 ### Open Regions
@@ -188,13 +188,12 @@ operation (P9), not a failure — what must not happen is the run quietly making
 writes a committed record at `<plansDir>/<slug>-<issue>-lean-intent-gap.md`:
 
 ```
+decided_by: pending
 issue: <n>
 run_id: <build run id>
 session_id: <build session id>
 region: <OR-n, or `undeclared` when the gap falls outside every declared region>
 disposition: <the region's disposition, or the one the operator sets on an undeclared gap>
-ratified: no
-ratified_by:
 
 ## Gap
 <the decision, and why the receipt does not cover it>
@@ -203,30 +202,22 @@ ratified_by:
 <paused and asked, or: took reversible default X and flagged it>
 ```
 
-The header keys are read **first-match**, so `ratified:` sits above the prose that discusses it.
-The record carries `ratified: yes` plus a URL in `ratified_by:` that says who signed it. Two
-citations are valid:
+`decided_by:` names who made the call, from the provenance values: `user-answered` (the operator
+answered it) or `user-delegated` (the agent decided under the operator's standing delegation).
+Until the call is made it reads `pending`, and it is the record's **first** key: the header keys
+are read first-match, so the header value wins over any quote of a key in the prose below it.
 
-- **A standing delegation.** The consumer commits one line to its CLAUDE.md (or an equivalent
-  committed doc) delegating ratification to the agent. The build then ratifies its own record
-  before the handoff, and `ratified_by:` is a GitHub blob permalink to that line
-  (`https://github.com/<owner>/<repo>/blob/<sha>/CLAUDE.md#L<n>`). It needs no tracker write, so it
-  works under `writes: false` too.
-- **An operator's comment** on the issue, cited by that comment's URL.
+The merge boundary (`boundary-evidence.sh`, wrapped by `scripts/check-lane-chain.sh`) refuses a
+record whose `decided_by:` is not `user-answered` or `user-delegated`. A declared `pause-and-ask`
+region is a question for the human, so milestone 1 clears it only on `user-answered` (or a
+non-bot comment naming the region, or an operator-override record) — a delegated call has not
+asked the question the region exists to ask. A departure from a receipt row is written here the same way, naming
+who decided.
 
-A `yes` citing nothing is not ratification. The merge boundary (`scripts/check-lane-chain.sh`)
-settles it.
-
-One record per issue, one `ratified:` key covering it; a second gap resets it to `no`. Committing
-the flip moves the branch, so a flip after the review costs a fresh round. Ratify before the
-review handoff.
-
-The review half writes the same record when its round's only blocker is a ratification question
-(the review skill's hand-back rule, through the gate's `verdict --hand-back ratification`):
-`region: undeclared`, `disposition: pause-and-ask`, `ratified: no`, the `## Gap` being the
-reviewer's own statement, and the run/session ids the review's. The reader side is unchanged — the merge
-boundary gates on `ratified:`/`ratified_by:` and milestone 4 on `disposition:`/`ratified:` —
-so who authored the record does not change what clears it.
+**Compatibility.** A record written before `decided_by:` existed has no such key and carries
+`ratified: yes` plus the operator comment's https URL in `ratified_by:`; the readers still count
+that pair as decided when, and only when, the record has no `decided_by:` key. The compatibility
+read goes at the next batched major.
 
 ## Who emits what
 
