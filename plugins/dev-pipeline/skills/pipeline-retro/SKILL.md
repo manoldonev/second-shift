@@ -1,13 +1,13 @@
 ---
 name: pipeline-retro
-description: 'Post-run retrospective for a dev-pipeline run: independent eval re-scoring, contract-deviation audit, and improvement routing. Run after a /dev-pipeline:run run completes (or aborts); also reads the pre-#348 staged-run corpus.'
+description: 'Post-run retrospective for a dev-pipeline run: independent eval re-scoring, contract-deviation audit, and improvement routing. Run after a /dev-pipeline:run run completes (or aborts); also reads older staged-run state files.'
 ---
 
 # Pipeline Retro
 
-Independent retrospective for a completed (or aborted) dev-pipeline run. The dev-pipeline scores its own eval — this skill exists because **the executor grading its own homework is structurally generous**. Everything here is scored from on-disk and on-GitHub artifacts by fresh context, never from the executing session's memory of itself.
+Independent retrospective for a completed (or aborted) dev-pipeline run. A run's own session would be grading its own work — this skill exists because **the executor grading its own homework is structurally generous**. Everything here is scored from on-disk and on-GitHub artifacts by fresh context, never from the executing session's memory of itself.
 
-**Usage:** `/pipeline-retro <issue-number>` — or no argument to use the most recently updated run (`retro-corpus.sh corpus --window 1 --json`, #347).
+**Usage:** `/dev-pipeline:pipeline-retro <issue-number>` — or no argument to use the most recently updated run (`retro-corpus.sh corpus --window 1 --json`, #347).
 
 **Hard rules:**
 

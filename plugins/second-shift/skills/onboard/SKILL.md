@@ -1,6 +1,6 @@
 ---
 name: onboard
-description: Onboard the current repo onto the second-shift marketplace - detects tracker/topology/commands with provenance, drafts the config for one accept-or-edit review, writes settings pin + config + lockfile, validates with config-lint. Run from the target consumer repo. Requires jq, gh (authenticated), git.
+description: Onboard the current repo onto the second-shift marketplace - detects tracker/topology/commands with provenance, drafts the config for one accept-or-edit review, writes settings pin + config + lockfile + the consent doc (and, on request, the CI workflows), validates with config-lint. Run from the target consumer repo. Requires jq, gh (authenticated), git, claude.
 ---
 
 You are `/second-shift:onboard`. You write the consumer repo's second-shift configuration
@@ -57,6 +57,8 @@ Build the draft config from detection:
 - `configVersion: 2`
 - `tracker.type` from detection (or the elicited answer). JIRA → also set
   `"writes": false` in the draft (the documented JIRA default) — reviewable on the screen.
+  Say what it does on the screen: the pipeline never comments on or transitions the ticket,
+  and `/dev-pipeline:run` starts its sessions without Atlassian write tools.
 - `topology.type` + `topology.repos`: standalone/monorepo → single repo id (use the
   package.json `name` short form or directory basename), `path: "."`,
   `baseBranch` from detection. Confirmed pair → `be` + `fe` entries; the sibling's own
@@ -139,14 +141,20 @@ Ask AT MOST one AskUserQuestion batch, containing ONLY (skip any that detection 
      reviewers that don't fit — e.g. db-reviewer in an FE repo —, `.default` to put a
      reviewer the pipeline no longer dispatches by default back in this repo's rounds,
      `.modelOverrides`, `.tierMap`).
+     Say on the screen what the default panel is: `/dev-pipeline:review` dispatches
+     scope-completeness-reviewer only, so security-reviewer, a11y-reviewer and
+     unit-test-mutation-reviewer do not run on a pipeline round unless listed in
+     `reviewers.default` (or opted in per ticket by a `review panel` Decision Ledger row).
      Recommended default: none. Emit the `reviewers` key ONLY when the answer is non-empty.
   7. **github tracker only — the first-run wall, absorbed here:**
      a. Bot identity: "Use a GitHub-App bot identity for pipeline writes? (Needs an App +
-        private key; the pipeline pre-flight enforces the wrapper unconditionally for the
-        github tracker.)" If yes, point at the dev-pipeline bot bootstrap
-        (`install-gh-bot.sh` in the dev-pipeline tools) as the follow-up; if no, note that
-        the first `/dev-pipeline:run` pre-flight will fail until one exists — this is
-        a pipeline requirement, not an onboard requirement.
+        private key; the build's claim goes through the bot wrapper for the github tracker
+        and refuses while it is disabled.)" If yes, add `"bot": { "enabled": true }` under
+        `tracker` in the draft — the wrapper reads that key and defaults to off, so without it
+        the claim refuses even with the bot installed — and point at the dev-pipeline bot
+        bootstrap (`install-gh-bot.sh` in the dev-pipeline tools) as the follow-up. If no,
+        note that the first `/dev-pipeline:run` stops at its claim until a bot exists and
+        `tracker.bot.enabled` is true — a pipeline requirement, not an onboard requirement.
      b. Queue labels: "Create the six required queue labels now?" On yes, print AND run:
         `gh label create ready-for-dev`, `needs-spec-work`, `needs-plan-review`,
         `needs-intake-review`, `in-progress`, `epic` (skip ones that already exist).
@@ -173,11 +181,16 @@ Ask AT MOST one AskUserQuestion batch, containing ONLY (skip any that detection 
   9. **CI workflows (ONE offer; the server-side backstop plus the close-out step):** "Emit the
      consumer-repo CI workflows — (a) on every PR, config-lint the committed config with the
      linter shipped AT the pinned marketplace ref and assert the settings ref and lockfile ref
-     agree, so a half-done upgrade PR is caught server-side; and (b) on issue close, release
-     the pipeline's claimed and queue labels, which nothing else does?" Recommended: yes for a
-     repo that runs GitHub Actions. **What they buy: a half-done upgrade is caught server-side
-     on the PR that ships it rather than by whoever happens to notice, and a closed issue
-     releases its labels without anyone remembering to** (docs/team-rollout.md).
+     agree, so a half-done upgrade PR is caught server-side, and on a pipeline PR check its
+     merge-boundary evidence (an approve verdict from a review identity distinct from the
+     build's, covering the PR's current head, and every intent-gap record naming who decided);
+     and (b) on issue close, release the pipeline's claimed and queue labels, which nothing else
+     does?" Recommended: yes for a repo that runs GitHub Actions. **What they buy: a half-done
+     upgrade is caught server-side on the PR that ships it, a pipeline PR cannot merge on a
+     verdict that predates its last commits, and a closed issue releases its labels without
+     anyone remembering to** (docs/team-rollout.md). Say plainly that the evidence arm fails
+     closed on pipeline PRs: once the check is required, a pipeline PR without a current
+     verdict cannot merge.
      **One question, one acceptance** — on yes both file pairs
      are emitted in Step 7. Say which side of the write boundary each falls on: the evidence
      workflow only REPORTS a red check (to make it *block* merges the repo admin marks
@@ -355,7 +368,8 @@ pairs; there is no second question:
    is nothing to substitute at emit time.
 2. Tell the human: these two files get committed with the config + lockfile; the workflow
    runs `jq` + `gh` on every PR (both preinstalled on `ubuntu-latest`; `gh` uses the
-   built-in `github.token`) and reports a red check on a half-done upgrade. To make that
+   built-in `github.token`) and reports a red check on a half-done upgrade, and on a pipeline
+   PR whose verdict is missing, self-authored or older than its head. To make that
    check **block** merges, mark "second-shift evidence" a required status check in this
    repo's branch protection — onboard emits the file but never configures branch protection.
 3. **unclaim** (github tracker only): copy
@@ -447,7 +461,9 @@ pairs; there is no second question:
    instructions: pick a small ticket with no external-infrastructure ACs;
    `tracker.branchPrefix` is already set (skips branch-identity derivation); the
    bot/labels wall was already handled in Step 3 for the github tracker; run
-   `/dev-pipeline:run <ticket>`.
+   `/intake-toolkit:intake <ticket>` first — it puts the open decisions to the human and, on
+   the github tracker, applies the `ready-for-dev` label the lane requires (without it the
+   scheduler exits 3, unintaken) — then `/dev-pipeline:run <ticket>`.
 6. Remind: commit `.claude/settings.json`, `.claude/second-shift.config.json`,
    `.claude/second-shift.lock.json`, `.claude/tools/second-shift-doctor.sh`, and
    `.claude/SECOND-SHIFT.md` in one PR — **plus**, per CI workflow accepted at Step 3 item 9,
@@ -459,17 +475,15 @@ pairs; there is no second question:
    the `needs:`/`if:` lines wiring the guard into their own heavy workflow, since an unwired
    guard is a file nobody will remember to connect later.
 7. **Confirmed pair → offer the sibling's own onboard, and say the FE rule out loud.** This
-   run's `be-fe-pair` config (drafted at Step 3) is unchanged and still covers both sides for the
-   deprecated staged lane. The lane needs more: `/dev-pipeline:run` routes by
-   invocation cwd and has no per-repo worktree map, so the sibling ALSO needs its own
+   run's `be-fe-pair` config (drafted at Step 3) records the pair's topology. That is
+   not enough to run the lane on the FE side: `/dev-pipeline:run` routes by invocation cwd and has no per-repo worktree map, so the sibling ALSO needs its own
    standalone onboard to be worked from its own checkout. Print: "The sibling repo needs
    its own onboard too, for `/dev-pipeline:run`: `cd <sibling path>` (from the
    detected sibling candidates), then run `/second-shift:onboard` there. Detection reports
    `standalone` from that side, so it drafts its own independent config, bot identity, and
    worktrees dir with no further prompts. **FE-tagged tickets run `/dev-pipeline:run`
-   from the FE repo**, not from here. This leaves the FE command table in two places on
-   purpose: `commands.fe` here, read only by the staged lane, and `commands.<fe-id>` in the
-   FE repo's own config — the same table with nothing keeping the two in sync. Edit the FE
-   repo's own copy; this one loses its last reader when the staged lane goes." Offer to `cd`
+   from the FE repo**, not from here. The `commands.fe` table in this repo's config has no
+   reader — every command reader takes the repo entry at `path: "."` — so edit the FE
+   repo's own `commands.<fe-id>` instead." Offer to `cd`
    and re-invoke onboard on the sibling now if the session can reach that path; otherwise
    leave it as the next step.

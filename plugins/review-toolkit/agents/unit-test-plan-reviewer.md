@@ -1,6 +1,6 @@
 ---
 name: unit-test-plan-reviewer
-description: Reviews implementation plans for unit/integration test strategy and mutation targets before coding. Use in dev-pipeline plan review.
+description: Reviews implementation plans for unit/integration test strategy and mutation targets before coding. Use on a plan before implementation starts.
 tools: Read, Grep, Glob, Bash
 model: sonnet
 maxTurns: 15

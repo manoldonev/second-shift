@@ -1,8 +1,9 @@
 # second-shift evidence — emitted (on request) into a consumer repo by
 # /second-shift:onboard (#33). Runs the committed check script, which verifies a PR
-# hasn't left the second-shift pin half-upgraded:
+# hasn't left the second-shift pin half-upgraded, and that a pipeline PR carries its evidence:
 #   (a) config-lint the committed config with the linter shipped at the pinned ref;
-#   (b) settings ref <-> lockfile ref lockstep.
+#   (b) settings ref <-> lockfile ref lockstep;
+#   (c) on a pipeline PR only, the merge-boundary evidence (boundary-evidence.sh).
 #
 # This workflow only REPORTS a check. To BLOCK merges on drift, mark the
 # "second-shift evidence" check a required status check in this repo's branch
