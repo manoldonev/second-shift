@@ -92,56 +92,15 @@ find . -name '*.json' -type f -print0 | xargs -0 -n1 jq empty
 SKIP_STRESS=1 bash tools/run-selftests.sh --full --exclude tools/install-topology-selftest.sh
 ```
 
-**That third line takes minutes, and a foreground agent call cannot finish it.** The harness reaps
-a foreground `Bash` call at **2 minutes**, and the `timeout` parameter does not lift the cap — a
-call requesting 600000ms was still SIGKILLed at exactly 2m 0s (re-measured 2026-08-25, and the same
-2m 0s on every lane that has tried it). The shape that survives is `nohup <cmd> > <log> 2>&1` under
-the harness's `run_in_background`: it stays harness-tracked, so it is collected in the same turn
-rather than abandoned at turn end. A *bare* backgrounded command is not that shape and has been
-reaped at 2 minutes too — do not budget on it. This covers the sweep above, any single slow suite
-run on its own. **`milestone-gate.sh 3` is the exception**: it runs the
-sweep inline, bounded by `tools/selftest-suite-timings.tsv` to fit the turn, which is what a session
-detaching it and ending the turn would undo.
+**The third line takes minutes; a foreground `Bash` call is reaped at 2 minutes** whatever its
+`timeout`. Run it as `nohup <cmd> > <log> 2>&1` under `run_in_background` (a bare `&` is reaped
+too). `milestone-gate.sh 3` is the exception: it runs the sweep inline, sized to fit the turn — do
+not detach it and end the turn.
 
-**The killed-sweep note.** A foreground attempt that was already killed skipped its suites'
-`trap … EXIT`, and whatever those suites had under `mktemp` stays on disk with nothing to remove
-it. The two big fixture-producing selftests, `milestone-gate-selftest.sh` and
-`orchestrate-selftest.sh`, joined the explicit-template form `mktemp -d
-"${TMPDIR:-/tmp}/…"` in #780 — so **a private `TMPDIR` relocates their scratch** — but most of the
-tree has not: `mktemp -d -t <name>`, plain `mktemp -t`, and bare `mktemp -d` (which *is* `-t tmp`
-— same TMPDIR-ignoring behavior, not a safe third option) are all still in wide use, including the
-largest scratch tree in the repo (`tools/install-topology-selftest.sh`), so a private `TMPDIR`
-does not isolate those.
-[`docs/testing.md`](docs/testing.md#when-a-run-is-killed-mid-sweep) has the reproducible caller
-count and the scrub recipe — a hardcoded number here would only go stale. Nothing reaps a killed
-run's leftovers automatically; scrub before re-running — a red the diff cannot explain is that
-litter more often than it is your branch.
-
-**`tools/run-selftests.sh` is the sweep — here, in both CI selftest jobs, and in this repo's own
-dogfood milestone-gate milestone-3 `test` lane** (the gitignored `.claude/second-shift.config.json`,
-at a wider `--jobs 10` but the same runner — not a hand-rolled `find | xargs` pipeline).
-`SKIP_STRESS=1` is yours to set or omit — the runner never sets it.
-
-**The `--exclude` is why this recipe is ~3 minutes instead of ~10.**
-`tools/install-topology-selftest.sh` re-runs every *shipped* suite from a staged install cache, so
-its cost is the whole suite set a second time. It no longer runs on the PR lane either — both CI
-selftest jobs pass the same exclusion, and `.github/workflows/install-topology.yml` decides when
-it runs. Run it directly, `bash
-tools/install-topology-selftest.sh`, when your change is about how plugins are installed or laid
-out and you want the answer before pushing.
-
-**The recipe above runs COLD, and that is deliberate.** CI additionally passes `--cache-dir`, which
-lets a suite with a row in `tools/selftest-cache-inputs.tsv` be skipped when the content of every
-declared input is unchanged. The runner participates only where a store is named — that flag, or
-the `LANE_SELFTEST_CACHE_DIR` the milestone gate exports into its own milestone-3 lane (#563) — and the
-recipe above names neither, so what you run locally is still a full sweep. See
-[`docs/testing.md`](docs/testing.md) for the contract, and add a row there only when you can
-enumerate a suite's inputs exactly.
-
-**Concurrency is load-bearing, not incidental.** The suites are independent — each allocates its
-own `mktemp` state dir — so running four at a time is behavior-preserving, and on the current
-64-suite tree it is the difference between a **13:12** sweep and a **5:22** one (measured). A
-failing suite still fails the sweep.
+The recipe runs cold, excludes `tools/install-topology-selftest.sh` (run it directly when your
+change is about how plugins are installed), and a killed sweep leaves `mktemp` litter that can red
+the next run. The runner, the exclusion, the pass cache, concurrency and the scrub recipe:
+[`docs/testing.md`](docs/testing.md#how-the-sweep-runs).
 
 Every checked-in script is **exercised by some selftest**; CI discovers suites by glob, so a new
 selftest needs no registration. CI is model-free by design (no API-billed calls).
