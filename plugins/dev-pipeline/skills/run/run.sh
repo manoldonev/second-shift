@@ -133,7 +133,7 @@ if [ -z "$PREFIX" ]; then
   PREFIX="$(bash "$BP_RESOLVER" --configured "" --tracker "$TRACKER" ${KEY_PATTERN:+--key-pattern "$KEY_PATTERN"} --repo "$MAIN_ROOT" 2>"$MAIN_ROOT/.git/run-bp.err")" \
     || terminal env-branch-prefix "tracker.branchPrefix is unset and no dominant prefix exists among remote branches: $(tr '\n' ' ' < "$MAIN_ROOT/.git/run-bp.err" | cut -c1-300)"
 fi
-BRANCH="${PREFIX}$ISSUE"
+BRANCH="${PREFIX}$(printf '%s' "$ISSUE" | tr '[:upper:]' '[:lower:]')"
 WT_ROOT="${RUN_WORKTREE_ROOT:-$(dirname "$MAIN_ROOT")/${REPO_SLUG}-worktrees}"
 WT="$WT_ROOT/$ISSUE"
 RECORD_REL="$PLANS_DIR/$REPO_SLUG-$ISSUE-decisions.md"
@@ -144,7 +144,7 @@ c_rounds="$(cfg .run.maxRounds)"; c_red="$(cfg .run.checksRedMax)"; c_bto="$(cfg
 BUILD_TO="${RUN_BUILD_TIMEOUT:-${c_bto:-7200}}"; REVIEW_TO="${RUN_REVIEW_TIMEOUT:-${c_rto:-3600}}"
 COST_CEIL="${RUN_COST_CEILING:-${c_ceil:-100}}"; CHECKS_RED_MAX="${RUN_CHECKS_RED_MAX:-${c_red:-3}}"
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
-STATE="$MAIN_ROOT/$STATE_DIR/run-$ISSUE"; mkdir -p "$STATE"
+STATE="$MAIN_ROOT/$STATE_DIR/run-$ISSUE/$RUN_ID"; mkdir -p "$STATE"
 COST=0; CHECKS_RED=0; CHILD=""; CLAIMED=0; PR=""; PR_URL=""; ATTEMPT=0
 
 # --detach: the documented launch shape for a caller whose commands are time-capped (kept).
@@ -203,12 +203,17 @@ issue_state() { # prints the state, or nothing when the tracker could not be rea
 has_label() { # a checked match: the producer's output is captured first, so a dead gh never reads as "no"
   [ "$TRACKER" = github ] || return 1
   local names; names="$("$GH_READ" issue view "$ISSUE" --json labels --jq '.labels[].name' 2>/dev/null)" || return 1
-  grep -qx "$1" <<<"$names"
+  grep -qxF "$1" <<<"$names"
 }
-lane_marker_present() { # the lane's own claim marker on this issue, read as a comment body, not a substring of the JSON
+lane_marker_present() { # the lane's own claim marker: a whole-line stage marker plus a run_id line, posted by a Bot or by the
+  # account this scheduler writes with — issue comments are writable by anyone on a public repo (orchestrate.sh's filter, kept)
   local repo; repo="$("$GH_READ" repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null)" || return 1
+  local me; me="$("$GH" api user --jq .login 2>/dev/null)" || me=""
   local comments; comments="$("$GH_READ" api "repos/$repo/issues/$ISSUE/comments" --paginate 2>/dev/null)" || return 1
-  printf '%s' "$comments" | jq -e 'any(.[]; .body | test("(^|\n)<!-- stage: lean-claimed -->(\n|$)"))' >/dev/null 2>&1
+  printf '%s' "$comments" | jq -e --arg me "$me" 'any(.[];
+      ((.user.type // "") == "Bot" or (($me != "") and ((.user.login // "") == $me)))
+      and (.body | test("(^|\n)<!-- stage: lean-claimed -->(\n|$)"))
+      and (.body | test("<!-- run_id: ")))' >/dev/null 2>&1
 }
 claim() {
   [ "$TRACKER" = github ] || { say "claim: $TRACKER tracker — operator-attested, nothing written"; return 0; }
@@ -260,9 +265,11 @@ setup_lanes() { # lanes[] setup steps, in their cwd (a path under the worktree n
   local key; key="$(commands_key)"; [ -n "$key" ] || return 0
   jq -r --arg k "$key" '.commands[$k].lanes[]? | (.cwd // ".") as $d | .commands[] | if $d == "." then . else "cd " + ($d|@sh) + " && " + . end' "$CONFIG" 2>/dev/null
 }
-config_checks() { # lint/typecheck/test/format, then extraLanes whose `when` globs match a changed file (or have none); setup lanes run before these, fail-fast
+config_checks() { # config_checks [all] — lint/typecheck/test/format, then extraLanes whose `when` globs match a changed file (or have none);
+  # `all` lists every extraLane regardless (for the prompt and the allowlist before any diff exists); setup lanes run before these, fail-fast
   local key; key="$(commands_key)"; [ -n "$key" ] || return 0
   jq -r --arg k "$key" '.commands[$k] | [.lint, .typecheck, .test, .format] | map(select(type=="string"))[]' "$CONFIG" 2>/dev/null
+  if [ "${1:-}" = all ]; then jq -r --arg k "$key" '.commands[$k].extraLanes[]?.commands[]? | select(type=="string")' "$CONFIG" 2>/dev/null; return 0; fi
   local changed; changed="$(git -C "$WT" diff --name-only "$FIRST" HEAD 2>/dev/null)"
   jq -c --arg k "$key" '.commands[$k].extraLanes[]? | {when: (.when // []), commands: (.commands // [])}' "$CONFIG" 2>/dev/null | while IFS= read -r lane; do
     local hit=1 g f
@@ -280,7 +287,7 @@ EOF
   done
 }
 allow_unverified() { local key; key="$(commands_key)"; [ -n "$key" ] && [ "$(jq -r --arg k "$key" '.commands[$k].allowUnverified // false' "$CONFIG" 2>/dev/null)" = true ]; }
-checks_list() { { config_checks; record_checks; } | awk 'NF && !seen[$0]++'; }
+checks_list() { { config_checks "${1:-}"; record_checks; } | awk 'NF && !seen[$0]++'; }
 frames_rows() { section "design frames" | grep -E '^\| *RS-[0-9]+ *\|' | sed 's/^| *//; s/ *| */|/g; s/ *|$//'; }
 
 # ---- the two prompts ----
@@ -290,7 +297,7 @@ build_prompt() { # build_prompt <round> <findings-file-or-empty>
     echo "Do not merge. Do not delete, skip or weaken a test to make a check pass; if a test is wrong, say so in the PR."
     [ "$BOT_OK" -eq 1 ] && echo "Commit through $TOOLS/bot-commit.sh (the repo's bot identity), never plain git commit — and re-pass the identity on any --amend, which otherwise silently re-stamps you as the committer."
     if [ "$1" -eq 1 ]; then
-      echo "When the checks are green, commit, push branch $BRANCH to origin and open a READY (not draft) PR against the default branch with 'gh pr create'. The PR body, in order: line 1 exactly 'built-by: second-shift run $RUN_ID'; then a link to the decision record at $RECORD_REL; then a summary of the change;"
+      echo "When the checks are green, commit, push branch $BRANCH to origin and, unless one is already open for this branch, open a READY (not draft) PR against the default branch with 'gh pr create'. The PR body, in order: line 1 exactly 'built-by: second-shift run $RUN_ID'; then a link to the decision record at $RECORD_REL; then a summary of the change;"
       if [ "$TRACKER" = github ]; then echo "and the line 'Closes #$ISSUE' so the ticket closes on merge."; else echo "and a '### Jira Items' heading with the line 'Closes [$ISSUE]'."; fi
     else echo "Address the review findings below: fix each, or rebut it in a PR comment. Then commit and push $BRANCH."; fi
     echo; echo "The following decisions were settled with the requester before implementation started. They are binding. The record is committed at $RECORD_REL; if you must depart from a row, edit that row in place (new resolution, provenance user-delegated, a one-line reason) and commit the edit with the code. Never post a comment starting with 'verdict:'."
@@ -298,7 +305,7 @@ build_prompt() { # build_prompt <round> <findings-file-or-empty>
     if [ -n "$(frames_rows)" ]; then
       echo; echo "This ticket has design frames. Follow the figma-faithful sequence: read every frame id in the '## Design frames' section first; write the token and component plan; before writing UI code, have a subagent read that plan against the frames and list what it would get wrong, then fix the plan. Render every screen with the repo's render command, open the PNG, compare it with its frame and fix what differs, up to three rounds per screen. A screen that shows an error page, a login page or a spinner is not done."
     fi
-    echo; echo "Before opening the PR (or pushing a fix), run every command below and make it green:"; checks_list | sed 's/^/- /'
+    echo; echo "Before opening the PR (or pushing a fix), run every command below and make it green (a lane gated on changed-file globs runs only when its files change):"; checks_list all | sed 's/^/- /'
     [ -n "$2" ] && { echo; echo "## Review findings"; cat "$2"; }
   }
 }
@@ -349,6 +356,7 @@ route_smoke() { # -> 0 ok, 1 red, 2 unconfigured
     if ! lane "$c" > "$STATE/smoke-$rs.log" 2>&1; then say "smoke: $rs render failed"; rc=1; continue; fi
     [ -s "$png" ] || { say "smoke: $rs produced no image"; rc=1; continue; }
     sha="$(shasum "$png" | cut -c1-40)"; [ "$sha" != "$prev" ] || { say "smoke: $rs is pixel-identical to the previous state"; rc=1; }; prev="$sha"
+    [ -n "$must" ] || { say "smoke: $rs declares no must-show value — the record must name one per screen (D-4)"; rc=1; continue; }
     if [ -n "$must" ]; then
       [ -n "$SMOKE_CMD" ] || return 2
       c="${SMOKE_CMD//\{route\}/$route}"; c="${c//\{mustShow\}/$must}"
@@ -469,7 +477,7 @@ while [ "$ROUND" -lt "$MAX_ROUNDS" ]; do
   [ "$BOT_OK" -eq 1 ] && allow="$allow,Bash($TOOLS/bot-commit.sh*),Bash($GH *)"
   [ -n "$(frames_rows)" ] && allow="$allow,mcp__figma,mcp__plugin_figma_figma"
   while IFS= read -r c; do [ -n "$c" ] && allow="$allow,Bash($(first_word "$c")*)"; done <<EOF
-$(checks_list)
+$(checks_list all)
 EOF
   [ -n "$RENDER_CMD" ] && allow="$allow,Bash($(first_word "$RENDER_CMD")*)"
   ( cd "$WT" && bounded "$BUILD_TO" "$STATE/build-$A.json" \

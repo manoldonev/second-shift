@@ -32,9 +32,15 @@ case "$sub" in
   "pr comment")  echo "$*" >> "$S/cost-comments" ;;
   "pr view")     echo "https://x/pr/7" ;;
   "repo view")   echo "o/r" ;;
-  "api -X")      # PATCH repos/o/r/pulls/7 -F body=@<file>
-                 for a in "$@"; do case "$a" in body=@*) cp "${a#body=@}" "$S/pr-body.md" ;; esac; done ;;
-  api*)          case "$path" in *comments*) cat "$S/comments.json" ;; *pulls*) echo '{"body":"built-by: fake"}' ;; esac ;;
+  "api -X")      # PATCH repos/o/r/pulls/7 -F body=@<file> | POST .../labels --input - | DELETE .../labels/<name>
+                 verb="$1"; p="$2"
+                 case "$verb $p" in
+                   "POST "*labels*) jq -r '.labels[]' >> "$S/labels"; jq -Rn '[inputs] | map({name: .})' < "$S/labels" ;;
+                   "DELETE "*labels/*) grep -vx "${p##*/}" "$S/labels" > "$S/l.tmp"; mv "$S/l.tmp" "$S/labels" ;;
+                   *) for a in "$@"; do case "$a" in body=@*) cp "${a#body=@}" "$S/pr-body.md" ;; esac; done ;;
+                 esac ;;
+  "api user")    echo tester ;;
+  api*)          case "$path" in *comments*) cat "$S/comments.json" ;; *pulls*) echo '{"body":"built-by: fake"}' ;; *) echo '{}' ;; esac ;;
   *) echo "fake gh: unhandled $sub $*" >&2; exit 1 ;;
 esac
 EOF
@@ -82,6 +88,8 @@ fixture() { # fixture <case> [checks-line] [extra-record] — sets $d and the en
   export FAKE_CLAUDE_PLAN="$d/plan"; : > "$FAKE_CLAUDE_PLAN"
   export RUN_WORKTREE_ROOT="$d/wt" RUN_CLAUDE="$T/bin/claude" RUN_GH="$T/bin/gh" SECOND_SHIFT_CONFIG="$d/main/.claude/second-shift.config.json"
 }
+# shellcheck disable=SC2012  # run ids are plain ASCII; sorted ls is the simplest "latest"
+SD() { ls -d "$d/main/.claude/pipeline-state/run-42"/*/ 2>/dev/null | sort | tail -n 1 | sed 's#/$##'; }
 run_case() { # run_case <dir> <args...> -> stdout in $OUT, terminal in $TERM_SLUG
   local d="$1"; shift
   OUT="$( cd "$d/main" && bash "$RUN" 42 "$@" 2>&1 )"; RC=$?
@@ -107,7 +115,7 @@ first=$(git -C "$d/origin.git" log --format=%s --reverse main..second-shift/42 |
 [ "$first" = "docs: decision record for #42" ] && ok "(a) the record is the branch's first commit" || bad "(a) first commit is '$first'"
 grep -q '<!-- pipeline-cost-block -->' "$FAKE_GH/pr-body.md" 2>/dev/null && grep -q 'built-by: fake' "$FAKE_GH/pr-body.md" && ok "(a) run block written into the PR body, original body kept" || bad "(a) no run block in the PR body"
 grep -qE '^[|] review-1[.]1 [|] 3 [|] [$]1 [|]' "$FAKE_GH/pr-body.md" 2>/dev/null && ok "(a) per-session cost rows in the block" || bad "(a) per-session rows missing"
-grep -q 'ls /' "$d/main/.claude/pipeline-state/run-42/review-1.1.prompt" && ok "(a) build denials reach the review input" || bad "(a) denials missing from review input"
+grep -q 'ls /' "$(SD)/review-1.1.prompt" && ok "(a) build denials reach the review input" || bad "(a) denials missing from review input"
 
 # (b) needs-work then approve: two rounds, findings reach the round-2 build prompt
 fixture b; printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"
@@ -161,7 +169,7 @@ fixture j ""; printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=1 ru
 
 # (k) a deleted test file reaches the reviewer
 fixture k; printf 'build-delete-test\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"
-grep -q 'a.spec.ts' "$d/main/.claude/pipeline-state/run-42/review-1.1.prompt" && ok "(k) deleted spec named in the review input" || bad "(k) deleted spec not surfaced"
+grep -q 'a.spec.ts' "$(SD)/review-1.1.prompt" && ok "(k) deleted spec named in the review input" || bad "(k) deleted spec not surfaced"
 
 # (l) claimed elsewhere, ticket closed, cost ceiling, no record
 fixture l; echo in-progress > "$FAKE_GH/labels"; run_case "$d"; expect claimed-elsewhere "(l1) in-progress label without --resume"
@@ -191,7 +199,7 @@ printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect
 grep -q 'mcp__atlassian__editJiraIssue' "$FAKE_GH/args-1.txt" && grep -q 'mcp__claude_ai_Atlassian_Rovo__transitionJiraIssue' "$FAKE_GH/args-2.txt" && ok "(p2) tracker.writes:false strips the Atlassian write tools in both sessions" || bad "(p2) write tools not stripped"
 FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"commands":{"main":{"lint":"false","typecheck":null,"test":"true"}}}' fixture p3 ""
 printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=1 run_case "$d"; expect checks-red-spent "(p3) configured commands.* run as checks even with no '## Checks'"
-grep -q 'RED: false' "$d/main/.claude/pipeline-state/run-42/checks-1.1.log" && grep -q 'ok: true' "$d/main/.claude/pipeline-state/run-42/checks-1.1.log" && ok "(p3) lint red, test green, typecheck null skipped" || bad "(p3) check log wrong"
+grep -q 'RED: false' "$(SD)/checks-1.1.log" && grep -q 'ok: true' "$(SD)/checks-1.1.log" && ok "(p3) lint red, test green, typecheck null skipped" || bad "(p3) check log wrong"
 FIXTURE_CONFIG='{"tracker":{"type":"github"},"paths":{"plansDir":"docs/plans"}}' fixture p4; run_case "$d"; expect env-branch-prefix "(p4) no prefix configured and no dominant remote prefix: refuse, never guess"
 [ "$RC" -eq 2 ] && ok "(p4) exit 2" || bad "(p4) exit $RC"
 fixture p5; printf 'opus\n' > "$FAKE_GH/labels"; run_case "$d"; [ "$RC" -eq 3 ] && ok "(p5) not-queued exits 3 (resumable)" || bad "(p5) not-queued exit $RC"
@@ -212,11 +220,11 @@ run_case "$d"; expect approved "(p11) a base move outside the branch's files doe
 fixture q1; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; rm -rf "$d/origin.git"; run_case "$d"
 [ "$RC" -eq 2 ] && ok "(q1) an environment refusal exits 2 (was demoted to 1)" || bad "(q1) env refusal exit $RC ($TERM_SLUG)"
 fixture q2; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; printf 'in-progress\nopus\n' > "$FAKE_GH/labels"
-echo 'x <!-- stage: lean-claimed --> y' >> "$FAKE_GH/issue-comments"; jq '. + [{body:"<!-- stage: lean-claimed -->",created_at:"2020-01-01T00:00:00Z",updated_at:"2020-01-01T00:00:00Z"}]' "$FAKE_GH/comments.json" > "$FAKE_GH/c.tmp" && mv "$FAKE_GH/c.tmp" "$FAKE_GH/comments.json"
+echo 'x <!-- stage: lean-claimed --> y' >> "$FAKE_GH/issue-comments"; jq '. + [{body:"<!-- run_id: old -->\n<!-- stage: lean-claimed -->",user:{login:"tester",type:"User"},created_at:"2020-01-01T00:00:00Z",updated_at:"2020-01-01T00:00:00Z"}]' "$FAKE_GH/comments.json" > "$FAKE_GH/c.tmp" && mv "$FAKE_GH/c.tmp" "$FAKE_GH/comments.json"
 run_case "$d"; expect approved "(q2) claimed label + lane marker re-enters without --resume"
 grep -q 'approved' "$FAKE_GH/issue-comments" && ok "(q2) closing comment posted on a re-entered run" || bad "(q2) no closing comment on re-entry"
 fixture q3 "- false"; printf 'build-pr\nbuild-push-only\nbuild-push-only\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=3 run_case "$d"; expect checks-red-spent "(q3) three red attempts"
-[ -f "$d/main/.claude/pipeline-state/run-42/build-1.1.json" ] && [ -f "$d/main/.claude/pipeline-state/run-42/build-1.3.json" ] && ok "(q3) every attempt keeps its own evidence file" || bad "(q3) attempt evidence overwritten"
+[ -f "$(SD)/build-1.1.json" ] && [ -f "$(SD)/build-1.3.json" ] && ok "(q3) every attempt keeps its own evidence file" || bad "(q3) attempt evidence overwritten"
 fixture q4; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"
 cat > "$T/bin/gh-oldblock" <<EOF
 #!/usr/bin/env bash
@@ -238,7 +246,7 @@ FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"pat
 printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(q8) zero checks pass only when allowUnverified is declared"
 FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"commands":{"main":{"lint":"true","extraLanes":[{"name":"e2e","when":["src/**"],"commands":["false"]},{"name":"docs","when":["docs/**"],"commands":["false"]}]}}}' fixture q9 ""
 printf 'build-delete-test\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=1 run_case "$d"
-grep -q 'RED: false' "$d/main/.claude/pipeline-state/run-42/checks-1.1.log" && [ "$(grep -c 'false' "$d/main/.claude/pipeline-state/run-42/checks-1.1.log")" = 1 ] && ok "(q9) extraLanes run only when a changed file matches their when-globs (src/ matched, docs/ did not)" || bad "(q9) when-globs wrong: $(grep -c false "$d/main/.claude/pipeline-state/run-42/checks-1.1.log") false lanes ran"
+grep -q 'RED: false' "$(SD)/checks-1.1.log" && [ "$(grep -c 'false' "$(SD)/checks-1.1.log")" = 1 ] && ok "(q9) extraLanes run only when a changed file matches their when-globs (src/ matched, docs/ did not)" || bad "(q9) when-globs wrong: $(grep -c false "$(SD)/checks-1.1.log") false lanes ran"
 fixture q10; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d" --build-model opus --review-model opus; expect approved "(q10) opus/sonnet short forms accepted; opus review needs no basis"
 FIXTURE_CONFIG='{"tracker":{"type":"gitlab","branchPrefix":"x/"},"paths":{"plansDir":"docs/plans"}}' fixture q11; run_case "$d"; expect env-tracker-type "(q11) an unknown tracker.type is refused, never the quieter arm"
 
@@ -249,7 +257,7 @@ jq '. + [{body:"someone wrote: the marker is <!-- stage: lean-claimed --> in the
 run_case "$d"; expect claimed-elsewhere "(r1) a comment merely quoting the marker inline does not re-enter"
 FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"commands":{"main":{"lanes":[{"name":"setup","commands":["false"]}],"lint":"true"}}}' fixture r2 ""
 printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=1 run_case "$d"; expect checks-red-spent "(r2) lanes[] setup steps run and gate"
-[ "$(sed -n '1p' "$d/main/.claude/pipeline-state/run-42/checks-1.1.log")" = "RED (setup, aborting the rest): false" ] && ok "(r2) setup lane ran FIRST" || bad "(r2) order wrong: $(head -2 "$d/main/.claude/pipeline-state/run-42/checks-1.1.log" | tr '\n' '|')"
+[ "$(sed -n '1p' "$(SD)/checks-1.1.log")" = "RED (setup, aborting the rest): false" ] && ok "(r2) setup lane ran FIRST" || bad "(r2) order wrong: $(head -2 "$(SD)/checks-1.1.log" | tr '\n' '|')"
 fixture r3; OUT="$( cd "$d/main" && bash "$RUN" -h 2>&1 )"; RC=$?; [ "$RC" -eq 0 ] && grep -q '^# usage: run.sh' <<<"$OUT" && ok "(r3) -h prints usage and exits 0" || bad "(r3) -h exit $RC"
 FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"run":{"maxRounds":1}}' fixture r4
 printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d" --max-rounds 3; expect approved "(r4) an explicit --max-rounds 3 beats config run.maxRounds 1"
@@ -260,7 +268,7 @@ grep -q -- "--add-dir" "$FAKE_GH/args-1.txt" && grep -qF "$(cd "$(dirname "$SECO
 # (s) round-four parity: setup lanes fail fast, malformed lanes fail loudly, usage slugs, the full seam scrub
 FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"commands":{"main":{"lanes":[{"name":"setup","commands":["false"]}],"lint":"echo LINT-RAN"}}}' fixture s1 ""
 printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=1 run_case "$d"; expect checks-red-spent "(s1) a red setup lane"
-! grep -q 'LINT-RAN' "$d/main/.claude/pipeline-state/run-42/checks-1.1.log" && grep -q 'aborting the rest' "$d/main/.claude/pipeline-state/run-42/checks-1.1.log" && ok "(s1) setup lane failure aborts before lint runs (fail-fast)" || bad "(s1) lint ran after a red setup lane"
+! grep -q 'LINT-RAN' "$(SD)/checks-1.1.log" && grep -q 'aborting the rest' "$(SD)/checks-1.1.log" && ok "(s1) setup lane failure aborts before lint runs (fail-fast)" || bad "(s1) lint ran after a red setup lane"
 FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"commands":{"main":{"lanes":[{"name":"setup"}],"lint":"true"}}}' fixture s2 ""
 printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect env-config-lanes "(s2) a lane with no commands fails loudly, never silently contributes nothing"
 [ "$RC" -eq 2 ] && ok "(s2) exits 2" || bad "(s2) exit $RC"
@@ -308,6 +316,34 @@ fixture u5; cat > "$T/bin/gh-nocomment" <<EOF
 if [ "\$1 \$2" = "issue comment" ]; then exit 1; fi; exec "$T/bin/gh" "\$@"
 EOF
 chmod +x "$T/bin/gh-nocomment"; RUN_GH="$T/bin/gh-nocomment" run_case "$d"; expect env-claim-failed "(u5) a claim marker that could not be posted is a refusal"
+
+# (v) round-seven parity: the working-bot path end to end, jira keys lowercased in the branch, the
+#     marker's author filter, must-show absent is red, every lane named before the first diff
+FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/","bot":{"enabled":true,"envVar":"FAKE_BOT"}},"paths":{"plansDir":"docs/plans"}}' fixture v1
+printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"
+OUT="$( cd "$d/main" && PATH="$T/bin:$PATH" FAKE_BOT="$T/bin/gh" env -u RUN_GH bash "$RUN" 42 2>&1 )"; RC=$?; TERM_SLUG="$(printf '%s\n' "$OUT" | sed -n 's/^terminal: //p' | tail -n 1)"
+expect approved "(v1) a consumer WITH a bot: claim through claim-issue.sh, marker and body through the wrapper"
+grep -qx in-progress "$FAKE_GH/labels" && ! grep -qx ready-for-dev "$FAKE_GH/labels" && ok "(v1) claim-issue.sh swapped the labels through the bot" || bad "(v1) labels: $(tr '\n' ' ' < "$FAKE_GH/labels")"
+grep -q 'stage: lean-claimed' "$FAKE_GH/issue-comments" && ok "(v1) marker posted through the bot" || bad "(v1) no marker"
+FIXTURE_CONFIG='{"tracker":{"type":"jira","writes":false,"branchPrefix":"jdoe/","keyPattern":"[A-Z]+-[0-9]+"},"paths":{"plansDir":"docs/plans"}}' fixture v2
+printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; mv "$d/main/.claude/pipeline-state/42-ledger.md" "$d/main/.claude/pipeline-state/GH-42-ledger.md"
+OUT="$( cd "$d/main" && bash "$RUN" GH-42 --build-model opus 2>&1 )"; RC=$?; TERM_SLUG="$(printf '%s\n' "$OUT" | sed -n 's/^terminal: //p' | tail -n 1)"
+expect approved "(v2) jira key"
+git -C "$d/origin.git" rev-parse -q --verify refs/heads/jdoe/gh-42 >/dev/null && ok "(v2) the jira key is lowercased in the branch name, as the adapter documents" || bad "(v2) branches: $(git -C "$d/origin.git" branch --list | tr '\n' ' ')"
+fixture v3; printf 'in-progress\nopus\n' > "$FAKE_GH/labels"
+jq '. + [{body:"<!-- run_id: x -->\n<!-- stage: lean-claimed -->",user:{login:"stranger",type:"User"},created_at:"2020-01-01T00:00:00Z",updated_at:"2020-01-01T00:00:00Z"}]' "$FAKE_GH/comments.json" > "$FAKE_GH/c.tmp" && mv "$FAKE_GH/c.tmp" "$FAKE_GH/comments.json"
+run_case "$d"; expect claimed-elsewhere "(v3) a marker posted by another account is not the lane's claim"
+fixture v4; printf 'in-progress\nopus\n' > "$FAKE_GH/labels"; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"
+jq '. + [{body:"<!-- run_id: x -->\n<!-- stage: lean-claimed -->",user:{login:"some-app[bot]",type:"Bot"},created_at:"2020-01-01T00:00:00Z",updated_at:"2020-01-01T00:00:00Z"}]' "$FAKE_GH/comments.json" > "$FAKE_GH/c.tmp" && mv "$FAKE_GH/c.tmp" "$FAKE_GH/comments.json"
+run_case "$d"; expect approved "(v4) a Bot-authored marker re-enters"
+printf 'x' > "$T/px.png"
+FIXTURE_CONFIG="{\"tracker\":{\"type\":\"github\",\"branchPrefix\":\"second-shift/\"},\"paths\":{\"plansDir\":\"docs/plans\"},\"design\":{\"provider\":\"figma\",\"liveRender\":{\"command\":\"cp $T/px.png {out}\",\"smokeCommand\":\"test {mustShow} = ok\"}}}" fixture v5 "- true" $'\n## Design frames\n\n| RS | route | state | frame | must-show |\n| --- | --- | --- | --- | --- |\n| RS-1 | a | default | 1:2 | ok |\n'
+printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(v5) route smoke: render, non-empty image, must-show satisfied"
+FIXTURE_CONFIG="{\"tracker\":{\"type\":\"github\",\"branchPrefix\":\"second-shift/\"},\"paths\":{\"plansDir\":\"docs/plans\"},\"design\":{\"provider\":\"figma\",\"liveRender\":{\"command\":\"cp $T/px.png {out}\",\"smokeCommand\":\"true\"}}}" fixture v6 "- true" $'\n## Design frames\n\n| RS | route | state | frame |\n| --- | --- | --- | --- |\n| RS-1 | a | default | 1:2 |\n'
+printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=1 run_case "$d"; expect checks-red-spent "(v6) a frames row with no must-show value is red, never silently green (D-4)"
+FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"commands":{"main":{"lint":"true","extraLanes":[{"name":"e2e","when":["src/**"],"commands":["e2e-runner --all"]}]}}}' fixture v7 ""
+printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"
+grep -q 'e2e-runner --all' "$FAKE_GH/prompt-1.txt" && grep -q 'Bash(e2e-runner\*)' "$FAKE_GH/args-1.txt" && ok "(v7) a when-globbed lane is named in the round-1 prompt and allowlist before any diff exists" || bad "(v7) lane missing from the prompt or allowlist"
 
 # (m) rounds spent
 fixture m; printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-needs-work\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d" --max-rounds 2; expect rounds-spent "(m) two needs-work rounds"
