@@ -138,7 +138,8 @@ grep -q 'stage: lean-claimed' "$FAKE_GH/issue-comments" && ok "(a) claim marker 
 grep -q 'Closes #42' "$FAKE_GH/prompt-1.txt" && grep -q 'READY (not draft)' "$FAKE_GH/prompt-1.txt" && ok "(a) build prompt asks for a ready PR that closes the ticket" || bad "(a) PR conventions missing from the build prompt"
 grep -q 'AskUserQuestion' "$FAKE_GH/args-1.txt" && ! grep -q 'editJiraIssue' "$FAKE_GH/args-1.txt" && ok "(a) keyboard tools disallowed, no jira strip under github" || bad "(a) disallowed-tools list wrong"
 grep -q 'DECLARE THE PIPELINE DEFAULT PANEL' "$FAKE_GH/prompt-2.txt" && ok "(a) review prompt declares the panel" || bad "(a) panel declaration missing"
-grep -q 'models: build claude-opus-5 (label), review claude-opus-5 (default)' <<<"$OUT" && ok "(a) build model read from the opus label" || bad "(a) model not read from the label"
+grep -q 'models: build opus (label), review opus (default)' <<<"$OUT" && ok "(a) [A4 A6] build model read from the opus label; tiers are passed to the CLI as aliases, never pinned ids" || bad "(a) model line: $(grep 'models:' <<<"$OUT")"
+! grep -q 'claude-opus-[0-9]' "$FAKE_GH/args-1.txt" && grep -q '^opus$' "$FAKE_GH/args-1.txt" && ok "(a) [A6] the session is launched with --model opus" || bad "(a) [A6] a pinned model id reached the session: $(grep -A1 -- '--model' "$FAKE_GH/args-1.txt" | tr '\n' ' ')"
 first=$(git -C "$d/origin.git" log --format=%s --reverse main..second-shift/42 | head -n 1)
 [ "$first" = "docs: decision record for #42" ] && ok "(a) the record is the branch's first commit" || bad "(a) first commit is '$first'"
 grep -q '<!-- pipeline-cost-block -->' "$FAKE_GH/pr-body.md" 2>/dev/null && grep -q 'built-by: fake' "$FAKE_GH/pr-body.md" && grep -q '| approved |' "$FAKE_GH/pr-body.md" && ok "(a) run block written into the PR body, original body kept" || bad "(a) no run block in the PR body"
@@ -502,7 +503,7 @@ FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/","labe
 printf 'ready-for-dev\nopus\nepic\n' > "$FAKE_GH/labels"; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(ac1) blockers: [] means no blocker labels, so epic does not block"
 fixture ac2; OUT="$( cd "$d/main" && bash "$RUN" 0042 2>&1 )"; RC=$?; TERM_SLUG="$(printf '%s\n' "$OUT" | sed -n 's/^terminal: //p' | tail -n 1)"; expect usage-key "(ac2) a zero-padded github key is refused, as the gate refused it"
 fixture ac3; printf 'build-pr\nreview-detach\nbuild-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(ac3) a review that left the worktree detached does not make the next build read as inflight"
-fixture ac4; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; RUN_MODEL=claude-sonnet-5 run_case "$d"; grep -q 'models: build claude-opus-5 (label)' <<<"$OUT" && ok "(ac4) an ambient RUN_MODEL does not override the ticket's label" || bad "(ac4) RUN_MODEL leaked"
+fixture ac4; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; RUN_MODEL=claude-sonnet-5 run_case "$d"; grep -q 'models: build opus (label)' <<<"$OUT" && ok "(ac4) an ambient RUN_MODEL does not override the ticket's label" || bad "(ac4) RUN_MODEL leaked"
 
 # (ad) round-sixteen parity: a run that ends with the worktree detached (a review checked out the head) can be resumed
 fixture ad1; printf 'build-pr\nreview-detach\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d" --max-rounds 1; expect rounds-spent "(ad1) first run ends after a detaching review"
@@ -608,6 +609,7 @@ fixture rn2; printf 'build-pr\nreview-two-verdicts\n' > "$FAKE_CLAUDE_PLAN"; FAK
 fixture ro; printf 'build-pr\nreview-approve-and-push\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "[I6 K12] the second review binds"
 [ "$(cat "$FAKE_GH/calls")" = 3 ] && grep -q 'reviewed: ' "$FAKE_GH/prompt-3.txt" && ok "[I6] the approve for the pre-push head was rejected; one review re-spawned, no build" || bad "[I6] calls=$(cat "$FAKE_GH/calls")"
 printf '%s\n' "$OUT" | grep -q '1 round' && ok "[K12] the retry spent no round" || bad "[K12] round count wrong"
+[ -f "$(SD)/checks-1.1-retry1.log" ] && ok "[I6] the checks re-ran on the moved head before the re-spawn" || bad "[I6] no checks on the moved head: $(cd "$(SD)" && echo checks-*)"
 fixture ro2; printf 'build-pr\nreview-silent\nreview-silent\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect review-unbound "[K12] two dark reviews"
 [ "$(cat "$FAKE_GH/calls")" = 3 ] && [ "$RC" -eq 5 ] && ok "[K12] exactly one retry, then exit 5" || bad "[K12] calls=$(cat "$FAKE_GH/calls") rc=$RC"
 
@@ -633,6 +635,37 @@ chmod +x "$T/gitdiffdead/git"; OUT="$( cd "$d/main" && PATH="$T/gitdiffdead:$PAT
 
 # K5: re-entry is decided by the tracker alone — a local run-id cache admits nothing
 fixture rt; printf 'in-progress\nopus\n' > "$FAKE_GH/labels"; echo "run-x" > "$d/main/.claude/pipeline-state/42-run-id"; run_case "$d"; expect claimed-elsewhere "[K5] a claimed label with no marker is not re-entered on the strength of a local cache"
+
+# ---- rows, audit round 1 ----
+# A9: the magnitude half of the positive-integer test (orch:540 `-ge 1`)
+fixture au1; OUT="$( cd "$d/main" && bash "$RUN" 42 --max-rounds 00 2>&1 )"; RC=$?; TERM_SLUG="$(printf '%s\n' "$OUT" | sed -n 's/^terminal: //p' | tail -n 1)"
+expect usage-max-rounds "[A9] --max-rounds 00 is below 1"; [ "$RC" -eq 2 ] && ok "[A9] exit 2" || bad "[A9] exit $RC"
+
+# E15: the earlier block is found under CRLF, as a body round-tripped through the GitHub API carries it (gate:6321-6324)
+fixture au2; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"
+cat > "$T/bin/gh-crlf" <<EOF
+#!/usr/bin/env bash
+if [ "\$1 \$2" = "api repos/o/r/pulls/7" ]; then printf '{"body":"built-by: fake\\r\\n\\r\\n<!-- pipeline-cost-block -->\\r\\nold block line\\r\\n<!-- /pipeline-cost-block -->\\r\\n\\r\\nKEEP THIS LINE\\r\\n"}'; else exec "$T/bin/gh" "\$@"; fi
+EOF
+chmod +x "$T/bin/gh-crlf"; RUN_GH="$T/bin/gh-crlf" run_case "$d"; expect approved "[E15] run against a CRLF body"
+grep -q 'KEEP THIS LINE' "$FAKE_GH/pr-body.md" && ! grep -q 'old block line' "$FAKE_GH/pr-body.md" && [ "$(grep -c '<!-- pipeline-cost-block -->' "$FAKE_GH/pr-body.md")" = 1 ] && ok "[E15] the CRLF block was replaced, not appended to" || bad "[E15] body: $(tr '\n' '|' < "$FAKE_GH/pr-body.md" | cut -c1-240)"
+
+# G8 C22: "configured" is a config-time predicate — a when-scoped lane that did not run on this diff is still a configured check (gate:5193-5202)
+FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"commands":{"main":{"extraLanes":[{"name":"docs","when":["docs/**"],"commands":["false"]}]}}}' fixture au3 ""
+printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "[G8] configured-but-skipped is not unverified"
+
+# K12: a crashed and a timed-out review session each get the one re-spawn
+fixture au4; printf 'build-pr\nreview-crash\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "[K12] a crashed review is re-spawned once"
+[ "$(cat "$FAKE_GH/calls")" = 3 ] && ok "[K12] one re-spawn, no build" || bad "[K12] calls=$(cat "$FAKE_GH/calls")"
+[ -f "$(SD)/checks-1.1.log" ] && [ ! -f "$(SD)/checks-1.1-retry1.log" ] && ok "[K12] the checks did not re-run for an unmoved head" || bad "[K12] checks re-ran: $(cd "$(SD)" && echo checks-*)"
+fixture au5; printf 'build-pr\nbuild-sleep\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; RUN_REVIEW_TIMEOUT=2 run_case "$d"; expect approved "[K12] a timed-out review is re-spawned once"
+sleep 1; pkill -f 'sleep 60' 2>/dev/null
+
+# C13: the docs/plans default is where the record lands when no config says otherwise
+fixture au6; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; rm "$d/main/.claude/second-shift.config.json"
+( cd "$d/main" && git push -q origin main:second-shift/41 ) 2>/dev/null
+OUT="$( cd "$d/main" && env -u SECOND_SHIFT_CONFIG bash "$RUN" 42 2>&1 )"; RC=$?; TERM_SLUG="$(printf '%s\n' "$OUT" | sed -n 's/^terminal: //p' | tail -n 1)"
+git -C "$d/origin.git" cat-file -e second-shift/42:docs/plans/main-42-decisions.md 2>/dev/null && ok "[C13] the record is committed under docs/plans by default" || bad "[C13] record not at docs/plans ($TERM_SLUG)"
 
 # (m) rounds spent
 fixture m; printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-needs-work\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d" --max-rounds 2; expect rounds-spent "(m) two needs-work rounds"

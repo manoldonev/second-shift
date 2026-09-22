@@ -5,8 +5,9 @@
 #               [--review-model <id>] [--review-model-basis <text>]
 #               [--record <path>] [--max-rounds N] [--dry-run] [--resume] [--detach]
 #   The build model comes from the ticket's `opus` / `sonnet` label; --build-model overrides.
-#   Review defaults to opus; a departure needs --review-model-basis. Model ids accept the short
-#   forms `opus` / `sonnet`.
+#   Review defaults to `opus`; a departure needs --review-model-basis. The short forms `opus` /
+#   `sonnet` are passed through to `claude --model`, which resolves them to the current model of
+#   that tier — no model id is written here, so a new release needs no edit.
 #
 # env:  SECOND_SHIFT_CONFIG   config path (default <main>/.claude/second-shift.config.json)
 #       RUN_CLAUDE, RUN_GH (alias GH)   the binaries (tests inject fakes)
@@ -54,7 +55,7 @@ set -uo pipefail
 # ============================ 0. parse (rows A1-A13, A19) ============================
 usage_refusal() { echo "run.sh: $2" >&2; echo "terminal: $1"; exit 2; }
 CLAUDE="${RUN_CLAUDE:-claude}"; GH="${RUN_GH:-${GH:-gh}}"
-REVIEW_MODEL_DEFAULT="claude-opus-5"
+REVIEW_MODEL_DEFAULT="opus"
 ISSUE=""; RECORD=""; MAX_ROUNDS=3; MAX_ROUNDS_SET=0; BUILD_MODEL=""; MODEL_BASIS=""
 REVIEW_MODEL="$REVIEW_MODEL_DEFAULT"; REVIEW_MODEL_BASIS=""; DRY_RUN=0; RESUME=0; DETACH=0
 KEEP_ARGS=()   # what a detached run re-executes with: everything but --detach
@@ -77,12 +78,11 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$ISSUE" ] || usage_refusal usage-missing-issue "usage: run.sh <issue> [options] (run.sh -h for the table)"
 [ -n "$REVIEW_MODEL" ] || usage_refusal usage-empty-review-model "--review-model was given an empty value."
-alias_model() { case "$1" in opus) echo claude-opus-5 ;; sonnet) echo claude-sonnet-5 ;; *) echo "$1" ;; esac; }
-BUILD_MODEL="$(alias_model "$BUILD_MODEL")"; REVIEW_MODEL="$(alias_model "$REVIEW_MODEL")"
 if [ "$REVIEW_MODEL" != "$REVIEW_MODEL_DEFAULT" ] && [ -z "$REVIEW_MODEL_BASIS" ]; then
   usage_refusal usage-review-model-basis "--review-model '$REVIEW_MODEL' departs from the shipped default ('$REVIEW_MODEL_DEFAULT'): say why via --review-model-basis."
 fi
-case "$MAX_ROUNDS" in ''|*[!0-9]*|0) usage_refusal usage-max-rounds "--max-rounds must be a positive integer, got '$MAX_ROUNDS'" ;; esac
+case "$MAX_ROUNDS" in ''|*[!0-9]*) usage_refusal usage-max-rounds "--max-rounds must be a positive integer, got '$MAX_ROUNDS'" ;; esac
+[ "$MAX_ROUNDS" -ge 1 ] || usage_refusal usage-max-rounds "--max-rounds must be at least 1."
 
 # ============================ 1. environment (rows A20-A27, B1-B4, C1-C14, C28) ============================
 now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
@@ -326,10 +326,13 @@ EOF
   done <<EOF
 $(checks_list)
 EOF
-  if [ "$n" -eq 0 ]; then
+  # "configured" is a config-TIME predicate, as the gate read it: a when-scoped lane that did not run on this diff
+  # is still a configured check; only a repo with nothing under lint/typecheck/test/format, extraLanes and '## Checks' is unverified
+  if [ "$n" -eq 0 ] && [ "$(checks_list all | grep -c .)" -eq 0 ]; then
     allow_unverified && { say "checks: none configured; commands.<repo>.allowUnverified is true, so this is declared, not silent"; return 0; }
     echo "RED: no check is configured under commands.* and none under '## Checks' — a zero-check run is not green (declare allowUnverified to accept it)" >> "$log"; return 1
   fi
+  [ "$n" -gt 0 ] || say "checks: every configured lane is when-scoped and none matched this diff — configured, not unverified"
   return $rc
 }
 
@@ -529,8 +532,9 @@ write_run_block() { # <terminal slug>; a body that cannot be read is never repla
   if ! body="$("$GH_READ" api "repos/$repo/pulls/$PR" --jq .body 2>/dev/null)"; then
     say "could not read PR #$PR's body; the run block is NOT written (a blind replace would erase the body)"; return 0
   fi
-  # strip an earlier block: ours ends at the closing marker, the old lane's at its `Cache-hit rate:` line
-  body="$(printf '%s\n' "$body" | awk '$0 == "<!-- pipeline-cost-block -->"{skip=1} !skip{print} skip && ($0 == "<!-- /pipeline-cost-block -->" || /^Cache-hit rate: /){skip=0} END{if (skip) print "<!-- an earlier cost block had no terminator; text below it was not preserved -->"}')"
+  # strip an earlier block: ours ends at the closing marker, the old lane's at its `Cache-hit rate:` line. CR-stripped
+  # first (the gate's rule): a body round-tripped through the GitHub API carries CRLF, and `$0 == m` never matches then
+  body="$(printf '%s\n' "$body" | tr -d '\r' | awk '$0 == "<!-- pipeline-cost-block -->"{skip=1} !skip{print} skip && ($0 == "<!-- /pipeline-cost-block -->" || /^Cache-hit rate: /){skip=0} END{if (skip) print "<!-- an earlier cost block had no terminator; text below it was not preserved -->"}')"
   printf '%s\n\n%s\n' "$body" "$(cost_block "$1")" > "$STATE/pr-body.md"
   "$GH" api -X PATCH "repos/$repo/pulls/$PR" -F "body=@$STATE/pr-body.md" >/dev/null 2>&1 || say "could not write the run block into PR #$PR's body (it is in $STATE/pr-body.md)"
 }
@@ -555,8 +559,8 @@ fi
 st="$(issue_state)"; [ -n "$st" ] || terminal env-tracker-unreadable "could not read #$ISSUE from the tracker"
 [ "$st" = OPEN ] || terminal env-ticket-closed "#$ISSUE is not open — nothing spawned, a preflight refusal like any other"
 if [ -z "$BUILD_MODEL" ]; then # an unsized ticket is refused with nothing written to the tracker
-  if has_label opus; then BUILD_MODEL=claude-opus-5; MODEL_BASIS=label
-  elif has_label sonnet; then BUILD_MODEL=claude-sonnet-5; MODEL_BASIS=label
+  if has_label opus; then BUILD_MODEL=opus; MODEL_BASIS=label
+  elif has_label sonnet; then BUILD_MODEL=sonnet; MODEL_BASIS=label
   elif [ "$TRACKER" != github ]; then terminal usage-model "under $TRACKER pass --build-model: there is no sizing label to read"
   else terminal usage-model "#$ISSUE carries neither opus nor sonnet — intake sizes tickets, this scheduler does not (pass --build-model to override)"; fi
 fi
@@ -625,7 +629,7 @@ spawn() { # spawn <role> <model> <id> <allowlist> <max-turns> <prompt-file> -> r
   bounded "$secs" "$STATE/$1-$3.json" "$CLAUDE" -p --model "$2" "${SPAWN_COMMON[@]}" --allowedTools "$4" --max-turns "$5" "$(cat "$6")"; local rc=$?
   add_cost "$STATE/$1-$3.json"; return $rc
 }
-FINDINGS=""; NEED_BUILD=1
+FINDINGS=""; NEED_BUILD=1; NEED_CHECKS=1; INPUT=""
 while :; do
   ROUND=$((ROUND+1)); [ "$ROUND" -le "$MAX_ROUNDS" ] || terminal rounds-spent "$MAX_ROUNDS rounds without an approve (cost \$$COST)"
   say "round $ROUND of $MAX_ROUNDS (cost so far \$$COST)"
@@ -653,34 +657,39 @@ while :; do
       [ "$n" -ne 0 ] || terminal build-no-pr "no open PR on $BRANCH after the BUILD session — nothing to review; a human decides what happens next. Worktree and claim left in place"
       [ "$n" -eq 1 ] || terminal pr-ambiguous "$n open PRs on $BRANCH: $(printf '%s' "$prs" | tr '\n' ' ')"
       PR="$prs"; PR_URL="$("$GH_READ" pr view "$PR" --json url --jq .url 2>/dev/null)" || PR_URL=""
-      NEED_BUILD=0
+      NEED_BUILD=0; NEED_CHECKS=1
       pr_conventions "$PR" "$A"; crc=$?
       [ "$crc" -ne 2 ] || terminal env-tracker-unreadable "PR #$PR could not be read — a conventions check that cannot run is not one that passed"
       [ "$crc" -eq 0 ] || { red_attempt "PR conventions" "$STATE/pr-conventions-$A.txt"; continue; }
     fi
-    # ---- the checks the build did not run, at the pushed head (id: the build attempt, suffixed on a review re-spawn) ----
+    # ---- the checks the build did not run, at the pushed head; re-run only when the head moved (ids: the build attempt, suffixed on a re-spawn) ----
     RA="$A"; [ "$review_tries" -eq 0 ] || RA="$A-retry$review_tries"
-    sync_to_remote
-    run_checks "$RA" || { red_attempt checks "$STATE/checks-$RA.log"; continue; }
-    route_smoke "$RA"; src=$?
-    [ "$src" -ne 2 ] || terminal env-smoke-unconfigured "the record declares design frames but design.liveRender.command/smokeCommand is not configured"
-    [ "$src" -ne 3 ] || terminal env-not-ready "readyProbe $READY_URL is not ready after 3 tries (last reading: $READY_READING) — start the service and --resume"
-    [ "$src" -eq 0 ] || { red_attempt smoke "$STATE/smoke-$RA.log"; continue; }
-    review_input "$RA" || terminal env-worktree "cannot diff $FIRST..HEAD in $WT"
+    if [ "$NEED_CHECKS" -eq 1 ]; then
+      sync_to_remote
+      run_checks "$RA" || { red_attempt checks "$STATE/checks-$RA.log"; continue; }
+      route_smoke "$RA"; src=$?
+      [ "$src" -ne 2 ] || terminal env-smoke-unconfigured "the record declares design frames but design.liveRender.command/smokeCommand is not configured"
+      [ "$src" -ne 3 ] || terminal env-not-ready "readyProbe $READY_URL is not ready after 3 tries (last reading: $READY_READING) — start the service and --resume"
+      [ "$src" -eq 0 ] || { red_attempt smoke "$STATE/smoke-$RA.log"; continue; }
+      review_input "$RA" || terminal env-worktree "cannot diff $FIRST..HEAD in $WT"
+      INPUT="$STATE/review-input-$RA.md"; NEED_CHECKS=0
+    fi
     # ---- REVIEW: a fresh session bound to this head and its window; re-spawned once when it leaves no binding verdict ----
-    review_prompt "$PR" "$STATE/review-input-$RA.md" > "$STATE/review-$RA.prompt"
+    review_prompt "$PR" "$INPUT" > "$STATE/review-$RA.prompt"
     start="$(now)"
     spawn review "$REVIEW_MODEL" "$RA" "$(review_allowlist)" 300 "$STATE/review-$RA.prompt"; rrc=$?
     end="$(now)"
-    [ "$rrc" -eq 124 ] && terminal review-unbound "review session exceeded ${REVIEW_TO}s"
     rsub="$(jq -r '.subtype // "unreadable"' "$STATE/review-$RA.json" 2>/dev/null)"
-    [ "$rsub" = success ] || terminal review-unbound "review session ended $rsub (rc=$rrc)"
-    VERDICT="$(verdict "$start" "$end")"; vrc=$?
-    [ "$vrc" -ne 2 ] || terminal env-tracker-unreadable "the PR's comments could not be read after the review — an environment refusal, not a verdict; --resume"
     miss=""
-    if [ "$vrc" -ne 0 ]; then miss="no unedited 'verdict:' comment naming head $HEAD_SHA was posted between $start and $end"
-    else after="$(remote_head)" || terminal env-remote-unreadable "cannot read origin/$BRANCH after the review — the approve is not discarded for a network blip; --resume"
-      [ "$after" = "$HEAD_SHA" ] || miss="the head moved during the review ($HEAD_SHA -> $after); the checks re-run on the new head"; fi
+    if [ "$rrc" -eq 124 ]; then miss="the review session exceeded ${REVIEW_TO}s"
+    elif [ "$rsub" != success ]; then miss="the review session ended $rsub (rc=$rrc)"
+    else
+      VERDICT="$(verdict "$start" "$end")"; vrc=$?
+      [ "$vrc" -ne 2 ] || terminal env-tracker-unreadable "the PR's comments could not be read after the review — an environment refusal, not a verdict; --resume"
+      if [ "$vrc" -ne 0 ]; then miss="no unedited 'verdict:' comment naming head $HEAD_SHA was posted between $start and $end"
+      else after="$(remote_head)" || terminal env-remote-unreadable "cannot read origin/$BRANCH after the review — the approve is not discarded for a network blip; --resume"
+        [ "$after" = "$HEAD_SHA" ] || { miss="the head moved during the review ($HEAD_SHA -> $after); the checks re-run on the new head"; NEED_CHECKS=1; }; fi
+    fi
     [ -n "$miss" ] || break
     review_tries=$((review_tries+1))
     [ "$review_tries" -le "$MAX_REVIEW_RETRIES" ] || terminal review-unbound "$miss — twice. No round spent and no BUILD spawned; run /dev-pipeline:review $PR by hand"
