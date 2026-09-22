@@ -489,6 +489,13 @@ fixture ac2; OUT="$( cd "$d/main" && bash "$RUN" 0042 2>&1 )"; RC=$?; TERM_SLUG=
 fixture ac3; printf 'build-pr\nreview-detach\nbuild-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(ac3) a review that left the worktree detached does not make the next build read as inflight"
 fixture ac4; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; RUN_MODEL=claude-sonnet-5 run_case "$d"; grep -q 'models: build claude-opus-5 (label)' <<<"$OUT" && ok "(ac4) an ambient RUN_MODEL does not override the ticket's label" || bad "(ac4) RUN_MODEL leaked"
 
+# (ad) round-sixteen parity: a run that ends with the worktree detached (a review checked out the head) can be resumed
+fixture ad1; printf 'build-pr\nreview-detach\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d" --max-rounds 1; expect rounds-spent "(ad1) first run ends after a detaching review"
+[ "$(git -C "$d/wt/42" rev-parse --abbrev-ref HEAD)" = HEAD ] && ok "(ad1) the worktree is left detached, as a review may leave it" || bad "(ad1) fixture did not detach"
+printf 'build-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; : > "$FAKE_GH/calls"; printf 'in-progress\nopus\n' > "$FAKE_GH/labels"; run_case "$d" --resume; expect approved "(ad1) the resume repairs a detached worktree instead of refusing it as 'another branch'"
+
+fixture ad2; mkdir -p "$d/wt"; git -C "$d/main" worktree add -q -b other "$d/wt/42" origin/main; run_case "$d"; expect env-worktree-mismatch "(ad2) a worktree on a DIFFERENT named branch is still refused"
+
 # (m) rounds spent
 fixture m; printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-needs-work\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d" --max-rounds 2; expect rounds-spent "(m) two needs-work rounds"
 

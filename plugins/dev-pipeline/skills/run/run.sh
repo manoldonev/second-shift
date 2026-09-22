@@ -551,7 +551,10 @@ base="$(git -C "$MAIN_ROOT" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev
 for b in "$base" origin/main origin/master; do [ -n "$b" ] && git -C "$MAIN_ROOT" rev-parse -q --verify "$b" >/dev/null 2>&1 && { base="$b"; break; }; done
 BASE_NAME="${base#origin/}"
 if [ -d "$WT" ]; then
-  [ "$(git -C "$WT" rev-parse --abbrev-ref HEAD 2>/dev/null)" = "$BRANCH" ] || terminal env-worktree-mismatch "$WT exists on another branch"
+  # a review may leave the worktree detached at the head it read; that is the lane's own tree and the
+  # pre-build checkout repairs it. Only a tree on a DIFFERENT named branch is not ours.
+  wt_ref="$(git -C "$WT" rev-parse --abbrev-ref HEAD 2>/dev/null)" || terminal env-worktree "$WT exists but is not a git worktree"
+  case "$wt_ref" in "$BRANCH"|HEAD) : ;; *) terminal env-worktree-mismatch "$WT is on branch '$wt_ref', not $BRANCH — remove it (git worktree remove) and re-launch" ;; esac
 else
   if git -C "$MAIN_ROOT" rev-parse -q --verify "refs/remotes/origin/$BRANCH" >/dev/null 2>&1 || git -C "$MAIN_ROOT" rev-parse -q --verify "refs/heads/$BRANCH" >/dev/null 2>&1; then
     git -C "$MAIN_ROOT" worktree add -q "$WT" "$BRANCH" 2>/dev/null || git -C "$MAIN_ROOT" worktree add -q --track -b "$BRANCH" "$WT" "origin/$BRANCH" || terminal env-worktree "could not attach $WT to $BRANCH"
