@@ -49,16 +49,16 @@ while [ $# -gt 0 ]; do
     --resume) RESUME=1; KEEP_ARGS+=("$1"); shift ;;
     --detach) DETACH=1; shift ;;
     -h|--help) sed -n '2,33p' "$0"; exit 0 ;;
-    -*) echo "run.sh: unknown flag $1" >&2; exit 2 ;;
+    -*) echo "run.sh: unknown flag $1" >&2; echo "terminal: usage-unknown-option"; exit 2 ;;
     *) ISSUE="$1"; KEEP_ARGS+=("$1"); shift ;;
   esac
 done
-[ -n "$ISSUE" ] || { sed -n '16,20p' "$0" >&2; exit 2; }
+[ -n "$ISSUE" ] || { sed -n '16,20p' "$0" >&2; echo "terminal: usage-missing-issue"; exit 2; }
 alias_model() { case "$1" in opus) echo claude-opus-5 ;; sonnet) echo claude-sonnet-5 ;; *) echo "$1" ;; esac; }
 MODEL="$(alias_model "$MODEL")"; REVIEW_MODEL="$(alias_model "$REVIEW_MODEL")"
-case "$MAX_ROUNDS" in ''|*[!0-9]*|0) echo "run.sh: --max-rounds must be a positive integer" >&2; exit 2 ;; esac
+case "$MAX_ROUNDS" in ''|*[!0-9]*|0) echo "run.sh: --max-rounds must be a positive integer" >&2; echo "terminal: usage-max-rounds"; exit 2 ;; esac
 if [ "$REVIEW_MODEL" != claude-opus-5 ] && [ -z "$REVIEW_MODEL_BASIS" ]; then
-  echo "run.sh: --review-model departs from the default (claude-opus-5); state why with --review-model-basis" >&2; exit 2
+  echo "run.sh: --review-model departs from the default (claude-opus-5); state why with --review-model-basis" >&2; echo "terminal: usage-review-model-basis"; exit 2
 fi
 
 now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
@@ -169,6 +169,13 @@ bounded() {
   wait "$CHILD"; local rc=$?; CHILD=""; return $rc
 }
 
+# What must not reach a lane child (milestone 3's SEAM_SCRUB, kept in lockstep with the gate's list)
+# LOCKSTEP-BEGIN seam-scrub subset
+SEAM_SCRUB='SECOND_SHIFT_CONFIG|SECOND_SHIFT_REPO_ROOT|SECOND_SHIFT_EXTENSION_MANIFEST|SECOND_SHIFT_PLUGIN_ROOT|SECOND_SHIFT_REVIEW_TOOLKIT_ROOT|SECOND_SHIFT_DEV_PIPELINE_ROOT|SECOND_SHIFT_DESIGN_TOOLKIT_ROOT|SECOND_SHIFT_SECTION_CATALOG|STATECTL_STATE_DIR|STATECTL_WRITER|DEV_PIPELINE_MODE|BRANCH_PREFIX|KEY_PATTERN|LANE_ATTEND_MODE|MUTATION_SWEEP_NO_DEFER'
+# LOCKSTEP-END seam-scrub
+SCRUB_ENV=(); IFS='|' read -r -a _toks <<< "$SEAM_SCRUB"; for _t in "${_toks[@]}"; do SCRUB_ENV+=(-u "$_t"); done; unset _toks _t
+lane() { ( cd "$WT" && env "${SCRUB_ENV[@]}" bash -c "$1" ); } # a lane command, scrubbed, in the worktree
+
 # The tools no spawned session may use: the three that would wait on a keyboard, and under
 # `tracker.writes: false` every Atlassian write tool in every namespace it is served under (#874).
 DISALLOWED="AskUserQuestion,EnterWorktree,ExitWorktree"
@@ -232,9 +239,21 @@ commands_key() { # the repo id whose commands apply: topology's "." entry while 
     | (.commands // {} | keys) as $k
     | if ($t != null and ($k | index($t))) then $t elif ($k | length) == 1 then $k[0] elif ($k | index($s)) then $s else empty end' "$CONFIG" 2>/dev/null
 }
-config_checks() { # lanes[] setup steps first (fail-fast, in their cwd), then lint/typecheck/test/format, then extraLanes whose `when` globs match a changed file (or have none)
+validate_lanes() { # the #100 backstop the gate carried: a malformed lane fails loudly, never silently contributes nothing
   local key; key="$(commands_key)"; [ -n "$key" ] || return 0
-  jq -r --arg k "$key" '.commands[$k].lanes[]? | (.cwd // ".") as $d | .commands[]? | select(type=="string") | if $d == "." then . else "cd " + ($d|@sh) + " && " + . end' "$CONFIG" 2>/dev/null
+  local bad; bad="$(jq -r --arg k "$key" '
+    def check(kind): to_entries[] | select((.value|type) != "object" or (.value.name // "") == "" or ((.value.commands // []) | type) != "array" or ((.value.commands // []) | length) == 0 or any(.value.commands[]; type != "string"))
+      | kind + " lane [" + (.key|tostring) + "]: must be an object {name, cwd?, commands[] of strings}";
+    ((.commands[$k].lanes // []) | if type == "array" then check("setup") else "commands.lanes must be an array" end),
+    ((.commands[$k].extraLanes // []) | if type == "array" then check("extra") else "commands.extraLanes must be an array" end)' "$CONFIG" 2>&1 | head -n 1)"
+  [ -z "$bad" ] || terminal env-config-lanes "commands.$key: $bad"
+}
+setup_lanes() { # lanes[] setup steps, in their cwd (a path under the worktree now that topology ids are retired)
+  local key; key="$(commands_key)"; [ -n "$key" ] || return 0
+  jq -r --arg k "$key" '.commands[$k].lanes[]? | (.cwd // ".") as $d | .commands[] | if $d == "." then . else "cd " + ($d|@sh) + " && " + . end' "$CONFIG" 2>/dev/null
+}
+config_checks() { # lint/typecheck/test/format, then extraLanes whose `when` globs match a changed file (or have none); setup lanes run before these, fail-fast
+  local key; key="$(commands_key)"; [ -n "$key" ] || return 0
   jq -r --arg k "$key" '.commands[$k] | [.lint, .typecheck, .test, .format] | map(select(type=="string"))[]' "$CONFIG" 2>/dev/null
   local changed; changed="$(git -C "$WT" diff --name-only "$FIRST" HEAD 2>/dev/null)"
   jq -c --arg k "$key" '.commands[$k].extraLanes[]? | {when: (.when // []), commands: (.commands // [])}' "$CONFIG" 2>/dev/null | while IFS= read -r lane; do
@@ -290,11 +309,19 @@ review_prompt() { # review_prompt <pr> <review-input-file>
 # ---- deterministic checks at the pushed head ----
 run_checks() { # -> 0 green, 1 red; writes $STATE/checks-N.log
   local log="$STATE/checks-$1.log" cmd rc=0 n=0; : > "$log"
+  # setup lanes first, fail-fast: a failed install makes every later red a bogus one
+  while IFS= read -r cmd; do
+    [ -n "$cmd" ] || continue
+    say "setup: $cmd"
+    if lane "$cmd" >> "$log" 2>&1; then echo "ok (setup): $cmd" >> "$log"; else echo "RED (setup, aborting the rest): $cmd" >> "$log"; return 1; fi
+  done <<EOF
+$(setup_lanes)
+EOF
   while IFS= read -r cmd; do
     [ -n "$cmd" ] || continue; n=$((n+1))
     say "check: $cmd"
     # SEAM_SCRUB, as milestone 3 did: a lane command never sees the scheduler's config seam
-    if ( cd "$WT" && env -u SECOND_SHIFT_CONFIG bash -c "$cmd" ) >> "$log" 2>&1; then echo "ok: $cmd" >> "$log"; else echo "RED: $cmd" >> "$log"; rc=1; fi
+    if lane "$cmd" >> "$log" 2>&1; then echo "ok: $cmd" >> "$log"; else echo "RED: $cmd" >> "$log"; rc=1; fi
   done <<EOF
 $(checks_list)
 EOF
@@ -311,13 +338,13 @@ route_smoke() { # -> 0 ok, 1 red, 2 unconfigured
   while IFS='|' read -r rs route state _frame must; do
     png="$STATE/smoke-$rs.png"; rm -f "$png"
     local c="${RENDER_CMD//\{route\}/$route}"; c="${c//\{out\}/$png}"; c="${c//\{state\}/$state}"
-    if ! ( cd "$WT" && env -u SECOND_SHIFT_CONFIG bash -c "$c" ) > "$STATE/smoke-$rs.log" 2>&1; then say "smoke: $rs render failed"; rc=1; continue; fi
+    if ! lane "$c" > "$STATE/smoke-$rs.log" 2>&1; then say "smoke: $rs render failed"; rc=1; continue; fi
     [ -s "$png" ] || { say "smoke: $rs produced no image"; rc=1; continue; }
     sha="$(shasum "$png" | cut -c1-40)"; [ "$sha" != "$prev" ] || { say "smoke: $rs is pixel-identical to the previous state"; rc=1; }; prev="$sha"
     if [ -n "$must" ]; then
       [ -n "$SMOKE_CMD" ] || return 2
       c="${SMOKE_CMD//\{route\}/$route}"; c="${c//\{mustShow\}/$must}"
-      ( cd "$WT" && env -u SECOND_SHIFT_CONFIG bash -c "$c" ) >> "$STATE/smoke-$rs.log" 2>&1 || { say "smoke: $rs must-show '$must' not satisfied"; rc=1; }
+      lane "$c" >> "$STATE/smoke-$rs.log" 2>&1 || { say "smoke: $rs must-show '$must' not satisfied"; rc=1; }
     fi
   done <<EOF
 $rows
@@ -411,6 +438,7 @@ fi
 FIRST="$(git -C "$WT" log --format=%H --diff-filter=A -- "$RECORD_REL" | tail -n 1)"
 [ -n "$FIRST" ] || terminal env-no-first-commit "the record has no adding commit on $BRANCH"
 say "record baseline: $FIRST"
+validate_lanes
 
 FINDINGS=""; ROUND=0
 while [ "$ROUND" -lt "$MAX_ROUNDS" ]; do

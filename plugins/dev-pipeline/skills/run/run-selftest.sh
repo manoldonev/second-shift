@@ -245,13 +245,25 @@ jq '. + [{body:"someone wrote: the marker is <!-- stage: lean-claimed --> in the
 run_case "$d"; expect claimed-elsewhere "(r1) a comment merely quoting the marker inline does not re-enter"
 FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"commands":{"main":{"lanes":[{"name":"setup","commands":["false"]}],"lint":"true"}}}' fixture r2 ""
 printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=1 run_case "$d"; expect checks-red-spent "(r2) lanes[] setup steps run and gate"
-[ "$(sed -n '1p' "$d/main/.claude/pipeline-state/run-42/checks-1.1.log")" = "RED: false" ] && ok "(r2) setup lane ran FIRST" || bad "(r2) order wrong: $(head -2 "$d/main/.claude/pipeline-state/run-42/checks-1.1.log" | tr '\n' '|')"
+[ "$(sed -n '1p' "$d/main/.claude/pipeline-state/run-42/checks-1.1.log")" = "RED (setup, aborting the rest): false" ] && ok "(r2) setup lane ran FIRST" || bad "(r2) order wrong: $(head -2 "$d/main/.claude/pipeline-state/run-42/checks-1.1.log" | tr '\n' '|')"
 fixture r3; OUT="$( cd "$d/main" && bash "$RUN" -h 2>&1 )"; RC=$?; [ "$RC" -eq 0 ] && grep -q '^# usage: run.sh' <<<"$OUT" && ok "(r3) -h prints usage and exits 0" || bad "(r3) -h exit $RC"
 FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"run":{"maxRounds":1}}' fixture r4
 printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d" --max-rounds 3; expect approved "(r4) an explicit --max-rounds 3 beats config run.maxRounds 1"
 # shellcheck disable=SC2016  # the check line is meant to expand in the lane, not here
 fixture r5 '- test -z "${SECOND_SHIFT_CONFIG:-}"'; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(r5) lane commands run with the config seam scrubbed"
 grep -q -- "--add-dir" "$FAKE_GH/args-1.txt" && grep -qF "$(cd "$(dirname "$SECOND_SHIFT_CONFIG")" && pwd)" "$FAKE_GH/args-1.txt" && ok "(r5) the config's directory is handed to the session via --add-dir" || bad "(r5) config dir not in --add-dir"
+
+# (s) round-four parity: setup lanes fail fast, malformed lanes fail loudly, usage slugs, the full seam scrub
+FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"commands":{"main":{"lanes":[{"name":"setup","commands":["false"]}],"lint":"echo LINT-RAN"}}}' fixture s1 ""
+printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=1 run_case "$d"; expect checks-red-spent "(s1) a red setup lane"
+! grep -q 'LINT-RAN' "$d/main/.claude/pipeline-state/run-42/checks-1.1.log" && grep -q 'aborting the rest' "$d/main/.claude/pipeline-state/run-42/checks-1.1.log" && ok "(s1) setup lane failure aborts before lint runs (fail-fast)" || bad "(s1) lint ran after a red setup lane"
+FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"commands":{"main":{"lanes":[{"name":"setup"}],"lint":"true"}}}' fixture s2 ""
+printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect env-config-lanes "(s2) a lane with no commands fails loudly, never silently contributes nothing"
+[ "$RC" -eq 2 ] && ok "(s2) exits 2" || bad "(s2) exit $RC"
+[ ! -f "$FAKE_GH/calls" ] && ok "(s2) refused before any build was spawned" || bad "(s2) a build was spawned on a malformed config"
+fixture s3; OUT="$( cd "$d/main" && bash "$RUN" 42 --bogus 2>&1 )"; RC=$?; grep -q '^terminal: usage-unknown-option$' <<<"$OUT" && [ "$RC" -eq 2 ] && ok "(s3) usage refusals carry their slug line" || bad "(s3) no usage slug (rc=$RC)"
+# shellcheck disable=SC2016  # the check line expands in the lane, not here
+fixture s4 '- test -z "${BRANCH_PREFIX:-}${KEY_PATTERN:-}${SECOND_SHIFT_REPO_ROOT:-}"'; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; BRANCH_PREFIX=leak KEY_PATTERN=leak SECOND_SHIFT_REPO_ROOT=leak run_case "$d"; expect approved "(s4) the gate's full seam list is scrubbed from lane commands"
 
 # (m) rounds spent
 fixture m; printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-needs-work\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d" --max-rounds 2; expect rounds-spent "(m) two needs-work rounds"

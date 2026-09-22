@@ -77,8 +77,8 @@ ERRORS=$(jq -r --argjson shippedTiers "$SHIPPED_TIERS_JSON" '
   + err(has("implementDelegates"); "implementDelegates was removed in #569 — the EP-7 router was the staged lane implement step, deleted in #348, so a registered delegate silently stopped being routed to. The pipeline is outcome-gated and silent on HOW the diff is produced, so a build session may still dispatch the same agent by choice; what has no home on the lane is the config-routed surface-to-agent mechanism. Delete the key from your config (docs/migrations/v1-to-v2.md; the shape is kept as a design record in docs/extending.md §3.7)")
   + err(has("planGates"); "planGates was removed in #569 — the EP-8 dispatcher was the staged lane plan-gate step, deleted in #348, so a registered BLOCKING plan gate silently stopped running. There is no plan gate on the pipeline for one to be additive to; the spec is judged at the merge boundary by /dev-pipeline:review. Delete the key from your config (docs/migrations/v1-to-v2.md; the shape is kept as a design record in docs/extending.md §3.8)")
   + err(
-      (keys - ["$schema","configVersion","tracker","topology","commands","reviewers","paths","gates","design","stageParams","stageWorkflows","implementDelegates","planGates","grillWaivers"]) != [];
-      "unknown top-level keys: " + ((keys - ["$schema","configVersion","tracker","topology","commands","reviewers","paths","gates","design","stageParams","stageWorkflows","implementDelegates","planGates","grillWaivers"]) | join(", "))
+      (keys - ["$schema","configVersion","tracker","topology","commands","reviewers","paths","gates","design","run","stageParams","stageWorkflows","implementDelegates","planGates","grillWaivers"]) != [];
+      "unknown top-level keys: " + ((keys - ["$schema","configVersion","tracker","topology","commands","reviewers","paths","gates","design","run","stageParams","stageWorkflows","implementDelegates","planGates","grillWaivers"]) | join(", "))
     )
 
   # ---- tracker -------------------------------------------------------------
@@ -228,6 +228,15 @@ ERRORS=$(jq -r --argjson shippedTiers "$SHIPPED_TIERS_JSON" '
       + err((.plansDir? != null) and ((.plansDir | type) != "string"); "paths.plansDir: must be string")
       + err((.pipelineStateDir? != null) and ((.pipelineStateDir | type) != "string"); "paths.pipelineStateDir: must be string")
     )
+  + ((.run // {}) |
+      err((type) != "object"; "run: must be object")
+      + err(((keys) - ["maxRounds","checksRedMax","buildTimeoutSeconds","reviewTimeoutSeconds","costCeilingUsd"]) != []; "run: unknown keys")
+      + err((.maxRounds? != null) and (((.maxRounds | type) != "number") or (.maxRounds < 1)); "run.maxRounds: must be an integer >= 1")
+      + err((.checksRedMax? != null) and (((.checksRedMax | type) != "number") or (.checksRedMax < 1)); "run.checksRedMax: must be an integer >= 1")
+      + err((.buildTimeoutSeconds? != null) and (((.buildTimeoutSeconds | type) != "number") or (.buildTimeoutSeconds < 60)); "run.buildTimeoutSeconds: must be an integer >= 60")
+      + err((.reviewTimeoutSeconds? != null) and (((.reviewTimeoutSeconds | type) != "number") or (.reviewTimeoutSeconds < 60)); "run.reviewTimeoutSeconds: must be an integer >= 60")
+      + err((.costCeilingUsd? != null) and (((.costCeilingUsd | type) != "number") or (.costCeilingUsd < 0)); "run.costCeilingUsd: must be a number >= 0")
+    )
   + ((.gates // {}) |
       err(has("figma"); "gates.figma was removed in v2 — use design: {\"provider\": ...} (docs/migrations/v1-to-v2.md)")
       + err(has("apiTests"); "gates.apiTests was removed in v2 — ship an API-test tier via commands.<repo>.extraLanes, an additive verify lane with a real failureClass (docs/migrations/v1-to-v2.md)")
@@ -242,7 +251,7 @@ ERRORS=$(jq -r --argjson shippedTiers "$SHIPPED_TIERS_JSON" '
       + err((.provider? // "") | IN("figma","claude-design") | not; "design.provider must be figma|claude-design")
       + (if (.liveRender != null) then (.liveRender |
           err((type) != "object"; "design.liveRender: must be object")
-          + err(((keys) - ["command","cwd","readyProbe","tolerancePx"]) != []; "design.liveRender: unknown keys")
+          + err(((keys) - ["command","cwd","readyProbe","tolerancePx","smokeCommand"]) != []; "design.liveRender: unknown keys")
           + err((.command? // "") == ""; "design.liveRender.command: required")
           + err((.command? != null) and ((.command | type) != "string"); "design.liveRender.command: must be string")
           + err((.cwd? != null) and ((.cwd | type) != "string"); "design.liveRender.cwd: must be string")
