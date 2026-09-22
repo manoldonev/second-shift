@@ -105,7 +105,7 @@ terminal() { # terminal <slug> <detail> — rows B1, B21, B22, K9: the run block
   say "terminal: $1 — $2"; echo "terminal: $1"
   if [ -n "$PR" ] && [ "${BLOCK_DONE:-0}" -eq 0 ]; then BLOCK_DONE=1; write_run_block "$1"; fi
   if [ "$CLAIMED" -eq 1 ] && [ "$TRACKER" = github ]; then
-    "$GH" issue comment "$ISSUE" --body "$(printf 'second-shift run %s: %s — %s\n%s\ncost_usd: %s\n' "$RUN_ID" "$1" "$2" "${PR_URL:-${PR:+PR #$PR}}" "$COST")" >/dev/null 2>&1 || true
+    "$GH" issue comment "$ISSUE" --body "$(printf 'second-shift run %s: %s — %s\n%s\ncost_usd: %s\n' "$RUN_ID" "$1" "$2" "${PR_URL:-${PR:+PR #$PR}}" "$COST")" >/dev/null 2>&1 || say "could not post the closing comment on #$ISSUE"
   fi
   exit "$(exit_code_for "$1")"
 }
@@ -291,15 +291,14 @@ config_checks() { # config_checks [all]: lint/typecheck/test/format, then extraL
   local key; key="$(commands_key)"; [ -n "$key" ] || return 0
   jq -r --arg k "$key" '.commands[$k] | [.lint, .typecheck, .test, .format] | map(select(type=="string"))[]' "$CONFIG" 2>/dev/null
   if [ "${1:-}" = all ]; then jq -r --arg k "$key" '.commands[$k].extraLanes[]?.commands[]? | select(type=="string")' "$CONFIG" 2>/dev/null; return 0; fi
-  local changed lane hit g f
-  changed="$(git -C "$WT" diff --name-only "$FIRST" HEAD 2>/dev/null)"
+  local lane hit g f
   while IFS= read -r lane; do
     [ -n "$lane" ] || continue; hit=1
     if [ "$(printf '%s' "$lane" | jq '.when | length')" -gt 0 ]; then
       hit=0
       while IFS= read -r g; do while IFS= read -r f; do # shellcheck disable=SC2254  # $g IS a glob, by contract
         case "$f" in $g) hit=1 ;; esac; done <<EOF
-$changed
+$CHANGED
 EOF
       done <<EOF
 $(printf '%s' "$lane" | jq -r '.when[]')
@@ -312,6 +311,7 @@ EOF
 }
 allow_unverified() { local key; key="$(commands_key)"; [ -n "$key" ] && [ "$(jq -r --arg k "$key" '.commands[$k].allowUnverified // false' "$CONFIG" 2>/dev/null)" = true ]; }
 checks_list() { { config_checks "${1:-}"; record_checks; } | awk 'NF && !seen[$0]++'; }
+CHANGED=""   # the files this branch touches since the record commit; read fail-closed by the caller before the checks (C20)
 run_checks() { # run_checks <attempt> -> 0 green, 1 red; the log is the next build's findings
   local log="$STATE/checks-$1.log" cmd rc=0 n=0; : > "$log"
   while IFS= read -r cmd; do # setup lanes first, fail-fast: a failed install makes every later red bogus
@@ -337,7 +337,23 @@ EOF
 }
 
 # -- route smoke (rows C24-C26, H7-H12) --
-route_smoke() { # route_smoke <attempt> -> 0 ok, 1 red (log at $STATE/smoke-<attempt>.log), 2 unconfigured; 3 not ready (the caller refuses)
+# Substitution is into a SHELL COMMAND STRING, so every value is single-quoted on the way in (a state is
+# human prose, a route may carry `&`), and the template is walked rather than `${t//p/r}`: under bash 5.2's
+# patsub_replacement a `&` in the replacement expands to the matched placeholder, silently. Both copied
+# from the gate (shquote/subst); the placeholders appear UNQUOTED in the template, as documented there.
+shquote() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
+subst() { # subst <template> <placeholder> <replacement>
+  local t="$1" p="$2" r="$3" out=""
+  while :; do
+    case "$t" in
+      *"$p"*) out="$out${t%%"$p"*}$r"; t="${t#*"$p"}" ;;
+      *) break ;;
+    esac
+  done
+  printf '%s' "$out$t"
+}
+hash_file() { local h; h="$(shasum -a 256 "$1" 2>/dev/null | cut -d' ' -f1)"; [ -n "$h" ] || h="$(sha256sum "$1" 2>/dev/null | cut -d' ' -f1)"; [ -n "$h" ] && printf '%s' "$h"; }
+route_smoke() { # route_smoke <attempt> -> 0 ok, 1 red (log at $STATE/smoke-<attempt>.log), 2 unconfigured; 3 not ready, 4 no hash tool (the caller refuses)
   local rows log="$STATE/smoke-$1.log"; rows="$(frames_rows)"; : > "$log"
   [ -n "$rows" ] || { [ -n "$RENDER_CMD" ] && say "smoke: the record's design section arms no render state"; return 0; }
   [ -n "$RENDER_CMD" ] && [ -n "$SMOKE_CMD" ] || return 2
@@ -351,16 +367,21 @@ route_smoke() { # route_smoke <attempt> -> 0 ok, 1 red (log at $STATE/smoke-<att
     [ "$reading" = ready ] || { READY_READING="$reading"; return 3; }
   fi
   SMOKE_LOG="$log"; SMOKE_RC=0
-  local prev="" rs route state must png sha c
+  local seen="" dup rs route state must png sha c
   while IFS='|' read -r rs route state _frame must; do
     [ -n "$rs" ] || continue
     png="$STATE/smoke-$rs.$1.png"; rm -f "$png"
-    c="${RENDER_CMD//\{route\}/$route}"; c="${c//\{out\}/$png}"; c="${c//\{state\}/$state}"
-    if ! lane "$c" >> "$log" 2>&1; then smoke_red "$rs render failed"; continue; fi
-    [ -s "$png" ] || { smoke_red "$rs produced no image"; continue; }
-    sha="$(shasum "$png" | cut -c1-40)"; [ "$sha" != "$prev" ] || smoke_red "$rs is pixel-identical to the previous state"; prev="$sha"
+    c="$(subst "$RENDER_CMD" '{route}' "$(shquote "$route")")"; c="$(subst "$c" '{state}' "$(shquote "$state")")"; c="$(subst "$c" '{out}' "$(shquote "$png")")"
+    if ! lane "$c" >> "$log" 2>&1; then smoke_red "$rs render failed: $c"; continue; fi
+    [ -s "$png" ] || { smoke_red "$rs exited 0 but wrote no image at $png"; continue; }
+    sha="$(hash_file "$png")" || return 4
+    # the {state}-blind-harness detector, as the gate ran it: a hash seen for ANY earlier state is red
+    dup="$(printf '%s\n' "$seen" | awk -v s="$sha" '$1 == s { print $2; exit }')"
+    [ -z "$dup" ] || smoke_red "render states $dup and $rs hash identically — the harness rendered the same view for two declared states"
+    seen="$seen$sha $rs
+"
     [ -n "$must" ] || { smoke_red "$rs declares no must-show value — the record must name one per screen (D-4)"; continue; }
-    c="${SMOKE_CMD//\{route\}/$route}"; c="${c//\{mustShow\}/$must}"
+    c="$(subst "$SMOKE_CMD" '{route}' "$(shquote "$route")")"; c="$(subst "$c" '{mustShow}' "$(shquote "$must")")"
     if lane "$c" >> "$log" 2>&1; then echo "ok: $rs shows '$must'" >> "$log"; say "smoke: $rs rendered to $png and shows '$must'"; else smoke_red "$rs must-show '$must' not satisfied"; fi
   done <<EOF
 $rows
@@ -463,7 +484,10 @@ premise_holds() { # rows J2, J4-J8: re-asked before every build spawn; a predica
   git -C "$WT" fetch -q origin "$BASE_NAME" 2>/dev/null || terminal staleness-unreadable "could not fetch origin/$BASE_NAME"
   base_now="$(git -C "$WT" rev-parse -q --verify "refs/remotes/origin/$BASE_NAME" 2>/dev/null)" || terminal staleness-unreadable "origin/$BASE_NAME does not resolve"
   [ "$base_now" = "$BASE_START" ] && return 0
-  overlap="$(comm -12 <(git -C "$WT" diff --name-only "$BASE_START" "$base_now" 2>/dev/null | sort) <(git -C "$WT" diff --name-only "$FIRST" HEAD 2>/dev/null | sort) | head -n 3 | tr '\n' ' ')"
+  local base_files ours
+  base_files="$(git -C "$WT" diff --name-only "$BASE_START" "$base_now" 2>/dev/null)" || terminal staleness-unreadable "cannot diff origin/$BASE_NAME's move ($BASE_START..$base_now)"
+  ours="$(git -C "$WT" diff --name-only "$FIRST" HEAD 2>/dev/null)" || terminal staleness-unreadable "cannot diff this branch against its record commit"
+  overlap="$(comm -12 <(printf '%s\n' "$base_files" | sort) <(printf '%s\n' "$ours" | sort) | grep . | head -n 3 | tr '\n' ' ')"
   [ -z "$overlap" ] || terminal staleness-expired "origin/$BASE_NAME moved into file(s) this branch touches: $overlap"
 }
 
@@ -502,6 +526,7 @@ verdict() { # verdict <start-iso> <end-iso> -> prints approve|needs-work and sav
   local repo comments
   repo="$(repo_slug)" || return 2
   comments="$("$GH_READ" api "repos/$repo/issues/$PR/comments" --paginate 2>/dev/null)" || return 2
+  printf '%s' "$comments" | jq -e 'type == "array"' >/dev/null 2>&1 || return 2
   printf '%s' "$comments" \
     | jq -r --arg s "$1" --arg e "$2" --arg h "$HEAD_SHA" '
         .[] | select(.created_at >= $s and .created_at <= $e and .created_at == .updated_at)
@@ -639,6 +664,7 @@ while :; do
       premise_holds
       worktree_ready
       ATTEMPT=$((ATTEMPT+1)); A="$ROUND.$ATTEMPT"
+      record_at_first >/dev/null || terminal env-worktree "cannot read the record at $FIRST:$RECORD_REL — a build must not be handed an empty record as binding"
       build_prompt "$ROUND" "$FINDINGS" > "$STATE/build-$A.prompt"
       spawn build "$BUILD_MODEL" "$A" "$(build_allowlist)" 400 "$STATE/build-$A.prompt"; brc=$?
       jq -r '.permission_denials[]? | (.tool_name + " " + (.tool_input|tostring))' "$STATE/build-$A.json" > "$STATE/denials-$A.txt" 2>/dev/null || true
@@ -666,10 +692,12 @@ while :; do
     RA="$A"; [ "$review_tries" -eq 0 ] || RA="$A-retry$review_tries"
     if [ "$NEED_CHECKS" -eq 1 ]; then
       sync_to_remote
+      CHANGED="$(git -C "$WT" diff --name-only "$FIRST" HEAD 2>/dev/null)" || terminal env-worktree "cannot diff $FIRST..HEAD in $WT — a diff that cannot be read must not skip every when-scoped lane"
       run_checks "$RA" || { red_attempt checks "$STATE/checks-$RA.log"; continue; }
       route_smoke "$RA"; src=$?
       [ "$src" -ne 2 ] || terminal env-smoke-unconfigured "the record declares design frames but design.liveRender.command/smokeCommand is not configured"
       [ "$src" -ne 3 ] || terminal env-not-ready "readyProbe $READY_URL is not ready after 3 tries (last reading: $READY_READING) — start the service and --resume"
+      [ "$src" -ne 4 ] || terminal env-hash-tool "cannot hash a render: neither shasum nor sha256sum is on PATH"
       [ "$src" -eq 0 ] || { red_attempt smoke "$STATE/smoke-$RA.log"; continue; }
       review_input "$RA" || terminal env-worktree "cannot diff $FIRST..HEAD in $WT"
       INPUT="$STATE/review-input-$RA.md"; NEED_CHECKS=0
