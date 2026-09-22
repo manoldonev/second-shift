@@ -306,8 +306,9 @@ output contract as an explicit gap (item 5 below).
 - **Capture and verify layout BEHAVIOR, not just tokens.** Item sizing/fill (stretch vs
   fixed-width grid columns), fixed dimensions, wrap, overflow/truncation, control placement, and
   default/empty state are part of fidelity, and `get_variable_defs` does not encode them. Capture
-  them in step 3b, state them in the step-7 plan, and — when a dev server is reachable — confirm
-  them with a live render (step 9). A clean token table is necessary, not sufficient.
+  them in step 3b, state them in the step-7 plan, and confirm them with a live render (step 9),
+  which is mandatory regardless of reachability (see step 9's output-contract fallback for the
+  unreachable case). A clean token table is necessary, not sufficient.
 - **Reuse the component the codebase already uses — never drop to a raw primitive to dodge a
   quirk.** If a node maps to a component that already appears in the target file or the nearest
   analog, reuse that exact usage including its documented style override. When a design-system
