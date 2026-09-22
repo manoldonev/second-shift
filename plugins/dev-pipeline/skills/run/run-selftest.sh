@@ -28,7 +28,7 @@ case "$sub" in
                  [ -n "$add" ] && echo "$add" >> "$S/labels"; [ -n "$rm" ] && { grep -vx "$rm" "$S/labels" > "$S/l.tmp"; mv "$S/l.tmp" "$S/labels"; } ;;
   "issue comment") echo "$*" >> "$S/issue-comments" ;;
   "pr list")     cat "$S/prs" 2>/dev/null ;;
-  "pr checks")   echo '[]' ;;
+  "pr checks")   [ -f "$S/ci-red" ] && echo '[{"name":"ci","state":"FAILURE"}]' || echo '[]' ;;
   "pr comment")  echo "$*" >> "$S/cost-comments" ;;
   "pr view")     case "$*" in *body*) jq -n --rawfile b "$S/pr-created-body.txt" --argjson d "$([ -f "$S/draft" ] && echo true || echo false)" '{body:$b, isDraft:$d}' ;; *) echo "https://x/pr/7" ;; esac ;;
   "repo view")   echo "o/r" ;;
@@ -65,6 +65,10 @@ case "$plan" in
   build-push-only) push ;;
   build-delete-test) git rm -q src/a.spec.ts; push; openpr ;;
   build-nothing)   : ;;
+  build-sleep)     sleep 60 ;;
+  build-pr-ready)  touch "$S/undraft"; rm -f "$S/draft" ;;
+  build-pr-jira-outside) push; rid=$(grep -oE 'built-by: second-shift run [^ ]+' "$S/prompt-$n.txt" | head -n 1); rec=$(grep -oE 'The record is committed at [^;]+' "$S/prompt-$n.txt" | sed 's/^The record is committed at //')
+                   printf '%s\n\nrecord: %s\n\nCloses [GH-42]\n\n### Jira Items\n(nothing)\n' "$rid" "$rec" > "$S/pr-created-body.txt"; echo 7 > "$S/prs" ;;
   build-pr-close)  push; openpr; echo CLOSED > "$S/state" ;;
   review-crash)    printf '{"subtype":"error_during_execution","total_cost_usd":0}\n'; exit 1 ;;
   review-approve|review-needs-work|review-wrong-sha)
@@ -373,6 +377,28 @@ first_block="$(SD)/pr-body.md"; printf 'build-push-only\nreview-approve\n' > "$F
 [ "$(grep -c '^| build-' "$(SD)/pr-body.md")" = 1 ] && [ "$(SD)/pr-body.md" != "$first_block" ] && ok "(w6) the second run's block lists only its own sessions" || bad "(w6) block rows: $(grep -c '^| build-' "$(SD)/pr-body.md")"
 FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/","labels":{"queue":"ready.for.dev","claimed":"in-progress"}},"paths":{"plansDir":"docs/plans"}}' fixture w7
 printf 'ready-for-dev\nopus\n' > "$FAKE_GH/labels"; run_case "$d"; expect not-queued "(w7) a queue label with regex metacharacters is matched exactly (ready-for-dev is not ready.for.dev)"
+
+# (x) round-ten parity: TERM exits 143 and kills the session, the ready probe gates only a render,
+#     a PR-only fix does not dead-end, jira Closes outside its heading, ci red reported
+fixture x1; printf 'build-sleep\n' > "$FAKE_CLAUDE_PLAN"
+( cd "$d/main" && exec bash "$RUN" 42 > "$d/x1.log" 2>&1 ) & rp=$!
+until grep -q 'round 1 of' "$d/x1.log" 2>/dev/null; do sleep 0.5; done; sleep 1.5
+kill -TERM "$rp"; wait "$rp"; xrc=$?
+[ "$xrc" -eq 143 ] && ok "(x1) TERM exits 143" || bad "(x1) TERM exit $xrc"
+sleep 1; if pgrep -f "$T/bin/claude" >/dev/null 2>&1 || pgrep -f 'sleep 60' >/dev/null 2>&1; then bad "(x1) the session outlived the scheduler"; pkill -f "$T/bin/claude" 2>/dev/null; pkill -f 'sleep 60' 2>/dev/null; else ok "(x1) the session and its children were killed with the scheduler"; fi
+grep -q 'claim left in place' "$d/x1.log" && grep -qx in-progress "$FAKE_GH/labels" && ok "(x1) the claim is left in place on TERM" || bad "(x1) claim state wrong after TERM"
+FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"design":{"provider":"figma","liveRender":{"command":"true","readyProbe":"http://127.0.0.1:9/"}}}' fixture x2
+printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(x2) a readyProbe gates nothing on a ticket with no frames"
+FIXTURE_CONFIG="{\"tracker\":{\"type\":\"github\",\"branchPrefix\":\"second-shift/\"},\"paths\":{\"plansDir\":\"docs/plans\"},\"design\":{\"provider\":\"figma\",\"liveRender\":{\"command\":\"cp $T/px.png {out}\",\"smokeCommand\":\"true\",\"readyProbe\":\"http://127.0.0.1:9/\"}}}" fixture x3 "- true" $'\n## Design frames\n\n| RS | route | state | frame | must-show |\n| --- | --- | --- | --- | --- |\n| RS-1 | a | default | 1:2 | ok |\n'
+printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect env-not-ready "(x3) a dead readyProbe stops an armed ticket before rendering"
+[ "$RC" -eq 2 ] && ok "(x3) infra stop, exit 2, no attempt spent" || bad "(x3) exit $RC"
+fixture x4; printf 'build-pr-draft\nbuild-pr-ready\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(x4) a PR-only fix (un-draft) is accepted without the head moving"
+FIXTURE_CONFIG='{"tracker":{"type":"jira","writes":false,"branchPrefix":"jdoe/","keyPattern":"[A-Z]+-[0-9]+"},"paths":{"plansDir":"docs/plans"}}' fixture x5
+printf 'build-pr-jira-outside\nbuild-push-only\n' > "$FAKE_CLAUDE_PLAN"; mv "$d/main/.claude/pipeline-state/42-ledger.md" "$d/main/.claude/pipeline-state/GH-42-ledger.md"
+OUT="$( cd "$d/main" && RUN_CHECKS_RED_MAX=2 bash "$RUN" GH-42 --build-model opus 2>&1 )"; RC=$?; TERM_SLUG="$(printf '%s\n' "$OUT" | sed -n 's/^terminal: //p' | tail -n 1)"
+expect checks-red-spent "(x5) jira Closes outside its heading is a finding, as the old gate ruled"
+fixture x6; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; touch "$FAKE_GH/ci-red"; run_case "$d"; expect approved "(x6) CI is never waited on"
+grep -q '| red |' "$FAKE_GH/pr-body.md" && ok "(x6) a red CI is reported in the run block" || bad "(x6) CI red not reported"
 
 # (m) rounds spent
 fixture m; printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-needs-work\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d" --max-rounds 2; expect rounds-spent "(m) two needs-work rounds"

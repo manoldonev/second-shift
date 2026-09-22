@@ -26,11 +26,13 @@
 #       RUN_COST_CEILING      USD (100); RUN_CHECKS_RED_MAX (3)
 #
 # exit: 0 approved · 1 stopped (build-no-pr, build-inflight, build-blocked, pr-ambiguous,
-#       staleness-unreadable) · 2 usage or environment refusal (usage-*, every env-* slug,
-#       claimed-elsewhere — nothing spawned) · 3 RESUMABLE: not queued / no intake record — pay off intake and re-launch the
-#       same command · 4 budget spent (rounds, checks-red, cost) · 5 no verdict usable against the
-#       current head · 7 the premise expired mid-run (ticket closed, base moved into this branch's
-#       files). Model ids accept the short forms `opus` / `sonnet`.
+#       staleness-unreadable) · 2 usage or environment refusal (usage-*, claimed-elsewhere, and
+#       every env-* slug except env-no-record; most fire before anything is spawned, but
+#       env-not-ready, env-worktree and env-smoke-unconfigured can fire after a paid build) ·
+#       3 RESUMABLE: not queued / no intake record — pay off intake and re-launch the same command ·
+#       4 budget spent (rounds, checks-red, cost) · 5 no verdict usable against the current head ·
+#       7 the premise expired mid-run (ticket closed, base moved into this branch's files) ·
+#       130 / 143 interrupted by INT / TERM. Model ids accept the short forms `opus` / `sonnet`.
 set -uo pipefail
 
 CLAUDE="${RUN_CLAUDE:-claude}"; GH="${RUN_GH:-${GH:-gh}}"
@@ -146,7 +148,7 @@ BUILD_TO="${RUN_BUILD_TIMEOUT:-${c_bto:-7200}}"; REVIEW_TO="${RUN_REVIEW_TIMEOUT
 COST_CEIL="${RUN_COST_CEILING:-${c_ceil:-100}}"; CHECKS_RED_MAX="${RUN_CHECKS_RED_MAX:-${c_red:-3}}"
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 STATE="$MAIN_ROOT/$STATE_DIR/run-$ISSUE/$RUN_ID"
-COST=0; CHECKS_RED=0; CHILD=""; CLAIMED=0; PR=""; PR_URL=""; ATTEMPT=0
+COST=0; CHECKS_RED=0; CHILD=""; CLAIMED=0; PR=""; PR_URL=""; ATTEMPT=0; PR_ONLY=0
 
 # --detach: the documented launch shape for a caller whose commands are time-capped (kept).
 if [ "$DETACH" -eq 1 ]; then
@@ -162,7 +164,10 @@ if [ "$DETACH" -eq 1 ]; then
 fi
 
 mkdir -p "$STATE"
-trap '[ -n "$CHILD" ] && kill "$CHILD" 2>/dev/null; say "interrupted; claim left in place"; exit 130' INT TERM
+# shellcheck disable=SC2329  # invoked from the traps below
+reap() { [ -n "$CHILD" ] || return 0; pkill -TERM -P "$CHILD" 2>/dev/null; kill -TERM "$CHILD" 2>/dev/null; } # the session and what it spawned
+trap 'reap; say "interrupted; claim left in place"; exit 130' INT
+trap 'reap; say "terminated; claim left in place"; exit 143' TERM
 
 # bounded <secs> <logfile> <cmd...> — no `timeout` binary on macOS; a bash watchdog instead. The child
 # runs in $WT; the cd happens INSIDE it so CHILD is this shell's variable and the INT/TERM trap can kill it.
@@ -353,6 +358,17 @@ route_smoke() { # -> 0 ok, 1 red, 2 unconfigured
   local rows; rows="$(frames_rows)"
   [ -n "$rows" ] || { [ -n "$RENDER_CMD" ] && say "smoke: the record has no '## Design frames' rows — the render check is not armed for this ticket"; return 0; }
   [ -n "$RENDER_CMD" ] || return 2
+  # the readyProbe, as milestone 3 ran it: only when a render is about to happen, three tries with a
+  # backoff, and no `-f`, so an HTTP answer (the service is up) stays distinguishable from a transport
+  # failure; a service the build does not own is an infra stop, never a spent attempt
+  if [ -n "$READY_URL" ]; then
+    local try=1 code=""
+    while [ "$try" -le 3 ]; do
+      code="$(curl -sS -m 10 -o /dev/null -w '%{http_code}' "$READY_URL" 2>/dev/null)" && [ "$code" != 000 ] && break
+      sleep $((try*2)); try=$((try+1))
+    done
+    { [ -n "$code" ] && [ "$code" != 000 ]; } || terminal env-not-ready "readyProbe $READY_URL answered nothing in 3 tries — start the service and --resume"
+  fi
   local rc=0 prev="" rs route state must png sha
   while IFS='|' read -r rs route state _frame must; do
     png="$STATE/smoke-$rs.png"; rm -f "$png"
@@ -408,9 +424,14 @@ pr_conventions() { # <pr> <attempt> -> 0, or 1 with the reasons in $STATE/pr-con
   grep -q "^built-by: second-shift run " <<<"$first" || echo "PR body line 1 must be 'built-by: second-shift run <id>'" >> "$out"
   grep -qF "$RECORD_REL" <<<"$body" || echo "PR body must link the decision record at $RECORD_REL" >> "$out"
   if [ "$TRACKER" = github ]; then
-    grep -qiE "(^|[^a-z])closes #$ISSUE([^0-9]|$)" <<<"$body" || echo "PR body must carry 'Closes #$ISSUE'" >> "$out"
+    grep -qiE "(^|[^a-z])closes[[:space:]]+#$ISSUE([^0-9]|$)" <<<"$body" || echo "PR body must carry 'Closes #$ISSUE'" >> "$out"
   else # the old gate: the Closes line lives under the Jira Items heading, matched case-insensitively
-    awk -v k="closes [$(printf '%s' "$ISSUE" | tr '[:upper:]' '[:lower:]')]" 'BEGIN{IGNORECASE=1} tolower($0) ~ /^#+[ \t]*jira items/{on=1; next} on && /^#/{on=0} on && index(tolower($0), k){f=1} END{exit !f}' <<<"$body" \
+    awk -v k="$(printf '%s' "$ISSUE" | tr '[:upper:]' '[:lower:]')" '
+        { l = tolower($0) }
+        l ~ /^#+[[:space:]]+jira items[[:space:]]*$/ { on = 1; next }
+        on && l ~ /^#+[[:space:]]/ { on = 0 }
+        on && l ~ ("closes[[:space:]]+\\[" k "\\]") { f = 1 }
+        END { exit !f }' <<<"$body" \
       || echo "PR body must carry 'Closes [$ISSUE]' under a '### Jira Items' heading" >> "$out"
   fi
   [ ! -s "$out" ]
@@ -516,7 +537,6 @@ FINDINGS=""; ROUND=0
 while [ "$ROUND" -lt "$MAX_ROUNDS" ]; do
   ROUND=$((ROUND+1)); say "round $ROUND of $MAX_ROUNDS (cost so far \$$COST)"
   premise_holds
-  if [ -n "$READY_URL" ] && ! curl -fsS -m 10 "$READY_URL" >/dev/null 2>&1; then terminal env-not-ready "ready probe $READY_URL failed"; fi
 
   # ---- build ----
   before="$(remote_head)"; ATTEMPT=$((ATTEMPT+1)); A="$ROUND.$ATTEMPT"
@@ -536,14 +556,16 @@ EOF
   sub="$(jq -r '.subtype // "unreadable"' "$STATE/build-$A.json" 2>/dev/null)"
   [ "$sub" = success ] || terminal build-blocked "build session ended $sub (rc=$brc)"
   over_ceiling && terminal cost-spent "\$$COST exceeds the \$$COST_CEIL ceiling"
-  after="$(remote_head)"; [ -n "$after" ] && [ "$after" != "$before" ] || terminal build-inflight "remote head of $BRANCH did not move in round $ROUND"
+  after="$(remote_head)"
+  if [ "$PR_ONLY" -eq 1 ]; then say "a PR-only fix was asked for; the head need not move"; PR_ONLY=0
+  else [ -n "$after" ] && [ "$after" != "$before" ] || terminal build-inflight "remote head of $BRANCH did not move in round $ROUND"; fi
   git -C "$WT" fetch -q origin "$BRANCH" && git -C "$WT" reset -q --hard "origin/$BRANCH" || terminal env-worktree "cannot fetch and reset $WT to origin/$BRANCH — the checks must run against the pushed head, never the build's own tree"
   n="$(open_pr | wc -l | tr -d ' ')"
   [ "$n" -eq 1 ] || { [ "$n" -eq 0 ] && terminal build-no-pr "no open PR for $BRANCH after round $ROUND" || terminal pr-ambiguous "$n open PRs for $BRANCH"; }
   PR="$(open_pr)"; PR_URL="$("$GH_READ" pr view "$PR" --json url --jq .url 2>/dev/null)"
   if ! pr_conventions "$PR" "$A"; then
     CHECKS_RED=$((CHECKS_RED+1)); [ "$CHECKS_RED" -lt "$CHECKS_RED_MAX" ] || terminal checks-red-spent "PR conventions unmet $CHECKS_RED times: $(tr '\n' ' ' < "$STATE/pr-conventions-$A.txt")"
-    say "PR conventions unmet — next attempt"; FINDINGS="$STATE/pr-conventions-$A.txt"; ROUND=$((ROUND-1)); continue
+    say "PR conventions unmet — next attempt"; FINDINGS="$STATE/pr-conventions-$A.txt"; PR_ONLY=1; ROUND=$((ROUND-1)); continue
   fi
 
   # ---- checks the build did not run ----
