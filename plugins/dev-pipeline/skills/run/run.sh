@@ -67,7 +67,7 @@ exit_code_for() { # the taxonomy a wrapper may branch on (orchestrate.sh's, kept
   case "$1" in
     approved|dry-run) echo 0 ;;
     not-queued|env-no-record) echo 3 ;;
-    usage-*|env-*) echo 2 ;;
+    usage-*|env-*|claimed-elsewhere) echo 2 ;;
     rounds-spent|checks-red-spent|cost-spent) echo 4 ;;
     review-unbound) echo 5 ;;
     ticket-closed|staleness-expired) echo 7 ;;
@@ -75,8 +75,9 @@ exit_code_for() { # the taxonomy a wrapper may branch on (orchestrate.sh's, kept
     *) echo 1 ;;
   esac
 }
-terminal() { # terminal <slug> <detail> — one closing comment on the issue, as the old lane posted
+terminal() { # terminal <slug> <detail> — the run block on the PR (whenever one exists) and one closing comment on the issue, as before
   say "terminal: $1 — $2"; echo "terminal: $1"
+  [ -n "${PR:-}" ] && [ "${BLOCK_DONE:-0}" -eq 0 ] && { BLOCK_DONE=1; write_run_block "$1"; }
   if [ "${CLAIMED:-0}" -eq 1 ] && [ "$TRACKER" = github ]; then
     "$GH" issue comment "$ISSUE" --body "$(printf 'second-shift run %s: %s — %s\n%s\ncost_usd: %s\n' "$RUN_ID" "$1" "$2" "${PR_URL:-${PR:+PR #$PR}}" "${COST:-0}")" >/dev/null 2>&1 || true
   fi
@@ -144,13 +145,13 @@ c_rounds="$(cfg .run.maxRounds)"; c_red="$(cfg .run.checksRedMax)"; c_bto="$(cfg
 BUILD_TO="${RUN_BUILD_TIMEOUT:-${c_bto:-7200}}"; REVIEW_TO="${RUN_REVIEW_TIMEOUT:-${c_rto:-3600}}"
 COST_CEIL="${RUN_COST_CEILING:-${c_ceil:-100}}"; CHECKS_RED_MAX="${RUN_CHECKS_RED_MAX:-${c_red:-3}}"
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
-STATE="$MAIN_ROOT/$STATE_DIR/run-$ISSUE/$RUN_ID"; mkdir -p "$STATE"
+STATE="$MAIN_ROOT/$STATE_DIR/run-$ISSUE/$RUN_ID"
 COST=0; CHECKS_RED=0; CHILD=""; CLAIMED=0; PR=""; PR_URL=""; ATTEMPT=0
 
 # --detach: the documented launch shape for a caller whose commands are time-capped (kept).
 if [ "$DETACH" -eq 1 ]; then
   command -v perl >/dev/null 2>&1 || terminal env-detach-perl "--detach needs perl for setsid; run in the foreground instead"
-  DETACH_LOG="$MAIN_ROOT/$STATE_DIR/$ISSUE-run-$(now | tr -d ':-')-$$.log"
+  mkdir -p "$MAIN_ROOT/$STATE_DIR"; DETACH_LOG="$MAIN_ROOT/$STATE_DIR/$ISSUE-lean-run-$(now | tr -d ':-')-$$.log"
   _wrap=(); command -v caffeinate >/dev/null 2>&1 && _wrap=(caffeinate -dims)
   # shellcheck disable=SC2016  # the inner script expands in the child, not here
   nohup perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV or die "exec: $!\n"' -- \
@@ -160,6 +161,7 @@ if [ "$DETACH" -eq 1 ]; then
   exit 0
 fi
 
+mkdir -p "$STATE"
 trap '[ -n "$CHILD" ] && kill "$CHILD" 2>/dev/null; say "interrupted; claim left in place"; exit 130' INT TERM
 
 # bounded <secs> <logfile> <cmd...> — no `timeout` binary on macOS; a bash watchdog instead
@@ -347,7 +349,8 @@ EOF
   return $rc
 }
 route_smoke() { # -> 0 ok, 1 red, 2 unconfigured
-  local rows; rows="$(frames_rows)"; [ -n "$rows" ] || return 0
+  local rows; rows="$(frames_rows)"
+  [ -n "$rows" ] || { [ -n "$RENDER_CMD" ] && say "smoke: the record has no '## Design frames' rows — the render check is not armed for this ticket"; return 0; }
   [ -n "$RENDER_CMD" ] || return 2
   local rc=0 prev="" rs route state must png sha
   while IFS='|' read -r rs route state _frame must; do
@@ -367,17 +370,18 @@ $rows
 EOF
   return $rc
 }
-test_surface_diff() { # -> file; a diff that cannot be read is a refusal, never "(none)"
+test_surface_diff() { # writes $STATE/review-input-<attempt>.md; returns 1 when a diff cannot be read (the CALLER refuses —
+  # a refusal inside a command substitution would exit only the subshell, orchestrate.sh's own documented trap)
   local out="$STATE/review-input-$1.md" ns full names
-  ns="$(git -C "$WT" diff --name-status "$FIRST"..HEAD 2>/dev/null)" || terminal env-worktree "cannot diff $FIRST..HEAD in $WT"
-  full="$(git -C "$WT" diff "$FIRST"..HEAD 2>/dev/null)" || terminal env-worktree "cannot diff $FIRST..HEAD in $WT"
-  names="$(git -C "$WT" diff --name-only "$FIRST"..HEAD 2>/dev/null)" || terminal env-worktree "cannot diff $FIRST..HEAD in $WT"
+  ns="$(git -C "$WT" diff --name-status "$FIRST"..HEAD 2>/dev/null)" || return 1
+  full="$(git -C "$WT" diff "$FIRST"..HEAD 2>/dev/null)" || return 1
+  names="$(git -C "$WT" diff --name-only "$FIRST"..HEAD 2>/dev/null)" || return 1
   {
     echo "### Deleted or renamed test files"; awk '$1 ~ /^[DR]/ && $2 ~ /(\.spec\.|\.test\.|_test\.|\/tests?\/)/' <<<"$ns"; echo
     echo "### Added skips / forced-green lines"; grep -nE '^\+.*(\.skip\(|\.only\(|\|\| *true|xit\(|xdescribe\()' <<<"$full" || echo "(none)"; echo
     echo "### CI or check configuration edited"; grep -E '^\.github/|^\.gitlab|\.ya?ml$|^package\.json$|vitest\.config|jest\.config|\.eslintrc|tsconfig' <<<"$names" || echo "(none)"; echo
     echo "### Build session permission denials"; [ -s "$STATE/denials-$1.txt" ] && cat "$STATE/denials-$1.txt" || echo "(none)"
-  } > "$out"; echo "$out"
+  } > "$out"
 }
 # The premise can expire mid-run (kept from orchestrate.sh): the ticket closed, or the base moved
 # into a file this branch touches — a green build against a base nobody merges onto is wasted.
@@ -392,7 +396,15 @@ premise_holds() {
 }
 
 # ---- PR and verdict ----
-open_pr() { "$GH_READ" pr list --head "$BRANCH" --state open --json number --jq '.[].number' 2>/dev/null; }
+open_pr() { "$GH_READ" pr list --head "$BRANCH" --state open --json number,isDraft --jq '.[] | select(.isDraft | not) | .number' 2>/dev/null; }
+pr_conventions() { # <pr> -> 0, or 1 with the reasons in $STATE/pr-conventions.txt (the old lane's pr_exit_artifacts_check)
+  local body; body="$("$GH_READ" pr view "$1" --json body --jq .body 2>/dev/null)" || { echo "the PR body could not be read" > "$STATE/pr-conventions.txt"; return 1; }
+  : > "$STATE/pr-conventions.txt"
+  printf '%s\n' "$body" | head -n 1 | grep -q "^built-by: second-shift run " || echo "PR body line 1 must be 'built-by: second-shift run <id>'" >> "$STATE/pr-conventions.txt"
+  if [ "$TRACKER" = github ]; then grep -qE "^Closes #$ISSUE\b" <<<"$body" || echo "PR body must carry the line 'Closes #$ISSUE'" >> "$STATE/pr-conventions.txt"
+  else grep -qF "Closes [$ISSUE]" <<<"$body" || echo "PR body must carry 'Closes [$ISSUE]' under a '### Jira Items' heading" >> "$STATE/pr-conventions.txt"; fi
+  [ ! -s "$STATE/pr-conventions.txt" ]
+}
 remote_head() { git -C "$WT" ls-remote origin "refs/heads/$BRANCH" 2>/dev/null | cut -f1; }
 ci_status() { # <pr> -> one word for the report; never waited on (checks already ran here)
   local out; out="$("$GH_READ" pr checks "$1" --json name,state 2>/dev/null)" || { echo unavailable; return; }
@@ -420,11 +432,37 @@ first_word() { # the command word an allowlist entry keys on, past any leading V
 add_cost() { local c; c="$(jq -r '.total_cost_usd // 0' "$1" 2>/dev/null)"; COST="$(awk -v a="$COST" -v b="${c:-0}" 'BEGIN{print a+b}')"; }
 over_ceiling() { awk -v c="$COST" -v m="$COST_CEIL" 'BEGIN{exit !(c>m)}'; }
 
+# The run's summary goes in the PR BODY under the marker the old lane used, replacing an earlier
+# block from a resumed run: the body is what a human reads at merge, and comments scroll away.
+# Written at EVERY terminal once a PR exists, so a stopped run leaves its evidence too.
+cost_block() { # <terminal slug>
+  echo '<!-- pipeline-cost-block -->'
+  echo "## second-shift run"; echo
+  echo "| run | outcome | rounds | verdict | reviewed head | cost | CI |"; echo "| --- | --- | --- | --- | --- | --- | --- |"
+  echo "| $RUN_ID | $1 | ${ROUND:-0} | ${v:-none} | ${head:-—} | \$$COST | ${CI:-} |"; echo
+  echo "| session | turns | cost |"; echo "| --- | --- | --- |"
+  local f; for f in "$STATE"/build-*.json "$STATE"/review-*.json; do
+    [ -f "$f" ] && jq -r --arg n "$(basename "$f" .json)" '"| \($n) | \(.num_turns // "?") | $\((.total_cost_usd // 0) * 100 | round / 100) |"' "$f"
+  done
+  echo '<!-- /pipeline-cost-block -->'
+}
+write_run_block() { # <terminal slug>
+  local repo body
+  CI="$(ci_status "$PR")"; say "ci: $CI (read once for the report; the checks that gate a round ran here)"
+  repo="$("$GH_READ" repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null)"
+  if ! body="$("$GH_READ" api "repos/$repo/pulls/$PR" --jq .body 2>/dev/null)"; then
+    say "could not read PR #$PR's body; the run block is NOT written (a blind replace would erase the body)"; return 0
+  fi
+  # strip an earlier block: ours ends at the closing marker, the old lane's at its `Cache-hit rate:` line
+  body="$(printf '%s\n' "$body" | awk '$0 == "<!-- pipeline-cost-block -->"{skip=1} !skip{print} skip && ($0 == "<!-- /pipeline-cost-block -->" || /^Cache-hit rate: /){skip=0} END{if (skip) print "<!-- an earlier cost block had no terminator; text below it was not preserved -->"}')"
+  printf '%s\n\n%s\n' "$body" "$(cost_block "$1")" > "$STATE/pr-body.md"
+  "$GH" api -X PATCH "repos/$repo/pulls/$PR" -F "body=@$STATE/pr-body.md" >/dev/null 2>&1 || say "could not write the run block into PR #$PR's body (it is in $STATE/pr-body.md)"
+}
 # ================================ the run ================================
 say "run $RUN_ID: issue $ISSUE, tracker $TRACKER (writes $TRACKER_WRITES), branch $BRANCH, worktree $WT, record $RECORD_REL"
 [ -f "$RECORD" ] || terminal env-no-record "no intake record at $RECORD — run /intake-toolkit:plan-interview $ISSUE first"
 validate_lanes
-if [ "$DRY" -eq 1 ]; then say "dry-run: would claim, create the worktree, commit the record, and run up to $MAX_ROUNDS rounds; checks: $(checks_list 2>/dev/null | tr '\n' ';')"; echo "terminal: dry-run"; exit 0; fi
+if [ "$DRY" -eq 1 ]; then say "dry-run: would claim, create the worktree, commit the record, and run up to $MAX_ROUNDS rounds; checks: $(checks_list all 2>/dev/null | tr '\n' ';')"; echo "terminal: dry-run"; exit 0; fi
 st="$(issue_state)"; [ -n "$st" ] || terminal env-tracker-unreadable "could not read #$ISSUE from the tracker"
 [ "$st" = OPEN ] || terminal env-ticket-closed "#$ISSUE is not open — nothing spawned, a preflight refusal like any other"
 claim
@@ -491,8 +529,12 @@ EOF
   after="$(remote_head)"; [ -n "$after" ] && [ "$after" != "$before" ] || terminal build-inflight "remote head of $BRANCH did not move in round $ROUND"
   git -C "$WT" fetch -q origin "$BRANCH" && git -C "$WT" reset -q --hard "origin/$BRANCH"
   n="$(open_pr | wc -l | tr -d ' ')"
-  [ "$n" -eq 1 ] || { [ "$n" -eq 0 ] && terminal build-no-pr "no open PR for $BRANCH after round $ROUND" || terminal pr-ambiguous "$n open PRs for $BRANCH"; }
+  [ "$n" -eq 1 ] || { [ "$n" -eq 0 ] && terminal build-no-pr "no open, non-draft PR for $BRANCH after round $ROUND" || terminal pr-ambiguous "$n open PRs for $BRANCH"; }
   PR="$(open_pr)"; PR_URL="$("$GH_READ" pr view "$PR" --json url --jq .url 2>/dev/null)"
+  if ! pr_conventions "$PR"; then
+    CHECKS_RED=$((CHECKS_RED+1)); [ "$CHECKS_RED" -lt "$CHECKS_RED_MAX" ] || terminal checks-red-spent "PR conventions unmet $CHECKS_RED times: $(tr '\n' ' ' < "$STATE/pr-conventions.txt")"
+    say "PR conventions unmet — next attempt"; FINDINGS="$STATE/pr-conventions.txt"; ROUND=$((ROUND-1)); continue
+  fi
 
   # ---- checks the build did not run ----
   if ! run_checks "$A"; then
@@ -505,7 +547,8 @@ EOF
     CHECKS_RED=$((CHECKS_RED+1)); [ "$CHECKS_RED" -lt "$CHECKS_RED_MAX" ] || terminal checks-red-spent "smoke red $CHECKS_RED times"
     cat "$STATE"/smoke-*.log > "$STATE/smoke-$A.log" 2>/dev/null; FINDINGS="$STATE/smoke-$A.log"; ROUND=$((ROUND-1)); continue
   fi
-  input="$(test_surface_diff "$A")"
+  test_surface_diff "$A" || terminal env-worktree "cannot diff $FIRST..HEAD in $WT"
+  input="$STATE/review-input-$A.md"
 
   # ---- review, in a fresh session, bound to this head and this time window ----
   head="$(remote_head)"; start="$(now)"
@@ -527,32 +570,6 @@ EOF
   over_ceiling && terminal cost-spent "\$$COST exceeds the \$$COST_CEIL ceiling"
 done
 
-CI="$( [ -n "$PR" ] && ci_status "$PR" || echo none )"; say "ci: $CI (read once for the report; the checks that gate a round ran here)"
-# The run's summary goes in the PR BODY under the marker the old lane used, replacing an earlier
-# block from a resumed run: the body is what a human reads at merge, and comments scroll away.
-cost_block() {
-  echo '<!-- pipeline-cost-block -->'
-  echo "## second-shift run"; echo
-  echo "| run | rounds | verdict | reviewed head | cost | CI |"; echo "| --- | --- | --- | --- | --- | --- |"
-  echo "| $RUN_ID | $ROUND | ${v:-none} | ${head:-—} | \$$COST | $CI |"; echo
-  echo "| session | turns | cost |"; echo "| --- | --- | --- |"
-  local f; for f in "$STATE"/build-*.json "$STATE"/review-*.json; do
-    [ -f "$f" ] && jq -r --arg n "$(basename "$f" .json)" '"| \($n) | \(.num_turns // "?") | $\((.total_cost_usd // 0) * 100 | round / 100) |"' "$f"
-  done
-  echo '<!-- /pipeline-cost-block -->'
-}
-if [ -n "$PR" ]; then
-  repo="$("$GH_READ" repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null)"
-  if ! body="$("$GH_READ" api "repos/$repo/pulls/$PR" --jq .body 2>/dev/null)"; then
-    say "could not read PR #$PR's body; the run block is NOT written (a blind replace would erase the body)"; body=""; SKIP_BODY=1
-  fi
-  # strip an earlier block: ours ends at the closing marker, the old lane's at its `Cache-hit rate:` line
-  body="$(printf '%s\n' "$body" | awk '$0 == "<!-- pipeline-cost-block -->"{skip=1} !skip{print} skip && ($0 == "<!-- /pipeline-cost-block -->" || /^Cache-hit rate: /){skip=0} END{if (skip) print "<!-- an earlier cost block had no terminator; text below it was not preserved -->"}')"
-  printf '%s\n\n%s\n' "$body" "$(cost_block)" > "$STATE/pr-body.md"
-  if [ "${SKIP_BODY:-0}" -eq 0 ]; then
-    "$GH" api -X PATCH "repos/$repo/pulls/$PR" -F "body=@$STATE/pr-body.md" >/dev/null 2>&1 || say "could not write the run block into PR #$PR's body (it is in $STATE/pr-body.md)"
-  fi
-fi
 if [ "${v:-}" = approve ]; then
   # close-out teardown, as before: the branch and PR stay, the worktree goes
   git -C "$MAIN_ROOT" worktree remove "$WT" >/dev/null 2>&1 && say "worktree $WT removed" || say "worktree $WT left in place (uncommitted work or a lock; remove it by hand)"

@@ -27,10 +27,10 @@ case "$sub" in
   "issue edit")  add=""; rm=""; while [ $# -gt 0 ]; do case "$1" in --add-label) add="$2"; shift 2;; --remove-label) rm="$2"; shift 2;; *) shift;; esac; done
                  [ -n "$add" ] && echo "$add" >> "$S/labels"; [ -n "$rm" ] && { grep -vx "$rm" "$S/labels" > "$S/l.tmp"; mv "$S/l.tmp" "$S/labels"; } ;;
   "issue comment") echo "$*" >> "$S/issue-comments" ;;
-  "pr list")     cat "$S/prs" 2>/dev/null ;;
+  "pr list")     [ -f "$S/draft" ] || cat "$S/prs" 2>/dev/null ;;
   "pr checks")   echo '[]' ;;
   "pr comment")  echo "$*" >> "$S/cost-comments" ;;
-  "pr view")     echo "https://x/pr/7" ;;
+  "pr view")     case "$*" in *body*) cat "$S/pr-created-body.txt" 2>/dev/null ;; *) echo "https://x/pr/7" ;; esac ;;
   "repo view")   echo "o/r" ;;
   "api -X")      # PATCH repos/o/r/pulls/7 -F body=@<file> | POST .../labels --input - | DELETE .../labels/<name>
                  verb="$1"; p="$2"
@@ -51,12 +51,19 @@ S="$FAKE_GH"; n=$(cat "$S/calls" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" >
 plan=$(sed -n "${n}p" "$FAKE_CLAUDE_PLAN"); prompt="${@: -1}"; printf '%s' "$prompt" > "$S/prompt-$n.txt"; printf '%s\n' "$@" > "$S/args-$n.txt"
 branch=$(git rev-parse --abbrev-ref HEAD); cost="${FAKE_COST:-1}"
 push() { echo "$n" >> work.txt; git add -A >/dev/null; git commit -qm "build $n"; git push -q origin "$branch"; }
+openpr() { # body as the prompt instructs: built-by line, then Closes
+  rid=$(grep -oE 'built-by: second-shift run [^ ]+' "$S/prompt-$n.txt" | head -n 1)
+  key=$(grep -oE "Closes (#[0-9]+|\[[^]]+\])" "$S/prompt-$n.txt" | head -n 1)
+  printf '%s\n\nrecord: docs/plans/x\n\n%s\n' "${rid:-built-by: second-shift run ?}" "${key:-Closes #?}" > "$S/pr-created-body.txt"; echo 7 > "$S/prs"
+}
 case "$plan" in
-  build-pr)        push; echo 7 > "$S/prs" ;;
+  build-pr)        push; openpr ;;
+  build-pr-draft)  push; openpr; touch "$S/draft" ;;
+  build-pr-nobody) push; echo 7 > "$S/prs"; echo "just a summary" > "$S/pr-created-body.txt" ;;
   build-push-only) push ;;
-  build-delete-test) git rm -q src/a.spec.ts; push; echo 7 > "$S/prs" ;;
+  build-delete-test) git rm -q src/a.spec.ts; push; openpr ;;
   build-nothing)   : ;;
-  build-pr-close)  push; echo 7 > "$S/prs"; echo CLOSED > "$S/state" ;;
+  build-pr-close)  push; openpr; echo CLOSED > "$S/state" ;;
   review-crash)    printf '{"subtype":"error_during_execution","total_cost_usd":0}\n'; exit 1 ;;
   review-approve|review-needs-work|review-wrong-sha)
     sha=$(git rev-parse "origin/$branch"); [ "$plan" = review-wrong-sha ] && sha=deadbeef
@@ -113,7 +120,7 @@ grep -q 'DECLARE THE PIPELINE DEFAULT PANEL' "$FAKE_GH/prompt-2.txt" && ok "(a) 
 grep -q 'models: build claude-opus-5 (label), review claude-opus-5 (default)' <<<"$OUT" && ok "(a) build model read from the opus label" || bad "(a) model not read from the label"
 first=$(git -C "$d/origin.git" log --format=%s --reverse main..second-shift/42 | head -n 1)
 [ "$first" = "docs: decision record for #42" ] && ok "(a) the record is the branch's first commit" || bad "(a) first commit is '$first'"
-grep -q '<!-- pipeline-cost-block -->' "$FAKE_GH/pr-body.md" 2>/dev/null && grep -q 'built-by: fake' "$FAKE_GH/pr-body.md" && ok "(a) run block written into the PR body, original body kept" || bad "(a) no run block in the PR body"
+grep -q '<!-- pipeline-cost-block -->' "$FAKE_GH/pr-body.md" 2>/dev/null && grep -q 'built-by: fake' "$FAKE_GH/pr-body.md" && grep -q '| approved |' "$FAKE_GH/pr-body.md" && ok "(a) run block written into the PR body, original body kept" || bad "(a) no run block in the PR body"
 grep -qE '^[|] review-1[.]1 [|] 3 [|] [$]1 [|]' "$FAKE_GH/pr-body.md" 2>/dev/null && ok "(a) per-session cost rows in the block" || bad "(a) per-session rows missing"
 grep -q 'ls /' "$(SD)/review-1.1.prompt" && ok "(a) build denials reach the review input" || bad "(a) denials missing from review input"
 
@@ -344,6 +351,23 @@ printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=1 run_case "$d"; e
 FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"commands":{"main":{"lint":"true","extraLanes":[{"name":"e2e","when":["src/**"],"commands":["e2e-runner --all"]}]}}}' fixture v7 ""
 printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"
 grep -q 'e2e-runner --all' "$FAKE_GH/prompt-1.txt" && grep -q 'Bash(e2e-runner\*)' "$FAKE_GH/args-1.txt" && ok "(v7) a when-globbed lane is named in the round-1 prompt and allowlist before any diff exists" || bad "(v7) lane missing from the prompt or allowlist"
+
+# (w) round-eight parity: PR conventions asserted, a draft is no PR, a stopped run still leaves its
+#     block, claimed-elsewhere exits 2, dry-run lists every lane, second run's block is its own
+fixture w1; printf 'build-pr-draft\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect build-no-pr "(w1) a draft PR does not count as the build's PR"
+fixture w2; printf 'build-pr-nobody\nbuild-push-only\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=2 run_case "$d"; expect checks-red-spent "(w2) a PR body without built-by/Closes is sent back, then spent"
+grep -q "Closes #42" "$FAKE_GH/prompt-2.txt" && ok "(w2) the convention finding reaches the next build prompt" || bad "(w2) finding not in the next prompt"
+fixture w3; printf 'build-pr\nreview-wrong-sha\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect review-unbound "(w3) stopped after a PR exists"
+grep -q '| review-unbound |' "$FAKE_GH/pr-body.md" 2>/dev/null && ok "(w3) a stopped run still writes its run block into the PR body" || bad "(w3) no run block on a stopped run"
+fixture w4; echo in-progress > "$FAKE_GH/labels"; run_case "$d"; [ "$RC" -eq 2 ] && ok "(w4) claimed-elsewhere spawned nothing and exits 2" || bad "(w4) exit $RC"
+FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"commands":{"main":{"lint":"true","extraLanes":[{"name":"e2e","when":["src/**"],"commands":["e2e-runner --all"]}]}}}' fixture w5 ""
+run_case "$d" --dry-run; grep -q 'e2e-runner --all' <<<"$OUT" && ok "(w5) dry-run names the when-globbed lane" || bad "(w5) dry-run omits the lane"
+fixture w6; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(w6) first run"
+first_block="$(SD)/pr-body.md"; printf 'build-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; : > "$FAKE_GH/calls"; printf 'in-progress\nopus\n' > "$FAKE_GH/labels"
+( cd "$d/main" && git fetch -q origin && git reset -q --hard origin/main ) ; run_case "$d" --resume; expect approved "(w6) second run on the same ticket"
+[ "$(grep -c '^| build-' "$(SD)/pr-body.md")" = 1 ] && [ "$(SD)/pr-body.md" != "$first_block" ] && ok "(w6) the second run's block lists only its own sessions" || bad "(w6) block rows: $(grep -c '^| build-' "$(SD)/pr-body.md")"
+FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/","labels":{"queue":"ready.for.dev","claimed":"in-progress"}},"paths":{"plansDir":"docs/plans"}}' fixture w7
+printf 'ready-for-dev\nopus\n' > "$FAKE_GH/labels"; run_case "$d"; expect not-queued "(w7) a queue label with regex metacharacters is matched exactly (ready-for-dev is not ready.for.dev)"
 
 # (m) rounds spent
 fixture m; printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-needs-work\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d" --max-rounds 2; expect rounds-spent "(m) two needs-work rounds"
