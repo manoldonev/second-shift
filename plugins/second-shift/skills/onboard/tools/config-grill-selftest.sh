@@ -40,8 +40,6 @@ run_grill() { # $1 root, $2 config path
 _hit() { jq -r --arg i "$1" '.findings[] | select(.id==$i) | .evidence + " ⟂ " + .proposal' <<< "$OUT"; }
 _ids() { jq -r '.findings[].id' <<< "$OUT" | tr '\n' ' '; }
 _nids() { jq -r '.notEvaluated[].id' <<< "$OUT" | tr '\n' ' '; }
-_uhit() { jq -r --arg i "$1" '.unadopted[] | select(.id==$i) | .evidence + " ⟂ " + .proposal' <<< "$OUT"; }
-_uids() { jq -r '.unadopted[].id' <<< "$OUT" | tr '\n' ' '; }
 
 expect_finding() { # $1 label, $2 id, $3.. substrings that must appear in evidence+proposal
   local label="$1" id="$2"; shift 2
@@ -54,18 +52,6 @@ expect_finding() { # $1 label, $2 id, $3.. substrings that must appear in eviden
 }
 expect_no_finding() { # $1 label, $2 id
   if [[ -z "$(_hit "$2")" ]]; then check "$1" 0; else check "$1 (unexpected finding '$2')" 1; echo "      $(_hit "$2")"; fi
-}
-expect_unadopted() { # $1 label, $2 id, $3.. substrings that must appear in evidence+proposal
-  local label="$1" id="$2"; shift 2
-  local got s; got="$(_uhit "$id")"
-  if [[ -z "$got" ]]; then check "$label (no unadopted '$id'; got: $(_uids))" 1; return; fi
-  for s in "$@"; do
-    if ! grep -qF -- "$s" <<< "$got"; then check "$label (unadopted '$id' missing '$s')" 1; echo "      $got"; return; fi
-  done
-  check "$label" 0
-}
-expect_no_unadopted() { # $1 label, $2 id
-  if [[ -z "$(_uhit "$2")" ]]; then check "$1" 0; else check "$1 (unexpected unadopted '$2')" 1; echo "      $(_uhit "$2")"; fi
 }
 expect_noteval() { # $1 label, $2 id, $3 (optional) substring in reason
   local got; got="$(jq -r --arg i "$2" '.notEvaluated[] | select(.id==$i) | .reason' <<< "$OUT")"
@@ -233,8 +219,9 @@ expect_finding "t2 formatGlob: hand-set value matching nothing still fires" \
 # the retired keys — it replays the exact shape that made BOTH ids fire before (a hand-set
 # triggerGlobs matching nothing on a tree that renders something, plus a unitTestScope with a
 # null testFile), so a re-introduction lands here rather than nowhere. The grill runs on
-# drafts pre-lint, so the schema retirement does not blank the probe. Checked across all three arrays: re-appearing as a notEvaluated or unadopted
-# entry is the same regression wearing a different severity.
+# drafts pre-lint, so the schema retirement does not blank the probe. Checked across both
+# arrays: re-appearing as a notEvaluated entry is the same regression wearing a different
+# severity.
 cfg "$R/deleted.json" <<EOF
 { $STD_HEAD, "commands": {"app":{"unitTestScope":"src/**","testFile":null}},
   "stageParams": {"visualCapture": {"triggerGlobs": ["apps/web/**/*.css"]}} }
@@ -242,7 +229,7 @@ EOF
 run_grill "$R" "$R/deleted.json"
 for gone in T2.visualCaptureTriggerGlobs T4.testfile-plumbing.app; do
   if [[ -z "$(jq -r --arg i "$gone" \
-       '(.findings + .unadopted + .notEvaluated)[] | select(.id==$i) | .id' <<< "$OUT")" ]]; then
+       '(.findings + .notEvaluated)[] | select(.id==$i) | .id' <<< "$OUT")" ]]; then
     check "deleted id emits nothing anywhere in the envelope: $gone" 0
   else
     check "deleted id came back: $gone" 1
@@ -263,68 +250,12 @@ for dropped in T2.planFilePattern T2.plansDir T2.pipelineStateDir T2.inertPatter
   expect_no_finding "t2 dropped row stays dropped: $dropped" "$dropped"
 done
 
-# --- AC-4: trigger 4, the mutation seam ----------------------------------------------------
-# The seam has ONE owner: a repo-carried tools/mutation-sweep.sh that the CONSUMER executes
-# (#580 retired the green-gate lane that used to; the grill's job is unchanged either way —
-# it grades declared intent against shipped plumbing, never against an executor).
-# So the detectable inconsistency is a config that DECLARES mutation intent over a repo carrying
-# nothing to run it. Since #574 retired commands.<repo>.unitTestScope, gates.mutation is the
-# ONLY declared-intent signal — under RUNTIME semantics: `.gates.mutation // empty` means only
-# the literal false is the off-switch, so ABSENT IS NOT FALSE. The evidence must say which
-# state it found; a check keyed to `== true` alone would miss the far commoner absent case.
+# --- AC-4: trigger 4, design.liverender -----------------------------------------------------
+# #877 retired this trigger's other occupant, T4.mutation-plumbing (gates.mutation graded
+# against a repo-carried tools/mutation-sweep.sh — no second-shift gate has executed that sweep
+# since #580, so grading declared intent against it was busywork). design.liveRender below is
+# now trigger 4's only row.
 R6="$(mkrepo t4 apps/web/App.tsx apps/web/src/app/P.tsx a.ts)"
-R6S="$(mkrepo t4-swept apps/web/App.tsx apps/web/src/app/P.tsx a.ts tools/mutation-sweep.sh)"
-
-cfg "$R6/mut-absent.json" <<EOF
-{ $STD_HEAD, "commands": {"app":{}} }
-EOF
-run_grill "$R6" "$R6/mut-absent.json"
-expect_finding "t4 gates.mutation absent (absent is not false) + no sweep" \
-  T4.mutation-plumbing.app "absent" "NOT false"
-cfg "$R6/mut-true.json" <<EOF
-{ $STD_HEAD, "commands": {"app":{}}, "gates": {"mutation": true} }
-EOF
-run_grill "$R6" "$R6/mut-true.json"
-expect_finding "t4 gates.mutation true + no sweep" T4.mutation-plumbing.app "gates.mutation is true"
-
-# The retirement probe (#574): the RETIRED key must contribute nothing — one finding, whose
-# evidence is the gates state alone. Before #574 this exact shape produced evidence naming
-# unitTestScope; a re-introduced arm lands here rather than nowhere. (The fixture key is
-# schema-retired — the grill runs on drafts pre-lint, so what is probed is the grill's own
-# read, not the schema.)
-cfg "$R6/mut-retired-key.json" <<EOF
-{ $STD_HEAD, "commands": {"app":{"unitTestScope":"src/**"}}, "gates": {"mutation": true} }
-EOF
-run_grill "$R6" "$R6/mut-retired-key.json"
-expect_finding "t4 the retired unitTestScope key contributes nothing to the evidence" \
-  T4.mutation-plumbing.app "gates.mutation is true"
-if [[ -z "$(jq -r '.findings[] | select(.id=="T4.mutation-plumbing.app") | .evidence | select(test("unitTestScope"))' <<< "$OUT")" ]]; then
-  check "t4 retired-key evidence never names unitTestScope" 0
-else
-  check "t4 retired-key evidence still names unitTestScope (#574 regression)" 1
-fi
-if [[ "$(jq -r '[.findings[] | select(.id=="T4.mutation-plumbing.app")] | length' <<< "$OUT")" == "1" ]]; then
-  check "t4 retired key → still exactly one finding" 0
-else
-  check "t4 retired key → duplicate findings" 1
-fi
-
-# The declared opt-out stays silent...
-cfg "$R6/mut-false.json" <<EOF
-{ $STD_HEAD, "commands": {"app":{}}, "gates": {"mutation": false} }
-EOF
-run_grill "$R6" "$R6/mut-false.json"
-expect_no_finding "t4 gates.mutation false is the declared off-switch → silent" \
-  T4.mutation-plumbing.app
-
-# ...and so does a repo that actually CARRIES the sweep — the negative half, without which the
-# check could be "fires on every config" and still pass everything above. Byte-identical config
-# to the absent-gates case that fires, so the sweep file is the only difference between them.
-cfg "$R6S/mut-absent.json" <<EOF
-{ $STD_HEAD, "commands": {"app":{}} }
-EOF
-run_grill "$R6S" "$R6S/mut-absent.json"
-expect_no_finding "t4 the repo carries the sweep → silent" T4.mutation-plumbing.app
 
 cfg "$R6/design-bare.json" <<EOF
 { $STD_HEAD, "commands": {"app":{}}, "design": {"provider": "figma"} }
@@ -515,19 +446,24 @@ fi
 # The evaluated repo is the one whose topology path resolves to the root we were handed; a
 # sibling checkout is REPORTED, never reached — both callers are cwd-scoped and reading a
 # sibling means touching directories outside that root.
+# Vehicle check: T5.missing-script.<repo>.<slot> (#877 — the deleted T4.mutation-plumbing.<repo>
+# is gone, and T4.design-liverender is not per-repo-suffixed, so it cannot prove this).
 RP="$(mkrepo scoping-be apps/web/App.tsx apps/web/src/app/P.tsx a.ts)"
 mkdir -p "$TMP/scoping-fe"
+cat > "$RP/package.json" <<'EOF'
+{ "name": "scoping-be", "scripts": {} }
+EOF
 cfg "$RP/c.json" <<'EOF'
 { "configVersion": 2, "tracker": {"type":"github"},
   "topology": {"type":"be-fe-pair","repos":{
     "be": {"path":".","baseBranch":"main"},
     "fe": {"path":"../scoping-fe","baseBranch":"main"}}},
-  "commands": {"be":{"test":"yarn test"},
-               "fe":{"test":"yarn test"}} }
+  "commands": {"be":{"lint":"npm run lint"},
+               "fe":{"lint":"npm run lint"}} }
 EOF
 run_grill "$RP" "$RP/c.json"
-expect_finding "scoping: the evaluated repo IS checked" T4.mutation-plumbing.be "NOT false"
-expect_no_finding "scoping: the sibling repo is NOT checked" T4.mutation-plumbing.fe
+expect_finding "scoping: the evaluated repo IS checked" T5.missing-script.be.lint "no scripts.lint"
+expect_no_finding "scoping: the sibling repo is NOT checked" T5.missing-script.fe.lint
 expect_noteval "scoping: the sibling is reported as not-evaluated" topology.fe "sibling checkout"
 
 # --- AC-6: waiver suppression --------------------------------------------------------------
@@ -535,115 +471,47 @@ expect_noteval "scoping: the sibling is reported as not-evaluated" topology.fe "
 # suppressed by the checker itself, so both callers suppress identically.
 # The UNwaived control rides on formatGlob, hand-set to match nothing: it is the row this
 # fixture can fire that neither waiver names, and without it "suppressed" and "emits nothing at
-# all" are the same observation.
+# all" are the same observation. Repo-scoped vehicle: T5.missing-script.app.lint (#877 —
+# T4.mutation-plumbing, this test's vehicle before, no longer exists).
+cat > "$R/package.json" <<'EOF'
+{ "name": "t2-web-default", "scripts": {} }
+EOF
 cfg "$R/waived.json" <<EOF
-{ $STD_HEAD, "commands": {"app":{"unitTestScope":null,"testFile":null}},
+{ $STD_HEAD, "commands": {"app":{"unitTestScope":null,"testFile":null,"lint":"npm run lint"}},
   "stageParams": {"formatGlob": "*.{rs,toml}"},
   "grillWaivers": {
     "T2.webComponentGlobs": "no web-component surface in this repo",
-    "T4.mutation-plumbing.app": "no unit-test surface yet; tracked in the backlog" } }
+    "T5.missing-script.app.lint": "no lint script yet; tracked in the backlog" } }
 EOF
 run_grill "$R" "$R/waived.json"
 expect_no_finding "waiver: T2.webComponentGlobs suppressed" T2.webComponentGlobs
-expect_no_finding "waiver: T4.mutation-plumbing.app suppressed (repo-scoped id)" T4.mutation-plumbing.app
+expect_no_finding "waiver: T5.missing-script.app.lint suppressed (repo-scoped id)" T5.missing-script.app.lint
 expect_finding "waiver: an UNwaived finding still fires" T2.formatGlob "*.{rs,toml}"
 
 # A waiver keyed WITHOUT the repo id must not silence a per-repo check — that is the whole
 # reason the id carries the repo (a bare id would silence every repo at once).
 cfg "$R/waived-bare.json" <<EOF
-{ $STD_HEAD, "commands": {"app":{"unitTestScope":null,"testFile":null}},
-  "grillWaivers": { "T4.mutation-plumbing": "bare id, wrong shape" } }
+{ $STD_HEAD, "commands": {"app":{"unitTestScope":null,"testFile":null,"lint":"npm run lint"}},
+  "grillWaivers": { "T5.missing-script": "bare id, wrong shape" } }
 EOF
 run_grill "$R" "$R/waived-bare.json"
-expect_finding "waiver: a repo-less id does NOT silence a per-repo check" T4.mutation-plumbing.app
+expect_finding "waiver: a repo-less id does NOT silence a per-repo check" T5.missing-script.app.lint
 
-# --- #569: trigger 1's extension-points row is RETIRED --------------------------------------
-# The block that lived here drove `T1.extension-points` through its whole matrix: fires when all
-# three additive-gate seams are absent, silent as soon as any ONE is adopted, `[]` is not
-# adoption, waivable by a repo-less id. #569 retired stageWorkflows / implementDelegates /
-# planGates, so every one of those cases now asserts behavior over keys config-lint rejects.
-#
-# The replacement is not "delete and move on" — that would let the row come back unnoticed, and
-# the row is worse than useless now: onboard BLOCKS on an unwaived unadopted entry, so a config
-# with none of the three keys (which is every config, since they cannot be set any more) would
-# be permanently blocked behind a waiver for a capability that does not exist. So the guard is
-# inverted: the id must be ABSENT on exactly the config shape that used to produce it.
-RT1="$(mkrepo t1-none src/App.tsx a.ts)"
-cfg "$RT1/c.json" <<EOF
-{ $STD_HEAD, "commands": {"app":{"unitTestScope":null,"testFile":null}} }
+# --- #877: a grillWaivers entry keyed to a RETIRED check id is inert, not an error ----------
+# T4.mutation-plumbing and T1.mutation-sweep no longer exist as checks (#877). A config
+# carrying a waiver for either — an existing consumer's pre-#877 grillWaivers entry, or someone
+# typing an id out of an old doc — must not error and must not resurrect either id: the waiver
+# lookup is a bare hash-key test (`add_finding`/`has($k)`), which cannot distinguish a retired
+# id from a live one.
+cfg "$R/retired-waivers.json" <<EOF
+{ $STD_HEAD, "commands": {"app":{}},
+  "grillWaivers": {
+    "T4.mutation-plumbing.app": "pre-#877 waiver, now inert",
+    "T1.mutation-sweep.app": "pre-#877 waiver, now inert" } }
 EOF
-run_grill "$RT1" "$RT1/c.json"
-expect_no_unadopted "t1: the retired extension-points row does not fire (#569)" T1.extension-points
-expect_no_finding "t1: nor does it leak into findings[]" T1.extension-points
-check "t1 exits 0 (rc=$RC)" "$([[ "$RC" -eq 0 ]] && echo 0 || echo 1)"
-
-# A config that still CARRIES the retired keys must not resurrect it either. config-lint rejects
-# such a config, but the grill runs on onboard's draft as well as on a committed file, so it has
-# to be inert on the shape rather than merely unreachable — and an `EP_ADOPTED`-style predicate
-# left behind would read as "adopted" here and hide a re-introduction.
-cfg "$RT1/legacy-keys.json" <<EOF
-{ $STD_HEAD, "commands": {"app":{"unitTestScope":null,"testFile":null}},
-  "stageWorkflows": [], "implementDelegates": [], "planGates": [] }
-EOF
-run_grill "$RT1" "$RT1/legacy-keys.json"
-expect_no_unadopted "t1: retired keys present-but-empty raises nothing (#569)" T1.extension-points
-
-# --- AC-4: the durable mutation-seam advisory ----------------------------------------------
-# Keyed on commands.<repo>.test — durable config — so this surfacing outlives the keys the
-# findings[] row is phrased in. It rides in unadopted[]: a missing sweep is a legal and common
-# state (the green gate prints a SKIPPED notice and proceeds), so a findings[] entry would take
-# every already-green consumer non-zero for a capability many will never adopt.
-RMS="$(mkrepo t1-sweep src/App.tsx a.ts)"
-cfg "$RMS/c.json" <<EOF
-{ $STD_HEAD, "commands": {"app":{"test":"yarn test","unitTestScope":null}},
-  "gates": {"mutation": false} }
-EOF
-run_grill "$RMS" "$RMS/c.json"
-expect_unadopted "t1 sweep: test configured + no sweep" T1.mutation-sweep.app \
-  "yarn test" "--mode pr --base origin/<baseBranch>" "grillWaivers"
-expect_no_finding "t1 sweep never leaks into findings[] (doctor would FAIL on it)" T1.mutation-sweep.app
-
-# One negative per input, so neither half of the predicate can be a constant.
-cfg "$RMS/no-test.json" <<EOF
-{ $STD_HEAD, "commands": {"app":{"unitTestScope":null}}, "gates": {"mutation": false} }
-EOF
-run_grill "$RMS" "$RMS/no-test.json"
-expect_no_unadopted "t1 sweep: silent with no test lane configured" T1.mutation-sweep.app
-RMS2="$(mkrepo t1-sweep-present src/App.tsx tools/mutation-sweep.sh)"
-cfg "$RMS2/c.json" <<EOF
-{ $STD_HEAD, "commands": {"app":{"test":"yarn test","unitTestScope":null}},
-  "gates": {"mutation": false} }
-EOF
-run_grill "$RMS2" "$RMS2/c.json"
-expect_no_unadopted "t1 sweep: silent when the repo carries one" T1.mutation-sweep.app
-
-# The two tiers are INDEPENDENT, not one suppressing the other. That is the whole reason they
-# carry separate waiver ids: coupling them would mean waiving one makes the other appear —
-# "fix it and a new complaint arrives" reads as a broken tool — and they force different
-# dispositions ("your config declares coverage it cannot run" vs "you have a suite and nothing
-# checks it"). Both directions of the waiver are pinned, since a suppression written into the
-# wrong tier only shows up from one side.
-cfg "$RMS/both-tiers.json" <<EOF
-{ $STD_HEAD, "commands": {"app":{"test":"yarn test"}} }
-EOF
-run_grill "$RMS" "$RMS/both-tiers.json"
-expect_finding "t1 sweep: the findings[] row fires alongside the advisory" \
-  T4.mutation-plumbing.app "NOT false"
-expect_unadopted "t1 sweep: the advisory fires alongside the finding" T1.mutation-sweep.app "yarn test"
-cfg "$RMS/waived-finding.json" <<EOF
-{ $STD_HEAD, "commands": {"app":{"test":"yarn test"}},
-  "grillWaivers": { "T4.mutation-plumbing.app": "declared: no mutation coverage here" } }
-EOF
-run_grill "$RMS" "$RMS/waived-finding.json"
-expect_no_finding "t1 sweep: waiving the finding suppresses only the finding" T4.mutation-plumbing.app
-expect_unadopted "t1 sweep: ...and leaves the advisory standing" T1.mutation-sweep.app "yarn test"
-cfg "$RMS/waived-advisory.json" <<EOF
-{ $STD_HEAD, "commands": {"app":{"test":"yarn test"}},
-  "grillWaivers": { "T1.mutation-sweep.app": "no sweep wanted here" } }
-EOF
-run_grill "$RMS" "$RMS/waived-advisory.json"
-expect_no_unadopted "t1 sweep: a waiver suppresses the advisory" T1.mutation-sweep.app
-expect_finding "t1 sweep: ...and leaves the finding standing" T4.mutation-plumbing.app "NOT false"
+run_grill "$R" "$R/retired-waivers.json"
+check "retired-id waivers: grill still exits 0 (rc=$RC)" "$([[ "$RC" -eq 0 ]] && echo 0 || echo 1)"
+expect_no_finding "retired-id waivers: T4.mutation-plumbing.app produces no finding" T4.mutation-plumbing.app
 
 # --- AC-1: exit codes ----------------------------------------------------------------------
 run_grill "$R" "$R/nope.json"
@@ -655,20 +523,28 @@ RC=0; bash "$GRILL" >/dev/null 2>&1 || RC=$?
 check "exit 3 with no arguments (rc=$RC)" "$([[ "$RC" -eq 3 ]] && echo 0 || echo 1)"
 RC=0; OUT="$(bash "$GRILL" "$R2" "$R2/c.json" 2>/dev/null)" || RC=$?
 if [[ "$RC" -eq 0 ]] && jq -e '(.findings | type == "array") and (.notEvaluated | type == "array")
-                               and (.unadopted | type == "array")' <<< "$OUT" >/dev/null; then
-  check "envelope: three arrays, exit 0, on a clean repo" 0
+                               and (keys | sort) == ["findings","notEvaluated"]' <<< "$OUT" >/dev/null; then
+  check "envelope: two arrays, exit 0, on a clean repo" 0
 else
-  check "envelope: three arrays, exit 0, on a clean repo (rc=$RC)" 1
+  check "envelope: two arrays, exit 0, on a clean repo (rc=$RC)" 1
+fi
+# #877 retired the unadopted[] severity along with its only producer (T1.mutation-sweep) — the
+# key itself must be gone from the envelope, not merely always-empty, so a caller that still
+# reads `.unadopted // []` sees the same "no key" shape a pre-#877 caller never had to handle.
+if jq -e 'has("unadopted") | not' <<< "$OUT" >/dev/null; then
+  check "envelope: no unadopted key (#877)" 0
+else
+  check "envelope: unadopted key still present (#877 regression)" 1
 fi
 
 # --- AC-1: no emitted string names a mechanism the default lane does not execute ------------
 # The oracle for the whole envelope, and a lint over shell SOURCE rather than a prose-presence
-# guard: it enumerates the strings that can reach findings[]/unadopted[]/notEvaluated[] and
+# guard: it enumerates the strings that can reach findings[]/notEvaluated[] and
 # denies a fixed token list in them. Per-check assertions cannot do this job — they can only
 # pin the strings someone remembered to pin, and the defect class here is a remediation nobody
 # re-read after the lane it named stopped running.
 #
-# ENUMERATION starts at the emitting call sites — add_finding, add_unadopted, add_noteval, plus
+# ENUMERATION starts at the emitting call sites — add_finding, add_noteval, plus
 # t2_key, which forwards its benefit sentence into a proposal — captures each full statement
 # including backslash continuations, then closes over the variable assignments and function
 # bodies those statements reference, repeating until nothing new is pulled in. The closure is
@@ -687,12 +563,12 @@ fi
 # design-fidelity route through the review half's panel, and the format lane is executed by the
 # green gate — so they must pass this untouched rather than earn an exemption.
 DENY_RE='[Ss]tage[ -][0-9]|stages/[0-9]|[Vv]isual[ -][Cc]apture|visualCapture|screenshot'
-SINK_RE='(^|[^A-Za-z0-9_])(add_finding|add_unadopted|add_noteval)[[:space:]]'
+SINK_RE='(^|[^A-Za-z0-9_])(add_finding|add_noteval)[[:space:]]'
 
 emitted_corpus() { # $1 = a config-grill.sh source path → every string that can reach the envelope
   local src="$1" corpus prev pulled n round=0
   corpus="$(awk '
-    /(^|[^A-Za-z0-9_])(add_finding|add_unadopted|add_noteval|t2_key)[[:space:]]/ { cap = 1 }
+    /(^|[^A-Za-z0-9_])(add_finding|add_noteval|t2_key)[[:space:]]/ { cap = 1 }
     cap { print; if ($0 !~ /\\[[:space:]]*$/) { cap = 0 } }
   ' "$src")"
   prev=""
@@ -732,10 +608,10 @@ fi
 # Control 2 — SENTINELS, one per capture arm. The first is a literal sitting at a call site; the
 # second lives on an `ev=` assignment inside t2_key and is reachable ONLY through the variable
 # closure, so losing that arm fails here rather than passing quietly.
-# ("Adopt the seam or declare" replaced "Adopt whichever fits" in #569 — the latter lived in
-# the retired T1.extension-points proposal. Both are direct call-site literals; the arm under
-# test is unchanged.)
-for sentinel in "Adopt the seam or declare" "matches 0 of the repo"; do
+# (T5.missing-script's "cannot be anything else" replaced T1.mutation-sweep's "Adopt the seam or
+# declare" in #877, whose own row had replaced #569's retired T1.extension-points proposal. All
+# three were direct call-site literals; the arm under test is unchanged.)
+for sentinel in "so this one cannot be anything else" "matches 0 of the repo"; do
   if grep -qF -- "$sentinel" <<< "$CORPUS"; then
     check "oracle sentinel present: '$sentinel'" 0
   else
@@ -769,7 +645,7 @@ mutate() { # $1 label, $2 sed script, $3 expect: catch|clean
   fi
 }
 mutate "mutant: a banned token at a direct call-site literal is caught" \
-  's|there is a suite, and nothing that checks|there is a Stage 5 suite, and nothing that checks|' catch
+  's|so this one cannot be anything else|so this one cannot be anything else in Stage 5|' catch
 mutate "mutant: a banned token at an indirect (ev=) literal is caught" \
   's|matches 0 of the repo|matches 0 of the stages/6 repo|' catch
 

@@ -13,22 +13,17 @@
 #
 # Usage: config-grill.sh <repo-root> [<config-path>]
 #        config-path defaults to <repo-root>/.claude/second-shift.config.json
-# Output: ONE JSON document on stdout — { findings: [...], notEvaluated: [...], unadopted: [...] }
+# Output: ONE JSON document on stdout — { findings: [...], notEvaluated: [...] }
 # Exit:  0 always when it ran (findings are DATA, not a crash) · 3 usage/IO error
 #
 # A `notEvaluated` entry is never a finding: it has no proposal, cannot be waived, and must
 # not block onboard's accept predicate. Callers render it informationally.
 #
-# An `unadopted` entry is the THIRD severity, and it exists because trigger 1 fits neither of
-# the other two. A finding is a DEFECT — doctor renders it as a FAIL, which is only coherent
-# because a repo can reach exit 0 by fixing it. An unadopted optional key is a DEFAULT, not a
-# defect: routing it through findings[] would make every long-onboarded consumer non-zero
-# forever for a capability most will never want. A notEvaluated entry is the other extreme —
-# no proposal, not waivable — so it can never force a disposition. So: same object as a
-# finding (id, key, evidence, proposal), waivable by the same mechanism, but doctor renders it
-# as a NOTE that never touches the exit code while onboard renders it as a blocking line on
-# the accept-or-edit screen. Adopt or declare, at the one moment a human is already reading
-# the config.
+# (A THIRD severity, `unadopted` — waivable, carrying a proposal, but a DEFAULT rather than a
+# DEFECT, so doctor rendered it as a note that never touched the exit code while onboard
+# blocked on it — existed for trigger 1's `T1.mutation-sweep` row. #877 retired that row's only
+# reason to exist along with it, and it was the channel's only producer, so the severity and
+# its `unadopted` output key went with it rather than sit empty forever.)
 #
 # Waivers live in the config's top-level `grillWaivers` object, keyed by check id (with the
 # repo id where the check is per-repo) and valued by a human-authored reason. A waived
@@ -51,20 +46,11 @@ cd "$ROOT_ABS" || exit 3
 
 FINDINGS=()
 NOTEVAL=()
-UNADOPTED=()
 WAIVERS="$(jq -c 'if (.grillWaivers | type) == "object" then .grillWaivers else {} end' "$CONFIG")"
 
 add_finding() { # $1 id, $2 key, $3 evidence, $4 proposal
   jq -e --arg k "$1" 'has($k)' <<< "$WAIVERS" >/dev/null 2>&1 && return 0
   FINDINGS+=("$(jq -nc --arg id "$1" --arg key "$2" --arg ev "$3" --arg pr "$4" \
-    '{id:$id, key:$key, evidence:$ev, proposal:$pr}')")
-}
-add_unadopted() { # $1 id, $2 key, $3 evidence, $4 proposal
-  # Suppression lives HERE, not in either caller, so onboard and doctor suppress identically —
-  # a waiver that silenced only one of them would let a repo look clean on the screen it was
-  # typed into and stay noisy forever on the other.
-  jq -e --arg k "$1" 'has($k)' <<< "$WAIVERS" >/dev/null 2>&1 && return 0
-  UNADOPTED+=("$(jq -nc --arg id "$1" --arg key "$2" --arg ev "$3" --arg pr "$4" \
     '{id:$id, key:$key, evidence:$ev, proposal:$pr}')")
 }
 add_noteval() { # $1 id, $2 key, $3 reason
@@ -175,10 +161,9 @@ count_glob_matches() { # $1.. globs → prints the number of tracked files match
 # library consumer would otherwise be told to hand-author a glob for files that do not exist,
 # and would answer with a waiver restating a fact the tool could see for itself.
 #
-# It lands in notEvaluated[], not the unadopted[] severity: that one is for an optional key at
-# its default that a human should DISPOSE of, so it is waivable and carries a proposal. A repo
-# with no rendering surface has no disposition to force and nothing to propose — and onboard
-# blocks on unadopted[], which would re-impose the very waiver-prose tax this removes.
+# It lands in notEvaluated[], never findings[]: a repo with no rendering surface has no
+# disposition to force and nothing to propose, and notEvaluated carries no proposal and cannot
+# be waived — forcing one here would re-impose the very waiver-prose tax this removes.
 #
 # The DEFAULTS below are the RUNTIME-resolved literals — the jq fallback the consuming stage
 # actually applies — never the JSON Schema `default`, which nothing injects into a config.
@@ -250,50 +235,14 @@ t2_key "T2.formatGlob" "stageParams.formatGlob" \
   "This glob scopes the default prettier format lane: while it matches nothing, no changed file is ever format-checked."
 
 # --- trigger 4: internally inconsistent config (AC-4) --------------------------------------
-# The mutation seam has ONE owner: a repo-carried `tools/mutation-sweep.sh`, which the consumer
-# also RUNS — #580 deleted the green-gate lane that used to execute it, because that lane made
-# the identical invocation the consumer's own PR CI already makes. The technique inside it — a
-# Stryker wrapper, a per-spec harness, a shell-guard sweep — is the consumer's, and so is the
-# wiring. So the detectable inconsistency is unchanged in shape: a config that DECLARES mutation
-# intent while the repo carries nothing to run. What changed is only what we can promise about
-# the file once it exists — nothing here executes it.
+# design.provider declared with no design.liveRender behind it: the design axis is on with no
+# render harness behind it, so a ticket that arms it has nothing to render.
 #
-# gates.mutation follows RUNTIME semantics, not the schema default: only the literal `false`
-# takes the off-switch branch, so ABSENT IS NOT FALSE and absent still reads as intent. The
-# finding text states the state actually found.
-#
-# The id is kept BYTE-FOR-BYTE across this semantic change on purpose. `grillWaivers` keys on
-# finding id, so minting a new one would silently void every consumer's existing waiver and
-# flip a doctor-green repo to FAIL on upgrade. What the waiver means — "accepted: no mutation
-# coverage here" — is continuous, which is what makes keeping the id honest rather than merely
-# convenient.
-#
-# Scoped to the evaluated root, like every other per-repo check: a pair sibling is reported by
-# the topology loop above and never reached.
-MUT_STATE="$(jq -r 'if ((.gates | type) == "object") and (.gates | has("mutation"))
-                    then (.gates.mutation | tostring) else "absent" end' "$CONFIG")"
-SWEEP_REL="tools/mutation-sweep.sh"
-HAS_SWEEP=0
-[[ -f "$ROOT_ABS/$SWEEP_REL" ]] && HAS_SWEEP=1
-if [[ -n "$REPO_ID" ]]; then
-  # (#574 retired commands.<repo>.unitTestScope, which used to be this check's second
-  # arm; the declared-intent signal is gates.mutation alone now.)
-  if [[ "$HAS_SWEEP" -ne 1 ]]; then
-    mut_desc=""
-    if [[ "$MUT_STATE" != "false" ]]; then
-      mut_desc="gates.mutation is true"
-      [[ "$MUT_STATE" == "absent" ]] && mut_desc="gates.mutation is absent — and absent is NOT false: only the literal \`false\` is the off-switch, so mutation reads ON"
-    fi
-    if [[ -n "$mut_desc" ]]; then
-      add_finding "T4.mutation-plumbing.$REPO_ID" "gates.mutation" \
-        "$mut_desc — but this repo carries no $SWEEP_REL, so nothing is ever mutated. The config declares coverage the repo cannot execute." \
-        "Add an executable $SWEEP_REL at the repo root and wire it on your own merge boundary — \`bash $SWEEP_REL --mode pr --base origin/<baseBranch>\` from the root is the usual invocation. Since #580 no second-shift gate runs it for you, so a sweep with no CI job of its own still mutates nothing (docs/onboarding.md). Or declare the opt-out where a reader can see it: set \"gates\": { \"mutation\": false }. $(waiver_hint "T4.mutation-plumbing.$REPO_ID")"
-    fi
-  fi
-else
-  add_noteval "T4.commands" "commands" \
-    "no topology.repos entry resolves to the evaluated root, so there is no command table to check"
-fi
+# (#877 retired this trigger's other occupant — gates.mutation graded against a repo-carried
+# tools/mutation-sweep.sh — because no second-shift gate has executed that sweep since #580, so
+# grading a repo's declared intent against a file nothing runs turned a doctor-green repo FAIL
+# for a capability no consumer used. gates.mutation stays legal in the schema; config-lint still
+# accepts it. Nothing in this file reads it any more.)
 DESIGN_PROVIDER="$(jq -r '.design.provider // ""' "$CONFIG")"
 DESIGN_LR="$(jq -r 'if ((.design | type) == "object") and (.design.liveRender != null) then "yes" else "" end' "$CONFIG")"
 if [[ -n "$DESIGN_PROVIDER" && -z "$DESIGN_LR" ]]; then
@@ -440,48 +389,17 @@ if [[ -n "$REPO_ID" ]]; then
   fi
 fi
 
-# --- trigger 1: a capability nobody ever mentioned (AC-2) -----------------------------------
-# Scope is the seams onboard's question batch cannot settle. Four of the five it DOES ask about
-# (design + liveRender, reviewer deltas, the review-context scaffold, the CI workflows) are
-# handled by naming the benefit on those existing questions — a check here would re-nag a human
-# about something they declined ten lines earlier in the same run.
-#
-# This trigger used to carry a SECOND row, `T1.extension-points`, which fired whenever all of
-# stageWorkflows / implementDelegates / planGates were absent and proposed adopting one. #569
-# retired those three keys, so the row's two exits became "adopt a seam config-lint now rejects"
-# and "type a waiver" — and because onboard BLOCKS its accept-or-edit screen on an unwaived
-# unadopted entry, that is a deadlock, not a nag. It is deleted rather than reworded: the
-# disposition it forced ("have you considered the additive-gate seams") no longer has a subject.
-#
-# The mutation row below outlives it exactly as its own comment predicted it would. What is
-# missing there is a FILE in the repo, not a config answer: a human can answer "yes, mutation"
-# and still carry no sweep, and only the tree can say which. And it keys on
-# `commands.<repo>.test` — durable config — rather than on keys the config-schema assessment
-# might retire, which is what has just happened to its sibling.
-
-# The mutation seam's DURABLE surfacing. The findings[] row above is keyed on config that may
-# retire; this one is keyed on `commands.<repo>.test`, which will not, and it is deliberately
-# INDEPENDENT of that row rather than suppressed by it. Coupling them would mean waiving the
-# finding makes a new note appear — "fix one, another arrives" reads as a broken tool, and the
-# two force genuinely different dispositions: one is "your config lies", this is "you have a
-# suite and nothing checks whether it would catch anything".
-#
-# It rides in unadopted[], never findings[]: absence of a sweep is a legal, common state — since
-# #580 nothing anywhere even looks for the file — so a doctor FAIL would take every already-green
-# consumer non-zero for a capability many will never adopt. The severity philosophy outlived the
-# printed skip it used to mirror: this is an adoption note, not a defect.
-if [[ -n "$REPO_ID" && "$HAS_SWEEP" -ne 1 ]]; then
-  TEST_CMD="$(jq -r --arg r "$REPO_ID" '.commands[$r].test // ""' "$CONFIG")"
-  if [[ -n "$TEST_CMD" ]]; then
-    add_unadopted "T1.mutation-sweep.$REPO_ID" "commands.$REPO_ID.test" \
-      "commands.$REPO_ID.test is configured (\"$TEST_CMD\") but this repo carries no $SWEEP_REL — there is a suite, and nothing that checks whether it would catch a regression. Absence is legal and is the default, and since #580 no second-shift gate looks for the file, so nothing else will ever raise it." \
-      "Adopt the seam or declare that you don't want it. Add an executable $SWEEP_REL at the repo root and give it a job on your own merge boundary — \`bash $SWEEP_REL --mode pr --base origin/<baseBranch>\` from the root is the usual invocation. What it mutates and how is yours — a Stryker wrapper, a per-spec harness, a shell-guard sweep. Wiring it is yours too: #580 retired the green-gate lane that used to run it, because that lane duplicated the PR check (docs/onboarding.md). $(waiver_hint "T1.mutation-sweep.$REPO_ID")"
-  fi
-fi
+# (Trigger 1, "a capability nobody ever mentioned", used to carry two rows: `T1.extension-points`
+# — retired in #569 with the three config keys it proposed adopting — and `T1.mutation-sweep`,
+# retired in #877 for the same reason config-grill.sh:252's trigger-4 row was: nothing has graded
+# gates.mutation-declared intent against a repo-carried tools/mutation-sweep.sh's presence since
+# #580 retired the gate that ran it, so an "adopt or declare" note about a file nothing executes
+# was busywork. Trigger 1 had no other occupant, so it is gone, and with it the `unadopted[]`
+# severity: it existed to hold exactly this note, and this file now emits no other unadopted
+# entry to reintroduce it for.)
 
 jq -n \
   --argjson findings "$(json_array ${FINDINGS[@]+"${FINDINGS[@]}"})" \
   --argjson notEvaluated "$(json_array ${NOTEVAL[@]+"${NOTEVAL[@]}"})" \
-  --argjson unadopted "$(json_array ${UNADOPTED[@]+"${UNADOPTED[@]}"})" \
-  '{findings: $findings, notEvaluated: $notEvaluated, unadopted: $unadopted}'
+  '{findings: $findings, notEvaluated: $notEvaluated}'
 exit 0

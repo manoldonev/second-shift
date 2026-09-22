@@ -258,42 +258,10 @@ lanes and classed as infrastructure on failure):
 Field reference — including `extraLanes` and `allowUnverified` — is in
 [`config-schema.md`](config-schema.md).
 
-### Mutation: the repo-carried sweep
-
-A passing suite proves the tests run, not that they would catch anything. The check for that is
-**yours to carry and yours to run**. Nothing in second-shift executes it for you.
-
-**The green gate no longer runs it.** It used to run an
-executable `tools/mutation-sweep.sh` at your repo root as the last step of the verification
-milestone, and to print `mutation sweep SKIPPED` when there was none. It no longer looks for that
-file at all: it duplicated work a PR check on the merge boundary re-derives anyway, and it
-idle-blocked a build session while doing it.
-
-**If you carry a sweep, wire it yourself.** The invocation the retired lane used is a reasonable
-starting point for a CI job of your own:
-
-```text
-bash tools/mutation-sweep.sh --mode pr --base origin/<baseBranch>
-```
-
-- **Invocation** — run from your repo root, with `<baseBranch>` taken from your config's
-  `topology.repos.<id>.baseBranch`. `--mode pr` means diff-scoped: only what this branch changed.
-- **Put it on the merge boundary, not in the session.** A gate that blocks an interactive run on
-  work the PR checks already do is the exact cost that removal saved; a required status check on the PR
-  is where the answer is cheap and is re-derived for free.
-- **Deterministic, and no model calls.** Whatever you wire, keep it reproducible from the tree
-  alone and free of API spend. A sweep that needs the network or an LLM belongs in an
-  `extraLanes` entry you opt into.
-- **You can still put it in the gate — explicitly.** An `extraLanes` entry (or your `test`
-  command) runs any command you name. The difference from the retired lane is that you are
-  choosing the cost with your eyes open, rather than inheriting it from a filename.
-
-What the sweep does inside is entirely your choice — a Stryker or `mutmut` wrapper, a per-spec
-harness that flips operators and re-runs the affected file, a shell-guard sweep. `gates.mutation`
-declares the intent and buys no sweep on its own — it never armed the retired lane either (that
-branched on the file's presence), and it survives that removal unchanged as the declared-intent signal
-`/second-shift:doctor` and `config-grill` grade your plumbing against
-(`commands.<id>.unitTestScope`/`testFile` are retired).
+`gates.mutation` (schema) is accepted by config-lint but read by nothing — a mutation sweep is
+yours to carry and run if you want one (no second-shift gate executes `tools/mutation-sweep.sh`,
+and nothing grades whether you have it), and the key itself is removed from the schema at the
+next batched major.
 
 Environment sanity for all of the above in one command: `pipeline-doctor.sh` (ships in the
 dev-pipeline plugin at `tools/pipeline-doctor.sh`, config-aware —

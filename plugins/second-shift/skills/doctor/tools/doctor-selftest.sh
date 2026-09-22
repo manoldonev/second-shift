@@ -196,55 +196,22 @@ scenario opt-out-committed plugin-list-green.json  settings-optout-committed.jso
 # --- config grill (#441) -------------------------------------------------------------------
 # A grill finding is a FAIL like every other doctor FAIL, so it must move the EXIT CODE, not
 # just the text — that pairing is the whole point of D-15 and the only reason waivers have to
-# exist. The fixture config leaves gates.mutation absent (absent is NOT false, so mutation reads
-# ON) over a fixture root carrying no tools/mutation-sweep.sh — coverage the config asks for and
-# the repo cannot run. (Unchanged by #580: the finding grades intent against plumbing, and no
-# gate ever executed the file on the consumer's behalf again after that slice.)
-scenario grill-finding    plugin-list-green.json   settings-green.json     marketplace-list-pinned.json  1 "config grill [T4.mutation-plumbing.app]" lock-v1.json config-grill-finding.json
+# exist. Vehicle: T4.design-liverender (#877 retired this scenario's original vehicle,
+# T4.mutation-plumbing, along with the check itself — see config-grill.sh). The fixture config
+# sets design.provider with no liveRender, over a fixture root that is not a git work tree — the
+# check's "outside a readable work tree the probe cannot speak, and the finding stands" branch
+# fires unconditionally there, needing no tracked files.
+scenario grill-finding    plugin-list-green.json   settings-green.json     marketplace-list-pinned.json  1 "config grill [T4.design-liverender]" lock-v1.json config-grill-finding.json
 # ...and the waived counterpart, which is what keeps a clean report REACHABLE. config-valid.json
-# carries the `grillWaivers` entry for the finding its own shape would otherwise produce
-# (gates.mutation absent is NOT false, so mutation reads ON over a root with no sweep). Without
-# this branch the check could be suppress-everything and still pass the scenario above.
+# carries the `grillWaivers` entry for the finding its own shape would otherwise produce (the
+# same design.provider-with-no-liveRender shape). Without this branch the check could be
+# suppress-everything and still pass the scenario above.
 scenario grill-waived     plugin-list-green.json   settings-green.json     marketplace-list-pinned.json  0 "config grill: no unwaived findings"
 # A notEvaluated entry is NOT a finding: no proposal, not waivable. It must render
 # informationally and never touch the exit code — riding in findings[] would make a repo
 # permanently non-zero with nothing it could do about it. The doctor fixture root is not a git
 # work tree, so the two trigger-2 checks land here by construction.
 scenario grill-noteval    plugin-list-green.json   settings-green.json     marketplace-list-pinned.json  0 "config grill not evaluated [T2.webComponentGlobs]"
-# #449: an `unadopted` entry is the THIRD severity. It is waivable and carries a proposal, so
-# unlike notEvaluated it can force a disposition — but here it must render as a NOTE and leave
-# the exit code at 0. A `bad` would take every already-green consumer non-zero on the first run
-# after this ships, for a capability most will never want. Asserting the TEXT alone would pass
-# just as happily on a FAIL, which is why the expected rc is 0 and the fixture deliberately
-# carries no waiver for the id under test.
-#
-# The id is `T1.mutation-sweep.app`: config-valid.json declares a `test` lane and the fixture
-# repo carries no sweep. It used to be `T1.extension-points`, retired in #569 with the three
-# config keys it named — which is exactly the outcome that check's own comment predicted, and
-# the reason this scenario is now keyed on the sibling that survives: an advisory keyed on
-# DURABLE config (commands.<repo>.test) outlives the keys a retirement takes with it.
-scenario grill-unadopted  plugin-list-green.json   settings-green.json     marketplace-list-pinned.json  0 "config grill unadopted [T1.mutation-sweep.app]"
-# ...and the waived counterpart, which is what proves the note is suppressible at all rather
-# than unconditional prose: without it, "renders a note" and "always renders a note" are the
-# same observation.
-scenario grill-unadopted-waived plugin-list-green.json settings-green.json marketplace-list-pinned.json 0 \
-  "summary: 0 failed" lock-v1.json config-t1-waived.json
-uwout="$(DOCTOR_REPO_ROOT="$TMP/grill-unadopted-waived" DOCTOR_PLUGIN_LIST_FILE="$TMP/grill-unadopted-waived-pluglist.json" \
-         DOCTOR_MARKETPLACE_LIST_FILE="$FIX/marketplace-list-pinned.json" DOCTOR_USER_SETTINGS="$TMP/empty-user-settings.json" \
-         bash "$DOCTOR" 2>&1)" || true
-if grep -qF "T1.mutation-sweep.app" <<< "$uwout"; then
-  check "grill-unadopted-waived: the waived entry is actually absent from the output" 1
-  echo "$uwout" | grep -F "T1." | sed 's/^/      /' | head -3
-else
-  check "grill-unadopted-waived: the waived entry is actually absent from the output" 0
-fi
-# ...and the retired id must not come back through either fixture. Neither config carries it,
-# so a doctor that still printed it would be reading a check #569 deleted.
-if grep -qF "T1.extension-points" <<< "$uwout"; then
-  check "grill-unadopted-waived: the retired T1.extension-points id is gone (#569)" 1
-else
-  check "grill-unadopted-waived: the retired T1.extension-points id is gone (#569)" 0
-fi
 # The two DEGRADE branches. Neither can produce a wrong verdict — both are `warn`, so neither
 # moves the exit code — and that is exactly why they need pinning: a broken integration reads
 # as green, and the three scenarios above all run the real checker successfully, so nothing

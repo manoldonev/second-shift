@@ -79,7 +79,7 @@ Build the draft config from detection:
   v2.1.6 / #113 respectively; ship them via `extraLanes`. Never emit
   `integrationTest`/`apiTest`/`build` under `commands.<repo>`, never emit
   `testFile`/`unitTestScope` — retired in #574 with the mutation-gate engine; the
-  mutation story is the repo-carried sweep in question 4 — and never emit
+  mutation story is the repo-carried sweep nothing here elicits any more (#877) — and never emit
   `stageWorkflows`/`implementDelegates`/`planGates` either — retired in #569, and a draft
   carrying one self-rejects at config-lint.)
   `lanes` (setup steps) is deliberately NOT in that key list — detection cannot prove a
@@ -107,19 +107,7 @@ Ask AT MOST one AskUserQuestion batch, containing ONLY (skip any that detection 
   1. tracker (only if ambiguous — show evidence per option)
   2. topology pair confirm (only if be-fe-pair-candidate)
   3. `tracker.branchPrefix` (recommended: `claude/<repo-basename>-` for github; `<user>/` for jira)
-  4. gates to enable — **what mutation buys: it breaks your changed code on purpose and fails
-     when the specs still pass, which is the difference between tests that exist and tests
-     that would catch a regression. You own the sweep AND its wiring: ship
-     `tools/mutation-sweep.sh` and give it a job on your own merge boundary
-     (`--mode pr --base origin/<baseBranch>` from your repo root is the usual invocation).
-     No second-shift gate runs it — #580 retired the milestone-3 lane that used to, because it
-     duplicated the PR check — so this key declares intent and nothing more** (`docs/onboarding.md`,
-     "Mutation: the repo-carried sweep"; `docs/config-schema.md`, `gates` row).
-     (**mutation** — `gates.mutation:false` is the explicit off-switch a reader can see;
-     setting it true does not by itself buy a sweep. `mutation` is the ONLY `gates` key the
-     schema has as of v2.1.6 — `costTracking` was removed (cost attribution now runs
-     unconditionally, passive) — never emit anything else under `gates`)
-  5. design fidelity, two-part — **what it buys: review gains a design-fidelity dimension, and
+  4. design fidelity, two-part — **what it buys: review gains a design-fidelity dimension, and
      with `liveRender` a per-route rendered-vs-handoff receipt replaces a reviewer's opinion of
      a diff** (docs/extending.md §3.5; docs/live-render.md).
      (only if detection saw a UI-shaped repo — sibling FE candidate,
@@ -134,7 +122,7 @@ Ask AT MOST one AskUserQuestion batch, containing ONLY (skip any that detection 
      harness cannot drive one. Undetected or declined → omit the `liveRender` key (a ticket cannot arm its
      design lane at all: the green gate renders each declared route into a committed receipt,
      and there is nothing to render; docs/live-render.md).
-  6. reviewer deltas — **what they buy: `add` puts a reviewer that knows this repo's domain on
+  5. reviewer deltas — **what they buy: `add` puts a reviewer that knows this repo's domain on
      every review panel; `remove` stops a shipped reviewer whose findings you always dismiss
      from spending a slot** (docs/extending.md §3.3).
      (`reviewers.add` for repo-local reviewer agents, `.remove` for shipped
@@ -146,7 +134,7 @@ Ask AT MOST one AskUserQuestion batch, containing ONLY (skip any that detection 
      unit-test-mutation-reviewer do not run on a pipeline round unless listed in
      `reviewers.default` (or opted in per ticket by a `review panel` Decision Ledger row).
      Recommended default: none. Emit the `reviewers` key ONLY when the answer is non-empty.
-  7. **github tracker only — the first-run wall, absorbed here:**
+  6. **github tracker only — the first-run wall, absorbed here:**
      a. Bot identity: "Use a GitHub-App bot identity for pipeline writes? (Needs an App +
         private key; the build's claim goes through the bot wrapper for the github tracker
         and refuses while it is disabled.)" If yes, add `"bot": { "enabled": true }` under
@@ -160,7 +148,7 @@ Ask AT MOST one AskUserQuestion batch, containing ONLY (skip any that detection 
         `needs-intake-review`, `in-progress`, `epic` (skip ones that already exist).
         Note on the screen: these six are shipped literals until the marketplace makes
         `stageParams.requiredLabels` authoritative end-to-end.
-  8. **`review-context.md` scaffold (accept-or-edit, never mandatory; default "later").**
+  7. **`review-context.md` scaffold (accept-or-edit, never mandatory; default "later").**
      Offer to scaffold a starter `.claude/second-shift/review-context.md` so reviewers key on
      named sections instead of inferring from the diff. **What it buys: every panel reviewer
      self-loads it, so stack, severity calibration and known-accepted patterns are stated once
@@ -178,7 +166,7 @@ Ask AT MOST one AskUserQuestion batch, containing ONLY (skip any that detection 
      review-context surface"). To write it, pipe confirmed H2 blocks to
      `bash "<installPath>/skills/onboard/tools/scaffold-review-context.sh" <repo-root> --title "<repo>"`,
      then run `check-review-context-sections.sh --preflight <repo-root>` to confirm it is clean.
-  9. **CI workflows (ONE offer; the server-side backstop plus the close-out step):** "Emit the
+  8. **CI workflows (ONE offer; the server-side backstop plus the close-out step):** "Emit the
      consumer-repo CI workflows — (a) on every PR, config-lint the committed config with the
      linter shipped AT the pinned marketplace ref and assert the settings ref and lockfile ref
      agree, so a half-done upgrade PR is caught server-side, and on a pipeline PR check its
@@ -236,19 +224,10 @@ capability that is off simply never runs and the run still reports green.
 - Every entry in `findings[]` renders as a **blocking line** at the top of the accept-or-edit
   screen: the finding's `evidence`, then its `proposal` verbatim. The proposal names the
   benefit; do not paraphrase it down to a key name, which motivates nobody.
-- Every entry in `unadopted[]` renders as a **blocking line too**, identically — evidence, then
-  proposal verbatim. These are optional seams nothing else in this skill mentions, so the screen
-  is the only place they are ever named; a human who has never heard of one cannot decline it.
-  Doctor renders the same entries as informational notes (an optional key at its default is not
-  a defect); onboard blocks on them because here one edit closes it — which is load-bearing, not
-  incidental. An unadopted row whose "adopt" arm has stopped being reachable is a deadlock, and
-  the row is what has to go: that is why #569 deleted `T1.extension-points` along with the three
-  config keys it proposed rather than leaving a row only a waiver could clear.
 - Every entry in `notEvaluated[]` renders as an informational line. It is **not** a finding —
   it has no proposal, cannot be waived, and must never block acceptance.
-- The checker **re-runs on each loop iteration**, and "no unwaived `findings[]` and no unwaived
-  `unadopted[]`" is the accept predicate: the screen cannot be accepted while either is neither
-  adopted nor waived.
+- The checker **re-runs on each loop iteration**, and "no unwaived `findings[]`" is the accept
+  predicate: the screen cannot be accepted while one is unwaived.
 - A waiver is a `grillWaivers` entry — `{"<check id>": "<reason>"}`, keyed by the entry's
   `id` — typed into the draft on that same screen. **Never author a reason on the human's
   behalf and never propose one**: an invented reason is a waiver with no accountability. Offer
@@ -357,7 +336,7 @@ Also emit the consent doc:
 2. If the repo has a `CLAUDE.md`, offer (in the SAME final message — never a new interview,
    never silently): append `- Toolkit consent + inventory: .claude/SECOND-SHIFT.md` to it.
 
-Also emit the CI workflows — **only when accepted in Step 3 item 9** (skip this entire block
+Also emit the CI workflows — **only when accepted in Step 3 item 8** (skip this entire block
 otherwise; they are opt-in, not part of the default emitted set). One acceptance covers both
 pairs; there is no second question:
 1. **evidence:** copy `${CLAUDE_PLUGIN_ROOT}/templates/consumer/second-shift-ci-check.sh` to
@@ -466,7 +445,7 @@ pairs; there is no second question:
    scheduler exits 3, unintaken) — then `/dev-pipeline:run <ticket>`.
 6. Remind: commit `.claude/settings.json`, `.claude/second-shift.config.json`,
    `.claude/second-shift.lock.json`, `.claude/tools/second-shift-doctor.sh`, and
-   `.claude/SECOND-SHIFT.md` in one PR — **plus**, per CI workflow accepted at Step 3 item 9,
+   `.claude/SECOND-SHIFT.md` in one PR — **plus**, per CI workflow accepted at Step 3 item 8,
    its pair in the same PR: `.github/workflows/second-shift-ci.yml` +
    `.claude/tools/second-shift-ci-check.sh` for evidence,
    `.github/workflows/second-shift-unclaim.yml` + `.claude/tools/second-shift-unclaim.sh`
