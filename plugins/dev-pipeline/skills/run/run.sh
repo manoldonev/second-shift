@@ -253,8 +253,11 @@ EOF
 # ---- record sections (read from the FIRST commit, never the head) ----
 FIRST=""
 record_at_first() { git -C "$WT" show "$FIRST:$RECORD_REL" 2>/dev/null; }
-section_of() { awk -v h="$1" 'tolower($0) ~ "^## "h"( |$)" {on=1; next} on && /^## /{exit} on'; } # <heading-regex> on stdin
-section() { record_at_first | section_of "$1"; }
+# The gate's heading rule, kept: the title matches at any depth, case-folded and exact, and ANY
+# heading closes the section (`#+[[:space:]]`, never `#{1,6}`: interval expressions are not portable).
+section_of() { awk -v h="$1" 'on && /^#+[[:space:]]/ {on=0; done=1} !done && tolower($0) ~ ("^#+[[:space:]]+" h "[[:space:]]*$") {on=1; next} on'; } # <title-regex> on stdin
+record_text() { if [ -n "$FIRST" ]; then record_at_first; else cat "$RECORD" 2>/dev/null; fi; } # committed once a baseline exists, else the receipt (dry-run)
+section() { record_text | section_of "$1"; }
 # the design section: the new record's `## Design frames`, or the spec form `## Design` the skills write
 design_section_of() { section_of "design( frames)?"; }
 # shellcheck disable=SC2016  # the backticks are markdown, not shell
@@ -305,7 +308,7 @@ EOF
 }
 allow_unverified() { local key; key="$(commands_key)"; [ -n "$key" ] && [ "$(jq -r --arg k "$key" '.commands[$k].allowUnverified // false' "$CONFIG" 2>/dev/null)" = true ]; }
 checks_list() { { config_checks "${1:-}"; record_checks; } | awk 'NF && !seen[$0]++'; }
-frames_rows() { record_at_first | design_section_of | grep -E '^\| *RS-[0-9]+ *\|' | sed 's/^| *//; s/ *| */|/g; s/ *|$//'; }
+frames_rows() { record_text | design_section_of | grep -E '^\| *RS-[0-9]+ *\|' | sed 's/^| *//; s/ *| */|/g; s/ *|$//'; }
 
 # ---- the two prompts ----
 build_prompt() { # build_prompt <round> <findings-file-or-empty>
@@ -506,7 +509,12 @@ write_run_block() { # <terminal slug>
 }
 # ================================ the run ================================
 say "run $RUN_ID: issue $ISSUE, tracker $TRACKER (writes $TRACKER_WRITES), branch $BRANCH, worktree $WT, record $RECORD_REL"
-[ -f "$RECORD" ] || terminal env-no-record "no intake record at $RECORD — run /intake-toolkit:plan-interview $ISSUE first"
+committed_record_exists() { # the branch already carries the record: the receipt on disk is no longer read at all
+  git -C "$MAIN_ROOT" fetch -q origin "$BRANCH" 2>/dev/null || true
+  local ref; for ref in "refs/remotes/origin/$BRANCH" "refs/heads/$BRANCH"; do git -C "$MAIN_ROOT" cat-file -e "$ref:$RECORD_REL" 2>/dev/null && return 0; done; return 1
+}
+if committed_record_exists; then RECORD_SOURCE=committed; say "record: already committed on $BRANCH — the receipt on disk is not consulted"
+else RECORD_SOURCE=receipt; [ -f "$RECORD" ] || terminal env-no-record "no intake record at $RECORD — run /intake-toolkit:plan-interview $ISSUE first"; fi
 validate_lanes
 # On a design-provider repo every ticket says which it is: armed (frames rows) or disarmed with a reason
 # (`Design: none — <reason>`). Neither is the silent case the old gate refused (#705); the operator
@@ -522,8 +530,8 @@ design_declared() { # design_declared <file-or-"committed">: reads the design SE
   fi
   return 1
 }
-# early, on the receipt, so a fresh run refuses before it claims; the committed record is re-checked below and is what counts
-design_declared "$RECORD" || terminal env-design-undeclared "design.provider is configured but the record's design section ('## Design frames' or '## Design') neither carries RS rows nor a 'Design: none — <reason>' line — a UI ticket cannot skip the render silently"
+# early, on the receipt, so a FRESH run refuses before it claims; the committed record is re-checked below and is what counts
+[ "$RECORD_SOURCE" = committed ] || design_declared "$RECORD" || terminal env-design-undeclared "design.provider is configured but the record's design section ('## Design frames' or '## Design') neither carries RS rows nor a 'Design: none — <reason>' line — a UI ticket cannot skip the render silently"
 if [ "$DRY" -eq 1 ]; then say "dry-run: would claim, create the worktree, commit the record, and run up to $MAX_ROUNDS rounds; checks: $(checks_list all 2>/dev/null | tr '\n' ';')"; echo "terminal: dry-run"; exit 0; fi
 st="$(issue_state)"; [ -n "$st" ] || terminal env-tracker-unreadable "could not read #$ISSUE from the tracker"
 [ "$st" = OPEN ] || terminal env-ticket-closed "#$ISSUE is not open — nothing spawned, a preflight refusal like any other"

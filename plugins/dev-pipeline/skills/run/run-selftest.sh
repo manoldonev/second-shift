@@ -456,10 +456,12 @@ fixture z12; printf 'build-nothing\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; [ "$
 #      mid-run and an unreadable tracker at verdict time are environment refusals
 FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"design":{"provider":"figma","liveRender":{"command":"true"}}}' fixture aa1 "- true" $'\n## Design\n\nDesign: none — first run\n'
 printf 'build-pr\nreview-needs-work\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d" --max-rounds 1; expect rounds-spent "(aa1) first run, committed with Design: none"
-# the operator now edits the on-disk receipt to arm frames, but the committed record still says none: the run must not read the receipt
-printf '\n## Design frames\n\n| RS | route | state | frame | must-show |\n| --- | --- | --- | --- | --- |\n| RS-1 | a | default | 1:2 | ok |\n' >> "$d/main/.claude/pipeline-state/42-ledger.md"
-printf 'build-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; : > "$FAKE_GH/calls"; printf 'in-progress\nopus\n' > "$FAKE_GH/labels"; run_case "$d" --resume; expect approved "(aa1) resumed run"
-grep -q 'arms no render state' <<<"$OUT" && ! grep -q 'figma-faithful' "$FAKE_GH/prompt-1.txt" && ok "(aa1) the resumed run reads the COMMITTED record (still disarmed), not the edited receipt" || bad "(aa1) the receipt leaked into the run"
+# the receipt on disk is now DELETED and replaced by one with no design section at all: a resume must
+# read only the committed record (declared, none-with-reason) and never the receipt
+printf '# record\n\n## Checks\n\n- true\n' > "$d/main/.claude/pipeline-state/42-ledger.md"
+printf 'build-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; : > "$FAKE_GH/calls"; printf 'in-progress\nopus\n' > "$FAKE_GH/labels"; run_case "$d" --resume; expect approved "(aa1) a resume reads the committed record, not a receipt that now says nothing"
+grep -q 'receipt on disk is not consulted' <<<"$OUT" && ok "(aa1) the receipt was not consulted on resume" || bad "(aa1) the receipt was read on resume"
+rm -f "$d/main/.claude/pipeline-state/42-ledger.md"; : > "$FAKE_GH/calls"; printf 'in-progress\nopus\n' > "$FAKE_GH/labels"; run_case "$d" --resume; expect approved "(aa1) a resume with NO receipt on disk still runs (an absent ledger is not an error once the record is committed)"
 fixture aa2; printf 'build-kill-remote\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect env-remote-unreadable "(aa2) a remote that dies after the build is a refusal, not 'the head did not move'"
 [ "$RC" -eq 2 ] && ok "(aa2) exits 2" || bad "(aa2) exit $RC"
 fixture aa3; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"
@@ -468,6 +470,14 @@ cat > "$T/bin/gh-comments-dead" <<EOF
 if [ "\$1" = api ] && [[ "\$2" == *comments* ]]; then exit 1; fi; exec "$T/bin/gh" "\$@"
 EOF
 chmod +x "$T/bin/gh-comments-dead"; RUN_GH="$T/bin/gh-comments-dead" run_case "$d"; expect env-tracker-unreadable "(aa3) an unreadable comment listing at verdict time is an environment refusal, not review-unbound"
+
+# (ab) round-fourteen parity: the gate's heading rule, and dry-run reads the receipt's checks
+FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"design":{"provider":"figma","liveRender":{"command":"true"}}}' fixture ab1 "- true" $'\n### DESIGN\n\nDesign: none — depth three, upper case\n\n## Design frames\n\n| RS | route | state | frame | must-show |\n| --- | --- | --- | --- | --- |\n| RS-1 | a | default | 1:2 | ok |\n'
+printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(ab1) the FIRST design section decides (disarmed), a later one does not merge into it; any depth, any case"
+grep -q 'arms no render state' <<<"$OUT" && ok "(ab1) not armed" || bad "(ab1) the second section leaked"
+FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"design":{"provider":"figma","liveRender":{"command":"true"}}}' fixture ab2 "- true" $'\n## Design notes\n\nDesign: none — a heading with trailing words is not the design section\n'
+run_case "$d"; expect env-design-undeclared "(ab2) '## Design notes' is not the design section"
+fixture ab3 "- echo CHECK-FROM-RECORD"; run_case "$d" --dry-run; grep -q 'CHECK-FROM-RECORD' <<<"$OUT" && ok "(ab3) dry-run lists the record's own checks before any commit exists" || bad "(ab3) dry-run omitted the record's checks"
 
 # (m) rounds spent
 fixture m; printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-needs-work\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d" --max-rounds 2; expect rounds-spent "(m) two needs-work rounds"
