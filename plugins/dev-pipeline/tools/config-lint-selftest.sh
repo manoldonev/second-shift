@@ -154,7 +154,10 @@ expect_violation invalid-webcomponentglobs-entry.json "stageParams.webComponentG
 # valid-*.json loop above) proves the top-level allowlist accepts the key at all — without that
 # entry the whole surface reds as an unknown top-level key, which is the failure mode a
 # consumer would hit first. An empty reason is a waiver with no accountability, and a
-# non-object is not a waiver map.
+# non-object is not a waiver map. Its `T4.mutation-plumbing.app` entry is now a RETIRED check
+# id (#877 deleted the check) kept there deliberately: the lint validates a waiver's shape only
+# (object, non-empty string) and never checks the key against a set of known ids, so this pins
+# that a retired id still lints clean rather than being flagged unknown.
 expect_violation invalid-grillwaivers.json          "grillWaivers.T2.formatGlob: must be a non-empty reason string"
 expect_violation invalid-grillwaivers-type.json     "grillWaivers: must be an object keyed by config-grill check id"
 

@@ -197,7 +197,7 @@
       "description": "Optional pipeline gates/capabilities. Everything defaults to off; a gate that is on but missing its prerequisites must fail closed at run time.",
       "additionalProperties": false,
       "properties": {
-        "mutation": { "type": "boolean", "default": false, "description": "false declares the mutation seam deliberately off (an explicit off-switch a reader can see, as opposed to the silent absence of a sweep). Absent/true = the seam is expected. The mutation seam is repo-carried AND repo-run: ship tools/mutation-sweep.sh and wire it on your own merge boundary. No second-shift gate executes it — #580 retired the milestone-gate milestone-3 lane that used to, because it duplicated the PR check. So this key is the declared INTENT that onboard's config-grill grades that plumbing against, and has never been a switch any gate reads." }
+        "mutation": { "type": "boolean", "default": false, "description": "false declares the mutation seam deliberately off; absent/true reads as intent either way, but nothing in second-shift reads this key any more (#877 retired config-grill's grading of it against a repo-carried tools/mutation-sweep.sh — no second-shift gate has executed that sweep since #580 either). Accepted by config-lint so no existing config turns red; removed from the schema at the next batched major. If you still want mutation coverage, carry tools/mutation-sweep.sh yourself and wire it on your own merge boundary — that mechanism is unaffected, only the grading is gone." }
       }
     },
     "design": {
@@ -271,7 +271,7 @@
     },
     "grillWaivers": {
       "type": "object",
-      "description": "Declared opt-outs for config-grill findings — the checker /second-shift:onboard runs on its draft and /second-shift:doctor runs on the committed config, which reports a capability that is detectably OFF. config-lint cannot see any of it: absence is legal for every optional key, so a structural validator never touches the tree. Keys are CHECK IDS, carrying the repo id wherever the check is per-repo (e.g. \"T4.mutation-plumbing.api\"): a dotted config path would silence two distinct checks that share a key, and a bare check id would silence every repo under a multi-repo topology. The value is the human-authored reason — never synthesized by a tool. Same shape as commands.<repo>.allowUnverified: a deliberate declared opt-out, visible in a reviewable diff. Additive and optional, so configVersion stays at 2.",
+      "description": "Declared opt-outs for config-grill findings — the checker /second-shift:onboard runs on its draft and /second-shift:doctor runs on the committed config, which reports a capability that is detectably OFF. config-lint cannot see any of it: absence is legal for every optional key, so a structural validator never touches the tree. Keys are CHECK IDS, carrying the repo id wherever the check is per-repo (e.g. \"T5.missing-script.api.lint\"): a dotted config path would silence two distinct checks that share a key, and a bare check id would silence every repo under a multi-repo topology. The value is the human-authored reason — never synthesized by a tool. Same shape as commands.<repo>.allowUnverified: a deliberate declared opt-out, visible in a reviewable diff. Additive and optional, so configVersion stays at 2.",
       "additionalProperties": { "type": "string", "minLength": 1 }
     }
   }

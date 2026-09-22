@@ -17,5 +17,8 @@
       "lint": "yarn lint",
       "test": "yarn test"
     }
+  },
+  "design": {
+    "provider": "figma"
   }
 }
