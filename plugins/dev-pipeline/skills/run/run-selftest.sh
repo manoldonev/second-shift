@@ -259,6 +259,7 @@ fixture q2; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; printf 'i
 echo 'x <!-- stage: lean-claimed --> y' >> "$FAKE_GH/issue-comments"; jq '. + [{body:"<!-- run_id: old -->\n<!-- stage: lean-claimed -->",user:{login:"tester",type:"User"},created_at:"2020-01-01T00:00:00Z",updated_at:"2020-01-01T00:00:00Z"}]' "$FAKE_GH/comments.json" > "$FAKE_GH/c.tmp" && mv "$FAKE_GH/c.tmp" "$FAKE_GH/comments.json"
 run_case "$d"; expect approved "(q2) claimed label + lane marker re-enters without --resume"
 grep -q 'approved' "$FAKE_GH/issue-comments" && ok "(q2) closing comment posted on a re-entered run" || bad "(q2) no closing comment on re-entry"
+[ "$(grep -c 'stage: lean-claimed' "$FAKE_GH/issue-comments")" = 1 ] && [ "$(grep -c '^in-progress$' "$FAKE_GH/labels")" = 1 ] && ok "(q2) [K2 K10] re-entry posts no marker and swaps no label" || bad "(q2) [K2 K10] re-entry wrote to the tracker: markers=$(grep -c 'stage: lean-claimed' "$FAKE_GH/issue-comments") labels=$(tr '\n' ' ' < "$FAKE_GH/labels")"
 fixture q3 "- false"; printf 'build-pr\nbuild-push-only\nbuild-push-only\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=3 run_case "$d"; expect checks-red-spent "(q3) three red attempts"
 [ -f "$(SD)/build-1.1.json" ] && [ -f "$(SD)/build-1.3.json" ] && ok "(q3) every attempt keeps its own evidence file" || bad "(q3) attempt evidence overwritten"
 fixture q4; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"
@@ -753,6 +754,29 @@ OUT="$( cd "$d/main" && GH="$T/bin/gh" env -u RUN_GH bash "$RUN" 42 2>&1 )"; RC=
 expect approved "[A21] GH names the tracker CLI when RUN_GH is unset"
 FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"commands":{"main":{"lint":"true","format":"false"}}}' fixture ar15 ""
 printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=1 run_case "$d"; expect checks-red-spent "[C16] .format runs as a check"
+
+# ---- rows, audit round 3 (guards only) ----
+# H8: a render that writes an image and still exits non-zero is red on its exit code
+FIXTURE_CONFIG="{\"tracker\":{\"type\":\"github\",\"branchPrefix\":\"second-shift/\"},\"paths\":{\"plansDir\":\"docs/plans\"},\"design\":{\"provider\":\"figma\",\"liveRender\":{\"command\":\"cp $T/px.png {out}; false\",\"smokeCommand\":\"true\"}}}" fixture as1 "- true" $'\n## Design frames\n\n| RS | route | state | frame | must-show |\n| --- | --- | --- | --- | --- |\n| RS-1 | a | default | 1:2 | ok |\n'
+printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=1 run_case "$d"; expect checks-red-spent "[H8] an image written by a render that exited non-zero is still red"
+grep -q 'render failed' "$(SD)/smoke-1.1.log" && ok "[H8] the log names the exit, not the image" || bad "[H8] log: $(cat "$(SD)/smoke-1.1.log" | tr '\n' '|' | cut -c1-160)"
+
+# C18: a setup lane runs in its own cwd
+FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"commands":{"main":{"lanes":[{"name":"setup","cwd":"src","commands":["test -f a.ts"]}],"lint":"true"}}}' fixture as2 ""
+printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "[C18] the setup lane's command ran in src/ (a.ts exists only there)"
+
+# C20: an extraLanes entry with no `when` always runs
+FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"commands":{"main":{"extraLanes":[{"name":"always","commands":["false"]}]}}}' fixture as3 ""
+printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=1 run_case "$d"; expect checks-red-spent "[C20] a lane with no when globs runs on every diff"
+
+# E15: an earlier block with no terminator is replaced and the loss is said in the body
+fixture as4; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"
+cat > "$T/bin/gh-noterm" <<EOF
+#!/usr/bin/env bash
+if [ "\$1 \$2" = "api repos/o/r/pulls/7" ]; then printf '{"body":"built-by: fake\\n\\n<!-- pipeline-cost-block -->\\nold block line\\nno terminator here\\n"}'; else exec "$T/bin/gh" "\$@"; fi
+EOF
+chmod +x "$T/bin/gh-noterm"; RUN_GH="$T/bin/gh-noterm" run_case "$d"; expect approved "[E15] run against a block with no terminator"
+grep -q 'had no terminator; text below it was not preserved' "$FAKE_GH/pr-body.md" && ! grep -q 'old block line' "$FAKE_GH/pr-body.md" && ok "[E15] the body says what was not preserved" || bad "[E15] body: $(tr '\n' '|' < "$FAKE_GH/pr-body.md" | cut -c1-200)"
 
 # (m) rounds spent
 fixture m; printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-needs-work\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d" --max-rounds 2; expect rounds-spent "(m) two needs-work rounds"
