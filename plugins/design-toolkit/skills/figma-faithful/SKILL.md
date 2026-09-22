@@ -252,18 +252,24 @@ stretch on an incomplete wrap row, fixed dimensions applied, overflow truncated.
 block-level rhythm, placement, and sizing behavior are exactly what an isolated-node read
 misses — verify them against the parent, not against the file you started from.
 
-**Live-render verify (when a dev server is reachable — the strongest check).** The token table
-and a Figma-blind code reviewer cannot see layout _behavior_, _placement_, or _default state_ in
-the running app. When the consumer config defines `design.liveRender`, its command is the canonical
-render mechanism (the dev-pipeline live-render gate runs it — marketplace `docs/live-render.md`);
-otherwise, when a dev server is up, render the implemented screen (e.g. with a headless Playwright
-script at the feature URL). Screenshot it and compare against the cached Figma frame for:
-placement (each control under the right container — a field in the right rail, not the content
-column), sizing/fill (no unintended stretch on an incomplete row; fixed dimensions hold —
-measure the rendered rects where decisive), truncation, and default/empty state (no field
-renders empty-with-a-validation-error on load). This catches what every static gate misses: a
-token table and a Figma-blind reviewer can all pass while the grid stretches, a control sits in
-the wrong column, or an input loads empty — only a live render against the design surfaces those.
+**Live-render verify — mandatory.** The token table and a Figma-blind code reviewer cannot see
+layout _behavior_, _placement_, or _default state_ in the running app. Render every screen state
+you built, open the image, and compare it against the cached Figma frame — up to three rounds per
+screen: render, open the image, compare with the frame, fix what differs. When the consumer
+config defines `design.liveRender`, its command is the canonical render mechanism (the
+dev-pipeline live-render gate runs it — marketplace `docs/live-render.md`); otherwise, when a dev
+server is up, render the implemented screen (e.g. with a headless Playwright script at the feature
+URL). Compare the screenshot against the cached Figma frame for: placement (each control under the
+right container — a field in the right rail, not the content column), sizing/fill (no unintended
+stretch on an incomplete row; fixed dimensions hold — measure the rendered rects where decisive),
+truncation, and default/empty state (no field renders empty-with-a-validation-error on load). An
+error page, a login page, or a spinner in the render is not done — that state is not the screen
+you built; fix it and re-render. This catches what every static gate misses: a token table and a
+Figma-blind reviewer can all pass while the grid stretches, a control sits in the wrong column, or
+an input loads empty — only a live render against the design surfaces those.
+
+If no render command or dev server is available, do not silently skip the step — say so in the
+output contract as an explicit gap (item 5 below).
 
 **Output contract.** Surface, alongside the implementation:
 
@@ -273,7 +279,9 @@ the wrong column, or an input loads empty — only a live render against the des
    per the Figma frame hierarchy,
 3. the **resolved-component list** — each Figma component name → the real import used,
 4. any **Open Questions** — unresolved components, TBD copy, and off-scale values that became
-   named constants.
+   named constants,
+5. the **render evidence per screen** — what changed across rounds and the final match against
+   the frame, or, if nothing could render, the explicit line `could not render: <why>`.
 
 ## Hard rules (not advisory)
 
@@ -341,3 +349,10 @@ measured from the parent frame rather than left to whatever the existing file ha
 **Branded-surface contrast.** On a branded / host-relative surface the same group keeps
 `gap={2}` (spacing units scale with the host font), but `#383d47` becomes `text.primary` and
 `width: 220px` becomes `pxToRem(220)` — the abstraction, per step 4's branded rules.
+
+**Render round (step 9).** Round 1: render the screen, open the image — the group's inline
+indent reads flush with the radio label instead of the `22px` optical offset the token table
+recorded; the `RADIO_LABEL_INDENT` constant was applied to the wrong child. Fix it, re-render.
+Round 2: open the image again — the indent now matches the frame, the `16px` sibling gap holds,
+no stretch on the group's row. Done in two rounds; render evidence: "round 1 caught a misapplied
+`RADIO_LABEL_INDENT` (wrong child); round 2 matches the frame."
