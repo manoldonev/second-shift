@@ -32,4 +32,4 @@ plugins/second-shift/skills/doctor/tools/doctor-selftest.sh	13	2026-08-20
 tools/run-selftests-selftest.sh	12	2026-08-21
 plugins/dev-pipeline/skills/build/reconcile-selftest.sh	10	2026-08-17
 tools/lane-bench-selftest.sh	11	2026-09-07
-plugins/dev-pipeline/skills/run/run-selftest.sh	315	2026-09-22
+plugins/dev-pipeline/skills/run/run-selftest.sh	325	2026-09-22

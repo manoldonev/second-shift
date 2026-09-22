@@ -36,8 +36,8 @@
 set -uo pipefail
 
 CLAUDE="${RUN_CLAUDE:-claude}"; GH="${RUN_GH:-${GH:-gh}}"
-ISSUE=""; RECORD=""; MAX_ROUNDS=3; MODEL="${RUN_MODEL:-}"; MODEL_BASIS=""
-REVIEW_MODEL="${RUN_REVIEW_MODEL:-claude-opus-5}"; REVIEW_MODEL_BASIS=""; DRY=0; RESUME=0; DETACH=0
+ISSUE=""; RECORD=""; MAX_ROUNDS=3; MODEL=""; MODEL_BASIS=""
+REVIEW_MODEL="claude-opus-5"; REVIEW_MODEL_BASIS=""; DRY=0; RESUME=0; DETACH=0
 KEEP_ARGS=(); MAX_ROUNDS_SET=0
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -113,11 +113,13 @@ SMOKE_CMD="$(cfg .design.liveRender.smokeCommand)"
 READY_URL="$(cfg .design.liveRender.readyProbe)"
 L_QUEUE="$(cfg .tracker.labels.queue)"; L_QUEUE="${L_QUEUE:-ready-for-dev}"
 L_CLAIMED="$(cfg .tracker.labels.claimed)"; L_CLAIMED="${L_CLAIMED:-in-progress}"
-L_BLOCKERS="$(cfg '.tracker.labels.blockers | join("\n")')"; L_BLOCKERS="${L_BLOCKERS:-$(printf 'epic\nneeds-intake-review\nneeds-spec-work\nneeds-plan-review')}"
+if [ -n "$CONFIG" ] && [ "$(jq -r '.tracker.labels.blockers | type' "$CONFIG" 2>/dev/null)" = array ]; then L_BLOCKERS="$(jq -r '.tracker.labels.blockers | join("\n")' "$CONFIG")"   # [] means none
+else L_BLOCKERS="$(printf 'epic\nneeds-intake-review\nneeds-spec-work\nneeds-plan-review')"; fi
 REPO_SLUG="$(basename "$MAIN_ROOT")"
 SKILL_DIR="$(cd "$(dirname "$0")" && pwd)"
 TOOLS="$(cd "$SKILL_DIR/../../tools" && pwd)"
 if [ -n "$KEY_PATTERN" ] && ! printf '%s' "$ISSUE" | grep -qiE "^($KEY_PATTERN)$"; then terminal usage-key "'$ISSUE' does not match tracker.keyPattern '$KEY_PATTERN'"; fi
+if [ "$TRACKER" = github ] && ! printf '%s' "$ISSUE" | grep -qE '^[1-9][0-9]*$'; then terminal usage-key "'$ISSUE' is not a github issue number (a zero-padded or non-numeric key would derive a lane nobody can reconstruct)"; fi
 # The lane's own tracker writes go through the bot when the consumer configured one, as before
 # (tools/gh-bot.sh is the one resolution ladder); a disabled or unresolvable bot means plain gh.
 # Reads stay on the operator's gh (GH_READ); only the lane's writes go through the bot, as before.
@@ -535,13 +537,13 @@ design_declared() { # design_declared <file-or-"committed">: reads the design SE
 if [ "$DRY" -eq 1 ]; then say "dry-run: would claim, create the worktree, commit the record, and run up to $MAX_ROUNDS rounds; checks: $(checks_list all 2>/dev/null | tr '\n' ';')"; echo "terminal: dry-run"; exit 0; fi
 st="$(issue_state)"; [ -n "$st" ] || terminal env-tracker-unreadable "could not read #$ISSUE from the tracker"
 [ "$st" = OPEN ] || terminal env-ticket-closed "#$ISSUE is not open — nothing spawned, a preflight refusal like any other"
-claim
-if [ -z "$MODEL" ]; then
+if [ -z "$MODEL" ]; then # before the claim: an unsized ticket is refused with nothing written to the tracker
   if has_label opus; then MODEL=claude-opus-5; MODEL_BASIS="label"; elif has_label sonnet; then MODEL=claude-sonnet-5; MODEL_BASIS="label"
   elif [ "$TRACKER" != github ]; then terminal usage-model "under $TRACKER pass --build-model: there is no sizing label to read"
   else terminal usage-model "#$ISSUE carries neither opus nor sonnet — intake sizes tickets, this scheduler does not (pass --build-model to override)"; fi
 fi
 say "models: build $MODEL (${MODEL_BASIS:-flag}), review $REVIEW_MODEL (${REVIEW_MODEL_BASIS:-default})"
+claim
 
 # worktree on the branch; the record is the first commit, pushed before any build starts
 git -C "$MAIN_ROOT" fetch -q origin || true
@@ -580,6 +582,9 @@ while [ "$ROUND" -lt "$MAX_ROUNDS" ]; do
   premise_holds
 
   # ---- build ----
+  # the worktree is the pushed head before every session: a review that left it detached must not make
+  # the next build's push a no-op that reads as build-inflight
+  git -C "$WT" checkout -q "$BRANCH" 2>/dev/null && git -C "$WT" fetch -q origin "$BRANCH" && git -C "$WT" reset -q --hard "origin/$BRANCH" || terminal env-worktree "cannot put $WT on origin/$BRANCH before the build"
   before="$(remote_head)" || terminal env-remote-unreadable "cannot read origin's $BRANCH before the build"
   ATTEMPT=$((ATTEMPT+1)); A="$ROUND.$ATTEMPT"
   build_prompt "$ROUND" "$FINDINGS" > "$STATE/build-$A.prompt"

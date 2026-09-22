@@ -79,6 +79,8 @@ case "$plan" in
     ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
     jq --arg b "verdict: $v"$'\n'"reviewed: $sha"$'\n'"| D-1 | honored |" --arg t "$ts" '. + [{body:$b,created_at:$t,updated_at:$t}]' "$S/comments.json" > "$S/c.tmp" && mv "$S/c.tmp" "$S/comments.json" ;;
   review-silent)   : ;;
+  review-detach)   git checkout -q --detach "origin/$branch"; sha=$(git rev-parse "origin/$branch"); ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    jq --arg b "verdict: needs-work"$'\n'"reviewed: $sha" --arg t "$ts" '. + [{body:$b,created_at:$t,updated_at:$t}]' "$S/comments.json" > "$S/c.tmp" && mv "$S/c.tmp" "$S/comments.json" ;;
 esac
 printf '{"subtype":"success","total_cost_usd":%s,"num_turns":3,"permission_denials":[{"tool_name":"Bash","tool_input":{"command":"ls /"}}]}\n' "$cost"
 EOF
@@ -187,7 +189,7 @@ fixture k; printf 'build-delete-test\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; r
 grep -q 'a.spec.ts' "$(SD)/review-1.1.prompt" && ok "(k) deleted spec named in the review input" || bad "(k) deleted spec not surfaced"
 
 # (l) claimed elsewhere, ticket closed, cost ceiling, no record
-fixture l; echo in-progress > "$FAKE_GH/labels"; run_case "$d"; expect claimed-elsewhere "(l1) in-progress label without --resume"
+fixture l; printf 'in-progress\nopus\n' > "$FAKE_GH/labels"; run_case "$d"; expect claimed-elsewhere "(l1) in-progress label without --resume"
 [ ! -d "$d/wt/42" ] && ok "(l1) no worktree created" || bad "(l1) worktree created despite refusal"
 fixture l2; echo CLOSED > "$FAKE_GH/state"; run_case "$d"; expect env-ticket-closed "(l2) a ticket closed at launch is a preflight refusal"
 [ "$RC" -eq 2 ] && ok "(l2) exits 2, like every preflight refusal" || bad "(l2) exit $RC"
@@ -200,6 +202,7 @@ fixture l5; run_case "$d" --dry-run; expect dry-run "(l5) dry-run spawns nothing
 fixture n1; printf 'opus\n' > "$FAKE_GH/labels"; run_case "$d"; expect not-queued "(n1) no queue label"
 fixture n2; printf 'ready-for-dev\nopus\nepic\n' > "$FAKE_GH/labels"; run_case "$d"; expect not-queued "(n2) blocker label refuses pickup"
 fixture n3; printf 'ready-for-dev\n' > "$FAKE_GH/labels"; run_case "$d"; expect usage-model "(n3) unlabeled ticket is not sized here"
+grep -qx ready-for-dev "$FAKE_GH/labels" && [ ! -f "$FAKE_GH/issue-comments" ] && ok "(n3) refused BEFORE the claim: still queued, nothing written" || bad "(n3) the claim ran before the sizing refusal"
 fixture n4; printf 'ready-for-dev\n' > "$FAKE_GH/labels"; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d" --model claude-sonnet-5 --review-model claude-sonnet-5 --review-model-basis "test"; expect approved "(n4) --model overrides the missing label"
 grep -q 'models: build claude-sonnet-5 (flag), review claude-sonnet-5 (test)' <<<"$OUT" && ok "(n4) override models logged" || bad "(n4) override not applied"
 fixture n5; printf '{"tracker":{"type":"github","branchPrefix":"claude/acme-"},"paths":{"plansDir":"docs/plans"}}\n' > "$d/main/.claude/second-shift.config.json"; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"
@@ -478,6 +481,13 @@ grep -q 'arms no render state' <<<"$OUT" && ok "(ab1) not armed" || bad "(ab1) t
 FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"design":{"provider":"figma","liveRender":{"command":"true"}}}' fixture ab2 "- true" $'\n## Design notes\n\nDesign: none — a heading with trailing words is not the design section\n'
 run_case "$d"; expect env-design-undeclared "(ab2) '## Design notes' is not the design section"
 fixture ab3 "- echo CHECK-FROM-RECORD"; run_case "$d" --dry-run; grep -q 'CHECK-FROM-RECORD' <<<"$OUT" && ok "(ab3) dry-run lists the record's own checks before any commit exists" || bad "(ab3) dry-run omitted the record's checks"
+
+# (ac) round-fifteen parity: [] blockers, github key shape, a detached worktree after review, no ambient model seam
+FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/","labels":{"blockers":[]}},"paths":{"plansDir":"docs/plans"}}' fixture ac1
+printf 'ready-for-dev\nopus\nepic\n' > "$FAKE_GH/labels"; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(ac1) blockers: [] means no blocker labels, so epic does not block"
+fixture ac2; OUT="$( cd "$d/main" && bash "$RUN" 0042 2>&1 )"; RC=$?; TERM_SLUG="$(printf '%s\n' "$OUT" | sed -n 's/^terminal: //p' | tail -n 1)"; expect usage-key "(ac2) a zero-padded github key is refused, as the gate refused it"
+fixture ac3; printf 'build-pr\nreview-detach\nbuild-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(ac3) a review that left the worktree detached does not make the next build read as inflight"
+fixture ac4; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; RUN_MODEL=claude-sonnet-5 run_case "$d"; grep -q 'models: build claude-opus-5 (label)' <<<"$OUT" && ok "(ac4) an ambient RUN_MODEL does not override the ticket's label" || bad "(ac4) RUN_MODEL leaked"
 
 # (m) rounds spent
 fixture m; printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-needs-work\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d" --max-rounds 2; expect rounds-spent "(m) two needs-work rounds"
