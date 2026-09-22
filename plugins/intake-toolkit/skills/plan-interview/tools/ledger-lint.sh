@@ -649,7 +649,9 @@ if (( RECEIPT == 1 )); then
   DESIGN_SEC="$(section_of 'design( frames)?' "$PLAN")"
   DISARMED=0
   if grep -qiE '^[[:space:]]*Design:[[:space:]]*none([[:space:]]|$)' <<< "$DESIGN_SEC"; then
-    if grep -qiE '^[[:space:]]*Design:[[:space:]]*none[[:space:]]+[^[:space:]]' <<< "$DESIGN_SEC"; then
+    # Stricter than the scheduler, which takes any non-space after 'none' (so a bare dash):
+    # the reason must carry a word. A receipt that passes here still passes there.
+    if grep -qiE '^[[:space:]]*Design:[[:space:]]*none[[:space:]]+.*[[:alnum:]]' <<< "$DESIGN_SEC"; then
       DISARMED=1
     else
       violate "Design frames disarms this ticket but states no reason — the form is 'Design: none — <reason>'"

@@ -865,6 +865,14 @@ SECOND_SHIFT_CONFIG="$TMP/config-design.json" ck_lint "$TMP/df-disarm.md"
 [[ "$rc" -eq 0 ]] \
   && pass "(ll-df5b) 'Design: none — <reason>' → 0" \
   || fail "(ll-df5b) reasoned disarm — rc=$rc err=$err"
+# (ll-df5c) a dash with nothing after it is not a reason
+for bare in 'Design: none —' 'Design: none - ' 'Design: none --'; do
+  df_with '## Design frames' "$bare" > "$TMP/df-dash.md"
+  SECOND_SHIFT_CONFIG="$TMP/config-design.json" ck_lint "$TMP/df-dash.md"
+  [[ "$rc" -eq 1 ]] && grep -q "disarms this ticket but states no reason" <<< "$err" \
+    && pass "(ll-df5c) '$bare' (a dash, no reason) → 1, named" \
+    || fail "(ll-df5c) dash-only disarm '$bare' — rc=$rc err=$err"
+done
 
 # (ll-df6) a row with an empty must-show cell → 1: it is the route smoke's only assertion.
 # Driven on a repo WITHOUT a provider too — the smoke reads rows wherever they are.
