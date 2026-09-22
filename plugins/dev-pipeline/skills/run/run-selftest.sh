@@ -534,6 +534,7 @@ fixture ad2; mkdir -p "$d/wt"; git -C "$d/main" worktree add -q -b other "$d/wt/
 fixture ra; OUT="$( cd "$d/main" && bash "$RUN" 42 43 2>&1 )"; RC=$?; TERM_SLUG="$(printf '%s\n' "$OUT" | sed -n 's/^terminal: //p' | tail -n 1)"
 expect usage-unexpected-argument "[A2] a second positional argument is refused, never silently taken as the ticket"; [ "$RC" -eq 2 ] && ok "[A2] exit 2" || bad "[A2] exit $RC"
 OUT="$( cd "$d/main" && bash "$RUN" 42 --review-model "" 2>&1 )"; TERM_SLUG="$(printf '%s\n' "$OUT" | sed -n 's/^terminal: //p' | tail -n 1)"; expect usage-empty-review-model "[A8] an empty --review-model has its own slug"
+OUT="$( cd "$d/main" && bash "$RUN" 42 --record /tmp/x.md 2>&1 )"; TERM_SLUG="$(printf '%s\n' "$OUT" | sed -n 's/^terminal: //p' | tail -n 1)"; expect usage-unknown-option "[A15] --record is not a flag: the receipt lives at its one conventional path"
 OUT="$( cd "$d/main" && bash "$RUN" 42 --max-continuations 3 2>&1 )"; RC=$?; TERM_SLUG="$(printf '%s\n' "$OUT" | sed -n 's/^terminal: //p' | tail -n 1)"; expect usage-max-continuations "[A10] the retired --max-continuations is named, not 'unknown option'"; [ "$RC" -eq 2 ] && ok "[A10] exit 2" || bad "[A10] exit $RC"
 
 # A18: --detach with an uncreatable log dir refuses before detaching

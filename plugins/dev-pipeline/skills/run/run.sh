@@ -3,7 +3,7 @@
 #
 # usage: run.sh <issue> [--build-model|--model <id>] [--model-basis <text>]
 #               [--review-model <id>] [--review-model-basis <text>]
-#               [--record <path>] [--max-rounds N] [--dry-run] [--resume] [--detach]
+#               [--max-rounds N] [--dry-run] [--resume] [--detach]
 #   The build model comes from the ticket's `opus` / `sonnet` label; --build-model overrides.
 #   Review defaults to `opus`; a departure needs --review-model-basis. The short forms `opus` /
 #   `sonnet` are passed through to `claude --model`, which resolves them to the current model of
@@ -56,7 +56,7 @@ set -uo pipefail
 usage_refusal() { echo "run.sh: $2" >&2; echo "terminal: $1"; exit 2; }
 CLAUDE="${RUN_CLAUDE:-claude}"; GH="${RUN_GH:-${GH:-gh}}"
 REVIEW_MODEL_DEFAULT="opus"
-ISSUE=""; RECORD=""; MAX_ROUNDS=3; MAX_ROUNDS_SET=0; BUILD_MODEL=""; MODEL_BASIS=""
+ISSUE=""; MAX_ROUNDS=3; MAX_ROUNDS_SET=0; BUILD_MODEL=""; MODEL_BASIS=""
 REVIEW_MODEL="$REVIEW_MODEL_DEFAULT"; REVIEW_MODEL_BASIS=""; DRY_RUN=0; RESUME=0; DETACH=0
 KEEP_ARGS=()   # what a detached run re-executes with: everything but --detach
 while [ $# -gt 0 ]; do
@@ -65,7 +65,6 @@ while [ $# -gt 0 ]; do
     --model-basis)          MODEL_BASIS="${2-}"; KEEP_ARGS+=("$1" "${2-}"); shift 2 ;;
     --review-model)         REVIEW_MODEL="${2-}"; KEEP_ARGS+=("$1" "${2-}"); shift 2 ;;
     --review-model-basis)   REVIEW_MODEL_BASIS="${2-}"; KEEP_ARGS+=("$1" "${2-}"); shift 2 ;;
-    --record)               RECORD="${2-}"; KEEP_ARGS+=("$1" "${2-}"); shift 2 ;;
     --max-rounds)           MAX_ROUNDS="${2-}"; MAX_ROUNDS_SET=1; KEEP_ARGS+=("$1" "${2-}"); shift 2 ;;
     --max-continuations)    usage_refusal usage-max-continuations "--max-continuations was removed in #718 along with the continuation budget it bounded: BUILD is spawned once per round, and a spawn that leaves no PR ends the run for a human to read. There is no value of this flag to pass." ;;
     --dry-run)              DRY_RUN=1; KEEP_ARGS+=("$1"); shift ;;
@@ -163,7 +162,7 @@ fi
 BRANCH="${PREFIX}$(printf '%s' "$ISSUE" | tr '[:upper:]' '[:lower:]')"
 WT_ROOT="${RUN_WORKTREE_ROOT:-$(dirname "$MAIN_ROOT")/${REPO_SLUG}-worktrees}"; WT="$WT_ROOT/$ISSUE"
 RECORD_REL="$PLANS_DIR/$REPO_SLUG-$ISSUE-decisions.md"
-[ -n "$RECORD" ] || RECORD="$MAIN_ROOT/$STATE_DIR/$ISSUE-ledger.md"                                    # A15
+RECORD="$MAIN_ROOT/$STATE_DIR/$ISSUE-ledger.md"   # the receipt's one conventional path (plan-interview writes it there)
 # C28 A23 D-6: caps — env, else config run.*, else the defaults; each must be a positive number
 cap() { # cap <var> <env value> <config key> <default> — sets <var> in this shell (a refusal must not sit inside a substitution)
   local v="$2"; [ -n "$v" ] || v="$(cfg "$3")"; [ -n "$v" ] || v="$4"
