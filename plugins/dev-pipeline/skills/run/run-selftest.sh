@@ -21,16 +21,19 @@ mkdir -p "$T/bin"
 cat > "$T/bin/gh" <<'EOF'
 #!/usr/bin/env bash
 # state dir: $FAKE_GH — files: state, labels, prs, comments.json (array), cost-comments
-S="$FAKE_GH"; sub="$1 $2"; shift 2
+S="$FAKE_GH"; sub="$1 $2"; path="${2:-}"; shift 2
 case "$sub" in
   "issue view")  case "$*" in *state*) cat "$S/state" ;; *labels*) cat "$S/labels" 2>/dev/null ;; esac ;;
-  "issue edit")  echo "in-progress" >> "$S/labels" ;;
+  "issue edit")  add=""; rm=""; while [ $# -gt 0 ]; do case "$1" in --add-label) add="$2"; shift 2;; --remove-label) rm="$2"; shift 2;; *) shift;; esac; done
+                 [ -n "$add" ] && echo "$add" >> "$S/labels"; [ -n "$rm" ] && { grep -vx "$rm" "$S/labels" > "$S/l.tmp"; mv "$S/l.tmp" "$S/labels"; } ;;
   "issue comment") echo "$*" >> "$S/issue-comments" ;;
   "pr list")     cat "$S/prs" 2>/dev/null ;;
   "pr checks")   echo '[]' ;;
   "pr comment")  echo "$*" >> "$S/cost-comments" ;;
   "repo view")   echo "o/r" ;;
-  api*)          cat "$S/comments.json" ;;
+  "api -X")      # PATCH repos/o/r/pulls/7 -F body=@<file>
+                 for a in "$@"; do case "$a" in body=@*) cp "${a#body=@}" "$S/pr-body.md" ;; esac; done ;;
+  api*)          case "$path" in *comments*) cat "$S/comments.json" ;; *pulls*) echo '{"body":"built-by: fake"}' ;; esac ;;
   *) echo "fake gh: unhandled $sub $*" >&2; exit 1 ;;
 esac
 EOF
@@ -38,7 +41,7 @@ cat > "$T/bin/claude" <<'EOF'
 #!/usr/bin/env bash
 # behaviors come one per line from $FAKE_CLAUDE_PLAN, consumed in order; cwd is the worktree.
 S="$FAKE_GH"; n=$(cat "$S/calls" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "$S/calls"
-plan=$(sed -n "${n}p" "$FAKE_CLAUDE_PLAN"); prompt="${@: -1}"; printf '%s' "$prompt" > "$S/prompt-$n.txt"
+plan=$(sed -n "${n}p" "$FAKE_CLAUDE_PLAN"); prompt="${@: -1}"; printf '%s' "$prompt" > "$S/prompt-$n.txt"; printf '%s\n' "$@" > "$S/args-$n.txt"
 branch=$(git rev-parse --abbrev-ref HEAD); cost="${FAKE_COST:-1}"
 push() { echo "$n" >> work.txt; git add -A >/dev/null; git commit -qm "build $n"; git push -q origin "$branch"; }
 case "$plan" in
@@ -65,12 +68,14 @@ fixture() { # fixture <case> [checks-line] [extra-record] — sets $d and the en
   git -C "$d/main" symbolic-ref HEAD refs/heads/main
   mkdir -p "$d/main/src" "$d/main/.claude/pipeline-state"
   echo "x" > "$d/main/src/a.spec.ts"; echo "y" > "$d/main/src/a.ts"
-  printf '{"tracker":{"type":"github"},"paths":{"plansDir":"docs/plans"}}\n' > "$d/main/.claude/second-shift.config.json"
+  local dflt='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"}}'
+  printf '%s\n' "${FIXTURE_CONFIG:-$dflt}" > "$d/main/.claude/second-shift.config.json"
   printf '%s\n' ".claude/" > "$d/main/.gitignore"
   git -C "$d/main" add -A && git -C "$d/main" commit -qm init && git -C "$d/main" push -q -u origin main 2>/dev/null
   git -C "$d/origin.git" symbolic-ref HEAD refs/heads/main
   printf '# record\n\n## Decision Ledger\n\n| ID | Decision | Resolution | Provenance |\n| --- | --- | --- | --- |\n| D-1 | a | b | user-answered |\n\n## Checks\n\n%s\n%s\n' "$chk" "$extra" > "$d/main/.claude/pipeline-state/42-ledger.md"
   export FAKE_GH="$d/gh"; mkdir -p "$FAKE_GH"; echo OPEN > "$FAKE_GH/state"; echo '[]' > "$FAKE_GH/comments.json"; : > "$FAKE_GH/prs"
+  printf 'ready-for-dev\nopus\n' > "$FAKE_GH/labels"
   export FAKE_CLAUDE_PLAN="$d/plan"; : > "$FAKE_CLAUDE_PLAN"
   export RUN_WORKTREE_ROOT="$d/wt" RUN_CLAUDE="$T/bin/claude" RUN_GH="$T/bin/gh" SECOND_SHIFT_CONFIG="$d/main/.claude/second-shift.config.json"
 }
@@ -87,10 +92,18 @@ echo "[run-selftest] run.sh terminals and adjudication invariants"
 fixture a; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"
 run_case "$d"; expect approved "(a) build-pr + review-approve"
 [ "$RC" -eq 0 ] && ok "(a) exit 0 on approved" || bad "(a) exit $RC on approved"
-grep -q in-progress "$FAKE_GH/labels" && ok "(a) claim label applied" || bad "(a) no claim label"
-first=$(git -C "$d/wt/42" log --format=%s --reverse origin/main..HEAD | head -n 1)
+grep -qx in-progress "$FAKE_GH/labels" && ! grep -qx ready-for-dev "$FAKE_GH/labels" && ok "(a) queue label swapped for the claimed label" || bad "(a) label swap wrong: $(tr '\n' ' ' < "$FAKE_GH/labels")"
+grep -q 'approved' "$FAKE_GH/issue-comments" && ok "(a) closing comment on the issue" || bad "(a) no closing comment"
+grep -q 'stage: lean-claimed' "$FAKE_GH/issue-comments" && ok "(a) claim marker in the old lane's shape" || bad "(a) claim marker missing"
+[ ! -d "$d/wt/42" ] && ok "(a) worktree torn down on approve" || bad "(a) worktree left after approve"
+grep -q 'Closes #42' "$FAKE_GH/prompt-1.txt" && grep -q 'READY (not draft)' "$FAKE_GH/prompt-1.txt" && ok "(a) build prompt asks for a ready PR that closes the ticket" || bad "(a) PR conventions missing from the build prompt"
+grep -q 'AskUserQuestion' "$FAKE_GH/args-1.txt" && ! grep -q 'editJiraIssue' "$FAKE_GH/args-1.txt" && ok "(a) keyboard tools disallowed, no jira strip under github" || bad "(a) disallowed-tools list wrong"
+grep -q 'DECLARE THE PIPELINE DEFAULT PANEL' "$FAKE_GH/prompt-2.txt" && ok "(a) review prompt declares the panel" || bad "(a) panel declaration missing"
+grep -q 'models: build claude-opus-5 (label), review claude-opus-5 (default)' <<<"$OUT" && ok "(a) build model read from the opus label" || bad "(a) model not read from the label"
+first=$(git -C "$d/origin.git" log --format=%s --reverse main..second-shift/42 | head -n 1)
 [ "$first" = "docs: decision record for #42" ] && ok "(a) the record is the branch's first commit" || bad "(a) first commit is '$first'"
-grep -q 'second-shift run' "$FAKE_GH/cost-comments" && ok "(a) cost comment posted on the PR" || bad "(a) no cost comment"
+grep -q '<!-- pipeline-cost-block -->' "$FAKE_GH/pr-body.md" 2>/dev/null && grep -q 'built-by: fake' "$FAKE_GH/pr-body.md" && ok "(a) run block written into the PR body, original body kept" || bad "(a) no run block in the PR body"
+grep -qE '^[|] review-1 [|] 3 [|] [$]1 [|]' "$FAKE_GH/pr-body.md" 2>/dev/null && ok "(a) per-session cost rows in the block" || bad "(a) per-session rows missing"
 grep -q 'ls /' "$d/main/.claude/pipeline-state/run-42/review-1.prompt" && ok "(a) build denials reach the review input" || bad "(a) denials missing from review input"
 
 # (b) needs-work then approve: two rounds, findings reach the round-2 build prompt
@@ -155,6 +168,39 @@ fixture l3; printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-approve
 fixture l4; rm "$d/main/.claude/pipeline-state/42-ledger.md"; run_case "$d"; expect env-no-record "(l4) no intake record"
 fixture l5; run_case "$d" --dry-run; expect dry-run "(l5) dry-run spawns nothing"
 [ ! -f "$FAKE_GH/calls" ] && ok "(l5) no claude call on dry-run" || bad "(l5) claude called on dry-run"
+
+# (n) queue discipline and sizing, as the old lane enforced them
+fixture n1; printf 'opus\n' > "$FAKE_GH/labels"; run_case "$d"; expect not-queued "(n1) no queue label"
+fixture n2; printf 'ready-for-dev\nopus\nepic\n' > "$FAKE_GH/labels"; run_case "$d"; expect not-queued "(n2) blocker label refuses pickup"
+fixture n3; printf 'ready-for-dev\n' > "$FAKE_GH/labels"; run_case "$d"; expect usage-model "(n3) unlabeled ticket is not sized here"
+fixture n4; printf 'ready-for-dev\n' > "$FAKE_GH/labels"; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d" --model claude-sonnet-5 --review-model claude-sonnet-5 --review-model-basis "test"; expect approved "(n4) --model overrides the missing label"
+grep -q 'models: build claude-sonnet-5 (flag), review claude-sonnet-5 (test)' <<<"$OUT" && ok "(n4) override models logged" || bad "(n4) override not applied"
+fixture n5; printf '{"tracker":{"type":"github","branchPrefix":"claude/acme-"},"paths":{"plansDir":"docs/plans"}}\n' > "$d/main/.claude/second-shift.config.json"; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"
+git -C "$d/origin.git" rev-parse -q --verify refs/heads/claude/acme-42 >/dev/null && ok "(n5) branch honors tracker.branchPrefix" || bad "(n5) no claude/acme-42 on origin: $(git -C "$d/origin.git" branch --list | tr '\n' ' ')"
+
+# (p) parity with orchestrate.sh: tool strip, config commands, exit codes, flags, prefix refusal
+FIXTURE_CONFIG='{"tracker":{"type":"jira","writes":false,"branchPrefix":"jdoe/","keyPattern":"[A-Z]+-[0-9]+"},"paths":{"plansDir":"docs/plans"}}' fixture p1
+printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d" --build-model claude-sonnet-5
+expect usage-key "(p1) jira key pattern refuses a numeric key"
+FIXTURE_CONFIG='{"tracker":{"type":"github","writes":false,"branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"}}' fixture p2
+printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(p2) writes:false run"
+grep -q 'mcp__atlassian__editJiraIssue' "$FAKE_GH/args-1.txt" && grep -q 'mcp__claude_ai_Atlassian_Rovo__transitionJiraIssue' "$FAKE_GH/args-2.txt" && ok "(p2) tracker.writes:false strips the Atlassian write tools in both sessions" || bad "(p2) write tools not stripped"
+FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"commands":{"main":{"lint":"false","typecheck":null,"test":"true"}}}' fixture p3 ""
+printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=1 run_case "$d"; expect checks-red-spent "(p3) configured commands.* run as checks even with no '## Checks'"
+grep -q 'RED: false' "$d/main/.claude/pipeline-state/run-42/checks-1.log" && grep -q 'ok: true' "$d/main/.claude/pipeline-state/run-42/checks-1.log" && ok "(p3) lint red, test green, typecheck null skipped" || bad "(p3) check log wrong"
+FIXTURE_CONFIG='{"tracker":{"type":"github"},"paths":{"plansDir":"docs/plans"}}' fixture p4; run_case "$d"; expect env-branch-prefix "(p4) no prefix configured and no dominant remote prefix: refuse, never guess"
+[ "$RC" -eq 2 ] && ok "(p4) exit 2" || bad "(p4) exit $RC"
+fixture p5; printf 'opus\n' > "$FAKE_GH/labels"; run_case "$d"; [ "$RC" -eq 3 ] && ok "(p5) not-queued exits 3 (resumable)" || bad "(p5) not-queued exit $RC"
+fixture p6; printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-needs-work\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d" --max-rounds 2; [ "$RC" -eq 4 ] && ok "(p6) rounds-spent exits 4" || bad "(p6) rounds-spent exit $RC"
+fixture p7; printf 'build-pr\nreview-wrong-sha\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; [ "$RC" -eq 5 ] && ok "(p7) review-unbound exits 5" || bad "(p7) review-unbound exit $RC"
+fixture p8; echo CLOSED > "$FAKE_GH/state"; run_case "$d"; [ "$RC" -eq 7 ] && ok "(p8) ticket-closed exits 7" || bad "(p8) ticket-closed exit $RC"
+fixture p9; run_case "$d" --review-model claude-sonnet-5 --dry-run; [ "$RC" -eq 2 ] && ok "(p9) --review-model without --review-model-basis is refused" || bad "(p9) exit $RC"
+fixture p10; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d" --build-model claude-sonnet-5 --model-basis "test" --review-model claude-sonnet-5 --review-model-basis "test"; expect approved "(p10) orchestrate.sh's --build-model and basis flags are accepted"
+grep -q 'models: build claude-sonnet-5 (test), review claude-sonnet-5 (test)' <<<"$OUT" && ok "(p10) bases logged" || bad "(p10) bases not logged"
+fixture p11; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"
+( cd "$d/main" && git checkout -q -b bump && echo z >> src/a.ts && git commit -qam "base moves" && git push -q origin bump:main && git checkout -q main && git reset -q --hard origin/main ) 2>/dev/null
+# the branch will touch work.txt only, so a base move on src/a.ts must NOT expire it
+run_case "$d"; expect approved "(p11) a base move outside the branch's files does not expire the premise"
 
 # (m) rounds spent
 fixture m; printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-needs-work\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d" --max-rounds 2; expect rounds-spent "(m) two needs-work rounds"

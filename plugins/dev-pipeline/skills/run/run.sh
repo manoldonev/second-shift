@@ -2,41 +2,80 @@
 # run.sh — the shrunk scheduler: one ticket in, an approved PR out, unattended.
 #
 # Spawns a BUILD session and a REVIEW session in fresh `claude -p` processes and reads three
-# things it did not author: the repo's own checks (run here, from the record's first commit),
-# the PR head (must move every round), and a verdict comment bound to that head and to the
-# review session's time window. Nothing here tells the model how to work; the record does.
+# things it did not author: the repo's own checks (run here — the consumer's configured
+# `commands` plus the record's `## Checks`, both read from sources the build cannot edit), the
+# PR head (must move every round), and a verdict comment bound to that head and to the review
+# session's time window. Nothing here tells the model how to work; the record does.
 #
-# usage: run.sh <issue> [--record <path>] [--max-rounds N] [--model <id>] [--dry-run] [--resume]
+# Every consumer-visible behavior of orchestrate.sh is kept unless #881's ledger records the
+# change: the branch namespace resolver, the queue/claimed/blocker labels and the atomic swap,
+# the claim marker, the PR conventions (ready PR, `Closes`, the cost block under its marker),
+# the bot identity for the lane's own writes, the `tracker.writes: false` tool strip, the
+# model-from-label rule, the flags a launch script passes, and the exit-code taxonomy.
+#
+# usage: run.sh <issue> [--build-model|--model <id>] [--model-basis <text>]
+#               [--review-model <id>] [--review-model-basis <text>]
+#               [--record <path>] [--max-rounds N] [--dry-run] [--resume] [--detach]
+#   The build model comes from the ticket's `opus` / `sonnet` label; --build-model overrides.
+#   Review defaults to opus; a departure needs --review-model-basis, as before.
 #
 # env:  SECOND_SHIFT_CONFIG   config path (default <main>/.claude/second-shift.config.json)
-#       RUN_CLAUDE / RUN_GH   the binaries (tests inject fakes)
+#       RUN_CLAUDE, RUN_GH (alias GH)   the binaries (tests inject fakes)
 #       RUN_WORKTREE_ROOT     default <parent of main>/<repo>-worktrees
 #       RUN_BUILD_TIMEOUT / RUN_REVIEW_TIMEOUT   seconds (7200 / 3600)
 #       RUN_COST_CEILING      USD (100); RUN_CHECKS_RED_MAX (3)
 #
-# exit: 0 approved · 1 any other terminal (printed as `terminal: <slug>`)
+# exit: 0 approved · 1 stopped (build-no-pr, build-inflight, build-blocked, pr-ambiguous,
+#       claimed-elsewhere, env-not-ready, env-worktree*) · 2 usage or environment
+#       (usage-*, env-config-*, env-branch-prefix) · 3 RESUMABLE: not queued / no intake record —
+#       pay off intake and re-launch the same command · 4 budget spent (rounds, checks-red, cost)
+#       · 5 no verdict usable against the current head · 7 the premise expired mid-run
+#       (ticket closed, base moved into this branch's files)
 set -uo pipefail
 
-CLAUDE="${RUN_CLAUDE:-claude}"; GH="${RUN_GH:-gh}"
-ISSUE=""; RECORD=""; MAX_ROUNDS=3; MODEL="${RUN_MODEL:-claude-sonnet-5}"; DRY=0; RESUME=0
+CLAUDE="${RUN_CLAUDE:-claude}"; GH="${RUN_GH:-${GH:-gh}}"
+ISSUE=""; RECORD=""; MAX_ROUNDS=3; MODEL="${RUN_MODEL:-}"; MODEL_BASIS=""
+REVIEW_MODEL="${RUN_REVIEW_MODEL:-claude-opus-5}"; REVIEW_MODEL_BASIS=""; DRY=0; RESUME=0; DETACH=0
+KEEP_ARGS=()
 while [ $# -gt 0 ]; do
   case "$1" in
-    --record) RECORD="$2"; shift 2 ;;
-    --max-rounds) MAX_ROUNDS="$2"; shift 2 ;;
-    --model) MODEL="$2"; shift 2 ;;
-    --dry-run) DRY=1; shift ;;
-    --resume) RESUME=1; shift ;;
+    --record) RECORD="$2"; KEEP_ARGS+=("$1" "$2"); shift 2 ;;
+    --max-rounds) MAX_ROUNDS="$2"; KEEP_ARGS+=("$1" "$2"); shift 2 ;;
+    --model|--build-model) MODEL="$2"; KEEP_ARGS+=("$1" "$2"); shift 2 ;;
+    --model-basis) MODEL_BASIS="$2"; KEEP_ARGS+=("$1" "$2"); shift 2 ;;
+    --review-model) REVIEW_MODEL="$2"; KEEP_ARGS+=("$1" "$2"); shift 2 ;;
+    --review-model-basis) REVIEW_MODEL_BASIS="$2"; KEEP_ARGS+=("$1" "$2"); shift 2 ;;
+    --dry-run) DRY=1; KEEP_ARGS+=("$1"); shift ;;
+    --resume) RESUME=1; KEEP_ARGS+=("$1"); shift ;;
+    --detach) DETACH=1; shift ;;
     -*) echo "run.sh: unknown flag $1" >&2; exit 2 ;;
-    *) ISSUE="$1"; shift ;;
+    *) ISSUE="$1"; KEEP_ARGS+=("$1"); shift ;;
   esac
 done
-[ -n "$ISSUE" ] || { echo "usage: run.sh <issue> [--record <path>] [--max-rounds N] [--model <id>] [--dry-run] [--resume]" >&2; exit 2; }
+[ -n "$ISSUE" ] || { sed -n '16,20p' "$0" >&2; exit 2; }
+if [ "$REVIEW_MODEL" != claude-opus-5 ] && [ -z "$REVIEW_MODEL_BASIS" ]; then
+  echo "run.sh: --review-model departs from the default (claude-opus-5); state why with --review-model-basis" >&2; exit 2
+fi
 
 now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 say() { echo "$(now) [run] $*"; }
-terminal() { # terminal <slug> <detail>
+exit_code_for() { # the taxonomy a wrapper may branch on (orchestrate.sh's, kept)
+  case "$1" in
+    approved|dry-run) echo 0 ;;
+    usage-*|env-config-*|env-branch-prefix|env-detach-*) echo 2 ;;
+    not-queued|env-no-record) echo 3 ;;
+    rounds-spent|checks-red-spent|cost-spent) echo 4 ;;
+    review-unbound) echo 5 ;;
+    ticket-closed|staleness-expired) echo 7 ;;
+    *) echo 1 ;;
+  esac
+}
+terminal() { # terminal <slug> <detail> — one closing comment on the issue, as the old lane posted
   say "terminal: $1 — $2"; echo "terminal: $1"
-  [ "${1:-}" = approved ] && exit 0 || exit 1
+  if [ "${CLAIMED:-0}" -eq 1 ] && [ "$TRACKER" = github ]; then
+    "$GH" issue comment "$ISSUE" --body "second-shift run $RUN_ID: $1 — $2${PR:+ (PR #$PR)}" >/dev/null 2>&1 || true
+  fi
+  exit "$(exit_code_for "$1")"
 }
 
 # ---- repo, config (fail closed on a present-but-unparseable file, like orchestrate.sh) ----
@@ -54,24 +93,59 @@ cfg() { [ -n "$CONFIG" ] && jq -r "$1 // empty" "$CONFIG" 2>/dev/null || true; }
 # checkout's resolved path so review-lead and the tracker adapter read the same file this does.
 [ -n "$CONFIG" ] && export SECOND_SHIFT_CONFIG="$CONFIG"
 TRACKER="$(cfg .tracker.type)"; TRACKER="${TRACKER:-github}"
+# read as a tostring: `cfg`'s `// empty` would swallow a literal false (the value that matters here)
+TRACKER_WRITES="$( [ -n "$CONFIG" ] && jq -r 'if .tracker.writes == null then "" else (.tracker.writes|tostring) end' "$CONFIG" 2>/dev/null || true )"
+if [ "$TRACKER" != github ]; then TRACKER_WRITES="${TRACKER_WRITES:-false}"; else TRACKER_WRITES="${TRACKER_WRITES:-true}"; fi
+KEY_PATTERN="$(cfg .tracker.keyPattern)"
 PLANS_DIR="$(cfg .paths.plansDir)"; PLANS_DIR="${PLANS_DIR:-docs/plans}"
+STATE_DIR="$(cfg .paths.pipelineStateDir)"; STATE_DIR="${STATE_DIR:-.claude/pipeline-state}"
 RENDER_CMD="$(cfg .design.liveRender.command)"
 SMOKE_CMD="$(cfg .design.liveRender.smokeCommand)"
 READY_URL="$(cfg .design.liveRender.readyProbe)"
+L_QUEUE="$(cfg .tracker.labels.queue)"; L_QUEUE="${L_QUEUE:-ready-for-dev}"
+L_CLAIMED="$(cfg .tracker.labels.claimed)"; L_CLAIMED="${L_CLAIMED:-in-progress}"
+L_BLOCKERS="$(cfg '.tracker.labels.blockers | join(" ")')"; L_BLOCKERS="${L_BLOCKERS:-epic needs-intake}"
 REPO_SLUG="$(basename "$MAIN_ROOT")"
-BRANCH="second-shift/$ISSUE"
+SKILL_DIR="$(cd "$(dirname "$0")" && pwd)"
+TOOLS="$(cd "$SKILL_DIR/../../tools" && pwd)"
+if [ -n "$KEY_PATTERN" ] && ! printf '%s' "$ISSUE" | grep -qiE "^($KEY_PATTERN)$"; then terminal usage-key "'$ISSUE' does not match tracker.keyPattern '$KEY_PATTERN'"; fi
+# The lane's own tracker writes go through the bot when the consumer configured one, as before
+# (tools/gh-bot.sh is the one resolution ladder); a disabled or unresolvable bot means plain gh.
+BOT_OK=0
+if [ -z "${RUN_GH:-}" ] && [ "$(bash "$TOOLS/gh-bot.sh" --status 2>/dev/null)" = ok ]; then GH="$(bash "$TOOLS/gh-bot.sh" --path)"; BOT_OK=1; fi
+# The work-branch namespace: configured, else the dominant prefix among remote branches, else
+# REFUSE — a guessed namespace is the silent defect branch-prefix.sh exists to remove.
+BP_RESOLVER="$SKILL_DIR/../build/branch-prefix.sh"; [ -f "$BP_RESOLVER" ] || BP_RESOLVER="$TOOLS/branch-prefix.sh"
+PREFIX="$(cfg .tracker.branchPrefix)"
+if [ -z "$PREFIX" ]; then
+  PREFIX="$(bash "$BP_RESOLVER" --configured "" --tracker "$TRACKER" ${KEY_PATTERN:+--key-pattern "$KEY_PATTERN"} --repo "$MAIN_ROOT" 2>"$MAIN_ROOT/.git/run-bp.err")" \
+    || terminal env-branch-prefix "tracker.branchPrefix is unset and no dominant prefix exists among remote branches: $(tr '\n' ' ' < "$MAIN_ROOT/.git/run-bp.err" | cut -c1-300)"
+fi
+BRANCH="${PREFIX}$ISSUE"
 WT_ROOT="${RUN_WORKTREE_ROOT:-$(dirname "$MAIN_ROOT")/${REPO_SLUG}-worktrees}"
 WT="$WT_ROOT/$ISSUE"
 RECORD_REL="$PLANS_DIR/$REPO_SLUG-$ISSUE-decisions.md"
-[ -n "$RECORD" ] || RECORD="$MAIN_ROOT/.claude/pipeline-state/$ISSUE-ledger.md"
+[ -n "$RECORD" ] || RECORD="$MAIN_ROOT/$STATE_DIR/$ISSUE-ledger.md"
 BUILD_TO="${RUN_BUILD_TIMEOUT:-7200}"; REVIEW_TO="${RUN_REVIEW_TIMEOUT:-3600}"
 COST_CEIL="${RUN_COST_CEILING:-100}"; CHECKS_RED_MAX="${RUN_CHECKS_RED_MAX:-3}"
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
-STATE="$MAIN_ROOT/.claude/pipeline-state/run-$ISSUE"; mkdir -p "$STATE"
-COST=0; CHECKS_RED=0; CHILD=""
+STATE="$MAIN_ROOT/$STATE_DIR/run-$ISSUE"; mkdir -p "$STATE"
+COST=0; CHECKS_RED=0; CHILD=""; CLAIMED=0; PR=""
 
-cleanup() { [ -n "$CHILD" ] && kill "$CHILD" 2>/dev/null; }
-trap 'cleanup; say "interrupted; claim left in place"; exit 130' INT TERM
+# --detach: the documented launch shape for a caller whose commands are time-capped (kept).
+if [ "$DETACH" -eq 1 ]; then
+  command -v perl >/dev/null 2>&1 || terminal env-detach-perl "--detach needs perl for setsid; run in the foreground instead"
+  DETACH_LOG="$MAIN_ROOT/$STATE_DIR/$ISSUE-run-$(now | tr -d ':-')-$$.log"
+  _wrap=(); command -v caffeinate >/dev/null 2>&1 && _wrap=(caffeinate -dims)
+  # shellcheck disable=SC2016  # the inner script expands in the child, not here
+  nohup perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV or die "exec: $!\n"' -- \
+    ${_wrap[@]+"${_wrap[@]}"} bash -c 'bash "$@"; rc=$?; echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) [run] detached run exited rc=$rc"' \
+    _ "$0" "${KEEP_ARGS[@]}" > "$DETACH_LOG" 2>&1 < /dev/null &
+  say "detached: pid $! · log $DETACH_LOG · its last line will be 'detached run exited rc=<n>'"
+  exit 0
+fi
+
+trap '[ -n "$CHILD" ] && kill "$CHILD" 2>/dev/null; say "interrupted; claim left in place"; exit 130' INT TERM
 
 # bounded <secs> <logfile> <cmd...> — no `timeout` binary on macOS; a bash watchdog instead
 bounded() {
@@ -85,14 +159,35 @@ bounded() {
   wait "$CHILD"; local rc=$?; CHILD=""; return $rc
 }
 
+# The tools no spawned session may use: the three that would wait on a keyboard, and under
+# `tracker.writes: false` every Atlassian write tool in every namespace it is served under (#874).
+DISALLOWED="AskUserQuestion,EnterWorktree,ExitWorktree"
+if [ "$TRACKER_WRITES" = false ]; then
+  for _tool in addCommentToJiraIssue addWorklogToJiraIssue createIssueLink createJiraIssue editJiraIssue transitionJiraIssue createConfluencePage updateConfluencePage createConfluenceFooterComment createConfluenceInlineComment createCompassComponent createCompassComponentRelationship createCompassCustomFieldDefinition addTeamworkGraphContext; do
+    for _ns in mcp__atlassian__ mcp__plugin_atlassian_atlassian__ mcp__claude_ai_Atlassian_Rovo__; do DISALLOWED="$DISALLOWED,$_ns$_tool"; done
+  done
+fi
+# shellcheck disable=SC2054  # the comma-separated values are single arguments the CLI parses
+SPAWN_COMMON=(--permission-mode acceptEdits --permission-prompts none --disallowedTools "$DISALLOWED" --setting-sources "user,project,local" --add-dir "$WT" --output-format json)
+
 # ---- tracker (github writes the claim; jira is operator-attested and read-only) ----
 issue_state() { [ "$TRACKER" = github ] && "$GH" issue view "$ISSUE" --json state --jq .state 2>/dev/null || echo OPEN; }
 has_label() { [ "$TRACKER" = github ] && "$GH" issue view "$ISSUE" --json labels --jq '.labels[].name' 2>/dev/null | grep -qx "$1"; }
 claim() {
   [ "$TRACKER" = github ] || { say "claim: $TRACKER tracker — operator-attested, nothing written"; return 0; }
-  if has_label in-progress && [ "$RESUME" -eq 0 ]; then terminal claimed-elsewhere "#$ISSUE carries in-progress; pass --resume to re-enter your own run"; fi
-  "$GH" issue edit "$ISSUE" --add-label in-progress >/dev/null 2>&1 || terminal env-claim-failed "could not label #$ISSUE"
-  "$GH" issue comment "$ISSUE" --body "second-shift-run: $RUN_ID (branch $BRANCH)" >/dev/null 2>&1 || true
+  if has_label "$L_CLAIMED"; then
+    [ "$RESUME" -eq 1 ] || terminal claimed-elsewhere "#$ISSUE carries $L_CLAIMED; pass --resume to re-enter your own run"
+    say "claim: re-entering a claimed ticket"; return 0
+  fi
+  local b; for b in $L_BLOCKERS; do has_label "$b" && terminal not-queued "#$ISSUE carries blocker label $b"; done
+  has_label "$L_QUEUE" || terminal not-queued "#$ISSUE does not carry $L_QUEUE — only the operator queues a ticket"
+  # the atomic queue->claimed swap, add-then-confirm-then-remove, bot-aware (tools/claim-issue.sh)
+  if [ -n "${RUN_GH:-}" ]; then "$GH" issue edit "$ISSUE" --add-label "$L_CLAIMED" --remove-label "$L_QUEUE" >/dev/null 2>&1 || terminal env-claim-failed "could not swap labels on #$ISSUE"
+  else SECOND_SHIFT_CONFIG="${CONFIG:-}" bash "$TOOLS/claim-issue.sh" "$ISSUE" >/dev/null 2>&1 || terminal env-claim-failed "claim-issue.sh could not swap $L_QUEUE -> $L_CLAIMED on #$ISSUE"; fi
+  # the claim marker, in the shape the old lane posted (re-entry and evidence readers grep it)
+  # shellcheck disable=SC2016  # markdown backticks, not shell
+  "$GH" issue comment "$ISSUE" --body "$(printf '<!-- dev-pipeline -->\n<!-- run_id: %s -->\n<!-- session_id: %s -->\n<!-- stage: lean-claimed -->\n🤖 Claimed by \`/dev-pipeline:run\`.\nsecond-shift-run: %s (branch %s)' "$RUN_ID" "${CLAUDE_CODE_SESSION_ID:-unset}" "$RUN_ID" "$BRANCH")" >/dev/null 2>&1 || true
+  CLAIMED=1
 }
 
 # ---- record sections (read from the FIRST commit, never the head) ----
@@ -100,7 +195,17 @@ FIRST=""
 record_at_first() { git -C "$WT" show "$FIRST:$RECORD_REL" 2>/dev/null; }
 section() { record_at_first | awk -v h="$1" 'tolower($0) ~ "^## "h {on=1; next} on && /^## /{exit} on'; }
 # shellcheck disable=SC2016  # the backticks are markdown, not shell
-checks_list() { section "checks" | sed -n 's/^- *`\{0,1\}\([^`]*\)`\{0,1\} *$/\1/p'; }
+record_checks() { section "checks" | sed -n 's/^- *`\{0,1\}\([^`]*\)`\{0,1\} *$/\1/p'; }
+# The consumer's configured `commands.<repo>` (lint, typecheck, test, extraLanes) run as checks,
+# as milestone 3 ran them; the record's `## Checks` adds to them. Config lives in the main
+# checkout's gitignored .claude/, which the build session cannot edit either.
+config_checks() {
+  [ -n "$CONFIG" ] || return 0
+  local key; key="$(jq -r --arg s "$REPO_SLUG" '.commands // {} | keys | if length == 1 then .[0] elif index($s) then $s else empty end' "$CONFIG" 2>/dev/null)"
+  [ -n "$key" ] || return 0
+  jq -r --arg k "$key" '.commands[$k] | ([.lint, .typecheck, .test] | map(select(type=="string"))[]), (.extraLanes[]?.commands[]? | select(type=="string"))' "$CONFIG" 2>/dev/null
+}
+checks_list() { { config_checks; record_checks; } | awk 'NF && !seen[$0]++'; }
 frames_rows() { section "design frames" | grep -E '^\| *RS-[0-9]+ *\|' | sed 's/^| *//; s/ *| */|/g; s/ *|$//'; }
 
 # ---- the two prompts ----
@@ -108,23 +213,28 @@ build_prompt() { # build_prompt <round> <findings-file-or-empty>
   {
     echo "Implement ticket $ISSUE of this repository. Fetch the ticket text yourself from the tracker (${TRACKER})."
     echo "Do not merge. Do not delete, skip or weaken a test to make a check pass; if a test is wrong, say so in the PR."
-    if [ "$1" -eq 1 ]; then echo "When the checks are green, commit, push branch $BRANCH to origin and open a PR against the default branch with 'gh pr create'. The PR body's first line must be: built-by: second-shift run $RUN_ID"
+    [ "$BOT_OK" -eq 1 ] && echo "Commit through $TOOLS/bot-commit.sh (the repo's bot identity), never plain git commit."
+    if [ "$1" -eq 1 ]; then
+      echo "When the checks are green, commit, push branch $BRANCH to origin and open a READY (not draft) PR against the default branch with 'gh pr create'. The PR body, in order: line 1 exactly 'built-by: second-shift run $RUN_ID'; then a link to the decision record at $RECORD_REL; then a summary of the change;"
+      if [ "$TRACKER" = github ]; then echo "and the line 'Closes #$ISSUE' so the ticket closes on merge."; else echo "and a '### Jira Items' heading with the line 'Closes [$ISSUE]'."; fi
     else echo "Address the review findings below: fix each, or rebut it in a PR comment. Then commit and push $BRANCH."; fi
     echo; echo "The following decisions were settled with the requester before implementation started. They are binding. The record is committed at $RECORD_REL; if you must depart from a row, edit that row in place (new resolution, provenance user-delegated, a one-line reason) and commit the edit with the code. Never post a comment starting with 'verdict:'."
     echo; record_at_first
     if [ -n "$(frames_rows)" ]; then
       echo; echo "This ticket has design frames. Follow the figma-faithful sequence: read every frame id in the '## Design frames' section first; write the token and component plan; before writing UI code, have a subagent read that plan against the frames and list what it would get wrong, then fix the plan. Render every screen with the repo's render command, open the PNG, compare it with its frame and fix what differs, up to three rounds per screen. A screen that shows an error page, a login page or a spinner is not done."
     fi
-    echo; echo "Before opening the PR (or pushing a fix), run every command under '## Checks' and make it green."
+    echo; echo "Before opening the PR (or pushing a fix), run every command below and make it green:"; checks_list | sed 's/^/- /'
     [ -n "$2" ] && { echo; echo "## Review findings"; cat "$2"; }
   }
 }
 review_prompt() { # review_prompt <pr> <review-input-file>
   {
     echo "You are reviewing PR #$1 of this repository at its current head, in a session separate from the one that built it. Check out the PR head. Read the decision record at $RECORD_REL as it stood at commit $FIRST (git show $FIRST:$RECORD_REL) and as it stands at the head."
-    echo "Score EVERY row of the record against the code: honored, violated, or departed (the row was edited; name who decided, per its provenance). A violated row is a blocker. Then run review-lead with the repo's default panel over the PR diff."
+    echo "Score EVERY row of the record against the code: honored, violated, or departed (the row was edited; name who decided, per its provenance). A violated row is a blocker."
+    echo "Then run review-toolkit:review-lead over the PR diff and DECLARE THE PIPELINE DEFAULT PANEL when you invoke it: the fan-out defaults to scope-completeness-reviewer; security-reviewer, a11y-reviewer and unit-test-mutation-reviewer are selected only by an opt-in — a 'review panel' row in the record with user-answered or user-delegated provenance naming security, a11y or unit-test-mutation, or the config's reviewers.default[]. review-lead never infers this; an undeclared panel leaves the surface triggers in force."
     echo "If the ticket has design frames, render every screen at the head with the repo's render command and compare it with its frame; if you cannot render, you cannot approve: post 'verdict: needs-work' with a line 'reason: render-unavailable'."
-    echo; echo "Post ONE PR comment. Its first line is exactly 'verdict: approve' or 'verdict: needs-work'; its second line is exactly 'reviewed: <the full sha of the head you reviewed>'. Then the row table, then findings. Never edit that comment afterwards."
+    local via=""; [ "$BOT_OK" -eq 1 ] && via=" through $GH (the bot identity)"
+    echo; echo "Post ONE PR comment$via. Its first line is exactly 'verdict: approve' or 'verdict: needs-work'; its second line is exactly 'reviewed: <the full sha of the head you reviewed>'. Then the row table, then findings. Never edit that comment afterwards."
     echo; echo "## Scheduler input (deleted or skipped tests, config edits, and the build's permission denials)"; cat "$2"
   }
 }
@@ -139,7 +249,7 @@ run_checks() { # -> 0 green, 1 red; writes $STATE/checks-N.log
   done <<EOF
 $(checks_list)
 EOF
-  [ "$n" -gt 0 ] || { say "checks: none declared under '## Checks' — refusing to read that as green"; return 1; }
+  [ "$n" -gt 0 ] || { say "checks: nothing configured under commands.* and nothing under '## Checks' — refusing to read that as green"; return 1; }
   return $rc
 }
 route_smoke() { # -> 0 ok, 1 red, 2 unconfigured
@@ -171,6 +281,16 @@ test_surface_diff() { # -> file
     echo "### Build session permission denials"; [ -s "$STATE/denials-$1.txt" ] && cat "$STATE/denials-$1.txt" || echo "(none)"
   } > "$out"; echo "$out"
 }
+# The premise can expire mid-run (kept from orchestrate.sh): the ticket closed, or the base moved
+# into a file this branch touches — a green build against a base nobody merges onto is wasted.
+premise_holds() {
+  [ "$(issue_state)" = OPEN ] || terminal ticket-closed "#$ISSUE closed mid-run"
+  git -C "$WT" fetch -q origin "$BASE_NAME" 2>/dev/null || return 0
+  local base_now; base_now="$(git -C "$WT" rev-parse -q --verify "origin/$BASE_NAME" 2>/dev/null)"; [ -n "$base_now" ] || return 0
+  [ "$base_now" = "$BASE_START" ] && return 0
+  local overlap; overlap="$(comm -12 <(git -C "$WT" diff --name-only "$BASE_START" "$base_now" | sort) <(git -C "$WT" diff --name-only "$FIRST" HEAD | sort) | head -n 3 | tr '\n' ' ')"
+  [ -z "$overlap" ] || terminal staleness-expired "origin/$BASE_NAME moved into file(s) this branch touches: $overlap"
+}
 
 # ---- PR and verdict ----
 open_pr() { "$GH" pr list --head "$BRANCH" --state open --json number --jq '.[].number' 2>/dev/null; }
@@ -199,51 +319,61 @@ add_cost() { local c; c="$(jq -r '.total_cost_usd // 0' "$1" 2>/dev/null)"; COST
 over_ceiling() { awk -v c="$COST" -v m="$COST_CEIL" 'BEGIN{exit !(c>m)}'; }
 
 # ================================ the run ================================
-say "run $RUN_ID: issue $ISSUE, tracker $TRACKER, branch $BRANCH, worktree $WT, record $RECORD_REL"
+say "run $RUN_ID: issue $ISSUE, tracker $TRACKER (writes $TRACKER_WRITES), branch $BRANCH, worktree $WT, record $RECORD_REL"
 [ -f "$RECORD" ] || terminal env-no-record "no intake record at $RECORD — run /intake-toolkit:plan-interview $ISSUE first"
-if [ "$DRY" -eq 1 ]; then say "dry-run: would claim, create the worktree, commit the record, and run up to $MAX_ROUNDS rounds"; echo "terminal: dry-run"; exit 0; fi
+if [ "$DRY" -eq 1 ]; then say "dry-run: would claim, create the worktree, commit the record, and run up to $MAX_ROUNDS rounds; checks: $(checks_list 2>/dev/null | tr '\n' ';')"; echo "terminal: dry-run"; exit 0; fi
 [ "$(issue_state)" = OPEN ] || terminal ticket-closed "#$ISSUE is not open"
 claim
+if [ -z "$MODEL" ]; then
+  if has_label opus; then MODEL=claude-opus-5; MODEL_BASIS="label"; elif has_label sonnet; then MODEL=claude-sonnet-5; MODEL_BASIS="label"
+  elif [ "$TRACKER" != github ]; then terminal usage-model "under $TRACKER pass --build-model: there is no sizing label to read"
+  else terminal usage-model "#$ISSUE carries neither opus nor sonnet — intake sizes tickets, this scheduler does not (pass --build-model to override)"; fi
+fi
+say "models: build $MODEL (${MODEL_BASIS:-flag}), review $REVIEW_MODEL (${REVIEW_MODEL_BASIS:-default})"
 
 # worktree on the branch; the record is the first commit, pushed before any build starts
+git -C "$MAIN_ROOT" fetch -q origin || true
+base="$(git -C "$MAIN_ROOT" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null)"
+for b in "$base" origin/main origin/master; do [ -n "$b" ] && git -C "$MAIN_ROOT" rev-parse -q --verify "$b" >/dev/null 2>&1 && { base="$b"; break; }; done
+BASE_NAME="${base#origin/}"
 if [ -d "$WT" ]; then
   [ "$(git -C "$WT" rev-parse --abbrev-ref HEAD 2>/dev/null)" = "$BRANCH" ] || terminal env-worktree-mismatch "$WT exists on another branch"
 else
-  git -C "$MAIN_ROOT" fetch -q origin || true
-  base="$(git -C "$MAIN_ROOT" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null)"
-  for b in "$base" origin/main origin/master; do [ -n "$b" ] && git -C "$MAIN_ROOT" rev-parse -q --verify "$b" >/dev/null 2>&1 && { base="$b"; break; }; done
   if git -C "$MAIN_ROOT" rev-parse -q --verify "refs/remotes/origin/$BRANCH" >/dev/null 2>&1 || git -C "$MAIN_ROOT" rev-parse -q --verify "refs/heads/$BRANCH" >/dev/null 2>&1; then
     git -C "$MAIN_ROOT" worktree add -q "$WT" "$BRANCH" 2>/dev/null || git -C "$MAIN_ROOT" worktree add -q --track -b "$BRANCH" "$WT" "origin/$BRANCH" || terminal env-worktree "could not attach $WT to $BRANCH"
   else
     git -C "$MAIN_ROOT" worktree add -q -b "$BRANCH" "$WT" "$base" || terminal env-worktree "could not create $WT from $base"
   fi
 fi
+BASE_START="$(git -C "$WT" rev-parse -q --verify "origin/$BASE_NAME" 2>/dev/null)"
 if ! git -C "$WT" cat-file -e "HEAD:$RECORD_REL" 2>/dev/null; then
   mkdir -p "$WT/$(dirname "$RECORD_REL")" && cp "$RECORD" "$WT/$RECORD_REL"
-  git -C "$WT" add "$RECORD_REL" && git -C "$WT" commit -q -m "docs: decision record for #$ISSUE" -- "$RECORD_REL" || terminal env-record-commit "could not commit the record"
+  git -C "$WT" add "$RECORD_REL" || terminal env-record-commit "could not stage the record"
+  if [ "$BOT_OK" -eq 1 ]; then SECOND_SHIFT_CONFIG="${CONFIG:-}" bash "$TOOLS/bot-commit.sh" -C "$WT" -q -m "docs: decision record for #$ISSUE" -- "$RECORD_REL" || terminal env-record-commit "bot-commit.sh could not commit the record"
+  else git -C "$WT" commit -q -m "docs: decision record for #$ISSUE" -- "$RECORD_REL" || terminal env-record-commit "could not commit the record"; fi
   git -C "$WT" push -q -u origin "$BRANCH" || terminal env-push "could not push $BRANCH"
 fi
 FIRST="$(git -C "$WT" log --format=%H --diff-filter=A -- "$RECORD_REL" | tail -n 1)"
 [ -n "$FIRST" ] || terminal env-no-first-commit "the record has no adding commit on $BRANCH"
 say "record baseline: $FIRST"
 
-FINDINGS=""; ROUND=0; PR=""
+FINDINGS=""; ROUND=0
 while [ "$ROUND" -lt "$MAX_ROUNDS" ]; do
   ROUND=$((ROUND+1)); say "round $ROUND of $MAX_ROUNDS (cost so far \$$COST)"
-  [ "$(issue_state)" = OPEN ] || terminal ticket-closed "#$ISSUE closed mid-run"
+  premise_holds
   if [ -n "$READY_URL" ] && ! curl -fsS -m 10 "$READY_URL" >/dev/null 2>&1; then terminal env-not-ready "ready probe $READY_URL failed"; fi
 
   # ---- build ----
   before="$(remote_head)"
   build_prompt "$ROUND" "$FINDINGS" > "$STATE/build-$ROUND.prompt"
-  allow="Read,Edit,Write,Bash(git *),Bash(gh pr create*),Bash(gh pr view*),Bash(gh pr comment*),Bash(gh issue view*)"
+  allow="Read,Edit,Write,Agent,Bash(git *),Bash(gh pr create*),Bash(gh pr view*),Bash(gh pr comment*),Bash(gh issue view*)"
+  [ "$BOT_OK" -eq 1 ] && allow="$allow,Bash($TOOLS/bot-commit.sh*),Bash($GH *)"
   while IFS= read -r c; do [ -n "$c" ] && allow="$allow,Bash(${c%% *}*)"; done <<EOF
 $(checks_list)
 EOF
   [ -n "$RENDER_CMD" ] && allow="$allow,Bash(${RENDER_CMD%% *}*)"
   ( cd "$WT" && bounded "$BUILD_TO" "$STATE/build-$ROUND.json" \
-      "$CLAUDE" -p --model "$MODEL" --permission-mode acceptEdits --permission-prompts none \
-        --allowedTools "$allow" --add-dir "$WT" --output-format json --max-turns 400 "$(cat "$STATE/build-$ROUND.prompt")" ); brc=$?
+      "$CLAUDE" -p --model "$MODEL" "${SPAWN_COMMON[@]}" --allowedTools "$allow" --max-turns 400 "$(cat "$STATE/build-$ROUND.prompt")" ); brc=$?
   add_cost "$STATE/build-$ROUND.json"
   jq -r '.permission_denials[]? | (.tool_name + " " + (.tool_input|tostring))' "$STATE/build-$ROUND.json" > "$STATE/denials-$ROUND.txt" 2>/dev/null || true
   [ "$brc" -eq 124 ] && terminal build-blocked "build session exceeded ${BUILD_TO}s"
@@ -272,10 +402,10 @@ EOF
   # ---- review, in a fresh session, bound to this head and this time window ----
   head="$(remote_head)"; start="$(now)"
   review_prompt "$PR" "$input" > "$STATE/review-$ROUND.prompt"
+  rallow="Read,Agent,Bash(git *),Bash(gh pr view*),Bash(gh pr comment*),Bash(gh pr diff*),Bash(gh api*)${RENDER_CMD:+,Bash(${RENDER_CMD%% *}*)}"
+  [ "$BOT_OK" -eq 1 ] && rallow="$rallow,Bash($GH *)"
   ( cd "$WT" && bounded "$REVIEW_TO" "$STATE/review-$ROUND.json" \
-      "$CLAUDE" -p --model "$MODEL" --permission-mode acceptEdits --permission-prompts none \
-        --allowedTools "Read,Bash(git *),Bash(gh pr view*),Bash(gh pr comment*),Bash(gh pr diff*),Bash(gh api*)${RENDER_CMD:+,Bash(${RENDER_CMD%% *}*)}" \
-        --add-dir "$WT" --output-format json --max-turns 300 "$(cat "$STATE/review-$ROUND.prompt")" ); rrc=$?
+      "$CLAUDE" -p --model "$REVIEW_MODEL" "${SPAWN_COMMON[@]}" --allowedTools "$rallow" --max-turns 300 "$(cat "$STATE/review-$ROUND.prompt")" ); rrc=$?
   end="$(now)"; add_cost "$STATE/review-$ROUND.json"
   [ "$rrc" -eq 124 ] && terminal review-unbound "review session exceeded ${REVIEW_TO}s"
   v="$(verdict "$PR" "$start" "$end" "$head")" || terminal review-unbound "no unedited 'verdict:' comment naming head $head was posted between $start and $end"
@@ -287,6 +417,29 @@ EOF
 done
 
 CI="$( [ -n "$PR" ] && ci_status "$PR" || echo none )"; say "ci: $CI (read once for the report; the checks that gate a round ran here)"
-[ -n "$PR" ] && "$GH" pr comment "$PR" --body "second-shift run $RUN_ID: $ROUND round(s), \$$COST, CI $CI" >/dev/null 2>&1 || true
-[ "${v:-}" = approve ] && terminal approved "PR #$PR approved at $head after $ROUND round(s), \$$COST"
+# The run's summary goes in the PR BODY under the marker the old lane used, replacing an earlier
+# block from a resumed run: the body is what a human reads at merge, and comments scroll away.
+cost_block() {
+  echo '<!-- pipeline-cost-block -->'
+  echo "## second-shift run"; echo
+  echo "| run | rounds | verdict | reviewed head | cost | CI |"; echo "| --- | --- | --- | --- | --- | --- |"
+  echo "| $RUN_ID | $ROUND | ${v:-none} | ${head:-—} | \$$COST | $CI |"; echo
+  echo "| session | turns | cost |"; echo "| --- | --- | --- |"
+  local f; for f in "$STATE"/build-*.json "$STATE"/review-*.json; do
+    [ -f "$f" ] && jq -r --arg n "$(basename "$f" .json)" '"| \($n) | \(.num_turns // "?") | $\((.total_cost_usd // 0) * 100 | round / 100) |"' "$f"
+  done
+  echo '<!-- /pipeline-cost-block -->'
+}
+if [ -n "$PR" ]; then
+  repo="$("$GH" repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null)"
+  body="$("$GH" api "repos/$repo/pulls/$PR" --jq .body 2>/dev/null)"
+  body="$(printf '%s\n' "$body" | awk '/<!-- pipeline-cost-block -->/{skip=1} !skip{print} /<!-- \/pipeline-cost-block -->/{skip=0}')"
+  printf '%s\n\n%s\n' "$body" "$(cost_block)" > "$STATE/pr-body.md"
+  "$GH" api -X PATCH "repos/$repo/pulls/$PR" -F "body=@$STATE/pr-body.md" >/dev/null 2>&1 || say "could not write the run block into PR #$PR's body"
+fi
+if [ "${v:-}" = approve ]; then
+  # close-out teardown, as before: the branch and PR stay, the worktree goes
+  git -C "$MAIN_ROOT" worktree remove --force "$WT" >/dev/null 2>&1 && say "worktree $WT removed" || say "worktree $WT left in place (remove it by hand)"
+  terminal approved "PR #$PR approved at $head after $ROUND round(s), \$$COST"
+fi
 terminal rounds-spent "$MAX_ROUNDS rounds without an approve (cost \$$COST)"
