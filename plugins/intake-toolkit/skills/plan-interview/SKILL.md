@@ -53,12 +53,29 @@ You elicit **design decisions from the engineer** (plan-authoring). You do NOT:
 
 5. **Interview** per the baseline loop rules (≤ 2 material questions per turn, recommendation first, "your call" → `user-delegated`).
 
-6. **Emit the Decision Ledger** and exit only when the register is empty *and* every surface is accounted for — each material decision carrying a non-`assumed` provenance, each surface decided or scoped out. Trivial work exits immediately with both explicit empty forms.
+6. **Emit the Decision Ledger** and exit only when the register is empty *and* every surface is accounted for — each material decision carrying a non-`assumed` provenance, each surface decided or scoped out. Trivial work exits immediately with both explicit empty forms. Pre-flight for a pipeline ticket, the receipt also needs its checks and, on a design-provider repo, its frames — see "Checks and design frames" below.
 
 ## Where the ledger lands
 
 - **Plan-mode / ad-hoc session:** a `## Decision Ledger` section in the plan file itself, before `ExitPlanMode` is called (this plugin's `exitplan-ledger-gate.sh` hook lints for it and blocks the exit if it's missing or malformed).
 - **Pipeline pre-flight** (`/plan-interview <issue>` before an autonomous pipeline run on `<issue>`): write `.claude/pipeline-state/{issue}-ledger.md` — same location convention as the Product-Essence Brief; it survives worktree cleanup, and the BUILD session's step 4 takes it as binding input when writing the ticket's spec/AC file. The interview always happens in the interactive session, never inside the autonomous run.
+
+## Checks and design frames (pipeline pre-flight only)
+
+The receipt also carries the two sections the scheduler reads from the record's first commit —
+schema and empty forms in `interviewing-baseline` ("Checks", "Design frames"), enforced by
+`ledger-lint.sh --receipt`. Elicit both before writing it:
+
+- **`## Checks`** — start from the repo's verification recipe (its CLAUDE.md, the config's
+  `commands.*`) and add what this ticket needs beyond it: the selftest it touches, a script its
+  acceptance criteria name. The configured lanes run anyway, so list only what they would miss,
+  one command per line. When they miss nothing, write the empty form.
+- **`## Design frames`** — on a repo with `design.provider` set. Walk the design handoff with the
+  engineer: one row per screen and state the ticket renders, with the frame id. For each row, agree
+  the `must-show` value now — a data-test id or a copy string taken from the frame. It is the only
+  thing the route smoke asserts, so it should be the element that proves the right state rendered
+  (the empty-state copy on an empty row, not the page title every state shares). A ticket that
+  renders nothing new disarms with `Design: none — <reason>`.
 
 ## Duplicate scan (pipeline pre-flight only)
 

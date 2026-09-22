@@ -415,8 +415,9 @@ adapter has no queue label and no claimed label, so there is no corpus of eligib
 
 **2. Lint it.** Write the ledger you assembled to `.claude/pipeline-state/{ISSUE_NUMBER}-ledger.md`
 in the receipt shape (`interviewing-baseline` → "The intake receipt": five columns, plus a
-`## Open Regions` section and a `## Surface Inventory` section — each carrying rows or its own
-explicit empty form) and run:
+`## Open Regions` section, a `## Surface Inventory` section and a `## Checks` section — each
+carrying rows or its own explicit empty form — and, when the config sets `design.provider`, a
+`## Design frames` section: `RS-n` rows with a `must-show` cell, or `Design: none — <reason>`) and run:
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/skills/plan-interview/tools/ledger-lint.sh" \
@@ -426,7 +427,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/skills/plan-interview/tools/ledger-lint.sh" \
 `${CLAUDE_PLUGIN_ROOT}` is intake-toolkit here, and the lint ships in this same plugin — this
 is a sibling-skill path, not the cross-plugin resolution the bot-writes note above describes.
 
-A red lint is not a formatting complaint, and it has two distinct causes.
+A red lint is not a formatting complaint, and it has three distinct causes.
 
 **A provenance failure.** An `intent` row backed by `codebase-derived` / `ticket-sourced` /
 `deferred` means you recorded a decision *you* made as one the human made — either ask them, or
@@ -439,6 +440,13 @@ the decomposition has a user-visible surface it never accounted for. Enumerate t
 work implies, then give each one a decision to cite or a stated reason it is out of scope. The
 empty form (`No user-visible surface — this change renders nothing a user reads.`) is for work
 that genuinely renders nothing — it is not a way to clear the section.
+
+**A checks or frames failure.** A missing `## Checks`, or a check line the scheduler cannot read
+as one command, means the run would verify less than the receipt implies — list the commands from
+the repo's verification recipe plus what the ticket adds, or write the empty form. A missing
+`## Design frames` on a `design.provider` repo, or a row with an empty `must-show`, means the
+route smoke has nothing to assert — take the rows and the `must-show` values from the design
+handoff with the human, or disarm with `Design: none — <reason>`.
 
 **3. Probe it.** Dispatch `intake-toolkit:implementability-probe` via `Task`, handing it the
 **spec text alone** — no interview transcript, no ledger, no findings from this session. It is

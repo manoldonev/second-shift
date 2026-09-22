@@ -28,6 +28,9 @@ fail() { echo "  FAIL: $1"; FAIL=$((FAIL + 1)); }
 
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
+# --receipt reads design.provider from this config; pin it so the operator's own shell cannot.
+printf '{}\n' > "$TMP/config.json"
+export SECOND_SHIFT_CONFIG="$TMP/config.json"
 
 RC=0
 run_cf() { # run_cf <args...> — never aborts the harness; fills $RC, $TMP/stdout, $TMP/stderr
@@ -130,6 +133,7 @@ echo "[ledger-carry-forward-selftest] the explicit empty form"
   cat "$FIX/empty-form-ledger.md"
   printf '\n## Open Regions\n\nNo open regions — every decision in scope is ratified.\n'
   printf '\n## Surface Inventory\n\nNo user-visible surface — this change renders nothing a user reads.\n'
+  printf '\n## Checks\n\nNo ticket-specific checks — the configured lanes cover this change.\n'
 } > "$TMP/empty-receipt.md"
 
 # (cf-d) the empty form projects to the empty form, passes the lint, and is idempotent.

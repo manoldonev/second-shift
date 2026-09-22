@@ -181,6 +181,59 @@ Explicit empty form, for work with no user-visible surface at all (a lint, a CI 
 No user-visible surface — this change renders nothing a user reads.
 ```
 
+### Checks
+
+The scheduler runs the config's `commands.*` against the pushed head, plus the commands in the
+receipt's mandated `## Checks` section — read from the record's **first** commit, never the head,
+so a build cannot edit its own bar. One command per line, at the start of the line:
+
+```
+## Checks
+
+- `bash plugins/intake-toolkit/skills/plan-interview/tools/ledger-lint-selftest.sh`
+- yarn test --filter import
+```
+
+`- cmd` and `` - `cmd` `` are the two forms the scheduler reads. A bullet it cannot read as one
+command — inner backticks, an indent, a `*` bullet — is dropped there without a word, so the lint
+refuses it. An absent section is a silent claim that nothing beyond the configured lanes verifies
+this change; make the claim explicitly instead:
+
+```
+No ticket-specific checks — the configured lanes cover this change.
+```
+
+### Design frames
+
+On a repo whose config sets `design.provider`, the receipt carries a `## Design frames` section
+(`## Design` is read the same way): one row per screen and state the ticket renders, taken from
+the design handoff. The scheduler's route smoke renders each row's route in its state and
+asserts the `must-show` value is on the screen — it is the smoke's **only** assertion, so it is
+chosen here, at intake: a data-test id or a copy string taken from the frame.
+
+```
+| RS | route | state | frame | must-show |
+| --- | --- | --- | --- | --- |
+| RS-1 | /imports | empty | 815:2201 | Nothing imported yet |
+| RS-2 | /imports | loaded | 815:2240 | data-test=import-row |
+```
+
+Every cell is filled. A ticket on a provider repo that renders nothing disarms instead, with its
+reason — a disarm is a decision, and an undocumented one is indistinguishable from an omission:
+
+```
+Design: none — <reason>
+```
+
+Neither form on a provider repo, and the scheduler refuses the run (`env-design-undeclared`). The
+lint reads the same config the scheduler does (`SECOND_SHIFT_CONFIG`, else
+`<repo>/.claude/second-shift.config.json`). Without `design.provider` the section is optional, but
+any `RS-n` row that is there is still checked: the smoke reads rows wherever they are.
+
+**Headings, both sections:** the scheduler's rule — the exact title at any depth, any case; any
+heading closes the section; the first such section decides. `## Checks to add later` is not the
+section.
+
 ### The intent-gap record
 
 A decision the receipt never covered will sometimes surface during BUILD. That is normal

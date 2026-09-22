@@ -58,6 +58,23 @@
 #   | S-1 | Empty state when no rows load    | decided (D-3)                   |
 #   | S-2 | Print stylesheet                 | out-of-scope — no print in this |
 #
+# Receipt mode also reads the two sections the scheduler (`run.sh`) takes from the
+# record's first commit (#886, #881 D-4/D-13), with the scheduler's heading rule:
+# exact title at any depth, case-insensitive, ANY heading closes it, the FIRST one
+# decides.
+#
+#   `## Checks` — mandatory. One command per line, `- cmd` or `` - `cmd` ``: the
+#   ticket-specific commands run against the pushed head beside `commands.*`. A
+#   bullet the scheduler's parse would not read as one command is refused, since the
+#   scheduler would drop it silently. Empty form: CHECKS_EMPTY_FORM below.
+#
+#   `## Design frames` (or `## Design`) — mandatory only when the repo's config sets
+#   `design.provider` (SECOND_SHIFT_CONFIG, else <repo>/.claude/second-shift.config.json,
+#   <repo> being the main checkout the receipt sits in). At least one
+#   `| RS-n | route | state | frame | must-show |` row with every cell filled, or
+#   `Design: none — <reason>`. RS rows are shape-checked whenever present: the route
+#   smoke reads them on any repo.
+#
 # RECONCILE MODE (`--reconcile <receipt-path>`) is the third mode, and the only
 # one that reads TWO documents. An intake receipt is binding input to the build
 # run it is handed to; until #517 nothing in the lane held it beside the spec the
@@ -110,7 +127,7 @@ while [[ $# -gt 0 ]]; do
     --reconcile)
       [[ $# -ge 2 && -n "${2:-}" ]] || { echo "ledger-lint: --reconcile needs a receipt path" >&2; exit 2; }
       RECONCILE="$2"; shift 2 ;;
-    -h|--help) sed -n '2,98p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,115p' "$0"; exit 0 ;;
     -*) echo "ledger-lint: unknown option: $1" >&2; exit 2 ;;
     *)
       [[ -z "$PLAN" ]] || { echo "ledger-lint: unexpected argument: $1" >&2; exit 2; }
@@ -157,6 +174,32 @@ DISPOSITION_ENUM='pause-and-ask|reversible-default-and-flag'
 OPEN_EMPTY_FORM='No open regions — every decision in scope is ratified.'
 SURFACE_DISPOSITION_ENUM='decided|out-of-scope'
 SURFACE_EMPTY_FORM='No user-visible surface — this change renders nothing a user reads.'
+CHECKS_EMPTY_FORM='No ticket-specific checks — the configured lanes cover this change.'
+
+# The scheduler's section reader, its awk byte for byte (run.sh `section_of`): exact title at
+# any depth, case-folded, ANY heading closes, the FIRST such section decides. The lint must
+# read the section the scheduler reads, or a receipt that lints clean can still refuse there.
+section_of() { # section_of <title-regex> <path>
+  awk -v h="$1" 'on && /^#+[[:space:]]/ {on=0; done=1} !done && tolower($0) ~ ("^#+[[:space:]]+" h "[[:space:]]*$") {on=1; next} on' "$2"
+}
+has_section() { # has_section <title-regex> <path>
+  grep -qiE "^#+[[:space:]]+$1[[:space:]]*\$" "$2"
+}
+
+# `design.provider` from the config the scheduler reads. Prints the provider or nothing; exits
+# 2 when a present config cannot be read, because "no provider" and "a config this could not
+# read" are different facts, and the second would silently waive the frames section.
+design_provider() { # design_provider <receipt-path>
+  local cfg="${SECOND_SHIFT_CONFIG:-}" common
+  if [[ -z "$cfg" ]]; then
+    common="$(git -C "$(dirname "$1")" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || return 0
+    cfg="$(dirname "$common")/.claude/second-shift.config.json"
+  fi
+  [[ -f "$cfg" ]] || return 0
+  command -v jq >/dev/null 2>&1 || { echo "ledger-lint: jq is required to read $cfg" >&2; exit 2; }
+  jq -e . "$cfg" >/dev/null 2>&1 || { echo "ledger-lint: config $cfg is present but not JSON" >&2; exit 2; }
+  jq -r '.design.provider // empty' "$cfg"
+}
 
 # The section detector, ONE copy. Both check 1 and reconcile mode ask this question, and
 # a second in-file copy is the shape #562's review round already named: two greps that agree
@@ -417,6 +460,8 @@ fi
 # — spec-reviewer's discovery-coverage checklist owns it.
 OPEN_ROW_COUNT=0
 SURFACE_ROW_COUNT=0
+CHECK_COUNT=0
+FRAME_ROW_COUNT=0
 if (( RECEIPT == 1 )); then
   declare -a OPEN_IDS=()
   if ! grep -qiE '^(#{1,6}[[:space:]]+|\*\*)[[:space:]]*open regions' "$PLAN"; then
@@ -570,12 +615,70 @@ if (( RECEIPT == 1 )); then
       fi
     done
   fi
+
+  # ---- Receipt check E: the checks the scheduler runs ---------------------------
+  # An absent section is a silent claim that nothing beyond the configured lanes verifies
+  # this change, so it is mandatory, with an empty form, like the two sections above.
+  if ! has_section 'checks' "$PLAN"; then
+    violate "missing mandated receipt section: Checks (list the ticket-specific commands the scheduler runs against the pushed head, one per line as '- cmd', or state the explicit empty form '$CHECKS_EMPTY_FORM')"
+  else
+    CHECKS_SEC="$(section_of 'checks' "$PLAN")"
+    while IFS= read -r line; do
+      [[ "$line" =~ ^[[:space:]]*[-*+]([[:space:]]|$) ]] || continue
+      # shellcheck disable=SC2016  # markdown backticks
+      cmd="$(printf '%s\n' "$line" | sed -n 's/^- *`\{0,1\}\([^`]*\)`\{0,1\} *$/\1/p')"
+      if [[ -n "$(trim "$cmd")" ]]; then
+        CHECK_COUNT=$((CHECK_COUNT + 1))
+      else
+        violate "Checks line is not one command the scheduler can read (the form is '- cmd' or '- \`cmd\`', at the start of the line, no inner backticks): $line"
+      fi
+    done <<< "$CHECKS_SEC"
+    if (( CHECK_COUNT == 0 )) && ! grep -qF "$CHECKS_EMPTY_FORM" <<< "$CHECKS_SEC"; then
+      violate "Checks has no command and no explicit empty form ('$CHECKS_EMPTY_FORM')"
+    fi
+  fi
+
+  # ---- Receipt check F: the design frames the route smoke reads ---------------
+  # The row shape is checked wherever rows appear — the smoke reads them on any repo — but
+  # the section is required only where `design.provider` is set: the scheduler refuses there
+  # (env-design-undeclared) on a receipt that neither arms nor disarms the ticket.
+  PROVIDER="$(design_provider "$PLAN")" || exit 2
+  DESIGN_SEC="$(section_of 'design( frames)?' "$PLAN")"
+  DISARMED=0
+  if grep -qiE '^[[:space:]]*Design:[[:space:]]*none([[:space:]]|$)' <<< "$DESIGN_SEC"; then
+    if grep -qiE '^[[:space:]]*Design:[[:space:]]*none[[:space:]]+[^[:space:]]' <<< "$DESIGN_SEC"; then
+      DISARMED=1
+    else
+      violate "Design frames disarms this ticket but states no reason — the form is 'Design: none — <reason>'"
+    fi
+  fi
+  while IFS= read -r line; do
+    masked="${line//\\|/__LEDGER_LINT_PIPE__}"
+    IFS='|' read -r -a cells <<< "$masked"
+    # 5-column row: leading-empty, RS, route, state, frame, must-show.
+    ncells="$(normalize_arity "${#cells[@]}" "${cells[$(( ${#cells[@]} - 1 ))]}" 6)"
+    if (( ncells != 6 )); then
+      violate "malformed design frames row (expected 5 columns: RS | route | state | frame | must-show): $line"
+      continue
+    fi
+    rs_id="$(trim "${cells[1]}")"
+    FRAME_ROW_COUNT=$((FRAME_ROW_COUNT + 1))
+    [[ -n "$(trim "${cells[2]}")" ]] || violate "$rs_id row has an empty route cell"
+    [[ -n "$(trim "${cells[3]}")" ]] || violate "$rs_id row has an empty state cell"
+    [[ -n "$(trim "${cells[4]}")" ]] || violate "$rs_id row has an empty frame cell"
+    [[ -n "$(trim "${cells[5]}")" ]] || violate "$rs_id row has an empty must-show cell — the route smoke's only assertion; name a data-test id or a copy string taken from the frame"
+  done < <(grep -E '^\|[[:space:]]*RS-[0-9]+[[:space:]]*\|' <<< "$DESIGN_SEC" || true)
+  if [[ -n "$PROVIDER" ]] && (( FRAME_ROW_COUNT == 0 && DISARMED == 0 )); then
+    violate "config sets design.provider '$PROVIDER', so the receipt needs a Design frames section carrying at least one '| RS-n | route | state | frame | must-show |' row, or the disarm 'Design: none — <reason>'"
+  fi
 fi
 
 echo "ledger-lint: ${ROW_COUNT} ledger row(s)"
 if (( RECEIPT == 1 )); then
   echo "ledger-lint: ${OPEN_ROW_COUNT} open region(s)"
   echo "ledger-lint: ${SURFACE_ROW_COUNT} surface(s)"
+  echo "ledger-lint: ${CHECK_COUNT} check(s)"
+  echo "ledger-lint: ${FRAME_ROW_COUNT} design frame(s)"
 fi
 if (( VIOLATIONS > 0 )); then
   echo "ledger-lint: FAIL — $VIOLATIONS violation(s)" >&2
