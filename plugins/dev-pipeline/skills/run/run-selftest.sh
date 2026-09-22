@@ -387,8 +387,8 @@ kill -TERM "$rp"; wait "$rp"; xrc=$?
 [ "$xrc" -eq 143 ] && ok "(x1) TERM exits 143" || bad "(x1) TERM exit $xrc"
 sleep 1; if pgrep -f "$T/bin/claude" >/dev/null 2>&1 || pgrep -f 'sleep 60' >/dev/null 2>&1; then bad "(x1) the session outlived the scheduler"; pkill -f "$T/bin/claude" 2>/dev/null; pkill -f 'sleep 60' 2>/dev/null; else ok "(x1) the session and its children were killed with the scheduler"; fi
 grep -q 'claim left in place' "$d/x1.log" && grep -qx in-progress "$FAKE_GH/labels" && ok "(x1) the claim is left in place on TERM" || bad "(x1) claim state wrong after TERM"
-FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"design":{"provider":"figma","liveRender":{"command":"true","readyProbe":"http://127.0.0.1:9/"}}}' fixture x2
-printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(x2) a readyProbe gates nothing on a ticket with no frames"
+FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"design":{"provider":"figma","liveRender":{"command":"true","readyProbe":"http://127.0.0.1:9/"}}}' fixture x2 "- true" $'\nDesign: none — a wording change, nothing renders\n'
+printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(x2) a readyProbe gates nothing on a ticket declared Design: none"
 FIXTURE_CONFIG="{\"tracker\":{\"type\":\"github\",\"branchPrefix\":\"second-shift/\"},\"paths\":{\"plansDir\":\"docs/plans\"},\"design\":{\"provider\":\"figma\",\"liveRender\":{\"command\":\"cp $T/px.png {out}\",\"smokeCommand\":\"true\",\"readyProbe\":\"http://127.0.0.1:9/\"}}}" fixture x3 "- true" $'\n## Design frames\n\n| RS | route | state | frame | must-show |\n| --- | --- | --- | --- | --- |\n| RS-1 | a | default | 1:2 | ok |\n'
 printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect env-not-ready "(x3) a dead readyProbe stops an armed ticket before rendering"
 [ "$RC" -eq 2 ] && ok "(x3) infra stop, exit 2, no attempt spent" || bad "(x3) exit $RC"
@@ -399,6 +399,21 @@ OUT="$( cd "$d/main" && RUN_CHECKS_RED_MAX=2 bash "$RUN" GH-42 --build-model opu
 expect checks-red-spent "(x5) jira Closes outside its heading is a finding, as the old gate ruled"
 fixture x6; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; touch "$FAKE_GH/ci-red"; run_case "$d"; expect approved "(x6) CI is never waited on"
 grep -q '| red |' "$FAKE_GH/pr-body.md" && ok "(x6) a red CI is reported in the run block" || bad "(x6) CI red not reported"
+
+# (y) round-eleven parity: a provider repo's ticket declares its design state, the probe wants a 2xx/3xx,
+#     a timed-out session is reaped, -h prints the whole table
+FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"design":{"provider":"figma","liveRender":{"command":"true"}}}' fixture y1
+run_case "$d"; expect env-design-undeclared "(y1) on a design-provider repo a record with neither frames nor 'Design: none' is refused (#705's rule)"
+[ ! -f "$FAKE_GH/calls" ] && ok "(y1) refused before any build" || bad "(y1) a build ran"
+fixture y2; printf 'build-sleep\n' > "$FAKE_CLAUDE_PLAN"; RUN_BUILD_TIMEOUT=2 run_case "$d"; expect build-blocked "(y2) a build past its ceiling is stopped"
+sleep 1; if pgrep -f 'sleep 60' >/dev/null 2>&1; then bad "(y2) the timed-out session's children outlived it"; pkill -f 'sleep 60' 2>/dev/null; else ok "(y2) the timed-out session and its children were reaped"; fi
+port=$(( 20000 + RANDOM % 20000 )); ( cd "$T" && python3 -m http.server "$port" --bind 127.0.0.1 >/dev/null 2>&1 ) & hs=$!
+until curl -s -o /dev/null "http://127.0.0.1:$port/" 2>/dev/null; do sleep 0.2; done
+FIXTURE_CONFIG="{\"tracker\":{\"type\":\"github\",\"branchPrefix\":\"second-shift/\"},\"paths\":{\"plansDir\":\"docs/plans\"},\"design\":{\"provider\":\"figma\",\"liveRender\":{\"command\":\"cp $T/px.png {out}\",\"smokeCommand\":\"true\",\"readyProbe\":\"http://127.0.0.1:$port/missing\"}}}" fixture y3 "- true" $'\n## Design frames\n\n| RS | route | state | frame | must-show |\n| --- | --- | --- | --- | --- |\n| RS-1 | a | default | 1:2 | ok |\n'
+printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect env-not-ready "(y3) an HTTP 404 from the readyProbe is not ready"
+grep -q 'last reading: HTTP 404' <<<"$OUT" && ok "(y3) the refusal names the reading" || bad "(y3) reading not named"
+kill "$hs" 2>/dev/null; wait "$hs" 2>/dev/null
+fixture y4; OUT="$( cd "$d/main" && bash "$RUN" -h 2>&1 )"; grep -q '130 / 143' <<<"$OUT" && ok "(y4) -h prints the whole exit table" || bad "(y4) -h truncated"
 
 # (m) rounds spent
 fixture m; printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-needs-work\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d" --max-rounds 2; expect rounds-spent "(m) two needs-work rounds"

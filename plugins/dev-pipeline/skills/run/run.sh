@@ -50,12 +50,12 @@ while [ $# -gt 0 ]; do
     --dry-run) DRY=1; KEEP_ARGS+=("$1"); shift ;;
     --resume) RESUME=1; KEEP_ARGS+=("$1"); shift ;;
     --detach) DETACH=1; shift ;;
-    -h|--help) sed -n '2,33p' "$0"; exit 0 ;;
+    -h|--help) awk 'NR>1 && /^set -uo pipefail/{exit} NR>1' "$0"; exit 0 ;;
     -*) echo "run.sh: unknown flag $1" >&2; echo "terminal: usage-unknown-option"; exit 2 ;;
     *) ISSUE="$1"; KEEP_ARGS+=("$1"); shift ;;
   esac
 done
-[ -n "$ISSUE" ] || { sed -n '16,20p' "$0" >&2; echo "terminal: usage-missing-issue"; exit 2; }
+[ -n "$ISSUE" ] || { awk 'NR>1 && /^set -uo pipefail/{exit} NR>1' "$0" >&2; echo "terminal: usage-missing-issue"; exit 2; }
 alias_model() { case "$1" in opus) echo claude-opus-5 ;; sonnet) echo claude-sonnet-5 ;; *) echo "$1" ;; esac; }
 MODEL="$(alias_model "$MODEL")"; REVIEW_MODEL="$(alias_model "$REVIEW_MODEL")"
 case "$MAX_ROUNDS" in ''|*[!0-9]*|0) echo "run.sh: --max-rounds must be a positive integer" >&2; echo "terminal: usage-max-rounds"; exit 2 ;; esac
@@ -176,7 +176,7 @@ bounded() {
   ( cd "$WT" && exec "$@" ) > "$log" 2>"$log.err" < /dev/null & CHILD=$!
   local t=0
   while kill -0 "$CHILD" 2>/dev/null; do
-    [ "$t" -ge "$secs" ] && { kill "$CHILD" 2>/dev/null; wait "$CHILD" 2>/dev/null; CHILD=""; return 124; }
+    [ "$t" -ge "$secs" ] && { reap; wait "$CHILD" 2>/dev/null; CHILD=""; return 124; }
     sleep 1; t=$((t+1))
   done
   wait "$CHILD"; local rc=$?; CHILD=""; return $rc
@@ -356,18 +356,19 @@ EOF
 }
 route_smoke() { # -> 0 ok, 1 red, 2 unconfigured
   local rows; rows="$(frames_rows)"
-  [ -n "$rows" ] || { [ -n "$RENDER_CMD" ] && say "smoke: the record has no '## Design frames' rows — the render check is not armed for this ticket"; return 0; }
+  [ -n "$rows" ] || { [ -n "$RENDER_CMD" ] && say "smoke: the record declares 'Design: none' — the render check is not armed for this ticket"; return 0; }
   [ -n "$RENDER_CMD" ] || return 2
   # the readyProbe, as milestone 3 ran it: only when a render is about to happen, three tries with a
   # backoff, and no `-f`, so an HTTP answer (the service is up) stays distinguishable from a transport
   # failure; a service the build does not own is an infra stop, never a spent attempt
   if [ -n "$READY_URL" ]; then
-    local try=1 code=""
+    local try=1 code="" crc=0 reading=""
     while [ "$try" -le 3 ]; do
-      code="$(curl -sS -m 10 -o /dev/null -w '%{http_code}' "$READY_URL" 2>/dev/null)" && [ "$code" != 000 ] && break
+      code="$(curl -sS -m 10 -o /dev/null -w '%{http_code}' "$READY_URL" 2>/dev/null)"; crc=$?
+      case "$crc:$code" in 0:2??|0:3??) reading="ready"; break ;; 0:*) reading="HTTP $code" ;; *) reading="curl exit $crc" ;; esac
       sleep $((try*2)); try=$((try+1))
     done
-    { [ -n "$code" ] && [ "$code" != 000 ]; } || terminal env-not-ready "readyProbe $READY_URL answered nothing in 3 tries — start the service and --resume"
+    [ "$reading" = ready ] || terminal env-not-ready "readyProbe $READY_URL is not ready after 3 tries (last reading: $reading) — start the service and --resume"
   fi
   local rc=0 prev="" rs route state must png sha
   while IFS='|' read -r rs route state _frame must; do
@@ -493,6 +494,17 @@ write_run_block() { # <terminal slug>
 say "run $RUN_ID: issue $ISSUE, tracker $TRACKER (writes $TRACKER_WRITES), branch $BRANCH, worktree $WT, record $RECORD_REL"
 [ -f "$RECORD" ] || terminal env-no-record "no intake record at $RECORD — run /intake-toolkit:plan-interview $ISSUE first"
 validate_lanes
+# On a design-provider repo every ticket says which it is: armed (frames rows) or disarmed with a reason
+# (`Design: none — <reason>`). Neither is the silent case the old gate refused (#705); the operator
+# override that could disarm one is retired with the tool (D-23), so the record carries the reason.
+design_declared() {
+  [ -z "$(cfg .design.provider)" ] && return 0
+  local rec; rec="$(cat "$RECORD" 2>/dev/null)"
+  grep -qE '^\| *RS-[0-9]+ *\|' <<<"$rec" && return 0
+  grep -qiE '^Design: *none *(—|-|:)' <<<"$rec" && return 0
+  return 1
+}
+design_declared || terminal env-design-undeclared "design.provider is configured but the record neither carries '## Design frames' rows nor a 'Design: none — <reason>' line — a UI ticket cannot skip the render silently"
 if [ "$DRY" -eq 1 ]; then say "dry-run: would claim, create the worktree, commit the record, and run up to $MAX_ROUNDS rounds; checks: $(checks_list all 2>/dev/null | tr '\n' ';')"; echo "terminal: dry-run"; exit 0; fi
 st="$(issue_state)"; [ -n "$st" ] || terminal env-tracker-unreadable "could not read #$ISSUE from the tracker"
 [ "$st" = OPEN ] || terminal env-ticket-closed "#$ISSUE is not open — nothing spawned, a preflight refusal like any other"
