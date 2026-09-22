@@ -254,6 +254,7 @@ ERRORS=$(jq -r --argjson shippedTiers "$SHIPPED_TIERS_JSON" '
           + err(((keys) - ["command","cwd","readyProbe","tolerancePx","smokeCommand"]) != []; "design.liveRender: unknown keys")
           + err((.command? // "") == ""; "design.liveRender.command: required")
           + err((.command? != null) and ((.command | type) != "string"); "design.liveRender.command: must be string")
+          + err((.smokeCommand? != null) and ((.smokeCommand | type) != "string"); "design.liveRender.smokeCommand: must be string")
           + err((.cwd? != null) and ((.cwd | type) != "string"); "design.liveRender.cwd: must be string")
           + err((.cwd? != null) and ((.cwd | type) == "string") and ($repoIds != []) and ((.cwd as $c | $repoIds | index($c)) == null); "design.liveRender.cwd: not a topology.repos id")
           + err((.readyProbe? != null) and ((.readyProbe | type) != "string"); "design.liveRender.readyProbe: must be string")

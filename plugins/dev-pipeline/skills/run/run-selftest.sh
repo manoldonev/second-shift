@@ -265,6 +265,24 @@ fixture s3; OUT="$( cd "$d/main" && bash "$RUN" 42 --bogus 2>&1 )"; RC=$?; grep 
 # shellcheck disable=SC2016  # the check line expands in the lane, not here
 fixture s4 '- test -z "${BRANCH_PREFIX:-}${KEY_PATTERN:-}${SECOND_SHIFT_REPO_ROOT:-}"'; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; BRANCH_PREFIX=leak KEY_PATTERN=leak SECOND_SHIFT_REPO_ROOT=leak run_case "$d"; expect approved "(s4) the gate's full seam list is scrubbed from lane commands"
 
+# (t) round-five parity: configured label names are WRITTEN, not just read; the no-bot claim path;
+#     an unreadable tracker fails closed; every usage slug
+FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/","labels":{"queue":"todo","claimed":"doing"}},"paths":{"plansDir":"docs/plans"}}' fixture t1
+printf 'todo\nopus\n' > "$FAKE_GH/labels"; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(t1) run with configured label names"
+grep -qx doing "$FAKE_GH/labels" && ! grep -qx todo "$FAKE_GH/labels" && ok "(t1) the configured queue label was removed and the configured claimed label applied" || bad "(t1) labels after claim: $(tr '\n' ' ' < "$FAKE_GH/labels")"
+fixture t2; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"
+# no bot configured, RUN_GH unset: the plain-gh swap must be taken (the fake sits on PATH as `gh`)
+OUT="$( cd "$d/main" && PATH="$T/bin:$PATH" env -u RUN_GH bash "$RUN" 42 2>&1 )"; RC=$?; TERM_SLUG="$(printf '%s\n' "$OUT" | sed -n 's/^terminal: //p' | tail -n 1)"
+expect approved "(t2) a consumer with no bot configured can run (plain gh claim swap)"
+fixture t3; : > "$FAKE_GH/state"; cat > "$T/bin/gh-dead" <<EOF
+#!/usr/bin/env bash
+if [ "\$1 \$2" = "issue view" ] && [[ "\$*" == *state* ]]; then exit 1; fi; exec "$T/bin/gh" "\$@"
+EOF
+chmod +x "$T/bin/gh-dead"; RUN_GH="$T/bin/gh-dead" run_case "$d"; expect env-tracker-unreadable "(t3) an unreadable tracker is a refusal, never read as OPEN"
+fixture t4; OUT="$( cd "$d/main" && bash "$RUN" 2>&1 )"; grep -q '^terminal: usage-missing-issue$' <<<"$OUT" && ok "(t4) usage-missing-issue slug" || bad "(t4) missing-issue slug absent"
+OUT="$( cd "$d/main" && bash "$RUN" 42 --max-rounds 0 2>&1 )"; grep -q '^terminal: usage-max-rounds$' <<<"$OUT" && ok "(t4) usage-max-rounds slug" || bad "(t4) max-rounds slug absent"
+OUT="$( cd "$d/main" && bash "$RUN" 42 --review-model sonnet 2>&1 )"; grep -q '^terminal: usage-review-model-basis$' <<<"$OUT" && ok "(t4) usage-review-model-basis slug" || bad "(t4) review-model-basis slug absent"
+
 # (m) rounds spent
 fixture m; printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-needs-work\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d" --max-rounds 2; expect rounds-spent "(m) two needs-work rounds"
 

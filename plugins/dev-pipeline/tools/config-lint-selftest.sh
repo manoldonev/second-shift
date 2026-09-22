@@ -53,6 +53,9 @@ expect_no_violation() { # $1 = fixture, $2 = substring that must NOT appear
   fi
 }
 
+expect_violation invalid-bad-run-caps.json          "run: unknown keys"
+expect_violation invalid-bad-run-caps.json          "run.maxRounds: must be an integer >= 1"
+expect_violation invalid-bad-smokecommand.json      "design.liveRender.smokeCommand: must be string"
 expect_violation invalid-bad-tracker.json           "tracker.type must be github|jira"
 expect_violation invalid-pair-missing-fe.json       "be-fe-pair requires repos.be and repos.fe"
 expect_violation invalid-monorepo-two-id.json       "commands.<id>.lanes / extraLanes"

@@ -191,7 +191,10 @@ SPAWN_COMMON=(--permission-mode acceptEdits --permission-prompts none --disallow
 [ -n "$CONFIG" ] && SPAWN_COMMON+=(--add-dir "$(cd "$(dirname "$CONFIG")" && pwd)")
 
 # ---- tracker (github writes the claim; jira is operator-attested and read-only) ----
-issue_state() { [ "$TRACKER" = github ] && "$GH_READ" issue view "$ISSUE" --json state --jq .state 2>/dev/null || echo OPEN; }
+issue_state() { # prints the state, or nothing when the tracker could not be read — callers refuse on nothing
+  [ "$TRACKER" = github ] || { echo OPEN; return 0; }
+  "$GH_READ" issue view "$ISSUE" --json state --jq .state 2>/dev/null
+}
 has_label() { # a checked match: the producer's output is captured first, so a dead gh never reads as "no"
   [ "$TRACKER" = github ] || return 1
   local names; names="$("$GH_READ" issue view "$ISSUE" --json labels --jq '.labels[].name' 2>/dev/null)" || return 1
@@ -215,8 +218,8 @@ claim() {
   local b; for b in $L_BLOCKERS; do has_label "$b" && terminal not-queued "#$ISSUE carries blocker label $b"; done
   has_label "$L_QUEUE" || terminal not-queued "#$ISSUE does not carry $L_QUEUE — only the operator queues a ticket"
   # the atomic queue->claimed swap, add-then-confirm-then-remove, bot-aware (tools/claim-issue.sh)
-  if [ -n "${RUN_GH:-}" ]; then "$GH" issue edit "$ISSUE" --add-label "$L_CLAIMED" --remove-label "$L_QUEUE" >/dev/null 2>&1 || terminal env-claim-failed "could not swap labels on #$ISSUE"
-  else SECOND_SHIFT_CONFIG="${CONFIG:-}" bash "$TOOLS/claim-issue.sh" "$ISSUE" >/dev/null 2>&1 || terminal env-claim-failed "claim-issue.sh could not swap $L_QUEUE -> $L_CLAIMED on #$ISSUE"; fi
+  if [ "$BOT_OK" -eq 1 ]; then SECOND_SHIFT_CONFIG="${CONFIG:-}" bash "$TOOLS/claim-issue.sh" "$ISSUE" --queue "$L_QUEUE" --claimed "$L_CLAIMED" >/dev/null 2>&1 || terminal env-claim-failed "claim-issue.sh could not swap $L_QUEUE -> $L_CLAIMED on #$ISSUE"
+  else "$GH" issue edit "$ISSUE" --add-label "$L_CLAIMED" --remove-label "$L_QUEUE" >/dev/null 2>&1 || terminal env-claim-failed "could not swap $L_QUEUE -> $L_CLAIMED on #$ISSUE"; fi
   # the claim marker, in the shape the old lane posted (re-entry and evidence readers grep it)
   # shellcheck disable=SC2016  # markdown backticks, not shell
   "$GH" issue comment "$ISSUE" --body "$(printf '<!-- dev-pipeline -->\n<!-- run_id: %s -->\n<!-- session_id: %s -->\n<!-- stage: lean-claimed -->\n\n🤖 Claimed by \`/dev-pipeline:run\`.\nsecond-shift-run: %s (branch %s)' "$RUN_ID" "${CLAUDE_CODE_SESSION_ID:-unset}" "$RUN_ID" "$BRANCH")" >/dev/null 2>&1 || true
@@ -363,7 +366,8 @@ test_surface_diff() { # -> file
 # The premise can expire mid-run (kept from orchestrate.sh): the ticket closed, or the base moved
 # into a file this branch touches — a green build against a base nobody merges onto is wasted.
 premise_holds() {
-  [ "$(issue_state)" = OPEN ] || terminal ticket-closed "#$ISSUE closed mid-run"
+  local st; st="$(issue_state)"; [ -n "$st" ] || terminal staleness-unreadable "could not read #$ISSUE from the tracker mid-run"
+  [ "$st" = OPEN ] || terminal ticket-closed "#$ISSUE closed mid-run"
   git -C "$WT" fetch -q origin "$BASE_NAME" 2>/dev/null || terminal staleness-unreadable "could not fetch origin/$BASE_NAME — a predicate that cannot be evaluated is not a predicate that passed"
   local base_now; base_now="$(git -C "$WT" rev-parse -q --verify "origin/$BASE_NAME" 2>/dev/null)"; [ -n "$base_now" ] || terminal staleness-unreadable "origin/$BASE_NAME does not resolve"
   [ "$base_now" = "$BASE_START" ] && return 0
@@ -403,8 +407,10 @@ over_ceiling() { awk -v c="$COST" -v m="$COST_CEIL" 'BEGIN{exit !(c>m)}'; }
 # ================================ the run ================================
 say "run $RUN_ID: issue $ISSUE, tracker $TRACKER (writes $TRACKER_WRITES), branch $BRANCH, worktree $WT, record $RECORD_REL"
 [ -f "$RECORD" ] || terminal env-no-record "no intake record at $RECORD — run /intake-toolkit:plan-interview $ISSUE first"
+validate_lanes
 if [ "$DRY" -eq 1 ]; then say "dry-run: would claim, create the worktree, commit the record, and run up to $MAX_ROUNDS rounds; checks: $(checks_list 2>/dev/null | tr '\n' ';')"; echo "terminal: dry-run"; exit 0; fi
-[ "$(issue_state)" = OPEN ] || terminal ticket-closed "#$ISSUE is not open"
+st="$(issue_state)"; [ -n "$st" ] || terminal env-tracker-unreadable "could not read #$ISSUE from the tracker"
+[ "$st" = OPEN ] || terminal ticket-closed "#$ISSUE is not open"
 claim
 if [ -z "$MODEL" ]; then
   if has_label opus; then MODEL=claude-opus-5; MODEL_BASIS="label"; elif has_label sonnet; then MODEL=claude-sonnet-5; MODEL_BASIS="label"
@@ -438,7 +444,6 @@ fi
 FIRST="$(git -C "$WT" log --format=%H --diff-filter=A -- "$RECORD_REL" | tail -n 1)"
 [ -n "$FIRST" ] || terminal env-no-first-commit "the record has no adding commit on $BRANCH"
 say "record baseline: $FIRST"
-validate_lanes
 
 FINDINGS=""; ROUND=0
 while [ "$ROUND" -lt "$MAX_ROUNDS" ]; do
