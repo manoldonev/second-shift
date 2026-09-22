@@ -23,6 +23,14 @@ lint_rc() { # lint_rc <plan> — echo exit code, never abort the harness
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
+# Receipt mode reads `design.provider` from SECOND_SHIFT_CONFIG, else from the config in the
+# receipt's own checkout — and the operator's shell exports the first, while the fixtures sit
+# in this repo's checkout. Pin it to a config with no provider, so no case reads a machine's
+# setup; the design cases below point it at their own.
+printf '{}\n' > "$TMP/config-no-design.json"
+printf '{"design":{"provider":"figma"}}\n' > "$TMP/config-design.json"
+export SECOND_SHIFT_CONFIG="$TMP/config-no-design.json"
+
 echo "[ledger-lint-selftest] positive cases"
 
 # (ll-a) valid ledger with every provenance value (incl. escaped pipe in a cell,
@@ -159,7 +167,7 @@ echo "[ledger-lint-selftest] receipt mode (--receipt): the provenance bar"
 # The receipt fixture, reduced to the one row each case mutates, so a case's
 # failure names a single cause. Built from the fixture rather than hand-written
 # so a schema drift in the fixture surfaces here too.
-receipt_with() { # receipt_with <ledger-rows-file> <open-rows-block> [surface-block]
+receipt_with() { # receipt_with <ledger-rows-file> <open-rows-block> [surface-block] [checks-block]
   printf '%s\n' '# R' '## Decision Ledger' \
     '| ID  | Decision | Resolution | Provenance | Kind |' \
     '| --- | -------- | ---------- | ---------- | ---- |'
@@ -168,6 +176,8 @@ receipt_with() { # receipt_with <ledger-rows-file> <open-rows-block> [surface-bl
   printf '%s\n' "$2"
   printf '\n%s\n' '## Surface Inventory'
   printf '%s\n' "${3-$SURFACE_EMPTY}"
+  printf '\n%s\n' '## Checks'
+  printf '%s\n' "${4-$CHECKS_EMPTY}"
 }
 
 # The explicit empty forms, spelled once each. Cases that are not ABOUT open
@@ -177,6 +187,7 @@ receipt_with() { # receipt_with <ledger-rows-file> <open-rows-block> [surface-bl
 # exactly one cause.
 OPEN_EMPTY='No open regions — every decision in scope is ratified.'
 SURFACE_EMPTY='No user-visible surface — this change renders nothing a user reads.'
+CHECKS_EMPTY='No ticket-specific checks — the configured lanes cover this change.'
 
 # (ll-o) the fixture receipt — every Kind value, every legal pairing → 0
 rc=$(lint_rc --receipt "$FIX/valid-receipt.md")
@@ -728,6 +739,197 @@ rc3=$(lint_rc --reconcile "$TMP/does-not-exist.md" "$TMP/rc-plan-ok.md")
 [[ "$rc" -eq 2 && "$rc2" -eq 2 && "$rc3" -eq 2 ]] \
   && pass "(ll-rc13) --reconcile with no value, with --receipt, or with a missing receipt → 2" \
   || fail "(ll-rc13) usage arms — rcs=$rc/$rc2/$rc3"
+
+echo "[ledger-lint-selftest] receipt mode: ## Checks (#886)"
+
+# The scheduler runs these commands against the pushed head, read from the record's first
+# commit — so the lint must read the section the way the scheduler reads it.
+printf '%s\n' '| D-1 | Rate limit for the import endpoint | 100/min | user-answered | intent |' > "$TMP/ck-row.md"
+ck_lint() { # ck_lint <receipt> — sets rc, out, err
+  rc=$(lint_rc --receipt "$1")
+  out=$(bash "$LINT" --receipt "$1" 2>/dev/null || true)
+  err=$(bash "$LINT" --receipt "$1" 2>&1 >/dev/null || true)
+}
+
+# (ll-ck1) both command forms count, backticked and bare → 0
+ck_lint "$FIX/valid-receipt.md"
+[[ "$rc" -eq 0 ]] && grep -q "2 check(s)" <<< "$out" \
+  && pass "(ll-ck1) the fixture's two checks, '- \`cmd\`' and '- cmd', are read → 0" \
+  || fail "(ll-ck1) valid checks — rc=$rc out=$out err=$err"
+
+# (ll-ck2) no section at all → 1, naming the section AND its empty form, as Open Regions does
+receipt_with "$TMP/ck-row.md" "$OPEN_EMPTY" > "$TMP/ck-none.md"
+grep -v -e '^## Checks' -e "$CHECKS_EMPTY" "$TMP/ck-none.md" > "$TMP/ck-absent.md"
+ck_lint "$TMP/ck-absent.md"
+[[ "$rc" -eq 1 ]] && grep -q "missing mandated receipt section: Checks" <<< "$err" && grep -qF "$CHECKS_EMPTY" <<< "$err" \
+  && pass "(ll-ck2) receipt with no Checks section → 1, naming the section and its empty form" \
+  || fail "(ll-ck2) missing Checks — rc=$rc err=$err"
+
+# (ll-ck3) the explicit empty form alone → 0 (the discriminator for ck2)
+ck_lint "$TMP/ck-none.md"
+[[ "$rc" -eq 0 ]] && grep -q "0 check(s)" <<< "$out" \
+  && pass "(ll-ck3) Checks explicit empty form → 0" \
+  || fail "(ll-ck3) checks empty form — rc=$rc err=$err"
+
+# (ll-ck4) a heading with prose and no command, no empty form → 1
+receipt_with "$TMP/ck-row.md" "$OPEN_EMPTY" "$SURFACE_EMPTY" 'run the usual things.' > "$TMP/ck-prose.md"
+ck_lint "$TMP/ck-prose.md"
+[[ "$rc" -eq 1 ]] && grep -q "Checks has no command and no explicit empty form" <<< "$err" \
+  && pass "(ll-ck4) Checks with neither a command nor the empty form → 1, named" \
+  || fail "(ll-ck4) prose-only Checks — rc=$rc err=$err"
+
+# (ll-ck5) a bullet the scheduler's parse drops (inner backticks, an indented or `*` bullet) → 1.
+# Without this the lint counts a check the scheduler silently never runs.
+# shellcheck disable=SC2016  # markdown backticks
+# '---' and '-cmd' are the other direction: the scheduler RUNS them ('--', 'cmd').
+for bad in '- run `yarn test` then `yarn lint`' '  - yarn test' '* yarn test' '---' '-echo nospace'; do
+  receipt_with "$TMP/ck-row.md" "$OPEN_EMPTY" "$SURFACE_EMPTY" "$bad" > "$TMP/ck-bad.md"
+  ck_lint "$TMP/ck-bad.md"
+  [[ "$rc" -eq 1 ]] && grep -q "Checks line is not one command the scheduler can read" <<< "$err" \
+    && pass "(ll-ck5) unreadable check line '$bad' → 1, named" \
+    || fail "(ll-ck5) unreadable check line '$bad' — rc=$rc err=$err"
+done
+
+# (ll-ck6) THE HEADING RULE, the scheduler's (AC-3). Any depth and any case open the section;
+# a longer title does not; any heading closes it; the first section decides.
+receipt_with "$TMP/ck-row.md" "$OPEN_EMPTY" > "$TMP/ck-base.md"
+sed 's/^## Checks$/#### CHECKS/' "$TMP/ck-base.md" > "$TMP/ck-depth.md"
+ck_lint "$TMP/ck-depth.md"
+[[ "$rc" -eq 0 ]] \
+  && pass "(ll-ck6a) '#### CHECKS' is the section → 0" \
+  || fail "(ll-ck6a) depth/case — rc=$rc err=$err"
+
+sed 's/^## Checks$/## Checks we might add later/' "$TMP/ck-base.md" > "$TMP/ck-longer.md"
+ck_lint "$TMP/ck-longer.md"
+[[ "$rc" -eq 1 ]] && grep -q "missing mandated receipt section: Checks" <<< "$err" \
+  && pass "(ll-ck6b) '## Checks we might add later' is not the section → 1" \
+  || fail "(ll-ck6b) longer title — rc=$rc err=$err"
+
+receipt_with "$TMP/ck-row.md" "$OPEN_EMPTY" "$SURFACE_EMPTY" 'see below.
+## Notes
+- yarn test' > "$TMP/ck-closed.md"
+ck_lint "$TMP/ck-closed.md"
+[[ "$rc" -eq 1 ]] && grep -q "Checks has no command and no explicit empty form" <<< "$err" \
+  && pass "(ll-ck6c) a command under the NEXT heading is not a check → 1" \
+  || fail "(ll-ck6c) any heading closes — rc=$rc err=$err"
+
+receipt_with "$TMP/ck-row.md" "$OPEN_EMPTY" "$SURFACE_EMPTY" 'see below.' > "$TMP/ck-first.md"
+printf '\n%s\n%s\n' '## Checks' '- yarn test' >> "$TMP/ck-first.md"
+ck_lint "$TMP/ck-first.md"
+[[ "$rc" -eq 1 ]] && grep -q "Checks has no command and no explicit empty form" <<< "$err" \
+  && pass "(ll-ck6d) the FIRST Checks section decides; a second one is not read → 1" \
+  || fail "(ll-ck6d) first section decides — rc=$rc err=$err"
+
+echo "[ledger-lint-selftest] receipt mode: ## Design frames (#886)"
+
+# (ll-df1) a provider repo, frames table with every cell filled → 0, rows counted
+SECOND_SHIFT_CONFIG="$TMP/config-design.json" ck_lint "$FIX/valid-receipt-design.md"
+[[ "$rc" -eq 0 ]] && grep -q "2 design frame(s)" <<< "$out" \
+  && pass "(ll-df1) design.provider set, two filled RS rows → 0" \
+  || fail "(ll-df1) valid frames — rc=$rc out=$out err=$err"
+
+# Every design case below starts from that fixture with the section swapped.
+grep -v -e '^## Design frames' -e '^| RS' -e '^| --- | --- | --- | --- | --- |' -e '^| RS |' \
+  "$FIX/valid-receipt-design.md" > "$TMP/df-none.md"
+df_with() { # df_with <heading> <body> — the no-frames receipt plus one design section
+  cat "$TMP/df-none.md"; printf '\n%s\n%s\n' "$1" "$2"
+}
+
+# (ll-df2) provider set and no section → 1, naming the provider and both forms
+SECOND_SHIFT_CONFIG="$TMP/config-design.json" ck_lint "$TMP/df-none.md"
+[[ "$rc" -eq 1 ]] && grep -q "config sets design.provider 'figma'" <<< "$err" && grep -q "Design: none — <reason>" <<< "$err" \
+  && pass "(ll-df2) design.provider set, no Design frames section → 1, named" \
+  || fail "(ll-df2) missing frames — rc=$rc err=$err"
+
+# (ll-df3) ...and WITHOUT a provider the same receipt is clean: the section is optional (AC-2)
+ck_lint "$TMP/df-none.md"
+[[ "$rc" -eq 0 ]] \
+  && pass "(ll-df3) no design.provider, no Design frames section → 0" \
+  || fail "(ll-df3) section required without a provider — rc=$rc err=$err"
+
+# (ll-df4) the section with neither a row nor a disarm → 1
+df_with '## Design frames' 'The screens are in Figma.' > "$TMP/df-prose.md"
+SECOND_SHIFT_CONFIG="$TMP/config-design.json" ck_lint "$TMP/df-prose.md"
+[[ "$rc" -eq 1 ]] && grep -q "config sets design.provider" <<< "$err" \
+  && pass "(ll-df4) Design frames with neither an RS row nor a disarm → 1" \
+  || fail "(ll-df4) prose-only frames — rc=$rc err=$err"
+
+# (ll-df5) a disarm with no reason → 1; with one → 0
+df_with '## Design frames' 'Design: none' > "$TMP/df-bare.md"
+SECOND_SHIFT_CONFIG="$TMP/config-design.json" ck_lint "$TMP/df-bare.md"
+[[ "$rc" -eq 1 ]] && grep -q "disarms this ticket but states no reason" <<< "$err" \
+  && pass "(ll-df5a) 'Design: none' with no reason → 1, named" \
+  || fail "(ll-df5a) bare disarm — rc=$rc err=$err"
+df_with '## Design frames' 'Design: none — this ticket renders no new screen' > "$TMP/df-disarm.md"
+SECOND_SHIFT_CONFIG="$TMP/config-design.json" ck_lint "$TMP/df-disarm.md"
+[[ "$rc" -eq 0 ]] \
+  && pass "(ll-df5b) 'Design: none — <reason>' → 0" \
+  || fail "(ll-df5b) reasoned disarm — rc=$rc err=$err"
+# (ll-df5c) a dash with nothing after it is not a reason
+for bare in 'Design: none —' 'Design: none - ' 'Design: none --'; do
+  df_with '## Design frames' "$bare" > "$TMP/df-dash.md"
+  SECOND_SHIFT_CONFIG="$TMP/config-design.json" ck_lint "$TMP/df-dash.md"
+  [[ "$rc" -eq 1 ]] && grep -q "disarms this ticket but states no reason" <<< "$err" \
+    && pass "(ll-df5c) '$bare' (a dash, no reason) → 1, named" \
+    || fail "(ll-df5c) dash-only disarm '$bare' — rc=$rc err=$err"
+done
+
+# (ll-df6) a row with an empty must-show cell → 1: it is the route smoke's only assertion.
+# Driven on a repo WITHOUT a provider too — the smoke reads rows wherever they are.
+df_with '## Design frames' '| RS | route | state | frame | must-show |
+| --- | --- | --- | --- | --- |
+| RS-1 | /imports | empty | 815:2201 |  |' > "$TMP/df-nomust.md"
+for cfg in config-design config-no-design; do
+  SECOND_SHIFT_CONFIG="$TMP/$cfg.json" ck_lint "$TMP/df-nomust.md"
+  [[ "$rc" -eq 1 ]] && grep -q "RS-1 row has an empty must-show cell" <<< "$err" \
+    && pass "(ll-df6) RS row with an empty must-show cell ($cfg) → 1, named" \
+    || fail "(ll-df6) empty must-show ($cfg) — rc=$rc err=$err"
+done
+
+# (ll-df7) the gate's 4-column RS row (AC refs, no frame, no must-show) → 1, not read as armed
+df_with '## Design frames' '| RS-1 | /imports | empty | AC-1 |' > "$TMP/df-4col.md"
+SECOND_SHIFT_CONFIG="$TMP/config-design.json" ck_lint "$TMP/df-4col.md"
+[[ "$rc" -eq 1 ]] && grep -q "malformed design frames row" <<< "$err" \
+  && pass "(ll-df7) a 4-column RS row → 1, named" \
+  || fail "(ll-df7) 4-column row — rc=$rc err=$err"
+
+# (ll-df7b) an escaped pipe in a cell → 1: the scheduler splits on it, so its cells differ
+df_with '## Design frames' '| RS-1 | /imports | empty | 815:2201 | a \| b |' > "$TMP/df-esc.md"
+SECOND_SHIFT_CONFIG="$TMP/config-design.json" ck_lint "$TMP/df-esc.md"
+[[ "$rc" -eq 1 ]] && grep -q "escaped pipe" <<< "$err" \
+  && pass "(ll-df7b) an RS row with an escaped pipe → 1, named" \
+  || fail "(ll-df7b) escaped pipe — rc=$rc err=$err"
+
+# (ll-df8) '## Design' is the section too, as the gate accepted it (AC-3); '## Design notes' is not
+df_with '### design' '| RS-1 | /imports | empty | 815:2201 | Nothing imported yet |' > "$TMP/df-short.md"
+SECOND_SHIFT_CONFIG="$TMP/config-design.json" ck_lint "$TMP/df-short.md"
+[[ "$rc" -eq 0 ]] && grep -q "1 design frame(s)" <<< "$out" \
+  && pass "(ll-df8a) '### design' carries the frames → 0" \
+  || fail "(ll-df8a) short title — rc=$rc err=$err"
+df_with '## Design notes' '| RS-1 | /imports | empty | 815:2201 | Nothing imported yet |' > "$TMP/df-notes.md"
+SECOND_SHIFT_CONFIG="$TMP/config-design.json" ck_lint "$TMP/df-notes.md"
+[[ "$rc" -eq 1 ]] && grep -q "config sets design.provider" <<< "$err" \
+  && pass "(ll-df8b) '## Design notes' is not the section → 1" \
+  || fail "(ll-df8b) longer title — rc=$rc err=$err"
+
+# (ll-df9) with SECOND_SHIFT_CONFIG unset, the config is the one in the receipt's own checkout
+# (<repo>/.claude/second-shift.config.json), as the scheduler reads it.
+mkdir -p "$TMP/repo/.claude/pipeline-state"
+git -C "$TMP/repo" init -q
+cp "$TMP/config-design.json" "$TMP/repo/.claude/second-shift.config.json"
+cp "$TMP/df-none.md" "$TMP/repo/.claude/pipeline-state/1-ledger.md"
+rc=$(env -u SECOND_SHIFT_CONFIG bash "$LINT" --receipt "$TMP/repo/.claude/pipeline-state/1-ledger.md" >/dev/null 2>&1; echo $?)
+rc2=$(env -u SECOND_SHIFT_CONFIG bash "$LINT" --receipt "$TMP/df-none.md" >/dev/null 2>&1; echo $?)
+[[ "$rc" -eq 1 && "$rc2" -eq 0 ]] \
+  && pass "(ll-df9) no SECOND_SHIFT_CONFIG: the receipt's checkout config arms the rule; outside a checkout nothing does" \
+  || fail "(ll-df9) config fallback — in-repo rc=$rc, no-repo rc=$rc2"
+
+# (ll-df10) a config that is present but not JSON → 2, never a silent 'no provider'
+printf '{not json\n' > "$TMP/config-broken.json"
+rc=$(SECOND_SHIFT_CONFIG="$TMP/config-broken.json" lint_rc --receipt "$TMP/df-none.md")
+[[ "$rc" -eq 2 ]] \
+  && pass "(ll-df10) unparseable config → 2" \
+  || fail "(ll-df10) unparseable config — rc=$rc"
 
 echo
 echo "[ledger-lint-selftest] summary: $PASS passed, $FAIL failed"

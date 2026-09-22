@@ -34,6 +34,11 @@ the PR so the operator can widen it without a migration.
 | S-2 | Empty state when the user has imported nothing yet | decided (D-2) |
 | S-3 | Print stylesheet for the import report | out-of-scope — nothing in this ticket is printed |
 
+## Checks
+
+- `bash scripts/import-selftest.sh`
+- yarn test --filter import
+
 ## Implementation steps
 
 1. Step one.
