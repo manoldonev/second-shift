@@ -781,7 +781,8 @@ ck_lint "$TMP/ck-prose.md"
 # (ll-ck5) a bullet the scheduler's parse drops (inner backticks, an indented or `*` bullet) → 1.
 # Without this the lint counts a check the scheduler silently never runs.
 # shellcheck disable=SC2016  # markdown backticks
-for bad in '- run `yarn test` then `yarn lint`' '  - yarn test' '* yarn test'; do
+# '---' and '-cmd' are the other direction: the scheduler RUNS them ('--', 'cmd').
+for bad in '- run `yarn test` then `yarn lint`' '  - yarn test' '* yarn test' '---' '-echo nospace'; do
   receipt_with "$TMP/ck-row.md" "$OPEN_EMPTY" "$SURFACE_EMPTY" "$bad" > "$TMP/ck-bad.md"
   ck_lint "$TMP/ck-bad.md"
   [[ "$rc" -eq 1 ]] && grep -q "Checks line is not one command the scheduler can read" <<< "$err" \
@@ -883,6 +884,13 @@ SECOND_SHIFT_CONFIG="$TMP/config-design.json" ck_lint "$TMP/df-4col.md"
 [[ "$rc" -eq 1 ]] && grep -q "malformed design frames row" <<< "$err" \
   && pass "(ll-df7) a 4-column RS row → 1, named" \
   || fail "(ll-df7) 4-column row — rc=$rc err=$err"
+
+# (ll-df7b) an escaped pipe in a cell → 1: the scheduler splits on it, so its cells differ
+df_with '## Design frames' '| RS-1 | /imports | empty | 815:2201 | a \| b |' > "$TMP/df-esc.md"
+SECOND_SHIFT_CONFIG="$TMP/config-design.json" ck_lint "$TMP/df-esc.md"
+[[ "$rc" -eq 1 ]] && grep -q "escaped pipe" <<< "$err" \
+  && pass "(ll-df7b) an RS row with an escaped pipe → 1, named" \
+  || fail "(ll-df7b) escaped pipe — rc=$rc err=$err"
 
 # (ll-df8) '## Design' is the section too, as the gate accepted it (AC-3); '## Design notes' is not
 df_with '### design' '| RS-1 | /imports | empty | 815:2201 | Nothing imported yet |' > "$TMP/df-short.md"

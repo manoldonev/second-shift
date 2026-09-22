@@ -66,14 +66,15 @@
 #   `## Checks` — mandatory. One command per line, `- cmd` or `` - `cmd` ``: the
 #   ticket-specific commands run against the pushed head beside `commands.*`. A
 #   bullet the scheduler's parse would not read as one command is refused, since the
-#   scheduler would drop it silently. Empty form: CHECKS_EMPTY_FORM below.
+#   scheduler would drop it silently — and so is a line it WOULD run that is not that
+#   form (`---`, `-cmd`). Empty form: CHECKS_EMPTY_FORM below.
 #
 #   `## Design frames` (or `## Design`) — mandatory only when the repo's config sets
 #   `design.provider` (SECOND_SHIFT_CONFIG, else <repo>/.claude/second-shift.config.json,
 #   <repo> being the main checkout the receipt sits in). At least one
 #   `| RS-n | route | state | frame | must-show |` row with every cell filled, or
 #   `Design: none — <reason>`. RS rows are shape-checked whenever present: the route
-#   smoke reads them on any repo.
+#   smoke reads them on any repo. No escaped pipe (`\|`): the scheduler splits on it.
 #
 # RECONCILE MODE (`--reconcile <receipt-path>`) is the third mode, and the only
 # one that reads TWO documents. An intake receipt is binding input to the build
@@ -127,7 +128,7 @@ while [[ $# -gt 0 ]]; do
     --reconcile)
       [[ $# -ge 2 && -n "${2:-}" ]] || { echo "ledger-lint: --reconcile needs a receipt path" >&2; exit 2; }
       RECONCILE="$2"; shift 2 ;;
-    -h|--help) sed -n '2,115p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,116p' "$0"; exit 0 ;;
     -*) echo "ledger-lint: unknown option: $1" >&2; exit 2 ;;
     *)
       [[ -z "$PLAN" ]] || { echo "ledger-lint: unexpected argument: $1" >&2; exit 2; }
@@ -624,10 +625,12 @@ if (( RECEIPT == 1 )); then
   else
     CHECKS_SEC="$(section_of 'checks' "$PLAN")"
     while IFS= read -r line; do
-      [[ "$line" =~ ^[[:space:]]*[-*+]([[:space:]]|$) ]] || continue
+      # Classify every line the scheduler runs — its predicate is '^- *', so '---' and '-cmd'
+      # are commands to it — plus the indented and '*'/'+' bullets it silently drops.
+      [[ "$line" =~ ^- || "$line" =~ ^[[:space:]]*[-*+]([[:space:]]|$) ]] || continue
       # shellcheck disable=SC2016  # markdown backticks
       cmd="$(printf '%s\n' "$line" | sed -n 's/^- *`\{0,1\}\([^`]*\)`\{0,1\} *$/\1/p')"
-      if [[ -n "$(trim "$cmd")" ]]; then
+      if [[ "$line" =~ ^-[[:space:]] && -n "$(trim "$cmd")" ]]; then
         CHECK_COUNT=$((CHECK_COUNT + 1))
       else
         violate "Checks line is not one command the scheduler can read (the form is '- cmd' or '- \`cmd\`', at the start of the line, no inner backticks): $line"
@@ -653,8 +656,13 @@ if (( RECEIPT == 1 )); then
     fi
   fi
   while IFS= read -r line; do
-    masked="${line//\\|/__LEDGER_LINT_PIPE__}"
-    IFS='|' read -r -a cells <<< "$masked"
+    # The scheduler splits frames rows on every '|', escaped or not, so an escaped pipe would
+    # reach the route smoke as different cells than the lint read.
+    if [[ "$line" == *'\|'* ]]; then
+      violate "design frames row carries an escaped pipe '\\|', which the scheduler splits as a cell boundary — drop the pipe from the cell: $line"
+      continue
+    fi
+    IFS='|' read -r -a cells <<< "$line"
     # 5-column row: leading-empty, RS, route, state, frame, must-show.
     ncells="$(normalize_arity "${#cells[@]}" "${cells[$(( ${#cells[@]} - 1 ))]}" 6)"
     if (( ncells != 6 )); then

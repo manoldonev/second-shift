@@ -196,7 +196,8 @@ so a build cannot edit its own bar. One command per line, at the start of the li
 
 `- cmd` and `` - `cmd` `` are the two forms the scheduler reads. A bullet it cannot read as one
 command — inner backticks, an indent, a `*` bullet — is dropped there without a word, so the lint
-refuses it. An absent section is a silent claim that nothing beyond the configured lanes verifies
+refuses it; it refuses a line the scheduler *would* run that is not that form (`---`, `-cmd`) as
+well. An absent section is a silent claim that nothing beyond the configured lanes verifies
 this change; make the claim explicitly instead:
 
 ```
@@ -218,7 +219,8 @@ chosen here, at intake: a data-test id or a copy string taken from the frame.
 | RS-2 | /imports | loaded | 815:2240 | data-test=import-row |
 ```
 
-Every cell is filled. A ticket on a provider repo that renders nothing disarms instead, with its
+Every cell is filled, and no cell carries a pipe, escaped or not — the scheduler splits the row on
+every `|`. A ticket on a provider repo that renders nothing disarms instead, with its
 reason — a disarm is a decision, and an undocumented one is indistinguishable from an omission:
 
 ```

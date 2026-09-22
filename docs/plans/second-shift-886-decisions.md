@@ -22,7 +22,7 @@ No open regions — every decision in scope is ratified.
 | --- | --- | --- |
 | S-1 | The lint's violation text for each new rejection | decided (D-2, D-3) |
 | S-2 | The receipt template the interviewer writes (section order, empty forms) | decided (D-1) |
-| S-3 | This repo's own receipts under `.claude/pipeline-state/` | decided (D-2 — they gain `## Checks`; gitignored) |
+| S-3 | This repo's own receipts under `.claude/pipeline-state/` | decided (D-2 — they gain `## Checks`; gitignored). Departure, user-delegated, 2026-09-23: 883 passes as is; 881's append is left to the operator, because the file sits in the main checkout's `.claude/`, which a build session is denied write access to (tried twice); the three lines are in the PR |
 
 ## Checks
 
