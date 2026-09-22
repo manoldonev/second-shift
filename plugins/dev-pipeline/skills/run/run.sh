@@ -36,11 +36,11 @@ set -uo pipefail
 CLAUDE="${RUN_CLAUDE:-claude}"; GH="${RUN_GH:-${GH:-gh}}"
 ISSUE=""; RECORD=""; MAX_ROUNDS=3; MODEL="${RUN_MODEL:-}"; MODEL_BASIS=""
 REVIEW_MODEL="${RUN_REVIEW_MODEL:-claude-opus-5}"; REVIEW_MODEL_BASIS=""; DRY=0; RESUME=0; DETACH=0
-KEEP_ARGS=()
+KEEP_ARGS=(); MAX_ROUNDS_SET=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --record) RECORD="$2"; KEEP_ARGS+=("$1" "$2"); shift 2 ;;
-    --max-rounds) MAX_ROUNDS="$2"; KEEP_ARGS+=("$1" "$2"); shift 2 ;;
+    --max-rounds) MAX_ROUNDS="$2"; MAX_ROUNDS_SET=1; KEEP_ARGS+=("$1" "$2"); shift 2 ;;
     --model|--build-model) MODEL="$2"; KEEP_ARGS+=("$1" "$2"); shift 2 ;;
     --model-basis) MODEL_BASIS="$2"; KEEP_ARGS+=("$1" "$2"); shift 2 ;;
     --review-model) REVIEW_MODEL="$2"; KEEP_ARGS+=("$1" "$2"); shift 2 ;;
@@ -48,6 +48,7 @@ while [ $# -gt 0 ]; do
     --dry-run) DRY=1; KEEP_ARGS+=("$1"); shift ;;
     --resume) RESUME=1; KEEP_ARGS+=("$1"); shift ;;
     --detach) DETACH=1; shift ;;
+    -h|--help) sed -n '2,33p' "$0"; exit 0 ;;
     -*) echo "run.sh: unknown flag $1" >&2; exit 2 ;;
     *) ISSUE="$1"; KEEP_ARGS+=("$1"); shift ;;
   esac
@@ -134,7 +135,7 @@ RECORD_REL="$PLANS_DIR/$REPO_SLUG-$ISSUE-decisions.md"
 [ -n "$RECORD" ] || RECORD="$MAIN_ROOT/$STATE_DIR/$ISSUE-ledger.md"
 # per-ticket caps: env, else config `run.*`, else the defaults the ledger states (D-6)
 c_rounds="$(cfg .run.maxRounds)"; c_red="$(cfg .run.checksRedMax)"; c_bto="$(cfg .run.buildTimeoutSeconds)"; c_rto="$(cfg .run.reviewTimeoutSeconds)"; c_ceil="$(cfg .run.costCeilingUsd)"
-[ "$MAX_ROUNDS" = 3 ] && [ -n "$c_rounds" ] && MAX_ROUNDS="$c_rounds"
+[ "$MAX_ROUNDS_SET" -eq 0 ] && [ -n "$c_rounds" ] && MAX_ROUNDS="$c_rounds"
 BUILD_TO="${RUN_BUILD_TIMEOUT:-${c_bto:-7200}}"; REVIEW_TO="${RUN_REVIEW_TIMEOUT:-${c_rto:-3600}}"
 COST_CEIL="${RUN_COST_CEILING:-${c_ceil:-100}}"; CHECKS_RED_MAX="${RUN_CHECKS_RED_MAX:-${c_red:-3}}"
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
@@ -180,17 +181,26 @@ fi
 MCP_ALLOW=""
 [ "$TRACKER" = jira ] && MCP_ALLOW=",mcp__atlassian,mcp__plugin_atlassian_atlassian,mcp__claude_ai_Atlassian_Rovo"
 SPAWN_COMMON=(--permission-mode acceptEdits --permission-prompts none --disallowedTools "$DISALLOWED" --setting-sources "user,project,local" --add-dir "$WT" --output-format json)
+[ -n "$CONFIG" ] && SPAWN_COMMON+=(--add-dir "$(cd "$(dirname "$CONFIG")" && pwd)")
 
 # ---- tracker (github writes the claim; jira is operator-attested and read-only) ----
 issue_state() { [ "$TRACKER" = github ] && "$GH_READ" issue view "$ISSUE" --json state --jq .state 2>/dev/null || echo OPEN; }
-has_label() { [ "$TRACKER" = github ] && "$GH_READ" issue view "$ISSUE" --json labels --jq '.labels[].name' 2>/dev/null | grep -qx "$1"; }
+has_label() { # a checked match: the producer's output is captured first, so a dead gh never reads as "no"
+  [ "$TRACKER" = github ] || return 1
+  local names; names="$("$GH_READ" issue view "$ISSUE" --json labels --jq '.labels[].name' 2>/dev/null)" || return 1
+  grep -qx "$1" <<<"$names"
+}
+lane_marker_present() { # the lane's own claim marker on this issue, read as a comment body, not a substring of the JSON
+  local repo; repo="$("$GH_READ" repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null)" || return 1
+  local comments; comments="$("$GH_READ" api "repos/$repo/issues/$ISSUE/comments" --paginate 2>/dev/null)" || return 1
+  printf '%s' "$comments" | jq -e 'any(.[]; .body | test("(^|\n)<!-- stage: lean-claimed -->(\n|$)"))' >/dev/null 2>&1
+}
 claim() {
   [ "$TRACKER" = github ] || { say "claim: $TRACKER tracker — operator-attested, nothing written"; return 0; }
   if has_label "$L_CLAIMED"; then
     # re-entry, as the old lane read it: the claimed label AND a lane-posted marker; a claim with no
     # marker was made by someone else and is refused unless the operator says --resume
-    local repo; repo="$("$GH_READ" repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null)"
-    if [ "$RESUME" -eq 1 ] || "$GH_READ" api "repos/$repo/issues/$ISSUE/comments" --paginate 2>/dev/null | grep -q 'stage: lean-claimed'; then
+    if [ "$RESUME" -eq 1 ] || lane_marker_present; then
       say "claim: re-entering a ticket the lane claimed"; CLAIMED=1; return 0
     fi
     terminal claimed-elsewhere "#$ISSUE carries $L_CLAIMED with no lane claim marker; pass --resume to take it over"
@@ -222,8 +232,9 @@ commands_key() { # the repo id whose commands apply: topology's "." entry while 
     | (.commands // {} | keys) as $k
     | if ($t != null and ($k | index($t))) then $t elif ($k | length) == 1 then $k[0] elif ($k | index($s)) then $s else empty end' "$CONFIG" 2>/dev/null
 }
-config_checks() { # lint, typecheck, test, format, then extraLanes whose `when` globs match a changed file (or have none)
+config_checks() { # lanes[] setup steps first (fail-fast, in their cwd), then lint/typecheck/test/format, then extraLanes whose `when` globs match a changed file (or have none)
   local key; key="$(commands_key)"; [ -n "$key" ] || return 0
+  jq -r --arg k "$key" '.commands[$k].lanes[]? | (.cwd // ".") as $d | .commands[]? | select(type=="string") | if $d == "." then . else "cd " + ($d|@sh) + " && " + . end' "$CONFIG" 2>/dev/null
   jq -r --arg k "$key" '.commands[$k] | [.lint, .typecheck, .test, .format] | map(select(type=="string"))[]' "$CONFIG" 2>/dev/null
   local changed; changed="$(git -C "$WT" diff --name-only "$FIRST" HEAD 2>/dev/null)"
   jq -c --arg k "$key" '.commands[$k].extraLanes[]? | {when: (.when // []), commands: (.commands // [])}' "$CONFIG" 2>/dev/null | while IFS= read -r lane; do
@@ -282,7 +293,8 @@ run_checks() { # -> 0 green, 1 red; writes $STATE/checks-N.log
   while IFS= read -r cmd; do
     [ -n "$cmd" ] || continue; n=$((n+1))
     say "check: $cmd"
-    if ( cd "$WT" && bash -c "$cmd" ) >> "$log" 2>&1; then echo "ok: $cmd" >> "$log"; else echo "RED: $cmd" >> "$log"; rc=1; fi
+    # SEAM_SCRUB, as milestone 3 did: a lane command never sees the scheduler's config seam
+    if ( cd "$WT" && env -u SECOND_SHIFT_CONFIG bash -c "$cmd" ) >> "$log" 2>&1; then echo "ok: $cmd" >> "$log"; else echo "RED: $cmd" >> "$log"; rc=1; fi
   done <<EOF
 $(checks_list)
 EOF
@@ -299,13 +311,13 @@ route_smoke() { # -> 0 ok, 1 red, 2 unconfigured
   while IFS='|' read -r rs route state _frame must; do
     png="$STATE/smoke-$rs.png"; rm -f "$png"
     local c="${RENDER_CMD//\{route\}/$route}"; c="${c//\{out\}/$png}"; c="${c//\{state\}/$state}"
-    if ! ( cd "$WT" && bash -c "$c" ) > "$STATE/smoke-$rs.log" 2>&1; then say "smoke: $rs render failed"; rc=1; continue; fi
+    if ! ( cd "$WT" && env -u SECOND_SHIFT_CONFIG bash -c "$c" ) > "$STATE/smoke-$rs.log" 2>&1; then say "smoke: $rs render failed"; rc=1; continue; fi
     [ -s "$png" ] || { say "smoke: $rs produced no image"; rc=1; continue; }
     sha="$(shasum "$png" | cut -c1-40)"; [ "$sha" != "$prev" ] || { say "smoke: $rs is pixel-identical to the previous state"; rc=1; }; prev="$sha"
     if [ -n "$must" ]; then
       [ -n "$SMOKE_CMD" ] || return 2
       c="${SMOKE_CMD//\{route\}/$route}"; c="${c//\{mustShow\}/$must}"
-      ( cd "$WT" && bash -c "$c" ) >> "$STATE/smoke-$rs.log" 2>&1 || { say "smoke: $rs must-show '$must' not satisfied"; rc=1; }
+      ( cd "$WT" && env -u SECOND_SHIFT_CONFIG bash -c "$c" ) >> "$STATE/smoke-$rs.log" 2>&1 || { say "smoke: $rs must-show '$must' not satisfied"; rc=1; }
     fi
   done <<EOF
 $rows
@@ -479,7 +491,7 @@ if [ -n "$PR" ]; then
   repo="$("$GH_READ" repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null)"
   body="$("$GH_READ" api "repos/$repo/pulls/$PR" --jq .body 2>/dev/null)"
   # strip an earlier block: ours ends at the closing marker, the old lane's at its `Cache-hit rate:` line
-  body="$(printf '%s\n' "$body" | awk '/<!-- pipeline-cost-block -->/{skip=1} !skip{print} skip && (/<!-- \/pipeline-cost-block -->/ || /^Cache-hit rate: /){skip=0}')"
+  body="$(printf '%s\n' "$body" | awk '$0 == "<!-- pipeline-cost-block -->"{skip=1} !skip{print} skip && ($0 == "<!-- /pipeline-cost-block -->" || /^Cache-hit rate: /){skip=0} END{if (skip) print "<!-- an earlier cost block had no terminator; text below it was not preserved -->"}')"
   printf '%s\n\n%s\n' "$body" "$(cost_block)" > "$STATE/pr-body.md"
   "$GH" api -X PATCH "repos/$repo/pulls/$PR" -F "body=@$STATE/pr-body.md" >/dev/null 2>&1 || say "could not write the run block into PR #$PR's body"
 fi
