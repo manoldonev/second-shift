@@ -72,12 +72,23 @@ case "$plan" in
   build-pr-jira-outside) push; rid=$(grep -oE 'built-by: second-shift run [^ ]+' "$S/prompt-$n.txt" | head -n 1); rec=$(grep -oE 'The record is committed at [^;]+' "$S/prompt-$n.txt" | sed 's/^The record is committed at //')
                    printf '%s\n\nrecord: %s\n\nCloses [GH-42]\n\n### Jira Items\n(nothing)\n' "$rid" "$rec" > "$S/pr-created-body.txt"; echo 7 > "$S/prs" ;;
   build-pr-close)  push; openpr; echo CLOSED > "$S/state" ;;
+  build-pr-dirty)  push; openpr; echo uncommitted >> work.txt ;;
+  build-commit-nopush) echo "$n" >> work.txt; git add -A >/dev/null; git commit -qm "local only $n" ;;
+  build-skip-test) printf 'it.skip("x", () => {});\n' >> src/a.spec.ts; mkdir -p .github/workflows; echo 'on: push' > .github/workflows/ci.yml; push; openpr ;;
   review-crash)    printf '{"subtype":"error_during_execution","total_cost_usd":0}\n'; exit 1 ;;
-  review-approve|review-needs-work|review-wrong-sha)
+  review-approve|review-needs-work|review-wrong-sha|review-approve-dirty|review-approve-and-push|review-needs-work-drop-base)
     sha=$(git rev-parse "origin/$branch"); [ "$plan" = review-wrong-sha ] && sha=deadbeef
-    v=approve; [ "$plan" = review-needs-work ] && v=needs-work
+    v=approve; case "$plan" in review-needs-work*) v=needs-work ;; esac
     ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    jq --arg b "verdict: $v"$'\n'"reviewed: $sha"$'\n'"| D-1 | honored |" --arg t "$ts" '. + [{body:$b,created_at:$t,updated_at:$t}]' "$S/comments.json" > "$S/c.tmp" && mv "$S/c.tmp" "$S/comments.json" ;;
+    jq --arg b "verdict: $v"$'\n'"reviewed: $sha"$'\n'"| D-1 | honored |" --arg t "$ts" '. + [{body:$b,created_at:$t,updated_at:$t}]' "$S/comments.json" > "$S/c.tmp" && mv "$S/c.tmp" "$S/comments.json"
+    case "$plan" in
+      review-approve-dirty) echo scratch > review-scratch.txt ;;
+      review-approve-and-push) push ;;
+      review-needs-work-drop-base) git -C "$(git remote get-url origin)" update-ref -d refs/heads/main ;;
+    esac ;;
+  review-two-verdicts) # both bind; the LAST posted wins: $FAKE_ORDER = needs-work,approve or approve,needs-work
+    sha=$(git rev-parse "origin/$branch"); for v in ${FAKE_ORDER//,/ }; do ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+      jq --arg b "verdict: $v"$'\n'"reviewed: $sha" --arg t "$ts" '. + [{body:$b,created_at:$t,updated_at:$t}]' "$S/comments.json" > "$S/c.tmp" && mv "$S/c.tmp" "$S/comments.json"; done ;;
   review-silent)   : ;;
   review-detach)   git checkout -q --detach "origin/$branch"; sha=$(git rev-parse "origin/$branch"); ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
     jq --arg b "verdict: needs-work"$'\n'"reviewed: $sha" --arg t "$ts" '. + [{body:$b,created_at:$t,updated_at:$t}]' "$S/comments.json" > "$S/c.tmp" && mv "$S/c.tmp" "$S/comments.json" ;;
@@ -143,8 +154,10 @@ printf '%s\n' "$OUT" | grep -q '2 round' && ok "(b) two rounds counted" || bad "
 # (c) no PR after the build
 fixture c; printf 'build-push-only\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect build-no-pr "(c) push without a PR"
 
-# (d) head did not move
-fixture d; printf 'build-nothing\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect build-inflight "(d) build changed nothing"
+# (d) E21: a build that left uncommitted work stops the run and nothing discards that work
+fixture d; printf 'build-pr-dirty\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect build-inflight "(d) [E21] a build that left uncommitted work in the worktree is in flight"
+[ -n "$(git -C "$d/wt/42" status --porcelain 2>/dev/null)" ] && ok "(d) [E21] the uncommitted work is still there, never reset away" || bad "(d) [E21] the worktree was cleaned — the build's work was discarded"
+fixture d2; printf 'build-nothing\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect build-no-pr "(d2) [B14 B15] a build that changed nothing and opened no PR is build-no-pr, not in flight (orch:1515-1545 never tested head movement)"
 
 # (e) verdict names the wrong head
 fixture e; printf 'build-pr\nreview-wrong-sha\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect review-unbound "(e) verdict for another sha"
@@ -453,7 +466,9 @@ chmod +x "$T/bin/gh-remote-dead"
 fixture z9; printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-needs-work\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d" --max-rounds 2; [ "$RC" -eq 4 ] && ok "(z9) rounds-spent exits 4" || bad "(z9) exit $RC"
 fixture z10 "- false"; printf 'build-pr\nbuild-push-only\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=2 run_case "$d"; [ "$RC" -eq 4 ] && ok "(z10) checks-red-spent exits 4" || bad "(z10) exit $RC"
 fixture z11; printf 'build-push-only\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; [ "$RC" -eq 1 ] && ok "(z11) build-no-pr exits 1" || bad "(z11) exit $RC"
-fixture z12; printf 'build-nothing\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; [ "$RC" -eq 1 ] && ok "(z12) build-inflight exits 1" || bad "(z12) exit $RC"
+fixture z12; printf 'build-pr\nreview-needs-work\nbuild-commit-nopush\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect build-inflight "(z12) [E21] a commit not on origin is in flight"
+[ "$RC" -eq 1 ] && ok "(z12) build-inflight exits 1" || bad "(z12) exit $RC"
+[ -n "$(git -C "$d/wt/42" log --oneline origin/second-shift/42..HEAD 2>/dev/null)" ] && ok "(z12) [E21] the unpushed commit is still there" || bad "(z12) [E21] the unpushed commit was reset away"
 
 # (aa) round-thirteen parity: the committed record is what the design guard reads; a remote dying
 #      mid-run and an unreadable tracker at verdict time are environment refusals
@@ -495,6 +510,129 @@ fixture ad1; printf 'build-pr\nreview-detach\n' > "$FAKE_CLAUDE_PLAN"; run_case 
 printf 'build-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; : > "$FAKE_GH/calls"; printf 'in-progress\nopus\n' > "$FAKE_GH/labels"; run_case "$d" --resume; expect approved "(ad1) the resume repairs a detached worktree instead of refusing it as 'another branch'"
 
 fixture ad2; mkdir -p "$d/wt"; git -C "$d/main" worktree add -q -b other "$d/wt/42" origin/main; run_case "$d"; expect env-worktree-mismatch "(ad2) a worktree on a DIFFERENT named branch is still refused"
+
+# ---- rows: cases keyed to the contract inventory (strategy repo, run-sh-contract-inventory-2026-09-22.md).
+#      Each case names the row it discriminates; a row whose behavior is reverted turns its case red.
+
+# A2 A8 A10: usage refusals with their own slugs
+fixture ra; OUT="$( cd "$d/main" && bash "$RUN" 42 43 2>&1 )"; RC=$?; TERM_SLUG="$(printf '%s\n' "$OUT" | sed -n 's/^terminal: //p' | tail -n 1)"
+expect usage-unexpected-argument "[A2] a second positional argument is refused, never silently taken as the ticket"; [ "$RC" -eq 2 ] && ok "[A2] exit 2" || bad "[A2] exit $RC"
+OUT="$( cd "$d/main" && bash "$RUN" 42 --review-model "" 2>&1 )"; TERM_SLUG="$(printf '%s\n' "$OUT" | sed -n 's/^terminal: //p' | tail -n 1)"; expect usage-empty-review-model "[A8] an empty --review-model has its own slug"
+OUT="$( cd "$d/main" && bash "$RUN" 42 --max-continuations 3 2>&1 )"; RC=$?; TERM_SLUG="$(printf '%s\n' "$OUT" | sed -n 's/^terminal: //p' | tail -n 1)"; expect usage-max-continuations "[A10] the retired --max-continuations is named, not 'unknown option'"; [ "$RC" -eq 2 ] && ok "[A10] exit 2" || bad "[A10] exit $RC"
+
+# A18: --detach with an uncreatable log dir refuses before detaching
+FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans","pipelineStateDir":"blocker/state"}}' fixture rb; : > "$d/main/blocker"
+run_case "$d" --detach; expect env-detach-log-dir "[A18] --detach cannot create its log dir"; [ "$RC" -eq 2 ] && ok "[A18] exit 2" || bad "[A18] exit $RC"
+
+# A17: --detach with no perl on PATH
+mkdir -p "$T/noperl"; for b in /bin/* /usr/bin/*; do case "$(basename "$b")" in perl*) ;; *) ln -sf "$b" "$T/noperl/$(basename "$b")" ;; esac; done
+for tool in git jq curl; do p="$(command -v "$tool")"; [ -n "$p" ] && ln -sf "$p" "$T/noperl/$tool"; done
+fixture rc1; OUT="$( cd "$d/main" && PATH="$T/noperl:$T/bin" bash "$RUN" 42 --detach 2>&1 )"; RC=$?; TERM_SLUG="$(printf '%s\n' "$OUT" | sed -n 's/^terminal: //p' | tail -n 1)"
+if PATH="$T/noperl:$T/bin" command -v perl >/dev/null 2>&1; then ok "[A17] (skipped: perl still resolvable on the stripped PATH)"; else expect env-detach-perl "[A17] --detach without perl is refused"; fi
+
+# A16: --detach runs to its terminal under setsid; the log's last line carries the exit code
+fixture rc2; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d" --detach
+[ "$RC" -eq 0 ] && grep -q 'detached: pid ' <<<"$OUT" && ok "[A16] --detach prints pid and log, exits 0" || bad "[A16] detach rc=$RC: $(tail -n 2 <<<"$OUT" | tr '\n' '|')"
+dlog="$(sed -n 's/.*detached: pid [0-9]* · log \([^ ]*\) .*/\1/p' <<<"$OUT")"
+for _ in $(seq 1 120); do grep -q 'detached run exited rc=' "$dlog" 2>/dev/null && break; sleep 0.5; done
+grep -q 'detached run exited rc=0$' "$dlog" 2>/dev/null && grep -q '^terminal: approved$' "$dlog" && ok "[A16] the detached run reached approved and the log's last line carries rc=0" || bad "[A16] detached log: $(tail -n 3 "$dlog" 2>/dev/null | tr '\n' '|')"
+
+# B13 J4: an unreadable tracker MID-RUN is staleness-unreadable, exit 1 (fail closed), never read as OPEN
+fixture rd; printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"
+cat > "$T/bin/gh-state-dies" <<EOF
+#!/usr/bin/env bash
+if [ "\$1 \$2" = "issue view" ] && [[ "\$*" == *state* ]]; then n=\$(cat "\$FAKE_GH/state-reads" 2>/dev/null || echo 0); n=\$((n+1)); echo \$n > "\$FAKE_GH/state-reads"; [ "\$n" -ge 3 ] && exit 1; fi; exec "$T/bin/gh" "\$@"
+EOF
+chmod +x "$T/bin/gh-state-dies"; RUN_GH="$T/bin/gh-state-dies" run_case "$d"; expect staleness-unreadable "[B13 J4] tracker unreadable before round 2"; [ "$RC" -eq 1 ] && ok "[B13] exit 1" || bad "[B13] exit $RC"
+
+# B16: two open PRs on the head
+fixture re; printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"
+cat > "$T/bin/gh-two-prs" <<EOF
+#!/usr/bin/env bash
+if [ "\$1 \$2" = "pr list" ]; then printf '7\n8\n'; exit 0; fi; exec "$T/bin/gh" "\$@"
+EOF
+chmod +x "$T/bin/gh-two-prs"; RUN_GH="$T/bin/gh-two-prs" run_case "$d"; expect pr-ambiguous "[B16] more than one open PR on the head"; [ "$RC" -eq 1 ] && ok "[B16] exit 1" || bad "[B16] exit $RC"
+
+# C1 C2: an absent config means every default; a present-but-unparseable one is a refusal
+fixture rf; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; rm "$d/main/.claude/second-shift.config.json"
+( cd "$d/main" && git push -q origin main:second-shift/41 ) 2>/dev/null   # C7's plurality scan needs one candidate: <prefix><numeric key>
+OUT="$( cd "$d/main" && env -u SECOND_SHIFT_CONFIG bash "$RUN" 42 2>&1 )"; RC=$?; TERM_SLUG="$(printf '%s\n' "$OUT" | sed -n 's/^terminal: //p' | tail -n 1)"
+expect approved "[C1] no config file: github, ready-for-dev, docs/plans, the scanned prefix"
+fixture rg; echo '{not json' > "$d/main/.claude/second-shift.config.json"; run_case "$d"; expect env-config-unparseable "[C2] an unparseable config never falls back to defaults"; [ "$RC" -eq 2 ] && ok "[C2] exit 2" || bad "[C2] exit $RC"
+
+# D3: a failed label swap leaves the queue label and stops
+fixture rh; cat > "$T/bin/gh-edit-dies" <<EOF
+#!/usr/bin/env bash
+if [ "\$1 \$2" = "issue edit" ]; then exit 1; fi; exec "$T/bin/gh" "\$@"
+EOF
+chmod +x "$T/bin/gh-edit-dies"; RUN_GH="$T/bin/gh-edit-dies" run_case "$d"; expect env-claim-failed "[D3] the swap failed"
+grep -qx ready-for-dev "$FAKE_GH/labels" && [ ! -f "$FAKE_GH/calls" ] && ok "[D3] queue label intact, nothing spawned" || bad "[D3] labels: $(tr '\n' ' ' < "$FAKE_GH/labels"), calls: $(cat "$FAKE_GH/calls" 2>/dev/null)"
+
+# E12: a PR whose body cannot be read is a tracker read failure — exit 2, never waved through and never blamed on the build
+fixture ri; printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"
+cat > "$T/bin/gh-prview-dies" <<EOF
+#!/usr/bin/env bash
+if [ "\$1 \$2" = "pr view" ] && [[ "\$*" == *body* ]]; then exit 1; fi; exec "$T/bin/gh" "\$@"
+EOF
+chmod +x "$T/bin/gh-prview-dies"; RUN_GH="$T/bin/gh-prview-dies" run_case "$d"; expect env-tracker-unreadable "[E12] unreadable PR body"; [ "$RC" -eq 2 ] && ok "[E12] exit 2" || bad "[E12] exit $RC"
+
+# E20: an approve with work left in the worktree is not a finished run
+fixture rj; printf 'build-pr\nreview-approve-dirty\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect closeout-inflight "[E20] the review left an untracked file behind"
+[ "$RC" -eq 1 ] && [ -d "$d/wt/42" ] && [ -f "$d/wt/42/review-scratch.txt" ] && ok "[E20] exit 1, worktree kept with the work in it" || bad "[E20] rc=$RC, worktree $([ -d "$d/wt/42" ] && echo kept || echo gone)"
+
+# F7 F18 H13: Figma servers, the figma-faithful sequence and the render-unavailable rule appear only on a frames ticket
+FIXTURE_CONFIG="{\"tracker\":{\"type\":\"github\",\"branchPrefix\":\"second-shift/\"},\"paths\":{\"plansDir\":\"docs/plans\"},\"design\":{\"provider\":\"figma\",\"liveRender\":{\"command\":\"cp $T/px.png {out}\",\"smokeCommand\":\"true\"}}}" fixture rk "- true" $'\n## Design frames\n\n| RS | route | state | frame | must-show |\n| --- | --- | --- | --- | --- |\n| RS-1 | a | default | 1:2 | ok |\n'
+printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "[F7] frames ticket"
+grep -q 'mcp__figma' "$FAKE_GH/args-1.txt" && grep -q 'mcp__figma' "$FAKE_GH/args-2.txt" && ok "[F7] Figma servers allowed in both sessions on a frames ticket" || bad "[F7] Figma servers missing"
+grep -q 'figma-faithful' "$FAKE_GH/prompt-1.txt" && grep -q 'three rounds per screen' "$FAKE_GH/prompt-1.txt" && ok "[F18] the build prompt carries the figma-faithful sequence" || bad "[F18] sequence missing"
+grep -q 'render-unavailable' "$FAKE_GH/prompt-2.txt" && ok "[H13] the review prompt carries the render-unavailable rule" || bad "[H13] rule missing"
+fixture rk2; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"
+! grep -q 'mcp__figma' "$FAKE_GH/args-1.txt" && ! grep -q 'figma-faithful' "$FAKE_GH/prompt-1.txt" && ok "[F7 F18] neither on a ticket without frames" || bad "[F7 F18] leaked onto a frames-less ticket"
+
+# H9: two states rendering pixel-identical is red
+FIXTURE_CONFIG="{\"tracker\":{\"type\":\"github\",\"branchPrefix\":\"second-shift/\"},\"paths\":{\"plansDir\":\"docs/plans\"},\"design\":{\"provider\":\"figma\",\"liveRender\":{\"command\":\"cp $T/px.png {out}\",\"smokeCommand\":\"true\"}}}" fixture rl "- true" $'\n## Design frames\n\n| RS | route | state | frame | must-show |\n| --- | --- | --- | --- | --- |\n| RS-1 | a | default | 1:2 | ok |\n| RS-2 | a | empty | 1:3 | ok |\n'
+printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=1 run_case "$d"; expect checks-red-spent "[H9] two states with identical pixels are red"
+grep -qi 'identical' "$(SD)"/smoke-1.1.log 2>/dev/null && ok "[H9] the log names the identical render" || bad "[H9] log: $(cat "$(SD)"/smoke-1.1.log 2>/dev/null | head -3 | tr '\n' '|')"
+
+# H11: frames declared but no render/smoke command configured
+FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"design":{"provider":"figma"}}' fixture rm1 "- true" $'\n## Design frames\n\n| RS | route | state | frame | must-show |\n| --- | --- | --- | --- | --- |\n| RS-1 | a | default | 1:2 | ok |\n'
+printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect env-smoke-unconfigured "[H11] no liveRender.command"; [ "$RC" -eq 2 ] && ok "[H11] exit 2" || bad "[H11] exit $RC"
+FIXTURE_CONFIG="{\"tracker\":{\"type\":\"github\",\"branchPrefix\":\"second-shift/\"},\"paths\":{\"plansDir\":\"docs/plans\"},\"design\":{\"provider\":\"figma\",\"liveRender\":{\"command\":\"cp $T/px.png {out}\"}}}" fixture rm2 "- true" $'\n## Design frames\n\n| RS | route | state | frame | must-show |\n| --- | --- | --- | --- | --- |\n| RS-1 | a | default | 1:2 | ok |\n'
+printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect env-smoke-unconfigured "[H11] a render command with no smokeCommand"
+
+# I5: with several binding comments the LAST wins
+fixture rn; printf 'build-pr\nreview-two-verdicts\n' > "$FAKE_CLAUDE_PLAN"; FAKE_ORDER=needs-work,approve run_case "$d"; expect approved "[I5] needs-work then approve: approve wins"
+fixture rn2; printf 'build-pr\nreview-two-verdicts\n' > "$FAKE_CLAUDE_PLAN"; FAKE_ORDER=approve,needs-work run_case "$d" --max-rounds 1; expect rounds-spent "[I5] approve then needs-work: needs-work wins"
+
+# I6 K12: a head that moved under the review unbinds its verdict; a dark review is re-spawned ONCE, no round spent
+fixture ro; printf 'build-pr\nreview-approve-and-push\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "[I6 K12] the second review binds"
+[ "$(cat "$FAKE_GH/calls")" = 3 ] && grep -q 'reviewed: ' "$FAKE_GH/prompt-3.txt" && ok "[I6] the approve for the pre-push head was rejected; one review re-spawned, no build" || bad "[I6] calls=$(cat "$FAKE_GH/calls")"
+printf '%s\n' "$OUT" | grep -q '1 round' && ok "[K12] the retry spent no round" || bad "[K12] round count wrong"
+fixture ro2; printf 'build-pr\nreview-silent\nreview-silent\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect review-unbound "[K12] two dark reviews"
+[ "$(cat "$FAKE_GH/calls")" = 3 ] && [ "$RC" -eq 5 ] && ok "[K12] exactly one retry, then exit 5" || bad "[K12] calls=$(cat "$FAKE_GH/calls") rc=$RC"
+
+# I10: added skips and an edited CI config reach the review input
+fixture rp; printf 'build-skip-test\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "[I10] run"
+grep -q 'it.skip' "$(SD)/review-1.1.prompt" && grep -q 'ci.yml' "$(SD)/review-1.1.prompt" && ok "[I10] the added skip and the CI edit are named in the review input" || bad "[I10] not surfaced"
+
+# J7: origin/<base> that no longer resolves mid-run is staleness-unreadable, never 'nothing moved'
+fixture rq; printf 'build-pr\nreview-needs-work-drop-base\nbuild-push-only\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect staleness-unreadable "[J7] the base ref vanished before round 2"; [ "$RC" -eq 1 ] && ok "[J7] exit 1" || bad "[J7] exit $RC"
+
+# J11: an unresolvable merge-base (an orphan branch) is env-base-unreadable
+fixture rr; mkdir -p "$d/wt"; ( cd "$d/main" && git worktree add -q --detach "$d/wt/42" && cd "$d/wt/42" && git checkout -q --orphan second-shift/42 && git commit -qm orphan --allow-empty && git push -q origin second-shift/42 ) 2>/dev/null
+printf 'in-progress\nopus\n' > "$FAKE_GH/labels"; run_case "$d" --resume; expect env-base-unreadable "[J11] no merge-base with the base branch"; [ "$RC" -eq 2 ] && ok "[J11] exit 2" || bad "[J11] exit $RC"
+
+# J13: a diff against the first commit that cannot be read stops the run
+fixture rs; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; mkdir -p "$T/gitdiffdead"
+cat > "$T/gitdiffdead/git" <<EOF
+#!/usr/bin/env bash
+case " \$* " in *" diff --name-status "*) exit 128 ;; esac; exec "$(command -v git)" "\$@"
+EOF
+chmod +x "$T/gitdiffdead/git"; OUT="$( cd "$d/main" && PATH="$T/gitdiffdead:$PATH" bash "$RUN" 42 2>&1 )"; RC=$?; TERM_SLUG="$(printf '%s\n' "$OUT" | sed -n 's/^terminal: //p' | tail -n 1)"
+[ "$RC" -eq 2 ] && [ "$TERM_SLUG" != approved ] && ok "[J13] an unreadable diff is an environment stop ($TERM_SLUG)" || bad "[J13] rc=$RC $TERM_SLUG"
+
+# K5: re-entry is decided by the tracker alone — a local run-id cache admits nothing
+fixture rt; printf 'in-progress\nopus\n' > "$FAKE_GH/labels"; echo "run-x" > "$d/main/.claude/pipeline-state/42-run-id"; run_case "$d"; expect claimed-elsewhere "[K5] a claimed label with no marker is not re-entered on the strength of a local cache"
 
 # (m) rounds spent
 fixture m; printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-needs-work\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d" --max-rounds 2; expect rounds-spent "(m) two needs-work rounds"
