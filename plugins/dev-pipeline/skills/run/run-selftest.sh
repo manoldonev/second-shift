@@ -30,6 +30,7 @@ case "$sub" in
   "pr list")     cat "$S/prs" 2>/dev/null ;;
   "pr checks")   echo '[]' ;;
   "pr comment")  echo "$*" >> "$S/cost-comments" ;;
+  "pr view")     echo "https://x/pr/7" ;;
   "repo view")   echo "o/r" ;;
   "api -X")      # PATCH repos/o/r/pulls/7 -F body=@<file>
                  for a in "$@"; do case "$a" in body=@*) cp "${a#body=@}" "$S/pr-body.md" ;; esac; done ;;
@@ -103,8 +104,8 @@ grep -q 'models: build claude-opus-5 (label), review claude-opus-5 (default)' <<
 first=$(git -C "$d/origin.git" log --format=%s --reverse main..second-shift/42 | head -n 1)
 [ "$first" = "docs: decision record for #42" ] && ok "(a) the record is the branch's first commit" || bad "(a) first commit is '$first'"
 grep -q '<!-- pipeline-cost-block -->' "$FAKE_GH/pr-body.md" 2>/dev/null && grep -q 'built-by: fake' "$FAKE_GH/pr-body.md" && ok "(a) run block written into the PR body, original body kept" || bad "(a) no run block in the PR body"
-grep -qE '^[|] review-1 [|] 3 [|] [$]1 [|]' "$FAKE_GH/pr-body.md" 2>/dev/null && ok "(a) per-session cost rows in the block" || bad "(a) per-session rows missing"
-grep -q 'ls /' "$d/main/.claude/pipeline-state/run-42/review-1.prompt" && ok "(a) build denials reach the review input" || bad "(a) denials missing from review input"
+grep -qE '^[|] review-1[.]1 [|] 3 [|] [$]1 [|]' "$FAKE_GH/pr-body.md" 2>/dev/null && ok "(a) per-session cost rows in the block" || bad "(a) per-session rows missing"
+grep -q 'ls /' "$d/main/.claude/pipeline-state/run-42/review-1.1.prompt" && ok "(a) build denials reach the review input" || bad "(a) denials missing from review input"
 
 # (b) needs-work then approve: two rounds, findings reach the round-2 build prompt
 fixture b; printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"
@@ -158,7 +159,7 @@ fixture j ""; printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=1 ru
 
 # (k) a deleted test file reaches the reviewer
 fixture k; printf 'build-delete-test\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"
-grep -q 'a.spec.ts' "$d/main/.claude/pipeline-state/run-42/review-1.prompt" && ok "(k) deleted spec named in the review input" || bad "(k) deleted spec not surfaced"
+grep -q 'a.spec.ts' "$d/main/.claude/pipeline-state/run-42/review-1.1.prompt" && ok "(k) deleted spec named in the review input" || bad "(k) deleted spec not surfaced"
 
 # (l) claimed elsewhere, ticket closed, cost ceiling, no record
 fixture l; echo in-progress > "$FAKE_GH/labels"; run_case "$d"; expect claimed-elsewhere "(l1) in-progress label without --resume"
@@ -187,7 +188,7 @@ printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect
 grep -q 'mcp__atlassian__editJiraIssue' "$FAKE_GH/args-1.txt" && grep -q 'mcp__claude_ai_Atlassian_Rovo__transitionJiraIssue' "$FAKE_GH/args-2.txt" && ok "(p2) tracker.writes:false strips the Atlassian write tools in both sessions" || bad "(p2) write tools not stripped"
 FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"commands":{"main":{"lint":"false","typecheck":null,"test":"true"}}}' fixture p3 ""
 printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=1 run_case "$d"; expect checks-red-spent "(p3) configured commands.* run as checks even with no '## Checks'"
-grep -q 'RED: false' "$d/main/.claude/pipeline-state/run-42/checks-1.log" && grep -q 'ok: true' "$d/main/.claude/pipeline-state/run-42/checks-1.log" && ok "(p3) lint red, test green, typecheck null skipped" || bad "(p3) check log wrong"
+grep -q 'RED: false' "$d/main/.claude/pipeline-state/run-42/checks-1.1.log" && grep -q 'ok: true' "$d/main/.claude/pipeline-state/run-42/checks-1.1.log" && ok "(p3) lint red, test green, typecheck null skipped" || bad "(p3) check log wrong"
 FIXTURE_CONFIG='{"tracker":{"type":"github"},"paths":{"plansDir":"docs/plans"}}' fixture p4; run_case "$d"; expect env-branch-prefix "(p4) no prefix configured and no dominant remote prefix: refuse, never guess"
 [ "$RC" -eq 2 ] && ok "(p4) exit 2" || bad "(p4) exit $RC"
 fixture p5; printf 'opus\n' > "$FAKE_GH/labels"; run_case "$d"; [ "$RC" -eq 3 ] && ok "(p5) not-queued exits 3 (resumable)" || bad "(p5) not-queued exit $RC"
@@ -201,6 +202,41 @@ fixture p11; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"
 ( cd "$d/main" && git checkout -q -b bump && echo z >> src/a.ts && git commit -qam "base moves" && git push -q origin bump:main && git checkout -q main && git reset -q --hard origin/main ) 2>/dev/null
 # the branch will touch work.txt only, so a base move on src/a.ts must NOT expire it
 run_case "$d"; expect approved "(p11) a base move outside the branch's files does not expire the premise"
+
+# (q) round-two parity: exit codes for env refusals, re-entry by marker, evidence per attempt,
+#     the old cost block's terminator, fail-closed staleness, the jira read allowlist, config caps
+fixture q1; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; rm -rf "$d/origin.git"; run_case "$d"
+[ "$RC" -eq 2 ] && ok "(q1) an environment refusal exits 2 (was demoted to 1)" || bad "(q1) env refusal exit $RC ($TERM_SLUG)"
+fixture q2; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; printf 'in-progress\nopus\n' > "$FAKE_GH/labels"
+echo 'x <!-- stage: lean-claimed --> y' >> "$FAKE_GH/issue-comments"; jq '. + [{body:"<!-- stage: lean-claimed -->",created_at:"2020-01-01T00:00:00Z",updated_at:"2020-01-01T00:00:00Z"}]' "$FAKE_GH/comments.json" > "$FAKE_GH/c.tmp" && mv "$FAKE_GH/c.tmp" "$FAKE_GH/comments.json"
+run_case "$d"; expect approved "(q2) claimed label + lane marker re-enters without --resume"
+grep -q 'approved' "$FAKE_GH/issue-comments" && ok "(q2) closing comment posted on a re-entered run" || bad "(q2) no closing comment on re-entry"
+fixture q3 "- false"; printf 'build-pr\nbuild-push-only\nbuild-push-only\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=3 run_case "$d"; expect checks-red-spent "(q3) three red attempts"
+[ -f "$d/main/.claude/pipeline-state/run-42/build-1.1.json" ] && [ -f "$d/main/.claude/pipeline-state/run-42/build-1.3.json" ] && ok "(q3) every attempt keeps its own evidence file" || bad "(q3) attempt evidence overwritten"
+fixture q4; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"
+cat > "$T/bin/gh-oldblock" <<EOF
+#!/usr/bin/env bash
+if [ "\$1 \$2" = "api repos/o/r/pulls/7" ]; then printf '{"body":"built-by: fake\\n\\n<!-- pipeline-cost-block -->\\nold block line\\nCache-hit rate: 50%%\\n\\nKEEP THIS LINE\\n"}'; else exec "$T/bin/gh" "\$@"; fi
+EOF
+chmod +x "$T/bin/gh-oldblock"; RUN_GH="$T/bin/gh-oldblock" run_case "$d"; expect approved "(q4) run against a PR carrying the OLD lane's cost block"
+grep -q 'KEEP THIS LINE' "$FAKE_GH/pr-body.md" && ! grep -q 'old block line' "$FAKE_GH/pr-body.md" && ok "(q4) old block replaced up to its Cache-hit terminator; the body below it survives" || bad "(q4) body strip wrong: $(tr '\n' '|' < "$FAKE_GH/pr-body.md" | cut -c1-200)"
+fixture q5; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; ( cd "$d/main" && git remote set-url origin /nonexistent ) ; run_case "$d"
+# the record push fails first on a dead remote, which is an env refusal; the staleness arm is exercised below via a fetch that fails mid-run
+[ "$RC" -eq 2 ] && ok "(q5) dead remote is an environment refusal, not a pass" || bad "(q5) dead remote exit $RC ($TERM_SLUG)"
+FIXTURE_CONFIG='{"tracker":{"type":"jira","writes":false,"branchPrefix":"jdoe/","keyPattern":"[a-z]+-[0-9]+"},"paths":{"plansDir":"docs/plans"}}' fixture q6
+printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; mv "$d/main/.claude/pipeline-state/42-ledger.md" "$d/main/.claude/pipeline-state/gh-42-ledger.md"
+OUT="$( cd "$d/main" && bash "$RUN" gh-42 --build-model opus 2>&1 )"; RC=$?; TERM_SLUG="$(printf '%s\n' "$OUT" | sed -n 's/^terminal: //p' | tail -n 1)"
+expect approved "(q6) jira run with a key that matches keyPattern"
+grep -q 'mcp__atlassian' "$FAKE_GH/args-1.txt" && grep -q 'mcp__atlassian__editJiraIssue' "$FAKE_GH/args-1.txt" && ok "(q6) jira build may READ the tracker (server allowed) while writes stay disallowed" || bad "(q6) jira allowlist wrong"
+FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"run":{"maxRounds":1,"costCeilingUsd":0.5}}' fixture q7
+printf 'build-pr\nreview-needs-work\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect cost-spent "(q7) config run.costCeilingUsd honored"
+FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"commands":{"main":{"lint":null,"typecheck":null,"test":null,"allowUnverified":true}}}' fixture q8 ""
+printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(q8) zero checks pass only when allowUnverified is declared"
+FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"commands":{"main":{"lint":"true","extraLanes":[{"name":"e2e","when":["src/**"],"commands":["false"]},{"name":"docs","when":["docs/**"],"commands":["false"]}]}}}' fixture q9 ""
+printf 'build-delete-test\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=1 run_case "$d"
+grep -q 'RED: false' "$d/main/.claude/pipeline-state/run-42/checks-1.1.log" && [ "$(grep -c 'false' "$d/main/.claude/pipeline-state/run-42/checks-1.1.log")" = 1 ] && ok "(q9) extraLanes run only when a changed file matches their when-globs (src/ matched, docs/ did not)" || bad "(q9) when-globs wrong: $(grep -c false "$d/main/.claude/pipeline-state/run-42/checks-1.1.log") false lanes ran"
+fixture q10; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d" --build-model opus --review-model opus; expect approved "(q10) opus/sonnet short forms accepted; opus review needs no basis"
+FIXTURE_CONFIG='{"tracker":{"type":"gitlab","branchPrefix":"x/"},"paths":{"plansDir":"docs/plans"}}' fixture q11; run_case "$d"; expect env-tracker-type "(q11) an unknown tracker.type is refused, never the quieter arm"
 
 # (m) rounds spent
 fixture m; printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-needs-work\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d" --max-rounds 2; expect rounds-spent "(m) two needs-work rounds"

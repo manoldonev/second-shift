@@ -26,11 +26,11 @@
 #       RUN_COST_CEILING      USD (100); RUN_CHECKS_RED_MAX (3)
 #
 # exit: 0 approved · 1 stopped (build-no-pr, build-inflight, build-blocked, pr-ambiguous,
-#       claimed-elsewhere, env-not-ready, env-worktree*) · 2 usage or environment
-#       (usage-*, env-config-*, env-branch-prefix) · 3 RESUMABLE: not queued / no intake record —
-#       pay off intake and re-launch the same command · 4 budget spent (rounds, checks-red, cost)
-#       · 5 no verdict usable against the current head · 7 the premise expired mid-run
-#       (ticket closed, base moved into this branch's files)
+#       claimed-elsewhere, staleness-unreadable) · 2 usage or environment refusal (usage-*, every
+#       env-* slug) · 3 RESUMABLE: not queued / no intake record — pay off intake and re-launch the
+#       same command · 4 budget spent (rounds, checks-red, cost) · 5 no verdict usable against the
+#       current head · 7 the premise expired mid-run (ticket closed, base moved into this branch's
+#       files). Model ids accept the short forms `opus` / `sonnet`.
 set -uo pipefail
 
 CLAUDE="${RUN_CLAUDE:-claude}"; GH="${RUN_GH:-${GH:-gh}}"
@@ -53,6 +53,9 @@ while [ $# -gt 0 ]; do
   esac
 done
 [ -n "$ISSUE" ] || { sed -n '16,20p' "$0" >&2; exit 2; }
+alias_model() { case "$1" in opus) echo claude-opus-5 ;; sonnet) echo claude-sonnet-5 ;; *) echo "$1" ;; esac; }
+MODEL="$(alias_model "$MODEL")"; REVIEW_MODEL="$(alias_model "$REVIEW_MODEL")"
+case "$MAX_ROUNDS" in ''|*[!0-9]*|0) echo "run.sh: --max-rounds must be a positive integer" >&2; exit 2 ;; esac
 if [ "$REVIEW_MODEL" != claude-opus-5 ] && [ -z "$REVIEW_MODEL_BASIS" ]; then
   echo "run.sh: --review-model departs from the default (claude-opus-5); state why with --review-model-basis" >&2; exit 2
 fi
@@ -62,18 +65,19 @@ say() { echo "$(now) [run] $*"; }
 exit_code_for() { # the taxonomy a wrapper may branch on (orchestrate.sh's, kept)
   case "$1" in
     approved|dry-run) echo 0 ;;
-    usage-*|env-config-*|env-branch-prefix|env-detach-*) echo 2 ;;
     not-queued|env-no-record) echo 3 ;;
+    usage-*|env-*) echo 2 ;;
     rounds-spent|checks-red-spent|cost-spent) echo 4 ;;
     review-unbound) echo 5 ;;
     ticket-closed|staleness-expired) echo 7 ;;
+    staleness-unreadable) echo 1 ;;
     *) echo 1 ;;
   esac
 }
 terminal() { # terminal <slug> <detail> — one closing comment on the issue, as the old lane posted
   say "terminal: $1 — $2"; echo "terminal: $1"
   if [ "${CLAIMED:-0}" -eq 1 ] && [ "$TRACKER" = github ]; then
-    "$GH" issue comment "$ISSUE" --body "second-shift run $RUN_ID: $1 — $2${PR:+ (PR #$PR)}" >/dev/null 2>&1 || true
+    "$GH" issue comment "$ISSUE" --body "$(printf 'second-shift run %s: %s — %s\n%s\ncost_usd: %s\n' "$RUN_ID" "$1" "$2" "${PR_URL:-${PR:+PR #$PR}}" "${COST:-0}")" >/dev/null 2>&1 || true
   fi
   exit "$(exit_code_for "$1")"
 }
@@ -93,6 +97,7 @@ cfg() { [ -n "$CONFIG" ] && jq -r "$1 // empty" "$CONFIG" 2>/dev/null || true; }
 # checkout's resolved path so review-lead and the tracker adapter read the same file this does.
 [ -n "$CONFIG" ] && export SECOND_SHIFT_CONFIG="$CONFIG"
 TRACKER="$(cfg .tracker.type)"; TRACKER="${TRACKER:-github}"
+case "$TRACKER" in github|jira) : ;; *) terminal env-tracker-type "tracker.type '$TRACKER' is not github or jira — a typo must not silently pick the arm that attests less" ;; esac
 # read as a tostring: `cfg`'s `// empty` would swallow a literal false (the value that matters here)
 TRACKER_WRITES="$( [ -n "$CONFIG" ] && jq -r 'if .tracker.writes == null then "" else (.tracker.writes|tostring) end' "$CONFIG" 2>/dev/null || true )"
 if [ "$TRACKER" != github ]; then TRACKER_WRITES="${TRACKER_WRITES:-false}"; else TRACKER_WRITES="${TRACKER_WRITES:-true}"; fi
@@ -104,14 +109,15 @@ SMOKE_CMD="$(cfg .design.liveRender.smokeCommand)"
 READY_URL="$(cfg .design.liveRender.readyProbe)"
 L_QUEUE="$(cfg .tracker.labels.queue)"; L_QUEUE="${L_QUEUE:-ready-for-dev}"
 L_CLAIMED="$(cfg .tracker.labels.claimed)"; L_CLAIMED="${L_CLAIMED:-in-progress}"
-L_BLOCKERS="$(cfg '.tracker.labels.blockers | join(" ")')"; L_BLOCKERS="${L_BLOCKERS:-epic needs-intake}"
+L_BLOCKERS="$(cfg '.tracker.labels.blockers | join(" ")')"; L_BLOCKERS="${L_BLOCKERS:-epic needs-intake-review needs-spec-work needs-plan-review}"
 REPO_SLUG="$(basename "$MAIN_ROOT")"
 SKILL_DIR="$(cd "$(dirname "$0")" && pwd)"
 TOOLS="$(cd "$SKILL_DIR/../../tools" && pwd)"
 if [ -n "$KEY_PATTERN" ] && ! printf '%s' "$ISSUE" | grep -qiE "^($KEY_PATTERN)$"; then terminal usage-key "'$ISSUE' does not match tracker.keyPattern '$KEY_PATTERN'"; fi
 # The lane's own tracker writes go through the bot when the consumer configured one, as before
 # (tools/gh-bot.sh is the one resolution ladder); a disabled or unresolvable bot means plain gh.
-BOT_OK=0
+# Reads stay on the operator's gh (GH_READ); only the lane's writes go through the bot, as before.
+BOT_OK=0; GH_READ="$GH"
 if [ -z "${RUN_GH:-}" ] && [ "$(bash "$TOOLS/gh-bot.sh" --status 2>/dev/null)" = ok ]; then GH="$(bash "$TOOLS/gh-bot.sh" --path)"; BOT_OK=1; fi
 # The work-branch namespace: configured, else the dominant prefix among remote branches, else
 # REFUSE — a guessed namespace is the silent defect branch-prefix.sh exists to remove.
@@ -126,11 +132,14 @@ WT_ROOT="${RUN_WORKTREE_ROOT:-$(dirname "$MAIN_ROOT")/${REPO_SLUG}-worktrees}"
 WT="$WT_ROOT/$ISSUE"
 RECORD_REL="$PLANS_DIR/$REPO_SLUG-$ISSUE-decisions.md"
 [ -n "$RECORD" ] || RECORD="$MAIN_ROOT/$STATE_DIR/$ISSUE-ledger.md"
-BUILD_TO="${RUN_BUILD_TIMEOUT:-7200}"; REVIEW_TO="${RUN_REVIEW_TIMEOUT:-3600}"
-COST_CEIL="${RUN_COST_CEILING:-100}"; CHECKS_RED_MAX="${RUN_CHECKS_RED_MAX:-3}"
+# per-ticket caps: env, else config `run.*`, else the defaults the ledger states (D-6)
+c_rounds="$(cfg .run.maxRounds)"; c_red="$(cfg .run.checksRedMax)"; c_bto="$(cfg .run.buildTimeoutSeconds)"; c_rto="$(cfg .run.reviewTimeoutSeconds)"; c_ceil="$(cfg .run.costCeilingUsd)"
+[ "$MAX_ROUNDS" = 3 ] && [ -n "$c_rounds" ] && MAX_ROUNDS="$c_rounds"
+BUILD_TO="${RUN_BUILD_TIMEOUT:-${c_bto:-7200}}"; REVIEW_TO="${RUN_REVIEW_TIMEOUT:-${c_rto:-3600}}"
+COST_CEIL="${RUN_COST_CEILING:-${c_ceil:-100}}"; CHECKS_RED_MAX="${RUN_CHECKS_RED_MAX:-${c_red:-3}}"
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 STATE="$MAIN_ROOT/$STATE_DIR/run-$ISSUE"; mkdir -p "$STATE"
-COST=0; CHECKS_RED=0; CHILD=""; CLAIMED=0; PR=""
+COST=0; CHECKS_RED=0; CHILD=""; CLAIMED=0; PR=""; PR_URL=""; ATTEMPT=0
 
 # --detach: the documented launch shape for a caller whose commands are time-capped (kept).
 if [ "$DETACH" -eq 1 ]; then
@@ -168,16 +177,23 @@ if [ "$TRACKER_WRITES" = false ]; then
   done
 fi
 # shellcheck disable=SC2054  # the comma-separated values are single arguments the CLI parses
+MCP_ALLOW=""
+[ "$TRACKER" = jira ] && MCP_ALLOW=",mcp__atlassian,mcp__plugin_atlassian_atlassian,mcp__claude_ai_Atlassian_Rovo"
 SPAWN_COMMON=(--permission-mode acceptEdits --permission-prompts none --disallowedTools "$DISALLOWED" --setting-sources "user,project,local" --add-dir "$WT" --output-format json)
 
 # ---- tracker (github writes the claim; jira is operator-attested and read-only) ----
-issue_state() { [ "$TRACKER" = github ] && "$GH" issue view "$ISSUE" --json state --jq .state 2>/dev/null || echo OPEN; }
-has_label() { [ "$TRACKER" = github ] && "$GH" issue view "$ISSUE" --json labels --jq '.labels[].name' 2>/dev/null | grep -qx "$1"; }
+issue_state() { [ "$TRACKER" = github ] && "$GH_READ" issue view "$ISSUE" --json state --jq .state 2>/dev/null || echo OPEN; }
+has_label() { [ "$TRACKER" = github ] && "$GH_READ" issue view "$ISSUE" --json labels --jq '.labels[].name' 2>/dev/null | grep -qx "$1"; }
 claim() {
   [ "$TRACKER" = github ] || { say "claim: $TRACKER tracker — operator-attested, nothing written"; return 0; }
   if has_label "$L_CLAIMED"; then
-    [ "$RESUME" -eq 1 ] || terminal claimed-elsewhere "#$ISSUE carries $L_CLAIMED; pass --resume to re-enter your own run"
-    say "claim: re-entering a claimed ticket"; return 0
+    # re-entry, as the old lane read it: the claimed label AND a lane-posted marker; a claim with no
+    # marker was made by someone else and is refused unless the operator says --resume
+    local repo; repo="$("$GH_READ" repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null)"
+    if [ "$RESUME" -eq 1 ] || "$GH_READ" api "repos/$repo/issues/$ISSUE/comments" --paginate 2>/dev/null | grep -q 'stage: lean-claimed'; then
+      say "claim: re-entering a ticket the lane claimed"; CLAIMED=1; return 0
+    fi
+    terminal claimed-elsewhere "#$ISSUE carries $L_CLAIMED with no lane claim marker; pass --resume to take it over"
   fi
   local b; for b in $L_BLOCKERS; do has_label "$b" && terminal not-queued "#$ISSUE carries blocker label $b"; done
   has_label "$L_QUEUE" || terminal not-queued "#$ISSUE does not carry $L_QUEUE — only the operator queues a ticket"
@@ -186,7 +202,7 @@ claim() {
   else SECOND_SHIFT_CONFIG="${CONFIG:-}" bash "$TOOLS/claim-issue.sh" "$ISSUE" >/dev/null 2>&1 || terminal env-claim-failed "claim-issue.sh could not swap $L_QUEUE -> $L_CLAIMED on #$ISSUE"; fi
   # the claim marker, in the shape the old lane posted (re-entry and evidence readers grep it)
   # shellcheck disable=SC2016  # markdown backticks, not shell
-  "$GH" issue comment "$ISSUE" --body "$(printf '<!-- dev-pipeline -->\n<!-- run_id: %s -->\n<!-- session_id: %s -->\n<!-- stage: lean-claimed -->\n🤖 Claimed by \`/dev-pipeline:run\`.\nsecond-shift-run: %s (branch %s)' "$RUN_ID" "${CLAUDE_CODE_SESSION_ID:-unset}" "$RUN_ID" "$BRANCH")" >/dev/null 2>&1 || true
+  "$GH" issue comment "$ISSUE" --body "$(printf '<!-- dev-pipeline -->\n<!-- run_id: %s -->\n<!-- session_id: %s -->\n<!-- stage: lean-claimed -->\n\n🤖 Claimed by \`/dev-pipeline:run\`.\nsecond-shift-run: %s (branch %s)' "$RUN_ID" "${CLAUDE_CODE_SESSION_ID:-unset}" "$RUN_ID" "$BRANCH")" >/dev/null 2>&1 || true
   CLAIMED=1
 }
 
@@ -199,12 +215,33 @@ record_checks() { section "checks" | sed -n 's/^- *`\{0,1\}\([^`]*\)`\{0,1\} *$/
 # The consumer's configured `commands.<repo>` (lint, typecheck, test, extraLanes) run as checks,
 # as milestone 3 ran them; the record's `## Checks` adds to them. Config lives in the main
 # checkout's gitignored .claude/, which the build session cannot edit either.
-config_checks() {
+commands_key() { # the repo id whose commands apply: topology's "." entry while topology exists, else the sole key, else this checkout's name
   [ -n "$CONFIG" ] || return 0
-  local key; key="$(jq -r --arg s "$REPO_SLUG" '.commands // {} | keys | if length == 1 then .[0] elif index($s) then $s else empty end' "$CONFIG" 2>/dev/null)"
-  [ -n "$key" ] || return 0
-  jq -r --arg k "$key" '.commands[$k] | ([.lint, .typecheck, .test] | map(select(type=="string"))[]), (.extraLanes[]?.commands[]? | select(type=="string"))' "$CONFIG" 2>/dev/null
+  jq -r --arg s "$REPO_SLUG" '
+    (.topology.repos // {} | to_entries | map(select(.value.path == ".")) | .[0].key) as $t
+    | (.commands // {} | keys) as $k
+    | if ($t != null and ($k | index($t))) then $t elif ($k | length) == 1 then $k[0] elif ($k | index($s)) then $s else empty end' "$CONFIG" 2>/dev/null
 }
+config_checks() { # lint, typecheck, test, format, then extraLanes whose `when` globs match a changed file (or have none)
+  local key; key="$(commands_key)"; [ -n "$key" ] || return 0
+  jq -r --arg k "$key" '.commands[$k] | [.lint, .typecheck, .test, .format] | map(select(type=="string"))[]' "$CONFIG" 2>/dev/null
+  local changed; changed="$(git -C "$WT" diff --name-only "$FIRST" HEAD 2>/dev/null)"
+  jq -c --arg k "$key" '.commands[$k].extraLanes[]? | {when: (.when // []), commands: (.commands // [])}' "$CONFIG" 2>/dev/null | while IFS= read -r lane; do
+    local hit=1 g f
+    if [ "$(printf '%s' "$lane" | jq '.when | length')" -gt 0 ]; then
+      hit=0
+      while IFS= read -r g; do while IFS= read -r f; do # shellcheck disable=SC2254  # $g IS a glob, by contract
+        case "$f" in $g) hit=1 ;; esac; done <<EOF
+$changed
+EOF
+      done <<EOF
+$(printf '%s' "$lane" | jq -r '.when[]')
+EOF
+    fi
+    [ "$hit" -eq 1 ] && printf '%s' "$lane" | jq -r '.commands[] | select(type=="string")'
+  done
+}
+allow_unverified() { local key; key="$(commands_key)"; [ -n "$key" ] && [ "$(jq -r --arg k "$key" '.commands[$k].allowUnverified // false' "$CONFIG" 2>/dev/null)" = true ]; }
 checks_list() { { config_checks; record_checks; } | awk 'NF && !seen[$0]++'; }
 frames_rows() { section "design frames" | grep -E '^\| *RS-[0-9]+ *\|' | sed 's/^| *//; s/ *| */|/g; s/ *|$//'; }
 
@@ -213,7 +250,7 @@ build_prompt() { # build_prompt <round> <findings-file-or-empty>
   {
     echo "Implement ticket $ISSUE of this repository. Fetch the ticket text yourself from the tracker (${TRACKER})."
     echo "Do not merge. Do not delete, skip or weaken a test to make a check pass; if a test is wrong, say so in the PR."
-    [ "$BOT_OK" -eq 1 ] && echo "Commit through $TOOLS/bot-commit.sh (the repo's bot identity), never plain git commit."
+    [ "$BOT_OK" -eq 1 ] && echo "Commit through $TOOLS/bot-commit.sh (the repo's bot identity), never plain git commit — and re-pass the identity on any --amend, which otherwise silently re-stamps you as the committer."
     if [ "$1" -eq 1 ]; then
       echo "When the checks are green, commit, push branch $BRANCH to origin and open a READY (not draft) PR against the default branch with 'gh pr create'. The PR body, in order: line 1 exactly 'built-by: second-shift run $RUN_ID'; then a link to the decision record at $RECORD_REL; then a summary of the change;"
       if [ "$TRACKER" = github ]; then echo "and the line 'Closes #$ISSUE' so the ticket closes on merge."; else echo "and a '### Jira Items' heading with the line 'Closes [$ISSUE]'."; fi
@@ -230,7 +267,7 @@ build_prompt() { # build_prompt <round> <findings-file-or-empty>
 review_prompt() { # review_prompt <pr> <review-input-file>
   {
     echo "You are reviewing PR #$1 of this repository at its current head, in a session separate from the one that built it. Check out the PR head. Read the decision record at $RECORD_REL as it stood at commit $FIRST (git show $FIRST:$RECORD_REL) and as it stands at the head."
-    echo "Score EVERY row of the record against the code: honored, violated, or departed (the row was edited; name who decided, per its provenance). A violated row is a blocker."
+    echo "Score EVERY row of the record against the code: honored, violated, departed (the row was edited; name who decided, per its provenance), or undeterminable (say what you could not read). A violated or undeterminable row is a blocker; neither may stand beside an approve."
     echo "Then run review-toolkit:review-lead over the PR diff and DECLARE THE PIPELINE DEFAULT PANEL when you invoke it: the fan-out defaults to scope-completeness-reviewer; security-reviewer, a11y-reviewer and unit-test-mutation-reviewer are selected only by an opt-in — a 'review panel' row in the record with user-answered or user-delegated provenance naming security, a11y or unit-test-mutation, or the config's reviewers.default[]. review-lead never infers this; an undeclared panel leaves the surface triggers in force."
     echo "If the ticket has design frames, render every screen at the head with the repo's render command and compare it with its frame; if you cannot render, you cannot approve: post 'verdict: needs-work' with a line 'reason: render-unavailable'."
     local via=""; [ "$BOT_OK" -eq 1 ] && via=" through $GH (the bot identity)"
@@ -249,7 +286,10 @@ run_checks() { # -> 0 green, 1 red; writes $STATE/checks-N.log
   done <<EOF
 $(checks_list)
 EOF
-  [ "$n" -gt 0 ] || { say "checks: nothing configured under commands.* and nothing under '## Checks' — refusing to read that as green"; return 1; }
+  if [ "$n" -eq 0 ]; then
+    allow_unverified && { say "checks: none configured; commands.<repo>.allowUnverified is true, so this is declared, not silent"; return 0; }
+    say "checks: nothing configured under commands.* and nothing under '## Checks' — refusing to read that as green (declare allowUnverified to accept it)"; return 1
+  fi
   return $rc
 }
 route_smoke() { # -> 0 ok, 1 red, 2 unconfigured
@@ -285,26 +325,26 @@ test_surface_diff() { # -> file
 # into a file this branch touches — a green build against a base nobody merges onto is wasted.
 premise_holds() {
   [ "$(issue_state)" = OPEN ] || terminal ticket-closed "#$ISSUE closed mid-run"
-  git -C "$WT" fetch -q origin "$BASE_NAME" 2>/dev/null || return 0
-  local base_now; base_now="$(git -C "$WT" rev-parse -q --verify "origin/$BASE_NAME" 2>/dev/null)"; [ -n "$base_now" ] || return 0
+  git -C "$WT" fetch -q origin "$BASE_NAME" 2>/dev/null || terminal staleness-unreadable "could not fetch origin/$BASE_NAME — a predicate that cannot be evaluated is not a predicate that passed"
+  local base_now; base_now="$(git -C "$WT" rev-parse -q --verify "origin/$BASE_NAME" 2>/dev/null)"; [ -n "$base_now" ] || terminal staleness-unreadable "origin/$BASE_NAME does not resolve"
   [ "$base_now" = "$BASE_START" ] && return 0
   local overlap; overlap="$(comm -12 <(git -C "$WT" diff --name-only "$BASE_START" "$base_now" | sort) <(git -C "$WT" diff --name-only "$FIRST" HEAD | sort) | head -n 3 | tr '\n' ' ')"
   [ -z "$overlap" ] || terminal staleness-expired "origin/$BASE_NAME moved into file(s) this branch touches: $overlap"
 }
 
 # ---- PR and verdict ----
-open_pr() { "$GH" pr list --head "$BRANCH" --state open --json number --jq '.[].number' 2>/dev/null; }
+open_pr() { "$GH_READ" pr list --head "$BRANCH" --state open --json number --jq '.[].number' 2>/dev/null; }
 remote_head() { git -C "$WT" ls-remote origin "refs/heads/$BRANCH" 2>/dev/null | cut -f1; }
 ci_status() { # <pr> -> one word for the report; never waited on (checks already ran here)
-  local out; out="$("$GH" pr checks "$1" --json name,state 2>/dev/null)" || { echo unavailable; return; }
+  local out; out="$("$GH_READ" pr checks "$1" --json name,state 2>/dev/null)" || { echo unavailable; return; }
   [ "$(printf '%s' "$out" | jq 'length')" -gt 0 ] || { echo none; return; }
   printf '%s' "$out" | jq -e 'any(.[]; .state=="FAILURE" or .state=="ERROR")' >/dev/null && { echo red; return; }
   printf '%s' "$out" | jq -e 'all(.[]; .state=="SUCCESS" or .state=="NEUTRAL" or .state=="SKIPPED")' >/dev/null && { echo green; return; }
   echo pending
 }
 verdict() { # <pr> <start-iso> <end-iso> <head> -> prints approve|needs-work and saves the body; 1 if unbound
-  local repo; repo="$("$GH" repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null)"
-  "$GH" api "repos/$repo/issues/$1/comments" --paginate 2>/dev/null \
+  local repo; repo="$("$GH_READ" repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null)"
+  "$GH_READ" api "repos/$repo/issues/$1/comments" --paginate 2>/dev/null \
     | jq -r --arg s "$2" --arg e "$3" --arg h "$4" '
         .[] | select(.created_at >= $s and .created_at <= $e and .created_at == .updated_at)
         | select((.body | split("\n")[0]) | test("^verdict: (approve|needs-work)$"))
@@ -314,6 +354,9 @@ verdict() { # <pr> <start-iso> <end-iso> <head> -> prints approve|needs-work and
   [ -s "$STATE/verdict.tsv" ] || return 1
   cut -f2 "$STATE/verdict.tsv" | base64 --decode > "$STATE/verdict-body.md"
   cut -f1 "$STATE/verdict.tsv"
+}
+first_word() { # the command word an allowlist entry keys on, past any leading VAR=value assignments
+  local w; for w in $1; do case "$w" in *=*) continue ;; *) printf '%s' "$w"; return ;; esac; done; printf '%s' "${1%% *}"
 }
 add_cost() { local c; c="$(jq -r '.total_cost_usd // 0' "$1" 2>/dev/null)"; COST="$(awk -v a="$COST" -v b="${c:-0}" 'BEGIN{print a+b}')"; }
 over_ceiling() { awk -v c="$COST" -v m="$COST_CEIL" 'BEGIN{exit !(c>m)}'; }
@@ -364,49 +407,51 @@ while [ "$ROUND" -lt "$MAX_ROUNDS" ]; do
   if [ -n "$READY_URL" ] && ! curl -fsS -m 10 "$READY_URL" >/dev/null 2>&1; then terminal env-not-ready "ready probe $READY_URL failed"; fi
 
   # ---- build ----
-  before="$(remote_head)"
-  build_prompt "$ROUND" "$FINDINGS" > "$STATE/build-$ROUND.prompt"
-  allow="Read,Edit,Write,Agent,Bash(git *),Bash(gh pr create*),Bash(gh pr view*),Bash(gh pr comment*),Bash(gh issue view*)"
+  before="$(remote_head)"; ATTEMPT=$((ATTEMPT+1)); A="$ROUND.$ATTEMPT"
+  build_prompt "$ROUND" "$FINDINGS" > "$STATE/build-$A.prompt"
+  allow="Read,Edit,Write,Agent,Bash(git *),Bash(gh pr create*),Bash(gh pr view*),Bash(gh pr comment*),Bash(gh issue view*)$MCP_ALLOW"
   [ "$BOT_OK" -eq 1 ] && allow="$allow,Bash($TOOLS/bot-commit.sh*),Bash($GH *)"
-  while IFS= read -r c; do [ -n "$c" ] && allow="$allow,Bash(${c%% *}*)"; done <<EOF
+  [ -n "$(frames_rows)" ] && allow="$allow,mcp__figma,mcp__plugin_figma_figma"
+  while IFS= read -r c; do [ -n "$c" ] && allow="$allow,Bash($(first_word "$c")*)"; done <<EOF
 $(checks_list)
 EOF
-  [ -n "$RENDER_CMD" ] && allow="$allow,Bash(${RENDER_CMD%% *}*)"
-  ( cd "$WT" && bounded "$BUILD_TO" "$STATE/build-$ROUND.json" \
-      "$CLAUDE" -p --model "$MODEL" "${SPAWN_COMMON[@]}" --allowedTools "$allow" --max-turns 400 "$(cat "$STATE/build-$ROUND.prompt")" ); brc=$?
-  add_cost "$STATE/build-$ROUND.json"
-  jq -r '.permission_denials[]? | (.tool_name + " " + (.tool_input|tostring))' "$STATE/build-$ROUND.json" > "$STATE/denials-$ROUND.txt" 2>/dev/null || true
+  [ -n "$RENDER_CMD" ] && allow="$allow,Bash($(first_word "$RENDER_CMD")*)"
+  ( cd "$WT" && bounded "$BUILD_TO" "$STATE/build-$A.json" \
+      "$CLAUDE" -p --model "$MODEL" "${SPAWN_COMMON[@]}" --allowedTools "$allow" --max-turns 400 "$(cat "$STATE/build-$A.prompt")" ); brc=$?
+  add_cost "$STATE/build-$A.json"
+  jq -r '.permission_denials[]? | (.tool_name + " " + (.tool_input|tostring))' "$STATE/build-$A.json" > "$STATE/denials-$A.txt" 2>/dev/null || true
   [ "$brc" -eq 124 ] && terminal build-blocked "build session exceeded ${BUILD_TO}s"
-  sub="$(jq -r '.subtype // "unreadable"' "$STATE/build-$ROUND.json" 2>/dev/null)"
+  sub="$(jq -r '.subtype // "unreadable"' "$STATE/build-$A.json" 2>/dev/null)"
   [ "$sub" = success ] || terminal build-blocked "build session ended $sub (rc=$brc)"
   over_ceiling && terminal cost-spent "\$$COST exceeds the \$$COST_CEIL ceiling"
   after="$(remote_head)"; [ -n "$after" ] && [ "$after" != "$before" ] || terminal build-inflight "remote head of $BRANCH did not move in round $ROUND"
   git -C "$WT" fetch -q origin "$BRANCH" && git -C "$WT" reset -q --hard "origin/$BRANCH"
   n="$(open_pr | wc -l | tr -d ' ')"
   [ "$n" -eq 1 ] || { [ "$n" -eq 0 ] && terminal build-no-pr "no open PR for $BRANCH after round $ROUND" || terminal pr-ambiguous "$n open PRs for $BRANCH"; }
-  PR="$(open_pr)"
+  PR="$(open_pr)"; PR_URL="$("$GH_READ" pr view "$PR" --json url --jq .url 2>/dev/null)"
 
   # ---- checks the build did not run ----
-  if ! run_checks "$ROUND"; then
+  if ! run_checks "$A"; then
     CHECKS_RED=$((CHECKS_RED+1)); [ "$CHECKS_RED" -lt "$CHECKS_RED_MAX" ] || terminal checks-red-spent "checks red $CHECKS_RED times"
-    FINDINGS="$STATE/checks-$ROUND.log"; say "checks red — findings are the check log; next round"; ROUND=$((ROUND-1)); continue
+    FINDINGS="$STATE/checks-$A.log"; say "checks red — findings are the check log; next attempt of this round"; ROUND=$((ROUND-1)); continue
   fi
   route_smoke; src=$?
   [ "$src" -eq 2 ] && terminal env-smoke-unconfigured "the record declares design frames but design.liveRender.command/smokeCommand is not configured"
   if [ "$src" -ne 0 ]; then
     CHECKS_RED=$((CHECKS_RED+1)); [ "$CHECKS_RED" -lt "$CHECKS_RED_MAX" ] || terminal checks-red-spent "smoke red $CHECKS_RED times"
-    cat "$STATE"/smoke-*.log > "$STATE/smoke-$ROUND.log" 2>/dev/null; FINDINGS="$STATE/smoke-$ROUND.log"; ROUND=$((ROUND-1)); continue
+    cat "$STATE"/smoke-*.log > "$STATE/smoke-$A.log" 2>/dev/null; FINDINGS="$STATE/smoke-$A.log"; ROUND=$((ROUND-1)); continue
   fi
-  input="$(test_surface_diff "$ROUND")"
+  input="$(test_surface_diff "$A")"
 
   # ---- review, in a fresh session, bound to this head and this time window ----
   head="$(remote_head)"; start="$(now)"
-  review_prompt "$PR" "$input" > "$STATE/review-$ROUND.prompt"
-  rallow="Read,Agent,Bash(git *),Bash(gh pr view*),Bash(gh pr comment*),Bash(gh pr diff*),Bash(gh api*)${RENDER_CMD:+,Bash(${RENDER_CMD%% *}*)}"
+  review_prompt "$PR" "$input" > "$STATE/review-$A.prompt"
+  rallow="Read,Agent,Bash(git *),Bash(gh pr view*),Bash(gh pr comment*),Bash(gh pr diff*),Bash(gh api*)$MCP_ALLOW${RENDER_CMD:+,Bash($(first_word "$RENDER_CMD")*)}"
+  [ -n "$(frames_rows)" ] && rallow="$rallow,mcp__figma,mcp__plugin_figma_figma"
   [ "$BOT_OK" -eq 1 ] && rallow="$rallow,Bash($GH *)"
-  ( cd "$WT" && bounded "$REVIEW_TO" "$STATE/review-$ROUND.json" \
-      "$CLAUDE" -p --model "$REVIEW_MODEL" "${SPAWN_COMMON[@]}" --allowedTools "$rallow" --max-turns 300 "$(cat "$STATE/review-$ROUND.prompt")" ); rrc=$?
-  end="$(now)"; add_cost "$STATE/review-$ROUND.json"
+  ( cd "$WT" && bounded "$REVIEW_TO" "$STATE/review-$A.json" \
+      "$CLAUDE" -p --model "$REVIEW_MODEL" "${SPAWN_COMMON[@]}" --allowedTools "$rallow" --max-turns 300 "$(cat "$STATE/review-$A.prompt")" ); rrc=$?
+  end="$(now)"; add_cost "$STATE/review-$A.json"
   [ "$rrc" -eq 124 ] && terminal review-unbound "review session exceeded ${REVIEW_TO}s"
   v="$(verdict "$PR" "$start" "$end" "$head")" || terminal review-unbound "no unedited 'verdict:' comment naming head $head was posted between $start and $end"
   [ "$(remote_head)" = "$head" ] || terminal review-unbound "head moved during review"
@@ -431,15 +476,16 @@ cost_block() {
   echo '<!-- /pipeline-cost-block -->'
 }
 if [ -n "$PR" ]; then
-  repo="$("$GH" repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null)"
-  body="$("$GH" api "repos/$repo/pulls/$PR" --jq .body 2>/dev/null)"
-  body="$(printf '%s\n' "$body" | awk '/<!-- pipeline-cost-block -->/{skip=1} !skip{print} /<!-- \/pipeline-cost-block -->/{skip=0}')"
+  repo="$("$GH_READ" repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null)"
+  body="$("$GH_READ" api "repos/$repo/pulls/$PR" --jq .body 2>/dev/null)"
+  # strip an earlier block: ours ends at the closing marker, the old lane's at its `Cache-hit rate:` line
+  body="$(printf '%s\n' "$body" | awk '/<!-- pipeline-cost-block -->/{skip=1} !skip{print} skip && (/<!-- \/pipeline-cost-block -->/ || /^Cache-hit rate: /){skip=0}')"
   printf '%s\n\n%s\n' "$body" "$(cost_block)" > "$STATE/pr-body.md"
   "$GH" api -X PATCH "repos/$repo/pulls/$PR" -F "body=@$STATE/pr-body.md" >/dev/null 2>&1 || say "could not write the run block into PR #$PR's body"
 fi
 if [ "${v:-}" = approve ]; then
   # close-out teardown, as before: the branch and PR stay, the worktree goes
-  git -C "$MAIN_ROOT" worktree remove --force "$WT" >/dev/null 2>&1 && say "worktree $WT removed" || say "worktree $WT left in place (remove it by hand)"
+  git -C "$MAIN_ROOT" worktree remove "$WT" >/dev/null 2>&1 && say "worktree $WT removed" || say "worktree $WT left in place (uncommitted work or a lock; remove it by hand)"
   terminal approved "PR #$PR approved at $head after $ROUND round(s), \$$COST"
 fi
 terminal rounds-spent "$MAX_ROUNDS rounds without an approve (cost \$$COST)"

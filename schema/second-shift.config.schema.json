@@ -225,6 +225,10 @@
               "type": "string",
               "description": "Topology repo id (topology.repos key) that owns the harness, and whose checkout the command runs in. Unset means the repo the run hosts. On a multi-repo topology this also decides which repo the design lane ARMS: a repo that is not the named owner unarms, and is asked for neither a per-ticket `## Design` section nor a design-disarm override. A value naming no topology.repos key is a milestone-1 error, never a silent unarm. The gate resolves it to the ticket's worktree, never the main checkout."
             },
+            "smokeCommand": {
+              "type": "string",
+              "description": "Repo-owned smoke command with {route} and {mustShow} placeholders, run by /dev-pipeline:run after every build for each `## Design frames` row that declares a must-show value: it must exit non-zero unless the route renders and shows that data-test id or copy string. Absent while a record declares must-show = the run refuses env-smoke-unconfigured."
+            },
             "readyProbe": {
               "type": "string",
               "format": "uri",
@@ -267,6 +271,18 @@
           "minLength": 1,
           "description": "INERT-lane classifier override, read by tools/is-inert-diff.sh and tools/preflight.sh: an extended regular expression that REPLACES the shipped inert set outright. Omit to keep the default, which is JS/TS-centric — it treats *.md, *.sh, .github/workflows/*.yml and .claude/** data files as inert because a JS/TS lint/type-check/test suite gives them zero coverage. Set this when your product surface IS one of those extensions: on a shell-and-Markdown repo the default classifies every real diff inert, so the configured lint/test lanes never run and the green gate reports a false green. Replace-not-merge is deliberate — only replacement can REMOVE an alternative such as \\.sh$; the value is a hand-copy and will not inherit future additions to the default. An uncompilable pattern is rejected by config-lint, and fails closed to the full suite at runtime."
         }
+      }
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Per-ticket caps for /dev-pipeline:run. Every key optional; env overrides config overrides the default.",
+      "properties": {
+        "maxRounds": { "type": "integer", "minimum": 1, "description": "Build+review rounds before rounds-spent (default 3)." },
+        "checksRedMax": { "type": "integer", "minimum": 1, "description": "Red check or smoke attempts before checks-red-spent, on their own counter (default 3)." },
+        "buildTimeoutSeconds": { "type": "integer", "minimum": 60, "description": "Build session ceiling (default 7200)." },
+        "reviewTimeoutSeconds": { "type": "integer", "minimum": 60, "description": "Review session ceiling (default 3600)." },
+        "costCeilingUsd": { "type": "number", "minimum": 0, "description": "Sum of the sessions' total_cost_usd before cost-spent (default 100)." }
       }
     },
     "grillWaivers": {
