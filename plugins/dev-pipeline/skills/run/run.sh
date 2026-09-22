@@ -12,7 +12,7 @@
 #       RUN_CLAUDE / RUN_GH   the binaries (tests inject fakes)
 #       RUN_WORKTREE_ROOT     default <parent of main>/<repo>-worktrees
 #       RUN_BUILD_TIMEOUT / RUN_REVIEW_TIMEOUT   seconds (7200 / 3600)
-#       RUN_COST_CEILING      USD (100); RUN_CHECKS_RED_MAX (3); RUN_CI_TIMEOUT seconds (1800)
+#       RUN_COST_CEILING      USD (100); RUN_CHECKS_RED_MAX (3)
 #
 # exit: 0 approved · 1 any other terminal (printed as `terminal: <slug>`)
 set -uo pipefail
@@ -62,7 +62,7 @@ WT="$WT_ROOT/$ISSUE"
 RECORD_REL="$PLANS_DIR/$REPO_SLUG-$ISSUE-decisions.md"
 [ -n "$RECORD" ] || RECORD="$MAIN_ROOT/.claude/pipeline-state/$ISSUE-ledger.md"
 BUILD_TO="${RUN_BUILD_TIMEOUT:-7200}"; REVIEW_TO="${RUN_REVIEW_TIMEOUT:-3600}"
-COST_CEIL="${RUN_COST_CEILING:-100}"; CHECKS_RED_MAX="${RUN_CHECKS_RED_MAX:-3}"; CI_TO="${RUN_CI_TIMEOUT:-1800}"
+COST_CEIL="${RUN_COST_CEILING:-100}"; CHECKS_RED_MAX="${RUN_CHECKS_RED_MAX:-3}"
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 STATE="$MAIN_ROOT/.claude/pipeline-state/run-$ISSUE"; mkdir -p "$STATE"
 COST=0; CHECKS_RED=0; CHILD=""
@@ -172,15 +172,12 @@ test_surface_diff() { # -> file
 # ---- PR and verdict ----
 open_pr() { "$GH" pr list --head "$BRANCH" --state open --json number --jq '.[].number' 2>/dev/null; }
 remote_head() { git -C "$WT" ls-remote origin "refs/heads/$BRANCH" 2>/dev/null | cut -f1; }
-wait_ci() { # <pr> -> 0 green or no checks, 1 red, 2 timed out
-  local t=0 out
-  while :; do
-    out="$("$GH" pr checks "$1" --json name,state 2>/dev/null)" || return 0
-    [ "$(printf '%s' "$out" | jq 'length')" -gt 0 ] || { say "ci: no PR checks on this repo"; return 0; }
-    printf '%s' "$out" | jq -e 'any(.[]; .state=="FAILURE" or .state=="ERROR")' >/dev/null && return 1
-    printf '%s' "$out" | jq -e 'all(.[]; .state=="SUCCESS" or .state=="NEUTRAL" or .state=="SKIPPED")' >/dev/null && return 0
-    [ "$t" -ge "$CI_TO" ] && return 2; sleep 30; t=$((t+30))
-  done
+ci_status() { # <pr> -> one word for the report; never waited on (checks already ran here)
+  local out; out="$("$GH" pr checks "$1" --json name,state 2>/dev/null)" || { echo unavailable; return; }
+  [ "$(printf '%s' "$out" | jq 'length')" -gt 0 ] || { echo none; return; }
+  printf '%s' "$out" | jq -e 'any(.[]; .state=="FAILURE" or .state=="ERROR")' >/dev/null && { echo red; return; }
+  printf '%s' "$out" | jq -e 'all(.[]; .state=="SUCCESS" or .state=="NEUTRAL" or .state=="SKIPPED")' >/dev/null && { echo green; return; }
+  echo pending
 }
 verdict() { # <pr> <start-iso> <end-iso> <head> -> prints approve|needs-work and saves the body; 1 if unbound
   local repo; repo="$("$GH" repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null)"
@@ -267,9 +264,6 @@ EOF
     CHECKS_RED=$((CHECKS_RED+1)); [ "$CHECKS_RED" -lt "$CHECKS_RED_MAX" ] || terminal checks-red-spent "smoke red $CHECKS_RED times"
     cat "$STATE"/smoke-*.log > "$STATE/smoke-$ROUND.log" 2>/dev/null; FINDINGS="$STATE/smoke-$ROUND.log"; ROUND=$((ROUND-1)); continue
   fi
-  wait_ci "$PR"; circ=$?
-  [ "$circ" -eq 2 ] && terminal ci-timeout "PR checks still pending after ${CI_TO}s"
-  if [ "$circ" -eq 1 ]; then CHECKS_RED=$((CHECKS_RED+1)); [ "$CHECKS_RED" -lt "$CHECKS_RED_MAX" ] || terminal checks-red-spent "CI red $CHECKS_RED times"; echo "CI reported failing checks on PR #$PR" > "$STATE/ci-$ROUND.log"; FINDINGS="$STATE/ci-$ROUND.log"; ROUND=$((ROUND-1)); continue; fi
   input="$(test_surface_diff "$ROUND")"
 
   # ---- review, in a fresh session, bound to this head and this time window ----
@@ -289,6 +283,7 @@ EOF
   over_ceiling && terminal cost-spent "\$$COST exceeds the \$$COST_CEIL ceiling"
 done
 
-[ -n "$PR" ] && "$GH" pr comment "$PR" --body "second-shift run $RUN_ID: $ROUND round(s), \$$COST" >/dev/null 2>&1 || true
+CI="$( [ -n "$PR" ] && ci_status "$PR" || echo none )"; say "ci: $CI (read once for the report; the checks that gate a round ran here)"
+[ -n "$PR" ] && "$GH" pr comment "$PR" --body "second-shift run $RUN_ID: $ROUND round(s), \$$COST, CI $CI" >/dev/null 2>&1 || true
 [ "${v:-}" = approve ] && terminal approved "PR #$PR approved at $head after $ROUND round(s), \$$COST"
 terminal rounds-spent "$MAX_ROUNDS rounds without an approve (cost \$$COST)"
