@@ -111,7 +111,7 @@ case "${1:-}/${2:-}" in
       *)                printf '%s\n' "${STUB_GH_STATE:-OPEN}" ;;
     esac ;;
   api/*) printf '%s\n' "${STUB_GH_COMMENTS:-[]}" ;;
-  pr/list) printf '[]\n' ;;
+  pr/list) printf '%s\n' "${STUB_GH_PRS:-[]}" ;;
   *) echo "gh-ticket-stub: unstubbed call: $*" >&2; exit 1 ;;
 esac
 STUB
@@ -8941,6 +8941,70 @@ lt7_stdout="$( unset RUN_ID CLAUDE_CODE_SESSION_ID GH_BOT
 if ! grep -q 'LANE_GATE_ANY_TREE' <<<"$lt7_stdout"; then
   pass "(lt7a) the disarm announcement goes to stderr and never to stdout"
 else fail "(lt7a) the disarm note polluted stdout: $lt7_stdout"; fi
+
+# (lt8-lt11) AN OPERATOR-NAMED LANE BRANCH. `<branchPrefix><key>` is only the name the pipeline
+# gives a branch it cuts; `entry` records the branch actually in use in the progress file's
+# `branch:` header and every later call reads it. Each case owns a progress file, because the
+# header is the thing under test. No scenario covers this: the liveness scenario runs on the
+# default name, and the invariant here is the tree check's SOURCE, not a verdict path.
+ognate() { local t="$1" prog="$2"; shift 2
+  ( unset RUN_ID GH_BOT LANE_GATE_ANY_TREE
+    cd "$t" && CLAUDE_CODE_SESSION_ID="$ENTRY_SID" SECOND_SHIFT_CONFIG="$CFG" LANE_PROGRESS_FILE="$prog" \
+    GH="$GH_STUB" bash "$GATE" --issue-file "$ISSUE_NOREGIONS" "$@" 2>&1 )
+}
+og_header() { sed -n 's/^branch:[[:space:]]*//p' "$1" | head -n1; }
+for og in 33 34 35; do git -C "$LT_MAIN" worktree add -q -b "ops/own-$og" "$WORK/wt-own-$og" >/dev/null 2>&1; done
+
+# (lt8) `entry --branch` records the named branch, and the milestone calls then grade THAT tree
+# and refuse the prefix-derived one.
+OG8="$WORK/og8.md"; rm -f "$OG8"
+out="$(ognate "$WORK/wt-own-33" "$OG8" entry 33 --branch ops/own-33)"; rc=$?
+m1="$(ognate "$WORK/wt-own-33" "$OG8" 1 33)"; m1rc=$?
+wr="$(ognate "$LT_MAIN" "$OG8" 1 33)"; wrrc=$?
+if [ "$rc" -eq 0 ] && [ "$(og_header "$OG8")" = "ops/own-33" ] \
+   && [ "$m1rc" -eq 1 ] && grep -q 'no committed spec' <<<"$m1" \
+   && [ "$wrrc" -eq 9 ] && grep -q "lane branch 'ops/own-33'" <<<"$wr"; then
+  pass "(lt8) entry --branch records an operator-named lane branch; milestone 1 grades it and refuses the default-named tree"
+else fail "(lt8) entry rc=$rc header='$(og_header "$OG8")' m1 rc=$m1rc wrong-tree rc=$wrrc: $out | $m1 | $wr"; fi
+
+# (lt9) With no flag, `entry` adopts the checkout's branch only when an open PR from it CLOSES
+# this issue — `Closes #340` is not `Closes #34`.
+OG9="$WORK/og9.md"; rm -f "$OG9"
+STUB_GH_PRS='[{"number":5,"body":"Fixes things. Closes #340"}]' ognate "$WORK/wt-own-34" "$OG9" entry 34 >/dev/null
+near="$(og_header "$OG9")"; rm -f "$OG9"
+STUB_GH_PRS='[{"number":5,"body":"Fixes things.\n\nCloses #34"}]' ognate "$WORK/wt-own-34" "$OG9" entry 34 >/dev/null
+if [ "$near" = "claude/acme-34" ] && [ "$(og_header "$OG9")" = "ops/own-34" ] \
+   && grep -q '| branch | name=ops/own-34 | source=pr-head' "$OG9"; then
+  pass "(lt9) entry adopts the checkout's branch when its open PR closes the issue, and not for a near-miss key"
+else fail "(lt9) near-miss header='$near', closing header='$(og_header "$OG9")': $(cat "$OG9")"; fi
+
+# (lt10) The review side. A record holding only the default yields to the PR's headRefName; a
+# branch `entry` recorded by choice does not, and the disagreement refuses.
+OG10="$WORK/og10.md"; rm -f "$OG10"
+ognate "$LT_MAIN" "$OG10" entry 35 >/dev/null
+d="$(ognate "$WORK/wt-own-35" "$OG10" delta 35 --branch ops/own-35)"; drc=$?
+x="$(ognate "$WORK/wt-own-33" "$OG8" delta 33 --branch ops/own-35)"; xrc=$?
+if [ "$(og_header "$OG10")" = "claude/acme-35" ] && [ "$drc" -ne 9 ] && ! grep -q 'WRONG TREE' <<<"$d" \
+   && [ "$xrc" -eq 2 ] && grep -q "disagrees with this run's recorded lane branch 'ops/own-33'" <<<"$x"; then
+  pass "(lt10) delta --branch replaces a default-only record, and refuses against a branch entry recorded by choice"
+else fail "(lt10) default-record delta rc=$drc, chosen-record delta rc=$xrc: $d | $x"; fi
+
+# (lt11) Re-pointing an existing record: the header moves and the move is written down with its
+# origin, so a run started on the default can be carried onto the branch the operator named.
+out="$(ognate "$WORK/wt-own-35" "$OG10" entry 35 --branch ops/own-35)"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(og_header "$OG10")" = "ops/own-35" ] \
+   && grep -q '| branch | name=ops/own-35 | source=argument | was=claude/acme-35' "$OG10" \
+   && [ "$(grep -c '^branch:' "$OG10")" -eq 1 ]; then
+  pass "(lt11) entry --branch re-points an existing record's header and appends the move with the old name"
+else fail "(lt11) rc=$rc: $out | $(cat "$OG10")"; fi
+
+# (lt12) `--branch` is refused where nothing reads it, and a work-branch name for another ticket
+# is refused on entry.
+u="$(ognate "$LT_MAIN" "$OG10" 1 35 --branch ops/own-35)"; urc=$?
+w="$(ognate "$WORK/wt-own-35" "$OG10" entry 35 --branch claude/acme-36)"; wrc=$?
+if [ "$urc" -eq 2 ] && grep -q "only meaningful on 'entry'" <<<"$u" && [ "$wrc" -eq 10 ]; then
+  pass "(lt12) --branch is a usage error on milestone calls, and entry refuses another ticket's work branch"
+else fail "(lt12) milestone rc=$urc, foreign-branch entry rc=$wrc: $u | $w"; fi
 
 
 # ---- (tk) #611: the ticket-resolution contract on the run boundary ------------------------

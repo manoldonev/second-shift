@@ -35,7 +35,9 @@ the code does not author its own evaluation.
    approval, and a later `entry` sweeps the ones abandoned runs left behind. `gh pr checkout` on a
    same-repo PR gives the right name; on a fork-origin one it prefixes the owner, so
    `git switch -c <headRefName>` first.
-4. `bash G delta <issue>` — the range this round must READ, from the step-3 checkout. An exit 2
+4. `bash G delta <issue> --branch <headRefName>` — the range this round must READ, from the
+   step-3 checkout. Pass the same `--branch` to `verdict`: it names the lane branch when the
+   operator, not the pipeline, named it. An exit 2
    here means no entry attestation is READABLE — that record is host-local and gitignored, so
    re-run from a checkout of the build host's clone that has the lane branch checked out (the lane
    worktree is the obvious one; the record is anchored at `--git-common-dir/..`, which every
@@ -137,7 +139,7 @@ the code does not author its own evaluation.
    names the `D-n` and whose `decided_by:` names who decided (`user-delegated` under the
    operator's standing instruction), and the Decision scorecard reads it as `departed`.
 6. Write the record **from the checkout of the PR head**:
-   `bash G verdict <issue> --pr <n> --verdict <approve|needs-work> --rounds <n> --fidelity <pass|fail|not-applicable> --panel <a,b,c> --summary-file <path>`
+   `bash G verdict <issue> --branch <headRefName> --pr <n> --verdict <approve|needs-work> --rounds <n> --fidelity <pass|fail|not-applicable> --panel <a,b,c> --summary-file <path>`
    The summary file carries the finding table and the scorecard. The gate writes the
    reconciliation keys itself — including `reviewed_patch_id`, hashed from that checkout's own
    diff against the base, and `inherited_patch_id`, written every round and `none` on a root.

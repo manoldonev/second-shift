@@ -267,6 +267,13 @@
 #                            "absent" before either commits — the one race shape a real
 #                            concurrent run cannot be driven through deterministically.
 #                            Bounded (10s) so a broken harness cannot hang a real run.
+#   --branch <name>          `entry`: record <name> as this run's lane branch (the progress
+#                            file's `branch:` header) instead of `<branchPrefix><key>` — for a
+#                            branch the operator named. Without it, `entry` adopts the checkout's
+#                            branch when an open PR from it closes the issue. `delta`/`verdict`:
+#                            the PR's headRefName; replaces a default-only record, refuses (2)
+#                            against a branch `entry` recorded by choice. Every other call reads
+#                            the recorded header.
 #   LANE_GATE_ANY_TREE=1     #141: DISARM THE LANE-TREE ASSERTION — let `1`..`5`, `all`, `delta`
 #                            and `verdict` grade whatever checkout they are invoked from. It
 #                            ANNOUNCES on stderr every time it disarms a call, naming the branch
@@ -322,6 +329,9 @@ STALENESS_ARM=""
 # default is applied after validation, exactly as `--arm` above does — a source token on a
 # subcommand that records nothing has to be loud rather than absorbed.
 TICKET_SOURCE=""
+# The lane branch the CALLER names, when it is not `<branchPrefix><key>`: an operator-named branch
+# on `entry`, the PR's headRefName on `delta`/`verdict`. Empty means "not given".
+BRANCH_ARG=""
 
 # The fix budget: 3 attempts per milestone, the 4th red hard-stops (D-19). Counted from
 # the progress file's `attempt` lines per D-41 — only FAILED evaluations append one.
@@ -410,7 +420,8 @@ while [ $# -gt 0 ]; do
     --obligations)   PROGRESS_OBLIGATIONS=1; shift ;;
     --arm)           STALENESS_ARM="${2:-}"; shift 2 ;;
     --ticket-source) TICKET_SOURCE="${2:-}"; shift 2 ;;
-    -h|--help)       sed -n '2,283p' "$0"; exit 0 ;;
+    --branch)        BRANCH_ARG="${2:-}"; shift 2 ;;
+    -h|--help)       sed -n '2,290p' "$0"; exit 0 ;;
     -*)              envfail "unknown option: $1" ;;
     *)
       if [ "$POSITIONAL" -eq 0 ]; then SUB="$1"; POSITIONAL=1
@@ -488,6 +499,16 @@ if [ -n "$TICKET_SOURCE" ]; then
   esac
 fi
 TICKET_SOURCE="${TICKET_SOURCE:-argument}"
+
+# Same parse-time shape: a branch named to a subcommand that never reads it would be absorbed.
+if [ -n "$BRANCH_ARG" ]; then
+  case "$SUB" in
+    entry|delta|verdict) : ;;
+    *) envfail "--branch is only meaningful on 'entry', 'delta' or 'verdict', not '$SUB'." ;;
+  esac
+  git check-ref-format --branch "$BRANCH_ARG" >/dev/null 2>&1 \
+    || envfail "--branch '$BRANCH_ARG' is not a valid branch name."
+fi
 
 # #710, the same parse-time shape as every flag above: `--model` records the tier a plan-review
 # dispatch ran on, and there is no other subcommand it could mean anything to. `verdict` stamps
@@ -896,6 +917,34 @@ PLAN_MANIFEST_REL="$PLANS_DIR/$REPO_SLUG-$ISSUE-lean-plan.md"
 # would read as coverage this repo does not have.
 PLAN_REVIEW_MANIFEST_REL="$PLANS_DIR/$REPO_SLUG-$ISSUE-lean-plan-review.md"
 PROGRESS_FILE="${LANE_PROGRESS_FILE:-$MAIN_ROOT/$STATE_DIR/$ISSUE-lean-progress.md}"
+
+# ---------------------------------------------------------------- the lane branch, as recorded
+# `<branchPrefix><key>` above is only the name the pipeline GIVES a branch it cuts. An operator
+# may run the lane on a branch they named, and the run's own record is what says so: the progress
+# file's `branch:` header, written by `entry` (see resolve_entry_branch). Every later call reads
+# the lane branch from it, so the tree check, the PR lookup, inflight and teardown agree on one
+# name. No header (no progress file yet, or a pre-`entry` call) keeps the default.
+DEFAULT_LANE_BRANCH="$LANE_BRANCH"
+recorded_lane_branch() {
+  [ -f "$PROGRESS_FILE" ] || return 1
+  # Only a record OF THIS ISSUE names its branch — LANE_PROGRESS_FILE can point anywhere.
+  [ "$(sed -n 's/^issue:[[:space:]]*//p' "$PROGRESS_FILE" | head -n1)" = "$ISSUE" ] || return 1
+  sed -n 's/^branch:[[:space:]]*//p' "$PROGRESS_FILE" | head -n1 | grep .
+}
+RECORDED_LANE_BRANCH="$(recorded_lane_branch)" || RECORDED_LANE_BRANCH=""
+[ -n "$RECORDED_LANE_BRANCH" ] && LANE_BRANCH="$RECORDED_LANE_BRANCH"
+
+# `delta`/`verdict` name the PR's headRefName. It agrees with the record, or it replaces a record
+# that only holds the default guess — a run started before `entry` recorded operator-named
+# branches, whose review would otherwise be unreachable. It never overrides a branch `entry`
+# recorded by choice: two sources naming two different trees is a question, not a tie-break.
+if [ -n "$BRANCH_ARG" ] && [ "$SUB" != "entry" ] && [ "$BRANCH_ARG" != "$LANE_BRANCH" ]; then
+  if [ -n "$RECORDED_LANE_BRANCH" ] && [ "$RECORDED_LANE_BRANCH" != "$DEFAULT_LANE_BRANCH" ]; then
+    envfail "--branch '$BRANCH_ARG' disagrees with this run's recorded lane branch '$RECORDED_LANE_BRANCH' ($PROGRESS_FILE). Review the PR whose head is the recorded branch, or re-record it with \`entry $ISSUE --branch <name>\` from the build side."
+  fi
+  warn "note: $SUB: lane branch '$BRANCH_ARG' from --branch (the recorded name '$LANE_BRANCH' is only the default)."
+  LANE_BRANCH="$BRANCH_ARG"
+fi
 
 # ---------------------------------------------------------------- RUN_ID persistence
 # This tool is routinely invoked as ONE-SHOT subprocesses, so an export in the `claim` call is gone
@@ -2462,6 +2511,61 @@ EOF
   return 0
 }
 
+# THE LANE BRANCH, decided once and here. `entry` is a run boundary that already reads the tracker,
+# so it is the one call that may ask the PR list; the milestone calls that later read the record
+# stay no-network. In order:
+#   1. `--branch <name>` — the operator named it;
+#   2. the checkout's own branch, when an open PR from it closes this issue — work already under
+#      review on a branch the pipeline did not cut;
+#   3. whatever is recorded, else `<branchPrefix><key>`.
+# ENTRY_BRANCH_SOURCE is empty when nothing moved the lane off (3).
+ENTRY_BRANCH_SOURCE=""
+resolve_entry_branch() {
+  local head prs keys
+  if [ -n "$BRANCH_ARG" ]; then
+    # A name inside the work-branch namespace is already a claim about WHICH ticket; it has to be
+    # this one.
+    head="$(bp_branch_key "$BRANCH_ARG" "$BRANCH_PREFIX" "$TRACKER_TYPE" "$TRACKER_KEY_PATTERN")" || head=""
+    [ -z "$head" ] || [ "$head" = "$(ticket_norm "$ISSUE")" ] \
+      || ticket_refuse "--branch '$BRANCH_ARG' is the work branch of '$head', not of '$ISSUE'."
+    LANE_BRANCH="$BRANCH_ARG"; ENTRY_BRANCH_SOURCE="argument"
+    return 0
+  fi
+  head="$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null)" || return 0
+  case "$head" in ""|HEAD|"$LANE_BRANCH"|"$BASE_BRANCH") return 0 ;; esac
+  prs="$("$GH_CLI" pr list --head "$head" --state open --json number,body --limit 5 2>/dev/null)" \
+    || { warn "note: entry: could not list PRs for '$head' — keeping lane branch '$LANE_BRANCH'."; return 0; }
+  # The merge boundary's own closing rule (boundary-evidence.sh resolve_key): `Closes #N`, or
+  # `Closes [KEY]` under a read-only tracker. An unparseable list yields no keys, so the lane
+  # keeps the default rather than adopting a branch nothing showed closes the issue.
+  keys="$(printf '%s' "$prs" | jq -r '.[]?.body // empty' 2>/dev/null \
+       | grep -oiE 'closes[[:space:]]+[#[]([A-Za-z]+-)?[0-9]+' | grep -oE '([A-Za-z]+-)?[0-9]+$')" || keys=""
+  if [ -n "$keys" ] && grep -qixF "$ISSUE" <<<"$keys"; then
+    LANE_BRANCH="$head"; ENTRY_BRANCH_SOURCE="pr-head"
+  fi
+}
+
+# Writes the decision down. A fresh progress file already carries it in the `branch:` header; an
+# existing one whose header names another branch is re-pointed, and the move is appended as a row
+# so the record shows who moved it and from where.
+record_entry_branch() {
+  local was tmp row
+  [ -n "$ENTRY_BRANCH_SOURCE" ] || return 0
+  was="$(recorded_lane_branch)" || was=""
+  [ "$was" = "$LANE_BRANCH" ] && was=""
+  if [ -n "$was" ]; then
+    tmp="$PROGRESS_FILE.tmp.$$"
+    awk -v b="$LANE_BRANCH" '!done && /^branch:/ { print "branch: " b; done = 1; next } { print }' \
+      "$PROGRESS_FILE" > "$tmp" && mv "$tmp" "$PROGRESS_FILE" \
+      || { rm -f "$tmp"; envfail "cannot re-point the branch header in '$PROGRESS_FILE'."; }
+  fi
+  [ "$LANE_BRANCH" = "$DEFAULT_LANE_BRANCH" ] && [ -z "$was" ] && return 0
+  row="| branch | name=$LANE_BRANCH | source=$ENTRY_BRANCH_SOURCE${was:+ | was=$was}"
+  [ "$(count_matches "$row" "$PROGRESS_FILE" -F)" -eq 0 ] || return 0
+  append_line "$(now_iso) $row"
+  say "  lane branch: $LANE_BRANCH ($ENTRY_BRANCH_SOURCE${was:+, was $was})."
+}
+
 cmd_entry() {
   local sid ledger lines telemetry
   sid="${CLAUDE_CODE_SESSION_ID:-}"
@@ -2506,7 +2610,9 @@ cmd_entry() {
   # Idempotent and retroactive (D-11): a run that skipped step 1 self-heals with one command, while
   # with `audit-toolkit` off the predicate above still refuses. OR-1: the row is per-RUN, not
   # per-session — it attests that the run STARTED attested, and a resuming session inherits it.
+  resolve_entry_branch
   ensure_progress_file
+  record_entry_branch
   record_ticket_resolution
   # #528: a claim still present here was orphaned by a killed writer, never held by a live one —
   # see append_satisfied. This is where a session starts, so it is where the sweep belongs.
@@ -6608,6 +6714,9 @@ require_lane_tree() {
     warn "    git -C '$MAIN_ROOT' worktree add <path> '$LANE_BRANCH'"
   fi
   warn "  A detached HEAD reads back as 'HEAD' and refuses here for the same reason — check the branch out by NAME. On a fork-origin PR \`gh pr checkout\` names the local branch <owner>-<branch>, which also refuses; \`git switch -c '$LANE_BRANCH'\` makes it checkable."
+  case "$head" in HEAD|"<unresolvable>") : ;; *)
+    warn "  If '$head' IS this run's branch (one you named rather than '$DEFAULT_LANE_BRANCH'), record it: \`bash G entry $ISSUE --branch '$head'\` on the build side, or pass the PR's headRefName as \`--branch\` to \`delta\`/\`verdict\` on the review side." ;;
+  esac
   exit 9
 }
 
