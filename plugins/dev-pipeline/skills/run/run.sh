@@ -50,6 +50,9 @@ else
   CONFIG=""
 fi
 cfg() { [ -n "$CONFIG" ] && jq -r "$1 // empty" "$CONFIG" 2>/dev/null || true; }
+# The sessions run in the worktree, whose gitignored .claude/ has no config; hand them the main
+# checkout's resolved path so review-lead and the tracker adapter read the same file this does.
+[ -n "$CONFIG" ] && export SECOND_SHIFT_CONFIG="$CONFIG"
 TRACKER="$(cfg .tracker.type)"; TRACKER="${TRACKER:-github}"
 PLANS_DIR="$(cfg .paths.plansDir)"; PLANS_DIR="${PLANS_DIR:-docs/plans}"
 RENDER_CMD="$(cfg .design.liveRender.command)"
