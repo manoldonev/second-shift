@@ -119,7 +119,12 @@ if [ -n "$KEY_PATTERN" ] && ! printf '%s' "$ISSUE" | grep -qiE "^($KEY_PATTERN)$
 # (tools/gh-bot.sh is the one resolution ladder); a disabled or unresolvable bot means plain gh.
 # Reads stay on the operator's gh (GH_READ); only the lane's writes go through the bot, as before.
 BOT_OK=0; GH_READ="$GH"
-if [ -z "${RUN_GH:-}" ] && [ "$(bash "$TOOLS/gh-bot.sh" --status 2>/dev/null)" = ok ]; then GH="$(bash "$TOOLS/gh-bot.sh" --path)"; BOT_OK=1; fi
+if [ -z "${RUN_GH:-}" ]; then
+  bot_status="$(bash "$TOOLS/gh-bot.sh" --status 2>/dev/null)"
+  bot_enabled="$( [ -n "$CONFIG" ] && jq -r '.tracker.bot.enabled // false | tostring' "$CONFIG" 2>/dev/null || echo false )"
+  if [ "$bot_status" = ok ]; then GH="$(bash "$TOOLS/gh-bot.sh" --path)"; BOT_OK=1
+  elif [ "$bot_enabled" = true ]; then terminal env-bot "tracker.bot.enabled is true but the wrapper is $bot_status — refusing to write as the operator in the bot's place"; fi
+fi
 # The work-branch namespace: configured, else the dominant prefix among remote branches, else
 # REFUSE — a guessed namespace is the silent defect branch-prefix.sh exists to remove.
 BP_RESOLVER="$SKILL_DIR/../build/branch-prefix.sh"; [ -f "$BP_RESOLVER" ] || BP_RESOLVER="$TOOLS/branch-prefix.sh"
@@ -222,7 +227,7 @@ claim() {
   else "$GH" issue edit "$ISSUE" --add-label "$L_CLAIMED" --remove-label "$L_QUEUE" >/dev/null 2>&1 || terminal env-claim-failed "could not swap $L_QUEUE -> $L_CLAIMED on #$ISSUE"; fi
   # the claim marker, in the shape the old lane posted (re-entry and evidence readers grep it)
   # shellcheck disable=SC2016  # markdown backticks, not shell
-  "$GH" issue comment "$ISSUE" --body "$(printf '<!-- dev-pipeline -->\n<!-- run_id: %s -->\n<!-- session_id: %s -->\n<!-- stage: lean-claimed -->\n\n🤖 Claimed by \`/dev-pipeline:run\`.\nsecond-shift-run: %s (branch %s)' "$RUN_ID" "${CLAUDE_CODE_SESSION_ID:-unset}" "$RUN_ID" "$BRANCH")" >/dev/null 2>&1 || true
+  "$GH" issue comment "$ISSUE" --body "$(printf '<!-- dev-pipeline -->\n<!-- run_id: %s -->\n<!-- session_id: %s -->\n<!-- stage: lean-claimed -->\n\n🤖 Claimed by \`/dev-pipeline:run\`.\nsecond-shift-run: %s (branch %s)' "$RUN_ID" "${CLAUDE_CODE_SESSION_ID:-unset}" "$RUN_ID" "$BRANCH")" >/dev/null 2>&1 || terminal env-claim-failed "labels swapped but the claim marker could not be posted on #$ISSUE — re-entry would refuse; fix the tracker write and --resume"
   CLAIMED=1
 }
 
@@ -354,12 +359,15 @@ $rows
 EOF
   return $rc
 }
-test_surface_diff() { # -> file
-  local out="$STATE/review-input-$1.md"
+test_surface_diff() { # -> file; a diff that cannot be read is a refusal, never "(none)"
+  local out="$STATE/review-input-$1.md" ns full names
+  ns="$(git -C "$WT" diff --name-status "$FIRST"..HEAD 2>/dev/null)" || terminal env-worktree "cannot diff $FIRST..HEAD in $WT"
+  full="$(git -C "$WT" diff "$FIRST"..HEAD 2>/dev/null)" || terminal env-worktree "cannot diff $FIRST..HEAD in $WT"
+  names="$(git -C "$WT" diff --name-only "$FIRST"..HEAD 2>/dev/null)" || terminal env-worktree "cannot diff $FIRST..HEAD in $WT"
   {
-    echo "### Deleted or renamed test files"; git -C "$WT" diff --name-status "$FIRST"..HEAD | awk '$1 ~ /^[DR]/ && $2 ~ /(\.spec\.|\.test\.|_test\.|\/tests?\/)/' ; echo
-    echo "### Added skips / forced-green lines"; git -C "$WT" diff "$FIRST"..HEAD | grep -nE '^\+.*(\.skip\(|\.only\(|\|\| *true|xit\(|xdescribe\()' || echo "(none)"; echo
-    echo "### CI or check configuration edited"; git -C "$WT" diff --name-only "$FIRST"..HEAD | grep -E '^\.github/|^\.gitlab|\.ya?ml$|^package\.json$|vitest\.config|jest\.config|\.eslintrc|tsconfig' || echo "(none)"; echo
+    echo "### Deleted or renamed test files"; awk '$1 ~ /^[DR]/ && $2 ~ /(\.spec\.|\.test\.|_test\.|\/tests?\/)/' <<<"$ns"; echo
+    echo "### Added skips / forced-green lines"; grep -nE '^\+.*(\.skip\(|\.only\(|\|\| *true|xit\(|xdescribe\()' <<<"$full" || echo "(none)"; echo
+    echo "### CI or check configuration edited"; grep -E '^\.github/|^\.gitlab|\.ya?ml$|^package\.json$|vitest\.config|jest\.config|\.eslintrc|tsconfig' <<<"$names" || echo "(none)"; echo
     echo "### Build session permission denials"; [ -s "$STATE/denials-$1.txt" ] && cat "$STATE/denials-$1.txt" || echo "(none)"
   } > "$out"; echo "$out"
 }
@@ -410,7 +418,7 @@ say "run $RUN_ID: issue $ISSUE, tracker $TRACKER (writes $TRACKER_WRITES), branc
 validate_lanes
 if [ "$DRY" -eq 1 ]; then say "dry-run: would claim, create the worktree, commit the record, and run up to $MAX_ROUNDS rounds; checks: $(checks_list 2>/dev/null | tr '\n' ';')"; echo "terminal: dry-run"; exit 0; fi
 st="$(issue_state)"; [ -n "$st" ] || terminal env-tracker-unreadable "could not read #$ISSUE from the tracker"
-[ "$st" = OPEN ] || terminal ticket-closed "#$ISSUE is not open"
+[ "$st" = OPEN ] || terminal env-ticket-closed "#$ISSUE is not open — nothing spawned, a preflight refusal like any other"
 claim
 if [ -z "$MODEL" ]; then
   if has_label opus; then MODEL=claude-opus-5; MODEL_BASIS="label"; elif has_label sonnet; then MODEL=claude-sonnet-5; MODEL_BASIS="label"
@@ -433,7 +441,10 @@ else
     git -C "$MAIN_ROOT" worktree add -q -b "$BRANCH" "$WT" "$base" || terminal env-worktree "could not create $WT from $base"
   fi
 fi
-BASE_START="$(git -C "$WT" rev-parse -q --verify "origin/$BASE_NAME" 2>/dev/null)"
+# the staleness anchor is the branch point (merge-base), as the gate measured it — not the base at
+# re-entry, which would hide every move that happened between runs
+BASE_START="$(git -C "$WT" merge-base "origin/$BASE_NAME" HEAD 2>/dev/null)"
+[ -n "$BASE_START" ] || terminal env-base-unreadable "cannot resolve the merge-base of origin/$BASE_NAME and $BRANCH"
 if ! git -C "$WT" cat-file -e "HEAD:$RECORD_REL" 2>/dev/null; then
   mkdir -p "$WT/$(dirname "$RECORD_REL")" && cp "$RECORD" "$WT/$RECORD_REL"
   git -C "$WT" add "$RECORD_REL" || terminal env-record-commit "could not stage the record"
@@ -498,6 +509,8 @@ EOF
       "$CLAUDE" -p --model "$REVIEW_MODEL" "${SPAWN_COMMON[@]}" --allowedTools "$rallow" --max-turns 300 "$(cat "$STATE/review-$A.prompt")" ); rrc=$?
   end="$(now)"; add_cost "$STATE/review-$A.json"
   [ "$rrc" -eq 124 ] && terminal review-unbound "review session exceeded ${REVIEW_TO}s"
+  rsub="$(jq -r '.subtype // "unreadable"' "$STATE/review-$A.json" 2>/dev/null)"
+  [ "$rsub" = success ] || terminal review-unbound "review session ended $rsub (rc=$rrc)"
   v="$(verdict "$PR" "$start" "$end" "$head")" || terminal review-unbound "no unedited 'verdict:' comment naming head $head was posted between $start and $end"
   [ "$(remote_head)" = "$head" ] || terminal review-unbound "head moved during review"
   say "verdict: $v (reviewed $head)"
@@ -522,11 +535,15 @@ cost_block() {
 }
 if [ -n "$PR" ]; then
   repo="$("$GH_READ" repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null)"
-  body="$("$GH_READ" api "repos/$repo/pulls/$PR" --jq .body 2>/dev/null)"
+  if ! body="$("$GH_READ" api "repos/$repo/pulls/$PR" --jq .body 2>/dev/null)"; then
+    say "could not read PR #$PR's body; the run block is NOT written (a blind replace would erase the body)"; body=""; SKIP_BODY=1
+  fi
   # strip an earlier block: ours ends at the closing marker, the old lane's at its `Cache-hit rate:` line
   body="$(printf '%s\n' "$body" | awk '$0 == "<!-- pipeline-cost-block -->"{skip=1} !skip{print} skip && ($0 == "<!-- /pipeline-cost-block -->" || /^Cache-hit rate: /){skip=0} END{if (skip) print "<!-- an earlier cost block had no terminator; text below it was not preserved -->"}')"
   printf '%s\n\n%s\n' "$body" "$(cost_block)" > "$STATE/pr-body.md"
-  "$GH" api -X PATCH "repos/$repo/pulls/$PR" -F "body=@$STATE/pr-body.md" >/dev/null 2>&1 || say "could not write the run block into PR #$PR's body"
+  if [ "${SKIP_BODY:-0}" -eq 0 ]; then
+    "$GH" api -X PATCH "repos/$repo/pulls/$PR" -F "body=@$STATE/pr-body.md" >/dev/null 2>&1 || say "could not write the run block into PR #$PR's body (it is in $STATE/pr-body.md)"
+  fi
 fi
 if [ "${v:-}" = approve ]; then
   # close-out teardown, as before: the branch and PR stay, the worktree goes

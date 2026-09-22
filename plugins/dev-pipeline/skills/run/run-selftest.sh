@@ -50,6 +50,8 @@ case "$plan" in
   build-push-only) push ;;
   build-delete-test) git rm -q src/a.spec.ts; push; echo 7 > "$S/prs" ;;
   build-nothing)   : ;;
+  build-pr-close)  push; echo 7 > "$S/prs"; echo CLOSED > "$S/state" ;;
+  review-crash)    printf '{"subtype":"error_during_execution","total_cost_usd":0}\n'; exit 1 ;;
   review-approve|review-needs-work|review-wrong-sha)
     sha=$(git rev-parse "origin/$branch"); [ "$plan" = review-wrong-sha ] && sha=deadbeef
     v=approve; [ "$plan" = review-needs-work ] && v=needs-work
@@ -164,7 +166,8 @@ grep -q 'a.spec.ts' "$d/main/.claude/pipeline-state/run-42/review-1.1.prompt" &&
 # (l) claimed elsewhere, ticket closed, cost ceiling, no record
 fixture l; echo in-progress > "$FAKE_GH/labels"; run_case "$d"; expect claimed-elsewhere "(l1) in-progress label without --resume"
 [ ! -d "$d/wt/42" ] && ok "(l1) no worktree created" || bad "(l1) worktree created despite refusal"
-fixture l2; echo CLOSED > "$FAKE_GH/state"; run_case "$d"; expect ticket-closed "(l2) closed ticket"
+fixture l2; echo CLOSED > "$FAKE_GH/state"; run_case "$d"; expect env-ticket-closed "(l2) a ticket closed at launch is a preflight refusal"
+[ "$RC" -eq 2 ] && ok "(l2) exits 2, like every preflight refusal" || bad "(l2) exit $RC"
 fixture l3; printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; FAKE_COST=60 RUN_COST_CEILING=100 run_case "$d"; expect cost-spent "(l3) cost ceiling"
 fixture l4; rm "$d/main/.claude/pipeline-state/42-ledger.md"; run_case "$d"; expect env-no-record "(l4) no intake record"
 fixture l5; run_case "$d" --dry-run; expect dry-run "(l5) dry-run spawns nothing"
@@ -194,7 +197,8 @@ FIXTURE_CONFIG='{"tracker":{"type":"github"},"paths":{"plansDir":"docs/plans"}}'
 fixture p5; printf 'opus\n' > "$FAKE_GH/labels"; run_case "$d"; [ "$RC" -eq 3 ] && ok "(p5) not-queued exits 3 (resumable)" || bad "(p5) not-queued exit $RC"
 fixture p6; printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-needs-work\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d" --max-rounds 2; [ "$RC" -eq 4 ] && ok "(p6) rounds-spent exits 4" || bad "(p6) rounds-spent exit $RC"
 fixture p7; printf 'build-pr\nreview-wrong-sha\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; [ "$RC" -eq 5 ] && ok "(p7) review-unbound exits 5" || bad "(p7) review-unbound exit $RC"
-fixture p8; echo CLOSED > "$FAKE_GH/state"; run_case "$d"; [ "$RC" -eq 7 ] && ok "(p8) ticket-closed exits 7" || bad "(p8) ticket-closed exit $RC"
+fixture p8; printf 'build-pr-close\nreview-needs-work\nbuild-push-only\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect ticket-closed "(p8) a ticket closed MID-RUN expires the premise"
+[ "$RC" -eq 7 ] && ok "(p8) mid-run closed exits 7" || bad "(p8) exit $RC"
 fixture p9; run_case "$d" --review-model claude-sonnet-5 --dry-run; [ "$RC" -eq 2 ] && ok "(p9) --review-model without --review-model-basis is refused" || bad "(p9) exit $RC"
 fixture p10; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d" --build-model claude-sonnet-5 --model-basis "test" --review-model claude-sonnet-5 --review-model-basis "test"; expect approved "(p10) orchestrate.sh's --build-model and basis flags are accepted"
 grep -q 'models: build claude-sonnet-5 (test), review claude-sonnet-5 (test)' <<<"$OUT" && ok "(p10) bases logged" || bad "(p10) bases not logged"
@@ -282,6 +286,28 @@ chmod +x "$T/bin/gh-dead"; RUN_GH="$T/bin/gh-dead" run_case "$d"; expect env-tra
 fixture t4; OUT="$( cd "$d/main" && bash "$RUN" 2>&1 )"; grep -q '^terminal: usage-missing-issue$' <<<"$OUT" && ok "(t4) usage-missing-issue slug" || bad "(t4) missing-issue slug absent"
 OUT="$( cd "$d/main" && bash "$RUN" 42 --max-rounds 0 2>&1 )"; grep -q '^terminal: usage-max-rounds$' <<<"$OUT" && ok "(t4) usage-max-rounds slug" || bad "(t4) max-rounds slug absent"
 OUT="$( cd "$d/main" && bash "$RUN" 42 --review-model sonnet 2>&1 )"; grep -q '^terminal: usage-review-model-basis$' <<<"$OUT" && ok "(t4) usage-review-model-basis slug" || bad "(t4) review-model-basis slug absent"
+
+# (u) round-six parity: no blind body replace, a broken enabled bot refuses, staleness anchored at
+#     the branch point on re-entry, a dead review session, a failed marker post
+fixture u1; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"
+cat > "$T/bin/gh-nobody" <<EOF
+#!/usr/bin/env bash
+if [ "\$1 \$2" = "api repos/o/r/pulls/7" ]; then exit 1; fi; exec "$T/bin/gh" "\$@"
+EOF
+chmod +x "$T/bin/gh-nobody"; RUN_GH="$T/bin/gh-nobody" run_case "$d"; expect approved "(u1) run whose PR-body read fails"
+[ ! -f "$FAKE_GH/pr-body.md" ] && grep -q 'NOT written' <<<"$OUT" && ok "(u1) an unreadable PR body is never replaced blind" || bad "(u1) body was PATCHed over an unread body"
+FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/","bot":{"enabled":true,"wrapperPath":"/nonexistent/gh-as-bot.sh"}},"paths":{"plansDir":"docs/plans"}}' fixture u2
+OUT="$( cd "$d/main" && PATH="$T/bin:$PATH" env -u RUN_GH -u GH_BOT bash "$RUN" 42 2>&1 )"; RC=$?; TERM_SLUG="$(printf '%s\n' "$OUT" | sed -n 's/^terminal: //p' | tail -n 1)"
+expect env-bot "(u2) bot enabled but its wrapper missing is a refusal, never a silent write as the operator"
+fixture u3; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(u3) first run"
+( cd "$d/main" && git fetch -q origin && git reset -q --hard origin/main && echo moved >> work.txt && git add work.txt && git commit -qm "base moves onto the branch's file" && git push -q origin main ) 2>/dev/null
+printf 'build-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; : > "$FAKE_GH/calls"; printf 'in-progress\nopus\n' > "$FAKE_GH/labels"; run_case "$d" --resume; expect staleness-expired "(u3) on re-entry the base move since the BRANCH POINT is seen"
+fixture u4; printf 'build-pr\nreview-crash\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect review-unbound "(u4) a review session that died is not a verdict"
+fixture u5; cat > "$T/bin/gh-nocomment" <<EOF
+#!/usr/bin/env bash
+if [ "\$1 \$2" = "issue comment" ]; then exit 1; fi; exec "$T/bin/gh" "\$@"
+EOF
+chmod +x "$T/bin/gh-nocomment"; RUN_GH="$T/bin/gh-nocomment" run_case "$d"; expect env-claim-failed "(u5) a claim marker that could not be posted is a refusal"
 
 # (m) rounds spent
 fixture m; printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-needs-work\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d" --max-rounds 2; expect rounds-spent "(m) two needs-work rounds"
