@@ -26,8 +26,8 @@
 #       RUN_COST_CEILING      USD (100); RUN_CHECKS_RED_MAX (3)
 #
 # exit: 0 approved · 1 stopped (build-no-pr, build-inflight, build-blocked, pr-ambiguous,
-#       claimed-elsewhere, staleness-unreadable) · 2 usage or environment refusal (usage-*, every
-#       env-* slug) · 3 RESUMABLE: not queued / no intake record — pay off intake and re-launch the
+#       staleness-unreadable) · 2 usage or environment refusal (usage-*, every env-* slug,
+#       claimed-elsewhere — nothing spawned) · 3 RESUMABLE: not queued / no intake record — pay off intake and re-launch the
 #       same command · 4 budget spent (rounds, checks-red, cost) · 5 no verdict usable against the
 #       current head · 7 the premise expired mid-run (ticket closed, base moved into this branch's
 #       files). Model ids accept the short forms `opus` / `sonnet`.
@@ -164,10 +164,11 @@ fi
 mkdir -p "$STATE"
 trap '[ -n "$CHILD" ] && kill "$CHILD" 2>/dev/null; say "interrupted; claim left in place"; exit 130' INT TERM
 
-# bounded <secs> <logfile> <cmd...> — no `timeout` binary on macOS; a bash watchdog instead
+# bounded <secs> <logfile> <cmd...> — no `timeout` binary on macOS; a bash watchdog instead. The child
+# runs in $WT; the cd happens INSIDE it so CHILD is this shell's variable and the INT/TERM trap can kill it.
 bounded() {
   local secs="$1" log="$2"; shift 2
-  "$@" > "$log" 2>"$log.err" < /dev/null & CHILD=$!
+  ( cd "$WT" && exec "$@" ) > "$log" 2>"$log.err" < /dev/null & CHILD=$!
   local t=0
   while kill -0 "$CHILD" 2>/dev/null; do
     [ "$t" -ge "$secs" ] && { kill "$CHILD" 2>/dev/null; wait "$CHILD" 2>/dev/null; CHILD=""; return 124; }
@@ -396,15 +397,23 @@ premise_holds() {
 }
 
 # ---- PR and verdict ----
-open_pr() { "$GH_READ" pr list --head "$BRANCH" --state open --json number,isDraft --jq '.[] | select(.isDraft | not) | .number' 2>/dev/null; }
-pr_conventions() { # <pr> -> 0, or 1 with the reasons in $STATE/pr-conventions.txt (the old lane's pr_exit_artifacts_check)
-  local body; body="$("$GH_READ" pr view "$1" --json body --jq .body 2>/dev/null)" || { echo "the PR body could not be read" > "$STATE/pr-conventions.txt"; return 1; }
-  : > "$STATE/pr-conventions.txt"
-  local first; first="$(printf '%s\n' "$body" | head -n 1)"
-  grep -q "^built-by: second-shift run " <<<"$first" || echo "PR body line 1 must be 'built-by: second-shift run <id>'" >> "$STATE/pr-conventions.txt"
-  if [ "$TRACKER" = github ]; then grep -qE "^Closes #$ISSUE\b" <<<"$body" || echo "PR body must carry the line 'Closes #$ISSUE'" >> "$STATE/pr-conventions.txt"
-  else grep -qF "Closes [$ISSUE]" <<<"$body" || echo "PR body must carry 'Closes [$ISSUE]' under a '### Jira Items' heading" >> "$STATE/pr-conventions.txt"; fi
-  [ ! -s "$STATE/pr-conventions.txt" ]
+open_pr() { "$GH_READ" pr list --head "$BRANCH" --state open --json number --jq '.[].number' 2>/dev/null; }
+pr_conventions() { # <pr> <attempt> -> 0, or 1 with the reasons in $STATE/pr-conventions-<attempt>.txt (the old lane's pr_exit_artifacts_check)
+  local out="$STATE/pr-conventions-$2.txt" info body draft first
+  info="$("$GH_READ" pr view "$1" --json body,isDraft 2>/dev/null)" || { echo "the PR could not be read" > "$out"; return 1; }
+  body="$(printf '%s' "$info" | jq -r '.body // ""')"; draft="$(printf '%s' "$info" | jq -r '.isDraft // false')"
+  : > "$out"
+  [ "$draft" = false ] || echo "the PR is a draft; mark it ready for review" >> "$out"
+  first="$(printf '%s\n' "$body" | head -n 1)"
+  grep -q "^built-by: second-shift run " <<<"$first" || echo "PR body line 1 must be 'built-by: second-shift run <id>'" >> "$out"
+  grep -qF "$RECORD_REL" <<<"$body" || echo "PR body must link the decision record at $RECORD_REL" >> "$out"
+  if [ "$TRACKER" = github ]; then
+    grep -qiE "(^|[^a-z])closes #$ISSUE([^0-9]|$)" <<<"$body" || echo "PR body must carry 'Closes #$ISSUE'" >> "$out"
+  else # the old gate: the Closes line lives under the Jira Items heading, matched case-insensitively
+    awk -v k="closes [$(printf '%s' "$ISSUE" | tr '[:upper:]' '[:lower:]')]" 'BEGIN{IGNORECASE=1} tolower($0) ~ /^#+[ \t]*jira items/{on=1; next} on && /^#/{on=0} on && index(tolower($0), k){f=1} END{exit !f}' <<<"$body" \
+      || echo "PR body must carry 'Closes [$ISSUE]' under a '### Jira Items' heading" >> "$out"
+  fi
+  [ ! -s "$out" ]
 }
 remote_head() { git -C "$WT" ls-remote origin "refs/heads/$BRANCH" 2>/dev/null | cut -f1; }
 ci_status() { # <pr> -> one word for the report; never waited on (checks already ran here)
@@ -519,8 +528,8 @@ while [ "$ROUND" -lt "$MAX_ROUNDS" ]; do
 $(checks_list all)
 EOF
   [ -n "$RENDER_CMD" ] && allow="$allow,Bash($(first_word "$RENDER_CMD")*)"
-  ( cd "$WT" && bounded "$BUILD_TO" "$STATE/build-$A.json" \
-      "$CLAUDE" -p --model "$MODEL" "${SPAWN_COMMON[@]}" --allowedTools "$allow" --max-turns 400 "$(cat "$STATE/build-$A.prompt")" ); brc=$?
+  bounded "$BUILD_TO" "$STATE/build-$A.json" \
+      "$CLAUDE" -p --model "$MODEL" "${SPAWN_COMMON[@]}" --allowedTools "$allow" --max-turns 400 "$(cat "$STATE/build-$A.prompt")"; brc=$?
   add_cost "$STATE/build-$A.json"
   jq -r '.permission_denials[]? | (.tool_name + " " + (.tool_input|tostring))' "$STATE/build-$A.json" > "$STATE/denials-$A.txt" 2>/dev/null || true
   [ "$brc" -eq 124 ] && terminal build-blocked "build session exceeded ${BUILD_TO}s"
@@ -528,13 +537,13 @@ EOF
   [ "$sub" = success ] || terminal build-blocked "build session ended $sub (rc=$brc)"
   over_ceiling && terminal cost-spent "\$$COST exceeds the \$$COST_CEIL ceiling"
   after="$(remote_head)"; [ -n "$after" ] && [ "$after" != "$before" ] || terminal build-inflight "remote head of $BRANCH did not move in round $ROUND"
-  git -C "$WT" fetch -q origin "$BRANCH" && git -C "$WT" reset -q --hard "origin/$BRANCH"
+  git -C "$WT" fetch -q origin "$BRANCH" && git -C "$WT" reset -q --hard "origin/$BRANCH" || terminal env-worktree "cannot fetch and reset $WT to origin/$BRANCH — the checks must run against the pushed head, never the build's own tree"
   n="$(open_pr | wc -l | tr -d ' ')"
-  [ "$n" -eq 1 ] || { [ "$n" -eq 0 ] && terminal build-no-pr "no open, non-draft PR for $BRANCH after round $ROUND" || terminal pr-ambiguous "$n open PRs for $BRANCH"; }
+  [ "$n" -eq 1 ] || { [ "$n" -eq 0 ] && terminal build-no-pr "no open PR for $BRANCH after round $ROUND" || terminal pr-ambiguous "$n open PRs for $BRANCH"; }
   PR="$(open_pr)"; PR_URL="$("$GH_READ" pr view "$PR" --json url --jq .url 2>/dev/null)"
-  if ! pr_conventions "$PR"; then
-    CHECKS_RED=$((CHECKS_RED+1)); [ "$CHECKS_RED" -lt "$CHECKS_RED_MAX" ] || terminal checks-red-spent "PR conventions unmet $CHECKS_RED times: $(tr '\n' ' ' < "$STATE/pr-conventions.txt")"
-    say "PR conventions unmet — next attempt"; FINDINGS="$STATE/pr-conventions.txt"; ROUND=$((ROUND-1)); continue
+  if ! pr_conventions "$PR" "$A"; then
+    CHECKS_RED=$((CHECKS_RED+1)); [ "$CHECKS_RED" -lt "$CHECKS_RED_MAX" ] || terminal checks-red-spent "PR conventions unmet $CHECKS_RED times: $(tr '\n' ' ' < "$STATE/pr-conventions-$A.txt")"
+    say "PR conventions unmet — next attempt"; FINDINGS="$STATE/pr-conventions-$A.txt"; ROUND=$((ROUND-1)); continue
   fi
 
   # ---- checks the build did not run ----
@@ -557,8 +566,8 @@ EOF
   rallow="Read,Agent,Bash(git *),Bash(gh pr view*),Bash(gh pr comment*),Bash(gh pr diff*),Bash(gh api*)$MCP_ALLOW${RENDER_CMD:+,Bash($(first_word "$RENDER_CMD")*)}"
   [ -n "$(frames_rows)" ] && rallow="$rallow,mcp__figma,mcp__plugin_figma_figma"
   [ "$BOT_OK" -eq 1 ] && rallow="$rallow,Bash($GH *)"
-  ( cd "$WT" && bounded "$REVIEW_TO" "$STATE/review-$A.json" \
-      "$CLAUDE" -p --model "$REVIEW_MODEL" "${SPAWN_COMMON[@]}" --allowedTools "$rallow" --max-turns 300 "$(cat "$STATE/review-$A.prompt")" ); rrc=$?
+  bounded "$REVIEW_TO" "$STATE/review-$A.json" \
+      "$CLAUDE" -p --model "$REVIEW_MODEL" "${SPAWN_COMMON[@]}" --allowedTools "$rallow" --max-turns 300 "$(cat "$STATE/review-$A.prompt")"; rrc=$?
   end="$(now)"; add_cost "$STATE/review-$A.json"
   [ "$rrc" -eq 124 ] && terminal review-unbound "review session exceeded ${REVIEW_TO}s"
   rsub="$(jq -r '.subtype // "unreadable"' "$STATE/review-$A.json" 2>/dev/null)"
