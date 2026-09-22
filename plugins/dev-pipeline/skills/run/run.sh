@@ -400,7 +400,8 @@ open_pr() { "$GH_READ" pr list --head "$BRANCH" --state open --json number,isDra
 pr_conventions() { # <pr> -> 0, or 1 with the reasons in $STATE/pr-conventions.txt (the old lane's pr_exit_artifacts_check)
   local body; body="$("$GH_READ" pr view "$1" --json body --jq .body 2>/dev/null)" || { echo "the PR body could not be read" > "$STATE/pr-conventions.txt"; return 1; }
   : > "$STATE/pr-conventions.txt"
-  printf '%s\n' "$body" | head -n 1 | grep -q "^built-by: second-shift run " || echo "PR body line 1 must be 'built-by: second-shift run <id>'" >> "$STATE/pr-conventions.txt"
+  local first; first="$(printf '%s\n' "$body" | head -n 1)"
+  grep -q "^built-by: second-shift run " <<<"$first" || echo "PR body line 1 must be 'built-by: second-shift run <id>'" >> "$STATE/pr-conventions.txt"
   if [ "$TRACKER" = github ]; then grep -qE "^Closes #$ISSUE\b" <<<"$body" || echo "PR body must carry the line 'Closes #$ISSUE'" >> "$STATE/pr-conventions.txt"
   else grep -qF "Closes [$ISSUE]" <<<"$body" || echo "PR body must carry 'Closes [$ISSUE]' under a '### Jira Items' heading" >> "$STATE/pr-conventions.txt"; fi
   [ ! -s "$STATE/pr-conventions.txt" ]
