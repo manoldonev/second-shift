@@ -113,7 +113,7 @@ SMOKE_CMD="$(cfg .design.liveRender.smokeCommand)"
 READY_URL="$(cfg .design.liveRender.readyProbe)"
 L_QUEUE="$(cfg .tracker.labels.queue)"; L_QUEUE="${L_QUEUE:-ready-for-dev}"
 L_CLAIMED="$(cfg .tracker.labels.claimed)"; L_CLAIMED="${L_CLAIMED:-in-progress}"
-L_BLOCKERS="$(cfg '.tracker.labels.blockers | join(" ")')"; L_BLOCKERS="${L_BLOCKERS:-epic needs-intake-review needs-spec-work needs-plan-review}"
+L_BLOCKERS="$(cfg '.tracker.labels.blockers | join("\n")')"; L_BLOCKERS="${L_BLOCKERS:-$(printf 'epic\nneeds-intake-review\nneeds-spec-work\nneeds-plan-review')}"
 REPO_SLUG="$(basename "$MAIN_ROOT")"
 SKILL_DIR="$(cd "$(dirname "$0")" && pwd)"
 TOOLS="$(cd "$SKILL_DIR/../../tools" && pwd)"
@@ -176,7 +176,11 @@ bounded() {
   ( cd "$WT" && exec "$@" ) > "$log" 2>"$log.err" < /dev/null & CHILD=$!
   local t=0
   while kill -0 "$CHILD" 2>/dev/null; do
-    [ "$t" -ge "$secs" ] && { reap; wait "$CHILD" 2>/dev/null; CHILD=""; return 124; }
+    if [ "$t" -ge "$secs" ]; then
+      reap; local k=0; while kill -0 "$CHILD" 2>/dev/null && [ "$k" -lt 10 ]; do sleep 1; k=$((k+1)); done
+      kill -0 "$CHILD" 2>/dev/null && { pkill -KILL -P "$CHILD" 2>/dev/null; kill -KILL "$CHILD" 2>/dev/null; }
+      wait "$CHILD" 2>/dev/null; CHILD=""; return 124
+    fi
     sleep 1; t=$((t+1))
   done
   wait "$CHILD"; local rc=$?; CHILD=""; return $rc
@@ -233,7 +237,9 @@ claim() {
     fi
     terminal claimed-elsewhere "#$ISSUE carries $L_CLAIMED with no lane claim marker; pass --resume to take it over"
   fi
-  local b; for b in $L_BLOCKERS; do has_label "$b" && terminal not-queued "#$ISSUE carries blocker label $b"; done
+  local b; while IFS= read -r b; do [ -n "$b" ] && has_label "$b" && terminal not-queued "#$ISSUE carries blocker label $b"; done <<EOF
+$L_BLOCKERS
+EOF
   has_label "$L_QUEUE" || terminal not-queued "#$ISSUE does not carry $L_QUEUE — only the operator queues a ticket"
   # the atomic queue->claimed swap, add-then-confirm-then-remove, bot-aware (tools/claim-issue.sh)
   if [ "$BOT_OK" -eq 1 ]; then SECOND_SHIFT_CONFIG="${CONFIG:-}" bash "$TOOLS/claim-issue.sh" "$ISSUE" --queue "$L_QUEUE" --claimed "$L_CLAIMED" >/dev/null 2>&1 || terminal env-claim-failed "claim-issue.sh could not swap $L_QUEUE -> $L_CLAIMED on #$ISSUE"
@@ -247,7 +253,10 @@ claim() {
 # ---- record sections (read from the FIRST commit, never the head) ----
 FIRST=""
 record_at_first() { git -C "$WT" show "$FIRST:$RECORD_REL" 2>/dev/null; }
-section() { record_at_first | awk -v h="$1" 'tolower($0) ~ "^## "h {on=1; next} on && /^## /{exit} on'; }
+section_of() { awk -v h="$1" 'tolower($0) ~ "^## "h"( |$)" {on=1; next} on && /^## /{exit} on'; } # <heading-regex> on stdin
+section() { record_at_first | section_of "$1"; }
+# the design section: the new record's `## Design frames`, or the spec form `## Design` the skills write
+design_section_of() { section_of "design( frames)?"; }
 # shellcheck disable=SC2016  # the backticks are markdown, not shell
 record_checks() { section "checks" | sed -n 's/^- *`\{0,1\}\([^`]*\)`\{0,1\} *$/\1/p'; }
 # The consumer's configured `commands.<repo>` (lint, typecheck, test, extraLanes) run as checks,
@@ -296,7 +305,7 @@ EOF
 }
 allow_unverified() { local key; key="$(commands_key)"; [ -n "$key" ] && [ "$(jq -r --arg k "$key" '.commands[$k].allowUnverified // false' "$CONFIG" 2>/dev/null)" = true ]; }
 checks_list() { { config_checks "${1:-}"; record_checks; } | awk 'NF && !seen[$0]++'; }
-frames_rows() { section "design frames" | grep -E '^\| *RS-[0-9]+ *\|' | sed 's/^| *//; s/ *| */|/g; s/ *|$//'; }
+frames_rows() { record_at_first | design_section_of | grep -E '^\| *RS-[0-9]+ *\|' | sed 's/^| *//; s/ *| */|/g; s/ *|$//'; }
 
 # ---- the two prompts ----
 build_prompt() { # build_prompt <round> <findings-file-or-empty>
@@ -356,7 +365,7 @@ EOF
 }
 route_smoke() { # -> 0 ok, 1 red, 2 unconfigured
   local rows; rows="$(frames_rows)"
-  [ -n "$rows" ] || { [ -n "$RENDER_CMD" ] && say "smoke: the record declares 'Design: none' — the render check is not armed for this ticket"; return 0; }
+  [ -n "$rows" ] || { [ -n "$RENDER_CMD" ] && say "smoke: the record's design section arms no render state — the render check is not armed for this ticket"; return 0; }
   [ -n "$RENDER_CMD" ] || return 2
   # the readyProbe, as milestone 3 ran it: only when a render is about to happen, three tries with a
   # backoff, and no `-f`, so an HTTP answer (the service is up) stays distinguishable from a transport
@@ -437,7 +446,10 @@ pr_conventions() { # <pr> <attempt> -> 0, or 1 with the reasons in $STATE/pr-con
   fi
   [ ! -s "$out" ]
 }
-remote_head() { git -C "$WT" ls-remote origin "refs/heads/$BRANCH" 2>/dev/null | cut -f1; }
+remote_head() { # prints the sha; returns 1 when the remote cannot be read — the CALLER refuses (never terminal inside a $(...))
+  local out; out="$(git -C "$WT" ls-remote origin "refs/heads/$BRANCH" 2>/dev/null)" || return 1
+  printf '%s' "$out" | cut -f1
+}
 ci_status() { # <pr> -> one word for the report; never waited on (checks already ran here)
   local out; out="$("$GH_READ" pr checks "$1" --json name,state 2>/dev/null)" || { echo unavailable; return; }
   [ "$(printf '%s' "$out" | jq 'length')" -gt 0 ] || { echo none; return; }
@@ -497,14 +509,18 @@ validate_lanes
 # On a design-provider repo every ticket says which it is: armed (frames rows) or disarmed with a reason
 # (`Design: none — <reason>`). Neither is the silent case the old gate refused (#705); the operator
 # override that could disarm one is retired with the tool (D-23), so the record carries the reason.
-design_declared() {
+design_declared() { # reads the design SECTION only, as the gate did; the forms are the gate's, byte for byte
   [ -z "$(cfg .design.provider)" ] && return 0
-  local rec; rec="$(cat "$RECORD" 2>/dev/null)"
-  grep -qE '^\| *RS-[0-9]+ *\|' <<<"$rec" && return 0
-  grep -qiE '^Design: *none *(—|-|:)' <<<"$rec" && return 0
+  local sec; sec="$(design_section_of < "$RECORD" 2>/dev/null)"
+  [ -n "$sec" ] || return 1
+  grep -qE '^\| *RS-[0-9]+ *\|' <<<"$sec" && return 0
+  if grep -qiE '^[[:space:]]*Design:[[:space:]]*none([[:space:]]|$)' <<<"$sec"; then
+    grep -qiE '^[[:space:]]*Design:[[:space:]]*none[[:space:]]+[^[:space:]]' <<<"$sec" && return 0
+    say "design: the record disarms this ticket but states no reason; the form is 'Design: none — <reason>'"; return 1
+  fi
   return 1
 }
-design_declared || terminal env-design-undeclared "design.provider is configured but the record neither carries '## Design frames' rows nor a 'Design: none — <reason>' line — a UI ticket cannot skip the render silently"
+design_declared || terminal env-design-undeclared "design.provider is configured but the record's design section ('## Design frames' or '## Design') neither carries RS rows nor a 'Design: none — <reason>' line — a UI ticket cannot skip the render silently"
 if [ "$DRY" -eq 1 ]; then say "dry-run: would claim, create the worktree, commit the record, and run up to $MAX_ROUNDS rounds; checks: $(checks_list all 2>/dev/null | tr '\n' ';')"; echo "terminal: dry-run"; exit 0; fi
 st="$(issue_state)"; [ -n "$st" ] || terminal env-tracker-unreadable "could not read #$ISSUE from the tracker"
 [ "$st" = OPEN ] || terminal env-ticket-closed "#$ISSUE is not open — nothing spawned, a preflight refusal like any other"
@@ -551,7 +567,8 @@ while [ "$ROUND" -lt "$MAX_ROUNDS" ]; do
   premise_holds
 
   # ---- build ----
-  before="$(remote_head)"; ATTEMPT=$((ATTEMPT+1)); A="$ROUND.$ATTEMPT"
+  before="$(remote_head)" || terminal env-remote-unreadable "cannot read origin's $BRANCH before the build"
+  ATTEMPT=$((ATTEMPT+1)); A="$ROUND.$ATTEMPT"
   build_prompt "$ROUND" "$FINDINGS" > "$STATE/build-$A.prompt"
   allow="Read,Edit,Write,Agent,Bash(git *),Bash(gh pr create*),Bash(gh pr view*),Bash(gh pr comment*),Bash(gh issue view*)$MCP_ALLOW"
   [ "$BOT_OK" -eq 1 ] && allow="$allow,Bash($TOOLS/bot-commit.sh*),Bash($GH *)"
@@ -568,7 +585,7 @@ EOF
   sub="$(jq -r '.subtype // "unreadable"' "$STATE/build-$A.json" 2>/dev/null)"
   [ "$sub" = success ] || terminal build-blocked "build session ended $sub (rc=$brc)"
   over_ceiling && terminal cost-spent "\$$COST exceeds the \$$COST_CEIL ceiling"
-  after="$(remote_head)"
+  after="$(remote_head)" || terminal env-remote-unreadable "cannot read origin's $BRANCH after the build — a network blip is not the build's fault"
   if [ "$PR_ONLY" -eq 1 ]; then say "a PR-only fix was asked for; the head need not move"; PR_ONLY=0
   else [ -n "$after" ] && [ "$after" != "$before" ] || terminal build-inflight "remote head of $BRANCH did not move in round $ROUND"; fi
   git -C "$WT" fetch -q origin "$BRANCH" && git -C "$WT" reset -q --hard "origin/$BRANCH" || terminal env-worktree "cannot fetch and reset $WT to origin/$BRANCH — the checks must run against the pushed head, never the build's own tree"
@@ -595,7 +612,8 @@ EOF
   input="$STATE/review-input-$A.md"
 
   # ---- review, in a fresh session, bound to this head and this time window ----
-  head="$(remote_head)"; start="$(now)"
+  head="$(remote_head)" || terminal env-remote-unreadable "cannot read origin's $BRANCH before the review"
+  start="$(now)"
   review_prompt "$PR" "$input" > "$STATE/review-$A.prompt"
   rallow="Read,Agent,Bash(git *),Bash(gh pr view*),Bash(gh pr comment*),Bash(gh pr diff*),Bash(gh api*)$MCP_ALLOW${RENDER_CMD:+,Bash($(first_word "$RENDER_CMD")*)}"
   [ -n "$(frames_rows)" ] && rallow="$rallow,mcp__figma,mcp__plugin_figma_figma"
@@ -607,7 +625,8 @@ EOF
   rsub="$(jq -r '.subtype // "unreadable"' "$STATE/review-$A.json" 2>/dev/null)"
   [ "$rsub" = success ] || terminal review-unbound "review session ended $rsub (rc=$rrc)"
   v="$(verdict "$PR" "$start" "$end" "$head")" || terminal review-unbound "no unedited 'verdict:' comment naming head $head was posted between $start and $end"
-  [ "$(remote_head)" = "$head" ] || terminal review-unbound "head moved during review"
+  after_review="$(remote_head)" || terminal env-remote-unreadable "cannot read origin's $BRANCH after the review — the approve is not discarded for a network blip; --resume"
+  [ "$after_review" = "$head" ] || terminal review-unbound "head moved during review"
   say "verdict: $v (reviewed $head)"
   [ "$v" = approve ] && break
   FINDINGS="$STATE/verdict-body.md"

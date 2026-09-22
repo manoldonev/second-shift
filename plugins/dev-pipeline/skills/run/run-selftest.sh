@@ -66,6 +66,7 @@ case "$plan" in
   build-delete-test) git rm -q src/a.spec.ts; push; openpr ;;
   build-nothing)   : ;;
   build-sleep)     sleep 60 ;;
+  build-stubborn)  trap '' TERM; sleep 60 ;;
   build-pr-ready)  touch "$S/undraft"; rm -f "$S/draft" ;;
   build-pr-jira-outside) push; rid=$(grep -oE 'built-by: second-shift run [^ ]+' "$S/prompt-$n.txt" | head -n 1); rec=$(grep -oE 'The record is committed at [^;]+' "$S/prompt-$n.txt" | sed 's/^The record is committed at //')
                    printf '%s\n\nrecord: %s\n\nCloses [GH-42]\n\n### Jira Items\n(nothing)\n' "$rid" "$rec" > "$S/pr-created-body.txt"; echo 7 > "$S/prs" ;;
@@ -387,7 +388,7 @@ kill -TERM "$rp"; wait "$rp"; xrc=$?
 [ "$xrc" -eq 143 ] && ok "(x1) TERM exits 143" || bad "(x1) TERM exit $xrc"
 sleep 1; if pgrep -f "$T/bin/claude" >/dev/null 2>&1 || pgrep -f 'sleep 60' >/dev/null 2>&1; then bad "(x1) the session outlived the scheduler"; pkill -f "$T/bin/claude" 2>/dev/null; pkill -f 'sleep 60' 2>/dev/null; else ok "(x1) the session and its children were killed with the scheduler"; fi
 grep -q 'claim left in place' "$d/x1.log" && grep -qx in-progress "$FAKE_GH/labels" && ok "(x1) the claim is left in place on TERM" || bad "(x1) claim state wrong after TERM"
-FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"design":{"provider":"figma","liveRender":{"command":"true","readyProbe":"http://127.0.0.1:9/"}}}' fixture x2 "- true" $'\nDesign: none — a wording change, nothing renders\n'
+FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"design":{"provider":"figma","liveRender":{"command":"true","readyProbe":"http://127.0.0.1:9/"}}}' fixture x2 "- true" $'\n## Design\n\nDesign: none — a wording change, nothing renders\n'
 printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(x2) a readyProbe gates nothing on a ticket declared Design: none"
 FIXTURE_CONFIG="{\"tracker\":{\"type\":\"github\",\"branchPrefix\":\"second-shift/\"},\"paths\":{\"plansDir\":\"docs/plans\"},\"design\":{\"provider\":\"figma\",\"liveRender\":{\"command\":\"cp $T/px.png {out}\",\"smokeCommand\":\"true\",\"readyProbe\":\"http://127.0.0.1:9/\"}}}" fixture x3 "- true" $'\n## Design frames\n\n| RS | route | state | frame | must-show |\n| --- | --- | --- | --- | --- |\n| RS-1 | a | default | 1:2 | ok |\n'
 printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect env-not-ready "(x3) a dead readyProbe stops an armed ticket before rendering"
@@ -414,6 +415,40 @@ printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect env-not-ready "
 grep -q 'last reading: HTTP 404' <<<"$OUT" && ok "(y3) the refusal names the reading" || bad "(y3) reading not named"
 kill "$hs" 2>/dev/null; wait "$hs" 2>/dev/null
 fixture y4; OUT="$( cd "$d/main" && bash "$RUN" -h 2>&1 )"; grep -q '130 / 143' <<<"$OUT" && ok "(y4) -h prints the whole exit table" || bad "(y4) -h truncated"
+
+# (z) round-twelve parity: the design SECTION is what arms and disarms, in the gate's forms; a read
+#     remote is never blamed on the build; the cap is a bound; blocker labels with spaces; exit codes
+PX="cp $T/px.png {out}"
+FIXTURE_CONFIG="{\"tracker\":{\"type\":\"github\",\"branchPrefix\":\"second-shift/\"},\"paths\":{\"plansDir\":\"docs/plans\"},\"design\":{\"provider\":\"figma\",\"liveRender\":{\"command\":\"$PX\",\"smokeCommand\":\"true\"}}}" fixture z1 "- true" $'\n## Design\n\nHandoff: x\n\n| RS | route | state | frame | must-show |\n| --- | --- | --- | --- | --- |\n| RS-1 | a | default | 1:2 | ok |\n'
+printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(z1) rows under the spec form '## Design' arm the smoke too"
+grep -q 'smoke-RS-1' <<<"$OUT" || [ -f "$(SD)/smoke-RS-1.png" ] && ok "(z1) the render ran" || bad "(z1) no render"
+FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"design":{"provider":"figma","liveRender":{"command":"true"}}}' fixture z2 "- true" $'\n## Design\n\nDesign: none\n'
+run_case "$d"; expect env-design-undeclared "(z2) a disarm without a reason is refused, as the gate refused it"
+FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"design":{"provider":"figma","liveRender":{"command":"true"}}}' fixture z3 "- true" $'\n## Notes\n\nDesign: none — quoted in prose, not the design section\n'
+run_case "$d"; expect env-design-undeclared "(z3) a 'Design: none' outside the design section does not disarm"
+FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"design":{"provider":"figma","liveRender":{"command":"true"}}}' fixture z4 "- true" $'\n## Design\n\n   Design:   NONE — an indented disarm with a reason, any case\n'
+printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(z4) the gate's indented, case-insensitive disarm form is accepted"
+port=$(( 20000 + RANDOM % 20000 )); ( cd "$T" && python3 -m http.server "$port" --bind 127.0.0.1 >/dev/null 2>&1 ) & hs=$!
+until curl -s -o /dev/null "http://127.0.0.1:$port/" 2>/dev/null; do sleep 0.2; done
+FIXTURE_CONFIG="{\"tracker\":{\"type\":\"github\",\"branchPrefix\":\"second-shift/\"},\"paths\":{\"plansDir\":\"docs/plans\"},\"design\":{\"provider\":\"figma\",\"liveRender\":{\"command\":\"$PX\",\"smokeCommand\":\"true\",\"readyProbe\":\"http://127.0.0.1:$port/\"}}}" fixture z5 "- true" $'\n## Design frames\n\n| RS | route | state | frame | must-show |\n| --- | --- | --- | --- | --- |\n| RS-1 | a | default | 1:2 | ok |\n'
+printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(z5) a readyProbe that answers 200 is ready"
+kill "$hs" 2>/dev/null; wait "$hs" 2>/dev/null
+fixture z6; printf 'build-stubborn\n' > "$FAKE_CLAUDE_PLAN"; s0=$(date +%s); RUN_BUILD_TIMEOUT=2 run_case "$d"; el=$(( $(date +%s) - s0 )); expect build-blocked "(z6) a TERM-ignoring session is stopped at its cap"
+[ "$el" -lt 40 ] && ok "(z6) the cap is a bound (${el}s, KILL after TERM)" || bad "(z6) waited ${el}s"; pkill -f 'sleep 60' 2>/dev/null
+FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/","labels":{"blockers":["needs design review"]}},"paths":{"plansDir":"docs/plans"}}' fixture z7
+printf 'ready-for-dev\nopus\nneeds design review\n' > "$FAKE_GH/labels"; run_case "$d"; expect not-queued "(z7) a blocker label containing spaces blocks pickup"
+fixture z8; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"
+cat > "$T/bin/gh-remote-dead" <<EOF
+#!/usr/bin/env bash
+exec "$T/bin/gh" "\$@"
+EOF
+chmod +x "$T/bin/gh-remote-dead"
+( cd "$d/main" && git remote set-url origin /nonexistent-remote ) ; run_case "$d"
+[ "$RC" -eq 2 ] && [ "$TERM_SLUG" != build-inflight ] && ok "(z8) an unreadable remote is a refusal ($TERM_SLUG), never blamed on the build" || bad "(z8) got $TERM_SLUG rc=$RC"
+fixture z9; printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-needs-work\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d" --max-rounds 2; [ "$RC" -eq 4 ] && ok "(z9) rounds-spent exits 4" || bad "(z9) exit $RC"
+fixture z10 "- false"; printf 'build-pr\nbuild-push-only\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=2 run_case "$d"; [ "$RC" -eq 4 ] && ok "(z10) checks-red-spent exits 4" || bad "(z10) exit $RC"
+fixture z11; printf 'build-push-only\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; [ "$RC" -eq 1 ] && ok "(z11) build-no-pr exits 1" || bad "(z11) exit $RC"
+fixture z12; printf 'build-nothing\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; [ "$RC" -eq 1 ] && ok "(z12) build-inflight exits 1" || bad "(z12) exit $RC"
 
 # (m) rounds spent
 fixture m; printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-needs-work\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d" --max-rounds 2; expect rounds-spent "(m) two needs-work rounds"
