@@ -66,7 +66,8 @@ case "$plan" in
   build-delete-test) git rm -q src/a.spec.ts; push; openpr ;;
   build-nothing)   : ;;
   build-sleep)     sleep 60 ;;
-  build-stubborn)  trap '' TERM; sleep 60 ;;
+  build-stubborn)  trap '' TERM; while :; do sleep 1; done ;;
+  build-kill-remote) push; openpr; git remote set-url origin /nonexistent-remote ;;
   build-pr-ready)  touch "$S/undraft"; rm -f "$S/draft" ;;
   build-pr-jira-outside) push; rid=$(grep -oE 'built-by: second-shift run [^ ]+' "$S/prompt-$n.txt" | head -n 1); rec=$(grep -oE 'The record is committed at [^;]+' "$S/prompt-$n.txt" | sed 's/^The record is committed at //')
                    printf '%s\n\nrecord: %s\n\nCloses [GH-42]\n\n### Jira Items\n(nothing)\n' "$rid" "$rec" > "$S/pr-created-body.txt"; echo 7 > "$S/prs" ;;
@@ -434,7 +435,8 @@ FIXTURE_CONFIG="{\"tracker\":{\"type\":\"github\",\"branchPrefix\":\"second-shif
 printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(z5) a readyProbe that answers 200 is ready"
 kill "$hs" 2>/dev/null; wait "$hs" 2>/dev/null
 fixture z6; printf 'build-stubborn\n' > "$FAKE_CLAUDE_PLAN"; s0=$(date +%s); RUN_BUILD_TIMEOUT=2 run_case "$d"; el=$(( $(date +%s) - s0 )); expect build-blocked "(z6) a TERM-ignoring session is stopped at its cap"
-[ "$el" -lt 40 ] && ok "(z6) the cap is a bound (${el}s, KILL after TERM)" || bad "(z6) waited ${el}s"; pkill -f 'sleep 60' 2>/dev/null
+[ "$el" -lt 40 ] && ok "(z6) the cap is a bound (${el}s, KILL after TERM)" || bad "(z6) waited ${el}s"
+sleep 1; if pgrep -f "$T/bin/claude" >/dev/null 2>&1; then bad "(z6) the stubborn session survived the KILL"; pkill -KILL -f "$T/bin/claude" 2>/dev/null; else ok "(z6) the stubborn session is dead"; fi
 FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/","labels":{"blockers":["needs design review"]}},"paths":{"plansDir":"docs/plans"}}' fixture z7
 printf 'ready-for-dev\nopus\nneeds design review\n' > "$FAKE_GH/labels"; run_case "$d"; expect not-queued "(z7) a blocker label containing spaces blocks pickup"
 fixture z8; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"
@@ -449,6 +451,23 @@ fixture z9; printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-needs-w
 fixture z10 "- false"; printf 'build-pr\nbuild-push-only\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=2 run_case "$d"; [ "$RC" -eq 4 ] && ok "(z10) checks-red-spent exits 4" || bad "(z10) exit $RC"
 fixture z11; printf 'build-push-only\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; [ "$RC" -eq 1 ] && ok "(z11) build-no-pr exits 1" || bad "(z11) exit $RC"
 fixture z12; printf 'build-nothing\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; [ "$RC" -eq 1 ] && ok "(z12) build-inflight exits 1" || bad "(z12) exit $RC"
+
+# (aa) round-thirteen parity: the committed record is what the design guard reads; a remote dying
+#      mid-run and an unreadable tracker at verdict time are environment refusals
+FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"design":{"provider":"figma","liveRender":{"command":"true"}}}' fixture aa1 "- true" $'\n## Design\n\nDesign: none — first run\n'
+printf 'build-pr\nreview-needs-work\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d" --max-rounds 1; expect rounds-spent "(aa1) first run, committed with Design: none"
+# the operator now edits the on-disk receipt to arm frames, but the committed record still says none: the run must not read the receipt
+printf '\n## Design frames\n\n| RS | route | state | frame | must-show |\n| --- | --- | --- | --- | --- |\n| RS-1 | a | default | 1:2 | ok |\n' >> "$d/main/.claude/pipeline-state/42-ledger.md"
+printf 'build-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; : > "$FAKE_GH/calls"; printf 'in-progress\nopus\n' > "$FAKE_GH/labels"; run_case "$d" --resume; expect approved "(aa1) resumed run"
+grep -q 'arms no render state' <<<"$OUT" && ! grep -q 'figma-faithful' "$FAKE_GH/prompt-1.txt" && ok "(aa1) the resumed run reads the COMMITTED record (still disarmed), not the edited receipt" || bad "(aa1) the receipt leaked into the run"
+fixture aa2; printf 'build-kill-remote\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect env-remote-unreadable "(aa2) a remote that dies after the build is a refusal, not 'the head did not move'"
+[ "$RC" -eq 2 ] && ok "(aa2) exits 2" || bad "(aa2) exit $RC"
+fixture aa3; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"
+cat > "$T/bin/gh-comments-dead" <<EOF
+#!/usr/bin/env bash
+if [ "\$1" = api ] && [[ "\$2" == *comments* ]]; then exit 1; fi; exec "$T/bin/gh" "\$@"
+EOF
+chmod +x "$T/bin/gh-comments-dead"; RUN_GH="$T/bin/gh-comments-dead" run_case "$d"; expect env-tracker-unreadable "(aa3) an unreadable comment listing at verdict time is an environment refusal, not review-unbound"
 
 # (m) rounds spent
 fixture m; printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-needs-work\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d" --max-rounds 2; expect rounds-spent "(m) two needs-work rounds"

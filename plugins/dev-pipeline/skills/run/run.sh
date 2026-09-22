@@ -457,9 +457,11 @@ ci_status() { # <pr> -> one word for the report; never waited on (checks already
   printf '%s' "$out" | jq -e 'all(.[]; .state=="SUCCESS" or .state=="NEUTRAL" or .state=="SKIPPED")' >/dev/null && { echo green; return; }
   echo pending
 }
-verdict() { # <pr> <start-iso> <end-iso> <head> -> prints approve|needs-work and saves the body; 1 if unbound
-  local repo; repo="$("$GH_READ" repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null)"
-  "$GH_READ" api "repos/$repo/issues/$1/comments" --paginate 2>/dev/null \
+verdict() { # <pr> <start-iso> <end-iso> <head> -> prints approve|needs-work and saves the body; 1 if no comment binds; 2 if the tracker could not be read
+  local repo comments
+  repo="$("$GH_READ" repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null)" || return 2
+  comments="$("$GH_READ" api "repos/$repo/issues/$1/comments" --paginate 2>/dev/null)" || return 2
+  printf '%s' "$comments" \
     | jq -r --arg s "$2" --arg e "$3" --arg h "$4" '
         .[] | select(.created_at >= $s and .created_at <= $e and .created_at == .updated_at)
         | select((.body | split("\n")[0]) | test("^verdict: (approve|needs-work)$"))
@@ -509,9 +511,9 @@ validate_lanes
 # On a design-provider repo every ticket says which it is: armed (frames rows) or disarmed with a reason
 # (`Design: none — <reason>`). Neither is the silent case the old gate refused (#705); the operator
 # override that could disarm one is retired with the tool (D-23), so the record carries the reason.
-design_declared() { # reads the design SECTION only, as the gate did; the forms are the gate's, byte for byte
+design_declared() { # design_declared <file-or-"committed">: reads the design SECTION only, as the gate did; the forms are the gate's, byte for byte
   [ -z "$(cfg .design.provider)" ] && return 0
-  local sec; sec="$(design_section_of < "$RECORD" 2>/dev/null)"
+  local sec; if [ "$1" = committed ]; then sec="$(record_at_first | design_section_of)"; else sec="$(design_section_of < "$1" 2>/dev/null)"; fi
   [ -n "$sec" ] || return 1
   grep -qE '^\| *RS-[0-9]+ *\|' <<<"$sec" && return 0
   if grep -qiE '^[[:space:]]*Design:[[:space:]]*none([[:space:]]|$)' <<<"$sec"; then
@@ -520,7 +522,8 @@ design_declared() { # reads the design SECTION only, as the gate did; the forms 
   fi
   return 1
 }
-design_declared || terminal env-design-undeclared "design.provider is configured but the record's design section ('## Design frames' or '## Design') neither carries RS rows nor a 'Design: none — <reason>' line — a UI ticket cannot skip the render silently"
+# early, on the receipt, so a fresh run refuses before it claims; the committed record is re-checked below and is what counts
+design_declared "$RECORD" || terminal env-design-undeclared "design.provider is configured but the record's design section ('## Design frames' or '## Design') neither carries RS rows nor a 'Design: none — <reason>' line — a UI ticket cannot skip the render silently"
 if [ "$DRY" -eq 1 ]; then say "dry-run: would claim, create the worktree, commit the record, and run up to $MAX_ROUNDS rounds; checks: $(checks_list all 2>/dev/null | tr '\n' ';')"; echo "terminal: dry-run"; exit 0; fi
 st="$(issue_state)"; [ -n "$st" ] || terminal env-tracker-unreadable "could not read #$ISSUE from the tracker"
 [ "$st" = OPEN ] || terminal env-ticket-closed "#$ISSUE is not open — nothing spawned, a preflight refusal like any other"
@@ -560,6 +563,8 @@ fi
 FIRST="$(git -C "$WT" log --format=%H --diff-filter=A -- "$RECORD_REL" | tail -n 1)"
 [ -n "$FIRST" ] || terminal env-no-first-commit "the record has no adding commit on $BRANCH"
 say "record baseline: $FIRST"
+# the armer reads the record at this commit, so the declaration must hold THERE, not on a receipt edited since
+design_declared committed || terminal env-design-undeclared "the committed record at $FIRST carries neither RS rows nor a 'Design: none — <reason>' line in its design section — the receipt on disk is not what the run reads"
 
 FINDINGS=""; ROUND=0
 while [ "$ROUND" -lt "$MAX_ROUNDS" ]; do
@@ -624,7 +629,9 @@ EOF
   [ "$rrc" -eq 124 ] && terminal review-unbound "review session exceeded ${REVIEW_TO}s"
   rsub="$(jq -r '.subtype // "unreadable"' "$STATE/review-$A.json" 2>/dev/null)"
   [ "$rsub" = success ] || terminal review-unbound "review session ended $rsub (rc=$rrc)"
-  v="$(verdict "$PR" "$start" "$end" "$head")" || terminal review-unbound "no unedited 'verdict:' comment naming head $head was posted between $start and $end"
+  v="$(verdict "$PR" "$start" "$end" "$head")"; vrc=$?
+  [ "$vrc" -eq 2 ] && terminal env-tracker-unreadable "the PR's comments could not be read after the review — an environment refusal, not a verdict; --resume"
+  [ "$vrc" -eq 0 ] || terminal review-unbound "no unedited 'verdict:' comment naming head $head was posted between $start and $end"
   after_review="$(remote_head)" || terminal env-remote-unreadable "cannot read origin's $BRANCH after the review — the approve is not discarded for a network blip; --resume"
   [ "$after_review" = "$head" ] || terminal review-unbound "head moved during review"
   say "verdict: $v (reviewed $head)"
