@@ -2,7 +2,6 @@
 #
 # ONE GUARD, one cron: wholesale-selftests is a STANDING MEASUREMENT whose answer barely moves
 # from one PR to the next, and costs more than that answer is worth on the critical path.
-# prose-budget rides the same cron for the same reason, at a fraction of the cost.
 #
 #   wholesale-selftests  the whole sweep with the pass cache BYPASSED (#448). The PR lane skips a
 #                        suite whose declared inputs in tools/selftest-cache-inputs.tsv are
@@ -19,8 +18,7 @@
 # why both a ubuntu and a bash-3.2 lane run it.
 #
 # This file was `install-topology.yml` until wholesale-selftests landed; every job here runs
-# concurrently and blocks nothing. wholesale-selftests has ONE lane, deliberately (same reasoning
-# as prose-budget below): ci.yml's selftests-bash32 already runs the whole sweep under stock bash
+# concurrently and blocks nothing. wholesale-selftests has ONE lane, deliberately: ci.yml's selftests-bash32 already runs the whole sweep under stock bash
 # 3.2 at PR time, and the pass cache this backstop exists to bypass covers exactly the suites in
 # tools/selftest-cache-inputs.tsv — a 3.2 twin here re-ran the same code path to re-ask a
 # question the ubuntu lane already answers. The macos twin was deleted 2026-08-30.
@@ -56,21 +54,3 @@ jobs:
       - name: wholesale selftest sweep, cache bypassed
         run: bash tools/run-selftests.sh --full --exclude tools/install-topology-selftest.sh
 
-  # The prose narrative check (#552; reshaped by #641, #719). It reports the instruction layer's
-  # size and flags narrative `#NNN` incident archaeology; it reds only on vacuous coverage (a scan
-  # root that exists but matched nothing). #641 deleted the word-count-vs-baseline ratchet on both
-  # axes, and #719 deleted the shell-mass guard that had taken over the shell half — so there is
-  # no ceiling left to grow past, on either axis. It is ADVISORY TO THE LANE — /dev-pipeline:build
-  # never runs it and a red here blocks no PR — but "advisory" scopes the lane, not CI, so this
-  # job reds like every other guard in this file.
-  #
-  # ONE LANE, deliberately. ci.yml's selftests-bash32 already runs the whole sweep, including
-  # prose-budget-selftest.sh, under stock bash 3.2 at PR time. A 3.2 twin here would re-run the
-  # same code path over different data.
-  prose-budget:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: instruction-layer narrative check
-        run: bash plugins/dev-pipeline/tools/prose-budget.sh

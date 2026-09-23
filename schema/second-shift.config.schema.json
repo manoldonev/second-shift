@@ -2,18 +2,18 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/manoldonev/second-shift/schema/second-shift.config.schema.json",
   "title": "second-shift consumer-repo configuration (static context)",
-  "description": "The single per-repo onboarding file (.claude/second-shift.config.json). Everything repo-specific that the generic plugins need: tracker, topology, base branches, command truth table, reviewer registry deltas, paths, gates. Domain knowledge does NOT belong here — it lives in repo-local skills and extension files (see docs/extension-points.md).",
+  "description": "The single per-repo onboarding file (.claude/second-shift.config.json). Everything repo-specific that the generic plugins need: tracker, the command truth table, reviewer registry deltas, paths, the design axis and the scheduler's caps. Domain knowledge does NOT belong here — it lives in repo-local skills and extension files (see docs/extension-points.md).",
   "type": "object",
   "additionalProperties": false,
-  "required": ["configVersion", "tracker", "topology", "commands"],
+  "required": ["configVersion", "tracker", "commands"],
   "properties": {
     "$schema": {
       "type": "string",
       "description": "Optional editor-validation pointer; onboard writes the schema URL at the pinned marketplace ref."
     },
     "configVersion": {
-      "const": 2,
-      "description": "Schema version of this config file; bumped only on breaking schema changes."
+      "const": 3,
+      "description": "Schema version of this config file; bumped only on breaking schema changes. The upgrade from 2 is docs/migrations/v2-to-v3.md."
     },
     "tracker": {
       "type": "object",
@@ -24,11 +24,11 @@
         "writes": {
           "type": "boolean",
           "default": true,
-          "description": "Whether the pipeline writes back to the tracker (comments, status/label transitions, claim). The annotated default is github's; the runtime default is false for any other tracker. github writes (queue+claim+comment model). JIRA setups run read-only (fetch the ticket via MCP, never transition or comment — the progress file and the PR are the audit trail). A false value makes the tracker-write steps no-ops and makes /dev-pipeline:run start its sessions without Atlassian write tools; ticket fetch stays active regardless."
+          "description": "Whether the build and review sessions may write to the tracker. The annotated default is github's; the runtime default is false for any other tracker. A false value starts /dev-pipeline:run's sessions without Atlassian write tools; under github the scheduler still swaps the claim labels, posts the claim marker and posts the closing comment. The ticket read stays active regardless."
         },
         "branchPrefix": {
           "type": "string",
-          "description": "Branch-name namespace prepended to the ticket key. The work branch is \"<branchPrefix><ticketKey>\". github example: \"claude/acme-\" (→ claude/acme-42). JIRA example: a per-user identifier plus a slash, e.g. \"jdoe/\" (→ jdoe/gh-540)."
+          "description": "Branch-name namespace prepended to the ticket key: the work branch is \"<branchPrefix><ticketKey>\" (a jira key lowercased). Read by tools/branch-prefix.sh, which /dev-pipeline:run calls; it refuses to guess when the key is absent. github example: \"claude/acme-\" (→ claude/acme-42). JIRA example: a per-user identifier plus a slash, e.g. \"jdoe/\" (→ jdoe/gh-540)."
         },
         "bot": {
           "type": "object",
@@ -56,87 +56,62 @@
         },
         "keyPattern": {
           "type": "string",
-          "description": "Regex for ticket keys as used in branch names and record filenames (e.g. \"[A-Z]+-[0-9]+\" for JIRA, \"[0-9]+\" for GitHub issue numbers). Read by preflight.sh (which reports the effective pattern) and retro-corpus.sh (which filters the run corpus by it); predecessor-gate.sh applies the same pattern from its caller. Absent = accept any non-empty key."
+          "description": "Regex for ticket keys as used in branch names and record filenames (e.g. \"[A-Z]+-[0-9]+\" for JIRA, \"[0-9]+\" for GitHub issue numbers). /dev-pipeline:run refuses a key that does not match (branch-prefix.sh reads the same pattern). Absent = accept any non-empty key."
         },
         "labels": {
           "type": "object",
           "additionalProperties": false,
-          "description": "github only: the queue/claim/blocker label vocabulary by ROLE (not a flat list). Every functional site reads these roles — the queue-label confirm at /dev-pipeline:build step 1, the claim label-swap, the do-not-pick-up guard, claim-issue.sh, and pipeline-doctor — and the pre-flight existence check verifies their union. Absent → the shipped defaults. Config home for the previously-hardcoded label literals (F75); a consumer with custom labels sets these once and every site follows.",
+          "description": "github only: the queue/claim/blocker label vocabulary by ROLE. Read by /dev-pipeline:run (the queue check, the blocker skip and the claim swap) and claim-issue.sh. Absent → the shipped defaults.",
           "properties": {
             "queue": { "type": "string", "description": "The label the pipeline picks work from and drops at claim. A crashed claim swap can leave it behind, so the unclaim workflow /second-shift:onboard emits also releases it when the item CLOSES. Default \"ready-for-dev\"." },
-            "claimed": { "type": "string", "description": "The label added atomically at claim. It stays on for as long as the work is in flight — including through review, and past a merge, since the lane's exit milestone accepts a merged PR as well as an open one — and is released when the tracker item CLOSES, by the unclaim workflow /second-shift:onboard emits. Default \"in-progress\"." },
+            "claimed": { "type": "string", "description": "The label added atomically at claim. It stays on while the work is in flight, including through review, and is released when the tracker item CLOSES, by the unclaim workflow /second-shift:onboard emits. Default \"in-progress\"." },
             "blockers": { "type": "array", "items": { "type": "string" }, "description": "Labels that block auto-pickup (an issue carrying any is skipped). Default [\"epic\",\"needs-intake-review\",\"needs-spec-work\",\"needs-plan-review\"]." }
-          }
-        }
-      }
-    },
-    "topology": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["type", "repos"],
-      "properties": {
-        "type": { "enum": ["standalone", "be-fe-pair", "monorepo"] },
-        "repos": {
-          "type": "object",
-          "description": "Keyed by logical repo id (\"be\", \"fe\", or a single id for standalone/monorepo). The pipeline is always invoked from the repo this config lives in; sibling repos are reached via relative paths.",
-          "minProperties": 1,
-          "additionalProperties": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["path", "baseBranch"],
-            "properties": {
-              "path": { "type": "string", "minLength": 1, "description": "Relative to the config's repo root; \".\" for the host repo." },
-              "baseBranch": { "type": "string", "minLength": 1, "description": "The integration mainline PRs target (repos in a pair may differ, e.g. BE alpha / FE main)." },
-              "worktreesDir": { "type": "string", "description": "Where pipeline worktrees are created for this repo (default ../<repo>-worktrees)." },
-              "ticketTag": { "type": "string", "description": "Ticket-title tag routing work to this repo (e.g. \"[BE]\"). No lane gates on it: the lane (/dev-pipeline:run) treats it as advisory routing for whoever launches the session, read by the intake-orchestrator skill as ticket-filing policy. The staged lane that read it as a gate input was deleted in #348." }
-            }
           }
         }
       }
     },
     "commands": {
       "type": "object",
-      "description": "Command truth table per logical repo id (keys must exist in topology.repos). null = lane not available in this repo; milestone-gate.sh milestone 3 and preflight.sh both skip a null lane rather than inventing one.",
+      "description": "Command truth table keyed by an id. /dev-pipeline:run uses the sole key, else the key equal to the main checkout's directory name (a linked worktree resolves to its main checkout); nothing cross-checks the ids. null = check not available in this repo.",
       "minProperties": 1,
       "additionalProperties": {
         "type": "object",
         "additionalProperties": false,
         "properties": {
           "lint": { "type": ["string", "null"] },
-          "lintAutofixes": { "type": "boolean", "description": "Whether the lint command mutates files. preflight.sh skips the lint lane when this is true — a read-only pre-flight never runs a mutating command — and LINT_AUTOFIX is the lane's class in the closed failure taxonomy." },
           "typecheck": { "type": ["string", "null"] },
           "test": { "type": ["string", "null"] },
           "format": { "type": ["string", "null"] },
-          "allowUnverified": { "type": "boolean", "description": "Zero-lane safety valve. When no verifying lane is configured (lint/typecheck/test all null and extraLanes empty), preflight.sh withholds its pipeline-ready verdict and milestone-gate.sh milestone 3 reds naming the opt-out — unless this is true, which declares the opt-out deliberate. Inert when any verifying lane is configured." },
+          "allowUnverified": { "type": "boolean", "description": "Zero-check safety valve. When no check is configured (lint/typecheck/test/format all null, no extraLanes) and the ticket record declares no ## Checks, /dev-pipeline:run treats the round as red — unless this is true, which declares the opt-out deliberate. Inert when any check is configured." },
           "lanes": {
             "type": "array",
-            "description": "SETUP-ONLY steps run sequentially BEFORE the built-in lint/typecheck/test trio (e.g. dependency install, workspace-package builds for apps/*, packages/*). Every lane failure is classed INFRA (environment/setup), NOT a code defect — a lane never gets the TEST_FAILURE/TYPE_ERROR fix budget. Do NOT put a test/lint/typecheck command here (e.g. `poetry run pytest`): its failures would be misreported as environment errors and bypass the fix budget. For additive VERIFY-style lanes that carry a real failure class and the standard fix budget, use extraLanes (EP-2) below.",
+            "description": "SETUP-only steps (e.g. dependency install, workspace-package builds) run by /dev-pipeline:run in order, fail-fast, BEFORE the checks, after every build. Each entry's cwd is a path under the ticket worktree. Do not put a check here; additive checks are extraLanes.",
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["name"],
+              "required": ["name", "commands"],
               "properties": {
                 "name": { "type": "string" },
                 "cwd": { "type": "string" },
-                "commands": { "type": "array", "items": { "type": "string" } }
+                "commands": { "type": "array", "items": { "type": "string" }, "minItems": 1 }
               }
             }
           },
           "extraLanes": {
             "type": "array",
-            "description": "EP-2: additive verify lanes. Run sequentially AFTER the built-in SUITE lanes, never interleaving or replacing them. Results land under namespaced ext:<name> keys in the verify summary (canonical keys unreachable). No advisory mode — a lane blocks milestone-gate.sh milestone 3 or it does not exist.",
+            "description": "Additive checks, run by /dev-pipeline:run after lint/typecheck/test/format on every build. Every one blocks: a red one spends one attempt on the checks-red counter (run.checksRedMax), and its log goes to the next build session.",
             "items": {
               "type": "object",
               "additionalProperties": false,
               "required": ["name", "commands", "failureClass"],
               "properties": {
-                "name": { "type": "string", "description": "kebab-case, unique; results recorded under ext:<name>." },
-                "when": { "type": "array", "items": { "type": "string" }, "description": "Changed-file globs gating execution; empty/absent = always run. Skip/inert-diff behavior is the consuming lane's own." },
+                "name": { "type": "string", "description": "kebab-case, unique; names the lane in the check log." },
+                "when": { "type": "array", "items": { "type": "string" }, "description": "Changed-file globs: the lane runs when any file changed on the branch matches one. Empty/absent = always run." },
                 "commands": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
                 "failureClass": {
                   "type": "string",
                   "enum": ["FORMAT", "LINT_AUTOFIX", "TYPE_ERROR", "TEST_FAILURE", "PLAN_CMD_FAILURE", "INFRA"],
-                  "description": "MUST be an existing closed failure-taxonomy value — extensions borrow the taxonomy, never extend it. Blocking; the attempt-budget behavior belongs to the consuming lane (milestone-gate's 3-attempt milestone budget)."
+                  "description": "A closed failure-taxonomy value, kept as a label for the lane. It no longer changes behavior: every configured lane blocks."
                 }
               }
             }
@@ -170,17 +145,23 @@
         "default": {
           "type": "array",
           "items": { "type": "string" },
-          "description": "Plugin-shipped reviewers this repo dispatches UNCONDITIONALLY on the pipeline path, on top of the trimmed default panel (#838: /dev-pipeline:review defaults its fan-out to scope-completeness-reviewer, and security-reviewer / a11y-reviewer / unit-test-mutation-reviewer become opt-in). Purely ADDITIVE — it can add a reviewer to that panel and never subtract one; dropping a shipped reviewer stays reviewers.remove's job. The per-TICKET carrier for the same opt-in is a `review panel` row in the committed spec's Decision Ledger. Names are the plugin-shipped bare names, spelled as reviewers.remove spells them; config-lint.sh types the array and check-reviewer-references.sh validates the names against the review-lead registry (DEFAULT-UNKNOWN), the same split as remove[]."
+          "description": "Plugin-shipped reviewers this repo dispatches UNCONDITIONALLY on the pipeline path, on top of the default panel (/dev-pipeline:review's fan-out defaults to scope-completeness-reviewer; security-reviewer, a11y-reviewer and unit-test-mutation-reviewer are opt-in). Purely ADDITIVE — dropping a shipped reviewer stays reviewers.remove's job. Names are the plugin-shipped bare names; config-lint.sh types the array and check-reviewer-references.sh validates the names against the review-lead registry."
         },
         "modelOverrides": {
           "type": "object",
-          "description": "Per-agent model-tier override, keyed by any agent the .mjs dispatch tables model — the review-lead panel reviewers, the intake fan-out agents, and the structured-emitter transcription sink (EP-4; the named mutation-executor override left with its engine, #574). Observed need: security-reviewer opus in one repo, sonnet in another. check-model-tiers validates .mjs tables against frontmatter + these overrides. Values must be tiers this consumer's subscription can actually dispatch — an inaccessible tier surfaces as a dead reviewer and the gate fails closed. `fable` is override-only: never a shipped default, and a check-model-tiers error if it appears in a shipped dispatch table.",
+          "description": "Per-agent model-tier override, keyed by any agent the .mjs dispatch tables model — the review-lead panel reviewers, the intake fan-out agents, and the structured-emitter transcription sink. check-model-tiers validates .mjs tables against frontmatter + these overrides. Values must be tiers this consumer's subscription can actually dispatch — an inaccessible tier surfaces as a dead reviewer. `fable` is override-only: never a shipped default, and a check-model-tiers error if it appears in a shipped dispatch table.",
           "additionalProperties": { "type": "string", "description": "A dispatch model (haiku, sonnet, opus, fable) OR a tier name from the effective reviewers.tierMap. That union is a cross-field constraint JSON Schema cannot express — it depends on a sibling property — so this half asserts only \"string\" and config-lint.sh carries the real check, including typo detection. Do not re-add an enum here: it would reject every legal tier name." }
         },
         "tierMap": {
           "type": "object",
-          "description": "Retarget an abstract tier to a different dispatch model (#351). MERGES per tier over the plugin-shipped alphabet in dev-pipeline's model-tiering.md, so a config naming one tier leaves the rest at their defaults and a config naming none dispatches exactly as it did before this key existed. This is the vendor-independence seam: shipped dispatch tables name tiers rather than vendor tokens, so a consumer whose subscription lacks a model class retargets it here instead of forking the plugin. Additive and optional, so configVersion stays at 2.",
+          "description": "Retarget an abstract tier to a different dispatch model. MERGES per tier over the plugin-shipped alphabet in dev-pipeline's model-tiering.md, so a config naming one tier leaves the rest at their defaults. Shipped dispatch tables name tiers rather than vendor tokens, so a consumer whose subscription lacks a model class retargets it here instead of forking the plugin.",
           "additionalProperties": { "enum": ["haiku", "sonnet", "opus", "fable"] }
+        },
+        "webComponentGlobs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": ["apps/web/**/*.{tsx,jsx}"],
+          "description": "The web-component surface: the globs whose presence in the diff route the a11y reviewer and the design-fidelity reviewer (read by review-lead when it selects the panel). Set this when the FE is not React-under-apps/web — e.g. [\"src/app/**/*.{html,ts}\"] (Angular), [\"src/**/*.vue\"] (Vue), [\"app/**/*.tsx\"] (React Router v7)."
         }
       }
     },
@@ -188,21 +169,13 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "plansDir": { "type": "string", "default": "docs/plans", "description": "Directory (worktree-relative) holding the lane's per-ticket records — the spec/AC file, the review verdict record, and the design render receipt. Default = the plugin's current literal; a consumer that sets it has it honored. Read by milestone-gate.sh (which resolves every milestone artifact under it), reconcile.sh and retro-corpus.sh." },
-        "pipelineStateDir": { "type": "string", "default": ".claude/pipeline-state" }
-      }
-    },
-    "gates": {
-      "type": "object",
-      "description": "Optional pipeline gates/capabilities. Everything defaults to off; a gate that is on but missing its prerequisites must fail closed at run time.",
-      "additionalProperties": false,
-      "properties": {
-        "mutation": { "type": "boolean", "default": false, "description": "false declares the mutation seam deliberately off; absent/true reads as intent either way, but nothing in second-shift reads this key any more (#877 retired config-grill's grading of it against a repo-carried tools/mutation-sweep.sh — no second-shift gate has executed that sweep since #580 either). Accepted by config-lint so no existing config turns red; removed from the schema at the next batched major. If you still want mutation coverage, carry tools/mutation-sweep.sh yourself and wire it on your own merge boundary — that mechanism is unaffected, only the grading is gone." }
+        "plansDir": { "type": "string", "default": "docs/plans", "description": "Directory (worktree-relative) holding the committed intake record, <plansDir>/<repo>-<key>-decisions.md, which /dev-pipeline:run commits as the branch's first commit." },
+        "pipelineStateDir": { "type": "string", "default": ".claude/pipeline-state", "description": "Where /dev-pipeline:run keeps run logs and reads the pre-flight receipt (<pipelineStateDir>/<key>-ledger.md), relative to the main checkout." }
       }
     },
     "design": {
       "type": "object",
-      "description": "Optional design-fidelity axis. Selects the design-toolkit adapter family. Key absent = design fidelity off (a run behaves exactly as a non-design run). Prerequisites missing at run time (Figma MCP for figma; DesignSync for claude-design) fail closed, same posture as every gate.",
+      "description": "Optional design-fidelity axis. Selects the design-toolkit adapter family. Key absent = design fidelity off.",
       "additionalProperties": false,
       "required": ["provider"],
       "properties": {
@@ -215,64 +188,36 @@
           "type": "object",
           "additionalProperties": false,
           "required": ["command"],
-          "description": "Arms a repo-owned render command on milestone-gate.sh milestone 3. Config alone arms nothing: the gate additionally requires a per-ticket `## Design` section in the committed spec, and once a ticket arms, the disarm state-locks. Failure is BLOCKING on the run's shared 3-attempt fix budget, with no degraded state — the milestone renders every RS row, hashes them into a committed receipt, and reds until that receipt is committed. See docs/live-render.md.",
+          "description": "The repo's render and smoke commands. After every build, /dev-pipeline:run runs the route smoke for each `## Design frames` row of the ticket record: command renders the row (a missing image, or two states rendering identically, is red), then smokeCommand checks the row's must-show value. A red smoke spends one attempt on the checks-red counter (run.checksRedMax), and its log goes to the next build session. The build and review sessions may run command too. See docs/live-render.md.",
           "properties": {
             "command": {
               "type": "string",
-              "description": "Repo-owned render script with {route} and {out} placeholders, plus an optional {state} the lane substitutes, e.g. \"yarn render:verify --route {route} --state {state} --out {out}\". {route} is the app-relative leaf below the feature mount path (the harness owns any shell/org prefix); {state} is the render state named by a lane spec's | RS-n | row, and is REQUIRED in the template whenever a ticket declares a state other than `default`; the harness owns boot/auth/screenshot and must emit a PNG at {out}, exiting nonzero with a clear message on failure. Placeholders must appear UNQUOTED — the milestone gate shell-quotes each substituted value. See docs/live-render.md."
+              "description": "Repo-owned render script with {route} and {out} placeholders, plus an optional {state}, e.g. \"yarn render:verify --route {route} --state {state} --out {out}\". The harness owns boot/auth/screenshot and must emit a PNG at {out}, exiting nonzero with a clear message on failure. Placeholders must appear UNQUOTED — each substituted value is shell-quoted. See docs/live-render.md."
             },
-            "cwd": {
+            "smokeCommand": {
               "type": "string",
-              "description": "Topology repo id (topology.repos key) that owns the harness, and whose checkout the command runs in. Unset means the repo the run hosts. On a multi-repo topology this also decides which repo the design lane ARMS: a repo that is not the named owner unarms, and is asked for neither a per-ticket `## Design` section nor a design-disarm override. A value naming no topology.repos key is a milestone-1 error, never a silent unarm. The gate resolves it to the ticket's worktree, never the main checkout."
+              "description": "Repo-owned smoke command with {route} and {mustShow} placeholders, run by /dev-pipeline:run after every build for each `## Design frames` row, after command renders it: it must exit non-zero unless the route renders and shows that row's must-show value (a data-test id or a copy string). A record that declares design frames while this or command is absent stops the run as env-smoke-unconfigured."
             },
             "readyProbe": {
               "type": "string",
               "format": "uri",
-              "description": "Optional URL curl-checked before spawning the command (e.g. a sibling BE health endpoint). Probe failure degrades fast with the probe detail instead of waiting out the render timeout."
-            },
-            "tolerancePx": {
-              "type": "integer",
-              "minimum": 0,
-              "default": 2,
-              "description": "Pixel tolerance for milestone 3's rendered-measurement comparison. The gate reads the `<png>.rects.json` sibling the harness writes beside each screenshot, keyed by the translation plan's node names, and reds when a node is out of proportion with the rest of its render state (`shape`) or when the whole state renders at a factor tolerance does not explain (`scale`). Absent = 2. See docs/live-render.md."
+              "description": "Optional URL curl-checked (three tries) before the route smoke renders (e.g. a sibling BE health endpoint). Not ready stops the run as env-not-ready instead of reporting a failed render."
             }
           }
         }
       }
     },
-    "stageParams": {
+    "run": {
       "type": "object",
-      "description": "Optional stage-prose constants promoted to config. Every key is optional and defaults to the plugin's current shipped literal, so an empty config reproduces today's behavior byte-for-byte. Pure parameterization — no ordering, no logic.",
       "additionalProperties": false,
+      "description": "Per-ticket caps for /dev-pipeline:run. Every key optional; env overrides config overrides the default.",
       "properties": {
-        "planFilePattern": {
-          "type": "string",
-          "default": "{plansDir}/acme-{issueKey}.md",
-          "description": "Plan file path pattern. Tokens: {plansDir} (from paths.plansDir), {issueKey}. Unknown tokens are stripped defensively at substitution time."
-        },
-        "requiredLabels": {
-          "type": "array",
-          "items": { "type": "string" },
-          "description": "Tracker labels the queue-and-claim model requires. Default = the plugin's shipped set (ready-for-dev, needs-spec-work, needs-plan-review, needs-intake-review, in-progress, epic)."
-        },
-        "webComponentGlobs": {
-          "type": "array",
-          "items": { "type": "string" },
-          "default": ["apps/web/**/*.{tsx,jsx}"],
-          "description": "The web-component surface: the globs whose presence in the diff route the a11y reviewer and the design-fidelity reviewer (read by review-lead when it selects the panel). Set this when the FE is not React-under-apps/web — e.g. [\"src/app/**/*.{html,ts}\"] (Angular), [\"src/**/*.vue\"] (Vue), [\"app/**/*.tsx\"] (React Router v7)."
-        },
-        "formatGlob": { "type": "string", "default": "*.{ts,tsx,js,json,md}" },
-        "inertPattern": {
-          "type": "string",
-          "minLength": 1,
-          "description": "INERT-lane classifier override, read by tools/is-inert-diff.sh and tools/preflight.sh: an extended regular expression that REPLACES the shipped inert set outright. Omit to keep the default, which is JS/TS-centric — it treats *.md, *.sh, .github/workflows/*.yml and .claude/** data files as inert because a JS/TS lint/type-check/test suite gives them zero coverage. Set this when your product surface IS one of those extensions: on a shell-and-Markdown repo the default classifies every real diff inert, so the configured lint/test lanes never run and the green gate reports a false green. Replace-not-merge is deliberate — only replacement can REMOVE an alternative such as \\.sh$; the value is a hand-copy and will not inherit future additions to the default. An uncompilable pattern is rejected by config-lint, and fails closed to the full suite at runtime."
-        }
+        "maxRounds": { "type": "integer", "minimum": 1, "description": "Build+review rounds before rounds-spent (default 3)." },
+        "checksRedMax": { "type": "integer", "minimum": 1, "description": "Red check or smoke attempts before checks-red-spent, on their own counter (default 3)." },
+        "buildTimeoutSeconds": { "type": "integer", "minimum": 60, "description": "Build session ceiling (default 7200)." },
+        "reviewTimeoutSeconds": { "type": "integer", "minimum": 60, "description": "Review session ceiling (default 3600)." },
+        "costCeilingUsd": { "type": "number", "exclusiveMinimum": 0, "description": "Sum of the sessions' total_cost_usd before cost-spent (default 100)." }
       }
-    },
-    "grillWaivers": {
-      "type": "object",
-      "description": "Declared opt-outs for config-grill findings — the checker /second-shift:onboard runs on its draft and /second-shift:doctor runs on the committed config, which reports a capability that is detectably OFF. config-lint cannot see any of it: absence is legal for every optional key, so a structural validator never touches the tree. Keys are CHECK IDS, carrying the repo id wherever the check is per-repo (e.g. \"T5.missing-script.api.lint\"): a dotted config path would silence two distinct checks that share a key, and a bare check id would silence every repo under a multi-repo topology. The value is the human-authored reason — never synthesized by a tool. Same shape as commands.<repo>.allowUnverified: a deliberate declared opt-out, visible in a reviewable diff. Additive and optional, so configVersion stays at 2.",
-      "additionalProperties": { "type": "string", "minLength": 1 }
     }
   }
 }

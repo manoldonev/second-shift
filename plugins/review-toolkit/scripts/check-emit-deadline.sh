@@ -40,24 +40,21 @@
 #   <!-- emit-deadline-exempt: <reason> -->
 #
 # The separator is ASCII `--`-free on purpose (it sits inside an HTML comment); the
-# reason must be non-empty, mirroring the declared-waiver idiom in
-# check-bounded-exploration.sh.
+# reason must be non-empty.
 #
 # Agents AT or BELOW the default cap are USUALLY not required to carry a deadline: they are
-# meant to be held by the dispatch-time bounding nudge instead, which is
-# check-bounded-exploration.sh's jurisdiction. The two lints are complements — that one
-# polices "explore less" for the bounded agents, this one polices "write sooner" for the
-# exhaustive ones that cannot take a bounding nudge without losing the coverage that is
-# their deliverable.
+# meant to be held by the dispatch-time bounding nudge ("explore less") instead. This lint
+# polices "write sooner" for the exhaustive ones that cannot take a bounding nudge without
+# losing the coverage that is their deliverable.
 #
-# THE GAP BETWEEN THEM. That division assumes every default-cap agent's dispatch site
+# THE GAP. That division assumes every default-cap agent's dispatch site
 # actually appends a nudge. plan-reviewer's does not — its dispatch declares the nudge
 # dormant on purpose:
 #
 #   // bounded-exploration-dormant: BOUNDED_PLAN_GROUNDING -- defined for probe lockstep;
 #   // deliberately not appended (measured no-nudge arm)
 #
-# So plan-reviewer was held by NEITHER lint: unbounded at dispatch (deliberately, as the
+# So plan-reviewer was held by NEITHER mechanism: unbounded at dispatch (deliberately, as the
 # measurement control) and unlinted here (because it sits exactly at the cap). It died at
 # the cap without emitting while this lint reported clean. DEADLINE_AT_DEFAULT is the
 # narrow fix: it brings a NAMED default-cap agent into jurisdiction without extending the
@@ -68,7 +65,7 @@
 #
 # spec-reviewer (#283) is a SECOND demonstrated case, of a different shape: its dispatch
 # site (intake-review.mjs) does append a dispatch-time nudge (PROGRESSIVE_EMIT), so it is
-# not held by neither lint the way plan-reviewer was — but the nudge alone did not prevent
+# not held by neither mechanism the way plan-reviewer was — but the nudge alone did not prevent
 # the observed death (run #273: two dark attempts, both at the turn cap with zero output,
 # while a WEAKER nudge, BOUNDED_SPEC_GROUNDING, was already in place). The belt-and-
 # suspenders lesson from security-reviewer/scope-completeness-reviewer/unit-test-mutation-

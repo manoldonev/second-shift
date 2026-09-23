@@ -7,18 +7,18 @@ The layered taxonomy of everything the toolkit and its agents consume. A piece o
 | # | Layer | Home | Consumer | Cadence |
 | --- | --- | --- | --- | --- |
 | 0 | **Generic tooling** — pipeline machinery, review/intake protocols, this repo's docs | second-shift plugins (public) | tools + agents | versioned releases |
-| 1 | **Static config** — tracker, topology, base branches, command truth table, reviewer deltas, gates | `.claude/second-shift.config.json` per consumer repo | tools first, agents second | onboarding-time |
+| 1 | **Static config** — tracker, command truth table, reviewer deltas, design render commands, run caps | `.claude/second-shift.config.json` per consumer repo | tools first, agents second | onboarding-time |
 | 2 | **Org/platform overlay** *(future — see below)* — knowledge shared across an organization's repos but not the world | a private plugin/skills repo | agents | slow accretive |
 | 3 | **Repo dynamic context** — the repo's own knowledge (four sub-kinds below) | consumer repo; `CLAUDE.md` routes | agents | accretive |
 | 4 | **Operator context** — personal memory, billing posture, permission mode, model config | `~/.claude` (user level) | harness | personal |
-| 5 | **Run state** — pipeline state files, audit ledgers, plans/briefs/ledgers, mode env vars | `.claude/pipeline-state/`, `.claude/audit/`, plans dir | tools | per-run |
+| 5 | **Run state** — intake receipts, the scheduler's per-run logs, audit ledgers, committed intake records | `.claude/pipeline-state/`, `.claude/audit/`, plans dir | tools | per-run |
 
 **The direction rule:** each layer may read downward (toward 5), never write upward. A run may cite an ADR; a plugin release never embeds one. (Historical example: agent-eval kits once lived under a consumer repo's `pipeline-state/` — layer 5's home — but are layer-0 tooling; they ship in plugin `evals/` dirs.)
 
 ## Layer 1 vs layer 3 — the litmus tests
 
 - If two consumer repos would differ on a **value** (branch name, command string, path), it's **config** (layer 1).
-- If they'd differ in **behavior**, it's a config-selected adapter or gate (layer 0 machinery, layer 1 switch).
+- If they'd differ in **behavior**, it's a config-selected adapter or check (layer 0 machinery, layer 1 switch).
 - If it's **prose-shaped knowledge** — why, how, gotchas — it's layer 3 (or layer 2 if it's true of every repo in the org). Prose never goes in config; enumerable facts never go in knowledge docs.
 
 ## The disposition test — does this earn a place in stock (layer 0)?
@@ -48,7 +48,7 @@ The failure mode this catches: a woven, sole-authored blob that *looks* load-bea
 
 Plugin agents additionally read the **extension files** documented in [`extension-points.md`](extension-points.md) (blocker-mutant lists, domain security rules, review context) — those are layer 3 exposed at fixed, documented paths precisely so layer-0 agents can consume them without knowing the repo's doc layout. Extensions are additive-only; disabling generic behavior happens in config (layer 1), where it's auditable.
 
-One staleness-rule exception inside that surface: **severity-downgrading calibration claims** (maturity prose reviewers honor as waivers) don't follow the Observed sub-kind's "pruned rarely" rule — they carry a mandatory expiry via the fenced `second-shift-claims` block (see `extension-points.md`), because a stale waiver keeps suppressing findings after the code moves.
+One staleness-rule exception inside that surface: **severity-downgrading calibration claims** (maturity prose reviewers honor as waivers) don't follow the Observed sub-kind's "pruned rarely" rule — they carry a mandatory expiry via the fenced `second-shift-claims` block (see `extension-points.md`), past which reviewers treat them as absent, because a stale waiver keeps suppressing findings after the code moves.
 
 ## Layer 2: the org/platform overlay (future)
 
@@ -58,10 +58,10 @@ Shape when it materializes: a **private plugin marketplace/repo** (e.g. `<org>-p
 
 ## Placement quick-reference
 
-- Base branch, test command, sibling path → **1 (config)**
+- Test command, plans directory, label vocabulary → **1 (config)**
 - "Our services must never hand-filter by tenant; the base class does it" → **2** if org-wide, else **3 decided/structural**
 - "This eslint rule false-positives on X" → **3 observed** (findings)
 - "How to verify changes locally in this repo" → **3 playbook** (knowledge skill)
 - "How the pipeline claims a ticket" → **0** (plugin), tracker choice via **1**
 - "Security reviewer runs opus here" → **1** (`reviewers.modelOverrides`)
-- Per-ticket decision ledger → **5** (run state)
+- Per-ticket intake record → **5** (run state), committed on the ticket's branch

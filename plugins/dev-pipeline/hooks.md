@@ -5,9 +5,9 @@ SKILL.md keeps only a short summary pointing here.
 
 ## 1. PreToolUse — pre-commit type-check (blocking)
 
-Runs the configured type-check command (config `commands.<host>.typecheck`) before every `git commit` **that stages JS/TS-relevant files** (`.ts/.tsx/.js/.jsx/.mjs/.cjs/.json` or `yarn.lock` — the script checks `git diff --cached --name-only` and passes docs/shell-only commits through immediately). This is a fast incremental type-check gate — it catches type errors at commit time rather than waiting for the full verify suite. The staged-path awareness also lets pipeline worktrees with inert diffs commit without a `node_modules` install.
+Runs the configured type-check command (config `commands.<id>.typecheck`) before every `git commit` **that stages JS/TS-relevant files** (`.ts/.tsx/.js/.jsx/.mjs/.cjs/.json` or `yarn.lock` — the script checks `git diff --cached --name-only` and passes docs/shell-only commits through immediately). This is a fast incremental type-check gate — it catches type errors at commit time rather than waiting for the full verify suite. The staged-path awareness also lets a worktree with a docs- or shell-only diff commit without a `node_modules` install.
 
-The `needs_typecheck()` predicate also carves out the **inert `.claude/**/\*.{mjs,cjs}`Workflow scripts**: a commit whose only JS/TS-relevant paths are those scripts skips the type-check (they have zero`tsconfig`/`eslint`/`jest` coverage — the inert set is defined once in [`tools/is-inert-diff.sh`](./tools/is-inert-diff.sh), the single source of truth, and the hook carve-out stays in lockstep with it). Any real `.ts/.tsx/.js/.jsx/.json`/`yarn.lock`, or any `.mjs`/`.cjs`**outside**`.claude/`(e.g.`apps/web/next.config.mjs`), still gates. The lockstep and the embedded copy below are both asserted by [`tools/pre-commit-typecheck-selftest.sh`](./tools/pre-commit-typecheck-selftest.sh) (wired into `pipeline-doctor.sh`).
+The `needs_typecheck()` predicate also carves out the **inert `.claude/**/*.{mjs,cjs}` Workflow scripts**: a commit whose only JS/TS-relevant paths are those scripts skips the type-check (they have zero `tsconfig`/`eslint`/`jest` coverage). Any real `.ts/.tsx/.js/.jsx/.json`/`yarn.lock`, or any `.mjs`/`.cjs` **outside** `.claude/` (e.g. `apps/web/next.config.mjs`), still gates. The predicate and the embedded copy below are both asserted by [`tools/pre-commit-typecheck-selftest.sh`](./tools/pre-commit-typecheck-selftest.sh).
 
 **Matcher coverage:** each hook has TWO entries — `Bash(git commit *)` AND `Bash(git -c * commit *)`. The second exists because the dev-pipeline's bot-identity commits (`git -c user.name=... -c user.email=... commit`) do not match the first pattern; before it was added, every pipeline commit silently bypassed both gates.
 
@@ -59,7 +59,7 @@ The two hook entries are independent — the type-check's `permissionDecision: "
 
 ### `hooks/pre-commit-typecheck.sh`
 
-Plugin-shipped (fires via `hooks/hooks.json` on `git commit`); must be `chmod +x`. Config-aware: the type-check command comes from the consumer repo's `.claude/second-shift.config.json` (`commands.<host>.typecheck`), and the hook fails **open** in any repo that has not onboarded a typecheck lane.
+Plugin-shipped (fires via `hooks/hooks.json` on `git commit`); must be `chmod +x`. Config-aware: the type-check command comes from the consumer repo's `.claude/second-shift.config.json` (`commands.<id>.typecheck`, where `<id>` is the sole key, else the main checkout's directory name), and the hook fails **open** in any repo that has not onboarded a typecheck lane.
 
 ```bash
 #!/bin/bash
@@ -73,10 +73,7 @@ Plugin-shipped (fires via `hooks/hooks.json` on `git commit`); must be `chmod +x
 # is an inert .claude/**/*.{mjs,cjs} Workflow script. Those scripts live outside the
 # yarn workspace tree and are referenced by no tsconfig/eslint/jest config, so
 # type-check gives them zero coverage — gating on them is pure wasted node_modules
-# install + run. This mirrors the pipeline's INERT lane; the inert set is defined once in
-# the dev-pipeline skill's tools/is-inert-diff.sh (the single source of truth), and
-# the .claude/**/*.{mjs,cjs} pattern below is kept in lockstep with it (asserted by
-# pre-commit-typecheck-selftest.sh).
+# install + run.
 # A .mjs/.cjs OUTSIDE .claude/ (e.g. apps/web/next.config.mjs) is not inert and
 # still gates.
 needs_typecheck() {
@@ -96,14 +93,21 @@ CWD=$(jq -r '.cwd' < /dev/stdin)
 cd "$CWD" || exit 1
 
 # Static context: the typecheck command comes from the consumer repo's
-# .claude/second-shift.config.json (host repo = the topology.repos entry with
-# path "."; override: SECOND_SHIFT_CONFIG). No repo, no config, or a null
-# typecheck command => nothing to gate — fail OPEN (the repo has not onboarded
-# a typecheck lane; a plugin-shipped hook must not block commits in arbitrary repos).
+# .claude/second-shift.config.json (override: SECOND_SHIFT_CONFIG), under the
+# commands key the lane uses: the sole key, else the key equal to the main
+# checkout's directory name. No repo, no config,
+# no key, or a null typecheck command => nothing to gate — fail OPEN (the repo has
+# not onboarded a typecheck lane; a plugin-shipped hook must not block commits in
+# arbitrary repos).
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 CFG="${SECOND_SHIFT_CONFIG:-$ROOT/.claude/second-shift.config.json}"
 [ -f "$CFG" ] || exit 0
-HOST=$(jq -r '.topology.repos | to_entries[] | select(.value.path == ".") | .key' "$CFG" 2>/dev/null | head -n1)
+COMMON=$(git -C "$ROOT" rev-parse --git-common-dir 2>/dev/null) || exit 0
+case "$COMMON" in /*) : ;; *) COMMON="$ROOT/$COMMON" ;; esac
+REPO_SLUG=$(basename "$(cd "$COMMON/.." 2>/dev/null && pwd)")
+HOST=$(jq -r --arg s "$REPO_SLUG" '
+    (.commands // {} | keys) as $k
+    | if ($k | length) == 1 then $k[0] elif ($k | index($s)) then $s else empty end' "$CFG" 2>/dev/null)
 [ -n "$HOST" ] || exit 0
 TYPECHECK_CMD=$(jq -r --arg h "$HOST" '.commands[$h].typecheck // empty' "$CFG" 2>/dev/null)
 [ -n "$TYPECHECK_CMD" ] || exit 0
@@ -128,13 +132,13 @@ exit 0
 
 ### Scope
 
-The full verify suite (`format`, `lint`, `type-check`, `test`) runs at the gate — `milestone-gate.sh` milestone 3. This hook is intentionally scoped to `type-check` only: it must be fast enough not to slow down the commit-per-chunk workflow while the implementation is being written.
+The full check suite (every configured lane plus the record's `## Checks`) is run by the scheduler, `run.sh`, after each build session. This hook is intentionally scoped to `type-check` only: it must be fast enough not to slow down the commit-per-chunk workflow while the implementation is being written.
 
 If the hook denies a commit mid-implementation, fix the type error before retrying. Do not remove the hook to work around failures.
 
 ## 2. Stop — session-end type-check (informational)
 
-Runs the configured type-check command (config `commands.<host>.typecheck`) at the end of every Claude Code session (the example below uses `yarn tsc --noEmit --pretty 2>&1 | head -30`). Unlike the PreToolUse hook, this one does **not** block — it just surfaces any lingering type errors before the session closes.
+Runs the configured type-check command (config `commands.<id>.typecheck`) at the end of every Claude Code session (the example below uses `yarn tsc --noEmit --pretty 2>&1 | head -30`). Unlike the PreToolUse hook, this one does **not** block — it just surfaces any lingering type errors before the session closes.
 
 ### `.claude/settings.json` configuration
 

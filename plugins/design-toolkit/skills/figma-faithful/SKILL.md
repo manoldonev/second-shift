@@ -185,48 +185,35 @@ node mounts under, and at what level), the **per-node dimensions** from step 3b,
 (step 6), and the file list you will create/edit. This is the cheapest place to catch a wrong
 token row — one line to fix here vs. the same value spread across call-sites after the build.
 
-**On the lane it is an asserted artifact, not prose.** Write it to
-`<plansDir>/<key>-lean-plan.md` — the path `bash G 1 <issue>` derives the spec path from, with
-`-lean-plan.md` in place of `-lean.md`. `milestone-gate.sh` milestone 3 refuses an armed ticket
-**before the render pass** unless that file exists, is committed, and carries:
+Two tables in it carry the contract:
 
-- a header line `planned_from: pending` — the gate stamps this with the branch's plan patch
-  identity and reds until you commit the stamp, so the plan is dated against the code it was
-  written for. On a later round it re-stamps: **re-read the plan against the lines that moved**
-  before committing, because nothing else in the lane checks that it still says the right thing;
 - a table declaring a **`why this component`** column, one row per resolved component;
-- a table declaring a **`dimensions`** column, one row per sized node, with three machine-read
-  columns beside it — **`node`**, **`RS`** and **`px`**:
+- a table declaring a **`dimensions`** column, one row per sized node, with three columns beside
+  it — **`node`**, **`RS`** and **`px`**:
 
   | node | RS | px | dimensions | overflow |
   | --- | --- | --- | --- | --- |
   | Filter panel | RS-2 | 320×604 | fixed 320px wide, hug height | none |
   | Results grid | RS-1 | -×412 | fill width, 12px row gap | scroll-y |
 
-  `node` is the name the repo's live-render harness reports that node under in its
-  `<png>.rects.json` sibling (`docs/live-render.md`); `RS` is the render state the spec declares it
-  is measured in; `px` is `<w>×<h>` with an integer or `-` per axis, `-` being a node with no fixed
-  size on that axis. `dimensions` stays **prose** and keeps the step-3b reading — per-axis
-  fixed/hug/fill, wrap behavior, overflow/truncation — which is what step 9 self-verifies against
-  and what `320×604` cannot carry.
+  `node` is the plan's own name for the node; `RS` is the render state of the record's
+  `## Design frames` row it is measured in; `px` is `<w>×<h>` with an integer or `-` per axis,
+  `-` being a node with no fixed size on that axis. `dimensions` stays **prose** and keeps the
+  step-3b reading — per-axis fixed/hug/fill, wrap behavior, overflow/truncation — which is what
+  step 9 self-verifies against and what `320×604` cannot carry.
 
 Every cell of both tables must be filled, and a row may not declare fewer cells than its header.
-That is deliberate and it is the whole mechanical contract: an omission has to read as an **empty
-cell**, not as an absent thought. A resolved component with no stated reason is the name-match
-resolution that ships the wrong control; a node with no recorded dimensions is the eyeballed size
-that ships at 3× the design. Milestone 3 does read the `px` numbers: per render state it compares
-them against the sizes the harness measured, scale-adaptively, and names any node out of proportion
-with the rest of its state. That grades the transcription against the code, never against the
-design — whether a recorded value is the *design's* is the design-sighted REVIEW session,
-scoring `fidelity:` against the render receipt.
+That is deliberate: an omission has to read as an **empty cell**, not as an absent thought. A
+resolved component with no stated reason is the name-match resolution that ships the wrong
+control; a node with no recorded dimensions is the eyeballed size that ships at 3× the design.
+Whether a recorded value is the *design's* is the REVIEW session's call, which renders every
+screen at the head and compares it with its frame.
 
 **Dispatch
 [`design-toolkit:figma-faithful-plan-reviewer`](../../agents/figma-faithful-plan-reviewer.md) on
 this artifact yourself**, before step 8, and act on its verdict: `block` → fix the table and
-re-emit; `fix-and-go` / `pass` → proceed. The gate cannot run an agent or branch on a verdict, so
-the dispatch stays yours on every lane — the autonomous lane included, where it is not
-optional: milestone 3 refuses to render until the reviewer's output is committed at
-`<plansDir>/<key>-lean-plan-review.md`, written by `milestone-gate.sh plan-review <issue>`.
+re-emit; `fix-and-go` / `pass` → proceed. On the lane the build prompt asks for a subagent read of the plan before UI
+code but names no agent — this one is the natural pick; nothing else runs it for you.
 `design-toolkit:figma-iterate` replaces it with a user checkpoint by design.
 
 ### 8. Implement
@@ -242,8 +229,8 @@ are mandatory where the surface renders RTL.
 Re-read your own styling / token usage against the step-3 token table — every value must trace
 to a token or a justified named constant. This is self-attestation by the same agent that wrote
 the code, so it is the weakest link; the real enforcement is that the **token table exists as a
-visible artifact** a reviewer can check against — on the lane the design-sighted REVIEW session,
-scoring `fidelity:` against the render receipt. There is no pixel-diff gate in this repo.
+visible artifact** a reviewer can check against — on the lane the REVIEW session, which renders
+every screen at the head and compares it with its frame. There is no pixel-diff gate in this repo.
 
 Then re-open the **parent** frame screenshot (not just the node) and confirm: (a) every gap
 between top-level blocks matches a step-3b row, (b) the component nests at the same level as the
@@ -257,11 +244,11 @@ layout _behavior_, _placement_, or _default state_ in the running app. Render ev
 you built, open the image, and compare it against the cached Figma frame — up to three rounds per
 screen: render, open the image, compare with the frame, fix what differs. When the consumer
 config defines `design.liveRender`, its command is the canonical render mechanism (the
-dev-pipeline live-render gate runs it — marketplace `docs/live-render.md`); otherwise, when a dev
+scheduler's route smoke and the REVIEW session run it — marketplace `docs/live-render.md`); otherwise, when a dev
 server is up, render the implemented screen (e.g. with a headless Playwright script at the feature
 URL). Compare the screenshot against the cached Figma frame for: placement (each control under the
 right container — a field in the right rail, not the content column), sizing/fill (no unintended
-stretch on an incomplete row; fixed dimensions hold — measure the rendered rects where decisive),
+stretch on an incomplete row; fixed dimensions hold — measure the rendered sizes where decisive),
 truncation, and default/empty state (no field renders empty-with-a-validation-error on load). An
 error page, a login page, or a spinner in the render is not done — that state is not the screen
 you built; fix it and re-render. This catches what every static gate misses: a token table and a

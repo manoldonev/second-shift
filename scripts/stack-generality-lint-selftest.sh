@@ -27,22 +27,18 @@ TMP="$(mktemp -d "${TMPDIR:-/tmp}/stack-generality-selftest.XXXXXX")" || exit 2
 trap 'rm -rf "$TMP"' EXIT
 
 FIX="$TMP/fixture"
-LANES="plugins/dev-pipeline/skills"      # the three pipeline-contract SKILLs (#348)
+LANES="plugins/dev-pipeline/skills"      # the two pipeline-contract SKILLs
 
 # A minimal clean tree mirroring the guarded paths. The doc-updater BODY deliberately
 # mentions `.project/` — the legitimate case the frontmatter-only scope must not flag.
 build_fixture() {
   rm -rf "$FIX"
-  mkdir -p "$FIX/$LANES/build" "$FIX/$LANES/review" "$FIX/$LANES/run" \
-           "$FIX/$LANES/pipeline-retro" \
+  mkdir -p "$FIX/$LANES/review" "$FIX/$LANES/run" \
            "$FIX/plugins/dev-pipeline/tools" \
            "$FIX/plugins/review-toolkit/agents" \
            "$FIX/plugins/review-toolkit/skills/mutation-review"
-  printf 'resolve conventions via the doc router\n' > "$FIX/$LANES/build/SKILL.md"
   printf 'scans the declared documentation roots\n'  > "$FIX/$LANES/review/SKILL.md"
   printf 'generic scheduler prose\n'                 > "$FIX/$LANES/run/SKILL.md"
-  printf 'AC-coverage audit greps the diff for (AC-n) test titles\n' \
-    > "$FIX/$LANES/pipeline-retro/SKILL.md"
   printf -- '---\nname: doc-updater\ndescription: routes via the declared doc roots\n---\nbody may say never assume .project/ — that is the anti-pattern prose\n' \
     > "$FIX/plugins/review-toolkit/agents/doc-updater.md"
   printf 'convention text carrying the (AC-n) token\n' \
@@ -64,9 +60,9 @@ if [[ "$rc" -eq 0 ]]; then ok "clean fixture exits 0 (incl. .project/ in doc-upd
 
 # 2. Seeded .project/ literal in a stage file → fails.
 build_fixture
-printf 'read .project/reference/conventions.md first\n' >> "$FIX/$LANES/build/SKILL.md"
+printf 'read .project/reference/conventions.md first\n' >> "$FIX/$LANES/run/SKILL.md"
 rc="$(lint_rc "$FIX")"
-if [[ "$rc" -ge 1 ]]; then ok "seeded .project/ in build/SKILL.md fails (rc=$rc)"; else bad "seeded .project/ in a lane contract not caught"; fi
+if [[ "$rc" -ge 1 ]]; then ok "seeded .project/ in run/SKILL.md fails (rc=$rc)"; else bad "seeded .project/ in a lane contract not caught"; fi
 
 # 3. Seeded .project/ in doc-updater FRONTMATTER → fails (the other direction of the scope).
 build_fixture
@@ -87,30 +83,14 @@ printf 'prompt = "Load the unit-testing skill." +\n' > "$FIX/plugins/dev-pipelin
 rc="$(lint_rc "$FIX")"
 if [[ "$rc" -ge 1 ]]; then ok "seeded unit-testing ref in .mjs fails (rc=$rc)"; else bad "unit-testing ref in .mjs not caught"; fi
 
-# 6. unit-testing occurrence in prose-budget.baseline.tsv → passes (documented exclusion).
-build_fixture
-printf '.claude/skills/unit-testing/SKILL.md\t966\t7697\t0\n' \
-  > "$FIX/plugins/dev-pipeline/tools/prose-budget.baseline.tsv"
-rc="$(lint_rc "$FIX")"
-if [[ "$rc" -eq 0 ]]; then ok "prose-budget.baseline.tsv occurrence excluded (rc=0)"; else bad "documented exclusion tripped the leg (rc=$rc)"; fi
-
-# 7. Removed (AC-n) token from the DECLARER site → fails.
+# 6. Removed (AC-n) token from the DECLARER site → fails.
 build_fixture
 printf 'convention text with the token stripped\n' \
   > "$FIX/plugins/review-toolkit/skills/mutation-review/SKILL.md"
 rc="$(lint_rc "$FIX")"
 if [[ "$rc" -ge 1 ]]; then ok "missing (AC-n) token at the declarer fails (rc=$rc)"; else bad "missing (AC-n) token not caught"; fi
 
-# 7b. Removed (AC-n) token from the CONSUMER site → fails too. #348 re-anchored this leg from
-#     one declarer + one consumer that were both stage docs to mutation-review (declarer) and
-#     pipeline-retro (consumer); asserting only the declarer would let the retro's grep target
-#     drift away silently, which is the exact coupling this leg exists for.
-build_fixture
-printf 'AC-coverage audit with the token stripped\n' > "$FIX/$LANES/pipeline-retro/SKILL.md"
-rc="$(lint_rc "$FIX")"
-if [[ "$rc" -ge 1 ]]; then ok "missing (AC-n) token at the consumer fails (rc=$rc)"; else bad "missing (AC-n) token at the consumer not caught"; fi
-
-# 8. Clean-tree case over the REAL repo root — the lint's CI invocation path.
+# 7. Clean-tree case over the REAL repo root — the lint's CI invocation path.
 rc="$(lint_rc "$REPO_ROOT")"
 if [[ "$rc" -eq 0 ]]; then
   ok "real repo root is clean (rc=0)"

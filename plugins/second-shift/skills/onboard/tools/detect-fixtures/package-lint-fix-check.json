@@ -1,0 +1,1 @@
+{ "name": "widget-web", "scripts": { "lint": "eslint --fix .", "lint:check": "eslint .", "test": "vitest run" } }

@@ -99,9 +99,8 @@ make_override_config() {
   local agent="$1" model="$2" path="$TMP/override-$1-$2.json"
   cat > "$path" <<JSON
 {
-  "configVersion": 2,
+  "configVersion": 3,
   "tracker": { "type": "github" },
-  "topology": { "type": "standalone", "repos": { "app": { "path": ".", "baseBranch": "main" } } },
   "commands": { "app": {} },
   "reviewers": { "modelOverrides": { "$agent": "$model" } }
 }
@@ -344,9 +343,8 @@ make_tiermap_config() {
   local tier="$1" token="$2" path="$TMP/tiermap-$1-$2.json"
   cat > "$path" <<JSON
 {
-  "configVersion": 2,
+  "configVersion": 3,
   "tracker": { "type": "github" },
-  "topology": { "type": "standalone", "repos": { "app": { "path": ".", "baseBranch": "main" } } },
   "commands": { "app": {} },
   "reviewers": { "tierMap": { "$tier": "$token" } }
 }

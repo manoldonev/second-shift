@@ -1,10 +1,5 @@
 {
-  "configVersion": 2,
+  "configVersion": 3,
   "tracker": { "type": "jira" },
-  "topology": { "type": "standalone", "repos": { "app": { "path": ".", "baseBranch": "main" } } },
-  "commands": { "app": { "lint": "yarn lint", "test": "yarn test" } },
-  "design": { "provider": "figma" },
-  "grillWaivers": {
-    "T4.design-liverender": "fixture repo has no render harness; design fidelity is deliberately declined here"
-  }
+  "commands": { "app": { "lint": "yarn lint", "test": "yarn test" } }
 }

@@ -15,28 +15,18 @@ CONTRIBUTING snippet).
 3. Review and commit the emitted files in one PR: `.claude/settings.json`,
    `.claude/second-shift.config.json`, `.claude/second-shift.lock.json`,
    `.claude/tools/second-shift-doctor.sh`, `.claude/SECOND-SHIFT.md` — plus, if you
-   accepted the CI workflows, all three pairs: `.github/workflows/second-shift-ci.yml` +
-   `.claude/tools/second-shift-ci-check.sh` (evidence),
-   `.github/workflows/second-shift-unclaim.yml` + `.claude/tools/second-shift-unclaim.sh`
-   (unclaim — the only emitted workflow that writes; `issues: write`, and it needs the
-   repo's Actions workflow permissions set to read-and-write), and
-   `.github/workflows/second-shift-delta-guard.yml` +
-   `.claude/tools/second-shift-delta-guard.sh` (the delta guard — read-only, and the one pair
-   that does nothing until you add its `needs:`/`if:` lines to your own heavy workflow; wire it
-   in the SAME PR, or it becomes a file nobody remembers to connect).
-4. Dry-run: pick a small ticket with no external-infrastructure acceptance criteria and
-   run `/dev-pipeline:run <ticket>` end to end before inviting the team. It schedules
-   `/dev-pipeline:build` and `/dev-pipeline:review` for you; driving those two by hand is the same lane, and
-   is the path to fall back on when a run needs rescuing.
+   accepted it on a GitHub tracker, `.github/workflows/second-shift-unclaim.yml` +
+   `.claude/tools/second-shift-unclaim.sh` (it writes: `issues: write`, and it needs the
+   repo's Actions workflow permissions set to read-and-write).
+4. First run: pick a small ticket with no external-infrastructure acceptance criteria, pay off
+   its intake, and run `/dev-pipeline:run <ticket>` end to end before inviting the team. It
+   spawns a fresh build session and a separate review session per round and ends at an
+   approved PR; merging stays yours.
 
-**A BE/FE pair needs Day 0 a second time, in the sibling repo.** Step 2's confirmed-pair
-`be-fe-pair` config is unchanged and stays a legal shape, but no lane fans a run out across
-both repos any more — the staged lane that did was deleted in #348. The pipeline has no
-per-repo worktree map, so working the pair from `/dev-pipeline:run` needs
-the sibling onboarded on its own too — its own config, own bot identity, own worktrees dir
-(detection reports plain `standalone` from that side, no extra prompts). See
+**A BE/FE pair needs Day 0 a second time, in the sibling repo.** A run works on the checkout
+it is launched from, so each repo of the pair onboards on its own — its own config, own bot
+identity — and each ticket runs from the repo that owns it. See
 [onboarding.md § Pair repos](onboarding.md#pair-repos-befe-under-the-pipeline).
-**FE-tagged tickets run from the FE repo's own champion setup.**
 
 **Champion's-machine caveat:** the machine that develops or first registers the
 marketplace often carries a **ref-less user-scope registration**, which shadows the
@@ -83,8 +73,9 @@ and prints the before → after version delta.
 
 Across a major, read the release's `CHANGELOG.md` entry and
 [`migrations/`](migrations/README.md) before merging: a breaking change can require a
-repo-side step no tool performs for you (re-copying a vendored CI script, renaming a
-register file, changing an exported environment knob).
+repo-side step no tool performs for you (removing a retired CI workflow, dropping a config
+key, changing an exported environment knob). `/second-shift:doctor` names the leftovers it can
+detect.
 
 - **Laggards converge lazily:** anyone who hasn't updated gets doctor's two remediation
   commands next session (version-behind, exact commands printed). Completion signal =
@@ -118,13 +109,7 @@ Managed `enabledPlugins: false` is an org-wide ban; individual repos can't re-en
 
 Any control that depends on a voluntarily-installed, individually-declinable client
 plugin is **fast local feedback, not a gate**. The gate of record is server-side —
-required CI on the committed artifacts and branch protection. `/second-shift:onboard`
-can emit that CI on request (`.github/workflows/second-shift-ci.yml` + the committed
-`second-shift-ci-check.sh`): on every PR it config-lints the committed config at the
-pinned marketplace ref and asserts the settings ref and lockfile ref agree, so a
-half-done upgrade PR is caught server-side, and on a pipeline PR it runs the merge-boundary
-evidence check, which reds a PR whose verdict is missing, self-authored or older than its
-head. It reports a red check; you make it a *gate*
-by marking "second-shift evidence" a required status check in branch protection. That's
-why doctor says "missing your accelerators" instead of anything compliance-shaped: 80%
-adoption plus server-side enforcement beats 100% by nagging.
+required CI on your own checks, branch protection, and a human merging every PR — the
+lane never merges its own work. That's why doctor says "missing your accelerators" instead
+of anything compliance-shaped: 80% adoption plus server-side enforcement beats 100% by
+nagging.

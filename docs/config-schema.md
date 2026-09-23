@@ -1,67 +1,23 @@
 # Config schema guide (static context)
 
-Machine contract: [`schema/second-shift.config.schema.json`](../schema/second-shift.config.schema.json) (JSON Schema 2020-12). Enforcement the plugins actually run: [`config-lint.sh`](../plugins/dev-pipeline/tools/config-lint.sh) — shipped **inside the dev-pipeline plugin** (so installed-cache consumers can run it), invoked by `/second-shift:onboard`, `preflight.sh` and `/second-shift:doctor` (the lane itself does not re-lint); keep it in lockstep with the schema. Worked examples for all three topologies: [`config-lint-fixtures/valid-*.json`](../plugins/dev-pipeline/tools/config-lint-fixtures/).
+Machine contract: [`schema/second-shift.config.schema.json`](../schema/second-shift.config.schema.json) (JSON Schema 2020-12), `configVersion: 3`. Enforcement the plugins actually run: [`config-lint.sh`](../plugins/dev-pipeline/tools/config-lint.sh) — shipped **inside the dev-pipeline plugin** (so installed-cache consumers can run it), invoked by `/second-shift:onboard` and `/second-shift:doctor` (the scheduler itself does not re-lint); keep it in lockstep with the schema. Worked examples: [`config-lint-fixtures/valid-*.json`](../plugins/dev-pipeline/tools/config-lint-fixtures/). Upgrading from `configVersion: 2`: [`migrations/v2-to-v3.md`](migrations/v2-to-v3.md).
 
-| Group | What goes here | Motivating examples |
+Required: `configVersion`, `tracker`, `commands`. Everything else is optional.
+
+| Group | What goes here | Who reads it |
 | --- | --- | --- |
-| `tracker` | `type`: `github` or `jira`; `bot` (bot identity for GitHub writes — `enabled: true` is required for the github claim); `keyPattern`; `branchPrefix`; `labels` (github queue/claim/blocker roles); `writes` (default true for github, false otherwise — under `false` the pipeline makes no tracker writes and `/dev-pipeline:run` starts its sessions without Atlassian write tools) | a gh-bot claim model vs read-only JIRA |
-| `topology` | `standalone` \| `be-fe-pair` \| `monorepo`; per-repo `path`, `baseBranch`, `worktreesDir`, `ticketTag` | a BE-`alpha`/FE-`main` pair asymmetry; `[BE]`/`[FE]` ticket routing; sibling paths |
-| `commands` | Per-repo command truth table (lint/typecheck/test/format; `null` = lane unavailable; `testFile`/`unitTestScope` are retired — config-lint rejects them by name) + `lanes` (SETUP-only, INFRA-classed) + `extraLanes` (additive verify lanes with a real failureClass) + `allowUnverified` (boolean zero-lane safety valve — `preflight` warns + withholds its `pipeline-ready` verdict unless set, and `milestone-gate.sh` milestone 3 reds naming the opt-out unless set; inert when any verifying lane is configured) | the verify-lane truth table, read by `preflight.sh` and by `milestone-gate.sh` milestone 3; a monorepo `apps/*`/`packages/*` install matrix in `lanes`; an integration/e2e tier in `extraLanes`; a docs-only repo with no test surface opting out explicitly |
-| `reviewers` | Registry deltas (`add`/`remove`) + `default` (shipped reviewers added to the pipeline's review panel, which otherwise dispatches scope-completeness only; additive, never subtracts) + `tierMap` (retarget an abstract model tier) + per-reviewer `modelOverrides` (`haiku` \| `sonnet` \| `opus` \| `fable`; `fable` is override-only and subscription-gated — never a shipped default, and a `check-model-tiers.sh` error inside plugin code) | a repo-local domain reviewer; FE repos dropping db-reviewer; security-reviewer opus-vs-sonnet split; a Fable-enabled repo elevating plan-reviewer |
-| `paths` | plans dir, pipeline-state dir | defaults match all three forks |
-| `gates` | `mutation` — `false` is the explicit off-switch declaring the mutation seam deliberately absent; absent or `true` reads as intent, but nothing reads this key any more (#877 retired `config-grill`'s grading of it against a repo-carried `tools/mutation-sweep.sh` — no second-shift gate has executed that sweep since #580 either). `config-lint` keeps accepting the key so no existing config turns red; it is removed from the schema at the next batched major. If you still want the seam, carry and wire `tools/mutation-sweep.sh` yourself — that mechanism is unaffected, only the grading is gone | a repo that already set `gates.mutation` and wants its config unchanged until the next major |
-| `design` | `provider`: `figma` \| `claude-design` — the design-fidelity axis; key absent = off; prerequisites missing at run time fail closed. Optional `liveRender` `{ command, cwd?, readyProbe?, tolerancePx? }` arms a repo-owned render command (`{route}`/`{out}`, plus `{state}`) on `milestone-gate.sh` milestone 3, which is **blocking** on the run's shared 3-attempt budget and additionally requires a per-ticket `## Design` section in the committed spec — config alone arms nothing, and the disarm state-locks once a ticket arms. `tolerancePx` is an optional non-negative integer, default **2**, and is the pixel tolerance milestone 3's rendered-measurement comparison is expressed in: the gate reads the `<png>.rects.json` sibling the harness writes beside each screenshot, keyed by the translation plan's node names, and reds when a node is out of proportion with the rest of its render state (`shape`) or when the whole state renders at a factor tolerance does not explain (`scale`). `Design: none — <reason>` on a provider repo additionally requires a gate-visible `design-disarm` operator override — a build session cannot opt a ticket out of the render lane on its own; an attended operator records one with `operator-override.sh record --gate design-disarm --scope design-disarm --issue <n> …`, and the committed verdict then reads `fidelity: not-applicable (override: <ref>)`. The staged lane's degrade-to-`render-verify-unavailable` posture is gone, so there is one posture now — see [`live-render.md`](live-render.md) | a Figma-MCP FE shop vs a Claude-Design shop; a MIFE wiring `yarn render:verify` |
-| `stageParams` | Optional constants, each defaulting to the shipped literal: `webComponentGlobs` (the paths that route `a11y-reviewer` and the design-fidelity dimension), `formatGlob`, `planFilePattern`, `requiredLabels`, and `inertPattern` (schema-legal but read by nothing today) | an Angular repo's `*.component.html` web surface |
-| `grillWaivers` | Declared opt-outs for [config-grill](../plugins/second-shift/skills/onboard/tools/config-grill.sh) findings, keyed by **check id** (with the repo id where the check is per-repo, e.g. `T5.missing-script.api.lint`) and valued by the human-authored reason. The grill is what `config-lint` structurally cannot be: absence is legal for every optional key, so the lint never touches the tree and a capability that is off simply never runs. A finding is a detectable defect: `/second-shift:onboard` blocks its accept-or-edit screen on unwaived ones and `/second-shift:doctor` reports each as a `FAIL`. (The grill used to carry a second, `unadopted` severity — a note neither caller FAILed on — for one row, `T1.mutation-sweep`; #877 retired that row along with the whole severity, since nothing else in the grill ever produced one.) Additive and optional — `configVersion` stays at 2 | a shell-and-Markdown repo declaring it has no web-component surface; a repo declaring that the shipped gates are all it wants |
+| `tracker` | `type`: `github` or `jira`; `writes` (default true for github, false otherwise — under `false` the sessions start without Atlassian write tools; on github the scheduler still swaps the claim labels and posts the claim marker and the closing comment); `branchPrefix` (the work branch is `<branchPrefix><key>`, a jira key lowercased); `keyPattern` (a key that does not match is refused); `labels` (github only: `queue`, `claimed`, `blockers` roles); `bot` (a bot identity for the lane's GitHub writes — the claim and closing comment, commits, the review's verdict comment and the run block on the PR; the build session opens the PR itself with plain `gh`) | `/dev-pipeline:run` (`run.sh`); `tools/branch-prefix.sh` for `branchPrefix`; `claim-issue.sh` for the labels; `gh-bot.sh` / `bot-commit.sh` for `bot` |
+| `commands` | The check truth table, a map keyed by an id. The scheduler uses the sole key, else the key equal to the main checkout's directory name (also from a linked worktree); the ids are not checked against anything. Per id: `lint`, `typecheck`, `test`, `format` (`null` = not available); `lanes` (SETUP-only steps, run first and fail-fast, each `cwd` a path under the worktree); `extraLanes` (additive checks, gated by `when` changed-file globs; `failureClass` is still required but changes nothing); `allowUnverified` (declares a repo with no check at all) | `/dev-pipeline:run` runs every configured check after every build, plus the ticket record's `## Checks`, and every one blocks. Lane commands run with `SECOND_SHIFT_CONFIG` and the other seam vars scrubbed from their environment |
+| `reviewers` | Registry deltas (`add`/`remove`); `default` (shipped reviewers added to the pipeline's review panel, which otherwise dispatches scope-completeness only; additive, never subtracts); `webComponentGlobs` (the paths that route `a11y-reviewer` and the design-fidelity dimension; default `apps/web/**/*.{tsx,jsx}`); `tierMap` (retarget an abstract model tier); per-agent `modelOverrides` (`haiku` \| `sonnet` \| `opus` \| `fable`, or a tier name; `fable` is override-only — see [`model-tiering.md`](../plugins/dev-pipeline/model-tiering.md)) | review-lead (the review session's panel); `check-model-tiers.sh` and `check-reviewer-references.sh` |
+| `paths` | `plansDir` (default `docs/plans`: the committed intake record `<plansDir>/<repo>-<key>-decisions.md`); `pipelineStateDir` (default `.claude/pipeline-state`: run logs and the pre-flight receipt `<key>-ledger.md`) | `/dev-pipeline:run` |
+| `design` | `provider`: `figma` \| `claude-design` — the design-fidelity axis; key absent = off. Optional `liveRender` `{ command, smokeCommand?, readyProbe? }`: after every build the scheduler renders each `## Design frames` row of the record with `command` (`{route}`, `{state}`, `{out}`), then runs `smokeCommand` (`{route}`, `{mustShow}`), which must fail unless the route shows the row's must-show value. `readyProbe` is curl-checked first. A provider repo's record carries frames rows or `Design: none — <reason>`. See [`live-render.md`](live-render.md) | `/dev-pipeline:run` (the route smoke); the build and review sessions; the design-toolkit skills |
+| `run` | Per-ticket caps, every key optional: `maxRounds` (3), `checksRedMax` (3), `buildTimeoutSeconds` (7200), `reviewTimeoutSeconds` (3600), `costCeilingUsd` (100). Env (`RUN_*`) beats config beats the default | `/dev-pipeline:run` |
 
 Principles:
 
-- **If two forks differed on a value, it's config.** If they differed on *behavior*, it's a config-selected adapter (`tracker`, or the `design` provider axis) or a gate.
+- **If two forks differed on a value, it's config.** If they differed on *behavior*, it's a config-selected adapter (`tracker`, or the `design` provider axis).
 - **No domain knowledge in config.** Prose-shaped knowledge goes to extension files ([`extension-points.md`](extension-points.md)); config stays enumerable and lintable.
+- **A published key has a reader.** [`check-config-shadowing.sh`](../plugins/dev-pipeline/tools/check-config-shadowing.sh) fails when a key's reader stops reading it; a key nothing reads is removed at the next major, and config-lint rejects it by name with the migration pointer.
 - `configVersion` bumps only on breaking schema changes; plugins support one version per release. The migration contract and per-version upgrade docs live in [`migrations/`](migrations/README.md); config-lint fails older/newer configs with the pointer, never a bare "invalid".
-- **A `commands.<host>` lane runs in a scrubbed child env.** `preflight.sh` and `milestone-gate.sh` milestone 3 both spawn every configured lane command (`lint`/`typecheck`/`test`/`format`/`lanes`/`extraLanes`) with the pipeline's own seam vars (`SECOND_SHIFT_CONFIG`, `STATECTL_STATE_DIR`, and related overrides) stripped from its environment (`env -u`) — a lane command that is itself second-shift tooling (dogfooding) must not see the caller's pipeline state. The denylist itself is stated once, as `SEAM_SCRUB` inside the `LOCKSTEP-BEGIN seam-scrub` markers in [`milestone-gate.sh`](../plugins/dev-pipeline/skills/build/milestone-gate.sh).
-- **Environment knobs are spelled `LANE_*`.** Every knob the pipeline's scripts read from the
-  environment — `LANE_ATTEND_MODE`, `LANE_RUN_MODEL`, `LANE_SELFTEST_CACHE_DIR`,
-  `LANE_GATE_OBSERVE` and the rest — carries that prefix, and each read site supplies its own
-  default. The operator-override register is `.claude/lane-overrides.tsv`.
-- **Exit code `3` is RESERVED on a verify lane: "this failed for reasons that are not the branch."**
-  Exactly one lane reads it. `milestone-gate.sh` milestone 3 reads a `3` from a **blocking** verify lane
-  as infrastructure: it reds with exit `7` — *nothing was evaluated* — instead of `1`, charges **no
-  fix attempt**, and the scheduler re-spawns the build session rather than reporting an idle
-  one. Everywhere else the code classifies nothing, because there is nothing left to classify:
-  the other verify lanes are advisory, so a `3` there is recorded like any other red
-  and the milestone continues past it.
-
-  <!-- LANE-CLASS-BEGIN -->
-  - `typecheck` — **reserved**: the one fixed key milestone 3 still refuses on, so its rc is the
-    only one routed through the classifier.
-  - `lint`, `test` — **not reserved**: advisory. Recorded, never classified.
-  - `extraLanes[]` — **not reserved**: advisory, per entry. Recorded, never classified.
-  - setup `lanes[]` — **not reserved**: SETUP-only and INFRA-classed by role, never a verify lane,
-    and never routed through the classifier.
-  <!-- LANE-CLASS-END -->
-
-  Those rows are **derived, not asserted**:
-  [`check-lane-class-doc.sh`](../scripts/check-lane-class-doc.sh) reads the dispatch out of
-  `milestone-gate.sh` and reds when it and this list disagree — which is what the list is for.
-
-  This repo's own [`tools/run-selftests.sh`](../tools/run-selftests.sh) raises a `3` when every
-  failing suite is its no-verdict class (the workers were killed); a run mixing infra with a
-  genuinely red suite still exits `1`, because a red branch is still a red branch. Here it is
-  wired as the `test` lane, which is advisory — so that `3` currently classifies nothing in this
-  repo, and the reservation is what keeps it meaningful for a consumer wiring the same command to
-  a blocking lane.
-  **The exposure:** a lane that already exits `3` for a genuine failure is reclassified as
-  infrastructure and charged no fix attempt. There is deliberately no per-lane opt-out — the
-  failure direction is a run that charges no fix attempt when it should have, bounded by the gate's
-  milestone-3 interrupt budget, never a red branch reported green. Have such a lane exit any other
-  non-zero code.
-- **`ticketTag` is advisory, and only advisory.** It keys off
-  `topology.repos.<id>.ticketTag` on a confirmed pair's `be`+`fe` entries. It used to read two
-  ways: a retired lane resolved `TARGET_REPOS` from it as a gate input and failed
-  closed on an unrecognized title, while the pipeline treated it as a hint. The staged lane is
-  gone, so only the advisory reading remains — no gate reads it, `milestone-gate.sh`
-  included, and the sibling's own separate standalone onboard (needed for `/dev-pipeline:run` — see
-  [`onboarding.md` § Pair repos (BE/FE)](onboarding.md#pair-repos-befe-under-the-pipeline))
-  carries no `ticketTag` of its own. The `intake-orchestrator` skill reads it as ticket-title
-  routing policy, not a gate. Neither reading changes the other.
+- **The scheduler's environment knobs are spelled `RUN_*`:** `RUN_CLAUDE`, `RUN_GH` (alias `GH`), `RUN_WORKTREE_ROOT`, `RUN_BUILD_TIMEOUT`, `RUN_REVIEW_TIMEOUT`, `RUN_COST_CEILING`, `RUN_CHECKS_RED_MAX`. `run.sh -h` is the table of record.
+- **The base branch is the remote default branch** (`origin/HEAD`, falling back to `origin/main`, then `origin/master`). There is no config key for it.

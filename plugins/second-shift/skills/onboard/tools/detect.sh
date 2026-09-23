@@ -126,8 +126,17 @@ BUILD="$(script_cmd build)";     BUILD_SRC="package.json scripts.build"
 FORMAT="$(script_cmd format)";   FORMAT_SRC="package.json scripts.format"
 TYPECHECK="$(script_cmd typecheck)"; TC_SRC="package.json scripts.typecheck"
 if [[ -z "$TYPECHECK" ]]; then TYPECHECK="$(script_cmd type-check)"; [[ -n "$TYPECHECK" ]] && TC_SRC="package.json scripts.type-check"; fi
+# lint runs as a blocking check in the ticket's worktree, so it must not rewrite files: a scripts.lint
+# that runs --fix gives way to a non-mutating lint:check / lint:ci when one exists, else the
+# provenance says so for the operator to fix in the draft.
 LINT_RAW="$(jq -r '.scripts.lint // ""' package.json 2>/dev/null || true)"
-LINT_AUTOFIX=false; [[ "$LINT_RAW" == *"--fix"* ]] && LINT_AUTOFIX=true
+if [[ "$LINT_RAW" == *"--fix"* ]]; then
+  LINT_SRC="package.json scripts.lint — it runs --fix; give lint a non-mutating command"
+  for s in lint:check lint:ci; do
+    v="$(jq -r --arg s "$s" '.scripts[$s] // ""' package.json 2>/dev/null || true)"
+    if [[ -n "$v" && "$v" != *"--fix"* ]]; then LINT="$(script_cmd "$s")"; LINT_SRC="package.json scripts.$s (scripts.lint runs --fix)"; break; fi
+  done
+fi
 # Makefile fallback when no package.json at all
 if [[ ! -f package.json && -f Makefile ]]; then
   for t in lint test build typecheck format; do
@@ -207,7 +216,7 @@ fi
 # Name-unrelated pairs (fastapi-be / vue-fe): no shared base name, so scan every
 # adjacent git-repo directory for the counterpart suffix once THIS repo's own basename
 # carries a recognized BE- or FE-side suffix. Still detection, not a guess: a match
-# only adds a candidate for onboard's existing pair-confirm elicitation to ask about.
+# only adds a candidate onboard reports and offers its own onboard for.
 COUNTERPART_SUFFIXES=()
 if has_suffix "$BASENAME" "${BE_SUFFIXES[@]}"; then
   COUNTERPART_SUFFIXES=("${FE_SUFFIXES[@]}")
@@ -225,7 +234,7 @@ fi
 # Sibling checkouts are the stronger signal (two actual physically-adjacent repos, not
 # just a manifest field) and are checked FIRST — an `elif` here would let a (possibly
 # wrong, see WORKSPACES_REAL above) monorepo classification silently swallow a real
-# pair candidate that also exists on disk, never surfacing it for onboard's confirm step.
+# pair candidate that also exists on disk, never surfacing it to onboard.
 TOPOLOGY=standalone; TOPO_SRC="no workspaces manifest; no sibling candidates"
 if [[ "$SIBLINGS" != "[]" ]]; then
   TOPOLOGY="be-fe-pair-candidate"; TOPO_SRC="sibling checkout(s) detected — needs confirmation"
@@ -247,10 +256,9 @@ jq -n \
   --argjson test  "$(cmd_json "$TEST"  "$TEST_SRC")" \
   --argjson build "$(cmd_json "$BUILD" "$BUILD_SRC")" \
   --argjson fmt   "$(cmd_json "$FORMAT" "$FORMAT_SRC")" \
-  --argjson la "$LINT_AUTOFIX" \
   '{ repoRoot: $root,
      git: { originUrl: $ourl, originHost: $ohost, baseBranch: { value: $bb, source: $bbsrc } },
      tracker: { value: $tr, source: $trsrc, jiraEvidence: $jira },
      packageManager: { value: (if $pm=="" then null else $pm end), source: $pmsrc },
      topology: { value: $topo, source: $toposrc, workspaces: $ws, siblingCandidates: $sib },
-     commands: { lint: $lint, lintAutofixes: $la, typecheck: $tc, test: $test, build: $build, format: $fmt } }'
+     commands: { lint: $lint, typecheck: $tc, test: $test, build: $build, format: $fmt } }'

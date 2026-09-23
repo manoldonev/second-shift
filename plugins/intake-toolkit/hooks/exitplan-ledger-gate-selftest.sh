@@ -12,10 +12,9 @@
 # red anywhere to notice. That is why the allow paths below are asserted as
 # deliberately as the block paths — an all-allow hook would otherwise look healthy.
 #
-# WHY NO SCENARIO COVERS IT (CLAUDE.md scenario-first rule): scenario-liveness-
-# selftest.sh composes dev-pipeline verdict paths inside a run. This hook fires in
+# WHY NO SCENARIO COVERS IT (CLAUDE.md scenario-first rule): this hook fires in
 # the HARNESS, on the operator's ExitPlanMode tool call, before and outside any
-# pipeline run — it has no run state, no ticket, and no milestone. There is no
+# pipeline run — it has no run state and no ticket. There is no
 # verdict path to compose it onto. Its callee ledger-lint.sh has its own suite
 # (ledger-lint-selftest.sh); this file covers the resolution and exit contract
 # around it, which that suite cannot reach.

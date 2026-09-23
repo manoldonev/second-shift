@@ -53,23 +53,28 @@ expect_no_violation() { # $1 = fixture, $2 = substring that must NOT appear
   fi
 }
 
+expect_violation invalid-bad-run-caps.json          "run: unknown keys"
+expect_violation invalid-bad-run-caps.json          "run.maxRounds: must be an integer >= 1"
+expect_violation invalid-bad-run-caps.json          "run.checksRedMax: must be an integer >= 1"
+expect_violation invalid-bad-run-caps.json          "run.costCeilingUsd: must be a number > 0"
+expect_violation invalid-bad-run-caps.json          "run.buildTimeoutSeconds: must be an integer >= 60"
+expect_violation invalid-bad-run-caps.json          "run.reviewTimeoutSeconds: must be an integer >= 60"
+expect_violation invalid-bad-smokecommand.json      "design.liveRender.smokeCommand: must be string"
 expect_violation invalid-bad-tracker.json           "tracker.type must be github|jira"
-expect_violation invalid-pair-missing-fe.json       "be-fe-pair requires repos.be and repos.fe"
-expect_violation invalid-monorepo-two-id.json       "commands.<id>.lanes / extraLanes"
-expect_violation invalid-unknown-repo-and-tier.json "commands keyed by unknown repo ids: ghost"
+# commands is keyed by an id the scheduler resolves (the sole key, else this checkout's directory
+# name) and is no longer cross-checked against anything: a second key is legal. The fixture still
+# fails, on its modelOverrides typo, so the no-violation assertion reads a real failing run.
+expect_no_violation invalid-unknown-repo-and-tier.json "commands keyed by unknown repo ids"
 expect_violation invalid-unknown-repo-and-tier.json "reviewers.modelOverrides.security-reviewer: must name a dispatch model (haiku, sonnet, opus, fable) or a tier in the effective tierMap"
-# --- #351. The schema half of modelOverrides degraded to a bare string (the legal set is a
-# cross-field union it cannot express), so config-lint is now the ONLY thing rejecting a
-# mistyped override. These two cases are what keeps that from being a silent widening:
-# a tier-shaped typo must still fail, and tierMap values keep the real closed enum.
+# The schema half of modelOverrides is a bare string (the legal set is a cross-field union it
+# cannot express), so config-lint is the ONLY thing rejecting a mistyped override: a tier-shaped
+# typo must still fail, and tierMap values keep the real closed enum.
 expect_violation invalid-override-unknown-tier.json  "reviewers.modelOverrides.security-reviewer: must name a dispatch model"
 expect_violation invalid-bad-tiermap-value.json      "reviewers.tierMap.code: must be haiku|sonnet|opus|fable"
 
-# reviewers.default — the per-repo opt-in into the trimmed pipeline review panel (#838).
-# Typed here the way remove[] is; the NAME check is check-reviewer-references.sh's
-# (DEFAULT-UNKNOWN), because this lint never reads review-lead's SKILL.md. The valid
-# fixture is what fails when `default` is missing from the reviewers key allowlist —
-# it would come back as the generic "reviewers: unknown keys".
+# reviewers.default — the per-repo opt-in into the trimmed review panel. Typed here the way
+# remove[] is; the NAME check is check-reviewer-references.sh's. The valid fixture is what fails
+# when `default` is missing from the reviewers key allowlist.
 expect_violation invalid-reviewers-default-type.json  "reviewers.default: must be array"
 expect_violation invalid-reviewers-default-entry.json "reviewers.default: every entry must be a string"
 expect_no_violation valid-reviewers-default.json      "reviewers: unknown keys"
@@ -78,108 +83,104 @@ expect_violation invalid-bot-app-unknown-key.json   "tracker.bot.app: unknown ke
 expect_violation invalid-bad-design-provider.json   "design.provider must be figma|claude-design"
 expect_violation invalid-bad-liverender.json        "design.liveRender: unknown keys"
 expect_violation invalid-bad-liverender.json        "design.liveRender.command: required"
-expect_violation invalid-bad-liverender.json        "design.liveRender.cwd: not a topology.repos id"
-# #711 `design.liveRender.tolerancePx`, both rejected shapes. A NUMBER is not enough: the value is
-# a pixel count the gate compares against, so a fractional one is as unusable as a negative one and
-# the two arms of the predicate are separately reachable. The absent and zero cases ride the
-# valid-* glob above (valid-liverender-no-tolerance.json, valid-liverender-tolerance.json) — the
-# key is optional, and 0 is the "exact match or red" boundary a consumer legitimately asks for.
-expect_violation invalid-tolerancepx-negative.json  "design.liveRender.tolerancePx: must be a non-negative integer"
-expect_violation invalid-tolerancepx-fraction.json  "design.liveRender.tolerancePx: must be a non-negative integer"
-# ...and it is a KNOWN key, not one the unknown-keys arm happens to catch. Without this the same
-# violation text would be produced by a lint that never learned the key at all.
-expect_no_violation invalid-tolerancepx-negative.json "design.liveRender: unknown keys"
-# #348 retired stageParams.visualCapture. This fixture no longer carries a BAD viewport — a
-# perfectly well-formed one is enough now, because the key itself is the violation. Renaming the
-# file would break its git history for no gain; the assertion says what it actually proves.
-expect_violation invalid-bad-viewport.json          "stageParams.visualCapture was removed in #348"
 expect_violation invalid-bad-extralane.json         "extraLanes[0].failureClass: must be a closed failure-taxonomy value"
-# #569 retired stageWorkflows / implementDelegates / planGates. Same treatment as
-# invalid-bad-viewport.json above: both fixtures now carry a perfectly WELL-FORMED entry,
-# because the key itself is the violation — a per-item shape check no longer exists to fail.
-# The rejection must NAME the key (a bare "unknown top-level keys" would not say what
-# happened to it), which is why the retired keys stay in config-lint's top-level allowlist.
-expect_violation invalid-bad-stageworkflow.json     "stageWorkflows was removed in #569"
-expect_violation invalid-bad-plangate.json          "planGates was removed in #569"
-# ...and the generic rejection must NOT also fire, or the specific message is drowned by a
-# second one contradicting it. This is the whole point of the allowlist mechanic.
+
+# --- configVersion. The PRIOR version is the case a real consumer hits at the bump; it must be
+# rejected WITH the migration-doc pointer, never a bare "invalid".
+expect_violation invalid-configversion-2.json       "configVersion 2 predates this plugin (current: 3) — see docs/migrations/v2-to-v3.md for the upgrade path"
+expect_violation invalid-configversion-1.json       "configVersion 1 predates this plugin (current: 3) — see docs/migrations/v2-to-v3.md"
+expect_violation invalid-configversion-1.json       "apply docs/migrations/v1-to-v2.md first"
+expect_violation invalid-configversion-0.json       "configVersion 0 predates this plugin (current: 3)"
+expect_violation invalid-configversion-4.json       "configVersion 4 is newer than this plugin understands — upgrade the marketplace pin (docs/releasing.md)"
+# The v3 shape needs no topology: a v2 config that only bumped the number must not be told
+# topology is REQUIRED — it is told the block is gone.
+expect_no_violation valid-standalone-minimal.json   "topology"
+
+# --- Retired keys. Each is rejected by NAME with the migration pointer, never by the generic
+# unknown-keys arm, which would name the key without saying what happened to it or what to write
+# instead. Each fixture carries WELL-FORMED values, because the key itself is the violation.
+expect_violation invalid-removed-topology.json      "topology was removed in configVersion 3"
+expect_violation invalid-removed-topology.json      "topology.type was removed in configVersion 3"
+expect_violation invalid-removed-topology.json      "topology.repos.be.path was removed in configVersion 3"
+expect_violation invalid-removed-topology.json      "topology.repos.be.baseBranch was removed in configVersion 3"
+expect_violation invalid-removed-topology.json      "topology.repos.be.worktreesDir was removed in configVersion 3"
+expect_violation invalid-removed-topology.json      "topology.repos.be.ticketTag was removed in configVersion 3"
+expect_violation invalid-removed-topology.json      "topology.repos.fe.baseBranch was removed in configVersion 3"
+expect_no_violation invalid-removed-topology.json   "unknown top-level keys"
+expect_violation invalid-removed-gates.json         "gates was removed in configVersion 3"
+expect_violation invalid-removed-gates.json         "gates.mutation was removed in configVersion 3"
+expect_violation invalid-removed-gates.json         "gates.costTracking was removed in v2.1.6"
+expect_no_violation invalid-removed-gates.json      "gates: unknown keys"
+expect_violation invalid-v1-gates-figma.json        'gates.figma was removed in v2 — use design: {"provider": ...} (docs/migrations/v1-to-v2.md)'
+expect_violation invalid-removed-grillwaivers.json  "grillWaivers was removed in configVersion 3"
+expect_no_violation invalid-removed-grillwaivers.json "unknown top-level keys"
+expect_violation invalid-removed-stageparams.json   "stageParams was removed in configVersion 3"
+expect_violation invalid-removed-stageparams.json   "stageParams.planFilePattern was removed in configVersion 3"
+expect_violation invalid-removed-stageparams.json   "stageParams.requiredLabels was removed in configVersion 3"
+expect_violation invalid-removed-stageparams.json   "tracker.labels.blockers"
+expect_violation invalid-removed-stageparams.json   "stageParams.webComponentGlobs moved to reviewers.webComponentGlobs in configVersion 3"
+expect_violation invalid-removed-stageparams.json   "stageParams.formatGlob was removed in configVersion 3"
+expect_violation invalid-removed-stageparams.json   "stageParams.inertPattern was removed in configVersion 3"
+expect_no_violation invalid-removed-stageparams.json "unknown top-level keys"
+expect_no_violation invalid-removed-stageparams.json "stageParams: unknown keys"
+expect_violation invalid-bad-viewport.json          "stageParams.visualCapture was removed —"
+expect_violation invalid-removed-liverender-keys.json "design.liveRender.tolerancePx was removed in configVersion 3"
+expect_violation invalid-removed-liverender-keys.json "design.liveRender.cwd was removed in configVersion 3"
+expect_no_violation invalid-removed-liverender-keys.json "design.liveRender: unknown keys"
+# Every retirement above points at the one doc that says what to write instead.
+expect_violation invalid-removed-liverender-keys.json "(docs/migrations/v2-to-v3.md)"
+
+# --- reviewers.webComponentGlobs: the new home of the web-component surface. The valid fixture
+# (valid-schema-key-standalone.json, in the valid-*.json loop) fails when the key is missing from
+# the reviewers allowlist; these pin the type checks it carried under stageParams.
+expect_no_violation valid-schema-key-standalone.json "reviewers: unknown keys"
+expect_violation invalid-webcomponentglobs-entry.json "reviewers.webComponentGlobs: every entry must be a string"
+
+# EP-6/7/8 retired earlier. Same mechanic: the key is the violation, the rejection names it, and
+# the generic rejection must NOT also fire.
+expect_violation invalid-bad-stageworkflow.json     "stageWorkflows was removed —"
+expect_violation invalid-bad-plangate.json          "planGates was removed —"
 expect_no_violation invalid-bad-stageworkflow.json  "unknown top-level keys"
 expect_no_violation invalid-bad-plangate.json       "unknown top-level keys"
-# #574 retired commands.<repo>.unitTestScope / .testFile with the mutation-gate engine —
-# the nested-key sibling of the #569 mechanic above: WELL-FORMED values, because the keys
-# themselves are the violation; the rejection must NAME each key; and the generic
-# unknown-keys message must NOT also fire (the keys stay in the commands allowlist).
-expect_violation invalid-removed-mutation-keys.json "commands.host.unitTestScope was removed in #574"
-expect_violation invalid-removed-mutation-keys.json "commands.host.testFile was removed in #574"
+# commands.<id>.unitTestScope / .testFile — the nested-key sibling of the same mechanic.
+expect_violation invalid-removed-mutation-keys.json "commands.host.unitTestScope was removed —"
+expect_violation invalid-removed-mutation-keys.json "commands.host.testFile was removed —"
 expect_no_violation invalid-removed-mutation-keys.json "commands.host: unknown keys"
-# #107: lintAutofixes:true + a plain `npm run` lint command silently no-ops the autofix the
-# flag declares — npm swallows a trailing `--fix` without a `--` separator. valid-lintautofix-npm-withfix.json
-# (picked up by the valid-*.json loop above) proves the trailing-`--` escape hatch is accepted.
-expect_violation invalid-lintautofix-npm-nofix.json "commands.app.lintAutofixes is true but lint (\"npm run lint\") is a plain \`npm run\` invocation"
-expect_violation invalid-configversion-3.json       "configVersion 3 is newer than this plugin understands — upgrade the marketplace pin (docs/releasing.md)"
-expect_violation invalid-configversion-0.json       "configVersion 0 predates this plugin (current: 2) — see docs/migrations/v1-to-v2.md for the upgrade path"
-# AC-2: the PRIOR version is the case a real consumer hits at the bump; it must be
-# rejected WITH the migration-doc pointer, not a bare "invalid".
-expect_violation invalid-configversion-1.json       "configVersion 1 predates this plugin (current: 2) — see docs/migrations/v1-to-v2.md for the upgrade path"
-expect_violation invalid-v1-gates-figma.json        'gates.figma was removed in v2 — use design: {"provider": ...} (docs/migrations/v1-to-v2.md)'
+# commands.<id>.lintAutofixes left with configVersion 3: rejected by NAME whatever its value, and never
+# as the generic unknown-keys message.
+expect_violation invalid-removed-lintautofixes.json "commands.app.lintAutofixes was removed in configVersion 3"
+expect_violation invalid-removed-lintautofixes.json "docs/migrations/v2-to-v3.md"
+expect_no_violation invalid-removed-lintautofixes.json "commands.app: unknown keys"
+expect_violation invalid-removed-lintautofixes-false.json "commands.app.lintAutofixes was removed in configVersion 3"
 
-# --- stageParams.inertPattern: the two rejection classes need two fixtures, because a
-# single key cannot hold both an empty and an uncompilable value. Empty is caught by the
-# jq pass; uncompilable is only knowable by asking grep, so it is a separate bash-side
-# probe after it. Rejecting at config time is the point: is-inert-diff.sh's fail-closed
-# is a safety net that fires mid-run, not a diagnosis.
-expect_violation invalid-empty-inertpattern.json    "stageParams.inertPattern: must be non-empty"
-expect_violation invalid-bad-inertpattern.json      "stageParams.inertPattern: not a valid extended regular expression"
-
-# --- #15: the config-lint type-check gaps (F83 mutant matrix). One packed fixture, one
-# assertion per surviving-mutant class it must now KILL. Plus the removed-key notes.
-# #569 retired three of the classes along with their keys — stageWorkflows[].stage,
-# implementDelegates[].surface and planGates[].surface have no per-item shape check left to
-# gap. The fixture keeps implementDelegates, repurposed as the removal probe below.
-expect_violation invalid-type-gaps.json             "stageParams.planFilePattern: must be string"
-expect_violation invalid-type-gaps.json             "stageParams.inertPattern: must be string"
+# --- the config-lint type-check gaps. One packed fixture, one assertion per mutant class it
+# must KILL.
 expect_violation invalid-type-gaps.json             "reviewers.remove: must be array"
 expect_violation invalid-type-gaps.json             "commands.host.extraLanes[0].when: must be array"
 expect_violation invalid-type-gaps.json             "paths.plansDir: must be string"
-# The third retired key (#569); its two siblings have dedicated fixtures above.
-expect_violation invalid-type-gaps.json             "implementDelegates was removed in #569"
+expect_violation invalid-type-gaps.json             "implementDelegates was removed —"
 expect_violation invalid-type-gaps.json             "commands.host.lanes[0].cwd: must be string"
 expect_violation invalid-type-gaps.json             "commands.host.lanes[0].commands: must be array"
-expect_violation invalid-type-gaps.json             "commands.host.lanes[1].commands: at least one required when present"
+expect_violation invalid-type-gaps.json             "commands.host.lanes[1].commands: at least one required"
 expect_violation invalid-type-gaps.json             "tracker.bot.enabled: must be boolean"
-expect_violation invalid-type-gaps.json             "stageParams.requiredLabels: every entry must be a string"
-expect_violation invalid-type-gaps.json             "stageParams.webComponentGlobs: must be array"
-expect_violation invalid-webcomponentglobs-entry.json "stageParams.webComponentGlobs: every entry must be a string"
-# grillWaivers: config-grill's declared opt-outs. valid-grillwaivers.json (picked up by the
-# valid-*.json loop above) proves the top-level allowlist accepts the key at all — without that
-# entry the whole surface reds as an unknown top-level key, which is the failure mode a
-# consumer would hit first. An empty reason is a waiver with no accountability, and a
-# non-object is not a waiver map. Its `T4.mutation-plumbing.app` entry is now a RETIRED check
-# id (#877 deleted the check) kept there deliberately: the lint validates a waiver's shape only
-# (object, non-empty string) and never checks the key against a set of known ids, so this pins
-# that a retired id still lints clean rather than being flagged unknown.
-expect_violation invalid-grillwaivers.json          "grillWaivers.T2.formatGlob: must be a non-empty reason string"
-expect_violation invalid-grillwaivers-type.json     "grillWaivers: must be an object keyed by config-grill check id"
+expect_violation invalid-type-gaps.json             "reviewers.webComponentGlobs: must be array"
 
-# --- #100: a non-object lanes[]/extraLanes[] entry must be a CLEAN violation.
-# Before the entry-shape guard, a string/number/array lane lint-clean-passed
-# (jq's right-to-left `+` and `.name?`-on-a-string yielding `empty` collapsed the
-# whole chain), and the verify lane then silently skipped it — a false green. `null`
-# and a non-object extraLane crashed jq with rc=5 instead of reporting. Every
-# non-object type must now name the required shape. The trailing well-formed
-# lane in the fixture proves the guard is per-entry, not a whole-block abort.
+# --- a non-object lanes[]/extraLanes[] entry must be a CLEAN violation. Without the entry-shape
+# guard a string/number/array lane lint-clean-passed (jq's right-to-left `+` and `.name?`-on-a-
+# string yielding `empty` collapsed the whole chain), and the scheduler would then skip it — a
+# false green. The trailing well-formed lane proves the guard is per-entry.
 expect_violation invalid-bad-lane-shape.json        "commands.host.lanes[0]: must be an object"
 expect_violation invalid-bad-lane-shape.json        "commands.host.lanes[1]: must be an object"
 expect_violation invalid-bad-lane-shape.json        "commands.host.lanes[2]: must be an object"
 expect_violation invalid-bad-lane-shape.json        "commands.host.lanes[3]: must be an object"
 expect_violation invalid-bad-lane-shape.json        "commands.host.extraLanes[0]: must be an object"
 
-# --- #15: the two removed dead keys must be rejected with a migration note.
-expect_violation invalid-removed-commands-tiers.json "integrationTest/apiTest were removed in v2.1.6"
-expect_violation invalid-removed-gates-costtracking.json "gates.costTracking was removed in v2.1.6"
+# --- a setup lane with no command is refused by the scheduler's preflight; lint must refuse it too.
+expect_violation invalid-lane-no-commands.json      "commands.host.lanes[0].commands: required"
+expect_violation invalid-lane-no-commands.json      "commands.host.lanes[1].commands: at least one required"
 
-# --- #113: commands.<repo>.build was dead (never executed by any verify lane) and is
-# now formally retired; ship a build tier via extraLanes instead (see the migration doc).
+# --- dead command keys removed earlier keep their migration note.
+expect_violation invalid-removed-commands-tiers.json "integrationTest/apiTest were removed in v2.1.6"
 expect_violation invalid-removed-commands-build.json "commands.<repo>.build was removed"
 
 # --- the modelOverrides tier enum is mirrored in schema/second-shift.config.schema.json
@@ -224,9 +225,8 @@ else
   while IFS= read -r tier; do
     [[ -n "$tier" ]] || continue
     jq -n --arg t "$tier" '{
-      configVersion: 2,
+      configVersion: 3,
       tracker: { type: "github" },
-      topology: { type: "standalone", repos: { app: { path: ".", baseBranch: "main" } } },
       commands: { app: {} },
       reviewers: { tierMap: { code: $t } }
     }' > "$TIER_TMP/tier.json"

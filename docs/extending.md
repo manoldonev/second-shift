@@ -16,7 +16,7 @@ The pocket test:
 
 > **If your change could make a red run green, fork. If it can only make a green run red, extend.**
 
-Concretely, extensions **cannot**: disable a shipped reviewer from inside a knowledge file, rewrite the failure taxonomy, mark a failing lane advisory, mutate canonical pipeline state, or hand a gate a verdict it didn't compute. The two places that *can* subtract — `reviewers.remove` and `gates` — are config keys, so a subtraction is a one-line, reviewable, auditable diff in `.claude/second-shift.config.json`, never a side effect buried in prose. Everything additive is fail-closed: an unresolvable reference is a config-lint or pre-flight failure, not a silent skip.
+Concretely, extensions **cannot**: disable a shipped reviewer from inside a knowledge file, rewrite the failure taxonomy, mark a failing lane advisory, mutate canonical pipeline state, or hand a gate a verdict it didn't compute. The two places that *can* subtract — `reviewers.remove` and `commands.<repo>.allowUnverified` — are config keys, so a subtraction is a one-line, reviewable, auditable diff in `.claude/second-shift.config.json`, never a side effect buried in prose. Everything additive is fail-closed: an unresolvable reference is a config-lint failure, not a silent skip.
 
 Hold onto that and the rest of this document is just *which mechanism*.
 
@@ -26,12 +26,12 @@ You have a repo-, org-, or domain-specific need. Walk it down this list; the fir
 
 | You want to… | Use | Layer | Blocking? |
 | --- | --- | --- | --- |
-| Change a **value** the plugin hardcodes (a path, a URL, a command, a label set, a plan-file name) | `stageParams` / `commands` / `paths` config | config | n/a |
-| Add a **check of your own** to every run (a linter, a contract check, a custom test suite, a schema-diff gate, a license scan, a codegen-drift check) | `commands.<repo>.extraLanes` (EP-2) | config | no — advisory on milestone 3; block it in your own CI |
+| Change a **value** the plugin hardcodes (a path, a command, a label set, the web-component globs) | `commands` / `paths` / `tracker.labels` / `reviewers.webComponentGlobs` config | config | n/a |
+| Add a **check of your own** to every run (a linter, a contract check, a custom test suite, a schema-diff gate, a license scan, a codegen-drift check) | `commands.<repo>.extraLanes` (EP-2) | config | yes — the scheduler runs it after every build |
 | Add **domain knowledge** a shipped agent should read (blocker mutants, security rules, review context, design tokens, doc routing) | an **extension file** under `.claude/second-shift/` | knowledge | additive to that agent |
 | Add a **whole new reviewer** dimension for this repo | a repo-local agent in `.claude/agents/` + `reviewers.add` | config + agent | it's a reviewer |
 | Put a **shipped reviewer the pipeline no longer dispatches by default** (security, a11y, unit-test-mutation) back in every pipeline round here | `reviewers.default` config (§3.3b) | config | it's a reviewer |
-| Turn on **design-fidelity** review against Figma or Claude-Design | `design.provider` config | config | fail-closed gate |
+| Turn on **design-fidelity** review against Figma or Claude-Design | `design.provider` config | config | yes — per-ticket frames, route smoke, review render |
 | Ship any of the above **across many repos in your org**, versioned and pinned | a **companion pack** plugin (EP-5) that the config points at | its own plugin | per the mechanism it uses |
 
 **Three rows used to sit in that table and no longer do.** `stageWorkflows` (EP-6),
@@ -54,35 +54,21 @@ When two rows both seem to fit, prefer the **narrower, more auditable** one: con
 
 One minimal example per extension point. Throughout, `acme` is a stand-in for your org or repo — substitute freely.
 
-### 3.1 `stageParams` — reparameterize a shipped literal
+### 3.1 Values — reparameterize a shipped literal
 
-Every `stageParams` key defaults to the plugin's current literal, so an empty config reproduces today's behavior byte-for-byte. Set only what differs.
+A value the plugin would otherwise hardcode lives in config, and every such key defaults to the shipped literal, so set only what differs:
 
 ```jsonc
 {
-  "stageParams": {
-    "planFilePattern": "{plansDir}/plan-{issueKey}.md",   // drop the shipped "acme-" prefix
-    "requiredLabels": ["ready", "in-progress"],                   // your tracker's label vocabulary
-    "formatGlob": "*.{ts,tsx,css,md}",
-    // INERT-lane classifier override. is-inert-diff.sh applies it when a caller passes
-    // it in; the default set is JS/TS-centric and treats *.md and *.sh as zero-coverage —
-    // true for a TS app, false when shell IS the product.
-    // CURRENTLY UNCONSUMED: preflight.sh was the only runtime caller that resolved this
-    // key, and that read went with the staged lane. The pipeline's milestone-3
-    // verify has deliberately no inert lane, and the pre-commit type-check hook carries
-    // its own hardcoded carve-out instead of reading config. config-lint still accepts
-    // the key, so setting it stays legal and today changes nothing.
-    // REPLACES the default outright (only replacement can remove `\.sh$`), so it is a
-    // hand-copy that won't inherit later additions. Omit the key to keep the default.
-    "inertPattern": "(\\.md$|^\\.github/workflows/.*\\.yml$)",
-    "webComponentGlobs": ["src/**/*.vue"]                          // a11y + design-fidelity reviewer trigger — set when the FE isn't React under apps/web
-  }
+  "paths": { "plansDir": "docs/decisions" },                     // where the intake record is committed
+  "tracker": { "labels": { "queue": "ready", "claimed": "wip" } }, // your tracker's label vocabulary
+  "reviewers": { "webComponentGlobs": ["src/**/*.vue"] }          // a11y + design-fidelity routing — set when the FE isn't React under apps/web
 }
 ```
 
 Pure parameterization — no ordering, no logic. A published key that nothing actually reads is caught by `check-config-shadowing.sh` (surface rot is a lint failure, not a silent no-op).
 
-The mirror-image rot — a key nothing *sets*, so the shipped default silently matches nothing in your repo — is caught by [`config-grill.sh`](../plugins/second-shift/skills/onboard/tools/config-grill.sh), which `/second-shift:onboard` runs on its draft before the accept-or-edit screen and `/second-shift:doctor` runs on the committed config. `config-lint` cannot see any of it: absence is legal for every optional key, so a structural validator never looks at the tree, and a capability that is off simply never runs while the run still reports green. The grill does look, names what you get for setting the key, and forces a disposition — fix it, or declare it in the top-level `grillWaivers` object (`{"<check id>": "<reason>"}`), the same deliberate-declared-opt-out shape as `commands.<repo>.allowUnverified`. Field reference: [`config-schema.md`](config-schema.md).
+The mirror-image rot — a key nothing *sets*, so the shipped default silently matches nothing in your repo — is reported by [`config-grill.sh`](../plugins/second-shift/skills/onboard/tools/config-grill.sh), which `/second-shift:onboard` runs on its draft before the accept-or-edit screen and `/second-shift:doctor` runs on the committed config. `config-lint` cannot see any of it: absence is legal for every optional key, so a structural validator never looks at the tree. The grill does look and names what you get for setting the key; its findings are advisory. Field reference: [`config-schema.md`](config-schema.md).
 
 ### 3.2 `extraLanes` — add a verify command
 
@@ -106,9 +92,11 @@ You have a check the built-in lanes don't cover (a custom lint, a contract test,
 }
 ```
 
-Extra lanes run **sequentially after** the built-in SUITE lanes, never interleaving or replacing them; results land under a namespaced `ext:openapi-drift` key so canonical lane keys stay unreachable. Extra lanes are **advisory**: a red one is recorded as a `milestone-3 | advisory` row and costs no fix attempt, and milestone 3 blocks only on `typecheck`. To make a lane blocking, run the same command as a required check in your own CI. `failureClass` must be one of the closed taxonomy values (`FORMAT`, `LINT_AUTOFIX`, `TYPE_ERROR`, `TEST_FAILURE`, `PLAN_CMD_FAILURE`, `INFRA`) — extensions borrow the taxonomy, they never extend it — and the lane gets the standard 2-attempt fix budget.
+`/dev-pipeline:run` runs extra lanes itself after every build, **sequentially after** the built-in `lint` / `typecheck` / `test` / `format`, never interleaving or replacing them. A lane with `when` globs runs only when the branch changes a matching file (counted from the intake record's commit); one without runs always. Every lane **blocks**: a red one sends its log to the next build session and spends one attempt on the checks-red counter (`run.checksRedMax`, default 3), never a build round. The build session is told to run the same commands before it pushes, so a red is usually caught before the scheduler sees it. `failureClass` must be one of the closed taxonomy values (`FORMAT`, `LINT_AUTOFIX`, `TYPE_ERROR`, `TEST_FAILURE`, `PLAN_CMD_FAILURE`, `INFRA`) — extensions borrow the taxonomy, they never extend it; the scheduler treats every red the same way.
 
-A build/compile step (`ng build`, `tsc --noEmit --project ...`) is a common `extraLanes` use: it runs after the trio, and — unlike a lint or unit-test lane — catches breaks a spec doesn't happen to exercise (e.g. an Angular AOT template referencing a nonexistent property, invisible to `typecheck`/`test` unless some spec transitively imports the broken component). `failureClass: "TYPE_ERROR"` fits: the class already covers compile-time breaks the type-check lane didn't catch. `/second-shift:onboard` drafts this automatically when it detects a build command.
+A ticket can add checks of its own too: its intake record's `## Checks` section lists commands the scheduler runs beside the configured ones, for that ticket only.
+
+A build/compile step (`ng build`, `tsc --noEmit --project ...`) is a common `extraLanes` use: it runs after the built-in lanes, and — unlike a lint or unit-test lane — catches breaks a spec doesn't happen to exercise (e.g. an Angular AOT template referencing a nonexistent property, invisible to `typecheck`/`test` unless some spec transitively imports the broken component). `failureClass: "TYPE_ERROR"` fits: the class already covers compile-time breaks the type-check lane didn't catch. `/second-shift:onboard` drafts this automatically when it detects a build command.
 
 ### 3.3 `reviewers.add` — a repo-local reviewer
 
@@ -148,7 +136,7 @@ Names are spelled the way `reviewers.remove` spells them. `config-lint.sh` types
 
 **It is additive and only additive.** `reviewers.default` can put a reviewer *into* the pipeline's panel; it can never take one out, and naming a subset does not drop the reviewers you left out. Dropping a shipped reviewer is still `reviewers.remove`'s job (§1) — which is why the "the two places that can subtract" rule up top is still exactly two.
 
-The **per-ticket** opt-in is not config at all: a row in the committed spec's `## Decision Ledger` whose Decision cell is `review panel`, whose Resolution is a comma-separated list of the short names `security`, `a11y`, `unit-test-mutation`, and whose provenance is `user-answered` or `user-delegated`.
+The **per-ticket** opt-in is not config at all: a row in the ticket's committed intake record (its `## Decision Ledger`) whose Decision cell is `review panel`, whose Resolution is a comma-separated list of the short names `security`, `a11y`, `unit-test-mutation`, and whose provenance is `user-answered` or `user-delegated`.
 
 ```
 | D-4 | review panel | security, a11y | user-answered |
@@ -168,9 +156,9 @@ The shipped agents are domain-blind by design; you feed them domain knowledge th
 .claude/second-shift/doc-routing.md          # change-category → doc-path map for doc updates
 ```
 
-Each consuming agent's prompt names its own file and loads it *if present*, treating the contents as additive — they can tighten review, never weaken the generic protocol. What files exist and who reads them is the table in [`extension-points.md`](extension-points.md); this is the "add evidence" half of the axiom in its purest form. Every file you drop here must match the shipped **extension manifest** or your own `.known-extensions` allowlist (§4.3), or `check-extensions.sh` fails closed — a typo'd `security-rules.md.md` is loud, not silently ignored. The *named sections inside* `review-context.md` (and `review-context/<r>.md`) are linted too: `check-review-context-sections.sh` matches your H2 headings against the shipped section catalog, so a drifted spelling (`## Maturity calibration` vs `## Maturity stage`) or an empty section body is caught at pre-work preflight — see [extension-points.md → Authoring the review-context surface](extension-points.md#authoring-the-review-context-surface).
+Each consuming agent's prompt names its own file and loads it *if present*, treating the contents as additive — they can tighten review, never weaken the generic protocol. What files exist and who reads them is the table in [`extension-points.md`](extension-points.md); this is the "add evidence" half of the axiom in its purest form. Every file you drop here must match the shipped **extension manifest** or your own `.known-extensions` allowlist (§4.3), or `check-extensions.sh` fails closed on it. Nothing runs that lint for you: a typo'd `security-rules.md.md` stays silently ignored until you run it by hand from the dev-pipeline plugin's `tools/`. The *named sections inside* `review-context.md` (and `review-context/<r>.md`) have their own lint, `check-review-context-sections.sh`, which matches your H2 headings against the shipped section catalog and flags a drifted spelling (`## Maturity calibration` vs `## Maturity stage`) or an empty section body. Onboard runs it once after scaffolding and doctor shows its coverage report; otherwise it too runs only by hand — see [extension-points.md → Authoring the review-context surface](extension-points.md#authoring-the-review-context-surface).
 
-One class of extension prose is subtractive **in effect** despite the additive surface: maturity-calibration claims ("no auth system exists yet") that reviewers honor as severity downgrades. A stale claim is a standing waiver no diff ever re-reviews — the pocket test failing with nobody having changed anything. Those claims must be declared as **verified calibration claims** (the fenced `second-shift-claims` block — grammar and failure classes in [`extension-points.md`](extension-points.md)): a mandatory `reverify-by` expiry that FAILs pre-flight when passed, plus optional declarative probes. The mechanism itself honors the axiom — it adds ways to go red and none to go green (a passing probe reports `not-yet-contradicted`, never "verified").
+One class of extension prose is subtractive **in effect** despite the additive surface: maturity-calibration claims ("no auth system exists yet") that reviewers honor as severity downgrades. A stale claim is a standing waiver no diff ever re-reviews — the pocket test failing with nobody having changed anything. Those claims must be declared as **verified calibration claims** (the fenced `second-shift-claims` block — grammar in [`extension-points.md`](extension-points.md)): a mandatory `reverify-by` expiry past which reviewers treat the claim as absent. The mechanism itself honors the axiom — an expired claim stops waiving anything; nothing makes a claim grant more.
 
 ### 3.5 `design.provider` — turn on design-fidelity review
 
@@ -180,7 +168,7 @@ An opt-in axis, off unless the key is present:
 { "design": { "provider": "figma" } }        // or "claude-design"
 ```
 
-`figma` selects the figma-faithful skills and requires a Figma MCP connection; `claude-design` selects the design-faithful skills and requires DesignSync. Same fail-closed posture as every gate: if the provider's prerequisite is missing at run time, the design steps fail closed rather than degrading silently. Absent key = a run behaves exactly like a non-design run. The design-system reference itself (component catalog, token roles) is knowledge — it lives in `.claude/second-shift/design-tokens/*.md`, an extension file per §3.4. To make the live-render verify gate actually execute (a repo-owned render command the gate screenshots through, blocking on `/dev-pipeline:build` milestone 3), add the optional `design.liveRender` block — see [`live-render.md`](live-render.md).
+`figma` selects the figma-faithful skills and requires a Figma MCP connection; `claude-design` selects the design-faithful skills and requires DesignSync. With it set, every ticket's intake record must declare its screens (`## Design frames`) or disarm with a reason, or the run refuses. Absent key = a run behaves exactly like a non-design run. The design-system reference itself (component catalog, token roles) is knowledge — it lives in `.claude/second-shift/design-tokens/*.md`, an extension file per §3.4. To let the scheduler smoke each declared route and the sessions render what they built, add the `design.liveRender` block — see [`live-render.md`](live-render.md).
 
 ### 3.6 `stageWorkflows` — a blocking gate owned by you (EP-6) — **RETIRED (#569)**
 
@@ -198,7 +186,7 @@ An opt-in axis, off unless the key is present:
 > rejection is the only mechanism that reaches them. Re-adding a key later is a minor release;
 > removing one is breaking — so the retirement happened in the window #348 already opened.
 
-The need it answered: something heavier than a verify command — a real workflow that ran at a chosen stage and blocked completion. A schema-compatibility gate before implementation, a codegen-drift check, a license scan. (For that need today, reach for `extraLanes` (§3.2): it is a blocking verify lane with a real `failureClass`, and it is read by `milestone-gate.sh` milestone 3.)
+The need it answered: something heavier than a verify command — a real workflow that ran at a chosen stage and blocked completion. A schema-compatibility gate before implementation, a codegen-drift check, a license scan. (For that need today, reach for `extraLanes` (§3.2): it is a blocking check the scheduler runs after every build.)
 
 ```jsonc
 // NOT VALID CONFIG — config-lint rejects this key by name (#569). Shown as designed.
@@ -258,7 +246,7 @@ The need it answered: certain implementation work done by a specialist agent ins
 > rejection is the only mechanism that reaches them. Re-adding a key later is a minor release;
 > removing one is breaking — so the retirement happened in the window #348 already opened.
 
-The need it answered: an extra reviewer of the *plan itself* — a QA-tier review of the test strategy for a surface, an ADR-compliance check — able to block a bad plan before any code was written. The pipeline has no plan gate for one to be additive to; the spec is judged at the merge boundary by `/dev-pipeline:review`, after the diff exists.
+The need it answered: an extra reviewer of the *plan itself* — a QA-tier review of the test strategy for a surface, an ADR-compliance check — able to block a bad plan before any code was written. The pipeline has no plan gate for one to be additive to; the intake record is judged by the review session, after the diff exists.
 
 ```jsonc
 // NOT VALID CONFIG — config-lint rejects this key by name (#569). Shown as designed.
@@ -269,7 +257,7 @@ The need it answered: an extra reviewer of the *plan itself* — a QA-tier revie
 }
 ```
 
-As designed, each plan gate ran **after** the built-in plan gates (plan-reviewer, design FE-spec, unit-test-plan) as an additive trinary reviewer over the plan, appearing in the gate ledger as `plan-gate:<name>`; `surface` (optional) scoped it to plans touching that glob, and a `block` mapped to the existing `plan-reviewer-block` reason (no per-extension enum value) — able to make a passing plan review *block*, never to waive a built-in gate. It was conceived as the plan-stage counterpart of `extraLanes` and `reviewers.add`, but that symmetry no longer holds: **those two still run** — `extraLanes` is read by `milestone-gate.sh` milestone 3 and `reviewers.add` by `review-lead` — while this seam has no dispatcher. `agent` is `"<plugin>:<agent>"` or a bare repo-local name; unresolvable fails closed at pre-flight.
+As designed, each plan gate ran **after** the built-in plan gates (plan-reviewer, design FE-spec, unit-test-plan) as an additive trinary reviewer over the plan, appearing in the gate ledger as `plan-gate:<name>`; `surface` (optional) scoped it to plans touching that glob, and a `block` mapped to the existing `plan-reviewer-block` reason (no per-extension enum value) — able to make a passing plan review *block*, never to waive a built-in gate. It was conceived as the plan-stage counterpart of `extraLanes` and `reviewers.add`, but that symmetry no longer holds: **those two still run** — `extraLanes` by the `/dev-pipeline:run` scheduler and `reviewers.add` by `review-lead` — while this seam has no dispatcher. `agent` was `"<plugin>:<agent>"` or a bare repo-local name; an unresolvable one failed closed at pre-flight.
 
 ### 3.9 Companion pack — package the above for the whole org
 
@@ -309,7 +297,7 @@ api-testing/*.md
 platform/*.md
 ```
 
-`check-extensions.sh` unions these globs onto the shipped manifest. This keeps "missing extension = generic behavior" a *checked* contract — a stray or typo'd file is still loud — while letting your org's companion/repo-local files live legitimately alongside the shipped set. The allowlist widens what's *recognized*; it never widens what any file is *allowed to do* — extension files remain additive-only no matter where they came from.
+`check-extensions.sh` unions these globs onto the shipped manifest. A stray or typo'd file still fails that lint when you run it, while letting your org's companion/repo-local files live legitimately alongside the shipped set. The allowlist widens what's *recognized*; it never widens what any file is *allowed to do* — extension files remain additive-only no matter where they came from.
 
 ---
 
@@ -318,7 +306,7 @@ platform/*.md
 > **Half of this study is a historical record — read §3.6-3.8 first.** Three of the five
 > mechanisms it composes (`stageWorkflows`, `implementDelegates`, `planGates`) lost their
 > dispatcher with the staged lane and then their config keys: `config-lint` rejects them by name, so
-> a config carrying them **fails pre-flight**. The `extraLanes`, `reviewers.add` and
+> a config carrying them **fails config-lint**. The `extraLanes`, `reviewers.add` and
 > extension-file halves still run, and the config block below carries only those.
 > The retired halves are shown separately, as design record, because this is the only worked
 > example of how the five composed — and it is the argument any replacement dispatcher would
@@ -338,8 +326,8 @@ tier that still dispatch, registered and auditable. This block is valid config; 
 
 ```jsonc
 {
-  // RUN the suite — LIVE: read by milestone-gate.sh milestone 3. The API suite is an advisory
-  // verify lane (block on it in your own CI), gated to when API surface changed.
+  // RUN the suite — LIVE: run by the scheduler after every build. A blocking check,
+  // gated to when API surface changed.
   "commands": {
     "<repo-id>": {
       "extraLanes": [
@@ -365,7 +353,7 @@ plan and a different author at the implementation, and neither has a home on the
 // RETIRED — DO NOT PUT THIS IN A CONFIG. Design record only (§3.7-3.8).
 {
   // gate the PLAN (§3.8). As designed: block a ticket whose API-test strategy is wrong
-  // before any code exists. No equivalent on the lane — the spec is judged at the merge boundary.
+  // before any code exists. No equivalent on the lane — the record is judged at review.
   "planGates": [
     { "name": "api-plan", "surface": "tests/api/**", "agent": "acme-qa-pack:api-test-plan-reviewer" }
   ],
@@ -391,7 +379,7 @@ api-testing/*.md
 | --- | --- | --- | --- | --- |
 | plan review | `planGates` (EP-8) | `api-test-plan-reviewer` judges the plan's test strategy | `block` → `plan-reviewer-block` | **retired** — no equivalent on the lane |
 | implement | `implementDelegates` (EP-7) | `api-test-coder` writes `tests/api/**` | output passes the unchanged scope + downstream gates | **retired** — a session may still choose the agent |
-| verify | `extraLanes` (EP-2) | the API suite runs | nonzero → `TEST_FAILURE`, standard budget | live (`milestone-gate.sh` milestone 3) |
+| verify | `extraLanes` (EP-2) | the API suite runs | nonzero → red, checks-red budget | live (`/dev-pipeline:run`) |
 | code review | `reviewers.add` | `api-test-reviewer` reviews the tests | its verdict folds into the review round | live (`review-lead`) |
 
 Every one of these **adds** a gate or a unit of work; not one can waive a shipped check — an API-test tier can only make a green run *red* (a bad plan, a failing suite, a rejected review), which is exactly the fork-vs-extend line from §1. And because the wiring lives in the consumer's config, anyone auditing the repo sees the whole tier in one file — while the *implementation* (agents, skill) is versioned and pinned in the pack, bumped independently.
@@ -400,4 +388,4 @@ Every one of these **adds** a gate or a unit of work; not one can waive a shippe
 
 ---
 
-**In one breath:** config for values and switches; extension files to add evidence; `extraLanes` to add an advisory verify lane and `reviewers.add` to add a review dimension — both registered from config so they're auditable; a companion pack to ship any of it across an org, two-pinned and namespaced. (The plan-gate and delegate seams that once sat alongside them are retired and survive only as the design record in §3.6-3.8.) And through all of it: extensions add, they never subtract; if your change could turn a red run green, you wanted a fork.
+**In one breath:** config for values and switches; extension files to add evidence; `extraLanes` to add a blocking check and `reviewers.add` to add a review dimension — both registered from config so they're auditable; a companion pack to ship any of it across an org, two-pinned and namespaced. (The plan-gate and delegate seams that once sat alongside them are retired and survive only as the design record in §3.6-3.8.) And through all of it: extensions add, they never subtract; if your change could turn a red run green, you wanted a fork.

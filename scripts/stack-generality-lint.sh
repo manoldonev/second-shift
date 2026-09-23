@@ -10,17 +10,16 @@
 # from prose describing the anti-pattern to refuse.
 #
 # Legs (each with a declared path scope and check direction):
-#   .project/ absence  — no `.project/` literal in the three dev-pipeline lane-contract
+#   .project/ absence  — no `.project/` literal in the two dev-pipeline lane-contract
 #                        SKILLs (file-wide), nor in review-toolkit/agents/doc-updater.md's
 #                        FRONTMATTER block. The doc-updater body legitimately mentions
 #                        `.project/` (anti-pattern prose and a labeled illustration
 #                        block), so only its frontmatter is scanned.
-#   unit-testing absence — zero `unit-testing` references under plugins/, excluding the
-#                        measurement baseline prose-budget.baseline.tsv (data, not a
-#                        reference). This script and its selftest live in scripts/,
-#                        outside the scan scope, so they need no self-exclusion.
-#   (AC-n) presence    — the literal `(AC-n)` token still present at both convention
-#                        sites (the pipeline-retro AC-coverage grep depends on it).
+#   unit-testing absence — zero `unit-testing` references under plugins/. This script
+#                        and its selftest live in scripts/, outside the scan scope, so
+#                        they need no self-exclusion.
+#   (AC-n) presence    — the literal `(AC-n)` token still present at its convention
+#                        site, the declarer of the test-title convention.
 #
 # Invocation: CI runs this via stack-generality-lint-selftest.sh's clean-tree case
 # (the *-selftest.sh glob on both CI lanes) — no ci.yml registration needed.
@@ -36,11 +35,10 @@ fail() { echo "[stack-generality] ✗ $1" >&2; violations=$((violations + 1)); }
 
 # ---- .project/ absence -------------------------------------------------------
 
-# The lane contracts a consumer's prompts come from are the three lean SKILLs, so
+# The lane contracts a consumer's prompts come from are the two lane SKILLs, so
 # they take the slot — the leg guards "the dev-pipeline's own contract prose carries no
 # birth-stack doc root", and that claim is about whichever files hold the contract.
 PROJECT_FILEWIDE=(
-  "plugins/dev-pipeline/skills/build/SKILL.md"
   "plugins/dev-pipeline/skills/review/SKILL.md"
   "plugins/dev-pipeline/skills/run/SKILL.md"
 )
@@ -68,7 +66,7 @@ fi
 if [[ ! -d "$ROOT/plugins" ]]; then
   fail "scan root missing: plugins/"
 else
-  hits="$(grep -rn 'unit-testing' "$ROOT/plugins" 2>/dev/null | grep -v 'prose-budget\.baseline\.tsv' || true)"
+  hits="$(grep -rn 'unit-testing' "$ROOT/plugins" 2>/dev/null || true)"
   if [[ -n "$hits" ]]; then
     fail "unit-testing reference(s) reintroduced under plugins/ (first: $(printf '%s\n' "$hits" | head -1))"
   fi
@@ -76,19 +74,15 @@ fi
 
 # ---- (AC-n) presence ---------------------------------------------------------
 
-# RE-ANCHORED in #348: stages/5-implement.md was the staged declarer and is deleted.
-# mutation-review/SKILL.md is now the sole DECLARER of the test-title convention, and
-# pipeline-retro/SKILL.md its CONSUMER (its AC-coverage audit greps the PR diff for `(AC-n)`
-# titles). Both sides are named, so dropping the token from either one reds.
+# mutation-review/SKILL.md is the sole DECLARER of the test-title convention.
 ACN_SITES=(
   "plugins/review-toolkit/skills/mutation-review/SKILL.md"
-  "plugins/dev-pipeline/skills/pipeline-retro/SKILL.md"
 )
 for f in "${ACN_SITES[@]}"; do
   if [[ ! -f "$ROOT/$f" ]]; then
     fail "convention site missing: $f"
   elif ! grep -qF '(AC-n)' "$ROOT/$f"; then
-    fail "literal (AC-n) token missing from $f (the pipeline-retro AC-coverage grep depends on it)"
+    fail "literal (AC-n) token missing from $f (the test-title convention it declares)"
   fi
 done
 

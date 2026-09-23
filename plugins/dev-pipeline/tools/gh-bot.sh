@@ -11,12 +11,12 @@
 #
 # Ladder (claim-issue.sh was the most complete copy — worktree-safe root + ~ expansion):
 #   1. the env var named by config tracker.bot.envVar (default GH_BOT), read
-#      indirectly — keeps the mock seam claim-selftest / cost-block-selftest inject
+#      indirectly — keeps the mock seam claim-selftest injects
 #   2. config tracker.bot.wrapperPath, ~-expanded
 #   3. $HOME/.config/<consumer-repo-dir-basename>/gh-as-bot.sh
 #
 # disabled short-circuits before rung 1: a bot-disabled repo never picks up a
-# wrapper from the environment (cost-block-selftest AC-4 stray-var guard).
+# wrapper from the environment (gh-bot-selftest's (disabled) cases).
 #
 # Env:
 #   SECOND_SHIFT_CONFIG     override config path
@@ -74,7 +74,7 @@ fi
 # Path formation always runs so --path can serve install-gh-bot.sh (destination
 # before the file exists). Status classification is separate: disabled short-
 # circuits BEFORE rung 1 so a bot-disabled repo never picks up a stray env var
-# (cost-block-selftest AC-4).
+# (gh-bot-selftest's (disabled) cases).
 _status="unset-var"
 _path=""
 _env_val=""

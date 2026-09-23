@@ -1,0 +1,13 @@
+{
+  "configVersion": 3,
+  "tracker": {
+    "type": "github"
+  },
+  "commands": {
+    "app": {
+      "lint": "eslint --fix .",
+      "lintAutofixes": true,
+      "test": "npm run test"
+    }
+  }
+}

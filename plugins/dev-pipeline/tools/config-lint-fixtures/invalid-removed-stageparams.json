@@ -1,0 +1,24 @@
+{
+  "configVersion": 3,
+  "tracker": {
+    "type": "github"
+  },
+  "commands": {
+    "app": {
+      "lint": "yarn lint",
+      "test": "yarn test"
+    }
+  },
+  "stageParams": {
+    "planFilePattern": "{plansDir}/acme-{issueKey}.md",
+    "requiredLabels": [
+      "ready-for-dev",
+      "in-progress"
+    ],
+    "webComponentGlobs": [
+      "src/**/*.vue"
+    ],
+    "formatGlob": "*.{ts,tsx}",
+    "inertPattern": "\\.md$"
+  }
+}

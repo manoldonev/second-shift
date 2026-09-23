@@ -52,7 +52,7 @@ if [[ -z "$_root" ]]; then
 fi
 
 # Config overlay: bot app identity only. Wrapper destination is gh-bot.sh --path
-# (single ladder with claim-issue / cost-block / doctor — #92).
+# (single ladder with claim-issue / doctor — #92).
 _cfg="${SECOND_SHIFT_CONFIG:-$_root/.claude/second-shift.config.json}"
 if [[ -f "$_cfg" ]] && command -v jq >/dev/null; then
   _v() { jq -r "$1 // empty" "$_cfg" 2>/dev/null; }

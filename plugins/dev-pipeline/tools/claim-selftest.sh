@@ -2,8 +2,8 @@
 #
 # Self-test for the claim swap helper (tools/claim-issue.sh).
 #
-# A self-test in the style of the other tools/ harnesses, located under tools/
-# and wired into pipeline-doctor.sh (block 5e). Pure-local: no Claude CLI, no
+# A self-test in the style of the other tools/ harnesses, located under tools/.
+# Pure-local: no Claude CLI, no
 # network, no real `gh` — it injects a MOCK bot wrapper via the helper's `GH_BOT`
 # env seam and drives the add-labels response so BOTH the successful-add (DELETE
 # runs) and failed-add (DELETE skipped, ready-for-dev intact) paths are exercised.
@@ -20,8 +20,7 @@
 # failure #170 hardened against) and a pure non-zero POST exit are both covered.
 #
 # DRIFT MODEL: the parity tail asserts claim-issue.sh still carries the load-bearing
-# tokens AND that SKILL.md / 1-intake.md reference the helper rather than re-inlining
-# the snippet (the #170/#183 no-duplication goal).
+# tokens.
 
 set -uo pipefail
 
@@ -212,7 +211,7 @@ if [[ "$rc" == "2" ]] && ! deleted; then ok "no issue arg -> exit 2 (usage), no 
 # Every case above runs on the DEFAULT labels, so a mutant that hardcodes the DELETE URL
 # to `labels/ready-for-dev` (a plausible default-inlining refactor, or a partial #11
 # revert) emits byte-identical calls and passes all of them. Production calls this helper
-# with CONFIG-RESOLVED labels (stages/1-intake.md), so on a consumer with a custom queue
+# with CONFIG-RESOLVED labels (run.sh), so on a consumer with a custom queue
 # label that mutant 404s the DELETE, the script swallows it (set -uo pipefail, no -e) and
 # exits 0 — leaving the issue claimed-but-still-queued, the silent label-corruption class
 # #170/#183 exist to prevent. Drive non-default labels end to end and assert BOTH calls
@@ -250,10 +249,7 @@ else
   # Only the pin the behavioral half genuinely cannot reach is kept (#214). The confirm
   # branch, the exit-1 abort, the DELETE target and the GH_BOT seam are all proven by the
   # cases above — the seam by the mock working at all, and case (g) now covers the
-  # config-driven label path that used to rest on a token pin. The three markdown greps
-  # over SKILL.md / 1-intake.md were the banned prose-presence class: they assert only
-  # that prose contains words, and the anti-inline pattern could not even match a
-  # re-inline of the helper's current form.
+  # config-driven label path that used to rest on a token pin.
   # Anchored on the INVOCATION, not a bare `gh-bot\.sh` substring: that pattern also
   # matches this file's own header comments (#92's "delegates ... resolve to gh-bot.sh"
   # sentence), so deleting the actual delegation at the `bash "$_RESOLVER" --path` call

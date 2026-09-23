@@ -1,0 +1,21 @@
+{
+  "$schema": "https://raw.githubusercontent.com/manoldonev/second-shift/v2.1.0/schema/second-shift.config.schema.json",
+  "configVersion": 3,
+  "tracker": {
+    "type": "github"
+  },
+  "commands": {
+    "app": {
+      "lint": "yarn lint",
+      "test": "yarn test"
+    }
+  },
+  "run": {
+    "maxRounds": 0,
+    "bogus": 1,
+    "checksRedMax": 2.5,
+    "costCeilingUsd": 0,
+    "buildTimeoutSeconds": 600.5,
+    "reviewTimeoutSeconds": 30
+  }
+}

@@ -65,16 +65,16 @@
 #   --cache-dir   marker store for the pass cache. Absent, no suite is ever skipped.
 #   --cache-write additionally RECORD passes into that store. Requires --cache-dir.
 #
-#   $LANE_SELFTEST_CACHE_DIR is the same store handed down by milestone-gate.sh milestone 3, which
-#   cannot pass a flag to a lane command it does not own — see #563 below. Argv wins; unset is
-#   a no-op; recording is on for that path and the reasoning is at the reading site.
+#   $LANE_SELFTEST_CACHE_DIR is the same store handed down through the environment, for a caller
+#   that cannot pass a flag to a `test` command it does not own — see the pipeline's store below.
+#   Argv wins; unset is a no-op; recording is on for that path and the reasoning is at the
+#   reading site.
 #
 # EXIT: 0 iff every run suite passed. Non-zero names every failing suite. 2 for a usage error,
 # a stale exclusion, a malformed cache-input table, or a discovered/run count disagreement.
 # 3 (#527) when there were failures and EVERY one of them is the no-verdict infrastructure class —
 # the workers died rather than the suites failing, so the sweep learned nothing about the tree.
-# Mixed infra-and-real is 1, because a red branch is still a red branch. milestone-gate.sh milestone 3
-# reads 3 from any verify lane as infrastructure and charges no fix attempt.
+# Mixed infra-and-real is 1, because a red branch is still a red branch.
 #
 # NOT `set -e`: this harness runs other people's suites and SCORES their exit codes.
 set -uo pipefail
@@ -182,13 +182,13 @@ ROOT="$(cd "$ROOT" && pwd)"
 
 # ---- the slow-suite table (#566) -------------------------------------------------------
 # ON BY DEFAULT, and `--full` is the opt-out. The inverse — an opt-in `--quick` — was rejected
-# at intake for a reason that is structural rather than stylistic: the only caller that WANTS
-# the bound is milestone-gate.sh milestone 3, which runs a `test` command out of a consumer's
-# gitignored config. An opt-in flag would therefore have to be added by hand to an untracked
-# file that no gate can read, so "did the bound actually apply?" would be unanswerable in
-# review and unverifiable in CI. Default-on inverts that: the sweeps of record (both CI
-# selftest jobs, the nightly wholesale leg, and the CLAUDE.md contributor recipe) pass `--full`
-# in COMMITTED files, where a missing opt-out is visible in the diff.
+# at intake for a reason that is structural rather than stylistic: a caller that wants the
+# bound runs a `test` command out of a consumer's gitignored config, so an opt-in flag would
+# have to be added by hand to an untracked file nothing can read, and "did the bound actually
+# apply?" would be unanswerable in review and unverifiable in CI. Default-on inverts that: the
+# sweeps of record (both CI selftest jobs, the nightly wholesale leg, and the CLAUDE.md
+# contributor recipe) pass `--full` in COMMITTED files, where a missing opt-out is visible in
+# the diff.
 #
 # WHY A TABLE AND NOT MORE `--exclude` FLAGS. The membership is a cost record — each row
 # carries the measurement that justifies it — and it has to be reviewable. Flags in the
@@ -225,10 +225,10 @@ if [[ "$CACHE_WRITE" -eq 1 && -z "$CACHE_DIR" ]]; then
 fi
 
 # ---- the pipeline's store (#563) ------------------------------------------------------
-# The SECOND activation path, and the only one that is not argv. milestone-gate.sh milestone 3 cannot
-# rewrite the `test` command it runs — that string lives in a consumer's config, gitignored here
-# — so it hands the store down the one channel it does own: an env assignment prepended to the
-# lane's invocation. This is the reading end of that coupling.
+# The SECOND activation path, and the only one that is not argv. A caller that runs a `test`
+# command out of a consumer's config cannot rewrite that string, so it hands the store down the
+# one channel it does own: an env assignment prepended to the invocation. This is the reading
+# end of that coupling.
 #
 # ARGV WINS, and this sits AFTER the parse and after the --cache-write check so that stays true
 # in both directions: an explicit --cache-dir is never overridden, and a lone --cache-write is
@@ -281,7 +281,7 @@ if [[ -n "$CACHE_DIR" ]] && ! mkdir -p "$CACHE_DIR" 2>/dev/null; then
   # The one behavioral difference between the two activation paths (#563). A --cache-dir that
   # cannot be created is a flag an operator typed that cannot work, and saying so beats running
   # a sweep they think is caching. An INJECTED store that cannot be created is not the tree's
-  # fault, and dying on it would let an unwritable $HOME red a milestone about something else
+  # fault, and dying on it would let an unwritable $HOME red a check about something else
   # entirely — so that path joins the two disable arms above and runs cold, named.
   [[ "$CACHE_FROM_ENV" -eq 1 ]] || die "--cache-dir is not creatable: $CACHE_DIR"
   echo "[run-selftests] cache disabled: LANE_SELFTEST_CACHE_DIR is not creatable: $CACHE_DIR"
@@ -311,8 +311,8 @@ DISCOVERED=0
 # DEDUPED, and that is a correctness requirement rather than tidiness. EXCLUDED feeds
 # EXPECTED = DISCOVERED - EXCLUDED, which the run/discovered invariant is checked against, so
 # counting one suite twice would under-state EXPECTED and red an honest sweep. It is the normal
-# case, not an edge one: this repo's milestone-3 `test` command already passes
-# `--exclude tools/install-topology-selftest.sh` explicitly, and that suite is also a table row.
+# case, not an edge one: a sweep without --full that passes the usual
+# `--exclude tools/install-topology-selftest.sh` names a suite that is also a table row.
 EXCLUDED=0
 SEEN=""
 while IFS= read -r ex_line; do
@@ -340,9 +340,8 @@ EOF
 EXCLUDES="$SEEN"
 
 # ---- the deferred-to-CI listing (#566 AC-4) --------------------------------------------
-# NAMED, one line per suite, never a count. An operator reading a green milestone 3 has to be
-# able to tell which suites that green does NOT cover, and a number cannot answer it. The gate
-# replays this verbatim; it makes no deferral claim of its own.
+# NAMED, one line per suite, never a count. An operator reading a green sweep has to be able to
+# tell which suites that green does NOT cover, and a number cannot answer it.
 #
 # A DEFERRAL IS NOT A FAILURE. It is announced on stdout beside the ordinary sweep output and
 # changes no exit code — the excluded set is computed BEFORE dispatch, so the discovered/ran
@@ -400,7 +399,7 @@ fi
 #
 # THE SUBJECT IS MECHANIZED ONLY WHERE THE NAMING CONVENTION RESOLVES IT — `<stem>-selftest.sh`
 # next to `<stem>.sh`. CLAUDE.md's register is explicit that coverage here is not naming
-# (cost-block-selftest.sh tests pipeline-cost-block.sh, one directory up), so for the rest the
+# (claim-selftest.sh tests claim-issue.sh), so for the rest the
 # floor is weaker and stated as such: at least one input besides the suite itself, which rejects
 # the degenerate row that pins nothing but its own bytes and reads like a complete declaration.
 if [[ -f "$BASE/cache-suites" ]]; then
@@ -662,12 +661,10 @@ if [[ -n "$FAILED" ]]; then
   printf '%s' "$FAILED" | while IFS= read -r f; do [[ -n "$f" ]] && echo "  $f" >&2; done
   count="$(printf '%s' "$FAILED" | grep -c .)"
   echo "[run-selftests] summary: $RAN scored, $((RAN - CACHED)) run, $CACHED served from cache, $count failed ($INFRA infrastructure)" >&2
-  # #527 AC-1. THE RESERVED CODE, and it is reserved rather than merely returned: a consumer wires
-  # this runner (or any other suite runner) into `commands.<host>.test`, and milestone-gate.sh milestone
-  # 3 reads a 3 from ANY verify lane as "this told us nothing about the branch". So the condition
-  # has to be ALL, never ANY — one genuinely red suite alongside a killed worker is still a red
-  # branch, and reporting that as infrastructure would be the fail-open direction: a broken branch
-  # that costs no fix attempt and re-spawns until the continuation budget runs out.
+  # THE RESERVED CODE, and it is reserved rather than merely returned: a 3 says "this
+  # told us nothing about the branch". So the condition has to be ALL, never ANY — one genuinely
+  # red suite alongside a killed worker is still a red branch, and reporting that as
+  # infrastructure would be the fail-open direction.
   #
   # 0/1/2 are taken here (`die`, the count reconciliation, the failure list), so a fourth code was
   # needed; 125-127 was rejected because it is the shell's and `timeout`'s own "could not execute"

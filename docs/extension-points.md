@@ -16,13 +16,13 @@ All extension files sit under the consumer repo's `.claude/second-shift/` direct
 | `.claude/second-shift/security-rules.md` | security-reviewer | Domain security review rules (tenancy invariants, credential-handling rules, permission-set ↔ OAuth-scope mapping requirements) |
 | `.claude/second-shift/review-context.md` | every panel reviewer + review-lead (each self-loads it) | Repo-wide review context: stack orientation, maturity/severity calibration, architectural invariants, known-accepted patterns, and an ownership table pointing at the docs that own enumerable values (the named-section catalog reviewers key on: "Authoring the review-context surface" below). **Database stack** (engine, ORM/ODM/driver, schema/model + data-access globs, migration tooling, special capabilities like vector search) — db-reviewer applies its checks in the terms this section (or `review-context/db-reviewer.md`) declares; absent = db-reviewer infers the stack and lowers confidence |
 | `.claude/second-shift/review-context/<reviewer-name>.md` | exactly that reviewer (self-loaded after the shared file) | Per-reviewer repo rules: severity examples, what-not-to-flag lists, stack resolutions only that reviewer consumes. Basename must be a reviewer in the effective registry — linted fail-closed by `review-toolkit/scripts/check-review-context.sh` (review-lead pre-flight) on top of the manifest glob |
-| `.claude/second-shift/doc-routing.md` | review-toolkit `doc-updater`, and the AC-scoped doc rule in `/dev-pipeline:build` | Change-category → doc-path routing map: for each conceptual code-area category (API/endpoint, DB schema, background worker, decision/domain-constant, frontend, …) the doc(s) that document it, plus which reviewer agents restate those constants. Supplements the repo's `CLAUDE.md` context router when a specific-enough category→doc map is wanted. Absent = fall back to CLAUDE.md's declared doc roots + basename grep |
+| `.claude/second-shift/doc-routing.md` | review-toolkit `doc-updater` | Change-category → doc-path routing map: for each conceptual code-area category (API/endpoint, DB schema, background worker, decision/domain-constant, frontend, …) the doc(s) that document it, plus which reviewer agents restate those constants. Supplements the repo's `CLAUDE.md` context router when a specific-enough category→doc map is wanted. Absent = fall back to CLAUDE.md's declared doc roots + basename grep |
 | `.claude/second-shift/design-tokens/*.md` | design-toolkit `design-faithful`, `figma-faithful`, `figma-faithful-spec`, `figma-iterate` skills + `design-faithful-reviewer` / `design-faithful-plan-reviewer` / `figma-faithful-reviewer` / `figma-faithful-plan-reviewer` | Design-system reference: component catalog, token roles + arithmetic, primitives package, known-good analogs. May declare **multiple surfaces** (fixed-theme value tables vs a branded/host-relative surface) so the plugin stays surface-agnostic |
 | `.claude/agents/*.md` + config `reviewers.add` | review-lead registry | Whole domain reviewers (e.g. an orders-reviewer); dimensions declared in config for routing/dedup |
 | `.claude/skills/**` | native skill discovery | Knowledge skills (playbooks); no registration needed |
 | `findings.md`, `CLAUDE.md` | session start / all agents | As before — the plugins respect but never require them |
 
-Each consuming agent's prompt declares its extension files explicitly ("if `.claude/second-shift/security-rules.md` exists, load it and treat its rules as additive — they never weaken the generic protocol"). Extensions are **additive-only**: they cannot disable generic checks (use config `reviewers.remove` / `gates` for that — auditable in one file).
+Each consuming agent's prompt declares its extension files explicitly ("if `.claude/second-shift/security-rules.md` exists, load it and treat its rules as additive — they never weaken the generic protocol"). Extensions are **additive-only**: they cannot disable generic checks (use config `reviewers.remove` for that — auditable in one file).
 
 ## Placement: shared file, per-reviewer file, or standalone?
 
@@ -107,14 +107,15 @@ drift apart. Two authoring consequences:
 
 - **A renamed/drifted heading is caught, not silently ignored.** The catalog carries a
   **deprecated-alias-of** tombstone table for known drifted spellings (e.g.
-  `## Maturity calibration (MVP stage)` → `## Maturity stage`); an alias hit FAILs the
-  pre-work preflight and prints the exact rename command. An **empty/TODO-bodied** catalog
-  section is likewise treated as absent (reviewers infer conservatively and say so) and FAILs
-  preflight. A section that is simply missing is fine — that stays "generic behavior."
+  `## Maturity calibration (MVP stage)` → `## Maturity stage`); an alias hit fails
+  `check-review-context-sections.sh --preflight` and prints the exact rename command. An
+  **empty/TODO-bodied** catalog section is likewise treated as absent (reviewers infer
+  conservatively and say so) and fails `--preflight`. A section that is simply missing is
+  fine — that stays "generic behavior."
 - **Off-catalog headings are your prerogative.** A heading the catalog doesn't know is not an
   error; mark it recognized-and-intentional in `.claude/second-shift/.known-sections` (one
   per line) or a `section:<name>` line in `.known-extensions` (mirrors the EP-3 escape hatch)
-  to silence it in `--verbose`/preflight (coverage counts only catalog sections — a known
+  to silence it in `--verbose`/`--preflight` (coverage counts only catalog sections — a known
   off-catalog heading is recognized, not covered). `--report` prints a
   one-line context-coverage summary (which reviewers are running degraded) and never affects
   the exit code.
@@ -123,10 +124,10 @@ drift apart. Two authoring consequences:
 
 Maturity-calibration claims are severity waivers — security-reviewer downgrades Criticals to
 `[Pre-existing]` on their word — and prose does not expire on its own. Declare every
-severity-downgrading claim in a fenced, machine-parsed block (fence-tag anchored, so it works
+severity-downgrading claim in a fenced block (fence-tag anchored, so it works
 in any `.claude/second-shift/**/*.md` regardless of heading layout). The tag must be exactly
-` ```second-shift-claims ` at column 0 — an indented or typo'd tag is a loud parse FAIL,
-never an invisible block; don't quote claims examples inside extension files:
+` ```second-shift-claims ` at column 0 — reviewers do not recognize an indented or typo'd tag as a claims
+block; don't quote claims examples inside extension files:
 
 ````markdown
 ```second-shift-claims
@@ -138,30 +139,18 @@ never an invisible block; don't quote claims examples inside extension files:
 ```
 ````
 
-`claims-lint.sh` (dev-pipeline) evaluates the blocks inside `preflight.sh` (which onboarding
-runs, and which you can re-run at any time) and behind the doctor's quiet summary line; the
-lane itself does not run it. The contract:
+No tool evaluates the blocks; the reviewers read them. The contract they apply:
 
-- **`reverify-by` is mandatory and load-bearing; probes are optional accelerators.** Negative-existence
-  claims cannot be proven by grep (auth landing as middleware keeps a string probe green), so
-  the expiry is the guard; a probe only accelerates staleness discovery. Date-form only — a
-  version/ref form has no defined "current" to compare; record the ref in `verified-against`,
-  which makes re-blessing a reviewable diff (extending the date names what was re-checked).
-- **Probe DSL, never shell:** `path-exists:<glob>` | `path-absent:<glob>` |
-  `pattern-absent:<ere> in <target>`. Args are literal find/grep inputs — arbitrary command
-  strings are parse failures; extensions gain no execution surface. Every probe pairs an
-  applicability assertion: the probed root must exist, so a moved tree reports `probe-broken`,
-  never a silent pass.
-- **Severity by failure class:** expired `reverify-by` → `preflight.sh` / doctor **FAIL** naming the claim id
-  (regardless of probe outcome — a passing probe never suppresses the expiry); failing probe →
-  loud **WARN** with remediation (re-verify and edit the prose — date-bumping without a prose
-  change is an audit smell, and a failing probe can coexist with a still-correct claim);
-  vanished probe target → **`probe-broken` WARN**.
-- **A pass never mints evidence.** Output is `not-yet-contradicted`, never "verified" — the
-  mechanism adds ways to go red, none to go green (the extending.md axiom).
-- **Quiet:** probe-less claims surface as ONE summary line (count + slugs), not per-run nagging.
-- **Dual-target topologies:** probes evaluate in the repo whose extension file declares them;
-  cross-repo claims are expiry-only.
+- **`reverify-by` is mandatory and load-bearing.** A claim past its date is treated as absent,
+  so the downgrade it granted stops applying. Negative-existence claims cannot be proven by grep
+  (auth landing as middleware keeps a string search green), so the expiry is the guard.
+  Date-form only — a version/ref form has no defined "current" to compare; record the ref in
+  `verified-against`, which makes re-blessing a reviewable diff (extending the date names what
+  was re-checked).
+- **`probe` is documentation.** It records how the claim was checked when last blessed; nothing
+  runs it.
+- **A claim never mints evidence.** It can only calibrate severity while it is in date — the
+  extending.md axiom.
 
 
 ## Cross-cutting tool contracts
@@ -194,7 +183,7 @@ TIER** (`reasoning`, `code`, `emit` as shipped). Those two sets are the closed u
 `config-lint.sh` enforces — a token in neither is a lint error, which is what catches a typo
 now that the schema half asserts only "string" (the union is a cross-field constraint JSON
 Schema cannot express). A tier your subscription cannot dispatch surfaces as a dead reviewer
-and the gate fails closed.
+in the review round.
 
 **`fable` is override-only.** Shipped dispatch tables name tiers, never vendor tokens, so
 `fable` cannot appear in one by construction: `check-model-tiers.sh` raises `UNKNOWN-MODEL`
@@ -209,7 +198,7 @@ consumer whose subscription lacks a model class uses instead of forking the plug
 
 ### `check-extensions.sh` (manifest lint — EP-3)
 
-The plugin ships a versioned **manifest** of known extension-file names/globs ([`tools/extension-manifest.txt`](../plugins/dev-pipeline/tools/extension-manifest.txt)); `check-extensions.sh` runs inside `preflight.sh` and **fails closed** on any file under a consumer's `.claude/second-shift/` that matches no manifest entry. This converts "missing extension = generic behavior" from silent degradation into a checked contract — a typo'd `blocker-mutants.md.md` is loud, not silently ignored. A new well-known file in a future plugin version is discoverable via a manifest entry; an unrecognized file today is a config-lint failure.
+The plugin ships a versioned **manifest** of known extension-file names/globs ([`tools/extension-manifest.txt`](../plugins/dev-pipeline/tools/extension-manifest.txt)); `check-extensions.sh` (run it by hand from the dev-pipeline plugin's `tools/`) **fails closed** on any file under a consumer's `.claude/second-shift/` that matches no manifest entry. Nothing runs it automatically, so a typo'd `blocker-mutants.md.md` is silently ignored until someone does. A new well-known file in a future plugin version is discoverable via a manifest entry.
 
 **Companion-pack / repo-local extensions** the stock manifest doesn't ship (e.g. an org QA pack's `api-testing/*.md`) are declared, additive-only and auditable, in a consumer-maintained `.claude/second-shift/.known-extensions` file (one glob per line) that `check-extensions.sh` unions onto the shipped manifest.
 

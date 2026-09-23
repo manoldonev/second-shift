@@ -3,11 +3,7 @@
 #
 # Why this shim exists: CI discovers selftests purely by the `*-selftest.sh` glob
 # (.github/workflows/ci.yml), so a `.mjs` selftest is invisible to it no matter how
-# thorough it is. Before this file, neither .mjs sibling ran in CI (null-reviewer-
-# selftest.mjs was executed ONLY by tools/pipeline-doctor.sh, an operator diagnostic
-# CI never invokes; the since-retired design-sync-selftest.mjs had no executor
-# anywhere in the tree). Real, asserting suites; they were simply unreachable. This
-# shim rides the glob and hands them to node.
+# thorough it is. This shim rides the glob and hands them to node.
 #
 # Deliberately located next to the .mjs files it runs, rather than in
 # tools/ with the other shell harnesses: it is a thin adapter for THIS directory's

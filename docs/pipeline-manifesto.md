@@ -10,9 +10,8 @@ be the first thing it forbids.
 ## The ten principles
 
 - **P1 — The artifact chain is the unit of work.** Every change travels receipt to receipt — intake
-  receipt, build artifacts (PR, green verification, progress record), independent review verdict,
-  merge boundary. Blocks are coupled only by committed artifacts, never by one block invoking
-  another's internals. No partial chains, no shortcuts, no "just this once."
+  record, build artifacts (PR, green checks), independent review verdict, human merge. Blocks are
+  coupled only by committed or posted artifacts, never by one block invoking another's internals. No partial chains, no shortcuts, no "just this once."
 - **P2 — The agent has no discretion over outcomes and boundaries.** Receipts and gates are
   contracts, not suggestions. Skipping, thinning, forging, or reinterpreting an outcome gate must be
   *impossible*, not discouraged. The path between receipts is the model's own — prescribing it is
@@ -42,24 +41,22 @@ be the first thing it forbids.
   who may see which results — most of which the requester holds no opinion on until a working
   version forces one. Resolving the whole tree in a single pass locks wrong guesses in where they
   compound; resolving each decision as it surfaces keeps every correction cheap. A gap found
-  mid-build is normal operation: it routes back as an intent-gap record under its declared
-  disposition, never as a silent choice.
+  mid-build is normal operation: it is written into the record as a departure — the row edited,
+  naming who decided and why — never as a silent choice.
 - **P10 — Verification requires a different mode than generation.** The session that produced a piece of work is
   structurally the wrong one to evaluate it: judging your own output means confirming the choices
   that shaped it, and a stronger model inherits the same conflict, because the bias lives in the
   arrangement, not in the intelligence. Generation and evaluation run in separate contexts, and
   neither writes the other's record.
 
-**P1/P2 posture:** stated in block form — receipts and outcome gates. The stage machinery is gone
-from the tree: #348 deleted the staged `run` lane, so the pipeline is the only lane. Rollback and
-the ablation's staged arm are served by a marketplace pin of the last stage-carrying release, whose
-version literal is recorded in #348's `Migration:` trailer — and so in that release's changelog
-entry — rather than restated here, where it would rot. P10 is mechanically enforced rather than
-owed: the pipeline's verdict record is written by a
-separate top-level review session carrying its own identity, and a record carrying the build run's
-identity — or naming the build session as its author — is refused both in-gate and at the merge
-boundary. The in-build reviewer is deleted, and with it the dispatch-failure fallback that let a
-build session write its own verdict; that debt is closed, not tolerated.
+**P1/P2 posture:** stated in block form — receipts and a scheduler. `/dev-pipeline:run` drives
+`run.sh`, which authors nothing: it commits the intake record as the branch's first commit, runs
+every check itself after each build, and reads the record's rows and checks from that first commit,
+never from the head the build controls. P10 is mechanically enforced rather than owed: the verdict
+comes from a fresh review session, and the scheduler accepts a verdict comment only if it was
+posted inside that session's window by a Bot or the account the scheduler writes with, never
+edited, and names the current head. The build session
+is told never to post one, and it has exited before the review starts.
 
 **P7 posture:** prospective — it binds decompositions from its statement onward. It lands
 *substitutively*: the existing prose copies of the don't-split-for-splitting rule are replaced by
@@ -81,7 +78,7 @@ replaced: [`docs/testing.md`](testing.md) names which registers survive it and w
 ## The three velocity principles
 
 Operator-stated, from running the manual lane: it is slow, over-strict, and waits in vain. These
-bind **every** block of the lane — the scheduler, `/dev-pipeline:build`, `/dev-pipeline:review`, and the gates —
+bind **every** block of the lane — the scheduler, the build and review sessions, and the checks —
 retrospectively, not only new code. They sit beside P1–P10 rather than inside them: P4 is about
 what a run *spends*, and these are about what it *waits for*. Like the ten, they are a judgment
 aid and a review criterion, not a gate; a lint that policed their wording would be the first thing
@@ -90,19 +87,13 @@ P5 forbids.
 - **V1 — Velocity is a design criterion, equal to correctness.** Wall-clock on the ticket →
   mergeable-PR path counts: speed of implementation, of review, of CI, of making the PR
   mergeable. A gate that is right but slow is not done — it gets faster, moves off the critical
-  path, or goes advisory. Strictness that cannot change the merge decision does not get to block —
-  and which of the lane's gates that describes is now measured rather than argued:
-  [`docs/gate-ablation.md`](gate-ablation.md).
+  path, or goes advisory. Strictness that cannot change the merge decision does not get to block.
 - **V2 — Never idle-block on a non-prerequisite.** No session, and above all no operator, waits
   on execution whose output the next step does not directly consume. Advisory or CI-duplicated
   work runs in the background or on CI. The operator-in-the-middle wait between build and review
-  is the specific latency the lane's scheduler exists to delete: build → review chains the moment
-  the PR exists, with zero human latency between phases. **#642 applied it to the lane's own
-  gates**: `m3/lint`, `m3/test` and `m3/extra-lane` are re-run verbatim at the merge boundary, so
-  refusing on them inside the build session bought WHEN a failure was caught, not whether — at the
-  price of a fix round. They report and do not refuse. The scope of that reading is narrow and
-  measured: a point is demotable only where CI duplication is DEMONSTRATED and where deleting the
-  local refusal leaves the local answer correct-but-later rather than wrong.
+  is the specific latency the lane's scheduler exists to delete: build → checks → review chains the
+  moment the PR exists, with zero human latency between phases. A red check goes straight back to
+  the next build attempt with its log; nobody waits on it.
 - **V3 — Parallel-first is an implementation requirement.** Every skill, script and gate ships
   written for parallel execution: independent work fans out (job-pooled scripts, concurrent
   dispatch, probes with no data dependency between them). Serial execution of independent steps
@@ -110,65 +101,33 @@ P5 forbids.
 
 **V3 posture:** it binds new code from its statement onward, and retro-binds the existing gates as
 a *profiling* obligation rather than a refactor mandate — a serial-independent-step finding is
-recorded with its measurement and filed, because parallelizing a 187KB gate blind is how a
+recorded with its measurement and filed, because parallelizing a gate blind is how a
 correctness regression enters through a velocity door.
 
 ## The trust boundary
 
 Nothing inside the session is proof. The agent executes with file access, so local artifacts — state
 files, receipts, even the hook-written audit ledger — are at best tamper-*evident*. The
-tamper-*proof* line is the merge boundary: CI checks plus branch protection, which the agent cannot
-edit from a run.
-
-**Posture where the boundary workflow is not installed:** the local gates are a completion oracle
-and a quality checklist, not proof.
+tamper-*proof* line is the merge: the consumer's own required CI checks, branch protection, and a
+human who merges — the lane never merges its own work.
 
 P3 is satisfied by **three-record reconciliation**: (a) the hook-written tool ledger
-(harness-recorded, outside model control); (b) the harness-written run records — the progress
-file and the committed verdict record; (c) the
-tracker trail and PR artifacts. The three are reconciled mechanically, with CI as the terminal
-verifier. Forging any one record is possible; forging all three consistently is what
-reconciliation makes detectable.
+(harness-recorded, outside model control); (b) the scheduler's run records — the intake record at
+the branch's first commit, each session's result and log, and the run block it writes on the PR;
+(c) the tracker trail and PR artifacts, the verdict comment among them. The scheduler reconciles
+what it can mechanically — the verdict against the review window and the head, the checks it ran
+itself — and the review scores the record's rows against the code. Forging any one record is
+possible; forging all three consistently is what reconciliation makes detectable.
 
-### Where a gate may yield to a present human, and where it may not
+### Nothing yields to a present human mid-run
 
-Every gate here fires identically whether an unsupervised model or an answering operator is
-driving. Some of those gates exist only because nobody is assumed to be there — and for those, and
-only those, an attended session may buy something.
-
-The predicate is a classification, not a preference:
-
-- **`gates-llm`** — defenses against fabrication and self-approval. These **never** yield. An
-  attended session cannot approve its own work any more than an unattended one can; attendance is
-  not the missing ingredient there, independence is.
-- **`gates-signal`** — the refused fact is objective: a verify lane is red, a hash moved, a
-  release-owned file was edited. These **never** yield either. The bucket exists because the
-  predicate is not total: a red test lane is neither a fabrication defense nor premised on an
-  absent human, and forcing it into `gates-process` to keep the classification binary is exactly
-  how a red suite becomes operator-waivable.
-- **`gates-process`** — rules whose premise is "no human is available to answer this". These
-  **may** yield when the premise is false.
-
-Which bucket a refusal site belongs to is decided by the predicate above, where the site is
-written; no separate register records it.
-
-The mechanism is **affordance plus record**, and both halves are load-bearing:
-
-1. The **affordance token** is minted by an operator running a command, never asserted by the
-   session. It unlocks exactly one thing: the right to _pause and ask_ where the gate would
-   otherwise reject. It buys no yield. Staleness is structural — the token binds to the run's
-   identity, so a spawned payload's fresh session id can never match one — rather than a
-   wall-clock TTL, which would import portability hazards for no security.
-2. The **override record** is the yield's evidence: a committed file naming the gate, the run, the
-   authority scope, and the operator's answer quoted verbatim. Its trust level is exactly the
-   intent-gap record's — session-writable, PR-visible, merge-boundary-validated, repudiable at
-   review. Nothing about it is tamper-proof, and it does not claim to be.
-
-**The residual, stated rather than papered over.** A local gate whose code is edited to skip its
-own yield bookkeeping will skip it. That is the standing local-gate posture from the section above,
-not a new hole: it is tamper-evident, it arrives at review as a diff, and the merge boundary
-validates every record that does reach it. What the mechanism removes is the silent yield — a run
-that waved a gate through and left nothing for anyone to argue with afterwards.
+The scheduler never prompts, and no refusal inside a run can be waived from inside it — an attended
+session cannot approve its own work any more than an unattended one can; attendance is not the
+missing ingredient there, independence is. The operator acts **between** runs, through levers that
+leave a record: the queue label, `--resume` on a claim, a flag that departs from a default and says
+why (`--review-model-basis`), or an edit to the intake record before its first commit. Once the
+branch carries the record, the scheduler reads it from that first commit: a later change needs a
+new branch, or a departure row the build writes and the review scores.
 
 ## T0 note — trust-boundary preconditions
 
@@ -240,48 +199,5 @@ was unsatisfiable while still live. The limitation stays recorded because the sh
 record such a gate reads is agent-written, and so is its own configuration. Rung 1 was
 **tamper-evidence, not proof**. Harness attestation is rung 2's job.
 
-### The milestone gate, which escapes the limitation outright
-
-`pr-gates` once carried a third constant, `LANE_BRANCH_PREFIX`, naming a separate `lean/` branch
-namespace for the pipeline's merge-boundary gate (`scripts/check-lane-chain.sh`). It is retired:
-both lanes now cut `<tracker.branchPrefix><key>` branches, so there is no lean namespace to name and
-that gate holds **no** branch-derived applicability input at all.
-
-Applicability is the key-matched lane spec committed in the PR's own diff — an artifact the harness
-produced, read out of the diff being merged. There is no prefix to go stale and no constant to
-empty, so the self-neutralization mode above has nothing to act on here: a run wanting to escape
-this gate would have to remove its own spec from its own PR, which is the evidence the gate exists
-to demand. It is also the only chain gate left: the mirror-image exclusion that kept it and
-`check-pipeline-chain.sh` disjoint went with that script in #731, so a PR this classifier declines
-is now claimed by no chain gate rather than handed to the other one.
-
-The generalizable rule, and the reason this is worth recording next to the limitation it escapes: a
-CI constant is self-neutralizable when it is the **sole** applicability input. Replace it with an
-artifact-derived trigger and there is no kill switch left to reach.
-
-### What a new gate arm ships with
-
-The merge-boundary gate is silent when every arm is satisfied and loud only where something
-could not be evaluated. A new arm therefore ships with three things, not one, and none of them is
-optional:
-
-1. **Its producer's capability stamp.** An arm enforces a contract some producer has to write. The
-   arm reads that producer's generation off the run's own evidence and enforces only where the
-   stamp shows a generation capable of the artifact it demands — because the arm travels by git ref
-   while the producer travels by versioned install, and the two are permanently skewed on the
-   branch that develops them. An arm with no stamp to read is an arm that accuses honest runs.
-2. **Its not-applicable path.** Every way the arm can fail to evaluate — a producer too old, an
-   input the adapter has no counterpart for, an artifact the run legitimately never wrote — emits
-   exactly one class-(b) line naming the arm and one disposition from the closed vocabulary
-   (`not-applicable`, `reduced-strength`, `postdated`, `inert`). Declining in silence is the vacuous
-   pass every gate here refuses; declining in a violation is an accusation nothing supports.
-3. **Its silence on green.** A satisfied arm prints nothing, on either stream, whether the run ends
-   green or red — including when it was satisfied _vacuously_, by the other branch of a precedence
-   rule. Which branch verified a contract is a source-reading question, and a job log that recites
-   it buries the lines an operator is actually looking for.
-
-The obligation is stated here rather than enforced by a test, deliberately: a guard that grepped
-this paragraph would assert only that prose contains words. The enforcement is the mechanism —
-`LANE_OUTPUT_DISPOSITIONS` is a closed set both gates declare and a lockstep row binds, the emitter
-refuses a disposition outside it, and both suites anchor every green-path line whole, so an arm
-that starts narrating or stops disclosing reds a case rather than a paragraph.
+The generalizable rule: a CI constant is self-neutralizable when it is the **sole** applicability
+input. Replace it with an artifact-derived trigger and there is no kill switch left to reach.

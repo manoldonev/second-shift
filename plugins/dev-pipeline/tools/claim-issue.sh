@@ -2,11 +2,8 @@
 # claim-issue.sh — atomically swap `ready-for-dev` -> `in-progress` on a GitHub
 # issue, REST two-call form, with the silent-failed-add guard.
 #
-# Single source of truth for the claim swap (was inline model-executed
-# prose in SKILL.md / stages/1-intake.md). Extracting it removes the
-# transcription-error surface #170 hardened and gives the failed-add abort path an
-# automated regression test (#183, claim-selftest.sh) — which #170's AC#3 could not
-# satisfy while the swap was prose.
+# Single source of truth for the claim swap; run.sh calls it when a bot is
+# configured. The failed-add abort path is covered by claim-selftest.sh.
 #
 # Scope: the REST two-call fallback ONLY (the path live when the Projects-classic
 # GraphQL deprecation breaks `gh issue edit` — see SKILL.md "Canonical REST forms").

@@ -1,28 +1,47 @@
 {
-  "configVersion": 2,
-  "tracker": { "type": "github", "bot": { "enabled": "yes" } },
-  "topology": {
-    "type": "standalone",
-    "repos": { "host": { "path": ".", "baseBranch": "main" } }
+  "configVersion": 3,
+  "tracker": {
+    "type": "github",
+    "bot": {
+      "enabled": "yes"
+    }
   },
   "commands": {
     "host": {
       "lanes": [
-        { "name": "install", "cwd": 5, "commands": "yarn install" },
-        { "name": "build", "commands": [] }
+        {
+          "name": "install",
+          "cwd": 5,
+          "commands": "yarn install"
+        },
+        {
+          "name": "build",
+          "commands": []
+        }
       ],
       "extraLanes": [
-        { "name": "e2e", "when": "changed", "commands": ["yarn e2e"], "failureClass": "INFRA" }
+        {
+          "name": "e2e",
+          "when": "changed",
+          "commands": [
+            "yarn e2e"
+          ],
+          "failureClass": "INFRA"
+        }
       ]
     }
   },
-  "reviewers": { "remove": "security-reviewer" },
-  "paths": { "plansDir": 5 },
-  "stageParams": {
-    "requiredLabels": [1],
-    "webComponentGlobs": "src/**/*.vue",
-    "planFilePattern": 5,
-    "inertPattern": 7
+  "reviewers": {
+    "remove": "security-reviewer",
+    "webComponentGlobs": "src/**/*.vue"
   },
-  "implementDelegates": [ { "surface": "unit", "agent": "acme-unit-author" } ]
+  "paths": {
+    "plansDir": 5
+  },
+  "implementDelegates": [
+    {
+      "surface": "unit",
+      "agent": "acme-unit-author"
+    }
+  ]
 }

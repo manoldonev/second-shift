@@ -1,0 +1,13 @@
+{
+  "configVersion": 3,
+  "tracker": {
+    "type": "github"
+  },
+  "commands": {
+    "host": {}
+  },
+  "gates": {
+    "mutation": true,
+    "costTracking": true
+  }
+}

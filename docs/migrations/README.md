@@ -25,10 +25,21 @@ migrations under explicit part headings: part 1 the retroactive marketplace-v2.0
 removals, part 2 the `configVersion` 1 → 2 retirement of the `planFilePattern` slice token.
 Later `vN-to-vN+1.md` docs are configVersion-only; this collision is not expected to recur.
 
+## Upgrade docs
+
+- [`v1-to-v2.md`](v1-to-v2.md) — the v2.0.0 key removals, and the `planFilePattern` slice token.
+- [`v2-to-v3.md`](v2-to-v3.md) — the scheduler replaces the gates: `topology`, `gates`,
+  `stageParams`, `grillWaivers`, `design.liveRender.tolerancePx`/`cwd` leave the schema,
+  `webComponentGlobs` moves under `reviewers`; its part 2 lists the files to delete from your repo
+  (the merge-boundary CI job, the delta guard) and the retired `LANE_*` knobs.
+
 ## Breaking changes that are not config changes
 
-These leave `configVersion` alone, so config-lint cannot point at them, and a stale copy in your
-repo is not reported by any tool. Each is also in that release's `CHANGELOG.md` entry.
+These leave `configVersion` alone, so config-lint cannot point at them. Each is also in that
+release's `CHANGELOG.md` entry. Upgrading across them straight to v3 config, follow
+[`v2-to-v3.md`](v2-to-v3.md) part 2 instead of the steps below: it deletes the files they tell you
+to re-copy or rename, and `/second-shift:doctor` flags a leftover copy of the CI workflow, its
+check script or the delta guard.
 
 - **v13.0.0** — the pipeline's scripts were renamed (`lean-gate.sh` → `milestone-gate.sh`,
   `lean-evidence.sh` → `boundary-evidence.sh`, `lean-reconcile.sh` → `reconcile.sh`,
@@ -40,6 +51,3 @@ repo is not reported by any tool. Each is also in that release's `CHANGELOG.md` 
   of any `LEAN_*` knob, rename `.claude/lean-overrides.tsv` to `.claude/lane-overrides.tsv`, and
   export `SECOND_SHIFT_BOUNDARY_EVIDENCE` instead of `SECOND_SHIFT_LEAN_EVIDENCE`. A leftover old
   spelling is ignored, so a run proceeds without the override rather than failing.
-- **Next major** — intent-gap records carry `decided_by:` (`user-answered` or `user-delegated`).
-  A record that has only the legacy `ratified: yes` + `ratified_by:` pair still counts as decided
-  until then; add `decided_by:` to any open one before bumping.

@@ -1,0 +1,38 @@
+{
+  "configVersion": 3,
+  "tracker": {
+    "type": "jira",
+    "writes": false,
+    "keyPattern": "[A-Z]+-[0-9]+",
+    "branchPrefix": "jdoe/"
+  },
+  "commands": {
+    "be": {
+      "lint": "yarn lint",
+      "typecheck": "yarn lint:tsc",
+      "test": "yarn test",
+      "format": "yarn format"
+    },
+    "fe": {
+      "lint": "yarn lint",
+      "typecheck": "yarn type-check",
+      "test": "yarn test:ci",
+      "format": "yarn format:check"
+    }
+  },
+  "reviewers": {
+    "remove": [
+      "db-reviewer"
+    ],
+    "modelOverrides": {
+      "security-reviewer": "sonnet"
+    }
+  },
+  "design": {
+    "provider": "figma",
+    "liveRender": {
+      "command": "yarn render:verify --route {route} --out {out}",
+      "readyProbe": "http://localhost:3000/system/status"
+    }
+  }
+}

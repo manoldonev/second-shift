@@ -42,37 +42,26 @@ with a stated reason per component, the per-node dimensions, the chosen analog s
 list you will create/edit. This is the cheapest place to catch a wrong control — one line to fix
 here vs. the same component spread across call-sites after the build.
 
-**On the lane it is an asserted artifact, not prose.** Write it to
-`<plansDir>/<key>-lean-plan.md` — the path `bash G 1 <issue>` derives the spec path from, with
-`-lean-plan.md` in place of `-lean.md`. `milestone-gate.sh` milestone 3 refuses an armed ticket
-**before the render pass** unless that file exists, is committed, and carries:
+Two tables in it carry the contract:
 
-- a header line `planned_from: pending` — the gate stamps this with the branch's plan patch
-  identity and reds until you commit the stamp, so the plan is dated against the code it was
-  written for. On a later round it re-stamps: **re-read the plan against the lines that moved**
-  before committing;
 - a table declaring a **`why this component`** column, one row per resolved component;
-- a table declaring a **`dimensions`** column, one row per sized node, with three machine-read
-  columns beside it — **`node`**, **`RS`** and **`px`**:
+- a table declaring a **`dimensions`** column, one row per sized node, with three columns beside
+  it — **`node`**, **`RS`** and **`px`**:
 
   | node | RS | px | dimensions | overflow |
   | --- | --- | --- | --- | --- |
   | form column | RS-1 | 560×- | fixed 560px inline size, hug block size | none |
   | signing secret | RS-2 | -×40 | fill inline size, 40px block size | truncate the masked value |
 
-  `node` is the name the repo's live-render harness reports that node under in its
-  `<png>.rects.json` sibling (`docs/live-render.md`); `RS` is the render state the spec declares it
-  is measured in; `px` is `<w>×<h>` with an integer or `-` per axis, `-` being a node with no fixed
-  size on that axis. `dimensions` stays **prose** — per-axis fixed/hug/fill, wrap behavior,
-  overflow/truncation — which is what `560×-` cannot carry. Milestone 3 does read the `px`
-  numbers: per render state it compares them against the sizes the harness measured,
-  scale-adaptively, and names any node out of proportion with the rest of its state. That grades
-  the transcription against the code, never against the handoff — whether a recorded value is the
-  *design's* is the design-sighted REVIEW session, scoring `fidelity:` against the render
-  receipt.
+  `node` is the plan's own name for the node; `RS` is the render state of the record's
+  `## Design frames` row it is measured in; `px` is `<w>×<h>` with an integer or `-` per axis,
+  `-` being a node with no fixed size on that axis. `dimensions` stays **prose** — per-axis
+  fixed/hug/fill, wrap behavior, overflow/truncation — which is what `560×-` cannot carry.
+  Whether a recorded value is the *design's* is the REVIEW session's call, which renders every
+  screen at the head and compares it with its frame.
 
 Every cell of both tables must be filled, and a row may not declare fewer cells than its header.
-That is the whole mechanical contract: an omission has to read as an **empty cell**, not as an
+That is deliberate: an omission has to read as an **empty cell**, not as an
 absent thought. A resolved component with no stated reason is the name-match resolution that ships
 the wrong control; a node with no recorded dimensions is the eyeballed size that ships at 3× the
 design.
@@ -86,10 +75,8 @@ token table across: the two families' plan steps are deliberately not lockstep.
 **Dispatch
 [`design-toolkit:design-faithful-plan-reviewer`](../../agents/design-faithful-plan-reviewer.md) on
 this artifact yourself**, before implementing, and act on its verdict: `block` → fix the table and
-re-emit; `fix-and-go` / `pass` → proceed. The gate cannot run an agent or branch on a verdict, so
-the dispatch stays yours on every lane — the autonomous lane included, where it is not
-optional: milestone 3 refuses to render until the reviewer's output is committed at
-`<plansDir>/<key>-lean-plan-review.md`, written by `milestone-gate.sh plan-review <issue>`.
+re-emit; `fix-and-go` / `pass` → proceed. On the lane the build prompt asks for a subagent read of the plan before UI
+code but names no agent — this one is the natural pick; nothing else runs it for you.
 
 ## Implement path (the repo's FE app)
 
@@ -107,7 +94,7 @@ optional: milestone 3 refuses to render until the reviewer's output is committed
   design-tokens extension file). Charts use the repo's established chart library; data uses
   the repo's established data-fetch pattern (both per the extension file or discovered from
   analogs).
-- Follow the repo's FE conventions and run its formatter (config `commands.<fe>.format`)
+- Follow the repo's FE conventions and run its formatter (config `commands.<id>.format` — the sole key, else the key equal to the main checkout's directory name (also from a linked worktree))
   before committing.
 
 ## Live-render self-verify (auditable checklist — record the result)

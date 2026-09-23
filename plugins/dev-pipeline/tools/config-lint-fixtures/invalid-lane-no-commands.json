@@ -1,0 +1,19 @@
+{
+  "configVersion": 3,
+  "tracker": {
+    "type": "github"
+  },
+  "commands": {
+    "host": {
+      "lanes": [
+        {
+          "name": "install"
+        },
+        {
+          "name": "build",
+          "commands": []
+        }
+      ]
+    }
+  }
+}

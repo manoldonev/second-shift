@@ -2,7 +2,7 @@
 
 Plugin content is addressed as `<plugin>:<name>`. Rules the extraction follows:
 
-1. **Skills**: invoked as `dev-pipeline:run`, `review-toolkit:review-lead`, `intake-toolkit:plan-interview`, etc. **User-facing slash invocations are namespaced too**: `/dev-pipeline:run`, `/intake-toolkit:intake`, `/dev-pipeline:pipeline-retro`, `/dev-pipeline:perf-retro`, `/audit-toolkit:audit`, `/second-shift:onboard`, `/second-shift:doctor`, `/second-shift:local-dev-refresh`. (Verified empirically: bare short forms like `/pipeline-retro` do NOT resolve for plugin skills once the same-named vendored copy is gone — "Unknown command". Docs and stage files must always show the qualified spelling.)
+1. **Skills**: invoked as `dev-pipeline:run`, `review-toolkit:review-lead`, `intake-toolkit:plan-interview`, etc. **User-facing slash invocations are namespaced too**: `/dev-pipeline:run`, `/dev-pipeline:review`, `/intake-toolkit:intake`, `/audit-toolkit:audit`, `/second-shift:onboard`, `/second-shift:doctor`, `/second-shift:local-dev-refresh`. (Verified empirically: bare short forms like `/review` do NOT resolve for plugin skills once the same-named vendored copy is gone — "Unknown command". Docs and skill files must always show the qualified spelling.)
 2. **Agents**: `.mjs` workflows and skill files reference agents by qualified name (`review-toolkit:security-reviewer`). Repo-local agents (config `reviewers.add`) are referenced bare — that's the disambiguation between roots.
 3. **Cross-plugin dependencies are one-directional**: dev-pipeline → {review-toolkit, intake-toolkit, design-toolkit, audit-toolkit}. The four toolkits never reference dev-pipeline or each other, except intake-toolkit ← review-toolkit sharing review protocol (review-toolkit owns it; intake-toolkit references it qualified). The shared contract is the **Sub-Agent Trust Model**, canonical in `review-toolkit:review-lead` and cited by `intake-orchestrator` and `decomposition-reviewer`.
 
@@ -13,7 +13,7 @@ Plugin content is addressed as `<plugin>:<name>`. Rules the extraction follows:
    **The sanctioned second arrow: second-shift → dev-pipeline.** The onboarding micro-plugin
    resolves dev-pipeline's `config-lint.sh` at runtime — via `claude plugin list --json`
    `installPath`, or via the pinned-ref contents API when dev-pipeline isn't installed yet —
-   and its doctor cross-references `pipeline-doctor.sh` the same way. This is tool
+   and its doctor resolves the dev-pipeline tools it runs the same way. This is tool
    resolution by install path, never a hard-coded content path, and it is one-directional
    (dev-pipeline knows nothing of second-shift). **`second-shift` is deliberately NOT in the
    CI grep's `TOOLKITS` list** — its whole job is to reference the other plugins; adding it
