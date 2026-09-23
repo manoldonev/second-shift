@@ -36,7 +36,7 @@
 #   - nothing here discards work: no `reset --hard`, no forced removal, no checkout over a dirty tree;
 #   - the record's sections, the checks and the frames are read from its FIRST commit, never the head;
 #   - every session is a fresh process with a wall-clock bound; every attempt keeps its own files;
-#   - the gate's regexes and forms are copied from milestone-gate.sh, never paraphrased.
+#   - a regex or record form is stated exactly, never paraphrased.
 #
 # exit: 0 approved · dry-run
 #       1 stopped for a human: build-no-pr, build-inflight(-unreadable), build-blocked, pr-ambiguous,
@@ -86,7 +86,7 @@ case "$MAX_ROUNDS" in ''|*[!0-9]*) usage_refusal usage-max-rounds "--max-rounds 
 # ============================ 1. environment (rows A20-A27, B1-B4, C1-C14, C28) ============================
 now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 say() { echo "$(now) [run] $*"; }
-exit_code_for() { # the taxonomy a wrapper branches on (orchestrate.sh's, kept)
+exit_code_for() { # the taxonomy a wrapper branches on
   case "$1" in
     approved|dry-run) echo 0 ;;
     not-queued|env-no-record) echo 3 ;;
@@ -99,12 +99,13 @@ exit_code_for() { # the taxonomy a wrapper branches on (orchestrate.sh's, kept)
 }
 # Run state the terminal reports on. Set as the run advances; empty until then.
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
-COST=0; ROUND=0; ATTEMPT=0; CHECKS_RED=0; CLAIMED=0; PR=""; PR_URL=""; HEAD_SHA=""; VERDICT=""; CI=""; FIRST=""; CHILD=""; TRACKER=""
+COST=0; UNPRICED=""; ROUND=0; ATTEMPT=0; CHECKS_RED=0; CLAIMED=0; PR=""; PR_URL=""; HEAD_SHA=""; VERDICT=""; CI=""; FIRST=""; CHILD=""; TRACKER=""
 terminal() { # terminal <slug> <detail> — rows B1, B21, B22, K9: the run block on the PR whenever one exists, one closing comment when the run claimed
   say "terminal: $1 — $2"; echo "terminal: $1"
   if [ -n "$PR" ] && [ "${BLOCK_DONE:-0}" -eq 0 ]; then BLOCK_DONE=1; write_run_block "$1"; fi
   if [ "$CLAIMED" -eq 1 ] && [ "$TRACKER" = github ]; then
-    "$GH" issue comment "$ISSUE" --body "$(printf 'second-shift run %s: %s — %s\n%s\ncost_usd: %s\n' "$RUN_ID" "$1" "$2" "${PR_URL:-${PR:+PR #$PR}}" "$COST")" >/dev/null 2>&1 || say "could not post the closing comment on #$ISSUE"
+    "$GH" issue comment "$ISSUE" --body "$(printf 'second-shift run %s: %s — %s\n%s\ncost_usd: %s\n%s' "$RUN_ID" "$1" "$2" "${PR_URL:-${PR:+PR #$PR}}" "$COST" "${UNPRICED:+unpriced: $UNPRICED (no total_cost_usd; cost_usd is a lower bound)
+}")" >/dev/null 2>&1 || say "could not post the closing comment on #$ISSUE"
   fi
   exit "$(exit_code_for "$1")"
 }
@@ -121,6 +122,13 @@ TOOLS="$(cd "$SKILL_DIR/../../tools" && pwd)"
 CONFIG="${SECOND_SHIFT_CONFIG:-$MAIN_ROOT/.claude/second-shift.config.json}"
 if [ -f "$CONFIG" ]; then jq -e . "$CONFIG" >/dev/null 2>&1 || terminal env-config-unparseable "$CONFIG is present but not JSON — refusing to fall back to defaults"
 else CONFIG=""; fi
+# C2: an unmigrated v2 config is refused, never half-honored (configVersion 3 removed these keys)
+if [ -n "$CONFIG" ]; then
+  stale="$(jq -r '[ (["topology","gates","stageParams","grillWaivers"][] as $k | select(has($k)) | $k),
+      (if (.design.liveRender | type) == "object" then (["tolerancePx","cwd"][] as $k | select(.design.liveRender | has($k)) | "design.liveRender.\($k)") else empty end),
+      (if (.configVersion | type) == "number" and .configVersion < 3 then "configVersion \(.configVersion)" else empty end) ] | join(", ")' "$CONFIG" 2>/dev/null)"
+  [ -z "$stale" ] || terminal env-config-stale "$CONFIG is a configVersion 2 config ($stale) — migrate it with docs/migrations/v2-to-v3.md, then re-launch"
+fi
 cfg() { [ -n "$CONFIG" ] && jq -r "$1 // empty" "$CONFIG" 2>/dev/null || true; }             # strings; a literal false would be swallowed, so booleans go through cfg_bool
 cfg_bool() { [ -n "$CONFIG" ] && jq -r "if $1 == null then \"\" else ($1|tostring) end" "$CONFIG" 2>/dev/null || true; }
 # the sessions run in the worktree, whose gitignored .claude/ has no config: hand them the resolved path (F10)
@@ -151,7 +159,7 @@ if [ -z "${RUN_GH:-}" ]; then
   elif [ "$(cfg_bool .tracker.bot.enabled)" = true ]; then terminal env-bot "tracker.bot.enabled is true but the wrapper is $bot_status — refusing to write as the operator in the bot's place"; fi
 fi
 # C6 C7 E1 E2: the branch namespace — configured, else the dominant prefix among remote branches, else REFUSE
-BP_RESOLVER="$SKILL_DIR/../build/branch-prefix.sh"; [ -f "$BP_RESOLVER" ] || BP_RESOLVER="$TOOLS/branch-prefix.sh"
+BP_RESOLVER="$TOOLS/branch-prefix.sh"
 PREFIX="$(cfg .tracker.branchPrefix)"
 if [ -z "$PREFIX" ]; then
   bp_err="$(mktemp "${TMPDIR:-/tmp}/run-bp.XXXXXX")"
@@ -226,7 +234,11 @@ fi
 MCP_ALLOW=""; [ "$TRACKER" = jira ] && MCP_ALLOW=",mcp__atlassian,mcp__plugin_atlassian_atlassian,mcp__claude_ai_Atlassian_Rovo"
 SPAWN_COMMON=(--permission-mode acceptEdits --permission-prompts none --disallowedTools "$DISALLOWED" --setting-sources "user,project,local" --add-dir "$WT" --output-format json)
 [ -n "$CONFIG" ] && SPAWN_COMMON+=(--add-dir "$(cd "$(dirname "$CONFIG")" && pwd)")
-add_cost() { local c; c="$(jq -r '.total_cost_usd // 0' "$1" 2>/dev/null)"; COST="$(awk -v a="$COST" -v b="${c:-0}" 'BEGIN{print a+b}')"; }
+add_cost() { # rows I14 I16: a session with no total_cost_usd (killed at its bound, crashed) is UNPRICED, never $0
+  local c n; n="$(basename "$1" .json)"; c="$(jq -r '.total_cost_usd | numbers' "$1" 2>/dev/null)"
+  if [ -z "$c" ]; then UNPRICED="${UNPRICED:+$UNPRICED }$n"; say "unpriced: $n left no total_cost_usd — the run's cost is a lower bound"; return 0; fi
+  COST="$(awk -v a="$COST" -v b="$c" 'BEGIN{print a+b}')"
+}
 over_ceiling() { awk -v c="$COST" -v m="$COST_CEIL" 'BEGIN{exit !(c>m)}'; }
 
 # -- tracker reads (rows D7-D9, J1, J3, K2-K5): every producer returns non-zero on a failed read; callers refuse --
@@ -249,13 +261,13 @@ remote_head() { local out; out="$(git -C "$WT" ls-remote origin "refs/heads/$BRA
 # -- the record (rows G6, G7, H1-H4, H6, K6): read at its FIRST commit once one exists, else the receipt --
 record_at_first() { git -C "$WT" show "$FIRST:$RECORD_REL" 2>/dev/null; }
 record_text() { if [ -n "$FIRST" ]; then record_at_first; else cat "$RECORD" 2>/dev/null; fi; }
-# the gate's heading rule: exact title at any depth, case-folded; ANY heading closes the section; the FIRST such section decides
+# the heading rule: exact title at any depth, case-folded; ANY heading closes the section; the FIRST such section decides
 section_of() { awk -v h="$1" 'on && /^#+[[:space:]]/ {on=0; done=1} !done && tolower($0) ~ ("^#+[[:space:]]+" h "[[:space:]]*$") {on=1; next} on'; }
 design_section_of() { section_of "design( frames)?"; }
 # shellcheck disable=SC2016  # markdown backticks
 record_checks() { record_text | section_of "checks" | sed -n 's/^- *`\{0,1\}\([^`]*\)`\{0,1\} *$/\1/p'; }
 frames_rows() { record_text | design_section_of | grep -E '^\| *RS-[0-9]+ *\|' | sed 's/^| *//; s/ *| */|/g; s/ *|$//'; }
-design_declared() { # 0 armed or disarmed with a reason; 1 neither (the gate's #705 rule, its forms byte for byte); reads record_text
+design_declared() { # 0 armed or disarmed with a reason; 1 neither (its forms byte for byte); reads record_text
   [ -n "$DESIGN_PROVIDER" ] || return 0
   local sec; sec="$(record_text | design_section_of)"
   [ -n "$sec" ] || return 1
@@ -268,12 +280,11 @@ design_declared() { # 0 armed or disarmed with a reason; 1 neither (the gate's #
 }
 
 # -- configured checks (rows C15-C22, G2-G4, G8, G10) --
-commands_key() { # topology's "." entry while topology exists, else the sole key, else this checkout's name
+commands_key() { # the sole key, else the main checkout's directory name (the pre-commit hook's rule)
   [ -n "$CONFIG" ] || return 0
   jq -r --arg s "$REPO_SLUG" '
-    (.topology.repos // {} | to_entries | map(select(.value.path == ".")) | .[0].key) as $t
-    | (.commands // {} | keys) as $k
-    | if ($t != null and ($k | index($t))) then $t elif ($k | length) == 1 then $k[0] elif ($k | index($s)) then $s else empty end' "$CONFIG" 2>/dev/null
+    (.commands // {} | keys) as $k
+    | if ($k | length) == 1 then $k[0] elif ($k | index($s)) then $s else empty end' "$CONFIG" 2>/dev/null
 }
 lanes_malformed() { # prints the first malformed lanes[]/extraLanes[] entry, nothing when all are well-formed
   local key; key="$(commands_key)"; [ -n "$key" ] || return 0
@@ -323,7 +334,7 @@ EOF
   done <<EOF
 $(checks_list)
 EOF
-  # "configured" is a config-TIME predicate, as the gate read it: a when-scoped lane that did not run on this diff
+  # "configured" is a config-TIME predicate: a when-scoped lane that did not run on this diff
   # is still a configured check; only a repo with nothing under lint/typecheck/test/format, extraLanes and '## Checks' is unverified
   if [ "$n" -eq 0 ] && [ "$(checks_list all | grep -c .)" -eq 0 ]; then
     allow_unverified && { say "checks: none configured; commands.<repo>.allowUnverified is true, so this is declared, not silent"; return 0; }
@@ -336,8 +347,8 @@ EOF
 # -- route smoke (rows C24-C26, H7-H12) --
 # Substitution is into a SHELL COMMAND STRING, so every value is single-quoted on the way in (a state is
 # human prose, a route may carry `&`), and the template is walked rather than `${t//p/r}`: under bash 5.2's
-# patsub_replacement a `&` in the replacement expands to the matched placeholder, silently. Both copied
-# from the gate (shquote/subst); the placeholders appear UNQUOTED in the template, as documented there.
+# patsub_replacement a `&` in the replacement expands to the matched placeholder, silently. The
+# placeholders appear UNQUOTED in the template (shquote and subst below).
 shquote() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 subst() { # subst <template> <placeholder> <replacement>
   local t="$1" p="$2" r="$3" out=""
@@ -372,7 +383,7 @@ route_smoke() { # route_smoke <attempt> -> 0 ok, 1 red (log at $STATE/smoke-<att
     if ! lane "$c" >> "$log" 2>&1; then smoke_red "$rs render failed: $c"; continue; fi
     [ -s "$png" ] || { smoke_red "$rs exited 0 but wrote no image at $png"; continue; }
     sha="$(hash_file "$png")" || return 4
-    # the {state}-blind-harness detector, as the gate ran it: a hash seen for ANY earlier state is red
+    # the {state}-blind-harness detector: a hash seen for ANY earlier state is red
     dup="$(printf '%s\n' "$seen" | awk -v s="$sha" '$1 == s { print $2; exit }')"
     [ -z "$dup" ] || smoke_red "render states $dup and $rs hash identically — the harness rendered the same view for two declared states"
     seen="$seen$sha $rs
@@ -439,15 +450,15 @@ EOF
   printf '%s' "$allow"
 }
 review_allowlist() { # row F20: review-lead's panel is a Workflow whose agents inherit these tools
-  local allow="Read,Grep,Glob,Agent,Skill,Workflow,Bash(find *),Bash(cp *),Bash(bash *check-review-context.sh*),Bash(git *),Bash(gh pr view*),Bash(gh pr comment*),Bash(gh pr diff*),Bash(gh api*)$MCP_ALLOW"
+  local allow="Read,Grep,Glob,Agent,Skill,Workflow,Bash(find *),Bash(cp *),Bash(bash *check-review-context.sh*),Bash(git *),Bash(gh pr view*),Bash(gh pr comment*),Bash(gh pr diff*),Bash(gh issue view*)$MCP_ALLOW"
   [ -n "$RENDER_CMD" ] && allow="$allow,Bash($(first_word "$RENDER_CMD")*)"
   [ -n "$(frames_rows)" ] && allow="$allow,mcp__figma,mcp__plugin_figma_figma"
-  [ "$BOT_OK" -eq 1 ] && allow="$allow,Bash($GH *)"
+  [ "$BOT_OK" -eq 1 ] && allow="$allow,Bash($GH pr comment*),Bash($GH pr view*)"   # never the wrapper whole: it takes api -X DELETE
   printf '%s' "$allow"
 }
 
 # -- the worktree (rows E17-E21, J6) --
-worktree_inflight() { # the gate's predicate (milestone-gate.sh worktree_inflight), copied: 0 collected · 8 in flight · 1 unreadable
+worktree_inflight() { # 0 collected · 8 in flight · 1 unreadable
   local dirty unpushed; INFLIGHT_REASON=""
   dirty="$(git -C "$WT" status --porcelain 2>&1)" || { INFLIGHT_REASON="its status could not be read ($dirty)"; return 1; }
   if [ -n "$dirty" ]; then INFLIGHT_REASON="its tree is not clean"; return 8; fi
@@ -501,7 +512,7 @@ pr_conventions() { # pr_conventions <pr> <attempt> -> 0, 1 unmet (reasons in $ST
   grep -qF "$RECORD_REL" <<<"$body" || echo "PR body must link the decision record at $RECORD_REL" >> "$out"
   if [ "$TRACKER" = github ]; then
     grep -qiE "(^|[^a-z])closes[[:space:]]+#$ISSUE([^0-9]|$)" <<<"$body" || echo "PR body must carry 'Closes #$ISSUE'" >> "$out"
-  else # the gate's rule: the Closes line lives under the Jira Items heading, matched case-insensitively, any depth; the next heading closes it
+  else # the Closes line lives under the Jira Items heading, matched case-insensitively, any depth; the next heading closes it
     awk -v k="$(printf '%s' "$ISSUE" | tr '[:upper:]' '[:lower:]')" '
         { l = tolower($0) }
         l ~ /^#+[[:space:]]+jira items[[:space:]]*$/ { on = 1; next }
@@ -521,13 +532,17 @@ ci_status() { # one word for the report, never waited on (row G11)
 }
 # -- the verdict (rows I1-I5, I7): bound to the review window, unedited, naming the current head; the LAST binding comment wins --
 verdict() { # verdict <start-iso> <end-iso> -> prints approve|needs-work and saves the body; 1 none binds; 2 the tracker could not be read
-  local repo comments
+  # row B10: only a Bot or the account this scheduler writes with binds (lane_marker_present's filter) —
+  # anyone can comment on a public repo, and a needs-work body becomes the next BUILD's findings
+  local repo comments me
   repo="$(repo_slug)" || return 2
+  me="$("$GH" api user --jq .login 2>/dev/null)" || me=""
   comments="$("$GH_READ" api "repos/$repo/issues/$PR/comments" --paginate 2>/dev/null)" || return 2
   printf '%s' "$comments" | jq -e 'type == "array"' >/dev/null 2>&1 || return 2
   printf '%s' "$comments" \
-    | jq -r --arg s "$1" --arg e "$2" --arg h "$HEAD_SHA" '
+    | jq -r --arg s "$1" --arg e "$2" --arg h "$HEAD_SHA" --arg me "$me" '
         .[] | select(.created_at >= $s and .created_at <= $e and .created_at == .updated_at)
+        | select((.user.type // "") == "Bot" or (($me != "") and ((.user.login // "") == $me)))
         | select((.body | split("\n")[0]) | test("^verdict: (approve|needs-work)$"))
         | select((.body | split("\n")[1]) == ("reviewed: " + $h))
         | (.body | split("\n")[0] | sub("^verdict: ";"")) + "\t" + (.body | @base64)' \
@@ -541,10 +556,12 @@ cost_block() { # <terminal slug>
   echo '<!-- pipeline-cost-block -->'
   echo "## second-shift run"; echo
   echo "| run | outcome | rounds | verdict | reviewed head | cost | CI |"; echo "| --- | --- | --- | --- | --- | --- | --- |"
-  echo "| $RUN_ID | $1 | $ROUND | ${VERDICT:-none} | ${HEAD_SHA:-—} | \$$COST | $CI |"; echo
+  echo "| $RUN_ID | $1 | $ROUND | ${VERDICT:-none} | ${HEAD_SHA:-—} | \$$COST${UNPRICED:+ + unpriced} | $CI |"; echo
   echo "| session | turns | cost |"; echo "| --- | --- | --- |"
   local f; for f in "$STATE"/build-*.json "$STATE"/review-*.json; do
-    [ -f "$f" ] && jq -r --arg n "$(basename "$f" .json)" '"| \($n) | \(.num_turns // "?") | $\((.total_cost_usd // 0) * 100 | round / 100) |"' "$f"
+    [ -f "$f" ] || continue
+    jq -er --arg n "$(basename "$f" .json)" 'select(.total_cost_usd | numbers) | "| \($n) | \(.num_turns // "?") | $\(.total_cost_usd * 100 | round / 100) |"' "$f" 2>/dev/null \
+      || echo "| $(basename "$f" .json) | ? | unpriced (no total_cost_usd) |"
   done
   echo '<!-- /pipeline-cost-block -->'
 }
@@ -556,7 +573,7 @@ write_run_block() { # <terminal slug>; a body that cannot be read is never repla
     say "could not read PR #$PR's body; the run block is NOT written (a blind replace would erase the body)"; return 0
   fi
   # strip an earlier block: ours ends at the closing marker, the old lane's at its `Cache-hit rate:` line. CR-stripped
-  # first (the gate's rule): a body round-tripped through the GitHub API carries CRLF, and `$0 == m` never matches then
+  # first: a body round-tripped through the GitHub API carries CRLF, and `$0 == m` never matches then
   body="$(printf '%s\n' "$body" | tr -d '\r' | awk '$0 == "<!-- pipeline-cost-block -->"{skip=1} !skip{print} skip && ($0 == "<!-- /pipeline-cost-block -->" || /^Cache-hit rate: /){skip=0} END{if (skip) print "<!-- an earlier cost block had no terminator; text below it was not preserved -->"}')"
   printf '%s\n\n%s\n' "$body" "$(cost_block "$1")" > "$STATE/pr-body.md"
   "$GH" api -X PATCH "repos/$repo/pulls/$PR" -F "body=@$STATE/pr-body.md" >/dev/null 2>&1 || say "could not write the run block into PR #$PR's body (it is in $STATE/pr-body.md)"
@@ -726,6 +743,9 @@ while :; do
   done
   say "verdict: $VERDICT (reviewed $HEAD_SHA)"
   [ "$VERDICT" = approve ] && break
+  # row H13: a review that could not render is the environment's failure, not the build's — no round is spent
+  awk '{ sub(/\r$/, "") } $0 == "reason: render-unavailable" { f = 1 } END { exit !f }' "$STATE/verdict-body.md" \
+    && terminal env-not-ready "the review could not render the design frames at $HEAD_SHA (reason: render-unavailable) — fix the render environment and re-launch"
   FINDINGS="$STATE/verdict-body.md"; NEED_BUILD=1
   over_ceiling && terminal cost-spent "\$$COST exceeds the \$$COST_CEIL ceiling"
 done

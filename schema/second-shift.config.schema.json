@@ -79,7 +79,6 @@
         "additionalProperties": false,
         "properties": {
           "lint": { "type": ["string", "null"] },
-          "lintAutofixes": { "type": "boolean", "description": "Declares that the lint command mutates files (onboard derives it from a --fix in the command). config-lint rejects a true value on a plain `npm run` lint command, which swallows the --fix." },
           "typecheck": { "type": ["string", "null"] },
           "test": { "type": ["string", "null"] },
           "format": { "type": ["string", "null"] },

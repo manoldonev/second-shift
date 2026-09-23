@@ -382,6 +382,8 @@ else
       (if has("gates") then ["gates", "nothing reads it."] else empty end),
       (if has("stageParams") then ["stageParams", (if (.stageParams | type) == "object" and (.stageParams | has("webComponentGlobs")) then "move webComponentGlobs to reviewers.webComponentGlobs first; nothing reads the rest." else "nothing reads it." end)] else empty end),
       (if has("grillWaivers") then ["grillWaivers", "config grill findings are advisory warnings now, so there is nothing to waive."] else empty end),
+      ((.commands // {}) | if type == "object" then (to_entries[] | select((.value | type) == "object" and (.value | has("lintAutofixes")))
+        | ["commands.\(.key).lintAutofixes", "the scheduler runs lint as a blocking check in the worktree; give lint its non-mutating command."]) else empty end),
       (if lr | has("tolerancePx") then ["design.liveRender.tolerancePx", "the pixel compare is replaced by the route smoke; set design.liveRender.smokeCommand."] else empty end),
       (if lr | has("cwd") then ["design.liveRender.cwd", "the render command runs in the ticket worktree; put any cd into the command itself. If it named another repo, that repo owns design: move the whole design block into its own config."] else empty end)
     ] | .[] | @tsv' "$CONF" 2>/dev/null)

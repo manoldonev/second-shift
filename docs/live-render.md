@@ -105,7 +105,8 @@ refuses before it claims (`env-design-undeclared`). The full row schema is in th
   frame and fix what differs.
 - **Review.** The review session renders every screen at the PR head with `command` and compares
   it with its frame. If it cannot render, it cannot approve: it posts `verdict: needs-work` with a
-  line `reason: render-unavailable`.
+  line `reason: render-unavailable`, and the scheduler stops the run as `env-not-ready` without
+  spending a round.
 
 ## Reference harness shape (Playwright, MIFE-in-shell)
 

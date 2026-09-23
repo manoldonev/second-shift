@@ -5,7 +5,8 @@ as the branch's first commit, runs fresh build sessions, runs every configured c
 the route smoke for design tickets, and binds a fresh review session's verdict comment to the
 current head. The gates, the committed verdict record, the render receipt and the lane-only tools
 are gone, and so are the config keys only they read. `configVersion` is `3`; config-lint rejects a
-`2` with a pointer here, and names every removed key it finds.
+`2` with a pointer here, and names every removed key it finds. `/dev-pipeline:run` refuses an
+unmigrated config before it writes anything (`env-config-stale`, exit 2), naming the keys it found.
 
 Part 1 is the config, field by field. Part 2 is what to delete from your repo outside the config.
 
@@ -59,6 +60,12 @@ tool as an `extraLanes` check.
 
 config-grill findings are advisory now: `/second-shift:doctor` and `/second-shift:onboard` report
 them as `WARN`, never `FAIL`, so there is nothing to waive. Delete the key.
+
+### `commands.<id>.lintAutofixes` → nothing
+
+The scheduler runs `lint` as a blocking check in the ticket's worktree after every build, and
+nothing reads the flag. Configure `lint` as the non-mutating form (`eslint .`, not
+`eslint --fix .`) and delete the key.
 
 ### `design.liveRender.tolerancePx` and `design.liveRender.cwd` → `design.liveRender.smokeCommand`
 

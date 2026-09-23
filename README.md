@@ -49,7 +49,7 @@ Then pick a small, self-contained ticket. Ask first: intake puts the ticket's op
 /dev-pipeline:run <ticket>
 ```
 
-The review posts one PR comment: `verdict: approve` or `verdict: needs-work`, the head it reviewed, a table scoring every row of the record, then findings. The scheduler accepts it only if it was posted during that review session, never edited, and names the current head. When a run ends without a usable verdict, review by hand from a fresh session:
+The review posts one PR comment: `verdict: approve` or `verdict: needs-work`, the head it reviewed, a table scoring every row of the record, then findings. The scheduler accepts it only if it was posted during that review session, by a Bot or the account the scheduler writes with, never edited, and names the current head. When a run ends without a usable verdict, review by hand from a fresh session:
 
 ```text
 /dev-pipeline:review <pr>

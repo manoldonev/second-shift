@@ -54,7 +54,8 @@ be the first thing it forbids.
 every check itself after each build, and reads the record's rows and checks from that first commit,
 never from the head the build controls. P10 is mechanically enforced rather than owed: the verdict
 comes from a fresh review session, and the scheduler accepts a verdict comment only if it was
-posted inside that session's window, never edited, and names the current head. The build session
+posted inside that session's window by a Bot or the account the scheduler writes with, never
+edited, and names the current head. The build session
 is told never to post one, and it has exited before the review starts.
 
 **P7 posture:** prospective — it binds decompositions from its statement onward. It lands

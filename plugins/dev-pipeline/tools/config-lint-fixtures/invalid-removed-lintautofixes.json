@@ -5,7 +5,7 @@
   },
   "commands": {
     "app": {
-      "lint": "npm run lint --",
+      "lint": "eslint --fix .",
       "lintAutofixes": true,
       "test": "npm run test"
     }

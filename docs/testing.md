@@ -357,7 +357,7 @@ the same ids `run.sh`'s section headers cite, and a row whose behavior is revert
 red. The invariants the suite exists for are the three adjudication properties: the checks are run
 by the scheduler from the record's first commit, the build's work is collected on exactly one open
 PR before any check runs, and a verdict counts only as an unedited comment naming the current head,
-posted inside the review session's window.
+posted inside the review session's window by a Bot or the account the scheduler writes with.
 
 **A change to `run.sh` lands with a row-keyed case seen failing first.** Add the case, watch it go
 red against the current script, then change the script. A new terminal, refusal or outward write

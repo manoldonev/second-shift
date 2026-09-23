@@ -146,10 +146,12 @@ expect_no_violation invalid-bad-plangate.json       "unknown top-level keys"
 expect_violation invalid-removed-mutation-keys.json "commands.host.unitTestScope was removed —"
 expect_violation invalid-removed-mutation-keys.json "commands.host.testFile was removed —"
 expect_no_violation invalid-removed-mutation-keys.json "commands.host: unknown keys"
-# lintAutofixes:true + a plain `npm run` lint command silently no-ops the autofix the flag
-# declares — npm swallows a trailing `--fix` without a `--` separator.
-# valid-lintautofix-npm-withfix.json proves the trailing-`--` escape hatch is accepted.
-expect_violation invalid-lintautofix-npm-nofix.json "commands.app.lintAutofixes is true but lint (\"npm run lint\") is a plain \`npm run\` invocation"
+# commands.<id>.lintAutofixes left with configVersion 3: rejected by NAME whatever its value, and never
+# as the generic unknown-keys message.
+expect_violation invalid-removed-lintautofixes.json "commands.app.lintAutofixes was removed in configVersion 3"
+expect_violation invalid-removed-lintautofixes.json "docs/migrations/v2-to-v3.md"
+expect_no_violation invalid-removed-lintautofixes.json "commands.app: unknown keys"
+expect_violation invalid-removed-lintautofixes-false.json "commands.app.lintAutofixes was removed in configVersion 3"
 
 # --- the config-lint type-check gaps. One packed fixture, one assertion per mutant class it
 # must KILL.

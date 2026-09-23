@@ -156,12 +156,13 @@ scenario grill-degraded-missing plugin-list-green.json settings-green.json marke
 # --- keys configVersion 3 removed ------------------------------------------------------------
 # Each removed key is its own FAIL naming the key and the migration doc, independently of
 # config-lint (which the stub above always passes, so every FAIL here is doctor's own). The
-# fixture carries all six plus configVersion 2: seven FAILs, one per edit.
+# fixture carries all seven plus configVersion 2: eight FAILs, one per edit.
 for want in "configVersion is 2" "config: topology was removed in configVersion 3" \
             "config: gates was removed" "move webComponentGlobs to reviewers.webComponentGlobs" \
             "config: grillWaivers was removed" "config: design.liveRender.tolerancePx was removed" \
-            "config: design.liveRender.cwd was removed" "docs/migrations/v2-to-v3.md"; do
-  scenario "stale-key: $want" plugin-list-green.json settings-green.json marketplace-list-pinned.json 7 "$want" lock-v1.json config-v2-stale.json
+            "config: design.liveRender.cwd was removed" "config: commands.app.lintAutofixes was removed" \
+            "docs/migrations/v2-to-v3.md"; do
+  scenario "stale-key: $want" plugin-list-green.json settings-green.json marketplace-list-pinned.json 8 "$want" lock-v1.json config-v2-stale.json
 done
 
 # --- consumer CI from the retired verdict-record lane ---------------------------------------

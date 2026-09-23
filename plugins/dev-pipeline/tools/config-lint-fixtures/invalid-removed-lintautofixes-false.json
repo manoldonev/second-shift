@@ -6,7 +6,7 @@
   "commands": {
     "app": {
       "lint": "npm run lint",
-      "lintAutofixes": true,
+      "lintAutofixes": false,
       "test": "npm run test"
     }
   }

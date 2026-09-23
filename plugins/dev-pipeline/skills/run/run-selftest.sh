@@ -65,7 +65,7 @@ case "$plan" in
   build-push-only) push ;;
   build-delete-test) git rm -q src/a.spec.ts; push; openpr ;;
   build-nothing)   : ;;
-  build-sleep)     sleep 60 ;;
+  build-sleep)     sleep 60; exit 143 ;;   # killed at its bound: a real session leaves no result JSON
   build-stubborn)  trap '' TERM; while :; do sleep 1; done ;;
   build-kill-remote) push; openpr; git remote set-url origin /nonexistent-remote ;;
   build-pr-ready)  touch "$S/undraft"; rm -f "$S/draft" ;;
@@ -80,19 +80,21 @@ case "$plan" in
     sha=$(git rev-parse "origin/$branch"); [ "$plan" = review-wrong-sha ] && sha=deadbeef
     v=approve; case "$plan" in review-needs-work*) v=needs-work ;; esac
     ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    jq --arg b "verdict: $v"$'\n'"reviewed: $sha"$'\n'"| D-1 | honored |" --arg t "$ts" '. + [{body:$b,created_at:$t,updated_at:$t}]' "$S/comments.json" > "$S/c.tmp" && mv "$S/c.tmp" "$S/comments.json"
+    jq --arg b "verdict: $v"$'\n'"reviewed: $sha"$'\n'"| D-1 | honored |" --arg t "$ts" --arg u "${FAKE_VERDICT_AUTHOR:-tester}" --arg ut "${FAKE_VERDICT_AUTHOR_TYPE:-User}" '. + [{body:$b,user:{login:$u,type:$ut},created_at:$t,updated_at:$t}]' "$S/comments.json" > "$S/c.tmp" && mv "$S/c.tmp" "$S/comments.json"
     case "$plan" in
       review-approve-dirty) echo scratch > review-scratch.txt ;;
       review-approve-and-push) push ;;
       review-needs-work-drop-base) git -C "$(git remote get-url origin)" update-ref -d refs/heads/main ;;
       review-needs-work-diverge) git push -q -f origin "$(git commit-tree "HEAD~1^{tree}" -p HEAD~1 -m diverged)":"refs/heads/$branch" ;;
     esac ;;
+  review-render-unavailable) sha=$(git rev-parse "origin/$branch"); ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    jq --arg b "verdict: needs-work"$'\n'"reviewed: $sha"$'\n'"reason: render-unavailable" --arg t "$ts" --arg u "${FAKE_VERDICT_AUTHOR:-tester}" --arg ut "${FAKE_VERDICT_AUTHOR_TYPE:-User}" '. + [{body:$b,user:{login:$u,type:$ut},created_at:$t,updated_at:$t}]' "$S/comments.json" > "$S/c.tmp" && mv "$S/c.tmp" "$S/comments.json" ;;
   review-two-verdicts) # both bind; the LAST posted wins: $FAKE_ORDER = needs-work,approve or approve,needs-work
     sha=$(git rev-parse "origin/$branch"); for v in ${FAKE_ORDER//,/ }; do ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-      jq --arg b "verdict: $v"$'\n'"reviewed: $sha" --arg t "$ts" '. + [{body:$b,created_at:$t,updated_at:$t}]' "$S/comments.json" > "$S/c.tmp" && mv "$S/c.tmp" "$S/comments.json"; done ;;
+      jq --arg b "verdict: $v"$'\n'"reviewed: $sha" --arg t "$ts" --arg u "${FAKE_VERDICT_AUTHOR:-tester}" --arg ut "${FAKE_VERDICT_AUTHOR_TYPE:-User}" '. + [{body:$b,user:{login:$u,type:$ut},created_at:$t,updated_at:$t}]' "$S/comments.json" > "$S/c.tmp" && mv "$S/c.tmp" "$S/comments.json"; done ;;
   review-silent)   : ;;
   review-detach)   git checkout -q --detach "origin/$branch"; sha=$(git rev-parse "origin/$branch"); ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    jq --arg b "verdict: needs-work"$'\n'"reviewed: $sha" --arg t "$ts" '. + [{body:$b,created_at:$t,updated_at:$t}]' "$S/comments.json" > "$S/c.tmp" && mv "$S/c.tmp" "$S/comments.json" ;;
+    jq --arg b "verdict: needs-work"$'\n'"reviewed: $sha" --arg t "$ts" --arg u "${FAKE_VERDICT_AUTHOR:-tester}" --arg ut "${FAKE_VERDICT_AUTHOR_TYPE:-User}" '. + [{body:$b,user:{login:$u,type:$ut},created_at:$t,updated_at:$t}]' "$S/comments.json" > "$S/c.tmp" && mv "$S/c.tmp" "$S/comments.json" ;;
 esac
 printf '{"subtype":"success","total_cost_usd":%s,"num_turns":3,"permission_denials":[{"tool_name":"Bash","tool_input":{"command":"ls /"}}]}\n' "$cost"
 EOF
@@ -212,6 +214,8 @@ fixture l; printf 'in-progress\nopus\n' > "$FAKE_GH/labels"; run_case "$d"; expe
 fixture l2; echo CLOSED > "$FAKE_GH/state"; run_case "$d"; expect env-ticket-closed "(l2) a ticket closed at launch is a preflight refusal"
 [ "$RC" -eq 2 ] && ok "(l2) exits 2, like every preflight refusal" || bad "(l2) exit $RC"
 fixture l3; printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; FAKE_COST=60 RUN_COST_CEILING=100 run_case "$d"; expect cost-spent "(l3) cost ceiling"; [ "$RC" -eq 4 ] && ok "(l3) [B8] cost-spent exits 4" || bad "(l3) exit $RC"
+# I15: the ceiling is exceeded, not reached — a run whose spend lands exactly on it keeps going
+fixture l3b; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; FAKE_COST=25 RUN_COST_CEILING=25 run_case "$d"; expect approved "[I15] a build whose spend equals the ceiling is not over it"
 fixture l4; rm "$d/main/.claude/pipeline-state/42-ledger.md"; run_case "$d"; expect env-no-record "(l4) no intake record"; [ "$RC" -eq 3 ] && ok "(l4) [B6 K8] env-no-record exits 3 (resumable)" || bad "(l4) exit $RC"
 fixture l5; run_case "$d" --dry-run; expect dry-run "(l5) dry-run spawns nothing"; [ "$RC" -eq 0 ] && ok "(l5) [B2 A13] dry-run exits 0" || bad "(l5) exit $RC"
 [ ! -f "$FAKE_GH/calls" ] && ok "(l5) no claude call on dry-run" || bad "(l5) claude called on dry-run"
@@ -607,12 +611,41 @@ grep -q 'render-unavailable' "$FAKE_GH/prompt-2.txt" && ok "[H13] the review pro
 # the session's tools, staged into the run's state dir (outside the worktree), after review-toolkit's lint
 fixture rpanel; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "[F20] panel tools"
 ral=$(grep -A1 -x -- '--allowedTools' "$FAKE_GH/args-2.txt" | tail -n 1); bal=$(grep -A1 -x -- '--allowedTools' "$FAKE_GH/args-1.txt" | tail -n 1)
-miss=""; for t in Skill Workflow Grep Glob 'Bash(find *)' 'Bash(cp *)' 'Bash(bash *check-review-context.sh*)'; do case ",$ral," in *",$t,"*) ;; *) miss="$miss $t" ;; esac; done
+miss=""; for t in Skill Workflow Grep Glob 'Bash(find *)' 'Bash(cp *)' 'Bash(bash *check-review-context.sh*)' 'Bash(gh issue view*)'; do case ",$ral," in *",$t,"*) ;; *) miss="$miss $t" ;; esac; done
 [ -z "$miss" ] && ok "[F20] the review allowlist carries every tool the panel dispatch uses" || bad "[F20] review allowlist lacks:$miss"
 case ",$bal," in *,Workflow,*) bad "[F20] the build session was given Workflow" ;; *) ok "[F20] the build allowlist is unchanged" ;; esac
 sdir=$(grep -A1 -x -- '--add-dir' "$FAKE_GH/args-2.txt" | grep '/run-42/' | head -n 1)
 [ -n "$sdir" ] && ! grep -qF -- "$sdir" "$FAKE_GH/args-1.txt" && grep -qF "$sdir" "$FAKE_GH/prompt-2.txt" && grep -q 'code-review.mjs' "$FAKE_GH/prompt-2.txt" \
   && ok "[F20] only the review session gets the run's state dir, and its prompt stages code-review.mjs there" || bad "[F20] state dir '${sdir:-none}' not added to the review, or not named as the staging dir"
+case ",$ral," in *",Bash(gh api"*) bad "[F20] the review session may call gh api (it can DELETE)" ;; *) ok "[F20] the review session gets no gh api" ;; esac
+
+# B10: a verdict binds only from a Bot or the account the scheduler writes with — on a public repo anyone can
+# comment, and a needs-work body is pasted into the next BUILD prompt
+fixture rauth; printf 'build-pr\nreview-approve\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; FAKE_VERDICT_AUTHOR=stranger run_case "$d"
+expect review-unbound "[B10] a verdict posted by a stranger's account"
+[ ! -f "$FAKE_GH/prompt-4.txt" ] && ok "[B10] no BUILD spawned on a stranger's verdict" || bad "[B10] a stranger's verdict drove another round"
+fixture rauthb; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; FAKE_VERDICT_AUTHOR='second-shift-bot[bot]' FAKE_VERDICT_AUTHOR_TYPE=Bot run_case "$d"
+expect approved "[B10] a verdict posted by a Bot account"
+
+# H13: a review that could not render stops the run as env-not-ready; it does not spend a round
+fixture rru; printf 'build-pr\nreview-render-unavailable\nbuild-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"
+expect env-not-ready "[H13] verdict: needs-work with reason: render-unavailable"
+[ ! -f "$FAKE_GH/prompt-3.txt" ] && ok "[H13] no second BUILD after render-unavailable" || bad "[H13] render-unavailable spent a round"
+
+# C2: an unmigrated v2 config is refused before anything is written, never half-honored (the commands
+# key is then the sole key or the main checkout's name, the rule the pre-commit hook applies)
+si=0; for stale in '"topology":{"type":"standalone","repos":{"x":{"path":".","baseBranch":"main"}}}' '"stageParams":{"formatGlob":"*"}' '"grillWaivers":{}' '"configVersion":2'; do
+  FIXTURE_CONFIG="{\"tracker\":{\"type\":\"github\",\"branchPrefix\":\"second-shift/\"},\"paths\":{\"plansDir\":\"docs/plans\"},\"commands\":{\"main\":{\"lint\":null,\"typecheck\":null,\"test\":\"true\"}},$stale}" fixture "rstale$si"; si=$((si + 1))
+  printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect env-config-stale "[C2] v2 config (${stale%%:*})"
+  [ "$RC" -eq 2 ] && [ ! -f "$FAKE_GH/calls" ] && printf '%s\n' "$OUT" | grep -q 'v2-to-v3.md' && ok "[C2] exit 2, nothing written, the migration doc named (${stale%%:*})" || bad "[C2] rc=$RC, calls=$([ -f "$FAKE_GH/calls" ] && echo yes || echo no) (${stale%%:*})"
+done
+FIXTURE_CONFIG='{"configVersion":3,"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"commands":{"main":{"lint":null,"typecheck":null,"test":"true"}}}' fixture rv3
+printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "[C2] a v3 config runs"
+
+# I14 I16: a session with no result JSON (killed at its bound) is reported unpriced, never as $0
+fixture rcost; printf 'build-sleep\n' > "$FAKE_CLAUDE_PLAN"; RUN_BUILD_TIMEOUT=2 run_case "$d"; expect build-blocked "[I16] a build killed at its bound"
+grep -q 'unpriced' "$FAKE_GH/issue-comments" && ok "[I16] the closing comment says the run is unpriced" || bad "[I16] a killed session was priced as \$0: $(grep cost_usd "$FAKE_GH/issue-comments" | tail -n 1)"
+printf '%s\n' "$OUT" | grep -q 'unpriced' && ok "[I16] the operator is told a session is unpriced" || bad "[I16] nothing said about the unpriced session"
 fixture rk2; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"
 ! grep -q 'mcp__figma' "$FAKE_GH/args-1.txt" && ! grep -q 'figma-faithful' "$FAKE_GH/prompt-1.txt" && ok "[F7 F18] neither on a ticket without frames" || bad "[F7 F18] leaked onto a frames-less ticket"
 

@@ -9,7 +9,6 @@
   "commands": {
     "be": {
       "lint": "yarn lint",
-      "lintAutofixes": true,
       "typecheck": "yarn lint:tsc",
       "test": "yarn test",
       "format": "yarn format"

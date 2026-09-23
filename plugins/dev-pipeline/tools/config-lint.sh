@@ -50,14 +50,6 @@ SHIPPED_TIERS_JSON=$(parse_tier_alphabet "$TIER_DOC" | cut -f1 | jq -R . | jq -s
 
 ERRORS=$(jq -r --argjson shippedTiers "$SHIPPED_TIERS_JSON" '
   def err(cond; msg): if cond then [msg] else [] end;
-  # `lintAutofixes: true` declares the configured lint command MUTATES files, and
-  # the onboard detect.sh script derives it from a `--fix` in that command string.
-  # Plain `npm run <script>` swallows a trailing flag instead of forwarding it to the
-  # underlying tool unless the command already ends in a `--` separator — so
-  # "npm run lint --fix" sets the flag true while npm eats the flag, and the autofix
-  # the config now claims silently never happens (#107). yarn/pnpm/direct-tool
-  # invocations forward unrecognized flags on their own and are not flagged.
-  def npm_no_fix_forward: (. // "") as $c | ($c | test("^npm run ")) and (($c | rtrimstr(" ")) | endswith("--") | not);
 
   # ---- top level ----------------------------------------------------------
   # A retired key is rejected by NAME, with what to write instead and the migration pointer, and
@@ -135,15 +127,11 @@ ERRORS=$(jq -r --argjson shippedTiers "$SHIPPED_TIERS_JSON" '
         # allowlist below so this message, not the generic one, is what a consumer sees.
         err(has("unitTestScope"); "commands." + $repo + ".unitTestScope was removed — the unit-test mutation engine that read it was retired, so the key armed nothing. For mutation coverage, add your own mutation tool as a commands.<id>.extraLanes check. Delete the key from your config (docs/migrations/v1-to-v2.md)")
         + err(has("testFile"); "commands." + $repo + ".testFile was removed — it was the retired unit-test mutation engine\u0027s per-spec runner template, read by nothing else. Delete the key from your config (docs/migrations/v1-to-v2.md)")
+        + err(has("lintAutofixes"); "commands." + $repo + ".lintAutofixes was removed in configVersion 3 — the scheduler runs lint as a blocking check in the worktree, so configure lint as its non-mutating form (e.g. eslint ., not eslint --fix) and delete the key " + $v3doc)
         + err(((keys) - ["lint","lintAutofixes","typecheck","test","testFile","unitTestScope","format","lanes","extraLanes","allowUnverified"]) != []; "commands." + $repo + ": unknown keys (note: integrationTest/apiTest were removed in v2.1.6, commands.<repo>.build was removed — ship those tiers via extraLanes; see docs/migrations)")
         + ([to_entries[] | select(.key | IN("lint","typecheck","test","format")) |
             err((.value | type) | IN("string","null") | not; "commands." + $repo + "." + .key + ": must be string or null")
           ] | add // [])
-        + err((.lintAutofixes? != null) and ((.lintAutofixes | type) != "boolean"); "commands." + $repo + ".lintAutofixes: must be boolean")
-        + err(
-            (.lintAutofixes? == true) and ((.lint? // "") | npm_no_fix_forward);
-            "commands." + $repo + ".lintAutofixes is true but lint (\"" + (.lint? // "") + "\") is a plain `npm run` invocation — npm swallows a trailing `--fix` instead of forwarding it to the underlying tool, so the autofix this flag declares silently never happens; add a trailing `--` separator (e.g. \"" + ((.lint? // "") | rtrimstr(" ")) + " --\") or invoke the tool directly (e.g. \"npx eslint .\")"
-          )
         + err((.allowUnverified? != null) and ((.allowUnverified | type) != "boolean"); "commands." + $repo + ".allowUnverified: must be boolean")
         + ((.lanes // []) | if type != "array" then ["commands." + $repo + ".lanes: must be array"] else (to_entries | map(
             (.key as $li | .value |

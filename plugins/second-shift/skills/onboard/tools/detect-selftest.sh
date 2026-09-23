@@ -33,8 +33,16 @@ expect "baseBranch provenance" "$OUT" '.git.baseBranch.source' "origin/HEAD symb
 expect "pm yarn"               "$OUT" '.packageManager.value' yarn
 expect "lint cmd"              "$OUT" '.commands.lint.value' "yarn lint"
 expect "typecheck null"        "$OUT" '.commands.typecheck.value' null
-expect "lintAutofixes true"    "$OUT" '.commands.lintAutofixes' true
+expect "mutating lint named"   "$OUT" '.commands.lint.source | test("runs --fix; give lint a non-mutating command")' true
+expect "no lintAutofixes"      "$OUT" '.commands | has("lintAutofixes")' false
 expect "topology standalone"   "$OUT" '.topology.value' standalone
+
+# Case 1b: scripts.lint runs --fix and a non-mutating lint:check exists ⇒ lint is lint:check
+R1B="$TMP/widget-web"; mkdir -p "$R1B"; mkrepo "$R1B" "git@github.com:acme/widget-web.git" main
+cp "$FIX/package-lint-fix-check.json" "$R1B/package.json"; touch "$R1B/yarn.lock"
+OUT="$("$DETECT" "$R1B")"
+expect "lint prefers lint:check" "$OUT" '.commands.lint.value' "yarn lint:check"
+expect "lint:check provenance"   "$OUT" '.commands.lint.source' "package.json scripts.lint:check (scripts.lint runs --fix)"
 
 # Case 2: monorepo (workspaces), npm, non-github origin ⇒ ambiguous tracker
 R2="$TMP/platform"; mkdir -p "$R2"; mkrepo "$R2" "git@git.acme-corp.example:platform/platform.git" develop

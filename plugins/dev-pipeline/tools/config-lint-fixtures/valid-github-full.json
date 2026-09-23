@@ -19,7 +19,6 @@
   "commands": {
     "mono": {
       "lint": "yarn lint",
-      "lintAutofixes": true,
       "typecheck": "yarn typecheck",
       "test": "yarn test",
       "format": "yarn format",

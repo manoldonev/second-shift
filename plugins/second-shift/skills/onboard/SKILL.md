@@ -74,9 +74,11 @@ Build the draft config from detection — the configVersion 3 shape, and only th
   commands, `lanes` (setup steps; each may carry a `cwd` under the worktree) and `extraLanes`
   (path-triggered extra checks, e.g. contract tests scoped to one workspace).
 - `commands.<key>` from detection: the emitted block contains EXACTLY these keys —
-  `lint`, `lintAutofixes`, `typecheck`, `test`, `format` from detect.sh. **Undetected
+  `lint`, `typecheck`, `test`, `format` from detect.sh. **Undetected
   lanes are explicit `null`** — never omit, never invent. Each non-null `lint`, `typecheck`,
-  `test` and `format` is a blocking check the scheduler runs after each build.
+  `test` and `format` is a blocking check the scheduler runs after each build, so `lint` must
+  not rewrite files: when detect's `lint` provenance says the script runs `--fix`, flag it on the
+  review screen and ask for the non-mutating command.
   (Integration/API test tiers, and `build`, are NOT config command keys — ship them via
   `extraLanes`. Never emit `integrationTest`/`apiTest`/`build` under `commands.<key>`, never
   emit `testFile`/`unitTestScope`, and never `stageWorkflows`/`implementDelegates`/`planGates`

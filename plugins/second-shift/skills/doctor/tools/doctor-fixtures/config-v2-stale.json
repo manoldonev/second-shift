@@ -5,6 +5,6 @@
   "gates": { "mutation": false },
   "stageParams": { "webComponentGlobs": ["src/**/*.tsx"] },
   "grillWaivers": { "T4.design-liverender": "declined" },
-  "commands": { "app": { "lint": "yarn lint", "test": "yarn test" } },
+  "commands": { "app": { "lint": "yarn lint", "lintAutofixes": true, "test": "yarn test" } },
   "design": { "provider": "figma", "liveRender": { "command": "yarn render --route {route} --out {out}", "cwd": "app", "tolerancePx": 2 } }
 }

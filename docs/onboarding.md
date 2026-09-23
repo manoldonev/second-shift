@@ -296,7 +296,8 @@ updates the PR; the scheduler runs every configured check and the record's `## C
 [route smoke](live-render.md) on a design ticket); a separate, fresh review session scores every
 record row against the code and posts one PR comment whose first two lines are
 `verdict: approve|needs-work` and `reviewed: <sha>`. The scheduler accepts that verdict only if it
-was posted during the review session, is unedited and names the current head, so a commit that
+was posted during the review session by a Bot or the account the scheduler writes with, is unedited
+and names the current head, so a commit that
 lands while the review runs voids that review. An approve ends the run: a later push is the human
 merger's to judge, against the sha the approve names. A session grading its own work is not an
 independent review, which is why they are two sessions.
