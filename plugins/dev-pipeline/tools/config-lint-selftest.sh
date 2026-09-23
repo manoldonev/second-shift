@@ -47,9 +47,10 @@ expect_no_violation() { # $1 = fixture, $2 = substring that must NOT appear in a
   # Violation lines only (`✗ …`): the header line carries the fixture's path, and the install-topology
   # guard stages suites under a mktemp dir literally named `install-topology.XXXXXX` — a whole-output
   # grep for 'topology' matched the path and redded the guard on every run.
-  local out
+  local out violations
   out=$("$LINT" "$FIX/$1" 2>&1) || true
-  if grep -E '^[[:space:]]*✗' <<< "$out" | grep -qF "$2"; then
+  violations=$(grep -E '^[[:space:]]*✗' <<< "$out" || true)
+  if grep -qF "$2" <<< "$violations"; then
     check "$1 does NOT also say '$2' (got: $(head -3 <<< "$out" | tr '\n' ' '))" 1
   else
     check "$1 does NOT also say '$2'" 0
