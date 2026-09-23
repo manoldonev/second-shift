@@ -1,6 +1,0 @@
-{
-  "enabledPlugins": {
-    "audit-toolkit@second-shift": false,
-    "dev-pipeline@second-shift": false
-  }
-}
