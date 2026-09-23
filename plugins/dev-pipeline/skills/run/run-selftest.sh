@@ -603,13 +603,23 @@ printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect
 grep -q 'mcp__figma' "$FAKE_GH/args-1.txt" && grep -q 'mcp__figma' "$FAKE_GH/args-2.txt" && ok "[F7] Figma servers allowed in both sessions on a frames ticket" || bad "[F7] Figma servers missing"
 grep -q 'figma-faithful' "$FAKE_GH/prompt-1.txt" && grep -q 'three rounds per screen' "$FAKE_GH/prompt-1.txt" && ok "[F18] the build prompt carries the figma-faithful sequence" || bad "[F18] sequence missing"
 grep -q 'render-unavailable' "$FAKE_GH/prompt-2.txt" && ok "[H13] the review prompt carries the render-unavailable rule" || bad "[H13] rule missing"
+# F20: the review session can run review-lead's panel — the fan-out is a Workflow whose agents inherit
+# the session's tools, staged into the run's state dir (outside the worktree), after review-toolkit's lint
+fixture rpanel; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "[F20] panel tools"
+ral=$(grep -A1 -x -- '--allowedTools' "$FAKE_GH/args-2.txt" | tail -n 1); bal=$(grep -A1 -x -- '--allowedTools' "$FAKE_GH/args-1.txt" | tail -n 1)
+miss=""; for t in Skill Workflow Grep Glob 'Bash(find *)' 'Bash(cp *)' 'Bash(bash *check-review-context.sh*)'; do case ",$ral," in *",$t,"*) ;; *) miss="$miss $t" ;; esac; done
+[ -z "$miss" ] && ok "[F20] the review allowlist carries every tool the panel dispatch uses" || bad "[F20] review allowlist lacks:$miss"
+case ",$bal," in *,Workflow,*) bad "[F20] the build session was given Workflow" ;; *) ok "[F20] the build allowlist is unchanged" ;; esac
+sdir=$(grep -A1 -x -- '--add-dir' "$FAKE_GH/args-2.txt" | grep '/run-42/' | head -n 1)
+[ -n "$sdir" ] && ! grep -qF -- "$sdir" "$FAKE_GH/args-1.txt" && grep -qF "$sdir" "$FAKE_GH/prompt-2.txt" && grep -q 'code-review.mjs' "$FAKE_GH/prompt-2.txt" \
+  && ok "[F20] only the review session gets the run's state dir, and its prompt stages code-review.mjs there" || bad "[F20] state dir '${sdir:-none}' not added to the review, or not named as the staging dir"
 fixture rk2; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"
 ! grep -q 'mcp__figma' "$FAKE_GH/args-1.txt" && ! grep -q 'figma-faithful' "$FAKE_GH/prompt-1.txt" && ok "[F7 F18] neither on a ticket without frames" || bad "[F7 F18] leaked onto a frames-less ticket"
 
 # H9: two states rendering pixel-identical is red
 FIXTURE_CONFIG="{\"tracker\":{\"type\":\"github\",\"branchPrefix\":\"second-shift/\"},\"paths\":{\"plansDir\":\"docs/plans\"},\"design\":{\"provider\":\"figma\",\"liveRender\":{\"command\":\"cp $T/px.png {out}\",\"smokeCommand\":\"true\"}}}" fixture rl "- true" $'\n## Design frames\n\n| RS | route | state | frame | must-show |\n| --- | --- | --- | --- | --- |\n| RS-1 | a | default | 1:2 | ok |\n| RS-2 | a | empty | 1:3 | ok |\n'
 printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=1 run_case "$d"; expect checks-red-spent "[H9] two states with identical pixels are red"
-grep -qi 'identical' "$(SD)"/smoke-1.1.log 2>/dev/null && ok "[H9] the log names the identical render" || bad "[H9] log: $(cat "$(SD)"/smoke-1.1.log 2>/dev/null | head -3 | tr '\n' '|')"
+grep -qi 'identical' "$(SD)"/smoke-1.1.log 2>/dev/null && ok "[H9] the log names the identical render" || bad "[H9] log: $(head -3 "$(SD)"/smoke-1.1.log 2>/dev/null | tr '\n' '|')"
 
 # H11: frames declared but no render/smoke command configured
 FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"design":{"provider":"figma"}}' fixture rm1 "- true" $'\n## Design frames\n\n| RS | route | state | frame | must-show |\n| --- | --- | --- | --- | --- |\n| RS-1 | a | default | 1:2 | ok |\n'
@@ -695,7 +705,7 @@ printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=1 run_case "$d"; e
 # H9: the duplicate detector compares against EVERY earlier state (gate:4991-4994), not only the previous one
 FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"design":{"provider":"figma","liveRender":{"command":"printf %s {state} > {out}","smokeCommand":"true"}}}' fixture ar4 "- true" $'\n## Design frames\n\n| RS | route | state | frame | must-show |\n| --- | --- | --- | --- | --- |\n| RS-1 | a | default | 1:2 | ok |\n| RS-2 | a | empty | 1:3 | ok |\n| RS-3 | a | default | 1:4 | ok |\n'
 printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=1 run_case "$d"; expect checks-red-spent "[H9] states a,b,a: the third is identical to the first"
-grep -q 'RS-1 and RS-3' "$(SD)/smoke-1.1.log" 2>/dev/null && ok "[H9] the log names both rows" || bad "[H9] log: $(cat "$(SD)/smoke-1.1.log" 2>/dev/null | tr '\n' '|' | cut -c1-200)"
+grep -q 'RS-1 and RS-3' "$(SD)/smoke-1.1.log" 2>/dev/null && ok "[H9] the log names both rows" || bad "[H9] log: $(tr '\n' '|' < "$(SD)/smoke-1.1.log" 2>/dev/null | cut -c1-200)"
 
 # C20: the when-glob diff is fail-closed (gate:3970-3981) — a diff that cannot be read never skips every when-scoped lane
 FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"commands":{"main":{"extraLanes":[{"name":"e2e","when":["src/**"],"commands":["false"]}]}}}' fixture ar5 ""
@@ -769,7 +779,7 @@ printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=1 run_case "$d"; e
 # H8: a render that writes an image and still exits non-zero is red on its exit code
 FIXTURE_CONFIG="{\"tracker\":{\"type\":\"github\",\"branchPrefix\":\"second-shift/\"},\"paths\":{\"plansDir\":\"docs/plans\"},\"design\":{\"provider\":\"figma\",\"liveRender\":{\"command\":\"cp $T/px.png {out}; false\",\"smokeCommand\":\"true\"}}}" fixture as1 "- true" $'\n## Design frames\n\n| RS | route | state | frame | must-show |\n| --- | --- | --- | --- | --- |\n| RS-1 | a | default | 1:2 | ok |\n'
 printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=1 run_case "$d"; expect checks-red-spent "[H8] an image written by a render that exited non-zero is still red"
-grep -q 'render failed' "$(SD)/smoke-1.1.log" && ok "[H8] the log names the exit, not the image" || bad "[H8] log: $(cat "$(SD)/smoke-1.1.log" | tr '\n' '|' | cut -c1-160)"
+grep -q 'render failed' "$(SD)/smoke-1.1.log" && ok "[H8] the log names the exit, not the image" || bad "[H8] log: $(tr '\n' '|' < "$(SD)/smoke-1.1.log" | cut -c1-160)"
 
 # C18: a setup lane runs in its own cwd
 FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"commands":{"main":{"lanes":[{"name":"setup","cwd":"src","commands":["test -f a.ts"]}],"lint":"true"}}}' fixture as2 ""

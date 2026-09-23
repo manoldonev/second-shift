@@ -422,6 +422,7 @@ review_prompt() { # review_prompt <pr> <review-input-file>
   echo "You are reviewing PR #$1 of this repository at its current head, in a session separate from the one that built it. Check out the PR head. Read the decision record at $RECORD_REL as it stood at commit $FIRST (git show $FIRST:$RECORD_REL) and as it stands at the head."
   echo "Score EVERY row of the record against the code: honored, violated, departed (the row was edited; name who decided, per its provenance), or undeterminable (say what you could not read). A violated or undeterminable row is a blocker; neither may stand beside an approve."
   echo "Then run review-toolkit:review-lead over the PR diff and DECLARE THE PIPELINE DEFAULT PANEL when you invoke it: the fan-out defaults to scope-completeness-reviewer; security-reviewer, a11y-reviewer and unit-test-mutation-reviewer are selected only by an opt-in — a 'review panel' row in the record with user-answered or user-delegated provenance naming security, a11y or unit-test-mutation, or the config's reviewers.default[]. review-lead never infers this; an undeclared panel leaves the surface triggers in force."
+  echo "review-lead dispatches its reviewers through the code-review.mjs Workflow: stage that script by copying it into $STATE (this run's evidence directory, already added to this session), never into the worktree, and run the Workflow from there."
   echo "If the ticket has design frames, render every screen at the head with the repo's render command and compare it with its frame; if you cannot render, you cannot approve: post 'verdict: needs-work' with a line 'reason: render-unavailable'."
   local via=""; [ "$BOT_OK" -eq 1 ] && via=" through $GH (the bot identity)"
   echo; echo "Post ONE PR comment$via. Its first line is exactly 'verdict: approve' or 'verdict: needs-work'; its second line is exactly 'reviewed: <the full sha of the head you reviewed>'. Then the row table, then findings. Never edit that comment afterwards."
@@ -437,8 +438,8 @@ EOF
   [ -n "$RENDER_CMD" ] && allow="$allow,Bash($(first_word "$RENDER_CMD")*)"
   printf '%s' "$allow"
 }
-review_allowlist() {
-  local allow="Read,Agent,Bash(git *),Bash(gh pr view*),Bash(gh pr comment*),Bash(gh pr diff*),Bash(gh api*)$MCP_ALLOW"
+review_allowlist() { # row F20: review-lead's panel is a Workflow whose agents inherit these tools
+  local allow="Read,Grep,Glob,Agent,Skill,Workflow,Bash(find *),Bash(cp *),Bash(bash *check-review-context.sh*),Bash(git *),Bash(gh pr view*),Bash(gh pr comment*),Bash(gh pr diff*),Bash(gh api*)$MCP_ALLOW"
   [ -n "$RENDER_CMD" ] && allow="$allow,Bash($(first_word "$RENDER_CMD")*)"
   [ -n "$(frames_rows)" ] && allow="$allow,mcp__figma,mcp__plugin_figma_figma"
   [ "$BOT_OK" -eq 1 ] && allow="$allow,Bash($GH *)"
@@ -647,8 +648,10 @@ red_attempt() { # a red check, smoke or convention spends the checks-red counter
   FINDINGS="$2"; NEED_BUILD=1; say "$1 red — the findings are the log; another BUILD attempt of round $ROUND"
 }
 spawn() { # spawn <role> <model> <id> <allowlist> <max-turns> <prompt-file> -> rc (124 past the bound); the result JSON is $STATE/<role>-<id>.json
-  local secs="$REVIEW_TO"; [ "$1" = build ] && secs="$BUILD_TO"
-  bounded "$secs" "$STATE/$1-$3.json" "$CLAUDE" -p --model "$2" "${SPAWN_COMMON[@]}" --allowedTools "$4" --max-turns "$5" "$(cat "$6")"; local rc=$?
+  local secs="$REVIEW_TO" extra=(); [ "$1" = build ] && secs="$BUILD_TO"
+  # the review stages review-lead's Workflow script in this run's state dir: added, and outside the worktree
+  [ "$1" = review ] && extra=(--add-dir "$STATE")
+  bounded "$secs" "$STATE/$1-$3.json" "$CLAUDE" -p --model "$2" "${SPAWN_COMMON[@]}" ${extra[@]+"${extra[@]}"} --allowedTools "$4" --max-turns "$5" "$(cat "$6")"; local rc=$?
   add_cost "$STATE/$1-$3.json"; return $rc
 }
 FINDINGS=""; NEED_BUILD=1; NEED_CHECKS=1; INPUT=""
