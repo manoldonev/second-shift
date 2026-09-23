@@ -351,7 +351,9 @@ while IFS= read -r f; do
   case " ${stale_ci[*]-} " in *" $f "*) continue ;; esac
   stale_ci+=("$f")
 done < <(for d in .github .claude; do   # .claude/worktrees: other branches' checkouts, not this one
-           [[ -d "$ROOT/$d" ]] && grep -rlF --exclude-dir=pipeline-state --exclude-dir=audit --exclude-dir=worktrees LANE_VERDICT_SUFFIX "$ROOT/$d" 2>/dev/null
+           # find prunes, grep only reads files: grep's own -r/--exclude-dir differ across BSD releases
+           [[ -d "$ROOT/$d" ]] && find "$ROOT/$d" -type d \( -name pipeline-state -o -name audit -o -name worktrees \) -prune \
+             -o -type f -exec grep -lF LANE_VERDICT_SUFFIX {} + 2>/dev/null
          done)
 if [[ "${#stale_ci[@]}" -gt 0 ]]; then
   bad "stale second-shift CI from the retired verdict-record lane: ${stale_ci[*]} — these read a committed verdict record /dev-pipeline:run no longer writes. Fix: delete them (and any needs:/if: lines wiring second-shift-delta-guard into your own workflows, and the \"second-shift evidence\" required status check in branch protection). Keep second-shift-unclaim.* — it is current (docs/migrations/v2-to-v3.md)"

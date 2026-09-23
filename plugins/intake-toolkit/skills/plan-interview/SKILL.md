@@ -58,7 +58,7 @@ You elicit **design decisions from the engineer** (plan-authoring). You do NOT:
 ## Where the ledger lands
 
 - **Plan-mode / ad-hoc session:** a `## Decision Ledger` section in the plan file itself, before `ExitPlanMode` is called (this plugin's `exitplan-ledger-gate.sh` hook lints for it and blocks the exit if it's missing or malformed).
-- **Pipeline pre-flight** (`/plan-interview <issue>` before an autonomous pipeline run on `<issue>`): write `.claude/pipeline-state/{issue}-ledger.md` — same location convention as the Product-Essence Brief; it survives worktree cleanup, and `/dev-pipeline:run` commits it as the lane branch's first commit, hands it to the BUILD session as binding decisions, and reads its checks and design frames from that commit. The interview always happens in the interactive session, never inside the autonomous run.
+- **Pipeline pre-flight** (`/plan-interview <issue>` before an autonomous pipeline run on `<issue>`): write `.claude/pipeline-state/{issue}-ledger.md` — same location convention as the Product-Essence Brief; it survives worktree cleanup, and the pipeline's scheduler commits it as the lane branch's first commit, hands it to the BUILD session as binding decisions, and reads its checks and design frames from that commit. The interview always happens in the interactive session, never inside the autonomous run.
 
 ## Checks and design frames (pipeline pre-flight only)
 
