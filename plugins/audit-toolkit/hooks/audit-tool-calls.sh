@@ -35,7 +35,7 @@ COMMAND_NAME=$(jq -r '.command_name // empty' <<<"$PAYLOAD")
 # Prefer a redundant alternative to a confident guess.
 #
 # Bash is the one branch with real exposure. First line, 200 chars is enough to
-# identify `milestone-gate.sh 3 …` or `yarn render:verify …` without dumping full
+# identify `bash run.sh 42 …` or `yarn render:verify …` without dumping full
 # argv or stdin — but it is NOT "non-secret by construction": a prefix is the worst
 # window for that, since flags and env assignments precede payloads
 # (`gh api -H "Authorization: Bearer …"`). What bounds the risk is the ledger's
@@ -58,12 +58,8 @@ OUTCOME="ok"
 
 # WHERE THE LEDGER LIVES. Anchored on the MAIN checkout, never on the directory the
 # session happens to be running in. A lane run works in a linked worktree by contract,
-# and every reader resolves `--git-common-dir/..`: milestone-gate.sh's `entry` precondition and
-# reconcile.sh. Writing beside the worktree instead
-# put the ledger where none of them look, with two opposite failure modes — an honest
-# run refused at `entry` for a ledger it had just written, and a verdict record naming a
-# session reconcile could not resolve, which reads as a forgery signal. One directory
-# per repo family is also what /audit-history's cross-session sweep already assumes.
+# and writing beside the worktree would scatter one repo's ledgers across every worktree.
+# One directory per repo family is what /audit-history's cross-session sweep assumes.
 #
 # `${CLAUDE_PROJECT_DIR:-$CWD}` stays the starting point — today's precedence, unchanged;
 # only what is DERIVED from it moves. The payload's `cwd` can wander per call, so it
@@ -74,18 +70,13 @@ OUTCOME="ok"
 # later without moving the contract. Marginal, but unmeasured — no claim is made.
 #
 # The failure path is today's path, never a hard error: this script must not block a
-# session (see the masthead), and milestone-gate.sh's `entry` already fails closed on the
-# resulting absent ledger, which is where the refusal is actionable.
+# session (see the masthead).
 #
 # LOCKSTEP, and this WRITER is the canonical side; audit-history.sh (the sweeper) holds the
-# identical block. Both must land on `--git-common-dir/..`, because the lane readers
-# (milestone-gate.sh's `entry`, reconcile.sh) all do, and the writer disagreeing with them
-# produced two opposite failures: an honest worktree run refused at `entry` for a ledger it had
-# just written, and a verdict record naming a session reconcile could not resolve — which reads
-# as forgery. TWO COPIES rather than one sourced helper on purpose: this hook fires on every
-# tool call and stays dependency-free (no `source`, no PATH assumption, nothing to resolve at
-# hook time), and audit-history.sh is a standalone slash-command script. milestone-gate.sh's
-# MAIN_ROOT is a third site and deliberately not a member — see docs/testing.md.
+# identical block. Both must land on `--git-common-dir/..`, or the sweeper reads a directory
+# the writer never wrote. TWO COPIES rather than one sourced helper on purpose: this hook fires
+# on every tool call and stays dependency-free (no `source`, no PATH assumption, nothing to
+# resolve at hook time), and audit-history.sh is a standalone slash-command script.
 # LOCKSTEP-BEGIN audit-ledger-dir
 audit_ledger_dir() { # audit_ledger_dir <base-dir> — the main checkout's .claude/audit
   local base="$1" common="" root=""

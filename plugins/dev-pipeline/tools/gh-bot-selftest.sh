@@ -1,13 +1,11 @@
 #!/usr/bin/env bash
 # Self-test for tools/gh-bot.sh — the single bot-wrapper resolver (#92).
 #
-# Per-tool behavioral suite (cost-block-selftest run_identity_case pattern): each
-# case sandboxes $HOME and the consumer repo root so ladder rungs cannot leak
+# Per-tool behavioral suite: each case sandboxes $HOME and the consumer repo root so ladder rungs cannot leak
 # into the operator's real config.
 #
-# No scenario-liveness-selftest.sh scenario: like doctor block 8, this path
-# reaches no terminal write (status/path/passthrough only). Stated per the
-# scenario-first rule in CLAUDE.md.
+# No scenario: this path reaches no terminal write (status/path/passthrough
+# only). Stated per the scenario-first rule in CLAUDE.md.
 #
 # bash 3.2 compatible.
 

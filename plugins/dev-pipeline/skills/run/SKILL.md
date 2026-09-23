@@ -1,59 +1,53 @@
 ---
 name: run
-description: The pipeline's front door — one ticket in, a merge-ready PR out. A scheduler: it spawns /dev-pipeline:build and /dev-pipeline:review in fresh sessions, reads gate exit codes and tracker state, and authors nothing. Expects a ticket with paid-off intake (queue-labeled on GitHub; under jira intake is not checked, so run /intake-toolkit:intake first).
+description: The pipeline's front door — one ticket in, a merge-ready PR out. Drives run.sh, a scheduler that claims the ticket, commits its intake record, and spawns fresh build and review sessions until a review approves the current head or a budget is spent; you author nothing. Expects a ticket with paid-off intake: an intake record, plus the queue label on GitHub (under jira there is no label to check, so launching is the operator's attestation).
 ---
 
 # run
 
-You are the scheduler, not a stage. `orchestrate.sh` (`O`, here — it sits beside this file, in this
-skill's base directory) runs the loop; your job is
-the three things it leaves to you, then getting out of its way.
-
-The blocks it drives — `/dev-pipeline:build` and `/dev-pipeline:review` — stay
-individually invokable. The two-terminal manual flow is first-class: it is the debugging and
-rescue path, and the fallback if headless sessions ever leave the subscription.
+You drive `run.sh` (`R`, here — it sits beside this file, in this skill's base directory). It does
+the whole lane: claim → worktree on the lane branch → the intake record committed as the branch's
+first commit → up to `run.maxRounds` rounds of a fresh BUILD session, the scheduler's own checks
+(config lanes plus the record's `## Checks`, read from that first commit) and route smoke, then a
+fresh REVIEW session whose one PR comment is the verdict. `bash R -h` prints the header: usage,
+env, phases and the exit table. It is the truth; this file only says what is yours to do.
 
 ## Checklist
 
-1. **Route.** One `ticketTag` → one cwd. Launch from the repo the ticket's tag routes to; the
-   lane has no per-repo worktree map, so the invocation cwd *is* the routing.
-2. **Resolve the build model from tracker state.** Read the ticket's `opus` / `sonnet` label —
-   where intake recorded the sizing — and pass it as `--build-model` with `--model-basis label`.
-   No label? Size it yourself, pass your pick, and say why in `--model-basis`
-   (`sized-here: <one line>`) — that line is the whole detector for a missing label.
-3. **Run it.** `bash O <issue> --build-model <m> --model-basis label --detach` — then watch the log
-   it prints until its last line, `detached run exited rc=<n>`. From an agent session, `--detach` is
-   the launch that works: a foreground call is reaped long before a run ends. Between phases
-   there is no human in the middle: build → review chains the moment the PR exists.
-4. **Read the exit code, and nothing else.** `0` approved and closed out · `1` a phase failed ·
-   `2` preflight rejected · `3` preflight rejected, RESUMABLE — the ticket is unintaken ·
-   `4` hard stop, budget spent · `5` the review half produced no verdict usable against this head,
-   twice · `6` the verdict was authored by the build run or build session (P10) · `7` the run's
-   premise expired mid-flight — the ticket closed, or the base moved into this branch's files.
-5. On `3`, run `/intake-toolkit:intake` yourself and re-launch — or, watching, `operator-override.sh
-   attend` first and the reject prints how to record the decision instead of re-labelling. On `2`,
-   fix what preflight named. On `5`, run `/dev-pipeline:review <pr>` by hand: a rebuild fixes
-   nothing. On `7`, rebase and re-launch, or abandon. On `4`/`6`, **stop** — re-entry is from the top.
+1. **Route.** Launch from a checkout of the repo the ticket belongs to: the cwd picks the repo, and
+   `R` resolves the config, the worktree root and the `commands` key from that repo's main
+   checkout, even when launched from a linked worktree.
+2. **Resolve the build model.** On GitHub, `R` reads the ticket's `opus` / `sonnet` label itself.
+   No label, or under jira (there is no label to read), size it yourself and pass
+   `--build-model <opus|sonnet> --model-basis 'sized-here: <one line>'` — that line is the whole
+   record that the sizing was yours. Review runs on `opus`; a different `--review-model` needs
+   `--review-model-basis`.
+3. **Launch detached, then watch.** `bash R <issue> [--build-model <m> --model-basis <why>] --detach`.
+   From an agent session `--detach` is the launch that works: a foreground call is reaped long
+   before a run ends (a build session alone may take two hours). It prints the log path; watch that
+   log until its last line, `detached run exited rc=<n>`. `--dry-run` previews and writes nothing.
+4. **Read the terminal and nothing else.** The log's `terminal: <slug>` line and `rc` are the whole
+   signal:
+
+   | rc | slugs | what you do |
+   | --- | --- | --- |
+   | `0` | `approved`, `dry-run` | Report the PR. Merging is a human's act. |
+   | `1` | `build-no-pr`, `build-blocked`, `build-inflight(-unreadable)`, `pr-ambiguous`, `closeout-inflight(-unreadable)`, `staleness-unreadable` | Stop and report the slug and its detail line; a human decides. Worktree and claim are left in place. |
+   | `2` | `usage-*`, `env-*`, `claimed-elsewhere` | Fix what the detail line names and re-launch the same command. On `claimed-elsewhere`, stop: `--resume` takes over someone else's claim, and that is the operator's call. |
+   | `3` | `not-queued`, `env-no-record` | Resumable. Pay off intake (`/intake-toolkit:intake`, or `/intake-toolkit:plan-interview <issue>` for a missing record) and re-launch the same command. |
+   | `4` | `rounds-spent`, `checks-red-spent`, `cost-spent` | Stop. A spent budget is a human's read, never an automatic re-launch. |
+   | `5` | `review-unbound` | Run `/dev-pipeline:review <pr>` by hand in a fresh session: a rebuild fixes nothing. |
+   | `7` | `ticket-closed`, `staleness-expired` | Closed: stop. Stale: the base moved into this branch's files — rebase the branch, then re-launch; the claim marker lets it re-enter. |
+   | `130` / `143` | interrupted | The claim is left in place; re-launch to re-enter. |
 
 ## Rules that are not negotiable
 
-- **Never re-label a ticket to get past a reject.** A ticket claimed by a run this lane stopped is
-  already intaken; preflight reads its claim marker and re-enters.
-- **You author nothing under your own identity.** Every tracker comment, label swap, commit and
-  record is made by a payload block or by the gate, under the build side's bot identity; a write
-  of your own would put a third identity into a two-identity contract.
-- **Never interpret a finding.** The verdict gate's exit code is the whole signal. Reading the
-  record to decide what comes next is content judgment — how this lane grew stage choreography.
-- **Never resume a review context.** Each round's review is a new backgrounded session
-  (`--bg`, never `--resume`): round 2 inheriting round 1's context is round 1 agreeing with itself.
-- **The velocity principles bind here** ([manifesto](../../../../docs/pipeline-manifesto.md)):
-  never idle-block, fan out independent work. A gate that is right but slow is not done.
-
-## When it stops
-
-Every non-zero exit leaves the worktree and the claim in place — the state a rescue needs. Pick the
-blocks up by hand from the routed repo, or just re-launch: preflight accepts the claim the stopped
-run left, so re-entry costs no tracker write and no re-labelling.
-The staleness check that produces `7` runs at the spawn boundary; the gate re-asks at the build
-session's own handoff (`mark`), so a ticket closing mid-spawn costs that session, not the review
-round after it. `--dry-run` previews and spawns nothing.
+- **Never re-label a ticket to get past a reject.** A ticket the lane claimed re-enters on its own
+  claim marker; a blocker label is someone's decision, not an obstacle.
+- **You author nothing.** Claim, record commit, cost block and closing comment are `R`'s writes
+  (through the bot when one is configured); code and PR are the build session's; the verdict is the
+  review session's. A write of yours would be a third identity in that record.
+- **Never interpret a finding.** The terminal is the signal. Reading the verdict to decide what
+  comes next is content judgment the lane does not ask of you.
+- **Never resume a review context.** Every review is a fresh process; a round inheriting the last
+  round's context is that round agreeing with itself.

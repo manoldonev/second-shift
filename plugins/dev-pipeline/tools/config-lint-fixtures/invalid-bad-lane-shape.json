@@ -1,9 +1,7 @@
 {
-  "configVersion": 2,
-  "tracker": { "type": "github" },
-  "topology": {
-    "type": "standalone",
-    "repos": { "host": { "path": ".", "baseBranch": "main" } }
+  "configVersion": 3,
+  "tracker": {
+    "type": "github"
   },
   "commands": {
     "host": {
@@ -12,9 +10,16 @@
         123,
         null,
         true,
-        { "name": "good", "commands": ["npm run build"] }
+        {
+          "name": "good",
+          "commands": [
+            "npm run build"
+          ]
+        }
       ],
-      "extraLanes": ["yarn e2e"]
+      "extraLanes": [
+        "yarn e2e"
+      ]
     }
   }
 }

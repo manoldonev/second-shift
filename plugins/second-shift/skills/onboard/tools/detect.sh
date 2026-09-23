@@ -207,7 +207,7 @@ fi
 # Name-unrelated pairs (fastapi-be / vue-fe): no shared base name, so scan every
 # adjacent git-repo directory for the counterpart suffix once THIS repo's own basename
 # carries a recognized BE- or FE-side suffix. Still detection, not a guess: a match
-# only adds a candidate for onboard's existing pair-confirm elicitation to ask about.
+# only adds a candidate onboard reports and offers its own onboard for.
 COUNTERPART_SUFFIXES=()
 if has_suffix "$BASENAME" "${BE_SUFFIXES[@]}"; then
   COUNTERPART_SUFFIXES=("${FE_SUFFIXES[@]}")
@@ -225,7 +225,7 @@ fi
 # Sibling checkouts are the stronger signal (two actual physically-adjacent repos, not
 # just a manifest field) and are checked FIRST — an `elif` here would let a (possibly
 # wrong, see WORKSPACES_REAL above) monorepo classification silently swallow a real
-# pair candidate that also exists on disk, never surfacing it for onboard's confirm step.
+# pair candidate that also exists on disk, never surfacing it to onboard.
 TOPOLOGY=standalone; TOPO_SRC="no workspaces manifest; no sibling candidates"
 if [[ "$SIBLINGS" != "[]" ]]; then
   TOPOLOGY="be-fe-pair-candidate"; TOPO_SRC="sibling checkout(s) detected — needs confirmation"

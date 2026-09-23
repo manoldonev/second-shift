@@ -1,0 +1,27 @@
+{
+  "configVersion": 3,
+  "tracker": {
+    "type": "jira"
+  },
+  "topology": {
+    "type": "be-fe-pair",
+    "repos": {
+      "be": {
+        "path": ".",
+        "baseBranch": "alpha",
+        "worktreesDir": "../api-worktrees",
+        "ticketTag": "[BE]"
+      },
+      "fe": {
+        "path": "../web",
+        "baseBranch": "main"
+      }
+    }
+  },
+  "commands": {
+    "be": {
+      "lint": "yarn lint",
+      "test": "yarn test"
+    }
+  }
+}

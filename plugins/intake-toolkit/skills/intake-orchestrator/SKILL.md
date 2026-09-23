@@ -36,14 +36,14 @@ This skill loads instructions into the **calling session**, which gathers eviden
 >   it: the ≤5 sub-ticket specs (**no issue-create, no label swap, no comment**), the parent
 >   move, and the escalation and status-comment steps. Sub-issue ordering is
 >   operator-enforced — the presented specs carry the trailers and the ordering note, and
->   there is no machine gate. The run's audit trail is the state file + brief.
+>   there is no machine gate. The run's audit trail is the receipt + brief.
 >
 > Everything else here (classification, Step 0.5 quarantine, the evidence fan-out, dependency
 > analysis, decomposition judgment, the coverage back-check, brief persistence) is
 > tracker-agnostic. `$GH_BOT` stays the sanctioned bot convention on the github path, and the
 > labels named below (`ready-for-dev`, `epic`, `in-progress`, `needs-intake-review`,
-> `needs-spec-work`) are the shipped `stageParams.requiredLabels` default set — a consumer
-> that overrides that set is honored; substitute its names.
+> `needs-spec-work`) are the shipped defaults of the config's `tracker.labels` roles (`queue`,
+> `claimed`, `blockers`) — a consumer that renames them there is honored; substitute its names.
 >
 > **Bot writes.** This skill runs from the intake-toolkit plugin, so `${CLAUDE_PLUGIN_ROOT}`
 > here resolves to intake-toolkit, not dev-pipeline — the write sites below cannot use
@@ -130,7 +130,7 @@ The two layers compose: cross-session guards check the issue's state on GitHub (
 
 ### Step 0.5: Distill Product Essence; Quarantine PM-Technical Content
 
-When the issue is an **epic** or is otherwise authored by a non-engineer (PM / product), do this BEFORE classification. **Skip for engineer-authored issues** — including the common case of an `intake-interviewer`-authored body (its `<!-- spec-review: ... -->` provenance marker signals a structured, engineer-grade spec). Most runs skip this step, and their `briefPath` stays `null` by design.
+When the issue is an **epic** or is otherwise authored by a non-engineer (PM / product), do this BEFORE classification. **Skip for engineer-authored issues** — including the common case of an `intake-interviewer`-authored body (its `<!-- spec-review: ... -->` provenance marker signals a structured, engineer-grade spec). Most runs skip this step and write no brief.
 
 An epic's value is **domain knowledge and product intent**. Treat its _technical_ content as a hypothesis to verify, never as a constraint — you re-derive that layer yourself (Steps 2–3).
 
@@ -175,75 +175,13 @@ Based on the issue body and labels, classify as:
 
 **Edge case**: If a "bug" is actually a rewrite (e.g., "auth flow is fundamentally broken — rebuild it"), reclassify as feature/refactor and proceed with full analysis. Comment the reclassification on the issue.
 
-### Step 1.5: Pair-Repo Title Check (only when `topology.type: be-fe-pair`)
-
-**Applicability.** This step runs only when the repo's own config declares
-`topology.type: be-fe-pair` — reading
-`topology.repos.<id>.ticketTag` (e.g. `"[BE]"` / `"[FE]"` on the `be`/`fe` entries; no
-new field, no onboarding change). A `standalone` or `monorepo` repo has no `ticketTag` at
-all and nothing to check here — skip straight to Step 2. Under the lane this reading
-is **intake policy, never a gate**: `milestone-gate.sh` does not read `ticketTag` and this check
-does not touch it either — it is this skill deciding whether to proceed, not a mechanic
-`milestone-gate.sh` enforces.
-
-**The check.** The predicate is the **configured tag values**, not bracket shape. Resolve
-them first, with `contains` semantics:
-
-```bash
-CONFIG="${SECOND_SHIFT_CONFIG:-$(git rev-parse --show-toplevel)/.claude/second-shift.config.json}"
-# $TITLE = the fetched issue/ticket title (github: `gh issue view`; jira: the summary).
-MATCHED=$(jq -r --arg t "$TITLE" '
-  [ .topology.repos | to_entries[]
-    | select((.value.ticketTag // "") as $tag | $tag != "" and ($t | contains($tag)))
-    | .key ] | join(" ")' "$CONFIG")
-DECLARED=$(jq -r '[ .topology.repos[] | .ticketTag // "" | select(. != "") ] | length' "$CONFIG")
-```
-
-A title may carry any number of other bracket tokens (`[BUG]`, `[urgent]`, a team prefix);
-they are not tags of this pair and this step ignores them.
-Branch on how many of the **declared** tags matched:
-
-- **`DECLARED` is under 2 — the pair does not declare a tag on both entries.** Nothing to
-  check: skip to Step 2 and say so in the intake comment (this repo's pair config does not
-  tag both sides, so which side a ticket targets is the filer's to state in the body). Never
-  reject here — the ticket is not defective, the config simply does not declare the tags the
-  rule reads. `ticketTag` is optional in the schema and `/second-shift:onboard`'s
-  confirmed-pair draft does not emit it at all, so an untagged pair is the *ordinary* shape
-  of a freshly onboarded one, not an edge case; a half-tagged pair fails the same way for the
-  untagged side alone. (Same reasoning that gates the whole step on `be-fe-pair`: a rule keyed
-  on two tags cannot fire where two tags do not exist.)
-- **Exactly one declared tag matched** — this ticket belongs to that side. Proceed to Step 2
-  normally (BE-tagged work stays here; an FE-tagged ticket in a BE repo's queue is a routing
-  mistake — comment saying so and stop, same label as below).
-- **Both declared tags matched** — the ticket declares cross-repo scope but was filed as a
-  single ticket. **Reject at intake exit**: do not dispatch spec-reviewer, do not attempt to
-  guess a split from the title alone. Comment explaining that a pair ticket is never worked
-  as one artifact — same principle as the stacked-PR retirement — and that it needs either
-  two single-tagged tickets, or (if the scope genuinely spans both repos) to be handed to
-  this step's own decomposition path once re-filed with a single tag — see Step 4's
-  cross-repo admission rule.
-- **Neither declared tag matched** (whatever else the title carries) — same terminal reject,
-  different reason: nothing tells a human, or the future thin orchestrator, which side of
-  the pair this ticket targets. Comment asking for the single correct tag in the title, and
-  stop.
-
-**github:** label `needs-spec-work` on either reject — this is a filing-convention defect,
-not a judgment call, so it is not `needs-intake-review`. _(jira: tracker delta.)_ no label
-exists to set; present the same comment content to the operator and STOP, per this skill's
-existing jira escalation posture.
-
-Both rejects are terminal and are caught before a single agent dispatches. The **both** case
-is a filing defect: one ticket cannot span two repos, because `milestone-gate.sh` routes by
-invocation cwd and works exactly one repo's worktree. The work is not refused, it is
-re-shaped — into ordered per-repo tickets at Step 4.
-
 ### Step 2: Gather Evidence (structured intake fan-out)
 
 Evidence-gathering is a fan-out of `spec-reviewer` + `codebase-explorer` that returns **rationale-carrying structured findings**, not prose. The orchestrator reasons over the structured object (Step 3) — `{ verdict, findings[] }` for spec-reviewer (each finding carries `severity`/`claim`/`rationale`/`confidence`) and `{ modulesAffected, crossModuleDependencies, estimatedScope, findings[] }` for codebase-explorer.
 
 **Transport (the reasoning is identical across both):**
 
-- **Production:** run the dev-pipeline intake Workflow **directly** via the `Workflow` tool — pass `intake-review.mjs` as the `scriptPath` and the call args as `{ issue, issueBody, referencedDocs, agents, readRoot, config }` (`readRoot` — optional absolute path to the pinned read surface, the detached `origin/<base>` worktree; when set, every dispatch prompt is prefixed with the pinned-read instruction. `config` — carries ONLY the config keys this script reads, which is `reviewers` alone: pass `{ reviewers: CONFIG.reviewers }`, where `CONFIG` is the parsed `second-shift.config.json`. This is what makes `reviewers.modelOverrides` reachable for `spec-reviewer`/`codebase-explorer`; omitting it leaves every intake agent pinned to its shipped table tier no matter what the consumer configured. Do **not** pass `CONFIG` whole — its `commands.<host>` shell-command strings and top-level `$schema` go through Workflow arg serialization, the payload that killed a dispatch outright — and do **not** pass `{ reviewers: {} }`, the opposite trap that serializes cleanly while silently disabling every override). It dispatches the selected sub-agents as `agent({ schema })` in `parallel()` and returns `{ specReview, codebaseExplorer }`. This mirrors the reviewer fan-out (`workflows/code-review.mjs`). Do **not** wrap it in a nested `workflow()` call with a repo-relative path: a nested `workflow({ scriptPath: '.claude/.../intake-review.mjs' })` resolves the path relative to the workflow-scripts dir, not the repo root, so it path-doubles and fails — use an absolute `scriptPath` when invoking the `Workflow` tool — and **not the plugin cache's own**, which comes back as "must be a script path this tool returned, or a file you can already read" (the bare filename fails too, as "script file not found"). Resolve `*/workflows/intake-review.mjs` under the marketplace root — `$SKILL_DIR/../../../..`, excluding `*/fixtures/*` — copy it into the session scratchpad, and dispatch that copy. See `docs/namespaces.md` rule 3.
+- **Production:** run the dev-pipeline intake Workflow **directly** via the `Workflow` tool — pass `intake-review.mjs` as the `scriptPath` and the call args as `{ issue, issueBody, referencedDocs, agents, readRoot, config }` (`readRoot` — optional absolute path to the pinned read surface, the detached `origin/<base>` worktree; when set, every dispatch prompt is prefixed with the pinned-read instruction. `config` — carries ONLY the config keys this script reads, which is `reviewers` alone: pass `{ reviewers: CONFIG.reviewers }`, where `CONFIG` is the parsed `second-shift.config.json`. This is what makes `reviewers.modelOverrides` reachable for `spec-reviewer`/`codebase-explorer`; omitting it leaves every intake agent pinned to its shipped table tier no matter what the consumer configured. Do **not** pass `CONFIG` whole — its `commands.<id>` shell-command strings and top-level `$schema` go through Workflow arg serialization, the payload that killed a dispatch outright — and do **not** pass `{ reviewers: {} }`, the opposite trap that serializes cleanly while silently disabling every override). It dispatches the selected sub-agents as `agent({ schema })` in `parallel()` and returns `{ specReview, codebaseExplorer }`. This mirrors the reviewer fan-out (`workflows/code-review.mjs`). Do **not** wrap it in a nested `workflow()` call with a repo-relative path: a nested `workflow({ scriptPath: '.claude/.../intake-review.mjs' })` resolves the path relative to the workflow-scripts dir, not the repo root, so it path-doubles and fails — use an absolute `scriptPath` when invoking the `Workflow` tool — and **not the plugin cache's own**, which comes back as "must be a script path this tool returned, or a file you can already read" (the bare filename fails too, as "script file not found"). Resolve `*/workflows/intake-review.mjs` under the marketplace root — `$SKILL_DIR/../../../..`, excluding `*/fixtures/*` — copy it into the session scratchpad, and dispatch that copy. See `docs/namespaces.md` rule 3.
 - **Under the eval harness:** the Workflow runtime is not mocked, so the harness dispatches the sub-agents via the `Task` tool with the structured findings fed as the mock payload. Same structured object reaches the orchestrator — only the transport differs.
 
 **For bug/chore (spec review only):**
@@ -319,31 +257,7 @@ Evidence-gathering is a fan-out of `spec-reviewer` + `codebase-explorer` that re
 - Parts would collide on the same file if worked in parallel
 - Each part is meaningful and reviewable on its own
 
-The slices file as ordinary sub-issues, exactly like the parallel flavor — what differs is **ordering**, not branch topology. Every slice is a plain single-PR run against the configured `baseBranch`; ordering is carried by `Predecessor:` / `Successor:` body trailers and enforced by keeping blocked successors out of the queue (Step 6).
-
-**Cross-repo admission rule (pair topology only — not a new verdict).** When
-`topology.type: be-fe-pair` (Step 1.5) and the spec's scope genuinely crosses into the
-sibling repo — codebase-explorer's impact surface, or the spec text itself, names behavior
-that lives on the other side of the pair — this is the `sub-issues-sequential` verdict
-above with one admission difference: the two slices are not both filed in this repo.
-
-- The slice for THIS repo files exactly like any other sub-issue (Step 6).
-- The slice for the sibling repo is filed in **the sibling's own tracker**, not this one —
-  resolve the sibling's identity from this config's own `topology.repos.<sibling-id>.path`
-  entry (reading that path's own git remote, if reachable in-session, for the
-  `owner/repo` `--repo` argument). **Cannot resolve it → escalate `needs-intake-review` and
-  ask the operator; never guess a slug.**
-- Default ordering is BE before FE — the FE slice's spec pins the BE slice's landed API
-  contract **as currently specified**, plus an explicit reconcile obligation in its body:
-  at promotion (when the BE PR merges and the queue label is about to go on), confirm the
-  landed contract still matches what the FE spec pinned, edit the body if it drifted, then
-  apply the label — one line beside the existing "queue when `<predecessor>` is closed"
-  note the sequential flavor already writes (Step 6 item 3). No new machinery: this is the
-  existing ordering promotion, plus one sentence.
-- Title each slice with its own single `ticketTag`, so a human or the thin orchestrator can
-  route it correctly without re-reading the spec.
-- This is the **only** path that produces a ticket in the sibling's tracker — a routine
-  same-repo decomposition never does.
+The slices file as ordinary sub-issues, exactly like the parallel flavor — what differs is **ordering**, not branch topology. Every slice is a plain single-PR run against the repo's default branch; ordering is carried by `Predecessor:` / `Successor:` body trailers and enforced by keeping blocked successors out of the queue (Step 6).
 
 **Verdict: `no-split`**
 
@@ -472,7 +386,7 @@ The write operations below are the **github** adapter (`tracker.writes: true`) _
 **`no-split`:**
 
 1. Post spec review results + resolved decisions as issue comment _(jira: tracker delta.)_
-2. Return control to the caller (the lane's build half cuts the worktree at its checklist step 3)
+2. Return control to the caller
 
 **`sub-issues` (parallel) and `sub-issues-sequential` (ordered)** — one creation flow, two label/trailer postures:
 
@@ -530,14 +444,9 @@ $GH_BOT_SH issue create --title "[slice N title]" --body "$BODY_N" --label <opus
    but it pushes the call onto a session that has read the ticket far less carefully than you
    just did.
 
-   Keeping blocked successors **out of the queue** is the ordering enforcement — not rejecting them after they are claimed. Promotion is an operator action at merge time: merging the predecessor's PR is already the serialization point, so labelling the successor rides that same action. **Nothing renders that reminder for you** — no lane writes a promotion line onto the predecessor's PR, so the successor's `ready-for-dev` label is an unprompted operator action. Say so in the predecessor's spec, or the chain stalls silently. No claim is ever burned and no failed state file is created for the routine blocked case. `../predecessor-gate.sh` is only the pre-claim backstop for a successor that got labelled early.
+   Keeping blocked successors **out of the queue** is the ordering enforcement — not rejecting them after they are claimed. Promotion is an operator action at merge time: merging the predecessor's PR is already the serialization point, so labeling the successor rides that same action. **Nothing renders that reminder for you** — no lane writes a promotion line onto the predecessor's PR, so the successor's `ready-for-dev` label is an unprompted operator action. Say so in the predecessor's spec, or the chain stalls silently. No claim is ever burned for the routine blocked case. Nothing backstops a successor labeled early: the scheduler claims whatever carries the queue label.
 
    _(jira: tracker delta.)_
-
-   **Cross-repo admission rule only (Step 4, pair topology):** the sibling's slice is created with
-   `--repo <resolved-sibling>` instead of the implicit current repo, everything else about
-   its trailers/labelling identical to the ordered flavor above. This is the one case in
-   this skill where a sub-issue is filed anywhere other than the current repo's tracker.
 
 6. Update parent issue (github adapter):
 
@@ -553,7 +462,7 @@ gh issue edit $ISSUE_NUMBER --remove-assignee @me
 
 ### Brief persistence
 
-When Step 0.5 produced a Product-Essence Brief, write it to `.claude/pipeline-state/{ISSUE_NUMBER}-brief.md` before returning control — on `no-split` (where it hydrates the run's own gates) **and on `sub-issues-sequential`**, where the pipeline stops but the Brief is the audit artifact the per-sub-issue QUARANTINE carry (step 2 above) can be verified against — the KEEP restatement, the reconciled QUARANTINE table (`confirmed | conflicts | unverifiable`, post-Step-3), and any settled user guardrails. Local gitignored file (the whole `.claude/pipeline-state/` tree is gitignored), written in the invocation repo **pre-worktree** so it survives worktree cleanup. The dev-pipeline resolves `briefPath` by checking this conventional path (only when the orchestrator wrote it **this run** — a stale brief from a prior run never leaks). Engineer-authored issues (no Step 0.5) write no brief; `briefPath` stays `null`.
+When Step 0.5 produced a Product-Essence Brief, write it to `.claude/pipeline-state/{ISSUE_NUMBER}-brief.md` before returning control — on `no-split` **and on `sub-issues-sequential`**, where the pipeline stops but the Brief is the audit artifact the per-sub-issue QUARANTINE carry (step 2 above) can be verified against — the KEEP restatement, the reconciled QUARANTINE table (`confirmed | conflicts | unverifiable`, post-Step-3), and any settled user guardrails. Local gitignored file (the whole `.claude/pipeline-state/` tree is gitignored), written in the invocation repo **pre-worktree** so it survives worktree cleanup. `/intake-toolkit:plan-interview` reads it from this path while it writes the intake record; the lane itself never reads it. Engineer-authored issues (no Step 0.5) write no brief.
 
 ## Thresholds
 

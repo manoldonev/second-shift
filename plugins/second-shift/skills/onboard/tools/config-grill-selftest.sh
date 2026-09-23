@@ -63,8 +63,7 @@ expect_noteval() { # $1 label, $2 id, $3 (optional) substring in reason
 cfg() { # $1 path ← stdin
   cat > "$1"
 }
-STD_HEAD='"configVersion": 2, "tracker": {"type":"github"},
-  "topology": {"type":"standalone","repos":{"app":{"path":".","baseBranch":"main"}}}'
+STD_HEAD='"configVersion": 3, "tracker": {"type":"github"}'
 
 echo "config-grill selftest:"
 
@@ -87,11 +86,26 @@ check "t2 exits 0 with findings present (rc=$RC)" "$([[ "$RC" -eq 0 ]] && echo 0
 # can itself be broken), so setting the key wrongly must not silence the check.
 cfg "$R/set.json" <<EOF
 { $STD_HEAD, "commands": {"app":{}},
-  "stageParams": {"webComponentGlobs": ["packages/ui/**/*.vue"]} }
+  "reviewers": {"webComponentGlobs": ["packages/ui/**/*.vue"]} }
 EOF
 run_grill "$R" "$R/set.json"
 expect_finding "t2 webComponentGlobs: hand-set value matching nothing still fires" \
   T2.webComponentGlobs "configured value" "packages/ui/**/*.vue"
+# The key lives under reviewers now. A leftover stageParams copy — even one that matches — is
+# not what review-lead reads, so it must not silence the check; the matching reviewers copy must.
+cfg "$R/leftover.json" <<EOF
+{ $STD_HEAD, "commands": {"app":{}},
+  "stageParams": {"webComponentGlobs": ["src/**/*.tsx"]} }
+EOF
+run_grill "$R" "$R/leftover.json"
+expect_finding "t2 webComponentGlobs: a leftover stageParams value is not read" \
+  T2.webComponentGlobs "reviewers.webComponentGlobs — unset; resolved default"
+cfg "$R/moved.json" <<EOF
+{ $STD_HEAD, "commands": {"app":{}},
+  "reviewers": {"webComponentGlobs": ["src/**/*.tsx"]} }
+EOF
+run_grill "$R" "$R/moved.json"
+expect_no_finding "t2 webComponentGlobs: reviewers.webComponentGlobs matching → silent" T2.webComponentGlobs
 
 # The negative half. Without it the check could be a constant-true and still pass everything
 # above.
@@ -119,17 +133,16 @@ expect_finding "t2 webComponentGlobs: no candidate detected → fires and says s
 # the only multi-valued row left, so this is the one place join_c meets more than one element.
 cfg "$R3B/multi.json" <<EOF
 { $STD_HEAD, "commands": {"app":{}},
-  "stageParams": {"webComponentGlobs": ["apps/web/**/*.css", "apps/legacy/**/*.vue"]} }
+  "reviewers": {"webComponentGlobs": ["apps/web/**/*.css", "apps/legacy/**/*.vue"]} }
 EOF
 run_grill "$R3B" "$R3B/multi.json"
 expect_finding "t2 webComponentGlobs: every configured glob is rendered, comma-joined" \
   T2.webComponentGlobs "(apps/web/**/*.css, apps/legacy/**/*.vue)"
 
 # --- the applicability probe: a repo that renders nothing ----------------------------------
-# "Zero matches is a finding" is right for formatGlob and wrong for the web-conditional key:
-# a shell/CLI/library consumer has no rendering surface at all, so the absent glob is a
-# measured fact, not an omission. It must land in notEvaluated[] — no proposal, not waivable,
-# never blocking — rather than demanding a waiver that restates what the tool just measured.
+# A shell/CLI/library consumer has no rendering surface at all, so the absent glob is a
+# measured fact, not an omission. It must land in notEvaluated[] — no proposal — rather than a
+# finding that asks for a value the repo cannot have.
 R3="$(mkrepo t2-renders-nothing docs/guide.md scripts/build.sh)"
 cfg "$R3/c.json" <<EOF
 { $STD_HEAD, "commands": {"app":{}} }
@@ -168,66 +181,19 @@ EOF
   expect_no_finding "probe non-member .$ext emits no finding" T2.webComponentGlobs
 done
 
-# --- AC-2/AC-3: trigger 2, formatGlob ------------------------------------------------------
-# formatGlob's shape has no "/", and the bash `[[ f == $a ]]` match it inherited from the
-# the verify lane treats * as one that
-# CROSSES separators. Transliterating * to [^/]* would match only root-level files and fire a
-# false zero-match on every repo with sources in a subdirectory — this pair pins that rule.
-R4="$(mkrepo t2-format-go main.go pkg/server.go)"
-cfg "$R4/c.json" <<EOF
-{ $STD_HEAD, "commands": {"app":{}} }
-EOF
-run_grill "$R4" "$R4/c.json"
-expect_finding "t2 formatGlob: default matches nothing on a go tree" \
-  T2.formatGlob "*.{ts,tsx,js,json,md}" "*.{go,md,json}"
-# The probe-leak guard, and it only works on a tree with NO web surface: formatGlob is universal
-# and carries no probe, so it must still FIRE in the same call where the web key converted.
-# A probe left set from the preceding t2_key call would take formatGlob with it, and every other
-# formatGlob fixture in this file has something the probe matches, so none of them can catch it.
-expect_noteval "t2 probe: the go tree converts webComponentGlobs" T2.webComponentGlobs "applicability probe"
-if [[ -z "$(jq -r '.notEvaluated[] | select(.id=="T2.formatGlob") | .id' <<< "$OUT")" ]]; then
-  check "t2 probe does not leak into formatGlob (no notEvaluated entry for it)" 0
-else
-  check "t2 probe leaked into formatGlob — it converted a row that carries no probe" 1
-fi
-R5="$(mkrepo t2-format-nested src/deep/a.ts)"
-cfg "$R5/c.json" <<EOF
-{ $STD_HEAD, "commands": {"app":{}} }
-EOF
-run_grill "$R5" "$R5/c.json"
-expect_no_finding "t2 formatGlob: slash-free glob crosses separators (src/deep/a.ts)" T2.formatGlob
-
-# The third enumerated case for this row: a HAND-SET formatGlob matching nothing. Not a
-# formality — formatGlob is the only slash-free row, so the configured-value path and the
-# `*` → `.*` branch only ever meet here. That both counts in this finding (0 for the configured
-# value, 1 for the alternative) come out of the crossing branch is what makes the pairing
-# load-bearing: under `[^/]*` the alternative would score 0 too and the proposal would offer a
-# value that matches nothing either.
-cfg "$R5/format-set.json" <<EOF
-{ $STD_HEAD, "commands": {"app":{}},
-  "stageParams": {"formatGlob": "*.{rs,toml}"} }
-EOF
-run_grill "$R5" "$R5/format-set.json"
-expect_finding "t2 formatGlob: hand-set value matching nothing still fires" \
-  T2.formatGlob "configured value" "*.{rs,toml}" \
-  "matches 0 of the repo's tracked files" "*.{ts,tsx,js,jsx,json,md}" "matches 1 tracked file(s)"
-
 # --- AC-4: the deleted ids are GONE from every envelope array -------------------------------
-# Deleted outright, not merely silenced. Visual capture is dropped as a capability (`extraLanes`
-# is the consumer home for a capture lane), and the testFile obligation died with its key
-# (`testFile`/`unitTestScope` were retired outright in #574). This fixture deliberately KEEPS
-# the retired keys — it replays the exact shape that made BOTH ids fire before (a hand-set
-# triggerGlobs matching nothing on a tree that renders something, plus a unitTestScope with a
-# null testFile), so a re-introduction lands here rather than nowhere. The grill runs on
-# drafts pre-lint, so the schema retirement does not blank the probe. Checked across both
-# arrays: re-appearing as a notEvaluated entry is the same regression wearing a different
-# severity.
+# Deleted outright, not merely silenced: each id's subject key has left the config. This fixture
+# deliberately KEEPS the retired keys — it replays the exact shape that made every id fire
+# before (a hand-set triggerGlobs and a formatGlob matching nothing, plus a unitTestScope with a
+# null testFile), so a re-introduction lands here rather than nowhere. The grill runs on drafts
+# pre-lint, so the schema retirement does not blank the probe. Checked across both arrays:
+# re-appearing as a notEvaluated entry is the same regression wearing a different severity.
 cfg "$R/deleted.json" <<EOF
 { $STD_HEAD, "commands": {"app":{"unitTestScope":"src/**","testFile":null}},
-  "stageParams": {"visualCapture": {"triggerGlobs": ["apps/web/**/*.css"]}} }
+  "stageParams": {"visualCapture": {"triggerGlobs": ["apps/web/**/*.css"]}, "formatGlob": "*.{rs,toml}"} }
 EOF
 run_grill "$R" "$R/deleted.json"
-for gone in T2.visualCaptureTriggerGlobs T4.testfile-plumbing.app; do
+for gone in T2.visualCaptureTriggerGlobs T4.testfile-plumbing.app T2.formatGlob; do
   if [[ -z "$(jq -r --arg i "$gone" \
        '(.findings + .notEvaluated)[] | select(.id==$i) | .id' <<< "$OUT")" ]]; then
     check "deleted id emits nothing anywhere in the envelope: $gone" 0
@@ -251,17 +217,13 @@ for dropped in T2.planFilePattern T2.plansDir T2.pipelineStateDir T2.inertPatter
 done
 
 # --- AC-4: trigger 4, design.liverender -----------------------------------------------------
-# #877 retired this trigger's other occupant, T4.mutation-plumbing (gates.mutation graded
-# against a repo-carried tools/mutation-sweep.sh — no second-shift gate has executed that sweep
-# since #580, so grading declared intent against it was busywork). design.liveRender below is
-# now trigger 4's only row.
 R6="$(mkrepo t4 apps/web/App.tsx apps/web/src/app/P.tsx a.ts)"
 
 cfg "$R6/design-bare.json" <<EOF
 { $STD_HEAD, "commands": {"app":{}}, "design": {"provider": "figma"} }
 EOF
 run_grill "$R6" "$R6/design-bare.json"
-expect_finding "t4 design.provider set + liveRender absent" T4.design-liverender "figma"
+expect_finding "t4 design.provider set + liveRender absent" T4.design-liverender "figma" "smokeCommand"
 cfg "$R6/design-armed.json" <<EOF
 { $STD_HEAD, "commands": {"app":{}},
   "design": {"provider": "figma", "liveRender": {"command": "yarn render:verify --route {route} --out {out}"}} }
@@ -269,13 +231,9 @@ EOF
 run_grill "$R6" "$R6/design-armed.json"
 expect_no_finding "t4 design armed with liveRender → silent" T4.design-liverender
 
-# The be-fe-pair shape. A pair's config declares the WHOLE topology, so the BACKEND repo's own
-# config legitimately carries `design.provider` while the render harness lives in the sibling.
-# Ungated this raised a FAIL at every backend root, escapable only by a grillWaivers entry
-# excusing a non-problem. The check fires only when `liveRender` is ABSENT — so #788's
-# `liveRender.cwd` ownership signal is absent with it, and tracked rendering surface is what
-# settles ownership instead. Byte-identical config to the R6 case above that DOES fire, so the
-# tracked file set is the only difference between them.
+# A backend root whose config carries `design.provider` while the render harness lives in the
+# frontend checkout. Byte-identical config to the R6 case above that DOES fire, so the tracked
+# file set is the only difference between them.
 R6B="$(mkrepo t4-be src/main.ts src/orders/orders.service.ts package.json)"
 cfg "$R6B/design-bare.json" <<EOF
 { $STD_HEAD, "commands": {"app":{}}, "design": {"provider": "figma"} }
@@ -286,8 +244,8 @@ expect_noteval "t4 design.provider on a root that renders nothing → not evalua
   T4.design-liverender "rendering-surface probe"
 
 # Suppression requires CONFIDENCE: outside a readable work tree the probe cannot speak, and a
-# silent retirement of the design axis on a repo that DOES own the harness is the failure #788
-# refused. Over-firing is the cheaper error, so the finding stands.
+# silent retirement of the design axis on a repo that DOES own the harness is the worse error.
+# Over-firing is the cheaper one, so the finding stands.
 R6N="$TMP/t4-nongit"; mkdir -p "$R6N/src"; : > "$R6N/src/main.ts"
 cfg "$R6N/design-bare.json" <<EOF
 { $STD_HEAD, "commands": {"app":{}}, "design": {"provider": "figma"} }
@@ -340,10 +298,9 @@ expect_finding "t5 watcher: webpack serve (extraLanes slot)"  T5.watcher.app.ext
 expect_finding "t5 watcher: npx-wrapped vitest"               T5.watcher.app.extraLanes.0.2 "npx vitest"
 
 # The two shapes the AC-5 narrowings exclude. Each is a script a mainstream repo really ships,
-# and each was a doctor FAIL on a valid config before the qualification: prettier's `-w` is
+# and each was a finding on a valid config before the qualification: prettier's `-w` is
 # `--write`, and vitest's `--run` is the flag spelling of the exiting `run` subcommand. A false
-# FAIL is worse than a missed warning here, because its only escape is a waiver excusing a
-# non-problem — which turns "adopt or declare" into "declare, there is nothing to adopt".
+# finding is worse than a missed warning here: the consumer can do nothing about it.
 expect_no_finding "t5 non-watcher: prettier -w (-w is --write, not watch)" T5.watcher.app.lanes.0.2
 expect_no_finding "t5 non-watcher: vitest --run (flag spelling of the run subcommand)" T5.watcher.app.lanes.0.3
 # ...and the rule the first of those narrows must still FIRE where -w really is watch, or the
@@ -354,7 +311,7 @@ expect_finding "t5 watcher: -w on a runner that defines it as watch (tsc)" \
 # The `-w` allowlist, one case PER MEMBER rather than one for the bullet. An allowlist reviewed
 # as prose reads as a single rule, so a member that fails the very predicate it instantiates
 # ships unexecuted — which is exactly how `jest` got in: its `-w` is `--maxWorkers`, and
-# `watch`/`watchAll` carry no alias, so `jest -w 4` was a doctor FAIL on an ordinary script.
+# `watch`/`watchAll` carry no alias, so `jest -w 4` was a finding on an ordinary script.
 # Every membership below was decided against that runner's own CLI, not the flag's spelling.
 R7b="$(mkrepo t5-wmatrix apps/web/App.tsx a.ts)"
 cat > "$R7b/package.json" <<'EOF'
@@ -392,7 +349,7 @@ expect_finding "t5 -w member rollup"                   T5.watcher.app.lanes.0.4 
 expect_finding "t5 -w member ava"                      T5.watcher.app.lanes.0.5  "ava -w"
 expect_finding "t5 -w member mocha"                    T5.watcher.app.lanes.0.6  "mocha -w"
 expect_finding "t5 -w member sass"                     T5.watcher.app.lanes.0.7  "sass -w src:dist"
-# Non-members: each fails the predicate, so firing on any of them is a FAIL on a valid config.
+# Non-members: each fails the predicate, so firing on any of them is a finding on a valid config.
 # `jest` is the one that was harmful — the other four read no `-w` at all, so they were inert.
 expect_no_finding "t5 -w non-member jest (-w is --maxWorkers, not watch)" T5.watcher.app.lanes.0.8
 expect_no_finding "t5 -w non-member tsup (--watch only, no -w)"           T5.watcher.app.lanes.0.9
@@ -406,7 +363,7 @@ expect_finding "t5 nodemon -w still fires through the token rule" \
 
 # The missing-script half fires ONLY on the unambiguous `<pm> run <name>` form. `<pm> <name>`
 # without the run verb may be a built-in subcommand (yarn workspaces, pnpm dlx), and a false
-# FAIL on a valid config is a worse outcome than a missed warning.
+# finding on a valid config is a worse outcome than a missed warning.
 R8="$(mkrepo t5-resolve apps/web/App.tsx apps/web/src/app/P.tsx a.ts)"
 cat > "$R8/package.json" <<'EOF'
 { "name": "t5b", "scripts": { "test": "vitest run" } }
@@ -428,8 +385,7 @@ expect_noteval "t5 non-pm \`npx tsc\` → not evaluated" T5.app.typecheck "not a
 expect_noteval "t5 \`yarn prettier\` (no run verb, not a script) → not evaluated" T5.app.format "ambiguous"
 
 # No manifest at all (python/go/rust/bun consumers): trigger 5 must state non-evaluation
-# rather than pass silently — and the notice must NOT ride in findings[], which would deadlock
-# onboard's accept predicate (a notEvaluated entry has no proposal and cannot be waived).
+# rather than pass silently — and the notice must NOT ride in findings[]: it has no proposal.
 R9="$(mkrepo t5-nomanifest apps/web/App.tsx apps/web/src/app/P.tsx a.ts)"
 cfg "$R9/c.json" <<EOF
 { $STD_HEAD, "commands": {"app":{"test": "pytest", "lint": "ruff check ."}} }
@@ -437,81 +393,76 @@ EOF
 run_grill "$R9" "$R9/c.json"
 expect_noteval "t5 no root package.json → non-evaluation" T5.app "no readable root package.json"
 if [[ "$(jq -r '[.findings[] | select(.id | startswith("T5."))] | length' <<< "$OUT")" == "0" ]]; then
-  check "t5 non-evaluation emits no finding (accept predicate stays reachable)" 0
+  check "t5 non-evaluation emits no finding" 0
 else
   check "t5 non-evaluation leaked into findings[]" 1
 fi
 
-# --- AC-1: multi-repo scoping --------------------------------------------------------------
-# The evaluated repo is the one whose topology path resolves to the root we were handed; a
-# sibling checkout is REPORTED, never reached — both callers are cwd-scoped and reading a
-# sibling means touching directories outside that root.
-# Vehicle check: T5.missing-script.<repo>.<slot> (#877 — the deleted T4.mutation-plumbing.<repo>
-# is gone, and T4.design-liverender is not per-repo-suffixed, so it cannot prove this).
+# --- AC-1: which commands entry is evaluated ------------------------------------------------
+# /dev-pipeline:run reads the sole `commands` key, else the key named after the checkout's
+# directory. The grill inspects exactly that entry; every other one is REPORTED, never reached.
 RP="$(mkrepo scoping-be apps/web/App.tsx apps/web/src/app/P.tsx a.ts)"
-mkdir -p "$TMP/scoping-fe"
 cat > "$RP/package.json" <<'EOF'
 { "name": "scoping-be", "scripts": {} }
 EOF
 cfg "$RP/c.json" <<'EOF'
-{ "configVersion": 2, "tracker": {"type":"github"},
-  "topology": {"type":"be-fe-pair","repos":{
-    "be": {"path":".","baseBranch":"main"},
-    "fe": {"path":"../scoping-fe","baseBranch":"main"}}},
-  "commands": {"be":{"lint":"npm run lint"},
-               "fe":{"lint":"npm run lint"}} }
+{ "configVersion": 3, "tracker": {"type":"github"},
+  "commands": {"scoping-be":{"lint":"npm run lint"},
+               "scoping-fe":{"lint":"npm run lint"}} }
 EOF
 run_grill "$RP" "$RP/c.json"
-expect_finding "scoping: the evaluated repo IS checked" T5.missing-script.be.lint "no scripts.lint"
-expect_no_finding "scoping: the sibling repo is NOT checked" T5.missing-script.fe.lint
-expect_noteval "scoping: the sibling is reported as not-evaluated" topology.fe "sibling checkout"
+expect_finding "scoping: the entry named after the checkout IS checked" T5.missing-script.scoping-be.lint "no scripts.lint"
+expect_no_finding "scoping: another checkout's entry is NOT checked" T5.missing-script.scoping-fe.lint
+expect_noteval "scoping: another checkout's entry is reported as not-evaluated" commands.scoping-fe "reads commands.scoping-be"
 
-# --- AC-6: waiver suppression --------------------------------------------------------------
-# Keyed by CHECK ID with the repo id where the check is per-repo. A waived finding is
-# suppressed by the checker itself, so both callers suppress identically.
-# The UNwaived control rides on formatGlob, hand-set to match nothing: it is the row this
-# fixture can fire that neither waiver names, and without it "suppressed" and "emits nothing at
-# all" are the same observation. Repo-scoped vehicle: T5.missing-script.app.lint (#877 —
-# T4.mutation-plumbing, this test's vehicle before, no longer exists).
+# A sole key is read whatever it is called — the directory name only breaks a tie.
+cfg "$RP/sole.json" <<'EOF'
+{ "configVersion": 3, "tracker": {"type":"github"}, "commands": {"api":{"lint":"npm run lint"}} }
+EOF
+run_grill "$RP" "$RP/sole.json"
+expect_finding "scoping: a sole commands key is checked whatever its name" T5.missing-script.api.lint "no scripts.lint"
+
+# Two keys, neither named after the checkout: the lane reads no entry, so none is inspected and
+# each is reported rather than one being picked.
+cfg "$RP/none.json" <<'EOF'
+{ "configVersion": 3, "tracker": {"type":"github"},
+  "commands": {"be":{"lint":"npm run lint"}, "fe":{"lint":"npm run lint"}} }
+EOF
+run_grill "$RP" "$RP/none.json"
+expect_no_finding "scoping: no entry named after the checkout → be not checked" T5.missing-script.be.lint
+expect_no_finding "scoping: no entry named after the checkout → fe not checked" T5.missing-script.fe.lint
+expect_noteval "scoping: each entry is reported when none is named after the checkout" commands.be "none is named after this checkout's directory"
+
+# A linked worktree resolves to its MAIN checkout's name, as the lane does: the worktree's own
+# directory name is not a commands key anyone writes.
+git -C "$RP" add package.json >/dev/null 2>&1
+git -C "$RP" commit -qm base >/dev/null 2>&1
+git -C "$RP" worktree add -q "$TMP/scoping-wt-elsewhere" >/dev/null 2>&1
+cp "$RP/c.json" "$TMP/scoping-wt-elsewhere/c.json"
+run_grill "$TMP/scoping-wt-elsewhere" "$TMP/scoping-wt-elsewhere/c.json"
+expect_finding "scoping: a linked worktree reads its main checkout's entry" T5.missing-script.scoping-be.lint "no scripts.lint"
+
+# --- findings are advisory: nothing in the config suppresses one -----------------------------
+# The opt-out key left the config, so a leftover `grillWaivers` entry is inert — it must neither
+# error nor silence the finding it names — and no proposal may point a consumer at it.
 cat > "$R/package.json" <<'EOF'
 { "name": "t2-web-default", "scripts": {} }
 EOF
 cfg "$R/waived.json" <<EOF
-{ $STD_HEAD, "commands": {"app":{"unitTestScope":null,"testFile":null,"lint":"npm run lint"}},
-  "stageParams": {"formatGlob": "*.{rs,toml}"},
+{ $STD_HEAD, "commands": {"app":{"lint":"npm run lint"}},
   "grillWaivers": {
     "T2.webComponentGlobs": "no web-component surface in this repo",
     "T5.missing-script.app.lint": "no lint script yet; tracked in the backlog" } }
 EOF
 run_grill "$R" "$R/waived.json"
-expect_no_finding "waiver: T2.webComponentGlobs suppressed" T2.webComponentGlobs
-expect_no_finding "waiver: T5.missing-script.app.lint suppressed (repo-scoped id)" T5.missing-script.app.lint
-expect_finding "waiver: an UNwaived finding still fires" T2.formatGlob "*.{rs,toml}"
-
-# A waiver keyed WITHOUT the repo id must not silence a per-repo check — that is the whole
-# reason the id carries the repo (a bare id would silence every repo at once).
-cfg "$R/waived-bare.json" <<EOF
-{ $STD_HEAD, "commands": {"app":{"unitTestScope":null,"testFile":null,"lint":"npm run lint"}},
-  "grillWaivers": { "T5.missing-script": "bare id, wrong shape" } }
-EOF
-run_grill "$R" "$R/waived-bare.json"
-expect_finding "waiver: a repo-less id does NOT silence a per-repo check" T5.missing-script.app.lint
-
-# --- #877: a grillWaivers entry keyed to a RETIRED check id is inert, not an error ----------
-# T4.mutation-plumbing and T1.mutation-sweep no longer exist as checks (#877). A config
-# carrying a waiver for either — an existing consumer's pre-#877 grillWaivers entry, or someone
-# typing an id out of an old doc — must not error and must not resurrect either id: the waiver
-# lookup is a bare hash-key test (`add_finding`/`has($k)`), which cannot distinguish a retired
-# id from a live one.
-cfg "$R/retired-waivers.json" <<EOF
-{ $STD_HEAD, "commands": {"app":{}},
-  "grillWaivers": {
-    "T4.mutation-plumbing.app": "pre-#877 waiver, now inert",
-    "T1.mutation-sweep.app": "pre-#877 waiver, now inert" } }
-EOF
-run_grill "$R" "$R/retired-waivers.json"
-check "retired-id waivers: grill still exits 0 (rc=$RC)" "$([[ "$RC" -eq 0 ]] && echo 0 || echo 1)"
-expect_no_finding "retired-id waivers: T4.mutation-plumbing.app produces no finding" T4.mutation-plumbing.app
+check "leftover grillWaivers: grill still exits 0 (rc=$RC)" "$([[ "$RC" -eq 0 ]] && echo 0 || echo 1)"
+expect_finding "leftover grillWaivers: T2.webComponentGlobs is not suppressed" T2.webComponentGlobs "matches 0"
+expect_finding "leftover grillWaivers: T5.missing-script.app.lint is not suppressed" T5.missing-script.app.lint "no scripts.lint"
+if [[ -z "$(jq -r '.findings[] | select((.proposal + .evidence) | test("grillWaivers|waive")) | .id' <<< "$OUT")" ]]; then
+  check "no proposal offers a waiver" 0
+else
+  check "a proposal still offers a waiver" 1
+fi
 
 # --- AC-1: exit codes ----------------------------------------------------------------------
 run_grill "$R" "$R/nope.json"
@@ -528,13 +479,11 @@ if [[ "$RC" -eq 0 ]] && jq -e '(.findings | type == "array") and (.notEvaluated 
 else
   check "envelope: two arrays, exit 0, on a clean repo (rc=$RC)" 1
 fi
-# #877 retired the unadopted[] severity along with its only producer (T1.mutation-sweep) — the
-# key itself must be gone from the envelope, not merely always-empty, so a caller that still
-# reads `.unadopted // []` sees the same "no key" shape a pre-#877 caller never had to handle.
+# The envelope carries no `unadopted` key: that severity has no producer.
 if jq -e 'has("unadopted") | not' <<< "$OUT" >/dev/null; then
-  check "envelope: no unadopted key (#877)" 0
+  check "envelope: no unadopted key" 0
 else
-  check "envelope: unadopted key still present (#877 regression)" 1
+  check "envelope: unadopted key still present" 1
 fi
 
 # --- AC-1: no emitted string names a mechanism the default lane does not execute ------------
@@ -557,12 +506,10 @@ fi
 #
 # DENY-LIST, and the whole of it — there are no per-finding exemptions, because after the
 # rewords no correct string needs one:
-#   [Ss]tage[ -][0-9] , stages/[0-9]   staged-lane phrasing; the default lane has milestones
+#   [Ss]tage[ -][0-9] , stages/[0-9] , milestone , receipt   retired-lane phrasing
 #   visualCapture / visual capture / screenshot   the dropped capture capability
-# T2.webComponentGlobs and T2.formatGlob are TRUTHFUL under the default lane — a11y and
-# design-fidelity route through the review half's panel, and the format lane is executed by the
-# green gate — so they must pass this untouched rather than earn an exemption.
-DENY_RE='[Ss]tage[ -][0-9]|stages/[0-9]|[Vv]isual[ -][Cc]apture|visualCapture|screenshot'
+#   grillWaivers                                  the retired opt-out key
+DENY_RE='[Ss]tage[ -][0-9]|stages/[0-9]|[Mm]ilestone|receipt|[Vv]isual[ -][Cc]apture|visualCapture|screenshot|grillWaivers'
 SINK_RE='(^|[^A-Za-z0-9_])(add_finding|add_noteval)[[:space:]]'
 
 emitted_corpus() { # $1 = a config-grill.sh source path → every string that can reach the envelope
@@ -608,9 +555,6 @@ fi
 # Control 2 — SENTINELS, one per capture arm. The first is a literal sitting at a call site; the
 # second lives on an `ev=` assignment inside t2_key and is reachable ONLY through the variable
 # closure, so losing that arm fails here rather than passing quietly.
-# (T5.missing-script's "cannot be anything else" replaced T1.mutation-sweep's "Adopt the seam or
-# declare" in #877, whose own row had replaced #569's retired T1.extension-points proposal. All
-# three were direct call-site literals; the arm under test is unchanged.)
 for sentinel in "so this one cannot be anything else" "matches 0 of the repo"; do
   if grep -qF -- "$sentinel" <<< "$CORPUS"; then
     check "oracle sentinel present: '$sentinel'" 0
@@ -650,15 +594,7 @@ mutate "mutant: a banned token at an indirect (ev=) literal is caught" \
   's|matches 0 of the repo|matches 0 of the stages/6 repo|' catch
 
 # Control 4 — COMMENT IMMUNITY, which is what makes this a call-site scan rather than a
-# whole-file grep. The pristine source ALREADY carries banned tokens in comments (the dropped-row
-# table names the stage that creates a plan file; the visualCapture note says why no lane takes a
-# screenshot), so the green verdict above is only meaningful if those are genuinely out of scope.
-src_hits="$(grep -cE "$DENY_RE" "$GRILL")"
-if [[ "$src_hits" -gt 0 ]]; then
-  check "oracle: the source carries $src_hits banned token(s) in comments, and passes anyway" 0
-else
-  check "oracle: no banned token anywhere in the source — comment immunity is untested" 1
-fi
+# whole-file grep: comments may describe retired mechanisms, emitted strings may not.
 mutate "mutant: a banned token injected into a COMMENT is NOT caught" \
   's|^# Read-only, no network, bash-3.2 safe.|# Read-only, no network. Stage 5 visualCapture screenshot.|' clean
 

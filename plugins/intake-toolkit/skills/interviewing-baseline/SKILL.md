@@ -7,7 +7,7 @@ description: Shared interviewing protocol for all intake-role skills (intake-int
 
 This skill defines the shared protocol that ALL interviewing/elicitation skills follow, the same way `review-toolkit:reviewer-baseline` unifies the reviewer agents. It exists so loop rules and the Decision Ledger contract live in exactly one place.
 
-**Canonical source notice:** this file is the single source of truth for the Decision Ledger schema, the provenance enum, and the intake-receipt contract below it (Kind axis, open regions, surface inventory, intent-gap record). Every other site that restates them (`plan-interview/tools/ledger-lint.sh`, this plugin's `hooks/exitplan-ledger-gate.sh` via that lint, `review-toolkit:plan-reviewer`) carries a mirror marker and must be updated in lockstep when this section changes.
+**Canonical source notice:** this file is the single source of truth for the Decision Ledger schema, the provenance enum, and the intake-receipt contract below it (Kind axis, open regions, surface inventory, checks, design frames, departures). Every other site that restates them (`plan-interview/tools/ledger-lint.sh`, this plugin's `hooks/exitplan-ledger-gate.sh` via that lint, `review-toolkit:plan-reviewer`) carries a mirror marker and must be updated in lockstep when this section changes.
 
 ## Interview Loop Rules
 
@@ -125,28 +125,9 @@ Explicit empty form, for genuinely trivial scope:
 No open regions — every decision in scope is ratified.
 ```
 
-**The shapes the milestone gate can read.** This section is not only read by people: milestone 1
-of the pipeline's BUILD session enumerates its regions from **two** declared sources — this
-receipt, and the issue body — and refuses on a `pause-and-ask` region with no resolution artifact.
-So the shape is load-bearing, and a section it cannot enumerate is refused rather than passed
-over (#700):
-
-| Where | Accepted |
-| --- | --- |
-| Receipt (`{issue}-ledger.md`) | the table row above, or the explicit empty form. `ledger-lint --receipt` mandates the table here, so a bullet receipt fails intake's own lint. |
-| Issue body | the table row, **or** a bullet naming an `OR-n` whose disposition token appears somewhere in that bullet — continuation lines included — or the explicit empty form. |
-
-Two things follow, and both have bitten:
-
-- **Put an `OR-n` on every region.** A section of prose bullets with no ids declares regions the
-  gate cannot name, and is refused as unenumerable. Stating the disposition in prose ("default
-  **no**, flagged") rather than with its token is the same failure one level down.
-- **The heading may carry trailing text** (`## Open regions (BUILD flags, does not pause)`) and is
-  matched case-insensitively, but the words "open regions" must open it.
-
-The refusal is an *environment* refusal: it spends none of milestone 1's fix budget, because
-neither the issue body nor the gitignored receipt is the build session's to edit. Reshape the
-section and re-run.
+**Put an `OR-n` on every region**, with its disposition token in the row. The scheduler does not
+read this section; the build and review sessions do, from the record, and a region with no id or
+a disposition stated in prose ("default **no**, flagged") is one neither can cite.
 
 ### The Surface Inventory
 
@@ -236,43 +217,18 @@ any `RS-n` row that is there is still checked: the smoke reads rows wherever the
 heading closes the section; the first such section decides. `## Checks to add later` is not the
 section.
 
-### The intent-gap record
+### Departures
 
 A decision the receipt never covered will sometimes surface during BUILD. That is normal
-operation (P9), not a failure — what must not happen is the run quietly making the call. BUILD
-writes a committed record at `<plansDir>/<slug>-<issue>-lean-intent-gap.md`:
+operation (P9), not a failure — what must not happen is the run quietly making the call. The
+record is the one place it is written: BUILD edits the row in place (a gap it covers nowhere gets
+a new row) — new resolution, the provenance naming who decided, a one-line reason — and commits
+the edit with the code. The review diffs the record at its first commit against the head and
+scores every edited row `departed`, naming the decider from its provenance; a row the code leaves
+without an edit is `honored` or `violated`.
 
-```
-decided_by: pending
-issue: <n>
-run_id: <build run id>
-session_id: <build session id>
-region: <OR-n, or `undeclared` when the gap falls outside every declared region>
-disposition: <the region's disposition, or the one the operator sets on an undeclared gap>
-
-## Gap
-<the decision, and why the receipt does not cover it>
-
-## Disposition followed
-<paused and asked, or: took reversible default X and flagged it>
-```
-
-`decided_by:` names who made the call, from the provenance values: `user-answered` (the operator
-answered it) or `user-delegated` (the agent decided under the operator's standing delegation).
-Until the call is made it reads `pending`, and it is the record's **first** key: the header keys
-are read first-match, so the header value wins over any quote of a key in the prose below it.
-
-The merge boundary (`boundary-evidence.sh`, wrapped by `scripts/check-lane-chain.sh`) refuses a
-record whose `decided_by:` is not `user-answered` or `user-delegated`. A declared `pause-and-ask`
-region is a question for the human, so milestone 1 clears it only on `user-answered` (or a
-non-bot comment naming the region, or an operator-override record) — a delegated call has not
-asked the question the region exists to ask. A departure from a receipt row is written here the same way, naming
-who decided.
-
-**Compatibility.** A record written before `decided_by:` existed has no such key and carries
-`ratified: yes` plus the operator comment's https URL in `ratified_by:`; the readers still count
-that pair as decided when, and only when, the record has no `decided_by:` key. The compatibility
-read goes at the next batched major.
+A declared `pause-and-ask` region is a question for the human, so only `user-answered` clears it —
+a `user-delegated` call has not asked the question the region exists to ask.
 
 ## Who emits what
 

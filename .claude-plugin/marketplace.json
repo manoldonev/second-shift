@@ -5,14 +5,14 @@
     "url": "https://github.com/manoldonev"
   },
   "metadata": {
-    "description": "The dev team that works while you’re away. It asks before it builds, and writes down who decided what: open decisions go to you one at a time and are recorded, and a separate session reviews the result and commits its verdict. Generic tooling only; each consumer repo supplies one config file and optional knowledge files.",
+    "description": "The dev team that works while you’re away. It asks before it builds, and writes down who decided what: open decisions go to you one at a time and are recorded, and a separate session reviews the result and posts its verdict on the PR. Generic tooling only; each consumer repo supplies one config file and optional knowledge files.",
     "version": "14.0.4"
   },
   "plugins": [
     {
       "name": "dev-pipeline",
       "source": "./plugins/dev-pipeline",
-      "description": "Autonomous intaken-ticket → reviewed-PR pipeline: build and review in separate sessions, gated by five artifact milestones (outcome-gated blocks, tracker adapters github|jira, opt-in merge-boundary evidence)."
+      "description": "Autonomous intaken-ticket → reviewed-PR pipeline: a scheduler over fresh build and review sessions, scheduler-run checks, a head-bound verdict comment, tracker adapters github|jira."
     },
     {
       "name": "review-toolkit",

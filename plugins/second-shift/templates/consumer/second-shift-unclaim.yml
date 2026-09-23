@@ -4,8 +4,7 @@
 # are known to be stale: a session-side drop would have to fire at a moment no lane session
 # is guaranteed to be running, and a hand-closed item has no session at all.
 #
-# Unlike the read-only evidence workflow, this one WRITES: it removes the two run-state
-# labels from one issue. That is the entire scope of the issues:write grant below.
+# This workflow WRITES: it removes the two run-state labels from one issue. That is the entire scope of the issues:write grant below.
 #
 # The committed check script resolves the label names from this repo's committed
 # .claude/second-shift.config.json at run time, so nothing here is substituted at install

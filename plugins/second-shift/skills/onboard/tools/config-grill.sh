@@ -16,21 +16,10 @@
 # Output: ONE JSON document on stdout — { findings: [...], notEvaluated: [...] }
 # Exit:  0 always when it ran (findings are DATA, not a crash) · 3 usage/IO error
 #
-# A `notEvaluated` entry is never a finding: it has no proposal, cannot be waived, and must
-# not block onboard's accept predicate. Callers render it informationally.
-#
-# (A THIRD severity, `unadopted` — waivable, carrying a proposal, but a DEFAULT rather than a
-# DEFECT, so doctor rendered it as a note that never touched the exit code while onboard
-# blocked on it — existed for trigger 1's `T1.mutation-sweep` row. #877 retired that row's only
-# reason to exist along with it, and it was the channel's only producer, so the severity and
-# its `unadopted` output key went with it rather than sit empty forever.)
-#
-# Waivers live in the config's top-level `grillWaivers` object, keyed by check id (with the
-# repo id where the check is per-repo) and valued by a human-authored reason. A waived
-# finding is suppressed HERE, so both callers suppress identically. `check-config-shadowing.sh`
-# carries no row for `grillWaivers`: its CHECKS array is rooted at the dev-pipeline skill dir
-# and this key's only reader is this script, inside the second-shift plugin. Stated exception,
-# not an oversight.
+# Findings are ADVISORY. Both callers render them as warnings and neither blocks on them: the
+# config has no key to declare a deliberate opt-out in, so a finding the consumer has weighed
+# and declined must not hold a repo red forever. A `notEvaluated` entry is not a finding at all:
+# it has no proposal, and callers render it informationally.
 #
 # Read-only, no network, bash-3.2 safe.
 set -uo pipefail
@@ -46,10 +35,8 @@ cd "$ROOT_ABS" || exit 3
 
 FINDINGS=()
 NOTEVAL=()
-WAIVERS="$(jq -c 'if (.grillWaivers | type) == "object" then .grillWaivers else {} end' "$CONFIG")"
 
 add_finding() { # $1 id, $2 key, $3 evidence, $4 proposal
-  jq -e --arg k "$1" 'has($k)' <<< "$WAIVERS" >/dev/null 2>&1 && return 0
   FINDINGS+=("$(jq -nc --arg id "$1" --arg key "$2" --arg ev "$3" --arg pr "$4" \
     '{id:$id, key:$key, evidence:$ev, proposal:$pr}')")
 }
@@ -59,23 +46,26 @@ add_noteval() { # $1 id, $2 key, $3 reason
 json_array() { if [[ $# -eq 0 ]]; then echo '[]'; else printf '%s\n' "$@" | jq -sc '.'; fi; }
 join_c() { local out="" x; for x in "$@"; do [[ -z "$out" ]] && out="$x" || out="$out, $x"; done; printf '%s' "$out"; }
 
-waiver_hint() { # $1 = check id
-  printf 'If this is deliberate, declare it rather than leaving it silent: add "grillWaivers": { "%s": "<your reason>" } to the config.' "$1"
+# --- the commands entry the lane reads -----------------------------------------------------
+# /dev-pipeline:run's rule, mirrored: the sole `commands` key, else the key equal to the main
+# checkout's directory name (a linked worktree resolves to its main checkout, as the lane's
+# does). Every other entry is a different checkout's table: reported, never reached.
+MAIN_NAME="$(basename "$ROOT_ABS")"
+_common="$(git rev-parse --git-common-dir 2>/dev/null)" && {
+  case "$_common" in /*) : ;; *) _common="$ROOT_ABS/$_common" ;; esac
+  _main="$(cd "$_common/.." 2>/dev/null && pwd -P)" && MAIN_NAME="$(basename "$_main")"
 }
-
-# --- repo scoping (AC-1) -----------------------------------------------------------------
-# Both callers are cwd-scoped. Reading a sibling checkout means touching directories outside
-# the root we were handed, so a sibling is reported, never reached.
-REPO_ID=""
-for id in $(jq -r '(.topology.repos // {}) | keys[]' "$CONFIG" 2>/dev/null); do
-  p="$(jq -r --arg i "$id" '.topology.repos[$i].path // ""' "$CONFIG")"
-  cand=""
-  [[ -n "$p" ]] && cand="$(cd "$ROOT_ABS/$p" 2>/dev/null && pwd -P)"
-  if [[ -n "$cand" && "$cand" == "$ROOT_ABS" ]]; then
-    REPO_ID="$id"
+REPO_ID="$(jq -r --arg s "$MAIN_NAME" '
+  (.commands // {} | keys) as $k
+  | if ($k | length) == 1 then $k[0] elif ($k | index($s)) then $s else empty end' "$CONFIG" 2>/dev/null)"
+for id in $(jq -r '(.commands // {}) | keys[]' "$CONFIG" 2>/dev/null); do
+  [[ "$id" == "$REPO_ID" ]] && continue
+  if [[ -z "$REPO_ID" ]]; then
+    add_noteval "commands.$id" "commands.$id" \
+      "commands has more than one entry and none is named after this checkout's directory (\"$MAIN_NAME\") — /dev-pipeline:run reads no configured check here; no command was inspected"
   else
-    add_noteval "topology.$id" "topology.repos.$id" \
-      "path \"$p\" does not resolve to the evaluated root ($ROOT_ABS) — a sibling checkout is outside this run's reach; grill it from its own root"
+    add_noteval "commands.$id" "commands.$id" \
+      "not the entry /dev-pipeline:run reads from this checkout (it reads commands.$REPO_ID) — grill it from the checkout named \"$id\""
   fi
 done
 
@@ -84,11 +74,9 @@ done
 # neither shell globbing nor git can match these patterns. Transliterate and grep instead.
 #
 # A pattern containing "/" is path-shaped: "*" stops at a separator, "**" crosses them.
-# A pattern with NO "/" (the formatGlob shape) is matched with "*" crossing separators —
-# that reproduces the bash `[[ "$f" == $a ]]` match the verify lane applies to
-# this key, byte-for-byte (the key outlived its executor — D-17). Using [^/]* there would
-# match only root-level files and would fire a zero-match finding on every repo whose sources
-# sit in a subdirectory.
+# A pattern with NO "/" (the applicability probe's shape) is matched with "*" crossing
+# separators, so an extension-only pattern counts a file at any depth. Using [^/]* there would
+# match only root-level files.
 glob_to_ere() { # $1 = glob → prints an anchored ERE
   local g="$1" out="" i=0 len=${#1} c n depth=0 has_slash=0
   case "$g" in */*) has_slash=1 ;; esac
@@ -136,44 +124,20 @@ count_glob_matches() { # $1.. globs → prints the number of tracked files match
 }
 
 # --- trigger 2: a silent-fallback default that cannot match the repo (AC-2/AC-3) ----------
-# Per-key table. The blanket rule "zero matches is a finding" does not survive contact with
-# the key list, so the rows that cannot mean anything are dropped EXPLICITLY:
-#   inertPattern      — its predicate belongs to is-inert-diff.sh, which ships in dev-pipeline
-#                       and is frequently NOT installed at onboard time; preflight.sh already
-#                       runs the real classifier at its Step 8, where the plugin resolves.
-#                       Re-implementing the predicate here would be an early warning that can
-#                       disagree with the late gate, which is worse than no warning.
-#   planFilePattern   — names a file the run is about to CREATE; zero matches is universal.
-#   paths.*           — directories a fresh repo legitimately lacks.
-#   visualCapture.*   — dropped outright, not merely unmeasurable: no lane on the default path
-#                       takes a screenshot, so a glob scoping one cannot be a gap. `extraLanes`
-#                       is the consumer home for a capture lane. No key under `visualCapture`
-#                       is evaluated here.
+# One row: reviewers.webComponentGlobs, the trigger review-lead routes a11y-reviewer and the
+# design-fidelity dimension on. It fires on BOTH an absent key whose resolved default matches
+# nothing AND a hand-set value that matches nothing: an adopted value can itself be broken, so
+# setting the key wrongly must not silence the check.
 #
-# Each active row fires on BOTH an absent key whose resolved default matches nothing AND a
-# hand-set value that matches nothing: an adopted value can itself be broken, so setting a key
-# wrongly must not silence the check.
+# ...UNLESS nothing in the tree matches the row's APPLICABILITY PROBE. "This repo renders
+# nothing" is a terminal fact rather than a config omission, and one the tracked-file list
+# already in hand can measure, so it lands in notEvaluated[] with nothing to propose.
 #
-# ...UNLESS the row carries an APPLICABILITY PROBE and nothing in the tree matches it. "Zero
-# matches is a finding" holds for formatGlob — every repo has files to format — and breaks for
-# the web-conditional row, where "this repo renders nothing" is a terminal fact rather than
-# a config omission, and one the tracked-file list already in hand can measure. A shell, CLI or
-# library consumer would otherwise be told to hand-author a glob for files that do not exist,
-# and would answer with a waiver restating a fact the tool could see for itself.
-#
-# It lands in notEvaluated[], never findings[]: a repo with no rendering surface has no
-# disposition to force and nothing to propose, and notEvaluated carries no proposal and cannot
-# be waived — forcing one here would re-impose the very waiver-prose tax this removes.
-#
-# The DEFAULTS below are the RUNTIME-resolved literals — the jq fallback the consuming stage
-# actually applies — never the JSON Schema `default`, which nothing injects into a config.
-# Their coupling to the source sites is recorded as declined in docs/testing.md: the
-# webComponentGlobs literal alone is restated at seven sites across two plugins, and one
-# canonical against seven scattered restatements is not a group any relation can express.
+# The DEFAULT below is the RUNTIME-resolved literal — the fallback review-lead actually
+# applies — never the JSON Schema `default`, which nothing injects into a config.
 t2_key() { # $1 id, $2 key, $3 jq expr yielding the configured globs (empty when unset),
            # $4 benefit sentence; DEFAULT_GLOBS[], CANDIDATES[] and PROBE_GLOBS[] must be set by
-           # the caller — PROBE_GLOBS EVERY time, empty for a universal row, or the previous
-           # call's probe leaks into this one and suppresses a row that has no probe at all
+           # the caller
   local id="$1" key="$2" expr="$3" benefit="$4"
   if [[ "$TRACKED_OK" -ne 1 ]]; then
     add_noteval "$id" "$key" "not a git work tree — tracked files cannot be enumerated"
@@ -196,7 +160,7 @@ t2_key() { # $1 id, $2 key, $3 jq expr yielding the configured globs (empty when
   # zero — a key that matches is applicable by demonstration and never reaches this.
   if [[ "${#PROBE_GLOBS[@]}" -gt 0 ]] && [[ "$(count_glob_matches "${PROBE_GLOBS[@]}")" -eq 0 ]]; then
     add_noteval "$id" "$key" \
-      "no tracked file matches this capability's applicability probe ($(join_c "${PROBE_GLOBS[@]}")) — the surface this key scopes does not exist in this repo, so there is no value to propose and nothing to waive"
+      "no tracked file matches this capability's applicability probe ($(join_c "${PROBE_GLOBS[@]}")) — the surface this key scopes does not exist in this repo, so there is no value to propose"
     return 0
   fi
   for cand in ${CANDIDATES[@]+"${CANDIDATES[@]}"}; do
@@ -205,9 +169,9 @@ t2_key() { # $1 id, $2 key, $3 jq expr yielding the configured globs (empty when
   done
   ev="$key — $src ($(join_c "${globs[@]}")) matches 0 of the repo's tracked files."
   if [[ -n "$alt" ]]; then
-    pr="Set $key to this repo's real surface: \"$alt\" matches $altn tracked file(s). $benefit $(waiver_hint "$id")"
+    pr="Set $key to this repo's real surface: \"$alt\" matches $altn tracked file(s). $benefit"
   else
-    pr="Set $key to this repo's real surface — no candidate from the shipped list matched any tracked file either, so the value has to come from you. $benefit $(waiver_hint "$id")"
+    pr="Set $key to this repo's real surface — no candidate from the shipped list matched any tracked file either, so the value has to come from you. $benefit"
   fi
   add_finding "$id" "$key" "$ev" "$pr"
 }
@@ -223,52 +187,27 @@ WEB_SURFACE_PROBE=("*.{tsx,jsx,vue,svelte,astro,html,css,scss,sass,less}")
 DEFAULT_GLOBS=("apps/web/**/*.{tsx,jsx}")
 CANDIDATES=("src/app/**/*.{html,ts}" "src/**/*.vue" "app/**/*.tsx" "src/**/*.{tsx,jsx}")
 PROBE_GLOBS=("${WEB_SURFACE_PROBE[@]}")
-t2_key "T2.webComponentGlobs" "stageParams.webComponentGlobs" \
-  '(.stageParams.webComponentGlobs // []) | .[]' \
+t2_key "T2.webComponentGlobs" "reviewers.webComponentGlobs" \
+  '(.reviewers.webComponentGlobs // []) | .[]' \
   "This glob is the trigger for a11y-reviewer AND the design-fidelity dimension (on a pipeline round a11y-reviewer also needs an opt-in): while it matches nothing, neither is ever routed and every review looks clean because they never ran."
-
-DEFAULT_GLOBS=("*.{ts,tsx,js,json,md}")
-CANDIDATES=("*.{ts,tsx,js,jsx,json,md}" "*.{py,md,json}" "*.{sh,md,json,yml}" "*.{go,md,json}" "*.{rs,md,toml}")
-PROBE_GLOBS=()  # universal row: every repo has files to format. Reset, not omitted — see t2_key.
-t2_key "T2.formatGlob" "stageParams.formatGlob" \
-  '.stageParams.formatGlob // ""' \
-  "This glob scopes the default prettier format lane: while it matches nothing, no changed file is ever format-checked."
 
 # --- trigger 4: internally inconsistent config (AC-4) --------------------------------------
 # design.provider declared with no design.liveRender behind it: the design axis is on with no
-# render harness behind it, so a ticket that arms it has nothing to render.
-#
-# (#877 retired this trigger's other occupant — gates.mutation graded against a repo-carried
-# tools/mutation-sweep.sh — because no second-shift gate has executed that sweep since #580, so
-# grading a repo's declared intent against a file nothing runs turned a doctor-green repo FAIL
-# for a capability no consumer used. gates.mutation stays legal in the schema; config-lint still
-# accepts it. Nothing in this file reads it any more.)
+# render harness behind it, so a ticket that declares design frames has nothing to render.
 DESIGN_PROVIDER="$(jq -r '.design.provider // ""' "$CONFIG")"
 DESIGN_LR="$(jq -r 'if ((.design | type) == "object") and (.design.liveRender != null) then "yes" else "" end' "$CONFIG")"
 if [[ -n "$DESIGN_PROVIDER" && -z "$DESIGN_LR" ]]; then
-  # APPLICABILITY FIRST — the same predicate T2's rendering-surface rows already apply, and for
-  # the same reason: a root with no rendering surface has no render harness to propose and no
-  # disposition to force. On a be-fe-pair the config declares the WHOLE topology, so the backend
-  # repo's own config legitimately carries `design.provider` while the harness lives in the
-  # sibling. Ungated, this fired a FAIL at every backend root on that shape, and the only escape
-  # was a grillWaivers entry excusing a non-problem — "declare, because there is nothing to
-  # adopt", which is precisely what the T2 probe exists to stop.
-  #
-  # #788 taught the BUILD lane this ownership rule via `design.liveRender.cwd`; that key cannot
-  # settle it here, because this check fires only when `liveRender` — and so `cwd` with it — is
-  # ABSENT. Tracked rendering surface is the signal that survives the key's absence, needs no
-  # hardcoded "fe" topology key, and stays correct on a single-repo frontend app.
-  #
-  # Suppression requires CONFIDENCE, so it is gated on a readable work tree: outside one the
-  # probe cannot speak and the finding stands. Retiring the design axis on a repo that does own
-  # the harness would be the silent failure #788 refused, and over-firing is the cheaper error.
+  # APPLICABILITY FIRST — the same probe trigger 2 applies, for the same reason: a root with no
+  # rendering surface (a backend whose frontend is another checkout) has no render harness to
+  # propose. Suppression requires CONFIDENCE, so it is gated on a readable work tree: outside
+  # one the probe cannot speak and the finding stands — over-firing is the cheaper error.
   if [[ "$TRACKED_OK" -eq 1 ]] && [[ "$(count_glob_matches "${WEB_SURFACE_PROBE[@]}")" -eq 0 ]]; then
     add_noteval "T4.design-liverender" "design.liveRender" \
-      "no tracked file matches the rendering-surface probe ($(join_c "${WEB_SURFACE_PROBE[@]}")) — this root has nothing to render, so the render harness belongs to a sibling repo of the topology and there is no value to propose and nothing to waive here; grill it from the root that owns the surface"
+      "no tracked file matches the rendering-surface probe ($(join_c "${WEB_SURFACE_PROBE[@]}")) — this root has nothing to render, so the render harness belongs to another checkout and there is no value to propose here; grill it from the root that owns the surface"
   else
     add_finding "T4.design-liverender" "design.liveRender" \
       "design.provider is \"$DESIGN_PROVIDER\" but design.liveRender is absent — the design axis is on with no render harness behind it." \
-      "Add design.liveRender { command, cwd?, readyProbe? } pointing at the repo's render script. Without it a ticket cannot arm its design lane at all: the green gate renders every declared route and hashes the results into a committed receipt, and there is nothing here to render (docs/live-render.md). $(waiver_hint "T4.design-liverender")"
+      "Add design.liveRender { command, smokeCommand, readyProbe? } pointing at the repo's render and smoke scripts. Without it a ticket whose record declares design frames stops the run: after every build /dev-pipeline:run renders each declared route and checks it shows its must-show value, and there is nothing here to render with (docs/live-render.md)."
   fi
 fi
 
@@ -276,7 +215,7 @@ fi
 # EVERY configured command is inspected: a command that never exits hangs the verify lane,
 # so the exposure is the same wherever it sits.
 #
-# Resolution is deliberately NARROW. The missing-script half can produce a false FAIL on a
+# Resolution is deliberately NARROW. The missing-script half can produce a false finding on a
 # perfectly valid config, and that is a worse outcome than a missed warning — so only an
 # unambiguous invocation is resolved, and `<pm> <name>` without the explicit `run` verb is
 # treated as ambiguous (yarn workspaces / pnpm dlx / bun x are not script invocations).
@@ -284,11 +223,9 @@ fi
 # The watcher half carries the SAME principle as the missing-script half, and the two
 # qualifications below are what make it hold. `-w` is a watch flag only on runners that define
 # it as one: on prettier it is `--write`, so an unqualified `-w` rule turns `prettier -w .`
-# into a doctor FAIL on a perfectly valid config — and the only escape from that FAIL is a
-# grillWaivers entry excusing a non-problem, which is not "adopt or declare", it is "declare,
-# because there is nothing to adopt". Likewise `--run` is the flag spelling of vitest's `run`
-# subcommand and exits exactly as it does. Both qualifications only ever REDUCE firing;
-# under-firing is OR-1's subject, and a missed warning is the cheaper error here.
+# into a warning on a perfectly valid config that the consumer can do nothing about. Likewise
+# `--run` is the flag spelling of vitest's `run` subcommand and exits exactly as it does. Both
+# qualifications only ever REDUCE firing; a missed warning is the cheaper error here.
 is_watcher() { # $1 = manifest script BODY → 0 when it never exits
   # A leading npx/bunx wrapper is not a category of its own — strip it so `npx vitest` is
   # judged as the `vitest` it is.
@@ -365,12 +302,12 @@ if [[ -n "$REPO_ID" ]]; then
         if is_watcher "$body"; then
           add_finding "T5.watcher.$REPO_ID.$slot" "commands.$REPO_ID.$slot" \
             "commands.$REPO_ID.$slot is \"$cmd\", which resolves to package.json scripts.$name = \"$body\" — a watch-mode command that never exits." \
-            "Point commands.$REPO_ID.$slot at a script that runs once and exits (e.g. a \`vitest run\` script), or add one. The configured command LOOKS fine; it is the manifest script underneath that hangs, so the lane that uses it blocks forever rather than failing. $(waiver_hint "T5.watcher.$REPO_ID.$slot")"
+            "Point commands.$REPO_ID.$slot at a script that runs once and exits (e.g. a \`vitest run\` script), or add one. The configured command LOOKS fine; it is the manifest script underneath that hangs, so the run that executes it as a check hangs rather than failing."
         fi
       elif [[ "$explicit_run" -eq 1 ]]; then
         add_finding "T5.missing-script.$REPO_ID.$slot" "commands.$REPO_ID.$slot" \
           "commands.$REPO_ID.$slot is \"$cmd\", but package.json has no scripts.$name." \
-          "Add a \"$name\" script to package.json, or point commands.$REPO_ID.$slot at a script that exists. \`$pm run $name\` is an explicit script invocation, so this one cannot be anything else. $(waiver_hint "T5.missing-script.$REPO_ID.$slot")"
+          "Add a \"$name\" script to package.json, or point commands.$REPO_ID.$slot at a script that exists. \`$pm run $name\` is an explicit script invocation, so this one cannot be anything else."
       else
         add_noteval "T5.$REPO_ID.$slot" "commands.$REPO_ID.$slot" \
           "\"$cmd\" has no explicit \`run\` verb and \"$name\" is not a manifest script — ambiguous (\`$pm $name\` may be a built-in subcommand), so it is reported rather than flagged"
@@ -388,15 +325,6 @@ if [[ -n "$REPO_ID" ]]; then
       | .[] | @tsv' "$CONFIG" 2>/dev/null)
   fi
 fi
-
-# (Trigger 1, "a capability nobody ever mentioned", used to carry two rows: `T1.extension-points`
-# — retired in #569 with the three config keys it proposed adopting — and `T1.mutation-sweep`,
-# retired in #877 for the same reason config-grill.sh:252's trigger-4 row was: nothing has graded
-# gates.mutation-declared intent against a repo-carried tools/mutation-sweep.sh's presence since
-# #580 retired the gate that ran it, so an "adopt or declare" note about a file nothing executes
-# was busywork. Trigger 1 had no other occupant, so it is gone, and with it the `unadopted[]`
-# severity: it existed to hold exactly this note, and this file now emits no other unadopted
-# entry to reintroduce it for.)
 
 jq -n \
   --argjson findings "$(json_array ${FINDINGS[@]+"${FINDINGS[@]}"})" \

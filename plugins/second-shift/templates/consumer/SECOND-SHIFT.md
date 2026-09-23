@@ -12,9 +12,11 @@ repo enables {{PLUGIN_LIST}}) — `/second-shift:doctor` verifies the install ag
 ## What each plugin installs and when its code runs
 
 ### dev-pipeline
-- Skills: `run` (the lane's front door, invoked as `/dev-pipeline:run` — a scheduler that spawns the two blocks below in fresh sessions and authors nothing), `build` (the build half, invoked as `/dev-pipeline:build <ticket>`, gated by five artifact milestones), `review` (the review half, invoked as `/dev-pipeline:review <pr>` from its own session — a build run cannot author its own verdict), `pipeline-retro`, `perf-retro`, `pr-revision` — loaded only when invoked.
-- Hook: a PreToolUse gate on `git commit` commands (normal and bot-identity forms) that runs the repo's type-check on staged changes during pipeline commits.
-- Shell tools (`milestone-gate.sh`, `reconcile.sh`, `config-lint.sh`, `pipeline-doctor.sh`…) run only when the lane or a `/second-shift:*` command invokes them; run records live in `.claude/pipeline-state/`.
+- Skills: `run` (the lane's front door, invoked as `/dev-pipeline:run <ticket>`), `review` (the manual review, invoked as `/dev-pipeline:review <pr>` from its own session), `pr-revision` — loaded only when invoked.
+- What `/dev-pipeline:run` does when you invoke it: its scheduler (`run.sh`) swaps the ticket's queue label for the claimed one and posts a claim comment, creates a git worktree beside this repo (`../<repo>-worktrees/<ticket>`), commits the ticket's intake record as the branch's first commit and pushes it, then runs rounds of fresh `claude -p` sessions — a BUILD session that edits code, pushes and opens a ready PR, then a REVIEW session that posts one verdict comment on the PR. Sessions run with edits accepted, no permission prompts and an explicit tool allowlist derived from your config and the record. Between them the scheduler runs your configured checks (`commands.*`) and the record's `## Checks` in the worktree. Every session is bounded by wall-clock time, and every run by rounds, check reds and a cost ceiling (`run.*` in the config); the run's cost is posted in the PR body. It never merges.
+- **Every decision names who made it.** The intake record is the build's binding input. A build that departs from a row edits that row in place — new resolution, who decided (`user-delegated` when the agent decided under your standing delegation), one-line reason — and the review scores it `departed`; a silent departure scores `violated` and blocks approval.
+- Hook: a PreToolUse gate on `git commit` commands (normal and bot-identity forms) that runs the repo's type-check on staged changes.
+- Shell tools (`run.sh`, `config-lint.sh`, `gh-bot.sh`, `bot-commit.sh`, `claim-issue.sh`…) run only when the lane or a `/second-shift:*` command invokes them; run logs live in `.claude/pipeline-state/`.
 
 ### review-toolkit
 - Skills: `review-lead`, `mutation-review`, `reviewer-baseline` — loaded only when invoked.
@@ -34,66 +36,15 @@ repo enables {{PLUGIN_LIST}}) — `/second-shift:doctor` verifies the install ag
 
 ### second-shift
 - Skills: `onboard`, `doctor`, `local-dev-refresh`. Zero session hooks, zero agents — near-zero session cost.
-- Optional committed CI files (present only if you enabled the evidence workflow at onboard):
-  `.github/workflows/second-shift-ci.yml` + `.claude/tools/second-shift-ci-check.sh`. These run
-  in **GitHub Actions on your PRs** (not in a Claude session — no session cost). Three checks:
-  config-lint the committed config at the pinned marketplace ref; assert the settings ref and
-  lockfile ref agree; and, on a `/dev-pipeline:run` PR, assert the merge-boundary evidence
-  the lane is supposed to leave — a committed approve-verdict carrying reconciliation keys,
-  a review identity distinct from the build run's, a verdict covering *this* head, and every
-  intent-gap record naming who decided. The workflow only reports a check; it blocks a merge only if you
-  mark it a required status check in branch protection.
-- **Every decision names who made it.** When a build hits a decision its ticket never covered, it
-  writes an intent-gap record whose `decided_by:` says who made the call: `user-answered` when you
-  answered it, or `user-delegated` when the agent decided under your standing delegation. Nothing
-  waits for a signature, and it never costs a review round. A declared pause-and-ask region is the
-  one exception: it is a question for you, so it clears only on your answer, a comment naming it,
-  or an operator override.
-- **The boundary evidence check is fail-closed.** Missing evidence is a failure, and so is a check
-  that could not run: a moved script path at your pinned ref (HTTP 404) or a shallow checkout is
-  reported as drift, never waved through green. Only a network/auth blip fetching the script is
-  a non-fatal warning. Nothing about it is model-driven and it makes no API-billed calls.
-- **If you hand-maintain that workflow, keep its `permissions:` block intact.** The identity arm
-  reads the PR's comment trail, so the job needs `contents: read` **plus `issues: read` and
-  `pull-requests: read`**. A `permissions:` key replaces the workflow defaults wholesale — any
-  scope you leave out is `none`, with no public-repo exception — so dropping either read denies
-  that call and reds every pipeline PR with an environment error. Read scopes only: the job executes
-  a script fetched from the marketplace repo at your pinned ref, which inherits this token.
-- **Its gate strength depends on your bot, not on your tracker.** The build run's identity
-  comes from a bot-authored marker comment the harness posts on the PR, and the verdict's
-  independence is checked against it. Configure `tracker.bot` — legal under **either**
-  `tracker.type`, because source control is GitHub for every adapter — and that arm gates at
-  full strength. Without one there is no authenticated writer for the marker, so the identity
-  arm reports itself unavailable at reduced strength, printed on every run and never silently
-  skipped, while every other arm still gates.
-- Optional committed CI files (emitted by the same acceptance as the pair above):
-  `.github/workflows/second-shift-unclaim.yml` + `.claude/tools/second-shift-unclaim.sh`. Also
-  **GitHub Actions, not a Claude session**, but unlike the pair above this one **writes**: when an
-  issue closes it removes the pipeline's two run-state labels (`tracker.labels.claimed` and
+- Optional committed CI files (present only if you accepted them at onboard):
+  `.github/workflows/second-shift-unclaim.yml` + `.claude/tools/second-shift-unclaim.sh`. These
+  run in **GitHub Actions, not in a Claude session** (no session cost), and they **write**: when
+  an issue closes, the workflow removes the pipeline's two run-state labels (`tracker.labels.claimed` and
   `tracker.labels.queue`, resolved from your committed config) from that one issue. Never
   `tracker.labels.blockers` — those are permanent classifications, not run state. That is the
   entire `issues: write` grant, and it needs your repo's Actions workflow permissions set to
   read-and-write. Nothing else releases those labels, so without this a merged ticket stays
-  labelled in-progress forever.
-
-- Optional committed CI files (same acceptance again):
-  `.github/workflows/second-shift-delta-guard.yml` + `.claude/tools/second-shift-delta-guard.sh`.
-  **GitHub Actions, read-only, and inert until you wire it in.** The lane's review half
-  must commit its verdict record to the PR head as the *last* commit, which on a
-  `pull_request`-triggered CI costs a second full run of your lane for a markdown file. This
-  reusable workflow classifies that commit and exposes a `skip` output; you gate your own heavy
-  jobs on it (`needs:` + `if: needs.second-shift-delta-guard.outputs.skip != 'true'`). It holds
-  `contents: read` + `actions: read` and never writes.
-- **It skips only against an already-earned green.** The short-circuit fires solely when the
-  PARENT commit already has a completed, successful run of that same workflow for that same
-  event. Cancelled, failed, still running, absent, or unreadable — every one of those runs your
-  lane in full. There is no "assume it was fine" path, because the whole point is that the green
-  it licenses was already earned by the tree it is claiming green for.
-- **Related, and worth doing whether or not you wire the guard:** for `pull_request` events, do
-  not key `cancel-in-progress: true` bare on the ref. A verdict push then cancels the code
-  commit's in-flight run, leaving a cancelled run on the SHA that carries the code and a
-  completed one on the SHA that carries only markdown. Key the group on the head SHA, or set
-  `cancel-in-progress: false`.
+  labeled in-progress forever.
 
 ## Opting out (sanctioned, personal)
 

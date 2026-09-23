@@ -1,12 +1,18 @@
 {
-  "configVersion": 2,
-  "tracker": { "type": "github" },
-  "topology": {
-    "type": "standalone",
-    "repos": { "host": { "path": ".", "baseBranch": "main" } }
+  "configVersion": 3,
+  "tracker": {
+    "type": "github"
   },
-  "commands": { "host": { "lint": "yarn lint", "test": "yarn test" } },
-  "stageParams": {
-    "webComponentGlobs": ["src/**/*.vue", 5]
+  "commands": {
+    "host": {
+      "lint": "yarn lint",
+      "test": "yarn test"
+    }
+  },
+  "reviewers": {
+    "webComponentGlobs": [
+      "src/**/*.vue",
+      5
+    ]
   }
 }

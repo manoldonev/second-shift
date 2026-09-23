@@ -1,40 +1,40 @@
 name: Pipeline aborted
-description: A dev-pipeline run hard-stopped on a milestone (fix budget exhausted).
+description: A /dev-pipeline:run run stopped short of an approved PR.
 title: "[pipeline-abort]: "
 labels: ["feedback", "pipeline-abort"]
 body:
   - type: markdown
     attributes:
       value: |
-        Every hard stop appends its reason to the run's progress record, so a good report is mostly a paste.
+        Every run ends with a `terminal: <slug>` line and an exit code, so a good report is mostly a paste.
 
-        **Run `/second-shift:doctor --report`** (or `bash <path-to>/doctor.sh --report`) and paste the bundle below — it already carries the plugin list, the redacted config, and the newest pipeline-state excerpt. Sensitive-shaped config values are auto-redacted, but glance over it before posting.
+        **Run `/second-shift:doctor --report`** (or `bash <path-to>/doctor.sh --report`) and paste the bundle below — it already carries the plugin list, the redacted config, and the newest run's log excerpt. Sensitive-shaped config values are auto-redacted, but glance over it before posting.
   - type: textarea
     id: what-happened
     attributes:
       label: What happened
-      description: What you ran, what you expected, and what the pipeline did instead.
-      placeholder: "Ran /dev-pipeline:run 42; expected a ready PR, got a hard stop on milestone 3."
+      description: What you ran, what you expected, and what the run did instead.
+      placeholder: "Ran /dev-pipeline:run 42; expected an approved PR, got terminal: checks-red-spent (exit 4)."
     validations:
       required: true
   - type: textarea
     id: state-excerpt
     attributes:
-      label: Progress-record excerpt (the abort rows)
-      description: The tail of `.claude/pipeline-state/<issue>-lean-progress.md` — the `attempt` rows for the failing milestone and the `concluded | rc=` row that hard-stopped. It is included in the `--report` bundle under "pipeline-state excerpt"; paste it here too if you have it directly.
+      label: Run log excerpt (the stop)
+      description: The tail of the run's log — `.claude/pipeline-state/<issue>-lean-run-<stamp>.log` for a detached run, or the console output — ending at the `terminal:` line, plus the failing `checks-*.log` / `smoke-*.log` from `.claude/pipeline-state/run-<issue>/<run-id>/` if the stop was a check. The `--report` bundle includes the newest run's excerpt; paste it here too if you have it directly.
     validations:
       required: true
   - type: textarea
     id: doctor-report
     attributes:
       label: /second-shift:doctor --report output
-      description: The full bundle — doctor output + `claude plugin list --json` + redacted config + pipeline-state excerpt.
+      description: The full bundle — doctor output + `claude plugin list --json` + redacted config + run log excerpt.
     validations:
       required: true
   - type: input
     id: run-ref
     attributes:
       label: run_id + issue/PR link
-      description: The run_id from the pipeline's issue comment, plus any related issue or PR.
+      description: The run_id from the claim comment on the ticket, plus the PR if one was opened.
     validations:
       required: false

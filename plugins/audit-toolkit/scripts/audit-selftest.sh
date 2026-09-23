@@ -132,13 +132,11 @@ fi
 # --- `target` capture (Tests 5-9) ------------------------------------------
 #
 # Invariant guarded: the ledger records what each call ran ON, per tool class, so a
-# pipeline gate can assert "a Read of stages/9-*.md happened inside this stage's
-# window" rather than trusting the executor's self-report. A wrong payload key emits
+# reader can check "a Read of stages/9-*.md happened" rather than trusting the
+# executor's self-report. A wrong payload key emits
 # "" silently, so the field's PRESENCE proves nothing — only its per-class VALUE does.
 #
-# Why no scenario covers it: scenario-liveness-selftest.sh composes dev-pipeline
-# verdict paths through the pipeline state machine. This hook sits on none of them —
-# it is driven by the Claude Code harness on PostToolUse, an event no scenario can
+# Why no scenario covers it: this hook sits on no pipeline verdict path — it is driven by the Claude Code harness on PostToolUse, an event no scenario can
 # raise, and it writes to .claude/audit/ rather than to pipeline state. There is no
 # composed verdict path to extend, so a per-tool fixture is the only reachable tier.
 #
@@ -174,7 +172,7 @@ t=$(last_target Workflow)
 # Test 7 — Bash: first line only, capped at 200 chars (AC-2)
 echo "Test 7 — Bash → first line, truncated to 200 chars"
 PAD=$(head -c 400 /dev/zero | tr '\0' 'x')
-CMD="milestone-gate.sh mark 244 --status completed $PAD
+CMD="bash run.sh 244 --resume --max-rounds 3 $PAD
 rm -rf /should/not/appear"
 feed "$(jq -nc --arg s "$TSID" --arg c "$TREE" --arg cmd "$CMD" \
     '{session_id:$s, cwd:$c, hook_event_name:"PostToolUse", tool_name:"Bash", tool_input:{command:$cmd}}')"
@@ -182,7 +180,7 @@ t=$(last_target Bash)
 len=${#t}
 [ "$len" -eq 200 ] && ok "Bash target truncated to 200 chars" || fail "Bash target length=$len (expected 200)"
 case "$t" in
-    "milestone-gate.sh mark 244 --status completed"*) ok "Bash target keeps the identifying prefix" ;;
+    "bash run.sh 244 --resume --max-rounds 3"*) ok "Bash target keeps the identifying prefix" ;;
     *) fail "Bash target lost its prefix: $t" ;;
 esac
 case "$t" in
@@ -214,19 +212,10 @@ expected="ts,session_id,event,tool,subagent,command_name,target,outcome"
 # --- WHERE the ledger lands (Tests 10-14) ----------------------------------
 #
 # Invariant guarded: the hook resolves the ledger directory as `--git-common-dir/..` of
-# ${CLAUDE_PROJECT_DIR:-$CWD} — the MAIN checkout — because every reader does. It used to
-# write beside the worktree, so a lane run's ledger landed where milestone-gate.sh's `entry`,
-# and reconcile.sh do not look: an honest run refused
-# at the door, and a verdict record naming a session reconcile could not resolve, which
-# reads as forgery.
+# ${CLAUDE_PROJECT_DIR:-$CWD} — the MAIN checkout — so a linked-worktree session's ledger
+# lands in the one directory per repo family that /audit-history sweeps.
 #
-# These are per-tool fixtures because the WRITER is what moved; the two readers are pinned
-# from their own side, each driving this same hook from a linked worktree
-# (milestone-gate-selftest.sh's (d5), reconcile-selftest.sh's (R)). Between them, a
-# writer-side regression reds three suites, and a reader-side one reds its own.
-#
-# Not a scenario: scenario-liveness-selftest.sh composes verdict paths through pipeline
-# state, and this hook is driven by a harness event no scenario can raise.
+# Not a scenario: this hook is driven by a harness event no scenario can raise.
 
 WSID="audit-smoke-worktree-$$"
 echo "Test 10 — project dir = linked worktree → ledger lands in the MAIN checkout"

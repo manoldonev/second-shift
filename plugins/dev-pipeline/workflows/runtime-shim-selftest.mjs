@@ -292,14 +292,14 @@ console.log('── Case H: args.config subset delivery (#77)')
   ok('H3c no spec arg names no decision record', !/Decision record/.test(p))
 }
 {
-  // H4 — a lane spec path reaches the scope reviewer as evidence, the path and nothing else (#868).
+  // H4 — a decision record path reaches the scope reviewer as evidence, the path and nothing else.
   const { calls } = await runCodeReview([findingsBlock()], {
     reviewers: ['review-toolkit:scope-completeness-reviewer'],
     issue: '77',
-    spec: 'docs/plans/x-77-lean.md',
+    spec: 'docs/plans/x-77-decisions.md',
     config: { reviewers: {} },
   })
-  ok('H4 the spec path is forwarded to the scope reviewer', /Decision record: the committed lane spec `docs\/plans\/x-77-lean\.md`/.test(String(calls[0]?.prompt ?? '')))
+  ok('H4 the spec path is forwarded to the scope reviewer', /Decision record: the committed decision record `docs\/plans\/x-77-decisions\.md`/.test(String(calls[0]?.prompt ?? '')))
 }
 
 // ---------------------------------------------------------------------------
@@ -667,8 +667,7 @@ console.log('── Case Q: code-review.mjs bare-name normalization')
 // The scanned set is a LIST of workflow directories. A workflow outside it is both
 // unlinted AND unsafe to drive through the shim, so the discovery assertion below
 // walks the plugin root's siblings and fails on any workflows/ dir not in the list.
-// Adding a directory means one entry here plus the matching one in
-// tools/check-bounded-exploration.sh, and neither can be silently forgotten.
+// Adding a directory means one entry here, and it cannot be silently forgotten.
 // ---------------------------------------------------------------------------
 console.log('── Case R: workflow meta literal-purity (relocated from design-sync-selftest Case I)')
 {

@@ -1,0 +1,19 @@
+{
+  "configVersion": 3,
+  "tracker": {
+    "type": "github",
+    "branchPrefix": "claude/app-"
+  },
+  "commands": {
+    "app": {
+      "lint": "yarn lint",
+      "test": "yarn test"
+    }
+  },
+  "design": {
+    "provider": "figma",
+    "liveRender": {
+      "command": "yarn render:verify --route {route} --state {state} --out {out}"
+    }
+  }
+}

@@ -18,10 +18,9 @@
 # every night — but that it could not say what it had caught. The same log-deletion
 # constraint holds under event triggers, so the fix still matters.
 #
-# WHY NO SCENARIO COVERS IT (CLAUDE.md scenario-first rule): scenario-liveness-selftest.sh
-# composes verdict paths through the milestone gate to a terminal WRITE. This path is inside a
-# selftest harness that runs outside any pipeline run, writes nothing, and is reached only
-# when another suite has already exited non-zero. There is no verdict path to compose it onto.
+# WHY NO SCENARIO COVERS IT (CLAUDE.md scenario-first rule): this path is inside a selftest
+# harness that runs outside any pipeline run, writes nothing, and is reached only when another
+# suite has already exited non-zero. There is no verdict path to compose it onto.
 #
 # WHY NOT INSIDE install-topology-selftest.sh ITSELF: that file stages and runs every shipped
 # suite — ~5 to 10 minutes, excluded from the PR lane since #620 (nightly then; event-triggered
@@ -79,7 +78,7 @@ detail() { # detail <rc> <log-body>
 
 # ---------------------------------------------------------------------------
 # (t1) THE #664 REGRESSION. A passing line containing "failed" sits ABOVE the real FAIL line.
-# This is pipeline-doctor-selftest.sh's actual output shape, trimmed to the two lines that
+# This was pipeline-doctor-selftest.sh's actual output shape, trimmed to the two lines that
 # decide it: the whole defect is which of them the detail quotes.
 # ---------------------------------------------------------------------------
 t1_log='  ok: (d3) completed + failed at 24h → never stale (terminal by contract)

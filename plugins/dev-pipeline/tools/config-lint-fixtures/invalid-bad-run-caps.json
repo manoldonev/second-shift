@@ -1,17 +1,8 @@
 {
   "$schema": "https://raw.githubusercontent.com/manoldonev/second-shift/v2.1.0/schema/second-shift.config.schema.json",
-  "configVersion": 2,
+  "configVersion": 3,
   "tracker": {
     "type": "github"
-  },
-  "topology": {
-    "type": "standalone",
-    "repos": {
-      "app": {
-        "path": ".",
-        "baseBranch": "main"
-      }
-    }
   },
   "commands": {
     "app": {
@@ -19,12 +10,12 @@
       "test": "yarn test"
     }
   },
-  "grillWaivers": {
-    "T2.webComponentGlobs": "shell-and-Markdown repo — there is no web-component surface to route",
-    "T4.mutation-plumbing.app": "no unit-test surface yet; tracked in the backlog"
-  },
   "run": {
     "maxRounds": 0,
-    "bogus": 1
+    "bogus": 1,
+    "checksRedMax": 2.5,
+    "costCeilingUsd": 0,
+    "buildTimeoutSeconds": 600.5,
+    "reviewTimeoutSeconds": 30
   }
 }

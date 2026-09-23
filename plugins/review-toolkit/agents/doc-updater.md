@@ -27,10 +27,10 @@ In an AI-native repo the knowledge docs are load-bearing, and the repo's `CLAUDE
 
 ## Inputs
 
-- **Default**: Diff against the **configured base branch**, not a hardcoded `main` (which finds nothing on a `develop`/`alpha`-based repo). Resolve it from the repo-local config, then diff:
+- **Default**: Diff against the **remote's default branch**, not a hardcoded `main` (which finds nothing on a `develop`/`alpha`-based repo). Resolve it, then diff:
   ```bash
-  BASE=$(jq -r '(.topology.repos|to_entries[]|select(.value.path==".")|.key) as $h|.topology.repos[$h].baseBranch // "main"' .claude/second-shift.config.json 2>/dev/null || echo main)
-  git diff "$BASE...HEAD" --stat   # (or `git diff --stat` for uncommitted changes)
+  BASE=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||'); BASE=${BASE:-$(git rev-parse -q --verify origin/main >/dev/null && echo main || echo master)}
+  git diff "origin/$BASE...HEAD" --stat   # (or `git diff --stat` for uncommitted changes)
   ```
 - **Optional**: Specific commit range or file list passed by user
 - **Optional**: Brief description of what was implemented (helps narrow doc search)

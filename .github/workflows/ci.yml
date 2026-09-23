@@ -143,27 +143,11 @@ jobs:
       - name: contract lockstep blocks (discovered from LOCKSTEP markers)
         run: bash scripts/check-lockstep-pairs.sh
 
-      # The reserved-exit-3 contract in docs/config-schema.md, held to milestone-gate.sh's actual
-      # dispatch. Same class as the lockstep step above and wired for the same reason: the
-      # glob-discovered selftest proves the guard works, it never runs it against the real pair.
-      # #660 demoted three lanes and the doc went on claiming them, through that PR's three
-      # review rounds and its full panel, because the file it lived in was in no diff they read.
-      - name: reserved exit-3 lane set (docs/config-schema.md vs milestone-gate.sh)
-        run: bash scripts/check-lane-class-doc.sh
-
       # No vendor model identity in the runnable eval surface under plugins/*/evals/**. The
       # eval harnesses are operator-run and model-billed; CI never invokes them and this step
       # does not either — it is a static text scan, so the model-free-CI principle holds.
       - name: eval-harness model identity (plugins/*/evals/**)
         run: bash scripts/check-eval-model-identity.sh
-
-      # Staged-lane capabilities and their recorded dispositions. Same class as the lockstep
-      # step above — a register whose guard needs an explicit invocation, because the paired
-      # selftest is glob-discovered but only proves the guard works, never runs it against the
-      # real register. This step is the gate on #348's deletions: a stage doc no row names
-      # cannot land.
-      - name: capability parity register (tools/capability-parity.tsv)
-        run: bash tools/capability-parity-check.sh
 
       - name: namespace direction check (docs/namespaces.md rule 3)
         run: |
@@ -207,34 +191,9 @@ jobs:
         github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     # A `permissions:` key REPLACES the defaults wholesale, so `contents: read` must be
-    # restated or actions/checkout breaks. issues/pull-requests are for the chain check's comment
-    # reads — the PR's marker trail, and the issue's claim trail, which carries both the build
-    # identity and the producer capability stamp the bound arms gate on.
-    # Gaining a scope here is a question about the CONSUMER template too. If the arm needing it
-    # lives in the delegated payload (boundary-evidence.sh), then
-    # plugins/second-shift/templates/consumer/second-shift-ci.yml needs the same scope, and
-    # without it every adopting repo's pipeline PRs red on an environment error. If it lives only in
-    # check-lane-chain.sh, the template must NOT get it — an unused scope there is a standing
-    # escalation for a job that executes a fetched script. Reasoned out in docs/testing.md
-    # (the `boundary evidence TOKEN SCOPES` entry under *Couplings considered and declined*).
+    # restated or actions/checkout breaks.
     permissions:
       contents: read
-      issues: read
-      pull-requests: read
-    # CI-visible copies of two runtime-config values. The runtime config
-    # (.claude/second-shift.config.json) is gitignored and absent in CI, so these constants
-    # are the only source available here — and NOTHING reconciles them against it. A stale
-    # prefix matches zero branches and silently exempts every PR, which is why the check
-    # treats an unset/empty constant as fatal rather than not-applicable, and why it echoes
-    # the resolved prefix on every not-applicable verdict. Residual risk is recorded in
-    # docs/pipeline-manifesto.md's T0 note.
-    env:
-      # ONE namespace for both lanes (#413) — the lane harness cuts `<branchPrefix><key>`
-      # branches too, so the separate LANE_BRANCH_PREFIX constant that used to sit here is
-      # retired. Neither chain gate classifies on the branch name any more: both delegate to
-      # boundary-evidence.sh, which reads the committed lane spec in the PR's own diff.
-      PIPELINE_BRANCH_PREFIX: claude/second-shift-
-      PIPELINE_PLAN_PATTERN: docs/plans/acme-{issueKey}.md
     steps:
       - uses: actions/checkout@v5
         with:
@@ -251,40 +210,6 @@ jobs:
         env:
           BASE_REF: ${{ github.base_ref }}
         run: bash scripts/check-changelog-trailer.sh "origin/$BASE_REF"
-
-      # The pipeline's merge-boundary gate, and the ONLY chain gate now: #731 deleted the
-      # staged lane's `check-pipeline-chain.sh`, whose stage-marker trail nothing had emitted
-      # since #348, so there is no sibling left to keep disjoint from. A PR is claimed when
-      # `boundary-evidence.sh` classifies it — the committed spec in the PR's own diff — which
-      # also means a hand-cut branch on the same namespace is claimed by no gate at all.
-      #
-      # PR_BASE_REF is load-bearing, not a convenience: the classifier's sole applicability
-      # arm scans the PR's changed files, which needs a base to diff against, and it exits 2
-      # rather than reporting "not lean" when it cannot. Dropping this key reds the gate
-      # instead of silently exempting the PR from it. Same env-not-interpolation discipline
-      # throughout.
-      #
-      # PR_HEAD_SHA is the freshness check's measuring point and must be the HEAD COMMIT, not
-      # `HEAD`: on a pull_request event actions/checkout resolves refs/pull/N/merge, so HEAD is
-      # merge(base, head) and every base-side commit merged since the branch point would read
-      # as "changed after the verdict". fetch-depth: 0 above is what makes the object reachable.
-      #
-      # PR_NUMBER is the delegated payload's input, not this script's: the build run's identity
-      # is a bot marker comment on the PR, and the arm reading it fetches that trail by number.
-      # Absent, the payload exits 2 and this gate propagates it — a check that cannot run is
-      # never scored as a pass, so dropping this constant reds every pipeline PR rather than
-      # quietly waiving the authorship comparison.
-      - name: lean chain reconciliation (pipeline PRs carry their evidence set)
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          PR_BODY: ${{ github.event.pull_request.body }}
-          PR_CREATED_AT: ${{ github.event.pull_request.created_at }}
-          PR_BASE_REF: ${{ github.base_ref }}
-        run: bash scripts/check-lane-chain.sh
 
   # Gates that run ONLY on the release PR: the old version-bump discipline (every
   # content-changed plugin carries its derived bump — same script, new call site) and the

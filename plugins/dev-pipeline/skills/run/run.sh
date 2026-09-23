@@ -211,10 +211,8 @@ bounded() { # bounded <secs> <logfile> <cmd...> — a bash watchdog (macOS ships
   done
   wait "$CHILD"; local rc=$?; CHILD=""; return $rc
 }
-# -- lane commands (row G5): what must not reach a lane child, in lockstep with the gate's list --
-# LOCKSTEP-BEGIN seam-scrub subset
+# -- lane commands (row G5): what must not reach a lane child --
 SEAM_SCRUB='SECOND_SHIFT_CONFIG|SECOND_SHIFT_REPO_ROOT|SECOND_SHIFT_EXTENSION_MANIFEST|SECOND_SHIFT_PLUGIN_ROOT|SECOND_SHIFT_REVIEW_TOOLKIT_ROOT|SECOND_SHIFT_DEV_PIPELINE_ROOT|SECOND_SHIFT_DESIGN_TOOLKIT_ROOT|SECOND_SHIFT_SECTION_CATALOG|STATECTL_STATE_DIR|STATECTL_WRITER|DEV_PIPELINE_MODE|BRANCH_PREFIX|KEY_PATTERN|LANE_ATTEND_MODE|MUTATION_SWEEP_NO_DEFER'
-# LOCKSTEP-END seam-scrub
 SCRUB_ENV=(); IFS='|' read -r -a _toks <<< "$SEAM_SCRUB"; for _t in "${_toks[@]}"; do SCRUB_ENV+=(-u "$_t"); done; unset _toks _t
 lane() { ( cd "$WT" && env "${SCRUB_ENV[@]}" bash -c "$1" ); }
 first_word() { local w; for w in $1; do case "$w" in *=*) continue ;; *) printf '%s' "$w"; return ;; esac; done; printf '%s' "${1%% *}"; }

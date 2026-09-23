@@ -1,16 +1,7 @@
 {
-  "configVersion": 2,
+  "configVersion": 3,
   "tracker": {
     "type": "github"
-  },
-  "topology": {
-    "type": "standalone",
-    "repos": {
-      "app": {
-        "path": ".",
-        "baseBranch": "main"
-      }
-    }
   },
   "commands": {
     "app": {}

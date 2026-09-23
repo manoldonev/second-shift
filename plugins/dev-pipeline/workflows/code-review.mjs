@@ -148,7 +148,7 @@ const FINDINGS_SCHEMA = {
 //                  The merge-base is resolved BY GIT at reviewer-run time via three-dot, not
 //                  computed here: Workflow scripts have no Bash/filesystem access.
 //   issue        — GitHub issue number (drives scope-completeness; omit to skip it)
-//   spec         — optional committed lane spec path; scope-completeness scores its decision record
+//   spec         — optional committed decision record path; scope-completeness scores its rows
 //   reviewers    — array of agentType strings already selected per review-lead routing
 //   changedFiles — array of changed paths (context for the prompt)
 //   prContext    — optional free-text branch/PR context
@@ -486,7 +486,7 @@ const dispatchReviewer = async (requested) => {
       `Branch head \`${head}\` vs base \`${base}\`; repo worktree \`${worktree}\` ` +
       `(run \`git -C ${worktree} diff ${range}\` to see the change). ` +
       `${fetchInstr} and classify each scope item against the diff. ` +
-      (spec ? `Decision record: the committed lane spec \`${spec}\`. ` : '') +
+      (spec ? `Decision record: the committed decision record \`${spec}\`. ` : '') +
       `Return your verdict and findings.` +
       PROGRESSIVE_EMIT
   } else if (bare(dispatched) === 'unit-test-mutation-reviewer') {
@@ -514,8 +514,7 @@ const dispatchReviewer = async (requested) => {
   // the deliverable); the generic branch keeps BOUNDED_EXPLORATION as its measured cost control.
   // The two exhaustive branches instead carry PROGRESSIVE_EMIT — same turn-budget death, opposite
   // cure ("write as you go" rather than "explore less"), so neither loses coverage (#183). Every
-  // branch now carries exactly one of the two; a branch carrying neither is the omission class
-  // check-bounded-exploration.sh was written for, and null-reviewer-selftest Case F pins this pair.
+  // branch now carries exactly one of the two; null-reviewer-selftest Case F pins this pair.
   //
   // Explorer/emitter ladder. Dark-marker shapes are UNCHANGED from the schema era — review-lead
   // synthesis keys on { result: null } + { retried: true, failed: true } and must keep doing so.

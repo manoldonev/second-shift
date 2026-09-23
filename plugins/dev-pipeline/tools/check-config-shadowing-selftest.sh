@@ -7,46 +7,38 @@ CHECK="$HERE/check-config-shadowing.sh"
 FAILS=0
 ok()   { echo "  ✓ $1"; }
 bad()  { echo "  ✗ $1"; FAILS=$((FAILS+1)); }
+TMPROOT="$(mktemp -d)"; trap 'rm -rf "$TMPROOT"' EXIT
 
 # (1) the real dev-pipeline tree passes
 if bash "$CHECK" "$DP" >/dev/null 2>&1; then ok "real tree: clean"; else bad "real tree should be clean but failed"; fi
 
-# (2) a tree where a stageParams reader is stripped must fail
-TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
-cp -R "$DP/." "$TMP/"
-# strip the planFilePattern reference from its surviving reader
-grep -v "stageParams.planFilePattern" "$TMP/tools/preflight.sh" > "$TMP/preflight.tmp"
-mv "$TMP/preflight.tmp" "$TMP/tools/preflight.sh"
-if bash "$CHECK" "$TMP" >"$TMP/shadow.out" 2>&1; then
-  bad "stripped-reader tree should FAIL but passed"
-else
-  grep -q "SHADOW: 'stageParams.planFilePattern'" "$TMP/shadow.out" && ok "stripped reader -> SHADOW failure + message" \
-    || bad "stripped reader failed but without the expected SHADOW message"
-fi
+# strip_case <name> <relative-file> <key> — a copy of the tree with every line naming <key>
+# removed from <relative-file> must fail, naming that key.
+strip_case() {
+  local d="$TMPROOT/$1"; mkdir -p "$d"; cp -R "$DP/." "$d/"
+  grep -vF "$3" "$d/$2" > "$d/stripped.tmp" || true
+  mv "$d/stripped.tmp" "$d/$2"
+  if bash "$CHECK" "$d" > "$d/shadow.out" 2>&1; then
+    bad "stripped $3 reader should FAIL but passed"
+  elif grep -qF "SHADOW: '$3'" "$d/shadow.out"; then
+    ok "stripped $3 reader -> SHADOW failure + message"
+  else
+    bad "stripped $3 reader failed but without the expected SHADOW message"
+  fi
+}
 
-# (3) a tree where the branch-prefix reader is stripped must fail (base/prefix
-# generalization regression tripwire — issue #8). Since #348 the namespace is owned by
-# build/branch-prefix.sh.
-TMP2="$(mktemp -d)"; trap 'rm -rf "$TMP" "$TMP2"' EXIT
-cp -R "$DP/." "$TMP2/"
-grep -v "tracker.branchPrefix" "$TMP2/skills/build/branch-prefix.sh" > "$TMP2/bp.tmp"
-mv "$TMP2/bp.tmp" "$TMP2/skills/build/branch-prefix.sh"
-if bash "$CHECK" "$TMP2" >"$TMP/shadow2.out" 2>&1; then
-  bad "stripped branchPrefix reader should FAIL but passed"
-else
-  grep -q "SHADOW: 'tracker.branchPrefix'" "$TMP/shadow2.out" && ok "stripped branchPrefix reader -> SHADOW failure + message" \
-    || bad "stripped branchPrefix reader failed but without the expected SHADOW message"
-fi
+# (2) the scheduler's plans-dir read, and (3) the branch-prefix resolver's namespace read
+strip_case plans skills/run/run.sh paths.plansDir
+strip_case prefix tools/branch-prefix.sh tracker.branchPrefix
 
 # (4) a MISSING anchor file is a distinct failure class from a present-but-silent one: a row
 # re-pointed at a path that does not exist would otherwise read as "reader absent" forever.
-TMP3="$(mktemp -d)"; trap 'rm -rf "$TMP" "$TMP2" "$TMP3"' EXIT
-cp -R "$DP/." "$TMP3/"
-rm -f "$TMP3/tools/is-inert-diff.sh"
-if bash "$CHECK" "$TMP3" >"$TMP/shadow3.out" 2>&1; then
+D="$TMPROOT/missing"; mkdir -p "$D"; cp -R "$DP/." "$D/"
+rm -f "$D/tools/branch-prefix.sh"
+if bash "$CHECK" "$D" > "$D/shadow.out" 2>&1; then
   bad "missing anchor file should FAIL but passed"
 else
-  grep -q "SHADOW-CHECK: missing file tools/is-inert-diff.sh" "$TMP/shadow3.out" \
+  grep -q "SHADOW-CHECK: missing file tools/branch-prefix.sh" "$D/shadow.out" \
     && ok "missing anchor file -> distinct SHADOW-CHECK message" \
     || bad "missing anchor file failed but without the expected SHADOW-CHECK message"
 fi

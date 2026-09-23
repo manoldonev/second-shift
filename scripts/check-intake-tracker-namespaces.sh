@@ -40,9 +40,9 @@ NS2="mcp__plugin_atlassian_atlassian__"
 NS3="mcp__claude_ai_Atlassian_Rovo__"
 
 # The intake fetch surface. Roots, not a file list, so new sites are covered.
-# #348 widened the dev-pipeline root from the deleted staged intake fetch
-# to the whole skills tree: the lanes that fetch a tracker item now are /dev-pipeline:build, /dev-pipeline:review
-# and pr-revision, and naming the parent keeps a future one covered without another edit.
+# The dev-pipeline root is the whole skills tree: the lanes that fetch a tracker item are
+# /dev-pipeline:run, /dev-pipeline:review and pr-revision, and naming the parent keeps a
+# future one covered without another edit.
 SCAN_ROOTS="
 plugins/intake-toolkit/skills
 plugins/dev-pipeline/skills

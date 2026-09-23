@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # doctor.sh — /second-shift:doctor: verify this repo's second-shift INSTALL/CONFIG state
-# against the committed lockfile. Complements dev-pipeline's pipeline-doctor.sh (which
-# checks the pipeline RUNTIME environment); this one answers "is the toolkit actually
-# here, at the pinned versions, unshadowed?".
+# against the committed lockfile — "is the toolkit actually here, at the pinned versions,
+# unshadowed, with a config the installed lane accepts?".
 # Exit code = number of FAILs; WARNs are informational. Every FAIL prints its remediation.
 # Env injection (selftest): DOCTOR_REPO_ROOT, DOCTOR_PLUGIN_LIST_FILE,
 # DOCTOR_MARKETPLACE_LIST_FILE, DOCTOR_USER_SETTINGS.
@@ -19,7 +18,7 @@ while [[ $# -gt 0 ]]; do
       echo "usage: doctor.sh [--report]"
       echo "  (no args)  verify install/config state against the lockfile; exit code = number of FAILs"
       echo "  --report   assemble a paste-ready feedback bundle (doctor output + claude plugin list --json"
-      echo "             + redacted config + newest pipeline-state excerpt) for a feedback issue; exit 0"
+      echo "             + redacted config + newest run log excerpt) for a feedback issue; exit 0"
       exit 0 ;;
     *) echo "[doctor] unknown argument: $1 (try --help)" >&2; exit 2 ;;
   esac
@@ -56,26 +55,20 @@ redact_config() { # $1 = config path
         else . end)' "$1" 2>/dev/null || echo "(config unreadable or invalid JSON)"
 }
 
-# Newest pipeline-state record → the abort-relevant rows. What the feedback forms ask
-# for is the TAIL of the lane's <issue>-lean-progress.md: every hard stop appends
-# its reason there as an `attempt` row followed by `concluded | rc=`. So the markdown
-# progress record is what this looks for FIRST — the lane that can abort is the lane
-# that has to be excerptable, and it writes no JSON at all. A repo carrying leftover
-# JSON state from a pre-milestone-lane run falls back to projecting the four fields that schema
-# had. Each glob is guarded against literal-pattern expansion when the dir is
-# empty/absent (a fresh clone has no runs).
+# Newest run → the abort-relevant lines. A detached /dev-pipeline:run writes its whole log to
+# `<pipeline-state>/<issue>-lean-run-<stamp>.log`, whose tail carries the `terminal: <slug>` line
+# and the reason before it, so that tail is what the feedback forms ask for. A run in the
+# foreground leaves only its per-run directory `run-<issue>/<run-id>/` (check, smoke and
+# session files); its listing says which run it was and how far it got. Each glob is guarded
+# against literal-pattern expansion when the dir is empty/absent (a fresh clone has no runs).
 #
 # The tail is deliberately UNREDACTED, unlike the config section beside it in the same
-# paste-ready bundle. Progress rows are gate-authored markers, with one exception:
-# milestone-gate.sh appends check-frozen-files.sh's captured output verbatim as a milestone-2
-# advisory row. That output is this repo's own guard today, and the bundle header tells
-# the reader to review before posting, which is what keeps the widening bounded. Should a
-# progress row ever start carrying third-party or environment-derived text, this excerpt
-# owes a filter — this comment is here so that becomes a visible decision, not a silent one.
+# paste-ready bundle: the log is the scheduler's own lines plus the check commands' names, and
+# the bundle header tells the reader to review before posting.
 state_excerpt() {
   local dir="$ROOT/.claude/pipeline-state" newest="" f
   if [[ -d "$dir" ]]; then
-    for f in "$dir"/*-lean-progress.md; do
+    for f in "$dir"/*-lean-run-*.log; do
       [[ -e "$f" ]] || continue                       # no-match glob → skip
       [[ -z "$newest" || "$f" -nt "$newest" ]] && newest="$f"
     done
@@ -84,15 +77,14 @@ state_excerpt() {
       tail -n 40 "$newest"
       return 0
     fi
-    for f in "$dir"/*.json; do
-      [[ -e "$f" ]] || continue                       # no-match glob → skip
+    for f in "$dir"/run-*/*/; do
+      [[ -d "$f" ]] || continue                       # no-match glob → skip
       [[ -z "$newest" || "$f" -nt "$newest" ]] && newest="$f"
     done
   fi
   if [[ -n "$newest" ]]; then
-    echo "// $(basename "$newest") (legacy JSON state)"
-    jq '{ticketKey, status, currentStage, failureContext}' "$newest" 2>/dev/null \
-      || echo "(state file unreadable or invalid JSON)"
+    echo "// ${newest#"$dir"/} (foreground run — no log file; its files:)"
+    ls -1 "$newest"
   else
     echo "no pipeline runs recorded (.claude/pipeline-state/ is empty or absent)"
   fi
@@ -152,8 +144,6 @@ emit_report() {
   echo '```'
   echo
   echo "### pipeline-state excerpt (newest run)"
-  # Unlabelled fence: the excerpt is a markdown progress tail on the lane and JSON only
-  # on the legacy JSON fallback, so a `json` label would mis-highlight the common case.
   echo '```'
   state_excerpt
   echo '```'
@@ -334,61 +324,66 @@ done
 ok "shadow scan complete"
 
 # --- 6. opt-out scan (informational, once, never shaming) ----------------------
-# ONE exception to "informational" (#416, D-7): `audit-toolkit` off while `dev-pipeline` is on is
-# not an opt-out, it is a broken lane. The lane's entry gate fails closed on a missing audit
-# ledger, and the hook that writes that ledger ships in audit-toolkit — so in that combination
-# every lane run refuses at step 1, and the two runs that motivated #416 got that far only because
-# nothing enforced the refusal. A repo that adopted review-toolkit or intake-toolkit alone has no
-# lane to protect and keeps the warn.
-#
-# ENABLED means declared true somewhere and false nowhere: `false` in settings.local.json overrides
-# a `true` in settings.json, so a repo that switched dev-pipeline off locally is not running the
-# lane and must not be reded for the pairing.
-dp_true=0; dp_false=0
-for f in "$LOCAL_SETTINGS" "$USER_SETTINGS"; do
-  [[ -f "$f" ]] || continue
-  jq -e --arg k "dev-pipeline@$MKT" '(.enabledPlugins // {})[$k] == true'  "$f" >/dev/null 2>&1 && dp_true=1
-  jq -e --arg k "dev-pipeline@$MKT" '(.enabledPlugins // {})[$k] == false' "$f" >/dev/null 2>&1 && dp_false=1
-done
-# SETTINGS is the repo's committed .claude/settings.json — the file onboard writes the
-# blessed bundle into, and where dev-pipeline is normally declared. Reading only the local/user
-# pair would find no `true` there and demote every real consumer to the warn branch.
-if [[ -f "$SETTINGS" ]]; then
-  jq -e --arg k "dev-pipeline@$MKT" '(.enabledPlugins // {})[$k] == true'  "$SETTINGS" >/dev/null 2>&1 && dp_true=1
-  jq -e --arg k "dev-pipeline@$MKT" '(.enabledPlugins // {})[$k] == false' "$SETTINGS" >/dev/null 2>&1 && dp_false=1
-fi
-DP_ENABLED=0; [[ "$dp_true" -eq 1 && "$dp_false" -eq 0 ]] && DP_ENABLED=1
-
-# $SETTINGS is scanned HERE too, not only for the dev-pipeline predicate above. It is the file
-# onboard writes the bundle into and therefore the primary place a hand edit lands — the very
-# edit AC-6's onboard paragraph warns about. Reading only the local/user pair left an opt-out in
-# the committed file SILENTLY green (not even the warn) while the identical flip in
-# settings.local.json FAILed, so three shipped statements promised a catch doctor could not
-# make. milestone-gate.sh's audit_toolkit_opted_out() treats a `false` in any of these files as the
-# opt-out; this loop is the half that disagreed, and the asymmetry was the whole defect.
-#
-# Any `false` disables, wherever it sits — deliberately NOT the mirror of DP_ENABLED's rule
-# above. That one asks "is the lane ON", where a stray `false` must not conjure a lane; this
-# one asks "is the ledger writer OFF", where a stray `false` is the thing to report. Same
-# conservative direction in both: neither predicate lets a `false` be argued away.
+# Every plugin's opt-out is a warn, never a FAIL: the lane runs with any one of them off.
+# $SETTINGS (the committed file onboard writes, where a hand edit lands) is read alongside the
+# local/user pair, and any `false` is reported wherever it sits.
 for f in "$SETTINGS" "$LOCAL_SETTINGS" "$USER_SETTINGS"; do
   [[ -f "$f" ]] || continue
   opted="$(jq -r --arg m "@$MKT" '(.enabledPlugins // {}) | to_entries[] | select(.value==false and (.key | endswith($m))) | .key' "$f" 2>/dev/null)"
   for k in $opted; do
-    pname="${k%@*}"
-    if [[ "$pname" == "audit-toolkit" && "$DP_ENABLED" -eq 1 ]]; then
-      bad "$pname disabled in $(basename "$f") while dev-pipeline is enabled — the lane refuses to start without a live audit ledger, and audit-toolkit ships the hook that writes it. Re-enable \"$k\": true and restart the session, or disable dev-pipeline if this repo does not run the lane."
-    else
-      warn "$pname disabled in $(basename "$f") — you're opting out of its capabilities (see .claude/SECOND-SHIFT.md inventory). That's sanctioned; doctor won't mention it again this run."
-    fi
+    warn "${k%@*} disabled in $(basename "$f") — you're opting out of its capabilities (see .claude/SECOND-SHIFT.md inventory). That's sanctioned; doctor won't mention it again this run."
   done
 done
+
+# --- 6.5 stale consumer CI from the retired verdict-record lane -------------------
+# The merge-boundary evidence check and the delta guard read a committed verdict record the lane
+# no longer writes, so an installed copy reds (or silently skips) every pipeline PR. Onboard no
+# longer emits them; a consumer that accepted them earlier removes them by hand. One FAIL for
+# the set: it is one removal PR.
+stale_ci=()
+for f in .github/workflows/second-shift-ci.yml .claude/tools/second-shift-ci-check.sh \
+         .github/workflows/second-shift-delta-guard.yml .claude/tools/second-shift-delta-guard.sh; do
+  [[ -e "$ROOT/$f" ]] && stale_ci+=("$f")
+done
+while IFS= read -r f; do
+  [[ -n "$f" ]] || continue
+  f="${f#"$ROOT"/}"
+  case " ${stale_ci[*]-} " in *" $f "*) continue ;; esac
+  stale_ci+=("$f")
+done < <(for d in .github .claude; do   # .claude/worktrees: other branches' checkouts, not this one
+           [[ -d "$ROOT/$d" ]] && grep -rlF --exclude-dir=pipeline-state --exclude-dir=audit --exclude-dir=worktrees LANE_VERDICT_SUFFIX "$ROOT/$d" 2>/dev/null
+         done)
+if [[ "${#stale_ci[@]}" -gt 0 ]]; then
+  bad "stale second-shift CI from the retired verdict-record lane: ${stale_ci[*]} — these read a committed verdict record /dev-pipeline:run no longer writes. Fix: delete them (and any needs:/if: lines wiring second-shift-delta-guard into your own workflows, and the \"second-shift evidence\" required status check in branch protection). Keep second-shift-unclaim.* — it is current (docs/migrations/v2-to-v3.md)"
+fi
 
 # --- 7. config-lint -------------------------------------------------------------
 CONF="$ROOT/.claude/second-shift.config.json"
 if [[ ! -f "$CONF" ]]; then
   bad "no $CONF — run /second-shift:onboard"
+elif ! jq empty "$CONF" 2>/dev/null; then
+  bad "$CONF is not valid JSON — fix it, then re-run doctor"
 else
+  # --- 7.1 keys configVersion 3 removed -------------------------------------------
+  # Named here, independently of config-lint below, so a repo whose dev-pipeline is not installed
+  # yet still learns what to delete. One FAIL per key: each is its own edit.
+  cv="$(jq -r '.configVersion // empty' "$CONF")"
+  case "$cv" in
+    ''|*[!0-9]*) : ;;   # config-lint names a missing or non-numeric version
+    *) [[ "$cv" -lt 3 ]] && bad "config: configVersion is $cv — this toolkit reads configVersion 3. Fix: set \"configVersion\": 3 and apply docs/migrations/v2-to-v3.md" ;;
+  esac
+  while IFS=$'\t' read -r key hint; do
+    [[ -n "$key" ]] && bad "config: $key was removed in configVersion 3 — $hint Fix: delete it (docs/migrations/v2-to-v3.md)"
+  done < <(jq -r '
+    def lr: if (.design | type) == "object" and (.design.liveRender | type) == "object" then .design.liveRender else {} end;
+    [ (if has("topology") then ["topology", "nothing reads it: the base branch is the remote default branch, and commands is keyed by this checkout\u0027s directory name (or a sole key)."] else empty end),
+      (if has("gates") then ["gates", "nothing reads it."] else empty end),
+      (if has("stageParams") then ["stageParams", (if (.stageParams | type) == "object" and (.stageParams | has("webComponentGlobs")) then "move webComponentGlobs to reviewers.webComponentGlobs first; nothing reads the rest." else "nothing reads it." end)] else empty end),
+      (if has("grillWaivers") then ["grillWaivers", "config grill findings are advisory warnings now, so there is nothing to waive."] else empty end),
+      (if lr | has("tolerancePx") then ["design.liveRender.tolerancePx", "the pixel compare is replaced by the route smoke; set design.liveRender.smokeCommand."] else empty end),
+      (if lr | has("cwd") then ["design.liveRender.cwd", "the render command runs in the ticket worktree; put any cd into the command itself. If it named another repo, that repo owns design: move the whole design block into its own config."] else empty end)
+    ] | .[] | @tsv' "$CONF" 2>/dev/null)
+
   DP_PATH="$(jq -r --arg id "dev-pipeline@$MKT" --arg root "$ROOT" \
     "$RESOLVE_RECORD | .installPath // empty" <<< "$PLUGLIST")"
   LINT="$DP_PATH/tools/config-lint.sh"
@@ -402,19 +397,6 @@ else
   else
     warn "dev-pipeline not installed — config-lint skipped (install it, then re-run doctor)"
   fi
-  # --- 7.5 verified calibration claims (claims-lint, quiet) -----------------------
-  # ONE summary line when second-shift-claims fences exist (count + probe-less slugs);
-  # silent when none. Expired/malformed claims are FAILs here too — a stale
-  # severity-downgrading claim blocks pipeline runs at their pre-flight.
-  CLAIMS="$DP_PATH/tools/claims-lint.sh"
-  if [[ -n "$DP_PATH" && -f "$CLAIMS" ]]; then
-    if out="$(bash "$CLAIMS" "$ROOT" 2>&1)"; then
-      [[ -n "$out" ]] && ok "claims-lint: $(tail -1 <<< "$out" | sed 's/^\[claims-lint\] summary: //')"
-    else
-      bad "claims-lint: expired or malformed severity-downgrading claim(s) — pipeline pre-flight will fail until re-verified:"
-      n=0; while IFS= read -r line; do echo "[doctor]        $line"; n=$((n+1)); [[ "$n" -ge 10 ]] && break; done <<< "$out"
-    fi
-  fi
   # --- 7.9 config grill: capability that is detectably OFF -------------------------
   # config-lint above is STRUCTURAL — absence is legal for every optional key, so it is
   # incapable of noticing that a capability is off, and no later stage notices either: a
@@ -423,19 +405,18 @@ else
   # sibling skill dir — strictly shorter than the cross-PLUGIN reach section 7 just made
   # for config-lint, and it does not depend on dev-pipeline being installed.
   #
-  # A finding is a FAIL with remediation, exactly like every other doctor FAIL. That is
-  # only coherent because waivers exist: a repo reaches exit 0 by adopting the capability
-  # or by declaring the opt-out in `grillWaivers`. A `notEvaluated` entry is NOT a finding
-  # — it carries no proposal and cannot be waived — so it is informational and never
-  # touches the exit code.
+  # A finding is a WARN with its proposal: the config has no key to declare a deliberate
+  # opt-out in, so a FAIL here would hold a repo non-zero for a gap its owner weighed and
+  # declined. A `notEvaluated` entry is not a finding — it carries no proposal — so it is a
+  # note.
   GRILL="${SECOND_SHIFT_CONFIG_GRILL:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../onboard/tools" 2>/dev/null && pwd)/config-grill.sh}"
   if [[ -f "$GRILL" ]]; then
     if gout="$(bash "$GRILL" "$ROOT" "$CONF" 2>/dev/null)"; then
       gcount="$(jq -r '.findings | length' <<< "$gout" 2>/dev/null || echo 0)"
-      if [[ "$gcount" == "0" ]]; then ok "config grill: no unwaived findings"
+      if [[ "$gcount" == "0" ]]; then ok "config grill: no findings"
       else
         while IFS= read -r line; do
-          [[ -n "$line" ]] && bad "$line"
+          [[ -n "$line" ]] && warn "$line"
         done < <(jq -r '.findings[] | "config grill [\(.id)] \(.evidence) Fix: \(.proposal)"' <<< "$gout")
       fi
       n=0; while IFS= read -r line; do

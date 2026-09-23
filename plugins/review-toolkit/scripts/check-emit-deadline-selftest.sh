@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # check-emit-deadline-selftest.sh — covers the emit-deadline lint (#183).
 #
-# Two halves, mirroring check-bounded-exploration-selftest.sh:
+# Two halves:
 #   (A) FIXTURES — synthetic agent docs exercising each rule in both directions.
 #   (B) REAL TREE — the lint must pass over the live plugins/*/agents dirs, so CI goes red
 #       when someone raises a cap without moving the deadline with it.

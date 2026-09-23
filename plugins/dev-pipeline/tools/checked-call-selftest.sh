@@ -10,10 +10,9 @@
 # a genuine negative and a dead producer, which is the bug.
 #
 # WHY NO SCENARIO COVERS IT (CLAUDE.md scenario-first rule): this is a pure predicate with
-# no state and no terminal write. scenario-liveness-selftest.sh composes verdict paths that
-# reach a write; there is no write here to compose onto. Its two production consumers
-# (detect.sh's tracker probe, pipeline-doctor.sh's capability probes) both shell out to
-# tools a test may not run, so their branches are unreachable from a scenario too.
+# no state and no terminal write; there is no write here to compose onto. Its production
+# consumer (detect.sh's tracker probe) shells out to a tool a test may not run, so its
+# branches are unreachable from a scenario too.
 #
 # TECHNIQUE: source the REAL production text and call it. Not a re-declared copy — that is
 # the mirror harness CLAUDE.md bans, and it could not fail on a production edit.

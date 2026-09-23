@@ -1,6 +1,6 @@
 ---
 name: onboard
-description: Onboard the current repo onto the second-shift marketplace - detects tracker/topology/commands with provenance, drafts the config for one accept-or-edit review, writes settings pin + config + lockfile + the consent doc (and, on request, the CI workflows), validates with config-lint. Run from the target consumer repo. Requires jq, gh (authenticated), git, claude.
+description: Onboard the current repo onto the second-shift marketplace - detects tracker/commands with provenance, drafts the configVersion 3 config for one accept-or-edit review, writes settings pin + config + lockfile + the consent doc (and, on request, the unclaim workflow), validates with config-lint. Run from the target consumer repo. Requires jq, gh (authenticated), git, claude.
 ---
 
 You are `/second-shift:onboard`. You write the consumer repo's second-shift configuration
@@ -23,22 +23,23 @@ Missing prerequisite → stop, print the install/login command, done.
 If `.claude/second-shift.config.json` already exists: this is a RE-onboard — diff mode.
 Load the existing file, run detection anyway, and present changes against the existing
 values in the review screen instead of a fresh draft.
+An existing `configVersion` 2 config is migrated by the same pass: the draft is the v3 shape
+(Step 3), the diff guard lists the removed keys as `retired[]`, and the review screen points at
+`docs/migrations/v2-to-v3.md`.
 
 ## Step 1 — Detect (provenance-first)
 Run: `bash "${CLAUDE_PLUGIN_ROOT}/skills/onboard/tools/detect.sh"` and parse the JSON.
-- `git.baseBranch.value` empty → ABORT with: "Cannot determine the default branch:
-  origin/HEAD is unset and ls-remote failed. Run `git remote set-head origin --auto`
-  and re-invoke. I do not guess base branches." (fail-fast; never default to main.)
-- `topology.value == "be-fe-pair-candidate"` → the sibling candidates go into the
-  elicitation batch as a confirm question (pair vs standalone).
 - `tracker.value == "ambiguous"` → tracker choice goes into the elicitation batch,
   presenting the evidence (origin host, MCP presence) for each option.
+- `topology` is evidence only — the config has no topology. Non-empty
+  `topology.siblingCandidates` means a sibling checkout (e.g. the frontend of this backend) sits
+  next door: say so on the review screen and offer its own onboard at Step 8. Every checkout
+  carries its own config.
+- `git.baseBranch` is evidence only too: the lane bases its branch on the remote default branch
+  (`origin/HEAD`, falling back to `origin/main`, then `origin/master`), so there is nothing to write.
 
 ## Step 2 — Resolve the pin
 Run: `bash "${CLAUDE_PLUGIN_ROOT}/skills/onboard/tools/pin-resolve.sh" manoldonev/second-shift dev-pipeline review-toolkit intake-toolkit audit-toolkit second-shift` — add `design-toolkit` if (and only if) the design question below is answered yes.
-`audit-toolkit` is not an optional bundle member alongside `dev-pipeline`: it ships the hook that
-writes the per-session audit ledger, which the lane's entry gate requires. State that on the
-review screen, so the human knows why this one has no opt-out.
 `refSource == "tag-fallback"` → include one line in the review screen: "(pinned to tag
 <ref>; this marketplace has not cut a GitHub Release yet)". Resolution failure → ABORT
 with the stderr reason (likely offline or gh unauthenticated).
@@ -53,76 +54,79 @@ consumers get the release pin. Say so on the review screen, and the consent doc 
 state the canary exception explicitly.
 
 ## Step 3 — Draft + one-batch elicitation
-Build the draft config from detection:
-- `configVersion: 2`
+Build the draft config from detection — the configVersion 3 shape, and only that:
+- `configVersion: 3`
 - `tracker.type` from detection (or the elicited answer). JIRA → also set
   `"writes": false` in the draft (the documented JIRA default) — reviewable on the screen.
   Say what it does on the screen: the pipeline never comments on or transitions the ticket,
   and `/dev-pipeline:run` starts its sessions without Atlassian write tools.
-- `topology.type` + `topology.repos`: standalone/monorepo → single repo id (use the
-  package.json `name` short form or directory basename), `path: "."`,
-  `baseBranch` from detection. Confirmed pair → `be` + `fe` entries; the sibling's own
-  baseBranch is detected by running detect.sh again with the sibling path as argument.
-  **`monorepo` always takes exactly one `repos` entry with `path: "."`** —
-  `config-lint` rejects a second entry. A repo with two independently-verified
-  surfaces (e.g. an npm-workspaces repo with `apps/api` + `apps/web`) is NOT
-  `be-fe-pair` unless it actually is a backend/frontend pair — model it as a
-  single monorepo id with root fan-out scripts (`yarn workspaces foreach ...`)
-  in `commands.<id>.lint`/`test`, or, if the two surfaces need distinct
-  verify commands, via `commands.<id>.lanes` (parallel setup/verify lanes) and
-  `commands.<id>.extraLanes` (path-triggered extra tiers, e.g. contract tests
-  scoped to one workspace).
-- `commands.<repo>` from detection: the emitted block contains EXACTLY these keys —
+- **Never emit `topology`, `gates`, `stageParams` or `grillWaivers`, and never
+  `design.liveRender.cwd` or `design.liveRender.tolerancePx`** — configVersion 3 removed them and
+  config-lint rejects each by name (`docs/migrations/v2-to-v3.md`).
+- `commands.<key>`, where `<key>` is this checkout's directory name —
+  `basename "$(git rev-parse --show-toplevel)"`, or in a linked worktree the MAIN checkout's
+  directory name (`git rev-parse --git-common-dir`, one level up). That is the key
+  `/dev-pipeline:run` reads when there is more than one; a sole key is read whatever it is
+  called, so a RE-onboard whose existing config has exactly one `commands` key keeps that key
+  rather than renaming it. A repo with two independently-verified surfaces (e.g. an
+  npm-workspaces repo with `apps/api` + `apps/web`) is still ONE entry: root fan-out scripts
+  (`yarn workspaces foreach ...`) in `lint`/`test`, or, if the surfaces need distinct verify
+  commands, `lanes` (setup steps; each may carry a `cwd` under the worktree) and `extraLanes`
+  (path-triggered extra checks, e.g. contract tests scoped to one workspace).
+- `commands.<key>` from detection: the emitted block contains EXACTLY these keys —
   `lint`, `lintAutofixes`, `typecheck`, `test`, `format` from detect.sh. **Undetected
-  lanes are explicit `null`** — never omit, never invent.
-  (Integration/API test tiers, and `build`, are NOT config command keys — removed in
-  v2.1.6 / #113 respectively; ship them via `extraLanes`. Never emit
-  `integrationTest`/`apiTest`/`build` under `commands.<repo>`, never emit
-  `testFile`/`unitTestScope` — retired in #574 with the mutation-gate engine; the
-  mutation story is the repo-carried sweep nothing here elicits any more (#877) — and never emit
-  `stageWorkflows`/`implementDelegates`/`planGates` either — retired in #569, and a draft
-  carrying one self-rejects at config-lint.)
+  lanes are explicit `null`** — never omit, never invent. Each non-null `lint`, `typecheck`,
+  `test` and `format` is a blocking check the scheduler runs after each build.
+  (Integration/API test tiers, and `build`, are NOT config command keys — ship them via
+  `extraLanes`. Never emit `integrationTest`/`apiTest`/`build` under `commands.<key>`, never
+  emit `testFile`/`unitTestScope`, and never `stageWorkflows`/`implementDelegates`/`planGates`
+  — a draft carrying one self-rejects at config-lint.)
   `lanes` (setup steps) is deliberately NOT in that key list — detection cannot prove a
   repo's install command, so onboard never writes one. It is raised on the review screen
   instead (below), where the human can supply it.
-- **Build tier → drafted `extraLanes` entry, not a `commands.<repo>.build` key (#113).**
+- **Build tier → drafted `extraLanes` entry, not a `commands.<key>.build` key.**
   When detection's `commands.build.value` is non-null, draft one `extraLanes` entry —
   `{"name": "build", "commands": [<detected build command>], "failureClass": "TYPE_ERROR"}`
   — on the review screen with the same provenance comment style as every other drafted
-  field, appended to (or starting) `commands.<repo>.extraLanes`. This is a DRAFT like
-  lint/test/format: the human can remove it on the accept-or-edit screen, satisfying the
-  "opt-in" framing without a separate elicitation question. `commands.build.value` being
-  null (undetected) means no `extraLanes` entry is drafted — never fabricate a build
-  command. A RE-onboard (Step 0 diff mode) whose existing config still carries a dead
-  `commands.<repo>.build` key flags it for removal on the same review screen, pointing at
-  this replacement (`docs/migrations/v1-to-v2.md`).
+  field, appended to (or starting) `commands.<key>.extraLanes`. This is a DRAFT like
+  lint/test/format: the human can remove it on the accept-or-edit screen. `commands.build.value`
+  being null (undetected) means no `extraLanes` entry is drafted — never fabricate a build
+  command.
+- **`reviewers.webComponentGlobs` when detected.** The grill below measures the repo's rendering
+  surface: when its `T2.webComponentGlobs` finding names a candidate glob that matches tracked
+  files, draft that glob into `reviewers.webComponentGlobs` (provenance: the grill's count) and
+  re-run the grill. It is the trigger review-lead routes a11y-reviewer and the design-fidelity
+  dimension on; the shipped default (`apps/web/**/*.{tsx,jsx}`) matches nothing in most repos.
+  A repo with no rendering surface gets no key.
 - **When detection returned no command lanes at all** (every one `null` — the normal
   outcome for a stack `detect.sh` does not cover: Python/pip/poetry/uv, bun, cargo, go),
   say so plainly on the review screen rather than presenting the empty table as done:
-  the pipeline verifies nothing until at least one lane is filled in, and `preflight`
-  will withhold its `pipeline-ready` verdict until then. Offer the two honest exits —
-  fill in the repo's real commands now, or set `allowUnverified: true` to declare the
-  zero-lane opt-out deliberately.
+  a run with no configured check (and no `## Checks` in its intake record) ends red on its
+  checks. Offer the two honest exits — fill in the repo's real commands now, or set
+  `allowUnverified: true` to declare the zero-check opt-out deliberately.
 Ask AT MOST one AskUserQuestion batch, containing ONLY (skip any that detection settled):
   1. tracker (only if ambiguous — show evidence per option)
-  2. topology pair confirm (only if be-fe-pair-candidate)
-  3. `tracker.branchPrefix` (recommended: `claude/<repo-basename>-` for github; `<user>/` for jira)
-  4. design fidelity, two-part — **what it buys: review gains a design-fidelity dimension, and
-     with `liveRender` a per-route rendered-vs-handoff receipt replaces a reviewer's opinion of
-     a diff** (docs/extending.md §3.5; docs/live-render.md).
+  2. `tracker.branchPrefix` (recommended: `claude/<repo-basename>-` for github; `<user>/` for jira)
+  3. design fidelity, two-part — **what it buys: review gains a design-fidelity dimension, and
+     with `liveRender` every declared route is rendered after each build and smoke-checked for
+     the value it must show, instead of a reviewer's opinion of a diff** (docs/extending.md
+     §3.5; docs/live-render.md).
      (only if detection saw a UI-shaped repo — sibling FE candidate,
      or framework deps like react/vue/svelte in package.json — or a design MCP in
      `claude mcp list`): include design-toolkit? If yes, WHICH provider — emit top-level
      `design: { "provider": "figma" }` or `{ "provider": "claude-design" }`.
      Declined or not UI-shaped → NO `design` key at all (absent = off).
      When design is accepted, also detect a render harness: a `render:verify` script in
-     the FE repo's package.json (or a script whose usage names `--route`/`--out`). Detected →
-     offer `design.liveRender` pre-filled (`command: "yarn render:verify --route {route} --state {state} --out {out}"`,
-     `cwd: <fe repo id>`); the operator may add `readyProbe`, and may drop `{state}` if the
-     harness cannot drive one. Undetected or declined → omit the `liveRender` key (a ticket cannot arm its
-     design lane at all: the green gate renders each declared route into a committed receipt,
-     and there is nothing to render; docs/live-render.md).
-  5. reviewer deltas — **what they buy: `add` puts a reviewer that knows this repo's domain on
+     this repo's package.json (or a script whose usage names `--route`/`--out`). Detected →
+     offer `design.liveRender` pre-filled (`command: "yarn render:verify --route {route} --state {state} --out {out}"`);
+     the command runs in the ticket worktree, so a harness in a subdirectory carries its own
+     `cd`. Ask for `smokeCommand` (`{route}` and `{mustShow}` placeholders; it must exit
+     non-zero unless the route shows that data-test id or copy string) — detection cannot prove
+     one, and a record that declares a must-show value with no `smokeCommand` stops the run. The
+     operator may add `readyProbe`, and may drop `{state}` if the harness cannot drive one.
+     Undetected or declined → omit the `liveRender` key (a ticket whose record declares design
+     frames then has nothing to render with; docs/live-render.md).
+  4. reviewer deltas — **what they buy: `add` puts a reviewer that knows this repo's domain on
      every review panel; `remove` stops a shipped reviewer whose findings you always dismiss
      from spending a slot** (docs/extending.md §3.3).
      (`reviewers.add` for repo-local reviewer agents, `.remove` for shipped
@@ -133,22 +137,24 @@ Ask AT MOST one AskUserQuestion batch, containing ONLY (skip any that detection 
      scope-completeness-reviewer only, so security-reviewer, a11y-reviewer and
      unit-test-mutation-reviewer do not run on a pipeline round unless listed in
      `reviewers.default` (or opted in per ticket by a `review panel` Decision Ledger row).
-     Recommended default: none. Emit the `reviewers` key ONLY when the answer is non-empty.
-  6. **github tracker only — the first-run wall, absorbed here:**
+     Recommended default: none. Emit the reviewer deltas ONLY when the answer is non-empty
+     (`reviewers.webComponentGlobs`, drafted above, is independent of this answer).
+  5. **github tracker only — the first-run wall, absorbed here:**
      a. Bot identity: "Use a GitHub-App bot identity for pipeline writes? (Needs an App +
-        private key; the build's claim goes through the bot wrapper for the github tracker
-        and refuses while it is disabled.)" If yes, add `"bot": { "enabled": true }` under
-        `tracker` in the draft — the wrapper reads that key and defaults to off, so without it
-        the claim refuses even with the bot installed — and point at the dev-pipeline bot
-        bootstrap (`install-gh-bot.sh` in the dev-pipeline tools) as the follow-up. If no,
-        note that the first `/dev-pipeline:run` stops at its claim until a bot exists and
-        `tracker.bot.enabled` is true — a pipeline requirement, not an onboard requirement.
-     b. Queue labels: "Create the six required queue labels now?" On yes, print AND run:
-        `gh label create ready-for-dev`, `needs-spec-work`, `needs-plan-review`,
-        `needs-intake-review`, `in-progress`, `epic` (skip ones that already exist).
-        Note on the screen: these six are shipped literals until the marketplace makes
-        `stageParams.requiredLabels` authoritative end-to-end.
-  7. **`review-context.md` scaffold (accept-or-edit, never mandatory; default "later").**
+        private key.)" If yes, add `"bot": { "enabled": true }` under `tracker` in the draft —
+        the wrapper reads that key and defaults to off — and point at the dev-pipeline bot
+        bootstrap (`install-gh-bot.sh` in the dev-pipeline tools) as the follow-up. Say that
+        with `enabled: true` and no working bot the run refuses rather than writing as the
+        operator. If no, say the lane's claim, commits and PR are written as the operator's own
+        `gh` identity.
+     b. Queue labels: "Create the lane's eight labels now?" On yes, print AND run:
+        `gh label create ready-for-dev`, `in-progress`, `epic`, `needs-spec-work`,
+        `needs-plan-review`, `needs-intake-review`, `opus`, `sonnet` (skip ones that already
+        exist). The first six are the defaults of `tracker.labels.queue`,
+        `tracker.labels.claimed` and `tracker.labels.blockers`; a repo that sets those keys
+        creates its own names instead. `opus` and `sonnet` are the sizing labels the scheduler
+        reads for the build model: a ticket carrying neither stops before its first round.
+  6. **`review-context.md` scaffold (accept-or-edit, never mandatory; default "later").**
      Offer to scaffold a starter `.claude/second-shift/review-context.md` so reviewers key on
      named sections instead of inferring from the diff. **What it buys: every panel reviewer
      self-loads it, so stack, severity calibration and known-accepted patterns are stated once
@@ -166,38 +172,17 @@ Ask AT MOST one AskUserQuestion batch, containing ONLY (skip any that detection 
      review-context surface"). To write it, pipe confirmed H2 blocks to
      `bash "<installPath>/skills/onboard/tools/scaffold-review-context.sh" <repo-root> --title "<repo>"`,
      then run `check-review-context-sections.sh --preflight <repo-root>` to confirm it is clean.
-  8. **CI workflows (ONE offer; the server-side backstop plus the close-out step):** "Emit the
-     consumer-repo CI workflows — (a) on every PR, config-lint the committed config with the
-     linter shipped AT the pinned marketplace ref and assert the settings ref and lockfile ref
-     agree, so a half-done upgrade PR is caught server-side, and on a pipeline PR check its
-     merge-boundary evidence (an approve verdict from a review identity distinct from the
-     build's, covering the PR's current head, and every intent-gap record naming who decided);
-     and (b) on issue close, release the pipeline's claimed and queue labels, which nothing else
-     does?" Recommended: yes for a repo that runs GitHub Actions. **What they buy: a half-done
-     upgrade is caught server-side on the PR that ships it, a pipeline PR cannot merge on a
-     verdict that predates its last commits, and a closed issue releases its labels without
-     anyone remembering to** (docs/team-rollout.md). Say plainly that the evidence arm fails
-     closed on pipeline PRs: once the check is required, a pipeline PR without a current
-     verdict cannot merge.
-     **One question, one acceptance** — on yes both file pairs
-     are emitted in Step 7. Say which side of the write boundary each falls on: the evidence
-     workflow only REPORTS a red check (to make it *block* merges the repo admin marks
-     "second-shift evidence" a required status check in branch protection — onboard never
-     edits branch protection), while the unclaim workflow **writes**, holding `issues: write`
-     to remove two labels from one closing issue, and needs the repo's Actions workflow
-     permissions set to read-and-write. Under a non-github tracker the unclaim half is skipped
-     — there is no label vocabulary. On no / a non-Actions repo, emit nothing (absent = off).
-     The same acceptance also emits **(c) the delta guard**: the lane's review half must
-     commit the verdict record to the PR head as the LAST commit, which on a
-     `pull_request`-triggered CI fires a second full run — lint, typecheck, build, the whole
-     test suite — for a markdown file the pipeline wrote itself. The guard lets those jobs skip
-     for exactly that commit, and only when the code commit's own run already completed
-     successfully. It is the one emitted pair the repo must **wire in by hand** (two lines per
-     heavy job, in their own workflow), so say that out loud: unwired it is inert and costs
-     nothing, which is also why it is safe to emit unasked-for.
+  7. **The unclaim workflow (github tracker only; ONE offer):** "Emit the consumer-repo unclaim
+     workflow — on issue close, release the pipeline's claimed and queue labels, which nothing
+     else does?" Recommended: yes for a repo that runs GitHub Actions. **What it buys: a closed
+     issue releases its labels without anyone remembering to** (docs/team-rollout.md). Say that
+     it **writes**, holding `issues: write` to remove two labels from one closing issue, and needs
+     the repo's Actions workflow permissions set to read-and-write. On no / a non-Actions repo /
+     a non-github tracker, emit nothing (absent = off). There is no other consumer CI workflow
+     to offer: the lane's verdict is a PR comment, not a committed record a CI job could check.
 Then present the **complete draft as one accept-or-edit screen**: a JSONC block where every
 line carries a provenance comment, e.g.
-    "baseBranch": "alpha",        // from origin/HEAD
+    "lint": "yarn lint",          // from package.json scripts.lint
     "test": null,                 // no scripts.test in package.json — pipeline will skip this lane
     // "lanes": [{"name": "install", "commands": ["npm ci"]}],
     //                            ^ setup steps, run before every verify. A pipeline worktree
@@ -217,21 +202,18 @@ file (`config-lint` runs `jq empty` and would reject a comment).
 stripped — the same document Step 4 would emit) to a temp file, then run
 `bash "${CLAUDE_PLUGIN_ROOT}/skills/onboard/tools/config-grill.sh" <repo-root> "$TMPDIR/second-shift-draft.json"`
 and parse its JSON. It reports what `config-lint` structurally cannot: a capability that is
-detectably OFF, and a capability that was never adopted at all. Absence is legal for every
-optional key, so the lint never looks at the tree, and nothing downstream looks either — a
-capability that is off simply never runs and the run still reports green.
+detectably OFF. Absence is legal for every optional key, so the lint never looks at the tree,
+and nothing downstream looks either — a capability that is off simply never runs and the run
+still reports green.
 
-- Every entry in `findings[]` renders as a **blocking line** at the top of the accept-or-edit
+- Every entry in `findings[]` renders as a **warning line** at the top of the accept-or-edit
   screen: the finding's `evidence`, then its `proposal` verbatim. The proposal names the
   benefit; do not paraphrase it down to a key name, which motivates nobody.
-- Every entry in `notEvaluated[]` renders as an informational line. It is **not** a finding —
-  it has no proposal, cannot be waived, and must never block acceptance.
-- The checker **re-runs on each loop iteration**, and "no unwaived `findings[]`" is the accept
-  predicate: the screen cannot be accepted while one is unwaived.
-- A waiver is a `grillWaivers` entry — `{"<check id>": "<reason>"}`, keyed by the entry's
-  `id` — typed into the draft on that same screen. **Never author a reason on the human's
-  behalf and never propose one**: an invented reason is a waiver with no accountability. Offer
-  the mechanism, not the text.
+- Findings are **advisory**: the human adopts the proposal or accepts the screen with the
+  finding standing. There is no waiver key — declining is a choice made on this screen, and
+  doctor keeps reporting the finding as a WARN.
+- Every entry in `notEvaluated[]` renders as an informational line. It has no proposal.
+- The checker **re-runs on each loop iteration**, so an adopted proposal visibly clears.
 
 **On a RE-onboard, also DIFF the draft against the existing config.** Same temp file, one more
 call:
@@ -245,14 +227,16 @@ an existing value is indistinguishable from a prior run's detected one.
   the entry's `evidence` then its `proposal` verbatim.
 - Every entry in `unmatchedAcks[]` renders informationally and never blocks — it means an
   acknowledgment named a path no delta carries, so nothing was dispositioned.
-- The guard **re-runs on each loop iteration**, and "no unacknowledged deltas" joins "no unwaived
-  findings" as the accept predicate.
+- Every entry in `retired[]` renders informationally and never blocks: a leaf under a key
+  configVersion 3 removed, which the draft cannot carry (`docs/migrations/v2-to-v3.md`). The
+  one key that MOVED, `stageParams.webComponentGlobs`, is compared at
+  `reviewers.webComponentGlobs` instead, so dropping its value is still a delta.
+- The guard **re-runs on each loop iteration**, and "no unacknowledged deltas" is the accept
+  predicate.
 - A delta is cleared by fixing the draft, or — when the human confirms the removal or a genuine
   re-detection — by re-running with `--ack <path>` for that one path. Acks are exact, per-run, and
   write nothing. **Never `--ack` a path the human has not confirmed**: the flag is typed by you,
-  and it is the only thing standing between a silent destruction and a seen one. `grillWaivers` is
-  not the channel here — a waiver is permanent config state, so it would silence the guard for
-  that path on every future re-onboard.
+  and it is the only thing standing between a silent destruction and a seen one.
 - **Exit 3 stops the onboard; it is never a skip.** Proceeding would write a draft over a config
   nothing compared it against. Exit 3 covers every usage and IO error, so read the **message** and
   never key the remedy off the code alone: only `not a single JSON object` names the config itself
@@ -263,7 +247,7 @@ an existing value is indistinguishable from a prior run's detected one.
   did not name it**: that would be this guard causing the destruction it exists to prevent.
 
 This adds **no question batch and no new surface**. Disposition is captured by the human
-editing the screen they are already editing — fixing the key, typing the waiver entry, or
+editing the screen they are already editing — fixing the key, adopting a proposal, or
 confirming the removal — so the "at most one AskUserQuestion batch" rule above and the "not a
 wizard" framing below both stand unamended.
 
@@ -292,12 +276,8 @@ Target state in `.claude/settings.json` (MERGE — never clobber unrelated keys)
                         "intake-toolkit@second-shift": true, "audit-toolkit@second-shift": true,
                         "second-shift@second-shift": true }
     (+ "design-toolkit@second-shift": true when accepted)
-`audit-toolkit@second-shift` is written unconditionally, so onboard itself has no opt-out path to
-close. What it cannot stop is a later hand edit flipping it to `false` (or a `settings.local.json`
-overriding it): that breaks the lane outright, and `/second-shift:doctor` FAILs on the
-combination rather than warning.
-If the existing file already carries that `false`, do not silently preserve it: flag it on the
-review screen and merge the `true` in.
+If the existing file already sets a bundle plugin to `false`, flag it on the review screen: the
+merge below writes `true` over it, and an opt-out is the repo's call.
 Mechanics: read the existing file (or start from `{}`), apply
     jq --arg ref "<ref>" '.extraKnownMarketplaces = ((.extraKnownMarketplaces // {}) + {...}) | .enabledPlugins = ((.enabledPlugins // {}) + {...})'
 and WRITE the result back with the file-editing tool. If the write is blocked or denied:
@@ -309,7 +289,7 @@ you had local content), then restart the session."
 so this settings block is what protects teammates; it is load-bearing, not convenience.)
 
 ## Step 7 — Emit `.claude/second-shift.lock.json`
-Exactly the lockfile schema v1 (the contract /second-shift:doctor and consumer CI read):
+Exactly the lockfile schema v1 (the contract /second-shift:doctor and the SessionStart presence check read):
     { "lockfileVersion": 1,
       "marketplace": { "name": "second-shift", "repo": "manoldonev/second-shift", "ref": "<ref>" },
       "plugins": { "<name>": "<version>", ... },
@@ -336,70 +316,25 @@ Also emit the consent doc:
 2. If the repo has a `CLAUDE.md`, offer (in the SAME final message — never a new interview,
    never silently): append `- Toolkit consent + inventory: .claude/SECOND-SHIFT.md` to it.
 
-Also emit the CI workflows — **only when accepted in Step 3 item 8** (skip this entire block
-otherwise; they are opt-in, not part of the default emitted set). One acceptance covers both
-pairs; there is no second question:
-1. **evidence:** copy `${CLAUDE_PLUGIN_ROOT}/templates/consumer/second-shift-ci-check.sh` to
-   `.claude/tools/second-shift-ci-check.sh` (create the dir; keep the executable bit) and
-   `${CLAUDE_PLUGIN_ROOT}/templates/consumer/second-shift-ci.yml` to
-   `.github/workflows/second-shift-ci.yml`. Both are copied **verbatim** — the check script
-   reads the marketplace `repo` and `ref` from the committed lockfile at runtime, so there
-   is nothing to substitute at emit time.
-2. Tell the human: these two files get committed with the config + lockfile; the workflow
-   runs `jq` + `gh` on every PR (both preinstalled on `ubuntu-latest`; `gh` uses the
-   built-in `github.token`) and reports a red check on a half-done upgrade, and on a pipeline
-   PR whose verdict is missing, self-authored or older than its head. To make that
-   check **block** merges, mark "second-shift evidence" a required status check in this
-   repo's branch protection — onboard emits the file but never configures branch protection.
-3. **unclaim** (github tracker only): copy
-   `${CLAUDE_PLUGIN_ROOT}/templates/consumer/second-shift-unclaim.sh` to
-   `.claude/tools/second-shift-unclaim.sh` (keep the executable bit) and
-   `${CLAUDE_PLUGIN_ROOT}/templates/consumer/second-shift-unclaim.yml` to
-   `.github/workflows/second-shift-unclaim.yml`. **Verbatim** too: the script resolves
-   `.tracker.labels.claimed` and `.tracker.labels.queue` from the committed config at run
-   time, so a name substituted at install would only be a rendered copy that drifts. Tell the
-   human this is the write half of the pair — it holds `issues: write` and removes those two
-   run-state labels from one closing issue (never `blockers`, which holds permanent
-   classifications like `epic`) — and that it is what keeps them from going stale on every
-   merged ticket. Nothing else in either lane releases them: the labels go stale when the item
-   CLOSES, and no lane session is guaranteed to be running at that moment — a hand-closed item
-   never had one.
-   Also say that a `permissions:` block only narrows the repo maximum — a repo whose Actions
-   workflow permissions are read-only must switch to read-and-write, or the removal 403s
-   (visibly, as a red run).
-4. **delta guard:** copy
-   `${CLAUDE_PLUGIN_ROOT}/templates/consumer/second-shift-delta-guard.sh` to
-   `.claude/tools/second-shift-delta-guard.sh` (keep the executable bit) and
-   `${CLAUDE_PLUGIN_ROOT}/templates/consumer/second-shift-delta-guard.yml` to
-   `.github/workflows/second-shift-delta-guard.yml`. **Verbatim** — the guard reads the PR
-   context and the calling run's identity from the environment at run time; nothing is
-   substituted at emit.
-   Unlike the two pairs above, this one does nothing until the repo **wires it in**, because
-   the jobs it shortens are the repo's own. Print the snippet and say it is theirs to paste:
+Also emit the unclaim workflow — **only when accepted in Step 3 item 7** (skip this block
+otherwise; it is opt-in, not part of the default emitted set): copy
+`${CLAUDE_PLUGIN_ROOT}/templates/consumer/second-shift-unclaim.sh` to
+`.claude/tools/second-shift-unclaim.sh` (keep the executable bit) and
+`${CLAUDE_PLUGIN_ROOT}/templates/consumer/second-shift-unclaim.yml` to
+`.github/workflows/second-shift-unclaim.yml`. **Verbatim**: the script resolves
+`.tracker.labels.claimed` and `.tracker.labels.queue` from the committed config at run time, so
+a name substituted at install would only be a rendered copy that drifts. Tell the human it holds
+`issues: write` and removes those two run-state labels from one closing issue (never `blockers`,
+which holds permanent classifications like `epic`), and that nothing else releases them: the
+labels go stale when the item CLOSES, and no lane session is guaranteed to be running at that
+moment — a hand-closed item never had one. Also say that a `permissions:` block only narrows the
+repo maximum — a repo whose Actions workflow permissions are read-only must switch to
+read-and-write, or the removal 403s (visibly, as a red run).
 
-       jobs:
-         second-shift-delta-guard:
-           uses: ./.github/workflows/second-shift-delta-guard.yml
-
-         <each heavy job>:
-           needs: second-shift-delta-guard
-           if: needs.second-shift-delta-guard.outputs.skip != 'true'
-
-   Say the three things a reader will otherwise get wrong. (a) `!= 'true'`, never
-   `== 'false'`: a guard that produced no output leaves the string empty, and an empty string
-   must RUN the lane. (b) This shape rather than `[skip ci]` because a job skipped by a
-   job-level `if:` still produces a check run that GitHub counts as passing for required
-   status checks, while `[skip ci]` produces no run at all and leaves a required check
-   'Expected' forever. (c) `paths-ignore` cannot substitute for it: on `pull_request` events
-   GitHub evaluates path filters against the whole PR diff, not the incremental push, so every
-   PR containing a source change matches regardless.
-   And state the concurrency rule, which is worth acting on whether or not they wire the
-   guard: **for `pull_request` events, do not key `cancel-in-progress: true` bare on the ref.**
-   The verdict push then cancels the code SHA's in-flight run, leaving a cancelled run on the
-   commit that carries the code and a completed one on the commit that carries only markdown —
-   the evidence is inverted, not merely duplicated. Key the concurrency group on the head SHA,
-   or set `cancel-in-progress: false`. It is also the condition under which the guard declines
-   to skip, so a repo that leaves it as-is pays the double run it was trying to avoid.
+A RE-onboard whose repo still carries `.github/workflows/second-shift-ci.yml`,
+`.claude/tools/second-shift-ci-check.sh` or `second-shift-delta-guard.*` flags them on the
+review screen for deletion: they read a verdict record the lane no longer writes
+(`/second-shift:doctor` FAILs on them too).
 
 ## Step 8 — Verify and hand off
 1. Run `claude plugin list` and `claude plugin marketplace list --json`, and check the
@@ -427,42 +362,28 @@ pairs; there is no second question:
        Health check: `/second-shift:doctor`.
 4. State the restart verdict plainly: "Restart this Claude Code session after installing
    plugins — component registration happens at session start."
-5. **Run the read-only preflight — the onboarding finish line.** Resolve the dev-pipeline
-   install path (never a cache path from memory):
-   `claude plugin list --json | jq -r '.[] | select(.id == "dev-pipeline@second-shift") | .installPath'`,
-   then run `bash "<installPath>/tools/preflight.sh"` from the repo root. It is
-   zero-write (no claim, no branch/worktree, no push, no tracker comment): target echo,
-   config gates, the environment doctor, one tracker READ, one pass over every non-null
-   command lane, and a report at `.claude/pipeline-state/preflight-report.md`. Surface the
-   report's verdict; exit code = failed checks. On FAILs, fix and re-run before handing off.
-   (If the dev-pipeline plugin is not installed yet — restart pending — print the two
-   commands above as the post-restart step instead.) Then print the first-run
-   instructions: pick a small ticket with no external-infrastructure ACs;
-   `tracker.branchPrefix` is already set (skips branch-identity derivation); the
-   bot/labels wall was already handled in Step 3 for the github tracker; run
-   `/intake-toolkit:intake <ticket>` first — it puts the open decisions to the human and, on
-   the github tracker, applies the `ready-for-dev` label the lane requires (without it the
-   scheduler exits 3, unintaken) — then `/dev-pipeline:run <ticket>`.
+5. **Dry-run the lane — the onboarding finish line.** Once dev-pipeline is installed and the
+   session restarted, pick a small queued ticket with no external-infrastructure ACs and run
+   `/dev-pipeline:run <ticket> --dry-run`: it validates the config, checks the intake record,
+   the lane's commands and the design declaration, then prints the branch, worktree, record and
+   checks it would use, with no claim, no branch, no push and no tracker read or write (the
+   ticket's state, labels and model are read only on a real launch; the checks and the smoke
+   run only in a round). Surface its `terminal:` line; fix and re-run on any refusal. (If the plugin is not
+   installed yet — restart pending — print that as the post-restart step instead.) Then print
+   the first-run instructions: `tracker.branchPrefix` is already set; the bot/labels wall was
+   already handled in Step 3 for the github tracker; run `/intake-toolkit:intake <ticket>`
+   first — it puts the open decisions to the human, writes the intake record the lane commits
+   as the branch's first commit, and on the github tracker applies the `ready-for-dev` label the
+   lane requires (without it the scheduler exits 3, not-queued) — then `/dev-pipeline:run <ticket>`.
 6. Remind: commit `.claude/settings.json`, `.claude/second-shift.config.json`,
    `.claude/second-shift.lock.json`, `.claude/tools/second-shift-doctor.sh`, and
-   `.claude/SECOND-SHIFT.md` in one PR — **plus**, per CI workflow accepted at Step 3 item 8,
-   its pair in the same PR: `.github/workflows/second-shift-ci.yml` +
-   `.claude/tools/second-shift-ci-check.sh` for evidence,
-   `.github/workflows/second-shift-unclaim.yml` + `.claude/tools/second-shift-unclaim.sh`
-   for unclaim, and `.github/workflows/second-shift-delta-guard.yml` +
-   `.claude/tools/second-shift-delta-guard.sh` for the delta guard — plus, in that same PR,
-   the `needs:`/`if:` lines wiring the guard into their own heavy workflow, since an unwired
-   guard is a file nobody will remember to connect later.
-7. **Confirmed pair → offer the sibling's own onboard, and say the FE rule out loud.** This
-   run's `be-fe-pair` config (drafted at Step 3) records the pair's topology. That is
-   not enough to run the lane on the FE side: `/dev-pipeline:run` routes by invocation cwd and has no per-repo worktree map, so the sibling ALSO needs its own
-   standalone onboard to be worked from its own checkout. Print: "The sibling repo needs
-   its own onboard too, for `/dev-pipeline:run`: `cd <sibling path>` (from the
-   detected sibling candidates), then run `/second-shift:onboard` there. Detection reports
-   `standalone` from that side, so it drafts its own independent config, bot identity, and
-   worktrees dir with no further prompts. **FE-tagged tickets run `/dev-pipeline:run`
-   from the FE repo**, not from here. The `commands.fe` table in this repo's config has no
-   reader — every command reader takes the repo entry at `path: "."` — so edit the FE
-   repo's own `commands.<fe-id>` instead." Offer to `cd`
-   and re-invoke onboard on the sibling now if the session can reach that path; otherwise
-   leave it as the next step.
+   `.claude/SECOND-SHIFT.md` in one PR — **plus**, when the unclaim workflow was accepted at
+   Step 3 item 7, `.github/workflows/second-shift-unclaim.yml` +
+   `.claude/tools/second-shift-unclaim.sh` in the same PR.
+7. **Sibling candidates → offer the sibling's own onboard.** When detection reported
+   `topology.siblingCandidates`, print: "The sibling repo needs its own onboard for
+   `/dev-pipeline:run`: `cd <sibling path>`, then run `/second-shift:onboard` there. Each checkout
+   carries its own config, keyed by its own directory name, and a ticket runs from the checkout
+   of the repo it belongs to — the lane routes by the directory it is launched in." Offer to `cd`
+   and re-invoke onboard on the sibling now if the session can reach that path; otherwise leave
+   it as the next step.

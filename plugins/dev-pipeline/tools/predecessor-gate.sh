@@ -1,28 +1,19 @@
 #!/usr/bin/env bash
-# predecessor-gate.sh — sequential-ordering backstop for `sub-issues-sequential`
-# decompositions. Pure logic: no network, no `gh`, no config reads.
+# predecessor-gate.sh — parser for the `Predecessor:` / `Successor:` trailers that
+# intake-orchestrator writes on `sub-issues-sequential` decompositions. Pure logic: no
+# network, no `gh`, no config reads.
 #
-# Ordering is normally enforced by keeping blocked successors OUT of the queue —
+# Ordering is enforced by keeping blocked successors OUT of the queue:
 # `create-sub-tickets` creates sequential sub-issues N>1 without the queue label, and
-# the operator labels the successor when merging the predecessor's PR. This tool is
-# the backstop for the one case that slips past that: an EARLY-LABELED successor
-# arriving via the queue query with its predecessor still open.
-#
-# The stage doc (stages/1-intake.md) owns every tracker read and composes two calls:
-#
-#   1. extract        — successor body on stdin; prints the trailer keys it found
-#   2. <fetch predecessor state>   (paid ONLY when `extract` printed a predecessor key)
-#   3. verdict <state> — proceed / skip-blocked
-#
-# Splitting it this way keeps network reads in the stage doc and the tool pure logic
-# fed via stdin/args, so its selftest and the liveness scenarios run with zero network
-# and nothing to mock.
+# the operator labels the successor when merging the predecessor's PR. No lane step
+# calls this tool; a caller that wants to check an early-labeled successor composes
+# the two modes around its own tracker read of the predecessor's state.
 #
 # Usage:
 #   printf '%s' "$ISSUE_BODY" | predecessor-gate.sh extract
 #   KEY_PATTERN='[A-Z]+-[0-9]+' printf '%s' "$BODY" | predecessor-gate.sh extract
-#   predecessor-gate.sh verdict closed   # -> exit 0, proceed to claim
-#   predecessor-gate.sh verdict open     # -> exit 3, skip without claiming
+#   predecessor-gate.sh verdict closed   # -> exit 0, predecessor merged: proceed
+#   predecessor-gate.sh verdict open     # -> exit 3, predecessor open: skip
 #
 # Modes:
 #   extract           Read an issue body on stdin. Print `predecessor=<key>` and/or
@@ -44,18 +35,18 @@
 #   - DUPLICATES of one kind: the LAST occurrence wins (git trailer convention).
 #   - A line that starts like a trailer but whose value does not match KEY_PATTERN
 #     prints NO line for that kind, emits a warning on stderr, and still exits 0.
-#     The gate fails OPEN here by design: it is a backstop, not the primary
-#     enforcement, so a malformed trailer must be visible in the run log rather
-#     than abort a run. See the exit table.
+#     It fails OPEN here by design: it is not the primary ordering enforcement,
+#     so a malformed trailer is surfaced on stderr rather than aborting the caller.
+#     See the exit table.
 #   - KNOWN LIMITATION: a trailer quoted inside a fenced code block IS extracted —
 #     there is no fence-state tracking. The strict full-line anchor already excludes
 #     the inline-backticked prose mentions that actually occur in these bodies
 #     (`- \`Predecessor:\`/\`Successor:\` trailers rendered per …` does not match).
 #
 # Exit:
-#   0  extract: always. verdict: predecessor `closed` — proceed to claim.
+#   0  extract: always. verdict: predecessor `closed` — proceed.
 #   2  usage error (unknown mode, missing/invalid verdict state).
-#   3  verdict: predecessor `open` — skip-blocked, do NOT claim.
+#   3  verdict: predecessor `open` — skip-blocked.
 #
 # macOS ships bash 3.2 as /bin/bash; this script stays 3.2-compatible (the selftest
 # drift-check runs there).

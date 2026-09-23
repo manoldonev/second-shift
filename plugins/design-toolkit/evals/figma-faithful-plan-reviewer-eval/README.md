@@ -20,7 +20,7 @@ the two.
 
 Each fixture is deliberately **correct everywhere except the planted defect**. That is what makes
 the score mean something: the only route to a Blocker is to grade the content, not to notice that
-a cell is empty. #701's gate already asserts non-emptiness, and non-emptiness is not the check.
+a cell is empty. Non-emptiness is the plan's own rule, and it is not the check.
 
 ## What the control fixture is protecting
 

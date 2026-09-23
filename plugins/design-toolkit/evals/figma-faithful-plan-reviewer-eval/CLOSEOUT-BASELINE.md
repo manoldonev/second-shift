@@ -59,8 +59,8 @@ That is evidence the agent's checklist is right and that #692's failure was **di
 capability: at the time this baseline was cut, the reviewer was "dispatched by the OPERATOR at
 `figma-faithful` step 7" and by nothing else. An agent that scores 99% on the defects that
 shipped, and does not run on the lane where they shipped, is a routing problem — which was #705's
-subject, not this ticket's. #705 closed it: the lean lane's build session dispatches this agent at
-milestone 3 and commits its verdict for the gate to assert. **The number above is unaffected** —
+subject, not this ticket's. #705 closed it at the time: the retired milestone lane's build session dispatched this agent at
+milestone 3 and committed its verdict for the gate to assert. **The number above is unaffected** —
 it measures the agent against fixtures, not the lane that reaches it.
 
 **A ceiling result is also a weak comparator.** With 0.83 percentage points of headroom, this eval

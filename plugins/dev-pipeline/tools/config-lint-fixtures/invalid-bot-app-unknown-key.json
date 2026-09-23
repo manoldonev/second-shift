@@ -1,9 +1,18 @@
 {
-  "configVersion": 2,
+  "configVersion": 3,
   "tracker": {
     "type": "github",
-    "bot": { "enabled": true, "app": { "clientId": "x", "installId": "42" } }
+    "bot": {
+      "enabled": true,
+      "app": {
+        "clientId": "x",
+        "installId": "42"
+      }
+    }
   },
-  "topology": { "type": "standalone", "repos": { "app": { "path": ".", "baseBranch": "main" } } },
-  "commands": { "app": { "lint": "yarn lint" } }
+  "commands": {
+    "app": {
+      "lint": "yarn lint"
+    }
+  }
 }

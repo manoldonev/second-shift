@@ -16,14 +16,13 @@ lane."*
 **Admission.** A ticket enters the lane only with (a) a row id from the operator's consumer
 scoreboard that is a blocker or an extra round, or (b) a failure of documented shipped behavior
 reproduced in a consumer run or from a consumer clone's `origin/main`. A red seen only in this
-repo's dogfood lane, the lane bench or the selftests is fixed by hand or not filed.
+repo's dogfood lane or the selftests is fixed by hand or not filed.
 
 **Only the operator queues or launches the lane in this repo.** A session never applies
-`ready-for-dev` (intake slices use the no-queue-label form), never records an unintaken-gate
-operator override, never runs `orchestrate.sh`, and never invokes `/dev-pipeline:build` or the
-gate's `entry` / `claim` on a ticket the operator has not queued; on the scheduler's exit 3 it
-stops. It writes the admission evidence into the ticket body and stops. A new file under
-`tools/` or `scripts/` merges only if the same PR deletes a larger one.
+`ready-for-dev` (intake slices use the no-queue-label form) and never runs `run.sh` or
+`/dev-pipeline:run` on a ticket the operator has not queued; on the scheduler's exit 3 it stops.
+It writes the admission evidence into the ticket body and stops. A new file under `tools/` or
+`scripts/` merges only if the same PR deletes a larger one.
 
 ## Never edit release artifacts in a feature PR
 
@@ -75,14 +74,11 @@ to *product* repos where AI tooling is incidental. Here the AI tooling IS the pr
 new capability is `feat:` — typing it `chore:` silently downgrades a minor release to a
 patch.
 
-## A bench finding about how sessions are launched is fixed in the scheduler
+## A session-launch fix lands in the scheduler
 
-The admission rule above decides whether a bench finding is worked at all. When one is, and the
-lane bench (`tools/lane-bench*.sh`) found that a spawned session cannot run as launched (a prompt
-it cannot answer, a missing grant, a wrong flag), the fix lands in
-`plugins/dev-pipeline/skills/run/orchestrate.sh`. A `LANE_ARM_*` knob in the bench wrapper may
-carry it for a cell, but never as the only fix: the bench fixed `EnterWorktree` that way
-in #818, and the scheduler shipped without the fix until real runs stopped as `blocked`.
+When a spawned session cannot run as launched (a prompt it cannot answer, a missing grant, a wrong
+flag), the fix lands in `plugins/dev-pipeline/skills/run/run.sh`, with a row-keyed case in
+`run-selftest.sh` seen failing first — never only in a wrapper or a one-off launch.
 
 ## Verification
 
@@ -94,8 +90,7 @@ SKIP_STRESS=1 bash tools/run-selftests.sh --full --exclude tools/install-topolog
 
 **The third line takes minutes; a foreground `Bash` call is reaped at 2 minutes** whatever its
 `timeout`. Run it as `nohup <cmd> > <log> 2>&1` under `run_in_background` (a bare `&` is reaped
-too). `milestone-gate.sh 3` is the exception: it runs the sweep inline, sized to fit the turn — do
-not detach it and end the turn.
+too).
 
 The recipe runs cold, excludes `tools/install-topology-selftest.sh` (run it directly when your
 change is about how plugins are installed), and a killed sweep leaves `mktemp` litter that can red
@@ -106,8 +101,7 @@ Every checked-in script is **exercised by some selftest**; CI discovers suites b
 selftest needs no registration. CI is model-free by design (no API-billed calls).
 
 The rule is coverage, not naming. Several scripts are covered under a differently-named suite —
-`claim-issue.sh` by `claim-selftest.sh`, `pipeline-cost-block.sh` by `cost-block-selftest.sh`,
-`check-frozen-files.sh` and `check-configversion-migration-doc.sh` by
+`claim-issue.sh` by `claim-selftest.sh`, `check-frozen-files.sh` and `check-configversion-migration-doc.sh` by
 `derive-release-selftest.sh`. Do not "fix" those by adding a same-named suite.
 
 Genuine exceptions, one kind:
@@ -123,13 +117,13 @@ The tier map (where a new guard goes), the scenario-first rule, the no-prose-pre
 no-mirror-harnesses rules and the mjs-seam grep exception live in the `writing-tests` skill — it loads when you touch a test. Full contract:
 [`docs/testing.md`](docs/testing.md).
 
-**One thing in there binds ordinary PRs, not just test authorship:** a new gate contract must
-extend the liveness scenario. Read the skill before adding one.
+**One thing in there binds ordinary PRs, not just test authorship:** a change to `run.sh` lands
+with a row-keyed case in `run-selftest.sh` seen failing first. Read the skill before making one.
 
 Testing: [`docs/testing.md`](docs/testing.md) — the tier map, the runtime shim, and the operator-run adversarial recipe.
 
 Release process: [`docs/releasing.md`](docs/releasing.md) — the checklist of record.
 
-Consumer evaluation: [`docs/consumer-eval.md`](docs/consumer-eval.md) — releases record no replay; evaluation is the operator's read of consumer verdict records, plus the pinned-base recipe a one-off replay uses.
+Consumer evaluation: [`docs/consumer-eval.md`](docs/consumer-eval.md) — releases record no replay; evaluation is the operator's read of consumer runs' records and verdicts, plus the pinned-base recipe a one-off replay uses.
 
 Enforcement principles: [`docs/pipeline-manifesto.md`](docs/pipeline-manifesto.md) — P1–P10, the trust boundary, and the T0 note. A judgment aid, not a gate.

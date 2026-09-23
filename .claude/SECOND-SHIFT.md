@@ -20,9 +20,10 @@ BEFORE the prompt.
 ## What each plugin installs and when its code runs
 
 ### dev-pipeline
-- Skills: `/dev-pipeline:run` (the lane's front door, invoked as `/dev-pipeline:run`), `/dev-pipeline:build`, `/dev-pipeline:review`, `pipeline-retro`, `perf-retro`, `pr-revision` — loaded only when invoked.
-- Hook: a PreToolUse gate on `git commit` commands (normal and bot-identity forms) that runs the repo's type-check on staged changes during pipeline commits.
-- Shell tools (`milestone-gate.sh`, `reconcile.sh`, `config-lint.sh`, `pipeline-doctor.sh`…) run only when the lane or a `/second-shift:*` command invokes them; run records live in `.claude/pipeline-state/`.
+- Skills: `/dev-pipeline:run` (the lane's front door), `/dev-pipeline:review` (the manual review), `pr-revision` — loaded only when invoked.
+- `/dev-pipeline:run` drives `run.sh`: it claims the ticket, creates a worktree beside this repo, commits the intake record as the branch's first commit, and runs fresh `claude -p` build and review sessions (edits accepted, no prompts, an explicit tool allowlist) with the configured checks between them, until a review approves the current head or a budget is spent. It never merges.
+- Hook: a PreToolUse gate on `git commit` commands (normal and bot-identity forms) that runs the repo's type-check on staged changes.
+- Shell tools (`run.sh`, `config-lint.sh`, `gh-bot.sh`, `bot-commit.sh`, `claim-issue.sh`…) run only when the lane or a `/second-shift:*` command invokes them; run logs live in `.claude/pipeline-state/`.
 
 ### review-toolkit
 - Skills: `review-lead`, `mutation-review`, `reviewer-baseline` — loaded only when invoked.

@@ -18,7 +18,7 @@ Companion skill to the dev-pipeline. Addresses human PR review comments after a 
 - `gh auth status` must succeed
 - Repository must have label: `in-progress`
 - The PR must be open (not closed or merged)
-- Worktree base dir: config `topology.repos.<host>.worktreesDir`
+- Worktree base dir: `$RUN_WORKTREE_ROOT`, else `<parent of the main checkout>/<repo>-worktrees` — the scheduler's rule
 
 ## Bot Identity
 
@@ -169,7 +169,8 @@ BRANCH=$(gh pr view $PR_NUMBER --json headRefName --jq '.headRefName')
 # Pull latest from remote
 git fetch origin "$BRANCH"
 
-# WORKTREES_DIR = config topology.repos.<host>.worktreesDir
+MAIN_ROOT=$(cd "$(git rev-parse --git-common-dir)/.." && pwd)
+WORKTREES_DIR="${RUN_WORKTREE_ROOT:-$(dirname "$MAIN_ROOT")/$(basename "$MAIN_ROOT")-worktrees}"
 WORKTREE_PATH="${WORKTREES_DIR}/pr-${PR_NUMBER}"
 
 if git worktree list | grep -q "$WORKTREE_PATH"; then
@@ -188,11 +189,11 @@ PRE_REVISION_SHA=$(git rev-parse HEAD)
 - All file paths in steps 5-8 are relative to the worktree root.
 - Read the existing plan file from the worktree (if any) to understand original implementation context.
 
-**Non-default base check:** If the PR's base branch is not the host's configured base branch (config `topology.repos.<host>.baseBranch`), verify the base branch tip matches `origin/<base>`:
+**Non-default base check:** If the PR's base branch is not the remote's default branch, verify the base branch tip matches `origin/<base>`:
 
 ```bash
 BASE_BRANCH=$(gh pr view $PR_NUMBER --json baseRefName --jq '.baseRefName')
-# HOST_BASE_BRANCH = config topology.repos.<host>.baseBranch
+HOST_BASE_BRANCH=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||'); HOST_BASE_BRANCH=${HOST_BASE_BRANCH:-$(git rev-parse -q --verify origin/main >/dev/null && echo main || echo master)}
 if [ "$BASE_BRANCH" != "$HOST_BASE_BRANCH" ]; then
   git fetch origin "$BASE_BRANCH"
   LOCAL_BASE=$(git merge-base HEAD "origin/$BASE_BRANCH")
@@ -276,7 +277,7 @@ Workflow({ scriptPath: "<staged>/code-review.mjs",
            // passed here, so that reviewer never spawns and `tracker` goes unread today —
            // sending it anyway means a later revision that starts passing `issue` cannot
            // silently lose tracker routing. CONFIG below = the parsed
-           // second-shift.config.json. Passing CONFIG whole sends `commands.<host>`
+           // second-shift.config.json. Passing CONFIG whole sends `commands.<id>`
            // shell-command strings and a top-level `$schema` through Workflow arg
            // serialization — the payload that killed a dispatch outright; passing
            // `{ reviewers: {} }` is the opposite trap, serializing cleanly while silently

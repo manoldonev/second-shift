@@ -3,9 +3,8 @@
 # Self-test for the intake read-surface pin wiring (#59).
 #
 # A drift-check in the style of claim-selftest.sh's parity tail: pure-local, no
-# Claude CLI, no network. The pin is model-executed prose (stages/1-intake.md
-# Step 1.P) plus ONE code seam — the `readRoot` arg in workflows/intake-review.mjs
-# that prefixes every dispatch prompt with the pinned-read instruction. This test
+# Claude CLI, no network. The pin's one code seam is the `readRoot` arg in
+# workflows/intake-review.mjs that prefixes every dispatch prompt with the pinned-read instruction. This test
 # pins the load-bearing tokens of that seam so a refactor cannot silently drop the
 # pin from one (or both) dispatch prompts.
 #

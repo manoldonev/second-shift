@@ -60,25 +60,28 @@ ERRORS=$(jq -r --argjson shippedTiers "$SHIPPED_TIERS_JSON" '
   def npm_no_fix_forward: (. // "") as $c | ($c | test("^npm run ")) and (($c | rtrimstr(" ")) | endswith("--") | not);
 
   # ---- top level ----------------------------------------------------------
-  err((.configVersion? | type) != "number"; "configVersion: required number (current: 2)")
-  + err(((.configVersion? | type) == "number") and .configVersion > 2;
+  # A retired key is rejected by NAME, with what to write instead and the migration pointer, and
+  # stays in the allowlist beneath so that message fires INSTEAD of a bare "unknown top-level
+  # keys", which would name the key without saying what happened to it. The allowlist entry is
+  # message routing: the schema no longer publishes these keys.
+  ("(docs/migrations/v2-to-v3.md)") as $v3doc
+  | err((.configVersion? | type) != "number"; "configVersion: required number (current: 3)")
+  + err(((.configVersion? | type) == "number") and .configVersion > 3;
         "configVersion \(.configVersion) is newer than this plugin understands — upgrade the marketplace pin (docs/releasing.md)")
-  + err(((.configVersion? | type) == "number") and .configVersion < 2;
-        "configVersion \(.configVersion) predates this plugin (current: 2) — see docs/migrations/v1-to-v2.md for the upgrade path")
+  + err(((.configVersion? | type) == "number") and .configVersion < 3;
+        "configVersion \(.configVersion) predates this plugin (current: 3) — see docs/migrations/v2-to-v3.md for the upgrade path" + (if .configVersion < 2 then " (apply docs/migrations/v1-to-v2.md first)" else "" end))
   + err((.tracker | type) != "object"; "tracker: required object")
-  + err((.topology | type) != "object"; "topology: required object")
   + err((.commands | type) != "object"; "commands: required object")
-  # EP-6/EP-7/EP-8 retired in #569. Same shape as stageParams.visualCapture below and as
-  # gates.costTracking/figma/apiTests above: a NAMED rejection, and the retired key stays in
-  # the allowlist beneath so this message fires INSTEAD of a bare "unknown top-level keys",
-  # which would name the key without saying what happened to it. The keys are not legal —
-  # the allowlist entry is message routing, and the schema no longer publishes them.
-  + err(has("stageWorkflows"); "stageWorkflows was removed in #569 — the EP-6 dispatcher was the staged lane, deleted in #348, so a registered stage workflow silently stopped running. Nothing replaced it: an additive VERIFY lane is commands.<repo>.extraLanes, read by milestone-gate.sh milestone 3. Delete the key from your config (docs/migrations/v1-to-v2.md; the shape is kept as a design record in docs/extending.md §3.6)")
-  + err(has("implementDelegates"); "implementDelegates was removed in #569 — the EP-7 router was the staged lane implement step, deleted in #348, so a registered delegate silently stopped being routed to. The pipeline is outcome-gated and silent on HOW the diff is produced, so a build session may still dispatch the same agent by choice; what has no home on the lane is the config-routed surface-to-agent mechanism. Delete the key from your config (docs/migrations/v1-to-v2.md; the shape is kept as a design record in docs/extending.md §3.7)")
-  + err(has("planGates"); "planGates was removed in #569 — the EP-8 dispatcher was the staged lane plan-gate step, deleted in #348, so a registered BLOCKING plan gate silently stopped running. There is no plan gate on the pipeline for one to be additive to; the spec is judged at the merge boundary by /dev-pipeline:review. Delete the key from your config (docs/migrations/v1-to-v2.md; the shape is kept as a design record in docs/extending.md §3.8)")
+  + err(has("stageWorkflows"); "stageWorkflows was removed — a registered stage workflow had stopped running when the staged lane was deleted. Nothing replaced it: an additive check is commands.<id>.extraLanes, run by /dev-pipeline:run after every build. Delete the key from your config (docs/migrations/v1-to-v2.md; the shape is kept as a design record in docs/extending.md §3.6)")
+  + err(has("implementDelegates"); "implementDelegates was removed — a registered delegate had stopped being routed to when the staged lane was deleted. The pipeline is outcome-gated and silent on HOW the diff is produced, so a build session may still dispatch the same agent by choice; what has no home is the config-routed surface-to-agent mechanism. Delete the key from your config (docs/migrations/v1-to-v2.md; the shape is kept as a design record in docs/extending.md §3.7)")
+  + err(has("planGates"); "planGates was removed — a registered plan gate had stopped running when the staged lane was deleted. There is no plan gate on the pipeline for one to be additive to; the record is judged by /dev-pipeline:review. Delete the key from your config (docs/migrations/v1-to-v2.md; the shape is kept as a design record in docs/extending.md §3.8)")
+  + err(has("topology"); "topology was removed in configVersion 3 — nothing reads it: the base branch is the remote default branch, worktrees go under RUN_WORKTREE_ROOT, and commands is keyed by any id. Delete the block " + $v3doc)
+  + err(has("gates"); "gates was removed in configVersion 3 — delete the block " + $v3doc)
+  + err(has("stageParams"); "stageParams was removed in configVersion 3 — delete the block; webComponentGlobs moves to reviewers.webComponentGlobs " + $v3doc)
+  + err(has("grillWaivers"); "grillWaivers was removed in configVersion 3 — config-grill findings are advisory now (doctor and onboard report them as WARN), so there is nothing to waive. Delete the key " + $v3doc)
   + err(
-      (keys - ["$schema","configVersion","tracker","topology","commands","reviewers","paths","gates","design","run","stageParams","stageWorkflows","implementDelegates","planGates","grillWaivers"]) != [];
-      "unknown top-level keys: " + ((keys - ["$schema","configVersion","tracker","topology","commands","reviewers","paths","gates","design","run","stageParams","stageWorkflows","implementDelegates","planGates","grillWaivers"]) | join(", "))
+      (keys - ["$schema","configVersion","tracker","commands","reviewers","paths","design","run","topology","gates","stageParams","grillWaivers","stageWorkflows","implementDelegates","planGates"]) != [];
+      "unknown top-level keys: " + ((keys - ["$schema","configVersion","tracker","commands","reviewers","paths","design","run","topology","gates","stageParams","grillWaivers","stageWorkflows","implementDelegates","planGates"]) | join(", "))
     )
 
   # ---- tracker -------------------------------------------------------------
@@ -111,39 +114,28 @@ ERRORS=$(jq -r --argjson shippedTiers "$SHIPPED_TIERS_JSON" '
       + ((.app // {}) | err((type == "object") and ((keys) - ["clientId","appName","privateKeyFilename","installationId"]) != []; "tracker.bot.app: unknown keys"))
     )
 
-  # ---- topology ------------------------------------------------------------
-  + err((.topology.type? // "") | IN("standalone","be-fe-pair","monorepo") | not; "topology.type must be standalone|be-fe-pair|monorepo")
-  + err(((.topology.repos? // {}) | length) < 1; "topology.repos: at least one repo required")
-  + ((.topology.repos // {}) | to_entries | map(
-      err((.value.path? // "") == ""; "topology.repos." + .key + ".path: required")
-      + err((.value.baseBranch? // "") == ""; "topology.repos." + .key + ".baseBranch: required")
-      + err(((.value | keys) - ["path","baseBranch","worktreesDir","ticketTag"]) != []; "topology.repos." + .key + ": unknown keys")
-    ) | add // [])
-  + err(
-      (.topology.type? == "be-fe-pair") and ((((.topology.repos? // {}) | keys) | contains(["be","fe"])) | not);
-      "topology.type be-fe-pair requires repos.be and repos.fe"
-    )
-  + err(
-      (.topology.type? == "monorepo") and
-      ((((.topology.repos? // {}) | length) > 1) or
-       (((.topology.repos? // {}) | to_entries | map(select(.value.path? == ".")) | length) < 1));
-      "topology.type monorepo requires exactly one topology.repos entry with path \".\" — a second independent verify surface is not a second repos entry, ship it via commands.<id>.lanes / extraLanes instead"
-    )
+  # ---- retired: topology -----------------------------------------------------
+  + (if (.topology | type) == "object" then (.topology |
+      err(has("type"); "topology.type was removed in configVersion 3 — there is no topology to declare: each repo is onboarded on its own " + $v3doc)
+      + (if (.repos | type) == "object" then (.repos | to_entries | map(
+          .key as $id | (.value | if type == "object" then . else {} end) |
+            err(has("path"); "topology.repos." + $id + ".path was removed in configVersion 3 — commands and liveRender run in the ticket worktree of the repo the config lives in " + $v3doc)
+          + err(has("baseBranch"); "topology.repos." + $id + ".baseBranch was removed in configVersion 3 — the base branch is the remote default branch (origin/HEAD); change it on the code host " + $v3doc)
+          + err(has("worktreesDir"); "topology.repos." + $id + ".worktreesDir was removed in configVersion 3 — export RUN_WORKTREE_ROOT instead (default: <parent>/<repo>-worktrees) " + $v3doc)
+          + err(has("ticketTag"); "topology.repos." + $id + ".ticketTag was removed in configVersion 3 — nothing routes on it; say the repo in the ticket title or body " + $v3doc)
+        ) | add // []) else [] end)
+    ) else [] end)
 
   # ---- commands ------------------------------------------------------------
-  + err(
-      ((.commands // {}) | keys) - ((.topology.repos // {}) | keys) != [];
-      "commands keyed by unknown repo ids: " + ((((.commands // {}) | keys) - ((.topology.repos // {}) | keys)) | join(", "))
-    )
+  # Keyed by an id, and not cross-checked against anything: /dev-pipeline:run uses the sole key,
+  # else the key equal to the directory name of this checkout.
   + ((.commands // {}) | to_entries | map(
       (.key as $repo | .value |
-        # unitTestScope/testFile retired in #574 with the mutation-gate engine (their only
-        # functional reader, itself unreachable since #348). Same shape as the EP-6/7/8
-        # retirement above: a NAMED rejection, and the retired keys stay in the unknown-keys
-        # allowlist so this message — not the generic one — is what a consumer sees.
-        err(has("unitTestScope"); "commands." + $repo + ".unitTestScope was removed in #574 — the unit-test mutation engine that read it (workflows/mutation-gate.mjs) lost its dispatcher in #348 and was retired, so the key armed nothing. The mutation seam is repo-carried AND repo-run: ship tools/mutation-sweep.sh and wire it on your own merge boundary — since #580 no second-shift gate runs it (docs/onboarding.md) — and gates.mutation declares the intent. Delete the key from your config (docs/migrations/v1-to-v2.md)")
-        + err(has("testFile"); "commands." + $repo + ".testFile was removed in #574 — it was the retired unit-test mutation engine\u0027s per-spec runner template, read by nothing else. Delete the key from your config (docs/migrations/v1-to-v2.md)")
-        + err(((keys) - ["lint","lintAutofixes","typecheck","test","testFile","unitTestScope","format","lanes","extraLanes","allowUnverified"]) != []; "commands." + $repo + ": unknown keys (note: integrationTest/apiTest were removed in v2.1.6, commands.<repo>.build was removed (#113: never executed by any verify lane) — ship those tiers via extraLanes; see docs/migrations)")
+        # unitTestScope/testFile: retired keys rejected by NAME, and kept in the unknown-keys
+        # allowlist below so this message, not the generic one, is what a consumer sees.
+        err(has("unitTestScope"); "commands." + $repo + ".unitTestScope was removed — the unit-test mutation engine that read it was retired, so the key armed nothing. For mutation coverage, add your own mutation tool as a commands.<id>.extraLanes check. Delete the key from your config (docs/migrations/v1-to-v2.md)")
+        + err(has("testFile"); "commands." + $repo + ".testFile was removed — it was the retired unit-test mutation engine\u0027s per-spec runner template, read by nothing else. Delete the key from your config (docs/migrations/v1-to-v2.md)")
+        + err(((keys) - ["lint","lintAutofixes","typecheck","test","testFile","unitTestScope","format","lanes","extraLanes","allowUnverified"]) != []; "commands." + $repo + ": unknown keys (note: integrationTest/apiTest were removed in v2.1.6, commands.<repo>.build was removed — ship those tiers via extraLanes; see docs/migrations)")
         + ([to_entries[] | select(.key | IN("lint","typecheck","test","format")) |
             err((.value | type) | IN("string","null") | not; "commands." + $repo + "." + .key + ": must be string or null")
           ] | add // [])
@@ -168,8 +160,9 @@ ERRORS=$(jq -r --argjson shippedTiers "$SHIPPED_TIERS_JSON" '
               err(((keys) - ["name","cwd","commands"]) != []; "commands." + $repo + ".lanes[" + ($li|tostring) + "]: unknown keys")
               + err((.name? // "") == ""; "commands." + $repo + ".lanes[" + ($li|tostring) + "].name: required")
               + err((.cwd? != null) and ((.cwd | type) != "string"); "commands." + $repo + ".lanes[" + ($li|tostring) + "].cwd: must be string")
+              + err((.commands? == null); "commands." + $repo + ".lanes[" + ($li|tostring) + "].commands: required")
               + err((.commands? != null) and ((.commands | type) != "array"); "commands." + $repo + ".lanes[" + ($li|tostring) + "].commands: must be array")
-              + err((.commands? != null) and ((.commands | type) == "array") and ((.commands | length) < 1); "commands." + $repo + ".lanes[" + ($li|tostring) + "].commands: at least one required when present")
+              + err(((.commands? | type) == "array") and ((.commands | length) < 1); "commands." + $repo + ".lanes[" + ($li|tostring) + "].commands: at least one required")
               end
             )
           ) | add // []) end)
@@ -197,7 +190,9 @@ ERRORS=$(jq -r --argjson shippedTiers "$SHIPPED_TIERS_JSON" '
   + ((.reviewers // {}) |
       (["haiku","sonnet","opus","fable"]) as $models
       | ($shippedTiers + ((.tierMap // {}) | if type == "object" then keys else [] end)) as $tiers
-      | err(((keys) - ["add","remove","default","modelOverrides","tierMap"]) != []; "reviewers: unknown keys")
+      | err(((keys) - ["add","remove","default","modelOverrides","tierMap","webComponentGlobs"]) != []; "reviewers: unknown keys")
+      + err((.webComponentGlobs? != null) and ((.webComponentGlobs | type) != "array"); "reviewers.webComponentGlobs: must be array")
+      + ((.webComponentGlobs // []) | if type == "array" then (map(select((type) != "string")) | if length > 0 then ["reviewers.webComponentGlobs: every entry must be a string"] else [] end) else [] end)
       + err((.add? != null) and ((.add | type) != "array"); "reviewers.add: must be array")
       + err((.remove? != null) and ((.remove | type) != "array"); "reviewers.remove: must be array")
       + ((.remove // []) | if type == "array" then (map(select((type) != "string")) | if length > 0 then ["reviewers.remove: every entry must be a string"] else [] end) else [] end)
@@ -222,7 +217,7 @@ ERRORS=$(jq -r --argjson shippedTiers "$SHIPPED_TIERS_JSON" '
         ) | add // [])
     )
 
-  # ---- paths / gates / design ------------------------------------------------
+  # ---- paths / run / design ------------------------------------------------
   + ((.paths // {}) |
       err(((keys) - ["plansDir","pipelineStateDir"]) != []; "paths: unknown keys")
       + err((.plansDir? != null) and ((.plansDir | type) != "string"); "paths.plansDir: must be string")
@@ -231,86 +226,46 @@ ERRORS=$(jq -r --argjson shippedTiers "$SHIPPED_TIERS_JSON" '
   + ((.run // {}) |
       err((type) != "object"; "run: must be object")
       + err(((keys) - ["maxRounds","checksRedMax","buildTimeoutSeconds","reviewTimeoutSeconds","costCeilingUsd"]) != []; "run: unknown keys")
-      + err((.maxRounds? != null) and (((.maxRounds | type) != "number") or (.maxRounds < 1)); "run.maxRounds: must be an integer >= 1")
-      + err((.checksRedMax? != null) and (((.checksRedMax | type) != "number") or (.checksRedMax < 1)); "run.checksRedMax: must be an integer >= 1")
-      + err((.buildTimeoutSeconds? != null) and (((.buildTimeoutSeconds | type) != "number") or (.buildTimeoutSeconds < 60)); "run.buildTimeoutSeconds: must be an integer >= 60")
-      + err((.reviewTimeoutSeconds? != null) and (((.reviewTimeoutSeconds | type) != "number") or (.reviewTimeoutSeconds < 60)); "run.reviewTimeoutSeconds: must be an integer >= 60")
-      + err((.costCeilingUsd? != null) and (((.costCeilingUsd | type) != "number") or (.costCeilingUsd < 0)); "run.costCeilingUsd: must be a number >= 0")
+      + err((.maxRounds? != null) and (((.maxRounds | type) != "number") or (.maxRounds != (.maxRounds | floor)) or (.maxRounds < 1)); "run.maxRounds: must be an integer >= 1")
+      + err((.checksRedMax? != null) and (((.checksRedMax | type) != "number") or (.checksRedMax != (.checksRedMax | floor)) or (.checksRedMax < 1)); "run.checksRedMax: must be an integer >= 1")
+      + err((.buildTimeoutSeconds? != null) and (((.buildTimeoutSeconds | type) != "number") or (.buildTimeoutSeconds != (.buildTimeoutSeconds | floor)) or (.buildTimeoutSeconds < 60)); "run.buildTimeoutSeconds: must be an integer >= 60")
+      + err((.reviewTimeoutSeconds? != null) and (((.reviewTimeoutSeconds | type) != "number") or (.reviewTimeoutSeconds != (.reviewTimeoutSeconds | floor)) or (.reviewTimeoutSeconds < 60)); "run.reviewTimeoutSeconds: must be an integer >= 60")
+      + err((.costCeilingUsd? != null) and (((.costCeilingUsd | type) != "number") or (.costCeilingUsd <= 0)); "run.costCeilingUsd: must be a number > 0")
     )
-  + ((.gates // {}) |
-      err(has("figma"); "gates.figma was removed in v2 — use design: {\"provider\": ...} (docs/migrations/v1-to-v2.md)")
-      + err(has("apiTests"); "gates.apiTests was removed in v2 — ship an API-test tier via commands.<repo>.extraLanes, an additive verify lane with a real failureClass (docs/migrations/v1-to-v2.md)")
-      + err(has("costTracking"); "gates.costTracking was removed in v2.1.6 — local OTel cost attribution now runs unconditionally (passive, never blocks); the toggle had no reader (docs/migrations/v1-to-v2.md)")
-      + err(((keys) - ["mutation","costTracking","figma","apiTests"]) != [];
-            "gates: unknown keys: " + (((keys) - ["mutation","costTracking","figma","apiTests"]) | join(", ")))
-      + (to_entries | map(select(.key == "mutation") | err((.value | type) != "boolean"; "gates." + .key + ": must be boolean")) | add // [])
-    )
-  + (if (.design != null) then ((.topology.repos // {} | keys) as $repoIds | .design |
+  + (if (.design != null) then (.design |
       err((type) != "object"; "design: must be object")
       + err(((keys) - ["provider","liveRender"]) != []; "design: unknown keys")
       + err((.provider? // "") | IN("figma","claude-design") | not; "design.provider must be figma|claude-design")
       + (if (.liveRender != null) then (.liveRender |
           err((type) != "object"; "design.liveRender: must be object")
-          + err(((keys) - ["command","cwd","readyProbe","tolerancePx","smokeCommand"]) != []; "design.liveRender: unknown keys")
+          + err(has("tolerancePx"); "design.liveRender.tolerancePx was removed in configVersion 3 — the pixel-tolerance compare is replaced by the route smoke /dev-pipeline:run runs after every build; set design.liveRender.smokeCommand " + $v3doc)
+          + err(has("cwd"); "design.liveRender.cwd was removed in configVersion 3 — the render command runs in the ticket worktree; put any cd into the command itself; if it named another repo, move design into that repo config " + $v3doc)
+          + err(((keys) - ["command","readyProbe","smokeCommand","tolerancePx","cwd"]) != []; "design.liveRender: unknown keys")
           + err((.command? // "") == ""; "design.liveRender.command: required")
           + err((.command? != null) and ((.command | type) != "string"); "design.liveRender.command: must be string")
           + err((.smokeCommand? != null) and ((.smokeCommand | type) != "string"); "design.liveRender.smokeCommand: must be string")
-          + err((.cwd? != null) and ((.cwd | type) != "string"); "design.liveRender.cwd: must be string")
-          + err((.cwd? != null) and ((.cwd | type) == "string") and ($repoIds != []) and ((.cwd as $c | $repoIds | index($c)) == null); "design.liveRender.cwd: not a topology.repos id")
           + err((.readyProbe? != null) and ((.readyProbe | type) != "string"); "design.liveRender.readyProbe: must be string")
-          + err((.tolerancePx? != null) and (((.tolerancePx | type) != "number") or ((.tolerancePx | floor) != .tolerancePx) or (.tolerancePx < 0)); "design.liveRender.tolerancePx: must be a non-negative integer")
         ) else [] end)
     ) else [] end)
-  # ---- grillWaivers ----------------------------------------------------------
-  # Declared opt-outs for config-grill.sh findings (shipped in the second-shift plugin,
-  # run by /second-shift:onboard and /second-shift:doctor). Keys are CHECK IDS carrying
-  # the repo id where the check is per-repo (e.g. "T4.mutation-plumbing.api") — never a
-  # dotted config path, which would silence two distinct checks that share a key, and
-  # never a bare check id, which would silence every repo under a multi-repo topology.
-  # The value is the human-authored reason; an empty one is a waiver with no accountability.
-  + (if (.grillWaivers != null) then (.grillWaivers |
-      err((type) != "object"; "grillWaivers: must be an object keyed by config-grill check id")
-      + (if (type) == "object" then (to_entries | map(
-          err(((.value | type) != "string") or ((.value | length) == 0);
-              "grillWaivers." + .key + ": must be a non-empty reason string")
-        ) | add // []) else [] end)
-    ) else [] end)
 
-  + (if (.stageParams != null) then (.stageParams |
-      err((type) != "object"; "stageParams: must be object")
-      + err(has("visualCapture"); "stageParams.visualCapture was removed in #348 — the advisory smoke-capture died with the staged lane and has no lean reader. The blocking design check is design.liveRender (docs/live-render.md, docs/migrations/v1-to-v2.md)")
-      + err(((keys) - ["planFilePattern","requiredLabels","visualCapture","webComponentGlobs","formatGlob","inertPattern"]) != []; "stageParams: unknown keys")
-      + err((.planFilePattern? != null) and ((.planFilePattern | type) != "string"); "stageParams.planFilePattern: must be string")
-      + err((.formatGlob? != null) and ((.formatGlob | type) != "string"); "stageParams.formatGlob: must be string")
-      + err((.inertPattern? != null) and ((.inertPattern | type) != "string"); "stageParams.inertPattern: must be string")
-      + err((.inertPattern? != null) and ((.inertPattern | type) == "string") and (.inertPattern == ""); "stageParams.inertPattern: must be non-empty (omit the key to use the default inert set)")
-      + err((.requiredLabels? != null) and ((.requiredLabels | type) != "array"); "stageParams.requiredLabels: must be array")
-      + ((.requiredLabels // []) | if type == "array" then (map(select((type) != "string")) | if length > 0 then ["stageParams.requiredLabels: every entry must be a string"] else [] end) else [] end)
-      + err((.webComponentGlobs? != null) and ((.webComponentGlobs | type) != "array"); "stageParams.webComponentGlobs: must be array")
-      + ((.webComponentGlobs // []) | if type == "array" then (map(select((type) != "string")) | if length > 0 then ["stageParams.webComponentGlobs: every entry must be a string"] else [] end) else [] end)
+  # ---- retired: gates, stageParams ---------------------------------------------
+  + (if (.gates | type) == "object" then (.gates |
+      err(has("mutation"); "gates.mutation was removed in configVersion 3 — nothing read it; for mutation coverage, add your own mutation tool as a commands.<id>.extraLanes check " + $v3doc)
+      + err(has("figma"); "gates.figma was removed in v2 — use design: {\"provider\": ...} (docs/migrations/v1-to-v2.md)")
+      + err(has("apiTests"); "gates.apiTests was removed in v2 — ship an API-test tier via commands.<id>.extraLanes (docs/migrations/v1-to-v2.md)")
+      + err(has("costTracking"); "gates.costTracking was removed in v2.1.6 — the toggle had no reader (docs/migrations/v1-to-v2.md)")
+    ) else [] end)
+  + (if (.stageParams | type) == "object" then (.stageParams |
+      err(has("visualCapture"); "stageParams.visualCapture was removed — the advisory smoke-capture has no reader. The design check is the route smoke, design.liveRender.smokeCommand " + $v3doc)
+      + err(has("planFilePattern"); "stageParams.planFilePattern was removed in configVersion 3 — the committed intake record is always <paths.plansDir>/<repo>-<key>-decisions.md " + $v3doc)
+      + err(has("requiredLabels"); "stageParams.requiredLabels was removed in configVersion 3 — the label vocabulary is tracker.labels (queue, claimed, and tracker.labels.blockers for the do-not-pick-up set; github only — under jira delete the key, nothing replaces it) " + $v3doc)
+      + err(has("webComponentGlobs"); "stageParams.webComponentGlobs moved to reviewers.webComponentGlobs in configVersion 3 — same value, new key " + $v3doc)
+      + err(has("formatGlob"); "stageParams.formatGlob was removed in configVersion 3 — nothing read it; the format check is commands.<id>.format " + $v3doc)
+      + err(has("inertPattern"); "stageParams.inertPattern was removed in configVersion 3 — every configured check runs on every build, so there is no inert-diff classifier to override " + $v3doc)
     ) else [] end)
 
   | .[]
 ' "$CONFIG")
-
-# stageParams.inertPattern must actually COMPILE as an ERE. jq can only check that it
-# is a non-empty string; whether `grep -E` accepts it is knowable only by asking grep.
-# Doing it here means a typo is a config-time rejection rather than a verify-time surprise
-# — and while is-inert-diff.sh fails closed to SUITE on an uncompilable pattern, that
-# is a safety net, not a diagnosis: it fires once per verify with the run already
-# underway. rc 0/1 are both "compiled" (matched / did not match); rc >= 2 is the
-# compile failure. Empty input keeps this a pure syntax probe.
-INERT_PATTERN_CFG=$(jq -r '.stageParams.inertPattern // empty' "$CONFIG" 2>/dev/null)
-if [[ -n "$INERT_PATTERN_CFG" ]]; then
-  # rc must be captured from grep itself, not read as $? inside an `if !` branch
-  # (there it is the negation's status, always 0). `|| true` keeps `set -e` out of it,
-  # since rc 1 — "compiled fine, matched nothing" — is the expected result here.
-  grep_rc=0
-  printf '' | grep -E "$INERT_PATTERN_CFG" >/dev/null 2>&1 || grep_rc=$?
-  if [[ "$grep_rc" -ge 2 ]]; then
-    ERRORS="${ERRORS:+$ERRORS$'\n'}stageParams.inertPattern: not a valid extended regular expression (grep -E rejected it)"
-  fi
-fi
 
 if [[ -n "$ERRORS" ]]; then
   echo "config-lint: $CONFIG:" >&2

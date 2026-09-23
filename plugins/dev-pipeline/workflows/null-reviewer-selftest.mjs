@@ -74,7 +74,7 @@ async function main() {
     // predicate is retired; the contract tokens below are its replacements. The reference
     // harness above still models the DARK-MARKER CONTRACT (result/error/retried/failed/
     // ceiling shapes), which is transport-independent and unchanged; the transport itself
-    // is guarded by check-bounded-exploration-selftest.sh and the stall probe.
+    // is guarded by the stall probe.
     // parseReviewResult / REVIEW_RESULT are covered stronger by text-contract-selftest.sh, which
     // byte-locksteps AND executes the extracted production copies; the three-dot range token is
     // guarded by diff-range-selftest.sh Cases C-F (backtick-free token + a two-dot ABSENCE check
@@ -96,10 +96,9 @@ async function main() {
         : fail(`F drift-guard: code-review.mjs is MISSING \`${tok}\` (${why}) — production lost the behavior this selftest validates`)
     }
 
-    // F-wiring: a constant that exists but reaches no prompt is the exact rot
-    // check-bounded-exploration.sh was written for ("shipped on exactly one of six
-    // dispatchers and the omission went unnoticed for months"). PROGRESSIVE_EMIT is not
-    // BOUNDED_*, so that lint's dormancy rule does not see it — pin its wiring here.
+    // F-wiring: a constant that exists but reaches no prompt is a known rot ("shipped on
+    // exactly one of six dispatchers and the omission went unnoticed for months") — pin
+    // PROGRESSIVE_EMIT's wiring here.
     // Count APPENDS (`+\n      PROGRESSIVE_EMIT`), not mentions: the definition and the
     // explanatory comments also contain the bare name, so a mention count cannot tell a
     // wired constant from a dead one.

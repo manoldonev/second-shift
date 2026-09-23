@@ -131,10 +131,10 @@ const CODEBASE_EXPLORER_SCHEMA = {
 //   agents       — optional subset to dispatch (default both). Bug/chore intake passes
 //                  ['spec-reviewer'] for the spec-review-only path.
 //   readRoot     — optional ABSOLUTE path to the pinned read surface (the
-//                  detached origin/<base> worktree from Step 1.P). When set, every
+//                  detached origin/<base> worktree). When set, every
 //                  sub-agent is instructed to perform ALL codebase reads under it and
 //                  never the main checkout (whose branch/dirty state must not inform
-//                  intake — see stages/1-intake.md Step 1.P / issue #59). Empty = the
+//                  intake). Empty = the
 //                  legacy unpinned behavior (reads resolve against the session CWD).
 // `args` arrives as the value passed to Workflow's `args` input. Defensive: it may
 // be an object, or (per the Workflow contract's stringified-args caveat) a JSON string.

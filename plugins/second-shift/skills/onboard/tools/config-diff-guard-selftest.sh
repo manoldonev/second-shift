@@ -193,6 +193,42 @@ expect_no_delta "a rewritten \$schema never fires" "$SCHEMA_KEY"
 expect_delta "a sibling key in the same document still fires" tracker.type changed '"github"' '"jira"'
 expect_count "the exclusion is one key, not a document-wide mute" 1
 
+# --- the v2 → v3 migration ------------------------------------------------------------------------
+# A re-onboard of a configVersion 2 config drafts the v3 shape, which cannot carry the removed
+# keys. Their leaves go to retired[] — shown, never blocking — while every surviving key is still
+# protected. configVersion itself is rewritten like $schema. webComponentGlobs MOVED, so its value
+# is compared at reviewers.webComponentGlobs: carried over, it is silent; dropped, it is a delta.
+cat > "$TMP/e5.json" <<'EOF'
+{ "configVersion": 2, "tracker": { "type": "github" },
+  "topology": { "type": "standalone", "repos": { "app": { "path": ".", "baseBranch": "main" } } },
+  "gates": { "mutation": true },
+  "stageParams": { "formatGlob": "*.ts", "webComponentGlobs": ["src/**/*.tsx"] },
+  "grillWaivers": { "T2.formatGlob": "reason" },
+  "design": { "provider": "figma", "liveRender": { "command": "yarn r", "cwd": "app", "tolerancePx": 3 } },
+  "commands": { "app": { "lint": "yarn lint" } } }
+EOF
+cat > "$TMP/d5.json" <<'EOF'
+{ "configVersion": 3, "tracker": { "type": "github" },
+  "reviewers": { "webComponentGlobs": ["src/**/*.tsx"] },
+  "design": { "provider": "figma", "liveRender": { "command": "yarn r" } },
+  "commands": { "app": { "lint": "yarn lint" } } }
+EOF
+run_guard "$TMP/e5.json" "$TMP/d5.json"
+expect_count "a clean v2 → v3 migration blocks on nothing" 0
+expect_no_delta "configVersion is rewritten, never a delta" configVersion
+expect_list "every removed leaf is listed in retired[]" retired \
+  "topology.type topology.repos.app.path topology.repos.app.baseBranch gates.mutation stageParams.formatGlob grillWaivers.T2.formatGlob design.liveRender.cwd design.liveRender.tolerancePx"
+cat > "$TMP/d6.json" <<'EOF'
+{ "configVersion": 3, "tracker": { "type": "github" },
+  "design": { "provider": "figma", "liveRender": { "command": "yarn r" } },
+  "commands": { "app": { "lint": "yarn lint" } } }
+EOF
+run_guard "$TMP/e5.json" "$TMP/d6.json"
+expect_delta "a moved key the draft drops is a delta, named at both paths" \
+  stageParams.webComponentGlobs removed "moved to reviewers.webComponentGlobs" \
+  "Carry the value into reviewers.webComponentGlobs" "--ack stageParams.webComponentGlobs"
+expect_count "and it is the only one" 1
+
 # --- AC-3: the ack channel ---------------------------------------------------------------------
 # Acks are exact and per-run. One ack drops exactly one delta; an unacked sibling stays blocking,
 # which is what keeps a single confirmation from clearing the whole screen.
@@ -293,7 +329,7 @@ expect_rc "an empty file holds no document, so it is an error" 3 \
 run_guard "$TMP/e1.json" "$TMP/d1.json" --ack
 expect_rc "--ack with no value is a usage error" 3 "--ack needs a config path"
 run_guard "$TMP/e1.json" "$TMP/d1.json" --waive commands.web.testFile
-expect_rc "an unknown option is a usage error — grillWaivers is not this tool's channel" 3 \
+expect_rc "an unknown option is a usage error" 3 \
   "unknown option: --waive"
 # The case above is also satisfied by a guard that merely SKIPS the flag, because its value then
 # lands as a third positional. A bare unknown flag is what separates rejecting from ignoring.

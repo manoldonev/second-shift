@@ -25,8 +25,8 @@ trap 'rm -rf "$BASE"' EXIT
 # run_runner <fixture-root> [args...] -> writes $OUT, sets $RC
 #
 # LANE_SELFTEST_CACHE_DIR (#563) is SCRUBBED, and the scrub is not hygiene:
-# the milestone gate exports a STORE too, and an inherited one would turn the cache ON in every case
-# below that asserts nothing is served without --cache-dir.
+# an operator's environment can carry a STORE, and an inherited one would turn the cache ON in every
+# case below that asserts nothing is served without --cache-dir.
 #
 # EVERY DIRECT INVOCATION BELOW CARRIES THE SAME SCRUB, and until #613 the policy was stated here
 # and honored only by this driver — so the cases that hand-roll their own `env` inherited whatever
@@ -183,7 +183,7 @@ done
 # itself — and the hostile store in front of it is the assertion, not scenery. Without the scrub
 # an ambient store activates the pass cache (`cache: activated from LANE_SELFTEST_CACHE_DIR`),
 # and this case then runs a cached sweep while claiming to measure a cold one. That is not
-# hypothetical: the milestone gate exports a store into every milestone-3 child, one of which is the
+# hypothetical: a caller that exports a store hands it to every child, one of which can be the
 # sweep that runs this file, so the leak surfaces only on a machine whose operator carries the
 # variable. Setting one here makes a dropped scrub fail EVERYWHERE instead of only there — which
 # is why the assertion is two-sided: the jobs number AND the absence of the activation line.
@@ -807,9 +807,8 @@ run_runner "$R3" --exclude "keep-selftest.sh" --exclude "drop-selftest.sh"
                   || { fail "usage: an all-excluded sweep did not red (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
 
 # ---------------------------------------------------------------------------------------
-# THE SLOW-SUITE TABLE (#566 AC-10). The bound that replaced ~640 lines of detached-runner
-# supervision in milestone-gate.sh: milestone 3 fits inside the harness turn because the sweep it
-# runs is narrowed here, not because a runner outlives the turn.
+# THE SLOW-SUITE TABLE (#566 AC-10). A sweep without --full fits inside a harness turn because
+# it is narrowed here, not because a runner outlives the turn.
 #
 # EVERY OTHER CASE IN THIS FILE BUILDS A --root WITH NO SUCH TABLE, which is what keeps them
 # meaningful — an absent table is the "every suite is fast" default, so nothing above this
@@ -854,8 +853,8 @@ fi
 # THE DEDUPE, and it is a correctness case rather than a tidiness one. EXCLUDED feeds
 # EXPECTED = DISCOVERED - EXCLUDED, which the run/discovered invariant is checked against, so
 # counting one suite twice under-states EXPECTED and reds an honest sweep. It is the NORMAL
-# case, not an edge one: this repo's own milestone-3 `test` command passes
-# `--exclude tools/install-topology-selftest.sh` explicitly, and that suite is also a table row.
+# case, not an edge one: a sweep without --full that passes the usual
+# `--exclude tools/install-topology-selftest.sh` names a suite that is also a table row.
 run_runner "$RSL" --exclude tools/heavy-selftest.sh
 if [[ "$RC" -eq 0 ]] && grep -q '3 discovered, 2 excluded, 1 to run' "$OUT" && ! grep -q 'ERROR' "$OUT"; then
   ok "slow-table: a suite excluded BOTH explicitly and by the table counts once"
@@ -907,8 +906,8 @@ DUPES="$(grep -v '^#' "$HERE/selftest-suite-timings.tsv" | grep -v '^$' | cut -f
 # =========================================================================================
 # #563 — THE PIPELINE'S ACTIVATION PATH.
 #
-# milestone-gate.sh milestone 3 cannot pass a flag to a `test` command it does not own, so it hands
-# the store down as $LANE_SELFTEST_CACHE_DIR. That is a SECOND way to turn a cache on, and the
+# A caller that cannot pass a flag to a `test` command it does not own hands the store down as
+# $LANE_SELFTEST_CACHE_DIR. That is a SECOND way to turn a cache on, and the
 # cardinal risk of this mechanism is a silently skipped gate — so every case here is driven
 # through the env, never the flag, and every skip is paired with the edit that must un-skip it.
 # =========================================================================================
@@ -997,7 +996,7 @@ grep -q "PROBE-store=$BASE/scrub-store" "$OUT" \
   || { fail "#563/AC-3: the scrub control is vacuous — the probe never sees the value"; sed 's/^/    | /' "$OUT"; }
 
 # AC-3, the one asymmetry between the two activation paths. An injected store that cannot be
-# created is not the tree's fault and must not red a milestone about something else; a --cache-dir
+# created is not the tree's fault and must not red a check about something else; a --cache-dir
 # an operator typed and that cannot work still exits 2.
 printf 'not a directory\n' > "$BASE/blocker"
 run_env_cached "$BASE/blocker/store" "$RE2"

@@ -19,8 +19,8 @@ dimensions drew zero plan-reviewer findings; a node resolved to the wrong compon
 cleared both artifact reviewers; and a lean-shaped spec made the spec reviewer return `N/A`, so
 the check written for exactly that case never ran.
 
-#701 gave the plan's `why this component` and `dimensions` columns a gate that asserts they are
-non-empty. Non-empty is not right — the agents still have to grade the content, and nothing
+The plan's `why this component` and `dimensions` columns must be non-empty. Non-empty is not
+right — the agents still have to grade the content, and nothing
 measured whether they do. These fixtures are that measurement.
 
 ## Operator-run and model-billed. Never in CI.
@@ -115,8 +115,8 @@ downstream binds to the absent one.
 **Two of the three are at a ceiling, and that is itself the result.** The plan reviewer caught
 every #692 defect 3/3 on the first try — so #692's failure was *dispatch*, not capability: when
 this was measured, that agent was dispatched by the operator at `figma-faithful` step 7 and by
-nothing else. #705 closed the routing gap: the lane's build session now dispatches it at
-milestone 3 and commits its verdict, and the gate asserts the record.
+nothing else. #705 closed the routing gap: the lane's build prompt now asks for a subagent critique of
+the plan before UI code. It names no agent; this reviewer is the natural pick.
 
 The spec reviewer's deficit is one fixture: `01-lean-spec-no-visual-contract` scored **0/3**,
 declining a lane spec as `N/A` in every run — the defect #704's AC-4 fixes, and the one place

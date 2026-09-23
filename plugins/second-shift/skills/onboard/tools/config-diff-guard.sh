@@ -20,7 +20,8 @@
 # to compare and nothing to destroy; it keeps calling config-grill.sh alone.
 #
 # Usage: config-diff-guard.sh <existing-config.json> <draft-config.json> [--ack <path>]...
-# Output: ONE JSON document on stdout — { deltas: [...], acknowledged: [...], unmatchedAcks: [...] }
+# Output: ONE JSON document on stdout —
+#         { deltas: [...], acknowledged: [...], unmatchedAcks: [...], retired: [...] }
 # Exit:  0 always when it ran (deltas are DATA, not a crash) · 3 usage/IO error
 #
 # Takes no repo root and reads no tree: pure document comparison. Read-only, no network,
@@ -31,9 +32,12 @@
 # practice, and any escaping scheme would have to be typed back correctly into `--ack` by the
 # caller to buy anything.
 #
-# `grillWaivers` is deliberately NOT the ack channel. A waiver is permanent config state; this is
-# a one-time event. Waiving a path would silence the guard for it on every future re-onboard, so
-# the SECOND accidental destruction of the same key would go through silently.
+# A configVersion 2 config carries keys version 3 removed (`topology`, `gates`, `stageParams`,
+# `grillWaivers`, `design.liveRender.tolerancePx`, `design.liveRender.cwd`). The draft cannot
+# keep them — config-lint rejects each — so their leaves are listed in `retired[]` instead of
+# `deltas[]`: shown to the human, never blocking, nothing to ack. The one key that MOVED rather
+# than left, `stageParams.webComponentGlobs`, is compared against the draft's
+# `reviewers.webComponentGlobs`, so a migration that drops its value is still a delta.
 set -uo pipefail
 
 usage() {
@@ -112,8 +116,9 @@ fi
 # their leaves, so a subtree whose leaves are ALL null — a `commands.<id>` with every lane unset —
 # is deletable wholesale with zero deltas. Every leaf under it is individually nothing.
 #
-# `$schema` is the only excluded key. Step 4 rewrites it to the pinned ref on every run, so a
-# pin-upgrade re-onboard would otherwise fire a delta every single time.
+# `$schema` and `configVersion` are excluded. Step 4 rewrites both on every run (the pinned ref,
+# the current version), so a pin upgrade or a version migration would otherwise fire a delta
+# every single time.
 #
 # A draft value of `null` is `removed`, not `changed`: the key survives and the value does not,
 # which IS the motivating evidence. Draft-only paths are never reported — an addition destroys
@@ -133,44 +138,61 @@ OUT="$(jq -n \
     then [ to_entries[] | .key as $k | (.value | leafpaths($p + [$k])) ] | add // []
     else [$p] end;
   def dget($doc; $p): (try ($doc | getpath($p)) catch null);
+  def moved($p): if $p == ["stageParams","webComponentGlobs"] then ["reviewers","webComponentGlobs"] else $p end;
+  def retired($p):
+    ($p != ["stageParams","webComponentGlobs"])
+    and (($p[0] | IN("topology","gates","stageParams","grillWaivers"))
+         or $p[0:3] == ["design","liveRender","tolerancePx"]
+         or $p[0:3] == ["design","liveRender","cwd"]);
 
   ($existing[0]) as $E | ($draft[0]) as $D
   | [ ($E | leafpaths([]))[]
-      | select(. != ["$schema"])
+      | select(. != ["$schema"] and . != ["configVersion"])
       | . as $p
+      | select(retired($p) and ($E | getpath($p)) != null)
+      | join(".") ] as $retired
+  | [ ($E | leafpaths([]))[]
+      | select(. != ["$schema"] and . != ["configVersion"])
+      | select(retired(.) | not)
+      | . as $p
+      | moved($p) as $t
       | ($E | getpath($p)) as $ev
       | select($ev != null)
-      | (dget($D; $p)) as $dv
-      | (if ($p | length) == 0 then "absent"
-         else (dget($D; $p[0:-1])) as $par
-              | if ($par | type) == "object" and ($par | has($p[-1]))
+      | (dget($D; $t)) as $dv
+      | (if ($t | length) == 0 then "absent"
+         else (dget($D; $t[0:-1])) as $par
+              | if ($par | type) == "object" and ($par | has($t[-1]))
                 then "present" else "absent" end
          end) as $pres
       | if $dv == null then
-          { path: ($p | join(".")), kind: "removed", existing: $ev, draft: null,
+          { path: ($p | join(".")), at: ($t | join(".")), kind: "removed", existing: $ev, draft: null,
             state: (if $pres == "absent" then "absent" else "null" end) }
         elif $dv != $ev then
-          { path: ($p | join(".")), kind: "changed", existing: $ev, draft: $dv, state: "differs" }
+          { path: ($p | join(".")), at: ($t | join(".")), kind: "changed", existing: $ev, draft: $dv, state: "differs" }
         else empty end ]
   | map(. + {
       evidence: (
-        if .kind == "removed" then
+        (if .at != .path then "\(.path) moved to \(.at) in configVersion 3. " else "" end)
+        + if .kind == "removed" then
           "\(.path) is \(.existing | tojson) in the committed config, and the draft "
-          + (if .state == "absent" then "omits the key entirely." else "sets it to null." end)
+          + (if .at != .path then "carries no \(.at)."
+             elif .state == "absent" then "omits the key entirely." else "sets it to null." end)
         else
-          "\(.path) is \(.existing | tojson) in the committed config, and the draft would change it to \(.draft | tojson)."
+          "\(.path) is \(.existing | tojson) in the committed config, and the draft would change "
+          + (if .at != .path then "\(.at)" else "it" end) + " to \(.draft | tojson)."
         end),
       proposal: (
-        "Restore \(.path) in the draft, or — if this "
+        (if .at != .path then "Carry the value into \(.at)" else "Restore \(.path)" end) + " in the draft, or — if this "
         + (if .kind == "removed" then "removal" else "change" end)
         + " is what the human intends — confirm it and re-run with --ack \(.path). "
         + "The acknowledgment is per-run and writes nothing, so the same value is protected again on the next re-onboard.")
-    } | del(.state))
+    } | del(.state, .at))
   | . as $d
   | ([$d[] | .path]) as $paths
   | { deltas:        [ $d[] | . as $x | select(($acks | index($x.path)) == null) ],
       acknowledged:  [ $d[] | .path | . as $p | select(($acks | index($p)) != null) ],
-      unmatchedAcks: [ $acks[] | . as $a | select(($paths | index($a)) == null) ] }
+      unmatchedAcks: [ $acks[] | . as $a | select(($paths | index($a)) == null) ],
+      retired:       $retired }
 ')" || { echo "config-diff-guard: comparison failed" >&2; exit 3; }
 printf '%s\n' "$OUT"
 exit 0

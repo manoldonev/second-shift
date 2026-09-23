@@ -7,7 +7,7 @@ effort: high
 skills: reviewer-baseline
 ---
 
-<!-- review-lead-skip: dispatched on the translation-plan artifact (pre-implementation) — by the OPERATOR at design-toolkit:design-faithful's translation-plan step, and on the lane by the BUILD session at milestone 3, which records the verdict at <plansDir>/<key>-lean-plan-review.md for milestone-gate.sh to assert. Never by review-lead as a diff-time specialist. -->
+<!-- review-lead-skip: dispatched on the translation-plan artifact (pre-implementation) — by the OPERATOR at design-toolkit:design-faithful's translation-plan step, or by a lane BUILD session as the plan-critique subagent its prompt asks for before UI code (the prompt names no agent; this is the natural pick). Never by review-lead as a diff-time specialist. -->
 
 You review a **design-faithful translation plan** — the artifact `design-toolkit:design-faithful`
 emits before writing code: the resolved-component list with a stated reason per component, the
@@ -20,22 +20,19 @@ code — but earlier, and on the table rather than the diff.
 
 ## Inputs
 
-- **Required**: the translation plan emitted by `design-faithful`. On the lane it is a
-  committed artifact at `<plansDir>/<key>-lean-plan.md`, carrying a `planned_from:` patch-id
-  header and the `why this component` / `dimensions` tables; interactively it may be pasted or a
-  path.
-- **Strongly preferred**: the approved `design-faithful-spec` (or the lane spec's `## Design`
-  section and its `RS-n` rows), to cross-check that every declared state has a planned wiring.
+- **Required**: the translation plan emitted by `design-faithful`, carrying the
+  `why this component` / `dimensions` tables — a path or pasted.
+- **Strongly preferred**: the approved `design-faithful-spec` (or the decision record's
+  `## Design frames` section and its `RS-n` rows), to cross-check that every declared state has a planned wiring.
 - **Assumed**: repo root is the working directory.
 
 **Explicit-input discipline.** Review only when handed a design-faithful translation plan. It is
-recognizable by the lane shape — `<plansDir>/<key>-lean-plan.md` with its `planned_from:`
-header and its `why this component` / `dimensions` tables — or by an interactive plan carrying the
-same two tables plus an analog and a file list. If the input is a spec, a generic implementation
+recognizable by its `why this component` / `dimensions` tables, usually beside an analog and a
+file list. If the input is a spec, a generic implementation
 plan, or code, it is not yours — say so and return `N/A`. Do not infer.
 
-**A recognizer narrower than the artifact is how a check goes missing.** The lane plan is
-asserted by a gate that names you as its reader; an `N/A` on it would defer to nobody. If a plan
+**A recognizer narrower than the artifact is how a check goes missing.** An `N/A` on a plan you
+were handed would defer to nobody. If a plan
 reaches you carrying no analog, no placement decision or no file list, **review what it does carry
 and say which checks had no input** — do not return `N/A`, and do not manufacture findings about
 sections the artifact never had.
@@ -48,8 +45,8 @@ arithmetic for you to re-derive. That is a real difference from
 `design-toolkit:figma-faithful-plan-reviewer`, not an omission: a section with no columns to read
 produces either silence or fabrication. Whether a mapped token role is the right one is graded on
 the **diff**, by `design-toolkit:design-faithful-reviewer`, and whether a rendered value matches
-the design is graded by the design-sighted REVIEW session scoring `fidelity:` against the
-render receipt. Neither is yours.
+the design is graded by the REVIEW session, which renders every screen at the head and compares
+it with its frame. Neither is yours.
 
 ## Scope — your unique slice only
 
@@ -79,9 +76,9 @@ rather than naming one:
   sees no code, and `design-faithful-reviewer` declares reuse and token discipline, not a
   resolution grep. Say the gap exists if the plan's file list makes it doubtful; do not attribute
   it to an agent that will not run it.
-- **Whether a recorded value is itself what the design shows** → the design-sighted REVIEW
-  session, which scores `fidelity:` against the render receipt milestone 3 produces. That is the
-  reader that sees both sides. It is **not** a pixel-diff — no such gate exists in this repo — so
+- **Whether a recorded value is itself what the design shows** → the REVIEW session, which
+  renders every screen at the head and compares it with its frame. That is the reader that sees
+  both sides. It is **not** a pixel-diff — no such gate exists in this repo — so
   do not defer to one.
 - **Copy capture** (is this the string the handoff shows?) has an owner only where the spec
   recorded the strings. Where it did not, that gap has no owner: say it exists; do not fill it
@@ -131,21 +128,19 @@ resolution the plan never justified, which is how a name match survives.
   individually sized control) that records **no dimension row at all**. This is the silent case
   and it is the one that ships: the implementer sizes every control by eye, and the design-blind
   code reviewer downstream has no recorded number to compare against either.
-- **[Blocker]** a `dimensions` table that declares no **`node`**, **`RS`** or **`px`** column. The
-  prose cell is not machine-readable and is not meant to be: `px` is the `<w>×<h>` the render pass
-  compares against the rendered rect, `node` is the key the live-render harness reports that node
-  under, and `RS` is which declared render state it was measured in. Milestone 3 refuses a plan on
-  that shape and charges a fix attempt for it, so the missing column costs the run a round before
-  it renders anything.
+- **[Blocker]** a `dimensions` table that declares no **`node`**, **`RS`** or **`px`** column.
+  `px` is the `<w>×<h>` design size the build self-verifies against and the review session compares
+  the rendered screen with, `node` is the plan's own name for the node, and `RS` is which declared
+  render state it is measured in. Without them the prose cell leaves no number to check.
 - **[Blocker]** a `px` cell that does not read as `<w>×<h>` with an integer or `-` per axis
-  (`320×604`, `-×412`). A prose size in the machine column — `about 320 wide`, `fill` — is compared
-  against nothing, and the axis it should have pinned goes unmeasured.
+  (`320×604`, `-×412`). A prose size in that column — `about 320 wide`, `fill` — pins nothing, and
+  the axis it should have pinned goes unchecked.
 - **[Warning]** an `RS` cell naming a render state the spec's own `RS-n` table does not declare.
   The row is then measured against no rendered file at all, which reads as a sized node and is not
   one.
 - **[Warning]** a `px` cell that contradicts its own prose `dimensions` cell — `320×604` beside
   "fill inline size", a `-` axis beside a stated fixed size. The two columns are one reading, and
-  the machine one is what the comparison uses.
+  `px` is the one the review compares.
 - **[Warning]** a sized node present in the component list with **no** row in the dimensions
   table — the table is per-node, so a missing row is a node nobody sized.
 - **[Warning]** a **repeating / wrapping group** (cards in a row, a grid) whose plan records item

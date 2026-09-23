@@ -6,8 +6,9 @@ description: Use when adding or changing a test in this repo — the tier map (w
 # What to write when you add a test
 
 **Scenario-first.** A new per-tool fixture case must name the invariant it guards and why no
-scenario in `plugins/dev-pipeline/skills/build/scenario-liveness-selftest.sh` covers it. The since-retired stacked-PR path died
-with all 42 selftests green because every one of them checked a component against itself.
+case in `plugins/dev-pipeline/skills/run/run-selftest.sh` — which drives the real `run.sh` to its
+terminals with a fake `claude` and `gh` — covers it. A lane once died with all 42 selftests green
+because every one of them checked a component against itself.
 
 **No prose-presence guards.** Grepping a literal out of a markdown file asserts only that prose
 contains words — it cannot fail for a reason a reader of the diff would not already see. Wrap the
@@ -40,12 +41,13 @@ binds newly added guards.
 | --- | --- | --- |
 | one script's behavior against fixtures | a per-tool behavioral selftest | `*-selftest.sh` next to the tool |
 | two copies of one contract staying identical | a `LOCKSTEP-BEGIN <anchor>` marker on **each** copy — they are discovered and grouped, never registered | the files themselves |
-| a composed verdict path reaching a terminal write | a scenario | `skills/build/scenario-liveness-selftest.sh` |
+| a composed run reaching a terminal | a case keyed to the row it discriminates | `skills/run/run-selftest.sh` |
 | a production Workflow `.mjs` dispatch ladder | a shim case | `workflows/runtime-shim-selftest.mjs` |
 | whether a shipped suite still passes where it is **installed** | **nothing** — the class guard already runs every shipped suite | `tools/install-topology-selftest.sh` |
 | prose in a markdown file that asserts nothing checkable | **nothing** — see above | — |
 
 Full contract: [`docs/testing.md`](docs/testing.md).
 
-**A new gate contract extends the liveness scenario** for every verdict path it touches — a gate
-nothing composes against is a gate the next `#204` walks straight through.
+**A change to `run.sh` lands with a row-keyed case in `run-selftest.sh` seen failing first** — the
+case names the row it discriminates, so reverting the behavior turns it red. A contract nothing
+composes against is one the next run walks straight through.
