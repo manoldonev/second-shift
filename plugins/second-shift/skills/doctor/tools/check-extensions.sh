@@ -1,16 +1,10 @@
 #!/usr/bin/env bash
-# check-extensions.sh — EP-3 manifest lint. One fail-closed check, run at pipeline pre-flight
-# alongside config-lint: every file under .claude/second-shift/ must match a known name in the
-# plugin-shipped manifest (extension-manifest.txt) or the consumer .known-extensions allowlist;
-# a typo'd name like blocker-mutants.md.md is loud, not silently ignored.
-#
-# It used to carry a second arm — EP-6/EP-7/EP-8 reference resolution over config
-# stageWorkflows[].workflow, implementDelegates[].agent and planGates[].agent. #569 retired
-# those three keys (their dispatcher was the staged lane, deleted in #348), so the arm was
-# enforcing referential integrity on behalf of a dispatcher that no longer existed — it could
-# only ever block a pre-flight, never protect one. It is gone, and with it this script's only
-# reason to read the consumer config at all.
-# Usage: check-extensions.sh [consumer-repo-root]   (default: cwd). Exit 1 on any failure.
+# check-extensions.sh — EP-3 manifest lint, run by /second-shift:doctor. Every file under
+# .claude/second-shift/ must match a known name in the manifest beside this script
+# (extension-manifest.txt) or the consumer .known-extensions allowlist, so a typo'd name like
+# blocker-mutants.md.md is loud, not silently never consulted. It reads no config.
+# Usage: check-extensions.sh [consumer-repo-root]   (default: cwd).
+# Exit: 0 clean · 1 unknown file(s), one UNKNOWN-EXTENSION line each on stderr · 2 manifest missing
 set -euo pipefail
 ROOT="${1:-.}"
 SS="$ROOT/.claude/second-shift"

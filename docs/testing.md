@@ -14,7 +14,6 @@ call is not committed as a table — it is re-derived when it is needed.
 
 What is committed is what a human, not a command, decided:
 `scripts/fail-open-sites.tsv`,
-`plugins/dev-pipeline/tools/review-harness-fixtures/review-harness-manifest.tsv`,
 `tools/selftest-cache-inputs.tsv` — each row states something no `find`/`wc`/`git ls-tree` could
 re-derive: an adjudicated disposition, a reasoned exclusion, a declared input set. The one cost
 record, [`tools/selftest-suite-timings.tsv`](#the-slow-suite-table), is committed because the
@@ -186,7 +185,7 @@ record. Cases: `run-selftests-selftest.sh`'s `slow-table:` block.
 `SKIP_STRESS` is never set by the runner. The ubuntu lane omits it and the macos lane sets it.
 
 Discovery is `*-selftest.sh` only. The `*-selftest.mjs` files are executed by
-`plugins/dev-pipeline/workflows/workflows-mjs-selftest.sh`, which is itself in the glob; widening
+`plugins/review-toolkit/workflows/workflows-mjs-selftest.sh`, which is itself in the glob; widening
 discovery would run them twice.
 
 **Worker mode is keyed on an argv sentinel (`--run-one`), never on an environment variable**, and
@@ -337,7 +336,7 @@ pyramid, plus one tier that is honest about being outside CI.
 | Unit | Per-tool behavioral selftests — execute one script against tempdir fixtures, assert exit code / output / state | Established |
 | Contract | `check-lockstep-pairs.sh` — `LOCKSTEP` marker groups discovered from the tree and compared; + registry and schema lints (config-lint ↔ schema, model tiers, text-contract carriers) | Established |
 | Integration | `plugins/dev-pipeline/skills/run/run-selftest.sh` — the scheduler driven end to end against a fake `claude` and a fake `gh`, one case per contract row | Established |
-| Runtime | `workflows/runtime-shim-selftest.mjs` — executes real Workflow `.mjs` bodies with injected fakes | Established |
+| Runtime | `plugins/review-toolkit/workflows/runtime-shim-selftest.mjs` — executes real Workflow `.mjs` bodies with injected fakes | Established |
 | Install topology | `tools/install-topology-selftest.sh` — every shipped suite re-run from a version-keyed install cache | Established |
 | Adversarial | Model-tier audit workflows — **operator-run, never CI** | This document |
 
@@ -691,7 +690,7 @@ The top-level `return` becomes a legal return from the arrow, and every injected
 as a parameter the test controls. Drive it with a behavior queue of canned agent outputs and
 assert on what the workflow actually returns.
 
-The mechanics live in `plugins/dev-pipeline/workflows/runtime-shim-lib.mjs` — import them.
+The mechanics live in `plugins/review-toolkit/workflows/runtime-shim-lib.mjs` — import them.
 `runtime-shim-selftest.mjs` consumes it for per-workflow dispatch-ladder cases.
 
 Notes from building it:

@@ -4,7 +4,7 @@ Rubric for the figma-faithful-spec-reviewer agent eval (3-dimension / 10-point s
 Used by ../../../review-toolkit/evals/agent-eval-kit/run-eval.py via the --rubric flag.
 
 This rubric is LOCKED during a campaign — editing it mid-campaign invalidates comparisons
-across rounds. See ../../../dev-pipeline/eval-criteria.md for the keep-or-revert rule.
+across rounds. See ../eval-criteria.md for the keep-or-revert rule.
 
 Design notes
 ------------

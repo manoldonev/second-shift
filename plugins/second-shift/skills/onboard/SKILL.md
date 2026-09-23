@@ -262,10 +262,17 @@ Write the accepted config as PURE JSON (comments stripped) with a `$schema` firs
 (<ref> = the pinned ref from Step 2 — live editor validation forever, at the right version.)
 
 ## Step 5 — Validate in a loop
-Resolve config-lint: `claude plugin list --json | jq -r '[.[] | select(.id=="dev-pipeline@second-shift")] | sort_by(.lastUpdated) | last | .installPath // empty'`.
-- Found → `bash "<installPath>/tools/config-lint.sh" .claude/second-shift.config.json`
-- Not installed yet (normal on first onboard) → fetch the SAME file at the pinned ref:
-  `gh api "repos/manoldonev/second-shift/contents/plugins/dev-pipeline/tools/config-lint.sh?ref=<ref>" --jq .content | base64 --decode > "$TMPDIR/config-lint.sh"` and run that.
+Resolve config-lint and the tier alphabet it reads (review-toolkit's `model-tiering.md`) from the
+same list: `claude plugin list --json | jq -r --arg id <id> '[.[] | select(.id==$id)] | sort_by(.lastUpdated) | last | .installPath // empty'`
+with `dev-pipeline@second-shift`, then `review-toolkit@second-shift`.
+- Found → `SECOND_SHIFT_TIER_DOC="<review-toolkit installPath>/model-tiering.md" bash "<dev-pipeline installPath>/tools/config-lint.sh" .claude/second-shift.config.json`
+  (review-toolkit not installed → fetch its `model-tiering.md` as below and point the variable at it.)
+- Not installed yet (normal on first onboard) → fetch the SAME files at the pinned ref:
+  `gh api "repos/manoldonev/second-shift/contents/plugins/dev-pipeline/tools/config-lint.sh?ref=<ref>" --jq .content | base64 --decode > "$TMPDIR/config-lint.sh"`
+  and `gh api "repos/manoldonev/second-shift/contents/plugins/review-toolkit/model-tiering.md?ref=<ref>" --jq .content | base64 --decode > "$TMPDIR/model-tiering.md"`,
+  then run `SECOND_SHIFT_TIER_DOC="$TMPDIR/model-tiering.md" bash "$TMPDIR/config-lint.sh" .claude/second-shift.config.json`.
+  Without the alphabet a tier-named `reviewers.modelOverrides` value is rejected ("cannot read
+  the tier alphabet").
   (Any ref onboard can resolve is ≥ v2.1.0 — the first release that ships onboard also ships
   the `$schema`-aware config-lint, so the fetched lint always accepts the emitted config.)
 Non-zero → fix the config (asking the human only if the fix needs a decision), re-run.

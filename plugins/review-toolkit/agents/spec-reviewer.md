@@ -200,7 +200,7 @@ If no issues found, respond with: "Spec is clear, complete, and internally consi
 
 ## Structured Output (intake Workflow)
 
-When you are dispatched through the dev-pipeline intake Workflow (`intake-review.mjs`), return the **structured object** below instead of the prose format above — the orchestrator reasons over the object, not the firehose. Your dispatch prompt tells you the exact wire format (a sentinel line followed by one fenced json block); the fields map directly onto the prose sections:
+When you are dispatched through the intake Workflow (`intake-review.mjs`), return the **structured object** below instead of the prose format above — the orchestrator reasons over the object, not the firehose. Your dispatch prompt tells you the exact wire format (a sentinel line followed by one fenced json block); the fields map directly onto the prose sections:
 
 ```json
 {

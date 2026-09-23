@@ -259,6 +259,56 @@ else
   fi
 fi
 
+# --- where the tier alphabet comes from. It ships in review-toolkit, another plugin, so each
+# resolution route gets a fixture tier only THAT route's doc declares: a pass proves the route was
+# read, not that some other copy happened to carry the same name.
+tier_doc() { # $1 = path, $2 = the one tier it declares
+  mkdir -p "$(dirname "$1")"
+  printf '## Tier alphabet\n\n| Tier | Token |\n| --- | --- |\n| %s | sonnet |\n' "$2" > "$1"
+}
+tier_cfg() { # $1 = path, $2 = the override value
+  jq -n --arg t "$2" '{configVersion: 3, tracker: {type: "github"}, commands: {app: {}},
+    reviewers: {modelOverrides: {"security-reviewer": $t}}}' > "$1"
+}
+expect_tier() { # $1 = label, $2 = lint path, $3 = config, $4 = expected substring or "" for a pass
+  local out rc=0
+  out=$(env -u SECOND_SHIFT_TIER_DOC "${@:5}" bash "$2" "$3" 2>&1) || rc=$?
+  if [[ -z "$4" ]]; then
+    if [[ "$rc" -eq 0 ]]; then check "$1" 0; else check "$1 (rc=$rc: $(tail -1 <<< "$out"))" 1; fi
+  elif [[ "$rc" -eq 1 ]] && grep -qF "$4" <<< "$out"; then
+    check "$1" 0
+  else
+    check "$1 (rc=$rc: $(tail -1 <<< "$out"))" 1
+  fi
+}
+TA="$TMPROOT/tier-alphabet"
+tier_doc "$TA/env/model-tiering.md" envtier
+tier_cfg "$TA/env.json" envtier
+expect_tier "SECOND_SHIFT_TIER_DOC supplies the alphabet" "$LINT" "$TA/env.json" "" \
+  SECOND_SHIFT_TIER_DOC="$TA/env/model-tiering.md"
+# Cache layout: 0.0.10 is the newer dir but carries no workflows/ (the resolver's marker), so
+# 0.0.9 must win — which proves the marker check, not just version order.
+CACHE="$TA/cache/mkt"
+mkdir -p "$CACHE/dev-pipeline/1.0.0/tools" "$CACHE/review-toolkit/0.0.9/workflows"
+cp "$LINT" "$CACHE/dev-pipeline/1.0.0/tools/config-lint.sh"
+tier_doc "$CACHE/review-toolkit/0.0.9/model-tiering.md" cachetier
+tier_doc "$CACHE/review-toolkit/0.0.10/model-tiering.md" decoytier
+tier_cfg "$TA/cache.json" cachetier
+expect_tier "cache: the newest review-toolkit carrying workflows/ supplies the alphabet" \
+  "$CACHE/dev-pipeline/1.0.0/tools/config-lint.sh" "$TA/cache.json" ""
+tier_cfg "$TA/decoy.json" decoytier
+expect_tier "cache: a review-toolkit without workflows/ is not read" \
+  "$CACHE/dev-pipeline/1.0.0/tools/config-lint.sh" "$TA/decoy.json" "must name a dispatch model"
+# No alphabet anywhere: still rejected, and the message names the missing alphabet rather than
+# calling the tier unknown.
+mkdir -p "$TA/bare/dev-pipeline/1.0.0/tools"
+cp "$LINT" "$TA/bare/dev-pipeline/1.0.0/tools/config-lint.sh"
+expect_tier "no alphabet anywhere: a tier-named override names the missing alphabet" \
+  "$TA/bare/dev-pipeline/1.0.0/tools/config-lint.sh" "$FIX/valid-tier-named-override.json" \
+  "reviewers.modelOverrides.security-reviewer: cannot read the tier alphabet (review-toolkit's model-tiering.md not found)"
+expect_tier "no alphabet anywhere: a raw dispatch model still passes" \
+  "$TA/bare/dev-pipeline/1.0.0/tools/config-lint.sh" "$FIX/valid-fable-override.json" ""
+
 # missing file → usage error (3), not a lint failure
 if "$LINT" "$FIX/does-not-exist.json" > /dev/null 2>&1; then rc=0; else rc=$?; fi
 check "missing file exits 3" "$([[ "$rc" -eq 3 ]] && echo 0 || echo 1)"

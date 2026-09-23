@@ -87,7 +87,7 @@ All three use the same 6/2/2 split over `d1_verdict_correctness`, `d2_finding_gr
 #704 grades in binary while the kit scores a weighted rubric, so the verdict dimension carries
 the bulk and a per-fixture pass rate reads straight off `per_fixture` in the results JSON while
 `overall_pct` still feeds the +10pp/3-run keep-or-revert rule in
-`../../dev-pipeline/eval-criteria.md`.
+[`eval-criteria.md`](eval-criteria.md).
 
 A rubric is **locked during a campaign**. Editing one mid-campaign invalidates every comparison
 across rounds.

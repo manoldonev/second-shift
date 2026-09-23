@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # Selftest for check-model-tiers.sh — the two-root, config-aware model-tier gate.
 #
-# Runs hermetically from the plugin dir with NO consumer repo: the dev-pipeline
-# .mjs tables, plugin agent frontmatter, consumer config, and consumer agents are
-# all supplied via env overrides (SECOND_SHIFT_DEV_PIPELINE_ROOT /
-# SECOND_SHIFT_PLUGIN_ROOT / SECOND_SHIFT_REPO_ROOT / SECOND_SHIFT_CONFIG) pointing
-# at static fixtures under scripts/fixtures/ (plus mktemp'd config + mutated-table
-# copies). No git repo is required.
+# Runs hermetically from the plugin dir with NO consumer repo: the plugin root
+# (.mjs tables, tier alphabet, agent frontmatter), the design-toolkit root, consumer
+# config, and consumer agents are all supplied via env overrides
+# (SECOND_SHIFT_PLUGIN_ROOT / SECOND_SHIFT_DESIGN_TOOLKIT_ROOT / SECOND_SHIFT_REPO_ROOT
+# / SECOND_SHIFT_CONFIG) pointing at static fixtures under scripts/fixtures/ (plus
+# mktemp'd config + mutated-table copies), or by a staged install cache. No git repo
+# is required.
 #
 # Cases:
 #   agreement            table == frontmatter                          -> exit 0
@@ -18,7 +19,16 @@
 #   override three-way   table matches neither modelOverride nor
 #                        frontmatter                                    -> exit 1 + MISMATCH
 #   qualified name       table key 'review-toolkit:security-reviewer'  -> exit 0
-#   cache layout         versioned-sibling dev-pipeline root resolves   -> exit 0
+#   cache layout         own tables in the cache; newest design-toolkit
+#                        sibling resolves                               -> exit 0
+#
+# review-toolkit-only install (hook mode, a staged cache holding only
+# review-toolkit/<ver>/, a `git commit` payload):
+#   clean tables         design-toolkit rows skipped with a note        -> no deny
+#   drifted table        deny, reason names the MISMATCH
+#   unknown own row      an unqualified row with no agent file          -> deny, DANGLING
+#   no workflows/        deny naming MISSING-TABLE; CLI exit 1
+#   no model-tiering.md  deny naming UNPARSEABLE-ALPHABET; CLI exit 1
 #
 # UNKNOWN-MODEL cases (the silent-skip hole). Each is written so the PRE-FIX script
 # exits 0 on the same fixture — the hole was invisible, so a case whose fixture already
@@ -42,8 +52,8 @@ set -uo pipefail
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 CHECK="$SCRIPT_DIR/check-model-tiers.sh"
 FX="$SCRIPT_DIR/fixtures/model-tiers"
-DP="$FX/dev-pipeline"        # clean dev-pipeline root (tables in lockstep)
-PLUGIN="$FX/plugin"          # plugin agent frontmatter (source of truth)
+RT="$FX/review-toolkit"      # clean plugin root: tables in lockstep with its agents
+DT="$FX/design-toolkit"      # design-toolkit root carrying the design row's agent
 [ -x "$CHECK" ] || { echo "FAIL: $CHECK not executable"; exit 1; }
 command -v jq >/dev/null 2>&1 || { echo "FAIL: jq not available"; exit 1; }
 
@@ -60,24 +70,24 @@ trap cleanup EXIT
 EMPTY_CONSUMER="$TMP/empty-consumer"; mkdir -p "$EMPTY_CONSUMER"
 
 # CLI run against explicit roots. stderr -> $TMP/.stderr.
-# Args: <dev_pipeline_root> [config_path]
+# Args: <plugin_root> [config_path]
 # shellcheck disable=SC2030 # exports are deliberately subshell-scoped per case
 run_cli() {
-  local dproot="$1" config="${2:-}"
+  local root="$1" config="${2:-}"
   (
-    export SECOND_SHIFT_DEV_PIPELINE_ROOT="$dproot"
-    export SECOND_SHIFT_PLUGIN_ROOT="$PLUGIN"
+    export SECOND_SHIFT_PLUGIN_ROOT="$root"
+    export SECOND_SHIFT_DESIGN_TOOLKIT_ROOT="$DT"
     export SECOND_SHIFT_REPO_ROOT="$EMPTY_CONSUMER"
     [ -n "$config" ] && export SECOND_SHIFT_CONFIG="$config"
     bash "$CHECK" </dev/null 2>"$TMP/.stderr"
   )
 }
 
-# Copy the clean dev-pipeline root, then rewrite code-review.mjs's REVIEWER_MODEL.
+# Copy the clean plugin root, then rewrite code-review.mjs's REVIEWER_MODEL.
 # Args: <dest_name> <security-reviewer-key> <security-reviewer-model>
-make_dp_variant() {
+make_rt_variant() {
   local key="$2" model="$3" dst="$TMP/$1"
-  cp -R "$DP" "$dst"
+  cp -R "$RT" "$dst"
   cat > "$dst/workflows/code-review.mjs" <<MJS
 const DEFAULT_TIER_MAP = {
   reasoning: 'opus',
@@ -111,11 +121,11 @@ JSON
 echo "check-model-tiers selftest"
 
 # agreement — clean tables match frontmatter
-run_cli "$DP"
+run_cli "$RT"
 [ $? -eq 0 ] && ok "agreement: table == frontmatter -> exit 0" || fail "agreement expected exit 0 (stderr: $(cat "$TMP/.stderr"))"
 
 # frontmatter mismatch — code-review says tier 'code' (resolves sonnet) for security-reviewer (frontmatter opus)
-DRIFT=$(make_dp_variant driftmap "security-reviewer" "code")
+DRIFT=$(make_rt_variant driftmap "security-reviewer" "code")
 run_cli "$DRIFT"
 if [ $? -eq 0 ]; then fail "frontmatter mismatch expected exit 1"; else
   grep -q "MISMATCH: 'security-reviewer'" "$TMP/.stderr" && ok "frontmatter mismatch -> exit 1 + MISMATCH names agent" \
@@ -133,7 +143,7 @@ run_cli "$DRIFT" "$CFG_RECONCILE"
 # a different tier per consumer): the table keeps the plugin default and the .mjs
 # applies the override at dispatch (modelOverrides[...] || TABLE[...]). Legal.
 CFG_DIFFERS=$(make_override_config "security-reviewer" "sonnet")
-run_cli "$DP" "$CFG_DIFFERS"
+run_cli "$RT" "$CFG_DIFFERS"
 [ $? -eq 0 ] && ok "override differs: table keeps plugin default, override wins at dispatch -> exit 0" \
   || fail "override differs expected exit 0 (stderr: $(cat "$TMP/.stderr"))"
 
@@ -148,7 +158,7 @@ if [ $? -eq 0 ]; then fail "override three-way expected exit 1"; else
 fi
 
 # qualified name — table key is plugin:-qualified; compared on the bare name
-QUAL=$(make_dp_variant qualmap "review-toolkit:security-reviewer" "reasoning")
+QUAL=$(make_rt_variant qualmap "review-toolkit:security-reviewer" "reasoning")
 run_cli "$QUAL"
 [ $? -eq 0 ] && ok "qualified name: 'review-toolkit:security-reviewer' parsed bare -> exit 0" \
   || fail "qualified name expected exit 0 (stderr: $(cat "$TMP/.stderr"))"
@@ -173,13 +183,13 @@ run_cli "$QUAL"
 # feature the guard must not break: per-repo tiering stays expressible while shipped
 # code stays tri-value.
 CFG_FABLE=$(make_override_config "security-reviewer" "fable")
-run_cli "$DP" "$CFG_FABLE"
+run_cli "$RT" "$CFG_FABLE"
 [ $? -eq 0 ] && ok "fable override: legal modelOverrides value, clean table -> exit 0" \
   || fail "fable override expected exit 0 (stderr: $(cat "$TMP/.stderr"))"
 
 # (b) 'fable' in a SHIPPED map entry — the mechanical half of the override-only posture.
 # Legal in config (case a), an error in a plugin-shipped table.
-FABLE_MAP=$(make_dp_variant fablemap "security-reviewer" "fable")
+FABLE_MAP=$(make_rt_variant fablemap "security-reviewer" "fable")
 run_cli "$FABLE_MAP"
 if [ $? -eq 0 ]; then fail "fable in a shipped MAP entry expected exit 1"; else
   grep -q "UNKNOWN-MODEL: code-review.mjs declares 'security-reviewer' => 'fable'" "$TMP/.stderr" \
@@ -190,7 +200,7 @@ fi
 # (c) an arbitrary out-of-enum token in a shipped map entry. Same path as (b); pinned
 # separately because 'fable' is a token we now recognize elsewhere and 'gpt-4' is not,
 # so this proves the guard keys on the tier set rather than on a fable special case.
-UNKNOWN_MAP=$(make_dp_variant unknownmap "security-reviewer" "gpt-4")
+UNKNOWN_MAP=$(make_rt_variant unknownmap "security-reviewer" "gpt-4")
 run_cli "$UNKNOWN_MAP"
 if [ $? -eq 0 ]; then fail "unknown token in a shipped MAP entry expected exit 1"; else
   grep -q "UNKNOWN-MODEL: code-review.mjs declares 'security-reviewer' => 'gpt-4'" "$TMP/.stderr" \
@@ -202,9 +212,9 @@ fi
 # dispatch at all (`model:` is an unquoted key), so without this case the guard could
 # ship covering only the map entries and every other case would still pass.
 # Args: <dest_name> <inline-model> -> prints the root path
-make_dp_map_inline_variant() {
+make_rt_map_inline_variant() {
   local dst="$TMP/$1" inline="$2"
-  cp -R "$DP" "$dst"
+  cp -R "$RT" "$dst"
   cat > "$dst/workflows/code-review.mjs" <<MJS
 const DEFAULT_TIER_MAP = {
   reasoning: 'opus',
@@ -220,7 +230,7 @@ MJS
   printf '%s' "$dst"
 }
 
-MAP_INLINE_UNKNOWN=$(make_dp_map_inline_variant map-inline-unknown "gpt-4")
+MAP_INLINE_UNKNOWN=$(make_rt_map_inline_variant map-inline-unknown "gpt-4")
 run_cli "$MAP_INLINE_UNKNOWN"
 if [ $? -eq 0 ]; then fail "unknown inline literal (MAP file) expected exit 1"; else
   grep -q "UNKNOWN-MODEL: code-review.mjs dispatches 'review-toolkit:structured-emitter' with inline model 'gpt-4'" "$TMP/.stderr" \
@@ -237,9 +247,9 @@ fi
 # UNKNOWN-MODEL cannot fire and the pre-fix script is genuinely silent (exit 0) —
 # reverting the guard turns this case green again.
 # Args: <dest_name> <inline-model> -> prints the root path
-make_dp_map_inline_mismatch_variant() {
+make_rt_map_inline_mismatch_variant() {
   local dst="$TMP/$1" inline="$2"
-  cp -R "$DP" "$dst"
+  cp -R "$RT" "$dst"
   cat > "$dst/workflows/code-review.mjs" <<MJS
 const DEFAULT_TIER_MAP = {
   reasoning: 'opus',
@@ -255,7 +265,7 @@ MJS
   printf '%s' "$dst"
 }
 
-MAP_INLINE_MISMATCH=$(make_dp_map_inline_mismatch_variant map-inline-mismatch "reasoning")
+MAP_INLINE_MISMATCH=$(make_rt_map_inline_mismatch_variant map-inline-mismatch "reasoning")
 run_cli "$MAP_INLINE_MISMATCH"
 if [ $? -eq 0 ]; then fail "MAP-file inline literal mismatch expected exit 1"; else
   grep -q "MISMATCH: 'structured-emitter'" "$TMP/.stderr" \
@@ -263,43 +273,122 @@ if [ $? -eq 0 ]; then fail "MAP-file inline literal mismatch expected exit 1"; e
     || fail "map inline mismatch: exit 1 but no MISMATCH for structured-emitter (stderr: $(cat "$TMP/.stderr"))"
 fi
 
-# cache layout — installed marketplace cache is cache/<mkt>/<plugin>/<version>/;
-# the dev-pipeline root must resolve via the versioned-sibling fallback with NO
-# SECOND_SHIFT_DEV_PIPELINE_ROOT override (0.1.0 shipped resolving only the
-# marketplace-repo sibling path and UNLOCATABLE-denied every consumer commit).
+# cache layout — installed marketplace cache is cache/<mkt>/<plugin>/<version>/. The
+# tables and alphabet resolve from the script's own version dir with NO
+# SECOND_SHIFT_PLUGIN_ROOT override, and the design-toolkit root through the
+# versioned-sibling fallback with no SECOND_SHIFT_DESIGN_TOOLKIT_ROOT override.
 #
-# TWO sibling versions, 0.0.9 and 0.0.10, so this also pins NUMERIC ordering. Both carry the
-# marker dir (workflows) and so are both candidates; only 0.0.10 carries the real
-# workflows. Glob order is lexical and sorts 0.0.10 BEFORE 0.0.9, so a last-wins pick resolves
-# the empty 0.0.9 and the run fails to find what it needs. Staging a single version — which is
-# what this case did — asserts that the fallback resolves SOMETHING, never that it resolves the
-# newest, so it could not tell the two orderings apart.
+# TWO design-toolkit versions, 0.0.9 and 0.0.10, so this also pins NUMERIC ordering. Both
+# carry the marker dir (agents) and so are both candidates; only 0.0.10 carries the agent
+# at the tier the table declares, and 0.0.9 is a decoy at 'opus'. Glob order is lexical
+# and sorts 0.0.10 BEFORE 0.0.9, so a last-wins pick resolves the decoy and reports
+# MISMATCH.
+# Args: <dest_name> -> prints the staged script path (cache holds review-toolkit only)
+stage_rt_cache() {
+  local ver="$TMP/$1/mkt/review-toolkit/0.0.1"
+  mkdir -p "$ver/scripts"
+  cp "$CHECK" "$ver/scripts/check-model-tiers.sh"
+  cp -R "$RT/agents" "$RT/workflows" "$RT/model-tiering.md" "$ver/"
+  printf '%s' "$ver/scripts/check-model-tiers.sh"
+}
+CACHE_CHECK=$(stage_rt_cache cache)
 CACHE_MKT="$TMP/cache/mkt"
-mkdir -p "$CACHE_MKT/review-toolkit/0.0.1/scripts" "$CACHE_MKT/dev-pipeline/0.0.10" \
-         "$CACHE_MKT/dev-pipeline/0.0.9/workflows"
-cp "$CHECK" "$CACHE_MKT/review-toolkit/0.0.1/scripts/check-model-tiers.sh"
-cp -R "$DP/workflows" "$CACHE_MKT/dev-pipeline/0.0.10/workflows"
-cp "$DP/model-tiering.md" "$CACHE_MKT/dev-pipeline/0.0.10/model-tiering.md"
+mkdir -p "$CACHE_MKT/design-toolkit/0.0.9/agents" "$CACHE_MKT/design-toolkit/0.0.10"
+cp -R "$DT/agents" "$CACHE_MKT/design-toolkit/0.0.10/agents"
+printf 'model: opus\n---\ndecoy\n' > "$CACHE_MKT/design-toolkit/0.0.9/agents/design-faithful-reviewer.md"
 # shellcheck disable=SC2030,SC2031 # exports are deliberately subshell-scoped per case
 (
-  export SECOND_SHIFT_PLUGIN_ROOT="$PLUGIN"
+  unset SECOND_SHIFT_PLUGIN_ROOT SECOND_SHIFT_DESIGN_TOOLKIT_ROOT SECOND_SHIFT_CONFIG
   export SECOND_SHIFT_REPO_ROOT="$EMPTY_CONSUMER"
-  bash "$CACHE_MKT/review-toolkit/0.0.1/scripts/check-model-tiers.sh" </dev/null 2>"$TMP/.stderr"
+  bash "$CACHE_CHECK" </dev/null 2>"$TMP/.stderr"
 )
-[ $? -eq 0 ] && ok "cache layout: versioned-sibling dev-pipeline root resolves -> exit 0" \
+[ $? -eq 0 ] && ok "cache layout: own tables + newest design-toolkit sibling resolve -> exit 0" \
   || fail "cache layout expected exit 0 (stderr: $(cat "$TMP/.stderr"))"
+
+# --- review-toolkit-only install, hook mode -----------------------------------
+# The tables and alphabet ship in this plugin, so a missing one is a broken install:
+# the hook denies naming the cause. design-toolkit rows are skipped when design-toolkit
+# is not installed, so a review-toolkit-only repo can still commit.
+# Args: <staged_script> [design-toolkit override] -> hook stdout in $TMP/.stdout, stderr in $TMP/.stderr
+# shellcheck disable=SC2030,SC2031 # exports are deliberately subshell-scoped per case
+run_hook() {
+  (
+    unset SECOND_SHIFT_PLUGIN_ROOT SECOND_SHIFT_DESIGN_TOOLKIT_ROOT SECOND_SHIFT_CONFIG
+    [ -n "${2:-}" ] && export SECOND_SHIFT_DESIGN_TOOLKIT_ROOT="$2"
+    export SECOND_SHIFT_REPO_ROOT="$EMPTY_CONSUMER"
+    jq -n --arg cwd "$EMPTY_CONSUMER" '{cwd: $cwd, tool_input: {command: "git commit -m x"}}' \
+      | bash "$1" >"$TMP/.stdout" 2>"$TMP/.stderr"
+  )
+}
+# The same staged script as a CLI run. Args: <staged_script>
+# shellcheck disable=SC2030,SC2031 # exports are deliberately subshell-scoped per case
+run_staged_cli() {
+  (
+    unset SECOND_SHIFT_PLUGIN_ROOT SECOND_SHIFT_DESIGN_TOOLKIT_ROOT SECOND_SHIFT_CONFIG
+    export SECOND_SHIFT_REPO_ROOT="$EMPTY_CONSUMER"
+    bash "$1" </dev/null 2>/dev/null
+  )
+}
+# deny_reason: the hook's permissionDecisionReason, empty when it did not deny.
+deny_reason() {
+  jq -r 'select(.hookSpecificOutput.permissionDecision == "deny") | .hookSpecificOutput.permissionDecisionReason' \
+    "$TMP/.stdout" 2>/dev/null
+}
+# expect_deny <label> <staged_script> <reason-pattern> [design-toolkit override]
+expect_deny() {
+  run_hook "$2" "${4:-}"
+  local reason
+  reason=$(deny_reason)
+  if grep -q "$3" <<<"$reason"; then
+    ok "$1 -> hook denies, reason names $3"
+  else
+    fail "$1: expected a deny naming $3 (stdout: $(cat "$TMP/.stdout"); stderr: $(cat "$TMP/.stderr"))"
+  fi
+}
+
+RT_ONLY=$(stage_rt_cache rtonly)
+run_hook "$RT_ONLY"
+if [ -z "$(deny_reason)" ] && grep -q "design-toolkit" "$TMP/.stderr"; then
+  ok "review-toolkit only, clean tables: design-toolkit rows skipped with a note, commit allowed"
+else
+  fail "review-toolkit only, clean tables: expected no deny plus a design-toolkit note (stdout: $(cat "$TMP/.stdout"); stderr: $(cat "$TMP/.stderr"))"
+fi
+
+# An override that does not resolve is a wrong path, not an absent plugin: no skip.
+expect_deny "review-toolkit only, unresolvable design-toolkit override" "$RT_ONLY" \
+  "DANGLING: code-review.mjs declares 'design-faithful-reviewer'" "$TMP/no-such-design-toolkit"
+
+RT_DRIFT=$(stage_rt_cache rtdrift)
+perl -pi -e "s/'security-reviewer': 'reasoning'/'security-reviewer': 'code'/" "$(dirname "$RT_DRIFT")/../workflows/code-review.mjs"
+expect_deny "review-toolkit only, drifted table" "$RT_DRIFT" "MISMATCH: 'security-reviewer'"
+
+RT_GHOST=$(stage_rt_cache rtghost)
+perl -pi -e "s/('performance-reviewer': 'code',)/\$1\n  'review-toolkit:ghost-reviewer': 'code',/" "$(dirname "$RT_GHOST")/../workflows/code-review.mjs"
+expect_deny "review-toolkit only, own row with no agent file" "$RT_GHOST" "DANGLING: code-review.mjs declares 'ghost-reviewer'"
+
+RT_NOWF=$(stage_rt_cache rtnowf)
+rm -rf "$(dirname "$RT_NOWF")/../workflows"
+expect_deny "no workflows/ dir" "$RT_NOWF" "MISSING-TABLE"
+run_staged_cli "$RT_NOWF"
+[ $? -eq 1 ] && ok "no workflows/ dir -> CLI exit 1" || fail "no workflows/ dir: CLI expected exit 1"
+
+RT_NOALPHA=$(stage_rt_cache rtnoalpha)
+rm -f "$(dirname "$RT_NOALPHA")/../model-tiering.md"
+expect_deny "no model-tiering.md" "$RT_NOALPHA" "UNPARSEABLE-ALPHABET"
+run_staged_cli "$RT_NOALPHA"
+[ $? -eq 1 ] && ok "no model-tiering.md -> CLI exit 1" || fail "no model-tiering.md: CLI expected exit 1"
 
 # --- #351: the alphabet is PARSED, so it is variable ---------------------------
 # Every case below would pass vacuously against a guard with a hardcoded
 # opus|sonnet|haiku constant, because that guard never reads the doc at all. Each is
 # written so breaking the specific new mechanism it names turns it red.
 
-# Build a dev-pipeline root on a CUSTOM alphabet: the doc table and both engines'
+# Build a plugin root on a CUSTOM alphabet: the doc table and both engines'
 # inline maps agree on tier names that are not the shipped ones.
 # Args: <dest_name> <tierA> <tierB> <tierC> -> prints the root path
-make_dp_custom_alphabet() {
+make_rt_custom_alphabet() {
   local dst="$TMP/$1" a="$2" b="$3" c="$4"
-  cp -R "$DP" "$dst"
+  cp -R "$RT" "$dst"
   cat > "$dst/model-tiering.md" <<DOC
 # fixture (custom alphabet)
 
@@ -354,7 +443,7 @@ JSON
 
 # custom alphabet — tier names the shipped guard never heard of, resolving to the same
 # models the frontmatter declares. Red if the alphabet is hardcoded anywhere.
-CUSTOM=$(make_dp_custom_alphabet customalpha deep fast sink)
+CUSTOM=$(make_rt_custom_alphabet customalpha deep fast sink)
 run_cli "$CUSTOM"
 [ $? -eq 0 ] && ok "custom alphabet: parsed tier names lockstep against frontmatter -> exit 0" \
   || fail "custom alphabet expected exit 0 (stderr: $(cat "$TMP/.stderr"))"
@@ -363,7 +452,7 @@ run_cli "$CUSTOM"
 # against the PARSED alphabet, not a constant: 'sonnet' is a legal dispatch token and was
 # a legal tier before this change, so a guard still holding the old constant reports
 # nothing here.
-CUSTOM_BAD=$(make_dp_custom_alphabet customalpha-bad deep fast sink)
+CUSTOM_BAD=$(make_rt_custom_alphabet customalpha-bad deep fast sink)
 cat > "$CUSTOM_BAD/workflows/code-review.mjs" <<'MJS'
 const DEFAULT_TIER_MAP = {
   deep: 'opus',
@@ -387,7 +476,7 @@ fi
 # default, so this must stay silent — a guard resolving the table through the EFFECTIVE
 # map reports MISMATCH here and makes tierMap unusable.
 CFG_TIERMAP=$(make_tiermap_config "reasoning" "haiku")
-run_cli "$DP" "$CFG_TIERMAP"
+run_cli "$RT" "$CFG_TIERMAP"
 if [ $? -eq 0 ]; then
   ok "consumer tierMap retargeting a tier is not drift -> exit 0"
 else
@@ -396,7 +485,7 @@ fi
 
 # TIER-MAP-DRIFT (value): an engine's inlined copy disagrees with the authority. This is
 # the check that makes "one authority" true while the sandbox forbids deleting the copies.
-DRIFT_MAP=$(make_dp_variant tiermapdrift "security-reviewer" "reasoning")
+DRIFT_MAP=$(make_rt_variant tiermapdrift "security-reviewer" "reasoning")
 cat > "$DRIFT_MAP/workflows/code-review.mjs" <<'MJS'
 const DEFAULT_TIER_MAP = {
   reasoning: 'opus',
@@ -418,7 +507,7 @@ fi
 # TIER-MAP-DRIFT (omission): a tier the authority declares but the engine omits would
 # fall through to the engine's own default at dispatch, silently. Absence is drift too,
 # and a value-only comparison passes this fixture.
-OMIT_MAP=$(make_dp_variant tiermapomit "security-reviewer" "reasoning")
+OMIT_MAP=$(make_rt_variant tiermapomit "security-reviewer" "reasoning")
 cat > "$OMIT_MAP/workflows/code-review.mjs" <<'MJS'
 const DEFAULT_TIER_MAP = {
   reasoning: 'opus',
@@ -439,7 +528,7 @@ fi
 # UNPARSEABLE-ALPHABET: without the table there is no map, and every table entry would be
 # unresolvable. Fail loud rather than falling back to a hardcoded alphabet that would
 # reintroduce exactly the drift this ticket removes.
-NOALPHA=$(make_dp_variant noalpha "security-reviewer" "reasoning")
+NOALPHA=$(make_rt_variant noalpha "security-reviewer" "reasoning")
 cat > "$NOALPHA/model-tiering.md" <<'DOC'
 # fixture with no alphabet table
 

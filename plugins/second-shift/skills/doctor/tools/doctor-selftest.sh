@@ -2,6 +2,8 @@
 # doctor-selftest.sh — hermetic selftest for doctor.sh (no claude binary, no network).
 # All data sources are env-injected files; the install tree is a fake cache under mktemp.
 set -euo pipefail
+# Hermetic: both are overrides doctor's helpers honor, and a caller's value would clobber the fixtures.
+unset SECOND_SHIFT_EXTENSION_MANIFEST SECOND_SHIFT_TIER_DOC
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DOCTOR="$HERE/doctor.sh"; FIX="$HERE/doctor-fixtures"; FAILS=0
 check() { if [[ "$2" -eq 0 ]]; then echo "  ✓ $1"; else echo "  ✗ $1"; FAILS=$((FAILS+1)); fi; }
@@ -43,6 +45,7 @@ scenario() { # $1 label, $2 plugin-list fixture, $3 settings fixture, $4 marketp
          DOCTOR_MARKETPLACE_LIST_FILE="$FIX/$4" DOCTOR_USER_SETTINGS="$TMP/empty-user-settings.json" \
          SECOND_SHIFT_CONFIG_GRILL="${9:-}" \
          bash "$DOCTOR" 2>&1)" || rc=$?
+  LAST_OUT="$out"
   if [[ "$rc" -eq "$5" ]] && grep -qF "$6" <<< "$out"; then check "$1" 0
   else check "$1 (rc=$rc want $5; grep '$6' failed)" 1; echo "$out" | sed 's/^/      /' | head -12; fi
 }
@@ -77,15 +80,59 @@ mkdir -p "$INSTALL/dev-pipeline/2.1.0/skills/run" "$INSTALL/dev-pipeline/2.1.0/t
          "$INSTALL/intake-toolkit/2.0.0/skills/intake" \
          "$INSTALL/audit-toolkit/2.0.0/skills/audit" \
          "$INSTALL/second-shift/1.0.0/skills/onboard" \
-         "$INSTALL/second-shift/1.0.0/skills/doctor"
+         "$INSTALL/second-shift/1.0.0/skills/doctor" \
+         "$INSTALL/review-toolkit/2.0.2/workflows"
+# A current review-toolkit carries the fan-out; without these every scenario would FAIL the
+# upgrade-skew check. The skew scenario points at its own install dir that lacks them.
+: > "$INSTALL/review-toolkit/2.0.2/workflows/code-review.mjs"
+: > "$INSTALL/review-toolkit/2.0.2/model-tiering.md"
+# The stub echoes the tier doc it was handed, so a scenario can see what doctor passed.
 # shellcheck disable=SC2016 # emitting a literal stub script — $1 must not expand here
-printf '#!/usr/bin/env bash\necho "config-lint: OK ($1)"\n' > "$INSTALL/dev-pipeline/2.1.0/tools/config-lint.sh"
+printf '#!/usr/bin/env bash\necho "config-lint: OK ($1) tier-doc=${SECOND_SHIFT_TIER_DOC:-unset}"\n' > "$INSTALL/dev-pipeline/2.1.0/tools/config-lint.sh"
 # An older dev-pipeline install still carries claims-lint.sh. Doctor no longer runs it, so a copy
 # that fails must not move any scenario's exit code (every green scenario below reds if it does).
 printf '#!/usr/bin/env bash\necho "claims-lint: expired claim"; exit 1\n' > "$INSTALL/dev-pipeline/2.1.0/tools/claims-lint.sh"
 
 echo "doctor selftest:"
 scenario green            plugin-list-green.json   settings-green.json     marketplace-list-pinned.json  0 "summary: 0 failed"
+# config-lint reads the tier alphabet from the review-toolkit that is ENABLED, not whichever
+# cached copy its own resolver would find.
+scenario tier-doc         plugin-list-green.json   settings-green.json     marketplace-list-pinned.json  0 "tier-doc=$INSTALL/review-toolkit/2.0.2/model-tiering.md"
+# --- extension file names ----------------------------------------------------------------
+# No .claude/second-shift/ at all: the check says nothing, not even "clean".
+if grep -qi "extension" <<< "$LAST_OUT"; then check "no .claude/second-shift/ adds no extension line" 1
+else check "no .claude/second-shift/ adds no extension line" 0; fi
+mkdir -p "$TMP/ext-typo/.claude/second-shift"
+: > "$TMP/ext-typo/.claude/second-shift/blocker-mutants.md.md"
+scenario ext-typo         plugin-list-green.json   settings-green.json     marketplace-list-pinned.json  1 ".claude/second-shift/blocker-mutants.md.md matches no known extension name"
+mkdir -p "$TMP/ext-allowed/.claude/second-shift/api-testing"
+: > "$TMP/ext-allowed/.claude/second-shift/api-testing/orders.md"
+printf 'api-testing/*.md\n' > "$TMP/ext-allowed/.claude/second-shift/.known-extensions"
+scenario ext-allowed      plugin-list-green.json   settings-green.json     marketplace-list-pinned.json  0 "summary: 0 failed"
+if grep -qi "extension" <<< "$LAST_OUT"; then check "a clean extension check prints nothing" 1
+else check "a clean extension check prints nothing" 0; fi
+# A missing manifest is a broken install, never a clean pass.
+mkdir -p "$TMP/ext-no-manifest/.claude/second-shift"
+: > "$TMP/ext-no-manifest/.claude/second-shift/security-rules.md"
+SECOND_SHIFT_EXTENSION_MANIFEST="$TMP/no-such-manifest.txt" \
+scenario ext-no-manifest  plugin-list-green.json   settings-green.json     marketplace-list-pinned.json  1 "extension manifest missing: $TMP/no-such-manifest.txt"
+# A check that dies before naming any file (here: an unreadable allowlist) is not a clean pass.
+mkdir -p "$TMP/ext-crash/.claude/second-shift"
+: > "$TMP/ext-crash/.claude/second-shift/blocker-mutants.md.md"
+: > "$TMP/ext-crash/.claude/second-shift/.known-extensions"
+chmod 000 "$TMP/ext-crash/.claude/second-shift/.known-extensions"
+if [[ -r "$TMP/ext-crash/.claude/second-shift/.known-extensions" ]]; then
+  echo "  SKIP ext-crash (running as root: chmod 000 does not bar reads)"
+else
+  scenario ext-crash      plugin-list-green.json   settings-green.json     marketplace-list-pinned.json  1 "extension check could not run (rc=1)"
+fi
+# --- a review-toolkit that predates the fan-out move -----------------------------------------
+# Plugins update one at a time and none declares a dependency, so a new dev-pipeline or
+# intake-toolkit can sit beside a review-toolkit that still lacks workflows/ and the alphabet.
+mkdir -p "$INSTALL/predates/review-toolkit/2.0.2"
+scenario rt-predates      plugin-list-rt-predates.json settings-green.json marketplace-list-pinned.json 1 "review-toolkit 2.0.2 predates the fan-out move — update all second-shift plugins together (/second-shift:local-dev-refresh)"
+# ...and nothing reads that fan-out when dev-pipeline and intake-toolkit are both disabled.
+scenario rt-predates-unused plugin-list-rt-predates-unused.json settings-green.json marketplace-list-pinned.json 0 "summary: 0 failed"
 scenario missing-plugin   plugin-list-missing.json settings-green.json     marketplace-list-pinned.json  1 "claude plugin install dev-pipeline@second-shift"
 # The two drift branches under a PROJECT-scope record. Both greps name the arm's own string
 # rather than the "marketplace update" / "ahead of the lockfile" prefixes both arms share —

@@ -95,7 +95,7 @@ Read 2-3 files in the same directory/module to understand:
 
 ## Structured Output (intake Workflow)
 
-When you are dispatched through the dev-pipeline intake Workflow (`intake-review.mjs`) with a JSON schema, return the **structured object** instead of the prose format above. The fields map directly onto the prose sections:
+When you are dispatched through the intake Workflow (`intake-review.mjs`) with a JSON schema, return the **structured object** instead of the prose format above. The fields map directly onto the prose sections:
 
 ```json
 {

@@ -130,7 +130,7 @@ everything below.
 ## Per-panelist aggregate
 
 Over the 47 roster-named rounds. `cap` is the agent's `maxTurns`; `tier` is its
-`REVIEWER_MODEL` entry in `plugins/dev-pipeline/workflows/code-review.mjs`.
+`REVIEWER_MODEL` entry in `plugins/review-toolkit/workflows/code-review.mjs`.
 
 | Panelist | tier | cap | Dispatches | Dark | Dark rate | Degraded | Blockers raised | Blockers upheld | Findings carried |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |

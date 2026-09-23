@@ -31,7 +31,7 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PLUGIN_DIR="$(dirname "$SCRIPT_DIR")"                 # plugins/dev-pipeline
+PLUGIN_DIR="$(dirname "$SCRIPT_DIR")"                 # plugins/review-toolkit
 WORKFLOWS="$PLUGIN_DIR/workflows"
 
 PASS=0

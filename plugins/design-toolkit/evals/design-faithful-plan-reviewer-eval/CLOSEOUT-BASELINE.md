@@ -39,7 +39,7 @@ It bites hardest on the first run of a new agent, which is exactly this case.
    `scripts/check-eval-model-identity.sh` requires they not appear in the runnable surface.
 
 Nothing downstream binds to the absent number. The `+10pp` / 3-run keep-or-revert rule in
-`../../dev-pipeline/eval-criteria.md` needs a prior reading to compare against, and until one
+[`../eval-criteria.md`](../eval-criteria.md) needs a prior reading to compare against, and until one
 exists this agent simply has no campaign — not a failing one.
 
 ## Provenance (to be filled at the first reading)

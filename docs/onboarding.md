@@ -82,8 +82,9 @@ In the repo's `.claude/settings.json`:
 repo is UI-shaped or a design MCP is connected (accepting it also offers the optional
 `design.liveRender` render-command block when a harness is detected — [`live-render.md`](live-render.md)).
 **One documented downgrade:** review-only
-(`enabledPlugins` with just `review-toolkit@second-shift: true`) — *community-supported, not
-CI-tested*. Everything else is possible via `enabledPlugins: false` and yours to own, with **one
+(`enabledPlugins` with just `review-toolkit@second-shift: true`) — review-toolkit ships its own
+reviewer fan-out, so `review-lead` and its commit hooks run without dev-pipeline or
+design-toolkit (the design reviewers degrade away). *Community-supported, not CI-tested.* Everything else is possible via `enabledPlugins: false` and yours to own, with **one
 exception**: `audit-toolkit` off while `dev-pipeline` is on is not a supported combination.
 `audit-toolkit` ships the hook that writes the per-session audit ledger — the record of what the
 lane's unattended sessions actually ran — and `/second-shift:doctor` FAILs on the pairing rather
@@ -161,6 +162,8 @@ Validate it:
 
 ```bash
 # config-lint ships INSIDE the dev-pipeline plugin (so installed-cache consumers can run it):
+# a tier-named modelOverrides value reads review-toolkit's model-tiering.md, found beside it
+# in the install cache or named by SECOND_SHIFT_TIER_DOC.
 bash "${CLAUDE_PLUGIN_ROOT:-<dev-pipeline-plugin-root>}/tools/config-lint.sh" \
   .claude/second-shift.config.json
 ```
@@ -270,9 +273,9 @@ Two layers, in order:
 1. **Config**: config-lint (above) — green means the static context parses and every value
    is schema-legal.
 2. **Install state**: `/second-shift:doctor` — installed plugins vs the lockfile, settings
-   pin, shadow collisions, stale keys (see §0). To check extension filenames against the
-   shipped manifest, run `check-extensions.sh` from the dev-pipeline plugin's `tools/` (a typo'd
-   extension filename is loud, never silently ignored).
+   pin, shadow collisions, stale keys (see §0), and extension filenames under
+   `.claude/second-shift/` against the shipped manifest (a typo'd extension filename is a FAIL,
+   never silently ignored).
 
 Then a first run on a small, self-contained ticket. Intake it first: `/intake-toolkit:intake`
 puts the ticket's open decisions to you and records them in the intake record

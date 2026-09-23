@@ -227,7 +227,8 @@ RESOLVE_RECORD='[.[] | select(.id==$id and ((.projectPath // "") == $root or .sc
 # Redundant-record classification, computed once for every plugin (the helper groups by id
 # itself). Its rows drive the WARNs after this loop; its scope answer is what makes the two
 # drift remediations below adaptive.
-SCOPE_SHADOWS="${SECOND_SHIFT_SCOPE_SHADOWS:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/scope-shadows.sh}"
+DOCTOR_TOOLS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCOPE_SHADOWS="${SECOND_SHIFT_SCOPE_SHADOWS:-$DOCTOR_TOOLS/scope-shadows.sh}"
 SHADOW_ROWS=""
 [[ -f "$SCOPE_SHADOWS" ]] && SHADOW_ROWS="$(bash "$SCOPE_SHADOWS" --root "$ROOT" --marketplace "$MKT" 2>/dev/null)"
 for p in $(jq -r '.plugins | keys[]' "$LOCK"); do
@@ -281,6 +282,25 @@ while IFS=$'\t' read -r kind sp spv suv; do
   [[ "$kind" == "shadowed" ]] || continue
   warn "$sp: the project-scope record ($spv) is redundant — a user-scope record ($suv) already serves this plugin, and only the CURRENT repo is ever realigned, so the project one rots behind it. Fix: claude plugin uninstall $sp@$MKT --scope project — CAUTION: that also deletes \"$sp@$MKT\" from the committed .claude/settings.json enabledPlugins; restore it with git checkout -- .claude/settings.json && git status"
 done <<< "$SHADOW_ROWS"
+
+# --- 3.5 upgrade skew: a review-toolkit older than the fan-out move ------------------------
+# review-toolkit ships the reviewer Workflow scripts and the tier alphabet that dev-pipeline and
+# intake-toolkit reach for. Plugins update one at a time and none declares a dependency, so a
+# machine mid-upgrade can serve a new reader beside a review-toolkit that lacks them. There is
+# no fallback search: the fix is to update the set together.
+rt_rec="$(jq -c --arg id "review-toolkit@$MKT" --arg root "$ROOT" "$RESOLVE_RECORD" <<< "$PLUGLIST")"
+rt_path="$(jq -r '.installPath // empty' <<< "${rt_rec:-null}")"
+if [[ -n "$rt_path" && -d "$rt_path" && "$(jq -r '.enabled != false' <<< "$rt_rec")" == "true" ]]; then
+  readers=""
+  for p in dev-pipeline intake-toolkit; do
+    [[ "$(jq -r --arg id "$p@$MKT" --arg root "$ROOT" "$RESOLVE_RECORD | .enabled != false" <<< "$PLUGLIST")" == "true" ]] \
+      && readers="${readers:+$readers, }$p"
+  done
+  if [[ -n "$readers" ]] && [[ ! -f "$rt_path/workflows/code-review.mjs" || ! -f "$rt_path/model-tiering.md" ]]; then
+    bad "review-toolkit $(jq -r '.version' <<< "$rt_rec") predates the fan-out move — update all second-shift plugins together (/second-shift:local-dev-refresh). $readers reach for its workflows/ and model-tiering.md, which this install lacks ($rt_path)"
+    NEED_RESTART=1
+  fi
+fi
 
 # --- 4. ref-less user-scope marketplace shadow --------------------------------
 if jq -e 'type == "array"' <<< "$MKTLIST" >/dev/null 2>&1; then
@@ -359,6 +379,27 @@ if [[ "${#stale_ci[@]}" -gt 0 ]]; then
   bad "stale second-shift CI from the retired verdict-record lane: ${stale_ci[*]} — these read a committed verdict record /dev-pipeline:run no longer writes. Fix: delete them (and any needs:/if: lines wiring second-shift-delta-guard into your own workflows, and the \"second-shift evidence\" required status check in branch protection). Keep second-shift-unclaim.* — it is current (docs/migrations/v2-to-v3.md)"
 fi
 
+# --- 6.6 extension file names ------------------------------------------------------------
+# Every file under .claude/second-shift/ must match a name the installed plugins read, or the
+# consumer's .known-extensions allowlist: a typo'd name is otherwise silently never consulted.
+# One FAIL per unknown file; a missing manifest is a broken install, never a clean pass. Silent
+# when the check is clean, including when .claude/second-shift/ does not exist.
+ext_rc=0
+ext_err="$(bash "$DOCTOR_TOOLS/check-extensions.sh" "$ROOT" 2>&1 >/dev/null)" || ext_rc=$?
+case "$ext_rc" in
+  0) : ;;
+  1) ext_unknown=0
+     while IFS= read -r line; do
+       [[ "$line" == UNKNOWN-EXTENSION:* ]] || continue
+       ext_unknown=$((ext_unknown + 1))
+       bad "${line#UNKNOWN-EXTENSION: }. Fix: rename it to a known name (see the manifest beside doctor), or list it in .claude/second-shift/.known-extensions"
+     done <<< "$ext_err"
+     # set -e in the check also exits 1: no file named means it died, not that it passed
+     [[ "$ext_unknown" -gt 0 ]] || bad "extension check could not run (rc=1): $(tail -1 <<< "$ext_err")" ;;
+  2) bad "extension manifest missing: ${ext_err#*manifest not found: } — reinstall second-shift (claude plugin update second-shift@$MKT)" ;;
+  *) bad "extension check could not run (rc=$ext_rc): $(tail -1 <<< "$ext_err")" ;;
+esac
+
 # --- 7. config-lint -------------------------------------------------------------
 CONF="$ROOT/.claude/second-shift.config.json"
 if [[ ! -f "$CONF" ]]; then
@@ -391,8 +432,12 @@ else
   DP_PATH="$(jq -r --arg id "dev-pipeline@$MKT" --arg root "$ROOT" \
     "$RESOLVE_RECORD | .installPath // empty" <<< "$PLUGLIST")"
   LINT="$DP_PATH/tools/config-lint.sh"
+  # The tier alphabet ships in review-toolkit: hand config-lint the ENABLED copy, which its own
+  # sibling resolver (newest cached version) may not be.
+  RT_PATH="$(jq -r --arg id "review-toolkit@$MKT" --arg root "$ROOT" \
+    "$RESOLVE_RECORD | .installPath // empty" <<< "$PLUGLIST")"
   if [[ -n "$DP_PATH" && -f "$LINT" ]]; then
-    if out="$(bash "$LINT" "$CONF" 2>&1)"; then ok "config-lint: $(tail -1 <<< "$out")"
+    if out="$(SECOND_SHIFT_TIER_DOC="${RT_PATH:+$RT_PATH/model-tiering.md}" bash "$LINT" "$CONF" 2>&1)"; then ok "config-lint: $(tail -1 <<< "$out")"
     else
       bad "config-lint violations — fix .claude/second-shift.config.json:"
       # while-read (not sed<<<) — SC2001-clean under the CI shellcheck flags

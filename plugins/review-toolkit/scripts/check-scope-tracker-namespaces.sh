@@ -19,14 +19,12 @@
 #   (1) the agent's `tools:` frontmatter grants getJiraIssue under ALL THREE
 #       Atlassian namespaces;
 #   (2) the agent body references ToolSearch (the deferred-tool discovery step);
-#   (3) when the dev-pipeline plugin is installed as a sibling, its
-#       code-review.mjs ATLASSIAN_MCP_TOOLSEARCH selects getJiraIssue under all
-#       three namespaces too. Skipped with a note when dev-pipeline is absent
-#       (standalone review-toolkit adoption — fail open, do not deny).
+#   (3) this plugin's workflows/code-review.mjs ATLASSIAN_MCP_TOOLSEARCH selects
+#       getJiraIssue under all three namespaces too. The file ships in this plugin,
+#       so a missing one is a broken install and an error.
 #
-# Roots (env overrides win, for hermetic selftests):
-#   review-toolkit plugin root = $SECOND_SHIFT_PLUGIN_ROOT      or  $SCRIPT_DIR/..
-#   dev-pipeline sibling root  = $SECOND_SHIFT_DEV_PIPELINE_ROOT or  resolved sibling
+# Root (env override wins, for hermetic selftests):
+#   review-toolkit plugin root = $SECOND_SHIFT_PLUGIN_ROOT or $SCRIPT_DIR/..
 #
 # Standalone CLI: errors -> stderr, exit 1 on drift, exit 0 clean.
 
@@ -63,28 +61,16 @@ if ! grep -q 'ToolSearch' "$AGENT"; then
     errors+=("MISSING-TOOLSEARCH: scope-completeness-reviewer has no ToolSearch discovery step for the deferred Atlassian tools")
 fi
 
-# (3) dev-pipeline sibling code-review.mjs ATLASSIAN_MCP_TOOLSEARCH covers all three.
-DP_ROOT="${SECOND_SHIFT_DEV_PIPELINE_ROOT:-}"
-if [ -z "$DP_ROOT" ]; then
-    cand=$(cd "$SCRIPT_DIR/../../dev-pipeline" 2>/dev/null && pwd) || cand=""
-    if [ -n "$cand" ] && [ -d "$cand/workflows" ]; then
-        DP_ROOT="$cand"
-    else
-        for c in "$SCRIPT_DIR"/../../../dev-pipeline/*/; do
-            [ -d "$c/workflows" ] || continue
-            DP_ROOT=$(cd "$c" && pwd)
-        done
-    fi
-fi
-CR="$DP_ROOT/workflows/code-review.mjs"
-if [ -n "$DP_ROOT" ] && [ -f "$CR" ]; then
+# (3) this plugin's code-review.mjs ATLASSIAN_MCP_TOOLSEARCH covers all three.
+CR="$PLUGIN_ROOT/workflows/code-review.mjs"
+if [ -f "$CR" ]; then
     for ns in "${NAMESPACES[@]}"; do
         if ! grep -qE "${ns}getJiraIssue," "$CR"; then
             errors+=("MISSING-NAMESPACE: code-review.mjs ATLASSIAN_MCP_TOOLSEARCH does not select ${ns}getJiraIssue")
         fi
     done
 else
-    printf 'note: dev-pipeline plugin not resolved as a sibling — skipping the code-review.mjs cross-check (standalone review-toolkit adoption).\n' >&2
+    errors+=("MISSING-TABLE: $CR not found")
 fi
 
 if [ ${#errors[@]} -gt 0 ]; then

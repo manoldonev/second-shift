@@ -9,7 +9,7 @@
 #   - emit.test.mjs
 # They were never broken — they were simply unreachable. This shim rides the glob and
 # hands them to node, exactly as workflows/workflows-mjs-selftest.sh does for the
-# dev-pipeline .mjs selftests.
+# review-toolkit .mjs selftests.
 #
 # Deliberately located next to the suites it runs, rather than in a central tests/
 # dir: it is a thin adapter for THIS directory's contents, and a reader deleting a
@@ -21,7 +21,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # node absent is a FAIL, never a silent green — the repo convention, matching
-# workflows/workflows-mjs-selftest.sh and tools/text-contract-selftest.sh. Both CI
+# workflows/workflows-mjs-selftest.sh and scripts/text-contract-selftest.sh. Both CI
 # lanes provide node; a missing node means the environment is wrong, and skipping
 # would report success for suites that never ran.
 command -v node >/dev/null 2>&1 || {
