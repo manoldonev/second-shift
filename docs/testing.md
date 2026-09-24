@@ -213,8 +213,8 @@ containment is the load-bearing part and the hashing is not. Four properties, al
 `tools/run-selftests-selftest.sh` against fixture trees:
 
 1. **Fail-closed by default, twice.** A suite with no row is always run, and the cache as a whole
-   is off unless a store is named — `--cache-dir` on argv, or `$LANE_SELFTEST_CACHE_DIR` (below).
-   The mandated local recipe in `CLAUDE.md` names neither, so a bare local sweep is still cold —
+   is off unless `--cache-dir` names a store.
+   The mandated local recipe in `CLAUDE.md` names none, so a bare local sweep is still cold —
    and so is the nightly leg.
 2. **Self-inclusion is mandatory.** A row set must name the suite itself, and — where the naming
    convention resolves it, `<stem>-selftest.sh` beside `<stem>.sh` — the script under test. A row
@@ -228,15 +228,6 @@ containment is the load-bearing part and the hashing is not. Four properties, al
 4. **The nightly ignores it.** `.github/workflows/nightly-guards.yml` runs the whole sweep with no
    `--cache-dir`, asking the PR lane's exact question. An under-declaration surfaces within a day,
    against a tree nobody is waiting on.
-
-**`LANE_SELFTEST_CACHE_DIR` is the flagless form**, for a caller that cannot add a flag to a
-command it does not own. `run-selftests.sh` reads it only when argv named no store; argv wins, and
-unset is a no-op. It differs from `--cache-dir` twice: it records without `--cache-write` (the
-store is machine-local and records the operator's own tree — property 3 guards a store other runs
-read), and a store that cannot be created prints a named notice and runs cold instead of exiting 2
-(an injected store is not the tree's fault). The `--run-one` worker scrubs the variable, so a
-suite never inherits it — the cache is decided once, in the parent, and a suite that nests its own
-runner keeps meaning what it means standalone.
 
 Only PASS is ever recorded, and only by the parent process after the replay has scored the run — a
 red suite, and a suite whose worker died without a verdict, write nothing. A marker that is not
@@ -283,47 +274,6 @@ every lane in one character, and the next run is a full cold sweep. `SELFTEST_CA
 
 CI is the thing being sped up, and the authority is the nightly wholesale leg, which runs cold.
 
-### Citing a CI run instead of re-running it (review side)
-
-A review session often needs the answer "is the mandated recipe green at this head", and the
-answer is already sitting in the PR's checks: an `AC-n` proved by "run the mandated recipe and it
-is green" does not need a *third* execution once `lint-and-selftests` (ubuntu) and
-`selftests-bash32` — display name `selftests (macos, bash 3.2)`, the string `gh pr checks`/`gh run
-view` actually print — have both run the recipe's suite set at the commit under review. Both cover
-ground the reviewer's own checkout (bash 5.x + BSD) does not: ubuntu is bash 5.x + GNU, macos is
-bash 3.2 + BSD. `gh pr checks <pr>` names the job and conclusion for the PR's current head — its
-own `--json` has no head SHA field, so pair it with `git rev-parse HEAD`; `gh run view <run-id>
---json headSha,conclusion,jobs` supplies all three itself. Citing those three IS the verification.
-
-CI's own invocation is not byte-identical to the recipe — it adds `--cache-dir
-"$RUNNER_TEMP/selftest-cache"`, and the ubuntu lane sets no `SKIP_STRESS` where the recipe sets
-`SKIP_STRESS=1` — and neither delta counts as "command differs" below. `--cache-dir` is read-only
-on a PR (`--cache-write` is push-only) and skips a suite only when every input
-`tools/selftest-cache-inputs.tsv` declares for it is byte-unchanged from an already-passed run — a
-correctly-declared row skips no gap the recipe would have caught differently. An *under-declared*
-row is exactly that gap — but whether the PR lane itself catches it depends on what else the PR
-touches: moving only the under-declared input leaves the cache key unchanged, the suite is
-skipped, and it is the nightly's cold sweep that catches it; moving a *declared* input in the same
-PR moves the key too, and the PR lane forces the suite to run. The missing `SKIP_STRESS` runs
-strictly *more* than the recipe, never less. Both classify as same command.
-
-**The discriminator is both conditions, not one: same command AND same head.**
-
-- **Command differs** — the AC's recipe carries a flag or exclusion CI's invocation does not (e.g.
-  an AC asserting `tools/install-topology-selftest.sh` is green: both CI selftest jobs run
-  `--exclude tools/install-topology-selftest.sh`, so their green never covered that suite). CI's
-  green proves a different claim than the AC makes. Execute.
-- **Head differs** — a fix round landed after the run being cited. CI's green is about a tree that
-  no longer exists. Execute.
-- **Neither differs** — cite the run and stop. A local rerun is not stronger evidence: CI's two
-  lanes already cover two environments the local checkout does not, and the retry answers a
-  question the branch's own checks already answered.
-
-This narrows "verify by execution rather than trusting prose" — it does not repeal it. A
-single-suite probe of an assertion new to this round, or any command that differs from what CI
-ran, is still review-side work; only the command-and-head match is a citation, not a discretion
-call.
-
 ## Why a tier map at all
 
 CI here is **model-free by design** — no API-billed calls. That constraint is what makes the
@@ -335,7 +285,7 @@ pyramid, plus one tier that is honest about being outside CI.
 | --- | --- | --- |
 | Unit | Per-tool behavioral selftests — execute one script against tempdir fixtures, assert exit code / output / state | Established |
 | Contract | `check-lockstep-pairs.sh` — `LOCKSTEP` marker groups discovered from the tree and compared; + registry and schema lints (config-lint ↔ schema, model tiers, text-contract carriers) | Established |
-| Integration | `plugins/dev-pipeline/skills/run/run-selftest.sh` — the scheduler driven end to end against a fake `claude` and a fake `gh`, one case per contract row | Established |
+| Integration | `plugins/dev-pipeline/skills/run/run-selftest.sh` — the scheduler driven end to end against a fake `claude` and a fake `gh`, one case per scheduler behavior | Established |
 | Runtime | `plugins/review-toolkit/workflows/runtime-shim-selftest.mjs` — executes real Workflow `.mjs` bodies with injected fakes | Established |
 | Install topology | `tools/install-topology-selftest.sh` — every shipped suite re-run from a version-keyed install cache | Established |
 | Adversarial | Model-tier audit workflows — **operator-run, never CI** | This document |
@@ -351,15 +301,14 @@ reads as the sequence of sessions it stages. Assertions land on the terminal slu
 and what the fakes recorded: labels, the claim marker, the spawn flags, the prompts, the PR body
 and its cost block.
 
-The cases are **row-keyed**: each names the contract row it discriminates (`[F2]`, `[D4]`, …),
-the same ids `run.sh`'s section headers cite, and a row whose behavior is reverted turns its case
-red. The invariants the suite exists for are the three adjudication properties: the checks are run
+Some cases carry the id of a contract row (`[F2]`, `[D4]`, …) that `run.sh`'s section headers
+also cite. The row inventory lives outside this repo, so read a case by what it asserts, not by its
+id. The invariants the suite exists for are the three adjudication properties: the checks are run
 by the scheduler from the record's first commit, the build's work is collected on exactly one open
 PR before any check runs, and a verdict counts only as an unedited comment naming the current head,
 posted inside the review session's window by a Bot or the account the scheduler writes with.
 
-**A change to `run.sh` lands with a row-keyed case seen failing first.** Add the case, watch it go
-red against the current script, then change the script. A new terminal, refusal or outward write
+**A behavior change to `run.sh` lands with a case that fails without it.** A new terminal, refusal or outward write
 that no case reaches is untested by construction — the suite is the only place the scheduler runs.
 
 ## The rules that matter
@@ -376,7 +325,7 @@ function into a test, stop and use the runtime shim.
 
 **Every new guard ships a red-on-mutation demo.** A guard that has never been observed failing
 is indistinguishable from one that cannot fail. Break the thing, watch the guard go red, restore
-it, and say so in the commit body. This is a repo idiom, not a suggestion.
+it.
 
 **Prefer one composed scenario to N component checks.** A path can die with dozens of green
 selftests when every one of them checks a component against itself. If a change adds a lane
@@ -595,7 +544,7 @@ does not owe this list a new entry.
 - **The dark-reviewer re-dispatch mandate, across three prose sites.** `review-lead` Step 4b
   mandates one in-session re-dispatch before a `[Coverage gap]` may be recorded; Step 4b-void
   case 2 reads "still dark after that re-dispatch" as its post-dispatch trigger on an armed spec;
-  and `/dev-pipeline:review` step 5c hands such a round back. Loosen the mandate and 5c's trigger
+  and `/dev-pipeline:review` step 6 hands such a round back. Loosen the mandate and step 6's trigger
   stops matching what `review-lead` can produce. **Declined, with no guard added.** The only
   mechanization available is a grep for prose that must be present, which the `writing-tests`
   skill forbids; a `LOCKSTEP` anchor needs byte-identical blocks, and these three deliberately
@@ -751,10 +700,11 @@ schedule turns it into noise.
    auditor had misclassified as redundant.
 4. **Treat skeptic conditions as binding.** A skeptic that says "safe *only if* X is retained"
    has written a requirement, not a footnote.
-5. **Land the evidence with the work.** Audit reasoning and skeptic verdicts belong in the issue
+5. **Land the evidence with the work.** Audit reasoning and skeptic verdicts belong in the PR
    body, so the next reader can tell a considered deletion from a careless one.
 
 **What it is not.** Not a gate, not a CI job, not a substitute for the deterministic tiers. It is
-a periodic audit whose output is *issues and prunes*, executed by the tiers above.
+a periodic audit whose output is *prunes and hand fixes*, executed by the tiers above. Per the
+admission rule in `CLAUDE.md`, what it finds is fixed by hand or dropped, not filed.
 
 **Cost is real.** The first audit ran ~40 agents over ~2.6M tokens. Budget for it deliberately.

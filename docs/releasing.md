@@ -81,12 +81,6 @@ bash plugins/second-shift/skills/onboard/tools/pin-resolve.sh manoldonev/second-
 | `check-plugin-version-bumps.sh` | the release PR only | every content-changed plugin carries its derived bump (the version string is the update **cache key** — an unbumped plugin updates NOBODY) |
 | configVersion migration-doc gate | the release PR only | a `configVersion` change ships `docs/migrations/vN-to-vN+1.md` (the contract in [`migrations/README.md`](migrations/README.md)) |
 
-**The maintainer-local trace gate does not run on the release PR.** It is a pre-push hook on
-the maintainer's machine; the release commit is authored by the bot in CI, so the hook never
-fires for it. This is acceptable because the release commit is fully derived — every byte of
-it comes from `derive-release.sh` operating on already-reviewed, already-gated commits. Trace
-discipline still applies to every feature PR, where the hook does run.
-
 ## Things the derivation does NOT decide
 
 - **Section-catalog changes are breaking-class.** Adding, renaming, or tombstoning a row in

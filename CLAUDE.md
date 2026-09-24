@@ -9,9 +9,8 @@ what the product should do is measured on consumer repos' committed records.
 decisions. Every material decision names who made it — the ticket, a human's answer, the
 codebase, an explicit deferral, or the agent under your standing delegation — and a departure from
 the record is written down, never buried. Ask, build and review all serve that one
-idea; we hold that the asking is the make-or-break step, and we have dated the test that could
-prove it wrong. We develop it against what consumer records show, never against this repo's own
-lane."*
+idea; we hold that the asking is the make-or-break step. We develop it against what consumer
+records show, never against this repo's own lane."*
 
 **Admission.** A ticket enters the lane only with (a) a row id from the operator's consumer
 scoreboard that is a blocker or an extra round, or (b) a failure of documented shipped behavior
@@ -21,8 +20,7 @@ repo's dogfood lane or the selftests is fixed by hand or not filed.
 **Only the operator queues or launches the lane in this repo.** A session never applies
 `ready-for-dev` (intake slices use the no-queue-label form) and never runs `run.sh` or
 `/dev-pipeline:run` on a ticket the operator has not queued; on the scheduler's exit 3 it stops.
-It writes the admission evidence into the ticket body and stops. A new file under `tools/` or
-`scripts/` merges only if the same PR deletes a larger one.
+It writes the admission evidence into the ticket body and stops.
 
 ## Never edit release artifacts in a feature PR
 
@@ -74,11 +72,15 @@ to *product* repos where AI tooling is incidental. Here the AI tooling IS the pr
 new capability is `feat:` — typing it `chore:` silently downgrades a minor release to a
 patch.
 
+**The verb goes on the PR title.** Merges are squash-merges, so `derive-release.sh` reads the PR
+title as the commit subject: a verb that sits only on a branch commit is lost, and a verbless
+title derives a patch. A `BREAKING CHANGE:` line in the body still derives a major.
+
 ## A session-launch fix lands in the scheduler
 
 When a spawned session cannot run as launched (a prompt it cannot answer, a missing grant, a wrong
-flag), the fix lands in `plugins/dev-pipeline/skills/run/run.sh`, with a row-keyed case in
-`run-selftest.sh` seen failing first — never only in a wrapper or a one-off launch.
+flag), the fix lands in `plugins/dev-pipeline/skills/run/run.sh`, with a `run-selftest.sh` case
+that fails without it — never only in a wrapper or a one-off launch.
 
 ## Verification
 
@@ -117,8 +119,8 @@ The tier map (where a new guard goes), the scenario-first rule, the no-prose-pre
 no-mirror-harnesses rules and the mjs-seam grep exception live in the `writing-tests` skill — it loads when you touch a test. Full contract:
 [`docs/testing.md`](docs/testing.md).
 
-**One thing in there binds ordinary PRs, not just test authorship:** a change to `run.sh` lands
-with a row-keyed case in `run-selftest.sh` seen failing first. Read the skill before making one.
+**One thing in there binds ordinary PRs, not just test authorship:** a behavior change to
+`run.sh` lands with a `run-selftest.sh` case that fails without it.
 
 Testing: [`docs/testing.md`](docs/testing.md) — the tier map, the runtime shim, and the operator-run adversarial recipe.
 
