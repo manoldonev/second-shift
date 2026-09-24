@@ -28,7 +28,7 @@ repository changes; the consumer's config is not touched either.
    commit.
 
 **Every replay launch passes the build model, the review model and the round cap explicitly**,
-never by default, and all three are recorded on the row. A defaulted parameter is a parameter
+never by default, and all three are recorded with the replay's figures. A defaulted parameter is a parameter
 that can change under the series without the series showing it — the shipped review-model
 default in particular is a constant a release is free to move.
 

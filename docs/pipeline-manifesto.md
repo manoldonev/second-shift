@@ -101,7 +101,7 @@ P5 forbids.
 
 **V3 posture:** it binds new code from its statement onward, and retro-binds the existing gates as
 a *profiling* obligation rather than a refactor mandate — a serial-independent-step finding is
-recorded with its measurement and filed, because parallelizing a gate blind is how a
+recorded with its measurement and fixed by hand or dropped, because parallelizing a gate blind is how a
 correctness regression enters through a velocity door.
 
 ## The trust boundary
@@ -111,13 +111,13 @@ files, receipts, even the hook-written audit ledger — are at best tamper-*evid
 tamper-*proof* line is the merge: the consumer's own required CI checks, branch protection, and a
 human who merges — the lane never merges its own work.
 
-P3 is satisfied by **three-record reconciliation**: (a) the hook-written tool ledger
-(harness-recorded, outside model control); (b) the scheduler's run records — the intake record at
-the branch's first commit, each session's result and log, and the run block it writes on the PR;
-(c) the tracker trail and PR artifacts, the verdict comment among them. The scheduler reconciles
-what it can mechanically — the verdict against the review window and the head, the checks it ran
-itself — and the review scores the record's rows against the code. Forging any one record is
-possible; forging all three consistently is what reconciliation makes detectable.
+P3 is satisfied by **two-record reconciliation**: (a) the scheduler's run records — the intake
+record at the branch's first commit, each session's result and log, and the run block it writes on
+the PR; (b) the tracker trail and PR artifacts, the verdict comment among them. The scheduler
+reconciles what it can mechanically — the verdict against the review window and the head, the
+checks it ran itself — and the review scores the record's rows against the code. Forging one
+record is possible; forging both consistently is what reconciliation makes detectable. The
+hook-written tool ledger is observability for a human reading a run; nothing in the lane reads it.
 
 ### Nothing yields to a present human mid-run
 
@@ -167,8 +167,7 @@ substituted, and no toggle procedure is documented for a control that does not e
 rulesets later become available here, the mechanism above is what to create, and the sanctioned-change
 procedure would be an operator toggle to `disabled` and back around each workflow edit.
 
-**The gap is recorded as an open risk on the program epic**, including its consequence for rung 1
-below. Retiring the gap means one of: transferring the repo to an organization, or finding a
+**The gap stays open**, including its consequence for rung 1 below. Retiring the gap means one of: transferring the repo to an organization, or finding a
 server-side control that binds a user-owned public repo.
 
 Two partial controls remain, and neither is a substitute:
@@ -197,7 +196,7 @@ the resolved prefix on every not-applicable verdict.
 #731 deleted the check: nothing had emitted the stage-marker trail it demanded since #348, so it
 was unsatisfiable while still live. The limitation stays recorded because the shape recurs — every
 record such a gate reads is agent-written, and so is its own configuration. Rung 1 was
-**tamper-evidence, not proof**. Harness attestation is rung 2's job.
+**tamper-evidence, not proof**.
 
 The generalizable rule: a CI constant is self-neutralizable when it is the **sole** applicability
 input. Replace it with an artifact-derived trigger and there is no kill switch left to reach.
