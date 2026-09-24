@@ -4,6 +4,306 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v15.0.0
+
+### `audit-toolkit` 5.0.1 → 6.0.0
+
+- **/dev-pipeline:run drives run.sh; the milestone lane is deleted (#889)** (#889)
+  none — not yet wired to /dev-pipeline:run; nothing consumer-visible until #881 lands.
+  none (the scheduler is not yet what /dev-pipeline:run drives)
+  /dev-pipeline:run is a single scheduler (run.sh) over fresh build
+  and review sessions; it runs the checks itself, reads the decision record from
+  the branch's first commit, and accepts only a verdict PR comment posted inside
+  the review window, unedited, naming the current head. The milestone gates,
+  committed verdict and render-receipt records, retros, operator-override and
+  the consumer merge-boundary CI are removed.
+  Migration: follow docs/migrations/v2-to-v3.md — bump configVersion to 3;
+  delete topology, gates, stageParams, grillWaivers,
+  design.liveRender.tolerancePx and design.liveRender.cwd; move
+  stageParams.webComponentGlobs to reviewers.webComponentGlobs. Delete
+  .github/workflows/second-shift-ci.yml, .claude/tools/second-shift-ci-check.sh
+  and any second-shift-delta-guard.* you copied, and drop their required status
+  check from branch protection. Replace /dev-pipeline:build with
+  /dev-pipeline:run; LANE_* knobs are retired. Run /second-shift:doctor to find
+  what is left.
+  /dev-pipeline:run's review session now runs review-lead's reviewer
+  panel; before, its permissions denied the fan-out and only the review
+  session itself graded the PR.
+  Migration: none.
+  /dev-pipeline:run accepts a verdict comment only from a Bot or the
+  account the scheduler writes with; a review that cannot render stops the run
+  as env-not-ready without spending a round; a session killed at its time bound
+  is reported unpriced instead of $0; an unmigrated configVersion 2 config is
+  refused (env-config-stale). commands.<id>.lintAutofixes is removed.
+  Migration: configure `lint` as a non-mutating command (e.g. `eslint .`) and
+  delete lintAutofixes (docs/migrations/v2-to-v3.md).
+  **BREAKING:** /dev-pipeline:build, pipeline-retro and perf-retro are gone; /dev-pipeline:run now drives run.sh and /dev-pipeline:review is the manual form of its review session. configVersion 3 is required (docs/migrations/v2-to-v3.md).
+
+### `design-toolkit` 5.0.2 → 6.0.0
+
+- **figma-faithful: the live-render verify is mandatory, not conditional (#884)** (#884)
+  figma-faithful's step 9 live-render check is mandatory, not
+  conditional on a reachable dev server; the output contract gains a fifth
+  item (render evidence per screen, or an explicit could-not-render line).
+  Migration: none.
+  figma-faithful's Hard rules section no longer implies the
+  live-render check is optional when no dev server is reachable; the
+  unreachable case is handled by step 9's explicit output-contract line,
+  not by exempting the rule. Migration: none.
+- **/dev-pipeline:run drives run.sh; the milestone lane is deleted (#889)** (#889)
+  none — not yet wired to /dev-pipeline:run; nothing consumer-visible until #881 lands.
+  none (the scheduler is not yet what /dev-pipeline:run drives)
+  /dev-pipeline:run is a single scheduler (run.sh) over fresh build
+  and review sessions; it runs the checks itself, reads the decision record from
+  the branch's first commit, and accepts only a verdict PR comment posted inside
+  the review window, unedited, naming the current head. The milestone gates,
+  committed verdict and render-receipt records, retros, operator-override and
+  the consumer merge-boundary CI are removed.
+  Migration: follow docs/migrations/v2-to-v3.md — bump configVersion to 3;
+  delete topology, gates, stageParams, grillWaivers,
+  design.liveRender.tolerancePx and design.liveRender.cwd; move
+  stageParams.webComponentGlobs to reviewers.webComponentGlobs. Delete
+  .github/workflows/second-shift-ci.yml, .claude/tools/second-shift-ci-check.sh
+  and any second-shift-delta-guard.* you copied, and drop their required status
+  check from branch protection. Replace /dev-pipeline:build with
+  /dev-pipeline:run; LANE_* knobs are retired. Run /second-shift:doctor to find
+  what is left.
+  /dev-pipeline:run's review session now runs review-lead's reviewer
+  panel; before, its permissions denied the fan-out and only the review
+  session itself graded the PR.
+  Migration: none.
+  /dev-pipeline:run accepts a verdict comment only from a Bot or the
+  account the scheduler writes with; a review that cannot render stops the run
+  as env-not-ready without spending a round; a session killed at its time bound
+  is reported unpriced instead of $0; an unmigrated configVersion 2 config is
+  refused (env-config-stale). commands.<id>.lintAutofixes is removed.
+  Migration: configure `lint` as a non-mutating command (e.g. `eslint .`) and
+  delete lintAutofixes (docs/migrations/v2-to-v3.md).
+  **BREAKING:** /dev-pipeline:build, pipeline-retro and perf-retro are gone; /dev-pipeline:run now drives run.sh and /dev-pipeline:review is the manual form of its review session. configVersion 3 is required (docs/migrations/v2-to-v3.md).
+- **review-toolkit ships its own reviewer fan-out, so the review-only install works (#894)** (#894)
+  review-toolkit ships its own reviewer fan-out (code-review.mjs,
+  intake-review.mjs, the tier alphabet), so review-lead works without
+  dev-pipeline installed; its commit hooks no longer fail open without
+  dev-pipeline and skip design-toolkit rows when design-toolkit is absent.
+  /second-shift:doctor now flags unknown file names under
+  .claude/second-shift/ and a review-toolkit older than the other plugins.
+  Migration: update all second-shift plugins together
+  (/second-shift:local-dev-refresh); doctor names a review-toolkit left behind.
+
+### `dev-pipeline` 14.0.4 → 15.0.0
+
+- **fix(dev-pipeline): the milestone gate accepts an operator-named lane branch (#879)** (#879)
+  /dev-pipeline:build and /dev-pipeline:review work on a branch the
+  operator named. Run `entry <issue> --branch <name>` on the build side (an
+  open PR from the checkout that closes the issue is adopted without it), and
+  pass the PR's headRefName as `--branch` to `delta`/`verdict` on the review
+  side. Migration: none.
+- **fix(second-shift): retire config-grill checks graded against a mutation sweep no repo runs (#880)** (#880)
+  config-grill no longer FAILs a repo for a mutation sweep no second-shift gate
+  executes; the grill's unadopted[] severity is retired with its only producer
+  (T1.mutation-sweep). gates.mutation is unaffected as a config key — still accepted, just
+  read by nothing until the next batched major removes it from the schema.
+  Migration: none.
+- **/dev-pipeline:run drives run.sh; the milestone lane is deleted (#889)** (#889)
+  none — not yet wired to /dev-pipeline:run; nothing consumer-visible until #881 lands.
+  none (the scheduler is not yet what /dev-pipeline:run drives)
+  /dev-pipeline:run is a single scheduler (run.sh) over fresh build
+  and review sessions; it runs the checks itself, reads the decision record from
+  the branch's first commit, and accepts only a verdict PR comment posted inside
+  the review window, unedited, naming the current head. The milestone gates,
+  committed verdict and render-receipt records, retros, operator-override and
+  the consumer merge-boundary CI are removed.
+  Migration: follow docs/migrations/v2-to-v3.md — bump configVersion to 3;
+  delete topology, gates, stageParams, grillWaivers,
+  design.liveRender.tolerancePx and design.liveRender.cwd; move
+  stageParams.webComponentGlobs to reviewers.webComponentGlobs. Delete
+  .github/workflows/second-shift-ci.yml, .claude/tools/second-shift-ci-check.sh
+  and any second-shift-delta-guard.* you copied, and drop their required status
+  check from branch protection. Replace /dev-pipeline:build with
+  /dev-pipeline:run; LANE_* knobs are retired. Run /second-shift:doctor to find
+  what is left.
+  /dev-pipeline:run's review session now runs review-lead's reviewer
+  panel; before, its permissions denied the fan-out and only the review
+  session itself graded the PR.
+  Migration: none.
+  /dev-pipeline:run accepts a verdict comment only from a Bot or the
+  account the scheduler writes with; a review that cannot render stops the run
+  as env-not-ready without spending a round; a session killed at its time bound
+  is reported unpriced instead of $0; an unmigrated configVersion 2 config is
+  refused (env-config-stale). commands.<id>.lintAutofixes is removed.
+  Migration: configure `lint` as a non-mutating command (e.g. `eslint .`) and
+  delete lintAutofixes (docs/migrations/v2-to-v3.md).
+  **BREAKING:** /dev-pipeline:build, pipeline-retro and perf-retro are gone; /dev-pipeline:run now drives run.sh and /dev-pipeline:review is the manual form of its review session. configVersion 3 is required (docs/migrations/v2-to-v3.md).
+- **config-lint selftest reads violation lines, not the fixture's path (#893)** (#893)
+- **review-toolkit ships its own reviewer fan-out, so the review-only install works (#894)** (#894)
+  review-toolkit ships its own reviewer fan-out (code-review.mjs,
+  intake-review.mjs, the tier alphabet), so review-lead works without
+  dev-pipeline installed; its commit hooks no longer fail open without
+  dev-pipeline and skip design-toolkit rows when design-toolkit is absent.
+  /second-shift:doctor now flags unknown file names under
+  .claude/second-shift/ and a review-toolkit older than the other plugins.
+  Migration: update all second-shift plugins together
+  (/second-shift:local-dev-refresh); doctor names a review-toolkit left behind.
+- **feat(dev-pipeline): the review session picks reviewers on judgment; prune dead conventions (#899)** (#899)
+  on a pipeline round the review session may now opt security,
+  a11y or unit-test-mutation review back in on its own judgment, with a
+  stated reason; the trimmed panel stays the default.
+  Migration: none.
+
+### `intake-toolkit` 5.0.2 → 6.0.0
+
+- **The intake receipt carries the checks and the design frames the scheduler reads (#887)** (#887)
+  `ledger-lint.sh --receipt` requires a `## Checks` section and, when
+  design.provider is configured, a `## Design frames` section whose rows carry
+  a `must-show` value; plan-interview elicits both.
+  Migration: an existing pre-flight receipt without `## Checks` fails the lint
+  until it gains the section — the empty form is `No ticket-specific checks —
+  the configured lanes cover this change.`
+  the intake receipt lint refuses a Checks line the scheduler would run
+  but is not '- cmd' ('---', '-cmd'), and a design frames row carrying '\|'.
+  Migration: none.
+  the intake receipt lint refuses a design disarm that is only a dash
+  ('Design: none —'); the reason must be stated.
+  Migration: none.
+- **/dev-pipeline:run drives run.sh; the milestone lane is deleted (#889)** (#889)
+  none — not yet wired to /dev-pipeline:run; nothing consumer-visible until #881 lands.
+  none (the scheduler is not yet what /dev-pipeline:run drives)
+  /dev-pipeline:run is a single scheduler (run.sh) over fresh build
+  and review sessions; it runs the checks itself, reads the decision record from
+  the branch's first commit, and accepts only a verdict PR comment posted inside
+  the review window, unedited, naming the current head. The milestone gates,
+  committed verdict and render-receipt records, retros, operator-override and
+  the consumer merge-boundary CI are removed.
+  Migration: follow docs/migrations/v2-to-v3.md — bump configVersion to 3;
+  delete topology, gates, stageParams, grillWaivers,
+  design.liveRender.tolerancePx and design.liveRender.cwd; move
+  stageParams.webComponentGlobs to reviewers.webComponentGlobs. Delete
+  .github/workflows/second-shift-ci.yml, .claude/tools/second-shift-ci-check.sh
+  and any second-shift-delta-guard.* you copied, and drop their required status
+  check from branch protection. Replace /dev-pipeline:build with
+  /dev-pipeline:run; LANE_* knobs are retired. Run /second-shift:doctor to find
+  what is left.
+  /dev-pipeline:run's review session now runs review-lead's reviewer
+  panel; before, its permissions denied the fan-out and only the review
+  session itself graded the PR.
+  Migration: none.
+  /dev-pipeline:run accepts a verdict comment only from a Bot or the
+  account the scheduler writes with; a review that cannot render stops the run
+  as env-not-ready without spending a round; a session killed at its time bound
+  is reported unpriced instead of $0; an unmigrated configVersion 2 config is
+  refused (env-config-stale). commands.<id>.lintAutofixes is removed.
+  Migration: configure `lint` as a non-mutating command (e.g. `eslint .`) and
+  delete lintAutofixes (docs/migrations/v2-to-v3.md).
+  **BREAKING:** /dev-pipeline:build, pipeline-retro and perf-retro are gone; /dev-pipeline:run now drives run.sh and /dev-pipeline:review is the manual form of its review session. configVersion 3 is required (docs/migrations/v2-to-v3.md).
+- **review-toolkit ships its own reviewer fan-out, so the review-only install works (#894)** (#894)
+  review-toolkit ships its own reviewer fan-out (code-review.mjs,
+  intake-review.mjs, the tier alphabet), so review-lead works without
+  dev-pipeline installed; its commit hooks no longer fail open without
+  dev-pipeline and skip design-toolkit rows when design-toolkit is absent.
+  /second-shift:doctor now flags unknown file names under
+  .claude/second-shift/ and a review-toolkit older than the other plugins.
+  Migration: update all second-shift plugins together
+  (/second-shift:local-dev-refresh); doctor names a review-toolkit left behind.
+
+### `review-toolkit` 8.0.5 → 9.0.0
+
+- **/dev-pipeline:run drives run.sh; the milestone lane is deleted (#889)** (#889)
+  none — not yet wired to /dev-pipeline:run; nothing consumer-visible until #881 lands.
+  none (the scheduler is not yet what /dev-pipeline:run drives)
+  /dev-pipeline:run is a single scheduler (run.sh) over fresh build
+  and review sessions; it runs the checks itself, reads the decision record from
+  the branch's first commit, and accepts only a verdict PR comment posted inside
+  the review window, unedited, naming the current head. The milestone gates,
+  committed verdict and render-receipt records, retros, operator-override and
+  the consumer merge-boundary CI are removed.
+  Migration: follow docs/migrations/v2-to-v3.md — bump configVersion to 3;
+  delete topology, gates, stageParams, grillWaivers,
+  design.liveRender.tolerancePx and design.liveRender.cwd; move
+  stageParams.webComponentGlobs to reviewers.webComponentGlobs. Delete
+  .github/workflows/second-shift-ci.yml, .claude/tools/second-shift-ci-check.sh
+  and any second-shift-delta-guard.* you copied, and drop their required status
+  check from branch protection. Replace /dev-pipeline:build with
+  /dev-pipeline:run; LANE_* knobs are retired. Run /second-shift:doctor to find
+  what is left.
+  /dev-pipeline:run's review session now runs review-lead's reviewer
+  panel; before, its permissions denied the fan-out and only the review
+  session itself graded the PR.
+  Migration: none.
+  /dev-pipeline:run accepts a verdict comment only from a Bot or the
+  account the scheduler writes with; a review that cannot render stops the run
+  as env-not-ready without spending a round; a session killed at its time bound
+  is reported unpriced instead of $0; an unmigrated configVersion 2 config is
+  refused (env-config-stale). commands.<id>.lintAutofixes is removed.
+  Migration: configure `lint` as a non-mutating command (e.g. `eslint .`) and
+  delete lintAutofixes (docs/migrations/v2-to-v3.md).
+  **BREAKING:** /dev-pipeline:build, pipeline-retro and perf-retro are gone; /dev-pipeline:run now drives run.sh and /dev-pipeline:review is the manual form of its review session. configVersion 3 is required (docs/migrations/v2-to-v3.md).
+- **review-toolkit ships its own reviewer fan-out, so the review-only install works (#894)** (#894)
+  review-toolkit ships its own reviewer fan-out (code-review.mjs,
+  intake-review.mjs, the tier alphabet), so review-lead works without
+  dev-pipeline installed; its commit hooks no longer fail open without
+  dev-pipeline and skip design-toolkit rows when design-toolkit is absent.
+  /second-shift:doctor now flags unknown file names under
+  .claude/second-shift/ and a review-toolkit older than the other plugins.
+  Migration: update all second-shift plugins together
+  (/second-shift:local-dev-refresh); doctor names a review-toolkit left behind.
+- **feat(dev-pipeline): the review session picks reviewers on judgment; prune dead conventions (#899)** (#899)
+  on a pipeline round the review session may now opt security,
+  a11y or unit-test-mutation review back in on its own judgment, with a
+  stated reason; the trimmed panel stays the default.
+  Migration: none.
+- **fix(review-toolkit): drop the (AC-n) test-title convention (#897)** (#897)
+  mutation-review no longer asks for an (AC-n) token in test
+  titles or comments.
+  Migration: none.
+
+### `second-shift` 10.0.2 → 11.0.0
+
+- **fix(second-shift): retire config-grill checks graded against a mutation sweep no repo runs (#880)** (#880)
+  config-grill no longer FAILs a repo for a mutation sweep no second-shift gate
+  executes; the grill's unadopted[] severity is retired with its only producer
+  (T1.mutation-sweep). gates.mutation is unaffected as a config key — still accepted, just
+  read by nothing until the next batched major removes it from the schema.
+  Migration: none.
+- **/dev-pipeline:run drives run.sh; the milestone lane is deleted (#889)** (#889)
+  none — not yet wired to /dev-pipeline:run; nothing consumer-visible until #881 lands.
+  none (the scheduler is not yet what /dev-pipeline:run drives)
+  /dev-pipeline:run is a single scheduler (run.sh) over fresh build
+  and review sessions; it runs the checks itself, reads the decision record from
+  the branch's first commit, and accepts only a verdict PR comment posted inside
+  the review window, unedited, naming the current head. The milestone gates,
+  committed verdict and render-receipt records, retros, operator-override and
+  the consumer merge-boundary CI are removed.
+  Migration: follow docs/migrations/v2-to-v3.md — bump configVersion to 3;
+  delete topology, gates, stageParams, grillWaivers,
+  design.liveRender.tolerancePx and design.liveRender.cwd; move
+  stageParams.webComponentGlobs to reviewers.webComponentGlobs. Delete
+  .github/workflows/second-shift-ci.yml, .claude/tools/second-shift-ci-check.sh
+  and any second-shift-delta-guard.* you copied, and drop their required status
+  check from branch protection. Replace /dev-pipeline:build with
+  /dev-pipeline:run; LANE_* knobs are retired. Run /second-shift:doctor to find
+  what is left.
+  /dev-pipeline:run's review session now runs review-lead's reviewer
+  panel; before, its permissions denied the fan-out and only the review
+  session itself graded the PR.
+  Migration: none.
+  /dev-pipeline:run accepts a verdict comment only from a Bot or the
+  account the scheduler writes with; a review that cannot render stops the run
+  as env-not-ready without spending a round; a session killed at its time bound
+  is reported unpriced instead of $0; an unmigrated configVersion 2 config is
+  refused (env-config-stale). commands.<id>.lintAutofixes is removed.
+  Migration: configure `lint` as a non-mutating command (e.g. `eslint .`) and
+  delete lintAutofixes (docs/migrations/v2-to-v3.md).
+  **BREAKING:** /dev-pipeline:build, pipeline-retro and perf-retro are gone; /dev-pipeline:run now drives run.sh and /dev-pipeline:review is the manual form of its review session. configVersion 3 is required (docs/migrations/v2-to-v3.md).
+- **review-toolkit ships its own reviewer fan-out, so the review-only install works (#894)** (#894)
+  review-toolkit ships its own reviewer fan-out (code-review.mjs,
+  intake-review.mjs, the tier alphabet), so review-lead works without
+  dev-pipeline installed; its commit hooks no longer fail open without
+  dev-pipeline and skip design-toolkit rows when design-toolkit is absent.
+  /second-shift:doctor now flags unknown file names under
+  .claude/second-shift/ and a review-toolkit older than the other plugins.
+  Migration: update all second-shift plugins together
+  (/second-shift:local-dev-refresh); doctor names a review-toolkit left behind.
+
 ## v14.0.4
 
 ### `design-toolkit` 5.0.1 → 5.0.2
