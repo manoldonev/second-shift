@@ -225,6 +225,26 @@ out="$(env -u TMPDIR bash "$GUARD" "$D" 2>&1)"; rc=$?
   && ok "(g16) with TMPDIR unset the /tmp fallback still yields a real scratch file -> rc 0" \
   || bad "(g16) TMPDIR-unset run expected rc 0, got $rc: $out"
 
+echo "== a git tree is graded on what git tracks =="
+
+# CI scans a clean checkout, so a file git does not track is not the tree. Lane logs and scratch
+# left in an operator's checkout quote banned shapes verbatim, and scanning them reds a local
+# sweep on content CI never sees. The control stages the same file: tracked, it is graded again.
+D="$(new_fixture gittree)"
+git -C "$D" init -q && git -C "$D" add -A
+mkdir -p "$D/.claude/logs"
+# shellcheck disable=SC2016  # the backticks are the log's literal text
+printf 'ok: (g9) `pgrep -fc` -> red\nsome-tool --list | grep -q stale\n' > "$D/.claude/logs/old-run.log"
+out="$(run_guard "$D")"; rc=$?
+[[ $rc -eq 0 ]] \
+  && ok "(g17) an untracked log quoting banned shapes is not graded -> rc 0" \
+  || bad "(g17) untracked file graded (rc=$rc): $out"
+git -C "$D" add -A
+out="$(run_guard "$D")"; rc=$?
+[[ $rc -ge 2 ]] \
+  && ok "(g18) control: the same file once tracked is graded -> rc $rc (pgrep + unclassified site)" \
+  || bad "(g18) tracked file not graded (rc=$rc): $out"
+
 echo
 echo "[check-fail-open-shapes-selftest] $([ "$FAILS" -eq 0 ] && echo 'all green' || echo "$FAILS failed") — $PASS passed, $FAILS failed"
 exit $((FAILS > 0))
