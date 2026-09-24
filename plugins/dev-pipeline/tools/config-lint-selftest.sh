@@ -43,10 +43,14 @@ expect_violation() { # $1 = fixture, $2 = expected substring in error output
 # The negative form. A retired top-level key is rejected by NAME, and the generic
 # "unknown top-level keys" must stay silent on it — an assertion expect_violation cannot
 # make, since both messages come out of the same failing run and grep would find either.
-expect_no_violation() { # $1 = fixture, $2 = substring that must NOT appear
-  local out
+expect_no_violation() { # $1 = fixture, $2 = substring that must NOT appear in any VIOLATION line
+  # Violation lines only (`✗ …`): the header line carries the fixture's path, and the install-topology
+  # guard stages suites under a mktemp dir literally named `install-topology.XXXXXX` — a whole-output
+  # grep for 'topology' matched the path and redded the guard on every run.
+  local out violations
   out=$("$LINT" "$FIX/$1" 2>&1) || true
-  if grep -qF "$2" <<< "$out"; then
+  violations=$(grep -E '^[[:space:]]*✗' <<< "$out" || true)
+  if grep -qF "$2" <<< "$violations"; then
     check "$1 does NOT also say '$2' (got: $(head -3 <<< "$out" | tr '\n' ' '))" 1
   else
     check "$1 does NOT also say '$2'" 0
