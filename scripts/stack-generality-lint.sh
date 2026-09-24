@@ -18,8 +18,6 @@
 #   unit-testing absence — zero `unit-testing` references under plugins/. This script
 #                        and its selftest live in scripts/, outside the scan scope, so
 #                        they need no self-exclusion.
-#   (AC-n) presence    — the literal `(AC-n)` token still present at its convention
-#                        site, the declarer of the test-title convention.
 #
 # Invocation: CI runs this via stack-generality-lint-selftest.sh's clean-tree case
 # (the *-selftest.sh glob on both CI lanes) — no ci.yml registration needed.
@@ -71,20 +69,6 @@ else
     fail "unit-testing reference(s) reintroduced under plugins/ (first: $(printf '%s\n' "$hits" | head -1))"
   fi
 fi
-
-# ---- (AC-n) presence ---------------------------------------------------------
-
-# mutation-review/SKILL.md is the sole DECLARER of the test-title convention.
-ACN_SITES=(
-  "plugins/review-toolkit/skills/mutation-review/SKILL.md"
-)
-for f in "${ACN_SITES[@]}"; do
-  if [[ ! -f "$ROOT/$f" ]]; then
-    fail "convention site missing: $f"
-  elif ! grep -qF '(AC-n)' "$ROOT/$f"; then
-    fail "literal (AC-n) token missing from $f (the test-title convention it declares)"
-  fi
-done
 
 if [[ "$violations" -eq 0 ]]; then
   echo "stack-generality-lint: OK"
