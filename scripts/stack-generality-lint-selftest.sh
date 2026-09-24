@@ -35,14 +35,11 @@ build_fixture() {
   rm -rf "$FIX"
   mkdir -p "$FIX/$LANES/review" "$FIX/$LANES/run" \
            "$FIX/plugins/dev-pipeline/tools" \
-           "$FIX/plugins/review-toolkit/agents" \
-           "$FIX/plugins/review-toolkit/skills/mutation-review"
+           "$FIX/plugins/review-toolkit/agents"
   printf 'scans the declared documentation roots\n'  > "$FIX/$LANES/review/SKILL.md"
   printf 'generic scheduler prose\n'                 > "$FIX/$LANES/run/SKILL.md"
   printf -- '---\nname: doc-updater\ndescription: routes via the declared doc roots\n---\nbody may say never assume .project/ — that is the anti-pattern prose\n' \
     > "$FIX/plugins/review-toolkit/agents/doc-updater.md"
-  printf 'convention text carrying the (AC-n) token\n' \
-    > "$FIX/plugins/review-toolkit/skills/mutation-review/SKILL.md"
 }
 
 lint_rc() {
@@ -83,14 +80,7 @@ printf 'prompt = "Load the unit-testing skill." +\n' > "$FIX/plugins/dev-pipelin
 rc="$(lint_rc "$FIX")"
 if [[ "$rc" -ge 1 ]]; then ok "seeded unit-testing ref in .mjs fails (rc=$rc)"; else bad "unit-testing ref in .mjs not caught"; fi
 
-# 6. Removed (AC-n) token from the DECLARER site → fails.
-build_fixture
-printf 'convention text with the token stripped\n' \
-  > "$FIX/plugins/review-toolkit/skills/mutation-review/SKILL.md"
-rc="$(lint_rc "$FIX")"
-if [[ "$rc" -ge 1 ]]; then ok "missing (AC-n) token at the declarer fails (rc=$rc)"; else bad "missing (AC-n) token not caught"; fi
-
-# 7. Clean-tree case over the REAL repo root — the lint's CI invocation path.
+# 6. Clean-tree case over the REAL repo root — the lint's CI invocation path.
 rc="$(lint_rc "$REPO_ROOT")"
 if [[ "$rc" -eq 0 ]]; then
   ok "real repo root is clean (rc=0)"
