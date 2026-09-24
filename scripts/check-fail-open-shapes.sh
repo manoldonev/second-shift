@@ -87,12 +87,32 @@ VAR_PRODUCER='(printf|echo)[^|]*\|[[:space:]]*grep'
 violations=0
 fail() { echo "[fail-open] ✗ $1" >&2; violations=$((violations + 1)); }
 
+# In a git work tree only TRACKED files are graded: CI scans a clean checkout, and an untracked
+# lane log or scratch file that quotes a banned shape is not the tree. A root that is not a work
+# tree (the selftest's fixtures) is graded whole. A tracked list that cannot be read is a
+# violation, never an empty list — an empty list would grade nothing and pass.
+FO_TRACKED=""; FO_GIT=0
+if git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  FO_GIT=1
+  FO_TRACKED="$(git -C "$ROOT" ls-files)" || fail "cannot list tracked files under $ROOT"
+fi
+export FO_TRACKED
+# tracked_only — filter `relpath:line:text` hits to tracked paths (a no-op outside a work tree).
+tracked_only() {
+  if [[ $FO_GIT -eq 1 ]]; then
+    awk -F: 'BEGIN { n = split(ENVIRON["FO_TRACKED"], a, "\n"); for (i = 1; i <= n; i++) t[a[i]] = 1 } ($1 in t)'
+  else
+    cat
+  fi
+}
+
 # enumerate — the recipe. Prints `relpath<TAB>lineno<TAB>text`, one live site per line.
 enumerate() {
   grep -rnE --binary-files=without-match \
       --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=__pycache__ \
       -- "$PIPE_GREPQ" "$ROOT" 2>/dev/null \
     | sed -e "s#^$ROOT/##" \
+    | tracked_only \
     | grep -vE "$SCAN_EXCLUDE" \
     | grep -vE "$VAR_PRODUCER" \
     | sed -E "s#^([^:]+):([0-9]+):#\\1$(printf '\t')\\2$(printf '\t')#" \
@@ -165,7 +185,7 @@ fi
 pg="$(grep -rnE --binary-files=without-match \
         --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=__pycache__ \
         -- 'pgrep[[:space:]]+-[A-Za-z]*c' "$ROOT" 2>/dev/null \
-      | sed -e "s#^$ROOT/##" | grep -vE "$SCAN_EXCLUDE")"
+      | sed -e "s#^$ROOT/##" | tracked_only | grep -vE "$SCAN_EXCLUDE")"
 if [[ -n "$pg" ]]; then
   while IFS= read -r line; do
     [[ -n "$line" ]] || continue
