@@ -83,7 +83,10 @@ A **second axis, not a discount on the first**: every rule here is a Warning and
 | asserting the absence of code that does not exist | it guards a future addition, which is review's job |
 | asserting what a library did with what we passed, rather than what we passed | it tests the library |
 | re-testing a pure function through an expensive integration render | the direct test already kills it |
+| a check restated on a slower layer — the same input and assertion in a suite that boots the app or needs a running deployment, when a cheaper test already drives it | the cheaper test already kills it; the copy adds run time and flake, not safety |
 | a **mirror harness** — a test re-declaring production logic and asserting on the copy | a production edit can never fail it |
+
+**Which layer is cheaper** comes from the layers the review-context's test-coverage section declares; absent that, the stack's plain cost order — in-process unit, then in-process integration, then anything needing a running deployment. Cite the cheaper test by file:line or do not flag. A slower test proving what no cheaper layer can — the real session and guards, real indexes, the deployed wiring — is never a restatement, even where its inputs overlap.
 
 **Cost is the same signal.** Flag a new case whose wall-clock is out of line with its siblings, and a **raised per-file test timeout** in the diff — a raised ceiling is almost always a symptom, not a fix.
 
