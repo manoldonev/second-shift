@@ -1,7 +1,7 @@
 {
   "name": "review-toolkit",
   "description": "Parallel multi-agent code review: review-lead orchestration skill with its Workflow-based review fan-out, reviewer-baseline shared protocol, generic reviewer agents (scope-completeness, security, performance, maintainability, complexity, db, pipeline, a11y, test-coverage, unit-test-mutation, plan, spec). On the pipeline path the review panel defaults to scope-completeness; the rest are opt-in. Per-repo reviewer registry deltas and model-tier overrides come from .claude/second-shift.config.json; domain rules from documented extension files.",
-  "version": "8.0.5",
+  "version": "9.0.0",
   "author": {
     "name": "Manol Donev"
   }
