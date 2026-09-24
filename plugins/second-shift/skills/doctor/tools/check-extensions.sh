@@ -13,16 +13,21 @@ fails=0
 
 # ---- EP-3 extension-file manifest lint ----
 if [[ -d "$SS" ]]; then
+  # Readability is checked up front: stock bash 3.2 skips a `done < file` loop whose redirect fails
+  # and runs on under set -e, which would lint without the file's globs instead of refusing.
   [[ -f "$MANIFEST" ]] || { echo "check-extensions: manifest not found: $MANIFEST" >&2; exit 2; }
+  [[ -r "$MANIFEST" ]] || { echo "check-extensions: manifest unreadable: $MANIFEST" >&2; exit 2; }
   globs=()
   while IFS= read -r line; do
     [[ -z "$line" || "$line" == \#* ]] && continue
     globs+=("$line")
   done < "$MANIFEST"
+  [[ "${#globs[@]}" -gt 0 ]] || { echo "check-extensions: manifest lists no extension names: $MANIFEST" >&2; exit 2; }
   # Consumer-declared extra known globs (companion-pack / repo-local extensions the stock manifest
   # doesn't ship — e.g. an org QA pack's api-testing/*.md). Auditable in the repo, additive-only.
   ALLOW="$SS/.known-extensions"
   if [[ -f "$ALLOW" ]]; then
+    [[ -r "$ALLOW" ]] || { echo "check-extensions: cannot read $ALLOW" >&2; exit 1; }
     while IFS= read -r line; do
       [[ -z "$line" || "$line" == \#* ]] && continue
       globs+=("$line")

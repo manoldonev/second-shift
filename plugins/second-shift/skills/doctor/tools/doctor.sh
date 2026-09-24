@@ -396,7 +396,7 @@ case "$ext_rc" in
      done <<< "$ext_err"
      # set -e in the check also exits 1: no file named means it died, not that it passed
      [[ "$ext_unknown" -gt 0 ]] || bad "extension check could not run (rc=1): $(tail -1 <<< "$ext_err")" ;;
-  2) bad "extension manifest missing: ${ext_err#*manifest not found: } — reinstall second-shift (claude plugin update second-shift@$MKT)" ;;
+  2) bad "extension lint cannot run: $(sed -n 's/^check-extensions: //p' <<< "$ext_err" | head -n 1) — reinstall second-shift (claude plugin update second-shift@$MKT)" ;;
   *) bad "extension check could not run (rc=$ext_rc): $(tail -1 <<< "$ext_err")" ;;
 esac
 

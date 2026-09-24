@@ -94,5 +94,37 @@ else
     || bad "EP-3 failed but without UNKNOWN-EXTENSION"
 fi
 
+
+# An allowlist that exists but cannot be read is a refusal naming it — never silently ignored, which
+# stock bash 3.2 does with a failed `done < file` redirect under set -e (the loop is skipped and the
+# scan runs on without the consumer's globs).
+mkdir -p "$TMP/noread/.claude/second-shift"
+: > "$TMP/noread/.claude/second-shift/blocker-mutants.md.md"
+: > "$TMP/noread/.claude/second-shift/.known-extensions"
+chmod 000 "$TMP/noread/.claude/second-shift/.known-extensions"
+if [[ -r "$TMP/noread/.claude/second-shift/.known-extensions" ]]; then
+  echo "  SKIP unreadable allowlist (running as root: chmod 000 does not bar reads)"
+else
+  rc=0; bash "$CHECK" "$TMP/noread" >"$TMP/noread.out" 2>&1 || rc=$?
+  if [[ "$rc" -eq 1 ]] && grep -q "cannot read .*\.known-extensions" "$TMP/noread.out" && ! grep -q "UNKNOWN-EXTENSION" "$TMP/noread.out"; then
+    ok "unreadable allowlist -> refusal naming it, no scan"
+  else
+    bad "unreadable allowlist: rc=$rc, output: $(tr '\n' '|' < "$TMP/noread.out" | cut -c1-200)"
+  fi
+fi
+chmod 600 "$TMP/noread/.claude/second-shift/.known-extensions" 2>/dev/null || true
+
+# A manifest with no entries is a broken install (exit 2), not a crash on an empty array under
+# stock bash 3.2's `set -u`.
+mkdir -p "$TMP/empty/.claude/second-shift"
+: > "$TMP/empty/.claude/second-shift/security-rules.md"
+printf '# comments only\n' > "$TMP/empty-manifest.txt"
+rc=0; SECOND_SHIFT_EXTENSION_MANIFEST="$TMP/empty-manifest.txt" bash "$CHECK" "$TMP/empty" >"$TMP/empty.out" 2>&1 || rc=$?
+if [[ "$rc" -eq 2 ]] && grep -q "lists no extension names" "$TMP/empty.out"; then
+  ok "empty manifest -> exit 2 naming it"
+else
+  bad "empty manifest: rc=$rc, output: $(tr '\n' '|' < "$TMP/empty.out" | cut -c1-200)"
+fi
+
 if [[ "$FAILS" -gt 0 ]]; then echo "check-extensions selftest: $FAILS FAILURE(S)"; exit 1; fi
 echo "check-extensions selftest: all green"

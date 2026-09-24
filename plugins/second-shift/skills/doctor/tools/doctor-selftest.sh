@@ -115,7 +115,7 @@ else check "a clean extension check prints nothing" 0; fi
 mkdir -p "$TMP/ext-no-manifest/.claude/second-shift"
 : > "$TMP/ext-no-manifest/.claude/second-shift/security-rules.md"
 SECOND_SHIFT_EXTENSION_MANIFEST="$TMP/no-such-manifest.txt" \
-scenario ext-no-manifest  plugin-list-green.json   settings-green.json     marketplace-list-pinned.json  1 "extension manifest missing: $TMP/no-such-manifest.txt"
+scenario ext-no-manifest  plugin-list-green.json   settings-green.json     marketplace-list-pinned.json  1 "extension lint cannot run: manifest not found: $TMP/no-such-manifest.txt"
 # A check that dies before naming any file (here: an unreadable allowlist) is not a clean pass.
 mkdir -p "$TMP/ext-crash/.claude/second-shift"
 : > "$TMP/ext-crash/.claude/second-shift/blocker-mutants.md.md"
