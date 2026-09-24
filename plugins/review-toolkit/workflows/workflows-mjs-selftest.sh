@@ -6,7 +6,7 @@
 # thorough it is. This shim rides the glob and hands them to node.
 #
 # Deliberately located next to the .mjs files it runs, rather than in
-# tools/ with the other shell harnesses: it is a thin adapter for THIS directory's
+# scripts/ with the other shell harnesses: it is a thin adapter for THIS directory's
 # contents, and a reader deleting a workflow selftest should see its runner alongside.
 #
 # Exit code = number of failed suites (repo selftest convention).
@@ -15,7 +15,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # node absent is a FAIL, never a silent green — the repo convention, matching
-# tools/text-contract-selftest.sh. Both CI lanes provide node; a missing node means
+# scripts/text-contract-selftest.sh. Both CI lanes provide node; a missing node means
 # the environment is wrong, and skipping would report success for suites that never ran.
 command -v node >/dev/null 2>&1 || {
   echo "workflows-mjs-selftest: FAIL — node is required to execute the workflows .mjs selftests." >&2

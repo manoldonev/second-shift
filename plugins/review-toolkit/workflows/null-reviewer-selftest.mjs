@@ -28,7 +28,7 @@
 // the same conventions survive in every `*-selftest.sh` here): numbered cases, pass/fail
 // counters, exit code = number of failed cases (0 = all pass).
 //
-// Run: node plugins/dev-pipeline/workflows/null-reviewer-selftest.mjs
+// Run: node plugins/review-toolkit/workflows/null-reviewer-selftest.mjs
 
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'

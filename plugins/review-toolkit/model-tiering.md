@@ -1,4 +1,4 @@
-# Model Tiering — dev-pipeline
+# Model Tiering — review-toolkit
 
 The plugin's tier alphabet and the lockstep that keeps it honest. Portable, plugin-shipped,
 and consumer-overridable.
@@ -10,7 +10,7 @@ into a concrete dispatch token. The tier each agent actually runs at lives in tw
 stay in lockstep: each agent's `model:` frontmatter (the `agents/<name>.md` in whichever plugin
 ships that agent) and the two `.mjs` dispatch tables that re-state it (`REVIEWER_MODEL` in
 `workflows/code-review.mjs`, `INTAKE_MODEL` in `workflows/intake-review.mjs`). `check-model-tiers.sh`
-(shipped in review-toolkit at `scripts/check-model-tiers.sh`) enforces that lockstep at commit
+(this plugin's `scripts/check-model-tiers.sh`) enforces that lockstep at commit
 time.
 
 **This table is PARSED, not just read.** `check-model-tiers.sh` reads the `Tier` and

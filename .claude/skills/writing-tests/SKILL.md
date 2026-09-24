@@ -20,7 +20,7 @@ fail on a production edit, so it converges on green while the real code drifts a
 — and it reads as coverage the whole time. Two `.mjs` suites did exactly this: they modelled the
 pre-#169 StructuredOutput transport for months after production replaced it, and while they were
 green `design-sync.mjs`'s gate path was throwing `ReferenceError` on every dispatch. The sanctioned
-replacement is `workflows/runtime-shim-lib.mjs`, which strips the `export const meta` block,
+replacement is review-toolkit's `workflows/runtime-shim-lib.mjs`, which strips the `export const meta` block,
 wraps the remainder in
 `(async (agent, parallel, pipeline, args, log, phase, budget, workflow) => { … })`,
 and executes the **real** production body with injected fakes. Import it — do not re-create the
@@ -29,11 +29,9 @@ about to re-declare a production function inside a selftest, use the shim instea
 
 **The mjs-seam grep exception, narrowed.** The shim executes Workflow-runtime `.mjs` files, so the
 sanction covers only what the shim cannot reach: static/textual properties of a file that is never
-executed on the path under test (`tools/intake-readroot-selftest.sh`'s `intake-review.mjs` seam
+executed on the path under test (review-toolkit's `scripts/intake-readroot-selftest.sh`'s `intake-review.mjs` seam
 pins; `null-reviewer-selftest.mjs`'s Case F token + emit-wiring counts, which guard a constant's
-*wiring* rather than its behavior). Behavior belongs on the shim. Pre-existing mutation-eval
-anchors (`plugins/dev-pipeline/tools/score-review-selftest.sh`) stay grandfathered; this rule
-binds newly added guards.
+*wiring* rather than its behavior). Behavior belongs on the shim.
 
 **Where a new test goes** (the tier map — full version in [`docs/testing.md`](docs/testing.md)):
 
@@ -42,7 +40,7 @@ binds newly added guards.
 | one script's behavior against fixtures | a per-tool behavioral selftest | `*-selftest.sh` next to the tool |
 | two copies of one contract staying identical | a `LOCKSTEP-BEGIN <anchor>` marker on **each** copy — they are discovered and grouped, never registered | the files themselves |
 | a composed run reaching a terminal | a case keyed to the row it discriminates | `skills/run/run-selftest.sh` |
-| a production Workflow `.mjs` dispatch ladder | a shim case | `workflows/runtime-shim-selftest.mjs` |
+| a production Workflow `.mjs` dispatch ladder | a shim case | `plugins/review-toolkit/workflows/runtime-shim-selftest.mjs` |
 | whether a shipped suite still passes where it is **installed** | **nothing** — the class guard already runs every shipped suite | `tools/install-topology-selftest.sh` |
 | prose in a markdown file that asserts nothing checkable | **nothing** — see above | — |
 

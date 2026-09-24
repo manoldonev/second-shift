@@ -9,4 +9,5 @@ const DEFAULT_TIER_MAP = {
 const REVIEWER_MODEL = {
   'security-reviewer': 'reasoning',
   'performance-reviewer': 'code',
+  'design-toolkit:design-faithful-reviewer': 'code',
 }

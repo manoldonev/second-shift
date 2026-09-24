@@ -24,7 +24,7 @@
 # dimension is not a section with no reader.
 #
 # H1 title lines (`# ...`) are NEVER linted — only H2 (`## ...`) headings (H3+ subsection headings are section content). Sibling
-# discipline to tools/extension-manifest.txt (EP-3). Additions/renames are breaking-class:
+# discipline to the doctor's extension-manifest.txt (EP-3). Additions/renames are breaking-class:
 # check against known-consumer headings before release and list them in the release
 # What-breaks body (docs/releasing.md).
 Stack | performance-reviewer | active

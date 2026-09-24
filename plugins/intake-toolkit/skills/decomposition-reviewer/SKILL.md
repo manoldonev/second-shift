@@ -48,7 +48,12 @@ Read every ticket once. Build a mental model of:
 
 Dispatch `codebase-explorer` by invoking the `intake-review.mjs` Workflow with the `codebase-explorer` subset, passing the combined scope of all tickets:
 
-**Stage the script first.** The `Workflow` tool resolves neither a bare filename nor the plugin cache's own absolute path (see `docs/namespaces.md` rule 3): resolve `*/workflows/intake-review.mjs` under the marketplace root — `$SKILL_DIR/../../../..`, excluding `*/fixtures/*` — copy it into the session scratchpad, and dispatch that copy.
+**Stage the script first.** The `Workflow` tool resolves neither a bare filename nor the plugin cache's own absolute path (see `docs/namespaces.md` rule 3): the script ships in review-toolkit, so resolve it under the marketplace root confined to review-toolkit's paths, copy it into the session scratchpad, and dispatch that copy.
+
+```bash
+SRC=$(find "$SKILL_DIR/../../../.." -path '*/review-toolkit/*' -path '*/workflows/intake-review.mjs' -not -path '*/fixtures/*' 2>/dev/null | sort -V | tail -1)
+cp "$SRC" "$SCRATCHPAD/intake-review.mjs"
+```
 
 ```
 Workflow({ scriptPath: "<staged>/intake-review.mjs",

@@ -1,5 +1,5 @@
 export const meta = {
-  name: 'dev-pipeline-stall-probe',
+  name: 'review-toolkit-stall-probe',
   description:
     'Measures the reviewer StructuredOutput-stall rate over a fixed low-signal diff. Dispatches the historically-stalling reviewers K times each, through the SAME schema + nudge as the review fan-out (workflows/code-review.mjs), catches each result, and counts StructuredOutput deaths vs clean returns. Run it BEFORE and AFTER a reviewer-contract change to measure the change\'s effect on the stall rate. This is a REAL agent-dispatch probe (it costs tokens) — it is NOT an offline node selftest like null-reviewer-selftest.mjs, because agent() is a runtime-injected Workflow global. Invoke via the Workflow tool, never `node`.',
   phases: [{ title: 'Probe' }],
@@ -47,8 +47,8 @@ const {
   // occur without a forced call, so this arm measures the questions that then matter:
   // sentinel-hit rate (did the agent end with the contract block?) and parse rate.
   schemaFree = false,
-  // fullFindings: return complete finding objects (not 80-char truncations) so the harness
-  // scorer (tools/score-review.sh) can score detection against the planted-mutant manifest.
+  // fullFindings: return complete finding objects (not 80-char truncations) for offline
+  // scoring against a planted-mutant manifest.
   fullFindings = false,
   // planPin: commit that pins the planPath content for the record (defaults to PLAN_PIN below).
   planPin = '',

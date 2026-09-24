@@ -154,7 +154,7 @@
         },
         "tierMap": {
           "type": "object",
-          "description": "Retarget an abstract tier to a different dispatch model. MERGES per tier over the plugin-shipped alphabet in dev-pipeline's model-tiering.md, so a config naming one tier leaves the rest at their defaults. Shipped dispatch tables name tiers rather than vendor tokens, so a consumer whose subscription lacks a model class retargets it here instead of forking the plugin.",
+          "description": "Retarget an abstract tier to a different dispatch model. MERGES per tier over the plugin-shipped alphabet in review-toolkit's model-tiering.md, so a config naming one tier leaves the rest at their defaults. Shipped dispatch tables name tiers rather than vendor tokens, so a consumer whose subscription lacks a model class retargets it here instead of forking the plugin.",
           "additionalProperties": { "enum": ["haiku", "sonnet", "opus", "fable"] }
         },
         "webComponentGlobs": {

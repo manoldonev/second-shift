@@ -18,8 +18,8 @@
 # an opaque `--worktree` argument and never wrote it; that suite was deleted
 # with the staged lane in #348, so no suite in the tree carries one today.
 #
-# DISCOVERY IS `*-selftest.sh` ONLY, deliberately. The three `*-selftest.mjs` files are executed
-# by plugins/dev-pipeline/workflows/workflows-mjs-selftest.sh, which is itself in this
+# DISCOVERY IS `*-selftest.sh` ONLY, deliberately. The two `*-selftest.mjs` files are executed
+# by plugins/review-toolkit/workflows/workflows-mjs-selftest.sh, which is itself in this
 # glob. Widening discovery to `.mjs` would double-run them.
 #
 # DISPATCH IDIOM is lifted from tools/install-topology-selftest.sh: `xargs -P` over zero-padded

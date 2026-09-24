@@ -11,7 +11,7 @@
 #
 # Registry extraction mirrors check-reviewer-references.sh (the plugin-shipped
 # panel enumeration in review-lead SKILL.md) — keep the two in lockstep.
-# check-extensions.sh (dev-pipeline) owns the shallower existence contract
+# check-extensions.sh (second-shift doctor) owns the shallower existence contract
 # (the review-context/*.md manifest glob); this script owns basename↔registry.
 #
 # Failure classes (distinct message, non-zero exit):

@@ -1,7 +1,7 @@
 export const meta = {
-  name: 'dev-pipeline-intake-review',
+  name: 'review-toolkit-intake-review',
   description:
-    "Intake evidence-gathering fan-out for the dev-pipeline. Dispatches spec-reviewer and codebase-explorer as parallel agent() calls and returns their rationale-carrying structured findings. Critical evaluation, gap resolution, dependency analysis, and the decomposition decision are NOT done here — they stay in the intake-orchestrator session on the caller's model. This mirrors workflows/code-review.mjs (the Stage 8 reviewer fan-out).",
+    "Intake evidence-gathering fan-out for intake-orchestrator and decomposition-reviewer. Dispatches spec-reviewer and codebase-explorer as parallel agent() calls and returns their rationale-carrying structured findings. Critical evaluation, gap resolution, dependency analysis, and the decomposition decision are NOT done here — they stay in the intake-orchestrator session on the caller's model. This mirrors workflows/code-review.mjs (the reviewer fan-out).",
   phases: [{ title: 'Intake', detail: 'spec-reviewer + codebase-explorer in parallel' }],
 }
 

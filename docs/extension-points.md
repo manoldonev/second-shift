@@ -192,13 +192,13 @@ literal. That is what mechanically keeps it in config and out of plugin code.
 
 **To retarget a whole tier rather than one agent, set `reviewers.tierMap`** — e.g.
 `{ "code": "haiku" }`. It merges per tier over the shipped alphabet in
-[`model-tiering.md`](../plugins/dev-pipeline/model-tiering.md), so unnamed tiers keep their
+[`model-tiering.md`](../plugins/review-toolkit/model-tiering.md), so unnamed tiers keep their
 defaults and a config that sets none dispatches exactly as before. This is the seam a
 consumer whose subscription lacks a model class uses instead of forking the plugin.
 
 ### `check-extensions.sh` (manifest lint — EP-3)
 
-The plugin ships a versioned **manifest** of known extension-file names/globs ([`tools/extension-manifest.txt`](../plugins/dev-pipeline/tools/extension-manifest.txt)); `check-extensions.sh` (run it by hand from the dev-pipeline plugin's `tools/`) **fails closed** on any file under a consumer's `.claude/second-shift/` that matches no manifest entry. Nothing runs it automatically, so a typo'd `blocker-mutants.md.md` is silently ignored until someone does. A new well-known file in a future plugin version is discoverable via a manifest entry.
+The second-shift plugin ships a versioned **manifest** of known extension-file names/globs ([`extension-manifest.txt`](../plugins/second-shift/skills/doctor/tools/extension-manifest.txt)); `check-extensions.sh` **fails closed** on any file under a consumer's `.claude/second-shift/` that matches no manifest entry. `/second-shift:doctor` runs it: one FAIL per unknown file (a typo'd `blocker-mutants.md.md` is named), a missing manifest is its own FAIL, and a repo with no `.claude/second-shift/` gets no line. A new well-known file in a future plugin version is discoverable via a manifest entry.
 
 **Companion-pack / repo-local extensions** the stock manifest doesn't ship (e.g. an org QA pack's `api-testing/*.md`) are declared, additive-only and auditable, in a consumer-maintained `.claude/second-shift/.known-extensions` file (one glob per line) that `check-extensions.sh` unions onto the shipped manifest.
 

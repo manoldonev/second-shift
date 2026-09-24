@@ -15,14 +15,44 @@ CONFIG="${1:?usage: config-lint.sh <config-file>}"
 
 jq empty "$CONFIG" 2>/dev/null || { echo "config-lint: not valid JSON: $CONFIG" >&2; exit 1; }
 
-# The shipped tier alphabet (#351). A reviewers.modelOverrides value may name a TIER as
-# well as a raw dispatch model, so this lint needs the same alphabet check-model-tiers.sh
-# parses — from the same authority, ../model-tiering.md, rather than a second hardcoded
-# copy that would drift from it. The parse block below is pinned to that script's copy by the
+# The shipped tier alphabet. A reviewers.modelOverrides value may name a TIER as well as a raw
+# dispatch model, so this lint needs the same alphabet check-model-tiers.sh parses — from the same
+# authority, review-toolkit's model-tiering.md, rather than a second hardcoded copy that would
+# drift from it. The parse block below is pinned to that script's copy by the
 # `tier-alphabet-parse` LOCKSTEP markers, which scripts/check-lockstep-pairs.sh discovers and
 # compares verbatim. Edit one, edit both.
+#
+# The alphabet lives in ANOTHER plugin. SECOND_SHIFT_TIER_DOC wins (doctor and onboard set it
+# from review-toolkit's enabled installPath); otherwise the sibling resolver below finds it — the
+# repo layout, then the newest cached review-toolkit carrying workflows/. The resolver is a copy
+# of check-model-tiers.sh's, held by the `sibling-plugin-root` LOCKSTEP markers.
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-TIER_DOC="${SECOND_SHIFT_TIER_DOC:-$SCRIPT_DIR/../model-tiering.md}"
+# LOCKSTEP-BEGIN sibling-plugin-root
+resolve_sibling_plugin_root() {
+    local name="$1" marker="$2" override="${3:-}"
+    if [ -n "$override" ]; then
+        (cd "$override" 2>/dev/null && pwd)
+        return
+    fi
+    local cand
+    cand=$(cd "$SCRIPT_DIR/../../$name" 2>/dev/null && pwd) || cand=""
+    if [ -n "$cand" ] && [ -d "$cand/$marker" ]; then
+        echo "$cand"
+        return
+    fi
+    # Cache layout: pick the HIGHEST version dir with the marker path. Glob order is
+    # lexical, so the bare `tail -1` this used to be ranked 9.0.0 above 10.0.0. ASCENDING +
+    # `tail -1` rather than a reversed sort: BSD sort ignores a global `-r` once per-key
+    # modifiers are present, which would silently select the OLDEST version there.
+    for cand in "$SCRIPT_DIR"/../../../"$name"/*/; do
+        [ -d "$cand/$marker" ] || continue
+        printf '%s\t%s\n' "$(basename "$cand")" "$(cd "$cand" && pwd)"
+    done | sort -t. -k1,1n -k2,2n -k3,3n | tail -1 | cut -f2-
+}
+# LOCKSTEP-END sibling-plugin-root
+TIER_DOC="${SECOND_SHIFT_TIER_DOC:-$(resolve_sibling_plugin_root review-toolkit workflows)/model-tiering.md}"
+TIER_DOC_FOUND=false
+[ -f "$TIER_DOC" ] && TIER_DOC_FOUND=true
 parse_tier_alphabet() { # parse_tier_alphabet <doc-path>
     [ -f "$1" ] || return 0
 # LOCKSTEP-BEGIN tier-alphabet-parse
@@ -42,13 +72,14 @@ parse_tier_alphabet() { # parse_tier_alphabet <doc-path>
 # LOCKSTEP-END tier-alphabet-parse
 }
 # `jq -s .` emits `[]` on empty stdin, so an unreadable or table-less TIER_DOC already yields
-# an empty alphabet here rather than an empty STRING — no separate fallback assignment is
-# needed, and one that looked like the empty-input guard but could never run was worse than
-# none. An empty alphabet then fails a modelOverrides value naming a shipped tier, which is
-# the safe direction: a missing authority rejects, it does not wave through.
+# an empty alphabet here rather than an empty STRING. An empty alphabet then fails a
+# modelOverrides value naming a shipped tier, which is the safe direction: a missing authority
+# rejects, it does not wave through. When the doc was not found at all, the rejection says so
+# instead of calling the tier unknown.
 SHIPPED_TIERS_JSON=$(parse_tier_alphabet "$TIER_DOC" | cut -f1 | jq -R . | jq -s .)
 
-ERRORS=$(jq -r --argjson shippedTiers "$SHIPPED_TIERS_JSON" '
+ERRORS=$(jq -r --argjson shippedTiers "$SHIPPED_TIERS_JSON" --argjson tierDocFound "$TIER_DOC_FOUND" \
+  --arg noAlphabet "cannot read the tier alphabet (review-toolkit's model-tiering.md not found)" '
   def err(cond; msg): if cond then [msg] else [] end;
 
   # ---- top level ----------------------------------------------------------
@@ -201,7 +232,10 @@ ERRORS=$(jq -r --argjson shippedTiers "$SHIPPED_TIERS_JSON" '
       # cross-field constraint JSON Schema cannot express, which is why the schema half
       # degrades to a bare string and the real check lives here.
       + ((.modelOverrides // {}) | to_entries | map(
-          err((.value | IN(($models + $tiers)[])) | not; "reviewers.modelOverrides." + .key + ": must name a dispatch model (haiku, sonnet, opus, fable) or a tier in the effective tierMap")
+          err((.value | IN(($models + $tiers)[])) | not;
+              "reviewers.modelOverrides." + .key + ": " + (if $tierDocFound
+                then "must name a dispatch model (haiku, sonnet, opus, fable) or a tier in the effective tierMap"
+                else $noAlphabet end))
         ) | add // [])
     )
 

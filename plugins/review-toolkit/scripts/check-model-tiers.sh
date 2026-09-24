@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Verify the model tier each dev-pipeline .mjs dispatch table declares stays in
-# lockstep with the dispatched agent's effective model — now across TWO ROOTS and
-# with config overrides, after pluginization.
+# Verify the model tier each of this plugin's .mjs dispatch tables declares stays
+# in lockstep with the dispatched agent's effective model, across the plugin and
+# consumer roots and with config overrides.
 #
 # Why this matters: each agent's model tier is the source of truth in its
 # `<name>.md` frontmatter, but the Workflow .mjs scripts can't read files, so they
@@ -23,14 +23,17 @@
 #
 # Two-root contract
 # -----------------
-#   .mjs tables      live in the dev-pipeline PLUGIN:
-#                    $SECOND_SHIFT_DEV_PIPELINE_ROOT (or $SCRIPT_DIR/../../dev-pipeline)
-#                      /workflows/
-#                    If this dir is unlocatable the check FAILS naming the override.
+#   .mjs tables      ship in this plugin, beside the tier alphabet:
+#                    $SECOND_SHIFT_PLUGIN_ROOT (or $SCRIPT_DIR/..)/workflows/ and
+#                      /model-tiering.md. A missing one is a broken install: an
+#                      error, never a skip.
 #   agent frontmatter is read from BOTH roots:
 #                    PLUGIN agents   $SECOND_SHIFT_PLUGIN_ROOT (or $SCRIPT_DIR/..)/agents
+#                                    plus the design-toolkit sibling's agents/
 #                    CONSUMER agents $SECOND_SHIFT_REPO_ROOT (or the git repo of $PWD)
 #                                      /.claude/agents   (backs reviewers.add)
+#                    A `design-toolkit:` row is skipped, with one note, when
+#                    design-toolkit is not installed and no consumer copy exists.
 #   config           $SECOND_SHIFT_CONFIG (or <consumer>/.claude/second-shift.config.json)
 #                    supplies reviewers.modelOverrides. Missing = no overrides.
 #
@@ -60,7 +63,7 @@
 #
 # Error classes:
 #   MISMATCH / DANGLING / NO-FRONTMATTER  the lockstep failures above.
-#   PARSE / MISSING-TABLE / UNLOCATABLE   the script could not read what it validates.
+#   MISSING-TABLE / UNPARSEABLE-ALPHABET  the script could not read what it validates.
 #   UNKNOWN-MODEL                         a token outside the parsed tier alphabet in a
 #                                         shipped MAP entry (the two map files) or in an
 #                                         inline `model: '<tier>'` literal (BOTH parsed
@@ -83,7 +86,8 @@
 # Modes:
 #   - Standalone CLI: errors -> stderr, exit 1 on drift, exit 0 if clean.
 #   - PreToolUse hook (invoked from settings.json with JSON stdin):
-#     errors -> stderr AND emit `permissionDecision: "deny"` JSON to stdout.
+#     errors -> stderr AND emit `permissionDecision: "deny"` JSON to stdout, its
+#     reason carrying the errors.
 
 set -uo pipefail
 
@@ -113,14 +117,15 @@ if [ ! -t 0 ]; then
 fi
 
 # --- Root resolution -------------------------------------------------------
-# Sibling plugin roots (dev-pipeline -> .mjs tables; design-toolkit -> the
-# design-faithful agent family). Two on-disk layouts exist:
+# Sibling plugin root (design-toolkit -> the design-faithful agent family). Two
+# on-disk layouts exist:
 #   marketplace repo:  plugins/review-toolkit/scripts -> ../../<plugin>
 #   installed cache:   cache/<mkt>/review-toolkit/<ver>/scripts
 #                        -> ../../../<plugin>/<ver>  (versioned siblings)
 # Env override wins; otherwise try repo layout, then the newest cache sibling
 # that actually carries the marker path.
 # Args: <plugin-name> <marker-subpath> [env-override-value]
+# LOCKSTEP-BEGIN sibling-plugin-root
 resolve_sibling_plugin_root() {
     local name="$1" marker="$2" override="${3:-}"
     if [ -n "$override" ]; then
@@ -142,8 +147,13 @@ resolve_sibling_plugin_root() {
         printf '%s\t%s\n' "$(basename "$cand")" "$(cd "$cand" && pwd)"
     done | sort -t. -k1,1n -k2,2n -k3,3n | tail -1 | cut -f2-
 }
-DEV_PIPELINE_ROOT=$(resolve_sibling_plugin_root dev-pipeline "workflows" "${SECOND_SHIFT_DEV_PIPELINE_ROOT:-}")
-WF="$DEV_PIPELINE_ROOT/workflows"
+# LOCKSTEP-END sibling-plugin-root
+
+# review-toolkit plugin root -> .mjs tables, tier alphabet, reviewer frontmatter.
+PLUGIN_ROOT="${SECOND_SHIFT_PLUGIN_ROOT:-$SCRIPT_DIR/..}"
+PLUGIN_ROOT=$(cd "$PLUGIN_ROOT" 2>/dev/null && pwd) || PLUGIN_ROOT=""
+PLUGIN_AGENTS="$PLUGIN_ROOT/agents"
+WF="$PLUGIN_ROOT/workflows"
 
 # design-toolkit plugin root -> design-faithful agent-family frontmatter
 # (the code-review.mjs table references these agents, which ship in
@@ -152,11 +162,6 @@ WF="$DEV_PIPELINE_ROOT/workflows"
 # the consumer root like any other name.
 DESIGN_TOOLKIT_ROOT=$(resolve_sibling_plugin_root design-toolkit "agents" "${SECOND_SHIFT_DESIGN_TOOLKIT_ROOT:-}")
 DESIGN_AGENTS="${DESIGN_TOOLKIT_ROOT:+$DESIGN_TOOLKIT_ROOT/agents}"
-
-# review-toolkit plugin root -> generic reviewer agent frontmatter.
-PLUGIN_ROOT="${SECOND_SHIFT_PLUGIN_ROOT:-$SCRIPT_DIR/..}"
-PLUGIN_ROOT=$(cd "$PLUGIN_ROOT" 2>/dev/null && pwd) || PLUGIN_ROOT=""
-PLUGIN_AGENTS="$PLUGIN_ROOT/agents"
 
 # Consumer root -> repo-local (reviewers.add) agent frontmatter + config.
 if [ -n "${SECOND_SHIFT_REPO_ROOT:-}" ]; then
@@ -181,28 +186,12 @@ else
     CONFIG=""
 fi
 
-# The .mjs tables are the reason this check exists — if we can't find them, fail
-# loudly naming the override rather than silently passing.
-if [ -z "$DEV_PIPELINE_ROOT" ] || [ ! -d "$WF" ]; then
-    msg="UNLOCATABLE: dev-pipeline workflow tables not found via env override, repo-layout sibling ($SCRIPT_DIR/../../dev-pipeline), or cache-layout siblings ($SCRIPT_DIR/../../../dev-pipeline/<ver>) — expected <root>/workflows. Set SECOND_SHIFT_DEV_PIPELINE_ROOT to the dev-pipeline plugin root."
-    printf '%s\n' "$msg" >&2
-    if [ $HOOK_MODE -eq 1 ]; then
-        # Standalone adoption (#14, F57): the sibling dev-pipeline plugin isn't
-        # installed, so the .mjs model-tier lockstep contract is not in force — a
-        # repo adopting review-toolkit alone must NOT have its commits denied. Fail
-        # OPEN (allow the commit). The standalone CLI path still exits 1 (advisory).
-        echo "[check-model-tiers] dev-pipeline plugin not installed — standalone repo, hook allows the commit (lockstep check applies only with dev-pipeline present)." >&2
-        exit 0
-    fi
-    exit 1
-fi
-
 errors=()
 
 # --- The tier alphabet, parsed from its authority ----------------------------
 # Shipped dispatch tables name an abstract TIER (`reasoning`), never a vendor token
 # (`opus`). The tier -> dispatch-token map is declared exactly once, in the
-# `## Tier alphabet` table of the dev-pipeline plugin's model-tiering.md, and parsed
+# `## Tier alphabet` table of this plugin's model-tiering.md, and parsed
 # here. The `.mjs` engines inline a DEFAULT_TIER_MAP copy because the Workflow sandbox
 # forbids imports; check_inline_default_map below holds each copy against this table,
 # which is what makes "one authority" true rather than aspirational.
@@ -210,16 +199,16 @@ errors=()
 # Bash 3.2 compatibility (CI runs a stock-3.2 macOS lane where `declare -A` fails OPEN):
 # the map travels as TAB-separated text and is looked up with awk. No associative
 # arrays anywhere in this script.
-ALPHABET_DOC="$DEV_PIPELINE_ROOT/model-tiering.md"
+ALPHABET_DOC="$PLUGIN_ROOT/model-tiering.md"
 
 # Section-anchored: only rows inside `## Tier alphabet` feed the map, so a future table
 # elsewhere in the doc cannot silently extend the alphabet. The header row ('Tier') and
 # the separator row (dashes) fail the lowercase-token patterns and drop out.
 # The parse itself is duplicated in dev-pipeline's config-lint.sh, which needs the same
-# alphabet to judge a modelOverrides value. Two copies rather than one import: config-lint.sh is
-# in a DIFFERENT PLUGIN, where a sibling `source` is a hop-count path that breaks under the
-# version-keyed install cache. Held by the `tier-alphabet-parse` LOCKSTEP markers — the block
-# between them is compared verbatim by scripts/check-lockstep-pairs.sh. Edit one, edit both.
+# alphabet to judge a modelOverrides value. Two copies rather than one import: a sibling
+# `source` across plugins is a hop-count path that breaks under the version-keyed install
+# cache. The `tier-alphabet-parse` and `sibling-plugin-root` LOCKSTEP blocks are compared
+# verbatim by scripts/check-lockstep-pairs.sh. Edit one, edit both.
 parse_default_tier_map() { # parse_default_tier_map <doc-path>
     [ -f "$1" ] || return 0
 # LOCKSTEP-BEGIN tier-alphabet-parse
@@ -329,6 +318,15 @@ check_pair() {
         return
     fi
     if [ -z "$file" ]; then
+        # design-toolkit not installed: its rows dispatch nothing here (review-lead
+        # degrades without them), so they are skipped rather than DANGLING. An explicit
+        # override that does not resolve is a wrong path, not an absent plugin.
+        case "$raw" in design-toolkit:*)
+            if [ -z "$DESIGN_TOOLKIT_ROOT" ] && [ -z "${SECOND_SHIFT_DESIGN_TOOLKIT_ROOT:-}" ]; then
+                DESIGN_ROWS_SKIPPED=1
+                return
+            fi ;;
+        esac
         if [ -z "$ov" ]; then
             errors+=("DANGLING: $table declares '$agent' => '$table_model' but no agent file exists in the review-toolkit root ($PLUGIN_AGENTS), the design-toolkit root (${DESIGN_AGENTS:-<not installed>}), or the consumer root, and reviewers.modelOverrides has no entry")
             return
@@ -466,6 +464,7 @@ scan_unknown_inline_literals() {
 }
 
 # --- Map tables: 'agent': 'model' entries (agent may be plugin:-qualified). ---
+DESIGN_ROWS_SKIPPED=0
 for tbl in code-review.mjs intake-review.mjs; do
     file="$WF/$tbl"
     [ -f "$file" ] || { errors+=("MISSING-TABLE: $file not found"); continue; }
@@ -506,14 +505,17 @@ done
 # carrier re-adds the registry loop this comment replaces (see git history for its
 # shape: per-dispatch inline `model:` literals override the file scalar). ---
 
+[ "$DESIGN_ROWS_SKIPPED" -eq 1 ] \
+    && echo "note: design-toolkit is not installed — its table rows are not checked." >&2
+
 if [ ${#errors[@]} -gt 0 ]; then
     printf '%s\n' "${errors[@]}" >&2
     if [ $HOOK_MODE -eq 1 ]; then
-        jq -n '{
+        jq -n --arg errs "$(printf '%s\n' "${errors[@]}")" '{
             hookSpecificOutput: {
                 hookEventName: "PreToolUse",
                 permissionDecision: "deny",
-                permissionDecisionReason: "model-tier drift between a dev-pipeline .mjs table and agent frontmatter/override — see stderr. Run review-toolkit/scripts/check-model-tiers.sh to reproduce."
+                permissionDecisionReason: ($errs + "\nRun review-toolkit/scripts/check-model-tiers.sh to reproduce.")
             }
         }'
         exit 0

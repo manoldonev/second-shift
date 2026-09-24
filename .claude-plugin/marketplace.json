@@ -17,7 +17,7 @@
     {
       "name": "review-toolkit",
       "source": "./plugins/review-toolkit",
-      "description": "Multi-agent parallel code review: review-lead orchestration, reviewer-baseline protocol, and the generic reviewer panel."
+      "description": "Multi-agent parallel code review: review-lead orchestration with its Workflow-based fan-out, reviewer-baseline protocol, and the generic reviewer panel."
     },
     {
       "name": "intake-toolkit",

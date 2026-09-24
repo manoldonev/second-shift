@@ -106,7 +106,7 @@ The rule is coverage, not naming. Several scripts are covered under a differentl
 
 Genuine exceptions, one kind:
 
-- **By design, no independent contract:** `plugins/dev-pipeline/workflows/runtime-shim-lib.mjs`
+- **By design, no independent contract:** `plugins/review-toolkit/workflows/runtime-shim-lib.mjs`
   (the meta-strip + injected-fake mechanics, named so it does **not** match the discovery glob —
   `runtime-shim-selftest.mjs` drives it on every run), `_effective-registry.sh`,
   `install-gh-bot.sh`, and the eval runners.

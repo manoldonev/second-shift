@@ -27,7 +27,7 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PLUGIN_DIR="$(dirname "$SCRIPT_DIR")"                 # plugins/dev-pipeline
+PLUGIN_DIR="$(dirname "$SCRIPT_DIR")"                 # plugins/review-toolkit
 WORKFLOW="$PLUGIN_DIR/workflows/intake-review.mjs"
 
 PASS=0

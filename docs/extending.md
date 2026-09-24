@@ -297,7 +297,7 @@ api-testing/*.md
 platform/*.md
 ```
 
-`check-extensions.sh` unions these globs onto the shipped manifest. A stray or typo'd file still fails that lint when you run it, while letting your org's companion/repo-local files live legitimately alongside the shipped set. The allowlist widens what's *recognized*; it never widens what any file is *allowed to do* — extension files remain additive-only no matter where they came from.
+`check-extensions.sh` (run by `/second-shift:doctor`) unions these globs onto the shipped manifest. A stray or typo'd file still fails that lint, while letting your org's companion/repo-local files live legitimately alongside the shipped set. The allowlist widens what's *recognized*; it never widens what any file is *allowed to do* — extension files remain additive-only no matter where they came from.
 
 ---
 
