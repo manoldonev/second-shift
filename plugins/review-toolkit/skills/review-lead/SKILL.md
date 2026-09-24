@@ -230,7 +230,7 @@ measure — it saves no wall at all, since the three run in parallel with the lo
 is a membership rule: a panel seat that never moves an outcome reads as coverage without being
 coverage.
 
-**Opting one back in.** Either carrier selects; both are read at Routing, and their effects union.
+**Opting one back in.** Any carrier selects; all are read at Routing, and their effects union.
 
 1. **Per ticket — a Decision Ledger row in the committed spec.** The spec found by Process step 4
    (Plan/Spec Awareness) carries a `## Decision Ledger` table. A row selects opt-ins when its
@@ -253,7 +253,15 @@ coverage.
    the same string compare (`check-reviewer-references.sh`, `DEFAULT-UNKNOWN`), while the ledger
    row is prose an operator types. Read both; do not translate one into the other silently.
 
-**An unrecognized name selects nothing and is never silent.** A name in either carrier that is not
+3. **Per round — the caller's own judgment, with a reason.** The caller that declares the panel
+   may name opt-ins itself when the diff touches their surface — `security` for authentication,
+   sessions, tenancy or ownership scoping, or queries built from external input; `a11y` for the
+   web-component surface; `unit-test-mutation` for new logic with a co-located spec. It passes each
+   short name in the invocation with a one-line reason, and it selects exactly as a ledger row
+   would. The trim stays the default because it was measured; this carrier exists so a diff the
+   measurement never saw is not reviewed blind on a rule's say-so.
+
+**An unrecognized name selects nothing and is never silent.** A name in any carrier that is not
 a reviewer in the effective registry — a typo, a short name in the config, a full name in the
 ledger row, a reviewer this repo `remove`d — selects nobody. Name it once in the Review Summary
 (e.g. "opt-in `sekurity` not recognized; no reviewer selected for it"). It is never a blocker and
@@ -263,7 +271,8 @@ rule exists to prevent.
 
 **Say which panel ran.** One Review Summary line, always, when the pipeline default panel was
 declared — e.g. "panel: pipeline default (scope-completeness only); opt-ins taken: security
-(ledger D-4), unit-test-mutation (config `reviewers.default`)", or "…; no opt-ins taken". The
+(ledger D-4), unit-test-mutation (config `reviewers.default`), a11y (caller: new form
+controls)", or "…; no opt-ins taken". The
 reader has to be able to tell a trimmed panel from a full one that happened to match no trigger.
 The three not-selected reviewers get no separate Step 4c note in this case — this line is that
 note, and the two would say the same thing twice. Their Verdicts rows follow Step 4c: omitted,
