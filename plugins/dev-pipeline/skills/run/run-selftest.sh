@@ -832,6 +832,20 @@ EOF
 chmod +x "$T/bin/gh-noterm"; RUN_GH="$T/bin/gh-noterm" run_case "$d"; expect approved "[E15] run against a block with no terminator"
 grep -q 'had no terminator; text below it was not preserved' "$FAKE_GH/pr-body.md" && ! grep -q 'old block line' "$FAKE_GH/pr-body.md" && ok "[E15] the body says what was not preserved" || bad "[E15] body: $(tr '\n' '|' < "$FAKE_GH/pr-body.md" | cut -c1-200)"
 
+# (bb) baseBranch: the lane forks from, targets and reviews against the configured branch, not the remote default
+FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"baseBranch":"develop"}' fixture bb
+git -C "$d/main" switch -q -c develop && echo dev > "$d/main/src/dev-only.ts" && git -C "$d/main" add src/dev-only.ts && git -C "$d/main" commit -qm dev && git -C "$d/main" push -q -u origin develop 2>/dev/null && git -C "$d/main" switch -q main
+run_case "$d" --dry-run; grep -q 'create the worktree from origin/develop' <<<"$OUT" && ok "(bb) dry-run names the configured base" || bad "(bb) dry-run base: $(grep 'dry-run:' <<<"$OUT")"
+printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(bb) a run on a configured baseBranch"
+git -C "$d/origin.git" merge-base --is-ancestor develop second-shift/42 && ok "(bb) the branch is cut from origin/develop" || bad "(bb) the branch does not contain origin/develop"
+grep -q "gh pr create --base develop" "$FAKE_GH/prompt-1.txt" && ok "(bb) the build opens its PR against develop" || bad "(bb) build prompt PR base: $(grep -o "against [^ ]*" "$FAKE_GH/prompt-1.txt")"
+grep -q "base branch is develop" "$FAKE_GH/prompt-2.txt" && ok "(bb) the review diffs against develop" || bad "(bb) review prompt names no base"
+FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"baseBranch":"nope"}' fixture bb2
+printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect env-base-unreadable "(bb2) a configured baseBranch missing on origin refuses"
+grep -qx ready-for-dev "$FAKE_GH/labels" && ! grep -qx in-progress "$FAKE_GH/labels" && [ ! -f "$FAKE_GH/calls" ] && ok "(bb2) refused before the claim, nothing spawned" || bad "(bb2) claimed or spawned on an unresolvable base"
+fixture bb3; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(bb3) no baseBranch"
+grep -q "gh pr create --base main" "$FAKE_GH/prompt-1.txt" && ok "(bb3) unset, the PR targets the remote default" || bad "(bb3) default PR base: $(grep -o "against [^ ]*" "$FAKE_GH/prompt-1.txt")"
+
 # (m) rounds spent
 fixture m; printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-needs-work\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d" --max-rounds 2; expect rounds-spent "(m) two needs-work rounds"
 

@@ -94,17 +94,18 @@ ERRORS=$(jq -r --argjson shippedTiers "$SHIPPED_TIERS_JSON" --argjson tierDocFou
   + err(((.configVersion? | type) == "number") and .configVersion < 3;
         "configVersion \(.configVersion) predates this plugin (current: 3) — see docs/migrations/v2-to-v3.md for the upgrade path" + (if .configVersion < 2 then " (apply docs/migrations/v1-to-v2.md first)" else "" end))
   + err((.tracker | type) != "object"; "tracker: required object")
+  + err(has("baseBranch") and (((.baseBranch | type) != "string") or ((.baseBranch | test("^(origin/|refs/)|[\\s~^:?*\\[\\\\]|^$")))); "baseBranch: must be a bare branch name on origin (e.g. \"develop\"), not origin/<name> or refs/…")
   + err((.commands | type) != "object"; "commands: required object")
   + err(has("stageWorkflows"); "stageWorkflows was removed — a registered stage workflow had stopped running when the staged lane was deleted. Nothing replaced it: an additive check is commands.<id>.extraLanes, run by /dev-pipeline:run after every build. Delete the key from your config (docs/migrations/v1-to-v2.md; the shape is kept as a design record in docs/extending.md §3.6)")
   + err(has("implementDelegates"); "implementDelegates was removed — a registered delegate had stopped being routed to when the staged lane was deleted. The pipeline is outcome-gated and silent on HOW the diff is produced, so a build session may still dispatch the same agent by choice; what has no home is the config-routed surface-to-agent mechanism. Delete the key from your config (docs/migrations/v1-to-v2.md; the shape is kept as a design record in docs/extending.md §3.7)")
   + err(has("planGates"); "planGates was removed — a registered plan gate had stopped running when the staged lane was deleted. There is no plan gate on the pipeline for one to be additive to; the record is judged by /dev-pipeline:review. Delete the key from your config (docs/migrations/v1-to-v2.md; the shape is kept as a design record in docs/extending.md §3.8)")
-  + err(has("topology"); "topology was removed in configVersion 3 — nothing reads it: the base branch is the remote default branch, worktrees go under RUN_WORKTREE_ROOT, and commands is keyed by any id. Delete the block " + $v3doc)
+  + err(has("topology"); "topology was removed in configVersion 3 — nothing reads it: the base branch is the top-level baseBranch (default: the remote default branch), worktrees go under RUN_WORKTREE_ROOT, and commands is keyed by any id. Delete the block " + $v3doc)
   + err(has("gates"); "gates was removed in configVersion 3 — delete the block " + $v3doc)
   + err(has("stageParams"); "stageParams was removed in configVersion 3 — delete the block; webComponentGlobs moves to reviewers.webComponentGlobs " + $v3doc)
   + err(has("grillWaivers"); "grillWaivers was removed in configVersion 3 — config-grill findings are advisory now (doctor and onboard report them as WARN), so there is nothing to waive. Delete the key " + $v3doc)
   + err(
-      (keys - ["$schema","configVersion","tracker","commands","reviewers","paths","design","run","topology","gates","stageParams","grillWaivers","stageWorkflows","implementDelegates","planGates"]) != [];
-      "unknown top-level keys: " + ((keys - ["$schema","configVersion","tracker","commands","reviewers","paths","design","run","topology","gates","stageParams","grillWaivers","stageWorkflows","implementDelegates","planGates"]) | join(", "))
+      (keys - ["$schema","configVersion","baseBranch","tracker","commands","reviewers","paths","design","run","topology","gates","stageParams","grillWaivers","stageWorkflows","implementDelegates","planGates"]) != [];
+      "unknown top-level keys: " + ((keys - ["$schema","configVersion","baseBranch","tracker","commands","reviewers","paths","design","run","topology","gates","stageParams","grillWaivers","stageWorkflows","implementDelegates","planGates"]) | join(", "))
     )
 
   # ---- tracker -------------------------------------------------------------
@@ -143,7 +144,7 @@ ERRORS=$(jq -r --argjson shippedTiers "$SHIPPED_TIERS_JSON" --argjson tierDocFou
       + (if (.repos | type) == "object" then (.repos | to_entries | map(
           .key as $id | (.value | if type == "object" then . else {} end) |
             err(has("path"); "topology.repos." + $id + ".path was removed in configVersion 3 — commands and liveRender run in the ticket worktree of the repo the config lives in " + $v3doc)
-          + err(has("baseBranch"); "topology.repos." + $id + ".baseBranch was removed in configVersion 3 — the base branch is the remote default branch (origin/HEAD); change it on the code host " + $v3doc)
+          + err(has("baseBranch"); "topology.repos." + $id + ".baseBranch was removed in configVersion 3 — move its value to the top-level baseBranch (unset: the remote default branch, origin/HEAD) " + $v3doc)
           + err(has("worktreesDir"); "topology.repos." + $id + ".worktreesDir was removed in configVersion 3 — export RUN_WORKTREE_ROOT instead (default: <parent>/<repo>-worktrees) " + $v3doc)
           + err(has("ticketTag"); "topology.repos." + $id + ".ticketTag was removed in configVersion 3 — nothing routes on it; say the repo in the ticket title or body " + $v3doc)
         ) | add // []) else [] end)

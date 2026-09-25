@@ -35,8 +35,12 @@ Run: `bash "${CLAUDE_PLUGIN_ROOT}/skills/onboard/tools/detect.sh"` and parse the
   `topology.siblingCandidates` means a sibling checkout (e.g. the frontend of this backend) sits
   next door: say so on the review screen and offer its own onboard at Step 8. Every checkout
   carries its own config.
-- `git.baseBranch` is evidence only too: the lane bases its branch on the remote default branch
-  (`origin/HEAD`, falling back to `origin/main`, then `origin/master`), so there is nothing to write.
+- `git.baseBranch` is the remote default branch (`origin/HEAD`, falling back to `origin/main`, then
+  `origin/master`), which the lane forks from and targets when the config sets no `baseBranch`.
+  Detection cannot prove the repo integrates there: show it on the review screen, and when the
+  repo's own docs (CLAUDE.md, CONTRIBUTING) or the human name a different integration branch,
+  draft the top-level `"baseBranch": "<name>"` (provenance: that doc line or the answer). An
+  existing `baseBranch` is kept, like every other existing value.
 
 ## Step 2 — Resolve the pin
 Run: `bash "${CLAUDE_PLUGIN_ROOT}/skills/onboard/tools/pin-resolve.sh" manoldonev/second-shift dev-pipeline review-toolkit intake-toolkit audit-toolkit second-shift` — add `design-toolkit` if (and only if) the design question below is answered yes.

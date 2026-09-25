@@ -136,8 +136,8 @@ Create `.claude/second-shift.config.json` (the schema: [`schema/second-shift.con
 ```
 
 `commands` is keyed by an id of your choosing. The lane reads the sole key, or — when there are
-several — the key equal to the main checkout's directory name. The base branch is not configured: it is
-the remote's default branch (`origin/HEAD`, falling back to `origin/main`, then `origin/master`).
+several — the key equal to the main checkout's directory name. The base branch is `baseBranch` when
+set, else the remote's default branch (`origin/HEAD`, falling back to `origin/main`, then `origin/master`).
 
 Nothing here assumes JavaScript. The same shape for a Python service on JIRA
 (poetry/pytest; note `"writes": false` — the documented JIRA default — and `format: null`,

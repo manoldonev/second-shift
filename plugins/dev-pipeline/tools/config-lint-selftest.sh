@@ -65,6 +65,7 @@ expect_violation invalid-bad-run-caps.json          "run.buildTimeoutSeconds: mu
 expect_violation invalid-bad-run-caps.json          "run.reviewTimeoutSeconds: must be an integer >= 60"
 expect_violation invalid-bad-smokecommand.json      "design.liveRender.smokeCommand: must be string"
 expect_violation invalid-bad-tracker.json           "tracker.type must be github|jira"
+expect_violation invalid-bad-basebranch.json        "baseBranch: must be a bare branch name on origin"
 # commands is keyed by an id the scheduler resolves (the sole key, else this checkout's directory
 # name) and is no longer cross-checked against anything: a second key is legal. The fixture still
 # fails, on its modelOverrides typo, so the no-violation assertion reads a real failing run.

@@ -16,13 +16,14 @@ repository changes; the consumer's config is not touched either.
 2. Point the replay checkout's local `origin/HEAD` at it:
    `git remote set-head origin <eval-base>`. The scheduler takes its base from `origin/HEAD`, so
    this is the one input that moves; it is local to that checkout and changes nothing on the
-   remote. Restore it with `git remote set-head origin --auto` when the series ends.
+   remote. Restore it with `git remote set-head origin --auto` when the series ends. (A config
+   that sets `baseBranch` overrides `origin/HEAD`; point that key at the eval base for the series
+   instead.)
 3. File the replay's issues, intake them, and launch the lanes one at a time — concurrent
    lanes on one machine contend for wall-clock, CPU and the tracker rate limit.
-4. Their PRs merge into the **eval base branch**. The build session opens each PR against the
-   repository's default branch, so retarget it before merging
-   (`gh pr edit <pr> --base <eval-base>`). The consumer's default branch is **neither modified
-   nor rewound** — at no point does the eval write to it.
+4. Their PRs merge into the **eval base branch**: the build session opens each PR against the
+   scheduler's base, so no retarget is needed. The consumer's default branch is **neither
+   modified nor rewound** — at no point does the eval write to it.
 5. Read and record the figures the experiment was pre-registered to read.
 6. Delete the eval base branch. The next replay cuts a fresh one from the same pinned
    commit.

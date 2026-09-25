@@ -1,0 +1,8 @@
+{
+  "configVersion": 3,
+  "baseBranch": "origin/develop",
+  "tracker": {
+    "type": "github"
+  },
+  "commands": {}
+}
