@@ -4,6 +4,44 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v15.1.0
+
+### `design-toolkit` 6.0.0 → 6.1.0
+
+- **feat(dev-pipeline): a configurable base branch (#901)** (#901)
+  new optional top-level `baseBranch` config key — the branch /dev-pipeline:run
+  forks from, opens its PR against and reviews against; unset keeps the remote default branch.
+  A configured branch that does not resolve on origin refuses the run before the claim
+  (env-base-unreadable). The build's PR now always passes --base.
+  Migration: none.
+
+### `dev-pipeline` 15.0.0 → 15.1.0
+
+- **feat(dev-pipeline): a configurable base branch (#901)** (#901)
+  new optional top-level `baseBranch` config key — the branch /dev-pipeline:run
+  forks from, opens its PR against and reviews against; unset keeps the remote default branch.
+  A configured branch that does not resolve on origin refuses the run before the claim
+  (env-base-unreadable). The build's PR now always passes --base.
+  Migration: none.
+
+### `review-toolkit` 9.0.0 → 9.1.0
+
+- **feat(dev-pipeline): a configurable base branch (#901)** (#901)
+  new optional top-level `baseBranch` config key — the branch /dev-pipeline:run
+  forks from, opens its PR against and reviews against; unset keeps the remote default branch.
+  A configured branch that does not resolve on origin refuses the run before the claim
+  (env-base-unreadable). The build's PR now always passes --base.
+  Migration: none.
+
+### `second-shift` 11.0.0 → 11.1.0
+
+- **feat(dev-pipeline): a configurable base branch (#901)** (#901)
+  new optional top-level `baseBranch` config key — the branch /dev-pipeline:run
+  forks from, opens its PR against and reviews against; unset keeps the remote default branch.
+  A configured branch that does not resolve on origin refuses the run before the claim
+  (env-base-unreadable). The build's PR now always passes --base.
+  Migration: none.
+
 ## v15.0.0
 
 ### `audit-toolkit` 5.0.1 → 6.0.0
