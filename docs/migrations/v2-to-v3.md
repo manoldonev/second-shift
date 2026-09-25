@@ -27,7 +27,7 @@ Nothing reads it. Delete the block, and move anything you still need to where it
 | --- | --- |
 | `topology.type` | Nothing. Each repo is onboarded on its own, with its own config. |
 | `topology.repos.<id>.path` | Nothing. Checks and the render run in the ticket's worktree of the repo the config lives in. |
-| `topology.repos.<id>.baseBranch` | The remote default branch (`git symbolic-ref --short refs/remotes/origin/HEAD`, falling back to `origin/main`, then `origin/master`). To target a different branch, change the default branch on the code host. |
+| `topology.repos.<id>.baseBranch` | The top-level `baseBranch`; unset, the remote default branch (`git symbolic-ref --short refs/remotes/origin/HEAD`, falling back to `origin/main`, then `origin/master`). |
 | `topology.repos.<id>.worktreesDir` | `export RUN_WORKTREE_ROOT=<dir>` when you launch. Default: `<parent of the main checkout>/<repo>-worktrees`. |
 | `topology.repos.<id>.ticketTag` | Nothing routes on it. Say which repo the work is for in the ticket. |
 

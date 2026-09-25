@@ -419,7 +419,7 @@ else
     [[ -n "$key" ]] && bad "config: $key was removed in configVersion 3 — $hint Fix: delete it (docs/migrations/v2-to-v3.md)"
   done < <(jq -r '
     def lr: if (.design | type) == "object" and (.design.liveRender | type) == "object" then .design.liveRender else {} end;
-    [ (if has("topology") then ["topology", "nothing reads it: the base branch is the remote default branch, and commands is keyed by this checkout\u0027s directory name (or a sole key)."] else empty end),
+    [ (if has("topology") then ["topology", "nothing reads it: the base branch is the top-level baseBranch (unset: the remote default branch), and commands is keyed by this checkout\u0027s directory name (or a sole key)."] else empty end),
       (if has("gates") then ["gates", "nothing reads it."] else empty end),
       (if has("stageParams") then ["stageParams", (if (.stageParams | type) == "object" and (.stageParams | has("webComponentGlobs")) then "move webComponentGlobs to reviewers.webComponentGlobs first; nothing reads the rest." else "nothing reads it." end)] else empty end),
       (if has("grillWaivers") then ["grillWaivers", "config grill findings are advisory warnings now, so there is nothing to waive."] else empty end),

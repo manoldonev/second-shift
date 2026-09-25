@@ -1,5 +1,6 @@
 {
   "configVersion": 3,
+  "baseBranch": "develop",
   "tracker": {
     "type": "github",
     "writes": true,

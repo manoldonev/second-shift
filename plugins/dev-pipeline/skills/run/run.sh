@@ -141,6 +141,7 @@ if [ "$TRACKER" = github ]; then TRACKER_WRITES="${TRACKER_WRITES:-true}"; else 
 KEY_PATTERN="$(cfg .tracker.keyPattern)"                                                                 # C5
 PLANS_DIR="$(cfg .paths.plansDir)"; PLANS_DIR="${PLANS_DIR:-docs/plans}"                                 # C13
 STATE_DIR="$(cfg .paths.pipelineStateDir)"; STATE_DIR="${STATE_DIR:-.claude/pipeline-state}"             # C14
+BASE_CFG="$(cfg .baseBranch)"   # the branch the lane forks from and targets; unset = the remote default (resolved in preflight)
 RENDER_CMD="$(cfg .design.liveRender.command)"; SMOKE_CMD="$(cfg .design.liveRender.smokeCommand)"       # C24 C25
 READY_URL="$(cfg .design.liveRender.readyProbe)"; DESIGN_PROVIDER="$(cfg .design.provider)"              # C26 C23
 L_QUEUE="$(cfg .tracker.labels.queue)"; L_QUEUE="${L_QUEUE:-ready-for-dev}"                              # C8
@@ -418,7 +419,7 @@ build_prompt() { # build_prompt <round> <findings-file-or-empty>
   echo "Do not merge. Do not delete, skip or weaken a test to make a check pass; if a test is wrong, say so in the PR."
   [ "$BOT_OK" -eq 1 ] && echo "Commit through $TOOLS/bot-commit.sh (the repo's bot identity), never plain git commit — and re-pass the identity on any --amend, which otherwise silently re-stamps you as the committer."
   if [ "$1" -eq 1 ]; then
-    echo "When the checks are green, commit, push branch $BRANCH to origin and, unless one is already open for this branch, open a READY (not draft) PR against the default branch with 'gh pr create'. The PR body, in order: line 1 exactly 'built-by: second-shift run $RUN_ID'; then a link to the decision record at $RECORD_REL; then a summary of the change;"
+    echo "When the checks are green, commit, push branch $BRANCH to origin and, unless one is already open for this branch, open a READY (not draft) PR against $BASE_NAME with 'gh pr create --base $BASE_NAME'. The PR body, in order: line 1 exactly 'built-by: second-shift run $RUN_ID'; then a link to the decision record at $RECORD_REL; then a summary of the change;"
     if [ "$TRACKER" = github ]; then echo "and the line 'Closes #$ISSUE' so the ticket closes on merge."; else echo "and a '### Jira Items' heading with the line 'Closes [$ISSUE]'."; fi
   else echo "Address the review findings below: fix each, or rebut it in a PR comment. Then commit and push $BRANCH."; fi
   echo; echo "The following decisions were settled with the requester before implementation started. They are binding. The record is committed at $RECORD_REL; if you must depart from a row, edit that row in place (new resolution, provenance user-delegated, a one-line reason) and commit the edit with the code. Never post a comment starting with 'verdict:'."
@@ -432,6 +433,7 @@ build_prompt() { # build_prompt <round> <findings-file-or-empty>
 review_prompt() { # review_prompt <pr> <review-input-file>
   echo "You are reviewing PR #$1 of this repository at its current head, in a session separate from the one that built it. Check out the PR head. Read the decision record at $RECORD_REL as it stood at commit $FIRST (git show $FIRST:$RECORD_REL) and as it stands at the head."
   echo "Score EVERY row of the record against the code: honored, violated, departed (the row was edited; name who decided, per its provenance), or undeterminable (say what you could not read). A violated or undeterminable row is a blocker; neither may stand beside an approve."
+  echo "The PR's base branch is $BASE_NAME: pass it to review-lead as the base, so the diff is origin/$BASE_NAME...HEAD and not the remote default branch."
   echo "Then run review-toolkit:review-lead over the PR diff and DECLARE THE PIPELINE DEFAULT PANEL when you invoke it: the fan-out defaults to scope-completeness-reviewer; security-reviewer, a11y-reviewer and unit-test-mutation-reviewer are selected only by an opt-in — a 'review panel' row in the record with user-answered or user-delegated provenance naming security, a11y or unit-test-mutation, or the config's reviewers.default[]. review-lead never infers this; an undeclared panel leaves the surface triggers in force. You may also opt one of the three back in on your own judgment when the diff touches its surface: pass its short name to review-lead with a one-line reason. The trim stays the default because it was measured; a diff it was never measured on is yours to judge."
   echo "review-lead dispatches its reviewers through the code-review.mjs Workflow: stage that script by copying it into $STATE (this run's evidence directory, already added to this session), never into the worktree, and run the Workflow from there."
   echo "If the ticket has design frames, render every screen at the head with the repo's render command and compare it with its frame; if you cannot render, you cannot approve: post 'verdict: needs-work' with a line 'reason: render-unavailable'."
@@ -592,8 +594,18 @@ bad_lane="$(lanes_malformed)"; [ -z "$bad_lane" ] || terminal env-config-lanes "
 if [ "$RECORD_SOURCE" = receipt ] && ! design_declared; then
   terminal env-design-undeclared "design.provider is configured but the record's design section ('## Design frames' or '## Design') neither carries RS rows nor a 'Design: none — <reason>' line — a UI ticket cannot skip the render silently"
 fi
+# the base, before the claim: a configured baseBranch that does not resolve refuses — never a silent fall back to the default
+git -C "$MAIN_ROOT" fetch -q origin 2>/dev/null || true
+if [ -n "$BASE_CFG" ]; then
+  base="origin/$BASE_CFG"
+  git -C "$MAIN_ROOT" rev-parse -q --verify "$base" >/dev/null 2>&1 || terminal env-base-unreadable "baseBranch is '$BASE_CFG' but $base does not resolve — push the branch or fix the key"
+else
+  base="$(git -C "$MAIN_ROOT" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null)"
+  for b in "$base" origin/main origin/master; do [ -n "$b" ] && git -C "$MAIN_ROOT" rev-parse -q --verify "$b" >/dev/null 2>&1 && { base="$b"; break; }; done
+fi
+BASE_NAME="${base#origin/}"
 if [ "$DRY_RUN" -eq 1 ]; then
-  say "dry-run: would claim, create the worktree, commit the record, and run up to $MAX_ROUNDS rounds; checks: $(checks_list all 2>/dev/null | tr '\n' ';')"
+  say "dry-run: would claim, create the worktree from $base, commit the record, and run up to $MAX_ROUNDS rounds; checks: $(checks_list all 2>/dev/null | tr '\n' ';')"
   echo "terminal: dry-run"; exit 0
 fi
 st="$(issue_state)"; [ -n "$st" ] || terminal env-tracker-unreadable "could not read #$ISSUE from the tracker"
@@ -629,10 +641,6 @@ fi
 mkdir -p "$STATE" || terminal env-state-dir "cannot create $STATE"
 
 # ============================ 5. baseline (rows E3-E6, E17, E18, G7, H6, J6, J11) ============================
-git -C "$MAIN_ROOT" fetch -q origin 2>/dev/null || true
-base="$(git -C "$MAIN_ROOT" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null)"
-for b in "$base" origin/main origin/master; do [ -n "$b" ] && git -C "$MAIN_ROOT" rev-parse -q --verify "$b" >/dev/null 2>&1 && { base="$b"; break; }; done
-BASE_NAME="${base#origin/}"
 if [ -d "$WT" ]; then
   wt_ref="$(git -C "$WT" rev-parse --abbrev-ref HEAD 2>/dev/null)" || terminal env-worktree "$WT exists but is not a git worktree"
   case "$wt_ref" in "$BRANCH"|HEAD) : ;; *) terminal env-worktree-mismatch "$WT is on branch '$wt_ref', not $BRANCH — remove it (git worktree remove) and re-launch" ;; esac
