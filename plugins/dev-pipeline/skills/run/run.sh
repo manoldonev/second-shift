@@ -147,6 +147,7 @@ if [ "$TRACKER" = github ]; then TRACKER_WRITES="${TRACKER_WRITES:-true}"; else 
 KEY_PATTERN="$(cfg .tracker.keyPattern)"                                                                 # C5
 PLANS_DIR="$(cfg .paths.plansDir)"; PLANS_DIR="${PLANS_DIR:-docs/plans}"                                 # C13
 STATE_DIR="$(cfg .paths.pipelineStateDir)"; STATE_DIR="${STATE_DIR:-.claude/pipeline-state}"             # C14
+RUNTIME_DATA="$(cfg '.paths.runtimeData[]?')"   # one pathspec per line; unset = close-out checks no ignored paths
 BASE_CFG="$(cfg .baseBranch)"   # the branch the lane forks from and targets; unset = the remote default (resolved in preflight)
 RENDER_CMD="$(cfg .design.liveRender.command)"; SMOKE_CMD="$(cfg .design.liveRender.smokeCommand)"       # C24 C25
 READY_URL="$(cfg .design.liveRender.readyProbe)"; DESIGN_PROVIDER="$(cfg .design.provider)"              # C26 C23
@@ -482,6 +483,19 @@ worktree_inflight() { # 0 collected · 8 in flight · 1 unreadable
   if [ -n "$unpushed" ]; then INFLIGHT_REASON="it carries commits that are not on origin/$BRANCH"; return 8; fi
   return 0
 }
+runtime_data_held() { # 0 none · 8 held · 1 unreadable. `status --porcelain` never sees ignored files, and `worktree remove` deletes them
+  # one read per declared path: git folds an ignored directory into its ignored ancestor, so the operator is told the path they declared
+  local p out held=""; RUNTIME_REASON=""
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    out="$(git -C "$WT" status --porcelain --ignored -- "$p" 2>&1)" || { RUNTIME_REASON="the status of paths.runtimeData could not be read ($out)"; return 1; }
+    [ -z "$out" ] || held="$held${held:+ }$p"
+  done <<EOF
+$RUNTIME_DATA
+EOF
+  [ -n "$held" ] || return 0
+  RUNTIME_REASON="runtime data under $held"; return 8
+}
 worktree_ready() { # before a spawn: a detached tree is put back on the branch, a clean tree is fast-forwarded to origin; dirt is the build's own resume state and is left alone
   local ref dirty
   ref="$(git -C "$WT" rev-parse --abbrev-ref HEAD 2>/dev/null)" || terminal env-worktree "$WT is not a git worktree"
@@ -785,7 +799,9 @@ done
 # ============================ 7. close-out (rows E19, E20) ============================
 worktree_inflight; ifrc=$?
 case "$ifrc" in
-  0) git -C "$MAIN_ROOT" worktree remove "$WT" >/dev/null 2>&1 && say "worktree $WT removed; the branch and PR #$PR stay" || say "worktree $WT left in place (a lock, or a removal that failed); remove it by hand" ;;
+  0) runtime_data_held; rdrc=$?
+     if [ "$rdrc" -ne 0 ]; then say "worktree $WT left in place: $RUNTIME_REASON; move what must survive, then remove it by hand"
+     else git -C "$MAIN_ROOT" worktree remove "$WT" >/dev/null 2>&1 && say "worktree $WT removed; the branch and PR #$PR stay" || say "worktree $WT left in place (a lock, or a removal that failed); remove it by hand"; fi ;;
   8) terminal closeout-inflight "approved, but $WT still holds work nothing else has a copy of ($INFLIGHT_REASON) — the ticket is still claimed and PR #$PR is still open" ;;
   *) terminal closeout-inflight-unreadable "approved, but whether $WT still holds work could not be evaluated ($INFLIGHT_REASON)" ;;
 esac

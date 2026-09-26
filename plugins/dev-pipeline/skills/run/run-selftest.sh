@@ -76,13 +76,14 @@ case "$plan" in
   build-commit-nopush) echo "$n" >> work.txt; git add -A >/dev/null; git commit -qm "local only $n" ;;
   build-skip-test) printf 'it.skip("x", () => {});\n' >> src/a.spec.ts; mkdir -p .github/workflows; echo 'on: push' > .github/workflows/ci.yml; push; openpr ;;
   review-crash)    printf '{"subtype":"error_during_execution","total_cost_usd":0}\n'; exit 1 ;;
-  review-approve|review-needs-work|review-wrong-sha|review-approve-dirty|review-approve-and-push|review-needs-work-drop-base|review-needs-work-diverge)
+  review-approve|review-needs-work|review-wrong-sha|review-approve-dirty|review-approve-runtime|review-approve-and-push|review-needs-work-drop-base|review-needs-work-diverge)
     sha=$(git rev-parse "origin/$branch"); [ "$plan" = review-wrong-sha ] && sha=deadbeef
     v=approve; case "$plan" in review-needs-work*) v=needs-work ;; esac
     ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
     jq --arg b "verdict: $v"$'\n'"reviewed: $sha"$'\n'"| D-1 | honored |" --arg t "$ts" --arg u "${FAKE_VERDICT_AUTHOR:-tester}" --arg ut "${FAKE_VERDICT_AUTHOR_TYPE:-User}" '. + [{body:$b,user:{login:$u,type:$ut},created_at:$t,updated_at:$t}]' "$S/comments.json" > "$S/c.tmp" && mv "$S/c.tmp" "$S/comments.json"
     case "$plan" in
       review-approve-dirty) echo scratch > review-scratch.txt ;;
+      review-approve-runtime) mkdir -p .claude/storage; echo raw > .claude/storage/upload-1.bin ;;   # gitignored: `status --porcelain` cannot see it
       review-approve-and-push) push ;;
       review-needs-work-drop-base) git -C "$(git remote get-url origin)" update-ref -d refs/heads/main ;;
       review-needs-work-diverge) git push -q -f origin "$(git commit-tree "HEAD~1^{tree}" -p HEAD~1 -m diverged)":"refs/heads/$branch" ;;
@@ -643,6 +644,15 @@ chmod +x "$T/bin/gh-prview-dies"; RUN_GH="$T/bin/gh-prview-dies" run_case "$d"; 
 fixture rj; printf 'build-pr\nreview-approve-dirty\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect closeout-inflight "[E20] the review left an untracked file behind"
 [ "$RC" -eq 1 ] && [ -d "$d/wt/42" ] && [ -f "$d/wt/42/review-scratch.txt" ] && ok "[E20] exit 1, worktree kept with the work in it" || bad "[E20] rc=$RC, worktree $([ -d "$d/wt/42" ] && echo kept || echo gone)"
 
+# E20-rd: gitignored runtime data under a declared paths.runtimeData keeps the worktree — `worktree remove` would delete it — and the run still ends approved
+RTCFG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans","runtimeData":[".claude/storage","apps/api/uploads"]}}'
+FIXTURE_CONFIG="$RTCFG" fixture rt1; printf 'build-pr\nreview-approve-runtime\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "[E20-rd] runtime data under a declared path at close-out"
+[ "$RC" -eq 0 ] && [ -f "$d/wt/42/.claude/storage/upload-1.bin" ] && printf '%s\n' "$OUT" | grep -q "worktree $d/wt/42 left in place: runtime data under .claude/storage;" && ok "[E20-rd] exit 0, worktree and its data kept, the blocking path printed" || bad "[E20-rd] rc=$RC, data $([ -f "$d/wt/42/.claude/storage/upload-1.bin" ] && echo kept || echo gone): $(printf '%s\n' "$OUT" | grep 'worktree ' | tail -n 1)"
+FIXTURE_CONFIG="$RTCFG" fixture rt2; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "[E20-rd] declared runtime paths that hold nothing"
+[ ! -d "$d/wt/42" ] && ok "[E20-rd] an empty declared path does not block removal" || bad "[E20-rd] worktree kept with nothing under the declared paths"
+fixture rt3; printf 'build-pr\nreview-approve-runtime\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "[E20-rd] no paths.runtimeData declared"
+[ ! -d "$d/wt/42" ] && ok "[E20-rd] key absent: close-out removes as before" || bad "[E20-rd] key absent but the worktree was kept"
+
 # F7 F18 H13: Figma servers, the figma-faithful sequence and the render-unavailable rule appear only on a frames ticket
 FIXTURE_CONFIG="{\"tracker\":{\"type\":\"github\",\"branchPrefix\":\"second-shift/\"},\"paths\":{\"plansDir\":\"docs/plans\"},\"design\":{\"provider\":\"figma\",\"liveRender\":{\"command\":\"cp $T/px.png {out}\",\"smokeCommand\":\"true\"}}}" fixture rk "- true" $'\n## Design frames\n\n| RS | route | state | frame | must-show |\n| --- | --- | --- | --- | --- |\n| RS-1 | a | default | 1:2 | ok |\n'
 printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "[F7] frames ticket"
@@ -837,6 +847,10 @@ expect build-inflight-unreadable "[E21] an unreadable status after the build"; [
 fixture ar11; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"
 OUT="$( cd "$d/main" && PATH="$T/gitstatusdead:$PATH" FAKE_STATUS_DIES_AT=3 bash "$RUN" 42 2>&1 )"; RC=$?; TERM_SLUG="$(printf '%s\n' "$OUT" | sed -n 's/^terminal: //p' | tail -n 1)"
 expect closeout-inflight-unreadable "[E20] an unreadable status at close-out"; [ "$RC" -eq 1 ] && [ -d "$d/wt/42" ] && ok "[E20] exit 1, worktree kept" || bad "[E20] rc=$RC"
+FIXTURE_CONFIG="$RTCFG" fixture ar11b; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"   # the 4th status read is the runtime-data one
+OUT="$( cd "$d/main" && PATH="$T/gitstatusdead:$PATH" FAKE_STATUS_DIES_AT=4 bash "$RUN" 42 2>&1 )"; RC=$?; TERM_SLUG="$(printf '%s\n' "$OUT" | sed -n 's/^terminal: //p' | tail -n 1)"
+expect approved "[E20-rd] an unreadable runtime-data status at close-out"
+[ "$RC" -eq 0 ] && [ -d "$d/wt/42" ] && printf '%s\n' "$OUT" | grep -q 'left in place: the status of paths.runtimeData could not be read' && ok "[E20-rd] fail safe: worktree kept and the reason printed" || bad "[E20-rd] rc=$RC, worktree $([ -d "$d/wt/42" ] && echo kept || echo gone)"
 fixture ar12; printf 'build-pr\nreview-needs-work-diverge\nbuild-push-only\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect env-worktree-diverged "[E18] a worktree that cannot fast-forward to origin is refused, never reset"
 [ "$RC" -eq 2 ] && [ "$(cat "$FAKE_GH/calls")" = 2 ] && ok "[E18] exit 2, no second build" || bad "[E18] rc=$RC calls=$(cat "$FAKE_GH/calls")"
 
