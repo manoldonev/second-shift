@@ -10,7 +10,8 @@
 #   that tier — no model id is written here, so a new release needs no edit.
 #   --handoff (/dev-pipeline:build): claim, worktree and record as usual, then write the round-1
 #   build prompt and stop with `terminal: build-handoff` instead of spawning BUILD; the calling
-#   session builds. No model is resolved: the calling session is the build.
+#   session builds. No model is resolved: the calling session is the build. While that handoff is
+#   the lane's latest closing comment, a run refuses the claim (claimed-elsewhere) unless --resume.
 #
 # env:  SECOND_SHIFT_CONFIG   config path (default <main>/.claude/second-shift.config.json)
 #       RUN_CLAUDE, RUN_GH (alias GH)   the binaries (tests inject fakes)
@@ -252,15 +253,19 @@ usd() { awk -v c="$1" 'BEGIN{printf "%.2f", c}'; } # display only; COST keeps fu
 issue_state() { [ "$TRACKER" = github ] || { echo OPEN; return 0; }; "$GH_READ" issue view "$ISSUE" --json state --jq .state 2>/dev/null; }
 has_label() { local names; [ "$TRACKER" = github ] || return 1; names="$("$GH_READ" issue view "$ISSUE" --json labels --jq '.labels[].name' 2>/dev/null)" || return 1; grep -qxF "$1" <<<"$names"; }
 repo_slug() { "$GH_READ" repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null; }
-lane_marker_present() { # the lane's own claim marker: whole-line stage marker plus a run_id line, by a Bot or the account this scheduler writes with (D-24)
+lane_comments() { # the issue's comments this lane wrote — a Bot, or the account this scheduler writes with (D-24) — oldest first, as one array
   local repo me comments
   repo="$(repo_slug)" || return 1
   me="$("$GH" api user --jq .login 2>/dev/null)" || me=""
   comments="$("$GH_READ" api "repos/$repo/issues/$ISSUE/comments" --paginate 2>/dev/null)" || return 1
-  printf '%s' "$comments" | jq -e --arg me "$me" 'any(.[];
-      ((.user.type // "") == "Bot" or (($me != "") and ((.user.login // "") == $me)))
-      and (.body | test("(^|\n)<!-- stage: lean-claimed -->(\n|$)"))
-      and (.body | test("<!-- run_id: ")))' >/dev/null 2>&1
+  printf '%s' "$comments" | jq -s --arg me "$me" 'add // [] | map(select((.user.type // "") == "Bot" or (($me != "") and ((.user.login // "") == $me)))) | sort_by(.created_at)' 2>/dev/null
+}
+lane_marker_present() { # the lane's own claim marker: whole-line stage marker plus a run_id line
+  lane_comments | jq -e 'any(.[]; (.body | test("(^|\n)<!-- stage: lean-claimed -->(\n|$)")) and (.body | test("<!-- run_id: ")))' >/dev/null 2>&1
+}
+handoff_holds() { # the lane's latest closing comment is build-handoff: a /dev-pipeline:build session is building in the worktree; unreadable counts as held
+  local c; c="$(lane_comments)" || return 0
+  jq -e '[.[].body | select(test("^second-shift run [^ ]+: "))] | (last // "") | test("^second-shift run [^ ]+: build-handoff ")' <<<"$c" >/dev/null 2>&1
 }
 open_prs() { "$GH_READ" pr list --head "$BRANCH" --state open --json number --jq '.[].number' 2>/dev/null; }
 remote_head() { local out; out="$(git -C "$WT" ls-remote origin "refs/heads/$BRANCH" 2>/dev/null)" || return 1; printf '%s' "$out" | cut -f1; }
@@ -540,7 +545,7 @@ ci_status() { # one word for the report, never waited on (row G11)
 }
 # -- the verdict (rows I1-I5, I7): bound to the review window, unedited, naming the current head; the LAST binding comment wins --
 verdict() { # verdict <start-iso> <end-iso> -> prints approve|needs-work and saves the body; 1 none binds; 2 the tracker could not be read
-  # row B10: only a Bot or the account this scheduler writes with binds (lane_marker_present's filter) —
+  # row B10: only a Bot or the account this scheduler writes with binds (lane_comments' filter) —
   # anyone can comment on a public repo, and a needs-work body becomes the next BUILD's findings
   local repo comments me
   repo="$(repo_slug)" || return 2
@@ -628,8 +633,10 @@ say "models: build ${BUILD_MODEL:-the calling session} ($bb), review $REVIEW_MOD
 if [ "$TRACKER" != github ]; then say "claim: $TRACKER tracker — operator-attested, nothing written"
 elif has_label "$L_CLAIMED"; then
   # re-entry, as the old lane read it: the claimed label AND a lane-posted marker; a claim with no marker was made by someone else
-  if [ "$RESUME" -eq 1 ] || lane_marker_present; then say "claim: re-entering a ticket the lane claimed"; CLAIMED=1
-  else terminal claimed-elsewhere "#$ISSUE carries $L_CLAIMED with no lane claim marker; pass --resume to take it over"; fi
+  if [ "$RESUME" -eq 0 ] && ! lane_marker_present; then terminal claimed-elsewhere "#$ISSUE carries $L_CLAIMED with no lane claim marker; pass --resume to take it over"; fi
+  # a ticket handed to /dev-pipeline:build is being built by hand in the worktree: a run re-entering it would spawn a second writer there
+  if [ "$RESUME" -eq 0 ] && [ "$HANDOFF" -eq 0 ] && handoff_holds; then terminal claimed-elsewhere "#$ISSUE was handed to an in-session build (/dev-pipeline:build) that may still be writing to $WT; pass --resume to hand it back to the lane"; fi
+  say "claim: re-entering a ticket the lane claimed"; CLAIMED=1
 else
   while IFS= read -r b; do [ -n "$b" ] && has_label "$b" && terminal not-queued "#$ISSUE carries blocker label $b"; done <<EOF
 $L_BLOCKERS

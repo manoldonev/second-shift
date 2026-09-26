@@ -28,6 +28,8 @@ an unattended run would have spawned, so both paths build against the same recor
 5. **Hand off to review.** Tell the operator to run `/dev-pipeline:review <pr>` in a fresh
    session. Do not review your own build, and never post a comment starting with `verdict:`.
    On `needs-work`, address or rebut each finding in this session and push; then a fresh review.
+   While your handoff is the ticket's latest run comment, `/dev-pipeline:run <ticket>` refuses it
+   (`claimed-elsewhere`) rather than build into your worktree; `--resume` hands it back to the lane.
 
 ## Rules that are not negotiable
 

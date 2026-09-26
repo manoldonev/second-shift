@@ -33,7 +33,7 @@ env, phases and the exit table. It is the truth; this file only says what is you
    | --- | --- | --- |
    | `0` | `approved`, `dry-run` | Report the PR. Merging is a human's act. (`build-handoff` is `/dev-pipeline:build`'s stop, never a run's.) |
    | `1` | `build-no-pr`, `build-blocked`, `build-inflight(-unreadable)`, `pr-ambiguous`, `closeout-inflight(-unreadable)`, `staleness-unreadable` | Stop and report the slug and its detail line; a human decides. Worktree and claim are left in place. |
-   | `2` | `usage-*`, `env-*`, `claimed-elsewhere` | Fix what the detail line names and re-launch the same command. On `claimed-elsewhere`, stop: `--resume` takes over someone else's claim, and that is the operator's call. |
+   | `2` | `usage-*`, `env-*`, `claimed-elsewhere` | Fix what the detail line names and re-launch the same command. On `claimed-elsewhere`, stop: `--resume` takes over someone else's claim (or a `/dev-pipeline:build` handoff's), and that is the operator's call. |
    | `3` | `not-queued`, `env-no-record` | Resumable. Pay off intake (`/intake-toolkit:intake`, or `/intake-toolkit:plan-interview <issue>` for a missing record) and re-launch the same command. |
    | `4` | `rounds-spent`, `checks-red-spent`, `cost-spent` | Stop. A spent budget is a human's read, never an automatic re-launch. |
    | `5` | `review-unbound` | Run `/dev-pipeline:review <pr>` by hand in a fresh session: a rebuild fixes nothing. |
