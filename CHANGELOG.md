@@ -4,6 +4,54 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v15.2.0
+
+### `dev-pipeline` 15.1.0 → 15.2.0
+
+- **fix(dev-pipeline): report run cost to two decimals (#903)** (#903)
+  /dev-pipeline:run reports every cost to two decimals: the PR's
+  run block, its session rows, the closing comment's cost_usd, and the
+  terminal messages. Migration: none.
+- **feat(dev-pipeline): restore /dev-pipeline:build as the in-session build (#905)** (#905)
+  /dev-pipeline:build <ticket> is back as the interactive build: it
+  claims the ticket, cuts the worktree, commits the intake record and hands
+  the build prompt to your session (run.sh --handoff, terminal build-handoff)
+  instead of spawning an unattended build; review the PR with
+  /dev-pipeline:review. It no longer drives the retired milestone gates.
+  Migration: none.
+  /dev-pipeline:run no longer re-enters a ticket handed to
+  /dev-pipeline:build while that handoff is the latest run comment — it
+  stops with claimed-elsewhere; --resume hands the ticket back to the lane.
+  Migration: none.
+  /dev-pipeline:build refuses a ticket with no configured checks
+  (env-no-checks) unless allowUnverified, and pins the record baseline sha in
+  its prompt and the PR body, which /dev-pipeline:review checks. Run costs
+  always print with a dot decimal, whatever the locale, and a cost-spent
+  refusal rounds its figure up. Migration: none.
+  /dev-pipeline:run no longer stops with a false cost-spent on a
+  machine whose locale uses a comma decimal separator. Migration: none.
+
+### `second-shift` 11.1.0 → 11.2.0
+
+- **feat(dev-pipeline): restore /dev-pipeline:build as the in-session build (#905)** (#905)
+  /dev-pipeline:build <ticket> is back as the interactive build: it
+  claims the ticket, cuts the worktree, commits the intake record and hands
+  the build prompt to your session (run.sh --handoff, terminal build-handoff)
+  instead of spawning an unattended build; review the PR with
+  /dev-pipeline:review. It no longer drives the retired milestone gates.
+  Migration: none.
+  /dev-pipeline:run no longer re-enters a ticket handed to
+  /dev-pipeline:build while that handoff is the latest run comment — it
+  stops with claimed-elsewhere; --resume hands the ticket back to the lane.
+  Migration: none.
+  /dev-pipeline:build refuses a ticket with no configured checks
+  (env-no-checks) unless allowUnverified, and pins the record baseline sha in
+  its prompt and the PR body, which /dev-pipeline:review checks. Run costs
+  always print with a dot decimal, whatever the locale, and a cost-spent
+  refusal rounds its figure up. Migration: none.
+  /dev-pipeline:run no longer stops with a false cost-spent on a
+  machine whose locale uses a comma decimal separator. Migration: none.
+
 ## v15.1.0
 
 ### `design-toolkit` 6.0.0 → 6.1.0
