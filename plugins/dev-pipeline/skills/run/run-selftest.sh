@@ -153,6 +153,19 @@ grep -q '<!-- pipeline-cost-block -->' "$FAKE_GH/pr-body.md" 2>/dev/null && grep
 grep -qE '^[|] review-1[.]1 [|] 3 [|] [$]1 [|]' "$FAKE_GH/pr-body.md" 2>/dev/null && ok "(a) per-session cost rows in the block" || bad "(a) per-session rows missing"
 grep -q 'ls /' "$(SD)/review-1.1.prompt" && ok "(a) build denials reach the review input" || bad "(a) denials missing from review input"
 
+# (ho) --handoff (/dev-pipeline:build): claim, worktree, record, prompt — then stop; the calling session builds
+fixture ho; printf 'ready-for-dev\n' > "$FAKE_GH/labels"; run_case "$d" --handoff
+expect build-handoff "(ho) an unsized ticket is handed to the calling session"
+[ "$RC" -eq 0 ] && [ ! -f "$FAKE_GH/calls" ] && ok "(ho) exit 0 and no session spawned" || bad "(ho) rc=$RC, claude calls: $(cat "$FAKE_GH/calls" 2>/dev/null)"
+hp="$(sed -n 's/^prompt: //p' <<<"$OUT")"; hw="$(sed -n 's/^worktree: //p' <<<"$OUT")"
+[ -n "$hp" ] && grep -q 'Implement ticket 42' "$hp" && grep -q 'D-1' "$hp" && [ -d "$hw" ] && ok "(ho) the build prompt and worktree are printed" || bad "(ho) prompt '$hp' / worktree '$hw'"
+[ "$(git -C "$d/origin.git" log --format=%s main..second-shift/42 2>/dev/null)" = "docs: decision record for #42" ] && ok "(ho) the record is the pushed branch's only commit" || bad "(ho) branch: $(git -C "$d/origin.git" log --oneline main..second-shift/42 2>&1 | tr '\n' '|')"
+grep -qx in-progress "$FAKE_GH/labels" && grep -q 'Claimed by .*/dev-pipeline:build' "$FAKE_GH/issue-comments" && ok "(ho) claimed, and the marker names /dev-pipeline:build" || bad "(ho) labels: $(tr '\n' ' ' < "$FAKE_GH/labels")"
+jq '. + [{body:"<!-- run_id: old -->\n<!-- stage: lean-claimed -->",user:{login:"tester",type:"User"},created_at:"2020-01-01T00:00:00Z",updated_at:"2020-01-01T00:00:00Z"}]' "$FAKE_GH/comments.json" > "$FAKE_GH/c.tmp" && mv "$FAKE_GH/c.tmp" "$FAKE_GH/comments.json"
+run_case "$d" --handoff; expect build-handoff "(ho) a second handoff re-enters its own claim"
+fixture ho2; OUT="$( cd "$d/main" && bash "$RUN" 42 --handoff --detach 2>&1 )"; RC=$?
+grep -q '^terminal: usage-handoff-detach$' <<<"$OUT" && [ "$RC" -eq 2 ] && ok "(ho2) --handoff with --detach is a usage refusal" || bad "(ho2) rc=$RC: $(tail -n 1 <<<"$OUT")"
+
 # (b) needs-work then approve: two rounds, findings reach the round-2 build prompt
 fixture b; printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"
 run_case "$d"; expect approved "(b) needs-work, fix, approve"

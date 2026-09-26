@@ -3,11 +3,14 @@
 #
 # usage: run.sh <issue> [--build-model|--model <id>] [--model-basis <text>]
 #               [--review-model <id>] [--review-model-basis <text>]
-#               [--max-rounds N] [--dry-run] [--resume] [--detach]
+#               [--max-rounds N] [--dry-run] [--resume] [--detach] [--handoff]
 #   The build model comes from the ticket's `opus` / `sonnet` label; --build-model overrides.
 #   Review defaults to `opus`; a departure needs --review-model-basis. The short forms `opus` /
 #   `sonnet` are passed through to `claude --model`, which resolves them to the current model of
 #   that tier — no model id is written here, so a new release needs no edit.
+#   --handoff (/dev-pipeline:build): claim, worktree and record as usual, then write the round-1
+#   build prompt and stop with `terminal: build-handoff` instead of spawning BUILD; the calling
+#   session builds. No model is resolved: the calling session is the build.
 #
 # env:  SECOND_SHIFT_CONFIG   config path (default <main>/.claude/second-shift.config.json)
 #       RUN_CLAUDE, RUN_GH (alias GH)   the binaries (tests inject fakes)
@@ -38,7 +41,7 @@
 #   - every session is a fresh process with a wall-clock bound; every attempt keeps its own files;
 #   - a regex or record form is stated exactly, never paraphrased.
 #
-# exit: 0 approved · dry-run
+# exit: 0 approved · dry-run · build-handoff
 #       1 stopped for a human: build-no-pr, build-inflight(-unreadable), build-blocked, pr-ambiguous,
 #         closeout-inflight(-unreadable), staleness-unreadable
 #       2 usage-* (the argv), env-* (the environment; most fire before anything is spawned, but
@@ -57,7 +60,7 @@ usage_refusal() { echo "run.sh: $2" >&2; echo "terminal: $1"; exit 2; }
 CLAUDE="${RUN_CLAUDE:-claude}"; GH="${RUN_GH:-${GH:-gh}}"
 REVIEW_MODEL_DEFAULT="opus"
 ISSUE=""; MAX_ROUNDS=3; MAX_ROUNDS_SET=0; BUILD_MODEL=""; MODEL_BASIS=""
-REVIEW_MODEL="$REVIEW_MODEL_DEFAULT"; REVIEW_MODEL_BASIS=""; DRY_RUN=0; RESUME=0; DETACH=0
+REVIEW_MODEL="$REVIEW_MODEL_DEFAULT"; REVIEW_MODEL_BASIS=""; DRY_RUN=0; RESUME=0; DETACH=0; HANDOFF=0
 KEEP_ARGS=()   # what a detached run re-executes with: everything but --detach
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -70,6 +73,7 @@ while [ $# -gt 0 ]; do
     --dry-run)              DRY_RUN=1; KEEP_ARGS+=("$1"); shift ;;
     --resume)               RESUME=1; KEEP_ARGS+=("$1"); shift ;;
     --detach)               DETACH=1; shift ;;
+    --handoff)              HANDOFF=1; shift ;;
     -h|--help)              awk 'NR>1 && /^set -uo pipefail/{exit} NR>1' "$0"; exit 0 ;;
     -*)                     usage_refusal usage-unknown-option "unknown option: $1" ;;
     *) if [ -z "$ISSUE" ]; then ISSUE="$1"; KEEP_ARGS+=("$1"); shift; else usage_refusal usage-unexpected-argument "unexpected argument: $1"; fi ;;
@@ -82,13 +86,14 @@ if [ "$REVIEW_MODEL" != "$REVIEW_MODEL_DEFAULT" ] && [ -z "$REVIEW_MODEL_BASIS" 
 fi
 case "$MAX_ROUNDS" in ''|*[!0-9]*) usage_refusal usage-max-rounds "--max-rounds must be a positive integer, got '$MAX_ROUNDS'" ;; esac
 [ "$MAX_ROUNDS" -ge 1 ] || usage_refusal usage-max-rounds "--max-rounds must be at least 1."
+[ "$HANDOFF" -eq 0 ] || [ "$DETACH" -eq 0 ] || usage_refusal usage-handoff-detach "--handoff stops before the build for the calling session to run it; there is nothing to detach."
 
 # ============================ 1. environment (rows A20-A27, B1-B4, C1-C14, C28) ============================
 now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 say() { echo "$(now) [run] $*"; }
 exit_code_for() { # the taxonomy a wrapper branches on
   case "$1" in
-    approved|dry-run) echo 0 ;;
+    approved|dry-run|build-handoff) echo 0 ;;
     not-queued|env-no-record) echo 3 ;;
     usage-*|env-*|claimed-elsewhere) echo 2 ;;
     rounds-spent|checks-red-spent|cost-spent) echo 4 ;;
@@ -610,13 +615,14 @@ if [ "$DRY_RUN" -eq 1 ]; then
 fi
 st="$(issue_state)"; [ -n "$st" ] || terminal env-tracker-unreadable "could not read #$ISSUE from the tracker"
 [ "$st" = OPEN ] || terminal env-ticket-closed "#$ISSUE is not open — nothing spawned, a preflight refusal like any other"
-if [ -z "$BUILD_MODEL" ]; then # an unsized ticket is refused with nothing written to the tracker
+if [ -z "$BUILD_MODEL" ] && [ "$HANDOFF" -eq 0 ]; then # an unsized ticket is refused with nothing written to the tracker
   if has_label opus; then BUILD_MODEL=opus; MODEL_BASIS=label
   elif has_label sonnet; then BUILD_MODEL=sonnet; MODEL_BASIS=label
   elif [ "$TRACKER" != github ]; then terminal usage-model "under $TRACKER pass --build-model: there is no sizing label to read"
   else terminal usage-model "#$ISSUE carries neither opus nor sonnet — intake sizes tickets, this scheduler does not (pass --build-model to override)"; fi
 fi
-say "models: build $BUILD_MODEL (${MODEL_BASIS:-flag}), review $REVIEW_MODEL (${REVIEW_MODEL_BASIS:-default})"
+bb="${MODEL_BASIS:-flag}"; [ -n "$BUILD_MODEL" ] || bb=handoff
+say "models: build ${BUILD_MODEL:-the calling session} ($bb), review $REVIEW_MODEL (${REVIEW_MODEL_BASIS:-default})"
 
 # ============================ 4. claim (rows D1-D12, D14-D16, K1-K4, K10) ============================
 if [ "$TRACKER" != github ]; then say "claim: $TRACKER tracker — operator-attested, nothing written"
@@ -634,7 +640,7 @@ EOF
   else "$GH" issue edit "$ISSUE" --add-label "$L_CLAIMED" --remove-label "$L_QUEUE" >/dev/null 2>&1 || terminal env-claim-failed "could not swap $L_QUEUE -> $L_CLAIMED on #$ISSUE; the queue label is left in place"; fi
   # the claim marker, in the old lane's shape (re-entry and evidence readers grep it)
   # shellcheck disable=SC2016  # markdown backticks
-  "$GH" issue comment "$ISSUE" --body "$(printf '<!-- dev-pipeline -->\n<!-- run_id: %s -->\n<!-- session_id: %s -->\n<!-- stage: lean-claimed -->\n\n🤖 Claimed by \`/dev-pipeline:run\`.\nsecond-shift-run: %s (branch %s)' "$RUN_ID" "${CLAUDE_CODE_SESSION_ID:-unset}" "$RUN_ID" "$BRANCH")" >/dev/null 2>&1 \
+  "$GH" issue comment "$ISSUE" --body "$(printf '<!-- dev-pipeline -->\n<!-- run_id: %s -->\n<!-- session_id: %s -->\n<!-- stage: lean-claimed -->\n\n🤖 Claimed by \`/dev-pipeline:%s\`.\nsecond-shift-run: %s (branch %s)' "$RUN_ID" "${CLAUDE_CODE_SESSION_ID:-unset}" "$([ "$HANDOFF" -eq 1 ] && echo build || echo run)" "$RUN_ID" "$BRANCH")" >/dev/null 2>&1 \
     || terminal env-claim-failed "labels swapped but the claim marker could not be posted on #$ISSUE — re-entry would refuse; fix the tracker write and --resume"
   CLAIMED=1
 fi
@@ -691,6 +697,10 @@ while :; do
       ATTEMPT=$((ATTEMPT+1)); A="$ROUND.$ATTEMPT"
       record_at_first >/dev/null || terminal env-worktree "cannot read the record at $FIRST:$RECORD_REL — a build must not be handed an empty record as binding"
       build_prompt "$ROUND" "$FINDINGS" > "$STATE/build-$A.prompt"
+      if [ "$HANDOFF" -eq 1 ]; then
+        echo "worktree: $WT"; echo "prompt: $STATE/build-$A.prompt"
+        terminal build-handoff "BUILD handed to the calling session in $WT; review with /dev-pipeline:review <pr> in a fresh session"
+      fi
       spawn build "$BUILD_MODEL" "$A" "$(build_allowlist)" 400 "$STATE/build-$A.prompt"; brc=$?
       jq -r '.permission_denials[]? | (.tool_name + " " + (.tool_input|tostring))' "$STATE/build-$A.json" > "$STATE/denials-$A.txt" 2>/dev/null || true
       [ "$brc" -eq 124 ] && terminal build-blocked "build session exceeded ${BUILD_TO}s; worktree and claim left in place"
