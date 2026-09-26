@@ -150,7 +150,7 @@ grep -q 'models: build opus (label), review opus (default)' <<<"$OUT" && ok "(a)
 first=$(git -C "$d/origin.git" log --format=%s --reverse main..second-shift/42 | head -n 1)
 [ "$first" = "docs: decision record for #42" ] && ok "(a) the record is the branch's first commit" || bad "(a) first commit is '$first'"
 grep -q '<!-- pipeline-cost-block -->' "$FAKE_GH/pr-body.md" 2>/dev/null && grep -q 'built-by: fake' "$FAKE_GH/pr-body.md" && grep -q '| approved |' "$FAKE_GH/pr-body.md" && ok "(a) run block written into the PR body, original body kept" || bad "(a) no run block in the PR body"
-grep -qE '^[|] review-1[.]1 [|] 3 [|] [$]1 [|]' "$FAKE_GH/pr-body.md" 2>/dev/null && ok "(a) per-session cost rows in the block" || bad "(a) per-session rows missing"
+grep -qE '^[|] review-1[.]1 [|] 3 [|] [$]1[.]00 [|]' "$FAKE_GH/pr-body.md" 2>/dev/null && ok "(a) per-session cost rows in the block" || bad "(a) per-session rows missing"
 grep -q 'ls /' "$(SD)/review-1.1.prompt" && ok "(a) build denials reach the review input" || bad "(a) denials missing from review input"
 
 # (ho) --handoff (/dev-pipeline:build): claim, worktree, record, prompt — then stop; the calling session builds
@@ -230,6 +230,8 @@ fixture l2; echo CLOSED > "$FAKE_GH/state"; run_case "$d"; expect env-ticket-clo
 fixture l3; printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; FAKE_COST=60 RUN_COST_CEILING=100 run_case "$d"; expect cost-spent "(l3) cost ceiling"; [ "$RC" -eq 4 ] && ok "(l3) [B8] cost-spent exits 4" || bad "(l3) exit $RC"
 # I15: the ceiling is exceeded, not reached — a run whose spend lands exactly on it keeps going
 fixture l3b; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; FAKE_COST=25 RUN_COST_CEILING=25 run_case "$d"; expect approved "[I15] a build whose spend equals the ceiling is not over it"
+fixture l3c; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; FAKE_COST=2.43739 run_case "$d"; expect approved "(l3c) fractional session costs"
+grep -qE '[|] [$]4[.]87 [|]' "$FAKE_GH/pr-body.md" && grep -qE '^[|] build-1[.]1 [|] 3 [|] [$]2[.]44 [|]' "$FAKE_GH/pr-body.md" && grep -q '^cost_usd: 4.87$' "$FAKE_GH/issue-comments" && ok "(l3c) every reported cost is rounded to two decimals" || bad "(l3c) costs: $(grep -E '[$][0-9]|cost_usd' "$FAKE_GH/pr-body.md" "$FAKE_GH/issue-comments" | tr '\n' '|')"
 fixture l4; rm "$d/main/.claude/pipeline-state/42-ledger.md"; run_case "$d"; expect env-no-record "(l4) no intake record"; [ "$RC" -eq 3 ] && ok "(l4) [B6 K8] env-no-record exits 3 (resumable)" || bad "(l4) exit $RC"
 fixture l5; run_case "$d" --dry-run; expect dry-run "(l5) dry-run spawns nothing"; [ "$RC" -eq 0 ] && ok "(l5) [B2 A13] dry-run exits 0" || bad "(l5) exit $RC"
 [ ! -f "$FAKE_GH/calls" ] && ok "(l5) no claude call on dry-run" || bad "(l5) claude called on dry-run"

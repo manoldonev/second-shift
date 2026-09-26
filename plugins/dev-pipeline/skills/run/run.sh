@@ -109,7 +109,7 @@ terminal() { # terminal <slug> <detail> — rows B1, B21, B22, K9: the run block
   say "terminal: $1 — $2"; echo "terminal: $1"
   if [ -n "$PR" ] && [ "${BLOCK_DONE:-0}" -eq 0 ]; then BLOCK_DONE=1; write_run_block "$1"; fi
   if [ "$CLAIMED" -eq 1 ] && [ "$TRACKER" = github ]; then
-    "$GH" issue comment "$ISSUE" --body "$(printf 'second-shift run %s: %s — %s\n%s\ncost_usd: %s\n%s' "$RUN_ID" "$1" "$2" "${PR_URL:-${PR:+PR #$PR}}" "$COST" "${UNPRICED:+unpriced: $UNPRICED (no total_cost_usd; cost_usd is a lower bound)
+    "$GH" issue comment "$ISSUE" --body "$(printf 'second-shift run %s: %s — %s\n%s\ncost_usd: %s\n%s' "$RUN_ID" "$1" "$2" "${PR_URL:-${PR:+PR #$PR}}" "$(usd "$COST")" "${UNPRICED:+unpriced: $UNPRICED (no total_cost_usd; cost_usd is a lower bound)
 }")" >/dev/null 2>&1 || say "could not post the closing comment on #$ISSUE"
   fi
   exit "$(exit_code_for "$1")"
@@ -246,6 +246,7 @@ add_cost() { # rows I14 I16: a session with no total_cost_usd (killed at its bou
   COST="$(awk -v a="$COST" -v b="$c" 'BEGIN{print a+b}')"
 }
 over_ceiling() { awk -v c="$COST" -v m="$COST_CEIL" 'BEGIN{exit !(c>m)}'; }
+usd() { awk -v c="$1" 'BEGIN{printf "%.2f", c}'; } # display only; COST keeps full precision for the ceiling
 
 # -- tracker reads (rows D7-D9, J1, J3, K2-K5): every producer returns non-zero on a failed read; callers refuse --
 issue_state() { [ "$TRACKER" = github ] || { echo OPEN; return 0; }; "$GH_READ" issue view "$ISSUE" --json state --jq .state 2>/dev/null; }
@@ -563,12 +564,11 @@ cost_block() { # <terminal slug>
   echo '<!-- pipeline-cost-block -->'
   echo "## second-shift run"; echo
   echo "| run | outcome | rounds | verdict | reviewed head | cost | CI |"; echo "| --- | --- | --- | --- | --- | --- | --- |"
-  echo "| $RUN_ID | $1 | $ROUND | ${VERDICT:-none} | ${HEAD_SHA:-—} | \$$COST${UNPRICED:+ + unpriced} | $CI |"; echo
+  echo "| $RUN_ID | $1 | $ROUND | ${VERDICT:-none} | ${HEAD_SHA:-—} | \$$(usd "$COST")${UNPRICED:+ + unpriced} | $CI |"; echo
   echo "| session | turns | cost |"; echo "| --- | --- | --- |"
-  local f; for f in "$STATE"/build-*.json "$STATE"/review-*.json; do
-    [ -f "$f" ] || continue
-    jq -er --arg n "$(basename "$f" .json)" 'select(.total_cost_usd | numbers) | "| \($n) | \(.num_turns // "?") | $\(.total_cost_usd * 100 | round / 100) |"' "$f" 2>/dev/null \
-      || echo "| $(basename "$f" .json) | ? | unpriced (no total_cost_usd) |"
+  local f n c; for f in "$STATE"/build-*.json "$STATE"/review-*.json; do
+    [ -f "$f" ] || continue; n="$(basename "$f" .json)"; c="$(jq -r '.total_cost_usd | numbers' "$f" 2>/dev/null)"
+    if [ -n "$c" ]; then echo "| $n | $(jq -r '.num_turns // "?"' "$f") | \$$(usd "$c") |"; else echo "| $n | ? | unpriced (no total_cost_usd) |"; fi
   done
   echo '<!-- /pipeline-cost-block -->'
 }
@@ -675,7 +675,7 @@ design_declared || terminal env-design-undeclared "the committed record at $FIRS
 
 # ============================ 6. rounds (rows B7-B9, B14-B16, E13, F1, F14, G1, G9, H12, I6, I12, I15, J8, J10, J12, J13, K12) ============================
 red_attempt() { # a red check, smoke or convention spends the checks-red counter, never a round; its log is the next build's findings
-  CHECKS_RED=$((CHECKS_RED+1)); [ "$CHECKS_RED" -lt "$CHECKS_RED_MAX" ] || terminal checks-red-spent "$1 red $CHECKS_RED times (cost \$$COST)"
+  CHECKS_RED=$((CHECKS_RED+1)); [ "$CHECKS_RED" -lt "$CHECKS_RED_MAX" ] || terminal checks-red-spent "$1 red $CHECKS_RED times (cost \$$(usd "$COST"))"
   FINDINGS="$2"; NEED_BUILD=1; say "$1 red — the findings are the log; another BUILD attempt of round $ROUND"
 }
 spawn() { # spawn <role> <model> <id> <allowlist> <max-turns> <prompt-file> -> rc (124 past the bound); the result JSON is $STATE/<role>-<id>.json
@@ -687,8 +687,8 @@ spawn() { # spawn <role> <model> <id> <allowlist> <max-turns> <prompt-file> -> r
 }
 FINDINGS=""; NEED_BUILD=1; NEED_CHECKS=1; INPUT=""
 while :; do
-  ROUND=$((ROUND+1)); [ "$ROUND" -le "$MAX_ROUNDS" ] || terminal rounds-spent "$MAX_ROUNDS rounds without an approve (cost \$$COST)"
-  say "round $ROUND of $MAX_ROUNDS (cost so far \$$COST)"
+  ROUND=$((ROUND+1)); [ "$ROUND" -le "$MAX_ROUNDS" ] || terminal rounds-spent "$MAX_ROUNDS rounds without an approve (cost \$$(usd "$COST"))"
+  say "round $ROUND of $MAX_ROUNDS (cost so far \$$(usd "$COST"))"
   review_tries=0; VERDICT=""
   while :; do
     if [ "$NEED_BUILD" -eq 1 ]; then # ---- BUILD, until its work is collected on one ready PR ----
@@ -706,7 +706,7 @@ while :; do
       [ "$brc" -eq 124 ] && terminal build-blocked "build session exceeded ${BUILD_TO}s; worktree and claim left in place"
       sub="$(jq -r '.subtype // "unreadable"' "$STATE/build-$A.json" 2>/dev/null)"
       [ "$sub" = success ] || terminal build-blocked "build session ended $sub (rc=$brc); worktree and claim left in place"
-      over_ceiling && terminal cost-spent "\$$COST exceeds the \$$COST_CEIL ceiling"
+      over_ceiling && terminal cost-spent "\$$(usd "$COST") exceeds the \$$COST_CEIL ceiling"
       worktree_inflight; ifrc=$?
       case "$ifrc" in
         0) : ;;
@@ -757,7 +757,7 @@ while :; do
     review_tries=$((review_tries+1))
     [ "$review_tries" -le "$MAX_REVIEW_RETRIES" ] || terminal review-unbound "$miss — twice. No round spent and no BUILD spawned; run /dev-pipeline:review $PR by hand"
     say "$miss — re-spawning REVIEW ($review_tries of $MAX_REVIEW_RETRIES). No round spent, no BUILD spawn."
-    over_ceiling && terminal cost-spent "\$$COST exceeds the \$$COST_CEIL ceiling"
+    over_ceiling && terminal cost-spent "\$$(usd "$COST") exceeds the \$$COST_CEIL ceiling"
   done
   say "verdict: $VERDICT (reviewed $HEAD_SHA)"
   [ "$VERDICT" = approve ] && break
@@ -765,7 +765,7 @@ while :; do
   awk '{ sub(/\r$/, "") } $0 == "reason: render-unavailable" { f = 1 } END { exit !f }' "$STATE/verdict-body.md" \
     && terminal env-not-ready "the review could not render the design frames at $HEAD_SHA (reason: render-unavailable) — fix the render environment and re-launch"
   FINDINGS="$STATE/verdict-body.md"; NEED_BUILD=1
-  over_ceiling && terminal cost-spent "\$$COST exceeds the \$$COST_CEIL ceiling"
+  over_ceiling && terminal cost-spent "\$$(usd "$COST") exceeds the \$$COST_CEIL ceiling"
 done
 
 # ============================ 7. close-out (rows E19, E20) ============================
@@ -775,4 +775,4 @@ case "$ifrc" in
   8) terminal closeout-inflight "approved, but $WT still holds work nothing else has a copy of ($INFLIGHT_REASON) — the ticket is still claimed and PR #$PR is still open" ;;
   *) terminal closeout-inflight-unreadable "approved, but whether $WT still holds work could not be evaluated ($INFLIGHT_REASON)" ;;
 esac
-terminal approved "PR #$PR approved at $HEAD_SHA after $ROUND round(s), \$$COST"
+terminal approved "PR #$PR approved at $HEAD_SHA after $ROUND round(s), \$$(usd "$COST")"
