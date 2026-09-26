@@ -1,6 +1,6 @@
 {
   "name": "dev-pipeline",
-  "description": "Autonomous pipeline from an intaken ticket to a reviewed PR: /dev-pipeline:run drives run.sh, a scheduler that commits the intake record as the branch's first commit, runs fresh build and review sessions, runs the configured checks itself, and accepts only a verdict comment naming the current head. /dev-pipeline:review is the manual review; pr-revision answers human PR comments. Tracker adapters (github|jira), a cost block on the PR. Reads per-repo static context from .claude/second-shift.config.json.",
+  "description": "Autonomous pipeline from an intaken ticket to a reviewed PR: /dev-pipeline:run drives run.sh, a scheduler that commits the intake record as the branch's first commit, runs fresh build and review sessions, runs the configured checks itself, and accepts only a verdict comment naming the current head. /dev-pipeline:build hands the same build prompt to your own session, without the scheduler's checks; /dev-pipeline:review is the manual review; pr-revision answers human PR comments. Tracker adapters (github|jira), a cost block on the PR. Reads per-repo static context from .claude/second-shift.config.json.",
   "version": "15.1.0",
   "author": {
     "name": "Manol Donev"

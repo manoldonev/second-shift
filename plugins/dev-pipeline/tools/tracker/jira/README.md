@@ -12,8 +12,9 @@ posts on it and the review's verdict comment.
 > **What enforces it:** under `tracker.writes: false`, `/dev-pipeline:run` starts every BUILD
 > and REVIEW session without the Atlassian write tools (the scheduler's `--disallowedTools`
 > list, under all three namespaces below); the read tools stay. **Where it stops:** a
-> `/dev-pipeline:review` the operator invokes directly is operator-attended and keeps
-> whatever tools that session has.
+> `/dev-pipeline:review` or `/dev-pipeline:build` the operator invokes directly is
+> operator-attended and keeps whatever tools that session has; the build skill tells the session
+> to make no Jira write.
 
 The table below is this adapter's operation contract. The scheduler's tracker-sensitive
 operations are tabulated in [`../README.md`](../README.md#the-pipeline-dev-pipelinerun).

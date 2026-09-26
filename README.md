@@ -55,6 +55,8 @@ The review posts one PR comment: `verdict: approve` or `verdict: needs-work`, th
 /dev-pipeline:review <pr>
 ```
 
+To drive the build yourself, `/dev-pipeline:build <ticket>` does the same claim, worktree and record commit, then hands the build prompt to your session instead of spawning one; review it with `/dev-pipeline:review <pr>` from a fresh session. The scheduler's own checks, route smoke and caps do not run on that path: running the checks is the session's job.
+
 Full onboarding — reviewer tuning, extension files, the optional bot identity — is in [`docs/onboarding.md`](docs/onboarding.md); the JIRA tracker's setup and behavioral delta live in [the JIRA tracker README](plugins/dev-pipeline/tools/tracker/jira/README.md). To keep collaborators on the same toolset, commit the settings pin `onboard` writes (`extraKnownMarketplaces` + `enabledPlugins` in `.claude/settings.json`); track latest only in a canary.
 
 ## Why
@@ -65,7 +67,7 @@ Agents write plausible code faster than a team can honestly review it, so the bo
 
 | Plugin | What you get |
 | --- | --- |
-| **dev-pipeline** | An intaken ticket → a reviewed PR: `/dev-pipeline:run` is a scheduler over fresh build and review sessions that runs the checks itself, caps rounds, check reds, time and cost, and accepts only a verdict bound to the current head. `/dev-pipeline:review` is the manual review; `pr-revision` answers human PR comments. Tracker adapters (GitHub Issues with label claiming, optionally through a bot identity, or read-only JIRA); a cost block on the PR. |
+| **dev-pipeline** | An intaken ticket → a reviewed PR: `/dev-pipeline:run` is a scheduler over fresh build and review sessions that runs the checks itself, caps rounds, check reds, time and cost, and accepts only a verdict bound to the current head. `/dev-pipeline:build` hands the build to your own session (without the scheduler's checks), `/dev-pipeline:review` the manual review; `pr-revision` answers human PR comments. Tracker adapters (GitHub Issues with label claiming, optionally through a bot identity, or read-only JIRA); a cost block on the PR. |
 | **review-toolkit** | `review-lead` parallel multi-agent review — scope-completeness, security, performance, maintainability, complexity, db, pipeline, a11y, test-coverage and unit-test-mutation reviewers under a shared confidence protocol; commit-time consistency gates. On the pipeline path `/dev-pipeline:review` dispatches scope-completeness only; the rest are opt-in per ticket (a `review panel` Decision Ledger row) or per repo (`reviewers.default` in the config). Standalone `review-lead` routes by what the diff touches; the Workflow fan-out ships in this plugin, so it needs no other. |
 | **intake-toolkit** | The elicitation surface: `/intake-toolkit:intake` front door, requirement and decomposition interviews, `plan-interview` that turns design decisions into a machine-lintable Decision Ledger, `grill-me` plan stress-testing. |
 | **design-toolkit** | Design-fidelity translation and review (`design-faithful`), with an optional Figma-MCP-backed mode (`figma-faithful`) and `figma-iterate` — an interactive fast-path for quick Figma iteration that swaps pipeline ceremony for one batched discrepancy checkpoint. |

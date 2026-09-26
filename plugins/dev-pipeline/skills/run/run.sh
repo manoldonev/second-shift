@@ -3,11 +3,15 @@
 #
 # usage: run.sh <issue> [--build-model|--model <id>] [--model-basis <text>]
 #               [--review-model <id>] [--review-model-basis <text>]
-#               [--max-rounds N] [--dry-run] [--resume] [--detach]
+#               [--max-rounds N] [--dry-run] [--resume] [--detach] [--handoff]
 #   The build model comes from the ticket's `opus` / `sonnet` label; --build-model overrides.
 #   Review defaults to `opus`; a departure needs --review-model-basis. The short forms `opus` /
 #   `sonnet` are passed through to `claude --model`, which resolves them to the current model of
 #   that tier — no model id is written here, so a new release needs no edit.
+#   --handoff (/dev-pipeline:build): claim, worktree and record as usual, then write the round-1
+#   build prompt and stop with `terminal: build-handoff` instead of spawning BUILD; the calling
+#   session builds. No model is resolved: the calling session is the build. While that handoff is
+#   the lane's latest closing comment, a run refuses the claim (claimed-elsewhere) unless --resume.
 #
 # env:  SECOND_SHIFT_CONFIG   config path (default <main>/.claude/second-shift.config.json)
 #       RUN_CLAUDE, RUN_GH (alias GH)   the binaries (tests inject fakes)
@@ -38,7 +42,7 @@
 #   - every session is a fresh process with a wall-clock bound; every attempt keeps its own files;
 #   - a regex or record form is stated exactly, never paraphrased.
 #
-# exit: 0 approved · dry-run
+# exit: 0 approved · dry-run · build-handoff
 #       1 stopped for a human: build-no-pr, build-inflight(-unreadable), build-blocked, pr-ambiguous,
 #         closeout-inflight(-unreadable), staleness-unreadable
 #       2 usage-* (the argv), env-* (the environment; most fire before anything is spawned, but
@@ -57,7 +61,7 @@ usage_refusal() { echo "run.sh: $2" >&2; echo "terminal: $1"; exit 2; }
 CLAUDE="${RUN_CLAUDE:-claude}"; GH="${RUN_GH:-${GH:-gh}}"
 REVIEW_MODEL_DEFAULT="opus"
 ISSUE=""; MAX_ROUNDS=3; MAX_ROUNDS_SET=0; BUILD_MODEL=""; MODEL_BASIS=""
-REVIEW_MODEL="$REVIEW_MODEL_DEFAULT"; REVIEW_MODEL_BASIS=""; DRY_RUN=0; RESUME=0; DETACH=0
+REVIEW_MODEL="$REVIEW_MODEL_DEFAULT"; REVIEW_MODEL_BASIS=""; DRY_RUN=0; RESUME=0; DETACH=0; HANDOFF=0
 KEEP_ARGS=()   # what a detached run re-executes with: everything but --detach
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -70,6 +74,7 @@ while [ $# -gt 0 ]; do
     --dry-run)              DRY_RUN=1; KEEP_ARGS+=("$1"); shift ;;
     --resume)               RESUME=1; KEEP_ARGS+=("$1"); shift ;;
     --detach)               DETACH=1; shift ;;
+    --handoff)              HANDOFF=1; shift ;;
     -h|--help)              awk 'NR>1 && /^set -uo pipefail/{exit} NR>1' "$0"; exit 0 ;;
     -*)                     usage_refusal usage-unknown-option "unknown option: $1" ;;
     *) if [ -z "$ISSUE" ]; then ISSUE="$1"; KEEP_ARGS+=("$1"); shift; else usage_refusal usage-unexpected-argument "unexpected argument: $1"; fi ;;
@@ -82,13 +87,14 @@ if [ "$REVIEW_MODEL" != "$REVIEW_MODEL_DEFAULT" ] && [ -z "$REVIEW_MODEL_BASIS" 
 fi
 case "$MAX_ROUNDS" in ''|*[!0-9]*) usage_refusal usage-max-rounds "--max-rounds must be a positive integer, got '$MAX_ROUNDS'" ;; esac
 [ "$MAX_ROUNDS" -ge 1 ] || usage_refusal usage-max-rounds "--max-rounds must be at least 1."
+[ "$HANDOFF" -eq 0 ] || [ "$DETACH" -eq 0 ] || usage_refusal usage-handoff-detach "--handoff stops before the build for the calling session to run it; there is nothing to detach."
 
 # ============================ 1. environment (rows A20-A27, B1-B4, C1-C14, C28) ============================
 now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 say() { echo "$(now) [run] $*"; }
 exit_code_for() { # the taxonomy a wrapper branches on
   case "$1" in
-    approved|dry-run) echo 0 ;;
+    approved|dry-run|build-handoff) echo 0 ;;
     not-queued|env-no-record) echo 3 ;;
     usage-*|env-*|claimed-elsewhere) echo 2 ;;
     rounds-spent|checks-red-spent|cost-spent) echo 4 ;;
@@ -238,24 +244,29 @@ SPAWN_COMMON=(--permission-mode acceptEdits --permission-prompts none --disallow
 add_cost() { # rows I14 I16: a session with no total_cost_usd (killed at its bound, crashed) is UNPRICED, never $0
   local c n; n="$(basename "$1" .json)"; c="$(jq -r '.total_cost_usd | numbers' "$1" 2>/dev/null)"
   if [ -z "$c" ]; then UNPRICED="${UNPRICED:+$UNPRICED }$n"; say "unpriced: $n left no total_cost_usd — the run's cost is a lower bound"; return 0; fi
-  COST="$(awk -v a="$COST" -v b="$c" 'BEGIN{print a+b}')"
+  COST="$(LC_ALL=C awk -v a="$COST" -v b="$c" 'BEGIN{print a+b}')"
 }
-over_ceiling() { awk -v c="$COST" -v m="$COST_CEIL" 'BEGIN{exit !(c>m)}'; }
-usd() { awk -v c="$1" 'BEGIN{printf "%.2f", c}'; } # display only; COST keeps full precision for the ceiling
+over_ceiling() { LC_ALL=C awk -v c="$COST" -v m="$COST_CEIL" 'BEGIN{exit !(c>m)}'; } # every cost awk runs in C: a comma-decimal locale misreads the sum
+usd() { LC_ALL=C awk -v c="$1" 'BEGIN{printf "%.2f", c}'; } # display only; COST keeps full precision for the ceiling
+usd_up() { LC_ALL=C awk -v c="$1" 'BEGIN{x = c * 100 - 1e-9; n = int(x); if (x > n) n++; printf "%.2f", n / 100}'; } # a cost-spent figure never rounds down to the ceiling
 
 # -- tracker reads (rows D7-D9, J1, J3, K2-K5): every producer returns non-zero on a failed read; callers refuse --
 issue_state() { [ "$TRACKER" = github ] || { echo OPEN; return 0; }; "$GH_READ" issue view "$ISSUE" --json state --jq .state 2>/dev/null; }
 has_label() { local names; [ "$TRACKER" = github ] || return 1; names="$("$GH_READ" issue view "$ISSUE" --json labels --jq '.labels[].name' 2>/dev/null)" || return 1; grep -qxF "$1" <<<"$names"; }
 repo_slug() { "$GH_READ" repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null; }
-lane_marker_present() { # the lane's own claim marker: whole-line stage marker plus a run_id line, by a Bot or the account this scheduler writes with (D-24)
+lane_comments() { # the issue's comments this lane wrote — a Bot, or the account this scheduler writes with (D-24) — oldest first, as one array
   local repo me comments
   repo="$(repo_slug)" || return 1
   me="$("$GH" api user --jq .login 2>/dev/null)" || me=""
   comments="$("$GH_READ" api "repos/$repo/issues/$ISSUE/comments" --paginate 2>/dev/null)" || return 1
-  printf '%s' "$comments" | jq -e --arg me "$me" 'any(.[];
-      ((.user.type // "") == "Bot" or (($me != "") and ((.user.login // "") == $me)))
-      and (.body | test("(^|\n)<!-- stage: lean-claimed -->(\n|$)"))
-      and (.body | test("<!-- run_id: ")))' >/dev/null 2>&1
+  printf '%s' "$comments" | jq -s --arg me "$me" 'add // [] | map(select((.user.type // "") == "Bot" or (($me != "") and ((.user.login // "") == $me)))) | sort_by(.created_at)' 2>/dev/null
+}
+lane_marker_present() { # the lane's own claim marker: whole-line stage marker plus a run_id line
+  lane_comments | jq -e 'any(.[]; (.body | test("(^|\n)<!-- stage: lean-claimed -->(\n|$)")) and (.body | test("<!-- run_id: ")))' >/dev/null 2>&1
+}
+handoff_holds() { # the lane's latest closing comment is build-handoff: a /dev-pipeline:build session is building in the worktree; unreadable counts as held
+  local c; c="$(lane_comments)" || return 0
+  jq -e '[.[].body | select(test("^second-shift run [^ ]+: "))] | (last // "") | test("^second-shift run [^ ]+: build-handoff ")' <<<"$c" >/dev/null 2>&1
 }
 open_prs() { "$GH_READ" pr list --head "$BRANCH" --state open --json number --jq '.[].number' 2>/dev/null; }
 remote_head() { local out; out="$(git -C "$WT" ls-remote origin "refs/heads/$BRANCH" 2>/dev/null)" || return 1; printf '%s' "$out" | cut -f1; }
@@ -420,10 +431,10 @@ build_prompt() { # build_prompt <round> <findings-file-or-empty>
   echo "Do not merge. Do not delete, skip or weaken a test to make a check pass; if a test is wrong, say so in the PR."
   [ "$BOT_OK" -eq 1 ] && echo "Commit through $TOOLS/bot-commit.sh (the repo's bot identity), never plain git commit — and re-pass the identity on any --amend, which otherwise silently re-stamps you as the committer."
   if [ "$1" -eq 1 ]; then
-    echo "When the checks are green, commit, push branch $BRANCH to origin and, unless one is already open for this branch, open a READY (not draft) PR against $BASE_NAME with 'gh pr create --base $BASE_NAME'. The PR body, in order: line 1 exactly 'built-by: second-shift run $RUN_ID'; then a link to the decision record at $RECORD_REL; then a summary of the change;"
+    echo "When the checks are green, commit, push branch $BRANCH to origin and, unless one is already open for this branch, open a READY (not draft) PR against $BASE_NAME with 'gh pr create --base $BASE_NAME'. The PR body, in order: line 1 exactly 'built-by: second-shift run $RUN_ID'; then a link to the decision record at $RECORD_REL; then the line 'Record baseline: $FIRST'; then a summary of the change;"
     if [ "$TRACKER" = github ]; then echo "and the line 'Closes #$ISSUE' so the ticket closes on merge."; else echo "and a '### Jira Items' heading with the line 'Closes [$ISSUE]'."; fi
   else echo "Address the review findings below: fix each, or rebut it in a PR comment. Then commit and push $BRANCH."; fi
-  echo; echo "The following decisions were settled with the requester before implementation started. They are binding. The record is committed at $RECORD_REL; if you must depart from a row, edit that row in place (new resolution, provenance user-delegated, a one-line reason) and commit the edit with the code. Never post a comment starting with 'verdict:'."
+  echo; echo "The following decisions were settled with the requester before implementation started. They are binding. The record is committed at $RECORD_REL; if you must depart from a row, edit that row in place (new resolution, provenance user-delegated, a one-line reason) and commit the edit with the code. A material decision no row covers gets a new row the same way. Commit $FIRST is the record baseline the review reads: never amend, rebase or force-push over it. Never post a comment starting with 'verdict:'."
   echo; record_at_first
   if [ -n "$(frames_rows)" ]; then
     echo; echo "This ticket has design frames. Follow the figma-faithful sequence: read every frame id in the '## Design frames' section first; write the token and component plan; before writing UI code, have a subagent read that plan against the frames and list what it would get wrong, then fix the plan. Render every screen with the repo's render command, open the PNG, compare it with its frame and fix what differs, up to three rounds per screen. A screen that shows an error page, a login page or a spinner is not done."
@@ -535,7 +546,7 @@ ci_status() { # one word for the report, never waited on (row G11)
 }
 # -- the verdict (rows I1-I5, I7): bound to the review window, unedited, naming the current head; the LAST binding comment wins --
 verdict() { # verdict <start-iso> <end-iso> -> prints approve|needs-work and saves the body; 1 none binds; 2 the tracker could not be read
-  # row B10: only a Bot or the account this scheduler writes with binds (lane_marker_present's filter) —
+  # row B10: only a Bot or the account this scheduler writes with binds (lane_comments' filter) —
   # anyone can comment on a public repo, and a needs-work body becomes the next BUILD's findings
   local repo comments me
   repo="$(repo_slug)" || return 2
@@ -610,20 +621,28 @@ if [ "$DRY_RUN" -eq 1 ]; then
 fi
 st="$(issue_state)"; [ -n "$st" ] || terminal env-tracker-unreadable "could not read #$ISSUE from the tracker"
 [ "$st" = OPEN ] || terminal env-ticket-closed "#$ISSUE is not open — nothing spawned, a preflight refusal like any other"
-if [ -z "$BUILD_MODEL" ]; then # an unsized ticket is refused with nothing written to the tracker
+if [ -z "$BUILD_MODEL" ] && [ "$HANDOFF" -eq 0 ]; then # an unsized ticket is refused with nothing written to the tracker
   if has_label opus; then BUILD_MODEL=opus; MODEL_BASIS=label
   elif has_label sonnet; then BUILD_MODEL=sonnet; MODEL_BASIS=label
   elif [ "$TRACKER" != github ]; then terminal usage-model "under $TRACKER pass --build-model: there is no sizing label to read"
   else terminal usage-model "#$ISSUE carries neither opus nor sonnet — intake sizes tickets, this scheduler does not (pass --build-model to override)"; fi
 fi
-say "models: build $BUILD_MODEL (${MODEL_BASIS:-flag}), review $REVIEW_MODEL (${REVIEW_MODEL_BASIS:-default})"
+bb="${MODEL_BASIS:-flag}"; [ -n "$BUILD_MODEL" ] || bb=handoff
+say "models: build ${BUILD_MODEL:-the calling session} ($bb), review $REVIEW_MODEL (${REVIEW_MODEL_BASIS:-default})"
+
+# a handoff build is checked by nobody but the calling session: with no check to hand it, refuse before the claim, as a run would refuse its first round
+if [ "$HANDOFF" -eq 1 ] && [ -z "$(checks_list all)" ] && ! allow_unverified; then
+  terminal env-no-checks "no check is configured under commands.* and none under '## Checks' — a run would refuse this as not green, so a handoff will not hand it over (declare allowUnverified to accept it)"
+fi
 
 # ============================ 4. claim (rows D1-D12, D14-D16, K1-K4, K10) ============================
 if [ "$TRACKER" != github ]; then say "claim: $TRACKER tracker — operator-attested, nothing written"
 elif has_label "$L_CLAIMED"; then
   # re-entry, as the old lane read it: the claimed label AND a lane-posted marker; a claim with no marker was made by someone else
-  if [ "$RESUME" -eq 1 ] || lane_marker_present; then say "claim: re-entering a ticket the lane claimed"; CLAIMED=1
-  else terminal claimed-elsewhere "#$ISSUE carries $L_CLAIMED with no lane claim marker; pass --resume to take it over"; fi
+  if [ "$RESUME" -eq 0 ] && ! lane_marker_present; then terminal claimed-elsewhere "#$ISSUE carries $L_CLAIMED with no lane claim marker; pass --resume to take it over"; fi
+  # a ticket handed to /dev-pipeline:build is being built by hand in the worktree: a run re-entering it would spawn a second writer there
+  if [ "$RESUME" -eq 0 ] && [ "$HANDOFF" -eq 0 ] && handoff_holds; then terminal claimed-elsewhere "#$ISSUE was handed to an in-session build (/dev-pipeline:build) that may still be writing to $WT; pass --resume to hand it back to the lane"; fi
+  say "claim: re-entering a ticket the lane claimed"; CLAIMED=1
 else
   while IFS= read -r b; do [ -n "$b" ] && has_label "$b" && terminal not-queued "#$ISSUE carries blocker label $b"; done <<EOF
 $L_BLOCKERS
@@ -634,7 +653,7 @@ EOF
   else "$GH" issue edit "$ISSUE" --add-label "$L_CLAIMED" --remove-label "$L_QUEUE" >/dev/null 2>&1 || terminal env-claim-failed "could not swap $L_QUEUE -> $L_CLAIMED on #$ISSUE; the queue label is left in place"; fi
   # the claim marker, in the old lane's shape (re-entry and evidence readers grep it)
   # shellcheck disable=SC2016  # markdown backticks
-  "$GH" issue comment "$ISSUE" --body "$(printf '<!-- dev-pipeline -->\n<!-- run_id: %s -->\n<!-- session_id: %s -->\n<!-- stage: lean-claimed -->\n\n🤖 Claimed by \`/dev-pipeline:run\`.\nsecond-shift-run: %s (branch %s)' "$RUN_ID" "${CLAUDE_CODE_SESSION_ID:-unset}" "$RUN_ID" "$BRANCH")" >/dev/null 2>&1 \
+  "$GH" issue comment "$ISSUE" --body "$(printf '<!-- dev-pipeline -->\n<!-- run_id: %s -->\n<!-- session_id: %s -->\n<!-- stage: lean-claimed -->\n\n🤖 Claimed by \`/dev-pipeline:%s\`.\nsecond-shift-run: %s (branch %s)' "$RUN_ID" "${CLAUDE_CODE_SESSION_ID:-unset}" "$([ "$HANDOFF" -eq 1 ] && echo build || echo run)" "$RUN_ID" "$BRANCH")" >/dev/null 2>&1 \
     || terminal env-claim-failed "labels swapped but the claim marker could not be posted on #$ISSUE — re-entry would refuse; fix the tracker write and --resume"
   CLAIMED=1
 fi
@@ -691,12 +710,17 @@ while :; do
       ATTEMPT=$((ATTEMPT+1)); A="$ROUND.$ATTEMPT"
       record_at_first >/dev/null || terminal env-worktree "cannot read the record at $FIRST:$RECORD_REL — a build must not be handed an empty record as binding"
       build_prompt "$ROUND" "$FINDINGS" > "$STATE/build-$A.prompt"
+      if [ "$HANDOFF" -eq 1 ]; then # the calling session builds; nothing after this is the scheduler's
+        echo "worktree: $WT"; echo "baseline: $FIRST"; echo "prompt: $STATE/build-$A.prompt"
+        UNPRICED="build-in-calling-session"
+        terminal build-handoff "BUILD handed to the calling session in $WT; review with /dev-pipeline:review <pr> in a fresh session"
+      fi
       spawn build "$BUILD_MODEL" "$A" "$(build_allowlist)" 400 "$STATE/build-$A.prompt"; brc=$?
       jq -r '.permission_denials[]? | (.tool_name + " " + (.tool_input|tostring))' "$STATE/build-$A.json" > "$STATE/denials-$A.txt" 2>/dev/null || true
       [ "$brc" -eq 124 ] && terminal build-blocked "build session exceeded ${BUILD_TO}s; worktree and claim left in place"
       sub="$(jq -r '.subtype // "unreadable"' "$STATE/build-$A.json" 2>/dev/null)"
       [ "$sub" = success ] || terminal build-blocked "build session ended $sub (rc=$brc); worktree and claim left in place"
-      over_ceiling && terminal cost-spent "\$$(usd "$COST") exceeds the \$$COST_CEIL ceiling"
+      over_ceiling && terminal cost-spent "\$$(usd_up "$COST") exceeds the \$$COST_CEIL ceiling"
       worktree_inflight; ifrc=$?
       case "$ifrc" in
         0) : ;;
@@ -747,7 +771,7 @@ while :; do
     review_tries=$((review_tries+1))
     [ "$review_tries" -le "$MAX_REVIEW_RETRIES" ] || terminal review-unbound "$miss — twice. No round spent and no BUILD spawned; run /dev-pipeline:review $PR by hand"
     say "$miss — re-spawning REVIEW ($review_tries of $MAX_REVIEW_RETRIES). No round spent, no BUILD spawn."
-    over_ceiling && terminal cost-spent "\$$(usd "$COST") exceeds the \$$COST_CEIL ceiling"
+    over_ceiling && terminal cost-spent "\$$(usd_up "$COST") exceeds the \$$COST_CEIL ceiling"
   done
   say "verdict: $VERDICT (reviewed $HEAD_SHA)"
   [ "$VERDICT" = approve ] && break
@@ -755,7 +779,7 @@ while :; do
   awk '{ sub(/\r$/, "") } $0 == "reason: render-unavailable" { f = 1 } END { exit !f }' "$STATE/verdict-body.md" \
     && terminal env-not-ready "the review could not render the design frames at $HEAD_SHA (reason: render-unavailable) — fix the render environment and re-launch"
   FINDINGS="$STATE/verdict-body.md"; NEED_BUILD=1
-  over_ceiling && terminal cost-spent "\$$(usd "$COST") exceeds the \$$COST_CEIL ceiling"
+  over_ceiling && terminal cost-spent "\$$(usd_up "$COST") exceeds the \$$COST_CEIL ceiling"
 done
 
 # ============================ 7. close-out (rows E19, E20) ============================

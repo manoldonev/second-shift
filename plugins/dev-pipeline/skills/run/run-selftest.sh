@@ -139,6 +139,7 @@ grep -q 'approved' "$FAKE_GH/issue-comments" && grep -q 'https://x/pr/7' "$FAKE_
 grep -q '^acceptEdits$' "$FAKE_GH/args-1.txt" && grep -q -- '--permission-prompts' "$FAKE_GH/args-1.txt" && grep -q '^none$' "$FAKE_GH/args-1.txt" && grep -q '^user,project,local$' "$FAKE_GH/args-2.txt" && ok "(a) [F2 F8] acceptEdits, --permission-prompts none, --setting-sources user,project,local on both sessions" || bad "(a) [F2 F8] spawn flags: $(tr '\n' ' ' < "$FAKE_GH/args-1.txt" | cut -c1-200)"
 grep -q '| D-1 | a | b | user-answered |' "$FAKE_GH/prompt-1.txt" && grep -q 'They are binding' "$FAKE_GH/prompt-1.txt" && grep -q "Never post a comment starting with 'verdict:'" "$FAKE_GH/prompt-1.txt" && ok "(a) [F16 F17] the record is in the build prompt verbatim, binding, with the verdict ban" || bad "(a) [F16 F17] prompt-1 lacks the record or the rules"
 grep -q '<!-- dev-pipeline -->$' "$FAKE_GH/issue-comments" && grep -q '^<!-- run_id: ' "$FAKE_GH/issue-comments" && grep -q '^<!-- session_id: ' "$FAKE_GH/issue-comments" && grep -q '^<!-- stage: lean-claimed -->$' "$FAKE_GH/issue-comments" && ok "(a) [D4] claim marker: the four HTML lines, each whole" || bad "(a) [D4] marker lines: $(grep -c '^<!-- ' "$FAKE_GH/issue-comments")"
+grep -q 'Claimed by .*/dev-pipeline:run' "$FAKE_GH/issue-comments" && ! grep -q 'dev-pipeline:build' "$FAKE_GH/issue-comments" && ok "(a) a run's claim marker names /dev-pipeline:run" || bad "(a) run marker: $(grep 'Claimed by' "$FAKE_GH/issue-comments")"
 ! grep -qE '^--(resume|continue)$' "$FAKE_GH/args-1.txt" && ! grep -qE '^--(resume|continue)$' "$FAKE_GH/args-2.txt" && ok "(a) [F1] neither session is resumed or continued" || bad "(a) [F1] a session was resumed"
 [ ! -d "$d/wt/42" ] && ok "(a) worktree torn down on approve" || bad "(a) worktree left after approve"
 grep -q 'Closes #42' "$FAKE_GH/prompt-1.txt" && grep -q 'READY (not draft)' "$FAKE_GH/prompt-1.txt" && ok "(a) build prompt asks for a ready PR that closes the ticket" || bad "(a) PR conventions missing from the build prompt"
@@ -152,6 +153,39 @@ first=$(git -C "$d/origin.git" log --format=%s --reverse main..second-shift/42 |
 grep -q '<!-- pipeline-cost-block -->' "$FAKE_GH/pr-body.md" 2>/dev/null && grep -q 'built-by: fake' "$FAKE_GH/pr-body.md" && grep -q '| approved |' "$FAKE_GH/pr-body.md" && ok "(a) run block written into the PR body, original body kept" || bad "(a) no run block in the PR body"
 grep -qE '^[|] review-1[.]1 [|] 3 [|] [$]1[.]00 [|]' "$FAKE_GH/pr-body.md" 2>/dev/null && ok "(a) per-session cost rows in the block" || bad "(a) per-session rows missing"
 grep -q 'ls /' "$(SD)/review-1.1.prompt" && ok "(a) build denials reach the review input" || bad "(a) denials missing from review input"
+
+# (ho) --handoff (/dev-pipeline:build): claim, worktree, record, prompt — then stop; the calling session builds
+fixture ho; printf 'ready-for-dev\n' > "$FAKE_GH/labels"; run_case "$d" --handoff
+expect build-handoff "(ho) an unsized ticket is handed to the calling session"
+[ "$RC" -eq 0 ] && [ ! -f "$FAKE_GH/calls" ] && ok "(ho) exit 0 and no session spawned" || bad "(ho) rc=$RC, claude calls: $(cat "$FAKE_GH/calls" 2>/dev/null)"
+hp="$(sed -n 's/^prompt: //p' <<<"$OUT")"; hw="$(sed -n 's/^worktree: //p' <<<"$OUT")"
+[ -n "$hp" ] && grep -q 'Implement ticket 42' "$hp" && grep -q 'D-1' "$hp" && [ -d "$hw" ] && ok "(ho) the build prompt and worktree are printed" || bad "(ho) prompt '$hp' / worktree '$hw'"
+[ "$(git -C "$d/origin.git" log --format=%s main..second-shift/42 2>/dev/null)" = "docs: decision record for #42" ] && ok "(ho) the record is the pushed branch's only commit" || bad "(ho) branch: $(git -C "$d/origin.git" log --oneline main..second-shift/42 2>&1 | tr '\n' '|')"
+grep -qx in-progress "$FAKE_GH/labels" && grep -q 'Claimed by .*/dev-pipeline:build' "$FAKE_GH/issue-comments" && ok "(ho) claimed, and the marker names /dev-pipeline:build" || bad "(ho) labels: $(tr '\n' ' ' < "$FAKE_GH/labels")"
+hb="$(sed -n 's/^baseline: //p' <<<"$OUT")"
+[ -n "$hb" ] && [ "$hb" = "$(git -C "$d/origin.git" rev-parse second-shift/42)" ] && grep -q "Record baseline: $hb" "$hp" && grep -q "never amend, rebase or force-push over it" "$hp" && ok "(ho) the record baseline is printed and pinned in the prompt" || bad "(ho) baseline '$hb'"
+grep -q '^unpriced: build-in-calling-session' "$FAKE_GH/issue-comments" && ok "(ho) the closing comment says the build is unpriced, not \$0" || bad "(ho) closing comment: $(grep -A1 cost_usd "$FAKE_GH/issue-comments" | tr '\n' '|')"
+lane_says() { jq --arg b "$1" --arg t "$2" '. + [{body:$b,user:{login:"tester",type:"User"},created_at:$t,updated_at:$t}]' "$FAKE_GH/comments.json" > "$FAKE_GH/c.tmp" && mv "$FAKE_GH/c.tmp" "$FAKE_GH/comments.json"; }
+# re-entry reads the marker the handoff itself posted (the fake gh logs comments; it does not list them back)
+hm="$(awk '/--body <!-- dev-pipeline -->/{on=1; sub(/^.*--body /,"")} on{print} on && /^second-shift-run: /{exit}' "$FAKE_GH/issue-comments")"
+grep -qx '<!-- stage: lean-claimed -->' <<<"$hm" && ok "(ho) the handoff posts the lane's claim marker" || bad "(ho) handoff marker: $(tr '\n' '|' <<<"$hm")"
+lane_says "$hm" 2020-01-01T00:00:00Z
+lane_says 'second-shift run h1: build-handoff — BUILD handed to the calling session' 2020-01-02T00:00:00Z
+run_case "$d" --handoff; expect build-handoff "(ho) a second handoff re-enters its own claim"
+echo opus >> "$FAKE_GH/labels"; run_case "$d"; expect claimed-elsewhere "(ho) a plain run refuses a claim handed to /dev-pipeline:build"
+[ "$RC" -eq 2 ] && [ ! -f "$FAKE_GH/calls" ] && ok "(ho) the refusal exits 2 and spawns no second writer" || bad "(ho) rc=$RC, claude calls: $(cat "$FAKE_GH/calls" 2>/dev/null)"
+lane_says 'second-shift run h2: build-no-pr — no open PR' 2020-01-03T00:00:00Z; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"
+run_case "$d"; expect approved "(ho) a later closing comment ends the handoff's hold"
+fixture ho3; printf 'in-progress\nopus\n' > "$FAKE_GH/labels"; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"
+lane_says $'<!-- run_id: h1 -->\n<!-- stage: lean-claimed -->' 2020-01-01T00:00:00Z; lane_says 'second-shift run h1: build-handoff — BUILD handed to the calling session' 2020-01-02T00:00:00Z
+run_case "$d" --resume; expect approved "(ho3) --resume hands a handed-off ticket back to the lane"
+fixture ho4 ""; printf 'ready-for-dev\n' > "$FAKE_GH/labels"; run_case "$d" --handoff
+expect env-no-checks "(ho4) a handoff with no check to hand over is refused"
+[ "$RC" -eq 2 ] && grep -qx ready-for-dev "$FAKE_GH/labels" && [ ! -s "$FAKE_GH/issue-comments" ] && [ ! -d "$d/wt" ] && ok "(ho4) refused before the claim: nothing written" || bad "(ho4) rc=$RC labels: $(tr '\n' ' ' < "$FAKE_GH/labels")"
+FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"commands":{"main":{"allowUnverified":true}}}' fixture ho5 ""; printf 'ready-for-dev\n' > "$FAKE_GH/labels"; run_case "$d" --handoff
+expect build-handoff "(ho5) allowUnverified accepts a zero-check handoff"
+fixture ho2; OUT="$( cd "$d/main" && bash "$RUN" 42 --handoff --detach 2>&1 )"; RC=$?
+grep -q '^terminal: usage-handoff-detach$' <<<"$OUT" && [ "$RC" -eq 2 ] && ok "(ho2) --handoff with --detach is a usage refusal" || bad "(ho2) rc=$RC: $(tail -n 1 <<<"$OUT")"
 
 # (b) needs-work then approve: two rounds, findings reach the round-2 build prompt
 fixture b; printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"
@@ -219,6 +253,11 @@ fixture l3; printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-approve
 fixture l3b; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; FAKE_COST=25 RUN_COST_CEILING=25 run_case "$d"; expect approved "[I15] a build whose spend equals the ceiling is not over it"
 fixture l3c; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; FAKE_COST=2.43739 run_case "$d"; expect approved "(l3c) fractional session costs"
 grep -qE '[|] [$]4[.]87 [|]' "$FAKE_GH/pr-body.md" && grep -qE '^[|] build-1[.]1 [|] 3 [|] [$]2[.]44 [|]' "$FAKE_GH/pr-body.md" && grep -q '^cost_usd: 4.87$' "$FAKE_GH/issue-comments" && ok "(l3c) every reported cost is rounded to two decimals" || bad "(l3c) costs: $(grep -E '[$][0-9]|cost_usd' "$FAKE_GH/pr-body.md" "$FAKE_GH/issue-comments" | tr '\n' '|')"
+grep -q 'round(s), [$]4[.]87$' <<<"$OUT" && ! grep -q '4[.]874' "$FAKE_GH/issue-comments" && ! grep -q '4[.]874' <<<"$OUT" && ok "(l3c) the terminal message and closing comment carry the rounded total too" || bad "(l3c) raw total leaked: $(grep -h '4[.]874' "$FAKE_GH/issue-comments" - <<<"$OUT" | head -n 2 | tr '\n' '|')"
+fixture l3d; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; FAKE_COST=2.43739 LC_NUMERIC=de_DE.UTF-8 run_case "$d"; expect approved "(l3d) a comma-decimal locale"
+grep -qE '^[|] build-1[.]1 [|] 3 [|] [$]2[.]44 [|]' "$FAKE_GH/pr-body.md" && ! grep -q '2,44' "$FAKE_GH/pr-body.md" && ok "(l3d) costs keep a dot decimal whatever the locale" || bad "(l3d) $(grep -E '[$][0-9]' "$FAKE_GH/pr-body.md" | tr '\n' '|')"
+fixture l3e; printf 'build-pr\nreview-needs-work\n' > "$FAKE_CLAUDE_PLAN"; FAKE_COST=50.002 RUN_COST_CEILING=100 run_case "$d"; expect cost-spent "(l3e) 100.004 against a \$100 ceiling"
+grep -q '[$]100[.]01 exceeds the [$]100 ceiling' <<<"$OUT" && ok "(l3e) a cost-spent figure is rounded up, never to the ceiling itself" || bad "(l3e) $(grep 'exceeds' <<<"$OUT" | tail -n 1)"
 fixture l4; rm "$d/main/.claude/pipeline-state/42-ledger.md"; run_case "$d"; expect env-no-record "(l4) no intake record"; [ "$RC" -eq 3 ] && ok "(l4) [B6 K8] env-no-record exits 3 (resumable)" || bad "(l4) exit $RC"
 fixture l5; run_case "$d" --dry-run; expect dry-run "(l5) dry-run spawns nothing"; [ "$RC" -eq 0 ] && ok "(l5) [B2 A13] dry-run exits 0" || bad "(l5) exit $RC"
 [ ! -f "$FAKE_GH/calls" ] && ok "(l5) no claude call on dry-run" || bad "(l5) claude called on dry-run"
@@ -721,6 +760,7 @@ fixture au4; printf 'build-pr\nreview-crash\nreview-approve\n' > "$FAKE_CLAUDE_P
 [ "$(cat "$FAKE_GH/calls")" = 3 ] && ok "[K12] one re-spawn, no build" || bad "[K12] calls=$(cat "$FAKE_GH/calls")"
 [ -f "$(SD)/checks-1.1.log" ] && [ ! -f "$(SD)/checks-1.1-retry1.log" ] && ok "[K12] the checks did not re-run for an unmoved head" || bad "[K12] checks re-ran: $(cd "$(SD)" && echo checks-*)"
 fixture au5; printf 'build-pr\nbuild-sleep\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; RUN_REVIEW_TIMEOUT=2 run_case "$d"; expect approved "[K12] a timed-out review is re-spawned once"
+grep -qF '| review-1.1 | ? | unpriced (no total_cost_usd) |' "$FAKE_GH/pr-body.md" && grep -q '[$][0-9.]* + unpriced' "$FAKE_GH/pr-body.md" && ok "[K12] the killed review is an unpriced row, never \$0.00" || bad "[K12] rows: $(grep -E '^[|] (build|review)' "$FAKE_GH/pr-body.md" | tr '\n' '|')"
 sleep 1; pkill -f 'sleep 60' 2>/dev/null
 
 # C13: the docs/plans default is where the record lands when no config says otherwise
