@@ -247,7 +247,8 @@ add_cost() { # rows I14 I16: a session with no total_cost_usd (killed at its bou
   COST="$(awk -v a="$COST" -v b="$c" 'BEGIN{print a+b}')"
 }
 over_ceiling() { awk -v c="$COST" -v m="$COST_CEIL" 'BEGIN{exit !(c>m)}'; }
-usd() { awk -v c="$1" 'BEGIN{printf "%.2f", c}'; } # display only; COST keeps full precision for the ceiling
+usd() { LC_ALL=C awk -v c="$1" 'BEGIN{printf "%.2f", c}'; } # display only; COST keeps full precision for the ceiling
+usd_up() { LC_ALL=C awk -v c="$1" 'BEGIN{x = c * 100 - 1e-9; n = int(x); if (x > n) n++; printf "%.2f", n / 100}'; } # a cost-spent figure never rounds down to the ceiling
 
 # -- tracker reads (rows D7-D9, J1, J3, K2-K5): every producer returns non-zero on a failed read; callers refuse --
 issue_state() { [ "$TRACKER" = github ] || { echo OPEN; return 0; }; "$GH_READ" issue view "$ISSUE" --json state --jq .state 2>/dev/null; }
@@ -430,10 +431,10 @@ build_prompt() { # build_prompt <round> <findings-file-or-empty>
   echo "Do not merge. Do not delete, skip or weaken a test to make a check pass; if a test is wrong, say so in the PR."
   [ "$BOT_OK" -eq 1 ] && echo "Commit through $TOOLS/bot-commit.sh (the repo's bot identity), never plain git commit — and re-pass the identity on any --amend, which otherwise silently re-stamps you as the committer."
   if [ "$1" -eq 1 ]; then
-    echo "When the checks are green, commit, push branch $BRANCH to origin and, unless one is already open for this branch, open a READY (not draft) PR against $BASE_NAME with 'gh pr create --base $BASE_NAME'. The PR body, in order: line 1 exactly 'built-by: second-shift run $RUN_ID'; then a link to the decision record at $RECORD_REL; then a summary of the change;"
+    echo "When the checks are green, commit, push branch $BRANCH to origin and, unless one is already open for this branch, open a READY (not draft) PR against $BASE_NAME with 'gh pr create --base $BASE_NAME'. The PR body, in order: line 1 exactly 'built-by: second-shift run $RUN_ID'; then a link to the decision record at $RECORD_REL; then the line 'Record baseline: $FIRST'; then a summary of the change;"
     if [ "$TRACKER" = github ]; then echo "and the line 'Closes #$ISSUE' so the ticket closes on merge."; else echo "and a '### Jira Items' heading with the line 'Closes [$ISSUE]'."; fi
   else echo "Address the review findings below: fix each, or rebut it in a PR comment. Then commit and push $BRANCH."; fi
-  echo; echo "The following decisions were settled with the requester before implementation started. They are binding. The record is committed at $RECORD_REL; if you must depart from a row, edit that row in place (new resolution, provenance user-delegated, a one-line reason) and commit the edit with the code. Never post a comment starting with 'verdict:'."
+  echo; echo "The following decisions were settled with the requester before implementation started. They are binding. The record is committed at $RECORD_REL; if you must depart from a row, edit that row in place (new resolution, provenance user-delegated, a one-line reason) and commit the edit with the code. A material decision no row covers gets a new row the same way. Commit $FIRST is the record baseline the review reads: never amend, rebase or force-push over it. Never post a comment starting with 'verdict:'."
   echo; record_at_first
   if [ -n "$(frames_rows)" ]; then
     echo; echo "This ticket has design frames. Follow the figma-faithful sequence: read every frame id in the '## Design frames' section first; write the token and component plan; before writing UI code, have a subagent read that plan against the frames and list what it would get wrong, then fix the plan. Render every screen with the repo's render command, open the PNG, compare it with its frame and fix what differs, up to three rounds per screen. A screen that shows an error page, a login page or a spinner is not done."
@@ -629,6 +630,11 @@ fi
 bb="${MODEL_BASIS:-flag}"; [ -n "$BUILD_MODEL" ] || bb=handoff
 say "models: build ${BUILD_MODEL:-the calling session} ($bb), review $REVIEW_MODEL (${REVIEW_MODEL_BASIS:-default})"
 
+# a handoff build is checked by nobody but the calling session: with no check to hand it, refuse before the claim, as a run would refuse its first round
+if [ "$HANDOFF" -eq 1 ] && [ -z "$(checks_list all)" ] && ! allow_unverified; then
+  terminal env-no-checks "no check is configured under commands.* and none under '## Checks' — a run would refuse this as not green, so a handoff will not hand it over (declare allowUnverified to accept it)"
+fi
+
 # ============================ 4. claim (rows D1-D12, D14-D16, K1-K4, K10) ============================
 if [ "$TRACKER" != github ]; then say "claim: $TRACKER tracker — operator-attested, nothing written"
 elif has_label "$L_CLAIMED"; then
@@ -704,8 +710,9 @@ while :; do
       ATTEMPT=$((ATTEMPT+1)); A="$ROUND.$ATTEMPT"
       record_at_first >/dev/null || terminal env-worktree "cannot read the record at $FIRST:$RECORD_REL — a build must not be handed an empty record as binding"
       build_prompt "$ROUND" "$FINDINGS" > "$STATE/build-$A.prompt"
-      if [ "$HANDOFF" -eq 1 ]; then
-        echo "worktree: $WT"; echo "prompt: $STATE/build-$A.prompt"
+      if [ "$HANDOFF" -eq 1 ]; then # the calling session builds; nothing after this is the scheduler's
+        echo "worktree: $WT"; echo "baseline: $FIRST"; echo "prompt: $STATE/build-$A.prompt"
+        UNPRICED="build-in-calling-session"
         terminal build-handoff "BUILD handed to the calling session in $WT; review with /dev-pipeline:review <pr> in a fresh session"
       fi
       spawn build "$BUILD_MODEL" "$A" "$(build_allowlist)" 400 "$STATE/build-$A.prompt"; brc=$?
@@ -713,7 +720,7 @@ while :; do
       [ "$brc" -eq 124 ] && terminal build-blocked "build session exceeded ${BUILD_TO}s; worktree and claim left in place"
       sub="$(jq -r '.subtype // "unreadable"' "$STATE/build-$A.json" 2>/dev/null)"
       [ "$sub" = success ] || terminal build-blocked "build session ended $sub (rc=$brc); worktree and claim left in place"
-      over_ceiling && terminal cost-spent "\$$(usd "$COST") exceeds the \$$COST_CEIL ceiling"
+      over_ceiling && terminal cost-spent "\$$(usd_up "$COST") exceeds the \$$COST_CEIL ceiling"
       worktree_inflight; ifrc=$?
       case "$ifrc" in
         0) : ;;
@@ -764,7 +771,7 @@ while :; do
     review_tries=$((review_tries+1))
     [ "$review_tries" -le "$MAX_REVIEW_RETRIES" ] || terminal review-unbound "$miss — twice. No round spent and no BUILD spawned; run /dev-pipeline:review $PR by hand"
     say "$miss — re-spawning REVIEW ($review_tries of $MAX_REVIEW_RETRIES). No round spent, no BUILD spawn."
-    over_ceiling && terminal cost-spent "\$$(usd "$COST") exceeds the \$$COST_CEIL ceiling"
+    over_ceiling && terminal cost-spent "\$$(usd_up "$COST") exceeds the \$$COST_CEIL ceiling"
   done
   say "verdict: $VERDICT (reviewed $HEAD_SHA)"
   [ "$VERDICT" = approve ] && break
@@ -772,7 +779,7 @@ while :; do
   awk '{ sub(/\r$/, "") } $0 == "reason: render-unavailable" { f = 1 } END { exit !f }' "$STATE/verdict-body.md" \
     && terminal env-not-ready "the review could not render the design frames at $HEAD_SHA (reason: render-unavailable) — fix the render environment and re-launch"
   FINDINGS="$STATE/verdict-body.md"; NEED_BUILD=1
-  over_ceiling && terminal cost-spent "\$$(usd "$COST") exceeds the \$$COST_CEIL ceiling"
+  over_ceiling && terminal cost-spent "\$$(usd_up "$COST") exceeds the \$$COST_CEIL ceiling"
 done
 
 # ============================ 7. close-out (rows E19, E20) ============================

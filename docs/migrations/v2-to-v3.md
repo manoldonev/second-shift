@@ -149,9 +149,10 @@ but no longer changes behavior. A setup lane's `cwd` is a path under the worktre
   `/second-shift:doctor` flags any of these that are still installed, and any `LANE_VERDICT_SUFFIX`
   reference under `.github/` or `.claude/`.
 - **`/dev-pipeline:build` no longer drives the milestone gates.** `/dev-pipeline:run <ticket>`
-  spawns the build sessions itself. `/dev-pipeline:build <ticket>` is the same build in your own
-  session: it claims, cuts the worktree, commits the record and hands you the build prompt
-  (`run.sh --handoff`); review it with `/dev-pipeline:review <pr>`. `/dev-pipeline:run`, `/dev-pipeline:review`
+  spawns the build sessions itself. `/dev-pipeline:build <ticket>` builds in your own session: it
+  claims, cuts the worktree, commits the record and hands you the build prompt
+  (`run.sh --handoff`); the scheduler's checks do not run on that path, so run them yourself, and
+  review it with `/dev-pipeline:review <pr>`. `/dev-pipeline:run`, `/dev-pipeline:review`
   and `/intake-toolkit:plan-interview` keep their names. `/dev-pipeline:pipeline-retro` and
   `/dev-pipeline:perf-retro` are gone too.
 - **`LANE_*` environment knobs are retired** and ignored if set (`LANE_ATTEND_MODE`,
