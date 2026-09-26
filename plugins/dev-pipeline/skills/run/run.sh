@@ -244,9 +244,9 @@ SPAWN_COMMON=(--permission-mode acceptEdits --permission-prompts none --disallow
 add_cost() { # rows I14 I16: a session with no total_cost_usd (killed at its bound, crashed) is UNPRICED, never $0
   local c n; n="$(basename "$1" .json)"; c="$(jq -r '.total_cost_usd | numbers' "$1" 2>/dev/null)"
   if [ -z "$c" ]; then UNPRICED="${UNPRICED:+$UNPRICED }$n"; say "unpriced: $n left no total_cost_usd — the run's cost is a lower bound"; return 0; fi
-  COST="$(awk -v a="$COST" -v b="$c" 'BEGIN{print a+b}')"
+  COST="$(LC_ALL=C awk -v a="$COST" -v b="$c" 'BEGIN{print a+b}')"
 }
-over_ceiling() { awk -v c="$COST" -v m="$COST_CEIL" 'BEGIN{exit !(c>m)}'; }
+over_ceiling() { LC_ALL=C awk -v c="$COST" -v m="$COST_CEIL" 'BEGIN{exit !(c>m)}'; } # every cost awk runs in C: a comma-decimal locale misreads the sum
 usd() { LC_ALL=C awk -v c="$1" 'BEGIN{printf "%.2f", c}'; } # display only; COST keeps full precision for the ceiling
 usd_up() { LC_ALL=C awk -v c="$1" 'BEGIN{x = c * 100 - 1e-9; n = int(x); if (x > n) n++; printf "%.2f", n / 100}'; } # a cost-spent figure never rounds down to the ceiling
 
