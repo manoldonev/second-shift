@@ -242,9 +242,11 @@ ERRORS=$(jq -r --argjson shippedTiers "$SHIPPED_TIERS_JSON" --argjson tierDocFou
 
   # ---- paths / run / design ------------------------------------------------
   + ((.paths // {}) |
-      err(((keys) - ["plansDir","pipelineStateDir"]) != []; "paths: unknown keys")
+      err(((keys) - ["plansDir","pipelineStateDir","runtimeData"]) != []; "paths: unknown keys")
       + err((.plansDir? != null) and ((.plansDir | type) != "string"); "paths.plansDir: must be string")
       + err((.pipelineStateDir? != null) and ((.pipelineStateDir | type) != "string"); "paths.pipelineStateDir: must be string")
+      + err((.runtimeData? != null) and ((.runtimeData | type) != "array"); "paths.runtimeData: must be array")
+      + ((.runtimeData // []) | if type == "array" then (map(select((type) != "string")) | if length > 0 then ["paths.runtimeData: every entry must be a string"] else [] end) else [] end)
     )
   + ((.run // {}) |
       err((type) != "object"; "run: must be object")

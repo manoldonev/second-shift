@@ -140,6 +140,10 @@ expect_violation invalid-removed-liverender-keys.json "(docs/migrations/v2-to-v3
 # the reviewers allowlist; these pin the type checks it carried under stageParams.
 expect_no_violation valid-schema-key-standalone.json "reviewers: unknown keys"
 expect_violation invalid-webcomponentglobs-entry.json "reviewers.webComponentGlobs: every entry must be a string"
+# paths.runtimeData is a list of pathspecs: a bare string is not one pathspec by courtesy, and a
+# non-string entry would reach `git status -- <paths>` as a JSON literal.
+expect_violation invalid-runtimedata-type.json      "paths.runtimeData: must be array"
+expect_violation invalid-runtimedata-entry.json     "paths.runtimeData: every entry must be a string"
 
 # EP-6/7/8 retired earlier. Same mechanic: the key is the violation, the rejection names it, and
 # the generic rejection must NOT also fire.

@@ -1,0 +1,15 @@
+{
+  "configVersion": 3,
+  "tracker": {
+    "type": "github"
+  },
+  "commands": {
+    "host": {
+      "lint": "yarn lint",
+      "test": "yarn test"
+    }
+  },
+  "paths": {
+    "runtimeData": ["apps/api/storage", 5]
+  }
+}

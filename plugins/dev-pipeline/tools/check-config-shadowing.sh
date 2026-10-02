@@ -20,6 +20,7 @@ fails=0
 # form: "<relative-file>|<config-key-reference>|<label>"
 CHECKS=(
   "skills/run/run.sh|paths.plansDir|plans dir"
+  "skills/run/run.sh|paths.runtimeData|close-out runtime-data guard"
   "skills/run/run.sh|extraLanes|commands.<id>.extraLanes"
   "skills/run/run.sh|allowUnverified|commands.<id>.allowUnverified zero-check opt-out"
   "skills/run/run.sh|design.liveRender|design live-render command"

@@ -175,7 +175,8 @@
       "additionalProperties": false,
       "properties": {
         "plansDir": { "type": "string", "default": "docs/plans", "description": "Directory (worktree-relative) holding the committed intake record, <plansDir>/<repo>-<key>-decisions.md, which /dev-pipeline:run commits as the branch's first commit." },
-        "pipelineStateDir": { "type": "string", "default": ".claude/pipeline-state", "description": "Where /dev-pipeline:run keeps run logs and reads the pre-flight receipt (<pipelineStateDir>/<key>-ledger.md), relative to the main checkout." }
+        "pipelineStateDir": { "type": "string", "default": ".claude/pipeline-state", "description": "Where /dev-pipeline:run keeps run logs and reads the pre-flight receipt (<pipelineStateDir>/<key>-ledger.md), relative to the main checkout." },
+        "runtimeData": { "type": "array", "items": { "type": "string" }, "description": "Git pathspecs, relative to the repo root, where the app writes gitignored runtime data (e.g. [\"apps/api/storage\"]). `git worktree remove` deletes ignored files, so at close-out /dev-pipeline:run keeps the worktree and names the paths when `git status --porcelain --ignored -- <paths>` shows anything under them; the run still ends approved. Unset = no ignored path is checked." }
       }
     },
     "design": {
