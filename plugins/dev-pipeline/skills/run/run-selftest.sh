@@ -15,6 +15,9 @@ bad() { FAIL=$((FAIL+1)); echo "  FAIL $*"; }
 T="$(mktemp -d "${TMPDIR:-/tmp}/run-selftest.XXXXXX")"
 trap 'rm -rf "$T"' EXIT
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@x GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@x
+# a BUILD session running this suite carries the spawn env run.sh gives it, and an operator's shell may carry RUN_* caps:
+# the F-env cases read what run.sh sets from its defaults, not what this shell inherited
+unset CLAUDE_CODE_DISABLE_BACKGROUND_TASKS BASH_DEFAULT_TIMEOUT_MS BASH_MAX_TIMEOUT_MS CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS RUN_BUILD_TIMEOUT RUN_REVIEW_TIMEOUT
 
 # ---- fakes ----
 mkdir -p "$T/bin"
@@ -49,6 +52,8 @@ cat > "$T/bin/claude" <<'EOF'
 # behaviors come one per line from $FAKE_CLAUDE_PLAN, consumed in order; cwd is the worktree.
 S="$FAKE_GH"; n=$(cat "$S/calls" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "$S/calls"
 plan=$(sed -n "${n}p" "$FAKE_CLAUDE_PLAN"); prompt="${@: -1}"; printf '%s' "$prompt" > "$S/prompt-$n.txt"; printf '%s\n' "$@" > "$S/args-$n.txt"
+# the session's env as claude would apply it: what it inherited, overlaid by any --settings env
+{ env | grep -E '^(CLAUDE_CODE_DISABLE_BACKGROUND_TASKS|CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS|BASH_(DEFAULT|MAX)_TIMEOUT_MS)='; prev=""; for a in "$@"; do [ "$prev" = --settings ] && printf '%s' "$a" | jq -r '.env // {} | to_entries[] | "\(.key)=\(.value)"'; prev="$a"; done; } | awk -F= '{ v[$1] = $0 } END { for (k in v) print v[k] }' | sort > "$S/env-$n.txt"
 branch=$(git rev-parse --abbrev-ref HEAD); cost="${FAKE_COST:-1}"
 push() { echo "$n" >> work.txt; git add -A >/dev/null; git commit -qm "build $n"; git push -q origin "$branch"; }
 openpr() { # body as the prompt instructs: built-by line, the record link, then Closes (under the Jira heading when bracketed)
@@ -142,6 +147,8 @@ grep -q '| D-1 | a | b | user-answered |' "$FAKE_GH/prompt-1.txt" && grep -q 'Th
 grep -q '<!-- dev-pipeline -->$' "$FAKE_GH/issue-comments" && grep -q '^<!-- run_id: ' "$FAKE_GH/issue-comments" && grep -q '^<!-- session_id: ' "$FAKE_GH/issue-comments" && grep -q '^<!-- stage: lean-claimed -->$' "$FAKE_GH/issue-comments" && ok "(a) [D4] claim marker: the four HTML lines, each whole" || bad "(a) [D4] marker lines: $(grep -c '^<!-- ' "$FAKE_GH/issue-comments")"
 grep -q 'Claimed by .*/dev-pipeline:run' "$FAKE_GH/issue-comments" && ! grep -q 'dev-pipeline:build' "$FAKE_GH/issue-comments" && ok "(a) a run's claim marker names /dev-pipeline:run" || bad "(a) run marker: $(grep 'Claimed by' "$FAKE_GH/issue-comments")"
 ! grep -qE '^--(resume|continue)$' "$FAKE_GH/args-1.txt" && ! grep -qE '^--(resume|continue)$' "$FAKE_GH/args-2.txt" && ok "(a) [F1] neither session is resumed or continued" || bad "(a) [F1] a session was resumed"
+[ "$(tr '\n' ' ' < "$FAKE_GH/env-1.txt")" = "BASH_DEFAULT_TIMEOUT_MS=6900000 BASH_MAX_TIMEOUT_MS=6900000 CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1 " ] && ok "(a) [F-env] BUILD: background tasks off, Bash timeouts 300 s inside the 7200 s bound" || bad "(a) [F-env] BUILD spawn env: $(tr '\n' ' ' < "$FAKE_GH/env-1.txt")"
+[ "$(tr '\n' ' ' < "$FAKE_GH/env-2.txt")" = "CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=3300000 " ] && ok "(a) [F-env] REVIEW: background tasks kept, their wait 300 s inside the 3600 s bound" || bad "(a) [F-env] REVIEW spawn env: $(tr '\n' ' ' < "$FAKE_GH/env-2.txt")"
 [ ! -d "$d/wt/42" ] && ok "(a) worktree torn down on approve" || bad "(a) worktree left after approve"
 grep -q 'Closes #42' "$FAKE_GH/prompt-1.txt" && grep -q 'READY (not draft)' "$FAKE_GH/prompt-1.txt" && ok "(a) build prompt asks for a ready PR that closes the ticket" || bad "(a) PR conventions missing from the build prompt"
 grep -q 'AskUserQuestion' "$FAKE_GH/args-1.txt" && ! grep -q 'editJiraIssue' "$FAKE_GH/args-1.txt" && ok "(a) keyboard tools disallowed, no jira strip under github" || bad "(a) disallowed-tools list wrong"
@@ -487,6 +494,17 @@ run_case "$d"; expect env-design-undeclared "(y1) on a design-provider repo a re
 [ ! -f "$FAKE_GH/calls" ] && ok "(y1) refused before any build" || bad "(y1) a build ran"
 fixture y2; printf 'build-sleep\n' > "$FAKE_CLAUDE_PLAN"; RUN_BUILD_TIMEOUT=2 run_case "$d"; expect build-blocked "(y2) a build past its ceiling is stopped"
 sleep 1; if pgrep -f 'sleep 60' >/dev/null 2>&1; then bad "(y2) the timed-out session's children outlived it"; pkill -f 'sleep 60' 2>/dev/null; else ok "(y2) the timed-out session and its children were reaped"; fi
+grep -qx 'BASH_DEFAULT_TIMEOUT_MS=120000' "$FAKE_GH/env-1.txt" && grep -qx 'BASH_MAX_TIMEOUT_MS=120000' "$FAKE_GH/env-1.txt" && ok "(y2) [F-env] a bound under 420 s floors the BUILD's Bash timeouts at the harness's own 120 s" || bad "(y2) [F-env] BUILD spawn env: $(tr '\n' ' ' < "$FAKE_GH/env-1.txt")"
+# F-env: the bounds feed bash arithmetic, so a fraction is refused before the claim — it must never abandon the round loop into close-out
+for v in 600.5 1.5 .; do
+  fixture "fe-$v"; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; RUN_BUILD_TIMEOUT="$v" run_case "$d"; expect env-config-run "(fe1) RUN_BUILD_TIMEOUT=$v is refused"
+  [ "$RC" -eq 2 ] && [ ! -f "$FAKE_GH/calls" ] && ok "(fe1) $v: exit 2, no session spawned" || bad "(fe1) $v: rc=$RC calls=$(cat "$FAKE_GH/calls" 2>/dev/null)"
+done
+fixture fe2; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; RUN_BUILD_TIMEOUT=7200.0 RUN_REVIEW_TIMEOUT=0900 run_case "$d"; expect approved "(fe2) a whole-number 7200.0 and a zero-padded 0900 are read as integers"
+grep -qx 'BASH_MAX_TIMEOUT_MS=6900000' "$FAKE_GH/env-1.txt" && grep -qx 'CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=600000' "$FAKE_GH/env-2.txt" && ok "(fe2) 7200.0 -> 6900 s; 0900 -> 900 s, its wait floored at the harness's own 600 s" || bad "(fe2) env: $(cat "$FAKE_GH/env-1.txt" "$FAKE_GH/env-2.txt" | tr '\n' ' ')"
+fixture fe3; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1 RUN_BUILD_TIMEOUT=9999999 run_case "$d"; expect approved "(fe3) an inherited background-tasks switch and a huge bound"
+! grep -q 'CLAUDE_CODE_DISABLE_BACKGROUND_TASKS' "$FAKE_GH/env-2.txt" && ok "(fe3) REVIEW never inherits the BUILD's background-tasks switch" || bad "(fe3) REVIEW env: $(tr '\n' ' ' < "$FAKE_GH/env-2.txt")"
+grep -qx 'BASH_MAX_TIMEOUT_MS=2147483647' "$FAKE_GH/env-1.txt" && ok "(fe3) the BUILD's Bash timeout is capped at the JS timer maximum" || bad "(fe3) BUILD env: $(tr '\n' ' ' < "$FAKE_GH/env-1.txt")"
 port=$(( 20000 + RANDOM % 20000 )); ( cd "$T" && python3 -m http.server "$port" --bind 127.0.0.1 >/dev/null 2>&1 ) & hs=$!
 until curl -s -o /dev/null "http://127.0.0.1:$port/" 2>/dev/null; do sleep 0.2; done
 FIXTURE_CONFIG="{\"tracker\":{\"type\":\"github\",\"branchPrefix\":\"second-shift/\"},\"paths\":{\"plansDir\":\"docs/plans\"},\"design\":{\"provider\":\"figma\",\"liveRender\":{\"command\":\"cp $T/px.png {out}\",\"smokeCommand\":\"true\",\"readyProbe\":\"http://127.0.0.1:$port/missing\"}}}" fixture y3 "- true" $'\n## Design frames\n\n| RS | route | state | frame | must-show |\n| --- | --- | --- | --- | --- |\n| RS-1 | a | default | 1:2 | ok |\n'
