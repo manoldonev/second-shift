@@ -15,6 +15,8 @@ bad() { FAIL=$((FAIL+1)); echo "  FAIL $*"; }
 T="$(mktemp -d "${TMPDIR:-/tmp}/run-selftest.XXXXXX")"
 trap 'rm -rf "$T"' EXIT
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@x GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@x
+# a BUILD session running this suite carries the spawn env run.sh gives it; (a) reads what run.sh sets, not what it inherited
+unset CLAUDE_CODE_DISABLE_BACKGROUND_TASKS BASH_DEFAULT_TIMEOUT_MS BASH_MAX_TIMEOUT_MS
 
 # ---- fakes ----
 mkdir -p "$T/bin"
@@ -49,6 +51,7 @@ cat > "$T/bin/claude" <<'EOF'
 # behaviors come one per line from $FAKE_CLAUDE_PLAN, consumed in order; cwd is the worktree.
 S="$FAKE_GH"; n=$(cat "$S/calls" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "$S/calls"
 plan=$(sed -n "${n}p" "$FAKE_CLAUDE_PLAN"); prompt="${@: -1}"; printf '%s' "$prompt" > "$S/prompt-$n.txt"; printf '%s\n' "$@" > "$S/args-$n.txt"
+env | grep -E '^(CLAUDE_CODE_DISABLE_BACKGROUND_TASKS|BASH_(DEFAULT|MAX)_TIMEOUT_MS)=' | sort > "$S/env-$n.txt"
 branch=$(git rev-parse --abbrev-ref HEAD); cost="${FAKE_COST:-1}"
 push() { echo "$n" >> work.txt; git add -A >/dev/null; git commit -qm "build $n"; git push -q origin "$branch"; }
 openpr() { # body as the prompt instructs: built-by line, the record link, then Closes (under the Jira heading when bracketed)
@@ -142,6 +145,8 @@ grep -q '| D-1 | a | b | user-answered |' "$FAKE_GH/prompt-1.txt" && grep -q 'Th
 grep -q '<!-- dev-pipeline -->$' "$FAKE_GH/issue-comments" && grep -q '^<!-- run_id: ' "$FAKE_GH/issue-comments" && grep -q '^<!-- session_id: ' "$FAKE_GH/issue-comments" && grep -q '^<!-- stage: lean-claimed -->$' "$FAKE_GH/issue-comments" && ok "(a) [D4] claim marker: the four HTML lines, each whole" || bad "(a) [D4] marker lines: $(grep -c '^<!-- ' "$FAKE_GH/issue-comments")"
 grep -q 'Claimed by .*/dev-pipeline:run' "$FAKE_GH/issue-comments" && ! grep -q 'dev-pipeline:build' "$FAKE_GH/issue-comments" && ok "(a) a run's claim marker names /dev-pipeline:run" || bad "(a) run marker: $(grep 'Claimed by' "$FAKE_GH/issue-comments")"
 ! grep -qE '^--(resume|continue)$' "$FAKE_GH/args-1.txt" && ! grep -qE '^--(resume|continue)$' "$FAKE_GH/args-2.txt" && ok "(a) [F1] neither session is resumed or continued" || bad "(a) [F1] a session was resumed"
+[ "$(tr '\n' ' ' < "$FAKE_GH/env-1.txt")" = "BASH_DEFAULT_TIMEOUT_MS=7200000 BASH_MAX_TIMEOUT_MS=7200000 CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1 " ] && ok "(a) [#908] BUILD is spawned with background tasks off and its Bash timeouts at the build bound" || bad "(a) [#908] BUILD spawn env: $(tr '\n' ' ' < "$FAKE_GH/env-1.txt")"
+[ ! -s "$FAKE_GH/env-2.txt" ] && ok "(a) [#908] REVIEW is spawned without them: its Workflow panel runs as a background task" || bad "(a) [#908] REVIEW spawn env: $(tr '\n' ' ' < "$FAKE_GH/env-2.txt")"
 [ ! -d "$d/wt/42" ] && ok "(a) worktree torn down on approve" || bad "(a) worktree left after approve"
 grep -q 'Closes #42' "$FAKE_GH/prompt-1.txt" && grep -q 'READY (not draft)' "$FAKE_GH/prompt-1.txt" && ok "(a) build prompt asks for a ready PR that closes the ticket" || bad "(a) PR conventions missing from the build prompt"
 grep -q 'AskUserQuestion' "$FAKE_GH/args-1.txt" && ! grep -q 'editJiraIssue' "$FAKE_GH/args-1.txt" && ok "(a) keyboard tools disallowed, no jira strip under github" || bad "(a) disallowed-tools list wrong"
@@ -487,6 +492,7 @@ run_case "$d"; expect env-design-undeclared "(y1) on a design-provider repo a re
 [ ! -f "$FAKE_GH/calls" ] && ok "(y1) refused before any build" || bad "(y1) a build ran"
 fixture y2; printf 'build-sleep\n' > "$FAKE_CLAUDE_PLAN"; RUN_BUILD_TIMEOUT=2 run_case "$d"; expect build-blocked "(y2) a build past its ceiling is stopped"
 sleep 1; if pgrep -f 'sleep 60' >/dev/null 2>&1; then bad "(y2) the timed-out session's children outlived it"; pkill -f 'sleep 60' 2>/dev/null; else ok "(y2) the timed-out session and its children were reaped"; fi
+grep -qx 'BASH_DEFAULT_TIMEOUT_MS=2000' "$FAKE_GH/env-1.txt" && grep -qx 'BASH_MAX_TIMEOUT_MS=2000' "$FAKE_GH/env-1.txt" && ok "(y2) [#908] the BUILD's Bash timeouts follow RUN_BUILD_TIMEOUT" || bad "(y2) [#908] BUILD spawn env: $(tr '\n' ' ' < "$FAKE_GH/env-1.txt")"
 port=$(( 20000 + RANDOM % 20000 )); ( cd "$T" && python3 -m http.server "$port" --bind 127.0.0.1 >/dev/null 2>&1 ) & hs=$!
 until curl -s -o /dev/null "http://127.0.0.1:$port/" 2>/dev/null; do sleep 0.2; done
 FIXTURE_CONFIG="{\"tracker\":{\"type\":\"github\",\"branchPrefix\":\"second-shift/\"},\"paths\":{\"plansDir\":\"docs/plans\"},\"design\":{\"provider\":\"figma\",\"liveRender\":{\"command\":\"cp $T/px.png {out}\",\"smokeCommand\":\"true\",\"readyProbe\":\"http://127.0.0.1:$port/missing\"}}}" fixture y3 "- true" $'\n## Design frames\n\n| RS | route | state | frame | must-show |\n| --- | --- | --- | --- | --- |\n| RS-1 | a | default | 1:2 | ok |\n'

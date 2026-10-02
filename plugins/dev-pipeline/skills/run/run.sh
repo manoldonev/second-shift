@@ -706,10 +706,13 @@ red_attempt() { # a red check, smoke or convention spends the checks-red counter
   FINDINGS="$2"; NEED_BUILD=1; say "$1 red — the findings are the log; another BUILD attempt of round $ROUND"
 }
 spawn() { # spawn <role> <model> <id> <allowlist> <max-turns> <prompt-file> -> rc (124 past the bound); the result JSON is $STATE/<role>-<id>.json
-  local secs="$REVIEW_TO" extra=(); [ "$1" = build ] && secs="$BUILD_TO"
+  local secs="$REVIEW_TO" extra=() envv=(); [ "$1" = build ] && secs="$BUILD_TO"
   # the review stages review-lead's Workflow script in this run's state dir: added, and outside the worktree
   [ "$1" = review ] && extra=(--add-dir "$STATE")
-  bounded "$secs" "$STATE/$1-$3.json" "$CLAUDE" -p --model "$2" "${SPAWN_COMMON[@]}" ${extra[@]+"${extra[@]}"} --allowedTools "$4" --max-turns "$5" "$(cat "$6")"; local rc=$?
+  # BUILD runs its checks in the foreground, up to its own bound: under -p a turn that ends waiting on a backgrounded check ends the process (#908).
+  # REVIEW keeps background tasks — review-lead's Workflow panel runs as one
+  [ "$1" = build ] && envv=(env CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1 "BASH_DEFAULT_TIMEOUT_MS=$((BUILD_TO*1000))" "BASH_MAX_TIMEOUT_MS=$((BUILD_TO*1000))")
+  bounded "$secs" "$STATE/$1-$3.json" ${envv[@]+"${envv[@]}"} "$CLAUDE" -p --model "$2" "${SPAWN_COMMON[@]}" ${extra[@]+"${extra[@]}"} --allowedTools "$4" --max-turns "$5" "$(cat "$6")"; local rc=$?
   add_cost "$STATE/$1-$3.json"; return $rc
 }
 FINDINGS=""; NEED_BUILD=1; NEED_CHECKS=1; INPUT=""
