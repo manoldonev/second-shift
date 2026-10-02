@@ -16,7 +16,9 @@
 # env:  SECOND_SHIFT_CONFIG   config path (default <main>/.claude/second-shift.config.json)
 #       RUN_CLAUDE, RUN_GH (alias GH)   the binaries (tests inject fakes)
 #       RUN_WORKTREE_ROOT     default <parent of main>/<repo>-worktrees
-#       RUN_BUILD_TIMEOUT / RUN_REVIEW_TIMEOUT   seconds (7200 / 3600)
+#       RUN_BUILD_TIMEOUT / RUN_REVIEW_TIMEOUT   seconds (7200 / 3600), positive integers. Each also sets the session's
+#                             own waits, 300 s inside the bound: BUILD runs with background tasks off and its Bash
+#                             timeouts at that value (floor 120 s); REVIEW's background-task wait (floor 600 s)
 #       RUN_COST_CEILING      USD (100); RUN_CHECKS_RED_MAX (3)
 #       Env beats config `run.*` beats these defaults; an explicit --max-rounds beats config.
 #
@@ -179,17 +181,27 @@ BRANCH="${PREFIX}$(printf '%s' "$ISSUE" | tr '[:upper:]' '[:lower:]')"
 WT_ROOT="${RUN_WORKTREE_ROOT:-$(dirname "$MAIN_ROOT")/${REPO_SLUG}-worktrees}"; WT="$WT_ROOT/$ISSUE"
 RECORD_REL="$PLANS_DIR/$REPO_SLUG-$ISSUE-decisions.md"
 RECORD="$MAIN_ROOT/$STATE_DIR/$ISSUE-ledger.md"   # the receipt's one conventional path (plan-interview writes it there)
-# C28 A23 D-6: caps — env, else config run.*, else the defaults; each must be a positive number
-cap() { # cap <var> <env value> <config key> <default> — sets <var> in this shell (a refusal must not sit inside a substitution)
+# C28 A23 D-6: caps — env, else config run.*, else the defaults; each must be a positive number, and a count or a
+# bound a positive integer: bash arithmetic and `[ -lt ]` fail on a fraction, and a failed expansion abandons the round loop
+cap() { # cap <var> <env value> <config key> <default> [int] — sets <var> in this shell (a refusal must not sit inside a substitution)
   local v="$2"; [ -n "$v" ] || v="$(cfg "$3")"; [ -n "$v" ] || v="$4"
+  if [ "${5:-}" = int ]; then
+    [[ "$v" =~ ^([0-9]+)\.0*$ ]] && v="${BASH_REMATCH[1]}"   # jq -r prints a config 7200.0 as written; config-lint accepts it
+    case "$v" in ''|*[!0-9]*) terminal env-config-run "${3#.} must be a positive integer, got '$v'" ;; esac
+    v=$((10#$v)); [ "$v" -gt 0 ] || terminal env-config-run "${3#.} must be a positive integer, got '$v'"
+  fi
   case "$v" in ''|*[!0-9.]*|0|0.0) terminal env-config-run "${3#.} must be a positive number, got '$v'" ;; esac
   printf -v "$1" '%s' "$v"
 }
-[ "$MAX_ROUNDS_SET" -eq 1 ] || cap MAX_ROUNDS "" .run.maxRounds 3
-cap BUILD_TO "${RUN_BUILD_TIMEOUT:-}" .run.buildTimeoutSeconds 7200
-cap REVIEW_TO "${RUN_REVIEW_TIMEOUT:-}" .run.reviewTimeoutSeconds 3600
+[ "$MAX_ROUNDS_SET" -eq 1 ] || cap MAX_ROUNDS "" .run.maxRounds 3 int
+cap BUILD_TO "${RUN_BUILD_TIMEOUT:-}" .run.buildTimeoutSeconds 7200 int
+cap REVIEW_TO "${RUN_REVIEW_TIMEOUT:-}" .run.reviewTimeoutSeconds 3600 int
 cap COST_CEIL "${RUN_COST_CEILING:-}" .run.costCeilingUsd 100
-cap CHECKS_RED_MAX "${RUN_CHECKS_RED_MAX:-}" .run.checksRedMax 3
+cap CHECKS_RED_MAX "${RUN_CHECKS_RED_MAX:-}" .run.checksRedMax 3 int
+# F-env: a session's own waits end 5 minutes inside its bound, never below the harness's own 120 s / 600 s, so a hung
+# command or dispatch fails inside the session while it can still commit and report; capped at the JS timer maximum
+inner_ms() { local s=$(($1-300)); [ "$s" -ge "$2" ] || s="$2"; s=$((s*1000)); [ "$s" -le 2147483647 ] || s=2147483647; printf '%s' "$s"; }
+BUILD_BASH_MS="$(inner_ms "$BUILD_TO" 120)"; REVIEW_BG_WAIT_MS="$(inner_ms "$REVIEW_TO" 600)"
 MAX_REVIEW_RETRIES=1                                                                                    # K12
 LOG_DIR="$MAIN_ROOT/$STATE_DIR"; STATE="$LOG_DIR/run-$ISSUE/$RUN_ID"
 
@@ -706,13 +718,18 @@ red_attempt() { # a red check, smoke or convention spends the checks-red counter
   FINDINGS="$2"; NEED_BUILD=1; say "$1 red — the findings are the log; another BUILD attempt of round $ROUND"
 }
 spawn() { # spawn <role> <model> <id> <allowlist> <max-turns> <prompt-file> -> rc (124 past the bound); the result JSON is $STATE/<role>-<id>.json
-  local secs="$REVIEW_TO" extra=() envv=(); [ "$1" = build ] && secs="$BUILD_TO"
+  local secs="$REVIEW_TO" extra=(); [ "$1" = build ] && secs="$BUILD_TO"
   # the review stages review-lead's Workflow script in this run's state dir: added, and outside the worktree
   [ "$1" = review ] && extra=(--add-dir "$STATE")
-  # BUILD runs its checks in the foreground, up to its own bound: under -p a turn that ends waiting on a backgrounded check ends the process (#908).
-  # REVIEW keeps background tasks — review-lead's Workflow panel runs as one
-  [ "$1" = build ] && envv=(env CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1 "BASH_DEFAULT_TIMEOUT_MS=$((BUILD_TO*1000))" "BASH_MAX_TIMEOUT_MS=$((BUILD_TO*1000))")
-  bounded "$secs" "$STATE/$1-$3.json" ${envv[@]+"${envv[@]}"} "$CLAUDE" -p --model "$2" "${SPAWN_COMMON[@]}" ${extra[@]+"${extra[@]}"} --allowedTools "$4" --max-turns "$5" "$(cat "$6")"; local rc=$?
+  # F-env: under -p a turn that ends waiting on a background task ends the process, and a background shell dies with it.
+  # BUILD runs every command in the foreground, inside its bound. REVIEW keeps background tasks (review-lead's panel is a
+  # Workflow), and -p waits on a running one only 600 s idle by default: its wait is raised to inside its own bound.
+  # Passed as --settings env, which sits above the user, project and local files, so a repo's own settings.json env
+  # cannot quietly put a BUILD back on the 120 s default; REVIEW drops a switch it would only inherit from this shell
+  local sets envv=()
+  if [ "$1" = build ]; then sets="$(printf '{"env":{"CLAUDE_CODE_DISABLE_BACKGROUND_TASKS":"1","BASH_DEFAULT_TIMEOUT_MS":"%s","BASH_MAX_TIMEOUT_MS":"%s"}}' "$BUILD_BASH_MS" "$BUILD_BASH_MS")"
+  else sets="$(printf '{"env":{"CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS":"%s"}}' "$REVIEW_BG_WAIT_MS")"; envv=(env -u CLAUDE_CODE_DISABLE_BACKGROUND_TASKS); fi
+  bounded "$secs" "$STATE/$1-$3.json" ${envv[@]+"${envv[@]}"} "$CLAUDE" -p --model "$2" "${SPAWN_COMMON[@]}" ${extra[@]+"${extra[@]}"} --settings "$sets" --allowedTools "$4" --max-turns "$5" "$(cat "$6")"; local rc=$?
   add_cost "$STATE/$1-$3.json"; return $rc
 }
 FINDINGS=""; NEED_BUILD=1; NEED_CHECKS=1; INPUT=""

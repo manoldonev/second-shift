@@ -90,9 +90,10 @@ find . -name '*.json' -type f -print0 | xargs -0 -n1 jq empty
 SKIP_STRESS=1 bash tools/run-selftests.sh --full --exclude tools/install-topology-selftest.sh
 ```
 
-**The third line takes minutes; a foreground `Bash` call is reaped at 2 minutes** whatever its
-`timeout`. Run it as `nohup <cmd> > <log> 2>&1` under `run_in_background` (a bare `&` is reaped
-too).
+**The third line takes minutes; in an interactive session a foreground `Bash` call is reaped at 2
+minutes** whatever its `timeout`. Run it as `nohup <cmd> > <log> 2>&1` under `run_in_background` (a
+bare `&` is reaped too). A lane BUILD (`run.sh`) is the exception: it runs with background tasks off
+and its Bash timeouts raised to just inside its bound, so it runs the sweep in the foreground.
 
 The recipe runs cold, excludes `tools/install-topology-selftest.sh` (run it directly when your
 change is about how plugins are installed), and a killed sweep leaves `mktemp` litter that can red
