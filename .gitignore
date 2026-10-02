@@ -25,3 +25,7 @@
 # these tokens). Keep it on disk locally for self-consumption runs; do not version it.
 .claude/second-shift.config.json
 
+# CodeRLM's per-checkout session state — its SessionStart hook writes the CLI symlink and
+# session.json here in every checkout a session starts in, lane worktrees included. Left
+# untracked, it makes `git status --porcelain` non-empty and a finished build read as in flight.
+.claude/coderlm_state/
