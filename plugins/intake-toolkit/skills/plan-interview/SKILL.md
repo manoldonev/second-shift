@@ -46,7 +46,9 @@ You elicit **design decisions from the engineer** (plan-authoring). You do NOT:
 
    **Snapshot before you read the pool.** When exploring is done, write your register as it stands
    to `.claude/pipeline-state/{issue}-snapshot.md`. That is what plain intake would have gone in
-   with. Only then read the fan-out's result, waiting for its completion notice if it is still
+   with. The snapshot stays out of the conversation: it is internal, never shown to the engineer
+   as a draft (P8 holds), and it reaches the record only inside the receipt's `## Fan-out`. Only
+   then read the fan-out's result, waiting for its completion notice if it is still
    running. No question goes to the engineer before the pool is in, and none arrives between two
    questions.
 

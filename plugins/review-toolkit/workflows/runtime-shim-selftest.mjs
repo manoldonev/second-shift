@@ -811,6 +811,29 @@ const go = (agent, args = ARGS, budget = undefined) => runFanout(agent, parallel
   ok('FO D the lens retry ran on the other family', retry && retry.opts.model === 'fable', retry && retry.opts.model)
 }
 
+// --- D2: no Fable access, and the first writer and lens attempts die once ---
+{
+  const died = new Set()
+  const dieOnce = (key, out) => (prompt, opts) => {
+    if (opts.model === 'fable') throw new Error('model not available')
+    if (!died.has(key)) {
+      died.add(key)
+      throw new Error('transient')
+    }
+    return out()
+  }
+  const { agent, calls } = fakeAgent({
+    'intake-lens-writer': dieOnce('writer', () => WRITER_OUT),
+    'intake-lens': (prompt, opts) => dieOnce(opts.label.replace(/ \(.*\)$/, ''), () => lensOut(opts.label.replace(/^lens:| \(.*\)$/g, '')))(prompt, opts),
+  })
+  const r = await go(agent)
+  ok('FO D2 an unreachable cross retry falls back to the same tier (writer recovers)', r.status === 'complete' && r.lenses.every((l) => l.status === 'ok'), `${r.status} ${r.reason}`)
+  const writerTries = calls.filter((c) => /intake-lens-writer/.test(c.opts.agentType)).map((c) => c.opts.model)
+  ok('FO D2 the writer tried opus, fable, then opus once', writerTries.join(',') === 'opus,fable,opus', writerTries.join(','))
+  const lensRetries = calls.filter((c) => /intake-lens$/.test(c.opts.agentType) && /\(retry/.test(c.opts.label)).map((c) => c.opts.model)
+  ok('FO D2 later lens retries skip the unreachable family', lensRetries.length === 5 && lensRetries.every((m) => m === 'opus'), lensRetries.join(','))
+}
+
 // --- E: refuter returns no verdict ---
 {
   const { agent } = fakeAgent({ 'intake-refuter': () => 'I looked around but wrote no block.' })
