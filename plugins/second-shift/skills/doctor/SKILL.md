@@ -1,6 +1,6 @@
 ---
 name: doctor
-description: Verify this repo's second-shift install/config state against the committed lockfile - prerequisites, settings/lockfile ref lockstep, never-installed, enabled-but-not-installed, version drift (behind AND ahead), project-scope records a user-scope one makes redundant, ref-less marketplace shadowing, skill/agent shadow collisions, a review-toolkit older than the plugins that read its fan-out, opt-outs (informational), unknown extension file names under .claude/second-shift/, stale consumer CI from the retired verdict-record lane, config keys configVersion 3 removed, config-lint, config grill (advisory). Prints exact remediation commands, scoped to the record that actually loads. Run after cloning, after upgrades, whenever the toolkit feels absent.
+description: Verify this repo's second-shift install/config state against the committed lockfile - prerequisites, settings/lockfile ref lockstep, never-installed, enabled-but-not-installed, version drift (behind AND ahead), project-scope records a user-scope one makes redundant, ref-less marketplace shadowing, skill/agent shadow collisions, a review-toolkit older than the plugins that read its fan-out, opt-outs (informational), whether the default branch requires the second-shift/review status (informational), unknown extension file names under .claude/second-shift/, stale consumer CI from the retired verdict-record lane, config keys configVersion 3 removed, config-lint, config grill (advisory). Prints exact remediation commands, scoped to the record that actually loads. Run after cloning, after upgrades, whenever the toolkit feels absent.
 ---
 
 You are `/second-shift:doctor`.
@@ -24,7 +24,11 @@ You are `/second-shift:doctor`.
    review-toolkit install without `workflows/code-review.mjs` or `model-tiering.md`, beside an
    enabled dev-pipeline or intake-toolkit, is one FAIL: the plugins were updated one at a time,
    and the fix is `/second-shift:local-dev-refresh`, which updates them together.
-7. If the user asks about pipeline RUNTIME issues: gh auth is `gh auth status`; a ticket's
+7. Whether the default branch requires the `second-shift/review` commit status (classic branch
+   protection or a ruleset) is a `note`, never a FAIL: requiring it is the repo's choice. When gh
+   is missing, unauthenticated or offline, or the protection cannot be read, the note says
+   "unknown" and why. Relay it as information, not a problem.
+8. If the user asks about pipeline RUNTIME issues: gh auth is `gh auth status`; a ticket's
    labels are `gh issue view <n> --json labels`. `/dev-pipeline:run <ticket> --dry-run` checks
    the config, the intake record, the lane's commands and the design declaration and lists the
    checks, writing nothing; it does not read the tracker, and the checks and the design smoke

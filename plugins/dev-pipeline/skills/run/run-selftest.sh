@@ -23,7 +23,7 @@ unset CLAUDE_CODE_DISABLE_BACKGROUND_TASKS BASH_DEFAULT_TIMEOUT_MS BASH_MAX_TIME
 mkdir -p "$T/bin"
 cat > "$T/bin/gh" <<'EOF'
 #!/usr/bin/env bash
-# state dir: $FAKE_GH — files: state, labels, prs, comments.json (array), cost-comments
+# state dir: $FAKE_GH — files: state, labels, prs, comments.json (array), cost-comments, statuses (commit-status posts)
 S="$FAKE_GH"; sub="$1 $2"; path="${2:-}"; shift 2
 case "$sub" in
   "issue view")  case "$*" in *state*) cat "$S/state" ;; *labels*) cat "$S/labels" 2>/dev/null ;; esac ;;
@@ -40,6 +40,8 @@ case "$sub" in
                  case "$verb $p" in
                    "POST "*labels*) jq -r '.labels[]' >> "$S/labels"; jq -Rn '[inputs] | map({name: .})' < "$S/labels" ;;
                    "DELETE "*labels/*) grep -vx "${p##*/}" "$S/labels" > "$S/l.tmp"; mv "$S/l.tmp" "$S/labels" ;;
+                   "POST "*/statuses/*) [ -f "$S/status-fail" ] && { cat "$S/status-fail" >&2; exit 1; }   # one line per post: who, the sha, the fields
+                                        shift 2; printf '%s %s %s\n' "${FAKE_GH_AS:-operator}" "${p##*/statuses/}" "$*" >> "$S/statuses" ;;
                    *) for a in "$@"; do case "$a" in body=@*) cp "${a#body=@}" "$S/pr-body.md" ;; esac; done ;;
                  esac ;;
   "api user")    echo tester ;;
@@ -85,7 +87,7 @@ case "$plan" in
     sha=$(git rev-parse "origin/$branch"); [ "$plan" = review-wrong-sha ] && sha=deadbeef
     v=approve; case "$plan" in review-needs-work*) v=needs-work ;; esac
     ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    jq --arg b "verdict: $v"$'\n'"reviewed: $sha"$'\n'"| D-1 | honored |" --arg t "$ts" --arg u "${FAKE_VERDICT_AUTHOR:-tester}" --arg ut "${FAKE_VERDICT_AUTHOR_TYPE:-User}" '. + [{body:$b,user:{login:$u,type:$ut},created_at:$t,updated_at:$t}]' "$S/comments.json" > "$S/c.tmp" && mv "$S/c.tmp" "$S/comments.json"
+    jq --arg b "verdict: $v"$'\n'"reviewed: $sha"$'\n'"| D-1 | honored |" --arg t "$ts" --arg u "${FAKE_VERDICT_AUTHOR:-tester}" --arg ut "${FAKE_VERDICT_AUTHOR_TYPE:-User}" '. + [{body:$b,user:{login:$u,type:$ut},created_at:$t,updated_at:$t,html_url:"https://x/pr/7#verdict"}]' "$S/comments.json" > "$S/c.tmp" && mv "$S/c.tmp" "$S/comments.json"
     case "$plan" in
       review-approve-dirty) echo scratch > review-scratch.txt ;;
       review-approve-runtime) mkdir -p .claude/storage; echo raw > .claude/storage/upload-1.bin ;;   # gitignored: `status --porcelain` cannot see it
@@ -94,13 +96,13 @@ case "$plan" in
       review-needs-work-diverge) git push -q -f origin "$(git commit-tree "HEAD~1^{tree}" -p HEAD~1 -m diverged)":"refs/heads/$branch" ;;
     esac ;;
   review-render-unavailable) sha=$(git rev-parse "origin/$branch"); ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    jq --arg b "verdict: needs-work"$'\n'"reviewed: $sha"$'\n'"reason: render-unavailable" --arg t "$ts" --arg u "${FAKE_VERDICT_AUTHOR:-tester}" --arg ut "${FAKE_VERDICT_AUTHOR_TYPE:-User}" '. + [{body:$b,user:{login:$u,type:$ut},created_at:$t,updated_at:$t}]' "$S/comments.json" > "$S/c.tmp" && mv "$S/c.tmp" "$S/comments.json" ;;
+    jq --arg b "verdict: needs-work"$'\n'"reviewed: $sha"$'\n'"reason: render-unavailable" --arg t "$ts" --arg u "${FAKE_VERDICT_AUTHOR:-tester}" --arg ut "${FAKE_VERDICT_AUTHOR_TYPE:-User}" '. + [{body:$b,user:{login:$u,type:$ut},created_at:$t,updated_at:$t,html_url:"https://x/pr/7#verdict"}]' "$S/comments.json" > "$S/c.tmp" && mv "$S/c.tmp" "$S/comments.json" ;;
   review-two-verdicts) # both bind; the LAST posted wins: $FAKE_ORDER = needs-work,approve or approve,needs-work
     sha=$(git rev-parse "origin/$branch"); for v in ${FAKE_ORDER//,/ }; do ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-      jq --arg b "verdict: $v"$'\n'"reviewed: $sha" --arg t "$ts" --arg u "${FAKE_VERDICT_AUTHOR:-tester}" --arg ut "${FAKE_VERDICT_AUTHOR_TYPE:-User}" '. + [{body:$b,user:{login:$u,type:$ut},created_at:$t,updated_at:$t}]' "$S/comments.json" > "$S/c.tmp" && mv "$S/c.tmp" "$S/comments.json"; done ;;
+      jq --arg b "verdict: $v"$'\n'"reviewed: $sha" --arg t "$ts" --arg u "${FAKE_VERDICT_AUTHOR:-tester}" --arg ut "${FAKE_VERDICT_AUTHOR_TYPE:-User}" '. + [{body:$b,user:{login:$u,type:$ut},created_at:$t,updated_at:$t,html_url:"https://x/pr/7#verdict"}]' "$S/comments.json" > "$S/c.tmp" && mv "$S/c.tmp" "$S/comments.json"; done ;;
   review-silent)   : ;;
   review-detach)   git checkout -q --detach "origin/$branch"; sha=$(git rev-parse "origin/$branch"); ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    jq --arg b "verdict: needs-work"$'\n'"reviewed: $sha" --arg t "$ts" --arg u "${FAKE_VERDICT_AUTHOR:-tester}" --arg ut "${FAKE_VERDICT_AUTHOR_TYPE:-User}" '. + [{body:$b,user:{login:$u,type:$ut},created_at:$t,updated_at:$t}]' "$S/comments.json" > "$S/c.tmp" && mv "$S/c.tmp" "$S/comments.json" ;;
+    jq --arg b "verdict: needs-work"$'\n'"reviewed: $sha" --arg t "$ts" --arg u "${FAKE_VERDICT_AUTHOR:-tester}" --arg ut "${FAKE_VERDICT_AUTHOR_TYPE:-User}" '. + [{body:$b,user:{login:$u,type:$ut},created_at:$t,updated_at:$t,html_url:"https://x/pr/7#verdict"}]' "$S/comments.json" > "$S/c.tmp" && mv "$S/c.tmp" "$S/comments.json" ;;
 esac
 printf '{"subtype":"success","total_cost_usd":%s,"num_turns":3,"permission_denials":[{"tool_name":"Bash","tool_input":{"command":"ls /"}}]}\n' "$cost"
 EOF
@@ -919,6 +921,38 @@ printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect env-base-unread
 grep -qx ready-for-dev "$FAKE_GH/labels" && ! grep -qx in-progress "$FAKE_GH/labels" && [ ! -f "$FAKE_GH/calls" ] && ok "(bb2) refused before the claim, nothing spawned" || bad "(bb2) claimed or spawned on an unresolvable base"
 fixture bb3; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(bb3) no baseBranch"
 grep -q "gh pr create --base main" "$FAKE_GH/prompt-1.txt" && ok "(bb3) unset, the PR targets the remote default" || bad "(bb3) default PR base: $(grep -o "against [^ ]*" "$FAKE_GH/prompt-1.txt")"
+
+# (cs) #915: the bound verdict is posted as the second-shift/review commit status on the sha it names
+fixture cs1; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(cs1) an approved run"
+cs_head="$(git -C "$d/origin.git" rev-parse second-shift/42)"
+[ "$(wc -l < "$FAKE_GH/statuses" 2>/dev/null)" -eq 1 ] && grep -q "^operator $cs_head .*state=success .*context=second-shift/review .*description=approved at this head — see the verdict .*target_url=https://x/pr/7#verdict" "$FAKE_GH/statuses" \
+  && ok "(cs1) [D-1 D-3 D-4] success posted once on the reviewed head, linking the verdict comment" || bad "(cs1) statuses: $(cat "$FAKE_GH/statuses" 2>/dev/null)"
+grep -qx "status: second-shift/review=success on $cs_head" "$FAKE_GH/pr-body.md" && ok "(cs1) [D-13] the run block names the posted status" || bad "(cs1) run block: $(grep status "$FAKE_GH/pr-body.md")"
+fixture cs2; printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(cs2) needs-work, then approve"
+cs_l1="$(sed -n 1p "$FAKE_GH/statuses" 2>/dev/null)"; cs_l2="$(sed -n 2p "$FAKE_GH/statuses" 2>/dev/null)"
+cs_r1="$(cut -d' ' -f2 <<<"$cs_l1")"; cs_r2="$(cut -d' ' -f2 <<<"$cs_l2")"
+[ "$(wc -l < "$FAKE_GH/statuses" 2>/dev/null)" -eq 2 ] && grep -q 'state=failure .*description=needs-work at this head' <<<"$cs_l1" && grep -q 'state=success' <<<"$cs_l2" \
+  && [ "$cs_r2" = "$(git -C "$d/origin.git" rev-parse second-shift/42)" ] && [ "$cs_r1" != "$cs_r2" ] \
+  && ok "(cs2) [D-3] failure on the needs-work head, success on the later approved head" || bad "(cs2) statuses: $(tr '\n' '|' < "$FAKE_GH/statuses" 2>/dev/null)"
+fixture cs3; printf 'build-pr\nreview-approve-and-push\nreview-approve-and-push\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect review-unbound "(cs3) every verdict voided by a moved head"
+[ ! -s "$FAKE_GH/statuses" ] && ok "(cs3) [D-1] a verdict voided by a moved head posts no status" || bad "(cs3) statuses: $(cat "$FAKE_GH/statuses")"
+fixture cs4; printf 'build-pr\nreview-approve-and-push\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(cs4) the second review binds"
+[ "$(wc -l < "$FAKE_GH/statuses" 2>/dev/null)" -eq 1 ] && grep -q "^operator $(git -C "$d/origin.git" rev-parse second-shift/42) " "$FAKE_GH/statuses" && ok "(cs4) only the bound head gets the status, never the voided one" || bad "(cs4) statuses: $(tr '\n' '|' < "$FAKE_GH/statuses" 2>/dev/null)"
+fixture cs5; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; echo 'gh: Validation Failed (HTTP 422)' > "$FAKE_GH/status-fail"; run_case "$d"
+expect approved "(cs5) [D-5] a failed status post leaves the terminal unchanged"
+grep -q "^status: NOT posted (second-shift/review=success on $(git -C "$d/origin.git" rev-parse second-shift/42)) — gh: Validation Failed (HTTP 422)$" "$FAKE_GH/pr-body.md" && ok "(cs5) [D-5] the failed post is reported in the run block" || bad "(cs5) run block: $(grep status "$FAKE_GH/pr-body.md")"
+fixture cs6; printf 'build-pr\nreview-render-unavailable\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect env-not-ready "(cs6) render-unavailable"
+grep -q 'state=failure' "$FAKE_GH/statuses" 2>/dev/null && ok "(cs6) [D-3] a render-unavailable needs-work posts failure" || bad "(cs6) statuses: $(cat "$FAKE_GH/statuses" 2>/dev/null)"
+# through the bot when one is configured; a bot the App denies statuses is named, never retried as the operator
+printf '#!/usr/bin/env bash\nFAKE_GH_AS=bot exec %s "$@"\n' "$T/bin/gh" > "$T/bin/gh-asbot"; chmod +x "$T/bin/gh-asbot"
+cs_bot() { OUT="$( cd "$d/main" && PATH="$T/bin:$PATH" FAKE_BOT="$T/bin/gh-asbot" env -u RUN_GH bash "$RUN" 42 2>&1 )"; RC=$?; TERM_SLUG="$(printf '%s\n' "$OUT" | sed -n 's/^terminal: //p' | tail -n 1)"; }
+CS_BOT_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/","bot":{"enabled":true,"envVar":"FAKE_BOT","app":{"appName":"second-shift-bot"}}},"paths":{"plansDir":"docs/plans"}}'
+FIXTURE_CONFIG="$CS_BOT_CONFIG" fixture cs7; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; cs_bot; expect approved "(cs7) a run with a bot"
+grep -q "^bot $(git -C "$d/origin.git" rev-parse second-shift/42) .*state=success" "$FAKE_GH/statuses" 2>/dev/null && ! grep -q '^operator ' "$FAKE_GH/statuses" && ok "(cs7) [D-5] the status is posted through the bot" || bad "(cs7) statuses: $(cat "$FAKE_GH/statuses" 2>/dev/null)"
+FIXTURE_CONFIG="$CS_BOT_CONFIG" fixture cs8; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; echo 'gh: Resource not accessible by integration (HTTP 403)' > "$FAKE_GH/status-fail"; cs_bot
+expect approved "(cs8) a bot the App denies statuses"
+grep -q "^status: NOT posted .*(HTTP 403) — the bot's GitHub App needs the 'Commit statuses: write' permission$" "$FAKE_GH/pr-body.md" && ok "(cs8) [D-7] the run block names the missing App permission" || bad "(cs8) run block: $(grep status "$FAKE_GH/pr-body.md")"
+grep -q '(HTTP 422)$' "$T/cs5/gh/pr-body.md" 2>/dev/null && ! grep -q 'Commit statuses' "$T/cs5/gh/pr-body.md" && ok "(cs5) [D-7] no App hint without a bot or a 403/404" || bad "(cs5) [D-7] hint leaked: $(grep status "$T/cs5/gh/pr-body.md")"
 
 # (m) rounds spent
 fixture m; printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-needs-work\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d" --max-rounds 2; expect rounds-spent "(m) two needs-work rounds"
