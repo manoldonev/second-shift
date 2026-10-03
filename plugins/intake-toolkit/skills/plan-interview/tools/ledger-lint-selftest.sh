@@ -167,7 +167,7 @@ echo "[ledger-lint-selftest] receipt mode (--receipt): the provenance bar"
 # The receipt fixture, reduced to the one row each case mutates, so a case's
 # failure names a single cause. Built from the fixture rather than hand-written
 # so a schema drift in the fixture surfaces here too.
-receipt_with() { # receipt_with <ledger-rows-file> <open-rows-block> [surface-block] [checks-block]
+receipt_with() { # receipt_with <ledger-rows-file> <open-rows-block> [surface-block] [checks-block] [fanout-block]
   printf '%s\n' '# R' '## Decision Ledger' \
     '| ID  | Decision | Resolution | Provenance | Kind |' \
     '| --- | -------- | ---------- | ---------- | ---- |'
@@ -178,6 +178,8 @@ receipt_with() { # receipt_with <ledger-rows-file> <open-rows-block> [surface-bl
   printf '%s\n' "${3-$SURFACE_EMPTY}"
   printf '\n%s\n' '## Checks'
   printf '%s\n' "${4-$CHECKS_EMPTY}"
+  printf '\n%s\n' '## Fan-out'
+  printf '%s\n' "${5-$FANOUT_SKIPPED}"
 }
 
 # The explicit empty forms, spelled once each. Cases that are not ABOUT open
@@ -188,6 +190,7 @@ receipt_with() { # receipt_with <ledger-rows-file> <open-rows-block> [surface-bl
 OPEN_EMPTY='No open regions — every decision in scope is ratified.'
 SURFACE_EMPTY='No user-visible surface — this change renders nothing a user reads.'
 CHECKS_EMPTY='No ticket-specific checks — the configured lanes cover this change.'
+FANOUT_SKIPPED='Fan-out: skipped — by the selftest; this receipt exercises another section.'
 
 # (ll-o) the fixture receipt — every Kind value, every legal pairing → 0
 rc=$(lint_rc --receipt "$FIX/valid-receipt.md")
@@ -735,6 +738,83 @@ rc=$(SECOND_SHIFT_CONFIG="$TMP/config-broken.json" lint_rc --receipt "$TMP/df-no
 [[ "$rc" -eq 2 ]] \
   && pass "(ll-df10) unparseable config → 2" \
   || fail "(ll-df10) unparseable config — rc=$rc"
+
+echo "[ledger-lint-selftest] receipt mode: ## Fan-out (#916)"
+
+# What the intake fan-out achieved over plain intake, per ticket. Each case breaks one rule
+# of the section and leaves the rest of the receipt legal, so its failure names one cause.
+printf '%s\n' '| D-1 | Rate limit for the import endpoint | 100/min | user-answered | intent |' > "$TMP/fo-row.md"
+FO_OK=$'Refuter: cross (fable)\nTally: rows added 1 · snapshot claims overturned 0 · questions added 0\n\n| ID | Claim | Tag | Disposition |\n| --- | --- | --- | --- |\n| F-1 | The worker retries a 409 forever | new | became D-1 |\n\n### Snapshot\n\n    | D-1 | Rate limit | 100/min |'
+fo_lint() { # fo_lint <fanout-block> — sets rc, out, err
+  receipt_with "$TMP/fo-row.md" "$OPEN_EMPTY" "$SURFACE_EMPTY" "$CHECKS_EMPTY" "$1" > "$TMP/fo.md"
+  ck_lint "$TMP/fo.md"
+}
+
+# (ll-fo1) the fixture's disposed form — four tags, an overturned claim, a snapshot → 0, counted
+ck_lint "$FIX/valid-receipt.md"
+[[ "$rc" -eq 0 ]] && grep -q "4 fan-out item(s)" <<< "$out" \
+  && pass "(ll-fo1) the fixture's tagged pool is read and counted → 0" \
+  || fail "(ll-fo1) valid fan-out — rc=$rc out=$out err=$err"
+
+# (ll-fo2) no section → 1, naming both explicit forms
+receipt_with "$TMP/fo-row.md" "$OPEN_EMPTY" > "$TMP/fo-none.md"
+grep -v -e '^## Fan-out' -e "$FANOUT_SKIPPED" "$TMP/fo-none.md" > "$TMP/fo-absent.md"
+ck_lint "$TMP/fo-absent.md"
+[[ "$rc" -eq 1 ]] && grep -q "missing mandated receipt section: Fan-out" <<< "$err" && grep -q "Fan-out: skipped" <<< "$err" \
+  && pass "(ll-fo2) no Fan-out section → 1, naming the section and its forms" \
+  || fail "(ll-fo2) missing Fan-out — rc=$rc err=$err"
+
+# (ll-fo3) a reasoned skip or failure is the whole section → 0; a bare one → 1
+fo_lint 'Fan-out: failed — exceeded 30 min'
+rc_ok=$rc
+fo_lint 'Fan-out: skipped'
+[[ "$rc_ok" -eq 0 && "$rc" -eq 1 ]] && grep -q "without saying who or what" <<< "$err" \
+  && pass "(ll-fo3) 'failed — <what>' → 0; a bare 'skipped' → 1, named" \
+  || fail "(ll-fo3) explicit forms — reasoned rc=$rc_ok bare rc=$rc err=$err"
+
+# (ll-fo4) the disposed form with every part → 0 (the discriminator for fo5–fo9)
+fo_lint "$FO_OK"
+[[ "$rc" -eq 0 ]] && grep -q "1 fan-out item(s)" <<< "$out" \
+  && pass "(ll-fo4) minimal disposed form → 0" \
+  || fail "(ll-fo4) minimal disposed form — rc=$rc err=$err"
+
+# (ll-fo5) each mandated part removed in turn → 1, naming that part
+for part in 'Tally:' 'Refuter:' '### Snapshot'; do
+  fo_lint "$(grep -vF "$part" <<< "$FO_OK" | grep -v '^    ')"
+  [[ "$rc" -eq 1 ]] && grep -qF "${part#\#\#\# }" <<< "$err" \
+    && pass "(ll-fo5) disposed form without '$part' → 1, named" \
+    || fail "(ll-fo5) without '$part' — rc=$rc err=$err"
+done
+
+# (ll-fo6) a tag outside the enum, and an 'overturned' that names no claim → 1 each
+fo_lint "${FO_OK/| new |/| novel |}"
+rc_enum=$rc; err_enum=$err
+fo_lint "${FO_OK/| new |/| overturned |}"
+[[ "$rc_enum" -eq 1 && "$rc" -eq 1 ]] && grep -q "not in {new" <<< "$err_enum" && grep -q "must name the snapshot claim" <<< "$err" \
+  && pass "(ll-fo6) unknown tag → 1; bare 'overturned' → 1, both named" \
+  || fail "(ll-fo6) tags — enum rc=$rc_enum overturned rc=$rc err=$err_enum / $err"
+
+# (ll-fo7) a disposition citing a D-n the ledger never declares → 1
+fo_lint "${FO_OK/became D-1/became D-9}"
+[[ "$rc" -eq 1 ]] && grep -q "cites decision 'D-9'" <<< "$err" \
+  && pass "(ll-fo7) disposition cites an undeclared D-9 → 1" \
+  || fail "(ll-fo7) dangling disposition — rc=$rc err=$err"
+
+# (ll-fo8) no F rows: 1 without the empty-pool line, 0 with it
+FO_EMPTY=$(grep -v -e '^| F-1' -e '^| ID' -e '^| ---' <<< "$FO_OK")
+fo_lint "$FO_EMPTY"
+rc_no=$rc
+# The empty-pool line belongs in the section body, above '### Snapshot' (which closes it).
+fo_lint "${FO_EMPTY/Tally:/Pool: empty — no claim survived refutation.$'\n'Tally:}"
+[[ "$rc_no" -eq 1 && "$rc" -eq 0 ]] \
+  && pass "(ll-fo8) no rows → 1; with the empty-pool line → 0" \
+  || fail "(ll-fo8) empty pool — without rc=$rc_no with rc=$rc"
+
+# (ll-fo9) a snapshot pasted unindented → 1, naming the indentation rule
+fo_lint "${FO_OK/    | D-1 | Rate limit | 100\/min |/| D-7 | Rate limit | 100\/min | user-answered | intent |}"
+[[ "$rc" -eq 1 ]] && grep -q "indent the snapshot four spaces" <<< "$err" \
+  && pass "(ll-fo9) unindented snapshot rows → 1, named" \
+  || fail "(ll-fo9) unindented snapshot — rc=$rc err=$err"
 
 echo
 echo "[ledger-lint-selftest] summary: $PASS passed, $FAIL failed"

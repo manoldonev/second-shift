@@ -21,6 +21,43 @@ You elicit **design decisions from the engineer** (plan-authoring). You do NOT:
 
 1. **Explore first.** Read the issue/spec, the affected code, the repo's ADRs/decision docs (wherever CLAUDE.md routes), and the Product-Essence Brief if one exists (`.claude/pipeline-state/{issue}-brief.md`). Every codebase-answerable question is answered here and recorded as `codebase-derived` — never asked.
 
+   **Fan-out (pipeline pre-flight only).** When this run is pre-flight for a lane ticket
+   (`/plan-interview <issue>`), launch the intake fan-out *at the start*, before exploring, so it
+   runs while you explore. It never reads your work, so starting early costs nothing.
+
+   1. **Check for the `Workflow` tool.** If this session has none, record
+      `Fan-out: failed — Workflow tool unavailable in this session` and go on without it.
+   2. **Stage the script** the way intake-orchestrator stages `intake-review.mjs` (cross-plugin,
+      by name; `$SKILL_DIR` is this skill's base directory and `$SCRATCHPAD` the session's
+      scratchpad):
+
+      ```bash
+      SRC=$(find "$SKILL_DIR/../../../.." -path '*/review-toolkit/*' -path '*/workflows/intake-fanout.mjs' -not -path '*/fixtures/*' 2>/dev/null | sort -V | tail -1)
+      cp "$SRC" "$SCRATCHPAD/intake-fanout.mjs"
+      ```
+
+   3. **Launch it in the background** with `Workflow({ scriptPath, args })`. The args are
+      `{ issue, issueBody, readRoot, probeDir, config }`; `config` carries only
+      `reviewers.modelOverrides` and `reviewers.tierMap`. Tell the engineer once: "Running the
+      intake fan-out (5 lenses, up to 30 min) alongside exploration; questions start when it
+      returns." The script stops waiting after 30 minutes on its own and returns the failed form.
+   4. **The operator may skip it.** Record `Fan-out: skipped — by <operator>, <why>` and carry on.
+      Ad-hoc and plan-mode runs skip silently, and their plans carry no `## Fan-out`.
+
+   **Snapshot before you read the pool.** When exploring is done, write your register as it stands
+   to `.claude/pipeline-state/{issue}-snapshot.md`. That is what plain intake would have gone in
+   with. Only then read the fan-out's result, waiting for its completion notice if it is still
+   running. No question goes to the engineer before the pool is in, and none arrives between two
+   questions.
+
+   **Consume the pool like explore-first findings.** Verify what you need from each item's
+   pointer. An item becomes a register row, option, probed fact or question **only if it passes
+   the materiality bar in step 2**. Pool evidence may overturn a snapshot claim it contradicts.
+   Then write the receipt's `## Fan-out` section (schema in `interviewing-baseline`, "Fan-out"):
+   every item tagged against the snapshot, the tally, the refuter family, and the snapshot
+   embedded verbatim, indented four spaces. If the result is `failed` or `partial`, say what failed
+   in the section; never drop it silently.
+
 2. **Build the decision register.** Admission = **materiality**. A decision enters the register only if it changes:
 
    *What the user gets* — the categories that go first because they are the ones an engineering-shaped register silently drops:
@@ -64,7 +101,8 @@ You elicit **design decisions from the engineer** (plan-authoring). You do NOT:
 
 ## Checks and design frames (pipeline pre-flight only)
 
-The receipt also carries the two sections the scheduler reads from the record's first commit —
+The receipt carries a mandated `## Fan-out` section (step 1's fan-out; schema in
+`interviewing-baseline`, "Fan-out"). It also carries the two sections the scheduler reads from the record's first commit —
 schema and empty forms in `interviewing-baseline` ("Checks", "Design frames"), enforced by
 `ledger-lint.sh --receipt`. Elicit both before writing it:
 

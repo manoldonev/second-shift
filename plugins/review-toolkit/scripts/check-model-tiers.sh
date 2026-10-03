@@ -47,6 +47,7 @@
 # Tables validated:
 #   - map  REVIEWER_MODEL  in workflows/code-review.mjs
 #   - map  INTAKE_MODEL    in workflows/intake-review.mjs
+#   - map  FANOUT_MODEL    in workflows/intake-fanout.mjs (#916; its refuter ships at the `cross` tier)
 #     Since #351 these declare an abstract TIER, resolved through the alphabet parsed from
 #     model-tiering.md before any comparison. Each file also inlines a DEFAULT_TIER_MAP
 #     copy (the sandbox forbids imports) which is held against that same authority.
@@ -465,7 +466,7 @@ scan_unknown_inline_literals() {
 
 # --- Map tables: 'agent': 'model' entries (agent may be plugin:-qualified). ---
 DESIGN_ROWS_SKIPPED=0
-for tbl in code-review.mjs intake-review.mjs; do
+for tbl in code-review.mjs intake-review.mjs intake-fanout.mjs; do
     file="$WF/$tbl"
     [ -f "$file" ] || { errors+=("MISSING-TABLE: $file not found"); continue; }
     check_inline_default_map "$file" "$tbl"

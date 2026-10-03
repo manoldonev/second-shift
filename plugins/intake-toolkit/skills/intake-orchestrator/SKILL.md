@@ -336,7 +336,10 @@ adapter has no queue label and no claimed label, so there is no corpus of eligib
 in the receipt shape (`interviewing-baseline` → "The intake receipt": five columns, plus a
 `## Open Regions` section, a `## Surface Inventory` section and a `## Checks` section — each
 carrying rows or its own explicit empty form — and, when the config sets `design.provider`, a
-`## Design frames` section: `RS-n` rows with a `must-show` cell, or `Design: none — <reason>`) and run:
+`## Design frames` section: `RS-n` rows with a `must-show` cell, or `Design: none — <reason>`). It
+also carries a `## Fan-out` section holding exactly one line, because this path runs no fan-out
+(it runs only in `/plan-interview` pre-flight): `Fan-out: skipped — by intake-orchestrator; the
+fan-out runs only in /plan-interview pre-flight`. Then run:
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/skills/plan-interview/tools/ledger-lint.sh" \
