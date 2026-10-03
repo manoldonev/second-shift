@@ -4,6 +4,47 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v15.2.1
+
+### `dev-pipeline` 15.2.0 → 15.2.1
+
+- **fix(dev-pipeline): close-out keeps a worktree that holds declared runtime data (#909)** (#909)
+  new optional config key `paths.runtimeData` (git pathspecs). When a
+  declared path holds gitignored data at close-out, /dev-pipeline:run keeps the
+  worktree instead of removing it, and says which paths blocked removal.
+  Migration: none — key absent keeps today's behavior.
+- **fix(dev-pipeline): lane sessions keep long work alive under -p (#912)** (#912)
+  the build session now runs long checks in the foreground instead of
+  ending its run on a backgrounded one.
+  Migration: none.
+  lane BUILD sessions run long checks in the foreground (background
+  tasks off, Bash timeouts just inside the build bound) instead of ending
+  the run on a backgrounded check; REVIEW waits up to just inside its bound
+  for a background review panel instead of 10 minutes; the env is applied
+  through --settings so a repo's own settings cannot undo it. plan-interview
+  now weighs replacing the primitive a root cause lives in, not only the
+  ticket's candidate fixes.
+  Migration: a fractional run.maxRounds, run.checksRedMax,
+  run.buildTimeoutSeconds, run.reviewTimeoutSeconds or matching RUN_* value
+  is now refused as env-config-run; use a whole number.
+
+### `intake-toolkit` 6.0.0 → 6.0.1
+
+- **fix(dev-pipeline): lane sessions keep long work alive under -p (#912)** (#912)
+  the build session now runs long checks in the foreground instead of
+  ending its run on a backgrounded one.
+  Migration: none.
+  lane BUILD sessions run long checks in the foreground (background
+  tasks off, Bash timeouts just inside the build bound) instead of ending
+  the run on a backgrounded check; REVIEW waits up to just inside its bound
+  for a background review panel instead of 10 minutes; the env is applied
+  through --settings so a repo's own settings cannot undo it. plan-interview
+  now weighs replacing the primitive a root cause lives in, not only the
+  ticket's candidate fixes.
+  Migration: a fractional run.maxRounds, run.checksRedMax,
+  run.buildTimeoutSeconds, run.reviewTimeoutSeconds or matching RUN_* value
+  is now refused as env-config-run; use a whole number.
+
 ## v15.2.0
 
 ### `dev-pipeline` 15.1.0 → 15.2.0
