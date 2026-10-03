@@ -4,6 +4,17 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v15.2.2
+
+### `dev-pipeline` 15.2.1 → 15.2.2
+
+- **fix(dev-pipeline): the run's tracker comment never carries a local path (#917)** (#917)
+  the scheduler's closing comment on the ticket no longer carries
+  local filesystem paths (worktree, checkout, home directory); the full
+  detail stays in the local run log.
+  Migration: none. Earlier comments are not rewritten; delete or redact them
+  by hand.
+
 ## v15.2.1
 
 ### `dev-pipeline` 15.2.0 → 15.2.1
