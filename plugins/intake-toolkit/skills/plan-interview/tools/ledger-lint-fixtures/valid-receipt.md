@@ -39,6 +39,25 @@ the PR so the operator can widen it without a migration.
 - `bash scripts/import-selftest.sh`
 - yarn test --filter import
 
+## Fan-out
+
+Refuter: cross (fable)
+Tally: rows added 1 · snapshot claims overturned 1 · questions added 1
+
+| ID | Claim | Tag | Disposition |
+| --- | --- | --- | --- |
+| F-1 | The import worker retries a 409 forever (`worker.ts:88`, observed in a bounded probe) | new | became D-1 |
+| F-2 | Uploads above 50 MB are already rejected at the proxy (`nginx.conf:12`) | already-had | already D-4 |
+| F-3 | class-validator rejects nested arrays without `@Type` (`dto.ts:30`) | overturned (snapshot: "nested arrays validate as-is") | became D-3 |
+| F-4 | The admin list sorts client-side | not material | not material — the list is capped at 50 rows |
+
+### Snapshot
+
+    | ID | Decision | Resolution |
+    | --- | --- | --- |
+    | D-1 | Rate limit for the import endpoint | 100/min |
+    | D-3 | DTO validation library | class-validator; nested arrays validate as-is |
+
 ## Implementation steps
 
 1. Step one.
