@@ -108,11 +108,21 @@ exit_code_for() { # the taxonomy a wrapper branches on
 # Run state the terminal reports on. Set as the run advances; empty until then.
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 COST=0; UNPRICED=""; ROUND=0; ATTEMPT=0; CHECKS_RED=0; CLAIMED=0; PR=""; PR_URL=""; HEAD_SHA=""; VERDICT=""; CI=""; FIRST=""; CHILD=""; TRACKER=""
+# A tracker comment is public: no local path leaves this machine through one. The worktree becomes
+# <worktree>, a path in the checkout becomes repo-relative, the home directory becomes ~, and any
+# other /Users/<name> or /home/<name> prefix is cut — the detail stays whole in the local log.
+public_text() { # public_text <text>
+  local t="$1"
+  [ -n "${WT:-}" ] && t="${t//"$WT"/<worktree>}"
+  [ -n "${MAIN_ROOT:-}" ] && { t="${t//"$MAIN_ROOT"\//}"; t="${t//"$MAIN_ROOT"/<checkout>}"; }
+  [ -n "${HOME:-}" ] && t="${t//"$HOME"/\~}"
+  printf '%s' "$t" | sed -E 's#/(Users|home)/[^/[:space:]]+#~#g'
+}
 terminal() { # terminal <slug> <detail> — rows B1, B21, B22, K9: the run block on the PR whenever one exists, one closing comment when the run claimed
   say "terminal: $1 — $2"; echo "terminal: $1"
   if [ -n "$PR" ] && [ "${BLOCK_DONE:-0}" -eq 0 ]; then BLOCK_DONE=1; write_run_block "$1"; fi
   if [ "$CLAIMED" -eq 1 ] && [ "$TRACKER" = github ]; then
-    "$GH" issue comment "$ISSUE" --body "$(printf 'second-shift run %s: %s — %s\n%s\ncost_usd: %s\n%s' "$RUN_ID" "$1" "$2" "${PR_URL:-${PR:+PR #$PR}}" "$(usd "$COST")" "${UNPRICED:+unpriced: $UNPRICED (no total_cost_usd; cost_usd is a lower bound)
+    "$GH" issue comment "$ISSUE" --body "$(printf 'second-shift run %s: %s — %s\n%s\ncost_usd: %s\n%s' "$RUN_ID" "$1" "$(public_text "$2")" "${PR_URL:-${PR:+PR #$PR}}" "$(usd "$COST")" "${UNPRICED:+unpriced: $UNPRICED (no total_cost_usd; cost_usd is a lower bound)
 }")" >/dev/null 2>&1 || say "could not post the closing comment on #$ISSUE"
   fi
   exit "$(exit_code_for "$1")"
