@@ -60,9 +60,9 @@ review's context.
    the row table, then the findings. `approve` iff there are no blockers. The format matches the
    lane's own verdicts, but no scheduler reads this one: a finished run has exited, and a re-launch
    builds before it reviews. It is for the human who decides the merge. Never edit it.
-   Then, after re-checking `headRefOid` (it must still be the sha on your `reviewed:` line), post
-   the same verdict as a commit status on that sha, with the same `gh` (the bot when `--status`
-   is `ok`):
+   Then re-check `headRefOid`. If it is no longer the sha on your `reviewed:` line, the head moved
+   under your review: post no status, and say so in a plain PR comment. Otherwise post the same
+   verdict as a commit status on that sha, with the same `gh` (the bot when `--status` is `ok`):
    `gh api -X POST repos/<owner>/<repo>/statuses/<sha> -f state=<success|failure> -f context=second-shift/review -f target_url=<your comment's URL> -f description='<approved|needs-work> at this head — see the verdict'`
    — `success` for approve, `failure` for needs-work. A consumer that requires
    `second-shift/review` in branch protection cannot merge a PR without it. If the post fails,
