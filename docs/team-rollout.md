@@ -113,3 +113,15 @@ required CI on your own checks, branch protection, and a human merging every PR 
 lane never merges its own work. That's why doctor says "missing your accelerators" instead
 of anything compliance-shaped: 80% adoption plus server-side enforcement beats 100% by
 nagging.
+
+The lane adds one server-side signal you can put there: every verdict a review binds to a head
+is posted as the `second-shift/review` commit status on that sha — `success` for approve,
+`failure` for needs-work, linking the verdict comment — by `/dev-pipeline:run` and by a manual
+`/dev-pipeline:review`. A status belongs to its sha, so a commit pushed after the review leaves
+the new head without one. To require it, add `second-shift/review` to the required status checks
+of the default branch (Settings → Branches → branch protection rule, or a ruleset's "Require
+status checks to pass"); the context appears in the picker once a run has posted it. Onboard
+never writes protection rules, and `/second-shift:doctor` reports whether the default branch
+requires it. The status is tamper-evident, not proof: whoever holds the identity that posts it
+(the bot, which the BUILD session also holds, or your own `gh`) can post it. The gate of record
+stays your required checks, branch protection and the human who merges.

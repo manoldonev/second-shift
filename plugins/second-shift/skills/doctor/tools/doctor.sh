@@ -400,6 +400,30 @@ case "$ext_rc" in
   *) bad "extension check could not run (rc=$ext_rc): $(tail -1 <<< "$ext_err")" ;;
 esac
 
+# --- 6.7 is the review status required? (informational, never a FAIL) ----------------------
+# /dev-pipeline:run posts its bound verdict as the `second-shift/review` commit status. Requiring
+# it is the consumer's branch-protection choice (onboard writes no protection), so doctor only
+# says which it is. Classic protection and rulesets are both read, with plain read access; any
+# read that fails (no gh, no auth, offline, no GitHub remote) is "unknown", never a finding.
+REVIEW_STATUS="second-shift/review"
+DGH="${DOCTOR_GH:-gh}"
+rs_why=""
+if ! command -v "$DGH" >/dev/null 2>&1; then rs_why="gh is not installed"
+elif ! rs_repo="$(cd "$ROOT" && "$DGH" repo view --json nameWithOwner,defaultBranchRef --jq '.nameWithOwner + " " + .defaultBranchRef.name' 2>/dev/null)" \
+     || [[ "$rs_repo" != */*" "?* ]]; then rs_why="the GitHub repo could not be read (gh not authenticated, offline, or no GitHub remote)"
+else
+  rs_slug="${rs_repo% *}"; rs_branch="${rs_repo#* }"
+  if ! rs_classic="$("$DGH" api "repos/$rs_slug/branches/$rs_branch" --jq '[.protection.required_status_checks.contexts[]?, .protection.required_status_checks.checks[]?.context] | .[]' 2>/dev/null)" \
+     || ! rs_rules="$("$DGH" api "repos/$rs_slug/rules/branches/$rs_branch" --jq '.[] | select(.type == "required_status_checks") | .parameters.required_status_checks[]?.context' 2>/dev/null)"; then
+    rs_why="the protection of $rs_branch could not be read"
+  elif grep -qxF "$REVIEW_STATUS" <<< "$rs_classic"$'\n'"$rs_rules"; then
+    ok "default branch $rs_branch requires the $REVIEW_STATUS status — a head pushed after its review cannot merge without a new one"
+  else
+    echo "[doctor] note  default branch $rs_branch does not require the $REVIEW_STATUS status — /dev-pipeline:run posts it on every reviewed head; requiring it is your branch-protection choice (docs/team-rollout.md, \"What is a gate here\")"
+  fi
+fi
+[[ -z "$rs_why" ]] || echo "[doctor] note  whether the default branch requires the $REVIEW_STATUS status is unknown: $rs_why"
+
 # --- 7. config-lint -------------------------------------------------------------
 CONF="$ROOT/.claude/second-shift.config.json"
 if [[ ! -f "$CONF" ]]; then
