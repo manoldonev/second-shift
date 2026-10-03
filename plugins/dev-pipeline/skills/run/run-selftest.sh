@@ -168,6 +168,9 @@ expect build-handoff "(ho) an unsized ticket is handed to the calling session"
 [ "$RC" -eq 0 ] && [ ! -f "$FAKE_GH/calls" ] && ok "(ho) exit 0 and no session spawned" || bad "(ho) rc=$RC, claude calls: $(cat "$FAKE_GH/calls" 2>/dev/null)"
 hp="$(sed -n 's/^prompt: //p' <<<"$OUT")"; hw="$(sed -n 's/^worktree: //p' <<<"$OUT")"
 [ -n "$hp" ] && grep -q 'Implement ticket 42' "$hp" && grep -q 'D-1' "$hp" && [ -d "$hw" ] && ok "(ho) the build prompt and worktree are printed" || bad "(ho) prompt '$hp' / worktree '$hw'"
+# The closing comment is public: the worktree path stays in the local log, never on the tracker.
+grep -q 'build-handoff' "$FAKE_GH/issue-comments" && ! grep -qF "$hw" "$FAKE_GH/issue-comments" && grep -q '<worktree>' "$FAKE_GH/issue-comments" \
+  && ok "(ho) the handoff comment names <worktree>, never the local path" || bad "(ho) local path in the tracker comment: $(grep build-handoff "$FAKE_GH/issue-comments")"
 [ "$(git -C "$d/origin.git" log --format=%s main..second-shift/42 2>/dev/null)" = "docs: decision record for #42" ] && ok "(ho) the record is the pushed branch's only commit" || bad "(ho) branch: $(git -C "$d/origin.git" log --oneline main..second-shift/42 2>&1 | tr '\n' '|')"
 grep -qx in-progress "$FAKE_GH/labels" && grep -q 'Claimed by .*/dev-pipeline:build' "$FAKE_GH/issue-comments" && ok "(ho) claimed, and the marker names /dev-pipeline:build" || bad "(ho) labels: $(tr '\n' ' ' < "$FAKE_GH/labels")"
 hb="$(sed -n 's/^baseline: //p' <<<"$OUT")"
