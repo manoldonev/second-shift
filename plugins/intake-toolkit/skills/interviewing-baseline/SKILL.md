@@ -7,7 +7,7 @@ description: Shared interviewing protocol for all intake-role skills (intake-int
 
 This skill defines the shared protocol that ALL interviewing/elicitation skills follow, the same way `review-toolkit:reviewer-baseline` unifies the reviewer agents. It exists so loop rules and the Decision Ledger contract live in exactly one place.
 
-**Canonical source notice:** this file is the single source of truth for the Decision Ledger schema, the provenance enum, and the intake-receipt contract below it (Kind axis, open regions, surface inventory, checks, design frames, departures). Every other site that restates them (`plan-interview/tools/ledger-lint.sh`, this plugin's `hooks/exitplan-ledger-gate.sh` via that lint, `review-toolkit:plan-reviewer`) carries a mirror marker and must be updated in lockstep when this section changes.
+**Canonical source notice:** this file is the single source of truth for the Decision Ledger schema, the provenance enum, and the intake-receipt contract below it (Kind axis, open regions, surface inventory, checks, design frames, fan-out, departures). Every other site that restates them (`plan-interview/tools/ledger-lint.sh`, this plugin's `hooks/exitplan-ledger-gate.sh` via that lint, `review-toolkit:plan-reviewer`) carries a mirror marker and must be updated in lockstep when this section changes.
 
 ## Interview Loop Rules
 
@@ -216,6 +216,62 @@ any `RS-n` row that is there is still checked: the smoke reads rows wherever the
 **Headings, both sections:** the scheduler's rule — the exact title at any depth, any case; any
 heading closes the section; the first such section decides. `## Checks to add later` is not the
 section.
+
+### Fan-out
+
+The intake fan-out (`review-toolkit/workflows/intake-fanout.mjs`, run by `plan-interview`
+pre-flight) hands the interviewer a pool of evidence items, each one kept only after a refuter of
+another model family failed to break it. The receipt's mandated `## Fan-out` section shows what
+that pool achieved **over plain intake**, ticket by ticket. It has three parts:
+
+- **Tag every item against the snapshot.** Before reading the pool, the interviewer writes down
+  its own explore-first register. That snapshot is what plain intake would have gone in with.
+  Each pool item then gets one tag:
+  - `new`: the snapshot lacked it;
+  - `already-had`;
+  - `overturned (<the snapshot claim>)`: it contradicted something the snapshot asserted;
+  - `not material`: it does not pass the materiality bar.
+
+  Its disposition cell says what became of it: the `D-n` it became, or why it did not.
+- **Head the section with a tally,** and with the model family that refuted:
+
+  ```
+  ## Fan-out
+
+  Refuter: cross (fable)
+  Tally: rows added 1 · snapshot claims overturned 1 · questions added 1
+
+  | ID | Claim | Tag | Disposition |
+  | --- | --- | --- | --- |
+  | F-1 | The admin client sends only get/post/put/delete (`api/client.ts:40`) | new | became D-1 |
+  | F-2 | Past dates are grandfathered across all options (`service.ts:118`) | overturned (snapshot: "per-option rule") | became D-4 |
+  | F-3 | The list sorts client-side | not material | not material — capped at 50 rows |
+
+  ### Snapshot
+
+      | ID | Decision | Resolution |
+      | --- | --- | --- |
+      | D-1 | Status write route | PATCH /:id/status |
+  ```
+
+- **Embed the snapshot verbatim, indented four spaces,** under `### Snapshot`. Indentation keeps
+  it a code block: its rows are a register too, and unindented they would read as this receipt's
+  own ledger, regions and surfaces.
+
+A pool where nothing survived refutation states `Pool: empty — no claim survived refutation.` in
+place of the rows; the tally and snapshot stay. A receipt that ran no fan-out carries exactly one
+line instead of the section's parts:
+
+```
+Fan-out: skipped — <by whom, and why>
+Fan-out: failed — <what failed>
+```
+
+An absent section reads exactly like a fan-out nobody ran and nobody recorded, so the lint
+(`ledger-lint.sh --receipt`) refuses it, along with a skip or failure that names no reason, a tag
+outside the four, an `overturned` that names no claim, a disposition citing an undeclared `D-n`,
+and unindented snapshot rows. The section's reader is the operator's consumer read: a later
+reversal of a decision the fan-out flagged, or of one it never raised, is how its value is judged.
 
 ### Departures
 

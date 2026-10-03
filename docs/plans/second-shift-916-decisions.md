@@ -23,6 +23,7 @@ Intake fan-out at plan-interview pre-flight, with a per-receipt value section. A
 | D-15 | Which tickets should get the fan-out | Default on at pre-flight (D-1); parked under OR-1 (owner: operator) until `## Fan-out` tallies accumulate | deferred | open |
 | D-16 | The announcement wording | Default: "Running the intake fan-out (5 lenses, up to 30 min) alongside exploration; questions start when it returns." Parked under OR-2 | deferred | open |
 | D-17 | The lens budget value | Default: about 25 tool calls per lens. Parked under OR-3 | deferred | open |
+| D-18 | How the snapshot is embedded | Indented four spaces under `### Snapshot` (a code block), not pasted as a table. `ledger-lint.sh` reads every D-n, OR-n and S-n table row anywhere in the file as this receipt's own rows, so a verbatim register pasted as-is collides with the real ledger. Indentation keeps D-8's verbatim copy and keeps it out of those scans; the lint refuses unindented snapshot rows. Added at build | codebase-derived | fact |
 
 ## Open Regions
 
@@ -50,6 +51,10 @@ Intake fan-out at plan-interview pre-flight, with a per-receipt value section. A
 | S-9 | Docs a consumer reads: model-tiering.md's scoped fable exception, namespaces.md | decided (D-7) |
 | S-10 | The review session's verdict | out-of-scope — the review does not read `## Fan-out`; its reader is the operator's consumer read (D-6) |
 | S-11 | `/workflows` progress display for the fan-out | out-of-scope — operator-facing progress only, phase titles follow the existing workflow scripts' convention |
+
+## Fan-out
+
+Fan-out: skipped — by the operator's intake of this ticket, which predates the fan-out it builds.
 
 ## Checks
 

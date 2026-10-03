@@ -32,6 +32,10 @@ No ticket-specific checks — the configured lanes cover this change.
 | RS-1 | /imports | empty | 815:2201 | Nothing imported yet |
 | RS-2 | /imports | loaded | 815:2240 | data-test=import-row |
 
+## Fan-out
+
+Fan-out: skipped — by the operator; a design-only fixture with nothing for a lens to probe.
+
 ## Implementation steps
 
 1. Step one.

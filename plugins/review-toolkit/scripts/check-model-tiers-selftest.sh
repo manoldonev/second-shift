@@ -423,6 +423,17 @@ const INTAKE_MODEL = {
   'spec-reviewer': '$a',
 }
 MJS
+  cat > "$dst/workflows/intake-fanout.mjs" <<MJS
+const DEFAULT_TIER_MAP = {
+  $a: 'opus',
+  $b: 'sonnet',
+  $c: 'haiku',
+}
+
+const FANOUT_MODEL = {
+  'spec-reviewer': '$a',
+}
+MJS
   printf '%s' "$dst"
 }
 
