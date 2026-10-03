@@ -108,16 +108,28 @@ const tryAgent = async (prompt, opts) => {
   }
 }
 
+// Set once a retry on another family could not be dispatched; later retries then stay on the
+// same tier instead of spending a call on a model this account cannot reach.
+let otherFamilyDown = false
+
 // Dispatch with ONE retry (#916 D-5): a dead or unparseable first attempt is retried once on
-// `retryModel` (the other family when the run has one, else the same model).
+// `retryModel` (the other family when the run has one, else the same model). A retry on the other
+// family that cannot be dispatched at all (no access, dead) is not the retry D-5 promises: it
+// falls back once to the first attempt's model.
 const dispatch = async (prompt, valid, opts, retryModel) => {
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const model = attempt === 0 ? opts.model : retryModel
-    const label = attempt === 0 ? opts.label : `${opts.label} (retry)`
+  const crossRetry = retryModel !== opts.model
+  const models = [opts.model, crossRetry && otherFamilyDown ? opts.model : retryModel]
+  for (let attempt = 0; attempt < models.length; attempt++) {
+    const model = models[attempt]
+    const label = attempt === 0 ? opts.label : `${opts.label} (retry${attempt > 1 ? ', same tier' : ''})`
     const text = await tryAgent(prompt, { ...opts, model, label })
     const parsed = parseResult(text)
     if (parsed && valid(parsed)) return { result: parsed, model }
     if (text != null) events.push(`${label}: no parseable REVIEW_RESULT block`)
+    if (text == null && attempt === 1 && model !== opts.model) {
+      otherFamilyDown = true
+      models.push(opts.model)
+    }
   }
   return { result: null, model: null }
 }

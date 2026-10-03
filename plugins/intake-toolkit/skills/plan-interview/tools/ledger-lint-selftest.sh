@@ -816,6 +816,27 @@ fo_lint "${FO_OK/    | D-1 | Rate limit | 100\/min |/| D-7 | Rate limit | 100\/m
   && pass "(ll-fo9) unindented snapshot rows → 1, named" \
   || fail "(ll-fo9) unindented snapshot — rc=$rc err=$err"
 
+# (ll-fo10) each row-level rule broken in turn → 1, naming it: a blank Claim, a blank
+# Disposition, a 3-column row, and a tag that only starts with an enum word
+fo_row_case() { # fo_row_case <label> <replacement F-1 row> <expected stderr fragment>
+  fo_lint "${FO_OK/| F-1 | The worker retries a 409 forever | new | became D-1 |/$2}"
+  [[ "$rc" -eq 1 ]] && grep -qF "$3" <<< "$err" \
+    && pass "(ll-fo10) $1 → 1, named" \
+    || fail "(ll-fo10) $1 — rc=$rc err=$err"
+}
+fo_row_case 'blank Claim' '| F-1 |  | new | became D-1 |' 'empty Claim cell'
+fo_row_case 'blank Disposition' '| F-1 | The worker retries a 409 forever | new |  |' 'empty Disposition cell'
+fo_row_case '3-column row' '| F-1 | The worker retries a 409 forever | new |' 'malformed fan-out row'
+fo_row_case "tag 'newer'" '| F-1 | The worker retries a 409 forever | newer | became D-1 |' "tag 'newer' not in"
+
+# (ll-fo11) a '### Snapshot' that sits under another section does not count → 1
+fo_lint "$(grep -vF '### Snapshot' <<< "$FO_OK" | grep -v '^    ')"
+printf '\n## Notes\n\n### Snapshot\n\n    | D-1 | Rate limit | 100/min |\n' >> "$TMP/fo.md"
+ck_lint "$TMP/fo.md"
+[[ "$rc" -eq 1 ]] && grep -qF "no '### Snapshot' subsection" <<< "$err" \
+  && pass "(ll-fo11) a Snapshot outside the Fan-out section → 1, named" \
+  || fail "(ll-fo11) misplaced snapshot — rc=$rc err=$err"
+
 echo
 echo "[ledger-lint-selftest] summary: $PASS passed, $FAIL failed"
 exit $FAIL

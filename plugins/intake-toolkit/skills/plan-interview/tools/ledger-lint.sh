@@ -530,7 +530,9 @@ if (( RECEIPT == 1 )); then
         violate "Fan-out has no 'Tally:' line (rows added · snapshot claims overturned · questions added) — the tally is what the section exists to show"
       grep -qiE '^[[:space:]]*Refuter:[[:space:]]*.*[[:alnum:]]' <<< "$FANOUT_SEC" || \
         violate "Fan-out has no 'Refuter:' line — say which model family checked the claims (e.g. 'cross (fable)' or 'same-family (fable unavailable)')"
-      grep -qiE '^#{2,6}[[:space:]]+snapshot[[:space:]]*$' "$PLAN" || \
+      # section_of stops at the '### Snapshot' heading, so look for it between '## Fan-out' and
+      # the next '## ' heading rather than anywhere in the receipt.
+      awk 'tolower($0) ~ /^##[[:space:]]+fan-out/ {on=1; next} on && /^##[[:space:]]/ {on=0} on && tolower($0) ~ /^###+[[:space:]]+snapshot[[:space:]]*$/ {f=1} END {exit !f}' "$PLAN" || \
         violate "Fan-out has no '### Snapshot' subsection — the interviewer's pre-pool register, verbatim, is what makes the tags auditable"
       # The snapshot is a register too, so a pasted-as-is copy would be read as live ledger,
       # region and surface rows by every table scan above. Indenting it four spaces keeps it
