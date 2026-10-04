@@ -25,6 +25,27 @@ You elicit **design decisions from the engineer** (plan-authoring). You do NOT:
    (`/plan-interview <issue>`), launch the intake fan-out *at the start*, before exploring, so it
    runs while you explore. It never reads your work, so starting early costs nothing.
 
+   0. **Tell the operator first, and let them opt out.** Before anything else in pre-flight,
+      before exploring and before launching, give one notice and one question (`AskUserQuestion`,
+      the run option first). The notice says, in plain words:
+      - the fan-out runs by default on lane tickets;
+      - what it does: a sealed writer sets four angles and a pre-mortem; five lenses work them
+        blind, alternating Opus and Fable; every claim faces a refuter from the other family and
+        is dropped unless confirmed; what survives joins this interview as evidence;
+      - why: on consumer tickets whose intake decision was later reversed, intake with the pool
+        caught decisions plain intake missed;
+      - what it costs: it runs alongside exploration for up to 30 min, and questions start when
+        it returns; it uses Fable where the account has it (subscription usage) and Opus where it
+        does not;
+      - what is recorded: the receipt's `## Fan-out` shows what it added over plain intake.
+
+      The options are **Run the fan-out (default)** and **Skip it for this ticket**; the
+      operator may add a reason. On a skip, launch nothing and record exactly one line in the
+      receipt's `## Fan-out`: `Fan-out: skipped — by the operator at the pre-flight notice: <their
+      reason, or "no reason given">`. Ask once: an answer is not reopened later in the session.
+      A session with no `Workflow` tool asks nothing: it says the fan-out cannot run here and
+      records step 1's failed form.
+
    1. **Check for the `Workflow` tool.** If this session has none, record
       `Fan-out: failed — Workflow tool unavailable in this session` and go on without it.
    2. **Stage the script** the way intake-orchestrator stages `intake-review.mjs` (cross-plugin,
@@ -48,11 +69,10 @@ You elicit **design decisions from the engineer** (plan-authoring). You do NOT:
         with no reachable checkout goes in the receipt as `Checkouts: <repo> not available`.
       - `config` carries only `reviewers.modelOverrides` and `reviewers.tierMap`.
 
-      Tell the engineer once: "Running the
-      intake fan-out (5 lenses, up to 30 min) alongside exploration; questions start when it
-      returns." The script stops waiting after 30 minutes on its own and returns the failed form.
-   4. **The operator may skip it.** Record `Fan-out: skipped — by <operator>, <why>` and carry on.
-      Ad-hoc and plan-mode runs skip silently, and their plans carry no `## Fan-out`.
+      The notice in step 0 is the announcement; say nothing more at launch. The script stops
+      waiting after 30 minutes on its own and returns the failed form.
+   4. **Ad-hoc and plan-mode runs** skip it silently: no notice, and their plans carry no
+      `## Fan-out`.
 
    **Snapshot before you read the pool.** When exploring is done, write your register as it stands
    to `.claude/pipeline-state/{issue}-snapshot.md`. That is what plain intake would have gone in
