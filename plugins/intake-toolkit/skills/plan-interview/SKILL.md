@@ -21,6 +21,76 @@ You elicit **design decisions from the engineer** (plan-authoring). You do NOT:
 
 1. **Explore first.** Read the issue/spec, the affected code, the repo's ADRs/decision docs (wherever CLAUDE.md routes), and the Product-Essence Brief if one exists (`.claude/pipeline-state/{issue}-brief.md`). Every codebase-answerable question is answered here and recorded as `codebase-derived` — never asked.
 
+   **Fan-out (pipeline pre-flight only).** When this run is pre-flight for a lane ticket
+   (`/plan-interview <issue>`), launch the intake fan-out *at the start*, before exploring, so it
+   runs while you explore. It never reads your work, so starting early costs nothing.
+
+   0. **Tell the operator first, and let them opt out.** Before anything else in pre-flight,
+      before exploring and before launching, give one notice and one question (`AskUserQuestion`,
+      the run option first). The notice says, in plain words:
+      - the fan-out runs by default on lane tickets;
+      - what it does: a sealed writer sets four angles and a pre-mortem; five lenses work them
+        blind, alternating Opus and Fable; every claim faces a refuter from the other family and
+        is dropped unless confirmed; what survives joins this interview as evidence;
+      - why: on consumer tickets whose intake decision was later reversed, intake with the pool
+        caught decisions plain intake missed;
+      - what it costs: it runs alongside exploration for up to 30 min, and questions start when
+        it returns; it uses Fable where the account has it (subscription usage) and Opus where it
+        does not;
+      - what is recorded: the receipt's `## Fan-out` shows what it added over plain intake.
+
+      The options are **Run the fan-out (default)** and **Skip it for this ticket**; the
+      operator may add a reason. On a skip, launch nothing and record exactly one line in the
+      receipt's `## Fan-out`: `Fan-out: skipped — by the operator at the pre-flight notice: <their
+      reason, or "no reason given">`. Ask once: an answer is not reopened later in the session.
+      A session with no `Workflow` tool asks nothing: it says the fan-out cannot run here and
+      records step 1's failed form.
+
+   1. **Check for the `Workflow` tool.** If this session has none, record
+      `Fan-out: failed — Workflow tool unavailable in this session` and go on without it.
+   2. **Stage the script** the way intake-orchestrator stages `intake-review.mjs` (cross-plugin,
+      by name; `$SKILL_DIR` is this skill's base directory and `$SCRATCHPAD` the session's
+      scratchpad):
+
+      ```bash
+      SRC=$(find "$SKILL_DIR/../../../.." -path '*/review-toolkit/*' -path '*/workflows/intake-fanout.mjs' -not -path '*/fixtures/*' 2>/dev/null | sort -V | tail -1)
+      cp "$SRC" "$SCRATCHPAD/intake-fanout.mjs"
+      ```
+
+   3. **Launch it in the background** with `Workflow({ scriptPath, args })`. The args are
+      `{ issue, issueBody, readRoot, checkouts, protocol, probeDir, config }`:
+      - `protocol`: the absolute paths of this skill's `SKILL.md` and of
+        `interviewing-baseline/SKILL.md`. Every agent works under them, as in the measured run.
+      - `checkouts`: every other repo the change meets that has a local checkout (the frontend
+        that calls this backend, a client, a sibling service), each as `{ path, role }` with
+        `role` saying what it is, e.g. "The admin frontend that calls this backend". Find them
+        from the ticket and the repo's docs before launching: the measured run gave every agent
+        the consumer's checkout, and one of its two catches came from reading it. A consumer
+        with no reachable checkout goes in the receipt as `Checkouts: <repo> not available`.
+      - `config` carries only `reviewers.modelOverrides` and `reviewers.tierMap`.
+
+      The notice in step 0 is the announcement; say nothing more at launch. The script stops
+      waiting after 30 minutes on its own and returns the failed form.
+   4. **Ad-hoc and plan-mode runs** skip it silently: no notice, and their plans carry no
+      `## Fan-out`.
+
+   **Snapshot before you read the pool.** When exploring is done, write your register as it stands
+   to `.claude/pipeline-state/{issue}-snapshot.md`. That is what plain intake would have gone in
+   with. The snapshot stays out of the conversation: it is internal, never shown to the engineer
+   as a draft (P8 holds), and it reaches the record only inside the receipt's `## Fan-out`. Only
+   then read the fan-out's result, waiting for its completion notice if it is still
+   running. No question goes to the engineer before the pool is in, and none arrives between two
+   questions.
+
+   **Consume the pool like explore-first findings.** Verify what you need from each item's
+   pointer. An item becomes a register row, option, probed fact or question **only if it passes
+   the materiality bar in step 2**. Pool evidence may overturn a snapshot claim it contradicts.
+   Then write the receipt's `## Fan-out` section (schema in `interviewing-baseline`, "Fan-out"):
+   every item tagged against the snapshot with the angle that produced it, the tally, the
+   refuter family, the `Lenses:` line from the result's `lenses` (key, model, kept/made, or
+   `failed`), and the snapshot embedded verbatim, indented four spaces. If the result is `failed` or `partial`, say what failed
+   in the section; never drop it silently.
+
 2. **Build the decision register.** Admission = **materiality**. A decision enters the register only if it changes:
 
    *What the user gets* — the categories that go first because they are the ones an engineering-shaped register silently drops:
@@ -64,7 +134,8 @@ You elicit **design decisions from the engineer** (plan-authoring). You do NOT:
 
 ## Checks and design frames (pipeline pre-flight only)
 
-The receipt also carries the two sections the scheduler reads from the record's first commit —
+The receipt carries a mandated `## Fan-out` section (step 1's fan-out; schema in
+`interviewing-baseline`, "Fan-out"). It also carries the two sections the scheduler reads from the record's first commit —
 schema and empty forms in `interviewing-baseline` ("Checks", "Design frames"), enforced by
 `ledger-lint.sh --receipt`. Elicit both before writing it:
 

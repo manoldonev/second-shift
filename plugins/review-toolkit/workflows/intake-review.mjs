@@ -23,6 +23,7 @@ const DEFAULT_TIER_MAP = {
   reasoning: 'opus',
   code: 'sonnet',
   emit: 'haiku',
+  cross: 'fable',
 }
 
 const INTAKE_MODEL = {

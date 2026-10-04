@@ -9,7 +9,7 @@ Each LLM dispatch site names an abstract **tier**; this table is the authority t
 into a concrete dispatch token. The tier each agent actually runs at lives in two places that must
 stay in lockstep: each agent's `model:` frontmatter (the `agents/<name>.md` in whichever plugin
 ships that agent) and the two `.mjs` dispatch tables that re-state it (`REVIEWER_MODEL` in
-`workflows/code-review.mjs`, `INTAKE_MODEL` in `workflows/intake-review.mjs`). `check-model-tiers.sh`
+`workflows/code-review.mjs`, `INTAKE_MODEL` in `workflows/intake-review.mjs`, `FANOUT_MODEL` in `workflows/intake-fanout.mjs`). `check-model-tiers.sh`
 (this plugin's `scripts/check-model-tiers.sh`) enforces that lockstep at commit
 time.
 
@@ -24,6 +24,7 @@ checked.
 | reasoning | opus           | claude-opus-4-8   | Architectural reasoning, multi-domain synthesis |
 | code      | sonnet         | claude-sonnet-4-6 | Fast, capable code generation                   |
 | emit      | haiku          | claude-haiku-4-5  | Transcription-only structured-output sink       |
+| cross     | fable          | claude-fable-5-1  | A second model family for independent checks    |
 
 **Retargeting a tier per repo (`reviewers.tierMap`).** A consumer maps any tier to a different
 dispatch token in config — `"reviewers": { "tierMap": { "code": "haiku" } }`. The map **merges**
@@ -36,7 +37,27 @@ A consumer `tierMap` is never a lockstep failure. `check-model-tiers.sh` compare
 against the **shipped default** map, exactly as it already treats `modelOverrides` — a consumer
 resolving a tier differently is the feature, not drift.
 
-**Elevating a tier per repo (`fable`).** The shipped reasoning default stays `opus` for every dispatched agent — that is exactly what a consumer without Fable access keeps. A repo whose subscription includes Fable-class models may elevate individual judgment-dense agents through config `reviewers.modelOverrides` (e.g. `"plan-reviewer": "fable"`); the override wins over the shipped table at every dispatch site, so neither the tables nor any agent frontmatter changes. Two consequences to know before setting one. A tier the subscription cannot actually dispatch produces a dead reviewer, reported as dead rather than quietly skipped — loud, but yours to undo. And `fable` is **override-only**: in a shipped dispatch table or inline literal it is a `check-model-tiers.sh` `UNKNOWN-MODEL` error by design, which is what keeps the plugin defaults portable across consumers who do not have it.
+**Fable (`cross`).** Fable ships as the `cross` tier, and a shipped default names it wherever it
+is useful: where a measurement backs it, or where a second model family is the point of the check.
+There is no rule that shipped defaults stay `opus`. Two conditions travel with every use:
+
+- **The dispatcher degrades.** A consumer without Fable access must lose a call, never an agent:
+  an engine that dispatches at `cross` falls back to `reasoning` when the dispatch fails, and the
+  record says so. `intake-fanout.mjs` does this. `code-review.mjs` and `intake-review.mjs` do not
+  yet, which is why their agents stay at `reasoning` until they do.
+- **The record says what was measured.** Fable as a second family is read against the published
+  finding that two families from one provider still share many errors; a default that cites the
+  other family as independent must have measured it.
+
+Where it ships today: the intake fan-out (#916) runs its four angles alternating `reasoning` and
+`cross`, its pre-mortem at `cross`, and refutes every claim on the family that did not make it,
+the arm its consumer replay measured. Without Fable it runs every lens and refuter at `reasoning`
+after two failed `cross` dispatches and records `same-family (fable unavailable)`.
+
+A repo still retargets per agent through `reviewers.modelOverrides` (e.g. `"plan-reviewer": "fable"`)
+or per tier through `reviewers.tierMap` (`"cross": "opus"` turns Fable off). A tier the
+subscription cannot dispatch, set by override on an engine that does not degrade, produces a dead
+reviewer, reported as dead rather than quietly skipped.
 
 ## Anonymous-executor tiers
 

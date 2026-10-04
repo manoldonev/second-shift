@@ -123,6 +123,8 @@ OPEN_EMPTY_FORM='No open regions — every decision in scope is ratified.'
 SURFACE_DISPOSITION_ENUM='decided|out-of-scope'
 SURFACE_EMPTY_FORM='No user-visible surface — this change renders nothing a user reads.'
 CHECKS_EMPTY_FORM='No ticket-specific checks — the configured lanes cover this change.'
+FANOUT_TAG_ENUM='new|already-had|overturned|not material'
+FANOUT_EMPTY_POOL='Pool: empty — no claim survived refutation.'
 
 # The scheduler's section reader, its awk byte for byte (run.sh `section_of`): exact title at
 # any depth, case-folded, ANY heading closes, the FIRST such section decides. The lint must
@@ -289,6 +291,7 @@ OPEN_ROW_COUNT=0
 SURFACE_ROW_COUNT=0
 CHECK_COUNT=0
 FRAME_ROW_COUNT=0
+FANOUT_ROW_COUNT=0
 if (( RECEIPT == 1 )); then
   declare -a OPEN_IDS=()
   if ! grep -qiE '^(#{1,6}[[:space:]]+|\*\*)[[:space:]]*open regions' "$PLAN"; then
@@ -507,6 +510,78 @@ if (( RECEIPT == 1 )); then
   if [[ -n "$PROVIDER" ]] && (( FRAME_ROW_COUNT == 0 && DISARMED == 0 )); then
     violate "config sets design.provider '$PROVIDER', so the receipt needs a Design frames section carrying at least one '| RS-n | route | state | frame | must-show |' row, or the disarm 'Design: none — <reason>'"
   fi
+
+  # ---- Receipt check G: the fan-out section (#916) ------------------------------------
+  # What the intake fan-out achieved over plain intake, per ticket: each surviving evidence
+  # item tagged against the interviewer's pre-pool snapshot, a tally, and the snapshot itself
+  # so the tags stay auditable from the committed record. A receipt that ran no fan-out says
+  # so — skipped (by whom) or failed (what) — because an absent section reads exactly like a
+  # fan-out nobody ran and nobody recorded.
+  if ! has_section 'fan-out' "$PLAN"; then
+    violate "missing mandated receipt section: Fan-out (the tagged evidence pool with its Tally, Refuter and Snapshot, or one explicit form: 'Fan-out: skipped — <by whom / why>' or 'Fan-out: failed — <what>')"
+  else
+    FANOUT_SEC="$(section_of 'fan-out' "$PLAN")"
+    if grep -qiE '^[[:space:]]*Fan-out:[[:space:]]*(skipped|failed)[[:space:]]+.*[[:alnum:]]' <<< "$FANOUT_SEC"; then
+      : # an explicit, reasoned skip or failure is the whole section
+    elif grep -qiE '^[[:space:]]*Fan-out:[[:space:]]*(skipped|failed)' <<< "$FANOUT_SEC"; then
+      violate "Fan-out states a skip or failure without saying who or what — the forms are 'Fan-out: skipped — <by whom / why>' and 'Fan-out: failed — <what>'"
+    else
+      grep -qiE '^[[:space:]]*Tally:[[:space:]]*.*[[:alnum:]]' <<< "$FANOUT_SEC" || \
+        violate "Fan-out has no 'Tally:' line (rows added · snapshot claims overturned · questions added) — the tally is what the section exists to show"
+      grep -qiE '^[[:space:]]*Refuter:[[:space:]]*.*[[:alnum:]]' <<< "$FANOUT_SEC" || \
+        violate "Fan-out has no 'Refuter:' line — say which model family checked the claims (e.g. 'cross (opus/fable alternating)' or 'same-family (fable unavailable)')"
+      grep -qiE '^[[:space:]]*Lenses:[[:space:]]*.*[[:alnum:]]' <<< "$FANOUT_SEC" || \
+        violate "Fan-out has no 'Lenses:' line — name every lens the run dispatched, the model it ran on and claims kept of claims made, so a lens that never contributes shows in the record"
+      # section_of stops at the '### Snapshot' heading, so look for it between '## Fan-out' and
+      # the next '## ' heading rather than anywhere in the receipt.
+      awk 'tolower($0) ~ /^##[[:space:]]+fan-out/ {on=1; next} on && /^##[[:space:]]/ {on=0} on && tolower($0) ~ /^###+[[:space:]]+snapshot[[:space:]]*$/ {f=1} END {exit !f}' "$PLAN" || \
+        violate "Fan-out has no '### Snapshot' subsection — the interviewer's pre-pool register, verbatim, is what makes the tags auditable"
+      # The snapshot is a register too, so a pasted-as-is copy would be read as live ledger,
+      # region and surface rows by every table scan above. Indenting it four spaces keeps it
+      # verbatim (markdown renders it as a code block) and out of those scans.
+      if awk 'tolower($0) ~ /^#+[[:space:]]+snapshot[[:space:]]*$/ {on=1; next} on && /^#+[[:space:]]/ {on=0} on && /^\|/ {bad=1} END {exit !bad}' "$PLAN"; then
+        violate "Fan-out's Snapshot carries unindented table rows — indent the snapshot four spaces (a code block), or its rows are read as this receipt's own ledger"
+      fi
+      while IFS= read -r line; do
+        masked="${line//\\|/__LEDGER_LINT_PIPE__}"
+        IFS='|' read -r -a cells <<< "$masked"
+        ncells="$(normalize_arity "${#cells[@]}" "${cells[$(( ${#cells[@]} - 1 ))]}" 6)"
+        if (( ncells != 6 )); then
+          violate "malformed fan-out row (expected 5 columns: ID | Angle | Claim | Tag | Disposition): $line"
+          continue
+        fi
+        f_id="$(trim "${cells[1]}")"
+        f_tag="$(trim "${cells[4]}")"
+        f_disp="$(trim "${cells[5]}")"
+        FANOUT_ROW_COUNT=$((FANOUT_ROW_COUNT + 1))
+        [[ -n "$(trim "${cells[2]}")" ]] || violate "$f_id row has an empty Angle cell — name the lens that produced the item"
+        [[ -n "$(trim "${cells[3]}")" ]] || violate "$f_id row has an empty Claim cell"
+        f_token=""
+        if [[ "$f_tag" =~ ^(${FANOUT_TAG_ENUM})([^A-Za-z0-9-]|$) ]]; then
+          f_token="${BASH_REMATCH[1]}"
+        fi
+        case "$f_token" in
+          overturned)
+            [[ "${f_tag#overturned}" =~ [A-Za-z0-9] ]] || \
+              violate "$f_id row: tag 'overturned' must name the snapshot claim it overturned"
+            ;;
+          new|already-had|'not material') ;;
+          *) violate "$f_id row: tag '$f_tag' not in {${FANOUT_TAG_ENUM//|/ | }}" ;;
+        esac
+        if [[ -z "$f_disp" ]]; then
+          violate "$f_id row has an empty Disposition cell — say what became of the item (the D-n it became, or why it did not)"
+        fi
+        for d_ref in $(printf '%s' "$f_disp" | grep -oE 'D-[0-9]+' || true); do
+          found=0
+          for d_id in "${ROW_IDS[@]}"; do [[ "$d_id" == "$d_ref" ]] && { found=1; break; }; done
+          (( found == 1 )) || violate "$f_id row cites decision '$d_ref', which the Decision Ledger does not declare"
+        done
+      done < <(grep -E '^\|[[:space:]]*F-[0-9]+[[:space:]]*\|' <<< "$FANOUT_SEC" || true)
+      if (( FANOUT_ROW_COUNT == 0 )) && ! grep -qF "$FANOUT_EMPTY_POOL" <<< "$FANOUT_SEC"; then
+        violate "Fan-out has no 'F-n' rows and no empty-pool line ('$FANOUT_EMPTY_POOL')"
+      fi
+    fi
+  fi
 fi
 
 echo "ledger-lint: ${ROW_COUNT} ledger row(s)"
@@ -515,6 +590,7 @@ if (( RECEIPT == 1 )); then
   echo "ledger-lint: ${SURFACE_ROW_COUNT} surface(s)"
   echo "ledger-lint: ${CHECK_COUNT} check(s)"
   echo "ledger-lint: ${FRAME_ROW_COUNT} design frame(s)"
+  echo "ledger-lint: ${FANOUT_ROW_COUNT} fan-out item(s)"
 fi
 if (( VIOLATIONS > 0 )); then
   echo "ledger-lint: FAIL — $VIOLATIONS violation(s)" >&2
