@@ -189,8 +189,10 @@ lane itself does not lint at startup, so re-run one of them after hand-editing t
   ```
 
 - **Optional: a GitHub-App bot identity.** With one, the lane's own writes — the claim, commits,
-  the run block on the PR — are authored by the bot rather than your personal identity. You need
-  a GitHub App (issues+contents write) and its private key; the dev-pipeline plugin ships the
+  the run block on the PR, the `second-shift/review` commit status — are authored by the bot
+  rather than your personal identity. You need a GitHub App (issues + contents + commit statuses
+  write; without "Commit statuses: write" the run block says the status was not posted) and its
+  private key; the dev-pipeline plugin ships the
   bootstrap — resolve the plugin root via `claude plugin list --json` → `installPath`, then run
   its `tools/install-gh-bot.sh` — and set `tracker.bot.enabled: true`. Once enabled, a broken
   wrapper stops the run (`env-bot`) rather than writing as you in the bot's place.

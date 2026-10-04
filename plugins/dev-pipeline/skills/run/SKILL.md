@@ -44,7 +44,8 @@ env, phases and the exit table. It is the truth; this file only says what is you
 
 - **Never re-label a ticket to get past a reject.** A ticket the lane claimed re-enters on its own
   claim marker; a blocker label is someone's decision, not an obstacle.
-- **You author nothing.** Claim, record commit, cost block and closing comment are `R`'s writes
+- **You author nothing.** Claim, record commit, cost block, the `second-shift/review` commit
+  status on each bound verdict's head, and closing comment are `R`'s writes
   (through the bot when one is configured); code and PR are the build session's; the verdict is the
   review session's. A write of yours would be a third identity in that record.
 - **Never interpret a finding.** The terminal is the signal. Reading the verdict to decide what

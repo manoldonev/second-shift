@@ -72,6 +72,10 @@ report() { # $1 label, $2 config fixture, $3 extra-present (optional), $4 extra-
 
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 echo '{}' > "$TMP/empty-user-settings.json"
+# Hermetic: doctor's one gh read (is second-shift/review required?) goes to a fake. The default
+# fake is offline; the review-status scenarios below swap in one that answers.
+printf '#!/usr/bin/env bash\nexit 1\n' > "$TMP/gh-offline"; chmod +x "$TMP/gh-offline"
+export DOCTOR_GH="$TMP/gh-offline"
 # Fake install tree mirroring the cache layout. Skill dir names are REAL plugin skill names —
 # the shadow scan compares against these basenames.
 INSTALL="$TMP/cache"
@@ -302,6 +306,32 @@ grep -q "context-coverage:" <<< "$ccout" && check "context-coverage resolved -> 
 ccout2="$(env "${ccenv[@]}" SECOND_SHIFT_REVIEW_TOOLKIT_ROOT="" bash "$DOCTOR" --report 2>&1)" || true
 grep -q "review-toolkit not resolved" <<< "$ccout2" && check "context-coverage unresolved -> fallback line" 0 \
   || { check "context-coverage unresolved -> fallback line" 1; echo "$ccout2" | grep -A2 'context coverage' | sed 's/^/      /'; }
+
+# --- is the second-shift/review status required? (#915 D-9) — informational in every arm ---------
+# The fake answers `repo view`, then the classic branch read and the rulesets read with whatever
+# $GH_CLASSIC / $GH_RULES hold; a value of FAIL makes that read fail (no admin, offline mid-run).
+cat > "$TMP/gh-protect" <<'EOF'
+#!/usr/bin/env bash
+case "$1 $2" in
+  "repo view") echo "o/r main" ;;
+  "api repos/o/r/branches/main") [ "$GH_CLASSIC" = FAIL ] && exit 1; printf '%s\n' "$GH_CLASSIC" | grep . || true ;;
+  "api repos/o/r/rules/branches/main") [ "$GH_RULES" = FAIL ] && exit 1; printf '%s\n' "$GH_RULES" | grep . || true ;;
+  *) exit 1 ;;
+esac
+EOF
+chmod +x "$TMP/gh-protect"
+scenario rs-offline       plugin-list-green.json   settings-green.json     marketplace-list-pinned.json  0 "whether the default branch requires the second-shift/review status is unknown: the GitHub repo could not be read"
+DOCTOR_GH="$TMP/no-such-gh" \
+scenario rs-no-gh         plugin-list-green.json   settings-green.json     marketplace-list-pinned.json  0 "second-shift/review status is unknown: gh is not installed"
+DOCTOR_GH="$TMP/gh-protect" GH_CLASSIC="second-shift/review" GH_RULES="" \
+scenario rs-classic       plugin-list-green.json   settings-green.json     marketplace-list-pinned.json  0 "OK    default branch main requires the second-shift/review status"
+DOCTOR_GH="$TMP/gh-protect" GH_CLASSIC="ci" GH_RULES="second-shift/review" \
+scenario rs-ruleset       plugin-list-green.json   settings-green.json     marketplace-list-pinned.json  0 "OK    default branch main requires the second-shift/review status"
+# the retired context is not the new one: a stale requirement never reads as this one satisfied
+DOCTOR_GH="$TMP/gh-protect" GH_CLASSIC="second-shift evidence" GH_RULES="" \
+scenario rs-not-required  plugin-list-green.json   settings-green.json     marketplace-list-pinned.json  0 "note  default branch main does not require the second-shift/review status"
+DOCTOR_GH="$TMP/gh-protect" GH_CLASSIC="second-shift/review" GH_RULES=FAIL \
+scenario rs-unreadable    plugin-list-green.json   settings-green.json     marketplace-list-pinned.json  0 "status is unknown: the protection of main could not be read"
 
 if [[ "$FAILS" -gt 0 ]]; then echo "doctor selftest: $FAILS FAILURE(S)"; exit 1; fi
 echo "doctor selftest: all green"

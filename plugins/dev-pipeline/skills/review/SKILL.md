@@ -6,7 +6,8 @@ description: The REVIEW half of the pipeline — review an open pipeline PR from
 # review
 
 Input a PR number. Output **one PR comment**: two fixed lines, the record's row table, then the
-findings. Nothing is committed.
+findings — and the same verdict as the `second-shift/review` commit status on the sha it names.
+Nothing is committed.
 
 This runs as its own top-level session, and that is the entire point: the session that wrote the
 code does not grade it. Never run it inside the build's session, and never resume an earlier
@@ -14,8 +15,8 @@ review's context.
 
 > **Tracker delta (`tracker.type: jira`).** The checklist is the github default. Under jira the
 > ticket key resolves from `Closes [<KEY>]` under the PR body's `### Jira Items` heading, not
-> `Closes #N`. The verdict comment is a code-host write, not a tracker one, so it posts the same
-> under both adapters. Nothing else differs.
+> `Closes #N`. The verdict comment and its commit status are code-host writes, not tracker ones,
+> so they post the same under both adapters. Nothing else differs.
 > [Adapter contract](../../tools/tracker/jira/README.md).
 
 ## Checklist
@@ -58,7 +59,15 @@ review's context.
    `verdict: needs-work`; its second line is exactly `reviewed: <the full sha from step 2>`. Then
    the row table, then the findings. `approve` iff there are no blockers. The format matches the
    lane's own verdicts, but no scheduler reads this one: a finished run has exited, and a re-launch
-   builds before it reviews. It is for the human who decides the merge. Never edit it. Then stop.
+   builds before it reviews. It is for the human who decides the merge. Never edit it.
+   Then re-check `headRefOid`. If it is no longer the sha on your `reviewed:` line, the head moved
+   under your review: post no status, and say so in a plain PR comment. Otherwise post the same
+   verdict as a commit status on that sha, with the same `gh` (the bot when `--status` is `ok`):
+   `gh api -X POST repos/<owner>/<repo>/statuses/<sha> -f state=<success|failure> -f context=second-shift/review -f target_url=<your comment's URL> -f description='<approved|needs-work> at this head — see the verdict'`
+   — `success` for approve, `failure` for needs-work. A consumer that requires
+   `second-shift/review` in branch protection cannot merge a PR without it. If the post fails,
+   say so in a plain PR comment (a 403/404 through the bot means its GitHub App lacks
+   "Commit statuses: write"); never retry it as yourself in the bot's place. Then stop.
 
 ## Rules that are not negotiable
 

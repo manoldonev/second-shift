@@ -143,9 +143,13 @@ but no longer changes behavior. A setup lane's `cwd` is a path under the worktre
   `.claude/tools/second-shift-ci-check.sh`, and any `second-shift-delta-guard.*` you copied (the
   script and its workflow). Also drop `second-shift evidence` from the required status checks in
   branch protection, and any `needs:`/`if:` wiring to `second-shift-delta-guard` in your own
-  workflows; otherwise every PR waits on a check that never reports. Nothing replaces them: never
-  self-merging stays a human rule, and the review's verdict is a PR comment
-  (`verdict: approve|needs-work`, `reviewed: <sha>`).
+  workflows; otherwise every PR waits on a check that never reports. No consumer CI replaces
+  them: never self-merging stays a human rule, and the review's verdict is a PR comment
+  (`verdict: approve|needs-work`, `reviewed: <sha>`). The lane posts that bound verdict as the
+  `second-shift/review` commit status on the reviewed sha, with no workflow file of yours. It is
+  a different name from `second-shift evidence` on purpose, so a stale requirement is never
+  quietly satisfied: to require the review at merge, add `second-shift/review` to the required
+  checks (see [`team-rollout.md`](../team-rollout.md#what-is-a-gate-here)).
   `/second-shift:doctor` flags any of these that are still installed, and any `LANE_VERDICT_SUFFIX`
   reference under `.github/` or `.claude/`.
 - **`/dev-pipeline:build` no longer drives the milestone gates.** `/dev-pipeline:run <ticket>`

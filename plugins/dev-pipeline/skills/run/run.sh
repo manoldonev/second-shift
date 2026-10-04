@@ -32,7 +32,8 @@
 #   6 rounds     (premise; worktree at the pushed head; BUILD; in-flight check; one PR;
 #                 conventions; checks from the first commit; route smoke; review input;
 #                 REVIEW in a fresh session, re-spawned once when dark; verdict bound to the
-#                 review window, unedited, naming the current head)
+#                 review window, unedited, naming the current head; the bound verdict posted
+#                 as the `second-shift/review` commit status on that head)
 #   7 close-out  (run block on the PR at every terminal once one exists; closing comment
 #                 when the run claimed; teardown of a clean worktree on approve)
 #
@@ -595,11 +596,33 @@ verdict() { # verdict <start-iso> <end-iso> -> prints approve|needs-work and sav
         | select((.user.type // "") == "Bot" or (($me != "") and ((.user.login // "") == $me)))
         | select((.body | split("\n")[0]) | test("^verdict: (approve|needs-work)$"))
         | select((.body | split("\n")[1]) == ("reviewed: " + $h))
-        | (.body | split("\n")[0] | sub("^verdict: ";"")) + "\t" + (.body | @base64)' \
+        | (.body | split("\n")[0] | sub("^verdict: ";"")) + "\t" + (.body | @base64) + "\t" + (.html_url // "")' \
     | tail -n 1 > "$STATE/verdict.tsv"
   [ -s "$STATE/verdict.tsv" ] || return 1
   cut -f2 "$STATE/verdict.tsv" | base64 --decode > "$STATE/verdict-body.md"
   cut -f1 "$STATE/verdict.tsv"
+}
+# -- the review status (#915 D-1 D-3 D-4 D-5 D-7): the BOUND verdict as a commit status on the sha it names. Called only
+# after the head-moved check, so a voided verdict posts nothing; a failed post is reported in the run block, never fatal --
+STATUS_CONTEXT="second-shift/review"; STATUS_NOTES=""
+review_status() {
+  local state desc repo url err why args
+  case "$VERDICT" in
+    approve) state=success; desc="approved at this head — see the verdict" ;;
+    needs-work) state=failure; desc="needs-work at this head — see the verdict" ;;
+    *) return 0 ;;
+  esac
+  url="$(cut -f3 "$STATE/verdict.tsv" 2>/dev/null)"
+  args=(-f "state=$state" -f "context=$STATUS_CONTEXT" -f "description=$desc"); [ -z "$url" ] || args+=(-f "target_url=$url")
+  if ! repo="$(repo_slug)"; then why="the repo slug could not be read"
+  elif err="$("$GH" api -X POST "repos/$repo/statuses/$HEAD_SHA" "${args[@]}" 2>&1 >/dev/null)"; then
+    STATUS_NOTES="${STATUS_NOTES}status: $STATUS_CONTEXT=$state on $HEAD_SHA"$'\n'; say "status: $STATUS_CONTEXT=$state posted on $HEAD_SHA"; return 0
+  else
+    why="$(printf '%s' "$err" | tr '\n' ' ' | cut -c1-200)"
+    # never retried as the operator: a configured bot that cannot write statuses is the App's missing permission
+    [ "$BOT_OK" -eq 1 ] && grep -qE 'HTTP 40[34]' <<<"$err" && why="$why — the bot's GitHub App needs the 'Commit statuses: write' permission"
+  fi
+  STATUS_NOTES="${STATUS_NOTES}status: NOT posted ($STATUS_CONTEXT=$state on $HEAD_SHA) — $why"$'\n'; say "status: NOT posted on $HEAD_SHA — $why"
 }
 # -- the run block (rows E14-E16, I13, I14): in the PR BODY under the old lane's marker, at every terminal once a PR exists --
 cost_block() { # <terminal slug>
@@ -607,6 +630,7 @@ cost_block() { # <terminal slug>
   echo "## second-shift run"; echo
   echo "| run | outcome | rounds | verdict | reviewed head | cost | CI |"; echo "| --- | --- | --- | --- | --- | --- | --- |"
   echo "| $RUN_ID | $1 | $ROUND | ${VERDICT:-none} | ${HEAD_SHA:-—} | \$$(usd "$COST")${UNPRICED:+ + unpriced} | $CI |"; echo
+  [ -z "$STATUS_NOTES" ] || printf '%s' "$STATUS_NOTES" | awk '{print; print ""}'   # one paragraph per bound verdict's status post
   echo "| session | turns | cost |"; echo "| --- | --- | --- |"
   local f n c; for f in "$STATE"/build-*.json "$STATE"/review-*.json; do
     [ -f "$f" ] || continue; n="$(basename "$f" .json)"; c="$(jq -r '.total_cost_usd | numbers' "$f" 2>/dev/null)"
@@ -818,6 +842,7 @@ while :; do
     over_ceiling && terminal cost-spent "\$$(usd_up "$COST") exceeds the \$$COST_CEIL ceiling"
   done
   say "verdict: $VERDICT (reviewed $HEAD_SHA)"
+  review_status
   [ "$VERDICT" = approve ] && break
   # row H13: a review that could not render is the environment's failure, not the build's — no round is spent
   awk '{ sub(/\r$/, "") } $0 == "reason: render-unavailable" { f = 1 } END { exit !f }' "$STATE/verdict-body.md" \
