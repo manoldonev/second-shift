@@ -4,6 +4,72 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v15.3.0
+
+### `dev-pipeline` 15.2.1 → 15.3.0
+
+- **fix(dev-pipeline): the run's tracker comment never carries a local path (#917)** (#917)
+  the scheduler's closing comment on the ticket no longer carries
+  local filesystem paths (worktree, checkout, home directory); the full
+  detail stays in the local run log.
+  Migration: none. Earlier comments are not rewritten; delete or redact them
+  by hand.
+- **feat(dev-pipeline): post the bound verdict as the second-shift/review commit status (#919)** (#919)
+  /dev-pipeline:run and /dev-pipeline:review post each bound verdict
+  as the `second-shift/review` commit status on the reviewed sha; a push after
+  the review leaves the new head without it. Require it in branch protection to
+  make it binding. Doctor reports whether the default branch requires it.
+  Migration: a configured bot's GitHub App needs "Commit statuses: write".
+
+### `intake-toolkit` 6.0.1 → 6.1.0
+
+- **feat(intake-toolkit): intake fan-out at plan-interview pre-flight, with a per-receipt value section (#918)** (#918)
+  plan-interview pre-flight now runs an intake fan-out before the
+  first question and records what it added over plain intake in a new
+  mandated `## Fan-out` receipt section (tally, tagged evidence, snapshot).
+  Migration: none. Receipts are linted only where they are written; existing
+  receipts are not re-checked.
+  plan-interview pre-flight's intake fan-out runs its lenses
+  alternating opus and fable and refutes each claim on the other family, as
+  measured; without Fable access it runs on opus and says so in the receipt.
+  The receipt's `## Fan-out` gains an Angle column and a `Lenses:` line.
+  Fable is no longer override-only: it ships as the `cross` tier where the
+  dispatcher degrades to opus.
+  Migration: none.
+  lane pre-flight opens with a notice that the intake fan-out runs
+  by default, what it does and costs, and an opt-out for the ticket; an
+  opt-out is recorded in the receipt's `## Fan-out`.
+  Migration: none.
+
+### `review-toolkit` 9.1.0 → 9.2.0
+
+- **feat(intake-toolkit): intake fan-out at plan-interview pre-flight, with a per-receipt value section (#918)** (#918)
+  plan-interview pre-flight now runs an intake fan-out before the
+  first question and records what it added over plain intake in a new
+  mandated `## Fan-out` receipt section (tally, tagged evidence, snapshot).
+  Migration: none. Receipts are linted only where they are written; existing
+  receipts are not re-checked.
+  plan-interview pre-flight's intake fan-out runs its lenses
+  alternating opus and fable and refutes each claim on the other family, as
+  measured; without Fable access it runs on opus and says so in the receipt.
+  The receipt's `## Fan-out` gains an Angle column and a `Lenses:` line.
+  Fable is no longer override-only: it ships as the `cross` tier where the
+  dispatcher degrades to opus.
+  Migration: none.
+  lane pre-flight opens with a notice that the intake fan-out runs
+  by default, what it does and costs, and an opt-out for the ticket; an
+  opt-out is recorded in the receipt's `## Fan-out`.
+  Migration: none.
+
+### `second-shift` 11.2.0 → 11.3.0
+
+- **feat(dev-pipeline): post the bound verdict as the second-shift/review commit status (#919)** (#919)
+  /dev-pipeline:run and /dev-pipeline:review post each bound verdict
+  as the `second-shift/review` commit status on the reviewed sha; a push after
+  the review leaves the new head without it. Require it in branch protection to
+  make it binding. Doctor reports whether the default branch requires it.
+  Migration: a configured bot's GitHub App needs "Commit statuses: write".
+
 ## v15.2.1
 
 ### `dev-pipeline` 15.2.0 → 15.2.1
