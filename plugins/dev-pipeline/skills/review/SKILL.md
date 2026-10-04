@@ -21,8 +21,15 @@ review's context.
 
 ## Checklist
 
-1. `gh pr view <pr> --json number,headRefName,headRefOid,body,url` — the body names the ticket
-   (`Closes #N`) and links the decision record (`<plansDir>/<repo>-<key>-decisions.md`).
+1. `gh pr view <pr> --json number,headRefName,headRefOid,url`, then take only the body's
+   reference lines, not its prose:
+   `gh pr view <pr> --json body --jq '.body | split("\n")[] | select(test("^\\s*(closes|fixes|resolves)\\b|^Record baseline:|decisions\\.md"; "i"))'`.
+   Those lines name the ticket (`Closes #N`), the `Record baseline:` and the decision record
+   (`<plansDir>/<repo>-<key>-decisions.md`). **Read the build's own account last.** The PR
+   description and the build's PR comments are read only after step 5's scores and step 6's
+   findings are written, to reconcile the departures and rebuttals they state. An author's
+   framing measurably lowers what a reviewer finds. If that reading changes a score or a finding,
+   say so in the verdict: `revised after reading the build's account: <what changed>`.
 2. Check out the PR head and confirm `git rev-parse HEAD` equals `headRefOid`. That sha is the one
    you review and the one you name.
 3. **Read the record at its first commit and at the head.** The first commit is the one that added
