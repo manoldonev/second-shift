@@ -37,8 +37,18 @@ You elicit **design decisions from the engineer** (plan-authoring). You do NOT:
       ```
 
    3. **Launch it in the background** with `Workflow({ scriptPath, args })`. The args are
-      `{ issue, issueBody, readRoot, probeDir, config }`; `config` carries only
-      `reviewers.modelOverrides` and `reviewers.tierMap`. Tell the engineer once: "Running the
+      `{ issue, issueBody, readRoot, checkouts, protocol, probeDir, config }`:
+      - `protocol`: the absolute paths of this skill's `SKILL.md` and of
+        `interviewing-baseline/SKILL.md`. Every agent works under them, as in the measured run.
+      - `checkouts`: every other repo the change meets that has a local checkout (the frontend
+        that calls this backend, a client, a sibling service), each as `{ path, role }` with
+        `role` saying what it is, e.g. "The admin frontend that calls this backend". Find them
+        from the ticket and the repo's docs before launching: the measured run gave every agent
+        the consumer's checkout, and one of its two catches came from reading it. A consumer
+        with no reachable checkout goes in the receipt as `Checkouts: <repo> not available`.
+      - `config` carries only `reviewers.modelOverrides` and `reviewers.tierMap`.
+
+      Tell the engineer once: "Running the
       intake fan-out (5 lenses, up to 30 min) alongside exploration; questions start when it
       returns." The script stops waiting after 30 minutes on its own and returns the failed form.
    4. **The operator may skip it.** Record `Fan-out: skipped — by <operator>, <why>` and carry on.
@@ -56,8 +66,9 @@ You elicit **design decisions from the engineer** (plan-authoring). You do NOT:
    pointer. An item becomes a register row, option, probed fact or question **only if it passes
    the materiality bar in step 2**. Pool evidence may overturn a snapshot claim it contradicts.
    Then write the receipt's `## Fan-out` section (schema in `interviewing-baseline`, "Fan-out"):
-   every item tagged against the snapshot, the tally, the refuter family, and the snapshot
-   embedded verbatim, indented four spaces. If the result is `failed` or `partial`, say what failed
+   every item tagged against the snapshot with the angle that produced it, the tally, the
+   refuter family, the `Lenses:` line from the result's `lenses` (key, model, kept/made, or
+   `failed`), and the snapshot embedded verbatim, indented four spaces. If the result is `failed` or `partial`, say what failed
    in the section; never drop it silently.
 
 2. **Build the decision register.** Admission = **materiality**. A decision enters the register only if it changes:

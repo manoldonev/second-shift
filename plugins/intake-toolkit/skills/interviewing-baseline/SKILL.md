@@ -220,9 +220,10 @@ section.
 ### Fan-out
 
 The intake fan-out (`review-toolkit/workflows/intake-fanout.mjs`, run by `plan-interview`
-pre-flight) hands the interviewer a pool of evidence items, each one kept only after a refuter of
-another model family failed to break it. The receipt's mandated `## Fan-out` section shows what
-that pool achieved **over plain intake**, ticket by ticket. It has three parts:
+pre-flight) hands the interviewer a pool of evidence items, each one kept only after a refuter
+from the model family that did not make it failed to break it. The receipt's mandated `## Fan-out`
+section shows what that pool achieved **over plain intake**, ticket by ticket, and which lens
+produced it. It has four parts:
 
 - **Tag every item against the snapshot.** Before reading the pool, the interviewer writes down
   its own explore-first register. That snapshot is what plain intake would have gone in with.
@@ -232,26 +233,31 @@ that pool achieved **over plain intake**, ticket by ticket. It has three parts:
   - `overturned (<the snapshot claim>)`: it contradicted something the snapshot asserted;
   - `not material`: it does not pass the materiality bar.
 
-  Its disposition cell says what became of it: the `D-n` it became, or why it did not.
-- **Head the section with a tally,** and with the model family that refuted:
+  Its `Angle` cell names the lens that produced it, and its disposition cell says what became of
+  it: the `D-n` it became, or why it did not.
+- **Head the section with a tally,** the refuter family, and one `Lenses:` line giving every lens
+  the run dispatched — its key, the model it ran on, and claims kept of claims made (or `failed`).
+  A lens that produced nothing still appears there, so a seat that never moves an outcome shows up
+  in the record:
 
   ```
   ## Fan-out
 
-  Refuter: cross (fable)
+  Refuter: cross (opus/fable alternating)
+  Lenses: retry-semantics opus 2/5 · storage-limits fable 1/4 · auth-scope opus 0/3 · audit-trail fable 0/2 · premortem fable 1/6
   Tally: rows added 1 · snapshot claims overturned 1 · questions added 1
 
-  | ID | Claim | Tag | Disposition |
-  | --- | --- | --- | --- |
-  | F-1 | The admin client sends only get/post/put/delete (`api/client.ts:40`) | new | became D-1 |
-  | F-2 | Past dates are grandfathered across all options (`service.ts:118`) | overturned (snapshot: "per-option rule") | became D-4 |
-  | F-3 | The list sorts client-side | not material | not material — capped at 50 rows |
+  | ID | Angle | Claim | Tag | Disposition |
+  | --- | --- | --- | --- | --- |
+  | F-1 | retry-semantics | The import job retries a 409 without a limit (`jobs/import.ts:88`) | new | became D-1 |
+  | F-2 | storage-limits | Uploads over 20 MB are cut at the proxy (`deploy/proxy.conf:12`) | overturned (snapshot: "no size limit applies") | became D-3 |
+  | F-3 | premortem | The export list sorts client-side | not material | not material — capped at 50 rows |
 
   ### Snapshot
 
       | ID | Decision | Resolution |
       | --- | --- | --- |
-      | D-1 | Status write route | PATCH /:id/status |
+      | D-1 | Import retry policy | retry until success |
   ```
 
 - **Embed the snapshot verbatim, indented four spaces,** under `### Snapshot`. Indentation keeps
@@ -259,8 +265,8 @@ that pool achieved **over plain intake**, ticket by ticket. It has three parts:
   own ledger, regions and surfaces.
 
 A pool where nothing survived refutation states `Pool: empty — no claim survived refutation.` in
-place of the rows; the tally and snapshot stay. A receipt that ran no fan-out carries exactly one
-line instead of the section's parts:
+place of the rows; the tally, lenses line and snapshot stay. A receipt that ran no fan-out carries
+exactly one line instead of the section's parts:
 
 ```
 Fan-out: skipped — <by whom, and why>
@@ -268,10 +274,12 @@ Fan-out: failed — <what failed>
 ```
 
 An absent section reads exactly like a fan-out nobody ran and nobody recorded, so the lint
-(`ledger-lint.sh --receipt`) refuses it, along with a skip or failure that names no reason, a tag
-outside the four, an `overturned` that names no claim, a disposition citing an undeclared `D-n`,
-and unindented snapshot rows. The section's reader is the operator's consumer read: a later
-reversal of a decision the fan-out flagged, or of one it never raised, is how its value is judged.
+(`ledger-lint.sh --receipt`) refuses it, along with a skip or failure that names no reason, a
+missing `Lenses:` line, a row with no angle, a tag outside the four, an `overturned` that names no
+claim, a disposition citing an undeclared `D-n`, and unindented snapshot rows. The section's
+reader is the operator's consumer read: a later reversal of a decision the fan-out flagged, or of
+one it never raised, is how its value is judged, and the angle and lens counts are how a lens that
+never contributes is found.
 
 ### Departures
 

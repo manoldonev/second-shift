@@ -1,6 +1,6 @@
 ---
 name: intake-refuter
-description: Tries to break one claim from the intake fan-out (intake-fanout.mjs) by re-opening its pointer or re-running its command. Refuted is the default. Ships on the `cross` tier — a model family other than the lenses' — so it does not share their blind spots. Dispatched by the fan-out workflow, never on its own.
+description: Tries to break one claim from the intake fan-out (intake-fanout.mjs) by re-opening its pointer or re-running its command. Refuted is the default. intake-fanout.mjs dispatches it on the model family that did not make the claim, as the consumer replay measured. Two families from one provider still share many errors; whether the other family catches what the first misses is unmeasured. Dispatched by the fan-out workflow, never on its own.
 tools: Read, Grep, Glob, Bash
 model: fable
 effort: high

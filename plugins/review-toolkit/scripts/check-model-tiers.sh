@@ -73,10 +73,10 @@
 #                                         be SILENT: the enum lived inside the extraction
 #                                         regexes, so an unknown token was skipped entirely
 #                                         (map) or attributed to the file's scalar (inline).
-#                                         `fable` and any other non-shipped tier are
-#                                         override-only (config reviewers.modelOverrides,
-#                                         where values are never enum-checked); in shipped
-#                                         code they are an error by design.
+#                                         A raw vendor token such as `fable` belongs in
+#                                         config (reviewers.modelOverrides, where values are
+#                                         never enum-checked); shipped code names the tier
+#                                         (`cross`) instead, so a raw token there is an error.
 #
 # NOT validated: agent frontmatter tokens. `frontmatter_model` reads the value without
 # enum-checking it, deliberately — frontmatter is read from the CONSUMER root too, so a
@@ -408,10 +408,10 @@ check_inline_default_map() { # check_inline_default_map <file> <tbl>
 # and merely VALIDATE against it, which is the two-layer design that stops an
 # out-of-alphabet token from going invisible.
 #
-# `fable`, and every raw vendor token, is now out-of-alphabet in shipped code by
-# construction: the alphabet holds TIER names, and `fable` is not a tier. A consumer
-# still names it in reviewers.modelOverrides, where values are never enum-checked. That
-# keeps the override-only posture mechanical instead of listed.
+# `fable`, and every raw vendor token, is out-of-alphabet in shipped code by construction:
+# the alphabet holds TIER names, and `fable` is not a tier. Shipped code that wants Fable
+# names the `cross` tier; a consumer may still name the raw token in
+# reviewers.modelOverrides, where values are never enum-checked.
 #
 # NOT guarded: agent frontmatter (`frontmatter_model` above). It is read from the
 # consumer root as well as the plugin root, so a repo-local reviewers.add agent may

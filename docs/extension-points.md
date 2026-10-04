@@ -179,16 +179,16 @@ description says "per-reviewer" as the common case, not as a constraint;
 `check-model-tiers.sh` validates whatever key you override against the actual tables.
 
 **An override value may name a dispatch model (`haiku`, `sonnet`, `opus`, `fable`) or a
-TIER** (`reasoning`, `code`, `emit` as shipped). Those two sets are the closed union
+TIER** (`reasoning`, `code`, `emit`, `cross` as shipped). Those two sets are the closed union
 `config-lint.sh` enforces — a token in neither is a lint error, which is what catches a typo
 now that the schema half asserts only "string" (the union is a cross-field constraint JSON
 Schema cannot express). A tier your subscription cannot dispatch surfaces as a dead reviewer
 in the review round.
 
-**`fable` is override-only.** Shipped dispatch tables name tiers, never vendor tokens, so
-`fable` cannot appear in one by construction: `check-model-tiers.sh` raises `UNKNOWN-MODEL`
-on any token outside the parsed tier alphabet in a shipped MAP entry or inline `model:`
-literal. That is what mechanically keeps it in config and out of plugin code.
+**Shipped code names tiers, never vendor tokens.** `check-model-tiers.sh` raises
+`UNKNOWN-MODEL` on any token outside the parsed tier alphabet in a shipped MAP entry or inline
+`model:` literal. Fable ships as the `cross` tier, and a shipped default uses it where it is
+useful (see [`model-tiering.md`](../plugins/review-toolkit/model-tiering.md), "Fable").
 
 **To retarget a whole tier rather than one agent, set `reviewers.tierMap`** — e.g.
 `{ "code": "haiku" }`. It merges per tier over the shipped alphabet in

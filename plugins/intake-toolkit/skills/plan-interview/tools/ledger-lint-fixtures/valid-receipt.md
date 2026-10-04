@@ -41,15 +41,16 @@ the PR so the operator can widen it without a migration.
 
 ## Fan-out
 
-Refuter: cross (fable)
+Refuter: cross (opus/fable alternating)
+Lenses: retry-semantics opus 1/4 · storage-limits fable 1/3 · validation opus 1/5 · list-views fable 1/2 · premortem fable 0/3
 Tally: rows added 1 · snapshot claims overturned 1 · questions added 1
 
-| ID | Claim | Tag | Disposition |
-| --- | --- | --- | --- |
-| F-1 | The import worker retries a 409 forever (`worker.ts:88`, observed in a bounded probe) | new | became D-1 |
-| F-2 | Uploads above 50 MB are already rejected at the proxy (`nginx.conf:12`) | already-had | already D-4 |
-| F-3 | class-validator rejects nested arrays without `@Type` (`dto.ts:30`) | overturned (snapshot: "nested arrays validate as-is") | became D-3 |
-| F-4 | The admin list sorts client-side | not material | not material — the list is capped at 50 rows |
+| ID | Angle | Claim | Tag | Disposition |
+| --- | --- | --- | --- | --- |
+| F-1 | retry-semantics | The import worker retries a 409 forever (`worker.ts:88`, observed in a bounded probe) | new | became D-1 |
+| F-2 | storage-limits | Uploads above 50 MB are already rejected at the proxy (`nginx.conf:12`) | already-had | already D-4 |
+| F-3 | validation | class-validator rejects nested arrays without `@Type` (`dto.ts:30`) | overturned (snapshot: "nested arrays validate as-is") | became D-3 |
+| F-4 | list-views | The admin list sorts client-side | not material | not material — the list is capped at 50 rows |
 
 ### Snapshot
 

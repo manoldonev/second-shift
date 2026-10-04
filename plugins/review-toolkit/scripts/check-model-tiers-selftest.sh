@@ -187,7 +187,7 @@ run_cli "$RT" "$CFG_FABLE"
 [ $? -eq 0 ] && ok "fable override: legal modelOverrides value, clean table -> exit 0" \
   || fail "fable override expected exit 0 (stderr: $(cat "$TMP/.stderr"))"
 
-# (b) 'fable' in a SHIPPED map entry — the mechanical half of the override-only posture.
+# (b) 'fable' as a raw token in a SHIPPED map entry — shipped code names the `cross` tier.
 # Legal in config (case a), an error in a plugin-shipped table.
 FABLE_MAP=$(make_rt_variant fablemap "security-reviewer" "fable")
 run_cli "$FABLE_MAP"

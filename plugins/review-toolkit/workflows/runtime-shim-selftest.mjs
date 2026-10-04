@@ -732,13 +732,14 @@ console.log('── Case R: workflow meta literal-purity (relocated from design-
 
 // ---------------------------------------------------------------------------
 // Case FO — intake-fanout.mjs (#916): the production body the plan-interview pre-flight
-// dispatches. A refuted claim never reaches the pool and a kept one arrives evidence-only;
-// the refuter runs on `cross` and falls back once to the lens family when it cannot be
-// dispatched; a dead lens makes the run partial; no verdict refutes by default; the
-// whole-run ceiling, a failed lens writer and an exhausted budget each return the failed form;
-// tierMap cross->opus is reported same-family.
+// dispatches, built as the consumer replay measured it. The angles alternate opus and fable,
+// the pre-mortem runs on fable, and every claim is refuted by the family that did not make it
+// (a lens retried onto the other family included). A refuted claim never reaches the pool and a
+// kept one arrives evidence-only; without Fable the run stays on opus and says so; a dead lens
+// makes the run partial; no verdict refutes by default; the ceiling, a failed lens writer and an
+// exhausted budget each return the failed form; tierMap cross->opus is reported same-family.
 // ---------------------------------------------------------------------------
-console.log('── Case FO: intake-fanout.mjs evidence pool, cross-family refuter, failure forms')
+console.log('── Case FO: intake-fanout.mjs alternating families, other-family refuter, failure forms')
 {
 const runFanout = makeRunner(join(HERE, 'intake-fanout.mjs'))
 const ARGS = { issue: 42, issueBody: 'Add a status route.' }
@@ -749,6 +750,9 @@ const WRITER_OUT = reviewBlock({
 const claim = (key, n) => ({ claim: `${key} claim ${n}`, pointer: `src/a.ts:${n}`, observed: `line ${n}`, measured_under: 'node 20', kind: 'probed-fact' })
 const lensOut = (key) => reviewBlock({ claims: [claim(key, 1), claim(key, 2)] })
 const verdict = (refuted) => reviewBlock({ refuted, checked: 'opened src/a.ts' })
+const keyOf = (label) => label.replace(/^(lens|refute):| \(.*\)$|#\d+$/g, '')
+const LENS_MODEL = { 'angle-1': 'opus', 'angle-2': 'fable', 'angle-3': 'opus', 'angle-4': 'fable', premortem: 'fable' }
+const OTHER = { opus: 'fable', fable: 'opus' }
 
 // A fake agent routed by role; `handlers` override per role. Records every dispatch.
 const fakeAgent = (handlers = {}) => {
@@ -759,79 +763,116 @@ const fakeAgent = (handlers = {}) => {
     const h = handlers[role]
     if (h) return h(prompt, opts, calls)
     if (role === 'intake-lens-writer') return WRITER_OUT
-    if (role === 'intake-lens') return lensOut(opts.label.replace(/^lens:| \(retry\)$/g, ''))
+    if (role === 'intake-lens') return lensOut(keyOf(opts.label))
     if (role === 'intake-refuter') return verdict(/claim 2/.test(prompt)) // claim 1 kept, claim 2 refuted
     throw new Error(`unexpected agent ${opts.agentType}`)
   }
   return { agent, calls }
 }
 const go = (agent, args = ARGS, budget = undefined) => runFanout(agent, parallel, pipeline, args, noop, noop, budget)
+const byRole = (calls, re) => calls.filter((c) => re.test(c.opts.agentType))
 
-// --- A + B: the happy path ---
+// --- A: the happy path, evidence-only ---
 {
-  const { agent, calls } = fakeAgent()
+  const { agent } = fakeAgent()
   const r = await go(agent)
   ok('FO A status complete with five lenses', r.status === 'complete' && r.lenses.length === 5, JSON.stringify(r.lenses))
   ok('FO A only unrefuted claims reach the pool (5 lenses x claim 1)', r.pool.length === 5 && r.pool.every((p) => /claim 1/.test(p.claim)))
   const keys = Object.keys(r.pool[0] || {}).sort().join(',')
-  ok('FO A pool items are evidence-only (no rationale, no confidence)', !/rationale|confidence/.test(keys) && /pointer/.test(keys) && /observed/.test(keys) && /measured_under/.test(keys), keys)
-  ok('FO B every refuter dispatched on the cross model (fable)', calls.filter((c) => /intake-refuter/.test(c.opts.agentType)).every((c) => c.opts.model === 'fable'))
-  ok('FO B every lens dispatched on the reasoning model (opus)', calls.filter((c) => /intake-lens$/.test(c.opts.agentType)).every((c) => c.opts.model === 'opus'))
-  ok('FO B refuter family reported as cross', r.refuter === 'cross (fable)', r.refuter)
+  ok('FO A pool items carry exactly the evidence fields (no refuter text, rationale or confidence)', keys === 'angle,claim,kind,measured_under,observed,pointer,status', keys)
+}
+
+// --- B: the measured model mix ---
+{
+  const { agent, calls } = fakeAgent()
+  const r = await go(agent)
+  const lensModels = byRole(calls, /intake-lens$/).map((c) => `${keyOf(c.opts.label)}=${c.opts.model}`).sort().join(',')
+  ok('FO B the angles alternate opus/fable and the pre-mortem runs on fable', lensModels === 'angle-1=opus,angle-2=fable,angle-3=opus,angle-4=fable,premortem=fable', lensModels)
+  const wrong = byRole(calls, /intake-refuter/).filter((c) => c.opts.model !== OTHER[LENS_MODEL[keyOf(c.opts.label)]])
+  ok('FO B every claim is refuted by the family that did not make it', wrong.length === 0, wrong.map((c) => `${c.opts.label}@${c.opts.model}`).join(','))
+  ok('FO B the run reports cross refutation, alternating', r.refuter === 'cross (opus/fable alternating)', r.refuter)
+  ok('FO B each lens records the model it ran on and its refuter family', r.lenses.every((l) => l.model === LENS_MODEL[l.key] && l.refuter === 'cross'), JSON.stringify(r.lenses))
+}
+
+// --- B2: what every agent is grounded in ---
+{
+  const { agent, calls } = fakeAgent()
+  await go(agent, { ...ARGS, readRoot: '/w/be', checkouts: [{ path: '/w/fe', role: 'The admin frontend that calls this backend' }], protocol: ['/s/plan-interview/SKILL.md', '/s/interviewing-baseline/SKILL.md'] })
+  ok('FO B2 every agent is handed the consumer checkout', calls.every((c) => c.prompt.includes('The admin frontend that calls this backend is the checkout /w/fe')))
+  ok('FO B2 every agent is handed the protocol text', calls.every((c) => c.prompt.includes('/s/plan-interview/SKILL.md and /s/interviewing-baseline/SKILL.md')))
+  const w = byRole(calls, /intake-lens-writer/)[0]
+  ok('FO B2 the lens writer gets build rule 2 whole, model diversity included', w && /Diversity of angle, then of model/.test(w.prompt))
 }
 
 // --- C: no Fable access ---
 {
   const { agent, calls } = fakeAgent({
+    'intake-lens': (prompt, opts) => {
+      if (opts.model === 'fable') throw new Error('model not available')
+      return lensOut(keyOf(opts.label))
+    },
     'intake-refuter': (prompt, opts) => {
       if (opts.model === 'fable') throw new Error('model not available')
       return verdict(/claim 2/.test(prompt))
     },
   })
   const r = await go(agent)
-  const fableCalls = calls.filter((c) => /intake-refuter/.test(c.opts.agentType) && c.opts.model === 'fable')
-  ok('FO C exactly one cross dispatch is tried', fableCalls.length === 1, `${fableCalls.length} fable refuter calls`)
+  ok('FO C every lens still runs, the fable ones retried on opus', r.status === 'complete' && r.lenses.every((l) => l.model === 'opus'), JSON.stringify(r.lenses))
+  ok('FO C no claim is lost to the unreachable family (pool still 5)', r.pool.length === 5, `${r.pool.length} items`)
+  const fableCalls = calls.filter((c) => c.opts.model === 'fable').length
+  ok('FO C the unreachable family costs two failed calls, then is never tried again', fableCalls === 2, `${fableCalls} fable dispatches`)
   ok('FO C the run records same-family (fable unavailable)', r.refuter === 'same-family (fable unavailable)', r.refuter)
-  ok('FO C the pool is still produced on the lens family', r.pool.length === 5, `${r.pool.length} items`)
-  ok('FO C the failed probe is in the events', r.events.some((e) => /could not be dispatched/.test(e)))
+  ok('FO C the unreachable family is in the events', r.events.some((e) => /could not be dispatched twice/.test(e)))
+}
+
+// --- C2: an opus lens retried on fable is refuted by opus, not by fable ---
+{
+  const { agent, calls } = fakeAgent({
+    'intake-lens': (prompt, opts) => {
+      if (keyOf(opts.label) === 'angle-1' && opts.model === 'opus') throw new Error('safeguard block')
+      return lensOut(keyOf(opts.label))
+    },
+  })
+  const r = await go(agent)
+  const a1 = r.lenses.find((l) => l.key === 'angle-1')
+  ok('FO C2 the blocked lens recovered on the other family', a1 && a1.status === 'ok' && a1.model === 'fable', JSON.stringify(a1))
+  const refs = byRole(calls, /intake-refuter/).filter((c) => keyOf(c.opts.label) === 'angle-1').map((c) => c.opts.model)
+  ok('FO C2 its claims are refuted by opus, the family that did not make them', refs.length === 2 && refs.every((m) => m === 'opus'), refs.join(','))
+  ok('FO C2 the run still reports cross refutation', r.refuter === 'cross (opus/fable alternating)', r.refuter)
 }
 
 // --- D: a lens dies twice ---
 {
   const { agent, calls } = fakeAgent({
     'intake-lens': (prompt, opts) => {
-      if (/angle-2/.test(opts.label)) throw new Error('safeguard block')
-      return lensOut(opts.label.replace(/^lens:| \(retry\)$/g, ''))
+      if (keyOf(opts.label) === 'angle-1') throw new Error('safeguard block')
+      return lensOut(keyOf(opts.label))
     },
   })
   const r = await go(agent)
   ok('FO D a dead lens makes the run partial, not failed', r.status === 'partial' && /1 of 5/.test(r.reason), `${r.status} ${r.reason}`)
-  ok('FO D the dead lens is listed as failed', r.lenses.find((l) => l.key === 'angle-2').status === 'failed')
-  const retry = calls.find((c) => c.opts.label === 'lens:angle-2 (retry)')
+  ok('FO D the dead lens is listed as failed', r.lenses.find((l) => l.key === 'angle-1').status === 'failed')
+  const retry = calls.find((c) => c.opts.label === 'lens:angle-1 (retry)')
   ok('FO D the lens retry ran on the other family', retry && retry.opts.model === 'fable', retry && retry.opts.model)
 }
 
-// --- D2: no Fable access, and the first writer and lens attempts die once ---
+// --- D2: no Fable access, and the first writer attempt dies once ---
 {
-  const died = new Set()
-  const dieOnce = (key, out) => (prompt, opts) => {
-    if (opts.model === 'fable') throw new Error('model not available')
-    if (!died.has(key)) {
-      died.add(key)
-      throw new Error('transient')
-    }
-    return out()
-  }
+  let writerDied = false
   const { agent, calls } = fakeAgent({
-    'intake-lens-writer': dieOnce('writer', () => WRITER_OUT),
-    'intake-lens': (prompt, opts) => dieOnce(opts.label.replace(/ \(.*\)$/, ''), () => lensOut(opts.label.replace(/^lens:| \(.*\)$/g, '')))(prompt, opts),
+    'intake-lens-writer': (prompt, opts) => {
+      if (opts.model === 'fable') throw new Error('model not available')
+      if (!writerDied) {
+        writerDied = true
+        throw new Error('transient')
+      }
+      return WRITER_OUT
+    },
   })
   const r = await go(agent)
-  ok('FO D2 an unreachable cross retry falls back to the same tier (writer recovers)', r.status === 'complete' && r.lenses.every((l) => l.status === 'ok'), `${r.status} ${r.reason}`)
-  const writerTries = calls.filter((c) => /intake-lens-writer/.test(c.opts.agentType)).map((c) => c.opts.model)
+  ok('FO D2 an unreachable cross retry falls back to the same tier (writer recovers)', r.status === 'complete', `${r.status} ${r.reason}`)
+  const writerTries = byRole(calls, /intake-lens-writer/).map((c) => c.opts.model)
   ok('FO D2 the writer tried opus, fable, then opus once', writerTries.join(',') === 'opus,fable,opus', writerTries.join(','))
-  const lensRetries = calls.filter((c) => /intake-lens$/.test(c.opts.agentType) && /\(retry/.test(c.opts.label)).map((c) => c.opts.model)
-  ok('FO D2 later lens retries skip the unreachable family', lensRetries.length === 5 && lensRetries.every((m) => m === 'opus'), lensRetries.join(','))
 }
 
 // --- E: refuter returns no verdict ---

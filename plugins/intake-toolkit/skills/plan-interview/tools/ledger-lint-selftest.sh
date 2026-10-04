@@ -744,7 +744,7 @@ echo "[ledger-lint-selftest] receipt mode: ## Fan-out (#916)"
 # What the intake fan-out achieved over plain intake, per ticket. Each case breaks one rule
 # of the section and leaves the rest of the receipt legal, so its failure names one cause.
 printf '%s\n' '| D-1 | Rate limit for the import endpoint | 100/min | user-answered | intent |' > "$TMP/fo-row.md"
-FO_OK=$'Refuter: cross (fable)\nTally: rows added 1 · snapshot claims overturned 0 · questions added 0\n\n| ID | Claim | Tag | Disposition |\n| --- | --- | --- | --- |\n| F-1 | The worker retries a 409 forever | new | became D-1 |\n\n### Snapshot\n\n    | D-1 | Rate limit | 100/min |'
+FO_OK=$'Refuter: cross (opus/fable alternating)\nLenses: retry-semantics opus 1/3 · premortem fable 0/2\nTally: rows added 1 · snapshot claims overturned 0 · questions added 0\n\n| ID | Angle | Claim | Tag | Disposition |\n| --- | --- | --- | --- | --- |\n| F-1 | retry-semantics | The worker retries a 409 forever | new | became D-1 |\n\n### Snapshot\n\n    | D-1 | Rate limit | 100/min |'
 fo_lint() { # fo_lint <fanout-block> — sets rc, out, err
   receipt_with "$TMP/fo-row.md" "$OPEN_EMPTY" "$SURFACE_EMPTY" "$CHECKS_EMPTY" "$1" > "$TMP/fo.md"
   ck_lint "$TMP/fo.md"
@@ -779,7 +779,7 @@ fo_lint "$FO_OK"
   || fail "(ll-fo4) minimal disposed form — rc=$rc err=$err"
 
 # (ll-fo5) each mandated part removed in turn → 1, naming that part
-for part in 'Tally:' 'Refuter:' '### Snapshot'; do
+for part in 'Tally:' 'Refuter:' 'Lenses:' '### Snapshot'; do
   fo_lint "$(grep -vF "$part" <<< "$FO_OK" | grep -v '^    ')"
   [[ "$rc" -eq 1 ]] && grep -qF "${part#\#\#\# }" <<< "$err" \
     && pass "(ll-fo5) disposed form without '$part' → 1, named" \
@@ -819,15 +819,16 @@ fo_lint "${FO_OK/    | D-1 | Rate limit | 100\/min |/| D-7 | Rate limit | 100\/m
 # (ll-fo10) each row-level rule broken in turn → 1, naming it: a blank Claim, a blank
 # Disposition, a 3-column row, and a tag that only starts with an enum word
 fo_row_case() { # fo_row_case <label> <replacement F-1 row> <expected stderr fragment>
-  fo_lint "${FO_OK/| F-1 | The worker retries a 409 forever | new | became D-1 |/$2}"
+  fo_lint "${FO_OK/| F-1 | retry-semantics | The worker retries a 409 forever | new | became D-1 |/$2}"
   [[ "$rc" -eq 1 ]] && grep -qF "$3" <<< "$err" \
     && pass "(ll-fo10) $1 → 1, named" \
     || fail "(ll-fo10) $1 — rc=$rc err=$err"
 }
-fo_row_case 'blank Claim' '| F-1 |  | new | became D-1 |' 'empty Claim cell'
-fo_row_case 'blank Disposition' '| F-1 | The worker retries a 409 forever | new |  |' 'empty Disposition cell'
-fo_row_case '3-column row' '| F-1 | The worker retries a 409 forever | new |' 'malformed fan-out row'
-fo_row_case "tag 'newer'" '| F-1 | The worker retries a 409 forever | newer | became D-1 |' "tag 'newer' not in"
+fo_row_case 'blank Angle' '| F-1 |  | The worker retries a 409 forever | new | became D-1 |' 'empty Angle cell'
+fo_row_case 'blank Claim' '| F-1 | retry-semantics |  | new | became D-1 |' 'empty Claim cell'
+fo_row_case 'blank Disposition' '| F-1 | retry-semantics | The worker retries a 409 forever | new |  |' 'empty Disposition cell'
+fo_row_case '4-column row (no Angle)' '| F-1 | The worker retries a 409 forever | new | became D-1 |' 'malformed fan-out row'
+fo_row_case "tag 'newer'" '| F-1 | retry-semantics | The worker retries a 409 forever | newer | became D-1 |' "tag 'newer' not in"
 
 # (ll-fo11) a '### Snapshot' that sits under another section does not count → 1
 fo_lint "$(grep -vF '### Snapshot' <<< "$FO_OK" | grep -v '^    ')"

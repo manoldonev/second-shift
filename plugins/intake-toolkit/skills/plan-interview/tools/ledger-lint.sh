@@ -529,7 +529,9 @@ if (( RECEIPT == 1 )); then
       grep -qiE '^[[:space:]]*Tally:[[:space:]]*.*[[:alnum:]]' <<< "$FANOUT_SEC" || \
         violate "Fan-out has no 'Tally:' line (rows added · snapshot claims overturned · questions added) — the tally is what the section exists to show"
       grep -qiE '^[[:space:]]*Refuter:[[:space:]]*.*[[:alnum:]]' <<< "$FANOUT_SEC" || \
-        violate "Fan-out has no 'Refuter:' line — say which model family checked the claims (e.g. 'cross (fable)' or 'same-family (fable unavailable)')"
+        violate "Fan-out has no 'Refuter:' line — say which model family checked the claims (e.g. 'cross (opus/fable alternating)' or 'same-family (fable unavailable)')"
+      grep -qiE '^[[:space:]]*Lenses:[[:space:]]*.*[[:alnum:]]' <<< "$FANOUT_SEC" || \
+        violate "Fan-out has no 'Lenses:' line — name every lens the run dispatched, the model it ran on and claims kept of claims made, so a lens that never contributes shows in the record"
       # section_of stops at the '### Snapshot' heading, so look for it between '## Fan-out' and
       # the next '## ' heading rather than anywhere in the receipt.
       awk 'tolower($0) ~ /^##[[:space:]]+fan-out/ {on=1; next} on && /^##[[:space:]]/ {on=0} on && tolower($0) ~ /^###+[[:space:]]+snapshot[[:space:]]*$/ {f=1} END {exit !f}' "$PLAN" || \
@@ -543,16 +545,17 @@ if (( RECEIPT == 1 )); then
       while IFS= read -r line; do
         masked="${line//\\|/__LEDGER_LINT_PIPE__}"
         IFS='|' read -r -a cells <<< "$masked"
-        ncells="$(normalize_arity "${#cells[@]}" "${cells[$(( ${#cells[@]} - 1 ))]}" 5)"
-        if (( ncells != 5 )); then
-          violate "malformed fan-out row (expected 4 columns: ID | Claim | Tag | Disposition): $line"
+        ncells="$(normalize_arity "${#cells[@]}" "${cells[$(( ${#cells[@]} - 1 ))]}" 6)"
+        if (( ncells != 6 )); then
+          violate "malformed fan-out row (expected 5 columns: ID | Angle | Claim | Tag | Disposition): $line"
           continue
         fi
         f_id="$(trim "${cells[1]}")"
-        f_tag="$(trim "${cells[3]}")"
-        f_disp="$(trim "${cells[4]}")"
+        f_tag="$(trim "${cells[4]}")"
+        f_disp="$(trim "${cells[5]}")"
         FANOUT_ROW_COUNT=$((FANOUT_ROW_COUNT + 1))
-        [[ -n "$(trim "${cells[2]}")" ]] || violate "$f_id row has an empty Claim cell"
+        [[ -n "$(trim "${cells[2]}")" ]] || violate "$f_id row has an empty Angle cell — name the lens that produced the item"
+        [[ -n "$(trim "${cells[3]}")" ]] || violate "$f_id row has an empty Claim cell"
         f_token=""
         if [[ "$f_tag" =~ ^(${FANOUT_TAG_ENUM})([^A-Za-z0-9-]|$) ]]; then
           f_token="${BASH_REMATCH[1]}"
