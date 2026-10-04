@@ -108,7 +108,7 @@ exit_code_for() { # the taxonomy a wrapper branches on
 }
 # Run state the terminal reports on. Set as the run advances; empty until then.
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
-COST=0; UNPRICED=""; ROUND=0; ATTEMPT=0; CHECKS_RED=0; CLAIMED=0; PR=""; PR_URL=""; HEAD_SHA=""; VERDICT=""; CI=""; FIRST=""; CHILD=""; TRACKER=""
+COST=0; UNPRICED=""; ROUND=0; ATTEMPT=0; CHECKS_RED=0; CLAIMED=0; PR=""; PR_URL=""; PR_DRAFT=""; HEAD_SHA=""; VERDICT=""; CI=""; FIRST=""; CHILD=""; TRACKER=""
 # A tracker comment is public: no local path leaves this machine through one. The worktree becomes
 # <worktree>, a path in the checkout becomes repo-relative, the home directory becomes ~, and any
 # other /Users/<name> or /home/<name> prefix is cut — the detail stays whole in the local log.
@@ -455,7 +455,7 @@ build_prompt() { # build_prompt <round> <findings-file-or-empty>
   echo "Do not merge. Do not delete, skip or weaken a test to make a check pass; if a test is wrong, say so in the PR."
   [ "$BOT_OK" -eq 1 ] && echo "Commit through $TOOLS/bot-commit.sh (the repo's bot identity), never plain git commit — and re-pass the identity on any --amend, which otherwise silently re-stamps you as the committer."
   if [ "$1" -eq 1 ]; then
-    echo "When the checks are green, commit, push branch $BRANCH to origin and, unless one is already open for this branch, open a READY (not draft) PR against $BASE_NAME with 'gh pr create --base $BASE_NAME'. The PR body, in order: line 1 exactly 'built-by: second-shift run $RUN_ID'; then a link to the decision record at $RECORD_REL; then the line 'Record baseline: $FIRST'; then a summary of the change;"
+    echo "When the checks are green, commit, push branch $BRANCH to origin and, unless one is already open for this branch, open a DRAFT PR against $BASE_NAME with 'gh pr create --draft --base $BASE_NAME', and leave it a draft: the scheduler marks it ready for review only when a review approves its head. The PR body, in order: line 1 exactly 'built-by: second-shift run $RUN_ID'; then a link to the decision record at $RECORD_REL; then the line 'Record baseline: $FIRST'; then a summary of the change;"
     if [ "$TRACKER" = github ]; then echo "and the line 'Closes #$ISSUE' so the ticket closes on merge."; else echo "and a '### Jira Items' heading with the line 'Closes [$ISSUE]'."; fi
   else echo "Address the review findings below: fix each, or rebut it in a PR comment. Then commit and push $BRANCH."; fi
   echo; echo "The following decisions were settled with the requester before implementation started. They are binding. The record is committed at $RECORD_REL; if you must depart from a row, edit that row in place (new resolution, provenance user-delegated, a one-line reason) and commit the edit with the code. A material decision no row covers gets a new row the same way. Commit $FIRST is the record baseline the review reads: never amend, rebase or force-push over it. Never post a comment starting with 'verdict:'."
@@ -553,11 +553,10 @@ premise_holds() { # rows J2, J4-J8: re-asked before every build spawn; a predica
 
 # -- the PR (rows E7-E13, E16) --
 pr_conventions() { # pr_conventions <pr> <attempt> -> 0, 1 unmet (reasons in $STATE/pr-conventions-<attempt>.txt), 2 unreadable (the caller refuses)
-  local out="$STATE/pr-conventions-$2.txt" info body draft first
+  local out="$STATE/pr-conventions-$2.txt" info body first
   info="$("$GH_READ" pr view "$1" --json body,isDraft 2>/dev/null)" || return 2
-  body="$(printf '%s' "$info" | jq -r '.body // ""')"; draft="$(printf '%s' "$info" | jq -r '.isDraft // false')"
+  body="$(printf '%s' "$info" | jq -r '.body // ""')"; PR_DRAFT="$(printf '%s' "$info" | jq -r '.isDraft // false')"
   : > "$out"
-  [ "$draft" = false ] || echo "the PR is a draft; mark it ready for review" >> "$out"
   first="$(printf '%s\n' "$body" | head -n 1)"
   grep -q "^built-by: second-shift run " <<<"$first" || echo "PR body line 1 must be 'built-by: second-shift run <id>'" >> "$out"
   grep -qF "$RECORD_REL" <<<"$body" || echo "PR body must link the decision record at $RECORD_REL" >> "$out"
@@ -624,6 +623,26 @@ review_status() {
   fi
   STATUS_NOTES="${STATUS_NOTES}status: NOT posted ($STATUS_CONTEXT=$state on $HEAD_SHA) — $why"$'\n'; say "status: NOT posted on $HEAD_SHA — $why"
 }
+# -- the draft hold (rows E22, E23): GitHub refuses to merge a draft, so a lane PR stays one until a review approves its
+# head; the scheduler owns both flips. A flip that fails is reported in the run block, never fatal --
+DRAFT_NOTES=""
+pr_hold_draft() { # after every build: a ready PR is turned back into a draft
+  local err
+  [ "$PR_DRAFT" = false ] || return 0
+  if err="$("$GH" pr ready "$PR" --undo 2>&1 >/dev/null)"; then
+    PR_DRAFT=true; say "pr: #$PR turned back into a draft — it is marked ready only when a review approves its head"
+  else
+    DRAFT_NOTES="${DRAFT_NOTES}pr: NOT turned into a draft — $(printf '%s' "$err" | tr '\n' ' ' | cut -c1-200); it stayed mergeable before its review"$'\n'; say "pr: could not turn #$PR into a draft"
+  fi
+}
+pr_mark_ready() { # approved at this head: the one flip out of draft
+  local err
+  if err="$("$GH" pr ready "$PR" 2>&1 >/dev/null)"; then
+    DRAFT_NOTES="${DRAFT_NOTES}pr: marked ready for review — approved at $HEAD_SHA"$'\n'; say "pr: #$PR marked ready for review"
+  else
+    DRAFT_NOTES="${DRAFT_NOTES}pr: still a draft — marking it ready failed ($(printf '%s' "$err" | tr '\n' ' ' | cut -c1-200)); mark it ready by hand"$'\n'; say "pr: could not mark #$PR ready for review"
+  fi
+}
 # -- the run block (rows E14-E16, I13, I14): in the PR BODY under the old lane's marker, at every terminal once a PR exists --
 cost_block() { # <terminal slug>
   echo '<!-- pipeline-cost-block -->'
@@ -631,6 +650,7 @@ cost_block() { # <terminal slug>
   echo "| run | outcome | rounds | verdict | reviewed head | cost | CI |"; echo "| --- | --- | --- | --- | --- | --- | --- |"
   echo "| $RUN_ID | $1 | $ROUND | ${VERDICT:-none} | ${HEAD_SHA:-—} | \$$(usd "$COST")${UNPRICED:+ + unpriced} | $CI |"; echo
   [ -z "$STATUS_NOTES" ] || printf '%s' "$STATUS_NOTES" | awk '{print; print ""}'   # one paragraph per bound verdict's status post
+  [ -z "$DRAFT_NOTES" ] || printf '%s' "$DRAFT_NOTES" | awk '{print; print ""}'     # one paragraph per draft flip worth reporting
   echo "| session | turns | cost |"; echo "| --- | --- | --- |"
   local f n c; for f in "$STATE"/build-*.json "$STATE"/review-*.json; do
     [ -f "$f" ] || continue; n="$(basename "$f" .json)"; c="$(jq -r '.total_cost_usd | numbers' "$f" 2>/dev/null)"
@@ -772,7 +792,7 @@ while :; do
   say "round $ROUND of $MAX_ROUNDS (cost so far \$$(usd "$COST"))"
   review_tries=0; VERDICT=""
   while :; do
-    if [ "$NEED_BUILD" -eq 1 ]; then # ---- BUILD, until its work is collected on one ready PR ----
+    if [ "$NEED_BUILD" -eq 1 ]; then # ---- BUILD, until its work is collected on one draft PR ----
       premise_holds
       worktree_ready
       ATTEMPT=$((ATTEMPT+1)); A="$ROUND.$ATTEMPT"
@@ -803,6 +823,7 @@ while :; do
       NEED_BUILD=0; NEED_CHECKS=1
       pr_conventions "$PR" "$A"; crc=$?
       [ "$crc" -ne 2 ] || terminal env-tracker-unreadable "PR #$PR could not be read — a conventions check that cannot run is not one that passed"
+      pr_hold_draft
       [ "$crc" -eq 0 ] || { red_attempt "PR conventions" "$STATE/pr-conventions-$A.txt"; continue; }
     fi
     # ---- the checks the build did not run, at the pushed head; re-run only when the head moved (ids: the build attempt, suffixed on a re-spawn) ----
@@ -860,4 +881,5 @@ case "$ifrc" in
   8) terminal closeout-inflight "approved, but $WT still holds work nothing else has a copy of ($INFLIGHT_REASON) — the ticket is still claimed and PR #$PR is still open" ;;
   *) terminal closeout-inflight-unreadable "approved, but whether $WT still holds work could not be evaluated ($INFLIGHT_REASON)" ;;
 esac
+pr_mark_ready
 terminal approved "PR #$PR approved at $HEAD_SHA after $ROUND round(s), \$$(usd "$COST")"

@@ -1,6 +1,6 @@
 ---
 name: build
-description: The interactive BUILD — the build half of /dev-pipeline:run, run in THIS session so the operator can steer it. run.sh claims the ticket, cuts the worktree, commits the intake record as the branch's first commit and hands over the same build prompt an unattended run spawns; you build to a ready PR, then /dev-pipeline:review grades it from a fresh session. Expects the same paid-off intake as /dev-pipeline:run.
+description: The interactive BUILD — the build half of /dev-pipeline:run, run in THIS session so the operator can steer it. run.sh claims the ticket, cuts the worktree, commits the intake record as the branch's first commit and hands over the same build prompt an unattended run spawns; you build to a draft PR, then /dev-pipeline:review grades it and marks it ready on an approve from a fresh session. Expects the same paid-off intake as /dev-pipeline:run.
 ---
 
 # build
@@ -30,7 +30,7 @@ on the PR, and (under jira `writes: false`) stripping the Atlassian write tools.
    provenance `user-answered`, a one-line reason); a steer that makes a material decision no row
    covers becomes a new row the same way. Either is committed with the code — never left in chat.
    Never amend, rebase or force-push over the `baseline:` commit: the review reads the record there.
-4. **Open the PR** exactly as the prompt says (ready, not draft; `built-by:` line 1; record link;
+4. **Open the PR** exactly as the prompt says (a draft, left a draft; `built-by:` line 1; record link;
    `Record baseline:`; `Closes`), after every listed check is green.
 5. **Hand off to review.** Tell the operator to run `/dev-pipeline:review <pr>` in a fresh
    session. Do not review your own build, and never post a comment starting with `verdict:`.
