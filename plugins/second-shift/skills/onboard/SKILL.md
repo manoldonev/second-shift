@@ -115,7 +115,8 @@ Ask AT MOST one AskUserQuestion batch, containing ONLY (skip any that detection 
   2. `tracker.branchPrefix` (recommended: `claude/<repo-basename>-` for github; `<user>/` for jira)
   3. design fidelity, two-part — **what it buys: review gains a design-fidelity dimension, and
      with `liveRender` every declared route is rendered after each build and smoke-checked for
-     the value it must show, instead of a reviewer's opinion of a diff** (docs/extending.md
+     the value it must show — and, with `{textScale}`, for text that overflows or clips at 2×
+     text size — instead of a reviewer's opinion of a diff** (docs/extending.md
      §3.5; docs/live-render.md).
      (only if detection saw a UI-shaped repo — sibling FE candidate,
      or framework deps like react/vue/svelte in package.json — or a design MCP in
@@ -128,7 +129,12 @@ Ask AT MOST one AskUserQuestion batch, containing ONLY (skip any that detection 
      the command runs in the ticket worktree, so a harness in a subdirectory carries its own
      `cd`. Ask for `smokeCommand` (`{route}` and `{mustShow}` placeholders; it must exit
      non-zero unless the route shows that data-test id or copy string) — detection cannot prove
-     one, and a record that declares a must-show value with no `smokeCommand` stops the run. The
+     one, and a record that declares a must-show value with no `smokeCommand` stops the run.
+     In the same question offer the optional `{textScale}` placeholder (unquoted, e.g.
+     `--text-scale {textScale}`): the scheduler then runs the smoke at `1` and at `2`, and the
+     command takes on a second duty — at each scale, scale the text only (root font-size, not
+     page zoom) and exit non-zero when any text overflows or is clipped. Without it the smoke
+     runs at 1× and every run notes `scaled smoke: not configured`. The
      operator may add `readyProbe`, and may drop `{state}` if the harness cannot drive one.
      Undetected or declined → omit the `liveRender` key (a ticket whose record declares design
      frames then has nothing to render with; docs/live-render.md).

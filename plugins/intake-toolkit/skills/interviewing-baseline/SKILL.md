@@ -190,8 +190,8 @@ No ticket-specific checks — the configured lanes cover this change.
 On a repo whose config sets `design.provider`, the receipt carries a `## Design frames` section
 (`## Design` is read the same way): one row per screen and state the ticket renders, taken from
 the design handoff. The scheduler's route smoke renders each row's route in its state and
-asserts the `must-show` value is on the screen — it is the smoke's **only** assertion, so it is
-chosen here, at intake: a data-test id or a copy string taken from the frame.
+asserts the `must-show` value is on the screen — it is the record's **only** per-row assertion, so
+it is chosen here, at intake: a data-test id or a copy string taken from the frame.
 
 ```
 | RS | route | state | frame | must-show |

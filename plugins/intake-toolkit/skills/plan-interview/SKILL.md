@@ -145,8 +145,8 @@ schema and empty forms in `interviewing-baseline` ("Checks", "Design frames"), e
   one command per line. When they miss nothing, write the empty form.
 - **`## Design frames`** — on a repo with `design.provider` set. Walk the design handoff with the
   engineer: one row per screen and state the ticket renders, with the frame id. For each row, agree
-  the `must-show` value now — a data-test id or a copy string taken from the frame. It is the only
-  thing the route smoke asserts, so it should be the element that proves the right state rendered
+  the `must-show` value now — a data-test id or a copy string taken from the frame. It is the
+  record's only per-row assertion, so it should be the element that proves the right state rendered
   (the empty-state copy on an empty row, not the page title every state shares). A ticket that
   renders nothing new disarms with `Design: none — <reason>`.
 
