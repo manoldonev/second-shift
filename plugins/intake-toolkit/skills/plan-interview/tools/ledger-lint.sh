@@ -505,7 +505,7 @@ if (( RECEIPT == 1 )); then
     [[ -n "$(trim "${cells[2]}")" ]] || violate "$rs_id row has an empty route cell"
     [[ -n "$(trim "${cells[3]}")" ]] || violate "$rs_id row has an empty state cell"
     [[ -n "$(trim "${cells[4]}")" ]] || violate "$rs_id row has an empty frame cell"
-    [[ -n "$(trim "${cells[5]}")" ]] || violate "$rs_id row has an empty must-show cell — the route smoke's only assertion; name a data-test id or a copy string taken from the frame"
+    [[ -n "$(trim "${cells[5]}")" ]] || violate "$rs_id row has an empty must-show cell — the record's only per-row assertion; name a data-test id or a copy string taken from the frame"
   done < <(grep -E '^\|[[:space:]]*RS-[0-9]+[[:space:]]*\|' <<< "$DESIGN_SEC" || true)
   if [[ -n "$PROVIDER" ]] && (( FRAME_ROW_COUNT == 0 && DISARMED == 0 )); then
     violate "config sets design.provider '$PROVIDER', so the receipt needs a Design frames section carrying at least one '| RS-n | route | state | frame | must-show |' row, or the disarm 'Design: none — <reason>'"

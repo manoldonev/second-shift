@@ -381,11 +381,13 @@ EOF
   return $rc
 }
 
-# -- route smoke (rows C24-C26, H7-H12) --
+# -- route smoke (rows C24-C26, H7-H12, H14) --
 # Substitution is into a SHELL COMMAND STRING, so every value is single-quoted on the way in (a state is
 # human prose, a route may carry `&`), and the template is walked rather than `${t//p/r}`: under bash 5.2's
 # patsub_replacement a `&` in the replacement expands to the matched placeholder, silently. The
-# placeholders appear UNQUOTED in the template (shquote and subst below).
+# placeholders appear UNQUOTED in the template (shquote and subst below). Row H14: a smokeCommand that takes
+# {textScale} runs at 1 and at 2 per row; {textScale} goes in FIRST, since subst rescans inserted text and a
+# must-show value may carry the literal token. Every lane call reads /dev/null, never the rows heredoc.
 shquote() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 subst() { # subst <template> <placeholder> <replacement>
   local t="$1" p="$2" r="$3" out=""
@@ -412,12 +414,13 @@ route_smoke() { # route_smoke <attempt> -> 0 ok, 1 red (log at $STATE/smoke-<att
     [ "$reading" = ready ] || { READY_READING="$reading"; return 3; }
   fi
   SMOKE_LOG="$log"; SMOKE_RC=0
-  local seen="" dup rs route state must png sha c
+  local seen="" dup rs route state must png sha c s scales=1
+  case "$SMOKE_CMD" in *'{textScale}'*) scales="1 2" ;; esac
   while IFS='|' read -r rs route state _frame must; do
     [ -n "$rs" ] || continue
     png="$STATE/smoke-$rs.$1.png"; rm -f "$png"
     c="$(subst "$RENDER_CMD" '{route}' "$(shquote "$route")")"; c="$(subst "$c" '{state}' "$(shquote "$state")")"; c="$(subst "$c" '{out}' "$(shquote "$png")")"
-    if ! lane "$c" >> "$log" 2>&1; then smoke_red "$rs render failed: $c"; continue; fi
+    if ! lane "$c" >> "$log" 2>&1 </dev/null; then smoke_red "$rs render failed: $c"; continue; fi
     [ -s "$png" ] || { smoke_red "$rs exited 0 but wrote no image at $png"; continue; }
     sha="$(hash_file "$png")" || return 4
     # the {state}-blind-harness detector: a hash seen for ANY earlier state is red
@@ -426,8 +429,16 @@ route_smoke() { # route_smoke <attempt> -> 0 ok, 1 red (log at $STATE/smoke-<att
     seen="$seen$sha $rs
 "
     [ -n "$must" ] || { smoke_red "$rs declares no must-show value — the record must name one per screen (D-4)"; continue; }
-    c="$(subst "$SMOKE_CMD" '{route}' "$(shquote "$route")")"; c="$(subst "$c" '{mustShow}' "$(shquote "$must")")"
-    if lane "$c" >> "$log" 2>&1; then echo "ok: $rs shows '$must'" >> "$log"; say "smoke: $rs rendered to $png and shows '$must'"; else smoke_red "$rs must-show '$must' not satisfied"; fi
+    if [ "$scales" = 1 ]; then
+      c="$(subst "$SMOKE_CMD" '{route}' "$(shquote "$route")")"; c="$(subst "$c" '{mustShow}' "$(shquote "$must")")"
+      if lane "$c" >> "$log" 2>&1 </dev/null; then echo "ok: $rs shows '$must'" >> "$log"; say "smoke: $rs rendered to $png and shows '$must'"; else smoke_red "$rs must-show '$must' not satisfied"; fi
+      continue
+    fi
+    for s in $scales; do # both scales run even after a red, so the findings carry both
+      c="$(subst "$SMOKE_CMD" '{textScale}' "$s")"; c="$(subst "$c" '{route}' "$(shquote "$route")")"; c="$(subst "$c" '{mustShow}' "$(shquote "$must")")"
+      if lane "$c" >> "$log" 2>&1 </dev/null; then echo "ok: $rs at text scale $s shows '$must'" >> "$log"; say "smoke: $rs rendered to $png and, at text scale $s, shows '$must'"
+      else smoke_red "$rs at text scale $s: smoke failed: $c"; fi
+    done
   done <<EOF
 $rows
 EOF
@@ -638,6 +649,7 @@ verdict() { # verdict <start-iso> <end-iso> -> prints approve|needs-work and sav
 # -- the review status (#915 D-1 D-3 D-4 D-5 D-7): the BOUND verdict as a commit status on the sha it names. Called only
 # after the head-moved check, so a voided verdict posts nothing; a failed post is reported in the run block, never fatal --
 STATUS_CONTEXT="second-shift/review"; STATUS_NOTES=""
+RUN_NOTES=""   # run-scoped notes for the run block (row H14's scaled-smoke note); STATUS_NOTES stays verdict-scoped
 review_status() {
   local state desc repo url err why args
   case "$VERDICT" in
@@ -683,6 +695,7 @@ cost_block() { # <terminal slug>
   echo "## second-shift run"; echo
   echo "| run | outcome | rounds | verdict | reviewed head | cost | CI |"; echo "| --- | --- | --- | --- | --- | --- | --- |"
   echo "| $RUN_ID | $1 | $ROUND | ${VERDICT:-none} | ${HEAD_SHA:-—} | \$$(usd "$COST")${UNPRICED:+ + unpriced} | $CI |"; echo
+  [ -z "$RUN_NOTES" ] || printf '%s' "$RUN_NOTES" | awk '{print; print ""}'
   [ -z "$STATUS_NOTES" ] || printf '%s' "$STATUS_NOTES" | awk '{print; print ""}'   # one paragraph per bound verdict's status post
   [ -z "$DRAFT_NOTES" ] || printf '%s' "$DRAFT_NOTES" | awk '{print; print ""}'     # one paragraph per draft flip worth reporting
   echo "| session | turns | cost |"; echo "| --- | --- | --- |"
@@ -799,6 +812,14 @@ FIRST="$(git -C "$WT" log --format=%H --diff-filter=A -- "$RECORD_REL" 2>/dev/nu
 [ -n "$FIRST" ] || terminal env-no-first-commit "the record has no adding commit on $BRANCH"
 say "record baseline: $FIRST"
 design_declared || terminal env-design-undeclared "the committed record at $FIRST carries neither RS rows nor a 'Design: none — <reason>' line in its design section — the receipt on disk is not what the run reads"
+# row H14: the rows (read at $FIRST) and smokeCommand are fixed from here, so the note is set once per process, before any
+# terminal that reaches a PR; never in the smoke log, which becomes the build's findings on a red
+if [ -n "$SMOKE_CMD" ] && [ -n "$(frames_rows)" ]; then
+  case "$SMOKE_CMD" in
+    *'{textScale}'*) : ;;
+    *) RUN_NOTES="${RUN_NOTES}scaled smoke: not configured (smokeCommand takes no {textScale})"$'\n'; say "scaled smoke: not configured (smokeCommand takes no {textScale})" ;;
+  esac
+fi
 
 # ============================ 6. rounds (rows B7-B9, B14-B16, E13, F1, F14, G1, G9, H12, I6, I12, I15, J8, J10, J12, J13, K12) ============================
 red_attempt() { # a red check, smoke or convention spends the checks-red counter, never a round; its log is the next build's findings

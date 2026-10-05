@@ -839,6 +839,42 @@ FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"pat
 printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=1 run_case "$d"; expect checks-red-spent "[H9] states a,b,a: the third is identical to the first"
 grep -q 'RS-1 and RS-3' "$(SD)/smoke-1.1.log" 2>/dev/null && ok "[H9] the log names both rows" || bad "[H9] log: $(tr '\n' '|' < "$(SD)/smoke-1.1.log" 2>/dev/null | cut -c1-200)"
 
+# H14: a smokeCommand that takes {textScale} runs every row at 1 and at 2; {textScale} goes in before {mustShow}
+FIXTURE_CONFIG="{\"tracker\":{\"type\":\"github\",\"branchPrefix\":\"second-shift/\"},\"paths\":{\"plansDir\":\"docs/plans\"},\"design\":{\"provider\":\"figma\",\"liveRender\":{\"command\":\"printf %s {state} > {out}\",\"smokeCommand\":\"echo {route} {textScale} >> $T/h14a.calls && test {mustShow} = 'Size {''textScale}x'\"}}}" fixture h14a "- true" $'\n## Design frames\n\n| RS | route | state | frame | must-show |\n| --- | --- | --- | --- | --- |\n| RS-1 | a | default | 1:2 | Size {textScale}x |\n| RS-2 | b | empty | 1:3 | Size {textScale}x |\n'
+printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "[H14] a smokeCommand with {textScale} and a must-show carrying the literal token"
+[ "$(tr '\n' '|' < "$T/h14a.calls" 2>/dev/null)" = "a 1|a 2|b 1|b 2|" ] && ok "[H14] each row is smoked at text scale 1 and at 2" || bad "[H14] calls: $(tr '\n' '|' < "$T/h14a.calls" 2>/dev/null)"
+grep -q 'scaled smoke: not configured' <<<"$OUT" && bad "[H14] the not-configured note printed for a smokeCommand that takes {textScale}" || ok "[H14] no not-configured note when {textScale} is taken"
+FIXTURE_CONFIG="{\"tracker\":{\"type\":\"github\",\"branchPrefix\":\"second-shift/\"},\"paths\":{\"plansDir\":\"docs/plans\"},\"design\":{\"provider\":\"figma\",\"liveRender\":{\"command\":\"cp $T/px.png {out}\",\"smokeCommand\":\"test {textScale} = 1\"}}}" fixture h14b "- true" $'\n## Design frames\n\n| RS | route | state | frame | must-show |\n| --- | --- | --- | --- | --- |\n| RS-1 | a | default | 1:2 | ok |\n'
+printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=1 run_case "$d"; expect checks-red-spent "[H14] a smoke red only at text scale 2 ends the round red"
+grep -qx "RED: RS-1 at text scale 2: smoke failed: test 2 = 1" "$(SD)/smoke-1.1.log" 2>/dev/null && grep -q "^ok: RS-1 at text scale 1 " "$(SD)/smoke-1.1.log" && ! grep -q 'at text scale 1: smoke failed' "$(SD)/smoke-1.1.log" \
+  && ok "[H14] the red names the row, the scale and the substituted command; scale 1 stays ok" || bad "[H14] log: $(tr '\n' '|' < "$(SD)/smoke-1.1.log" 2>/dev/null | cut -c1-240)"
+FIXTURE_CONFIG="{\"tracker\":{\"type\":\"github\",\"branchPrefix\":\"second-shift/\"},\"paths\":{\"plansDir\":\"docs/plans\"},\"design\":{\"provider\":\"figma\",\"liveRender\":{\"command\":\"printf %s {state} > {out}\",\"smokeCommand\":\"echo {route} >> $T/h14c.calls && { test -f $T/h14c.green || { touch $T/h14c.green; false; }; }\"}}}" fixture h14c "- true" $'\n## Design frames\n\n| RS | route | state | frame | must-show |\n| --- | --- | --- | --- | --- |\n| RS-1 | a | default | 1:2 | ok |\n| RS-2 | b | empty | 1:3 | ok |\n'
+printf 'build-pr\nbuild-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "[H14] no {textScale}: a red-then-green attempt over two rows"
+[ "$(tr '\n' '|' < "$T/h14c.calls" 2>/dev/null)" = "a|b|a|b|" ] && ok "[H14] without {textScale} each row is smoked once per attempt" || bad "[H14] calls: $(tr '\n' '|' < "$T/h14c.calls" 2>/dev/null)"
+[ "$(grep -c 'scaled smoke: not configured (smokeCommand takes no {textScale})' <<<"$OUT")" -eq 1 ] && ok "[H14] the not-configured note is printed exactly once per run" || bad "[H14] note printed $(grep -c 'scaled smoke: not configured' <<<"$OUT") times"
+[ "$(grep -c '^scaled smoke: not configured (smokeCommand takes no {textScale})$' "$FAKE_GH/pr-body.md" 2>/dev/null)" -eq 1 ] && ok "[H14] the run block carries the note once" || bad "[H14] run block: $(grep -c 'scaled smoke' "$FAKE_GH/pr-body.md" 2>/dev/null)"
+! grep -q 'scaled smoke' "$(SD)"/smoke-*.log 2>/dev/null && ok "[H14] the note never enters a smoke log (the build's findings)" || bad "[H14] the note is in a smoke log"
+
+# H14 (D-5): a stdin-reading render or smoke command must not swallow the rows still to run
+FIXTURE_CONFIG="{\"tracker\":{\"type\":\"github\",\"branchPrefix\":\"second-shift/\"},\"paths\":{\"plansDir\":\"docs/plans\"},\"design\":{\"provider\":\"figma\",\"liveRender\":{\"command\":\"cat > /dev/null; printf %s {state} > {out}\",\"smokeCommand\":\"cat > /dev/null; echo {route} >> $T/h14d.calls\"}}}" fixture h14d "- true" $'\n## Design frames\n\n| RS | route | state | frame | must-show |\n| --- | --- | --- | --- | --- |\n| RS-1 | a | default | 1:2 | ok |\n| RS-2 | b | empty | 1:3 | ok |\n| RS-3 | c | error | 1:4 | ok |\n'
+printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "[H14] stdin-reading render and smoke commands over three rows"
+[ "$(tr '\n' '|' < "$T/h14d.calls" 2>/dev/null)" = "a|b|c|" ] && ok "[H14] all three rows are smoked when the commands read stdin" || bad "[H14] calls: $(tr '\n' '|' < "$T/h14d.calls" 2>/dev/null)"
+FIXTURE_CONFIG="{\"tracker\":{\"type\":\"github\",\"branchPrefix\":\"second-shift/\"},\"paths\":{\"plansDir\":\"docs/plans\"},\"design\":{\"provider\":\"figma\",\"liveRender\":{\"command\":\"printf %s {state} > {out}\",\"smokeCommand\":\"cat > /dev/null; echo {route} {textScale} >> $T/h14f.calls\"}}}" fixture h14f "- true" $'\n## Design frames\n\n| RS | route | state | frame | must-show |\n| --- | --- | --- | --- | --- |\n| RS-1 | a | default | 1:2 | ok |\n| RS-2 | b | empty | 1:3 | ok |\n| RS-3 | c | error | 1:4 | ok |\n'
+printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "[H14] a stdin-reading smokeCommand with {textScale} over three rows"
+[ "$(tr '\n' '|' < "$T/h14f.calls" 2>/dev/null)" = "a 1|a 2|b 1|b 2|c 1|c 2|" ] && ok "[H14] all three rows are smoked at both scales when the scaled smoke reads stdin" || bad "[H14] calls: $(tr '\n' '|' < "$T/h14f.calls" 2>/dev/null)"
+
+# H14 (D-10): a red at text scale 1 does not skip text scale 2
+FIXTURE_CONFIG="{\"tracker\":{\"type\":\"github\",\"branchPrefix\":\"second-shift/\"},\"paths\":{\"plansDir\":\"docs/plans\"},\"design\":{\"provider\":\"figma\",\"liveRender\":{\"command\":\"cp $T/px.png {out}\",\"smokeCommand\":\"test {textScale} = 2\"}}}" fixture h14e "- true" $'\n## Design frames\n\n| RS | route | state | frame | must-show |\n| --- | --- | --- | --- | --- |\n| RS-1 | a | default | 1:2 | ok |\n'
+printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=1 run_case "$d"; expect checks-red-spent "[H14] a smoke red only at text scale 1 ends the round red"
+grep -qx "RED: RS-1 at text scale 1: smoke failed: test 1 = 2" "$(SD)/smoke-1.1.log" 2>/dev/null && grep -q "^ok: RS-1 at text scale 2 " "$(SD)/smoke-1.1.log" \
+  && ok "[H14] after a scale-1 red, scale 2 still runs and is logged ok" || bad "[H14] log: $(tr '\n' '|' < "$(SD)/smoke-1.1.log" 2>/dev/null | cut -c1-240)"
+
+# H14 (D-6): the not-configured note needs armed rows; a 'Design: none' record carries none
+FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"design":{"provider":"figma","liveRender":{"command":"true","smokeCommand":"true"}}}' fixture h14g "- true" $'\n## Design\n\nDesign: none — a wording change, nothing renders\n'
+printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "[H14] Design: none with a smokeCommand that takes no {textScale}"
+! grep -q 'scaled smoke: not configured' <<<"$OUT" && ! grep -q 'scaled smoke' "$FAKE_GH/pr-body.md" 2>/dev/null \
+  && ok "[H14] no not-configured note when the record arms no rows" || bad "[H14] the note printed for a record that arms no rows"
+
 # C20: the when-glob diff is fail-closed (gate:3970-3981) — a diff that cannot be read never skips every when-scoped lane
 FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"commands":{"main":{"extraLanes":[{"name":"e2e","when":["src/**"],"commands":["false"]}]}}}' fixture ar5 ""
 printf 'build-delete-test\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; mkdir -p "$T/gitnameonlydead"

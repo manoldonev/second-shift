@@ -194,7 +194,7 @@
           "type": "object",
           "additionalProperties": false,
           "required": ["command"],
-          "description": "The repo's render and smoke commands. After every build, /dev-pipeline:run runs the route smoke for each `## Design frames` row of the ticket record: command renders the row (a missing image, or two states rendering identically, is red), then smokeCommand checks the row's must-show value. A red smoke spends one attempt on the checks-red counter (run.checksRedMax), and its log goes to the next build session. The build and review sessions may run command too. See docs/live-render.md.",
+          "description": "The repo's render and smoke commands. After every build, /dev-pipeline:run runs the route smoke for each `## Design frames` row of the ticket record: command renders the row (a missing image, or two states rendering identically, is red), then smokeCommand checks the row's must-show value, and, when it takes {textScale}, that no text overflows or is clipped at text scale 1 and 2. A red smoke spends one attempt on the checks-red counter (run.checksRedMax), and its log goes to the next build session. The build and review sessions may run command too. See docs/live-render.md.",
           "properties": {
             "command": {
               "type": "string",
@@ -202,7 +202,7 @@
             },
             "smokeCommand": {
               "type": "string",
-              "description": "Repo-owned smoke command with {route} and {mustShow} placeholders, run by /dev-pipeline:run after every build for each `## Design frames` row, after command renders it: it must exit non-zero unless the route renders and shows that row's must-show value (a data-test id or a copy string). A record that declares design frames while this or command is absent stops the run as env-smoke-unconfigured."
+              "description": "Repo-owned smoke command with {route} and {mustShow} placeholders, plus an optional {textScale}, run by /dev-pipeline:run after every build for each `## Design frames` row, after command renders it: it must exit non-zero unless the route renders and shows that row's must-show value (a data-test id or a copy string). With {textScale} (a unitless multiplier) it runs at 1 and at 2 per row, scales the text only (not page zoom), and must also exit non-zero when any text overflows or is clipped; without it the smoke runs once and the run notes `scaled smoke: not configured`. Placeholders must appear UNQUOTED. A record that declares design frames while this or command is absent stops the run as env-smoke-unconfigured."
             },
             "readyProbe": {
               "type": "string",
