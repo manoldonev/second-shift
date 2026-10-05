@@ -75,7 +75,10 @@ review's context.
    — `success` for approve, `failure` for needs-work. A consumer that requires
    `second-shift/review` in branch protection cannot merge a PR without it. If the post fails,
    say so in a plain PR comment (a 403/404 through the bot means its GitHub App lacks
-   "Commit statuses: write"); never retry it as yourself in the bot's place. Then stop.
+   "Commit statuses: write"); never retry it as yourself in the bot's place. On an `approve` whose
+   status posted, mark the PR ready for review with the same `gh` (`gh pr ready <pr>`): a lane PR
+   stays a draft until a review approves its head, because GitHub refuses to merge a draft. If
+   that fails, say so in a plain PR comment. Then stop.
 
 ## Rules that are not negotiable
 
