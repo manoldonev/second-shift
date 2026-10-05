@@ -55,7 +55,8 @@ cat > "$T/bin/claude" <<'EOF'
 #!/usr/bin/env bash
 # behaviors come one per line from $FAKE_CLAUDE_PLAN, consumed in order; cwd is the worktree.
 S="$FAKE_GH"; n=$(cat "$S/calls" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "$S/calls"
-plan=$(sed -n "${n}p" "$FAKE_CLAUDE_PLAN"); prompt="${@: -1}"; printf '%s' "$prompt" > "$S/prompt-$n.txt"; printf '%s\n' "$@" > "$S/args-$n.txt"
+plan=$(sed -n "${n}p" "$FAKE_CLAUDE_PLAN"); prompt="$(cat)"; [ -n "$prompt" ] || prompt="${@: -1}"   # stdin is the contract; the argv fallback lets (q12) fail for the real reason against an argv-passing run.sh
+printf '%s' "$prompt" > "$S/prompt-$n.txt"; printf '%s\n' "$@" > "$S/args-$n.txt"
 # the session's env as claude would apply it: what it inherited, overlaid by any --settings env
 { env | grep -E '^(CLAUDE_CODE_DISABLE_BACKGROUND_TASKS|CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS|BASH_(DEFAULT|MAX)_TIMEOUT_MS)='; prev=""; for a in "$@"; do [ "$prev" = --settings ] && printf '%s' "$a" | jq -r '.env // {} | to_entries[] | "\(.key)=\(.value)"'; prev="$a"; done; } | awk -F= '{ v[$1] = $0 } END { for (k in v) print v[k] }' | sort > "$S/env-$n.txt"
 branch=$(git rev-parse --abbrev-ref HEAD); cost="${FAKE_COST:-1}"
@@ -337,6 +338,13 @@ grep -q 'approved' "$FAKE_GH/issue-comments" && ok "(q2) closing comment posted 
 [ "$(grep -c 'stage: lean-claimed' "$FAKE_GH/issue-comments")" = 1 ] && [ "$(grep -c '^in-progress$' "$FAKE_GH/labels")" = 1 ] && ok "(q2) [K2 K10] re-entry posts no marker and swaps no label" || bad "(q2) [K2 K10] re-entry wrote to the tracker: markers=$(grep -c 'stage: lean-claimed' "$FAKE_GH/issue-comments") labels=$(tr '\n' ' ' < "$FAKE_GH/labels")"
 fixture q3 "- false"; printf 'build-pr\nbuild-push-only\nbuild-push-only\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=3 run_case "$d"; expect checks-red-spent "(q3) three red attempts"
 [ -f "$(SD)/build-1.1.json" ] && [ -f "$(SD)/build-1.3.json" ] && ok "(q3) every attempt keeps its own evidence file" || bad "(q3) attempt evidence overwritten"
+# (q12) a red lane that writes megabytes (a web server's request log): the next build still starts, reads the prompt on
+# stdin, and gets each red check's tail — passed as an argument it overran the exec limit and the session died as rc 126
+fixture q12 "- yes 'chatty check output line' | head -n 60000; false"; printf 'build-pr\nbuild-push-only\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=2 run_case "$d"
+expect checks-red-spent "(q12) a red lane that writes megabytes still reaches a second build"
+p2="$FAKE_GH/prompt-2.txt"
+[ -s "$p2" ] && [ "$(wc -c < "$p2")" -lt 300000 ] && grep -q '^RED: yes' "$p2" && grep -q 'earlier lines of this check cut' "$p2" && ok "(q12) the second build reads a capped excerpt naming the red check" || bad "(q12) prompt-2: $(wc -c < "$p2" 2>/dev/null) bytes"
+grep -q 'Implement ticket 42' "$FAKE_GH/prompt-1.txt" && ! grep -q 'Implement ticket 42' "$FAKE_GH/args-1.txt" && ok "(q12) the prompt arrives on stdin, never as an argument" || bad "(q12) the prompt rode argv or never arrived"
 fixture q4; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"
 cat > "$T/bin/gh-oldblock" <<EOF
 #!/usr/bin/env bash
