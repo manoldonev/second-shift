@@ -238,7 +238,7 @@ trap 'reap; say "interrupted; claim left in place"; exit 130' INT
 trap 'reap; say "terminated; claim left in place"; exit 143' TERM
 bounded() { # bounded <secs> <logfile> <cmd...> — a bash watchdog (macOS ships no `timeout`); TERM, then KILL after 10s: the cap is a bound
   local secs="$1" log="$2"; shift 2
-  ( cd "$WT" && exec "$@" ) > "$log" 2>"$log.err" < /dev/null & CHILD=$!
+  ( cd "$WT" && exec "$@" ) > "$log" 2>"$log.err" < "${BOUNDED_STDIN:-/dev/null}" & CHILD=$!
   local t=0
   while kill -0 "$CHILD" 2>/dev/null; do
     if [ "$t" -ge "$secs" ]; then
@@ -803,7 +803,25 @@ design_declared || terminal env-design-undeclared "the committed record at $FIRS
 # ============================ 6. rounds (rows B7-B9, B14-B16, E13, F1, F14, G1, G9, H12, I6, I12, I15, J8, J10, J12, J13, K12) ============================
 red_attempt() { # a red check, smoke or convention spends the checks-red counter, never a round; its log is the next build's findings
   CHECKS_RED=$((CHECKS_RED+1)); [ "$CHECKS_RED" -lt "$CHECKS_RED_MAX" ] || terminal checks-red-spent "$1 red $CHECKS_RED times (cost \$$(usd "$COST"))"
-  FINDINGS="$2"; NEED_BUILD=1; say "$1 red — the findings are the log; another BUILD attempt of round $ROUND"
+  FINDINGS="$(findings_excerpt "$2")"; NEED_BUILD=1; say "$1 red — the findings are the log; another BUILD attempt of round $ROUND"
+}
+findings_excerpt() { # findings_excerpt <log> -> the path of what the next build reads: each red check's last lines, capped
+  # A lane can write megabytes (a web server's request log); the build needs why it went red, not the whole stream.
+  # Green checks keep their 'ok:' line only; a red one keeps its last 150 lines, each cut at 400 chars; a log with no
+  # ok/RED markers (a smoke or convention log) is kept as its own tail. The whole excerpt is capped at 200 KB.
+  local log="$1" out="$1.findings" cap=200000
+  awk -v max=150 -v w=400 -v full="$log" '
+    function flush(red,   i, s) {
+      if (red) { s = (n > max) ? n - max : 0; if (s) print "[... " s " earlier lines of this check cut; the full log is " full " ...]"
+                 for (i = s + 1; i <= n; i++) print substr(buf[i % max], 1, w) }
+      n = 0 }
+    /^(RED|ok)( \([^)]*\))?: / { flush($0 ~ /^RED/); print; next }
+    { buf[++n % max] = $0 }
+    END { flush(1) }' "$log" > "$out.tmp"
+  if [ "$(wc -c < "$out.tmp")" -gt "$cap" ]; then
+    { head -c "$cap" "$out.tmp"; printf '\n[... findings cut at %s bytes; the full log is %s ...]\n' "$cap" "$log"; } > "$out"; rm -f "$out.tmp"
+  else mv "$out.tmp" "$out"; fi
+  printf '%s' "$out"
 }
 spawn() { # spawn <role> <model> <id> <allowlist> <max-turns> <prompt-file> -> rc (124 past the bound); the result JSON is $STATE/<role>-<id>.json
   local secs="$REVIEW_TO" extra=(); [ "$1" = build ] && secs="$BUILD_TO"
@@ -817,7 +835,10 @@ spawn() { # spawn <role> <model> <id> <allowlist> <max-turns> <prompt-file> -> r
   local sets envv=()
   if [ "$1" = build ]; then sets="$(printf '{"env":{"CLAUDE_CODE_DISABLE_BACKGROUND_TASKS":"1","BASH_DEFAULT_TIMEOUT_MS":"%s","BASH_MAX_TIMEOUT_MS":"%s"}}' "$BUILD_BASH_MS" "$BUILD_BASH_MS")"
   else sets="$(printf '{"env":{"CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS":"%s"}}' "$REVIEW_BG_WAIT_MS")"; envv=(env -u CLAUDE_CODE_DISABLE_BACKGROUND_TASKS); fi
-  bounded "$secs" "$STATE/$1-$3.json" ${envv[@]+"${envv[@]}"} "$CLAUDE" -p --model "$2" "${SPAWN_COMMON[@]}" ${extra[@]+"${extra[@]}"} --settings "$sets" --allowedTools "$4" --max-turns "$5" "$(cat "$6")"; local rc=$?
+  # the prompt goes in on stdin, never as an argument: a red check's log can carry it past the exec limit
+  # (1 MiB on macOS, 128 KiB for one argument on Linux), and the session then dies as rc 126 before it starts
+  local BOUNDED_STDIN="$6"
+  bounded "$secs" "$STATE/$1-$3.json" ${envv[@]+"${envv[@]}"} "$CLAUDE" -p --model "$2" "${SPAWN_COMMON[@]}" ${extra[@]+"${extra[@]}"} --settings "$sets" --allowedTools "$4" --max-turns "$5"; local rc=$?
   add_cost "$STATE/$1-$3.json"; return $rc
 }
 FINDINGS=""; NEED_BUILD=1; NEED_CHECKS=1; INPUT=""
