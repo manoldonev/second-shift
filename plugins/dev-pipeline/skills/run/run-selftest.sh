@@ -55,7 +55,7 @@ cat > "$T/bin/claude" <<'EOF'
 #!/usr/bin/env bash
 # behaviors come one per line from $FAKE_CLAUDE_PLAN, consumed in order; cwd is the worktree.
 S="$FAKE_GH"; n=$(cat "$S/calls" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "$S/calls"
-plan=$(sed -n "${n}p" "$FAKE_CLAUDE_PLAN"); prompt="$(cat)";   # run.sh hands the prompt over on stdin, never as an argument
+plan=$(sed -n "${n}p" "$FAKE_CLAUDE_PLAN"); prompt="$(cat)"; [ -n "$prompt" ] || prompt="${@: -1}"   # stdin is the contract; the argv fallback lets (q12) fail for the real reason against an argv-passing run.sh
 printf '%s' "$prompt" > "$S/prompt-$n.txt"; printf '%s\n' "$@" > "$S/args-$n.txt"
 # the session's env as claude would apply it: what it inherited, overlaid by any --settings env
 { env | grep -E '^(CLAUDE_CODE_DISABLE_BACKGROUND_TASKS|CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS|BASH_(DEFAULT|MAX)_TIMEOUT_MS)='; prev=""; for a in "$@"; do [ "$prev" = --settings ] && printf '%s' "$a" | jq -r '.env // {} | to_entries[] | "\(.key)=\(.value)"'; prev="$a"; done; } | awk -F= '{ v[$1] = $0 } END { for (k in v) print v[k] }' | sort > "$S/env-$n.txt"
