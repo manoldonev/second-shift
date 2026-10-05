@@ -682,7 +682,7 @@ for bare in 'Design: none —' 'Design: none - ' 'Design: none --'; do
     || fail "(ll-df5c) dash-only disarm '$bare' — rc=$rc err=$err"
 done
 
-# (ll-df6) a row with an empty must-show cell → 1: it is the route smoke's only assertion.
+# (ll-df6) a row with an empty must-show cell → 1: it is the record's only per-row assertion.
 # Driven on a repo WITHOUT a provider too — the smoke reads rows wherever they are.
 df_with '## Design frames' '| RS | route | state | frame | must-show |
 | --- | --- | --- | --- | --- |
