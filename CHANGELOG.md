@@ -4,6 +4,22 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v15.4.0
+
+### `dev-pipeline` 15.3.0 → 15.4.0
+
+- **feat(dev-pipeline): the review reads the build's own account last (#922)** (#922)
+  the pipeline review reads the PR description and the build's
+  comments only after scoring the record and writing its findings, and names
+  any score or finding that reading changed ("revised after reading the
+  build's account: ...").
+  Migration: none.
+- **fix(dev-pipeline): archive untracked leftovers instead of stopping at build-inflight (#927)** (#927)
+  a run no longer stops at build-inflight or closeout-inflight over
+  untracked files alone; they are archived under the run's state dir, named in
+  the log and the review input, and the build is told to delete its probes.
+  Migration: none.
+
 ## v15.3.0
 
 ### `dev-pipeline` 15.2.1 → 15.3.0
