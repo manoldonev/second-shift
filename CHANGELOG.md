@@ -4,6 +4,57 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v15.5.0
+
+### `dev-pipeline` 15.4.0 → 15.5.0
+
+- **feat(dev-pipeline): lane PRs stay drafts until a review approves their head (#925)** (#925)
+  lane PRs open as drafts and stay drafts until a review approves
+  their head; the scheduler (or /dev-pipeline:review) then marks them ready
+  for review. A draft PR is no longer a PR-conventions finding.
+  Migration: none.
+- **feat(dev-pipeline): route smoke at enlarged text scale via a {textScale} placeholder (#923)** (#923)
+  an opt-in `{textScale}` placeholder in
+  design.liveRender.smokeCommand makes the route smoke run each render state at
+  text scale 1 and 2, so the consumer's command can fail on text that
+  overflows or is clipped at 200% text size; without it the run notes
+  `scaled smoke: not configured`. Render and smoke commands no longer read the
+  row list on stdin, so a stdin-reading command can't skip rows any more.
+  Migration: none (opt in by adding `{textScale}` to smokeCommand).
+- **fix(dev-pipeline): hand session prompts over on stdin and cap red-check findings (#929)** (#929)
+  a red check that writes megabytes no longer stops the run as
+  build-blocked (rc 126, "Argument list too long"): session prompts go in
+  on stdin, and the next build reads each red check's last 150 lines plus
+  the path of the full log instead of the whole log.
+  Migration: none.
+
+### `intake-toolkit` 6.1.0 → 6.2.0
+
+- **feat(dev-pipeline): route smoke at enlarged text scale via a {textScale} placeholder (#923)** (#923)
+  an opt-in `{textScale}` placeholder in
+  design.liveRender.smokeCommand makes the route smoke run each render state at
+  text scale 1 and 2, so the consumer's command can fail on text that
+  overflows or is clipped at 200% text size; without it the run notes
+  `scaled smoke: not configured`. Render and smoke commands no longer read the
+  row list on stdin, so a stdin-reading command can't skip rows any more.
+  Migration: none (opt in by adding `{textScale}` to smokeCommand).
+
+### `second-shift` 11.3.0 → 11.4.0
+
+- **feat(dev-pipeline): lane PRs stay drafts until a review approves their head (#925)** (#925)
+  lane PRs open as drafts and stay drafts until a review approves
+  their head; the scheduler (or /dev-pipeline:review) then marks them ready
+  for review. A draft PR is no longer a PR-conventions finding.
+  Migration: none.
+- **feat(dev-pipeline): route smoke at enlarged text scale via a {textScale} placeholder (#923)** (#923)
+  an opt-in `{textScale}` placeholder in
+  design.liveRender.smokeCommand makes the route smoke run each render state at
+  text scale 1 and 2, so the consumer's command can fail on text that
+  overflows or is clipped at 200% text size; without it the run notes
+  `scaled smoke: not configured`. Render and smoke commands no longer read the
+  row list on stdin, so a stdin-reading command can't skip rows any more.
+  Migration: none (opt in by adding `{textScale}` to smokeCommand).
+
 ## v15.4.0
 
 ### `dev-pipeline` 15.3.0 → 15.4.0
