@@ -445,7 +445,9 @@ review_input() { # review_input <attempt> -> writes $STATE/review-input-<attempt
     echo "### Deleted or renamed test files"; awk '$1 ~ /^[DR]/ && $2 ~ /(\.spec\.|\.test\.|_test\.|\/tests?\/)/' <<<"$ns"; echo
     echo "### Added skips / forced-green lines"; grep -nE '^\+.*(\.skip\(|\.only\(|\|\| *true|xit\(|xdescribe\()' <<<"$full" || echo "(none)"; echo
     echo "### CI or check configuration edited"; grep -E '^\.github/|^\.gitlab|\.ya?ml$|^package\.json$|vitest\.config|jest\.config|\.eslintrc|tsconfig' <<<"$names" || echo "(none)"; echo
-    echo "### Build session permission denials"; [ -s "$STATE/denials-$A.txt" ] && cat "$STATE/denials-$A.txt" || echo "(none)"
+    echo "### Build session permission denials"; [ -s "$STATE/denials-$A.txt" ] && cat "$STATE/denials-$A.txt" || echo "(none)"; echo
+    echo "### Untracked files archived after the build (in no commit: a stray probe, or a file the build forgot to add)"
+    [ -s "$STATE/quarantine-$A.list" ] && tr '\0' '\n' < "$STATE/quarantine-$A.list" || echo "(none)"
   } > "$out"
 }
 
@@ -453,6 +455,7 @@ review_input() { # review_input <attempt> -> writes $STATE/review-input-<attempt
 build_prompt() { # build_prompt <round> <findings-file-or-empty>
   echo "Implement ticket $ISSUE of this repository. Fetch the ticket text yourself from the tracker (${TRACKER})."
   echo "Do not merge. Do not delete, skip or weaken a test to make a check pass; if a test is wrong, say so in the PR."
+  echo "Delete every probe or scratch file you created before you end your turn: a probe you never committed is not a test the PR deletes."
   [ "$BOT_OK" -eq 1 ] && echo "Commit through $TOOLS/bot-commit.sh (the repo's bot identity), never plain git commit — and re-pass the identity on any --amend, which otherwise silently re-stamps you as the committer."
   if [ "$1" -eq 1 ]; then
     echo "When the checks are green, commit, push branch $BRANCH to origin and, unless one is already open for this branch, open a READY (not draft) PR against $BASE_NAME with 'gh pr create --base $BASE_NAME'. The PR body, in order: line 1 exactly 'built-by: second-shift run $RUN_ID'; then a link to the decision record at $RECORD_REL; then the line 'Record baseline: $FIRST'; then a summary of the change;"
@@ -476,7 +479,7 @@ review_prompt() { # review_prompt <pr> <review-input-file>
   echo "If the ticket has design frames, render every screen at the head with the repo's render command and compare it with its frame; if you cannot render, you cannot approve: post 'verdict: needs-work' with a line 'reason: render-unavailable'."
   local via=""; [ "$BOT_OK" -eq 1 ] && via=" through $GH (the bot identity)"
   echo; echo "Post ONE PR comment$via. Its first line is exactly 'verdict: approve' or 'verdict: needs-work'; its second line is exactly 'reviewed: <the full sha of the head you reviewed>'. Then the row table, then findings. Never edit that comment afterwards."
-  echo; echo "## Scheduler input (deleted or skipped tests, config edits, and the build's permission denials)"; cat "$2"
+  echo; echo "## Scheduler input (deleted or skipped tests, config edits, the build's permission denials, and the untracked files archived after it)"; cat "$2"
 }
 build_allowlist() { # row F3: derived from what the record and config name
   local allow="Read,Edit,Write,Agent,Bash(git *),Bash(gh pr create*),Bash(gh pr view*),Bash(gh pr comment*),Bash(gh issue view*)$MCP_ALLOW" c
@@ -497,15 +500,45 @@ review_allowlist() { # row F20: review-lead's panel is a Workflow whose agents i
 }
 
 # -- the worktree (rows E17-E21, J6) --
-worktree_inflight() { # 0 collected · 8 in flight · 1 unreadable
+worktree_inflight() { # worktree_inflight <archive-tag> -> 0 collected · 8 in flight · 1 unreadable
+  # tracked dirt (modified, staged, intent-to-add, submodule) and unpushed commits are in flight; untracked files alone,
+  # on a tree at the pushed head, are what a session left behind: archived to $STATE/quarantine-<tag>.tar, never discarded
   local dirty unpushed; INFLIGHT_REASON=""
-  dirty="$(git -C "$WT" status --porcelain 2>&1)" || { INFLIGHT_REASON="its status could not be read ($dirty)"; return 1; }
+  dirty="$(git -C "$WT" status --porcelain --untracked-files=no 2>&1)" || { INFLIGHT_REASON="its status could not be read ($dirty)"; return 1; }
   if [ -n "$dirty" ]; then INFLIGHT_REASON="its tree is not clean"; return 8; fi
   # best effort, wrong only in the SAFE direction: a failed fetch can make pushed work look unpushed, never the reverse
   git -C "$WT" fetch --quiet origin "$BRANCH" >/dev/null 2>&1
   unpushed="$(git -C "$WT" log --oneline "refs/remotes/origin/$BRANCH..HEAD" 2>&1)" || { INFLIGHT_REASON="origin/$BRANCH is unresolvable, so nothing proves its work is pushed"; return 1; }
   if [ -n "$unpushed" ]; then INFLIGHT_REASON="it carries commits that are not on origin/$BRANCH"; return 8; fi
+  quarantine_untracked "$1" || return 8
   return 0
+}
+quarantine_untracked() { # quarantine_untracked <tag> -> 0 nothing left or archived · 1 not archived (INFLIGHT_REASON set; the originals stay)
+  # one entry per file, raw NUL-separated paths, whatever status.showUntrackedFiles says; ignored files are never listed,
+  # and an untracked path under a declared paths.runtimeData is left for runtime_data_held
+  local ar="$STATE/quarantine-$1.tar" list="$STATE/quarantine-$1.list" f p keep n err toc missing
+  git -C "$WT" ls-files -z --others --exclude-standard > "$list.all" 2> "$list.err" \
+    || { INFLIGHT_REASON="its untracked files could not be listed ($(tr '\n' ' ' < "$list.err"))"; return 1; }
+  : > "$list"
+  while IFS= read -r -d '' f; do
+    keep=1
+    while IFS= read -r p; do p="${p#./}"; p="${p%/}"; [ -n "$p" ] || continue; case "$f" in "$p"|"$p"/*) keep=0 ;; esac; done <<EOF
+$RUNTIME_DATA
+EOF
+    [ "$keep" -eq 0 ] || printf '%s\0' "$f" >> "$list"
+  done < "$list.all"
+  rm -f "$list.all" "$list.err"
+  [ -s "$list" ] || { rm -f "$list"; return 0; }
+  n="$(tr -cd '\0' < "$list" | wc -c | tr -d ' ')"
+  err="$(tar -C "$WT" -cf "$ar" --null -T - < "$list" 2>&1)" || { INFLIGHT_REASON="its $n untracked file(s) could not be archived to $ar ($err)"; return 1; }
+  # the archive is read back before any original is deleted: every listed path must be in it
+  toc="$(tar -tf "$ar" 2>&1)" || { INFLIGHT_REASON="the archive $ar of its $n untracked file(s) could not be read back ($toc)"; return 1; }
+  missing="$(tr '\0' '\n' < "$list" | grep -vxF -f <(printf '%s\n' "$toc") | head -n 1)"
+  [ -z "$missing" ] || { INFLIGHT_REASON="the archive $ar does not hold its untracked file $missing"; return 1; }
+  while IFS= read -r -d '' f; do
+    rm -rf -- "${WT:?}/$f" || { INFLIGHT_REASON="$f could not be deleted after it was archived to $ar"; return 1; }
+  done < "$list"
+  say "worktree: archived $n untracked file(s) left in $WT to $ar (in no commit; open the archive to recover one)"
 }
 runtime_data_held() { # 0 none · 8 held · 1 unreadable. `status --porcelain` never sees ignored files, and `worktree remove` deletes them
   # one read per declared path: git folds an ignored directory into its ignored ancestor, so the operator is told the path they declared
@@ -790,7 +823,7 @@ while :; do
       sub="$(jq -r '.subtype // "unreadable"' "$STATE/build-$A.json" 2>/dev/null)"
       [ "$sub" = success ] || terminal build-blocked "build session ended $sub (rc=$brc); worktree and claim left in place"
       over_ceiling && terminal cost-spent "\$$(usd_up "$COST") exceeds the \$$COST_CEIL ceiling"
-      worktree_inflight; ifrc=$?
+      worktree_inflight "$A"; ifrc=$?
       case "$ifrc" in
         0) : ;;
         8) terminal build-inflight "the BUILD session exited 0 but $WT still holds work nothing else has a copy of ($INFLIGHT_REASON) — push from the worktree and --resume; nothing here discards it" ;;
@@ -853,7 +886,7 @@ while :; do
 done
 
 # ============================ 7. close-out (rows E19, E20) ============================
-worktree_inflight; ifrc=$?
+worktree_inflight closeout; ifrc=$?
 case "$ifrc" in
   0) runtime_data_held; rdrc=$?
      if [ "$rdrc" -ne 0 ]; then say "worktree $WT left in place: $RUNTIME_REASON; move what must survive, then remove it by hand"

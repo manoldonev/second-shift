@@ -80,6 +80,7 @@ case "$plan" in
                    printf '%s\n\nrecord: %s\n\nCloses [GH-42]\n\n### Jira Items\n(nothing)\n' "$rid" "$rec" > "$S/pr-created-body.txt"; echo 7 > "$S/prs" ;;
   build-pr-close)  push; openpr; echo CLOSED > "$S/state" ;;
   build-pr-dirty)  push; openpr; echo uncommitted >> work.txt ;;
+  build-pr-untracked) push; openpr; printf 'it("probe", () => {});\n' > src/zz-probe.spec.ts; mkdir -p "src/probe dir"; echo scratch > "src/probe dir/notes.txt" ;;   # never committed: what a probing build leaves
   build-commit-nopush) echo "$n" >> work.txt; git add -A >/dev/null; git commit -qm "local only $n" ;;
   build-skip-test) printf 'it.skip("x", () => {});\n' >> src/a.spec.ts; mkdir -p .github/workflows; echo 'on: push' > .github/workflows/ci.yml; push; openpr ;;
   review-crash)    printf '{"subtype":"error_during_execution","total_cost_usd":0}\n'; exit 1 ;;
@@ -212,6 +213,18 @@ fixture c; printf 'build-push-only\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expe
 # (d) E21: a build that left uncommitted work stops the run and nothing discards that work
 fixture d; printf 'build-pr-dirty\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect build-inflight "(d) [E21] a build that left uncommitted work in the worktree is in flight"
 [ -n "$(git -C "$d/wt/42" status --porcelain 2>/dev/null)" ] && ok "(d) [E21] the uncommitted work is still there, never reset away" || bad "(d) [E21] the worktree was cleaned — the build's work was discarded"
+
+# (dq) #926: untracked files alone, on a tree at the pushed head, are archived and the run goes on. The check fails if the
+# probe is still in the tree, so it also proves the archive happens before the checks run
+fixture dq "- test ! -e src/zz-probe.spec.ts"; printf 'build-pr-untracked\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"
+expect approved "(dq) a build that left only untracked probes behind is not in flight"
+toc="$(tar -tf "$(SD)/quarantine-1.1.tar" 2>/dev/null)"
+grep -qx 'src/zz-probe.spec.ts' <<<"$toc" && grep -qx 'src/probe dir/notes.txt' <<<"$toc" && ok "(dq) both files, one entry each, are in quarantine-1.1.tar" || bad "(dq) archive holds: $(tr '\n' ' ' <<<"$toc")"
+grep -qE 'archived 2 untracked file\(s\) left in .* to .*/quarantine-1\.1\.tar ' <<<"$OUT" && ok "(dq) the log names the count and the archive" || bad "(dq) no archive line in the log"
+sec="$(awk '/^### Untracked files archived/{on=1; next} /^###/{on=0} on' "$(SD)/review-input-1.1.md" 2>/dev/null)"
+grep -qx 'src/zz-probe.spec.ts' <<<"$sec" && ok "(dq) the review input lists the archived path" || bad "(dq) review input lacks the archived path"
+grep -q 'Delete every probe or scratch file you created before you end your turn' "$FAKE_GH/prompt-1.txt" && ok "(dq) the build prompt tells the build to delete its probes" || bad "(dq) probe sentence missing from prompt-1"
+[ ! -d "$d/wt/42" ] && ok "(dq) the worktree is removed at close-out" || bad "(dq) worktree left in place"
 fixture d2; printf 'build-nothing\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect build-no-pr "(d2) [B14 B15] a build that changed nothing and opened no PR is build-no-pr, not in flight (orch:1515-1545 never tested head movement)"
 
 # (e) verdict names the wrong head
@@ -663,9 +676,10 @@ if [ "\$1 \$2" = "pr view" ] && [[ "\$*" == *body* ]]; then exit 1; fi; exec "$T
 EOF
 chmod +x "$T/bin/gh-prview-dies"; RUN_GH="$T/bin/gh-prview-dies" run_case "$d"; expect env-tracker-unreadable "[E12] unreadable PR body"; [ "$RC" -eq 2 ] && ok "[E12] exit 2" || bad "[E12] exit $RC"
 
-# E20: an approve with work left in the worktree is not a finished run
-fixture rj; printf 'build-pr\nreview-approve-dirty\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect closeout-inflight "[E20] the review left an untracked file behind"
-[ "$RC" -eq 1 ] && [ -d "$d/wt/42" ] && [ -f "$d/wt/42/review-scratch.txt" ] && ok "[E20] exit 1, worktree kept with the work in it" || bad "[E20] rc=$RC, worktree $([ -d "$d/wt/42" ] && echo kept || echo gone)"
+# E20 #926: an untracked file the review left at close-out is archived, and the approved worktree is removed
+fixture rj; printf 'build-pr\nreview-approve-dirty\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "[E20] the review left an untracked file behind"
+toc="$(tar -tf "$(SD)/quarantine-closeout.tar" 2>&1)"
+[ "$RC" -eq 0 ] && [ ! -d "$d/wt/42" ] && grep -qx review-scratch.txt <<<"$toc" && ok "[E20] exit 0, the file is in quarantine-closeout.tar and the worktree is removed" || bad "[E20] rc=$RC, worktree $([ -d "$d/wt/42" ] && echo kept || echo gone), archive: $(tr '\n' ' ' <<<"$toc")"
 
 # E20-rd: gitignored runtime data under a declared paths.runtimeData keeps the worktree — `worktree remove` would delete it — and the run still ends approved
 RTCFG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans","runtimeData":[".claude/storage","apps/api/uploads"]}}'
