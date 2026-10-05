@@ -21,8 +21,15 @@ review's context.
 
 ## Checklist
 
-1. `gh pr view <pr> --json number,headRefName,headRefOid,body,url` — the body names the ticket
-   (`Closes #N`) and links the decision record (`<plansDir>/<repo>-<key>-decisions.md`).
+1. `gh pr view <pr> --json number,headRefName,headRefOid,url`, then take only the body's
+   references, not its prose — the filter prints the tokens alone, never the line around them:
+   `gh pr view <pr> --json body --jq '.body | split("\n")[] | (capture("^\\s*(?<l>(closes|fixes|resolves)\\s+(#\\d+|\\[[A-Za-z][A-Za-z0-9]*-\\d+\\]))\\s*$"; "i").l), (capture("^(?<l>Record baseline: [0-9a-f]{7,40})\\s*$").l), scan("[^\\s()<>\\[\\]]*decisions\\.md")'`.
+   They name the ticket (`Closes #N`), the `Record baseline:` and the decision record
+   (`<plansDir>/<repo>-<key>-decisions.md`). **Read the build's own account last.** The PR
+   description and the build's PR comments are read only after step 5's scores and step 6's
+   findings are written, to reconcile the departures and rebuttals they state. An author's
+   framing measurably lowers what a reviewer finds. If that reading changes a score or a finding,
+   say so in the verdict: `revised after reading the build's account: <what changed>`.
 2. Check out the PR head and confirm `git rev-parse HEAD` equals `headRefOid`. That sha is the one
    you review and the one you name.
 3. **Read the record at its first commit and at the head.** The first commit is the one that added
@@ -39,7 +46,8 @@ review's context.
 5. **Score EVERY row of the record** against the code: `honored`, `violated`, `departed` (the row
    was edited; name who decided, per its provenance), or `undeterminable` (say what you could not
    read). A violated or undeterminable row is a blocker; neither may stand beside an approve.
-6. **Run `review-toolkit:review-lead` over the PR diff and declare the pipeline default panel**
+6. **Run `review-toolkit:review-lead` over the PR diff, pass it the ticket from step 1 yourself, and
+   declare the pipeline default panel**
    when you invoke it: the fan-out defaults to `scope-completeness-reviewer`; `security-reviewer`,
    `a11y-reviewer` and `unit-test-mutation-reviewer` are selected only by an opt-in — a
    `review panel` row in the record with `user-answered` or `user-delegated` provenance naming
@@ -67,7 +75,10 @@ review's context.
    — `success` for approve, `failure` for needs-work. A consumer that requires
    `second-shift/review` in branch protection cannot merge a PR without it. If the post fails,
    say so in a plain PR comment (a 403/404 through the bot means its GitHub App lacks
-   "Commit statuses: write"); never retry it as yourself in the bot's place. Then stop.
+   "Commit statuses: write"); never retry it as yourself in the bot's place. On an `approve` whose
+   status posted, mark the PR ready for review with the same `gh` (`gh pr ready <pr>`): a lane PR
+   stays a draft until a review approves its head, because GitHub refuses to merge a draft. If
+   that fails, say so in a plain PR comment. Then stop.
 
 ## Rules that are not negotiable
 

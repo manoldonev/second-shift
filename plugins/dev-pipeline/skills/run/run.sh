@@ -108,7 +108,7 @@ exit_code_for() { # the taxonomy a wrapper branches on
 }
 # Run state the terminal reports on. Set as the run advances; empty until then.
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
-COST=0; UNPRICED=""; ROUND=0; ATTEMPT=0; CHECKS_RED=0; CLAIMED=0; PR=""; PR_URL=""; HEAD_SHA=""; VERDICT=""; CI=""; FIRST=""; CHILD=""; TRACKER=""
+COST=0; UNPRICED=""; ROUND=0; ATTEMPT=0; CHECKS_RED=0; CLAIMED=0; PR=""; PR_URL=""; PR_DRAFT=""; HEAD_SHA=""; VERDICT=""; CI=""; FIRST=""; CHILD=""; TRACKER=""
 # A tracker comment is public: no local path leaves this machine through one. The worktree becomes
 # <worktree>, a path in the checkout becomes repo-relative, the home directory becomes ~, and any
 # other /Users/<name> or /home/<name> prefix is cut — the detail stays whole in the local log.
@@ -456,7 +456,9 @@ review_input() { # review_input <attempt> -> writes $STATE/review-input-<attempt
     echo "### Deleted or renamed test files"; awk '$1 ~ /^[DR]/ && $2 ~ /(\.spec\.|\.test\.|_test\.|\/tests?\/)/' <<<"$ns"; echo
     echo "### Added skips / forced-green lines"; grep -nE '^\+.*(\.skip\(|\.only\(|\|\| *true|xit\(|xdescribe\()' <<<"$full" || echo "(none)"; echo
     echo "### CI or check configuration edited"; grep -E '^\.github/|^\.gitlab|\.ya?ml$|^package\.json$|vitest\.config|jest\.config|\.eslintrc|tsconfig' <<<"$names" || echo "(none)"; echo
-    echo "### Build session permission denials"; [ -s "$STATE/denials-$A.txt" ] && cat "$STATE/denials-$A.txt" || echo "(none)"
+    echo "### Build session permission denials"; [ -s "$STATE/denials-$A.txt" ] && cat "$STATE/denials-$A.txt" || echo "(none)"; echo
+    echo "### Untracked files archived after the build (in no commit: a stray probe, or a file the build forgot to add)"
+    [ -s "$STATE/quarantine-$A.list" ] && tr '\0' '\n' < "$STATE/quarantine-$A.list" || echo "(none)"
   } > "$out"
 }
 
@@ -464,9 +466,10 @@ review_input() { # review_input <attempt> -> writes $STATE/review-input-<attempt
 build_prompt() { # build_prompt <round> <findings-file-or-empty>
   echo "Implement ticket $ISSUE of this repository. Fetch the ticket text yourself from the tracker (${TRACKER})."
   echo "Do not merge. Do not delete, skip or weaken a test to make a check pass; if a test is wrong, say so in the PR."
+  echo "Delete every probe or scratch file you created before you end your turn: a probe you never committed is not a test the PR deletes."
   [ "$BOT_OK" -eq 1 ] && echo "Commit through $TOOLS/bot-commit.sh (the repo's bot identity), never plain git commit — and re-pass the identity on any --amend, which otherwise silently re-stamps you as the committer."
   if [ "$1" -eq 1 ]; then
-    echo "When the checks are green, commit, push branch $BRANCH to origin and, unless one is already open for this branch, open a READY (not draft) PR against $BASE_NAME with 'gh pr create --base $BASE_NAME'. The PR body, in order: line 1 exactly 'built-by: second-shift run $RUN_ID'; then a link to the decision record at $RECORD_REL; then the line 'Record baseline: $FIRST'; then a summary of the change;"
+    echo "When the checks are green, commit, push branch $BRANCH to origin and, unless one is already open for this branch, open a DRAFT PR against $BASE_NAME with 'gh pr create --draft --base $BASE_NAME', and leave it a draft: the scheduler marks it ready for review only when a review approves its head. The PR body, in order: line 1 exactly 'built-by: second-shift run $RUN_ID'; then a link to the decision record at $RECORD_REL; then the line 'Record baseline: $FIRST'; then a summary of the change;"
     if [ "$TRACKER" = github ]; then echo "and the line 'Closes #$ISSUE' so the ticket closes on merge."; else echo "and a '### Jira Items' heading with the line 'Closes [$ISSUE]'."; fi
   else echo "Address the review findings below: fix each, or rebut it in a PR comment. Then commit and push $BRANCH."; fi
   echo; echo "The following decisions were settled with the requester before implementation started. They are binding. The record is committed at $RECORD_REL; if you must depart from a row, edit that row in place (new resolution, provenance user-delegated, a one-line reason) and commit the edit with the code. A material decision no row covers gets a new row the same way. Commit $FIRST is the record baseline the review reads: never amend, rebase or force-push over it. Never post a comment starting with 'verdict:'."
@@ -481,12 +484,13 @@ review_prompt() { # review_prompt <pr> <review-input-file>
   echo "You are reviewing PR #$1 of this repository at its current head, in a session separate from the one that built it. Check out the PR head. Read the decision record at $RECORD_REL as it stood at commit $FIRST (git show $FIRST:$RECORD_REL) and as it stands at the head."
   echo "Score EVERY row of the record against the code: honored, violated, departed (the row was edited; name who decided, per its provenance), or undeterminable (say what you could not read). A violated or undeterminable row is a blocker; neither may stand beside an approve."
   echo "The PR's base branch is $BASE_NAME: pass it to review-lead as the base, so the diff is origin/$BASE_NAME...HEAD and not the remote default branch."
-  echo "Then run review-toolkit:review-lead over the PR diff and DECLARE THE PIPELINE DEFAULT PANEL when you invoke it: the fan-out defaults to scope-completeness-reviewer; security-reviewer, a11y-reviewer and unit-test-mutation-reviewer are selected only by an opt-in — a 'review panel' row in the record with user-answered or user-delegated provenance naming security, a11y or unit-test-mutation, or the config's reviewers.default[]. review-lead never infers this; an undeclared panel leaves the surface triggers in force. You may also opt one of the three back in on your own judgment when the diff touches its surface: pass its short name to review-lead with a one-line reason. The trim stays the default because it was measured; a diff it was never measured on is yours to judge."
+  echo "Then run review-toolkit:review-lead over the PR diff, passing it the ticket $ISSUE yourself so it never reads the PR body to find one, and DECLARE THE PIPELINE DEFAULT PANEL when you invoke it: the fan-out defaults to scope-completeness-reviewer; security-reviewer, a11y-reviewer and unit-test-mutation-reviewer are selected only by an opt-in — a 'review panel' row in the record with user-answered or user-delegated provenance naming security, a11y or unit-test-mutation, or the config's reviewers.default[]. review-lead never infers this; an undeclared panel leaves the surface triggers in force. You may also opt one of the three back in on your own judgment when the diff touches its surface: pass its short name to review-lead with a one-line reason. The trim stays the default because it was measured; a diff it was never measured on is yours to judge."
   echo "review-lead dispatches its reviewers through the code-review.mjs Workflow: stage that script by copying it into $STATE (this run's evidence directory, already added to this session), never into the worktree, and run the Workflow from there."
+  echo "Read the build's own account last: write the row scores and your findings, review-lead's included, from the record, the diff and the code first, and only then read the PR description and the build's PR comments, to reconcile the departures and rebuttals they state. An author's framing measurably lowers what a reviewer finds. If that reading changes a score or a finding, say so in the verdict with a line 'revised after reading the build's account: <what changed>'."
   echo "If the ticket has design frames, render every screen at the head with the repo's render command and compare it with its frame; if you cannot render, you cannot approve: post 'verdict: needs-work' with a line 'reason: render-unavailable'."
   local via=""; [ "$BOT_OK" -eq 1 ] && via=" through $GH (the bot identity)"
   echo; echo "Post ONE PR comment$via. Its first line is exactly 'verdict: approve' or 'verdict: needs-work'; its second line is exactly 'reviewed: <the full sha of the head you reviewed>'. Then the row table, then findings. Never edit that comment afterwards."
-  echo; echo "## Scheduler input (deleted or skipped tests, config edits, and the build's permission denials)"; cat "$2"
+  echo; echo "## Scheduler input (deleted or skipped tests, config edits, the build's permission denials, and the untracked files archived after it)"; cat "$2"
 }
 build_allowlist() { # row F3: derived from what the record and config name
   local allow="Read,Edit,Write,Agent,Bash(git *),Bash(gh pr create*),Bash(gh pr view*),Bash(gh pr comment*),Bash(gh issue view*)$MCP_ALLOW" c
@@ -507,15 +511,45 @@ review_allowlist() { # row F20: review-lead's panel is a Workflow whose agents i
 }
 
 # -- the worktree (rows E17-E21, J6) --
-worktree_inflight() { # 0 collected · 8 in flight · 1 unreadable
+worktree_inflight() { # worktree_inflight <archive-tag> -> 0 collected · 8 in flight · 1 unreadable
+  # tracked dirt (modified, staged, intent-to-add, submodule) and unpushed commits are in flight; untracked files alone,
+  # on a tree at the pushed head, are what a session left behind: archived to $STATE/quarantine-<tag>.tar, never discarded
   local dirty unpushed; INFLIGHT_REASON=""
-  dirty="$(git -C "$WT" status --porcelain 2>&1)" || { INFLIGHT_REASON="its status could not be read ($dirty)"; return 1; }
+  dirty="$(git -C "$WT" status --porcelain --untracked-files=no 2>&1)" || { INFLIGHT_REASON="its status could not be read ($dirty)"; return 1; }
   if [ -n "$dirty" ]; then INFLIGHT_REASON="its tree is not clean"; return 8; fi
   # best effort, wrong only in the SAFE direction: a failed fetch can make pushed work look unpushed, never the reverse
   git -C "$WT" fetch --quiet origin "$BRANCH" >/dev/null 2>&1
   unpushed="$(git -C "$WT" log --oneline "refs/remotes/origin/$BRANCH..HEAD" 2>&1)" || { INFLIGHT_REASON="origin/$BRANCH is unresolvable, so nothing proves its work is pushed"; return 1; }
   if [ -n "$unpushed" ]; then INFLIGHT_REASON="it carries commits that are not on origin/$BRANCH"; return 8; fi
+  quarantine_untracked "$1" || return 8
   return 0
+}
+quarantine_untracked() { # quarantine_untracked <tag> -> 0 nothing left or archived · 1 not archived (INFLIGHT_REASON set; the originals stay)
+  # one entry per file, raw NUL-separated paths, whatever status.showUntrackedFiles says; ignored files are never listed,
+  # and an untracked path under a declared paths.runtimeData is left for runtime_data_held
+  local ar="$STATE/quarantine-$1.tar" list="$STATE/quarantine-$1.list" f p keep n err toc missing
+  git -C "$WT" ls-files -z --others --exclude-standard > "$list.all" 2> "$list.err" \
+    || { INFLIGHT_REASON="its untracked files could not be listed ($(tr '\n' ' ' < "$list.err"))"; return 1; }
+  : > "$list"
+  while IFS= read -r -d '' f; do
+    keep=1
+    while IFS= read -r p; do p="${p#./}"; p="${p%/}"; [ -n "$p" ] || continue; case "$f" in "$p"|"$p"/*) keep=0 ;; esac; done <<EOF
+$RUNTIME_DATA
+EOF
+    [ "$keep" -eq 0 ] || printf '%s\0' "$f" >> "$list"
+  done < "$list.all"
+  rm -f "$list.all" "$list.err"
+  [ -s "$list" ] || { rm -f "$list"; return 0; }
+  n="$(tr -cd '\0' < "$list" | wc -c | tr -d ' ')"
+  err="$(tar -C "$WT" -cf "$ar" --null -T - < "$list" 2>&1)" || { INFLIGHT_REASON="its $n untracked file(s) could not be archived to $ar ($err)"; return 1; }
+  # the archive is read back before any original is deleted: every listed path must be in it
+  toc="$(tar -tf "$ar" 2>&1)" || { INFLIGHT_REASON="the archive $ar of its $n untracked file(s) could not be read back ($toc)"; return 1; }
+  missing="$(tr '\0' '\n' < "$list" | grep -vxF -f <(printf '%s\n' "$toc") | head -n 1)"
+  [ -z "$missing" ] || { INFLIGHT_REASON="the archive $ar does not hold its untracked file $missing"; return 1; }
+  while IFS= read -r -d '' f; do
+    rm -rf -- "${WT:?}/$f" || { INFLIGHT_REASON="$f could not be deleted after it was archived to $ar"; return 1; }
+  done < "$list"
+  say "worktree: archived $n untracked file(s) left in $WT to $ar (in no commit; open the archive to recover one)"
 }
 runtime_data_held() { # 0 none · 8 held · 1 unreadable. `status --porcelain` never sees ignored files, and `worktree remove` deletes them
   # one read per declared path: git folds an ignored directory into its ignored ancestor, so the operator is told the path they declared
@@ -564,11 +598,10 @@ premise_holds() { # rows J2, J4-J8: re-asked before every build spawn; a predica
 
 # -- the PR (rows E7-E13, E16) --
 pr_conventions() { # pr_conventions <pr> <attempt> -> 0, 1 unmet (reasons in $STATE/pr-conventions-<attempt>.txt), 2 unreadable (the caller refuses)
-  local out="$STATE/pr-conventions-$2.txt" info body draft first
+  local out="$STATE/pr-conventions-$2.txt" info body first
   info="$("$GH_READ" pr view "$1" --json body,isDraft 2>/dev/null)" || return 2
-  body="$(printf '%s' "$info" | jq -r '.body // ""')"; draft="$(printf '%s' "$info" | jq -r '.isDraft // false')"
+  body="$(printf '%s' "$info" | jq -r '.body // ""')"; PR_DRAFT="$(printf '%s' "$info" | jq -r '.isDraft // false')"
   : > "$out"
-  [ "$draft" = false ] || echo "the PR is a draft; mark it ready for review" >> "$out"
   first="$(printf '%s\n' "$body" | head -n 1)"
   grep -q "^built-by: second-shift run " <<<"$first" || echo "PR body line 1 must be 'built-by: second-shift run <id>'" >> "$out"
   grep -qF "$RECORD_REL" <<<"$body" || echo "PR body must link the decision record at $RECORD_REL" >> "$out"
@@ -636,6 +669,26 @@ review_status() {
   fi
   STATUS_NOTES="${STATUS_NOTES}status: NOT posted ($STATUS_CONTEXT=$state on $HEAD_SHA) — $why"$'\n'; say "status: NOT posted on $HEAD_SHA — $why"
 }
+# -- the draft hold (rows E22, E23): GitHub refuses to merge a draft, so a lane PR stays one until a review approves its
+# head; the scheduler owns both flips. A flip that fails is reported in the run block, never fatal --
+DRAFT_NOTES=""
+pr_hold_draft() { # after every build: a ready PR is turned back into a draft
+  local err
+  [ "$PR_DRAFT" = false ] || return 0
+  if err="$("$GH" pr ready "$PR" --undo 2>&1 >/dev/null)"; then
+    PR_DRAFT=true; say "pr: #$PR turned back into a draft — it is marked ready only when a review approves its head"
+  else
+    DRAFT_NOTES="${DRAFT_NOTES}pr: NOT turned into a draft — $(printf '%s' "$err" | tr '\n' ' ' | cut -c1-200); it stayed mergeable before its review"$'\n'; say "pr: could not turn #$PR into a draft"
+  fi
+}
+pr_mark_ready() { # approved at this head: the one flip out of draft
+  local err
+  if err="$("$GH" pr ready "$PR" 2>&1 >/dev/null)"; then
+    DRAFT_NOTES="${DRAFT_NOTES}pr: marked ready for review — approved at $HEAD_SHA"$'\n'; say "pr: #$PR marked ready for review"
+  else
+    DRAFT_NOTES="${DRAFT_NOTES}pr: still a draft — marking it ready failed ($(printf '%s' "$err" | tr '\n' ' ' | cut -c1-200)); mark it ready by hand"$'\n'; say "pr: could not mark #$PR ready for review"
+  fi
+}
 # -- the run block (rows E14-E16, I13, I14): in the PR BODY under the old lane's marker, at every terminal once a PR exists --
 cost_block() { # <terminal slug>
   echo '<!-- pipeline-cost-block -->'
@@ -644,6 +697,7 @@ cost_block() { # <terminal slug>
   echo "| $RUN_ID | $1 | $ROUND | ${VERDICT:-none} | ${HEAD_SHA:-—} | \$$(usd "$COST")${UNPRICED:+ + unpriced} | $CI |"; echo
   [ -z "$RUN_NOTES" ] || printf '%s' "$RUN_NOTES" | awk '{print; print ""}'
   [ -z "$STATUS_NOTES" ] || printf '%s' "$STATUS_NOTES" | awk '{print; print ""}'   # one paragraph per bound verdict's status post
+  [ -z "$DRAFT_NOTES" ] || printf '%s' "$DRAFT_NOTES" | awk '{print; print ""}'     # one paragraph per draft flip worth reporting
   echo "| session | turns | cost |"; echo "| --- | --- | --- |"
   local f n c; for f in "$STATE"/build-*.json "$STATE"/review-*.json; do
     [ -f "$f" ] || continue; n="$(basename "$f" .json)"; c="$(jq -r '.total_cost_usd | numbers' "$f" 2>/dev/null)"
@@ -793,7 +847,7 @@ while :; do
   say "round $ROUND of $MAX_ROUNDS (cost so far \$$(usd "$COST"))"
   review_tries=0; VERDICT=""
   while :; do
-    if [ "$NEED_BUILD" -eq 1 ]; then # ---- BUILD, until its work is collected on one ready PR ----
+    if [ "$NEED_BUILD" -eq 1 ]; then # ---- BUILD, until its work is collected on one draft PR ----
       premise_holds
       worktree_ready
       ATTEMPT=$((ATTEMPT+1)); A="$ROUND.$ATTEMPT"
@@ -810,7 +864,7 @@ while :; do
       sub="$(jq -r '.subtype // "unreadable"' "$STATE/build-$A.json" 2>/dev/null)"
       [ "$sub" = success ] || terminal build-blocked "build session ended $sub (rc=$brc); worktree and claim left in place"
       over_ceiling && terminal cost-spent "\$$(usd_up "$COST") exceeds the \$$COST_CEIL ceiling"
-      worktree_inflight; ifrc=$?
+      worktree_inflight "$A"; ifrc=$?
       case "$ifrc" in
         0) : ;;
         8) terminal build-inflight "the BUILD session exited 0 but $WT still holds work nothing else has a copy of ($INFLIGHT_REASON) — push from the worktree and --resume; nothing here discards it" ;;
@@ -824,6 +878,7 @@ while :; do
       NEED_BUILD=0; NEED_CHECKS=1
       pr_conventions "$PR" "$A"; crc=$?
       [ "$crc" -ne 2 ] || terminal env-tracker-unreadable "PR #$PR could not be read — a conventions check that cannot run is not one that passed"
+      pr_hold_draft
       [ "$crc" -eq 0 ] || { red_attempt "PR conventions" "$STATE/pr-conventions-$A.txt"; continue; }
     fi
     # ---- the checks the build did not run, at the pushed head; re-run only when the head moved (ids: the build attempt, suffixed on a re-spawn) ----
@@ -873,7 +928,7 @@ while :; do
 done
 
 # ============================ 7. close-out (rows E19, E20) ============================
-worktree_inflight; ifrc=$?
+worktree_inflight closeout; ifrc=$?
 case "$ifrc" in
   0) runtime_data_held; rdrc=$?
      if [ "$rdrc" -ne 0 ]; then say "worktree $WT left in place: $RUNTIME_REASON; move what must survive, then remove it by hand"
@@ -881,4 +936,5 @@ case "$ifrc" in
   8) terminal closeout-inflight "approved, but $WT still holds work nothing else has a copy of ($INFLIGHT_REASON) — the ticket is still claimed and PR #$PR is still open" ;;
   *) terminal closeout-inflight-unreadable "approved, but whether $WT still holds work could not be evaluated ($INFLIGHT_REASON)" ;;
 esac
+pr_mark_ready
 terminal approved "PR #$PR approved at $HEAD_SHA after $ROUND round(s), \$$(usd "$COST")"

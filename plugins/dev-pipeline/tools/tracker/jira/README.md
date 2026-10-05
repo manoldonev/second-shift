@@ -19,8 +19,9 @@ posts on it and the review's verdict comment.
 The table below is this adapter's operation contract. The scheduler's tracker-sensitive
 operations are tabulated in [`../README.md`](../README.md#the-pipeline-dev-pipelinerun).
 
-> **Ready, never draft.** The **ready** (non-draft) PR contract holds under both trackers —
-> the scheduler's PR conventions check rejects a draft on either adapter.
+> **A draft until approved.** Under both trackers the build opens a draft PR and the scheduler
+> keeps it one — turning a ready PR back into a draft — until a review approves its head; only
+> then is it marked ready for review. GitHub refuses to merge a draft.
 
 ## Prerequisite
 

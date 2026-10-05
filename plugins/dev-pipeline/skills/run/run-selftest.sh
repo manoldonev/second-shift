@@ -33,6 +33,8 @@ case "$sub" in
   "pr list")     cat "$S/prs" 2>/dev/null ;;
   "pr checks")   [ -f "$S/ci-red" ] && echo '[{"name":"ci","state":"FAILURE"}]' || echo '[]' ;;
   "pr comment")  echo "$*" >> "$S/cost-comments" ;;
+  "pr ready")    [ -f "$S/ready-fail" ] && { cat "$S/ready-fail" >&2; exit 1; }   # one line per flip, in order: who, which way
+                 case "$*" in *--undo*) touch "$S/draft"; w=undo ;; *) rm -f "$S/draft"; w=ready ;; esac; echo "${FAKE_GH_AS:-operator} $w" >> "$S/ready-calls" ;;
   "pr view")     case "$*" in *body*) jq -n --rawfile b "$S/pr-created-body.txt" --argjson d "$([ -f "$S/draft" ] && echo true || echo false)" '{body:$b, isDraft:$d}' ;; *) echo "https://x/pr/7" ;; esac ;;
   "repo view")   echo "o/r" ;;
   "api -X")      # PATCH repos/o/r/pulls/7 -F body=@<file> | POST .../labels --input - | DELETE .../labels/<name>
@@ -75,11 +77,12 @@ case "$plan" in
   build-sleep)     sleep 60; exit 143 ;;   # killed at its bound: a real session leaves no result JSON
   build-stubborn)  trap '' TERM; while :; do sleep 1; done ;;
   build-kill-remote) push; openpr; git remote set-url origin /nonexistent-remote ;;
-  build-pr-ready)  touch "$S/undraft"; rm -f "$S/draft" ;;
+  build-pr-fixbody) openpr ;;   # a PR-only fix: the body is rewritten, nothing is pushed
   build-pr-jira-outside) push; rid=$(grep -oE 'built-by: second-shift run [^ ]+' "$S/prompt-$n.txt" | head -n 1); rec=$(grep -oE 'The record is committed at [^;]+' "$S/prompt-$n.txt" | sed 's/^The record is committed at //')
                    printf '%s\n\nrecord: %s\n\nCloses [GH-42]\n\n### Jira Items\n(nothing)\n' "$rid" "$rec" > "$S/pr-created-body.txt"; echo 7 > "$S/prs" ;;
   build-pr-close)  push; openpr; echo CLOSED > "$S/state" ;;
   build-pr-dirty)  push; openpr; echo uncommitted >> work.txt ;;
+  build-pr-untracked) push; openpr; printf 'it("probe", () => {});\n' > src/zz-probe.spec.ts; mkdir -p "src/probe dir"; echo scratch > "src/probe dir/notes.txt" ;;   # never committed: what a probing build leaves
   build-commit-nopush) echo "$n" >> work.txt; git add -A >/dev/null; git commit -qm "local only $n" ;;
   build-skip-test) printf 'it.skip("x", () => {});\n' >> src/a.spec.ts; mkdir -p .github/workflows; echo 'on: push' > .github/workflows/ci.yml; push; openpr ;;
   review-crash)    printf '{"subtype":"error_during_execution","total_cost_usd":0}\n'; exit 1 ;;
@@ -152,7 +155,7 @@ grep -q 'Claimed by .*/dev-pipeline:run' "$FAKE_GH/issue-comments" && ! grep -q 
 [ "$(tr '\n' ' ' < "$FAKE_GH/env-1.txt")" = "BASH_DEFAULT_TIMEOUT_MS=6900000 BASH_MAX_TIMEOUT_MS=6900000 CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1 " ] && ok "(a) [F-env] BUILD: background tasks off, Bash timeouts 300 s inside the 7200 s bound" || bad "(a) [F-env] BUILD spawn env: $(tr '\n' ' ' < "$FAKE_GH/env-1.txt")"
 [ "$(tr '\n' ' ' < "$FAKE_GH/env-2.txt")" = "CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=3300000 " ] && ok "(a) [F-env] REVIEW: background tasks kept, their wait 300 s inside the 3600 s bound" || bad "(a) [F-env] REVIEW spawn env: $(tr '\n' ' ' < "$FAKE_GH/env-2.txt")"
 [ ! -d "$d/wt/42" ] && ok "(a) worktree torn down on approve" || bad "(a) worktree left after approve"
-grep -q 'Closes #42' "$FAKE_GH/prompt-1.txt" && grep -q 'READY (not draft)' "$FAKE_GH/prompt-1.txt" && ok "(a) build prompt asks for a ready PR that closes the ticket" || bad "(a) PR conventions missing from the build prompt"
+grep -q 'Closes #42' "$FAKE_GH/prompt-1.txt" && grep -q 'gh pr create --draft' "$FAKE_GH/prompt-1.txt" && ok "(a) build prompt asks for a draft PR that closes the ticket" || bad "(a) PR conventions missing from the build prompt"
 grep -q 'AskUserQuestion' "$FAKE_GH/args-1.txt" && ! grep -q 'editJiraIssue' "$FAKE_GH/args-1.txt" && ok "(a) keyboard tools disallowed, no jira strip under github" || bad "(a) disallowed-tools list wrong"
 grep -q 'DECLARE THE PIPELINE DEFAULT PANEL' "$FAKE_GH/prompt-2.txt" && ok "(a) review prompt declares the panel" || bad "(a) panel declaration missing"
 grep -q 'on your own judgment' "$FAKE_GH/prompt-2.txt" && ok "(a) review prompt lets the reviewer opt a reviewer in, with a reason" || bad "(a) judgment opt-in missing from the review prompt"
@@ -212,6 +215,18 @@ fixture c; printf 'build-push-only\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expe
 # (d) E21: a build that left uncommitted work stops the run and nothing discards that work
 fixture d; printf 'build-pr-dirty\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect build-inflight "(d) [E21] a build that left uncommitted work in the worktree is in flight"
 [ -n "$(git -C "$d/wt/42" status --porcelain 2>/dev/null)" ] && ok "(d) [E21] the uncommitted work is still there, never reset away" || bad "(d) [E21] the worktree was cleaned — the build's work was discarded"
+
+# (dq) #926: untracked files alone, on a tree at the pushed head, are archived and the run goes on. The check fails if the
+# probe is still in the tree, so it also proves the archive happens before the checks run
+fixture dq "- test ! -e src/zz-probe.spec.ts"; printf 'build-pr-untracked\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"
+expect approved "(dq) a build that left only untracked probes behind is not in flight"
+toc="$(tar -tf "$(SD)/quarantine-1.1.tar" 2>/dev/null)"
+grep -qx 'src/zz-probe.spec.ts' <<<"$toc" && grep -qx 'src/probe dir/notes.txt' <<<"$toc" && ok "(dq) both files, one entry each, are in quarantine-1.1.tar" || bad "(dq) archive holds: $(tr '\n' ' ' <<<"$toc")"
+grep -qE 'archived 2 untracked file\(s\) left in .* to .*/quarantine-1\.1\.tar ' <<<"$OUT" && ok "(dq) the log names the count and the archive" || bad "(dq) no archive line in the log"
+sec="$(awk '/^### Untracked files archived/{on=1; next} /^###/{on=0} on' "$(SD)/review-input-1.1.md" 2>/dev/null)"
+grep -qx 'src/zz-probe.spec.ts' <<<"$sec" && ok "(dq) the review input lists the archived path" || bad "(dq) review input lacks the archived path"
+grep -q 'Delete every probe or scratch file you created before you end your turn' "$FAKE_GH/prompt-1.txt" && ok "(dq) the build prompt tells the build to delete its probes" || bad "(dq) probe sentence missing from prompt-1"
+[ ! -d "$d/wt/42" ] && ok "(dq) the worktree is removed at close-out" || bad "(dq) worktree left in place"
 fixture d2; printf 'build-nothing\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect build-no-pr "(d2) [B14 B15] a build that changed nothing and opened no PR is build-no-pr, not in flight (orch:1515-1545 never tested head movement)"
 
 # (e) verdict names the wrong head
@@ -444,11 +459,18 @@ FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"pat
 printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"
 grep -q 'e2e-runner --all' "$FAKE_GH/prompt-1.txt" && grep -q 'Bash(e2e-runner\*)' "$FAKE_GH/args-1.txt" && ok "(v7) a when-globbed lane is named in the round-1 prompt and allowlist before any diff exists" || bad "(v7) lane missing from the prompt or allowlist"
 
-# (w) round-eight parity: PR conventions asserted, a draft is no PR, a stopped run still leaves its
-#     block, claimed-elsewhere exits 2, dry-run lists every lane, second run's block is its own
-fixture w1; printf 'build-pr-draft\nbuild-push-only\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=2 run_case "$d"; expect checks-red-spent "(w1) a draft PR is a finding the build gets to fix, then spent"
-grep -qi 'draft' "$FAKE_GH/prompt-2.txt" && ok "(w1) the draft finding reaches the next build prompt" || bad "(w1) no draft finding in prompt 2"
-grep -q '| checks-red-spent |' "$FAKE_GH/pr-body.md" 2>/dev/null && ok "(w1) the run block is written onto the draft PR" || bad "(w1) no run block on the draft"
+# (w) round-eight parity: PR conventions asserted, a stopped run still leaves its block,
+#     claimed-elsewhere exits 2, dry-run lists every lane, second run's block is its own
+# E22 E23: a lane PR is a draft until a review approves its head — GitHub refuses to merge a draft
+fixture w1; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(w1) [E22 E23] a ready PR from the build"
+[ "$(cut -d' ' -f2 "$FAKE_GH/ready-calls" 2>/dev/null | tr '\n' ' ')" = "undo ready " ] && ok "(w1) [E22 E23] turned into a draft after the build, marked ready only on the approve" || bad "(w1) flips: $(tr '\n' '|' < "$FAKE_GH/ready-calls" 2>/dev/null)"
+[ ! -f "$FAKE_GH/draft" ] && grep -q 'marked ready for review — approved at' "$FAKE_GH/pr-body.md" && ok "(w1) [E23] the approved PR is ready and its run block says so" || bad "(w1) still a draft, or no note in the run block"
+fixture w1d; printf 'build-pr-draft\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(w1d) [E22] a draft PR is no finding"
+[ "$(cut -d' ' -f2 "$FAKE_GH/ready-calls" 2>/dev/null | tr '\n' ' ')" = "ready " ] && ok "(w1d) [E22 E23] a draft is left a draft, then marked ready on the approve" || bad "(w1d) flips: $(tr '\n' '|' < "$FAKE_GH/ready-calls" 2>/dev/null)"
+fixture w1n; printf 'build-pr\nreview-needs-work\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d" --max-rounds 1; expect rounds-spent "(w1n) [E23] needs-work, then the rounds are spent"
+[ -f "$FAKE_GH/draft" ] && ! grep -q ' ready$' "$FAKE_GH/ready-calls" 2>/dev/null && ok "(w1n) [E23] a run that ends without an approve leaves the PR a draft" || bad "(w1n) flips: $(tr '\n' '|' < "$FAKE_GH/ready-calls" 2>/dev/null)"
+fixture w1f; printf 'build-pr-draft\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; echo 'HTTP 403: Resource not accessible by integration' > "$FAKE_GH/ready-fail"; run_case "$d"; expect approved "(w1f) [E23] a flip that fails is not fatal"
+grep -q 'still a draft — marking it ready failed (HTTP 403' "$FAKE_GH/pr-body.md" && ok "(w1f) [E23] the run block names the failed flip and its reason" || bad "(w1f) run block: $(grep 'draft' "$FAKE_GH/pr-body.md" 2>/dev/null | head -2 | tr '\n' '|')"
 fixture w1b; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; FAKE_CLOSES=lower run_case "$d"; expect approved "(w1b) a lowercase 'closes #42' is accepted, as the old gate matched it"
 fixture w2; printf 'build-pr-nobody\nbuild-push-only\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=2 run_case "$d"; expect checks-red-spent "(w2) a PR body without built-by/Closes is sent back, then spent"
 grep -q "Closes #42" "$FAKE_GH/prompt-2.txt" && ok "(w2) the convention finding reaches the next build prompt" || bad "(w2) finding not in the next prompt"
@@ -484,7 +506,7 @@ printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect
 FIXTURE_CONFIG="{\"tracker\":{\"type\":\"github\",\"branchPrefix\":\"second-shift/\"},\"paths\":{\"plansDir\":\"docs/plans\"},\"design\":{\"provider\":\"figma\",\"liveRender\":{\"command\":\"cp $T/px.png {out}\",\"smokeCommand\":\"true\",\"readyProbe\":\"http://127.0.0.1:9/\"}}}" fixture x3 "- true" $'\n## Design frames\n\n| RS | route | state | frame | must-show |\n| --- | --- | --- | --- | --- |\n| RS-1 | a | default | 1:2 | ok |\n'
 printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect env-not-ready "(x3) a dead readyProbe stops an armed ticket before rendering"
 [ "$RC" -eq 2 ] && ok "(x3) infra stop, exit 2, no attempt spent" || bad "(x3) exit $RC"
-fixture x4; printf 'build-pr-draft\nbuild-pr-ready\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(x4) a PR-only fix (un-draft) is accepted without the head moving"
+fixture x4; printf 'build-pr-nobody\nbuild-pr-fixbody\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(x4) a PR-only fix (the body) is accepted without the head moving"
 FIXTURE_CONFIG='{"tracker":{"type":"jira","writes":false,"branchPrefix":"jdoe/","keyPattern":"[A-Z]+-[0-9]+"},"paths":{"plansDir":"docs/plans"}}' fixture x5
 printf 'build-pr-jira-outside\nbuild-push-only\n' > "$FAKE_CLAUDE_PLAN"; mv "$d/main/.claude/pipeline-state/42-ledger.md" "$d/main/.claude/pipeline-state/GH-42-ledger.md"
 OUT="$( cd "$d/main" && RUN_CHECKS_RED_MAX=2 bash "$RUN" GH-42 --build-model opus 2>&1 )"; RC=$?; TERM_SLUG="$(printf '%s\n' "$OUT" | sed -n 's/^terminal: //p' | tail -n 1)"
@@ -663,9 +685,10 @@ if [ "\$1 \$2" = "pr view" ] && [[ "\$*" == *body* ]]; then exit 1; fi; exec "$T
 EOF
 chmod +x "$T/bin/gh-prview-dies"; RUN_GH="$T/bin/gh-prview-dies" run_case "$d"; expect env-tracker-unreadable "[E12] unreadable PR body"; [ "$RC" -eq 2 ] && ok "[E12] exit 2" || bad "[E12] exit $RC"
 
-# E20: an approve with work left in the worktree is not a finished run
-fixture rj; printf 'build-pr\nreview-approve-dirty\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect closeout-inflight "[E20] the review left an untracked file behind"
-[ "$RC" -eq 1 ] && [ -d "$d/wt/42" ] && [ -f "$d/wt/42/review-scratch.txt" ] && ok "[E20] exit 1, worktree kept with the work in it" || bad "[E20] rc=$RC, worktree $([ -d "$d/wt/42" ] && echo kept || echo gone)"
+# E20 #926: an untracked file the review left at close-out is archived, and the approved worktree is removed
+fixture rj; printf 'build-pr\nreview-approve-dirty\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "[E20] the review left an untracked file behind"
+toc="$(tar -tf "$(SD)/quarantine-closeout.tar" 2>&1)"
+[ "$RC" -eq 0 ] && [ ! -d "$d/wt/42" ] && grep -qx review-scratch.txt <<<"$toc" && ok "[E20] exit 0, the file is in quarantine-closeout.tar and the worktree is removed" || bad "[E20] rc=$RC, worktree $([ -d "$d/wt/42" ] && echo kept || echo gone), archive: $(tr '\n' ' ' <<<"$toc")"
 
 # E20-rd: gitignored runtime data under a declared paths.runtimeData keeps the worktree — `worktree remove` would delete it — and the run still ends approved
 RTCFG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans","runtimeData":[".claude/storage","apps/api/uploads"]}}'
@@ -953,13 +976,13 @@ git -C "$d/main" switch -q -c develop && echo dev > "$d/main/src/dev-only.ts" &&
 run_case "$d" --dry-run; grep -q 'create the worktree from origin/develop' <<<"$OUT" && ok "(bb) dry-run names the configured base" || bad "(bb) dry-run base: $(grep 'dry-run:' <<<"$OUT")"
 printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(bb) a run on a configured baseBranch"
 git -C "$d/origin.git" merge-base --is-ancestor develop second-shift/42 && ok "(bb) the branch is cut from origin/develop" || bad "(bb) the branch does not contain origin/develop"
-grep -q "gh pr create --base develop" "$FAKE_GH/prompt-1.txt" && ok "(bb) the build opens its PR against develop" || bad "(bb) build prompt PR base: $(grep -o "against [^ ]*" "$FAKE_GH/prompt-1.txt")"
+grep -q "gh pr create --draft --base develop" "$FAKE_GH/prompt-1.txt" && ok "(bb) the build opens its PR against develop" || bad "(bb) build prompt PR base: $(grep -o "against [^ ]*" "$FAKE_GH/prompt-1.txt")"
 grep -q "base branch is develop" "$FAKE_GH/prompt-2.txt" && ok "(bb) the review diffs against develop" || bad "(bb) review prompt names no base"
 FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"baseBranch":"nope"}' fixture bb2
 printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect env-base-unreadable "(bb2) a configured baseBranch missing on origin refuses"
 grep -qx ready-for-dev "$FAKE_GH/labels" && ! grep -qx in-progress "$FAKE_GH/labels" && [ ! -f "$FAKE_GH/calls" ] && ok "(bb2) refused before the claim, nothing spawned" || bad "(bb2) claimed or spawned on an unresolvable base"
 fixture bb3; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(bb3) no baseBranch"
-grep -q "gh pr create --base main" "$FAKE_GH/prompt-1.txt" && ok "(bb3) unset, the PR targets the remote default" || bad "(bb3) default PR base: $(grep -o "against [^ ]*" "$FAKE_GH/prompt-1.txt")"
+grep -q "gh pr create --draft --base main" "$FAKE_GH/prompt-1.txt" && ok "(bb3) unset, the PR targets the remote default" || bad "(bb3) default PR base: $(grep -o "against [^ ]*" "$FAKE_GH/prompt-1.txt")"
 
 # (cs) #915: the bound verdict is posted as the second-shift/review commit status on the sha it names
 fixture cs1; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(cs1) an approved run"

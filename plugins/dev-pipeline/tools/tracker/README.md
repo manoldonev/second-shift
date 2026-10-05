@@ -46,7 +46,7 @@ verdict comment — is adapter-insensitive.
 | **entry** — the queue-label confirm | the queue label, or a claim this run can re-enter; neither stops the run (`not-queued`, exit 3), no prompting. A claimed label with no lane claim marker stops as `claimed-elsewhere` (exit 2) unless `--resume` is passed | *not applicable* — no queue, no label; the operator supplies the key |
 | **claim** | two writes: the label swap plus a `lean-claimed` marker comment | *no tracker write* — operator-attested |
 | **build model** | the ticket's `opus` / `sonnet` label | `--build-model` is required: there is no label to read |
-| **exit** | ready PR carrying `Closes #<key>` + the record link; a closing comment on the issue with the terminal and the cost | ready PR carrying `Closes [<KEY>]` under a `### Jira Items` heading + the record link; nothing is written to the ticket |
+| **exit** | a PR carrying `Closes #<key>` + the record link, held as a draft until a review approves its head; a closing comment on the issue with the terminal and the cost | a PR, held as a draft the same way, carrying `Closes [<KEY>]` under a `### Jira Items` heading + the record link; nothing is written to the ticket |
 
 The **ready-PR** requirement is adapter-independent: there is no draft stage on either adapter.
 
