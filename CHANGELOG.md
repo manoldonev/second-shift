@@ -4,6 +4,36 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v16.0.1
+
+### `intake-toolkit` 7.0.0 → 7.0.1
+
+- **fix(second-shift): a first-run path a newcomer can follow without guessing (#932)** (#932)
+  /second-shift:onboard ends with the real first-run order (merge
+  the onboarding PR, intake, add ready-for-dev yourself, then dry-run and
+  run) instead of a dry run that failed before intake and a claim that
+  intake queues the ticket. The README's Get started is rewritten as a
+  numbered first-run path with a troubleshooting table.
+  Migration: none.
+  intake-orchestrator's text now says a no-split ticket comes back
+  without the queue label (the operator adds ready-for-dev; intake only
+  labels the slices it creates), matching what it does.
+  Migration: none.
+
+### `second-shift` 12.0.0 → 12.0.1
+
+- **fix(second-shift): a first-run path a newcomer can follow without guessing (#932)** (#932)
+  /second-shift:onboard ends with the real first-run order (merge
+  the onboarding PR, intake, add ready-for-dev yourself, then dry-run and
+  run) instead of a dry run that failed before intake and a claim that
+  intake queues the ticket. The README's Get started is rewritten as a
+  numbered first-run path with a troubleshooting table.
+  Migration: none.
+  intake-orchestrator's text now says a no-split ticket comes back
+  without the queue label (the operator adds ready-for-dev; intake only
+  labels the slices it creates), matching what it does.
+  Migration: none.
+
 ## v16.0.0
 
 ### `design-toolkit` 6.1.0 → 7.0.0
