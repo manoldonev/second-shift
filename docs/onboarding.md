@@ -158,13 +158,6 @@ repos. A backend/frontend pair is two repos that each onboard on their own: `cd`
 `/second-shift:onboard` there, for two configs and two separate runs. A ticket runs from the repo
 that owns it, and cross-repo scope is split at intake into one ticket per repo.
 
-### Building in your own session
-
-`/dev-pipeline:build <ticket>` claims the ticket, cuts the worktree and commits the intake record
-like a run, then hands the build to your current session instead of spawning one. The run's own
-checks and caps do not apply there; review the PR with `/dev-pipeline:review <pr>` from a fresh
-session.
-
 ### Manual install
 
 What onboard automates. In the repo's `.claude/settings.json`:

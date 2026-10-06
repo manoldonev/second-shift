@@ -101,6 +101,22 @@ The run is detached: you can close Claude Code. It prints the path of its log, `
 
 It never merges. That stays yours.
 
+### Prefer to steer it yourself?
+
+Same steps 1–7, then build in your own session instead of an unattended one:
+
+```text
+/dev-pipeline:build 42
+```
+
+It does the same setup as a run (takes the ticket, cuts the worktree, commits your intake record), then hands you the build prompt the unattended session would have received. When it asks, type `/add-dir` with the worktree path it printed, so edits there don't prompt. You build and steer; if you change course from a recorded decision, that change is written into the record. When the PR is open, review it from a **fresh** session, so the reviewer isn't the session that wrote the code:
+
+```text
+/dev-pipeline:review <pr>
+```
+
+An approve marks the PR ready for review. What you give up: second-shift does not re-run your checks, apply its caps, or loop rounds on this path. Making the checks green is yours.
+
 ### If something goes wrong
 
 | You see | What it means | Fix |
