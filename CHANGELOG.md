@@ -4,6 +4,63 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v16.0.0
+
+### `design-toolkit` 6.1.0 → 7.0.0
+
+- **fix(dev-pipeline)!: drop pr-revision, keep review findings on a red retry, quote cut-off descriptions (#930)** (#930)
+  dev-pipeline drops the pr-revision skill. A build retried after a red check in
+  round 2+ now keeps the review's findings and gets the red log as a red check, not as a review
+  finding. design-toolkit and dev-pipeline:run descriptions are no longer cut off in the skill
+  listing, and intake-toolkit:grill-me's description now names the Decision Ledger.
+  Migration: address PR review comments in your own session or with /dev-pipeline:build;
+  remove any reference to /dev-pipeline:pr-revision.
+  **BREAKING:** the dev-pipeline:pr-revision skill is removed.
+
+### `dev-pipeline` 15.5.0 → 16.0.0
+
+- **fix(dev-pipeline)!: drop pr-revision, keep review findings on a red retry, quote cut-off descriptions (#930)** (#930)
+  dev-pipeline drops the pr-revision skill. A build retried after a red check in
+  round 2+ now keeps the review's findings and gets the red log as a red check, not as a review
+  finding. design-toolkit and dev-pipeline:run descriptions are no longer cut off in the skill
+  listing, and intake-toolkit:grill-me's description now names the Decision Ledger.
+  Migration: address PR review comments in your own session or with /dev-pipeline:build;
+  remove any reference to /dev-pipeline:pr-revision.
+  **BREAKING:** the dev-pipeline:pr-revision skill is removed.
+
+### `intake-toolkit` 6.2.0 → 7.0.0
+
+- **fix(dev-pipeline)!: drop pr-revision, keep review findings on a red retry, quote cut-off descriptions (#930)** (#930)
+  dev-pipeline drops the pr-revision skill. A build retried after a red check in
+  round 2+ now keeps the review's findings and gets the red log as a red check, not as a review
+  finding. design-toolkit and dev-pipeline:run descriptions are no longer cut off in the skill
+  listing, and intake-toolkit:grill-me's description now names the Decision Ledger.
+  Migration: address PR review comments in your own session or with /dev-pipeline:build;
+  remove any reference to /dev-pipeline:pr-revision.
+  **BREAKING:** the dev-pipeline:pr-revision skill is removed.
+
+### `review-toolkit` 9.2.0 → 10.0.0
+
+- **fix(dev-pipeline)!: drop pr-revision, keep review findings on a red retry, quote cut-off descriptions (#930)** (#930)
+  dev-pipeline drops the pr-revision skill. A build retried after a red check in
+  round 2+ now keeps the review's findings and gets the red log as a red check, not as a review
+  finding. design-toolkit and dev-pipeline:run descriptions are no longer cut off in the skill
+  listing, and intake-toolkit:grill-me's description now names the Decision Ledger.
+  Migration: address PR review comments in your own session or with /dev-pipeline:build;
+  remove any reference to /dev-pipeline:pr-revision.
+  **BREAKING:** the dev-pipeline:pr-revision skill is removed.
+
+### `second-shift` 11.4.0 → 12.0.0
+
+- **fix(dev-pipeline)!: drop pr-revision, keep review findings on a red retry, quote cut-off descriptions (#930)** (#930)
+  dev-pipeline drops the pr-revision skill. A build retried after a red check in
+  round 2+ now keeps the review's findings and gets the red log as a red check, not as a review
+  finding. design-toolkit and dev-pipeline:run descriptions are no longer cut off in the skill
+  listing, and intake-toolkit:grill-me's description now names the Decision Ledger.
+  Migration: address PR review comments in your own session or with /dev-pipeline:build;
+  remove any reference to /dev-pipeline:pr-revision.
+  **BREAKING:** the dev-pipeline:pr-revision skill is removed.
+
 ## v15.5.0
 
 ### `dev-pipeline` 15.4.0 → 15.5.0
