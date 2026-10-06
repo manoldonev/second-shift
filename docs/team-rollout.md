@@ -1,127 +1,90 @@
 # Team rollout
 
-How second-shift goes from one champion's machine to a whole team, and what each moment
-looks like. Everything here assumes the repo was onboarded with `/second-shift:onboard`
-(the six committed artifacts: config, settings pin, lockfile, thin check, consent doc,
-CONTRIBUTING snippet).
+How second-shift goes from your machine to the whole team. It assumes you onboarded the repo with
+`/second-shift:onboard` and ran one ticket end to end (the [README's Get started](../README.md#get-started)).
 
-## Day 0 — the champion
+## Day 0 — you
 
-1. Bootstrap: `claude plugin marketplace add manoldonev/second-shift` +
-   `claude plugin install second-shift@second-shift` (user scope).
-2. Run `/second-shift:onboard` in the target repo; review the accept-or-edit screen —
-   this is where the bot-identity and queue-label decisions happen for the GitHub tracker
-   (see [onboarding.md §2b](onboarding.md)).
-3. Review and commit the emitted files in one PR: `.claude/settings.json`,
-   `.claude/second-shift.config.json`, `.claude/second-shift.lock.json`,
-   `.claude/tools/second-shift-doctor.sh`, `.claude/SECOND-SHIFT.md` — plus, if you
-   accepted it on a GitHub tracker, `.github/workflows/second-shift-unclaim.yml` +
-   `.claude/tools/second-shift-unclaim.sh` (it writes: `issues: write`, and it needs the
-   repo's Actions workflow permissions set to read-and-write).
-4. First run: pick a small ticket with no external-infrastructure acceptance criteria, pay off
-   its intake, and run `/dev-pipeline:run <ticket>` end to end before inviting the team. It
-   spawns a fresh build session and a separate review session per round and ends at an
-   approved PR; merging stays yours.
+1. Merge the PR with what onboard wrote ([README step 3](../README.md#3-onboard-the-repo)). If you
+   accepted the unclaim workflow on a GitHub tracker, it is in that PR too, and it writes
+   (`issues: write`), so the repo's Actions workflow permissions must be set to read-and-write.
+2. Paste the CONTRIBUTING snippet onboard printed.
+3. Run one ticket end to end before inviting the team.
 
-**A BE/FE pair needs Day 0 a second time, in the sibling repo.** A run works on the checkout
-it is launched from, so each repo of the pair onboards on its own — its own config, own bot
-identity — and each ticket runs from the repo that owns it. See
-[onboarding.md § Pair repos](onboarding.md#pair-repos-befe-under-the-pipeline).
-
-**Champion's-machine caveat:** the machine that develops or first registers the
-marketplace often carries a **ref-less user-scope registration**, which shadows the
-project pin *on that machine only*. `/second-shift:doctor` flags it (WARN, not FAIL);
-teammates are protected by the committed project ref either way. If you realign it,
-do the remove + re-add + reinstall in one sitting — removing a marketplace from its last
-scope uninstalls all its plugins.
+A BE/FE pair onboards each repo on its own:
+[onboarding.md → Pair repos](onboarding.md#pair-repos-befe-under-the-pipeline).
 
 ## Every engineer — first contact
 
-Clone → open in Claude Code → the **trust dialog**, then the marketplace + plugin install
-prompts. Accept them. Two things worth knowing in advance:
+Clone, open in Claude Code, and you get the **trust dialog**, then the marketplace and plugin
+install prompts. Accept them. Two things worth knowing:
 
-- Read `.claude/SECOND-SHIFT.md` first — it exists precisely so the "arbitrary code with
-  your privileges" prompt is an informed decision, not a leap.
-- Skipping the prompts is remembered in **your user settings** and is invisible to the
-  repo — nobody can tell you skipped, and nothing re-prompts. Tabbing past lands you in
-  **enabled-but-not-installed** (the platform's default state for a fresh clone since
-  v2.1.195): the plugins are enabled by project settings but no code is installed. The
-  committed SessionStart nudge then prints the one command you need
-  (`claude plugin install <plugin>@second-shift --scope project`); `/second-shift:doctor`
-  prints the full diagnosis. After installing, restart the session — component
-  registration happens at session start.
+- Read `.claude/SECOND-SHIFT.md` first. It says what installs and which hooks run, so the trust
+  prompt is an informed decision.
+- Skipping the prompts is remembered in **your user settings** and nothing re-prompts. The plugins
+  are then enabled but not installed. The session-start check prints the command you need
+  (`claude plugin install <plugin>@second-shift --scope project`); `/second-shift:doctor` prints
+  the full diagnosis. Restart the session after installing.
 
 ## Personal opt-out (sanctioned)
 
 Put `"<plugin>@second-shift": false` in `.claude/settings.local.json`. That file is yours
-(gitignored); project precedence means a **user-scope** `false` cannot override the
-project-level enable — local scope is the right lever. The uninstall dialog's "disable
-for you alone" (≥ v2.1.203) writes exactly this. Never edit the shared
-`.claude/settings.json` for a personal preference. Doctor notes what you opted out of,
-once, and stops there.
+(gitignored). Project settings take precedence over user settings, so a **user-scope** `false`
+cannot override the project's enable; local scope is the right lever. The uninstall dialog's
+"disable for you alone" writes exactly this. Never edit the shared `.claude/settings.json` for a
+personal preference. Doctor notes what you opted out of, once.
 
 ## Upgrades
 
-One PR bumps the settings `ref` **and** `.claude/second-shift.lock.json` together —
-atomically, never separately (doctor's ref-drift check exists because half-done upgrade
-PRs happen). The full maintainer-side recipe is in [releasing.md](releasing.md); the
-consumer side is: merge the upgrade PR, then
-`claude plugin marketplace update second-shift` + reinstall, then re-run the repo's
-validation gates — or just run `/second-shift:local-dev-refresh`, which does the
-update + per-plugin upgrade (including project-scope stragglers in the current repo)
-and prints the before → after version delta.
+One PR bumps the `ref` in `.claude/settings.json` **and** `.claude/second-shift.lock.json`
+together; doctor flags a PR that bumps only one. After it merges, each engineer runs
+`/second-shift:local-dev-refresh`, which updates the marketplace and every installed plugin and
+prints the before → after versions. By hand: `claude plugin marketplace update second-shift`, then
+`claude plugin update <plugin>@second-shift` per plugin (`install` does nothing when a plugin is
+already installed). Restart the session afterwards.
 
-Across a major, read the release's `CHANGELOG.md` entry and
-[`migrations/`](migrations/README.md) before merging: a breaking change can require a
-repo-side step no tool performs for you (removing a retired CI workflow, dropping a config
-key, changing an exported environment knob). `/second-shift:doctor` names the leftovers it can
-detect.
+Across a major, read the release's `CHANGELOG.md` entry and [`migrations/`](migrations/README.md)
+before merging: a breaking change can need a repo-side step no tool does for you.
+`/second-shift:doctor` names the leftovers it can detect.
 
-- **Laggards converge lazily:** anyone who hasn't updated gets doctor's two remediation
-  commands next session (version-behind, exact commands printed). Completion signal =
-  doctor silence across the team.
-- **Never enable autoUpdate** for the pinned marketplace — the pin is the whole point;
-  third-party marketplaces don't auto-update anyway.
-- **Sharp edge:** removing a marketplace from its **last** scope uninstalls all its
-  plugins. When realigning registrations, do remove + add + reinstall in one sitting;
-  never leave it half done.
+- **Laggards:** `/second-shift:doctor` prints the exact commands for anyone behind the pin. The
+  team is done when doctor is clean for everyone.
+- **Never enable autoUpdate** for the pinned marketplace: the pin is the point.
+- **Your own machine:** a user-level marketplace registration without a `ref` overrides the
+  project pin on that machine only. Doctor warns about it; teammates are unaffected. If you
+  realign it, remove, re-add and reinstall in one sitting: removing a marketplace from its last
+  scope uninstalls all its plugins.
 
 ## Rollback
 
-Revert the upgrade PR. This works because catalog entries at the reverted tag still
-resolve and the install cache is keyed by version string. Engineers who already upgraded
-show as **version-AHEAD** in doctor — symmetric to behind, with the downgrade reinstall
-printed. Per-user cache divergence bites hardest under incident pressure, which is why
-this section exists to be read *before* the incident.
+Revert the upgrade PR. Engineers who already upgraded show as ahead of the lockfile in doctor,
+with the downgrade command printed.
 
-## Regulated variant (managed settings)
+## Removing it
 
-Orgs that need this centrally use managed settings (MDM):
+One PR deletes the files onboard wrote (plus the unclaim workflow, if you took it). Then, on each
+machine, `claude plugin uninstall <plugin>@second-shift --scope project` per plugin and
+`claude plugin marketplace remove second-shift`. The labels, the PRs and the `second-shift/review`
+statuses stay; drop `second-shift/review` from branch protection if you required it.
 
-- force-enable the bundle via managed `enabledPlugins` (managed scope wins over everything),
-- `strictKnownMarketplaces` to allowlist marketplaces,
-- `blockedMarketplaces` to ban specific ones,
-- `pluginTrustMessage` to put the internal owner's name in the trust dialog.
+## Managed settings
 
-Managed `enabledPlugins: false` is an org-wide ban; individual repos can't re-enable.
+Orgs that need central control use managed settings (MDM): force-enable the bundle with managed
+`enabledPlugins` (managed scope wins over everything), allowlist marketplaces with
+`strictKnownMarketplaces`, ban them with `blockedMarketplaces`, and name the internal owner in the
+trust dialog with `pluginTrustMessage`. A managed `enabledPlugins: false` is an org-wide ban.
 
 ## What is a gate here
 
-Any control that depends on a voluntarily-installed, individually-declinable client
-plugin is **fast local feedback, not a gate**. The gate of record is server-side —
-required CI on your own checks, branch protection, and a human merging every PR — the
-lane never merges its own work. That's why doctor says "missing your accelerators" instead
-of anything compliance-shaped: 80% adoption plus server-side enforcement beats 100% by
-nagging.
+Anything that depends on a plugin each engineer can decline is **fast local feedback, not a
+gate**. The gate of record is server-side: required CI on your own checks, branch protection, and
+a human merging every PR. second-shift never merges its own work.
 
-The lane adds one server-side signal you can put there: every verdict a review binds to a head
-is posted as the `second-shift/review` commit status on that sha — `success` for approve,
-`failure` for needs-work, linking the verdict comment — by `/dev-pipeline:run` and by a manual
-`/dev-pipeline:review`. A status belongs to its sha, so a commit pushed after the review leaves
-the new head without one. To require it, add `second-shift/review` to the required status checks
-of the default branch (Settings → Branches → branch protection rule, or a ruleset's "Require
-status checks to pass"); the context appears in the picker once a run has posted it. Onboard
-never writes protection rules, and `/second-shift:doctor` reports whether the default branch
-requires it. The status is tamper-evident, not proof: whoever holds the identity that posts it
-(the bot, which the BUILD session also holds, or your own `gh`) can post it. The gate of record
-stays your required checks, branch protection and the human who merges.
+It adds one server-side signal you can require: every verdict is posted as the
+`second-shift/review` commit status on the commit it reviewed, `success` for approve and `failure`
+for needs-work, linking the verdict comment. A commit pushed after the review has no status. To
+require it, add `second-shift/review` to the default branch's required status checks (branch
+protection or a ruleset); it appears in the picker once a run has posted it. Onboard never writes
+protection rules, and `/second-shift:doctor` reports whether the default branch requires it.
+Whoever holds the posting identity (the bot, or your own `gh`) can post it, so treat it as a
+signal, not proof.
