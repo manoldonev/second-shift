@@ -307,7 +307,8 @@ definition of settled intent. Three things happen before it leaves your hands.
 bash "${CLAUDE_PLUGIN_ROOT}/skills/plan-interview/tools/dup-scan.sh" --issue {ISSUE_NUMBER}
 ```
 
-This scans **this** issue, which is what `no-split` hands to BUILD carrying the queue label. It
+This scans **this** issue, which `no-split` hands back unlabeled: it becomes eligible when the
+operator adds the queue label, and intake never adds it to an issue the operator filed. It
 is not the whole obligation: on the `sub-issues` routes the queue label moves off this issue and
 onto slices that do not exist yet, and Step 6 scans each of those before creating it. A ticket is
 scanned at the point it becomes eligible, and for a slice that point is its own creation.
@@ -325,9 +326,10 @@ Three exit codes, three different obligations:
 <!-- LOCKSTEP-BEGIN dup-scan-rc2 -->
 - **`2`** — the scan could not run. Hard-stop: report the rc and the reason.
 <!-- LOCKSTEP-END dup-scan-rc2 -->
-  Do not apply the queue label; exit non-zero and let the operator fix it and re-run intake.
+  Do not hand back a clean receipt, and create no slices; exit non-zero and let the operator fix
+  it and re-run intake.
   A proceed-with-a-flag variant is not available: the flag lands in a local receipt the next
-  claimant never reads, while the queue label still advertises the ticket as eligible.
+  claimant never reads, while a queue label would still advertise the ticket as eligible.
 
 Under `tracker.type: jira` the tool prints an explicit not-applicable line and exits `0`: that
 adapter has no queue label and no claimed label, so there is no corpus of eligible tickets.
