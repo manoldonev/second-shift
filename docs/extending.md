@@ -120,7 +120,7 @@ review-lead now dispatches it alongside the shipped reviewers under the same con
 
 ### 3.3b `reviewers.default` — put a reviewer back in the pipeline's panel
 
-On the pipeline path (`/dev-pipeline:review`) the review fan-out defaults to `scope-completeness-reviewer` alone. `security-reviewer`, `a11y-reviewer` and `unit-test-mutation-reviewer` keep their agents and their surface triggers everywhere else — a standalone `review-lead` invocation and `pr-revision` are unchanged — but on a pipeline round they are selected only when someone opts them in. Measured over 25 pipeline fan-outs, those three produced 35 findings and moved no hidden test and no seeded-defect detector; `scope-completeness-reviewer` was the only one that ever blocked.
+On the pipeline path (`/dev-pipeline:review`) the review fan-out defaults to `scope-completeness-reviewer` alone. `security-reviewer`, `a11y-reviewer` and `unit-test-mutation-reviewer` keep their agents and their surface triggers everywhere else — a standalone `review-lead` invocation is unchanged — but on a pipeline round they are selected only when someone opts them in. Measured over 25 pipeline fan-outs, those three produced 35 findings and moved no hidden test and no seeded-defect detector; `scope-completeness-reviewer` was the only one that ever blocked.
 
 This key is the **per-repo** opt-in. A repo whose pipeline rounds should always carry the security dimension as a dispatched reviewer says so once:
 

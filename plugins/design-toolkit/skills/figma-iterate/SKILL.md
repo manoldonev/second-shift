@@ -1,6 +1,6 @@
 ---
 name: figma-iterate
-description: Fast interactive Figma-to-code iteration for a consumer FE repo iterating quickly in alpha — takes Figma node URL(s) + optional override notes and produces a structurally faithful implementation via the figma-faithful discipline, resolving any Figma/reality discrepancies at one batched confirmation instead of blocking. Interactive-only; leaves the tree dirty (never commits); no ticket/reviewer ceremony. Requires the figma design provider (config `design.provider: "figma"`).
+description: 'Fast interactive Figma-to-code iteration for a consumer FE repo iterating quickly in alpha — takes Figma node URL(s) + optional override notes and produces a structurally faithful implementation via the figma-faithful discipline, resolving any Figma/reality discrepancies at one batched confirmation instead of blocking. Interactive-only; leaves the tree dirty (never commits); no ticket/reviewer ceremony. Requires the figma design provider (config `design.provider: "figma"`).'
 ---
 
 You are iterating on an FE screen or component from a Figma design, fast. The UX is moving

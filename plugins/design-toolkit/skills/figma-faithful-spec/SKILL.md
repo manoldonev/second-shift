@@ -1,6 +1,6 @@
 ---
 name: figma-faithful-spec
-description: Transcribe an existing Figma design + ticket into a faithful FE spec — verbatim Copy Index, component identity, state coverage, BE-field map. Use when a Figma design already exists; not for shaping a feature that is still undecided. Requires the figma design provider (config `design.provider: "figma"`).
+description: 'Transcribe an existing Figma design + ticket into a faithful FE spec — verbatim Copy Index, component identity, state coverage, BE-field map. Use when a Figma design already exists; not for shaping a feature that is still undecided. Requires the figma design provider (config `design.provider: "figma"`).'
 ---
 
 You are turning a ticket + an existing Figma design into a structured FE spec — the contract

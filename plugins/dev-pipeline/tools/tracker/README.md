@@ -30,7 +30,7 @@ pipeline; the scheduler's own tracker-sensitive operations follow it.
 | **fetch-ticket** — load body + comments | `gh api repos/{o}/{r}/issues/$KEY` (+ `/comments`) | `getJiraIssue` (+ remote links → `getConfluencePage`), under whichever Atlassian namespace the session exposes — see the note below |
 | **set-status** — advance the tracker’s own status | label swaps via `bash "${CLAUDE_PLUGIN_ROOT}/tools/gh-bot.sh"` | *no-op* — operator moves the ticket manually |
 | **create-sub-tickets** — decomposition into `sub-issues` | auto-create ≤5 sub-issues with `ready-for-dev`; parent → `epic` | present ≤5 sub-ticket specs to the operator; no JIRA writes |
-| **close-out** — release the work item | `pr-revision` removes `in-progress` via `bash "${CLAUDE_PLUGIN_ROOT}/tools/gh-bot.sh"`; the pipeline removes nothing — the optional `second-shift-unclaim` workflow releases the claimed and queue labels when the issue closes | *no-op* |
+| **close-out** — release the work item | the pipeline removes nothing — the optional `second-shift-unclaim` workflow releases the claimed and queue labels when the issue closes | *no-op* |
 | **branch name** — the work branch | `<branchPrefix><key>` (`claude/acme-42`) | `<branchPrefix><key>` (`jdoe/gh-540`) |
 | **PR ticket reference** — link the PR back | `Closes #<key>` | `Closes [<KEY>]` in the template’s `### Jira Items` section |
 

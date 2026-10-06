@@ -1,6 +1,6 @@
 ---
 name: grill-me
-description: Interview the user relentlessly about a plan or design until reaching shared understanding, resolving each branch of the decision tree. Use when user wants to stress-test a plan, get grilled on their design, or mentions "grill me".
+description: Interview the user relentlessly about a plan or design and record each resolution in the artifact's Decision Ledger, with its provenance. Use when the user wants a plan stress-tested, asks to be grilled on a design, or says "grill me".
 ---
 
 Load `interviewing-baseline` first (Skill tool) — its loop rules govern this interview (explore-first, ≤2 questions per turn, grounded recommendations only, never re-ask).

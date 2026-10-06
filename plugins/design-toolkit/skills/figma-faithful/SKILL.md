@@ -1,6 +1,6 @@
 ---
 name: figma-faithful
-description: Faithful Figma-to-code implementation for FE work — enforces token extraction, layout-context reading, real-component resolution, and self-verification so spacing/copy/components are measured, not guessed. Use when building a screen/component from a Figma design. Requires the figma design provider (config `design.provider: "figma"`).
+description: 'Faithful Figma-to-code implementation for FE work — enforces token extraction, layout-context reading, real-component resolution, and self-verification so spacing/copy/components are measured, not guessed. Use when building a screen/component from a Figma design. Requires the figma design provider (config `design.provider: "figma"`).'
 ---
 
 You are implementing an FE screen or component from a Figma design. This skill makes the

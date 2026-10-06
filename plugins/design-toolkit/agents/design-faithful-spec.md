@@ -1,6 +1,6 @@
 ---
 name: design-faithful-spec
-description: Produces a faithful FE spec for the repo from a Claude Design handoff (completeness inventory + behavioral/state contract + design→real-stack map). Dispatched by the intake router's design-handoff route, or by a session's choice (its former dispatcher, the design-sync engine, was retired in #574); not a review-lead specialist.
+description: 'Produces a faithful FE spec for the repo from a Claude Design handoff (completeness inventory + behavioral/state contract + design→real-stack map). Dispatched by the intake router''s design-handoff route, or by a session''s choice; not a review-lead specialist.'
 tools: '*'
 model: opus
 effort: high

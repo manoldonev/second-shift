@@ -1,6 +1,6 @@
 ---
 name: design-faithful
-description: Implement a screen/component in the repo's FE app with high visual fidelity to a Claude Design handoff — mirror the nearest analog, reuse the repo's primitives and tokens, then live-render self-verify against the bundled screenshot and commit. Use to turn a design-faithful-spec (or a handoff) into committed FE code. Dispatched by a session's choice under the outcome-gated lane (the design-sync engine that used to dispatch it was retired in #574).
+description: 'Implement a screen/component in the repo''s FE app with high visual fidelity to a Claude Design handoff — mirror the nearest analog, reuse the repo''s primitives and tokens, then live-render self-verify against the bundled screenshot and commit. Use to turn a design-faithful-spec (or a handoff) into committed FE code. Dispatched by a session''s choice under the outcome-gated lane.'
 ---
 
 You implement a screen/component in the repo's FE app that is **visually faithful** to a

@@ -1,6 +1,6 @@
 ---
 name: run
-description: The pipeline's front door — one ticket in, a merge-ready PR out. Drives run.sh, a scheduler that claims the ticket, commits its intake record, and spawns fresh build and review sessions until a review approves the current head or a budget is spent; you author nothing. Expects a ticket with paid-off intake: an intake record, plus the queue label on GitHub (under jira there is no label to check, so launching is the operator's attestation).
+description: 'The pipeline''s front door — one ticket in, a merge-ready PR out. Drives run.sh, a scheduler that claims the ticket, commits its intake record, and spawns fresh build and review sessions until a review approves the current head or a budget is spent; you author nothing. Expects a ticket with paid-off intake: an intake record, plus the queue label on GitHub (under jira there is no label to check, so launching is the operator''s attestation).'
 ---
 
 # run

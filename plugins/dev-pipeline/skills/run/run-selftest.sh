@@ -210,6 +210,12 @@ run_case "$d"; expect approved "(b) needs-work, fix, approve"
 grep -q 'verdict: needs-work' "$FAKE_GH/prompt-3.txt" && ok "(b) round-2 build prompt carries the findings" || bad "(b) findings not in round-2 prompt"
 printf '%s\n' "$OUT" | grep -q '2 round' && ok "(b) two rounds counted" || bad "(b) round count wrong"
 
+# (b2) a check red in round 2 sits beside the review's findings, never in place of them: the retry still has what the review asked for
+fixture b2 "- ! grep -qx 3 work.txt"; printf 'build-pr\nreview-needs-work\nbuild-push-only\nbuild-push-only\n' > "$FAKE_CLAUDE_PLAN"
+RUN_CHECKS_RED_MAX=2 run_case "$d"; expect checks-red-spent "(b2) green, needs-work, then red twice"
+grep -q 'verdict: needs-work' "$FAKE_GH/prompt-4.txt" && ok "(b2) the red retry still carries the review's findings" || bad "(b2) the red check replaced the review's findings"
+grep -q '^## Red check output' "$FAKE_GH/prompt-4.txt" && grep -q 'cannot be rebutted' "$FAKE_GH/prompt-4.txt" && ok "(b2) the red check is handed over as a red check" || bad "(b2) the red check is not named as one"
+
 # (c) no PR after the build
 fixture c; printf 'build-push-only\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect build-no-pr "(c) push without a PR"
 
