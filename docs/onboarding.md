@@ -25,7 +25,8 @@ writes:
   ([team-rollout.md](team-rollout.md) has the permission it needs).
 
 Commit those five files, plus the two unclaim files if you took them, in one PR, and merge it
-before the first run: a run's sessions read the plugin settings from the default branch. Onboard also
+before the first run: a run's sessions read the plugin settings from the base branch (`baseBranch` when set, else
+the default branch). Onboard also
 prints a CONTRIBUTING snippet to paste; it does not write it.
 
 If the settings write is blocked, the merged document goes to
@@ -69,6 +70,17 @@ monorepo is still one entry: put the root scripts that cover every package in
 `lint`/`typecheck`/`test`, give a per-package setup step its own `cwd` under `lanes`, and scope a
 one-package check with an `extraLanes` entry and its `when` globs. Every field is in [`config-schema.md`](config-schema.md).
 
+Three monorepo traps:
+
+- `when` globs are shell patterns matched against each changed path from the repo root: `*`
+  crosses directory separators, and a brace set such as `*.{ts,tsx}` never matches, so a lane
+  written that way silently never runs. (`reviewers.webComponentGlobs` does take brace globs.)
+- `design` applies to the whole repo: once `design.provider` is set, an API-only ticket's record
+  also has to say `Design: none — <reason>`.
+- The run commits the intake record under `docs/plans/` as the branch's first commit, unformatted.
+  A format check that scans every `*.md` fails on it before the build has done anything: add the
+  plans directory to `.prettierignore` (or your formatter's ignore file).
+
 The run does not lint the config at startup, so after editing it by hand run
 `/second-shift:doctor`.
 
@@ -105,8 +117,9 @@ commit statuses write access, then:
 
 Once enabled, a broken bot stops the run (`env-bot`) rather than writing as you.
 
-On JIRA none of this applies: the run reads tickets through the Atlassian MCP, and since there
-is no sizing label the build model comes from `--build-model`. See
+On JIRA none of this applies: intake and the run's sessions read tickets through the Atlassian
+MCP, and since there is no sizing label `/dev-pipeline:run` sizes the ticket itself and notes that
+the choice was its own (`--build-model` overrides). See
 [the JIRA tracker README](../plugins/dev-pipeline/tools/tracker/jira/README.md).
 
 ## Reviewers and `review-context.md`
@@ -156,7 +169,18 @@ Rolling out to the rest of the team, upgrades and rollback: [`team-rollout.md`](
 `/dev-pipeline:run` works on the checkout it is launched from; nothing fans a run out across
 repos. A backend/frontend pair is two repos that each onboard on their own: `cd` into each and run
 `/second-shift:onboard` there, for two configs and two separate runs. A ticket runs from the repo
-that owns it, and cross-repo scope is split at intake into one ticket per repo.
+that owns it. Intake records one repo's decisions; it does not split a ticket across repos.
+
+**One feature across both repos.** Do it as two tickets, one per repo. Intake the backend one
+first, and name the frontend checkout in the ticket or the backend's `CLAUDE.md` so the research
+pass reads it. Put the API contract in the frontend ticket's body (the merged backend record under
+`docs/plans/` is the written source). Run and merge the backend, then intake and run the frontend
+ticket.
+
+Give design support to the frontend only, and make sure its config carries
+`reviewers.webComponentGlobs` (onboard drafts it only when it detects your component files): the
+default, `apps/web/**/*.{tsx,jsx}`, matches nothing in a standalone UI repo, and then the
+accessibility and design reviews never run. For example `["src/**/*.tsx"]`.
 
 ### Manual install
 
@@ -177,8 +201,10 @@ What onboard automates. In the repo's `.claude/settings.json`:
 }
 ```
 
-Add `design-toolkit@second-shift` for a repo with a UI ([`live-render.md`](live-render.md) covers
-its optional render check). A minimal config:
+Add `design-toolkit@second-shift` for a repo that renders a UI ([`live-render.md`](live-render.md)
+covers its optional render check). Once `design.provider` is set, every ticket in that repo must
+list its screens or say `Design: none — <reason>`, or the run stops with `env-design-undeclared`.
+A minimal config:
 
 ```json
 {
@@ -188,8 +214,10 @@ its optional render check). A minimal config:
 }
 ```
 
-Set `tracker.branchPrefix`: without it, and with no existing pipeline branches on the remote to
-derive one from, every run, the dry run included, stops with `env-branch-prefix`. The base branch
+Set `tracker.branchPrefix`, and in a shared repo make it a team prefix: the config is committed.
+Without it the run borrows the prefix most of the remote's `<prefix>/<key>` branches already use,
+usually one person's; with nothing to derive from, or a tie, every run, the dry run included, stops
+with `env-branch-prefix`. The base branch
 is `baseBranch` when set, else the remote's default branch.
 
 **The supported install is the full suite pinned to a release tag**, which is what onboard writes.

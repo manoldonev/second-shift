@@ -17,7 +17,7 @@ A BE/FE pair onboards each repo on its own:
 ## Every engineer — first contact
 
 Clone, open in Claude Code, and you get the **trust dialog**, then the marketplace and plugin
-install prompts. Accept them. Two things worth knowing:
+install prompts. Accept them. Three things worth knowing:
 
 - Read `.claude/SECOND-SHIFT.md` first. It says what installs and which hooks run, so the trust
   prompt is an informed decision.
@@ -25,6 +25,11 @@ install prompts. Accept them. Two things worth knowing:
   are then enabled but not installed. The session-start check prints the command you need
   (`claude plugin install <plugin>@second-shift --scope project`); `/second-shift:doctor` prints
   the full diagnosis. Restart the session after installing.
+- A repo whose `.claude/settings.json` enables no plugins shows no plugin prompts. Each engineer
+  installs the lockfile's plugins at user scope (`claude plugin install <plugin>@second-shift`),
+  not `--scope project`, which would write into the shared settings.
+
+The same path, step by step: [README](../README.md#joining-a-repo-that-already-uses-it).
 
 ## Personal opt-out (sanctioned)
 
@@ -46,6 +51,9 @@ already installed). Restart the session afterwards.
 Across a major, read the release's `CHANGELOG.md` entry and [`migrations/`](migrations/README.md)
 before merging: a breaking change can need a repo-side step no tool does for you.
 `/second-shift:doctor` names the leftovers it can detect.
+
+A repo whose lockfile tracks `main` (plugin versions `latest`) gets no upgrade PR: each engineer
+runs `/second-shift:local-dev-refresh` when they want the current tip.
 
 - **Laggards:** `/second-shift:doctor` prints the exact commands for anyone behind the pin. The
   team is done when doctor is clean for everyone.
