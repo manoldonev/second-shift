@@ -1,7 +1,7 @@
 export const meta = {
   name: 'review-toolkit-code-review',
   description:
-    "Reviewer fan-out for review-lead — used by the dev-pipeline review lane and by standalone /review-lead (and pr-revision). Dispatches the selected specialist reviewers as parallel agent() calls and returns their structured findings. Synthesis (dedup, triage, Scope Completeness Gate, cross-reviewer self-check) is NOT done here — it stays in the caller's session on the caller's model, per review-lead's Synthesis Rules.",
+    "Reviewer fan-out for review-lead — used by the dev-pipeline review lane and by standalone /review-lead. Dispatches the selected specialist reviewers as parallel agent() calls and returns their structured findings. Synthesis (dedup, triage, Scope Completeness Gate, cross-reviewer self-check) is NOT done here — it stays in the caller's session on the caller's model, per review-lead's Synthesis Rules.",
   phases: [{ title: 'Review', detail: 'one agent() per selected specialist reviewer' }],
 }
 

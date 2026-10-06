@@ -463,7 +463,7 @@ review_input() { # review_input <attempt> -> writes $STATE/review-input-<attempt
 }
 
 # -- the two prompts (rows F15-F20) --
-build_prompt() { # build_prompt <round> <findings-file-or-empty>
+build_prompt() { # build_prompt <round> <review-findings-file-or-empty> <red-check-file-or-empty>
   echo "Implement ticket $ISSUE of this repository. Fetch the ticket text yourself from the tracker (${TRACKER})."
   echo "Do not merge. Do not delete, skip or weaken a test to make a check pass; if a test is wrong, say so in the PR."
   echo "Delete every probe or scratch file you created before you end your turn: a probe you never committed is not a test the PR deletes."
@@ -479,6 +479,7 @@ build_prompt() { # build_prompt <round> <findings-file-or-empty>
   fi
   echo; echo "Before opening the PR (or pushing a fix), run every command below and make it green (a lane gated on changed-file globs runs only when its files change):"; checks_list all | sed 's/^/- /'
   [ -n "$2" ] && { echo; echo "## Review findings"; cat "$2"; }
+  [ -n "${3:-}" ] && { echo; echo "## Red check output"; echo "A red check cannot be rebutted: reproduce it with its command and fix the cause; if the check itself is wrong, say so in the PR."; cat "$3"; }
 }
 review_prompt() { # review_prompt <pr> <review-input-file>
   echo "You are reviewing PR #$1 of this repository at its current head, in a session separate from the one that built it. Check out the PR head. Read the decision record at $RECORD_REL as it stood at commit $FIRST (git show $FIRST:$RECORD_REL) and as it stands at the head."
@@ -822,9 +823,9 @@ if [ -n "$SMOKE_CMD" ] && [ -n "$(frames_rows)" ]; then
 fi
 
 # ============================ 6. rounds (rows B7-B9, B14-B16, E13, F1, F14, G1, G9, H12, I6, I12, I15, J8, J10, J12, J13, K12) ============================
-red_attempt() { # a red check, smoke or convention spends the checks-red counter, never a round; its log is the next build's findings
+red_attempt() { # a red check, smoke or convention spends the checks-red counter, never a round; its log goes to the next build beside the review's findings
   CHECKS_RED=$((CHECKS_RED+1)); [ "$CHECKS_RED" -lt "$CHECKS_RED_MAX" ] || terminal checks-red-spent "$1 red $CHECKS_RED times (cost \$$(usd "$COST"))"
-  FINDINGS="$(findings_excerpt "$2")"; NEED_BUILD=1; say "$1 red — the findings are the log; another BUILD attempt of round $ROUND"
+  RED_LOG="$(findings_excerpt "$2")"; NEED_BUILD=1; say "$1 red — the findings are the log; another BUILD attempt of round $ROUND"
 }
 findings_excerpt() { # findings_excerpt <log> -> the path of what the next build reads: each red check's last lines, capped
   # A lane can write megabytes (a web server's request log); the build needs why it went red, not the whole stream.
@@ -862,7 +863,7 @@ spawn() { # spawn <role> <model> <id> <allowlist> <max-turns> <prompt-file> -> r
   bounded "$secs" "$STATE/$1-$3.json" ${envv[@]+"${envv[@]}"} "$CLAUDE" -p --model "$2" "${SPAWN_COMMON[@]}" ${extra[@]+"${extra[@]}"} --settings "$sets" --allowedTools "$4" --max-turns "$5"; local rc=$?
   add_cost "$STATE/$1-$3.json"; return $rc
 }
-FINDINGS=""; NEED_BUILD=1; NEED_CHECKS=1; INPUT=""
+FINDINGS=""; RED_LOG=""; NEED_BUILD=1; NEED_CHECKS=1; INPUT=""
 while :; do
   ROUND=$((ROUND+1)); [ "$ROUND" -le "$MAX_ROUNDS" ] || terminal rounds-spent "$MAX_ROUNDS rounds without an approve (cost \$$(usd "$COST"))"
   say "round $ROUND of $MAX_ROUNDS (cost so far \$$(usd "$COST"))"
@@ -873,7 +874,7 @@ while :; do
       worktree_ready
       ATTEMPT=$((ATTEMPT+1)); A="$ROUND.$ATTEMPT"
       record_at_first >/dev/null || terminal env-worktree "cannot read the record at $FIRST:$RECORD_REL — a build must not be handed an empty record as binding"
-      build_prompt "$ROUND" "$FINDINGS" > "$STATE/build-$A.prompt"
+      build_prompt "$ROUND" "$FINDINGS" "$RED_LOG" > "$STATE/build-$A.prompt"
       if [ "$HANDOFF" -eq 1 ]; then # the calling session builds; nothing after this is the scheduler's
         echo "worktree: $WT"; echo "baseline: $FIRST"; echo "prompt: $STATE/build-$A.prompt"
         UNPRICED="build-in-calling-session"
@@ -944,7 +945,7 @@ while :; do
   # row H13: a review that could not render is the environment's failure, not the build's — no round is spent
   awk '{ sub(/\r$/, "") } $0 == "reason: render-unavailable" { f = 1 } END { exit !f }' "$STATE/verdict-body.md" \
     && terminal env-not-ready "the review could not render the design frames at $HEAD_SHA (reason: render-unavailable) — fix the render environment and re-launch"
-  FINDINGS="$STATE/verdict-body.md"; NEED_BUILD=1
+  FINDINGS="$STATE/verdict-body.md"; RED_LOG=""; NEED_BUILD=1
   over_ceiling && terminal cost-spent "\$$(usd_up "$COST") exceeds the \$$COST_CEIL ceiling"
 done
 

@@ -19,7 +19,7 @@ Before dispatch, lint the per-reviewer extension surface: run `scripts/check-rev
 
 The reviewer fan-out runs as `agent()` calls inside `workflows/code-review.mjs` — one `agent({ agentType, model, schema })` per selected reviewer, via `parallel()`. Synthesis always runs **in this session** on the caller's model. This skill runs in one of two entry modes:
 
-- **Dispatch mode (standalone / direct invocation, and `pr-revision`):** this session itself triggers the fan-out by running the Workflow:
+- **Dispatch mode (standalone / direct invocation):** this session itself triggers the fan-out by running the Workflow:
 
   ```
   Workflow({ scriptPath: "<staged>/code-review.mjs",
@@ -204,8 +204,7 @@ When in doubt about whether a domain reviewer is relevant, spawn it — a "no is
 **A caller may declare it; this skill never infers it.** There is no mode sniff, no cwd test and no
 config flag that turns it on: a caller that wants the trimmed panel says so in the invocation, and
 a caller that says nothing gets the table above exactly as written. The pipeline's review session
-declares it (its step 5); the standalone `/review-toolkit:review-lead` invocation and the
-pipeline's `pr-revision` skill do not, and their routing is unchanged.
+declares it (its step 5); the standalone `/review-toolkit:review-lead` invocation does not, and its routing is unchanged.
 
 **What it changes.** When the pipeline default panel is declared, three rows of the
 Conditionally-spawn table do **not** fire on their surface triggers:
@@ -343,7 +342,7 @@ found in-session. Label them by dimension in the report exactly as a spawned rev
 
 One dispatch substrate — the `code-review.mjs` Workflow — across both entry modes:
 
-- **Dispatch mode (standalone `/review-lead`, and `pr-revision`):** this session invokes `workflows/code-review.mjs` via the `Workflow` tool, passing the selected `reviewers` plus `worktree`/`base`/`head`/`changedFiles`/`prContext` (see Pre-flight). The script issues one `agent({ agentType, model, schema })` per selected reviewer, via `parallel()`, each at the model tier declared in its agent frontmatter, and returns structured findings.
+- **Dispatch mode (standalone `/review-lead`):** this session invokes `workflows/code-review.mjs` via the `Workflow` tool, passing the selected `reviewers` plus `worktree`/`base`/`head`/`changedFiles`/`prContext` (see Pre-flight). The script issues one `agent({ agentType, model, schema })` per selected reviewer, via `parallel()`, each at the model tier declared in its agent frontmatter, and returns structured findings.
 - **Pipeline-driven review:** the caller invokes the same `code-review.mjs` script itself and hands this session the findings (synthesis-only mode — see Pre-flight).
 
 In both modes the script returns structured findings and this session runs the Synthesis Rules over them. The args the script forwards to each reviewer:

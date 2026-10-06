@@ -149,6 +149,10 @@ jobs:
       - name: eval-harness model identity (plugins/*/evals/**)
         run: bash scripts/check-eval-model-identity.sh
 
+      # A plain description holding ' #' or ': ' is cut by YAML, and the skill listing shows the stub.
+      - name: skill and agent frontmatter (plugins/*/skills, plugins/*/agents)
+        run: bash scripts/check-frontmatter.sh
+
       - name: namespace direction check (docs/namespaces.md rule 3)
         run: |
           # Array, not a space-separated string: the multi-dir expansion is intentional, and
