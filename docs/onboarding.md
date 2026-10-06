@@ -233,7 +233,7 @@ Point the marketplace at a release tag so the catalog cannot drift:
 {
   "extraKnownMarketplaces": {
     "second-shift": {
-      "source": { "source": "github", "repo": "manoldonev/second-shift", "ref": "v16.0.0" }
+      "source": { "source": "github", "repo": "manoldonev/second-shift", "ref": "v16.0.1" }
     }
   }
 }
