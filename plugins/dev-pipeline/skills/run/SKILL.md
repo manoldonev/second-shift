@@ -26,6 +26,7 @@ env, phases and the exit table. It is the truth; this file only says what is you
    From an agent session `--detach` is the launch that works: a foreground call is reaped long
    before a run ends (a build session alone may take two hours). It prints the log path; watch that
    log until its last line, `detached run exited rc=<n>`. `--dry-run` previews and writes nothing.
+   The operator may have exported `RUN_WATCH_CMD` (e.g. `herdr-adapter.sh` beside `R`, a herdr workspace per ticket); its one `watch:` log line is never a signal to act on.
 4. **Read the terminal and nothing else.** The log's `terminal: <slug>` line and `rc` are the whole
    signal:
 
@@ -38,7 +39,7 @@ env, phases and the exit table. It is the truth; this file only says what is you
    | `4` | `rounds-spent`, `checks-red-spent`, `cost-spent` | Stop. A spent budget is a human's read, never an automatic re-launch. |
    | `5` | `review-unbound` | Run `/dev-pipeline:review <pr>` by hand in a fresh session: a rebuild fixes nothing. |
    | `7` | `ticket-closed`, `staleness-expired` | Closed: stop. Stale: the base moved into this branch's files — rebase the branch, then re-launch; the claim marker lets it re-enter. |
-   | `130` / `143` | interrupted | The claim is left in place; re-launch to re-enter. |
+   | `129` / `130` / `143` | interrupted | The claim is left in place; re-launch to re-enter. |
 
 ## Rules that are not negotiable
 
