@@ -4,6 +4,16 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v16.1.1
+
+### `intake-toolkit` 7.0.1 → 7.0.2
+
+- **fix(intake-toolkit): a sequential split is a chain of use cases, not of layers (#938)** (#938)
+  intake-orchestrator now cuts a sequential split by end-to-end use case
+  rather than by layer; items that carry one use case through its layers stay in
+  one slice.
+  Migration: none.
+
 ## v16.1.0
 
 ### `dev-pipeline` 16.0.0 → 16.1.0
