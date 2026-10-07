@@ -26,4 +26,18 @@ if [ -n "$missing" ]; then
   echo "second-shift: fix: claude plugin install <plugin>@second-shift --scope project  (then restart the session)"
   echo "second-shift: full diagnosis: /second-shift:doctor"
 fi
+# The branch namespace is the one personal setting: the committed tracker.branchPrefix is the team's,
+# and each engineer may put their own in a gitignored .claude/second-shift.config.local.json. Only a repo
+# that runs the lane (dev-pipeline pinned) branches anything, so only there is this worth saying.
+CONFIG=".claude/second-shift.config.json"; LOCAL=".claude/second-shift.config.local.json"
+if [ -f "$CONFIG" ] && jq -e '.plugins | has("dev-pipeline")' "$LOCK" >/dev/null 2>&1; then
+  if [ ! -f "$LOCAL" ]; then
+    team="$(jq -r '.tracker.branchPrefix // empty' "$CONFIG" 2>/dev/null)"
+    echo "second-shift: your runs branch as '${team:-<derived from the remote>}<ticket>' — the team's prefix. For your own:"
+    echo "second-shift:   echo '{ \"tracker\": { \"branchPrefix\": \"<you>/\" } }' > $LOCAL   (and gitignore it)"
+    echo "second-shift:   to keep the team's and silence this note, put {} in that file instead"
+  elif command -v git >/dev/null 2>&1 && git rev-parse --is-inside-work-tree >/dev/null 2>&1 && ! git check-ignore -q "$LOCAL"; then
+    echo "second-shift: $LOCAL is not gitignored — add it to .gitignore (or .git/info/exclude) so it is never committed"
+  fi
+fi
 exit 0

@@ -139,6 +139,7 @@ TOOLS="$(cd "$SKILL_DIR/../../tools" && pwd)"
 
 # C1/C2: an absent file means the consumer configured nothing; a present-but-unparseable one is a refusal
 CONFIG="${SECOND_SHIFT_CONFIG:-$MAIN_ROOT/.claude/second-shift.config.json}"
+CONFIG_LOCAL="${CONFIG%.json}.local.json"   # C6a: the per-engineer override beside it, read below
 if [ -f "$CONFIG" ]; then jq -e . "$CONFIG" >/dev/null 2>&1 || terminal env-config-unparseable "$CONFIG is present but not JSON — refusing to fall back to defaults"
 else CONFIG=""; fi
 # C2: an unmigrated v2 config is refused, never half-honored (configVersion 3 removed these keys)
@@ -147,6 +148,20 @@ if [ -n "$CONFIG" ]; then
       (if (.design.liveRender | type) == "object" then (["tolerancePx","cwd"][] as $k | select(.design.liveRender | has($k)) | "design.liveRender.\($k)") else empty end),
       (if (.configVersion | type) == "number" and .configVersion < 3 then "configVersion \(.configVersion)" else empty end) ] | join(", ")' "$CONFIG" 2>/dev/null)"
   [ -z "$stale" ] || terminal env-config-stale "$CONFIG is a configVersion 2 config ($stale) — migrate it with docs/migrations/v2-to-v3.md, then re-launch"
+fi
+# C6a: each engineer may name their own branch namespace in a gitignored <config>.local.json. It sets
+# tracker.branchPrefix and nothing else: a personal file must not change what the team's runs check or
+# how they claim. A committed "local" file is a team decision nobody reviewed as one, so it is refused too.
+LOCAL_PREFIX=""
+if [ -f "$CONFIG_LOCAL" ]; then
+  jq -e 'type == "object"' "$CONFIG_LOCAL" >/dev/null 2>&1 || terminal env-config-local "$CONFIG_LOCAL is present but not a JSON object — fix or delete it"
+  local_extra="$(jq -r '[paths(scalars) | map(tostring) | join(".")] - ["tracker.branchPrefix"] | join(", ")' "$CONFIG_LOCAL")"
+  [ -z "$local_extra" ] || terminal env-config-local "$CONFIG_LOCAL sets $local_extra — the per-engineer file may set tracker.branchPrefix only; team settings belong in the committed config"
+  jq -e '.tracker.branchPrefix | . == null or (type == "string" and length > 0)' "$CONFIG_LOCAL" >/dev/null 2>&1 \
+    || terminal env-config-local "$CONFIG_LOCAL: tracker.branchPrefix must be a non-empty string"
+  ! git -C "$MAIN_ROOT" ls-files --error-unmatch -- "$CONFIG_LOCAL" >/dev/null 2>&1 \
+    || terminal env-config-local "$CONFIG_LOCAL is committed — it is per-engineer: git rm --cached it and add it to .gitignore"
+  LOCAL_PREFIX="$(jq -r '.tracker.branchPrefix // empty' "$CONFIG_LOCAL")"
 fi
 cfg() { [ -n "$CONFIG" ] && jq -r "$1 // empty" "$CONFIG" 2>/dev/null || true; }             # strings; a literal false would be swallowed, so booleans go through cfg_bool
 cfg_bool() { [ -n "$CONFIG" ] && jq -r "if $1 == null then \"\" else ($1|tostring) end" "$CONFIG" 2>/dev/null || true; }
@@ -179,9 +194,15 @@ if [ -z "${RUN_GH:-}" ]; then
   if [ "$bot_status" = ok ]; then GH="$(bash "$TOOLS/gh-bot.sh" --path)"; BOT_OK=1
   elif [ "$(cfg_bool .tracker.bot.enabled)" = true ]; then terminal env-bot "tracker.bot.enabled is true but the wrapper is $bot_status — refusing to write as the operator in the bot's place"; fi
 fi
-# C6 C7 E1 E2: the branch namespace — configured, else the dominant prefix among remote branches, else REFUSE
+# C6 C6a C7 E1 E2: the branch namespace — the engineer's local override, else configured, else the dominant
+# prefix among remote branches, else REFUSE
 BP_RESOLVER="$TOOLS/branch-prefix.sh"
 PREFIX="$(cfg .tracker.branchPrefix)"
+if [ -n "$LOCAL_PREFIX" ]; then
+  overrides=""; [ -z "$PREFIX" ] || overrides=" (overrides the committed '$PREFIX')"
+  say "branch prefix '$LOCAL_PREFIX' from $(basename "$CONFIG_LOCAL")$overrides"
+  PREFIX="$LOCAL_PREFIX"
+fi
 if [ -z "$PREFIX" ]; then
   bp_err="$(mktemp "${TMPDIR:-/tmp}/run-bp.XXXXXX")"
   PREFIX="$(bash "$BP_RESOLVER" --configured "" --tracker "$TRACKER" ${KEY_PATTERN:+--key-pattern "$KEY_PATTERN"} --repo "$MAIN_ROOT" 2>"$bp_err")" \

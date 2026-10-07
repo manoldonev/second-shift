@@ -64,5 +64,26 @@ out="$(cd "$TMP/repo" && SECOND_SHIFT_CACHE_DIR="$CACHE" PATH="$TMP/bin" bash "$
 check "no jq: exit 0"    "$([[ "$rc" -eq 0 ]] && echo 0 || echo 1)"
 check "no jq: silent"    "$([[ -z "$out" ]] && echo 0 || echo 1)"
 
+# (e) branch-prefix nudge: a lane repo with a committed config and no per-engineer file names the
+#     team prefix and how to override it; the file's presence silences it, unless it is not gitignored
+mkdir -p "$CACHE/dev-pipeline/2.1.0"
+B="$TMP/repo-bp"; mkdir -p "$B/.claude"; cp "$TMP/repo/.claude/second-shift.lock.json" "$B/.claude/"
+printf '{"tracker":{"type":"github","branchPrefix":"claude/"}}\n' > "$B/.claude/second-shift.config.json"
+git -C "$B" init -q
+out="$(cd "$B" && SECOND_SHIFT_CACHE_DIR="$CACHE" bash "$TOOL")"; rc=$?
+check "prefix: exit 0"                          "$([[ "$rc" -eq 0 ]] && echo 0 || echo 1)"
+check "prefix: names the team prefix"           "$(grep -q "'claude/<ticket>'" <<< "$out" && echo 0 || echo 1)"
+check "prefix: says where the override goes"    "$(grep -q 'second-shift.config.local.json' <<< "$out" && echo 0 || echo 1)"
+printf '{ "tracker": { "branchPrefix": "jdoe/" } }\n' > "$B/.claude/second-shift.config.local.json"
+out="$(cd "$B" && SECOND_SHIFT_CACHE_DIR="$CACHE" bash "$TOOL")"
+check "prefix: an unignored override is flagged" "$(grep -q 'not gitignored' <<< "$out" && echo 0 || echo 1)"
+printf '.claude/second-shift.config.local.json\n' > "$B/.gitignore"
+out="$(cd "$B" && SECOND_SHIFT_CACHE_DIR="$CACHE" bash "$TOOL")"
+check "prefix: an ignored override is silent"   "$([[ -z "$out" ]] && echo 0 || echo 1)"
+jq '.plugins |= del(."dev-pipeline")' "$TMP/repo/.claude/second-shift.lock.json" > "$B/.claude/second-shift.lock.json"
+rm "$B/.claude/second-shift.config.local.json"
+out="$(cd "$B" && SECOND_SHIFT_CACHE_DIR="$CACHE" bash "$TOOL")"
+check "prefix: no nudge without dev-pipeline"   "$([[ -z "$out" ]] && echo 0 || echo 1)"
+
 if [[ "$FAILS" -gt 0 ]]; then echo "second-shift-doctor selftest: $FAILS FAILURE(S)"; exit 1; fi
 echo "second-shift-doctor selftest: all green"

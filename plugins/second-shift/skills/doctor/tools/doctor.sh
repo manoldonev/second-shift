@@ -463,7 +463,7 @@ else
   if [[ -n "$DP_PATH" && -f "$LINT" ]]; then
     if out="$(SECOND_SHIFT_TIER_DOC="${RT_PATH:+$RT_PATH/model-tiering.md}" bash "$LINT" "$CONF" 2>&1)"; then ok "config-lint: $(tail -1 <<< "$out")"
     else
-      bad "config-lint violations — fix .claude/second-shift.config.json:"
+      bad "config-lint violations — fix the file each block names (the committed config, or your .local.json beside it):"
       # while-read (not sed<<<) — SC2001-clean under the CI shellcheck flags
       n=0; while IFS= read -r line; do echo "[doctor]        $line"; n=$((n+1)); [[ "$n" -ge 10 ]] && break; done <<< "$out"
     fi

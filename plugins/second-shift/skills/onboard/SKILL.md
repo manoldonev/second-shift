@@ -112,7 +112,13 @@ Build the draft config from detection — the configVersion 3 shape, and only th
   `allowUnverified: true` to declare the zero-check opt-out deliberately.
 Ask AT MOST one AskUserQuestion batch, containing ONLY (skip any that detection settled):
   1. tracker (only if ambiguous — show evidence per option)
-  2. `tracker.branchPrefix` (recommended: `claude/<repo-basename>-` for github; `<user>/` for jira)
+  2. branch prefix, two-part. **(a)** the team's `tracker.branchPrefix`, committed (recommended:
+     `claude/<repo-basename>-` for github; a team prefix for jira too, since the config is
+     shared). **(b)** the operator's OWN prefix for their runs — ALWAYS ask, even when (a) was
+     settled by detection: propose `<login>/` (from `gh api user --jq .login`, else the local part
+     of `git config user.email`) as the recommended option, with "keep the team's prefix" as the
+     other. It is written to the gitignored `.claude/second-shift.config.local.json`, never to the
+     committed config (docs/config-schema.md#per-engineer-override).
   3. design fidelity, two-part — **what it buys: review gains a design-fidelity dimension, and
      with `liveRender` every declared route is rendered after each build and smoke-checked for
      the value it must show — and, with `{textScale}`, for text that overflows or clips at 2×
@@ -271,6 +277,15 @@ Write the accepted config as PURE JSON (comments stripped) with a `$schema` firs
     "$schema": "https://raw.githubusercontent.com/manoldonev/second-shift/<ref>/schema/second-shift.config.schema.json"
 (<ref> = the pinned ref from Step 2 — live editor validation forever, at the right version.)
 
+Then the per-engineer file, from Step 3 item 2(b):
+1. Add `.claude/second-shift.config.local.json` to `.gitignore` when `git check-ignore` says it
+   is not ignored yet (it is committed with the onboarding PR, so every teammate's copy stays out
+   of git).
+2. When the operator chose their own prefix, write `.claude/second-shift.config.local.json` as
+   exactly `{ "tracker": { "branchPrefix": "<their prefix>" } }`. When they kept the team's,
+   write `{}`, which silences the session-start reminder. It may hold nothing else: run.sh
+   refuses any other key (`env-config-local`).
+
 ## Step 5 — Validate in a loop
 Resolve config-lint and the tier alphabet it reads (review-toolkit's `model-tiering.md`) from the
 same list: `claude plugin list --json | jq -r --arg id <id> '[.[] | select(.id==$id)] | sort_by(.lastUpdated) | last | .installPath // empty'`
@@ -403,7 +418,9 @@ review screen for deletion: they read a verdict record the lane no longer writes
    `.claude/second-shift.lock.json`, `.claude/tools/second-shift-doctor.sh`, and
    `.claude/SECOND-SHIFT.md` in one PR — **plus**, when the unclaim workflow was accepted at
    Step 3 item 7, `.github/workflows/second-shift-unclaim.yml` +
-   `.claude/tools/second-shift-unclaim.sh` in the same PR.
+   `.claude/tools/second-shift-unclaim.sh` in the same PR, and the `.gitignore` line Step 4 added.
+   Never commit `.claude/second-shift.config.local.json` itself: it is the operator's own. Tell
+   them teammates get a session-start reminder to create theirs.
 7. **Sibling candidates → offer the sibling's own onboard.** When detection reported
    `topology.siblingCandidates`, print: "The sibling repo needs its own onboard for
    `/dev-pipeline:run`: `cd <sibling path>`, then run `/second-shift:onboard` there. Each checkout
