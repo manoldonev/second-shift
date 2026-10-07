@@ -140,7 +140,8 @@ d2_decomposition_verdict (0, 1, or 2) — Decomposition decision correctness.
     - sub-issues: (a) distinct capabilities that don't share state;
       (b) dependency analysis shows independent groups; (c) each part in a
       different module or bounded context; (d) parts can be merged in any order.
-    - sub-issues-sequential: (a) clear chain in dependency analysis; (b) parts
+    - sub-issues-sequential: (a) clear chain of end-to-end use cases in
+      dependency analysis; (b) parts
       share a module but add incrementally; (c) parts would collide on the same
       file if worked in parallel; (d) each part is meaningful and reviewable on
       its own.
