@@ -21,11 +21,17 @@
 #                             timeouts at that value (floor 120 s); REVIEW's background-task wait (floor 600 s)
 #       RUN_COST_CEILING      USD (100); RUN_CHECKS_RED_MAX (3)
 #       Env beats config `run.*` beats these defaults; an explicit --max-rounds beats config.
+#       RUN_WATCH_CMD         unset = off. A --detach run calls it ONCE, when its worktree is first ready, from the main
+#                             checkout in its own process group under a 10 s bound: `<cmd> <issue> <repo> <detach-log>
+#                             <worktree>`. Its output goes to <state>/watch.out; whatever it does is one `watch:` log line
+#                             and changes nothing else. herdr-adapter.sh beside this file is the bundled one (a herdr
+#                             workspace per ticket); RUN_WATCH_EDITOR=code|cursor makes it open the worktree too.
+#                             Every session and lane check runs with HERDR_*, RUN_WATCH* and RUN_DETACHED_LOG unset.
 #
 # What it does, in order (each phase's invariant in parentheses):
 #   0 parse      (reads argv only; a usage error exits 2 with nothing written)
 #   1 environment(every config read fails closed under a named slug; nothing written)
-#   2 detach     (re-exec under setsid; the log's last line carries the run's exit code)
+#   2 detach     (re-exec under setsid; the log's last line carries the run's exit code, a forwarded signal's too)
 #   3 preflight  (read-only, fixed order: record, lanes, design, dry-run, ticket open, model)
 #   4 claim      (the first write: the label swap and the claim marker, or a re-entry)
 #   5 baseline   (worktree on the branch; the record is the branch's first commit, pushed)
@@ -55,7 +61,8 @@
 #       4 budget spent — rounds-spent, checks-red-spent, cost-spent
 #       5 review-unbound — no verdict usable against the current head, after one re-spawn
 #       7 the premise expired mid-run — ticket-closed, staleness-expired
-#       130 / 143 interrupted by INT / TERM; the session is reaped, the claim is left in place
+#       129 / 130 / 143 interrupted by HUP / INT / TERM; the session is reaped, the claim is left in place. A
+#                 detached run forwards each of them, sent to its printed pid or its process group, to the run
 # Every exit prints `terminal: <slug>` as its last stdout line so a wrapper routes on the slug.
 set -uo pipefail
 
@@ -242,10 +249,17 @@ if [ "$DETACH" -eq 1 ]; then
   command -v perl >/dev/null 2>&1 || terminal env-detach-perl "--detach needs perl for setsid; run in the foreground instead"
   mkdir -p "$LOG_DIR" 2>/dev/null || terminal env-detach-log-dir "--detach cannot create $LOG_DIR for the run's log"
   DETACH_LOG="$LOG_DIR/$ISSUE-lean-run-$(now | tr -d ':-')-$$.log"
-  _wrap=(); command -v caffeinate >/dev/null 2>&1 && _wrap=(caffeinate -dims)
-  # shellcheck disable=SC2016  # the inner script expands in the child, not here
-  nohup perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV or die "exec: $!\n"' -- \
-    ${_wrap[@]+"${_wrap[@]}"} bash -c 'bash "$@"; rc=$?; echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) [run] detached run exited rc=$rc"' \
+  # D-28: the printed pid is the wrapper, which forwards TERM/INT/HUP to the run and always writes the exit line, so a kill
+  # of that pid or of the whole process group stops the run through its own trap instead of orphaning it. nohup leaves HUP
+  # ignored and `&` leaves INT ignored, and a signal ignored on entry cannot be trapped: both are restored before the exec.
+  # caffeinate (macOS) holds the machine awake on the run's pid rather than wrapping it, so it never stands in for the pid.
+  # shellcheck disable=SC2016,SC2094  # the inner script expands in the child, not here; the log path is handed over, not read
+  RUN_DETACHED_LOG="$DETACH_LOG" nohup perl -MPOSIX -e 'POSIX::setsid(); $SIG{HUP} = $SIG{INT} = "DEFAULT"; exec @ARGV or die "exec: $!\n"' -- \
+    bash -c 'perl -e "\$SIG{INT} = q(DEFAULT); exec @ARGV or die" -- bash "$@" & p=$!
+      command -v caffeinate >/dev/null 2>&1 && { caffeinate -dims -w "$p" & }
+      fwd() { kill -"$1" "$p" 2>/dev/null; }; trap "fwd TERM" TERM; trap "fwd INT" INT; trap "fwd HUP" HUP
+      while :; do wait "$p"; rc=$?; kill -0 "$p" 2>/dev/null || break; done
+      echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) [run] detached run exited rc=$rc"' \
     _ "$0" "${KEEP_ARGS[@]}" > "$DETACH_LOG" 2>&1 < /dev/null &
   say "detached: pid $! · log $DETACH_LOG · its last line will be 'detached run exited rc=<n>'"
   exit 0
@@ -254,12 +268,18 @@ fi
 # ============================ library ============================
 # -- processes (rows B18, F11-F13) --
 # shellcheck disable=SC2329  # invoked from the traps
-reap() { [ -n "$CHILD" ] || return 0; pkill -TERM -P "$CHILD" 2>/dev/null; kill -TERM "$CHILD" 2>/dev/null; }
+CHILD_GROUP=0   # 1 while $CHILD leads its own process group (the watch call): reaped as a group, so no descendant survives
+reap() {
+  [ -n "$CHILD" ] || return 0
+  if [ "$CHILD_GROUP" -eq 1 ]; then kill -TERM -- "-$CHILD" 2>/dev/null; sleep 0.2; kill -KILL -- "-$CHILD" 2>/dev/null; fi
+  pkill -TERM -P "$CHILD" 2>/dev/null; kill -TERM "$CHILD" 2>/dev/null
+}
+trap 'reap; say "hung up; claim left in place"; exit 129' HUP
 trap 'reap; say "interrupted; claim left in place"; exit 130' INT
 trap 'reap; say "terminated; claim left in place"; exit 143' TERM
 bounded() { # bounded <secs> <logfile> <cmd...> — a bash watchdog (macOS ships no `timeout`); TERM, then KILL after 10s: the cap is a bound
   local secs="$1" log="$2"; shift 2
-  ( cd "$WT" && exec "$@" ) > "$log" 2>"$log.err" < "${BOUNDED_STDIN:-/dev/null}" & CHILD=$!
+  ( cd "$WT" && exec "$@" ) > "$log" 2>"$log.err" < "${BOUNDED_STDIN:-/dev/null}" & CHILD=$!; CHILD_GROUP=0
   local t=0
   while kill -0 "$CHILD" 2>/dev/null; do
     if [ "$t" -ge "$secs" ]; then
@@ -274,6 +294,13 @@ bounded() { # bounded <secs> <logfile> <cmd...> — a bash watchdog (macOS ships
 # -- lane commands (row G5): what must not reach a lane child --
 SEAM_SCRUB='SECOND_SHIFT_CONFIG|SECOND_SHIFT_REPO_ROOT|SECOND_SHIFT_EXTENSION_MANIFEST|SECOND_SHIFT_PLUGIN_ROOT|SECOND_SHIFT_REVIEW_TOOLKIT_ROOT|SECOND_SHIFT_DEV_PIPELINE_ROOT|SECOND_SHIFT_DESIGN_TOOLKIT_ROOT|SECOND_SHIFT_SECTION_CATALOG|STATECTL_STATE_DIR|STATECTL_WRITER|DEV_PIPELINE_MODE|BRANCH_PREFIX|KEY_PATTERN|LANE_ATTEND_MODE|MUTATION_SWEEP_NO_DEFER'
 SCRUB_ENV=(); IFS='|' read -r -a _toks <<< "$SEAM_SCRUB"; for _t in "${_toks[@]}"; do SCRUB_ENV+=(-u "$_t"); done; unset _toks _t
+# #939 D-14 D-27: the watch's own variables reach no session and no lane check. Listed from this run's environment rather
+# than hard-coded, so a herdr variable nobody named here is unset too; the detach re-exec above is not scrubbed
+WATCH_UNSET=()
+for _t in $(compgen -e HERDR_) $(compgen -e RUN_WATCH) $(compgen -e RUN_DETACHED_LOG); do
+  case "$_t" in HERDR_*|RUN_WATCH*|RUN_DETACHED_LOG) WATCH_UNSET+=(-u "$_t") ;; esac
+done; unset _t
+SCRUB_ENV+=(${WATCH_UNSET[@]+"${WATCH_UNSET[@]}"})
 lane() { ( cd "$WT" && env "${SCRUB_ENV[@]}" bash -c "$1" ); }
 first_word() { local w; for w in $1; do case "$w" in *=*) continue ;; *) printf '%s' "$w"; return ;; esac; done; printf '%s' "${1%% *}"; }
 # -- session flags (rows F2, F4-F10) --
@@ -866,6 +893,38 @@ findings_excerpt() { # findings_excerpt <log> -> the path of what the next build
   else mv "$out.tmp" "$out"; fi
   printf '%s' "$out"
 }
+new_uuid() { # an RFC 4122 v4 uuid, lowercase as transcript file names are (macOS uuidgen prints upper case, D-31)
+  local h; h="$(od -An -tx1 -N16 /dev/urandom 2>/dev/null | tr -d ' \n')"
+  [ "${#h}" -eq 32 ] || return 1
+  printf '%s-%s-4%s-%x%s-%s' "${h:0:8}" "${h:8:4}" "${h:13:3}" $(( (16#${h:16:1} & 3) | 8 )) "${h:17:3}" "${h:20:12}"
+}
+# -- the watch call (#939 D-9 D-10 D-26 D-27): once per launch, once the worktree is first ready; whatever it does, one
+# `watch:` line and nothing else. It runs from the main checkout in its own process group under its own watchdog —
+# bounded() would cd into the worktree and reap only one level down — with its output in its own file: never the detach
+# log, never a command substitution, which a forked descendant holding the pipe would stall. Nothing it says is read back.
+WATCH_TO=10   # OR-1: one constant; a watch that misbehaves changes no outcome at any value
+WATCHED=0
+watch_once() {
+  [ "$WATCHED" -eq 0 ] || return 0; WATCHED=1
+  [ -n "${RUN_WATCH_CMD:-}" ] || { say "watch: off (RUN_WATCH_CMD is unset)"; return 0; }
+  [ -n "${RUN_DETACHED_LOG:-}" ] || { say "watch: skipped for a foreground run (only a --detach run is watched)"; return 0; }
+  command -v -- "$RUN_WATCH_CMD" >/dev/null 2>&1 || { say "watch: FAILED — '$RUN_WATCH_CMD' is not an executable; the run goes on unwatched"; return 0; }
+  local out="$STATE/watch.out" t=0 rc
+  # the pane, tab and workspace the operator launched from are not the watch's: the adapter names its own by id (AC-21)
+  ( cd "$MAIN_ROOT" && exec env -u HERDR_PANE_ID -u HERDR_TAB_ID -u HERDR_WORKSPACE_ID perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV or die "exec: $!\n"' -- \
+      "$RUN_WATCH_CMD" "$ISSUE" "$REPO_SLUG" "$RUN_DETACHED_LOG" "$WT" ) > "$out" 2>&1 < /dev/null & CHILD=$!; CHILD_GROUP=1
+  while kill -0 "$CHILD" 2>/dev/null && [ "$t" -lt $((WATCH_TO*5)) ]; do sleep 0.2; t=$((t+1)); done
+  if kill -0 "$CHILD" 2>/dev/null; then # past the bound: the whole group, TERM then KILL; wait would say 143, so the timeout is recorded here
+    kill -TERM -- "-$CHILD" 2>/dev/null; kill -TERM "$CHILD" 2>/dev/null
+    t=0; while kill -0 -- "-$CHILD" 2>/dev/null && [ "$t" -lt 10 ]; do sleep 0.2; t=$((t+1)); done
+    kill -KILL -- "-$CHILD" 2>/dev/null; wait "$CHILD" 2>/dev/null; CHILD=""; CHILD_GROUP=0
+    say "watch: FAILED — $RUN_WATCH_CMD ran past its ${WATCH_TO}s bound and its process group was killed (output: $out); the run goes on unwatched"
+    return 0
+  fi
+  wait "$CHILD"; rc=$?; CHILD=""; CHILD_GROUP=0
+  if [ "$rc" -eq 0 ]; then say "watch: $RUN_WATCH_CMD started the watch (output: $out)"
+  else say "watch: FAILED — $RUN_WATCH_CMD exited rc=$rc (output: $out); the run goes on unwatched"; fi
+}
 spawn() { # spawn <role> <model> <id> <allowlist> <max-turns> <prompt-file> -> rc (124 past the bound); the result JSON is $STATE/<role>-<id>.json
   local secs="$REVIEW_TO" extra=(); [ "$1" = build ] && secs="$BUILD_TO"
   # the review stages review-lead's Workflow script in this run's state dir: added, and outside the worktree
@@ -875,13 +934,17 @@ spawn() { # spawn <role> <model> <id> <allowlist> <max-turns> <prompt-file> -> r
   # Workflow), and -p waits on a running one only 600 s idle by default: its wait is raised to inside its own bound.
   # Passed as --settings env, which sits above the user, project and local files, so a repo's own settings.json env
   # cannot quietly put a BUILD back on the 120 s default; REVIEW drops a switch it would only inherit from this shell
-  local sets envv=()
+  local sets envv=(env ${WATCH_UNSET[@]+"${WATCH_UNSET[@]}"})
   if [ "$1" = build ]; then sets="$(printf '{"env":{"CLAUDE_CODE_DISABLE_BACKGROUND_TASKS":"1","BASH_DEFAULT_TIMEOUT_MS":"%s","BASH_MAX_TIMEOUT_MS":"%s"}}' "$BUILD_BASH_MS" "$BUILD_BASH_MS")"
-  else sets="$(printf '{"env":{"CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS":"%s"}}' "$REVIEW_BG_WAIT_MS")"; envv=(env -u CLAUDE_CODE_DISABLE_BACKGROUND_TASKS); fi
+  else sets="$(printf '{"env":{"CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS":"%s"}}' "$REVIEW_BG_WAIT_MS")"; envv+=(-u CLAUDE_CODE_DISABLE_BACKGROUND_TASKS); fi
+  # #939 D-13: every session is named and findable while it runs (`claude agents`), and its transcript is on disk under its id
+  local sid name; sid="$(new_uuid)" || terminal env-session-id "cannot read /dev/urandom for a session id"
+  name="$ISSUE-$1-$(printf '%s' "$3" | tr -c 'A-Za-z0-9-' '-')"
+  say "session: $1 $3 $sid ~/.claude*/projects/*/$sid.jsonl"
   # the prompt goes in on stdin, never as an argument: a red check's log can carry it past the exec limit
   # (1 MiB on macOS, 128 KiB for one argument on Linux), and the session then dies as rc 126 before it starts
   local BOUNDED_STDIN="$6"
-  bounded "$secs" "$STATE/$1-$3.json" ${envv[@]+"${envv[@]}"} "$CLAUDE" -p --model "$2" "${SPAWN_COMMON[@]}" ${extra[@]+"${extra[@]}"} --settings "$sets" --allowedTools "$4" --max-turns "$5"; local rc=$?
+  bounded "$secs" "$STATE/$1-$3.json" "${envv[@]}" "$CLAUDE" -p --session-id "$sid" -n "$name" --model "$2" "${SPAWN_COMMON[@]}" ${extra[@]+"${extra[@]}"} --settings "$sets" --allowedTools "$4" --max-turns "$5"; local rc=$?
   add_cost "$STATE/$1-$3.json"; return $rc
 }
 FINDINGS=""; RED_LOG=""; NEED_BUILD=1; NEED_CHECKS=1; INPUT=""
@@ -893,6 +956,7 @@ while :; do
     if [ "$NEED_BUILD" -eq 1 ]; then # ---- BUILD, until its work is collected on one draft PR ----
       premise_holds
       worktree_ready
+      watch_once   # guarded: a later attempt or round makes the worktree ready again, and the launch is watched once
       ATTEMPT=$((ATTEMPT+1)); A="$ROUND.$ATTEMPT"
       record_at_first >/dev/null || terminal env-worktree "cannot read the record at $FIRST:$RECORD_REL — a build must not be handed an empty record as binding"
       build_prompt "$ROUND" "$FINDINGS" "$RED_LOG" > "$STATE/build-$A.prompt"
