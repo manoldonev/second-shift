@@ -53,6 +53,10 @@ project precedence wins; and never edit the shared `.claude/settings.json` for a
 preference). The uninstall dialog's "disable for you alone" writes exactly this.
 `/second-shift:doctor` will note what you gave up, once, and stop there.
 
+Your own branch namespace goes in `.claude/second-shift.config.local.json`, kept out of git:
+`{ "tracker": { "branchPrefix": "you/" } }`. Your runs use it instead of the committed
+prefix; it may set nothing else.
+
 ## Support boundary
 
 The full suite at the pinned tag is the supported artifact. A review-only subset

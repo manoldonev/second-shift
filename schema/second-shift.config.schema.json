@@ -33,7 +33,7 @@
         },
         "branchPrefix": {
           "type": "string",
-          "description": "Branch-name namespace prepended to the ticket key: the work branch is \"<branchPrefix><ticketKey>\" (a jira key lowercased). Read by tools/branch-prefix.sh, which /dev-pipeline:run calls; it refuses to guess when the key is absent. github example: \"claude/acme-\" (→ claude/acme-42). JIRA example: a per-user identifier plus a slash, e.g. \"jdoe/\" (→ jdoe/gh-540)."
+          "description": "Branch-name namespace prepended to the ticket key: the work branch is \"<branchPrefix><ticketKey>\" (a jira key lowercased). Read by tools/branch-prefix.sh, which /dev-pipeline:run calls; it refuses to guess when the key is absent. github example: \"claude/acme-\" (→ claude/acme-42). JIRA example: an identifier plus a slash, e.g. \"jdoe/\" (→ jdoe/gh-540). The committed value is the team's; an engineer overrides it for their own runs in a gitignored .claude/second-shift.config.local.json that sets tracker.branchPrefix and nothing else."
         },
         "bot": {
           "type": "object",

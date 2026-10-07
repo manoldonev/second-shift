@@ -21,3 +21,24 @@ Principles:
 - `configVersion` bumps only on breaking schema changes; plugins support one version per release. The migration contract and per-version upgrade docs live in [`migrations/`](migrations/README.md); config-lint fails older/newer configs with the pointer, never a bare "invalid".
 - **The scheduler's environment knobs are spelled `RUN_*`:** `RUN_CLAUDE`, `RUN_GH` (alias `GH`), `RUN_WORKTREE_ROOT`, `RUN_BUILD_TIMEOUT`, `RUN_REVIEW_TIMEOUT`, `RUN_COST_CEILING`, `RUN_CHECKS_RED_MAX`. `run.sh -h` is the table of record.
 - **The base branch is `baseBranch`, else the remote default branch** (`origin/HEAD`, falling back to `origin/main`, then `origin/master`). Set `baseBranch` (a bare name on origin, e.g. `"develop"`) when the repo integrates on a branch other than the host default: the lane forks from it, opens its PR against it and reviews against it, and a configured branch that does not resolve on origin refuses the run before the claim (`env-base-unreadable`) — never a silent fall back.
+
+## Per-engineer override
+
+The config is committed, so its values are the team's. One value is personal: the branch
+namespace. An engineer who wants their runs on their own prefix puts it in
+`.claude/second-shift.config.local.json`, beside the config (with `SECOND_SHIFT_CONFIG` set, the
+`.local.json` beside that file), and keeps the file out of git:
+
+```json
+{ "tracker": { "branchPrefix": "jdoe/" } }
+```
+
+- `/dev-pipeline:run` and `/dev-pipeline:build` use it in place of the committed
+  `tracker.branchPrefix`, and the run log names the override and the prefix it replaced.
+- It may set `tracker.branchPrefix` and nothing else. A personal file must not change what the
+  team's runs check or how they claim, so any other key is refused (`env-config-local`), as are
+  an empty prefix, a file that is not a JSON object, and a file that is committed.
+- `config-lint.sh` lints it beside the config, so doctor and onboard report the same problems
+  before a run hits them.
+- A cross-repo setup that finds one repo's branch by name from another (a UI CI looking for the
+  backend branch) needs the same override in both repos.

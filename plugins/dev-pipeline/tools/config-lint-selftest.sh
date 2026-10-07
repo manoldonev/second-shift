@@ -344,6 +344,31 @@ if [[ -z "${SECOND_SHIFT_SELFTEST_FABRICATED_TREE:-}" ]]; then
   fi
 fi
 
+# The per-engineer <config>.local.json beside a valid config (run.sh C6a). Built in scratch space, not
+# under config-lint-fixtures/: the valid-*.json glob above would lint a *.local.json as a main config.
+LC="$TMPROOT/local"
+mkdir -p "$LC"
+cp "$FIX/valid-standalone-minimal.json" "$LC/second-shift.config.json"
+lint_local() { # $1 = label, $2 = local file content, $3 = expected substring ("" = must pass)
+  local out rc=0
+  printf '%s\n' "$2" > "$LC/second-shift.config.local.json"
+  out=$("$LINT" "$LC/second-shift.config.json" 2>&1) || rc=$?
+  if [[ -z "$3" ]]; then
+    [[ "$rc" -eq 0 ]] && check "$1 passes" 0 || check "$1 passes (got: $(head -3 <<< "$out" | tr '\n' ' '))" 1
+  elif [[ "$rc" -ne 0 ]] && grep -qF "$3" <<< "$out"; then
+    check "$1 fails mentioning '$3'" 0
+  else
+    check "$1 fails mentioning '$3' (rc=$rc, got: $(head -3 <<< "$out" | tr '\n' ' '))" 1
+  fi
+}
+lint_local "local branchPrefix override" '{"tracker":{"branchPrefix":"jdoe/"}}' ""
+lint_local "local file setting a team key" '{"tracker":{"branchPrefix":"jdoe/"},"run":{"maxRounds":9}}' "run.maxRounds: the per-engineer file may set tracker.branchPrefix only"
+lint_local "local file setting another tracker key" '{"tracker":{"type":"jira"}}' "tracker.type: the per-engineer file may set tracker.branchPrefix only"
+lint_local "local empty branchPrefix" '{"tracker":{"branchPrefix":""}}' "tracker.branchPrefix: must be a non-empty string"
+lint_local "local non-JSON file" 'jdoe/' "not valid JSON"
+git -C "$LC" init -q && git -C "$LC" add second-shift.config.local.json
+lint_local "committed local file" '{"tracker":{"branchPrefix":"jdoe/"}}' "committed to git"
+
 if [[ "$FAILS" -gt 0 ]]; then echo "config-lint selftest: $FAILS FAILURE(S)"; exit 1; fi
 if [[ -n "$SKIP_REASON" ]]; then
   echo "$SKIP_REASON"

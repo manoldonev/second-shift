@@ -112,7 +112,9 @@ Build the draft config from detection — the configVersion 3 shape, and only th
   `allowUnverified: true` to declare the zero-check opt-out deliberately.
 Ask AT MOST one AskUserQuestion batch, containing ONLY (skip any that detection settled):
   1. tracker (only if ambiguous — show evidence per option)
-  2. `tracker.branchPrefix` (recommended: `claude/<repo-basename>-` for github; `<user>/` for jira)
+  2. `tracker.branchPrefix` (recommended: `claude/<repo-basename>-` for github; for jira a team
+     prefix too, since the config is committed — each engineer's own `<user>/` goes in their
+     gitignored `.claude/second-shift.config.local.json`, docs/config-schema.md#per-engineer-override)
   3. design fidelity, two-part — **what it buys: review gains a design-fidelity dimension, and
      with `liveRender` every declared route is rendered after each build and smoke-checked for
      the value it must show — and, with `{textScale}`, for text that overflows or clips at 2×

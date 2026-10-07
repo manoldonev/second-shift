@@ -150,6 +150,7 @@ An approve marks the PR ready for review. What you give up: second-shift does no
 | `terminal: not-queued` | No `ready-for-dev` label (GitHub) | `gh issue edit 42 --add-label ready-for-dev` |
 | `terminal: not-queued`, naming a blocker label such as `epic` | Someone marked the ticket not ready | Ask whoever added the label; don't just remove it |
 | `terminal: env-branch-prefix` | No branch prefix configured, and none to derive from the remote | Set `tracker.branchPrefix` in the config (onboard normally does) |
+| `terminal: env-config-local` | Your `.claude/second-shift.config.local.json` sets more than `tracker.branchPrefix`, is not valid JSON, or is committed | Keep only `{"tracker":{"branchPrefix":"you/"}}` in it, and keep it gitignored |
 | `terminal: env-design-undeclared` | Design support is on and the record lists no screens | Run intake again so the record says `Design: none — <reason>`, or drop `design.provider` from a repo without a UI |
 | `terminal: checks-red-spent` | Your checks kept failing | Read the failing check's log under `.claude/pipeline-state/run-42/`. Usually a missing setup step (the install, or a monorepo's package build), a wrong command, every command still `null`, or a format check that also scans the committed record under `docs/plans/` |
 | `terminal: review-unbound` | The review left no usable verdict | `/dev-pipeline:review <pr>` from a fresh session |

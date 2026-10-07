@@ -306,6 +306,22 @@ fixture n4; printf 'ready-for-dev\n' > "$FAKE_GH/labels"; printf 'build-pr\nrevi
 grep -q 'models: build claude-sonnet-5 (flag), review claude-sonnet-5 (test)' <<<"$OUT" && ok "(n4) override models logged" || bad "(n4) override not applied"
 fixture n5; printf '{"tracker":{"type":"github","branchPrefix":"claude/acme-"},"paths":{"plansDir":"docs/plans"}}\n' > "$d/main/.claude/second-shift.config.json"; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"
 git -C "$d/origin.git" rev-parse -q --verify refs/heads/claude/acme-42 >/dev/null && ok "(n5) branch honors tracker.branchPrefix" || bad "(n5) no claude/acme-42 on origin: $(git -C "$d/origin.git" branch --list | tr '\n' ' ')"
+# (n6-n9) C6a: the gitignored per-engineer <config>.local.json may override tracker.branchPrefix and nothing else
+local_cfg() { printf '%s\n' "$1" > "$d/main/.claude/second-shift.config.local.json"; }
+fixture n6; printf '{"tracker":{"type":"github","branchPrefix":"claude/acme-"},"paths":{"plansDir":"docs/plans"}}\n' > "$d/main/.claude/second-shift.config.json"
+local_cfg '{"tracker":{"branchPrefix":"jdoe/"}}'; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(n6) a run with a local branch-prefix override"
+git -C "$d/origin.git" rev-parse -q --verify refs/heads/jdoe/42 >/dev/null && ! git -C "$d/origin.git" rev-parse -q --verify refs/heads/claude/acme-42 >/dev/null \
+  && ok "(n6) the local branchPrefix wins over the committed one" || bad "(n6) branches on origin: $(git -C "$d/origin.git" branch --list | tr '\n' ' ')"
+grep -q "branch prefix 'jdoe/' from second-shift.config.local.json (overrides the committed 'claude/acme-')" <<<"$OUT" \
+  && ok "(n6) the override is named in the run log, with the prefix it replaced" || bad "(n6) no override line: $(grep 'branch prefix' <<<"$OUT")"
+fixture n7; local_cfg '{"tracker":{"branchPrefix":"jdoe/"},"run":{"maxRounds":9}}'; run_case "$d"; expect env-config-local "(n7) a local file that sets a team key is refused"
+grep -q 'sets run.maxRounds' <<<"$OUT" && grep -qx ready-for-dev "$FAKE_GH/labels" && [ ! -s "$FAKE_GH/issue-comments" ] \
+  && ok "(n7) refused before the claim, naming the key" || bad "(n7) $(grep 'terminal' <<<"$OUT" | head -n 1)"
+fixture n8; local_cfg '{"tracker":{"branchPrefix":"jdoe/"}}'; git -C "$d/main" add -f .claude/second-shift.config.local.json && git -C "$d/main" commit -qm local
+run_case "$d"; expect env-config-local "(n8) a committed local file is refused"
+grep -q 'is committed' <<<"$OUT" && ok "(n8) the refusal says it is committed" || bad "(n8) $(grep 'terminal' <<<"$OUT" | head -n 1)"
+fixture n9; local_cfg 'jdoe/'; run_case "$d"; expect env-config-local "(n9) an unparseable local file is refused, never ignored"
+fixture n9b; local_cfg '{"tracker":{"branchPrefix":""}}'; run_case "$d"; expect env-config-local "(n9b) an empty local branchPrefix is refused, never a silent fall-back to the committed one"
 
 # (p) parity with orchestrate.sh: tool strip, config commands, exit codes, flags, prefix refusal
 FIXTURE_CONFIG='{"tracker":{"type":"jira","writes":false,"branchPrefix":"jdoe/","keyPattern":"[A-Z]+-[0-9]+"},"paths":{"plansDir":"docs/plans"}}' fixture p1

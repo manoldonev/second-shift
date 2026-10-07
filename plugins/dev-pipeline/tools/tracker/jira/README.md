@@ -50,7 +50,9 @@ is a fetch-time prerequisite failure, surfaced by the intake surface.
 ## Deriving `branchPrefix` (the user identifier)
 
 With JIRA the branch prefix is typically a per-user short name, not the git username.
-Set it explicitly in config (`tracker.branchPrefix: "jdoe/"`). When it is unset, the scheduler
+The committed config is shared, so commit a team prefix there and let each engineer put their
+own in a gitignored `.claude/second-shift.config.local.json` (`{"tracker":{"branchPrefix":"jdoe/"}}`),
+which wins over the committed value for that engineer's runs and may set nothing else. When it is unset, the scheduler
 derives it from the dominant prefix among existing remote branches for your key pattern, and
 refuses (exit 2) when there is nothing to derive from — it never prompts, because spawned lane
 sessions cannot ask. Config is the durable home; derivation is the fallback.

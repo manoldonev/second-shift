@@ -31,6 +31,7 @@ CHECKS=(
   "skills/run/run.sh|run.reviewTimeoutSeconds|review session timeout"
   "skills/run/run.sh|run.costCeilingUsd|cost ceiling"
   "tools/branch-prefix.sh|tracker.branchPrefix|work-branch namespace"
+  "skills/run/run.sh|.local.json|per-engineer tracker.branchPrefix override"
 )
 
 for c in "${CHECKS[@]}"; do

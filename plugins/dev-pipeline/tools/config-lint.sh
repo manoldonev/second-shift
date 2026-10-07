@@ -292,10 +292,34 @@ ERRORS=$(jq -r --argjson shippedTiers "$SHIPPED_TIERS_JSON" --argjson tierDocFou
   | .[]
 ' "$CONFIG")
 
+# The per-engineer override beside the config (run.sh C6a): it may set tracker.branchPrefix and nothing
+# else, and it stays out of git. run.sh refuses the same three shapes; linting them here surfaces them in
+# doctor and onboard before a run trips on them.
+LOCAL="${CONFIG%.json}.local.json"
+LOCAL_ERRORS=""
+if [[ -f "$LOCAL" ]]; then
+  LOCAL_ERRORS=$(jq -r '
+    if type != "object" then "not a JSON object"
+    else
+      (([paths(scalars) | map(tostring) | join(".")] - ["tracker.branchPrefix"])[]
+        | "\(.): the per-engineer file may set tracker.branchPrefix only; team settings belong in the committed config"),
+      ((try .tracker.branchPrefix catch null) as $bp
+        | if $bp != null and ((($bp | type) != "string") or $bp == "") then "tracker.branchPrefix: must be a non-empty string" else empty end)
+    end' "$LOCAL" 2>/dev/null) || LOCAL_ERRORS="not valid JSON"
+  if git -C "$(dirname "$LOCAL")" ls-files --error-unmatch -- "$LOCAL" >/dev/null 2>&1; then
+    LOCAL_ERRORS="${LOCAL_ERRORS:+$LOCAL_ERRORS
+}committed to git — it is per-engineer: git rm --cached it and add it to .gitignore"
+  fi
+fi
+
 if [[ -n "$ERRORS" ]]; then
   echo "config-lint: $CONFIG:" >&2
   while IFS= read -r line; do echo "  ✗ $line" >&2; done <<< "$ERRORS"
-  exit 1
 fi
+if [[ -n "$LOCAL_ERRORS" ]]; then
+  echo "config-lint: $LOCAL:" >&2
+  while IFS= read -r line; do echo "  ✗ $line" >&2; done <<< "$LOCAL_ERRORS"
+fi
+[[ -z "$ERRORS" && -z "$LOCAL_ERRORS" ]] || exit 1
 
-echo "config-lint: OK ($CONFIG)"
+if [[ -f "$LOCAL" ]]; then echo "config-lint: OK ($CONFIG + $(basename "$LOCAL"))"; else echo "config-lint: OK ($CONFIG)"; fi
