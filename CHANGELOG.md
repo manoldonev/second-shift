@@ -4,6 +4,20 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v16.2.0
+
+### `dev-pipeline` 16.1.0 → 16.2.0
+
+- **feat(dev-pipeline): optional herdr workspace for every detached run (#941)** (#941)
+  a detached run can be watched: export RUN_WATCH_CMD (the bundled
+  skills/run/herdr-adapter.sh opens a herdr workspace per ticket with the live log, a
+  sidebar state and the current session's transcript; RUN_WATCH_EDITOR=code|cursor opens
+  the worktree). Every BUILD/REVIEW session is now named and carries a session id, so it
+  is listed in 'claude agents'. A TERM, INT or HUP to a detached run's printed pid or its
+  process group now stops the run through its trap and the log still ends with its exit
+  line; HUP exits 129.
+  Migration: none.
+
 ## v16.1.1
 
 ### `intake-toolkit` 7.0.1 → 7.0.2
