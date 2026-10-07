@@ -120,12 +120,12 @@ HERDR_PANE_ID=p-root SS_LOG="$LOG" SS_ISSUE=42 bounded_run 20 "$c/out" bash "$AD
 # (w3) a run that exits with no terminal line (killed, or died) is blocked with its exit code
 case_dir w3; printf '%s\n' '2026-10-07T00:00:01Z [run] round 2 of 3' '2026-10-07T00:00:02Z [run] terminated; claim left in place' '2026-10-07T00:00:03Z [run] detached run exited rc=143' > "$LOG"
 HERDR_PANE_ID=p-root SS_LOG="$LOG" SS_ISSUE=42 bounded_run 20 "$c/out" bash "$AD" watch
-reports | tail -n 1 | grep -q 'state blocked --message exited rc=143 with no terminal line$' && ok "(w3) [AC-9] no terminal line: blocked with the exit code" || bad "(w3) reports: $(reports | tr '\n' '|')"
+[[ "$(reports | tail -n 1)" == *'state blocked --message exited rc=143 with no terminal line' ]] && ok "(w3) [AC-9] no terminal line: blocked with the exit code" || bad "(w3) reports: $(reports | tr '\n' '|')"
 # (w4) live: the pane follows lines written after it started, a line written in two halves included
 case_dir w4; printf '%s\n' '2026-10-07T00:00:01Z [run] run x' > "$LOG"
 ( sleep 1; printf '%s\n' '2026-10-07T00:00:02Z [run] round 1 of 1' >> "$LOG"; printf 'terminal: approv' >> "$LOG"; sleep 1; printf 'ed\n2026-10-07T00:00:03Z [run] detached run exited rc=0\n' >> "$LOG" ) &
 HERDR_PANE_ID=p-root SS_LOG="$LOG" SS_ISSUE=42 bounded_run 20 "$c/out" bash "$AD" watch; rc=$?; wait
-[ "$rc" -eq 0 ] && reports | grep -q 'state working' && reports | grep -q 'state idle --message approved$' && ok "(w4) a live log is followed, a split line read whole, to its exit" || bad "(w4) rc=$rc reports: $(reports | tr '\n' '|')"
+[ "$rc" -eq 0 ] && grep -q '^pane report-agent .*state working' "$FAKE_HERDR/calls" && grep -q '^pane report-agent .*state idle --message approved$' "$FAKE_HERDR/calls" && ok "(w4) a live log is followed, a split line read whole, to its exit" || bad "(w4) rc=$rc reports: $(reports | tr '\n' '|')"
 case_dir w5; SS_LOG="$LOG" SS_ISSUE=42 bounded_run 5 "$c/out" bash "$AD" watch; rc=$?
 [ "$rc" -ne 0 ] && [ "$rc" -ne 124 ] && grep -q 'HERDR_PANE_ID' "$c/out" && [ ! -f "$FAKE_HERDR/calls" ] && ok "(w5) outside a herdr pane the watcher refuses, reporting on nobody else's pane" || bad "(w5) rc=$rc $(cat "$c/out")"
 
@@ -173,9 +173,11 @@ grep -qx '\[review 1.1\] waiting for its transcript (~/.claude\*/projects/\*/'"$
 
 echo "[herdr-adapter-selftest] what the adapter never calls"
 # AC-13: across every case above, none of the verbs that would let a watcher own a worktree, the server or a session
-if cat "$T"/*/herdr/calls 2>/dev/null | grep -qE '^(worktree (create|remove)|server|pane (send-text|send-keys)|agent (start|prompt)|integration|workspace close)( |$)'; then
-  bad "(n1) [AC-13] a forbidden herdr verb was called: $(cat "$T"/*/herdr/calls | grep -E '^(worktree|server|pane send|agent|integration|workspace close)' | head -n 3 | tr '\n' '|')"
-else ok "(n1) [AC-13] no worktree, server, send-text/keys, agent, integration or workspace close call in any case"; fi
+# grep reads the call logs itself: an unreadable log is rc 2, never a vacuous "no forbidden call"
+forbidden='^(worktree (create|remove)|server|pane (send-text|send-keys)|agent (start|prompt)|integration|workspace close)( |$)'
+grep -qE "$forbidden" "$T"/*/herdr/calls; n1=$?
+if [ "$n1" -eq 1 ]; then ok "(n1) [AC-13] no worktree, server, send-text/keys, agent, integration or workspace close call in any case"
+else bad "(n1) [AC-13] rc=$n1 — a forbidden herdr verb was called, or a call log could not be read: $(grep -hE "$forbidden" "$T"/*/herdr/calls 2>&1 | head -n 3 | tr '\n' '|')"; fi
 
 echo "[self-test] $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
