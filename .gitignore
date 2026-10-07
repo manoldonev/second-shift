@@ -29,3 +29,6 @@
 # session.json here in every checkout a session starts in, lane worktrees included. Left
 # untracked, it makes `git status --porcelain` non-empty and a finished build read as in flight.
 .claude/coderlm_state/
+
+# second-shift: each engineer's own branch prefix (never committed)
+.claude/second-shift.config.local.json
