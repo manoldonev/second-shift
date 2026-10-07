@@ -4,6 +4,42 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v16.1.0
+
+### `dev-pipeline` 16.0.0 → 16.1.0
+
+- **feat(dev-pipeline): per-engineer branch prefix in a gitignored config.local.json (#935)** (#935)
+  an engineer can override tracker.branchPrefix for their own runs
+  in a gitignored .claude/second-shift.config.local.json
+  ({"tracker":{"branchPrefix":"you/"}}). It may set nothing else; run.sh
+  stops with env-config-local otherwise, and config-lint checks it.
+  Migration: none. To use it, add .claude/second-shift.config.local.json
+  to the repo's .gitignore.
+  /second-shift:onboard asks for your own branch prefix and writes
+  it to the gitignored .claude/second-shift.config.local.json; the
+  session-start check reminds teammates without one, and flags the file
+  when it is not gitignored.
+  Migration: re-copy templates/consumer/second-shift-doctor.sh to
+  .claude/tools/second-shift-doctor.sh to get the reminder in an
+  already-onboarded repo.
+
+### `second-shift` 12.0.1 → 12.1.0
+
+- **feat(dev-pipeline): per-engineer branch prefix in a gitignored config.local.json (#935)** (#935)
+  an engineer can override tracker.branchPrefix for their own runs
+  in a gitignored .claude/second-shift.config.local.json
+  ({"tracker":{"branchPrefix":"you/"}}). It may set nothing else; run.sh
+  stops with env-config-local otherwise, and config-lint checks it.
+  Migration: none. To use it, add .claude/second-shift.config.local.json
+  to the repo's .gitignore.
+  /second-shift:onboard asks for your own branch prefix and writes
+  it to the gitignored .claude/second-shift.config.local.json; the
+  session-start check reminds teammates without one, and flags the file
+  when it is not gitignored.
+  Migration: re-copy templates/consumer/second-shift-doctor.sh to
+  .claude/tools/second-shift-doctor.sh to get the reminder in an
+  already-onboarded repo.
+
 ## v16.0.1
 
 ### `intake-toolkit` 7.0.0 → 7.0.1
