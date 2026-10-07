@@ -396,9 +396,8 @@ review screen for deletion: they read a verdict record the lane no longer writes
        Health check: `/second-shift:doctor`.
 4. State the restart verdict plainly: "Restart this Claude Code session after installing
    plugins — component registration happens at session start."
-5. **Print the first-run path — the onboarding finish line.** Do not dry-run here: the dry run
-   checks the intake record, which no ticket has yet, so it would stop at `env-no-record`. Print,
-   in order, as post-restart steps:
+5. **Print the first-run path — the onboarding finish line.** Print, in order, as post-restart
+   steps:
    1. Merge the onboarding PR first: a run cuts its worktree from the remote default branch,
       so its sessions read the plugin settings from there.
    2. `/intake-toolkit:intake <ticket>` on a small ticket with no external-infrastructure ACs —
@@ -407,10 +406,8 @@ review screen for deletion: they read a verdict record the lane no longer writes
    3. On the github tracker, the human queues it: `gh issue edit <ticket> --add-label
       ready-for-dev` (without it the scheduler exits 3, `not-queued`), plus `sonnet` or `opus`
       to pick the build model (optional: without one the run sizes it and records that it did).
-   4. `/dev-pipeline:run <ticket> --dry-run` — validates the config, the record, the lane's
-      commands and the design declaration and prints the branch, worktree and checks it would
-      use, writing nothing (labels are read only on a real launch) — then
-      `/dev-pipeline:run <ticket>`.
+   4. `/dev-pipeline:run <ticket>` — it checks the config, the record, the lane's commands and
+      the design declaration before it claims anything.
 
    `tracker.branchPrefix` is already set, and the bot/labels wall was handled in Step 3 for the
    github tracker.

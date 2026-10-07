@@ -308,8 +308,8 @@ grep -qE '^[|] build-1[.]1 [|] 3 [|] [$]2[.]44 [|]' "$FAKE_GH/pr-body.md" && ! g
 fixture l3e; printf 'build-pr\nreview-needs-work\n' > "$FAKE_CLAUDE_PLAN"; FAKE_COST=50.002 RUN_COST_CEILING=100 run_case "$d"; expect cost-spent "(l3e) 100.004 against a \$100 ceiling"
 grep -q '[$]100[.]01 exceeds the [$]100 ceiling' <<<"$OUT" && ok "(l3e) a cost-spent figure is rounded up, never to the ceiling itself" || bad "(l3e) $(grep 'exceeds' <<<"$OUT" | tail -n 1)"
 fixture l4; rm "$d/main/.claude/pipeline-state/42-ledger.md"; run_case "$d"; expect env-no-record "(l4) no intake record"; [ "$RC" -eq 3 ] && ok "(l4) [B6 K8] env-no-record exits 3 (resumable)" || bad "(l4) exit $RC"
-fixture l5; run_case "$d" --dry-run; expect dry-run "(l5) dry-run spawns nothing"; [ "$RC" -eq 0 ] && ok "(l5) [B2 A13] dry-run exits 0" || bad "(l5) exit $RC"
-[ ! -f "$FAKE_GH/calls" ] && ok "(l5) no claude call on dry-run" || bad "(l5) claude called on dry-run"
+fixture l5; run_case "$d" --dry-run; expect usage-dry-run "(l5) the removed --dry-run is refused by name"; [ "$RC" -eq 2 ] && ok "(l5) usage-dry-run exits 2" || bad "(l5) exit $RC"
+[ ! -f "$FAKE_GH/calls" ] && ok "(l5) nothing spawned on --dry-run" || bad "(l5) claude called on --dry-run"
 
 # (n) queue discipline and sizing, as the old lane enforced them
 fixture n1; printf 'opus\n' > "$FAKE_GH/labels"; run_case "$d"; expect not-queued "(n1) no queue label"
@@ -355,7 +355,7 @@ fixture p6; printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-needs-w
 fixture p7; printf 'build-pr\nreview-wrong-sha\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; [ "$RC" -eq 5 ] && ok "(p7) review-unbound exits 5" || bad "(p7) review-unbound exit $RC"
 fixture p8; printf 'build-pr-close\nreview-needs-work\nbuild-push-only\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect ticket-closed "(p8) a ticket closed MID-RUN expires the premise"
 [ "$RC" -eq 7 ] && ok "(p8) mid-run closed exits 7" || bad "(p8) exit $RC"
-fixture p9; run_case "$d" --review-model claude-sonnet-5 --dry-run; [ "$RC" -eq 2 ] && ok "(p9) --review-model without --review-model-basis is refused" || bad "(p9) exit $RC"
+fixture p9; run_case "$d" --review-model claude-sonnet-5; [ "$RC" -eq 2 ] && ok "(p9) --review-model without --review-model-basis is refused" || bad "(p9) exit $RC"
 fixture p10; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d" --build-model claude-sonnet-5 --model-basis "test" --review-model claude-sonnet-5 --review-model-basis "test"; expect approved "(p10) orchestrate.sh's --build-model and basis flags are accepted"
 grep -q 'models: build claude-sonnet-5 (test), review claude-sonnet-5 (test)' <<<"$OUT" && ok "(p10) bases logged" || bad "(p10) bases not logged"
 fixture p11; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"
@@ -504,7 +504,7 @@ printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"
 grep -q 'e2e-runner --all' "$FAKE_GH/prompt-1.txt" && grep -q 'Bash(e2e-runner\*)' "$FAKE_GH/args-1.txt" && ok "(v7) a when-globbed lane is named in the round-1 prompt and allowlist before any diff exists" || bad "(v7) lane missing from the prompt or allowlist"
 
 # (w) round-eight parity: PR conventions asserted, a stopped run still leaves its block,
-#     claimed-elsewhere exits 2, dry-run lists every lane, second run's block is its own
+#     claimed-elsewhere exits 2, second run's block is its own
 # E22 E23: a lane PR is a draft until a review approves its head — GitHub refuses to merge a draft
 fixture w1; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(w1) [E22 E23] a ready PR from the build"
 [ "$(cut -d' ' -f2 "$FAKE_GH/ready-calls" 2>/dev/null | tr '\n' ' ')" = "undo ready " ] && ok "(w1) [E22 E23] turned into a draft after the build, marked ready only on the approve" || bad "(w1) flips: $(tr '\n' '|' < "$FAKE_GH/ready-calls" 2>/dev/null)"
@@ -521,8 +521,6 @@ grep -q "Closes #42" "$FAKE_GH/prompt-2.txt" && ok "(w2) the convention finding 
 fixture w3; printf 'build-pr\nreview-wrong-sha\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect review-unbound "(w3) stopped after a PR exists"
 grep -q '| review-unbound |' "$FAKE_GH/pr-body.md" 2>/dev/null && ok "(w3) a stopped run still writes its run block into the PR body" || bad "(w3) no run block on a stopped run"
 fixture w4; echo in-progress > "$FAKE_GH/labels"; run_case "$d"; [ "$RC" -eq 2 ] && ok "(w4) claimed-elsewhere spawned nothing and exits 2" || bad "(w4) exit $RC"
-FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"commands":{"main":{"lint":"true","extraLanes":[{"name":"e2e","when":["src/**"],"commands":["e2e-runner --all"]}]}}}' fixture w5 ""
-run_case "$d" --dry-run; grep -q 'e2e-runner --all' <<<"$OUT" && ok "(w5) dry-run names the when-globbed lane" || bad "(w5) dry-run omits the lane"
 fixture w6; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(w6) first run"
 first_block="$(SD)/pr-body.md"; printf 'build-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; : > "$FAKE_GH/calls"; printf 'in-progress\nopus\n' > "$FAKE_GH/labels"
 ( cd "$d/main" && git fetch -q origin && git reset -q --hard origin/main ) ; run_case "$d" --resume; expect approved "(w6) second run on the same ticket"
@@ -640,13 +638,12 @@ if [ "\$1" = api ] && [[ "\$2" == *comments* ]]; then exit 1; fi; exec "$T/bin/g
 EOF
 chmod +x "$T/bin/gh-comments-dead"; RUN_GH="$T/bin/gh-comments-dead" run_case "$d"; expect env-tracker-unreadable "(aa3) an unreadable comment listing at verdict time is an environment refusal, not review-unbound"
 
-# (ab) round-fourteen parity: the gate's heading rule, and dry-run reads the receipt's checks
+# (ab) round-fourteen parity: the gate's heading rule
 FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"design":{"provider":"figma","liveRender":{"command":"true"}}}' fixture ab1 "- true" $'\n### DESIGN\n\nDesign: none — depth three, upper case\n\n## Design frames\n\n| RS | route | state | frame | must-show |\n| --- | --- | --- | --- | --- |\n| RS-1 | a | default | 1:2 | ok |\n'
 printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(ab1) the FIRST design section decides (disarmed), a later one does not merge into it; any depth, any case"
 grep -q 'arms no render state' <<<"$OUT" && ok "(ab1) not armed" || bad "(ab1) the second section leaked"
 FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"design":{"provider":"figma","liveRender":{"command":"true"}}}' fixture ab2 "- true" $'\n## Design notes\n\nDesign: none — a heading with trailing words is not the design section\n'
 run_case "$d"; expect env-design-undeclared "(ab2) '## Design notes' is not the design section"
-fixture ab3 "- echo CHECK-FROM-RECORD"; run_case "$d" --dry-run; grep -q 'CHECK-FROM-RECORD' <<<"$OUT" && ok "(ab3) dry-run lists the record's own checks before any commit exists" || bad "(ab3) dry-run omitted the record's checks"
 
 # (ac) round-fifteen parity: [] blockers, github key shape, a detached worktree after review, no ambient model seam
 FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/","labels":{"blockers":[]}},"paths":{"plansDir":"docs/plans"}}' fixture ac1
@@ -724,11 +721,9 @@ sids="$(for n in 1 2 3 4 5; do arg_after "$FAKE_GH/args-$n.txt" --session-id; do
 s1="$(sed -n 1p <<<"$sids")"; s5="$(sed -n 5p <<<"$sids")"
 grep -qF " [run] session: build 1.1 $s1 ~/.claude*/projects/*/$s1.jsonl" <<<"$OUT" && grep -qF " [run] session: review 2.2-retry1 $s5 ~/.claude*/projects/*/$s5.jsonl" <<<"$OUT" \
   && [ "$(grep -c ' \[run\] session: ' <<<"$OUT")" -eq 5 ] && ok "(wa1) [AC-2] one session line per spawn: role, attempt id, uuid, transcript glob" || bad "(wa1) [AC-2] $(grep 'session:' <<<"$OUT" | tr '\n' '|')"
-# (wa2-wa4) AC-5: a foreground run is never watched; a run that ends before its worktree is ready calls nothing
+# (wa2, wa4) AC-5: a foreground run is never watched; a run that ends before its worktree is ready calls nothing
 fixture wa2; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; RUN_WATCH_CMD="$T/bin/watch-fake" run_case "$d"; expect approved "(wa2) a foreground run with RUN_WATCH_CMD set"
 [ ! -f "$FAKE_GH/watch-calls" ] && [ "$(watch_lines)" -eq 1 ] && grep -q ' \[run\] watch: skipped for a foreground run' <<<"$OUT" && ok "(wa2) [AC-5] nothing invoked; the log says the watch was skipped" || bad "(wa2) [AC-5] calls: $(cat "$FAKE_GH/watch-calls" 2>/dev/null) lines: $(grep 'watch:' <<<"$OUT")"
-fixture wa3; RUN_WATCH_CMD="$T/bin/watch-fake" RUN_DETACHED_LOG="$d/detached.log" run_case "$d" --dry-run; expect dry-run "(wa3) a watched dry-run"
-[ ! -f "$FAKE_GH/watch-calls" ] && [ "$(watch_lines)" -eq 0 ] && ok "(wa3) [AC-5] a dry-run ends before any worktree: no call" || bad "(wa3) [AC-5] watch was called"
 fixture wa4; echo CLOSED > "$FAKE_GH/state"; RUN_WATCH_CMD="$T/bin/watch-fake" RUN_DETACHED_LOG="$d/detached.log" run_case "$d"; expect env-ticket-closed "(wa4) a watched run refused in preflight"
 [ ! -f "$FAKE_GH/watch-calls" ] && [ "$(watch_lines)" -eq 0 ] && ok "(wa4) [AC-5] a refusal before the worktree: no call" || bad "(wa4) [AC-5] watch was called"
 # (wb1-wb3) AC-6: a watch that fails, is missing or hangs changes nothing but its one line
@@ -1099,7 +1094,6 @@ grep -q 'had no terminator; text below it was not preserved' "$FAKE_GH/pr-body.m
 # (bb) baseBranch: the lane forks from, targets and reviews against the configured branch, not the remote default
 FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"baseBranch":"develop"}' fixture bb
 git -C "$d/main" switch -q -c develop && echo dev > "$d/main/src/dev-only.ts" && git -C "$d/main" add src/dev-only.ts && git -C "$d/main" commit -qm dev && git -C "$d/main" push -q -u origin develop 2>/dev/null && git -C "$d/main" switch -q main
-run_case "$d" --dry-run; grep -q 'create the worktree from origin/develop' <<<"$OUT" && ok "(bb) dry-run names the configured base" || bad "(bb) dry-run base: $(grep 'dry-run:' <<<"$OUT")"
 printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(bb) a run on a configured baseBranch"
 git -C "$d/origin.git" merge-base --is-ancestor develop second-shift/42 && ok "(bb) the branch is cut from origin/develop" || bad "(bb) the branch does not contain origin/develop"
 grep -q "gh pr create --draft --base develop" "$FAKE_GH/prompt-1.txt" && ok "(bb) the build opens its PR against develop" || bad "(bb) build prompt PR base: $(grep -o "against [^ ]*" "$FAKE_GH/prompt-1.txt")"

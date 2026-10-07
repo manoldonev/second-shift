@@ -3,7 +3,7 @@
 #
 # usage: run.sh <issue> [--build-model|--model <id>] [--model-basis <text>]
 #               [--review-model <id>] [--review-model-basis <text>]
-#               [--max-rounds N] [--dry-run] [--resume] [--detach] [--handoff]
+#               [--max-rounds N] [--resume] [--detach] [--handoff]
 #   The build model comes from the ticket's `opus` / `sonnet` label; --build-model overrides.
 #   Review defaults to `opus`; a departure needs --review-model-basis. The short forms `opus` /
 #   `sonnet` are passed through to `claude --model`, which resolves them to the current model of
@@ -32,7 +32,7 @@
 #   0 parse      (reads argv only; a usage error exits 2 with nothing written)
 #   1 environment(every config read fails closed under a named slug; nothing written)
 #   2 detach     (re-exec under setsid; the log's last line carries the run's exit code, a forwarded signal's too)
-#   3 preflight  (read-only, fixed order: record, lanes, design, dry-run, ticket open, model)
+#   3 preflight  (read-only, fixed order: record, lanes, design, ticket open, model)
 #   4 claim      (the first write: the label swap and the claim marker, or a re-entry)
 #   5 baseline   (worktree on the branch; the record is the branch's first commit, pushed)
 #   6 rounds     (premise; worktree at the pushed head; BUILD; in-flight check; one PR;
@@ -51,7 +51,7 @@
 #   - every session is a fresh process with a wall-clock bound; every attempt keeps its own files;
 #   - a regex or record form is stated exactly, never paraphrased.
 #
-# exit: 0 approved · dry-run · build-handoff
+# exit: 0 approved · build-handoff
 #       1 stopped for a human: build-no-pr, build-inflight(-unreadable), build-blocked, pr-ambiguous,
 #         closeout-inflight(-unreadable), staleness-unreadable
 #       2 usage-* (the argv), env-* (the environment; most fire before anything is spawned, but
@@ -71,7 +71,7 @@ usage_refusal() { echo "run.sh: $2" >&2; echo "terminal: $1"; exit 2; }
 CLAUDE="${RUN_CLAUDE:-claude}"; GH="${RUN_GH:-${GH:-gh}}"
 REVIEW_MODEL_DEFAULT="opus"
 ISSUE=""; MAX_ROUNDS=3; MAX_ROUNDS_SET=0; BUILD_MODEL=""; MODEL_BASIS=""
-REVIEW_MODEL="$REVIEW_MODEL_DEFAULT"; REVIEW_MODEL_BASIS=""; DRY_RUN=0; RESUME=0; DETACH=0; HANDOFF=0
+REVIEW_MODEL="$REVIEW_MODEL_DEFAULT"; REVIEW_MODEL_BASIS=""; RESUME=0; DETACH=0; HANDOFF=0
 KEEP_ARGS=()   # what a detached run re-executes with: everything but --detach
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -81,7 +81,7 @@ while [ $# -gt 0 ]; do
     --review-model-basis)   REVIEW_MODEL_BASIS="${2-}"; KEEP_ARGS+=("$1" "${2-}"); shift 2 ;;
     --max-rounds)           MAX_ROUNDS="${2-}"; MAX_ROUNDS_SET=1; KEEP_ARGS+=("$1" "${2-}"); shift 2 ;;
     --max-continuations)    usage_refusal usage-max-continuations "--max-continuations was removed in #718 along with the continuation budget it bounded: BUILD is spawned once per round, and a spawn that leaves no PR ends the run for a human to read. There is no value of this flag to pass." ;;
-    --dry-run)              DRY_RUN=1; KEEP_ARGS+=("$1"); shift ;;
+    --dry-run)              usage_refusal usage-dry-run "--dry-run was removed: the real run makes the same preflight checks before it claims anything, and stops on the first one that fails." ;;
     --resume)               RESUME=1; KEEP_ARGS+=("$1"); shift ;;
     --detach)               DETACH=1; shift ;;
     --handoff)              HANDOFF=1; shift ;;
@@ -104,7 +104,7 @@ now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 say() { echo "$(now) [run] $*"; }
 exit_code_for() { # the taxonomy a wrapper branches on
   case "$1" in
-    approved|dry-run|build-handoff) echo 0 ;;
+    approved|build-handoff) echo 0 ;;
     not-queued|env-no-record) echo 3 ;;
     usage-*|env-*|claimed-elsewhere) echo 2 ;;
     rounds-spent|checks-red-spent|cost-spent) echo 4 ;;
@@ -791,10 +791,6 @@ else
   for b in "$base" origin/main origin/master; do [ -n "$b" ] && git -C "$MAIN_ROOT" rev-parse -q --verify "$b" >/dev/null 2>&1 && { base="$b"; break; }; done
 fi
 BASE_NAME="${base#origin/}"
-if [ "$DRY_RUN" -eq 1 ]; then
-  say "dry-run: would claim, create the worktree from $base, commit the record, and run up to $MAX_ROUNDS rounds; checks: $(checks_list all 2>/dev/null | tr '\n' ';')"
-  echo "terminal: dry-run"; exit 0
-fi
 st="$(issue_state)"; [ -n "$st" ] || terminal env-tracker-unreadable "could not read #$ISSUE from the tracker"
 [ "$st" = OPEN ] || terminal env-ticket-closed "#$ISSUE is not open — nothing spawned, a preflight refusal like any other"
 if [ -z "$BUILD_MODEL" ] && [ "$HANDOFF" -eq 0 ]; then # an unsized ticket is refused with nothing written to the tracker
