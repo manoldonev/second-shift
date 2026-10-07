@@ -95,6 +95,10 @@ minutes** whatever its `timeout`. Run it as `nohup <cmd> > <log> 2>&1` under `ru
 bare `&` is reaped too). A lane BUILD (`run.sh`) is the exception: it runs with background tasks off
 and its Bash timeouts raised to just inside its bound, so it runs the sweep in the foreground.
 
+**In an interactive session the sweep gates nothing.** CI runs it cold on every PR, so commit, push,
+open the PR and report without waiting for it; a sweep still running is a line in the report, with its
+log path. Never poll for it: a backgrounded command re-invokes the session when it exits.
+
 The recipe runs cold, excludes `tools/install-topology-selftest.sh` (run it directly when your
 change is about how plugins are installed), and a killed sweep leaves `mktemp` litter that can red
 the next run. The runner, the exclusion, the pass cache, concurrency and the scrub recipe:
