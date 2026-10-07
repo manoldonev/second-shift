@@ -257,7 +257,7 @@ Evidence-gathering is a fan-out of `spec-reviewer` + `codebase-explorer` that re
 
 **Verdict: `sub-issues-sequential` (ordered)**
 
-- Dependency analysis shows a clear chain (schema → service → controller)
+- Dependency analysis shows a clear chain of use cases, each end to end (use case A, then use case B that builds on it)
 - Parts share a module but add incrementally
 - Parts would collide on the same file if worked in parallel
 - Each part is meaningful and reviewable on its own
@@ -596,7 +596,7 @@ Use the impact surface to verify: if item A creates `types/Foo.ts` and item B im
 Group work items into:
 
 - **Independent clusters**: Groups with no dependencies between them (candidates for parallel sub-issues)
-- **Dependency chains**: Sequences where each item depends on the previous (candidates for `sub-issues-sequential`)
+- **Dependency chains**: Sequences where each item depends on the previous. Items that carry one use case through its layers (schema → service → endpoint) are one slice, not a chain; a chain of such use cases is the candidate for `sub-issues-sequential`
 - **Tightly coupled items**: Items with bidirectional dependencies (must stay together)
 
 ### Step D: Assess Ordering Flexibility
