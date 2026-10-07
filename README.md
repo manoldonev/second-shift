@@ -24,7 +24,7 @@ A teammate already did steps 2 and 3. In each repo you work in:
 - Read `.claude/SECOND-SHIFT.md` before you trust the folder. It says what installs and which hooks run, at the release the repo pins.
 - Run `claude` there and accept the marketplace and plugin prompts. Don't add the marketplace by hand first: a registration you add has no pin, and on your machine it overrides the repo's.
 - No plugin prompts? The repo leaves installs to each machine: run `claude plugin install <plugin>@second-shift` for each plugin in `.claude/second-shift.lock.json`, without `--scope project`, which would edit the shared settings.
-- Restart Claude Code, run `/second-shift:doctor` until it shows no FAIL, and pick up at [step 5](#5-pick-a-first-ticket). The tracker, commands and branch prefix come from the repo; `gh`, the tracker connection and Figma (step 1) are yours to set up.
+- Restart Claude Code, run `/second-shift:doctor` until it shows no FAIL, and pick up at [step 5](#5-pick-a-first-ticket). The tracker, commands and branch prefix come from the repo; `gh`, the tracker connection and Figma (step 1) are yours to set up. To branch under your own prefix instead of the team's, put `{ "tracker": { "branchPrefix": "you/" } }` in `.claude/second-shift.config.local.json`, which stays out of git; the session-start check reminds you until the file exists.
 
 To turn a plugin off for yourself, use `.claude/settings.local.json` (git ignores it), never the shared settings. This README follows the newest release; the [CHANGELOG](CHANGELOG.md) lists what changed since your repo's `ref`.
 
@@ -54,7 +54,7 @@ claude
 /second-shift:onboard
 ```
 
-It detects your tracker and commands, asks its questions in one batch (branch prefix, creating the GitHub labels, an optional bot identity, design support if the repo has a UI, and a few optional extras), and shows you the whole config on one screen to accept or edit. Say yes to the labels, say yes to design support only if this repo renders a UI, and take the default on everything else. Then it writes:
+It detects your tracker and commands, asks its questions in one batch (the team's branch prefix and your own, creating the GitHub labels, an optional bot identity, design support if the repo has a UI, and a few optional extras), and shows you the whole config on one screen to accept or edit. Say yes to the labels, say yes to design support only if this repo renders a UI, and take the default on everything else. Then it writes:
 
 - `.claude/second-shift.config.json`: your tracker and commands
 - `.claude/settings.json` and `.claude/second-shift.lock.json`: the plugins, pinned to a release
@@ -65,7 +65,7 @@ It ends by printing one `claude plugin install <plugin>@second-shift --scope pro
 
 Every run starts in a fresh checkout with no `node_modules` or `.venv`, so the config needs an install step. On the review screen it is a commented-out `lanes` line (for example `npm ci`): uncomment it before you accept. If your stack was not detected, the commands are all `null` too; fill them in. Both are a few lines: [onboarding.md → Finish the command table](docs/onboarding.md#finish-the-command-table-and-give-it-a-setup-step).
 
-Commit the files it wrote in one PR, and add `.claude/pipeline-state/` and `.claude/audit/` to `.gitignore` in it: that is where intake and the run keep their working files. **Merge the PR before step 8.** Each run works in a fresh checkout of your base branch (`baseBranch` when set, else the default branch), so the plugin settings must already be there.
+Commit the files it wrote in one PR, and add `.claude/pipeline-state/` and `.claude/audit/` to `.gitignore` in it: that is where intake and the run keep their working files. Onboard already added `.claude/second-shift.config.local.json`, the file that holds your own branch prefix; never commit the file itself. **Merge the PR before step 8.** Each run works in a fresh checkout of your base branch (`baseBranch` when set, else the default branch), so the plugin settings must already be there.
 
 ### 4. Check the install
 
