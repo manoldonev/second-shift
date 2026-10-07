@@ -4,6 +4,24 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v16.2.1
+
+### `dev-pipeline` 16.2.0 → 16.2.1
+
+- **refactor(dev-pipeline): remove --dry-run (#943)** (#943)
+  `/dev-pipeline:run --dry-run` is removed. The run makes the same
+  checks before it claims the ticket and stops on the first one that fails.
+  Passing the flag now stops with `usage-dry-run` (exit 2).
+  Migration: drop `--dry-run` from any saved launch command.
+
+### `second-shift` 12.1.0 → 12.1.1
+
+- **refactor(dev-pipeline): remove --dry-run (#943)** (#943)
+  `/dev-pipeline:run --dry-run` is removed. The run makes the same
+  checks before it claims the ticket and stops on the first one that fails.
+  Passing the flag now stops with `usage-dry-run` (exit 2).
+  Migration: drop `--dry-run` from any saved launch command.
+
 ## v16.2.0
 
 ### `dev-pipeline` 16.1.0 → 16.2.0
