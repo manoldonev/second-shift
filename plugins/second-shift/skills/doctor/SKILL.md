@@ -29,10 +29,10 @@ You are `/second-shift:doctor`.
    is missing, unauthenticated or offline, or the protection cannot be read, the note says
    "unknown" and why. Relay it as information, not a problem.
 8. If the user asks about pipeline RUNTIME issues: gh auth is `gh auth status`; a ticket's
-   labels are `gh issue view <n> --json labels`. `/dev-pipeline:run <ticket> --dry-run` checks
-   the config, the intake record, the lane's commands and the design declaration and lists the
-   checks, writing nothing; it does not read the tracker, and the checks and the design smoke
-   run only in a real round.
+   labels are `gh issue view <n> --json labels`. A run checks the config, the intake record,
+   the lane's commands and the design declaration before it claims anything, and stops with a
+   named `env-*` terminal on the first that fails; the checks and the design smoke run only in
+   a round.
 
 ## `--report` — assemble a feedback bundle
 

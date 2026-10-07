@@ -218,7 +218,7 @@ Set `tracker.branchPrefix`, and in a shared repo make it a team prefix: the conf
 An engineer who wants their own namespace overrides it for their runs only, in a gitignored
 `.claude/second-shift.config.local.json` (see [Per-engineer override](config-schema.md#per-engineer-override)).
 Without it the run borrows the prefix most of the remote's `<prefix>/<key>` branches already use,
-usually one person's; with nothing to derive from, or a tie, every run, the dry run included, stops
+usually one person's; with nothing to derive from, or a tie, every run stops
 with `env-branch-prefix`. The base branch
 is `baseBranch` when set, else the remote's default branch.
 

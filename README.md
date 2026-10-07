@@ -102,11 +102,8 @@ On JIRA there is no label to add: launching the run in step 8 is how you queue i
 ### 8. Run it
 
 ```text
-/dev-pipeline:run 42 --dry-run
 /dev-pipeline:run 42
 ```
-
-The dry run changes nothing and prints the branch, the worktree and the checks it would use. A clean dry run does not check the labels, so the real run can still stop on them.
 
 The real run takes the ticket and works in a separate checkout at `../your-repo-worktrees/42`. Its first commit is your intake record, at `docs/plans/your-repo-42-decisions.md`. Each round, a fresh build session writes code and opens or updates a **draft** PR, second-shift runs your checks itself, and a fresh review session posts one PR comment that starts with `verdict: approve` or `verdict: needs-work` and scores every decision in the record. A `needs-work` verdict starts another round; an approve marks the PR ready for review. Don't push to the run's branch while it works: a review only counts for the commit it read.
 
