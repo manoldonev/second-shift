@@ -4,6 +4,26 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v16.3.0
+
+### `dev-pipeline` 16.2.1 → 16.3.0
+
+- **feat(dev-pipeline): herdr launcher for parallel interactive builds (#947)** (#947)
+  `herdr-adapter.sh build <ticket>...` opens one herdr workspace
+  per ticket running your interactive `/dev-pipeline:build` session with the
+  worktree already added (and, with RUN_WATCH_EDITOR, the worktree in your
+  editor once it exists); `herdr-adapter.sh review <pr>` opens a fresh
+  review session in a `review` tab of that ticket's workspace. GitHub and
+  Jira repos both supported.
+  Migration: none.
+- **feat(dev-pipeline): minimize earlier verdict comments as outdated; retire the admission rule (#949)** (#949)
+  after a later verdict binds, the PR's earlier verdict comments are
+  collapsed as "outdated" so only the binding one shows expanded — in lane runs
+  and after a manual /dev-pipeline:review. Notices and other people's comments
+  are never touched; a failed minimize is reported and changes no outcome.
+  Migration: none (a bot's GitHub App needs the permission to minimize PR
+  comments; without it the run block reports the refusal).
+
 ## v16.2.1
 
 ### `dev-pipeline` 16.2.0 → 16.2.1
