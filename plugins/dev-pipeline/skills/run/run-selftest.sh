@@ -25,7 +25,7 @@ for _v in $(compgen -e HERDR_) RUN_WATCH_CMD RUN_WATCH_EDITOR RUN_DETACHED_LOG; 
 mkdir -p "$T/bin"
 cat > "$T/bin/gh" <<'EOF'
 #!/usr/bin/env bash
-# state dir: $FAKE_GH — files: state, labels, prs, comments.json (array), cost-comments, statuses (commit-status posts)
+# state dir: $FAKE_GH — files: state, labels, prs, comments.json (array), cost-comments, statuses (commit-status posts), minimized (minimizeComment calls)
 S="$FAKE_GH"; sub="$1 $2"; path="${2:-}"; shift 2
 case "$sub" in
   "issue view")  case "$*" in *state*) cat "$S/state" ;; *labels*) cat "$S/labels" 2>/dev/null ;; esac ;;
@@ -49,7 +49,9 @@ case "$sub" in
                    *) for a in "$@"; do case "$a" in body=@*) cp "${a#body=@}" "$S/pr-body.md" ;; esac; done ;;
                  esac ;;
   "api user")    echo tester ;;
-  api*)          case "$path" in *comments*) cat "$S/comments.json" ;; *pulls*) echo '{"body":"built-by: fake"}' ;; *) echo '{}' ;; esac ;;
+  "api graphql") [ -f "$S/minimize-fail" ] && { cat "$S/minimize-fail" >&2; exit 1; }   # one line per minimize: who, the node id
+                 for a in "$@"; do case "$a" in id=*) echo "${FAKE_GH_AS:-operator} ${a#id=}" >> "$S/minimized" ;; esac; done; echo '{}' ;;
+  api*)         case "$path" in *comments*) cat "$S/comments.json" ;; *pulls*) echo '{"body":"built-by: fake"}' ;; *) echo '{}' ;; esac ;;
   *) echo "fake gh: unhandled $sub $*" >&2; exit 1 ;;
 esac
 EOF
@@ -94,7 +96,7 @@ case "$plan" in
     sha=$(git rev-parse "origin/$branch"); [ "$plan" = review-wrong-sha ] && sha=deadbeef
     v=approve; case "$plan" in review-needs-work*) v=needs-work ;; esac
     ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    jq --arg b "verdict: $v"$'\n'"reviewed: $sha"$'\n'"| D-1 | honored |" --arg t "$ts" --arg u "${FAKE_VERDICT_AUTHOR:-tester}" --arg ut "${FAKE_VERDICT_AUTHOR_TYPE:-User}" '. + [{body:$b,user:{login:$u,type:$ut},created_at:$t,updated_at:$t,html_url:"https://x/pr/7#verdict"}]' "$S/comments.json" > "$S/c.tmp" && mv "$S/c.tmp" "$S/comments.json"
+    jq --arg b "verdict: $v"$'\n'"reviewed: $sha"$'\n'"| D-1 | honored |" --arg t "$ts" --arg u "${FAKE_VERDICT_AUTHOR:-tester}" --arg ut "${FAKE_VERDICT_AUTHOR_TYPE:-User}" '. + [{id:(length+1),node_id:"N\(length+1)",body:$b,user:{login:$u,type:$ut},created_at:$t,updated_at:$t,html_url:"https://x/pr/7#verdict"}]' "$S/comments.json" > "$S/c.tmp" && mv "$S/c.tmp" "$S/comments.json"
     case "$plan" in
       review-approve-dirty) echo scratch > review-scratch.txt ;;
       review-approve-runtime) mkdir -p .claude/storage; echo raw > .claude/storage/upload-1.bin ;;   # gitignored: `status --porcelain` cannot see it
@@ -103,13 +105,13 @@ case "$plan" in
       review-needs-work-diverge) git push -q -f origin "$(git commit-tree "HEAD~1^{tree}" -p HEAD~1 -m diverged)":"refs/heads/$branch" ;;
     esac ;;
   review-render-unavailable) sha=$(git rev-parse "origin/$branch"); ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    jq --arg b "verdict: needs-work"$'\n'"reviewed: $sha"$'\n'"reason: render-unavailable" --arg t "$ts" --arg u "${FAKE_VERDICT_AUTHOR:-tester}" --arg ut "${FAKE_VERDICT_AUTHOR_TYPE:-User}" '. + [{body:$b,user:{login:$u,type:$ut},created_at:$t,updated_at:$t,html_url:"https://x/pr/7#verdict"}]' "$S/comments.json" > "$S/c.tmp" && mv "$S/c.tmp" "$S/comments.json" ;;
+    jq --arg b "verdict: needs-work"$'\n'"reviewed: $sha"$'\n'"reason: render-unavailable" --arg t "$ts" --arg u "${FAKE_VERDICT_AUTHOR:-tester}" --arg ut "${FAKE_VERDICT_AUTHOR_TYPE:-User}" '. + [{id:(length+1),node_id:"N\(length+1)",body:$b,user:{login:$u,type:$ut},created_at:$t,updated_at:$t,html_url:"https://x/pr/7#verdict"}]' "$S/comments.json" > "$S/c.tmp" && mv "$S/c.tmp" "$S/comments.json" ;;
   review-two-verdicts) # both bind; the LAST posted wins: $FAKE_ORDER = needs-work,approve or approve,needs-work
     sha=$(git rev-parse "origin/$branch"); for v in ${FAKE_ORDER//,/ }; do ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-      jq --arg b "verdict: $v"$'\n'"reviewed: $sha" --arg t "$ts" --arg u "${FAKE_VERDICT_AUTHOR:-tester}" --arg ut "${FAKE_VERDICT_AUTHOR_TYPE:-User}" '. + [{body:$b,user:{login:$u,type:$ut},created_at:$t,updated_at:$t,html_url:"https://x/pr/7#verdict"}]' "$S/comments.json" > "$S/c.tmp" && mv "$S/c.tmp" "$S/comments.json"; done ;;
+      jq --arg b "verdict: $v"$'\n'"reviewed: $sha" --arg t "$ts" --arg u "${FAKE_VERDICT_AUTHOR:-tester}" --arg ut "${FAKE_VERDICT_AUTHOR_TYPE:-User}" '. + [{id:(length+1),node_id:"N\(length+1)",body:$b,user:{login:$u,type:$ut},created_at:$t,updated_at:$t,html_url:"https://x/pr/7#verdict"}]' "$S/comments.json" > "$S/c.tmp" && mv "$S/c.tmp" "$S/comments.json"; done ;;
   review-silent)   : ;;
   review-detach)   git checkout -q --detach "origin/$branch"; sha=$(git rev-parse "origin/$branch"); ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    jq --arg b "verdict: needs-work"$'\n'"reviewed: $sha" --arg t "$ts" --arg u "${FAKE_VERDICT_AUTHOR:-tester}" --arg ut "${FAKE_VERDICT_AUTHOR_TYPE:-User}" '. + [{body:$b,user:{login:$u,type:$ut},created_at:$t,updated_at:$t,html_url:"https://x/pr/7#verdict"}]' "$S/comments.json" > "$S/c.tmp" && mv "$S/c.tmp" "$S/comments.json" ;;
+    jq --arg b "verdict: needs-work"$'\n'"reviewed: $sha" --arg t "$ts" --arg u "${FAKE_VERDICT_AUTHOR:-tester}" --arg ut "${FAKE_VERDICT_AUTHOR_TYPE:-User}" '. + [{id:(length+1),node_id:"N\(length+1)",body:$b,user:{login:$u,type:$ut},created_at:$t,updated_at:$t,html_url:"https://x/pr/7#verdict"}]' "$S/comments.json" > "$S/c.tmp" && mv "$S/c.tmp" "$S/comments.json" ;;
 esac
 printf '{"subtype":"success","total_cost_usd":%s,"num_turns":3,"permission_denials":[{"tool_name":"Bash","tool_input":{"command":"ls /"}}]}\n' "$cost"
 EOF
@@ -1135,6 +1137,27 @@ FIXTURE_CONFIG="$CS_BOT_CONFIG" fixture cs8; printf 'build-pr\nreview-approve\n'
 expect approved "(cs8) a bot the App denies statuses"
 grep -q "^status: NOT posted .*(HTTP 403) — the bot's GitHub App needs the 'Commit statuses: write' permission$" "$FAKE_GH/pr-body.md" && ok "(cs8) [D-7] the run block names the missing App permission" || bad "(cs8) run block: $(grep status "$FAKE_GH/pr-body.md")"
 grep -q '(HTTP 422)$' "$T/cs5/gh/pr-body.md" 2>/dev/null && ! grep -q 'Commit statuses' "$T/cs5/gh/pr-body.md" && ok "(cs5) [D-7] no App hint without a bot or a 403/404" || bad "(cs5) [D-7] hint leaked: $(grep status "$T/cs5/gh/pr-body.md")"
+
+# (mv) #946: once a verdict binds, the PR's earlier lane verdicts are minimized as outdated — never a notice, never a stranger's
+mv_seed() { # a stranger's verdict-shaped comment and a lane notice, posted before the run
+  jq '. + [{id:1,node_id:"N1",body:"verdict: needs-work\nreviewed: x",user:{login:"stranger",type:"User"},created_at:"2020-01-01T00:00:00Z",updated_at:"2020-01-01T00:00:00Z"},
+           {id:2,node_id:"N2",body:"the head moved during the review; verdict: approve no longer binds",user:{login:"tester",type:"User"},created_at:"2020-01-01T00:00:00Z",updated_at:"2020-01-01T00:00:00Z"}]' \
+    "$FAKE_GH/comments.json" > "$FAKE_GH/c.tmp" && mv "$FAKE_GH/c.tmp" "$FAKE_GH/comments.json"; }
+fixture mv1; mv_seed; printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(mv1) needs-work, then approve"
+[ "$(cat "$FAKE_GH/minimized" 2>/dev/null)" = "operator N3" ] && ok "(mv1) [D-3 D-4 D-1] the earlier needs-work is minimized; the bound approve, the notice and the stranger's are not" \
+  || bad "(mv1) minimized: $(tr '\n' '|' < "$FAKE_GH/minimized" 2>/dev/null)"
+fixture mv2; printf 'build-pr\nreview-two-verdicts\n' > "$FAKE_CLAUDE_PLAN"; FAKE_ORDER=needs-work,approve run_case "$d"; expect approved "(mv2) two verdicts in one window"
+[ "$(cat "$FAKE_GH/minimized" 2>/dev/null)" = "operator N1" ] && ok "(mv2) [D-9] the earlier verdict of the same window is minimized, the bound one is not" \
+  || bad "(mv2) minimized: $(tr '\n' '|' < "$FAKE_GH/minimized" 2>/dev/null)"
+fixture mv3; mv_seed; printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-approve-and-push\nreview-approve-and-push\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect review-unbound "(mv3) the later verdicts voided by a moved head"
+[ ! -s "$FAKE_GH/minimized" ] && ok "(mv3) [D-3] a voided verdict minimizes nothing: the bound needs-work stays expanded" || bad "(mv3) minimized: $(tr '\n' '|' < "$FAKE_GH/minimized")"
+fixture mv4; printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; echo 'gh: Resource not accessible by integration (HTTP 403)' > "$FAKE_GH/minimize-fail"; run_case "$d"
+expect approved "(mv4) [D-7] a failed minimize leaves the terminal unchanged"
+grep -q "state=success" "$FAKE_GH/statuses" 2>/dev/null && ok "(mv4) [D-7] the commit status still posts" || bad "(mv4) statuses: $(cat "$FAKE_GH/statuses" 2>/dev/null)"
+grep -q "^verdicts: earlier ones NOT all minimized — comment 1 NOT minimized — gh: Resource not accessible by integration (HTTP 403)" "$FAKE_GH/pr-body.md" \
+  && ok "(mv4) [D-7] the failed minimize is one run-block line" || bad "(mv4) run block: $(grep verdicts "$FAKE_GH/pr-body.md")"
+FIXTURE_CONFIG="$CS_BOT_CONFIG" fixture mv5; printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; cs_bot; expect approved "(mv5) a run with a bot"
+[ "$(cat "$FAKE_GH/minimized" 2>/dev/null)" = "bot N1" ] && ok "(mv5) [D-6] the minimize is written through the bot" || bad "(mv5) minimized: $(tr '\n' '|' < "$FAKE_GH/minimized" 2>/dev/null)"
 
 # (m) rounds spent
 fixture m; printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-needs-work\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d" --max-rounds 2; expect rounds-spent "(m) two needs-work rounds"

@@ -68,6 +68,12 @@ review's context.
    the row table, then the findings. `approve` iff there are no blockers. The format matches the
    lane's own verdicts, but no scheduler reads this one: a finished run has exited, and a re-launch
    builds before it reviews. It is for the human who decides the merge. Never edit it.
+   Then collapse the PR's earlier verdicts as outdated, with the same `gh` you posted through:
+   `GH=<that gh> bash <this skill's base directory>/../../tools/minimize-verdicts.sh <pr> <comment id>`
+   ([the script](../../tools/minimize-verdicts.sh); the id is the number after `#issuecomment-` in
+   the URL your post printed). It minimizes only lane-authored `verdict:` comments posted before yours,
+   never a notice or anyone else's. If it fails, say so in your session output — not in a PR
+   comment — and go on; never retry it as yourself in the bot's place.
    Then re-check `headRefOid`. If it is no longer the sha on your `reviewed:` line, the head moved
    under your review: post no status, and say so in a plain PR comment. Otherwise post the same
    verdict as a commit status on that sha, with the same `gh` (the bot when `--status` is `ok`):

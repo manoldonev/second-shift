@@ -1,7 +1,6 @@
 # second-shift — repo conventions
 
-This repo IS the second-shift marketplace. It consumes itself as a smoke test, not as evidence:
-what the product should do is measured on consumer repos' committed records.
+This repo IS the second-shift marketplace. It consumes itself as a smoke test.
 
 ## The guiding light: no silent decisions
 
@@ -9,18 +8,11 @@ what the product should do is measured on consumer repos' committed records.
 decisions. Every material decision names who made it — the ticket, a human's answer, the
 codebase, an explicit deferral, or the agent under your standing delegation — and a departure from
 the record is written down, never buried. Ask, build and review all serve that one
-idea; we hold that the asking is the make-or-break step. We develop it against what consumer
-records show, never against this repo's own lane."*
-
-**Admission.** A ticket enters the lane only with a failure seen in a consumer — a blocker or
-an extra round in a consumer run, or documented shipped behavior failing there — stated in the
-ticket body. A red seen only in this repo's dogfood lane or the selftests is fixed by hand or not
-filed.
+idea; we hold that the asking is the make-or-break step."*
 
 **Only the operator queues or launches the lane in this repo.** A session never applies
 `ready-for-dev` (intake slices use the no-queue-label form) and never runs `run.sh` or
 `/dev-pipeline:run` on a ticket the operator has not queued; on the scheduler's exit 3 it stops.
-It writes the admission evidence into the ticket body and stops.
 
 ## Never edit release artifacts in a feature PR
 
