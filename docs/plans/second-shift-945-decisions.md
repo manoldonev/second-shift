@@ -37,6 +37,11 @@
 | D-31 | Tracker support | Both trackers: build accepts what the repo's tracker accepts (GitHub integers, Jira keys), review resolves per tracker | user-answered | intent |
 | D-32 | Editor waiter detachment | run.sh's own idiom: nohup + perl POSIX::setsid + exec, stdio to /dev/null (probed: re-parented to pid 1, survives the launching group's HUP/TERM) | codebase-derived | fact |
 | D-33 | Editor once per worktree | A per-ticket lock under TMPDIR; a re-launch while a waiter waits starts no second one (probed: two waiters opened two windows) | codebase-derived | fact |
+| D-34 | Ticket shape checked before any call | `tracker.keyPattern`, when set, as run.sh applies it (case-insensitive, either tracker); then a github number `^[1-9][0-9]*$` or, under jira, the key shape `^[A-Za-z][A-Za-z0-9_]*-[1-9][0-9]*$`. Reason: AC-6 names "a key such as PROJ-12" but no shape for a repo without keyPattern | user-delegated | intent |
+| D-35 | A config build/review cannot use (present but not JSON, or `tracker.type` neither github nor jira) | Exit 2 before any herdr or gh call, naming it. Reason: run.sh refuses both, and the launcher's only no-launch exit is 2 | user-delegated | intent |
+| D-36 | A stale editor lock (its waiter killed or gone) | The lock holds the waiter's pid; a lock whose pid is dead is taken over by the next launch. Reason: otherwise one killed waiter blocks the editor for that ticket until TMPDIR is cleaned | user-delegated | intent |
+| D-37 | When the editor waiter starts | Only after the ticket's tab opened. Reason: a ticket whose tab failed has no session to cut the worktree, so its waiter could only time out | user-delegated | intent |
+| D-38 | `SECOND_SHIFT_CONFIG` and the build pane | Read by the adapter for `tracker.type`, not forwarded to the pane (the Data Contract forwards `RUN_WORKTREE_ROOT` only); run.sh in the pane reads the server's environment or `<main>/.claude/`. Reason: the contract is followed as written; a caller-only override is a parity gap for the operator's trial | user-delegated | intent |
 
 ## Open Regions
 

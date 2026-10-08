@@ -21,7 +21,10 @@ on the PR, and (under jira `writes: false`) stripping the Atlassian write tools.
    Re-launching on a ticket the lane already claimed re-enters it. A config and record with no
    checks at all is refused (`env-no-checks`), as a run would refuse it.
 2. **Read the `worktree:`, `baseline:` and `prompt:` lines** printed before the terminal, then
-   `/add-dir <worktree>` (the operator types it) so edits there do not prompt. Read the
+   `/add-dir <worktree>` (the operator types it) so edits there do not prompt. First run
+   `printenv SS_WT SS_ADAPTER` in the Bash tool: when `SS_WT` is set, the herdr launcher
+   (`herdr-adapter.sh build`) started this session with the worktree already added, and
+   `/add-dir <worktree>` is only the fallback if an edit there prompts. Read the
    prompt file whole. It is the task: the ticket to fetch, the binding decision record (committed
    as the branch's first commit), the checks to make green, and the PR body's required lines.
 3. **Build in the worktree.** Put the `cd <worktree>` in the same shell call as every command: the
@@ -33,7 +36,9 @@ on the PR, and (under jira `writes: false`) stripping the Atlassian write tools.
 4. **Open the PR** exactly as the prompt says (a draft, left a draft; `built-by:` line 1; record link;
    `Record baseline:`; `Closes`), after every listed check is green.
 5. **Hand off to review.** Tell the operator to run `/dev-pipeline:review <pr>` in a fresh
-   session. Do not review your own build, and never post a comment starting with `verdict:`.
+   session. In a session the herdr launcher started (`SS_WT` set), print the runnable
+   `bash "<value of SS_ADAPTER>" review <pr>`, the path written out in full, which opens that
+   fresh session in a `review` tab of the ticket's workspace. Do not review your own build, and never post a comment starting with `verdict:`.
    On `needs-work`, address or rebut each finding in this session and push; then a fresh review.
    While your handoff is the ticket's latest run comment, `/dev-pipeline:run <ticket>` refuses it
    (`claimed-elsewhere`) rather than build into your worktree; `--resume` hands it back to the lane.
