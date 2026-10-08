@@ -62,12 +62,6 @@ is told never to post one, and it has exited before the review starts.
 *substitutively*: the existing prose copies of the don't-split-for-splitting rule are replaced by
 this single anchor, rather than a new copy being added beside them.
 
-**P4/P5 posture (#641, #719):** the asymmetry this closes — P2/P3's growth principles gate
-mechanically; P4/P5's restraint principles did not, for months, despite this document saying so in
-its own text. P4/P5 are enforced by the operator at filing time (the admission rule in [`CLAUDE.md`](../CLAUDE.md)),
-not by a script; the last script that tried policed itself into an empty-trailer review round
-(#637).
-
 A register's rows must be judgments, not measurements. A row recording something the tree can
 compute — a file's size, a suite's runtime, a count — is a cache of the repo against itself, and
 nothing re-measures it, so it drifts silently while reading as authority. Measurements are taken at

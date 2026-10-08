@@ -689,7 +689,7 @@ verdict() { # verdict <start-iso> <end-iso> -> prints approve|needs-work and sav
         | select((.user.type // "") == "Bot" or (($me != "") and ((.user.login // "") == $me)))
         | select((.body | split("\n")[0]) | test("^verdict: (approve|needs-work)$"))
         | select((.body | split("\n")[1]) == ("reviewed: " + $h))
-        | (.body | split("\n")[0] | sub("^verdict: ";"")) + "\t" + (.body | @base64) + "\t" + (.html_url // "")' \
+        | (.body | split("\n")[0] | sub("^verdict: ";"")) + "\t" + (.body | @base64) + "\t" + (.html_url // "") + "\t" + ((.id // "") | tostring)' \
     | tail -n 1 > "$STATE/verdict.tsv"
   [ -s "$STATE/verdict.tsv" ] || return 1
   cut -f2 "$STATE/verdict.tsv" | base64 --decode > "$STATE/verdict-body.md"
@@ -717,6 +717,18 @@ review_status() {
     [ "$BOT_OK" -eq 1 ] && grep -qE 'HTTP 40[34]' <<<"$err" && why="$why — the bot's GitHub App needs the 'Commit statuses: write' permission"
   fi
   STATUS_NOTES="${STATUS_NOTES}status: NOT posted ($STATUS_CONTEXT=$state on $HEAD_SHA) — $why"$'\n'; say "status: NOT posted on $HEAD_SHA — $why"
+}
+# -- the earlier verdicts (#946 D-3 D-5 D-6 D-7): once a verdict binds, every earlier lane verdict on the PR is minimized
+# as outdated through $GH, so the bound one is the one a human sees expanded. A failure is one run-block line, never fatal --
+minimize_earlier_verdicts() {
+  local id repo err
+  id="$(cut -f4 "$STATE/verdict.tsv" 2>/dev/null)"
+  if [ -z "$id" ]; then err="the bound verdict's comment id was not read"
+  elif ! repo="$(repo_slug)"; then err="the repo slug could not be read"
+  elif err="$(GH="$GH" bash "$TOOLS/minimize-verdicts.sh" --repo "$repo" "$PR" "$id" 2>&1 >/dev/null)"; then
+    say "verdicts: earlier verdicts on PR #$PR minimized as outdated"; return 0
+  fi
+  STATUS_NOTES="${STATUS_NOTES}verdicts: earlier ones NOT all minimized — $(printf '%s' "$err" | tr '\n' ' ' | cut -c1-300)"$'\n'; say "verdicts: could not minimize every earlier verdict on PR #$PR"
 }
 # -- the draft hold (rows E22, E23): GitHub refuses to merge a draft, so a lane PR stays one until a review approves its
 # head; the scheduler owns both flips. A flip that fails is reported in the run block, never fatal --
@@ -1022,6 +1034,7 @@ while :; do
   done
   say "verdict: $VERDICT (reviewed $HEAD_SHA)"
   review_status
+  minimize_earlier_verdicts
   [ "$VERDICT" = approve ] && break
   # row H13: a review that could not render is the environment's failure, not the build's — no round is spent
   awk '{ sub(/\r$/, "") } $0 == "reason: render-unavailable" { f = 1 } END { exit !f }' "$STATE/verdict-body.md" \

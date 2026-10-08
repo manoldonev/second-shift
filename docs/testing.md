@@ -8,7 +8,7 @@ carries the reasoning and the operator-run adversarial recipe.
 
 ## What survives as a register
 
-[`docs/pipeline-manifesto.md`](pipeline-manifesto.md)'s P4/P5 posture names the register rule;
+[`docs/pipeline-manifesto.md`](pipeline-manifesto.md) names the register rule;
 this section is its consequence, not a second copy of it. A number a command could produce in one
 call is not committed as a table — it is re-derived when it is needed.
 
@@ -704,7 +704,6 @@ schedule turns it into noise.
    body, so the next reader can tell a considered deletion from a careless one.
 
 **What it is not.** Not a gate, not a CI job, not a substitute for the deterministic tiers. It is
-a periodic audit whose output is *prunes and hand fixes*, executed by the tiers above. Per the
-admission rule in `CLAUDE.md`, what it finds is fixed by hand or dropped, not filed.
+a periodic audit whose output is *prunes and hand fixes*, executed by the tiers above.
 
 **Cost is real.** The first audit ran ~40 agents over ~2.6M tokens. Budget for it deliberately.

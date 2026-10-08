@@ -11,7 +11,7 @@
 
 ## Maturity stage
 - Solo maintainer on a public, user-owned repo. What is enforced and what is only visible: `docs/pipeline-manifesto.md` (trust boundary).
-- This repo consumes itself as a smoke test. A dogfood-only or synthetic result may justify deleting harness-internal machinery; it never justifies deleting or keeping consumer-facing capability. Admission evidence: `CLAUDE.md`.
+- This repo consumes itself as a smoke test.
 - Harness-internal changes are made by hand, not through the lane: a hand-authored PR with no decision record is normal here.
 - Cost is change tax (how often unrelated PRs are forced to touch a file) and consumer rounds, not line count.
 
@@ -21,7 +21,7 @@
 - Capability scaffolding (prose telling the model how to work, stage choreography) is meant to shrink; removing it is expected. Adjudication scaffolding (a check the build did not run, a baseline it did not write, a verdict bound to a head it cannot move) must not be weakened. Lean in a run is not lean in enforcement.
 - Evidence ladder, strongest first: re-execution > reconciliation > committed record > tracker record > local record > prose claim. A local record is tamper-evident at best.
 - A new mechanism (script, contract, transport, supervision layer) earns its place only by deleting a bigger one; wiring an existing tested mechanism into a new call site is fine. A new committed artifact replaces a prose claim or a weaker record, never sits beside it.
-- Deliberately absent; re-adding needs consumer admission evidence: the milestone gate and stage choreography, the mutation sweep and its registers, the committed verdict-record lane, and the config keys configVersion 3 removed (`gates`, `stageParams`, `grillWaivers`, `topology`).
+- Deliberately absent: the milestone gate and stage choreography, the mutation sweep and its registers, the committed verdict-record lane, and the config keys configVersion 3 removed (`gates`, `stageParams`, `grillWaivers`, `topology`).
 - `scripts/check-fail-open-shapes.sh` is the remaining cover for fail-open and comparison lines; a new fail-open shape is a real finding.
 - `run.sh`: the header's "Rules every line below keeps" bind every change. Every exit prints `terminal: <slug>` and wrappers route on it, so renaming a slug or moving it to another exit code is a consumer-visible break, not a refactor.
 - Config reads fail closed: a present but unparseable config refuses (`env-config-unparseable`), never falls back to defaults. Zero configured checks is red unless `commands.<key>.allowUnverified` declares it.
