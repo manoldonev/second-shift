@@ -176,6 +176,15 @@ cmd_transcript() {
 }
 
 # ---------------------------------------------------------------- the watch call
+ws_for() { # ws_for <label> <cwd> — sets WS to the workspace labeled <label>, else one created unfocused on <cwd>.
+  # On a failed call it sets WHY and the caller's $out (the call's answer) and returns 1.
+  out="$("$HERDR" workspace list 2>&1)" || { WHY="workspace list failed"; return 1; }
+  WS="$(jq -r --arg l "$1" '[.result.workspaces[]? | select(.label == $l) | .workspace_id] | first // empty' <<<"$out" 2>/dev/null)" \
+    || { WHY="workspace list did not answer JSON"; return 1; }
+  [ -z "$WS" ] || return 0
+  out="$("$HERDR" workspace create --cwd "$2" --label "$1" --no-focus 2>&1)" || { WHY="workspace create failed"; return 1; }
+  WS="$(jq -r '.result.workspace.workspace_id // empty' <<<"$out" 2>/dev/null)"; [ -n "$WS" ] || { WHY="workspace create returned no id"; return 1; }
+}
 cmd_open() {
   local issue="$1" repo="$2" log="$3" wt="$4" label ws out tab root below
   [ -f "$log" ] || die "no run log at $log"
@@ -183,13 +192,7 @@ cmd_open() {
   # a launch from inside a herdr pane carries that pane's ids; nothing here may fall back to them (run.sh drops them too)
   unset HERDR_PANE_ID HERDR_TAB_ID HERDR_WORKSPACE_ID
   label="$repo#$issue"
-  out="$("$HERDR" workspace list 2>&1)" || die "workspace list failed: $out"
-  ws="$(jq -r --arg l "$label" '[.result.workspaces[]? | select(.label == $l) | .workspace_id] | first // empty' <<<"$out" 2>/dev/null)" \
-    || die "workspace list did not answer JSON: $out"
-  if [ -z "$ws" ]; then
-    out="$("$HERDR" workspace create --cwd "$wt" --label "$label" --no-focus 2>&1)" || die "workspace create failed: $out"
-    ws="$(jq -r '.result.workspace.workspace_id // empty' <<<"$out" 2>/dev/null)"; [ -n "$ws" ] || die "workspace create returned no id: $out"
-  fi
+  ws_for "$label" "$wt" || die "$WHY: $out"; ws="$WS"
   local envs=(--env "SS_LOG=$log" --env "SS_ISSUE=$issue" --env "SS_ADAPTER=$SELF")
   out="$("$HERDR" tab create --workspace "$ws" --cwd "$wt" --label "$(basename "$log" .log)" "${envs[@]}" --no-focus 2>&1)" || die "tab create failed: $out"
   tab="$(jq -r '.result.tab.tab_id // empty' <<<"$out" 2>/dev/null)"; root="$(jq -r '.result.root_pane.pane_id // empty' <<<"$out" 2>/dev/null)"
@@ -230,13 +233,7 @@ valid_ticket() { # the key run.sh would accept: tracker.keyPattern when set, the
 fail() { echo "herdr-adapter: $label: $* (${out//$'\n'/ })" >&2; } # one line naming the ticket: open_tab's $label and $out
 open_tab() { # open_tab <ticket> <tab label> <fixed text> <--env args...> — prints one failure line and returns 1 on any failed call
   local tlabel="$2" text="$3" label="$SLUG#$1" ws out tab pane; shift 3
-  out="$("$HERDR" workspace list 2>&1)" || { fail "workspace list failed"; return 1; }
-  ws="$(jq -r --arg l "$label" '[.result.workspaces[]? | select(.label == $l) | .workspace_id] | first // empty' <<<"$out" 2>/dev/null)" \
-    || { fail "workspace list did not answer JSON"; return 1; }
-  if [ -z "$ws" ]; then
-    out="$("$HERDR" workspace create --cwd "$MAIN" --label "$label" --no-focus 2>&1)" || { fail "workspace create failed"; return 1; }
-    ws="$(jq -r '.result.workspace.workspace_id // empty' <<<"$out" 2>/dev/null)"; [ -n "$ws" ] || { fail "workspace create returned no id"; return 1; }
-  fi
+  ws_for "$label" "$MAIN" || { fail "$WHY"; return 1; }; ws="$WS"
   out="$("$HERDR" tab create --workspace "$ws" --cwd "$MAIN" --label "$tlabel" "$@" --no-focus 2>&1)" || { fail "tab create failed"; return 1; }
   tab="$(jq -r '.result.tab.tab_id // empty' <<<"$out" 2>/dev/null)"; pane="$(jq -r '.result.root_pane.pane_id // empty' <<<"$out" 2>/dev/null)"
   [ -n "$tab" ] && [ -n "$pane" ] || { fail "tab create returned no tab or root pane id"; return 1; }
@@ -247,12 +244,14 @@ open_tab() { # open_tab <ticket> <tab label> <fixed text> <--env args...> — pr
   echo "herdr: $label: workspace $ws, tab $tab ($tlabel), pane $pane"
 }
 start_editor_waiter() { # start_editor_waiter <ticket> <worktree> — D-32 D-33: detached, one per ticket at a time
-  local tmp="${TMPDIR:-/tmp}" lock pid
+  local tmp="${TMPDIR:-/tmp}" lock pid secs
   case "${RUN_WATCH_EDITOR:-}" in
     "") return 0 ;;
     code|cursor) : ;;
     *) echo "herdr-adapter: RUN_WATCH_EDITOR='$RUN_WATCH_EDITOR' is not code or cursor; no editor opened" >&2; return 0 ;;
   esac
+  secs="${SS_EDITOR_WAIT_SECS:-300}"
+  [[ "$secs" =~ ^[0-9]+$ ]] || { echo "herdr-adapter: SS_EDITOR_WAIT_SECS='$secs' is not a whole number of seconds; waiting 300" >&2; secs=300; }
   tmp="${tmp%/}"; lock="$tmp/herdr-adapter-$SLUG-$1-editor.lock"
   if ! mkdir "$lock" 2>/dev/null; then
     pid="$(cat "$lock/pid" 2>/dev/null)"
@@ -262,12 +261,11 @@ start_editor_waiter() { # start_editor_waiter <ticket> <worktree> — D-32 D-33:
   fi
   command -v perl >/dev/null 2>&1 || { rm -rf "$lock"; echo "herdr-adapter: $SLUG#$1: no perl to detach the editor waiter; no editor opened" >&2; return 0; }
   nohup perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV or die "exec: $!\n"' -- \
-    bash "$SELF" editor-wait "$RUN_WATCH_EDITOR" "$2" "$tmp/herdr-adapter-$SLUG-$1-editor.log" "$lock" > /dev/null 2>&1 < /dev/null &
+    bash "$SELF" editor-wait "$RUN_WATCH_EDITOR" "$2" "$tmp/herdr-adapter-$SLUG-$1-editor.log" "$lock" "$secs" > /dev/null 2>&1 < /dev/null &
   { echo "$!" > "$lock/pid"; } 2>/dev/null   # a waiter that found the worktree at once has already released the lock
 }
-cmd_editor_wait() { # the detached waiter: <editor> <worktree> <give-up log> <lock>
-  local editor="$1" wt="$2" log="$3" lock="$4" secs="${SS_EDITOR_WAIT_SECS:-300}" t=0
-  [[ "$secs" =~ ^[0-9]+$ ]] || secs=300
+cmd_editor_wait() { # the detached waiter: <editor> <worktree> <give-up log> <lock> <bound in seconds, checked by the launcher>
+  local editor="$1" wt="$2" log="$3" lock="$4" secs="$5" t=0
   until [ -d "$wt" ]; do
     if [ "$t" -ge "$secs" ]; then
       echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) the worktree $wt never appeared within ${secs}s; no editor opened" >> "$log"

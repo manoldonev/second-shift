@@ -20,11 +20,11 @@ on the PR, and (under jira `writes: false`) stripping the Atlassian write tools.
    `/dev-pipeline:run`'s exit table and fix what the detail line names, exactly as for a run.
    Re-launching on a ticket the lane already claimed re-enters it. A config and record with no
    checks at all is refused (`env-no-checks`), as a run would refuse it.
-2. **Read the `worktree:`, `baseline:` and `prompt:` lines** printed before the terminal, then
-   `/add-dir <worktree>` (the operator types it) so edits there do not prompt. First run
-   `printenv SS_WT SS_ADAPTER` in the Bash tool: when `SS_WT` is set, the herdr launcher
-   (`herdr-adapter.sh build`) started this session with the worktree already added, and
-   `/add-dir <worktree>` is only the fallback if an edit there prompts. Read the
+2. **Read the `worktree:`, `baseline:` and `prompt:` lines** printed before the terminal, and run
+   `printenv SS_WT SS_ADAPTER` in the Bash tool. When `SS_WT` is set, the herdr launcher
+   (`herdr-adapter.sh build`) started this session with the worktree already added:
+   `/add-dir <worktree>` is only the fallback if an edit there prompts. Otherwise the operator
+   types `/add-dir <worktree>` now, so edits there do not prompt. Read the
    prompt file whole. It is the task: the ticket to fetch, the binding decision record (committed
    as the branch's first commit), the checks to make green, and the PR body's required lines.
 3. **Build in the worktree.** Put the `cd <worktree>` in the same shell call as every command: the

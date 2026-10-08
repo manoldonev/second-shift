@@ -14,13 +14,16 @@ trap 'rm -rf "$T"' EXIT
 for _v in $(compgen -e HERDR_) $(compgen -e GIT_) RUN_WATCH_EDITOR RUN_WORKTREE_ROOT SECOND_SHIFT_CONFIG SS_LOG SS_ISSUE SS_ADAPTER SS_WT SS_PR SS_EDITOR_WAIT_SECS; do unset "$_v"; done
 
 # ---- fakes: herdr answers the JSON shapes of herdr 0.9.3 and logs every call, one argv element per line. Ids carry the
-# call number, so a test can tell which call returned the id a later call names. `down` answers every call as a stopped
-# server does; `fail-on` fails any call carrying one of its lines as an argv element; `silent` times out wait-output ----
+# call number, so a test can tell which call returned the id a later call names. It records any herdr pane, tab or
+# workspace id it inherits to `env`: a call that runs in a herdr pane's context can act on it without naming it. `down`
+# answers every call as a stopped server does; `fail-on` fails any call carrying one of its lines as an argv element;
+# `silent` times out wait-output ----
 mkdir -p "$T/bin"
 cat > "$T/bin/herdr" <<'EOF'
 #!/usr/bin/env bash
 S="$FAKE_HERDR"; n=$(( $(cat "$S/n" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$S/n"
 printf '%s\n' "$@" > "$S/call-$n.txt"; echo "$*" >> "$S/calls"
+for v in HERDR_PANE_ID HERDR_TAB_ID HERDR_WORKSPACE_ID; do [ -z "${!v:-}" ] || echo "$v=${!v}" >> "$S/env"; done
 [ -f "$S/down" ] && { echo "{\"id\":\"cli:$1:$2\",\"error\":{\"code\":\"server_not_running\",\"message\":\"no herdr server is running at /tmp/herdr.sock; run \`herdr\` to start or attach it\"}}" >&2; exit 1; }
 if [ -f "$S/fail-on" ]; then for a in "$@"; do grep -qxF -- "$a" "$S/fail-on" && { echo "{\"id\":\"cli\",\"error\":{\"code\":\"failed\",\"message\":\"fake failure on $a\"}}" >&2; exit 1; }; done; fi
 case "$1 ${2:-}" in
@@ -42,9 +45,17 @@ while [ $# -gt 0 ]; do [ "$1" = --json ] && f="${2:-}"; shift; done
 [ -n "$f" ] && [ -f "$FAKE_GH/$f.json" ] || { echo 'GraphQL: Could not resolve to a PullRequest with the number of 7.' >&2; exit 1; }
 cat "$FAKE_GH/$f.json"
 EOF
-# shellcheck disable=SC2016  # the fake's own text: it expands when the fake runs. It appends, so two opens are two lines
-for e in code cursor; do printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$@" >> "$FAKE_HERDR/editor-%s.txt"\n' "$e" > "$T/bin/$e"; done
+# the editors append, so two opens are two lines; `editor-fails` makes them exit 1
+for e in code cursor; do
+  cat > "$T/bin/$e" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$@" >> "\$FAKE_HERDR/editor-$e.txt"
+[ ! -f "\$FAKE_HERDR/editor-fails" ]
+EOF
+done
 chmod +x "$T/bin/"*
+mkdir -p "$T/noperl"   # what build needs, and no perl
+for x in bash git jq dirname basename mkdir cat grep rm date sleep; do ln -s "$(command -v "$x")" "$T/noperl/$x"; done; ln -s "$T/bin/code" "$T/noperl/code"
 export PATH="$T/bin:$PATH" HERDR_BIN="$T/bin/herdr"
 
 case_dir() { # case_dir <name> — a fresh fake-herdr state, a run log at a path no shell may parse, a worktree
@@ -84,7 +95,8 @@ sc="$(call_of pane split)"
 [ -n "$sc" ] && [ "$(sed -n 3p "$sc")" = p3 ] && has_arg_pair "$sc" --direction down && has_arg_pair "$sc" --ratio 0.35 \
   && has_arg_pair "$sc" --env "SS_LOG=$LOG" && has_arg_pair "$sc" --env SS_ISSUE=42 && has_arg_pair "$sc" --env "SS_ADAPTER=$AD" && grep -qx -- --no-focus "$sc" \
   && ok "(o1) [AC-15 D-24] the transcript pane is split below the root with the larger share, inputs via --env" || bad "(o1) pane split: $(tr '\n' ' ' < "${sc:-/dev/null}")"
-! grep -q 'operator-' "$FAKE_HERDR"/call-*.txt && ok "(o1) [AC-21] launched from a herdr pane, no call names that pane, tab or workspace" || bad "(o1) [AC-21] $(grep -l 'operator-' "$FAKE_HERDR"/call-*.txt)"
+! grep -q 'operator-' "$FAKE_HERDR"/call-*.txt && [ ! -f "$FAKE_HERDR/env" ] \
+  && ok "(o1) [AC-21] launched from a herdr pane, no call names that pane, tab or workspace, nor inherits their ids" || bad "(o1) [AC-21] $(grep -l 'operator-' "$FAKE_HERDR"/call-*.txt) $(cat "$FAKE_HERDR/env" 2>/dev/null)"
 [ ! -f "$FAKE_HERDR/editor-code.txt" ] && [ ! -f "$FAKE_HERDR/editor-cursor.txt" ] && ok "(o1) [AC-10] RUN_WATCH_EDITOR unset: no editor" || bad "(o1) [AC-10] an editor opened"
 
 # (o2) AC-7 D-16: re-entry reuses the workspace matched by its label alone, and still opens a new tab
@@ -234,7 +246,8 @@ for n in 101 102 103; do
     || bad "(b1) [AC-2 AC-3] ticket $n's --env: $(tr '\n' ' ' < "$tc")"
 done
 [ "$FAIL" -eq "$f0" ] && ok "(b1) [AC-1 AC-2 AC-3] each ticket: acme#<n> created unfocused on the main checkout, a build tab in it with SS_WT/SS_ISSUE/SS_ADAPTER, the fixed text on its own pane"
-! grep -q 'operator-' "$FAKE_HERDR"/call-*.txt && ok "(b1) [AC-10] no call names the launching pane, tab or workspace" || bad "(b1) [AC-10] $(grep -l 'operator-' "$FAKE_HERDR"/call-*.txt)"
+! grep -q 'operator-' "$FAKE_HERDR"/call-*.txt && [ ! -f "$FAKE_HERDR/env" ] \
+  && ok "(b1) [AC-10] no call names the launching pane, tab or workspace, nor inherits their ids" || bad "(b1) [AC-10] $(grep -l 'operator-' "$FAKE_HERDR"/call-*.txt) $(cat "$FAKE_HERDR/env" 2>/dev/null)"
 [ ! -f "$FAKE_HERDR/editor-code.txt" ] && [ -z "$(ls -A "$c/tmp")" ] && ok "(b1) [AC-4] RUN_WATCH_EDITOR unset: no waiter, no editor" || bad "(b1) [AC-4] $(ls -A "$c/tmp")"
 
 # (b2) AC-0 AC-3 D-23: a subdirectory, a linked worktree and a symlinked path under another name all derive acme and its worktree root
@@ -259,9 +272,10 @@ bcase b3-run; echo p3 > "$FAKE_HERDR/fail-on"; in_dir "$G" build 101 102; rc=$? 
 bcase b3-ok; in_dir "$G" build 101; rc=$?; [ "$rc" -eq 0 ] && ok "(b3) [AC-5] all opened: exit 0" || bad "(b3-ok) rc=$rc"
 
 # (b4) the server is down: one line per ticket, exit 1, nothing past the first call of each
-bcase b4; touch "$FAKE_HERDR/down"; in_dir "$G" build 101 102 103; rc=$?
+bcase b4; touch "$FAKE_HERDR/down"; RUN_WATCH_EDITOR=code TMPDIR="$c/tmp" in_dir "$G" build 101 102 103; rc=$?
 [ "$rc" -eq 1 ] && [ "$(grep -c 'workspace list failed.*server_not_running' "$c/out")" -eq 3 ] && [ "$(wc -l < "$c/out" | tr -d ' ')" -eq 3 ] \
-  && [ "$(sort -u "$FAKE_HERDR/calls")" = "workspace list" ] && ok "(b4) a stopped server: one line per ticket naming it, exit 1, no server start" || bad "(b4) rc=$rc $(cat "$c/out")"
+  && [ "$(sort -u "$FAKE_HERDR/calls")" = "workspace list" ] && [ -z "$(ls -A "$c/tmp")" ] \
+  && ok "(b4) a stopped server: one line per ticket naming it, exit 1, no server start, no editor waiter" || bad "(b4) rc=$rc $(cat "$c/out") $(ls -A "$c/tmp")"
 
 # (b5) AC-6: a bad ticket anywhere is a usage error before any herdr call; a ticket named twice opens once
 f0=$FAIL
@@ -300,6 +314,9 @@ bcase b8-num; in_dir "$T/src/jacme-linked" build 12; rc=$?
 echo '{"tracker":{"type":"jira","keyPattern":"ABC-[0-9]+"}}' > "$T/kp.json"
 bcase b8-kp; SECOND_SHIFT_CONFIG="$T/kp.json" in_dir "$G" build PROJ-12; rc1=$?; SECOND_SHIFT_CONFIG="$T/kp.json" in_dir "$G" build ABC-3; rc2=$?
 [ "$rc1" -eq 2 ] && [ "$rc2" -eq 0 ] && [ -n "$(calls_with workspace create 'acme#ABC-3')" ] && ok "(b8) SECOND_SHIFT_CONFIG wins, and its tracker.keyPattern bounds the keys as run.sh does" || bad "(b8-kp) rc=$rc1/$rc2"
+echo 'not json' > "$T/nj.json"
+bcase b8-nj; SECOND_SHIFT_CONFIG="$T/nj.json" in_dir "$G" build 5; rc=$?
+[ "$rc" -eq 2 ] && grep -q 'is present but not JSON' "$c/out" && [ ! -f "$FAKE_HERDR/calls" ] && ok "(b8) a config that is not JSON is refused before any call" || bad "(b8-nj) rc=$rc $(cat "$c/out")"
 echo '{"tracker":{"type":"jria"}}' > "$T/typo.json"
 bcase b8-typo; SECOND_SHIFT_CONFIG="$T/typo.json" in_dir "$G" build 5; rc=$?
 [ "$rc" -eq 2 ] && [ ! -f "$FAKE_HERDR/calls" ] && ok "(b8) a tracker.type typo is refused before any call" || bad "(b8-typo) rc=$rc"
@@ -336,11 +353,41 @@ poll 10 test -f "$FAKE_HERDR/editor-code.txt"
 bcase e4; RUN_WATCH_EDITOR=vim TMPDIR="$c/tmp" in_dir "$G" build 42; rc=$?
 [ "$rc" -eq 0 ] && grep -q 'not code or cursor' "$c/out" && [ -z "$(ls -A "$c/tmp")" ] && ok "(e4) RUN_WATCH_EDITOR=vim: no waiter, said once" || bad "(e4) rc=$rc $(cat "$c/out")"
 
+# (e5) a ticket that fails to open starts no waiter; the others each start one
+bcase e5; echo 'acme#102' > "$FAKE_HERDR/fail-on"
+RUN_WORKTREE_ROOT="$c/wts" RUN_WATCH_EDITOR=code SS_EDITOR_WAIT_SECS=5 TMPDIR="$c/tmp" in_dir "$G" build 101 102 103; rc=$?
+locks="$(for l in "$c/tmp"/*.lock; do [ -d "$l" ] && printf '%s ' "$(basename "$l")"; done)"
+mkdir -p "$c/wts/101" "$c/wts/103"; poll 10 test ! -d "$c/tmp/herdr-adapter-acme-101-editor.lock" && poll 10 test ! -d "$c/tmp/herdr-adapter-acme-103-editor.lock"
+[ "$rc" -eq 1 ] && [ "$locks" = "herdr-adapter-acme-101-editor.lock herdr-adapter-acme-103-editor.lock " ] \
+  && ok "(e5) 102 fails to open: waiters for 101 and 103 only" || bad "(e5) rc=$rc locks: $locks"
+# (e6) a wait bound that is not a whole number of seconds is said, and 300 is used
+bcase e6; mkdir -p "$c/wts/42"; RUN_WORKTREE_ROOT="$c/wts" RUN_WATCH_EDITOR=code SS_EDITOR_WAIT_SECS=5m TMPDIR="$c/tmp" in_dir "$G" build 42; rc=$?
+poll 10 test -f "$FAKE_HERDR/editor-code.txt"
+[ "$rc" -eq 0 ] && grep -q "SS_EDITOR_WAIT_SECS='5m' is not a whole number of seconds; waiting 300" "$c/out" && [ -f "$FAKE_HERDR/editor-code.txt" ] \
+  && ok "(e6) SS_EDITOR_WAIT_SECS=5m: said once, the waiter still opens the worktree" || bad "(e6) rc=$rc $(cat "$c/out")"
+# (e7) an editor that fails is one line in the per-ticket log, and the lock is released
+bcase e7; mkdir -p "$c/wts/42"; touch "$FAKE_HERDR/editor-fails"
+RUN_WORKTREE_ROOT="$c/wts" RUN_WATCH_EDITOR=code SS_EDITOR_WAIT_SECS=5 TMPDIR="$c/tmp" in_dir "$G" build 42; rc=$?
+glog="$c/tmp/herdr-adapter-acme-42-editor.log"
+poll 10 test -f "$glog" && poll 5 test ! -d "$c/tmp/herdr-adapter-acme-42-editor.lock"
+[ "$rc" -eq 0 ] && [ "$(wc -l < "$glog" 2>/dev/null | tr -d ' ')" = 1 ] && grep -qF "code -n $c/wts/42 failed" "$glog" && [ ! -d "$c/tmp/herdr-adapter-acme-42-editor.lock" ] \
+  && ok "(e7) the editor fails: one line to the per-ticket log, the lock released" || bad "(e7) rc=$rc log: $(cat "$glog" 2>/dev/null)"
+# (e8) no perl to detach with: no waiter, no lock left behind, said once; the build tab still opens
+bcase e8; RUN_WORKTREE_ROOT="$c/wts" RUN_WATCH_EDITOR=code TMPDIR="$c/tmp" PATH="$T/noperl" in_dir "$G" build 42; rc=$?
+[ "$rc" -eq 0 ] && [ "$(grep -c 'no perl to detach the editor waiter' "$c/out")" -eq 1 ] && [ -z "$(ls -A "$c/tmp")" ] && [ -z "$(chain 'acme#42' SS_ISSUE=42 build "$BUILD_TEXT")" ] \
+  && ok "(e8) no perl: the tab opens, no waiter, no lock, said once" || bad "(e8) rc=$rc $(cat "$c/out") $(ls -A "$c/tmp")"
+# (e9) a lock with no pid yet is being taken by another launch: left alone, no second waiter
+bcase e9; mkdir -p "$c/wts/42" "$c/tmp/herdr-adapter-acme-42-editor.lock"
+RUN_WORKTREE_ROOT="$c/wts" RUN_WATCH_EDITOR=code SS_EDITOR_WAIT_SECS=5 TMPDIR="$c/tmp" in_dir "$G" build 42; rc=$?
+poll 3 test -f "$FAKE_HERDR/editor-code.txt"
+[ "$rc" -eq 0 ] && grep -q 'already waiting' "$c/out" && [ ! -f "$FAKE_HERDR/editor-code.txt" ] && [ -d "$c/tmp/herdr-adapter-acme-42-editor.lock" ] \
+  && ok "(e9) a lock with no pid yet is not taken over" || bad "(e9) rc=$rc $(cat "$c/out")"
+
 echo "[herdr-adapter-selftest] review"
 # (r1) AC-7: github — the PR's one closing reference names the workspace; a review tab with SS_PR, the fixed text
 bcase r1; echo '{"closingIssuesReferences":[{"id":"I_1","number":42,"url":"u"}]}' > "$FAKE_GH/closingIssuesReferences.json"
-HERDR_PANE_ID=operator-pane in_dir "$G/sub" review 7; rc=$?; why="$(chain 'acme#42' SS_PR=7 review "$REVIEW_TEXT")"
-[ "$rc" -eq 0 ] && [ -z "$why" ] && [ "$(cat "$FAKE_GH/calls")" = "pr view 7 --json closingIssuesReferences" ] && ! grep -q 'operator-' "$FAKE_HERDR"/call-*.txt \
+HERDR_PANE_ID=operator-pane HERDR_TAB_ID=operator-tab HERDR_WORKSPACE_ID=operator-ws in_dir "$G/sub" review 7; rc=$?; why="$(chain 'acme#42' SS_PR=7 review "$REVIEW_TEXT")"
+[ "$rc" -eq 0 ] && [ -z "$why" ] && [ "$(cat "$FAKE_GH/calls")" = "pr view 7 --json closingIssuesReferences" ] && ! grep -q 'operator-' "$FAKE_HERDR"/call-*.txt && [ ! -f "$FAKE_HERDR/env" ] \
   && [ "$(sed -n '/^--env$/{n;p;}' "$(calls_with tab create SS_PR=7)")" = SS_PR=7 ] \
   && ok "(r1) [AC-7 AC-10] closes #42: acme#42 created, a review tab on the main checkout, SS_PR its only --env, the fixed text" || bad "(r1) rc=$rc $why $(cat "$c/out")"
 # (r2) AC-7: the ticket's workspace exists (its build's) — reused, a new review tab
@@ -374,6 +421,12 @@ i=0; for b in $'### Jira Items\n(nothing)\n### Notes\nCloses [PROJ-1]' $'#### ji
   [ "$rc" -eq 1 ] && [ ! -f "$FAKE_HERDR/calls" ] && grep -qE 'closes (no ticket|2 tickets \(PROJ-1 PROJ-2\))' "$c/out" \
     && ok "(r5) [AC-8] jira: $(grep -oE 'closes (no ticket|2 tickets)' "$c/out"), exit 1, no herdr call" || bad "(r5-bad) rc=$rc $(cat "$c/out")"
 done
+
+# (r6) jira: a closed key tracker.keyPattern does not admit opens nothing
+bcase r6; jq -n --arg b $'### Jira Items\nCloses [PROJ-12]' '{body: $b}' > "$FAKE_GH/body.json"
+SECOND_SHIFT_CONFIG="$T/kp.json" in_dir "$G" review 7; rc=$?
+[ "$rc" -eq 1 ] && grep -qF "closes 'PROJ-12', which is not a jira ticket" "$c/out" && [ ! -f "$FAKE_HERDR/calls" ] \
+  && ok "(r6) jira: a closed key outside tracker.keyPattern: exit 1, named, no herdr call" || bad "(r6) rc=$rc $(cat "$c/out")"
 
 echo "[herdr-adapter-selftest] what the adapter never calls"
 # grep reads the call logs itself: an unreadable log is rc 2, never a vacuous "no forbidden call"
