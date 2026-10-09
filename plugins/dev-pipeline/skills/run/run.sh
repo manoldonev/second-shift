@@ -384,22 +384,34 @@ config_checks() { # config_checks [all]: lint/typecheck/test/format, then extraL
   local key; key="$(commands_key)"; [ -n "$key" ] || return 0
   jq -r --arg k "$key" '.commands[$k] | [.lint, .typecheck, .test, .format] | map(select(type=="string"))[]' "$CONFIG" 2>/dev/null
   if [ "${1:-}" = all ]; then jq -r --arg k "$key" '.commands[$k].extraLanes[]?.commands[]? | select(type=="string")' "$CONFIG" 2>/dev/null; return 0; fi
-  local lane hit g f
+  local lane
   while IFS= read -r lane; do
-    [ -n "$lane" ] || continue; hit=1
-    if [ "$(printf '%s' "$lane" | jq '.when | length')" -gt 0 ]; then
-      hit=0
-      while IFS= read -r g; do while IFS= read -r f; do # shellcheck disable=SC2254  # $g IS a glob, by contract
-        case "$f" in $g) hit=1 ;; esac; done <<EOF
+    [ -n "$lane" ] || continue
+    lane_hit "$lane" && printf '%s' "$lane" | jq -r '.commands[] | select(type=="string")'
+  done <<EOF
+$(extra_lanes)
+EOF
+}
+extra_lanes() { local key; key="$(commands_key)"; [ -n "$key" ] || return 0; jq -c --arg k "$key" '.commands[$k].extraLanes[]? | {name: (.name // ""), when: (.when // []), commands: (.commands // [])}' "$CONFIG" 2>/dev/null; }
+lane_hit() { # lane_hit <lane-json>: 0 when the lane has no `when` globs or one matches a file in $CHANGED
+  local g f
+  [ "$(printf '%s' "$1" | jq '.when | length')" -gt 0 ] || return 0
+  while IFS= read -r g; do while IFS= read -r f; do # shellcheck disable=SC2254  # $g IS a glob, by contract
+    case "$f" in $g) return 0 ;; esac; done <<EOF
 $CHANGED
 EOF
-      done <<EOF
-$(printf '%s' "$lane" | jq -r '.when[]')
-EOF
-    fi
-    [ "$hit" -eq 1 ] && printf '%s' "$lane" | jq -r '.commands[] | select(type=="string")'
   done <<EOF
-$(jq -c --arg k "$key" '.commands[$k].extraLanes[]? | {when: (.when // []), commands: (.commands // [])}' "$CONFIG" 2>/dev/null)
+$(printf '%s' "$1" | jq -r '.when[]')
+EOF
+  return 1
+}
+skipped_lanes() { # the name of each when-scoped extraLanes entry no file in $CHANGED matched, whether or not others ran (#956)
+  local lane
+  while IFS= read -r lane; do
+    [ -n "$lane" ] || continue
+    lane_hit "$lane" || printf '%s' "$lane" | jq -r '.name'
+  done <<EOF
+$(extra_lanes)
 EOF
 }
 allow_unverified() { local key; key="$(commands_key)"; [ -n "$key" ] && [ "$(jq -r --arg k "$key" '.commands[$k].allowUnverified // false' "$CONFIG" 2>/dev/null)" = true ]; }
@@ -496,14 +508,20 @@ smoke_red() { echo "RED: $*" >> "$SMOKE_LOG"; say "smoke: $*"; SMOKE_RC=1; }
 
 # -- the review input (rows I9-I11) --
 review_input() { # review_input <attempt> -> writes $STATE/review-input-<attempt>.md; 1 when a diff cannot be read (the caller refuses)
-  local out="$STATE/review-input-$1.md" ns full names
+  local out="$STATE/review-input-$1.md" ns full names lanes
   ns="$(git -C "$WT" diff --name-status "$FIRST"..HEAD 2>/dev/null)" || return 1
   full="$(git -C "$WT" diff "$FIRST"..HEAD 2>/dev/null)" || return 1
   names="$(git -C "$WT" diff --name-only "$FIRST"..HEAD 2>/dev/null)" || return 1
   {
-    echo "### Deleted or renamed test files"; awk '$1 ~ /^[DR]/ && $2 ~ /(\.spec\.|\.test\.|_test\.|\/tests?\/)/' <<<"$ns"; echo
-    echo "### Added skips / forced-green lines"; grep -nE '^\+.*(\.skip\(|\.only\(|\|\| *true|xit\(|xdescribe\()' <<<"$full" || echo "(none)"; echo
-    echo "### CI or check configuration edited"; grep -E '^\.github/|^\.gitlab|\.ya?ml$|^package\.json$|vitest\.config|jest\.config|\.eslintrc|tsconfig' <<<"$names" || echo "(none)"; echo
+    # stack-neutral and advisory (#956): on a non-JS repo an empty section must not read as clean evidence
+    echo "### Deleted or renamed test files"
+    awk '$1 ~ /^[DR]/ && $2 ~ /(\.spec\.|\.test\.|_test\.|_spec\.|(^|\/)(tests?|__tests__)\/|(^|\/)test_[^\/]*\.py$|(^|\/)conftest\.py$)/ { print; n++ } END { if (!n) print "(none)" }' <<<"$ns"; echo
+    echo "### Added skips / forced-green lines"
+    grep -nE '^\+.*(\.skip\(|\.only\(|\|\| *true|xit\(|xdescribe\(|(^|[^[:alnum:]_.])fit\(|test\.todo\(|@pytest\.mark\.(skip|skipif|xfail)|t\.Skipf?\(|@Disabled|#\[ignore)' <<<"$full" || echo "(none)"; echo
+    echo "### CI or check configuration edited"
+    grep -E '^\.github/|^\.gitlab|\.ya?ml$|(^|/)package\.json$|vitest\.config|jest\.config|\.eslintrc|eslint\.config\.|tsconfig|(^|/)(pyproject\.toml|pytest\.ini|setup\.cfg|\.coveragerc|Makefile)$' <<<"$names" || echo "(none)"; echo
+    echo "### Configured lanes not run on this diff (when-scoped; no changed file matched their globs)"
+    lanes="$(skipped_lanes)"; [ -n "$lanes" ] && printf '%s\n' "$lanes" || echo "(none)"; echo
     echo "### Build session permission denials"; [ -s "$STATE/denials-$A.txt" ] && cat "$STATE/denials-$A.txt" || echo "(none)"; echo
     echo "### Untracked files archived after the build (in no commit: a stray probe, or a file the build forgot to add)"
     [ -s "$STATE/quarantine-$A.list" ] && tr '\0' '\n' < "$STATE/quarantine-$A.list" || echo "(none)"

@@ -91,6 +91,9 @@ case "$plan" in
   build-pr-untracked) push; openpr; printf 'it("probe", () => {});\n' > src/zz-probe.spec.ts; mkdir -p "src/probe dir"; echo scratch > "src/probe dir/notes.txt" ;;   # never committed: what a probing build leaves
   build-commit-nopush) echo "$n" >> work.txt; git add -A >/dev/null; git commit -qm "local only $n" ;;
   build-skip-test) printf 'it.skip("x", () => {});\n' >> src/a.spec.ts; mkdir -p .github/workflows; echo 'on: push' > .github/workflows/ci.yml; push; openpr ;;
+  build-polyglot)  git rm -q tests/test_x.py src/__tests__/b.js; mkdir -p tests; printf '@pytest.mark.skip\ndef test_y(): pass\n' > tests/test_y.py   # #956: a non-JS weakening
+                   printf 'func TestZ(t *testing.T) { t.Skip("later") }\n' > src/z_test.go; printf 'addopts = "--cov-fail-under=10"\n' > pyproject.toml
+                   echo 'export default []' > eslint.config.mjs; push; openpr ;;
   review-crash)    printf '{"subtype":"error_during_execution","total_cost_usd":0}\n'; exit 1 ;;
   review-approve|review-needs-work|review-wrong-sha|review-approve-dirty|review-approve-runtime|review-approve-and-push|review-needs-work-drop-base|review-needs-work-diverge)
     sha=$(git rev-parse "origin/$branch"); [ "$plan" = review-wrong-sha ] && sha=deadbeef
@@ -136,6 +139,7 @@ fixture() { # fixture <case> [checks-line] [extra-record] — sets $d and the en
   git -C "$d/main" symbolic-ref HEAD refs/heads/main
   mkdir -p "$d/main/src" "$d/main/.claude/pipeline-state"
   echo "x" > "$d/main/src/a.spec.ts"; echo "y" > "$d/main/src/a.ts"
+  local f; for f in ${FIXTURE_FILES:-}; do mkdir -p "$d/main/$(dirname "$f")"; echo "x" > "$d/main/$f"; done   # extra base files a build can delete or edit
   local dflt='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"}}'
   printf '%s\n' "${FIXTURE_CONFIG:-$dflt}" > "$d/main/.claude/second-shift.config.json"
   printf '%s\n' ".claude/" > "$d/main/.gitignore"
@@ -897,6 +901,16 @@ fixture ro2; printf 'build-pr\nreview-silent\nreview-silent\n' > "$FAKE_CLAUDE_P
 # I10: added skips and an edited CI config reach the review input
 fixture rp; printf 'build-skip-test\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "[I10] run"
 grep -q 'it.skip' "$(SD)/review-1.1.prompt" && grep -q 'ci.yml' "$(SD)/review-1.1.prompt" && ok "[I10] the added skip and the CI edit are named in the review input" || bad "[I10] not surfaced"
+rsec() { awk -v h="### $1" 'index($0, h) == 1 {on=1; next} /^###/{on=0} on && NF' "$(SD)/review-input-1.1.md" 2>/dev/null; }
+[ "$(rsec 'Deleted or renamed test files')" = "(none)" ] && [ "$(rsec 'Configured lanes not run')" = "(none)" ] && ok "[I10] #956: the deleted-tests and skipped-lanes sections say (none) when empty" || bad "[I10] #956: deleted=[$(rsec 'Deleted or renamed test files')] lanes=[$(rsec 'Configured lanes not run')]"
+
+# I10 #956: the detectors are stack-neutral, and a when-skipped lane is named even when another lane ran
+FIXTURE_FILES="tests/test_x.py src/__tests__/b.js pyproject.toml" FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"commands":{"main":{"extraLanes":[{"name":"unit","when":["src/**"],"commands":["true"]},{"name":"docs-lint","when":["docs/**"],"commands":["true"]}]}}}' fixture rp2 ""
+printf 'build-polyglot\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "[I10] #956 polyglot run"
+s="$(rsec 'Deleted or renamed test files')"; grep -qE '^D[[:space:]]+tests/test_x\.py$' <<<"$s" && grep -qE '^D[[:space:]]+src/__tests__/b\.js$' <<<"$s" && ok "[I10] #956: a top-level tests/ and a __tests__/ deletion are listed" || bad "[I10] #956: deleted section: $(tr '\n' '|' <<<"$s")"
+s="$(rsec 'Added skips')"; grep -q '@pytest.mark.skip' <<<"$s" && grep -q 't.Skip("later")' <<<"$s" && ok "[I10] #956: a pytest skip and a Go t.Skip( are listed" || bad "[I10] #956: skips section: $(tr '\n' '|' <<<"$s")"
+s="$(rsec 'CI or check configuration edited')"; grep -qx 'pyproject.toml' <<<"$s" && grep -qx 'eslint.config.mjs' <<<"$s" && ! grep -q 'test_y.py' <<<"$s" && ok "[I10] #956: the pyproject.toml coverage edit and eslint.config.mjs are listed" || bad "[I10] #956: config section: $(tr '\n' '|' <<<"$s")"
+s="$(rsec 'Configured lanes not run')"; [ "$s" = "docs-lint" ] && grep -q 'ok: true' "$(SD)/checks-1.1.log" && ok "[I10] #956: the when-skipped lane is named while the matched one ran" || bad "[I10] #956: lanes section: $(tr '\n' '|' <<<"$s")"
 
 # J7: origin/<base> that no longer resolves mid-run is staleness-unreadable, never 'nothing moved'
 fixture rq; printf 'build-pr\nreview-needs-work-drop-base\nbuild-push-only\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect staleness-unreadable "[J7] the base ref vanished before round 2"; [ "$RC" -eq 1 ] && ok "[J7] exit 1" || bad "[J7] exit $RC"

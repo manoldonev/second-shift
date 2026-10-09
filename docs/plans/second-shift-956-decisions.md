@@ -13,6 +13,7 @@
 | D-7 | Section 1 empty form | Prints `(none)` when empty, like its siblings (`run.sh:504-508`) | codebase-derived | fact |
 | D-8 | Gating | Advisory only — no section gates the run; the review reads them, as today | codebase-derived | fact |
 | D-9 | Duplicate scan | `dup-scan.sh --issue 956` rc 0 — no candidates at or above threshold | codebase-derived | fact |
+| D-10 | How the no-hit lane names reach `review_input` | `config_checks`' per-lane `when` match is extracted into `lane_hit`, which both `config_checks` and a new `skipped_lanes` call — one predicate, so the lanes run and the lanes listed cannot disagree. Reason: `config_checks` runs inside `$(checks_list)`, a subshell, so a name it recorded in a variable would never reach `review_input` | user-delegated | fact |
 
 ## Open Regions
 
