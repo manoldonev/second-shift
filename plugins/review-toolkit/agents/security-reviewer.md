@@ -189,6 +189,6 @@ Before emitting any Critical or Warning, ask three questions and write the answe
 
 1. **Anchored?** Does the finding cite a specific file path AND a line/symbol/snippet from the diff (not from imagined or hypothetical future code)?
 2. **Exploitable or actively-weakening?** Can I describe a concrete attacker action that succeeds because of this code today, OR a concrete defense the diff removes / fails to apply on a user-facing surface? Hypothetical "if X ever happens" reasoning fails this gate — demote to Suppressed.
-3. **Distinct from the surrounding pattern?** If every sibling handler / service has the same pattern (e.g. a hardcoded pre-auth tenant-key placeholder), this PR following it is consistent — at most a `[Pre-existing]` note, never a new Critical.
+3. **Distinct from the surrounding pattern?** If every sibling handler / service has the same pattern (e.g. a hardcoded pre-auth tenant-key placeholder), this PR following it is consistent — at most a `[Pre-existing]` note, never a new Critical. This does not apply when the diff is the first code to depend on the gap (reviewer-baseline rule 4): anchor the finding on the diff line that depends on it, and it is new.
 
 If a finding fails any one of these gates, do not emit it as Critical or Warning. Either drop it entirely or move it to `## Suppressed` with the appropriate confidence score.
