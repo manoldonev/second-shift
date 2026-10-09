@@ -20,6 +20,10 @@ absent. Do not open files to prove a negative across the diff: that is what exha
 a fast honest "nothing here in this dimension" is a complete review of it. The depth per change
 size is in the SKILL's Review Depth Routing table.
 
+A named risk **always includes** a persisted field the diff newly depends on (see Data provenance
+below). Opening its schema is not proving a negative; it is the minimum read that grounds the claim
+that the feature works.
+
 **Findings out are ordinary findings.** They go into Synthesis Step 1 with the subagents' and are
 deduplicated, confidence-filtered and triaged identically. Being found in-session buys a finding
 nothing.
@@ -46,6 +50,14 @@ For each finding, decide which it is before you decide its severity:
 2. If the diff follows an existing imperfect pattern, label it `[Pre-existing]`. It informs
    triage; it never blocks.
 3. If the diff introduces a pattern that exists nowhere else, it is **new**.
+4. If the defect lives in unchanged code but **the diff is the first code to depend on it** — it
+   newly reads, sends or relies on the defective behavior — the finding is **new**: the diff
+   introduces the failure even though it did not introduce the defect. Cite both the diff line
+   that depends on it (its anchor for the Pre-Emit Gate) and the out-of-diff line that is
+   defective. Sibling consistency does not make it pre-existing: a pattern nobody depended on is
+   not an established pattern. It then goes through the two-condition Critical trigger below at
+   its own severity — Critical when the defect is confirmed in the defining artifact and it breaks
+   the feature's critical path today.
 
 **A change that follows existing codebase patterns is CONSISTENT, not broken.**
 
@@ -80,6 +92,34 @@ defines the concept you are judging. Filenames, method names and `--stat` line c
 evidence. Behavioral claims need case enumeration: for `A && B`, name all four cases; bugs hide in
 the single-true ones. If the canonical artifact cannot be opened, the output is a question
 (`unable to verify — pointer needed: <file or fact>`), not a verdict.
+
+**Producer ≠ persister.** For stored data the defining artifact is the schema, model, DDL or
+mapping that persists the field, not the code that writes it. Citing the writer does not show the
+store keeps the value.
+
+### Data provenance
+
+A **persisted field** here is a field of an entity whose schema, model, DDL or mapping lives in the
+repo under review. Third-party API payloads and in-memory JSON are not persisted fields.
+
+For each persisted field the diff newly depends on — it dereferences, sends across a service
+boundary or branches on a field no prior production code read — emit one row into the report's
+`## Data provenance` section; with none, emit the single line `none: the diff consumes no newly
+read persisted field`. At most ~5 rows; identifiers that cross a service boundary come first.
+
+| Field | Produced at | Persisted by (schema) | Read at | Crosses to | Status |
+| --- | --- | --- | --- | --- | --- |
+| `items[].id` | `sync.mapper.ts:L` | `entity.schema.ts:L` | `order.ts:L` | service B `resolve…:L` | verified / unverified: schema not opened |
+
+- The `Persisted by` cell cites the schema, model, DDL or mapping line — never the writer.
+- An `unverified` row on the feature's critical path is a **Warning at confidence ≥ 80** on its
+  own, never silence.
+- A row whose schema was opened and shows the field is not persisted (dropped, projected away,
+  coerced) is a defect the diff newly depends on — rule 4 of New vs pre-existing, and Critical on
+  the feature's critical path.
+- **Warning:** a new cross-service lookup whose miss path only logs a warning (no error, no
+  alertable metric), or an identifier built with `String()` from a value that can be undefined —
+  either turns a missing value into a feature that silently does nothing.
 
 ### Extension surface
 
@@ -262,14 +302,21 @@ inferred from where existing tests live) and read them.
   the other side neither sends nor exercises.
 - **Silent-failure schema coupling** — where a producer and consumer must agree on the shape or
   *order* of a structure and a mismatch produces a wrong result rather than an error, the
-  agreement must be tested. Skip entirely if the stack has no such coupling.
+  agreement must be tested. Skip entirely if the stack has no such coupling. This includes
+  **fixture shape vs persisted shape**: a spec hand-builds a stored entity carrying a field the
+  diff newly consumes, and no test moves that field through the real schema or model — the test
+  proves the consumer against data the system may never produce. Name the cheapest remedy: a
+  round-trip through the real storage definition without a database (instantiate and serialize
+  the model), or the repo's in-memory or ephemeral integration tier.
 
 **Do NOT flag**
 
 - Missing tests for declarative data shapes validated by a framework validator.
 - Missing tests for wiring/module-definition files that only assemble dependencies.
 - Missing tests for thin pass-through layers.
-- Missing integration/e2e tests (a separate concern).
+- Missing integration/e2e tests (a separate concern) — **except** when the only test that can
+  observe the diff's critical behavior is a persistence or serialization round-trip (see
+  Silent-failure schema coupling).
 - Test files for unchanged code.
 - Script-level smoke checks and "run this file directly" sanity checks.
 

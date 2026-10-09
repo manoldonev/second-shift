@@ -63,6 +63,14 @@ index capabilities (vector/text search), service languages. Read by: performance
 ## Database stack
 Engine, ORM/ODM/driver, schema/model + data-access globs, migration tooling, special
 capabilities. Read by: db-reviewer (engine-agnostic; this section IS its engine).
+Also list the stack's round-trip traps — the ways a declared field silently fails to survive
+write → read: not part of the persisted shape (e.g. a nested type embedded as a raw class
+instead of a compiled sub-schema), dropped on write by strict mode, projected away on read
+(hidden-by-default flags, field allowlists), or coerced (id ↔ string). db-reviewer applies
+them when the diff newly reads a stored field. Guards worth adopting: the store rejecting
+undeclared fields (e.g. Mongoose `strict: 'throw'`, or the stack's equivalent), test fixtures
+built through the model rather than by hand, one round-trip spec per schema, and lint rules
+for the traps syntax can catch.
 
 ## Maturity stage
 E.g. "pre-auth: no ownership parameter or guards exist yet". Read by: security-reviewer

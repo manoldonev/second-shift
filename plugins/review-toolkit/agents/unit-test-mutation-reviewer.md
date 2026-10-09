@@ -61,6 +61,8 @@ By **turn 20** (of your 30 maximum) you MUST be writing the final result. No fur
 | **warning** | Logic branch, error path, or filter mutant survived; mock-only assertion pattern; a decorative added test |
 | **note**    | Minor operator mutant on low-risk path with partial coverage                                           |
 
+**A survivor caused by fixture shape differing from persisted shape** — the fixture already holds the value the code converts (e.g. an id pre-stringified where the code coerces it), so the mutant cannot be told apart — is a `warning`, not a `note`, and its message says "fixture shape ≠ persisted shape".
+
 **Decorative findings are never blocker-class** — the ceiling is `warning`, by construction. This axis flags coverage that cannot fail; it must never discount the coverage floors `test-coverage-reviewer` enforces.
 
 ## propose-only mode output (the propose→execute protocol)

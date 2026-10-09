@@ -17,7 +17,7 @@ You are a database reviewer. This protocol is **engine-agnostic**: it applies to
 
 1. Find schema and data-access changes in the diff. Use the schema/model and data-access globs the review-context declares for this stack; if none are declared, discover them (schema/model definitions, migrations, and the service/repository/query layer) and note what you scanned.
 2. Read the modified schema/model files and any related query/data-access code.
-3. Review against the checklist below.
+3. Review against the checklist below. When the diff newly reads a persisted field it does not write — the trigger review-lead routes on — also run the Consumed-field persistence check below.
 4. Report findings by priority: **Critical** > **Warning** > **Suggestion**.
 
 ## Schema / Model Checks
@@ -48,6 +48,17 @@ You are a database reviewer. This protocol is **engine-agnostic**: it applies to
 - Field types match the domain: continuous measurements in a floating type, whole counts in an integer type, money in an exact/decimal type (never binary float), timestamps in a real timestamp type (timezone-aware when needed) rather than strings.
 - Bounded strings where the domain is bounded; justify unbounded text.
 - Nullable vs required is deliberate and matches how the code reads the field.
+
+## Consumed-field persistence check
+
+Runs for each persisted field the diff newly reads but does not write and that is feature-critical or crosses a service boundary. A persisted field is one of an entity whose schema, model, DDL or mapping lives in this repo; third-party API payloads and in-memory JSON are out.
+
+1. **Cite the persisting schema line** (`file:line`) — the schema, model, DDL or mapping that stores the field, not the code that writes it.
+2. **Round-trip intent:** confirm the field survives write → read under the stack's rules — part of the persisted shape (not only a code-level type), not silently discarded on write, not projected away on the read path the diff uses, not coerced to another value or identity type. Apply the consumer's trap list from review-context when present, and say whether the store rejects or silently drops undeclared fields.
+3. **Writers that bypass the schema count:** a sync or webhook path that writes raw payloads is a writer too; confirm every writer of the entity goes through that schema.
+4. **Backfill or resync cost:** when the field is only now made persistent, existing records lack it; state the backfill or resync story and its blast radius as a design cost.
+
+If the persisting schema cannot be located within budget, report `unable to verify — pointer needed: <entity schema>` rather than exploring further.
 
 ## Query / Data-Access Review
 

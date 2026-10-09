@@ -515,6 +515,7 @@ build_prompt() { # build_prompt <round> <review-findings-file-or-empty> <red-che
   echo "Implement ticket $ISSUE of this repository. Fetch the ticket text yourself from the tracker (${TRACKER})."
   echo "Do not merge. Do not delete, skip or weaken a test to make a check pass; if a test is wrong, say so in the PR."
   echo "Delete every probe or scratch file you created before you end your turn: a probe you never committed is not a test the PR deletes."
+  echo "A stored field the change newly reads, or a field it sends across a service boundary, gets a test that moves it through the real schema or model, not a hand-built fixture: a fixture that already holds the value proves nothing about whether the store keeps it."
   [ "$BOT_OK" -eq 1 ] && echo "Commit through $TOOLS/bot-commit.sh (the repo's bot identity), never plain git commit — and re-pass the identity on any --amend, which otherwise silently re-stamps you as the committer."
   if [ "$1" -eq 1 ]; then
     echo "When the checks are green, commit, push branch $BRANCH to origin and, unless one is already open for this branch, open a DRAFT PR against $BASE_NAME with 'gh pr create --draft --base $BASE_NAME', and leave it a draft: the scheduler marks it ready for review only when a review approves its head. The PR body, in order: line 1 exactly 'built-by: second-shift run $RUN_ID'; then a link to the decision record at $RECORD_REL; then the line 'Record baseline: $FIRST'; then a summary of the change;"

@@ -189,7 +189,7 @@ changed is that routing no longer selects them. Their Verdicts rows are still re
 | Reviewer                        | Trigger: spawn if ANY of these conditions hold                                                                                                                                                                                                                              |
 | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **security-reviewer**           | The diff carries a security surface — authentication / session handling, tenancy or ownership scoping, file upload, or query construction from external input; OR the repo under review carries `.claude/second-shift/review-context/security-reviewer.md` (a repo that authored security calibration has a security surface to calibrate). Matching is **model judgment over the diff**, the same posture the design-fidelity dimension below uses: read the changed paths and the hunks and decide, rather than pattern-matching filenames. When it does not fire, that is a Step 4c not-selected note and the lead pass owns the security dimension for the round. |
-| **db-reviewer**                 | The repo's DB layer changed — schema definitions, migrations, or query code (e.g. `*.schema.*`, a migrations dir). Skip/remove in repos with no DB (config `reviewers.remove`).                                                                                              |
+| **db-reviewer**                 | The repo's DB layer changed — schema definitions, migrations, or query code (e.g. `*.schema.*`, a migrations dir); OR the diff **newly reads a persisted field it does not write** — a field of an entity whose schema, model, DDL or mapping lives in this repo, which the diff dereferences, sends across a service boundary or branches on, where no prior production code read it, and which is feature-critical or crosses a service boundary (third-party API payloads and in-memory JSON are not persisted fields). The second arm is standalone-only: it does not fire under the pipeline default panel. Skip/remove in repos with no DB (config `reviewers.remove`). |
 | **pipeline-reviewer**           | Async worker / queue-processor / job-producer files changed (e.g. `*processor*`, `*queue*`, a workers dir).                                                                                                                                                                 |
 | **unit-test-mutation-reviewer** | A production file within the repo's mutation-review target surface changed AND a co-located spec is in the diff; OR the pipeline ran with `unitTestSurface.action == strengthen`. Advisory mode (LLM-predicted, no execution — the propose-mode orchestrator owns execution-verified blocking).    |
 | **scope-completeness-reviewer** | Invocation references a tracker issue number (e.g., `Closes #758`, `Part of #758`, an explicit `--issue 758` flag, or PR body contains `#<number>`). Spawn unconditionally — depth routing does not apply. If no issue is referenced, do not spawn.                          |
@@ -216,7 +216,9 @@ Conditionally-spawn table do **not** fire on their surface triggers:
 | `unit-test-mutation-reviewer` | Not selected by the mutation-surface trigger or by `unitTestSurface.action == strengthen`. |
 
 Every other row is untouched: `scope-completeness-reviewer` still spawns whenever a tracker issue
-is referenced, `db-reviewer` and `pipeline-reviewer` keep their surface triggers, repo-local
+is referenced, `db-reviewer` and `pipeline-reviewer` keep their surface triggers (and only those:
+`db-reviewer`'s newly-read-persisted-field arm stays standalone-only, while the lead pass's
+Data provenance rule still applies in the lane), repo-local
 `reviewers.add` reviewers keep theirs, and the design-fidelity dimension is unchanged in both its
 armed-spec and unarmed-diff forms. The lead-pass dimensions are unaffected — they were never
 dispatched.
@@ -428,6 +430,8 @@ For every finding from a sub-reviewer, classify it:
 | **Pre-existing gap** | The PR follows an existing codebase pattern that happens to be imperfect                 | Downgrade to `## Pre-existing gaps (not blocking this PR)` section — note it for a future initiative, not this PR |
 | **Aspirational**     | The reviewer demands infrastructure that doesn't exist yet (auth, tests, shared clients) | Omit or move to `## Future improvements` — do NOT fail the review                                                 |
 
+**A dismissal cites the artifact that makes the finding harmless.** Downgrading or omitting a reviewer finding needs a citation — the schema showing the persisted shape, the guard that already rejects the input, the sibling that establishes the pattern. A rationale with no artifact behind it ("harmless over JSON") is not a dismissal; the finding stays at the reviewer's severity.
+
 **Examples of false positives to catch:**
 
 - "Missing auth headers" → when NO component in the app uses auth headers
@@ -571,6 +575,12 @@ Each finding includes: [Reviewer] file:line (confidence: N) — description.
 - Mismatches: [implementation differs from spec]
 If all requirements met: "Implementation matches the plan."
 
+## Data provenance
+The lead pass's provenance table (lead-pass-checklist.md, "Data provenance"), one row per
+persisted field the diff newly depends on. Always emitted; when there is nothing to trace,
+the section is the single line:
+none: the diff consumes no newly read persisted field
+
 ## Pre-existing gaps (not blocking this PR)
 Findings that apply to the entire codebase, not specific to this PR.
 List briefly with suggested future initiative.
@@ -599,6 +609,13 @@ One-line bullets from all reviewers for findings with confidence < 80, so they a
 
 **Reasoning:** [1-2 sentence technical assessment]
 ```
+
+**Reserved wording.** In the Ready to merge? verdict and its Reasoning line, "end-to-end",
+"verified" and "works" describe only what a test the report cites actually executed. Anything
+established by reading code is "statically traced". Where a read-only probe would settle what the
+trace cannot (a model round-trip in a throwaway script, one read-only query of a recent real
+record), the Reasoning may name one for the human to run; the lead never runs it. Grounding prose
+elsewhere in the report that uses "verify" in the checking sense is untouched.
 
 **Verdict rules**:
 
