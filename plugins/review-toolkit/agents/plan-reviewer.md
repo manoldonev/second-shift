@@ -149,6 +149,12 @@ Check if the plan accounts for ripple effects:
 
 **Database schema**: If adding/modifying columns, check which services read/write them. A rename on a widely-read core table can break many downstream workers at once.
 
+**Newly read stored fields**: For each persisted field the plan newly reads but does not write, and that is feature-critical or crosses a service boundary — a persisted field is one of an entity whose schema, model, DDL or mapping lives in this repo; third-party API payloads and in-memory JSON are out — the plan must cite the persisting schema line (`file:line`) and name the round-trip test that proves the field survives write → read. Apply the round-trip traps from the `## Database stack` section of `review-context.md` when present. Severity:
+
+- The schema is in this repo and the plan does not cite it or name the round-trip test → **Warning**.
+- The schema shows the field is not persisted (not part of the persisted shape, dropped on write, projected away on the read path the plan uses) and the plan's critical path depends on it → **Blocker**.
+- The persisting schema cannot be located within budget → report `unable to verify — pointer needed: <entity schema>`, not a Warning.
+
 ---
 
 ## Additional Checks

@@ -108,7 +108,8 @@ You elicit **design decisions from the engineer** (plan-authoring). You do NOT:
    - data invariants (uniqueness, soft-delete semantics — every natural key needs a conscious uniqueness decision),
    - scope boundaries (what this PR explicitly does not do),
    - tenancy/security posture (multi-tenant scoping filters per the repo's CLAUDE.md rules, guards, credential handling),
-   - migration/rollout (existing rows, backfill, ordering across workspace packages).
+   - migration/rollout (existing rows, backfill, ordering across workspace packages),
+   - data provenance — for each persisted field (one of an entity whose schema, model, DDL or mapping lives in this repo; third-party API payloads and in-memory JSON are out) the change newly reads but does not write, and that is feature-critical or crosses a service boundary: the persisting schema line, every writer of the entity (including sync or webhook paths that write raw payloads past the schema), and whether existing records carry the field — the backfill half is the migration/rollout item above. It lands as a `codebase-derived` row citing the schema `file:line`, or a `deferred` row (an Open Region in a receipt).
 
    Everything below that bar is decided silently and does not enter the register. Material design decisions are near-always groundable, so a recommendation is expected on each question.
 
