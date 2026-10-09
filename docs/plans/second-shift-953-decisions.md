@@ -14,6 +14,7 @@
 | D-8 | implementability-probe | Unchanged: it already enumerates every point a spec leaves to a guess (`implementability-probe.md:3`), and an untraced newly read field is one | codebase-derived | fact |
 | D-9 | Where the spec-reviewer rule lands | One bullet under `### Data Contracts and Boundaries` (`spec-reviewer.md:146`): if the spec depends on a stored field (per D-2/D-3), does it say where it is persisted and whether existing records carry it? Missing → Warning ("developer will have to guess", `spec-reviewer.md:77`) | codebase-derived | fact |
 | D-10 | Noise at plan time | Parked under OR-1 | deferred | open |
+| D-11 | Which plan types plan-reviewer runs the *Newly read stored fields* check on | Every type, Feature add included, overriding the `## Downstream Impact` section's behavior-change/refactor gate (`plan-reviewer.md:50`) for this one check. Reason: D-5 placed it under Downstream Impact, and the type gate would have left feature-add plans — the case #953 names — unchecked | user-delegated | intent |
 
 ## Open Regions
 
