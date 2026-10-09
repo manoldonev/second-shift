@@ -24,6 +24,10 @@ A named risk **always includes** a persisted field the diff newly depends on (se
 below). Opening its schema is not proving a negative; it is the minimum read that grounds the claim
 that the feature works.
 
+It also **always includes** a queue-payload or persisted field the diff renames, removes or retypes
+(see Items in flight below). Open its unchanged readers, including a tolerant reader outside the
+hunk: whether one accepts the base shape decides whether there is a finding at all.
+
 **Findings out are ordinary findings.** They go into Synthesis Step 1 with the subagents' and are
 deduplicated, confidence-filtered and triaged identically. Being found in-session buys a finding
 nothing.
@@ -123,6 +127,40 @@ read persisted field`. At most ~5 rows; identifiers that cross a service boundar
 - **Warning:** a new cross-service lookup whose miss path only logs a warning (no error, no
   alertable metric), or an identifier built with `String()` from a value that can be undefined —
   either turns a missing value into a feature that silently does nothing.
+
+### Items in flight
+
+A deploy does not drain what the old code wrote. Jobs already queued in the base shape and rows
+written before the change meet the new reader; while a rollout is in progress, old instances still
+running meet what the new code writes. The diff's writer and reader agreeing with each other says
+nothing about either window.
+
+**Scope.** A **boundary field** is a field of a queue payload (a job/message contract the repo
+enqueues and consumes), or a persisted field as defined under Data provenance. Third-party API
+payloads, service-to-service request shapes and frontend types are out of scope.
+
+For each boundary field the diff renames, removes or retypes:
+
+- **Forward — old items, new reader. Warning** unless the new reader accepts the base shape (a
+  fallback to the old name, a default for the removed field, a coercion from the old type) or the
+  PR or the code names a drain, backfill or ordering step. Cite the field, the boundary and the
+  reader at file:line. Check every reader, not only the ones in the hunk; one tolerant reader does
+  not clear an intolerant one.
+- **Reverse — new writes, old reader. Warning** only when you cite, at file:line in the base
+  branch (`git show origin/<base>:<path>`), the base reader's intolerance of the new shape: a
+  throw, a strict validator, a `switch` with no default, or a dereference of a field the new
+  writer no longer sets. No citation, no finding. This is the rolling-deploy window (old
+  instances still consuming during the rollout) and passes the Pre-Emit Gate's "concrete today"
+  on that ground; do not frame it as a hypothetical rollback.
+
+Both are Warning at most, never Critical. A reader the diff leaves **un-updated** — it still reads
+the old name, so the contract is broken for new items too — is not this rule: it is a broken
+contract today, Critical under the two-condition trigger (and pipeline-reviewer's Job Chain
+Contract Integrity when that agent runs). Report one severity per case.
+
+These are ordinary findings in the dimension where they surface; there is no report section for
+them. A compatibility shim that implements the forward half is not a complexity finding when its
+removal step is named (see Complexity).
 
 ### Extension surface
 
@@ -241,7 +279,10 @@ premature abstraction. Never flag structure the repo's framework, runtime, or co
 
 **Warning**
 
-- A feature flag or compatibility shim for a change that should just be made.
+- A feature flag or compatibility shim for a change that should just be made. A compatibility shim
+  for a queue-payload or persisted boundary field (see Items in flight) is not this when the PR or
+  the code names its removal step — the contract half of expand/contract. With no named removal
+  step it is still flagged.
 - A wrapper function whose whole body forwards its arguments with no transformation, validation,
   or error handling.
 - A generic/parameterized construct only ever instantiated with one concrete type.
