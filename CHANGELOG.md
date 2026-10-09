@@ -4,6 +4,42 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v16.4.0
+
+### `dev-pipeline` 16.3.0 → 16.4.0
+
+- **feat(review-toolkit): catch a change that makes a latent persistence defect load-bearing (#951)** (#951)
+  review-lead catches a diff that newly depends on a stored field its schema never
+  persists: db-reviewer gains a consumed-field persistence check (standalone routing arm),
+  the lead pass emits a ## Data provenance section (unverified critical-path row = Warning
+  >= 80), a defect the diff is first to depend on is new, fixture-shape survivors are
+  warnings, dismissals must cite an artifact, and the verdict's reserved wording separates
+  executed from statically traced. The dev-pipeline build prompt requires a round-trip test
+  through the real schema for such fields. docs/extension-points.md suggests listing the
+  stack's round-trip traps under Database stack.
+  Migration: none.
+  the review lead's Pre-Emit Gate (and security-reviewer's) no longer
+  drops or demotes a finding on a defect in unchanged code that the diff is
+  the first to depend on.
+  Migration: none.
+
+### `review-toolkit` 10.0.0 → 10.1.0
+
+- **feat(review-toolkit): catch a change that makes a latent persistence defect load-bearing (#951)** (#951)
+  review-lead catches a diff that newly depends on a stored field its schema never
+  persists: db-reviewer gains a consumed-field persistence check (standalone routing arm),
+  the lead pass emits a ## Data provenance section (unverified critical-path row = Warning
+  >= 80), a defect the diff is first to depend on is new, fixture-shape survivors are
+  warnings, dismissals must cite an artifact, and the verdict's reserved wording separates
+  executed from statically traced. The dev-pipeline build prompt requires a round-trip test
+  through the real schema for such fields. docs/extension-points.md suggests listing the
+  stack's round-trip traps under Database stack.
+  Migration: none.
+  the review lead's Pre-Emit Gate (and security-reviewer's) no longer
+  drops or demotes a finding on a defect in unchanged code that the diff is
+  the first to depend on.
+  Migration: none.
+
 ## v16.3.0
 
 ### `dev-pipeline` 16.2.1 → 16.3.0
