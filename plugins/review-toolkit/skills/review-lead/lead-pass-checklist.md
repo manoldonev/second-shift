@@ -78,12 +78,15 @@ Before emitting any Critical or Warning, answer three questions to yourself. A f
 **any one** of them is dropped or demoted to Suppressed:
 
 1. **Anchored?** Does it cite a specific file path AND a line, symbol, or snippet **from the
-   diff** — not from imagined or hypothetical future code?
+   diff** — not from imagined or hypothetical future code? For a rule-4 finding (New vs
+   pre-existing), the anchor is the diff line that depends on the cited out-of-diff defect.
 2. **Concrete today?** Can you describe a concrete failure that happens, or a concrete protection
    the diff removes or fails to apply, **as the code stands**? "If X ever happens" reasoning fails
    this gate.
 3. **Distinct from the surrounding pattern?** If every sibling does the same thing, the diff doing
-   it is consistent — `[Pre-existing]` at most, never a new Critical.
+   it is consistent — `[Pre-existing]` at most, never a new Critical. Sibling consistency does not
+   apply when the diff is the first consumer of the defect: a pattern nobody depended on is not an
+   established pattern (rule 4).
 
 ### Grounding
 
