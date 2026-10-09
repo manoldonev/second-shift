@@ -149,6 +149,7 @@ what the document **did not discover**.
 - Are field types, optionality, and constraints specified?
 - Are enum values listed, not described ("state is 'abandoned' or 'recovered'" vs "state is a string")?
 - If the spec touches cross-system boundaries (FE/BE, service-to-service), are both sides addressed?
+- If the spec depends on a stored field it newly reads but does not write, and that field is feature-critical or crosses a service boundary (a field of an entity whose schema, model, DDL or mapping lives in this repo; third-party API payloads and in-memory JSON are out), does it say where the field is persisted and whether existing records carry it? Missing → **Warning**.
 
 ### Prerequisites and Dependencies
 
