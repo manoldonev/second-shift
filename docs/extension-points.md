@@ -108,6 +108,12 @@ decorator or registration call), the enqueue and schedule verbs, and where worke
 set. Read by: all reviewers via review-lead (the lead pass's Duplicate delivery rule matches its
 triggers in this vocabulary and names the delivery model from here), and pipeline-reviewer
 (applies every check in this stack's terms).
+
+## Test coverage
+The test runner(s) and run command, where test files live and how they are named, the layers or
+filename patterns that carry mandatory coverage, domain integrity checks (e.g. feature-schema
+consistency), cross-service contract fixtures, and any coverage exemptions. Read by:
+test-coverage-reviewer.
 ```
 
 Keep entries short and declarative — reviewers quote them back as exemption justifications,
