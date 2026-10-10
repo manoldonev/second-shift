@@ -50,6 +50,8 @@ Flag factory / strategy / observer / builder patterns (and their equivalents in 
 
 If code adds a feature flag or backwards-compatibility shim for something that should just be changed directly.
 
+**Exception:** a compatibility shim for a queue-payload or persisted field (one whose schema, model, DDL or mapping lives in this repo) that the diff renames, removes or retypes, when the PR or the code names the shim's removal step. That is the expand half of an expand/contract change: it lets items already in flight in the old shape meet the new reader. A shim with no named removal step is still flagged. The planned-swap exemption under Unnecessary Design Patterns covers abstractions, not shims, so it is no substitute for a named removal step.
+
 ### Wrapper Functions That Just Forward
 
 A private/local method or function whose entire body forwards its arguments to a single other call, adding no transformation, validation, or error handling, is needless indirection — call the underlying operation directly.

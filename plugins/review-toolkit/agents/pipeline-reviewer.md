@@ -50,7 +50,7 @@ When a worker's output changes shape (different persisted columns/fields written
 
 Flag if:
 
-- A field/column is renamed or removed that a downstream worker reads.
+- A field/column is renamed or removed that a downstream worker reads, and that worker is not updated in the same diff — the contract is broken today. When the diff updates the reader too, the remaining risk is the base-shape items already in flight; that is review-lead's lead-pass Warning (Items in flight), not a Critical here.
 - A new required field is added to a payload interface but the enqueuing worker doesn't provide it.
 - The conditional gates change in a way that broadens enqueuing (e.g., removing a guard would enqueue a job for inputs it was never meant to run on).
 
