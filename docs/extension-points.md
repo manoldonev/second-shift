@@ -99,6 +99,15 @@ held to. Read by: db-reviewer, maintainability-reviewer.
 
 ## Performance budgets
 Per-layer latency budgets, hot paths. Read by: performance-reviewer.
+
+## Async processing
+Queue engine / broker and the delivery model: at-least-once or at-most-once, automatic retries
+and their attempts, how a failed job is re-queued. Also the repo's vocabulary for the places a
+handler gains a delivery source: how a consumer, event or webhook handler is registered (the
+decorator or registration call), the enqueue and schedule verbs, and where worker concurrency is
+set. Read by: all reviewers via review-lead (the lead pass's Duplicate delivery rule matches its
+triggers in this vocabulary and names the delivery model from here), and pipeline-reviewer
+(applies every check in this stack's terms).
 ```
 
 Keep entries short and declarative — reviewers quote them back as exemption justifications,

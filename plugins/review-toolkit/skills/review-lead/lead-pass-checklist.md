@@ -21,8 +21,9 @@ a fast honest "nothing here in this dimension" is a complete review of it. The d
 size is in the SKILL's Review Depth Routing table.
 
 A named risk **always includes** a persisted field the diff newly depends on (see Data provenance
-below). Opening its schema is not proving a negative; it is the minimum read that grounds the claim
-that the feature works.
+below), and a write a Duplicate delivery trigger reaches (see Duplicate delivery below). Opening the
+field's schema — or the write's schema and the handler that delivers to it — is not proving a
+negative; it is the minimum read that grounds the claim that the feature works.
 
 **Findings out are ordinary findings.** They go into Synthesis Step 1 with the subagents' and are
 deduplicated, confidence-filtered and triaged identically. Being found in-session buys a finding
@@ -57,9 +58,68 @@ For each finding, decide which it is before you decide its severity:
    defective. Sibling consistency does not make it pre-existing: a pattern nobody depended on is
    not an established pattern. It then goes through the two-condition Critical trigger below at
    its own severity — Critical when the defect is confirmed in the defining artifact and it breaks
-   the feature's critical path today.
+   the feature's critical path today. The one carve-out is a Duplicate delivery finding (below),
+   whose severity its own rule sets.
 
 **A change that follows existing codebase patterns is CONSISTENT, not broken.**
+
+### Duplicate delivery
+
+Rule 4's shape, for writes: the diff adds a **new delivery source or a new concurrent writer**
+around a write the store does not deduplicate, and an at-most-once, uniqueness or balance invariant
+that only an app-level check-then-write enforces becomes load-bearing.
+
+**Trigger.** The diff adds or raises any of these around a write on an existing entity:
+
+- a retry wrapper, or an attempts / delivery-semantics change;
+- a new event or webhook handler that writes;
+- a second consumer registration, or a new enqueue or schedule site for an existing handler;
+- raised worker concurrency;
+
+and the invariant the write threatens has no store-level enforcement in the cited schema. Also a
+**new write inside a handler that is already redelivered** — an existing webhook, event or job
+handler on at-least-once delivery. There the defective write is in the diff (rule 3, not rule 4),
+and it gets the same treatment. Match the triggers in the repo's own registration, enqueue and
+schedule vocabulary from review-context's `## Async processing`; a generic keyword match misses
+them.
+
+**First, name the write pattern and the invariant.** Name the write's pattern — delete-then-insert,
+conditional upsert, overwrite-in-place, insert-new-row (pipeline-reviewer's "Idempotency under
+retry" list) — and the at-most-once, uniqueness or balance invariant a replay or a concurrent run
+breaks. A write with no invariant to name, such as an overwrite by primary key, is cleared by naming
+that pattern in `## Suppressed`, not by silence.
+
+**What clears it.** A replay is a no-op only when it is deduplicated **where the write commits**:
+
+1. the callee enforces an idempotency key the call sends;
+2. a unique constraint, or a processed-ID table written in the same transaction;
+3. a conditional write or upsert keyed on the job or event id;
+4. a Kafka produce inside the same exactly-once transaction.
+
+Producer- or broker-side dedup (a broker job id, a FIFO dedup id, an outbox) does not clear it: it
+stops a second enqueue, not a second delivery. Cite the commit-point dedup to clear the finding.
+
+**Grounding.** When `## Async processing` declares at-least-once delivery or automatic retries, the
+finding is "a concrete protection the diff fails to apply" (Pre-Emit Gate 2). When no delivery model
+is declared, the output is `unable to verify — pointer needed: delivery model` (Grounding below),
+not a finding.
+
+**Severity.** The finding is new — rule 4, or rule 3 for the already-redelivered arm — and sibling
+handlers that lack commit-point dedup do not demote it (Pre-Emit Gate 3). It is a **Warning** by
+default, even on the feature's critical path: this carves it out of rule 4's last sentence. It is
+**Critical** only when the duplicated effect is:
+
+- **cross-tenant** — it lands on a record or counter scoped to a tenant other than the one the
+  delivery belongs to, or on one shared across tenants; or
+- **money or quota** — a charge, refund, payout, credit, balance, or a usage or quota counter.
+
+**A callee in another repo.** When the only possible escape is the callee's idempotency key and its
+contract lives in another repo, the finding keeps its severity — a money retry stays Critical — and
+carries `unable to verify — pointer needed: <callee idempotency contract>` as the way to clear it.
+
+**The finding names** the trigger line in the diff (its anchor), the write and its schema line, the
+pattern and invariant, the delivery model and the `## Async processing` line that declares it, and
+the escape that would clear it. It is an ordinary finding; there is no report section for it.
 
 ### The two-condition Critical trigger
 
@@ -86,7 +146,9 @@ Before emitting any Critical or Warning, answer three questions to yourself. A f
 3. **Distinct from the surrounding pattern?** If every sibling does the same thing, the diff doing
    it is consistent — `[Pre-existing]` at most, never a new Critical. Sibling consistency does not
    apply when the diff is the first consumer of the defect: a pattern nobody depended on is not an
-   established pattern (rule 4).
+   established pattern (rule 4). Nor does it apply to a Duplicate delivery finding: sibling
+   handlers without commit-point dedup do not make a new delivery source or a new write in a
+   redelivered handler consistent.
 
 ### Grounding
 
