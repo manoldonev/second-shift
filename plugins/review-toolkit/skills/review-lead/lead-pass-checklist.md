@@ -166,6 +166,15 @@ the single-true ones. If the canonical artifact cannot be opened, the output is 
 mapping that persists the field, not the code that writes it. Citing the writer does not show the
 store keeps the value.
 
+**A test double is not the defining artifact.** For a dependency the repo does not own — its
+source is not in the repo under review: a third-party SDK, an external API, another team's service
+even in the same org (a workspace package in the same repo is owned) — the defining artifact is its
+published types, its docs or a recorded real response, never a mock, stub or fake of it. A double
+is built from the same belief as the code under test, so a finding or a clean claim about what the
+dependency returns, throws or leaves empty that rests on the double proves nothing. When none of
+those can be opened, the output is the question form above (`unable to verify — pointer needed:
+<the dependency's types, docs or a recorded response>`).
+
 ### Data provenance
 
 A **persisted field** here is a field of an entity whose schema, model, DDL or mapping lives in the

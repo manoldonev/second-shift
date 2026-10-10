@@ -257,6 +257,7 @@ sec="$(awk '/^### Untracked files archived/{on=1; next} /^###/{on=0} on' "$(SD)/
 grep -qx 'src/zz-probe.spec.ts' <<<"$sec" && ok "(dq) the review input lists the archived path" || bad "(dq) review input lacks the archived path"
 grep -q 'Delete every probe or scratch file you created before you end your turn' "$FAKE_GH/prompt-1.txt" && ok "(dq) the build prompt tells the build to delete its probes" || bad "(dq) probe sentence missing from prompt-1"
 grep -q 'A stored field the change newly reads, or a field it sends across a service boundary, gets a test that moves it through the real schema or model' "$FAKE_GH/prompt-1.txt" && ok "(dq) #950: the build prompt obliges a round-trip test for a newly read stored field" || bad "(dq) #950: round-trip sentence missing from prompt-1"
+grep -q 'A test double of a dependency this repo does not own that returns an error or an empty result cites where that shape comes from' "$FAKE_GH/prompt-1.txt" && ok "(dq) #961: the build prompt asks an unowned dependency's error/empty double to cite its source" || bad "(dq) #961: unowned-double sentence missing from prompt-1"
 [ ! -d "$d/wt/42" ] && ok "(dq) the worktree is removed at close-out" || bad "(dq) worktree left in place"
 fixture d2; printf 'build-nothing\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect build-no-pr "(d2) [B14 B15] a build that changed nothing and opened no PR is build-no-pr, not in flight (orch:1515-1545 never tested head movement)"
 
