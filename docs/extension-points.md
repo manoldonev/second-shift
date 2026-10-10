@@ -71,6 +71,10 @@ them when the diff newly reads a stored field. Guards worth adopting: the store 
 undeclared fields (e.g. Mongoose `strict: 'throw'`, or the stack's equivalent), test fixtures
 built through the model rather than by hand, one round-trip spec per schema, and lint rules
 for the traps syntax can catch.
+List the repo's lookup and upsert verbs and wrappers (e.g. `findOne`, `upsert`, a repository's
+`findByEmail`): review-lead routes db-reviewer when a diff adds one on an identity path, and
+db-reviewer's constraint-scope check triggers on them. Without the line, both match the engine's
+native verbs only.
 
 ## Maturity stage
 E.g. "pre-auth: no ownership parameter or guards exist yet". Read by: security-reviewer
