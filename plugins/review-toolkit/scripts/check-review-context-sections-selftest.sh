@@ -136,10 +136,10 @@ mkdir -p "$TMP/r4/.claude/second-shift"
 : > "$TMP/r4/.claude/second-shift/review-context.md"
 RC=0; OUT="$(bash "$CHECK" --preflight "$TMP/r4" 2>&1)" || RC=$?
 RC_REP=0; REP="$(bash "$CHECK" --report "$TMP/r4" 2>&1)" || RC_REP=$?
-if [ "$RC" -eq 0 ] && [ "$RC_REP" -eq 0 ] && grep -q '0/10 catalog sections present' <<<"$REP"; then
-    ok "AC-2 (M4 empty-file): NOT red; coverage line discloses 0/10 sections present"
+if [ "$RC" -eq 0 ] && [ "$RC_REP" -eq 0 ] && grep -q '0/11 catalog sections present' <<<"$REP"; then
+    ok "AC-2 (M4 empty-file): NOT red; coverage line discloses 0/11 sections present"
 else
-    bad "AC-2 (M4): expected exit 0 (preflight=$RC report=$RC_REP) + '0/10 ... present' coverage"
+    bad "AC-2 (M4): expected exit 0 (preflight=$RC report=$RC_REP) + '0/11 ... present' coverage"
 fi
 
 # ---- (5) AC-3: coverage cannot contribute to exit (--report always 0) -------------------
