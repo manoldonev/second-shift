@@ -326,6 +326,13 @@ fi
 MCP_ALLOW=""; [ "$TRACKER" = jira ] && MCP_ALLOW=",mcp__atlassian,mcp__plugin_atlassian_atlassian,mcp__claude_ai_Atlassian_Rovo"
 SPAWN_COMMON=(--permission-mode acceptEdits --permission-prompts none --disallowedTools "$DISALLOWED" --setting-sources "user,project,local" --add-dir "$WT" --output-format json)
 [ -n "$CONFIG" ] && SPAWN_COMMON+=(--add-dir "$(cd "$(dirname "$CONFIG")" && pwd)")
+read_denials() { # read_denials <result-json> <out> — the file is written only when the JSON was read: a missing file is
+  # "unread" (the run block's "?"), never "none"; a session killed at its bound leaves no JSON to read
+  # slurped: jq on an empty file runs no filter and exits 0, so "one object carrying the key" is asserted, not assumed
+  if jq -rs 'if length == 1 and (.[0] | type) == "object" and (.[0] | has("permission_denials")) then .[0].permission_denials[] | (.tool_name + " " + (.tool_input|tostring)) else error("unread") end' "$1" > "$2.tmp" 2>/dev/null
+  then mv "$2.tmp" "$2"
+  else rm -f "$2.tmp" "$2"; fi
+}
 add_cost() { # rows I14 I16: a session with no total_cost_usd (killed at its bound, crashed) is UNPRICED, never $0
   local c n; n="$(basename "$1" .json)"; c="$(jq -r '.total_cost_usd | numbers' "$1" 2>/dev/null)"
   if [ -z "$c" ]; then UNPRICED="${UNPRICED:+$UNPRICED }$n"; say "unpriced: $n left no total_cost_usd — the run's cost is a lower bound"; return 0; fi
@@ -781,7 +788,7 @@ cost_block() { # <terminal slug>
   [ -z "$RUN_NOTES" ] || printf '%s' "$RUN_NOTES" | awk '{print; print ""}'
   [ -z "$STATUS_NOTES" ] || printf '%s' "$STATUS_NOTES" | awk '{print; print ""}'   # one paragraph per bound verdict's status post
   [ -z "$DRAFT_NOTES" ] || printf '%s' "$DRAFT_NOTES" | awk '{print; print ""}'     # one paragraph per draft flip worth reporting
-  # #964 D-4: one denial count per session, from the denials file the scheduler wrote after it ("?" when none was);
+  # #964 D-4: one denial count per session, from the denials file the scheduler wrote after it ("?" when its JSON was unread);
   # a review's count misses the denials made inside its Workflow subagents, which its result JSON does not list
   echo "| session | turns | cost | denials |"; echo "| --- | --- | --- | --- |"
   local f n c dn df; for f in "$STATE"/build-*.json "$STATE"/review-*.json; do
@@ -1007,7 +1014,7 @@ while :; do
         terminal build-handoff "BUILD handed to the calling session in $WT; review with /dev-pipeline:review <pr> in a fresh session"
       fi
       spawn build "$BUILD_MODEL" "$A" "$(build_allowlist)" 400 "$STATE/build-$A.prompt"; brc=$?
-      jq -r '.permission_denials[]? | (.tool_name + " " + (.tool_input|tostring))' "$STATE/build-$A.json" > "$STATE/denials-$A.txt" 2>/dev/null || true
+      read_denials "$STATE/build-$A.json" "$STATE/denials-$A.txt"
       [ "$brc" -eq 124 ] && terminal build-blocked "build session exceeded ${BUILD_TO}s; worktree and claim left in place"
       sub="$(jq -r '.subtype // "unreadable"' "$STATE/build-$A.json" 2>/dev/null)"
       [ "$sub" = success ] || terminal build-blocked "build session ended $sub (rc=$brc); worktree and claim left in place"
@@ -1050,7 +1057,7 @@ while :; do
     end="$(now)"
     # #964 D-4: the review's denials, read as the build's are. Known gap: a denial inside the review's Workflow
     # subagents is not in this result JSON, so it is not counted here
-    jq -r '.permission_denials[]? | (.tool_name + " " + (.tool_input|tostring))' "$STATE/review-$RA.json" > "$STATE/denials-review-$RA.txt" 2>/dev/null || true
+    read_denials "$STATE/review-$RA.json" "$STATE/denials-review-$RA.txt"
     rsub="$(jq -r '.subtype // "unreadable"' "$STATE/review-$RA.json" 2>/dev/null)"
     miss=""
     if [ "$rrc" -eq 124 ]; then miss="the review session exceeded ${REVIEW_TO}s"

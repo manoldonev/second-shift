@@ -984,6 +984,10 @@ fixture au4; printf 'build-pr\nreview-crash\nreview-approve\n' > "$FAKE_CLAUDE_P
 [ -f "$(SD)/checks-1.1.log" ] && [ ! -f "$(SD)/checks-1.1-retry1.log" ] && ok "[K12] the checks did not re-run for an unmoved head" || bad "[K12] checks re-ran: $(cd "$(SD)" && echo checks-*)"
 fixture au5; printf 'build-pr\nbuild-sleep\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; RUN_REVIEW_TIMEOUT=2 run_case "$d"; expect approved "[K12] a timed-out review is re-spawned once"
 grep -qF '| review-1.1 | ? | unpriced (no total_cost_usd) |' "$FAKE_GH/pr-body.md" && grep -q '[$][0-9.]* + unpriced' "$FAKE_GH/pr-body.md" && ok "[K12] the killed review is an unpriced row, never \$0.00" || bad "[K12] rows: $(grep -E '^[|] (build|review)' "$FAKE_GH/pr-body.md" | tr '\n' '|')"
+# its denials were never read: "?", never a 0 a reader takes for a clean session; the re-spawn that did report counts
+# shellcheck disable=SC2016  # the run block's literal dollar costs
+grep -qxF '| review-1.1 | ? | unpriced (no total_cost_usd) | ? |' "$FAKE_GH/pr-body.md" && grep -qxF '| review-1.1-retry1 | 3 | $1.00 | 1 |' "$FAKE_GH/pr-body.md" && [ ! -e "$(SD)/denials-review-1.1.txt" ] \
+  && ok "[K12] the killed review's denials are unread (?), not 0" || bad "[K12] denials cells: $(grep -E '^[|] review' "$FAKE_GH/pr-body.md" | tr '\n' '|')"
 sleep 1; pkill -f 'sleep 60' 2>/dev/null
 
 # C13: the docs/plans default is where the record lands when no config says otherwise
