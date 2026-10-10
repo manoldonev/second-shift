@@ -45,7 +45,9 @@ review's context.
    count too), added skips or forced-green lines (`.skip(`, `.only(`, `|| true`, pytest
    `skip`/`skipif`/`xfail`, Go `t.Skip(`, JUnit `@Disabled`, Rust `#[ignore]`, …), edits to CI or
    check configuration (`pyproject.toml`, `pytest.ini`, `setup.cfg`, `.coveragerc`, `Makefile` and a
-   nested `package.json` included), and every `when`-scoped `extraLanes` entry no changed file
+   nested `package.json` included), modified existing test or snapshot files (`__snapshots__/`
+   or `.snap`) and their removed expectations, each traced to an acceptance criterion or a record
+   row (an untraced one is a Warning that requires the citation, never a Blocker), and every `when`-scoped `extraLanes` entry no changed file
    matched — a configured lane that did not run on this diff. Each is a question the diff must
    answer, whatever the stack.
 5. **Score EVERY row of the record** against the code: `honored`, `violated`, `departed` (the row

@@ -94,6 +94,9 @@ case "$plan" in
   build-polyglot)  git rm -q tests/test_x.py src/__tests__/b.js; mkdir -p tests; printf '@pytest.mark.skip\ndef test_y(): pass\n' > tests/test_y.py   # #956: a non-JS weakening
                    printf 'func TestZ(t *testing.T) { t.Skip("later") }\n' > src/z_test.go; printf 'addopts = "--cov-fail-under=10"\n' > pyproject.toml
                    echo 'export default []' > eslint.config.mjs; push; openpr ;;
+  build-edit-expectation) sed '1s/1999/2000/' src/b.test.ts > b.tmp && mv b.tmp src/b.test.ts   # #957: one assertion moved with the code,
+                   sed 's/1999/2000/' src/__snapshots__/price.snap > s.tmp && mv s.tmp src/__snapshots__/price.snap   # a snapshot regenerated whole,
+                   printf 'it("more", () => {});\n' >> src/a.spec.ts; printf 'it("new", () => {});\n' > src/c.spec.ts; push; openpr ;;   # an additive edit and a new spec
   review-crash)    printf '{"subtype":"error_during_execution","total_cost_usd":0}\n'; exit 1 ;;
   review-approve|review-needs-work|review-wrong-sha|review-approve-dirty|review-approve-runtime|review-approve-and-push|review-needs-work-drop-base|review-needs-work-diverge)
     sha=$(git rev-parse "origin/$branch"); [ "$plan" = review-wrong-sha ] && sha=deadbeef
@@ -139,7 +142,7 @@ fixture() { # fixture <case> [checks-line] [extra-record] — sets $d and the en
   git -C "$d/main" symbolic-ref HEAD refs/heads/main
   mkdir -p "$d/main/src" "$d/main/.claude/pipeline-state"
   echo "x" > "$d/main/src/a.spec.ts"; echo "y" > "$d/main/src/a.ts"
-  local f; for f in ${FIXTURE_FILES:-}; do mkdir -p "$d/main/$(dirname "$f")"; echo "x" > "$d/main/$f"; done   # extra base files a build can delete or edit
+  local f; for f in ${FIXTURE_FILES:-}; do mkdir -p "$d/main/$(dirname "$f")"; printf '%s\n' "${FIXTURE_BODY:-x}" > "$d/main/$f"; done   # extra base files a build can delete or edit
   local dflt='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"}}'
   printf '%s\n' "${FIXTURE_CONFIG:-$dflt}" > "$d/main/.claude/second-shift.config.json"
   printf '%s\n' ".claude/" > "$d/main/.gitignore"
@@ -903,6 +906,14 @@ fixture rp; printf 'build-skip-test\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; ru
 grep -q 'it.skip' "$(SD)/review-1.1.prompt" && grep -q 'ci.yml' "$(SD)/review-1.1.prompt" && ok "[I10] the added skip and the CI edit are named in the review input" || bad "[I10] not surfaced"
 rsec() { awk -v h="### $1" 'index($0, h) == 1 {on=1; next} /^###/{on=0} on && NF' "$(SD)/review-input-1.1.md" 2>/dev/null; }
 [ "$(rsec 'Deleted or renamed test files')" = "(none)" ] && [ "$(rsec 'Configured lanes not run')" = "(none)" ] && ok "[I10] #956: the deleted-tests and skipped-lanes sections say (none) when empty" || bad "[I10] #956: deleted=[$(rsec 'Deleted or renamed test files')] lanes=[$(rsec 'Configured lanes not run')]"
+[ "$(rsec 'Existing test or snapshot expectations changed')" = "(none)" ] && ok "[I10] #957: lines only added to an existing spec change no expectation: (none)" || bad "[I10] #957: additive section: [$(rsec 'Existing test or snapshot expectations changed')]"
+
+# I10 #957: a modified existing spec and a snapshot outside the spec pattern are listed with their removed lines, capped at 20
+FIXTURE_FILES="src/b.test.ts src/__snapshots__/price.snap" FIXTURE_BODY="$(for i in $(seq 1 22); do echo "expect(v$i).toBe(1999)"; done)" fixture rp3
+printf 'build-edit-expectation\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "[I10] #957 run"
+want="$(echo src/__snapshots__/price.snap; for i in $(seq 1 20); do echo "  -expect(v$i).toBe(1999)"; done; echo '  (… 2 more)'; echo src/b.test.ts; echo '  -expect(v1).toBe(1999)')"
+s="$(rsec 'Existing test or snapshot expectations changed')"; [ "$s" = "$want" ] && ok "[I10] #957: the edited assertion and the regenerated snapshot are named with their old expectations; the additive and new specs are not" || bad "[I10] #957: section: $(tr '\n' '|' <<<"$s")"
+grep -q '^### Existing test or snapshot expectations changed' "$(SD)/review-1.1.prompt" && ok "[I10] #957: the section reaches the review prompt" || bad "[I10] #957: not in the review prompt"
 
 # I10 #956: the detectors are stack-neutral, and a when-skipped lane is named even when another lane ran
 FIXTURE_FILES="tests/test_x.py src/__tests__/b.js pyproject.toml" FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"commands":{"main":{"extraLanes":[{"name":"unit","when":["src/**"],"commands":["true"]},{"name":"docs-lint","when":["docs/**"],"commands":["true"]}]}}}' fixture rp2 ""

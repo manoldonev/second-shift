@@ -507,6 +507,19 @@ EOF
 smoke_red() { echo "RED: $*" >> "$SMOKE_LOG"; say "smoke: $*"; SMOKE_RC=1; }
 
 # -- the review input (rows I9-I11) --
+TEST_PATH_ERE='(\.spec\.|\.test\.|_test\.|_spec\.|(^|/)(tests?|__tests__)/|(^|/)test_[^/]*\.py$|(^|/)conftest\.py$)'   # a test path, on any stack (#956)
+expectations_changed() { # expectations_changed <name-status> -> each modified existing test or snapshot file, then its removed lines (#957)
+  # an oracle edited with the code it pins stays green in CI: the old expectation is what the review traces to an AC or a record row
+  local f removed n listed=0
+  while IFS= read -r f; do
+    removed="$(git -C "$WT" diff "$FIRST"..HEAD -- "$f" 2>/dev/null | awk '/^@@/ { h=1; next } h && /^-/')"
+    [ -n "$removed" ] || continue   # an additive change moved no expectation
+    listed=1; n="$(grep -c '' <<<"$removed")"
+    echo "$f"; head -n 20 <<<"$removed" | sed 's/^/  /'
+    [ "$n" -le 20 ] || echo "  (… $((n - 20)) more)"
+  done < <(TEST_PATH_ERE="$TEST_PATH_ERE" awk -F'\t' '$1 == "M" && ($2 ~ ENVIRON["TEST_PATH_ERE"] || $2 ~ /(^|\/)__snapshots__\/|\.snap$/) { print $2 }' <<<"$1")
+  [ "$listed" -eq 1 ] || echo "(none)"
+}
 review_input() { # review_input <attempt> -> writes $STATE/review-input-<attempt>.md; 1 when a diff cannot be read (the caller refuses)
   local out="$STATE/review-input-$1.md" ns full names lanes
   ns="$(git -C "$WT" diff --name-status "$FIRST"..HEAD 2>/dev/null)" || return 1
@@ -515,7 +528,9 @@ review_input() { # review_input <attempt> -> writes $STATE/review-input-<attempt
   {
     # stack-neutral and advisory (#956): on a non-JS repo an empty section must not read as clean evidence
     echo "### Deleted or renamed test files"
-    awk '$1 ~ /^[DR]/ && $2 ~ /(\.spec\.|\.test\.|_test\.|_spec\.|(^|\/)(tests?|__tests__)\/|(^|\/)test_[^\/]*\.py$|(^|\/)conftest\.py$)/ { print; n++ } END { if (!n) print "(none)" }' <<<"$ns"; echo
+    TEST_PATH_ERE="$TEST_PATH_ERE" awk '$1 ~ /^[DR]/ && $2 ~ ENVIRON["TEST_PATH_ERE"] { print; n++ } END { if (!n) print "(none)" }' <<<"$ns"; echo
+    echo "### Existing test or snapshot expectations changed (removed lines)"
+    expectations_changed "$ns"; echo
     echo "### Added skips / forced-green lines"
     grep -nE '^\+.*(\.skip\(|\.only\(|\|\| *true|xit\(|xdescribe\(|(^|[^[:alnum:]_.])fit\(|test\.todo\(|@pytest\.mark\.(skip|skipif|xfail)|t\.Skipf?\(|@Disabled|#\[ignore)' <<<"$full" || echo "(none)"; echo
     echo "### CI or check configuration edited"
@@ -558,7 +573,8 @@ review_prompt() { # review_prompt <pr> <review-input-file>
   echo "If the ticket has design frames, render every screen at the head with the repo's render command and compare it with its frame; if you cannot render, you cannot approve: post 'verdict: needs-work' with a line 'reason: render-unavailable'."
   local via=""; [ "$BOT_OK" -eq 1 ] && via=" through $GH (the bot identity)"
   echo; echo "Post ONE PR comment$via. Its first line is exactly 'verdict: approve' or 'verdict: needs-work'; its second line is exactly 'reviewed: <the full sha of the head you reviewed>'. Then the row table, then findings. Never edit that comment afterwards."
-  echo; echo "## Scheduler input (deleted or skipped tests, config edits, the build's permission denials, and the untracked files archived after it)"; cat "$2"
+  echo "For every file under 'Existing test or snapshot expectations changed' in the scheduler input below, trace its removed expectation to an acceptance criterion of the ticket or a row of the decision record. An entry you cannot trace is a Warning, never a Blocker: name the file and the expectation, and require the build to cite the criterion or row that authorized the change."
+  echo; echo "## Scheduler input (deleted or skipped tests, changed test or snapshot expectations, config edits, the build's permission denials, and the untracked files archived after it)"; cat "$2"
 }
 build_allowlist() { # row F3: derived from what the record and config name
   local allow="Read,Edit,Write,Agent,Bash(git *),Bash(gh pr create*),Bash(gh pr view*),Bash(gh pr comment*),Bash(gh issue view*)$MCP_ALLOW" c
