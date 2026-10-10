@@ -70,7 +70,10 @@ instead of a compiled sub-schema), dropped on write by strict mode, projected aw
 them when the diff newly reads a stored field. Guards worth adopting: the store rejecting
 undeclared fields (e.g. Mongoose `strict: 'throw'`, or the stack's equivalent), test fixtures
 built through the model rather than by hand, one round-trip spec per schema, and lint rules
-for the traps syntax can catch.
+for the traps syntax can catch. A migration linter runs as a `commands.<id>.extraLanes` entry
+([`extending.md` §3.2](extending.md)) scoped by `when` to the migrations dir — e.g. squawk
+(Postgres only) or strong_migrations (Rails; by its own README it does not catch dangerous
+backfills).
 
 ## Maturity stage
 E.g. "pre-auth: no ownership parameter or guards exist yet". Read by: security-reviewer
