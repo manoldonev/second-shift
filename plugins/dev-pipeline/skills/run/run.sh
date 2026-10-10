@@ -404,22 +404,34 @@ config_checks() { # config_checks [all]: lint/typecheck/test/format, then extraL
   local key; key="$(commands_key)"; [ -n "$key" ] || return 0
   jq -r --arg k "$key" '.commands[$k] | [.lint, .typecheck, .test, .format] | map(select(type=="string"))[]' "$CONFIG" 2>/dev/null
   if [ "${1:-}" = all ]; then jq -r --arg k "$key" '.commands[$k].extraLanes[]?.commands[]? | select(type=="string")' "$CONFIG" 2>/dev/null; return 0; fi
-  local lane hit g f
+  local lane
   while IFS= read -r lane; do
-    [ -n "$lane" ] || continue; hit=1
-    if [ "$(printf '%s' "$lane" | jq '.when | length')" -gt 0 ]; then
-      hit=0
-      while IFS= read -r g; do while IFS= read -r f; do # shellcheck disable=SC2254  # $g IS a glob, by contract
-        case "$f" in $g) hit=1 ;; esac; done <<EOF
+    [ -n "$lane" ] || continue
+    lane_hit "$lane" && printf '%s' "$lane" | jq -r '.commands[] | select(type=="string")'
+  done <<EOF
+$(extra_lanes)
+EOF
+}
+extra_lanes() { local key; key="$(commands_key)"; [ -n "$key" ] || return 0; jq -c --arg k "$key" '.commands[$k].extraLanes[]? | {name: (.name // ""), when: (.when // []), commands: (.commands // [])}' "$CONFIG" 2>/dev/null; }
+lane_hit() { # lane_hit <lane-json>: 0 when the lane has no `when` globs or one matches a file in $CHANGED
+  local g f
+  [ "$(printf '%s' "$1" | jq '.when | length')" -gt 0 ] || return 0
+  while IFS= read -r g; do while IFS= read -r f; do # shellcheck disable=SC2254  # $g IS a glob, by contract
+    case "$f" in $g) return 0 ;; esac; done <<EOF
 $CHANGED
 EOF
-      done <<EOF
-$(printf '%s' "$lane" | jq -r '.when[]')
-EOF
-    fi
-    [ "$hit" -eq 1 ] && printf '%s' "$lane" | jq -r '.commands[] | select(type=="string")'
   done <<EOF
-$(jq -c --arg k "$key" '.commands[$k].extraLanes[]? | {when: (.when // []), commands: (.commands // [])}' "$CONFIG" 2>/dev/null)
+$(printf '%s' "$1" | jq -r '.when[]')
+EOF
+  return 1
+}
+skipped_lanes() { # the name of each when-scoped extraLanes entry no file in $CHANGED matched, whether or not others ran (#956)
+  local lane
+  while IFS= read -r lane; do
+    [ -n "$lane" ] || continue
+    lane_hit "$lane" || printf '%s' "$lane" | jq -r '.name'
+  done <<EOF
+$(extra_lanes)
 EOF
 }
 allow_unverified() { local key; key="$(commands_key)"; [ -n "$key" ] && [ "$(jq -r --arg k "$key" '.commands[$k].allowUnverified // false' "$CONFIG" 2>/dev/null)" = true ]; }
@@ -515,15 +527,36 @@ EOF
 smoke_red() { echo "RED: $*" >> "$SMOKE_LOG"; say "smoke: $*"; SMOKE_RC=1; }
 
 # -- the review input (rows I9-I11) --
+TEST_PATH_ERE='(\.spec\.|\.test\.|_test\.|_spec\.|(^|/)(tests?|__tests__)/|(^|/)test_[^/]*\.py$|(^|/)conftest\.py$)'   # a test path, on any stack (#956)
+expectations_changed() { # expectations_changed <name-status> -> each modified existing test or snapshot file, then its removed lines (#957)
+  # an oracle edited with the code it pins stays green in CI: the old expectation is what the review traces to an AC or a record row
+  local f removed n listed=0
+  while IFS= read -r f; do
+    removed="$(git -C "$WT" diff "$FIRST"..HEAD -- "$f" 2>/dev/null | awk '/^@@/ { h=1; next } h && /^-/')"
+    [ -n "$removed" ] || continue   # an additive change moved no expectation
+    listed=1; n="$(grep -c '' <<<"$removed")"
+    echo "$f"; head -n 20 <<<"$removed" | sed 's/^/  /'
+    [ "$n" -le 20 ] || echo "  (… $((n - 20)) more)"
+  done < <(TEST_PATH_ERE="$TEST_PATH_ERE" awk -F'\t' '$1 == "M" && ($2 ~ ENVIRON["TEST_PATH_ERE"] || $2 ~ /(^|\/)__snapshots__\/|\.snap$/) { print $2 }' <<<"$1")
+  [ "$listed" -eq 1 ] || echo "(none)"
+}
 review_input() { # review_input <attempt> -> writes $STATE/review-input-<attempt>.md; 1 when a diff cannot be read (the caller refuses)
-  local out="$STATE/review-input-$1.md" ns full names
+  local out="$STATE/review-input-$1.md" ns full names lanes
   ns="$(git -C "$WT" diff --name-status "$FIRST"..HEAD 2>/dev/null)" || return 1
   full="$(git -C "$WT" diff "$FIRST"..HEAD 2>/dev/null)" || return 1
   names="$(git -C "$WT" diff --name-only "$FIRST"..HEAD 2>/dev/null)" || return 1
   {
-    echo "### Deleted or renamed test files"; awk '$1 ~ /^[DR]/ && $2 ~ /(\.spec\.|\.test\.|_test\.|\/tests?\/)/' <<<"$ns"; echo
-    echo "### Added skips / forced-green lines"; grep -nE '^\+.*(\.skip\(|\.only\(|\|\| *true|xit\(|xdescribe\()' <<<"$full" || echo "(none)"; echo
-    echo "### CI or check configuration edited"; grep -E '^\.github/|^\.gitlab|\.ya?ml$|^package\.json$|vitest\.config|jest\.config|\.eslintrc|tsconfig' <<<"$names" || echo "(none)"; echo
+    # stack-neutral and advisory (#956): on a non-JS repo an empty section must not read as clean evidence
+    echo "### Deleted or renamed test files"
+    TEST_PATH_ERE="$TEST_PATH_ERE" awk '$1 ~ /^[DR]/ && $2 ~ ENVIRON["TEST_PATH_ERE"] { print; n++ } END { if (!n) print "(none)" }' <<<"$ns"; echo
+    echo "### Existing test or snapshot expectations changed (removed lines)"
+    expectations_changed "$ns"; echo
+    echo "### Added skips / forced-green lines"
+    grep -nE '^\+.*(\.skip\(|\.only\(|\|\| *true|xit\(|xdescribe\(|(^|[^[:alnum:]_.])fit\(|test\.todo\(|@pytest\.mark\.(skip|skipif|xfail)|t\.Skipf?\(|@Disabled|#\[ignore)' <<<"$full" || echo "(none)"; echo
+    echo "### CI or check configuration edited"
+    grep -E '^\.github/|^\.gitlab|\.ya?ml$|(^|/)package\.json$|vitest\.config|jest\.config|\.eslintrc|eslint\.config\.|tsconfig|(^|/)(pyproject\.toml|pytest\.ini|setup\.cfg|\.coveragerc|Makefile)$' <<<"$names" || echo "(none)"; echo
+    echo "### Configured lanes not run on this diff (when-scoped; no changed file matched their globs)"
+    lanes="$(skipped_lanes)"; [ -n "$lanes" ] && printf '%s\n' "$lanes" || echo "(none)"; echo
     echo "### Build session permission denials"; [ -s "$STATE/denials-$A.txt" ] && cat "$STATE/denials-$A.txt" || echo "(none)"; echo
     echo "### Untracked files archived after the build (in no commit: a stray probe, or a file the build forgot to add)"
     [ -s "$STATE/quarantine-$A.list" ] && tr '\0' '\n' < "$STATE/quarantine-$A.list" || echo "(none)"
@@ -542,6 +575,7 @@ build_prompt() { # build_prompt <round> <review-findings-file-or-empty> <red-che
   echo "Edit files only with the Edit and Write tools, never through a shell (no python, sed -i, heredoc or > redirect)."
   echo "Pass every PR or comment body with --body-file <a file you wrote with Write>, never inline with --body."
   echo "A stored field the change newly reads, or a field it sends across a service boundary, gets a test that moves it through the real schema or model, not a hand-built fixture: a fixture that already holds the value proves nothing about whether the store keeps it."
+  echo "A test double of a dependency this repo does not own that returns an error or an empty result cites where that shape comes from (the dependency's types, docs or a recorded real response): a double built from your own belief proves nothing about the dependency."
   [ "$BOT_OK" -eq 1 ] && echo "Commit through $TOOLS/bot-commit.sh (the repo's bot identity), never plain git commit — and re-pass the identity on any --amend, which otherwise silently re-stamps you as the committer."
   if [ "$1" -eq 1 ]; then
     echo "When the checks are green, commit, push branch $BRANCH to origin and, unless one is already open for this branch, open a DRAFT PR against $BASE_NAME with 'gh pr create --draft --base $BASE_NAME', and leave it a draft: the scheduler marks it ready for review only when a review approves its head. The PR body, in order: line 1 exactly 'built-by: second-shift run $RUN_ID'; then a link to the decision record at $RECORD_REL; then the line 'Record baseline: $FIRST'; then a summary of the change;"
@@ -568,7 +602,8 @@ review_prompt() { # review_prompt <pr> <review-input-file>
   echo "If the ticket has design frames, render every screen at the head with the repo's render command and compare it with its frame; if you cannot render, you cannot approve: post 'verdict: needs-work' with a line 'reason: render-unavailable'."
   local via=""; [ "$BOT_OK" -eq 1 ] && via=" through $GH (the bot identity)"
   echo; echo "Post ONE PR comment$via, its body passed with --body-file <a file in $SCRATCH>, never inline with --body. Its first line is exactly 'verdict: approve' or 'verdict: needs-work'; its second line is exactly 'reviewed: <the full sha of the head you reviewed>'. Then the row table, then findings. Never edit that comment afterwards."
-  echo; echo "## Scheduler input (deleted or skipped tests, config edits, the build's permission denials, and the untracked files archived after it)"; cat "$2"
+  echo "For every file under 'Existing test or snapshot expectations changed' in the scheduler input below, trace its removed expectation to an acceptance criterion of the ticket or a row of the decision record. An entry you cannot trace is a Warning, never a Blocker: name the file and the expectation, and require the build to cite the criterion or row that authorized the change."
+  echo; echo "## Scheduler input (deleted or skipped tests, changed test or snapshot expectations, config edits, the build's permission denials, and the untracked files archived after it)"; cat "$2"
 }
 build_allowlist() { # row F3: derived from what the record and config name
   local allow="Read,Edit,Write,Agent,Bash(git *),Bash(gh pr create*),Bash(gh pr view*),Bash(gh pr comment*),Bash(gh issue view*)$MCP_ALLOW" c

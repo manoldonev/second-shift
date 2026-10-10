@@ -36,4 +36,6 @@ Convention-required structure | maintainability-reviewer | active
 UI stack & design system | complexity-reviewer,a11y-reviewer | active
 Naming & structure conventions | db-reviewer,maintainability-reviewer | active
 Performance budgets | performance-reviewer | active
+Async processing | all | active
+Test coverage | test-coverage-reviewer | active
 Maturity calibration (MVP stage) | security-reviewer | deprecated-alias-of:Maturity stage

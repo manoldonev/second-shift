@@ -41,8 +41,15 @@ review's context.
    the `FIRST` you computed, or is not an ancestor of the head, the record commit was rewritten:
    that alone is a blocker.
 4. **Look at what the scheduler would have handed you**, from `git diff $FIRST..HEAD`: deleted or
-   renamed test files, added skips or forced-green lines (`.skip(`, `.only(`, `|| true`, …), and
-   edits to CI or check configuration. Each is a question the diff must answer.
+   renamed test files (a top-level `tests/`, `__tests__/`, `test_*.py`, `conftest.py`, `_spec.`
+   count too), added skips or forced-green lines (`.skip(`, `.only(`, `|| true`, pytest
+   `skip`/`skipif`/`xfail`, Go `t.Skip(`, JUnit `@Disabled`, Rust `#[ignore]`, …), edits to CI or
+   check configuration (`pyproject.toml`, `pytest.ini`, `setup.cfg`, `.coveragerc`, `Makefile` and a
+   nested `package.json` included), modified existing test or snapshot files (`__snapshots__/`
+   or `.snap`) and their removed expectations, each traced to an acceptance criterion or a record
+   row (an untraced one is a Warning that requires the citation, never a Blocker), and every `when`-scoped `extraLanes` entry no changed file
+   matched — a configured lane that did not run on this diff. Each is a question the diff must
+   answer, whatever the stack.
 5. **Score EVERY row of the record** against the code: `honored`, `violated`, `departed` (the row
    was edited; name who decided, per its provenance), or `undeterminable` (say what you could not
    read). A violated or undeterminable row is a blocker; neither may stand beside an approve.

@@ -21,8 +21,13 @@ a fast honest "nothing here in this dimension" is a complete review of it. The d
 size is in the SKILL's Review Depth Routing table.
 
 A named risk **always includes** a persisted field the diff newly depends on (see Data provenance
-below). Opening its schema is not proving a negative; it is the minimum read that grounds the claim
-that the feature works.
+below), and a write a Duplicate delivery trigger reaches (see Duplicate delivery below). Opening the
+field's schema — or the write's schema and the handler that delivers to it — is not proving a
+negative; it is the minimum read that grounds the claim that the feature works.
+
+It also **always includes** a queue-payload or persisted field the diff renames, removes or retypes
+(see Items in flight below). Open its unchanged readers, including a tolerant reader outside the
+hunk: whether one accepts the base shape decides whether there is a finding at all.
 
 **Findings out are ordinary findings.** They go into Synthesis Step 1 with the subagents' and are
 deduplicated, confidence-filtered and triaged identically. Being found in-session buys a finding
@@ -57,9 +62,68 @@ For each finding, decide which it is before you decide its severity:
    defective. Sibling consistency does not make it pre-existing: a pattern nobody depended on is
    not an established pattern. It then goes through the two-condition Critical trigger below at
    its own severity — Critical when the defect is confirmed in the defining artifact and it breaks
-   the feature's critical path today.
+   the feature's critical path today. The one carve-out is a Duplicate delivery finding (below),
+   whose severity its own rule sets.
 
 **A change that follows existing codebase patterns is CONSISTENT, not broken.**
+
+### Duplicate delivery
+
+Rule 4's shape, for writes: the diff adds a **new delivery source or a new concurrent writer**
+around a write the store does not deduplicate, and an at-most-once, uniqueness or balance invariant
+that only an app-level check-then-write enforces becomes load-bearing.
+
+**Trigger.** The diff adds or raises any of these around a write on an existing entity:
+
+- a retry wrapper, or an attempts / delivery-semantics change;
+- a new event or webhook handler that writes;
+- a second consumer registration, or a new enqueue or schedule site for an existing handler;
+- raised worker concurrency;
+
+and the invariant the write threatens has no store-level enforcement in the cited schema. Also a
+**new write inside a handler that is already redelivered** — an existing webhook, event or job
+handler on at-least-once delivery. There the defective write is in the diff (rule 3, not rule 4),
+and it gets the same treatment. Match the triggers in the repo's own registration, enqueue and
+schedule vocabulary from review-context's `## Async processing`; a generic keyword match misses
+them.
+
+**First, name the write pattern and the invariant.** Name the write's pattern — delete-then-insert,
+conditional upsert, overwrite-in-place, insert-new-row (pipeline-reviewer's "Idempotency under
+retry" list) — and the at-most-once, uniqueness or balance invariant a replay or a concurrent run
+breaks. A write with no invariant to name, such as an overwrite by primary key, is cleared by naming
+that pattern in `## Suppressed`, not by silence.
+
+**What clears it.** A replay is a no-op only when it is deduplicated **where the write commits**:
+
+1. the callee enforces an idempotency key the call sends;
+2. a unique constraint, or a processed-ID table written in the same transaction;
+3. a conditional write or upsert keyed on the job or event id;
+4. a Kafka produce inside the same exactly-once transaction.
+
+Producer- or broker-side dedup (a broker job id, a FIFO dedup id, an outbox) does not clear it: it
+stops a second enqueue, not a second delivery. Cite the commit-point dedup to clear the finding.
+
+**Grounding.** When `## Async processing` declares at-least-once delivery or automatic retries, the
+finding is "a concrete protection the diff fails to apply" (Pre-Emit Gate 2). When no delivery model
+is declared, the output is `unable to verify — pointer needed: delivery model` (Grounding below),
+not a finding.
+
+**Severity.** The finding is new — rule 4, or rule 3 for the already-redelivered arm — and sibling
+handlers that lack commit-point dedup do not demote it (Pre-Emit Gate 3). It is a **Warning** by
+default, even on the feature's critical path: this carves it out of rule 4's last sentence. It is
+**Critical** only when the duplicated effect is:
+
+- **cross-tenant** — it lands on a record or counter scoped to a tenant other than the one the
+  delivery belongs to, or on one shared across tenants; or
+- **money or quota** — a charge, refund, payout, credit, balance, or a usage or quota counter.
+
+**A callee in another repo.** When the only possible escape is the callee's idempotency key and its
+contract lives in another repo, the finding keeps its severity — a money retry stays Critical — and
+carries `unable to verify — pointer needed: <callee idempotency contract>` as the way to clear it.
+
+**The finding names** the trigger line in the diff (its anchor), the write and its schema line, the
+pattern and invariant, the delivery model and the `## Async processing` line that declares it, and
+the escape that would clear it. It is an ordinary finding; there is no report section for it.
 
 ### The two-condition Critical trigger
 
@@ -86,7 +150,9 @@ Before emitting any Critical or Warning, answer three questions to yourself. A f
 3. **Distinct from the surrounding pattern?** If every sibling does the same thing, the diff doing
    it is consistent — `[Pre-existing]` at most, never a new Critical. Sibling consistency does not
    apply when the diff is the first consumer of the defect: a pattern nobody depended on is not an
-   established pattern (rule 4).
+   established pattern (rule 4). Nor does it apply to a Duplicate delivery finding: sibling
+   handlers without commit-point dedup do not make a new delivery source or a new write in a
+   redelivered handler consistent.
 
 ### Grounding
 
@@ -99,6 +165,15 @@ the single-true ones. If the canonical artifact cannot be opened, the output is 
 **Producer ≠ persister.** For stored data the defining artifact is the schema, model, DDL or
 mapping that persists the field, not the code that writes it. Citing the writer does not show the
 store keeps the value.
+
+**A test double is not the defining artifact.** For a dependency the repo does not own — its
+source is not in the repo under review: a third-party SDK, an external API, another team's service
+even in the same org (a workspace package in the same repo is owned) — the defining artifact is its
+published types, its docs or a recorded real response, never a mock, stub or fake of it. A double
+is built from the same belief as the code under test, so a finding or a clean claim about what the
+dependency returns, throws or leaves empty that rests on the double proves nothing. When none of
+those can be opened, the output is the question form above (`unable to verify — pointer needed:
+<the dependency's types, docs or a recorded response>`).
 
 ### Data provenance
 
@@ -123,6 +198,40 @@ read persisted field`. At most ~5 rows; identifiers that cross a service boundar
 - **Warning:** a new cross-service lookup whose miss path only logs a warning (no error, no
   alertable metric), or an identifier built with `String()` from a value that can be undefined —
   either turns a missing value into a feature that silently does nothing.
+
+### Items in flight
+
+A deploy does not drain what the old code wrote. Jobs already queued in the base shape and rows
+written before the change meet the new reader; while a rollout is in progress, old instances still
+running meet what the new code writes. The diff's writer and reader agreeing with each other says
+nothing about either window.
+
+**Scope.** A **boundary field** is a field of a queue payload (a job/message contract the repo
+enqueues and consumes), or a persisted field as defined under Data provenance. Third-party API
+payloads, service-to-service request shapes and frontend types are out of scope.
+
+For each boundary field the diff renames, removes or retypes:
+
+- **Forward — old items, new reader. Warning** unless the new reader accepts the base shape (a
+  fallback to the old name, a default for the removed field, a coercion from the old type) or the
+  PR or the code names a drain, backfill or ordering step. Cite the field, the boundary and the
+  reader at file:line. Check every reader, not only the ones in the hunk; one tolerant reader does
+  not clear an intolerant one.
+- **Reverse — new writes, old reader. Warning** only when you cite, at file:line in the base
+  branch (`git show origin/<base>:<path>`), the base reader's intolerance of the new shape: a
+  throw, a strict validator, a `switch` with no default, or a dereference of a field the new
+  writer no longer sets. No citation, no finding. This is the rolling-deploy window (old
+  instances still consuming during the rollout) and passes the Pre-Emit Gate's "concrete today"
+  on that ground; do not frame it as a hypothetical rollback.
+
+Both are Warning at most, never Critical. A reader the diff leaves **un-updated** — it still reads
+the old name, so the contract is broken for new items too — is not this rule: it is a broken
+contract today, Critical under the two-condition trigger (and pipeline-reviewer's Job Chain
+Contract Integrity when that agent runs). Report one severity per case.
+
+These are ordinary findings in the dimension where they surface; there is no report section for
+them. A compatibility shim that implements the forward half is not a complexity finding when its
+removal step is named (see Complexity).
 
 ### Extension surface
 
@@ -241,7 +350,10 @@ premature abstraction. Never flag structure the repo's framework, runtime, or co
 
 **Warning**
 
-- A feature flag or compatibility shim for a change that should just be made.
+- A feature flag or compatibility shim for a change that should just be made. A compatibility shim
+  for a queue-payload or persisted boundary field (see Items in flight) is not this when the PR or
+  the code names its removal step — the contract half of expand/contract. With no named removal
+  step it is still flagged.
 - A wrapper function whose whole body forwards its arguments with no transformation, validation,
   or error handling.
 - A generic/parameterized construct only ever instantiated with one concrete type.

@@ -70,7 +70,14 @@ instead of a compiled sub-schema), dropped on write by strict mode, projected aw
 them when the diff newly reads a stored field. Guards worth adopting: the store rejecting
 undeclared fields (e.g. Mongoose `strict: 'throw'`, or the stack's equivalent), test fixtures
 built through the model rather than by hand, one round-trip spec per schema, and lint rules
-for the traps syntax can catch.
+for the traps syntax can catch. A migration linter runs as a `commands.<id>.extraLanes` entry
+([`extending.md` §3.2](extending.md)) scoped by `when` to the migrations dir — e.g. squawk
+(Postgres only) or strong_migrations (Rails; by its own README it does not catch dangerous
+backfills).
+List the repo's lookup and upsert verbs and wrappers (e.g. `findOne`, `upsert`, a repository's
+`findByEmail`): review-lead routes db-reviewer when a diff adds one on an identity path, and
+db-reviewer's constraint-scope check triggers on them. Without the line, both match the engine's
+native verbs only.
 
 ## Maturity stage
 E.g. "pre-auth: no ownership parameter or guards exist yet". Read by: security-reviewer
@@ -99,6 +106,21 @@ held to. Read by: db-reviewer, maintainability-reviewer.
 
 ## Performance budgets
 Per-layer latency budgets, hot paths. Read by: performance-reviewer.
+
+## Async processing
+Queue engine / broker and the delivery model: at-least-once or at-most-once, automatic retries
+and their attempts, how a failed job is re-queued. Also the repo's vocabulary for the places a
+handler gains a delivery source: how a consumer, event or webhook handler is registered (the
+decorator or registration call), the enqueue and schedule verbs, and where worker concurrency is
+set. Read by: all reviewers via review-lead (the lead pass's Duplicate delivery rule matches its
+triggers in this vocabulary and names the delivery model from here), and pipeline-reviewer
+(applies every check in this stack's terms).
+
+## Test coverage
+The test runner(s) and run command, where test files live and how they are named, the layers or
+filename patterns that carry mandatory coverage, domain integrity checks (e.g. feature-schema
+consistency), cross-service contract fixtures, and any coverage exemptions. Read by:
+test-coverage-reviewer.
 ```
 
 Keep entries short and declarative — reviewers quote them back as exemption justifications,
