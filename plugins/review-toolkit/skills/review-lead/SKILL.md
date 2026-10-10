@@ -263,6 +263,20 @@ coverage.
    would. The trim stays the default because it was measured; this carrier exists so a diff the
    measurement never saw is not reviewed blind on a rule's say-so.
 
+   **The same carrier carries the decline.** Whether the diff *introduces* one of the three
+   surfaces — a new authentication, session, tenancy or ownership-scoping path or a new query
+   built from external input; new form controls or a new interactive component; new logic with
+   a co-located spec — is model judgment over the diff, as the Conditionally-spawn table judges
+   its triggers; the trim changes who is selected, not whether the surface is read. When a
+   surface is introduced and no carrier selects its reviewer, the caller passes the decline with
+   a one-line reason, and the panel line records it. An introduced surface with no selection and
+   no reason is recorded as such. It is never a blocker and never a `[Coverage gap]`, since the
+   lead pass still ran over the diff; it is a decision the verdict's reader can see was made
+   without a stated reason. A change to a file that already sits on a surface needs no decline:
+   that is the measured case, and the trim is its answer. The lead pass is one reader over the
+   whole diff, not the specialist's checklist, so it does not stand in for a declined reviewer
+   in the record.
+
 **An unrecognized name selects nothing and is never silent.** A name in any carrier that is not
 a reviewer in the effective registry — a typo, a short name in the config, a full name in the
 ledger row, a reviewer this repo `remove`d — selects nobody. Name it once in the Review Summary
@@ -274,8 +288,11 @@ rule exists to prevent.
 **Say which panel ran.** One Review Summary line, always, when the pipeline default panel was
 declared — e.g. "panel: pipeline default (scope-completeness only); opt-ins taken: security
 (ledger D-4), unit-test-mutation (config `reviewers.default`), a11y (caller: new form
-controls)", or "…; no opt-ins taken". The
-reader has to be able to tell a trimmed panel from a full one that happened to match no trigger.
+controls)", or "…; no opt-ins taken". An introduced surface whose reviewer was not selected is
+on the same line: "…; declined: security (caller: new query is parameterized, no external
+input reaches it)", or, when the caller gave no reason, "…; surface introduced, not selected,
+no reason given: a11y". The reader has to be able to tell a trimmed panel from a full one that
+happened to match no trigger, and a considered decline from a surface nobody looked at.
 The three not-selected reviewers get no separate Step 4c note in this case — this line is that
 note, and the two would say the same thing twice. Their Verdicts rows follow Step 4c: omitted,
 except `security-reviewer`, whose row reads `Lead pass — ✅/❌` because the lead pass covered it.
