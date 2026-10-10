@@ -4,6 +4,112 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v16.5.0
+
+### `dev-pipeline` 16.4.0 → 16.5.0
+
+- **fix(dev-pipeline): stack-neutral review-input detectors and a skipped-lanes section (#968)** (#968)
+  the review input a lane hands its review session now catches
+  deleted tests, added skips and check-config edits on non-JavaScript stacks,
+  and names every when-scoped lane that did not run on the diff.
+  Migration: none.
+- **feat(dev-pipeline): list changed test and snapshot expectations in the review input (#971)** (#971)
+  a lane review now sees the old expectations of every existing
+  test or snapshot file a build modified, and traces each to an acceptance
+  criterion or a decision-record row (an untraced one is a Warning). The
+  manual /dev-pipeline:review step 4 asks the same.
+  Migration: none.
+- **feat(review-toolkit,dev-pipeline): a test double of an unowned dependency is not its defining artifact (#975)** (#975)
+  lead-pass Grounding now says the defining artifact of a dependency the repo does not own is its types, docs or a recorded response, never a test double; the build prompt asks error/empty doubles of such a dependency to cite their source.
+  Migration: none.
+- **feat(dev-pipeline,review-toolkit): opting a reviewer in is the expected call on a touched surface, and a decline carries a reason (#969)** (#969)
+  the pipeline review session is told that opting security, a11y or
+  unit-test-mutation back in is the expected call whenever the diff touches
+  that surface, that its lead pass does not stand in for the specialist, and
+  that declining one on a touched surface is passed to review-lead with a
+  reason; review-lead's panel line records the decline, or that no reason was
+  given. Migration: none.
+- **feat(dev-pipeline): lane runs end with zero ERROR lines in the transcript (#967)** (#967)
+  lane sessions get a per-run scratch directory (archived into the run's state dir at exit) and prompt lines that avoid the permission denials seen in lane transcripts; the review session no longer gets the state dir; the run block counts each session's permission denials; the herdr transcript pane tags only permission denials as ERROR.
+  Migration: none.
+  none
+  (refines the unreleased per-session denials column in this branch)
+
+### `intake-toolkit` 7.0.2 → 7.1.0
+
+- **feat(intake-toolkit,review-toolkit): ask the data-provenance question at plan and spec time (#954)** (#954)
+  plan-interview, plan-reviewer and spec-reviewer now ask where a
+  stored field the change newly reads is persisted, who writes it, and whether
+  existing records carry it, so a missing persistence path surfaces as a plan
+  line instead of a review finding. plan-reviewer applies the round-trip traps
+  from the shared review-context.md Database stack section.
+  Migration: none.
+  plan-reviewer's newly-read-stored-field check also runs on
+  feature-add plans, not only behavior-change and refactor plans.
+  Migration: none.
+
+### `review-toolkit` 10.1.0 → 10.2.0
+
+- **feat(intake-toolkit,review-toolkit): ask the data-provenance question at plan and spec time (#954)** (#954)
+  plan-interview, plan-reviewer and spec-reviewer now ask where a
+  stored field the change newly reads is persisted, who writes it, and whether
+  existing records carry it, so a missing persistence path surfaces as a plan
+  line instead of a review finding. plan-reviewer applies the round-trip traps
+  from the shared review-context.md Database stack section.
+  Migration: none.
+  plan-reviewer's newly-read-stored-field check also runs on
+  feature-add plans, not only behavior-change and refactor plans.
+  Migration: none.
+- **feat(review-toolkit): flag a new delivery source around a write the store does not deduplicate (#965)** (#965)
+  review-lead's lead pass flags a change that adds a delivery source
+  or a concurrent writer (retry wrapper, attempts or delivery-semantics change,
+  new writing event or webhook handler, second consumer registration or
+  enqueue/schedule site, raised worker concurrency) around a write the store
+  does not deduplicate, and a new write inside an already-redelivered handler.
+  Only commit-point dedup clears it; producer- or broker-side dedup does not.
+  Warning by default, Critical when the duplicated effect is cross-tenant or
+  money/quota. pipeline-reviewer checks idempotency on an attempts or
+  delivery-semantics change instead of excluding it as operational.
+  rule-4 findings (a defect the diff is the first to depend on,
+  #951) are no longer re-downgraded at synthesis by citing a sibling, and
+  sibling consistency at Pre-Emit Gate 3 no longer demotes them.
+  Migration: the review-context section catalog gains an active
+  `## Async processing` section (readers: all) — declare the delivery model
+  (at-least-once / at-most-once, retries) and the repo's registration,
+  enqueue and schedule vocabulary there. A consumer heading spelled exactly
+  `## Async processing` stops being an off-catalog WARN; no existing heading
+  newly flags. Remove an `Async processing` line from .known-sections if one
+  was added to silence it.
+- **feat(review-toolkit): ask about items in flight when a boundary field changes shape (#966)** (#966)
+  review now flags a queue-payload or stored field that a PR
+  renames, removes or retypes without the new reader accepting items already
+  written in the old shape (or a named drain step); a base-branch reader
+  cited as intolerant of the new shape is flagged for the rolling-deploy
+  window. An expand/contract shim with a named removal step is no longer a
+  complexity Warning, and a coordinated rename (reader updated in the same
+  diff) is no longer a pipeline-reviewer Critical.
+  Migration: none.
+- **fix(review-toolkit): make the test-coverage reviewer's review-context section declarable (#970)** (#970)
+  the section catalog gains an active `## Test coverage` section (reader: test-coverage-reviewer), with a template in docs/extension-points.md; the reviewer now names it exactly.
+  Migration: a consumer holding test-coverage content under an off-catalog heading or in .known-sections can rename it to `## Test coverage`; nothing newly fails.
+- **feat(review-toolkit): check a constraint's scope against a new identity-path lookup (#972)** (#972)
+  db-reviewer flags a new identity-path lookup or upsert whose
+  predicate is narrower or wider than the unique constraint it relies on
+  (key columns, partial/filtered index, ORM-only uniqueness), and review-lead
+  routes db-reviewer on such a lookup. Consumers may list their lookup and
+  upsert verbs under review-context ## Database stack.
+  Migration: none.
+- **feat(review-toolkit,dev-pipeline): a test double of an unowned dependency is not its defining artifact (#975)** (#975)
+  lead-pass Grounding now says the defining artifact of a dependency the repo does not own is its types, docs or a recorded response, never a test double; the build prompt asks error/empty doubles of such a dependency to cite their source.
+  Migration: none.
+- **feat(dev-pipeline,review-toolkit): opting a reviewer in is the expected call on a touched surface, and a decline carries a reason (#969)** (#969)
+  the pipeline review session is told that opting security, a11y or
+  unit-test-mutation back in is the expected call whenever the diff touches
+  that surface, that its lead pass does not stand in for the specialist, and
+  that declining one on a touched surface is passed to review-lead with a
+  reason; review-lead's panel line records the decline, or that no reason was
+  given. Migration: none.
+
 ## v16.4.0
 
 ### `dev-pipeline` 16.3.0 → 16.4.0
