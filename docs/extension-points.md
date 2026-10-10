@@ -74,6 +74,10 @@ for the traps syntax can catch. A migration linter runs as a `commands.<id>.extr
 ([`extending.md` §3.2](extending.md)) scoped by `when` to the migrations dir — e.g. squawk
 (Postgres only) or strong_migrations (Rails; by its own README it does not catch dangerous
 backfills).
+List the repo's lookup and upsert verbs and wrappers (e.g. `findOne`, `upsert`, a repository's
+`findByEmail`): review-lead routes db-reviewer when a diff adds one on an identity path, and
+db-reviewer's constraint-scope check triggers on them. Without the line, both match the engine's
+native verbs only.
 
 ## Maturity stage
 E.g. "pre-auth: no ownership parameter or guards exist yet". Read by: security-reviewer
