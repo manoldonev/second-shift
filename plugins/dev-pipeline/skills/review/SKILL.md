@@ -59,15 +59,17 @@ review's context.
    `security`, `a11y` or `unit-test-mutation`, or the config's `reviewers.default[]`.
    `review-lead` never infers this; an undeclared panel leaves the surface triggers in force.
    Opting one of the three back in is your call, and **the expected call whenever the diff
-   touches its surface**: `security` for authentication, sessions, tenancy or ownership scoping,
-   or queries built from external input; `a11y` for the web-component surface;
-   `unit-test-mutation` for new logic with a co-located spec. Pass each short name to
-   `review-lead` with a one-line reason. Do not stand in for a specialist on a surface the diff
-   touches: your lead pass is one reader over the whole diff, not that reviewer's checklist. The
-   trim stays the default because it was measured; a diff it was never measured on is yours to
-   judge. Declining a reviewer whose surface the diff touches is itself a decision: pass the
-   decline to `review-lead` with a one-line reason, it is written into the panel line of the
-   review, and the human who reads the verdict reads that line. A touched surface with neither a
+   introduces a surface** rather than editing an existing one: `security` for a new
+   authentication, session, tenancy or ownership-scoping path, or a new query built from external
+   input; `a11y` for new form controls or a new interactive component; `unit-test-mutation` for
+   new logic with a co-located spec. A change to a file that already sits on one of those
+   surfaces is your call either way. Pass each short name to `review-lead` with a one-line
+   reason. Do not stand in for a specialist on a surface the diff introduces: your lead pass is
+   one reader over the whole diff, not that reviewer's checklist. The trim stays the default
+   because it was measured; a diff it was never measured on is yours to judge. Declining a
+   reviewer whose surface the diff introduces is itself a decision: pass the decline to
+   `review-lead` with a one-line reason, it is written into the panel line of the review, and
+   the human who reads the verdict reads that line. An introduced surface with neither a
    reviewer nor a reason is a silent decision.
    If it reports that the review did not run (its panel went dark), you have no verdict to give:
    say which reviewer went dark in a plain comment and post no `verdict:` line.
