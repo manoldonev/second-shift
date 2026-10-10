@@ -61,6 +61,8 @@ cat > "$T/bin/claude" <<'EOF'
 S="$FAKE_GH"; n=$(cat "$S/calls" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "$S/calls"
 plan=$(sed -n "${n}p" "$FAKE_CLAUDE_PLAN"); prompt="$(cat)"; [ -n "$prompt" ] || prompt="${@: -1}"   # stdin is the contract; the argv fallback lets (q12) fail for the real reason against an argv-passing run.sh
 printf '%s' "$prompt" > "$S/prompt-$n.txt"; printf '%s\n' "$@" > "$S/args-$n.txt"
+# #964: each --add-dir that exists while the session runs is recorded, and a probe is left in the run's scratch dir
+prev=""; for a in "$@"; do if [ "$prev" = --add-dir ] && [ -d "$a" ]; then echo "$a" >> "$S/live-dirs-$n.txt"; case "$a" in *-scratch.*) echo "probe $n" > "$a/probe-$n.txt" ;; esac; fi; prev="$a"; done
 # the session's env as claude would apply it: what it inherited, overlaid by any --settings env; the watch's own
 # variables are captured too, so a leak of one into a session is visible (#939 D-29)
 { env | grep -E '^(CLAUDE_CODE_DISABLE_BACKGROUND_TASKS|CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS|BASH_(DEFAULT|MAX)_TIMEOUT_MS|HERDR_[A-Za-z0-9_]*|RUN_WATCH[A-Za-z0-9_]*|RUN_DETACHED_LOG)='; prev=""; for a in "$@"; do [ "$prev" = --settings ] && printf '%s' "$a" | jq -r '.env // {} | to_entries[] | "\(.key)=\(.value)"'; prev="$a"; done; } | awk -F= '{ v[$1] = $0 } END { for (k in v) print v[k] }' | sort > "$S/env-$n.txt"
@@ -205,6 +207,8 @@ grep -qx in-progress "$FAKE_GH/labels" && grep -q 'Claimed by .*/dev-pipeline:bu
 hb="$(sed -n 's/^baseline: //p' <<<"$OUT")"
 [ -n "$hb" ] && [ "$hb" = "$(git -C "$d/origin.git" rev-parse second-shift/42)" ] && grep -q "Record baseline: $hb" "$hp" && grep -q "never amend, rebase or force-push over it" "$hp" && ok "(ho) the record baseline is printed and pinned in the prompt" || bad "(ho) baseline '$hb'"
 grep -q '^unpriced: build-in-calling-session' "$FAKE_GH/issue-comments" && ok "(ho) the closing comment says the build is unpriced, not \$0" || bad "(ho) closing comment: $(grep -A1 cost_usd "$FAKE_GH/issue-comments" | tr '\n' '|')"
+! grep -q '\[run\] scratch: ' <<<"$OUT" && grep -q 'Delete every probe or scratch file you created' "$hp" && ! grep -q 'Run every check in the foreground' "$hp" \
+  && ok "(ho) #964 D-10: no scratch dir for a handoff; its prompt keeps the delete sentence and no foreground rule" || bad "(ho) #964 D-10: handoff scratch/prompt wrong"
 lane_says() { jq --arg b "$1" --arg t "$2" '. + [{body:$b,user:{login:"tester",type:"User"},created_at:$t,updated_at:$t}]' "$FAKE_GH/comments.json" > "$FAKE_GH/c.tmp" && mv "$FAKE_GH/c.tmp" "$FAKE_GH/comments.json"; }
 # re-entry reads the marker the handoff itself posted (the fake gh logs comments; it does not list them back)
 hm="$(awk '/--body <!-- dev-pipeline -->/{on=1; sub(/^.*--body /,"")} on{print} on && /^second-shift-run: /{exit}' "$FAKE_GH/issue-comments")"
@@ -255,10 +259,43 @@ grep -qx 'src/zz-probe.spec.ts' <<<"$toc" && grep -qx 'src/probe dir/notes.txt' 
 grep -qE 'archived 2 untracked file\(s\) left in .* to .*/quarantine-1\.1\.tar ' <<<"$OUT" && ok "(dq) the log names the count and the archive" || bad "(dq) no archive line in the log"
 sec="$(awk '/^### Untracked files archived/{on=1; next} /^###/{on=0} on' "$(SD)/review-input-1.1.md" 2>/dev/null)"
 grep -qx 'src/zz-probe.spec.ts' <<<"$sec" && ok "(dq) the review input lists the archived path" || bad "(dq) review input lacks the archived path"
-grep -q 'Delete every probe or scratch file you created before you end your turn' "$FAKE_GH/prompt-1.txt" && ok "(dq) the build prompt tells the build to delete its probes" || bad "(dq) probe sentence missing from prompt-1"
+grep -q 'Put scratch files there; the scheduler removes it' "$FAKE_GH/prompt-1.txt" && ! grep -q 'Delete every probe' "$FAKE_GH/prompt-1.txt" && ok "(dq) #964 D-1: the build prompt puts probes in the scratch dir instead of asking the build to delete them" || bad "(dq) #964 D-1: scratch sentence missing from prompt-1, or the delete sentence kept"
 grep -q 'A stored field the change newly reads, or a field it sends across a service boundary, gets a test that moves it through the real schema or model' "$FAKE_GH/prompt-1.txt" && ok "(dq) #950: the build prompt obliges a round-trip test for a newly read stored field" || bad "(dq) #950: round-trip sentence missing from prompt-1"
 grep -q 'A test double of a dependency this repo does not own that returns an error or an empty result cites where that shape comes from' "$FAKE_GH/prompt-1.txt" && ok "(dq) #961: the build prompt asks an unowned dependency's error/empty double to cite its source" || bad "(dq) #961: unowned-double sentence missing from prompt-1"
 [ ! -d "$d/wt/42" ] && ok "(dq) the worktree is removed at close-out" || bad "(dq) worktree left in place"
+
+# (sc) #964 D-1 D-2 D-3: one scratch dir per run, outside .claude/, live during both spawns, named in both prompts;
+# archived into $STATE and removed at exit. Neither session is handed $STATE
+fixture sc; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(sc) a run with a scratch dir"
+scr="$(grep -A1 -x -- '--add-dir' "$FAKE_GH/args-1.txt" | grep -- '-scratch\.' | head -n 1)"
+[ -n "$scr" ] && case "$scr" in */.claude/*) false ;; "$(cd "${TMPDIR:-/tmp}" && pwd -P)"/second-shift-42-scratch.*) true ;; *) false ;; esac \
+  && ok "(sc) D-1: the build is handed a scratch dir under \$TMPDIR, outside .claude/" || bad "(sc) D-1: build scratch dir '${scr:-none}'"
+grep -qxF -- "$scr" "$FAKE_GH/live-dirs-1.txt" 2>/dev/null && grep -qxF -- "$scr" "$FAKE_GH/live-dirs-2.txt" 2>/dev/null && [ "$(grep -A1 -x -- '--add-dir' "$FAKE_GH/args-2.txt" | grep -cxF -- "$scr")" = 1 ] \
+  && ok "(sc) D-1: the same dir is in both spawns' --add-dir and exists while each runs" || bad "(sc) D-1: live dirs: $(cat "$FAKE_GH"/live-dirs-*.txt 2>/dev/null | tr '\n' ' ')"
+grep -qF "$scr" "$FAKE_GH/prompt-1.txt" && grep -qF "$scr" "$FAKE_GH/prompt-2.txt" && grep -q 'Put scratch files there; the scheduler removes it' "$FAKE_GH/prompt-2.txt" \
+  && ok "(sc) D-1: both prompts name the scratch dir as the place for scratch files" || bad "(sc) D-1: a prompt does not name $scr"
+toc="$(tar -tf "$(SD)/scratch.tar" 2>/dev/null)"
+[ -n "$scr" ] && [ ! -e "$scr" ] && grep -qx './probe-1.txt' <<<"$toc" && grep -qx './probe-2.txt' <<<"$toc" \
+  && ok "(sc) D-2: at exit the dir is gone and both sessions' files are in \$STATE/scratch.tar" || bad "(sc) D-2: dir $([ -e "$scr" ] && echo kept || echo gone), archive: $(tr '\n' ' ' <<<"$toc")"
+ads="$(grep -h -A1 -x -- '--add-dir' "$FAKE_GH/args-1.txt" "$FAKE_GH/args-2.txt")"
+[ -n "$ads" ] && ! grep -qF "/run-42/" <<<"$ads" && grep -q 'code-review.mjs' "$FAKE_GH/prompt-2.txt" && grep -qF "copying it into $scr," "$FAKE_GH/prompt-2.txt" \
+  && ok "(sc) D-3: the review stages code-review.mjs in the scratch dir and is not handed \$STATE" || bad "(sc) D-3: \$STATE still granted, or the staging sentence does not name $scr"
+# the prompt lines (S-3), one case each
+grep -q 'Run each shell command on its own, with absolute paths: no cd (use git -C <dir>), no shell variables' "$FAKE_GH/prompt-1.txt" && grep -q 'Run each shell command on its own, with absolute paths: no cd (use git -C <dir>), no shell variables' "$FAKE_GH/prompt-2.txt" \
+  && ok "(sc) S-3: both prompts ask for one command per call, absolute paths, no cd or variables" || bad "(sc) S-3: one-command line missing"
+grep -q 'Edit files only with the Edit and Write tools, never through a shell' "$FAKE_GH/prompt-1.txt" && grep -q 'Write files only with the Write tool, never through a shell' "$FAKE_GH/prompt-2.txt" \
+  && ok "(sc) S-3: files are edited with Edit/Write only, never a shell rewrite" || bad "(sc) S-3: Edit/Write line missing"
+grep -q 'Run every check in the foreground: no nohup, no trailing &' "$FAKE_GH/prompt-1.txt" && grep -q 'no nohup or trailing &' "$FAKE_GH/prompt-2.txt" \
+  && ok "(sc) S-3: no nohup or backgrounded commands" || bad "(sc) S-3: foreground line missing"
+grep -q 'Pass every PR or comment body with --body-file' "$FAKE_GH/prompt-1.txt" && grep -qF "passed with --body-file <a file in $scr>" "$FAKE_GH/prompt-2.txt" \
+  && ok "(sc) S-3: PR and comment bodies go through --body-file" || bad "(sc) S-3: --body-file line missing"
+grep -q "Do not run the repo's test suites or checks: the scheduler ran them at this head" "$FAKE_GH/prompt-2.txt" && ! grep -q "Do not run the repo's test suites" "$FAKE_GH/prompt-1.txt" \
+  && ok "(sc) S-3: the review does not re-run the suites" || bad "(sc) S-3: review no-suites line missing (or in the build prompt)"
+# D-4: the review's denials are recorded beside the build's, and the run block counts them per session
+# shellcheck disable=SC2016  # the run block's literal dollar costs
+grep -q 'ls /' "$(SD)/denials-review-1.1.txt" 2>/dev/null && grep -qxF '| session | turns | cost | denials |' "$FAKE_GH/pr-body.md" \
+  && grep -qxF '| build-1.1 | 3 | $1.00 | 1 |' "$FAKE_GH/pr-body.md" && grep -qxF '| review-1.1 | 3 | $1.00 | 1 |' "$FAKE_GH/pr-body.md" \
+  && ok "(sc) D-4: denials-review-1.1.txt is written and the run block counts each session's denials" || bad "(sc) D-4: $(grep -E '^\| (session|build|review)' "$FAKE_GH/pr-body.md" | tr '\n' '|')"
 fixture d2; printf 'build-nothing\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect build-no-pr "(d2) [B14 B15] a build that changed nothing and opened no PR is build-no-pr, not in flight (orch:1515-1545 never tested head movement)"
 
 # (e) verdict names the wrong head
@@ -548,6 +585,9 @@ kill -TERM "$rp"; wait "$rp"; xrc=$?
 [ "$xrc" -eq 143 ] && ok "(x1) TERM exits 143" || bad "(x1) TERM exit $xrc"
 sleep 1; if pgrep -f "$T/bin/claude" >/dev/null 2>&1 || pgrep -f 'sleep 60' >/dev/null 2>&1; then bad "(x1) the session outlived the scheduler"; pkill -f "$T/bin/claude" 2>/dev/null; pkill -f 'sleep 60' 2>/dev/null; else ok "(x1) the session and its children were killed with the scheduler"; fi
 grep -q 'claim left in place' "$d/x1.log" && grep -qx in-progress "$FAKE_GH/labels" && ok "(x1) the claim is left in place on TERM" || bad "(x1) claim state wrong after TERM"
+scr="$(sed -n 's/^.* \[run\] scratch: \(.*\) (both sessions.*$/\1/p' "$d/x1.log")"; toc="$(tar -tf "$(SD)/scratch.tar" 2>&1)"
+[ -n "$scr" ] && [ ! -e "$scr" ] && grep -qx './probe-1.txt' <<<"$toc" \
+  && ok "(x1) #964 D-2: on TERM the scratch dir is archived into \$STATE and removed" || bad "(x1) #964 D-2: scratch '${scr:-none}' $([ -e "$scr" ] && echo kept), archive: $(tr '\n' ' ' <<<"$toc")"
 fixture x1b; printf 'build-sleep\n' > "$FAKE_CLAUDE_PLAN"
 ( cd "$d/main" && exec perl -e '$SIG{INT} = "DEFAULT"; exec @ARGV or die' -- bash "$RUN" 42 > "$d/x1b.log" 2>&1 ) & rp=$!
 until grep -q 'round 1 of' "$d/x1b.log" 2>/dev/null; do sleep 0.5; done; sleep 1.5
@@ -844,9 +884,9 @@ ral=$(grep -A1 -x -- '--allowedTools' "$FAKE_GH/args-2.txt" | tail -n 1); bal=$(
 miss=""; for t in Skill Workflow Grep Glob 'Bash(find *)' 'Bash(cp *)' 'Bash(bash *check-review-context.sh*)' 'Bash(gh issue view*)'; do case ",$ral," in *",$t,"*) ;; *) miss="$miss $t" ;; esac; done
 [ -z "$miss" ] && ok "[F20] the review allowlist carries every tool the panel dispatch uses" || bad "[F20] review allowlist lacks:$miss"
 case ",$bal," in *,Workflow,*) bad "[F20] the build session was given Workflow" ;; *) ok "[F20] the build allowlist is unchanged" ;; esac
-sdir=$(grep -A1 -x -- '--add-dir' "$FAKE_GH/args-2.txt" | grep '/run-42/' | head -n 1)
-[ -n "$sdir" ] && ! grep -qF -- "$sdir" "$FAKE_GH/args-1.txt" && grep -qF "$sdir" "$FAKE_GH/prompt-2.txt" && grep -q 'code-review.mjs' "$FAKE_GH/prompt-2.txt" \
-  && ok "[F20] only the review session gets the run's state dir, and its prompt stages code-review.mjs there" || bad "[F20] state dir '${sdir:-none}' not added to the review, or not named as the staging dir"
+sdir=$(grep -A1 -x -- '--add-dir' "$FAKE_GH/args-2.txt" | grep -- '-scratch\.' | head -n 1)
+[ -n "$sdir" ] && grep -qF "copying it into $sdir," "$FAKE_GH/prompt-2.txt" && grep -q 'code-review.mjs' "$FAKE_GH/prompt-2.txt" \
+  && ok "[F20] #964 D-3: the review's prompt stages code-review.mjs in the run's scratch dir, which it is handed" || bad "[F20] scratch dir '${sdir:-none}' not added to the review, or not named as the staging dir"
 case ",$ral," in *",Bash(gh api"*) bad "[F20] the review session may call gh api (it can DELETE)" ;; *) ok "[F20] the review session gets no gh api" ;; esac
 
 # B10: a verdict binds only from a Bot or the account the scheduler writes with — on a public repo anyone can
@@ -876,6 +916,9 @@ printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect
 fixture rcost; printf 'build-sleep\n' > "$FAKE_CLAUDE_PLAN"; RUN_BUILD_TIMEOUT=2 run_case "$d"; expect build-blocked "[I16] a build killed at its bound"
 grep -q 'unpriced' "$FAKE_GH/issue-comments" && ok "[I16] the closing comment says the run is unpriced" || bad "[I16] a killed session was priced as \$0: $(grep cost_usd "$FAKE_GH/issue-comments" | tail -n 1)"
 printf '%s\n' "$OUT" | grep -q 'unpriced' && ok "[I16] the operator is told a session is unpriced" || bad "[I16] nothing said about the unpriced session"
+scr="$(sed -n 's/^.* \[run\] scratch: \(.*\) (both sessions.*$/\1/p' <<<"$OUT")"; toc="$(tar -tf "$(SD)/scratch.tar" 2>&1)"
+[ -n "$scr" ] && [ ! -e "$scr" ] && grep -qx './probe-1.txt' <<<"$toc" \
+  && ok "#964 D-2: a blocked run's scratch dir is archived into \$STATE as evidence and removed" || bad "#964 D-2: blocked run scratch '${scr:-none}'"
 fixture rk2; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"
 ! grep -q 'mcp__figma' "$FAKE_GH/args-1.txt" && ! grep -q 'figma-faithful' "$FAKE_GH/prompt-1.txt" && ok "[F7 F18] neither on a ticket without frames" || bad "[F7 F18] leaked onto a frames-less ticket"
 
@@ -967,6 +1010,10 @@ fixture au4; printf 'build-pr\nreview-crash\nreview-approve\n' > "$FAKE_CLAUDE_P
 [ -f "$(SD)/checks-1.1.log" ] && [ ! -f "$(SD)/checks-1.1-retry1.log" ] && ok "[K12] the checks did not re-run for an unmoved head" || bad "[K12] checks re-ran: $(cd "$(SD)" && echo checks-*)"
 fixture au5; printf 'build-pr\nbuild-sleep\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; RUN_REVIEW_TIMEOUT=2 run_case "$d"; expect approved "[K12] a timed-out review is re-spawned once"
 grep -qF '| review-1.1 | ? | unpriced (no total_cost_usd) |' "$FAKE_GH/pr-body.md" && grep -q '[$][0-9.]* + unpriced' "$FAKE_GH/pr-body.md" && ok "[K12] the killed review is an unpriced row, never \$0.00" || bad "[K12] rows: $(grep -E '^[|] (build|review)' "$FAKE_GH/pr-body.md" | tr '\n' '|')"
+# its denials were never read: "?", never a 0 a reader takes for a clean session; the re-spawn that did report counts
+# shellcheck disable=SC2016  # the run block's literal dollar costs
+grep -qxF '| review-1.1 | ? | unpriced (no total_cost_usd) | ? |' "$FAKE_GH/pr-body.md" && grep -qxF '| review-1.1-retry1 | 3 | $1.00 | 1 |' "$FAKE_GH/pr-body.md" && [ ! -e "$(SD)/denials-review-1.1.txt" ] \
+  && ok "[K12] the killed review's denials are unread (?), not 0" || bad "[K12] denials cells: $(grep -E '^[|] review' "$FAKE_GH/pr-body.md" | tr '\n' '|')"
 sleep 1; pkill -f 'sleep 60' 2>/dev/null
 
 # C13: the docs/plans default is where the record lands when no config says otherwise

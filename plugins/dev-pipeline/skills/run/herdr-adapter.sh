@@ -86,7 +86,9 @@ cmd_watch() {
 
 # ---------------------------------------------------------------- the transcript pane
 # Follows the log's `session: <role> <attempt> <uuid> <glob>` lines and renders the newest session's transcript one line
-# per event: an assistant text block (its first line), a tool call (its name and key argument), a failed tool result.
+# per event: an assistant text block (its first line), a tool call (its name and key argument), a failed tool result —
+# `ERROR <first line>` for a permission denial only, `exit <code> <next line>` for a non-zero exit, `failed <first line>`
+# for any other tool error (#964 D-5 D-6), so a clean run shows no ERROR line.
 # Thinking, successful results, every other entry type, a user entry with string content and any sidechain entry are
 # skipped. A line that is not JSON, or lacks the fields of an event it would render, is one `[unparsed]` line.
 # shellcheck disable=SC2016  # jq program text
@@ -121,7 +123,10 @@ RENDER='
       if ($e.message.content | type) == "string" then empty
       elif ($e.message.content | type) != "array" then unparsed
       else $e.message.content[] | select(type == "object" and .type == "tool_result" and .is_error == true)
-        | "\($p) ERROR \(.content | result_text | firstline | cut)"
+        | (.content | result_text | split("\n") | map(select(test("\\S")))) as $ls | ($ls[0] // "") as $f
+        | if ($f | startswith("Permission for this tool use was denied") or startswith("Permission to use ")) then "\($p) ERROR \($f | cut)"
+          elif ($f | test("^Exit code [0-9]+")) then "\($p) exit \($f | capture("^Exit code (?<n>[0-9]+)").n)\(if $ls[1] then " " + $ls[1] else "" end | cut)"
+          else "\($p) failed \($f | cut)" end
       end
     else empty end'
 render() { # render <prefix> — stdin: raw transcript lines

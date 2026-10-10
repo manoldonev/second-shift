@@ -41,7 +41,8 @@
 #                 review window, unedited, naming the current head; the bound verdict posted
 #                 as the `second-shift/review` commit status on that head)
 #   7 close-out  (run block on the PR at every terminal once one exists; closing comment
-#                 when the run claimed; teardown of a clean worktree on approve)
+#                 when the run claimed; teardown of a clean worktree on approve; the run's
+#                 scratch dir archived to <state>/scratch.tar and removed at every exit)
 #
 # Rules every line below keeps:
 #   - a predicate that cannot be evaluated refuses under a named slug; a failed read is never a pass;
@@ -133,7 +134,19 @@ terminal() { # terminal <slug> <detail> — rows B1, B21, B22, K9: the run block
     "$GH" issue comment "$ISSUE" --body "$(printf 'second-shift run %s: %s — %s\n%s\ncost_usd: %s\n%s' "$RUN_ID" "$1" "$(public_text "$2")" "${PR_URL:-${PR:+PR #$PR}}" "$(usd "$COST")" "${UNPRICED:+unpriced: $UNPRICED (no total_cost_usd; cost_usd is a lower bound)
 }")" >/dev/null 2>&1 || say "could not post the closing comment on #$ISSUE"
   fi
+  scratch_close
   exit "$(exit_code_for "$1")"
+}
+# #964 D-1 D-2: the run's scratch dir (logs, probes, PR/comment/verdict bodies), outside .claude/ and the worktree.
+# Created once $STATE exists; at every exit, the traps' included, it is archived to $STATE/scratch.tar and then
+# removed, so /tmp is left clean and a blocked run's probes survive as evidence. A failed archive keeps the dir.
+SCRATCH=""
+scratch_close() {
+  [ -n "$SCRATCH" ] && [ -d "$SCRATCH" ] || return 0
+  local d="$SCRATCH" err; SCRATCH=""
+  if err="$(tar -C "$d" -cf "$STATE/scratch.tar" . 2>&1)" && tar -tf "$STATE/scratch.tar" >/dev/null 2>&1; then
+    rm -rf -- "$d" && say "scratch: archived to $STATE/scratch.tar and removed"
+  else say "scratch: NOT archived ($(printf '%s' "$err" | tr '\n' ' ' | cut -c1-200)); $d left in place"; fi
 }
 
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || terminal env-no-git-repo "not in a git repo"
@@ -274,9 +287,9 @@ reap() {
   if [ "$CHILD_GROUP" -eq 1 ]; then kill -TERM -- "-$CHILD" 2>/dev/null; sleep 0.2; kill -KILL -- "-$CHILD" 2>/dev/null; fi
   pkill -TERM -P "$CHILD" 2>/dev/null; kill -TERM "$CHILD" 2>/dev/null
 }
-trap 'reap; say "hung up; claim left in place"; exit 129' HUP
-trap 'reap; say "interrupted; claim left in place"; exit 130' INT
-trap 'reap; say "terminated; claim left in place"; exit 143' TERM
+trap 'reap; scratch_close; say "hung up; claim left in place"; exit 129' HUP
+trap 'reap; scratch_close; say "interrupted; claim left in place"; exit 130' INT
+trap 'reap; scratch_close; say "terminated; claim left in place"; exit 143' TERM
 bounded() { # bounded <secs> <logfile> <cmd...> — a bash watchdog (macOS ships no `timeout`); TERM, then KILL after 10s: the cap is a bound
   local secs="$1" log="$2"; shift 2
   ( cd "$WT" && exec "$@" ) > "$log" 2>"$log.err" < "${BOUNDED_STDIN:-/dev/null}" & CHILD=$!; CHILD_GROUP=0
@@ -313,6 +326,13 @@ fi
 MCP_ALLOW=""; [ "$TRACKER" = jira ] && MCP_ALLOW=",mcp__atlassian,mcp__plugin_atlassian_atlassian,mcp__claude_ai_Atlassian_Rovo"
 SPAWN_COMMON=(--permission-mode acceptEdits --permission-prompts none --disallowedTools "$DISALLOWED" --setting-sources "user,project,local" --add-dir "$WT" --output-format json)
 [ -n "$CONFIG" ] && SPAWN_COMMON+=(--add-dir "$(cd "$(dirname "$CONFIG")" && pwd)")
+read_denials() { # read_denials <result-json> <out> — the file is written only when the JSON was read: a missing file is
+  # "unread" (the run block's "?"), never "none"; a session killed at its bound leaves no JSON to read
+  # slurped: jq on an empty file runs no filter and exits 0, so "one object carrying the key" is asserted, not assumed
+  if jq -rs 'if length == 1 and (.[0] | type) == "object" and (.[0] | has("permission_denials")) then .[0].permission_denials[] | (.tool_name + " " + (.tool_input|tostring)) else error("unread") end' "$1" > "$2.tmp" 2>/dev/null
+  then mv "$2.tmp" "$2"
+  else rm -f "$2.tmp" "$2"; fi
+}
 add_cost() { # rows I14 I16: a session with no total_cost_usd (killed at its bound, crashed) is UNPRICED, never $0
   local c n; n="$(basename "$1" .json)"; c="$(jq -r '.total_cost_usd | numbers' "$1" 2>/dev/null)"
   if [ -z "$c" ]; then UNPRICED="${UNPRICED:+$UNPRICED }$n"; say "unpriced: $n left no total_cost_usd — the run's cost is a lower bound"; return 0; fi
@@ -547,7 +567,13 @@ review_input() { # review_input <attempt> -> writes $STATE/review-input-<attempt
 build_prompt() { # build_prompt <round> <review-findings-file-or-empty> <red-check-file-or-empty>
   echo "Implement ticket $ISSUE of this repository. Fetch the ticket text yourself from the tracker (${TRACKER})."
   echo "Do not merge. Do not delete, skip or weaken a test to make a check pass; if a test is wrong, say so in the PR."
-  echo "Delete every probe or scratch file you created before you end your turn: a probe you never committed is not a test the PR deletes."
+  if [ -n "$SCRATCH" ]; then
+    echo "Your scratch directory is $SCRATCH (already added to this session): it is the only place for logs, probes, and PR or comment bodies — never the worktree, never /tmp. Put scratch files there; the scheduler removes it at the end of the run. A probe you never committed is not a test the PR deletes."
+    echo "Run every check in the foreground: no nohup, no trailing &."
+  else echo "Delete every probe or scratch file you created before you end your turn: a probe you never committed is not a test the PR deletes."; fi
+  echo "Run each shell command on its own, with absolute paths: no cd (use git -C <dir>), no shell variables, no ; or && chains; run a check below exactly as written."
+  echo "Edit files only with the Edit and Write tools, never through a shell (no python, sed -i, heredoc or > redirect)."
+  echo "Pass every PR or comment body with --body-file <a file you wrote with Write>, never inline with --body."
   echo "A stored field the change newly reads, or a field it sends across a service boundary, gets a test that moves it through the real schema or model, not a hand-built fixture: a fixture that already holds the value proves nothing about whether the store keeps it."
   echo "A test double of a dependency this repo does not own that returns an error or an empty result cites where that shape comes from (the dependency's types, docs or a recorded real response): a double built from your own belief proves nothing about the dependency."
   [ "$BOT_OK" -eq 1 ] && echo "Commit through $TOOLS/bot-commit.sh (the repo's bot identity), never plain git commit — and re-pass the identity on any --amend, which otherwise silently re-stamps you as the committer."
@@ -569,11 +595,13 @@ review_prompt() { # review_prompt <pr> <review-input-file>
   echo "Score EVERY row of the record against the code: honored, violated, departed (the row was edited; name who decided, per its provenance), or undeterminable (say what you could not read). A violated or undeterminable row is a blocker; neither may stand beside an approve."
   echo "The PR's base branch is $BASE_NAME: pass it to review-lead as the base, so the diff is origin/$BASE_NAME...HEAD and not the remote default branch."
   echo "Then run review-toolkit:review-lead over the PR diff, passing it the ticket $ISSUE yourself so it never reads the PR body to find one, and DECLARE THE PIPELINE DEFAULT PANEL when you invoke it: the fan-out defaults to scope-completeness-reviewer; security-reviewer, a11y-reviewer and unit-test-mutation-reviewer are selected only by an opt-in — a 'review panel' row in the record with user-answered or user-delegated provenance naming security, a11y or unit-test-mutation, or the config's reviewers.default[]. review-lead never infers this; an undeclared panel leaves the surface triggers in force. Opting one of the three back in is your call, and the expected call whenever the diff introduces a surface rather than editing an existing one: security for a new authentication, session, tenancy or ownership-scoping path, or a new query built from external input; a11y for new form controls or a new interactive component; unit-test-mutation for new logic with a co-located spec. A change to a file that already sits on one of those surfaces is your call either way. Pass each short name to review-lead with a one-line reason. Do not stand in for a specialist on a surface the diff introduces: your lead pass is one reader over the whole diff, not that reviewer's checklist. The trim stays the default because it was measured; a diff it was never measured on is yours to judge. Declining a reviewer whose surface the diff introduces is itself a decision: pass the decline to review-lead with a one-line reason, it is written into the panel line of the review, and the human who reads the verdict reads that line. An introduced surface with neither a reviewer nor a reason is a silent decision."
-  echo "review-lead dispatches its reviewers through the code-review.mjs Workflow: stage that script by copying it into $STATE (this run's evidence directory, already added to this session), never into the worktree, and run the Workflow from there."
+  echo "Your scratch directory is $SCRATCH (already added to this session): it is the only place for logs, probes, and your verdict and comment drafts — never the worktree, never /tmp. Put scratch files there; the scheduler removes it at the end of the run."
+  echo "review-lead dispatches its reviewers through the code-review.mjs Workflow: stage that script by copying it into $SCRATCH, never into the worktree, and run the Workflow from there."
+  echo "Do not run the repo's test suites or checks: the scheduler ran them at this head before spawning you, and CI runs them on the PR. Run each shell command on its own, with absolute paths: no cd (use git -C <dir>), no shell variables, no ; or && chains, no nohup or trailing &. Write files only with the Write tool, never through a shell (no python, heredoc or > redirect)."
   echo "Read the build's own account last: write the row scores and your findings, review-lead's included, from the record, the diff and the code first, and only then read the PR description and the build's PR comments, to reconcile the departures and rebuttals they state. An author's framing measurably lowers what a reviewer finds. If that reading changes a score or a finding, say so in the verdict with a line 'revised after reading the build's account: <what changed>'."
   echo "If the ticket has design frames, render every screen at the head with the repo's render command and compare it with its frame; if you cannot render, you cannot approve: post 'verdict: needs-work' with a line 'reason: render-unavailable'."
   local via=""; [ "$BOT_OK" -eq 1 ] && via=" through $GH (the bot identity)"
-  echo; echo "Post ONE PR comment$via. Its first line is exactly 'verdict: approve' or 'verdict: needs-work'; its second line is exactly 'reviewed: <the full sha of the head you reviewed>'. Then the row table, then findings. Never edit that comment afterwards."
+  echo; echo "Post ONE PR comment$via, its body passed with --body-file <a file in $SCRATCH>, never inline with --body. Its first line is exactly 'verdict: approve' or 'verdict: needs-work'; its second line is exactly 'reviewed: <the full sha of the head you reviewed>'. Then the row table, then findings. Never edit that comment afterwards."
   echo "For every file under 'Existing test or snapshot expectations changed' in the scheduler input below, trace its removed expectation to an acceptance criterion of the ticket or a row of the decision record. An entry you cannot trace is a Warning, never a Blocker: name the file and the expectation, and require the build to cite the criterion or row that authorized the change."
   echo; echo "## Scheduler input (deleted or skipped tests, changed test or snapshot expectations, config edits, the build's permission denials, and the untracked files archived after it)"; cat "$2"
 }
@@ -795,10 +823,14 @@ cost_block() { # <terminal slug>
   [ -z "$RUN_NOTES" ] || printf '%s' "$RUN_NOTES" | awk '{print; print ""}'
   [ -z "$STATUS_NOTES" ] || printf '%s' "$STATUS_NOTES" | awk '{print; print ""}'   # one paragraph per bound verdict's status post
   [ -z "$DRAFT_NOTES" ] || printf '%s' "$DRAFT_NOTES" | awk '{print; print ""}'     # one paragraph per draft flip worth reporting
-  echo "| session | turns | cost |"; echo "| --- | --- | --- |"
-  local f n c; for f in "$STATE"/build-*.json "$STATE"/review-*.json; do
+  # #964 D-4: one denial count per session, from the denials file the scheduler wrote after it ("?" when its JSON was unread);
+  # a review's count misses the denials made inside its Workflow subagents, which its result JSON does not list
+  echo "| session | turns | cost | denials |"; echo "| --- | --- | --- | --- |"
+  local f n c dn df; for f in "$STATE"/build-*.json "$STATE"/review-*.json; do
     [ -f "$f" ] || continue; n="$(basename "$f" .json)"; c="$(jq -r '.total_cost_usd | numbers' "$f" 2>/dev/null)"
-    if [ -n "$c" ]; then echo "| $n | $(jq -r '.num_turns // "?"' "$f") | \$$(usd "$c") |"; else echo "| $n | ? | unpriced (no total_cost_usd) |"; fi
+    case "$n" in build-*) df="$STATE/denials-${n#build-}.txt" ;; *) df="$STATE/denials-$n.txt" ;; esac
+    dn="?"; [ -f "$df" ] && dn="$(grep -c . "$df")"
+    if [ -n "$c" ]; then echo "| $n | $(jq -r '.num_turns // "?"' "$f") | \$$(usd "$c") | $dn |"; else echo "| $n | ? | unpriced (no total_cost_usd) | $dn |"; fi
   done
   echo '<!-- /pipeline-cost-block -->'
 }
@@ -878,6 +910,12 @@ EOF
   CLAIMED=1
 fi
 mkdir -p "$STATE" || terminal env-state-dir "cannot create $STATE"
+# #964 D-10: a --handoff build runs after this process has exited, so no scratch dir is made for it to outlive
+if [ "$HANDOFF" -eq 0 ]; then
+  SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/second-shift-$ISSUE-scratch.XXXXXX")" || terminal env-scratch-dir "cannot create a scratch dir under ${TMPDIR:-/tmp}"
+  SCRATCH="$(cd "$SCRATCH" && pwd -P)"   # the physical path: a session's --add-dir and the prompt must name the same dir
+  say "scratch: $SCRATCH (both sessions; archived to $STATE/scratch.tar at exit)"
+fi
 
 # ============================ 5. baseline (rows E3-E6, E17, E18, G7, H6, J6, J11) ============================
 if [ -d "$WT" ]; then
@@ -971,8 +1009,9 @@ watch_once() {
 }
 spawn() { # spawn <role> <model> <id> <allowlist> <max-turns> <prompt-file> -> rc (124 past the bound); the result JSON is $STATE/<role>-<id>.json
   local secs="$REVIEW_TO" extra=(); [ "$1" = build ] && secs="$BUILD_TO"
-  # the review stages review-lead's Workflow script in this run's state dir: added, and outside the worktree
-  [ "$1" = review ] && extra=(--add-dir "$STATE")
+  # #964 D-1 D-3: both sessions get the run's scratch dir (the review stages review-lead's Workflow script there);
+  # neither gets $STATE, which the scheduler alone writes
+  [ -n "$SCRATCH" ] && extra=(--add-dir "$SCRATCH")
   # F-env: under -p a turn that ends waiting on a background task ends the process, and a background shell dies with it.
   # BUILD runs every command in the foreground, inside its bound. REVIEW keeps background tasks (review-lead's panel is a
   # Workflow), and -p waits on a running one only 600 s idle by default: its wait is raised to inside its own bound.
@@ -1010,7 +1049,7 @@ while :; do
         terminal build-handoff "BUILD handed to the calling session in $WT; review with /dev-pipeline:review <pr> in a fresh session"
       fi
       spawn build "$BUILD_MODEL" "$A" "$(build_allowlist)" 400 "$STATE/build-$A.prompt"; brc=$?
-      jq -r '.permission_denials[]? | (.tool_name + " " + (.tool_input|tostring))' "$STATE/build-$A.json" > "$STATE/denials-$A.txt" 2>/dev/null || true
+      read_denials "$STATE/build-$A.json" "$STATE/denials-$A.txt"
       [ "$brc" -eq 124 ] && terminal build-blocked "build session exceeded ${BUILD_TO}s; worktree and claim left in place"
       sub="$(jq -r '.subtype // "unreadable"' "$STATE/build-$A.json" 2>/dev/null)"
       [ "$sub" = success ] || terminal build-blocked "build session ended $sub (rc=$brc); worktree and claim left in place"
@@ -1051,6 +1090,9 @@ while :; do
     start="$(now)"
     spawn review "$REVIEW_MODEL" "$RA" "$(review_allowlist)" 300 "$STATE/review-$RA.prompt"; rrc=$?
     end="$(now)"
+    # #964 D-4: the review's denials, read as the build's are. Known gap: a denial inside the review's Workflow
+    # subagents is not in this result JSON, so it is not counted here
+    read_denials "$STATE/review-$RA.json" "$STATE/denials-review-$RA.txt"
     rsub="$(jq -r '.subtype // "unreadable"' "$STATE/review-$RA.json" 2>/dev/null)"
     miss=""
     if [ "$rrc" -eq 124 ]; then miss="the review session exceeded ${REVIEW_TO}s"

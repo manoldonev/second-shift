@@ -82,10 +82,10 @@ find . -name '*.json' -type f -print0 | xargs -0 -n1 jq empty
 SKIP_STRESS=1 bash tools/run-selftests.sh --full --exclude tools/install-topology-selftest.sh
 ```
 
-**The third line takes minutes; in an interactive session a foreground `Bash` call is reaped at 2
-minutes** whatever its `timeout`. Run it as `nohup <cmd> > <log> 2>&1` under `run_in_background` (a
-bare `&` is reaped too). A lane BUILD (`run.sh`) is the exception: it runs with background tasks off
-and its Bash timeouts raised to just inside its bound, so it runs the sweep in the foreground.
+**The third line takes minutes.** A lane BUILD (`run.sh`) runs it in the foreground: it runs with
+background tasks off and its Bash timeouts raised to just inside its bound. **In an interactive
+session a foreground `Bash` call is reaped at 2 minutes** whatever its `timeout`, so run it as
+`nohup <cmd> > <log> 2>&1` under `run_in_background` (a bare `&` is reaped too).
 
 **In an interactive session the sweep gates nothing.** CI runs it cold on every PR, so commit, push,
 open the PR and report without waiting for it; a sweep still running is a line in the report, with its

@@ -166,6 +166,11 @@ long="$(printf 'x%.0s' $(seq 1 200))"
   echo '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"c","name":"Grep","input":{"pattern":"foo.*bar"}},{"type":"tool_use","id":"d","name":"Agent","input":{"prompt":"go"}}]}}'
   echo '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"a","content":"SUCCESS-BODY"}]}}'
   printf '%s\n' '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"b","is_error":true,"content":[{"type":"text","text":"boom happened\nmore"}]}]}}'
+  # #964 D-5 D-6: the two denial shapes seen in lane transcripts, a non-zero exit, and an Edit failure
+  printf '%s\n' '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"f","is_error":true,"content":"Permission for this tool use was denied. It requires approval\nmore"}]}}'
+  printf '%s\n' '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"g","is_error":true,"content":"Permission to use Bash with command rm /tmp/x has been denied."}]}}'
+  printf '%s\n' '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"h","is_error":true,"content":"Exit code 2\n\njq: error: Could not open file x.json"}]}}'
+  printf '%s\n' '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"i","is_error":true,"content":"<tool_use_error>String to replace not found in file.\nString: foo</tool_use_error>"}]}}'
   echo '{"type":"user","message":{"content":"USER-STRING-PROMPT"}}'
   echo '{"type":"assistant","isSidechain":true,"message":{"content":[{"type":"text","text":"SIDECHAIN-TEXT"}]}}'
   echo '{oops not json'
@@ -184,11 +189,17 @@ expect_body="[build 1.1] First line of text
 [build 1.1] Bash echo $(printf 'x%.0s' $(seq 1 115))
 [build 1.1] Grep foo.*bar
 [build 1.1] Agent
-[build 1.1] ERROR boom happened
+[build 1.1] failed boom happened
+[build 1.1] ERROR Permission for this tool use was denied. It requires approval
+[build 1.1] ERROR Permission to use Bash with command rm /tmp/x has been denied.
+[build 1.1] exit 2 jq: error: Could not open file x.json
+[build 1.1] failed <tool_use_error>String to replace not found in file.
 [build 1.1] [unparsed]
 [build 1.1] [unparsed]"
-[ "$body" = "$expect_body" ] && ok "(t1) [AC-16 AC-18] text (first line), tool calls with key argument cut at 120, bare Agent, an error result, [unparsed] for bad JSON and a missing key" \
+[ "$body" = "$expect_body" ] && ok "(t1) [AC-16 AC-18] text (first line), tool calls with key argument cut at 120, bare Agent, error results, [unparsed] for bad JSON and a missing key" \
   || bad "(t1) build lines:"$'\n'"$body"
+[ "$(grep -c ' ERROR ' <<<"$body")" -eq 2 ] && grep -qx '\[build 1.1\] exit 2 jq: error: Could not open file x.json' <<<"$body" && grep -qx '\[build 1.1\] failed <tool_use_error>String to replace not found in file.' <<<"$body" \
+  && ok "(t1) #964 D-5 D-6: ERROR tags the two denials only; a non-zero exit shows 'exit <code>' and another tool error 'failed'" || bad "(t1) #964 error tags:"$'\n'"$(grep -E 'ERROR|exit|failed' <<<"$body")"
 ! grep -qE 'SECRET-THOUGHT|SUCCESS-BODY|USER-STRING-PROMPT|SIDECHAIN-TEXT|init' "$c/out" && ok "(t1) [AC-16] thinking, successful results, user prompts, sidechains and other entry types are not rendered" || bad "(t1) leaked: $(grep -E 'SECRET|SUCCESS|USER-STRING|SIDECHAIN|init' "$c/out")"
 grep -qx '\[review 1.1\] waiting for its transcript (~/.claude\*/projects/\*/'"$u2"'.jsonl)' "$c/out" && grep -qx '\[review 1.1\] review says hi' "$c/out" \
   && ok "(t1) [AC-18] a transcript not on disk yet is waited for, said once, then rendered" || bad "(t1) review lines: $(grep 'review 1.1' "$c/out" | tr '\n' '|')"
