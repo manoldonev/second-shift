@@ -608,7 +608,7 @@ review_prompt() { # review_prompt <pr> <review-input-file>
 }
 build_allowlist() { # row F3: derived from what the record and config name
   local allow="Read,Edit,Write,Agent,Bash(git *),Bash(gh pr create*),Bash(gh pr view*),Bash(gh pr comment*),Bash(gh issue view*)$MCP_ALLOW" c
-  # each helper is granted in both forms a session calls it by: the bare path, and through bash as run.sh itself does
+  # each helper is granted in both forms a session calls it by: the bare path, and through bash (the form run.sh calls its own tools by)
   [ "$BOT_OK" -eq 1 ] && allow="$allow,Bash($TOOLS/bot-commit.sh*),Bash(bash $TOOLS/bot-commit.sh*),Bash($GH *),Bash(bash $GH *)"
   [ -n "$(frames_rows)" ] && allow="$allow,mcp__figma,mcp__plugin_figma_figma"
   while IFS= read -r c; do [ -n "$c" ] && allow="$allow,Bash($(first_word "$c")*)"; done <<EOF

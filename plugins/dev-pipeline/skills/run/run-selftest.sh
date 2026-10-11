@@ -545,14 +545,15 @@ grep -qx in-progress "$FAKE_GH/labels" && ! grep -qx ready-for-dev "$FAKE_GH/lab
 grep -q 'stage: lean-claimed' "$FAKE_GH/issue-comments" && ok "(v1) marker posted through the bot" || bad "(v1) no marker"
 # #985: the bot-commit call the prompt names, and the 'bash <helper>' form the scheduler itself uses, both match a granted prefix
 bal=$(grep -A1 -x -- '--allowedTools' "$FAKE_GH/args-1.txt" | tail -n 1); bcall=$(grep -o "'[^']*/bot-commit\.sh -C [^']*'" "$FAKE_GH/prompt-1.txt" | tr -d "'" | sed 's/<[^>]*>/msg.txt/')
-granted() { local r p; IFS=, read -r -a r <<<"$bal"; for p in "${r[@]}"; do case "$p" in Bash\(*\*\)) p="${p#Bash(}"; [[ "$1" == "${p%\*)}"* ]] && return 0 ;; esac; done; return 1; }
+granted() { local r p; IFS=, read -r -a r <<<"${2:-$bal}"; for p in "${r[@]}"; do case "$p" in Bash\(*\*\)) p="${p#Bash(}"; [[ "$1" == "${p%\*)}"* ]] && return 0 ;; esac; done; return 1; }
 [ -n "$bcall" ] && granted "$bcall" && granted "bash $bcall" && ok "(v1) the prompt's bot-commit call and its bash form are both granted" || bad "(v1) bot-commit call '${bcall:-none}' not granted, bare or through bash"
 [ "$(git -C "$d/origin.git" log --format=%an --reverse main..second-shift/42 | head -n 1)" = 'second-shift-bot[bot]' ] && ok "(v1) [E3] the record commit carries the bot's identity" || bad "(v1) [E3] record commit author: $(git -C "$d/origin.git" log --format=%an --reverse main..second-shift/42 | head -n 1)"
-# #985: a session that calls the bot wrapper through bash, as run.sh itself does, is not denied
-# the build's tracker writes or the review's verdict post — each grant holds the bare-path and the bash form
+# a session that calls the bot wrapper through bash is not denied the build's tracker writes or the
+# review's verdict post, and the bash form never hands the review the wrapper whole (it takes api -X DELETE)
 ral=$(grep -A1 -x -- '--allowedTools' "$FAKE_GH/args-2.txt" | tail -n 1)
-case ",$bal," in *",Bash(bash $T/bin/gh *),"*) ok "(v1) [#985] the build may call the wrapper through 'bash <wrapper>'" ;; *) bad "(v1) [#985] build allowlist lacks the bash form of the wrapper: $bal" ;; esac
-case ",$ral," in *",Bash(bash $T/bin/gh pr comment*),"*) ok "(v1) [#985] the review may post its verdict through 'bash <wrapper> pr comment'" ;; *) bad "(v1) [#985] review allowlist lacks the bash form of the wrapper's pr comment: $ral" ;; esac
+granted "bash $T/bin/gh issue comment 42 --body-file b.md" && ok "(v1) the build may call the wrapper through 'bash <wrapper>'" || bad "(v1) build allowlist lacks the bash form of the wrapper: $bal"
+granted "bash $T/bin/gh pr comment 7 --body-file v.md" "$ral" && granted "bash $T/bin/gh pr view 7 --json headRefOid" "$ral" && ok "(v1) the review may post and read its verdict through 'bash <wrapper>'" || bad "(v1) review allowlist lacks the bash form of the wrapper's pr comment / pr view: $ral"
+! granted "bash $T/bin/gh api -X DELETE repos/o/r/issues/comments/1" "$ral" && ok "(v1) the review's bash form of the wrapper stops short of api" || bad "(v1) the review may call the wrapper's api through bash: $ral"
 FIXTURE_CONFIG='{"tracker":{"type":"jira","writes":false,"branchPrefix":"jdoe/","keyPattern":"[A-Z]+-[0-9]+"},"paths":{"plansDir":"docs/plans"}}' fixture v2
 printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; mv "$d/main/.claude/pipeline-state/42-ledger.md" "$d/main/.claude/pipeline-state/GH-42-ledger.md"
 OUT="$( cd "$d/main" && bash "$RUN" GH-42 --build-model opus 2>&1 )"; RC=$?; TERM_SLUG="$(printf '%s\n' "$OUT" | sed -n 's/^terminal: //p' | tail -n 1)"
