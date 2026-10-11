@@ -305,7 +305,7 @@ toc="$(tar -tf "$(SD)/scratch.tar" 2>/dev/null)"
 [ -n "$scr" ] && [ ! -e "$scr" ] && grep -qx './probe-1.txt' <<<"$toc" && grep -qx './probe-2.txt' <<<"$toc" \
   && ok "(sc) D-2: at exit the dir is gone and both sessions' files are in \$STATE/scratch.tar" || bad "(sc) D-2: dir $([ -e "$scr" ] && echo kept || echo gone), archive: $(tr '\n' ' ' <<<"$toc")"
 ads="$(grep -h -A1 -x -- '--add-dir' "$FAKE_GH/args-1.txt" "$FAKE_GH/args-2.txt")"
-[ -n "$ads" ] && ! grep -qF "/run-42/" <<<"$ads" && grep -q 'code-review.mjs' "$FAKE_GH/prompt-2.txt" && grep -qF "copying it into $scr," "$FAKE_GH/prompt-2.txt" \
+[ -n "$ads" ] && ! grep -qF "/run-42/" <<<"$ads" && grep -q 'code-review.mjs' "$FAKE_GH/prompt-2.txt" && grep -qF "writing it with Write into $scr," "$FAKE_GH/prompt-2.txt" \
   && ok "(sc) D-3: the review stages code-review.mjs in the scratch dir and is not handed \$STATE" || bad "(sc) D-3: \$STATE still granted, or the staging sentence does not name $scr"
 # the prompt lines (S-3), one case each
 grep -q 'Run each shell command on its own, with absolute paths: no cd (use git -C <dir>), no shell variables' "$FAKE_GH/prompt-1.txt" && grep -q 'Run each shell command on its own, with absolute paths: no cd (use git -C <dir>), no shell variables' "$FAKE_GH/prompt-2.txt" \
@@ -559,9 +559,19 @@ grep -qx in-progress "$FAKE_GH/labels" && ! grep -qx ready-for-dev "$FAKE_GH/lab
 grep -q 'stage: lean-claimed' "$FAKE_GH/issue-comments" && ok "(v1) marker posted through the bot" || bad "(v1) no marker"
 # #985: the bot-commit call the prompt names, and the 'bash <helper>' form the scheduler itself uses, both match a granted prefix
 bal=$(grep -A1 -x -- '--allowedTools' "$FAKE_GH/args-1.txt" | tail -n 1); bcall=$(grep -o "'[^']*/bot-commit\.sh -C [^']*'" "$FAKE_GH/prompt-1.txt" | tr -d "'" | sed 's/<[^>]*>/msg.txt/')
-granted() { local r p; IFS=, read -r -a r <<<"$bal"; for p in "${r[@]}"; do case "$p" in Bash\(*\*\)) p="${p#Bash(}"; [[ "$1" == "${p%\*)}"* ]] && return 0 ;; esac; done; return 1; }
+granted() { # granted <command> [<allowlist>, default $bal]: a 'Bash(x*)' rule matches by prefix, a 'Bash(x)' rule exactly
+  local r p; IFS=, read -r -a r <<<"${2-$bal}"
+  for p in "${r[@]}"; do case "$p" in Bash\(*\*\)) p="${p#Bash(}"; [[ "$1" == "${p%\*)}"* ]] && return 0 ;; Bash\(*\)) p="${p#Bash(}"; [ "$1" = "${p%)}" ] && return 0 ;; esac; done; return 1; }
 [ -n "$bcall" ] && granted "$bcall" && granted "bash $bcall" && ok "(v1) the prompt's bot-commit call and its bash form are both granted" || bad "(v1) bot-commit call '${bcall:-none}' not granted, bare or through bash"
 [ "$(git -C "$d/origin.git" log --format=%an --reverse main..second-shift/42 | head -n 1)" = 'second-shift-bot[bot]' ] && ok "(v1) [E3] the record commit carries the bot's identity" || bad "(v1) [E3] record commit author: $(git -C "$d/origin.git" log --format=%an --reverse main..second-shift/42 | head -n 1)"
+# every command of a piped or chained check is granted (each is checked on its own), a later one by its own text only,
+# never one led by rm; the build may run its worktree's scripts, the review jq and shasum
+fixture vg $'- printf x | xargs -0 echo -e a,b\n- true && cat /dev/null\n- true && rm -rf a,b'; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(vg) piped and chained checks"
+bal=$(grep -A1 -x -- '--allowedTools' "$FAKE_GH/args-1.txt" | tail -n 1); ral=$(grep -A1 -x -- '--allowedTools' "$FAKE_GH/args-2.txt" | tail -n 1); wt=$(grep -A1 -x -- '--add-dir' "$FAKE_GH/args-1.txt" | sed -n 2p)
+miss=""; for c in 'printf x' 'xargs -0 echo -e a,b' 'true' 'cat /dev/null' "bash $wt/t.sh"; do granted "$c" || miss="$miss [$c]"; done
+for c in 'jq -n 1' 'shasum x'; do granted "$c" "$ral" || miss="$miss [review: $c]"; done
+for c in 'xargs rm x' 'cat /etc/passwd' 'cat /dev/null /etc/passwd' 'rm -rf x'; do granted "$c" && miss="$miss [granted: $c]"; done
+[ -n "$wt" ] && [ -z "$miss" ] && ok "(vg) each command of a piped or chained check is granted by its own text, rm never; worktree scripts, jq and shasum are" || bad "(vg) allowlist wrong:$miss"
 FIXTURE_CONFIG='{"tracker":{"type":"jira","writes":false,"branchPrefix":"jdoe/","keyPattern":"[A-Z]+-[0-9]+"},"paths":{"plansDir":"docs/plans"}}' fixture v2
 printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; mv "$d/main/.claude/pipeline-state/42-ledger.md" "$d/main/.claude/pipeline-state/GH-42-ledger.md"
 OUT="$( cd "$d/main" && bash "$RUN" GH-42 --build-model opus 2>&1 )"; RC=$?; TERM_SLUG="$(printf '%s\n' "$OUT" | sed -n 's/^terminal: //p' | tail -n 1)"
@@ -929,7 +939,7 @@ miss=""; for t in Skill Workflow Grep Glob 'Bash(find *)' 'Bash(cp *)' 'Bash(bas
 [ -z "$miss" ] && ok "[F20] the review allowlist carries every tool the panel dispatch uses" || bad "[F20] review allowlist lacks:$miss"
 case ",$bal," in *,Workflow,*) bad "[F20] the build session was given Workflow" ;; *) ok "[F20] the build allowlist is unchanged" ;; esac
 sdir=$(grep -A1 -x -- '--add-dir' "$FAKE_GH/args-2.txt" | grep -- '-scratch\.' | head -n 1)
-[ -n "$sdir" ] && grep -qF "copying it into $sdir," "$FAKE_GH/prompt-2.txt" && grep -q 'code-review.mjs' "$FAKE_GH/prompt-2.txt" \
+[ -n "$sdir" ] && grep -qF "writing it with Write into $sdir," "$FAKE_GH/prompt-2.txt" && grep -q 'code-review.mjs' "$FAKE_GH/prompt-2.txt" \
   && ok "[F20] #964 D-3: the review's prompt stages code-review.mjs in the run's scratch dir, which it is handed" || bad "[F20] scratch dir '${sdir:-none}' not added to the review, or not named as the staging dir"
 case ",$ral," in *",Bash(gh api"*) bad "[F20] the review session may call gh api (it can DELETE)" ;; *) ok "[F20] the review session gets no gh api" ;; esac
 

@@ -320,6 +320,22 @@ done; unset _t
 SCRUB_ENV+=(${WATCH_UNSET[@]+"${WATCH_UNSET[@]}"})
 lane() { ( cd "$WT" && env "${SCRUB_ENV[@]}" bash -c "$1" ); }
 first_word() { local w; for w in $1; do case "$w" in *=*) continue ;; *) printf '%s' "$w"; return ;; esac; done; printf '%s' "${1%% *}"; }
+cmd_grants() { # cmd_grants <command>: one ',Bash(...)' rule per command of a pipeline or chain, each checked on its own by the session
+  # the first by its first word; every later one by its exact text, or, cut before a word holding , ( ) * or {, by that
+  # prefix plus * — never one bare word, and never one led (or, through xargs, run) by rm, a shell, env, eval, exec, sudo, nohup, cd or python3
+  local seg first=1 kept lead w words
+  while IFS= read -r seg; do
+    seg="$(sed 's/^[[:space:]]*//; s/[[:space:]]*$//' <<<"$seg")"; [ -n "$seg" ] || continue
+    if [ "$first" -eq 1 ]; then first=0; printf ',Bash(%s*)' "$(first_word "$seg")"; continue; fi
+    kept="$(awk '{ if (match($0, /(^|[[:space:]])[^[:space:]]*[,()*{]/)) { s = substr($0, 1, RSTART - 1); sub(/[[:space:]]+$/, "", s); print "cut " s } else print "whole " $0 }' <<<"$seg")"
+    if [ "${kept%% *}" = whole ]; then printf ',Bash(%s)' "$seg"; continue; fi
+    kept="${kept#cut }"; read -r -a words <<<"$kept"; [ "${#words[@]}" -ge 2 ] || continue
+    lead="${words[0]}"
+    if [ "$lead" = xargs ]; then lead=""; for w in "${words[@]:1}"; do case "$w" in -*) ;; *) lead="$w"; break ;; esac; done; fi
+    case "$lead" in rm|sh|bash|zsh|env|eval|exec|sudo|nohup|cd|python3|'') continue ;; esac
+    printf ',Bash(%s*)' "$kept"
+  done < <(awk '{ gsub(/&&|\|\||[|;]/, "\n"); print }' <<<"$1")
+}
 # -- session flags (rows F2, F4-F10) --
 DISALLOWED="AskUserQuestion,EnterWorktree,ExitWorktree"
 if [ "$TRACKER_WRITES" = false ]; then # the 14 Atlassian write tools under every namespace they are served under
@@ -575,7 +591,8 @@ build_prompt() { # build_prompt <round> <review-findings-file-or-empty> <red-che
     echo "Your scratch directory is $SCRATCH (already added to this session): it is the only place for logs, probes, and PR or comment bodies — never the worktree, never /tmp. Put scratch files there; the scheduler removes it at the end of the run. A probe you never committed is not a test the PR deletes."
     echo "Run every check in the foreground: no nohup, no trailing &."
   else echo "Delete every probe or scratch file you created before you end your turn: a probe you never committed is not a test the PR deletes."; fi
-  echo "Run each shell command on its own, with absolute paths: no cd (use git -C <dir>), no shell variables, no ; or && chains; run a check below exactly as written."
+  echo "Run each shell command on its own, with absolute paths: no cd (use git -C <dir>), no shell variables, no ; or && chains, no \$( ) substitution; run a check below exactly as written."
+  echo "Read an issue or PR comment with gh issue view or gh pr view --json comments, never gh api."
   echo "A denied command is not a reason to end your turn: skip a command outside the allowlist and name it in the PR body as skipped. Pushing $BRANCH and opening the draft PR are never skipped."
   echo "Edit files only with the Edit and Write tools, never through a shell (no python, sed -i, heredoc or > redirect)."
   echo "Pass every PR or comment body with --body-file <a file you wrote with Write>, never inline with --body."
@@ -601,8 +618,9 @@ review_prompt() { # review_prompt <pr> <review-input-file> [<the previous verdic
   echo "The PR's base branch is $BASE_NAME: pass it to review-lead as the base, so the diff is origin/$BASE_NAME...HEAD and not the remote default branch."
   echo "Then run review-toolkit:review-lead over the PR diff, passing it the ticket $ISSUE yourself so it never reads the PR body to find one, and DECLARE THE PIPELINE DEFAULT PANEL when you invoke it: the fan-out defaults to scope-completeness-reviewer; security-reviewer, a11y-reviewer and unit-test-mutation-reviewer are selected only by an opt-in — a 'review panel' row in the record with user-answered or user-delegated provenance naming security, a11y or unit-test-mutation, or the config's reviewers.default[]. review-lead never infers this; an undeclared panel leaves the surface triggers in force. Opting one of the three back in is your call, and the expected call whenever the diff introduces a surface rather than editing an existing one: security for a new authentication, session, tenancy or ownership-scoping path, or a new query built from external input; a11y for new form controls or a new interactive component; unit-test-mutation for new logic with a co-located spec. A change to a file that already sits on one of those surfaces is your call either way. Pass each short name to review-lead with a one-line reason. Do not stand in for a specialist on a surface the diff introduces: your lead pass is one reader over the whole diff, not that reviewer's checklist. The trim stays the default because it was measured; a diff it was never measured on is yours to judge. Declining a reviewer whose surface the diff introduces is itself a decision: pass the decline to review-lead with a one-line reason, it is written into the panel line of the review, and the human who reads the verdict reads that line. An introduced surface with neither a reviewer nor a reason is a silent decision."
   echo "Your scratch directory is $SCRATCH (already added to this session): it is the only place for logs, probes, and your verdict and comment drafts — never the worktree, never /tmp. Put scratch files there; the scheduler removes it at the end of the run."
-  echo "review-lead dispatches its reviewers through the code-review.mjs Workflow: stage that script by copying it into $SCRATCH, never into the worktree, and run the Workflow from there."
-  echo "Do not run the repo's test suites or checks: the scheduler ran them at this head before spawning you, and CI runs them on the PR. Run each shell command on its own, with absolute paths: no cd (use git -C <dir>), no shell variables, no ; or && chains, no nohup or trailing &. Write files only with the Write tool, never through a shell (no python, heredoc or > redirect)."
+  echo "review-lead dispatches its reviewers through the code-review.mjs Workflow: stage that script by reading it and writing it with Write into $SCRATCH, never into the worktree (a cp out of the plugin cache is denied here), and run the Workflow from there."
+  echo "Do not run the repo's test suites or checks: the scheduler ran them at this head before spawning you, and CI runs them on the PR. Run each shell command on its own, with absolute paths: no cd (use git -C <dir>), no shell variables, no ; or && chains, no | pipes, no \$( ) substitution, no nohup or trailing &. Write files only with the Write tool, never through a shell (no python, heredoc or > redirect)."
+  echo "Read an issue or PR comment with gh issue view or gh pr view --json comments, never gh api."
   echo "Read the build's own account last: write the row scores and your findings, review-lead's included, from the record, the diff and the code first, and only then read the PR description and the build's PR comments, to reconcile the departures and rebuttals they state. An author's framing measurably lowers what a reviewer finds. If that reading changes a score or a finding, say so in the verdict's '## Notes' with a line 'revised after reading the build's account: <what changed>'."
   echo "If the ticket has design frames, render every screen at the head with the repo's render command and compare it with its frame; if you cannot render, you cannot approve: post 'verdict: needs-work' with line 3 'reason: render-unavailable'."
   local via=""; [ "$BOT_OK" -eq 1 ] && via=" through $GH (the bot identity)"
@@ -635,18 +653,19 @@ GRAMMAR
   echo; echo "## Scheduler input (deleted or skipped tests, changed test or snapshot expectations, config edits, the build's permission denials, and the untracked files archived after it)"; cat "$2"
 }
 build_allowlist() { # row F3: derived from what the record and config name
-  local allow="Read,Edit,Write,Agent,Bash(git *),Bash(gh pr create*),Bash(gh pr view*),Bash(gh pr comment*),Bash(gh issue view*)$MCP_ALLOW" c
+  # bash $WT/*: a build runs the scripts it writes in its worktree, which the checks already execute
+  local allow="Read,Edit,Write,Agent,Bash(git *),Bash(gh pr create*),Bash(gh pr view*),Bash(gh pr comment*),Bash(gh issue view*),Bash(bash $WT/*)$MCP_ALLOW" c
   [ "$BOT_OK" -eq 1 ] && allow="$allow,Bash($TOOLS/bot-commit.sh*),Bash(bash $TOOLS/bot-commit.sh*),Bash($GH *)"   # the bash form too: the scheduler calls it that way, and a build copies it
   [ -n "$(frames_rows)" ] && allow="$allow,mcp__figma,mcp__plugin_figma_figma"
-  while IFS= read -r c; do [ -n "$c" ] && allow="$allow,Bash($(first_word "$c")*)"; done <<EOF
+  while IFS= read -r c; do [ -n "$c" ] && allow="$allow$(cmd_grants "$c")"; done <<EOF
 $(checks_list all)
 EOF
-  [ -n "$RENDER_CMD" ] && allow="$allow,Bash($(first_word "$RENDER_CMD")*)"
+  [ -n "$RENDER_CMD" ] && allow="$allow$(cmd_grants "$RENDER_CMD")"
   printf '%s' "$allow"
 }
 review_allowlist() { # row F20: review-lead's panel is a Workflow whose agents inherit these tools
-  local allow="Read,Grep,Glob,Agent,Skill,Workflow,Bash(find *),Bash(cp *),Bash(bash *check-review-context.sh*),Bash(bash *verdict-check.sh*),Bash(git *),Bash(gh pr view*),Bash(gh pr comment*),Bash(gh pr diff*),Bash(gh issue view*)$MCP_ALLOW"
-  [ -n "$RENDER_CMD" ] && allow="$allow,Bash($(first_word "$RENDER_CMD")*)"
+  local allow="Read,Grep,Glob,Agent,Skill,Workflow,Bash(find *),Bash(cp *),Bash(jq *),Bash(shasum *),Bash(bash *check-review-context.sh*),Bash(bash *verdict-check.sh*),Bash(git *),Bash(gh pr view*),Bash(gh pr comment*),Bash(gh pr diff*),Bash(gh issue view*)$MCP_ALLOW"
+  [ -n "$RENDER_CMD" ] && allow="$allow$(cmd_grants "$RENDER_CMD")"
   [ -n "$(frames_rows)" ] && allow="$allow,mcp__figma,mcp__plugin_figma_figma"
   [ "$BOT_OK" -eq 1 ] && allow="$allow,Bash($GH pr comment*),Bash($GH pr view*)"   # never the wrapper whole: it takes api -X DELETE
   printf '%s' "$allow"
