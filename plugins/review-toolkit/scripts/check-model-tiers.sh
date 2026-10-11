@@ -56,6 +56,10 @@
 #     and is lockstep-checked directly. No shipped dispatch carries one today: the
 #     structured-emitter leg that did was moved INTO both maps by #351, which is what gave
 #     it override and tierMap support. The path stays for the next inline carrier.
+#   - map  SUBSTANTIAL_MODEL in workflows/code-review.mjs (#992) — NOT against frontmatter (its
+#     tiers differ from the agents' own by design) but against the parsed `## Substantial panel`
+#     table in model-tiering.md, both directions (SUBSTANTIAL-DRIFT). Its block is lifted out of
+#     the frontmatter scans above.
 #   - a map  DESIGN_MODEL (design-sync.mjs), a scalar UNIT_TEST_MODEL (unit-tests.mjs)
 #     and a scalar EXECUTOR_MODEL (mutation-gate.mjs) — RETIRED in #574 with their
 #     engines; a scalar plan-reviewer constant was RETIRED in #348 with the plan
@@ -65,6 +69,8 @@
 # Error classes:
 #   MISMATCH / DANGLING / NO-FRONTMATTER  the lockstep failures above.
 #   MISSING-TABLE / UNPARSEABLE-ALPHABET  the script could not read what it validates.
+#   SUBSTANTIAL-DRIFT                     SUBSTANTIAL_MODEL and the `## Substantial panel`
+#                                         table disagree on a row, or one exists without the other.
 #   UNKNOWN-MODEL                         a token outside the parsed tier alphabet in a
 #                                         shipped MAP entry (the two map files) or in an
 #                                         inline `model: '<tier>'` literal (BOTH parsed
@@ -391,6 +397,75 @@ check_inline_default_map() { # check_inline_default_map <file> <tbl>
     done <<< "$DEFAULT_TIER_MAP_TEXT"
 }
 
+# --- The substantial-panel table (#992) --------------------------------------
+# code-review.mjs's SUBSTANTIAL_MODEL re-tiers the specialist seats for `panel: 'substantial'`.
+# Its tiers DIFFER from the agents' frontmatter by design, so it is no frontmatter lockstep: the
+# whole-file entry scans below would read every row as MISMATCH. The block is therefore lifted
+# out of those scans (strip_substantial) and held instead against its own authority, the parsed
+# `## Substantial panel` table in model-tiering.md, both directions, exactly as the inlined
+# DEFAULT_TIER_MAP is held against `## Tier alphabet`. The frontmatter comparison could not catch
+# its drift anyway: a seat dropping back to `code` would equal the agent's own `sonnet` and pass.
+SUBSTANTIAL_BLOCK_RE='^const SUBSTANTIAL_MODEL = \{'
+strip_substantial() { # strip_substantial <file> -> the file text without the SUBSTANTIAL_MODEL block
+    sed -E "/$SUBSTANTIAL_BLOCK_RE/,/^}/d" "$1"
+}
+
+# Rows of `## Substantial panel` as `<bare agent>\t<tier>`. Section-anchored like the alphabet
+# parse; the header and separator rows fail the lowercase patterns and drop out. Backticks around
+# a name are tolerated.
+parse_substantial_doc() { # parse_substantial_doc <doc-path>
+    [ -f "$1" ] || return 0
+    awk '
+        /^##[[:space:]]+Substantial panel[[:space:]]*$/ { inseg = 1; next }
+        inseg && /^##[[:space:]]/                       { inseg = 0 }
+        inseg && /^\|/ {
+            n = split($0, c, "|")
+            if (n < 4) next
+            agent = c[2]; tier = c[3]
+            gsub(/[ \t`]/, "", agent)
+            gsub(/[ \t`]/, "", tier)
+            sub(/^[^:]+:/, "", agent)
+            if (agent ~ /^[a-z][a-z0-9-]*$/ && tier ~ /^[a-z][a-z0-9_-]*$/)
+                printf "%s\t%s\n", agent, tier
+        }
+    ' "$1"
+}
+
+check_substantial_table() { # check_substantial_table <file> <tbl>
+    local file="$1" tbl="$2" block code doc agent tier want
+    block=$(sed -En "/$SUBSTANTIAL_BLOCK_RE/,/^}/p" "$file")
+    code=$(printf '%s\n' "$block" | grep -oE "'[a-z0-9:-]+': '[^']+'" \
+        | awk -F"'" '{ a = $2; sub(/^[^:]+:/, "", a); printf "%s\t%s\n", a, $4 }')
+    doc=$(parse_substantial_doc "$ALPHABET_DOC")
+    [ -z "$code" ] && [ -z "$doc" ] && return 0
+    if [ -z "$block" ]; then
+        errors+=("SUBSTANTIAL-DRIFT: $ALPHABET_DOC declares a '## Substantial panel' table but $tbl has no 'const SUBSTANTIAL_MODEL = {' block, so the substantial panel dispatches at the frontmatter tiers")
+        return
+    fi
+    if [ -z "$doc" ]; then
+        errors+=("SUBSTANTIAL-DRIFT: $tbl declares SUBSTANTIAL_MODEL but $ALPHABET_DOC has no '## Substantial panel' table to hold it against")
+        return
+    fi
+    while IFS=$'\t' read -r agent tier; do
+        [ -z "$agent" ] && continue
+        if [ -z "$(map_lookup "$DEFAULT_TIER_MAP_TEXT" "$tier")" ]; then
+            errors+=("UNKNOWN-MODEL: $tbl SUBSTANTIAL_MODEL declares '$agent' => '$tier', which is not a known tier ($KNOWN_TIERS_RE)")
+            continue
+        fi
+        want=$(map_lookup "$doc" "$agent")
+        if [ -z "$want" ]; then
+            errors+=("SUBSTANTIAL-DRIFT: $tbl SUBSTANTIAL_MODEL declares '$agent' => '$tier' but the '## Substantial panel' table in $ALPHABET_DOC has no row for it")
+        elif [ "$want" != "$tier" ]; then
+            errors+=("SUBSTANTIAL-DRIFT: $tbl SUBSTANTIAL_MODEL declares '$agent' => '$tier' but $ALPHABET_DOC's '## Substantial panel' table declares '$want'")
+        fi
+    done <<< "$code"
+    while IFS=$'\t' read -r agent tier; do
+        [ -z "$agent" ] && continue
+        [ -n "$(map_lookup "$code" "$agent")" ] && continue
+        errors+=("SUBSTANTIAL-DRIFT: $ALPHABET_DOC's '## Substantial panel' table declares '$agent' => '$tier' but $tbl's SUBSTANTIAL_MODEL omits it")
+    done <<< "$doc"
+}
+
 # --- UNKNOWN-MODEL: tokens outside the known tier set ------------------------
 # The enum below is baked into the EXTRACTION regexes of the two scans that follow
 # this block, which is what made an out-of-enum token invisible rather than wrong:
@@ -439,7 +514,7 @@ scan_unknown_map_entries() {
         grep -qE "^($KNOWN_TIERS_RE)\$" <<<"$m" && continue
         a=$(printf '%s' "$pair" | sed -E "s/^'([^']+)': '([^']+)'$/\1/")
         errors+=("UNKNOWN-MODEL: $tbl declares '$a' => '$m', which is not a known tier ($KNOWN_TIERS_RE). Shipped tables carry plugin defaults only; per-repo tiers (including 'fable') belong in config reviewers.modelOverrides.")
-    done <<< "$(grep -oE "'[a-z0-9:-]+': '[^']+'" "$file")"
+    done <<< "$(strip_substantial "$file" | grep -oE "'[a-z0-9:-]+': '[^']+'")"
 }
 
 # Inline `model:` literals on agentType-bearing lines. Runs over BOTH parsed
@@ -472,12 +547,13 @@ for tbl in code-review.mjs intake-review.mjs intake-fanout.mjs; do
     check_inline_default_map "$file" "$tbl"
     scan_unknown_map_entries "$file" "$tbl"
     scan_unknown_inline_literals "$file" "$tbl"
+    [ "$tbl" = code-review.mjs ] && check_substantial_table "$file" "$tbl"
     while IFS= read -r pair; do
         [ -z "$pair" ] && continue
         agent=$(printf '%s' "$pair" | sed -E "s/^'([^']+)': '([^']+)'$/\1/")
         model=$(printf '%s' "$pair" | sed -E "s/^'([^']+)': '([^']+)'$/\2/")
         check_pair "$agent" "$model" "$tbl"
-    done <<< "$(grep -oE "'[a-z0-9:-]+': '($KNOWN_TIERS_RE)'" "$file")"
+    done <<< "$(strip_substantial "$file" | grep -oE "'[a-z0-9:-]+': '($KNOWN_TIERS_RE)'")"
 
     # Inline `model:` literals on agentType-bearing dispatch lines. Unlike the scalar
     # loop below, a MAP file has no file-level scalar to fall through to — the inline

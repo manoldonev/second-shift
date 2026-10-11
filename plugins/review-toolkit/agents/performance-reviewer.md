@@ -106,3 +106,7 @@ Apply these in the terms of the repo's rendering model (per review-context); ski
 ## Output Format
 
 Per `reviewer-baseline`, plus an `Impact:` line between Evidence and Recommendation (e.g. "O(n²) on multi-thousand-point arrays").
+
+## Emit deadline
+
+By **turn 10** (of your 15 maximum) you MUST be writing your result. No further tool use after turn 10 except emitting it. If a file you intended to open is still unread at turn 10, emit anyway and name the gap — `unable to verify — pointer needed: <specific file or fact>` — rather than dropping it silently. A review cut short by this deadline must **not** return `approve` with zero findings: an unfinished read is not evidence of clear code, and a caller that records the domain as reviewed on that basis is worse off than one told the read was partial.

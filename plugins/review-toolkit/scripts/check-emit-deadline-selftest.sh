@@ -244,12 +244,16 @@ grep -q "spec-reviewer" "$TMP/.live" \
 # agent stops being linted, so no `ok:` line is printed while the run stays rc=0 and B1 goes on
 # passing; delete the deadline from either agent doc and the line becomes a violation instead.
 # A bare-name grep would survive the second mutant, since a violation line names the agent too.
+#
+# performance-reviewer and complexity-reviewer joined the loop with #992, which made them required
+# opus seats of the substantial panel and enrolled them without a demonstrated death. The same two
+# kill criteria hold for them.
 covered=0
-for a in test-coverage-reviewer maintainability-reviewer; do
+for a in test-coverage-reviewer maintainability-reviewer performance-reviewer complexity-reviewer; do
   grep -q "ok: $a.md" "$TMP/.live" && covered=$((covered + 1))
 done
-[ "$covered" -eq 2 ] && ok "B13 both demonstrated-dark panel reviewers are linted under the shipped enrollment" \
-  || bad "B13 expected both dark panel reviewers to have an ok: line, saw $covered ($(cat "$TMP/.live"))"
+[ "$covered" -eq 4 ] && ok "B13 the four enrolled panel reviewers are linted under the shipped enrollment" \
+  || bad "B13 expected all four enrolled panel reviewers to have an ok: line, saw $covered ($(cat "$TMP/.live"))"
 
 # B6/B7: the live scan's two REFUSALS. Both are one contract from opposite sides — a lint that
 # cannot see the tree it lints must say so, not report clean. That is what the fixed hop count

@@ -128,13 +128,20 @@ DEFAULT_CAP=15
 # whole evidence base, and it is the predicate this list asks for.
 #
 # WHY ONLY THIS ONE. design-faithful-reviewer is the same shape — sibling provider of the same
-# dimension, same cap, same missing deadline — and a11y, db, performance, complexity and pipeline
-# are named in code-review.mjs's ROOT CAUSE block as the same vulnerable population. None of them
-# has a demonstrated death, so none is enrolled: the header's rule is deliberate, and enrolling the
+# dimension, same cap, same missing deadline — and a11y, db and pipeline are named in
+# code-review.mjs's ROOT CAUSE block as the same vulnerable population. None of them has a
+# demonstrated death, so none is enrolled: the header's rule is deliberate, and enrolling the
 # default-cap panel on a sibling's evidence is the larger decision it forbids. They are covered in
 # the meantime by ESCALATED_EMIT (#855), which changes the ask on a retry after an empty-text death
 # for whichever agent died, and needs no enrollment to reach them.
-DEADLINE_AT_DEFAULT="${DEADLINE_AT_DEFAULT:-plan-reviewer spec-reviewer test-coverage-reviewer maintainability-reviewer figma-faithful-reviewer}"
+#
+# performance-reviewer and complexity-reviewer are the sixth and seventh, and they are the one
+# DEPARTURE from that rule, made on purpose (#992). Neither has a demonstrated death. They are
+# enrolled because #992's substantial panel makes them required seats running on opus, a
+# population nobody has measured, where one unbounded seat leaves the whole panel short of a
+# domain. Their docs carry maintainability-reviewer's line verbatim. Their dispatch already appends
+# BOUNDED_EXPLORATION, so, like the three panel reviewers above, they hold both mitigations.
+DEADLINE_AT_DEFAULT="${DEADLINE_AT_DEFAULT:-plan-reviewer spec-reviewer test-coverage-reviewer maintainability-reviewer figma-faithful-reviewer performance-reviewer complexity-reviewer}"
 
 # The jq binary. A seam, not a configuration knob — see the Env note above.
 JQ="${EMIT_DEADLINE_JQ:-jq}"
@@ -341,7 +348,7 @@ for dir in $ROOTS; do
         echo "  FAIL: $name — maxTurns:$cap is above the default $DEFAULT_CAP but the body declares no emit deadline." >&2
       else
         echo "  FAIL: $name — maxTurns:$cap is at the default cap, but '$agent' is enrolled in the deadline contract (DEADLINE_AT_DEFAULT) and the body declares no emit deadline." >&2
-        echo "        Enrolled because its dispatch site appends no bounding nudge, so nothing else holds it." >&2
+        echo "        Enrolled because a dispatch-time nudge alone did not hold it, or none reaches it; the reason is recorded beside DEADLINE_AT_DEFAULT." >&2
       fi
       echo "        Add: 'By **turn <D>** (of your $cap maximum) you MUST be writing the final result.'" >&2
       echo "        Raising the cap is not a fix on its own (#183) — the deadline is what makes the agent emit." >&2

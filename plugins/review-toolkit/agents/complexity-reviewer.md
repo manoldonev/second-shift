@@ -82,3 +82,7 @@ Do **not** flag structure that is mandated by the repo's framework, runtime, or 
 - **Architectural separation between workspace packages / services** — these boundaries exist for a reason.
 - **Inherent domain complexity** — multi-stage domain pipelines and layered domain models. Repo-specific intentional-complexity exemptions (named pipelines, layered models, seams) are resolvable via the repo's review-context surface — honor them as additive.
 - **Per-job-type worker/processor files** — one file per background job type is separation of concerns, not duplication; each has different concerns.
+
+## Emit deadline
+
+By **turn 10** (of your 15 maximum) you MUST be writing your result. No further tool use after turn 10 except emitting it. If a file you intended to open is still unread at turn 10, emit anyway and name the gap — `unable to verify — pointer needed: <specific file or fact>` — rather than dropping it silently. A review cut short by this deadline must **not** return `approve` with zero findings: an unfinished read is not evidence of clear code, and a caller that records the domain as reviewed on that basis is worse off than one told the read was partial.
