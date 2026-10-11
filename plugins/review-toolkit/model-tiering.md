@@ -43,10 +43,8 @@ There is no rule that shipped defaults stay `opus`. Two conditions travel with e
 
 - **The dispatcher degrades.** A consumer without Fable access must lose a call, never an agent:
   an engine that dispatches at `cross` falls back to `reasoning` when the dispatch fails, and the
-  record says so. `intake-fanout.mjs` does this, and so does `code-review.mjs`'s Refute phase
-  (#992), the one place that engine dispatches at `cross`. Its reviewer seats do not degrade, which
-  is why they stay off `cross`. `intake-review.mjs` does not degrade yet, which is why its agents
-  stay at `reasoning` until it does.
+  record says so. `intake-fanout.mjs` does this. `code-review.mjs` and `intake-review.mjs` do not
+  degrade, which is why their agents stay off `cross`.
 - **The record says what was measured.** Fable as a second family is read against the published
   finding that two families from one provider still share many errors; a default that cites the
   other family as independent must have measured it.
@@ -60,14 +58,6 @@ A repo still retargets per agent through `reviewers.modelOverrides` (e.g. `"plan
 or per tier through `reviewers.tierMap` (`"cross": "opus"` turns Fable off). A tier the
 subscription cannot dispatch, set by override on an engine that does not degrade, produces a dead
 reviewer, reported as dead rather than quietly skipped.
-
-The review fan-out's Refute phase (#992) is the second shipped use. On `panel: 'substantial'`, and
-in refute-only mode, every `blocker` or `major` finding goes to `finding-refuter` on the family
-that did not make it. Each such finding then records `reproduced`, `refuted` (kept, with the
-refuter's evidence) or `unverified` (the refuter went dark, gave no verdict, or was still running at
-the 3-minute refute ceiling), so the finding stands. Two thrown `cross` dispatches with no success
-move the remaining refuters to `reasoning`, and their findings then record
-`same-family (fable unavailable)`.
 
 ## Substantial panel
 
