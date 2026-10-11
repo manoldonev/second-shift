@@ -543,6 +543,10 @@ OUT="$( cd "$d/main" && PATH="$T/bin:$PATH" FAKE_BOT="$T/bin/gh" env -u RUN_GH -
 expect approved "(v1) a consumer WITH a bot: claim through claim-issue.sh, marker and body through the wrapper"
 grep -qx in-progress "$FAKE_GH/labels" && ! grep -qx ready-for-dev "$FAKE_GH/labels" && ok "(v1) claim-issue.sh swapped the labels through the bot" || bad "(v1) labels: $(tr '\n' ' ' < "$FAKE_GH/labels")"
 grep -q 'stage: lean-claimed' "$FAKE_GH/issue-comments" && ok "(v1) marker posted through the bot" || bad "(v1) no marker"
+# #985: the bot-commit call the prompt names, and the 'bash <helper>' form the scheduler itself uses, both match a granted prefix
+bal=$(grep -A1 -x -- '--allowedTools' "$FAKE_GH/args-1.txt" | tail -n 1); bcall=$(grep -o "'[^']*/bot-commit\.sh -C [^']*'" "$FAKE_GH/prompt-1.txt" | tr -d "'" | sed 's/<[^>]*>/msg.txt/')
+granted() { local r p; IFS=, read -r -a r <<<"$bal"; for p in "${r[@]}"; do case "$p" in Bash\(*\*\)) p="${p#Bash(}"; [[ "$1" == "${p%\*)}"* ]] && return 0 ;; esac; done; return 1; }
+[ -n "$bcall" ] && granted "$bcall" && granted "bash $bcall" && ok "(v1) the prompt's bot-commit call and its bash form are both granted" || bad "(v1) bot-commit call '${bcall:-none}' not granted, bare or through bash"
 [ "$(git -C "$d/origin.git" log --format=%an --reverse main..second-shift/42 | head -n 1)" = 'second-shift-bot[bot]' ] && ok "(v1) [E3] the record commit carries the bot's identity" || bad "(v1) [E3] record commit author: $(git -C "$d/origin.git" log --format=%an --reverse main..second-shift/42 | head -n 1)"
 FIXTURE_CONFIG='{"tracker":{"type":"jira","writes":false,"branchPrefix":"jdoe/","keyPattern":"[A-Z]+-[0-9]+"},"paths":{"plansDir":"docs/plans"}}' fixture v2
 printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; mv "$d/main/.claude/pipeline-state/42-ledger.md" "$d/main/.claude/pipeline-state/GH-42-ledger.md"
