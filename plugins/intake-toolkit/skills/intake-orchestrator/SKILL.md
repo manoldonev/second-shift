@@ -206,7 +206,7 @@ Evidence-gathering is a fan-out of `spec-reviewer` + `codebase-explorer` that re
 
   - **under 2000 chars** (length of the GitHub-normalized `body`) — sized so the interviewer's fixed feature scaffolding plus terse single-capability content qualifies, while multi-capability / detail-heavy specs (the ones that warrant a fresh second review) run longer; conservative because a false skip silently drops a real review; AND
   - **no referenced docs/ADR links** — the same scan as "Finding referenced docs" below (file paths / ADR references / repo-doc links); a bare GitHub issue ref (`#NNN`, e.g. a `## Related` parent link) does **NOT** count; AND
-  - **single-section AC** — exactly one `## Acceptance Criteria` H2 with no nested sub-headings (`###`+) inside that section.
+  - **single-section AC** — exactly one H2 that is the AC section heading per the rule in review-toolkit's `scope-completeness-reviewer` agent (its normative home), with no nested sub-headings (`###`+) inside that section.
 
   Otherwise — no marker, `verdict != implementable`, `blockers > 0`, or a non-self-contained body — gather both as below. This skip is scoped to **this feature/enhancement/refactor path only**: the bug/chore path (above) gathers `spec-reviewer` only and never consults the marker (skipping it there would dispatch nothing).
 
