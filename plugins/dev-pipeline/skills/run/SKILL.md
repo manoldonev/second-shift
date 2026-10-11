@@ -30,20 +30,22 @@ env, phases and the exit table. It is the truth; this file only says what is you
    `Bash` tool's description states (the default is minutes):
 
    ```bash
-   until grep -q 'detached run exited rc=' '<log>' || ! kill -0 <pid> 2>/dev/null; do sleep 30; done
+   until grep -q 'detached run exited rc=' '<log>' || ! pgrep -g <pid> >/dev/null; do sleep 30; done
    ```
 
-   Nothing follows `done`: a hook that rewrites a command can drop `run_in_background`, and a
-   trailing `| tail` or `; grep` makes it that kind of command. A background call is stopped at its
+   The printed pid is a small wrapper that leads the run's process group, and the run is its child,
+   so the loop checks the group: `kill -0 <pid>` would call a live run dead once only the wrapper
+   is killed. Nothing follows `done`: a hook that rewrites a command can drop `run_in_background`,
+   and a trailing `| tail` or `; grep` makes it that kind of command. A background call is stopped at its
    `timeout` too, so a run longer than that bound outlives the watch: that is the routine re-arm
    below, not a fault. Not a `Monitor`: it caps at 30 minutes, so it wakes the session several
    times as often. When the watch ends, read the log's last lines:
    - the `detached run exited rc=<n>` line is there → step 4;
-   - no exit line and `kill -0 <pid>` succeeds → the watcher died, not the run: re-arm the same
-     loop. A watch that ended is never the run's end;
-   - no exit line and the pid is gone → report the run as interrupted with no terminal line and
-     stop. The wrapper writes the exit line even on a forwarded TERM/INT/HUP, so only an
-     uncatchable kill leaves it out, and that is a human's read.
+   - no exit line and `pgrep -g <pid>` lists a process → the watcher died, not the run: re-arm the
+     same loop. A watch that ended is never the run's end;
+   - no exit line and the process group is gone → report the run as interrupted, citing any bare
+     `terminal:` slug the log carries, and stop. The wrapper writes the exit line even on a
+     forwarded TERM/INT/HUP, so only an uncatchable kill leaves it out, and that is a human's read.
    The operator may have exported `RUN_WATCH_CMD` (e.g. `herdr-adapter.sh` beside `R`, a herdr workspace per ticket); its one `watch:` log line is never a signal to act on.
 4. **Read the terminal and nothing else.** The log's `terminal: <slug>` line and `rc` are the whole
    signal:
