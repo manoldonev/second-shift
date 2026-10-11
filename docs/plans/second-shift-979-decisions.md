@@ -11,6 +11,7 @@
 | D-5 | `run.sh` and tests | `run.sh` is unchanged (D-1), so CLAUDE.md's "a behavior change to `run.sh` lands with a `run-selftest.sh` case" does not apply. A test that checks the skill for the new wording is barred by the writing-tests rules, so no new selftest | codebase-derived | fact |
 | D-6 | Commit verb and trailer | `fix(dev-pipeline):` on the PR title, because the skill left the watch to the session, which picked a primitive that died (CLAUDE.md, "Commit verbs decide the version bump"). Add a `Changelog:` trailer saying `/dev-pipeline:run` names its watch and re-arms one that ends without the run's exit line, `Migration: none` | codebase-derived | fact |
 | D-7 | Duplicate scan | `dup-scan.sh --issue 979` returned 0: no candidates at or above threshold | codebase-derived | fact |
+| D-8 | The watch call's `timeout` | Step 3 sets it to the maximum the `Bash` tool's description states, not a literal, and names a stop at that bound with the run alive as D-2's routine re-arm. Reason: review W1 — a background call is stopped at its `timeout`, and the default re-arms about every 10 minutes; the stated maximum differs by harness (7200000 ms in the review's, 6900000 ms in the build's), so a literal would be wrong somewhere | user-delegated | intent |
 
 ## Open Regions
 

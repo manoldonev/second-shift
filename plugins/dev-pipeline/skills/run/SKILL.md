@@ -26,15 +26,18 @@ env, phases and the exit table. It is the truth; this file only says what is you
    From an agent session `--detach` is the launch that works: a foreground call is reaped long
    before a run ends (a build session alone may take two hours). It prints
    `detached: pid <pid> · log <log>`. Watch with one `Bash` call under `run_in_background` whose
-   whole command is this loop, the two values pasted in:
+   whole command is this loop, the two values pasted in, and whose `timeout` is the maximum the
+   `Bash` tool's description states (the default is minutes):
 
    ```bash
    until grep -q 'detached run exited rc=' '<log>' || ! kill -0 <pid> 2>/dev/null; do sleep 30; done
    ```
 
    Nothing follows `done`: a hook that rewrites a command can drop `run_in_background`, and a
-   trailing `| tail` or `; grep` makes it that kind of command. Not a `Monitor`: it expires within
-   30 minutes, long before a run ends. When the watch ends, read the log's last lines:
+   trailing `| tail` or `; grep` makes it that kind of command. A background call is stopped at its
+   `timeout` too, so a run longer than that bound outlives the watch: that is the routine re-arm
+   below, not a fault. Not a `Monitor`: it caps at 30 minutes, so it wakes the session several
+   times as often. When the watch ends, read the log's last lines:
    - the `detached run exited rc=<n>` line is there → step 4;
    - no exit line and `kill -0 <pid>` succeeds → the watcher died, not the run: re-arm the same
      loop. A watch that ended is never the run's end;
