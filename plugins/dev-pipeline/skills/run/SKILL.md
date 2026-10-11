@@ -24,8 +24,23 @@ env, phases and the exit table. It is the truth; this file only says what is you
    `--review-model-basis`.
 3. **Launch detached, then watch.** `bash R <issue> [--build-model <m> --model-basis <why>] --detach`.
    From an agent session `--detach` is the launch that works: a foreground call is reaped long
-   before a run ends (a build session alone may take two hours). It prints the log path; watch that
-   log until its last line, `detached run exited rc=<n>`.
+   before a run ends (a build session alone may take two hours). It prints
+   `detached: pid <pid> · log <log>`. Watch with one `Bash` call under `run_in_background` whose
+   whole command is this loop, the two values pasted in:
+
+   ```bash
+   until grep -q 'detached run exited rc=' '<log>' || ! kill -0 <pid> 2>/dev/null; do sleep 30; done
+   ```
+
+   Nothing follows `done`: a hook that rewrites a command can drop `run_in_background`, and a
+   trailing `| tail` or `; grep` makes it that kind of command. Not a `Monitor`: it expires within
+   30 minutes, long before a run ends. When the watch ends, read the log's last lines:
+   - the `detached run exited rc=<n>` line is there → step 4;
+   - no exit line and `kill -0 <pid>` succeeds → the watcher died, not the run: re-arm the same
+     loop. A watch that ended is never the run's end;
+   - no exit line and the pid is gone → report the run as interrupted with no terminal line and
+     stop. The wrapper writes the exit line even on a forwarded TERM/INT/HUP, so only an
+     uncatchable kill leaves it out, and that is a human's read.
    The operator may have exported `RUN_WATCH_CMD` (e.g. `herdr-adapter.sh` beside `R`, a herdr workspace per ticket); its one `watch:` log line is never a signal to act on.
 4. **Read the terminal and nothing else.** The log's `terminal: <slug>` line and `rc` are the whole
    signal:
