@@ -105,6 +105,7 @@ Work through each section. Flag issues using severity levels below.
 ### Acceptance Criteria
 
 - Is every AC **testable** — could you write a concrete test assertion for it?
+- Is every AC **checkable at review time** — from the diff and the checks it runs? An AC whose outcome is observable only after the merge (the next run's transcript, a production metric, a later deploy) → **Warning**: it fails the scope gate on every PR, because no diff can satisfy it. Suggest moving it under a `## Post-merge checks` section as `PM-n`, which the scope gate carries instead of scoring. Items already in that section are not ACs: don't flag them for this.
 - Are ACs stated as observable behavior ("email is sent") not implementation detail ("service calls sendEmail")?
 - Are negative ACs included ("no email sent if session recovered")? Are they ID'd like the rest?
 - **AC IDs:** does each criterion carry a stable `AC-n` ID? Missing IDs → **Warning**, uniform for every spec (non-blocking by design — there is no new-vs-legacy discriminator, and a Warning cannot trap the interviewer's 2-loop exit). Duplicated or ambiguous IDs → **Blocker**. EARS-lite phrasing (`WHEN <trigger> THEN <outcome>`, plain negatives) is guidance; deviations are at most a Note.

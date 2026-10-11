@@ -146,6 +146,7 @@ Sort every part of the spec into two buckets:
 - User-facing behavior, flows, copy
 - Business rules & invariants stated in **domain** terms (not schema terms)
 - Acceptance criteria as observable outcomes — **preserve `AC-n` IDs verbatim** when the source carries them; if it doesn't, assign IDs per the positional fallback rule (normative home: review-toolkit's `scope-completeness-reviewer` agent) and mark each `derived`
+- A `## Post-merge checks` section — **verbatim**, `PM-n` IDs intact, kept apart from the ACs (the scope-completeness gate carries those items instead of scoring them)
 - Explicit in-scope AND out-of-scope deliverable lists
 - Product-level non-functional constraints (as requirements, not as the mechanism)
 
@@ -159,7 +160,7 @@ Produce a **Product-Essence Brief** — a clean restatement of the KEEP bucket o
 
 **User guardrails outrank both buckets.** If the user has stated a deviation, that is binding truth even where the PM's product text says otherwise — record it in the brief as a settled decision, above PM intent.
 
-**Tracker-body invariant:** `AC-n` IDs reach the scope-completeness gate only through the tracker ticket body — the GitHub issue body, or the JIRA description — because its independence contract ignores dispatch/state input. When recommending ticket bodies or sub-issue/sub-ticket splits, carry the AC section verbatim — paraphrasing it silently downgrades scope review to fallback numbering.
+**Tracker-body invariant:** `AC-n` IDs reach the scope-completeness gate only through the tracker ticket body — the GitHub issue body, or the JIRA description — because its independence contract ignores dispatch/state input. When recommending ticket bodies or sub-issue/sub-ticket splits, carry the AC section verbatim — paraphrasing it silently downgrades scope review to fallback numbering. The same holds for a `## Post-merge checks` section: folded into the ACs, its items fail the scope gate on every PR.
 
 ### Step 1: Classify the Issue Type
 
@@ -294,7 +295,7 @@ Before acting on your decision, verify:
 - Could any slice be merged into its neighbor without making the result incoherent? If yes, merge it — the run-cost bias in Step 4.
 - For `sub-issues-sequential`: is the ordering the only viable one, and does every slice after the first genuinely depend on its predecessor? A chain whose links are actually independent is a parallel `sub-issues` decomposition, and serializing it costs the operator a merge round-trip per slice for nothing.
 - **Counterfactual test**: would I group the same way if the cap were 10? If no, it's cap-driven — escalate `needs-intake-review` (see Threshold hygiene below).
-- **Coverage back-check (when Step 0.5 produced a Brief):** reconcile the union of proposed slices against **every deliverable AND every explicit out-of-scope bullet** in the Product-Essence Brief; for engineer-authored specs with no brief, against the spec itself. Where deliverables derive from acceptance criteria, key the reconciliation by `AC-n` ID (explicit or `derived`) so nothing is double-counted or dropped between paraphrases. Each deliverable maps to exactly one slice, OR carries an explicit "deferred — owning follow-up" note; any deliverable with no slice and no deferral → STOP and escalate.
+- **Coverage back-check (when Step 0.5 produced a Brief):** reconcile the union of proposed slices against **every deliverable AND every explicit out-of-scope bullet** in the Product-Essence Brief; for engineer-authored specs with no brief, against the spec itself. Where deliverables derive from acceptance criteria, key the reconciliation by `AC-n` ID (explicit or `derived`) so nothing is double-counted or dropped between paraphrases. Each `PM-n` post-merge check maps to exactly one slice the same way. Each deliverable maps to exactly one slice, OR carries an explicit "deferred — owning follow-up" note; any deliverable with no slice and no deferral → STOP and escalate.
 
 ### Step 5.5: Receipt Exit Gate
 
@@ -404,6 +405,7 @@ The write operations below are the **github** adapter (`tracker.writes: true`) _
 2. For each sub-issue, synthesize a self-contained spec from your analysis — not a copy-paste of the parent, but a focused spec for that slice. **Every** sub-issue body carries:
    - the `Part of #{ISSUE_NUMBER}` anchor (also the dedup key the Step-0 resume guard searches for);
    - its acceptance criteria **verbatim**, `AC-n` IDs intact — the tracker body is the only channel that reaches the scope-completeness gate, so a paraphrase silently downgrades it to fallback numbering;
+   - when the parent has a `## Post-merge checks` section: the items this slice owns, **verbatim** under that heading, `PM-n` IDs intact — never moved into the AC section, where the scope gate would fail them;
    - when Step 0.5 produced a Brief: the **full reconciled QUARANTINE table** (all three tags, verbatim) and the settled user guardrails, so parent-level decisions are not re-litigated per sub-issue.
 3. **Sequential flavor only — ordering trailers.** You know the whole chain in this one batch, so write both directions at creation: each sub-issue after the first carries `Predecessor: <key>`, and each predecessor carries a forward `Successor: <key>`. Render keys per the adapter's `tracker.keyPattern` (`#` prefix optional on github), one trailer per line, as the body's last lines. A blocked body also states plainly: **"queue when `<predecessor>` is closed."**
 4. **Scan each slice for duplicates — before it is created, not after.** Step 5.5 scanned the
