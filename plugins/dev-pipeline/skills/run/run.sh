@@ -608,7 +608,8 @@ review_prompt() { # review_prompt <pr> <review-input-file>
 }
 build_allowlist() { # row F3: derived from what the record and config name
   local allow="Read,Edit,Write,Agent,Bash(git *),Bash(gh pr create*),Bash(gh pr view*),Bash(gh pr comment*),Bash(gh issue view*)$MCP_ALLOW" c
-  [ "$BOT_OK" -eq 1 ] && allow="$allow,Bash($TOOLS/bot-commit.sh*),Bash($GH *)"
+  # each helper is granted in both forms a session calls it by: the bare path, and through bash as run.sh itself does
+  [ "$BOT_OK" -eq 1 ] && allow="$allow,Bash($TOOLS/bot-commit.sh*),Bash(bash $TOOLS/bot-commit.sh*),Bash($GH *),Bash(bash $GH *)"
   [ -n "$(frames_rows)" ] && allow="$allow,mcp__figma,mcp__plugin_figma_figma"
   while IFS= read -r c; do [ -n "$c" ] && allow="$allow,Bash($(first_word "$c")*)"; done <<EOF
 $(checks_list all)
@@ -620,7 +621,7 @@ review_allowlist() { # row F20: review-lead's panel is a Workflow whose agents i
   local allow="Read,Grep,Glob,Agent,Skill,Workflow,Bash(find *),Bash(cp *),Bash(bash *check-review-context.sh*),Bash(git *),Bash(gh pr view*),Bash(gh pr comment*),Bash(gh pr diff*),Bash(gh issue view*)$MCP_ALLOW"
   [ -n "$RENDER_CMD" ] && allow="$allow,Bash($(first_word "$RENDER_CMD")*)"
   [ -n "$(frames_rows)" ] && allow="$allow,mcp__figma,mcp__plugin_figma_figma"
-  [ "$BOT_OK" -eq 1 ] && allow="$allow,Bash($GH pr comment*),Bash($GH pr view*)"   # never the wrapper whole: it takes api -X DELETE
+  [ "$BOT_OK" -eq 1 ] && allow="$allow,Bash($GH pr comment*),Bash(bash $GH pr comment*),Bash($GH pr view*),Bash(bash $GH pr view*)"   # never the wrapper whole: it takes api -X DELETE
   printf '%s' "$allow"
 }
 

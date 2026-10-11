@@ -544,6 +544,11 @@ expect approved "(v1) a consumer WITH a bot: claim through claim-issue.sh, marke
 grep -qx in-progress "$FAKE_GH/labels" && ! grep -qx ready-for-dev "$FAKE_GH/labels" && ok "(v1) claim-issue.sh swapped the labels through the bot" || bad "(v1) labels: $(tr '\n' ' ' < "$FAKE_GH/labels")"
 grep -q 'stage: lean-claimed' "$FAKE_GH/issue-comments" && ok "(v1) marker posted through the bot" || bad "(v1) no marker"
 [ "$(git -C "$d/origin.git" log --format=%an --reverse main..second-shift/42 | head -n 1)" = 'second-shift-bot[bot]' ] && ok "(v1) [E3] the record commit carries the bot's identity" || bad "(v1) [E3] record commit author: $(git -C "$d/origin.git" log --format=%an --reverse main..second-shift/42 | head -n 1)"
+# #985: a session that calls a bot helper through bash, as run.sh itself does, is not denied the
+# commit (build) or the verdict post (review) — each grant holds the bare-path and the bash form
+bal=$(grep -A1 -x -- '--allowedTools' "$FAKE_GH/args-1.txt" | tail -n 1); ral=$(grep -A1 -x -- '--allowedTools' "$FAKE_GH/args-2.txt" | tail -n 1)
+case ",$bal," in *",Bash(bash "*"/bot-commit.sh*),"*) ok "(v1) [#985] the build may commit through 'bash <tools>/bot-commit.sh'" ;; *) bad "(v1) [#985] build allowlist lacks the bash form of bot-commit.sh: $bal" ;; esac
+case ",$ral," in *",Bash(bash $T/bin/gh pr comment*),"*) ok "(v1) [#985] the review may post its verdict through 'bash <wrapper> pr comment'" ;; *) bad "(v1) [#985] review allowlist lacks the bash form of the wrapper's pr comment: $ral" ;; esac
 FIXTURE_CONFIG='{"tracker":{"type":"jira","writes":false,"branchPrefix":"jdoe/","keyPattern":"[A-Z]+-[0-9]+"},"paths":{"plansDir":"docs/plans"}}' fixture v2
 printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; mv "$d/main/.claude/pipeline-state/42-ledger.md" "$d/main/.claude/pipeline-state/GH-42-ledger.md"
 OUT="$( cd "$d/main" && bash "$RUN" GH-42 --build-model opus 2>&1 )"; RC=$?; TERM_SLUG="$(printf '%s\n' "$OUT" | sed -n 's/^terminal: //p' | tail -n 1)"
