@@ -192,6 +192,8 @@ first=$(git -C "$d/origin.git" log --format=%s --reverse main..second-shift/42 |
 grep -q '<!-- pipeline-cost-block -->' "$FAKE_GH/pr-body.md" 2>/dev/null && grep -q 'built-by: fake' "$FAKE_GH/pr-body.md" && grep -q '| approved |' "$FAKE_GH/pr-body.md" && ok "(a) run block written into the PR body, original body kept" || bad "(a) no run block in the PR body"
 grep -qE '^[|] review-1[.]1 [|] 3 [|] [$]1[.]00 [|]' "$FAKE_GH/pr-body.md" 2>/dev/null && ok "(a) per-session cost rows in the block" || bad "(a) per-session rows missing"
 grep -q 'ls /' "$(SD)/review-1.1.prompt" && ok "(a) build denials reach the review input" || bad "(a) denials missing from review input"
+grep -qF 'A denied command is not a reason to end your turn: skip a command outside the allowlist and name it in the PR body as skipped. Pushing second-shift/42 and opening the draft PR are never skipped.' "$FAKE_GH/prompt-1.txt" \
+  && ok "(a) #973 D-3: the build prompt says a denial is not a stop, and pushing and the draft PR are never skipped" || bad "(a) #973 D-3: the denial-is-not-a-stop line is missing from the build prompt"
 
 # (ho) --handoff (/dev-pipeline:build): claim, worktree, record, prompt — then stop; the calling session builds
 fixture ho; printf 'ready-for-dev\n' > "$FAKE_GH/labels"; run_case "$d" --handoff
@@ -249,6 +251,17 @@ fixture c; printf 'build-push-only\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expe
 # (d) E21: a build that left uncommitted work stops the run and nothing discards that work
 fixture d; printf 'build-pr-dirty\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect build-inflight "(d) [E21] a build that left uncommitted work in the worktree is in flight"
 [ -n "$(git -C "$d/wt/42" status --porcelain 2>/dev/null)" ] && ok "(d) [E21] the uncommitted work is still there, never reset away" || bad "(d) [E21] the worktree was cleaned — the build's work was discarded"
+grep -qE '\[run\] terminal: build-inflight — .*its tree is not clean; it was denied 1 command\(s\), listed in .*/denials-1\.1\.txt\) ' <<<"$OUT" \
+  && ok "(d) #973 D-2: the build-inflight detail cites the denials file" || bad "(d) #973 D-2: detail: $(grep 'terminal: build-inflight' <<<"$OUT")"
+# (dn) #973 D-4: a session whose result JSON carried no permission_denials is unread, never "none", and the detail says so
+cat > "$T/bin/claude-nodenials" <<EOF
+#!/usr/bin/env bash
+"$T/bin/claude" "\$@" | jq -c 'del(.permission_denials)'
+EOF
+chmod +x "$T/bin/claude-nodenials"
+fixture dn; printf 'build-pr-dirty\n' > "$FAKE_CLAUDE_PLAN"; RUN_CLAUDE="$T/bin/claude-nodenials" run_case "$d"; expect build-inflight "(dn) a dirty tree with unread denials is still in flight"
+grep -qE '\[run\] terminal: build-inflight — .*its tree is not clean; its permission denials are unread ' <<<"$OUT" \
+  && ok "(dn) #973 D-4: the detail says the denials are unread" || bad "(dn) #973 D-4: detail: $(grep 'terminal: build-inflight' <<<"$OUT")"
 
 # (dq) #926: untracked files alone, on a tree at the pushed head, are archived and the run goes on. The check fails if the
 # probe is still in the tree, so it also proves the archive happens before the checks run
@@ -666,9 +679,22 @@ chmod +x "$T/bin/gh-remote-dead"
 fixture z9; printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-needs-work\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d" --max-rounds 2; [ "$RC" -eq 4 ] && ok "(z9) rounds-spent exits 4" || bad "(z9) exit $RC"
 fixture z10 "- false"; printf 'build-pr\nbuild-push-only\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=2 run_case "$d"; [ "$RC" -eq 4 ] && ok "(z10) checks-red-spent exits 4" || bad "(z10) exit $RC"
 fixture z11; printf 'build-push-only\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; [ "$RC" -eq 1 ] && ok "(z11) build-no-pr exits 1" || bad "(z11) exit $RC"
-fixture z12; printf 'build-pr\nreview-needs-work\nbuild-commit-nopush\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect build-inflight "(z12) [E21] a commit not on origin is in flight"
-[ "$RC" -eq 1 ] && ok "(z12) build-inflight exits 1" || bad "(z12) exit $RC"
-[ -n "$(git -C "$d/wt/42" log --oneline origin/second-shift/42..HEAD 2>/dev/null)" ] && ok "(z12) [E21] the unpushed commit is still there" || bad "(z12) [E21] the unpushed commit was reset away"
+# (z12) #973 D-1: a commit not on origin, on a clean tree, re-spawns the build to push it; the next prompt says so and lists the denials
+fixture z12; printf 'build-pr\nreview-needs-work\nbuild-commit-nopush\nbuild-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"
+expect approved "(z12) #973 D-1: a commit left unpushed on a clean tree is pushed by a re-spawned build"
+grep -q 'build: exited 0 with 1 commit(s) not on origin/second-shift/42 on a clean tree' <<<"$OUT" && grep -q 'push red — the findings are the log; another BUILD attempt of round 2' <<<"$OUT" \
+  && ok "(z12) #973 S-3: the run says why it re-spawned, on the checks-red counter" || bad "(z12) #973 S-3: $(grep -E 'build: exited|push red' <<<"$OUT" | tr '\n' '|')"
+grep -q 'these commits are not on origin/second-shift/42' "$FAKE_GH/prompt-4.txt" && grep -q 'local only 3' "$FAKE_GH/prompt-4.txt" \
+  && grep -q 'Push second-shift/42 to origin and, unless one is already open for this branch, open the draft PR' "$FAKE_GH/prompt-4.txt" \
+  && grep -qE '^Build session permission denials \(.*/denials-2\.2\.txt\):$' "$FAKE_GH/prompt-4.txt" && grep -q '^Bash {"command":"ls /"}$' "$FAKE_GH/prompt-4.txt" \
+  && ok "(z12) #973 S-2: the re-spawned build reads the unpushed commit, the push and draft-PR instruction, and the denials" || bad "(z12) #973 S-2: prompt-4 lacks the push log: $(sed -n '/^## Red check output/,$p' "$FAKE_GH/prompt-4.txt" | tr '\n' '|' | cut -c1-400)"
+grep -q 'verdict: needs-work' "$FAKE_GH/prompt-4.txt" && ok "(z12) the push retry still carries the review's findings" || bad "(z12) the push retry dropped the review's findings"
+grep -q 'local only 3' <<<"$(git -C "$d/origin.git" log --format=%s second-shift/42)" && ok "(z12) [E21] the once-unpushed commit reached origin" || bad "(z12) [E21] the unpushed commit never reached origin"
+# (z12b) #973 D-5(4): a build that keeps leaving its commits unpushed spends the checks-red counter, and nothing discards them
+fixture z12b; printf 'build-commit-nopush\nbuild-commit-nopush\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=2 run_case "$d"
+expect checks-red-spent "(z12b) two clean-tree unpushed exits"
+[ "$RC" -eq 4 ] && grep -q 'push red 2 times' <<<"$OUT" && ok "(z12b) checks-red-spent exits 4 and names the push" || bad "(z12b) rc=$RC: $(grep 'terminal: checks-red-spent' <<<"$OUT")"
+[ "$(git -C "$d/wt/42" log --oneline origin/second-shift/42..HEAD 2>/dev/null | grep -c .)" -eq 2 ] && ok "(z12b) [E21] both unpushed commits are still there" || bad "(z12b) [E21] the unpushed commits were reset away"
 
 # (aa) round-thirteen parity: the committed record is what the design guard reads; a remote dying
 #      mid-run and an unreadable tracker at verdict time are environment refusals

@@ -572,6 +572,7 @@ build_prompt() { # build_prompt <round> <review-findings-file-or-empty> <red-che
     echo "Run every check in the foreground: no nohup, no trailing &."
   else echo "Delete every probe or scratch file you created before you end your turn: a probe you never committed is not a test the PR deletes."; fi
   echo "Run each shell command on its own, with absolute paths: no cd (use git -C <dir>), no shell variables, no ; or && chains; run a check below exactly as written."
+  echo "A denied command is not a reason to end your turn: skip a command outside the allowlist and name it in the PR body as skipped. Pushing $BRANCH and opening the draft PR are never skipped."
   echo "Edit files only with the Edit and Write tools, never through a shell (no python, sed -i, heredoc or > redirect)."
   echo "Pass every PR or comment body with --body-file <a file you wrote with Write>, never inline with --body."
   echo "A stored field the change newly reads, or a field it sends across a service boundary, gets a test that moves it through the real schema or model, not a hand-built fixture: a fixture that already holds the value proves nothing about whether the store keeps it."
@@ -627,13 +628,14 @@ review_allowlist() { # row F20: review-lead's panel is a Workflow whose agents i
 worktree_inflight() { # worktree_inflight <archive-tag> -> 0 collected · 8 in flight · 1 unreadable
   # tracked dirt (modified, staged, intent-to-add, submodule) and unpushed commits are in flight; untracked files alone,
   # on a tree at the pushed head, are what a session left behind: archived to $STATE/quarantine-<tag>.tar, never discarded
-  local dirty unpushed; INFLIGHT_REASON=""
+  # INFLIGHT_UNPUSHED holds the unpushed commits when they, on a clean tree, are all that is in flight (#973)
+  local dirty unpushed; INFLIGHT_REASON=""; INFLIGHT_UNPUSHED=""
   dirty="$(git -C "$WT" status --porcelain --untracked-files=no 2>&1)" || { INFLIGHT_REASON="its status could not be read ($dirty)"; return 1; }
   if [ -n "$dirty" ]; then INFLIGHT_REASON="its tree is not clean"; return 8; fi
   # best effort, wrong only in the SAFE direction: a failed fetch can make pushed work look unpushed, never the reverse
   git -C "$WT" fetch --quiet origin "$BRANCH" >/dev/null 2>&1
   unpushed="$(git -C "$WT" log --oneline "refs/remotes/origin/$BRANCH..HEAD" 2>&1)" || { INFLIGHT_REASON="origin/$BRANCH is unresolvable, so nothing proves its work is pushed"; return 1; }
-  if [ -n "$unpushed" ]; then INFLIGHT_REASON="it carries commits that are not on origin/$BRANCH"; return 8; fi
+  if [ -n "$unpushed" ]; then INFLIGHT_REASON="it carries commits that are not on origin/$BRANCH"; INFLIGHT_UNPUSHED="$unpushed"; return 8; fi
   quarantine_untracked "$1" || return 8
   return 0
 }
@@ -957,6 +959,24 @@ red_attempt() { # a red check, smoke or convention spends the checks-red counter
   CHECKS_RED=$((CHECKS_RED+1)); [ "$CHECKS_RED" -lt "$CHECKS_RED_MAX" ] || terminal checks-red-spent "$1 red $CHECKS_RED times (cost \$$(usd "$COST"))"
   RED_LOG="$(findings_excerpt "$2")"; NEED_BUILD=1; say "$1 red — the findings are the log; another BUILD attempt of round $ROUND"
 }
+denials_cite() { # denials_cite <attempt> -> the build's denials as a detail line cites them; nothing when it was denied none
+  # under read_denials a missing file is "unread", never "none" (#967), so the line says which
+  local f="$STATE/denials-$1.txt"
+  if [ ! -e "$f" ]; then echo "; its permission denials are unread (its result JSON carried none to read)"
+  elif [ -s "$f" ]; then echo "; it was denied $(grep -c '' "$f") command(s), listed in $f"; fi
+}
+unpushed_log() { # unpushed_log <attempt> -> writes $STATE/unpushed-<attempt>.log, what the re-spawned build reads (#973 D-1)
+  local f="$STATE/denials-$1.txt" log="$STATE/unpushed-$1.log"
+  {
+    echo "The BUILD session exited 0 on a clean tree, but these commits are not on origin/$BRANCH:"
+    printf '%s\n' "$INFLIGHT_UNPUSHED"
+    echo "Push $BRANCH to origin and, unless one is already open for this branch, open the draft PR as the instructions above say. A denied command is not a reason to end your turn."
+    echo "Build session permission denials ($f):"
+    if [ ! -e "$f" ]; then echo "(unread: the session's result JSON carried none to read, so whether it was denied anything is unknown)"
+    elif [ -s "$f" ]; then cat "$f"; else echo "(none)"; fi
+  } > "$log"
+  printf '%s' "$log"
+}
 findings_excerpt() { # findings_excerpt <log> -> the path of what the next build reads: each red check's last lines, capped
   # A lane can write megabytes (a web server's request log); the build needs why it went red, not the whole stream.
   # Green checks keep their 'ok:' line only; a red one keeps its last 150 lines, each cut at 400 chars; a log with no
@@ -1057,7 +1077,11 @@ while :; do
       worktree_inflight "$A"; ifrc=$?
       case "$ifrc" in
         0) : ;;
-        8) terminal build-inflight "the BUILD session exited 0 but $WT still holds work nothing else has a copy of ($INFLIGHT_REASON) — push from the worktree and --resume; nothing here discards it" ;;
+        8) if [ -n "$INFLIGHT_UNPUSHED" ]; then # committed but not pushed (#973 D-1): a new build pushes it, on the checks-red counter
+             say "build: exited 0 with $(grep -c '' <<<"$INFLIGHT_UNPUSHED") commit(s) not on origin/$BRANCH on a clean tree — another BUILD pushes them and opens the draft PR"
+             red_attempt push "$(unpushed_log "$A")"; continue
+           fi
+           terminal build-inflight "the BUILD session exited 0 but $WT still holds work nothing else has a copy of ($INFLIGHT_REASON$(denials_cite "$A")) — push from the worktree and --resume; nothing here discards it" ;;
         *) terminal build-inflight-unreadable "whether $WT still holds work could not be evaluated ($INFLIGHT_REASON) — reviewing on that guess is the defect this check exists to remove" ;;
       esac
       prs="$(open_prs)" || terminal env-tracker-unreadable "could not list the open PRs on $BRANCH"
