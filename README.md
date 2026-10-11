@@ -150,7 +150,8 @@ An approve marks the PR ready for review. What you give up: second-shift does no
 | `terminal: env-config-local` | Your `.claude/second-shift.config.local.json` sets more than `tracker.branchPrefix`, is not valid JSON, or is committed | Keep only `{"tracker":{"branchPrefix":"you/"}}` in it, and keep it gitignored |
 | `terminal: env-design-undeclared` | Design support is on and the record lists no screens | Run intake again so the record says `Design: none — <reason>`, or drop `design.provider` from a repo without a UI |
 | `terminal: checks-red-spent` | Your checks kept failing | Read the failing check's log under `.claude/pipeline-state/run-42/`. Usually a missing setup step (the install, or a monorepo's package build), a wrong command, every command still `null`, or a format check that also scans the committed record under `docs/plans/` |
-| `terminal: review-unbound` | The review left no usable verdict | `/dev-pipeline:review <pr>` from a fresh session |
+| `terminal: review-unbound` | The review left no usable verdict, or twice posted one its own comment does not back (a notice on the PR names the broken rules) | `/dev-pipeline:review <pr>` from a fresh session |
+| `terminal: verdict-uncheckable` | A verdict was posted, but it could not be checked against the decision record (for example, the build deleted the record) | Read the detail line; restore the record, then `/dev-pipeline:review <pr>` from a fresh session |
 | `terminal: claimed-elsewhere` | Someone else holds the ticket | Stop and ask who; `--resume` takes it over |
 
 Any other stop explains itself on the line just above `terminal:`, and a claimed ticket gets the same reason as a comment.

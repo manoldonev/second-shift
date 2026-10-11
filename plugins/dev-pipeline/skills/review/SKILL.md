@@ -5,9 +5,10 @@ description: The REVIEW half of the pipeline — review an open pipeline PR from
 
 # review
 
-Input a PR number. Output **one PR comment**: two fixed lines, the record's row table, then the
-findings — and the same verdict as the `second-shift/review` commit status on the sha it names.
-Nothing is committed.
+Input a PR number. Output **one PR comment** in the verdict grammar (step 8): two fixed lines, the
+record's row table, then the findings — and the same verdict as the `second-shift/review` commit
+status on the sha it names, posted only when the comment backs its own verdict line. Nothing is
+committed.
 
 This runs as its own top-level session, and that is the entire point: the session that wrote the
 code does not grade it. Never run it inside the build's session, and never resume an earlier
@@ -29,7 +30,7 @@ review's context.
    description and the build's PR comments are read only after step 5's scores and step 6's
    findings are written, to reconcile the departures and rebuttals they state. An author's
    framing measurably lowers what a reviewer finds. If that reading changes a score or a finding,
-   say so in the verdict: `revised after reading the build's account: <what changed>`.
+   say so in the verdict's `## Notes`: `revised after reading the build's account: <what changed>`.
 2. Check out the PR head and confirm `git rev-parse HEAD` equals `headRefOid`. That sha is the one
    you review and the one you name.
 3. **Read the record at its first commit and at the head.** The first commit is the one that added
@@ -47,7 +48,7 @@ review's context.
    check configuration (`pyproject.toml`, `pytest.ini`, `setup.cfg`, `.coveragerc`, `Makefile` and a
    nested `package.json` included), modified existing test or snapshot files (`__snapshots__/`
    or `.snap`) and their removed expectations, each traced to an acceptance criterion or a record
-   row (an untraced one is a Warning that requires the citation, never a Blocker), and every `when`-scoped `extraLanes` entry no changed file
+   row (an untraced one is a `[blocker]` that requires the citation), and every `when`-scoped `extraLanes` entry no changed file
    matched — a configured lane that did not run on this diff. Each is a question the diff must
    answer, whatever the stack.
 5. **Score EVERY row of the record** against the code: `honored`, `violated`, `departed` (the row
@@ -78,13 +79,34 @@ review's context.
 7. **Design frames.** When the record's `## Design frames` (or `## Design`) section carries
    `| RS-n |` rows, render every screen at the head with the repo's render command
    (`design.liveRender.command`) and compare it with its frame. If you cannot render, you cannot
-   approve: post `verdict: needs-work` with a line `reason: render-unavailable`.
+   approve: post `verdict: needs-work` with line 3 `reason: render-unavailable`.
 8. **Post ONE PR comment**, through [`gh-bot.sh`](../../tools/gh-bot.sh) when its `--status` is
-   `ok`, plain `gh` otherwise. Its first line is exactly `verdict: approve` or
-   `verdict: needs-work`; its second line is exactly `reviewed: <the full sha from step 2>`. Then
-   the row table, then the findings. `approve` iff there are no blockers. The format matches the
-   lane's own verdicts, but no scheduler reads this one: a finished run has exited, and a re-launch
-   builds before it reviews. It is for the human who decides the merge. Never edit it.
+   `ok`, plain `gh` otherwise, its body passed with `--body-file`. The body follows this grammar
+   exactly — the same one `run.sh`'s review prompt states:
+
+   <!-- LOCKSTEP-BEGIN verdict-grammar -->
+   The verdict comment has these parts, in this order and nothing else:
+   - Line 1 is exactly `verdict: approve` or `verdict: needs-work`. Line 2 is exactly `reviewed: <the full sha of the head you reviewed>`. An optional line 3 is exactly `reason: render-unavailable`.
+   - `## Decision record rows`, then a table headed `| Row | Score | Evidence |` and its `| --- | --- | --- |` line, with one row for every `D-n` row of the record at its first commit and at the head: a row the build deleted and a row it added are both scored. The Row cell's first token is the row's `D-n` id, and the Score cell's first word is one of `honored`, `violated`, `departed`, `undeterminable`. The section holds the table and blank lines only: per-row detail goes in the Evidence cell, anything else in `## Notes`. Other row kinds, such as `RS-n`, are not scored in this table.
+   - `## Findings`, which runs to the next `## ` heading. Each finding starts with `- [blocker] B<n> ` or `- [note] N<n> `, and its continuation lines are indented two or more spaces. Suppressed findings are `[note]`s. A section with no findings holds the single line `None.`.
+   - `## Panel` (optional): the panel lines review-lead writes.
+   - `## Notes` (optional): free prose for the human, such as process notes or `revised after reading the build's account: <what changed>`. Nothing in it counts toward the verdict.
+
+   `Ready to merge?` is never written anywhere in the body.
+
+   A `[blocker]` is something that must change before merge, an edit to the PR description included. A `[note]` requires nothing. review-lead's findings translate one way: a Critical is a `[blocker]`; a Warning you would hold the merge for is a `[blocker]`, and any other Warning is a `[note]`; its "Ready to merge?" and "With fixes" are never written on this comment.
+
+   `verdict: approve` means mergeable as-is: every record row is scored, none is `violated` or `undeterminable`, and there is no `[blocker]` and no `reason: render-unavailable` line. `verdict: needs-work` carries at least one `[blocker]`, a `violated` or `undeterminable` row, or the `reason: render-unavailable` line; under that line the rows need not be scored, and the findings may be `None.`.
+   <!-- LOCKSTEP-END verdict-grammar -->
+
+   **Check the draft before you post it.** Write the body to a file, and the record at `FIRST` to
+   another (`git show $FIRST:<record> > <file>`), then run
+   `bash <this skill's base directory>/../../tools/verdict-check.sh <draft> <record at the head> <record at FIRST>`
+   ([the checker](../../tools/verdict-check.sh)). It prints every rule the draft breaks; fix the
+   draft until it exits 0. Exit 2 means it could not read a file: fix the path, never post on a
+   check that did not run. The format matches the lane's own verdicts, but no scheduler reads this
+   one: a finished run has exited, and a re-launch builds before it reviews. It is for the human who
+   decides the merge. Never edit it.
    Then collapse the PR's earlier verdicts as outdated, with the same `gh` you posted through:
    `GH=<that gh> bash <this skill's base directory>/../../tools/minimize-verdicts.sh <pr> <comment id>`
    ([the script](../../tools/minimize-verdicts.sh); the id is the number after `#issuecomment-` in
@@ -93,11 +115,15 @@ review's context.
    comment — and go on; never retry it as yourself in the bot's place.
    Then re-check `headRefOid`. If it is no longer the sha on your `reviewed:` line, the head moved
    under your review: post no status, and say so in a plain PR comment. Otherwise post the same
-   verdict as a commit status on that sha, with the same `gh` (the bot when `--status` is `ok`):
-   `gh api -X POST repos/<owner>/<repo>/statuses/<sha> -f state=<success|failure> -f context=second-shift/review -f target_url=<your comment's URL> -f description='<approved|needs-work> at this head — see the verdict'`
-   — `success` for approve, `failure` for needs-work. A consumer that requires
-   `second-shift/review` in branch protection cannot merge a PR without it. If the post fails,
-   say so in a plain PR comment (a 403/404 through the bot means its GitHub App lacks
+   verdict as a commit status on that sha, with the same `gh` (the bot when `--status` is `ok`),
+   never with a raw `gh api` call:
+   `GH=<that gh> bash <this skill's base directory>/../../tools/post-review-status.sh <pr> <sha> <body file> <record at the head> <record at FIRST> <your comment's URL>`
+   ([the script](../../tools/post-review-status.sh)). It re-runs the checker on the body you
+   posted and posts `success` for approve, `failure` for needs-work, under `second-shift/review`.
+   A consumer that requires `second-shift/review` in branch protection cannot merge a PR without
+   it. When it exits 1 the body breaks a rule and no status was posted: say so in a plain PR
+   comment that names the failed rules it printed (never a `verdict:` line). When it exits 3 the
+   post failed: say so in a plain PR comment (a 403/404 through the bot means its GitHub App lacks
    "Commit statuses: write"); never retry it as yourself in the bot's place. On an `approve` whose
    status posted, mark the PR ready for review with the same `gh` (`gh pr ready <pr>`): a lane PR
    stays a draft until a review approves its head, because GitHub refuses to merge a draft. If

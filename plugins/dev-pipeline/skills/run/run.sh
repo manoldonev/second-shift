@@ -38,8 +38,9 @@
 #   6 rounds     (premise; worktree at the pushed head; BUILD; in-flight check; one PR;
 #                 conventions; checks from the first commit; route smoke; review input;
 #                 REVIEW in a fresh session, re-spawned once when dark; verdict bound to the
-#                 review window, unedited, naming the current head; the bound verdict posted
-#                 as the `second-shift/review` commit status on that head)
+#                 review window, unedited, naming the current head, its body backing its own
+#                 verdict line (tools/verdict-check.sh); the bound verdict posted as the
+#                 `second-shift/review` commit status on that head)
 #   7 close-out  (run block on the PR at every terminal once one exists; closing comment
 #                 when the run claimed; teardown of a clean worktree on approve; the run's
 #                 scratch dir archived to <state>/scratch.tar and removed at every exit)
@@ -48,19 +49,22 @@
 #   - a predicate that cannot be evaluated refuses under a named slug; a failed read is never a pass;
 #   - no refusal inside `$(...)`, a pipe or a piped loop — producers return non-zero, the CALLER refuses;
 #   - nothing here discards work: no `reset --hard`, no forced removal, no checkout over a dirty tree;
-#   - the record's sections, the checks and the frames are read from its FIRST commit, never the head;
+#   - the record's sections, the checks and the frames are read from its FIRST commit, never the head —
+#     one exception: the verdict check reads the record at the head too, so a row the build added is scored (#991);
 #   - every session is a fresh process with a wall-clock bound; every attempt keeps its own files;
 #   - a regex or record form is stated exactly, never paraphrased.
 #
 # exit: 0 approved · build-handoff
 #       1 stopped for a human: build-no-pr, build-inflight(-unreadable), build-blocked, pr-ambiguous,
-#         closeout-inflight(-unreadable), staleness-unreadable
+#         closeout-inflight(-unreadable), staleness-unreadable, verdict-uncheckable (the bound verdict's
+#         body could not be checked against the record)
 #       2 usage-* (the argv), env-* (the environment; most fire before anything is spawned, but
 #         env-not-ready, env-worktree*, env-remote-unreadable, env-tracker-unreadable and
 #         env-smoke-unconfigured can fire after a paid session), claimed-elsewhere
 #       3 RESUMABLE — not-queued, env-no-record: pay off intake and re-launch the same command
 #       4 budget spent — rounds-spent, checks-red-spent, cost-spent
-#       5 review-unbound — no verdict usable against the current head, after one re-spawn
+#       5 review-unbound — no verdict usable against the current head, after one re-spawn (a verdict
+#         whose body breaks the verdict grammar is not usable)
 #       7 the premise expired mid-run — ticket-closed, staleness-expired
 #       129 / 130 / 143 interrupted by HUP / INT / TERM; the session is reaped, the claim is left in place. A
 #                 detached run forwards each of them, sent to its printed pid or its process group, to the run
@@ -591,7 +595,7 @@ build_prompt() { # build_prompt <round> <review-findings-file-or-empty> <red-che
   [ -n "$2" ] && { echo; echo "## Review findings"; cat "$2"; }
   [ -n "${3:-}" ] && { echo; echo "## Red check output"; echo "A red check cannot be rebutted: reproduce it with its command and fix the cause; if the check itself is wrong, say so in the PR."; cat "$3"; }
 }
-review_prompt() { # review_prompt <pr> <review-input-file>
+review_prompt() { # review_prompt <pr> <review-input-file> [<the previous verdict's failed rules, on a re-spawn>]
   echo "You are reviewing PR #$1 of this repository at its current head, in a session separate from the one that built it. Check out the PR head. Read the decision record at $RECORD_REL as it stood at commit $FIRST (git show $FIRST:$RECORD_REL) and as it stands at the head."
   echo "Score EVERY row of the record against the code: honored, violated, departed (the row was edited; name who decided, per its provenance), or undeterminable (say what you could not read). A violated or undeterminable row is a blocker; neither may stand beside an approve."
   echo "The PR's base branch is $BASE_NAME: pass it to review-lead as the base, so the diff is origin/$BASE_NAME...HEAD and not the remote default branch."
@@ -599,11 +603,35 @@ review_prompt() { # review_prompt <pr> <review-input-file>
   echo "Your scratch directory is $SCRATCH (already added to this session): it is the only place for logs, probes, and your verdict and comment drafts — never the worktree, never /tmp. Put scratch files there; the scheduler removes it at the end of the run."
   echo "review-lead dispatches its reviewers through the code-review.mjs Workflow: stage that script by copying it into $SCRATCH, never into the worktree, and run the Workflow from there."
   echo "Do not run the repo's test suites or checks: the scheduler ran them at this head before spawning you, and CI runs them on the PR. Run each shell command on its own, with absolute paths: no cd (use git -C <dir>), no shell variables, no ; or && chains, no nohup or trailing &. Write files only with the Write tool, never through a shell (no python, heredoc or > redirect)."
-  echo "Read the build's own account last: write the row scores and your findings, review-lead's included, from the record, the diff and the code first, and only then read the PR description and the build's PR comments, to reconcile the departures and rebuttals they state. An author's framing measurably lowers what a reviewer finds. If that reading changes a score or a finding, say so in the verdict with a line 'revised after reading the build's account: <what changed>'."
-  echo "If the ticket has design frames, render every screen at the head with the repo's render command and compare it with its frame; if you cannot render, you cannot approve: post 'verdict: needs-work' with a line 'reason: render-unavailable'."
+  echo "Read the build's own account last: write the row scores and your findings, review-lead's included, from the record, the diff and the code first, and only then read the PR description and the build's PR comments, to reconcile the departures and rebuttals they state. An author's framing measurably lowers what a reviewer finds. If that reading changes a score or a finding, say so in the verdict's '## Notes' with a line 'revised after reading the build's account: <what changed>'."
+  echo "If the ticket has design frames, render every screen at the head with the repo's render command and compare it with its frame; if you cannot render, you cannot approve: post 'verdict: needs-work' with line 3 'reason: render-unavailable'."
   local via=""; [ "$BOT_OK" -eq 1 ] && via=" through $GH (the bot identity)"
-  echo; echo "Post ONE PR comment$via, its body passed with --body-file <a file in $SCRATCH>, never inline with --body. Its first line is exactly 'verdict: approve' or 'verdict: needs-work'; its second line is exactly 'reviewed: <the full sha of the head you reviewed>'. Then the row table, then findings. Never edit that comment afterwards."
-  echo "For every file under 'Existing test or snapshot expectations changed' in the scheduler input below, trace its removed expectation to an acceptance criterion of the ticket or a row of the decision record. An entry you cannot trace is a Warning, never a Blocker: name the file and the expectation, and require the build to cite the criterion or row that authorized the change."
+  echo; echo "Post ONE PR comment$via, its body passed with --body-file <a file in $SCRATCH>, never inline with --body. Its body follows the verdict grammar below exactly. Never edit that comment afterwards."
+  echo "Before you post, check your draft: run 'bash $TOOLS/verdict-check.sh <your draft in $SCRATCH> $WT/$RECORD_REL $SCRATCH/record-at-first.md' (the record at the head, then at $FIRST) and fix the draft until it exits 0; it prints every rule the draft breaks. The scheduler runs the same check on the comment you post, and a comment that fails it binds nothing: no status is posted and the review is re-spawned."
+  echo "For every file under 'Existing test or snapshot expectations changed' in the scheduler input below, trace its removed expectation to an acceptance criterion of the ticket or a row of the decision record. An entry you cannot trace is a [blocker]: name the file and the expectation, and require the build to cite the criterion or row that authorized the change."
+  echo
+  # #991: the verdict grammar, stated once here and once in review/SKILL.md step 8; tools/verdict-check.sh enforces it
+  grep -v 'LOCKSTEP-' <<'GRAMMAR'
+# LOCKSTEP-BEGIN verdict-grammar
+The verdict comment has these parts, in this order and nothing else:
+- Line 1 is exactly `verdict: approve` or `verdict: needs-work`. Line 2 is exactly `reviewed: <the full sha of the head you reviewed>`. An optional line 3 is exactly `reason: render-unavailable`.
+- `## Decision record rows`, then a table headed `| Row | Score | Evidence |` and its `| --- | --- | --- |` line, with one row for every `D-n` row of the record at its first commit and at the head: a row the build deleted and a row it added are both scored. The Row cell's first token is the row's `D-n` id, and the Score cell's first word is one of `honored`, `violated`, `departed`, `undeterminable`. The section holds the table and blank lines only: per-row detail goes in the Evidence cell, anything else in `## Notes`. Other row kinds, such as `RS-n`, are not scored in this table.
+- `## Findings`, which runs to the next `## ` heading. Each finding starts with `- [blocker] B<n> ` or `- [note] N<n> `, and its continuation lines are indented two or more spaces. Suppressed findings are `[note]`s. A section with no findings holds the single line `None.`.
+- `## Panel` (optional): the panel lines review-lead writes.
+- `## Notes` (optional): free prose for the human, such as process notes or `revised after reading the build's account: <what changed>`. Nothing in it counts toward the verdict.
+
+`Ready to merge?` is never written anywhere in the body.
+
+A `[blocker]` is something that must change before merge, an edit to the PR description included. A `[note]` requires nothing. review-lead's findings translate one way: a Critical is a `[blocker]`; a Warning you would hold the merge for is a `[blocker]`, and any other Warning is a `[note]`; its "Ready to merge?" and "With fixes" are never written on this comment.
+
+`verdict: approve` means mergeable as-is: every record row is scored, none is `violated` or `undeterminable`, and there is no `[blocker]` and no `reason: render-unavailable` line. `verdict: needs-work` carries at least one `[blocker]`, a `violated` or `undeterminable` row, or the `reason: render-unavailable` line; under that line the rows need not be scored, and the findings may be `None.`.
+# LOCKSTEP-END verdict-grammar
+GRAMMAR
+  if [ -n "${3:-}" ]; then
+    echo; echo "## Your previous verdict did not bind"
+    echo "The review before you posted a verdict whose comment does not back its own verdict line, so no status was posted and you were spawned in its place. Review the head yourself and post a new verdict comment in the grammar above; never edit the old one. It broke these rules:"
+    sed 's/^/- /' "$3"
+  fi
   echo; echo "## Scheduler input (deleted or skipped tests, changed test or snapshot expectations, config edits, the build's permission denials, and the untracked files archived after it)"; cat "$2"
 }
 build_allowlist() { # row F3: derived from what the record and config name
@@ -617,7 +645,7 @@ EOF
   printf '%s' "$allow"
 }
 review_allowlist() { # row F20: review-lead's panel is a Workflow whose agents inherit these tools
-  local allow="Read,Grep,Glob,Agent,Skill,Workflow,Bash(find *),Bash(cp *),Bash(bash *check-review-context.sh*),Bash(git *),Bash(gh pr view*),Bash(gh pr comment*),Bash(gh pr diff*),Bash(gh issue view*)$MCP_ALLOW"
+  local allow="Read,Grep,Glob,Agent,Skill,Workflow,Bash(find *),Bash(cp *),Bash(bash *check-review-context.sh*),Bash(bash *verdict-check.sh*),Bash(git *),Bash(gh pr view*),Bash(gh pr comment*),Bash(gh pr diff*),Bash(gh issue view*)$MCP_ALLOW"
   [ -n "$RENDER_CMD" ] && allow="$allow,Bash($(first_word "$RENDER_CMD")*)"
   [ -n "$(frames_rows)" ] && allow="$allow,mcp__figma,mcp__plugin_figma_figma"
   [ "$BOT_OK" -eq 1 ] && allow="$allow,Bash($GH pr comment*),Bash($GH pr view*)"   # never the wrapper whole: it takes api -X DELETE
@@ -760,6 +788,23 @@ verdict() { # verdict <start-iso> <end-iso> -> prints approve|needs-work and sav
   [ -s "$STATE/verdict.tsv" ] || return 1
   cut -f2 "$STATE/verdict.tsv" | base64 --decode > "$STATE/verdict-body.md"
   cut -f1 "$STATE/verdict.tsv"
+}
+# -- the verdict check (#991 D-9): a bound verdict counts only when its own body backs it, under the grammar the review
+# prompt states. The record is read at the head as well as at FIRST, so a row the build added or deleted is owed a score --
+verdict_check() { # verdict_check <attempt> -> verdict-check.sh's exit: 0 backed · 1 breaks a rule (the rules in $STATE/verdict-check-<attempt>.txt) · 2 uncheckable
+  local hr="$STATE/record-head-$1.md" fr="$STATE/record-first.md"
+  record_at_first > "$fr" || rm -f "$fr"   # a record that cannot be read is a missing file: the checker refuses, never passes
+  git -C "$WT" show "$HEAD_SHA:$RECORD_REL" > "$hr" 2>/dev/null || rm -f "$hr"
+  cp "$STATE/verdict-body.md" "$STATE/verdict-body-$1.md" || return 2
+  bash "$TOOLS/verdict-check.sh" "$STATE/verdict-body-$1.md" "$hr" "$fr" > "$STATE/verdict-check-$1.txt" 2>&1
+}
+verdict_notice() { # verdict_notice <attempt> <verdict url>: one plain PR comment linking the rejected verdict and naming its failed rules; never fatal, never an edit of the verdict
+  local f="$STATE/verdict-notice-$1.md" err
+  { echo "second-shift run $RUN_ID: the verdict at ${2:-(its URL was not read)} does not bind — its comment does not back its own verdict line, so no \`$STATUS_CONTEXT\` status was posted and no BUILD was spawned. It breaks these rules of the verdict grammar:"
+    echo; sed 's/^/- /' "$STATE/verdict-check-$1.txt"; echo
+    echo "The harness never edits a verdict. After a first miss the review is re-spawned; after a second the run ends review-unbound."; } > "$f"
+  err="$("$GH" pr comment "$PR" --body-file "$f" 2>&1 >/dev/null)" && { say "verdict: the notice naming the failed rules is posted on PR #$PR"; return 0; }
+  STATUS_NOTES="${STATUS_NOTES}verdict notice: NOT posted — $(printf '%s' "$err" | tr '\n' ' ' | cut -c1-200)"$'\n'; say "verdict: could not post the notice on PR #$PR"
 }
 # -- the review status (#915 D-1 D-3 D-4 D-5 D-7): the BOUND verdict as a commit status on the sha it names. Called only
 # after the head-moved check, so a voided verdict posts nothing; a failed post is reported in the run block, never fatal --
@@ -1054,7 +1099,7 @@ FINDINGS=""; RED_LOG=""; NEED_BUILD=1; NEED_CHECKS=1; INPUT=""
 while :; do
   ROUND=$((ROUND+1)); [ "$ROUND" -le "$MAX_ROUNDS" ] || terminal rounds-spent "$MAX_ROUNDS rounds without an approve (cost \$$(usd "$COST"))"
   say "round $ROUND of $MAX_ROUNDS (cost so far \$$(usd "$COST"))"
-  review_tries=0; VERDICT=""
+  review_tries=0; VERDICT=""; REJECTED=""
   while :; do
     if [ "$NEED_BUILD" -eq 1 ]; then # ---- BUILD, until its work is collected on one draft PR ----
       premise_holds
@@ -1110,7 +1155,9 @@ while :; do
       INPUT="$STATE/review-input-$RA.md"; NEED_CHECKS=0
     fi
     # ---- REVIEW: a fresh session bound to this head and its window; re-spawned once when it leaves no binding verdict ----
-    review_prompt "$PR" "$INPUT" > "$STATE/review-$RA.prompt"
+    # the record at FIRST, where the review's own draft check reads it (the head's is in the worktree it reviews)
+    [ -z "$SCRATCH" ] || record_at_first > "$SCRATCH/record-at-first.md" || terminal env-worktree "cannot read the record at $FIRST:$RECORD_REL for the review"
+    review_prompt "$PR" "$INPUT" "$REJECTED" > "$STATE/review-$RA.prompt"
     start="$(now)"
     spawn review "$REVIEW_MODEL" "$RA" "$(review_allowlist)" 300 "$STATE/review-$RA.prompt"; rrc=$?
     end="$(now)"
@@ -1127,6 +1174,17 @@ while :; do
       if [ "$vrc" -ne 0 ]; then miss="no unedited 'verdict:' comment naming head $HEAD_SHA was posted between $start and $end"
       else after="$(remote_head)" || terminal env-remote-unreadable "cannot read origin/$BRANCH after the review — the approve is not discarded for a network blip; --resume"
         [ "$after" = "$HEAD_SHA" ] || { miss="the head moved during the review ($HEAD_SHA -> $after); the checks re-run on the new head"; NEED_CHECKS=1; }; fi
+      if [ -z "$miss" ]; then # #991: the bound verdict binds only when its own comment backs it; checked before any status
+        vurl="$(cut -f3 "$STATE/verdict.tsv" 2>/dev/null)"
+        verdict_check "$RA"; vcrc=$?
+        if [ "$vcrc" -eq 1 ]; then
+          miss="the verdict at ${vurl:-(no URL)} breaks the verdict grammar: $(paste -sd ';' "$STATE/verdict-check-$RA.txt" | sed 's/;/; /g' | cut -c1-600)"
+          VERDICT=""; REJECTED="$STATE/verdict-check-$RA.txt"; verdict_notice "$RA" "$vurl"
+        elif [ "$vcrc" -ne 0 ]; then
+          VERDICT=""
+          terminal verdict-uncheckable "the verdict at ${vurl:-(no URL)} could not be checked against the record ($(tr '\n' ' ' < "$STATE/verdict-check-$RA.txt" | cut -c1-300)) — a check that cannot run is not one that passed; no status posted"
+        fi
+      fi
     fi
     [ -n "$miss" ] || break
     review_tries=$((review_tries+1))
@@ -1138,8 +1196,9 @@ while :; do
   review_status
   minimize_earlier_verdicts
   [ "$VERDICT" = approve ] && break
-  # row H13: a review that could not render is the environment's failure, not the build's — no round is spent
-  awk '{ sub(/\r$/, "") } $0 == "reason: render-unavailable" { f = 1 } END { exit !f }' "$STATE/verdict-body.md" \
+  # row H13: a review that could not render is the environment's failure, not the build's — no round is spent. The
+  # grammar puts the reason on line 3 (#991); the same words in the body's ## Notes are prose, not the reason
+  awk '{ sub(/\r$/, "") } NR == 3 && $0 == "reason: render-unavailable" { f = 1 } END { exit !f }' "$STATE/verdict-body.md" \
     && terminal env-not-ready "the review could not render the design frames at $HEAD_SHA (reason: render-unavailable) — fix the render environment and re-launch"
   FINDINGS="$STATE/verdict-body.md"; RED_LOG=""; NEED_BUILD=1
   over_ceiling && terminal cost-spent "\$$(usd_up "$COST") exceeds the \$$COST_CEIL ceiling"
