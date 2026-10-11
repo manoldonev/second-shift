@@ -34,7 +34,8 @@ case "$sub" in
   "issue comment") echo "$*" >> "$S/issue-comments" ;;
   "pr list")     cat "$S/prs" 2>/dev/null ;;
   "pr checks")   [ -f "$S/ci-red" ] && echo '[{"name":"ci","state":"FAILURE"}]' || echo '[]' ;;
-  "pr comment")  echo "$*" >> "$S/cost-comments" ;;
+  "pr comment")  echo "$*" >> "$S/cost-comments"   # a --body-file's text goes to pr-comment-bodies, one comment after another
+                 prev=""; for a in "$@"; do [ "$prev" = --body-file ] && { cat "$a"; echo '<!-- end of comment -->'; } >> "$S/pr-comment-bodies"; prev="$a"; done ;;
   "pr ready")    [ -f "$S/ready-fail" ] && { cat "$S/ready-fail" >&2; exit 1; }   # one line per flip, in order: who, which way
                  case "$*" in *--undo*) touch "$S/draft"; w=undo ;; *) rm -f "$S/draft"; w=ready ;; esac; echo "${FAKE_GH_AS:-operator} $w" >> "$S/ready-calls" ;;
   "pr view")     case "$*" in *body*) jq -n --rawfile b "$S/pr-created-body.txt" --argjson d "$([ -f "$S/draft" ] && echo true || echo false)" '{body:$b, isDraft:$d}' ;; *) echo "https://x/pr/7" ;; esac ;;
@@ -75,6 +76,15 @@ openpr() { # body as the prompt instructs: built-by line, the record link, then 
   case "${FAKE_CLOSES:-}" in lower) key="closes #42" ;; esac
   { printf '%s\n\nrecord: %s\n\n' "${rid:-built-by: second-shift run ?}" "${rec:-?}"; case "$key" in *"["*) printf '### Jira Items\n%s\n' "$key" ;; *) printf '%s\n' "${key:-Closes #?}" ;; esac; } > "$S/pr-created-body.txt"; echo 7 > "$S/prs"
 }
+# #991: a verdict body in the grammar verdict-check.sh enforces. A consistent one by default: D-1 (the fixture
+# record's one row) honored, and a [blocker] on a needs-work; $ROWS / $FINDINGS replace either part
+vbody() { # vbody <verdict> <sha> [<text after the findings>]
+  local f="None."; [ "$1" = needs-work ] && f="- [blocker] B1 fake finding"
+  printf 'verdict: %s\nreviewed: %s\n\n## Decision record rows\n\n| Row | Score | Evidence |\n| --- | --- | --- |\n%s\n\n## Findings\n\n%s\n%s' "$1" "$2" "${ROWS-| D-1 | honored | fake |}" "${FINDINGS:-$f}" "${3:-}"
+}
+post() { # post <body>: one comment by the verdict author, created and updated now
+  jq --arg b "$1" --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg u "${FAKE_VERDICT_AUTHOR:-tester}" --arg ut "${FAKE_VERDICT_AUTHOR_TYPE:-User}" '. + [{id:(length+1),node_id:"N\(length+1)",body:$b,user:{login:$u,type:$ut},created_at:$t,updated_at:$t,html_url:"https://x/pr/7#verdict"}]' "$S/comments.json" > "$S/c.tmp" && mv "$S/c.tmp" "$S/comments.json"
+}
 case "$plan" in
   build-pr)        push; openpr ;;
   build-pr-draft)  push; openpr; touch "$S/draft" ;;
@@ -99,12 +109,14 @@ case "$plan" in
   build-edit-expectation) sed '1s/1999/2000/' src/b.test.ts > b.tmp && mv b.tmp src/b.test.ts   # #957: one assertion moved with the code,
                    sed 's/1999/2000/' src/__snapshots__/price.snap > s.tmp && mv s.tmp src/__snapshots__/price.snap   # a snapshot regenerated whole,
                    printf 'it("more", () => {});\n' >> src/a.spec.ts; printf 'it("new", () => {});\n' > src/c.spec.ts; push; openpr ;;   # an additive edit and a new spec
+  build-pr-add-row) printf '| D-2 | added by the build | x | user-delegated |\n' >> "$(git ls-files 'docs/plans/*-decisions.md')"; push; openpr ;;   # #991: a row only the head carries
+  build-pr-rm-record) git rm -q "$(git ls-files 'docs/plans/*-decisions.md')"; push; openpr ;;   # #991: no record at the head to check a verdict against
   review-crash)    printf '{"subtype":"error_during_execution","total_cost_usd":0}\n'; exit 1 ;;
-  review-approve|review-needs-work|review-wrong-sha|review-approve-dirty|review-approve-runtime|review-approve-and-push|review-needs-work-drop-base|review-needs-work-diverge)
+  review-approve|review-needs-work|review-wrong-sha|review-approve-dirty|review-approve-runtime|review-approve-and-push|review-needs-work-drop-base|review-needs-work-diverge|review-needs-work-notes-reason)
     sha=$(git rev-parse "origin/$branch"); [ "$plan" = review-wrong-sha ] && sha=deadbeef
     v=approve; case "$plan" in review-needs-work*) v=needs-work ;; esac
-    ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    jq --arg b "verdict: $v"$'\n'"reviewed: $sha"$'\n'"| D-1 | honored |" --arg t "$ts" --arg u "${FAKE_VERDICT_AUTHOR:-tester}" --arg ut "${FAKE_VERDICT_AUTHOR_TYPE:-User}" '. + [{id:(length+1),node_id:"N\(length+1)",body:$b,user:{login:$u,type:$ut},created_at:$t,updated_at:$t,html_url:"https://x/pr/7#verdict"}]' "$S/comments.json" > "$S/c.tmp" && mv "$S/c.tmp" "$S/comments.json"
+    extra=""; [ "$plan" = review-needs-work-notes-reason ] && extra=$'\n## Notes\n\nreason: render-unavailable'   # prose, not line 3
+    post "$(vbody "$v" "$sha" "$extra")"
     case "$plan" in
       review-approve-dirty) echo scratch > review-scratch.txt ;;
       review-approve-runtime) mkdir -p .claude/storage; echo raw > .claude/storage/upload-1.bin ;;   # gitignored: `status --porcelain` cannot see it
@@ -112,14 +124,16 @@ case "$plan" in
       review-needs-work-drop-base) git -C "$(git remote get-url origin)" update-ref -d refs/heads/main ;;
       review-needs-work-diverge) git push -q -f origin "$(git commit-tree "HEAD~1^{tree}" -p HEAD~1 -m diverged)":"refs/heads/$branch" ;;
     esac ;;
-  review-render-unavailable) sha=$(git rev-parse "origin/$branch"); ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    jq --arg b "verdict: needs-work"$'\n'"reviewed: $sha"$'\n'"reason: render-unavailable" --arg t "$ts" --arg u "${FAKE_VERDICT_AUTHOR:-tester}" --arg ut "${FAKE_VERDICT_AUTHOR_TYPE:-User}" '. + [{id:(length+1),node_id:"N\(length+1)",body:$b,user:{login:$u,type:$ut},created_at:$t,updated_at:$t,html_url:"https://x/pr/7#verdict"}]' "$S/comments.json" > "$S/c.tmp" && mv "$S/c.tmp" "$S/comments.json" ;;
+  # #991 AC-2: verdicts whose own comment does not back their verdict line
+  review-bad-approve-blocker)  post "$(ROWS='| D-1 | honored | fake |' FINDINGS='- [blocker] B1 must change before merge' vbody approve "$(git rev-parse "origin/$branch")")" ;;
+  review-bad-approve-violated) post "$(ROWS='| D-1 | violated | fake |' vbody approve "$(git rev-parse "origin/$branch")")" ;;
+  review-bad-needs-work-noblocker) post "$(FINDINGS='- [note] N1 nothing required' vbody needs-work "$(git rev-parse "origin/$branch")")" ;;
+  review-render-unavailable) sha=$(git rev-parse "origin/$branch")
+    post "$(printf 'verdict: needs-work\nreviewed: %s\nreason: render-unavailable\n\n## Decision record rows\n\n| Row | Score | Evidence |\n| --- | --- | --- |\n\n## Findings\n\nNone.' "$sha")" ;;
   review-two-verdicts) # both bind; the LAST posted wins: $FAKE_ORDER = needs-work,approve or approve,needs-work
-    sha=$(git rev-parse "origin/$branch"); for v in ${FAKE_ORDER//,/ }; do ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-      jq --arg b "verdict: $v"$'\n'"reviewed: $sha" --arg t "$ts" --arg u "${FAKE_VERDICT_AUTHOR:-tester}" --arg ut "${FAKE_VERDICT_AUTHOR_TYPE:-User}" '. + [{id:(length+1),node_id:"N\(length+1)",body:$b,user:{login:$u,type:$ut},created_at:$t,updated_at:$t,html_url:"https://x/pr/7#verdict"}]' "$S/comments.json" > "$S/c.tmp" && mv "$S/c.tmp" "$S/comments.json"; done ;;
+    sha=$(git rev-parse "origin/$branch"); for v in ${FAKE_ORDER//,/ }; do post "$(vbody "$v" "$sha")"; done ;;
   review-silent)   : ;;
-  review-detach)   git checkout -q --detach "origin/$branch"; sha=$(git rev-parse "origin/$branch"); ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    jq --arg b "verdict: needs-work"$'\n'"reviewed: $sha" --arg t "$ts" --arg u "${FAKE_VERDICT_AUTHOR:-tester}" --arg ut "${FAKE_VERDICT_AUTHOR_TYPE:-User}" '. + [{id:(length+1),node_id:"N\(length+1)",body:$b,user:{login:$u,type:$ut},created_at:$t,updated_at:$t,html_url:"https://x/pr/7#verdict"}]' "$S/comments.json" > "$S/c.tmp" && mv "$S/c.tmp" "$S/comments.json" ;;
+  review-detach)   git checkout -q --detach "origin/$branch"; post "$(vbody needs-work "$(git rev-parse "origin/$branch")")" ;;
 esac
 printf '{"subtype":"success","total_cost_usd":%s,"num_turns":3,"permission_denials":[{"tool_name":"Bash","tool_input":{"command":"ls /"}}]}\n' "$cost"
 EOF
@@ -1262,6 +1276,34 @@ grep -q "^verdicts: earlier ones NOT all minimized â€” comment 1 NOT minimized â
   && ok "(mv4) [D-7] the failed minimize is one run-block line" || bad "(mv4) run block: $(grep verdicts "$FAKE_GH/pr-body.md")"
 FIXTURE_CONFIG="$CS_BOT_CONFIG" fixture mv5; printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; cs_bot; expect approved "(mv5) a run with a bot"
 [ "$(cat "$FAKE_GH/minimized" 2>/dev/null)" = "bot N1" ] && ok "(mv5) [D-6] the minimize is written through the bot" || bad "(mv5) minimized: $(tr '\n' '|' < "$FAKE_GH/minimized" 2>/dev/null)"
+
+# (vc) #991: a verdict binds only when its own comment backs it. Each inconsistent body, posted by both the review and its
+# re-spawn: no status, no BUILD, the re-spawn told which rule broke, a notice linking each rejected verdict, review-unbound
+vc_case() { # vc_case <id> <build plan> <review plan> <rule>
+  fixture "$1"; printf '%s\n%s\n%s\n' "$2" "$3" "$3" > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect review-unbound "($1) $3, twice"
+  [ "$RC" -eq 5 ] && [ ! -s "$FAKE_GH/statuses" ] && [ "$(cat "$FAKE_GH/calls")" -eq 3 ] && [ ! -f "$FAKE_GH/prompt-4.txt" ] \
+    && ok "($1) no status posted and no BUILD spawned" || bad "($1) rc=$RC calls=$(cat "$FAKE_GH/calls") statuses=$(cat "$FAKE_GH/statuses" 2>/dev/null)"
+  grep -q '^## Your previous verdict did not bind' "$FAKE_GH/prompt-3.txt" && grep -qF -- "- $4" "$FAKE_GH/prompt-3.txt" && ! grep -q 'previous verdict did not bind' "$FAKE_GH/prompt-2.txt" \
+    && ok "($1) the re-spawn prompt names the rule: $4" || bad "($1) prompt-3: $(grep -A3 'previous verdict' "$FAKE_GH/prompt-3.txt" | tr '\n' '|')"
+  [ "$(grep -c 'does not bind' "$FAKE_GH/pr-comment-bodies" 2>/dev/null)" -eq 2 ] && grep -q '^second-shift run .*: the verdict at https://x/pr/7#verdict does not bind' "$FAKE_GH/pr-comment-bodies" \
+    && grep -qF -- "- $4" "$FAKE_GH/pr-comment-bodies" && ! grep -q '^verdict:' "$FAKE_GH/pr-comment-bodies" \
+    && ok "($1) one notice per rejected verdict links it and names the rule, and is no verdict itself" || bad "($1) notices: $(tr '\n' '|' < "$FAKE_GH/pr-comment-bodies" 2>/dev/null)"
+  grep -qF "breaks the verdict grammar: $4" <<<"$OUT" && ok "($1) the miss names the failed rule" || bad "($1) miss: $(grep 'verdict grammar' <<<"$OUT" | head -n 1)"
+}
+vc_case vc1 build-pr review-bad-approve-blocker "approve with a blocker"
+vc_case vc2 build-pr review-bad-approve-violated "approve with a violated or undeterminable row: D-1 violated"
+vc_case vc3 build-pr-add-row review-approve "record row not scored: D-2"   # the row only the head carries: run.sh reads the record there too
+vc_case vc4 build-pr review-bad-needs-work-noblocker "needs-work with no blocker"
+grep -qF 'Bash(bash *verdict-check.sh*)' "$FAKE_GH/args-2.txt" && grep -q "^Before you post, check your draft: run 'bash .*/tools/verdict-check.sh " "$FAKE_GH/prompt-2.txt" \
+  && grep -qx 'The verdict comment has these parts, in this order and nothing else:' "$FAKE_GH/prompt-2.txt" && ! grep -q 'LOCKSTEP-' "$FAKE_GH/prompt-2.txt" && ok "(vc4) [D-2] the review may run the checker on its draft and is told to; the grammar reaches it without its markers" \
+  || bad "(vc4) [D-2] allowlist/prompt: $(grep -c 'verdict-check' "$FAKE_GH/prompt-2.txt")"
+fixture vc5; printf 'build-pr\nreview-bad-approve-blocker\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(vc5) a rejected verdict, then a consistent approve from the re-spawn"
+[ "$(wc -l < "$FAKE_GH/statuses" 2>/dev/null)" -eq 1 ] && grep -q 'state=success' "$FAKE_GH/statuses" && ok "(vc5) one status, from the verdict that binds" || bad "(vc5) statuses: $(tr '\n' '|' < "$FAKE_GH/statuses" 2>/dev/null)"
+fixture vc6; printf 'build-pr-rm-record\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect verdict-uncheckable "(vc6) no record at the head to check the verdict against"
+[ "$RC" -eq 1 ] && [ ! -s "$FAKE_GH/statuses" ] && [ "$(cat "$FAKE_GH/calls")" -eq 2 ] && grep -q '| verdict-uncheckable | 1 | none |' "$FAKE_GH/pr-body.md" \
+  && ok "(vc6) [D-5] exit 1, no status, no re-spawn, the run block names no verdict" || bad "(vc6) rc=$RC calls=$(cat "$FAKE_GH/calls") block=$(grep '| verdict-uncheckable' "$FAKE_GH/pr-body.md")"
+fixture vc7; printf 'build-pr\nreview-needs-work-notes-reason\nbuild-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"
+expect approved "(vc7) 'reason: render-unavailable' as prose under ## Notes is not the render reason: the needs-work goes to a BUILD"
 
 # (m) rounds spent
 fixture m; printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-needs-work\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d" --max-rounds 2; expect rounds-spent "(m) two needs-work rounds"
