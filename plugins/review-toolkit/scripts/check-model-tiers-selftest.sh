@@ -571,7 +571,7 @@ make_rt_substantial() {
   {
     printf '\n## Substantial panel\n\n| Agent | Tier |\n| ----- | ---- |\n'
     printf '| review-toolkit:security-reviewer | reasoning |\n'
-    [ -z "$omit" ] && printf '| `review-toolkit:performance-reviewer` | reasoning |\n'
+    [ -z "$omit" ] && printf "| \`review-toolkit:performance-reviewer\` | reasoning |\n"
   } >> "$dst/model-tiering.md"
   cat >> "$dst/workflows/code-review.mjs" <<MJS
 
