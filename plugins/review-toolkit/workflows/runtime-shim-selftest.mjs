@@ -914,39 +914,20 @@ const byRole = (calls, re) => calls.filter((c) => re.test(c.opts.agentType))
 }
 
 // ---------------------------------------------------------------------------
-// Case SP — code-review.mjs's substantial panel and Refute phase (#992). The REAL body runs
-// with a fake agent routed by role: seats answer with canned findings, and each finding-refuter
-// answers by the finding's title (the refuter prompt carries `Finding: <title>`), so every
-// outcome is pinned to the finding that caused it rather than to dispatch order.
-//
-// The refuter-unavailable message is the one the account actually returned during #992's own
-// intake fan-out ("You've reached your Fable limit", recorded in
-// docs/plans/second-shift-992-decisions.md's Fan-out section); the budget throw is the one
-// code-review.mjs's cost-discipline comment describes (the runtime makes agent() throw once the
-// shared turn budget is spent), paired with a budget whose remaining() has reached 0.
+// Case SP — code-review.mjs's substantial panel (#992). The REAL body runs with a fake agent routed
+// by role: every seat answers with canned findings.
 // ---------------------------------------------------------------------------
-console.log('── Case SP: code-review.mjs substantial panel, required seats, Refute phase (#992)')
+console.log('── Case SP: code-review.mjs substantial panel and required seats (#992)')
 {
 const seatOut = (findings, verdict = 'request-changes') => reviewBlock({ verdict, findings })
 const fnd = (severity, title) => ({ severity, title, description: `${title} description`, confidence: 80, file: 'a.ts', line: 3 })
-const verdictOut = (outcome, evidence = 'opened a.ts:3 at the head') => reviewBlock({ outcome, evidence })
-const titleOf = (prompt) => (String(prompt).match(/Finding: (\S+)/) || [])[1]
-const SEAT_FINDINGS = [fnd('blocker', 'REPRO'), fnd('major', 'REFUTE'), fnd('blocker', 'DARK'), fnd('minor', 'MINOR'), fnd('nit', 'NIT')]
-// Default refuter answers by title; DARK's refuter dies on both attempts.
-const defaultRefuter = (prompt) => {
-  const t = titleOf(prompt)
-  if (t === 'REPRO') return verdictOut('reproduced')
-  if (t === 'REFUTE') return verdictOut('refuted', 'a.ts:3 already guards the null at the head')
-  if (t === 'DARK') return ''
-  return verdictOut('reproduced')
-}
+const SEAT_FINDINGS = [fnd('blocker', 'B1'), fnd('major', 'M1'), fnd('minor', 'MINOR')]
 const spAgent = (handlers = {}) => {
   const calls = []
   const agent = async (prompt, opts) => {
     calls.push({ prompt, opts })
     const role = bare(opts.agentType)
     if (handlers[role]) return handlers[role](prompt, opts, calls)
-    if (role === 'finding-refuter') return defaultRefuter(prompt, opts)
     return seatOut(SEAT_FINDINGS)
   }
   return { agent, calls }
@@ -957,148 +938,25 @@ const runSP = (agent, argsOverride = {}, budget = undefined) => {
   const args = { worktree: '/tmp/wt', base: 'aaa', head: 'bbb', reviewers: ['review-toolkit:complexity-reviewer'], config: { reviewers: {} }, ...argsOverride }
   return makeRunner(CODE_REVIEW_MJS)(agent, parallel, pipeline, args, (m) => logs.push(String(m)), noop, budget).then((result) => ({ result, logs }))
 }
-const refuters = (calls) => calls.filter((c) => bare(c.opts.agentType) === 'finding-refuter')
-const byTitle = (seat, t) => seat.findings.find((f) => f.title === t)
 
 // SP1 — required seats ride alongside reviewers, every specialist on the reasoning tier, seats[] replaces reviewers[].
 {
   const { agent, calls } = spAgent()
   const { result } = await runSP(agent, { panel: 'substantial', requiredSeats: ['review-toolkit:security-reviewer', 'review-toolkit:unit-test-mutation-reviewer'] })
-  const seatCalls = calls.filter((c) => bare(c.opts.agentType) !== 'finding-refuter')
-  eq('SP1 reviewers and requiredSeats are both dispatched', seatCalls.map((c) => bare(c.opts.agentType)).sort(), ['complexity-reviewer', 'security-reviewer', 'unit-test-mutation-reviewer'])
-  ok('SP1 every specialist seat dispatches on opus (substantial table)', seatCalls.every((c) => c.opts.model === 'opus'), seatCalls.map((c) => c.opts.model).join(','))
+  eq('SP1 reviewers and requiredSeats are both dispatched', calls.map((c) => bare(c.opts.agentType)).sort(), ['complexity-reviewer', 'security-reviewer', 'unit-test-mutation-reviewer'])
+  ok('SP1 every specialist seat dispatches on opus (substantial table)', calls.every((c) => c.opts.model === 'opus'), calls.map((c) => c.opts.model).join(','))
   eq('SP1 seats[] replaces reviewers[]', Object.keys(result).sort(), ['range', 'seats', 'worktree'])
   eq('SP1 one seats[] entry per seat, in request order', result.seats.map((s) => s.agentType), ['review-toolkit:complexity-reviewer', 'review-toolkit:security-reviewer', 'review-toolkit:unit-test-mutation-reviewer'])
   ok('SP1 seats[].model records the dispatched model and status returned', result.seats.every((s) => s.model === 'opus' && s.status === 'returned'))
 }
 
-// SP2 — the three outcomes, the refuted finding kept, minor/nit unrefuted, refuter on the other family.
+// SP2 — the substantial panel dispatches only its seats and returns their findings as they came.
 {
   const { agent, calls } = spAgent()
   const { result } = await runSP(agent, { panel: 'substantial' })
-  const seat = result.seats[0]
-  eq('SP2 a reproduced blocker is marked reproduced', byTitle(seat, 'REPRO')?.outcome, 'reproduced')
-  eq('SP2 a refuted major is marked refuted', byTitle(seat, 'REFUTE')?.outcome, 'refuted')
-  ok('SP2 the refuted finding stays in the result with the refuter evidence', /already guards/.test(byTitle(seat, 'REFUTE')?.refuterEvidence || ''))
-  eq('SP2 a blocker whose refuter went dark is unverified (fail closed)', byTitle(seat, 'DARK')?.outcome, 'unverified')
-  eq('SP2 minor and nit pass through unrefuted', [byTitle(seat, 'MINOR')?.outcome, byTitle(seat, 'NIT')?.outcome], ['unrefuted', 'unrefuted'])
-  eq('SP2 every finding is kept', seat.findings.length, 5)
-  eq('SP2 the seat counts its outcomes', [seat.reproduced, seat.refuted, seat.unverified], [1, 1, 1])
-  ok('SP2 refuters run on fable, the family that did not make the finding', refuters(calls).length > 0 && refuters(calls).every((c) => c.opts.model === 'fable'))
-  eq('SP2 only the blocker/major findings are refuted, an empty answer not retried', refuters(calls).length, 3)
-  ok('SP2 a refuted outcome records family cross', byTitle(seat, 'REFUTE')?.family === 'cross' && byTitle(seat, 'REPRO')?.madeBy === 'opus')
-}
-
-// SP3 — mutation-seat and scope-completeness majors are never refuted (D-7).
-{
-  const { agent, calls } = spAgent()
-  const { result } = await runSP(agent, { panel: 'substantial', reviewers: ['review-toolkit:unit-test-mutation-reviewer', 'review-toolkit:scope-completeness-reviewer'], issue: '992' })
-  eq('SP3 no refuter is dispatched for mutation or scope-completeness findings', refuters(calls).length, 0)
-  ok('SP3 their blocker/major findings pass through unrefuted', result.seats.every((s) => s.findings.every((f) => f.outcome === 'unrefuted')))
-}
-
-// SP4 — refute-only mode: the empty array, a stated producer, an unstated one.
-{
-  const { agent, calls } = spAgent()
-  const { result } = await runSP(agent, { reviewers: [], refute: [] })
-  eq('SP4 an empty refute array dispatches nothing', calls.length, 0)
-  eq('SP4 an empty refute array returns an empty seats[]', result.seats, [])
-}
-{
-  const { agent, calls } = spAgent()
-  const { result } = await runSP(agent, { reviewers: [], refute: [{ ...fnd('blocker', 'REPRO'), madeBy: 'fable' }, fnd('major', 'REFUTE'), fnd('minor', 'MINOR')] })
-  const seat = result.seats[0]
-  eq('SP4 refute-only returns one seats[] entry for the lead findings', [result.seats.length, seat.agentType, seat.model], [1, 'refute-only', null])
-  eq('SP4 refute-only dispatches no seat, only refuters', calls.every((c) => bare(c.opts.agentType) === 'finding-refuter'), true)
-  const reproCall = refuters(calls).find((c) => titleOf(c.prompt) === 'REPRO')
-  eq('SP4 a finding madeBy fable is refuted on opus', reproCall?.opts?.model, 'opus')
-  eq('SP4 and records family cross', byTitle(seat, 'REPRO')?.family, 'cross')
-  eq('SP4 a finding with no madeBy is refuted on cross (fable)', refuters(calls).find((c) => titleOf(c.prompt) === 'REFUTE')?.opts?.model, 'fable')
-  eq('SP4 and records family cross (producer unstated)', byTitle(seat, 'REFUTE')?.family, 'cross (producer unstated)')
-  eq('SP4 a minor lead finding passes unrefuted', byTitle(seat, 'MINOR')?.outcome, 'unrefuted')
-}
-
-// SP5 — Fable unavailable: two thrown fable dispatches trip the fallback, retries run on opus.
-{
-  const { agent, calls } = spAgent({
-    'finding-refuter': (prompt, opts) => {
-      if (opts.model === 'fable') throw new Error("You've reached your Fable limit")
-      return defaultRefuter(prompt, opts)
-    },
-  })
-  const { result, logs } = await runSP(agent, { panel: 'substantial', reviewers: ['review-toolkit:security-reviewer'] })
-  const seat = result.seats[0]
-  eq('SP5 the reproduced blocker still lands, retried on opus', byTitle(seat, 'REPRO')?.outcome, 'reproduced')
-  eq('SP5 it records same-family (fable unavailable)', byTitle(seat, 'REPRO')?.family, 'same-family (fable unavailable)')
-  eq('SP5 the refuted major records the same family', byTitle(seat, 'REFUTE')?.family, 'same-family (fable unavailable)')
-  ok('SP5 the fallback announces itself', logs.some((l) => /could not be dispatched twice/.test(l)))
-  const lastModel = (t) => refuters(calls).filter((c) => titleOf(c.prompt) === t).pop()?.opts?.model
-  eq('SP5 each finding\'s final refuter attempt ran on opus', ['REPRO', 'REFUTE', 'DARK'].map(lastModel), ['opus', 'opus', 'opus'])
-}
-{
-  // A LONE finding: its own two fable throws are the two that trip the fallback, so without the
-  // third attempt intake-fanout's dispatch() also makes, it would end unverified on fable.
-  const { agent, calls } = spAgent({
-    'finding-refuter': (prompt, opts) => {
-      if (opts.model === 'fable') throw new Error("You've reached your Fable limit")
-      return defaultRefuter(prompt, opts)
-    },
-  })
-  const { result } = await runSP(agent, { reviewers: [], refute: [{ ...fnd('blocker', 'REPRO'), madeBy: 'opus' }] })
-  eq('SP5 a lone finding still reaches opus after two fable throws', refuters(calls).map((c) => c.opts.model), ['fable', 'fable', 'opus'])
-  eq('SP5 and lands reproduced, same-family (fable unavailable)', [result.seats[0].findings[0].outcome, result.seats[0].findings[0].family], ['reproduced', 'same-family (fable unavailable)'])
-}
-
-// SP6 — empty or unparseable refuter text is unverified, is NOT retried and does NOT trip the fallback (D-4).
-{
-  const { agent, calls } = spAgent({ 'finding-refuter': () => 'I looked but wrote no block.' })
-  const { result } = await runSP(agent, { panel: 'substantial' })
-  const seat = result.seats[0]
-  ok('SP6 every refuted-class finding is unverified', ['REPRO', 'REFUTE', 'DARK'].every((t) => byTitle(seat, t)?.outcome === 'unverified'))
-  eq('SP6 one dispatch per finding, no retry', refuters(calls).length, 3)
-  ok('SP6 the family stays cross (text failures are not fable failures)', ['REPRO', 'REFUTE', 'DARK'].every((t) => byTitle(seat, t)?.family === 'cross'))
-}
-
-// SP7 — `refuted` without evidence is no refutation (D-1).
-{
-  const { agent } = spAgent({ 'finding-refuter': () => verdictOut('refuted', '') })
-  const { result } = await runSP(agent, { panel: 'substantial' })
-  eq('SP7 an evidence-less refuted answer is recorded unverified', byTitle(result.seats[0], 'REFUTE')?.outcome, 'unverified')
-}
-
-// SP8 — a refuter still pending at the refute ceiling is unverified; the others land.
-{
-  const origSetTimeout = globalThis.setTimeout
-  globalThis.setTimeout = (fn, _ms, ...rest) => origSetTimeout(fn, 0, ...rest)
-  try {
-    const { agent } = spAgent({
-      'finding-refuter': (prompt, opts) => (titleOf(prompt) === 'REFUTE' ? new Promise(() => {}) : defaultRefuter(prompt, opts)),
-    })
-    const { result } = await runSP(agent, { panel: 'substantial' })
-    const seat = result.seats[0]
-    eq('SP8 the pending refuter is unverified at the ceiling', byTitle(seat, 'REFUTE')?.outcome, 'unverified')
-    ok('SP8 its evidence names the refute ceiling', /refute ceiling/.test(byTitle(seat, 'REFUTE')?.refuterEvidence || ''))
-    eq('SP8 a sibling refuter is unaffected', byTitle(seat, 'REPRO')?.outcome, 'reproduced')
-  } finally {
-    globalThis.setTimeout = origSetTimeout
-  }
-}
-
-// SP9 — a budget throw is unverified and does not count toward the fable trip.
-{
-  let spent = false
-  const budget = { total: 1000, spent: () => (spent ? 1000 : 0), remaining: () => (spent ? 0 : 1000) }
-  const { agent, calls } = spAgent({
-    'finding-refuter': () => {
-      spent = true
-      throw new Error('turn token budget exhausted')
-    },
-  })
-  const { result, logs } = await runSP(agent, { panel: 'substantial' }, budget)
-  const seat = result.seats[0]
-  ok('SP9 budget-starved refuters leave their findings unverified', ['REPRO', 'REFUTE', 'DARK'].every((t) => byTitle(seat, t)?.outcome === 'unverified'))
-  eq('SP9 a budget throw is not retried', refuters(calls).length, 3)
-  ok('SP9 and does not trip the fable fallback', !logs.some((l) => /could not be dispatched twice/.test(l)) && byTitle(seat, 'REPRO')?.family === 'cross')
+  eq('SP2 only the seat is dispatched', calls.map((c) => bare(c.opts.agentType)), ['complexity-reviewer'])
+  eq('SP2 every finding is returned, unannotated', result.seats[0].findings.map((f) => [f.title, 'outcome' in f]), [['B1', false], ['M1', false], ['MINOR', false]])
+  eq('SP2 the seat entry carries its verdict', result.seats[0].verdict, 'request-changes')
 }
 
 // SP10 — a consumer modelOverrides entry beats the substantial table (D-5).
@@ -1107,7 +965,6 @@ const byTitle = (seat, t) => seat.findings.find((f) => f.title === t)
   const { result } = await runSP(agent, { panel: 'substantial', config: { reviewers: { modelOverrides: { 'complexity-reviewer': 'sonnet' } } } })
   eq('SP10 the override wins over the substantial tier', calls.find((c) => bare(c.opts.agentType) === 'complexity-reviewer')?.opts?.model, 'sonnet')
   eq('SP10 seats[].model records what actually dispatched', result.seats[0].model, 'sonnet')
-  eq('SP10 a sonnet producer is refuted on fable', byTitle(result.seats[0], 'REPRO')?.family, 'cross')
 }
 
 // SP11 — budget exhausted before the fan-out: every requested seat is listed dark (OR-1).
@@ -1128,18 +985,10 @@ const byTitle = (seat, t) => seat.findings.find((f) => f.title === t)
   eq('SP12 a seat that died after its retry is dark with no findings', [result.seats[0].status, result.seats[0].findings.length], ['dark', 0])
 }
 
-// SP13 — tierMap folds cross onto opus: the record says same-family (configured).
-{
-  const { agent } = spAgent()
-  const { result } = await runSP(agent, { panel: 'substantial', config: { reviewers: { tierMap: { cross: 'opus' } } } })
-  eq('SP13 one family only is recorded as configured', byTitle(result.seats[0], 'REPRO')?.family, 'same-family (configured)')
-}
-
-// SP14 — AC-4: no panel is today's dispatch: same seats, same models, no Refute phase, same shape.
+// SP14 — AC-4: no panel is today's dispatch: same seats, same models, same shape.
 {
   const { agent, calls } = spAgent()
   const { result } = await runSP(agent, {})
-  eq('SP14 no refuter runs without a panel', refuters(calls).length, 0)
   eq('SP14 the seat keeps its frontmatter tier', calls[0]?.opts?.model, 'sonnet')
   eq('SP14 the return is exactly range, worktree, reviewers', Object.keys(result).sort(), ['range', 'reviewers', 'worktree'])
   ok('SP14 the findings carry no outcome', result.reviewers[0].result.findings.every((f) => !('outcome' in f)))
@@ -1152,7 +1001,7 @@ const byTitle = (seat, t) => seat.findings.find((f) => f.title === t)
   eq('SP14 and return reviewers[]', result.reviewers.length, 2)
 }
 {
-  // D-10: a call with no reviewers, no requiredSeats and no refute still throws.
+  // D-10: a call with no reviewers and no requiredSeats still throws.
   const { agent } = spAgent()
   let threw = ''
   try {
@@ -1160,7 +1009,7 @@ const byTitle = (seat, t) => seat.findings.find((f) => f.title === t)
   } catch (e) {
     threw = String(e)
   }
-  ok('SP14 an empty reviewers[] with neither requiredSeats nor refute still throws', /non-empty array/.test(threw), threw)
+  ok('SP14 an empty reviewers[] with no requiredSeats still throws', /non-empty array/.test(threw), threw)
 }
 }
 
