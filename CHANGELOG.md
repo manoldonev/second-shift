@@ -4,6 +4,40 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v16.6.0
+
+### `dev-pipeline` 16.5.0 → 16.5.1
+
+- **fix(dev-pipeline): a review verdict binds only when its own comment backs it (#1000)** (#1000)
+  a dev-pipeline review verdict now binds only when its own comment
+  backs its verdict line, on the lane and on /dev-pipeline:review alike.
+  Migration: the dev-pipeline verdict comment has a fixed shape (lines 1-2,
+  `## Decision record rows` holding only the row table, `## Findings` as
+  `- [blocker] B<n>` / `- [note] N<n>` lines or `None.`, optional `## Panel`
+  and `## Notes`), and an inconsistent verdict no longer binds or sets the
+  `second-shift/review` status. A new terminal, `verdict-uncheckable`, exits 1.
+- **fix(dev-pipeline): the detached-run watch treats only pgrep's exit 1 as a gone group (#1005)** (#1005)
+  `/dev-pipeline:run`'s detached-run watch no longer reports a live
+  run as interrupted when its pgrep check fails with a usage error.
+  Migration: none.
+
+### `review-toolkit` 10.2.0 → 10.3.0
+
+- **feat(review-toolkit): the review fan-out takes required seats and refutes their findings (#1001)** (#1001)
+  code-review.mjs gains a substantial panel (`panel: 'substantial'`,
+  `requiredSeats`) and a refute-only mode (`refute`). On those paths every
+  blocker/major finding is checked by the new finding-refuter agent on the
+  other model family, and each records reproduced, refuted or unverified.
+  performance-reviewer and complexity-reviewer now carry a turn-10 emit deadline.
+  Migration: none. A call without `panel` or `refute` dispatches and returns
+  exactly as before.
+- **refactor(review-toolkit): remove the review fan-out's refuter before it ships (#1006)** (#1006)
+  the review fan-out's Refute phase, refute-only mode (`refute`) and
+  the finding-refuter agent, added earlier in this release cycle, are removed
+  before release. `panel: 'substantial'` and `requiredSeats` remain; substantial
+  seats return their findings without refute outcomes.
+  Migration: none. Nothing released ever carried the refuter.
+
 ## v16.5.0
 
 ### `dev-pipeline` 16.4.0 → 16.5.0
