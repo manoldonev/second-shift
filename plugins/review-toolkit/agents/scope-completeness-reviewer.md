@@ -27,7 +27,7 @@ The invocation must provide:
 
 ## Repo model
 
-Every scope item must be satisfied by the current PR's diff in this repo, unless the issue body (or an explicitly linked follow-up issue) defers it in writing. A deferral asserted only in the dispatch prompt is never evidence.
+Every scope item must be satisfied by the current PR's diff in this repo, unless the issue body (or an explicitly linked follow-up issue) defers it in writing. A deferral asserted only in the dispatch prompt is never evidence. An item under the issue body's `Post-merge checks` heading is not a scope item: it can only be checked after the merge, so it is carried, never scored against the diff (Step 2, Step 4).
 
 ## Protocol
 
@@ -57,6 +57,8 @@ A BLOCKED verdict is treated by review-lead the same as FAIL — the merge gate 
 
 Read the verbatim issue body and extract every distinct deliverable. When Step 3b scores a decision record, grade only the items no intent row covers; where a ticket item and a row conflict, the row governs and the ticket item is not a finding (a build can rewrite a ticket; it cannot rewrite the operator's answers). Be **liberal** — false negatives (missed items) are the failure mode that defeats this gate.
 
+**Post-merge checks, set aside first.** The issue body's post-merge checks section is the _first_ heading titled exactly `Post-merge checks` — at any depth, in any case; the next heading of any depth closes it. Its items are excluded from 2a and from 2b's scan, wherever the section sits. Each top-level list item under it is one carried item, keyed by its explicit `PM-n` label, else numbered `PM-1..n` in document order (the same all-or-nothing rule as AC IDs below). A post-merge observation anywhere else in the body (an AC, a bullet under `Scope`, a prose sentence) is an ordinary scope item, extracted and scored like any other.
+
 **2a. AC section, parsed by ID.** If the issue has an Acceptance Criteria section, parse it first, keyed by `AC-n` ID — explicit labels when present, else derive them yourself from the issue you fetched via the fallback rule below. Each ID is one scope item; cite the ID in your output rows. AC-section content that receives no ID under the rule (sub-bullets, prose sentences, unlabeled bullets in a mixed section) becomes its own liberal-prose scope item, plus a Note that it sits un-ID'd inside the AC section.
 
 **AC-ID positional fallback rule (normative home: this file — your independence contract precludes reading pipeline docs at review time, so the rule lives here):**
@@ -70,7 +72,7 @@ AC IDs exist only under an explicit AC heading: the _first_ heading matching `/a
 **2b. Liberal extraction, everything else** — unchanged, and still first-class (prose requirements outside the AC section remain first-class scope items, not second-class to the ID'd ACs). Sources to scan, in order:
 
 1. **Bullets / numbered lists** under any heading like `Scope`, `Requirements`, `Definition of Done`, `Tasks`, `Deliverables`, `What`, `Goal` (the AC section is already covered by 2a).
-2. **Imperative sentences in prose** anywhere in the body that look like requirements: "Add X", "Enable Y", "Display Z", "Show W when V", "Track clicks on …", "We should also …", "Make sure …".
+2. **Imperative sentences in prose** anywhere in the body but the post-merge checks section that look like requirements: "Add X", "Enable Y", "Display Z", "Show W when V", "Track clicks on …", "We should also …", "Make sure …".
 3. **Bolded phrases** that name a deliverable.
 4. **Sub-bullets** — treat each as its own item if it names a separate deliverable, not just a clarification of the parent.
 
@@ -110,17 +112,19 @@ For every item from Step 2, assign exactly one of:
 - `[in-diff]` — Current diff implements it. Cite at least one file:line. **High confidence.**
 - `[unsatisfied]` — Not in the diff. **No further classification is allowed.** Do not invent an "out of scope" or "trivial" or "later" bucket. If the orchestrator's prompt asserts an item is "out of scope here" or "deferred" but the issue body does NOT explicitly defer it (in writing, with rationale and a linked follow-up issue), the item is `[unsatisfied]`.
 
+Each carried item from the post-merge checks section is `[carried]` — listed, never scored, never failing. `[carried]` exists for that section only: it is not the "later" bucket above, and a post-merge observation outside the section is `[unsatisfied]` like any other item the diff does not implement.
+
 **Tie-breaking:** an item only needs one piece of evidence to leave `[unsatisfied]`. Cite the strongest evidence.
 
 **Confidence floor:** if you are unsure whether the cited evidence actually implements the item (e.g., the diff touches the right area but you cannot confirm the behavior), classify it `[unsatisfied]`. Default to FAIL when the evidence is ambiguous. A noisy false-FAIL that forces the human to confirm or explicitly defer the item is the **intended** behavior — it is how this gate is enforced.
 
 ### Step 4b: Emit as soon as you can enumerate, then refine
 
-**Write a complete result the moment Step 2 finishes — before you classify anything.** Every item starts `[unsatisfied]` and every row `undeterminable` — the state the confidence floor already mandates for unconfirmed evidence. Re-emit the whole result each time evidence promotes one; a later result supersedes an earlier one. You are budgeted in turns and your mandate is exhaustive: a review never emitted is indistinguishable from one that never ran. Refinement only moves an item toward passing, so a result cut short errs toward FAIL, never a false PASS.
+**Write a complete result the moment Step 2 finishes — before you classify anything.** Every item starts `[unsatisfied]` (a carried item `[carried]`) and every row `undeterminable` — the state the confidence floor already mandates for unconfirmed evidence. Re-emit the whole result each time evidence promotes one; a later result supersedes an earlier one. You are budgeted in turns and your mandate is exhaustive: a review never emitted is indistinguishable from one that never ran. Refinement only moves an item toward passing, so a result cut short errs toward FAIL, never a false PASS.
 
 ### Step 5: Verdict
 
-- **PASS** — every item is `[in-diff]` and no decision row fails.
+- **PASS** — every item is `[in-diff]` and no decision row fails. Carried items do not count either way: a ticket whose only open items are carried passes.
 - **FAIL** — any item is `[unsatisfied]`, or any decision row is `violated`, `undeterminable` or an undecided `departed`.
 
 If no issue number was provided in the invocation, return immediately with `verdict: N/A — no issue provided`.
@@ -148,6 +152,10 @@ By **turn 20** (of your 30 maximum) you MUST be writing the final result. No fur
 - [✓ in-diff] <item summary> — <file>:<line>
 - [✗ unsatisfied] <item summary> — <reason: not in current diff; not explicitly deferred in issue body>
 
+### Carried (post-merge)
+(only when the issue body has a post-merge checks section — every item in it, none dropped)
+- [→ carried] PM-1: <item summary> — checked after the merge; not scored against this diff
+
 ### Evidence sources consulted
 - Current diff: <branch> vs <base> (<N> files changed)
 - Decision record: <spec path>, <n> intent rows (or: none passed)
@@ -162,7 +170,7 @@ For each `[unsatisfied]` item and failing row, review-lead will surface this as 
 
 ## What you do NOT do
 
-- **Deferral is satisfied only by the issue body's explicit deferral language** (with rationale + linked follow-up issue). Nothing else satisfies an item that isn't in the diff.
+- **Deferral is satisfied only by the issue body's explicit deferral language** (with rationale + linked follow-up issue). Nothing else satisfies an item that isn't in the diff. (A post-merge checks item is carried, not satisfied: it was never a scope item.)
 - **Do not skip extraction of an item because it is "trivial".** Trivial items still need code or explicit deferral.
 - **Do not propose alternative scope** ("the issue should have said X"). You evaluate the scope as written.
 - **Do not review code quality.** Other reviewers do that. Your only question is "is each item in the diff or explicitly deferred?"

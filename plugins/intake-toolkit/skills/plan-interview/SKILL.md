@@ -126,7 +126,7 @@ You elicit **design decisions from the engineer** (plan-authoring). You do NOT:
 
 5. **Interview** per the baseline loop rules (≤ 2 material questions per turn, recommendation first, "your call" → `user-delegated`).
 
-6. **Emit the Decision Ledger** and exit only when the register is empty *and* every surface is accounted for — each material decision carrying a non-`assumed` provenance, each surface decided or scoped out. Trivial work exits immediately with both explicit empty forms. Pre-flight for a pipeline ticket, the receipt also needs its checks and, on a design-provider repo, its frames — see "Checks and design frames" below.
+6. **Emit the Decision Ledger** and exit only when the register is empty *and* every surface is accounted for — each material decision carrying a non-`assumed` provenance, each surface decided or scoped out. Trivial work exits immediately with both explicit empty forms. Pre-flight for a pipeline ticket, the receipt also needs its checks and, on a design-provider repo, its frames — see "Checks and design frames" below — and the ticket's ACs get the post-merge scan in "Post-merge checks" below.
 
 ## Where the ledger lands
 
@@ -150,6 +150,21 @@ schema and empty forms in `interviewing-baseline` ("Checks", "Design frames"), e
   record's only per-row assertion, so it should be the element that proves the right state rendered
   (the empty-state copy on an empty row, not the page title every state shares). A ticket that
   renders nothing new disarms with `Design: none — <reason>`.
+
+## Post-merge checks (pipeline pre-flight only)
+
+A ticket written by hand never went through `intake-interviewer`, so nothing has yet asked whether
+each acceptance criterion can be checked at review time. Scan the ticket's ACs for any that can
+only be observed after the merge — the next run's transcript, a production metric, a later
+deploy. The scope gate fails such an AC on every PR, since no diff satisfies it.
+
+For each one, ask the operator whether it is a post-merge check (recommendation: yes, when nothing
+in the diff could show it). On a yes, the answer authorizes the tracker write: move the item out of
+the ACs into the ticket body's `## Post-merge checks` section yourself, as the next `PM-n` (create
+the section after the ACs if there is none), and change nothing else in the body — on github
+`gh issue view <issue> --json body`, edit, `gh issue edit <issue> --body-file <file>`; under
+`tracker.type: jira`, the description. Record a `user-answered` ledger row either way: moved, or
+kept as an AC the gate will score. No such AC → nothing to ask and no row.
 
 ## Duplicate scan (pipeline pre-flight only)
 
