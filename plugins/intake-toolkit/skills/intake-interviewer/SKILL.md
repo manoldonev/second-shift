@@ -106,7 +106,7 @@ Walk the checklist as **live questions**, not as a post-hoc critique. Suggest an
 3. **Actors** — user, system, admin, external service — who or what triggers this?
 4. **Happy path** — narrate the flow step by step.
 5. **Sad paths** — not found, null/empty, timeout, partial failure, duplicate, concurrent access.
-6. **Acceptance criteria** — every AC testable as observable behavior. Include negative ACs ("no email sent if X"). Assign each a stable ID `AC-1..n` (negatives too); if a redraft removes a criterion, retire its ID — never reuse it for a different criterion.
+6. **Acceptance criteria** — every AC testable as observable behavior. Include negative ACs ("no email sent if X"). Assign each a stable ID `AC-1..n` (negatives too); if a redraft removes a criterion, retire its ID — never reuse it for a different criterion. Every AC must also be **checkable at review time**, from the diff and the checks it runs. For any criterion that can only be observed after the merge (the next run's transcript, a production metric), ask the user whether it is a post-merge check; on a yes it leaves the ACs for `## Post-merge checks` as `PM-n` (its `AC-n` retired). Record the answer as a ledger row either way.
 7. **Data contracts** — input/output shapes, field types, enum values (list them, don't describe them), optionality.
 8. **Migration / existing state** — if touching schema, what about existing rows? Default values? Backfill?
 9. **Dependencies** — new packages, services, permissions, feature flags, ordering for multi-PR delivery.
@@ -198,6 +198,7 @@ The issue body stays user-observable. Codebase corroboration is an internal inte
 ### Happy path
 ### Sad paths
 ## Acceptance Criteria
+## Post-merge checks (optional — only for checks that can be made only after the merge)
 ## Data Contracts
 ## Migration / Existing State (only if schema changes)
 ## Dependencies
@@ -208,7 +209,9 @@ The issue body stays user-observable. Codebase corroboration is an internal inte
 
 **Acceptance Criteria section format:** one criterion per line, each prefixed with its stable ID — `AC-1: …`, `AC-2: …` — negatives included and ID'd. Phrase EARS-lite as _guidance_, not a hard template: `WHEN <trigger> THEN <observable outcome>` for behavior, `… does NOT …` for negatives; plain observable-outcome phrasing is fine where EARS reads forced.
 
-**Tracker-body invariant:** the `AC-n` block must land in the tracker ticket body **verbatim** — the GitHub issue body on the default adapter, or the JIRA description under `tracker.type: jira`. The ticket is the _only_ channel to the scope-completeness gate (its independence contract ignores everything but the self-fetched ticket). Tell the user this when emitting: paraphrasing the AC section during paste silently downgrades scope review to positional-fallback numbering. The `AC-n` IDs are load-bearing.
+**Post-merge checks section format:** one check per line, `PM-1: …`, `PM-2: …`, under its own heading, never inside the AC section. The scope-completeness gate carries these items and lists them in its verdict instead of scoring them against the diff; an item that can only be checked after the merge but sits among the ACs fails that gate on every PR. The ticket still closes on merge, so the closed ticket's section is where the check is kept. Not `## Deferred`: a deferred item is not in this issue at all, a post-merge check is. Omit the section when there are none.
+
+**Tracker-body invariant:** the `AC-n` block, and the `## Post-merge checks` section when there is one, must land in the tracker ticket body **verbatim** — the GitHub issue body on the default adapter, or the JIRA description under `tracker.type: jira`. The ticket is the _only_ channel to the scope-completeness gate (its independence contract ignores everything but the self-fetched ticket). Tell the user this when emitting: paraphrasing the AC section during paste silently downgrades scope review to positional-fallback numbering. The `AC-n` IDs are load-bearing.
 
 The marker is the final line **inside** the emitted block — below the last section and above the closing `---`, with the hand-off line outside it:
 
