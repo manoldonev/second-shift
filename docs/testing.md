@@ -578,7 +578,8 @@ does not owe this list a new entry.
   tree containing no matching path, so the literal is exercised rather than merely present.
   Revisit if the fallbacks are hoisted into one shared resolver.
 - **intake-receipt vocabulary** (Kind enum, open-region and surface disposition enums, the explicit
-  empty forms). `interviewing-baseline/SKILL.md` states it in prose and tables; `ledger-lint.sh`
+  empty forms, and a `codebase-derived` row's two evidence forms — ``run: `<command>` → <output>``
+  and `cited (<reason>): <path:line>` — with the closed `cited` reason enum `convention | adr`). `interviewing-baseline/SKILL.md` states it in prose and tables; `ledger-lint.sh`
   holds the machine copy. A Kind value added to the doc and not the lint is a value the lint
   rejects with a message naming the enum the author just read. The doc side is a markdown table of
   prose descriptions, not a quoted literal. Guarded by `ledger-lint-selftest.sh`. **The SKILL layer

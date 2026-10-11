@@ -46,7 +46,7 @@ The machine-checkable residue every elicitation leaves behind. It is a mandated 
 
 - `user-answered` — the engineer made the call in the interview.
 - `user-delegated` — the engineer said "your call"; the grounded recommendation is recorded as the resolution.
-- `codebase-derived` — grounded in code, an ADR, the repo's CLAUDE.md, or the Product-Essence Brief; the Resolution cites the source.
+- `codebase-derived` — grounded in code, an ADR, the repo's CLAUDE.md, or the Product-Essence Brief; the Resolution cites the source. In a receipt it states its evidence in one of two forms: ``run: `<command>` → <decisive output>`` for a fact you checked, or `cited (convention|adr): <path:line>` for one no command can check (see "Evidence" under "The intake receipt"). A row that records a choice rather than a fact is not `codebase-derived`: ask it.
 - `deferred` — explicitly parked, with owner and when it must be resolved in the Resolution cell.
 - `ticket-sourced` — the operator resolved it **in a ticket comment** and the run adopted that resolution. The Resolution cell MUST cite the comment by URL (`https://…`) — an uncited row is an assumption wearing a label, and the lint rejects it. This is the one user-provenance value an autonomous run may originate, precisely because the citation is independently verifiable without a local pre-flight artifact.
 
@@ -79,7 +79,7 @@ Receipt rows therefore carry a fifth `Kind` cell:
 | ID  | Decision | Resolution | Provenance | Kind |
 | --- | -------- | ---------- | ---------- | ---- |
 | D-1 | 404 vs 409 on duplicate import | 409 | user-answered | intent |
-| D-2 | DTO validation library | class-validator (repo convention, CLAUDE.md) | codebase-derived | fact |
+| D-2 | DTO validation library | class-validator — run: `grep -rl "from 'class-validator'" src \| wc -l` → 41 | codebase-derived | fact |
 | D-3 | Backfill ordering | parked under OR-1 (owner: reporter) | deferred | open |
 ```
 
@@ -96,6 +96,36 @@ arity of whichever artifact it was pointed at.
 **The bar:** an `intent` row backed by `codebase-derived`, `ticket-sourced`, or `deferred` names
 no human decision, and the lint rejects it. That is how comprehension debt becomes countable rather
 than sensed.
+
+### Evidence
+
+A `codebase-derived` row is what BUILD trusts as settled fact, so a receipt row says how it was
+settled. A `file:line` alone is a pointer, not a check: line numbers drift, and reading code is
+not running it. Write one of two forms in the Resolution cell, after the decided value:
+
+- ``run: `<command>` → <decisive output>`` — you ran it at intake. Run whatever can be run: a grep
+  count, `ls`, `git cat-file`, a tool's `--help`. The output is the part that decides the row, not
+  the whole dump.
+- `cited (convention|adr): <path:line>` — the fact cannot be executed: a convention the repo
+  states, or a recorded architecture decision.
+
+```
+| D-2 | DTO validation library | class-validator — run: `grep -rl "from 'class-validator'" src \| wc -l` → 41 | codebase-derived | fact |
+| D-4 | Soft-delete semantics | a deletedAt timestamp, never a hard delete — cited (adr): docs/adr/0007-soft-delete.md:12 | codebase-derived | fact |
+```
+
+`run:` and `cited` take any case, the arrow is `→` or `->`, and a command holding its own
+backticks goes in a double-backtick span (``` run: ``grep -c "`" README.md`` → 3 ```). A `|` in
+the command or the output is escaped as `\|`, or it splits the row.
+
+There is no third reason. A row that records a *choice* rather than a fact — a default the code
+does not fix, the name of a new thing — is not `codebase-derived`: ask it, and record the answer as
+`user-answered` or `user-delegated`. A row that mixes the two gives `run:` evidence for the fact
+behind its choice.
+
+`ledger-lint.sh --receipt` refuses a `codebase-derived` row with neither form, a `run:` with an
+empty command or output, and a `cited` with no reason or a reason outside the two. The in-plan
+ledger is not linted for it.
 
 ### Open Regions
 

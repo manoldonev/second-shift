@@ -339,7 +339,11 @@ adapter has no queue label and no claimed label, so there is no corpus of eligib
 in the receipt shape (`interviewing-baseline` → "The intake receipt": five columns, plus a
 `## Open Regions` section, a `## Surface Inventory` section and a `## Checks` section — each
 carrying rows or its own explicit empty form — and, when the config sets `design.provider`, a
-`## Design frames` section: `RS-n` rows with a `must-show` cell, or `Design: none — <reason>`). It
+`## Design frames` section: `RS-n` rows with a `must-show` cell, or `Design: none — <reason>`).
+Every `codebase-derived` row states its evidence in its Resolution cell, after the value: ``run:
+`<command>` → <decisive output>`` for a fact you ran a command to check (run one wherever one can
+be run), or `cited (convention|adr): <path:line>` for one that cannot be run; a `|` inside either
+is escaped as `\|`. A row recording your own choice is not `codebase-derived` — ask it. It
 also carries a `## Fan-out` section holding exactly one line, because this path runs no fan-out
 (it runs only in `/plan-interview` pre-flight): `Fan-out: skipped — by intake-orchestrator; the
 fan-out runs only in /plan-interview pre-flight`. Then run:
@@ -352,12 +356,17 @@ bash "${CLAUDE_PLUGIN_ROOT}/skills/plan-interview/tools/ledger-lint.sh" \
 `${CLAUDE_PLUGIN_ROOT}` is intake-toolkit here, and the lint ships in this same plugin — this
 is a sibling-skill path, not the cross-plugin resolution the bot-writes note above describes.
 
-A red lint is not a formatting complaint, and it has three distinct causes.
+A red lint is not a formatting complaint, and it has four distinct causes.
 
 **A provenance failure.** An `intent` row backed by `codebase-derived` / `ticket-sourced` /
 `deferred` means you recorded a decision *you* made as one the human made — either ask them, or
 reclassify it honestly (a derived fact, or an `open` row under a declared region). Do not edit
 the Kind cell to clear the lint.
+
+**An evidence failure.** A `codebase-derived` row with no `run:` or `cited (…):` form names nothing
+a reader can re-check. Run the command that settles it and write what it printed; cite only what
+no command can reach. A `cited` reason outside `convention` / `adr` usually means the row records a
+choice — ask it, rather than relabel it.
 
 **A surface-inventory failure.** A missing `## Surface Inventory`, a `decided` disposition citing
 no `D-n` (or citing one the ledger never declares), or an `out-of-scope` carrying no reason means

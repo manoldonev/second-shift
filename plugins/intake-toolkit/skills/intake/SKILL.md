@@ -40,7 +40,8 @@ surface's name, not just the ticket's). Then:
 - **Handoff exists and IS the input** → the design-handoff row of the table, as before.
 - **Handoff exists for a surface the input touches** → dispatch by input shape as normal, and
   hand the destination the handoff, stating that design-derived facts enter the ledger as
-  `codebase-derived` rows. A question spent on something the board already answers is a
+  `codebase-derived` rows; in a receipt each states its evidence as ``run: `<command>` → <output>``,
+  the command being the read of the handoff (a grep of its files, or the design tool's call). A question spent on something the board already answers is a
   protocol violation (baseline rule 1), and the board is as answerable as the code.
 - **No handoff** → dispatch by input shape, and say you looked. An unstated absence is
   indistinguishable from an unchecked one.

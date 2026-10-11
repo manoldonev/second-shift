@@ -19,7 +19,7 @@ You elicit **design decisions from the engineer** (plan-authoring). You do NOT:
 
 ## Protocol
 
-1. **Explore first.** Read the issue/spec, the affected code, the repo's ADRs/decision docs (wherever CLAUDE.md routes), and the Product-Essence Brief if one exists (`.claude/pipeline-state/{issue}-brief.md`). Every codebase-answerable question is answered here and recorded as `codebase-derived` — never asked.
+1. **Explore first.** Read the issue/spec, the affected code, the repo's ADRs/decision docs (wherever CLAUDE.md routes), and the Product-Essence Brief if one exists (`.claude/pipeline-state/{issue}-brief.md`). Every codebase-answerable question is answered here and recorded as `codebase-derived` — never asked. Answer it by running something where something can be run — a grep count, `ls`, `git cat-file`, a tool's `--help` — and keep the command and its decisive output: a `file:line` you read is a pointer, not verification. In the receipt the row says which it was, ``run: `<command>` → <output>`` or `cited (convention|adr): <path:line>` (`interviewing-baseline`, "Evidence").
 
    **Fan-out (pipeline pre-flight only).** When this run is pre-flight for a lane ticket
    (`/plan-interview <issue>`), launch the intake fan-out *at the start*, before exploring, so it
@@ -109,7 +109,7 @@ You elicit **design decisions from the engineer** (plan-authoring). You do NOT:
    - scope boundaries (what this PR explicitly does not do),
    - tenancy/security posture (multi-tenant scoping filters per the repo's CLAUDE.md rules, guards, credential handling),
    - migration/rollout (existing rows, backfill, ordering across workspace packages),
-   - data provenance — for each persisted field (one of an entity whose schema, model, DDL or mapping lives in this repo; third-party API payloads and in-memory JSON are out) the change newly reads but does not write, and that is feature-critical or crosses a service boundary: the persisting schema line, every writer of the entity (including sync or webhook paths that write raw payloads past the schema), and whether existing records carry the field — the backfill half is the migration/rollout item above. It lands as a `codebase-derived` row citing the schema `file:line`, or a `deferred` row (an Open Region in a receipt).
+   - data provenance — for each persisted field (one of an entity whose schema, model, DDL or mapping lives in this repo; third-party API payloads and in-memory JSON are out) the change newly reads but does not write, and that is feature-critical or crosses a service boundary: the persisting schema line, every writer of the entity (including sync or webhook paths that write raw payloads past the schema), and whether existing records carry the field — the backfill half is the migration/rollout item above. It lands as a `codebase-derived` row whose evidence is run, e.g. ``run: `grep -rn "fingerprint" src/entities/document.entity.ts src/sync` → schema line 41; written only by document.service.ts:88`` — or a `deferred` row (an Open Region in a receipt).
 
    Everything below that bar is decided silently and does not enter the register. Material design decisions are near-always groundable, so a recommendation is expected on each question.
 
@@ -135,8 +135,10 @@ You elicit **design decisions from the engineer** (plan-authoring). You do NOT:
 
 ## Checks and design frames (pipeline pre-flight only)
 
-The receipt carries a mandated `## Fan-out` section (step 1's fan-out; schema in
-`interviewing-baseline`, "Fan-out"). It also carries the two sections the scheduler reads from the record's first commit —
+Every `codebase-derived` row in the receipt states its evidence, ``run: `<command>` → <decisive
+output>`` or `cited (convention|adr): <path:line>` (step 1; `interviewing-baseline`, "Evidence"),
+and `ledger-lint.sh --receipt` refuses one with neither. The receipt carries a mandated
+`## Fan-out` section (step 1's fan-out; schema in `interviewing-baseline`, "Fan-out"). It also carries the two sections the scheduler reads from the record's first commit —
 schema and empty forms in `interviewing-baseline` ("Checks", "Design frames"), enforced by
 `ledger-lint.sh --receipt`. Elicit both before writing it:
 

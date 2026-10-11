@@ -57,6 +57,11 @@
 #   | S-1 | Empty state when no rows load    | decided (D-3)                   |
 #   | S-2 | Print stylesheet                 | out-of-scope — no print in this |
 #
+# Receipt mode also asks a `codebase-derived` row for its evidence, anywhere in the
+# Resolution cell: run: `<command>` → <decisive output> (arrow `→` or `->`) for a
+# fact checked at intake, or cited (convention|adr): <path:line> for one that cannot
+# be run. A bare `file:line` is a pointer, not a check.
+#
 # Receipt mode also reads the two sections the scheduler (`run.sh`) takes from the
 # record's first commit, with the scheduler's heading rule:
 # exact title at any depth, case-insensitive, ANY heading closes it, the FIRST one
@@ -90,7 +95,7 @@ PLAN=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --receipt) RECEIPT=1; shift ;;
-    -h|--help) sed -n '2,85p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,90p' "$0"; exit 0 ;;
     -*) echo "ledger-lint: unknown option: $1" >&2; exit 2 ;;
     *)
       [[ -z "$PLAN" ]] || { echo "ledger-lint: unexpected argument: $1" >&2; exit 2; }
@@ -164,6 +169,53 @@ trim() {
   printf '%s' "$s"
 }
 
+# A receipt's `codebase-derived` row names its evidence in the Resolution cell, anywhere in
+# it (the decided value usually comes first), in one of two forms:
+#   run: `<command>` → <decisive output>     executed at intake; `->` is the arrow too, and the
+#                                            command may sit in a double-backtick span
+#   cited (convention|adr): <path:line>      the fact cannot be executed
+# `run:` and `cited` are case-insensitive. A `|` in the command or output is escaped as `\|`,
+# which the row loop has already masked, so it never splits a cell here. A row recording an
+# agent's choice rather than a fact is not `codebase-derived` at all, so the reason enum has no
+# catch-all.
+CITED_REASON_ENUM='convention|adr'
+EVIDENCE_EDGE='(^|[^A-Za-z0-9_-])'
+RUN_TOKEN="${EVIDENCE_EDGE}[Rr][Uu][Nn]:[[:space:]]*"
+CITED_TOKEN="${EVIDENCE_EDGE}[Cc][Ii][Tt][Ee][Dd][[:space:]]*"
+# A code span holding at least one non-blank character: double-backtick first, so a command
+# carrying its own backticks reads as one span.
+# shellcheck disable=SC2016  # markdown backticks
+CODE_SPAN='(``([^`]|`[^`])*[^`[:space:]]([^`]|`[^`])*``|`[^`]*[^`[:space:]][^`]*`)'
+RUN_FORM="${RUN_TOKEN}${CODE_SPAN}[[:space:]]*(→|->)[[:space:]]*[^[:space:]]"
+CITED_FORM="${CITED_TOKEN}\\((${CITED_REASON_ENUM})\\):[[:space:]]*[^[:space:]]"
+CITED_ANY="${CITED_TOKEN}(\\(([^)]*)\\))?[[:space:]]*:"
+
+check_evidence() { # check_evidence <row-id> <resolution-cell, pipes masked>
+  local id="$1" cell="$2" shown reason
+  [[ "$cell" =~ $RUN_FORM || "$cell" =~ $CITED_FORM ]] && return 0
+  # Violation text shows the cell as the author wrote it, never the internal placeholder.
+  shown="${cell//__LEDGER_LINT_PIPE__/\\|}"
+  if [[ "$cell" =~ $CITED_ANY ]]; then
+    reason="${BASH_REMATCH[3]:-}"
+    reason="$(trim "${reason//__LEDGER_LINT_PIPE__/\\|}")"
+    if [[ -z "$reason" ]]; then
+      violate "$id row: 'cited' names no reason — the form is 'cited (convention|adr): <path:line>': $shown"
+    elif ! [[ "$reason" =~ ^(${CITED_REASON_ENUM})$ ]]; then
+      violate "$id row: cited reason '$reason' not in {${CITED_REASON_ENUM//|/ | }} — a row that records a choice rather than a fact is not codebase-derived: ask it, and record it user-answered or user-delegated: $shown"
+    else
+      violate "$id row: 'cited ($reason):' names no source after the colon (a path:line): $shown"
+    fi
+  elif [[ "$cell" =~ $RUN_TOKEN ]]; then
+    if [[ "$cell" =~ ${RUN_TOKEN}${CODE_SPAN} ]]; then
+      violate "$id row: 'run:' needs the decisive output after an arrow — 'run: \`<command>\` → <output>' (or '->'): $shown"
+    else
+      violate "$id row: 'run:' needs a non-empty command in a code span — 'run: \`<command>\` → <output>': $shown"
+    fi
+  else
+    violate "$id row: a codebase-derived receipt row states its evidence in the Resolution cell — 'run: \`<command>\` → <decisive output>' for a fact checked at intake, or 'cited (convention|adr): <path:line>' for one that cannot be run: $shown"
+  fi
+}
+
 # ---- Check 1: section header -------------------------------------------------
 if ! has_ledger_section "$PLAN"; then
   violate "missing mandated section: Decision Ledger (run plan-interview; trivial work uses the explicit empty form)"
@@ -211,7 +263,7 @@ while IFS= read -r line; do
   IFS='|' read -r -a cells <<< "$masked"
   ncells="$(normalize_arity "${#cells[@]}" "${cells[$(( ${#cells[@]} - 1 ))]}" "$EXPECTED_CELLS")"
   if (( ncells != EXPECTED_CELLS )); then
-    violate "malformed ledger row (expected $COLUMN_SHAPE): $line"
+    violate "malformed ledger row (expected $COLUMN_SHAPE; a '|' inside a cell is escaped as '\\|'): $line"
     continue
   fi
   id="$(trim "${cells[1]}")"
@@ -230,6 +282,11 @@ while IFS= read -r line; do
   # failure mode the closed enum exists to prevent. Tracker-neutral on purpose.
   if [[ "$provenance" == "ticket-sourced" && "$resolution" != *"https://"* ]]; then
     violate "$id row: 'ticket-sourced' provenance requires the Resolution cell to cite the source comment by URL (https://...)"
+  fi
+  # Receipt check: a codebase-derived row states its evidence — the command it ran,
+  # or why the fact is only cited.
+  if (( RECEIPT == 1 )) && [[ "$provenance" == "codebase-derived" ]]; then
+    check_evidence "$id" "$resolution"
   fi
 
   # ---- Receipt check A: the provenance bar ---------------------------------
