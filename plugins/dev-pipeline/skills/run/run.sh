@@ -577,7 +577,7 @@ build_prompt() { # build_prompt <round> <review-findings-file-or-empty> <red-che
   echo "Pass every PR or comment body with --body-file <a file you wrote with Write>, never inline with --body."
   echo "A stored field the change newly reads, or a field it sends across a service boundary, gets a test that moves it through the real schema or model, not a hand-built fixture: a fixture that already holds the value proves nothing about whether the store keeps it."
   echo "A test double of a dependency this repo does not own that returns an error or an empty result cites where that shape comes from (the dependency's types, docs or a recorded real response): a double built from your own belief proves nothing about the dependency."
-  [ "$BOT_OK" -eq 1 ] && echo "Commit through $TOOLS/bot-commit.sh (the repo's bot identity), never plain git commit — and re-pass the identity on any --amend, which otherwise silently re-stamps you as the committer."
+  [ "$BOT_OK" -eq 1 ] && echo "Commit through the repo's bot identity, never plain git commit, and run it exactly as '$TOOLS/bot-commit.sh -C $WT -F <a message file you wrote with Write>' — the bare path first, no bash before it. Re-pass the identity on any --amend, which otherwise silently re-stamps you as the committer."
   if [ "$1" -eq 1 ]; then
     echo "When the checks are green, commit, push branch $BRANCH to origin and, unless one is already open for this branch, open a DRAFT PR against $BASE_NAME with 'gh pr create --draft --base $BASE_NAME', and leave it a draft: the scheduler marks it ready for review only when a review approves its head. The PR body, in order: line 1 exactly 'built-by: second-shift run $RUN_ID'; then a link to the decision record at $RECORD_REL; then the line 'Record baseline: $FIRST'; then a summary of the change;"
     if [ "$TRACKER" = github ]; then echo "and the line 'Closes #$ISSUE' so the ticket closes on merge."; else echo "and a '### Jira Items' heading with the line 'Closes [$ISSUE]'."; fi
@@ -608,7 +608,7 @@ review_prompt() { # review_prompt <pr> <review-input-file>
 }
 build_allowlist() { # row F3: derived from what the record and config name
   local allow="Read,Edit,Write,Agent,Bash(git *),Bash(gh pr create*),Bash(gh pr view*),Bash(gh pr comment*),Bash(gh issue view*)$MCP_ALLOW" c
-  [ "$BOT_OK" -eq 1 ] && allow="$allow,Bash($TOOLS/bot-commit.sh*),Bash($GH *)"
+  [ "$BOT_OK" -eq 1 ] && allow="$allow,Bash($TOOLS/bot-commit.sh*),Bash(bash $TOOLS/bot-commit.sh*),Bash($GH *)"   # the bash form too: the scheduler calls it that way, and a build copies it
   [ -n "$(frames_rows)" ] && allow="$allow,mcp__figma,mcp__plugin_figma_figma"
   while IFS= read -r c; do [ -n "$c" ] && allow="$allow,Bash($(first_word "$c")*)"; done <<EOF
 $(checks_list all)
