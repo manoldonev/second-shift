@@ -838,6 +838,83 @@ ck_lint "$TMP/fo.md"
   && pass "(ll-fo11) a Snapshot outside the Fan-out section → 1, named" \
   || fail "(ll-fo11) misplaced snapshot — rc=$rc err=$err"
 
+echo "[ledger-lint-selftest] receipt mode: codebase-derived evidence (#982)"
+
+# A receipt's codebase-derived row states the command it ran or why the fact is only cited.
+# Each case is a one-row receipt whose only variable is that row's Resolution cell.
+ev_lint() { # ev_lint <resolution-cell> — sets rc, out, err
+  printf '| D-1 | DTO validation library | %s | codebase-derived | fact |\n' "$1" > "$TMP/ev-row.md"
+  receipt_with "$TMP/ev-row.md" "$OPEN_EMPTY" > "$TMP/ev.md"
+  ck_lint "$TMP/ev.md"
+}
+
+# (ll-ev1) the green forms → 0 each
+ev_ok() { # ev_ok <label> <resolution-cell>
+  ev_lint "$2"
+  [[ "$rc" -eq 0 ]] \
+    && pass "(ll-ev1) $1 → 0" \
+    || fail "(ll-ev1) $1 — rc=$rc err=$err"
+}
+# shellcheck disable=SC2016
+{
+ev_ok 'a run: row' 'run: `grep -rl class-validator src` → 41'
+ev_ok 'a value-first row' 'class-validator — run: `grep -rl class-validator src` → 41'
+ev_ok "a '->' arrow" 'class-validator — run: `grep -rl class-validator src` -> 41'
+ev_ok "'Run:' in another case" 'class-validator — Run: `grep -rl class-validator src` → 41'
+ev_ok 'a double-backtick command' 'class-validator — run: ``grep -c "`" docs/a.md`` → 12'
+ev_ok 'an escaped pipe in the command' 'class-validator — run: `grep -rl class-validator src \| wc -l` → 41'
+ev_ok 'an escaped pipe in the output' 'class-validator — run: `ls src/dto` → a.dto.ts \| b.dto.ts'
+ev_ok "a 'cited (adr):' row" 'deletedAt timestamp — cited (adr): docs/adr/0007-soft-delete.md:12'
+ev_ok "a 'cited (convention):' row" 'class-validator — CITED (convention): CLAUDE.md:14'
+}
+
+# (ll-ev2) each refusal → 1, naming its own cause
+ev_bad() { # ev_bad <label> <resolution-cell> <expected stderr fragment>
+  ev_lint "$2"
+  [[ "$rc" -eq 1 ]] && grep -qF "$3" <<< "$err" \
+    && pass "(ll-ev2) $1 → 1, named" \
+    || fail "(ll-ev2) $1 — rc=$rc err=$err"
+}
+# shellcheck disable=SC2016
+{
+ev_bad 'an unmarked row (a bare citation)' 'class-validator (repo convention, CLAUDE.md:14)' 'states its evidence in the Resolution cell'
+ev_bad "'run:' as a substring of another word" 'class-validator — rerun: `grep -rl x src` → 41' 'states its evidence in the Resolution cell'
+ev_bad "an empty 'run:' command" 'class-validator — run: `` → 41' "'run:' needs a non-empty command"
+ev_bad "a blank 'run:' command" 'class-validator — run: `  ` → 41' "'run:' needs a non-empty command"
+ev_bad "a 'run:' command outside a code span" 'class-validator — run: grep -rl x src → 41' "'run:' needs a non-empty command"
+ev_bad "an empty 'run:' output" 'class-validator — run: `grep -rl x src` →' "'run:' needs the decisive output"
+ev_bad "a 'run:' with no arrow" 'class-validator — run: `grep -rl x src` 41' "'run:' needs the decisive output"
+ev_bad "'cited:' with no reason" 'class-validator — cited: CLAUDE.md:14' "'cited' names no reason"
+ev_bad "a reason outside the enum (design-intent)" 'class-validator — cited (design-intent): docs/design.md:3' "cited reason 'design-intent' not in {convention | adr}"
+ev_bad "a reason outside the enum (external-doc)" 'class-validator — cited (external-doc): https://example.invalid/x' "cited reason 'external-doc' not in"
+ev_bad "'cited (adr):' with no source" 'deletedAt timestamp — cited (adr):' 'names no source after the colon'
+}
+
+# (ll-ev3) the violation text shows the author's '\|', never the parser's internal placeholder
+ev_lint 'grep -rl x src \| wc -l gives 41 (CLAUDE.md:14)'
+[[ "$rc" -eq 1 ]] && grep -qF 'src \| wc -l' <<< "$err" && ! grep -q 'LEDGER_LINT_PIPE' <<< "$err" \
+  && pass "(ll-ev3) an escaped pipe in the cell is shown as '\\|' in the violation" \
+  || fail "(ll-ev3) pipe placeholder leaked — rc=$rc err=$err"
+
+# (ll-ev4) the rule is receipt-mode and codebase-derived only. An unmarked codebase-derived row in
+# a 4-column in-plan ledger lints clean (exitplan-ledger-gate.sh runs the default mode), and so
+# does a receipt's ticket-sourced row, which cites its comment by URL instead.
+printf '%s\n' '# P' '## Decision Ledger' \
+  '| ID  | Decision | Resolution | Provenance |' \
+  '| --- | -------- | ---------- | ---------- |' \
+  '| D-1 | DTO validation library | class-validator (repo convention, CLAUDE.md:14) | codebase-derived |' \
+  > "$TMP/ev-plan.md"
+rc=$(lint_rc "$TMP/ev-plan.md")
+[[ "$rc" -eq 0 ]] \
+  && pass "(ll-ev4) unmarked codebase-derived row in an in-plan ledger, default mode → 0" \
+  || fail "(ll-ev4) evidence rule leaked into default mode — rc=$rc"
+printf '%s\n' '| D-1 | Max upload size | 50 MB, per https://example.invalid/tracker/PROJ-9999#comment-7 | ticket-sourced | fact |' > "$TMP/ev-row.md"
+receipt_with "$TMP/ev-row.md" "$OPEN_EMPTY" > "$TMP/ev-ticket.md"
+ck_lint "$TMP/ev-ticket.md"
+[[ "$rc" -eq 0 ]] \
+  && pass "(ll-ev4) a receipt's ticket-sourced row with its URL and no evidence form → 0" \
+  || fail "(ll-ev4) ticket-sourced row asked for evidence — rc=$rc err=$err"
+
 echo
 echo "[ledger-lint-selftest] summary: $PASS passed, $FAIL failed"
 exit $FAIL

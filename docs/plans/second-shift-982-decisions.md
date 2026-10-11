@@ -16,6 +16,7 @@ A receipt's `codebase-derived` row states its evidence: the command it ran, or w
 | D-8 | Corpus for the ~20-receipt read | Intake-time records: the lane PR's first commit (the scheduler commits the receipt first, `run.sh:938`), not main's post-BUILD records, which carry departure edits | codebase-derived | fact |
 | D-9 | Offline effect test | Under OR-1. Out of this ticket; it runs only on the operator's go (ticket body). Owner: operator, before the ~20-receipt read | deferred | open |
 | D-10 | Mirror sites | `plan-reviewer.md:98`, `design-faithful-plan-reviewer.md:187-189` and `figma-faithful-plan-reviewer.md:130` mirror only the provenance enum, which is unchanged: no edit | codebase-derived | fact |
+| D-11 | Design-derived facts the intake router sends into the ledger as `codebase-derived` rows (`intake/SKILL.md:42-43`) | They take the `run:` form, the command being the read of the handoff (a grep of its files, or the design tool's call); no `cited (design)` reason is added. One sentence in `intake/SKILL.md`. Reason: otherwise those rows have no legal form, and a new reason would reopen D-2's closed enum | user-delegated | intent |
 
 ## Open Regions
 
