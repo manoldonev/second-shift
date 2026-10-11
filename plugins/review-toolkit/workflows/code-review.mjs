@@ -1,8 +1,11 @@
 export const meta = {
   name: 'review-toolkit-code-review',
   description:
-    "Reviewer fan-out for review-lead — used by the dev-pipeline review lane and by standalone /review-lead. Dispatches the selected specialist reviewers as parallel agent() calls and returns their structured findings. Synthesis (dedup, triage, Scope Completeness Gate, cross-reviewer self-check) is NOT done here — it stays in the caller's session on the caller's model, per review-lead's Synthesis Rules.",
-  phases: [{ title: 'Review', detail: 'one agent() per selected specialist reviewer' }],
+    "Reviewer fan-out for review-lead — used by the dev-pipeline review lane and by standalone /review-lead. Dispatches the selected specialist reviewers as parallel agent() calls and returns their structured findings. On panel 'substantial' the seats run at the reasoning tier and every blocker or major finding faces a refuter on the other model family. Synthesis (dedup, triage, Scope Completeness Gate, cross-reviewer self-check) is NOT done here — it stays in the caller's session on the caller's model, per review-lead's Synthesis Rules.",
+  phases: [
+    { title: 'Review', detail: 'one agent() per selected specialist reviewer' },
+    { title: 'Refute', detail: 'substantial panel and refute-only mode only: one finding-refuter per blocker or major finding, on the other family' },
+  ],
 }
 
 // {agentType: model} — the cost tier each reviewer runs at. The source of truth is
@@ -50,6 +53,25 @@ const REVIEWER_MODEL = {
   // It used to carry a hardcoded inline `model: 'haiku'`, which no consumer could
   // retarget or override — the one governed-set gap this ticket closes.
   'review-toolkit:structured-emitter': 'emit',
+  // The Refute phase's verifier (#992). It runs on the family that did not make the finding, so
+  // its own tier only names the default; refuteFinding() below picks the family per finding.
+  'review-toolkit:finding-refuter': 'cross',
+}
+
+// {agentType: tier} on `panel: 'substantial'` only (#992): every specialist seat runs at
+// `reasoning`. It replaces REVIEWER_MODEL at the TABLE layer and nowhere else, so a consumer
+// modelOverrides entry still wins and a seat not named here keeps its REVIEWER_MODEL tier. The
+// agents' frontmatter is unchanged, which is what keeps standalone /review-lead on its cheaper
+// seats. NOT a frontmatter lockstep: these tiers deliberately differ from the agents' own, so
+// check-model-tiers.sh lifts this block out of its frontmatter scans and holds it against the
+// `## Substantial panel` table in ../model-tiering.md instead.
+const SUBSTANTIAL_MODEL = {
+  'review-toolkit:security-reviewer': 'reasoning',
+  'review-toolkit:performance-reviewer': 'reasoning',
+  'review-toolkit:maintainability-reviewer': 'reasoning',
+  'review-toolkit:complexity-reviewer': 'reasoning',
+  'review-toolkit:test-coverage-reviewer': 'reasoning',
+  'review-toolkit:unit-test-mutation-reviewer': 'reasoning',
 }
 
 // Bare (unqualified) agent name — tolerant of both `plugin:agent` and bare forms.
@@ -153,10 +175,21 @@ const FINDINGS_SCHEMA = {
 //   reviewers    — array of agentType strings already selected per review-lead routing
 //   changedFiles — array of changed paths (context for the prompt)
 //   prContext    — optional free-text branch/PR context
+//   requiredSeats — optional array of agentType strings dispatched IN ADDITION to `reviewers`
+//                  (#992). Never trims either list; the union is deduped on the resolved name.
+//   panel        — optional; 'substantial' runs the seats at SUBSTANTIAL_MODEL's tiers, adds the
+//                  Refute phase, and returns `seats[]` in place of `reviewers[]`. Absent, the
+//                  dispatch and the return are exactly what they were before #992.
+//   refute       — optional array of findings (FINDINGS_SCHEMA's finding shape, plus an optional
+//                  `madeBy` model token) for REFUTE-ONLY mode: no seat runs, each finding faces
+//                  the Refute phase, and the result is `seats[]`. An empty array is valid. The
+//                  findings travel here because a Workflow script has no filesystem access.
 // `args` arrives as the value passed to Workflow's `args` input. Defensive: it may
 // be an object, or (per the Workflow contract's stringified-args caveat) a JSON string.
 const a = typeof args === 'string' ? JSON.parse(args) : args || {}
-const { worktree, base, head, issue, spec, reviewers = [], changedFiles = [], prContext = '', config = {} } = a
+const { worktree, base, head, issue, spec, reviewers = [], requiredSeats = [], panel, refute, changedFiles = [], prContext = '', config = {} } = a
+const substantial = panel === 'substantial'
+const refuteOnly = refute !== undefined
 // Per-reviewer model-tier overrides from the consumer config (bare-keyed).
 const modelOverrides = (config && config.reviewers && config.reviewers.modelOverrides) || {}
 // Consumer tier retargeting, MERGED per tier over the shipped default (#351): a config
@@ -165,22 +198,50 @@ const modelOverrides = (config && config.reviewers && config.reviewers.modelOver
 const tierMap = { ...DEFAULT_TIER_MAP, ...((config && config.reviewers && config.reviewers.tierMap) || {}) }
 // One resolution path for EVERY dispatch in this file. An override or table value that
 // names a tier resolves through the map; anything else is already a raw dispatch token
-// (the closed union config-lint enforces) and passes through untouched.
+// (the closed union config-lint enforces) and passes through untouched. The substantial
+// table sits BETWEEN the override and REVIEWER_MODEL: the override still wins (#992 D-5).
 const modelFor = (agentType) => {
-  const declared = modelOverrides[bare(agentType)] || REVIEWER_MODEL[agentType] || 'code'
+  const declared = modelOverrides[bare(agentType)] || (substantial && SUBSTANTIAL_MODEL[agentType]) || REVIEWER_MODEL[agentType] || 'code'
   return tierMap[declared] || declared
 }
 if (!worktree || !base || !head) {
   throw new Error('code-review workflow: args.worktree, args.base and args.head are required')
 }
-if (!Array.isArray(reviewers) || reviewers.length === 0) {
+if (panel !== undefined && !substantial) {
+  throw new Error(`code-review workflow: args.panel must be 'substantial' or absent, got ${JSON.stringify(panel)}`)
+}
+if (!Array.isArray(requiredSeats)) {
+  throw new Error('code-review workflow: args.requiredSeats must be an array of agentType strings')
+}
+if (refuteOnly && (!Array.isArray(refute) || reviewers.length > 0 || requiredSeats.length > 0)) {
+  throw new Error('code-review workflow: args.refute must be an array, and refute-only mode takes no reviewers or requiredSeats')
+}
+if (refuteOnly && !refute.every((f) => f && typeof f === 'object' && typeof f.severity === 'string' && typeof f.description === 'string')) {
+  throw new Error('code-review workflow: every args.refute element needs the finding shape (severity, description)')
+}
+// Relaxed only for refute-only mode or a non-empty requiredSeats (#992 D-10): a call with
+// neither still needs a non-empty reviewers[], which is what standalone review-lead relies on.
+if (!refuteOnly && (!Array.isArray(reviewers) || (reviewers.length === 0 && requiredSeats.length === 0))) {
   throw new Error('code-review workflow: args.reviewers must be a non-empty array of agentType strings')
 }
+// The seats this run dispatches. Without requiredSeats or a panel this is `reviewers` verbatim
+// (AC-4). Otherwise it is the union, deduped on the RESOLVED name so a bare and a qualified
+// spelling of one reviewer dispatch once; the first spelling seen is the one returned.
+const seatNames = (() => {
+  if (!substantial && requiredSeats.length === 0) return reviewers
+  const seen = new Set()
+  return [...reviewers, ...requiredSeats].filter((r) => {
+    const k = resolveAgentType(r)
+    if (seen.has(k)) return false
+    seen.add(k)
+    return true
+  })
+})()
 // scope-completeness-reviewer's prompt embeds the issue number; without it the
 // prompt degrades to `#undefined` / `gh issue view undefined`. The caller is
 // supposed to include this reviewer only when an issue is referenced — make that
 // contract explicit here rather than silently producing a broken dispatch.
-if (reviewers.some((r) => bare(r) === 'scope-completeness-reviewer') && !issue) {
+if (seatNames.some((r) => bare(r) === 'scope-completeness-reviewer') && !issue) {
   throw new Error('code-review workflow: scope-completeness-reviewer requires args.issue (GitHub issue number or JIRA ticket key)')
 }
 
@@ -419,7 +480,143 @@ const ESCALATED_EMIT =
 //   Raise it if a future large-diff run legitimately needs a longer single reviewer turn.
 const REVIEWER_CEILING_MS = 15 * 60 * 1000
 
-log(`code-review: ${reviewers.length} reviewers over ${range} in ${worktree}`)
+// The Refute phase's own wall-clock ceiling (#992 D-6), over the WHOLE phase rather than per
+// refuter: ~4x the slowest refuter observed in the intake fan-out run (11-45 s). The seats keep
+// REVIEWER_CEILING_MS above, which only guards against wedges — agent() cannot abort, so a
+// tighter seat ceiling turns slow-but-healthy seats dark and saves nothing on healthy runs. A
+// refuter still pending when this fires is recorded `unverified`, and its finding stands.
+const REFUTE_CEILING_MS = 3 * 60 * 1000
+
+// --- the Refute phase (#992), modeled on intake-fanout.mjs's refuteOne / other / live ---
+const REFUTER = 'review-toolkit:finding-refuter'
+// Seats whose findings are never refuted. scope-completeness is a structural gate, not a claim
+// about the code; unit-test-mutation's findings are LLM predictions with no executor, and its own
+// rule is that an unverified mutant never blocks (D-7). Their findings pass through `unrefuted`.
+const UNREFUTED_SEATS = ['scope-completeness-reviewer', 'unit-test-mutation-reviewer']
+const refutable = (f, seat) =>
+  !!f && (f.severity === 'blocker' || f.severity === 'major') && !(seat && UNREFUTED_SEATS.includes(bare(resolveAgentType(seat))))
+const seatEntry = (agentType, model, status, findings, extra = {}) => ({
+  agentType,
+  model,
+  status,
+  findings,
+  reproduced: findings.filter((f) => f.outcome === 'reproduced').length,
+  refuted: findings.filter((f) => f.outcome === 'refuted').length,
+  unverified: findings.filter((f) => f.outcome === 'unverified').length,
+  ...extra,
+})
+
+// The two families. Without a second one (a tierMap folding `cross` onto `reasoning`) every
+// refuter is same-family by configuration, and the record says so.
+const FIRST = tierMap.reasoning || 'reasoning'
+const SECOND = tierMap.cross || 'cross'
+const twoFamilies = FIRST !== SECOND
+const other = (m) => (!twoFamilies ? m : m === SECOND ? FIRST : SECOND)
+// The second family may be out of this account's reach. It is declared down after two failed
+// dispatches with no success, never on one, and from then on every dispatch meant for it runs on
+// the first family instead. Only a THROWN dispatch that is not a budget exhaustion counts (D-4): an
+// empty or unparseable answer is that refuter's failure, not evidence the family is unreachable,
+// and a spent budget would otherwise mislabel the whole run as fable-unavailable.
+let secondOk = false
+let secondFails = 0
+const secondDown = () => !secondOk && secondFails >= 2
+const live = (m) => (twoFamilies && m === SECOND && secondDown() ? FIRST : m)
+const budgetSpent = (err) =>
+  /budget/i.test(String(err)) || (typeof budget !== 'undefined' && !!budget && !!budget.total && budget.remaining() <= 0)
+const refuterOverride = modelOverrides[bare(REFUTER)] ? tierMap[modelOverrides[bare(REFUTER)]] || modelOverrides[bare(REFUTER)] : null
+const REFUTE_OUTCOMES = ['reproduced', 'refuted', 'unverified']
+
+// One refuter for one finding. Resolves — never rejects — to { outcome, family, evidence }.
+// Fail CLOSED (D-2): a dark, unparseable or evidence-less answer is `unverified` and the finding
+// stands. Deliberately NOT intake-fanout's `v.result ? v.result.refuted : true`, which drops a
+// claim whose refuter went dark — right for intake evidence, wrong for a real blocker.
+const refuteFinding = async (f, madeBy, label) => {
+  const planned = refuterOverride || (madeBy ? other(madeBy) : SECOND)
+  const familyOf = (m) => {
+    if (!twoFamilies) return 'same-family (configured)'
+    if (planned === SECOND && m !== SECOND) return 'same-family (fable unavailable)'
+    if (!madeBy) return 'cross (producer unstated)'
+    return m === madeBy ? 'same-family' : 'cross'
+  }
+  const prompt =
+    `Try to reproduce this ${f.severity} finding from a code review, at the reviewed head \`${head}\`. ` +
+    `Repo worktree \`${worktree}\`; the reviewed change is \`git -C ${worktree} diff ${range}\`. ` +
+    `Re-derive it yourself from the cited lines (\`git -C ${worktree} show ${head}:<path>\`) or from a git command. ` +
+    `Run no test suites.\n\n` +
+    `Finding: ${f.title || '(untitled)'}\nLocation: ${f.file || '(no file)'}${f.line != null ? `:${f.line}` : ''}\n` +
+    `Description: ${f.description}\n\n` +
+    'End with this sentinel line followed by one fenced json block and NOTHING after it:\n\n' +
+    'REVIEW_RESULT\n```json\n{ "outcome": "reproduced|refuted|unverified", "evidence": "what you opened or ran, and what it showed" }\n```'
+  let model = live(planned)
+  // One retry. As in intake-fanout.mjs's dispatch(), a retry that could not be DISPATCHED at all is
+  // not the retry promised: when it threw and live() now picks another model (its throw is what
+  // tripped the fallback), one more attempt follows on that model. Without it a lone finding on an
+  // account with no Fable spends both attempts on Fable and never reaches the fallback.
+  let attempts = 2
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    // Re-picked through live() per attempt, so a run that tripped the fallback retries on FIRST.
+    model = live(planned)
+    let text
+    try {
+      text = await agent(prompt, { agentType: REFUTER, model, label: attempt === 0 ? label : `${label} (retry)`, phase: 'Refute' })
+    } catch (err) {
+      if (budgetSpent(err)) return { outcome: 'unverified', family: familyOf(model), evidence: `refuter not run: ${String(err).slice(0, 160)}` }
+      if (twoFamilies && model === SECOND && !secondOk && ++secondFails === 2) {
+        log(`'${SECOND}' could not be dispatched twice; the rest of this run refutes on '${FIRST}' in its place`)
+      }
+      if (attempt === 1 && live(planned) !== model) attempts = 3
+      continue
+    }
+    if (twoFamilies && model === SECOND) secondOk = true
+    const v = parseReviewResult(text)
+    if (!v || !REFUTE_OUTCOMES.includes(v.outcome)) {
+      return { outcome: 'unverified', family: familyOf(model), evidence: 'refuter returned no parseable verdict' }
+    }
+    const evidence = typeof v.evidence === 'string' ? v.evidence.trim() : ''
+    // A refutation must carry its evidence; one that does not is no refutation (D-1).
+    if (v.outcome === 'refuted' && !evidence) {
+      return { outcome: 'unverified', family: familyOf(model), evidence: 'refuter answered refuted without evidence' }
+    }
+    return { outcome: v.outcome, family: familyOf(model), evidence }
+  }
+  return { outcome: 'unverified', family: familyOf(model), evidence: 'refuter dispatch failed after one retry' }
+}
+
+// The Refute phase over a list of { finding, madeBy, seat } items. Returns each finding annotated
+// in place with `outcome` and `family` (and `refuterEvidence` when the refuter said anything). The
+// phase-wide ceiling resolves every refuter still pending to `unverified`; the orphans keep running
+// in the runtime (agent() has no abort) but their late answers are not read.
+const refutePhase = async (items) => {
+  const slots = items.map(() => undefined)
+  const work = items.map((it, i) =>
+    refutable(it.finding, it.seat)
+      ? refuteFinding(it.finding, it.madeBy, `refute:${it.seat ? bare(it.seat) : 'lead'}#${i + 1}`).then((v) => {
+          slots[i] = v
+        })
+      : Promise.resolve(),
+  )
+  if (items.some((it) => refutable(it.finding, it.seat))) {
+    phase('Refute')
+    let timer
+    const ceiling = new Promise((resolve) => {
+      timer = setTimeout(resolve, REFUTE_CEILING_MS)
+    })
+    await Promise.race([Promise.all(work), ceiling])
+    clearTimeout(timer)
+  }
+  return items.map((it, i) => {
+    const { finding } = it
+    if (!refutable(finding, it.seat)) return { ...finding, outcome: 'unrefuted', family: null }
+    const v = slots[i] || { outcome: 'unverified', family: null, evidence: `refuter still pending at the ${REFUTE_CEILING_MS}ms refute ceiling` }
+    return { ...finding, outcome: v.outcome, family: v.family, ...(v.evidence ? { refuterEvidence: v.evidence } : {}) }
+  })
+}
+
+log(
+  refuteOnly
+    ? `code-review: refute-only, ${refute.length} finding(s) over ${range} in ${worktree}`
+    : `code-review: ${seatNames.length} reviewers over ${range} in ${worktree}${substantial ? ' (substantial panel)' : ''}`,
+)
 phase('Review')
 
 // Cost discipline. The Workflow runtime enforces the operator's turn token budget
@@ -432,6 +629,15 @@ if (typeof budget !== 'undefined' && budget && budget.total) {
   log(`budget: ${Math.round(budget.remaining() / 1000)}k / ${Math.round(budget.total / 1000)}k tokens left before fan-out`)
   if (budget.remaining() <= 0) {
     log('budget exhausted — skipping reviewer fan-out (synthesis sees zero reviewers)')
+    // The seats[] forms (#992 OR-1): every requested seat is listed dark rather than omitted, so
+    // a caller counting darkness needs no second list; refute-only findings stand unverified.
+    if (refuteOnly) {
+      const findings = refute.map((f) => ({ ...f, outcome: refutable(f) ? 'unverified' : 'unrefuted', family: null }))
+      return { range, worktree, seats: findings.length ? [seatEntry('refute-only', null, 'returned', findings)] : [], budgetExhausted: true }
+    }
+    if (substantial) {
+      return { range, worktree, seats: seatNames.map((s) => seatEntry(s, modelFor(resolveAgentType(s)), 'dark', [])), budgetExhausted: true }
+    }
     // budgetExhausted is the dark-reviewer signal for this all-or-nothing skip:
     // the fan-out never dispatched, so `reviewers` is empty by construction (NOT a
     // partial subset) and EVERY selected reviewer is dark. Synthesis treats this
@@ -609,9 +815,38 @@ const withCeiling = (agentType, dispatchPromise) => {
   })
 }
 
+// Refute-only mode (#992): no seat runs; the caller's own findings face the Refute phase. One
+// seats[] entry carries them all, under the pseudo-seat 'refute-only' with no model of its own.
+if (refuteOnly) {
+  const findings = await refutePhase(refute.map((f) => ({ finding: f, madeBy: f && f.madeBy, seat: null })))
+  return { range, worktree, seats: findings.length ? [seatEntry('refute-only', null, 'returned', findings)] : [] }
+}
+
 const results = await parallel(
-  reviewers.map((agentType) => () => withCeiling(agentType, dispatchReviewer(agentType))),
+  seatNames.map((agentType) => () => withCeiling(agentType, dispatchReviewer(agentType))),
 )
+
+// The substantial panel (#992): each returned seat's findings carry their producer (`madeBy`, the
+// model the seat actually dispatched on, D-9) into the Refute phase, and the result is seats[] —
+// one entry per seat, in the order requested. Verdicts bind to findings by position inside
+// refutePhase, which is why the flattened list is built here with its seat index rather than
+// filtered.
+if (substantial) {
+  const seatRows = seatNames.map((requested, i) => {
+    const r = results[i]
+    const model = modelFor(resolveAgentType(requested))
+    const findings = r && r.result && Array.isArray(r.result.findings) ? r.result.findings : []
+    return { requested, model, r, findings: findings.map((f) => ({ ...f, madeBy: model })) }
+  })
+  const flat = seatRows.flatMap((s, si) => s.findings.map((f) => ({ finding: f, madeBy: s.model, seat: s.requested, si })))
+  const annotated = await refutePhase(flat)
+  const seats = seatRows.map((s, si) => {
+    const findings = annotated.filter((_, k) => flat[k].si === si)
+    const returned = !!(s.r && s.r.result)
+    return seatEntry(s.requested, s.model, returned ? 'returned' : 'dark', findings, returned ? { verdict: s.r.result.verdict } : { error: s.r ? s.r.error : 'no result' })
+  })
+  return { range, worktree, seats }
+}
 
 // Each entry is { agentType, result } on success or { agentType, result: null, error }
 // on failure — error entries are intentionally FORWARDED (not dropped) so in-session
