@@ -563,6 +563,7 @@ granted() { # granted <command> [<allowlist>, default $bal]: a 'Bash(x*)' rule m
   local r p; IFS=, read -r -a r <<<"${2-$bal}"
   for p in "${r[@]}"; do case "$p" in Bash\(*\*\)) p="${p#Bash(}"; [[ "$1" == "${p%\*)}"* ]] && return 0 ;; Bash\(*\)) p="${p#Bash(}"; [ "$1" = "${p%)}" ] && return 0 ;; esac; done; return 1; }
 [ -n "$bcall" ] && granted "$bcall" && granted "bash $bcall" && ok "(v1) the prompt's bot-commit call and its bash form are both granted" || bad "(v1) bot-commit call '${bcall:-none}' not granted, bare or through bash"
+[ "$(git -C "$d/origin.git" log --format=%an --reverse main..second-shift/42 | head -n 1)" = 'second-shift-bot[bot]' ] && ok "(v1) [E3] the record commit carries the bot's identity" || bad "(v1) [E3] record commit author: $(git -C "$d/origin.git" log --format=%an --reverse main..second-shift/42 | head -n 1)"
 # every command of a piped or chained check is granted (each is checked on its own), a later one by its own text only,
 # never one led by rm; the build may run its worktree's scripts, the review jq and shasum
 fixture vg $'- printf x | xargs -0 echo -e a,b\n- true && cat /dev/null\n- true && rm -rf a,b'; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(vg) piped and chained checks"
@@ -571,7 +572,6 @@ miss=""; for c in 'printf x' 'xargs -0 echo -e a,b' 'true' 'cat /dev/null' "bash
 for c in 'jq -n 1' 'shasum x'; do granted "$c" "$ral" || miss="$miss [review: $c]"; done
 for c in 'xargs rm x' 'cat /etc/passwd' 'cat /dev/null /etc/passwd' 'rm -rf x'; do granted "$c" && miss="$miss [granted: $c]"; done
 [ -n "$wt" ] && [ -z "$miss" ] && ok "(vg) each command of a piped or chained check is granted by its own text, rm never; worktree scripts, jq and shasum are" || bad "(vg) allowlist wrong:$miss"
-[ "$(git -C "$d/origin.git" log --format=%an --reverse main..second-shift/42 | head -n 1)" = 'second-shift-bot[bot]' ] && ok "(v1) [E3] the record commit carries the bot's identity" || bad "(v1) [E3] record commit author: $(git -C "$d/origin.git" log --format=%an --reverse main..second-shift/42 | head -n 1)"
 FIXTURE_CONFIG='{"tracker":{"type":"jira","writes":false,"branchPrefix":"jdoe/","keyPattern":"[A-Z]+-[0-9]+"},"paths":{"plansDir":"docs/plans"}}' fixture v2
 printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; mv "$d/main/.claude/pipeline-state/42-ledger.md" "$d/main/.claude/pipeline-state/GH-42-ledger.md"
 OUT="$( cd "$d/main" && bash "$RUN" GH-42 --build-model opus 2>&1 )"; RC=$?; TERM_SLUG="$(printf '%s\n' "$OUT" | sed -n 's/^terminal: //p' | tail -n 1)"
