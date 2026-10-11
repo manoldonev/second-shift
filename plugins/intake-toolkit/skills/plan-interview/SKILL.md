@@ -126,7 +126,7 @@ You elicit **design decisions from the engineer** (plan-authoring). You do NOT:
 
 5. **Interview** per the baseline loop rules (≤ 2 material questions per turn, recommendation first, "your call" → `user-delegated`).
 
-6. **Emit the Decision Ledger** and exit only when the register is empty *and* every surface is accounted for — each material decision carrying a non-`assumed` provenance, each surface decided or scoped out. Trivial work exits immediately with both explicit empty forms. Pre-flight for a pipeline ticket, the receipt also needs its checks and, on a design-provider repo, its frames — see "Checks and design frames" below.
+6. **Emit the Decision Ledger** and exit only when the register is empty *and* every surface is accounted for — each material decision carrying a non-`assumed` provenance, each surface decided or scoped out. Trivial work exits immediately with both explicit empty forms. Pre-flight for a pipeline ticket, the receipt also needs its checks and, on a design-provider repo, its frames — see "Checks and design frames" below — and the ticket needs its sizing label ("Sizing label" below).
 
 ## Where the ledger lands
 
@@ -172,6 +172,23 @@ bash "${CLAUDE_PLUGIN_ROOT}/skills/plan-interview/tools/dup-scan.sh" --issue <is
 
 Under `tracker.type: jira` it prints a not-applicable line and exits `0` — no queue label, no
 corpus. The ad-hoc / plan-mode path above scans nothing: there is no ticket to be a duplicate of.
+
+## Sizing label (pipeline pre-flight only)
+
+The exit labels the ticket `opus` or `sonnet`: your judgment on its weight, made where the weight
+was actually assessed. The scheduler reads that label to pick the build model. A ticket without
+one is left to whoever launches it, and that session has read the ticket far less carefully than
+you just did. Apply it once the receipt lints clean, through the same bot passthrough
+`intake-orchestrator` resolves (its "Bot writes" note):
+
+```bash
+$GH_BOT_SH issue edit <issue> --add-label <opus|sonnet>
+```
+
+If the ticket already carries the other label and the interview changed its weight, remove that
+label in the same call (`--remove-label`); otherwise leave an existing label alone. This is the
+sizing label only: queueing the ticket stays with whoever owns the queue. Under
+`tracker.type: jira` there is no label to write, and the launcher sizes the run instead.
 
 ## Escalation
 
