@@ -27,7 +27,7 @@ repo enables `dev-pipeline`, `review-toolkit`, `intake-toolkit`, `audit-toolkit`
 - Hooks: two PreToolUse gates on `git commit` commands — reviewer-reference drift check and model-tier lockstep check.
 
 ### intake-toolkit
-- Skills: `intake` (front door), `intake-interviewer`, `intake-orchestrator`, `plan-interview` (Decision Ledger), `grill-me`, `decomposition-reviewer`, `interviewing-baseline` — loaded only when invoked.
+- Skills: `intake` (the only way into intake — its stages are supporting files only it reads), `plan-interview` (plan-mode Decision Ledger), `grill-me`, `interviewing-baseline` — loaded only when invoked.
 - Hook: a PreToolUse gate on ExitPlanMode (checks a Decision Ledger exists when a plan is submitted).
 
 ### audit-toolkit
