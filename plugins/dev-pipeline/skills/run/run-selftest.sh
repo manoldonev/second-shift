@@ -128,6 +128,8 @@ case "$plan" in
   review-bad-approve-blocker)  post "$(ROWS='| D-1 | honored | fake |' FINDINGS='- [blocker] B1 must change before merge' vbody approve "$(git rev-parse "origin/$branch")")" ;;
   review-bad-approve-violated) post "$(ROWS='| D-1 | violated | fake |' vbody approve "$(git rev-parse "origin/$branch")")" ;;
   review-bad-needs-work-noblocker) post "$(FINDINGS='- [note] N1 nothing required' vbody needs-work "$(git rev-parse "origin/$branch")")" ;;
+  review-needs-work-mixed) # #1010: one blocker and one note, in the grammar's review-lead form
+    post "$(FINDINGS=$'- [blocker] B1 [Maintainability] src/a.ts:3 (confidence: 85) — mixed blocker\n- [note] N1 [Complexity] src/a.ts:9 (confidence: 60) — mixed note' vbody needs-work "$(git rev-parse "origin/$branch")")" ;;
   review-render-unavailable) sha=$(git rev-parse "origin/$branch")
     post "$(printf 'verdict: needs-work\nreviewed: %s\nreason: render-unavailable\n\n## Decision record rows\n\n| Row | Score | Evidence |\n| --- | --- | --- |\n\n## Findings\n\nNone.' "$sha")" ;;
   review-two-verdicts) # both bind; the LAST posted wins: $FAKE_ORDER = needs-work,approve or approve,needs-work
@@ -252,6 +254,17 @@ fixture b; printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-approve\
 run_case "$d"; expect approved "(b) needs-work, fix, approve"
 grep -q 'verdict: needs-work' "$FAKE_GH/prompt-3.txt" && ok "(b) round-2 build prompt carries the findings" || bad "(b) findings not in round-2 prompt"
 printf '%s\n' "$OUT" | grep -q '2 round' && ok "(b) two rounds counted" || bad "(b) round count wrong"
+
+# (b3) #1010: a mixed needs-work (a blocker, a note) binds, and its round-2 build is ordered to act on the blocker, not the note.
+# A grep on the emitted prompt, by necessity: the fake build never reads its prompt, so no run can show what it was told
+fixture b3; printf 'build-pr\nreview-needs-work-mixed\nbuild-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"
+run_case "$d"; expect approved "(b3) a mixed needs-work binds, fix, approve"
+grep -qF -- '- [blocker] B1 [Maintainability] src/a.ts:3 (confidence: 85)' "$FAKE_GH/prompt-3.txt" && grep -qF -- '- [note] N1 [Complexity] src/a.ts:9 (confidence: 60)' "$FAKE_GH/prompt-3.txt" \
+  && ok "(b3) both finding lines, confidence included, reach the round-2 build" || bad "(b3) a finding line is missing from prompt-3"
+grep -qF 'fix each [blocker] finding, or rebut it' "$FAKE_GH/prompt-3.txt" && grep -qF 'violated or undeterminable' "$FAKE_GH/prompt-3.txt" \
+  && ok "(b3) the build is ordered to fix or rebut each blocker and fix each bad row" || bad "(b3) the round-2 prompt does not split blockers from notes"
+grep -qF 'A [note] finding requires nothing' "$FAKE_GH/prompt-3.txt" && ok "(b3) a note is named optional" || bad "(b3) the round-2 prompt does not free the notes"
+! grep -qF 'fix each, or rebut it' "$FAKE_GH/prompt-3.txt" && ok "(b3) the every-finding order is gone" || bad "(b3) the prompt still orders every finding addressed"
 
 # (b2) a check red in round 2 sits beside the review's findings, never in place of them: the retry still has what the review asked for
 fixture b2 "- ! grep -qx 3 work.txt"; printf 'build-pr\nreview-needs-work\nbuild-push-only\nbuild-push-only\n' > "$FAKE_CLAUDE_PLAN"

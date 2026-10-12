@@ -39,7 +39,10 @@ on the PR, and (under jira `writes: false`) stripping the Atlassian write tools.
    session. In a session the herdr launcher started (`SS_WT` set), print the runnable
    `bash "<value of SS_ADAPTER>" review <pr>`, the path written out in full, which opens that
    fresh session in a `review` tab of the ticket's workspace. Do not review your own build, and never post a comment starting with `verdict:`.
-   On `needs-work`, address or rebut each finding in this session and push; then a fresh review.
+   On `needs-work`, in this session fix each `[blocker]` finding or rebut it in a PR comment, and
+   fix each record row scored `violated` or `undeterminable` (or edit the row, as step 3 allows);
+   a `[note]` finding requires nothing: fix one only if you choose to, and never rebut or reply to
+   one. Push; then a fresh review.
    While your handoff is the ticket's latest run comment, `/dev-pipeline:run <ticket>` refuses it
    (`claimed-elsewhere`) rather than build into your worktree; `--resume` hands it back to the lane.
 
