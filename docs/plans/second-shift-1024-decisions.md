@@ -13,6 +13,7 @@
 | D-7 | The fresh run (no branch upstream yet) | Unchanged: reachable remote, rc 2, no local branch → reads the receipt as today. Only an unreachable remote refuses earlier than before (AC-1) — run: `sed -n 1004,1007p plugins/dev-pipeline/skills/run/run.sh` → with no origin or local ref, `worktree add -q -b "$BRANCH" "$WT" "$base"` | codebase-derived | fact |
 | D-8 | Interaction with #1022 | #1022's launch lint skips committed records through this check, so after this fix a stale ref no longer suppresses that lint. Nothing to change in either ticket — run: `gh issue view 1022 --json body --jq .body \| grep -c "that check's own defect is #1024"` → 1 | codebase-derived | fact |
 | D-9 | Duplicate scan | No candidates — run: `dup-scan.sh --issue 1024` → "no candidates at or above threshold 12" | codebase-derived | fact |
+| D-10 | The probe's two unreadable edges no row named: D-2's `update-ref -d` failing, and the SHA ls-remote returned absent after the fetch (the branch force-moved in between) | Both refuse before the claim. A failed delete refuses under `env-branch-unpushed` with the `git update-ref -d` command to run by hand, since phase 5 would otherwise attach to the stale ref (the bug); a missing SHA refuses under `env-remote-unreadable` in D-4's phrasing. Reason: a predicate that cannot be evaluated refuses (run.sh header rules), and neither earns a new slug | user-delegated | intent |
 
 ## Open Regions
 

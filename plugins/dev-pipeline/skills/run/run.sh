@@ -928,9 +928,34 @@ write_run_block() { # <terminal slug>; a body that cannot be read is never repla
 
 # ============================ 3. preflight, read-only (rows A4, A13, A27, D10, D11, H1, J1, J3, K6-K8) ============================
 say "run $RUN_ID: issue $ISSUE, tracker $TRACKER (writes $TRACKER_WRITES), branch $BRANCH, worktree $WT, record $RECORD_REL"
-committed_record_exists() { # the branch already carries the record: the receipt on disk is no longer read at all
-  git -C "$MAIN_ROOT" fetch -q origin "$BRANCH" 2>/dev/null || true
-  local ref; for ref in "refs/remotes/origin/$BRANCH" "refs/heads/$BRANCH"; do git -C "$MAIN_ROOT" cat-file -e "$ref:$RECORD_REL" 2>/dev/null && return 0; done; return 1
+committed_record_exists() { # the branch on origin already carries the record: the receipt on disk is no longer read at all
+  # #1024: asked of the remote, never of a local ref — a failed fetch keeps a stale refs/remotes/origin/$BRANCH, and
+  # fetch exits 128 for both "unreachable" and "no such branch"; ls-remote --exit-code gives the second its own 2
+  local out rc sha found="" wt_ref stale
+  out="$(git -C "$MAIN_ROOT" ls-remote --exit-code origin "refs/heads/$BRANCH" 2>/dev/null)"; rc=$?
+  case "$rc" in
+    0) sha="$(printf '%s\n' "$out" | awk -v r="refs/heads/$BRANCH" '$2 == r { print $1; exit }')"
+       [ -n "$sha" ] || terminal env-remote-unreadable "origin listed no refs/heads/$BRANCH line — whether the record is already committed is unknown, so neither it nor the receipt is read"
+       git -C "$MAIN_ROOT" fetch -q origin "$BRANCH" 2>/dev/null || terminal env-remote-unreadable "cannot fetch origin/$BRANCH — whether the record is already committed is unknown, so neither it nor the receipt is read"
+       git -C "$MAIN_ROOT" cat-file -e "$sha^{commit}" 2>/dev/null || terminal env-remote-unreadable "origin/$BRANCH moved past $sha during the fetch — whether the record is already committed is unknown, so neither it nor the receipt is read"
+       git -C "$MAIN_ROOT" cat-file -e "$sha:$RECORD_REL" 2>/dev/null ;;
+    2) # origin has no such branch: a local branch or worktree for it is unpushed work, refused before the claim, nothing deleted
+       git -C "$MAIN_ROOT" rev-parse -q --verify "refs/heads/$BRANCH" >/dev/null 2>&1 && found="a local branch $BRANCH"
+       if [ -d "$WT" ] && wt_ref="$(git -C "$WT" rev-parse --abbrev-ref HEAD 2>/dev/null)"; then
+         case "$wt_ref" in
+           "$BRANCH") found="${found:+$found and }the worktree $WT on it" ;;
+           HEAD) found="${found:+$found and }a detached worktree at $WT" ;;
+         esac   # on another named branch: phase 5's env-worktree-mismatch
+       fi
+       [ -z "$found" ] || terminal env-branch-unpushed "origin has no $BRANCH, but there is $found — push it (git push -u origin $BRANCH) to resume it, or remove the worktree and the branch to start fresh from the receipt"
+       if stale="$(git -C "$MAIN_ROOT" rev-parse -q --verify "refs/remotes/origin/$BRANCH" 2>/dev/null)"; then
+         git -C "$MAIN_ROOT" update-ref -d "refs/remotes/origin/$BRANCH" 2>/dev/null \
+           || terminal env-branch-unpushed "origin has no $BRANCH, but its stale tracking ref origin/$BRANCH ($stale) could not be deleted — delete it (git update-ref -d refs/remotes/origin/$BRANCH) and re-launch"
+         say "record: origin has no $BRANCH — deleted the stale tracking ref origin/$BRANCH ($stale), so the branch is cut fresh from the base"
+       fi
+       return 1 ;;
+    *) terminal env-remote-unreadable "cannot reach origin to read $BRANCH — whether the record is already committed is unknown, so neither it nor the receipt is read" ;;
+  esac
 }
 if committed_record_exists; then RECORD_SOURCE=committed; say "record: already committed on $BRANCH — the receipt on disk is not consulted"
 else RECORD_SOURCE=receipt; [ -f "$RECORD" ] || terminal env-no-record "no intake record at $RECORD — run /intake-toolkit:plan-interview $ISSUE first"; fi
