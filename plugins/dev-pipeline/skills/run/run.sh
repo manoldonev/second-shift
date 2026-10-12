@@ -20,6 +20,8 @@
 #                             own waits, 300 s inside the bound: BUILD runs with background tasks off and its Bash
 #                             timeouts at that value (floor 120 s); REVIEW's background-task wait (floor 600 s)
 #       RUN_COST_CEILING      USD (100); RUN_CHECKS_RED_MAX (3)
+#       SECOND_SHIFT_INTAKE_TOOLKIT_ROOT   the intake-toolkit whose ledger-lint.sh lints the receipt (default: the
+#                             installPath of the enabled intake-toolkit record in `claude plugin list --json`)
 #       Env beats config `run.*` beats these defaults; an explicit --max-rounds beats config.
 #       RUN_WATCH_CMD         unset = off. A --detach run calls it ONCE, when its worktree is first ready, from the main
 #                             checkout in its own process group under a 10 s bound: `<cmd> <issue> <repo> <detach-log>
@@ -32,7 +34,7 @@
 #   0 parse      (reads argv only; a usage error exits 2 with nothing written)
 #   1 environment(every config read fails closed under a named slug; nothing written)
 #   2 detach     (re-exec under setsid; the log's last line carries the run's exit code, a forwarded signal's too)
-#   3 preflight  (read-only, fixed order: record, lanes, design, ticket open, model)
+#   3 preflight  (read-only, fixed order: record, lanes, design, receipt lint, ticket open, model)
 #   4 claim      (the first write: the label swap and the claim marker, or a re-entry)
 #   5 baseline   (worktree on the branch; the record is the branch's first commit, pushed)
 #   6 rounds     (premise; worktree at the pushed head; BUILD; in-flight check; one PR;
@@ -60,8 +62,9 @@
 #         body could not be checked against the record)
 #       2 usage-* (the argv), env-* (the environment; most fire before anything is spawned, but
 #         env-not-ready, env-worktree*, env-remote-unreadable, env-tracker-unreadable and
-#         env-smoke-unconfigured can fire after a paid session), claimed-elsewhere
-#       3 RESUMABLE — not-queued, env-no-record: pay off intake and re-launch the same command
+#         env-smoke-unconfigured can fire after a paid session; env-receipt-lint-unavailable: no
+#         trusted lint for the receipt), claimed-elsewhere
+#       3 RESUMABLE — not-queued, env-no-record, env-receipt-invalid: pay off intake and re-launch the same command
 #       4 budget spent — rounds-spent, checks-red-spent, cost-spent
 #       5 review-unbound — no verdict usable against the current head, after one re-spawn (a verdict
 #         whose body breaks the verdict grammar is not usable)
@@ -110,7 +113,7 @@ say() { echo "$(now) [run] $*"; }
 exit_code_for() { # the taxonomy a wrapper branches on
   case "$1" in
     approved|build-handoff) echo 0 ;;
-    not-queued|env-no-record) echo 3 ;;
+    not-queued|env-no-record|env-receipt-invalid) echo 3 ;;
     usage-*|env-*|claimed-elsewhere) echo 2 ;;
     rounds-spent|checks-red-spent|cost-spent) echo 4 ;;
     review-unbound) echo 5 ;;
@@ -402,6 +405,28 @@ design_declared() { # 0 armed or disarmed with a reason; 1 neither (its forms by
     say "design: the record disarms this ticket but states no reason; the form is 'Design: none — <reason>'"
   fi
   return 1
+}
+# #1022: the receipt's lint is the ENABLED intake-toolkit's, never a leftover cached version: the env override, else the
+# installPath of the intake-toolkit record that applies here (a project record for this checkout first, as doctor.sh
+# resolves it), enabled. Sets INTAKE_LINT, or LINT_WHY and returns 1; the caller refuses
+# shellcheck disable=SC2016  # a jq program: $root is jq's --arg binding
+INTAKE_RECORD='[.[] | select(((.id // "") | startswith("intake-toolkit@")) and .enabled == true and ((.projectPath // "") == $root or .scope == "user" or .scope == "local"))]
+  | ((map(select(.scope == "project")) | sort_by(.lastUpdated // "") | last) // (sort_by(.lastUpdated // "") | last)) | .installPath // empty'
+INTAKE_LINT=""; LINT_WHY=""
+resolve_intake_lint() {
+  local root="${SECOND_SHIFT_INTAKE_TOOLKIT_ROOT:-}" from="SECOND_SHIFT_INTAKE_TOOLKIT_ROOT" list
+  if [ -z "$root" ]; then
+    from="the enabled intake-toolkit in '$CLAUDE plugin list --json'"
+    list="$(cd "$MAIN_ROOT" && "$CLAUDE" plugin list --json 2>/dev/null)" || { LINT_WHY="'$CLAUDE plugin list --json' failed"; return 1; }
+    root="$(jq -r --arg root "$MAIN_ROOT" "$INTAKE_RECORD" <<<"$list" 2>/dev/null)" || { LINT_WHY="'$CLAUDE plugin list --json' did not print a plugin list"; return 1; }
+    [ -n "$root" ] || { LINT_WHY="'$CLAUDE plugin list --json' lists no enabled intake-toolkit for $MAIN_ROOT"; return 1; }
+  fi
+  INTAKE_LINT="$root/skills/plan-interview/tools/ledger-lint.sh"
+  [ -f "$INTAKE_LINT" ] || { LINT_WHY="$from names $root, which has no skills/plan-interview/tools/ledger-lint.sh"; return 1; }
+}
+receipt_version() { # the highest `Receipt: v<N>` line in the receipt; none is v1 (the lint itself refuses two, or a misplaced one)
+  local v; v="$(sed -n 's/^[Rr][Ee][Cc][Ee][Ii][Pp][Tt]:[[:space:]]*v\([0-9][0-9]*\).*$/\1/p' "$RECORD" | sort -n | tail -n 1)"
+  printf '%s' "$((10#${v:-1}))"
 }
 
 # -- configured checks (rows C15-C22, G2-G4, G8, G10) --
@@ -938,6 +963,25 @@ bad_lane="$(lanes_malformed)"; [ -z "$bad_lane" ] || terminal env-config-lanes "
 # on the receipt, so a fresh run refuses before it claims; the committed record is re-checked in phase 5 and is what counts
 if [ "$RECORD_SOURCE" = receipt ] && ! design_declared; then
   terminal env-design-undeclared "design.provider is configured but the record's design section ('## Design frames' or '## Design') neither carries RS rows nor a 'Design: none — <reason>' line — a UI ticket cannot skip the render silently"
+fi
+# #1022: a receipt from disk is linted before the claim; a committed record was linted when it was a receipt and is not
+# re-linted. The lint's rc 1 is the receipt's fault (resumable); anything else, or a lint that knows fewer receipt
+# versions than the receipt carries, is a lint this run cannot trust
+if [ "$RECORD_SOURCE" = receipt ]; then
+  resolve_intake_lint || terminal env-receipt-lint-unavailable "cannot lint the receipt: $LINT_WHY — install or enable intake-toolkit (or set SECOND_SHIFT_INTAKE_TOOLKIT_ROOT), then re-launch"
+  receipt_v="$(receipt_version)"
+  lint_knows="$(bash "$INTAKE_LINT" --receipt-version 2>/dev/null)"; lint_rc=$?
+  if [ "$lint_rc" -ne 0 ] || ! [[ "$lint_knows" =~ ^[0-9]+$ ]]; then
+    terminal env-receipt-lint-unavailable "$INTAKE_LINT --receipt-version exited $lint_rc printing '$(printf '%s' "$lint_knows" | tr '\n' ' ' | cut -c1-100)' — an intake-toolkit that predates receipt versions; update it, then re-launch"
+  fi
+  [ "$lint_knows" -ge "$receipt_v" ] || terminal env-receipt-lint-unavailable "the receipt is v$receipt_v but $INTAKE_LINT knows receipts up to v$lint_knows — it cannot check the sections a v$receipt_v receipt carries; update intake-toolkit, then re-launch"
+  lint_err="$(bash "$INTAKE_LINT" --receipt "$RECORD" 2>&1 >/dev/null)"; lint_rc=$?
+  case "$lint_rc" in
+    0) say "receipt: v$receipt_v, lints clean ($INTAKE_LINT)" ;;
+    1) while IFS= read -r l; do say "receipt: $l"; done <<<"$lint_err"
+       terminal env-receipt-invalid "the receipt at $RECORD fails ledger-lint.sh --receipt (the violations above) — rerun /intake-toolkit:plan-interview $ISSUE" ;;
+    *) terminal env-receipt-lint-unavailable "$INTAKE_LINT --receipt exited $lint_rc, which is no verdict on the receipt: $(printf '%s' "$lint_err" | tr '\n' ' ' | cut -c1-300)" ;;
+  esac
 fi
 # the base, before the claim: a configured baseBranch that does not resolve refuses — never a silent fall back to the default
 git -C "$MAIN_ROOT" fetch -q origin 2>/dev/null || true

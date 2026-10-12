@@ -12,6 +12,13 @@ RUN="$SCRIPT_DIR/run.sh"
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); echo "  ok   $*"; }
 bad() { FAIL=$((FAIL+1)); echo "  FAIL $*"; }
+# #1022: run.sh lints the receipt with intake-toolkit's ledger-lint.sh. The sibling plugin sits beside this one in a
+# checkout (plugins/intake-toolkit) and one version segment further up in an install cache (<cache>/intake-toolkit/<v>)
+IT_ROOT=""
+for _c in "$SCRIPT_DIR/../../../intake-toolkit" "$SCRIPT_DIR"/../../../../intake-toolkit/*; do
+  [ -f "$_c/skills/plan-interview/tools/ledger-lint.sh" ] && IT_ROOT="$(cd "$_c" && pwd)"
+done; unset _c
+[ -n "$IT_ROOT" ] || { echo "FATAL: no intake-toolkit beside $SCRIPT_DIR — run.sh's receipt lint has nothing to run" >&2; exit 1; }
 T="$(mktemp -d "${TMPDIR:-/tmp}/run-selftest.XXXXXX")"
 trap 'rm -rf "$T"' EXIT
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@x GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@x
@@ -172,11 +179,21 @@ fixture() { # fixture <case> [checks-line] [extra-record] — sets $d and the en
   printf '%s\n' ".claude/" > "$d/main/.gitignore"
   git -C "$d/main" add -A && git -C "$d/main" commit -qm init && git -C "$d/main" push -q -u origin main 2>/dev/null
   git -C "$d/origin.git" symbolic-ref HEAD refs/heads/main
-  printf '# record\n\n## Decision Ledger\n\n| ID | Decision | Resolution | Provenance |\n| --- | --- | --- | --- |\n| D-1 | a | b | user-answered |\n\n## Checks\n\n%s\n%s\n' "$chk" "$extra" > "$d/main/.claude/pipeline-state/42-ledger.md"
+  # #1022 D-11: a whole v2 receipt, so the launch lint passes it (an empty checks line is the section's empty form); D-1's
+  # first four cells are the text (a) greps for in the build prompt
+  printf '# record\n\nReceipt: v2\n\n## Intake steps\n\nRequirements: the ticket body as written\nSplit: not split\nExplore: the fixture repo\nFan-out: skipped — by the selftest fixture\nDup-scan: no candidates\nPost-merge scan: no post-merge AC\nSizing: opus\n\n## Decision Ledger\n\n| ID | Decision | Resolution | Provenance | Kind |\n| --- | --- | --- | --- | --- |\n| D-1 | a | b | user-answered | intent |\n\n## Open Regions\n\nNo open regions — every decision in scope is ratified.\n\n## Surface Inventory\n\nNo user-visible surface — this change renders nothing a user reads.\n\n## Fan-out\n\nFan-out: skipped — by the selftest fixture, which runs no intake\n\n## Checks\n\n%s\n%s\n' \
+    "${chk:-No ticket-specific checks — the configured lanes cover this change.}" "$extra" > "$d/main/.claude/pipeline-state/42-ledger.md"
   export FAKE_GH="$d/gh"; mkdir -p "$FAKE_GH"; echo OPEN > "$FAKE_GH/state"; echo '[]' > "$FAKE_GH/comments.json"; : > "$FAKE_GH/prs"
   printf 'ready-for-dev\nopus\n' > "$FAKE_GH/labels"
   export FAKE_CLAUDE_PLAN="$d/plan"; : > "$FAKE_CLAUDE_PLAN"
   export RUN_WORKTREE_ROOT="$d/wt" RUN_CLAUDE="$T/bin/claude" RUN_GH="$T/bin/gh" SECOND_SHIFT_CONFIG="$d/main/.claude/second-shift.config.json"
+  export SECOND_SHIFT_INTAKE_TOOLKIT_ROOT="$IT_ROOT"   # the (rl) cases unset it to drive the plugin-list lookup
+}
+commit_record() { # the receipt already committed as the lane branch's first commit, as an earlier run leaves it: never re-linted (#1022 D-8)
+  git -C "$d/main" checkout -q -b second-shift/42 && mkdir -p "$d/main/docs/plans" \
+    && cp "$d/main/.claude/pipeline-state/42-ledger.md" "$d/main/docs/plans/main-42-decisions.md" \
+    && git -C "$d/main" add docs/plans/main-42-decisions.md && git -C "$d/main" commit -qm "docs: decision record for #42" \
+    && git -C "$d/main" push -q origin second-shift/42 2>/dev/null && git -C "$d/main" checkout -q main && git -C "$d/main" branch -q -D second-shift/42
 }
 # shellcheck disable=SC2012  # run ids are plain ASCII; sorted ls is the simplest "latest"
 SD() { ls -d "$d/main/.claude/pipeline-state/run-42"/*/ 2>/dev/null | sort | tail -n 1 | sed 's#/$##'; }
@@ -606,7 +623,11 @@ printf 'x' > "$T/px.png"
 FIXTURE_CONFIG="{\"tracker\":{\"type\":\"github\",\"branchPrefix\":\"second-shift/\"},\"paths\":{\"plansDir\":\"docs/plans\"},\"design\":{\"provider\":\"figma\",\"liveRender\":{\"command\":\"cp $T/px.png {out}\",\"smokeCommand\":\"test {mustShow} = ok\"}}}" fixture v5 "- true" $'\n## Design frames\n\n| RS | route | state | frame | must-show |\n| --- | --- | --- | --- | --- |\n| RS-1 | a | default | 1:2 | ok |\n'
 printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(v5) route smoke: render, non-empty image, must-show satisfied"
 FIXTURE_CONFIG="{\"tracker\":{\"type\":\"github\",\"branchPrefix\":\"second-shift/\"},\"paths\":{\"plansDir\":\"docs/plans\"},\"design\":{\"provider\":\"figma\",\"liveRender\":{\"command\":\"cp $T/px.png {out}\",\"smokeCommand\":\"true\"}}}" fixture v6 "- true" $'\n## Design frames\n\n| RS | route | state | frame |\n| --- | --- | --- | --- |\n| RS-1 | a | default | 1:2 |\n'
-printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=1 run_case "$d"; expect checks-red-spent "(v6) a frames row with no must-show value is red, never silently green (D-4)"
+# the launch lint refuses this receipt from disk (#1022), so the smoke's own guard is reached the way a record the lint
+# never saw reaches it: committed on the branch already
+run_case "$d"; expect env-receipt-invalid "(v6) the same frames row in a receipt on disk is refused at launch"
+grep -q 'receipt: ledger-lint: VIOLATION: malformed design frames row' <<<"$OUT" && ok "(v6) the refusal prints the lint's violation" || bad "(v6) violation not printed: $(grep 'receipt: ' <<<"$OUT" | head -n 3)"
+commit_record; printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=1 run_case "$d"; expect checks-red-spent "(v6) a frames row with no must-show value is red, never silently green (D-4)"
 FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"commands":{"main":{"lint":"true","extraLanes":[{"name":"e2e","when":["src/**"],"commands":["e2e-runner --all"]}]}}}' fixture v7 ""
 printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"
 grep -q 'e2e-runner --all' "$FAKE_GH/prompt-1.txt" && grep -q 'Bash(e2e-runner\*)' "$FAKE_GH/args-1.txt" && ok "(v7) a when-globbed lane is named in the round-1 prompt and allowlist before any diff exists" || bad "(v7) lane missing from the prompt or allowlist"
@@ -752,6 +773,9 @@ printf 'build-pr\nreview-needs-work\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d" --ma
 printf '# record\n\n## Checks\n\n- true\n' > "$d/main/.claude/pipeline-state/42-ledger.md"
 printf 'build-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; : > "$FAKE_GH/calls"; printf 'in-progress\nopus\n' > "$FAKE_GH/labels"; run_case "$d" --resume; expect approved "(aa1) a resume reads the committed record, not a receipt that now says nothing"
 grep -q 'receipt on disk is not consulted' <<<"$OUT" && ok "(aa1) the receipt was not consulted on resume" || bad "(aa1) the receipt was read on resume"
+# #1022 AC-5: that receipt fails the lint, and the resume neither lints nor refuses it
+bash "$IT_ROOT/skills/plan-interview/tools/ledger-lint.sh" --receipt "$d/main/.claude/pipeline-state/42-ledger.md" >/dev/null 2>&1; lrc=$?
+[ "$lrc" -eq 1 ] && ! grep -q '\[run\] receipt: ' <<<"$OUT" && ok "(aa1) #1022 AC-5: a committed record's failing disk receipt is not linted" || bad "(aa1) #1022 AC-5: lint rc=$lrc, log: $(grep 'receipt: ' <<<"$OUT" | head -n 2)"
 rm -f "$d/main/.claude/pipeline-state/42-ledger.md"; : > "$FAKE_GH/calls"; printf 'in-progress\nopus\n' > "$FAKE_GH/labels"; run_case "$d" --resume; expect approved "(aa1) a resume with NO receipt on disk still runs (an absent ledger is not an error once the record is committed)"
 fixture aa2; printf 'build-kill-remote\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect env-remote-unreadable "(aa2) a remote that dies after the build is a refusal, not 'the head did not move'"
 [ "$RC" -eq 2 ] && ok "(aa2) exits 2" || bad "(aa2) exit $RC"
@@ -768,6 +792,74 @@ printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect
 grep -q 'arms no render state' <<<"$OUT" && ok "(ab1) not armed" || bad "(ab1) the second section leaked"
 FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"design":{"provider":"figma","liveRender":{"command":"true"}}}' fixture ab2 "- true" $'\n## Design notes\n\nDesign: none — a heading with trailing words is not the design section\n'
 run_case "$d"; expect env-design-undeclared "(ab2) '## Design notes' is not the design section"
+
+# (rl) #1022: a receipt from disk is linted before the claim, by the ENABLED intake-toolkit's lint
+untouched() { [ "$(tr '\n' ' ' < "$FAKE_GH/labels")" = "ready-for-dev opus " ] && [ ! -e "$FAKE_GH/issue-comments" ] && [ ! -e "$FAKE_GH/calls" ] && [ ! -d "$d/wt/42" ]; }
+# (rl1) AC-4: a v2 receipt with no '## Intake steps' — refused before the claim, exit 3, the violation and the rerun printed
+fixture rl1; REC="$d/main/.claude/pipeline-state/42-ledger.md"
+awk '/^## Intake steps/ {skip = 1; next} skip && /^## / {skip = 0} !skip' "$REC" > "$REC.tmp" && mv "$REC.tmp" "$REC"
+run_case "$d"; expect env-receipt-invalid "(rl1) a v2 receipt with no Intake steps"
+[ "$RC" -eq 3 ] && ok "(rl1) env-receipt-invalid exits 3 (resumable)" || bad "(rl1) exit $RC"
+grep -q '\[run\] receipt: ledger-lint: VIOLATION: missing mandated receipt section: Intake steps' <<<"$OUT" && grep -q 'rerun /intake-toolkit:plan-interview 42' <<<"$OUT" \
+  && ok "(rl1) the refusal prints the violation and 'rerun /intake-toolkit:plan-interview 42'" || bad "(rl1) output: $(grep -E 'receipt: |rerun' <<<"$OUT" | tr '\n' '|')"
+untouched && ok "(rl1) refused before the claim: no label changed, nothing posted, nothing spawned" || bad "(rl1) labels: $(tr '\n' ' ' < "$FAKE_GH/labels")"
+# (rl1b) D-12: the receipt shape written before #1022 (a 4-column ledger and Checks, the old fixture) is refused the same way
+fixture rl1b; printf '# record\n\n## Decision Ledger\n\n| ID | Decision | Resolution | Provenance |\n| --- | --- | --- | --- |\n| D-1 | a | b | user-answered |\n\n## Checks\n\n- true\n' > "$d/main/.claude/pipeline-state/42-ledger.md"
+run_case "$d"; expect env-receipt-invalid "(rl1b) a pre-#1022 receipt shape"
+# (rl2) AC-6: an override naming no lint, a lint that is not this lint's version probe, one that knows too few versions,
+# and one whose --receipt answers with neither 0 nor 1 — each exits 2 under env-receipt-lint-unavailable, before the claim
+stub_lint() { # stub_lint <name> <script body> -> prints the stub plugin root
+  mkdir -p "$T/stub-$1/skills/plan-interview/tools"; printf '#!/usr/bin/env bash\n%s\n' "$2" > "$T/stub-$1/skills/plan-interview/tools/ledger-lint.sh"; printf '%s' "$T/stub-$1"
+}
+rl_unavailable() { # rl_unavailable <label> <toolkit root> <detail fragment>
+  fixture "rl2-$1"; SECOND_SHIFT_INTAKE_TOOLKIT_ROOT="$2" run_case "$d"; expect env-receipt-lint-unavailable "(rl2) $1"
+  [ "$RC" -eq 2 ] && grep -qF -- "$3" <<<"$OUT" && untouched && ok "(rl2) $1: exits 2 before the claim, naming why" || bad "(rl2) $1: rc=$RC $(grep 'terminal: env-receipt' <<<"$OUT")"
+}
+# shellcheck disable=SC2016  # the stub bodies expand in the stub, not here
+{
+rl_unavailable no-lint "$T/no-such-toolkit" "SECOND_SHIFT_INTAKE_TOOLKIT_ROOT names $T/no-such-toolkit, which has no skills/plan-interview/tools/ledger-lint.sh"
+rl_unavailable pre-versions "$(stub_lint old 'echo "ledger-lint: unknown option: $1" >&2; exit 2')" '--receipt-version exited 2'
+rl_unavailable knows-v1 "$(stub_lint v1 '[ "$1" = --receipt-version ] && { echo 1; exit 0; }; exit 0')" 'the receipt is v2 but'
+rl_unavailable rc-127 "$(stub_lint crash '[ "$1" = --receipt-version ] && { echo 2; exit 0; }; nosuchcommand-in-the-lint')" '--receipt exited 127, which is no verdict on the receipt'
+}
+# (rl3) AC-11: a receipt above every version the lint knows is refused by name, and never read as a pass
+fixture rl3; REC="$d/main/.claude/pipeline-state/42-ledger.md"; sed 's/^Receipt: v2$/Receipt: v99/' "$REC" > "$REC.tmp" && mv "$REC.tmp" "$REC"
+run_case "$d"; expect env-receipt-lint-unavailable "(rl3) a v99 receipt"
+grep -q 'the receipt is v99 but .* knows receipts up to v' <<<"$OUT" && untouched && ok "(rl3) the refusal names both versions, before the claim" || bad "(rl3) $(grep 'terminal: env-receipt' <<<"$OUT")"
+# (rl4) AC-13: with no override the lint comes from the ENABLED intake-toolkit record in `claude plugin list --json`, in an
+# install-cache layout — never the newer leftover beside it, a disabled record, or a project record for another checkout.
+# The list's shape (id, version, scope, enabled, installPath, projectPath) is the one doctor reads, recorded in
+# plugins/second-shift/skills/doctor/tools/doctor-fixtures/plugin-list-*.json
+cat > "$T/bin/claude-plugins" <<EOF
+#!/usr/bin/env bash
+# answers 'plugin list --json' from \$FAKE_PLUGIN_LIST (absent: the command fails); every other call goes to the fake claude
+if [ "\$1 \$2" = "plugin list" ]; then echo "\$*" >> "\$FAKE_GH/plugin-calls"; [ -f "\${FAKE_PLUGIN_LIST:-}" ] && cat "\$FAKE_PLUGIN_LIST"; exit \$?; fi
+exec "$T/bin/claude" "\$@"
+EOF
+chmod +x "$T/bin/claude-plugins"
+mkdir -p "$T/cache/intake-toolkit"; cp -R "$IT_ROOT" "$T/cache/intake-toolkit/1.0.0"
+# shellcheck disable=SC2016  # the stub body expands in the stub, not here
+stub_lint leftover '[ "$1" = --receipt-version ] && { echo 99; exit 0; }; echo "ledger-lint: VIOLATION: the leftover lint ran" >&2; exit 1' >/dev/null
+mkdir -p "$T/cache/intake-toolkit/9.9.9"; cp -R "$T/stub-leftover/." "$T/cache/intake-toolkit/9.9.9/"
+plugin_list() { # plugin_list <enabled record's enabled value> -> $FAKE_PLUGIN_LIST for the current fixture
+  local main; main="$(git -C "$d/main" rev-parse --show-toplevel)"
+  jq -n --arg c "$T/cache/intake-toolkit" --arg main "$main" --argjson on "$1" '[
+    {id: "intake-toolkit@second-shift", version: "9.9.9", scope: "project", enabled: false, installPath: ($c + "/9.9.9"), projectPath: $main, lastUpdated: "2026-10-01T00:00:00Z"},
+    {id: "intake-toolkit@second-shift", version: "9.9.9", scope: "project", enabled: true, installPath: ($c + "/9.9.9"), projectPath: "/elsewhere", lastUpdated: "2026-10-02T00:00:00Z"},
+    {id: "intake-toolkit@second-shift", version: "1.0.0", scope: "user", enabled: $on, installPath: ($c + "/1.0.0"), lastUpdated: "2026-01-01T00:00:00Z"},
+    {id: "dev-pipeline@second-shift", version: "1.0.0", scope: "user", enabled: true, installPath: "/nowhere"}]' > "$d/plugins.json"
+  export FAKE_PLUGIN_LIST="$d/plugins.json"
+}
+fixture rl4; plugin_list true; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"
+SECOND_SHIFT_INTAKE_TOOLKIT_ROOT="" RUN_CLAUDE="$T/bin/claude-plugins" run_case "$d"; expect approved "(rl4) the enabled intake-toolkit's lint passes the receipt"
+grep -qF "receipt: v2, lints clean ($T/cache/intake-toolkit/1.0.0/skills/plan-interview/tools/ledger-lint.sh)" <<<"$OUT" && grep -qx 'plugin list --json' "$FAKE_GH/plugin-calls" \
+  && ok "(rl4) the lint run is the enabled 1.0.0, read from 'claude plugin list --json'" || bad "(rl4) $(grep -E 'receipt: |leftover' <<<"$OUT" | tr '\n' '|')"
+fixture rl5; plugin_list false
+SECOND_SHIFT_INTAKE_TOOLKIT_ROOT="" RUN_CLAUDE="$T/bin/claude-plugins" run_case "$d"; expect env-receipt-lint-unavailable "(rl5) no enabled intake-toolkit applies to this checkout"
+grep -q 'lists no enabled intake-toolkit for ' <<<"$OUT" && untouched && ok "(rl5) a disabled record and another checkout's are not used" || bad "(rl5) $(grep 'terminal: env-receipt' <<<"$OUT")"
+fixture rl6; unset FAKE_PLUGIN_LIST
+SECOND_SHIFT_INTAKE_TOOLKIT_ROOT="" RUN_CLAUDE="$T/bin/claude-plugins" run_case "$d"; expect env-receipt-lint-unavailable "(rl6) 'claude plugin list --json' fails"
+grep -q "plugin list --json' failed" <<<"$OUT" && untouched && ok "(rl6) a failed plugin list is a refusal, not a pass" || bad "(rl6) $(grep 'terminal: env-receipt' <<<"$OUT")"
 
 # (ac) round-fifteen parity: [] blockers, github key shape, a detached worktree after review, no ambient model seam
 FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/","labels":{"blockers":[]}},"paths":{"plansDir":"docs/plans"}}' fixture ac1
