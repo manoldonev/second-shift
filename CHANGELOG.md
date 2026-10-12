@@ -4,6 +4,18 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v16.6.1
+
+### `dev-pipeline` 16.5.1 → 16.5.2
+
+- **fix(dev-pipeline): lane sessions are granted every command of a configured check, their own scripts and read-only helpers (#1007)** (#1007)
+  lane sessions are allowed every command of a piped or chained check
+  (each by its own text), may run their worktree's scripts (build) and jq and
+  shasum (review), and are told to read comments without gh api and stage the
+  review Workflow with Read and Write, removing the denials that made a lane
+  build skip a configured lint.
+  Migration: none.
+
 ## v16.6.0
 
 ### `dev-pipeline` 16.5.0 → 16.5.1
