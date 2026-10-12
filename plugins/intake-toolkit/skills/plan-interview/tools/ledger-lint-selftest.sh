@@ -915,6 +915,97 @@ ck_lint "$TMP/ev-ticket.md"
   && pass "(ll-ev4) a receipt's ticket-sourced row with its URL and no evidence form → 0" \
   || fail "(ll-ev4) ticket-sourced row asked for evidence — rc=$rc err=$err"
 
+echo "[ledger-lint-selftest] receipt mode: the version line and ## Intake steps (#1022)"
+
+# Each case is the v2 fixture with one thing changed, so its failure names one cause.
+V2="$FIX/valid-receipt.md"
+rv_case() { # rv_case <label> <receipt> <expected rc> [expected stderr fragment]
+  ck_lint "$2"
+  [[ "$rc" -eq "$3" ]] && { [[ -z "${4:-}" ]] || grep -qF "$4" <<< "$err"; } \
+    && pass "(ll-rv) $1 → $3${4:+, named}" \
+    || fail "(ll-rv) $1 — rc=$rc err=$err"
+}
+
+# (ll-rv1) the v2 fixture: seven steps, in order → 0, its version and step count reported
+ck_lint "$V2"
+[[ "$rc" -eq 0 ]] && grep -q "7 intake step(s)" <<< "$out" && grep -q "receipt v2" <<< "$out" \
+  && pass "(ll-rv1) v2 receipt with every intake step → 0, counted" \
+  || fail "(ll-rv1) v2 receipt — rc=$rc out=$out err=$err"
+
+# (ll-rv2) AC-1 / AC-8: a v2 receipt without the section → 1; the same receipt as v1 (no line, or
+# 'Receipt: v1') → 0, since the section is mandated only from v2
+awk '/^## Intake steps/ {skip = 1; next} skip && /^## / {skip = 0} !skip' "$V2" > "$TMP/rv-nosteps.md"
+rv_case 'v2 receipt with no Intake steps section' "$TMP/rv-nosteps.md" 1 'missing mandated receipt section: Intake steps'
+grep -v '^Receipt:' "$TMP/rv-nosteps.md" > "$TMP/rv-v1-bare.md"
+rv_case 'the same receipt with no Receipt line (v1)' "$TMP/rv-v1-bare.md" 0
+sed 's/^Receipt: v2$/Receipt: v1/' "$TMP/rv-nosteps.md" > "$TMP/rv-v1.md"
+rv_case "the same receipt as 'Receipt: v1'" "$TMP/rv-v1.md" 0
+
+# (ll-rv3) AC-2: a missing key, keys out of order, a key twice — each its own violation
+grep -v '^Split:' "$V2" > "$TMP/rv-nosplit.md"
+rv_case "no 'Split:' line" "$TMP/rv-nosplit.md" 1 "Intake steps has no 'Split:' line"
+awk '/^Split:/ {held = $0; next} {print} /^Explore:/ {print held}' "$V2" > "$TMP/rv-order.md"
+rv_case 'Split after Explore' "$TMP/rv-order.md" 1 "Intake steps 'Split:' comes after 'Explore:'"
+awk '{print} /^Sizing:/ {print "Sizing: sonnet"}' "$V2" > "$TMP/rv-twice.md"
+rv_case "two 'Sizing:' lines" "$TMP/rv-twice.md" 1 "more than one 'Sizing:' line"
+
+# (ll-rv4) AC-2 / D-6: a section title used twice is named, at any depth and case — the record's
+# own evidence form, '## Checks' twice with the first empty, reported only "Checks has no command"
+awk '/^## Checks/ {print "## Checks"; print ""} {print}' "$V2" > "$TMP/rv-dup-checks.md"
+rv_case "'## Checks' twice, the first empty" "$TMP/rv-dup-checks.md" 1 "section title 'Checks' is used twice"
+printf '\n### CONTEXT\n\nagain.\n' > "$TMP/rv-ctx.md"; cat "$V2" "$TMP/rv-ctx.md" > "$TMP/rv-dup-ctx.md"
+rv_case "'### CONTEXT' after '## Context'" "$TMP/rv-dup-ctx.md" 1 "section title 'CONTEXT' is used twice"
+
+# (ll-rv5) OR-2's grammar: an empty or dash outcome, a bulleted or indented key, a sub-heading,
+# the 'Duplicate scan' spelling — each refused; CRLF line ends tolerated
+sed 's/^Explore: .*$/Explore:/' "$V2" > "$TMP/rv-empty.md"
+rv_case "an empty 'Explore:' outcome" "$TMP/rv-empty.md" 1 "Intake steps 'Explore:' records no outcome"
+sed 's/^Explore: .*$/Explore: —/' "$V2" > "$TMP/rv-dash.md"
+rv_case "a dash 'Explore:' outcome" "$TMP/rv-dash.md" 1 "Intake steps 'Explore:' records no outcome"
+for form in '- Split: not split' '  Split: not split'; do
+  sed "s/^Split: .*\$/$form/" "$V2" > "$TMP/rv-bullet.md"
+  rv_case "the step line '$form'" "$TMP/rv-bullet.md" 1 'Intake steps line is not read as a step'
+done
+awk '/^Fan-out: ran/ {print "### Later steps"; print ""} {print}' "$V2" > "$TMP/rv-sub.md"
+rv_case 'a sub-heading inside Intake steps' "$TMP/rv-sub.md" 1 'Intake steps carries a sub-heading'
+sed 's/^Dup-scan:/Duplicate scan:/' "$V2" > "$TMP/rv-spelling.md"
+rv_case "'Duplicate scan:' for 'Dup-scan:'" "$TMP/rv-spelling.md" 1 "Intake steps has no 'Dup-scan:' line"
+awk '/^## / {on = /^## Intake steps/} {printf (on ? "%s\r\n" : "%s\n"), $0}' "$V2" > "$TMP/rv-crlf.md"
+rv_case 'Intake steps with CRLF line ends, heading included' "$TMP/rv-crlf.md" 0
+
+# (ll-rv6) AC-10 / D-4: the version line is once, before the first '##' heading, in its form
+awk '{print} /^Receipt:/ {print $0}' "$V2" > "$TMP/rv-two-lines.md"
+rv_case "two 'Receipt:' lines" "$TMP/rv-two-lines.md" 1 "carries 2 'Receipt:' lines"
+grep -v '^Receipt:' "$V2" | awk '{print} /^## Checks$/ {print ""; print "Receipt: v2"}' > "$TMP/rv-in-section.md"
+rv_case "'Receipt: v2' inside the Checks section" "$TMP/rv-in-section.md" 1 "'Receipt:' line inside a '##' section"
+for bad in 'Receipt: 2' 'Receipt: v0' 'receipt: v2' 'Receipt: v2 draft'; do
+  sed "s/^Receipt: v2\$/$bad/" "$V2" > "$TMP/rv-form.md"
+  rv_case "the version line '$bad'" "$TMP/rv-form.md" 1 'malformed version line'
+done
+
+# (ll-rv7) AC-11 / AC-12: --receipt-version prints the highest version the lint knows — a receipt
+# at that version lints, one above it is refused as newer than the lint
+known="$(bash "$LINT" --receipt-version 2>/dev/null)" && rc=0 || rc=$?
+[[ "$rc" -eq 0 && "$known" =~ ^[0-9]+$ ]] && (( known >= 2 )) \
+  && pass "(ll-rv7) --receipt-version prints a version, at least v2 → $known" \
+  || fail "(ll-rv7) --receipt-version — rc=$rc out=$known"
+sed "s/^Receipt: v2\$/Receipt: v$known/" "$V2" > "$TMP/rv-known.md"
+rv_case "a receipt at the lint's highest version, v$known" "$TMP/rv-known.md" 0
+sed "s/^Receipt: v2\$/Receipt: v$((known + 1))/" "$V2" > "$TMP/rv-newer.md"
+rv_case "a receipt at v$((known + 1)), above what the lint knows" "$TMP/rv-newer.md" 1 'newer than this lint knows'
+
+# (ll-rv8) D-15: the version line and the steps are receipt-mode only — the ExitPlanMode hook's
+# default mode reads neither, so a plan carrying two version lines and a bulleted step lints clean
+printf '%s\n' '# P' 'Receipt: v2' '## Decision Ledger' \
+  '| ID  | Decision | Resolution | Provenance |' \
+  '| --- | -------- | ---------- | ---------- |' \
+  '| D-1 | Rate limit for the import endpoint | 100/min | user-answered |' \
+  '' '## Intake steps' '' '- Split: not split' 'Receipt: v9' > "$TMP/rv-plan.md"
+rc=$(lint_rc "$TMP/rv-plan.md")
+[[ "$rc" -eq 0 ]] \
+  && pass "(ll-rv8) version line and steps in an in-plan ledger, default mode → 0" \
+  || fail "(ll-rv8) receipt-version rules leaked into default mode — rc=$rc"
+
 echo
 echo "[ledger-lint-selftest] summary: $PASS passed, $FAIL failed"
 exit $FAIL

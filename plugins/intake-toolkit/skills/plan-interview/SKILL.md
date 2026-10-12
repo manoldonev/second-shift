@@ -126,12 +126,39 @@ You elicit **design decisions from the engineer** (plan-authoring). You do NOT:
 
 5. **Interview** per the baseline loop rules (≤ 2 material questions per turn, recommendation first, "your call" → `user-delegated`).
 
-6. **Emit the Decision Ledger** and exit only when the register is empty *and* every surface is accounted for — each material decision carrying a non-`assumed` provenance, each surface decided or scoped out. Trivial work exits immediately with both explicit empty forms. Pre-flight for a pipeline ticket, the receipt also needs its checks and, on a design-provider repo, its frames — see "Checks and design frames" below — the ticket's ACs get the post-merge scan in "Post-merge checks" below, and the ticket needs its sizing label ("Sizing label" below).
+6. **Emit the Decision Ledger** and exit only when the register is empty *and* every surface is accounted for — each material decision carrying a non-`assumed` provenance, each surface decided or scoped out. Trivial work exits immediately with both explicit empty forms. Pre-flight for a pipeline ticket, the receipt also needs its version line and intake steps ("Receipt version and intake steps" below), its checks and, on a design-provider repo, its frames — see "Checks and design frames" below — the ticket's ACs get the post-merge scan in "Post-merge checks" below, and the ticket needs its sizing label ("Sizing label" below).
 
 ## Where the ledger lands
 
 - **Plan-mode / ad-hoc session:** a `## Decision Ledger` section in the plan file itself, before `ExitPlanMode` is called (this plugin's `exitplan-ledger-gate.sh` hook lints for it and blocks the exit if it's missing or malformed).
 - **Pipeline pre-flight** (`/plan-interview <issue>` before an autonomous pipeline run on `<issue>`): write `.claude/pipeline-state/{issue}-ledger.md` — same location convention as the Product-Essence Brief; it survives worktree cleanup, and the pipeline's scheduler commits it as the lane branch's first commit, hands it to the BUILD session as binding decisions, and reads its checks and design frames from that commit. The interview always happens in the interactive session, never inside the autonomous run.
+
+## Receipt version and intake steps (pipeline pre-flight only)
+
+The receipt opens with `Receipt: v2` on its own line, after its `#` title and before its first
+`##` heading, and its first section is `## Intake steps`: one `Key: outcome` line per step, in
+this order, each key once (schema in `interviewing-baseline`, "Receipt versions" and "Intake
+steps"):
+
+```
+Receipt: v2
+
+## Intake steps
+
+Requirements: <how the requirements reached you — the ticket body as written, or the intake-interviewer pass>
+Split: <not split, and why; or the slices>
+Explore: <what you explored>
+Fan-out: <ran, with its item count; or the skipped/failed form from step 1>
+Dup-scan: <dup-scan.sh's result — "Duplicate scan" below>
+Post-merge scan: <the ACs moved, or none — "Post-merge checks" below>
+Sizing: <opus or sonnet — the weight you decided>
+```
+
+Write what the step did, or why it did not run; never an empty outcome or a bare dash. `Sizing:`
+records the weight you decided; the label itself is applied after the receipt lints clean
+("Sizing label" below). The scheduler lints the receipt before it claims the ticket
+(`ledger-lint.sh --receipt`) and refuses one that fails, so run the lint yourself before you
+hand off.
 
 ## Checks and design frames (pipeline pre-flight only)
 

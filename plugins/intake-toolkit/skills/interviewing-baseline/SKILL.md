@@ -7,7 +7,7 @@ description: Shared interviewing protocol for all intake-role skills (intake-int
 
 This skill defines the shared protocol that ALL interviewing/elicitation skills follow, the same way `review-toolkit:reviewer-baseline` unifies the reviewer agents. It exists so loop rules and the Decision Ledger contract live in exactly one place.
 
-**Canonical source notice:** this file is the single source of truth for the Decision Ledger schema, the provenance enum, and the intake-receipt contract below it (Kind axis, open regions, surface inventory, checks, design frames, fan-out, departures). Every other site that restates them (`plan-interview/tools/ledger-lint.sh`, this plugin's `hooks/exitplan-ledger-gate.sh` via that lint, `review-toolkit:plan-reviewer`) carries a mirror marker and must be updated in lockstep when this section changes.
+**Canonical source notice:** this file is the single source of truth for the Decision Ledger schema, the provenance enum, and the intake-receipt contract below it (Kind axis, open regions, surface inventory, checks, design frames, fan-out, receipt versions, intake steps, departures). Every other site that restates them (`plan-interview/tools/ledger-lint.sh`, this plugin's `hooks/exitplan-ledger-gate.sh` via that lint, `review-toolkit:plan-reviewer`) carries a mirror marker and must be updated in lockstep when this section changes.
 
 ## Interview Loop Rules
 
@@ -310,6 +310,64 @@ claim, a disposition citing an undeclared `D-n`, and unindented snapshot rows. T
 reader is the operator's consumer read: a later reversal of a decision the fan-out flagged, or of
 one it never raised, is how its value is judged, and the angle and lens counts are how a lens that
 never contributes is found.
+
+### Receipt versions
+
+A receipt names its version once, on a line of its own before its first `##` heading:
+
+```
+# Intake receipt — #1022 <title>
+
+Receipt: v2
+
+## Intake steps
+```
+
+A receipt with no such line is v1. Each mandated section starts at a version, and the lint
+mandates it only on a receipt at or above that version, so a section added later bumps the
+version instead of failing every receipt written before it:
+
+<!-- LOCKSTEP-BEGIN receipt-versions -->
+| Section | Mandated from |
+| --- | --- |
+| Open Regions | v1 |
+| Surface Inventory | v1 |
+| Checks | v1 |
+| Fan-out | v1 |
+| Intake steps | v2 |
+<!-- LOCKSTEP-END receipt-versions -->
+
+The lint (`ledger-lint.sh`) holds the same table and is what enforces it. It refuses two
+`Receipt:` lines, one inside a section, one not of the form `Receipt: v<N>`, and a version above
+the highest it knows; `ledger-lint.sh --receipt-version` prints that version. The scheduler
+lints a receipt before it claims the ticket, with the intake-toolkit the repo has enabled, and
+refuses (`env-receipt-lint-unavailable`) when that lint knows fewer versions than the receipt.
+Write the highest version, so every section it mandates is there.
+
+A receipt also uses each section title once: every reader takes the first copy of a title, so a
+second one is never read, and the lint refuses it.
+
+### Intake steps
+
+From v2 the receipt records what each intake step did, one line per step, in this order:
+
+```
+## Intake steps
+
+Requirements: the ticket body as written — no intake-interviewer pass
+Split: not split — one PR's worth of work
+Explore: done — the worker, its DTOs and the proxy config
+Fan-out: ran — 4 items, see Fan-out
+Dup-scan: no candidates at or above threshold 12
+Post-merge scan: no post-merge AC
+Sizing: opus
+```
+
+Each key appears exactly once, spelled as above (`Dup-scan`, not "Duplicate scan"), at the start
+of its line: no bullet, no indent. Its outcome is what the step did, or why it did not run, never
+empty and never a bare dash. No sub-heading inside the section: any heading ends it for every
+reader. `Sizing:` records the weight intake decided; applying the label is a tracker write made
+after the receipt lints clean, not a step of its own.
 
 ### Departures
 

@@ -21,6 +21,7 @@
 | D-15 | The ExitPlanMode hook | Unaffected: the new checks sit in receipt mode, and the hook runs the lint without --receipt — run: `sed -n 78p plugins/intake-toolkit/hooks/exitplan-ledger-gate.sh` → `if out=$("$LINT" "$target" 2>&1); then` | codebase-derived | fact |
 | D-16 | Keyed-line grammar | Parked under OR-2 | deferred | open |
 | D-17 | Duplicate scan | No candidates — run: `dup-scan.sh --issue 1022` → "no candidates at or above threshold 12" | codebase-derived | fact |
+| D-18 | Which receipt versions the duplicate-title check (D-6) covers | Every version, v1 included: it is a validity rule, not a mandated section, so D-1's version gate does not apply — a v1 receipt with a title used twice already carries a section no reader reads. Added at BUILD, no row covered it | user-delegated | intent |
 
 ## Open Regions
 

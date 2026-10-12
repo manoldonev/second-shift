@@ -3,6 +3,7 @@
 # section of an implementation plan (contract: interviewing-baseline skill).
 #
 # Usage: ledger-lint.sh [--receipt] <plan-path>
+#        ledger-lint.sh --receipt-version     prints the highest receipt version this lint knows
 #
 # Checks (read-only, pure bash — no network, no writes):
 #   1. A `## Decision Ledger` section header is present (any heading level,
@@ -80,6 +81,23 @@
 #   `Design: none — <reason>`. RS rows are shape-checked whenever present: the route
 #   smoke reads them on any repo. No escaped pipe (`\|`): the scheduler splits on it.
 #
+# RECEIPT VERSIONS (#1022). A receipt names its version once, on a `Receipt: v<N>` line before
+# its first `##` heading; a receipt with no such line is v1. A section is mandated only on a
+# receipt at or above the version that introduced it (RECEIPT_SECTIONS below), so a section added
+# later bumps the version instead of failing every receipt written before it. Two `Receipt:`
+# lines, one inside a section, one not of that form, and a version above the highest this lint
+# knows are each a violation. `--receipt-version` prints that highest version: the scheduler
+# (run.sh) refuses to trust a lint that knows fewer versions than the receipt it would check.
+#
+#   `## Intake steps` — mandatory from v2. One `Key: outcome` line per intake step, each key
+#   once, in this order: Requirements, Split, Explore, Fan-out, Dup-scan, Post-merge scan,
+#   Sizing. The line starts at the start of the line (no bullet, no indent), and its outcome is
+#   neither empty nor a bare dash. Read with section_of, so a sub-heading inside it would cut it
+#   short, and is refused.
+#
+# Receipt mode also refuses a section title used twice: every reader takes the first copy, so
+# the second is never read.
+#
 # Scope honesty: this lint buys structural presence + on-page disclosure,
 # NOT decision quality — a load-bearing decision missing from the ledger
 # entirely is the plan-reviewer's judgment call, not this script's. Receipt mode
@@ -90,12 +108,31 @@
 # Exit: 0 clean, 1 violations (each named on stderr), 2 usage/IO error.
 set -euo pipefail
 
+# The receipt version table: each mandated receipt section and the version it is mandated from
+# (the Decision Ledger is mandated of every plan, receipt or not, and Design frames by the config,
+# so neither is here). interviewing-baseline ("Receipt versions") carries the same table, held
+# equal by check-lockstep-pairs.sh. A new mandated section is a new row at a new version.
+RECEIPT_SECTIONS="$(grep -v 'LOCKSTEP-' <<'TABLE'
+# LOCKSTEP-BEGIN receipt-versions
+| Section | Mandated from |
+| --- | --- |
+| Open Regions | v1 |
+| Surface Inventory | v1 |
+| Checks | v1 |
+| Fan-out | v1 |
+| Intake steps | v2 |
+# LOCKSTEP-END receipt-versions
+TABLE
+)"
+RECEIPT_VERSION_MAX="$(sed -n 's/^|.*| v\([0-9][0-9]*\) |$/\1/p' <<< "$RECEIPT_SECTIONS" | sort -n | tail -n 1)"
+
 RECEIPT=0
 PLAN=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --receipt) RECEIPT=1; shift ;;
-    -h|--help) sed -n '2,90p' "$0"; exit 0 ;;
+    --receipt-version) echo "$RECEIPT_VERSION_MAX"; exit 0 ;;
+    -h|--help) awk 'NR > 1 && /^set -euo pipefail/ {exit} NR > 1' "$0"; exit 0 ;;
     -*) echo "ledger-lint: unknown option: $1" >&2; exit 2 ;;
     *)
       [[ -z "$PLAN" ]] || { echo "ledger-lint: unexpected argument: $1" >&2; exit 2; }
@@ -130,6 +167,16 @@ SURFACE_EMPTY_FORM='No user-visible surface — this change renders nothing a us
 CHECKS_EMPTY_FORM='No ticket-specific checks — the configured lanes cover this change.'
 FANOUT_TAG_ENUM='new|already-had|overturned|not material'
 FANOUT_EMPTY_POOL='Pool: empty — no claim survived refutation.'
+INTAKE_STEP_KEYS='Requirements|Split|Explore|Fan-out|Dup-scan|Post-merge scan|Sizing'
+
+# The receipt's version, from its `Receipt:` line (receipt check 0 below); v1 until read.
+RECEIPT_V=1
+mandated() { # mandated <section title as in RECEIPT_SECTIONS> — 0 when this receipt's version mandates it
+  local since
+  since="$(awk -F'|' -v s="$1" '{t = $2; gsub(/^ +| +$/, "", t)} t == s {v = $3; gsub(/[ v]/, "", v); print v; exit}' <<< "$RECEIPT_SECTIONS")"
+  [[ -n "$since" ]] || { echo "ledger-lint: internal: the receipt version table has no row for '$1'" >&2; exit 2; }
+  (( RECEIPT_V >= since ))
+}
 
 # The scheduler's section reader, its awk byte for byte (run.sh `section_of`): exact title at
 # any depth, case-folded, ANY heading closes, the FIRST such section decides. The lint must
@@ -349,9 +396,35 @@ SURFACE_ROW_COUNT=0
 CHECK_COUNT=0
 FRAME_ROW_COUNT=0
 FANOUT_ROW_COUNT=0
+STEP_COUNT=0
 if (( RECEIPT == 1 )); then
+  # ---- Receipt check 0: the version line, and one title per section (#1022) ----------------
+  # Read first: the version decides which sections the checks below mandate. Lines at the start
+  # of a line only, so a receipt quoted in the indented Fan-out snapshot is not read as this one's.
+  RECEIPT_LINES="$(awk '/^##+[[:space:]]/ {sec = 1} tolower($0) ~ /^receipt:/ {sub(/\r$/, ""); print (sec ? "in" : "top") "\t" $0}' "$PLAN")"
+  if [[ -n "$RECEIPT_LINES" ]]; then
+    n_receipt="$(grep -c . <<< "$RECEIPT_LINES")"
+    (( n_receipt == 1 )) || violate "the receipt carries $n_receipt 'Receipt:' lines — it names its version once, before its first '##' heading"
+    while IFS=$'\t' read -r where line; do
+      [[ "$where" == top ]] || violate "'Receipt:' line inside a '##' section — it goes once, before the first '##' heading: $line"
+    done <<< "$RECEIPT_LINES"
+    first="$(head -n 1 <<< "$RECEIPT_LINES" | cut -f2-)"
+    if [[ "$first" =~ ^Receipt:[[:space:]]*v([0-9]+)[[:space:]]*$ ]] && (( 10#${BASH_REMATCH[1]} >= 1 )); then
+      RECEIPT_V=$(( 10#${BASH_REMATCH[1]} ))
+      if (( RECEIPT_V > RECEIPT_VERSION_MAX )); then
+        violate "the receipt is v$RECEIPT_V, newer than this lint knows (v$RECEIPT_VERSION_MAX) — it was written by a newer intake-toolkit than the one linting it; update intake-toolkit"
+        RECEIPT_V=$RECEIPT_VERSION_MAX
+      fi
+    else
+      violate "malformed version line (the form is 'Receipt: v<N>', N from 1): $first"
+    fi
+  fi
+  while IFS= read -r title; do
+    [[ -n "$title" ]] && violate "section title '$title' is used twice — every reader takes the first copy, so the second is never read: merge them, or rename one"
+  done < <(awk '/^#+[[:space:]]/ {t = $0; sub(/\r$/, "", t); sub(/^#+[[:space:]]+/, "", t); sub(/[[:space:]]+$/, "", t); if (seen[tolower(t)]++ == 1) print t}' "$PLAN")
+
   declare -a OPEN_IDS=()
-  if ! grep -qiE '^(#{1,6}[[:space:]]+|\*\*)[[:space:]]*open regions' "$PLAN"; then
+  if ! grep -qiE '^(#{1,6}[[:space:]]+|\*\*)[[:space:]]*open regions' "$PLAN" && mandated 'Open Regions'; then
     violate "missing mandated receipt section: Open Regions (declare the regions you deliberately left open with a disposition, or state the explicit empty form '$OPEN_EMPTY_FORM')"
   fi
 
@@ -418,7 +491,7 @@ if (( RECEIPT == 1 )); then
   # that leaves a listed surface unaccounted for.
   declare -a SURFACE_IDS=()
   declare -a SURFACE_CITATIONS=()
-  if ! grep -qiE '^(#{1,6}[[:space:]]+|\*\*)[[:space:]]*surface inventory' "$PLAN"; then
+  if ! grep -qiE '^(#{1,6}[[:space:]]+|\*\*)[[:space:]]*surface inventory' "$PLAN" && mandated 'Surface Inventory'; then
     violate "missing mandated receipt section: Surface Inventory (enumerate the surfaces and states this work implies — each one 'decided (D-n)' or 'out-of-scope — <reason>' — or state the explicit empty form '$SURFACE_EMPTY_FORM')"
   fi
 
@@ -507,7 +580,7 @@ if (( RECEIPT == 1 )); then
   # An absent section is a silent claim that nothing beyond the configured lanes verifies
   # this change, so it is mandatory, with an empty form, like the two sections above.
   if ! has_section 'checks' "$PLAN"; then
-    violate "missing mandated receipt section: Checks (list the ticket-specific commands the scheduler runs against the pushed head, one per line as '- cmd', or state the explicit empty form '$CHECKS_EMPTY_FORM')"
+    mandated 'Checks' && violate "missing mandated receipt section: Checks (list the ticket-specific commands the scheduler runs against the pushed head, one per line as '- cmd', or state the explicit empty form '$CHECKS_EMPTY_FORM')"
   else
     CHECKS_SEC="$(section_of 'checks' "$PLAN")"
     while IFS= read -r line; do
@@ -575,7 +648,7 @@ if (( RECEIPT == 1 )); then
   # so — skipped (by whom) or failed (what) — because an absent section reads exactly like a
   # fan-out nobody ran and nobody recorded.
   if ! has_section 'fan-out' "$PLAN"; then
-    violate "missing mandated receipt section: Fan-out (the tagged evidence pool with its Tally, Refuter and Snapshot, or one explicit form: 'Fan-out: skipped — <by whom / why>' or 'Fan-out: failed — <what>')"
+    mandated 'Fan-out' && violate "missing mandated receipt section: Fan-out (the tagged evidence pool with its Tally, Refuter and Snapshot, or one explicit form: 'Fan-out: skipped — <by whom / why>' or 'Fan-out: failed — <what>')"
   else
     FANOUT_SEC="$(section_of 'fan-out' "$PLAN")"
     if grep -qiE '^[[:space:]]*Fan-out:[[:space:]]*(skipped|failed)[[:space:]]+.*[[:alnum:]]' <<< "$FANOUT_SEC"; then
@@ -639,6 +712,45 @@ if (( RECEIPT == 1 )); then
       fi
     fi
   fi
+
+  # ---- Receipt check H: the intake steps (#1022) -----------------------------------------
+  # What each intake step did, in a fixed order, so a reader of the record never has to guess
+  # which parts of intake ran. Shape-checked wherever present; mandated from v2.
+  STEP_ORDER="${INTAKE_STEP_KEYS//|/, }"
+  if ! has_section 'intake steps' "$PLAN"; then
+    if mandated 'Intake steps'; then
+      violate "missing mandated receipt section: Intake steps (a v$RECEIPT_V receipt records each intake step's outcome, one 'Key: outcome' line per step, in this order: $STEP_ORDER)"
+    fi
+  else
+    # section_of closes at ANY heading, so a sub-heading inside the section would cut the steps
+    # after it out of what every reader sees.
+    sub="$(awk '!on && tolower($0) ~ /^#+[[:space:]]+intake steps[[:space:]]*$/ {match($0, /^#+/); d = RLENGTH; on = 1; next} on && /^#+[[:space:]]/ {match($0, /^#+/); if (RLENGTH > d) print; exit}' "$PLAN")"
+    [[ -z "$sub" ]] || violate "Intake steps carries a sub-heading, which ends the section for every reader — drop it, keep the steps in one block: $sub"
+    STEPS_SEEN="|"; last_idx=-1; last_key=""
+    while IFS= read -r line; do
+      line="${line%$'\r'}"
+      if [[ "$line" =~ ^(${INTAKE_STEP_KEYS}):(.*)$ ]]; then
+        key="${BASH_REMATCH[1]}"; outcome="$(trim "${BASH_REMATCH[2]}")"
+        if [[ "$STEPS_SEEN" == *"|$key|"* ]]; then
+          violate "Intake steps has more than one '$key:' line — one line per step"
+          continue
+        fi
+        STEPS_SEEN="$STEPS_SEEN$key|"; STEP_COUNT=$((STEP_COUNT + 1))
+        [[ -n "$outcome" && ! "$outcome" =~ ^(-|—|–)$ ]] || \
+          violate "Intake steps '$key:' records no outcome — say what the step did, or why it did not run"
+        idx=0; IFS='|' read -r -a keys <<< "$INTAKE_STEP_KEYS"
+        while [[ "${keys[$idx]}" != "$key" ]]; do idx=$((idx + 1)); done
+        (( idx > last_idx )) || violate "Intake steps '$key:' comes after '$last_key:' — the order is $STEP_ORDER"
+        last_idx=$idx; last_key="$key"
+      elif [[ "$line" =~ ^[[:space:]]*([-*+][[:space:]]+)?(${INTAKE_STEP_KEYS}): ]]; then
+        violate "Intake steps line is not read as a step — the form is 'Key: outcome' at the start of the line, with no bullet or indent: $line"
+      fi
+    done <<< "$(section_of 'intake steps' "$PLAN")"
+    IFS='|' read -r -a keys <<< "$INTAKE_STEP_KEYS"
+    for key in "${keys[@]}"; do
+      [[ "$STEPS_SEEN" == *"|$key|"* ]] || violate "Intake steps has no '$key:' line (the keys, spelled so, in order: $STEP_ORDER)"
+    done
+  fi
 fi
 
 echo "ledger-lint: ${ROW_COUNT} ledger row(s)"
@@ -648,6 +760,8 @@ if (( RECEIPT == 1 )); then
   echo "ledger-lint: ${CHECK_COUNT} check(s)"
   echo "ledger-lint: ${FRAME_ROW_COUNT} design frame(s)"
   echo "ledger-lint: ${FANOUT_ROW_COUNT} fan-out item(s)"
+  echo "ledger-lint: ${STEP_COUNT} intake step(s)"
+  echo "ledger-lint: receipt v${RECEIPT_V}"
 fi
 if (( VIOLATIONS > 0 )); then
   echo "ledger-lint: FAIL — $VIOLATIONS violation(s)" >&2

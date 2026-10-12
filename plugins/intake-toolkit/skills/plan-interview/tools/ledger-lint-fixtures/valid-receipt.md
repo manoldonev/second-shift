@@ -1,11 +1,22 @@
 # Intake receipt: PROJ-9999 — Fixture receipt for ledger-lint receipt mode
 
+Receipt: v2
+
 ## Context
 
-Fixture. Exercises a well-formed INTAKE receipt: every Kind value, every legal
-Kind/provenance pairing, a `codebase-derived` row stating the command it ran, an
-`open` row mapped to a declared region, and a surface inventory carrying both
-dispositions.
+Fixture. Exercises a well-formed v2 INTAKE receipt: every intake step in order, every Kind
+value, every legal Kind/provenance pairing, a `codebase-derived` row stating the command it ran,
+an `open` row mapped to a declared region, and a surface inventory carrying both dispositions.
+
+## Intake steps
+
+Requirements: the ticket body as written — no intake-interviewer pass
+Split: not split — one PR's worth of work
+Explore: done — the import worker, its DTOs and the proxy config
+Fan-out: ran — 4 items, see Fan-out
+Dup-scan: no candidates at or above threshold 12
+Post-merge scan: no post-merge AC
+Sizing: opus
 
 ## Decision Ledger
 
