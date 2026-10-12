@@ -42,6 +42,14 @@ the register so far. Split's decision then reshapes what is interviewed; the row
 stay settled. A ticket that has already been through Split does not return there a second time —
 escalate instead.
 
+The fan-out already ran on the unsplit ticket by then, and its lenses never saw the seams. So:
+
+- **Split decides "not split"** → no new fan-out; the interview resumes on the pool it has.
+- **Split creates slices** → the sequence goes on to Explore, which runs the split's one fan-out on
+  the parent plus the slice list (`explore.md`, "After a return from the Interview"). The pre-split
+  pool is superseded: its items already settled as rows stay settled, and each slice receipt names
+  the earlier run on its `Run:` line.
+
 ## Escalation
 
 Stop and present what you understood, what is blocking, the options and one clear question when

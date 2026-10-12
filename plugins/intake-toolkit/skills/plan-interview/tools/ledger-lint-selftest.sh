@@ -998,6 +998,19 @@ rv_case "'Duplicate scan:' for 'Dup-scan:'" "$TMP/rv-spelling.md" 1 "Intake step
 awk '/^## / {on = /^## Intake steps/} {printf (on ? "%s\r\n" : "%s\n"), $0}' "$V2" > "$TMP/rv-crlf.md"
 rv_case 'Intake steps with CRLF line ends, heading included' "$TMP/rv-crlf.md" 0
 
+# (ll-rv6) #1023 AC-12: the step line's skip names the operator, as the section's does — the same
+# named violation; the operator's form, any case, and the failure form pass
+for form in 'Fan-out: skipped — by the session' 'Fan-out: skipped — by the orchestrator: small scope' \
+            'Fan-out: skipped by operatorless default'; do
+  sed "s/^Fan-out: ran .*\$/$form/" "$V2" > "$TMP/rv-fo-step.md"
+  rv_case "the step line '$form'" "$TMP/rv-fo-step.md" 1 'Fan-out skip does not name the operator'
+done
+for form in 'Fan-out: skipped — by the operator at the intake notice' "Fan-out: Skipped — By The Operator's call" \
+            'Fan-out: failed — Workflow tool unavailable in this session'; do
+  sed "s/^Fan-out: ran .*\$/$form/" "$V2" > "$TMP/rv-fo-step.md"
+  rv_case "the step line '$form'" "$TMP/rv-fo-step.md" 0
+done
+
 # (ll-rv6) AC-10 / D-4: the version line is once, before the first '##' heading, in its form
 awk '{print} /^Receipt:/ {print $0}' "$V2" > "$TMP/rv-two-lines.md"
 rv_case "two 'Receipt:' lines" "$TMP/rv-two-lines.md" 1 "carries 2 'Receipt:' lines"

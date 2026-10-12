@@ -48,6 +48,8 @@ Split runs when **any** of these holds, and is skipped otherwise:
   on its own;
 - the Interview's register passes about **10 material decisions**. The ticket then **returns to
   Split** from the Interview: a register that size is a decomposition the classification missed.
+  If Split then creates slices, Explore runs again for the split, and its fan-out supersedes the
+  one that ran on the unsplit ticket (`explore.md`, "After a return from the Interview").
 
 A skipped Split is still an outcome: the receipt's `Split:` line says why it did not run.
 
@@ -57,7 +59,7 @@ A skipped Split is still an outcome: the receipt's `Split:` line says why it did
 | --- | --- | --- |
 | `review-toolkit:spec-reviewer` | Requirements | once per intake; no later stage dispatches it |
 | `review-toolkit:codebase-explorer` | Split | at most once per intake, and only there; Split's review of the slices as a set reads its map |
-| the intake fan-out (`intake-fanout.mjs`) | Explore | once per ticket, or once per split |
+| the intake fan-out (`intake-fanout.mjs`) | Explore | once per ticket, or once per split (a split the Interview sends back adds the split's one run, which supersedes the first) |
 | `intake-toolkit:implementability-probe` | Receipt | per ticket, or per slice |
 | `dup-scan.sh` | Receipt | per ticket, or per slice |
 | sizing | Receipt | per ticket, or per slice |

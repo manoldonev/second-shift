@@ -35,6 +35,22 @@ on a split it covers every slice — no slice gets a notice of its own.
 - **No `Workflow` tool in this session** → ask nothing; say the fan-out cannot run here, and every
   receipt records `Fan-out: failed — Workflow tool unavailable in this session`.
 
+### After a return from the Interview
+
+When the Interview sent the ticket back to Split and Split created slices (`interview.md`, "Back to
+Split"), Explore runs once more, for the split: **one** fan-out, after the split decision, on the
+parent plus the slice list. That run is the split's fan-out; the earlier one covered only the
+unsplit ticket.
+
+- **The operator skipped at the first notice** → the skip stands for the split; ask nothing again,
+  and every slice receipt carries the same skip line.
+- **The first run went ahead** → give the split's notice, once, as above, saying that it is a
+  second run (its cost again) and that the first one's lenses never saw the seams. On a skip, the
+  slice receipts carry the skip line with the operator's reason.
+
+Pool items the first run already settled as rows stay settled. Each slice receipt's `Run:` line
+names the earlier run as superseded (`receipt.md`, "Fan-out").
+
 ## 2. Launch it
 
 Stage the script (cross-plugin, by name; `$SKILL_DIR` is the intake skill's base directory and

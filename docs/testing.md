@@ -598,9 +598,13 @@ does not owe this list a new entry.
   authoritative text stays in exactly one place.
 - **The dup-scan exit taxonomy.** `dup-scan.sh`'s 0 / 10 / 2 contract is stated once, in the
   Receipt stage of `/intake` (`intake/receipt.md`) — since #1023 the only intake exit, so the
-  `dup-scan-rc2` group that held four exits' copies of the rc-2 arm together was removed with the
-  other three. `dup-scan-selftest.sh` pins each arm's rc AND the message it names, so a taxonomy
-  change reds there before the prose can be silently wrong.
+  `dup-scan-rc2` group that held the three exits' copies of the rc-2 arm together was removed.
+  `dup-scan-selftest.sh` pins each arm's rc AND the message it names, so a taxonomy change reds
+  there before the prose can be silently wrong.
+- **The run-cost bias of a split.** Stated once, in the Split stage of `/intake`
+  (`intake/split.md`, Step 5) — since #1023 the decomposition and the review of the slices as a set
+  share that one file, so the `decomposition-economy` group that held `intake-orchestrator`'s and
+  `decomposition-reviewer`'s copies together was removed with them.
 - **The audit ledger's THIRD copy** — the hook's jq object literal in `audit-tool-calls.sh`, beside
   the live `audit-row-fields` group. A jq construction expression and a prose field list share no
   anchorable bytes. Not reviewer-guarded either: `audit-selftest.sh` Test 9 asserts a real emitted

@@ -48,7 +48,7 @@ Labels: {issue_labels}
 
 EVAL CONSTRAINTS (important):
 - This is an isolated evaluation. Do NOT execute `gh` commands — the environment has no GitHub access and all `gh` calls will fail.
-- Skip every `gh issue view` / `gh issue list` call; the issue body, labels, prior comments, and metadata above ARE the canonical data, and there are no existing slices.
+- Skip every `gh issue view` / `gh issue list` call; the issue body, labels, prior comments, and metadata above ARE the canonical data. Read existing slices from them too: the slices the prior comments name (`Part of #{issue_number}`) are the whole result of the restart search, and when they name none, the ticket has none.
 - For every side effect you would normally perform (creating sub-issues, editing the parent issue, posting a comment), describe it clearly in your final output instead of executing it; treat the operator's yes to creating slices as given.
 - The Requirements stage's spec-reviewer outcome is not in this prompt: dispatch the spec-reviewer Task() once to read it (it stands in for the result Requirements hands on in memory), and dispatch codebase-explorer where the Split stage calls for it — both are wired to mocks that will respond. Dependency analysis is now an in-session subroutine (no Task hop) — run it inline over the codebase-explorer output, do not dispatch a Task for it.
 

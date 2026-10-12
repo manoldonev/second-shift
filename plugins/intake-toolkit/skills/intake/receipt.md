@@ -115,7 +115,9 @@ did or why it did not run, never empty or a bare dash.
   spaces (`interviewing-baseline`, "Fan-out"), or exactly one skipped or failed line. The skip form
   is the operator's: `Fan-out: skipped — by the operator …`. **On a slice:** list only the items
   Explore sorted to this slice, add a `Run:` line naming the shared run
-  (`Run: shared with the #<parent> split — slices #a, #b, #c`), and embed the shared snapshot.
+  (`Run: shared with the #<parent> split — slices #a, #b, #c`), and embed the shared snapshot. When
+  the ticket came back to Split from the Interview, the `Run:` line also names the pre-split run
+  this one superseded (`; supersedes the pre-split run on #<parent>`).
 
 ## Lint it
 

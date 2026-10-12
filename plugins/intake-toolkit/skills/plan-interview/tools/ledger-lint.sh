@@ -743,6 +743,11 @@ if (( RECEIPT == 1 )); then
         STEPS_SEEN="$STEPS_SEEN$key|"; STEP_COUNT=$((STEP_COUNT + 1))
         [[ -n "$outcome" && ! "$outcome" =~ ^(-|—|–)$ ]] || \
           violate "Intake steps '$key:' records no outcome — say what the step did, or why it did not run"
+        # The step line says skipped too, so it names the same skipper the section must (#1023).
+        if [[ "$key" == 'Fan-out' ]] && grep -qiE '^skipped([^[:alnum:]_]|$)' <<< "$outcome" \
+          && ! grep -qiE "^skipped[[:space:]]*(—|–|-|:)?[[:space:]]*${FANOUT_SKIP_BY}([^[:alnum:]_]|\$)" <<< "$outcome"; then
+          violate "Fan-out skip does not name the operator — only the operator skips the fan-out; the Intake steps form is 'Fan-out: skipped — by the operator <where / why>': Fan-out: $outcome"
+        fi
         idx=0; IFS='|' read -r -a keys <<< "$INTAKE_STEP_KEYS"
         while [[ "${keys[$idx]}" != "$key" ]]; do idx=$((idx + 1)); done
         (( idx > last_idx )) || violate "Intake steps '$key:' comes after '$last_key:' — the order is $STEP_ORDER"
