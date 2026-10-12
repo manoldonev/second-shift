@@ -106,7 +106,7 @@ re-scope the rows at intake.
 
 Config `design.provider` must be set, and the ticket's intake record must carry a
 `## Design frames` section (`## Design` is read the same way) in one of two forms — one row per
-screen and state, written at intake by `/intake-toolkit:plan-interview`:
+screen and state, written at intake by `/intake-toolkit:intake`'s Receipt stage:
 
 ```markdown
 ## Design frames

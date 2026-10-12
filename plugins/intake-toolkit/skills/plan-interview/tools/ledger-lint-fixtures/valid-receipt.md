@@ -10,7 +10,7 @@ an `open` row mapped to a declared region, and a surface inventory carrying both
 
 ## Intake steps
 
-Requirements: the ticket body as written — no intake-interviewer pass
+Requirements: the ticket body as written — spec-reviewer: implementable
 Split: not split — one PR's worth of work
 Explore: done — the import worker, its DTOs and the proxy config
 Fan-out: ran — 4 items, see Fan-out

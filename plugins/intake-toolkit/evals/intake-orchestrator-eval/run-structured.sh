@@ -38,7 +38,7 @@ shift || true
 : "${MOCK_MODEL:?MOCK_MODEL is required — set it to a version-pinned model id}"
 
 read -r -d '' PROMPT <<'PROMPT_EOF' || true
-You are being evaluated as the intake-orchestrator. Run your full checklist on the GitHub issue below. RUN_ID: {run_id}.
+You are being evaluated as the Split stage of /intake-toolkit:intake. Read plugins/intake-toolkit/skills/intake/split.md and run it on the GitHub issue below, as if the Requirements stage had just handed it on. RUN_ID: {run_id}.
 
 ISSUE #{issue_number} ({issue_state})
 Title: {issue_title}
@@ -54,9 +54,9 @@ Labels: {issue_labels}
 
 EVAL CONSTRAINTS (important):
 - This is an isolated evaluation. Do NOT execute `gh` commands — the environment has no GitHub access and all `gh` calls will fail.
-- Skip Step 0's `gh issue view` call; the issue body, labels, prior comments, and metadata above ARE the canonical data.
-- For every side effect you would normally perform (creating sub-issues, editing the parent issue, posting a comment), describe it clearly in your final output instead of executing it.
-- Dispatch the Task() sub-agents (spec-reviewer, codebase-explorer) where your checklist calls for them — those are wired to mocks that will respond. (Task dispatch is the EVAL-HARNESS transport only; production dispatches the same fan-out via the Workflow tool / intake-review.mjs. The eval kit cannot mock Workflow agent() calls, so it drives the equivalent Task path — the orchestrator's reasoning over the structured object is identical either way.) In this run the mocks return your sub-agents' RATIONALE-CARRYING STRUCTURED OUTPUT (JSON matching the intake schema: spec-reviewer => {verdict, findings[{severity, category, claim, impact, rationale, suggestion, confidence}]}; codebase-explorer => {modulesAffected, crossModuleDependencies, existingPatterns, estimatedScope, findings}). Parse and reason over the structured object — use each finding's `rationale`/`evidence` to accept or dismiss it, exactly as you would with prose. Dependency analysis is an in-session subroutine (no Task hop) — run it inline over the codebase-explorer object.
+- Skip every `gh issue view` / `gh issue list` call; the issue body, labels, prior comments, and metadata above ARE the canonical data, and there are no existing slices.
+- For every side effect you would normally perform (creating sub-issues, editing the parent issue, posting a comment), describe it clearly in your final output instead of executing it; treat the operator's yes to creating slices as given.
+- The Requirements stage's spec-reviewer outcome is not in this prompt: dispatch the spec-reviewer Task() once to read it (it stands in for the result Requirements hands on in memory), and dispatch codebase-explorer where the Split stage calls for it — both are wired to mocks that will respond. (Task dispatch is the EVAL-HARNESS transport only; production dispatches the same fan-out via the Workflow tool / intake-review.mjs. The eval kit cannot mock Workflow agent() calls, so it drives the equivalent Task path — the orchestrator's reasoning over the structured object is identical either way.) In this run the mocks return your sub-agents' RATIONALE-CARRYING STRUCTURED OUTPUT (JSON matching the intake schema: spec-reviewer => {verdict, findings[{severity, category, claim, impact, rationale, suggestion, confidence}]}; codebase-explorer => {modulesAffected, crossModuleDependencies, existingPatterns, estimatedScope, findings}). Parse and reason over the structured object — use each finding's `rationale`/`evidence` to accept or dismiss it, exactly as you would with prose. Dependency analysis is an in-session subroutine (no Task hop) — run it inline over the codebase-explorer object.
 
 Respond with your final intake comment in the machine-readable format your instructions specify. Include:
 - The `<!-- dev-pipeline -->` / `<!-- stage: intake -->` / `<!-- status: ... -->` markers

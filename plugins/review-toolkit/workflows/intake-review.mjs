@@ -1,7 +1,7 @@
 export const meta = {
   name: 'review-toolkit-intake-review',
   description:
-    "Intake evidence-gathering fan-out for intake-orchestrator and decomposition-reviewer. Dispatches spec-reviewer and codebase-explorer as parallel agent() calls and returns their rationale-carrying structured findings. Critical evaluation, gap resolution, dependency analysis, and the decomposition decision are NOT done here — they stay in the intake-orchestrator session on the caller's model. This mirrors workflows/code-review.mjs (the reviewer fan-out).",
+    "Intake evidence-gathering fan-out for the /intake-toolkit:intake stages (spec-reviewer at Requirements, codebase-explorer at Split). Dispatches the selected agents as parallel agent() calls and returns their rationale-carrying structured findings. Critical evaluation, gap resolution, dependency analysis, and the decomposition decision are NOT done here — they stay in the intake session on the caller's model. This mirrors workflows/code-review.mjs (the reviewer fan-out).",
   phases: [{ title: 'Intake', detail: 'spec-reviewer + codebase-explorer in parallel' }],
 }
 
@@ -172,8 +172,8 @@ if (!Array.isArray(agents) || agents.length === 0) {
 // #306: docsNote used to tell sub-agents these docs were "already read — do not
 // re-fetch" while never placing `d.content` anywhere in the prompt — worse than a
 // no-op, since it forbade the read it never provided. docsBlock now renders the
-// content the caller already resolved (intake-orchestrator SKILL.md's "Finding
-// referenced docs" step), so docsNote's claim is true whenever it fires.
+// content the caller already resolved (the referenced-docs scan in intake's
+// requirements.md), so docsNote's claim is true whenever it fires.
 const docsNote = referencedDocs.length
   ? ` Referenced docs are included below (do not re-fetch): ${referencedDocs.map((d) => d.path).join(', ')}.`
   : ''

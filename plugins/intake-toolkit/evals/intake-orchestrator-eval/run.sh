@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 #
-# Wrapper to invoke the generic agent-eval-kit runner for intake-orchestrator.
+# Wrapper to invoke the generic agent-eval-kit runner for intake-orchestrator — since #1023 the
+# Split stage of /intake (plugins/intake-toolkit/skills/intake/split.md), scored on the same rubric.
+# The --agent-name below is the eval's historical label, kept so results stay comparable.
 #
 # Model identity is the operator's, not the repo's (#356). All three role variables are
 # REQUIRED and must carry a version-pinned id — no default here, and the runner refuses the
@@ -30,7 +32,7 @@ shift || true
 : "${MOCK_MODEL:?MOCK_MODEL is required — set it to a version-pinned model id}"
 
 read -r -d '' PROMPT <<'PROMPT_EOF' || true
-You are being evaluated as the intake-orchestrator. Run your full checklist on the GitHub issue below. RUN_ID: {run_id}.
+You are being evaluated as the Split stage of /intake-toolkit:intake. Read plugins/intake-toolkit/skills/intake/split.md and run it on the GitHub issue below, as if the Requirements stage had just handed it on. RUN_ID: {run_id}.
 
 ISSUE #{issue_number} ({issue_state})
 Title: {issue_title}
@@ -46,9 +48,9 @@ Labels: {issue_labels}
 
 EVAL CONSTRAINTS (important):
 - This is an isolated evaluation. Do NOT execute `gh` commands — the environment has no GitHub access and all `gh` calls will fail.
-- Skip Step 0's `gh issue view` call; the issue body, labels, prior comments, and metadata above ARE the canonical data.
-- For every side effect you would normally perform (creating sub-issues, editing the parent issue, posting a comment), describe it clearly in your final output instead of executing it.
-- Do dispatch the Task() sub-agents (spec-reviewer, codebase-explorer) where your checklist calls for them — those are wired to mocks that will respond. Dependency analysis is now an in-session subroutine (no Task hop) — run it inline over the codebase-explorer output, do not dispatch a Task for it.
+- Skip every `gh issue view` / `gh issue list` call; the issue body, labels, prior comments, and metadata above ARE the canonical data, and there are no existing slices.
+- For every side effect you would normally perform (creating sub-issues, editing the parent issue, posting a comment), describe it clearly in your final output instead of executing it; treat the operator's yes to creating slices as given.
+- The Requirements stage's spec-reviewer outcome is not in this prompt: dispatch the spec-reviewer Task() once to read it (it stands in for the result Requirements hands on in memory), and dispatch codebase-explorer where the Split stage calls for it — both are wired to mocks that will respond. Dependency analysis is now an in-session subroutine (no Task hop) — run it inline over the codebase-explorer output, do not dispatch a Task for it.
 
 Respond with your final intake comment in the machine-readable format your instructions specify. Include:
 - The `<!-- dev-pipeline -->` / `<!-- stage: intake -->` / `<!-- status: ... -->` markers

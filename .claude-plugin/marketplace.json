@@ -22,7 +22,7 @@
     {
       "name": "intake-toolkit",
       "source": "./plugins/intake-toolkit",
-      "description": "Elicitation surface: intake front door, intake-interviewer, intake-orchestrator, plan-interview with Decision Ledger, grill-me, decomposition-reviewer, implementability-probe."
+      "description": "Elicitation surface: /intake as the only way into intake (Requirements, Split, Explore, Interview, Receipt), plan-interview for plan mode with Decision Ledger, grill-me, implementability-probe."
     },
     {
       "name": "design-toolkit",

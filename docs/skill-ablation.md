@@ -35,6 +35,21 @@ git log --format='%h %ad %s' --date=short -- docs/plans/skill-ablation/         
 | — | `intake-orchestrator` (711 lines) | — | not reached by any metric here | **not adjudicated** → #672 |
 | — | `intake-interviewer` (279 lines) | — | registered in scope; no sample ran its path | **not adjudicated** → #672 |
 
+**Since #1023 these intake surfaces are stages of `/intake-toolkit:intake`**, supporting files
+under `skills/intake/` that only that skill reads, and no longer skills of their own. The rows
+above bind the texts as measured; what each stage now outputs is the unit a later measurement
+reaches:
+
+| stage file | measured as | output |
+| --- | --- | --- |
+| `intake/requirements.md` | `intake-interviewer` (its interview), plus the written-ticket spec-reviewer pass | the ticket body and key, and the one spec-reviewer outcome, in memory |
+| `intake/split.md` | `intake-orchestrator` and `decomposition-reviewer` | "not split" and why, or the slices, created without the queue label |
+| `intake/explore.md` | `plan-interview` pre-flight's exploration and fan-out | the snapshot and the fan-out pool |
+| `intake/interview.md` | `plan-interview` (whose protocol it follows) | the Decision Ledger, Open Regions and Surface Inventory |
+| `intake/receipt.md` | `plan-interview` pre-flight's receipt exit | the linted receipt, one per ticket or slice |
+
+`plan-interview` remains a skill for plan mode, writing the in-plan ledger and no receipt.
+
 † **Comparison 2 ran a bare session, not the built-in `/code-review` the ticket names.** The
 departure is declared in §2 with its direction of bias; the verdict is unaffected. The
 `/code-review` comparison itself was run as #671 arm 2a and is reported in §2 — same 4/5, missing a
@@ -821,8 +836,8 @@ table: it is where the terms of the next measurement live, and it contains no re
 | `dev-pipeline/build-lean` | 48 | C1 + #746 arm 1 | **cut-to-delta with an empty cut** — re-measured on the consumer-shaped substrate (§1): bare covers 3–4 of 9, no item is cut-eligible, M3 and M9 `undetermined` at n=2. The repo-local basis is retired | 2026-09-01 |
 | `dev-pipeline/review-lean` | 127 @ `8d5d0897` | C2 + #747 arm 2a | **cut-to-delta** on two independent challengers: bare-session recall 0.80, and the built-in `/code-review` at effort `max` also **0.80** — the comparison #644 named, now measured (§2). The two miss different blockers, so neither dominates and the union is 5/5. Delta **localised** by leave-one-out ablation over the 17 units at `8d5d0897` (#748, 28 runs, control 3/3): no unit carries the 0.20 — U-5, R-3 and R-4 score `no-effect` and are cut-eligible; the other 14 are `not-reached — no basis`. Execution is a further successor (§2) | 2026-09-03 |
 | `intake-toolkit/plan-interview` + `interviewing-baseline` | 312 | C3 | **keep**; bare recall 0.30, delta is the scope-boundary/DEPARTURE class | 2026-08-24 |
-| `intake-toolkit/intake-orchestrator` | 711 | — | **unmeasured — no basis**; no metric here reaches decomposition → successor **#672** | — |
-| `intake-toolkit/intake-interviewer` | 279 | — | **unmeasured — no basis**; registered in scope, no sample exercised its path → successor **#672** (§3) | — |
+| `intake-toolkit/intake-orchestrator` (since #1023 `intake/split.md`) | 711 | — | **unmeasured — no basis**; no metric here reaches decomposition → successor **#672** | — |
+| `intake-toolkit/intake-interviewer` (since #1023 `intake/requirements.md`) | 279 | — | **unmeasured — no basis**; registered in scope, no sample exercised its path → successor **#672** (§3) | — |
 | `review-toolkit/review-lead` | 446 | — | **unmeasured — no basis** | — |
 | `second-shift/onboard` | 472 | — | **unmeasured — no basis** | — |
 | `dev-pipeline/pr-revision` | 385 | — | **unmeasured — no basis** | — |

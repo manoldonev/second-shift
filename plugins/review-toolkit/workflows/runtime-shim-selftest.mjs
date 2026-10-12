@@ -731,7 +731,7 @@ console.log('── Case R: workflow meta literal-purity (relocated from design-
 }
 
 // ---------------------------------------------------------------------------
-// Case FO — intake-fanout.mjs (#916): the production body the plan-interview pre-flight
+// Case FO — intake-fanout.mjs (#916): the production body /intake's Explore stage
 // dispatches, built as the consumer replay measured it. The angles alternate opus and fable,
 // the pre-mortem runs on fable, and every claim is refuted by the family that did not make it
 // (a lens retried onto the other family included). A refuted claim never reaches the pool and a

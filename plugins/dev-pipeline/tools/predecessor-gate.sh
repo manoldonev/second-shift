@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # predecessor-gate.sh — parser for the `Predecessor:` / `Successor:` trailers that
-# intake-orchestrator writes on `sub-issues-sequential` decompositions. Pure logic: no
+# /intake's Split stage writes on `sub-issues-sequential` decompositions. Pure logic: no
 # network, no `gh`, no config reads.
 #
 # Ordering is enforced by keeping blocked successors OUT of the queue:

@@ -24,6 +24,9 @@
 | D-18 | Evals and docs on the old shape | Parked under OR-2 | deferred | open |
 | D-19 | Duplicate scan | No candidates — run: `dup-scan.sh --issue 1023` → "no candidates at or above threshold 12" | codebase-derived | fact |
 | D-20 | Scope size | One ticket, despite ~20 decisions. Options weighed: split into one-channel-in and the Split stage | user-answered | intent |
+| D-21 | Creating slices on a split | Split shows the slice list and creates the slices only on the operator's explicit yes, as Filing does for a rough input; a no records the decision and stops. Reason: D-5's "never writes to a tracker without an explicit yes" would otherwise hold for one issue-create and not the other. Options weighed: auto-create as the orchestrator did | user-delegated | intent |
+| D-22 | Where ledger-lint.sh and dup-scan.sh live | They stay at `skills/plan-interview/tools/`. Reason: run.sh and the exitplan hook resolve the lint there, and moving it would break every consumer's launch lint for no behavior change. Options weighed: move them under `skills/intake/tools/` | user-delegated | intent |
+| D-23 | What a restart counts as "has a receipt" | A slice whose `.claude/pipeline-state/<slice>-ledger.md` exists, or that is closed, or carries the queue or claimed label (D-11 queues only after a clean lint), is left alone; every other `Part of #N` slice gets Explore, Interview and Receipt. Reason: the receipt is local, so the labels are the only cross-machine trace of one. Options weighed: the local file alone | user-delegated | intent |
 
 ## Open Regions
 

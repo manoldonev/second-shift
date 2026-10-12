@@ -167,6 +167,7 @@ SURFACE_EMPTY_FORM='No user-visible surface — this change renders nothing a us
 CHECKS_EMPTY_FORM='No ticket-specific checks — the configured lanes cover this change.'
 FANOUT_TAG_ENUM='new|already-had|overturned|not material'
 FANOUT_EMPTY_POOL='Pool: empty — no claim survived refutation.'
+FANOUT_SKIP_BY='by the operator'   # the one name a fan-out skip may carry (#1023), read case-insensitively at a word end
 INTAKE_STEP_KEYS='Requirements|Split|Explore|Fan-out|Dup-scan|Post-merge scan|Sizing'
 
 # The receipt's version, from its `Receipt:` line (receipt check 0 below); v1 until read.
@@ -645,16 +646,20 @@ if (( RECEIPT == 1 )); then
   # What the intake fan-out achieved over plain intake, per ticket: each surviving evidence
   # item tagged against the interviewer's pre-pool snapshot, a tally, and the snapshot itself
   # so the tags stay auditable from the committed record. A receipt that ran no fan-out says
-  # so — skipped (by whom) or failed (what) — because an absent section reads exactly like a
-  # fan-out nobody ran and nobody recorded.
+  # so — skipped (by the operator) or failed (what) — because an absent section reads exactly like
+  # a fan-out nobody ran and nobody recorded. Only the operator skips it (#1023): a skip in any
+  # other name is a stage deciding on its own that the evidence was not worth gathering.
   if ! has_section 'fan-out' "$PLAN"; then
-    mandated 'Fan-out' && violate "missing mandated receipt section: Fan-out (the tagged evidence pool with its Tally, Refuter and Snapshot, or one explicit form: 'Fan-out: skipped — <by whom / why>' or 'Fan-out: failed — <what>')"
+    mandated 'Fan-out' && violate "missing mandated receipt section: Fan-out (the tagged evidence pool with its Tally, Refuter and Snapshot, or one explicit form: 'Fan-out: skipped — by the operator <where / why>' or 'Fan-out: failed — <what>')"
   else
     FANOUT_SEC="$(section_of 'fan-out' "$PLAN")"
-    if grep -qiE '^[[:space:]]*Fan-out:[[:space:]]*(skipped|failed)[[:space:]]+.*[[:alnum:]]' <<< "$FANOUT_SEC"; then
-      : # an explicit, reasoned skip or failure is the whole section
+    if grep -qiE "^[[:space:]]*Fan-out:[[:space:]]*skipped[[:space:]]*(—|–|-|:)?[[:space:]]*${FANOUT_SKIP_BY}([^[:alnum:]_]|\$)" <<< "$FANOUT_SEC" \
+      || grep -qiE '^[[:space:]]*Fan-out:[[:space:]]*failed[[:space:]]+.*[[:alnum:]]' <<< "$FANOUT_SEC"; then
+      : # the operator's skip, or a reasoned failure, is the whole section
+    elif grep -qiE '^[[:space:]]*Fan-out:[[:space:]]*skipped[[:space:]]+.*[[:alnum:]]' <<< "$FANOUT_SEC"; then
+      violate "Fan-out skip does not name the operator — only the operator skips the fan-out; the form is 'Fan-out: skipped — by the operator <where / why>': $(grep -iE '^[[:space:]]*Fan-out:[[:space:]]*skipped' <<< "$FANOUT_SEC" | head -n 1)"
     elif grep -qiE '^[[:space:]]*Fan-out:[[:space:]]*(skipped|failed)' <<< "$FANOUT_SEC"; then
-      violate "Fan-out states a skip or failure without saying who or what — the forms are 'Fan-out: skipped — <by whom / why>' and 'Fan-out: failed — <what>'"
+      violate "Fan-out states a skip or failure without saying who or what — the forms are 'Fan-out: skipped — by the operator <where / why>' and 'Fan-out: failed — <what>'"
     else
       grep -qiE '^[[:space:]]*Tally:[[:space:]]*.*[[:alnum:]]' <<< "$FANOUT_SEC" || \
         violate "Fan-out has no 'Tally:' line (rows added · snapshot claims overturned · questions added) — the tally is what the section exists to show"

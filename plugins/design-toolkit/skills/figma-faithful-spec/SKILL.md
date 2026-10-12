@@ -38,7 +38,7 @@ These do **not** stack:
 
 - Use **`figma-faithful-spec`** when a Figma design exists and the job is to transcribe it
   faithfully.
-- Use an **interview skill** (e.g. `intake-toolkit:intake-interviewer` where installed) when the
+- Use an **interview** (e.g. `/intake-toolkit:intake`, whose Requirements stage interviews a rough input, where installed) when the
   feature is still being shaped and the spec must be elicited by interview.
 - If a Figma design exists but some behavior is still undecided, **transcribe what Figma shows
   and route the open behavior to the Open Questions section — do not switch to an interview
