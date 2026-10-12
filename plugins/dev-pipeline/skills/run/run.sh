@@ -560,6 +560,13 @@ expectations_changed() { # expectations_changed <name-status> -> each modified e
   done < <(TEST_PATH_ERE="$TEST_PATH_ERE" awk -F'\t' '$1 == "M" && ($2 ~ ENVIRON["TEST_PATH_ERE"] || $2 ~ /(^|\/)__snapshots__\/|\.snap$/) { print $2 }' <<<"$1")
   [ "$listed" -eq 1 ] || echo "(none)"
 }
+policy_edited() { # policy_edited <name-status> -> each row that adds, edits, deletes or renames a review-policy file, either side of a rename (#1009)
+  # the reviewers load these from the head, so a PR is reviewed against policy it can edit; a qualified reviewers.add[] name is a plugin pack, not a repo file
+  local agents; agents="$(cfg '[.reviewers.add[]?.name | strings | select(test("[:/]") | not) | ".claude/agents/" + . + ".md"] | join("\n")')"
+  AGENTS="$agents" awk -F'\t' 'BEGIN { n = split(ENVIRON["AGENTS"], a, "\n"); for (i = 1; i <= n; i++) if (a[i] != "") ag[a[i]] = 1 }
+    function policy(f) { return f == ".claude/second-shift.config.json" || index(f, ".claude/second-shift/") == 1 || (f in ag) }
+    policy($2) || ($3 != "" && policy($3)) { print; k++ } END { if (!k) print "(none)" }' <<<"$1"
+}
 review_input() { # review_input <attempt> -> writes $STATE/review-input-<attempt>.md; 1 when a diff cannot be read (the caller refuses)
   local out="$STATE/review-input-$1.md" ns full names lanes
   ns="$(git -C "$WT" diff --name-status "$FIRST"..HEAD 2>/dev/null)" || return 1
@@ -575,6 +582,8 @@ review_input() { # review_input <attempt> -> writes $STATE/review-input-<attempt
     grep -nE '^\+.*(\.skip\(|\.only\(|\|\| *true|xit\(|xdescribe\(|(^|[^[:alnum:]_.])fit\(|test\.todo\(|@pytest\.mark\.(skip|skipif|xfail)|t\.Skipf?\(|@Disabled|#\[ignore)' <<<"$full" || echo "(none)"; echo
     echo "### CI or check configuration edited"
     grep -E '^\.github/|^\.gitlab|\.ya?ml$|(^|/)package\.json$|vitest\.config|jest\.config|\.eslintrc|eslint\.config\.|tsconfig|(^|/)(pyproject\.toml|pytest\.ini|setup\.cfg|\.coveragerc|Makefile)$' <<<"$names" || echo "(none)"; echo
+    echo "### Review policy edited (the config, review context and repo-local reviewers the reviewers load from this head)"
+    policy_edited "$ns"; echo
     echo "### Configured lanes not run on this diff (when-scoped; no changed file matched their globs)"
     lanes="$(skipped_lanes)"; [ -n "$lanes" ] && printf '%s\n' "$lanes" || echo "(none)"; echo
     echo "### Build session permission denials"; [ -s "$STATE/denials-$A.txt" ] && cat "$STATE/denials-$A.txt" || echo "(none)"; echo
@@ -627,6 +636,7 @@ review_prompt() { # review_prompt <pr> <review-input-file> [<the previous verdic
   echo; echo "Post ONE PR comment$via, its body passed with --body-file <a file in $SCRATCH>, never inline with --body. Its body follows the verdict grammar below exactly. Never edit that comment afterwards."
   echo "Before you post, check your draft: run 'bash $TOOLS/verdict-check.sh <your draft in $SCRATCH> $WT/$RECORD_REL $SCRATCH/record-at-first.md' (the record at the head, then at $FIRST) and fix the draft until it exits 0; it prints every rule the draft breaks. The scheduler runs the same check on the comment you post, and a comment that fails it binds nothing: no status is posted and the review is re-spawned."
   echo "For every file under 'Existing test or snapshot expectations changed' in the scheduler input below, trace its removed expectation to an acceptance criterion of the ticket or a row of the decision record. An entry you cannot trace is a [blocker]: name the file and the expectation, and require the build to cite the criterion or row that authorized the change."
+  echo "For every file under 'Review policy edited' in the scheduler input below, trace the edit to an acceptance criterion of the ticket or a row of the decision record: the reviewers load these files from the head, so this PR is reviewed against the policy it edits. An entry you cannot trace is a [blocker]: name the file, and require the build to cite the criterion or row that authorized the edit. The edit itself is never the blocker; merging it without naming who decided it is."
   echo
   # #991: the verdict grammar, stated once here and once in review/SKILL.md step 8; tools/verdict-check.sh enforces it
   grep -v 'LOCKSTEP-' <<'GRAMMAR'
@@ -651,7 +661,7 @@ GRAMMAR
     echo "The review before you posted a verdict whose comment does not back its own verdict line, so no status was posted and you were spawned in its place. Review the head yourself and post a new verdict comment in the grammar above; never edit the old one. It broke these rules:"
     sed 's/^/- /' "$3"
   fi
-  echo; echo "## Scheduler input (deleted or skipped tests, changed test or snapshot expectations, config edits, the build's permission denials, and the untracked files archived after it)"; cat "$2"
+  echo; echo "## Scheduler input (deleted or skipped tests, changed test or snapshot expectations, config edits, review-policy edits, the build's permission denials, and the untracked files archived after it)"; cat "$2"
 }
 build_allowlist() { # row F3: derived from what the record and config name
   # bash $WT/*: a build runs the scripts it writes in its worktree, which the checks already execute
