@@ -109,6 +109,8 @@ case "$plan" in
   build-edit-expectation) sed '1s/1999/2000/' src/b.test.ts > b.tmp && mv b.tmp src/b.test.ts   # #957: one assertion moved with the code,
                    sed 's/1999/2000/' src/__snapshots__/price.snap > s.tmp && mv s.tmp src/__snapshots__/price.snap   # a snapshot regenerated whole,
                    printf 'it("more", () => {});\n' >> src/a.spec.ts; printf 'it("new", () => {});\n' > src/c.spec.ts; push; openpr ;;   # an additive edit and a new spec
+  build-path-names) for f in $'src/caf\303\251.spec.ts' scripts/x-selftest.sh; do sed '1d' "$f" > e.tmp && mv e.tmp "$f"; done   # #1011: a non-ASCII spec and a selftest each lose an expectation,
+                   git rm -q 'src/old dir/y.spec.ts'; mkdir -p .github/workflows; echo 'on: push' > $'.github/workflows/caf\303\251.yml'; push; openpr ;;   # a spec under a spaced dir is deleted, a non-ASCII CI config added
   build-edit-policy) mkdir -p .claude/second-shift .claude/agents docs; git mv .claude/second-shift/security-rules.md docs/security-rules.md   # #1009: a rename out of the policy dir,
                    echo 'accepted: raw SQL' > .claude/second-shift/review-context.md; echo '{}' > .claude/second-shift.config.json   # added policy files,
                    for a in orders-reviewer billing-reviewer unlisted; do echo "$a" > ".claude/agents/$a.md"; done   # and three agents, one a bare reviewers.add[] name
@@ -1051,6 +1053,20 @@ s="$(rsec 'Deleted or renamed test files')"; grep -qE '^D[[:space:]]+tests/test_
 s="$(rsec 'Added skips')"; grep -q '@pytest.mark.skip' <<<"$s" && grep -q 't.Skip("later")' <<<"$s" && ok "[I10] #956: a pytest skip and a Go t.Skip( are listed" || bad "[I10] #956: skips section: $(tr '\n' '|' <<<"$s")"
 s="$(rsec 'CI or check configuration edited')"; grep -qx 'pyproject.toml' <<<"$s" && grep -qx 'eslint.config.mjs' <<<"$s" && ! grep -q 'test_y.py' <<<"$s" && ok "[I10] #956: the pyproject.toml coverage edit and eslint.config.mjs are listed" || bad "[I10] #956: config section: $(tr '\n' '|' <<<"$s")"
 s="$(rsec 'Configured lanes not run')"; [ "$s" = "docs-lint" ] && grep -q 'ok: true' "$(SD)/checks-1.1.log" && ok "[I10] #956: the when-skipped lane is named while the matched one ran" || bad "[I10] #956: lanes section: $(tr '\n' '|' <<<"$s")"
+
+# I10 #1011: a non-ASCII path, a path with a space and this repo's own *-selftest.* reach every section and the when-glob.
+# Names are NFC bytes (macOS git recomposes to NFC, Linux does not); quotePath=true is pinned through GIT_CONFIG_*, so a
+# machine with a global quotePath=false cannot pass these without run.sh's own -c
+cafe=$'caf\303\251'
+FIXTURE_FILES="src/$cafe.spec.ts scripts/x-selftest.sh" FIXTURE_BODY=$'expect(a).toBe(1)\nexpect(b).toBe(2)' \
+  FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"commands":{"main":{"extraLanes":[{"name":"cafe","when":["src/'"$cafe"'.spec.ts"],"commands":["true cafe"]}]}}}' fixture rp4 ""
+mkdir -p "$d/main/src/old dir"; echo x > "$d/main/src/old dir/y.spec.ts"; git -C "$d/main" add -A; git -C "$d/main" commit -qm "spaced spec"; git -C "$d/main" push -q origin main 2>/dev/null
+printf 'build-path-names\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.quotePath GIT_CONFIG_VALUE_0=true run_case "$d"; expect approved "[I10] #1011 run"
+want="$(printf 'scripts/x-selftest.sh\n  -expect(a).toBe(1)\nsrc/%s.spec.ts\n  -expect(a).toBe(1)' "$cafe")"
+s="$(rsec 'Existing test or snapshot expectations changed')"; [ "$s" = "$want" ] && ok "[I10] #1011: a non-ASCII spec and a *-selftest.sh are named with their removed expectations" || bad "[I10] #1011: expectations section: $(tr '\n' '|' <<<"$s")"
+s="$(rsec 'Deleted or renamed test files')"; [ "$s" = $'D\tsrc/old dir/y.spec.ts' ] && ok "[I10] #1011: a deleted spec whose path holds a space is listed whole" || bad "[I10] #1011: deleted section: $(tr '\n' '|' <<<"$s")"
+s="$(rsec 'CI or check configuration edited')"; [ "$s" = ".github/workflows/$cafe.yml" ] && ok "[I10] #1011: a non-ASCII CI config is listed unquoted" || bad "[I10] #1011: config section: $(tr '\n' '|' <<<"$s")"
+s="$(rsec 'Configured lanes not run')"; [ "$s" = "(none)" ] && grep -qx 'ok: true cafe' "$(SD)/checks-1.1.log" && ok "[I10] #1011: a when-glob naming the non-ASCII path runs its lane" || bad "[I10] #1011: lanes section: $(tr '\n' '|' <<<"$s"); log: $(tr '\n' '|' < "$(SD)/checks-1.1.log")"
 
 # J7: origin/<base> that no longer resolves mid-run is staleness-unreadable, never 'nothing moved'
 fixture rq; printf 'build-pr\nreview-needs-work-drop-base\nbuild-push-only\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect staleness-unreadable "[J7] the base ref vanished before round 2"; [ "$RC" -eq 1 ] && ok "[J7] exit 1" || bad "[J7] exit $RC"

@@ -42,8 +42,8 @@ review's context.
    the `FIRST` you computed, or is not an ancestor of the head, the record commit was rewritten:
    that alone is a blocker.
 4. **Look at what the scheduler would have handed you**, from `git diff $FIRST..HEAD`: deleted or
-   renamed test files (a top-level `tests/`, `__tests__/`, `test_*.py`, `conftest.py`, `_spec.`
-   count too), added skips or forced-green lines (`.skip(`, `.only(`, `|| true`, pytest
+   renamed test files (a top-level `tests/`, `__tests__/`, `test_*.py`, `conftest.py`, `_spec.`,
+   `*-selftest.*` count too), added skips or forced-green lines (`.skip(`, `.only(`, `|| true`, pytest
    `skip`/`skipif`/`xfail`, Go `t.Skip(`, JUnit `@Disabled`, Rust `#[ignore]`, …), edits to CI or
    check configuration (`pyproject.toml`, `pytest.ini`, `setup.cfg`, `.coveragerc`, `Makefile` and a
    nested `package.json` included), modified existing test or snapshot files (`__snapshots__/`
