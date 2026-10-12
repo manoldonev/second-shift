@@ -4,6 +4,28 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v16.7.0
+
+### `dev-pipeline` 16.5.2 → 16.6.0
+
+- **fix(dev-pipeline): needs-work builds act on blockers and bad rows, not notes; findings carry their confidence (#1012)** (#1012)
+  a needs-work round's build is told to fix or rebut each [blocker]
+  and fix each violated or undeterminable record row; [note] findings require
+  nothing and are never rebutted. Verdict findings from review-lead now carry
+  `[Reviewer] file:line (confidence: N)` after their id (asked, not enforced).
+  Migration: none.
+- **feat(dev-pipeline): a PR's edits to its own review policy are surfaced in the scheduler's review input (#1013)** (#1013)
+  the lane's review input names a PR's head-side edits to its own review policy
+  (the second-shift config, `.claude/second-shift/**`, and repo-local `reviewers.add[]` agents),
+  and the review must trace each one to the ticket or a record row, or post a [blocker].
+  Migration: none.
+- **fix(dev-pipeline): the review input's test sections see non-ASCII paths and this repo's selftests (#1015)** (#1015)
+  the scheduler's review input no longer prints (none) for a modified
+  or deleted test at a non-ASCII path, a deleted test whose path holds a space,
+  or a modified *-selftest.* file, and a when-scoped lane whose glob names a
+  non-ASCII path now runs instead of being skipped.
+  Migration: none.
+
 ## v16.6.1
 
 ### `dev-pipeline` 16.5.1 → 16.5.2
