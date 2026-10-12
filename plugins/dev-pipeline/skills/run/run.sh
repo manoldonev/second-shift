@@ -50,7 +50,8 @@
 # Rules every line below keeps:
 #   - a predicate that cannot be evaluated refuses under a named slug; a failed read is never a pass;
 #   - no refusal inside `$(...)`, a pipe or a piped loop — producers return non-zero, the CALLER refuses;
-#   - nothing here discards work: no `reset --hard`, no forced removal, no checkout over a dirty tree;
+#   - nothing here discards work: no `reset --hard`, no forced removal, no checkout over a dirty tree; the one
+#     history rewrite is rebase_onto_base's clean rebase onto a moved base, pushed under a lease;
 #   - the record's sections, the checks and the frames are read from its FIRST commit, never the head —
 #     one exception: the verdict check reads the record at the head too, so a row the build added is scored (#991);
 #   - every session is a fresh process with a wall-clock bound; every attempt keeps its own files;
@@ -59,7 +60,8 @@
 # exit: 0 approved · build-handoff
 #       1 stopped for a human: build-no-pr, build-inflight(-unreadable), build-blocked, pr-ambiguous,
 #         closeout-inflight(-unreadable), staleness-unreadable, verdict-uncheckable (the bound verdict's
-#         body could not be checked against the record)
+#         body could not be checked against the record), baseline-unwritten (a clean rebase was pushed but
+#         the PR body's 'Record baseline:' line could not be moved to the new record commit)
 #       2 usage-* (the argv), env-* (the environment; most fire before anything is spawned, but
 #         env-not-ready, env-worktree*, env-remote-unreadable, env-tracker-unreadable and
 #         env-smoke-unconfigured can fire after a paid session; env-receipt-lint-unavailable: no
@@ -68,7 +70,8 @@
 #       4 budget spent — rounds-spent, checks-red-spent, cost-spent
 #       5 review-unbound — no verdict usable against the current head, after one re-spawn (a verdict
 #         whose body breaks the verdict grammar is not usable)
-#       7 the premise expired mid-run — ticket-closed, staleness-expired
+#       7 the premise expired mid-run — ticket-closed, staleness-expired (the base moved into this branch's
+#         files and the rebase onto it conflicts, or could not be made on a clean tree; a clean one goes on)
 #       129 / 130 / 143 interrupted by HUP / INT / TERM; the session is reaped, the claim is left in place. A
 #                 detached run forwards each of them, sent to its printed pid or its process group, to the run
 # Every exit prints `terminal: <slug>` as its last stdout line so a wrapper routes on the slug.
@@ -792,7 +795,51 @@ premise_holds() { # rows J2, J4-J8: re-asked before every build spawn; a predica
   base_files="$(git -C "$WT" -c core.quotePath=false diff --name-only "$BASE_START" "$base_now" 2>/dev/null)" || terminal staleness-unreadable "cannot diff origin/$BASE_NAME's move ($BASE_START..$base_now)"
   ours="$(git -C "$WT" -c core.quotePath=false diff --name-only "$FIRST" HEAD 2>/dev/null)" || terminal staleness-unreadable "cannot diff this branch against its record commit"
   overlap="$(comm -12 <(printf '%s\n' "$base_files" | sort) <(printf '%s\n' "$ours" | sort) | grep . | head -n 3 | tr '\n' ' ')"
-  [ -z "$overlap" ] || terminal staleness-expired "origin/$BASE_NAME moved into file(s) this branch touches: $overlap"
+  [ -z "$overlap" ] || rebase_onto_base "$base_now" "origin/$BASE_NAME moved into file(s) this branch touches: $overlap"
+}
+rebase_onto_base() { # rebase_onto_base <base sha> <why>: a rebase git completes alone re-anchors the run; a conflict, or anything it cannot vouch for, is the stop
+  # The one history rewrite this file makes. It discards nothing: the tree is clean, origin held the old head until a
+  # leased push replaced it, and every way back is `reset --keep` onto that head. The record commit is rewritten with
+  # the rest, so its blob is verified unchanged and the PR body's 'Record baseline:' line follows it — the review reads
+  # a line naming a commit that is not the record's as a rewritten record (review/SKILL.md step 3).
+  local onto="$1" why="$2" old old_blob new_first conflicts dirty
+  worktree_ready
+  dirty="$(git -C "$WT" status --porcelain 2>/dev/null)" || terminal env-worktree "cannot read the status of $WT"
+  [ -z "$dirty" ] || terminal staleness-expired "$why — not rebased: $WT carries uncommitted work"
+  old="$(git -C "$WT" rev-parse HEAD 2>/dev/null)" || terminal env-worktree "cannot read HEAD in $WT"
+  old_blob="$(git -C "$WT" rev-parse -q --verify "$FIRST:$RECORD_REL" 2>/dev/null)" || terminal env-worktree "cannot read the record at $FIRST:$RECORD_REL"
+  if ! git -C "$WT" rebase -q "$onto" >/dev/null 2>&1; then
+    conflicts="$(git -C "$WT" -c core.quotePath=false diff --name-only --diff-filter=U 2>/dev/null | head -n 3 | tr '\n' ' ')"
+    git -C "$WT" rebase --abort >/dev/null 2>&1 || terminal env-worktree "the rebase onto $onto stopped and could not be aborted — run 'git rebase --abort' in $WT"
+    terminal staleness-expired "$why — the rebase onto $onto conflicts${conflicts:+ in: $conflicts}; rebase by hand, then re-launch"
+  fi
+  new_first="$(git -C "$WT" log --format=%H --diff-filter=A -- "$RECORD_REL" 2>/dev/null | tail -n 1)"
+  if [ -z "$new_first" ] || [ "$(git -C "$WT" rev-parse -q --verify "$new_first:$RECORD_REL" 2>/dev/null)" != "$old_blob" ]; then
+    git -C "$WT" reset -q --keep "$old" 2>/dev/null
+    terminal staleness-expired "$why — not rebased: the rebased branch does not carry the record as committed at $FIRST"
+  fi
+  if ! git -C "$WT" push -q --force-with-lease="$BRANCH:$old" origin "$BRANCH" 2>/dev/null; then
+    git -C "$WT" reset -q --keep "$old" 2>/dev/null
+    terminal env-push "rebased $BRANCH onto $onto but could not push it (origin/$BRANCH may have moved since $old); $WT is back at $old"
+  fi
+  say "staleness: $why — rebased cleanly onto $onto and pushed; record baseline $FIRST -> $new_first"
+  baseline_follows "$FIRST" "$new_first"
+  FIRST="$new_first"; BASE_START="$onto"
+}
+baseline_follows() { # baseline_follows <old> <new>: the open PR's 'Record baseline:' line naming <old> is rewritten to <new>; no PR yet, nothing to follow
+  local pr="$PR" repo body f="$STATE/pr-body-rebased.md" rc
+  if [ -z "$pr" ]; then pr="$(open_prs)" || terminal baseline-unwritten "the branch is rebased (record baseline now $2), but the open PRs of $BRANCH could not be read — set the PR body's 'Record baseline:' line to $2, then re-launch"; pr="$(printf '%s\n' "$pr" | head -n 1)"; fi
+  [ -n "$pr" ] || return 0
+  repo="$(repo_slug)" && body="$("$GH_READ" api "repos/$repo/pulls/$pr" --jq .body 2>/dev/null)" \
+    || terminal baseline-unwritten "the branch is rebased (record baseline now $2), but PR #$pr's body could not be read — set its 'Record baseline:' line to $2, then re-launch"
+  printf '%s\n' "$body" | tr -d '\r' | awk -v old="$1" -v new="$2" '
+    /^Record baseline: [0-9a-f]+[[:space:]]*$/ && length($3) >= 7 && index(old, $3) == 1 { print "Record baseline: " new; n++; next }
+    { print }
+    END { exit n ? 0 : 3 }' > "$f"; rc=$?
+  [ "$rc" -ne 3 ] || { say "staleness: PR #$pr's body names no 'Record baseline: ${1:0:7}…' line; nothing to follow"; return 0; }
+  "$GH" api -X PATCH "repos/$repo/pulls/$pr" -F "body=@$f" >/dev/null 2>&1 \
+    || terminal baseline-unwritten "the branch is rebased (record baseline now $2), but PR #$pr's body could not be written (it is in $f) — set its 'Record baseline:' line to $2, then re-launch"
+  say "staleness: PR #$pr's 'Record baseline:' line now names $2"
 }
 
 # -- the PR (rows E7-E13, E16) --

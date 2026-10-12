@@ -125,7 +125,7 @@ case "$plan" in
   build-pr-add-row) printf '| D-2 | added by the build | x | user-delegated |\n' >> "$(git ls-files 'docs/plans/*-decisions.md')"; push; openpr ;;   # #991: a row only the head carries
   build-pr-rm-record) git rm -q "$(git ls-files 'docs/plans/*-decisions.md')"; push; openpr ;;   # #991: no record at the head to check a verdict against
   review-crash)    printf '{"subtype":"error_during_execution","total_cost_usd":0}\n'; exit 1 ;;
-  review-approve|review-needs-work|review-wrong-sha|review-approve-dirty|review-approve-runtime|review-approve-and-push|review-needs-work-drop-base|review-needs-work-diverge|review-needs-work-notes-reason)
+  review-approve|review-needs-work|review-wrong-sha|review-approve-dirty|review-approve-runtime|review-approve-and-push|review-needs-work-drop-base|review-needs-work-diverge|review-needs-work-notes-reason|review-needs-work-move-base)
     sha=$(git rev-parse "origin/$branch"); [ "$plan" = review-wrong-sha ] && sha=deadbeef
     v=approve; case "$plan" in review-needs-work*) v=needs-work ;; esac
     extra=""; [ "$plan" = review-needs-work-notes-reason ] && extra=$'\n## Notes\n\nreason: render-unavailable'   # prose, not line 3
@@ -136,6 +136,8 @@ case "$plan" in
       review-approve-and-push) push ;;
       review-needs-work-drop-base) git -C "$(git remote get-url origin)" update-ref -d refs/heads/main ;;
       review-needs-work-diverge) git push -q -f origin "$(git commit-tree "HEAD~1^{tree}" -p HEAD~1 -m diverged)":"refs/heads/$branch" ;;
+      review-needs-work-move-base) b="$(mktemp -d)"; git clone -q "$(git remote get-url origin)" "$b" 2>/dev/null   # main edits work.txt's FIRST line; the build appends
+                                   sed '1s/.*/moved/' "$b/work.txt" > "$b/w" && mv "$b/w" "$b/work.txt" && git -C "$b" commit -qam "base moves into the branch's file" && git -C "$b" push -q origin main; rm -rf "$b" ;;
     esac ;;
   # #991 AC-2: verdicts whose own comment does not back their verdict line
   review-bad-approve-blocker)  post "$(ROWS='| D-1 | honored | fake |' FINDINGS='- [blocker] B1 must change before merge' vbody approve "$(git rev-parse "origin/$branch")")" ;;
@@ -576,7 +578,29 @@ OUT="$( cd "$d/main" && PATH="$T/bin:$PATH" env -u RUN_GH -u GH_BOT bash "$RUN" 
 expect env-bot "(u2) bot enabled but its wrapper missing is a refusal, never a silent write as the operator"
 fixture u3; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(u3) first run"
 ( cd "$d/main" && git fetch -q origin && git reset -q --hard origin/main && echo moved >> work.txt && git add work.txt && git commit -qm "base moves onto the branch's file" && git push -q origin main ) 2>/dev/null
+u3_head="$(git -C "$d/origin.git" rev-parse second-shift/42)"
 printf 'build-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; : > "$FAKE_GH/calls"; printf 'in-progress\nopus\n' > "$FAKE_GH/labels"; run_case "$d" --resume; expect staleness-expired "(u3) on re-entry the base move since the BRANCH POINT is seen"; [ "$RC" -eq 7 ] && ok "(u3) [B12] staleness-expired exits 7" || bad "(u3) exit $RC"
+grep -q 'the rebase onto [0-9a-f]* conflicts in: work.txt' <<<"$OUT" && [ "$(git -C "$d/origin.git" rev-parse second-shift/42)" = "$u3_head" ] && [ -z "$(git -C "$d/wt/42" status --porcelain 2>/dev/null)" ] \
+  && ok "(u3) a conflicting rebase is aborted: the stop names the file, origin and the worktree are as they were" || bad "(u3) $(grep -E 'terminal|rebase' <<<"$OUT" | tr '\n' '|')"
+# (u3r) a base move into the branch's file that git rebases cleanly goes on: the branch is rebased and pushed, and the
+#       record baseline — in the PR body and in the next build's prompt — follows the rewritten record commit
+FIXTURE_FILES=work.txt FIXTURE_BODY=$'a\nb\nc\nd\ne' fixture u3r; commit_record
+first0="$(git -C "$d/origin.git" log --format=%H --diff-filter=A second-shift/42 -- docs/plans/main-42-decisions.md | tail -n 1)"
+printf 'built-by: fake\n\nRecord baseline: %s\n' "${first0:0:12}" > "$FAKE_GH/live-body"
+cat > "$T/bin/gh-body" <<EOF
+#!/usr/bin/env bash
+# the PR body as GitHub serves it: --jq .body reads it raw, a PATCH replaces it and is kept in order
+if [ "\$1 \$2" = "api repos/o/r/pulls/7" ]; then cat "\$FAKE_GH/live-body"; exit 0; fi
+if [ "\$1 \$2 \$3" = "api -X PATCH" ]; then for a in "\$@"; do case "\$a" in body=@*) cp "\${a#body=@}" "\$FAKE_GH/live-body"; { cat "\${a#body=@}"; echo '<!-- end of patch -->'; } >> "\$FAKE_GH/patches" ;; esac; done; fi
+exec "$T/bin/gh" "\$@"
+EOF
+chmod +x "$T/bin/gh-body"; printf 'build-pr\nreview-needs-work-move-base\nbuild-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"
+RUN_GH="$T/bin/gh-body" run_case "$d"; expect approved "(u3r) a clean rebase onto a base that moved into the branch's file does not stop the run"
+first1="$(git -C "$d/origin.git" log --format=%H --diff-filter=A second-shift/42 -- docs/plans/main-42-decisions.md | tail -n 1)"
+git -C "$d/origin.git" merge-base --is-ancestor main second-shift/42 && [ "$(git -C "$d/origin.git" show second-shift/42:work.txt | head -n 1)" = moved ] && [ "$first1" != "$first0" ] \
+  && ok "(u3r) the branch on origin is rebased onto the moved base and its record commit is new" || bad "(u3r) origin: first $first0 -> $first1, work.txt line 1 '$(git -C "$d/origin.git" show second-shift/42:work.txt | head -n 1)'"
+grep -qx "Record baseline: $first1" "$FAKE_GH/patches" && grep -qx "Record baseline: $first1" "$FAKE_GH/live-body" && grep -q "Record baseline: $first1" "$FAKE_GH/prompt-3.txt" \
+  && ok "(u3r) the PR body's 'Record baseline:' line and the round-2 build prompt name the rebased record commit" || bad "(u3r) baseline: body $(grep 'Record baseline' "$FAKE_GH/live-body"), want $first1"
 fixture u4; printf 'build-pr\nreview-crash\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect review-unbound "(u4) a review session that died is not a verdict"
 fixture u5; cat > "$T/bin/gh-nocomment" <<EOF
 #!/usr/bin/env bash

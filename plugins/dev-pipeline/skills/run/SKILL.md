@@ -56,12 +56,12 @@ env, phases and the exit table. It is the truth; this file only says what is you
    | rc | slugs | what you do |
    | --- | --- | --- |
    | `0` | `approved` | Report the PR. Merging is a human's act. (`build-handoff` is `/dev-pipeline:build`'s stop, never a run's.) |
-   | `1` | `build-no-pr`, `build-blocked`, `build-inflight(-unreadable)`, `pr-ambiguous`, `closeout-inflight(-unreadable)`, `staleness-unreadable`, `verdict-uncheckable` | Stop and report the slug and its detail line; a human decides. Worktree and claim are left in place. |
+   | `1` | `build-no-pr`, `build-blocked`, `build-inflight(-unreadable)`, `pr-ambiguous`, `closeout-inflight(-unreadable)`, `staleness-unreadable`, `verdict-uncheckable`, `baseline-unwritten` | Stop and report the slug and its detail line; a human decides. Worktree and claim are left in place. |
    | `2` | `usage-*`, `env-*` (among them `env-receipt-lint-unavailable`: no intake-toolkit lint this run can trust for the receipt), `claimed-elsewhere` | Fix what the detail line names and re-launch the same command. On `claimed-elsewhere`, stop: `--resume` takes over someone else's claim (or a `/dev-pipeline:build` handoff's), and that is the operator's call. |
    | `3` | `not-queued`, `env-no-record`, `env-receipt-invalid` | Resumable. Pay off intake (`/intake-toolkit:intake`, or `/intake-toolkit:plan-interview <issue>` for a missing record or one that fails `ledger-lint.sh --receipt`) and re-launch the same command. |
    | `4` | `rounds-spent`, `checks-red-spent`, `cost-spent` | Stop. A spent budget is a human's read, never an automatic re-launch. |
    | `5` | `review-unbound` | Run `/dev-pipeline:review <pr>` by hand in a fresh session: a rebuild fixes nothing. |
-   | `7` | `ticket-closed`, `staleness-expired` | Closed: stop. Stale: the base moved into this branch's files — rebase the branch, then re-launch; the claim marker lets it re-enter. |
+   | `7` | `ticket-closed`, `staleness-expired` | Closed: stop. Stale: the base moved into this branch's files and `R` could not rebase onto it (a conflict, or uncommitted work in the worktree) — rebase the branch, then re-launch; the claim marker lets it re-enter. A clean rebase is `R`'s own: it pushes it and moves the PR body's `Record baseline:` line, and the run goes on. |
    | `129` / `130` / `143` | interrupted | The claim is left in place; re-launch to re-enter. |
 
 ## Rules that are not negotiable
