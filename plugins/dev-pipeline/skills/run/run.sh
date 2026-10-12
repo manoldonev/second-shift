@@ -561,6 +561,13 @@ expectations_changed() { # expectations_changed <name-status> -> each modified e
   done < <(TEST_PATH_ERE="$TEST_PATH_ERE" awk -F'\t' '$1 == "M" && ($2 ~ ENVIRON["TEST_PATH_ERE"] || $2 ~ /(^|\/)__snapshots__\/|\.snap$/) { print $2 }' <<<"$1")
   [ "$listed" -eq 1 ] || echo "(none)"
 }
+policy_edited() { # policy_edited <name-status> -> each row that adds, edits, deletes or renames a review-policy file, either side of a rename (#1009)
+  # the reviewers load these from the head, so a PR is reviewed against policy it can edit; a qualified reviewers.add[] name is a plugin pack, not a repo file
+  local agents; agents="$(cfg '[.reviewers.add[]?.name | strings | select(test("[:/]") | not) | ".claude/agents/" + . + ".md"] | join("\n")')"
+  AGENTS="$agents" awk -F'\t' 'BEGIN { n = split(ENVIRON["AGENTS"], a, "\n"); for (i = 1; i <= n; i++) if (a[i] != "") ag[a[i]] = 1 }
+    function policy(f) { return f == ".claude/second-shift.config.json" || index(f, ".claude/second-shift/") == 1 || (f in ag) }
+    policy($2) || ($3 != "" && policy($3)) { print; k++ } END { if (!k) print "(none)" }' <<<"$1"
+}
 review_input() { # review_input <attempt> -> writes $STATE/review-input-<attempt>.md; 1 when a diff cannot be read (the caller refuses)
   local out="$STATE/review-input-$1.md" ns full names lanes
   ns="$(git -C "$WT" -c core.quotePath=false diff --name-status "$FIRST"..HEAD 2>/dev/null)" || return 1
@@ -576,6 +583,8 @@ review_input() { # review_input <attempt> -> writes $STATE/review-input-<attempt
     grep -nE '^\+.*(\.skip\(|\.only\(|\|\| *true|xit\(|xdescribe\(|(^|[^[:alnum:]_.])fit\(|test\.todo\(|@pytest\.mark\.(skip|skipif|xfail)|t\.Skipf?\(|@Disabled|#\[ignore)' <<<"$full" || echo "(none)"; echo
     echo "### CI or check configuration edited"
     grep -E '^\.github/|^\.gitlab|\.ya?ml$|(^|/)package\.json$|vitest\.config|jest\.config|\.eslintrc|eslint\.config\.|tsconfig|(^|/)(pyproject\.toml|pytest\.ini|setup\.cfg|\.coveragerc|Makefile)$' <<<"$names" || echo "(none)"; echo
+    echo "### Review policy edited (the config, review context and repo-local reviewers the reviewers load from this head)"
+    policy_edited "$ns"; echo
     echo "### Configured lanes not run on this diff (when-scoped; no changed file matched their globs)"
     lanes="$(skipped_lanes)"; [ -n "$lanes" ] && printf '%s\n' "$lanes" || echo "(none)"; echo
     echo "### Build session permission denials"; [ -s "$STATE/denials-$A.txt" ] && cat "$STATE/denials-$A.txt" || echo "(none)"; echo
@@ -603,7 +612,7 @@ build_prompt() { # build_prompt <round> <review-findings-file-or-empty> <red-che
   if [ "$1" -eq 1 ]; then
     echo "When the checks are green, commit, push branch $BRANCH to origin and, unless one is already open for this branch, open a DRAFT PR against $BASE_NAME with 'gh pr create --draft --base $BASE_NAME', and leave it a draft: the scheduler marks it ready for review only when a review approves its head. The PR body, in order: line 1 exactly 'built-by: second-shift run $RUN_ID'; then a link to the decision record at $RECORD_REL; then the line 'Record baseline: $FIRST'; then a summary of the change;"
     if [ "$TRACKER" = github ]; then echo "and the line 'Closes #$ISSUE' so the ticket closes on merge."; else echo "and a '### Jira Items' heading with the line 'Closes [$ISSUE]'."; fi
-  else echo "Address the review findings below: fix each, or rebut it in a PR comment. Then commit and push $BRANCH."; fi
+  else echo "Address the review below: fix each [blocker] finding, or rebut it in a PR comment, and fix each decision record row it scored violated or undeterminable (or edit that row, as the record rules below allow). A [note] finding requires nothing: fix one only if you choose to, and never rebut or reply to one. Then commit and push $BRANCH."; fi
   echo; echo "The following decisions were settled with the requester before implementation started. They are binding. The record is committed at $RECORD_REL; if you must depart from a row, edit that row in place (new resolution, provenance user-delegated, a one-line reason) and commit the edit with the code. A material decision no row covers gets a new row the same way. Commit $FIRST is the record baseline the review reads: never amend, rebase or force-push over it. Never post a comment starting with 'verdict:'."
   echo; record_at_first
   if [ -n "$(frames_rows)" ]; then
@@ -628,6 +637,7 @@ review_prompt() { # review_prompt <pr> <review-input-file> [<the previous verdic
   echo; echo "Post ONE PR comment$via, its body passed with --body-file <a file in $SCRATCH>, never inline with --body. Its body follows the verdict grammar below exactly. Never edit that comment afterwards."
   echo "Before you post, check your draft: run 'bash $TOOLS/verdict-check.sh <your draft in $SCRATCH> $WT/$RECORD_REL $SCRATCH/record-at-first.md' (the record at the head, then at $FIRST) and fix the draft until it exits 0; it prints every rule the draft breaks. The scheduler runs the same check on the comment you post, and a comment that fails it binds nothing: no status is posted and the review is re-spawned."
   echo "For every file under 'Existing test or snapshot expectations changed' in the scheduler input below, trace its removed expectation to an acceptance criterion of the ticket or a row of the decision record. An entry you cannot trace is a [blocker]: name the file and the expectation, and require the build to cite the criterion or row that authorized the change."
+  echo "For every file under 'Review policy edited' in the scheduler input below, trace the edit to an acceptance criterion of the ticket or a row of the decision record: the reviewers load these files from the head, so this PR is reviewed against the policy it edits. An entry you cannot trace is a [blocker]: name the file, and require the build to cite the criterion or row that authorized the edit. The edit itself is never the blocker; merging it without naming who decided it is."
   echo
   # #991: the verdict grammar, stated once here and once in review/SKILL.md step 8; tools/verdict-check.sh enforces it
   grep -v 'LOCKSTEP-' <<'GRAMMAR'
@@ -636,6 +646,7 @@ The verdict comment has these parts, in this order and nothing else:
 - Line 1 is exactly `verdict: approve` or `verdict: needs-work`. Line 2 is exactly `reviewed: <the full sha of the head you reviewed>`. An optional line 3 is exactly `reason: render-unavailable`.
 - `## Decision record rows`, then a table headed `| Row | Score | Evidence |` and its `| --- | --- | --- |` line, with one row for every `D-n` row of the record at its first commit and at the head: a row the build deleted and a row it added are both scored. The Row cell's first token is the row's `D-n` id, and the Score cell's first word is one of `honored`, `violated`, `departed`, `undeterminable`. The section holds the table and blank lines only: per-row detail goes in the Evidence cell, anything else in `## Notes`. Other row kinds, such as `RS-n`, are not scored in this table.
 - `## Findings`, which runs to the next `## ` heading. Each finding starts with `- [blocker] B<n> ` or `- [note] N<n> `, and its continuation lines are indented two or more spaces. Suppressed findings are `[note]`s. A section with no findings holds the single line `None.`.
+- After its id and one space, a finding from review-lead's report carries that report's reviewer, file:line and confidence in its form: `- [blocker] B1 [Reviewer] file:line (confidence: N) — <text>`, file:line only where the finding has one. A finding you raise from a rule (a violated or undeterminable row, an untraced test-expectation change) or as a process note names its rule and carries no number: never invent a score.
 - `## Panel` (optional): the panel lines review-lead writes.
 - `## Notes` (optional): free prose for the human, such as process notes or `revised after reading the build's account: <what changed>`. Nothing in it counts toward the verdict.
 
@@ -651,7 +662,7 @@ GRAMMAR
     echo "The review before you posted a verdict whose comment does not back its own verdict line, so no status was posted and you were spawned in its place. Review the head yourself and post a new verdict comment in the grammar above; never edit the old one. It broke these rules:"
     sed 's/^/- /' "$3"
   fi
-  echo; echo "## Scheduler input (deleted or skipped tests, changed test or snapshot expectations, config edits, the build's permission denials, and the untracked files archived after it)"; cat "$2"
+  echo; echo "## Scheduler input (deleted or skipped tests, changed test or snapshot expectations, config edits, review-policy edits, the build's permission denials, and the untracked files archived after it)"; cat "$2"
 }
 build_allowlist() { # row F3: derived from what the record and config name
   # bash $WT/*: a build runs the scripts it writes in its worktree, which the checks already execute

@@ -48,9 +48,15 @@ review's context.
    check configuration (`pyproject.toml`, `pytest.ini`, `setup.cfg`, `.coveragerc`, `Makefile` and a
    nested `package.json` included), modified existing test or snapshot files (`__snapshots__/`
    or `.snap`) and their removed expectations, each traced to an acceptance criterion or a record
-   row (an untraced one is a `[blocker]` that requires the citation), and every `when`-scoped `extraLanes` entry no changed file
-   matched — a configured lane that did not run on this diff. Each is a question the diff must
-   answer, whatever the stack.
+   row (an untraced one is a `[blocker]` that requires the citation), every `when`-scoped `extraLanes` entry no changed file
+   matched — a configured lane that did not run on this diff — and every added, edited, deleted or
+   renamed review-policy file (`git diff --name-status $FIRST..HEAD`, both sides of a rename):
+   `.claude/second-shift.config.json`, anything under `.claude/second-shift/`, and
+   `.claude/agents/<name>.md` for each bare name under the config's `reviewers.add[]`. The
+   reviewers load those from the head, so the PR is reviewed against policy it edits: trace each
+   to an acceptance criterion or a record row; an untraced one is a `[blocker]` that requires the
+   citation — the edit itself is never blocked. Each is a question the diff must answer, whatever
+   the stack.
 5. **Score EVERY row of the record** against the code: `honored`, `violated`, `departed` (the row
    was edited; name who decided, per its provenance), or `undeterminable` (say what you could not
    read). A violated or undeterminable row is a blocker; neither may stand beside an approve.
@@ -89,6 +95,7 @@ review's context.
    - Line 1 is exactly `verdict: approve` or `verdict: needs-work`. Line 2 is exactly `reviewed: <the full sha of the head you reviewed>`. An optional line 3 is exactly `reason: render-unavailable`.
    - `## Decision record rows`, then a table headed `| Row | Score | Evidence |` and its `| --- | --- | --- |` line, with one row for every `D-n` row of the record at its first commit and at the head: a row the build deleted and a row it added are both scored. The Row cell's first token is the row's `D-n` id, and the Score cell's first word is one of `honored`, `violated`, `departed`, `undeterminable`. The section holds the table and blank lines only: per-row detail goes in the Evidence cell, anything else in `## Notes`. Other row kinds, such as `RS-n`, are not scored in this table.
    - `## Findings`, which runs to the next `## ` heading. Each finding starts with `- [blocker] B<n> ` or `- [note] N<n> `, and its continuation lines are indented two or more spaces. Suppressed findings are `[note]`s. A section with no findings holds the single line `None.`.
+   - After its id and one space, a finding from review-lead's report carries that report's reviewer, file:line and confidence in its form: `- [blocker] B1 [Reviewer] file:line (confidence: N) — <text>`, file:line only where the finding has one. A finding you raise from a rule (a violated or undeterminable row, an untraced test-expectation change) or as a process note names its rule and carries no number: never invent a score.
    - `## Panel` (optional): the panel lines review-lead writes.
    - `## Notes` (optional): free prose for the human, such as process notes or `revised after reading the build's account: <what changed>`. Nothing in it counts toward the verdict.
 

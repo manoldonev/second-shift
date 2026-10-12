@@ -111,6 +111,10 @@ case "$plan" in
                    printf 'it("more", () => {});\n' >> src/a.spec.ts; printf 'it("new", () => {});\n' > src/c.spec.ts; push; openpr ;;   # an additive edit and a new spec
   build-path-names) for f in $'src/caf\303\251.spec.ts' scripts/x-selftest.sh; do sed '1d' "$f" > e.tmp && mv e.tmp "$f"; done   # #1011: a non-ASCII spec and a selftest each lose an expectation,
                    git rm -q 'src/old dir/y.spec.ts'; mkdir -p .github/workflows; echo 'on: push' > $'.github/workflows/caf\303\251.yml'; push; openpr ;;   # a spec under a spaced dir is deleted, a non-ASCII CI config added
+  build-edit-policy) mkdir -p .claude/second-shift .claude/agents docs; git mv .claude/second-shift/security-rules.md docs/security-rules.md   # #1009: a rename out of the policy dir,
+                   echo 'accepted: raw SQL' > .claude/second-shift/review-context.md; echo '{}' > .claude/second-shift.config.json   # added policy files,
+                   for a in orders-reviewer billing-reviewer unlisted; do echo "$a" > ".claude/agents/$a.md"; done   # and three agents, one a bare reviewers.add[] name
+                   git add -f .claude/second-shift .claude/second-shift.config.json .claude/agents; push; openpr ;;   # forced: the fixture gitignores .claude/
   build-pr-add-row) printf '| D-2 | added by the build | x | user-delegated |\n' >> "$(git ls-files 'docs/plans/*-decisions.md')"; push; openpr ;;   # #991: a row only the head carries
   build-pr-rm-record) git rm -q "$(git ls-files 'docs/plans/*-decisions.md')"; push; openpr ;;   # #991: no record at the head to check a verdict against
   review-crash)    printf '{"subtype":"error_during_execution","total_cost_usd":0}\n'; exit 1 ;;
@@ -130,6 +134,8 @@ case "$plan" in
   review-bad-approve-blocker)  post "$(ROWS='| D-1 | honored | fake |' FINDINGS='- [blocker] B1 must change before merge' vbody approve "$(git rev-parse "origin/$branch")")" ;;
   review-bad-approve-violated) post "$(ROWS='| D-1 | violated | fake |' vbody approve "$(git rev-parse "origin/$branch")")" ;;
   review-bad-needs-work-noblocker) post "$(FINDINGS='- [note] N1 nothing required' vbody needs-work "$(git rev-parse "origin/$branch")")" ;;
+  review-needs-work-mixed) # #1010: one blocker and one note, in the grammar's review-lead form
+    post "$(FINDINGS=$'- [blocker] B1 [Maintainability] src/a.ts:3 (confidence: 85) — mixed blocker\n- [note] N1 [Complexity] src/a.ts:9 (confidence: 60) — mixed note' vbody needs-work "$(git rev-parse "origin/$branch")")" ;;
   review-render-unavailable) sha=$(git rev-parse "origin/$branch")
     post "$(printf 'verdict: needs-work\nreviewed: %s\nreason: render-unavailable\n\n## Decision record rows\n\n| Row | Score | Evidence |\n| --- | --- | --- |\n\n## Findings\n\nNone.' "$sha")" ;;
   review-two-verdicts) # both bind; the LAST posted wins: $FAKE_ORDER = needs-work,approve or approve,needs-work
@@ -254,6 +260,17 @@ fixture b; printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-approve\
 run_case "$d"; expect approved "(b) needs-work, fix, approve"
 grep -q 'verdict: needs-work' "$FAKE_GH/prompt-3.txt" && ok "(b) round-2 build prompt carries the findings" || bad "(b) findings not in round-2 prompt"
 printf '%s\n' "$OUT" | grep -q '2 round' && ok "(b) two rounds counted" || bad "(b) round count wrong"
+
+# (b3) #1010: a mixed needs-work (a blocker, a note) binds, and its round-2 build is ordered to act on the blocker, not the note.
+# A grep on the emitted prompt, by necessity: the fake build never reads its prompt, so no run can show what it was told
+fixture b3; printf 'build-pr\nreview-needs-work-mixed\nbuild-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"
+run_case "$d"; expect approved "(b3) a mixed needs-work binds, fix, approve"
+grep -qF -- '- [blocker] B1 [Maintainability] src/a.ts:3 (confidence: 85)' "$FAKE_GH/prompt-3.txt" && grep -qF -- '- [note] N1 [Complexity] src/a.ts:9 (confidence: 60)' "$FAKE_GH/prompt-3.txt" \
+  && ok "(b3) both finding lines, confidence included, reach the round-2 build" || bad "(b3) a finding line is missing from prompt-3"
+grep -qF 'fix each [blocker] finding, or rebut it' "$FAKE_GH/prompt-3.txt" && grep -qF 'violated or undeterminable' "$FAKE_GH/prompt-3.txt" \
+  && ok "(b3) the build is ordered to fix or rebut each blocker and fix each bad row" || bad "(b3) the round-2 prompt does not split blockers from notes"
+grep -qF 'A [note] finding requires nothing' "$FAKE_GH/prompt-3.txt" && ok "(b3) a note is named optional" || bad "(b3) the round-2 prompt does not free the notes"
+! grep -qF 'fix each, or rebut it' "$FAKE_GH/prompt-3.txt" && ok "(b3) the every-finding order is gone" || bad "(b3) the prompt still orders every finding addressed"
 
 # (b2) a check red in round 2 sits beside the review's findings, never in place of them: the retry still has what the review asked for
 fixture b2 "- ! grep -qx 3 work.txt"; printf 'build-pr\nreview-needs-work\nbuild-push-only\nbuild-push-only\n' > "$FAKE_CLAUDE_PLAN"
@@ -1007,6 +1024,20 @@ grep -q 'it.skip' "$(SD)/review-1.1.prompt" && grep -q 'ci.yml' "$(SD)/review-1.
 rsec() { awk -v h="### $1" 'index($0, h) == 1 {on=1; next} /^###/{on=0} on && NF' "$(SD)/review-input-1.1.md" 2>/dev/null; }
 [ "$(rsec 'Deleted or renamed test files')" = "(none)" ] && [ "$(rsec 'Configured lanes not run')" = "(none)" ] && ok "[I10] #956: the deleted-tests and skipped-lanes sections say (none) when empty" || bad "[I10] #956: deleted=[$(rsec 'Deleted or renamed test files')] lanes=[$(rsec 'Configured lanes not run')]"
 [ "$(rsec 'Existing test or snapshot expectations changed')" = "(none)" ] && ok "[I10] #957: lines only added to an existing spec change no expectation: (none)" || bad "[I10] #957: additive section: [$(rsec 'Existing test or snapshot expectations changed')]"
+[ "$(rsec 'Review policy edited')" = "(none)" ] && ok "[I10] #1009: a diff that edits no review policy says (none)" || bad "[I10] #1009: policy section: [$(rsec 'Review policy edited')]"
+
+# I10 #1009: head-side edits to the review policy reach the review input: both sides of a rename out of the policy dir,
+# the config and context files, and the repo-local agent of a bare reviewers.add[] name only
+FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"reviewers":{"add":[{"name":"orders-reviewer"},{"name":"pack:billing-reviewer"}]}}' fixture rpol
+mkdir -p "$d/main/.claude/second-shift"; echo 'never raw SQL' > "$d/main/.claude/second-shift/security-rules.md"
+git -C "$d/main" add -f .claude/second-shift/security-rules.md && git -C "$d/main" commit -qm policy && git -C "$d/main" push -q origin main
+printf 'build-edit-policy\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "[I10] #1009 run"
+s="$(rsec 'Review policy edited')"
+grep -qxE $'R[0-9]+\t\\.claude/second-shift/security-rules\\.md\tdocs/security-rules\\.md' <<<"$s" && grep -qxF $'A\t.claude/second-shift/review-context.md' <<<"$s" \
+  && grep -qxF $'A\t.claude/second-shift.config.json' <<<"$s" && grep -qxF $'A\t.claude/agents/orders-reviewer.md' <<<"$s" && [ "$(grep -c '' <<<"$s")" -eq 4 ] \
+  && ok "[I10] #1009: the rename out of the policy dir, the context and config files and the bare reviewers.add[] agent are listed; the pack and unlisted agents are not" || bad "[I10] #1009: policy section: $(tr '\n\t' '| ' <<<"$s")"
+grep -q '^### Review policy edited' "$(SD)/review-1.1.prompt" && grep -q "For every file under 'Review policy edited' in the scheduler input below, trace the edit" "$(SD)/review-1.1.prompt" \
+  && ok "[I10] #1009: the section and its trace instruction reach the review prompt" || bad "[I10] #1009: not in the review prompt"
 
 # I10 #957: a modified existing spec and a snapshot outside the spec pattern are listed with their removed lines, capped at 20
 FIXTURE_FILES="src/b.test.ts src/__snapshots__/price.snap" FIXTURE_BODY="$(for i in $(seq 1 22); do echo "expect(v$i).toBe(1999)"; done)" fixture rp3

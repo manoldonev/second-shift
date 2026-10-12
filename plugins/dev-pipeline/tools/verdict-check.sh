@@ -14,7 +14,9 @@
 #   cell's first token is a record `D-n` id, the Score cell's first word one of
 #   honored|violated|departed|undeterminable;
 #   `## Findings`: each finding starts `- [blocker] B<n> ` or `- [note] N<n> `, continuation lines are
-#   indented two or more spaces, and a section with no findings holds the single line `None.`;
+#   indented two or more spaces, and a section with no findings holds the single line `None.`; the
+#   grammar asks a review-lead finding to carry `[Reviewer] file:line (confidence: N)` after the id,
+#   but nothing here checks it (#1010 D-9): the rest of the line is free text;
 #   `## Panel` (optional, not parsed) and `## Notes` (optional, free prose).
 # `Ready to merge?` anywhere fails. An approve has no [blocker], no violated or undeterminable score
 # and no render-unavailable line; a needs-work has a [blocker], a violated or undeterminable score, or
