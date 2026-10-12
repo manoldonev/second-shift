@@ -876,6 +876,42 @@ printf 'build-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; : > "$FAKE_GH/
 
 fixture ad2; mkdir -p "$d/wt"; git -C "$d/main" worktree add -q -b other "$d/wt/42" origin/main; run_case "$d"; expect env-worktree-mismatch "(ad2) a worktree on a DIFFERENT named branch is still refused"
 
+# (ae) #1024: whether the record is committed is asked of origin, never read off a stale local ref
+stale_record() { # a branch carrying an OLD record, pushed and then deleted upstream: $d/main keeps only origin/second-shift/42
+  git -C "$d/main" checkout -q -b second-shift/42; mkdir -p "$d/main/docs/plans"
+  printf '# stale record\n\n| D-9 | stale | stale | user-answered |\n' > "$d/main/docs/plans/main-42-decisions.md"
+  git -C "$d/main" add docs/plans && git -C "$d/main" commit -qm "docs: stale record" && git -C "$d/main" push -q origin second-shift/42 2>/dev/null
+  git -C "$d/main" checkout -q main && git -C "$d/main" branch -q -D second-shift/42 && git -C "$d/origin.git" update-ref -d refs/heads/second-shift/42
+  git -C "$d/main" cat-file -e refs/remotes/origin/second-shift/42:docs/plans/main-42-decisions.md 2>/dev/null || bad "($1) fixture: no stale tracking ref carrying a record"
+}
+nothing_written() { [ "$RC" -eq 2 ] && grep -qx ready-for-dev "$FAKE_GH/labels" && [ ! -s "$FAKE_GH/issue-comments" ] && [ ! -f "$FAKE_GH/calls" ] && ok "($1) exits 2 before the claim: nothing written, nothing spawned" || bad "($1) rc=$RC labels: $(tr '\n' ' ' < "$FAKE_GH/labels") calls: $(cat "$FAKE_GH/calls" 2>/dev/null)"; }
+# (ae1) AC-2: origin reachable, the branch deleted upstream: the stale ref is dropped and the receipt is what the branch carries
+fixture ae1; stale_record ae1; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(ae1) [AC-2] a branch deleted upstream reads the receipt, not the stale tracking ref"
+! grep -q 'already committed' <<<"$OUT" && grep -q 'record: origin has no second-shift/42 — deleted the stale tracking ref origin/second-shift/42' <<<"$OUT" \
+  && ok "(ae1) [D-2] the stale tracking ref is deleted and the run log says so" || bad "(ae1) record lines: $(grep 'record:' <<<"$OUT" | tr '\n' '|')"
+ae1_rec="$(git -C "$d/origin.git" show second-shift/42:docs/plans/main-42-decisions.md 2>/dev/null)"
+[ "$(git -C "$d/origin.git" log --format=%s --reverse main..second-shift/42 | head -n 1)" = "docs: decision record for #42" ] && grep -qF '| D-1 | a | b | user-answered |' <<<"$ae1_rec" \
+  && ok "(ae1) the branch is cut fresh from the base and carries the receipt" || bad "(ae1) branch: $(git -C "$d/origin.git" log --oneline main..second-shift/42 2>&1 | tr '\n' '|')"
+# (ae2) AC-1: origin unreachable: refused before the claim, and the stale ref holding a record is not read
+fixture ae2; stale_record ae2; git -C "$d/main" remote set-url origin "$d/nonexistent.git"; run_case "$d"; expect env-remote-unreadable "(ae2) [AC-1] an unreachable origin refuses"
+grep -q 'cannot reach origin to read second-shift/42 — whether the record is already committed is unknown, so neither it nor the receipt is read' <<<"$OUT" && ! grep -q 'already committed on' <<<"$OUT" \
+  && ok "(ae2) [D-4] the refusal says the record's state is unknown; the stale ref is not read" || bad "(ae2) $(grep -E 'record:|terminal:' <<<"$OUT" | tr '\n' '|')"
+nothing_written ae2
+# (ae3) D-3: a local branch origin does not have is unpushed work: refused, kept
+fixture ae3; git -C "$d/main" branch -q second-shift/42 main; run_case "$d"; expect env-branch-unpushed "(ae3) [D-3] a local branch origin lacks is refused"
+grep -q 'origin has no second-shift/42, but there is a local branch second-shift/42 — push it (git push -u origin second-shift/42) to resume it, or remove the worktree and the branch' <<<"$OUT" \
+  && git -C "$d/main" rev-parse -q --verify refs/heads/second-shift/42 >/dev/null && ok "(ae3) the refusal names the branch and both ways out; the branch is kept" || bad "(ae3) $(grep 'terminal: env' <<<"$OUT")"
+nothing_written ae3
+# (ae4) D-3: so is a detached worktree at $WT
+fixture ae4; mkdir -p "$d/wt"; git -C "$d/main" worktree add -q --detach "$d/wt/42" origin/main; run_case "$d"; expect env-branch-unpushed "(ae4) [D-3] a detached worktree for a branch origin lacks is refused"
+grep -q "but there is a detached worktree at $d/wt/42" <<<"$OUT" && [ -d "$d/wt/42" ] && ok "(ae4) the refusal names the worktree; it is kept" || bad "(ae4) $(grep 'terminal: env' <<<"$OUT")"
+nothing_written ae4
+# (ae5) AC-3: a branch on origin carrying the record is read from origin, with no local ref and no receipt to fall back on
+fixture ae5; printf 'build-pr\nreview-needs-work\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d" --max-rounds 1; expect rounds-spent "(ae5) first run commits the record"
+git -C "$d/main" worktree remove --force "$d/wt/42"; git -C "$d/main" branch -q -D second-shift/42; git -C "$d/main" update-ref -d refs/remotes/origin/second-shift/42; rm -f "$d/main/.claude/pipeline-state/42-ledger.md"
+printf 'build-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; : > "$FAKE_GH/calls"; printf 'in-progress\nopus\n' > "$FAKE_GH/labels"; run_case "$d" --resume; expect approved "(ae5) [AC-3] the committed record is read off origin"
+grep -q 'record: already committed on second-shift/42' <<<"$OUT" && ok "(ae5) the receipt is not consulted" || bad "(ae5) $(grep 'record:' <<<"$OUT")"
+
 # ---- rows: cases keyed to the contract inventory (strategy repo, run-sh-contract-inventory-2026-09-22.md).
 #      Each case names the row it discriminates; a row whose behavior is reverted turns its case red.
 
