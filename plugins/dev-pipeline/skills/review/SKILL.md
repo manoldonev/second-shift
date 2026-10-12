@@ -48,9 +48,15 @@ review's context.
    check configuration (`pyproject.toml`, `pytest.ini`, `setup.cfg`, `.coveragerc`, `Makefile` and a
    nested `package.json` included), modified existing test or snapshot files (`__snapshots__/`
    or `.snap`) and their removed expectations, each traced to an acceptance criterion or a record
-   row (an untraced one is a `[blocker]` that requires the citation), and every `when`-scoped `extraLanes` entry no changed file
-   matched — a configured lane that did not run on this diff. Each is a question the diff must
-   answer, whatever the stack.
+   row (an untraced one is a `[blocker]` that requires the citation), every `when`-scoped `extraLanes` entry no changed file
+   matched — a configured lane that did not run on this diff — and every added, edited, deleted or
+   renamed review-policy file (`git diff --name-status $FIRST..HEAD`, both sides of a rename):
+   `.claude/second-shift.config.json`, anything under `.claude/second-shift/`, and
+   `.claude/agents/<name>.md` for each bare name under the config's `reviewers.add[]`. The
+   reviewers load those from the head, so the PR is reviewed against policy it edits: trace each
+   to an acceptance criterion or a record row; an untraced one is a `[blocker]` that requires the
+   citation — the edit itself is never blocked. Each is a question the diff must answer, whatever
+   the stack.
 5. **Score EVERY row of the record** against the code: `honored`, `violated`, `departed` (the row
    was edited; name who decided, per its provenance), or `undeterminable` (say what you could not
    read). A violated or undeterminable row is a blocker; neither may stand beside an approve.
