@@ -547,7 +547,8 @@ EOF
 smoke_red() { echo "RED: $*" >> "$SMOKE_LOG"; say "smoke: $*"; SMOKE_RC=1; }
 
 # -- the review input (rows I9-I11) --
-TEST_PATH_ERE='(\.spec\.|\.test\.|_test\.|_spec\.|(^|/)(tests?|__tests__)/|(^|/)test_[^/]*\.py$|(^|/)conftest\.py$)'   # a test path, on any stack (#956)
+TEST_PATH_ERE='(\.spec\.|\.test\.|_test\.|_spec\.|(^|/)(tests?|__tests__)/|(^|/)test_[^/]*\.py$|(^|/)conftest\.py$|-selftest\.)'   # a test path, on any stack (#956); -selftest. is this repo's own (#1011)
+# every name-list read takes core.quotePath=false: a default-quoted "caf\303\251.spec.ts" matches no pattern, glob or pathspec (#1011)
 expectations_changed() { # expectations_changed <name-status> -> each modified existing test or snapshot file, then its removed lines (#957)
   # an oracle edited with the code it pins stays green in CI: the old expectation is what the review traces to an AC or a record row
   local f removed n listed=0
@@ -562,13 +563,13 @@ expectations_changed() { # expectations_changed <name-status> -> each modified e
 }
 review_input() { # review_input <attempt> -> writes $STATE/review-input-<attempt>.md; 1 when a diff cannot be read (the caller refuses)
   local out="$STATE/review-input-$1.md" ns full names lanes
-  ns="$(git -C "$WT" diff --name-status "$FIRST"..HEAD 2>/dev/null)" || return 1
+  ns="$(git -C "$WT" -c core.quotePath=false diff --name-status "$FIRST"..HEAD 2>/dev/null)" || return 1
   full="$(git -C "$WT" diff "$FIRST"..HEAD 2>/dev/null)" || return 1
-  names="$(git -C "$WT" diff --name-only "$FIRST"..HEAD 2>/dev/null)" || return 1
+  names="$(git -C "$WT" -c core.quotePath=false diff --name-only "$FIRST"..HEAD 2>/dev/null)" || return 1
   {
     # stack-neutral and advisory (#956): on a non-JS repo an empty section must not read as clean evidence
     echo "### Deleted or renamed test files"
-    TEST_PATH_ERE="$TEST_PATH_ERE" awk '$1 ~ /^[DR]/ && $2 ~ ENVIRON["TEST_PATH_ERE"] { print; n++ } END { if (!n) print "(none)" }' <<<"$ns"; echo
+    TEST_PATH_ERE="$TEST_PATH_ERE" awk -F'\t' '$1 ~ /^[DR]/ && $2 ~ ENVIRON["TEST_PATH_ERE"] { print; n++ } END { if (!n) print "(none)" }' <<<"$ns"; echo
     echo "### Existing test or snapshot expectations changed (removed lines)"
     expectations_changed "$ns"; echo
     echo "### Added skips / forced-green lines"
@@ -752,8 +753,8 @@ premise_holds() { # rows J2, J4-J8: re-asked before every build spawn; a predica
   base_now="$(git -C "$WT" rev-parse -q --verify "refs/remotes/origin/$BASE_NAME" 2>/dev/null)" || terminal staleness-unreadable "origin/$BASE_NAME does not resolve"
   [ "$base_now" = "$BASE_START" ] && return 0
   local base_files ours
-  base_files="$(git -C "$WT" diff --name-only "$BASE_START" "$base_now" 2>/dev/null)" || terminal staleness-unreadable "cannot diff origin/$BASE_NAME's move ($BASE_START..$base_now)"
-  ours="$(git -C "$WT" diff --name-only "$FIRST" HEAD 2>/dev/null)" || terminal staleness-unreadable "cannot diff this branch against its record commit"
+  base_files="$(git -C "$WT" -c core.quotePath=false diff --name-only "$BASE_START" "$base_now" 2>/dev/null)" || terminal staleness-unreadable "cannot diff origin/$BASE_NAME's move ($BASE_START..$base_now)"
+  ours="$(git -C "$WT" -c core.quotePath=false diff --name-only "$FIRST" HEAD 2>/dev/null)" || terminal staleness-unreadable "cannot diff this branch against its record commit"
   overlap="$(comm -12 <(printf '%s\n' "$base_files" | sort) <(printf '%s\n' "$ours" | sort) | grep . | head -n 3 | tr '\n' ' ')"
   [ -z "$overlap" ] || terminal staleness-expired "origin/$BASE_NAME moved into file(s) this branch touches: $overlap"
 }
@@ -1163,7 +1164,7 @@ while :; do
     RA="$A"; [ "$review_tries" -eq 0 ] || RA="$A-retry$review_tries"
     if [ "$NEED_CHECKS" -eq 1 ]; then
       sync_to_remote
-      CHANGED="$(git -C "$WT" diff --name-only "$FIRST" HEAD 2>/dev/null)" || terminal env-worktree "cannot diff $FIRST..HEAD in $WT — a diff that cannot be read must not skip every when-scoped lane"
+      CHANGED="$(git -C "$WT" -c core.quotePath=false diff --name-only "$FIRST" HEAD 2>/dev/null)" || terminal env-worktree "cannot diff $FIRST..HEAD in $WT — a diff that cannot be read must not skip every when-scoped lane"
       run_checks "$RA" || { red_attempt checks "$STATE/checks-$RA.log"; continue; }
       route_smoke "$RA"; src=$?
       [ "$src" -ne 2 ] || terminal env-smoke-unconfigured "the record declares design frames but design.liveRender.command/smokeCommand is not configured"
