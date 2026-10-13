@@ -334,20 +334,34 @@ done; unset _t
 SCRUB_ENV+=(${WATCH_UNSET[@]+"${WATCH_UNSET[@]}"})
 lane() { ( cd "$WT" && env "${SCRUB_ENV[@]}" bash -c "$1" ); }
 first_word() { local w; for w in $1; do case "$w" in *=*) continue ;; *) printf '%s' "$w"; return ;; esac; done; printf '%s' "${1%% *}"; }
-cmd_grants() { # cmd_grants <command>: one ',Bash(...)' rule per command of a pipeline or chain, each checked on its own by the session
+xargs_runs() { # xargs_runs <segment>: the command an xargs segment runs — its options skipped, and the value -n -P -L -I -d -s -E -a
+  # take when it is the next word (#1048 OR-1) — or nothing when the segment is no xargs
+  local a i=1 IFS=' '; read -r -a a <<<"$1"; [ "${a[0]:-}" = xargs ] || return 0
+  while [ "$i" -lt "${#a[@]}" ]; do
+    case "${a[i]}" in --) i=$((i+1)); break ;; -n|-P|-L|-I|-d|-s|-E|-a) i=$((i+2)) ;; -*) i=$((i+1)) ;; *) break ;; esac
+  done
+  printf '%s' "${a[*]:i}"
+}
+cmd_grants() { # cmd_grants <command> [xargs]: one ',Bash(...)' rule per command of a pipeline or chain, each checked on its own by the session
   # the first by its first word; every later one by its exact text, or, cut before a word holding , ( ) * or {, by that
-  # prefix plus * — never one bare word, and never one led (or, through xargs, run) by rm, a shell, env, eval, exec, sudo, nohup, cd or python3
-  local seg first=1 kept lead w words
+  # prefix plus * — never one bare word, and never one led (or, through xargs, run) by rm, a shell, env, eval, exec, sudo, nohup, cd or python3.
+  # With xargs (the build's, #1048 D-2), a later xargs segment also grants the command it runs on its own, by its text so cut, plus *
+  local seg first=1 kept lead words run
   while IFS= read -r seg; do
     seg="$(sed 's/^[[:space:]]*//; s/[[:space:]]*$//' <<<"$seg")"; [ -n "$seg" ] || continue
     if [ "$first" -eq 1 ]; then first=0; printf ',Bash(%s*)' "$(first_word "$seg")"; continue; fi
     kept="$(awk '{ if (match($0, /(^|[[:space:]])[^[:space:]]*[,()*{]/)) { s = substr($0, 1, RSTART - 1); sub(/[[:space:]]+$/, "", s); print "cut " s } else print "whole " $0 }' <<<"$seg")"
-    if [ "${kept%% *}" = whole ]; then printf ',Bash(%s)' "$seg"; continue; fi
-    kept="${kept#cut }"; read -r -a words <<<"$kept"; [ "${#words[@]}" -ge 2 ] || continue
-    lead="${words[0]}"
-    if [ "$lead" = xargs ]; then lead=""; for w in "${words[@]:1}"; do case "$w" in -*) ;; *) lead="$w"; break ;; esac; done; fi
-    case "$lead" in rm|sh|bash|zsh|env|eval|exec|sudo|nohup|cd|python3|'') continue ;; esac
-    printf ',Bash(%s*)' "$kept"
+    if [ "${kept%% *}" = whole ]; then printf ',Bash(%s)' "$seg"; kept="$seg"
+    else
+      kept="${kept#cut }"; read -r -a words <<<"$kept"; [ "${#words[@]}" -ge 2 ] || continue
+      lead="${words[0]}"; [ "$lead" = xargs ] && lead="$(first_word "$(xargs_runs "$kept")")"
+      case "$lead" in rm|sh|bash|zsh|env|eval|exec|sudo|nohup|cd|python3|'') continue ;; esac
+      printf ',Bash(%s*)' "$kept"
+    fi
+    [ "${2:-}" = xargs ] || continue
+    run="$(xargs_runs "$kept")"; read -r -a words <<<"$run"; [ "${#words[@]}" -ge 2 ] || continue
+    case "$(first_word "$run")" in rm|sh|bash|zsh|env|eval|exec|sudo|nohup|cd|python3) continue ;; esac
+    printf ',Bash(%s*)' "$run"
   done < <(awk '{ gsub(/&&|\|\||[|;]/, "\n"); print }' <<<"$1")
 }
 # -- session flags (rows F2, F4-F10) --
@@ -661,6 +675,9 @@ review_input() { # review_input <attempt> -> writes $STATE/review-input-<attempt
 # -- the two prompts (rows F15-F20) --
 build_prompt() { # build_prompt <round> <review-findings-file-or-empty> <red-check-file-or-empty>
   echo "Implement ticket $ISSUE of this repository. Fetch the ticket text yourself from the tracker (${TRACKER})."
+  # #1048 D-5 D-19: the fetch is named, so the build's first command is never composed
+  if [ "$TRACKER" = github ]; then echo "Fetch it with exactly 'gh issue view $ISSUE --json title,body,comments', as written."
+  else echo "Fetch it with the getJiraIssue MCP tool, under whichever Atlassian namespace this session exposes."; fi
   echo "Do not merge. Do not delete, skip or weaken a test to make a check pass; if a test is wrong, say so in the PR."
   if [ -n "$SCRATCH" ]; then
     echo "Your scratch directory is $SCRATCH (already added to this session): it is the only place for logs, probes, and PR or comment bodies — never the worktree, never /tmp. Put scratch files there; the scheduler removes it at the end of the run. A probe you never committed is not a test the PR deletes."
@@ -688,6 +705,8 @@ build_prompt() { # build_prompt <round> <review-findings-file-or-empty> <red-che
   fi
   # the scheduler's pass at the pushed head is the authority (#1035): the build runs what covers its change, not the whole list again
   echo; echo "While iterating, rerun only the test file or suite your change touches."
+  # #1048 D-4 D-20: a repo's CLAUDE.md or docs may list more; those commands are not granted
+  echo "Run the checks listed below and the tests your change touches, never a verification list from the repo's CLAUDE.md or docs."
   echo "Before opening the PR (or pushing a fix), run the checks below that cover what you changed and make them green; running the whole list is not required. The scheduler runs every command below at the pushed head before a review starts (a lane gated on changed-file globs runs only when its files change): a red one comes back to you as findings and spends a checks-red attempt."; checks_list all | sed 's/^/- /'
   [ -n "$2" ] && { echo; echo "## Review findings"; cat "$2"; }
   [ -n "${3:-}" ] && { echo; echo "## Red check output"; echo "A red check cannot be rebutted: reproduce it with its command and fix the cause; if the check itself is wrong, say so in the PR."; cat "$3"; }
@@ -742,14 +761,15 @@ KB
   echo; echo "## Scheduler input (deleted or skipped tests, changed test or snapshot expectations, config edits, review-policy edits, the build's permission denials, and the untracked files archived after it)"; cat "$2"
 }
 build_allowlist() { # row F3: derived from what the record and config name
-  # bash $WT/*: a build runs the scripts it writes in its worktree, which the checks already execute
-  local allow="Read,Edit,Write,Agent,Bash(git *),Bash(gh pr create*),Bash(gh pr view*),Bash(gh pr comment*),Bash(gh issue view*),Bash(bash $WT/*)$MCP_ALLOW" c
+  # bash $WT/*: a build runs the scripts it writes in its worktree, which the checks already execute.
+  # #1048: Grep and Glob are its lookups (D-1), never a Bash grep, ls, wc or head; a later round may edit the PR body (D-3)
+  local allow="Read,Grep,Glob,Edit,Write,Agent,Bash(git *),Bash(gh pr create*),Bash(gh pr view*),Bash(gh pr comment*),Bash(gh pr edit * --body-file *),Bash(gh issue view*),Bash(bash $WT/*)$MCP_ALLOW" c
   [ "$BOT_OK" -eq 1 ] && allow="$allow,Bash($TOOLS/bot-commit.sh*),Bash(bash $TOOLS/bot-commit.sh*),Bash($GH *)"   # the bash form too: the scheduler calls it that way, and a build copies it
   [ -n "$(frames_rows)" ] && allow="$allow,mcp__figma,mcp__plugin_figma_figma"
-  while IFS= read -r c; do [ -n "$c" ] && allow="$allow$(cmd_grants "$c")"; done <<EOF
+  while IFS= read -r c; do [ -n "$c" ] && allow="$allow$(cmd_grants "$c" xargs)"; done <<EOF
 $(checks_list all)
 EOF
-  [ -n "$RENDER_CMD" ] && allow="$allow$(cmd_grants "$RENDER_CMD")"
+  [ -n "$RENDER_CMD" ] && allow="$allow$(cmd_grants "$RENDER_CMD" xargs)"
   printf '%s' "$allow"
 }
 review_allowlist() { # row F20: review-lead's panel is a Workflow whose agents inherit these tools
@@ -1280,7 +1300,12 @@ spawn() { # spawn <role> <model> <id> <allowlist> <max-turns> <prompt-file> -> r
   # Passed as --settings env, which sits above the user, project and local files, so a repo's own settings.json env
   # cannot quietly put a BUILD back on the 120 s default; REVIEW drops a switch it would only inherit from this shell
   local sets envv=(env ${WATCH_UNSET[@]+"${WATCH_UNSET[@]}"})
-  if [ "$1" = build ]; then sets="$(printf '{"env":{"CLAUDE_CODE_DISABLE_BACKGROUND_TASKS":"1","BASH_DEFAULT_TIMEOUT_MS":"%s","BASH_MAX_TIMEOUT_MS":"%s"}}' "$BUILD_BASH_MS" "$BUILD_BASH_MS")"
+  # #1048 D-6 D-8 D-18: the BUILD alone gets the PermissionRequest hook, which fires only on a call its allowlist denies
+  # and answers it with a reason; here, never in the plugin's hooks.json, which every session with the plugin loads
+  if [ "$1" = build ]; then
+    sets="$(jq -cn --arg ms "$BUILD_BASH_MS" --arg hook "bash $(shquote "$TOOLS/lane-permission-hook.sh") $(shquote "$WT")${SCRATCH:+ $(shquote "$SCRATCH")}" \
+      '{env:{CLAUDE_CODE_DISABLE_BACKGROUND_TASKS:"1",BASH_DEFAULT_TIMEOUT_MS:$ms,BASH_MAX_TIMEOUT_MS:$ms},hooks:{PermissionRequest:[{hooks:[{type:"command",command:$hook}]}]}}')" \
+      || terminal env-session-settings "cannot write the build session's --settings JSON"
   else sets="$(printf '{"env":{"CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS":"%s"}}' "$REVIEW_BG_WAIT_MS")"; envv+=(-u CLAUDE_CODE_DISABLE_BACKGROUND_TASKS); fi
   # the session reads a copy of the config, written afresh from the launch-time read before every spawn: the sessions
   # share the scratch dir, so a build's edit to its copy must not reach the review that follows it. After every -u:

@@ -82,9 +82,18 @@ grep -qx in-progress "$FAKE_GH/labels" && ! grep -qx ready-for-dev "$FAKE_GH/lab
 grep -q 'stage: lean-claimed' "$FAKE_GH/issue-comments" && ok "(v1) marker posted through the bot" || bad "(v1) no marker"
 # #985: the bot-commit call the prompt names, and the 'bash <helper>' form the scheduler itself uses, both match a granted prefix
 bal=$(grep -A1 -x -- '--allowedTools' "$FAKE_GH/args-1.txt" | tail -n 1); bcall=$(grep -o "'[^']*/bot-commit\.sh -C [^']*'" "$FAKE_GH/prompt-1.txt" | tr -d "'" | sed 's/<[^>]*>/msg.txt/')
-granted() { # granted <command> [<allowlist>, default $bal]: a 'Bash(x*)' rule matches by prefix, a 'Bash(x)' rule exactly
-  local r p; IFS=, read -r -a r <<<"${2-$bal}"
-  for p in "${r[@]}"; do case "$p" in Bash\(*\*\)) p="${p#Bash(}"; [[ "$1" == "${p%\*)}"* ]] && return 0 ;; Bash\(*\)) p="${p#Bash(}"; [ "$1" = "${p%)}" ] && return 0 ;; esac; done; return 1; }
+granted() { # granted <command> [<allowlist>, default $bal]: a 'Bash(x)' rule matches exactly; each * in one matches any run
+  # of characters, so 'Bash(x*)' matches by prefix and 'Bash(x * y *)' (#1048 D-3) by its words in order
+  local r p s lit; IFS=, read -r -a r <<<"${2-$bal}"
+  for p in "${r[@]}"; do
+    case "$p" in Bash\(*\)) p="${p#Bash(}"; p="${p%)}" ;; *) continue ;; esac
+    case "$p" in *\**) ;; *) [ "$1" = "$p" ] && return 0; continue ;; esac
+    lit="${p%%\**}"; [[ "$1" == "$lit"* ]] || continue; s="${1#"$lit"}"; p="${p#*\*}"
+    while :; do case "$p" in
+      *\**) lit="${p%%\**}"; p="${p#*\*}"; [[ "$s" == *"$lit"* ]] || continue 2; s="${s#*"$lit"}" ;;
+      *) [[ "$s" == *"$p" ]] && return 0; continue 2 ;;
+    esac; done
+  done; return 1; }
 [ -n "$bcall" ] && granted "$bcall" && granted "bash $bcall" && ok "(v1) the prompt's bot-commit call and its bash form are both granted" || bad "(v1) bot-commit call '${bcall:-none}' not granted, bare or through bash"
 [ "$(git -C "$d/origin.git" log --format=%an --reverse main..second-shift/42 | head -n 1)" = 'second-shift-bot[bot]' ] && ok "(v1) [E3] the record commit carries the bot's identity" || bad "(v1) [E3] record commit author: $(git -C "$d/origin.git" log --format=%an --reverse main..second-shift/42 | head -n 1)"
 # every command of a piped or chained check is granted (each is checked on its own), a later one by its own text only,
@@ -99,6 +108,8 @@ FIXTURE_CONFIG='{"tracker":{"type":"jira","writes":false,"branchPrefix":"jdoe/",
 printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; mv "$d/main/.claude/pipeline-state/42-ledger.md" "$d/main/.claude/pipeline-state/GH-42-ledger.md"
 OUT="$( cd "$d/main" && bash "$RUN" GH-42 --build-model opus 2>&1 )"; RC=$?; TERM_SLUG="$(printf '%s\n' "$OUT" | sed -n 's/^terminal: //p' | tail -n 1)"
 expect approved "(v2) jira key"
+grep -q 'Fetch it with the getJiraIssue MCP tool' "$FAKE_GH/prompt-1.txt" && ! grep -q 'gh issue view GH-42' "$FAKE_GH/prompt-1.txt" \
+  && ok "(v2) #1048 D-5 D-19: under jira the build prompt names getJiraIssue as the ticket fetch" || bad "(v2) #1048 jira fetch: $(grep -i 'fetch' "$FAKE_GH/prompt-1.txt" | head -n 2 | tr '\n' '|')"
 git -C "$d/origin.git" rev-parse -q --verify refs/heads/jdoe/gh-42 >/dev/null && ok "(v2) the jira key is lowercased in the branch name, as the adapter documents" || bad "(v2) branches: $(git -C "$d/origin.git" branch --list | tr '\n' ' ')"
 fixture v3; printf 'in-progress\nopus\n' > "$FAKE_GH/labels"
 jq '. + [{body:"<!-- run_id: x -->\n<!-- stage: lean-claimed -->",user:{login:"stranger",type:"User"},created_at:"2020-01-01T00:00:00Z",updated_at:"2020-01-01T00:00:00Z"}]' "$FAKE_GH/comments.json" > "$FAKE_GH/c.tmp" && mv "$FAKE_GH/c.tmp" "$FAKE_GH/comments.json"
@@ -117,6 +128,44 @@ commit_record; printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=1 r
 FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"commands":{"main":{"lint":"true","extraLanes":[{"name":"e2e","when":["src/**"],"commands":["e2e-runner --all"]}]}}}' fixture v7 ""
 printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"
 grep -q 'e2e-runner --all' "$FAKE_GH/prompt-1.txt" && grep -q 'Bash(e2e-runner\*)' "$FAKE_GH/args-1.txt" && ok "(v7) a when-globbed lane is named in the round-1 prompt and allowlist before any diff exists" || bad "(v7) lane missing from the prompt or allowlist"
+
+# (z) #1048: what a build session reaches for is granted, steered or answered with a reason
+# (zg) AC-2 D-2 OR-1: an xargs segment of a check also grants the command it runs on its own, by the same cut prefix — the
+#      value -n takes skipped, never a bare word, never one run by rm, a shell, env, eval, exec, sudo, nohup, cd or python3.
+#      xargs -r and empty input keep every check from running anything
+chk=$'- find . -name \'no-such-*.sh\' -type f -print0 | xargs -0 -r shellcheck -e SC1091,SC2015,SC2181\n- printf \'\' | xargs -0 -r -n 1 jq empty\n- printf \'\' | xargs -0 -r sudo ls\n- printf \'\' | xargs -0 -r date'
+for x in rm sh bash zsh env eval exec sudo nohup cd python3; do chk="$chk"$'\n'"- printf '' | xargs -0 -r -n 1 $x -c a,b"; done
+fixture zg "$chk"; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(zg) checks whose xargs segments run a tool"
+bal=$(grep -A1 -x -- '--allowedTools' "$FAKE_GH/args-1.txt" | tail -n 1); miss=""
+for c in 'shellcheck -e SC1091 plugins/x.sh' 'jq empty a.json'; do granted "$c" || miss="$miss [$c]"; done
+for c in 'shellcheck plugins/x.sh' 'sudo ls x' 'date'; do granted "$c" && miss="$miss [granted: $c]"; done
+for x in rm sh bash zsh env eval exec sudo nohup cd python3; do
+  granted "$x -c a" && miss="$miss [granted: $x -c a]"; granted "xargs -0 -r -n 1 $x -c a" && miss="$miss [granted: xargs -0 -r -n 1 $x -c a]"
+done
+[ -z "$miss" ] && ok "(zg) AC-2: shellcheck -e and jq empty are granted on their own; a bare word, sudo, rm, a shell, env, eval, exec, nohup, cd and python3 are not, through xargs or alone" || bad "(zg) AC-2 allowlist wrong:$miss"
+# (zh) AC-1 AC-3 AC-4 AC-5 AC-6 on a plain github run
+fixture zh; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(zh) a plain github run"
+bal=$(grep -A1 -x -- '--allowedTools' "$FAKE_GH/args-1.txt" | tail -n 1); wt=$(grep -A1 -x -- '--add-dir' "$FAKE_GH/args-1.txt" | sed -n 2p); scr=$(awk 'p { print; p = 0 } $0 == "--add-dir" { p = 1 }' "$FAKE_GH/args-1.txt" | sed -n 2p)
+[[ ",$bal," == *,Grep,* && ",$bal," == *,Glob,* ]] && ! granted 'grep -n x a.sh' && ! granted 'ls -la' && ! granted 'wc -l a.sh' && ! granted 'head -n 1 a.sh' \
+  && ok "(zh) AC-1: the build has the Grep and Glob tools and no Bash grep, ls, wc or head" || bad "(zh) AC-1 build allowlist: $bal"
+granted 'gh pr edit 7 --body-file /x/b.md' && ! granted 'gh pr edit 7 --body x' && ! granted 'gh pr edit 7 --add-label x' \
+  && ok "(zh) AC-3: gh pr edit --body-file is granted, gh pr edit otherwise is not" || bad "(zh) AC-3 gh pr edit: $bal"
+grep -q "Run the checks listed below and the tests your change touches, never a verification list from the repo's CLAUDE.md or docs" "$FAKE_GH/prompt-1.txt" \
+  && ok "(zh) AC-4: the build prompt runs the listed checks and the touched tests, never a CLAUDE.md or docs list" || bad "(zh) AC-4 sentence missing from the build prompt"
+fetch=$(grep -o "Fetch it with exactly '[^']*'" "$FAKE_GH/prompt-1.txt" | sed "s/^Fetch it with exactly '//; s/'\$//")
+[ "$fetch" = 'gh issue view 42 --json title,body,comments' ] && granted "$fetch" && ok "(zh) AC-5: the prompt's ticket fetch is '$fetch', and the build allowlist grants it" || bad "(zh) AC-5 fetch '${fetch:-none}' missing or not granted"
+bset=$(grep -A1 -x -- '--settings' "$FAKE_GH/args-1.txt" | tail -n 1); rset=$(grep -A1 -x -- '--settings' "$FAKE_GH/args-2.txt" | tail -n 1)
+hcmd=$(jq -r '.hooks.PermissionRequest[0].hooks[0].command // empty' <<<"$bset" 2>/dev/null)
+hook_says() { # hook_says <tool> <file_path-or-command>: what the build's hook command, run as the settings write it, decides
+  jq -cn --arg t "$1" --arg v "$2" '{hook_event_name:"PermissionRequest",cwd:"/",tool_name:$t,tool_input:(if $t == "Bash" then {command:$v} else {file_path:$v,content:"x"} end)}' \
+    | bash -c "$hcmd" | jq -r '.hookSpecificOutput.decision | .behavior + " " + (.message // "")'
+}
+[ "$(sed -n "s/^bash '\([^']*\)'.*/\1/p" <<<"$hcmd")" = "$(cd "$(dirname "$RUN")/../../tools" && pwd)/lane-permission-hook.sh" ] \
+  && [ "$(hook_says Write "$wt/.claude/NOTES.md")" = 'allow ' ] && [[ "$(hook_says Write "$wt/.claude/settings.json")" == deny* ]] \
+  && [[ "$(hook_says Bash "wc -l $scr/log")" == 'deny wc is not granted'* ]] && [[ "$(hook_says Bash "wc -l $d/main/x")" == *'withheld from lane sessions'* ]] \
+  && jq -e 'has("hooks") | not' <<<"$rset" >/dev/null 2>&1 \
+  && ok "(zh) AC-6: the build's --settings runs the dev-pipeline tools hook on PermissionRequest, given its worktree and scratch dir; the review's has no hooks" \
+  || bad "(zh) AC-6 build settings: $bset · review settings: $rset"
 
 # (w) round-eight parity: PR conventions asserted, a stopped run still leaves its block,
 #     claimed-elsewhere exits 2, second run's block is its own
