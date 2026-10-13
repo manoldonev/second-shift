@@ -1,0 +1,21 @@
+{
+  "configVersion": 3,
+  "tracker": {
+    "type": "github"
+  },
+  "commands": {
+    "app": {
+      "test": "bash tools/run-selftests.sh",
+      "testRunners": [
+        {
+          "when": ["*-selftest.sh"],
+          "command": "env -u CLAUDE_CODE_SESSION_ID SKIP_STRESS=1 bash {file}"
+        },
+        {
+          "when": ["*-selftest.mjs", "*.test.mjs"],
+          "command": "node {file}"
+        }
+      ]
+    }
+  }
+}

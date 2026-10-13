@@ -23,6 +23,7 @@ CHECKS=(
   "skills/run/run.sh|paths.runtimeData|close-out runtime-data guard"
   "skills/run/run.sh|extraLanes|commands.<id>.extraLanes"
   "skills/run/run.sh|allowUnverified|commands.<id>.allowUnverified zero-check opt-out"
+  "skills/run/run.sh|testRunners|commands.<id>.testRunners fails-without-the-change runners"
   "skills/run/run.sh|design.liveRender|design live-render command"
   "skills/run/run.sh|design.liveRender.smokeCommand|route smoke"
   "skills/run/run.sh|run.maxRounds|round cap"

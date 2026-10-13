@@ -1,0 +1,32 @@
+{
+  "configVersion": 3,
+  "tracker": {
+    "type": "github"
+  },
+  "commands": {
+    "app": {
+      "test": "yarn test",
+      "testRunners": [
+        {
+          "when": ["*.spec.ts"],
+          "command": "yarn jest"
+        },
+        {
+          "when": [],
+          "command": "yarn jest {file}"
+        },
+        {
+          "glob": ["*.spec.ts"],
+          "command": "yarn jest {file}"
+        },
+        "yarn jest {file}"
+      ]
+    },
+    "web": {
+      "testRunners": {
+        "when": ["*.spec.ts"],
+        "command": "yarn jest {file}"
+      }
+    }
+  }
+}

@@ -7,7 +7,7 @@ Required: `configVersion`, `tracker`, `commands`. Everything else is optional.
 | Group | What goes here | Who reads it |
 | --- | --- | --- |
 | `tracker` | `type`: `github` or `jira`; `writes` (default true for github, false otherwise — under `false` the sessions start without Atlassian write tools; on github the scheduler still swaps the claim labels and posts the claim marker and the closing comment); `branchPrefix` (the work branch is `<branchPrefix><key>`, a jira key lowercased); `keyPattern` (a key that does not match is refused); `labels` (github only: `queue`, `claimed`, `blockers` roles); `bot` (a bot identity for the lane's GitHub writes — the claim and closing comment, commits, the review's verdict comment and the run block on the PR; the build session opens the PR itself with plain `gh`) | `/dev-pipeline:run` (`run.sh`); `tools/branch-prefix.sh` for `branchPrefix`; `claim-issue.sh` for the labels; `gh-bot.sh` / `bot-commit.sh` for `bot` |
-| `commands` | The check truth table, a map keyed by an id. The scheduler uses the sole key, else the key equal to the main checkout's directory name (also from a linked worktree); the ids are not checked against anything. Per id: `lint`, `typecheck`, `test`, `format` (`null` = not available); `lanes` (SETUP-only steps, run first and fail-fast, each `cwd` a path under the worktree); `extraLanes` (additive checks, gated by `when` changed-file globs; `failureClass` is still required but changes nothing); `allowUnverified` (declares a repo with no check at all) | `/dev-pipeline:run` runs every configured check after every build, plus the ticket record's `## Checks`, and every one blocks. Lane commands run with `SECOND_SHIFT_CONFIG` and the other seam vars scrubbed from their environment |
+| `commands` | The check truth table, a map keyed by an id. The scheduler uses the sole key, else the key equal to the main checkout's directory name (also from a linked worktree); the ids are not checked against anything. Per id: `lint`, `typecheck`, `test`, `format` (`null` = not available); `lanes` (SETUP-only steps, run first and fail-fast, each `cwd` a path under the worktree); `extraLanes` (additive checks, gated by `when` changed-file globs; `failureClass` is still required but changes nothing); `testRunners` (optional: `[{ "when": [<file globs>], "command": "… {file}" }]`, how one tagged test file is run on the fails-without-the-change check, below); `allowUnverified` (declares a repo with no check at all) | `/dev-pipeline:run` runs every configured check after every build, plus the ticket record's `## Checks`, and every one blocks. Lane commands run with `SECOND_SHIFT_CONFIG` and the other seam vars scrubbed from their environment |
 | `reviewers` | Registry deltas (`add`/`remove`); `default` (shipped reviewers added to the pipeline's review panel, which otherwise dispatches scope-completeness only; additive, never subtracts); `webComponentGlobs` (the paths that route `a11y-reviewer` and the design-fidelity dimension; default `apps/web/**/*.{tsx,jsx}`); `tierMap` (retarget an abstract model tier); per-agent `modelOverrides` (`haiku` \| `sonnet` \| `opus` \| `fable`, or a tier name; Fable also ships as the `cross` tier — see [`model-tiering.md`](../plugins/review-toolkit/model-tiering.md)) | review-lead (the review session's panel); `check-model-tiers.sh` and `check-reviewer-references.sh` |
 | `paths` | `plansDir` (default `docs/plans`: the committed intake record `<plansDir>/<repo>-<key>-decisions.md`); `pipelineStateDir` (default `.claude/pipeline-state`: run logs and the pre-flight receipt `<key>-ledger.md`); `runtimeData` (opt-in, no default: git pathspecs relative to the repo root where the app writes gitignored runtime data, e.g. `["apps/api/storage"]`. `git worktree remove` deletes ignored files, so when `git status --porcelain --ignored -- <paths>` shows anything, close-out keeps the worktree, prints the paths, and the run still ends `approved`) | `/dev-pipeline:run` |
 | `design` | `provider`: `figma` \| `claude-design` — the design-fidelity axis; key absent = off. Optional `liveRender` `{ command, smokeCommand?, readyProbe? }`: after every build the scheduler renders each `## Design frames` row of the record with `command` (`{route}`, `{state}`, `{out}`), then runs `smokeCommand` (`{route}`, `{mustShow}`, optional `{textScale}`), which must fail unless the route shows the row's must-show value; with `{textScale}` it runs at `1` and at `2` and must also fail when any text overflows or is clipped (without it, the run notes `scaled smoke: not configured`). `readyProbe` is curl-checked first. A provider repo's record carries frames rows or `Design: none — <reason>`. See [`live-render.md`](live-render.md) | `/dev-pipeline:run` (the route smoke); the build and review sessions; the design-toolkit skills |
@@ -22,6 +22,42 @@ Principles:
 - `configVersion` bumps only on breaking schema changes; plugins support one version per release. The migration contract and per-version upgrade docs live in [`migrations/`](migrations/README.md); config-lint fails older/newer configs with the pointer, never a bare "invalid".
 - **The scheduler's environment knobs are spelled `RUN_*`:** `RUN_CLAUDE`, `RUN_GH` (alias `GH`), `RUN_WORKTREE_ROOT`, `RUN_BUILD_TIMEOUT`, `RUN_REVIEW_TIMEOUT`, `RUN_COST_CEILING`, `RUN_CHECKS_RED_MAX`, `RUN_WATCH_CMD`, `RUN_WATCH_EDITOR`. `run.sh -h` is the table of record.
 - **The base branch is `baseBranch`, else the remote default branch** (`origin/HEAD`, falling back to `origin/main`, then `origin/master`). Set `baseBranch` (a bare name on origin, e.g. `"develop"`) when the repo integrates on a branch other than the host default: the lane forks from it, opens its PR against it and reviews against it, and a configured branch that does not resolve on origin refuses the run before the claim (`env-base-unreadable`) — never a silent fall back.
+
+## Test runners: the fails-without-the-change check
+
+A record whose `## Test intent` names acceptance criteria has the build tag each one on a test task
+of its plan, naming the task's test files in its `(files)` parenthetical. After the checks and the
+plan's coverage pass, `/dev-pipeline:run` proves each tagged test depends on the change: it puts the
+worktree on the record commit's tree (the base code, none of the build's), applies the head's
+tagged test files on top, and runs each file through the first `testRunners` entry whose `when`
+glob matches it. Every file must fail there; passing at the head is the configured checks' job.
+Then it puts the worktree back on the branch.
+
+```json
+"commands": {
+  "app": {
+    "test": "yarn jest",
+    "testRunners": [
+      { "when": ["*.spec.ts", "*.test.ts"], "command": "yarn jest --runTestsByPath {file}" },
+      { "when": ["*_test.py"], "command": "python -m pytest {file}" }
+    ]
+  }
+}
+```
+
+- `{file}` becomes the file's repo-relative path, shell-quoted; the command runs from the worktree
+  root with the lane scrubs. The globs match as `extraLanes`' `when` does: `*` crosses `/`.
+- Any non-zero exit counts as failing — an assertion, a missing import and a setup error alike. The
+  file is the unit: one failing case in it carries every AC tagged on it.
+- A tagged file that passes there is red, naming its AC and the file: the next build strengthens
+  the test on the checks-red counter. A tagged file no entry matches is red too, unless the record
+  marks its AC `unchecked — <tier and reason>` (noted, not run). An AC marked `holds — <behavior>`
+  (existing behavior) keeps its files off the check: the checks at the head prove it.
+- No `testRunners`: the check is not-applicable, a line in the run log and the run block. The key
+  is optional and needs no `configVersion` bump; `/second-shift:onboard` does not draft it.
+- The runners are read once, at launch, so a build cannot change them mid-run. The record commit's
+  own package and runner config is what runs on that tree.
+- `/dev-pipeline:build` (the handoff path) does not run it: its review notes the check as not run.
 
 ## Per-engineer override
 

@@ -40,6 +40,8 @@
 #   6 rounds     (premise; worktree at the pushed head; BUILD; in-flight check; one PR;
 #                 conventions; checks from the first commit; the plan's AC coverage
 #                 (tools/plan-coverage.sh: the record at the first commit, the plan at the head);
+#                 fails without the change (the head's tagged test files on the record commit's
+#                 tree, each run through commands.<id>.testRunners, must fail there);
 #                 route smoke; review input;
 #                 REVIEW in a fresh session, re-spawned once when dark; verdict bound to the
 #                 review window, unedited, naming the current head, its body backing its own
@@ -52,8 +54,9 @@
 # Rules every line below keeps:
 #   - a predicate that cannot be evaluated refuses under a named slug; a failed read is never a pass;
 #   - no refusal inside `$(...)`, a pipe or a piped loop — producers return non-zero, the CALLER refuses;
-#   - nothing here discards work: no `reset --hard`, no forced removal, no checkout over a dirty tree; the one
-#     history rewrite is rebase_onto_base's clean rebase onto a moved base, pushed under a lease;
+#   - nothing here discards work: no `reset --hard`, no forced removal, no checkout over a dirty tree (the
+#     fails-without-the-change leg detaches only a tree with no tracked change, and goes back by an unforced
+#     checkout); the one history rewrite is rebase_onto_base's clean rebase onto a moved base, pushed under a lease;
 #   - the record's sections, the checks and the frames are read from its FIRST commit, never the head —
 #     one exception: the verdict check reads the record at the head too, so a row the build added is scored (#991);
 #   - every session is a fresh process with a wall-clock bound; every attempt keeps its own files;
@@ -523,7 +526,8 @@ EOF
 # -- the plan's AC coverage (#1039 D-6 D-7 D-9): tools/plan-coverage.sh from $TOOLS (the installed plugin, outside every dir
 # the build is granted), handed the record at FIRST and the plan at the pushed head as git objects through pipes — never
 # the worktree, $STATE or the config, all of which the build can write. Not a configured lane: its exit code is the result.
-# PLAN_NOTES is the latest check's run-block lines; the plan's position is noted, never gating (#1040 owns the order) --
+# PLAN_NOTES is the latest check's run-block lines; the plan's position is noted, never gating: no commit order proves a
+# test came first, so #1040 D-1 proves "fails without the change" instead (fails_without_change below) --
 PLAN_NOTES=""
 plan_coverage() { # plan_coverage <attempt> -> the script's exit: 0 pass · 1 red (the log: $STATE/plan-coverage-<attempt>.log) · 2 uncheckable · 3 not-applicable
   local log="$STATE/plan-coverage-$1.log" out rc after pos
@@ -544,6 +548,91 @@ plan_coverage() { # plan_coverage <attempt> -> the script's exit: 0 pass · 1 re
   PLAN_NOTES="plan coverage at $HEAD_SHA: $(printf '%s' "$out" | tail -n 1 | sed 's/^plan-coverage: //')"$'\n'"plan position: $pos"$'\n'
   say "plan coverage: exit $rc — $(printf '%s' "$out" | tail -n 1 | sed 's/^plan-coverage: //') (log: $log)"; say "plan position: $pos"
   return "$rc"
+}
+# -- fails without the change (#1040, layer 3 of #1018): after the checks and the coverage pass, the head's tagged test files
+# are applied onto the record commit's tree (the base code, none of the build's) and each runs through the first configured
+# testRunners entry whose `when` glob matches it; every one must fail there (D-1, D-2: any failure counts). Passing at the
+# head is the checks'. A holds AC's files are kept off it and an unchecked AC's are noted, not run (D-4, D-11); the AC-to-file
+# map comes from plan-coverage.sh --files, never a second plan parser (D-7). The tree is built in $WT, which keeps its
+# ignored dependencies: detached to the record commit only when no tracked change is in it, put back on the branch by a plain
+# checkout — which carries any change rather than discard it — under an EXIT trap, and by the next launch when a mark
+# outlives the process (red_tree_restore). The runners were read at launch (D-13): a build cannot change them mid-run --
+FWC_NOTES=""
+RED_TREE_MARK="$LOG_DIR/run-$ISSUE/red-tree"
+test_runners() { local key; key="$(commands_key)"; [ -n "$key" ] || return 0; jq -c --arg k "$key" '.commands[$k].testRunners[]? | objects' <<<"$CONFIG_JSON" 2>/dev/null; }
+runner_for() { # runner_for <file> -> the command of the first testRunners entry a `when` glob of which matches the file; 1 when none does
+  local r g
+  while IFS= read -r r; do
+    [ -n "$r" ] || continue
+    while IFS= read -r g; do
+      [ -n "$g" ] || continue
+      # shellcheck disable=SC2254  # $g IS a glob, by contract (extraLanes' `when`)
+      case "$1" in $g) printf '%s' "$r" | jq -r '.command // empty'; return 0 ;; esac
+    done <<EOF
+$(printf '%s' "$r" | jq -r '.when[]? | strings')
+EOF
+  done <<EOF
+$(test_runners)
+EOF
+  return 1
+}
+red_tree_restore() { # put $WT back on $BRANCH after the leg, never forced; 1 when git refuses (a change the checkout would overwrite)
+  [ -f "$RED_TREE_MARK" ] || return 0
+  git -C "$WT" checkout -q "$BRANCH" 2>/dev/null || return 1
+  rm -f "$RED_TREE_MARK"
+}
+fails_without_change() { # fails_without_change <attempt> -> 0 pass · 1 red (the log: $STATE/fails-without-<attempt>.log) · 3 not-applicable
+  local log="$STATE/fails-without-$1.log" map rc frc kind id ids f cmd c red=0 ran=0 notes="" runs="" dirty why key summary
+  key="$(commands_key)"; FWC_NOTES=""
+  if [ -z "$(test_runners)" ]; then
+    why="no test runner is configured (commands.${key:-<id>}.testRunners)"
+    echo "not-applicable: $why" > "$log"; FWC_NOTES="fails without the change: not-applicable — $why"$'\n'; say "fails without the change: not-applicable — $why"; return 3
+  fi
+  map="$(bash "$TOOLS/plan-coverage.sh" --files <(record_at_first) <(git -C "$WT" show "$HEAD_SHA:$PLAN_REL" 2>/dev/null) 2>&1)"; rc=$?
+  [ "$rc" -eq 0 ] || terminal plan-coverage-uncheckable "tools/plan-coverage.sh --files exited $rc on the record at $FIRST and $PLAN_REL at $HEAD_SHA, whose coverage had just passed ($(printf '%s' "$map" | tr '\n' ' ' | cut -c1-300))"
+  { echo "fails without the change: the head's tagged test files at $HEAD_SHA applied onto the record commit's tree $FIRST; each must fail there"; echo; } > "$log"
+  while read -r kind id f; do
+    [ -n "$f" ] || continue
+    case "$kind" in
+      holds) notes="$notes$id holds — $f is not run for it: the checks at the head prove it"$'\n' ;;
+      unchecked) notes="$notes$id unchecked — $f is noted, not run"$'\n' ;;
+      *) if ! git -C "$WT" cat-file -e "$HEAD_SHA:$f" 2>/dev/null; then echo "RED: $id — $f does not exist at $HEAD_SHA" >> "$log"; red=$((red+1))
+         elif ! cmd="$(runner_for "$f")" || [ -z "$cmd" ]; then
+           echo "RED: $id — $f matches no configured test runner (commands.$key.testRunners), and the record does not mark $id unchecked" >> "$log"; red=$((red+1))
+         else runs="$runs$f"$'\t'"$cmd"$'\n'; fi ;;
+    esac
+  done <<<"$map"
+  runs="$(printf '%s' "$runs" | awk -F'\t' 'NF && !seen[$1]++')"
+  if [ -n "$runs" ]; then
+    dirty="$(git -C "$WT" status --porcelain --untracked-files=no 2>/dev/null)" || terminal env-worktree "cannot read the status of $WT before the fails-without-the-change check"
+    [ -z "$dirty" ] || terminal env-worktree "the checks left tracked changes in $WT ($(printf '%s' "$dirty" | head -n 3 | tr '\n' ' ')) — the record commit's tree cannot be built over them, and nothing here discards them"
+    printf 'first=%s head=%s branch=%s\n' "$FIRST" "$HEAD_SHA" "$BRANCH" > "$RED_TREE_MARK" || terminal env-state-dir "cannot write $RED_TREE_MARK"
+    trap 'red_tree_restore || say "red tree: $WT could NOT be put back on $BRANCH — run git checkout $BRANCH in it"' EXIT
+    git -C "$WT" checkout -q --detach "$FIRST" 2>>"$log" \
+      && cut -f1 <<<"$runs" | tr '\n' '\0' | xargs -0 git -C "$WT" checkout -q "$HEAD_SHA" -- 2>>"$log"; rc=$?
+    if [ "$rc" -eq 0 ]; then
+      while IFS=$'\t' read -r f cmd; do
+        c="$(subst "$cmd" '{file}' "$(shquote "$f")")"; ran=$((ran+1)); say "fails without the change: $c"
+        ids="$(awk -v f="$f" '$1 == "run" && $3 == f { printf "%s ", $2 }' <<<"$map")"   # every behavior AC tagged on this file
+        echo "\$ $c" >> "$log"
+        if lane "$c" >> "$log" 2>&1 </dev/null; then
+          for id in $ids; do
+            echo "RED: $id — $f passes on the record commit's tree ($FIRST) with the head's tagged test files applied: it does not fail without the change — make it test what the change does" >> "$log"; red=$((red+1))
+          done
+        else frc=$?; for id in $ids; do echo "ok: $id — $f fails on the record commit's tree (exit $frc)" >> "$log"; done; fi
+      done <<<"$runs"
+    fi
+    red_tree_restore; c=$?; trap - EXIT
+    [ "$c" -eq 0 ] || terminal env-worktree "could not put $WT back on $BRANCH after the fails-without-the-change check — it is detached at $FIRST with the head's tagged test files applied; run git checkout $BRANCH in it, then --resume"
+    [ "$rc" -eq 0 ] || terminal env-worktree "could not build the record commit's tree $FIRST with the head's tagged test files in $WT ($(tail -n 3 "$log" | tr '\n' ' ' | cut -c1-300)) — $WT is back on $BRANCH"
+    [ "$(git -C "$WT" rev-parse HEAD 2>/dev/null)" = "$HEAD_SHA" ] || terminal env-worktree-diverged "$WT is not at $HEAD_SHA after the fails-without-the-change check"
+  fi
+  [ -z "$notes" ] || printf '%s' "$notes" >> "$log"
+  if [ "$red" -gt 0 ]; then summary="RED — $red problem(s)"; else summary="pass — $ran tagged file(s) fail on the record commit's tree $FIRST"; fi
+  say "fails without the change: $summary (log: $log)"
+  FWC_NOTES="fails without the change at $HEAD_SHA: $summary"$'\n'"$(printf '%s' "$notes" | sed 's/^/fails without the change: /')"
+  [ -z "$notes" ] || FWC_NOTES="$FWC_NOTES"$'\n'
+  [ "$red" -eq 0 ]
 }
 
 # -- route smoke (rows C24-C26, H7-H12, H14) --
@@ -682,6 +771,9 @@ build_prompt() { # build_prompt <round> <review-findings-file-or-empty> <red-che
   echo; record_at_first
   if record_has_test_intent; then # #1039 D-4 D-5 D-6 D-12: the plan is a coverage map the scheduler checks, never a tick list
     echo; echo "The record's '## Test intent' section names, per acceptance criterion, the observable behavior its test must prove, or an exemption with its reason. Your first commit after the record commit $FIRST is a task plan at $PLAN_REL: groups '## N. Group', tasks '- [ ] N.M Description (files)', each test task before the implementation task it covers and ending in the ids of the ACs its test proves, one bracket per id, nothing after them: '- [ ] 1.1 Description (files) [AC-1] [AC-3]'. Tag every AC the section does not exempt on at least one test task, and no id its 'ACs:' line does not list; each AC's tagged test proves the behavior its line states. A ticked box means nothing. Any line starting '- [' that is not a task in that form is unparseable. The scheduler checks the plan at the pushed head against the record at $FIRST before a review starts: an uncovered AC, an id the record does not define, a missing plan or an unparseable line comes back to you as findings and spends a checks-red attempt."
+    echo "A task that carries an AC id names its test files in the parenthetical that ends its description, comma-separated; a tagged task that names none comes back to you the same way."
+    # #1040 S-3: the check the scheduler runs next, stated only when a runner is configured to run it
+    [ -z "$(test_runners)" ] || echo "Then the scheduler puts the worktree on the record commit $FIRST, applies the head's tagged test files on top and runs each through its configured test runner (commands.$(commands_key).testRunners): every one must fail there, without your change. The exceptions are the files of an AC the section marks 'holds' (existing behavior: the checks at the head prove it) and 'unchecked' (noted, not run). A tagged file that passes there, that no runner matches or that the head does not carry comes back to you as findings and spends a checks-red attempt: a test that passes without the change does not test it."
   fi
   if [ -n "$(frames_rows)" ]; then
     echo; echo "This ticket has design frames. Follow the figma-faithful sequence: read every frame id in the '## Design frames' section first; write the token and component plan; before writing UI code, have a subagent read that plan against the frames and list what it would get wrong, then fix the plan. Render every screen with the repo's render command, open the PNG, compare it with its frame and fix what differs, up to three rounds per screen. A screen that shows an error page, a login page or a spinner is not done."
@@ -1021,6 +1113,7 @@ cost_block() { # <terminal slug>
   echo "| $RUN_ID | $1 | $ROUND | ${VERDICT:-none} | ${HEAD_SHA:-—} | \$$(usd "$COST")${UNPRICED:+ + unpriced} | $CI |"; echo
   [ -z "$RUN_NOTES" ] || printf '%s' "$RUN_NOTES" | awk '{print; print ""}'
   [ -z "$PLAN_NOTES" ] || printf '%s' "$PLAN_NOTES" | awk '{print; print ""}'       # #1039: the latest coverage check, and the plan's position
+  [ -z "$FWC_NOTES" ] || printf '%s' "$FWC_NOTES" | awk '{print; print ""}'         # #1040: the latest fails-without-the-change check, its holds and unchecked notes
   [ -z "$STATUS_NOTES" ] || printf '%s' "$STATUS_NOTES" | awk '{print; print ""}'   # one paragraph per bound verdict's status post
   [ -z "$DRAFT_NOTES" ] || printf '%s' "$DRAFT_NOTES" | awk '{print; print ""}'     # one paragraph per draft flip worth reporting
   # #964 D-4: one denial count per session, from the denials file the scheduler wrote after it ("?" when its JSON was unread);
@@ -1165,6 +1258,12 @@ fi
 if [ -d "$WT" ]; then
   wt_ref="$(git -C "$WT" rev-parse --abbrev-ref HEAD 2>/dev/null)" || terminal env-worktree "$WT exists but is not a git worktree"
   case "$wt_ref" in "$BRANCH"|HEAD) : ;; *) terminal env-worktree-mismatch "$WT is on branch '$wt_ref', not $BRANCH — remove it (git worktree remove) and re-launch" ;; esac
+  # #1040 D-7: a run killed during its fails-without-the-change check left $WT on the record commit's tree; it goes back on
+  # the branch before anything else, by the same unforced checkout, which refuses rather than discard a change
+  if [ -f "$RED_TREE_MARK" ]; then
+    red_tree_restore || terminal env-worktree "$WT was left on the record commit's tree by an interrupted fails-without-the-change check ($(cat "$RED_TREE_MARK" 2>/dev/null)), and git checkout $BRANCH refuses there — reconcile it by hand, delete $RED_TREE_MARK, then --resume"
+    say "red tree: $WT put back on $BRANCH (an earlier run was interrupted during its fails-without-the-change check)"
+  fi
 else
   git -C "$MAIN_ROOT" worktree prune 2>/dev/null || true
   if git -C "$MAIN_ROOT" rev-parse -q --verify "refs/remotes/origin/$BRANCH" >/dev/null 2>&1 || git -C "$MAIN_ROOT" rev-parse -q --verify "refs/heads/$BRANCH" >/dev/null 2>&1; then
@@ -1356,6 +1455,12 @@ while :; do
         1) red_attempt "plan coverage" "$STATE/plan-coverage-$RA.log"; continue ;;
         *) terminal plan-coverage-uncheckable "tools/plan-coverage.sh exited $pcrc on the record at $FIRST and $PLAN_REL at $HEAD_SHA ($(tr '\n' ' ' < "$STATE/plan-coverage-$RA.log" 2>/dev/null | cut -c1-300)) — a check that cannot run is not one that passed, and no build can change the record at its first commit" ;;
       esac
+      if [ "$pcrc" -eq 0 ]; then # #1040: after the coverage, before the smoke; a red spends the checks-red counter (D-5)
+        fails_without_change "$RA"; fwrc=$?
+        [ "$fwrc" -ne 1 ] || { red_attempt "fails without the change" "$STATE/fails-without-$RA.log"; continue; }
+      else # the record carries no Test intent, or the ticket no AC block: the coverage's own not-applicable reason
+        why="${PLAN_NOTES%$'\n'}"; FWC_NOTES="fails without the change: not-applicable — ${why#plan coverage: not-applicable — }"$'\n'; say "${FWC_NOTES%$'\n'}"
+      fi
       route_smoke "$RA"; src=$?
       [ "$src" -ne 2 ] || terminal env-smoke-unconfigured "the record declares design frames but design.liveRender.command/smokeCommand is not configured"
       [ "$src" -ne 3 ] || terminal env-not-ready "readyProbe $READY_URL is not ready after 3 tries (last reading: $READY_READING) — start the service and --resume"

@@ -10,7 +10,8 @@ description: The interactive BUILD — the build half of /dev-pipeline:run, run 
 spawning a build session. The build is yours, in this session. The prompt it hands you is the one
 an unattended run would have spawned, so both paths build against the same record. What the
 scheduler would do after its build is not done here: re-running the checks from the first commit,
-route smoke, the PR-convention check, the in-flight check, the round and cost caps, the run block
+the check that each tagged test file fails on the record commit's tree (`commands.<id>.testRunners`;
+the review notes it as not run on this path), route smoke, the PR-convention check, the in-flight check, the round and cost caps, the run block
 on the PR, and (under jira `writes: false`) stripping the Atlassian write tools.
 
 ## Checklist

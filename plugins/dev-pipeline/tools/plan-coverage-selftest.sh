@@ -6,7 +6,9 @@
 # them in one report (AC-3, D-4); PM-n never enters the set, and a record with no Test intent or no AC
 # block is not-applicable, never a pass (AC-4, D-3); an exempt AC is reported exempt, tagged or not,
 # never covered and never red (D-8); ids are exact strings over non-contiguous sets (D-13); CR line ends
-# are stripped (D-15); a missing plan is red, an unreadable input is exit 2.
+# are stripped (D-15); a missing plan is red, an unreadable input is exit 2. #1040: a holds or unchecked
+# AC is tagged like a behavior and reported in its form (D-4 D-11); a tagged task naming no test file is
+# red (D-3); --files maps each tagged AC to its files for run.sh's fails-without-the-change leg (D-7).
 #
 # Operator-safe: files only, no network, no git. Exit code = number of failed checks.
 set -uo pipefail
@@ -126,6 +128,43 @@ run "$T/rec.md" "$T"; r3=$RC
 run "$T/rec.md"; r4=$RC
 [ "$r1" -eq 2 ] && [ "$r2" -eq 2 ] && grep -qF "carries 0 'ACs:' lines" <<< "$e2" && [ "$r3" -eq 2 ] && [ "$r4" -eq 2 ] \
   && ok "(pc10) unreadable record, no 'ACs:' line, a directory for the plan, a missing argument → 2" || bad "(pc10) rc=$r1/$r2/$r3/$r4 err=$e2"
+
+# (pc11) #1040 D-4 D-11: a holds or unchecked AC must be tagged like a behavior, and is reported as covered in its form
+record "$T/rec-forms.md" $'ACs: AC-1 AC-2 AC-3 AC-4\n\nAC-1: a duplicate import answers 409\nAC-2: holds — an import under 50 MB still lands\nAC-3: unchecked — api tier; needs the running app\nAC-4: exempt — docs only'
+plan '- [ ] 1.1 import (src/import.spec.ts) [AC-1] [AC-2]' '- [ ] 1.2 the api suite (api/import.api.ts) [AC-3]'
+run "$T/rec-forms.md" "$T/plan.md"
+[ "$RC" -eq 0 ] && has 'plan-coverage: AC-2 covered (task 1.1) — holds' && has 'plan-coverage: AC-3 covered (task 1.2) — unchecked' \
+  && has 'plan-coverage: AC-1 covered (task 1.1)' && ! has 'AC-1 covered (task 1.1) —' \
+  && has 'plan-coverage: pass — 3 covered, 1 exempt (of the covered: 1 holds, 1 unchecked)' \
+  && ok "(pc11) D-4 D-11: holds and unchecked ACs are covered in their form, counted apart" || bad "(pc11) rc=$RC out=$OUT"
+plan '- [ ] 1.1 import (src/import.spec.ts) [AC-1]'
+run "$T/rec-forms.md" "$T/plan.md"
+[ "$RC" -eq 1 ] && has 'RED: AC-2 has no test task' && has 'RED: AC-3 has no test task' \
+  && ok "(pc11) D-4 D-11: an untagged holds or unchecked AC is uncovered → 1" || bad "(pc11) untagged: rc=$RC out=$OUT"
+
+# (pc12) #1040 D-3: a tagged task names its test files in the parenthetical that ends its description; one with none is red, named
+plan '- [ ] 1.1 duplicate import answers 409 [AC-1] [AC-2]' '- [ ] 1.2 the scheduler case () [AC-8]' '- [ ] 2.1 the worker, untagged, needs no file'
+run "$T/rec.md" "$T/plan.md"
+[ "$RC" -eq 1 ] && has 'plan-coverage: RED: task 1.1 tags AC-1 AC-2 but names no test file' && has 'plan-coverage: RED: task 1.2 tags AC-8 but names no test file' \
+  && ! has 'task 2.1' && has 'RED: AC-1 has no test task' \
+  && ok "(pc12) D-3: tagged tasks naming no file are red by task, their tags uncounted; an untagged task needs none → 1" || bad "(pc12) rc=$RC out=$OUT"
+plan '- [ ] 1.1 import, the (old) tests (src/a.spec.ts) [AC-1] [AC-2] [AC-8] [AC-3]'
+run --files "$T/rec.md" "$T/plan.md"
+[ "$RC" -eq 0 ] && [ "$OUT" = $'run AC-1 src/a.spec.ts\nrun AC-2 src/a.spec.ts\nrun AC-8 src/a.spec.ts' ] \
+  && ok "(pc12) D-3: only the parenthetical that ends the description names files → 0" || bad "(pc12) last paren: rc=$RC out=$OUT"
+
+# (pc13) #1040 D-7: --files prints the map on a pass — run / holds / unchecked per AC and file, in plan order, once each;
+# an exempt AC's files are left out, and a file shared by a behavior and a holds AC is listed under both
+plan '- [ ] 1.1 import (src/import.spec.ts, src/b.spec.ts) [AC-1] [AC-2]' '- [ ] 1.2 the api suite (api/import.api.ts) [AC-3] [AC-4]' \
+  '- [ ] 1.3 again (src/import.spec.ts) [AC-1]'
+run --files "$T/rec-forms.md" "$T/plan.md"
+want=$'run AC-1 src/import.spec.ts\nrun AC-1 src/b.spec.ts\nholds AC-2 src/import.spec.ts\nholds AC-2 src/b.spec.ts\nunchecked AC-3 api/import.api.ts'
+[ "$RC" -eq 0 ] && [ "$OUT" = "$want" ] && ok "(pc13) D-7: --files prints the AC-to-file map alone, exempt AC-4 left out" || bad "(pc13) rc=$RC out=$OUT"
+plan '- [ ] 1.1 import (src/import.spec.ts) [AC-1]'
+run --files "$T/rec-forms.md" "$T/plan.md"
+[ "$RC" -eq 1 ] && has 'RED: AC-2 has no test task' && ! has 'run AC-1' && ok "(pc13) --files on a red prints the RED lines, no map → 1" || bad "(pc13) red: rc=$RC out=$OUT"
+run --files "$T/rec-none.md" "$T/plan.md"
+[ "$RC" -eq 3 ] && ok "(pc13) --files on 'ACs: none' → 3" || bad "(pc13) none: rc=$RC out=$OUT"
 
 echo "plan-coverage-selftest: $PASS passed, $FAIL failed"
 exit "$FAIL"
