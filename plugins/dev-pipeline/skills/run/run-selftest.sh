@@ -42,6 +42,12 @@ grep -qE '^[|] review-1[.]1 [|] 3 [|] [$]1[.]00 [|]' "$FAKE_GH/pr-body.md" 2>/de
 grep -q 'ls /' "$(SD)/review-1.1.prompt" && ok "(a) build denials reach the review input" || bad "(a) denials missing from review input"
 grep -qF 'A denied command is not a reason to end your turn: skip a command outside the allowlist and name it in the PR body as skipped. Pushing second-shift/42 and opening the draft PR are never skipped.' "$FAKE_GH/prompt-1.txt" \
   && ok "(a) #973 D-3: the build prompt says a denial is not a stop, and pushing and the draft PR are never skipped" || bad "(a) #973 D-3: the denial-is-not-a-stop line is missing from the build prompt"
+grep -qF 'run the checks below that cover what you changed and make them green; running the whole list is not required.' "$FAKE_GH/prompt-1.txt" \
+  && grep -qF 'The scheduler runs every command below at the pushed head before a review starts' "$FAKE_GH/prompt-1.txt" && grep -qF 'a red one comes back to you as findings and spends a checks-red attempt.' "$FAKE_GH/prompt-1.txt" \
+  && grep -qx -- '- true' "$FAKE_GH/prompt-1.txt" && ! grep -q 'run every command below and make it green' "$FAKE_GH/prompt-1.txt" \
+  && ok "(a) #1035 D-2: the build prompt keeps the list as the scheduler's pass at the pushed head, and asks the build only for the checks its change touches" || bad "(a) #1035 D-2: the build prompt's checks paragraph still asks for the whole list, or lost the list or the checks-red framing"
+grep -qx 'While iterating, rerun only the test file or suite your change touches.' "$FAKE_GH/prompt-1.txt" \
+  && ok "(a) #1035 D-4: the build prompt tells a build to iterate on the test file or suite it touches" || bad "(a) #1035 D-4: the iteration line is missing from the build prompt"
 
 # (ho) --handoff (/dev-pipeline:build): claim, worktree, record, prompt — then stop; the calling session builds
 fixture ho; printf 'ready-for-dev\n' > "$FAKE_GH/labels"; run_case "$d" --handoff

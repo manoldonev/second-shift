@@ -28,6 +28,7 @@ Sizing: opus
 | D-12 | Test and release conventions this change follows | A behavior change to run.sh lands with a run*-selftest.sh case that fails without it; a new capability is `feat:` on the PR title; every plugins/** PR carries a `Changelog:` trailer — cited (convention): CLAUDE.md:120, CLAUDE.md:64, CLAUDE.md:35 | codebase-derived | fact |
 | D-13 | The selftest layout this change lands in | #1038 split the run.sh scenario into eight suites — run: `ls plugins/dev-pipeline/skills/run/run*-selftest.sh \| wc -l` → 8 | codebase-derived | fact |
 | D-14 | Dup-scan candidate #1033 (claimed, PR #1041) | Overlapping file, distinct work: #1041 edits run.sh's verdict grammar, while this ticket edits build_prompt and the round-loop comment. #1035 is queued only after #1041 merges, so the per-file staleness check cannot stop it mid-run | user-answered | intent |
+| D-15 | The whole-list run on the interactive /dev-pipeline:build path, where no scheduler pass follows the build | The prompt stays the same on both paths (D-9), and `skills/build/SKILL.md` is not edited: it already says the scheduler's re-run is not done there and tells that session to run every listed check itself. Reason: the skill is that path's own rule and already carries the whole-list duty, so the prompt does not need a handoff branch | user-delegated | intent |
 
 D-8 and D-11 were facts about the case filter; both retired at re-intake with D-3, and their IDs are not reused.
 
