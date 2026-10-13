@@ -118,7 +118,8 @@ printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-approve\n' > "$FAKE
 # shellcheck disable=SC2016  # the check line is meant to expand in the lane, not here
 fixture r5 '- test -z "${SECOND_SHIFT_CONFIG:-}"'; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(r5) lane commands run with the config seam scrubbed"
 cfgdir="$(cd "$(dirname "$SECOND_SHIFT_CONFIG")" && pwd)"
-! grep -A1 -x -- '--add-dir' "$FAKE_GH/args-1.txt" | grep -qxF -- "$cfgdir" && ok "(r5) no session is granted the config's directory (the main checkout's .claude/, where \$STATE and every receipt live)" || bad "(r5) $cfgdir is in the BUILD's --add-dir"
+awk -v c="$cfgdir" 'p && $0 == c {f = 1} {p = ($0 == "--add-dir")} END {exit !f}' "$FAKE_GH/args-1.txt"; grc=$?   # 0 granted · 1 not · 2 unreadable
+[ "$grc" -eq 1 ] && ok "(r5) no session is granted the config's directory (the main checkout's .claude/, where \$STATE and every receipt live)" || bad "(r5) the BUILD's --add-dir and $cfgdir: rc=$grc (0 granted, 2 args unreadable)"
 case "$(cat "$FAKE_GH/config-path-1.txt")" in *-scratch.*/second-shift.config.json) cmp -s "$FAKE_GH/config-seen-1.json" "$SECOND_SHIFT_CONFIG" && ok "(r5) the session reads the config from a copy in its scratch dir" || bad "(r5) the session's copy differs from the config" ;;
   *) bad "(r5) the session's SECOND_SHIFT_CONFIG is not a copy in its scratch dir: $(cat "$FAKE_GH/config-path-1.txt")" ;; esac
 # (r6) a build that rewrites the config, the main checkout's and its own copy, changes neither the checks the run then
