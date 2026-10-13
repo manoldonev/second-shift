@@ -29,6 +29,12 @@ It also **always includes** a queue-payload or persisted field the diff renames,
 (see Items in flight below). Open its unchanged readers, including a tolerant reader outside the
 hunk: whether one accepts the base shape decides whether there is a finding at all.
 
+It also **always includes** a cost, load or performance risk the decision record names — a `D-n`
+row or an `OR-n` Open Region recording a deferred, unmeasured or inherited cost (see "A
+record-named cost risk" under Performance). Trace the new entry point that reaches it through the
+unchanged code that does the work, as far as the worst-case bound needs: the operator wrote the
+concern down, so checking it is not proving a negative.
+
 **Findings out are ordinary findings.** They go into Synthesis Step 1 with the subagents' and are
 deduplicated, confidence-filtered and triaged identically. Being found in-session buys a finding
 nothing.
@@ -64,6 +70,14 @@ For each finding, decide which it is before you decide its severity:
    its own severity — Critical when the defect is confirmed in the defining artifact and it breaks
    the feature's critical path today. The one carve-out is a Duplicate delivery finding (below),
    whose severity its own rule sets.
+5. **Cost: new callers or new capacity on an expensive path are new.** When the expensive work
+   lives in unchanged code and the diff adds an entry point that reaches it — new callers (a
+   machine client, one call per line item), or the same work moved onto other or shared capacity
+   — the cost finding is **new**, not `[Pre-existing]`, even when an older route already calls the
+   same code. "The old route does the same" does not close it: the exposure is the diff's. Cite
+   the diff's entry point (its anchor) and the unchanged line that does the work. Severity comes
+   from "Amplification through a new entry point" under Performance. This rule is scoped to
+   cost; it does not reach correctness defects, which rule 4 governs.
 
 **A change that follows existing codebase patterns is CONSISTENT, not broken.**
 
@@ -135,6 +149,11 @@ A finding is Critical only when **both** hold:
 
 One condition without the other is a Warning at most. "The PR makes an existing weakness slightly
 more visible" is neither.
+
+**A new entry point onto an inherited expensive path meets condition 1.** The cost is inherited;
+the exposure is not (New vs pre-existing, rule 5). Condition 2 holds when a caller that ships
+today can send the worst request the validation admits. Without one, the finding is a Warning,
+which the reviewer may still hold the merge for.
 
 ### Pre-Emit Gate
 
@@ -258,6 +277,36 @@ Stack-agnostic. Apply each rule in the vocabulary of the repo's actual stack (`#
   limit/pagination on a user-facing path. Internal workers are exempt where review-context says so.
 - **O(n²) on large arrays**, at any layer. Sliding-window aggregations must be O(n); a known
   complexity bound regressing to O(n²) when pruning logic changes is the same finding.
+- **Amplification through a new entry point.** "Unbounded result sets" counts the rows returned;
+  this counts the work done before any row exists. The diff adds an entry point — a route,
+  handler, consumer or SDK method — that reaches a data read or existing heavy work in unchanged
+  code. Its cost is **the worst request the validation admits, times the cost of the unchanged
+  code it reaches**: read the validation for the widest range, count or set size it lets through,
+  then trace that through the code the entry point calls. Ask, and answer each with a citation:
+  - Is the work **bounded before any output exists** — a cap on the range or the fan-out, not
+    only a page size on the result?
+  - Is there a **runaway guard** — a request timeout, a query time limit, a throttle or rate
+    limit — in whatever form the stack has?
+  - Do **caller retries multiply** it — a client that retries on a timeout or a 5xx repeats the
+    whole cost, possibly across instances?
+  - Does it run on **shared capacity** — synchronously on instances other traffic depends on?
+
+  The finding states the worst-case bound in numbers where the code gives them (e.g. "365 days ×
+  every resource × a quadratic recurrence re-expansion, about 66k per resource"), anchored on the
+  entry point in the diff. It is new under New vs pre-existing rule 5, and its severity is the
+  two-condition trigger's: Critical when a shipped caller can send the worst admitted request
+  today, Warning otherwise. **No exemption** for an internal route or an internal worker:
+  review-context may calibrate what counts as expensive for this repo, never switch the rule off.
+  This rule owns runaway work, missing guards and retry amplification; the security dimension
+  does not re-review them as availability.
+- **A record-named cost risk.** When a `D-n` row or `OR-n` region of the decision record names a
+  cost, load or performance risk — deferred, unmeasured or inherited — that risk is required work
+  for this dimension, not a row to match. Whoever owns performance this round (this pass, or the
+  dispatched seat) states the worst-case bound as a finding at the severity the rules above give
+  it. A bound the trace shows is small is still stated — as a Suggestion, with the citation that
+  bounds it — so the reader can see the named risk was checked rather than matched. The row's own
+  score is still whether the code matches the row: a score never
+  overrides the operator's decision, and a bound never stands in for a score.
 
 **Warning**
 

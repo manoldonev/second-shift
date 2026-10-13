@@ -70,6 +70,7 @@ For each finding, determine whether it is **new** or **pre-existing**:
 2. If the PR follows an existing codebase pattern that's imperfect, label `[Pre-existing]`
 3. If the PR introduces a pattern/issue that doesn't exist elsewhere, it's a **new** finding
 4. If the defect lives in unchanged code but the PR is the first code to depend on it (it newly reads, sends or relies on the defective behavior), it's a **new** finding — the PR introduces the failure even though it did not introduce the defect. Cite both the diff line that depends on it and the out-of-diff line that is defective; sibling consistency does not apply, since a pattern nobody depended on is not an established one. Severity follows the usual rules for a new finding.
+5. Cost only: if the expensive work lives in unchanged code and the PR adds an entry point that reaches it — new callers, or the same work on other or shared capacity — the cost finding is **new**, not `[Pre-existing]`, even when an older route already calls the same code. The cost is inherited; the exposure is the PR's. Cite the PR's entry point and the unchanged line that does the work. Severity follows the performance rules for a new finding.
 
 **Rule: A PR that follows existing codebase patterns is CONSISTENT, not broken.** Pre-existing findings inform triage but never block a PR on their own.
 
