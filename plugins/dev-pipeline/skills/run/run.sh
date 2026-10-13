@@ -638,7 +638,7 @@ build_prompt() { # build_prompt <round> <review-findings-file-or-empty> <red-che
   echo "A test double of a dependency this repo does not own that returns an error or an empty result cites where that shape comes from (the dependency's types, docs or a recorded real response): a double built from your own belief proves nothing about the dependency."
   [ "$BOT_OK" -eq 1 ] && echo "Commit through the repo's bot identity, never plain git commit, and run it exactly as '$TOOLS/bot-commit.sh -C $WT -F <a message file you wrote with Write>' — the bare path first, no bash before it. Re-pass the identity on any --amend, which otherwise silently re-stamps you as the committer."
   if [ "$1" -eq 1 ]; then
-    echo "When the checks are green, commit, push branch $BRANCH to origin and, unless one is already open for this branch, open a DRAFT PR against $BASE_NAME with 'gh pr create --draft --base $BASE_NAME', and leave it a draft: the scheduler marks it ready for review only when a review approves its head. The PR body, in order: line 1 exactly 'built-by: second-shift run $RUN_ID'; then a link to the decision record at $RECORD_REL; then the line 'Record baseline: $FIRST'; then a summary of the change;"
+    echo "When the checks you ran are green, commit, push branch $BRANCH to origin and, unless one is already open for this branch, open a DRAFT PR against $BASE_NAME with 'gh pr create --draft --base $BASE_NAME', and leave it a draft: the scheduler marks it ready for review only when a review approves its head. The PR body, in order: line 1 exactly 'built-by: second-shift run $RUN_ID'; then a link to the decision record at $RECORD_REL; then the line 'Record baseline: $FIRST'; then a summary of the change;"
     if [ "$TRACKER" = github ]; then echo "and the line 'Closes #$ISSUE' so the ticket closes on merge."; else echo "and a '### Jira Items' heading with the line 'Closes [$ISSUE]'."; fi
   else echo "Address the review below: fix each [blocker] finding, or rebut it in a PR comment, and fix each decision record row it scored violated or undeterminable (or edit that row, as the record rules below allow). A [note] finding requires nothing: fix one only if you choose to, and never rebut or reply to one. Then commit and push $BRANCH."; fi
   echo; echo "The following decisions were settled with the requester before implementation started. They are binding. The record is committed at $RECORD_REL; if you must depart from a row, edit that row in place (new resolution, provenance user-delegated, a one-line reason) and commit the edit with the code. A material decision no row covers gets a new row the same way. Commit $FIRST is the record baseline the review reads: never amend, rebase or force-push over it. Never post a comment starting with 'verdict:'."
@@ -646,7 +646,9 @@ build_prompt() { # build_prompt <round> <review-findings-file-or-empty> <red-che
   if [ -n "$(frames_rows)" ]; then
     echo; echo "This ticket has design frames. Follow the figma-faithful sequence: read every frame id in the '## Design frames' section first; write the token and component plan; before writing UI code, have a subagent read that plan against the frames and list what it would get wrong, then fix the plan. Render every screen with the repo's render command, open the PNG, compare it with its frame and fix what differs, up to three rounds per screen. A screen that shows an error page, a login page or a spinner is not done."
   fi
-  echo; echo "Before opening the PR (or pushing a fix), run every command below and make it green (a lane gated on changed-file globs runs only when its files change):"; checks_list all | sed 's/^/- /'
+  # #1035: the scheduler's pass at the pushed head is the one it can prove, so the build is not asked to run the whole list too
+  echo; echo "The scheduler runs every command below at the head you push, before a review starts (a lane gated on changed-file globs runs only when its files change): a red one comes back to you as findings and spends a checks-red attempt. Before you push, run the checks that cover what you changed; running the whole list is not required."; checks_list all | sed 's/^/- /'
+  echo "While you iterate, run only the test cases you added or changed, where a suite takes a case filter."
   [ -n "$2" ] && { echo; echo "## Review findings"; cat "$2"; }
   [ -n "${3:-}" ] && { echo; echo "## Red check output"; echo "A red check cannot be rebutted: reproduce it with its command and fix the cause; if the check itself is wrong, say so in the PR."; cat "$3"; }
 }
@@ -1287,7 +1289,7 @@ while :; do
       pr_hold_draft
       [ "$crc" -eq 0 ] || { red_attempt "PR conventions" "$STATE/pr-conventions-$A.txt"; continue; }
     fi
-    # ---- the checks the build did not run, at the pushed head; re-run only when the head moved (ids: the build attempt, suffixed on a re-spawn) ----
+    # ---- every configured check, at the pushed head, before REVIEW: the run the harness can prove, whatever the build ran; re-run only when the head moved (ids: the build attempt, suffixed on a re-spawn) ----
     RA="$A"; [ "$review_tries" -eq 0 ] || RA="$A-retry$review_tries"
     if [ "$NEED_CHECKS" -eq 1 ]; then
       sync_to_remote

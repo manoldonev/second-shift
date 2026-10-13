@@ -91,6 +91,10 @@ session a foreground `Bash` call is reaped at 2 minutes** whatever its `timeout`
 open the PR and report without waiting for it; a sweep still running is a line in the report, with its
 log path. Never poll for it: a backgrounded command re-invokes the session when it exits.
 
+**Iterating on a `run-selftest.sh` case?** Run only the cases you added or changed:
+`bash plugins/dev-pipeline/skills/run/run-selftest.sh <case-id>...`, where a case id is the `<id>` of the
+top-level `fixture <id>` line that opens the case. The whole suite stays with the check lane and CI.
+
 The recipe runs cold, excludes `tools/install-topology-selftest.sh` (run it directly when your
 change is about how plugins are installed), and a killed sweep leaves `mktemp` litter that can red
 the next run. The runner, the exclusion, the pass cache, concurrency and the scrub recipe:

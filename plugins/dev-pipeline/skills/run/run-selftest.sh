@@ -9,6 +9,39 @@
 set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUN="$SCRIPT_DIR/run.sh"
+# #1035: `run-selftest.sh <case-id>...` runs only those cases; with no argument every case runs. A case opens at a
+# top-level `fixture <id>` line (after any VAR=value prefixes) and runs to the next one, so a case a helper opens with
+# `fixture "$1"` runs inside the case before it. A skipped case's lines do not run, but the functions it defines at top
+# level still do; setup that another case reads lives above the first case, never inside one
+SELF="${BASH_SOURCE[0]}"
+case_lines() { # case_lines <file> -> "<line> <id>" for each case, in file order
+  awk 'function emit() { if (match(cmd, /(^|[[:space:]])fixture[[:space:]]+[A-Za-z0-9_.-]+/)) { id = substr(cmd, RSTART, RLENGTH); sub(/^[[:space:]]*fixture[[:space:]]+/, "", id); print start, id } }
+    more { cmd = cmd " " $0; if ($0 !~ /\\$/) { more = 0; emit() }; next }
+    /^(fixture[[:space:]]|[A-Z_][A-Z0-9_]*=)/ { start = NR; cmd = $0; if ($0 ~ /\\$/) more = 1; else emit() }' "$1"
+}
+selected_cases() { # selected_cases <file> <id>... -> the selected cases' lines, every other case's top-level functions, then the summary
+  local file="$1" ids=" ${*:2} " end mark line chunk="" fn_re='^[A-Za-z_][A-Za-z0-9_]*\(\) *\{'
+  end="$(grep -n '^# ---- end of cases ----' "$file" | cut -d: -f1)"
+  awk -v opens="$(case_lines "$file" | tr '\n' ',')" -v ids="$ids" -v end="$end" '
+    BEGIN { n = split(opens, o, ","); for (i = 1; i < n; i++) { split(o[i], p, " "); at[p[1]] = p[2]; if (index(ids, " " p[2] " ")) k++ } }
+    NR in at { cur = index(ids, " " at[NR] " ") ? "K" : "S" }
+    NR == end { printf "K\techo \"[run-selftest] case filter: ran%s(%d of %d cases)\"\n", ids, k, n - 1 }
+    NR >= end { print "K\t" $0; next }
+    cur != "" { print cur "\t" $0 }' "$file" | while IFS= read -r line; do
+    mark="${line%%$'\t'*}"; line="${line#*$'\t'}"
+    if [ -n "$chunk" ]; then chunk="$chunk"$'\n'"$line"
+    elif [ "$mark" = K ]; then printf '%s\n' "$line"; continue
+    elif [[ "$line" =~ $fn_re ]]; then chunk="$line"
+    else continue; fi
+    "$BASH" -n <<<"$chunk" 2>/dev/null && { printf '%s\n' "$chunk"; chunk=""; }   # a definition ends where bash can parse it whole
+  done
+}
+if [ "$#" -gt 0 ]; then # an id no case opens refuses the run; so does a case list that could not be read (it lists none)
+  _ids="$(case_lines "$SELF" | cut -d' ' -f2)"
+  for _id in "$@"; do
+    grep -qxF -- "$_id" <<<"$_ids" || { echo "[run-selftest] no case '$_id': a case opens at a top-level 'fixture <id>' line" >&2; exit 2; }
+  done; unset _id _ids
+fi
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); echo "  ok   $*"; }
 bad() { FAIL=$((FAIL+1)); echo "  FAIL $*"; }
@@ -206,7 +239,47 @@ run_case() { # run_case <dir> <args...> -> stdout in $OUT, terminal in $TERM_SLU
 }
 expect() { [ "$TERM_SLUG" = "$1" ] && ok "$2 -> $1" || { bad "$2: expected terminal $1, got '$TERM_SLUG'"; printf '%s\n' "$OUT" | tail -n 6 | sed 's/^/       /'; }; }
 
+# ---- setup more than one case reads: above the first case, so a case filter that skips the case beside it skips none of it (#1035) ----
+printf 'x' > "$T/px.png"; PX="cp $T/px.png {out}"   # a render's one-pixel image: the frames cases from (v5) on
+RTCFG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans","runtimeData":[".claude/storage","apps/api/uploads"]}}'   # [E20-rd]
+CS_BOT_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/","bot":{"enabled":true,"envVar":"FAKE_BOT","app":{"appName":"second-shift-bot"}}},"paths":{"plansDir":"docs/plans"}}'   # (cs7) (cs8) (mv5)
+printf '#!/usr/bin/env bash\nFAKE_GH_AS=bot exec %s "$@"\n' "$T/bin/gh" > "$T/bin/gh-asbot"; chmod +x "$T/bin/gh-asbot"
+cafe=$'caf\303\251'   # [I10] #1011
+mkdir -p "$T/gitnameonlydead"   # [C20] [J5]
+cat > "$T/gitnameonlydead/git" <<EOF
+#!/usr/bin/env bash
+case " \$* " in *" diff --name-only "*) case "\$*" in *..*) ;; *) exit 128 ;; esac ;; esac; exec "$(command -v git)" "\$@"
+EOF
+chmod +x "$T/gitnameonlydead/git"
+mkdir -p "$T/gitstatusdead"   # [E21] [E20] [E20-rd]
+cat > "$T/gitstatusdead/git" <<EOF
+#!/usr/bin/env bash
+case " \$* " in *" status --porcelain "*) n=\$(cat "\$FAKE_GH/status-reads" 2>/dev/null || echo 0); n=\$((n+1)); echo \$n > "\$FAKE_GH/status-reads"; [ "\$n" -ge "\${FAKE_STATUS_DIES_AT:-1}" ] && { echo "fatal: index locked" >&2; exit 128; } ;; esac; exec "$(command -v git)" "\$@"
+EOF
+chmod +x "$T/gitstatusdead/git"
+stub_lint() { # stub_lint <name> <script body> -> prints the stub plugin root: (rl2) and the (rl4)-(rl6) cache
+  mkdir -p "$T/stub-$1/skills/plan-interview/tools"; printf '#!/usr/bin/env bash\n%s\n' "$2" > "$T/stub-$1/skills/plan-interview/tools/ledger-lint.sh"; printf '%s' "$T/stub-$1"
+}
+cat > "$T/bin/claude-plugins" <<EOF
+#!/usr/bin/env bash
+# answers 'plugin list --json' from \$FAKE_PLUGIN_LIST (absent: the command fails); every other call goes to the fake claude
+if [ "\$1 \$2" = "plugin list" ]; then echo "\$*" >> "\$FAKE_GH/plugin-calls"; [ -f "\${FAKE_PLUGIN_LIST:-}" ] && cat "\$FAKE_PLUGIN_LIST"; exit \$?; fi
+exec "$T/bin/claude" "\$@"
+EOF
+chmod +x "$T/bin/claude-plugins"
+mkdir -p "$T/cache/intake-toolkit"; cp -R "$IT_ROOT" "$T/cache/intake-toolkit/1.0.0"
+# shellcheck disable=SC2016  # the stub body expands in the stub, not here
+stub_lint leftover '[ "$1" = --receipt-version ] && { echo 99; exit 0; }; echo "ledger-lint: VIOLATION: the leftover lint ran" >&2; exit 1' >/dev/null
+mkdir -p "$T/cache/intake-toolkit/9.9.9"; cp -R "$T/stub-leftover/." "$T/cache/intake-toolkit/9.9.9/"
+
 echo "[run-selftest] run.sh terminals and adjudication invariants"
+if [ "$#" -gt 0 ]; then # #1035: a filtered run sources the cases it was given and ends with their summary
+  selected_cases "$SELF" "$@" > "$T/cases.sh" || { echo "[run-selftest] FATAL: could not write the selected cases" >&2; exit 1; }
+  set --
+  # shellcheck source=/dev/null
+  . "$T/cases.sh"
+  echo "[run-selftest] FATAL: the selected cases ended without the summary" >&2; exit 1
+fi
 
 # (a) happy path: build opens a PR, review approves the head inside the window
 fixture a; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"
@@ -235,6 +308,14 @@ grep -qE '^[|] review-1[.]1 [|] 3 [|] [$]1[.]00 [|]' "$FAKE_GH/pr-body.md" 2>/de
 grep -q 'ls /' "$(SD)/review-1.1.prompt" && ok "(a) build denials reach the review input" || bad "(a) denials missing from review input"
 grep -qF 'A denied command is not a reason to end your turn: skip a command outside the allowlist and name it in the PR body as skipped. Pushing second-shift/42 and opening the draft PR are never skipped.' "$FAKE_GH/prompt-1.txt" \
   && ok "(a) #973 D-3: the build prompt says a denial is not a stop, and pushing and the draft PR are never skipped" || bad "(a) #973 D-3: the denial-is-not-a-stop line is missing from the build prompt"
+# #1035 D-2: the check list is what the scheduler runs at the pushed head, its red spends an attempt, and the build runs the
+# checks that cover its change, not the whole list first; D-4: the case-filter line names no repo path
+p1="$FAKE_GH/prompt-1.txt"
+grep -qF 'The scheduler runs every command below at the head you push, before a review starts' "$p1" && grep -qF 'a red one comes back to you as findings and spends a checks-red attempt' "$p1" \
+  && grep -qF 'Before you push, run the checks that cover what you changed; running the whole list is not required.' "$p1" && grep -qx -- '- true' "$p1" && ! grep -q 'run every command below' "$p1" \
+  && ok "(a) #1035 D-2: the build prompt frames the check list as the scheduler's pass and asks the build only for the checks its change touches" || bad "(a) #1035 D-2: checks paragraph: $(grep -B1 -A1 -x -- '- true' "$p1" | tr '\n' '|')"
+fl="$(grep -F 'case filter' "$p1")"
+[ "$fl" = 'While you iterate, run only the test cases you added or changed, where a suite takes a case filter.' ] && ok "(a) #1035 D-4: one generic case-filter line, no repo path" || bad "(a) #1035 D-4: case-filter line: '$fl'"
 
 # (ho) --handoff (/dev-pipeline:build): claim, worktree, record, prompt — then stop; the calling session builds
 fixture ho; printf 'ready-for-dev\n' > "$FAKE_GH/labels"; run_case "$d" --handoff
@@ -242,6 +323,7 @@ expect build-handoff "(ho) an unsized ticket is handed to the calling session"
 [ "$RC" -eq 0 ] && [ ! -f "$FAKE_GH/calls" ] && ok "(ho) exit 0 and no session spawned" || bad "(ho) rc=$RC, claude calls: $(cat "$FAKE_GH/calls" 2>/dev/null)"
 hp="$(sed -n 's/^prompt: //p' <<<"$OUT")"; hw="$(sed -n 's/^worktree: //p' <<<"$OUT")"
 [ -n "$hp" ] && grep -q 'Implement ticket 42' "$hp" && grep -q 'D-1' "$hp" && [ -d "$hw" ] && ok "(ho) the build prompt and worktree are printed" || bad "(ho) prompt '$hp' / worktree '$hw'"
+grep -qF 'The scheduler runs every command below at the head you push' "$hp" && grep -qF 'where a suite takes a case filter' "$hp" && ok "(ho) #1035 D-9: the handed-off prompt carries the same checks framing" || bad "(ho) #1035 D-9: checks framing missing from $hp"
 # The closing comment is public: the worktree path stays in the local log, never on the tracker.
 grep -q 'build-handoff' "$FAKE_GH/issue-comments" && ! grep -qF "$hw" "$FAKE_GH/issue-comments" && grep -q '<worktree>' "$FAKE_GH/issue-comments" \
   && ok "(ho) the handoff comment names <worktree>, never the local path" || bad "(ho) local path in the tracker comment: $(grep build-handoff "$FAKE_GH/issue-comments")"
@@ -306,12 +388,12 @@ fixture d; printf 'build-pr-dirty\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expec
 grep -qE '\[run\] terminal: build-inflight — .*its tree is not clean; it was denied 1 command\(s\), listed in .*/denials-1\.1\.txt\) ' <<<"$OUT" \
   && ok "(d) #973 D-2: the build-inflight detail cites the denials file" || bad "(d) #973 D-2: detail: $(grep 'terminal: build-inflight' <<<"$OUT")"
 # (dn) #973 D-4: a session whose result JSON carried no permission_denials is unread, never "none", and the detail says so
+fixture dn; printf 'build-pr-dirty\n' > "$FAKE_CLAUDE_PLAN"
 cat > "$T/bin/claude-nodenials" <<EOF
 #!/usr/bin/env bash
 "$T/bin/claude" "\$@" | jq -c 'del(.permission_denials)'
 EOF
-chmod +x "$T/bin/claude-nodenials"
-fixture dn; printf 'build-pr-dirty\n' > "$FAKE_CLAUDE_PLAN"; RUN_CLAUDE="$T/bin/claude-nodenials" run_case "$d"; expect build-inflight "(dn) a dirty tree with unread denials is still in flight"
+chmod +x "$T/bin/claude-nodenials"; RUN_CLAUDE="$T/bin/claude-nodenials" run_case "$d"; expect build-inflight "(dn) a dirty tree with unread denials is still in flight"
 grep -qE '\[run\] terminal: build-inflight — .*its tree is not clean; its permission denials are unread ' <<<"$OUT" \
   && ok "(dn) #973 D-4: the detail says the denials are unread" || bad "(dn) #973 D-4: detail: $(grep 'terminal: build-inflight' <<<"$OUT")"
 
@@ -646,7 +728,6 @@ run_case "$d"; expect claimed-elsewhere "(v3) a marker posted by another account
 fixture v4; printf 'in-progress\nopus\n' > "$FAKE_GH/labels"; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"
 jq '. + [{body:"<!-- run_id: x -->\n<!-- stage: lean-claimed -->",user:{login:"some-app[bot]",type:"Bot"},created_at:"2020-01-01T00:00:00Z",updated_at:"2020-01-01T00:00:00Z"}]' "$FAKE_GH/comments.json" > "$FAKE_GH/c.tmp" && mv "$FAKE_GH/c.tmp" "$FAKE_GH/comments.json"
 run_case "$d"; expect approved "(v4) a Bot-authored marker re-enters"
-printf 'x' > "$T/px.png"
 FIXTURE_CONFIG="{\"tracker\":{\"type\":\"github\",\"branchPrefix\":\"second-shift/\"},\"paths\":{\"plansDir\":\"docs/plans\"},\"design\":{\"provider\":\"figma\",\"liveRender\":{\"command\":\"cp $T/px.png {out}\",\"smokeCommand\":\"test {mustShow} = ok\"}}}" fixture v5 "- true" $'\n## Design frames\n\n| RS | route | state | frame | must-show |\n| --- | --- | --- | --- | --- |\n| RS-1 | a | default | 1:2 | ok |\n'
 printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(v5) route smoke: render, non-empty image, must-show satisfied"
 FIXTURE_CONFIG="{\"tracker\":{\"type\":\"github\",\"branchPrefix\":\"second-shift/\"},\"paths\":{\"plansDir\":\"docs/plans\"},\"design\":{\"provider\":\"figma\",\"liveRender\":{\"command\":\"cp $T/px.png {out}\",\"smokeCommand\":\"true\"}}}" fixture v6 "- true" $'\n## Design frames\n\n| RS | route | state | frame |\n| --- | --- | --- | --- |\n| RS-1 | a | default | 1:2 |\n'
@@ -733,9 +814,11 @@ grep -qx 'BASH_MAX_TIMEOUT_MS=6900000' "$FAKE_GH/env-1.txt" && grep -qx 'CLAUDE_
 fixture fe3; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1 RUN_BUILD_TIMEOUT=9999999 run_case "$d"; expect approved "(fe3) an inherited background-tasks switch and a huge bound"
 ! grep -q 'CLAUDE_CODE_DISABLE_BACKGROUND_TASKS' "$FAKE_GH/env-2.txt" && ok "(fe3) REVIEW never inherits the BUILD's background-tasks switch" || bad "(fe3) REVIEW env: $(tr '\n' ' ' < "$FAKE_GH/env-2.txt")"
 grep -qx 'BASH_MAX_TIMEOUT_MS=2147483647' "$FAKE_GH/env-1.txt" && ok "(fe3) the BUILD's Bash timeout is capped at the JS timer maximum" || bad "(fe3) BUILD env: $(tr '\n' ' ' < "$FAKE_GH/env-1.txt")"
+fixture y3 "- true" $'\n## Design frames\n\n| RS | route | state | frame | must-show |\n| --- | --- | --- | --- | --- |\n| RS-1 | a | default | 1:2 | ok |\n'
 port=$(( 20000 + RANDOM % 20000 )); ( cd "$T" && python3 -m http.server "$port" --bind 127.0.0.1 >/dev/null 2>&1 ) & hs=$!
 until curl -s -o /dev/null "http://127.0.0.1:$port/" 2>/dev/null; do sleep 0.2; done
-FIXTURE_CONFIG="{\"tracker\":{\"type\":\"github\",\"branchPrefix\":\"second-shift/\"},\"paths\":{\"plansDir\":\"docs/plans\"},\"design\":{\"provider\":\"figma\",\"liveRender\":{\"command\":\"cp $T/px.png {out}\",\"smokeCommand\":\"true\",\"readyProbe\":\"http://127.0.0.1:$port/missing\"}}}" fixture y3 "- true" $'\n## Design frames\n\n| RS | route | state | frame | must-show |\n| --- | --- | --- | --- | --- |\n| RS-1 | a | default | 1:2 | ok |\n'
+# the readyProbe names the server's port, so the config is written once the server is up (the case's own setup stays in the case: #1035)
+printf '%s\n' "{\"tracker\":{\"type\":\"github\",\"branchPrefix\":\"second-shift/\"},\"paths\":{\"plansDir\":\"docs/plans\"},\"design\":{\"provider\":\"figma\",\"liveRender\":{\"command\":\"cp $T/px.png {out}\",\"smokeCommand\":\"true\",\"readyProbe\":\"http://127.0.0.1:$port/missing\"}}}" > "$SECOND_SHIFT_CONFIG"
 printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect env-not-ready "(y3) an HTTP 404 from the readyProbe is not ready"
 grep -q 'last reading: HTTP 404' <<<"$OUT" && ok "(y3) the refusal names the reading" || bad "(y3) reading not named"
 kill "$hs" 2>/dev/null; wait "$hs" 2>/dev/null
@@ -743,7 +826,6 @@ fixture y4; OUT="$( cd "$d/main" && bash "$RUN" -h 2>&1 )"; grep -q '130 / 143' 
 
 # (z) round-twelve parity: the design SECTION is what arms and disarms, in the gate's forms; a read
 #     remote is never blamed on the build; the cap is a bound; blocker labels with spaces; exit codes
-PX="cp $T/px.png {out}"
 FIXTURE_CONFIG="{\"tracker\":{\"type\":\"github\",\"branchPrefix\":\"second-shift/\"},\"paths\":{\"plansDir\":\"docs/plans\"},\"design\":{\"provider\":\"figma\",\"liveRender\":{\"command\":\"$PX\",\"smokeCommand\":\"true\"}}}" fixture z1 "- true" $'\n## Design\n\nHandoff: x\n\n| RS | route | state | frame | must-show |\n| --- | --- | --- | --- | --- |\n| RS-1 | a | default | 1:2 | ok |\n'
 printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(z1) rows under the spec form '## Design' arm the smoke too"
 grep -q 'smoke-RS-1' <<<"$OUT" || [ -f "$(SD)/smoke-RS-1.png" ] && ok "(z1) the render ran" || bad "(z1) no render"
@@ -753,9 +835,10 @@ FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"pat
 run_case "$d"; expect env-design-undeclared "(z3) a 'Design: none' outside the design section does not disarm"
 FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"design":{"provider":"figma","liveRender":{"command":"true"}}}' fixture z4 "- true" $'\n## Design\n\n   Design:   NONE — an indented disarm with a reason, any case\n'
 printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(z4) the gate's indented, case-insensitive disarm form is accepted"
+fixture z5 "- true" $'\n## Design frames\n\n| RS | route | state | frame | must-show |\n| --- | --- | --- | --- | --- |\n| RS-1 | a | default | 1:2 | ok |\n'
 port=$(( 20000 + RANDOM % 20000 )); ( cd "$T" && python3 -m http.server "$port" --bind 127.0.0.1 >/dev/null 2>&1 ) & hs=$!
 until curl -s -o /dev/null "http://127.0.0.1:$port/" 2>/dev/null; do sleep 0.2; done
-FIXTURE_CONFIG="{\"tracker\":{\"type\":\"github\",\"branchPrefix\":\"second-shift/\"},\"paths\":{\"plansDir\":\"docs/plans\"},\"design\":{\"provider\":\"figma\",\"liveRender\":{\"command\":\"$PX\",\"smokeCommand\":\"true\",\"readyProbe\":\"http://127.0.0.1:$port/\"}}}" fixture z5 "- true" $'\n## Design frames\n\n| RS | route | state | frame | must-show |\n| --- | --- | --- | --- | --- |\n| RS-1 | a | default | 1:2 | ok |\n'
+printf '%s\n' "{\"tracker\":{\"type\":\"github\",\"branchPrefix\":\"second-shift/\"},\"paths\":{\"plansDir\":\"docs/plans\"},\"design\":{\"provider\":\"figma\",\"liveRender\":{\"command\":\"$PX\",\"smokeCommand\":\"true\",\"readyProbe\":\"http://127.0.0.1:$port/\"}}}" > "$SECOND_SHIFT_CONFIG"
 printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(z5) a readyProbe that answers 200 is ready"
 kill "$hs" 2>/dev/null; wait "$hs" 2>/dev/null
 fixture z6; printf 'build-stubborn\n' > "$FAKE_CLAUDE_PLAN"; s0=$(date +%s); RUN_BUILD_TIMEOUT=2 run_case "$d"; el=$(( $(date +%s) - s0 )); expect build-blocked "(z6) a TERM-ignoring session is stopped at its cap"
@@ -835,9 +918,7 @@ fixture rl1b; printf '# record\n\n## Decision Ledger\n\n| ID | Decision | Resolu
 run_case "$d"; expect env-receipt-invalid "(rl1b) a pre-#1022 receipt shape"
 # (rl2) AC-6: an override naming no lint, a lint that is not this lint's version probe, one that knows too few versions,
 # and one whose --receipt answers with neither 0 nor 1 — each exits 2 under env-receipt-lint-unavailable, before the claim
-stub_lint() { # stub_lint <name> <script body> -> prints the stub plugin root
-  mkdir -p "$T/stub-$1/skills/plan-interview/tools"; printf '#!/usr/bin/env bash\n%s\n' "$2" > "$T/stub-$1/skills/plan-interview/tools/ledger-lint.sh"; printf '%s' "$T/stub-$1"
-}
+# (stub_lint is defined above the first case: the leftover lint the (rl4)-(rl6) cache holds is one of its stubs)
 rl_unavailable() { # rl_unavailable <label> <toolkit root> <detail fragment>
   fixture "rl2-$1"; SECOND_SHIFT_INTAKE_TOOLKIT_ROOT="$2" run_case "$d"; expect env-receipt-lint-unavailable "(rl2) $1"
   [ "$RC" -eq 2 ] && grep -qF -- "$3" <<<"$OUT" && untouched && ok "(rl2) $1: exits 2 before the claim, naming why" || bad "(rl2) $1: rc=$RC $(grep 'terminal: env-receipt' <<<"$OUT")"
@@ -856,18 +937,8 @@ grep -q 'the receipt is v99 but .* knows receipts up to v' <<<"$OUT" && untouche
 # (rl4) AC-13: with no override the lint comes from the ENABLED intake-toolkit record in `claude plugin list --json`, in an
 # install-cache layout — never the newer leftover beside it, a disabled record, or a project record for another checkout.
 # The list's shape (id, version, scope, enabled, installPath, projectPath) is the one doctor reads, recorded in
-# plugins/second-shift/skills/doctor/tools/doctor-fixtures/plugin-list-*.json
-cat > "$T/bin/claude-plugins" <<EOF
-#!/usr/bin/env bash
-# answers 'plugin list --json' from \$FAKE_PLUGIN_LIST (absent: the command fails); every other call goes to the fake claude
-if [ "\$1 \$2" = "plugin list" ]; then echo "\$*" >> "\$FAKE_GH/plugin-calls"; [ -f "\${FAKE_PLUGIN_LIST:-}" ] && cat "\$FAKE_PLUGIN_LIST"; exit \$?; fi
-exec "$T/bin/claude" "\$@"
-EOF
-chmod +x "$T/bin/claude-plugins"
-mkdir -p "$T/cache/intake-toolkit"; cp -R "$IT_ROOT" "$T/cache/intake-toolkit/1.0.0"
-# shellcheck disable=SC2016  # the stub body expands in the stub, not here
-stub_lint leftover '[ "$1" = --receipt-version ] && { echo 99; exit 0; }; echo "ledger-lint: VIOLATION: the leftover lint ran" >&2; exit 1' >/dev/null
-mkdir -p "$T/cache/intake-toolkit/9.9.9"; cp -R "$T/stub-leftover/." "$T/cache/intake-toolkit/9.9.9/"
+# plugins/second-shift/skills/doctor/tools/doctor-fixtures/plugin-list-*.json (the fake claude-plugins and the install
+# cache it lists are set up above the first case: (rl4), (rl5) and (rl6) each read them)
 plugin_list() { # plugin_list <enabled record's enabled value> -> $FAKE_PLUGIN_LIST for the current fixture
   local main; main="$(git -C "$d/main" rev-parse --show-toplevel)"
   jq -n --arg c "$T/cache/intake-toolkit" --arg main "$main" --argjson on "$1" '[
@@ -954,9 +1025,10 @@ FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"pat
 run_case "$d" --detach; expect env-detach-log-dir "[A18] --detach cannot create its log dir"; [ "$RC" -eq 2 ] && ok "[A18] exit 2" || bad "[A18] exit $RC"
 
 # A17: --detach with no perl on PATH
+fixture rc1
 mkdir -p "$T/noperl"; for b in /bin/* /usr/bin/*; do case "$(basename "$b")" in perl*) ;; *) ln -sf "$b" "$T/noperl/$(basename "$b")" ;; esac; done
 for tool in git jq curl; do p="$(command -v "$tool")"; [ -n "$p" ] && ln -sf "$p" "$T/noperl/$tool"; done
-fixture rc1; OUT="$( cd "$d/main" && PATH="$T/noperl:$T/bin" bash "$RUN" 42 --detach 2>&1 )"; RC=$?; TERM_SLUG="$(printf '%s\n' "$OUT" | sed -n 's/^terminal: //p' | tail -n 1)"
+OUT="$( cd "$d/main" && PATH="$T/noperl:$T/bin" bash "$RUN" 42 --detach 2>&1 )"; RC=$?; TERM_SLUG="$(printf '%s\n' "$OUT" | sed -n 's/^terminal: //p' | tail -n 1)"
 if PATH="$T/noperl:$T/bin" command -v perl >/dev/null 2>&1; then ok "[A17] (skipped: perl still resolvable on the stripped PATH)"; else expect env-detach-perl "[A17] --detach without perl is refused"; fi
 
 # A16: --detach runs to its terminal under setsid; the log's last line carries the exit code
@@ -968,7 +1040,6 @@ grep -q 'detached run exited rc=0$' "$dlog" 2>/dev/null && grep -q '^terminal: a
 [ "$(grep -c 'watch:' "$dlog" 2>/dev/null)" -eq 1 ] && grep -q ' \[run\] watch: off (RUN_WATCH_CMD is unset)$' "$dlog" && ok "(#939 AC-3) an unwatched detached run says 'watch: off', once" || bad "(#939 AC-3) watch lines: $(grep 'watch:' "$dlog" | tr '\n' '|')"
 
 # ---- #939: every session is named and findable; one bounded watch call per detached launch; the scrub; a detached run's signals ----
-UUID_RE='[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}'
 arg_after() { awk -v f="$2" 'p == f { print; exit } { p = $0 }' "$1"; }   # arg_after <args file> <flag>
 watch_lines() { grep -c ' \[run\] watch: ' <<<"$OUT"; }
 # (wa1) a run that looks detached (RUN_DETACHED_LOG is how the detach parent says so) and is watched, launched from a herdr
@@ -976,6 +1047,7 @@ watch_lines() { grep -c ' \[run\] watch: ' <<<"$OUT"; }
 # lane check below goes red if one of them reaches it
 # shellcheck disable=SC2016  # the check line expands in the lane, not here
 fixture wa1 '- test -z "${HERDR_PANE_ID:-}${HERDR_SOCKET_PATH:-}${HERDR_ZZ_UNNAMED:-}${RUN_WATCH_CMD:-}${RUN_WATCH_EDITOR:-}${RUN_DETACHED_LOG:-}"'
+UUID_RE='[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}'
 printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-wrong-sha\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; echo started > "$d/detached.log"
 HERDR_PANE_ID=op-pane HERDR_TAB_ID=op-tab HERDR_WORKSPACE_ID=op-ws HERDR_SOCKET_PATH="$d/herdr.sock" HERDR_ZZ_UNNAMED=leak RUN_WATCH_EDITOR=code \
   RUN_WATCH_CMD="$T/bin/watch-fake" RUN_DETACHED_LOG="$d/detached.log" run_case "$d"
@@ -994,6 +1066,7 @@ leak="$(grep -hE '^(HERDR_|RUN_WATCH|RUN_DETACHED_LOG)' "$FAKE_GH"/env-*.txt)"
 [ "$(cat "$FAKE_GH/calls")" = 5 ] && [ -z "$leak" ] && ok "(wa1) [AC-12] no session got a HERDR_*, RUN_WATCH* or RUN_DETACHED_LOG variable, an unnamed HERDR_ZZ_UNNAMED included" || bad "(wa1) [AC-12] leaked: $(tr '\n' ' ' <<<"$leak")"
 names="$(for n in 1 2 3 4 5; do arg_after "$FAKE_GH/args-$n.txt" -n; done | tr '\n' ' ')"
 [ "$names" = "42-build-1-1 42-review-1-1 42-build-2-2 42-review-2-2 42-review-2-2-retry1 " ] && ok "(wa1) [AC-1] each session is named <issue>-<role>-<attempt id>, the id sanitized" || bad "(wa1) [AC-1] names: $names"
+# the across-launch half reads case (a)'s session id, so a filtered run of this case names both: run-selftest.sh a wa1
 sids="$(for n in 1 2 3 4 5; do arg_after "$FAKE_GH/args-$n.txt" --session-id; done)"; asid="$(arg_after "$T/a/gh/args-1.txt" --session-id)"
 [ "$(grep -cxE "$UUID_RE" <<<"$sids")" -eq 5 ] && [ "$(sort -u <<<"$sids" | grep -c .)" -eq 5 ] && grep -qxE "$UUID_RE" <<<"$asid" && ! grep -qxF "$asid" <<<"$sids" \
   && ok "(wa1) [AC-1] each session gets a fresh lowercase v4 --session-id, never reused within or across launches" || bad "(wa1) [AC-1] session ids: $(tr '\n' ' ' <<<"$sids") / (a): $asid"
@@ -1091,7 +1164,6 @@ toc="$(tar -tf "$(SD)/quarantine-closeout.tar" 2>&1)"
 [ "$RC" -eq 0 ] && [ ! -d "$d/wt/42" ] && grep -qx review-scratch.txt <<<"$toc" && ok "[E20] exit 0, the file is in quarantine-closeout.tar and the worktree is removed" || bad "[E20] rc=$RC, worktree $([ -d "$d/wt/42" ] && echo kept || echo gone), archive: $(tr '\n' ' ' <<<"$toc")"
 
 # E20-rd: gitignored runtime data under a declared paths.runtimeData keeps the worktree — `worktree remove` would delete it — and the run still ends approved
-RTCFG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans","runtimeData":[".claude/storage","apps/api/uploads"]}}'
 FIXTURE_CONFIG="$RTCFG" fixture rt1; printf 'build-pr\nreview-approve-runtime\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "[E20-rd] runtime data under a declared path at close-out"
 [ "$RC" -eq 0 ] && [ -f "$d/wt/42/.claude/storage/upload-1.bin" ] && printf '%s\n' "$OUT" | grep -q "worktree $d/wt/42 left in place: runtime data under .claude/storage;" && ok "[E20-rd] exit 0, worktree and its data kept, the blocking path printed" || bad "[E20-rd] rc=$RC, data $([ -f "$d/wt/42/.claude/storage/upload-1.bin" ] && echo kept || echo gone): $(printf '%s\n' "$OUT" | grep 'worktree ' | tail -n 1)"
 FIXTURE_CONFIG="$RTCFG" fixture rt2; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "[E20-rd] declared runtime paths that hold nothing"
@@ -1212,7 +1284,6 @@ s="$(rsec 'Configured lanes not run')"; [ "$s" = "docs-lint" ] && grep -q 'ok: t
 # I10 #1011: a non-ASCII path, a path with a space and this repo's own *-selftest.* reach every section and the when-glob.
 # Names are NFC bytes (macOS git recomposes to NFC, Linux does not); quotePath=true is pinned through GIT_CONFIG_*, so a
 # machine with a global quotePath=false cannot pass these without run.sh's own -c
-cafe=$'caf\303\251'
 FIXTURE_FILES="src/$cafe.spec.ts scripts/x-selftest.sh" FIXTURE_BODY=$'expect(a).toBe(1)\nexpect(b).toBe(2)' \
   FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"commands":{"main":{"extraLanes":[{"name":"cafe","when":["src/'"$cafe"'.spec.ts"],"commands":["true cafe"]}]}}}' fixture rp4 ""
 mkdir -p "$d/main/src/old dir"; echo x > "$d/main/src/old dir/y.spec.ts"; git -C "$d/main" add -A; git -C "$d/main" commit -qm "spaced spec"; git -C "$d/main" push -q origin main 2>/dev/null
@@ -1330,12 +1401,7 @@ printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect
 
 # C20: the when-glob diff is fail-closed (gate:3970-3981) — a diff that cannot be read never skips every when-scoped lane
 FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"commands":{"main":{"extraLanes":[{"name":"e2e","when":["src/**"],"commands":["false"]}]}}}' fixture ar5 ""
-printf 'build-delete-test\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; mkdir -p "$T/gitnameonlydead"
-cat > "$T/gitnameonlydead/git" <<EOF
-#!/usr/bin/env bash
-case " \$* " in *" diff --name-only "*) case "\$*" in *..*) ;; *) exit 128 ;; esac ;; esac; exec "$(command -v git)" "\$@"
-EOF
-chmod +x "$T/gitnameonlydead/git"; OUT="$( cd "$d/main" && PATH="$T/gitnameonlydead:$PATH" bash "$RUN" 42 2>&1 )"; RC=$?; TERM_SLUG="$(printf '%s\n' "$OUT" | sed -n 's/^terminal: //p' | tail -n 1)"
+printf 'build-delete-test\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; OUT="$( cd "$d/main" && PATH="$T/gitnameonlydead:$PATH" bash "$RUN" 42 2>&1 )"; RC=$?; TERM_SLUG="$(printf '%s\n' "$OUT" | sed -n 's/^terminal: //p' | tail -n 1)"
 [ "$RC" -eq 2 ] && [ "$TERM_SLUG" != approved ] && ok "[C20] an unreadable diff stops the run ($TERM_SLUG) instead of skipping the when-scoped lane" || bad "[C20] rc=$RC $TERM_SLUG"
 
 # J5: the staleness overlap diffs are fail-closed too
@@ -1372,12 +1438,7 @@ chmod +x "$T/bin/gh-close-dies"; RUN_GH="$T/bin/gh-close-dies" run_case "$d"; ex
 grep -q 'could not post the closing comment' <<<"$OUT" && ok "[B22] the failed closing comment is reported" || bad "[B22] silent"
 
 # E21 E20: the unreadable arms, and a diverged worktree
-fixture ar10; printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; mkdir -p "$T/gitstatusdead"
-cat > "$T/gitstatusdead/git" <<EOF
-#!/usr/bin/env bash
-case " \$* " in *" status --porcelain "*) n=\$(cat "\$FAKE_GH/status-reads" 2>/dev/null || echo 0); n=\$((n+1)); echo \$n > "\$FAKE_GH/status-reads"; [ "\$n" -ge "\${FAKE_STATUS_DIES_AT:-1}" ] && { echo "fatal: index locked" >&2; exit 128; } ;; esac; exec "$(command -v git)" "\$@"
-EOF
-chmod +x "$T/gitstatusdead/git"; OUT="$( cd "$d/main" && PATH="$T/gitstatusdead:$PATH" FAKE_STATUS_DIES_AT=2 bash "$RUN" 42 2>&1 )"; RC=$?; TERM_SLUG="$(printf '%s\n' "$OUT" | sed -n 's/^terminal: //p' | tail -n 1)"
+fixture ar10; printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; OUT="$( cd "$d/main" && PATH="$T/gitstatusdead:$PATH" FAKE_STATUS_DIES_AT=2 bash "$RUN" 42 2>&1 )"; RC=$?; TERM_SLUG="$(printf '%s\n' "$OUT" | sed -n 's/^terminal: //p' | tail -n 1)"
 expect build-inflight-unreadable "[E21] an unreadable status after the build"; [ "$RC" -eq 1 ] && ok "[E21] exit 1" || bad "[E21] exit $RC"
 fixture ar11; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"
 OUT="$( cd "$d/main" && PATH="$T/gitstatusdead:$PATH" FAKE_STATUS_DIES_AT=3 bash "$RUN" 42 2>&1 )"; RC=$?; TERM_SLUG="$(printf '%s\n' "$OUT" | sed -n 's/^terminal: //p' | tail -n 1)"
@@ -1455,18 +1516,16 @@ fixture cs4; printf 'build-pr\nreview-approve-and-push\nreview-approve\n' > "$FA
 fixture cs5; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; echo 'gh: Validation Failed (HTTP 422)' > "$FAKE_GH/status-fail"; run_case "$d"
 expect approved "(cs5) [D-5] a failed status post leaves the terminal unchanged"
 grep -q "^status: NOT posted (second-shift/review=success on $(git -C "$d/origin.git" rev-parse second-shift/42)) — gh: Validation Failed (HTTP 422)$" "$FAKE_GH/pr-body.md" && ok "(cs5) [D-5] the failed post is reported in the run block" || bad "(cs5) run block: $(grep status "$FAKE_GH/pr-body.md")"
+grep -q '(HTTP 422)$' "$T/cs5/gh/pr-body.md" 2>/dev/null && ! grep -q 'Commit statuses' "$T/cs5/gh/pr-body.md" && ok "(cs5) [D-7] no App hint without a bot or a 403/404" || bad "(cs5) [D-7] hint leaked: $(grep status "$T/cs5/gh/pr-body.md")"
 fixture cs6; printf 'build-pr\nreview-render-unavailable\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect env-not-ready "(cs6) render-unavailable"
 grep -q 'state=failure' "$FAKE_GH/statuses" 2>/dev/null && ok "(cs6) [D-3] a render-unavailable needs-work posts failure" || bad "(cs6) statuses: $(cat "$FAKE_GH/statuses" 2>/dev/null)"
 # through the bot when one is configured; a bot the App denies statuses is named, never retried as the operator
-printf '#!/usr/bin/env bash\nFAKE_GH_AS=bot exec %s "$@"\n' "$T/bin/gh" > "$T/bin/gh-asbot"; chmod +x "$T/bin/gh-asbot"
 cs_bot() { OUT="$( cd "$d/main" && PATH="$T/bin:$PATH" FAKE_BOT="$T/bin/gh-asbot" env -u RUN_GH bash "$RUN" 42 2>&1 )"; RC=$?; TERM_SLUG="$(printf '%s\n' "$OUT" | sed -n 's/^terminal: //p' | tail -n 1)"; }
-CS_BOT_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/","bot":{"enabled":true,"envVar":"FAKE_BOT","app":{"appName":"second-shift-bot"}}},"paths":{"plansDir":"docs/plans"}}'
 FIXTURE_CONFIG="$CS_BOT_CONFIG" fixture cs7; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; cs_bot; expect approved "(cs7) a run with a bot"
 grep -q "^bot $(git -C "$d/origin.git" rev-parse second-shift/42) .*state=success" "$FAKE_GH/statuses" 2>/dev/null && ! grep -q '^operator ' "$FAKE_GH/statuses" && ok "(cs7) [D-5] the status is posted through the bot" || bad "(cs7) statuses: $(cat "$FAKE_GH/statuses" 2>/dev/null)"
 FIXTURE_CONFIG="$CS_BOT_CONFIG" fixture cs8; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; echo 'gh: Resource not accessible by integration (HTTP 403)' > "$FAKE_GH/status-fail"; cs_bot
 expect approved "(cs8) a bot the App denies statuses"
 grep -q "^status: NOT posted .*(HTTP 403) — the bot's GitHub App needs the 'Commit statuses: write' permission$" "$FAKE_GH/pr-body.md" && ok "(cs8) [D-7] the run block names the missing App permission" || bad "(cs8) run block: $(grep status "$FAKE_GH/pr-body.md")"
-grep -q '(HTTP 422)$' "$T/cs5/gh/pr-body.md" 2>/dev/null && ! grep -q 'Commit statuses' "$T/cs5/gh/pr-body.md" && ok "(cs5) [D-7] no App hint without a bot or a 403/404" || bad "(cs5) [D-7] hint leaked: $(grep status "$T/cs5/gh/pr-body.md")"
 
 # (mv) #946: once a verdict binds, the PR's earlier lane verdicts are minimized as outdated — never a notice, never a stranger's
 mv_seed() { # a stranger's verdict-shaped comment and a lane notice, posted before the run
@@ -1520,6 +1579,7 @@ expect approved "(vc7) 'reason: render-unavailable' as prose under ## Notes is n
 # (m) rounds spent
 fixture m; printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-needs-work\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d" --max-rounds 2; expect rounds-spent "(m) two needs-work rounds"
 
+# ---- end of cases ---- (#1035: no case below this line; a filtered run ends with the summary too)
 echo "[self-test] $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
 exit $?
