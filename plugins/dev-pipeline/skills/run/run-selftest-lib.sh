@@ -146,6 +146,8 @@ case "$plan" in
   review-bad-approve-blocker)  post "$(ROWS='| D-1 | honored | fake |' FINDINGS='- [blocker] B1 must change before merge' vbody approve "$(git rev-parse "origin/$branch")")" ;;
   review-bad-approve-violated) post "$(ROWS='| D-1 | violated | fake |' vbody approve "$(git rev-parse "origin/$branch")")" ;;
   review-bad-needs-work-noblocker) post "$(FINDINGS='- [note] N1 nothing required' vbody needs-work "$(git rev-parse "origin/$branch")")" ;;
+  review-approve-kb) # #1033 AC-10: review-lead's knowledge-base contributions block, carried into ## Notes
+    post "$(vbody approve "$(git rev-parse "origin/$branch")" $'\n## Notes\n\nKnowledge-base contributions:\n- <kb-page> — the worker retries a 409 forever (lookup gap)\n- <kb-page> — every build round appends to work.txt (change gap)')" ;;
   review-needs-work-mixed) # #1010: one blocker and one note, in the grammar's review-lead form
     post "$(FINDINGS=$'- [blocker] B1 [Maintainability] src/a.ts:3 (confidence: 85) — mixed blocker\n- [note] N1 [Complexity] src/a.ts:9 (confidence: 60) — mixed note' vbody needs-work "$(git rev-parse "origin/$branch")")" ;;
   review-render-unavailable) sha=$(git rev-parse "origin/$branch")

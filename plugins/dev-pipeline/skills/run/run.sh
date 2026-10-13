@@ -685,6 +685,13 @@ A `[blocker]` is something that must change before merge, an edit to the PR desc
 `verdict: approve` means mergeable as-is: every record row is scored, none is `violated` or `undeterminable`, and there is no `[blocker]` and no `reason: render-unavailable` line. `verdict: needs-work` carries at least one `[blocker]`, a `violated` or `undeterminable` row, or the `reason: render-unavailable` line; under that line the rows need not be scored, and the findings may be `None.`.
 # LOCKSTEP-END verdict-grammar
 GRAMMAR
+  # #1033 D-1 D-3: review-lead applies the repo's inclusion test; the verdict carries its block whole. Stated once here and
+  # once in review/SKILL.md step 8
+  echo; grep -v 'LOCKSTEP-' <<'KB'
+# LOCKSTEP-BEGIN kb-contributions
+Knowledge-base contributions: when review-lead's report has a `### Knowledge-base contributions` block, carry it into the verdict's `## Notes` as review-lead wrote it — the lead line `Knowledge-base contributions:` with one proposal per line under it, or the single line `Knowledge-base contributions: none`. review-lead applied the inclusion test the repo's review-context.md declares: do not apply it again, and add, drop or reword no proposal. Carry the whole list on every verdict, never only what changed since an earlier one: the earlier verdicts are collapsed once one binds. When the report has no such block, the verdict carries no contributions line. A proposal is a draft the operator files in the knowledge base: never a finding, and it never makes a verdict `needs-work`.
+# LOCKSTEP-END kb-contributions
+KB
   if [ -n "${3:-}" ]; then
     echo; echo "## Your previous verdict did not bind"
     echo "The review before you posted a verdict whose comment does not back its own verdict line, so no status was posted and you were spawned in its place. Review the head yourself and post a new verdict comment in the grammar above; never edit the old one. It broke these rules:"

@@ -124,7 +124,8 @@ The Scope Completeness Gate (see Synthesis Rules) is the one exception — its F
 12. Triage remaining findings against existing patterns
 13. Apply Scope Completeness Gate (hard gate — see below)
 14. Cross-reviewer self-check (see below)
-15. Synthesize report
+15. Write the knowledge-base contributions, when the repo declares a sink (see Knowledge-base contributions below)
+16. Synthesize report
 
 ## Review Depth Routing
 
@@ -163,6 +164,50 @@ If a plan/spec was provided as input, read it — you'll verify the implementati
 Report plan compliance issues separately from code quality issues.
 
 > **Note:** This section covers a written plan/spec file. GitHub-issue scope completeness is a separate, stricter check enforced by `scope-completeness-reviewer` (see Reviewer Routing). The two are complementary — a plan can drift from an issue, and either drift is a problem.
+
+## Knowledge-base contributions
+
+**Only when the repo declares a sink.** The shared `review-context.md` you load for Maturity
+calibration may carry a `## Knowledge-base contributions` section: the knowledge base the review
+proposes additions to, the inclusion test a proposal must pass (prose you apply), and optionally a
+proposal format. When the section is absent, empty or TODO-bodied, it is absent: the report carries
+no `### Knowledge-base contributions` block and nothing below runs. When it is there, every report
+you write carries the block — in the pipeline and standalone alike.
+
+**Candidates come from two inputs, and you dispatch no provider.**
+
+- **The committed decision record** Process step 4 found (Plan/Spec Awareness), as it stands at the
+  head — never uncommitted intake state, such as a receipt under `.claude/pipeline-state/`.
+  - Its `## Knowledge source` section holds the answer intake's knowledge provider gave, indented
+    four spaces. What the answer says the base does not cover is a **lookup gap**.
+  - A `D-n` row carrying `kb-conflict: <kb-page> (kb stale)` is a **kb stale** candidate: a
+    correction for that page. A row carrying `kb-conflict: <kb-page> (kb ahead)` proposes no
+    correction; it is a **kb ahead** candidate only when the page states the aspirational state as
+    current rather than as direction.
+- **The diff.** What this change makes true that the knowledge base should state is a **change
+  gap**.
+
+No record, or a record whose section reads `Knowledge source: none declared` or
+`Knowledge source: failed — …`, or a receipt without the section: change gaps only.
+
+**The inclusion test decides.** Apply the declared test, as written, to every candidate, and list
+only those that pass. A candidate that fails it is not listed, not even as considered. When nothing
+passes, or the diff gives the test nothing to judge, the block is the single line
+`Knowledge-base contributions: none`.
+
+**Format.** The format the section declares replaces this default — one line per proposal:
+
+```
+- <kb-page> — <what to add or correct> (<lookup gap | change gap | kb stale | kb ahead>)
+```
+
+`<kb-page>` is the page the record names, or the page the addition belongs on.
+
+**Never a finding.** A proposal is a draft the operator files in the knowledge base. It does not
+enter Synthesis — no dedup, confidence filter or triage — never appears under Critical, Warnings or
+Suggestions, and never moves "Ready to merge?". Re-derive the full list on every round from the
+record and the diff at the head you review; Prior Round Context does not narrow it. The pipeline
+collapses earlier verdicts once one binds, so the latest list must be complete on its own.
 
 ## Reviewer Routing
 
@@ -668,6 +713,13 @@ One-line bullets from all reviewers for findings with confidence < 80, so they a
 **Ready to merge?** Yes / No / With fixes
 
 **Reasoning:** [1-2 sentence technical assessment]
+
+### Knowledge-base contributions
+Only when review-context.md declares the section (see Knowledge-base contributions above).
+Knowledge-base contributions:
+- <kb-page> — <what to add or correct> (change gap)
+Or, when no candidate passes the inclusion test, the single line:
+Knowledge-base contributions: none
 ```
 
 **Reserved wording.** In the Ready to merge? verdict and its Reasoning line, "end-to-end",
