@@ -3,7 +3,7 @@
 ## 1. The build's grants and prompt
 
 - [ ] 1.1 Scenario in run-claim-selftest: the build spawn's --allowedTools carries Grep and Glob and no Bash grep, ls, wc or head rule (run-claim-selftest.sh) [AC-1]
-- [ ] 1.2 Scenario in run-claim-selftest: a configured `… | xargs -0 shellcheck -e SC1091,…` check grants `shellcheck -e …` on its own under granted(), value-taking xargs options are skipped, and an xargs segment running rm, a shell, env, eval, exec, sudo, nohup, cd or python3 adds no derived grant; the review allowlist gains none (run-claim-selftest.sh) [AC-2]
+- [ ] 1.2 Scenario in run-claim-selftest: a configured `… | xargs -0 shellcheck -e SC1091,…` check grants `shellcheck -e …` on its own under granted(), value-taking xargs options are skipped, and an xargs segment running rm, a shell, env, eval, exec, sudo, nohup, cd or python3 adds no derived grant, nor does a bare word (run-claim-selftest.sh) [AC-2]
 - [ ] 1.3 Scenario in run-claim-selftest: granted() passes `gh pr edit 7 --body-file /x/b.md` on the build allowlist (run-claim-selftest.sh) [AC-3]
 - [ ] 1.4 Scenario in run-claim-selftest: the build prompt says to run the listed checks and the tests the change touches, never a verification list from the repo's CLAUDE.md or docs (run-claim-selftest.sh) [AC-4]
 - [ ] 1.5 Scenario in run-claim-selftest: the github prompt's ticket-fetch command, read out of the prompt, is granted by the build allowlist; the jira prompt names getJiraIssue (run-claim-selftest.sh) [AC-5]
