@@ -95,7 +95,9 @@ expect_violation invalid-bad-test-runners.json      "commands.app.testRunners[0]
 expect_violation invalid-bad-test-runners.json      "commands.app.testRunners[1].when: required, a non-empty array of file globs"
 expect_violation invalid-bad-test-runners.json      "commands.app.testRunners[2]: unknown keys"
 expect_violation invalid-bad-test-runners.json      "commands.app.testRunners[2].when: required"
-expect_violation invalid-bad-test-runners.json      "commands.app.testRunners[3]: must be an object {when[], command}"
+expect_violation invalid-bad-test-runners.json      "commands.app.testRunners[3]: must be an object {when[], command, timeoutSeconds?}"
+expect_violation invalid-bad-test-runners.json      "commands.app.testRunners[4].timeoutSeconds: must be a whole number of seconds, 1 or more"
+expect_violation invalid-bad-test-runners.json      "commands.app.testRunners[5].timeoutSeconds: must be a whole number of seconds, 1 or more"
 expect_violation invalid-bad-test-runners.json      "commands.web.testRunners: must be array"
 expect_no_violation invalid-bad-test-runners.json   "commands.app: unknown keys"
 

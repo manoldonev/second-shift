@@ -557,17 +557,36 @@ plan_coverage() { # plan_coverage <attempt> -> the script's exit: 0 pass · 1 re
 # ignored dependencies: detached to the record commit only when no tracked change is in it, put back on the branch by a plain
 # checkout — which carries any change rather than discard it — under an EXIT trap, and by the next launch when a mark
 # outlives the process (red_tree_restore). The runners were read at launch (D-13): a build cannot change them mid-run --
+# Each file runs bounded (bounded_group): one that has not finished within its runner's timeoutSeconds is red, never a
+# failure, since a runner that hangs on every tree would otherwise pass every proof
 FWC_NOTES=""
+FWC_TIMEOUT_DEFAULT=600
+FWC_GRACE=10
+FWC_TIMED_OUT=0
+bounded_group() { # bounded_group <secs> <out> <command> — the command in $WT, scrubbed, as the leader of its own session, so
+  # the bound reaches every descendant (bounded() reaps one level down): TERM the group, KILL it after FWC_GRACE. What is left
+  # of the group after a clean exit is killed too, so nothing it backgrounded writes on the red tree during the restore
+  local secs="$1" out="$2" t=0 rc
+  FWC_TIMED_OUT=0
+  ( cd "$WT" && exec env "${SCRUB_ENV[@]}" perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV or die "exec: $!\n"' -- bash -c "$3" ) > "$out" 2>&1 < /dev/null & CHILD=$!; CHILD_GROUP=1
+  while kill -0 "$CHILD" 2>/dev/null && [ "$t" -lt $((secs*5)) ]; do sleep 0.2; t=$((t+1)); done
+  if kill -0 "$CHILD" 2>/dev/null; then
+    FWC_TIMED_OUT=1; kill -TERM -- "-$CHILD" 2>/dev/null
+    t=0; while kill -0 -- "-$CHILD" 2>/dev/null && [ "$t" -lt $((FWC_GRACE*5)) ]; do sleep 0.2; t=$((t+1)); done
+    kill -KILL -- "-$CHILD" 2>/dev/null; wait "$CHILD" 2>/dev/null; CHILD=""; CHILD_GROUP=0; return 1
+  fi
+  wait "$CHILD"; rc=$?; kill -KILL -- "-$CHILD" 2>/dev/null; CHILD=""; CHILD_GROUP=0; return "$rc"
+}
 RED_TREE_MARK="$LOG_DIR/run-$ISSUE/red-tree"
 test_runners() { local key; key="$(commands_key)"; [ -n "$key" ] || return 0; jq -c --arg k "$key" '.commands[$k].testRunners[]? | objects' <<<"$CONFIG_JSON" 2>/dev/null; }
-runner_for() { # runner_for <file> -> the command of the first testRunners entry a `when` glob of which matches the file; 1 when none does
+runner_for() { # runner_for <file> -> '<timeoutSeconds>\t<command>' of the first testRunners entry a `when` glob of which matches the file; 1 when none does
   local r g
   while IFS= read -r r; do
     [ -n "$r" ] || continue
     while IFS= read -r g; do
       [ -n "$g" ] || continue
       # shellcheck disable=SC2254  # $g IS a glob, by contract (extraLanes' `when`)
-      case "$1" in $g) printf '%s' "$r" | jq -r '.command // empty'; return 0 ;; esac
+      case "$1" in $g) printf '%s' "$r" | jq -r --argjson d "$FWC_TIMEOUT_DEFAULT" '"\(.timeoutSeconds // $d)\t\(.command // "")"'; return 0 ;; esac
     done <<EOF
 $(printf '%s' "$r" | jq -r '.when[]? | strings')
 EOF
@@ -582,7 +601,7 @@ red_tree_restore() { # put $WT back on $BRANCH after the leg, never forced; 1 wh
   rm -f "$RED_TREE_MARK"
 }
 fails_without_change() { # fails_without_change <attempt> -> 0 pass · 1 red (the log: $STATE/fails-without-<attempt>.log) · 3 not-applicable
-  local log="$STATE/fails-without-$1.log" map rc frc kind id ids f cmd c red=0 ran=0 notes="" runs="" dirty why key summary
+  local log="$STATE/fails-without-$1.log" map rc frc kind id ids f cmd secs c red=0 ran=0 notes="" runs="" dirty why key summary
   key="$(commands_key)"; FWC_NOTES=""
   if [ -z "$(test_runners)" ]; then
     why="no test runner is configured (commands.${key:-<id>}.testRunners)"
@@ -598,7 +617,7 @@ fails_without_change() { # fails_without_change <attempt> -> 0 pass · 1 red (th
     case "$kind" in
       holds) notes="$notes$id holds — $f is not run for it: the checks at the head prove it"$'\n' ;;
       unchecked) notes="$notes$id unchecked — $f is noted, not run"$'\n' ;;
-      *) if ! cmd="$(runner_for "$f")" || [ -z "$cmd" ]; then
+      *) if ! cmd="$(runner_for "$f")" || [ -z "${cmd#*$'\t'}" ]; then
            echo "RED: $id — $f matches no configured test runner (commands.$key.testRunners), and the record does not mark $id unchecked" >> "$log"; red=$((red+1))
          else runs="$runs$f"$'\t'"$cmd"$'\n'; fi ;;
     esac
@@ -607,20 +626,27 @@ fails_without_change() { # fails_without_change <attempt> -> 0 pass · 1 red (th
   if [ -n "$runs" ]; then
     dirty="$(git -C "$WT" status --porcelain --untracked-files=no 2>/dev/null)" || terminal env-worktree "cannot read the status of $WT before the fails-without-the-change check"
     [ -z "$dirty" ] || terminal env-worktree "the checks left tracked changes in $WT ($(printf '%s' "$dirty" | head -n 3 | tr '\n' ' ')) — the record commit's tree cannot be built over them, and nothing here discards them"
+    command -v perl >/dev/null 2>&1 || terminal env-perl "the fails-without-the-change check needs perl for setsid, so its time bound reaches every process a test starts"
     printf 'first=%s head=%s branch=%s\n' "$FIRST" "$HEAD_SHA" "$BRANCH" > "$RED_TREE_MARK" || terminal env-state-dir "cannot write $RED_TREE_MARK"
     trap 'red_tree_restore || say "red tree: $WT could NOT be put back on $BRANCH — run git checkout $BRANCH in it"' EXIT
     git -C "$WT" checkout -q --detach "$FIRST" 2>>"$log" \
       && cut -f1 <<<"$runs" | tr '\n' '\0' | xargs -0 git -C "$WT" checkout -q "$HEAD_SHA" -- 2>>"$log"; rc=$?
     if [ "$rc" -eq 0 ]; then
-      while IFS=$'\t' read -r f cmd; do
-        c="$(subst "$cmd" '{file}' "$(shquote "$f")")"; ran=$((ran+1)); say "fails without the change: $c"
+      while IFS=$'\t' read -r f secs cmd; do
+        c="$(subst "$cmd" '{file}' "$(shquote "$f")")"; ran=$((ran+1)); say "fails without the change: $c (bound ${secs}s)"
         ids="$(awk -v f="$f" '$1 == "run" && $3 == f { printf "%s ", $2 }' <<<"$map")"   # every behavior AC tagged on this file
         echo "\$ $c" >> "$log"
-        if lane "$c" >> "$log" 2>&1 </dev/null; then
+        bounded_group "$secs" "$STATE/fails-without-$1.out" "$c"; frc=$?
+        cat "$STATE/fails-without-$1.out" >> "$log" 2>/dev/null
+        if [ "$FWC_TIMED_OUT" -eq 1 ]; then
+          for id in $ids; do
+            echo "RED: $id — $f did not finish within ${secs}s on the record commit's tree, and its process group was killed — tag a smaller file, or bound the wait inside it" >> "$log"; red=$((red+1))
+          done
+        elif [ "$frc" -eq 0 ]; then
           for id in $ids; do
             echo "RED: $id — $f passes on the record commit's tree ($FIRST) with the head's tagged test files applied: it does not fail without the change — make it test what the change does" >> "$log"; red=$((red+1))
           done
-        else frc=$?; for id in $ids; do echo "ok: $id — $f fails on the record commit's tree (exit $frc)" >> "$log"; done; fi
+        else for id in $ids; do echo "ok: $id — $f fails on the record commit's tree (exit $frc)" >> "$log"; done; fi
       done <<<"$runs"
     fi
     red_tree_restore; c=$?; trap - EXIT
@@ -774,7 +800,7 @@ build_prompt() { # build_prompt <round> <review-findings-file-or-empty> <red-che
     echo; echo "The record's '## Test intent' section names, per acceptance criterion, the observable behavior its test must prove, or an exemption with its reason. Your first commit after the record commit $FIRST is a task plan at $PLAN_REL: groups '## N. Group', tasks '- [ ] N.M Description (files)', each test task before the implementation task it covers and ending in the ids of the ACs its test proves, one bracket per id, nothing after them: '- [ ] 1.1 Description (files) [AC-1] [AC-3]'. Tag every AC the section does not exempt on at least one test task, and no id its 'ACs:' line does not list; each AC's tagged test proves the behavior its line states. A ticked box means nothing. Any line starting '- [' that is not a task in that form is unparseable. The scheduler checks the plan at the pushed head against the record at $FIRST before a review starts: an uncovered AC, an id the record does not define, a missing plan or an unparseable line comes back to you as findings and spends a checks-red attempt."
     echo "A task that carries an AC id names its test files in the parenthetical that ends its description, comma-separated; a tagged task that names none comes back to you the same way."
     # #1040 S-3: the check the scheduler runs next, stated only when a runner is configured to run it
-    [ -z "$(test_runners)" ] || echo "Then the scheduler puts the worktree on the record commit $FIRST, applies the head's tagged test files on top and runs each through its configured test runner (commands.$(commands_key).testRunners): every one must fail there, without your change. The exceptions are the files of an AC the section marks 'holds' (existing behavior: the checks at the head prove it) and 'unchecked' (noted, not run). A tagged file that passes there, that no runner matches or that the head does not carry comes back to you as findings and spends a checks-red attempt: a test that passes without the change does not test it."
+    [ -z "$(test_runners)" ] || echo "Then the scheduler puts the worktree on the record commit $FIRST, applies the head's tagged test files on top and runs each through its configured test runner (commands.$(commands_key).testRunners): every one must fail there, without your change. The exceptions are the files of an AC the section marks 'holds' (existing behavior: the checks at the head prove it) and 'unchecked' (noted, not run). A tagged file that passes there, that no runner matches or that the head does not carry comes back to you as findings and spends a checks-red attempt: a test that passes without the change does not test it. Each file must also finish there within its runner's time bound ($(test_runners | jq -r --argjson d "$FWC_TIMEOUT_DEFAULT" '"\(.when | join(", ")): \(.timeoutSeconds // $d)s"' | paste -sd ';' - | sed 's/;/; /g')), or it is red too: tag a test file that holds this change's cases, not a whole slow suite."
   fi
   if [ -n "$(frames_rows)" ]; then
     echo; echo "This ticket has design frames. Follow the figma-faithful sequence: read every frame id in the '## Design frames' section first; write the token and component plan; before writing UI code, have a subagent read that plan against the frames and list what it would get wrong, then fix the plan. Render every screen with the repo's render command, open the PNG, compare it with its frame and fix what differs, up to three rounds per screen. A screen that shows an error page, a login page or a spinner is not done."

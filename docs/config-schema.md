@@ -7,7 +7,7 @@ Required: `configVersion`, `tracker`, `commands`. Everything else is optional.
 | Group | What goes here | Who reads it |
 | --- | --- | --- |
 | `tracker` | `type`: `github` or `jira`; `writes` (default true for github, false otherwise — under `false` the sessions start without Atlassian write tools; on github the scheduler still swaps the claim labels and posts the claim marker and the closing comment); `branchPrefix` (the work branch is `<branchPrefix><key>`, a jira key lowercased); `keyPattern` (a key that does not match is refused); `labels` (github only: `queue`, `claimed`, `blockers` roles); `bot` (a bot identity for the lane's GitHub writes — the claim and closing comment, commits, the review's verdict comment and the run block on the PR; the build session opens the PR itself with plain `gh`) | `/dev-pipeline:run` (`run.sh`); `tools/branch-prefix.sh` for `branchPrefix`; `claim-issue.sh` for the labels; `gh-bot.sh` / `bot-commit.sh` for `bot` |
-| `commands` | The check truth table, a map keyed by an id. The scheduler uses the sole key, else the key equal to the main checkout's directory name (also from a linked worktree); the ids are not checked against anything. Per id: `lint`, `typecheck`, `test`, `format` (`null` = not available); `lanes` (SETUP-only steps, run first and fail-fast, each `cwd` a path under the worktree); `extraLanes` (additive checks, gated by `when` changed-file globs; `failureClass` is still required but changes nothing); `testRunners` (optional: `[{ "when": [<file globs>], "command": "… {file}" }]`, how one tagged test file is run on the fails-without-the-change check, below); `allowUnverified` (declares a repo with no check at all) | `/dev-pipeline:run` runs every configured check after every build, plus the ticket record's `## Checks`, and every one blocks. Lane commands run with `SECOND_SHIFT_CONFIG` and the other seam vars scrubbed from their environment |
+| `commands` | The check truth table, a map keyed by an id. The scheduler uses the sole key, else the key equal to the main checkout's directory name (also from a linked worktree); the ids are not checked against anything. Per id: `lint`, `typecheck`, `test`, `format` (`null` = not available); `lanes` (SETUP-only steps, run first and fail-fast, each `cwd` a path under the worktree); `extraLanes` (additive checks, gated by `when` changed-file globs; `failureClass` is still required but changes nothing); `testRunners` (optional: `[{ "when": [<file globs>], "command": "… {file}", "timeoutSeconds"?: <n> }]`, how one tagged test file is run on the fails-without-the-change check, below); `allowUnverified` (declares a repo with no check at all) | `/dev-pipeline:run` runs every configured check after every build, plus the ticket record's `## Checks`, and every one blocks. Lane commands run with `SECOND_SHIFT_CONFIG` and the other seam vars scrubbed from their environment |
 | `reviewers` | Registry deltas (`add`/`remove`); `default` (shipped reviewers added to the pipeline's review panel, which otherwise dispatches scope-completeness only; additive, never subtracts); `webComponentGlobs` (the paths that route `a11y-reviewer` and the design-fidelity dimension; default `apps/web/**/*.{tsx,jsx}`); `tierMap` (retarget an abstract model tier); per-agent `modelOverrides` (`haiku` \| `sonnet` \| `opus` \| `fable`, or a tier name; Fable also ships as the `cross` tier — see [`model-tiering.md`](../plugins/review-toolkit/model-tiering.md)) | review-lead (the review session's panel); `check-model-tiers.sh` and `check-reviewer-references.sh` |
 | `paths` | `plansDir` (default `docs/plans`: the committed intake record `<plansDir>/<repo>-<key>-decisions.md`); `pipelineStateDir` (default `.claude/pipeline-state`: run logs and the pre-flight receipt `<key>-ledger.md`); `runtimeData` (opt-in, no default: git pathspecs relative to the repo root where the app writes gitignored runtime data, e.g. `["apps/api/storage"]`. `git worktree remove` deletes ignored files, so when `git status --porcelain --ignored -- <paths>` shows anything, close-out keeps the worktree, prints the paths, and the run still ends `approved`) | `/dev-pipeline:run` |
 | `design` | `provider`: `figma` \| `claude-design` — the design-fidelity axis; key absent = off. Optional `liveRender` `{ command, smokeCommand?, readyProbe? }`: after every build the scheduler renders each `## Design frames` row of the record with `command` (`{route}`, `{state}`, `{out}`), then runs `smokeCommand` (`{route}`, `{mustShow}`, optional `{textScale}`), which must fail unless the route shows the row's must-show value; with `{textScale}` it runs at `1` and at `2` and must also fail when any text overflows or is clipped (without it, the run notes `scaled smoke: not configured`). `readyProbe` is curl-checked first. A provider repo's record carries frames rows or `Design: none — <reason>`. See [`live-render.md`](live-render.md) | `/dev-pipeline:run` (the route smoke); the build and review sessions; the design-toolkit skills |
@@ -36,10 +36,9 @@ Then it puts the worktree back on the branch.
 ```json
 "commands": {
   "app": {
-    "test": "yarn jest",
+    "test": "yarn vitest run",
     "testRunners": [
-      { "when": ["*.spec.ts", "*.test.ts"], "command": "yarn jest --runTestsByPath {file}" },
-      { "when": ["*_test.py"], "command": "python -m pytest {file}" }
+      { "when": ["*.spec.ts", "*.test.ts"], "command": "yarn vitest run {file}", "timeoutSeconds": 120 }
     ]
   }
 }
@@ -47,6 +46,13 @@ Then it puts the worktree back on the branch.
 
 - `{file}` becomes the file's repo-relative path, shell-quoted; the command runs from the worktree
   root with the lane scrubs. The globs match as `extraLanes`' `when` does: `*` crosses `/`.
+- A jest repo's entry reads `yarn jest --runTestsByPath {file}`.
+- Each run is bounded by `timeoutSeconds` (default 600). The command leads its own process group,
+  so the bound reaches every process a test starts: past it the group gets TERM, then KILL 10 s
+  later, and the file is red ("did not finish"), never counted as failing — a runner that hangs on
+  every tree would otherwise pass every proof. A clean exit kills whatever the group left running,
+  so nothing it backgrounded writes on the tree afterwards. Set the bound well above the file's
+  normal runtime; the build is told to tag files that finish inside it.
 - Any non-zero exit counts as failing — an assertion, a missing import and a setup error alike. The
   file is the unit: one failing case in it carries every AC tagged on it.
 - A tagged file that passes there is red, naming its AC and the file: the next build strengthens

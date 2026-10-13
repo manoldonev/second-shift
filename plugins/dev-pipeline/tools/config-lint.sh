@@ -203,13 +203,14 @@ ERRORS=$(jq -r --argjson shippedTiers "$SHIPPED_TIERS_JSON" --argjson tierDocFou
             )
           ) | add // []) end)
         # testRunners (#1040 D-3): which command runs one tagged test file on the fails-without-the-change leg —
-        # the first entry whose `when` glob matches the file; the command takes the file as {file}
+        # the first entry whose `when` glob matches the file; the command takes the file as {file}; timeoutSeconds bounds one run
         + ((.testRunners // []) | if type != "array" then ["commands." + $repo + ".testRunners: must be array"] else (to_entries | map(
             (.key as $i | .value |
               if (type != "object") then
-                ["commands." + $repo + ".testRunners[" + ($i|tostring) + "]: must be an object {when[], command}"]
+                ["commands." + $repo + ".testRunners[" + ($i|tostring) + "]: must be an object {when[], command, timeoutSeconds?}"]
               else
-              err(((keys) - ["when","command"]) != []; "commands." + $repo + ".testRunners[" + ($i|tostring) + "]: unknown keys")
+              err(((keys) - ["when","command","timeoutSeconds"]) != []; "commands." + $repo + ".testRunners[" + ($i|tostring) + "]: unknown keys")
+              + err(has("timeoutSeconds") and (((.timeoutSeconds | type) != "number") or (.timeoutSeconds < 1) or (.timeoutSeconds != (.timeoutSeconds | floor))); "commands." + $repo + ".testRunners[" + ($i|tostring) + "].timeoutSeconds: must be a whole number of seconds, 1 or more")
               + err(((.when | type) != "array") or ((.when | length) < 1) or any(.when[]?; type != "string" or . == ""); "commands." + $repo + ".testRunners[" + ($i|tostring) + "].when: required, a non-empty array of file globs")
               + err(((.command | type) != "string") or ((.command // "") | contains("{file}") | not); "commands." + $repo + ".testRunners[" + ($i|tostring) + "].command: required, a string that takes the test file as {file}")
               end

@@ -9,7 +9,8 @@
       "testRunners": [
         {
           "when": ["*-selftest.sh"],
-          "command": "env -u CLAUDE_CODE_SESSION_ID SKIP_STRESS=1 bash {file}"
+          "command": "env -u CLAUDE_CODE_SESSION_ID SKIP_STRESS=1 bash {file}",
+          "timeoutSeconds": 600
         },
         {
           "when": ["*-selftest.mjs", "*.test.mjs"],

@@ -19,7 +19,17 @@
           "glob": ["*.spec.ts"],
           "command": "yarn jest {file}"
         },
-        "yarn jest {file}"
+        "yarn jest {file}",
+        {
+          "when": ["*.spec.ts"],
+          "command": "yarn jest {file}",
+          "timeoutSeconds": 0
+        },
+        {
+          "when": ["*.spec.ts"],
+          "command": "yarn jest {file}",
+          "timeoutSeconds": "60"
+        }
       ]
     },
     "web": {

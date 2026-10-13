@@ -328,6 +328,53 @@ fw_plan 1; printf 'build-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; : >
 expect approved "(fw4) a resume after a run killed on the red tree"
 grep -q "red tree: $d/wt/42 put back on second-shift/42" <<<"$OUT" && ! grep -q 'detached and carries uncommitted work' <<<"$OUT" \
   && ok "(fw4) D-7: the launch restored the branch before anything else" || bad "(fw4) $(grep -E 'red tree|worktree|terminal' <<<"$OUT" | tr '\n' '|')"
+# (fw5) N1: a tagged file that hangs on the record commit's tree is red once its runner's timeoutSeconds passes — never counted
+# as failing — and the bound reaches the whole process group: a grandchild that ignores TERM is killed before it writes
+FW_T='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"commands":{"main":{"test":"bash src/b.check.sh","testRunners":[{"when":["*.check.sh"],"command":"bash {file}","timeoutSeconds":%s}]}}}'
+# shellcheck disable=SC2059  # FW_T is the format
+FIXTURE_CONFIG="$(printf "$FW_T" 2)" fixture_v4 fw5 "$FW_TI"; fw_plan 1
+fw_tree 1 "grep -qx fixed src/a.ts && exit 0
+( trap '' TERM; sleep 15; echo leaked > '$d/leak' ) & sleep 30"
+printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=1 run_case "$d"; sleep 5
+expect checks-red-spent "(fw5) a tagged file that hangs on the record commit's tree"
+grep -q "RED: AC-1 — src/b.check.sh did not finish within 2s on the record commit's tree, and its process group was killed" "$(SD)/fails-without-1.1.log" \
+  && ! grep -q 'ok: AC-1' "$(SD)/fails-without-1.1.log" \
+  && ok "(fw5) N1: past timeoutSeconds the file is red, naming the bound, never a failure" || bad "(fw5) $(grep -E 'fails without|terminal' <<<"$OUT" | tr '\n' '|') log: $(tr '\n' '|' < "$(SD)/fails-without-1.1.log" 2>/dev/null)"
+grep -q "Each file must also finish there within its runner's time bound (\*.check.sh: 2s), or it is red too" "$FAKE_GH/prompt-1.txt" \
+  && ok "(fw5) the build prompt states each runner's bound before it writes the tests" || bad "(fw5) the build prompt does not state the bound"
+[ ! -e "$d/leak" ] && ok "(fw5) N1: the TERM-ignoring grandchild was killed with the group before it wrote" || bad "(fw5) a grandchild outlived the bound and wrote $d/leak"
+fw_restored && ok "(fw5) the worktree is back on its branch after the bound" || bad "(fw5) worktree: $(git -C "$d/wt/42" status --short --branch | tr '\n' '|')"
+# (fw6) D-7: a TERM to the run during the check stops it at once — the group is reaped, the EXIT trap puts the worktree
+# back on its branch and removes the mark, and the claim stays for a re-launch
+# shellcheck disable=SC2059
+FIXTURE_CONFIG="$(printf "$FW_T" 60)" fixture_v4 fw6 "$FW_TI"; fw_plan 1; fw_tree 1 'grep -qx fixed src/a.ts && exit 0
+sleep 30'
+printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"
+( cd "$d/main" && exec bash "$RUN" 42 ) > "$d/fw6.out" 2>&1 & rp=$!
+t=0; while [ ! -e "$d/main/.claude/pipeline-state/run-42/red-tree" ] && [ "$t" -lt 600 ]; do sleep 0.2; t=$((t+1)); done
+sleep 1; kill -TERM "$rp" 2>/dev/null; t=0; while kill -0 "$rp" 2>/dev/null && [ "$t" -lt 100 ]; do sleep 0.2; t=$((t+1)); done
+if kill -0 "$rp" 2>/dev/null; then bad "(fw6) the run was still waiting on the hanging file 20s after its TERM"; else ok "(fw6) a TERM during the check ends the run at once"; fi
+wait "$rp" 2>/dev/null; grep -q 'terminated; claim left in place' "$d/fw6.out" && fw_restored \
+  && ok "(fw6) D-7: the EXIT trap put the worktree back on its branch and removed the mark" || bad "(fw6) $(tail -n 3 "$d/fw6.out" | tr '\n' '|') worktree: $(git -C "$d/wt/42" status --short --branch | tr '\n' '|')"
+# (fw7) D-18: the checks leave a tracked change in the worktree — the record commit's tree is not built over it, the run ends
+# env-worktree naming the file, and the change is still there
+FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"commands":{"main":{"test":"bash src/b.check.sh && echo dirt >> src/a.ts","testRunners":[{"when":["*.check.sh"],"command":"bash {file}"}]}}}' \
+  fixture_v4 fw7 "$FW_TI"; fw_plan 1; fw_tree 1 'grep -qx fixed src/a.ts'
+printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"
+expect env-worktree "(fw7) the checks left a tracked change"
+grep -q 'the checks left tracked changes in .* src/a.ts' <<<"$OUT" && grep -qx dirt "$d/wt/42/src/a.ts" && [ ! -e "$d/main/.claude/pipeline-state/run-42/red-tree" ] \
+  && [ "$(git -C "$d/wt/42" rev-parse --abbrev-ref HEAD)" = second-shift/42 ] \
+  && ok "(fw7) D-18: the change is named and kept, and the worktree never left its branch" || bad "(fw7) $(grep -E 'terminal' <<<"$OUT" | tr '\n' '|')"
+# (fw8) D-20: a launch that finds the red tree carrying a change the checkout back would overwrite refuses, keeping the change
+# and the mark for a human
+first="$(git -C "$d/wt/42" log --format=%H --diff-filter=A -- docs/plans/main-42-decisions.md | tail -n 1)"
+git -C "$d/wt/42" checkout -q -- src/a.ts && git -C "$d/wt/42" checkout -q --detach "$first" && echo 'a local edit' > "$d/wt/42/src/a.ts" \
+  && printf 'first=%s\n' "$first" > "$d/main/.claude/pipeline-state/run-42/red-tree"
+printf 'build-push-only\n' > "$FAKE_CLAUDE_PLAN"; : > "$FAKE_GH/calls"; printf 'in-progress\nopus\n' > "$FAKE_GH/labels"; run_case "$d" --resume
+expect env-worktree "(fw8) a red tree whose checkout back would overwrite a change"
+grep -q 'left on the record commit.s tree by an interrupted fails-without-the-change check' <<<"$OUT" && grep -qx 'a local edit' "$d/wt/42/src/a.ts" \
+  && [ -e "$d/main/.claude/pipeline-state/run-42/red-tree" ] && [ ! -s "$FAKE_GH/calls" ] \
+  && ok "(fw8) D-20: the launch refuses before any build, keeping the change and the mark" || bad "(fw8) $(grep -E 'red tree|terminal' <<<"$OUT" | tr '\n' '|') calls=$(cat "$FAKE_GH/calls")"
 
 echo "[self-test] $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

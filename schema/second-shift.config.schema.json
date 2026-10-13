@@ -130,7 +130,8 @@
               "required": ["when", "command"],
               "properties": {
                 "when": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1, "description": "File globs, matched against the repo-relative path as extraLanes' `when` is (`*` crosses `/`)." },
-                "command": { "type": "string", "pattern": "\\{file\\}", "description": "The command, run from the worktree root with the file's repo-relative path, shell-quoted, in place of {file}. Any non-zero exit counts as failing." }
+                "command": { "type": "string", "pattern": "\\{file\\}", "description": "The command, run from the worktree root with the file's repo-relative path, shell-quoted, in place of {file}. Any non-zero exit counts as failing." },
+                "timeoutSeconds": { "type": "integer", "minimum": 1, "description": "Optional, default 600. The bound on one run of the file on the record commit's tree. Past it the run's whole process group is killed (TERM, then KILL 10s later) and the file is red, never counted as failing: a runner that hangs on every tree would otherwise pass every proof." }
               }
             }
           }
