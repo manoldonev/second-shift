@@ -105,7 +105,7 @@ fixture q10; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case
 FIXTURE_CONFIG='{"tracker":{"type":"gitlab","branchPrefix":"x/"},"paths":{"plansDir":"docs/plans"}}' fixture q11; run_case "$d"; expect env-tracker-type "(q11) an unknown tracker.type is refused, never the quieter arm"
 
 # (r) round-three parity: marker read is a checked match and body-anchored, lanes[] setup steps,
-#     -h, explicit --max-rounds beats config, SEAM_SCRUB on lane commands, config dir reachable
+#     -h, explicit --max-rounds beats config, SEAM_SCRUB on lane commands, the config reaches a session as a copy
 fixture r1; printf 'in-progress\nopus\n' > "$FAKE_GH/labels"
 jq '. + [{body:"someone wrote: the marker is <!-- stage: lean-claimed --> in the old lane",created_at:"2020-01-01T00:00:00Z",updated_at:"2020-01-01T00:00:00Z"}]' "$FAKE_GH/comments.json" > "$FAKE_GH/c.tmp" && mv "$FAKE_GH/c.tmp" "$FAKE_GH/comments.json"
 run_case "$d"; expect claimed-elsewhere "(r1) a comment merely quoting the marker inline does not re-enter"
@@ -117,7 +117,17 @@ FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"pat
 printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d" --max-rounds 3; expect approved "(r4) an explicit --max-rounds 3 beats config run.maxRounds 1"
 # shellcheck disable=SC2016  # the check line is meant to expand in the lane, not here
 fixture r5 '- test -z "${SECOND_SHIFT_CONFIG:-}"'; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(r5) lane commands run with the config seam scrubbed"
-grep -q -- "--add-dir" "$FAKE_GH/args-1.txt" && grep -qF "$(cd "$(dirname "$SECOND_SHIFT_CONFIG")" && pwd)" "$FAKE_GH/args-1.txt" && ok "(r5) the config's directory is handed to the session via --add-dir" || bad "(r5) config dir not in --add-dir"
+cfgdir="$(cd "$(dirname "$SECOND_SHIFT_CONFIG")" && pwd)"
+! grep -A1 -x -- '--add-dir' "$FAKE_GH/args-1.txt" | grep -qxF -- "$cfgdir" && ok "(r5) no session is granted the config's directory (the main checkout's .claude/, where \$STATE and every receipt live)" || bad "(r5) $cfgdir is in the BUILD's --add-dir"
+case "$(cat "$FAKE_GH/config-path-1.txt")" in *-scratch.*/second-shift.config.json) cmp -s "$FAKE_GH/config-seen-1.json" "$SECOND_SHIFT_CONFIG" && ok "(r5) the session reads the config from a copy in its scratch dir" || bad "(r5) the session's copy differs from the config" ;;
+  *) bad "(r5) the session's SECOND_SHIFT_CONFIG is not a copy in its scratch dir: $(cat "$FAKE_GH/config-path-1.txt")" ;; esac
+# (r6) a build that rewrites the config, the main checkout's and its own copy, changes neither the checks the run then
+#      runs nor the config the review after it reads: run.sh holds the launch-time read
+R6CFG="{\"tracker\":{\"type\":\"github\",\"branchPrefix\":\"second-shift/\"},\"paths\":{\"plansDir\":\"docs/plans\"},\"commands\":{\"main\":{\"lint\":\"touch $T/r6/gh/launch-lint-ran\"}}}"
+FIXTURE_CONFIG="$R6CFG" fixture r6 ""; printf '%s\n' "$R6CFG" > "$d/launch-config.json"
+printf 'build-edit-config\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(r6) a build that edits the config mid-run"
+[ -f "$FAKE_GH/launch-lint-ran" ] && [ ! -e "$FAKE_GH/edited-lint-ran" ] && ok "(r6) the checks are the launch config's, not the edited file's" || bad "(r6) checks after the edit: launch lint $([ -f "$FAKE_GH/launch-lint-ran" ] && echo ran || echo 'did not run'), edited lint $([ -e "$FAKE_GH/edited-lint-ran" ] && echo ran || echo 'did not run')"
+cmp -s "$FAKE_GH/config-seen-2.json" "$d/launch-config.json" && ok "(r6) the review reads the launch config, not the build's edit of its copy" || bad "(r6) the review read: $(tr -d '\n' < "$FAKE_GH/config-seen-2.json" 2>/dev/null)"
 
 # (s) round-four parity: setup lanes fail fast, malformed lanes fail loudly, usage slugs, the full seam scrub
 FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"commands":{"main":{"lanes":[{"name":"setup","commands":["false"]}],"lint":"echo LINT-RAN"}}}' fixture s1 ""

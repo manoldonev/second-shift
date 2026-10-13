@@ -74,6 +74,8 @@ plan=$(sed -n "${n}p" "$FAKE_CLAUDE_PLAN"); prompt="$(cat)"; [ -n "$prompt" ] ||
 printf '%s' "$prompt" > "$S/prompt-$n.txt"; printf '%s\n' "$@" > "$S/args-$n.txt"
 # #964: each --add-dir that exists while the session runs is recorded, and a probe is left in the run's scratch dir
 prev=""; for a in "$@"; do if [ "$prev" = --add-dir ] && [ -d "$a" ]; then echo "$a" >> "$S/live-dirs-$n.txt"; case "$a" in *-scratch.*) echo "probe $n" > "$a/probe-$n.txt" ;; esac; fi; prev="$a"; done
+# the config path the session was handed, and that file's content as the session starts
+printf '%s\n' "${SECOND_SHIFT_CONFIG:-}" > "$S/config-path-$n.txt"; [ -f "${SECOND_SHIFT_CONFIG:-}" ] && cp "$SECOND_SHIFT_CONFIG" "$S/config-seen-$n.json"
 # the session's env as claude would apply it: what it inherited, overlaid by any --settings env; the watch's own
 # variables are captured too, so a leak of one into a session is visible (#939 D-29)
 { env | grep -E '^(CLAUDE_CODE_DISABLE_BACKGROUND_TASKS|CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS|BASH_(DEFAULT|MAX)_TIMEOUT_MS|HERDR_[A-Za-z0-9_]*|RUN_WATCH[A-Za-z0-9_]*|RUN_DETACHED_LOG)='; prev=""; for a in "$@"; do [ "$prev" = --settings ] && printf '%s' "$a" | jq -r '.env // {} | to_entries[] | "\(.key)=\(.value)"'; prev="$a"; done; } | awk -F= '{ v[$1] = $0 } END { for (k in v) print v[k] }' | sort > "$S/env-$n.txt"
@@ -97,6 +99,9 @@ post() { # post <body>: one comment by the verdict author, created and updated n
 }
 case "$plan" in
   build-pr)        push; openpr ;;
+  build-edit-config) for c in "$S/../main/.claude/second-shift.config.json" "${SECOND_SHIFT_CONFIG:-}"; do   # the main config and the session's own copy:
+                   [ -f "$c" ] || continue; jq --arg m "touch $S/edited-lint-ran" '.commands.main.lint = $m | .reviewers.optIn = ["edited"]' "$c" > "$c.tmp" && mv "$c.tmp" "$c"; done   # a lint the launch never named
+                   push; openpr ;;
   build-pr-draft)  push; openpr; touch "$S/draft" ;;
   build-pr-nobody) push; echo 7 > "$S/prs"; echo "just a summary" > "$S/pr-created-body.txt" ;;
   build-push-only) push ;;

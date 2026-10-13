@@ -170,13 +170,16 @@ TOOLS="$(cd "$SKILL_DIR/../../tools" && pwd)"
 # C1/C2: an absent file means the consumer configured nothing; a present-but-unparseable one is a refusal
 CONFIG="${SECOND_SHIFT_CONFIG:-$MAIN_ROOT/.claude/second-shift.config.json}"
 CONFIG_LOCAL="${CONFIG%.json}.local.json"   # C6a: the per-engineer override beside it, read below
-if [ -f "$CONFIG" ]; then jq -e . "$CONFIG" >/dev/null 2>&1 || terminal env-config-unparseable "$CONFIG is present but not JSON — refusing to fall back to defaults"
+# The config is read once, here, and every later read is of this copy in memory: a build session, or a check lane running
+# code the build wrote, can edit the file mid-run, and an edit must not change the checks a run holds that build to.
+CONFIG_JSON=""
+if [ -f "$CONFIG" ]; then CONFIG_JSON="$(cat "$CONFIG" 2>/dev/null)"; jq -e . <<<"$CONFIG_JSON" >/dev/null 2>&1 || terminal env-config-unparseable "$CONFIG is present but not JSON — refusing to fall back to defaults"
 else CONFIG=""; fi
 # C2: an unmigrated v2 config is refused, never half-honored (configVersion 3 removed these keys)
 if [ -n "$CONFIG" ]; then
   stale="$(jq -r '[ (["topology","gates","stageParams","grillWaivers"][] as $k | select(has($k)) | $k),
       (if (.design.liveRender | type) == "object" then (["tolerancePx","cwd"][] as $k | select(.design.liveRender | has($k)) | "design.liveRender.\($k)") else empty end),
-      (if (.configVersion | type) == "number" and .configVersion < 3 then "configVersion \(.configVersion)" else empty end) ] | join(", ")' "$CONFIG" 2>/dev/null)"
+      (if (.configVersion | type) == "number" and .configVersion < 3 then "configVersion \(.configVersion)" else empty end) ] | join(", ")' <<<"$CONFIG_JSON" 2>/dev/null)"
   [ -z "$stale" ] || terminal env-config-stale "$CONFIG is a configVersion 2 config ($stale) — migrate it with docs/migrations/v2-to-v3.md, then re-launch"
 fi
 # C6a: each engineer may name their own branch namespace in a gitignored <config>.local.json. It sets
@@ -193,9 +196,10 @@ if [ -f "$CONFIG_LOCAL" ]; then
     || terminal env-config-local "$CONFIG_LOCAL is committed — it is per-engineer: git rm --cached it and add it to .gitignore"
   LOCAL_PREFIX="$(jq -r '.tracker.branchPrefix // empty' "$CONFIG_LOCAL")"
 fi
-cfg() { [ -n "$CONFIG" ] && jq -r "$1 // empty" "$CONFIG" 2>/dev/null || true; }             # strings; a literal false would be swallowed, so booleans go through cfg_bool
-cfg_bool() { [ -n "$CONFIG" ] && jq -r "if $1 == null then \"\" else ($1|tostring) end" "$CONFIG" 2>/dev/null || true; }
-# the sessions run in the worktree, whose gitignored .claude/ has no config: hand them the resolved path (F10)
+cfg() { [ -n "$CONFIG" ] && jq -r "$1 // empty" <<<"$CONFIG_JSON" 2>/dev/null || true; }             # strings; a literal false would be swallowed, so booleans go through cfg_bool
+cfg_bool() { [ -n "$CONFIG" ] && jq -r "if $1 == null then \"\" else ($1|tostring) end" <<<"$CONFIG_JSON" 2>/dev/null || true; }
+# this process's own tools read the resolved path (F10); the sessions, whose worktree may carry no config, read a
+# copy in their scratch dir (spawn)
 [ -n "$CONFIG" ] && export SECOND_SHIFT_CONFIG="$CONFIG"
 
 TRACKER="$(cfg .tracker.type)"; TRACKER="${TRACKER:-github}"                                            # C3
@@ -211,7 +215,7 @@ RENDER_CMD="$(cfg .design.liveRender.command)"; SMOKE_CMD="$(cfg .design.liveRen
 READY_URL="$(cfg .design.liveRender.readyProbe)"; DESIGN_PROVIDER="$(cfg .design.provider)"              # C26 C23
 L_QUEUE="$(cfg .tracker.labels.queue)"; L_QUEUE="${L_QUEUE:-ready-for-dev}"                              # C8
 L_CLAIMED="$(cfg .tracker.labels.claimed)"; L_CLAIMED="${L_CLAIMED:-in-progress}"                        # C9
-if [ -n "$CONFIG" ] && [ "$(jq -r '.tracker.labels.blockers | type' "$CONFIG" 2>/dev/null)" = array ]; then L_BLOCKERS="$(jq -r '.tracker.labels.blockers | join("\n")' "$CONFIG")"   # C10: [] means none
+if [ -n "$CONFIG" ] && [ "$(jq -r '.tracker.labels.blockers | type' <<<"$CONFIG_JSON" 2>/dev/null)" = array ]; then L_BLOCKERS="$(jq -r '.tracker.labels.blockers | join("\n")' <<<"$CONFIG_JSON")"   # C10: [] means none
 else L_BLOCKERS="$(printf 'epic\nneeds-intake-review\nneeds-spec-work\nneeds-plan-review')"; fi
 # C5, plus the github key shape: a zero-padded or non-numeric key would derive a lane nobody can reconstruct
 if [ -n "$KEY_PATTERN" ] && ! printf '%s' "$ISSUE" | grep -qiE "^($KEY_PATTERN)$"; then terminal usage-key "'$ISSUE' does not match tracker.keyPattern '$KEY_PATTERN'"; fi
@@ -350,8 +354,9 @@ if [ "$TRACKER_WRITES" = false ]; then # the 14 Atlassian write tools under ever
   done
 fi
 MCP_ALLOW=""; [ "$TRACKER" = jira ] && MCP_ALLOW=",mcp__atlassian,mcp__plugin_atlassian_atlassian,mcp__claude_ai_Atlassian_Rovo"
+# No session is granted the config's directory: by default it is the main checkout's .claude/, which holds the config,
+# this run's $STATE and every other ticket's receipt. A session reads the config from a copy in its scratch dir (spawn).
 SPAWN_COMMON=(--permission-mode acceptEdits --permission-prompts none --disallowedTools "$DISALLOWED" --setting-sources "user,project,local" --add-dir "$WT" --output-format json)
-[ -n "$CONFIG" ] && SPAWN_COMMON+=(--add-dir "$(cd "$(dirname "$CONFIG")" && pwd)")
 read_denials() { # read_denials <result-json> <out> — the file is written only when the JSON was read: a missing file is
   # "unread" (the run block's "?"), never "none"; a session killed at its bound leaves no JSON to read
   # slurped: jq on an empty file runs no filter and exits 0, so "one object carrying the key" is asserted, not assumed
@@ -437,7 +442,7 @@ commands_key() { # the sole key, else the main checkout's directory name (the pr
   [ -n "$CONFIG" ] || return 0
   jq -r --arg s "$REPO_SLUG" '
     (.commands // {} | keys) as $k
-    | if ($k | length) == 1 then $k[0] elif ($k | index($s)) then $s else empty end' "$CONFIG" 2>/dev/null
+    | if ($k | length) == 1 then $k[0] elif ($k | index($s)) then $s else empty end' <<<"$CONFIG_JSON" 2>/dev/null
 }
 lanes_malformed() { # prints the first malformed lanes[]/extraLanes[] entry, nothing when all are well-formed
   local key; key="$(commands_key)"; [ -n "$key" ] || return 0
@@ -445,13 +450,13 @@ lanes_malformed() { # prints the first malformed lanes[]/extraLanes[] entry, not
     def check(kind): to_entries[] | select((.value|type) != "object" or (.value.name // "") == "" or ((.value.commands // []) | type) != "array" or ((.value.commands // []) | length) == 0 or any(.value.commands[]; type != "string"))
       | kind + " lane [" + (.key|tostring) + "]: must be an object {name, cwd?, commands[] of strings}";
     ((.commands[$k].lanes // []) | if type == "array" then check("setup") else "commands.lanes must be an array" end),
-    ((.commands[$k].extraLanes // []) | if type == "array" then check("extra") else "commands.extraLanes must be an array" end)' "$CONFIG" 2>&1 | head -n 1
+    ((.commands[$k].extraLanes // []) | if type == "array" then check("extra") else "commands.extraLanes must be an array" end)' <<<"$CONFIG_JSON" 2>&1 | head -n 1
 }
-setup_lanes() { local key; key="$(commands_key)"; [ -n "$key" ] || return 0; jq -r --arg k "$key" '.commands[$k].lanes[]? | (.cwd // ".") as $d | .commands[] | if $d == "." then . else "cd " + ($d|@sh) + " && " + . end' "$CONFIG" 2>/dev/null; }
+setup_lanes() { local key; key="$(commands_key)"; [ -n "$key" ] || return 0; jq -r --arg k "$key" '.commands[$k].lanes[]? | (.cwd // ".") as $d | .commands[] | if $d == "." then . else "cd " + ($d|@sh) + " && " + . end' <<<"$CONFIG_JSON" 2>/dev/null; }
 config_checks() { # config_checks [all]: lint/typecheck/test/format, then extraLanes whose `when` globs match a changed file since FIRST (or have none); `all` lists every lane
   local key; key="$(commands_key)"; [ -n "$key" ] || return 0
-  jq -r --arg k "$key" '.commands[$k] | [.lint, .typecheck, .test, .format] | map(select(type=="string"))[]' "$CONFIG" 2>/dev/null
-  if [ "${1:-}" = all ]; then jq -r --arg k "$key" '.commands[$k].extraLanes[]?.commands[]? | select(type=="string")' "$CONFIG" 2>/dev/null; return 0; fi
+  jq -r --arg k "$key" '.commands[$k] | [.lint, .typecheck, .test, .format] | map(select(type=="string"))[]' <<<"$CONFIG_JSON" 2>/dev/null
+  if [ "${1:-}" = all ]; then jq -r --arg k "$key" '.commands[$k].extraLanes[]?.commands[]? | select(type=="string")' <<<"$CONFIG_JSON" 2>/dev/null; return 0; fi
   local lane
   while IFS= read -r lane; do
     [ -n "$lane" ] || continue
@@ -460,7 +465,7 @@ config_checks() { # config_checks [all]: lint/typecheck/test/format, then extraL
 $(extra_lanes)
 EOF
 }
-extra_lanes() { local key; key="$(commands_key)"; [ -n "$key" ] || return 0; jq -c --arg k "$key" '.commands[$k].extraLanes[]? | {name: (.name // ""), when: (.when // []), commands: (.commands // [])}' "$CONFIG" 2>/dev/null; }
+extra_lanes() { local key; key="$(commands_key)"; [ -n "$key" ] || return 0; jq -c --arg k "$key" '.commands[$k].extraLanes[]? | {name: (.name // ""), when: (.when // []), commands: (.commands // [])}' <<<"$CONFIG_JSON" 2>/dev/null; }
 lane_hit() { # lane_hit <lane-json>: 0 when the lane has no `when` globs or one matches a file in $CHANGED
   local g f
   [ "$(printf '%s' "$1" | jq '.when | length')" -gt 0 ] || return 0
@@ -482,7 +487,7 @@ skipped_lanes() { # the name of each when-scoped extraLanes entry no file in $CH
 $(extra_lanes)
 EOF
 }
-allow_unverified() { local key; key="$(commands_key)"; [ -n "$key" ] && [ "$(jq -r --arg k "$key" '.commands[$k].allowUnverified // false' "$CONFIG" 2>/dev/null)" = true ]; }
+allow_unverified() { local key; key="$(commands_key)"; [ -n "$key" ] && [ "$(jq -r --arg k "$key" '.commands[$k].allowUnverified // false' <<<"$CONFIG_JSON" 2>/dev/null)" = true ]; }
 checks_list() { { config_checks "${1:-}"; record_checks; } | awk 'NF && !seen[$0]++'; }
 CHANGED=""   # the files this branch touches since the record commit; read fail-closed by the caller before the checks (C20)
 run_checks() { # run_checks <attempt> -> 0 green, 1 red; the log is the next build's findings
@@ -1232,6 +1237,13 @@ spawn() { # spawn <role> <model> <id> <allowlist> <max-turns> <prompt-file> -> r
   local sets envv=(env ${WATCH_UNSET[@]+"${WATCH_UNSET[@]}"})
   if [ "$1" = build ]; then sets="$(printf '{"env":{"CLAUDE_CODE_DISABLE_BACKGROUND_TASKS":"1","BASH_DEFAULT_TIMEOUT_MS":"%s","BASH_MAX_TIMEOUT_MS":"%s"}}' "$BUILD_BASH_MS" "$BUILD_BASH_MS")"
   else sets="$(printf '{"env":{"CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS":"%s"}}' "$REVIEW_BG_WAIT_MS")"; envv+=(-u CLAUDE_CODE_DISABLE_BACKGROUND_TASKS); fi
+  # the session reads a copy of the config, written afresh from the launch-time read before every spawn: the sessions
+  # share the scratch dir, so a build's edit to its copy must not reach the review that follows it. After every -u:
+  # env reads its first assignment as the end of its options
+  if [ -n "$CONFIG" ] && [ -n "$SCRATCH" ]; then
+    printf '%s\n' "$CONFIG_JSON" > "$SCRATCH/second-shift.config.json" || terminal env-scratch-dir "cannot write the session's copy of the config into $SCRATCH"
+    envv+=(SECOND_SHIFT_CONFIG="$SCRATCH/second-shift.config.json")
+  fi
   # #939 D-13: every session is named and findable while it runs (`claude agents`), and its transcript is on disk under its id
   local sid name; sid="$(new_uuid)" || terminal env-session-id "cannot read /dev/urandom for a session id"
   name="$ISSUE-$1-$(printf '%s' "$3" | tr -c 'A-Za-z0-9-' '-')"
