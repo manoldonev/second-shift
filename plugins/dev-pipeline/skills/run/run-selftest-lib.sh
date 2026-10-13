@@ -80,6 +80,9 @@ printf '%s\n' "${SECOND_SHIFT_CONFIG:-}" > "$S/config-path-$n.txt"; [ -f "${SECO
 # variables are captured too, so a leak of one into a session is visible (#939 D-29)
 { env | grep -E '^(CLAUDE_CODE_DISABLE_BACKGROUND_TASKS|CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS|BASH_(DEFAULT|MAX)_TIMEOUT_MS|HERDR_[A-Za-z0-9_]*|RUN_WATCH[A-Za-z0-9_]*|RUN_DETACHED_LOG)='; prev=""; for a in "$@"; do [ "$prev" = --settings ] && printf '%s' "$a" | jq -r '.env // {} | to_entries[] | "\(.key)=\(.value)"'; prev="$a"; done; } | awk -F= '{ v[$1] = $0 } END { for (k in v) print v[k] }' | sort > "$S/env-$n.txt"
 branch=$(git rev-parse --abbrev-ref HEAD); cost="${FAKE_COST:-1}"
+# #1039: a session whose call number has a $FAKE_GH/plan-<n>.md writes it as the test-first plan, beside the record
+rec=$(git ls-files 'docs/plans/*-decisions.md' 2>/dev/null | head -n 1)
+[ -f "$S/plan-$n.md" ] && [ -n "$rec" ] && cp "$S/plan-$n.md" "${rec%-decisions.md}-plan.md"
 push() { echo "$n" >> work.txt; git add -A >/dev/null; git commit -qm "build $n"; git push -q origin "$branch"; }
 openpr() { # body as the prompt instructs: built-by line, the record link, then Closes (under the Jira heading when bracketed)
   rid=$(grep -oE 'built-by: second-shift run [^ ]+' "$S/prompt-$n.txt" | head -n 1)
@@ -132,6 +135,11 @@ case "$plan" in
                    git add -f .claude/second-shift .claude/second-shift.config.json .claude/agents; push; openpr ;;   # forced: the fixture gitignores .claude/
   build-pr-add-row) printf '| D-2 | added by the build | x | user-delegated |\n' >> "$(git ls-files 'docs/plans/*-decisions.md')"; push; openpr ;;   # #991: a row only the head carries
   build-pr-rm-record) git rm -q "$(git ls-files 'docs/plans/*-decisions.md')"; push; openpr ;;   # #991: no record at the head to check a verdict against
+  build-pr-mark-covered) # #1039 AC-5: a build that tries to mark the coverage check passed — it exempts AC-8 in the head's
+                   # record and commits a coverage script that always passes where the plugin's sits in this repo
+                   sed 's/^AC-8: .*/AC-8: exempt — the build says so/' "$rec" > r.tmp && mv r.tmp "$rec"
+                   mkdir -p plugins/dev-pipeline/tools; printf '#!/usr/bin/env bash\necho "plan-coverage: pass"\n' > plugins/dev-pipeline/tools/plan-coverage.sh
+                   push; openpr ;;
   review-crash)    printf '{"subtype":"error_during_execution","total_cost_usd":0}\n'; exit 1 ;;
   review-approve|review-needs-work|review-wrong-sha|review-approve-dirty|review-approve-runtime|review-approve-and-push|review-needs-work-drop-base|review-needs-work-diverge|review-needs-work-notes-reason|review-needs-work-move-base)
     sha=$(git rev-parse "origin/$branch"); [ "$plan" = review-wrong-sha ] && sha=deadbeef
@@ -191,7 +199,8 @@ fixture() { # fixture <case> [checks-line] [extra-record] — sets $d and the en
   printf '%s\n' ".claude/" > "$d/main/.gitignore"
   git -C "$d/main" add -A && git -C "$d/main" commit -qm init && git -C "$d/main" push -q -u origin main 2>/dev/null
   git -C "$d/origin.git" symbolic-ref HEAD refs/heads/main
-  # #1022 D-11: a whole receipt at the current version (v3, #1032), so the launch lint passes it (an empty checks line is
+  # #1022 D-11: a whole v3 receipt (#1032), so the launch lint passes it; #1039: v3 carries no Test intent, so every case but
+  # run-record-selftest's (pc) block, which moves it to v4, runs the plan coverage as not-applicable (an empty checks line is
   # the section's empty form); D-1's first four cells are the text (a) greps for in the build prompt; #1023: only the
   # operator's skip form lints. #1032 D-8: the knowledge-source answer carries its own heading, '| D-9 |' row and
   # 'Receipt: v99' line, indented — the launch's version read, its lint and the build's record all pass them by.

@@ -57,6 +57,15 @@ review's context.
    to an acceptance criterion or a record row; an untraced one is a `[blocker]` that requires the
    citation — the edit itself is never blocked. Each is a question the diff must answer, whatever
    the stack.
+   Then run the plan's AC coverage check, as the scheduler does after its checks: with the record
+   at `FIRST` in a file (`git show $FIRST:<record> > <file>`),
+   `bash <this skill's base directory>/../../tools/plan-coverage.sh <record at FIRST> <plan at the head>`,
+   the plan being `<plansDir>/<repo>-<key>-plan.md` beside the record
+   ([the script](../../tools/plan-coverage.sh)). Exit 1 (an AC with no test task, a tag the record
+   does not define, an unparseable task line, or no plan) is a `[blocker]` that names what it
+   printed; exit 3 is not-applicable (the record carries no `## Test intent`, or the ticket has no
+   AC block), never a blocker; exit 2 means it could not read the record's AC set, which you say in
+   `## Notes`. `post-review-status.sh` runs the same check and posts no `success` while it is red.
 5. **Score EVERY row of the record** against the code: `honored`, `violated`, `departed` (the row
    was edited; name who decided, per its provenance), or `undeterminable` (say what you could not
    read). A violated or undeterminable row is a blocker; neither may stand beside an approve.
@@ -144,10 +153,12 @@ review's context.
    never with a raw `gh api` call:
    `GH=<that gh> bash <this skill's base directory>/../../tools/post-review-status.sh <pr> <sha> <body file> <record at the head> <record at FIRST> <your comment's URL>`
    ([the script](../../tools/post-review-status.sh)). It re-runs the checker on the body you
-   posted and posts `success` for approve, `failure` for needs-work, under `second-shift/review`.
-   A consumer that requires `second-shift/review` in branch protection cannot merge a PR without
-   it. When it exits 1 the body breaks a rule and no status was posted: say so in a plain PR
-   comment that names the failed rules it printed (never a `verdict:` line). When it exits 3 the
+   posted and posts `success` for approve, `failure` for needs-work, under `second-shift/review`;
+   an approve whose plan coverage is red posts nothing. A consumer that requires
+   `second-shift/review` in branch protection cannot merge a PR without it. When it exits 1 the
+   body breaks a rule, or the approve's plan coverage is red, and no status was posted: say so in
+   a plain PR comment that names the failed rules or the coverage lines it printed (never a
+   `verdict:` line). When it exits 3 the
    post failed: say so in a plain PR comment (a 403/404 through the bot means its GitHub App lacks
    "Commit statuses: write"); never retry it as yourself in the bot's place. On an `approve` whose
    status posted, mark the PR ready for review with the same `gh` (`gh pr ready <pr>`): a lane PR

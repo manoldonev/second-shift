@@ -208,6 +208,58 @@ git -C "$d/main" worktree remove --force "$d/wt/42"; git -C "$d/main" branch -q 
 printf 'build-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; : > "$FAKE_GH/calls"; printf 'in-progress\nopus\n' > "$FAKE_GH/labels"; run_case "$d" --resume; expect approved "(ae5) [AC-3] the committed record is read off origin"
 grep -q 'record: already committed on second-shift/42' <<<"$OUT" && ok "(ae5) the receipt is not consulted" || bad "(ae5) $(grep 'record:' <<<"$OUT")"
 
+# (pc) #1039: the scheduler checks the build's test-first plan covers every AC of the record at FIRST. The receipt is
+# the fixture moved to v4 with a Test intent section over non-contiguous ids (AC-1 AC-2 AC-8, AC-2 exempt), so the
+# launch's real lint passes it before the run reads it back from the record commit
+TI=$'\n## Test intent\n\nACs: AC-1 AC-2 AC-8\n\nAC-1: a duplicate import answers 409\nAC-2: exempt — the README section is prose\nAC-8: the scheduler runs the coverage check\n'
+fixture_v4() { # fixture_v4 <case> [test intent section]
+  fixture "$1" "- true" "${2-$TI}"; sed 's/^Receipt: v3$/Receipt: v4/' "$d/main/.claude/pipeline-state/42-ledger.md" > "$d/r.tmp" && mv "$d/r.tmp" "$d/main/.claude/pipeline-state/42-ledger.md"
+}
+PLAN_OK=$'# Plan\n\n## 1. Tests\n\n- [ ] 1.1 duplicate import answers 409 (src/a.spec.ts) [AC-1]\n- [ ] 1.2 the scheduler case (run-selftest.sh) [AC-8]\n\n## 2. Implementation\n\n- [ ] 2.1 the worker (src/a.ts)'
+# (pc1) AC-2 / D-6: the plan in the first commit after the record covers every non-exempt AC — the check passes, the run
+# goes on to its review, and the log and run block say so with the plan's position
+fixture_v4 pc1; printf '%s\n' "$PLAN_OK" > "$FAKE_GH/plan-1.md"; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"
+expect approved "(pc1) a plan covering AC-1 and AC-8, AC-2 exempt"
+grep -q 'receipt: v4, lints clean' <<<"$OUT" && grep -q 'plan coverage: exit 0 — pass — 2 covered, 1 exempt' <<<"$OUT" \
+  && grep -q 'plan position: the first commit after the record ([0-9a-f]*) added docs/plans/main-42-plan.md' <<<"$OUT" \
+  && ok "(pc1) AC-2: the v4 receipt lints; the coverage passes, logged with the plan's position" || bad "(pc1) $(grep -E 'receipt: |plan ' <<<"$OUT" | tr '\n' '|')"
+grep -qE '^plan coverage at [0-9a-f]{40}: pass — 2 covered, 1 exempt$' "$FAKE_GH/pr-body.md" && grep -q '^plan position: the first commit after the record' "$FAKE_GH/pr-body.md" \
+  && ok "(pc1) D-6: the run block carries the result and the position" || bad "(pc1) run block: $(grep -i plan "$FAKE_GH/pr-body.md" | tr '\n' '|')"
+grep -q "Your first commit after the record commit [0-9a-f]* is a task plan at docs/plans/main-42-plan.md" "$FAKE_GH/prompt-1.txt" \
+  && grep -q "each AC's tagged test proves the behavior its line states" "$FAKE_GH/prompt-1.txt" \
+  && ok "(pc1) D-12: the build prompt asks for the plan at its path and for tests that prove each stated behavior" || bad "(pc1) the build prompt has no plan instruction"
+# (pc2) D-7: no plan is a red attempt — the re-spawned build reads why, adds it, and the run goes on; its position is noted
+fixture_v4 pc2; printf '%s\n' "$PLAN_OK" > "$FAKE_GH/plan-2.md"; printf 'build-pr\nbuild-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"
+expect approved "(pc2) a build with no plan, then one that adds it"
+grep -q 'plan coverage red — the findings are the log; another BUILD attempt of round 1' <<<"$OUT" \
+  && grep -q 'plan-coverage: RED: no plan — [0-9a-f]*:docs/plans/main-42-plan.md does not exist' <<<"$(sed -n '/^## Red check output/,$p' "$FAKE_GH/prompt-2.txt")" \
+  && ok "(pc2) D-7: a missing plan spends a checks-red attempt and the re-spawned build reads why" || bad "(pc2) $(sed -n '/^## Red check output/,$p' "$FAKE_GH/prompt-2.txt" | tr '\n' '|' | cut -c1-400)"
+grep -q 'plan position: the first commit after the record ([0-9a-f]*) did not add docs/plans/main-42-plan.md' <<<"$OUT" \
+  && ok "(pc2) D-6: a plan added later is noted as not in the first commit after the record, never gated" || bad "(pc2) $(grep 'plan position' <<<"$OUT" | tr '\n' '|')"
+# (pc3) AC-3 / AC-5: an uncovered AC and an undefined tag are red, each named — and a build cannot mark the check passed:
+# it exempts AC-8 in the head's record and commits an always-pass coverage script; the record at FIRST and the
+# installed script decide. A third red would end checks-red-spent; one is the cap here
+fixture_v4 pc3; printf '%s\n' '- [ ] 1.1 duplicate import (src/a.spec.ts) [AC-1] [AC-9]' > "$FAKE_GH/plan-1.md"; printf 'build-pr-mark-covered\n' > "$FAKE_CLAUDE_PLAN"
+RUN_CHECKS_RED_MAX=1 run_case "$d"; expect checks-red-spent "(pc3) a red coverage check on the last checks-red attempt"
+grep -q 'terminal: checks-red-spent — plan coverage red 1 times' <<<"$OUT" && grep -q 'plan coverage: exit 1 — RED — 2 problem(s)' <<<"$OUT" \
+  && grep -q 'plan-coverage: RED: AC-8 has no test task' "$(SD)/plan-coverage-1.1.log" && grep -q 'plan-coverage: RED: task 1.1 tags AC-9, which the record' "$(SD)/plan-coverage-1.1.log" \
+  && ok "(pc3) AC-3 / AC-5: AC-8 uncovered and AC-9 undefined, named, though the head's record exempts AC-8 and carries a passing script" || bad "(pc3) $(grep -E 'plan |terminal' <<<"$OUT" | tr '\n' '|')"
+[ "$(cat "$FAKE_GH/calls")" = 1 ] && ok "(pc3) no review was spawned on a red coverage" || bad "(pc3) calls: $(cat "$FAKE_GH/calls")"
+# (pc4) AC-4 / D-3: a v3 record carries no Test intent — not-applicable, logged and noted, never red; no plan is asked for
+fixture pc4; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(pc4) a v3 record"
+grep -q 'plan coverage: not-applicable — record v3 carries no Test intent' <<<"$OUT" && grep -qx 'plan coverage: not-applicable — record v3 carries no Test intent' "$FAKE_GH/pr-body.md" \
+  && ! grep -q 'task plan at' "$FAKE_GH/prompt-1.txt" \
+  && ok "(pc4) D-3: not-applicable is a log line and a run-block note, and the build is not asked for a plan" || bad "(pc4) $(grep 'plan ' <<<"$OUT" | tr '\n' '|')"
+# (pc5) AC-4: a ticket with no AC block ('ACs: none — <reason>') is not-applicable, not a pass
+fixture_v4 pc5 $'\n## Test intent\n\nACs: none — the ticket has no AC block\n'; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"
+expect approved "(pc5) 'ACs: none'"
+grep -q 'plan coverage: not-applicable — the ticket has no AC block' <<<"$OUT" && ! grep -q 'plan coverage: exit 0' <<<"$OUT" \
+  && ok "(pc5) AC-4: no AC block is reported not-applicable, distinct from a pass" || bad "(pc5) $(grep 'plan ' <<<"$OUT" | tr '\n' '|')"
+# (pc6) a committed record (never re-linted) whose Test intent has no 'ACs:' line cannot be checked: a human's stop, exit 1
+fixture_v4 pc6 $'\n## Test intent\n\nAC-1: a duplicate import answers 409\n'; commit_record; printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"
+expect plan-coverage-uncheckable "(pc6) a record whose Test intent carries no AC set"
+[ "$RC" -eq 1 ] && grep -q "carries 0 'ACs:' lines" <<<"$OUT" && ok "(pc6) exits 1, naming why" || bad "(pc6) rc=$RC $(grep 'terminal:' <<<"$OUT")"
+
 echo "[self-test] $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
 exit $?

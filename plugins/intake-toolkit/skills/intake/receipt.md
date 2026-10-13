@@ -76,7 +76,7 @@ highest version the lint knows (`ledger-lint.sh --receipt-version`).
 ```
 # Intake receipt — #<issue> <title>
 
-Receipt: v3
+Receipt: v4
 
 ## Intake steps
 
@@ -95,6 +95,7 @@ Sizing: <opus or sonnet — the weight you decided>
 ## Design frames        (on a repo whose config sets design.provider)
 ## Fan-out
 ## Knowledge source
+## Test intent
 ```
 
 Each `Intake steps` key once, in that order, at the start of its line; its outcome is what the step
@@ -126,6 +127,13 @@ did or why it did not run, never empty or a bare dash.
   every line indented four spaces; `Knowledge source: none declared`; or `Knowledge source: failed
   — <the first line of the error, or what is malformed>`. **On a slice:** the whole answer the
   parent's dispatch got, the same in every slice receipt.
+- **Test intent** — transcribe the ticket's AC ids onto one `ACs: AC-1 AC-2 …` line, exactly as
+  labeled (holes stay holes; a `PM-n` item is never one), or `ACs: none — <reason>` when the ticket
+  has no AC block. Under it, one line per id: draft `AC-n: <the observable behavior its test must
+  prove>` from the AC's own text. An AC no test can prove (docs, config) is an exemption, and
+  **every exemption is the operator's**: put it to them as a question, record the answer as a
+  `user-answered` row, and only then write `AC-n: exempt — <reason>`. Never exempt one silently.
+  The build's test-first plan is held to these ids (`interviewing-baseline`, "Test intent").
 
 ## Lint it
 
@@ -151,6 +159,9 @@ here is a run that will not launch. It has distinct causes:
 - **Intake steps** — a missing, repeated, misordered or empty step.
 - **Knowledge source** — a missing or empty section, an answer line not indented four spaces, a
   provider with no answer, or a `Knowledge source:` line outside its two forms.
+- **Test intent** — an id on the `ACs:` line with no line of its own, a line for an id the `ACs:`
+  line does not list, an exemption with no reason, or a line in neither form. Re-read the ticket's
+  AC block: the lint cannot see an id you left off the `ACs:` line.
 
 Fix and re-lint until it is clean.
 
