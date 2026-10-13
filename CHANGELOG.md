@@ -4,6 +4,271 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v17.0.0
+
+### `audit-toolkit` 6.0.0 → 7.0.0
+
+- **feat(intake-toolkit)!: /intake is the only way in — one sequence, one receipt writer (#1028)** (#1028)
+  /intake-toolkit:intake is the only way into intake. It runs one
+  sequence (Requirements, Split, Explore, Interview, Receipt) with one receipt
+  writer and each gate once; slices are queued only after their receipt lints
+  clean. The receipt lint refuses a fan-out skip that does not name the
+  operator, and run.sh's refusals name /intake-toolkit:intake <issue>.
+  Migration: /intake-toolkit:plan-interview <issue>, /intake-toolkit:intake-orchestrator,
+  /intake-toolkit:intake-interviewer and /intake-toolkit:decomposition-reviewer
+  are gone — enter a ticket with /intake-toolkit:intake <issue>; plan-interview
+  remains for plan mode only. A receipt whose Fan-out section reads
+  'skipped — by intake-orchestrator' or 'by intake-interviewer' no longer lints:
+  re-run /intake-toolkit:intake <issue>.
+  a Fan-out line under a receipt's Intake steps that records a skip
+  must name the operator, like the Fan-out section; a ticket the Interview
+  sends back to Split gets the split's one fan-out, on the parent plus the
+  slice list.
+  Migration: none.
+  **BREAKING:** the /plan-interview <issue>, /intake-orchestrator, /intake-interviewer and /decomposition-reviewer entries are removed; a ticket enters intake only by /intake-toolkit:intake <issue>. ledger-lint.sh --receipt refuses a Fan-out skip that does not name the operator.
+
+### `design-toolkit` 7.0.0 → 8.0.0
+
+- **feat(intake-toolkit)!: /intake is the only way in — one sequence, one receipt writer (#1028)** (#1028)
+  /intake-toolkit:intake is the only way into intake. It runs one
+  sequence (Requirements, Split, Explore, Interview, Receipt) with one receipt
+  writer and each gate once; slices are queued only after their receipt lints
+  clean. The receipt lint refuses a fan-out skip that does not name the
+  operator, and run.sh's refusals name /intake-toolkit:intake <issue>.
+  Migration: /intake-toolkit:plan-interview <issue>, /intake-toolkit:intake-orchestrator,
+  /intake-toolkit:intake-interviewer and /intake-toolkit:decomposition-reviewer
+  are gone — enter a ticket with /intake-toolkit:intake <issue>; plan-interview
+  remains for plan mode only. A receipt whose Fan-out section reads
+  'skipped — by intake-orchestrator' or 'by intake-interviewer' no longer lints:
+  re-run /intake-toolkit:intake <issue>.
+  a Fan-out line under a receipt's Intake steps that records a skip
+  must name the operator, like the Fan-out section; a ticket the Interview
+  sends back to Split gets the split's one fan-out, on the parent plus the
+  slice list.
+  Migration: none.
+  **BREAKING:** the /plan-interview <issue>, /intake-orchestrator, /intake-interviewer and /decomposition-reviewer entries are removed; a ticket enters intake only by /intake-toolkit:intake <issue>. ledger-lint.sh --receipt refuses a Fan-out skip that does not name the operator.
+
+### `dev-pipeline` 16.6.0 → 17.0.0
+
+- **feat(intake-toolkit): the receipt records every intake step and run.sh lints it at launch (#1025)** (#1025)
+  run.sh refuses to launch on a receipt that fails
+  `ledger-lint.sh --receipt` (env-receipt-invalid, exit 3) or when it cannot
+  trust the enabled intake-toolkit's lint (env-receipt-lint-unavailable, exit 2).
+  Receipts carry a `Receipt: v<N>` line; v2 mandates `## Intake steps`, which
+  plan-interview pre-flight writes. The lint refuses a section title used twice.
+  Migration: a receipt on disk that fails the lint (including ones written by
+  intake-orchestrator or intake-interviewer) must be re-made with
+  /intake-toolkit:plan-interview <issue> before launch; records already
+  committed on a lane branch are not affected.
+- **fix(dev-pipeline): a stale remote ref never stands in for the committed record (#1026)** (#1026)
+  run.sh asks origin whether a lane branch already carries the
+  decision record: a branch deleted upstream now reads the receipt and is
+  cut fresh from the base instead of resuming from a stale tracking ref,
+  an unreachable origin refuses (env-remote-unreadable) before the claim,
+  and a local branch or worktree origin does not have refuses under the
+  new env-branch-unpushed, naming how to push or remove it.
+  Migration: none.
+- **feat(intake-toolkit)!: /intake is the only way in — one sequence, one receipt writer (#1028)** (#1028)
+  /intake-toolkit:intake is the only way into intake. It runs one
+  sequence (Requirements, Split, Explore, Interview, Receipt) with one receipt
+  writer and each gate once; slices are queued only after their receipt lints
+  clean. The receipt lint refuses a fan-out skip that does not name the
+  operator, and run.sh's refusals name /intake-toolkit:intake <issue>.
+  Migration: /intake-toolkit:plan-interview <issue>, /intake-toolkit:intake-orchestrator,
+  /intake-toolkit:intake-interviewer and /intake-toolkit:decomposition-reviewer
+  are gone — enter a ticket with /intake-toolkit:intake <issue>; plan-interview
+  remains for plan mode only. A receipt whose Fan-out section reads
+  'skipped — by intake-orchestrator' or 'by intake-interviewer' no longer lints:
+  re-run /intake-toolkit:intake <issue>.
+  a Fan-out line under a receipt's Intake steps that records a skip
+  must name the operator, like the Fan-out section; a ticket the Interview
+  sends back to Split gets the split's one fan-out, on the parent plus the
+  slice list.
+  Migration: none.
+  **BREAKING:** the /plan-interview <issue>, /intake-orchestrator, /intake-interviewer and /decomposition-reviewer entries are removed; a ticket enters intake only by /intake-toolkit:intake <issue>. ledger-lint.sh --receipt refuses a Fan-out skip that does not name the operator.
+- **feat(dev-pipeline): run.sh rebases a branch the base moved under when git can, instead of stopping (#1029)** (#1029)
+  a run no longer stops with staleness-expired when main moved into
+  the branch's files but the rebase onto it is clean: run.sh rebases, pushes
+  with a lease, and rewrites the PR body's 'Record baseline:' line. A
+  conflicting rebase still stops the run, now naming the conflicting files. A
+  new rc 1 slug, baseline-unwritten, means the rebase was pushed but the PR
+  body could not be updated.
+  Migration: none.
+- **feat(intake-toolkit): intake consults a consumer-declared knowledge source (#1036)** (#1036)
+  /intake-toolkit:intake dispatches a knowledge provider a consumer
+  declares in .claude/second-shift/intake-context.md and records its whole
+  answer in the receipt's new `## Knowledge source` section (receipt v3);
+  receipt rows may cite `cited (kb): <kb-page>`. check-review-context-sections
+  lints intake-context.md, the fan-out's lens writer sees the answer, and the
+  build prompt treats the section as context, not binding.
+  Migration: none — v1 and v2 receipts still lint; a repo with no
+  intake-context.md records `Knowledge source: none declared`.
+- **ci: shard the selftest sweep across runners and split the run.sh scenario (#1038)** (#1038)
+- **feat(review-toolkit): performance becomes an opt-in seat, and a record-named cost risk is required review work (#1037)** (#1037)
+  under the pipeline default panel, `performance` is a fourth opt-in
+  reviewer (a `review panel` row, `reviewers.default[]`, or the reviewing
+  session's call on a new entry point), and a decision-record row naming a
+  cost, load or performance risk now requires the review to dispatch the
+  performance seat or decline it with a reason — and to state the worst-case
+  bound as a finding. The performance rules gain "Amplification through a new
+  entry point", and new callers on an expensive unchanged path are no longer
+  classed as pre-existing. plan-interview asks for a `review panel` row when a
+  recorded risk sits in a specialist's dimension.
+  Migration: none.
+- **feat(dev-pipeline): the review proposes knowledge-base contributions (#1041)** (#1041)
+  a consumer can declare `## Knowledge-base contributions` (target,
+  inclusion test, optional format) in .claude/second-shift/review-context.md;
+  review-lead then proposes knowledge-base additions in its report, and every
+  lane and manual verdict carries them in `## Notes` under the lead line
+  `Knowledge-base contributions:` as drafts the operator files. The section
+  catalog gains the row, so a review-context.md without it reports review-lead
+  among the degraded readers.
+  Migration: none — without the section nothing changes.
+- **fix(dev-pipeline): a lane session can no longer rewrite the config or $STATE that run.sh reads (#1044)** (#1044)
+  a lane run no longer lets its build or review session write the
+  main checkout's .claude/ (the config, the run's state, other tickets'
+  receipts). Sessions read the config from a copy in the run's scratch dir, and
+  the run holds the config it launched with for its whole length.
+  Migration: none.
+- **feat(dev-pipeline): a lane build runs the checks its change touches; the scheduler's pass is the whole-list authority (#1045)** (#1045)
+  a /dev-pipeline:run build is no longer told to run every listed
+  check before pushing: it runs the checks that cover its change, and the
+  scheduler's pass at the pushed head stays the authority (a red spends a
+  checks-red attempt, run.checksRedMax). The interactive /dev-pipeline:build
+  still runs every listed check.
+  Migration: none.
+
+### `intake-toolkit` 7.1.0 → 8.0.0
+
+- **feat(intake-toolkit): the receipt records every intake step and run.sh lints it at launch (#1025)** (#1025)
+  run.sh refuses to launch on a receipt that fails
+  `ledger-lint.sh --receipt` (env-receipt-invalid, exit 3) or when it cannot
+  trust the enabled intake-toolkit's lint (env-receipt-lint-unavailable, exit 2).
+  Receipts carry a `Receipt: v<N>` line; v2 mandates `## Intake steps`, which
+  plan-interview pre-flight writes. The lint refuses a section title used twice.
+  Migration: a receipt on disk that fails the lint (including ones written by
+  intake-orchestrator or intake-interviewer) must be re-made with
+  /intake-toolkit:plan-interview <issue> before launch; records already
+  committed on a lane branch are not affected.
+- **feat(intake-toolkit)!: /intake is the only way in — one sequence, one receipt writer (#1028)** (#1028)
+  /intake-toolkit:intake is the only way into intake. It runs one
+  sequence (Requirements, Split, Explore, Interview, Receipt) with one receipt
+  writer and each gate once; slices are queued only after their receipt lints
+  clean. The receipt lint refuses a fan-out skip that does not name the
+  operator, and run.sh's refusals name /intake-toolkit:intake <issue>.
+  Migration: /intake-toolkit:plan-interview <issue>, /intake-toolkit:intake-orchestrator,
+  /intake-toolkit:intake-interviewer and /intake-toolkit:decomposition-reviewer
+  are gone — enter a ticket with /intake-toolkit:intake <issue>; plan-interview
+  remains for plan mode only. A receipt whose Fan-out section reads
+  'skipped — by intake-orchestrator' or 'by intake-interviewer' no longer lints:
+  re-run /intake-toolkit:intake <issue>.
+  a Fan-out line under a receipt's Intake steps that records a skip
+  must name the operator, like the Fan-out section; a ticket the Interview
+  sends back to Split gets the split's one fan-out, on the parent plus the
+  slice list.
+  Migration: none.
+  **BREAKING:** the /plan-interview <issue>, /intake-orchestrator, /intake-interviewer and /decomposition-reviewer entries are removed; a ticket enters intake only by /intake-toolkit:intake <issue>. ledger-lint.sh --receipt refuses a Fan-out skip that does not name the operator.
+- **feat(intake-toolkit): intake consults a consumer-declared knowledge source (#1036)** (#1036)
+  /intake-toolkit:intake dispatches a knowledge provider a consumer
+  declares in .claude/second-shift/intake-context.md and records its whole
+  answer in the receipt's new `## Knowledge source` section (receipt v3);
+  receipt rows may cite `cited (kb): <kb-page>`. check-review-context-sections
+  lints intake-context.md, the fan-out's lens writer sees the answer, and the
+  build prompt treats the section as context, not binding.
+  Migration: none — v1 and v2 receipts still lint; a repo with no
+  intake-context.md records `Knowledge source: none declared`.
+- **feat(review-toolkit): performance becomes an opt-in seat, and a record-named cost risk is required review work (#1037)** (#1037)
+  under the pipeline default panel, `performance` is a fourth opt-in
+  reviewer (a `review panel` row, `reviewers.default[]`, or the reviewing
+  session's call on a new entry point), and a decision-record row naming a
+  cost, load or performance risk now requires the review to dispatch the
+  performance seat or decline it with a reason — and to state the worst-case
+  bound as a finding. The performance rules gain "Amplification through a new
+  entry point", and new callers on an expensive unchanged path are no longer
+  classed as pre-existing. plan-interview asks for a `review panel` row when a
+  recorded risk sits in a specialist's dimension.
+  Migration: none.
+
+### `review-toolkit` 10.3.0 → 11.0.0
+
+- **feat(intake-toolkit)!: /intake is the only way in — one sequence, one receipt writer (#1028)** (#1028)
+  /intake-toolkit:intake is the only way into intake. It runs one
+  sequence (Requirements, Split, Explore, Interview, Receipt) with one receipt
+  writer and each gate once; slices are queued only after their receipt lints
+  clean. The receipt lint refuses a fan-out skip that does not name the
+  operator, and run.sh's refusals name /intake-toolkit:intake <issue>.
+  Migration: /intake-toolkit:plan-interview <issue>, /intake-toolkit:intake-orchestrator,
+  /intake-toolkit:intake-interviewer and /intake-toolkit:decomposition-reviewer
+  are gone — enter a ticket with /intake-toolkit:intake <issue>; plan-interview
+  remains for plan mode only. A receipt whose Fan-out section reads
+  'skipped — by intake-orchestrator' or 'by intake-interviewer' no longer lints:
+  re-run /intake-toolkit:intake <issue>.
+  a Fan-out line under a receipt's Intake steps that records a skip
+  must name the operator, like the Fan-out section; a ticket the Interview
+  sends back to Split gets the split's one fan-out, on the parent plus the
+  slice list.
+  Migration: none.
+  **BREAKING:** the /plan-interview <issue>, /intake-orchestrator, /intake-interviewer and /decomposition-reviewer entries are removed; a ticket enters intake only by /intake-toolkit:intake <issue>. ledger-lint.sh --receipt refuses a Fan-out skip that does not name the operator.
+- **feat(intake-toolkit): intake consults a consumer-declared knowledge source (#1036)** (#1036)
+  /intake-toolkit:intake dispatches a knowledge provider a consumer
+  declares in .claude/second-shift/intake-context.md and records its whole
+  answer in the receipt's new `## Knowledge source` section (receipt v3);
+  receipt rows may cite `cited (kb): <kb-page>`. check-review-context-sections
+  lints intake-context.md, the fan-out's lens writer sees the answer, and the
+  build prompt treats the section as context, not binding.
+  Migration: none — v1 and v2 receipts still lint; a repo with no
+  intake-context.md records `Knowledge source: none declared`.
+- **feat(review-toolkit): performance becomes an opt-in seat, and a record-named cost risk is required review work (#1037)** (#1037)
+  under the pipeline default panel, `performance` is a fourth opt-in
+  reviewer (a `review panel` row, `reviewers.default[]`, or the reviewing
+  session's call on a new entry point), and a decision-record row naming a
+  cost, load or performance risk now requires the review to dispatch the
+  performance seat or decline it with a reason — and to state the worst-case
+  bound as a finding. The performance rules gain "Amplification through a new
+  entry point", and new callers on an expensive unchanged path are no longer
+  classed as pre-existing. plan-interview asks for a `review panel` row when a
+  recorded risk sits in a specialist's dimension.
+  Migration: none.
+- **feat(dev-pipeline): the review proposes knowledge-base contributions (#1041)** (#1041)
+  a consumer can declare `## Knowledge-base contributions` (target,
+  inclusion test, optional format) in .claude/second-shift/review-context.md;
+  review-lead then proposes knowledge-base additions in its report, and every
+  lane and manual verdict carries them in `## Notes` under the lead line
+  `Knowledge-base contributions:` as drafts the operator files. The section
+  catalog gains the row, so a review-context.md without it reports review-lead
+  among the degraded readers.
+  Migration: none — without the section nothing changes.
+
+### `second-shift` 12.1.1 → 13.0.0
+
+- **feat(intake-toolkit)!: /intake is the only way in — one sequence, one receipt writer (#1028)** (#1028)
+  /intake-toolkit:intake is the only way into intake. It runs one
+  sequence (Requirements, Split, Explore, Interview, Receipt) with one receipt
+  writer and each gate once; slices are queued only after their receipt lints
+  clean. The receipt lint refuses a fan-out skip that does not name the
+  operator, and run.sh's refusals name /intake-toolkit:intake <issue>.
+  Migration: /intake-toolkit:plan-interview <issue>, /intake-toolkit:intake-orchestrator,
+  /intake-toolkit:intake-interviewer and /intake-toolkit:decomposition-reviewer
+  are gone — enter a ticket with /intake-toolkit:intake <issue>; plan-interview
+  remains for plan mode only. A receipt whose Fan-out section reads
+  'skipped — by intake-orchestrator' or 'by intake-interviewer' no longer lints:
+  re-run /intake-toolkit:intake <issue>.
+  a Fan-out line under a receipt's Intake steps that records a skip
+  must name the operator, like the Fan-out section; a ticket the Interview
+  sends back to Split gets the split's one fan-out, on the parent plus the
+  slice list.
+  Migration: none.
+  **BREAKING:** the /plan-interview <issue>, /intake-orchestrator, /intake-interviewer and /decomposition-reviewer entries are removed; a ticket enters intake only by /intake-toolkit:intake <issue>. ledger-lint.sh --receipt refuses a Fan-out skip that does not name the operator.
+- **feat(intake-toolkit): intake consults a consumer-declared knowledge source (#1036)** (#1036)
+  /intake-toolkit:intake dispatches a knowledge provider a consumer
+  declares in .claude/second-shift/intake-context.md and records its whole
+  answer in the receipt's new `## Knowledge source` section (receipt v3);
+  receipt rows may cite `cited (kb): <kb-page>`. check-review-context-sections
+  lints intake-context.md, the fan-out's lens writer sees the answer, and the
+  build prompt treats the section as context, not binding.
+  Migration: none — v1 and v2 receipts still lint; a repo with no
+  intake-context.md records `Knowledge source: none declared`.
+
 ## v16.7.0
 
 ### `dev-pipeline` 16.5.2 → 16.6.0
