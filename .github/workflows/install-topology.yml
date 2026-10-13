@@ -92,7 +92,7 @@ jobs:
 
       # macOS ships /bin/bash 3.2 and every shipped script claims 3.2 compat, but GitHub's macOS
       # runners put Homebrew bash 5 first on PATH — so shim PATH to force `#!/usr/bin/env bash`
-      # back to the stock binary. Same idiom as ci.yml's selftests-bash32 job.
+      # back to the stock binary. Same idiom as ci.yml's selftests-bash32-shard job.
       - name: install-topology class guard under stock bash 3.2
         run: |
           mkdir -p /tmp/bash32

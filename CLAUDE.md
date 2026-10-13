@@ -71,7 +71,7 @@ title derives a patch. A `BREAKING CHANGE:` line in the body still derives a maj
 ## A session-launch fix lands in the scheduler
 
 When a spawned session cannot run as launched (a prompt it cannot answer, a missing grant, a wrong
-flag), the fix lands in `plugins/dev-pipeline/skills/run/run.sh`, with a `run-selftest.sh` case
+flag), the fix lands in `plugins/dev-pipeline/skills/run/run.sh`, with a `run*-selftest.sh` case
 that fails without it — never only in a wrapper or a one-off launch.
 
 ## Verification
@@ -117,7 +117,7 @@ no-mirror-harnesses rules and the mjs-seam grep exception live in the `writing-t
 [`docs/testing.md`](docs/testing.md).
 
 **One thing in there binds ordinary PRs, not just test authorship:** a behavior change to
-`run.sh` lands with a `run-selftest.sh` case that fails without it.
+`run.sh` lands with a `run*-selftest.sh` case that fails without it.
 
 Testing: [`docs/testing.md`](docs/testing.md) — the tier map, the runtime shim, and the operator-run adversarial recipe.
 

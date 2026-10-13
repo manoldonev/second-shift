@@ -936,6 +936,39 @@ grep -qxF 'fast-selftest.sh' "$BASE/ac629.tokens" \
   && ok "#629/AC-1: the suite path is still the last token of a pass frame" \
   || { fail "#629/AC-1: elapsed displaced the suite path as the frame's last token"; sed 's/^/    | /' "$BASE/ac629.tokens"; }
 
+# ---------------------------------------------------------------------------------------
+# --shard — the n shards of a sweep are the unsharded sweep: every suite in exactly one shard,
+# the exclusion applied before the split, a red suite still reds its own shard.
+# ---------------------------------------------------------------------------------------
+RSH="$BASE/shard"; mkdir -p "$RSH"
+for s in a b c d e; do make_suite "$RSH" "$s-selftest.sh" 0 "echo $s"; done
+make_suite "$RSH" "x-selftest.sh" 0 'echo excluded'
+: > "$BASE/shard.all"
+shard_ok=1
+for i in 1 2 3; do
+  run_runner "$RSH" --exclude x-selftest.sh --shard "$i/3"
+  [[ "$RC" -eq 0 ]] || shard_ok=0
+  sed -n 's/^::group::pass .*[[:space:]]//p' "$OUT" >> "$BASE/shard.all"
+done
+[[ "$shard_ok" -eq 1 ]] \
+  && [[ "$(LC_ALL=C sort "$BASE/shard.all" | tr '\n' ' ')" == "a-selftest.sh b-selftest.sh c-selftest.sh d-selftest.sh e-selftest.sh " ]] \
+  && ok "--shard: three shards run every non-excluded suite exactly once" \
+  || { fail "--shard: shards did not partition the sweep (ok=$shard_ok)"; sed 's/^/    | /' "$BASE/shard.all"; }
+
+make_suite "$RSH" "c-selftest.sh" 1 'echo charlie-broke'
+run_runner "$RSH" --exclude x-selftest.sh --shard 3/3
+[[ "$RC" -eq 1 ]] && grep -q 'c-selftest\.sh (rc=1)' "$OUT" \
+  && ok "--shard: a red suite reds the shard that holds it" \
+  || { fail "--shard: shard 3/3 with a red suite exited $RC"; sed 's/^/    | /' "$OUT"; }
+
+for bad in 0/2 3/2 2 x/y; do
+  run_runner "$RSH" --shard "$bad"
+  [[ "$RC" -eq 2 ]] || fail "--shard $bad was accepted (rc=$RC)"
+done
+run_runner "$RSH" --exclude x-selftest.sh --shard 6/6
+[[ "$RC" -eq 2 ]] && ok "--shard: a malformed or empty shard is a usage error" \
+                 || { fail "--shard 6/6 over five suites exited $RC"; sed 's/^/    | /' "$OUT"; }
+
 echo
 if [[ "$FAILS" -eq 0 ]]; then
   echo "run-selftests-selftest: PASS"

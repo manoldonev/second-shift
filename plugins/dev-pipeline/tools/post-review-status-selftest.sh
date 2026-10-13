@@ -18,7 +18,7 @@ trap 'rm -rf "$T"' EXIT
 
 # fake gh: each status post appends "<as> <path> <fields>" to $FAKE_GH/posts; $FAKE_GH/fail refuses it with
 # the message GitHub returns when an App lacks a permission ("Resource not accessible by integration", the
-# REST API's 403 body — the same shape minimize-verdicts-selftest.sh and run-selftest.sh's cs8 double)
+# REST API's 403 body — the same shape minimize-verdicts-selftest.sh and run-verdict-selftest.sh's cs8 double)
 mkdir -p "$T/bin"
 cat > "$T/bin/fake-gh" <<'EOF'
 #!/usr/bin/env bash

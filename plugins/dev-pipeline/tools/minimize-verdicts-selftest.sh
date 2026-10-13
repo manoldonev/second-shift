@@ -4,7 +4,7 @@
 # INVARIANTS GUARDED: only a comment whose FIRST line is exactly `verdict: approve|needs-work` is
 # minimized; only a lane author's (a Bot, or the account $GH writes as); only one posted before the
 # kept comment; every write goes through $GH; a failed minimize is reported and the rest still run.
-# The run.sh wiring is a scenario case in skills/run/run-selftest.sh.
+# The run.sh wiring is a scenario case in skills/run/run-verdict-selftest.sh.
 #
 # Operator-safe: a fake gh, no network. Exit code = number of failed checks.
 set -uo pipefail

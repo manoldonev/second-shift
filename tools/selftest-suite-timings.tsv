@@ -18,4 +18,11 @@ tools/install-topology-selftest.sh	584	2026-08-20
 plugins/second-shift/skills/onboard/tools/config-grill-selftest.sh	17	2026-08-20
 plugins/second-shift/skills/doctor/tools/doctor-selftest.sh	13	2026-08-20
 tools/run-selftests-selftest.sh	12	2026-08-21
-plugins/dev-pipeline/skills/run/run-selftest.sh	335	2026-09-22
+plugins/dev-pipeline/skills/run/run-selftest.sh	221	2026-10-13
+plugins/dev-pipeline/skills/run/run-audit-selftest.sh	256	2026-10-13
+plugins/dev-pipeline/skills/run/run-claim-selftest.sh	300	2026-10-13
+plugins/dev-pipeline/skills/run/run-detach-selftest.sh	138	2026-10-13
+plugins/dev-pipeline/skills/run/run-queue-selftest.sh	226	2026-10-13
+plugins/dev-pipeline/skills/run/run-record-selftest.sh	239	2026-10-13
+plugins/dev-pipeline/skills/run/run-rows-selftest.sh	252	2026-10-13
+plugins/dev-pipeline/skills/run/run-verdict-selftest.sh	243	2026-10-13
