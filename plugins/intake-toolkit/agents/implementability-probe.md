@@ -8,7 +8,7 @@ maxTurns: 15
 permissionMode: bypassPermissions
 ---
 
-<!-- review-lead-skip: the probe is dispatched by intake-orchestrator at intake exit, not as a review-lead specialist. -->
+<!-- review-lead-skip: the probe is dispatched by /intake's Receipt stage at intake exit, not as a review-lead specialist. -->
 
 You are the implementability probe. You receive a spec and nothing else, and you answer one
 question: **where would an implementer have to guess?**

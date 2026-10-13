@@ -1,6 +1,6 @@
 ---
 name: interviewing-baseline
-description: Shared interviewing protocol for all intake-role skills (intake-interviewer, plan-interview, grill-me, intake-orchestrator escalations). Provides the interview loop rules and the Decision Ledger contract — schema, provenance enum, explicit-empty form.
+description: Shared interviewing protocol for every interviewing surface (the /intake stages, plan-interview, grill-me). Provides the interview loop rules and the Decision Ledger contract — schema, provenance enum, explicit-empty form, and the intake receipt.
 ---
 
 # Interviewing Baseline Protocol
@@ -13,7 +13,7 @@ This skill defines the shared protocol that ALL interviewing/elicitation skills 
 
 Rules for every interviewing turn, regardless of which skill is running:
 
-1. **Explore first.** If a question can be answered by reading the codebase, the repo's docs, or ADRs (Grep/Glob/Read, or dispatching `review-toolkit:codebase-explorer` where the calling skill supports it), answer it yourself instead of asking. Asking the user a codebase-answerable question is a protocol violation.
+1. **Explore first.** If a question can be answered by reading the codebase, the repo's docs, or ADRs (Grep/Glob/Read, or the impact map `/intake`'s Split stage made when it ran), answer it yourself instead of asking. Asking the user a codebase-answerable question is a protocol violation.
 2. **At most 2 questions per turn.** The user disengages otherwise. Related sub-choices may share one `AskUserQuestion` call, but the material decisions per turn stay ≤ 2.
 3. **Attach a recommendation only when it's grounded** in the user's input, the codebase, or the repo's docs — cite the grounding. If nothing grounds an answer, ask plain — do not guess. (Reporter-owned facts — environment, frequency, business intent — are rarely groundable; design decisions almost always are.)
 4. **Recommended answer goes first.** When using `AskUserQuestion`, the grounded recommendation is the first option, labeled `(Recommended)`.
@@ -30,7 +30,7 @@ Rules for every interviewing turn, regardless of which skill is running:
 
 <!-- canonical: interviewing-baseline provenance enum — all mirrors keep verbatim -->
 
-The machine-checkable residue every elicitation leaves behind. It is a mandated `## Decision Ledger` section in the implementation plan (or, pre-flight for a pipeline ticket, a standalone `.claude/pipeline-state/{issue}-ledger.md`):
+The machine-checkable residue every elicitation leaves behind. It is a mandated `## Decision Ledger` section in the implementation plan (or, for a pipeline ticket, in the intake receipt `/intake-toolkit:intake` writes to `.claude/pipeline-state/{issue}-ledger.md`):
 
 ```
 | ID  | Decision | Resolution | Provenance |
@@ -249,8 +249,8 @@ section.
 
 ### Fan-out
 
-The intake fan-out (`review-toolkit/workflows/intake-fanout.mjs`, run by `plan-interview`
-pre-flight) hands the interviewer a pool of evidence items, each one kept only after a refuter
+The intake fan-out (`review-toolkit/workflows/intake-fanout.mjs`, run by `/intake`'s Explore
+stage) hands the interviewer a pool of evidence items, each one kept only after a refuter
 from the model family that did not make it failed to break it. The receipt's mandated `## Fan-out`
 section shows what that pool achieved **over plain intake**, ticket by ticket, and which lens
 produced it. It has four parts:
@@ -295,17 +295,25 @@ produced it. It has four parts:
   own ledger, regions and surfaces.
 
 A pool where nothing survived refutation states `Pool: empty — no claim survived refutation.` in
-place of the rows; the tally, lenses line and snapshot stay. A receipt that ran no fan-out carries
-exactly one line instead of the section's parts:
+place of the rows; the tally, lenses line and snapshot stay. On a split the fan-out runs once for
+the parent and its slices: each slice's receipt lists only the items that touch it, names the
+shared run on a `Run:` line, and embeds the shared snapshot.
+
+A receipt that ran no fan-out carries exactly one line instead of the section's parts:
 
 ```
-Fan-out: skipped — <by whom, and why>
+Fan-out: skipped — by the operator <where, and why>
 Fan-out: failed — <what failed>
 ```
 
+Only the operator skips the fan-out: the skip names them, `by the operator` (any case, followed by
+anything that is not a letter or digit — `by the operator;` and `by the operator's` both read so).
+A skip in any other name is a stage or a session deciding on its own that the evidence was not
+worth gathering, and the lint refuses it under its own violation.
+
 An absent section reads exactly like a fan-out nobody ran and nobody recorded, so the lint
-(`ledger-lint.sh --receipt`) refuses it, along with a skip or failure that names no reason, a
-missing `Lenses:` line, a row with no angle, a tag outside the four, an `overturned` that names no
+(`ledger-lint.sh --receipt`) refuses it, along with a skip or failure that names no reason, a skip
+that does not name the operator, a missing `Lenses:` line, a row with no angle, a tag outside the four, an `overturned` that names no
 claim, a disposition citing an undeclared `D-n`, and unindented snapshot rows. The section's
 reader is the operator's consumer read: a later reversal of a decision the fan-out flagged, or of
 one it never raised, is how its value is judged, and the angle and lens counts are how a lens that
@@ -354,7 +362,7 @@ From v2 the receipt records what each intake step did, one line per step, in thi
 ```
 ## Intake steps
 
-Requirements: the ticket body as written — no intake-interviewer pass
+Requirements: the ticket body as written — spec-reviewer: implementable
 Split: not split — one PR's worth of work
 Explore: done — the worker, its DTOs and the proxy config
 Fan-out: ran — 4 items, see Fan-out
@@ -384,17 +392,19 @@ a `user-delegated` call has not asked the question the region exists to ask.
 
 ## Who emits what
 
-Each intake-role skill keeps its own purpose and trigger; what unifies them is the ledger:
+Each interviewing surface keeps its own purpose; what unifies them is the ledger:
 
-| Skill                                            | Elicits                                      | Ledger role                                                       |
-| ------------------------------------------------ | -------------------------------------------- | ----------------------------------------------------------------- |
-| `intake-interviewer`                             | requirements from a reporter                 | emits a ledger seeded with requirement-level decisions            |
-| `intake-orchestrator` / `decomposition-reviewer` | escalation-point choices                     | escalation answers → `user-answered`; open questions → `deferred` |
-| `plan-interview`                                 | the engineer's load-bearing design decisions | primary author of the ledger                                      |
-| `grill-me`                                       | challenges to an existing plan/design        | resolutions recorded back into the ledger as `user-answered`      |
-| `design-toolkit:design-faithful-spec`            | ambiguous states/transitions in a handoff    | Open Questions double as `deferred` rows                          |
+| Surface | Elicits | Ledger role |
+| --- | --- | --- |
+| `/intake` Requirements stage | requirements from a reporter; the one spec-reviewer pass | requirement-level rows, held in memory for the Interview |
+| `/intake` Split stage | escalation-point choices on a decomposition | in the session → `user-answered`; in a ticket comment → `ticket-sourced`; open → `deferred` |
+| `/intake` Interview stage | the engineer's load-bearing design decisions | primary author of the receipt's ledger |
+| `/intake` Receipt stage | post-merge checks, duplicates, probe guess-points | the only writer of the receipt |
+| `plan-interview` | the engineer's design decisions for a plan | the in-plan ledger; never a receipt |
+| `grill-me` | challenges to an existing plan/design | resolutions recorded back into the ledger as `user-answered` |
+| `design-toolkit:design-faithful-spec` | ambiguous states/transitions in a handoff (`/intake`'s Requirements on a handoff input) | Open Questions double as `deferred` rows |
 
-Routing between these skills lives in the `intake` front-door skill — see its scenario roadmap; do not restate routing here.
+The order of the `/intake` stages lives in the `intake` skill; do not restate it here.
 
 ## What all interviewers must avoid
 

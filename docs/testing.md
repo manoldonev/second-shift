@@ -583,25 +583,28 @@ does not owe this list a new entry.
   holds the machine copy. A Kind value added to the doc and not the lint is a value the lint
   rejects with a message naming the enum the author just read. The doc side is a markdown table of
   prose descriptions, not a quoted literal. Guarded by `ledger-lint-selftest.sh`. **The SKILL layer
-  is a caller class of its own:** `intake-orchestrator/SKILL.md` prescribes the receipt shape and
-  then runs `ledger-lint.sh --receipt` on it, and `intake-interviewer/SKILL.md` prescribes the same
-  shape. Neither is an automated caller, so no CI lane reds when the lint tightens past what they
-  describe — the lint simply becomes unpassable at agent runtime, where nobody is watching. A
-  change that adds or tightens a mandated section MUST move both, and the check is empirical:
-  build a receipt verbatim to the prose and lint it.
+  is a caller class of its own:** `intake/receipt.md` — the Receipt stage of `/intake`, the one
+  receipt writer — prescribes the receipt shape and then runs `ledger-lint.sh --receipt` on it, and
+  `intake/explore.md` prescribes the fan-out's skipped and failed lines. Neither is an automated
+  caller, so no CI lane reds when the lint tightens past what they describe — the lint simply
+  becomes unpassable at agent runtime, where nobody is watching. A change that adds or tightens a
+  mandated section MUST move both, and the check is empirical: build a receipt verbatim to the
+  prose and lint it.
 - **`onboard/SKILL.md`'s benefit clauses** ↔ the docs that own the worked examples. Real — a
   capability whose behavior changes leaves a clause promising something the tool no longer does,
   and onboard is precisely where a human decides on that promise. No literal on either side: the
   clause is a summary IN a sentence, the authority a multi-paragraph worked example. What holds it
   instead: the clause is a POINTER plus one sentence, deliberately short enough that the
   authoritative text stays in exactly one place.
-- **The dup-scan exit taxonomy beyond rc 2.** `dup-scan.sh`'s 0 / 10 / 2 contract is restated in
-  four SKILL blocks — intake-orchestrator twice, intake-interviewer, plan-interview. The rc-2 arm is
-  a live `dup-scan-rc2` group; the rest is declined, because each block states the obligation in the
-  vocabulary of its own exit (what "hard-stop" means differs per caller), so a `verbatim` block
-  would force four passages into one wording they do not share. `dup-scan-selftest.sh` pins each
-  arm's rc AND the message it names, so a taxonomy change reds there before any SKILL copy can be
-  silently wrong.
+- **The dup-scan exit taxonomy.** `dup-scan.sh`'s 0 / 10 / 2 contract is stated once, in the
+  Receipt stage of `/intake` (`intake/receipt.md`) — since #1023 the only intake exit, so the
+  `dup-scan-rc2` group that held the three exits' copies of the rc-2 arm together was removed.
+  `dup-scan-selftest.sh` pins each arm's rc AND the message it names, so a taxonomy change reds
+  there before the prose can be silently wrong.
+- **The run-cost bias of a split.** Stated once, in the Split stage of `/intake`
+  (`intake/split.md`, Step 5) — since #1023 the decomposition and the review of the slices as a set
+  share that one file, so the `decomposition-economy` group that held `intake-orchestrator`'s and
+  `decomposition-reviewer`'s copies together was removed with them.
 - **The audit ledger's THIRD copy** — the hook's jq object literal in `audit-tool-calls.sh`, beside
   the live `audit-row-fields` group. A jq construction expression and a prose field list share no
   anchorable bytes. Not reviewer-guarded either: `audit-selftest.sh` Test 9 asserts a real emitted

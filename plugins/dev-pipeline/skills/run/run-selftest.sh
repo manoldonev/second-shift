@@ -180,8 +180,8 @@ fixture() { # fixture <case> [checks-line] [extra-record] — sets $d and the en
   git -C "$d/main" add -A && git -C "$d/main" commit -qm init && git -C "$d/main" push -q -u origin main 2>/dev/null
   git -C "$d/origin.git" symbolic-ref HEAD refs/heads/main
   # #1022 D-11: a whole v2 receipt, so the launch lint passes it (an empty checks line is the section's empty form); D-1's
-  # first four cells are the text (a) greps for in the build prompt
-  printf '# record\n\nReceipt: v2\n\n## Intake steps\n\nRequirements: the ticket body as written\nSplit: not split\nExplore: the fixture repo\nFan-out: skipped — by the selftest fixture\nDup-scan: no candidates\nPost-merge scan: no post-merge AC\nSizing: opus\n\n## Decision Ledger\n\n| ID | Decision | Resolution | Provenance | Kind |\n| --- | --- | --- | --- | --- |\n| D-1 | a | b | user-answered | intent |\n\n## Open Regions\n\nNo open regions — every decision in scope is ratified.\n\n## Surface Inventory\n\nNo user-visible surface — this change renders nothing a user reads.\n\n## Fan-out\n\nFan-out: skipped — by the selftest fixture, which runs no intake\n\n## Checks\n\n%s\n%s\n' \
+  # first four cells are the text (a) greps for in the build prompt; #1023: only the operator's skip form lints
+  printf '# record\n\nReceipt: v2\n\n## Intake steps\n\nRequirements: the ticket body as written\nSplit: not split\nExplore: the fixture repo\nFan-out: skipped — by the operator; the selftest fixture runs no intake\nDup-scan: no candidates\nPost-merge scan: no post-merge AC\nSizing: opus\n\n## Decision Ledger\n\n| ID | Decision | Resolution | Provenance | Kind |\n| --- | --- | --- | --- | --- |\n| D-1 | a | b | user-answered | intent |\n\n## Open Regions\n\nNo open regions — every decision in scope is ratified.\n\n## Surface Inventory\n\nNo user-visible surface — this change renders nothing a user reads.\n\n## Fan-out\n\nFan-out: skipped — by the operator; the selftest fixture runs no intake\n\n## Checks\n\n%s\n%s\n' \
     "${chk:-No ticket-specific checks — the configured lanes cover this change.}" "$extra" > "$d/main/.claude/pipeline-state/42-ledger.md"
   export FAKE_GH="$d/gh"; mkdir -p "$FAKE_GH"; echo OPEN > "$FAKE_GH/state"; echo '[]' > "$FAKE_GH/comments.json"; : > "$FAKE_GH/prs"
   printf 'ready-for-dev\nopus\n' > "$FAKE_GH/labels"
@@ -419,6 +419,9 @@ grep -qE '^[|] build-1[.]1 [|] 3 [|] [$]2[.]44 [|]' "$FAKE_GH/pr-body.md" && ! g
 fixture l3e; printf 'build-pr\nreview-needs-work\n' > "$FAKE_CLAUDE_PLAN"; FAKE_COST=50.002 RUN_COST_CEILING=100 run_case "$d"; expect cost-spent "(l3e) 100.004 against a \$100 ceiling"
 grep -q '[$]100[.]01 exceeds the [$]100 ceiling' <<<"$OUT" && ok "(l3e) a cost-spent figure is rounded up, never to the ceiling itself" || bad "(l3e) $(grep 'exceeds' <<<"$OUT" | tail -n 1)"
 fixture l4; rm "$d/main/.claude/pipeline-state/42-ledger.md"; run_case "$d"; expect env-no-record "(l4) no intake record"; [ "$RC" -eq 3 ] && ok "(l4) [B6 K8] env-no-record exits 3 (resumable)" || bad "(l4) exit $RC"
+# #1023 AC-13: /intake is the only way in, so the refusal names it, not a retired stage skill
+grep -q 'run /intake-toolkit:intake 42 first' <<<"$OUT" && ! grep -q 'intake-toolkit:plan-interview' <<<"$OUT" \
+  && ok "(l4) #1023: the refusal names '/intake-toolkit:intake 42'" || bad "(l4) #1023: $(grep 'terminal: env-no-record' <<<"$OUT")"
 fixture l5; run_case "$d" --dry-run; expect usage-dry-run "(l5) the removed --dry-run is refused by name"; [ "$RC" -eq 2 ] && ok "(l5) usage-dry-run exits 2" || bad "(l5) exit $RC"
 [ ! -f "$FAKE_GH/calls" ] && ok "(l5) nothing spawned on --dry-run" || bad "(l5) claude called on --dry-run"
 
@@ -800,8 +803,8 @@ fixture rl1; REC="$d/main/.claude/pipeline-state/42-ledger.md"
 awk '/^## Intake steps/ {skip = 1; next} skip && /^## / {skip = 0} !skip' "$REC" > "$REC.tmp" && mv "$REC.tmp" "$REC"
 run_case "$d"; expect env-receipt-invalid "(rl1) a v2 receipt with no Intake steps"
 [ "$RC" -eq 3 ] && ok "(rl1) env-receipt-invalid exits 3 (resumable)" || bad "(rl1) exit $RC"
-grep -q '\[run\] receipt: ledger-lint: VIOLATION: missing mandated receipt section: Intake steps' <<<"$OUT" && grep -q 'rerun /intake-toolkit:plan-interview 42' <<<"$OUT" \
-  && ok "(rl1) the refusal prints the violation and 'rerun /intake-toolkit:plan-interview 42'" || bad "(rl1) output: $(grep -E 'receipt: |rerun' <<<"$OUT" | tr '\n' '|')"
+grep -q '\[run\] receipt: ledger-lint: VIOLATION: missing mandated receipt section: Intake steps' <<<"$OUT" && grep -q 'rerun /intake-toolkit:intake 42' <<<"$OUT" && ! grep -q 'intake-toolkit:plan-interview' <<<"$OUT" \
+  && ok "(rl1) the refusal prints the violation and 'rerun /intake-toolkit:intake 42' (#1023 AC-13)" || bad "(rl1) output: $(grep -E 'receipt: |rerun' <<<"$OUT" | tr '\n' '|')"
 untouched && ok "(rl1) refused before the claim: no label changed, nothing posted, nothing spawned" || bad "(rl1) labels: $(tr '\n' ' ' < "$FAKE_GH/labels")"
 # (rl1b) D-12: the receipt shape written before #1022 (a 4-column ledger and Checks, the old fixture) is refused the same way
 fixture rl1b; printf '# record\n\n## Decision Ledger\n\n| ID | Decision | Resolution | Provenance |\n| --- | --- | --- | --- |\n| D-1 | a | b | user-answered |\n\n## Checks\n\n- true\n' > "$d/main/.claude/pipeline-state/42-ledger.md"

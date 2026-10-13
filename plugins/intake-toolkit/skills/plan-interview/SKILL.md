@@ -1,6 +1,6 @@
 ---
 name: plan-interview
-description: Use BEFORE writing any implementation plan for behavior-changing work — plan mode, a direct feature/fix ask, or pre-flight for a dev-pipeline ticket. Surfaces the load-bearing design decisions to the engineer while the plan is forming and emits the Decision Ledger the plan gates require. Not for typo/mechanical fixes.
+description: Use BEFORE writing any implementation plan for behavior-changing work — plan mode, or a direct feature/fix ask with no pipeline ticket. Surfaces the load-bearing design decisions to the engineer while the plan is forming and emits the in-plan Decision Ledger the plan gates require. Writes no intake receipt; a ticket headed for the pipeline enters by /intake-toolkit:intake instead. Not for typo/mechanical fixes.
 ---
 
 # Plan Interview
@@ -11,85 +11,14 @@ Load `interviewing-baseline` first (Skill tool) — it owns the loop rules and t
 
 ## Scope
 
-You elicit **design decisions from the engineer** (plan-authoring). You do NOT:
+You elicit **design decisions from the engineer** for a plan. You do NOT:
 
-- Elicit requirements from a reporter — that's `intake-interviewer`.
-- Decompose into sub-issues — that's `intake-orchestrator`.
+- Write an intake receipt, or interview a ticket for a pipeline run — that is `/intake-toolkit:intake <issue>`, whose Interview stage follows steps 2–5 below and adds the receipt.
 - Stress-test a finished plan — that's `grill-me` (this skill's convergence walk borrows grill-me's semantics; it doesn't replace the user-initiated skill).
 
 ## Protocol
 
-1. **Explore first.** Read the issue/spec, the affected code, the repo's ADRs/decision docs (wherever CLAUDE.md routes), and the Product-Essence Brief if one exists (`.claude/pipeline-state/{issue}-brief.md`). Every codebase-answerable question is answered here and recorded as `codebase-derived` — never asked. Answer it by running something where something can be run — a grep count, `ls`, `git cat-file`, a tool's `--help` — and keep the command and its decisive output: a `file:line` you read is a pointer, not verification. In the receipt the row says which it was, ``run: `<command>` → <output>`` or `cited (convention|adr): <path:line>` (`interviewing-baseline`, "Evidence").
-
-   **Fan-out (pipeline pre-flight only).** When this run is pre-flight for a lane ticket
-   (`/plan-interview <issue>`), launch the intake fan-out *at the start*, before exploring, so it
-   runs while you explore. It never reads your work, so starting early costs nothing.
-
-   0. **Tell the operator first, and let them opt out.** Before anything else in pre-flight,
-      before exploring and before launching, give one notice and one question (`AskUserQuestion`,
-      the run option first). The notice says, in plain words:
-      - the fan-out runs by default on lane tickets;
-      - what it does: a sealed writer sets four angles and a pre-mortem; five lenses work them
-        blind, alternating Opus and Fable; every claim faces a refuter from the other family and
-        is dropped unless confirmed; what survives joins this interview as evidence;
-      - why: on consumer tickets whose intake decision was later reversed, intake with the pool
-        caught decisions plain intake missed;
-      - what it costs: it runs alongside exploration for up to 30 min, and questions start when
-        it returns; it uses Fable where the account has it (subscription usage) and Opus where it
-        does not;
-      - what is recorded: the receipt's `## Fan-out` shows what it added over plain intake.
-
-      The options are **Run the fan-out (default)** and **Skip it for this ticket**; the
-      operator may add a reason. On a skip, launch nothing and record exactly one line in the
-      receipt's `## Fan-out`: `Fan-out: skipped — by the operator at the pre-flight notice: <their
-      reason, or "no reason given">`. Ask once: an answer is not reopened later in the session.
-      A session with no `Workflow` tool asks nothing: it says the fan-out cannot run here and
-      records step 1's failed form.
-
-   1. **Check for the `Workflow` tool.** If this session has none, record
-      `Fan-out: failed — Workflow tool unavailable in this session` and go on without it.
-   2. **Stage the script** the way intake-orchestrator stages `intake-review.mjs` (cross-plugin,
-      by name; `$SKILL_DIR` is this skill's base directory and `$SCRATCHPAD` the session's
-      scratchpad):
-
-      ```bash
-      SRC=$(find "$SKILL_DIR/../../../.." -path '*/review-toolkit/*' -path '*/workflows/intake-fanout.mjs' -not -path '*/fixtures/*' 2>/dev/null | sort -V | tail -1)
-      cp "$SRC" "$SCRATCHPAD/intake-fanout.mjs"
-      ```
-
-   3. **Launch it in the background** with `Workflow({ scriptPath, args })`. The args are
-      `{ issue, issueBody, readRoot, checkouts, protocol, probeDir, config }`:
-      - `protocol`: the absolute paths of this skill's `SKILL.md` and of
-        `interviewing-baseline/SKILL.md`. Every agent works under them, as in the measured run.
-      - `checkouts`: every other repo the change meets that has a local checkout (the frontend
-        that calls this backend, a client, a sibling service), each as `{ path, role }` with
-        `role` saying what it is, e.g. "The admin frontend that calls this backend". Find them
-        from the ticket and the repo's docs before launching: the measured run gave every agent
-        the consumer's checkout, and one of its two catches came from reading it. A consumer
-        with no reachable checkout goes in the receipt as `Checkouts: <repo> not available`.
-      - `config` carries only `reviewers.modelOverrides` and `reviewers.tierMap`.
-
-      The notice in step 0 is the announcement; say nothing more at launch. The script stops
-      waiting after 30 minutes on its own and returns the failed form.
-   4. **Ad-hoc and plan-mode runs** skip it silently: no notice, and their plans carry no
-      `## Fan-out`.
-
-   **Snapshot before you read the pool.** When exploring is done, write your register as it stands
-   to `.claude/pipeline-state/{issue}-snapshot.md`. That is what plain intake would have gone in
-   with. The snapshot stays out of the conversation: it is internal, never shown to the engineer
-   as a draft (P8 holds), and it reaches the record only inside the receipt's `## Fan-out`. Only
-   then read the fan-out's result, waiting for its completion notice if it is still
-   running. No question goes to the engineer before the pool is in, and none arrives between two
-   questions.
-
-   **Consume the pool like explore-first findings.** Verify what you need from each item's
-   pointer. An item becomes a register row, option, probed fact or question **only if it passes
-   the materiality bar in step 2**. Pool evidence may overturn a snapshot claim it contradicts.
-   Then write the receipt's `## Fan-out` section (schema in `interviewing-baseline`, "Fan-out"):
-   every item tagged against the snapshot with the angle that produced it, the tally, the
-   refuter family, the `Lenses:` line from the result's `lenses` (key, model, kept/made, or
-   `failed`), and the snapshot embedded verbatim, indented four spaces. If the result is `failed` or `partial`, say what failed
-   in the section; never drop it silently.
+1. **Explore first.** Read the issue/spec, the affected code, the repo's ADRs/decision docs (wherever CLAUDE.md routes), and the Product-Essence Brief if one exists (`.claude/pipeline-state/{issue}-brief.md`). Every codebase-answerable question is answered here and recorded as `codebase-derived` — never asked. Answer it by running something where something can be run — a grep count, `ls`, `git cat-file`, a tool's `--help` — and keep the command and its decisive output: a `file:line` you read is a pointer, not verification.
 
 2. **Build the decision register.** Admission = **materiality**. A decision enters the register only if it changes:
 
@@ -109,15 +38,15 @@ You elicit **design decisions from the engineer** (plan-authoring). You do NOT:
    - scope boundaries (what this PR explicitly does not do),
    - tenancy/security posture (multi-tenant scoping filters per the repo's CLAUDE.md rules, guards, credential handling),
    - migration/rollout (existing rows, backfill, ordering across workspace packages),
-   - data provenance — for each persisted field (one of an entity whose schema, model, DDL or mapping lives in this repo; third-party API payloads and in-memory JSON are out) the change newly reads but does not write, and that is feature-critical or crosses a service boundary: the persisting schema line, every writer of the entity (including sync or webhook paths that write raw payloads past the schema), and whether existing records carry the field — the backfill half is the migration/rollout item above. It lands as a `codebase-derived` row whose evidence is run, e.g. ``run: `grep -rn "fingerprint" src/entities/document.entity.ts src/sync` → schema line 41; written only by document.service.ts:88`` — or a `deferred` row (an Open Region in a receipt).
+   - data provenance — for each persisted field (one of an entity whose schema, model, DDL or mapping lives in this repo; third-party API payloads and in-memory JSON are out) the change newly reads but does not write, and that is feature-critical or crosses a service boundary: the persisting schema line, every writer of the entity (including sync or webhook paths that write raw payloads past the schema), and whether existing records carry the field — the backfill half is the migration/rollout item above. It lands as a `codebase-derived` row whose evidence is run, e.g. ``run: `grep -rn "fingerprint" src/entities/document.entity.ts src/sync` → schema line 41; written only by document.service.ts:88`` — or a `deferred` row.
 
    Everything below that bar is decided silently and does not enter the register. Material design decisions are near-always groundable, so a recommendation is expected on each question.
 
    **The ticket's candidate fixes are input, not the option set.** Build the options for the decision that picks the mechanism yourself. When the root cause lies in how a tool, library or platform mode behaves rather than in this repo's code, at least one option replaces that primitive instead of working around it. Find it on the tool's own surface (`--help`, its docs), check this repo's history with it (`git log`, earlier tickets), and state what it costs. The row's Resolution names every option weighed, the ticket's and yours, so a reviewer can see what was compared.
 
-3. **Enumerate the surfaces, then check the register against them.** The register is whatever you chose to admit, so "the register is empty" grades the interview against itself. Independently of it, list the surfaces and states this ticket implies — every screen, route, state and artifact a user or operator ends up looking at. Then walk that list: each entry is either **decided** by a register row, or **explicitly out of scope with a reason**. An entry that is neither is a missing register row — add it and interview it.
+3. **Enumerate the surfaces, then check the register against them.** The register is whatever you chose to admit, so "the register is empty" grades the interview against itself. Independently of it, list the surfaces and states this work implies — every screen, route, state and artifact a user or operator ends up looking at. Then walk that list: each entry is either **decided** by a register row, or **explicitly out of scope with a reason**. An entry that is neither is a missing register row — add it and interview it.
 
-   The list is not scratch work. Pre-flight for a pipeline ticket, it is the receipt's mandated `## Surface Inventory` section — schema in `interviewing-baseline`, enforced by `ledger-lint.sh --receipt`. In a plan-mode plan, write the same section beside the ledger; the section is receipt-only to the lint, so nothing there will fail you for omitting it, which is exactly why it is on you. Genuinely surface-free work states the explicit empty form and moves on.
+   The list is not scratch work. In a plan-mode plan, write it as a `## Surface Inventory` section beside the ledger (schema in `interviewing-baseline`). The lint checks that section only on an intake receipt, so nothing here will fail you for omitting it — which is exactly why it is on you. Genuinely surface-free work states the explicit empty form and moves on.
 
 4. **Pick the traversal.**
 
@@ -126,120 +55,18 @@ You elicit **design decisions from the engineer** (plan-authoring). You do NOT:
 
 5. **Interview** per the baseline loop rules (≤ 2 material questions per turn, recommendation first, "your call" → `user-delegated`).
 
-6. **Emit the Decision Ledger** and exit only when the register is empty *and* every surface is accounted for — each material decision carrying a non-`assumed` provenance, each surface decided or scoped out. Trivial work exits immediately with both explicit empty forms. Pre-flight for a pipeline ticket, the receipt also needs its version line and intake steps ("Receipt version and intake steps" below), its checks and, on a design-provider repo, its frames — see "Checks and design frames" below — the ticket's ACs get the post-merge scan in "Post-merge checks" below, and the ticket needs its sizing label ("Sizing label" below).
+6. **Emit the Decision Ledger** and exit only when the register is empty *and* every surface is accounted for — each material decision carrying a non-`assumed` provenance, each surface decided or scoped out. Trivial work exits immediately with both explicit empty forms.
 
 ## Where the ledger lands
 
-- **Plan-mode / ad-hoc session:** a `## Decision Ledger` section in the plan file itself, before `ExitPlanMode` is called (this plugin's `exitplan-ledger-gate.sh` hook lints for it and blocks the exit if it's missing or malformed).
-- **Pipeline pre-flight** (`/plan-interview <issue>` before an autonomous pipeline run on `<issue>`): write `.claude/pipeline-state/{issue}-ledger.md` — same location convention as the Product-Essence Brief; it survives worktree cleanup, and the pipeline's scheduler commits it as the lane branch's first commit, hands it to the BUILD session as binding decisions, and reads its checks and design frames from that commit. The interview always happens in the interactive session, never inside the autonomous run.
-
-## Receipt version and intake steps (pipeline pre-flight only)
-
-The receipt opens with `Receipt: v2` on its own line, after its `#` title and before its first
-`##` heading, and its first section is `## Intake steps`: one `Key: outcome` line per step, in
-this order, each key once (schema in `interviewing-baseline`, "Receipt versions" and "Intake
-steps"):
-
-```
-Receipt: v2
-
-## Intake steps
-
-Requirements: <how the requirements reached you — the ticket body as written, or the intake-interviewer pass>
-Split: <not split, and why; or the slices>
-Explore: <what you explored>
-Fan-out: <ran, with its item count; or the skipped/failed form from step 1>
-Dup-scan: <dup-scan.sh's result — "Duplicate scan" below>
-Post-merge scan: <the ACs moved, or none — "Post-merge checks" below>
-Sizing: <opus or sonnet — the weight you decided>
-```
-
-Write what the step did, or why it did not run; never an empty outcome or a bare dash. `Sizing:`
-records the weight you decided; the label itself is applied after the receipt lints clean
-("Sizing label" below). The scheduler lints the receipt before it claims the ticket
-(`ledger-lint.sh --receipt`) and refuses one that fails, so run the lint yourself before you
-hand off.
-
-## Checks and design frames (pipeline pre-flight only)
-
-Every `codebase-derived` row in the receipt states its evidence, ``run: `<command>` → <decisive
-output>`` or `cited (convention|adr): <path:line>` (step 1; `interviewing-baseline`, "Evidence"),
-and `ledger-lint.sh --receipt` refuses one with neither. The receipt carries a mandated
-`## Fan-out` section (step 1's fan-out; schema in `interviewing-baseline`, "Fan-out"). It also carries the two sections the scheduler reads from the record's first commit —
-schema and empty forms in `interviewing-baseline` ("Checks", "Design frames"), enforced by
-`ledger-lint.sh --receipt`. Elicit both before writing it:
-
-- **`## Checks`** — start from the repo's verification recipe (its CLAUDE.md, the config's
-  `commands.*`) and add what this ticket needs beyond it: the selftest it touches, a script its
-  acceptance criteria name. The configured lanes run anyway, so list only what they would miss,
-  one command per line. When they miss nothing, write the empty form.
-- **`## Design frames`** — on a repo with `design.provider` set. Walk the design handoff with the
-  engineer: one row per screen and state the ticket renders, with the frame id. For each row, agree
-  the `must-show` value now — a data-test id or a copy string taken from the frame. It is the
-  record's only per-row assertion, so it should be the element that proves the right state rendered
-  (the empty-state copy on an empty row, not the page title every state shares). A ticket that
-  renders nothing new disarms with `Design: none — <reason>`.
-
-## Post-merge checks (pipeline pre-flight only)
-
-A ticket written by hand never went through `intake-interviewer`, so nothing has yet asked whether
-each acceptance criterion can be checked at review time. Scan the ticket's ACs for any that can
-only be observed after the merge — the next run's transcript, a production metric, a later
-deploy. The scope gate fails such an AC on every PR, since no diff satisfies it.
-
-For each one, ask the operator whether it is a post-merge check (recommendation: yes, when nothing
-in the diff could show it). On a yes, the answer authorizes the tracker write: move the item out of
-the ACs into the ticket body's `## Post-merge checks` section yourself, as the next `PM-n` (create
-the section after the ACs if there is none), and change nothing else in the body — on github
-`gh issue view <issue> --json body`, edit, `gh issue edit <issue> --body-file <file>`; under
-`tracker.type: jira`, the description. Record a `user-answered` ledger row either way: moved, or
-kept as an AC the gate will score. No such AC → nothing to ask and no row.
-
-## Duplicate scan (pipeline pre-flight only)
-
-A pre-flight ledger is the last thing written before a ticket becomes eligible to run, so it is
-the last place a duplicate can still be caught cheaply. Before writing it:
-
-```bash
-bash "${CLAUDE_PLUGIN_ROOT}/skills/plan-interview/tools/dup-scan.sh" --issue <issue>
-```
-
-- **`0`** — nothing above the threshold. Record nothing.
-- **`10`** — ranked candidates. Judge each one yourself and record one Decision Ledger row per
-  candidate: the same work, overlapping but distinct (sequence it if they touch the same files —
-  a candidate carrying the *claimed* label is already being built), or unrelated. The scan
-  proposes; you and the engineer decide. **Never close a ticket on its output.**
-<!-- LOCKSTEP-BEGIN dup-scan-rc2 -->
-- **`2`** — the scan could not run. Hard-stop: report the rc and the reason.
-<!-- LOCKSTEP-END dup-scan-rc2 -->
-  Hand nothing off: the ledger does not go out on an unscanned ticket.
-
-Under `tracker.type: jira` it prints a not-applicable line and exits `0` — no queue label, no
-corpus. The ad-hoc / plan-mode path above scans nothing: there is no ticket to be a duplicate of.
-
-## Sizing label (pipeline pre-flight only)
-
-The exit labels the ticket `opus` or `sonnet`: your judgment on its weight, made where the weight
-was actually assessed. The scheduler reads that label to pick the build model. A ticket without
-one is left to whoever launches it, and that session has read the ticket far less carefully than
-you just did. Apply it once the receipt lints clean, through the same bot passthrough
-`intake-orchestrator` resolves (its "Bot writes" note):
-
-```bash
-$GH_BOT_SH issue edit <issue> --add-label <opus|sonnet>
-```
-
-If the ticket already carries the other label and the interview changed its weight, remove that
-label in the same call (`--remove-label`); otherwise leave an existing label alone. This is the
-sizing label only: queueing the ticket stays with whoever owns the queue. Under
-`tracker.type: jira` there is no label to write, and the launcher sizes the run instead.
+A `## Decision Ledger` section in the plan file itself, before `ExitPlanMode` is called (this plugin's `exitplan-ledger-gate.sh` hook lints for it and blocks the exit if it's missing or malformed). It is the four-column in-plan ledger. This skill never writes `.claude/pipeline-state/{issue}-ledger.md`: the pipeline's receipt is written only by `/intake-toolkit:intake`'s Receipt stage.
 
 ## Escalation
 
 Stop and present uncertainty (what you understood / what's blocking / options / a clear question) when:
 
 - the user's answers contradict each other or the codebase, and rechecking doesn't resolve it;
-- the register keeps growing past ~10 material decisions — the ticket is likely decomposition-worthy; suggest `intake-orchestrator`;
+- the register keeps growing past ~10 material decisions — the work is likely decomposition-worthy; if it is headed for the pipeline, say so and point at `/intake-toolkit:intake`, whose Split stage decides it;
 - the register is implausibly **thin** for the scope. A ticket with a page of acceptance criteria about rendered output, answered by a handful of transport and build decisions, has not been under-scoped — it has been mis-scoped, and the surfaces in step 3 are where the missing rows are. Say so and widen; a thin register is the failure this skill is most likely to exit satisfied on, because its exit criterion is met.
 
 ## What NOT to do

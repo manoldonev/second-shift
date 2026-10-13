@@ -64,7 +64,7 @@ Read the verbatim issue body and extract every distinct deliverable. When Step 3
 **AC-ID positional fallback rule (normative home: this file — your independence contract precludes reading pipeline docs at review time, so the rule lives here):**
 AC IDs exist only under an explicit AC heading: the _first_ heading whose text, case-insensitively, contains `Acceptance Criteria` or is exactly `Acceptance` (so `## Acceptance Criteria` and a bare `## Acceptance` both qualify; `## Acceptance demo` does not). If **any** explicit `AC-n` label appears under that heading, only the explicitly labeled items carry IDs — unlabeled items in that section get no ID (all-or-nothing; assigned numbering never mixes with explicit labels). If **no** explicit label appears, number only **top-level** list items under that heading, in document order, as `AC-1..n`. Sub-bullets are never separate IDs (one naming a separate deliverable stays an un-ID'd scope item). One top-level bullet = one `AC-n` regardless of sentence count. Prose outside that section is never AC-numbered. No matching heading → no AC IDs. Snapshot at first derivation; never renumber.
 <!-- This rule is SINGLE-SITED by design: this file is its normative home, and the one
-     other place that needs it (intake-orchestrator/SKILL.md) carries a by-name pointer
+     other place that needs it (intake-toolkit's skills/intake/split.md) carries a by-name pointer
      rather than a copy. It carried LOCKSTEP markers until #604, with no counterpart to be
      held to — three plan docs reasoned about a manifest row that never existed. If a
      second CARRIER of the rule ever appears, re-add markers on both. -->

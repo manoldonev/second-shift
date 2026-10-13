@@ -1,71 +1,124 @@
 ---
 name: intake
-description: Manually triggered via /intake-toolkit:intake — the front door to the elicitation surface. Give it anything (a GitHub issue number, a pasted blob, a rough idea, an existing plan, a design handoff) and it classifies the scenario and routes to the right skill. Dispatch-only; contains no elicitation protocol of its own. Do not auto-select this skill; the routed skills carry their own triggers.
+description: Manually triggered via /intake-toolkit:intake — the only way into intake. Give it a GitHub issue number or JIRA key, a pasted blob, a rough idea or a design handoff, and it runs one sequence (Requirements, Split, Explore, Interview, Receipt) that ends in the intake receipt a pipeline run launches from. Do not auto-select this skill.
 ---
 
-# Intake Router
+# Intake
 
-You are a dispatch-only front door. Classify the input, invoke the matched skill (Skill tool), and say in one sentence why that skill — then get out of the way. You perform **no elicitation, no spec review, no planning** yourself.
+`/intake-toolkit:intake <input>` is the only way into intake. Every input runs **one sequence**,
+in this order, and this skill owns the order:
 
-> **Tracker delta (config `tracker.type: jira`).** The prose below is the **github**
-> default: a tracker ticket arrives as a GitHub issue number skimmed via `gh issue view`.
-> Under `tracker.type: jira` the same input is a **JIRA key** skimmed **read-only** via
-> the Atlassian MCP's `getJiraIssue` (never `gh issue view`, no tracker writes). **Do not
-> assume the `mcp__atlassian__*` prefix** — the MCP namespace depends on how the session
-> registered it (`mcp__atlassian__*`, `mcp__plugin_atlassian_atlassian__*`, or
-> `mcp__claude_ai_Atlassian_Rovo__*`); call whichever `getJiraIssue` is exposed
-> (`ToolSearch` to discover a deferred tool). Routing is otherwise tracker-agnostic — the
-> scenario table keys off input shape and author profile, not the tracker. "Never write
-> to GitHub" below means never write to **any** tracker.
+**Requirements → Split → Explore → Interview → Receipt**
 
-## Classify
+Each stage lives in a supporting file beside this one, and only this skill reads them. None is a
+skill of its own, so none can be called on its own and skip the stages before it. `$SKILL_DIR` is
+this skill's base directory; read each stage file from it when the sequence reaches that stage,
+and follow it there:
 
-1. **Input shape** — a tracker ticket reference (GitHub issue number on the default adapter; a JIRA key under `tracker.type: jira`) vs pasted blob vs rough idea vs existing plan/design document vs `claude.ai/design/...` handoff link.
-2. **Granularity** — epic/multi-deliverable vs single item (for a ticket reference: skim the body + labels — `gh issue view <n>` on the github adapter, or the session's `getJiraIssue <KEY>` read-only under jira — namespace per the tracker-delta note above).
-3. **Author profile** — non-technical PM vs technical author (engineer / QA), when determinable from the issue reporter or the user's framing. **Safe default when indeterminate: PM posture** (conservative bias-toward-quarantine). Misclassification only changes how quarantined claims are presented — never whether they are verified.
+| Stage | File | Runs | Hands on |
+| --- | --- | --- | --- |
+| Requirements | `$SKILL_DIR/requirements.md` | every input | the ticket body, its key, and the spec-reviewer outcome |
+| Split | `$SKILL_DIR/split.md` | only when triggered (below) | the slices, or "not split" and why |
+| Explore | `$SKILL_DIR/explore.md` | every ticket, once per split | your exploration, the snapshot and the fan-out pool |
+| Interview | `$SKILL_DIR/interview.md` | per ticket, or per slice | the Decision Ledger, Open Regions and Surface Inventory |
+| Receipt | `$SKILL_DIR/receipt.md` | per ticket, or per slice | `.claude/pipeline-state/{issue}-ledger.md`, linted clean |
 
-## Pre-dispatch attribute: does a design exist?
+Load `interviewing-baseline` (Skill tool) before the first question: it owns the loop rules, the
+Decision Ledger and the receipt contract every stage writes into.
 
-**Check this before you read the scenario table, and for every input shape.** "A design
-handoff exists" is an *attribute* of the work, not a scenario — the table's rows are mutually
-exclusive, so a design-handoff row can only ever fire when the handoff IS the input. An
-engineer-logged ticket for the very surface a board already specifies routes past it and the
-interview then spends rounds proposing layouts the design contradicts.
+A stage's output passes to the next one **in memory**, in this session. Nothing between two stages
+is a file another session reads, and no stage hands control to another skill and stops.
 
-So: before dispatching, look for one — a `claude.ai/design/...` link in the ticket or the
-user's framing, a design section or handoff reference in the ticket, a spec document for a
-sibling ticket covering the same surface (grep the repo's spec/plan directory for the
-surface's name, not just the ticket's). Then:
+> **Tracker delta (config `tracker.type: jira`).** The prose in the stage files is the **github**
+> default: a ticket is a GitHub issue number read with `gh issue view`. Under
+> `tracker.type: jira` it is a **JIRA key** read with the Atlassian MCP's `getJiraIssue`, never
+> `gh issue view`. Do not assume one MCP namespace: the tool is `mcp__atlassian__getJiraIssue`,
+> `mcp__plugin_atlassian_atlassian__getJiraIssue` or `mcp__claude_ai_Atlassian_Rovo__getJiraIssue`
+> depending on how the session registered it (`ToolSearch` to discover a deferred tool). The
+> jira adapter has no labels and makes no tracker writes besides the filing the operator says yes
+> to (`requirements.md`, "Filing"); every other write the stage files name is **presented** to the
+> operator instead.
 
-- **Handoff exists and IS the input** → the design-handoff row of the table, as before.
-- **Handoff exists for a surface the input touches** → dispatch by input shape as normal, and
-  hand the destination the handoff, stating that design-derived facts enter the ledger as
-  `codebase-derived` rows; in a receipt each states its evidence as ``run: `<command>` → <output>``,
-  the command being the read of the handoff (a grep of its files, or the design tool's call). A question spent on something the board already answers is a
-  protocol violation (baseline rule 1), and the board is as answerable as the code.
-- **No handoff** → dispatch by input shape, and say you looked. An unstated absence is
-  indistinguishable from an unchecked one.
+## When Split runs
 
-## Scenario roadmap (single source of truth — INDEX and skill boundary notes point here)
+Split runs when **any** of these holds, and is skipped otherwise:
 
-| What lands on your desk                                                 | Start                                        | Then                                                                              | Posture                                                                                                                                                    |
-| ----------------------------------------------------------------------- | -------------------------------------------- | --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| GitHub epic, rough, **non-technical PM** author                         | `intake-orchestrator`                        | `decomposition-reviewer` → per-slice `plan-interview`                              | Step 0.5 quarantine, bias toward quarantine                                                                                                                |
-| GitHub epic, rough, **technical** author                                | `intake-orchestrator`                        | same                                                                              | author-posture knob: claims still quarantined + codebase-verified, surfaced as credible hypotheses ("author proposed X — confirmed/conflicts"), not noise |
-| Unstructured **bug blob** (vague STR, maybe-wrong reporter comments)    | `intake-interviewer` (bug mode)              | emit issue → `plan-interview` (often explicit-empty ledger) → implement / a pipeline run              | reproducibility exit criterion; reporter-owned facts stay `Unknown` over inference                                                                         |
-| Rough **feature idea** (may promote to a decomposable epic)             | `intake-interviewer` (feature mode)          | if it decomposes → `intake-orchestrator`; else → `plan-interview`                 | spec-reviewer-gated exit                                                                                                                                    |
-| GitHub **issue logged by an engineer** (story/bug)                      | `plan-interview` pre-flight                  | implement / a pipeline run                                                            | spec presumed implementable; ledger captures design decisions only (explicit-empty and go if none are material)                                            |
-| Plan/design already exists, wants stress-testing                        | `grill-me`                                   | resolutions recorded into the Decision Ledger                                     | user-initiated                                                                                                                                             |
-| `claude.ai/design/...` handoff **is the input** (FE work)               | `design-toolkit:design-faithful-spec`        | Open Questions → `deferred` ledger rows                                           | design-fidelity scoped                                                                                                                                     |
+- the ticket carries the `epic` label (the config's name for it, where renamed);
+- Requirements finds more than one deliverable — distinct capabilities, each of which could ship
+  on its own;
+- the Interview's register passes about **10 material decisions**. The ticket then **returns to
+  Split** from the Interview: a register that size is a decomposition the classification missed.
+  If Split then creates slices, Explore runs again for the split, and its fan-out supersedes the
+  one that ran on the unsplit ticket (`explore.md`, "After a return from the Interview").
 
-A handoff that merely *exists* for a surface some other row's input touches is not this row —
-it is the pre-dispatch attribute above, and it travels with whatever the input shape selects.
+A skipped Split is still an outcome: the receipt's `Split:` line says why it did not run.
 
-**Invariant:** every path converges on `plan-interview` before implementation — upstream skills differ only in how much WHAT / HOW-MUCH elicitation the input still needs.
+## Gates, each once
 
-## Dispatch rules
+| Gate | Stage | How often |
+| --- | --- | --- |
+| `review-toolkit:spec-reviewer` | Requirements | once per intake; no later stage dispatches it |
+| `review-toolkit:codebase-explorer` | Split | at most once per intake, and only there; Split's review of the slices as a set reads its map |
+| the intake fan-out (`intake-fanout.mjs`) | Explore | once per ticket, or once per split (a split the Interview sends back adds the split's one run, which supersedes the first) |
+| `intake-toolkit:implementability-probe` | Receipt | per ticket, or per slice |
+| `dup-scan.sh` | Receipt | per ticket, or per slice |
+| sizing | Receipt | per ticket, or per slice |
 
-- Announce the routing in one sentence, including the design-attribute result ("Engineer-logged ticket, design handoff found for this surface → `plan-interview` pre-flight, handoff attached"), then invoke the skill. When routing to `intake-orchestrator`, state the author-posture classification so it can set Step 0.5 presentation accordingly.
-- Ambiguous between two rows → ask the user one question; do not guess between destinations.
-- Never chain multiple destinations yourself — route to the FIRST skill in the row; each skill's own exit text hands off to the next.
-- Never write to GitHub or any external system.
+A stage that finds a gate's result already in hand uses it; it never dispatches the gate again.
+
+## On a split
+
+The sequence forks once, after Split:
+
+1. **Split** decides the slices and, on the operator's yes, creates them **without the queue
+   label**.
+2. **Explore** runs once, on the parent body **plus the slice list**, so the fan-out's lenses see
+   the seams between slices. One notice covers it.
+3. **Interview, then Receipt, per slice.** Each slice's interview takes the pool items that touch
+   it; its receipt lists them and names the shared run. A slice gets the queue label (where intake
+   applies it) only after its own receipt lints clean.
+
+The parent gets no receipt: it becomes the epic its slices point at.
+
+## Stops and restarts
+
+- **A stop before the receipt writes no receipt and no seed file.** No `*-ledger.md`, no draft
+  ledger, no saved body. The only file a stopped session may leave is the internal
+  `.claude/pipeline-state/{issue}-snapshot.md` (Explore) and the Product-Essence Brief
+  (`{issue}-brief.md`, Split); the scheduler reads neither.
+- **The next session restarts from the ticket**, with `/intake-toolkit:intake <issue>`. The
+  ticket, its comments and its sub-issues are the state; nothing local is.
+- **A restart that finds slices** (`Part of #<issue>` sub-issues) finishes the receipts of the
+  slices that have none and leaves the others alone — `split.md`, "Restart over existing slices".
+
+## Provenance of an escalation answer
+
+A stage that escalates asks its question in the session first. The answer's provenance follows
+the channel it came through:
+
+- answered **in the session** → `user-answered`;
+- answered **in a ticket comment** (the operator chose to answer later, so the question was posted
+  and the session stopped) → `ticket-sourced`, the Resolution citing the comment's URL.
+
+## Design handoffs, in or beside the input
+
+Before Requirements, look for a design handoff: a `claude.ai/design/...` link in the ticket or the
+operator's framing, a design section in the ticket, or a spec document for a sibling ticket on the
+same surface (grep the repo's spec and plan directories for the surface's name). Say what you found,
+including "none": an unstated absence reads like an unchecked one.
+
+- **The handoff is the input** → Requirements runs design-toolkit's `design-faithful-spec`
+  (`requirements.md`).
+- **A handoff exists for a surface the input touches** → it travels with the input through every
+  stage. Facts read from it enter the ledger as `codebase-derived` rows whose evidence is
+  ``run: `<command>` → <output>``, the command being the read of the handoff. A question the board
+  already answers is a protocol violation (`interviewing-baseline` rule 1).
+
+## Outside the sequence
+
+- **`plan-interview`** is for plan mode and a direct feature or fix ask with no pipeline ticket:
+  an in-plan ledger, no receipt. A ticket headed for the pipeline comes here instead.
+- **`grill-me`** stress-tests a plan or design that already exists, on the user's request.
+
+Every path to a pipeline run converges on this one sequence: the receipt the scheduler launches
+from is written only by its Receipt stage.

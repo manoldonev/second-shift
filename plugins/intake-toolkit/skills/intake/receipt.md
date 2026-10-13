@@ -1,0 +1,163 @@
+# Receipt — the last stage of `/intake`
+
+Read by `/intake-toolkit:intake` only. The Receipt is intake's **one** writer of
+`.claude/pipeline-state/<issue>-ledger.md`, the record a pipeline run launches from: it survives
+worktree cleanup, the scheduler lints it before it claims the ticket, commits it as the lane
+branch's first commit, hands it to the BUILD session as binding decisions, and reads its checks and
+design frames from that commit. It runs per ticket — on a split, per slice, the file named for the
+slice.
+
+`${CLAUDE_PLUGIN_ROOT}` is intake-toolkit here; the lint and the scan ship beside `plan-interview`
+in this same plugin.
+
+## The exit gates, in order
+
+Run these before writing, in this order. Each runs once per ticket or slice.
+
+### 1. Post-merge scan
+
+A written ticket never went through the Requirements interview's AC question. Scan its ACs for any
+that can only be observed after the merge — the next run's transcript, a production metric, a later
+deploy. The scope gate fails such an AC on every PR, since no diff satisfies it.
+
+For each one, ask the operator whether it is a post-merge check (recommendation: yes, when nothing
+in the diff could show it). On a yes, the answer authorizes the tracker write: move the item out of
+the ACs into the body's `## Post-merge checks` section yourself, as the next `PM-n` (create the
+section after the ACs if there is none), and change nothing else — on github
+`gh issue view <issue> --json body`, edit, `gh issue edit <issue> --body-file <file>`; under jira,
+the description. Record a `user-answered` row either way: moved, or kept as an AC the gate will
+score. No such AC → nothing to ask and no row.
+
+### 2. Duplicate scan
+
+The receipt is the last thing written before a ticket can be queued, so it is the last place a
+duplicate is caught cheaply:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/skills/plan-interview/tools/dup-scan.sh" --issue <issue>
+```
+
+- **`0`** — nothing at or above the threshold. Record nothing; a clean scan is not a decision.
+- **`10`** — ranked candidates. Judge each yourself and record one ledger row per candidate: the
+  same work (fold this ticket into it, and say so), overlapping but distinct (sequence it if they
+  touch the same files — a candidate carrying the *claimed* label is already being built), or
+  unrelated. A sibling slice of the same split, queued after its own receipt, is related by
+  construction, not a duplicate. **Never close a ticket on this output.**
+- **`2`** — the scan could not run. Hard-stop: report the rc and the reason. Write no receipt and
+  queue nothing; the operator fixes it and re-runs `/intake-toolkit:intake <issue>`. There is no
+  proceed-with-a-flag variant: a flag in a local receipt is read by no claimant, while a queue label
+  would still advertise the ticket as eligible.
+
+Under `tracker.type: jira` it prints a not-applicable line and exits `0` — no queue label, no
+corpus.
+
+### 3. Implementability probe
+
+Dispatch `intake-toolkit:implementability-probe` via `Task`, handing it the **ticket body alone** —
+no interview, no ledger, no findings from this session. It only works blind: what the elicitation
+left in your context is exactly what the cold implementer will not have. For each guess-point it
+returns:
+
+- the answer is the operator's → a question, and a new ledger row;
+- the answer is knowable from code → resolve it and record a `fact` row;
+- the answer is genuinely undecided → a declared `OR-n` with a disposition.
+
+Two probe rounds at most; after that, the remaining guess-points become declared open regions. Skip
+it only on a bug or chore, or on genuinely small scope, and **say so and why** in the receipt's
+outcome; a silent skip is the failure this rung exists to catch. No `Task` tool → say it was skipped
+and why; never inline it.
+
+## Write the receipt
+
+The shape and every empty form are `interviewing-baseline`'s ("The intake receipt"); write the
+highest version the lint knows (`ledger-lint.sh --receipt-version`).
+
+```
+# Intake receipt — #<issue> <title>
+
+Receipt: v2
+
+## Intake steps
+
+Requirements: <the route and what it did — requirements.md, "Outcome for the receipt">
+Split: <not split and why, not triggered and why, or the slices — split.md>
+Explore: <what you explored — explore.md>
+Fan-out: <ran, with its item count; or the skipped/failed form — explore.md>
+Dup-scan: <the scan's result>
+Post-merge scan: <the ACs moved, or none>
+Sizing: <opus or sonnet — the weight you decided>
+
+## Decision Ledger
+## Open Regions
+## Surface Inventory
+## Checks
+## Design frames        (on a repo whose config sets design.provider)
+## Fan-out
+```
+
+Each `Intake steps` key once, in that order, at the start of its line; its outcome is what the step
+did or why it did not run, never empty or a bare dash.
+
+- **Decision Ledger** — five columns (`Kind` included). Every `codebase-derived` row states its
+  evidence after the value: ``run: `<command>` → <decisive output>`` (run one wherever one can be
+  run) or `cited (convention|adr): <path:line>`; a `|` inside either is escaped as `\|`. A row
+  recording your own choice is not `codebase-derived` — ask it.
+- **Open Regions** — every `open` row cites a declared `OR-n` with its disposition token.
+- **Surface Inventory** — every surface `decided (D-n)` or `out-of-scope — <reason>`.
+- **Checks** — start from the repo's verification recipe (its CLAUDE.md, the config's `commands.*`)
+  and list only what the configured lanes would miss — the selftest the ticket touches, a script its
+  ACs name — one command per line; or the empty form.
+- **Design frames** — on a `design.provider` repo, walk the handoff with the operator: one row per
+  screen and state the ticket renders, with the frame id, and agree each row's `must-show` now (the
+  element that proves the right state rendered — the empty-state copy on an empty row, not the page
+  title every state shares). A ticket that renders nothing disarms with `Design: none — <reason>`.
+- **Fan-out** — the tagged pool, tally, refuter, `Lenses:` line and the snapshot indented four
+  spaces (`interviewing-baseline`, "Fan-out"), or exactly one skipped or failed line. The skip form
+  is the operator's: `Fan-out: skipped — by the operator …`. **On a slice:** list only the items
+  Explore sorted to this slice, add a `Run:` line naming the shared run
+  (`Run: shared with the #<parent> split — slices #a, #b, #c`), and embed the shared snapshot. When
+  the ticket came back to Split from the Interview, the `Run:` line also names the pre-split run
+  this one superseded (`; supersedes the pre-split run on #<parent>`).
+
+## Lint it
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/skills/plan-interview/tools/ledger-lint.sh" \
+  --receipt .claude/pipeline-state/<issue>-ledger.md
+```
+
+The scheduler runs the same lint before it claims and refuses a receipt that fails, so a red lint
+here is a run that will not launch. It has distinct causes:
+
+- **Provenance** — an `intent` row backed by `codebase-derived`, `ticket-sourced` or `deferred`
+  records a decision you made as one the operator made. Ask it, or reclassify it honestly; never edit
+  the Kind cell to clear the lint.
+- **Evidence** — a `codebase-derived` row with no `run:` or `cited (…):` form. Run the command that
+  settles it; cite only what no command reaches. A `cited` reason outside `convention` / `adr`
+  usually means the row records a choice — ask it.
+- **Surface inventory** — a surface with no `D-n` to cite or no reason it is out of scope. The empty
+  form is for work that renders nothing, not a way to clear the section.
+- **Checks or frames** — a check line the scheduler cannot read as one command; a missing design
+  section, or an empty `must-show`, on a provider repo.
+- **Fan-out** — a skip that does not name the operator; a missing part of the disposed form.
+- **Intake steps** — a missing, repeated, misordered or empty step.
+
+Fix and re-lint until it is clean.
+
+## After it lints clean
+
+Only now, the tracker writes the exit owns (github; under jira there are no labels — the launcher
+sizes and queues):
+
+- **Sizing.** Label the ticket or slice `opus` or `sonnet`, your judgment of its weight, through the
+  bot passthrough `split.md` resolves (`$GH_BOT_SH`, "Bot writes"):
+  `$GH_BOT_SH issue edit <issue> --add-label <opus|sonnet>`. If it already carries the other label
+  and the interview changed its weight, remove that one in the same call; otherwise leave an
+  existing label alone.
+- **A slice's queue label.** A parallel slice, and the first slice of a sequential split, gets the
+  queue label now — never before its receipt lints clean, and never on a blocked successor (its
+  operator queues it when its predecessor closes). Where the repo reserves queueing to the operator
+  (its CLAUDE.md says so), leave every slice unqueued and say so. A ticket that was **not** split is
+  never queued by intake: queueing it is the operator's.
+
+Then hand off: name the receipt's path, its lint result, and the command that launches the run.

@@ -1,6 +1,6 @@
 ---
 name: intake-lens-writer
-description: Writes the five lens jobs for the intake fan-out (intake-fanout.mjs) from the ticket, the protocol and the code alone — four angles and one pre-mortem — before any lens runs. Dispatched by plan-interview pre-flight through the fan-out workflow, never on its own.
+description: Writes the five lens jobs for the intake fan-out (intake-fanout.mjs) from the ticket, the protocol and the code alone — four angles and one pre-mortem — before any lens runs. Dispatched by the Explore stage of /intake-toolkit:intake through the fan-out workflow, never on its own.
 tools: Read, Grep, Glob, Bash
 model: opus
 effort: high
@@ -10,7 +10,7 @@ permissionMode: bypassPermissions
 
 <!-- baseline-non-adoption: intake-lens-writer writes prompts for other agents; it reviews nothing and emits no confidence-scored findings, so it does not adopt `skills: reviewer-baseline`. -->
 
-You write the jobs for a blind fan-out that runs before a plan-interview on one ticket. Five
+You write the jobs for a blind fan-out that runs before the intake interview on one ticket. Five
 lenses will each take one job, work it independently, and return evidence. Your output decides
 what they look at, so it decides what the interview can learn.
 

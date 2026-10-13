@@ -190,7 +190,7 @@ receipt_with() { # receipt_with <ledger-rows-file> <open-rows-block> [surface-bl
 OPEN_EMPTY='No open regions — every decision in scope is ratified.'
 SURFACE_EMPTY='No user-visible surface — this change renders nothing a user reads.'
 CHECKS_EMPTY='No ticket-specific checks — the configured lanes cover this change.'
-FANOUT_SKIPPED='Fan-out: skipped — by the selftest; this receipt exercises another section.'
+FANOUT_SKIPPED='Fan-out: skipped — by the operator; this receipt exercises another section.'
 
 # (ll-o) the fixture receipt — every Kind value, every legal pairing → 0
 rc=$(lint_rc --receipt "$FIX/valid-receipt.md")
@@ -772,6 +772,31 @@ fo_lint 'Fan-out: skipped'
   && pass "(ll-fo3) 'failed — <what>' → 0; a bare 'skipped' → 1, named" \
   || fail "(ll-fo3) explicit forms — reasoned rc=$rc_ok bare rc=$rc err=$err"
 
+# (ll-fo3b) #1023 AC-12: only the operator skips the fan-out. The operator's form, in any case and
+# at a word end, → 0; the skip lines stages and fixtures used to write → 1, under their own
+# violation, never the bare-skip one.
+for ok_line in \
+  'Fan-out: skipped — by the operator at the intake notice: no reason given' \
+  'Fan-out: skipped — by the operator; a design-only ticket' \
+  "Fan-out: skipped — By The Operator's call at the notice" \
+  'Fan-out: skipped by the operator'; do
+  fo_lint "$ok_line"
+  [[ "$rc" -eq 0 ]] \
+    && pass "(ll-fo3b) operator skip → 0: $ok_line" \
+    || fail "(ll-fo3b) operator skip — rc=$rc err=$err line=$ok_line"
+done
+for bad_line in \
+  'Fan-out: skipped — by intake-orchestrator; the fan-out runs only in /plan-interview pre-flight' \
+  'Fan-out: skipped — by intake-interviewer; the fan-out runs only in /plan-interview pre-flight' \
+  'Fan-out: skipped — by the selftest fixture, which runs no intake' \
+  'Fan-out: skipped — by the operations team' \
+  'Fan-out: skipped — budget, not by the operator'; do
+  fo_lint "$bad_line"
+  [[ "$rc" -eq 1 ]] && grep -q "Fan-out skip does not name the operator" <<< "$err" && ! grep -q "without saying who or what" <<< "$err" \
+    && pass "(ll-fo3b) non-operator skip → 1, under its own violation: $bad_line" \
+    || fail "(ll-fo3b) non-operator skip — rc=$rc err=$err line=$bad_line"
+done
+
 # (ll-fo4) the disposed form with every part → 0 (the discriminator for fo5–fo9)
 fo_lint "$FO_OK"
 [[ "$rc" -eq 0 ]] && grep -q "1 fan-out item(s)" <<< "$out" \
@@ -972,6 +997,19 @@ sed 's/^Dup-scan:/Duplicate scan:/' "$V2" > "$TMP/rv-spelling.md"
 rv_case "'Duplicate scan:' for 'Dup-scan:'" "$TMP/rv-spelling.md" 1 "Intake steps has no 'Dup-scan:' line"
 awk '/^## / {on = /^## Intake steps/} {printf (on ? "%s\r\n" : "%s\n"), $0}' "$V2" > "$TMP/rv-crlf.md"
 rv_case 'Intake steps with CRLF line ends, heading included' "$TMP/rv-crlf.md" 0
+
+# (ll-rv6) #1023 AC-12: the step line's skip names the operator, as the section's does — the same
+# named violation; the operator's form, any case, and the failure form pass
+for form in 'Fan-out: skipped — by the session' 'Fan-out: skipped — by the orchestrator: small scope' \
+            'Fan-out: skipped by operatorless default'; do
+  sed "s/^Fan-out: ran .*\$/$form/" "$V2" > "$TMP/rv-fo-step.md"
+  rv_case "the step line '$form'" "$TMP/rv-fo-step.md" 1 'Fan-out skip does not name the operator'
+done
+for form in 'Fan-out: skipped — by the operator at the intake notice' "Fan-out: Skipped — By The Operator's call" \
+            'Fan-out: failed — Workflow tool unavailable in this session'; do
+  sed "s/^Fan-out: ran .*\$/$form/" "$V2" > "$TMP/rv-fo-step.md"
+  rv_case "the step line '$form'" "$TMP/rv-fo-step.md" 0
+done
 
 # (ll-rv6) AC-10 / D-4: the version line is once, before the first '##' heading, in its form
 awk '{print} /^Receipt:/ {print $0}' "$V2" > "$TMP/rv-two-lines.md"

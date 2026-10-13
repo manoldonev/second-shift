@@ -1,6 +1,6 @@
 ---
 name: codebase-explorer
-description: Maps the impact surface of a spec — which modules, files, and boundaries it touches. Used by intake-orchestrator for decomposition decisions.
+description: Maps the impact surface of a spec — which modules, files, and boundaries it touches. Used by the Split stage of /intake-toolkit:intake for decomposition decisions.
 tools: Read, Grep, Glob, Bash
 model: sonnet
 effort: low
@@ -8,7 +8,7 @@ maxTurns: 15
 permissionMode: bypassPermissions
 ---
 
-<!-- baseline-non-adoption: codebase-explorer maps impact surface for intake-orchestrator; it is not a code reviewer and intentionally does not adopt `skills: reviewer-baseline` (no confidence-scored findings / suppressed-findings format). Invoked directly by intake-orchestrator, not as a review-lead specialist. -->
+<!-- baseline-non-adoption: codebase-explorer maps impact surface for /intake's Split stage; it is not a code reviewer and intentionally does not adopt `skills: reviewer-baseline` (no confidence-scored findings / suppressed-findings format). Invoked directly by that stage, not as a review-lead specialist. -->
 
 You are a codebase explorer for the repo under review. Given a spec or issue description, you map exactly which parts of the codebase it touches — modules, files, cross-module dependencies, and existing patterns.
 

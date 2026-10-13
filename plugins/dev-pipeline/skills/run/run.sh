@@ -239,7 +239,7 @@ fi
 BRANCH="${PREFIX}$(printf '%s' "$ISSUE" | tr '[:upper:]' '[:lower:]')"
 WT_ROOT="${RUN_WORKTREE_ROOT:-$(dirname "$MAIN_ROOT")/${REPO_SLUG}-worktrees}"; WT="$WT_ROOT/$ISSUE"
 RECORD_REL="$PLANS_DIR/$REPO_SLUG-$ISSUE-decisions.md"
-RECORD="$MAIN_ROOT/$STATE_DIR/$ISSUE-ledger.md"   # the receipt's one conventional path (plan-interview writes it there)
+RECORD="$MAIN_ROOT/$STATE_DIR/$ISSUE-ledger.md"   # the receipt's one conventional path (/intake-toolkit:intake's Receipt stage writes it there)
 # C28 A23 D-6: caps — env, else config run.*, else the defaults; each must be a positive number, and a count or a
 # bound a positive integer: bash arithmetic and `[ -lt ]` fail on a fraction, and a failed expansion abandons the round loop
 cap() { # cap <var> <env value> <config key> <default> [int] — sets <var> in this shell (a refusal must not sit inside a substitution)
@@ -983,7 +983,7 @@ committed_record_exists() { # the branch on origin already carries the record: t
   esac
 }
 if committed_record_exists; then RECORD_SOURCE=committed; say "record: already committed on $BRANCH — the receipt on disk is not consulted"
-else RECORD_SOURCE=receipt; [ -f "$RECORD" ] || terminal env-no-record "no intake record at $RECORD — run /intake-toolkit:plan-interview $ISSUE first"; fi
+else RECORD_SOURCE=receipt; [ -f "$RECORD" ] || terminal env-no-record "no intake record at $RECORD — run /intake-toolkit:intake $ISSUE first"; fi
 bad_lane="$(lanes_malformed)"; [ -z "$bad_lane" ] || terminal env-config-lanes "commands.$(commands_key): $bad_lane"
 # on the receipt, so a fresh run refuses before it claims; the committed record is re-checked in phase 5 and is what counts
 if [ "$RECORD_SOURCE" = receipt ] && ! design_declared; then
@@ -1004,7 +1004,7 @@ if [ "$RECORD_SOURCE" = receipt ]; then
   case "$lint_rc" in
     0) say "receipt: v$receipt_v, lints clean ($INTAKE_LINT)" ;;
     1) while IFS= read -r l; do say "receipt: $l"; done <<<"$lint_err"
-       terminal env-receipt-invalid "the receipt at $RECORD fails ledger-lint.sh --receipt (the violations above) — rerun /intake-toolkit:plan-interview $ISSUE" ;;
+       terminal env-receipt-invalid "the receipt at $RECORD fails ledger-lint.sh --receipt (the violations above) — rerun /intake-toolkit:intake $ISSUE" ;;
     *) terminal env-receipt-lint-unavailable "$INTAKE_LINT --receipt exited $lint_rc, which is no verdict on the receipt: $(printf '%s' "$lint_err" | tr '\n' ' ' | cut -c1-300)" ;;
   esac
 fi

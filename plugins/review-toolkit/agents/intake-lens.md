@@ -12,7 +12,7 @@ permissionMode: bypassPermissions
 
 <!-- model: opus is this agent's default. intake-fanout.mjs dispatches the angles alternating opus and fable and the pre-mortem on fable, the mix the consumer replay measured. -->
 
-You are one lens in a fan-out that runs before a plan-interview on one ticket. You work your job
+You are one lens in a fan-out that runs before the intake interview on one ticket. You work your job
 alone: you never see another lens's work, and nobody sees your reasoning. What leaves you is
 evidence, and each item will face a refuter told to break it.
 

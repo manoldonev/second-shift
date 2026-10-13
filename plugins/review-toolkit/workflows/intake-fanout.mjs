@@ -1,7 +1,7 @@
 export const meta = {
   name: 'review-toolkit-intake-fanout',
   description:
-    'Intake fan-out for plan-interview pre-flight: a sealed lens writer, four angles and a pre-mortem working blind across two model families, and a refuter per claim from the family that did not make it. Returns the evidence pool that survived refutation.',
+    'Intake fan-out for the Explore stage of /intake-toolkit:intake: a sealed lens writer, four angles and a pre-mortem working blind across two model families, and a refuter per claim from the family that did not make it. Returns the evidence pool that survived refutation.',
   phases: [
     { title: 'Lenses', detail: 'intake-lens-writer writes the five jobs' },
     { title: 'Widen', detail: 'four angles and a pre-mortem, blind, families alternating' },
@@ -45,14 +45,15 @@ const BUILD_RULES = [
   'Keep by evidence, not consensus. A claim stays because it was measured or reproduced. One reproduced finding outweighs any number of agreeing agents, and two agents that disagree are settled by running the thing.',
 ].map((r, i) => `${i + 1}. ${r}`).join('\n')
 
-// args (assembled in-session by plan-interview pre-flight):
+// args (assembled in-session by /intake's Explore stage):
 //   issue      — the ticket id (drives the prompts)
-//   issueBody  — the full ticket text (lenses never re-fetch it)
+//   issueBody  — the full ticket text (lenses never re-fetch it); on a split, the parent's body
+//                plus its slice list, so the lenses see the seams
 //   readRoot   — optional ABSOLUTE path of the checkout the ticket targets
 //   checkouts  — optional [{ path, role }]: ABSOLUTE paths of other repos the change meets (a
 //                frontend that calls this backend, a client, a sibling service), with what each is
 //   protocol   — optional ABSOLUTE paths of the protocol text every agent works under (the
-//                plan-interview and interviewing-baseline skill files)
+//                intake skill's files and interviewing-baseline's)
 //   probeDir   — optional ABSOLUTE path probes may write to (default: no file writes)
 //   config     — the consumer config (reviewers.modelOverrides / reviewers.tierMap)
 //   ceilingMs  — whole-run wall-clock ceiling (default 30 min, #916 D-9)
@@ -185,7 +186,7 @@ const refuteOne = async (c, lensKey, madeBy, i) => {
 const run = async () => {
   phase('Lenses')
   const writerPrompt =
-    `You write the lens prompts for a blind fan-out that runs BEFORE a plan-interview on one ticket. ` +
+    `You write the lens prompts for a blind fan-out that runs BEFORE the intake interview on one ticket. ` +
     `Read the ticket, the protocol and the build rules below; you may skim the checkouts to make the jobs concrete.\n` +
     `Write FOUR angles (each a genuinely different framing a single careful engineer would not naturally cover in one pass) ` +
     `and ONE pre-mortem ("this shipped and failed two weeks later — why?", written generically; do not steer it toward ` +
@@ -203,7 +204,7 @@ const run = async () => {
     lenses,
     async (l) => {
       const prompt =
-        `You are one lens in a fan-out that runs BEFORE a plan-interview on this ticket. Your job: ${l.job}\n` +
+        `You are one lens in a fan-out that runs BEFORE the intake interview on this ticket. Your job: ${l.job}\n` +
         `Return claims, each with evidence. A reasoning-only claim is dropped unless a refuter can ground it. Max 6 claims.\n\n${ground}\n\n${ticketBlock}`
       const r = await dispatch(prompt, validLens, { agentType: LENS, model: l.model, label: `lens:${l.key}`, phase: 'Widen' }, lensOverride ? l.model : other(l.model))
       return { l, r }

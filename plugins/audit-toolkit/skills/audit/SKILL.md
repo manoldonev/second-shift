@@ -89,7 +89,7 @@ Walk the ledger:
   (or: "(none)")
 
 ### Skills loaded
-  review-toolkit:review-lead×<n>  intake-toolkit:intake-orchestrator×<n>  ...
+  review-toolkit:review-lead×<n>  intake-toolkit:intake×<n>  ...
   (or: "(none)")
 
 ### Files touched (Edit/Write)
