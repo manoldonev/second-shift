@@ -9,5 +9,6 @@ blocker-mutants.md
 security-rules.md
 review-context.md
 review-context/*.md
+intake-context.md
 doc-routing.md
 design-tokens/*.md

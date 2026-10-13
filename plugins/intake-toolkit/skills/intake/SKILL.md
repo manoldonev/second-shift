@@ -17,7 +17,7 @@ and follow it there:
 
 | Stage | File | Runs | Hands on |
 | --- | --- | --- | --- |
-| Requirements | `$SKILL_DIR/requirements.md` | every input | the ticket body, its key, and the spec-reviewer outcome |
+| Requirements | `$SKILL_DIR/requirements.md` | every input | the ticket body, its key, the spec-reviewer outcome and the knowledge source's outcome |
 | Split | `$SKILL_DIR/split.md` | only when triggered (below) | the slices, or "not split" and why |
 | Explore | `$SKILL_DIR/explore.md` | every ticket, once per split | your exploration, the snapshot and the fan-out pool |
 | Interview | `$SKILL_DIR/interview.md` | per ticket, or per slice | the Decision Ledger, Open Regions and Surface Inventory |
@@ -58,6 +58,7 @@ A skipped Split is still an outcome: the receipt's `Split:` line says why it did
 | Gate | Stage | How often |
 | --- | --- | --- |
 | `review-toolkit:spec-reviewer` | Requirements | once per intake; no later stage dispatches it |
+| the consumer's knowledge provider (`.claude/second-shift/intake-context.md`, `## Knowledge source`) | Requirements, its last act | once per intake, before Split, `codebase-explorer`, the fan-out and any Interview question; on a split, once on the parent, and every slice receipt carries the whole answer |
 | `review-toolkit:codebase-explorer` | Split | at most once per intake, and only there; Split's review of the slices as a set reads its map |
 | the intake fan-out (`intake-fanout.mjs`) | Explore | once per ticket, or once per split (a split the Interview sends back adds the split's one run, which supersedes the first) |
 | `intake-toolkit:implementability-probe` | Receipt | per ticket, or per slice |
@@ -75,8 +76,9 @@ The sequence forks once, after Split:
 2. **Explore** runs once, on the parent body **plus the slice list**, so the fan-out's lenses see
    the seams between slices. One notice covers it.
 3. **Interview, then Receipt, per slice.** Each slice's interview takes the pool items that touch
-   it; its receipt lists them and names the shared run. A slice gets the queue label (where intake
-   applies it) only after its own receipt lints clean.
+   it; its receipt lists them and names the shared run, and carries the knowledge source's whole
+   answer, from the one dispatch Requirements made on the parent. A slice gets the queue label
+   (where intake applies it) only after its own receipt lints clean.
 
 The parent gets no receipt: it becomes the epic its slices point at.
 
@@ -87,7 +89,8 @@ The parent gets no receipt: it becomes the epic its slices point at.
   `.claude/pipeline-state/{issue}-snapshot.md` (Explore) and the Product-Essence Brief
   (`{issue}-brief.md`, Split); the scheduler reads neither.
 - **The next session restarts from the ticket**, with `/intake-toolkit:intake <issue>`. The
-  ticket, its comments and its sub-issues are the state; nothing local is.
+  ticket, its comments and its sub-issues are the state; nothing local is. No file carries the
+  knowledge source's answer across a stop, so a restart dispatches the provider again.
 - **A restart that finds slices** (`Part of #<issue>` sub-issues) finishes the receipts of the
   slices that have none and leaves the others alone — `split.md`, "Restart over existing slices".
 

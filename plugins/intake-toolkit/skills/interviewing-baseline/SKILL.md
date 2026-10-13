@@ -7,7 +7,7 @@ description: Shared interviewing protocol for every interviewing surface (the /i
 
 This skill defines the shared protocol that ALL interviewing/elicitation skills follow, the same way `review-toolkit:reviewer-baseline` unifies the reviewer agents. It exists so loop rules and the Decision Ledger contract live in exactly one place.
 
-**Canonical source notice:** this file is the single source of truth for the Decision Ledger schema, the provenance enum, and the intake-receipt contract below it (Kind axis, open regions, surface inventory, checks, design frames, fan-out, receipt versions, intake steps, departures). Every other site that restates them (`plan-interview/tools/ledger-lint.sh`, this plugin's `hooks/exitplan-ledger-gate.sh` via that lint, `review-toolkit:plan-reviewer`) carries a mirror marker and must be updated in lockstep when this section changes.
+**Canonical source notice:** this file is the single source of truth for the Decision Ledger schema, the provenance enum, and the intake-receipt contract below it (Kind axis, open regions, surface inventory, checks, design frames, fan-out, knowledge source, receipt versions, intake steps, departures). Every other site that restates them (`plan-interview/tools/ledger-lint.sh`, this plugin's `hooks/exitplan-ledger-gate.sh` via that lint, `review-toolkit:plan-reviewer`) carries a mirror marker and must be updated in lockstep when this section changes.
 
 ## Interview Loop Rules
 
@@ -46,7 +46,7 @@ The machine-checkable residue every elicitation leaves behind. It is a mandated 
 
 - `user-answered` — the engineer made the call in the interview.
 - `user-delegated` — the engineer said "your call"; the grounded recommendation is recorded as the resolution.
-- `codebase-derived` — grounded in code, an ADR, the repo's CLAUDE.md, or the Product-Essence Brief; the Resolution cites the source. In a receipt it states its evidence in one of two forms: ``run: `<command>` → <decisive output>`` for a fact you checked, or `cited (convention|adr): <path:line>` for one no command can check (see "Evidence" under "The intake receipt"). A row that records a choice rather than a fact is not `codebase-derived`: ask it.
+- `codebase-derived` — grounded in code, an ADR, the repo's CLAUDE.md, the Product-Essence Brief, or the consumer's knowledge source; the Resolution cites the source. In a receipt it states its evidence in one of three forms: ``run: `<command>` → <decisive output>`` for a fact you checked, `cited (convention|adr): <path:line>` for one no command can check, or `cited (kb): <kb-page>` for one adopted from the knowledge source's answer (see "Evidence" under "The intake receipt"). A row that records a choice rather than a fact is not `codebase-derived`: ask it.
 - `deferred` — explicitly parked, with owner and when it must be resolved in the Resolution cell.
 - `ticket-sourced` — the operator resolved it **in a ticket comment** and the run adopted that resolution. The Resolution cell MUST cite the comment by URL (`https://…`) — an uncited row is an assumption wearing a label, and the lint rejects it. This is the one user-provenance value an autonomous run may originate, precisely because the citation is independently verifiable without a local pre-flight artifact.
 
@@ -101,31 +101,37 @@ than sensed.
 
 A `codebase-derived` row is what BUILD trusts as settled fact, so a receipt row says how it was
 settled. A `file:line` alone is a pointer, not a check: line numbers drift, and reading code is
-not running it. Write one of two forms in the Resolution cell, after the decided value:
+not running it. Write one of three forms in the Resolution cell, after the decided value:
 
 - ``run: `<command>` → <decisive output>`` — you ran it at intake. Run whatever can be run: a grep
   count, `ls`, `git cat-file`, a tool's `--help`. The output is the part that decides the row, not
   the whole dump.
 - `cited (convention|adr): <path:line>` — the fact cannot be executed: a convention the repo
   states, or a recorded architecture decision.
+- `cited (kb): <kb-page>` — a fact adopted from the knowledge source's answer (the receipt's
+  `## Knowledge source`), with the same standing as the Product-Essence Brief: a curated document.
+  `<kb-page>` is copied from the `Sources:` list in that answer. Only a fact the code does not
+  contradict is adopted this way (see "Knowledge source" below).
 
 ```
 | D-2 | DTO validation library | class-validator — run: `grep -rl "from 'class-validator'" src \| wc -l` → 41 | codebase-derived | fact |
 | D-4 | Soft-delete semantics | a deletedAt timestamp, never a hard delete — cited (adr): docs/adr/0007-soft-delete.md:12 | codebase-derived | fact |
+| D-5 | Audit rows on import | retained, never purged — cited (kb): <kb-page> | codebase-derived | fact |
 ```
 
 `run:` and `cited` take any case, the arrow is `→` or `->`, and a command holding its own
 backticks goes in a double-backtick span (``` run: ``grep -c "`" README.md`` → 3 ```). A `|` in
 the command or the output is escaped as `\|`, or it splits the row.
 
-There is no third reason. A row that records a *choice* rather than a fact — a default the code
+There is no fourth reason. A row that records a *choice* rather than a fact — a default the code
 does not fix, the name of a new thing — is not `codebase-derived`: ask it, and record the answer as
 `user-answered` or `user-delegated`. A row that mixes the two gives `run:` evidence for the fact
 behind its choice.
 
-`ledger-lint.sh --receipt` refuses a `codebase-derived` row with neither form, a `run:` with an
-empty command or output, and a `cited` with no reason or a reason outside the two. The in-plan
-ledger is not linted for it.
+`ledger-lint.sh --receipt` refuses a `codebase-derived` row with none of the forms, a `run:` with
+an empty command or output, and a `cited` with no reason, a reason outside `convention`, `adr` and
+`kb`, or no source after the colon. It checks the form only, never that the page exists. The
+in-plan ledger is not linted for it.
 
 ### Open Regions
 
@@ -319,14 +325,73 @@ reader is the operator's consumer read: a later reversal of a decision the fan-o
 one it never raised, is how its value is judged, and the angle and lens counts are how a lens that
 never contributes is found.
 
+### Knowledge source
+
+A consumer may declare a knowledge provider in `.claude/second-shift/intake-context.md`: an agent
+of its own that answers from its knowledge base, lists the pages it read under `Sources:` and
+reports what the base does not say. `/intake` dispatches it once per intake, as Requirements'
+last act (the `intake` skill owns where), and the receipt's mandated `## Knowledge source` section
+records what came back. It carries exactly one of three forms:
+
+```
+## Knowledge source
+
+Provider: <plugin>:<provider-agent>
+
+    <the provider's whole answer, every line indented four spaces>
+
+    Sources:
+    - <kb-page>
+```
+
+```
+Knowledge source: none declared
+Knowledge source: failed — <the first line of the error, or what is malformed in the declaration>
+```
+
+- **The answer is opaque and whole.** `Provider:` names who answered; under it the answer goes in
+  verbatim, indented four spaces, as the Fan-out snapshot is. Indented, its own headings, table
+  rows and `Receipt:` lines are a code block that no reader of the record takes for this
+  receipt's — unindented, a heading in it would end the section, and a `| D-n |` row in it would
+  be read as a ledger row. `Sources:` is not required: the answer is the provider's, not a shape
+  the lint imposes.
+- **`none declared`** — the repo has no `intake-context.md`, or it has no `## Knowledge source`
+  section. That is how a consumer opts out; there is no skip form.
+- **`failed`** — the dispatch errored (the agent is not installed, disabled, or it failed): the
+  section records only the **first line** of the tool's error, because an unresolved agent type's
+  error goes on to list every installed agent, and that inventory does not belong in a committed
+  record. A declared section that is malformed (no `Provider:` line, or two) is not dispatched and
+  records what is malformed. Intake continues either way, and never reads the knowledge base's
+  files itself as a workaround.
+
+**Context, not law.** The section is evidence for the interview: only `D-n` rows bind the build.
+A fact intake adopts from the answer becomes a `codebase-derived` row citing `cited (kb):
+<kb-page>` ("Evidence" above). **An answer that contradicts the code is asked, never picked
+silently**: the fact's row is `user-answered` — or `deferred` under a `pause-and-ask` region — and
+never `codebase-derived` citing `kb`. The row says which side this ticket follows (a `deferred` row
+says the question is parked) and carries a fixed marker naming the page and which side is behind:
+
+- `kb-conflict: <kb-page> (kb stale)` — the page is out of date; the code is right;
+- `kb-conflict: <kb-page> (kb ahead)` — the page states a direction the code has not reached.
+
+```
+| D-6 | Audit-row retention | 90 days, as the code does; the page is out of date — kb-conflict: <kb-page> (kb stale) | user-answered | intent |
+```
+
+`ledger-lint.sh --receipt` refuses an absent section from v3, an empty one, a line that is
+neither one of the forms nor indented four spaces, a `Knowledge source:` line outside the two
+forms, a `Provider:` that is not a namespaced `<plugin>:<agent>`, two `Provider:` lines, a
+provider with no answer, and two forms in one section. On a split, each slice receipt carries the
+whole answer the parent's dispatch got.
+
 ### Receipt versions
 
 A receipt names its version once, on a line of its own before its first `##` heading:
 
 ```
-# Intake receipt — #1022 <title>
+# Intake receipt — #1032 <title>
 
-Receipt: v2
+Receipt: v3
 
 ## Intake steps
 ```
@@ -343,6 +408,7 @@ version instead of failing every receipt written before it:
 | Checks | v1 |
 | Fan-out | v1 |
 | Intake steps | v2 |
+| Knowledge source | v3 |
 <!-- LOCKSTEP-END receipt-versions -->
 
 The lint (`ledger-lint.sh`) holds the same table and is what enforces it. It refuses two
@@ -396,7 +462,7 @@ Each interviewing surface keeps its own purpose; what unifies them is the ledger
 
 | Surface | Elicits | Ledger role |
 | --- | --- | --- |
-| `/intake` Requirements stage | requirements from a reporter; the one spec-reviewer pass | requirement-level rows, held in memory for the Interview |
+| `/intake` Requirements stage | requirements from a reporter; the one spec-reviewer pass; the knowledge source's answer | requirement-level rows, held in memory for the Interview; the answer, for the receipt's `## Knowledge source` |
 | `/intake` Split stage | escalation-point choices on a decomposition | in the session → `user-answered`; in a ticket comment → `ticket-sourced`; open → `deferred` |
 | `/intake` Interview stage | the engineer's load-bearing design decisions | primary author of the receipt's ledger |
 | `/intake` Receipt stage | post-merge checks, duplicates, probe guess-points | the only writer of the receipt |

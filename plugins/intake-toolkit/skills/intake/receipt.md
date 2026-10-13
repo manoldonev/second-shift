@@ -3,7 +3,8 @@
 Read by `/intake-toolkit:intake` only. The Receipt is intake's **one** writer of
 `.claude/pipeline-state/<issue>-ledger.md`, the record a pipeline run launches from: it survives
 worktree cleanup, the scheduler lints it before it claims the ticket, commits it as the lane
-branch's first commit, hands it to the BUILD session as binding decisions, and reads its checks and
+branch's first commit, hands it to the BUILD session — its `D-n` rows binding, its `## Fan-out` and
+`## Knowledge source` context — and reads its checks and
 design frames from that commit. It runs per ticket — on a split, per slice, the file named for the
 slice.
 
@@ -75,7 +76,7 @@ highest version the lint knows (`ledger-lint.sh --receipt-version`).
 ```
 # Intake receipt — #<issue> <title>
 
-Receipt: v2
+Receipt: v3
 
 ## Intake steps
 
@@ -93,6 +94,7 @@ Sizing: <opus or sonnet — the weight you decided>
 ## Checks
 ## Design frames        (on a repo whose config sets design.provider)
 ## Fan-out
+## Knowledge source
 ```
 
 Each `Intake steps` key once, in that order, at the start of its line; its outcome is what the step
@@ -100,8 +102,9 @@ did or why it did not run, never empty or a bare dash.
 
 - **Decision Ledger** — five columns (`Kind` included). Every `codebase-derived` row states its
   evidence after the value: ``run: `<command>` → <decisive output>`` (run one wherever one can be
-  run) or `cited (convention|adr): <path:line>`; a `|` inside either is escaped as `\|`. A row
-  recording your own choice is not `codebase-derived` — ask it.
+  run), `cited (convention|adr): <path:line>`, or `cited (kb): <kb-page>` for a fact adopted from
+  the knowledge source's answer; a `|` inside any of them is escaped as `\|`. A row recording your
+  own choice is not `codebase-derived` — ask it.
 - **Open Regions** — every `open` row cites a declared `OR-n` with its disposition token.
 - **Surface Inventory** — every surface `decided (D-n)` or `out-of-scope — <reason>`.
 - **Checks** — start from the repo's verification recipe (its CLAUDE.md, the config's `commands.*`)
@@ -118,6 +121,11 @@ did or why it did not run, never empty or a bare dash.
   (`Run: shared with the #<parent> split — slices #a, #b, #c`), and embed the shared snapshot. When
   the ticket came back to Split from the Interview, the `Run:` line also names the pre-split run
   this one superseded (`; supersedes the pre-split run on #<parent>`).
+- **Knowledge source** — Requirements' outcome (`requirements.md`, "The knowledge source"), in
+  exactly one form: `Provider: <plugin>:<agent>` and under it the provider's whole answer, verbatim,
+  every line indented four spaces; `Knowledge source: none declared`; or `Knowledge source: failed
+  — <the first line of the error, or what is malformed>`. **On a slice:** the whole answer the
+  parent's dispatch got, the same in every slice receipt.
 
 ## Lint it
 
@@ -133,14 +141,16 @@ here is a run that will not launch. It has distinct causes:
   records a decision you made as one the operator made. Ask it, or reclassify it honestly; never edit
   the Kind cell to clear the lint.
 - **Evidence** — a `codebase-derived` row with no `run:` or `cited (…):` form. Run the command that
-  settles it; cite only what no command reaches. A `cited` reason outside `convention` / `adr`
-  usually means the row records a choice — ask it.
+  settles it; cite only what no command reaches. A `cited` reason outside `convention` / `adr` /
+  `kb` usually means the row records a choice — ask it.
 - **Surface inventory** — a surface with no `D-n` to cite or no reason it is out of scope. The empty
   form is for work that renders nothing, not a way to clear the section.
 - **Checks or frames** — a check line the scheduler cannot read as one command; a missing design
   section, or an empty `must-show`, on a provider repo.
 - **Fan-out** — a skip that does not name the operator; a missing part of the disposed form.
 - **Intake steps** — a missing, repeated, misordered or empty step.
+- **Knowledge source** — a missing or empty section, an answer line not indented four spaces, a
+  provider with no answer, or a `Knowledge source:` line outside its two forms.
 
 Fix and re-lint until it is clean.
 

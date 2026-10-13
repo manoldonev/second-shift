@@ -49,6 +49,9 @@ const BUILD_RULES = [
 //   issue      — the ticket id (drives the prompts)
 //   issueBody  — the full ticket text (lenses never re-fetch it); on a split, the parent's body
 //                plus its slice list, so the lenses see the seams
+//   knowledgeSource — optional: the consumer's knowledge provider's answer, as the receipt carries
+//                it (#1032). Threaded into the lens writer's prompt ONLY: the lenses and refuters
+//                stay blind to it and check their claims against the code.
 //   readRoot   — optional ABSOLUTE path of the checkout the ticket targets
 //   checkouts  — optional [{ path, role }]: ABSOLUTE paths of other repos the change meets (a
 //                frontend that calls this backend, a client, a sibling service), with what each is
@@ -58,7 +61,7 @@ const BUILD_RULES = [
 //   config     — the consumer config (reviewers.modelOverrides / reviewers.tierMap)
 //   ceilingMs  — whole-run wall-clock ceiling (default 30 min, #916 D-9)
 const a = typeof args === 'string' ? JSON.parse(args) : args || {}
-const { issue, issueBody = '', readRoot = '', checkouts = [], protocol = [], probeDir = '', config = {}, ceilingMs = 30 * 60 * 1000 } = a
+const { issue, issueBody = '', knowledgeSource = '', readRoot = '', checkouts = [], protocol = [], probeDir = '', config = {}, ceilingMs = 30 * 60 * 1000 } = a
 if (!issue) throw new Error('intake-fanout workflow: args.issue is required')
 if (!issueBody) throw new Error('intake-fanout workflow: args.issueBody is required (the lenses reason over it)')
 
@@ -104,6 +107,11 @@ const ground = [
   'If anything in your context hints at how this ticket was eventually resolved, do not use it.',
 ].filter(Boolean).join('\n')
 const ticketBlock = `Ticket #${issue}:\n\n${issueBody}\n`
+const knowledgeBlock = String(knowledgeSource || '').trim()
+  ? `The consumer's knowledge source answered a question about this ticket before the fan-out. Use it to make the jobs ` +
+    `concrete — a page it cites, a claim worth testing against the code — never as settled fact, and never quote it to a ` +
+    `lens as a conclusion: the lenses do not see it, and check against the code.\n\n${knowledgeSource}\n\n`
+  : ''
 
 // --- text contract: a sentinel + fenced json block, parsed here (#169 explorer/emitter) ---
 const parseResult = (text) => {
@@ -192,6 +200,7 @@ const run = async () => {
     `and ONE pre-mortem ("this shipped and failed two weeks later — why?", written generically; do not steer it toward ` +
     `mechanisms you suspect). Each job 2–5 sentences, imperative, starting with the angle's name in CAPS then a period. ` +
     `Tell the lens what to read or probe, never what it will find.\n\n${ground}\n\n${ticketBlock}\n` +
+    knowledgeBlock +
     `The build rules every lens works under:\n${BUILD_RULES}\n`
   const w = await dispatch(writerPrompt, validWriter, { agentType: WRITER, model: writerModel, label: 'lens-writer', phase: 'Lenses' }, other(writerModel))
   if (!w.result) return failed('the lens writer produced no usable jobs after one retry')

@@ -33,6 +33,8 @@ Sizing: opus
 | D-15 | Where the cited-reason enum lives | One code site plus prose mirrors (interviewing-baseline's codebase-derived definition and "Evidence", intake/receipt.md "Lint it"), none lockstep-checked — run: `grep -n "^CITED_REASON_ENUM" plugins/intake-toolkit/skills/plan-interview/tools/ledger-lint.sh` → 229:CITED_REASON_ENUM='convention\|adr' | codebase-derived | fact |
 | D-16 | Who can dispatch the provider | The interactive /intake session: the fan-out's lens writer, lenses and refuter carry no Agent tool — run: `grep -h '^tools:' plugins/review-toolkit/agents/intake-lens.md plugins/review-toolkit/agents/intake-lens-writer.md plugins/review-toolkit/agents/intake-refuter.md` → tools: Read, Grep, Glob, Bash (×3) | codebase-derived | fact |
 | D-17 | An existing intake-side extension loader | None: intake-context.md is the first file intake-toolkit reads under .claude/second-shift — run: `grep -rn '\.claude/second-shift/' plugins/intake-toolkit \| grep -vc selftest` → 0 | codebase-derived | fact |
+| D-18 | Dispatch sad paths D-3 does not name | A `Question:` line missing or doubled is malformed like a `Provider:` one (D-10 makes both key lines required): not dispatched, `failed — <what is malformed>`. An empty answer records `failed — the provider returned an empty answer` (D-9's provider form needs a non-empty answer); a session with no Agent tool records `failed — Agent tool unavailable in this session`. Reason: each is a failure D-3's form already covers, named so the build does not guess. | user-delegated | intent |
+| D-19 | How the catalog names a section's file and a non-reviewer reader (D-2's shape) | An optional fourth catalog column names the file (`review-context.md` when absent, or `intake-context.md`); a non-reviewer reader is declared on a `reader: <token> \| <what reads it>` line, and this slice's token is `intake`. A target's sections count toward coverage only when its file exists, so a repo with no intake-context.md is not reported degraded. Reason: keeps every existing row and the review-context lockstep unchanged; #1033 adds its token as one more `reader:` line. | user-delegated | intent |
 
 ## Open Regions
 
@@ -51,6 +53,7 @@ No open regions — every decision in scope is ratified.
 | S-7 | The operator's conflict question when the answer contradicts the code | decided (D-7) |
 | S-8 | The fan-out lens writer's prompt | decided (D-11) |
 | S-9 | Onboarding | decided (D-12) |
+| S-10 | Receipt `## Knowledge source` after a malformed `Question:` line, an empty answer or no Agent tool | decided (D-18) |
 
 ## Checks
 

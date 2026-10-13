@@ -804,6 +804,20 @@ const byRole = (calls, re) => calls.filter((c) => re.test(c.opts.agentType))
   ok('FO B2 the lens writer gets build rule 2 whole, model diversity included', w && /Diversity of angle, then of model/.test(w.prompt))
 }
 
+// --- B3: the knowledge source reaches the lens writer only (#1032 D-11) ---
+{
+  const KS = 'Provider: <plugin>:<provider-agent>\n\n    Audit rows are retained.\n\n    Sources:\n    - <kb-page>'
+  const { agent, calls } = fakeAgent()
+  const r = await go(agent, { ...ARGS, knowledgeSource: KS })
+  const w = byRole(calls, /intake-lens-writer/)
+  ok('FO B3 the lens writer is handed the knowledge source answer whole', w.length === 1 && w[0].prompt.includes(KS))
+  const leaked = calls.filter((c) => !/intake-lens-writer/.test(c.opts.agentType) && /Audit rows are retained|kb-page|knowledge source/i.test(c.prompt))
+  ok('FO B3 no lens or refuter sees it', r.status === 'complete' && calls.length > 1 && leaked.length === 0, leaked.map((c) => c.opts.label).join(','))
+  const { agent: plain, calls: plainCalls } = fakeAgent()
+  await go(plain)
+  ok('FO B3 without one, the writer prompt carries no knowledge-source block', !/knowledge source/i.test(byRole(plainCalls, /intake-lens-writer/)[0].prompt))
+}
+
 // --- C: no Fable access ---
 {
   const { agent, calls } = fakeAgent({

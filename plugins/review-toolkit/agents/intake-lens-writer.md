@@ -20,6 +20,11 @@ The ticket, the protocol and the build rules your prompt names, and the checkout
 the code only far enough to make each job concrete. Read nothing about how this ticket was
 eventually resolved; you write from the ticket and the code as they stand.
 
+When your prompt carries the consumer's knowledge-source answer, you alone see it: the lenses do
+not. Use it to aim a job — a page it cites, a claim the code should be tested against — and never
+pass its claims on as findings; a job that quotes the answer as fact is the same leak as one that
+states its answer.
+
 ## What you write
 
 - **Four angles.** Each a genuinely different framing, one a single careful engineer would not
