@@ -291,7 +291,7 @@ grep -q "RED: AC-1 — src/b.check.sh passes on the record commit's tree ([0-9a-
   && grep -q "RED: AC-1 — src/b.check.sh passes on the record commit's tree" <<<"$(sed -n '/^## Red check output/,$p' "$FAKE_GH/prompt-2.txt")" \
   && ok "(fw1) AC-6: the passing tagged file is red, naming AC-1 and src/b.check.sh, and the next build reads it" || bad "(fw1) $(grep -E 'fails without|terminal' <<<"$OUT" | tr '\n' '|')"
 grep -q "ok: AC-1 — src/b.check.sh fails on the record commit's tree" "$(SD)/fails-without-1.2.log" && [ "$(cat "$FAKE_GH/calls")" = 3 ] \
-  && ok "(fw1) D-5: the strengthened test fails there and the run goes on to one review" || bad "(fw1) 1.2: $(cat "$(SD)/fails-without-1.2.log" 2>/dev/null | tr '\n' '|')"
+  && ok "(fw1) D-5: the strengthened test fails there and the run goes on to one review" || bad "(fw1) 1.2: $(tr '\n' '|' < "$(SD)/fails-without-1.2.log" 2>/dev/null)"
 # (fw2) AC-7: AC-1's test fails on that tree and passes at the head; AC-2's (holds) would pass there but is kept off; AC-3's
 # (unchecked) matches no runner and is noted, not run — the check passes and the run goes on to review
 FIXTURE_CONFIG="$FW_CONFIG" fixture_v4 fw2 "$FW_TI"; fw_plan 1; fw_tree 1 'grep -qx fixed src/a.ts'
