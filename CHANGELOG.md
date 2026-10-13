@@ -4,6 +4,32 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v17.1.0
+
+### `dev-pipeline` 17.0.0 → 17.1.0
+
+- **feat(dev-pipeline): the harness checks a test-first plan covers every acceptance criterion (#1046)** (#1046)
+  intake receipts move to v4 with a mandated `## Test intent`
+  section, and the lane holds the build's test-first plan to its AC ids:
+  run.sh checks tools/plan-coverage.sh after the configured checks (a red
+  spends a checks-red attempt; a new terminal plan-coverage-uncheckable stops
+  on a record whose AC set cannot be read), and post-review-status.sh refuses
+  an approving second-shift/review status while the coverage is red.
+  Migration: none — v1-v3 receipts keep linting clean and run as
+  not-applicable; re-run intake to write a v4 receipt.
+
+### `intake-toolkit` 8.0.0 → 8.1.0
+
+- **feat(dev-pipeline): the harness checks a test-first plan covers every acceptance criterion (#1046)** (#1046)
+  intake receipts move to v4 with a mandated `## Test intent`
+  section, and the lane holds the build's test-first plan to its AC ids:
+  run.sh checks tools/plan-coverage.sh after the configured checks (a red
+  spends a checks-red attempt; a new terminal plan-coverage-uncheckable stops
+  on a record whose AC set cannot be read), and post-review-status.sh refuses
+  an approving second-shift/review status while the coverage is red.
+  Migration: none — v1-v3 receipts keep linting clean and run as
+  not-applicable; re-run intake to write a v4 receipt.
+
 ## v17.0.0
 
 ### `audit-toolkit` 6.0.0 → 7.0.0
