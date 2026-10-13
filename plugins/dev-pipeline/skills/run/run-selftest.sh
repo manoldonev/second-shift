@@ -599,7 +599,7 @@ RUN_GH="$T/bin/gh-body" run_case "$d"; expect approved "(u3r) a clean rebase ont
 first1="$(git -C "$d/origin.git" log --format=%H --diff-filter=A second-shift/42 -- docs/plans/main-42-decisions.md | tail -n 1)"
 git -C "$d/origin.git" merge-base --is-ancestor main second-shift/42 && [ "$(git -C "$d/origin.git" show second-shift/42:work.txt | head -n 1)" = moved ] && [ "$first1" != "$first0" ] \
   && ok "(u3r) the branch on origin is rebased onto the moved base and its record commit is new" || bad "(u3r) origin: first $first0 -> $first1, work.txt line 1 '$(git -C "$d/origin.git" show second-shift/42:work.txt | head -n 1)'"
-grep -qx "Record baseline: $first1" "$FAKE_GH/patches" && grep -qx "Record baseline: $first1" "$FAKE_GH/live-body" && grep -q "Record baseline: $first1" "$FAKE_GH/prompt-3.txt" \
+grep -qx "Record baseline: $first1" "$FAKE_GH/patches" && grep -qx "Record baseline: $first1" "$FAKE_GH/live-body" && grep -q "Commit $first1 is the record baseline" "$FAKE_GH/prompt-3.txt" \
   && ok "(u3r) the PR body's 'Record baseline:' line and the round-2 build prompt name the rebased record commit" || bad "(u3r) baseline: body $(grep 'Record baseline' "$FAKE_GH/live-body"), want $first1"
 fixture u4; printf 'build-pr\nreview-crash\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect review-unbound "(u4) a review session that died is not a verdict"
 fixture u5; cat > "$T/bin/gh-nocomment" <<EOF
