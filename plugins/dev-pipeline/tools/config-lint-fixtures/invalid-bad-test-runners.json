@@ -29,6 +29,11 @@
           "when": ["*.spec.ts"],
           "command": "yarn jest {file}",
           "timeoutSeconds": "60"
+        },
+        {
+          "when": ["*.spec.ts"],
+          "command": "yarn jest {file}",
+          "timeoutSeconds": 1.5
         }
       ]
     },

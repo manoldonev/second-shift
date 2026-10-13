@@ -69,8 +69,8 @@
 #         at its first commit could not be read as an AC set), baseline-unwritten (a clean rebase was pushed but
 #         the PR body's 'Record baseline:' line could not be moved to the new record commit)
 #       2 usage-* (the argv), env-* (the environment; most fire before anything is spawned, but
-#         env-not-ready, env-worktree*, env-remote-unreadable, env-tracker-unreadable and
-#         env-smoke-unconfigured can fire after a paid session; env-receipt-lint-unavailable: no
+#         env-not-ready, env-worktree*, env-remote-unreadable, env-tracker-unreadable,
+#         env-smoke-unconfigured, env-perl and env-state-dir can fire after a paid session; env-receipt-lint-unavailable: no
 #         trusted lint for the receipt), claimed-elsewhere
 #       3 RESUMABLE — not-queued, env-no-record, env-receipt-invalid: pay off intake and re-launch the same command
 #       4 budget spent — rounds-spent, checks-red-spent, cost-spent
@@ -565,15 +565,16 @@ FWC_GRACE=10
 FWC_TIMED_OUT=0
 bounded_group() { # bounded_group <secs> <out> <command> — the command in $WT, scrubbed, as the leader of its own session, so
   # the bound reaches every descendant (bounded() reaps one level down): TERM the group, KILL it after FWC_GRACE. What is left
-  # of the group after a clean exit is killed too, so nothing it backgrounded writes on the red tree during the restore
-  local secs="$1" out="$2" t=0 rc
+  # of the group after a clean exit is killed too, so nothing it backgrounded writes on the red tree during the restore.
+  # Deadlines are wall-clock ($SECONDS), not counted polls: on a loaded machine a poll takes longer than its sleep
+  local secs="$1" out="$2" end rc
   FWC_TIMED_OUT=0
   ( cd "$WT" && exec env "${SCRUB_ENV[@]}" perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV or die "exec: $!\n"' -- bash -c "$3" ) > "$out" 2>&1 < /dev/null & CHILD=$!; CHILD_GROUP=1
-  while kill -0 "$CHILD" 2>/dev/null && [ "$t" -lt $((secs*5)) ]; do sleep 0.2; t=$((t+1)); done
+  end=$((SECONDS + secs)); while kill -0 "$CHILD" 2>/dev/null && [ "$SECONDS" -lt "$end" ]; do sleep 0.2; done
   if kill -0 "$CHILD" 2>/dev/null; then
-    FWC_TIMED_OUT=1; kill -TERM -- "-$CHILD" 2>/dev/null
-    t=0; while kill -0 -- "-$CHILD" 2>/dev/null && [ "$t" -lt $((FWC_GRACE*5)) ]; do sleep 0.2; t=$((t+1)); done
-    kill -KILL -- "-$CHILD" 2>/dev/null; wait "$CHILD" 2>/dev/null; CHILD=""; CHILD_GROUP=0; return 1
+    FWC_TIMED_OUT=1; kill -TERM -- "-$CHILD" 2>/dev/null; kill -TERM "$CHILD" 2>/dev/null   # the leader too, as the watch call: a setsid that failed leaves no group
+    end=$((SECONDS + FWC_GRACE)); while { kill -0 -- "-$CHILD" || kill -0 "$CHILD"; } 2>/dev/null && [ "$SECONDS" -lt "$end" ]; do sleep 0.2; done
+    kill -KILL -- "-$CHILD" 2>/dev/null; kill -KILL "$CHILD" 2>/dev/null; wait "$CHILD" 2>/dev/null; CHILD=""; CHILD_GROUP=0; return 1
   fi
   wait "$CHILD"; rc=$?; kill -KILL -- "-$CHILD" 2>/dev/null; CHILD=""; CHILD_GROUP=0; return "$rc"
 }

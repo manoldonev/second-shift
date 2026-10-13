@@ -305,6 +305,7 @@ grep -qE "^fails without the change at [0-9a-f]{40}: pass — 1 tagged file\(s\)
   && grep -q '^fails without the change: AC-3 unchecked — api/x.api.ts is noted, not run' "$FAKE_GH/pr-body.md" \
   && ok "(fw2) S-1: the run block carries the pass and the holds and unchecked notes" || bad "(fw2) run block: $(grep 'without the change' "$FAKE_GH/pr-body.md" | tr '\n' '|')"
 grep -q 'every one must fail there' "$FAKE_GH/prompt-1.txt" && ok "(fw2) S-3: the build prompt says each tagged test file must fail without the change" || bad "(fw2) the build prompt has no fails-without-the-change instruction"
+grep -q "within its runner's time bound (\*.check.sh: 600s)" "$FAKE_GH/prompt-1.txt" && ok "(fw2) D-22: a runner with no timeoutSeconds is bounded at the 600s default" || bad "(fw2) the build prompt does not state the 600s default bound"
 # (fw3) D-11: a tagged file no runner matches, its AC not marked unchecked, and one the head does not carry — each red, named,
 # beside the file that did run; D-19: a holds and an unchecked AC tagged on a file the head does not carry are red too, never
 # noted as proven; the worktree is back on its branch at the head afterwards
@@ -334,8 +335,9 @@ FW_T='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plan
 # shellcheck disable=SC2059  # FW_T is the format
 FIXTURE_CONFIG="$(printf "$FW_T" 2)" fixture_v4 fw5 "$FW_TI"; fw_plan 1
 fw_tree 1 "grep -qx fixed src/a.ts && exit 0
-( trap '' TERM; sleep 15; echo leaked > '$d/leak' ) & sleep 30"
-printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=1 run_case "$d"; sleep 5
+( trap '' TERM; sleep 25; echo leaked > '$d/leak' ) & sleep 40"
+printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=1 run_case "$d"
+t=0; while [ ! -e "$d/leak" ] && [ "$t" -lt 15 ]; do sleep 1; t=$((t+1)); done   # past the grandchild's 25s, had it survived the bound
 expect checks-red-spent "(fw5) a tagged file that hangs on the record commit's tree"
 grep -q "RED: AC-1 — src/b.check.sh did not finish within 2s on the record commit's tree, and its process group was killed" "$(SD)/fails-without-1.1.log" \
   && ! grep -q 'ok: AC-1' "$(SD)/fails-without-1.1.log" \
