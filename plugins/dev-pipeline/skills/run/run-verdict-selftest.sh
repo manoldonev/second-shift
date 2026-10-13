@@ -103,6 +103,15 @@ fixture vc6; printf 'build-pr-rm-record\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"
 fixture vc7; printf 'build-pr\nreview-needs-work-notes-reason\nbuild-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"
 expect approved "(vc7) 'reason: render-unavailable' as prose under ## Notes is not the render reason: the needs-work goes to a BUILD"
 
+# (kb) #1033: review-lead writes the knowledge-base contributions; the verdict session is told to carry them into ## Notes,
+# and a verdict carrying them binds against the v3 record (its '## Knowledge source' answer included) the launch linted
+fixture kb; printf 'build-pr\nreview-approve-kb\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(kb) an approve carrying the contributions block"
+grep -qF "Knowledge-base contributions: when review-lead's report has a \`### Knowledge-base contributions\` block, carry it into the verdict's \`## Notes\` as review-lead wrote it" "$FAKE_GH/prompt-2.txt" \
+  && grep -qF 'do not apply it again, and add, drop or reword no proposal' "$FAKE_GH/prompt-2.txt" && grep -qF 'Carry the whole list on every verdict' "$FAKE_GH/prompt-2.txt" && ! grep -q 'LOCKSTEP-' "$FAKE_GH/prompt-2.txt" \
+  && ok "(kb) D-1 D-3: the review prompt tells the verdict session to carry review-lead's block whole, on every verdict, without re-applying the test" || bad "(kb) D-1: the carry instruction is missing from the review prompt"
+[ "$(wc -l < "$FAKE_GH/statuses" 2>/dev/null)" -eq 1 ] && grep -q 'state=success' "$FAKE_GH/statuses" && jq -r '.[0].body' "$FAKE_GH/comments.json" | grep -qx 'Knowledge-base contributions:' \
+  && ok "(kb) AC-10: verdict-check binds the verdict with its contributions lines: one success status" || bad "(kb) AC-10: statuses=$(tr '\n' '|' < "$FAKE_GH/statuses" 2>/dev/null)"
+
 # (m) rounds spent
 fixture m; printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-needs-work\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d" --max-rounds 2; expect rounds-spent "(m) two needs-work rounds"
 

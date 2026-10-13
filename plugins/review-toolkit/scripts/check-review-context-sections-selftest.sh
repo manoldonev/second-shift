@@ -136,11 +136,11 @@ mkdir -p "$TMP/r4/.claude/second-shift"
 : > "$TMP/r4/.claude/second-shift/review-context.md"
 RC=0; OUT="$(bash "$CHECK" --preflight "$TMP/r4" 2>&1)" || RC=$?
 RC_REP=0; REP="$(bash "$CHECK" --report "$TMP/r4" 2>&1)" || RC_REP=$?
-if [ "$RC" -eq 0 ] && [ "$RC_REP" -eq 0 ] && grep -q '0/11 catalog sections present' <<<"$REP" \
+if [ "$RC" -eq 0 ] && [ "$RC_REP" -eq 0 ] && grep -q '0/12 catalog sections present' <<<"$REP" \
    && ! grep -q 'intake' <<<"$REP"; then
-    ok "AC-2 (M4 empty-file): NOT red; coverage line discloses 0/11 sections present (no intake-context.md: its section neither counts nor degrades)"
+    ok "AC-2 (M4 empty-file): NOT red; coverage line discloses 0/12 sections present (no intake-context.md: its section neither counts nor degrades)"
 else
-    bad "AC-2 (M4): expected exit 0 (preflight=$RC report=$RC_REP) + '0/11 ... present' coverage, no intake reader: $REP"
+    bad "AC-2 (M4): expected exit 0 (preflight=$RC report=$RC_REP) + '0/12 ... present' coverage, no intake reader: $REP"
 fi
 
 # ---- (5) AC-3: coverage cannot contribute to exit (--report always 0) -------------------
@@ -369,6 +369,33 @@ if grep -q 'OFF-CATALOG: "## Knowledge source" in .claude/second-shift/review-co
     ok "#1032: each file's headings are checked against its own sections only"
 else
     bad "#1032: a section in the other file should be off-catalog (rc=$RC): $OUT"
+fi
+
+# ---- (14) #1033 D-9: the knowledge-base sink is a review-context.md section read by review-lead ----
+# review-lead is no effective-registry member, so without its declared `reader:` token its absent
+# section would be filtered out of the degraded readers silently (#1032 F-19's failure, one file over).
+mkdir -p "$TMP/k1/.claude/second-shift"
+printf '# Review context — Repo\n\n## Stack\nRails.\n' > "$TMP/k1/.claude/second-shift/review-context.md"
+RC=0; REP="$(bash "$CHECK" --report "$TMP/k1" 2>&1)" || RC=$?
+if [ "$RC" -eq 0 ] && grep -q 'context-coverage: 1/12 catalog sections present; degraded readers: .*review-lead' <<<"$REP"; then
+    ok "#1033 D-9: a review-context.md without '## Knowledge-base contributions' names review-lead among the degraded readers"
+else
+    bad "#1033 D-9: expected review-lead among the degraded readers (rc=$RC): $REP"
+fi
+printf '\n## Knowledge-base contributions\nTarget: <the knowledge base>\nInclusion test: a fact a newcomer would otherwise ask a teammate for.\n' >> "$TMP/k1/.claude/second-shift/review-context.md"
+RC=0; OUT="$(bash "$CHECK" --preflight "$TMP/k1" 2>&1)" || RC=$?
+if [ "$RC" -eq 0 ] && grep -q 'preflight OK' <<<"$OUT" && ! grep -q 'OFF-CATALOG' <<<"$OUT" && ! grep -q 'degraded readers: .*review-lead' <<<"$OUT"; then
+    ok "#1033 D-9: a filled '## Knowledge-base contributions' is a catalog section, and review-lead reads it"
+else
+    bad "#1033 D-9: a filled sink section should be clean and covered (rc=$RC): $OUT"
+fi
+mkdir -p "$TMP/k2/.claude/second-shift"
+printf '# Review context — Repo\n\n## Knowledge-base contributions\nTODO: name the knowledge base\n' > "$TMP/k2/.claude/second-shift/review-context.md"
+RC=0; OUT="$(bash "$CHECK" --preflight "$TMP/k2" 2>&1)" || RC=$?
+if [ "$RC" -ne 0 ] && grep -q 'EMPTY-SECTION: "## Knowledge-base contributions" in .claude/second-shift/review-context.md' <<<"$OUT"; then
+    ok "#1033 D-10: a TODO-bodied sink section is absent — RED at --preflight"
+else
+    bad "#1033 D-10: a TODO-bodied sink section should be EMPTY-SECTION red (rc=$RC): $OUT"
 fi
 
 # ---- (12) the skip path must be UNREACHABLE in the monorepo -----------------------------

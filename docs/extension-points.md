@@ -122,11 +122,32 @@ The test runner(s) and run command, where test files live and how they are named
 filename patterns that carry mandatory coverage, domain integrity checks (e.g. feature-schema
 consistency), cross-service contract fixtures, and any coverage exemptions. Read by:
 test-coverage-reviewer.
+
+## Knowledge-base contributions
+Target: <the knowledge base the review proposes additions to>
+Inclusion test: <what earns a page in it, as prose the review applies to each candidate>
+Format: <optional — one proposal per line; absent = `- <kb-page> — <what to add or correct> (<lookup gap | change gap | kb stale | kb ahead>)`>
+Read by: review-lead (its lead pass applies the inclusion test; the verdict carries the
+proposals in `## Notes`).
 ```
 
 Keep entries short and declarative — reviewers quote them back as exemption justifications,
 so every line is effectively policy. (Doc routing does NOT go here; that's
 `doc-routing.md` above.)
+
+**`## Knowledge-base contributions` is the review's sink, and it writes nowhere.** Declared,
+every `review-lead` report — lane or standalone — carries a `### Knowledge-base contributions`
+block, and every verdict carries that block in its `## Notes` under the lead line
+`Knowledge-base contributions:`, one proposal per line, or the single line
+`Knowledge-base contributions: none`. The proposals are drafts you file: second-shift ships the
+mechanism and writes to no knowledge base. Each proposal must pass your inclusion test; a
+candidate that fails it is not listed. They come from three places: the gaps intake's knowledge
+source reported (the record's `## Knowledge source`, "Authoring the intake-context surface"
+below), the record's `kb-conflict:` rows, and what the change itself makes true. A record with no
+provider answer — `none declared`, `failed`, or a receipt older than the section — yields change
+gaps only. A proposal is never a finding and never makes a verdict `needs-work`. Absent, empty or
+TODO-bodied, there is no contributions line at all. The contract: `review-lead`,
+"Knowledge-base contributions".
 
 **This section is machine-mirrored.** The section names above are not just prose — they are
 the exact keys reviewers match on, shipped as a machine-readable catalog at
