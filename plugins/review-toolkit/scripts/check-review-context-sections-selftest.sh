@@ -136,10 +136,11 @@ mkdir -p "$TMP/r4/.claude/second-shift"
 : > "$TMP/r4/.claude/second-shift/review-context.md"
 RC=0; OUT="$(bash "$CHECK" --preflight "$TMP/r4" 2>&1)" || RC=$?
 RC_REP=0; REP="$(bash "$CHECK" --report "$TMP/r4" 2>&1)" || RC_REP=$?
-if [ "$RC" -eq 0 ] && [ "$RC_REP" -eq 0 ] && grep -q '0/11 catalog sections present' <<<"$REP"; then
-    ok "AC-2 (M4 empty-file): NOT red; coverage line discloses 0/11 sections present"
+if [ "$RC" -eq 0 ] && [ "$RC_REP" -eq 0 ] && grep -q '0/11 catalog sections present' <<<"$REP" \
+   && ! grep -q 'intake' <<<"$REP"; then
+    ok "AC-2 (M4 empty-file): NOT red; coverage line discloses 0/11 sections present (no intake-context.md: its section neither counts nor degrades)"
 else
-    bad "AC-2 (M4): expected exit 0 (preflight=$RC report=$RC_REP) + '0/11 ... present' coverage"
+    bad "AC-2 (M4): expected exit 0 (preflight=$RC report=$RC_REP) + '0/11 ... present' coverage, no intake reader: $REP"
 fi
 
 # ---- (5) AC-3: coverage cannot contribute to exit (--report always 0) -------------------
@@ -180,19 +181,39 @@ if [ -f "$DOCS" ]; then
         inSec && fence && /^## / {h=$0; sub(/^## /,"",h); print h}
         inSec && !fence && /^## / && !/Authoring the review-context surface/ {exit}
     ' "$DOCS" | sort -u)"
-    catalog_active="$(awk -F'|' '
-        /^[[:space:]]*#/ {next}
-        NF>=3 {
-            name=$1; st=$3;
-            gsub(/^[[:space:]]+|[[:space:]]+$/,"",name); gsub(/^[[:space:]]+|[[:space:]]+$/,"",st);
-            if (st=="active") print name;
-        }' "$CATALOG" | sort -u)"
+    # The active names of one target file (the fourth column; absent = review-context.md).
+    catalog_active_of() {  # $1 = target file
+        awk -F'|' -v want="$1" '
+            /^[[:space:]]*#/ {next}
+            NF>=3 {
+                name=$1; st=$3; f=$4;
+                gsub(/^[[:space:]]+|[[:space:]]+$/,"",name); gsub(/^[[:space:]]+|[[:space:]]+$/,"",st);
+                gsub(/^[[:space:]]+|[[:space:]]+$/,"",f); if (f=="") f="review-context.md";
+                if (st=="active" && f==want) print name;
+            }' "$CATALOG" | sort -u
+    }
+    catalog_active="$(catalog_active_of review-context.md)"
     if [ "$tmpl" = "$catalog_active" ] && [ -n "$tmpl" ]; then
         ok "AC-3: catalog active names == extension-points.md template H2s (lockstep)"
     else
         bad "AC-3: lockstep drift between catalog and docs template"
         echo "    --- template ---"; printf '%s\n' "$tmpl" | sed 's/^/      /'
         echo "    --- catalog ----"; printf '%s\n' "$catalog_active" | sed 's/^/      /'
+    fi
+    # #1032: the intake-context.md rows against their own docs template
+    itmpl="$(awk '
+        /^## Authoring the intake-context surface/ {inSec=1}
+        inSec && /^```/ {fence=!fence; next}
+        inSec && fence && /^## / {h=$0; sub(/^## /,"",h); print h}
+        inSec && !fence && /^## / && !/Authoring the intake-context surface/ {exit}
+    ' "$DOCS" | sort -u)"
+    icatalog="$(catalog_active_of intake-context.md)"
+    if [ "$itmpl" = "$icatalog" ] && [ -n "$itmpl" ]; then
+        ok "#1032: catalog intake-context.md names == extension-points.md intake-context template H2s (lockstep)"
+    else
+        bad "#1032: lockstep drift between the catalog's intake-context.md rows and the docs template"
+        echo "    --- template ---"; printf '%s\n' "$itmpl" | sed 's/^/      /'
+        echo "    --- catalog ----"; printf '%s\n' "$icatalog" | sed 's/^/      /'
     fi
     # every alias target must be an active catalog name
     bad_alias=0
@@ -277,6 +298,77 @@ if [ "$RC" -ne 0 ] && grep -q 'EMPTY-SECTION: "## Stack"' <<<"$OUT"; then
     ok "TODO:-prefixed body counts as placeholder -> red at preflight (docs promise held)"
 else
     bad "a TODO:-prefixed body must be EMPTY-SECTION red at preflight (rc=$RC)"
+fi
+
+# ---- (13) #1032 AC-11: intake-context.md is a second target --------------------------------
+# A misspelled section is flagged, an empty one is red at --preflight, a filled one is covered —
+# as for review-context.md. Headings are checked against their own file's sections only.
+ic() {  # ic <root> <intake-context body> — writes .claude/second-shift/intake-context.md
+    mkdir -p "$1/.claude/second-shift"; printf '%s\n' "$2" > "$1/.claude/second-shift/intake-context.md"
+}
+ic "$TMP/i1" '# Intake context — Repo
+
+## Knowledge source
+Provider: <plugin>:<provider-agent>
+Question: What does the knowledge base say about {title}?'
+RC=0; OUT="$(bash "$CHECK" --preflight "$TMP/i1" 2>&1)" || RC=$?
+if [ "$RC" -eq 0 ] && grep -q 'preflight OK' <<<"$OUT" && grep -q 'context-coverage: 1/1 catalog sections present; no degraded readers' <<<"$OUT" \
+   && ! grep -q 'OFF-CATALOG' <<<"$OUT"; then
+    ok "#1032: an intake-context.md-only repo is linted: a filled '## Knowledge source' is covered (1/1), preflight OK"
+else
+    bad "#1032: a filled intake-context.md should be clean and covered (rc=$RC): $OUT"
+fi
+
+ic "$TMP/i2" '# Intake context — Repo
+
+## Knowledge sources
+Provider: <plugin>:<provider-agent>'
+RC=0; OUT="$(bash "$CHECK" --preflight "$TMP/i2" 2>&1)" || RC=$?
+if grep -q 'OFF-CATALOG: "## Knowledge sources" in .claude/second-shift/intake-context.md' <<<"$OUT" \
+   && grep -q 'degraded readers: intake' <<<"$OUT"; then
+    ok "#1032: a misspelled section in intake-context.md is flagged, and its absence names the /intake reader"
+else
+    bad "#1032: a misspelled intake-context.md section should be flagged with the intake reader degraded (rc=$RC): $OUT"
+fi
+
+ic "$TMP/i3" '# Intake context — Repo
+
+## Knowledge source
+
+## Notes
+Kept by the platform team.'
+RC=0; OUT="$(bash "$CHECK" --preflight "$TMP/i3" 2>&1)" || RC=$?
+if [ "$RC" -ne 0 ] && grep -q 'EMPTY-SECTION: "## Knowledge source" in .claude/second-shift/intake-context.md' <<<"$OUT" \
+   && ! grep -q 'preflight OK' <<<"$OUT"; then
+    ok "#1032: an empty '## Knowledge source' in intake-context.md is RED at --preflight"
+else
+    bad "#1032: an empty intake-context.md section should be EMPTY-SECTION red (rc=$RC): $OUT"
+fi
+
+# F-19: the reader of an absent intake-context section is reported, not filtered out as an unknown
+# reviewer. The hermetic registry above is known (non-empty), so an undeclared token would be dropped.
+ic "$TMP/i4" '# Intake context — Repo'
+RC=0; REP="$(bash "$CHECK" --report "$TMP/i4" 2>&1)" || RC=$?
+if [ "$RC" -eq 0 ] && grep -q 'context-coverage: 0/1 catalog sections present; degraded readers: intake' <<<"$REP"; then
+    ok "#1032 (F-19): a missing '## Knowledge source' reports its real reader, the declared 'intake' token"
+else
+    bad "#1032 (F-19): expected 'degraded readers: intake' (rc=$RC): $REP"
+fi
+
+# Target isolation: a review-context section in intake-context.md, and the reverse, are off-catalog
+build_acme "$TMP/i5" '## Maturity stage'
+printf '\n## Knowledge source\nProvider: <plugin>:<provider-agent>\n' >> "$TMP/i5/.claude/second-shift/review-context.md"
+ic "$TMP/i5" '# Intake context — Repo
+
+## Stack
+Rails.'
+RC=0; OUT="$(bash "$CHECK" --preflight "$TMP/i5" 2>&1)" || RC=$?
+if grep -q 'OFF-CATALOG: "## Knowledge source" in .claude/second-shift/review-context.md' <<<"$OUT" \
+   && grep -q 'OFF-CATALOG: "## Stack" in .claude/second-shift/intake-context.md' <<<"$OUT" \
+   && grep -q 'degraded readers:.*intake' <<<"$OUT"; then
+    ok "#1032: each file's headings are checked against its own sections only"
+else
+    bad "#1032: a section in the other file should be off-catalog (rc=$RC): $OUT"
 fi
 
 # ---- (12) the skip path must be UNREACHABLE in the monorepo -----------------------------

@@ -6,6 +6,13 @@
 # "silent inside the file" gap where a renamed or emptied section silently degrades the
 # reviewer that keys on it.
 #
+# TWO TARGETS (#1032). The catalog's optional fourth column names the file a section lives in:
+# review-context.md (the default, which also covers the per-reviewer review-context/<reviewer>.md)
+# or intake-context.md, which /intake-toolkit:intake reads. A heading is checked only against its
+# own file's sections, and a target's sections count toward coverage only when its file is there.
+# A reader that is not a reviewer — the /intake session — is declared in the catalog as a
+# `reader:` token, so the coverage line names it instead of dropping it.
+#
 # SCOPE: H2 headings only (`^## `). H1 title lines (`^# `) are NEVER linted — a repo's
 # per-reviewer files legitimately open with `# <reviewer> — <repo>` — and H3+ headings are
 # section content (subsection structure), not sections. Fenced code lines are never headings.
@@ -31,7 +38,7 @@
 #   PLUGIN root    = $SECOND_SHIFT_PLUGIN_ROOT  or  $SCRIPT_DIR/..   (catalog = $SCRIPT_DIR/section-catalog.txt)
 #   CONSUMER root  = $1  or  $SECOND_SHIFT_REPO_ROOT  or  dirname(git --git-common-dir)
 #   config         = $SECOND_SHIFT_CONFIG  or  <consumer>/.claude/second-shift.config.json
-# Missing review-context.md AND review-context/ dir = clean (surface unused).
+# Missing review-context.md, review-context/ dir AND intake-context.md = clean (surface unused).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -61,10 +68,11 @@ fi
 SS_DIR="$CONSUMER_ROOT/.claude/second-shift"
 SHARED="$SS_DIR/review-context.md"
 RC_DIR="$SS_DIR/review-context"
+INTAKE_CTX="$SS_DIR/intake-context.md"
 CONFIG="${SECOND_SHIFT_CONFIG:-$CONSUMER_ROOT/.claude/second-shift.config.json}"
 
 # Surface unused → clean, whatever the mode.
-if [ ! -f "$SHARED" ] && [ ! -d "$RC_DIR" ]; then
+if [ ! -f "$SHARED" ] && [ ! -d "$RC_DIR" ] && [ ! -f "$INTAKE_CTX" ]; then
     if [ "$MODE" = "report" ]; then
         echo "context-coverage: no review-context surface (clean)"
     else
@@ -76,25 +84,40 @@ fi
 [ -f "$CATALOG" ] || { echo "check-review-context-sections: ERROR — section catalog not found at $CATALOG" >&2; exit 2; }
 
 # ---- Parse the catalog -------------------------------------------------------
-# ACTIVE_NAMES: newline list of active section names.
-# READERS:      "name<TAB>readers" per active section.
-# ALIASES:      "alias<TAB>canonical" per deprecated-alias-of row.
-ACTIVE_NAMES=""; READERS=""; ALIASES=""
-while IFS='|' read -r c_name c_readers c_status; do
-    name="$(printf '%s' "$c_name" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+# A section is keyed by "<target>/<name>": the same heading in two files is two sections.
+# ACTIVE_NAMES: newline list of active "<target>/<name>" keys.
+# READERS:      "<target>/<name><TAB>readers" per active section.
+# ALIASES:      "<target>/<alias><TAB>canonical" per deprecated-alias-of row.
+# READER_TOKENS: newline list of declared non-reviewer reader tokens (`reader:` lines).
+ACTIVE_NAMES=""; READERS=""; ALIASES=""; READER_TOKENS=""
+trim_ws() { printf '%s' "$1" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'; }
+while IFS='|' read -r c_name c_readers c_status c_file; do
+    name="$(trim_ws "$c_name")"
     [ -z "$name" ] && continue
     case "$name" in \#*) continue ;; esac
-    readers="$(printf '%s' "$c_readers" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
-    status="$(printf '%s' "$c_status" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+    case "$name" in
+        reader:*)
+            tok="$(trim_ws "${name#reader:}")"
+            [ -n "$tok" ] && READER_TOKENS="$READER_TOKENS$tok
+"
+            continue ;;
+    esac
+    readers="$(trim_ws "$c_readers")"
+    status="$(trim_ws "$c_status")"
+    target="$(trim_ws "$c_file")"; target="${target:-review-context.md}"
+    case "$target" in
+        review-context.md|intake-context.md) ;;
+        *) echo "check-review-context-sections: WARN — unknown file '$target' for section '$name' in catalog" >&2; continue ;;
+    esac
     case "$status" in
         deprecated-alias-of:*)
             canonical="${status#deprecated-alias-of:}"
-            ALIASES="$ALIASES$name	$canonical
+            ALIASES="$ALIASES$target/$name	$canonical
 " ;;
         active|"")
-            ACTIVE_NAMES="$ACTIVE_NAMES$name
+            ACTIVE_NAMES="$ACTIVE_NAMES$target/$name
 "
-            READERS="$READERS$name	$readers
+            READERS="$READERS$target/$name	$readers
 " ;;
         *) echo "check-review-context-sections: WARN — unknown status '$status' for section '$name' in catalog" >&2 ;;
     esac
@@ -126,7 +149,7 @@ if [ -f "$KE_FILE" ]; then
 fi
 
 is_known() { [ -n "$KNOWN" ] && printf '%s\n' "$KNOWN" | grep -Fxq "$1"; }
-is_active() { printf '%s\n' "$ACTIVE_NAMES" | grep -Fxq "$1"; }
+is_active() { printf '%s\n' "$ACTIVE_NAMES" | grep -Fxq "$1"; }   # $1 = "<target>/<name>"
 alias_target() { printf '%s\n' "$ALIASES" | awk -F'\t' -v a="$1" '$1==a{print $2; exit}'; }
 
 # ---- Walk both homes, emit "heading<TAB>empty|nonempty" per H2 heading --------
@@ -168,33 +191,42 @@ emit_headings() {  # $1 = file
     ' "$1"
 }
 
-HOMES=""
-[ -f "$SHARED" ] && HOMES="$SHARED"
+# Each home is "<target><TAB><path>": its headings are checked against that target's sections.
+HOMES=""; TARGETS_PRESENT=""
+if [ -f "$SHARED" ] || [ -d "$RC_DIR" ]; then TARGETS_PRESENT="review-context.md
+"; fi
+[ -f "$SHARED" ] && HOMES="review-context.md	$SHARED"
 if [ -d "$RC_DIR" ]; then
     while IFS= read -r f; do HOMES="$HOMES
-$f"; done < <(find "$RC_DIR" -maxdepth 1 -type f -name '*.md' | sort)
+review-context.md	$f"; done < <(find "$RC_DIR" -maxdepth 1 -type f -name '*.md' | sort)
+fi
+if [ -f "$INTAKE_CTX" ]; then
+    HOMES="$HOMES
+intake-context.md	$INTAKE_CTX"
+    TARGETS_PRESENT="${TARGETS_PRESENT}intake-context.md
+"
 fi
 
 # Accumulators (newline lists).
-PRESENT=""       # active names present with non-empty body
+PRESENT=""       # "<target>/<name>" active sections present with non-empty body
 EMPTY_HITS=""    # "name<TAB>file" active names present but empty-bodied
 ALIAS_HITS=""    # "alias<TAB>canonical<TAB>file"
 NOVEL=""         # "heading<TAB>file"
 
-while IFS= read -r home; do
+while IFS='	' read -r target home; do
     [ -z "$home" ] && continue
     [ -f "$home" ] || continue
     while IFS='	' read -r heading body; do
         [ -z "$heading" ] && continue
-        if is_active "$heading"; then
+        if is_active "$target/$heading"; then
             if [ "$body" = "empty" ]; then
                 EMPTY_HITS="$EMPTY_HITS$heading	$home
 "
             else
-                PRESENT="$PRESENT$heading
+                PRESENT="$PRESENT$target/$heading
 "
             fi
-        elif tgt="$(alias_target "$heading")" && [ -n "$tgt" ]; then
+        elif tgt="$(alias_target "$target/$heading")" && [ -n "$tgt" ]; then
             ALIAS_HITS="$ALIAS_HITS$heading	$tgt	$home
 "
         elif is_known "$heading"; then
@@ -213,8 +245,9 @@ EFFECTIVE=""
 if [ -f "$SKILL" ]; then
     EFFECTIVE="$(compute_effective_registry "$SKILL" "$CONFIG" 2>/dev/null || true)"
 fi
-reader_effective() {  # $1 = reader token; true if 'all' or in the effective registry (or registry unknown)
+reader_effective() {  # $1 = reader token; true if 'all', a declared non-reviewer token, or in the effective registry (or registry unknown)
     [ "$1" = "all" ] && return 0
+    [ -n "$READER_TOKENS" ] && printf '%s\n' "$READER_TOKENS" | grep -Fxq "$1" && return 0
     [ -z "$EFFECTIVE" ] && return 0
     printf '%s\n' "$EFFECTIVE" | grep -Fxq "$1"
 }
@@ -222,11 +255,14 @@ reader_effective() {  # $1 = reader token; true if 'all' or in the effective reg
 # ---- Coverage computation (exit-neutral) -------------------------------------
 # A section counts PRESENT only when its exact active name appears with a non-empty body
 # (alias-named or empty-bodied ⇒ absent: the reviewer that keys on the exact name finds
-# nothing). Degraded readers = readers of absent sections, filtered to the effective set.
+# nothing). Degraded readers = readers of absent sections, filtered to the effective set plus
+# the declared non-reviewer tokens. Only the sections of a target whose file is there count: a
+# repo with no intake-context.md has declared no knowledge source, which degrades nothing.
 coverage_line() {
     local total=0 present_n=0 absent_readers="" degraded=""
     while IFS='	' read -r name readers; do
         [ -z "$name" ] && continue
+        printf '%s' "$TARGETS_PRESENT" | grep -Fxq "${name%%/*}" || continue
         total=$((total+1))
         if printf '%s\n' "$PRESENT" | grep -Fxq "$name"; then
             present_n=$((present_n+1))

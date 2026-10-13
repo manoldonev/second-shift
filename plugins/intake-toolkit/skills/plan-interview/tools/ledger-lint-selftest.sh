@@ -195,7 +195,7 @@ FANOUT_SKIPPED='Fan-out: skipped — by the operator; this receipt exercises ano
 # (ll-o) the fixture receipt — every Kind value, every legal pairing → 0
 rc=$(lint_rc --receipt "$FIX/valid-receipt.md")
 [[ "$rc" -eq 0 ]] \
-  && pass "(ll-o) valid receipt (5 rows, 3 kinds, 2 open regions) → 0" \
+  && pass "(ll-o) valid receipt (6 rows, 3 kinds, 2 open regions) → 0" \
   || fail "(ll-o) valid receipt — got rc=$rc"
 
 # (ll-p) open-region and surface counts reported on stdout
@@ -891,6 +891,7 @@ ev_ok 'an escaped pipe in the command' 'class-validator — run: `grep -rl class
 ev_ok 'an escaped pipe in the output' 'class-validator — run: `ls src/dto` → a.dto.ts \| b.dto.ts'
 ev_ok "a 'cited (adr):' row" 'deletedAt timestamp — cited (adr): docs/adr/0007-soft-delete.md:12'
 ev_ok "a 'cited (convention):' row" 'class-validator — CITED (convention): CLAUDE.md:14'
+ev_ok "a 'cited (kb):' row (#1032 AC-5)" 'audit rows are retained — cited (kb): <kb-page>'
 }
 
 # (ll-ev2) each refusal → 1, naming its own cause
@@ -910,9 +911,11 @@ ev_bad "a 'run:' command outside a code span" 'class-validator — run: grep -rl
 ev_bad "an empty 'run:' output" 'class-validator — run: `grep -rl x src` →' "'run:' needs the decisive output"
 ev_bad "a 'run:' with no arrow" 'class-validator — run: `grep -rl x src` 41' "'run:' needs the decisive output"
 ev_bad "'cited:' with no reason" 'class-validator — cited: CLAUDE.md:14' "'cited' names no reason"
-ev_bad "a reason outside the enum (design-intent)" 'class-validator — cited (design-intent): docs/design.md:3' "cited reason 'design-intent' not in {convention | adr}"
+ev_bad "a reason outside the enum (design-intent)" 'class-validator — cited (design-intent): docs/design.md:3' "cited reason 'design-intent' not in {convention | adr | kb}"
 ev_bad "a reason outside the enum (external-doc)" 'class-validator — cited (external-doc): https://example.invalid/x' "cited reason 'external-doc' not in"
-ev_bad "'cited (adr):' with no source" 'deletedAt timestamp — cited (adr):' 'names no source after the colon'
+ev_bad "a reason outside the enum (knowledge-base, #1032 AC-5)" 'audit rows are retained — cited (knowledge-base): <kb-page>' "cited reason 'knowledge-base' not in {convention | adr | kb}"
+ev_bad "'cited (adr):' with no source" 'deletedAt timestamp — cited (adr):' 'names no source after the colon (a path:line)'
+ev_bad "'cited (kb):' with no page" 'audit rows are retained — cited (kb):' "names no source after the colon (the page, copied from the answer's Sources: list)"
 }
 
 # (ll-ev3) the violation text shows the author's '\|', never the parser's internal placeholder
@@ -942,8 +945,9 @@ ck_lint "$TMP/ev-ticket.md"
 
 echo "[ledger-lint-selftest] receipt mode: the version line and ## Intake steps (#1022)"
 
-# Each case is the v2 fixture with one thing changed, so its failure names one cause.
-V2="$FIX/valid-receipt.md"
+# Each case is the current-version fixture (v3 since #1032) with one thing changed, so its failure
+# names one cause.
+V3="$FIX/valid-receipt.md"
 rv_case() { # rv_case <label> <receipt> <expected rc> [expected stderr fragment]
   ck_lint "$2"
   [[ "$rc" -eq "$3" ]] && { [[ -z "${4:-}" ]] || grep -qF "$4" <<< "$err"; } \
@@ -951,85 +955,87 @@ rv_case() { # rv_case <label> <receipt> <expected rc> [expected stderr fragment]
     || fail "(ll-rv) $1 — rc=$rc err=$err"
 }
 
-# (ll-rv1) the v2 fixture: seven steps, in order → 0, its version and step count reported
-ck_lint "$V2"
-[[ "$rc" -eq 0 ]] && grep -q "7 intake step(s)" <<< "$out" && grep -q "receipt v2" <<< "$out" \
-  && pass "(ll-rv1) v2 receipt with every intake step → 0, counted" \
-  || fail "(ll-rv1) v2 receipt — rc=$rc out=$out err=$err"
+# (ll-rv1) the v3 fixture: seven steps, in order → 0, its version and step count reported
+ck_lint "$V3"
+[[ "$rc" -eq 0 ]] && grep -q "7 intake step(s)" <<< "$out" && grep -q "receipt v3" <<< "$out" \
+  && pass "(ll-rv1) v3 receipt with every intake step → 0, counted" \
+  || fail "(ll-rv1) v3 receipt — rc=$rc out=$out err=$err"
 
-# (ll-rv2) AC-1 / AC-8: a v2 receipt without the section → 1; the same receipt as v1 (no line, or
-# 'Receipt: v1') → 0, since the section is mandated only from v2
-awk '/^## Intake steps/ {skip = 1; next} skip && /^## / {skip = 0} !skip' "$V2" > "$TMP/rv-nosteps.md"
-rv_case 'v2 receipt with no Intake steps section' "$TMP/rv-nosteps.md" 1 'missing mandated receipt section: Intake steps'
+# (ll-rv2) AC-1 / AC-8: a v2-or-later receipt without the section → 1; the same receipt as v1 (no
+# line, or 'Receipt: v1') → 0, since the section is mandated only from v2
+awk '/^## Intake steps/ {skip = 1; next} skip && /^## / {skip = 0} !skip' "$V3" > "$TMP/rv-nosteps.md"
+rv_case 'v3 receipt with no Intake steps section' "$TMP/rv-nosteps.md" 1 'missing mandated receipt section: Intake steps'
+sed 's/^Receipt: v3$/Receipt: v2/' "$TMP/rv-nosteps.md" > "$TMP/rv-v2-nosteps.md"
+rv_case 'the same receipt as v2' "$TMP/rv-v2-nosteps.md" 1 'missing mandated receipt section: Intake steps'
 grep -v '^Receipt:' "$TMP/rv-nosteps.md" > "$TMP/rv-v1-bare.md"
 rv_case 'the same receipt with no Receipt line (v1)' "$TMP/rv-v1-bare.md" 0
-sed 's/^Receipt: v2$/Receipt: v1/' "$TMP/rv-nosteps.md" > "$TMP/rv-v1.md"
+sed 's/^Receipt: v3$/Receipt: v1/' "$TMP/rv-nosteps.md" > "$TMP/rv-v1.md"
 rv_case "the same receipt as 'Receipt: v1'" "$TMP/rv-v1.md" 0
 
 # (ll-rv3) AC-2: a missing key, keys out of order, a key twice — each its own violation
-grep -v '^Split:' "$V2" > "$TMP/rv-nosplit.md"
+grep -v '^Split:' "$V3" > "$TMP/rv-nosplit.md"
 rv_case "no 'Split:' line" "$TMP/rv-nosplit.md" 1 "Intake steps has no 'Split:' line"
-awk '/^Split:/ {held = $0; next} {print} /^Explore:/ {print held}' "$V2" > "$TMP/rv-order.md"
+awk '/^Split:/ {held = $0; next} {print} /^Explore:/ {print held}' "$V3" > "$TMP/rv-order.md"
 rv_case 'Split after Explore' "$TMP/rv-order.md" 1 "Intake steps 'Split:' comes after 'Explore:'"
-awk '{print} /^Sizing:/ {print "Sizing: sonnet"}' "$V2" > "$TMP/rv-twice.md"
+awk '{print} /^Sizing:/ {print "Sizing: sonnet"}' "$V3" > "$TMP/rv-twice.md"
 rv_case "two 'Sizing:' lines" "$TMP/rv-twice.md" 1 "more than one 'Sizing:' line"
 
 # (ll-rv4) AC-2 / D-6: a section title used twice is named, at any depth and case — the record's
 # own evidence form, '## Checks' twice with the first empty, reported only "Checks has no command"
-awk '/^## Checks/ {print "## Checks"; print ""} {print}' "$V2" > "$TMP/rv-dup-checks.md"
+awk '/^## Checks/ {print "## Checks"; print ""} {print}' "$V3" > "$TMP/rv-dup-checks.md"
 rv_case "'## Checks' twice, the first empty" "$TMP/rv-dup-checks.md" 1 "section title 'Checks' is used twice"
-printf '\n### CONTEXT\n\nagain.\n' > "$TMP/rv-ctx.md"; cat "$V2" "$TMP/rv-ctx.md" > "$TMP/rv-dup-ctx.md"
+printf '\n### CONTEXT\n\nagain.\n' > "$TMP/rv-ctx.md"; cat "$V3" "$TMP/rv-ctx.md" > "$TMP/rv-dup-ctx.md"
 rv_case "'### CONTEXT' after '## Context'" "$TMP/rv-dup-ctx.md" 1 "section title 'CONTEXT' is used twice"
 
 # (ll-rv5) OR-2's grammar: an empty or dash outcome, a bulleted or indented key, a sub-heading,
 # the 'Duplicate scan' spelling — each refused; CRLF line ends tolerated
-sed 's/^Explore: .*$/Explore:/' "$V2" > "$TMP/rv-empty.md"
+sed 's/^Explore: .*$/Explore:/' "$V3" > "$TMP/rv-empty.md"
 rv_case "an empty 'Explore:' outcome" "$TMP/rv-empty.md" 1 "Intake steps 'Explore:' records no outcome"
-sed 's/^Explore: .*$/Explore: —/' "$V2" > "$TMP/rv-dash.md"
+sed 's/^Explore: .*$/Explore: —/' "$V3" > "$TMP/rv-dash.md"
 rv_case "a dash 'Explore:' outcome" "$TMP/rv-dash.md" 1 "Intake steps 'Explore:' records no outcome"
 for form in '- Split: not split' '  Split: not split'; do
-  sed "s/^Split: .*\$/$form/" "$V2" > "$TMP/rv-bullet.md"
+  sed "s/^Split: .*\$/$form/" "$V3" > "$TMP/rv-bullet.md"
   rv_case "the step line '$form'" "$TMP/rv-bullet.md" 1 'Intake steps line is not read as a step'
 done
-awk '/^Fan-out: ran/ {print "### Later steps"; print ""} {print}' "$V2" > "$TMP/rv-sub.md"
+awk '/^Fan-out: ran/ {print "### Later steps"; print ""} {print}' "$V3" > "$TMP/rv-sub.md"
 rv_case 'a sub-heading inside Intake steps' "$TMP/rv-sub.md" 1 'Intake steps carries a sub-heading'
-sed 's/^Dup-scan:/Duplicate scan:/' "$V2" > "$TMP/rv-spelling.md"
+sed 's/^Dup-scan:/Duplicate scan:/' "$V3" > "$TMP/rv-spelling.md"
 rv_case "'Duplicate scan:' for 'Dup-scan:'" "$TMP/rv-spelling.md" 1 "Intake steps has no 'Dup-scan:' line"
-awk '/^## / {on = /^## Intake steps/} {printf (on ? "%s\r\n" : "%s\n"), $0}' "$V2" > "$TMP/rv-crlf.md"
+awk '/^## / {on = /^## Intake steps/} {printf (on ? "%s\r\n" : "%s\n"), $0}' "$V3" > "$TMP/rv-crlf.md"
 rv_case 'Intake steps with CRLF line ends, heading included' "$TMP/rv-crlf.md" 0
 
 # (ll-rv6) #1023 AC-12: the step line's skip names the operator, as the section's does — the same
 # named violation; the operator's form, any case, and the failure form pass
 for form in 'Fan-out: skipped — by the session' 'Fan-out: skipped — by the orchestrator: small scope' \
             'Fan-out: skipped by operatorless default'; do
-  sed "s/^Fan-out: ran .*\$/$form/" "$V2" > "$TMP/rv-fo-step.md"
+  sed "s/^Fan-out: ran .*\$/$form/" "$V3" > "$TMP/rv-fo-step.md"
   rv_case "the step line '$form'" "$TMP/rv-fo-step.md" 1 'Fan-out skip does not name the operator'
 done
 for form in 'Fan-out: skipped — by the operator at the intake notice' "Fan-out: Skipped — By The Operator's call" \
             'Fan-out: failed — Workflow tool unavailable in this session'; do
-  sed "s/^Fan-out: ran .*\$/$form/" "$V2" > "$TMP/rv-fo-step.md"
+  sed "s/^Fan-out: ran .*\$/$form/" "$V3" > "$TMP/rv-fo-step.md"
   rv_case "the step line '$form'" "$TMP/rv-fo-step.md" 0
 done
 
 # (ll-rv6) AC-10 / D-4: the version line is once, before the first '##' heading, in its form
-awk '{print} /^Receipt:/ {print $0}' "$V2" > "$TMP/rv-two-lines.md"
+awk '{print} /^Receipt:/ {print $0}' "$V3" > "$TMP/rv-two-lines.md"
 rv_case "two 'Receipt:' lines" "$TMP/rv-two-lines.md" 1 "carries 2 'Receipt:' lines"
-grep -v '^Receipt:' "$V2" | awk '{print} /^## Checks$/ {print ""; print "Receipt: v2"}' > "$TMP/rv-in-section.md"
-rv_case "'Receipt: v2' inside the Checks section" "$TMP/rv-in-section.md" 1 "'Receipt:' line inside a '##' section"
-for bad in 'Receipt: 2' 'Receipt: v0' 'receipt: v2' 'Receipt: v2 draft'; do
-  sed "s/^Receipt: v2\$/$bad/" "$V2" > "$TMP/rv-form.md"
+grep -v '^Receipt:' "$V3" | awk '{print} /^## Checks$/ {print ""; print "Receipt: v3"}' > "$TMP/rv-in-section.md"
+rv_case "'Receipt: v3' inside the Checks section" "$TMP/rv-in-section.md" 1 "'Receipt:' line inside a '##' section"
+for bad in 'Receipt: 3' 'Receipt: v0' 'receipt: v3' 'Receipt: v3 draft'; do
+  sed "s/^Receipt: v3\$/$bad/" "$V3" > "$TMP/rv-form.md"
   rv_case "the version line '$bad'" "$TMP/rv-form.md" 1 'malformed version line'
 done
 
 # (ll-rv7) AC-11 / AC-12: --receipt-version prints the highest version the lint knows — a receipt
 # at that version lints, one above it is refused as newer than the lint
 known="$(bash "$LINT" --receipt-version 2>/dev/null)" && rc=0 || rc=$?
-[[ "$rc" -eq 0 && "$known" =~ ^[0-9]+$ ]] && (( known >= 2 )) \
-  && pass "(ll-rv7) --receipt-version prints a version, at least v2 → $known" \
+[[ "$rc" -eq 0 && "$known" =~ ^[0-9]+$ ]] && (( known >= 3 )) \
+  && pass "(ll-rv7) --receipt-version prints a version, at least v3 → $known" \
   || fail "(ll-rv7) --receipt-version — rc=$rc out=$known"
-sed "s/^Receipt: v2\$/Receipt: v$known/" "$V2" > "$TMP/rv-known.md"
+sed "s/^Receipt: v3\$/Receipt: v$known/" "$V3" > "$TMP/rv-known.md"
 rv_case "a receipt at the lint's highest version, v$known" "$TMP/rv-known.md" 0
-sed "s/^Receipt: v2\$/Receipt: v$((known + 1))/" "$V2" > "$TMP/rv-newer.md"
+sed "s/^Receipt: v3\$/Receipt: v$((known + 1))/" "$V3" > "$TMP/rv-newer.md"
 rv_case "a receipt at v$((known + 1)), above what the lint knows" "$TMP/rv-newer.md" 1 'newer than this lint knows'
 
 # (ll-rv8) D-15: the version line and the steps are receipt-mode only — the ExitPlanMode hook's
@@ -1043,6 +1049,80 @@ rc=$(lint_rc "$TMP/rv-plan.md")
 [[ "$rc" -eq 0 ]] \
   && pass "(ll-rv8) version line and steps in an in-plan ledger, default mode → 0" \
   || fail "(ll-rv8) receipt-version rules leaked into default mode — rc=$rc"
+
+echo "[ledger-lint-selftest] receipt mode: ## Knowledge source (#1032)"
+
+# Each case is the v3 fixture with its Knowledge source section swapped for one body (moved to the
+# end of the receipt), so its failure names one cause.
+awk '/^## Knowledge source$/ {skip = 1; next} skip && /^## / {skip = 0} !skip' "$V3" > "$TMP/ks-base.md"
+ks_case() { # ks_case <label> <section body> <expected rc> [expected stderr fragment] [receipt version]
+  sed "s/^Receipt: v3\$/Receipt: ${5:-v3}/" "$TMP/ks-base.md" > "$TMP/ks.md"
+  printf '\n## Knowledge source\n\n%s\n' "$2" >> "$TMP/ks.md"
+  ck_lint "$TMP/ks.md"
+  [[ "$rc" -eq "$3" ]] && { [[ -z "${4:-}" ]] || grep -qF "$4" <<< "$err"; } \
+    && pass "(ll-ks) $1 → $3${4:+, named}" \
+    || fail "(ll-ks) $1 — rc=$rc err=$err"
+}
+ANSWER=$'Provider: <plugin>:<provider-agent>\n\n    Import audit rows are retained.\n\n    Sources:\n    - <kb-page>'
+
+# (ll-ks1) D-8: the fixture's answer carries its own heading, a '| D-9 |' row and a 'Receipt: v1'
+# line, indented — none of them is read as this receipt's: six ledger rows, v3, no violation
+ck_lint "$V3"
+[[ "$rc" -eq 0 ]] && grep -q "6 ledger row(s)" <<< "$out" && grep -q "knowledge source: provider" <<< "$out" && grep -q "receipt v3" <<< "$out" \
+  && pass "(ll-ks1) an indented answer's heading, row and version line stay out of the receipt's own reads → 0" \
+  || fail "(ll-ks1) the embedded answer leaked — rc=$rc out=$out err=$err"
+
+# (ll-ks2) AC-13: a v3 receipt with no section → 1, naming the three forms; at v2 it is not mandated → 0
+cp "$TMP/ks-base.md" "$TMP/ks-absent.md"
+ck_lint "$TMP/ks-absent.md"
+[[ "$rc" -eq 1 ]] && grep -q "missing mandated receipt section: Knowledge source" <<< "$err" && grep -qF "Knowledge source: none declared" <<< "$err" \
+  && pass "(ll-ks2) v3 receipt with no Knowledge source section → 1, naming the section and its forms" \
+  || fail "(ll-ks2) missing Knowledge source — rc=$rc err=$err"
+sed 's/^Receipt: v3$/Receipt: v2/' "$TMP/ks-base.md" > "$TMP/ks-absent-v2.md"
+ck_lint "$TMP/ks-absent-v2.md"
+[[ "$rc" -eq 0 ]] && grep -q "knowledge source: absent" <<< "$out" \
+  && pass "(ll-ks2) the same receipt as v2 → 0: the section is mandated only from v3" \
+  || fail "(ll-ks2) Knowledge source mandated below v3 — rc=$rc err=$err"
+
+# (ll-ks3) AC-13: each explicit form alone → 0, and the form is reported
+ks_case 'the provider answer' "$ANSWER" 0
+grep -q "knowledge source: provider" <<< "$out" || fail "(ll-ks3) provider form not reported — out=$out"
+ks_case "'Knowledge source: none declared'" 'Knowledge source: none declared' 0
+grep -q "knowledge source: none declared" <<< "$out" || fail "(ll-ks3) none-declared form not reported — out=$out"
+ks_case "'Knowledge source: failed — <text>'" "Knowledge source: failed — Agent type '<plugin>:<provider-agent>' not found." 0
+grep -q "knowledge source: failed" <<< "$out" || fail "(ll-ks3) failed form not reported — out=$out"
+ks_case 'a v2 receipt carrying a well-formed section' 'Knowledge source: none declared' 0 '' v2
+
+# (ll-ks4) D-9: each refusal → 1, naming its own cause
+ks_case 'an empty section' '' 1 'Knowledge source is empty'
+ks_case 'prose in place of a form' 'The provider was not consulted.' 1 'Knowledge source line is not indented four spaces'
+ks_case "'Knowledge source: skipped'" 'Knowledge source: skipped — by the operator' 1 "Knowledge source line is neither 'Knowledge source: none declared'"
+ks_case "a bare 'Knowledge source: failed'" 'Knowledge source: failed' 1 "Knowledge source line is neither"
+ks_case "'Knowledge source: none'" 'Knowledge source: none' 1 "Knowledge source line is neither"
+ks_case 'a provider with no answer' 'Provider: <plugin>:<provider-agent>' 1 'names a provider but carries no answer'
+ks_case 'a provider not namespaced' "${ANSWER/<plugin>:<provider-agent>/provider-agent}" 1 "'Provider:' names no namespaced agent type"
+ks_case "two 'Provider:' lines" "Provider: a:b"$'\n'"$ANSWER" 1 "carries 2 'Provider:' lines"
+ks_case 'none declared and failed together' $'Knowledge source: none declared\nKnowledge source: failed — x' 1 'carries more than one form'
+ks_case 'none declared beside an answer' $'Knowledge source: none declared\n\n    an answer anyway' 1 'carries more than one form'
+ks_case 'an answer with no Provider line' $'    Import audit rows are retained.' 1 "carries an answer with no 'Provider: <plugin>:<agent>' line"
+ks_case 'answer text before the Provider line' $'    Import audit rows are retained.\nProvider: <plugin>:<provider-agent>\n    more' 1 'answer text before its'
+# F-1/F-12: an answer pasted unindented — its table row would be read as this receipt's own D-9
+ks_case 'an answer pasted unindented' $'Provider: <plugin>:<provider-agent>\n\n| D-9 | a row from the knowledge base | x | user-answered | intent |' 1 'Knowledge source line is not indented four spaces'
+# F-3: an unindented heading inside the answer ends the section, leaving the provider with no answer
+ks_case 'a heading in the answer pasted unindented' $'Provider: <plugin>:<provider-agent>\n\n## Answer\n\n    Import audit rows are retained.' 1 'names a provider but carries no answer'
+ks_case 'an answer indented two spaces' $'Provider: <plugin>:<provider-agent>\n\n  Import audit rows are retained.' 1 'Knowledge source line is not indented four spaces'
+ks_case 'CRLF line ends' "$(printf '%s\r\n' 'Provider: <plugin>:<provider-agent>' '' '    Import audit rows are retained.')" 0
+
+# (ll-ks5) receipt-mode only: an in-plan ledger with a malformed Knowledge source lints clean by default
+printf '%s\n' '# P' '## Decision Ledger' \
+  '| ID  | Decision | Resolution | Provenance |' \
+  '| --- | -------- | ---------- | ---------- |' \
+  '| D-1 | Rate limit for the import endpoint | 100/min | user-answered |' \
+  '' '## Knowledge source' '' 'Knowledge source: skipped' > "$TMP/ks-plan.md"
+rc=$(lint_rc "$TMP/ks-plan.md")
+[[ "$rc" -eq 0 ]] \
+  && pass "(ll-ks5) a malformed Knowledge source in an in-plan ledger, default mode → 0" \
+  || fail "(ll-ks5) knowledge-source rules leaked into default mode — rc=$rc"
 
 echo
 echo "[ledger-lint-selftest] summary: $PASS passed, $FAIL failed"

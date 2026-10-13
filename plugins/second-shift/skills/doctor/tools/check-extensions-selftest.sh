@@ -23,6 +23,7 @@ mkdir -p "$TMP/good/.claude/second-shift/design-tokens"
 : > "$TMP/good/.claude/second-shift/review-context.md"
 mkdir -p "$TMP/good/.claude/second-shift/review-context"
 : > "$TMP/good/.claude/second-shift/review-context/db-reviewer.md"
+: > "$TMP/good/.claude/second-shift/intake-context.md"
 : > "$TMP/good/.claude/second-shift/doc-routing.md"
 : > "$TMP/good/.claude/second-shift/design-tokens/core-catalog.md"
 bash "$CHECK" "$TMP/good" >/dev/null 2>&1 && ok "known extension files -> clean" || bad "known files should pass but failed"
@@ -35,6 +36,16 @@ if bash "$CHECK" "$TMP/bad" >"$TMP/ext-selftest.out" 2>&1; then
 else
   grep -q "UNKNOWN-EXTENSION:.*blocker-mutants.md.md" "$TMP/ext-selftest.out" && ok "typo'd file -> UNKNOWN-EXTENSION fail closed" \
     || bad "typo failed but without the expected message"
+fi
+
+# (2b) #1032: intake-context.md is in the manifest; a near-miss of it is not
+mkdir -p "$TMP/bad-ic/.claude/second-shift"
+: > "$TMP/bad-ic/.claude/second-shift/intake-contexts.md"     # typo
+if bash "$CHECK" "$TMP/bad-ic" >"$TMP/ext-ic.out" 2>&1; then
+  bad "a typo'd intake-context.md should FAIL but passed"
+else
+  grep -q "UNKNOWN-EXTENSION:.*intake-contexts.md" "$TMP/ext-ic.out" && ok "typo'd intake-context.md -> UNKNOWN-EXTENSION fail closed" \
+    || bad "typo'd intake-context.md failed but without the expected message"
 fi
 
 # (3) no .claude/second-shift/ -> clean (nothing to check)

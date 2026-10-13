@@ -61,7 +61,8 @@
 # Receipt mode also asks a `codebase-derived` row for its evidence, anywhere in the
 # Resolution cell: run: `<command>` → <decisive output> (arrow `→` or `->`) for a
 # fact checked at intake, or cited (convention|adr): <path:line> for one that cannot
-# be run. A bare `file:line` is a pointer, not a check.
+# be run, or cited (kb): <kb-page> for one adopted from the knowledge source's answer.
+# A bare `file:line` is a pointer, not a check.
 #
 # Receipt mode also reads the two sections the scheduler (`run.sh`) takes from the
 # record's first commit, with the scheduler's heading rule:
@@ -95,6 +96,12 @@
 #   neither empty nor a bare dash. Read with section_of, so a sub-heading inside it would cut it
 #   short, and is refused.
 #
+#   `## Knowledge source` — mandated from v3. Exactly one of: a `Provider: <plugin>:<agent>` line
+#   followed by the provider's whole answer indented four spaces (a code block, so its headings,
+#   rows and `Receipt:` lines are read by no column-0 scan); `Knowledge source: none declared`;
+#   `Knowledge source: failed — <text>`. An empty section, any other line that is not indented
+#   four spaces, and a `Knowledge source:` line outside those two forms are each refused.
+#
 # Receipt mode also refuses a section title used twice: every reader takes the first copy, so
 # the second is never read.
 #
@@ -121,6 +128,7 @@ RECEIPT_SECTIONS="$(grep -v 'LOCKSTEP-' <<'TABLE'
 | Checks | v1 |
 | Fan-out | v1 |
 | Intake steps | v2 |
+| Knowledge source | v3 |
 # LOCKSTEP-END receipt-versions
 TABLE
 )"
@@ -169,6 +177,8 @@ FANOUT_TAG_ENUM='new|already-had|overturned|not material'
 FANOUT_EMPTY_POOL='Pool: empty — no claim survived refutation.'
 FANOUT_SKIP_BY='by the operator'   # the one name a fan-out skip may carry (#1023), read case-insensitively at a word end
 INTAKE_STEP_KEYS='Requirements|Split|Explore|Fan-out|Dup-scan|Post-merge scan|Sizing'
+KS_NONE='Knowledge source: none declared'
+KS_PROVIDER_NAME='[^[:space:]:]+:[^[:space:]:]+'   # the namespaced agent type, <plugin>:<agent>
 
 # The receipt's version, from its `Receipt:` line (receipt check 0 below); v1 until read.
 RECEIPT_V=1
@@ -222,11 +232,15 @@ trim() {
 #   run: `<command>` → <decisive output>     executed at intake; `->` is the arrow too, and the
 #                                            command may sit in a double-backtick span
 #   cited (convention|adr): <path:line>      the fact cannot be executed
+#   cited (kb): <kb-page>                    adopted from the knowledge source's answer, the page
+#                                            copied from its Sources: list (the form is checked,
+#                                            never that the page exists)
 # `run:` and `cited` are case-insensitive. A `|` in the command or output is escaped as `\|`,
 # which the row loop has already masked, so it never splits a cell here. A row recording an
 # agent's choice rather than a fact is not `codebase-derived` at all, so the reason enum has no
 # catch-all.
-CITED_REASON_ENUM='convention|adr'
+CITED_REASON_ENUM='convention|adr|kb'
+CITED_FORMS="'cited (convention|adr): <path:line>' or 'cited (kb): <kb-page>'"
 EVIDENCE_EDGE='(^|[^A-Za-z0-9_-])'
 RUN_TOKEN="${EVIDENCE_EDGE}[Rr][Uu][Nn]:[[:space:]]*"
 CITED_TOKEN="${EVIDENCE_EDGE}[Cc][Ii][Tt][Ee][Dd][[:space:]]*"
@@ -247,9 +261,11 @@ check_evidence() { # check_evidence <row-id> <resolution-cell, pipes masked>
     reason="${BASH_REMATCH[3]:-}"
     reason="$(trim "${reason//__LEDGER_LINT_PIPE__/\\|}")"
     if [[ -z "$reason" ]]; then
-      violate "$id row: 'cited' names no reason — the form is 'cited (convention|adr): <path:line>': $shown"
+      violate "$id row: 'cited' names no reason — the form is $CITED_FORMS: $shown"
     elif ! [[ "$reason" =~ ^(${CITED_REASON_ENUM})$ ]]; then
       violate "$id row: cited reason '$reason' not in {${CITED_REASON_ENUM//|/ | }} — a row that records a choice rather than a fact is not codebase-derived: ask it, and record it user-answered or user-delegated: $shown"
+    elif [[ "$reason" == kb ]]; then
+      violate "$id row: 'cited (kb):' names no source after the colon (the page, copied from the answer's Sources: list): $shown"
     else
       violate "$id row: 'cited ($reason):' names no source after the colon (a path:line): $shown"
     fi
@@ -260,7 +276,7 @@ check_evidence() { # check_evidence <row-id> <resolution-cell, pipes masked>
       violate "$id row: 'run:' needs a non-empty command in a code span — 'run: \`<command>\` → <output>': $shown"
     fi
   else
-    violate "$id row: a codebase-derived receipt row states its evidence in the Resolution cell — 'run: \`<command>\` → <decisive output>' for a fact checked at intake, or 'cited (convention|adr): <path:line>' for one that cannot be run: $shown"
+    violate "$id row: a codebase-derived receipt row states its evidence in the Resolution cell — 'run: \`<command>\` → <decisive output>' for a fact checked at intake, or $CITED_FORMS for one that cannot be run: $shown"
   fi
 }
 
@@ -761,6 +777,61 @@ if (( RECEIPT == 1 )); then
       [[ "$STEPS_SEEN" == *"|$key|"* ]] || violate "Intake steps has no '$key:' line (the keys, spelled so, in order: $STEP_ORDER)"
     done
   fi
+
+  # ---- Receipt check I: the knowledge source (#1032) --------------------------------------
+  # What the consumer-declared knowledge provider answered, or why nothing did. The answer is
+  # opaque: it is embedded whole, indented four spaces, so the headings, table rows and
+  # `Receipt:` lines it may carry stay out of every column-0 scan (section_of, the ledger and
+  # region loops, the version line, verdict-check). Shape-checked wherever present; mandated from v3.
+  KS_FORM="absent"
+  if ! has_section 'knowledge source' "$PLAN"; then
+    if mandated 'Knowledge source'; then
+      violate "missing mandated receipt section: Knowledge source (a v$RECEIPT_V receipt carries exactly one form: 'Provider: <plugin>:<agent>' followed by the answer indented four spaces, '$KS_NONE', or 'Knowledge source: failed — <the first line of the error>')"
+    fi
+  else
+    n_provider=0; n_none=0; n_failed=0; n_answer=0; answer_before=0
+    while IFS= read -r line; do
+      line="${line%$'\r'}"
+      [[ "$line" =~ ^[[:space:]]*$ ]] && continue
+      if [[ "$line" == '    '* ]]; then
+        n_answer=$((n_answer + 1))
+        (( n_provider > 0 )) || answer_before=1
+      elif [[ "$line" =~ ^Provider:[[:space:]]*(.*)$ ]]; then
+        n_provider=$((n_provider + 1))
+        name="$(trim "${BASH_REMATCH[1]}")"
+        [[ "$name" =~ ^${KS_PROVIDER_NAME}$ ]] || \
+          violate "Knowledge source 'Provider:' names no namespaced agent type — the form is 'Provider: <plugin>:<agent>': $line"
+      elif [[ "$line" =~ ^Knowledge\ source: ]]; then
+        if [[ "$line" =~ ^${KS_NONE}[[:space:]]*$ ]]; then
+          n_none=$((n_none + 1))
+        elif [[ "$line" =~ ^Knowledge\ source:[[:space:]]*failed[[:space:]]*(—|–|-|:)[[:space:]]*.*[[:alnum:]] ]]; then
+          n_failed=$((n_failed + 1))
+        else
+          violate "Knowledge source line is neither '$KS_NONE' nor 'Knowledge source: failed — <what failed>': $line"
+        fi
+      else
+        violate "Knowledge source line is not indented four spaces — only the 'Provider:' line and the 'Knowledge source:' forms sit at the start of a line; the answer is indented four spaces so its own headings and rows are never read as this receipt's: $line"
+      fi
+    done <<< "$(section_of 'knowledge source' "$PLAN")"
+    n_forms=$(( (n_provider > 0 ? 1 : 0) + n_none + n_failed ))
+    if (( n_provider > 1 )); then
+      violate "Knowledge source carries $n_provider 'Provider:' lines — one provider answers, named once"
+    fi
+    if (( n_forms == 0 && n_answer == 0 )); then
+      violate "Knowledge source is empty — it carries exactly one form: the 'Provider:' line and the answer, '$KS_NONE', or 'Knowledge source: failed — <what failed>'"
+    elif (( n_forms > 1 || (n_none + n_failed > 0 && n_answer > 0) )); then
+      violate "Knowledge source carries more than one form — exactly one of: the 'Provider:' line and the answer, '$KS_NONE', or 'Knowledge source: failed — <what failed>'"
+    elif (( n_provider == 0 )); then
+      (( n_none + n_failed > 0 )) || violate "Knowledge source carries an answer with no 'Provider: <plugin>:<agent>' line naming who answered"
+    else
+      (( n_answer > 0 )) || violate "Knowledge source names a provider but carries no answer — embed the whole answer under the 'Provider:' line, indented four spaces"
+      (( answer_before == 0 )) || violate "Knowledge source carries answer text before its 'Provider:' line — the line naming who answered comes first"
+    fi
+    if (( n_provider > 0 )); then KS_FORM="provider"
+    elif (( n_none > 0 )); then KS_FORM="none declared"
+    elif (( n_failed > 0 )); then KS_FORM="failed"
+    else KS_FORM="malformed"; fi
+  fi
 fi
 
 echo "ledger-lint: ${ROW_COUNT} ledger row(s)"
@@ -771,6 +842,7 @@ if (( RECEIPT == 1 )); then
   echo "ledger-lint: ${FRAME_ROW_COUNT} design frame(s)"
   echo "ledger-lint: ${FANOUT_ROW_COUNT} fan-out item(s)"
   echo "ledger-lint: ${STEP_COUNT} intake step(s)"
+  echo "ledger-lint: knowledge source: ${KS_FORM}"
   echo "ledger-lint: receipt v${RECEIPT_V}"
 fi
 if (( VIOLATIONS > 0 )); then

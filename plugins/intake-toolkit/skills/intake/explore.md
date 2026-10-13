@@ -62,11 +62,15 @@ cp "$SRC" "$SCRATCHPAD/intake-fanout.mjs"
 ```
 
 Launch it **in the background** with `Workflow({ scriptPath, args })`, args
-`{ issue, issueBody, readRoot, checkouts, protocol, probeDir, config }`:
+`{ issue, issueBody, knowledgeSource, readRoot, checkouts, protocol, probeDir, config }`:
 
 - `issueBody` — the ticket body from Requirements. **On a split:** the parent body, then a
   `## Slices` section listing every slice's key, title and one line of scope, so the lenses read the
   seams.
+- `knowledgeSource` — the knowledge source's answer from Requirements, as the receipt will carry
+  it (the `Provider:` line and the indented answer); omit it when the outcome was `none declared`
+  or `failed`. Only the lens writer reads it, to make its jobs concrete: the lenses and refuters
+  never see it and check their claims against the code, so the pool stays independent of it.
 - `protocol` — the absolute paths of the intake `SKILL.md`, `interview.md` (this directory) and
   `interviewing-baseline/SKILL.md`. Every agent works under them.
 - `checkouts` — every other repo the change meets that has a local checkout (the frontend that calls

@@ -7,11 +7,19 @@
 # fails if the catalog's active names and the docs template diverge.
 #
 # Format (pipe-separated, one section per line):
-#   <section-name> | <comma-separated readers> | <status>
+#   <section-name> | <comma-separated readers> | <status> [| <file>]
 #     status = active                       (a live catalog section)
 #            | deprecated-alias-of:<name>   (a drifted spelling; <name> must be an active row)
-#   readers = effective-registry reviewer names (no plugin: prefix), or the sentinel `all`
-#             (every panel reviewer reads it, via review-lead).
+#   readers = effective-registry reviewer names (no plugin: prefix), the sentinel `all`
+#             (every panel reviewer reads it, via review-lead), or a declared reader token.
+#   file    = review-context.md (the default when the column is absent; it covers the
+#             per-reviewer review-context/<reviewer>.md too) | intake-context.md (#1032).
+#
+# DECLARED READER TOKENS. A reader that is not a reviewer is declared on a line of its own,
+#   reader: <token> | <what reads the section>
+# so the coverage line names it when its section is absent, rather than filtering it out as an
+# unknown reviewer. docs/extension-points.md "Authoring the intake-context surface" is the
+# human-readable mirror of the intake-context.md rows.
 #
 # WHAT A READER TOKEN MEANS. A reviewer name here names the DIMENSION the section calibrates —
 # not a guarantee that a subagent of that name is dispatched to read it. review-lead reviews
@@ -39,3 +47,5 @@ Performance budgets | performance-reviewer | active
 Async processing | all | active
 Test coverage | test-coverage-reviewer | active
 Maturity calibration (MVP stage) | security-reviewer | deprecated-alias-of:Maturity stage
+reader: intake | the /intake-toolkit:intake session — its Requirements stage dispatches the provider the section names
+Knowledge source | intake | active | intake-context.md

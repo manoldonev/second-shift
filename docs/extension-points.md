@@ -16,6 +16,7 @@ All extension files sit under the consumer repo's `.claude/second-shift/` direct
 | `.claude/second-shift/security-rules.md` | security-reviewer | Domain security review rules (tenancy invariants, credential-handling rules, permission-set ↔ OAuth-scope mapping requirements) |
 | `.claude/second-shift/review-context.md` | every panel reviewer + review-lead (each self-loads it) | Repo-wide review context: stack orientation, maturity/severity calibration, architectural invariants, known-accepted patterns, and an ownership table pointing at the docs that own enumerable values (the named-section catalog reviewers key on: "Authoring the review-context surface" below). **Database stack** (engine, ORM/ODM/driver, schema/model + data-access globs, migration tooling, special capabilities like vector search) — db-reviewer applies its checks in the terms this section (or `review-context/db-reviewer.md`) declares; absent = db-reviewer infers the stack and lowers confidence. plan-reviewer applies this section's round-trip traps at plan time only when they are in this shared file — it does not load `review-context/db-reviewer.md`, so traps declared only there are applied at review time |
 | `.claude/second-shift/review-context/<reviewer-name>.md` | exactly that reviewer (self-loaded after the shared file) | Per-reviewer repo rules: severity examples, what-not-to-flag lists, stack resolutions only that reviewer consumes. Basename must be a reviewer in the effective registry — linted fail-closed by `review-toolkit/scripts/check-review-context.sh` (review-lead pre-flight) on top of the manifest glob |
+| `.claude/second-shift/intake-context.md` | `/intake-toolkit:intake` (its Requirements stage) | Intake context. `## Knowledge source` names a provider agent of the repo's own — one that answers from the repo's knowledge base — and the question to ask it; intake dispatches it once per intake, before the first question to the engineer, and the receipt's `## Knowledge source` carries the whole answer. Absent = `Knowledge source: none declared`. Authoring: "Authoring the intake-context surface" below |
 | `.claude/second-shift/doc-routing.md` | review-toolkit `doc-updater` | Change-category → doc-path routing map: for each conceptual code-area category (API/endpoint, DB schema, background worker, decision/domain-constant, frontend, …) the doc(s) that document it, plus which reviewer agents restate those constants. Supplements the repo's `CLAUDE.md` context router when a specific-enough category→doc map is wanted. Absent = fall back to CLAUDE.md's declared doc roots + basename grep |
 | `.claude/second-shift/design-tokens/*.md` | design-toolkit `design-faithful`, `figma-faithful`, `figma-faithful-spec`, `figma-iterate` skills + `design-faithful-reviewer` / `design-faithful-plan-reviewer` / `figma-faithful-reviewer` / `figma-faithful-plan-reviewer` | Design-system reference: component catalog, token roles + arithmetic, primitives package, known-good analogs. May declare **multiple surfaces** (fixed-theme value tables vs a branded/host-relative surface) so the plugin stays surface-agnostic |
 | `.claude/agents/*.md` + config `reviewers.add` | review-lead registry | Whole domain reviewers (e.g. an orders-reviewer); dimensions declared in config for routing/dedup |
@@ -182,6 +183,46 @@ No tool evaluates the blocks; the reviewers read them. The contract they apply:
 - **A claim never mints evidence.** It can only calibrate severity while it is in date — the
   extending.md axiom.
 
+## Authoring the intake-context surface
+
+`/intake-toolkit:intake` reads `.claude/second-shift/intake-context.md` when it is there. Like every
+extension it is **additive only**: it adds evidence to intake and never weakens the protocol — no
+section in it skips a stage, settles a decision or quiets a question. second-shift ships the
+mechanism only: the knowledge base and the provider agent live in your repo, and intake knows the
+provider only by the name your section gives it.
+
+```markdown
+# Intake context — <repo>
+
+## Knowledge source
+Provider: <plugin>:<provider-agent>
+Question: What does the knowledge base say about "{title}", given these criteria? {acceptance-criteria} List the pages you read under Sources: and say what the base does not cover.
+```
+
+- **`Provider:`** — the provider's namespaced agent type, `<plugin>:<agent>`, exactly as the Agent
+  tool takes it. Intake dispatches that name and no other.
+- **`Question:`** — free text; `{title}` becomes the ticket's title and `{acceptance-criteria}` its
+  `AC-n` lines. Ask the provider to list the pages it read under `Sources:`: a fact intake adopts
+  from the answer cites one of them (`cited (kb): <kb-page>`).
+
+Intake dispatches the provider once per intake, before the first question to the engineer, and
+the receipt's `## Knowledge source` section carries its **whole answer** verbatim, indented — or
+`Knowledge source: none declared` when this file or its section is absent (the opt-out), or
+`Knowledge source: failed — <the first line of the error>` when the dispatch fails or the section
+is malformed (no `Provider:` or `Question:` line, or two). Intake continues either way and never
+reads the knowledge base's files itself. The answer is context for the interview, not a decision:
+where it contradicts the code, the operator is asked. The receipt contract:
+`interviewing-baseline`, "Knowledge source".
+
+**Machine-mirrored, like the review-context catalog.** The section above is a row of
+[`section-catalog.txt`](../plugins/review-toolkit/scripts/section-catalog.txt) with the file
+column `intake-context.md` and the reader token `intake` (a `reader:` line declares it, since the
+/intake session is not a reviewer). `check-review-context-sections.sh` lints this file's H2
+headings against that row as it lints `review-context.md`: a misspelled heading is reported
+off-catalog, an empty section fails `--preflight`, and `--report` (which doctor's report runs)
+names `intake` among the degraded readers when the file is there without the section. A release
+selftest fails if this template and the catalog drift apart. Onboarding writes no scaffold for
+this file: copy the template above.
 
 ## Cross-cutting tool contracts
 

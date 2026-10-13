@@ -1,12 +1,14 @@
 # Intake receipt: PROJ-9999 — Fixture receipt for ledger-lint receipt mode
 
-Receipt: v2
+Receipt: v3
 
 ## Context
 
-Fixture. Exercises a well-formed v2 INTAKE receipt: every intake step in order, every Kind
+Fixture. Exercises a well-formed v3 INTAKE receipt: every intake step in order, every Kind
 value, every legal Kind/provenance pairing, a `codebase-derived` row stating the command it ran,
-an `open` row mapped to a declared region, and a surface inventory carrying both dispositions.
+one citing the knowledge source's page, an `open` row mapped to a declared region, a surface
+inventory carrying both dispositions, and a knowledge-source answer whose own heading, table row
+and version line are embedded indented, so no reader takes them for this receipt's.
 
 ## Intake steps
 
@@ -27,6 +29,7 @@ Sizing: opus
 | D-3 | DTO validation library | class-validator — run: `grep -rl "from 'class-validator'" src \| wc -l` → 41 | codebase-derived | fact |
 | D-4 | Max upload size for a single import | 50 MB, per the operator's comment https://example.invalid/tracker/PROJ-9999#comment-7 | ticket-sourced | fact |
 | D-5 | Backfill ordering across historical records | parked under OR-1 (owner: reporter, before the next milestone) | deferred | open |
+| D-6 | Import audit rows are retained, never purged on import | retained — cited (kb): <kb-page> | codebase-derived | fact |
 
 ## Open Regions
 
@@ -70,6 +73,24 @@ Tally: rows added 1 · snapshot claims overturned 1 · questions added 1
     | --- | --- | --- |
     | D-1 | Rate limit for the import endpoint | 100/min |
     | D-3 | DTO validation library | class-validator; nested arrays validate as-is |
+
+## Knowledge source
+
+Provider: <plugin>:<provider-agent>
+
+    ## Answer
+
+    Import audit rows are retained; nothing purges them on import.
+
+    | D-9 | a row from the knowledge base, not this receipt's | x | user-answered | intent |
+
+    Receipt: v1
+
+    Sources:
+    - <kb-page>
+
+    Gaps:
+    - The base does not say how long the rows are kept.
 
 ## Implementation steps
 

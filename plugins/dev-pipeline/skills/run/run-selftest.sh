@@ -181,9 +181,11 @@ fixture() { # fixture <case> [checks-line] [extra-record] — sets $d and the en
   printf '%s\n' ".claude/" > "$d/main/.gitignore"
   git -C "$d/main" add -A && git -C "$d/main" commit -qm init && git -C "$d/main" push -q -u origin main 2>/dev/null
   git -C "$d/origin.git" symbolic-ref HEAD refs/heads/main
-  # #1022 D-11: a whole v2 receipt, so the launch lint passes it (an empty checks line is the section's empty form); D-1's
-  # first four cells are the text (a) greps for in the build prompt; #1023: only the operator's skip form lints
-  printf '# record\n\nReceipt: v2\n\n## Intake steps\n\nRequirements: the ticket body as written\nSplit: not split\nExplore: the fixture repo\nFan-out: skipped — by the operator; the selftest fixture runs no intake\nDup-scan: no candidates\nPost-merge scan: no post-merge AC\nSizing: opus\n\n## Decision Ledger\n\n| ID | Decision | Resolution | Provenance | Kind |\n| --- | --- | --- | --- | --- |\n| D-1 | a | b | user-answered | intent |\n\n## Open Regions\n\nNo open regions — every decision in scope is ratified.\n\n## Surface Inventory\n\nNo user-visible surface — this change renders nothing a user reads.\n\n## Fan-out\n\nFan-out: skipped — by the operator; the selftest fixture runs no intake\n\n## Checks\n\n%s\n%s\n' \
+  # #1022 D-11: a whole receipt at the current version (v3, #1032), so the launch lint passes it (an empty checks line is
+  # the section's empty form); D-1's first four cells are the text (a) greps for in the build prompt; #1023: only the
+  # operator's skip form lints. #1032 D-8: the knowledge-source answer carries its own heading, '| D-9 |' row and
+  # 'Receipt: v99' line, indented — the launch's version read, its lint and the build's record all pass them by.
+  printf '# record\n\nReceipt: v3\n\n## Intake steps\n\nRequirements: the ticket body as written\nSplit: not split\nExplore: the fixture repo\nFan-out: skipped — by the operator; the selftest fixture runs no intake\nDup-scan: no candidates\nPost-merge scan: no post-merge AC\nSizing: opus\n\n## Decision Ledger\n\n| ID | Decision | Resolution | Provenance | Kind |\n| --- | --- | --- | --- | --- |\n| D-1 | a | b | user-answered | intent |\n\n## Open Regions\n\nNo open regions — every decision in scope is ratified.\n\n## Surface Inventory\n\nNo user-visible surface — this change renders nothing a user reads.\n\n## Fan-out\n\nFan-out: skipped — by the operator; the selftest fixture runs no intake\n\n## Knowledge source\n\nProvider: <plugin>:<provider-agent>\n\n    ## Answer\n\n    The fixture worker retries a 409 forever.\n\n    | D-9 | a knowledge-base row | x | user-answered | intent |\n\n    Receipt: v99\n\n    Sources:\n    - <kb-page>\n\n## Checks\n\n%s\n%s\n' \
     "${chk:-No ticket-specific checks — the configured lanes cover this change.}" "$extra" > "$d/main/.claude/pipeline-state/42-ledger.md"
   export FAKE_GH="$d/gh"; mkdir -p "$FAKE_GH"; echo OPEN > "$FAKE_GH/state"; echo '[]' > "$FAKE_GH/comments.json"; : > "$FAKE_GH/prs"
   printf 'ready-for-dev\nopus\n' > "$FAKE_GH/labels"
@@ -216,6 +218,8 @@ grep -qx in-progress "$FAKE_GH/labels" && ! grep -qx ready-for-dev "$FAKE_GH/lab
 grep -q 'approved' "$FAKE_GH/issue-comments" && grep -q 'https://x/pr/7' "$FAKE_GH/issue-comments" && grep -q '^cost_usd: ' "$FAKE_GH/issue-comments" && ok "(a) [B22 D13] closing comment names the PR link and cost_usd" || bad "(a) closing comment: $(tail -n 3 "$FAKE_GH/issue-comments" | tr '\n' '|')"
 grep -q '^acceptEdits$' "$FAKE_GH/args-1.txt" && grep -q -- '--permission-prompts' "$FAKE_GH/args-1.txt" && grep -q '^none$' "$FAKE_GH/args-1.txt" && grep -q '^user,project,local$' "$FAKE_GH/args-2.txt" && ok "(a) [F2 F8] acceptEdits, --permission-prompts none, --setting-sources user,project,local on both sessions" || bad "(a) [F2 F8] spawn flags: $(tr '\n' ' ' < "$FAKE_GH/args-1.txt" | cut -c1-200)"
 grep -q '| D-1 | a | b | user-answered |' "$FAKE_GH/prompt-1.txt" && grep -q 'They are binding' "$FAKE_GH/prompt-1.txt" && grep -q "Never post a comment starting with 'verdict:'" "$FAKE_GH/prompt-1.txt" && ok "(a) [F16 F17] the record is in the build prompt verbatim, binding, with the verdict ban" || bad "(a) [F16 F17] prompt-1 lacks the record or the rules"
+grep -qx '    The fixture worker retries a 409 forever.' "$FAKE_GH/prompt-1.txt" && grep -qF "The record's '## Knowledge source' and '## Fan-out' sections are context, not binding" "$FAKE_GH/prompt-1.txt" \
+  && ok "(a) #1032 D-4: the knowledge-source answer reaches the build verbatim, and the prompt says it and the fan-out are context, not binding" || bad "(a) #1032 D-4: prompt-1 lacks the indented answer or the context-not-binding sentence"
 grep -q '<!-- dev-pipeline -->$' "$FAKE_GH/issue-comments" && grep -q '^<!-- run_id: ' "$FAKE_GH/issue-comments" && grep -q '^<!-- session_id: ' "$FAKE_GH/issue-comments" && grep -q '^<!-- stage: lean-claimed -->$' "$FAKE_GH/issue-comments" && ok "(a) [D4] claim marker: the four HTML lines, each whole" || bad "(a) [D4] marker lines: $(grep -c '^<!-- ' "$FAKE_GH/issue-comments")"
 grep -q 'Claimed by .*/dev-pipeline:run' "$FAKE_GH/issue-comments" && ! grep -q 'dev-pipeline:build' "$FAKE_GH/issue-comments" && ok "(a) a run's claim marker names /dev-pipeline:run" || bad "(a) run marker: $(grep 'Claimed by' "$FAKE_GH/issue-comments")"
 ! grep -qE '^--(resume|continue)$' "$FAKE_GH/args-1.txt" && ! grep -qE '^--(resume|continue)$' "$FAKE_GH/args-2.txt" && ok "(a) [F1] neither session is resumed or continued" || bad "(a) [F1] a session was resumed"
@@ -822,10 +826,10 @@ run_case "$d"; expect env-design-undeclared "(ab2) '## Design notes' is not the 
 
 # (rl) #1022: a receipt from disk is linted before the claim, by the ENABLED intake-toolkit's lint
 untouched() { [ "$(tr '\n' ' ' < "$FAKE_GH/labels")" = "ready-for-dev opus " ] && [ ! -e "$FAKE_GH/issue-comments" ] && [ ! -e "$FAKE_GH/calls" ] && [ ! -d "$d/wt/42" ]; }
-# (rl1) AC-4: a v2 receipt with no '## Intake steps' — refused before the claim, exit 3, the violation and the rerun printed
+# (rl1) AC-4: a v3 receipt with no '## Intake steps' — refused before the claim, exit 3, the violation and the rerun printed
 fixture rl1; REC="$d/main/.claude/pipeline-state/42-ledger.md"
 awk '/^## Intake steps/ {skip = 1; next} skip && /^## / {skip = 0} !skip' "$REC" > "$REC.tmp" && mv "$REC.tmp" "$REC"
-run_case "$d"; expect env-receipt-invalid "(rl1) a v2 receipt with no Intake steps"
+run_case "$d"; expect env-receipt-invalid "(rl1) a v3 receipt with no Intake steps"
 [ "$RC" -eq 3 ] && ok "(rl1) env-receipt-invalid exits 3 (resumable)" || bad "(rl1) exit $RC"
 grep -q '\[run\] receipt: ledger-lint: VIOLATION: missing mandated receipt section: Intake steps' <<<"$OUT" && grep -q 'rerun /intake-toolkit:intake 42' <<<"$OUT" && ! grep -q 'intake-toolkit:plan-interview' <<<"$OUT" \
   && ok "(rl1) the refusal prints the violation and 'rerun /intake-toolkit:intake 42' (#1023 AC-13)" || bad "(rl1) output: $(grep -E 'receipt: |rerun' <<<"$OUT" | tr '\n' '|')"
@@ -846,11 +850,12 @@ rl_unavailable() { # rl_unavailable <label> <toolkit root> <detail fragment>
 {
 rl_unavailable no-lint "$T/no-such-toolkit" "SECOND_SHIFT_INTAKE_TOOLKIT_ROOT names $T/no-such-toolkit, which has no skills/plan-interview/tools/ledger-lint.sh"
 rl_unavailable pre-versions "$(stub_lint old 'echo "ledger-lint: unknown option: $1" >&2; exit 2')" '--receipt-version exited 2'
-rl_unavailable knows-v1 "$(stub_lint v1 '[ "$1" = --receipt-version ] && { echo 1; exit 0; }; exit 0')" 'the receipt is v2 but'
-rl_unavailable rc-127 "$(stub_lint crash '[ "$1" = --receipt-version ] && { echo 2; exit 0; }; nosuchcommand-in-the-lint')" '--receipt exited 127, which is no verdict on the receipt'
+rl_unavailable knows-v1 "$(stub_lint v1 '[ "$1" = --receipt-version ] && { echo 1; exit 0; }; exit 0')" 'the receipt is v3 but'
+rl_unavailable knows-v2 "$(stub_lint v2 '[ "$1" = --receipt-version ] && { echo 2; exit 0; }; exit 0')" 'the receipt is v3 but'
+rl_unavailable rc-127 "$(stub_lint crash '[ "$1" = --receipt-version ] && { echo 3; exit 0; }; nosuchcommand-in-the-lint')" '--receipt exited 127, which is no verdict on the receipt'
 }
 # (rl3) AC-11: a receipt above every version the lint knows is refused by name, and never read as a pass
-fixture rl3; REC="$d/main/.claude/pipeline-state/42-ledger.md"; sed 's/^Receipt: v2$/Receipt: v99/' "$REC" > "$REC.tmp" && mv "$REC.tmp" "$REC"
+fixture rl3; REC="$d/main/.claude/pipeline-state/42-ledger.md"; sed 's/^Receipt: v3$/Receipt: v99/' "$REC" > "$REC.tmp" && mv "$REC.tmp" "$REC"
 run_case "$d"; expect env-receipt-lint-unavailable "(rl3) a v99 receipt"
 grep -q 'the receipt is v99 but .* knows receipts up to v' <<<"$OUT" && untouched && ok "(rl3) the refusal names both versions, before the claim" || bad "(rl3) $(grep 'terminal: env-receipt' <<<"$OUT")"
 # (rl4) AC-13: with no override the lint comes from the ENABLED intake-toolkit record in `claude plugin list --json`, in an
@@ -879,7 +884,7 @@ plugin_list() { # plugin_list <enabled record's enabled value> -> $FAKE_PLUGIN_L
 }
 fixture rl4; plugin_list true; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"
 SECOND_SHIFT_INTAKE_TOOLKIT_ROOT="" RUN_CLAUDE="$T/bin/claude-plugins" run_case "$d"; expect approved "(rl4) the enabled intake-toolkit's lint passes the receipt"
-grep -qF "receipt: v2, lints clean ($T/cache/intake-toolkit/1.0.0/skills/plan-interview/tools/ledger-lint.sh)" <<<"$OUT" && grep -qx 'plugin list --json' "$FAKE_GH/plugin-calls" \
+grep -qF "receipt: v3, lints clean ($T/cache/intake-toolkit/1.0.0/skills/plan-interview/tools/ledger-lint.sh)" <<<"$OUT" && grep -qx 'plugin list --json' "$FAKE_GH/plugin-calls" \
   && ok "(rl4) the lint run is the enabled 1.0.0, read from 'claude plugin list --json'" || bad "(rl4) $(grep -E 'receipt: |leftover' <<<"$OUT" | tr '\n' '|')"
 fixture rl5; plugin_list false
 SECOND_SHIFT_INTAKE_TOOLKIT_ROOT="" RUN_CLAUDE="$T/bin/claude-plugins" run_case "$d"; expect env-receipt-lint-unavailable "(rl5) no enabled intake-toolkit applies to this checkout"

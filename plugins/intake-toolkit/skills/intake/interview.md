@@ -23,9 +23,26 @@ specific to an intake ticket.
   question here.
 - **Explore's snapshot and the pool items that pass the materiality bar.** Each surviving item is a
   row, an option, a probed fact or a question.
+- **The knowledge source's answer**, when Requirements got one ("The knowledge source" below).
 - **Split's outcome** — on a split, the slice's own scope, the decisions the parent already took for
   every slice (the brief's guardrails and quarantine tags), and the seam items the pool raised for
   this slice.
+
+## The knowledge source
+
+The provider's answer is evidence, read beside the code, never in place of it
+(`interviewing-baseline`, "Knowledge source"):
+
+- **A fact the answer states and the code does not contradict** is adopted as a `codebase-derived`
+  row citing `cited (kb): <kb-page>`, `<kb-page>` copied from the answer's `Sources:` list. Where a
+  command can check it, run the command instead and record `run:` evidence.
+- **A fact where the answer and the code disagree** is asked, never picked silently. Put both
+  sides to the operator, with your recommendation. The row is `user-answered` — or `deferred`
+  under a `pause-and-ask` region when the operator parks it — never `codebase-derived` citing
+  `kb`. It says which side this ticket follows and carries the fixed marker, naming the page and
+  which side is behind: `kb-conflict: <kb-page> (kb stale)` when the page is out of date,
+  `kb-conflict: <kb-page> (kb ahead)` when the page states a direction the code has not reached.
+- **A gap the answer reports** is a question like any other, when it passes the materiality bar.
 
 ## Per ticket, per slice
 
