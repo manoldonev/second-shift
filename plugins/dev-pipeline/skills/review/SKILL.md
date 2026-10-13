@@ -60,18 +60,26 @@ review's context.
 5. **Score EVERY row of the record** against the code: `honored`, `violated`, `departed` (the row
    was edited; name who decided, per its provenance), or `undeterminable` (say what you could not
    read). A violated or undeterminable row is a blocker; neither may stand beside an approve.
+   A row that names a deferred, unmeasured or inherited cost, load or performance risk is still
+   scored on whether the code matches it — the row is the operator's decision, and a score never
+   overrides it. Its risk is also required performance work: the review states the worst-case
+   bound as a finding, at the severity the performance rules give it, and the row licenses the
+   out-of-diff reads that check it. "The file it names is untouched" scores the row; it does not
+   bound the risk.
 6. **Run `review-toolkit:review-lead` over the PR diff, pass it the ticket from step 1 yourself, and
    declare the pipeline default panel**
    when you invoke it: the fan-out defaults to `scope-completeness-reviewer`; `security-reviewer`,
-   `a11y-reviewer` and `unit-test-mutation-reviewer` are selected only by an opt-in — a
-   `review panel` row in the record with `user-answered` or `user-delegated` provenance naming
-   `security`, `a11y` or `unit-test-mutation`, or the config's `reviewers.default[]`.
+   `a11y-reviewer`, `unit-test-mutation-reviewer` and `performance-reviewer` are selected only by
+   an opt-in — a `review panel` row in the record with `user-answered` or `user-delegated`
+   provenance naming `security`, `a11y`, `unit-test-mutation` or `performance`, or the config's
+   `reviewers.default[]`.
    `review-lead` never infers this; an undeclared panel leaves the surface triggers in force.
-   Opting one of the three back in is your call, and **the expected call whenever the diff
+   Opting one of the four back in is your call, and **the expected call whenever the diff
    introduces a surface** rather than editing an existing one: `security` for a new
    authentication, session, tenancy or ownership-scoping path, or a new query built from external
    input; `a11y` for new form controls or a new interactive component; `unit-test-mutation` for
-   new logic with a co-located spec. A change to a file that already sits on one of those
+   new logic with a co-located spec; `performance` for a new entry point (a route, handler,
+   consumer or SDK method) that reaches a data read or existing heavy work. A change to a file that already sits on one of those
    surfaces is your call either way. Pass each short name to `review-lead` with a one-line
    reason. Do not stand in for a specialist on a surface the diff introduces: your lead pass is
    one reader over the whole diff, not that reviewer's checklist. The trim stays the default
@@ -80,6 +88,12 @@ review's context.
    `review-lead` with a one-line reason, it is written into the panel line of the review, and
    the human who reads the verdict reads that line. An introduced surface with neither a
    reviewer nor a reason is a silent decision.
+   **A record-named cost risk makes performance a required decision.** When a `D-n` row or an
+   `OR-n` Open Region of the record names a cost, load or performance risk, opt `performance` in,
+   or pass its decline with a reason that answers that row. Opted in, pass `review-lead` that row
+   and the new entry point's `path:line`, so the seat traces the risk rather than the whole diff.
+   A record-named risk with neither a dispatch nor a decline is a process `[blocker]` on your
+   verdict; whether a decline answers the row is your judgment, and the panel line shows it.
    If it reports that the review did not run (its panel went dark), you have no verdict to give:
    say which reviewer went dark in a plain comment and post no `verdict:` line.
 7. **Design frames.** When the record's `## Design frames` (or `## Design`) section carries

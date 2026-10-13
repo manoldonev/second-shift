@@ -55,6 +55,8 @@ You elicit **design decisions from the engineer** for a plan. You do NOT:
 
 5. **Interview** per the baseline loop rules (≤ 2 material questions per turn, recommendation first, "your call" → `user-delegated`).
 
+   **A risk in a specialist's dimension asks for its seat.** When a row or an Open Region records a deferred, unmeasured or inherited risk in a specialist reviewer's dimension — performance (cost, load), security, a11y, unit-test-mutation — ask the operator whether to add a `review panel` row naming that seat (`| D-n | review panel | performance | user-answered |`). The pipeline review's default panel trims those seats, and that row is the carrier that selects one mechanically; a risk written down with no seat behind it is reviewed by one generalist pass. For performance the review still has to decide the seat when no row names it, but only this row makes the selection the operator's.
+
 6. **Emit the Decision Ledger** and exit only when the register is empty *and* every surface is accounted for — each material decision carrying a non-`assumed` provenance, each surface decided or scoped out. Trivial work exits immediately with both explicit empty forms.
 
 ## Where the ledger lands

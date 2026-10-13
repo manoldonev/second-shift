@@ -19,9 +19,10 @@ Your domain: **performance impact**.
 
 ## Process
 
-1. Identify the layer(s) affected (API, services, frontend, workers, data store)
-2. Read schema/model files if needed to check indexes
-3. Check each intent below, resolving stack specifics from review-context
+1. If the dispatch context names cost risks (`For performance-reviewer — named cost risks: …`, decision-record rows plus the `path:line` of each new entry point), trace those first: from the entry point, through the unchanged code it calls, to the work that costs. Each is required work — state its worst-case bound as a finding (see "A record-named cost risk" below)
+2. Identify the layer(s) affected (API, services, frontend, workers, data store)
+3. Read schema/model files if needed to check indexes
+4. Check each intent below, resolving stack specifics from review-context
 
 ---
 
@@ -52,6 +53,21 @@ Time-series / stream arrays can be thousands of data points. Flag any O(n²) ope
 - **Sliding-window aggregations** must be O(n), not O(n\*k) — watch for nested loops over stream data.
 - **Feature/derived-value extraction** that loops over collections × elements = potential O(n\*m).
 - **Algorithms with known complexity bounds** (e.g. an O(n log n) detector with pruning): flag any regression to O(n²) if the pruning logic changes.
+
+### Amplification Through a New Entry Point
+
+"Unbounded result sets" counts the rows returned; this counts the work done before any row exists. The diff adds an entry point — a route, handler, consumer or SDK method — that reaches a data read or existing heavy work in unchanged code. Its cost is **the worst request the validation admits, times the cost of the unchanged code it reaches**: read the validation for the widest range, count or set size it lets through, then trace that through the code the entry point calls. Ask, and answer each with a citation:
+
+- Is the work **bounded before any output exists** — a cap on the range or the fan-out, not only a page size on the result?
+- Is there a **runaway guard** — a request timeout, a query time limit, a throttle or rate limit — in whatever form the stack has?
+- Do **caller retries multiply** it — a client that retries on a timeout or a 5xx repeats the whole cost, possibly across instances?
+- Does it run on **shared capacity** — synchronously on instances other traffic depends on?
+
+State the worst-case bound in numbers where the code gives them, anchored on the entry point in the diff. **New, not pre-existing:** the cost is inherited but the exposure is the PR's — new callers, or the same work on other or shared capacity, are new even when an older route already calls the same code (`reviewer-baseline` Finding Classification, rule 5). **Severity:** Critical when a caller that ships today can send the worst admitted request; Warning otherwise. **No exemption** for an internal route or an internal worker: review-context may calibrate what counts as expensive, never switch this rule off. This rule owns runaway work, missing guards and retry amplification.
+
+### A Record-Named Cost Risk
+
+When the dispatch context names a decision-record row that records a deferred, unmeasured or inherited cost, load or performance risk, that risk is required work, not context. State its worst-case bound as a finding at the severity the rules above give it. A bound the trace shows is small is still stated, at the lowest severity, with the citation that bounds it, so the caller can see the named risk was checked.
 
 ---
 
@@ -109,4 +125,4 @@ Per `reviewer-baseline`, plus an `Impact:` line between Evidence and Recommendat
 
 ## Emit deadline
 
-By **turn 10** (of your 15 maximum) you MUST be writing your result. No further tool use after turn 10 except emitting it. If a file you intended to open is still unread at turn 10, emit anyway and name the gap — `unable to verify — pointer needed: <specific file or fact>` — rather than dropping it silently. A review cut short by this deadline must **not** return `approve` with zero findings: an unfinished read is not evidence of clear code, and a caller that records the domain as reviewed on that basis is worse off than one told the read was partial.
+By **turn 10** (of your 15 maximum) you MUST be writing your result. No further tool use after turn 10 except emitting it. If a file you intended to open is still unread at turn 10, emit anyway and name the gap — `unable to verify — pointer needed: <specific file or fact>` — rather than dropping it silently. For a named cost risk whose trace is unfinished, the gap names the untraced path: the entry point's `path:line` and the last call you reached (`unable to verify — pointer needed: worst-case bound past <file:line>, reached from <entry point path:line>`). A review cut short by this deadline must **not** return `approve` with zero findings: an unfinished read is not evidence of clear code, and a caller that records the domain as reviewed on that basis is worse off than one told the read was partial.
