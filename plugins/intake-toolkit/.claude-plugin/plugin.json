@@ -1,7 +1,7 @@
 {
   "name": "intake-toolkit",
   "description": "Elicitation surface: /intake, the only way into intake — one sequence (Requirements, Split, Explore, Interview, Receipt) with one receipt writer; plan-interview for plan mode (Decision Ledger + ledger-lint, incl. the receipt provenance bar; dup-scan, the duplicate check the receipt exit runs before a ticket becomes eligible), grill-me, interviewing-baseline protocol, implementability-probe. Ships the exitplan-ledger-gate hook.",
-  "version": "7.1.0",
+  "version": "8.0.0",
   "author": {
     "name": "Manol Donev"
   }
