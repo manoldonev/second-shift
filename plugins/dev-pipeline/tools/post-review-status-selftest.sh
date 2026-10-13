@@ -74,5 +74,31 @@ run p8 7 "$SHA" "$T/approve-ok.md" "$T/rec.md" "$T/rec.md"; rc1=$?
 run p8 x "$SHA" "$T/approve-ok.md" "$T/rec.md" "$T/rec.md" https://x; rc2=$?
 [ "$rc1" -eq 2 ] && [ "$rc2" -eq 2 ] && [ -z "$(posts)" ] && ok "(p8) a missing or malformed argument is usage (exit 2)" || bad "(p8) rc=$rc1/$rc2"
 
+# (p9) #1039 AC-5 / D-10: on the handoff path an approve is held to the plan's AC coverage — the record at FIRST names
+# AC-1 and AC-8, the plan beside the record at the head tags only AC-1 (and the head's record exempts AC-8, which is not
+# what the check reads): nothing posted, exit 1, the coverage report printed
+mkdir -p "$T/head/docs/plans"
+printf '| ID | Decision |\n| --- | --- |\n| D-1 | a |\n\n## Test intent\n\nACs: AC-1 AC-8\n\nAC-1: x\nAC-8: y\n' > "$T/first.md"
+printf '| ID | Decision |\n| --- | --- |\n| D-1 | a |\n\n## Test intent\n\nACs: AC-1 AC-8\n\nAC-1: x\nAC-8: exempt — the build says so\n' > "$T/head/docs/plans/r-42-decisions.md"
+printf '%s\n' '- [ ] 1.1 a (a.spec.ts) [AC-1]' > "$T/head/docs/plans/r-42-plan.md"
+run p9 7 "$SHA" "$T/approve-ok.md" "$T/head/docs/plans/r-42-decisions.md" "$T/first.md" https://x/pr/7#c1; rc=$?
+[ "$rc" -eq 1 ] && [ -z "$(posts)" ] && grep -q "NOT posted on $SHA: the approve's plan coverage is red" "$S/out" && grep -q '^- plan-coverage: RED: AC-8 has no test task' "$S/out" \
+  && ok "(p9) an approve whose plan leaves AC-8 uncovered: no status, the coverage report printed, exit 1" || bad "(p9) rc=$rc posts='$(posts)' out=$(tr '\n' '|' < "$S/out")"
+# a needs-work posts failure whatever the coverage
+verdict needs-work honored '- [blocker] B1 AC-8 has no test' nw-cov
+run p9b 7 "$SHA" "$T/nw-cov.md" "$T/head/docs/plans/r-42-decisions.md" "$T/first.md" https://x/pr/7#c2; rc=$?
+[ "$rc" -eq 0 ] && grep -q 'state=failure' "$S/posts" && ok "(p9) a needs-work on the same red plan still posts failure" || bad "(p9b) rc=$rc posts='$(posts)'"
+# once the plan covers AC-8 the approve posts success; a missing plan is red too
+printf '%s\n' '- [ ] 1.1 a (a.spec.ts) [AC-1] [AC-8]' > "$T/head/docs/plans/r-42-plan.md"
+run p9c 7 "$SHA" "$T/approve-ok.md" "$T/head/docs/plans/r-42-decisions.md" "$T/first.md" https://x/pr/7#c1; rc=$?
+[ "$rc" -eq 0 ] && grep -q 'state=success' "$S/posts" && ok "(p9) the covering plan: the approve posts success" || bad "(p9c) rc=$rc posts='$(posts)' out=$(cat "$S/out" "$S/err")"
+rm "$T/head/docs/plans/r-42-plan.md"
+run p9d 7 "$SHA" "$T/approve-ok.md" "$T/head/docs/plans/r-42-decisions.md" "$T/first.md" https://x/pr/7#c1; rc=$?
+[ "$rc" -eq 1 ] && [ -z "$(posts)" ] && grep -q 'RED: no plan' "$S/out" && ok "(p9) no plan beside the record: no status, exit 1" || bad "(p9d) rc=$rc posts='$(posts)'"
+# a record whose Test intent cannot be read as an AC set: nothing posted, exit 2
+printf '## Test intent\n\nAC-1: x\n' > "$T/first-noacs.md"
+run p9e 7 "$SHA" "$T/approve-ok.md" "$T/head/docs/plans/r-42-decisions.md" "$T/first-noacs.md" https://x/pr/7#c1; rc=$?
+[ "$rc" -eq 2 ] && [ -z "$(posts)" ] && ok "(p9) an uncheckable coverage: nothing posted, exit 2" || bad "(p9e) rc=$rc posts='$(posts)'"
+
 echo "post-review-status-selftest: $PASS passed, $FAIL failed"
 exit "$FAIL"

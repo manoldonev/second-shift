@@ -54,3 +54,7 @@ on the PR, and (under jira `writes: false`) stripping the Atlassian write tools.
 - **Do not delete, skip or weaken a test to make a check pass.** If a test is wrong, say so in the PR.
 - **Nothing between the handoff and the PR is checked by the scheduler.** The unattended run
   re-runs the checks itself from the first commit; here that is your job, so run all of them.
+  That includes the plan's AC coverage when the record carries `## Test intent`:
+  `bash <this skill's base directory>/../../tools/plan-coverage.sh <the record at the baseline commit> <the plan>`
+  must exit 0 (or 3, not-applicable). The fresh review runs it again before it decides, and
+  `post-review-status.sh` posts no approving `second-shift/review` status while it is red.

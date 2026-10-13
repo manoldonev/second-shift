@@ -102,6 +102,14 @@
 #   `Knowledge source: failed — <text>`. An empty section, any other line that is not indented
 #   four spaces, and a `Knowledge source:` line outside those two forms are each refused.
 #
+#   `## Test intent` — mandated from v4 (#1039). One `ACs: AC-1 AC-2 …` line, the ticket's AC ids
+#   as labeled (or `ACs: none — <reason>` when the ticket has no AC block), then one line per id:
+#   `AC-n: <the observable behavior its test must prove>` or `AC-n: exempt — <reason>`. An id in
+#   `ACs:` with no line, a line whose id is not in `ACs:`, a second line for one id, a token in
+#   `ACs:` that is not `AC-<n>`, an empty behavior, an exemption with no reason, and any other line
+#   are each refused, naming it. dev-pipeline's plan-coverage.sh reads the same section from the
+#   committed record and holds the build's plan to its ids.
+#
 # Receipt mode also refuses a section title used twice: every reader takes the first copy, so
 # the second is never read.
 #
@@ -129,6 +137,7 @@ RECEIPT_SECTIONS="$(grep -v 'LOCKSTEP-' <<'TABLE'
 | Fan-out | v1 |
 | Intake steps | v2 |
 | Knowledge source | v3 |
+| Test intent | v4 |
 # LOCKSTEP-END receipt-versions
 TABLE
 )"
@@ -832,6 +841,79 @@ if (( RECEIPT == 1 )); then
     elif (( n_failed > 0 )); then KS_FORM="failed"
     else KS_FORM="malformed"; fi
   fi
+
+  # ---- Receipt check J: the test intent (#1039) ------------------------------------------
+  # Per acceptance criterion, the behavior its test must prove, or an exemption with a reason. The
+  # `ACs:` line is the id set: the lint is offline and never reads the ticket, so an id dropped while
+  # transcribing it is invisible here (the record's accepted residual). Ids compare as exact strings,
+  # never inferred from contiguity. Shape-checked wherever present; mandated from v4.
+  TI_FORM="absent"
+  if ! has_section 'test intent' "$PLAN"; then
+    if mandated 'Test intent'; then
+      violate "missing mandated receipt section: Test intent (a v$RECEIPT_V receipt opens it with 'ACs: AC-1 AC-2 …', the ticket's AC ids, or 'ACs: none — <reason>', then one line per id: 'AC-n: <the observable behavior its test must prove>' or 'AC-n: exempt — <reason>')"
+    fi
+  else
+    n_acs=0; acs_none=0; acs_ids=" "; line_ids=" "; n_exempt=0
+    while IFS= read -r line; do
+      line="${line%$'\r'}"
+      [[ "$line" =~ ^[[:space:]]*$ ]] && continue
+      if [[ "$line" =~ ^ACs:(.*)$ ]]; then
+        n_acs=$((n_acs + 1))
+        (( n_acs == 1 )) || continue
+        body="$(trim "${BASH_REMATCH[1]}")"
+        if [[ "$body" =~ ^none([^[:alnum:]_]|$) ]]; then
+          if [[ "$body" =~ ^none[[:space:]]*(—|–|-|:)[[:space:]]*.*[[:alnum:]] ]]; then acs_none=1
+          else violate "Test intent 'ACs: none' states no reason — the form is 'ACs: none — <why the ticket has no AC block>': $line"; fi
+        elif [[ -z "$body" ]]; then
+          violate "Test intent 'ACs:' line lists no id — list the ticket's AC ids as labeled, or 'ACs: none — <reason>'"
+        else
+          read -r -a toks <<< "$body"
+          for tok in "${toks[@]}"; do
+            if [[ ! "$tok" =~ ^AC-[0-9]+$ ]]; then
+              violate "Test intent 'ACs:' token '$tok' is not an AC id — the line lists 'AC-<n>' ids only, space-separated (a PM-n item is never one): $line"
+            elif [[ "$acs_ids" == *" $tok "* ]]; then
+              violate "Test intent 'ACs:' lists $tok twice"
+            else
+              acs_ids="$acs_ids$tok "
+            fi
+          done
+        fi
+      elif [[ "$line" =~ ^(AC-[0-9]+):(.*)$ ]]; then
+        id="${BASH_REMATCH[1]}"; rest="$(trim "${BASH_REMATCH[2]}")"
+        (( n_acs > 0 )) || violate "Test intent line for $id comes before the 'ACs:' line — the section opens with it"
+        if [[ "$line_ids" == *" $id "* ]]; then
+          violate "Test intent has more than one line for $id — one line per id"
+          continue
+        fi
+        line_ids="$line_ids$id "
+        if [[ -z "$rest" ]]; then
+          violate "Test intent line for $id states no behavior — say what its test must prove, or 'exempt — <reason>'"
+        elif [[ "$rest" =~ ^[Ee]xempt([^[:alnum:]_]|$) ]]; then
+          n_exempt=$((n_exempt + 1))
+          [[ "$rest" =~ ^[Ee]xempt[[:space:]]*(—|–|-|:)[[:space:]]*.*[[:alnum:]] ]] || \
+            violate "Test intent exempts $id with no reason — the form is '$id: exempt — <why no test can prove it>'"
+        fi
+      else
+        violate "Test intent line is neither the 'ACs:' line nor an 'AC-n: …' line at the start of the line: $line"
+      fi
+    done <<< "$(section_of 'test intent' "$PLAN")"
+    if (( n_acs == 0 )); then
+      violate "Test intent has no 'ACs:' line — open the section with the ticket's AC ids ('ACs: AC-1 AC-2 …') or 'ACs: none — <reason>'"
+    elif (( n_acs > 1 )); then
+      violate "Test intent carries $n_acs 'ACs:' lines — the id set is named once"
+    fi
+    for id in $acs_ids; do
+      [[ "$line_ids" == *" $id "* ]] || \
+        violate "Test intent has no line for $id — state the behavior its test must prove ('$id: <behavior>'), or exempt it with a reason ('$id: exempt — <reason>')"
+    done
+    for id in $line_ids; do
+      [[ "$acs_ids" == *" $id "* ]] || \
+        violate "Test intent has a line for $id, which the 'ACs:' line does not list — an id the ticket does not define, or one missing from 'ACs:'"
+    done
+    if (( acs_none == 1 )); then TI_FORM="none — no AC block"
+    elif (( n_acs > 0 )); then TI_FORM="$(wc -w <<< "$acs_ids" | tr -d ' ') AC(s), $n_exempt exempt"
+    else TI_FORM="malformed"; fi
+  fi
 fi
 
 echo "ledger-lint: ${ROW_COUNT} ledger row(s)"
@@ -843,6 +925,7 @@ if (( RECEIPT == 1 )); then
   echo "ledger-lint: ${FANOUT_ROW_COUNT} fan-out item(s)"
   echo "ledger-lint: ${STEP_COUNT} intake step(s)"
   echo "ledger-lint: knowledge source: ${KS_FORM}"
+  echo "ledger-lint: test intent: ${TI_FORM}"
   echo "ledger-lint: receipt v${RECEIPT_V}"
 fi
 if (( VIOLATIONS > 0 )); then

@@ -389,9 +389,9 @@ whole answer the parent's dispatch got.
 A receipt names its version once, on a line of its own before its first `##` heading:
 
 ```
-# Intake receipt — #1032 <title>
+# Intake receipt — #1039 <title>
 
-Receipt: v3
+Receipt: v4
 
 ## Intake steps
 ```
@@ -409,6 +409,7 @@ version instead of failing every receipt written before it:
 | Fan-out | v1 |
 | Intake steps | v2 |
 | Knowledge source | v3 |
+| Test intent | v4 |
 <!-- LOCKSTEP-END receipt-versions -->
 
 The lint (`ledger-lint.sh`) holds the same table and is what enforces it. It refuses two
@@ -442,6 +443,35 @@ of its line: no bullet, no indent. Its outcome is what the step did, or why it d
 empty and never a bare dash. No sub-heading inside the section: any heading ends it for every
 reader. `Sizing:` records the weight intake decided; applying the label is a tracker write made
 after the receipt lints clean, not a step of its own.
+
+### Test intent
+
+From v4 the receipt fixes, per acceptance criterion, the behavior its test must prove, so the
+build plans a test for every AC before its code:
+
+```
+## Test intent
+
+ACs: AC-1 AC-2 AC-3 AC-8
+
+AC-1: a second import of one document answers 409 and writes no row
+AC-2: an upload above 50 MB is refused before the worker runs
+AC-3: exempt — the README's import section is prose; no test can prove it
+AC-8: run.sh's checks phase runs the coverage check (a run-selftest case)
+```
+
+- **`ACs:` is the id set**, transcribed from the ticket's AC block exactly as labeled: holes stay
+  holes (a slice keeps its parent's ids), and a `PM-n` item is never in it. A ticket with no AC
+  block is `ACs: none — <reason>`. The harness never reads the ticket body; this line is what it
+  holds the plan to.
+- **One line per id**, at the start of the line: the observable behavior, or `exempt — <reason>`.
+  An exemption is the operator's answer to a question, recorded as a `user-answered` row.
+
+`ledger-lint.sh --receipt` refuses an absent section from v4, an id on `ACs:` with no line, a
+line for an id `ACs:` does not list, an exemption with no reason, and any other line. It is
+offline: an id dropped from `ACs:` is invisible to it. The scheduler reads the section from the
+record's first commit and runs `plan-coverage.sh` (dev-pipeline) on the build's plan at the head:
+every AC not exempt must be tagged on a test task, and no tag may name an id `ACs:` does not list.
 
 ### Departures
 

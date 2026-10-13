@@ -1,14 +1,15 @@
 # Intake receipt: PROJ-9999 — Fixture receipt for ledger-lint receipt mode
 
-Receipt: v3
+Receipt: v4
 
 ## Context
 
-Fixture. Exercises a well-formed v3 INTAKE receipt: every intake step in order, every Kind
+Fixture. Exercises a well-formed v4 INTAKE receipt: every intake step in order, every Kind
 value, every legal Kind/provenance pairing, a `codebase-derived` row stating the command it ran,
 one citing the knowledge source's page, an `open` row mapped to a declared region, a surface
-inventory carrying both dispositions, and a knowledge-source answer whose own heading, table row
-and version line are embedded indented, so no reader takes them for this receipt's.
+inventory carrying both dispositions, a knowledge-source answer whose own heading, table row
+and version line are embedded indented, so no reader takes them for this receipt's, and a test
+intent over non-contiguous AC ids with one exemption.
 
 ## Intake steps
 
@@ -91,6 +92,14 @@ Provider: <plugin>:<provider-agent>
 
     Gaps:
     - The base does not say how long the rows are kept.
+
+## Test intent
+
+ACs: AC-1 AC-2 AC-5
+
+AC-1: a second import of the same document by one user answers 409 and writes no row
+AC-2: an upload above 50 MB is refused before the worker runs
+AC-5: exempt — the README's import section is prose; no test can prove it
 
 ## Implementation steps
 

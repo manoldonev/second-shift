@@ -38,7 +38,9 @@
 #   4 claim      (the first write: the label swap and the claim marker, or a re-entry)
 #   5 baseline   (worktree on the branch; the record is the branch's first commit, pushed)
 #   6 rounds     (premise; worktree at the pushed head; BUILD; in-flight check; one PR;
-#                 conventions; checks from the first commit; route smoke; review input;
+#                 conventions; checks from the first commit; the plan's AC coverage
+#                 (tools/plan-coverage.sh: the record at the first commit, the plan at the head);
+#                 route smoke; review input;
 #                 REVIEW in a fresh session, re-spawned once when dark; verdict bound to the
 #                 review window, unedited, naming the current head, its body backing its own
 #                 verdict line (tools/verdict-check.sh); the bound verdict posted as the
@@ -60,7 +62,8 @@
 # exit: 0 approved · build-handoff
 #       1 stopped for a human: build-no-pr, build-inflight(-unreadable), build-blocked, pr-ambiguous,
 #         closeout-inflight(-unreadable), staleness-unreadable, verdict-uncheckable (the bound verdict's
-#         body could not be checked against the record), baseline-unwritten (a clean rebase was pushed but
+#         body could not be checked against the record), plan-coverage-uncheckable (the record's Test intent
+#         at its first commit could not be read as an AC set), baseline-unwritten (a clean rebase was pushed but
 #         the PR body's 'Record baseline:' line could not be moved to the new record commit)
 #       2 usage-* (the argv), env-* (the environment; most fire before anything is spawned, but
 #         env-not-ready, env-worktree*, env-remote-unreadable, env-tracker-unreadable and
@@ -246,6 +249,7 @@ fi
 BRANCH="${PREFIX}$(printf '%s' "$ISSUE" | tr '[:upper:]' '[:lower:]')"
 WT_ROOT="${RUN_WORKTREE_ROOT:-$(dirname "$MAIN_ROOT")/${REPO_SLUG}-worktrees}"; WT="$WT_ROOT/$ISSUE"
 RECORD_REL="$PLANS_DIR/$REPO_SLUG-$ISSUE-decisions.md"
+PLAN_REL="$PLANS_DIR/$REPO_SLUG-$ISSUE-plan.md"   # #1039 D-4: the build's test-first task plan, beside the record
 RECORD="$MAIN_ROOT/$STATE_DIR/$ISSUE-ledger.md"   # the receipt's one conventional path (/intake-toolkit:intake's Receipt stage writes it there)
 # C28 A23 D-6: caps — env, else config run.*, else the defaults; each must be a positive number, and a count or a
 # bound a positive integer: bash arithmetic and `[ -lt ]` fail on a fraction, and a failed expansion abandons the round loop
@@ -397,6 +401,9 @@ remote_head() { local out; out="$(git -C "$WT" ls-remote origin "refs/heads/$BRA
 # -- the record (rows G6, G7, H1-H4, H6, K6): read at its FIRST commit once one exists, else the receipt --
 record_at_first() { git -C "$WT" show "$FIRST:$RECORD_REL" 2>/dev/null; }
 record_text() { if [ -n "$FIRST" ]; then record_at_first; else cat "$RECORD" 2>/dev/null; fi; }
+# #1039 D-3: the build is asked for a plan only when the record at FIRST carries the section (a v4 receipt's)
+# (the caller has read the record at FIRST already; were this read to fail, plan_coverage's own read refuses the run)
+record_has_test_intent() { local r; r="$(record_at_first)" || return 1; grep -qiE '^#+[[:space:]]+test intent[[:space:]]*$' <<<"$r"; }
 # the heading rule: exact title at any depth, case-folded; ANY heading closes the section; the FIRST such section decides
 section_of() { awk -v h="$1" 'on && /^#+[[:space:]]/ {on=0; done=1} !done && tolower($0) ~ ("^#+[[:space:]]+" h "[[:space:]]*$") {on=1; next} on'; }
 design_section_of() { section_of "design( frames)?"; }
@@ -512,6 +519,31 @@ EOF
   fi
   [ "$n" -gt 0 ] || say "checks: every configured lane is when-scoped and none matched this diff — configured, not unverified"
   return $rc
+}
+# -- the plan's AC coverage (#1039 D-6 D-7 D-9): tools/plan-coverage.sh from $TOOLS (the installed plugin, outside every dir
+# the build is granted), handed the record at FIRST and the plan at the pushed head as git objects through pipes — never
+# the worktree, $STATE or the config, all of which the build can write. Not a configured lane: its exit code is the result.
+# PLAN_NOTES is the latest check's run-block lines; the plan's position is noted, never gating (#1040 owns the order) --
+PLAN_NOTES=""
+plan_coverage() { # plan_coverage <attempt> -> the script's exit: 0 pass · 1 red (the log: $STATE/plan-coverage-<attempt>.log) · 2 uncheckable · 3 not-applicable
+  local log="$STATE/plan-coverage-$1.log" out rc after pos
+  if git -C "$WT" cat-file -e "$HEAD_SHA:$PLAN_REL" 2>/dev/null; then
+    out="$(bash "$TOOLS/plan-coverage.sh" <(record_at_first) <(git -C "$WT" show "$HEAD_SHA:$PLAN_REL" 2>/dev/null) 2>&1)"; rc=$?
+  else # no such file: the script names the plan missing at the head
+    out="$(bash "$TOOLS/plan-coverage.sh" <(record_at_first) "$HEAD_SHA:$PLAN_REL" 2>&1)"; rc=$?
+  fi
+  if [ "$rc" -eq 3 ]; then
+    PLAN_NOTES="$(printf '%s' "$out" | tail -n 1 | sed 's/^plan-coverage:/plan coverage:/')"$'\n'; say "${PLAN_NOTES%$'\n'}"; return 3
+  fi
+  after="$(git -C "$WT" rev-list --reverse --first-parent "$FIRST..$HEAD_SHA" 2>/dev/null | head -n 1)"
+  if [ -z "$after" ]; then pos="no commit follows the record commit $FIRST"
+  elif [ -n "$(git -C "$WT" diff-tree --no-commit-id --name-only --diff-filter=A -r "$after" -- "$PLAN_REL" 2>/dev/null)" ]; then pos="the first commit after the record ($after) added $PLAN_REL"
+  else pos="the first commit after the record ($after) did not add $PLAN_REL"; fi
+  { echo "plan coverage: tools/plan-coverage.sh read the record at $FIRST and $PLAN_REL at $HEAD_SHA (exit $rc)"
+    printf '%s\n' "$out"; echo "plan position (noted, not checked): $pos"; } > "$log"
+  PLAN_NOTES="plan coverage at $HEAD_SHA: $(printf '%s' "$out" | tail -n 1 | sed 's/^plan-coverage: //')"$'\n'"plan position: $pos"$'\n'
+  say "plan coverage: exit $rc — $(printf '%s' "$out" | tail -n 1 | sed 's/^plan-coverage: //') (log: $log)"; say "plan position: $pos"
+  return "$rc"
 }
 
 # -- route smoke (rows C24-C26, H7-H12, H14) --
@@ -648,6 +680,9 @@ build_prompt() { # build_prompt <round> <review-findings-file-or-empty> <red-che
   else echo "Address the review below: fix each [blocker] finding, or rebut it in a PR comment, and fix each decision record row it scored violated or undeterminable (or edit that row, as the record rules below allow). A [note] finding requires nothing: fix one only if you choose to, and never rebut or reply to one. Then commit and push $BRANCH."; fi
   echo; echo "The following decisions were settled with the requester before implementation started. They are binding. The record's '## Knowledge source' and '## Fan-out' sections are context, not binding: evidence intake read, never a decision; only its D-n rows bind. The record is committed at $RECORD_REL; if you must depart from a row, edit that row in place (new resolution, provenance user-delegated, a one-line reason) and commit the edit with the code. A material decision no row covers gets a new row the same way. Commit $FIRST is the record baseline the review reads: never amend, rebase or force-push over it. Never post a comment starting with 'verdict:'."
   echo; record_at_first
+  if record_has_test_intent; then # #1039 D-4 D-5 D-6 D-12: the plan is a coverage map the scheduler checks, never a tick list
+    echo; echo "The record's '## Test intent' section names, per acceptance criterion, the observable behavior its test must prove, or an exemption with its reason. Your first commit after the record commit $FIRST is a task plan at $PLAN_REL: groups '## N. Group', tasks '- [ ] N.M Description (files)', each test task before the implementation task it covers and ending in the ids of the ACs its test proves, one bracket per id, nothing after them: '- [ ] 1.1 Description (files) [AC-1] [AC-3]'. Tag every AC the section does not exempt on at least one test task, and no id its 'ACs:' line does not list; each AC's tagged test proves the behavior its line states. A ticked box means nothing. Any line starting '- [' that is not a task in that form is unparseable. The scheduler checks the plan at the pushed head against the record at $FIRST before a review starts: an uncovered AC, an id the record does not define, a missing plan or an unparseable line comes back to you as findings and spends a checks-red attempt."
+  fi
   if [ -n "$(frames_rows)" ]; then
     echo; echo "This ticket has design frames. Follow the figma-faithful sequence: read every frame id in the '## Design frames' section first; write the token and component plan; before writing UI code, have a subagent read that plan against the frames and list what it would get wrong, then fix the plan. Render every screen with the repo's render command, open the PNG, compare it with its frame and fix what differs, up to three rounds per screen. A screen that shows an error page, a login page or a spinner is not done."
   fi
@@ -985,6 +1020,7 @@ cost_block() { # <terminal slug>
   echo "| run | outcome | rounds | verdict | reviewed head | cost | CI |"; echo "| --- | --- | --- | --- | --- | --- | --- |"
   echo "| $RUN_ID | $1 | $ROUND | ${VERDICT:-none} | ${HEAD_SHA:-—} | \$$(usd "$COST")${UNPRICED:+ + unpriced} | $CI |"; echo
   [ -z "$RUN_NOTES" ] || printf '%s' "$RUN_NOTES" | awk '{print; print ""}'
+  [ -z "$PLAN_NOTES" ] || printf '%s' "$PLAN_NOTES" | awk '{print; print ""}'       # #1039: the latest coverage check, and the plan's position
   [ -z "$STATUS_NOTES" ] || printf '%s' "$STATUS_NOTES" | awk '{print; print ""}'   # one paragraph per bound verdict's status post
   [ -z "$DRAFT_NOTES" ] || printf '%s' "$DRAFT_NOTES" | awk '{print; print ""}'     # one paragraph per draft flip worth reporting
   # #964 D-4: one denial count per session, from the denials file the scheduler wrote after it ("?" when its JSON was unread);
@@ -1314,6 +1350,12 @@ while :; do
       sync_to_remote
       CHANGED="$(git -C "$WT" -c core.quotePath=false diff --name-only "$FIRST" HEAD 2>/dev/null)" || terminal env-worktree "cannot diff $FIRST..HEAD in $WT — a diff that cannot be read must not skip every when-scoped lane"
       run_checks "$RA" || { red_attempt checks "$STATE/checks-$RA.log"; continue; }
+      plan_coverage "$RA"; pcrc=$?   # #1039: after the checks, before the smoke; not-applicable goes on
+      case "$pcrc" in
+        0|3) : ;;
+        1) red_attempt "plan coverage" "$STATE/plan-coverage-$RA.log"; continue ;;
+        *) terminal plan-coverage-uncheckable "tools/plan-coverage.sh exited $pcrc on the record at $FIRST and $PLAN_REL at $HEAD_SHA ($(tr '\n' ' ' < "$STATE/plan-coverage-$RA.log" 2>/dev/null | cut -c1-300)) — a check that cannot run is not one that passed, and no build can change the record at its first commit" ;;
+      esac
       route_smoke "$RA"; src=$?
       [ "$src" -ne 2 ] || terminal env-smoke-unconfigured "the record declares design frames but design.liveRender.command/smokeCommand is not configured"
       [ "$src" -ne 3 ] || terminal env-not-ready "readyProbe $READY_URL is not ready after 3 tries (last reading: $READY_READING) — start the service and --resume"

@@ -945,9 +945,9 @@ ck_lint "$TMP/ev-ticket.md"
 
 echo "[ledger-lint-selftest] receipt mode: the version line and ## Intake steps (#1022)"
 
-# Each case is the current-version fixture (v3 since #1032) with one thing changed, so its failure
+# Each case is the current-version fixture (v4 since #1039) with one thing changed, so its failure
 # names one cause.
-V3="$FIX/valid-receipt.md"
+VCUR="$FIX/valid-receipt.md"
 rv_case() { # rv_case <label> <receipt> <expected rc> [expected stderr fragment]
   ck_lint "$2"
   [[ "$rc" -eq "$3" ]] && { [[ -z "${4:-}" ]] || grep -qF "$4" <<< "$err"; } \
@@ -955,87 +955,87 @@ rv_case() { # rv_case <label> <receipt> <expected rc> [expected stderr fragment]
     || fail "(ll-rv) $1 — rc=$rc err=$err"
 }
 
-# (ll-rv1) the v3 fixture: seven steps, in order → 0, its version and step count reported
-ck_lint "$V3"
-[[ "$rc" -eq 0 ]] && grep -q "7 intake step(s)" <<< "$out" && grep -q "receipt v3" <<< "$out" \
-  && pass "(ll-rv1) v3 receipt with every intake step → 0, counted" \
-  || fail "(ll-rv1) v3 receipt — rc=$rc out=$out err=$err"
+# (ll-rv1) the v4 fixture: seven steps, in order → 0, its version and step count reported
+ck_lint "$VCUR"
+[[ "$rc" -eq 0 ]] && grep -q "7 intake step(s)" <<< "$out" && grep -q "receipt v4" <<< "$out" \
+  && pass "(ll-rv1) v4 receipt with every intake step → 0, counted" \
+  || fail "(ll-rv1) v4 receipt — rc=$rc out=$out err=$err"
 
 # (ll-rv2) AC-1 / AC-8: a v2-or-later receipt without the section → 1; the same receipt as v1 (no
 # line, or 'Receipt: v1') → 0, since the section is mandated only from v2
-awk '/^## Intake steps/ {skip = 1; next} skip && /^## / {skip = 0} !skip' "$V3" > "$TMP/rv-nosteps.md"
-rv_case 'v3 receipt with no Intake steps section' "$TMP/rv-nosteps.md" 1 'missing mandated receipt section: Intake steps'
-sed 's/^Receipt: v3$/Receipt: v2/' "$TMP/rv-nosteps.md" > "$TMP/rv-v2-nosteps.md"
+awk '/^## Intake steps/ {skip = 1; next} skip && /^## / {skip = 0} !skip' "$VCUR" > "$TMP/rv-nosteps.md"
+rv_case 'v4 receipt with no Intake steps section' "$TMP/rv-nosteps.md" 1 'missing mandated receipt section: Intake steps'
+sed 's/^Receipt: v4$/Receipt: v2/' "$TMP/rv-nosteps.md" > "$TMP/rv-v2-nosteps.md"
 rv_case 'the same receipt as v2' "$TMP/rv-v2-nosteps.md" 1 'missing mandated receipt section: Intake steps'
 grep -v '^Receipt:' "$TMP/rv-nosteps.md" > "$TMP/rv-v1-bare.md"
 rv_case 'the same receipt with no Receipt line (v1)' "$TMP/rv-v1-bare.md" 0
-sed 's/^Receipt: v3$/Receipt: v1/' "$TMP/rv-nosteps.md" > "$TMP/rv-v1.md"
+sed 's/^Receipt: v4$/Receipt: v1/' "$TMP/rv-nosteps.md" > "$TMP/rv-v1.md"
 rv_case "the same receipt as 'Receipt: v1'" "$TMP/rv-v1.md" 0
 
 # (ll-rv3) AC-2: a missing key, keys out of order, a key twice — each its own violation
-grep -v '^Split:' "$V3" > "$TMP/rv-nosplit.md"
+grep -v '^Split:' "$VCUR" > "$TMP/rv-nosplit.md"
 rv_case "no 'Split:' line" "$TMP/rv-nosplit.md" 1 "Intake steps has no 'Split:' line"
-awk '/^Split:/ {held = $0; next} {print} /^Explore:/ {print held}' "$V3" > "$TMP/rv-order.md"
+awk '/^Split:/ {held = $0; next} {print} /^Explore:/ {print held}' "$VCUR" > "$TMP/rv-order.md"
 rv_case 'Split after Explore' "$TMP/rv-order.md" 1 "Intake steps 'Split:' comes after 'Explore:'"
-awk '{print} /^Sizing:/ {print "Sizing: sonnet"}' "$V3" > "$TMP/rv-twice.md"
+awk '{print} /^Sizing:/ {print "Sizing: sonnet"}' "$VCUR" > "$TMP/rv-twice.md"
 rv_case "two 'Sizing:' lines" "$TMP/rv-twice.md" 1 "more than one 'Sizing:' line"
 
 # (ll-rv4) AC-2 / D-6: a section title used twice is named, at any depth and case — the record's
 # own evidence form, '## Checks' twice with the first empty, reported only "Checks has no command"
-awk '/^## Checks/ {print "## Checks"; print ""} {print}' "$V3" > "$TMP/rv-dup-checks.md"
+awk '/^## Checks/ {print "## Checks"; print ""} {print}' "$VCUR" > "$TMP/rv-dup-checks.md"
 rv_case "'## Checks' twice, the first empty" "$TMP/rv-dup-checks.md" 1 "section title 'Checks' is used twice"
-printf '\n### CONTEXT\n\nagain.\n' > "$TMP/rv-ctx.md"; cat "$V3" "$TMP/rv-ctx.md" > "$TMP/rv-dup-ctx.md"
+printf '\n### CONTEXT\n\nagain.\n' > "$TMP/rv-ctx.md"; cat "$VCUR" "$TMP/rv-ctx.md" > "$TMP/rv-dup-ctx.md"
 rv_case "'### CONTEXT' after '## Context'" "$TMP/rv-dup-ctx.md" 1 "section title 'CONTEXT' is used twice"
 
 # (ll-rv5) OR-2's grammar: an empty or dash outcome, a bulleted or indented key, a sub-heading,
 # the 'Duplicate scan' spelling — each refused; CRLF line ends tolerated
-sed 's/^Explore: .*$/Explore:/' "$V3" > "$TMP/rv-empty.md"
+sed 's/^Explore: .*$/Explore:/' "$VCUR" > "$TMP/rv-empty.md"
 rv_case "an empty 'Explore:' outcome" "$TMP/rv-empty.md" 1 "Intake steps 'Explore:' records no outcome"
-sed 's/^Explore: .*$/Explore: —/' "$V3" > "$TMP/rv-dash.md"
+sed 's/^Explore: .*$/Explore: —/' "$VCUR" > "$TMP/rv-dash.md"
 rv_case "a dash 'Explore:' outcome" "$TMP/rv-dash.md" 1 "Intake steps 'Explore:' records no outcome"
 for form in '- Split: not split' '  Split: not split'; do
-  sed "s/^Split: .*\$/$form/" "$V3" > "$TMP/rv-bullet.md"
+  sed "s/^Split: .*\$/$form/" "$VCUR" > "$TMP/rv-bullet.md"
   rv_case "the step line '$form'" "$TMP/rv-bullet.md" 1 'Intake steps line is not read as a step'
 done
-awk '/^Fan-out: ran/ {print "### Later steps"; print ""} {print}' "$V3" > "$TMP/rv-sub.md"
+awk '/^Fan-out: ran/ {print "### Later steps"; print ""} {print}' "$VCUR" > "$TMP/rv-sub.md"
 rv_case 'a sub-heading inside Intake steps' "$TMP/rv-sub.md" 1 'Intake steps carries a sub-heading'
-sed 's/^Dup-scan:/Duplicate scan:/' "$V3" > "$TMP/rv-spelling.md"
+sed 's/^Dup-scan:/Duplicate scan:/' "$VCUR" > "$TMP/rv-spelling.md"
 rv_case "'Duplicate scan:' for 'Dup-scan:'" "$TMP/rv-spelling.md" 1 "Intake steps has no 'Dup-scan:' line"
-awk '/^## / {on = /^## Intake steps/} {printf (on ? "%s\r\n" : "%s\n"), $0}' "$V3" > "$TMP/rv-crlf.md"
+awk '/^## / {on = /^## Intake steps/} {printf (on ? "%s\r\n" : "%s\n"), $0}' "$VCUR" > "$TMP/rv-crlf.md"
 rv_case 'Intake steps with CRLF line ends, heading included' "$TMP/rv-crlf.md" 0
 
 # (ll-rv6) #1023 AC-12: the step line's skip names the operator, as the section's does — the same
 # named violation; the operator's form, any case, and the failure form pass
 for form in 'Fan-out: skipped — by the session' 'Fan-out: skipped — by the orchestrator: small scope' \
             'Fan-out: skipped by operatorless default'; do
-  sed "s/^Fan-out: ran .*\$/$form/" "$V3" > "$TMP/rv-fo-step.md"
+  sed "s/^Fan-out: ran .*\$/$form/" "$VCUR" > "$TMP/rv-fo-step.md"
   rv_case "the step line '$form'" "$TMP/rv-fo-step.md" 1 'Fan-out skip does not name the operator'
 done
 for form in 'Fan-out: skipped — by the operator at the intake notice' "Fan-out: Skipped — By The Operator's call" \
             'Fan-out: failed — Workflow tool unavailable in this session'; do
-  sed "s/^Fan-out: ran .*\$/$form/" "$V3" > "$TMP/rv-fo-step.md"
+  sed "s/^Fan-out: ran .*\$/$form/" "$VCUR" > "$TMP/rv-fo-step.md"
   rv_case "the step line '$form'" "$TMP/rv-fo-step.md" 0
 done
 
 # (ll-rv6) AC-10 / D-4: the version line is once, before the first '##' heading, in its form
-awk '{print} /^Receipt:/ {print $0}' "$V3" > "$TMP/rv-two-lines.md"
+awk '{print} /^Receipt:/ {print $0}' "$VCUR" > "$TMP/rv-two-lines.md"
 rv_case "two 'Receipt:' lines" "$TMP/rv-two-lines.md" 1 "carries 2 'Receipt:' lines"
-grep -v '^Receipt:' "$V3" | awk '{print} /^## Checks$/ {print ""; print "Receipt: v3"}' > "$TMP/rv-in-section.md"
-rv_case "'Receipt: v3' inside the Checks section" "$TMP/rv-in-section.md" 1 "'Receipt:' line inside a '##' section"
-for bad in 'Receipt: 3' 'Receipt: v0' 'receipt: v3' 'Receipt: v3 draft'; do
-  sed "s/^Receipt: v3\$/$bad/" "$V3" > "$TMP/rv-form.md"
+grep -v '^Receipt:' "$VCUR" | awk '{print} /^## Checks$/ {print ""; print "Receipt: v4"}' > "$TMP/rv-in-section.md"
+rv_case "'Receipt: v4' inside the Checks section" "$TMP/rv-in-section.md" 1 "'Receipt:' line inside a '##' section"
+for bad in 'Receipt: 4' 'Receipt: v0' 'receipt: v4' 'Receipt: v4 draft'; do
+  sed "s/^Receipt: v4\$/$bad/" "$VCUR" > "$TMP/rv-form.md"
   rv_case "the version line '$bad'" "$TMP/rv-form.md" 1 'malformed version line'
 done
 
 # (ll-rv7) AC-11 / AC-12: --receipt-version prints the highest version the lint knows — a receipt
 # at that version lints, one above it is refused as newer than the lint
 known="$(bash "$LINT" --receipt-version 2>/dev/null)" && rc=0 || rc=$?
-[[ "$rc" -eq 0 && "$known" =~ ^[0-9]+$ ]] && (( known >= 3 )) \
-  && pass "(ll-rv7) --receipt-version prints a version, at least v3 → $known" \
+[[ "$rc" -eq 0 && "$known" =~ ^[0-9]+$ ]] && (( known >= 4 )) \
+  && pass "(ll-rv7) --receipt-version prints a version, at least v4 → $known" \
   || fail "(ll-rv7) --receipt-version — rc=$rc out=$known"
-sed "s/^Receipt: v3\$/Receipt: v$known/" "$V3" > "$TMP/rv-known.md"
+sed "s/^Receipt: v4\$/Receipt: v$known/" "$VCUR" > "$TMP/rv-known.md"
 rv_case "a receipt at the lint's highest version, v$known" "$TMP/rv-known.md" 0
-sed "s/^Receipt: v3\$/Receipt: v$((known + 1))/" "$V3" > "$TMP/rv-newer.md"
+sed "s/^Receipt: v4\$/Receipt: v$((known + 1))/" "$VCUR" > "$TMP/rv-newer.md"
 rv_case "a receipt at v$((known + 1)), above what the lint knows" "$TMP/rv-newer.md" 1 'newer than this lint knows'
 
 # (ll-rv8) D-15: the version line and the steps are receipt-mode only — the ExitPlanMode hook's
@@ -1052,11 +1052,11 @@ rc=$(lint_rc "$TMP/rv-plan.md")
 
 echo "[ledger-lint-selftest] receipt mode: ## Knowledge source (#1032)"
 
-# Each case is the v3 fixture with its Knowledge source section swapped for one body (moved to the
+# Each case is the v4 fixture with its Knowledge source section swapped for one body (moved to the
 # end of the receipt), so its failure names one cause.
-awk '/^## Knowledge source$/ {skip = 1; next} skip && /^## / {skip = 0} !skip' "$V3" > "$TMP/ks-base.md"
+awk '/^## Knowledge source$/ {skip = 1; next} skip && /^## / {skip = 0} !skip' "$VCUR" > "$TMP/ks-base.md"
 ks_case() { # ks_case <label> <section body> <expected rc> [expected stderr fragment] [receipt version]
-  sed "s/^Receipt: v3\$/Receipt: ${5:-v3}/" "$TMP/ks-base.md" > "$TMP/ks.md"
+  sed "s/^Receipt: v4\$/Receipt: ${5:-v4}/" "$TMP/ks-base.md" > "$TMP/ks.md"
   printf '\n## Knowledge source\n\n%s\n' "$2" >> "$TMP/ks.md"
   ck_lint "$TMP/ks.md"
   [[ "$rc" -eq "$3" ]] && { [[ -z "${4:-}" ]] || grep -qF "$4" <<< "$err"; } \
@@ -1066,19 +1066,19 @@ ks_case() { # ks_case <label> <section body> <expected rc> [expected stderr frag
 ANSWER=$'Provider: <plugin>:<provider-agent>\n\n    Import audit rows are retained.\n\n    Sources:\n    - <kb-page>'
 
 # (ll-ks1) D-8: the fixture's answer carries its own heading, a '| D-9 |' row and a 'Receipt: v1'
-# line, indented — none of them is read as this receipt's: six ledger rows, v3, no violation
-ck_lint "$V3"
-[[ "$rc" -eq 0 ]] && grep -q "6 ledger row(s)" <<< "$out" && grep -q "knowledge source: provider" <<< "$out" && grep -q "receipt v3" <<< "$out" \
+# line, indented — none of them is read as this receipt's: six ledger rows, v4, no violation
+ck_lint "$VCUR"
+[[ "$rc" -eq 0 ]] && grep -q "6 ledger row(s)" <<< "$out" && grep -q "knowledge source: provider" <<< "$out" && grep -q "receipt v4" <<< "$out" \
   && pass "(ll-ks1) an indented answer's heading, row and version line stay out of the receipt's own reads → 0" \
   || fail "(ll-ks1) the embedded answer leaked — rc=$rc out=$out err=$err"
 
-# (ll-ks2) AC-13: a v3 receipt with no section → 1, naming the three forms; at v2 it is not mandated → 0
+# (ll-ks2) AC-13: a v3-or-later receipt with no section → 1, naming the three forms; at v2 it is not mandated → 0
 cp "$TMP/ks-base.md" "$TMP/ks-absent.md"
 ck_lint "$TMP/ks-absent.md"
 [[ "$rc" -eq 1 ]] && grep -q "missing mandated receipt section: Knowledge source" <<< "$err" && grep -qF "Knowledge source: none declared" <<< "$err" \
-  && pass "(ll-ks2) v3 receipt with no Knowledge source section → 1, naming the section and its forms" \
+  && pass "(ll-ks2) v4 receipt with no Knowledge source section → 1, naming the section and its forms" \
   || fail "(ll-ks2) missing Knowledge source — rc=$rc err=$err"
-sed 's/^Receipt: v3$/Receipt: v2/' "$TMP/ks-base.md" > "$TMP/ks-absent-v2.md"
+sed 's/^Receipt: v4$/Receipt: v2/' "$TMP/ks-base.md" > "$TMP/ks-absent-v2.md"
 ck_lint "$TMP/ks-absent-v2.md"
 [[ "$rc" -eq 0 ]] && grep -q "knowledge source: absent" <<< "$out" \
   && pass "(ll-ks2) the same receipt as v2 → 0: the section is mandated only from v3" \
@@ -1123,6 +1123,80 @@ rc=$(lint_rc "$TMP/ks-plan.md")
 [[ "$rc" -eq 0 ]] \
   && pass "(ll-ks5) a malformed Knowledge source in an in-plan ledger, default mode → 0" \
   || fail "(ll-ks5) knowledge-source rules leaked into default mode — rc=$rc"
+
+echo "[ledger-lint-selftest] receipt mode: ## Test intent (#1039)"
+
+# Each case is the v4 fixture with its Test intent section swapped for one body (moved to the end
+# of the receipt), so its failure names one cause.
+awk '/^## Test intent$/ {skip = 1; next} skip && /^## / {skip = 0} !skip' "$VCUR" > "$TMP/ti-base.md"
+ti_case() { # ti_case <label> <section body> <expected rc> [expected stderr fragment] [receipt version]
+  sed "s/^Receipt: v4\$/Receipt: ${5:-v4}/" "$TMP/ti-base.md" > "$TMP/ti.md"
+  printf '\n## Test intent\n\n%s\n' "$2" >> "$TMP/ti.md"
+  ck_lint "$TMP/ti.md"
+  [[ "$rc" -eq "$3" ]] && { [[ -z "${4:-}" ]] || grep -qF -- "$4" <<< "$err"; } \
+    && pass "(ll-ti) $1 → $3${4:+, named}" \
+    || fail "(ll-ti) $1 — rc=$rc err=$err"
+}
+
+# (ll-ti1) the fixture: AC-1 AC-2 AC-5 (non-contiguous, D-13), one exempt → 0, counted
+ck_lint "$VCUR"
+[[ "$rc" -eq 0 ]] && grep -q "test intent: 3 AC(s), 1 exempt" <<< "$out" \
+  && pass "(ll-ti1) the fixture's test intent over AC-1 AC-2 AC-5, one exempt → 0, counted" \
+  || fail "(ll-ti1) valid test intent — rc=$rc out=$out err=$err"
+
+# (ll-ti2) AC-1 / D-2: a v4 receipt with no section → 1, naming it; the same receipt as v3 → 0 (v1–v3 keep linting clean)
+cp "$TMP/ti-base.md" "$TMP/ti-absent.md"
+ck_lint "$TMP/ti-absent.md"
+[[ "$rc" -eq 1 ]] && grep -q "missing mandated receipt section: Test intent" <<< "$err" \
+  && pass "(ll-ti2) v4 receipt with no Test intent section → 1, named" \
+  || fail "(ll-ti2) missing Test intent — rc=$rc err=$err"
+sed 's/^Receipt: v4$/Receipt: v3/' "$TMP/ti-base.md" > "$TMP/ti-absent-v3.md"
+ck_lint "$TMP/ti-absent-v3.md"
+[[ "$rc" -eq 0 ]] && grep -q "test intent: absent" <<< "$out" \
+  && pass "(ll-ti2) the same receipt as v3 → 0: the section is mandated only from v4" \
+  || fail "(ll-ti2) Test intent mandated below v4 — rc=$rc err=$err"
+
+# (ll-ti3) AC-1: an AC with no intent and no exemption fails, naming it — every missing one, not the first
+ti_case 'AC-8 listed with no line' $'ACs: AC-1 AC-8\n\nAC-1: a duplicate import answers 409' 1 'Test intent has no line for AC-8'
+ti_case 'two ACs with no line' $'ACs: AC-1 AC-3 AC-4\n\nAC-1: a duplicate import answers 409' 1 'Test intent has no line for AC-4'
+grep -qF 'Test intent has no line for AC-3' <<< "$err" || fail "(ll-ti3) the first missing id was not named — err=$err"
+# D-1: a line for an id the 'ACs:' line does not list
+ti_case 'a line for an unlisted id' $'ACs: AC-1\n\nAC-1: a duplicate import answers 409\nAC-7: an upload above 50 MB is refused' 1 'Test intent has a line for AC-7, which the'
+# D-13: ids are exact strings — AC-01 is not AC-1
+ti_case 'AC-01 for AC-1' $'ACs: AC-1\n\nAC-01: a duplicate import answers 409' 1 'Test intent has no line for AC-1'
+
+# (ll-ti4) the explicit forms → 0: an exemption with a reason, any dash; no AC block with a reason; v3 carrying the section
+ti_case 'every AC exempt' $'ACs: AC-2\n\nAC-2: exempt - the change is docs only' 0
+ti_case "'ACs: none — <reason>'" 'ACs: none — the ticket has no AC block' 0
+grep -q "test intent: none — no AC block" <<< "$out" || fail "(ll-ti4) the none form not reported — out=$out"
+ti_case 'a v3 receipt carrying a well-formed section' $'ACs: AC-1\n\nAC-1: a duplicate import answers 409' 0 '' v3
+ti_case 'CRLF line ends' "$(printf '%s\r\n' 'ACs: AC-1 AC-2' '' 'AC-1: a duplicate import answers 409' 'AC-2: exempt — docs')" 0
+
+# (ll-ti5) each refusal → 1, naming its own cause
+ti_case 'an empty section' '' 1 "Test intent has no 'ACs:' line"
+ti_case 'an exemption with no reason' $'ACs: AC-1\n\nAC-1: exempt' 1 'Test intent exempts AC-1 with no reason'
+ti_case 'a line with no behavior' $'ACs: AC-1\n\nAC-1:' 1 'Test intent line for AC-1 states no behavior'
+ti_case "a bare 'ACs: none'" 'ACs: none' 1 "Test intent 'ACs: none' states no reason"
+ti_case "an empty 'ACs:' line" $'ACs:\n\nAC-1: x' 1 "Test intent 'ACs:' line lists no id"
+ti_case 'a PM-n id in ACs' $'ACs: AC-1 PM-1\n\nAC-1: a duplicate import answers 409' 1 "Test intent 'ACs:' token 'PM-1' is not an AC id"
+ti_case 'a comma list in ACs' $'ACs: AC-1, AC-2\n\nAC-1: x\nAC-2: y' 1 "Test intent 'ACs:' token 'AC-1,' is not an AC id"
+ti_case 'an id listed twice' $'ACs: AC-1 AC-1\n\nAC-1: x' 1 "Test intent 'ACs:' lists AC-1 twice"
+ti_case "two 'ACs:' lines" $'ACs: AC-1\nACs: AC-2\n\nAC-1: x' 1 "carries 2 'ACs:' lines"
+ti_case 'two lines for one id' $'ACs: AC-1\n\nAC-1: x\nAC-1: y' 1 'Test intent has more than one line for AC-1'
+ti_case 'an AC line before the ACs line' $'AC-1: x\nACs: AC-1' 1 "Test intent line for AC-1 comes before the 'ACs:' line"
+ti_case 'a bulleted AC line' $'ACs: AC-1\n\n- AC-1: a duplicate import answers 409' 1 'Test intent line is neither'
+ti_case 'prose in the section' $'ACs: AC-1\n\nAC-1: x\nSee the ticket for the rest.' 1 'Test intent line is neither'
+
+# (ll-ti6) receipt-mode only: an in-plan ledger with a malformed Test intent lints clean by default
+printf '%s\n' '# P' '## Decision Ledger' \
+  '| ID  | Decision | Resolution | Provenance |' \
+  '| --- | -------- | ---------- | ---------- |' \
+  '| D-1 | Rate limit for the import endpoint | 100/min | user-answered |' \
+  '' '## Test intent' '' 'AC-1: exempt' > "$TMP/ti-plan.md"
+rc=$(lint_rc "$TMP/ti-plan.md")
+[[ "$rc" -eq 0 ]] \
+  && pass "(ll-ti6) a malformed Test intent in an in-plan ledger, default mode → 0" \
+  || fail "(ll-ti6) test-intent rules leaked into default mode — rc=$rc"
 
 echo
 echo "[ledger-lint-selftest] summary: $PASS passed, $FAIL failed"
