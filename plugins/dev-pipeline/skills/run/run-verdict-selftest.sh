@@ -109,7 +109,7 @@ fixture kb; printf 'build-pr\nreview-approve-kb\n' > "$FAKE_CLAUDE_PLAN"; run_ca
 grep -qF "Knowledge-base contributions: when review-lead's report has a \`### Knowledge-base contributions\` block, carry it into the verdict's \`## Notes\` as review-lead wrote it" "$FAKE_GH/prompt-2.txt" \
   && grep -qF 'do not apply it again, and add, drop or reword no proposal' "$FAKE_GH/prompt-2.txt" && grep -qF 'Carry the whole list on every verdict' "$FAKE_GH/prompt-2.txt" && ! grep -q 'LOCKSTEP-' "$FAKE_GH/prompt-2.txt" \
   && ok "(kb) D-1 D-3: the review prompt tells the verdict session to carry review-lead's block whole, on every verdict, without re-applying the test" || bad "(kb) D-1: the carry instruction is missing from the review prompt"
-[ "$(wc -l < "$FAKE_GH/statuses" 2>/dev/null)" -eq 1 ] && grep -q 'state=success' "$FAKE_GH/statuses" && jq -r '.[0].body' "$FAKE_GH/comments.json" | grep -qx 'Knowledge-base contributions:' \
+[ "$(wc -l < "$FAKE_GH/statuses" 2>/dev/null)" -eq 1 ] && grep -q 'state=success' "$FAKE_GH/statuses" && jq -e '.[0].body | split("\n") | any(. == "Knowledge-base contributions:")' "$FAKE_GH/comments.json" >/dev/null \
   && ok "(kb) AC-10: verdict-check binds the verdict with its contributions lines: one success status" || bad "(kb) AC-10: statuses=$(tr '\n' '|' < "$FAKE_GH/statuses" 2>/dev/null)"
 
 # (m) rounds spent
