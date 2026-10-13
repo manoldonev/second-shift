@@ -593,11 +593,12 @@ fails_without_change() { # fails_without_change <attempt> -> 0 pass · 1 red (th
   { echo "fails without the change: the head's tagged test files at $HEAD_SHA applied onto the record commit's tree $FIRST; each must fail there"; echo; } > "$log"
   while read -r kind id f; do
     [ -n "$f" ] || continue
+    # D-19: a tagged file the head does not carry is red whatever its AC's kind — a holds or unchecked AC is no more covered by a fictitious path
+    if ! git -C "$WT" cat-file -e "$HEAD_SHA:$f" 2>/dev/null; then echo "RED: $id — $f does not exist at $HEAD_SHA" >> "$log"; red=$((red+1)); continue; fi
     case "$kind" in
       holds) notes="$notes$id holds — $f is not run for it: the checks at the head prove it"$'\n' ;;
       unchecked) notes="$notes$id unchecked — $f is noted, not run"$'\n' ;;
-      *) if ! git -C "$WT" cat-file -e "$HEAD_SHA:$f" 2>/dev/null; then echo "RED: $id — $f does not exist at $HEAD_SHA" >> "$log"; red=$((red+1))
-         elif ! cmd="$(runner_for "$f")" || [ -z "$cmd" ]; then
+      *) if ! cmd="$(runner_for "$f")" || [ -z "$cmd" ]; then
            echo "RED: $id — $f matches no configured test runner (commands.$key.testRunners), and the record does not mark $id unchecked" >> "$log"; red=$((red+1))
          else runs="$runs$f"$'\t'"$cmd"$'\n'; fi ;;
     esac

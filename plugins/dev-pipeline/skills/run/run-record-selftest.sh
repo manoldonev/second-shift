@@ -269,8 +269,9 @@ expect plan-coverage-uncheckable "(pc6) a record whose Test intent carries no AC
 # src/a.ts is 'y' at the record commit; each build writes 'fixed' into it with the tests of its tree-<n>
 FW_TI=$'\n## Test intent\n\nACs: AC-1 AC-2 AC-3 AC-4\n\nAC-1: the worker writes fixed\nAC-2: holds — the worker file still exists\nAC-3: unchecked — api tier; needs the running app\nAC-4: exempt — the README is prose\n'
 FW_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"commands":{"main":{"test":"bash src/b.check.sh","testRunners":[{"when":["*.check.sh"],"command":"bash {file}"}]}}}'
-fw_plan() { # fw_plan <call> [AC-1's files] -> $FAKE_GH/plan-<call>.md
-  printf '# Plan\n\n## 1. Tests\n\n- [ ] 1.1 the worker writes fixed (%s) [AC-1]\n- [ ] 1.2 the worker still exists (src/c.check.sh) [AC-2]\n- [ ] 1.3 the api tier (api/x.api.ts) [AC-3]\n\n## 2. Implementation\n\n- [ ] 2.1 the worker (src/a.ts)\n' "${2:-src/b.check.sh}" > "$FAKE_GH/plan-$1.md"
+fw_plan() { # fw_plan <call> [AC-1's files] [AC-2's] [AC-3's] -> $FAKE_GH/plan-<call>.md
+  printf '# Plan\n\n## 1. Tests\n\n- [ ] 1.1 the worker writes fixed (%s) [AC-1]\n- [ ] 1.2 the worker still exists (%s) [AC-2]\n- [ ] 1.3 the api tier (%s) [AC-3]\n\n## 2. Implementation\n\n- [ ] 2.1 the worker (src/a.ts)\n' \
+    "${2:-src/b.check.sh}" "${3:-src/c.check.sh}" "${4:-api/x.api.ts}" > "$FAKE_GH/plan-$1.md"
 }
 fw_tree() { # fw_tree <call> <src/b.check.sh, AC-1's test> -> $FAKE_GH/tree-<call>: the worker, AC-1's test, AC-2's (passes with or without the change), AC-3's
   local t="$FAKE_GH/tree-$1"; mkdir -p "$t/src" "$t/api"
@@ -305,14 +306,19 @@ grep -qE "^fails without the change at [0-9a-f]{40}: pass — 1 tagged file\(s\)
   && ok "(fw2) S-1: the run block carries the pass and the holds and unchecked notes" || bad "(fw2) run block: $(grep 'without the change' "$FAKE_GH/pr-body.md" | tr '\n' '|')"
 grep -q 'every one must fail there' "$FAKE_GH/prompt-1.txt" && ok "(fw2) S-3: the build prompt says each tagged test file must fail without the change" || bad "(fw2) the build prompt has no fails-without-the-change instruction"
 # (fw3) D-11: a tagged file no runner matches, its AC not marked unchecked, and one the head does not carry — each red, named,
-# beside the file that did run; the worktree is back on its branch at the head afterwards
-FIXTURE_CONFIG="$FW_CONFIG" fixture_v4 fw3 "$FW_TI"; fw_plan 1 'src/b.check.sh, src/b.spec.ts, src/gone.check.sh'; fw_tree 1 'grep -qx fixed src/a.ts'; echo 'it("y", () => {});' > "$FAKE_GH/tree-1/src/b.spec.ts"
+# beside the file that did run; D-19: a holds and an unchecked AC tagged on a file the head does not carry are red too, never
+# noted as proven; the worktree is back on its branch at the head afterwards
+FIXTURE_CONFIG="$FW_CONFIG" fixture_v4 fw3 "$FW_TI"; fw_plan 1 'src/b.check.sh, src/b.spec.ts, src/gone.check.sh' 'src/c.check.sh, src/gone-holds.check.sh' 'api/gone.api.ts'
+fw_tree 1 'grep -qx fixed src/a.ts'; echo 'it("y", () => {});' > "$FAKE_GH/tree-1/src/b.spec.ts"
 printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=1 run_case "$d"
 expect checks-red-spent "(fw3) a red fails-without-the-change check on the last checks-red attempt"
 grep -q 'terminal: checks-red-spent — fails without the change red 1 times' <<<"$OUT" \
   && grep -q 'RED: AC-1 — src/b.spec.ts matches no configured test runner (commands.main.testRunners), and the record does not mark AC-1 unchecked' "$(SD)/fails-without-1.1.log" \
   && grep -q 'RED: AC-1 — src/gone.check.sh does not exist at [0-9a-f]*' "$(SD)/fails-without-1.1.log" && grep -q 'ok: AC-1 — src/b.check.sh fails' "$(SD)/fails-without-1.1.log" \
   && ok "(fw3) D-11: an unmatched and a missing tagged file are red, each named; S-9: the spent detail names the check" || bad "(fw3) $(grep -E 'fails without|terminal' <<<"$OUT" | tr '\n' '|') log: $(tr '\n' '|' < "$(SD)/fails-without-1.1.log")"
+grep -q 'RED: AC-2 — src/gone-holds.check.sh does not exist at [0-9a-f]*' "$(SD)/fails-without-1.1.log" && grep -q 'RED: AC-3 — api/gone.api.ts does not exist at [0-9a-f]*' "$(SD)/fails-without-1.1.log" \
+  && grep -q 'AC-2 holds — src/c.check.sh is not run for it' "$(SD)/fails-without-1.1.log" && ! grep -qE 'gone-holds.check.sh is not run|gone.api.ts is noted' "$(SD)/fails-without-1.1.log" \
+  && ok "(fw3) D-19: a holds and an unchecked AC's missing files are red, not noted" || bad "(fw3) D-19 log: $(tr '\n' '|' < "$(SD)/fails-without-1.1.log")"
 fw_restored && ok "(fw3) D-7: the worktree is back on its branch at the head, clean, the red-tree mark gone" || bad "(fw3) worktree: $(git -C "$d/wt/42" status --short --branch | tr '\n' '|')"
 # (fw4) D-7: a launch that finds the worktree left on the red tree (the mark, detached at the record commit, a tagged file
 # applied — a run killed mid-check) puts it back on the branch before anything else, and the run goes on
