@@ -300,7 +300,7 @@ else
     bad "a TODO:-prefixed body must be EMPTY-SECTION red at preflight (rc=$RC)"
 fi
 
-# ---- (13) #1032 AC-11: intake-context.md is a second target --------------------------------
+# ---- (12) #1032 AC-11: intake-context.md is a second target --------------------------------
 # A misspelled section is flagged, an empty one is red at --preflight, a filled one is covered —
 # as for review-context.md. Headings are checked against their own file's sections only.
 ic() {  # ic <root> <intake-context body> — writes .claude/second-shift/intake-context.md
@@ -371,7 +371,7 @@ else
     bad "#1032: a section in the other file should be off-catalog (rc=$RC): $OUT"
 fi
 
-# ---- (14) #1033 D-9: the knowledge-base sink is a review-context.md section read by review-lead ----
+# ---- (13) #1033 D-9: the knowledge-base sink is a review-context.md section read by review-lead ----
 # review-lead is no effective-registry member, so without its declared `reader:` token its absent
 # section would be filtered out of the degraded readers silently (#1032 F-19's failure, one file over).
 mkdir -p "$TMP/k1/.claude/second-shift"
@@ -398,7 +398,7 @@ else
     bad "#1033 D-10: a TODO-bodied sink section should be EMPTY-SECTION red (rc=$RC): $OUT"
 fi
 
-# ---- (12) the skip path must be UNREACHABLE in the monorepo -----------------------------
+# ---- (14) the skip path must be UNREACHABLE in the monorepo -----------------------------
 # Deleting the docs from the working tree cannot prove that: the deletion would also have to
 # survive into whatever tree the probe reads. So FABRICATE one — a root carrying the monorepo
 # markers and NOT the artifact, with a copy of this directory at exactly the depth the probe
