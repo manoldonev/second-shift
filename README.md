@@ -34,7 +34,7 @@ To turn a plugin off for yourself, use `.claude/settings.local.json` (git ignore
 - [ ] `gh auth status` is green, with write access to the repo
 - [ ] `git`, `jq`, `bash` and `node` on your `PATH` (the review and intake workflows run under node; your stack does not have to be JS)
 - [ ] A GitHub repo with Issues turned on, or a JIRA project with the Atlassian MCP connected in Claude Code ([the JIRA tracker README](plugins/dev-pipeline/tools/tracker/jira/README.md))
-- [ ] If screens come from Figma: the Figma plugin, or a Figma MCP server named `figma`; a run's sessions see no other name
+- [ ] If screens come from Figma: the Figma plugin, or a Figma MCP server named `figma`; a run's sessions see no other name. You also need a Dev or Full Figma seat, on a paid plan that owns the file: other seats get 6 MCP calls a month, too few to build one frame ([Figma's limits](https://developers.figma.com/docs/figma-mcp-server/rate-limits-access/))
 - [ ] You know the repo's real install, lint, typecheck and test commands. Setup detects them for JS package managers and Makefiles; on any other stack you type them in.
 
 ### 2. Install
@@ -161,9 +161,9 @@ Any other stop explains itself on the line just above `terminal:`, and a claimed
 | Plugin | What you get |
 | --- | --- |
 | **intake-toolkit** | `/intake-toolkit:intake`: the questions before the build, written into the intake record. |
-| **dev-pipeline** | `/dev-pipeline:run`: a ticket to a reviewed PR. `/dev-pipeline:review`: a review by hand. |
+| **dev-pipeline** | `/dev-pipeline:run`: a ticket to a reviewed PR. `/dev-pipeline:build` and `/dev-pipeline:review`: the build and the review by hand. |
 | **review-toolkit** | The reviewers. A pipeline round runs the scope reviewer; security, accessibility and test-mutation reviewers are opt-in. |
-| **design-toolkit** | Builds screens faithful to a Claude Design or Figma handoff. Offered when the repo has a UI. |
+| **design-toolkit** | Builds screens faithful to a Claude Design or Figma handoff (Figma needs a Dev or Full seat). Offered when the repo has a UI. |
 | **audit-toolkit** | A per-repo log of the tools the agent actually called, with `/audit-toolkit:audit`. |
 | **second-shift** | `/second-shift:onboard` and `/second-shift:doctor`. Installed once per machine. |
 
