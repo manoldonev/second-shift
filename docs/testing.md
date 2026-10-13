@@ -45,6 +45,12 @@ framing, in worklist order. Ordering by worklist rather than by completion is wh
 identical at `SELFTEST_JOBS=1` and `SELFTEST_JOBS=4` — a diff of the two runs' group headers is a
 real assertion, and `tools/run-selftests-selftest.sh` makes it.
 
+**`--shard <i>/<n>` is how CI spreads one sweep over runners.** It deals the sorted, post-exclusion
+list round-robin, so the `n` shards of a lane are exactly the unsharded sweep. Each CI lane is a
+matrix of shards (`selftests-ubuntu`, `selftests-bash32-shard`). An aggregate job carries the
+check name the `main` ruleset requires (`lint-and-selftests`, `selftests (macos, bash 3.2)`), so
+renaming a lane's jobs means editing the ruleset too.
+
 **Why a script and not a `-P` flag.** Bolting `-P 4` onto a `find … | xargs` loop fixes the clock
 and destroys the log: at four concurrent suites the raw streams braid, and a FAIL line no longer
 belongs to any identifiable suite. Per-suite capture and ordered replay is the whole reason this is
@@ -64,8 +70,8 @@ follows:
 | no suites discovered, or every suite excluded | exit 2 — a sweep that runs nothing is never green |
 
 `--exclude` has three in-repo callers, all passing `--full --exclude
-tools/install-topology-selftest.sh`: both CI selftest jobs (`lint-and-selftests`,
-`selftests-bash32` in `ci.yml`) and the nightly wholesale lane (`wholesale-selftests` in
+tools/install-topology-selftest.sh`: both CI selftest lanes (`selftests-ubuntu`,
+`selftests-bash32-shard` in `ci.yml`) and the nightly wholesale lane (`wholesale-selftests` in
 `nightly-guards.yml`). Inside the sweep the install-topology guard would contend with the very
 suites it re-runs from the install cache, which is what the install-topology section below
 measures. `install-topology-selftest.sh` itself runs in its own event-triggered jobs
@@ -84,7 +90,8 @@ shell expands the path before `mktemp` ever runs, so it is honored unconditional
 `mktemp -d -t <name>` (which on macOS resolves against `_CS_DARWIN_USER_TEMP_DIR` and ignores
 `TMPDIR` outright) or a bare `mktemp -d` (which *is* `-t tmp` — same resolution, no third form to
 fall back on). The sweep runner's own state dir — its worklist and cache bookkeeping plus each
-suite's captured `log`/`rc`/`secs` — is one of them, and so is `run-selftest.sh`:
+suite's captured `log`/`rc`/`secs` — is one of them, and so is `run-selftest-lib.sh`, the scenario
+slices' shared harness:
 
 ```sh
 BASE="$(mktemp -d "${TMPDIR:-/tmp}/run-selftests.XXXXXX")" || die "mktemp failed"
@@ -285,15 +292,17 @@ pyramid, plus one tier that is honest about being outside CI.
 | --- | --- | --- |
 | Unit | Per-tool behavioral selftests — execute one script against tempdir fixtures, assert exit code / output / state | Established |
 | Contract | `check-lockstep-pairs.sh` — `LOCKSTEP` marker groups discovered from the tree and compared; + registry and schema lints (config-lint ↔ schema, model tiers, text-contract carriers) | Established |
-| Integration | `plugins/dev-pipeline/skills/run/run-selftest.sh` — the scheduler driven end to end against a fake `claude` and a fake `gh`, one case per scheduler behavior | Established |
+| Integration | `plugins/dev-pipeline/skills/run/run*-selftest.sh` — the scheduler driven end to end against a fake `claude` and a fake `gh`, one case per scheduler behavior | Established |
 | Runtime | `plugins/review-toolkit/workflows/runtime-shim-selftest.mjs` — executes real Workflow `.mjs` bodies with injected fakes | Established |
 | Install topology | `tools/install-topology-selftest.sh` — every shipped suite re-run from a version-keyed install cache | Established |
 | Adversarial | Model-tier audit workflows — **operator-run, never CI** | This document |
 
-### The lane's scenario: `run-selftest.sh`
+### The lane's scenario: `run*-selftest.sh`
 
-The lane is one script, `plugins/dev-pipeline/skills/run/run.sh`, and its test story is one suite.
-`run-selftest.sh` puts a fake `claude` and a fake `gh` on the path (`RUN_CLAUDE`, `RUN_GH`), builds
+The lane is one script, `plugins/dev-pipeline/skills/run/run.sh`, and its test story is one scenario,
+split into slices (`run-selftest.sh`, `run-queue-selftest.sh`, … `run-verdict-selftest.sh`) only so the
+sweep runs them concurrently — as one suite it was most of a CI run's wall clock. Every slice sources
+`run-selftest-lib.sh`, which puts a fake `claude` and a fake `gh` on the path (`RUN_CLAUDE`, `RUN_GH`), builds
 a fixture per case — a bare origin, a main checkout with a config and an intake record, an empty
 worktree root — and drives `run.sh` to a terminal. Each fake session plays one scripted behavior
 (`build-pr`, `review-approve`, `review-wrong-sha`, `build-stubborn`, …) from a plan file, so a case
@@ -329,7 +338,8 @@ it.
 
 **Prefer one composed scenario to N component checks.** A path can die with dozens of green
 selftests when every one of them checks a component against itself. If a change adds a lane
-verdict path, extend `run-selftest.sh`.
+verdict path, extend the `run*-selftest.sh` slice it sits beside. A slice reads nothing another
+slice's cases left behind: each runs in its own process with its own scratch dir.
 
 **Never plant what a tool could produce.** A composed scenario can still be hollow if the values
 it composes over are typed in by the harness. A planted receipt means the post → read → record

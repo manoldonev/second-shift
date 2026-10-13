@@ -27,7 +27,7 @@
 - Config reads fail closed: a present but unparseable config refuses (`env-config-unparseable`), never falls back to defaults. Zero configured checks is red unless `commands.<key>.allowUnverified` declares it.
 - Anyone can comment on a public issue, so a claim marker is trusted only from a Bot or the scheduler's own account. A configured bot that cannot be resolved refuses (`env-bot`); it never writes as the operator.
 - The lane never releases the claimed label; the unclaim workflow does, on close.
-- Release artifacts are derived at release time, every `plugins/**` change carries a `Changelog:` trailer, every checked-in script is exercised by a selftest, and a `run.sh` behavior change lands with a `run-selftest.sh` case that fails without it: `CLAUDE.md`.
+- Release artifacts are derived at release time, every `plugins/**` change carries a `Changelog:` trailer, every checked-in script is exercised by a selftest, and a `run.sh` behavior change lands with a `run*-selftest.sh` case that fails without it: `CLAUDE.md`.
 - Plugin content is never vendored into consumer repos; the presence check is the only exception.
 
 

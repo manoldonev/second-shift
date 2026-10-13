@@ -5,7 +5,7 @@
 # head and at its first commit (round 1 names "needs-work with no blocker", round 2 "Findings not in
 # the grammar"); each rule passes and fails; a render-unavailable needs-work passes; a row the build
 # deleted or added is still owed a score; every failed rule is printed, not only the first; a record
-# that cannot be read is exit 2. The run.sh wiring is a scenario case in skills/run/run-selftest.sh.
+# that cannot be read is exit 2. The run.sh wiring is a scenario case in skills/run/run-verdict-selftest.sh.
 #
 # Operator-safe: no network. Exit code = number of failed checks.
 set -uo pipefail

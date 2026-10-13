@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  lint-and-selftests:
+  lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -90,51 +90,6 @@ jobs:
         with:
           args: -color
 
-      # tools/run-selftests.sh, not an inline loop: CLAUDE.md's Verification section mandates
-      # `-P 4` and measures it at 13:12 serial vs 5:22 parallel, and this step was running the
-      # exact serial form the repo tells contributors not to run — 709s of a 771s job. The
-      # runner exists rather than a bare `-P` flag because at -P 4 the suites' raw stdout
-      # braids together; it captures each suite and replays it inside ::group:: framing.
-      #
-      # install-topology-selftest.sh is EXCLUDED here. There is no job for it in this workflow:
-      # it runs in .github/workflows/install-topology.yml, on push/release-PR/dispatch rather
-      # than the PR lane (#666), and the note above the release-time derivation gates below
-      # says why. It re-runs every shipped suite from a
-      # staged install cache, so leaving it in this sweep has it contending with the very suites
-      # it duplicates (the then-slowest suite measured at 244s against a ~94s uncontended norm). It stays
-      # DISCOVERED — the exclusion names a path that must exist, and the runner hard-errors if
-      # it ever stops matching.
-      # The pass cache (#448). Restore is unconditional; SAVE is push-only, and so is the
-      # runner's own --cache-write, which is belt-and-braces on purpose: GitHub already scopes a
-      # PR-created cache to that PR's branch, but the runner flag is what makes "a PR cannot
-      # record its own untested content as a pass" an assertion in tools/run-selftests-selftest.sh
-      # rather than a property only GitHub can demonstrate.
-      - name: restore selftest pass cache
-        uses: actions/cache/restore@v4
-        with:
-          path: ${{ runner.temp }}/selftest-cache
-          key: selftest-pass-${{ runner.os }}-${{ github.run_id }}
-          restore-keys: |
-            selftest-pass-${{ runner.os }}-
-
-      - name: run all selftests
-        run: |
-          args=(--full --exclude tools/install-topology-selftest.sh --cache-dir "$RUNNER_TEMP/selftest-cache")
-          if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
-            args+=(--cache-write)
-          fi
-          bash tools/run-selftests.sh "${args[@]}"
-
-      # `if: success()` is explicit rather than implied: a cache saved after a red sweep would
-      # carry forward the passes of a run whose verdict was never green, and the next PR would
-      # be served them.
-      - name: save selftest pass cache
-        if: success() && github.event_name == 'push'
-        uses: actions/cache/save@v4
-        with:
-          path: ${{ runner.temp }}/selftest-cache
-          key: selftest-pass-${{ runner.os }}-${{ github.run_id }}
-
       # Contract blocks duplicated across files (an agent's inline copy of a rule, a schema
       # three Workflow scripts each redeclare) where prose alone said "keep verbatim".
       # Replaces the deleted prose-presence guards: byte-parity beats token presence.
@@ -171,6 +126,87 @@ jobs:
                "${TOOLKITS[@]}" --include='*.md' --include='*.mjs' --exclude-dir=scripts --exclude-dir=evals 2>/dev/null; then
             echo "::error::rule 3(b): toolkit content hard-paths into dev-pipeline (Workflow scripts and the tier alphabet ship in review-toolkit)"; exit 1
           fi
+
+  # The selftest sweep, sharded. Split across runners because one runner's sweep was the slowest
+  # thing on a PR (12-18 min). --shard deals the sorted, post-exclusion suite list round-robin, so the
+  # shards of one lane are exactly the unsharded sweep. The pass cache is keyed per shard: a
+  # shard's store only ever holds markers for the suites it was dealt.
+  selftests-ubuntu:
+    name: selftests (ubuntu, shard ${{ matrix.shard }}/2)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0   # full history + tags: selftests (derive-release) diff against the latest release tag
+
+      - name: install shellcheck and jq
+        run: sudo apt-get update -q && sudo apt-get install -y shellcheck jq
+
+      # tools/run-selftests.sh, not an inline loop: CLAUDE.md's Verification section mandates
+      # `-P 4` and measures it at 13:12 serial vs 5:22 parallel, and this step was running the
+      # exact serial form the repo tells contributors not to run — 709s of a 771s job. The
+      # runner exists rather than a bare `-P` flag because at -P 4 the suites' raw stdout
+      # braids together; it captures each suite and replays it inside ::group:: framing.
+      #
+      # install-topology-selftest.sh is EXCLUDED here. There is no job for it in this workflow:
+      # it runs in .github/workflows/install-topology.yml, on push/release-PR/dispatch rather
+      # than the PR lane (#666), and the note above the release-time derivation gates below
+      # says why. It re-runs every shipped suite from a
+      # staged install cache, so leaving it in this sweep has it contending with the very suites
+      # it duplicates (the then-slowest suite measured at 244s against a ~94s uncontended norm). It stays
+      # DISCOVERED — the exclusion names a path that must exist, and the runner hard-errors if
+      # it ever stops matching.
+      # The pass cache (#448). Restore is unconditional; SAVE is push-only, and so is the
+      # runner's own --cache-write, which is belt-and-braces on purpose: GitHub already scopes a
+      # PR-created cache to that PR's branch, but the runner flag is what makes "a PR cannot
+      # record its own untested content as a pass" an assertion in tools/run-selftests-selftest.sh
+      # rather than a property only GitHub can demonstrate.
+      - name: restore selftest pass cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/selftest-cache
+          key: selftest-pass-${{ runner.os }}-shard${{ matrix.shard }}of2-${{ github.run_id }}
+          restore-keys: |
+            selftest-pass-${{ runner.os }}-shard${{ matrix.shard }}of2-
+
+      - name: run this shard's selftests
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: |
+          args=(--full --exclude tools/install-topology-selftest.sh --shard "$SHARD/2" --cache-dir "$RUNNER_TEMP/selftest-cache")
+          if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+            args+=(--cache-write)
+          fi
+          bash tools/run-selftests.sh "${args[@]}"
+
+      # `if: success()` is explicit rather than implied: a cache saved after a red sweep would
+      # carry forward the passes of a run whose verdict was never green, and the next PR would
+      # be served them.
+      - name: save selftest pass cache
+        if: success() && github.event_name == 'push'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/selftest-cache
+          key: selftest-pass-${{ runner.os }}-shard${{ matrix.shard }}of2-${{ github.run_id }}
+
+  # The required-check name. The ruleset on main requires `lint-and-selftests`, so this job
+  # carries it and is green only when the lint job and every selftest shard are. `!cancelled()`
+  # rather than `always()`: a run superseded by a newer push reports nothing, not a red.
+  lint-and-selftests:
+    needs: [lint, selftests-ubuntu]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: lint and every selftest shard passed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "needs: $RESULTS"
+          for r in $RESULTS; do [[ "$r" == success ]] || exit 1; done
 
   # The install-topology class guard does NOT run here. It lives in
   # .github/workflows/install-topology.yml, on push to main / the release PR / workflow_dispatch
@@ -239,9 +275,13 @@ jobs:
   # selftests only ever ran under bash 4+. GitHub macOS runners put Homebrew bash 5 first on
   # PATH, so shim PATH to force `#!/usr/bin/env bash` back to the stock 3.2 binary. (Ported
   # from the acme vendored-era workflow, widened from one suite to the full selftest set.)
-  selftests-bash32:
-    name: selftests (macos, bash 3.2)
+  selftests-bash32-shard:
+    name: selftests (macos, bash 3.2, shard ${{ matrix.shard }}/3)
     runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     steps:
       - uses: actions/checkout@v5
 
@@ -258,20 +298,21 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ${{ runner.temp }}/selftest-cache
-          key: selftest-pass-${{ runner.os }}-${{ github.run_id }}
+          key: selftest-pass-${{ runner.os }}-shard${{ matrix.shard }}of3-${{ github.run_id }}
           restore-keys: |
-            selftest-pass-${{ runner.os }}-
+            selftest-pass-${{ runner.os }}-shard${{ matrix.shard }}of3-
 
       - name: run all selftests under stock bash 3.2
         env:
           # Parallel-write stress cases are documented as too flaky for CI.
           SKIP_STRESS: '1'
+          SHARD: ${{ matrix.shard }}
         run: |
           mkdir -p /tmp/bash32
           ln -sf /bin/bash /tmp/bash32/bash
           export PATH="/tmp/bash32:$PATH"
           bash --version | head -1
-          args=(--full --exclude tools/install-topology-selftest.sh --cache-dir "$RUNNER_TEMP/selftest-cache")
+          args=(--full --exclude tools/install-topology-selftest.sh --shard "$SHARD/3" --cache-dir "$RUNNER_TEMP/selftest-cache")
           if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
             args+=(--cache-write)
           fi
@@ -282,4 +323,19 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: ${{ runner.temp }}/selftest-cache
-          key: selftest-pass-${{ runner.os }}-${{ github.run_id }}
+          key: selftest-pass-${{ runner.os }}-shard${{ matrix.shard }}of3-${{ github.run_id }}
+
+  # The required-check name for the macOS lane, as `lint-and-selftests` is for the ubuntu one. The
+  # aggregate itself needs no macOS runner.
+  selftests-bash32:
+    name: selftests (macos, bash 3.2)
+    needs: [selftests-bash32-shard]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: every macOS selftest shard passed
+        env:
+          RESULT: ${{ needs.selftests-bash32-shard.result }}
+        run: |
+          echo "shards: $RESULT"
+          [[ "$RESULT" == success ]]

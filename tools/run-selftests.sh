@@ -53,7 +53,7 @@
 #
 # USAGE
 #   run-selftests.sh [--exclude <repo-relative-path>]... [--jobs <n>] [--root <dir>]
-#                    [--cache-dir <dir>] [--cache-write] [--full]
+#                    [--cache-dir <dir>] [--cache-write] [--full] [--shard <i>/<n>]
 #
 #   --exclude     repeatable. Lifts a suite out of THIS sweep while leaving it discovered, so it
 #                 can run in its own CI job. An exclusion matching no discovered suite is a HARD
@@ -64,6 +64,9 @@
 #   --root        tree to discover under; defaults to the repo root above this script.
 #   --cache-dir   marker store for the pass cache. Absent, no suite is ever skipped.
 #   --cache-write additionally RECORD passes into that store. Requires --cache-dir.
+#   --shard       run only shard <i> of <n>: the i-th, (i+n)-th, ... suite of the sorted,
+#                 post-exclusion list. CI runs every shard of a lane as a matrix, so the n shards
+#                 of one lane together are exactly the unsharded sweep, each suite in one shard.
 #
 # EXIT: 0 iff every run suite passed. Non-zero names every failing suite. 2 for a usage error,
 # a stale exclusion, a malformed cache-input table, or a discovered/run count disagreement.
@@ -84,6 +87,7 @@ SELF="${BASH_SOURCE[0]}"
 JOBS="${SELFTEST_JOBS:-4}"
 EXCLUDES=""   # newline-separated; bash 3.2 has no array-of-args ergonomics worth the noise here
 FULL=0        # 1 = do not apply the slow-suite table (#566)
+SHARD_I=1; SHARD_N=1   # --shard <i>/<n>; 1/1 is the whole sweep
 DEFERRED=""   # newline-separated "<suite><TAB><reason>", for the announcement below
 TAB=$'\t'
 
@@ -159,11 +163,15 @@ while [[ $# -gt 0 ]]; do
                    CACHE_DIR="$2"; shift 2 ;;
     --cache-write) CACHE_WRITE=1; shift ;;
     --full)    FULL=1; shift ;;
+    --shard)   [[ $# -ge 2 ]] || die "--shard requires <i>/<n>"
+               [[ "$2" =~ ^([0-9]+)/([0-9]+)$ ]] || die "--shard must be <i>/<n>, got: $2"
+               SHARD_I="${BASH_REMATCH[1]}"; SHARD_N="${BASH_REMATCH[2]}"; shift 2 ;;
     *)         die "unknown argument: $1" ;;
   esac
 done
 
 [[ "$JOBS" =~ ^[0-9]+$ ]] && [[ "$JOBS" -ge 1 ]] || die "--jobs/SELFTEST_JOBS must be a positive integer, got: $JOBS"
+[[ "$SHARD_N" -ge 1 && "$SHARD_I" -ge 1 && "$SHARD_I" -le "$SHARD_N" ]] || die "--shard needs 1 <= i <= n, got: $SHARD_I/$SHARD_N"
 [[ -d "$ROOT" ]] || die "--root is not a directory: $ROOT"
 ROOT="$(cd "$ROOT" && pwd)"
 
@@ -313,6 +321,14 @@ fi
 
 EXPECTED=$((DISCOVERED - EXCLUDED))
 [[ "$EXPECTED" -gt 0 ]] || die "every discovered suite is excluded — a sweep that runs nothing is never green"
+# THE SHARD'S SHARE IS DERIVED BY ARITHMETIC, not by counting the filter below, so the count
+# reconciliation after the run still compares two independent derivations: positions i, i+n, ...
+# of EXPECTED.
+SWEEP_TOTAL="$EXPECTED"
+if [[ "$SHARD_N" -gt 1 ]]; then
+  [[ "$SHARD_I" -le "$EXPECTED" ]] || die "shard $SHARD_I/$SHARD_N has no suite (only $EXPECTED to run) — a sweep that runs nothing is never green"
+  EXPECTED=$(( (EXPECTED - SHARD_I) / SHARD_N + 1 ))
+fi
 
 BASE="$(mktemp -d "${TMPDIR:-/tmp}/run-selftests.XXXXXX")" || die "mktemp failed"
 trap 'rm -rf "$BASE"' EXIT
@@ -467,11 +483,14 @@ CACHE_STRESS="${SKIP_STRESS:-}"
 # failure mode this work is most exposed to.
 : > "$BASE/worklist"
 n=0
+pos=0
 while IFS= read -r suite; do
   [[ -n "$suite" ]] || continue
   if [[ -n "$EXCLUDES" ]] && grep -qxF "${suite#./}" <<<"$EXCLUDES"; then
     continue
   fi
+  pos=$((pos + 1))
+  [[ $(( (pos - 1) % SHARD_N )) -eq $((SHARD_I - 1)) ]] || continue
   n=$((n + 1))
   # Third column: the cache key, or empty. Empty is the fail-closed value and covers every
   # reason a suite might not participate — no --cache-dir, no row in the table, or an input
@@ -493,7 +512,11 @@ if [[ "${RUN_SELFTESTS_DROP_LAST:-}" == "1" ]]; then
   sed '$d' "$BASE/worklist" > "$BASE/worklist.dropped" && mv "$BASE/worklist.dropped" "$BASE/worklist"
 fi
 
-echo "[run-selftests] $DISCOVERED discovered, $EXCLUDED excluded, $EXPECTED to run, jobs=$JOBS"
+if [[ "$SHARD_N" -gt 1 ]]; then
+  echo "[run-selftests] $DISCOVERED discovered, $EXCLUDED excluded, $SWEEP_TOTAL to run, shard $SHARD_I/$SHARD_N runs $EXPECTED of them, jobs=$JOBS"
+else
+  echo "[run-selftests] $DISCOVERED discovered, $EXCLUDED excluded, $EXPECTED to run, jobs=$JOBS"
+fi
 
 # ---- cache resolution ------------------------------------------------------------------
 # Decided in the PARENT, before dispatch, and recorded as a marker file per index. Doing it here
