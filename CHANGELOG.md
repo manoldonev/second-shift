@@ -4,6 +4,57 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v17.2.0
+
+### `dev-pipeline` 17.1.0 → 17.2.0
+
+- **feat(dev-pipeline): a lane build gets Grep/Glob, xargs-run check tools and a PermissionRequest hook that names why a call is denied (#1051)** (#1051)
+  a lane build session can use the Grep and Glob tools, run the tool a configured
+  check's xargs segment runs on its own, and edit its PR body with --body-file; a call its
+  allowlist denies now comes back with a reason naming the form to use instead, and Edit/Write
+  to a file directly in the worktree's .claude/ (never settings.json, settings.local.json or a
+  subdirectory) is allowed. An xargs check segment whose `-n 1`-style option value hid an rm
+  or a shell no longer grants it.
+  Migration: none.
+- **fix(dev-pipeline): a stale PR title or description never blocks a review verdict (#1055)** (#1055)
+  the review verdict no longer treats an out-of-date PR title or
+  description as a blocker; it is at most a note, so a clean diff can be
+  approved without a description edit.
+  Migration: none.
+- **feat(dev-pipeline): the scheduler proves each tagged test fails without the change (#1050)** (#1050)
+  /dev-pipeline:run proves each test the plan tags on an
+  acceptance criterion fails without the change: with the new optional
+  commands.<id>.testRunners config key, the head's tagged test files run on
+  the record commit's tree and each must fail there. The receipt's Test
+  intent gains `AC-n: holds — <behavior>` (existing behavior, kept off the
+  check) and `AC-n: unchecked — <tier and reason>` (noted, not run), and a
+  plan task that tags an AC must name its test files in its parenthetical.
+  Migration: none — without testRunners the check is not-applicable; add the
+  key by hand from docs/config-schema.md to turn it on. A plan whose tagged
+  task names no test file is now red.
+  commands.<id>.testRunners[] takes an optional timeoutSeconds (default
+  600). A tagged file that has not finished within it on the record commit's tree
+  is red, and its whole process group is killed.
+  Migration: none.
+
+### `intake-toolkit` 8.1.0 → 8.2.0
+
+- **feat(dev-pipeline): the scheduler proves each tagged test fails without the change (#1050)** (#1050)
+  /dev-pipeline:run proves each test the plan tags on an
+  acceptance criterion fails without the change: with the new optional
+  commands.<id>.testRunners config key, the head's tagged test files run on
+  the record commit's tree and each must fail there. The receipt's Test
+  intent gains `AC-n: holds — <behavior>` (existing behavior, kept off the
+  check) and `AC-n: unchecked — <tier and reason>` (noted, not run), and a
+  plan task that tags an AC must name its test files in its parenthetical.
+  Migration: none — without testRunners the check is not-applicable; add the
+  key by hand from docs/config-schema.md to turn it on. A plan whose tagged
+  task names no test file is now red.
+  commands.<id>.testRunners[] takes an optional timeoutSeconds (default
+  600). A tagged file that has not finished within it on the record commit's tree
+  is red, and its whole process group is killed.
+  Migration: none.
+
 ## v17.1.0
 
 ### `dev-pipeline` 17.0.0 → 17.1.0
