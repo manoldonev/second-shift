@@ -104,11 +104,14 @@
 #
 #   `## Test intent` — mandated from v4 (#1039). One `ACs: AC-1 AC-2 …` line, the ticket's AC ids
 #   as labeled (or `ACs: none — <reason>` when the ticket has no AC block), then one line per id:
-#   `AC-n: <the observable behavior its test must prove>` or `AC-n: exempt — <reason>`. An id in
-#   `ACs:` with no line, a line whose id is not in `ACs:`, a second line for one id, a token in
-#   `ACs:` that is not `AC-<n>`, an empty behavior, an exemption with no reason, and any other line
-#   are each refused, naming it. dev-pipeline's plan-coverage.sh reads the same section from the
-#   committed record and holds the build's plan to its ids.
+#   `AC-n: <the observable behavior its test must prove>` or `AC-n: exempt — <reason>`, or (#1040)
+#   `AC-n: holds — <the existing behavior its test keeps>` or `AC-n: unchecked — <tier and reason>`.
+#   An id in `ACs:` with no line, a line whose id is not in `ACs:`, a second line for one id, a
+#   token in `ACs:` that is not `AC-<n>`, an empty behavior, an exempt, holds or unchecked line with
+#   no reason, and any other line are each refused, naming it. dev-pipeline's plan-coverage.sh
+#   reads the same section from the committed record and holds the build's plan to its ids; the
+#   scheduler keeps holds files off its fails-without-the-change leg and notes unchecked ones unrun.
+#   The two #1040 forms are additive inside v4's section: no version bump (its record's OR-1).
 #
 # Receipt mode also refuses a section title used twice: every reader takes the first copy, so
 # the second is never read.
@@ -853,7 +856,7 @@ if (( RECEIPT == 1 )); then
       violate "missing mandated receipt section: Test intent (a v$RECEIPT_V receipt opens it with 'ACs: AC-1 AC-2 …', the ticket's AC ids, or 'ACs: none — <reason>', then one line per id: 'AC-n: <the observable behavior its test must prove>' or 'AC-n: exempt — <reason>')"
     fi
   else
-    n_acs=0; acs_none=0; acs_ids=" "; line_ids=" "; n_exempt=0
+    n_acs=0; acs_none=0; acs_ids=" "; line_ids=" "; n_exempt=0; n_holds=0; n_unchecked=0
     while IFS= read -r line; do
       line="${line%$'\r'}"
       [[ "$line" =~ ^[[:space:]]*$ ]] && continue
@@ -892,6 +895,14 @@ if (( RECEIPT == 1 )); then
           n_exempt=$((n_exempt + 1))
           [[ "$rest" =~ ^[Ee]xempt[[:space:]]*(—|–|-|:)[[:space:]]*.*[[:alnum:]] ]] || \
             violate "Test intent exempts $id with no reason — the form is '$id: exempt — <why no test can prove it>'"
+        elif [[ "$rest" =~ ^[Hh]olds([^[:alnum:]_]|$) ]]; then
+          n_holds=$((n_holds + 1))
+          [[ "$rest" =~ ^[Hh]olds[[:space:]]*(—|–|-|:)[[:space:]]*.*[[:alnum:]] ]] || \
+            violate "Test intent marks $id holds with no behavior — the form is '$id: holds — <the existing behavior its test keeps>'"
+        elif [[ "$rest" =~ ^[Uu]nchecked([^[:alnum:]_]|$) ]]; then
+          n_unchecked=$((n_unchecked + 1))
+          [[ "$rest" =~ ^[Uu]nchecked[[:space:]]*(—|–|-|:)[[:space:]]*.*[[:alnum:]] ]] || \
+            violate "Test intent marks $id unchecked with no reason — the form is '$id: unchecked — <the tier, and why the scheduler cannot run it>'"
         fi
       else
         violate "Test intent line is neither the 'ACs:' line nor an 'AC-n: …' line at the start of the line: $line"
@@ -912,6 +923,7 @@ if (( RECEIPT == 1 )); then
     done
     if (( acs_none == 1 )); then TI_FORM="none — no AC block"
     elif (( n_acs > 0 )); then TI_FORM="$(wc -w <<< "$acs_ids" | tr -d ' ') AC(s), $n_exempt exempt"
+      (( n_holds + n_unchecked == 0 )) || TI_FORM="$TI_FORM, $n_holds holds, $n_unchecked unchecked"
     else TI_FORM="malformed"; fi
   fi
 fi

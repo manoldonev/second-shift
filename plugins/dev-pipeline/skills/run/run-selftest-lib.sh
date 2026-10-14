@@ -83,6 +83,8 @@ branch=$(git rev-parse --abbrev-ref HEAD); cost="${FAKE_COST:-1}"
 # #1039: a session whose call number has a $FAKE_GH/plan-<n>.md writes it as the test-first plan, beside the record
 rec=$(git ls-files 'docs/plans/*-decisions.md' 2>/dev/null | head -n 1)
 [ -f "$S/plan-$n.md" ] && [ -n "$rec" ] && cp "$S/plan-$n.md" "${rec%-decisions.md}-plan.md"
+# #1040: ...and a $FAKE_GH/tree-<n>/ is copied over the worktree as the session's code and tests
+[ -d "$S/tree-$n" ] && cp -R "$S/tree-$n/." .
 push() { echo "$n" >> work.txt; git add -A >/dev/null; git commit -qm "build $n"; git push -q origin "$branch"; }
 openpr() { # body as the prompt instructs: built-by line, the record link, then Closes (under the Jira heading when bracketed)
   rid=$(grep -oE 'built-by: second-shift run [^ ]+' "$S/prompt-$n.txt" | head -n 1)

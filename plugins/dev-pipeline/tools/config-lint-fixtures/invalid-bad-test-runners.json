@@ -1,0 +1,47 @@
+{
+  "configVersion": 3,
+  "tracker": {
+    "type": "github"
+  },
+  "commands": {
+    "app": {
+      "test": "yarn test",
+      "testRunners": [
+        {
+          "when": ["*.spec.ts"],
+          "command": "yarn jest"
+        },
+        {
+          "when": [],
+          "command": "yarn jest {file}"
+        },
+        {
+          "glob": ["*.spec.ts"],
+          "command": "yarn jest {file}"
+        },
+        "yarn jest {file}",
+        {
+          "when": ["*.spec.ts"],
+          "command": "yarn jest {file}",
+          "timeoutSeconds": 0
+        },
+        {
+          "when": ["*.spec.ts"],
+          "command": "yarn jest {file}",
+          "timeoutSeconds": "60"
+        },
+        {
+          "when": ["*.spec.ts"],
+          "command": "yarn jest {file}",
+          "timeoutSeconds": 1.5
+        }
+      ]
+    },
+    "web": {
+      "testRunners": {
+        "when": ["*.spec.ts"],
+        "command": "yarn jest {file}"
+      }
+    }
+  }
+}

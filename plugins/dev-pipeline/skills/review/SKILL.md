@@ -66,6 +66,13 @@ review's context.
    printed; exit 3 is not-applicable (the record carries no `## Test intent`, or the ticket has no
    AC block), never a blocker; exit 2 means it could not read the record's AC set, which you say in
    `## Notes`. `post-review-status.sh` runs the same check and posts no `success` while it is red.
+   The next check, that each tagged test file fails on the record commit's tree, is the
+   scheduler's alone: a lane run makes it before its review and reports it in the PR body's run
+   block, and you do not run it — a session running tests in a worktree it controls is not that
+   proof. On a PR built through `/dev-pipeline:build` (the `--handoff` path: the ticket's latest
+   lane comment is a `build-handoff` one, and the body carries no `## second-shift run` block) nothing ran
+   it: say so in `## Notes` as `fails without the change: not run on the handoff path` — a note,
+   never a blocker.
 5. **Score EVERY row of the record** against the code: `honored`, `violated`, `departed` (the row
    was edited; name who decided, per its provenance), or `undeterminable` (say what you could not
    read). A violated or undeterminable row is a blocker; neither may stand beside an approve.

@@ -457,6 +457,8 @@ ACs: AC-1 AC-2 AC-3 AC-8
 AC-1: a second import of one document answers 409 and writes no row
 AC-2: an upload above 50 MB is refused before the worker runs
 AC-3: exempt — the README's import section is prose; no test can prove it
+AC-4: holds — an import under 50 MB still lands in one row
+AC-5: unchecked — the black-box API tier needs the running app and live upstreams
 AC-8: run.sh's checks phase runs the coverage check (a run-selftest case)
 ```
 
@@ -464,14 +466,24 @@ AC-8: run.sh's checks phase runs the coverage check (a run-selftest case)
   holes (a slice keeps its parent's ids), and a `PM-n` item is never in it. A ticket with no AC
   block is `ACs: none — <reason>`. The harness never reads the ticket body; this line is what it
   holds the plan to.
-- **One line per id**, at the start of the line: the observable behavior, or `exempt — <reason>`.
-  An exemption is the operator's answer to a question, recorded as a `user-answered` row.
+- **One line per id**, at the start of the line, in one of four forms: the observable behavior;
+  `exempt — <reason>` (no test can prove it); `holds — <the existing behavior its test keeps>`
+  (an AC like "X still works": its test passes without the change, so the scheduler keeps its
+  files off the fails-without-the-change check and the checks at the head prove it); or
+  `unchecked — <tier and reason>` (its test sits on a tier the scheduler cannot run, such as a
+  black-box API suite that needs the running app: its files are noted, not run). An exempt,
+  holds or unchecked line is the operator's answer to a question, recorded as a `user-answered`
+  row; a holds or unchecked AC must still be tagged on a test task.
 
 `ledger-lint.sh --receipt` refuses an absent section from v4, an id on `ACs:` with no line, a
-line for an id `ACs:` does not list, an exemption with no reason, and any other line. It is
-offline: an id dropped from `ACs:` is invisible to it. The scheduler reads the section from the
-record's first commit and runs `plan-coverage.sh` (dev-pipeline) on the build's plan at the head:
-every AC not exempt must be tagged on a test task, and no tag may name an id `ACs:` does not list.
+line for an id `ACs:` does not list, an exempt, holds or unchecked line with no reason, and any
+other line. It is offline: an id dropped from `ACs:` is invisible to it. The scheduler reads the
+section from the record's first commit and runs `plan-coverage.sh` (dev-pipeline) on the build's
+plan at the head: every AC not exempt must be tagged on a test task that names its test files,
+and no tag may name an id `ACs:` does not list. Where the config maps test runners
+(`commands.<id>.testRunners`), it then applies the head's tagged test files onto the record
+commit's tree and runs each: every file of a behavior AC must fail there. The holds and
+unchecked forms are additive inside v4: no receipt version names them.
 
 ### Departures
 

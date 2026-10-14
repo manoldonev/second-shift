@@ -133,6 +133,12 @@ did or why it did not run, never empty or a bare dash.
   prove>` from the AC's own text. An AC no test can prove (docs, config) is an exemption, and
   **every exemption is the operator's**: put it to them as a question, record the answer as a
   `user-answered` row, and only then write `AC-n: exempt — <reason>`. Never exempt one silently.
+  Two more forms are the operator's the same way, each asked and recorded as its own
+  `user-answered` row: `AC-n: holds — <the existing behavior its test keeps>` for an AC about
+  behavior that already exists ("X still works": its test passes without the change, so the
+  scheduler keeps it off the fails-without-the-change check), and `AC-n: unchecked — <tier and
+  reason>` for one whose test sits on a tier the scheduler cannot run (a black-box API suite that
+  needs the running app). Both must still be tagged on a test task.
   The build's test-first plan is held to these ids (`interviewing-baseline`, "Test intent").
 
 ## Lint it
@@ -160,7 +166,8 @@ here is a run that will not launch. It has distinct causes:
 - **Knowledge source** — a missing or empty section, an answer line not indented four spaces, a
   provider with no answer, or a `Knowledge source:` line outside its two forms.
 - **Test intent** — an id on the `ACs:` line with no line of its own, a line for an id the `ACs:`
-  line does not list, an exemption with no reason, or a line in neither form. Re-read the ticket's
+  line does not list, an exempt, holds or unchecked line with no reason, or a line in none of the
+  forms. Re-read the ticket's
   AC block: the lint cannot see an id you left off the `ACs:` line.
 
 Fix and re-lint until it is clean.

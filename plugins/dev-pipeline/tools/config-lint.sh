@@ -160,7 +160,7 @@ ERRORS=$(jq -r --argjson shippedTiers "$SHIPPED_TIERS_JSON" --argjson tierDocFou
         err(has("unitTestScope"); "commands." + $repo + ".unitTestScope was removed — the unit-test mutation engine that read it was retired, so the key armed nothing. For mutation coverage, add your own mutation tool as a commands.<id>.extraLanes check. Delete the key from your config (docs/migrations/v1-to-v2.md)")
         + err(has("testFile"); "commands." + $repo + ".testFile was removed — it was the retired unit-test mutation engine\u0027s per-spec runner template, read by nothing else. Delete the key from your config (docs/migrations/v1-to-v2.md)")
         + err(has("lintAutofixes"); "commands." + $repo + ".lintAutofixes was removed in configVersion 3 — the scheduler runs lint as a blocking check in the worktree, so configure lint as its non-mutating form (e.g. eslint ., not eslint --fix) and delete the key " + $v3doc)
-        + err(((keys) - ["lint","lintAutofixes","typecheck","test","testFile","unitTestScope","format","lanes","extraLanes","allowUnverified"]) != []; "commands." + $repo + ": unknown keys (note: integrationTest/apiTest were removed in v2.1.6, commands.<repo>.build was removed — ship those tiers via extraLanes; see docs/migrations)")
+        + err(((keys) - ["lint","lintAutofixes","typecheck","test","testFile","unitTestScope","format","lanes","extraLanes","testRunners","allowUnverified"]) != []; "commands." + $repo + ": unknown keys (note: integrationTest/apiTest were removed in v2.1.6, commands.<repo>.build was removed — ship those tiers via extraLanes; see docs/migrations)")
         + ([to_entries[] | select(.key | IN("lint","typecheck","test","format")) |
             err((.value | type) | IN("string","null") | not; "commands." + $repo + "." + .key + ": must be string or null")
           ] | add // [])
@@ -199,6 +199,20 @@ ERRORS=$(jq -r --argjson shippedTiers "$SHIPPED_TIERS_JSON" --argjson tierDocFou
               + err((.when? != null) and ((.when | type) != "array"); "commands." + $repo + ".extraLanes[" + ($i|tostring) + "].when: must be array")
               + err(((.commands // []) | length) < 1; "commands." + $repo + ".extraLanes[" + ($i|tostring) + "].commands: at least one required")
               + err((.failureClass? // "") | IN("FORMAT","LINT_AUTOFIX","TYPE_ERROR","TEST_FAILURE","PLAN_CMD_FAILURE","INFRA") | not; "commands." + $repo + ".extraLanes[" + ($i|tostring) + "].failureClass: must be a closed failure-taxonomy value (FORMAT|LINT_AUTOFIX|TYPE_ERROR|TEST_FAILURE|PLAN_CMD_FAILURE|INFRA)")
+              end
+            )
+          ) | add // []) end)
+        # testRunners (#1040 D-3): which command runs one tagged test file on the fails-without-the-change leg —
+        # the first entry whose `when` glob matches the file; the command takes the file as {file}; timeoutSeconds bounds one run
+        + ((.testRunners // []) | if type != "array" then ["commands." + $repo + ".testRunners: must be array"] else (to_entries | map(
+            (.key as $i | .value |
+              if (type != "object") then
+                ["commands." + $repo + ".testRunners[" + ($i|tostring) + "]: must be an object {when[], command, timeoutSeconds?}"]
+              else
+              err(((keys) - ["when","command","timeoutSeconds"]) != []; "commands." + $repo + ".testRunners[" + ($i|tostring) + "]: unknown keys")
+              + err(has("timeoutSeconds") and (((.timeoutSeconds | type) != "number") or (.timeoutSeconds < 1) or (.timeoutSeconds != (.timeoutSeconds | floor))); "commands." + $repo + ".testRunners[" + ($i|tostring) + "].timeoutSeconds: must be a whole number of seconds, 1 or more")
+              + err(((.when | type) != "array") or ((.when | length) < 1) or any(.when[]?; type != "string" or . == ""); "commands." + $repo + ".testRunners[" + ($i|tostring) + "].when: required, a non-empty array of file globs")
+              + err(((.command | type) != "string") or ((.command // "") | contains("{file}") | not); "commands." + $repo + ".testRunners[" + ($i|tostring) + "].command: required, a string that takes the test file as {file}")
               end
             )
           ) | add // []) end)

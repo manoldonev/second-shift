@@ -89,6 +89,18 @@ expect_violation invalid-bad-design-provider.json   "design.provider must be fig
 expect_violation invalid-bad-liverender.json        "design.liveRender: unknown keys"
 expect_violation invalid-bad-liverender.json        "design.liveRender.command: required"
 expect_violation invalid-bad-extralane.json         "extraLanes[0].failureClass: must be a closed failure-taxonomy value"
+# testRunners (#1040 D-3): the file-to-runner map of the fails-without-the-change leg. valid-test-runners.json (in the
+# valid-*.json loop) fails when the key is missing from the commands allowlist; each malformed entry is named on its own
+expect_violation invalid-bad-test-runners.json      "commands.app.testRunners[0].command: required, a string that takes the test file as {file}"
+expect_violation invalid-bad-test-runners.json      "commands.app.testRunners[1].when: required, a non-empty array of file globs"
+expect_violation invalid-bad-test-runners.json      "commands.app.testRunners[2]: unknown keys"
+expect_violation invalid-bad-test-runners.json      "commands.app.testRunners[2].when: required"
+expect_violation invalid-bad-test-runners.json      "commands.app.testRunners[3]: must be an object {when[], command, timeoutSeconds?}"
+expect_violation invalid-bad-test-runners.json      "commands.app.testRunners[4].timeoutSeconds: must be a whole number of seconds, 1 or more"
+expect_violation invalid-bad-test-runners.json      "commands.app.testRunners[5].timeoutSeconds: must be a whole number of seconds, 1 or more"
+expect_violation invalid-bad-test-runners.json      "commands.app.testRunners[6].timeoutSeconds: must be a whole number of seconds, 1 or more"
+expect_violation invalid-bad-test-runners.json      "commands.web.testRunners: must be array"
+expect_no_violation invalid-bad-test-runners.json   "commands.app: unknown keys"
 
 # --- configVersion. The PRIOR version is the case a real consumer hits at the bump; it must be
 # rejected WITH the migration-doc pointer, never a bare "invalid".

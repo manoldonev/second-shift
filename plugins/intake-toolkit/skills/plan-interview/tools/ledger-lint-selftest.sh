@@ -1187,6 +1187,14 @@ ti_case 'an AC line before the ACs line' $'AC-1: x\nACs: AC-1' 1 "Test intent li
 ti_case 'a bulleted AC line' $'ACs: AC-1\n\n- AC-1: a duplicate import answers 409' 1 'Test intent line is neither'
 ti_case 'prose in the section' $'ACs: AC-1\n\nAC-1: x\nSee the ticket for the rest.' 1 'Test intent line is neither'
 
+# (ll-ti7) #1040 D-4 D-11: 'holds — <existing behavior>' and 'unchecked — <tier and reason>' lint clean, counted apart;
+# each with nothing after it is refused, naming the form
+ti_case 'a holds and an unchecked line' $'ACs: AC-1 AC-2 AC-3\n\nAC-1: a duplicate import answers 409\nAC-2: holds — an import under 50 MB still lands\nAC-3: Unchecked: api tier, needs the running app' 0
+grep -q "test intent: 3 AC(s), 0 exempt, 1 holds, 1 unchecked" <<< "$out" \
+  && pass "(ll-ti7) D-4 D-11: the holds and unchecked counts are reported" || fail "(ll-ti7) counts — out=$out"
+ti_case 'a holds line with no behavior' $'ACs: AC-1\n\nAC-1: holds' 1 'Test intent marks AC-1 holds with no behavior'
+ti_case 'an unchecked line with no reason' $'ACs: AC-1\n\nAC-1: unchecked —' 1 'Test intent marks AC-1 unchecked with no reason'
+
 # (ll-ti6) receipt-mode only: an in-plan ledger with a malformed Test intent lints clean by default
 printf '%s\n' '# P' '## Decision Ledger' \
   '| ID  | Decision | Resolution | Provenance |' \
