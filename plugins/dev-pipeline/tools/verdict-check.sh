@@ -31,7 +31,7 @@ set -uo pipefail
 for f in "$@"; do
   [ -f "$f" ] && [ -r "$f" ] || { echo "verdict-check: cannot read $f — nothing evaluated" >&2; exit 2; }
 done
-ids="$(cat "$2" "$3" | tr -d '\r' | sed -n -E 's/^\| (D-[0-9]+) \|.*/\1/p' | sort -u -t- -k2,2n | tr '\n' ' ')" \
+ids="$(cat "$2" "$3" | tr -d '\r' | sed -n -E 's/^\|[[:space:]]*(D-[0-9]+)[[:space:]]*\|.*/\1/p' | sort -u -t- -k2,2n | tr '\n' ' ')" \
   || { echo "verdict-check: cannot read the record files — nothing evaluated" >&2; exit 2; }
 
 # shellcheck disable=SC2016  # an awk program, not shell
