@@ -84,6 +84,18 @@ printf '# record\n\n| ID | Decision | Resolution | Provenance |\n| --- | --- | -
 HEADREC="$T/padded-record.md" FIRSTREC="$T/padded-record.md" check padded "$(body approve '| D-1 a | honored | x |' 'None.')"
 fails_with "(f7b) a padded record row, left unscored" "record row not scored: D-2"
 has "record row not scored: D-4" && ok "(f7b) a record row with no cell padding, left unscored, is named too" || bad "(f7b) D-4 not named: $(tr '\n' '|' <<<"$OUT")"
+# ---- the optional ## Summary: first, line 1 matches the verdict, names every row not honored, no table ----
+summ() { printf 'verdict: %s\nreviewed: %s\n\n## Summary\n\n%s\n\n%s' "$1" "$SHA" "$2" "$(body "$1" "$3" "$4" | sed 1,2d)"; }
+check s-ok "$(summ approve $'Mergeable as it is.\nD-2 departed: the build deleted it.\nNothing to do.' "$HEAD_ROWS" 'None.')"
+passes "(s1) an approve whose Summary matches and names the departed row"
+check s-miss "$(summ approve $'Mergeable as it is.\nNothing to do.' "$HEAD_ROWS" 'None.')"
+fails_with "(s2) a Summary that hides a departed row" "Summary does not name a row that is not honored: D-2"
+check s-line1 "$(summ needs-work $'Mergeable as it is.\nD-2 departed.\nFix B1.' "$HEAD_ROWS" '- [blocker] B1 a thing to fix')"
+fails_with "(s3) a needs-work whose Summary says mergeable" "Summary line 1 does not match the verdict: want Not mergeable yet."
+check s-table "$(summ approve $'Mergeable as it is.\nD-2 departed.\n| a | b |' "$HEAD_ROWS" 'None.')"
+fails_with "(s4) a table in the Summary" "Summary not in the grammar"
+check s-order "$(body approve "$HEAD_ROWS" 'None.' $'\n## Summary\n\nMergeable as it is.\nD-2 departed.')"
+fails_with "(s5) a Summary after the findings" "section out of order: ## Summary"
 check rs-row "$(body approve "$HEAD_ROWS"$'\n| RS-1 home | honored | w |' 'None.')"
 fails_with "(f8) an RS row in the table" "row is not a D-n row: RS-1 home"
 check bad-score "$(body approve $'| D-1 a | fine | x |\n| D-2 c | honored | y |\n| D-3 e | honored | z |' 'None.')"
