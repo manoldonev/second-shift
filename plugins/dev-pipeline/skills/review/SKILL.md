@@ -146,6 +146,7 @@ review's context.
    Write one instruction per sentence. Use the active voice.
    Do not use idioms, hedges or semicolon chains.
    Use the same word for the same thing every time.
+   State each fact once. Do not repeat a fact from one section in another.
    In the rows table:
    - Keep each Evidence cell to one or two sentences.
    - Start the Evidence cell with the file:line or the test id. Then say what it shows.
@@ -161,13 +162,18 @@ review's context.
    - Put the evidence on continuation lines. Indent them two spaces.
    - End each blocker with the continuation line `Fix: <one instruction>`.
    - Do not give a note a Fix line. A note requires nothing.
+   - Write a note in at most three lines. Write a dismissed or suppressed note in one line.
    In `## Panel`:
    - Copy the panel lines that review-lead writes. Do not merge, drop or reword a line.
+   - Do not repeat the panel reasons in `## Notes`.
    In `## Notes`:
    - Use one `###` sub-heading for each topic. Write at most six sentences under it.
    - Write an inventory, such as the mutation run, as a list.
    - Put the knowledge-base block last.
    - Do not write a sub-heading that has nothing under it.
+   - Write a topic that changed no score or finding in one sentence, or leave it out.
+   - Keep `## Notes` under 150 words, not counting the knowledge-base block.
+   A limit never removes a row, a finding, a panel line or a knowledge-base proposal. If they do not fit, shorten the wording.
    <!-- LOCKSTEP-END verdict-style -->
 
    **Check the draft before you post it.** Write the body to a file, and the record at `FIRST` to

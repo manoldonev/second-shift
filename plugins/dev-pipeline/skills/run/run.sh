@@ -810,13 +810,13 @@ build_prompt() { # build_prompt <round> <review-findings-file-or-empty> <red-che
   [ "$BOT_OK" -eq 1 ] && echo "Commit through the repo's bot identity, never plain git commit, and run it exactly as '$TOOLS/bot-commit.sh -C $WT -F <a message file you wrote with Write>' — the bare path first, no bash before it. Re-pass the identity on any --amend, which otherwise silently re-stamps you as the committer."
   if [ "$1" -eq 1 ]; then
     echo "When the checks you ran are green, commit and push branch $BRANCH to origin. If no PR is open for this branch, open a DRAFT PR against $BASE_NAME with 'gh pr create --draft --base $BASE_NAME'. Leave it a draft: the scheduler marks it ready for review only when a review approves its head."
-    echo "Write the PR body for the human who reviews it. Use short sentences and the active voice. Put one fact in each sentence. Use the same word for the same thing. Do not use idioms, metaphors or abstract words. Put what the reviewer must know first. If the repo has a pull request template, keep its headings and put the sections below under them. Write the body in this order:"
+    echo "Write the PR body for the human who reviews it. Use short sentences and the active voice. Put one fact in each sentence. Use the same word for the same thing. Do not use idioms, metaphors or abstract words. Put what the reviewer must know first. State each fact once: a later section cites the row id and does not repeat the fact. Keep the body under 500 words, not counting the Checks table. A limit never removes a record row, a deferred decision, a skipped command or a test you think is wrong. If they do not fit, shorten the wording and cut '## Changes' first. If the repo has a pull request template, keep its headings and put the sections below under them. Write the body in this order:"
     echo "1. Line 1, exactly: 'built-by: second-shift run $RUN_ID'."
     echo "2. '## What this changes': at most 80 words. Say what changes for the users of this code, and why. Do not describe the implementation here."
     echo "3. '## Before you merge': each thing the reviewer must decide or do before the merge. For each record row with provenance deferred, name its open region. If the region's disposition is pause-and-ask, say what the build stopped on and what it asks. If it is reversible-default-and-flag, name the default you used. Include each deploy, migration or other PR that must land first. If there is nothing, write 'Nothing outside this PR.'"
     echo "4. '## Review focus': start with 'The build suggests:', then one to three bullets. Each bullet names a file or an area where a human check adds the most, and says why in one sentence. Examples: a security boundary, an assumption that no test covers, a choice that is easy to get wrong."
     echo "5. '## Decisions made for you': first one line that counts the record rows by provenance, in plain words. Example: 'The record has 9 rows. The requester answered 5 at intake. The codebase settles 3. The build added 1.' Then a table '| Row | Decision | Provenance |'. Give one line to each row with provenance user-delegated, and to each row you added or edited after commit $FIRST. For an edited row, give the old resolution, the new resolution and the reason. Use at most 40 words in a Decision cell. If no row qualifies, write 'No row was decided for you.'"
-    echo "6. '## Changes': the changes, grouped by area. Use at most 12 bullets, with at most 25 words in each bullet. When you cite a record row or an acceptance criterion, put its id in parentheses after the sentence that states it. Do not write a list of ids without the facts they stand for."
+    echo "6. '## Changes': the changes, grouped by area. Use at most 8 bullets, with at most 20 words in each bullet. Do not repeat a decision or a default that an earlier section states. When you cite a record row or an acceptance criterion, put its id in parentheses after the sentence that states it. Do not write a list of ids without the facts they stand for."
     echo "7. '## Checks': a table '| Check | Result |' with each check you ran. Then a line 'Skipped:' that names each skipped command and its reason. If you skipped nothing, write 'Skipped: none.' If you think a test is wrong, name it here and give the reason."
     echo "8. A line 'Decision record:' with a link to $RECORD_REL that opens on GitHub, then the line 'Record baseline: $FIRST'."
     if [ "$TRACKER" = github ]; then echo "9. The line 'Closes #$ISSUE', so the ticket closes on merge."; else echo "9. The template's '### Jira Items' heading, or your own, and under it the line 'Closes [$ISSUE]'."; fi
@@ -890,6 +890,7 @@ Use short sentences. An instruction has at most 20 words. A statement has at mos
 Write one instruction per sentence. Use the active voice.
 Do not use idioms, hedges or semicolon chains.
 Use the same word for the same thing every time.
+State each fact once. Do not repeat a fact from one section in another.
 In the rows table:
 - Keep each Evidence cell to one or two sentences.
 - Start the Evidence cell with the file:line or the test id. Then say what it shows.
@@ -905,13 +906,18 @@ In `## Findings`:
 - Put the evidence on continuation lines. Indent them two spaces.
 - End each blocker with the continuation line `Fix: <one instruction>`.
 - Do not give a note a Fix line. A note requires nothing.
+- Write a note in at most three lines. Write a dismissed or suppressed note in one line.
 In `## Panel`:
 - Copy the panel lines that review-lead writes. Do not merge, drop or reword a line.
+- Do not repeat the panel reasons in `## Notes`.
 In `## Notes`:
 - Use one `###` sub-heading for each topic. Write at most six sentences under it.
 - Write an inventory, such as the mutation run, as a list.
 - Put the knowledge-base block last.
 - Do not write a sub-heading that has nothing under it.
+- Write a topic that changed no score or finding in one sentence, or leave it out.
+- Keep `## Notes` under 150 words, not counting the knowledge-base block.
+A limit never removes a row, a finding, a panel line or a knowledge-base proposal. If they do not fit, shorten the wording.
 # LOCKSTEP-END verdict-style
 STYLE
   if [ -n "${3:-}" ]; then
