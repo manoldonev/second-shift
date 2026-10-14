@@ -74,40 +74,92 @@ The shape and every empty form are `interviewing-baseline`'s ("The intake receip
 highest version the lint knows (`ledger-lint.sh --receipt-version`).
 
 ```
-# Intake receipt — #<issue> <title>
+# Decision record — #<issue> <title>
 
 Receipt: v4
 
-## Intake steps
+## Summary
 
-Requirements: <the route and what it did — requirements.md, "Outcome for the receipt">
-Split: <not split and why, not triggered and why, or the slices — split.md>
-Explore: <what you explored — explore.md>
-Fan-out: <ran, with its item count; or the skipped/failed form — explore.md>
-Dup-scan: <the scan's result>
-Post-merge scan: <the ACs moved, or none>
-Sizing: <opus or sonnet — the weight you decided>
+<2-4 sentences: what the ticket changes.>
+
+Open regions: <each OR-n and its default, in a few words; or "none">.
+
+Provenance legend: `user-answered` = the operator chose. `user-delegated` = the operator gave the choice to the agent. `codebase-derived` = a fact from the code or the docs, with its proof. `deferred` = not decided yet, under an open region. `ticket-sourced` = the operator decided in a linked ticket comment.
+
+Open region legend: `pause-and-ask` = the build stops and asks. `reversible-default-and-flag` = the build uses the stated default.
 
 ## Decision Ledger
 ## Open Regions
+## Test intent
 ## Surface Inventory
 ## Checks
 ## Design frames        (on a repo whose config sets design.provider)
-## Fan-out
+## Intake steps
+
+Requirements: <the route and what it did — requirements.md, "Outcome for the receipt">
+
+Split: <not split and why, not triggered and why, or the slices — split.md>
+
+Explore: <what you explored — explore.md>
+
+Fan-out: <ran, with its item count; or the skipped/failed form — explore.md>
+
+Dup-scan: <the scan's result>
+
+Post-merge scan: <the ACs moved, or none>
+
+Sizing: <opus or sonnet — the weight you decided>
+
+<details>
+<summary>Intake evidence: knowledge source and fan-out</summary>
+
 ## Knowledge source
-## Test intent
+## Fan-out
+
+</details>
 ```
 
-Each `Intake steps` key once, in that order, at the start of its line; its outcome is what the step
-did or why it did not run, never empty or a bare dash.
+The readers are the operator who merges and the reviewer who scores the rows. Put their needs
+first. Write no decision counts in the Summary. A build edit can change the provenance of a row,
+and then the counts are false. Put a blank line between two step lines. Without it, GitHub shows
+the seven steps as one paragraph. Open the `<details>` fold after the last step line, and close it
+after the Fan-out section. Do not close the fold inside Knowledge source, because the lint refuses
+an unindented line there.
 
-- **Decision Ledger** — five columns (`Kind` included). Every `codebase-derived` row states its
-  evidence after the value: ``run: `<command>` → <decisive output>`` (run one wherever one can be
-  run), `cited (convention|adr): <path:line>`, or `cited (kb): <kb-page>` for a fact adopted from
-  the knowledge source's answer; a `|` inside any of them is escaped as `\|`. A row recording your
-  own choice is not `codebase-derived` — ask it.
-- **Open Regions** — every `open` row cites a declared `OR-n` with its disposition token.
-- **Surface Inventory** — every surface `decided (D-n)` or `out-of-scope — <reason>`.
+Write the whole record in plain technical English:
+
+- One instruction or one fact per sentence. Max 25 words per sentence.
+- Active voice. Simple tenses. Use the same word for the same thing every time.
+- No semicolon chains and no chained dashes. Split them into sentences.
+- Use articles (a, the). Do not use noun clusters longer than three words.
+- Technical names stay as they are: paths, flags, commands, and ids such as D-3 and OR-1.
+
+Write each `Intake steps` key once, in the order above, at the start of its line. Write what the
+step did, or why it did not run. Use plain sentences of max 25 words. Never write an empty outcome
+or a bare dash. Example: "Requirements: the ticket body as written. spec-reviewer: implementable.
+The interview resolved 2 gaps."
+
+- **Decision Ledger** — five columns (`Kind` included). Write the Decision cell as a short
+  question or noun phrase. Exception: the review panel row keeps the exact Decision text
+  `review panel`. Write the Resolution cell as the answer. Put the chosen value first and the
+  reason after it. Use 1-3 sentences of max 25 words each. Write one decision per row. If a cell
+  needs more than 40 words, split the decision into two rows. Never drop a condition to make a
+  cell shorter, because only the rows bind the build.
+  End every `codebase-derived` cell with its evidence. Use one of three forms:
+  ``run: `<command>` → <decisive output>``, `cited (convention|adr): <path:line>` or
+  `cited (kb): <kb-page>`. Run a command when one can be run. Use `cited (kb)` for a fact from the
+  answer of the knowledge source. Escape a `|` in the evidence as `\|`. The evidence does not
+  count toward the 40 words. A row that records your own choice is not `codebase-derived`. Ask
+  the operator.
+  Write the alternatives you weighed in an `Options weighed:` list under the table, one bullet per
+  row: `- D-n: <option A> or <option B>. <the decider that the Provenance cell names> chose <X>.`
+  This list does not bind the build.
+- **Open Regions** — every `open` row cites a declared `OR-n` with its disposition token. Under the
+  table, write one short block per `reversible-default-and-flag` region: `OR-n default:` then the
+  default, who chose it, and what reversing it costs. Use a list when there is more than one
+  default. Max 25 words per sentence.
+- **Surface Inventory** — every surface `decided (D-n)` or `out-of-scope — <reason>`. Write the
+  Surface cell in at most 10 words. Write an `out-of-scope` reason in one sentence.
 - **Checks** — start from the repo's verification recipe (its CLAUDE.md, the config's `commands.*`)
   and list only what the configured lanes would miss — the selftest the ticket touches, a script its
   ACs name — one command per line; or the empty form.
@@ -121,7 +173,8 @@ did or why it did not run, never empty or a bare dash.
   Explore sorted to this slice, add a `Run:` line naming the shared run
   (`Run: shared with the #<parent> split — slices #a, #b, #c`), and embed the shared snapshot. When
   the ticket came back to Split from the Interview, the `Run:` line also names the pre-split run
-  this one superseded (`; supersedes the pre-split run on #<parent>`).
+  this one superseded (`; supersedes the pre-split run on #<parent>`). Write each claim cell in one
+  sentence of max 25 words, with its pointer. Write each disposition cell in max 15 words.
 - **Knowledge source** — Requirements' outcome (`requirements.md`, "The knowledge source"), in
   exactly one form: `Provider: <plugin>:<agent>` and under it the provider's whole answer, verbatim,
   every line indented four spaces; `Knowledge source: none declared`; or `Knowledge source: failed

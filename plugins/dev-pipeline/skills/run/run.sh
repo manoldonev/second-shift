@@ -809,10 +809,19 @@ build_prompt() { # build_prompt <round> <review-findings-file-or-empty> <red-che
   echo "A test double of a dependency this repo does not own that returns an error or an empty result cites where that shape comes from (the dependency's types, docs or a recorded real response): a double built from your own belief proves nothing about the dependency."
   [ "$BOT_OK" -eq 1 ] && echo "Commit through the repo's bot identity, never plain git commit, and run it exactly as '$TOOLS/bot-commit.sh -C $WT -F <a message file you wrote with Write>' — the bare path first, no bash before it. Re-pass the identity on any --amend, which otherwise silently re-stamps you as the committer."
   if [ "$1" -eq 1 ]; then
-    echo "When the checks you ran are green, commit, push branch $BRANCH to origin and, unless one is already open for this branch, open a DRAFT PR against $BASE_NAME with 'gh pr create --draft --base $BASE_NAME', and leave it a draft: the scheduler marks it ready for review only when a review approves its head. The PR body, in order: line 1 exactly 'built-by: second-shift run $RUN_ID'; then a link to the decision record at $RECORD_REL; then the line 'Record baseline: $FIRST'; then a summary of the change;"
-    if [ "$TRACKER" = github ]; then echo "and the line 'Closes #$ISSUE' so the ticket closes on merge."; else echo "and a '### Jira Items' heading with the line 'Closes [$ISSUE]'."; fi
-  else echo "Address the review below: fix each [blocker] finding, or rebut it in a PR comment, and fix each decision record row it scored violated or undeterminable (or edit that row, as the record rules below allow). A [note] finding requires nothing: fix one only if you choose to, and never rebut or reply to one. Then commit and push $BRANCH."; fi
-  echo; echo "The following decisions were settled with the requester before implementation started. They are binding. The record's '## Knowledge source' and '## Fan-out' sections are context, not binding: evidence intake read, never a decision; only its D-n rows bind. The record is committed at $RECORD_REL; if you must depart from a row, edit that row in place (new resolution, provenance user-delegated, a one-line reason) and commit the edit with the code. A material decision no row covers gets a new row the same way. Commit $FIRST is the record baseline the review reads: never amend, rebase or force-push over it. Never post a comment starting with 'verdict:'."
+    echo "When the checks you ran are green, commit and push branch $BRANCH to origin. If no PR is open for this branch, open a DRAFT PR against $BASE_NAME with 'gh pr create --draft --base $BASE_NAME'. Leave it a draft: the scheduler marks it ready for review only when a review approves its head."
+    echo "Write the PR body for the human who reviews it. Use short sentences and the active voice. Put one fact in each sentence. Use the same word for the same thing. Do not use idioms, metaphors or abstract words. Put what the reviewer must know first. If the repo has a pull request template, keep its headings and put the sections below under them. Write the body in this order:"
+    echo "1. Line 1, exactly: 'built-by: second-shift run $RUN_ID'."
+    echo "2. '## What this changes': at most 80 words. Say what changes for the users of this code, and why. Do not describe the implementation here."
+    echo "3. '## Before you merge': each thing the reviewer must decide or do before the merge. For each record row with provenance deferred, name its open region. If the region's disposition is pause-and-ask, say what the build stopped on and what it asks. If it is reversible-default-and-flag, name the default you used. Include each deploy, migration or other PR that must land first. If there is nothing, write 'Nothing outside this PR.'"
+    echo "4. '## Review focus': start with 'The build suggests:', then one to three bullets. Each bullet names a file or an area where a human check adds the most, and says why in one sentence. Examples: a security boundary, an assumption that no test covers, a choice that is easy to get wrong."
+    echo "5. '## Decisions made for you': first one line that counts the record rows by provenance, in plain words. Example: 'The record has 9 rows. The requester answered 5 at intake. The codebase settles 3. The build added 1.' Then a table '| Row | Decision | Provenance |'. Give one line to each row with provenance user-delegated, and to each row you added or edited after commit $FIRST. For an edited row, give the old resolution, the new resolution and the reason. Use at most 40 words in a Decision cell. If no row qualifies, write 'No row was decided for you.'"
+    echo "6. '## Changes': the changes, grouped by area. Use at most 12 bullets, with at most 25 words in each bullet. When you cite a record row or an acceptance criterion, put its id in parentheses after the sentence that states it. Do not write a list of ids without the facts they stand for."
+    echo "7. '## Checks': a table '| Check | Result |' with each check you ran. Then a line 'Skipped:' that names each skipped command and its reason. If you skipped nothing, write 'Skipped: none.' If you think a test is wrong, name it here and give the reason."
+    echo "8. A line 'Decision record:' with a link to $RECORD_REL that opens on GitHub, then the line 'Record baseline: $FIRST'."
+    if [ "$TRACKER" = github ]; then echo "9. The line 'Closes #$ISSUE', so the ticket closes on merge."; else echo "9. The template's '### Jira Items' heading, or your own, and under it the line 'Closes [$ISSUE]'."; fi
+  else echo "Address the review below: fix each [blocker] finding, or rebut it in a PR comment. Fix each record row the review scored violated or undeterminable, or edit that row as the record rules below allow. A [note] finding requires nothing: fix one only if you choose to, and never rebut or reply to one. Then commit and push $BRANCH. If you added or edited a record row, add it to the PR body's '## Decisions made for you' table. Edit the body with 'gh pr edit <pr> --body-file <a file you wrote with Write>'."; fi
+  echo; echo "The following decisions were settled with the requester before implementation started. They are binding. The record's '## Knowledge source' and '## Fan-out' sections are context, not binding. They hold evidence that intake read, not decisions. Only the D-n rows bind. The record is committed at $RECORD_REL; edit rows there. If you must change the decision of a row, edit that row in place. Write the new resolution and set the provenance to user-delegated. End the cell with one sentence that starts 'Changed in build:' and gives the reason. A material decision that no row covers gets a new row with provenance user-delegated. End its cell with one sentence that starts 'Added in build:' and gives the reason. Commit each edit with the code. Commit $FIRST is the record baseline the review reads: never amend, rebase or force-push over it. Never post a comment starting with 'verdict:'."
   echo; record_at_first
   if record_has_test_intent; then # #1039 D-4 D-5 D-6 D-12: the plan is a coverage map the scheduler checks, never a tick list
     echo; echo "The record's '## Test intent' section names, per acceptance criterion, the observable behavior its test must prove, or an exemption with its reason. Your first commit after the record commit $FIRST is a task plan at $PLAN_REL: groups '## N. Group', tasks '- [ ] N.M Description (files)', each test task before the implementation task it covers and ending in the ids of the ACs its test proves, one bracket per id, nothing after them: '- [ ] 1.1 Description (files) [AC-1] [AC-3]'. Tag every AC the section does not exempt on at least one test task, and no id its 'ACs:' line does not list; each AC's tagged test proves the behavior its line states. A ticked box means nothing. Any line starting '- [' that is not a task in that form is unparseable. The scheduler checks the plan at the pushed head against the record at $FIRST before a review starts: an uncovered AC, an id the record does not define, a missing plan or an unparseable line comes back to you as findings and spends a checks-red attempt."
@@ -873,6 +882,38 @@ GRAMMAR
 Knowledge-base contributions: when review-lead's report has a `### Knowledge-base contributions` block, carry it into the verdict's `## Notes` as review-lead wrote it — the lead line `Knowledge-base contributions:` with one proposal per line under it, or the single line `Knowledge-base contributions: none`. review-lead applied the inclusion test the repo's review-context.md declares: do not apply it again, and add, drop or reword no proposal. Carry the whole list on every verdict, never only what changed since an earlier one: the earlier verdicts are collapsed once one binds. When the report has no such block, the verdict carries no contributions line. A proposal is a draft the operator files in the knowledge base: never a finding, and it never makes a verdict `needs-work`.
 # LOCKSTEP-END kb-contributions
 KB
+  # the verdict's style, stated once here and once in review/SKILL.md step 8
+  echo; grep -v 'LOCKSTEP-' <<'STYLE'
+# LOCKSTEP-BEGIN verdict-style
+Write the verdict for the human who decides the merge.
+Use short sentences. An instruction has at most 20 words. A statement has at most 25 words.
+Write one instruction per sentence. Use the active voice.
+Do not use idioms, hedges or semicolon chains.
+Use the same word for the same thing every time.
+In the rows table:
+- Keep each Evidence cell to one or two sentences.
+- Start the Evidence cell with the file:line or the test id. Then say what it shows.
+- Start the Evidence cell of a departed row with `Decided by <who> (<provenance>).` Then give the commit of the edit and the new resolution.
+- If the edit of a departed row names no decider, start its Evidence cell with `No decider named.`
+- Start the Evidence cell of a row that the build added with `Added by the build, <provenance>.`
+- Start the Evidence cell of a row that the build deleted with `Deleted by the build.` Then name who decided.
+- Put longer detail in `## Notes`.
+In `## Findings`:
+- Put blockers first and notes after them. Put dismissed and suppressed notes last.
+- Start the text after the dash of such a note with `Dismissed.` or `Suppressed.` Then give the reason in one sentence.
+- Give the defect in the first sentence of each finding.
+- Put the evidence on continuation lines. Indent them two spaces.
+- End each blocker with the continuation line `Fix: <one instruction>`.
+- Do not give a note a Fix line. A note requires nothing.
+In `## Panel`:
+- Copy the panel lines that review-lead writes. Do not merge, drop or reword a line.
+In `## Notes`:
+- Use one `###` sub-heading for each topic. Write at most six sentences under it.
+- Write an inventory, such as the mutation run, as a list.
+- Put the knowledge-base block last.
+- Do not write a sub-heading that has nothing under it.
+# LOCKSTEP-END verdict-style
+STYLE
   if [ -n "${3:-}" ]; then
     echo; echo "## Your previous verdict did not bind"
     echo "The review before you posted a verdict whose comment does not back its own verdict line, so no status was posted and you were spawned in its place. Review the head yourself and post a new verdict comment in the grammar above; never edit the old one. It broke these rules:"
@@ -1092,9 +1133,9 @@ verdict_check() { # verdict_check <attempt> -> verdict-check.sh's exit: 0 backed
 }
 verdict_notice() { # verdict_notice <attempt> <verdict url>: one plain PR comment linking the rejected verdict and naming its failed rules; never fatal, never an edit of the verdict
   local f="$STATE/verdict-notice-$1.md" err
-  { echo "second-shift run $RUN_ID: the verdict at ${2:-(its URL was not read)} does not bind — its comment does not back its own verdict line, so no \`$STATUS_CONTEXT\` status was posted and no BUILD was spawned. It breaks these rules of the verdict grammar:"
-    echo; sed 's/^/- /' "$STATE/verdict-check-$1.txt"; echo
-    echo "The harness never edits a verdict. After a first miss the review is re-spawned; after a second the run ends review-unbound."; } > "$f"
+  { echo "second-shift run $RUN_ID: the verdict at ${2:-(its URL was not read)} does not bind. Its comment breaks the verdict grammar, so the scheduler posted no \`$STATUS_CONTEXT\` status and started no build."
+    echo; echo "Rules it breaks:"; sed 's/^/- /' "$STATE/verdict-check-$1.txt"; echo
+    echo "The scheduler never edits a verdict. After the first failed verdict, it starts one new review. After the second, the run ends as review-unbound. Then run /dev-pipeline:review $PR by hand."; } > "$f"
   err="$("$GH" pr comment "$PR" --body-file "$f" 2>&1 >/dev/null)" && { say "verdict: the notice naming the failed rules is posted on PR #$PR"; return 0; }
   STATUS_NOTES="${STATUS_NOTES}verdict notice: NOT posted — $(printf '%s' "$err" | tr '\n' ' ' | cut -c1-200)"$'\n'; say "verdict: could not post the notice on PR #$PR"
 }
@@ -1157,13 +1198,17 @@ pr_mark_ready() { # approved at this head: the one flip out of draft
 cost_block() { # <terminal slug>
   echo '<!-- pipeline-cost-block -->'
   echo "## second-shift run"; echo
+  # the reader's line first; the status and draft notes stay outside the fold, since a status NOT posted changes what a merge proves
+  local head="${HEAD_SHA:0:7}"
+  echo "Outcome: $1 after $ROUND round(s). Verdict: ${VERDICT:-none}. Reviewed head: ${head:-none}. CI: $CI. Cost: \$$(usd "$COST")${UNPRICED:+ + unpriced}."; echo
+  [ -z "$STATUS_NOTES" ] || printf '%s' "$STATUS_NOTES" | awk '{print; print ""}'   # one paragraph per bound verdict's status post
+  [ -z "$DRAFT_NOTES" ] || printf '%s' "$DRAFT_NOTES" | awk '{print; print ""}'     # one paragraph per draft flip worth reporting
+  echo "<details><summary>Run details</summary>"; echo   # GitHub renders markdown inside the fold only after a blank line
   echo "| run | outcome | rounds | verdict | reviewed head | cost | CI |"; echo "| --- | --- | --- | --- | --- | --- | --- |"
   echo "| $RUN_ID | $1 | $ROUND | ${VERDICT:-none} | ${HEAD_SHA:-—} | \$$(usd "$COST")${UNPRICED:+ + unpriced} | $CI |"; echo
   [ -z "$RUN_NOTES" ] || printf '%s' "$RUN_NOTES" | awk '{print; print ""}'
   [ -z "$PLAN_NOTES" ] || printf '%s' "$PLAN_NOTES" | awk '{print; print ""}'       # #1039: the latest coverage check, and the plan's position
   [ -z "$FWC_NOTES" ] || printf '%s' "$FWC_NOTES" | awk '{print; print ""}'         # #1040: the latest fails-without-the-change check, its holds and unchecked notes
-  [ -z "$STATUS_NOTES" ] || printf '%s' "$STATUS_NOTES" | awk '{print; print ""}'   # one paragraph per bound verdict's status post
-  [ -z "$DRAFT_NOTES" ] || printf '%s' "$DRAFT_NOTES" | awk '{print; print ""}'     # one paragraph per draft flip worth reporting
   # #964 D-4: one denial count per session, from the denials file the scheduler wrote after it ("?" when its JSON was unread);
   # a review's count misses the denials made inside its Workflow subagents, which its result JSON does not list
   echo "| session | turns | cost | denials |"; echo "| --- | --- | --- | --- |"
@@ -1173,6 +1218,7 @@ cost_block() { # <terminal slug>
     dn="?"; [ -f "$df" ] && dn="$(grep -c . "$df")"
     if [ -n "$c" ]; then echo "| $n | $(jq -r '.num_turns // "?"' "$f") | \$$(usd "$c") | $dn |"; else echo "| $n | ? | unpriced (no total_cost_usd) | $dn |"; fi
   done
+  echo; echo '</details>'
   echo '<!-- /pipeline-cost-block -->'
 }
 write_run_block() { # <terminal slug>; a body that cannot be read is never replaced blind

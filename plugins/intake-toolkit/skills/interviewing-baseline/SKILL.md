@@ -30,16 +30,16 @@ Rules for every interviewing turn, regardless of which skill is running:
 
 <!-- canonical: interviewing-baseline provenance enum — all mirrors keep verbatim -->
 
-The machine-checkable residue every elicitation leaves behind. It is a mandated `## Decision Ledger` section in the implementation plan (or, for a pipeline ticket, in the intake receipt `/intake-toolkit:intake` writes to `.claude/pipeline-state/{issue}-ledger.md`):
+The ledger records every decision an interview makes, and who made it. It is a mandated `## Decision Ledger` section in the implementation plan (or, for a pipeline ticket, in the intake receipt `/intake-toolkit:intake` writes to `.claude/pipeline-state/{issue}-ledger.md`):
 
 ```
 | ID  | Decision | Resolution | Provenance |
 | --- | -------- | ---------- | ---------- |
-| D-1 | Uniqueness of document fingerprint per user | Partial unique index on (userId, fingerprint) | user-answered |
-| D-2 | 404 vs 409 on duplicate import | 409 | user-delegated |
-| D-3 | DTO validation library | class-validator (repo convention, CLAUDE.md) | codebase-derived |
-| D-4 | Backfill order for historical records | deferred to next milestone (owner: reporter) | deferred |
-| D-5 | Max import size | 50 MB, per the operator's comment https://github.com/acme/repo/issues/42#issuecomment-1234567 | ticket-sourced |
+| D-1 | Uniqueness of a document fingerprint per user | A partial unique index on (userId, fingerprint). A duplicate is refused at write time | user-answered |
+| D-2 | 404 or 409 on a duplicate import | 409. The document already exists | user-delegated |
+| D-3 | DTO validation library | class-validator. This is the repo convention (CLAUDE.md) | codebase-derived |
+| D-4 | Backfill order for historical records | Deferred to the next milestone. Owner: the reporter | deferred |
+| D-5 | Maximum import size | 50 MB. The operator set it in https://github.com/acme/repo/issues/42#issuecomment-1234567 | ticket-sourced |
 ```
 
 **Provenance closed enum** — exactly these five values:
@@ -55,7 +55,7 @@ The machine-checkable residue every elicitation leaves behind. It is a mandated 
 **Rules:**
 
 - IDs are stable `D-1..n` and never reused after retirement (same discipline as `AC-n` IDs).
-- Resolution is never empty.
+- Resolution is never empty. Write it as the answer: the chosen value first, then the reason. Use sentences of max 25 words. If a cell needs more than 40 words, split the decision into two rows. Never drop a condition to make a cell shorter. Evidence does not count toward the limit. Write the options you weighed in an `Options weighed:` list under the table, not in the cell.
 - **Precedence when sources disagree:** a row hydrated from a pre-flight `.claude/pipeline-state/{issue}-ledger.md` wins over a ticket comment covering the same decision. Two comments that conflict, or one that is ambiguous, resolve to `deferred` naming the conflict in the Resolution cell — never to a `ticket-sourced` row that picks a side.
 - **Explicit empty form** for trivial work — the section must still exist, containing exactly this line instead of a table:
 
@@ -146,8 +146,9 @@ claim explicit: a mandated `## Open Regions` section, rows or the empty form.
 ```
 
 Disposition is a closed two-value enum. `pause-and-ask` stops BUILD and routes the decision
-back; `reversible-default-and-flag` takes a stated default and surfaces it — legitimate only
-where reversing it later is cheap, and the receipt says why in prose below the table. Every
+back. `reversible-default-and-flag` means that the build uses a stated default and the record
+shows it. Use it only where a later reversal is cheap. Under the table, write an `OR-n default:`
+block for each such region. State the default, who chose it, and the cost to reverse it. Every
 `open`-kind ledger row cites the `OR-n` it falls under; a citation the section does not declare
 is worse than none, because it reads as an owned gap everywhere downstream.
 
@@ -389,11 +390,11 @@ whole answer the parent's dispatch got.
 A receipt names its version once, on a line of its own before its first `##` heading:
 
 ```
-# Intake receipt — #1039 <title>
+# Decision record — #1039 <title>
 
 Receipt: v4
 
-## Intake steps
+## Summary
 ```
 
 A receipt with no such line is v1. Each mandated section starts at a version, and the lint
@@ -429,12 +430,18 @@ From v2 the receipt records what each intake step did, one line per step, in thi
 ```
 ## Intake steps
 
-Requirements: the ticket body as written — spec-reviewer: implementable
-Split: not split — one PR's worth of work
-Explore: done — the worker, its DTOs and the proxy config
+Requirements: the ticket body as written. spec-reviewer: implementable.
+
+Split: not split. The work fits one PR.
+
+Explore: done. Read the worker, its DTOs and the proxy config.
+
 Fan-out: ran — 4 items, see Fan-out
+
 Dup-scan: no candidates at or above threshold 12
+
 Post-merge scan: no post-merge AC
+
 Sizing: opus
 ```
 
@@ -490,8 +497,9 @@ unchecked forms are additive inside v4: no receipt version names them.
 A decision the receipt never covered will sometimes surface during BUILD. That is normal
 operation (P9), not a failure — what must not happen is the run quietly making the call. The
 record is the one place it is written: BUILD edits the row in place (a gap it covers nowhere gets
-a new row) — new resolution, the provenance naming who decided, a one-line reason — and commits
-the edit with the code. The review diffs the record at its first commit against the head and
+a new row). It writes the new resolution and sets the provenance to the decider. It ends the cell
+with one sentence that starts `Changed in build:` (an edited row) or `Added in build:` (a new row)
+and gives the reason. It commits the edit with the code. The review diffs the record at its first commit against the head and
 scores every edited row `departed`, naming the decider from its provenance; a row the code leaves
 without an edit is `honored` or `violated`.
 

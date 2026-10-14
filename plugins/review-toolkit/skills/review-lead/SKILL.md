@@ -356,20 +356,26 @@ never a `[Coverage gap]`: nothing was selected, so nothing went dark. Under a tr
 silently-dropped opt-in is indistinguishable from a green round, which is the one failure this
 rule exists to prevent.
 
-**Say which panel ran.** One Review Summary line, always, when the pipeline default panel was
-declared — e.g. "panel: pipeline default (scope-completeness only); opt-ins taken: security
-(ledger D-4), unit-test-mutation (config `reviewers.default`), a11y (caller: new form
-controls)", or "…; no opt-ins taken". An introduced surface whose reviewer was not selected is
-on the same line: "…; declined: security (caller: new query is parameterized, no external
-input reaches it)", or, when the caller gave no reason, "…; surface introduced, not selected,
-no reason given: a11y". A record-named cost risk is on it too, either way: "opt-ins taken:
-performance (record D-3: the new route reaches the inherited expansion)" or "…; declined:
-performance (answers record D-3: the route takes a fixed one-day window, so the inherited
-expansion is bounded at one day per resource)", and with neither, "…; record-named risk, no
-performance decision: D-3", which is the `[blocker]` above. The reader has to be able to tell a
-trimmed panel from a full one that happened to match no trigger, and a considered decline from a
-surface nobody looked at.
-The not-selected opt-in reviewers get no separate Step 4c note in this case — this line is that
+**Say which panel ran.** When the caller declared the pipeline default panel, end the Review
+Summary with a panel block. Write the lines below in this order. Give each name one reason in
+parentheses, at most 15 words. Start each reason with its source: `record D-n:`, `config:` or
+`caller:`.
+
+- `- Default: scope-completeness only.` Always write this line.
+- `- Opted in: <name> (<source>: <reason>), …` Write `- Opted in: none.` when no reviewer was
+  opted in.
+- `- Declined: <name> (<source>: <reason>), …` Write this line when a reviewer of an introduced
+  surface was declined with a reason.
+- `- Not selected, no reason given: <name>, …` Write this line when an introduced surface has no
+  reviewer and no reason.
+- `- Record-named risk, no performance decision: D-n.` Write this line when a record row names a
+  cost risk and performance was neither opted in nor declined. This line is the `[blocker]` above.
+
+A performance decline must answer the record row. Example: `performance (caller: answers record
+D-3, a fixed one-day window bounds the expansion)`. The reader must see two differences. The first
+is a trimmed panel against a full panel that matched no trigger. The second is a considered decline
+against a surface that nobody read.
+The not-selected opt-in reviewers get no separate Step 4c note in this case — this block is that
 note, and the two would say the same thing twice. Their Verdicts rows follow Step 4c: omitted,
 except `security-reviewer` and `performance-reviewer`, whose rows read `Lead pass — ✅/❌` because
 the lead pass covered them.

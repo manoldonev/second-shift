@@ -100,7 +100,7 @@ Its **intent rows** are the `| D-n |` rows whose Provenance cell reads `user-ans
 
 - `honored` — the code does what the row's Resolution says.
 - `violated` — it does not, and the row was not edited on this branch. A departure the build did not write into the record is `violated`, never `departed`.
-- `departed` — the row was edited after the record's first commit on this branch (compare the row at that commit, `git log --reverse --format=%H -- <record> | head -1`, with the row at the head), and the code follows the edited row. Name the decider from the edited row's Provenance: the departure is decided only when it reads `user-answered` or `user-delegated` and the row states its reason. Write `decided_by: <value>` in the evidence. Any other provenance, or no reason → the departure is undecided.
+- `departed` — the row was edited after the record's first commit on this branch (compare the row at that commit, `git log --reverse --format=%H -- <record> | head -1`, with the row at the head), and the code follows the edited row. Name the decider from the edited row's Provenance: the departure is decided only when it reads `user-answered` or `user-delegated` and the row states its reason. Start the evidence with `Decided by <who> (<value>).` Any other provenance, or no reason → the departure is undecided.
 - `undeterminable` — the diff cannot show it either way. Say why.
 
 A process row (the review panel, say) is determinable from the branch's own records. `violated`, `undeterminable` and an undecided `departed` are each a failing row.
@@ -146,7 +146,7 @@ By **turn 20** (of your 30 maximum) you MUST be writing the final result. No fur
 | D-n | score | evidence |
 | --- | --- | --- |
 | D-2 | honored | <file>:<line> — <what it shows> |
-| D-5 | departed | <file>:<line>; decided_by: user-delegated (row edited on the branch) |
+| D-5 | departed | Decided by the agent (user-delegated). <file>:<line> — the row was edited on the branch |
 
 ### Scope items
 - [✓ in-diff] <item summary> — <file>:<line>
