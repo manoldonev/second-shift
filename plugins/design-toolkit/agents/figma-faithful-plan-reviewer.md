@@ -127,7 +127,7 @@ refuse a resolution the plan never justified, which is how a name match survives
 
 <!-- mirror of interviewing-baseline provenance enum — keep verbatim -->
 
-- **[Blocker]** the plan's `## Decision Ledger` section is missing or malformed: no rows AND no explicit empty form (`No material decisions — all choices codebase-derived.`); or a row's provenance is outside the closed enum `user-answered | user-delegated | codebase-derived | deferred | ticket-sourced` (`assumed` is never legal).
+- **[Blocker]** the plan's `## Decision Ledger` section is missing or malformed: no rows AND no explicit empty form (`No decisions to record. The code settles every choice.`, or the older `No material decisions — all choices codebase-derived.`); or a row's provenance is outside the closed enum `user-answered | user-delegated | codebase-derived | deferred | ticket-sourced` (`assumed` is never legal).
 - **[Blocker]** a spec Open Question or grilled resolution visibly consumed by the plan carries no ledger row — cite the plan step.
 - Exceptions: the explicit empty form always satisfies the section check; a plan file whose git authored date (or mtime, if untracked) predates the ledger convention's merge gets a **Warning** instead — never infer "predates the rule" from content alone.
 

@@ -187,9 +187,9 @@ receipt_with() { # receipt_with <ledger-rows-file> <open-rows-block> [surface-bl
 # surface failure in disguise. SURFACE_EMPTY is `receipt_with`'s default third
 # argument, so every case predating the Surface Inventory section keeps naming
 # exactly one cause.
-OPEN_EMPTY='No open regions — every decision in scope is ratified.'
+OPEN_EMPTY='No open regions. Every decision in scope is settled.'
 SURFACE_EMPTY='No user-visible surface — this change renders nothing a user reads.'
-CHECKS_EMPTY='No ticket-specific checks — the configured lanes cover this change.'
+CHECKS_EMPTY='No ticket-specific checks. The configured checks cover this change.'
 FANOUT_SKIPPED='Fan-out: skipped — by the operator; this receipt exercises another section.'
 
 # (ll-o) the fixture receipt — every Kind value, every legal pairing → 0
@@ -227,6 +227,19 @@ rc=$(lint_rc --receipt "$TMP/ratified.md")
 [[ "$rc" -eq 0 ]] \
   && pass "(ll-r) same row, user-answered → 0" \
   || fail "(ll-r) user-answered intent row — got rc=$rc"
+
+# (ll-pf) the older empty forms, which committed records carry, still pass beside the plain ones the cases above use; any third wording fails
+sed 's/^No material decisions — all choices codebase-derived\.$/No decisions to record. The code settles every choice./' "$FIX/empty-form-ledger.md" > "$TMP/plain-empty.md"
+rc=$(lint_rc "$TMP/plain-empty.md")
+[[ "$rc" -eq 0 ]] && grep -qx 'No decisions to record. The code settles every choice.' "$TMP/plain-empty.md" \
+  && pass "(ll-pf) the plain ledger empty form → 0" || fail "(ll-pf) plain ledger empty form — got rc=$rc"
+receipt_with "$TMP/row.md" 'No open regions — every decision in scope is ratified.' "$SURFACE_EMPTY" 'No ticket-specific checks — the configured lanes cover this change.' > "$TMP/old-forms.md"
+rc=$(lint_rc --receipt "$TMP/old-forms.md")
+[[ "$rc" -eq 0 ]] && pass "(ll-pf) the older Open Regions and Checks empty forms → 0" || fail "(ll-pf) older receipt empty forms — got rc=$rc"
+receipt_with "$TMP/row.md" 'No open regions.' > "$TMP/third-open.md"
+receipt_with "$TMP/row.md" "$OPEN_EMPTY" "$SURFACE_EMPTY" 'No checks.' > "$TMP/third-checks.md"
+rc1=$(lint_rc --receipt "$TMP/third-open.md"); rc2=$(lint_rc --receipt "$TMP/third-checks.md")
+[[ "$rc1" -eq 1 && "$rc2" -eq 1 ]] && pass "(ll-pf) a third wording of either form → 1" || fail "(ll-pf) third wording — open rc=$rc1, checks rc=$rc2"
 
 # (ll-s) a `fact` row backed by a human-attributed provenance is the mirror
 # error — a decision relabeled as a derived fact.
