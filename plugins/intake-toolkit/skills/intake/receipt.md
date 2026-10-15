@@ -121,7 +121,8 @@ Sizing: <opus or sonnet — the weight you decided>
 
 The readers are the operator who merges and the reviewer who scores the rows. Put their needs
 first. Write no decision counts in the Summary. A build edit can change the provenance of a row,
-and then the counts are false. Put a blank line between two step lines. Without it, GitHub shows
+and then the counts are false. The Summary never states a rule more broadly than its row does.
+In each legend, define only the values that the record uses. Put a blank line between two step lines. Without it, GitHub shows
 the seven steps as one paragraph. Open the `<details>` fold after the last step line, and close it
 after the Fan-out section. Do not close the fold inside Knowledge source, because the lint refuses
 an unindented line there.
