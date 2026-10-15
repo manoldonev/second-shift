@@ -79,6 +79,11 @@ check added "$(body approve $'| D-1 a | honored | x |\n| D-2 c | departed | y |'
 fails_with "(f6) a row the build added, left unscored" "record row not scored: D-3"
 check unknown-row "$(body approve "$HEAD_ROWS"$'\n| D-9 z | honored | w |' 'None.')"
 fails_with "(f7) a row in neither version of the record" "row not in the record: D-9"
+# a record row that ledger-lint accepts with other padding (`|  D-2  |`, `|D-4|`) is still owed a score
+printf '# record\n\n| ID | Decision | Resolution | Provenance |\n| --- | --- | --- | --- |\n| D-1 | a | b | user-answered |\n|  D-2  | c | d | user-answered |\n|D-4| g | h | user-answered |\n' > "$T/padded-record.md"
+HEADREC="$T/padded-record.md" FIRSTREC="$T/padded-record.md" check padded "$(body approve '| D-1 a | honored | x |' 'None.')"
+fails_with "(f7b) a padded record row, left unscored" "record row not scored: D-2"
+has "record row not scored: D-4" && ok "(f7b) a record row with no cell padding, left unscored, is named too" || bad "(f7b) D-4 not named: $(tr '\n' '|' <<<"$OUT")"
 check rs-row "$(body approve "$HEAD_ROWS"$'\n| RS-1 home | honored | w |' 'None.')"
 fails_with "(f8) an RS row in the table" "row is not a D-n row: RS-1 home"
 check bad-score "$(body approve $'| D-1 a | fine | x |\n| D-2 c | honored | y |\n| D-3 e | honored | z |' 'None.')"
