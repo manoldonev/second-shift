@@ -132,6 +132,21 @@ fixture ro; printf 'build-pr\nreview-approve-and-push\nreview-approve\n' > "$FAK
 [ "$(cat "$FAKE_GH/calls")" = 3 ] && grep -q 'reviewed: ' "$FAKE_GH/prompt-3.txt" && ok "[I6] the approve for the pre-push head was rejected; one review re-spawned, no build" || bad "[I6] calls=$(cat "$FAKE_GH/calls")"
 printf '%s\n' "$OUT" | grep -q '1 round' && ok "[K12] the retry spent no round" || bad "[K12] round count wrong"
 [ -f "$(SD)/checks-1.1-retry1.log" ] && ok "[I6] the checks re-ran on the moved head before the re-spawn" || bad "[I6] no checks on the moved head: $(cd "$(SD)" && echo checks-*)"
+# a head that moves during the checks (a push, or GitHub's 'Update branch' merge) is checked again before any review is
+# spawned: a review would read and name the new head, and no verdict could bind to the head the checks passed
+cat > "$T/bin/move-head-once" <<'EOF'
+#!/usr/bin/env bash
+[ -f "$1" ] && exit 0; touch "$1"
+c="$(mktemp -d)"; git clone -q -b "$(git rev-parse --abbrev-ref HEAD)" "$(git remote get-url origin)" "$c" 2>/dev/null
+echo merged >> "$c/work.txt"; git -C "$c" commit -qam "merge main into the branch"; git -C "$c" push -q origin HEAD 2>/dev/null; rm -rf "$c"
+EOF
+chmod +x "$T/bin/move-head-once"
+fixture hm1 "- bash $T/bin/move-head-once $T/hm1-moved"; printf 'build-pr\nreview-approve-fetched\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "[I6] a head that moved during the checks is checked again, and the one review binds"
+[ "$(cat "$FAKE_GH/calls")" = 2 ] && [ -f "$(SD)/checks-1.1-retry1.log" ] && [ ! -f "$(SD)/review-1.1.prompt" ] \
+  && ok "[I6] no review was spawned on the head the checks had passed; the checks re-ran on the moved one" || bad "[I6] calls=$(cat "$FAKE_GH/calls"), state: $(cd "$(SD)" && echo checks-* review-*.prompt)"
+# a review that names the head it found moved under it is a moved head, not a dark review: the checks run on that head first
+fixture hm2; printf 'build-pr\nreview-push-approve-new\nreview-approve-fetched\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "[I6] a review that named the head it moved to: the checks re-run there, and the next review binds"
+[ "$(cat "$FAKE_GH/calls")" = 3 ] && [ -f "$(SD)/checks-1.1-retry1.log" ] && ok "[I6] one review re-spawned, after the checks on the moved head" || bad "[I6] calls=$(cat "$FAKE_GH/calls"), checks: $(cd "$(SD)" && echo checks-*)"
 fixture ro2; printf 'build-pr\nreview-silent\nreview-silent\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect review-unbound "[K12] two dark reviews"
 [ "$(cat "$FAKE_GH/calls")" = 3 ] && [ "$RC" -eq 5 ] && ok "[K12] exactly one retry, then exit 5" || bad "[K12] calls=$(cat "$FAKE_GH/calls") rc=$RC"
 

@@ -143,7 +143,11 @@ case "$plan" in
                    mkdir -p plugins/dev-pipeline/tools; printf '#!/usr/bin/env bash\necho "plan-coverage: pass"\n' > plugins/dev-pipeline/tools/plan-coverage.sh
                    push; openpr ;;
   review-crash)    printf '{"subtype":"error_during_execution","total_cost_usd":0}\n'; exit 1 ;;
-  review-approve|review-needs-work|review-wrong-sha|review-approve-dirty|review-approve-runtime|review-approve-and-push|review-needs-work-drop-base|review-needs-work-diverge|review-needs-work-notes-reason|review-needs-work-move-base)
+  review-approve|review-needs-work|review-wrong-sha|review-approve-dirty|review-approve-runtime|review-approve-and-push|review-needs-work-drop-base|review-needs-work-diverge|review-needs-work-notes-reason|review-needs-work-move-base|review-approve-fetched|review-push-approve-new)
+    case "$plan" in   # a real review reads the PR's head as it is now, not the worktree's last fetch
+      review-approve-fetched) git fetch -q origin ;;
+      review-push-approve-new) push ;;
+    esac
     sha=$(git rev-parse "origin/$branch"); [ "$plan" = review-wrong-sha ] && sha=deadbeef
     v=approve; case "$plan" in review-needs-work*) v=needs-work ;; esac
     extra=""; [ "$plan" = review-needs-work-notes-reason ] && extra=$'\n## Notes\n\nreason: render-unavailable'   # prose, not line 3

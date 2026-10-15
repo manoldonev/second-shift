@@ -1589,34 +1589,41 @@ while :; do
       INPUT="$STATE/review-input-$RA.md"; NEED_CHECKS=0
     fi
     # ---- REVIEW: a fresh session bound to this head and its window; re-spawned once when it leaves no binding verdict ----
-    # the record at FIRST, where the review's own draft check reads it (the head's is in the worktree it reviews)
-    [ -z "$SCRATCH" ] || record_at_first > "$SCRATCH/record-at-first.md" || terminal env-worktree "cannot read the record at $FIRST:$RECORD_REL for the review"
-    review_prompt "$PR" "$INPUT" "$REJECTED" > "$STATE/review-$RA.prompt"
-    start="$(now)"
-    spawn review "$REVIEW_MODEL" "$RA" "$(review_allowlist)" 300 "$STATE/review-$RA.prompt"; rrc=$?
-    end="$(now)"
-    # #964 D-4: the review's denials, read as the build's are. Known gap: a denial inside the review's Workflow
-    # subagents is not in this result JSON, so it is not counted here
-    read_denials "$STATE/review-$RA.json" "$STATE/denials-review-$RA.txt"
-    rsub="$(jq -r '.subtype // "unreadable"' "$STATE/review-$RA.json" 2>/dev/null)"
-    miss=""
-    if [ "$rrc" -eq 124 ]; then miss="the review session exceeded ${REVIEW_TO}s"
-    elif [ "$rsub" != success ]; then miss="the review session ended $rsub (rc=$rrc)"
-    else
-      VERDICT="$(verdict "$start" "$end")"; vrc=$?
-      [ "$vrc" -ne 2 ] || terminal env-tracker-unreadable "the PR's comments could not be read after the review — an environment refusal, not a verdict; --resume"
-      if [ "$vrc" -ne 0 ]; then miss="no unedited 'verdict:' comment naming head $HEAD_SHA was posted between $start and $end"
-      else after="$(remote_head)" || terminal env-remote-unreadable "cannot read origin/$BRANCH after the review — the approve is not discarded for a network blip; --resume"
-        [ "$after" = "$HEAD_SHA" ] || { miss="the head moved during the review ($HEAD_SHA -> $after). The checks run again on the new head"; NEED_CHECKS=1; }; fi
-      if [ -z "$miss" ]; then # #991: the bound verdict binds only when its own comment backs it; checked before any status
-        vurl="$(cut -f3 "$STATE/verdict.tsv" 2>/dev/null)"
-        verdict_check "$RA"; vcrc=$?
-        if [ "$vcrc" -eq 1 ]; then
-          miss="the verdict at ${vurl:-(no URL)} breaks the verdict grammar: $(paste -sd ';' "$STATE/verdict-check-$RA.txt" | sed 's/;/; /g' | cut -c1-600)"
-          VERDICT=""; REJECTED="$STATE/verdict-check-$RA.txt"; verdict_notice "$RA" "$vurl"
-        elif [ "$vcrc" -ne 0 ]; then
-          VERDICT=""
-          terminal verdict-uncheckable "the verdict at ${vurl:-(no URL)} could not be checked against the record ($(tr '\n' ' ' < "$STATE/verdict-check-$RA.txt" | cut -c1-300)) — a check that cannot run is not one that passed; no status posted"
+    # the head can move while the checks run (a push, or GitHub's 'Update branch' merge). A review spawned now would read and
+    # name the new head, which no verdict for this one can match: the checks run again on the new head first
+    miss=""; after="$(remote_head)" || terminal env-remote-unreadable "cannot read origin/$BRANCH before the review; --resume"
+    [ "$after" = "$HEAD_SHA" ] || { miss="the head moved during the checks ($HEAD_SHA -> $after). The checks run again on the new head before a review"; NEED_CHECKS=1; }
+    if [ -z "$miss" ]; then
+      # the record at FIRST, where the review's own draft check reads it (the head's is in the worktree it reviews)
+      [ -z "$SCRATCH" ] || record_at_first > "$SCRATCH/record-at-first.md" || terminal env-worktree "cannot read the record at $FIRST:$RECORD_REL for the review"
+      review_prompt "$PR" "$INPUT" "$REJECTED" > "$STATE/review-$RA.prompt"
+      start="$(now)"
+      spawn review "$REVIEW_MODEL" "$RA" "$(review_allowlist)" 300 "$STATE/review-$RA.prompt"; rrc=$?
+      end="$(now)"
+      # #964 D-4: the review's denials, read as the build's are. Known gap: a denial inside the review's Workflow
+      # subagents is not in this result JSON, so it is not counted here
+      read_denials "$STATE/review-$RA.json" "$STATE/denials-review-$RA.txt"
+      rsub="$(jq -r '.subtype // "unreadable"' "$STATE/review-$RA.json" 2>/dev/null)"
+      if [ "$rrc" -eq 124 ]; then miss="the review session exceeded ${REVIEW_TO}s"
+      elif [ "$rsub" != success ]; then miss="the review session ended $rsub (rc=$rrc)"
+      else
+        VERDICT="$(verdict "$start" "$end")"; vrc=$?
+        [ "$vrc" -ne 2 ] || terminal env-tracker-unreadable "the PR's comments could not be read after the review — an environment refusal, not a verdict; --resume"
+        # a review reads the head as it is when it starts, so one that names a head the checks never ran on is a moved head, not a
+        # dark review: re-spawned as it is, it would name that head again
+        after="$(remote_head)" || terminal env-remote-unreadable "cannot read origin/$BRANCH after the review — a verdict is not discarded for a network blip; --resume"
+        if [ "$after" != "$HEAD_SHA" ]; then miss="the head moved during the review ($HEAD_SHA -> $after). The checks run again on the new head"; NEED_CHECKS=1
+        elif [ "$vrc" -ne 0 ]; then miss="no unedited 'verdict:' comment naming head $HEAD_SHA was posted between $start and $end"; fi
+        if [ -z "$miss" ]; then # #991: the bound verdict binds only when its own comment backs it; checked before any status
+          vurl="$(cut -f3 "$STATE/verdict.tsv" 2>/dev/null)"
+          verdict_check "$RA"; vcrc=$?
+          if [ "$vcrc" -eq 1 ]; then
+            miss="the verdict at ${vurl:-(no URL)} breaks the verdict grammar: $(paste -sd ';' "$STATE/verdict-check-$RA.txt" | sed 's/;/; /g' | cut -c1-600)"
+            VERDICT=""; REJECTED="$STATE/verdict-check-$RA.txt"; verdict_notice "$RA" "$vurl"
+          elif [ "$vcrc" -ne 0 ]; then
+            VERDICT=""
+            terminal verdict-uncheckable "the verdict at ${vurl:-(no URL)} could not be checked against the record ($(tr '\n' ' ' < "$STATE/verdict-check-$RA.txt" | cut -c1-300)) — a check that cannot run is not one that passed; no status posted"
+          fi
         fi
       fi
     fi
