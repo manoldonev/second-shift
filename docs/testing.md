@@ -49,7 +49,9 @@ real assertion, and `tools/run-selftests-selftest.sh` makes it.
 list round-robin, so the `n` shards of a lane are exactly the unsharded sweep. Each CI lane is a
 matrix of shards (`selftests-ubuntu`, `selftests-bash32-shard`). An aggregate job carries the
 check name the `main` ruleset requires (`lint-and-selftests`, `selftests (macos, bash 3.2)`), so
-renaming a lane's jobs means editing the ruleset too.
+renaming a lane's jobs means editing the ruleset too. The shards skip on the release PR when its diff is
+`derive-release.sh` output only; the aggregates then pass only once `release-base-swept` has seen
+main's push run green at the commit `release/next` was cut from.
 
 **Why a script and not a `-P` flag.** Bolting `-P 4` onto a `find … | xargs` loop fixes the clock
 and destroys the log: at four concurrent suites the raw streams braid, and a FAIL line no longer

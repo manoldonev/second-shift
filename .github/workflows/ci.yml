@@ -127,12 +127,84 @@ jobs:
             echo "::error::rule 3(b): toolkit content hard-paths into dev-pipeline (Workflow scripts and the tier alphabet ship in review-toolkit)"; exit 1
           fi
 
+  # The release PR skips the selftest sweep when its diff is derive-release.sh output only (the
+  # version fields, CHANGELOG.md, the pin example in docs/onboarding.md): that code is main's, and
+  # main's push run sweeps it. A hand edit to any other file on release/next runs the sweep.
+  # Head repo checked as in pr-gates: a fork naming its branch release/next always gets the sweep.
+  release-scope:
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.head_ref == 'release/next' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      sweep: ${{ steps.scope.outputs.sweep }}
+      base: ${{ steps.scope.outputs.base }}
+    steps:
+      - id: scope
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          compare="$(gh api "repos/$GITHUB_REPOSITORY/compare/main...$HEAD_SHA")"
+          base="$(jq -r '.merge_base_commit.sha' <<<"$compare")"
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          other="$(jq -r '.files[].filename' <<<"$compare" | grep -vxE 'CHANGELOG\.md|docs/onboarding\.md|\.claude-plugin/marketplace\.json|plugins/[^/]+/\.claude-plugin/plugin\.json' || true)"
+          if [[ -n "$other" ]]; then
+            echo "release/next changes files beyond the derivation, so the sweep runs:"
+            echo "$other"
+            echo "sweep=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "derivation-only diff over main@$base; the sweep is skipped and main's run at that commit must be green"
+            echo "sweep=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # When the release PR skips the sweep, the sweep that vouches for it is main's push run at the
+  # commit release/next was cut from. That run starts with the same push that re-derived the PR, so
+  # this waits for it. Both required aggregates need this job, so a red main blocks the release.
+  release-base-swept:
+    needs: [release-scope]
+    if: ${{ needs.release-scope.outputs.sweep == 'false' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    permissions:
+      actions: read
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          BASE: ${{ needs.release-scope.outputs.base }}
+        run: |
+          set -euo pipefail
+          deadline=$((SECONDS + 45 * 60))
+          while (( SECONDS < deadline )); do
+            run="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$BASE&event=push" \
+              --jq '.workflow_runs[0] // empty | [.status, (.conclusion // "-"), .html_url] | @tsv')"
+            if [[ -n "$run" ]]; then
+              IFS=$'\t' read -r status conclusion url <<<"$run"
+              if [[ "$status" == completed ]]; then
+                echo "main's ci run at $BASE: $conclusion ($url)"
+                [[ "$conclusion" == success ]] && exit 0
+                echo "::error::main's ci run at $BASE concluded $conclusion; the release PR skipped its own sweep on the strength of that run. Fix main (or re-run it), then re-run this job."
+                exit 1
+              fi
+            fi
+            sleep 30
+          done
+          echo "::error::main's ci run at $BASE did not complete within 45 minutes"
+          exit 1
+
   # The selftest sweep, sharded. Split across runners because one runner's sweep was the slowest
   # thing on a PR (12-18 min). --shard deals the sorted, post-exclusion suite list round-robin, so the
   # shards of one lane are exactly the unsharded sweep. The pass cache is keyed per shard: a
   # shard's store only ever holds markers for the suites it was dealt.
   selftests-ubuntu:
     name: selftests (ubuntu, shard ${{ matrix.shard }}/2)
+    # Skipped only when release-scope says so; a skipped or failed release-scope runs the sweep.
+    needs: [release-scope]
+    if: ${{ !cancelled() && needs.release-scope.outputs.sweep != 'false' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -196,17 +268,21 @@ jobs:
   # The required-check name. The ruleset on main requires `lint-and-selftests`, so this job
   # carries it and is green only when the lint job and every selftest shard are. `!cancelled()`
   # rather than `always()`: a run superseded by a newer push reports nothing, not a red.
+  # Skipped shards pass only when release-base-swept proved main's run green at the release base.
   lint-and-selftests:
-    needs: [lint, selftests-ubuntu]
+    needs: [lint, selftests-ubuntu, release-base-swept]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - name: lint and every selftest shard passed
         env:
-          RESULTS: ${{ join(needs.*.result, ' ') }}
+          LINT: ${{ needs.lint.result }}
+          SHARDS: ${{ needs.selftests-ubuntu.result }}
+          BASE_SWEPT: ${{ needs.release-base-swept.result }}
         run: |
-          echo "needs: $RESULTS"
-          for r in $RESULTS; do [[ "$r" == success ]] || exit 1; done
+          echo "lint: $LINT, shards: $SHARDS, release base swept: $BASE_SWEPT"
+          [[ "$LINT" == success ]] || exit 1
+          [[ "$SHARDS" == success || ( "$SHARDS" == skipped && "$BASE_SWEPT" == success ) ]]
 
   # The install-topology class guard does NOT run here. It lives in
   # .github/workflows/install-topology.yml, on push to main / the release PR / workflow_dispatch
@@ -277,6 +353,9 @@ jobs:
   # from the acme vendored-era workflow, widened from one suite to the full selftest set.)
   selftests-bash32-shard:
     name: selftests (macos, bash 3.2, shard ${{ matrix.shard }}/3)
+    # Same skip as selftests-ubuntu.
+    needs: [release-scope]
+    if: ${{ !cancelled() && needs.release-scope.outputs.sweep != 'false' }}
     runs-on: macos-latest
     strategy:
       fail-fast: false
@@ -327,15 +406,17 @@ jobs:
 
   # The required-check name for the macOS lane, as `lint-and-selftests` is for the ubuntu one. The
   # aggregate itself needs no macOS runner.
+  # Skipped shards pass on the same condition as in `lint-and-selftests`.
   selftests-bash32:
     name: selftests (macos, bash 3.2)
-    needs: [selftests-bash32-shard]
+    needs: [selftests-bash32-shard, release-base-swept]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - name: every macOS selftest shard passed
         env:
           RESULT: ${{ needs.selftests-bash32-shard.result }}
+          BASE_SWEPT: ${{ needs.release-base-swept.result }}
         run: |
-          echo "shards: $RESULT"
-          [[ "$RESULT" == success ]]
+          echo "shards: $RESULT, release base swept: $BASE_SWEPT"
+          [[ "$RESULT" == success || ( "$RESULT" == skipped && "$BASE_SWEPT" == success ) ]]
