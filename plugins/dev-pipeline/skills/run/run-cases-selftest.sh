@@ -102,6 +102,16 @@ has_line "RED: AC-9 — $X::sel1 did not run on the record commit's tree: $X pri
   && has_line "RED: AC-9 — $X::sel2 did not run" && ! has_line 'ok: AC-' && ! has_line 'the head leg' \
   && ok "(cs3) AC-9: no case lines is red naming testSupport, and nothing goes to the head leg" || bad "(cs3) log: $(CS_LOG | grep -E 'RED|ok:' | tr '\n' '|')"
 
+# (cs4) AC-9 D-11: a cases call that times out is ONE red naming the runner and the blocks it covered — never the
+# "printed no case lines" red, which would blame testSupport for a hang
+CS_SLOW='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"commands":{"main":{"test":"true",'"$CS_SUPPORT"'"testRunners":[{"when":["*-selftest.sh"],"format":"cases","timeoutSeconds":2,"command":"sleep 30; SELFTEST_CASES={cases} bash {file}"}]}}}'
+cs_fixture cs4 "$CS_SLOW"
+printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=1 run_case "$d"
+expect checks-red-spent "(cs4) a cases call that times out"
+has_line "RED: AC-9 AC-11 — testRunners[0] (*-selftest.sh) did not finish within 2s on the record commit's tree, and its process group was killed — the call covered $X::sel1, $X::sel2, $X::sel3" \
+  && [ "$(CS_LOG | grep -c '^RED: ')" -eq 1 ] && ! has_line 'printed no case lines' && ! has_line 'the head leg' \
+  && ok "(cs4) AC-9 D-11: a timed-out cases call is one red naming the runner, not a testSupport red" || bad "(cs4) log: $(CS_LOG | grep -E 'RED|ok:' | tr '\n' '|')"
+
 echo "[self-test] $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
 exit $?

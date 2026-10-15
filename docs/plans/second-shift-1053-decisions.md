@@ -45,6 +45,7 @@ Sizing: opus
 | D-27 | Case ids for fixtures named at runtime | The expanded name, one block per value — run: `grep -n 'fixture "fe-$v"' plugins/dev-pipeline/skills/run/run-claim-selftest.sh` → 236: fixture "fe-$v" | codebase-derived | fact |
 | D-28 | Which selected `{cases}` tests the head leg re-runs | Only the selected tests that failed on the record commit's tree; a test already red there is not run again at the head. Added in build: D-9 says every selected test, but a second run cannot clear a red, so it only adds time | user-delegated | intent |
 | D-29 | Which task lines the unterminated-backtick red applies to | Only a task that carries an AC id; an untagged task's description is not read for files, so a stray backtick there stays legal. Added in build: D-6 names the task without saying which tasks, and an implementation task never feeds the check | user-delegated | intent |
+| D-30 | Where a bare case ends | At the next comma or the end of the list, so a bare case holding a space is red unparseable; a space still separates bare files, and a quoted case from the next name. Added in build: D-6 splits on spaces and also reds a bare case that needs quoting, and a space can only be caught if a bare case runs to the comma; the review found `file::Importer > dup` split into a case and two stray files | user-delegated | intent |
 
 ## Open Regions
 

@@ -29,8 +29,9 @@
 #   (src/a.test.ts::`Importer > dup > rejects (409)`, src/b.test.ts::adds)
 # Backtick spans are lexed across the whole task line before anything else reads it, so a
 # description's `foo(x)` cannot hide the closing parenthetical, and a span's spaces and commas never
-# split it. A case holding a backtick is unsupported. An unterminated backtick, an empty case, or a
-# case that needs quoting written bare is red, unparseable, naming the task.
+# split it. A case holding a backtick is unsupported. A bare case runs to the next comma (D-30), so a
+# space-separated name cannot follow it. An unterminated backtick, an empty case, or a case that needs
+# quoting written bare is red, unparseable, naming the task.
 #
 # Report, one line per AC: `covered (task N.M, …)`, `exempt`, or `exempt (tagged)` — an exempt AC
 # needs no task, and one the plan tags anyway is allowed; neither counts as covered, neither is red.
@@ -117,21 +118,28 @@ mask_spans() { # mask_spans <text> -> the text with every character inside a bac
 }
 SPLIT_ERR=""; SPLIT_OUT=""
 split_files() { # split_files <the parenthetical's text> -> SPLIT_OUT: one "<file>\t<case>" line per name; 1 and SPLIT_ERR when unparseable
-  local s="$1" i ch nx inq=0 incase=0 bare=0 f="" c="" any=0 out=""
+  local s="$1" i ch nx inq=0 incase=0 bare=0 lastq=0 f="" c="" any=0 out="" tail
   SPLIT_ERR=""; SPLIT_OUT=""
   for ((i = 0; i <= ${#s}; i++)); do
     ch="${s:i:1}"
+    # #1053 D-30: a bare case runs to the next comma or the list's end, so a space inside it is part of it and needs quoting;
+    # a space still separates bare files, and a quoted case from the next name
+    if [ "$i" -lt "${#s}" ] && [ "$inq" -eq 0 ] && [ "$incase" -eq 1 ] && [ "$lastq" -eq 0 ] && [ -n "$c" ] && [[ "$ch" == [[:space:]] ]]; then
+      tail="${s:i}"; tail="${tail#"${tail%%[![:space:]]*}"}"
+      if [ -n "$tail" ] && [ "${tail:0:1}" != , ]; then c="$c$ch"; bare=1; continue; fi
+    fi
     if [ "$i" -eq "${#s}" ] || { [ "$inq" -eq 0 ] && [[ "$ch" == [,[:space:]] ]]; }; then   # a name ends
       if [ "$any" -eq 1 ]; then
         if [ "$incase" -eq 1 ] && [ -z "$c" ]; then SPLIT_ERR="'$f::' names an empty case"; return 1; fi
-        if [ "$bare" -eq 1 ]; then SPLIT_ERR="the case of '$f::$c' holds '>', '(', ')' or '[' and must be backtick-quoted: $f::\`$c\`"; return 1; fi
+        if [ "$bare" -eq 1 ]; then SPLIT_ERR="the case of '$f::$c' holds a space, '>', '(', ')' or '[' and must be backtick-quoted: $f::\`$c\` (a bare case runs to the next comma)"; return 1; fi
         [ -n "$f" ] || { SPLIT_ERR="'::$c' names no file"; return 1; }
         out="$out$f"$'\t'"$c"$'\n'
       fi
-      f=""; c=""; incase=0; bare=0; any=0; continue
+      f=""; c=""; incase=0; bare=0; lastq=0; any=0; continue
     fi
     any=1
-    if [ "$ch" = "$BT" ]; then inq=$((1 - inq)); continue; fi
+    if [ "$ch" = "$BT" ]; then inq=$((1 - inq)); lastq=$((1 - inq)); continue; fi
+    lastq=0
     nx="${s:i+1:1}"
     if [ "$inq" -eq 0 ] && [ "$incase" -eq 0 ] && [ "$ch" = : ] && [ "$nx" = : ]; then incase=1; i=$((i + 1)); continue; fi
     if [ "$incase" -eq 1 ]; then

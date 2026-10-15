@@ -52,7 +52,8 @@ at the head is the configured checks' job. Then it puts the worktree back on the
 
 **The unit is the named test, unless the runner's `format` is `exit`.** A tagged task names a test
 as `file::case`; the case is backtick-quoted whenever it holds a space, `>`, `(`, `)`, `,` or `[`:
-``(src/a.test.ts::`Importer > dup > rejects (409)`, src/b.test.ts::adds)``. A bare file is the
+``(src/a.test.ts::`Importer > dup > rejects (409)`, src/b.test.ts::adds)``. A case without
+backticks runs to the next comma, so a space in it makes the task unparseable. A bare file is the
 `exit` format's unit.
 
 | `format` | Calls | Placeholders | What judges a test |
@@ -89,8 +90,9 @@ as `file::case`; the case is backtick-quoted whenever it holds a space, `>`, `(`
   message and no failed row (a `beforeAll` failure; jest reports those rows `failed`). A `cases`
   file that prints no case line at all is red, naming `testSupport`.
 - **The head leg.** After the restore, at the head — one call per json runner, one per file for
-  `cases` — every pending test, and every selected test of a `{cases}` runner, must report
-  `passed`; anything else is red. A pending test that passes is labeled `file-level` in the run
+  `cases` — every pending test, and each selected test of a `{cases}` runner that failed on the
+  record commit's tree, must report `passed`; anything else is red. A selected test that passed
+  there is already red and is not run again. A pending test that passes is labeled `file-level` in the run
   block.
 - `testSupport` (`commands.<id>.testSupport`): globs, matched as `when` is. A file changed since the
   record commit that matches one and exists at the head goes onto the record commit's tree from the

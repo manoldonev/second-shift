@@ -67,7 +67,8 @@ J_RUNNERS='[
   {"when":["*.hang.ts"],"format":"vitest-json","command":"bash tools/fake-runner.sh vitest-hang --reporter=json --outputFile={report} --bail=0 {files}","timeoutSeconds":2},
   {"when":["*.norep.ts"],"format":"vitest-json","command":"bash tools/fake-runner.sh vitest-noreport --reporter=json --outputFile={report} --bail=0 {files}"},
   {"when":["*.exit0.ts"],"format":"jest-json","command":"bash tools/fake-runner.sh jest-exit0 --json --outputFile={report} --runTestsByPath --bail=0 {files}"},
-  {"when":["*.check.sh"],"command":"bash {file}"}]'
+  {"when":["*.check.sh"],"command":"bash {file}"},
+  {"when":["*.slow.sh"],"command":"bash {file}","timeoutSeconds":2}]'
 J_CONFIG="{\"tracker\":{\"type\":\"github\",\"branchPrefix\":\"second-shift/\"},\"paths\":{\"plansDir\":\"docs/plans\"},\"commands\":{\"main\":{\"test\":\"true\",\"testRunners\":$J_RUNNERS}}}"
 j_fixture() { # j_fixture <case> <the Test intent's ACs, as 'AC-1 AC-2'> — a v4 receipt, the fake runner committed on main
   local ti="" id
@@ -167,6 +168,26 @@ expect checks-red-spent "(j3) three runner calls that cannot be judged"
   && has_line "RED: AC-7 — testRunners[4] (*.exit0.ts) reported failed tests but exited 0 on the record commit's tree" \
   && grep -q 'fails without the change: RED — 3 problem(s)' <<<"$OUT" \
   && ok "(j3) AC-7: a timeout, a missing report and failed rows with exit 0 are one red each, naming the runner" || bad "(j3) AC-7 log: $(J_LOG | grep -E '^RED' | tr '\n' '|')"
+
+# (j4) AC-1 AC-2 AC-7: a case holding a backslash is matched as written — awk reads it from ENVIRON, so `\t` stays two
+# characters and the test that passes there is red, never dropped; a file the runner lists with no row and no load
+# message is red "did not run" (D-24); an exit runner's timeout is one red naming the runner (D-11)
+j_fixture j4 "AC-1 AC-2 AC-7"
+j_test src/bs.vtest.ts "T${TAB}-${TAB}path\\to${TAB}true" "T${TAB}-${TAB}other${TAB}false"
+j_test src/empty.vtest.ts "# no test"
+j_test src/z.slow.sh "sleep 30"
+j_plan '- [ ] 1.1 the escaped title (src/bs.vtest.ts::path\to) [AC-1]
+- [ ] 1.2 the empty file (src/empty.vtest.ts::x) [AC-2]
+- [ ] 1.3 the slow file (src/z.slow.sh) [AC-7]'
+printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=1 run_case "$d"
+expect checks-red-spent "(j4) a passing backslash case, an empty file and a slow exit file"
+has_line 'RED: AC-1 — src/bs.vtest.ts::path\to passes on the record commit'"'"'s tree' \
+  && ok "(j4) AC-1: a named test whose case holds a backslash and passes there is red, naming its AC" || bad "(j4) AC-1 log: $(J_LOG | grep -E 'bs.vtest' | tr '\n' '|')"
+has_line "RED: AC-2 — src/empty.vtest.ts::x did not run on the record commit's tree" \
+  && ok "(j4) AC-2 D-24: a file listed with no row and no load message is red 'did not run'" || bad "(j4) AC-2 log: $(J_LOG | grep -E 'empty' | tr '\n' '|')"
+has_line "RED: AC-7 — testRunners[6] (*.slow.sh) did not finish within 2s on the record commit's tree, and its process group was killed — tag a smaller file, or bound the wait inside it — the call covered src/z.slow.sh" \
+  && [ "$(J_LOG | grep -c '^RED: ')" -eq 3 ] \
+  && ok "(j4) AC-7 D-11: an exit runner's timeout is one red naming the runner" || bad "(j4) AC-7 log: $(J_LOG | grep -E '^RED' | tr '\n' '|')"
 
 echo "[self-test] $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

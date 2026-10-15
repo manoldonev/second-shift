@@ -572,7 +572,8 @@ plan_coverage() { # plan_coverage <attempt> -> the script's exit: 0 pass · 1 re
 # cases runs one file and judges each named file::case by the `case<TAB><passed|failed><TAB><id>` line it prints; vitest-json
 # and jest-json run every file of the runner in one call and judge each named test by its row in the JSON report. Every named
 # test must fail there. One whose file does not load there, or that sits behind a failing vitest beforeAll, is pending (D-3):
-# the head leg runs it after the restore, at the head, with every selected test of a {cases} runner, and each must pass (D-9).
+# the head leg runs it after the restore, at the head, with each selected test of a {cases} runner that failed on the record
+# commit's tree, and each must pass (D-9; D-28: a selected test already red there is not run again).
 # Passing at the head is otherwise the checks'. A holds AC's files are kept off it and an unchecked AC's are noted, not run
 # (#1040 D-4, D-11); the AC-to-test map comes from plan-coverage.sh --files, never a second plan parser (#1040 D-7). The tree
 # is built in $WT, which keeps its ignored dependencies: detached to the record commit only when no tracked change is in it,
@@ -683,8 +684,9 @@ FWC_JUDGE='
 fwc_json_verdict() { # fwc_json_verdict <report> <file> <case> <format>
   jq -r --arg n1 "$(fwc_realpath "$2")" --arg n2 "$WT/$2" --arg c "$3" --arg fmt "$4" "$FWC_JUDGE" "$1" 2>/dev/null || echo not-collected
 }
+# A file or a case is the build's text: awk reads it from ENVIRON, never `-v`, which turns a backslash escape into another string
 fwc_cases_verdict() { # fwc_cases_verdict <output> <case> — a cases runner's case lines are its report (#1053 D-4 D-16)
-  local rows n; rows="$(awk -F'\t' -v id="$2" '$1 == "case" && ($2 == "passed" || $2 == "failed") && $3 == id { print $2 }' "$1" 2>/dev/null)"
+  local rows n; rows="$(FWC_C="$2" awk -F'\t' '$1 == "case" && ($2 == "passed" || $2 == "failed") && $3 == ENVIRON["FWC_C"] { print $2 }' "$1" 2>/dev/null)"
   n="$(printf '%s' "$rows" | grep -c .)"
   if [ "$n" -eq 0 ]; then echo did-not-run; elif [ "$n" -eq 1 ]; then echo "$rows"; else echo "ambiguous $n"; fi
 }
@@ -695,9 +697,14 @@ red_tree_restore() { # put $WT back on $BRANCH after the leg, never forced; 1 wh
 }
 # The leg's helpers below read and write fails_without_change's locals — map, log, red, ran, nt, fl, notes, headq, key — by
 # bash's dynamic scope; they are called from it only
-fwc_ids() { awk -F'\t' -v f="$1" -v c="$2" '$1 == "run" && $3 == f && $4 == c { printf "%s ", $2 }' <<<"$map"; }   # every behavior AC tagged on this test
+fwc_ids() { FWC_F="$1" FWC_C="$2" awk -F'\t' '$1 == "run" && $3 == ENVIRON["FWC_F"] && $4 == ENVIRON["FWC_C"] { printf "%s ", $2 }' <<<"$map"; }   # every behavior AC tagged on this test
+fwc_rows_of() { FWC_F="$1" awk -F'\t' '$2 == ENVIRON["FWC_F"]' <<<"$2"; }   # fwc_rows_of <file> <tests: index\tfile\tcase lines> -> that file's lines
 fwc_label() { if [ -n "$2" ]; then printf '%s::%s' "$1" "$2"; else printf '%s' "$1"; fi; }
-fwc_red() { local id; for id in $(fwc_ids "$1" "$2"); do echo "RED: $id — $(fwc_label "$1" "$2") $3" >> "$log"; red=$((red + 1)); done; }   # fwc_red <file> <case> <why>
+fwc_red() { # fwc_red <file> <case> <why> — one red per AC tagged on the test, and one red still when no id is found: a red never vanishes
+  local id ids; ids="$(fwc_ids "$1" "$2")"
+  if [ -z "$ids" ]; then echo "RED: ? — $(fwc_label "$1" "$2") $3 (no AC of the plan's map names this test)" >> "$log"; red=$((red + 1)); return; fi
+  for id in $ids; do echo "RED: $id — $(fwc_label "$1" "$2") $3" >> "$log"; red=$((red + 1)); done
+}
 fwc_ok() { local id; for id in $(fwc_ids "$1" "$2"); do echo "ok: $id — $(fwc_label "$1" "$2") $3" >> "$log"; done; }
 fwc_run_red() { # fwc_run_red <index> <tests: index\tfile\tcase lines> <why> — ONE red naming the runner, covering its tests (#1053 D-2 AC-7)
   local ids="" tl="" f c rest
@@ -752,18 +759,18 @@ fwc_leg() { # fwc_leg <record|head> <attempt> <index> <tests of that runner: ind
         [ -n "$f" ] || continue
         c="$(subst "$cmd" '{file}' "$(shquote "$f")")"; ran=$((ran + 1))
         fwc_call "$att" "$secs" "$c"; frc=$?
-        if [ "$FWC_TIMED_OUT" -eq 1 ]; then fwc_red "$f" "" "did not finish within ${secs}s on the record commit's tree, and its process group was killed — tag a smaller file, or bound the wait inside it"
+        if [ "$FWC_TIMED_OUT" -eq 1 ]; then fwc_run_red "$i" "$(fwc_rows_of "$f" "$list")" "did not finish within ${secs}s on the record commit's tree, and its process group was killed — tag a smaller file, or bound the wait inside it"
         elif [ "$frc" -eq 0 ]; then fwc_red "$f" "" "passes on the record commit's tree ($FIRST) with the head's tagged test files applied: it does not fail without the change — make it test what the change does"
         else fwc_ok "$f" "" "fails on the record commit's tree (exit $frc)"; fi
       done <<<"$(cut -f2 <<<"$list" | awk 'NF && !seen[$0]++')" ;;
     cases) # one call per file; its case lines are its report (#1053 D-4 D-16)
       while IFS= read -r f; do
         [ -n "$f" ] || continue
-        sel="$(awk -F'\t' -v f="$f" '$2 == f { print $3 }' <<<"$list" | paste -sd ' ' -)"
+        sel="$(fwc_rows_of "$f" "$list" | cut -f3 | paste -sd ' ' -)"
         c="$(subst_many "$cmd" '{file}' "$(shquote "$f")" '{cases}' "$(shquote "$sel")")"
         fwc_call "$att" "$secs" "$c"
         if [ "$FWC_TIMED_OUT" -eq 1 ]; then
-          fwc_run_red "$i" "$(awk -F'\t' -v f="$f" '$2 == f' <<<"$list")" "did not finish within ${secs}s $where, and its process group was killed"; continue
+          fwc_run_red "$i" "$(fwc_rows_of "$f" "$list")" "did not finish within ${secs}s $where, and its process group was killed"; continue
         fi
         while IFS=$'\t' read -r _ f c why; do
           [ -n "$f" ] || continue
@@ -772,7 +779,7 @@ fwc_leg() { # fwc_leg <record|head> <attempt> <index> <tests of that runner: ind
           fi
           v="$(fwc_cases_verdict "$STATE/fails-without-$att.out" "$c")"
           if [ "$leg" = record ]; then fwc_record_verdict "$i" "$f" "$c" "$v" "$hc"; else fwc_head_verdict "$i" "$f" "$c" "$why" "$v"; fi
-        done <<<"$(awk -F'\t' -v f="$f" '$2 == f' <<<"$list")"
+        done <<<"$(fwc_rows_of "$f" "$list")"
       done <<<"$(cut -f2 <<<"$list" | awk 'NF && !seen[$0]++')" ;;
     *) # vitest-json, jest-json: one call over every file of the runner, judged by its JSON report (#1053 D-2 D-5)
       fq=""; while IFS= read -r f; do [ -z "$f" ] || fq="$fq${fq:+ }$(shquote "$(fwc_realpath "$f")")"; done <<<"$(cut -f2 <<<"$list" | awk 'NF && !seen[$0]++')"
@@ -846,9 +853,9 @@ fails_without_change() { # fails_without_change <attempt> -> 0 pass · 1 red (th
     [ "$rc" -eq 0 ] || terminal env-worktree "could not build the record commit's tree $FIRST with the head's tagged test files in $WT ($(tail -n 3 "$log" | tr '\n' ' ' | cut -c1-300)) — $WT is back on $BRANCH"
     [ "$(git -C "$WT" rev-parse HEAD 2>/dev/null)" = "$HEAD_SHA" ] || terminal env-worktree-diverged "$WT is not at $HEAD_SHA after the fails-without-the-change check"
     # #1053 D-9: the head leg — after the restore, at the head, one call per json runner and one per file for cases, over every
-    # pending test and every selected test of a {cases} runner; each must pass there
+    # pending test and each selected test of a {cases} runner that failed on the record commit's tree (D-28); each must pass there
     if [ -n "$headq" ]; then
-      { echo; echo "the head leg at $HEAD_SHA: every pending test and every selected case must pass there"; } >> "$log"
+      { echo; echo "the head leg at $HEAD_SHA: every pending test, and each selected case that failed on the record commit's tree, must pass there"; } >> "$log"
       while IFS= read -r i; do
         [ -z "$i" ] || fwc_leg head "$1" "$i" "$(awk -F'\t' -v i="$i" '$1 == i' <<<"$headq")"
       done <<<"$(cut -f1 <<<"$headq" | awk 'NF && !seen[$0]++')"
@@ -1023,9 +1030,9 @@ build_prompt() { # build_prompt <round> <review-findings-file-or-empty> <red-che
     # #1040 S-3, #1053 S-3: the check the scheduler runs next, stated only when a runner is configured to run it; the
     # file::case grammar only when a runner judges named tests
     if test_runners | jq -e 'select((.format // "exit") != "exit")' >/dev/null 2>&1; then
-      echo "A runner with format cases, vitest-json or jest-json judges named tests, not files. For a file such a runner matches, name each test as file::case. For vitest and jest, the case is the test's describe titles and its own title, joined with ' > ', as the runner renders them at the head. For a cases runner, the case is the id the test prints: in run-selftest-lib.sh, the name of the fixture block. Put the case in backticks when it holds a space, '>', '(', ')', ',' or '['. Example: (src/a.test.ts::\`Importer > dup > rejects (409)\`, src/b.test.ts::adds). A case cannot hold a backtick. An unterminated backtick, or a case that needs backticks and has none, is an unparseable line."
+      echo "A runner with format cases, vitest-json or jest-json judges named tests, not files. For a file such a runner matches, name each test as file::case. For vitest and jest, the case is the test's describe titles and its own title, joined with ' > ', as the runner renders them at the head. For a cases runner, the case is the id the test prints: in run-selftest-lib.sh, the name of the fixture block. Put the case in backticks when it holds a space, '>', '(', ')', ',' or '['. A case without backticks runs to the next comma. Example: (src/a.test.ts::\`Importer > dup > rejects (409)\`, src/b.test.ts::adds). A case cannot hold a backtick. An unterminated backtick, or a case that needs backticks and has none, is an unparseable line."
     fi
-    [ -z "$(test_runners)" ] || echo "Then the scheduler puts the worktree on the record commit $FIRST. It applies the head's tagged test files on top, with the changed files that commands.$(commands_key).testSupport names, and runs the tagged tests through their configured test runner (commands.$(commands_key).testRunners). Without your change, every one must fail there. A runner with format exit judges the whole file by its exit code. A runner with format cases, vitest-json or jest-json judges each named test by the result that it reports for that test, and a vitest-json or jest-json runner runs all of its files in one call. A named test whose file does not load there, or that a failing vitest beforeAll skips there, must pass at the head instead. A cases runner that takes {cases} runs only the named cases, and each of them must also pass at the head. There are two exceptions. The scheduler does not run the files of an AC that the section marks 'holds'. That AC is existing behavior, and the checks at the head prove it. It notes the files of an AC that the section marks 'unchecked', but does not run them. A tagged test is red if it passes there, if it is skipped there, if its runner does not run it, if two tests match its name, if its runner cannot judge the form that you named it in, if no runner matches its file, or if the head does not carry its file. Each red test comes back to you as findings, and a red check spends one checks-red attempt. A test that passes without the change does not test the change. Each file must also finish there within its runner's time bound ($(test_runners | jq -r --argjson d "$FWC_TIMEOUT_DEFAULT" '"\(.when | join(", ")): \(.timeoutSeconds // $d)s\(if (.format // "exit") != "exit" then ", " + .format else "" end)"' | paste -sd ';' - | sed 's/;/; /g')), or it is red too. For a vitest-json or jest-json runner, the bound covers the one call over all of its files. Tag a test file that contains the cases of this change, not a whole slow suite."
+    [ -z "$(test_runners)" ] || echo "Then the scheduler puts the worktree on the record commit $FIRST. It applies the head's tagged test files on top, with the changed files that commands.$(commands_key).testSupport names, and runs the tagged tests through their configured test runner (commands.$(commands_key).testRunners). Without your change, every one must fail there. A runner with format exit judges the whole file by its exit code. A runner with format cases, vitest-json or jest-json judges each named test by the result that it reports for that test, and a vitest-json or jest-json runner runs all of its files in one call. A named test whose file does not load there, or that a failing vitest beforeAll skips there, must pass at the head instead. A cases runner that takes {cases} runs only the named cases, and each of them that fails there must also pass at the head. There are two exceptions. The scheduler does not run the files of an AC that the section marks 'holds'. That AC is existing behavior, and the checks at the head prove it. It notes the files of an AC that the section marks 'unchecked', but does not run them. A tagged test is red if it passes there, if it is skipped there, if its runner does not run it, if two tests match its name, if its runner cannot judge the form that you named it in, if no runner matches its file, or if the head does not carry its file. Each red test comes back to you as findings, and a red check spends one checks-red attempt. A test that passes without the change does not test the change. Each file must also finish there within its runner's time bound ($(test_runners | jq -r --argjson d "$FWC_TIMEOUT_DEFAULT" '"\(.when | join(", ")): \(.timeoutSeconds // $d)s\(if (.format // "exit") != "exit" then ", " + .format else "" end)"' | paste -sd ';' - | sed 's/;/; /g')), or it is red too. For a vitest-json or jest-json runner, the bound covers the one call over all of its files. Tag a test file that contains the cases of this change, not a whole slow suite."
   fi
   if [ -n "$(frames_rows)" ]; then
     echo; echo "This ticket has design frames. Follow the figma-faithful sequence:"

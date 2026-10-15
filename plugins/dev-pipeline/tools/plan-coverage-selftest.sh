@@ -168,12 +168,13 @@ run --files "$T/rec-none.md" "$T/plan.md"
 [ "$RC" -eq 3 ] && ok "(pc13) --files on 'ACs: none' → 3" || bad "(pc13) none: rc=$RC out=$OUT"
 
 # (pc14) #1053 AC-8 / D-6: a backtick-quoted file::case holding spaces, parentheses or ' > ' is one tab-separated row, the
-# case unquoted; a bare case beside it, a description's own backtick span holding a parenthesis, and a span's comma
+# case unquoted; a bare case beside it, a description's own backtick span holding a parenthesis, a span's comma, and a
+# space that separates a quoted case from the next name
 # shellcheck disable=SC2016  # the backticks are the plan's text
-plan '- [ ] 1.1 the importer, as `parse(x)` reads it (src/a.test.ts::`Importer > dup > rejects (409)`, src/b.test.ts::adds src/c.test.ts::`one, two`) [AC-1] [AC-2]' \
+plan '- [ ] 1.1 the importer, as `parse(x)` reads it (src/a.test.ts::`Importer > dup > rejects (409)`, src/b.test.ts::adds, src/c.test.ts::`one, two` src/d.test.ts) [AC-1] [AC-2]' \
   '- [ ] 1.2 the scheduler case (run-selftest.sh) [AC-8]'
 run --files "$T/rec.md" "$T/plan.md"
-want=$'run\tAC-1\tsrc/a.test.ts\tImporter > dup > rejects (409)\nrun\tAC-1\tsrc/b.test.ts\tadds\nrun\tAC-1\tsrc/c.test.ts\tone, two\nrun\tAC-2\tsrc/a.test.ts\tImporter > dup > rejects (409)\nrun\tAC-2\tsrc/b.test.ts\tadds\nrun\tAC-2\tsrc/c.test.ts\tone, two\nrun\tAC-8\trun-selftest.sh\t'
+want=$'run\tAC-1\tsrc/a.test.ts\tImporter > dup > rejects (409)\nrun\tAC-1\tsrc/b.test.ts\tadds\nrun\tAC-1\tsrc/c.test.ts\tone, two\nrun\tAC-1\tsrc/d.test.ts\t\nrun\tAC-2\tsrc/a.test.ts\tImporter > dup > rejects (409)\nrun\tAC-2\tsrc/b.test.ts\tadds\nrun\tAC-2\tsrc/c.test.ts\tone, two\nrun\tAC-2\tsrc/d.test.ts\t\nrun\tAC-8\trun-selftest.sh\t'
 [ "$RC" -eq 0 ] && [ "$OUT" = "$want" ] \
   && ok "(pc14) AC-8: a quoted case holding spaces, '(409)' and ' > ' is one row of four tab-separated fields → 0" || bad "(pc14) rc=$RC out=$(printf '%s' "$OUT" | tr '\t\n' '^|')"
 run "$T/rec.md" "$T/plan.md"
@@ -186,6 +187,24 @@ run --files "$T/rec.md" "$T/plan.md"
   && has 'RED: line 2 is unparseable — task 1.2 names a case holding' && has "RED: line 3 is unparseable — task 1.3: the case of 'src/a.test.ts::Importer>dup' holds" \
   && has "RED: line 4 is unparseable — task 1.4: 'src/a.test.ts::' names an empty case" && has "RED: line 5 is unparseable — task 1.5: the case of 'src/a.test.ts::x[1]'" \
   && ! has $'run\t' && ok "(pc14) D-6: an unterminated backtick, bare '(' '>' '[' and an empty case are each unparseable, named → 1" || bad "(pc14) red: rc=$RC out=$OUT"
+# D-6 D-30: a bare case holding a space — spaced ' > ', a plain word, or a name after it with no comma — is unparseable,
+# never split into a case and stray files; a trailing space before a comma is not part of the case
+plan '- [ ] 1.1 spaced arrow (src/a.test.ts::Importer > dup) [AC-1]' '- [ ] 1.2 two words (src/a.test.ts::adds item) [AC-2]' \
+  '- [ ] 1.3 no comma (src/b.test.ts::adds src/c.test.ts) [AC-8]'
+run --files "$T/rec.md" "$T/plan.md"
+[ "$RC" -eq 1 ] && has "RED: line 1 is unparseable — task 1.1: the case of 'src/a.test.ts::Importer > dup' holds a space" \
+  && has "RED: line 2 is unparseable — task 1.2: the case of 'src/a.test.ts::adds item' holds a space" \
+  && has "RED: line 3 is unparseable — task 1.3: the case of 'src/b.test.ts::adds src/c.test.ts' holds a space" \
+  && ! has 'does not exist' && ! has $'run\t' && ok "(pc14) D-30: a bare case holding a space is unparseable, named, never split → 1" || bad "(pc14) bare space: rc=$RC out=$OUT"
+plan '- [ ] 1.1 trailing space (src/b.test.ts::adds , src/c.test.ts::x) [AC-1] [AC-2] [AC-8]'
+run --files "$T/rec.md" "$T/plan.md"
+[ "$RC" -eq 0 ] && [ "$OUT" = $'run\tAC-1\tsrc/b.test.ts\tadds\nrun\tAC-1\tsrc/c.test.ts\tx\nrun\tAC-2\tsrc/b.test.ts\tadds\nrun\tAC-2\tsrc/c.test.ts\tx\nrun\tAC-8\tsrc/b.test.ts\tadds\nrun\tAC-8\tsrc/c.test.ts\tx' ] \
+  && ok "(pc14) D-30: a space before the comma ends a bare case → 0" || bad "(pc14) trailing: rc=$RC out=$(printf '%s' "$OUT" | tr '\t\n' '^|')"
+# D-29: an untagged task's stray backtick is legal — it never feeds the check
+# shellcheck disable=SC2016  # the backtick is the plan's text
+plan '- [ ] 1.1 a (a.spec.ts) [AC-1] [AC-2] [AC-8]' '- [ ] 2.1 the `odd backtick in an implementation task (src/x.ts)'
+run "$T/rec.md" "$T/plan.md"
+[ "$RC" -eq 0 ] && ! has 'unparseable' && ok "(pc14) D-29: an untagged task with an odd backtick is not red → 0" || bad "(pc14) D-29: rc=$RC out=$OUT"
 
 echo "plan-coverage-selftest: $PASS passed, $FAIL failed"
 exit "$FAIL"
