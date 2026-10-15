@@ -444,10 +444,15 @@ expect_finding "scoping: a linked worktree reads its main checkout's entry" T5.m
 
 # --- #1063: trigger 6, testRunners on a vitest or jest repo ----------------------------------
 # The proposed entry is only worth drafting if the lint the config must pass accepts it, so each
-# `value` goes through the in-repo config-lint.sh inside a real config, never a stub. The lockfile
+# `value` goes through dev-pipeline's config-lint.sh inside a real config, never a stub. The lockfile
 # shapes are the three package managers' own: yarn berry and v1 entry headers, pnpm's packages
 # keys, npm's `packages["node_modules/<name>"]` (v2/v3) and `dependencies` (v1).
+# config-lint sits in the sibling plugin: plugins/dev-pipeline/ in the repo, and
+# <cache>/dev-pipeline/<version>/ in an install, one directory deeper.
 LINT="$HERE/../../../../dev-pipeline/tools/config-lint.sh"
+if [[ ! -f "$LINT" ]]; then
+  for LINT in "$HERE"/../../../../../dev-pipeline/*/tools/config-lint.sh; do :; done
+fi
 _val() { jq -c --arg i "$1" '.findings[] | select(.id==$i) | .value // empty' <<< "$OUT"; }
 expect_value() { # $1 label, $2 id, $3 format, $4 command, $5.. globs the `when` must hold
   local label="$1" id="$2" fmt="$3" cmd="$4" v g; shift 4
