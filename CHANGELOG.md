@@ -4,6 +4,46 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v17.5.0
+
+### `design-toolkit` 8.1.0 → 8.2.0
+
+- **feat(design-toolkit): library-conformance fixtures in the figma-faithful-reviewer eval (#1079)** (#1079)
+  the figma-faithful-reviewer eval gains seven library-conformance
+  fixtures on a versioned acme-ui stand-in, a rubric and fixture set at v2, and
+  a model-free check that every disproving citation resolves. The v1 baseline is
+  superseded; the operator records the v2 baseline before #1076.
+  Migration: none.
+
+### `dev-pipeline` 17.4.0 → 17.5.0
+
+- **feat(dev-pipeline): this repo commits its config; the bot's app keys may live in the per-engineer local file (#1073)** (#1073)
+  .claude/second-shift.config.local.json may now carry the bot's
+  GitHub App keys (tracker.bot.app.*) beside tracker.branchPrefix.
+  bot-commit.sh, /dev-pipeline:run and install-gh-bot.sh read them from the
+  main checkout's local file, so a repo can commit its config without the
+  app's ids. /dev-pipeline:run warns at launch when the bot is enabled and
+  no appName resolves. A local file that sets a key to false or null is now
+  refused like any other key.
+  Migration: none.
+- **fix(dev-pipeline): let a lane build write the record and the plan when plansDir is under .claude/ (#1081)** (#1081)
+  a lane build can write its task plan and edit the decision record when
+  paths.plansDir sits under .claude/ (e.g. .claude/plans); before, the lane hook
+  denied both and the run ended checks-red-spent on plan coverage.
+  Migration: none.
+
+### `second-shift` 13.1.0 → 13.2.0
+
+- **feat(dev-pipeline): this repo commits its config; the bot's app keys may live in the per-engineer local file (#1073)** (#1073)
+  .claude/second-shift.config.local.json may now carry the bot's
+  GitHub App keys (tracker.bot.app.*) beside tracker.branchPrefix.
+  bot-commit.sh, /dev-pipeline:run and install-gh-bot.sh read them from the
+  main checkout's local file, so a repo can commit its config without the
+  app's ids. /dev-pipeline:run warns at launch when the bot is enabled and
+  no appName resolves. A local file that sets a key to false or null is now
+  refused like any other key.
+  Migration: none.
+
 ## v17.4.0
 
 ### `dev-pipeline` 17.3.0 → 17.4.0
