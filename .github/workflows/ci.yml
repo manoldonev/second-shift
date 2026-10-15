@@ -133,6 +133,13 @@ jobs:
   # shard's store only ever holds markers for the suites it was dealt.
   selftests-ubuntu:
     name: selftests (ubuntu, shard ${{ matrix.shard }}/2)
+    # Skipped on the release PR: its diff is derive-release.sh output only (version strings, the
+    # CHANGELOG, the pin example) over main's HEAD, and main's push run already swept that code.
+    # Head repo checked as in pr-gates: a fork naming its branch release/next still gets the sweep.
+    if: >-
+      !(github.event_name == 'pull_request' &&
+        github.head_ref == 'release/next' &&
+        github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -196,6 +203,7 @@ jobs:
   # The required-check name. The ruleset on main requires `lint-and-selftests`, so this job
   # carries it and is green only when the lint job and every selftest shard are. `!cancelled()`
   # rather than `always()`: a run superseded by a newer push reports nothing, not a red.
+  # `skipped` passes for the shards only: their release-PR guard is the one thing that skips them.
   lint-and-selftests:
     needs: [lint, selftests-ubuntu]
     if: ${{ !cancelled() }}
@@ -203,10 +211,11 @@ jobs:
     steps:
       - name: lint and every selftest shard passed
         env:
-          RESULTS: ${{ join(needs.*.result, ' ') }}
+          LINT: ${{ needs.lint.result }}
+          SHARDS: ${{ needs.selftests-ubuntu.result }}
         run: |
-          echo "needs: $RESULTS"
-          for r in $RESULTS; do [[ "$r" == success ]] || exit 1; done
+          echo "lint: $LINT, shards: $SHARDS"
+          [[ "$LINT" == success && ( "$SHARDS" == success || "$SHARDS" == skipped ) ]]
 
   # The install-topology class guard does NOT run here. It lives in
   # .github/workflows/install-topology.yml, on push to main / the release PR / workflow_dispatch
@@ -277,6 +286,11 @@ jobs:
   # from the acme vendored-era workflow, widened from one suite to the full selftest set.)
   selftests-bash32-shard:
     name: selftests (macos, bash 3.2, shard ${{ matrix.shard }}/3)
+    # Skipped on the release PR, same guard and reason as selftests-ubuntu.
+    if: >-
+      !(github.event_name == 'pull_request' &&
+        github.head_ref == 'release/next' &&
+        github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: macos-latest
     strategy:
       fail-fast: false
@@ -327,6 +341,7 @@ jobs:
 
   # The required-check name for the macOS lane, as `lint-and-selftests` is for the ubuntu one. The
   # aggregate itself needs no macOS runner.
+  # `skipped` passes for the same reason as in `lint-and-selftests`.
   selftests-bash32:
     name: selftests (macos, bash 3.2)
     needs: [selftests-bash32-shard]
@@ -338,4 +353,4 @@ jobs:
           RESULT: ${{ needs.selftests-bash32-shard.result }}
         run: |
           echo "shards: $RESULT"
-          [[ "$RESULT" == success ]]
+          [[ "$RESULT" == success || "$RESULT" == skipped ]]
