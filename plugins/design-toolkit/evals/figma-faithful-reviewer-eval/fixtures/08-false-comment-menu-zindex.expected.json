@@ -1,0 +1,19 @@
+{
+  "expected_verdict": "revise",
+  "surface": "console (fixed theme)",
+  "expected_findings": [
+    "the comment above <Menu> is false: it says acme-ui's Menu renders its paper at zIndex 1, but componentOverrides.Menu.paper already sets zIndex: 1300 (fixtures/app/packages/acme-ui/src/theme/overrides.ts) and Menu renders in a portal at document.body; the comment and the redundant sx={{ zIndex: 1300 }} should both be removed"
+  ],
+  "must_not_flag": [
+    "gap={1} — a theme unit number on the 4px base",
+    "zIndex: 1300 as an untokenized literal — the console reference has no z-index scale; the defect is that it restates the override",
+    "the role <Button> elements inside the <Menu> — the catalog has no menu-item component",
+    "<Button>, <Menu>, <Stack> — real catalog components"
+  ],
+  "disproving": [
+    { "path": "fixtures/app/packages/acme-ui/src/theme/overrides.ts", "line": 24 },
+    { "path": "fixtures/app/packages/acme-ui/src/components/Menu.tsx", "line": 26 }
+  ],
+  "layer": "library conformance — false justification comment",
+  "notes": "The comment names a concrete library default (zIndex 1) that the installed source contradicts. Full credit needs the reviewer to say the claim is false. A reviewer that accepts the comment and approves has missed the defect."
+}

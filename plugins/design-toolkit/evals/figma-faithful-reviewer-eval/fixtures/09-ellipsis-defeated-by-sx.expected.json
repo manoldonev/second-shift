@@ -1,0 +1,21 @@
+{
+  "expected_verdict": "revise",
+  "surface": "console (fixed theme)",
+  "expected_findings": [
+    "the 'helper' <Typography ellipsis> passes sx={{ whiteSpace: 'pre-line' }}, which defeats its own ellipsis: acme-ui's Typography applies ellipsisStyles (whiteSpace: 'nowrap') before the caller's sx, and a later sx entry wins (fixtures/app/packages/acme-ui/src/components/Typography.tsx, src/system/Box.tsx), so the note wraps and never truncates"
+  ],
+  "must_not_flag": [
+    "gap={3} / gap={0.5} — theme unit numbers on the 4px base",
+    "minInlineSize: 0 — a logical prop; it lets a flex child shrink so an ellipsis can apply",
+    "color: 'text.secondary' — a palette path",
+    "the 'bodyStrong' <Typography ellipsis> with no sx — the wrapper used as designed",
+    "<Avatar>, <Stack>, <Typography> — real catalog components"
+  ],
+  "disproving": [
+    { "path": "fixtures/app/packages/acme-ui/src/components/Typography.tsx", "line": 40 },
+    { "path": "fixtures/app/packages/acme-ui/src/components/Typography.tsx", "line": 47 },
+    { "path": "fixtures/app/packages/acme-ui/src/system/Box.tsx", "line": 22 }
+  ],
+  "layer": "library conformance — wrapper-API misuse",
+  "notes": "Every value in the diff is a valid token, and the two Typography elements look alike. Only the wrapper's source shows that ellipsis is three sx keys merged before the caller's sx, so the caller's whiteSpace overrides one of them."
+}

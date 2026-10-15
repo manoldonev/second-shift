@@ -1,0 +1,23 @@
+{
+  "expected_verdict": "approve",
+  "surface": "console (fixed theme)",
+  "expected_findings": [],
+  "must_not_flag": [
+    "inputProps={{ 'aria-label': 'Search members' }} on <TextField> — TextField spreads inputProps onto the <input>, so the label reaches it",
+    "<Typography variant='body' ellipsis sx={{ color: 'text.secondary' }}> — the caller's sx sets only color, which ellipsisStyles does not set, so the ellipsis holds",
+    "the comment above <Menu> — it is true: componentOverrides.Menu.paper sets no maxBlockSize, so the cap and overflow: 'auto' are new values, not restated ones",
+    "ROLE_MENU_MAX_BLOCK_SIZE = '320px' — the console reference's named-constant-with-comment escape hatch for an off-scale value",
+    "sx={{ flexShrink: 0 }} on the Invite <Button> — componentOverrides.Button.root does not set flexShrink",
+    "<Tag> with no sx — the wrapper used as designed",
+    "gap={4} / gap={3} / gap={2}, minInlineSize: 0, color: 'text.secondary' — theme units, a logical prop and a palette path",
+    "<Button>, <Menu>, <Stack>, <Tag>, <TextField>, <Typography> — real catalog components"
+  ],
+  "disproving": [
+    { "path": "fixtures/app/packages/acme-ui/src/components/TextField.tsx", "line": 31 },
+    { "path": "fixtures/app/packages/acme-ui/src/components/Typography.tsx", "line": 37 },
+    { "path": "fixtures/app/packages/acme-ui/src/theme/overrides.ts", "line": 23 },
+    { "path": "fixtures/app/packages/acme-ui/src/theme/overrides.ts", "line": 8 }
+  ],
+  "layer": "library conformance — clean control",
+  "notes": "The conformance calibration fixture. It uses each wrapper the six defect fixtures misuse, correctly, and carries a TRUE justification comment. On this control, disproving names the stand-in lines that disprove each would-be finding: where inputProps lands, what ellipsisStyles sets, and what the Menu and Button overrides set. A Warning on any must_not_flag item is a false positive; zero Criticals and zero Warnings is the pass."
+}

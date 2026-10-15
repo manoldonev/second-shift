@@ -1,0 +1,19 @@
+{
+  "expected_verdict": "revise",
+  "surface": "console (fixed theme)",
+  "expected_findings": [
+    "aria-label='Search members' is passed as a top-level <TextField> prop, and acme-ui's TextField spreads every unnamed prop onto its FormControl root <div>, not onto the <input> (fixtures/app/packages/acme-ui/src/components/TextField.tsx); the input has no accessible name — pass inputProps={{ 'aria-label': 'Search members' }} or a label instead"
+  ],
+  "must_not_flag": [
+    "gap={2} — a theme unit number on the 4px base",
+    "alignItems: 'center' on the <Stack> — layout, not a token",
+    "the placeholder string — copy review is skipped, no Copy Index is discoverable",
+    "<Stack>, <TextField> — real catalog components"
+  ],
+  "disproving": [
+    { "path": "fixtures/app/packages/acme-ui/src/components/TextField.tsx", "line": 24 },
+    { "path": "fixtures/app/packages/acme-ui/src/components/TextField.tsx", "line": 31 }
+  ],
+  "layer": "library conformance — wrapper-API misuse",
+  "notes": "The diff reads as correct to anyone who assumes the wrapper forwards aria-* props to its input. Only TextField's source shows where the prop lands. The defect is in the wrapper's API, which is why it belongs to this class and not to an accessibility review alone."
+}

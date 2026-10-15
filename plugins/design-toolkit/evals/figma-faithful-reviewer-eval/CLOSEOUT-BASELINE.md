@@ -1,5 +1,10 @@
 # `figma-faithful-reviewer` — pre-edit baseline
 
+> **Superseded (#1077).** This baseline is at fixture-set v1 / rubric v1. #1077 added the
+> library-conformance fixtures 05-11 and moved the set to v2 / v2, so this number is no longer
+> comparable to a new run. The v2 baseline is the operator's first run on today's seat, recorded
+> as a row in `changelog.md`. This report stays as the record of the v1 reading.
+
 **This is a BASELINE, not a closeout.** #704 built the instrument and took the first reading. The
 keep-or-revert campaign that acts on it is **#707**, and nothing here has been tuned.
 

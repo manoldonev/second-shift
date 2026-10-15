@@ -1,0 +1,19 @@
+{
+  "expected_verdict": "revise",
+  "surface": "console (fixed theme)",
+  "expected_findings": [
+    "the comment above the 'Remove' <Button> is false: it says acme-ui's Button lets a long label wrap, but componentOverrides.Button.root already sets whiteSpace: 'nowrap' (fixtures/app/packages/acme-ui/src/theme/overrides.ts); the comment and the redundant sx={{ whiteSpace: 'nowrap' }} should both be removed"
+  ],
+  "must_not_flag": [
+    "gap={6} / gap={2} — theme unit numbers on the 4px base",
+    "justifyContent: 'flex-end' on the <Stack> — layout, not a token",
+    "<Typography variant='body'> — a ramp variant",
+    "<Dialog>, <Button>, <Stack>, <Typography> — real catalog components"
+  ],
+  "disproving": [
+    { "path": "fixtures/app/packages/acme-ui/src/theme/overrides.ts", "line": 10 },
+    { "path": "fixtures/app/packages/acme-ui/src/components/Button.tsx", "line": 22 }
+  ],
+  "layer": "library conformance — false justification comment",
+  "notes": "The comment states a fact about the installed library that the library's source contradicts. Full credit needs the reviewer to say the comment's claim is false, not only that the sx is redundant: a false comment misleads the next reader even after the sx is gone."
+}

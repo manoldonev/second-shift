@@ -1,4 +1,5 @@
-// Barrel for the synthetic `acme-ui` package — export stubs only, see ../../../design-tokens/acme-ui-catalog.md.
+// Barrel for the fictional `@acme/acme-ui` package — see ../../../../design-tokens/acme-ui-catalog.md.
+// Components the conformance fixtures render have bodies; the rest are export stubs.
 export * from './components/Avatar';
 export * from './components/Banner';
 export * from './components/Button';

@@ -1,0 +1,11 @@
+{
+  "name": "acme-app",
+  "private": true,
+  "description": "Fixture app root for the figma-faithful-reviewer eval. Fictional organization. Declares the acme-ui stand-in as a workspace so '@acme/acme-ui' resolves to packages/acme-ui/. Nothing is installed.",
+  "workspaces": [
+    "packages/*"
+  ],
+  "dependencies": {
+    "@acme/acme-ui": "3.2.0"
+  }
+}

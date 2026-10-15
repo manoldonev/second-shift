@@ -100,7 +100,7 @@ campaign that acts on them is #707.
 
 | Agent | Baseline | Headroom |
 | --- | ---: | --- |
-| `figma-faithful-reviewer` | **100.00%** | none — a regression guard, not a tuning target |
+| `figma-faithful-reviewer` | **OWED** at v2 (v1: 100.00%, superseded) | unknown — #1077 added the library-conformance fixtures |
 | `figma-faithful-plan-reviewer` | **99.17%** | 0.83pp — likewise |
 | `figma-faithful-spec-reviewer` | **72.50%** | 27.5pp, nearly all of it in one fixture |
 | `design-faithful-plan-reviewer` | **OWED** | unknown — no reading exists yet |
@@ -111,6 +111,10 @@ resolves a plugin agent from the INSTALLED cache, so a brand-new agent exits 1 i
 until the release that ships it and every fixture scores 0 — a number that would read as an agent
 failure rather than the environment one it is. Take the reading after that release; nothing
 downstream binds to the absent one.
+
+`figma-faithful-reviewer`'s v1 reading is superseded: #1077 added seven library-conformance
+fixtures and bumped its rubric and fixture set to v2. The v2 baseline is the operator's run on
+today's seat, recorded in that eval's `changelog.md`; #1076's prompt change is scored against it.
 
 **Two of the three are at a ceiling, and that is itself the result.** The plan reviewer caught
 every #692 defect 3/3 on the first try — so #692's failure was *dispatch*, not capability: when
