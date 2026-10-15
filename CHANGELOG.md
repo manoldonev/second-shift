@@ -4,6 +4,41 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v17.4.0
+
+### `dev-pipeline` 17.3.0 → 17.4.0
+
+- **fix(dev-pipeline): a head that moves before the review binds is checked again, not reviewed blind (#1070)** (#1070)
+  a run no longer ends review-unbound when the PR head moves
+  while the checks run (for example GitHub's "Update branch"): the checks
+  run again on the new head, and its review binds.
+  Migration: none.
+- **feat(dev-pipeline): the fails-without-the-change check judges each named test, running a runner's files in one batch (#1067)** (#1067)
+  the fails-without-the-change check judges each named test
+  (file::case) by the status its runner reports, instead of the whole file by
+  its exit code. testRunners[].format picks exit (the default, unchanged),
+  cases, vitest-json or jest-json; the json formats run every tagged file of
+  the runner in one call. commands.<id>.testSupport brings helper files from
+  the head onto the record commit's tree. plan-coverage.sh --files now emits
+  tab-separated kind, AC, file and case.
+  Migration: none for an exit runner. To judge per test, set a runner's format
+  and its placeholders and flags (config-lint names what is missing), and name
+  tests as file::case in the plan.
+
+### `intake-toolkit` 8.3.0 → 8.4.0
+
+- **feat(dev-pipeline): the fails-without-the-change check judges each named test, running a runner's files in one batch (#1067)** (#1067)
+  the fails-without-the-change check judges each named test
+  (file::case) by the status its runner reports, instead of the whole file by
+  its exit code. testRunners[].format picks exit (the default, unchanged),
+  cases, vitest-json or jest-json; the json formats run every tagged file of
+  the runner in one call. commands.<id>.testSupport brings helper files from
+  the head onto the record commit's tree. plan-coverage.sh --files now emits
+  tab-separated kind, AC, file and case.
+  Migration: none for an exit runner. To judge per test, set a runner's format
+  and its placeholders and flags (config-lint names what is missing), and name
+  tests as file::case in the plan.
+
 ## v17.3.0
 
 ### `design-toolkit` 8.0.0 → 8.1.0
