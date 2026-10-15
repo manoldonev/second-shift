@@ -77,7 +77,8 @@ review.
    - Exit 2 means that the check could not read the AC set of the record. Say so in `## Notes`.
 
    `post-review-status.sh` runs the same check and posts no `success` while the check is red.
-   The next check proves that each tagged test file fails on the tree of the record commit. Only
+   The next check proves that each tagged test fails on the tree of the record commit: the file
+   under a runner of format `exit`, each named `file::case` under a reporting runner. Only
    the scheduler makes it. A lane run makes it before its review and reports it in the run block
    of the PR body. Do not run it: a session that runs tests in a worktree it controls does not
    give that proof. A PR built through `/dev-pipeline:build` took the `--handoff` path. On that

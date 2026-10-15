@@ -25,6 +25,8 @@ CHECKS=(
   "skills/run/run.sh|allowUnverified|commands.<id>.allowUnverified zero-check opt-out"
   "skills/run/run.sh|testRunners|commands.<id>.testRunners fails-without-the-change runners"
   "skills/run/run.sh|.timeoutSeconds //|commands.<id>.testRunners[].timeoutSeconds bound"
+  "skills/run/run.sh|.format // \"exit\"|commands.<id>.testRunners[].format report format"
+  "skills/run/run.sh|.testSupport[]?|commands.<id>.testSupport helper files on the record tree"
   "skills/run/run.sh|design.liveRender|design live-render command"
   "skills/run/run.sh|design.liveRender.smokeCommand|route smoke"
   "skills/run/run.sh|run.maxRounds|round cap"

@@ -13,8 +13,11 @@ that an unattended run would spawn, so both paths build against the same record.
 This path does not do the steps that the scheduler does after its build:
 
 - It does not run the checks again from the first commit.
-- It does not check that each tagged test file fails on the tree of the record commit
-  (`commands.<id>.testRunners`). The review notes that this check did not run on this path.
+- It does not check that each tagged test fails on the tree of the record commit
+  (`commands.<id>.testRunners`). Under a runner with format `cases`, `vitest-json` or
+  `jest-json`, the unit is the named test, `file::case`, not the file. It does not run the head
+  leg either, where a test whose file does not load on that tree must pass. The review notes that
+  this check did not run on this path.
 - It does not run the route smoke, the PR-convention check or the in-flight check.
 - It does not apply the round and cost caps.
 - It does not write the run block on the PR.

@@ -24,16 +24,26 @@
 # whose first non-blank characters are `- [` must be a task in that form, or it is reported
 # unparseable by its line number, never skipped. Line order is not checked: the plan is a coverage map.
 #
+# A file may name one test as `file::case` (#1053 D-6, superseding #1040 D-21). The case is
+# backtick-quoted whenever it holds a space, `>`, `(`, `)`, `,` or `[`:
+#   (src/a.test.ts::`Importer > dup > rejects (409)`, src/b.test.ts::adds)
+# Backtick spans are lexed across the whole task line before anything else reads it, so a
+# description's `foo(x)` cannot hide the closing parenthetical, and a span's spaces and commas never
+# split it. A case holding a backtick is unsupported. A bare case runs to the next comma (D-30), so a
+# space-separated name cannot follow it. An unterminated backtick, an empty case, or a case that needs
+# quoting written bare is red, unparseable, naming the task.
+#
 # Report, one line per AC: `covered (task N.M, …)`, `exempt`, or `exempt (tagged)` — an exempt AC
 # needs no task, and one the plan tags anyway is allowed; neither counts as covered, neither is red.
 # A holds or unchecked AC must be tagged like a behavior; its covered line ends `— holds` or
 # `— unchecked`.
 #
 # --files (#1040 D-7): the same check, and on a pass stdout carries the map run.sh's
-# fails-without-the-change leg reads instead of the report, one `<kind> <AC-n> <file>` line per tagged
-# AC and file, in plan order: `run` (a behavior AC: the file must fail without the change), `holds`
-# (kept off that leg) or `unchecked` (noted, not run); an exempt AC's files are not listed. A red
-# prints its RED lines as the report mode does; exits 2 and 3 are the report mode's.
+# fails-without-the-change leg reads instead of the report, one `<kind>\t<AC-n>\t<file>\t<case>` line
+# (tab-separated, the case empty for a bare file; #1053 D-6) per tagged AC and named test, in plan
+# order: `run` (a behavior AC: the test must fail without the change), `holds` (kept off that leg) or
+# `unchecked` (noted, not run); an exempt AC's files are not listed. A red prints its RED lines as the
+# report mode does; exits 2 and 3 are the report mode's.
 #
 # Exit: 0 pass · 1 red (stdout names every uncovered id, undefined tag and unparseable line, or the
 # missing plan) · 2 an input that cannot be read, or a record whose Test intent has no readable
@@ -93,8 +103,54 @@ CANDIDATE_RE='^[[:space:]]*-[[:space:]]+\['                       # a line that 
 TASK_RE='^- \[[ xX]\] ([0-9]+\.[0-9]+) (.*[^[:space:]])$'         # one that is: its number, then the rest
 TRAILING_ID_RE='^(.*[^[:space:]])[[:space:]]+\[(AC-[0-9]+)\]$'     # the rest, with one more id peeled off its end
 STRAY_ID_RE='\[[[:space:]]*[Aa][Cc]-[0-9]'                         # an AC id left in the description: not at the end, or a comma list
-FILES_RE='\(([^()]*)\)$'                                           # the parenthetical that ends the description: the task's files
-# TAGS: one "<id> <task>" line per tag, in plan order; TASK_FILES: one "<task> <file>" line per file a tagged task names
+FILES_RE='^(.*)\(([^()]*)\)$'                                      # the parenthetical that ends the description: the task's files
+NEEDS_QUOTE='[][()>]'                                              # a bare case holding one of these must be backtick-quoted
+BT='`'
+mask_spans() { # mask_spans <text> -> the text with every character inside a backtick span replaced by '_', the same length
+  local s="$1" out="" i ch inq=0
+  for ((i = 0; i < ${#s}; i++)); do
+    ch="${s:i:1}"
+    if [ "$ch" = "$BT" ]; then inq=$((1 - inq)); out="$out$ch"
+    elif [ "$inq" -eq 1 ]; then out="${out}_"
+    else out="$out$ch"; fi
+  done
+  printf '%s' "$out"
+}
+SPLIT_ERR=""; SPLIT_OUT=""
+split_files() { # split_files <the parenthetical's text> -> SPLIT_OUT: one "<file>\t<case>" line per name; 1 and SPLIT_ERR when unparseable
+  local s="$1" i ch nx inq=0 incase=0 bare=0 lastq=0 f="" c="" any=0 out="" tail
+  SPLIT_ERR=""; SPLIT_OUT=""
+  for ((i = 0; i <= ${#s}; i++)); do
+    ch="${s:i:1}"
+    # #1053 D-30: a bare case runs to the next comma or the list's end, so a space inside it is part of it and needs quoting;
+    # a space still separates bare files, and a quoted case from the next name
+    if [ "$i" -lt "${#s}" ] && [ "$inq" -eq 0 ] && [ "$incase" -eq 1 ] && [ "$lastq" -eq 0 ] && [ -n "$c" ] && [[ "$ch" == [[:space:]] ]]; then
+      tail="${s:i}"; tail="${tail#"${tail%%[![:space:]]*}"}"
+      if [ -n "$tail" ] && [ "${tail:0:1}" != , ]; then c="$c$ch"; bare=1; continue; fi
+    fi
+    if [ "$i" -eq "${#s}" ] || { [ "$inq" -eq 0 ] && [[ "$ch" == [,[:space:]] ]]; }; then   # a name ends
+      if [ "$any" -eq 1 ]; then
+        if [ "$incase" -eq 1 ] && [ -z "$c" ]; then SPLIT_ERR="'$f::' names an empty case"; return 1; fi
+        if [ "$bare" -eq 1 ]; then SPLIT_ERR="the case of '$f::$c' holds a space, '>', '(', ')' or '[' and must be backtick-quoted: $f::\`$c\` (a bare case runs to the next comma)"; return 1; fi
+        [ -n "$f" ] || { SPLIT_ERR="'::$c' names no file"; return 1; }
+        out="$out$f"$'\t'"$c"$'\n'
+      fi
+      f=""; c=""; incase=0; bare=0; lastq=0; any=0; continue
+    fi
+    any=1
+    if [ "$ch" = "$BT" ]; then inq=$((1 - inq)); lastq=$((1 - inq)); continue; fi
+    lastq=0
+    nx="${s:i+1:1}"
+    if [ "$inq" -eq 0 ] && [ "$incase" -eq 0 ] && [ "$ch" = : ] && [ "$nx" = : ]; then incase=1; i=$((i + 1)); continue; fi
+    if [ "$incase" -eq 1 ]; then
+      c="$c$ch"
+      # shellcheck disable=SC2053  # NEEDS_QUOTE IS a bracket glob
+      if [ "$inq" -eq 0 ] && [[ "$ch" == $NEEDS_QUOTE ]]; then bare=1; fi
+    else f="$f$ch"; fi
+  done
+  SPLIT_OUT="$out"
+}
+# TAGS: one "<id> <task>" line per tag, in plan order; TASK_FILES: one "<task>\t<file>\t<case>" line per name a tagged task names
 TAGS=""; TASK_FILES=""; RED=0; n=0
 while IFS= read -r line; do
   n=$((n + 1)); line="${line%$'\r'}"
@@ -107,19 +163,34 @@ while IFS= read -r line; do
   while [[ "$rest" =~ $TRAILING_ID_RE ]]; do
     rest="${BASH_REMATCH[1]}"; ids="${BASH_REMATCH[2]} $ids"
   done
-  if [[ "$rest" =~ $STRAY_ID_RE ]]; then
+  ticks="${rest//[^$BT]/}"
+  if [ $(( ${#ticks} % 2 )) -eq 1 ] && [ -n "$ids" ]; then
+    echo "plan-coverage: RED: line $n is unparseable — task $task has an unterminated backtick; quote each case as file::\`case\`: $line"
+    RED=$((RED + 1)); continue
+  fi
+  masked="$(mask_spans "$rest")"   # #1053 D-6: what a span holds is never read as a bracket, a parenthesis or a separator
+  if [[ "$masked" =~ $STRAY_ID_RE ]]; then
     echo "plan-coverage: RED: line $n is unparseable — its AC ids do not end the line one bracket each ('[AC-1] [AC-3]', after a description): $line"
     RED=$((RED + 1)); continue
   fi
   [ -n "$ids" ] || continue
-  files=""; [[ "$rest" =~ $FILES_RE ]] && files="${BASH_REMATCH[1]//,/ }"
-  read -r -a fl <<< "$files"
-  if [ "${#fl[@]}" -eq 0 ]; then
+  files=""
+  if [[ "$masked" =~ $FILES_RE ]]; then files="${rest:${#BASH_REMATCH[1]}+1:${#BASH_REMATCH[2]}}"
+  elif [[ "$masked" == *::* ]]; then
+    echo "plan-coverage: RED: line $n is unparseable — task $task names a case holding a space, '>', '(', ')', ',' or '[' bare; backtick-quote it as file::\`case\`: $line"
+    RED=$((RED + 1)); continue
+  fi
+  if ! split_files "$files"; then
+    echo "plan-coverage: RED: line $n is unparseable — task $task: $SPLIT_ERR"
+    RED=$((RED + 1)); continue
+  fi
+  names="$SPLIT_OUT"
+  if [ -z "$names" ]; then
     echo "plan-coverage: RED: task $task tags ${ids% } but names no test file — end its description with its test files in parentheses: '- [ ] $task Description (path/to/the.test) [AC-1]'"
     RED=$((RED + 1)); continue
   fi
   for id in $ids; do TAGS="$TAGS$id $task"$'\n'; done
-  for f in "${fl[@]}"; do TASK_FILES="$TASK_FILES$task $f"$'\n'; done
+  while IFS= read -r nm; do [ -z "$nm" ] || TASK_FILES="$TASK_FILES$task"$'\t'"$nm"$'\n'; done <<< "$names"
 done <<< "$plan"
 
 tasks_of() { awk -v id="$1" '$1 == id { printf "%s%s", (n++ ? ", " : ""), $2 }' <<< "$TAGS"; }
@@ -149,7 +220,7 @@ if [ "$FILES_MODE" -eq 1 ]; then # each tagged AC's files, once per AC and file,
     [ -n "$id" ] || continue
     [[ "$EXEMPT" == *" $id "* ]] && continue
     kind=run; if [[ "$HOLDS" == *" $id "* ]]; then kind=holds; elif [[ "$UNCHECKED" == *" $id "* ]]; then kind=unchecked; fi
-    awk -v t="$task" -v k="$kind" -v id="$id" '$1 == t { sub(/^[^ ]+ /, ""); print k " " id " " $0 }' <<< "$TASK_FILES"
+    awk -F'\t' -v t="$task" -v k="$kind" -v id="$id" '$1 == t { print k "\t" id "\t" $2 "\t" $3 }' <<< "$TASK_FILES"
   done <<< "$TAGS" | awk '!seen[$0]++'
   exit 0
 fi

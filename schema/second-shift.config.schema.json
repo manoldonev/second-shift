@@ -123,17 +123,24 @@
           },
           "testRunners": {
             "type": "array",
-            "description": "Optional (#1040). How /dev-pipeline:run runs ONE tagged test file on its fails-without-the-change check: after the checks and the plan coverage pass, it applies the head's tagged test files onto the record commit's tree and runs each through the first entry whose `when` glob matches it; every file must fail there. A tagged file no entry matches is red unless the record marks its AC `unchecked`. Absent = the check is not-applicable, noted in the run block. Read once at launch: a build cannot change it mid-run.",
+            "description": "Optional (#1040, #1053). How /dev-pipeline:run runs the tagged tests on its fails-without-the-change check: after the checks and the plan coverage pass, it applies the head's tagged test files onto the record commit's tree and runs them through the first entry whose `when` glob matches each file; every named test must fail there. A tagged file no entry matches is red unless the record marks its AC `unchecked`. Absent = the check is not-applicable, noted in the run block. Read once at launch: a build cannot change it mid-run. config-lint checks each format's placeholders and flags.",
             "items": {
               "type": "object",
               "additionalProperties": false,
               "required": ["when", "command"],
               "properties": {
                 "when": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1, "description": "File globs, matched against the repo-relative path as extraLanes' `when` is (`*` crosses `/`)." },
-                "command": { "type": "string", "pattern": "\\{file\\}", "description": "The command, run from the worktree root with the file's repo-relative path, shell-quoted, in place of {file}. Any non-zero exit counts as failing." },
-                "timeoutSeconds": { "type": "integer", "minimum": 1, "description": "Optional, default 600. The bound on one run of the file on the record commit's tree. Past it the run's whole process group is killed (TERM, then KILL 10s later) and the file is red, never counted as failing: a runner that hangs on every tree would otherwise pass every proof." }
+                "format": { "type": "string", "enum": ["exit", "cases", "vitest-json", "jest-json"], "description": "Optional, default exit. exit: one call per file, {file}, any non-zero exit counts as failing, the file is the unit. cases: one call per file, {file} and optional {cases}; the test prints `case<TAB><passed|failed><TAB><id>` per case at exit, and each named file::case is judged by its line. vitest-json / jest-json: one call over every tagged file of the runner, {files} and {report}; each named file::case is judged by its row in the JSON report. vitest-json requires --reporter=json, --outputFile={report} and --bail=0; jest-json --json, --outputFile={report}, --runTestsByPath and --bail=0." },
+                "command": { "type": "string", "description": "The command, run from the worktree root. {file}: the file's repo-relative path, shell-quoted (exit, cases). {cases}: the selected case ids as one shell-quoted, space-separated word (cases). {files}: every tagged file's realpath, each shell-quoted (vitest-json, jest-json). {report}: a scheduler-owned report path, deleted before the call (vitest-json, jest-json)." },
+                "timeoutSeconds": { "type": "integer", "minimum": 1, "description": "Optional, default 600. The bound on one call: one file for exit and cases, the batch for a json format. Past it the call's whole process group is killed (TERM, then KILL 10s later) and every test in it is red, never counted as failing: a runner that hangs on every tree would otherwise pass every proof." }
               }
             }
+          },
+          "testSupport": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 },
+            "minItems": 1,
+            "description": "Optional (#1053). Globs of helper files, matched as `when` is. On the fails-without-the-change check, a file changed since the record commit that matches one and exists at the head goes onto the record commit's tree from the head, beside the tagged files; it is never run. A matching file the head deleted is left as the record commit has it."
           }
         }
       }

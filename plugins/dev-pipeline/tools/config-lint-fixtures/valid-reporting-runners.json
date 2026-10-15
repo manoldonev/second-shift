@@ -1,0 +1,40 @@
+{
+  "configVersion": 3,
+  "tracker": {
+    "type": "github"
+  },
+  "commands": {
+    "app": {
+      "test": "yarn test",
+      "testSupport": ["test/helpers/*.ts", "plugins/dev-pipeline/skills/run/run-selftest-lib.sh"],
+      "testRunners": [
+        {
+          "when": ["run*-selftest.sh", "*/run*-selftest.sh"],
+          "format": "cases",
+          "command": "SELFTEST_CASES={cases} bash {file}"
+        },
+        {
+          "when": ["*-selftest.sh"],
+          "format": "cases",
+          "command": "bash {file}"
+        },
+        {
+          "when": ["*.test.ts"],
+          "format": "vitest-json",
+          "command": "yarn vitest run --reporter=json --outputFile={report} --bail=0 {files}",
+          "timeoutSeconds": 300
+        },
+        {
+          "when": ["*.spec.ts"],
+          "format": "jest-json",
+          "command": "yarn jest --ci --json --outputFile={report} --runTestsByPath --bail=0 {files}"
+        },
+        {
+          "when": ["*-selftest.mjs"],
+          "format": "exit",
+          "command": "node {file}"
+        }
+      ]
+    }
+  }
+}

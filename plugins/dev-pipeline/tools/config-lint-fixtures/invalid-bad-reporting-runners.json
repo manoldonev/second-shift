@@ -1,0 +1,54 @@
+{
+  "configVersion": 3,
+  "tracker": {
+    "type": "github"
+  },
+  "commands": {
+    "app": {
+      "test": "yarn test",
+      "testRunners": [
+        {
+          "when": ["*.test.ts"],
+          "format": "tap",
+          "command": "yarn vitest run {file}"
+        },
+        {
+          "when": ["*.test.ts"],
+          "format": "vitest-json",
+          "command": "yarn vitest run --reporter=json --bail=0 {file}"
+        },
+        {
+          "when": ["*.test.ts"],
+          "format": "vitest-json",
+          "command": "yarn vitest run --reporter json --outputFile={report} --bail=0 {files}"
+        },
+        {
+          "when": ["*.test.ts"],
+          "format": "vitest-json",
+          "command": "yarn vitest run --reporter=json --reporter=default --outputFile={report} --outputFile.json=x.json --bail=0 {files}"
+        },
+        {
+          "when": ["*.spec.ts"],
+          "format": "jest-json",
+          "command": "yarn jest --json --outputFile {report} --bail=0 {files}"
+        },
+        {
+          "when": ["*-selftest.sh"],
+          "format": "exit",
+          "command": "SELFTEST_CASES={cases} bash {file} > {report}"
+        },
+        {
+          "when": ["*-selftest.sh"],
+          "format": "cases",
+          "command": "bash {files}"
+        }
+      ]
+    },
+    "web": {
+      "testSupport": ["test/helpers/*.ts", ""]
+    },
+    "api": {
+      "testSupport": []
+    }
+  }
+}

@@ -339,9 +339,9 @@ fw_tree 1 "grep -qx fixed src/a.ts && exit 0
 printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=1 run_case "$d"
 t=0; while [ ! -e "$d/leak" ] && [ "$t" -lt 15 ]; do sleep 1; t=$((t+1)); done   # past the grandchild's 25s, had it survived the bound
 expect checks-red-spent "(fw5) a tagged file that hangs on the record commit's tree"
-grep -q "RED: AC-1 — src/b.check.sh did not finish within 2s on the record commit's tree, and its process group was killed" "$(SD)/fails-without-1.1.log" \
+grep -qF "RED: AC-1 — testRunners[0] (*.check.sh) did not finish within 2s on the record commit's tree, and its process group was killed — tag a smaller file, or bound the wait inside it — the call covered src/b.check.sh" "$(SD)/fails-without-1.1.log" \
   && ! grep -q 'ok: AC-1' "$(SD)/fails-without-1.1.log" \
-  && ok "(fw5) N1: past timeoutSeconds the file is red, naming the bound, never a failure" || bad "(fw5) $(grep -E 'fails without|terminal' <<<"$OUT" | tr '\n' '|') log: $(tr '\n' '|' < "$(SD)/fails-without-1.1.log" 2>/dev/null)"
+  && ok "(fw5) N1 #1053 D-11: past timeoutSeconds the file is red, naming the runner, the bound and the file, never a failure" || bad "(fw5) $(grep -E 'fails without|terminal' <<<"$OUT" | tr '\n' '|') log: $(tr '\n' '|' < "$(SD)/fails-without-1.1.log" 2>/dev/null)"
 grep -q "Each file must also finish there within its runner's time bound (\*.check.sh: 2s), or it is red too" "$FAKE_GH/prompt-1.txt" \
   && ok "(fw5) the build prompt states each runner's bound before it writes the tests" || bad "(fw5) the build prompt does not state the bound"
 [ ! -e "$d/leak" ] && ok "(fw5) N1: the TERM-ignoring grandchild was killed with the group before it wrote" || bad "(fw5) a grandchild outlived the bound and wrote $d/leak"
