@@ -442,6 +442,288 @@ cp "$RP/c.json" "$TMP/scoping-wt-elsewhere/c.json"
 run_grill "$TMP/scoping-wt-elsewhere" "$TMP/scoping-wt-elsewhere/c.json"
 expect_finding "scoping: a linked worktree reads its main checkout's entry" T5.missing-script.scoping-be.lint "no scripts.lint"
 
+# --- #1063: trigger 6, testRunners on a vitest or jest repo ----------------------------------
+# The proposed entry is only worth drafting if the lint the config must pass accepts it, so each
+# `value` goes through the in-repo config-lint.sh inside a real config, never a stub. The lockfile
+# shapes are the three package managers' own: yarn berry and v1 entry headers, pnpm's packages
+# keys, npm's `packages["node_modules/<name>"]` (v2/v3) and `dependencies` (v1).
+LINT="$HERE/../../../../dev-pipeline/tools/config-lint.sh"
+_val() { jq -c --arg i "$1" '.findings[] | select(.id==$i) | .value // empty' <<< "$OUT"; }
+expect_value() { # $1 label, $2 id, $3 format, $4 command, $5.. globs the `when` must hold
+  local label="$1" id="$2" fmt="$3" cmd="$4" v g; shift 4
+  v="$(_val "$id")"
+  if [[ -z "$v" ]]; then check "$label (finding '$id' carries no value; got: $(_ids))" 1; return; fi
+  if [[ "$(jq -r '.format' <<< "$v")" != "$fmt" || "$(jq -r '.command' <<< "$v")" != "$cmd" ]]; then
+    check "$label (value is $v)" 1; return
+  fi
+  for g in "$@"; do
+    jq -e --arg g "$g" '.when | index([$g])' <<< "$v" >/dev/null || { check "$label (when lacks '$g': $v)" 1; return; }
+  done
+  # The proposal embeds the same JSON, so doctor's prose rendering shows the exact entry.
+  if ! jq -e --arg v "$v" '.findings[] | select(.id=="'"$id"'") | .proposal | contains($v)' <<< "$OUT" >/dev/null; then
+    check "$label (the proposal does not embed the value)" 1; return
+  fi
+  jq -n --argjson v "$v" '{configVersion: 3, tracker: {type: "github"}, commands: {app: {testRunners: [$v]}}}' > "$TMP/lint-value.json"
+  if bash "$LINT" "$TMP/lint-value.json" >/dev/null 2>"$TMP/lint-value.err"; then check "$label" 0
+  else check "$label (config-lint refuses the value: $(head -3 "$TMP/lint-value.err" | tr '\n' ' '))" 1; fi
+}
+
+# AC-1: vitest behind yarn berry, the configured form. scripts.test IS one run of vitest, so the
+# entry extends `yarn test`. `@vitest/ui` sits in the lockfile with another version: a parse that
+# reads it as vitest names the wrong version.
+RV="$(mkrepo t6-vitest-berry src/a.test.ts src/b.spec.tsx src/c.ts README.md)"
+cat > "$RV/package.json" <<'EOF'
+{ "name": "v", "scripts": { "test": "vitest run", "test:e2e": "vitest run -c vitest.e2e.config.ts",
+    "test:int": "vitest --config=vitest.int.ts run", "lint": "eslint ." },
+  "devDependencies": { "vitest": "^3.2.4", "@vitest/ui": "^9.9.9" } }
+EOF
+cat > "$RV/yarn.lock" <<'EOF'
+__metadata:
+  version: 8
+
+"@vitest/ui@npm:^9.9.9":
+  version: 9.9.9
+  resolution: "@vitest/ui@npm:9.9.9"
+
+"vitest@npm:^3.0.0, vitest@npm:^3.2.4":
+  version: 3.2.4
+  resolution: "vitest@npm:3.2.4"
+EOF
+cfg "$RV/c.json" <<EOF
+{ $STD_HEAD, "commands": {"app":{"test": "yarn test"}} }
+EOF
+run_grill "$RV" "$RV/c.json"
+expect_finding "t6 vitest: the evidence names vitest and its yarn berry version" \
+  T6.testRunners.app "commands.app.testRunners has no entry" "depends on vitest, 3.2.4 (yarn.lock)" \
+  "match 2 tracked file(s)"
+if grep -qF "9.9.9" <<< "$(_hit T6.testRunners.app)"; then check "t6 vitest: @vitest/ui's version is not read as vitest's" 1
+else check "t6 vitest: @vitest/ui's version is not read as vitest's" 0; fi
+expect_value "t6 vitest: the value is a vitest-json entry config-lint accepts, extending commands.app.test" \
+  T6.testRunners.app vitest-json "yarn test --reporter=json --outputFile={report} --bail=0 {files}" \
+  "*.test.ts" "*.spec.tsx" "*.test.mjs" "*.spec.cts"
+# Default patterns only: jest's __tests__ directory is not vitest's default.
+if jq -e '.when | index(["*__tests__/*.ts"])' <<< "$(_val T6.testRunners.app)" >/dev/null; then
+  check "t6 vitest: when holds no jest-only __tests__ pattern" 1
+else check "t6 vitest: when holds no jest-only __tests__ pattern" 0; fi
+# AC-5: the two other scripts run vitest with their own config; scripts.test is the entry itself.
+expect_finding "t6 vitest: second suites are named as not covered" T6.testRunners.app \
+  "Not covered by the proposed entry: scripts.test:e2e (\"vitest run -c vitest.e2e.config.ts\"), scripts.test:int (\"vitest --config=vitest.int.ts run\")"
+if grep -qF 'scripts.test ("vitest run")' <<< "$(_hit T6.testRunners.app)"; then
+  check "t6 vitest: the entry's own script is not a second suite" 1
+else check "t6 vitest: the entry's own script is not a second suite" 0; fi
+# Existing findings carry no value: the field is the drafting contract of this finding alone.
+if [[ -z "$(jq -r '.findings[] | select(.id != "T6.testRunners.app") | select(has("value")) | .id' <<< "$OUT")" ]]; then
+  check "t6: no other finding carries a value" 0
+else check "t6: no other finding carries a value" 1; fi
+
+# AC-3: the drafted value itself silences the finding — what onboard's re-run sees once it drafts
+# it — while an empty array leaves the check off, as run.sh reads it, so the finding stands.
+jq --argjson v "$(_val T6.testRunners.app)" '.commands.app.testRunners = [$v]' "$RV/c.json" > "$RV/drafted.json"
+run_grill "$RV" "$RV/drafted.json"
+expect_no_finding "t6 testRunners set to the drafted value → no finding" T6.testRunners.app
+if [[ -z "$(jq -r '.notEvaluated[] | select(.id == "T6.testRunners.app") | .id' <<< "$OUT")" ]]; then
+  check "t6 testRunners set → no notEvaluated line either" 0
+else check "t6 testRunners set → no notEvaluated line either" 1; fi
+cfg "$RV/handset.json" <<EOF
+{ $STD_HEAD, "commands": {"app":{"test": "yarn test",
+  "testRunners": [{"when": ["*-selftest.sh"], "command": "bash {file}"}]}} }
+EOF
+run_grill "$RV" "$RV/handset.json"
+expect_no_finding "t6 any non-empty testRunners → no finding" T6.testRunners.app
+cfg "$RV/empty.json" <<EOF
+{ $STD_HEAD, "commands": {"app":{"test": "yarn test", "testRunners": []}} }
+EOF
+run_grill "$RV" "$RV/empty.json"
+expect_finding "t6 an empty testRunners array is off → the finding fires" T6.testRunners.app "has no entry"
+
+# AC-1, the direct form under yarn v1: scripts.test is the bare `vitest` watcher, so the entry
+# calls `yarn vitest run` itself. A v1 lockfile quotes its version.
+RV1="$(mkrepo t6-vitest-v1 src/a.test.ts)"
+cat > "$RV1/package.json" <<'EOF'
+{ "name": "v1", "scripts": { "test": "vitest", "unit": "NODE_ENV=test npx vitest run",
+    "ci": "tsc && vitest run", "rep": "vitest run --reporter=verbose" },
+  "dependencies": { "vitest": "^1.6.0" } }
+EOF
+cat > "$RV1/yarn.lock" <<'EOF'
+# THIS IS AN AUTOGENERATED FILE. DO NOT EDIT THIS FILE DIRECTLY.
+# yarn lockfile v1
+
+
+"@vitest/expect@1.6.0":
+  version "1.6.0"
+
+vitest@^1.6.0:
+  version "1.6.1"
+EOF
+cfg "$RV1/c.json" <<EOF
+{ $STD_HEAD, "commands": {"app":{"test": "yarn test"}} }
+EOF
+run_grill "$RV1" "$RV1/c.json"
+expect_finding "t6 vitest v1: the evidence names the yarn v1 version" T6.testRunners.app \
+  "depends on vitest, 1.6.1 (yarn.lock)" 'scripts.test = "vitest", which is not one plain run of vitest'
+expect_value "t6 vitest v1: a watcher script gives the direct form" T6.testRunners.app vitest-json \
+  "yarn vitest run --reporter=json --outputFile={report} --bail=0 {files}" "*.test.ts"
+# A leading VAR=value and an npx wrapper are stripped: the script body is still one vitest run.
+cfg "$RV1/unit.json" <<EOF
+{ $STD_HEAD, "commands": {"app":{"test": "yarn unit"}} }
+EOF
+run_grill "$RV1" "$RV1/unit.json"
+expect_value "t6 vitest: VAR=value and npx are stripped → the configured form" T6.testRunners.app vitest-json \
+  "yarn unit --reporter=json --outputFile={report} --bail=0 {files}"
+# A chained body, and a body that already sets a reporter, are not one plain run → the direct form.
+for t6s in ci rep; do
+  cfg "$RV1/$t6s.json" <<EOF
+{ $STD_HEAD, "commands": {"app":{"test": "yarn $t6s"}} }
+EOF
+  run_grill "$RV1" "$RV1/$t6s.json"
+  expect_value "t6 vitest: scripts.$t6s is not one plain run → the direct form" T6.testRunners.app vitest-json \
+    "yarn vitest run --reporter=json --outputFile={report} --bail=0 {files}"
+done
+
+# AC-1 under pnpm (a v9 lockfile), with no configured test command: the direct form through
+# `pnpm exec`. A vitest.config.ts and a vite.config.ts with a test: block raise the caveat.
+RVP="$(mkrepo t6-vitest-pnpm src/x.test.mts)"
+cat > "$RVP/package.json" <<'EOF'
+{ "name": "vp", "scripts": {}, "devDependencies": { "vitest": "^2.1.0" } }
+EOF
+cat > "$RVP/pnpm-lock.yaml" <<'EOF'
+lockfileVersion: '9.0'
+
+importers:
+
+  .:
+    devDependencies:
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.8(@types/node@22.0.0)
+
+packages:
+
+  '@vitest/pretty-format@2.1.8':
+    resolution: {integrity: sha512-x}
+
+  vitest@2.1.8:
+    resolution: {integrity: sha512-y}
+EOF
+: > "$RVP/vitest.config.ts"
+printf 'export default defineConfig({\n  test: { environment: "jsdom" },\n})\n' > "$RVP/vite.config.ts"
+cfg "$RVP/c.json" <<EOF
+{ $STD_HEAD, "commands": {"app":{}} }
+EOF
+run_grill "$RVP" "$RVP/c.json"
+expect_finding "t6 vitest pnpm: version, caveat and the unset test command" T6.testRunners.app \
+  "depends on vitest, 2.1.8 (pnpm-lock.yaml)" "commands.app.test is not set" \
+  "Runner config: vitest.config.ts, vite.config.ts (a test: block)" "match 1 tracked file(s)"
+expect_value "t6 vitest pnpm: the direct form calls pnpm exec" T6.testRunners.app vitest-json \
+  "pnpm exec vitest run --reporter=json --outputFile={report} --bail=0 {files}" "*.test.mts"
+# A vite.config with no test: block configures no tests, so it raises no caveat.
+printf 'export default defineConfig({ plugins: [] })\n' > "$RVP/vite.config.ts"
+rm -f "$RVP/vitest.config.ts"
+run_grill "$RVP" "$RVP/c.json"
+if grep -qF "Runner config" <<< "$(_hit T6.testRunners.app)"; then
+  check "t6 vitest: a vite.config with no test: block raises no caveat" 1
+else check "t6 vitest: a vite.config with no test: block raises no caveat" 0; fi
+
+# D-6: the default pattern matches no tracked file → the finding fires with NO value, and says the
+# globs must come from the operator. No lockfile → npx, and the version is unresolved.
+RVZ="$(mkrepo t6-vitest-zero test/foo_test.ts src/a.ts)"
+cat > "$RVZ/package.json" <<'EOF'
+{ "name": "vz", "scripts": { "test": "vitest run" }, "devDependencies": { "vitest": "^3.0.0" } }
+EOF
+cfg "$RVZ/c.json" <<EOF
+{ $STD_HEAD, "commands": {"app":{"test": "npm test"}} }
+EOF
+run_grill "$RVZ" "$RVZ/c.json"
+expect_finding "t6 zero matches: fires, the globs come from the operator" T6.testRunners.app \
+  "version unresolved: no yarn.lock" "match 0 tracked file(s)" "its when globs have to come from you" \
+  "npm test -- --reporter=json --outputFile={report} --bail=0 {files}"
+if [[ -z "$(_val T6.testRunners.app)" ]]; then check "t6 zero matches: the finding carries no value" 0
+else check "t6 zero matches: the finding carries no value" 1; fi
+
+# AC-2: jest behind npm with a v3 package-lock.json. `npm test` runs scripts.test, which IS jest,
+# so the entry extends it with `--`. jest-cli sits beside it with another version. The "jest" key
+# in package.json raises the caveat, and scripts.test:it runs jest with -c (AC-5).
+RJ="$(mkrepo t6-jest src/__tests__/a.ts src/b.spec.js src/c.test.jsx lib/d.js)"
+cat > "$RJ/package.json" <<'EOF'
+{ "name": "j", "scripts": { "test": "jest --ci", "test:it": "jest -c jest.it.config.js", "build": "tsc" },
+  "devDependencies": { "jest": "^29.7.0" }, "jest": { "testEnvironment": "node" } }
+EOF
+cat > "$RJ/package-lock.json" <<'EOF'
+{ "name": "j", "lockfileVersion": 3, "requires": true,
+  "packages": { "": { "devDependencies": { "jest": "^29.7.0" } },
+    "node_modules/jest": { "version": "29.7.0" },
+    "node_modules/jest-cli": { "version": "29.6.0" } } }
+EOF
+cfg "$RJ/c.json" <<EOF
+{ $STD_HEAD, "commands": {"app":{"test": "npm test"}} }
+EOF
+run_grill "$RJ" "$RJ/c.json"
+expect_finding "t6 jest: the evidence names jest, its package-lock version, the caveat and the count" \
+  T6.testRunners.app "depends on jest, 29.7.0 (package-lock.json)" \
+  "Runner config: the \"jest\" key in package.json" "match 3 tracked file(s)"
+expect_value "t6 jest: the value is a jest-json entry config-lint accepts, with -- for npm" \
+  T6.testRunners.app jest-json "npm test -- --json --outputFile={report} --runTestsByPath --bail=0 {files}" \
+  "*.test.ts" "*.spec.js" "*__tests__/*.ts" "*__tests__/*.cjs"
+expect_finding "t6 jest: a -c suite is named as not covered" T6.testRunners.app \
+  "Not covered by the proposed entry: scripts.test:it (\"jest -c jest.it.config.js\")"
+
+# AC-2 with a v1 package-lock.json, a jest.config.js, and a --watchAll script → the direct form.
+RJ1="$(mkrepo t6-jest-v1 src/a.test.js)"
+cat > "$RJ1/package.json" <<'EOF'
+{ "name": "j1", "scripts": { "test": "jest --watchAll" }, "devDependencies": { "jest": "^27.0.0" } }
+EOF
+cat > "$RJ1/package-lock.json" <<'EOF'
+{ "name": "j1", "lockfileVersion": 1, "dependencies": { "jest": { "version": "27.5.1" } } }
+EOF
+: > "$RJ1/jest.config.js"
+cfg "$RJ1/c.json" <<EOF
+{ $STD_HEAD, "commands": {"app":{"test": "npm run test"}} }
+EOF
+run_grill "$RJ1" "$RJ1/c.json"
+expect_finding "t6 jest v1 lock: version and the jest.config.js caveat" T6.testRunners.app \
+  "depends on jest, 27.5.1 (package-lock.json)" "Runner config: jest.config.js"
+expect_value "t6 jest: a watcher script gives the direct form through npx" T6.testRunners.app jest-json \
+  "npx jest --json --outputFile={report} --runTestsByPath --bail=0 {files}" "*.test.js"
+
+# AC-4: neither runner, both runners, no manifest, and a tree outside git — no finding, and a
+# notEvaluated line naming what the grill saw.
+RN="$(mkrepo t6-neither src/a.test.ts)"
+cat > "$RN/package.json" <<'EOF'
+{ "name": "n", "scripts": { "test": "mocha" }, "devDependencies": { "mocha": "^10.0.0", "jest-cli": "^29.0.0" } }
+EOF
+cfg "$RN/c.json" <<EOF
+{ $STD_HEAD, "commands": {"app":{"test": "yarn test"}} }
+EOF
+run_grill "$RN" "$RN/c.json"
+expect_no_finding "t6 neither runner → no finding" T6.testRunners.app
+expect_noteval "t6 neither runner → not evaluated, naming it" T6.testRunners.app "depends on neither vitest nor jest"
+cat > "$RN/package.json" <<'EOF'
+{ "name": "n", "scripts": {}, "dependencies": { "jest": "^29.0.0" }, "devDependencies": { "vitest": "^3.0.0" } }
+EOF
+run_grill "$RN" "$RN/c.json"
+expect_no_finding "t6 both runners → no finding" T6.testRunners.app
+expect_noteval "t6 both runners → not evaluated, naming both" T6.testRunners.app "depends on both vitest and jest"
+rm -f "$RN/package.json"
+run_grill "$RN" "$RN/c.json"
+expect_no_finding "t6 no root package.json → no finding" T6.testRunners.app
+expect_noteval "t6 no root package.json → not evaluated" T6.testRunners.app "no readable root package.json"
+RNG="$TMP/t6-nongit"; mkdir -p "$RNG/src"; : > "$RNG/src/a.test.ts"
+cp "$RVZ/package.json" "$RNG/package.json"
+cfg "$RNG/c.json" <<EOF
+{ $STD_HEAD, "commands": {"app":{}} }
+EOF
+run_grill "$RNG" "$RNG/c.json"
+expect_no_finding "t6 outside a git work tree → no finding" T6.testRunners.app
+expect_noteval "t6 outside a git work tree → not evaluated" T6.testRunners.app "not a git work tree"
+# D-14: no commands entry the lane reads → no T6 line at all; the entries are reported already.
+cfg "$RV/none.json" <<'EOF'
+{ "configVersion": 3, "tracker": {"type":"github"}, "commands": {"be":{}, "fe":{}} }
+EOF
+run_grill "$RV" "$RV/none.json"
+if [[ -z "$(jq -r '(.findings + .notEvaluated)[] | select(.id | startswith("T6.")) | .id' <<< "$OUT")" ]]; then
+  check "t6 no commands entry the lane reads → no T6 line" 0
+else check "t6 no commands entry the lane reads → no T6 line" 1; fi
+
 # --- findings are advisory: nothing in the config suppresses one -----------------------------
 # The opt-out key left the config, so a leftover `grillWaivers` entry is inert — it must neither
 # error nor silence the finding it names — and no proposal may point a consumer at it.

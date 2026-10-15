@@ -116,7 +116,12 @@ backticks runs to the next comma, so a space in it makes the task unparseable. A
 - A report is no weaker than the exit code it replaces: a test can print a false line or rewrite
   the report, as it can `exit 1` today. Deliberate forgery is the review's to catch.
 - No `testRunners`: the check is not-applicable, a line in the run log and the run block. The key
-  is optional and needs no `configVersion` bump; `/second-shift:onboard` does not draft it.
+  is optional and needs no `configVersion` bump. On a repo whose root `package.json` depends on
+  vitest or jest (one, not both), the config grill's `T6.testRunners.<id>` finding proposes the
+  entry: the `vitest-json` or `jest-json` format, the runner's default test-file pattern as `when`,
+  and a command built on `commands.<id>.test` when its script is one plain run of the runner, else
+  the runner called through the package manager. `/second-shift:doctor` reports it as a WARN, and
+  `/second-shift:onboard` drafts it when the pattern matches a tracked file.
 - The runners are read once, at launch, so a build cannot change them mid-run. The record commit's
   own package and runner config is what runs on that tree.
 - `/dev-pipeline:build` (the handoff path) does not run it: its review notes the check as not run.
