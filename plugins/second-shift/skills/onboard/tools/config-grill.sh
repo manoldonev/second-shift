@@ -14,6 +14,9 @@
 # Usage: config-grill.sh <repo-root> [<config-path>]
 #        config-path defaults to <repo-root>/.claude/second-shift.config.json
 # Output: ONE JSON document on stdout — { findings: [...], notEvaluated: [...] }
+#         A finding is { id, key, evidence, proposal }, plus `value` when the proposal is an exact
+#         value onboard can draft at `key` (the proposal embeds the same JSON, so a caller that
+#         renders prose alone loses nothing).
 # Exit:  0 always when it ran (findings are DATA, not a crash) · 3 usage/IO error
 #
 # Findings are ADVISORY. Both callers render them as warnings and neither blocks on them: the
@@ -36,9 +39,10 @@ cd "$ROOT_ABS" || exit 3
 FINDINGS=()
 NOTEVAL=()
 
-add_finding() { # $1 id, $2 key, $3 evidence, $4 proposal
-  FINDINGS+=("$(jq -nc --arg id "$1" --arg key "$2" --arg ev "$3" --arg pr "$4" \
-    '{id:$id, key:$key, evidence:$ev, proposal:$pr}')")
+add_finding() { # $1 id, $2 key, $3 evidence, $4 proposal, $5 (optional) value — the exact JSON
+                # the proposal sets at $2, for a caller that drafts it; a finding without one has no key
+  FINDINGS+=("$(jq -nc --arg id "$1" --arg key "$2" --arg ev "$3" --arg pr "$4" --argjson v "${5:-null}" \
+    '{id:$id, key:$key, evidence:$ev, proposal:$pr} + (if $v == null then {} else {value:$v} end)')")
 }
 add_noteval() { # $1 id, $2 key, $3 reason
   NOTEVAL+=("$(jq -nc --arg id "$1" --arg key "$2" --arg r "$3" '{id:$id, key:$key, reason:$r}')")
@@ -323,6 +327,187 @@ if [[ -n "$REPO_ID" ]]; then
           | map(.key as $i | ((.value.commands // []) | to_entries
               | map(["extraLanes.\($i).\(.key)", .value]))) | add // [] )
       | .[] | @tsv' "$CONFIG" 2>/dev/null)
+  fi
+fi
+
+# --- trigger 6: the fails-without-the-change check is off on a vitest or jest repo (#1063) ---
+# /dev-pipeline:run runs that check only through commands.<id>.testRunners, and reads it as
+# `.testRunners[]? | objects`: unset or empty, every run reports the check not-applicable. A root
+# manifest that depends on exactly one of vitest and jest makes the entry mechanical — config-lint
+# fixes the format's flags — so the finding carries the whole entry as its `value`.
+#
+# `when` is the runner's DEFAULT test-file pattern written as run.sh matches `when`: a bash `case`
+# pattern, `*` crossing `/`, no braces — one pattern per suffix. The suffixes are the extensions
+# the defaults' `?([mc])[jt]s?(x)` names that exist (the cjsx/mjsx/ctsx/mtsx spellings it also
+# admits are not files anyone writes). Runner config files are named, never parsed into globs.
+T6_EXTS="js jsx ts tsx mjs cjs mts cts"
+
+t6_lock_version() { # $1 runner → "<version>[, <version>…] (<lockfile>)", or "version unresolved: <why>"
+  local r="$1" lock="" v=""
+  # detect.sh's precedence (yarn, then pnpm, then npm), so the version is read from the lockfile
+  # the package manager the entry calls through also reads.
+  if [[ -f yarn.lock ]]; then
+    lock=yarn.lock
+    # v1: `vitest@^1.6.0, vitest@^1.0.0:` then `  version "1.6.1"`; berry: `"vitest@npm:^3.2.4":`
+    # then `  version: 3.2.4`. A spec must START with `<runner>@`, so `@vitest/ui@…` and
+    # `jest-cli@…` are not the runner.
+    v="$(awk -v r="$1" '
+      /^[^ #]/ { want = 0; n = split($0, s, /, */)
+                 for (i = 1; i <= n; i++) { x = s[i]; gsub(/"/, "", x); if (index(x, r "@") == 1) want = 1 }
+                 next }
+      want && /^  version:? / { x = $2; gsub(/"/, "", x); print x; want = 0 }' yarn.lock)"
+  elif [[ -f pnpm-lock.yaml ]]; then
+    lock=pnpm-lock.yaml
+    # The packages keys: `  vitest@2.1.8:` (v9), `  /vitest@1.0.0(…):` (v6), `  /vitest/0.34.6:` (v5).
+    v="$(grep -oE "^  ['\"]?/?${r}[@/][0-9][^:('\" ]*" pnpm-lock.yaml | sed -E "s|^  ['\"]?/?${r}[@/]||")"
+  elif [[ -f package-lock.json ]]; then
+    lock=package-lock.json
+    v="$(jq -r --arg r "$r" '(.packages["node_modules/" + $r].version // .dependencies[$r].version // empty)' \
+      package-lock.json 2>/dev/null)"
+  else
+    printf 'version unresolved: no yarn.lock, pnpm-lock.yaml or package-lock.json'; return 0
+  fi
+  v="$(printf '%s\n' "$v" | awk 'NF' | sort -u | awk 'NR > 1 { printf ", " } { printf "%s", $0 }')"
+  if [[ -n "$v" ]]; then printf '%s (%s)' "$v" "$lock"; else printf 'version unresolved: %s names no %s package' "$lock" "$r"; fi
+}
+
+t6_script_of() { # $1 configured command → the manifest script it calls, or nothing
+  # npm reaches a script only through `run`/`run-script`, or `test`/`t`; `bun test` is bun's own
+  # runner, so bun needs `run`; yarn and pnpm run `<pm> <name>` as the script when one exists.
+  local -a t=()
+  read -ra t <<< "$1"
+  local a="${t[1]:-}" b="${t[2]:-}" name=""
+  case "${t[0]:-}" in
+    npm) case "$a" in run|run-script) name="$b" ;; test|t) name="test" ;; esac ;;
+    yarn|pnpm) if [[ "$a" == run ]]; then name="$b"; else name="$a"; fi ;;
+    bun) [[ "$a" == run ]] && name="$b" ;;
+  esac
+  [[ -n "$name" ]] && jq -e --arg s "$name" 'has($s)' <<< "$SCRIPTS" >/dev/null 2>&1 && printf '%s' "$name"
+  return 0
+}
+
+t6_body_is_runner() { # $1 script body, $2 runner → 0 when the body IS one exiting run of the runner
+  case "$1" in *'&&'*|*'|'*|*';'*) return 1 ;; esac
+  local -a t=()
+  read -ra t <<< "$1"
+  local i=0 w
+  while [[ "$i" -lt "${#t[@]}" ]] && [[ "${t[$i]}" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; do i=$((i + 1)); done
+  case "${t[$i]:-}" in npx|bunx) i=$((i + 1)) ;; esac
+  [[ "${t[$i]:-}" == "$2" ]] || return 1
+  is_watcher "${t[*]:$i}" && return 1
+  # A body that already sets a report flag would carry it twice once the format's flags are
+  # appended, so it is called directly instead.
+  for w in "${t[@]:$i}"; do
+    case "$w" in --reporter*|--outputFile*|--json|--bail*) return 1 ;; esac
+  done
+  return 0
+}
+
+t6_count() { # $@ globs → the tracked files at least one of them matches, as run.sh's runner_for matches `when`
+  local f g n=0
+  while IFS= read -r f; do
+    [[ -n "$f" ]] || continue
+    for g in "$@"; do
+      # shellcheck disable=SC2254  # $g IS a glob, matched as run.sh matches `when`
+      case "$f" in $g) n=$((n + 1)); break ;; esac
+    done
+  done <<< "$(printf '%s\n' "$TRACKED" | grep -E '\.[cm]?[jt]sx?$')"
+  printf '%s' "$n"
+}
+
+if [[ -n "$REPO_ID" ]] && ! jq -e --arg r "$REPO_ID" '[.commands[$r].testRunners[]? | objects] | length > 0' "$CONFIG" >/dev/null 2>&1; then
+  T6_ID="T6.testRunners.$REPO_ID"; T6_KEY="commands.$REPO_ID.testRunners"
+  T6_RUNNERS=""
+  [[ -n "$SCRIPTS" ]] && T6_RUNNERS="$(jq -r '[(.dependencies, .devDependencies) | objects | keys[]
+      | select(. == "vitest" or . == "jest")] | unique | join(" ")' "$MANIFEST" 2>/dev/null)"
+  if [[ -z "$SCRIPTS" ]]; then
+    add_noteval "$T6_ID" "$T6_KEY" \
+      "no readable root package.json — there is no vitest or jest dependency to read, so no testRunners entry is proposed"
+  elif [[ -z "$T6_RUNNERS" ]]; then
+    add_noteval "$T6_ID" "$T6_KEY" \
+      "the root package.json depends on neither vitest nor jest (dependencies, devDependencies; workspace packages are not read) — no testRunners entry is proposed"
+  elif [[ "$T6_RUNNERS" == *" "* ]]; then
+    add_noteval "$T6_ID" "$T6_KEY" \
+      "the root package.json depends on both vitest and jest — which one runs a tagged test file cannot be told from the manifest, so no testRunners entry is proposed"
+  elif [[ "$TRACKED_OK" -ne 1 ]]; then
+    add_noteval "$T6_ID" "$T6_KEY" \
+      "not a git work tree — tracked files cannot be counted against the proposed when globs, so no testRunners entry is proposed"
+  else
+    r="$T6_RUNNERS"
+    if [[ "$r" == vitest ]]; then
+      t6_fmt=vitest-json; t6_flags="--reporter=json --outputFile={report} --bail=0 {files}"
+    else
+      t6_fmt=jest-json; t6_flags="--json --outputFile={report} --runTestsByPath --bail=0 {files}"
+    fi
+    # The command: the configured test command when the script it calls IS the runner, else the
+    # runner through the package manager — detect.sh's precedence, npm (npx) without a lockfile.
+    t6_test="$(jq -r --arg r "$REPO_ID" '.commands[$r].test // "" | strings' "$CONFIG" 2>/dev/null)"
+    t6_script=""; [[ -n "$t6_test" ]] && t6_script="$(t6_script_of "$t6_test")"
+    t6_body=""; [[ -n "$t6_script" ]] && t6_body="$(jq -r --arg s "$t6_script" '.[$s]' <<< "$SCRIPTS")"
+    if [[ -n "$t6_body" ]] && t6_body_is_runner "$t6_body" "$r"; then
+      t6_sep=""
+      if [[ "$t6_test" == npm\ * ]] && [[ " $t6_test " != *" -- "* ]]; then t6_sep="-- "; fi
+      t6_cmd="$t6_test $t6_sep$t6_flags"
+      t6_how="The proposed command extends commands.$REPO_ID.test (\"$t6_test\"), whose scripts.$t6_script = \"$t6_body\" is one run of $r."
+    else
+      t6_sub=""; [[ "$r" == vitest ]] && t6_sub=" run"
+      if [[ -f yarn.lock ]]; then t6_pm=yarn; t6_cmd="yarn $r$t6_sub $t6_flags"
+      elif [[ -f pnpm-lock.yaml ]]; then t6_pm=pnpm; t6_cmd="pnpm exec $r$t6_sub $t6_flags"
+      else t6_pm=npm; t6_cmd="npx $r$t6_sub $t6_flags"; fi
+      if [[ -z "$t6_test" ]]; then t6_why="commands.$REPO_ID.test is not set"
+      elif [[ -z "$t6_script" ]]; then t6_why="commands.$REPO_ID.test (\"$t6_test\") calls no root package.json script"
+      else t6_why="commands.$REPO_ID.test (\"$t6_test\") calls scripts.$t6_script = \"$t6_body\", which is not one plain run of $r"; fi
+      t6_how="The proposed command calls $r through $t6_pm: $t6_why."
+    fi
+    t6_globs=()
+    for t6_pat in "*.test." "*.spec."; do
+      for t6_ext in $T6_EXTS; do t6_globs+=("$t6_pat$t6_ext"); done
+    done
+    if [[ "$r" == jest ]]; then
+      for t6_ext in $T6_EXTS; do t6_globs+=("*__tests__/*.$t6_ext"); done
+    fi
+    t6_n="$(t6_count "${t6_globs[@]}")"
+    t6_val="$(printf '%s\n' "${t6_globs[@]}" | jq -R . | jq -sc --arg f "$t6_fmt" --arg c "$t6_cmd" \
+      '{when: ., format: $f, command: $c}')"
+    # A runner config can move the test files away from the default pattern; it is named, not read.
+    t6_cfgs=()
+    if [[ "$r" == jest ]]; then
+      for t6_f in jest.config.*; do [[ -f "$t6_f" ]] && t6_cfgs+=("$t6_f"); done
+      jq -e 'has("jest")' "$MANIFEST" >/dev/null 2>&1 && t6_cfgs+=("the \"jest\" key in package.json")
+    else
+      for t6_f in vitest.config.* vitest.workspace.*; do [[ -f "$t6_f" ]] && t6_cfgs+=("$t6_f"); done
+      for t6_f in vite.config.*; do
+        [[ -f "$t6_f" ]] && grep -qE '(^|[^A-Za-z0-9_$.])test[[:space:]]*:' "$t6_f" && t6_cfgs+=("$t6_f (a test: block)")
+      done
+    fi
+    # A second suite — another script running the same runner with its own config — keeps its own
+    # test files, which the single proposed entry does not reach.
+    t6_suites=()
+    while IFS=$'\t' read -r t6_name t6_sbody; do
+      [[ -n "$t6_name" && "$t6_name" != "$t6_script" ]] || continue
+      t6_toks=()
+      read -ra t6_toks <<< "$t6_sbody"
+      t6_has_r=0; t6_has_c=0
+      for t6_w in ${t6_toks[@]+"${t6_toks[@]}"}; do
+        [[ "$t6_w" == "$r" ]] && t6_has_r=1
+        case "$t6_w" in --config|--config=*|-c) t6_has_c=1 ;; esac
+      done
+      [[ "$t6_has_r" -eq 1 && "$t6_has_c" -eq 1 ]] && t6_suites+=("scripts.$t6_name (\"$t6_sbody\")")
+    done < <(jq -r 'to_entries[] | select(.value | type == "string") | [.key, .value] | @tsv' <<< "$SCRIPTS" 2>/dev/null)
+    t6_ev="$T6_KEY has no entry, so /dev-pipeline:run reports the fails-without-the-change check not-applicable on every run. The root package.json depends on $r, $(t6_lock_version "$r"). $t6_how The when globs ($r's default test-file pattern) match $t6_n tracked file(s)."
+    if [[ "${#t6_cfgs[@]}" -gt 0 ]]; then
+      t6_ev="$t6_ev Runner config: $(join_c "${t6_cfgs[@]}") — the globs assume $r's default test-file pattern, so check them against it."
+    fi
+    if [[ "${#t6_suites[@]}" -gt 0 ]]; then
+      t6_ev="$t6_ev Not covered by the proposed entry: $(join_c "${t6_suites[@]}") — each runs $r with its own config, so its test files may sit outside the default pattern."
+    fi
+    t6_benefit="With it, each run applies the build's tagged test files onto the record commit's tree and proves every named test fails there; a test that passes without the change does not test it. The plan then names each tagged test as file::case."
+    if [[ "$t6_n" -gt 0 ]]; then
+      add_finding "$T6_ID" "$T6_KEY" "$t6_ev" "Add this entry to $T6_KEY: $t6_val. $t6_benefit" "$t6_val"
+    else
+      add_finding "$T6_ID" "$T6_KEY" "$t6_ev" \
+        "Add a $t6_fmt entry to $T6_KEY with the command \"$t6_cmd\" — its when globs have to come from you: $r's default test-file pattern matches no tracked file, and an entry whose globs match no test file leaves every tagged test file red. $t6_benefit"
+    fi
   fi
 fi
 

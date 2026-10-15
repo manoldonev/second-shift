@@ -104,6 +104,13 @@ Build the draft config from detection — the configVersion 3 shape, and only th
   re-run the grill. It is the trigger review-lead routes a11y-reviewer and the design-fidelity
   dimension on; the shipped default (`apps/web/**/*.{tsx,jsx}`) matches nothing in most repos.
   A repo with no rendering surface gets no key.
+- **`commands.<key>.testRunners` when detected.** When the grill's `T6.testRunners.<key>` finding
+  carries a `value`, draft that object as the one entry of `commands.<key>.testRunners`
+  (provenance: the finding's evidence — the runner, its lockfile version and the tracked-file
+  count) and re-run the grill. It is the runner the fails-without-the-change check needs; without
+  it every run reports that check not-applicable. The human can remove it on the accept-or-edit
+  screen. A finding with no `value` (the default test-file pattern matches no tracked file) drafts
+  nothing: its proposal asks for the `when` globs.
 - **When detection returned no command lanes at all** (every one `null` — the normal
   outcome for a stack `detect.sh` does not cover: Python/pip/poetry/uv, bun, cargo, go),
   say so plainly on the review screen rather than presenting the empty table as done:
