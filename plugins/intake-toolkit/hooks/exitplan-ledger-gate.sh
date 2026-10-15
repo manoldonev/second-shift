@@ -57,7 +57,7 @@ allow_warn() { echo "ledger-gate: $1 — allowing without lint" >&2; exit 0; }
 block() {
   echo "ledger-gate: BLOCKED — the plan has no valid Decision Ledger." >&2
   echo "$1" >&2
-  echo "Fix: run the plan-interview skill (interviewing-baseline contract); trivial work adds the explicit empty form: 'No material decisions — all choices codebase-derived.'" >&2
+  echo "Fix: run the plan-interview skill (interviewing-baseline contract); trivial work adds the explicit empty form: 'No decisions to record. The code settles every choice.'" >&2
   echo "Escape hatch (deliberate override only): PLAN_INTERVIEW_SKIP=1." >&2
   exit 2
 }

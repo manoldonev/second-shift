@@ -9,7 +9,7 @@
 #   1. A `## Decision Ledger` section header is present (any heading level,
 #      or a bold-line header), case-insensitive.
 #   2. The section carries EITHER the explicit empty form
-#      `No material decisions — all choices codebase-derived.`
+#      `No decisions to record. The code settles every choice.` (or the older `No material decisions — all choices codebase-derived.`)
 #      OR at least one `| D-n |` table row.
 #   3. Every `| D-n |` row has 4 columns, a non-empty Decision cell, a
 #      non-empty Resolution cell, and a Provenance cell from the closed enum
@@ -173,7 +173,8 @@ violate() { echo "ledger-lint: VIOLATION: $1" >&2; VIOLATIONS=$((VIOLATIONS + 1)
 # The LOCKSTEP markers that once wrapped THIS assignment named two pairs that no longer
 # exist; removed in #604.
 PROVENANCE_ENUM='user-answered|user-delegated|codebase-derived|deferred|ticket-sourced'
-EMPTY_FORM='No material decisions — all choices codebase-derived.'
+EMPTY_FORM='No decisions to record. The code settles every choice.'
+EMPTY_FORM_OLD='No material decisions — all choices codebase-derived.'   # older records carry it; still accepted
 
 # Receipt-mode vocabulary. Single-sited on purpose: nothing else copies these, so
 # they need no lockstep row.
@@ -181,10 +182,12 @@ KIND_ENUM='intent|fact|open'
 INTENT_PROVENANCE='user-answered|user-delegated'
 FACT_PROVENANCE='codebase-derived|ticket-sourced'
 DISPOSITION_ENUM='pause-and-ask|reversible-default-and-flag'
-OPEN_EMPTY_FORM='No open regions — every decision in scope is ratified.'
+OPEN_EMPTY_FORM='No open regions. Every decision in scope is settled.'
+OPEN_EMPTY_FORM_OLD='No open regions — every decision in scope is ratified.'   # older records carry it; still accepted
 SURFACE_DISPOSITION_ENUM='decided|out-of-scope'
 SURFACE_EMPTY_FORM='No user-visible surface — this change renders nothing a user reads.'
-CHECKS_EMPTY_FORM='No ticket-specific checks — the configured lanes cover this change.'
+CHECKS_EMPTY_FORM='No ticket-specific checks. The configured checks cover this change.'
+CHECKS_EMPTY_FORM_OLD='No ticket-specific checks — the configured lanes cover this change.'   # older records carry it; still accepted
 FANOUT_TAG_ENUM='new|already-had|overturned|not material'
 FANOUT_EMPTY_POOL='Pool: empty — no claim survived refutation.'
 FANOUT_SKIP_BY='by the operator'   # the one name a fan-out skip may carry (#1023), read case-insensitively at a word end
@@ -404,7 +407,7 @@ while IFS= read -r line; do
 done < <(grep -E '^\|[[:space:]]*D-[0-9]+[[:space:]]*\|' "$PLAN" || true)
 
 if (( ROW_COUNT == 0 )); then
-  grep -qF "$EMPTY_FORM" "$PLAN" || \
+  grep -qF -e "$EMPTY_FORM" -e "$EMPTY_FORM_OLD" "$PLAN" || \
     violate "Decision Ledger has no rows and no explicit empty form ('$EMPTY_FORM')"
 fi
 
@@ -479,7 +482,7 @@ if (( RECEIPT == 1 )); then
   done < <(grep -E '^\|[[:space:]]*OR-[0-9]+[[:space:]]*\|' "$PLAN" || true)
 
   if (( OPEN_ROW_COUNT == 0 )); then
-    grep -qF "$OPEN_EMPTY_FORM" "$PLAN" || \
+    grep -qF -e "$OPEN_EMPTY_FORM" -e "$OPEN_EMPTY_FORM_OLD" "$PLAN" || \
       violate "Open Regions has no rows and no explicit empty form ('$OPEN_EMPTY_FORM')"
   fi
 
@@ -624,7 +627,7 @@ if (( RECEIPT == 1 )); then
         violate "Checks line is not one command the scheduler can read (the form is '- cmd' or '- \`cmd\`', at the start of the line, no inner backticks): $line"
       fi
     done <<< "$CHECKS_SEC"
-    if (( CHECK_COUNT == 0 )) && ! grep -qF "$CHECKS_EMPTY_FORM" <<< "$CHECKS_SEC"; then
+    if (( CHECK_COUNT == 0 )) && ! grep -qF -e "$CHECKS_EMPTY_FORM" -e "$CHECKS_EMPTY_FORM_OLD" <<< "$CHECKS_SEC"; then
       violate "Checks has no command and no explicit empty form ('$CHECKS_EMPTY_FORM')"
     fi
   fi

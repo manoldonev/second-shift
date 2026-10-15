@@ -60,7 +60,7 @@ The ledger records every decision an interview makes, and who made it. It is a m
 - **Explicit empty form** for trivial work — the section must still exist, containing exactly this line instead of a table:
 
   ```
-  No material decisions — all choices codebase-derived.
+  No decisions to record. The code settles every choice.
   ```
 
 ## The intake receipt
@@ -159,7 +159,7 @@ decide.
 Explicit empty form, for genuinely trivial scope:
 
 ```
-No open regions — every decision in scope is ratified.
+No open regions. Every decision in scope is settled.
 ```
 
 **Put an `OR-n` on every region**, with its disposition token in the row. The scheduler does not
@@ -219,7 +219,7 @@ well. An absent section is a silent claim that nothing beyond the configured lan
 this change; make the claim explicitly instead:
 
 ```
-No ticket-specific checks — the configured lanes cover this change.
+No ticket-specific checks. The configured checks cover this change.
 ```
 
 ### Design frames
