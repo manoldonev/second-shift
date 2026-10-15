@@ -191,13 +191,17 @@ if [ -n "$CONFIG" ]; then
   [ -z "$stale" ] || terminal env-config-stale "$CONFIG is a configVersion 2 config ($stale) — migrate it with docs/migrations/v2-to-v3.md, then re-launch"
 fi
 # C6a: each engineer may name their own branch namespace in a gitignored <config>.local.json. It sets
-# tracker.branchPrefix and nothing else: a personal file must not change what the team's runs check or
-# how they claim. A committed "local" file is a team decision nobody reviewed as one, so it is refused too.
+# tracker.branchPrefix and the bot's GitHub App keys (#1059 D-3: a repo may keep the app's ids out of its
+# committed config) and nothing else: a personal file must not change what the team's runs check or how
+# they claim. The app keys are checked by name only, any value type (D-6); every leaf counts, false and null
+# included. A committed "local" file is a team decision nobody reviewed as one, so it is refused too.
 LOCAL_PREFIX=""
 if [ -f "$CONFIG_LOCAL" ]; then
   jq -e 'type == "object"' "$CONFIG_LOCAL" >/dev/null 2>&1 || terminal env-config-local "$CONFIG_LOCAL is present but not a JSON object — fix or delete it"
-  local_extra="$(jq -r '[paths(scalars) | map(tostring) | join(".")] - ["tracker.branchPrefix"] | join(", ")' "$CONFIG_LOCAL")"
-  [ -z "$local_extra" ] || terminal env-config-local "$CONFIG_LOCAL sets $local_extra — the per-engineer file may set tracker.branchPrefix only; team settings belong in the committed config"
+  local_extra="$(jq -r '[paths(type | IN("object","array") | not) | map(tostring) | select(. != ["tracker","branchPrefix"])
+      | select(.[0:3] != ["tracker","bot","app"] or length < 4 or (.[3] | IN("clientId","appName","privateKeyFilename","installationId") | not))
+      | join(".")] | join(", ")' "$CONFIG_LOCAL")"
+  [ -z "$local_extra" ] || terminal env-config-local "$CONFIG_LOCAL sets $local_extra — the per-engineer file may set tracker.branchPrefix and tracker.bot.app.{clientId,appName,privateKeyFilename,installationId} only; team settings belong in the committed config"
   jq -e '.tracker.branchPrefix | . == null or (type == "string" and length > 0)' "$CONFIG_LOCAL" >/dev/null 2>&1 \
     || terminal env-config-local "$CONFIG_LOCAL: tracker.branchPrefix must be a non-empty string"
   ! git -C "$MAIN_ROOT" ls-files --error-unmatch -- "$CONFIG_LOCAL" >/dev/null 2>&1 \
@@ -234,6 +238,12 @@ BOT_OK=0; GH_READ="$GH"
 if [ -z "${RUN_GH:-}" ]; then
   bot_status="$(bash "$TOOLS/gh-bot.sh" --status 2>/dev/null)"
   if [ "$bot_status" = ok ]; then GH="$(bash "$TOOLS/gh-bot.sh" --path)"; BOT_OK=1
+    # #1059 D-5 D-7: the commits go through bot-commit.sh, which names the bot from tracker.bot.app.appName — the main
+    # checkout's local file first (whatever $CONFIG names), else the config. With neither, every commit lands as the
+    # operator: warn, never refuse, because onboard leaves an enabled bot with no appName and those runs work today.
+    APP_LOCAL="$MAIN_ROOT/.claude/second-shift.config.local.json"
+    app_name="$(jq -r '.tracker.bot.app.appName // empty' "$APP_LOCAL" 2>/dev/null || true)"; [ -n "$app_name" ] || app_name="$(cfg .tracker.bot.app.appName)"
+    [ -n "$app_name" ] || say "WARN: tracker.bot.enabled is true but tracker.bot.app.appName is set in neither $CONFIG nor $APP_LOCAL — this run's commits will land as the operator, not the bot; put tracker.bot.app.appName in $APP_LOCAL (or in the committed config)"
   elif [ "$(cfg_bool .tracker.bot.enabled)" = true ]; then terminal env-bot "tracker.bot.enabled is true but the wrapper is $bot_status — refusing to write as the operator in the bot's place"; fi
 fi
 # C6 C6a C7 E1 E2: the branch namespace — the engineer's local override, else configured, else the dominant

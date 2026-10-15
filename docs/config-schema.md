@@ -128,20 +128,28 @@ backticks runs to the next comma, so a space in it makes the task unparseable. A
 
 ## Per-engineer override
 
-The config is committed, so its values are the team's. One value is personal: the branch
-namespace. An engineer who wants their runs on their own prefix puts it in
-`.claude/second-shift.config.local.json`, beside the config (with `SECOND_SHIFT_CONFIG` set, the
-`.local.json` beside that file), and keeps the file out of git:
+The config is committed, so its values are the team's. Two values may be personal: the branch
+namespace, and the bot's GitHub App identity. They go in `.claude/second-shift.config.local.json`,
+beside the config, and the file stays out of git:
 
 ```json
 { "tracker": { "branchPrefix": "jdoe/" } }
 ```
 
-- `/dev-pipeline:run` and `/dev-pipeline:build` use it in place of the committed
-  `tracker.branchPrefix`, and the run log names the override and the prefix it replaced.
-- It may set `tracker.branchPrefix` and nothing else. A personal file must not change what the
-  team's runs check or how they claim, so any other key is refused (`env-config-local`), as are
-  an empty prefix, a file that is not a JSON object, and a file that is committed.
+- `/dev-pipeline:run` and `/dev-pipeline:build` use its `tracker.branchPrefix` in place of the
+  committed one, and the run log names the override and the prefix it replaced. With
+  `SECOND_SHIFT_CONFIG` set, the prefix is read from the `.local.json` beside that file.
+- It may also carry `tracker.bot.app.{clientId, appName, privateKeyFilename, installationId}`.
+  A repo that must not publish its app's ids keeps them here and commits the rest of `tracker.bot`
+  (`enabled`, `envVar`, `wrapperPath`). Each local key overrides the same committed key, one key
+  at a time. `bot-commit.sh`, the run's launch check and `install-gh-bot.sh` read these keys from
+  the **main checkout's** `.local.json`, even with `SECOND_SHIFT_CONFIG` set: a lane worktree and
+  a session's scratch copy of the config have no local file beside them.
+- When `tracker.bot.enabled` is true and `appName` is in neither file, `/dev-pipeline:run` warns
+  at launch that the run's commits will land as the operator, and the run still starts.
+- It may set those keys and nothing else. A personal file must not change what the team's runs
+  check or how they claim, so any other key is refused (`env-config-local`), as are an empty
+  prefix, a file that is not a JSON object, and a file that is committed.
 - `config-lint.sh` lints it beside the config, so doctor and onboard report the same problems
   before a run hits them.
 - A cross-repo setup that finds one repo's branch by name from another (a UI CI looking for the

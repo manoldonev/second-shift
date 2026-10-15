@@ -35,7 +35,9 @@ CHECKS=(
   "skills/run/run.sh|run.reviewTimeoutSeconds|review session timeout"
   "skills/run/run.sh|run.costCeilingUsd|cost ceiling"
   "tools/branch-prefix.sh|tracker.branchPrefix|work-branch namespace"
-  "skills/run/run.sh|.local.json|per-engineer tracker.branchPrefix override"
+  "skills/run/run.sh|.local.json|per-engineer override: tracker.branchPrefix and tracker.bot.app.*"
+  "tools/bot-commit.sh|.local.json|per-engineer tracker.bot.app.appName"
+  "tools/install-gh-bot.sh|.local.json|per-engineer tracker.bot.app.* for the wrapper"
 )
 
 for c in "${CHECKS[@]}"; do

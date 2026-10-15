@@ -7,10 +7,10 @@
 # This script is the one-shot machine bootstrap: it installs the GitHub App
 # private key, discovers the installation ID, writes the wrapper, and smoke-tests it.
 #
-# GitHub App identity resolves from second-shift.config.json when present
-# (tracker.bot.app.{clientId,appName,privateKeyFilename,installationId});
-# wrapper path comes from gh-bot.sh --path. --client-id / --installation-id still
-# win over config (explicit-flag precedence).
+# GitHub App identity (tracker.bot.app.{clientId,appName,privateKeyFilename,installationId})
+# resolves per key: --client-id / --installation-id, then the main checkout's gitignored
+# .claude/second-shift.config.local.json, then second-shift.config.json, then the defaults.
+# With no clientId from any of them it refuses. Wrapper path comes from gh-bot.sh --path.
 #
 # Usage:
 #   bash install-gh-bot.sh <path-to-private-key.pem>   # first install on a machine
@@ -31,8 +31,8 @@ set -euo pipefail
 
 # GitHub App defaults: acme-dev-pipeline (App ID <APP_ID>, bot acme-dev-pipeline[bot]).
 # clientId has NO baked-in default — supply it via tracker.bot.app.clientId in
-# second-shift.config.json (below) or --client-id. Overridden per-repo by
-# tracker.bot.app.* otherwise.
+# second-shift.config.local.json or second-shift.config.json (below), or --client-id.
+# Overridden per-repo by tracker.bot.app.* otherwise.
 CLIENT_ID=""
 INSTALLATION_ID=""
 APP_NAME="acme-dev-pipeline"
@@ -53,13 +53,20 @@ fi
 
 # Config overlay: bot app identity only. Wrapper destination is gh-bot.sh --path
 # (single ladder with claim-issue / doctor — #92).
+# Precedence (#1059 D-9): flags, then the main checkout's gitignored .local.json (always the main
+# checkout's, whatever SECOND_SHIFT_CONFIG names — D-5), then the committed config, then the defaults
+# above. Each key falls through on its own. The committed config is read first, so the local file wins.
 _cfg="${SECOND_SHIFT_CONFIG:-$_root/.claude/second-shift.config.json}"
-if [[ -f "$_cfg" ]] && command -v jq >/dev/null; then
-  _v() { jq -r "$1 // empty" "$_cfg" 2>/dev/null; }
-  _t="$(_v '.tracker.bot.app.clientId')";           [[ -n "$_t" ]] && CLIENT_ID="$_t"
-  _t="$(_v '.tracker.bot.app.installationId')";      [[ -n "$_t" ]] && INSTALLATION_ID="$_t"
-  _t="$(_v '.tracker.bot.app.appName')";             [[ -n "$_t" ]] && APP_NAME="$_t"
-  _t="$(_v '.tracker.bot.app.privateKeyFilename')";  [[ -n "$_t" ]] && KEY_FILENAME="$_t"
+_local="$_root/.claude/second-shift.config.local.json"
+if command -v jq >/dev/null; then
+  for _src in "$_cfg" "$_local"; do
+    [[ -f "$_src" ]] || continue
+    _v() { jq -r "$1 // empty" "$_src" 2>/dev/null; }
+    _t="$(_v '.tracker.bot.app.clientId')";           [[ -n "$_t" ]] && CLIENT_ID="$_t"
+    _t="$(_v '.tracker.bot.app.installationId')";      [[ -n "$_t" ]] && INSTALLATION_ID="$_t"
+    _t="$(_v '.tracker.bot.app.appName')";             [[ -n "$_t" ]] && APP_NAME="$_t"
+    _t="$(_v '.tracker.bot.app.privateKeyFilename')";  [[ -n "$_t" ]] && KEY_FILENAME="$_t"
+  done
 fi
 
 _RESOLVER="$(cd "$(dirname "$0")" && pwd)/gh-bot.sh"
@@ -84,6 +91,13 @@ while [[ $# -gt 0 ]]; do
       KEY_SRC="$1"; shift ;;
   esac
 done
+
+# The client ID is the JWT issuer and has no default: without it every token request fails, so refuse
+# before the key is moved (#1059 D-9).
+if [[ -z "$CLIENT_ID" ]]; then
+  echo "[install-gh-bot] no GitHub App client ID: pass --client-id <id>, or set tracker.bot.app.clientId in $_local (per-engineer, gitignored) or in $_cfg" >&2
+  exit 2
+fi
 
 for dep in gh jq openssl curl; do
   command -v "$dep" >/dev/null || { echo "[install-gh-bot] missing dependency: $dep" >&2; exit 2; }

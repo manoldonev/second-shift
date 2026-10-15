@@ -334,17 +334,22 @@ ERRORS=$(jq -r --argjson shippedTiers "$SHIPPED_TIERS_JSON" --argjson tierDocFou
   | .[]
 ' "$CONFIG")
 
-# The per-engineer override beside the config (run.sh C6a): it may set tracker.branchPrefix and nothing
-# else, and it stays out of git. run.sh refuses the same three shapes; linting them here surfaces them in
-# doctor and onboard before a run trips on them.
+# The per-engineer override beside the config (run.sh C6a): it may set tracker.branchPrefix and the
+# bot's GitHub App keys (#1059 D-3 D-10), and nothing else, and it stays out of git. run.sh refuses the
+# same three shapes; linting them here surfaces them in doctor and onboard before a run trips on them.
+# The app keys are checked by name only, any value type, as the committed block is. Every leaf counts,
+# false and null included: paths(scalars) skips those, so a local `"enabled": false` went unnamed.
 LOCAL="${CONFIG%.json}.local.json"
 LOCAL_ERRORS=""
 if [[ -f "$LOCAL" ]]; then
   LOCAL_ERRORS=$(jq -r '
     if type != "object" then "not a JSON object"
     else
-      (([paths(scalars) | map(tostring) | join(".")] - ["tracker.branchPrefix"])[]
-        | "\(.): the per-engineer file may set tracker.branchPrefix only; team settings belong in the committed config"),
+      (paths(type | IN("object","array") | not) | map(tostring)
+        | select(. != ["tracker","branchPrefix"])
+        | select(.[0:3] != ["tracker","bot","app"] or length < 4
+            or (.[3] | IN("clientId","appName","privateKeyFilename","installationId") | not))
+        | "\(join(".")): the per-engineer file may set tracker.branchPrefix and tracker.bot.app.{clientId,appName,privateKeyFilename,installationId} only; team settings belong in the committed config"),
       ((try .tracker.branchPrefix catch null) as $bp
         | if $bp != null and ((($bp | type) != "string") or $bp == "") then "tracker.branchPrefix: must be a non-empty string" else empty end)
     end' "$LOCAL" 2>/dev/null) || LOCAL_ERRORS="not valid JSON"
