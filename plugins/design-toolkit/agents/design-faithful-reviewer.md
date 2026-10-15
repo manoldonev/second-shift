@@ -200,6 +200,7 @@ its Warning finding.
 ## Output Format
 
 Per `reviewer-baseline`. Standard four-field structure (severity / Issue / Evidence / Recommendation).
-For a library-conformance finding, `Evidence:` cites the installed `path:line` that proves it. The
-library-conformance summary lines (the source-absent line, or one line per checked override) go in
+For a library-conformance finding, `Evidence:` cites the installed `path:line` that proves it, and
+`Recommendation:` says to drop the override, use the prop or variant, pass the prop the way the
+wrapper forwards it, or correct the comment. The library-conformance summary lines (the source-absent line, or one line per checked override) go in
 the prose and in the summary, not among the findings.
