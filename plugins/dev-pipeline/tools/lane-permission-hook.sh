@@ -4,7 +4,8 @@
 # approval" denial into a reason the session can act on.
 #
 # Usage (run.sh passes it in the build spawn's --settings, never the review's, never the plugin's hooks.json — D-8 D-18):
-#   lane-permission-hook.sh <worktree> [<scratch-dir>]   < PermissionRequest input JSON on stdin
+#   lane-permission-hook.sh <worktree> [<scratch-dir> [<lane-file>...]]   < PermissionRequest input JSON on stdin
+#   (an empty <scratch-dir> means none; each <lane-file> is an absolute path: run.sh names the record and the plan)
 #
 # A PermissionRequest hook fires only on a call the allowlist would deny, so it can never block a granted command; the
 # allowlist stays the only grant. It denies with one reason, the first that applies (D-12):
@@ -15,7 +16,9 @@
 #   4. not granted — anything else: skip it and name it in the PR body
 # Its one allow (D-7): Edit or Write to a file directly in <worktree>/.claude/, except settings.json and
 # settings.local.json, after the same resolution; those two and any file in a subdirectory of it (agents/, skills/,
-# commands/, hooks/, rules/ …), which a session loads, are denied by name.
+# commands/, hooks/, rules/ …), which a session loads, are denied by name. The lane files are the one exception (#1080):
+# Edit or Write to exactly a named <lane-file>, after the same resolution, is allowed wherever it sits in the worktree,
+# so a plansDir under .claude/ (say .claude/plans) can take the plan the scheduler requires and the record's row edits.
 #
 # Output: one hookSpecificOutput JSON object on stdout, exit 0. With no worktree argument or unreadable input it prints
 # nothing and the permission flow proceeds as it would without the hook (a denial, under --permission-prompts none).
@@ -45,6 +48,7 @@ decide() { # decide allow | decide deny <message>
 IN="$(cat)"; jq -e 'type == "object"' >/dev/null 2>&1 <<<"$IN" || exit 0
 WT="$(resolve "$1")" || exit 0
 SCR=""; [ -n "${2:-}" ] && { SCR="$(resolve "$2")" || exit 0; }
+LANE=(); for f in "${@:3}"; do case "$f" in /*) lf="$(resolve "$f")" || exit 0; LANE+=("$lf") ;; esac; done
 TOOL="$(jq -r '.tool_name // ""' <<<"$IN")"
 CWD="$(jq -r '.cwd // ""' <<<"$IN")"; case "$CWD" in /*) ;; *) CWD="$1" ;; esac
 
@@ -64,6 +68,7 @@ if [ "$TOOL" != Bash ]; then
   case "$p" in /*) ;; *) p="$CWD/$p" ;; esac
   r="$(resolve "$p")" || withheld "$p" "an unresolvable path"
   inside "$r" || withheld "$p" "$r"
+  case "$TOOL" in Edit|Write) for f in ${LANE[@]+"${LANE[@]}"}; do [ "$r" = "$f" ] && decide allow; done ;; esac
   case "$r" in "$WT"/.claude/*)
     rel="${r#"$WT"/.claude/}"
     case "$rel" in */*) decide deny "$p is in $WT/.claude/${rel%%/*}/, a subdirectory of the worktree's .claude/ (agents/, skills/, commands/, hooks/, rules/ …) that sessions load: lane sessions never edit it. Skip it and name it in the PR body as skipped." ;; esac
