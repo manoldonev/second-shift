@@ -62,7 +62,7 @@ A value the plugin would otherwise hardcode lives in config, and every such key 
 {
   "paths": { "plansDir": "docs/decisions" },                     // where the intake record is committed
   "tracker": { "labels": { "queue": "ready", "claimed": "wip" } }, // your tracker's label vocabulary
-  "reviewers": { "webComponentGlobs": ["src/**/*.vue"] }          // a11y + design-fidelity routing — set when the FE isn't React under apps/web
+  "reviewers": { "webComponentGlobs": ["src/**/*.vue"] }          // a11y + design-fidelity routing — the default is repo-wide; set it for another extension or a narrower surface
 }
 ```
 
