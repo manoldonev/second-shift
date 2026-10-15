@@ -102,7 +102,8 @@ Build the draft config from detection — the configVersion 3 shape, and only th
   surface: when its `T2.webComponentGlobs` finding names a candidate glob that matches tracked
   files, draft that glob into `reviewers.webComponentGlobs` (provenance: the grill's count) and
   re-run the grill. It is the trigger review-lead routes a11y-reviewer and the design-fidelity
-  dimension on; the shipped default (`apps/web/**/*.{tsx,jsx}`) matches nothing in most repos.
+  dimension on. The shipped default (`**/*.{tsx,jsx,vue,svelte,css,scss,less}`) is repo-wide, so
+  the finding fires only on a surface it does not list, such as an Angular `.html` + `.ts` tree.
   A repo with no rendering surface gets no key.
 - **`commands.<key>.testRunners` when detected.** When the grill's `T6.testRunners.<key>` finding
   carries a `value`, draft that object as the one entry of `commands.<key>.testRunners`

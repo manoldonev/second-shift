@@ -94,6 +94,14 @@ code but names no agent — this one is the natural pick; nothing else runs it f
   design-tokens extension file). Charts use the repo's established chart library; data uses
   the repo's established data-fetch pattern (both per the extension file or discovered from
   analogs).
+- **Check a UI-library claim against the installed source before you write it.** Before you
+  write a comment that claims a UI library does or does not do something ("the primitive has no
+  size variant", "the dialog traps focus itself"), open the installed source of that library and
+  check the claim. Resolve the import the way the repo resolves it (a workspace package, a path
+  alias or `node_modules`), and open the compiled component and its theme or variant definitions
+  — of the wrapper and of the base library it wraps. Cite the installed file in the comment when
+  the claim is not obvious. Do not override a style, or add a named constant, for a value the
+  installed library already applies: drop the override instead.
 - Follow the repo's FE conventions and run its formatter (config `commands.<id>.format` — the sole key, else the key equal to the main checkout's directory name (also from a linked worktree))
   before committing.
 

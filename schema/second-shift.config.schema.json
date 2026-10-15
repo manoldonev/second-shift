@@ -186,8 +186,8 @@
         "webComponentGlobs": {
           "type": "array",
           "items": { "type": "string" },
-          "default": ["apps/web/**/*.{tsx,jsx}"],
-          "description": "The web-component surface: the globs whose presence in the diff route the a11y reviewer and the design-fidelity reviewer (read by review-lead when it selects the panel). Set this when the FE is not React-under-apps/web — e.g. [\"src/app/**/*.{html,ts}\"] (Angular), [\"src/**/*.vue\"] (Vue), [\"app/**/*.tsx\"] (React Router v7)."
+          "default": ["**/*.{tsx,jsx,vue,svelte,css,scss,less}"],
+          "description": "The web-component surface: the globs whose presence in the diff route the a11y reviewer and the design-fidelity reviewer (read by review-lead when it selects the panel). The default is repo-wide. Set this when the components use another extension or the surface should be narrower — e.g. [\"src/app/**/*.{html,ts}\"] (Angular), [\"src/**/*.vue\"] (Vue), [\"app/**/*.tsx\"] (React Router v7)."
         }
       }
     },

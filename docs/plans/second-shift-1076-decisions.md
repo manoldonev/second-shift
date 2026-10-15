@@ -34,6 +34,8 @@ Open region legend: `reversible-default-and-flag` = the build uses the stated de
 | D-16 | Post-merge checks this ticket carries | PM-1 to PM-3 moved here from #1077 and score this change on its eval. PM-4 is a spot-check of a few consumer UI lane PRs. PM-5 is the keep-or-revert rule. | user-answered | intent |
 | D-17 | Default web-component glob | `**/*.{tsx,jsx,vue,svelte,css,scss,less}` when `reviewers.webComponentGlobs` is absent, replacing `apps/web/**/*.{tsx,jsx}`. A configured key still wins. It changes in review-lead `SKILL.md`, onboard's `config-grill.sh` and its selftest, onboard `SKILL.md` and `docs/onboarding.md`. AC-7. | user-answered | intent |
 | D-18 | Order and keep-or-revert | This ticket is queued after #1077 closes. The prompt change stays only if its eval score beats #1077's baseline by 10+ points over 3+ runs. Otherwise it is reverted. | user-answered | intent |
+| D-19 | Severity of a prop-exists override | An override that a prop or variant of the component already does is a Warning, the same as a redundant override. Its recommendation is to use the prop or variant. Added in build: D-6 names only the redundant override, and the ticket lists prop-exists as its own disposition. | user-delegated | intent |
+| D-20 | Other sites that state the default glob | The schema's `default`, `docs/config-schema.md` and `README.md` also state the new default. Added in build: AC-7 asks for the default wherever it is stated, and D-17's list missed these three. | user-delegated | intent |
 
 Options weighed:
 - D-1: the fidelity seat, the lead-pass checklist, or a new dedicated seat. The operator chose the fidelity seat.

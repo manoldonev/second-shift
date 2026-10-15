@@ -156,7 +156,10 @@ rationale: `figma-faithful-reviewer`'s "Branded / host-relative surface rules" s
 restated.)
 
 An off-scale value (not on the spacing scale, a hex not in the palette, a size not in the ramp)
-gets a **named module-level constant with a one-line comment** explaining why — only then.
+gets a **named module-level constant with a one-line comment** explaining why — only then. The
+constant is for a value the installed UI library does not already apply. Before you name one,
+open the installed component and its theme overrides: if the library already sets that value,
+drop the override instead. A comment does not make a library-redundant value acceptable.
 
 ### 5. Resolve components
 
@@ -277,7 +280,16 @@ output contract as an explicit gap (item 5 below).
   estimating a screenshot.
 - **No raw literals when an abstraction exists.** No raw `px`/hex where a token exists — logical
   layout props + theme units + palette paths; on a branded / host-relative surface the branded
-  rules apply in full (step 4). Off-scale values get a named constant + comment.
+  rules apply in full (step 4). Off-scale values get a named constant + comment, unless the
+  installed library already applies the value (step 4).
+- **Check a UI-library claim against the installed source before you write it.** Before you
+  write a comment that claims a UI library does or does not do something ("the library exports
+  no media-query hook", "Button labels wrap by default"), open the installed source of that
+  library and check the claim. Resolve the import the way the repo resolves it (a workspace
+  package, a path alias or `node_modules`), and open the compiled component and its theme
+  overrides — of the wrapper and of the base library it wraps. Cite the installed file in the
+  comment when the claim is not obvious. A comment the source contradicts is a defect the
+  fidelity reviewer flags.
 - **Never delegate fidelity-critical measurement to a subagent.** Spacing, tokens, and copy are
   pulled by the main agent from the MCP. Subagents may parallelize independent instance-node copy
   pulls (deterministic), but never _measure_ from screenshots — a subagent's visual estimate is
@@ -331,7 +343,7 @@ mounts as a sibling under the parent container — not nested inside the section
 Note what the table caught: a screenshot-eyeball would plausibly have written `gap={1}` (4px)
 for that gap; the `--space/xs` token says `gap={2}` (8px). The one raw value (`22px`) is forced
 through a named constant + comment rather than dropped inline — the only escape hatch the hard
-rules allow. And the `16px` inter-block gap (step 3b) is captured as the parent's `rowGap`,
+rules allow, and only because the installed library applies no inline indent of its own there. And the `16px` inter-block gap (step 3b) is captured as the parent's `rowGap`,
 measured from the parent frame rather than left to whatever the existing file happened to use.
 
 **Branded-surface contrast.** On a branded / host-relative surface the same group keeps
