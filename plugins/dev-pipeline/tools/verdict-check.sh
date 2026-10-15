@@ -10,6 +10,9 @@
 # review/SKILL.md state):
 #   line 1 `verdict: approve|needs-work`, line 2 `reviewed: <40-hex sha>`, an optional line 3
 #   `reason: render-unavailable`;
+#   `## Summary` (optional, first): its first line is `Mergeable as it is.` on an approve or `Not mergeable
+#   yet.` on a needs-work, it names every row scored departed, violated or undeterminable, and it
+#   holds no table;
 #   `## Decision record rows`: only the `| Row | Score | Evidence |` table and blank lines. The Row
 #   cell's first token is a record `D-n` id, the Score cell's first word one of
 #   honored|violated|departed|undeterminable;
@@ -41,7 +44,7 @@ function cut(s) { return length(s) > 80 ? substr(s, 1, 77) "..." : s }
 function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
 BEGIN {
   n = split(ids, idl, " "); for (i = 1; i <= n; i++) if (idl[i] != "") rec[idl[i]] = 1
-  order["## Decision record rows"] = 1; order["## Findings"] = 2; order["## Panel"] = 3; order["## Notes"] = 4
+  order["## Summary"] = 1; order["## Decision record rows"] = 2; order["## Findings"] = 3; order["## Panel"] = 4; order["## Notes"] = 5
   score["honored"] = 1; score["violated"] = 1; score["departed"] = 1; score["undeterminable"] = 1
   sec = 0; last = 0; ts = 0; infind = 0
 }
@@ -60,6 +63,12 @@ NR == 3 && $0 == "reason: render-unavailable" { render = 1; next }
 }
 sec == 0 { if ($0 !~ /^[ \t]*$/) fail("text outside a section", "line " NR ": " cut($0)); next }
 sec == 1 {
+  if ($0 ~ /^[ \t]*$/) next
+  if (sfirst == "") sfirst = trim($0)
+  if ($0 ~ /^[ \t]*\|/) fail("Summary not in the grammar", "line " NR ": a Summary holds no table")
+  stext = stext " " $0; next
+}
+sec == 2 {
   if ($0 ~ /^[ \t]*$/) { if (ts == 2) ts = 3; next }
   if (ts == 0) { if ($0 ~ /^\| *Row *\| *Score *\| *Evidence *\| *$/) ts = 1; else fail("Decision record rows not in the grammar", "line " NR ": " cut($0)); next }
   if (ts == 1) { if ($0 ~ /^\|( *:?-+:? *\|)( *:?-+:? *\|)( *:?-+:? *\|) *$/) ts = 2; else fail("Decision record rows not in the grammar", "line " NR ": the table has no | --- | line"); next }
@@ -73,9 +82,10 @@ sec == 1 {
   split(trim(cell[2]), w, /[ \t]+/)
   if (!(w[1] in score)) { fail("score not in the grammar", id ": " cut(trim(cell[2]))); next }
   if (w[1] == "violated" || w[1] == "undeterminable") badrows = badrows (badrows == "" ? "" : ", ") id " " w[1]
+  if (w[1] != "honored") { nn++; notable[nn] = id }
   next
 }
-sec == 2 {
+sec == 3 {
   if ($0 ~ /^[ \t]*$/) next
   if ($0 == "None.") { nones++; next }
   if ($0 ~ /^- \[blocker\] B[0-9]+ /) { blockers++; finds++; infind = 1; next }
@@ -96,6 +106,11 @@ END {
     if (render) fail("approve with reason: render-unavailable")
   }
   if (v == "needs-work" && !render && blockers == 0 && badrows == "") fail("needs-work with no blocker")
+  if ("## Summary" in seen) {
+    want = (v == "approve") ? "Mergeable as it is." : "Not mergeable yet."
+    if (sfirst != want) fail("Summary line 1 does not match the verdict", "want " want)
+    for (i = 1; i <= nn; i++) if (!((" " stext " ") ~ ("[^-0-9A-Za-z]" notable[i] "[^0-9]"))) fail("Summary does not name a row that is not honored", notable[i])
+  }
   if (!render) for (i = 1; i <= n; i++) if (idl[i] != "" && !(idl[i] in scored)) fail("record row not scored", idl[i])
   exit bad
 }'
