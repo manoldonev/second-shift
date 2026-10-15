@@ -167,6 +167,18 @@ hook_says() { # hook_says <tool> <file_path-or-command>: what the build's hook c
   && ok "(zh) AC-6: the build's --settings runs the dev-pipeline tools hook on PermissionRequest, given its worktree and scratch dir; the review's has no hooks" \
   || bad "(zh) AC-6 build settings: $bset · review settings: $rset"
 
+# (zi) #1080: a plansDir under .claude/ — the build's hook is given the record and the plan, so the build can write the plan
+#      the plan coverage requires and edit the record's rows there; any other file in that dir is still denied
+FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":".claude/plans"}}' fixture zi
+printf '.claude/*\n!.claude/plans/\n' > "$d/main/.gitignore" && git -C "$d/main" commit -qam 'track .claude/plans' && git -C "$d/main" push -q origin main 2>/dev/null
+printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(zi) #1080: a run whose plansDir is .claude/plans"
+bset=$(grep -A1 -x -- '--settings' "$FAKE_GH/args-1.txt" 2>/dev/null | tail -n 1); wt=$(grep -A1 -x -- '--add-dir' "$FAKE_GH/args-1.txt" 2>/dev/null | sed -n 2p)
+hcmd=$(jq -r '.hooks.PermissionRequest[0].hooks[0].command // empty' <<<"$bset" 2>/dev/null)
+[ "$(hook_says Write "$wt/.claude/plans/main-42-plan.md")" = 'allow ' ] && [ "$(hook_says Edit "$wt/.claude/plans/main-42-decisions.md")" = 'allow ' ] \
+  && [[ "$(hook_says Write "$wt/.claude/plans/notes.md")" == 'deny '*'sessions load'* ]] \
+  && ok "(zi) #1080: the build's hook allows the plan and the record in .claude/plans/, and denies any other file there" \
+  || bad "(zi) #1080 hook: $hcmd · plan: $(hook_says Write "$wt/.claude/plans/main-42-plan.md")"
+
 # (w) round-eight parity: PR conventions asserted, a stopped run still leaves its block,
 #     claimed-elsewhere exits 2, second run's block is its own
 # E22 E23: a lane PR is a draft until a review approves its head — GitHub refuses to merge a draft

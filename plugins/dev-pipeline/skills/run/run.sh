@@ -1706,9 +1706,10 @@ spawn() { # spawn <role> <model> <id> <allowlist> <max-turns> <prompt-file> -> r
   # cannot quietly put a BUILD back on the 120 s default; REVIEW drops a switch it would only inherit from this shell
   local sets envv=(env ${WATCH_UNSET[@]+"${WATCH_UNSET[@]}"})
   # #1048 D-6 D-8 D-18: the BUILD alone gets the PermissionRequest hook, which fires only on a call its allowlist denies
-  # and answers it with a reason; here, never in the plugin's hooks.json, which every session with the plugin loads
+  # and answers it with a reason; here, never in the plugin's hooks.json, which every session with the plugin loads.
+  # #1080: it is given the record and the plan, the two files the build must write even when plansDir is under .claude/
   if [ "$1" = build ]; then
-    sets="$(jq -cn --arg ms "$BUILD_BASH_MS" --arg hook "bash $(shquote "$TOOLS/lane-permission-hook.sh") $(shquote "$WT")${SCRATCH:+ $(shquote "$SCRATCH")}" \
+    sets="$(jq -cn --arg ms "$BUILD_BASH_MS" --arg hook "bash $(shquote "$TOOLS/lane-permission-hook.sh") $(shquote "$WT") $(shquote "$SCRATCH") $(shquote "$WT/$RECORD_REL") $(shquote "$WT/$PLAN_REL")" \
       '{env:{CLAUDE_CODE_DISABLE_BACKGROUND_TASKS:"1",BASH_DEFAULT_TIMEOUT_MS:$ms,BASH_MAX_TIMEOUT_MS:$ms},hooks:{PermissionRequest:[{hooks:[{type:"command",command:$hook}]}]}}')" \
       || terminal env-session-settings "cannot write the build session's --settings JSON"
   else sets="$(printf '{"env":{"CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS":"%s"}}' "$REVIEW_BG_WAIT_MS")"; envv+=(-u CLAUDE_CODE_DISABLE_BACKGROUND_TASKS); fi

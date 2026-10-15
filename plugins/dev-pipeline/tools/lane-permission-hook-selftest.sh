@@ -85,6 +85,22 @@ expect_deny "(h5i) a \`..\` out of .claude/ into the main checkout" "$WITHHELD" 
 expect_deny "(h5j) a symlink in .claude/ into the main checkout" "$WITHHELD" Edit "$(file_in "$WT/.claude/escape.md")" "$P/main/.claude/NOTES.md"
 expect_deny "(h5k) a tool other than Edit and Write is not allowed there" "$NOTGRANTED" NotebookEdit '{"notebook_path":"x","file_path":"'"$WT/.claude/n.ipynb"'"}'
 
+echo "== (h7) #1080: the lane files run.sh names (the record and the plan) under a plansDir in .claude/ =="
+mkdir -p "$WT/.claude/plans"
+LANE_REC="$WT/.claude/plans/wt-42-decisions.md"; LANE_PLAN="$WT/.claude/plans/wt-42-plan.md"
+hook_lane() { # hook_lane <tool> <tool_input-json>: the decision behavior, the hook given the two lane files
+  jq -cn --arg t "$1" --argjson i "$2" --arg cwd "$WT" '{cwd:$cwd,hook_event_name:"PermissionRequest",tool_name:$t,tool_input:$i}' \
+    | bash "$HOOK" "$WT" "$SCR" "$LANE_REC" "$LANE_PLAN" | jq -r '.hookSpecificOutput.decision | .behavior + " " + (.message // "")'
+}
+[ "$(hook_lane Write "$(file_in "$LANE_PLAN")")" = 'allow ' ] && ok "(h7a) Write the named plan in .claude/plans/" || bad "(h7a) plan write: $(hook_lane Write "$(file_in "$LANE_PLAN")")"
+[ "$(hook_lane Edit "$(file_in "$LANE_REC")")" = 'allow ' ] && ok "(h7b) Edit the named record in .claude/plans/" || bad "(h7b) record edit: $(hook_lane Edit "$(file_in "$LANE_REC")")"
+[ "$(hook_lane Write "$(file_in "$WT/sub/../.claude/plans/wt-42-plan.md")")" = 'allow ' ] && ok "(h7c) a \`..\` that resolves to the named plan" || bad "(h7c) dotted plan path not allowed"
+[[ "$(hook_lane Write "$(file_in "$WT/.claude/plans/other.md")")" == 'deny '*'sessions load'* ]] && ok "(h7d) another file in .claude/plans/ is still denied" || bad "(h7d) an unnamed plans file was not denied"
+[[ "$(hook_lane NotebookEdit '{"file_path":"'"$LANE_PLAN"'"}')" == 'deny '* ]] && ok "(h7e) a tool other than Edit and Write on a lane file is still denied" || bad "(h7e) NotebookEdit on the plan was not denied"
+expect_deny "(h7f) without the lane files named, the plan in .claude/plans/ is denied as before" "sessions load" Write "$(file_in "$LANE_PLAN")" ".claude/plans/"
+[ "$(jq -cn --arg cwd "$WT" --arg p "$LANE_PLAN" '{cwd:$cwd,tool_name:"Write",tool_input:{file_path:$p}}' | bash "$HOOK" "$WT" "" "$LANE_PLAN" | jq -r '.hookSpecificOutput.decision.behavior')" = allow ] \
+  && ok "(h7g) an empty scratch dir argument still reads the lane files after it" || bad "(h7g) empty scratch arg broke the lane files"
+
 echo "== (h6) no worktree or unreadable input: the hook says nothing, the flow proceeds unchanged =="
 [ -z "$(printf '{}' | bash "$HOOK")" ] && [ -z "$(printf 'not json' | bash "$HOOK" "$WT")" ] && ok "(h6) silent" || bad "(h6) the hook decided without a worktree or on unreadable input"
 
