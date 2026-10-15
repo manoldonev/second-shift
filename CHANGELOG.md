@@ -4,6 +4,71 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v17.3.0
+
+### `design-toolkit` 8.0.0 → 8.1.0
+
+- **feat(intake-toolkit): plain-English empty forms in the decision record (#1060)** (#1060)
+  the decision record's empty forms read in plain English (for example, "No open
+  regions. Every decision in scope is settled."). ledger-lint accepts the old and the new wording.
+  Migration: none. Existing records stay valid.
+
+### `dev-pipeline` 17.2.0 → 17.3.0
+
+- **feat: lane documents put the reader's decision first, in plain technical English (#1057)** (#1057)
+  the decision record, PR body, run block and review verdict are shorter to scan.
+  Each one starts with what the reader must decide. Long tables fold, and the agents write in
+  plain technical English (ASD-STE100 style).
+  Migration: none. Existing records and verdicts stay valid.
+- **fix(dev-pipeline): verdict-check owes a score to a ledger row with any cell padding (#1058)** (#1058)
+  a review verdict must now score every decision record row, including a row
+  written with extra or no spaces around its id. Before, an approve could skip such a row.
+  Migration: none.
+- **feat(dev-pipeline): a review verdict opens with a Summary that says what to do (#1061)** (#1061)
+  a review verdict now opens with a short Summary: whether the PR is mergeable, every
+  row not honored, and what the human must do. The 24-row table follows it.
+  Migration: none. A verdict without a Summary still binds.
+- **fix(dev-pipeline): the build and review prompts in plain technical English (#1062)** (#1062)
+  /dev-pipeline:review states its checklist in short, plain
+  sentences that match the lane's review prompt. No rule changed.
+  Migration: none.
+
+### `intake-toolkit` 8.2.0 → 8.3.0
+
+- **feat: lane documents put the reader's decision first, in plain technical English (#1057)** (#1057)
+  the decision record, PR body, run block and review verdict are shorter to scan.
+  Each one starts with what the reader must decide. Long tables fold, and the agents write in
+  plain technical English (ASD-STE100 style).
+  Migration: none. Existing records and verdicts stay valid.
+- **feat(intake-toolkit): plain-English empty forms in the decision record (#1060)** (#1060)
+  the decision record's empty forms read in plain English (for example, "No open
+  regions. Every decision in scope is settled."). ledger-lint accepts the old and the new wording.
+  Migration: none. Existing records stay valid.
+
+### `review-toolkit` 11.0.0 → 11.1.0
+
+- **feat: lane documents put the reader's decision first, in plain technical English (#1057)** (#1057)
+  the decision record, PR body, run block and review verdict are shorter to scan.
+  Each one starts with what the reader must decide. Long tables fold, and the agents write in
+  plain technical English (ASD-STE100 style).
+  Migration: none. Existing records and verdicts stay valid.
+- **feat(intake-toolkit): plain-English empty forms in the decision record (#1060)** (#1060)
+  the decision record's empty forms read in plain English (for example, "No open
+  regions. Every decision in scope is settled."). ledger-lint accepts the old and the new wording.
+  Migration: none. Existing records stay valid.
+- **fix(dev-pipeline): the build and review prompts in plain technical English (#1062)** (#1062)
+  /dev-pipeline:review states its checklist in short, plain
+  sentences that match the lane's review prompt. No rule changed.
+  Migration: none.
+
+### `second-shift` 13.0.0 → 13.1.0
+
+- **feat: lane documents put the reader's decision first, in plain technical English (#1057)** (#1057)
+  the decision record, PR body, run block and review verdict are shorter to scan.
+  Each one starts with what the reader must decide. Long tables fold, and the agents write in
+  plain technical English (ASD-STE100 style).
+  Migration: none. Existing records and verdicts stay valid.
+
 ## v17.2.0
 
 ### `dev-pipeline` 17.1.0 → 17.2.0
