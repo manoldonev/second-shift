@@ -660,7 +660,7 @@ Combine all findings into one report with this structure:
 
 ```
 ## Review Summary
-One-paragraph overall assessment. Include plan alignment if a plan was provided.
+One paragraph. Give your overall assessment in short sentences. If a plan was provided, say whether the code follows it.
 
 ## Strengths
 What the code does well — be specific. Acknowledge good patterns, solid testing, clean design.

@@ -1,124 +1,146 @@
 ---
 name: review
-description: The REVIEW half of the pipeline — review an open pipeline PR from a fresh top-level session, score every row of its decision record, and post one verdict comment for the human who decides the merge. The manual form of what /dev-pipeline:run's review session does; use it when a run ends review-unbound, or to review a lane PR by hand.
+description: The REVIEW half of the pipeline. Review an open pipeline PR from a fresh top-level session, score every row of its decision record, and post one verdict comment for the human who decides the merge. This is the manual form of the review session of /dev-pipeline:run. Use it when a run ends review-unbound, or to review a lane PR by hand.
 ---
 
 # review
 
-Input a PR number. Output **one PR comment** in the verdict grammar (step 8): two fixed lines, the
-record's row table, then the findings — and the same verdict as the `second-shift/review` commit
-status on the sha it names, posted only when the comment backs its own verdict line. Nothing is
-committed.
+Input: a PR number. Output: **one PR comment** in the verdict grammar (step 8). The comment has two
+fixed lines, the row table of the record, then the findings. The same verdict goes on the
+`second-shift/review` commit status of the sha that the comment names. The status is posted only
+when the comment supports its own verdict line. Nothing is committed.
 
-This runs as its own top-level session, and that is the entire point: the session that wrote the
-code does not grade it. Never run it inside the build's session, and never resume an earlier
-review's context.
+Run this as its own top-level session. That is the entire point: the session that wrote the code
+does not grade it. Never run it inside the build's session. Never resume the context of an earlier
+review.
 
-> **Tracker delta (`tracker.type: jira`).** The checklist is the github default. Under jira the
-> ticket key resolves from `Closes [<KEY>]` under the PR body's `### Jira Items` heading, not
-> `Closes #N`. The verdict comment and its commit status are code-host writes, not tracker ones,
-> so they post the same under both adapters. Nothing else differs.
+> **Tracker delta (`tracker.type: jira`).** The checklist is the github default. Under jira, the
+> ticket key comes from `Closes [<KEY>]` under the `### Jira Items` heading of the PR body, not from
+> `Closes #N`. The verdict comment and its commit status are code-host writes, not tracker writes.
+> They post the same way under both adapters. Nothing else is different.
 > [Adapter contract](../../tools/tracker/jira/README.md).
 
 ## Checklist
 
-1. `gh pr view <pr> --json number,headRefName,headRefOid,url`, then take only the body's
-   references, not its prose — the filter prints the tokens alone, never the line around them:
+1. Run `gh pr view <pr> --json number,headRefName,headRefOid,url`. Then take only the references
+   from the body, not its prose. The filter prints the tokens alone, never the line around them:
    `gh pr view <pr> --json body --jq '.body | split("\n")[] | (capture("^\\s*(?<l>(closes|fixes|resolves)\\s+(#\\d+|\\[[A-Za-z][A-Za-z0-9]*-\\d+\\]))\\s*$"; "i").l), (capture("^(?<l>Record baseline: [0-9a-f]{7,40})\\s*$").l), scan("[^\\s()<>\\[\\]]*decisions\\.md")'`.
-   They name the ticket (`Closes #N`), the `Record baseline:` and the decision record
-   (`<plansDir>/<repo>-<key>-decisions.md`). **Read the build's own account last.** The PR
-   description and the build's PR comments are read only after step 5's scores and step 6's
-   findings are written, to reconcile the departures and rebuttals they state. An author's
-   framing measurably lowers what a reviewer finds. If that reading changes a score or a finding,
-   say so in the verdict's `## Notes`: `revised after reading the build's account: <what changed>`.
-2. Check out the PR head and confirm `git rev-parse HEAD` equals `headRefOid`. That sha is the one
-   you review and the one you name.
-3. **Read the record at its first commit and at the head.** The first commit is the one that added
-   it: `FIRST=$(git log --format=%H --diff-filter=A -- <record> | tail -n 1)`. Read
-   `git show $FIRST:<record>` — what was decided before the build started — and the file at the
-   head. A row edited since `FIRST` is a departure; the edit must name who decided. A row added
-   since `FIRST` is a decision made during the build: score it too, and it must name who decided.
-   When the PR body carries `Record baseline: <sha>`, that sha is the baseline. If it differs from
-   the `FIRST` you computed, or is not an ancestor of the head, the record commit was rewritten:
-   that alone is a blocker.
-4. **Look at what the scheduler would have handed you**, from `git diff $FIRST..HEAD`: deleted or
-   renamed test files (a top-level `tests/`, `__tests__/`, `test_*.py`, `conftest.py`, `_spec.`,
-   `*-selftest.*` count too), added skips or forced-green lines (`.skip(`, `.only(`, `|| true`, pytest
-   `skip`/`skipif`/`xfail`, Go `t.Skip(`, JUnit `@Disabled`, Rust `#[ignore]`, …), edits to CI or
-   check configuration (`pyproject.toml`, `pytest.ini`, `setup.cfg`, `.coveragerc`, `Makefile` and a
-   nested `package.json` included), modified existing test or snapshot files (`__snapshots__/`
-   or `.snap`) and their removed expectations, each traced to an acceptance criterion or a record
-   row (an untraced one is a `[blocker]` that requires the citation), every `when`-scoped `extraLanes` entry no changed file
-   matched — a configured lane that did not run on this diff — and every added, edited, deleted or
-   renamed review-policy file (`git diff --name-status $FIRST..HEAD`, both sides of a rename):
-   `.claude/second-shift.config.json`, anything under `.claude/second-shift/`, and
-   `.claude/agents/<name>.md` for each bare name under the config's `reviewers.add[]`. The
-   reviewers load those from the head, so the PR is reviewed against policy it edits: trace each
-   to an acceptance criterion or a record row; an untraced one is a `[blocker]` that requires the
-   citation — the edit itself is never blocked. Each is a question the diff must answer, whatever
-   the stack.
-   Then run the plan's AC coverage check, as the scheduler does after its checks: with the record
-   at `FIRST` in a file (`git show $FIRST:<record> > <file>`),
-   `bash <this skill's base directory>/../../tools/plan-coverage.sh <record at FIRST> <plan at the head>`,
-   the plan being `<plansDir>/<repo>-<key>-plan.md` beside the record
-   ([the script](../../tools/plan-coverage.sh)). Exit 1 (an AC with no test task, a tag the record
-   does not define, an unparseable task line, or no plan) is a `[blocker]` that names what it
-   printed; exit 3 is not-applicable (the record carries no `## Test intent`, or the ticket has no
-   AC block), never a blocker; exit 2 means it could not read the record's AC set, which you say in
-   `## Notes`. `post-review-status.sh` runs the same check and posts no `success` while it is red.
-   The next check, that each tagged test file fails on the record commit's tree, is the
-   scheduler's alone: a lane run makes it before its review and reports it in the PR body's run
-   block, and you do not run it — a session running tests in a worktree it controls is not that
-   proof. On a PR built through `/dev-pipeline:build` (the `--handoff` path: the ticket's latest
-   lane comment is a `build-handoff` one, and the body carries no `## second-shift run` block) nothing ran
-   it: say so in `## Notes` as `fails without the change: not run on the handoff path` — a note,
-   never a blocker.
-5. **Score EVERY row of the record** against the code: `honored`, `violated`, `departed` (the row
-   was edited; name who decided, per its provenance), or `undeterminable` (say what you could not
-   read). A violated or undeterminable row is a blocker; neither may stand beside an approve.
-   A row that names a deferred, unmeasured or inherited cost, load or performance risk is still
-   scored on whether the code matches it — the row is the operator's decision, and a score never
+   The tokens name the ticket (`Closes #N`), the `Record baseline:` and the decision record
+   (`<plansDir>/<repo>-<key>-decisions.md`).
+   **Read the build's own account last.** First write the row scores of step 5 and the findings of
+   step 6. Only then read the PR description and the build's PR comments. Use them to reconcile
+   the departures and rebuttals they state. Measurements show that an author's framing lowers
+   what a reviewer finds. If that reading changes a score or a finding, say so in the verdict's
+   `## Notes`: `revised after reading the build's account: <what changed>`.
+2. Check out the PR head. Confirm that `git rev-parse HEAD` equals `headRefOid`. You review that
+   sha, and you name it.
+3. **Read the record at its first commit and at the head.** The first commit is the commit that
+   added the record: `FIRST=$(git log --format=%H --diff-filter=A -- <record> | tail -n 1)`. Read
+   `git show $FIRST:<record>`. It shows what was decided before the build started. Then read the
+   file at the head.
+   - A row edited since `FIRST` is a departure. The edit must name who decided.
+   - A row added since `FIRST` is a decision made during the build. Score it too. It must also
+     name who decided.
+   - When the PR body has `Record baseline: <sha>`, that sha is the baseline. The baseline can
+     differ from the `FIRST` you computed, or it can be no ancestor of the head. Then the record
+     commit was rewritten, and that alone is a blocker.
+4. **Look at what the scheduler would have given you.** Read `git diff $FIRST..HEAD` and check
+   each item below. Each item is a question that the diff must answer, whatever the stack.
+   - Deleted or renamed test files. A top-level `tests/`, `__tests__/`, `test_*.py`,
+     `conftest.py`, `_spec.` and `*-selftest.*` count too.
+   - Added skips or forced-green lines: `.skip(`, `.only(`, `|| true`, pytest
+     `skip`/`skipif`/`xfail`, Go `t.Skip(`, JUnit `@Disabled`, Rust `#[ignore]`, and similar.
+   - Edits to CI or check configuration. `pyproject.toml`, `pytest.ini`, `setup.cfg`,
+     `.coveragerc`, `Makefile` and a nested `package.json` count too.
+   - Modified existing test or snapshot files (`__snapshots__/` or `.snap`), and their removed
+     expectations. Trace each one to an acceptance criterion or a record row. An untraced one is
+     a `[blocker]` that requires the citation.
+   - Every `when`-scoped `extraLanes` entry that no changed file matched. That is a configured
+     lane that did not run on this diff.
+   - Every added, edited, deleted or renamed review-policy file. List them with
+     `git diff --name-status $FIRST..HEAD`, and check both sides of a rename. The review-policy
+     files are `.claude/second-shift.config.json`, anything under `.claude/second-shift/`, and
+     `.claude/agents/<name>.md` for each bare name under the config's `reviewers.add[]`. The
+     reviewers load these files from the head, so the PR is reviewed against the policy it edits.
+     Trace each one to an acceptance criterion or a record row. An untraced one is a `[blocker]`
+     that requires the citation. The edit itself is never the blocker.
+
+   Then run the AC coverage check of the plan, as the scheduler does after its checks. Write the
+   record at `FIRST` to a file (`git show $FIRST:<record> > <file>`). Then run
+   `bash <this skill's base directory>/../../tools/plan-coverage.sh <record at FIRST> <plan at the head>`.
+   The plan is `<plansDir>/<repo>-<key>-plan.md`, beside the record
+   ([the script](../../tools/plan-coverage.sh)).
+   - Exit 1 is a `[blocker]` that names what the check printed. The causes are an AC with no test
+     task, a tag the record does not define, an unparseable task line, or no plan.
+   - Exit 3 is not-applicable: the record has no `## Test intent`, or the ticket has no AC block.
+     It is never a blocker.
+   - Exit 2 means that the check could not read the AC set of the record. Say so in `## Notes`.
+
+   `post-review-status.sh` runs the same check and posts no `success` while the check is red.
+   The next check proves that each tagged test file fails on the tree of the record commit. Only
+   the scheduler makes it. A lane run makes it before its review and reports it in the run block
+   of the PR body. Do not run it: a session that runs tests in a worktree it controls does not
+   give that proof. A PR built through `/dev-pipeline:build` took the `--handoff` path. On that
+   path, the latest lane comment on the ticket is a `build-handoff` comment, and the body has no
+   `## second-shift run` block. Nothing ran the check there. Say so in `## Notes` as
+   `fails without the change: not run on the handoff path`. This is a note, never a blocker.
+5. **Score EVERY row of the record** against the code. The scores are `honored`, `violated`,
+   `departed` or `undeterminable`. A departed row was edited: name who decided, per its
+   provenance. For an undeterminable row, say what you could not read. A violated or
+   undeterminable row is a blocker. Do not approve when a row has either score.
+   A row can name a deferred, unmeasured or inherited cost, load or performance risk. Still score
+   that row on whether the code matches it. The row is the operator's decision. A score never
    overrides it. Its risk is also required performance work: the review states the worst-case
-   bound as a finding, at the severity the performance rules give it, and the row licenses the
-   out-of-diff reads that check it. "The file it names is untouched" scores the row; it does not
-   bound the risk.
-6. **Run `review-toolkit:review-lead` over the PR diff, pass it the ticket from step 1 yourself, and
-   declare the pipeline default panel**
-   when you invoke it: the fan-out defaults to `scope-completeness-reviewer`; `security-reviewer`,
-   `a11y-reviewer`, `unit-test-mutation-reviewer` and `performance-reviewer` are selected only by
-   an opt-in — a `review panel` row in the record with `user-answered` or `user-delegated`
-   provenance naming `security`, `a11y`, `unit-test-mutation` or `performance`, or the config's
-   `reviewers.default[]`.
-   `review-lead` never infers this; an undeclared panel leaves the surface triggers in force.
-   Opting one of the four back in is your call, and **the expected call whenever the diff
-   introduces a surface** rather than editing an existing one: `security` for a new
-   authentication, session, tenancy or ownership-scoping path, or a new query built from external
-   input; `a11y` for new form controls or a new interactive component; `unit-test-mutation` for
-   new logic with a co-located spec; `performance` for a new entry point (a route, handler,
-   consumer or SDK method) that reaches a data read or existing heavy work. A change to a file that already sits on one of those
-   surfaces is your call either way. Pass each short name to `review-lead` with a one-line
-   reason. Do not stand in for a specialist on a surface the diff introduces: your lead pass is
-   one reader over the whole diff, not that reviewer's checklist. The trim stays the default
-   because it was measured; a diff it was never measured on is yours to judge. Declining a
-   reviewer whose surface the diff introduces is itself a decision: pass the decline to
-   `review-lead` with a one-line reason, it is written into the panel line of the review, and
-   the human who reads the verdict reads that line. An introduced surface with neither a
-   reviewer nor a reason is a silent decision.
-   **A record-named cost risk makes performance a required decision.** When a `D-n` row or an
-   `OR-n` Open Region of the record names a cost, load or performance risk, opt `performance` in,
-   or pass its decline with a reason that answers that row. Opted in, pass `review-lead` that row
-   and the new entry point's `path:line`, so the seat traces the risk rather than the whole diff.
-   A record-named risk with neither a dispatch nor a decline is a process `[blocker]` on your
-   verdict; whether a decline answers the row is your judgment, and the panel line shows it.
-   If it reports that the review did not run (its panel went dark), you have no verdict to give:
-   say which reviewer went dark in a plain comment and post no `verdict:` line.
-7. **Design frames.** When the record's `## Design frames` (or `## Design`) section carries
-   `| RS-n |` rows, render every screen at the head with the repo's render command
-   (`design.liveRender.command`) and compare it with its frame. If you cannot render, you cannot
-   approve: post `verdict: needs-work` with line 3 `reason: render-unavailable`.
-8. **Post ONE PR comment**, through [`gh-bot.sh`](../../tools/gh-bot.sh) when its `--status` is
-   `ok`, plain `gh` otherwise, its body passed with `--body-file`. The body follows this grammar
-   exactly — the same one `run.sh`'s review prompt states:
+   bound as a finding, at the severity the performance rules give it. The row permits the
+   out-of-diff reads that check the bound. The row can name a file that the diff does not touch.
+   That fact scores the row. It does not bound the risk.
+6. **Run `review-toolkit:review-lead` over the PR diff.** Pass it the ticket from step 1 yourself.
+   **Declare the pipeline default panel** when you invoke it. Under that panel the fan-out
+   defaults to `scope-completeness-reviewer`. The other four reviewers (`security-reviewer`,
+   `a11y-reviewer`, `unit-test-mutation-reviewer` and `performance-reviewer`) run only on an
+   opt-in. An opt-in comes from one of two sources. The first is a `review panel` row in the
+   record with `user-answered` or `user-delegated` provenance, naming `security`, `a11y`,
+   `unit-test-mutation` or `performance`. The second is the config's `reviewers.default[]`.
+   `review-lead` never infers this. An undeclared panel leaves the surface triggers in force.
+
+   You can opt one of the four back in. **That is the expected call whenever the diff introduces
+   a surface.** It is not expected when the diff only edits an existing surface.
+   - Opt in `security` for a new authentication, session, tenancy or ownership-scoping path, or
+     for a new query built from external input.
+   - Opt in `a11y` for new form controls or a new interactive component.
+   - Opt in `unit-test-mutation` for new logic with a co-located spec.
+   - Opt in `performance` for a new entry point that reaches a data read or existing heavy work.
+     An entry point is a route, handler, consumer or SDK method.
+
+   For a change to a file that already sits on one of those surfaces, you decide either way. Pass
+   each short name to `review-lead` with a one-line reason.
+
+   Do not stand in for a specialist on a surface the diff introduces. Your lead pass is one reader
+   over the whole diff. It is not that reviewer's checklist. The trimmed panel stays the default
+   because it was measured. You judge a diff that it was never measured on.
+
+   Declining a reviewer whose surface the diff introduces is itself a decision. When you decline
+   one, pass the decline to `review-lead` with a one-line reason. `review-lead` writes the decline
+   into the panel line of the review. The human who reads the verdict reads that line. An
+   introduced surface with neither a reviewer nor a reason is a silent decision.
+
+   **A record-named cost risk makes performance a required decision.** A `D-n` row or an `OR-n`
+   Open Region of the record can name a cost, load or performance risk. When one does, opt
+   `performance` in, or pass its decline with a reason that answers that row. When you opt in,
+   pass `review-lead` that row and the new entry point's `path:line`. Then `performance-reviewer`
+   traces the risk and not the whole diff. A record-named risk with neither a dispatch nor a
+   decline is a process `[blocker]` on your verdict. The blocker is for the missing decision, not
+   for the code. Whether a decline answers the row is your judgment. The panel line shows it.
+
+   `review-lead` can report that the review did not run (its panel went dark). Then you have no
+   verdict to give. Say which reviewer went dark in a plain comment, and post no `verdict:` line.
+7. **Design frames.** The `## Design frames` (or `## Design`) section of the record can have
+   `| RS-n |` rows. Then render every screen at the head with the repo's render command
+   (`design.liveRender.command`). Compare each screen with its frame. If you cannot render, you
+   cannot approve: post `verdict: needs-work` with line 3 `reason: render-unavailable`.
+8. **Post ONE PR comment.** Post it through [`gh-bot.sh`](../../tools/gh-bot.sh) when its
+   `--status` is `ok`, and through plain `gh` otherwise. Pass the body with `--body-file`. The body
+   follows this grammar exactly. The review prompt of `run.sh` states the same grammar:
 
    <!-- LOCKSTEP-BEGIN verdict-grammar -->
    The verdict comment has these parts, in this order and nothing else:
@@ -177,44 +199,51 @@ review's context.
    A limit never removes a row, a finding, a panel line or a knowledge-base proposal. If they do not fit, shorten the wording.
    <!-- LOCKSTEP-END verdict-style -->
 
-   **Check the draft before you post it.** Write the body to a file, and the record at `FIRST` to
-   another (`git show $FIRST:<record> > <file>`), then run
+   **Check the draft before you post it.** Write the body to a file. Write the record at `FIRST` to
+   another file (`git show $FIRST:<record> > <file>`). Then run
    `bash <this skill's base directory>/../../tools/verdict-check.sh <draft> <record at the head> <record at FIRST>`
-   ([the checker](../../tools/verdict-check.sh)). It prints every rule the draft breaks; fix the
-   draft until it exits 0. Exit 2 means it could not read a file: fix the path, never post on a
-   check that did not run. The format matches the lane's own verdicts, but no scheduler reads this
-   one: a finished run has exited, and a re-launch builds before it reviews. It is for the human who
-   decides the merge. Never edit it.
-   Then collapse the PR's earlier verdicts as outdated, with the same `gh` you posted through:
+   ([the checker](../../tools/verdict-check.sh)). It prints every rule that the draft breaks. Fix
+   the draft until the checker exits 0. Exit 2 means that it could not read a file. Fix the path.
+   Never post on a check that did not run.
+   The format matches the lane's own verdicts, but no scheduler reads this comment. A finished run
+   has exited, and a re-launch builds before it reviews. The comment is for the human who decides
+   the merge. Never edit it.
+
+   Then collapse the earlier verdicts of the PR as outdated. Use the same `gh` that you posted
+   through:
    `GH=<that gh> bash <this skill's base directory>/../../tools/minimize-verdicts.sh <pr> <comment id>`
-   ([the script](../../tools/minimize-verdicts.sh); the id is the number after `#issuecomment-` in
-   the URL your post printed). It minimizes only lane-authored `verdict:` comments posted before yours,
-   never a notice or anyone else's. If it fails, say so in your session output — not in a PR
-   comment — and go on; never retry it as yourself in the bot's place.
-   Then re-check `headRefOid`. If it is no longer the sha on your `reviewed:` line, the head moved
-   under your review: post no status, and say so in a plain PR comment. Otherwise post the same
-   verdict as a commit status on that sha, with the same `gh` (the bot when `--status` is `ok`),
-   never with a raw `gh api` call:
+   ([the script](../../tools/minimize-verdicts.sh)). The id is the number after `#issuecomment-`
+   in the URL that your post printed. The script minimizes only lane-authored `verdict:` comments
+   posted before yours. It never minimizes a notice or a comment by anyone else. If it fails, say
+   so in your session output, not in a PR comment, and continue. Never retry it as yourself in
+   the place of the bot.
+
+   Then check `headRefOid` again. If it is no longer the sha on your `reviewed:` line, the head
+   moved during your review. Post no status, and say so in a plain PR comment. Otherwise, post the
+   same verdict as a commit status on that sha. Use the same `gh` (the bot when `--status` is
+   `ok`). Never use a raw `gh api` call:
    `GH=<that gh> bash <this skill's base directory>/../../tools/post-review-status.sh <pr> <sha> <body file> <record at the head> <record at FIRST> <your comment's URL>`
-   ([the script](../../tools/post-review-status.sh)). It re-runs the checker on the body you
-   posted and posts `success` for approve, `failure` for needs-work, under `second-shift/review`;
-   an approve whose plan coverage is red posts nothing. A consumer that requires
-   `second-shift/review` in branch protection cannot merge a PR without it. When it exits 1 the
-   body breaks a rule, or the approve's plan coverage is red, and no status was posted: say so in
-   a plain PR comment that names the failed rules or the coverage lines it printed (never a
-   `verdict:` line). When it exits 3 the
-   post failed: say so in a plain PR comment (a 403/404 through the bot means its GitHub App lacks
-   "Commit statuses: write"); never retry it as yourself in the bot's place. On an `approve` whose
-   status posted, mark the PR ready for review with the same `gh` (`gh pr ready <pr>`): a lane PR
-   stays a draft until a review approves its head, because GitHub refuses to merge a draft. If
-   that fails, say so in a plain PR comment. Then stop.
+   ([the script](../../tools/post-review-status.sh)). The script runs the checker again on the
+   body you posted. Under `second-shift/review` it posts `success` for approve and `failure` for
+   needs-work. An approve with red plan coverage posts nothing. A consumer that requires
+   `second-shift/review` in branch protection cannot merge a PR without this status.
+   - Exit 1: the body breaks a rule, or the plan coverage of the approve is red. No status was
+     posted. Say so in a plain PR comment that names the failed rules or the coverage lines that
+     the script printed. Never put a `verdict:` line in that comment.
+   - Exit 3: the post failed. Say so in a plain PR comment. A 403 or 404 through the bot means
+     that its GitHub App does not have "Commit statuses: write". Never retry it as yourself in
+     the place of the bot.
+
+   On an `approve` whose status posted, mark the PR ready for review with the same `gh`
+   (`gh pr ready <pr>`). A lane PR stays a draft until a review approves its head, because GitHub
+   refuses to merge a draft. If that fails, say so in a plain PR comment. Then stop.
 
 ## Rules that are not negotiable
 
-- **Review the head you name.** Re-check `headRefOid` just before posting; if the branch moved
-  while you were reviewing, review the new commits and name the new head. A verdict naming an
-  older head binds nothing.
-- **Do not soften a blocker to keep a run moving, and do not invent one to look thorough.**
-- **Never end a turn with work this turn started and has not collected.** A `review-lead`
-  Workflow dispatch re-enters the session when it completes: await it. A `&`-detached command or
-  an armed `Monitor` at turn end is abandoned, not deferred.
+- **Review the head you name.** Check `headRefOid` again just before you post. If the branch moved
+  during your review, review the new commits and name the new head. A verdict that names an older
+  head does not count.
+- **Do not soften a blocker to keep a run moving. Do not invent a blocker to look thorough.**
+- **Never end a turn with work that this turn started and has not collected.** A `review-lead`
+  Workflow dispatch re-enters the session when it completes. Wait for it. A `&`-detached command
+  or an armed `Monitor` at turn end is abandoned, not deferred.
