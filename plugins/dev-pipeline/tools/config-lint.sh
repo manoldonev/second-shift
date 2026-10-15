@@ -160,7 +160,9 @@ ERRORS=$(jq -r --argjson shippedTiers "$SHIPPED_TIERS_JSON" --argjson tierDocFou
         err(has("unitTestScope"); "commands." + $repo + ".unitTestScope was removed — the unit-test mutation engine that read it was retired, so the key armed nothing. For mutation coverage, add your own mutation tool as a commands.<id>.extraLanes check. Delete the key from your config (docs/migrations/v1-to-v2.md)")
         + err(has("testFile"); "commands." + $repo + ".testFile was removed — it was the retired unit-test mutation engine\u0027s per-spec runner template, read by nothing else. Delete the key from your config (docs/migrations/v1-to-v2.md)")
         + err(has("lintAutofixes"); "commands." + $repo + ".lintAutofixes was removed in configVersion 3 — the scheduler runs lint as a blocking check in the worktree, so configure lint as its non-mutating form (e.g. eslint ., not eslint --fix) and delete the key " + $v3doc)
-        + err(((keys) - ["lint","lintAutofixes","typecheck","test","testFile","unitTestScope","format","lanes","extraLanes","testRunners","allowUnverified"]) != []; "commands." + $repo + ": unknown keys (note: integrationTest/apiTest were removed in v2.1.6, commands.<repo>.build was removed — ship those tiers via extraLanes; see docs/migrations)")
+        + err(((keys) - ["lint","lintAutofixes","typecheck","test","testFile","unitTestScope","format","lanes","extraLanes","testRunners","testSupport","allowUnverified"]) != []; "commands." + $repo + ": unknown keys (note: integrationTest/apiTest were removed in v2.1.6, commands.<repo>.build was removed — ship those tiers via extraLanes; see docs/migrations)")
+        # testSupport (#1053 D-21 D-26): globs of helper files the fails-without-the-change leg brings from the head, never runs
+        + err(has("testSupport") and (((.testSupport | type) != "array") or ((.testSupport | length) < 1) or any(.testSupport[]?; type != "string" or . == "")); "commands." + $repo + ".testSupport: a non-empty array of file globs")
         + ([to_entries[] | select(.key | IN("lint","typecheck","test","format")) |
             err((.value | type) | IN("string","null") | not; "commands." + $repo + "." + .key + ": must be string or null")
           ] | add // [])
@@ -202,17 +204,43 @@ ERRORS=$(jq -r --argjson shippedTiers "$SHIPPED_TIERS_JSON" --argjson tierDocFou
               end
             )
           ) | add // []) end)
-        # testRunners (#1040 D-3): which command runs one tagged test file on the fails-without-the-change leg —
-        # the first entry whose `when` glob matches the file; the command takes the file as {file}; timeoutSeconds bounds one run
+        # testRunners (#1040 D-3, #1053 D-5): which command runs the tagged tests on the fails-without-the-change leg —
+        # the first entry whose `when` glob matches the file. `format` says what the leg reads: exit (the default; one file,
+        # its exit code), cases (one file, its `case<TAB><passed|failed><TAB><id>` lines; {cases} optional), vitest-json and
+        # jest-json (one call over all the files of the runner, its JSON report). Each placeholder belongs to its formats only,
+        # and a reporting command must carry the flags that keep the report whole, each in --flag=value form: a space form, a
+        # second --reporter or an --outputFile.<x> lets the own config of the runner move or cut the report
         + ((.testRunners // []) | if type != "array" then ["commands." + $repo + ".testRunners: must be array"] else (to_entries | map(
             (.key as $i | .value |
+              ("commands." + $repo + ".testRunners[" + ($i|tostring) + "]") as $p |
               if (type != "object") then
-                ["commands." + $repo + ".testRunners[" + ($i|tostring) + "]: must be an object {when[], command, timeoutSeconds?}"]
+                [$p + ": must be an object {when[], command, format?, timeoutSeconds?}"]
               else
-              err(((keys) - ["when","command","timeoutSeconds"]) != []; "commands." + $repo + ".testRunners[" + ($i|tostring) + "]: unknown keys")
-              + err(has("timeoutSeconds") and (((.timeoutSeconds | type) != "number") or (.timeoutSeconds < 1) or (.timeoutSeconds != (.timeoutSeconds | floor))); "commands." + $repo + ".testRunners[" + ($i|tostring) + "].timeoutSeconds: must be a whole number of seconds, 1 or more")
-              + err(((.when | type) != "array") or ((.when | length) < 1) or any(.when[]?; type != "string" or . == ""); "commands." + $repo + ".testRunners[" + ($i|tostring) + "].when: required, a non-empty array of file globs")
-              + err(((.command | type) != "string") or ((.command // "") | contains("{file}") | not); "commands." + $repo + ".testRunners[" + ($i|tostring) + "].command: required, a string that takes the test file as {file}")
+              (.format // "exit") as $f | (if (.command | type) == "string" then .command else "" end) as $c
+              | ($c | [splits("[[:space:]]+")] | map(select(. != ""))) as $tok
+              | err(((keys) - ["when","command","format","timeoutSeconds"]) != []; $p + ": unknown keys")
+              + err(has("timeoutSeconds") and (((.timeoutSeconds | type) != "number") or (.timeoutSeconds < 1) or (.timeoutSeconds != (.timeoutSeconds | floor))); $p + ".timeoutSeconds: must be a whole number of seconds, 1 or more")
+              + err(((.when | type) != "array") or ((.when | length) < 1) or any(.when[]?; type != "string" or . == ""); $p + ".when: required, a non-empty array of file globs")
+              + err(($f | IN("exit","cases","vitest-json","jest-json")) | not; $p + ".format: unknown format " + ($f | tojson) + " — one of exit, cases, vitest-json, jest-json")
+              + if ($f | IN("exit","cases")) then
+                  err(((.command | type) != "string") or ($c | contains("{file}") | not); $p + ".command: required, a string that takes the test file as {file}")
+                  + err($c | contains("{files}"); $p + ".command: {files} belongs to the vitest-json and jest-json formats; format " + $f + " runs one file, as {file}")
+                  + err($c | contains("{report}"); $p + ".command: {report} belongs to the vitest-json and jest-json formats; format " + $f + " reads " + (if $f == "cases" then "its case lines" else "the exit code" end))
+                  + err(($f == "exit") and ($c | contains("{cases}")); $p + ".command: {cases} belongs to the cases format; format exit runs the whole file")
+                elif ($f | IN("vitest-json","jest-json")) then
+                  err(((.command | type) != "string") or ($c | contains("{files}") | not) or ($c | contains("{report}") | not); $p + ".command: format " + $f + " requires {files} and {report}")
+                  + err($c | contains("{file}"); $p + ".command: format " + $f + " runs every file in one call, as {files}; {file} is refused")
+                  + err($c | contains("{cases}"); $p + ".command: {cases} belongs to the cases format")
+                  + (if $f == "vitest-json" then
+                      [("--reporter=json","--outputFile={report}","--bail=0") as $r | select($tok | index([$r]) | not) | $p + ".command: format vitest-json requires " + $r]
+                      + err(any($tok[]; IN("--reporter","--outputFile","--bail")); $p + ".command: write --reporter, --outputFile and --bail as --flag=value; a space form is refused")
+                      + err(([$tok[] | select(startswith("--reporter"))] | length) > 1; $p + ".command: a second --reporter is refused — the JSON report must be the only one")
+                      + err(any($tok[]; startswith("--outputFile.")); $p + ".command: --outputFile.<x> is refused — a config outputFile would move the report")
+                    else
+                      [("--json","--outputFile={report}","--runTestsByPath","--bail=0") as $r | select($tok | index([$r]) | not) | $p + ".command: format jest-json requires " + $r]
+                      + err(any($tok[]; IN("--outputFile","--bail")); $p + ".command: write --outputFile and --bail as --flag=value; a space form is refused")
+                    end)
+                else [] end
               end
             )
           ) | add // []) end)

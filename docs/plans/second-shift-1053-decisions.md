@@ -43,6 +43,8 @@ Sizing: opus
 | D-25 | A selected fixture block with no ok/bad row (the suite died first) | It prints no case line, so the judge reds it "did not run" on either leg; a crash never folds to passed | user-answered | intent |
 | D-26 | How `testSupport` is validated | A non-empty array of non-empty strings, as `when` is — cited (convention): plugins/dev-pipeline/tools/config-lint.sh:214 | codebase-derived | fact |
 | D-27 | Case ids for fixtures named at runtime | The expanded name, one block per value — run: `grep -n 'fixture "fe-$v"' plugins/dev-pipeline/skills/run/run-claim-selftest.sh` → 236: fixture "fe-$v" | codebase-derived | fact |
+| D-28 | Which selected `{cases}` tests the head leg re-runs | Only the selected tests that failed on the record commit's tree; a test already red there is not run again at the head. Added in build: D-9 says every selected test, but a second run cannot clear a red, so it only adds time | user-delegated | intent |
+| D-29 | Which task lines the unterminated-backtick red applies to | Only a task that carries an AC id; an untagged task's description is not read for files, so a stray backtick there stays legal. Added in build: D-6 names the task without saying which tasks, and an implementation task never feeds the check | user-delegated | intent |
 
 ## Open Regions
 

@@ -13,8 +13,30 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUN="$SCRIPT_DIR/run.sh"
 PASS=0; FAIL=0
-ok()  { PASS=$((PASS+1)); echo "  ok   $*"; }
-bad() { FAIL=$((FAIL+1)); echo "  FAIL $*"; }
+# #1053 D-4 D-13 D-15: a case is a fixture block — everything after `fixture <name>` up to the next fixture, its id the
+# expanded name. Its ok/bad rows fold (any bad fails it), and at exit the suite prints one `case<TAB><passed|failed><TAB><id>`
+# line per block that has a row, for the cases format of the fails-without-the-change check; a block with no row prints
+# none, so a crash reads "did not run", never passed. SELFTEST_CASES (space-separated ids) selects blocks: an unselected
+# block's run_case returns without launching run.sh and its rows are muted; rows before the first fixture are not
+# addressable, so a selection mutes them too. Bash 3.2 has no associative array: the ids are newline lists
+CASE_IDS=""; CASE_FAILED=""; CASE_CUR=""; CASE_ON=1
+[ -z "${SELFTEST_CASES:-}" ] || CASE_ON=0
+case_begin() { CASE_CUR="$1"; CASE_ON=1; [ -z "${SELFTEST_CASES:-}" ] || [[ " $SELFTEST_CASES " == *" $1 "* ]] || CASE_ON=0; }
+case_row() { # case_row passed|failed
+  [ -n "$CASE_CUR" ] || return 0
+  printf '%s' "$CASE_IDS" | grep -qxF -- "$CASE_CUR" || CASE_IDS="$CASE_IDS$CASE_CUR"$'\n'
+  [ "$1" = passed ] || CASE_FAILED="$CASE_FAILED$CASE_CUR"$'\n'
+}
+case_lines() {
+  local id st
+  while IFS= read -r id; do
+    [ -n "$id" ] || continue
+    st=passed; ! printf '%s' "$CASE_FAILED" | grep -qxF -- "$id" || st=failed
+    printf 'case\t%s\t%s\n' "$st" "$id"
+  done <<<"$CASE_IDS"
+}
+ok()  { [ "$CASE_ON" -eq 1 ] || return 0; PASS=$((PASS+1)); echo "  ok   $*"; case_row passed; }
+bad() { [ "$CASE_ON" -eq 1 ] || return 0; FAIL=$((FAIL+1)); echo "  FAIL $*"; case_row failed; }
 # #1022: run.sh lints the receipt with intake-toolkit's ledger-lint.sh. The sibling plugin sits beside this one in a
 # checkout (plugins/intake-toolkit) and one version segment further up in an install cache (<cache>/intake-toolkit/<v>)
 IT_ROOT=""
@@ -23,7 +45,7 @@ for _c in "$SCRIPT_DIR/../../../intake-toolkit" "$SCRIPT_DIR"/../../../../intake
 done; unset _c
 [ -n "$IT_ROOT" ] || { echo "FATAL: no intake-toolkit beside $SCRIPT_DIR — run.sh's receipt lint has nothing to run" >&2; exit 1; }
 T="$(mktemp -d "${TMPDIR:-/tmp}/run-selftest.XXXXXX")"
-trap 'rm -rf "$T"' EXIT
+trap 'case_lines; rm -rf "$T"' EXIT
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@x GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@x
 # a BUILD session running this suite carries the spawn env run.sh gives it, and an operator's shell may carry RUN_* caps:
 # the F-env cases read what run.sh sets from its defaults, not what this shell inherited
@@ -189,7 +211,7 @@ chmod +x "$T/bin/gh" "$T/bin/claude" "$T/bin/watch-fake"
 
 # ---- fixture: a bare origin, a main checkout with config + record, an empty worktree root ----
 fixture() { # fixture <case> [checks-line] [extra-record] — sets $d and the env
-  local c="$1" chk="${2-- true}" extra="${3:-}"; d="$T/$c"; mkdir -p "$d"
+  local c="$1" chk="${2-- true}" extra="${3:-}"; d="$T/$c"; mkdir -p "$d"; case_begin "$c"
   git init -q --bare "$d/origin.git"
   git clone -q "$d/origin.git" "$d/main" 2>/dev/null
   git -C "$d/main" symbolic-ref HEAD refs/heads/main
@@ -224,10 +246,11 @@ commit_record() { # the receipt already committed as the lane branch's first com
 SD() { ls -d "$d/main/.claude/pipeline-state/run-42"/*/ 2>/dev/null | sort | tail -n 1 | sed 's#/$##'; }
 run_case() { # run_case <dir> <args...> -> stdout in $OUT, terminal in $TERM_SLUG
   local d="$1"; shift
+  [ "$CASE_ON" -eq 1 ] || { OUT=""; RC=0; TERM_SLUG=""; return 0; }   # an unselected block launches nothing
   OUT="$( cd "$d/main" && bash "$RUN" 42 "$@" 2>&1 )"; RC=$?
   TERM_SLUG="$(printf '%s\n' "$OUT" | sed -n 's/^terminal: //p' | tail -n 1)"
 }
-expect() { [ "$TERM_SLUG" = "$1" ] && ok "$2 -> $1" || { bad "$2: expected terminal $1, got '$TERM_SLUG'"; printf '%s\n' "$OUT" | tail -n 6 | sed 's/^/       /'; }; }
+expect() { [ "$CASE_ON" -eq 1 ] || return 0; [ "$TERM_SLUG" = "$1" ] && ok "$2 -> $1" || { bad "$2: expected terminal $1, got '$TERM_SLUG'"; printf '%s\n' "$OUT" | tail -n 6 | sed 's/^/       /'; }; }
 
 # fixture inputs more than one suite reads
 printf 'x' > "$T/px.png"

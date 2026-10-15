@@ -95,12 +95,35 @@ expect_violation invalid-bad-test-runners.json      "commands.app.testRunners[0]
 expect_violation invalid-bad-test-runners.json      "commands.app.testRunners[1].when: required, a non-empty array of file globs"
 expect_violation invalid-bad-test-runners.json      "commands.app.testRunners[2]: unknown keys"
 expect_violation invalid-bad-test-runners.json      "commands.app.testRunners[2].when: required"
-expect_violation invalid-bad-test-runners.json      "commands.app.testRunners[3]: must be an object {when[], command, timeoutSeconds?}"
+expect_violation invalid-bad-test-runners.json      "commands.app.testRunners[3]: must be an object {when[], command, format?, timeoutSeconds?}"
 expect_violation invalid-bad-test-runners.json      "commands.app.testRunners[4].timeoutSeconds: must be a whole number of seconds, 1 or more"
 expect_violation invalid-bad-test-runners.json      "commands.app.testRunners[5].timeoutSeconds: must be a whole number of seconds, 1 or more"
 expect_violation invalid-bad-test-runners.json      "commands.app.testRunners[6].timeoutSeconds: must be a whole number of seconds, 1 or more"
 expect_violation invalid-bad-test-runners.json      "commands.web.testRunners: must be array"
 expect_no_violation invalid-bad-test-runners.json   "commands.app: unknown keys"
+# #1053 AC-10 / D-5: a runner's format decides its placeholders and, for a reporting format, the flags that keep the report
+# whole. valid-reporting-runners.json (in the valid-*.json loop) carries each format's accepted form and testSupport; each
+# entry of the invalid fixture is refused for its own reason
+R=invalid-bad-reporting-runners.json
+expect_violation "$R" 'commands.app.testRunners[0].format: unknown format "tap" — one of exit, cases, vitest-json, jest-json'
+expect_violation "$R" "commands.app.testRunners[1].command: format vitest-json requires {files} and {report}"
+expect_violation "$R" "commands.app.testRunners[1].command: format vitest-json runs every file in one call, as {files}; {file} is refused"
+expect_violation "$R" "commands.app.testRunners[1].command: format vitest-json requires --outputFile={report}"
+expect_violation "$R" "commands.app.testRunners[2].command: format vitest-json requires --reporter=json"
+expect_violation "$R" "commands.app.testRunners[2].command: write --reporter, --outputFile and --bail as --flag=value; a space form is refused"
+expect_violation "$R" "commands.app.testRunners[3].command: a second --reporter is refused"
+expect_violation "$R" "commands.app.testRunners[3].command: --outputFile.<x> is refused"
+expect_violation "$R" "commands.app.testRunners[4].command: format jest-json requires --runTestsByPath"
+expect_violation "$R" "commands.app.testRunners[4].command: format jest-json requires --outputFile={report}"
+expect_violation "$R" "commands.app.testRunners[4].command: write --outputFile and --bail as --flag=value; a space form is refused"
+expect_violation "$R" "commands.app.testRunners[5].command: {cases} belongs to the cases format; format exit runs the whole file"
+expect_violation "$R" "commands.app.testRunners[5].command: {report} belongs to the vitest-json and jest-json formats; format exit reads the exit code"
+expect_violation "$R" "commands.app.testRunners[6].command: required, a string that takes the test file as {file}"
+expect_violation "$R" "commands.app.testRunners[6].command: {files} belongs to the vitest-json and jest-json formats; format cases runs one file, as {file}"
+expect_violation "$R" "commands.web.testSupport: a non-empty array of file globs"
+expect_violation "$R" "commands.api.testSupport: a non-empty array of file globs"
+expect_no_violation "$R" "commands.app.testRunners[3].command: format vitest-json requires"
+expect_no_violation "$R" "commands.app: unknown keys"
 
 # --- configVersion. The PRIOR version is the case a real consumer hits at the bump; it must be
 # rejected WITH the migration-doc pointer, never a bare "invalid".

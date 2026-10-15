@@ -489,8 +489,11 @@ section from the record's first commit and runs `plan-coverage.sh` (dev-pipeline
 plan at the head: every AC not exempt must be tagged on a test task that names its test files,
 and no tag may name an id `ACs:` does not list. Where the config maps test runners
 (`commands.<id>.testRunners`), it then applies the head's tagged test files onto the record
-commit's tree and runs each: every file of a behavior AC must fail there. The holds and
-unchecked forms are additive inside v4: no receipt version names them.
+commit's tree and runs them: every named test of a behavior AC must fail there. Under a runner
+whose format reports per test (`cases`, `vitest-json`, `jest-json`), the plan names each test as
+`file::case`, and the scheduler judges that test, not its file; under the `exit` format the file is
+the unit. So a Test intent line states the behavior one named test proves, not what a whole file
+does. The holds and unchecked forms are additive inside v4: no receipt version names them.
 
 ### Departures
 

@@ -41,7 +41,9 @@
 #                 conventions; checks from the first commit; the plan's AC coverage
 #                 (tools/plan-coverage.sh: the record at the first commit, the plan at the head);
 #                 fails without the change (the head's tagged test files on the record commit's
-#                 tree, each run through commands.<id>.testRunners, must fail there);
+#                 tree, run through commands.<id>.testRunners — per file, or one batch per
+#                 reporting runner — each named test must fail there; a pending one, and each
+#                 selected case, must then pass at the head);
 #                 route smoke; review input;
 #                 REVIEW in a fresh session, re-spawned once when dark; verdict bound to the
 #                 review window, unedited, naming the current head, its body backing its own
@@ -563,16 +565,23 @@ plan_coverage() { # plan_coverage <attempt> -> the script's exit: 0 pass · 1 re
   say "plan coverage: exit $rc — $(printf '%s' "$out" | tail -n 1 | sed 's/^plan-coverage: //') (log: $log)"; say "plan position: $pos"
   return "$rc"
 }
-# -- fails without the change (#1040, layer 3 of #1018): after the checks and the coverage pass, the head's tagged test files
-# are applied onto the record commit's tree (the base code, none of the build's) and each runs through the first configured
-# testRunners entry whose `when` glob matches it; every one must fail there (D-1, D-2: any failure counts). Passing at the
-# head is the checks'. A holds AC's files are kept off it and an unchecked AC's are noted, not run (D-4, D-11); the AC-to-file
-# map comes from plan-coverage.sh --files, never a second plan parser (D-7). The tree is built in $WT, which keeps its
-# ignored dependencies: detached to the record commit only when no tracked change is in it, put back on the branch by a plain
-# checkout — which carries any change rather than discard it — under an EXIT trap, and by the next launch when a mark
-# outlives the process (red_tree_restore). The runners were read at launch (D-13): a build cannot change them mid-run --
-# Each file runs bounded (bounded_group): one that has not finished within its runner's timeoutSeconds is red, never a
-# failure, since a runner that hangs on every tree would otherwise pass every proof
+# -- fails without the change (#1040, layer 3 of #1018; #1053): after the checks and the coverage pass, the head's tagged test
+# files are applied onto the record commit's tree (the base code, none of the build's), beside the head's testSupport files
+# (never run), and run through the first configured testRunners entry whose `when` glob matches each. The runner's `format`
+# decides the unit (#1053 D-2 D-5 D-8): exit runs one file and its exit code judges the file (#1040 D-2: any failure counts);
+# cases runs one file and judges each named file::case by the `case<TAB><passed|failed><TAB><id>` line it prints; vitest-json
+# and jest-json run every file of the runner in one call and judge each named test by its row in the JSON report. Every named
+# test must fail there. One whose file does not load there, or that sits behind a failing vitest beforeAll, is pending (D-3):
+# the head leg runs it after the restore, at the head, with every selected test of a {cases} runner, and each must pass (D-9).
+# Passing at the head is otherwise the checks'. A holds AC's files are kept off it and an unchecked AC's are noted, not run
+# (#1040 D-4, D-11); the AC-to-test map comes from plan-coverage.sh --files, never a second plan parser (#1040 D-7). The tree
+# is built in $WT, which keeps its ignored dependencies: detached to the record commit only when no tracked change is in it,
+# put back on the branch by a plain checkout — which carries any change rather than discard it — under an EXIT trap, and by
+# the next launch when a mark outlives the process (red_tree_restore). The runners were read at launch (D-13): a build cannot
+# change them mid-run -- Each call runs bounded (bounded_group): one that has not finished within its runner's timeoutSeconds
+# is red, never a failure, since a runner that hangs on every tree would otherwise pass every proof (#1053 D-11: a batch is
+# one call). A report is no weaker than the exit code it replaces (#1053 D-10): it is deleted before each call and copied to
+# the run's state right after, and deliberate forgery is the review's to catch
 FWC_NOTES=""
 FWC_TIMEOUT_DEFAULT=600
 FWC_GRACE=10
@@ -594,14 +603,15 @@ bounded_group() { # bounded_group <secs> <out> <command> — the command in $WT,
 }
 RED_TREE_MARK="$LOG_DIR/run-$ISSUE/red-tree"
 test_runners() { local key; key="$(commands_key)"; [ -n "$key" ] || return 0; jq -c --arg k "$key" '.commands[$k].testRunners[]? | objects' <<<"$CONFIG_JSON" 2>/dev/null; }
-runner_for() { # runner_for <file> -> '<timeoutSeconds>\t<command>' of the first testRunners entry a `when` glob of which matches the file; 1 when none does
-  local r g
+runner_for() { # runner_for <file> -> '<index>\t<timeoutSeconds>\t<format>\t<command>' of the first testRunners entry a `when` glob of which matches the file; 1 when none does
+  local r g i=0
   while IFS= read -r r; do
     [ -n "$r" ] || continue
+    i=$((i + 1))
     while IFS= read -r g; do
       [ -n "$g" ] || continue
       # shellcheck disable=SC2254  # $g IS a glob, by contract (extraLanes' `when`)
-      case "$1" in $g) printf '%s' "$r" | jq -r --argjson d "$FWC_TIMEOUT_DEFAULT" '"\(.timeoutSeconds // $d)\t\(.command // "")"'; return 0 ;; esac
+      case "$1" in $g) printf '%s' "$r" | jq -r --argjson d "$FWC_TIMEOUT_DEFAULT" --arg i "$i" '"\($i)\t\(.timeoutSeconds // $d)\t\(.format // "exit")\t\(.command // "")"'; return 0 ;; esac
     done <<EOF
 $(printf '%s' "$r" | jq -r '.when[]? | strings')
 EOF
@@ -610,13 +620,183 @@ $(test_runners)
 EOF
   return 1
 }
+runner_name() { # runner_name <index, from 1> -> 'testRunners[<n>] (<when globs>)', the name a red gives the runner
+  printf 'testRunners[%s] (%s)' "$(($1 - 1))" "$(test_runners | sed -n "${1}p" | jq -r '[.when[]? | strings] | join(", ")')"
+}
+test_support() { local key; key="$(commands_key)"; [ -n "$key" ] || return 0; jq -r --arg k "$key" '.commands[$k].testSupport[]? | strings' <<<"$CONFIG_JSON" 2>/dev/null; }
+support_files() { # the files changed since the record commit that a testSupport glob matches and the head carries (#1053
+  # OR-3: one the head deleted is left as the record commit has it, so the tree still builds)
+  local globs f g; globs="$(test_support)"; [ -n "$globs" ] || return 0
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    while IFS= read -r g; do
+      [ -n "$g" ] || continue
+      # shellcheck disable=SC2254  # $g IS a glob, matched as `when` is (#1053 D-21)
+      case "$f" in $g) git -C "$WT" cat-file -e "$HEAD_SHA:$f" 2>/dev/null && printf '%s\n' "$f"; break ;; esac
+    done <<<"$globs"
+  done <<EOF
+$(git -C "$WT" -c core.quotePath=false diff --name-only --no-renames "$FIRST" "$HEAD_SHA" 2>/dev/null)
+EOF
+}
+subst_many() { # subst_many <template> <placeholder> <replacement> [<placeholder> <replacement> ...] — one walk, so the text one
+  # placeholder inserts is never read for another (a build names the files and the cases)
+  local t="$1" out="" i p pre best bpre bp br; shift
+  while :; do
+    best=-1
+    for ((i = 1; i < $#; i += 2)); do
+      p="${!i}"; pre="${t%%"$p"*}"
+      [ "$pre" != "$t" ] || continue
+      if [ "$best" -lt 0 ] || [ "${#pre}" -lt "$best" ]; then best=${#pre}; bpre="$pre"; bp="$p"; br="$((i + 1))"; br="${!br}"; fi
+    done
+    [ "$best" -ge 0 ] || break
+    out="$out$bpre$br"; t="${t:${#bpre}+${#bp}}"
+  done
+  printf '%s' "$out$t"
+}
+fwc_realpath() { # fwc_realpath <repo-relative file> -> its path under the worktree, symlinks resolved, as a runner reports it (F-1)
+  local dir; dir="$(cd "$WT/$(dirname "$1")" 2>/dev/null && pwd -P)" || dir="$WT/$(dirname "$1")"
+  printf '%s/%s' "$dir" "$(basename "$1")"
+}
+# One named test against a vitest/jest JSON report (#1053 D-2 D-3 D-7; the shape: testResults[] of {name: the file's absolute
+# path, status, message, assertionResults[] of {ancestorTitles, title, status}}, in both runners — F-1, F-6, D-17). The case,
+# split on ' > ', must equal ancestorTitles + title exactly. Prints one word: failed · passed · status <s> · pending hook (a
+# vitest beforeAll failure: the file failed with an empty message and no failed row) · pending load (no row, the file failed
+# with a message: it does not load) · ambiguous <n> · not-collected (the file is not in the report) · did-not-run
+# shellcheck disable=SC2016  # a jq program: its $names are jq's
+FWC_JUDGE='
+  [(.testResults // [])[] | select(.name == $n1 or .name == $n2)] as $fr
+  | if ($fr | length) == 0 then "not-collected"
+    else [$fr[] | (.assertionResults // [])[]] as $rows
+    | ($c | split(" > ")) as $want
+    | [$rows[] | select(((.ancestorTitles // []) + [.title]) == $want)] as $m
+    | if ($m | length) > 1 then "ambiguous \($m | length)"
+      elif ($m | length) == 1 then
+        if $m[0].status == "failed" then "failed"
+        elif $m[0].status == "passed" then "passed"
+        elif $fmt == "vitest-json" and any($fr[]; .status == "failed" and ((.message // "") == ""))
+             and ([$rows[] | select(.status == "failed")] | length) == 0 then "pending hook"
+        else "status \($m[0].status)" end
+      elif ($rows | length) > 0 then "did-not-run"
+      elif any($fr[]; .status == "failed" and ((.message // "") != "")) then "pending load"
+      else "did-not-run" end
+    end'
+fwc_json_verdict() { # fwc_json_verdict <report> <file> <case> <format>
+  jq -r --arg n1 "$(fwc_realpath "$2")" --arg n2 "$WT/$2" --arg c "$3" --arg fmt "$4" "$FWC_JUDGE" "$1" 2>/dev/null || echo not-collected
+}
+fwc_cases_verdict() { # fwc_cases_verdict <output> <case> — a cases runner's case lines are its report (#1053 D-4 D-16)
+  local rows n; rows="$(awk -F'\t' -v id="$2" '$1 == "case" && ($2 == "passed" || $2 == "failed") && $3 == id { print $2 }' "$1" 2>/dev/null)"
+  n="$(printf '%s' "$rows" | grep -c .)"
+  if [ "$n" -eq 0 ]; then echo did-not-run; elif [ "$n" -eq 1 ]; then echo "$rows"; else echo "ambiguous $n"; fi
+}
 red_tree_restore() { # put $WT back on $BRANCH after the leg, never forced; 1 when git refuses (a change the checkout would overwrite)
   [ -f "$RED_TREE_MARK" ] || return 0
   git -C "$WT" checkout -q "$BRANCH" 2>/dev/null || return 1
   rm -f "$RED_TREE_MARK"
 }
+# The leg's helpers below read and write fails_without_change's locals — map, log, red, ran, nt, fl, notes, headq, key — by
+# bash's dynamic scope; they are called from it only
+fwc_ids() { awk -F'\t' -v f="$1" -v c="$2" '$1 == "run" && $3 == f && $4 == c { printf "%s ", $2 }' <<<"$map"; }   # every behavior AC tagged on this test
+fwc_label() { if [ -n "$2" ]; then printf '%s::%s' "$1" "$2"; else printf '%s' "$1"; fi; }
+fwc_red() { local id; for id in $(fwc_ids "$1" "$2"); do echo "RED: $id — $(fwc_label "$1" "$2") $3" >> "$log"; red=$((red + 1)); done; }   # fwc_red <file> <case> <why>
+fwc_ok() { local id; for id in $(fwc_ids "$1" "$2"); do echo "ok: $id — $(fwc_label "$1" "$2") $3" >> "$log"; done; }
+fwc_run_red() { # fwc_run_red <index> <tests: index\tfile\tcase lines> <why> — ONE red naming the runner, covering its tests (#1053 D-2 AC-7)
+  local ids="" tl="" f c rest
+  while IFS=$'\t' read -r _ f c rest; do
+    [ -n "$f" ] || continue; ids="$ids$(fwc_ids "$f" "$c")"; tl="$tl${tl:+, }$(fwc_label "$f" "$c")"
+  done <<<"$2"
+  ids="$(printf '%s' "$ids" | tr ' ' '\n' | awk 'NF && !seen[$0]++' | paste -sd ' ' -)"
+  echo "RED: ${ids:-?} — $(runner_name "$1") $3 — the call covered $tl" >> "$log"; red=$((red + 1))
+}
+fwc_call() { # fwc_call <attempt> <secs> <command> -> its exit, bounded; its output at $STATE/fails-without-<attempt>.out and in the log
+  local rc
+  say "fails without the change: $3 (bound ${2}s)"; echo "\$ $3" >> "$log"
+  bounded_group "$2" "$STATE/fails-without-$1.out" "$3"; rc=$?
+  cat "$STATE/fails-without-$1.out" >> "$log" 2>/dev/null
+  return "$rc"
+}
+fwc_record_verdict() { # fwc_record_verdict <index> <file> <case> <verdict> <1 when the runner takes {cases}>
+  local id why
+  case "$4" in
+    failed) fwc_ok "$2" "$3" "fails on the record commit's tree"; nt=$((nt + 1))
+            [ "$5" -eq 0 ] || headq="$headq$1"$'\t'"$2"$'\t'"$3"$'\t'selected$'\n' ;;   # D-13: a case run alone may fail for lack of a sibling's setup
+    passed) fwc_red "$2" "$3" "passes on the record commit's tree ($FIRST) with the head's tagged test files applied: it does not fail without the change — make it test what the change does" ;;
+    "pending "*)
+      why="its file does not load there (it failed with a message and reported no test)"; [ "$4" != "pending hook" ] || why="it is skipped there behind a failing beforeAll (its file failed with an empty message and no failed test)"
+      for id in $(fwc_ids "$2" "$3"); do echo "pending: $id — $(fwc_label "$2" "$3"): $why — it must pass at the head" >> "$log"; done
+      headq="$headq$1"$'\t'"$2"$'\t'"$3"$'\t'"${4#pending }"$'\n' ;;
+    "status "*) fwc_red "$2" "$3" "is ${4#status } on the record commit's tree, not failed: a test that does not run proves nothing — remove its skip, only or todo" ;;
+    "ambiguous "*) fwc_red "$2" "$3" "is ambiguous: ${4#ambiguous } rows of the runner's report match it on the record commit's tree — give the tests distinct names" ;;
+    not-collected) fwc_red "$2" "$3" "was not collected: $(runner_name "$1") left $2 out of its report on the record commit's tree — check the runner's include globs and rootDir" ;;
+    *) fwc_red "$2" "$3" "did not run on the record commit's tree: no row of the runner's report names it" ;;
+  esac
+}
+fwc_head_verdict() { # fwc_head_verdict <index> <file> <case> <why it is on the head leg: load · hook · selected> <verdict>
+  local id what
+  if [ "$5" != passed ]; then
+    fwc_red "$2" "$3" "does not pass at the head ($HEAD_SHA) — the report says: $5 — a pending test, and each selected case, must pass there"; return
+  fi
+  if [ "$4" = selected ]; then fwc_ok "$2" "$3" "passes at the head ($HEAD_SHA), run with only the selected cases"; return; fi
+  what="does not load on the record commit's tree"; [ "$4" != hook ] || what="fails in a beforeAll on the record commit's tree"
+  fwc_ok "$2" "$3" "passes at the head ($HEAD_SHA): file-level — its file $what"; nt=$((nt + 1)); fl=$((fl + 1))
+  for id in $(fwc_ids "$2" "$3"); do notes="$notes$id file-level — $(fwc_label "$2" "$3"): its file $what; the test passes at the head"$'\n'; done
+}
+fwc_leg() { # fwc_leg <record|head> <attempt> <index> <tests of that runner: index\tfile\tcase[\twhy] lines> — one runner's calls on one leg
+  local leg="$1" att="$2" i="$3" list="$4" r secs fmt cmd f c sel hc=0 why frc fq rep copy where v
+  r="$(test_runners | sed -n "${i}p")"
+  secs="$(jq -r --argjson d "$FWC_TIMEOUT_DEFAULT" '.timeoutSeconds // $d' <<<"$r")"; fmt="$(jq -r '.format // "exit"' <<<"$r")"; cmd="$(jq -r '.command // ""' <<<"$r")"
+  case "$cmd" in *"{cases}"*) hc=1 ;; esac
+  where="on the record commit's tree"; [ "$leg" = record ] || where="at the head ($HEAD_SHA)"
+  case "$fmt" in
+    exit) # one call per file; its exit code judges the file (#1040 D-2) — the record leg only
+      while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        c="$(subst "$cmd" '{file}' "$(shquote "$f")")"; ran=$((ran + 1))
+        fwc_call "$att" "$secs" "$c"; frc=$?
+        if [ "$FWC_TIMED_OUT" -eq 1 ]; then fwc_red "$f" "" "did not finish within ${secs}s on the record commit's tree, and its process group was killed — tag a smaller file, or bound the wait inside it"
+        elif [ "$frc" -eq 0 ]; then fwc_red "$f" "" "passes on the record commit's tree ($FIRST) with the head's tagged test files applied: it does not fail without the change — make it test what the change does"
+        else fwc_ok "$f" "" "fails on the record commit's tree (exit $frc)"; fi
+      done <<<"$(cut -f2 <<<"$list" | awk 'NF && !seen[$0]++')" ;;
+    cases) # one call per file; its case lines are its report (#1053 D-4 D-16)
+      while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        sel="$(awk -F'\t' -v f="$f" '$2 == f { print $3 }' <<<"$list" | paste -sd ' ' -)"
+        c="$(subst_many "$cmd" '{file}' "$(shquote "$f")" '{cases}' "$(shquote "$sel")")"
+        fwc_call "$att" "$secs" "$c"
+        if [ "$FWC_TIMED_OUT" -eq 1 ]; then
+          fwc_run_red "$i" "$(awk -F'\t' -v f="$f" '$2 == f' <<<"$list")" "did not finish within ${secs}s $where, and its process group was killed"; continue
+        fi
+        while IFS=$'\t' read -r _ f c why; do
+          [ -n "$f" ] || continue
+          if ! grep -qE $'^case\t(passed|failed)\t.' "$STATE/fails-without-$att.out" 2>/dev/null; then
+            fwc_red "$f" "$c" "did not run $where: $f printed no case lines — is the helper lib that prints them in testSupport (commands.$key.testSupport)?"; continue
+          fi
+          v="$(fwc_cases_verdict "$STATE/fails-without-$att.out" "$c")"
+          if [ "$leg" = record ]; then fwc_record_verdict "$i" "$f" "$c" "$v" "$hc"; else fwc_head_verdict "$i" "$f" "$c" "$why" "$v"; fi
+        done <<<"$(awk -F'\t' -v f="$f" '$2 == f' <<<"$list")"
+      done <<<"$(cut -f2 <<<"$list" | awk 'NF && !seen[$0]++')" ;;
+    *) # vitest-json, jest-json: one call over every file of the runner, judged by its JSON report (#1053 D-2 D-5)
+      fq=""; while IFS= read -r f; do [ -z "$f" ] || fq="$fq${fq:+ }$(shquote "$(fwc_realpath "$f")")"; done <<<"$(cut -f2 <<<"$list" | awk 'NF && !seen[$0]++')"
+      rep="$FWC_TMP/report-$i.json"; rm -f "$rep"
+      c="$(subst_many "$cmd" '{report}' "$(shquote "$rep")" '{files}' "$fq")"
+      fwc_call "$att" "$secs" "$c"; frc=$?
+      copy="$STATE/fails-without-$att-$leg-$i.json"; rm -f "$copy"; [ ! -f "$rep" ] || cp "$rep" "$copy"   # OR-2: per run and attempt, in the run's state
+      why=""
+      if [ "$FWC_TIMED_OUT" -eq 1 ]; then why="did not finish within ${secs}s $where, and its process group was killed"
+      elif ! jq -e '(.testResults | type) == "array"' "$copy" >/dev/null 2>&1; then why="left no readable report at {report} $where (exit $frc)"
+      elif [ "$frc" -eq 0 ] && [ "$(jq '[.testResults[] | (.assertionResults // [])[] | select(.status == "failed")] | length' "$copy" 2>/dev/null)" != 0 ]; then
+        why="reported failed tests but exited 0 $where — the report and the exit code disagree"
+      fi
+      if [ -n "$why" ]; then fwc_run_red "$i" "$list" "$why"; return; fi
+      while IFS=$'\t' read -r _ f c why; do
+        [ -n "$f" ] || continue
+        v="$(fwc_json_verdict "$copy" "$f" "$c" "$fmt")"
+        if [ "$leg" = record ]; then fwc_record_verdict "$i" "$f" "$c" "$v" 0; else fwc_head_verdict "$i" "$f" "$c" "$why" "$v"; fi
+      done <<<"$list" ;;
+  esac
+}
+FWC_TMP=""
 fails_without_change() { # fails_without_change <attempt> -> 0 pass · 1 red (the log: $STATE/fails-without-<attempt>.log) · 3 not-applicable
-  local log="$STATE/fails-without-$1.log" map rc frc kind id ids f cmd secs c red=0 ran=0 notes="" runs="" dirty why key summary
+  local log="$STATE/fails-without-$1.log" map rc kind id f c r i fmt c2 red=0 ran=0 nt=0 fl=0 notes="" tests="" headq="" apply support dirty why key summary parts
   key="$(commands_key)"; FWC_NOTES=""
   if [ -z "$(test_runners)" ]; then
     why="no test runner is configured (commands.${key:-<id>}.testRunners)"
@@ -625,52 +805,63 @@ fails_without_change() { # fails_without_change <attempt> -> 0 pass · 1 red (th
   map="$(bash "$TOOLS/plan-coverage.sh" --files <(record_at_first) <(git -C "$WT" show "$HEAD_SHA:$PLAN_REL" 2>/dev/null) 2>&1)"; rc=$?
   [ "$rc" -eq 0 ] || terminal plan-coverage-uncheckable "tools/plan-coverage.sh --files exited $rc on the record at $FIRST and $PLAN_REL at $HEAD_SHA, whose coverage had just passed ($(printf '%s' "$map" | tr '\n' ' ' | cut -c1-300))"
   { echo "fails without the change: the head's tagged test files at $HEAD_SHA applied onto the record commit's tree $FIRST; each must fail there"; echo; } > "$log"
-  while read -r kind id f; do
+  while IFS=$'\t' read -r kind id f c; do   # #1053 D-6: the map is tab-separated, the case empty for a bare file
     [ -n "$f" ] || continue
     # D-19: a tagged file the head does not carry is red whatever its AC's kind — a holds or unchecked AC is no more covered by a fictitious path
     if ! git -C "$WT" cat-file -e "$HEAD_SHA:$f" 2>/dev/null; then echo "RED: $id — $f does not exist at $HEAD_SHA" >> "$log"; red=$((red+1)); continue; fi
     case "$kind" in
-      holds) notes="$notes$id holds — $f is not run for it: the checks at the head prove it"$'\n' ;;
-      unchecked) notes="$notes$id unchecked — $f is noted, not run"$'\n' ;;
-      *) if ! cmd="$(runner_for "$f")" || [ -z "${cmd#*$'\t'}" ]; then
-           echo "RED: $id — $f matches no configured test runner (commands.$key.testRunners), and the record does not mark $id unchecked" >> "$log"; red=$((red+1))
-         else runs="$runs$f"$'\t'"$cmd"$'\n'; fi ;;
+      holds) notes="$notes$id holds — $(fwc_label "$f" "$c") is not run for it: the checks at the head prove it"$'\n' ;;
+      unchecked) notes="$notes$id unchecked — $(fwc_label "$f" "$c") is noted, not run"$'\n' ;;
+      *) if ! r="$(runner_for "$f")" || [ -z "${r##*$'\t'}" ]; then
+           echo "RED: $id — $f matches no configured test runner (commands.$key.testRunners), and the record does not mark $id unchecked" >> "$log"; red=$((red+1)); continue
+         fi
+         i="${r%%$'\t'*}"; fmt="$(cut -f3 <<<"$r")"
+         # #1053 D-8: a test its runner cannot judge is red — the runner's format decides the unit
+         if [ "$fmt" = exit ] && [ -n "$c" ]; then
+           echo "RED: $id — $f::$c names one test, but $(runner_name "$i") has format exit, which judges whole files — name the bare file, or give the runner a reporting format" >> "$log"; red=$((red+1))
+         elif [ "$fmt" != exit ] && [ -z "$c" ]; then
+           echo "RED: $id — $f is a bare file, but $(runner_name "$i") has format $fmt, which judges named tests — name each test as $f::<case>" >> "$log"; red=$((red+1))
+         else tests="$tests$i"$'\t'"$f"$'\t'"$c"$'\n'; fi ;;
     esac
   done <<<"$map"
-  runs="$(printf '%s' "$runs" | awk -F'\t' 'NF && !seen[$1]++')"
-  if [ -n "$runs" ]; then
+  tests="$(printf '%s' "$tests" | awk 'NF && !seen[$0]++')"
+  if [ -n "$tests" ]; then
     dirty="$(git -C "$WT" status --porcelain --untracked-files=no 2>/dev/null)" || terminal env-worktree "cannot read the status of $WT before the fails-without-the-change check"
     [ -z "$dirty" ] || terminal env-worktree "the checks left tracked changes in $WT ($(printf '%s' "$dirty" | head -n 3 | tr '\n' ' ')) — the record commit's tree cannot be built over them, and nothing here discards them"
     command -v perl >/dev/null 2>&1 || terminal env-perl "the fails-without-the-change check needs perl for setsid, so its time bound reaches every process a test starts"
+    FWC_TMP="$(mktemp -d "${TMPDIR:-/tmp}/fails-without.XXXXXX")" || terminal env-state-dir "cannot make a directory for the runners' reports"
+    support="$(support_files)"; apply="$(printf '%s\n%s\n' "$(cut -f2 <<<"$tests")" "$support" | awk 'NF && !seen[$0]++')"
+    [ -z "$support" ] || echo "testSupport (commands.$key.testSupport), from the head, never run: $(printf '%s' "$support" | paste -sd ',' - | sed 's/,/, /g')" >> "$log"
     printf 'first=%s head=%s branch=%s\n' "$FIRST" "$HEAD_SHA" "$BRANCH" > "$RED_TREE_MARK" || terminal env-state-dir "cannot write $RED_TREE_MARK"
-    trap 'red_tree_restore || say "red tree: $WT could NOT be put back on $BRANCH — run git checkout $BRANCH in it"' EXIT
+    trap 'red_tree_restore || say "red tree: $WT could NOT be put back on $BRANCH — run git checkout $BRANCH in it"; rm -rf "$FWC_TMP"' EXIT
     git -C "$WT" checkout -q --detach "$FIRST" 2>>"$log" \
-      && cut -f1 <<<"$runs" | tr '\n' '\0' | xargs -0 git -C "$WT" checkout -q "$HEAD_SHA" -- 2>>"$log"; rc=$?
+      && printf '%s\n' "$apply" | tr '\n' '\0' | xargs -0 git -C "$WT" checkout -q "$HEAD_SHA" -- 2>>"$log"; rc=$?
     if [ "$rc" -eq 0 ]; then
-      while IFS=$'\t' read -r f secs cmd; do
-        c="$(subst "$cmd" '{file}' "$(shquote "$f")")"; ran=$((ran+1)); say "fails without the change: $c (bound ${secs}s)"
-        ids="$(awk -v f="$f" '$1 == "run" && $3 == f { printf "%s ", $2 }' <<<"$map")"   # every behavior AC tagged on this file
-        echo "\$ $c" >> "$log"
-        bounded_group "$secs" "$STATE/fails-without-$1.out" "$c"; frc=$?
-        cat "$STATE/fails-without-$1.out" >> "$log" 2>/dev/null
-        if [ "$FWC_TIMED_OUT" -eq 1 ]; then
-          for id in $ids; do
-            echo "RED: $id — $f did not finish within ${secs}s on the record commit's tree, and its process group was killed — tag a smaller file, or bound the wait inside it" >> "$log"; red=$((red+1))
-          done
-        elif [ "$frc" -eq 0 ]; then
-          for id in $ids; do
-            echo "RED: $id — $f passes on the record commit's tree ($FIRST) with the head's tagged test files applied: it does not fail without the change — make it test what the change does" >> "$log"; red=$((red+1))
-          done
-        else for id in $ids; do echo "ok: $id — $f fails on the record commit's tree (exit $frc)" >> "$log"; done; fi
-      done <<<"$runs"
+      while IFS= read -r i; do
+        [ -z "$i" ] || fwc_leg record "$1" "$i" "$(awk -F'\t' -v i="$i" '$1 == i' <<<"$tests")"
+      done <<<"$(cut -f1 <<<"$tests" | awk '!seen[$0]++')"
     fi
-    red_tree_restore; c=$?; trap - EXIT
-    [ "$c" -eq 0 ] || terminal env-worktree "could not put $WT back on $BRANCH after the fails-without-the-change check — it is detached at $FIRST with the head's tagged test files applied; run git checkout $BRANCH in it, then --resume"
+    red_tree_restore; c2=$?; trap 'rm -rf "$FWC_TMP"' EXIT
+    [ "$c2" -eq 0 ] || terminal env-worktree "could not put $WT back on $BRANCH after the fails-without-the-change check — it is detached at $FIRST with the head's tagged test files applied; run git checkout $BRANCH in it, then --resume"
     [ "$rc" -eq 0 ] || terminal env-worktree "could not build the record commit's tree $FIRST with the head's tagged test files in $WT ($(tail -n 3 "$log" | tr '\n' ' ' | cut -c1-300)) — $WT is back on $BRANCH"
     [ "$(git -C "$WT" rev-parse HEAD 2>/dev/null)" = "$HEAD_SHA" ] || terminal env-worktree-diverged "$WT is not at $HEAD_SHA after the fails-without-the-change check"
+    # #1053 D-9: the head leg — after the restore, at the head, one call per json runner and one per file for cases, over every
+    # pending test and every selected test of a {cases} runner; each must pass there
+    if [ -n "$headq" ]; then
+      { echo; echo "the head leg at $HEAD_SHA: every pending test and every selected case must pass there"; } >> "$log"
+      while IFS= read -r i; do
+        [ -z "$i" ] || fwc_leg head "$1" "$i" "$(awk -F'\t' -v i="$i" '$1 == i' <<<"$headq")"
+      done <<<"$(cut -f1 <<<"$headq" | awk 'NF && !seen[$0]++')"
+    fi
+    rm -rf "$FWC_TMP"; trap - EXIT
   fi
   [ -z "$notes" ] || printf '%s' "$notes" >> "$log"
-  if [ "$red" -gt 0 ]; then summary="RED — $red problem(s)"; else summary="pass — $ran tagged file(s) fail on the record commit's tree $FIRST"; fi
+  if [ "$red" -gt 0 ]; then summary="RED — $red problem(s)"
+  else
+    parts=""; [ "$nt" -eq 0 ] || parts="$nt named test(s)"
+    if [ "$ran" -gt 0 ] || [ -z "$parts" ]; then parts="$ran tagged file(s)${parts:+ and $parts}"; fi
+    summary="pass — $parts fail on the record commit's tree $FIRST"; [ "$fl" -eq 0 ] || summary="$summary, $fl of them file-level"
+  fi
   say "fails without the change: $summary (log: $log)"
   FWC_NOTES="fails without the change at $HEAD_SHA: $summary"$'\n'"$(printf '%s' "$notes" | sed 's/^/fails without the change: /')"
   [ -z "$notes" ] || FWC_NOTES="$FWC_NOTES"$'\n'
@@ -829,8 +1020,12 @@ build_prompt() { # build_prompt <round> <review-findings-file-or-empty> <red-che
     echo "Tag each AC that the section does not exempt on at least one test task. Do not tag an id that the section's 'ACs:' line does not list. Make sure that each AC's tagged test proves the behavior its line states. A ticked box has no meaning. A line that starts with '- [' and is not a task in that form is an unparseable line."
     echo "Before a review starts, the scheduler checks the plan at the pushed head against the record at $FIRST. These problems come back to you as findings: an uncovered AC, an id that the record does not define, a missing plan, an unparseable line. A red plan check spends one checks-red attempt."
     echo "In each task that carries an AC id, name its test files in the parentheses that end the description. Separate the file names with commas. A tagged task that names no test file comes back to you as findings in the same way."
-    # #1040 S-3: the check the scheduler runs next, stated only when a runner is configured to run it
-    [ -z "$(test_runners)" ] || echo "Then the scheduler puts the worktree on the record commit $FIRST. It applies the head's tagged test files on top and runs each file through its configured test runner (commands.$(commands_key).testRunners). Without your change, every one must fail there. There are two exceptions. The scheduler does not run the files of an AC that the section marks 'holds'. That AC is existing behavior, and the checks at the head prove it. It notes the files of an AC that the section marks 'unchecked', but does not run them. A tagged file is red if it passes there, if no runner matches it, or if the head does not carry it. Each red file comes back to you as findings, and a red check spends one checks-red attempt. A test that passes without the change does not test the change. Each file must also finish there within its runner's time bound ($(test_runners | jq -r --argjson d "$FWC_TIMEOUT_DEFAULT" '"\(.when | join(", ")): \(.timeoutSeconds // $d)s"' | paste -sd ';' - | sed 's/;/; /g')), or it is red too. Tag a test file that contains the cases of this change, not a whole slow suite."
+    # #1040 S-3, #1053 S-3: the check the scheduler runs next, stated only when a runner is configured to run it; the
+    # file::case grammar only when a runner judges named tests
+    if test_runners | jq -e 'select((.format // "exit") != "exit")' >/dev/null 2>&1; then
+      echo "A runner with format cases, vitest-json or jest-json judges named tests, not files. For a file such a runner matches, name each test as file::case. For vitest and jest, the case is the test's describe titles and its own title, joined with ' > ', as the runner renders them at the head. For a cases runner, the case is the id the test prints: in run-selftest-lib.sh, the name of the fixture block. Put the case in backticks when it holds a space, '>', '(', ')', ',' or '['. Example: (src/a.test.ts::\`Importer > dup > rejects (409)\`, src/b.test.ts::adds). A case cannot hold a backtick. An unterminated backtick, or a case that needs backticks and has none, is an unparseable line."
+    fi
+    [ -z "$(test_runners)" ] || echo "Then the scheduler puts the worktree on the record commit $FIRST. It applies the head's tagged test files on top, with the changed files that commands.$(commands_key).testSupport names, and runs the tagged tests through their configured test runner (commands.$(commands_key).testRunners). Without your change, every one must fail there. A runner with format exit judges the whole file by its exit code. A runner with format cases, vitest-json or jest-json judges each named test by the result that it reports for that test, and a vitest-json or jest-json runner runs all of its files in one call. A named test whose file does not load there, or that a failing vitest beforeAll skips there, must pass at the head instead. A cases runner that takes {cases} runs only the named cases, and each of them must also pass at the head. There are two exceptions. The scheduler does not run the files of an AC that the section marks 'holds'. That AC is existing behavior, and the checks at the head prove it. It notes the files of an AC that the section marks 'unchecked', but does not run them. A tagged test is red if it passes there, if it is skipped there, if its runner does not run it, if two tests match its name, if its runner cannot judge the form that you named it in, if no runner matches its file, or if the head does not carry its file. Each red test comes back to you as findings, and a red check spends one checks-red attempt. A test that passes without the change does not test the change. Each file must also finish there within its runner's time bound ($(test_runners | jq -r --argjson d "$FWC_TIMEOUT_DEFAULT" '"\(.when | join(", ")): \(.timeoutSeconds // $d)s\(if (.format // "exit") != "exit" then ", " + .format else "" end)"' | paste -sd ';' - | sed 's/;/; /g')), or it is red too. For a vitest-json or jest-json runner, the bound covers the one call over all of its files. Tag a test file that contains the cases of this change, not a whole slow suite."
   fi
   if [ -n "$(frames_rows)" ]; then
     echo; echo "This ticket has design frames. Follow the figma-faithful sequence:"
