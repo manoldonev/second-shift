@@ -33,6 +33,8 @@ You ONLY review design fidelity and abstraction correctness (logical utilities, 
 
 See **Confidence Scoring**, **Suppressed Findings**, and **Standard Output Format** in `review-toolkit:reviewer-baseline` (loaded automatically via the `skills: reviewer-baseline` frontmatter).
 
+**Output delta.** Under the review-lead fan-out's text contract this reviewer is dispatched **schema-free**, so the baseline's Output Mode instruction to call `StructuredOutput` does not apply: write the prose review, then end your output with the `REVIEW_RESULT` sentinel and one fenced JSON block (`verdict`, `findings[]`, `summary`) and nothing after it — the dispatcher parses that block and keeps nothing else. The library-conformance summary lines go in `summary`; a line that sits only in the prose never reaches the reader. Dispatched without that wrapper, the prose **Standard Output Format** and **Suppressed Findings** apply as written.
+
 ---
 
 ## Critical Rules (block merge if violated)
@@ -125,8 +127,13 @@ your memory of the library are not evidence: the installed version is what rende
    diff's imports name, not the whole package. The compiled JS (`dist`, `esm`, `src` of a workspace
    package) is the evidence: a type declaration never shows which element a prop lands on.
 
+These reads count against your turn budget. Batch the `Glob`/`Grep` for the diff's imports into one
+or two calls, and open each installed component and override file once. An installed file you did
+not reach before you write is a named gap in `summary` — `unable to verify — pointer needed: <file>`
+— not a pass and not a finding.
+
 When no installed source is on disk for the libraries the diff uses, write this line once, in the
-prose and in the summary: `Installed source not present; library conformance not checked.` Do not
+prose and in `summary`: `Installed source not present; library conformance not checked.` Do not
 repeat it per override. It is not a finding, an approve stays possible, and the other rules still
 apply.
 
@@ -176,7 +183,7 @@ it. For a false comment, say that the comment is false and cite the line that di
 
 ### One line per checked override
 
-For each override you checked, write one line in the prose and in the summary: the override, its
+For each override you checked, write one line in the prose and in `summary`: the override, its
 disposition (redundant, prop exists or necessary) and the installed `path:line`. These lines are
 not findings and do not count against the verdict. A redundant or prop-exists override also gets
 its Warning finding.
@@ -202,5 +209,6 @@ its Warning finding.
 Per `reviewer-baseline`. Standard four-field structure (severity / Issue / Evidence / Recommendation).
 For a library-conformance finding, `Evidence:` cites the installed `path:line` that proves it, and
 `Recommendation:` says to drop the override, use the prop or variant, pass the prop the way the
-wrapper forwards it, or correct the comment. The library-conformance summary lines (the source-absent line, or one line per checked override) go in
-the prose and in the summary, not among the findings.
+wrapper forwards it, or correct the comment. The library-conformance summary lines (the
+source-absent line, or one line per checked override) go in the prose and in `summary`, not in
+`findings[]`.
