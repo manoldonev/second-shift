@@ -55,7 +55,7 @@ The ledger records every decision an interview makes, and who made it. It is a m
 **Rules:**
 
 - IDs are stable `D-1..n` and never reused after retirement (same discipline as `AC-n` IDs).
-- Resolution is never empty. Write it as the answer: the chosen value first, then the reason. Use sentences of max 25 words. If a cell needs more than 40 words, split the decision into two rows. Never drop a condition to make a cell shorter. Evidence does not count toward the limit. Write the options you weighed in an `Options weighed:` list under the table, not in the cell.
+- Resolution is never empty. Write it as the answer: the chosen value first, then the reason. Use sentences of max 25 words. Never split one decision into several rows to make the cells shorter. Keep a cell to 40 words when no condition is lost. A cell can be longer only to keep a condition. Put each condition in its own sentence. Evidence does not count toward the 40 words. Write the options you weighed in an `Options weighed:` list under the table, not in the cell.
 - **Precedence when sources disagree:** a row hydrated from a pre-flight `.claude/pipeline-state/{issue}-ledger.md` wins over a ticket comment covering the same decision. Two comments that conflict, or one that is ambiguous, resolve to `deferred` naming the conflict in the Resolution cell — never to a `ticket-sourced` row that picks a side.
 - **Explicit empty form** for trivial work — the section must still exist, containing exactly this line instead of a table:
 

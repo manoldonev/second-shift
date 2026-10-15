@@ -142,9 +142,10 @@ The interview resolved 2 gaps."
 - **Decision Ledger** — five columns (`Kind` included). Write the Decision cell as a short
   question or noun phrase. Exception: the review panel row keeps the exact Decision text
   `review panel`. Write the Resolution cell as the answer. Put the chosen value first and the
-  reason after it. Use 1-3 sentences of max 25 words each. Write one decision per row. If a cell
-  needs more than 40 words, split the decision into two rows. Never drop a condition to make a
-  cell shorter, because only the rows bind the build.
+  reason after it. Use sentences of max 25 words. Write one decision per row. Never split one
+  decision into several rows to make the cells shorter. Each extra row is one more row for the
+  review to score. Keep a cell to 40 words when no condition is lost. A cell can be longer only to
+  keep a condition, because only the rows bind the build. Put each condition in its own sentence.
   End every `codebase-derived` cell with its evidence. Use one of three forms:
   ``run: `<command>` → <decisive output>``, `cited (convention|adr): <path:line>` or
   `cited (kb): <kb-page>`. Run a command when one can be run. Use `cited (kb)` for a fact from the
