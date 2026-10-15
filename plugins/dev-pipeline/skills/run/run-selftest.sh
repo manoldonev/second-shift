@@ -39,6 +39,10 @@ first=$(git -C "$d/origin.git" log --format=%s --reverse main..second-shift/42 |
 [ "$first" = "docs: decision record for #42" ] && ok "(a) the record is the branch's first commit" || bad "(a) first commit is '$first'"
 grep -q '<!-- pipeline-cost-block -->' "$FAKE_GH/pr-body.md" 2>/dev/null && grep -q 'built-by: fake' "$FAKE_GH/pr-body.md" && grep -q '| approved |' "$FAKE_GH/pr-body.md" && ok "(a) run block written into the PR body, original body kept" || bad "(a) no run block in the PR body"
 grep -qE '^[|] review-1[.]1 [|] 3 [|] [$]1[.]00 [|]' "$FAKE_GH/pr-body.md" 2>/dev/null && ok "(a) per-session cost rows in the block" || bad "(a) per-session rows missing"
+lnum() { grep -nE "$1" "$FAKE_GH/pr-body.md" 2>/dev/null | head -n 1 | cut -d: -f1; }
+lo=$(lnum '^Outcome: approved after 1 round[(]s[)][.] Verdict: approve[.]'); ls_=$(lnum '^status: '); ld=$(lnum '^<details><summary>Run details</summary>$'); lt=$(lnum '^[|] run [|] outcome [|]'); le=$(lnum '^</details>$'); lm=$(lnum '^<!-- /pipeline-cost-block -->$')
+[ -n "$lo" ] && [ -n "$ls_" ] && [ -n "$ld" ] && [ "$lo" -lt "$ld" ] && [ "$ls_" -lt "$ld" ] && [ "$ld" -lt "$lt" ] && [ "$lt" -lt "$le" ] && [ "$le" -lt "$lm" ] \
+  && ok "(a) the run block opens with the outcome line and the status note, and folds the run and session tables" || bad "(a) run block order: outcome=$lo status=$ls_ details=$ld table=$lt /details=$le end=$lm"
 grep -q 'ls /' "$(SD)/review-1.1.prompt" && ok "(a) build denials reach the review input" || bad "(a) denials missing from review input"
 grep -qF 'A denied command is not a reason to end your turn: skip a command outside the allowlist and name it in the PR body as skipped. Pushing second-shift/42 and opening the draft PR are never skipped.' "$FAKE_GH/prompt-1.txt" \
   && ok "(a) #973 D-3: the build prompt says a denial is not a stop, and pushing and the draft PR are never skipped" || bad "(a) #973 D-3: the denial-is-not-a-stop line is missing from the build prompt"

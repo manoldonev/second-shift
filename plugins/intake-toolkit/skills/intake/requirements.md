@@ -233,9 +233,10 @@ chooses to answer later.
 
 ## Outcome for the receipt
 
-The receipt's `Requirements:` line names the route and what it did: `the ticket body as written —
-spec-reviewer: implementable, 2 gaps resolved`, `interviewed (feature) — filed as #N on the
-operator's yes; spec-reviewer clean`, `design-faithful-spec on <handoff>`.
+The receipt's `Requirements:` line names the route and what it did, in short sentences. Examples:
+`the ticket body as written. spec-reviewer: implementable. The interview resolved 2 gaps.`,
+`interviewed (feature). Filed as #N on the operator's yes. spec-reviewer: clean.`,
+`design-faithful-spec on <handoff>.`
 
 The knowledge source's outcome is not a step line: it is the receipt's own `## Knowledge source`
 section (`receipt.md`).

@@ -140,6 +140,42 @@ review's context.
    Knowledge-base contributions: when review-lead's report has a `### Knowledge-base contributions` block, carry it into the verdict's `## Notes` as review-lead wrote it — the lead line `Knowledge-base contributions:` with one proposal per line under it, or the single line `Knowledge-base contributions: none`. review-lead applied the inclusion test the repo's review-context.md declares: do not apply it again, and add, drop or reword no proposal. Carry the whole list on every verdict, never only what changed since an earlier one: the earlier verdicts are collapsed once one binds. When the report has no such block, the verdict carries no contributions line. A proposal is a draft the operator files in the knowledge base: never a finding, and it never makes a verdict `needs-work`.
    <!-- LOCKSTEP-END kb-contributions -->
 
+   <!-- LOCKSTEP-BEGIN verdict-style -->
+   Write the verdict for the human who decides the merge.
+   Use short sentences. An instruction has at most 20 words. A statement has at most 25 words.
+   Write one instruction per sentence. Use the active voice.
+   Do not use idioms, hedges or semicolon chains.
+   Use the same word for the same thing every time.
+   State each fact once. Do not repeat a fact from one section in another.
+   In the rows table:
+   - Keep each Evidence cell to one or two sentences.
+   - Start the Evidence cell with the file:line or the test id. Then say what it shows.
+   - Start the Evidence cell of a departed row with `Decided by <who> (<provenance>).` Then give the commit of the edit and the new resolution.
+   - If the edit of a departed row names no decider, start its Evidence cell with `No decider named.`
+   - Start the Evidence cell of a row that the build added with `Added by the build, <provenance>.`
+   - Start the Evidence cell of a row that the build deleted with `Deleted by the build.` Then name who decided.
+   - Put longer detail in `## Notes`.
+   In `## Findings`:
+   - Put blockers first and notes after them. Put dismissed and suppressed notes last.
+   - Start the text after the dash of such a note with `Dismissed.` or `Suppressed.` Then give the reason in one sentence.
+   - Give the defect in the first sentence of each finding.
+   - Put the evidence on continuation lines. Indent them two spaces.
+   - End each blocker with the continuation line `Fix: <one instruction>`.
+   - Do not give a note a Fix line. A note requires nothing.
+   - Write a note in at most three lines. Write a dismissed or suppressed note in one line.
+   In `## Panel`:
+   - Copy the panel lines that review-lead writes. Do not merge, drop or reword a line.
+   - Do not repeat the panel reasons in `## Notes`.
+   In `## Notes`:
+   - Use one `###` sub-heading for each topic. Write at most six sentences under it.
+   - Write an inventory, such as the mutation run, as a list.
+   - Put the knowledge-base block last.
+   - Do not write a sub-heading that has nothing under it.
+   - Write a topic that changed no score or finding in one sentence, or leave it out.
+   - Keep `## Notes` under 150 words, not counting the knowledge-base block.
+   A limit never removes a row, a finding, a panel line or a knowledge-base proposal. If they do not fit, shorten the wording.
+   <!-- LOCKSTEP-END verdict-style -->
+
    **Check the draft before you post it.** Write the body to a file, and the record at `FIRST` to
    another (`git show $FIRST:<record> > <file>`), then run
    `bash <this skill's base directory>/../../tools/verdict-check.sh <draft> <record at the head> <record at FIRST>`

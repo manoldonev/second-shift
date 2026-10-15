@@ -30,12 +30,16 @@ on the PR, and (under jira `writes: false`) stripping the Atlassian write tools.
    as the branch's first commit), the checks to make green, and the PR body's required lines.
 3. **Build in the worktree.** Put the `cd <worktree>` in the same shell call as every command: the
    harness resets cwd between calls, and a stray call lands in the main checkout. The operator
-   may steer. A steer that departs from a record row is written into that row (new resolution,
-   provenance `user-answered`, a one-line reason); a steer that makes a material decision no row
-   covers becomes a new row the same way. Either is committed with the code — never left in chat.
+   may steer. A steer that changes the decision of a record row is written into that row. Write
+   the new resolution, set the provenance to `user-answered`, and end the cell with
+   `Changed in build: <reason>`. A steer that makes a material decision no row covers becomes a
+   new row, provenance `user-answered`, that ends with `Added in build: <reason>`. Commit either
+   edit with the code. Never leave it in chat.
    Never amend, rebase or force-push over the `baseline:` commit: the review reads the record there.
-4. **Open the PR** exactly as the prompt says (a draft, left a draft; `built-by:` line 1; record link;
-   `Record baseline:`; `Closes`), after every listed check is green.
+4. **Open the PR** after every listed check is green. Open it as a draft and leave it a draft.
+   Write the body in the order that the prompt gives: `built-by:` on line 1, then the sections the
+   prompt lists, then the record link, `Record baseline:` and `Closes`. Put each steer from step 3
+   in the `## Decisions made for you` table, with its row id and provenance.
 5. **Hand off to review.** Tell the operator to run `/dev-pipeline:review <pr>` in a fresh
    session. In a session the herdr launcher started (`SS_WT` set), print the runnable
    `bash "<value of SS_ADAPTER>" review <pr>`, the path written out in full, which opens that

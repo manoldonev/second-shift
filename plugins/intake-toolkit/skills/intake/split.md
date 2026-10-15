@@ -269,6 +269,6 @@ domain knowledge you lack, or any threshold exceeded.
 
 ## Outcome for the receipt
 
-`Split:` records the verdict and why: `not split — one capability in two files`, `not triggered —
-no epic label, one deliverable`, `split into #a, #b (sequential) — this receipt is #a's`,
-`restart — #b had no receipt; #a left as it was`.
+`Split:` records the verdict and why, in short sentences. Examples: `not split. One capability in
+two files.`, `not triggered. No epic label and one deliverable.`, `split into #a, #b (sequential).
+This receipt is for #a.`, `restart. #b had no receipt. #a is unchanged.`
