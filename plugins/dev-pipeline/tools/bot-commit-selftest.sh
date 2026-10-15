@@ -356,6 +356,92 @@ N10H="$(ca_count "$BODY10H")"
   && pass "10h git < 2.32 → commit made, no trailer attempted" \
   || fail "10h expected a commit with 0 trailers on git 2.30, got $N10H: $BODY10H"
 
+# ---- Case 11: the app keys only in the main checkout's gitignored .local.json (#1059) --
+# A repo that commits its config keeps tracker.bot.app out of it, in the per-engineer local file.
+# Once the config is tracked, the worktree's own copy wins candidate 2, and a session's scratch copy
+# wins candidate 1 — and neither has a local file beside it. So the app keys must come from the MAIN
+# checkout's local file whichever candidate wins (D-4 D-5). Case 5's shape, with the config
+# committed and the app block moved out of it.
+NOAPP_CFG='{"tracker":{"bot":{"enabled":true}}}'
+LOCAL_APP='{"tracker":{"bot":{"app":{"appName":"local-app"}}}}'
+WANT11="local-app[bot] <424242+local-app[bot]@users.noreply.github.com>"
+mkrepo "$TMP/r11" "$NOAPP_CFG"
+printf '.claude/second-shift.config.local.json\n' > "$TMP/r11/.gitignore"
+printf '%s' "$LOCAL_APP" > "$TMP/r11/.claude/second-shift.config.local.json"
+git -C "$TMP/r11" add .gitignore .claude/second-shift.config.json
+git -C "$TMP/r11" -c user.name=Seed -c user.email=seed@example.com commit -q -m "seed"
+git -C "$TMP/r11" worktree add -q -b wt11 "$TMP/r11-wt" >/dev/null 2>&1
+
+[[ -f "$TMP/r11-wt/.claude/second-shift.config.json" && ! -e "$TMP/r11-wt/.claude/second-shift.config.local.json" ]] \
+  && ! jq -e '.tracker.bot | has("app")' "$TMP/r11-wt/.claude/second-shift.config.json" >/dev/null \
+  && pass "11a the worktree carries the committed config, with no app block and no local file" \
+  || fail "11a fixture does not reproduce a committed config without its app block"
+
+echo wt11 > "$TMP/r11-wt/w.txt"; git -C "$TMP/r11-wt" add w.txt
+ERR11="$(bash "$BOT_COMMIT" -C "$TMP/r11-wt" -q -m "test: committed config, local app" 2>&1 >/dev/null || true)"
+AUTHOR11="$(git -C "$TMP/r11-wt" log --format='%an <%ae>' -1)"
+[[ "$AUTHOR11" == "$WANT11" ]] \
+  && pass "11b worktree's committed config + main checkout's local app keys → bot identity" \
+  || fail "11b got '$AUTHOR11', want '$WANT11' (stderr: $ERR11)"
+
+# The session route: $SECOND_SHIFT_CONFIG names a copy of the committed config in a scratch dir.
+mkdir -p "$TMP/scratch11"
+cp "$TMP/r11/.claude/second-shift.config.json" "$TMP/scratch11/second-shift.config.json"
+echo wt11c > "$TMP/r11-wt/c.txt"; git -C "$TMP/r11-wt" add c.txt
+AUTHOR11C="$(SECOND_SHIFT_CONFIG="$TMP/scratch11/second-shift.config.json" \
+  bash "$BOT_COMMIT" -C "$TMP/r11-wt" -q -m "test: scratch copy" >/dev/null 2>&1; \
+  git -C "$TMP/r11-wt" log --format='%an <%ae>' -1)"
+[[ "$AUTHOR11C" == "$WANT11" ]] \
+  && pass "11c \$SECOND_SHIFT_CONFIG at a copy of the committed config → bot identity from the main checkout's local file" \
+  || fail "11c got '$AUTHOR11C', want '$WANT11'"
+
+# A local file beside the override copy is NOT the one read: it is always the main checkout's (D-5).
+printf '%s' '{"tracker":{"bot":{"app":{"appName":"beside-copy-app"}}}}' > "$TMP/scratch11/second-shift.config.local.json"
+echo wt11d > "$TMP/r11-wt/d.txt"; git -C "$TMP/r11-wt" add d.txt
+AUTHOR11D="$(SECOND_SHIFT_CONFIG="$TMP/scratch11/second-shift.config.json" \
+  bash "$BOT_COMMIT" -C "$TMP/r11-wt" -q -m "test: beside the copy" >/dev/null 2>&1; \
+  git -C "$TMP/r11-wt" log --format='%an' -1)"
+[[ "$AUTHOR11D" == "local-app[bot]" ]] \
+  && pass "11d a local file beside the \$SECOND_SHIFT_CONFIG copy is not read; the main checkout's is" \
+  || fail "11d got '$AUTHOR11D', want 'local-app[bot]'"
+
+# A local key overrides the same committed key (D-6).
+mkrepo "$TMP/r11e" '{"tracker":{"bot":{"enabled":true,"app":{"appName":"committed-app"}}}}'
+printf '%s' "$LOCAL_APP" > "$TMP/r11e/.claude/second-shift.config.local.json"
+AUTHOR11E="$(bash "$BOT_COMMIT" -C "$TMP/r11e" -q -m "test: local over committed" >/dev/null 2>&1; \
+  git -C "$TMP/r11e" log --format='%an' -1)"
+[[ "$AUTHOR11E" == "local-app[bot]" ]] \
+  && pass "11e the local appName overrides the committed one" \
+  || fail "11e got '$AUTHOR11E', want 'local-app[bot]'"
+
+# tracker.bot.enabled is the committed config's alone: local app keys never switch a disabled bot on.
+mkrepo "$TMP/r11f" '{"tracker":{"bot":{"enabled":false}}}'
+printf '%s' "$LOCAL_APP" > "$TMP/r11f/.claude/second-shift.config.local.json"
+AUTHOR11F="$(bash "$BOT_COMMIT" -C "$TMP/r11f" -q -m "test: local app, bot off" >/dev/null 2>&1; \
+  git -C "$TMP/r11f" log --format='%an <%ae>' -1)"
+[[ "$AUTHOR11F" == "Repo Default <default@example.com>" ]] \
+  && pass "11f local app keys with tracker.bot.enabled false → repo default identity" \
+  || fail "11f got '$AUTHOR11F', want the repo default"
+
+# SECOND_SHIFT_REPO_ROOT moves the main checkout, so it moves the local file with it (D-4).
+mkrepo "$TMP/r11g"
+mkdir -p "$TMP/fakeroot11/.claude"
+printf '%s' "$NOAPP_CFG" > "$TMP/fakeroot11/.claude/second-shift.config.json"
+printf '%s' "$LOCAL_APP" > "$TMP/fakeroot11/.claude/second-shift.config.local.json"
+AUTHOR11G="$(SECOND_SHIFT_REPO_ROOT="$TMP/fakeroot11" \
+  bash "$BOT_COMMIT" -C "$TMP/r11g" -q -m "test: repo-root override, local app" >/dev/null 2>&1; \
+  git -C "$TMP/r11g" log --format='%an' -1)"
+[[ "$AUTHOR11G" == "local-app[bot]" ]] \
+  && pass "11g SECOND_SHIFT_REPO_ROOT's local file supplies the app keys" \
+  || fail "11g got '$AUTHOR11G', want 'local-app[bot]'"
+
+# Enabled with no appName anywhere: the WARN names both files it looked in.
+mkrepo "$TMP/r11h" "$NOAPP_CFG"
+ERR11H="$(bash "$BOT_COMMIT" -C "$TMP/r11h" -q -m "test: no appName" 2>&1 >/dev/null || true)"
+grep -q "tracker.bot.app.appName is set in neither .*second-shift.config.json nor .*second-shift.config.local.json" <<< "$ERR11H" \
+  && pass "11h enabled bot with no appName → WARN names the config and the local file" \
+  || fail "11h wrong or missing WARN: $ERR11H"
+
 echo ""
 echo "[bot-commit-selftest] $PASS passed, $FAIL failed"
 exit "$FAIL"

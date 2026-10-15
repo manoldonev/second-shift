@@ -12,7 +12,7 @@
 #
 # Identity: name  = "<appName>[bot]"
 #           email = "<botUserId>+<appName>[bot]@users.noreply.github.com"
-# where <appName> comes from config `tracker.bot.app.appName` and <botUserId> is resolved once
+# where <appName> comes from `tracker.bot.app.appName` (config or local file — APP KEYS below) and <botUserId> is resolved once
 # via `gh api users/<appName>[bot]` and cached in the repo's git common dir (shared across
 # worktrees, never committed). Fallbacks are deliberate and NOISY-but-not-fatal: with the bot
 # disabled/unconfigured it commits as the repo default (SKILL.md contract); with an
@@ -39,6 +39,13 @@
 #   - `dirname "$COMMON_DIR"` is not the repo root under a non-standard layout (e.g.
 #     `git init --separate-git-dir`). That only makes candidate 3 miss, which falls through to
 #     the existing repo-default path plus a WARN — never a wrong identity.
+#
+# APP KEYS (#1059): a repo that commits its config may keep `tracker.bot.app` out of it, in the
+# per-engineer gitignored <main checkout>/.claude/second-shift.config.local.json. That file is read
+# WHICHEVER candidate wins, and always at the main checkout ($SECOND_SHIFT_REPO_ROOT when set):
+# once the config is tracked, candidate 2 (the worktree's committed copy) and candidate 1 (a
+# session's scratch copy) win, and neither has the gitignored file beside it. Its appName overrides
+# the winning config's; `tracker.bot.enabled` is read from the winning config alone.
 #
 # Repairing commits already mis-attributed to the operator: `git commit --amend --reset-author`
 # under this helper. Plain `--amend` preserves the original author and does NOT fix it.
@@ -139,11 +146,19 @@ do
   fi
 done
 
+# The app keys may also sit in the per-engineer local file — always the MAIN checkout's (see APP KEYS in
+# the header), whichever candidate above won.
+LOCAL="${MAIN_ROOT:+$MAIN_ROOT/.claude/second-shift.config.local.json}"
+
 BOT_ENABLED="false"
 APP_NAME=""
 if [[ -n "$CFG" ]]; then
   BOT_ENABLED="$(jq -r '.tracker.bot.enabled // false' "$CFG" 2>/dev/null || echo false)"
   APP_NAME="$(jq -r '.tracker.bot.app.appName // empty' "$CFG" 2>/dev/null || true)"
+fi
+if [[ -n "$LOCAL" && -f "$LOCAL" ]]; then
+  _local_app="$(jq -r '.tracker.bot.app.appName // empty' "$LOCAL" 2>/dev/null || true)"
+  if [[ -n "$_local_app" ]]; then APP_NAME="$_local_app"; fi
 fi
 
 if [[ "$BOT_ENABLED" != "true" || -z "$APP_NAME" ]]; then
@@ -156,8 +171,10 @@ if [[ "$BOT_ENABLED" != "true" || -z "$APP_NAME" ]]; then
   if [[ -n "$COMMON_DIR" ]]; then
     if [[ -z "$CFG" ]]; then
       echo "[bot-commit] WARN: no second-shift config found (looked at \$SECOND_SHIFT_CONFIG, $DIR/.claude/, ${MAIN_ROOT:-<unresolved>}/.claude/) — committing with the repo default identity. If this repo DOES have a bot, its config is likely gitignored and absent from this worktree; export SECOND_SHIFT_CONFIG to the main checkout's copy." >&2
+    elif [[ "$BOT_ENABLED" != "true" ]]; then
+      echo "[bot-commit] WARN: bot disabled in $CFG (tracker.bot.enabled is not true) — committing with the repo default identity" >&2
     else
-      echo "[bot-commit] WARN: bot disabled in $CFG (tracker.bot.enabled is not true, or app.appName is unset) — committing with the repo default identity" >&2
+      echo "[bot-commit] WARN: tracker.bot.app.appName is set in neither $CFG nor ${LOCAL:-<main checkout>/.claude/second-shift.config.local.json} — committing with the repo default identity, not the bot; put tracker.bot.app.appName in that local file" >&2
     fi
   fi
   exec git -C "$DIR" ${TRAILER_CFG[@]+"${TRAILER_CFG[@]}"} \

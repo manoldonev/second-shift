@@ -397,10 +397,17 @@ lint_local() { # $1 = label, $2 = local file content, $3 = expected substring ("
   fi
 }
 lint_local "local branchPrefix override" '{"tracker":{"branchPrefix":"jdoe/"}}' ""
-lint_local "local file setting a team key" '{"tracker":{"branchPrefix":"jdoe/"},"run":{"maxRounds":9}}' "run.maxRounds: the per-engineer file may set tracker.branchPrefix only"
-lint_local "local file setting another tracker key" '{"tracker":{"type":"jira"}}' "tracker.type: the per-engineer file may set tracker.branchPrefix only"
+lint_local "local file setting a team key" '{"tracker":{"branchPrefix":"jdoe/"},"run":{"maxRounds":9}}' "run.maxRounds: the per-engineer file may set tracker.branchPrefix and tracker.bot.app"
+lint_local "local file setting another tracker key" '{"tracker":{"type":"jira"}}' "tracker.type: the per-engineer file may set tracker.branchPrefix and tracker.bot.app"
 lint_local "local empty branchPrefix" '{"tracker":{"branchPrefix":""}}' "tracker.branchPrefix: must be a non-empty string"
 lint_local "local non-JSON file" 'jdoe/' "not valid JSON"
+# #1059: the bot's GitHub App identity may sit here too, so a repo can commit its config without it.
+# Key names only, any value type, as the committed block is linted; every other key is still refused.
+lint_local "local app keys beside branchPrefix" '{"tracker":{"branchPrefix":"jdoe/","bot":{"app":{"clientId":"Iv1-test","appName":"acme-bot","privateKeyFilename":"acme-bot.pem","installationId":7}}}}' ""
+lint_local "local app keys alone" '{"tracker":{"bot":{"app":{"appName":"acme-bot"}}}}' ""
+lint_local "local file setting tracker.bot.enabled" '{"tracker":{"bot":{"enabled":true,"app":{"appName":"acme-bot"}}}}' "tracker.bot.enabled: the per-engineer file may set tracker.branchPrefix and tracker.bot.app"
+lint_local "local file setting tracker.bot.enabled to false" '{"tracker":{"bot":{"enabled":false}}}' "tracker.bot.enabled: the per-engineer file may set tracker.branchPrefix and tracker.bot.app"
+lint_local "local unknown app key" '{"tracker":{"bot":{"app":{"appName":"acme-bot","secret":"x"}}}}' "tracker.bot.app.secret: the per-engineer file may set tracker.branchPrefix and tracker.bot.app"
 git -C "$LC" init -q && git -C "$LC" add second-shift.config.local.json
 lint_local "committed local file" '{"tracker":{"branchPrefix":"jdoe/"}}' "committed to git"
 

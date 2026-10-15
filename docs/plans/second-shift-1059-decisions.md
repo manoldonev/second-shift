@@ -36,6 +36,7 @@ Provenance legend: `user-answered` = the operator chose. `codebase-derived` = a 
 | D-20 | Is the ticket split? | No. Every decision hangs off one mechanism, and the cutover order is settled in the PR body. | user-answered | intent |
 | D-21 | Is a specialist review seat named? | No. The AC-2 selftest guards the leak mechanically, and the review picks its seats on judgment. | user-answered | intent |
 | D-22 | What release kind is it? | A `feat:` PR title, because consumers gain app keys in the local file. The `Changelog:` trailer says so, with `Migration: none`. cited (convention): CLAUDE.md "Commit verbs decide the version bump" | codebase-derived | fact |
+| D-23 | Does a `false` or `null` value in the local file count as setting its key? | Yes. `run.sh` and config-lint read every leaf path, so a local `"tracker":{"bot":{"enabled":false}}` is refused like any other key. Added in build: the old check used jq's `paths(scalars)`, which skips `false` and `null`, so that file passed both gates. | user-delegated | intent |
 
 Options weighed:
 

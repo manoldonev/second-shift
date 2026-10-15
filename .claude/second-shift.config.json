@@ -1,0 +1,35 @@
+{
+  "$schema": "https://raw.githubusercontent.com/manoldonev/second-shift/main/schema/second-shift.config.schema.json",
+  "configVersion": 3,
+  "tracker": {
+    "type": "github",
+    "branchPrefix": "claude/second-shift-",
+    "bot": {
+      "enabled": true,
+      "envVar": "GH_BOT",
+      "wrapperPath": "~/.config/second-shift/gh-as-bot.sh"
+    }
+  },
+  "commands": {
+    "second-shift": {
+      "lint": "find . -name '*.sh' -type f -print0 | xargs -0 shellcheck -e SC1091,SC2015,SC2181",
+      "typecheck": null,
+      "test": "env -u CLAUDE_CODE_SESSION_ID SKIP_STRESS=1 bash tools/run-selftests.sh --exclude tools/install-topology-selftest.sh",
+      "format": null,
+      "testRunners": [
+        {
+          "when": [
+            "*-selftest.sh"
+          ],
+          "command": "env -u CLAUDE_CODE_SESSION_ID SKIP_STRESS=1 bash {file}"
+        },
+        {
+          "when": [
+            "*-selftest.mjs"
+          ],
+          "command": "env -u CLAUDE_CODE_SESSION_ID SKIP_STRESS=1 node {file}"
+        }
+      ]
+    }
+  }
+}

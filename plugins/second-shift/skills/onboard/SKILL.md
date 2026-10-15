@@ -282,9 +282,11 @@ Then the per-engineer file, from Step 3 item 2(b):
    is not ignored yet (it is committed with the onboarding PR, so every teammate's copy stays out
    of git).
 2. When the operator chose their own prefix, write `.claude/second-shift.config.local.json` as
-   exactly `{ "tracker": { "branchPrefix": "<their prefix>" } }`. When they kept the team's,
-   write `{}`, which silences the session-start reminder. It may hold nothing else: run.sh
-   refuses any other key (`env-config-local`).
+   `{ "tracker": { "branchPrefix": "<their prefix>" } }`. When they kept the team's,
+   write `{}`, which silences the session-start reminder. Besides the prefix it may hold only
+   `tracker.bot.app.*` — the bot's GitHub App keys, for a repo that keeps them out of the
+   committed config. run.sh refuses any other key (`env-config-local`). On a rerun, keep a
+   `tracker.bot.app` block the file already holds: change only `tracker.branchPrefix`.
 
 ## Step 5 — Validate in a loop
 Resolve config-lint and the tier alphabet it reads (review-toolkit's `model-tiering.md`) from the
