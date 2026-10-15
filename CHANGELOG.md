@@ -4,6 +4,12 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v17.5.1
+
+### `second-shift` 13.2.0 → 13.2.1
+
+- **test(second-shift): the config-grill selftest finds config-lint in an install cache (#1083)** (#1083)
+
 ## v17.5.0
 
 ### `design-toolkit` 8.1.0 → 8.2.0
