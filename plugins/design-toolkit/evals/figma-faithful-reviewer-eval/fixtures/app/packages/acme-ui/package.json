@@ -1,0 +1,11 @@
+{
+  "name": "@acme/acme-ui",
+  "version": "3.2.0",
+  "private": true,
+  "description": "Fictional component library for the figma-faithful-reviewer eval. A stand-in, not a real package: a reviewer can judge it only by reading its source.",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "peerDependencies": {
+    "react": ">=18"
+  }
+}

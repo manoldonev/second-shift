@@ -23,6 +23,8 @@ Open region legend: `reversible-default-and-flag` = the build uses the stated de
 | D-5 | The eval's rubric lock | No campaign is open. #707 is closed, and #1076 changes the seat's prompt, which voids the baseline. Extend in place, bump `RUBRIC_VERSION` and `FIXTURE_VERSION`, and mark the old baseline superseded. The judge prompt grades a citation and a comment flagged false. run: `gh issue view 707 --json state -q .state` → CLOSED; cited (convention): plugins/design-toolkit/evals/eval-criteria.md:7-8 | codebase-derived | fact |
 | D-6 | What the selftest checks | Every `.expected.json` parses, and every cited `path:line` exists in the stand-in. It does not pin the line's content. | user-answered | intent |
 | D-7 | Order | This ticket lands before #1076. #1076 is queued when this one closes. | user-answered | intent |
+| D-8 | When the judge credits an installed-source citation | The citation names the same stand-in file as a `disproving` entry, and either a line within 3 of it or the property the expected finding names. An anchor only into the diff earns no citation credit. Added in build: the judge has no tools and sees only the expected file, so it cannot read the cited line, and reviewers cite lines loosely. | user-delegated | intent |
+| D-9 | What `disproving` means on the conformance control | The lines that disprove each near-miss finding: where `inputProps` lands, what `ellipsisStyles` sets, and what the Menu and Button overrides set. Added in build: AC-6 asks the control for a disproving line too, and a clean control has no defect to prove. | user-delegated | intent |
 
 Options weighed:
 - D-1: extend the existing eval, or a new fixture with a lane review. The operator chose to extend the eval.

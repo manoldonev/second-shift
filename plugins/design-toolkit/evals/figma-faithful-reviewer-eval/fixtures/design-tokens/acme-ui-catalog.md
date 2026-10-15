@@ -13,9 +13,9 @@ Maps Figma node names to the `acme-ui` component the design intends, so componen
 lookup, not a guess.
 
 **How to use.** Match a Figma node name to the alias table first, then by leaf name. **Source
-path** is the component file inside the `acme-ui` package. In this eval those files exist as
-one-line export stubs under `fixtures/app/`, so an "is this component real?" grep has something
-to resolve — that verification step is part of what the eval measures.
+path** is the component file inside the `acme-ui` package. In this eval that package is the
+`@acme/acme-ui` workspace under `fixtures/app/`, so an "is this component real?" grep has
+something to resolve — that verification step is part of what the eval measures.
 
 ## Figma → component quick reference
 

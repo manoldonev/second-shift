@@ -44,9 +44,10 @@ shift || true
 #    ground every rule it applies. second-shift has no FE app and no such reference, so the eval
 #    ships a synthetic two-surface one (a fixed-theme surface and a branded host-relative surface)
 #    under fixtures/design-tokens/ and names its path here. `--repo-root` points at this directory
-#    so the agent's cwd contains both that reference and the greppable component export stubs
-#    under fixtures/app/ — the eval measures whether the agent VERIFIES a catalog component exists
-#    before flagging a hand-rolled substitute, which needs something real to grep.
+#    so the agent's cwd contains both that reference and the fictional `@acme/acme-ui` package,
+#    a workspace under fixtures/app/ — the eval measures whether the agent VERIFIES a catalog
+#    component exists before flagging a hand-rolled substitute, and whether it reads the installed
+#    source before trusting a diff's claim about it. Both need something real to read.
 #
 # shellcheck disable=SC2016 # backticked markdown in the prompt template is literal by design
 python3 "$KIT/run-eval.py" \
@@ -55,7 +56,7 @@ python3 "$KIT/run-eval.py" \
   --fixtures-dir "$HERE/fixtures" \
   --eval-dir "$HERE" \
   --repo-root "$HERE" \
-  --reviewer-user-prompt-template 'Review the diff at {fixture_path} for design-token fidelity. The file contents ARE the diff — do NOT run `git diff` (this is an eval; no branch is checked out). This repo has no FE app, so read the design-system reference at fixtures/design-tokens/ instead of `.claude/second-shift/design-tokens/`: fixtures/design-tokens/acme-ui-catalog.md is the component catalog, fixtures/design-tokens/acme-ui-design-tokens-console.md governs files under apps/console/, and fixtures/design-tokens/acme-ui-design-tokens-storefront.md governs files under apps/storefront/. The catalog names source paths under packages/acme-ui/; those files exist as export stubs under fixtures/app/, so grep there when you need to confirm a component is real. No approved FE spec or Copy Index is discoverable — say so and skip copy review. Respond strictly in the Output Format specified in your instructions and the reviewer-baseline, ending with the REVIEW_RESULT sentinel and one fenced JSON block. Run ID: {run_id}' \
+  --reviewer-user-prompt-template 'Review the diff at {fixture_path} for design-token fidelity. The file contents ARE the diff — do NOT run `git diff` (this is an eval; no branch is checked out). This repo has no FE app, so read the design-system reference at fixtures/design-tokens/ instead of `.claude/second-shift/design-tokens/`: fixtures/design-tokens/acme-ui-catalog.md is the component catalog, fixtures/design-tokens/acme-ui-design-tokens-console.md governs files under apps/console/, and fixtures/design-tokens/acme-ui-design-tokens-storefront.md governs files under apps/storefront/. The catalog names source paths under packages/acme-ui/; that is the installed @acme/acme-ui package (version in its package.json), a workspace of fixtures/app/package.json, and its source is under fixtures/app/packages/acme-ui/, so grep there when you need to confirm a component is real. No approved FE spec or Copy Index is discoverable — say so and skip copy review. Respond strictly in the Output Format specified in your instructions and the reviewer-baseline, ending with the REVIEW_RESULT sentinel and one fenced JSON block. Run ID: {run_id}' \
   --judge-agent-name figma-fidelity-judge \
   --judge-description "Scores design-token fidelity reviews on a 3-dim / 10-pt rubric" \
   --runs-per-fixture 3 \

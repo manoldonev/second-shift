@@ -1,6 +1,6 @@
 # `figma-faithful-reviewer` eval
 
-Scores `design-toolkit:figma-faithful-reviewer` against four labeled diffs.
+Scores `design-toolkit:figma-faithful-reviewer` against eleven labeled diffs.
 See [`../README.md`](../README.md) for the shared conventions, the quota warning, and why these
 evals exist.
 
@@ -12,10 +12,26 @@ evals exist.
 | `02-hand-rolled-primitive` | raw `<input>`, `<select>` and two raw `<button>`s where the catalog exports `TextField`, `Select` and `Button` | fixed-theme | `revise` |
 | `03-physical-style-props` | `marginTop` / `paddingLeft` / `paddingRight` / `marginRight` / `marginLeft`, the `bgcolor` alias, and physical `top` / `right` | branded, RTL-capable | `revise` |
 | `04-control-clean` | none — theme units, palette paths, ramp variants, real components | fixed-theme | `approve` |
+| `05-theme-redundant-sx-button` | `sx={{ textTransform: 'none' }}` restates the Button theme override | fixed-theme | `revise` |
+| `06-theme-redundant-sx-tag` | `sx={{ textTransform: 'uppercase', paddingInline: 2 }}` restates the Tag theme override | fixed-theme | `revise` |
+| `07-false-comment-button-wrap` | a comment says Button labels wrap; the override sets `whiteSpace: 'nowrap'` | fixed-theme | `revise` |
+| `08-false-comment-menu-zindex` | a comment says Menu's paper sits at `zIndex` 1; the override sets 1300 | fixed-theme | `revise` |
+| `09-ellipsis-defeated-by-sx` | a caller `whiteSpace` in `sx` overrides `Typography`'s `ellipsis` | fixed-theme | `revise` |
+| `10-aria-label-misrouted` | `aria-label` on `TextField` lands on the FormControl root, not the `<input>` | fixed-theme | `revise` |
+| `11-conformance-control-clean` | none — each wrapper used as designed, and a true comment | fixed-theme | `approve` |
 
-The three defect fixtures come from the agent's own checklist (#704 pre-flight D-5), one per rule
-family, split deliberately across the two surfaces so the fixed-theme-vs-branded distinction the
+Fixtures 01-03 come from the agent's own checklist (#704 pre-flight D-5), one per rule family,
+split deliberately across the two surfaces so the fixed-theme-vs-branded distinction the
 reference exists to encode is exercised rather than assumed.
+
+Fixtures 05-11 are the **library-conformance** set (#1077). They carry no token violation, so a
+token finding on any of them is a false positive. Each planted defect shows only in the installed
+`acme-ui` source, and each `.expected.json` names the source lines that prove it in a
+`disproving` list of `{"path", "line"}` entries, relative to this directory. There are two
+fixtures per class: a theme-redundant `sx`, a false justification comment, and wrapper-API
+misuse. On the control, `disproving` names the lines that disprove each near-miss. The judge
+gives full grounding credit only to a finding that cites the installed source, and, on 07 and 08,
+says the comment is false.
 
 ## The synthetic design-system reference
 
@@ -33,16 +49,35 @@ It describes a **fictional organization**. Its structure is modelled on two real
 references; nothing is copied from them — not a token value, not a palette entry, not a component
 name, not a path, not a sentence.
 
-## Why there are export stubs
+## The `acme-ui` stand-in
 
-`fixtures/app/packages/acme-ui/src/components/*.tsx` are one-line export stubs. The agent's own
-rule is "don't self-suppress import findings — verify them in the repo", so fixture 02 is only a
-fair test if the catalog's source paths resolve to something greppable. `--repo-root` points at
-this directory, so the agent's cwd contains both the reference and the stubs and nothing else.
+`fixtures/app/packages/acme-ui/` is a fictional package, `@acme/acme-ui`, with a version in its
+`package.json`. `fixtures/app/package.json` declares it as a workspace, so the fixtures' imports
+from `@acme/acme-ui` resolve to it. Nothing is installed, and no real library is vendored: a
+reviewer can judge the stand-in only by reading it. `--repo-root` points at this directory, so
+the agent's cwd contains the reference and the stand-in and nothing else.
+
+The components the conformance fixtures render have bodies: `Button`, `Tag`, `Menu`,
+`Typography` (an `ellipsis` prop) and `TextField` (unnamed props land on the FormControl root).
+`src/theme/overrides.ts` holds the theme overrides, and `src/system/Box.tsx` merges a
+component's `sx` array left to right, so a caller's `sx` wins. The design-system reference under
+`fixtures/design-tokens/` does not mention any of this; only the source does.
+
+The other components are one-line export stubs. The agent's own rule is "don't self-suppress
+import findings — verify them in the repo", so fixture 02 is only a fair test if the catalog's
+source paths resolve to something greppable. Every component, stub or body, keeps an
+`export const <Name>` line for that grep.
 
 A reviewer that flags the hand-rolled primitives **without** checking, and one that suppresses the
 finding **because** it did not check, both fail fixture 02 — the first on grounding, the second on
 recall.
+
+## The model-free check
+
+`check-fixtures.sh` checks that every `fixtures/*.expected.json` parses and that every
+`disproving` entry names a file inside the stand-in and a line that exists in it. It does not
+check what the line says. Run it after any edit to the stand-in: a moved line is the fixture
+author's to re-cite. `check-fixtures-selftest.sh` runs in CI.
 
 ## What the control fixture is protecting
 

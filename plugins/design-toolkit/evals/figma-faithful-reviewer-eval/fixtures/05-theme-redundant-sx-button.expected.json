@@ -1,0 +1,19 @@
+{
+  "expected_verdict": "revise",
+  "surface": "console (fixed theme)",
+  "expected_findings": [
+    "both <Button> elements pass sx={{ textTransform: 'none' }}, which restates the installed theme override: acme-ui's componentOverrides.Button.root already sets textTransform: 'none' (fixtures/app/packages/acme-ui/src/theme/overrides.ts), so the sx changes nothing and should be removed"
+  ],
+  "must_not_flag": [
+    "gap={3} / gap={2} — theme unit numbers on the 4px base",
+    "alignItems / justifyContent on the <Stack> — layout, not a token",
+    "<Typography variant='sectionTitle'> — a ramp variant",
+    "<Button>, <Stack>, <Typography> — real catalog components"
+  ],
+  "disproving": [
+    { "path": "fixtures/app/packages/acme-ui/src/theme/overrides.ts", "line": 9 },
+    { "path": "fixtures/app/packages/acme-ui/src/components/Button.tsx", "line": 22 }
+  ],
+  "layer": "library conformance — theme-redundant sx",
+  "notes": "The diff carries no token violation, so a reviewer that only checks tokens approves it. The defect shows only in the installed source: the theme override sets the same value, and Button lists the override before the caller's sx. A finding that cites the override earns the citation credit."
+}

@@ -18,11 +18,15 @@ fixture is that this calibration must survive. So d3 punishes a false positive o
 fixture harder than a missed catch: a reviewer that flags every layout container will score well
 on recall and badly here, which is the right shape.
 
+v2 (#1077) adds the library-conformance fixtures 05-11 on the fictional `acme-ui` stand-in, and
+teaches the judge to grade a citation into the installed source and a comment flagged false. The
+v1 baseline in CLOSEOUT-BASELINE.md is superseded; the v2 baseline is the operator's first run.
+
 Total: 10.
 """
 
-RUBRIC_VERSION = 1
-FIXTURE_VERSION = 1
+RUBRIC_VERSION = 2
+FIXTURE_VERSION = 2
 
 MAX_POINTS = {
     "d1_verdict_correctness": 6,
@@ -52,7 +56,10 @@ INPUT YOU RECEIVE
   the two design-system surfaces the changed files belong to), `expected_findings` (array of
   strings describing the PLANTED defects; [] on a clean fixture), `must_not_flag` (array of
   strings naming code in this diff that is CORRECT and must not be raised), `layer`, `notes`
-  (rationale; informational).
+  (rationale; informational). A library-conformance fixture also carries `disproving`: an array
+  of `{"path", "line"}` entries naming the lines in the installed `acme-ui` source
+  (`fixtures/app/packages/acme-ui/...`) that prove the planted defect, or, on the conformance
+  control, that disprove each would-be finding.
 - <reviewer_output>: the full text the reviewer emitted.
 
 VOCABULARY
@@ -66,7 +73,7 @@ VOCABULARY
 - The reviewer's severity for these rules is Warning by design; do not penalise a Warning where
   you expected a Critical, or the reverse.
 
-THE TWO SURFACES (this is what most fixtures turn on)
+THE TWO SURFACES (this is what fixtures 01-04 turn on)
 -----------------------------------------------------
 The diff's file paths say which rule set applies, and `expected.surface` states it outright:
 - `apps/console/**` is a FIXED-THEME surface: a 4px spacing base, a fixed palette with a hex->path
@@ -75,6 +82,23 @@ The diff's file paths say which rule set applies, and `expected.surface` states 
   or `rgb()` is forbidden outright, sizing must go through the theme's `pxToRem` helper (a raw
   `px` AND a hardcoded `rem` are both defects), the font family is branded, and the surface
   renders RTL so physical style props are a correctness defect rather than a style preference.
+
+LIBRARY-CONFORMANCE FIXTURES (`layer` starts with "library conformance")
+------------------------------------------------------------------------
+These diffs sit on the console surface and carry NO token violation. Their planted defects are
+visible only by reading the installed `acme-ui` source: an `sx` that restates a theme override, a
+comment that states something false about the library, or a wrapper prop used against the
+wrapper's API. So:
+- An INSTALLED-SOURCE CITATION is a finding's anchor that names a file under
+  `packages/acme-ui/` (with or without the `fixtures/app/` prefix) plus a line, a snippet or the
+  override / prop / constant name it rests on. Credit it when it names the same file as a
+  `disproving` entry and either a line within 3 of that entry or the property the entry's
+  finding names in `expected_findings`. An anchor that points only at the diff is not one.
+- A COMMENT FLAGGED FALSE is a finding that says a comment's claim about the library is wrong
+  and names what the source actually does. A finding that calls the `sx` redundant but leaves the
+  comment's claim standing, or repeats the claim as a reason, has NOT flagged the comment false.
+- A token-literal finding on one of these fixtures (an "untokenized" `sx` value, a raw `zIndex`)
+  contradicts `must_not_flag` and counts against d3.
 
 RUBRIC
 ------
@@ -106,6 +130,10 @@ d2_finding_grounding (0, 1 or 2) -- the planted defect, named and anchored.
     export or its source path scores full credit; a finding that flags without any verification
     still counts as identified, but a reviewer that SUPPRESSED the finding for want of
     verification has not identified it.
+  - On a library-conformance fixture: 2 only if every listed defect is identified as a Critical
+    or Warning AND carries an installed-source citation, AND, where the expected finding names a
+    false comment, the reviewer flagged that comment false. 1 if identified without an
+    installed-source citation, or if the `sx` is flagged but the false comment is not. 0 if none.
 
 d3_no_fabrication (0, 1 or 2) -- no findings against code the diff does not contain, and no
   false positives on correct code.

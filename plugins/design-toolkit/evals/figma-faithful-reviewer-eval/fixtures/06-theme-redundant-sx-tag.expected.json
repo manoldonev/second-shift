@@ -1,0 +1,19 @@
+{
+  "expected_verdict": "revise",
+  "surface": "console (fixed theme)",
+  "expected_findings": [
+    "<Tag sx={{ textTransform: 'uppercase', paddingInline: 2 }}> restates both values of the installed theme override: acme-ui's componentOverrides.Tag.root already sets textTransform: 'uppercase' and paddingInline: 2 (fixtures/app/packages/acme-ui/src/theme/overrides.ts), so the whole sx should be removed"
+  ],
+  "must_not_flag": [
+    "paddingInline: 2 as a token — it is a theme unit number on the 4px base; the defect is that it restates the override, not that it is a literal",
+    "the TONE and LABEL lookup tables — not styling",
+    "<Tag> — a real catalog component"
+  ],
+  "disproving": [
+    { "path": "fixtures/app/packages/acme-ui/src/theme/overrides.ts", "line": 17 },
+    { "path": "fixtures/app/packages/acme-ui/src/theme/overrides.ts", "line": 18 },
+    { "path": "fixtures/app/packages/acme-ui/src/components/Tag.tsx", "line": 15 }
+  ],
+  "layer": "library conformance — theme-redundant sx",
+  "notes": "Both sx values are valid tokens, so a token check passes them. Only the installed override shows they restate the default. A reviewer that flags paddingInline: 2 as an untokenized value has fabricated a token finding; one that says it restates the override is right."
+}
