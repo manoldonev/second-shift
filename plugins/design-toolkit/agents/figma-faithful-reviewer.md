@@ -46,7 +46,7 @@ Hard limits — state them rather than guessing:
 1. Diff against the config's `baseBranch`, else the **remote's default branch**, not a hardcoded `main` (which finds nothing on a `develop`/`alpha`-based repo): `BASE=$(jq -r '.baseBranch // empty' "${SECOND_SHIFT_CONFIG:-.claude/second-shift.config.json}" 2>/dev/null); BASE=${BASE:-$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||')}; BASE=${BASE:-$(git rev-parse -q --verify origin/main >/dev/null && echo main || echo master)}; git diff "origin/$BASE...HEAD"`. Collect the changed FE-app style/component files (per the reference's app dir(s)).
 2. **Read the repo's design-system reference** (`.claude/second-shift/design-tokens/*.md`) for the surface(s) in the diff — the spacing/palette/type token roles and the component catalog. If absent, infer from surrounding code and say so.
 3. **Look for an approved FE spec / Copy Index** — a path passed in your prompt, or a `*-fe-spec.md` under a `specs/` directory matching the changed feature (`Glob`/`Grep` where the harness exposes them, otherwise batched Bash `grep`/`find` per `reviewer-baseline` Tool Discipline). If found, read its Copy Index for the conditional copy-drift check. If not, note that copy fidelity is unverified.
-4. **Find the installed UI library** for the diff's UI imports, and read the app entry for the theme it mounts (Library conformance, below).
+4. For diff lines that carry an override, a wrapper prop or a library claim, follow `design-toolkit:library-conformance` (Library conformance, below).
 5. Apply the **shared** rules and **library conformance** to all surfaces; apply **surface-specific** rules per the reference (fixed-theme lookup vs branded "always abstract").
 6. For each finding, check if the same pattern exists in unchanged files. If pre-existing, label `[Pre-existing]`.
 7. Report using the output format at the bottom.
@@ -149,10 +149,10 @@ Flag a literal `fontFamily` string (branded — inherit via the theme) and raw `
 
 Per `reviewer-baseline` — under schema dispatch emit via `StructuredOutput` per **Output Mode**; the prose framing below is for no-schema dispatch:
 
-- `Evidence:` the untokenized literal / hardcoded hex-or-rem / physical prop / hand-rolled element. For a library-conformance finding, the installed `path:line` that proves it.
-- `Recommendation:` the token / palette path / sizing helper / logical prop / catalog component to use instead (cite the relevant reference rule). For a library-conformance finding: drop the override, use the prop or variant, pass the prop the way the wrapper forwards it, or correct the comment.
+- `Evidence:` the untokenized literal / hardcoded hex-or-rem / physical prop / hand-rolled element.
+- `Recommendation:` the token / palette path / sizing helper / logical prop / catalog component to use instead (cite the relevant reference rule).
 
-The library-conformance summary lines (the source-absent line, or one line per checked override) go in the prose and in `summary`, not in `findings[]`.
+A library-conformance finding takes the `Evidence:`, `Recommendation:` and summary-line forms of `design-toolkit:library-conformance`.
 
 ## Time-boxing (hard backstop)
 

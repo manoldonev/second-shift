@@ -25,7 +25,7 @@ You ONLY review design fidelity and abstraction correctness (logical utilities, 
 
 1. Run `git diff` to see changes
 2. Read surrounding FE-app components for the established design-system patterns
-3. Find the installed UI library for the diff's UI imports, and read the app entry for the theme it mounts (Library conformance, below)
+3. For diff lines that carry an override, a wrapper prop or a library claim, follow `design-toolkit:library-conformance` (Library conformance, below)
 4. Check against the rules below
 5. Report findings using the output format at the bottom
 

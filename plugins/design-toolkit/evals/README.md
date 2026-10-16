@@ -100,7 +100,7 @@ campaign that acts on them is #707.
 
 | Agent | Baseline | Headroom |
 | --- | ---: | --- |
-| `figma-faithful-reviewer` | **OWED** at v2 (v1: 100.00%, superseded) | unknown — #1077 added the library-conformance fixtures |
+| `figma-faithful-reviewer` | **OWED** at v3 (v1: 100.00%, superseded) | unknown — #1077 added the library-conformance fixtures |
 | `figma-faithful-plan-reviewer` | **99.17%** | 0.83pp — likewise |
 | `figma-faithful-spec-reviewer` | **72.50%** | 27.5pp, nearly all of it in one fixture |
 | `design-faithful-plan-reviewer` | **OWED** | unknown — no reading exists yet |
@@ -113,7 +113,7 @@ failure rather than the environment one it is. Take the reading after that relea
 downstream binds to the absent one.
 
 `figma-faithful-reviewer`'s v1 reading is superseded: #1077 added seven library-conformance
-fixtures and bumped its rubric and fixture set to v2. The v2 baseline is the operator's run on
+fixtures and bumped its rubric and fixture set to v2; the #1076 follow-up added fixture 12 and moved the set to v3. The v3 baseline is the operator's run on
 today's seat, recorded in that eval's `changelog.md`; #1076's prompt change is scored against it.
 
 **Two of the three are at a ceiling, and that is itself the result.** The plan reviewer caught
