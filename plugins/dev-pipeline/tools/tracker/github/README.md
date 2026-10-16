@@ -48,3 +48,13 @@ at the enforcing script rather than at a doc restating it.
 `wrapperPath` and `app.*` are read by `install-gh-bot.sh` (writer) and `claim-issue.sh`
 (reader) so onboarding a different repo’s bot app is a config edit, not a script edit.
 When `wrapperPath` is omitted both fall back to `$HOME/.config/<repo-basename>/gh-as-bot.sh`.
+
+### Renaming the App
+
+After you rename the GitHub App, set `tracker.bot.app.appName` to the new name in every config
+that names this App (often the gitignored `.claude/second-shift.config.local.json`). `clientId`,
+`installationId` and the private key do not change. The next commit through
+[`bot-commit.sh`](../../bot-commit.sh) sees the changed name and looks the bot user id up again.
+An `appName` left unchanged keeps the old name on commits, and nothing warns. If the lookup fails, that commit takes the repo default
+identity with a WARN, and the next commit retries. Re-running `install-gh-bot.sh` refreshes the
+name in the bot wrapper's comments.
