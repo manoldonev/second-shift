@@ -18,3 +18,20 @@ Decision record: [second-shift-1076-decisions.md](second-shift-1076-decisions.md
 - [ ] 3.2 Add the same check to design-faithful-reviewer, with the narrowed arbitrary-values rule and the narrowed accessibility-attributes line (plugins/design-toolkit/agents/design-faithful-reviewer.md)
 - [ ] 3.3 Narrow the named-constant escape hatch in the figma-faithful skill so it never waives a library-redundant value (plugins/design-toolkit/skills/figma-faithful/SKILL.md)
 - [ ] 3.4 Name library conformance in review-lead's statement of what the design-fidelity dimension asserts (plugins/review-toolkit/skills/review-lead/SKILL.md)
+
+## 4. One shared library-conformance skill
+
+- [ ] 4.1 Move the conformance procedure into the library-conformance skill, loaded by both fidelity seats; each seat keeps its stack's override forms; every conformance class a Warning; design-faithful-reviewer gets the turn-10 deadline (plugins/design-toolkit/skills/library-conformance/SKILL.md, plugins/design-toolkit/agents/figma-faithful-reviewer.md, plugins/design-toolkit/agents/design-faithful-reviewer.md)
+
+## 5. review-lead renders the seat summary
+
+- [ ] 5.1 Carry a fidelity seat's summary lines into the Review Summary, and document an explicit empty web-component glob (plugins/review-toolkit/skills/review-lead/SKILL.md)
+
+## 6. An empty web-component glob is a declared no-surface
+
+- [ ] 6.1 Test: config-grill treats an explicit [] as declared and lands it in notEvaluated, with and without a UI file in the tree (plugins/second-shift/skills/onboard/tools/config-grill-selftest.sh)
+- [ ] 6.2 Recognize the explicit [] in config-grill; state the switch in the schema, config-schema.md, onboarding.md and README.md; set it in this repo's config (plugins/second-shift/skills/onboard/tools/config-grill.sh, schema/second-shift.config.schema.json, docs/config-schema.md, docs/onboarding.md, README.md, .claude/second-shift.config.json)
+
+## 7. Eval fixture 12 and turn counts
+
+- [ ] 7.1 Add the size-keyed stand-in entry and fixture 12, move the two Button citations, bump the fixture set to v3, and record turns per changelog row (plugins/design-toolkit/evals/figma-faithful-reviewer-eval/, plugins/review-toolkit/evals/agent-eval-kit/run-eval.py)
