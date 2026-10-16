@@ -269,17 +269,17 @@ fixture_v4 pc7; printf '%s\n' "$PLAN_OK" '- [ ] 1.3 the guard (src/guard.spec.ts
 expect approved "(pc7) [#1085] a plan tagging an AC the operator added at the head under a user-answered row"
 grep -q 'plan coverage: exit 0 — pass — 3 covered, 1 exempt (of the covered: 1 added at the head)' <<<"$OUT" \
   && grep -q 'plan-coverage: AC-9 covered (task 1.3) — added at the head under a recorded departure (D-2 user-answered)' "$(SD)/plan-coverage-1.1.log" \
-  && ok "(pc7) the coverage reads the head's record for the added AC and names the row that admits it" || bad "(pc7) $(grep -E 'plan |terminal' <<<"$OUT" | tr '\n' '|') log=$(cat "$(SD)/plan-coverage-1.1.log" 2>/dev/null | tr '\n' '|')"
+  && ok "(pc7) the coverage reads the head's record for the added AC and names the row that admits it" || bad "(pc7) $(grep -E 'plan |terminal' <<<"$OUT" | tr '\n' '|') log=$(tr '\n' '|' 2>/dev/null < "$(SD)/plan-coverage-1.1.log")"
 # the same AC-9 with no ledger row to decide it is a build inventing an AC: red, naming why, the baseline still deciding
 fixture_v4 pc7b; printf '%s\n' "$PLAN_OK" '- [ ] 1.3 the guard (src/guard.spec.ts) [AC-9]' > "$FAKE_GH/plan-1.md"; printf 'build-pr-add-ac-no-row\n' > "$FAKE_CLAUDE_PLAN"
 RUN_CHECKS_RED_MAX=1 run_case "$d"; expect checks-red-spent "(pc7) [#1085] an AC only the head defines, with no operator row"
 grep -q 'plan-coverage: RED: task 1.3 tags AC-9, which only the record at the head defines' "$(SD)/plan-coverage-1.1.log" \
-  && ok "(pc7) the red names the head-only AC and the missing operator row" || bad "(pc7b) log=$(cat "$(SD)/plan-coverage-1.1.log" 2>/dev/null | tr '\n' '|')"
+  && ok "(pc7) the red names the head-only AC and the missing operator row" || bad "(pc7b) log=$(tr '\n' '|' 2>/dev/null < "$(SD)/plan-coverage-1.1.log")"
 # a head record whose Test intent no longer parses is the build's to fix: a red attempt naming it, never a stop for a human
 fixture_v4 pc7c; printf '%s\n' "$PLAN_OK" > "$FAKE_GH/plan-1.md"; printf 'build-pr-two-acs\n' > "$FAKE_CLAUDE_PLAN"
 RUN_CHECKS_RED_MAX=1 run_case "$d"; expect checks-red-spent "(pc7) [#1085] a head record with two 'ACs:' lines"
 grep -q "plan-coverage: RED: the head record's Test intent carries 2 'ACs:' lines" "$(SD)/plan-coverage-1.1.log" \
-  && ok "(pc7) an unparseable Test intent at the head is a red attempt, named" || bad "(pc7c) $(grep -E 'plan |terminal' <<<"$OUT" | tr '\n' '|') log=$(cat "$(SD)/plan-coverage-1.1.log" 2>/dev/null | tr '\n' '|')"
+  && ok "(pc7) an unparseable Test intent at the head is a red attempt, named" || bad "(pc7c) $(grep -E 'plan |terminal' <<<"$OUT" | tr '\n' '|') log=$(tr '\n' '|' 2>/dev/null < "$(SD)/plan-coverage-1.1.log")"
 
 # (fw) #1040: after the checks and the coverage pass, the scheduler applies the head's tagged test files onto the record
 # commit's tree and runs each through its configured runner — every one must fail there. The record's four forms: AC-1 a
