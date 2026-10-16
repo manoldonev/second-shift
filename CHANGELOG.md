@@ -4,6 +4,28 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v17.5.2
+
+### `dev-pipeline` 17.5.0 → 17.5.1
+
+- **fix(dev-pipeline): plan coverage admits an AC added at the head under a recorded departure (#1086)** (#1086)
+  plan-coverage.sh accepts `--head <record-at-head>`, and
+  post-review-status.sh and run.sh pass it: an AC the operator added after
+  the record's first commit, under a Decision Ledger row with user-answered
+  or user-delegated provenance, is covered instead of red, so an approve on
+  such a head posts its `second-shift/review` status. Baseline ACs are still
+  governed by the baseline. Migration: none.
+
+### `intake-toolkit` 8.4.0 → 8.4.1
+
+- **fix(dev-pipeline): plan coverage admits an AC added at the head under a recorded departure (#1086)** (#1086)
+  plan-coverage.sh accepts `--head <record-at-head>`, and
+  post-review-status.sh and run.sh pass it: an AC the operator added after
+  the record's first commit, under a Decision Ledger row with user-answered
+  or user-delegated provenance, is covered instead of red, so an approve on
+  such a head posts its `second-shift/review` status. Baseline ACs are still
+  governed by the baseline. Migration: none.
+
 ## v17.5.1
 
 ### `second-shift` 13.2.0 → 13.2.1
