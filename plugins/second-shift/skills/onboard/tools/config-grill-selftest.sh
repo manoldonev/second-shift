@@ -127,6 +127,26 @@ EOF
 run_grill "$R" "$R/moved.json"
 expect_no_finding "t2 webComponentGlobs: reviewers.webComponentGlobs matching → silent" T2.webComponentGlobs
 
+# An explicit [] is a declaration, not an omission (#1076 follow-up D-22): the repo says it has
+# no web-component surface, review-lead routes neither reviewer on an unarmed diff, and the grill
+# has nothing to propose. It lands in notEvaluated[] whether or not the tree holds a UI file —
+# the UI-present shape is the one that used to read as "unset" and silently take the default.
+RE="$(mkrepo t2-empty-ui src/App.tsx README.md)"
+cfg "$RE/c.json" <<EOF
+{ $STD_HEAD, "commands": {"app":{}},
+  "reviewers": {"webComponentGlobs": []} }
+EOF
+run_grill "$RE" "$RE/c.json"
+expect_no_finding "t2 webComponentGlobs: explicit [] is a declared no-surface, not a finding" T2.webComponentGlobs
+expect_noteval "t2 webComponentGlobs: explicit [] with a UI file lands in notEvaluated" T2.webComponentGlobs "set to []"
+RE2="$(mkrepo t2-empty-noui README.md)"
+cfg "$RE2/c.json" <<EOF
+{ $STD_HEAD, "commands": {"app":{}},
+  "reviewers": {"webComponentGlobs": []} }
+EOF
+run_grill "$RE2" "$RE2/c.json"
+expect_noteval "t2 webComponentGlobs: explicit [] with no UI file lands in notEvaluated as declared" T2.webComponentGlobs "set to []"
+
 # The negative half. Without it the check could be a constant-true and still pass everything
 # above.
 R2="$(mkrepo t2-web-match apps/web/App.tsx apps/web/src/app/Page.tsx)"

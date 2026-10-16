@@ -182,6 +182,8 @@ default, `**/*.{tsx,jsx,vue,svelte,css,scss,less}`, matches a component or style
 depth, so the accessibility and design reviews run on the frontend's UI files. Set the key when
 your components use another extension (for example `["src/app/**/*.{html,ts}"]` for Angular) or
 when you want a narrower surface. A configured key always wins.
+Set it to `[]` when the repo has no UI surface at all; then on an unarmed diff neither review is
+routed, and config-grill reports the key as declared.
 
 ### Manual install
 
