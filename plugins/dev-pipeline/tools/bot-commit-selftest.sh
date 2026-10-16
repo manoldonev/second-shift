@@ -442,6 +442,161 @@ grep -q "tracker.bot.app.appName is set in neither .*second-shift.config.json no
   && pass "11h enabled bot with no appName → WARN names the config and the local file" \
   || fail "11h wrong or missing WARN: $ERR11H"
 
+# ---- Cases 12-18: the name cache (#1068) -------------------------------------------
+# The id file alone hid a changed appName: a warm id meant the configured name was never looked up.
+# The name file beside it holds "<appName> <id>", and the cached id is trusted only when it matches.
+#
+# This stub answers PER LOGIN and logs each call's arguments, so a lookup of the wrong name cannot
+# pass green (the shared stub above returns one id for every login). The failing login mirrors real
+# `gh api users/<login>[bot] --jq .id` on a 404: exit 1 with GitHub's error JSON on STDOUT, not
+# nothing. Source of the shape: the observation recorded in #1068 ("Why", and intake fan-out F-1) of
+# a renamed App's old login, and GitHub's REST error body for GET /users/{username}
+# (https://docs.github.com/rest/users/users#get-a-user — 404 "Resource not found").
+cat > "$TMP/bin/gh" <<'SHIM'
+#!/usr/bin/env bash
+echo "$*" >> "${GH_SHIM_CALLS:?}"
+case "$1 $2" in
+  "api users/new-app[bot]") echo "777"; exit 0 ;;
+  "api users/gone-app[bot]")
+    echo '{"message":"Not Found","documentation_url":"https://docs.github.com/rest/users/users#get-a-user","status":"404"}'
+    exit 1 ;;
+esac
+exit 1
+SHIM
+chmod +x "$TMP/bin/gh"
+
+NEW_CFG='{"tracker":{"bot":{"enabled":true,"app":{"appName":"new-app"}}}}'
+GONE_CFG='{"tracker":{"bot":{"enabled":true,"app":{"appName":"gone-app"}}}}'
+WANT_NEW="new-app[bot] <777+new-app[bot]@users.noreply.github.com>"
+DEFAULT_ID="Repo Default <default@example.com>"
+
+id_file() { echo "$1/.git/second-shift-bot-user-id"; }
+name_file() { echo "$1/.git/second-shift-bot-user-name"; }
+# cache_repo <dir> <config-json> <id-content|-> <name-content|-> — "-" leaves that file absent.
+cache_repo() {
+  mkrepo "$1" "$2"
+  if [[ "$3" != "-" ]]; then printf '%s' "$3" > "$(id_file "$1")"; fi
+  if [[ "$4" != "-" ]]; then printf '%s' "$4" > "$(name_file "$1")"; fi
+  : > "$GH_SHIM_CALLS"
+}
+# commit_in <dir> — sets RC and ERR (stderr) for the commit just made.
+commit_in() {
+  set +e
+  ERR="$(bash "$BOT_COMMIT" -C "$1" -q -m "test: $1" 2>&1 >/dev/null)"
+  RC=$?
+  set -e
+}
+author_of() { git -C "$1" log --format='%an <%ae>' -1 2>/dev/null || echo '<no commit>'; }
+content_of() { if [[ -f "$1" ]]; then cat "$1"; else echo '<absent>'; fi; }
+gh_calls() { wc -l < "$GH_SHIM_CALLS" | tr -d ' '; }
+no_warn() { ! grep -q "bot-commit] WARN" <<< "$1"; }
+
+# ---- Case 12: matching id file and name cache → cached id, no gh call, no WARN (AC-1) --
+cache_repo "$TMP/r12" "$NEW_CFG" "555" "new-app 555"
+commit_in "$TMP/r12"
+{ [[ "$(author_of "$TMP/r12")" == "new-app[bot] <555+new-app[bot]@users.noreply.github.com>" ]] \
+  && [[ "$(gh_calls)" == "0" ]] && no_warn "$ERR"; } \
+  && pass "12 matching cache → cached id, no gh call, no WARN (AC-1)" \
+  || fail "12 got '$(author_of "$TMP/r12")', gh calls $(gh_calls), stderr: $ERR"
+
+# ---- Case 13: name cache for another name + good lookup → new id, both files rewritten (AC-2) --
+cache_repo "$TMP/r13" "$NEW_CFG" "555" "old-app 555"
+commit_in "$TMP/r13"
+[[ "$(author_of "$TMP/r13")" == "$WANT_NEW" ]] \
+  && pass "13a changed appName → looked up, commit carries the new id (AC-2)" \
+  || fail "13a got '$(author_of "$TMP/r13")', want '$WANT_NEW'"
+grep -qx 'api users/new-app\[bot\] --jq .id' "$GH_SHIM_CALLS" \
+  && pass "13b the lookup asked for the configured login (AC-2)" \
+  || fail "13b gh calls: $(cat "$GH_SHIM_CALLS")"
+{ [[ "$(content_of "$(id_file "$TMP/r13")")" == "777" ]] \
+  && [[ "$(content_of "$(name_file "$TMP/r13")")" == "new-app 777" ]]; } \
+  && pass "13c id file holds the bare new id, name cache holds '<appName> <id>' (AC-2)" \
+  || fail "13c id file '$(content_of "$(id_file "$TMP/r13")")', name cache '$(content_of "$(name_file "$TMP/r13")")'"
+no_warn "$ERR" \
+  && pass "13d successful re-lookup is silent (AC-2)" \
+  || fail "13d unexpected WARN: $ERR"
+# Round trip through the real writer: the pair 13c wrote must be read back as a match.
+echo more > "$TMP/r13/g.txt"; git -C "$TMP/r13" add g.txt
+commit_in "$TMP/r13"
+{ [[ "$(author_of "$TMP/r13")" == "$WANT_NEW" ]] && [[ "$(gh_calls)" == "1" ]] && no_warn "$ERR"; } \
+  && pass "13e the pair the wrapper wrote is trusted on the next commit (AC-1 AC-2)" \
+  || fail "13e got '$(author_of "$TMP/r13")', gh calls $(gh_calls) (want 1), stderr: $ERR"
+
+# ---- Case 14: mismatch + failed lookup (404 JSON on stdout) → WARN, default, no write (AC-3) --
+cache_repo "$TMP/r14" "$GONE_CFG" "555" "old-app 555"
+commit_in "$TMP/r14"
+{ [[ "$RC" == "0" ]] && [[ "$(author_of "$TMP/r14")" == "$DEFAULT_ID" ]]; } \
+  && pass "14a failed lookup → repo default identity, exit 0 (AC-3)" \
+  || fail "14a rc=$RC, got '$(author_of "$TMP/r14")'"
+grep -q "could not resolve bot user id.*'gone-app'" <<< "$ERR" \
+  && pass "14b WARN names the configured appName (AC-3)" \
+  || fail "14b wrong or missing WARN: $ERR"
+{ [[ "$(content_of "$(id_file "$TMP/r14")")" == "555" ]] \
+  && [[ "$(content_of "$(name_file "$TMP/r14")")" == "old-app 555" ]]; } \
+  && pass "14c both cache files unchanged (AC-3)" \
+  || fail "14c id file '$(content_of "$(id_file "$TMP/r14")")', name cache '$(content_of "$(name_file "$TMP/r14")")'"
+# Cold cache: the pre-#1068 code cached the 404 JSON as the id and committed with a junk email.
+cache_repo "$TMP/r14d" "$GONE_CFG" - -
+commit_in "$TMP/r14d"
+{ [[ "$(author_of "$TMP/r14d")" == "$DEFAULT_ID" ]] \
+  && [[ ! -e "$(id_file "$TMP/r14d")" && ! -e "$(name_file "$TMP/r14d")" ]] \
+  && grep -q "could not resolve bot user id" <<< "$ERR"; } \
+  && pass "14d cold cache + 404 JSON → WARN, repo default, nothing cached (AC-3)" \
+  || fail "14d got '$(author_of "$TMP/r14d")', id file '$(content_of "$(id_file "$TMP/r14d")")', stderr: $ERR"
+
+# ---- Case 15: id file, no name cache → a lookup decides (AC-4) -----------------------
+cache_repo "$TMP/r15" "$NEW_CFG" "555" -
+commit_in "$TMP/r15"
+{ [[ "$(author_of "$TMP/r15")" == "$WANT_NEW" ]] && [[ "$(gh_calls)" == "1" ]] \
+  && [[ "$(content_of "$(name_file "$TMP/r15")")" == "new-app 777" ]] && no_warn "$ERR"; } \
+  && pass "15a id file without a name cache → looked up, behaves as AC-2 (AC-4)" \
+  || fail "15a got '$(author_of "$TMP/r15")', gh calls $(gh_calls), name cache '$(content_of "$(name_file "$TMP/r15")")', stderr: $ERR"
+cache_repo "$TMP/r15b" "$GONE_CFG" "555" -
+commit_in "$TMP/r15b"
+{ [[ "$(author_of "$TMP/r15b")" == "$DEFAULT_ID" ]] && [[ "$(gh_calls)" == "1" ]] \
+  && [[ "$(content_of "$(id_file "$TMP/r15b")")" == "555" && ! -e "$(name_file "$TMP/r15b")" ]] \
+  && grep -q "could not resolve bot user id" <<< "$ERR"; } \
+  && pass "15b id file without a name cache + failed lookup → behaves as AC-3 (AC-4)" \
+  || fail "15b got '$(author_of "$TMP/r15b")', gh calls $(gh_calls), id file '$(content_of "$(id_file "$TMP/r15b")")', stderr: $ERR"
+
+# ---- Case 16: an id file that is not a valid id is never used (AC-5) -------------------
+# The name cache is paired with the same junk, so only the id check can reject it.
+for _junk in "not-a-number" '{"message":"Not Found","status":"404"}' $'555\r'; do
+  cache_repo "$TMP/r16" "$NEW_CFG" "$_junk" "new-app $_junk"
+  commit_in "$TMP/r16"
+  _shown="$(printf '%q' "$_junk")"
+  { [[ "$(author_of "$TMP/r16")" == "$WANT_NEW" ]] && [[ "$(gh_calls)" == "1" ]]; } \
+    && pass "16 id file $_shown → not used, looked up (AC-5)" \
+    || fail "16 id file $_shown → got '$(author_of "$TMP/r16")', gh calls $(gh_calls)"
+  rm -rf "$TMP/r16"
+done
+
+# ---- Case 17: ids that differ, or an empty id file → a lookup (AC-7) --------------------
+cache_repo "$TMP/r17" "$NEW_CFG" "555" "new-app 556"
+commit_in "$TMP/r17"
+{ [[ "$(author_of "$TMP/r17")" == "$WANT_NEW" ]] && [[ "$(gh_calls)" == "1" ]]; } \
+  && pass "17a name cache's id differs from the id file's → looked up (AC-7)" \
+  || fail "17a got '$(author_of "$TMP/r17")', gh calls $(gh_calls)"
+cache_repo "$TMP/r17b" "$NEW_CFG" "" "new-app "
+commit_in "$TMP/r17b"
+{ [[ "$(author_of "$TMP/r17b")" == "$WANT_NEW" ]] && [[ "$(gh_calls)" == "1" ]]; } \
+  && pass "17b empty id file → looked up (AC-7)" \
+  || fail "17b got '$(author_of "$TMP/r17b")', gh calls $(gh_calls)"
+
+# ---- Case 18: a cache file that cannot be written → WARN, the commit still happens (AC-8) --
+for _which in id name; do
+  cache_repo "$TMP/r18-$_which" "$NEW_CFG" - -
+  _blocked="$(${_which}_file "$TMP/r18-$_which")"
+  mkdir -p "$_blocked"
+  commit_in "$TMP/r18-$_which"
+  { [[ "$RC" == "0" ]] && [[ "$(author_of "$TMP/r18-$_which")" == "$WANT_NEW" ]]; } \
+    && pass "18 directory at the $_which cache path → committed with the resolved id, exit 0 (AC-8)" \
+    || fail "18 $_which: rc=$RC, got '$(author_of "$TMP/r18-$_which")', stderr: $ERR"
+  grep -qF "WARN: cannot write the bot cache file $_blocked" <<< "$ERR" \
+    && pass "18 directory at the $_which cache path → WARN names the file (AC-8)" \
+    || fail "18 $_which: no WARN naming $_blocked: $ERR"
+done
+
 echo ""
 echo "[bot-commit-selftest] $PASS passed, $FAIL failed"
 exit "$FAIL"

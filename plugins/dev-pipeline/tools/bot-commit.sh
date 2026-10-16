@@ -14,7 +14,8 @@
 #           email = "<botUserId>+<appName>[bot]@users.noreply.github.com"
 # where <appName> comes from `tracker.bot.app.appName` (config or local file — APP KEYS below) and <botUserId> is resolved once
 # via `gh api users/<appName>[bot]` and cached in the repo's git common dir (shared across
-# worktrees, never committed). Fallbacks are deliberate and NOISY-but-not-fatal: with the bot
+# worktrees, never committed), beside the name it was resolved for — a changed appName is looked up
+# again (NAME CACHE below). Fallbacks are deliberate and NOISY-but-not-fatal: with the bot
 # disabled/unconfigured it commits as the repo default (SKILL.md contract); with an
 # unresolvable bot user id it warns to stderr and commits as the repo default rather than
 # fabricating a wrong noreply address.
@@ -185,20 +186,61 @@ BOT_LOGIN="${APP_NAME}[bot]"
 # Reuses the COMMON_DIR hoisted above (shared across worktrees, never committed). Empty when
 # $DIR is not a repo — reachable via an explicit $SECOND_SHIFT_CONFIG — so the cache is simply
 # skipped rather than rooted at "/". The commit itself then fails on its own terms.
+#
+# NAME CACHE (#1068): the id file alone hid a changed appName — a warm id meant the configured name
+# was never looked up, so a renamed App kept committing under whatever id the old name had cached.
+# The name file beside it holds "<appName> <id>" and the cached id is trusted only when that file
+# equals "<configured appName> <id-file id>" as ONE string: appName is an unconstrained string, so
+# splitting it into fields is not reliable. The id file keeps the bare id, because an older
+# bot-commit.sh sharing this git common dir still reads it. A half-written pair never matches, so the
+# next commit simply looks the name up again.
 CACHE="${COMMON_DIR:+$COMMON_DIR/second-shift-bot-user-id}"
+NAME_CACHE="${COMMON_DIR:+$COMMON_DIR/second-shift-bot-user-name}"
+
+# A valid id is digits only. The lookup needs this as much as the id file does: for a 404, `gh api
+# --jq .id` exits 1 yet prints GitHub's error JSON on stdout, and the pre-#1068 code cached that JSON
+# as the id and committed with a junk noreply address.
+valid_id() { [[ "$1" =~ ^[0-9]+$ ]]; }
+
+# Cache reads and writes WARN and never abort: this wrapper's first duty is that the commit happens.
+# An absent file is the ordinary cold cache and stays silent; anything else that cannot be read (a
+# directory at the path, no permission) is a WARN and counts as a mismatch.
+read_cache() { # read_cache <file> → the content on stdout, empty when absent or unreadable
+  [[ -e "$1" ]] || return 0
+  if ! cat "$1" 2>/dev/null; then
+    echo "[bot-commit] WARN: cannot read the bot cache file $1 — looking the bot user id up instead" >&2
+  fi
+}
+write_cache() { # write_cache <file> <content>
+  if ! { printf '%s' "$2" > "$1"; } 2>/dev/null; then
+    echo "[bot-commit] WARN: cannot write the bot cache file $1 — committing anyway; the next commit looks the bot user id up again" >&2
+  fi
+}
 
 BOT_ID=""
-if [[ -n "$CACHE" && -s "$CACHE" ]]; then
-  BOT_ID="$(cat "$CACHE")"
-else
-  BOT_ID="$(gh api "users/${BOT_LOGIN}" --jq .id 2>/dev/null || true)"
-  if [[ -n "$BOT_ID" && -n "$CACHE" ]]; then
-    printf '%s' "$BOT_ID" > "$CACHE"
+if [[ -n "$CACHE" ]]; then
+  _cached_id="$(read_cache "$CACHE")"
+  _cached_pair="$(read_cache "$NAME_CACHE")"
+  if valid_id "$_cached_id" && [[ "$_cached_pair" == "$APP_NAME $_cached_id" ]]; then
+    BOT_ID="$_cached_id"
   fi
 fi
 
 if [[ -z "$BOT_ID" ]]; then
-  echo "[bot-commit] WARN: could not resolve bot user id (gh api users/${BOT_LOGIN}) — committing with the repo default identity" >&2
+  _looked_up=""
+  _looked_up="$(gh api "users/${BOT_LOGIN}" --jq .id 2>/dev/null)" || _looked_up=""
+  # A failed lookup writes no cache, so the next commit retries it.
+  if valid_id "$_looked_up"; then
+    BOT_ID="$_looked_up"
+    if [[ -n "$CACHE" ]]; then
+      write_cache "$CACHE" "$BOT_ID"
+      write_cache "$NAME_CACHE" "$APP_NAME $BOT_ID"
+    fi
+  fi
+fi
+
+if [[ -z "$BOT_ID" ]]; then
+  echo "[bot-commit] WARN: could not resolve bot user id for tracker.bot.app.appName '${APP_NAME}' (gh api users/${BOT_LOGIN}) — committing with the repo default identity; no cache written, the next commit looks it up again" >&2
   exec git -C "$DIR" ${TRAILER_CFG[@]+"${TRAILER_CFG[@]}"} \
     commit ${TRAILER_ARGS[@]+"${TRAILER_ARGS[@]}"} "$@"
 fi

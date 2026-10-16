@@ -27,6 +27,8 @@ Provenance legend: `user-answered` = the operator chose. `codebase-derived` = a 
 | D-11 | Cutover on this repo | The operator writes `tracker.bot.app`, with the App's current name, into `.claude/second-shift.config.local.json`. The pull of #1073 left this checkout with no app block. run: `jq -r '.tracker.bot.app.appName // "none"' .claude/second-shift.config.json; ls .claude/second-shift.config.local.json` → none, No such file | codebase-derived | fact |
 | D-12 | Changes to `install-gh-bot.sh` | None. It uses `appName` only for its default, its config read, a download message and the wrapper's comments. run: `grep -n APP_NAME plugins/dev-pipeline/tools/install-gh-bot.sh` → lines 38, 67, 111, 164, 168 | codebase-derived | fact |
 | D-13 | A WARN on a successful lookup | None. The success path stays silent, as today. run: `grep -n '5c success' plugins/dev-pipeline/tools/bot-commit-selftest.sh` → 150: pass "5c success path is silent (no WARN)" | codebase-derived | fact |
+| D-14 | The name cache's file name | `<git common dir>/second-shift-bot-user-name`, holding `<appName> <id>` with no trailing newline, the same form as the id file. Added in build: D-4 left the file name to the build. | user-delegated | intent |
+| D-15 | The fake `gh` in `run-selftest-lib.sh` | It answers `api users/<login>` with a numeric id, as real `gh ... --jq .id` does. Added in build: its `{}` answer passed as an id before this change, so case (w2) of `run-bot-local-selftest.sh` went red once `bot-commit.sh` refused it. | user-delegated | intent |
 
 Options weighed:
 - D-1: accept the old name and drop it from the trace gate, or finish the rename. The operator chose finish the rename.
