@@ -67,11 +67,16 @@ review.
 
    Then run the AC coverage check of the plan, as the scheduler does after its checks. Write the
    record at `FIRST` to a file (`git show $FIRST:<record> > <file>`). Then run
-   `bash <this skill's base directory>/../../tools/plan-coverage.sh <record at FIRST> <plan at the head>`.
+   `bash <this skill's base directory>/../../tools/plan-coverage.sh --head <record at the head> <record at FIRST> <plan at the head>`.
    The plan is `<plansDir>/<repo>-<key>-plan.md`, beside the record
-   ([the script](../../tools/plan-coverage.sh)).
+   ([the script](../../tools/plan-coverage.sh)). The record at the head is read for one thing: an
+   AC added after the baseline counts when a `D-n` row added or edited since the baseline carries
+   `user-answered` or `user-delegated` provenance. The check names the row and its provenance, not
+   who wrote it: the build records its own changes as `user-delegated`. You score that row anyway in
+   step 5. Every baseline AC is still read from the baseline.
    - Exit 1 is a `[blocker]` that names what the check printed. The causes are an AC with no test
-     task, a tag the record does not define, an unparseable task line, or no plan.
+     task, a tag neither record defines, a tag only the head defines with no `user-answered` or
+     `user-delegated` ledger change, an unparseable task line, or no plan.
    - Exit 3 is not-applicable: the record has no `## Test intent`, or the ticket has no AC block.
      It is never a blocker.
    - Exit 2 means that the check could not read the AC set of the record. Say so in `## Notes`.

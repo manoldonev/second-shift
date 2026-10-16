@@ -206,5 +206,78 @@ plan '- [ ] 1.1 a (a.spec.ts) [AC-1] [AC-2] [AC-8]' '- [ ] 2.1 the `odd backtick
 run "$T/rec.md" "$T/plan.md"
 [ "$RC" -eq 0 ] && ! has 'unparseable' && ok "(pc14) D-29: an untagged task with an odd backtick is not red → 0" || bad "(pc14) D-29: rc=$RC out=$OUT"
 
+# (pc15) #1085: --head admits an AC the operator added after the baseline. The head record lists AC-9 beside the baseline's
+# ids, with its line, and its ledger carries D-2 added as user-answered: the plan's [AC-9] is covered, named with its origin
+head_rec() { # head_rec <file> <ledger rows after D-1> <Test intent body>
+  printf '# Intake receipt — #42 fixture\n\nReceipt: v4\n\n## Decision Ledger\n\n| ID | Decision | Resolution | Provenance | Kind |\n| --- | --- | --- | --- | --- |\n| D-1 | a | b | user-answered | intent |\n%s\n## Test intent\n\n%s\n\n## Knowledge source\n\nKnowledge source: none declared\n' "$2" "$3" > "$1"
+}
+HEAD_TI=$'ACs: AC-1 AC-2 AC-3 AC-8 AC-9\n\nAC-1: a duplicate import answers 409\nAC-2: an upload above 50 MB is refused\nAC-3: exempt — docs only\nAC-8: the scheduler runs the check\nAC-9: the restored guard refuses an over-size layout'
+head_rec "$T/head-dep.md" $'| D-2 | the guard | restored by the operator | user-answered | intent |\n' "$HEAD_TI"
+plan '- [ ] 1.1 a (a.spec.ts) [AC-1] [AC-2] [AC-8]' '- [ ] 1.3 the guard (guard.spec.ts) [AC-9]'
+run --head "$T/head-dep.md" "$T/rec.md" "$T/plan.md"
+[ "$RC" -eq 0 ] && has 'plan-coverage: AC-9 covered (task 1.3) — added at the head under a recorded departure (D-2 user-answered)' \
+  && has 'plan-coverage: pass — 4 covered, 1 exempt (of the covered: 1 added at the head)' \
+  && ok "(pc15) #1085: an AC the head adds under a user-answered row is covered, its origin named → 0" || bad "(pc15) rc=$RC out=$OUT err=$ERR"
+run --files --head "$T/head-dep.md" "$T/rec.md" "$T/plan.md"
+[ "$RC" -eq 0 ] && has $'run\tAC-9\tguard.spec.ts\t' && ok "(pc15) --files maps the head-added AC as a behavior" || bad "(pc15) files: rc=$RC out=$(printf '%s' "$OUT" | tr '\t\n' '^|')"
+# the flags in either order
+run --head "$T/head-dep.md" --files "$T/rec.md" "$T/plan.md"
+[ "$RC" -eq 0 ] && has $'run\tAC-9\tguard.spec.ts\t' && ok "(pc15) --head before --files is the same call" || bad "(pc15) order: rc=$RC out=$OUT"
+# an edited row counts as the departure too, and the head's form (holds) is the added AC's form
+head_rec "$T/head-edit.md" '' "${HEAD_TI/AC-9: the restored guard/AC-9: holds — the guard}"
+sed 's/^| D-1 | a | b | user-answered | intent |$/| D-1 | a | c, revised by the operator | user-answered | intent |/' "$T/head-edit.md" > "$T/h.tmp" && mv "$T/h.tmp" "$T/head-edit.md"
+run --head "$T/head-edit.md" "$T/rec.md" "$T/plan.md"
+[ "$RC" -eq 0 ] && has 'plan-coverage: AC-9 covered (task 1.3) — holds — added at the head under a recorded departure (D-1 user-answered)' \
+  && ok "(pc15) an edited user-answered row admits it; the head's form applies" || bad "(pc15) edit: rc=$RC out=$OUT"
+# an admitted AC left untagged is uncovered, like any other
+plan '- [ ] 1.1 a (a.spec.ts) [AC-1] [AC-2] [AC-8]'
+run --head "$T/head-dep.md" "$T/rec.md" "$T/plan.md"
+[ "$RC" -eq 1 ] && has 'RED: AC-9 has no test task' && ok "(pc15) an admitted but untagged AC is red → 1" || bad "(pc15) untagged: rc=$RC out=$OUT"
+# no user-answered or user-delegated ledger change: the head alone defines AC-9, and the tag stays red, saying so
+head_rec "$T/head-norow.md" '' "$HEAD_TI"
+plan '- [ ] 1.1 a (a.spec.ts) [AC-1] [AC-2] [AC-8]' '- [ ] 1.3 the guard (guard.spec.ts) [AC-9]'
+run --head "$T/head-norow.md" "$T/rec.md" "$T/plan.md"
+[ "$RC" -eq 1 ] && has 'RED: task 1.3 tags AC-9, which only the record at the head defines' && has 'no Decision Ledger row was added or changed since the baseline with user-answered or user-delegated provenance' \
+  && ok "(pc15) a head-only AC with no operator row is red, naming why → 1" || bad "(pc15) norow: rc=$RC out=$OUT"
+head_rec "$T/head-derived.md" $'| D-2 | the guard | a fact | codebase-derived | fact |\n' "$HEAD_TI"
+run --head "$T/head-derived.md" "$T/rec.md" "$T/plan.md"
+[ "$RC" -eq 1 ] && has 'which only the record at the head defines' && ok "(pc15) a codebase-derived row admits nothing → 1" || bad "(pc15) derived: rc=$RC out=$OUT"
+# the lane's build records its own changes as user-delegated: such a row admits too, and the line names its provenance,
+# never a decider
+head_rec "$T/head-deleg.md" $'| D-2 | helper name | Foo. Added in build: naming. | user-delegated | fact |\n' "$HEAD_TI"
+run --head "$T/head-deleg.md" "$T/rec.md" "$T/plan.md"
+[ "$RC" -eq 0 ] && has 'AC-9 covered (task 1.3) — added at the head under a recorded departure (D-2 user-delegated)' && ! has 'operator' \
+  && ok "(pc15) a user-delegated row admits it, named by its provenance → 0" || bad "(pc15) deleg: rc=$RC out=$OUT"
+# a baseline row only re-padded at the head (a table formatter) keeps its cells: not a departure
+head_rec "$T/head-pad.md" '' "$HEAD_TI"
+sed 's/^| D-1 | a | b | user-answered | intent |$/|  D-1  |  a  |  b  |  user-answered  |  intent  |/' "$T/head-pad.md" > "$T/h.tmp" && mv "$T/h.tmp" "$T/head-pad.md"
+run --head "$T/head-pad.md" "$T/rec.md" "$T/plan.md"
+[ "$RC" -eq 1 ] && has 'which only the record at the head defines' && ok "(pc15) a re-padded baseline row admits nothing → 1" || bad "(pc15) pad: rc=$RC out=$OUT"
+# #1039 D-10 holds: the baseline governs its own ids — a head that exempts AC-8, drops AC-2 or re-forms AC-1 changes nothing
+head_rec "$T/head-tamper.md" $'| D-2 | x | y | user-answered | intent |\n' $'ACs: AC-1 AC-3 AC-8 AC-9\n\nAC-1: holds — now\nAC-3: exempt — docs only\nAC-8: exempt — the build says so\nAC-9: the guard'
+plan '- [ ] 1.1 a (a.spec.ts) [AC-1]' '- [ ] 1.3 the guard (guard.spec.ts) [AC-9]'
+run --head "$T/head-tamper.md" "$T/rec.md" "$T/plan.md"
+[ "$RC" -eq 1 ] && has 'RED: AC-2 has no test task' && has 'RED: AC-8 has no test task' && has 'plan-coverage: AC-1 covered (task 1.1)' && ! has 'AC-1 covered (task 1.1) —' \
+  && has 'AC-9 covered (task 1.3) — added at the head' \
+  && ok "(pc15) D-10: the head cannot exempt, drop or re-form a baseline AC; only its addition counts → 1" || bad "(pc15) tamper: rc=$RC out=$OUT"
+# a head with no Test intent, or no head at all, adds nothing
+printf '# record\n\nReceipt: v4\n\n## Decision Ledger\n\n| D-2 | x | y | user-answered | intent |\n' > "$T/head-noti.md"
+run --head "$T/head-noti.md" "$T/rec.md" "$T/plan.md"
+[ "$RC" -eq 1 ] && has 'tags AC-9, which the record'"'"'s Test intent does not define' && ok "(pc15) a head with no Test intent adds nothing → 1" || bad "(pc15) noti: rc=$RC out=$OUT"
+run --head "$T/no-such-head.md" "$T/rec.md" "$T/plan.md"
+[ "$RC" -eq 2 ] && grep -qF 'cannot read the record at the head' <<< "$ERR" && ok "(pc15) an unreadable head record → 2" || bad "(pc15) unreadable: rc=$RC err=$ERR"
+run --head "$T/rec.md" "$T/plan.md"
+[ "$RC" -eq 2 ] && grep -qF 'usage:' <<< "$ERR" && ok "(pc15) --head with no record and plan is usage → 2" || bad "(pc15) usage: rc=$RC err=$ERR"
+# two admitting rows are both named; an AC the head adds as exempt is exempt, its origin named
+head_rec "$T/head-two.md" $'| D-2 | x | y | user-answered | intent |\n| D-3 | p | q | user-delegated | intent |\n' "${HEAD_TI/AC-9: the restored guard refuses an over-size layout/AC-9: exempt — docs only}"
+plan '- [ ] 1.1 a (a.spec.ts) [AC-1] [AC-2] [AC-8]'
+run --head "$T/head-two.md" "$T/rec.md" "$T/plan.md"
+[ "$RC" -eq 0 ] && has 'plan-coverage: AC-9 exempt — added at the head under a recorded departure (D-2 user-answered, D-3 user-delegated)' \
+  && ok "(pc15) a head-added exempt AC is exempt, naming both admitting rows → 0" || bad "(pc15) two: rc=$RC out=$OUT"
+# a head whose Test intent no longer parses is red, naming it — the head can be fixed, unlike the baseline (→ 2)
+head_rec "$T/head-bad.md" '' $'ACs: AC-1 AC-2 AC-3 AC-8\nACs: AC-9\n\nAC-1: x'
+run --head "$T/head-bad.md" "$T/rec.md" "$T/plan.md"
+[ "$RC" -eq 1 ] && has "RED: the head record's Test intent carries 2 'ACs:' lines" && ok "(pc15) an unparseable head Test intent is red → 1" || bad "(pc15) bad head: rc=$RC out=$OUT err=$ERR"
+
 echo "plan-coverage-selftest: $PASS passed, $FAIL failed"
 exit "$FAIL"

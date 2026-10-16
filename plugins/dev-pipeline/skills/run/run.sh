@@ -39,7 +39,8 @@
 #   5 baseline   (worktree on the branch; the record is the branch's first commit, pushed)
 #   6 rounds     (premise; worktree at the pushed head; BUILD; in-flight check; one PR;
 #                 conventions; checks from the first commit; the plan's AC coverage
-#                 (tools/plan-coverage.sh: the record at the first commit, the plan at the head);
+#                 (tools/plan-coverage.sh: the record at the first commit, the plan at the head, and
+#                 the record at the head for an AC added under a recorded departure);
 #                 fails without the change (the head's tagged test files on the record commit's
 #                 tree, run through commands.<id>.testRunners — per file, or one batch per
 #                 reporting runner — each named test must fail there; a pending one, and each
@@ -60,7 +61,8 @@
 #     fails-without-the-change leg detaches only a tree with no tracked change, and goes back by an unforced
 #     checkout); the one history rewrite is rebase_onto_base's clean rebase onto a moved base, pushed under a lease;
 #   - the record's sections, the checks and the frames are read from its FIRST commit, never the head —
-#     one exception: the verdict check reads the record at the head too, so a row the build added is scored (#991);
+#     two exceptions: the verdict check reads the record at the head too, so a row the build added is scored (#991),
+#     and the plan's AC coverage reads it for an AC added under a recorded departure, and nothing else (#1085);
 #   - every session is a fresh process with a wall-clock bound; every attempt keeps its own files;
 #   - a regex or record form is stated exactly, never paraphrased.
 #
@@ -429,6 +431,7 @@ remote_head() { local out; out="$(git -C "$WT" ls-remote origin "refs/heads/$BRA
 
 # -- the record (rows G6, G7, H1-H4, H6, K6): read at its FIRST commit once one exists, else the receipt --
 record_at_first() { git -C "$WT" show "$FIRST:$RECORD_REL" 2>/dev/null; }
+record_at_head() { git -C "$WT" show "$HEAD_SHA:$RECORD_REL" 2>/dev/null; }   # #1085: read by plan-coverage.sh --head for operator-added ACs only
 record_text() { if [ -n "$FIRST" ]; then record_at_first; else cat "$RECORD" 2>/dev/null; fi; }
 # #1039 D-3: the build is asked for a plan only when the record at FIRST carries the section (a v4 receipt's)
 # (the caller has read the record at FIRST already; were this read to fail, plan_coverage's own read refuses the run)
@@ -550,17 +553,18 @@ EOF
   return $rc
 }
 # -- the plan's AC coverage (#1039 D-6 D-7 D-9): tools/plan-coverage.sh from $TOOLS (the installed plugin, outside every dir
-# the build is granted), handed the record at FIRST and the plan at the pushed head as git objects through pipes — never
-# the worktree, $STATE or the config, all of which the build can write. Not a configured lane: its exit code is the result.
+# the build is granted), handed the record at FIRST, the record at the pushed head (#1085: read for an AC added under a
+# recorded departure, nothing else) and the plan at the pushed head as git objects through pipes — never the
+# worktree, $STATE or the config, all of which the build can write. Not a configured lane: its exit code is the result.
 # PLAN_NOTES is the latest check's run-block lines; the plan's position is noted, never gating: no commit order proves a
 # test came first, so #1040 D-1 proves "fails without the change" instead (fails_without_change below) --
 PLAN_NOTES=""
 plan_coverage() { # plan_coverage <attempt> -> the script's exit: 0 pass · 1 red (the log: $STATE/plan-coverage-<attempt>.log) · 2 uncheckable · 3 not-applicable
   local log="$STATE/plan-coverage-$1.log" out rc after pos
   if git -C "$WT" cat-file -e "$HEAD_SHA:$PLAN_REL" 2>/dev/null; then
-    out="$(bash "$TOOLS/plan-coverage.sh" <(record_at_first) <(git -C "$WT" show "$HEAD_SHA:$PLAN_REL" 2>/dev/null) 2>&1)"; rc=$?
+    out="$(bash "$TOOLS/plan-coverage.sh" --head <(record_at_head) <(record_at_first) <(git -C "$WT" show "$HEAD_SHA:$PLAN_REL" 2>/dev/null) 2>&1)"; rc=$?
   else # no such file: the script names the plan missing at the head
-    out="$(bash "$TOOLS/plan-coverage.sh" <(record_at_first) "$HEAD_SHA:$PLAN_REL" 2>&1)"; rc=$?
+    out="$(bash "$TOOLS/plan-coverage.sh" --head <(record_at_head) <(record_at_first) "$HEAD_SHA:$PLAN_REL" 2>&1)"; rc=$?
   fi
   if [ "$rc" -eq 3 ]; then
     PLAN_NOTES="$(printf '%s' "$out" | tail -n 1 | sed 's/^plan-coverage:/plan coverage:/')"$'\n'; say "${PLAN_NOTES%$'\n'}"; return 3
@@ -819,7 +823,7 @@ fails_without_change() { # fails_without_change <attempt> -> 0 pass · 1 red (th
     why="no test runner is configured (commands.${key:-<id>}.testRunners)"
     echo "not-applicable: $why" > "$log"; FWC_NOTES="fails without the change: not-applicable — $why"$'\n'; say "fails without the change: not-applicable — $why"; return 3
   fi
-  map="$(bash "$TOOLS/plan-coverage.sh" --files <(record_at_first) <(git -C "$WT" show "$HEAD_SHA:$PLAN_REL" 2>/dev/null) 2>&1)"; rc=$?
+  map="$(bash "$TOOLS/plan-coverage.sh" --files --head <(record_at_head) <(record_at_first) <(git -C "$WT" show "$HEAD_SHA:$PLAN_REL" 2>/dev/null) 2>&1)"; rc=$?
   [ "$rc" -eq 0 ] || terminal plan-coverage-uncheckable "tools/plan-coverage.sh --files exited $rc on the record at $FIRST and $PLAN_REL at $HEAD_SHA, whose coverage had just passed ($(printf '%s' "$map" | tr '\n' ' ' | cut -c1-300))"
   { echo "fails without the change: the head's tagged test files at $HEAD_SHA applied onto the record commit's tree $FIRST; each must fail there"; echo; } > "$log"
   while IFS=$'\t' read -r kind id f c; do   # #1053 D-6: the map is tab-separated, the case empty for a bare file

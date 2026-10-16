@@ -73,6 +73,8 @@ This path does not do the steps that the scheduler does after its build:
 - **The scheduler checks nothing between the handoff and the PR.** The unattended run runs the
   checks again from the first commit. Here that is your job, so run all of the checks. When the
   record has `## Test intent`, also run the plan coverage check:
-  `bash <this skill's base directory>/../../tools/plan-coverage.sh <the record at the baseline commit> <the plan>`
-  It must exit 0, or 3 (not-applicable). The fresh review runs this check again before it decides.
+  `bash <this skill's base directory>/../../tools/plan-coverage.sh --head <the record at the head> <the record at the baseline commit> <the plan>`
+  It must exit 0, or 3 (not-applicable). An AC added during the build counts only when the record
+  at the head also carries the ledger row that decided it, with `user-answered` or
+  `user-delegated` provenance; the baseline still governs every AC it defines. The fresh review runs this check again before it decides.
   While the check is red, `post-review-status.sh` posts no approving `second-shift/review` status.

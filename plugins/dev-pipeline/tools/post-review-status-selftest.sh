@@ -100,5 +100,19 @@ printf '## Test intent\n\nAC-1: x\n' > "$T/first-noacs.md"
 run p9e 7 "$SHA" "$T/approve-ok.md" "$T/head/docs/plans/r-42-decisions.md" "$T/first-noacs.md" https://x/pr/7#c1; rc=$?
 [ "$rc" -eq 2 ] && [ -z "$(posts)" ] && ok "(p9) an uncheckable coverage: nothing posted, exit 2" || bad "(p9e) rc=$rc posts='$(posts)'"
 
+# (p10) #1085: an AC the operator added after the baseline — the head's record lists AC-9 and carries a D-2 row with
+# user-answered provenance the first commit lacks, and the plan tags it — is covered: the approve posts success
+LEDGER=$'| ID | Decision | Resolution | Provenance | Kind |\n| --- | --- | --- | --- | --- |\n| D-1 | a | b | user-answered | intent |\n'
+printf '%s\n## Test intent\n\nACs: AC-1 AC-8\n\nAC-1: x\nAC-8: y\n' "$LEDGER" > "$T/first-dep.md"
+printf '%s| D-2 | the guard | restored | user-answered | intent |\n\n## Test intent\n\nACs: AC-1 AC-8 AC-9\n\nAC-1: x\nAC-8: y\nAC-9: the guard\n' "$LEDGER" > "$T/head/docs/plans/r-42-decisions.md"
+printf '%s\n' '- [ ] 1.1 a (a.spec.ts) [AC-1] [AC-8]' '- [ ] 1.2 the guard (g.spec.ts) [AC-9]' > "$T/head/docs/plans/r-42-plan.md"
+printf 'verdict: approve\nreviewed: %s\n\n## Decision record rows\n\n| Row | Score | Evidence |\n| --- | --- | --- |\n| D-1 | honored | x |\n| D-2 | honored | Added by the build, user-answered. |\n\n## Findings\n\nNone.\n' "$SHA" > "$T/approve-dep.md"
+run p10 7 "$SHA" "$T/approve-dep.md" "$T/head/docs/plans/r-42-decisions.md" "$T/first-dep.md" https://x/pr/7#c1; rc=$?
+[ "$rc" -eq 0 ] && grep -q 'state=success' "$S/posts" && ok "(p10) #1085: an operator-added AC the head defines and the plan tags: the approve posts success" || bad "(p10) rc=$rc posts='$(posts)' out=$(cat "$S/out" "$S/err" | tr '\n' '|')"
+# the same AC with no operator row at the head stays red
+printf '%s\n## Test intent\n\nACs: AC-1 AC-8 AC-9\n\nAC-1: x\nAC-8: y\nAC-9: the guard\n' "$LEDGER" > "$T/head/docs/plans/r-42-decisions.md"
+run p10b 7 "$SHA" "$T/approve-ok.md" "$T/head/docs/plans/r-42-decisions.md" "$T/first-dep.md" https://x/pr/7#c1; rc=$?
+[ "$rc" -eq 1 ] && [ -z "$(posts)" ] && grep -q 'which only the record at the head defines' "$S/out" && ok "(p10) a head-only AC with no operator row: no status, exit 1" || bad "(p10b) rc=$rc posts='$(posts)' out=$(tr '\n' '|' < "$S/out")"
+
 echo "post-review-status-selftest: $PASS passed, $FAIL failed"
 exit "$FAIL"
