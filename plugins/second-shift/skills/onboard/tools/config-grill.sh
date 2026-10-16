@@ -137,6 +137,9 @@ count_glob_matches() { # $1.. globs → prints the number of tracked files match
 # nothing" is a terminal fact rather than a config omission, and one the tracked-file list
 # already in hand can measure, so it lands in notEvaluated[] with nothing to propose.
 #
+# An explicit [] is neither shape: it is the repo declaring no web-component surface, and it lands
+# in notEvaluated[] as declared, UI files in the tree or not.
+#
 # The DEFAULT below is the RUNTIME-resolved literal — the fallback review-lead actually
 # applies — never the JSON Schema `default`, which nothing injects into a config.
 t2_key() { # $1 id, $2 key, $3 jq expr yielding the configured globs (empty when unset),
@@ -148,6 +151,14 @@ t2_key() { # $1 id, $2 key, $3 jq expr yielding the configured globs (empty when
     return 0
   fi
   local cur src n cand cn line ev pr alt="" altn=0
+  # An explicit [] is a declaration, not an omission: the repo says it has no web-component
+  # surface, so review-lead routes neither reviewer on an unarmed diff and there is nothing to
+  # propose. Checked before the glob read, which cannot tell [] from an absent key.
+  if jq -e --arg k "$key" 'getpath($k | split(".")) == []' "$CONFIG" >/dev/null 2>&1; then
+    add_noteval "$id" "$key" \
+      "set to [] — the repo declares no web-component surface, so on an unarmed diff neither a11y-reviewer nor the design-fidelity dimension is routed; nothing to propose"
+    return 0
+  fi
   cur="$(jq -r "$expr" "$CONFIG" 2>/dev/null)"
   local -a globs=()
   if [[ -n "$cur" ]]; then
@@ -188,7 +199,9 @@ t2_key() { # $1 id, $2 key, $3 jq expr yielding the configured globs (empty when
 # present behavior stands — over-firing is the safe error, so it only suppresses when confident.
 WEB_SURFACE_PROBE=("*.{tsx,jsx,vue,svelte,astro,html,css,scss,sass,less}")
 
-DEFAULT_GLOBS=("apps/web/**/*.{tsx,jsx}")
+# Repo-wide (#1076 D-17): a component or stylesheet at any depth routes the web checks, so an
+# absent key fires here only on a surface the default does not list (an Angular .html + .ts tree).
+DEFAULT_GLOBS=("**/*.{tsx,jsx,vue,svelte,css,scss,less}")
 CANDIDATES=("src/app/**/*.{html,ts}" "src/**/*.vue" "app/**/*.tsx" "src/**/*.{tsx,jsx}")
 PROBE_GLOBS=("${WEB_SURFACE_PROBE[@]}")
 t2_key "T2.webComponentGlobs" "reviewers.webComponentGlobs" \

@@ -68,19 +68,39 @@ STD_HEAD='"configVersion": 3, "tracker": {"type":"github"}'
 echo "config-grill selftest:"
 
 # --- AC-2/AC-3: trigger 2, webComponentGlobs -----------------------------------------------
-# The motivating case B: the key is never asked about, falls back to the shipped
-# apps/web literal, and un-routes a11y + the whole design-fidelity dimension in a repo whose
-# FE lives under src/. The RESOLVED DEFAULT must be quoted (never the schema default, which
-# nothing injects), and a detected alternative must be offered with its own count.
-R="$(mkrepo t2-web-default src/App.tsx src/Button.tsx README.md)"
+# An absent key resolves to the repo-wide default (#1076 AC-7), so it fires only where the repo's
+# components carry an extension the default does not list: here an Angular tree of .html + .ts.
+# The RESOLVED DEFAULT must be quoted (never the schema default, which nothing injects), and a
+# detected alternative must be offered with its own count.
+R="$(mkrepo t2-web-default src/app/app.component.html src/app/app.component.ts README.md)"
 cfg "$R/c.json" <<EOF
 { $STD_HEAD, "commands": {"app":{}} }
 EOF
 run_grill "$R" "$R/c.json"
 expect_finding "t2 webComponentGlobs: absent key, default matches nothing" \
-  T2.webComponentGlobs "unset; resolved default" "apps/web/**/*.{tsx,jsx}" \
-  "matches 0 of the repo's tracked files" "src/**/*.{tsx,jsx}" "matches 2 tracked file(s)"
+  T2.webComponentGlobs "unset; resolved default" "(**/*.{tsx,jsx,vue,svelte,css,scss,less})" \
+  "matches 0 of the repo's tracked files" "src/app/**/*.{html,ts}" "matches 2 tracked file(s)"
 check "t2 exits 0 with findings present (rc=$RC)" "$([[ "$RC" -eq 0 ]] && echo 0 || echo 1)"
+
+# #1076 AC-7: the default is repo-wide. The motivating case B: a repo whose FE lives under src/
+# and that never set the key. The old apps/web default matched nothing there and un-routed a11y
+# and the whole design-fidelity dimension; the absent key now covers it. One repo PER extension,
+# each component nested where no shipped candidate reaches it, so dropping any one extension from
+# the default fails exactly its own case.
+for ext in tsx jsx vue svelte css scss less; do
+  RDF="$(mkrepo "t2-default-$ext" "packages/ui/src/widget.$ext" README.md)"
+  cfg "$RDF/c.json" <<EOF
+{ $STD_HEAD, "commands": {"app":{}} }
+EOF
+  run_grill "$RDF" "$RDF/c.json"
+  expect_no_finding "t2 webComponentGlobs: absent key, the default covers a nested .$ext" T2.webComponentGlobs
+done
+RDF="$(mkrepo t2-default-src src/App.tsx src/Button.tsx README.md)"
+cfg "$RDF/c.json" <<EOF
+{ $STD_HEAD, "commands": {"app":{}} }
+EOF
+run_grill "$RDF" "$RDF/c.json"
+expect_no_finding "t2 webComponentGlobs: absent key, a src/ React tree is covered" T2.webComponentGlobs
 
 # A hand-set value that matches nothing is the SAME defect (case C's lesson: an adopted value
 # can itself be broken), so setting the key wrongly must not silence the check.
@@ -95,17 +115,37 @@ expect_finding "t2 webComponentGlobs: hand-set value matching nothing still fire
 # not what review-lead reads, so it must not silence the check; the matching reviewers copy must.
 cfg "$R/leftover.json" <<EOF
 { $STD_HEAD, "commands": {"app":{}},
-  "stageParams": {"webComponentGlobs": ["src/**/*.tsx"]} }
+  "stageParams": {"webComponentGlobs": ["src/app/**/*.html"]} }
 EOF
 run_grill "$R" "$R/leftover.json"
 expect_finding "t2 webComponentGlobs: a leftover stageParams value is not read" \
   T2.webComponentGlobs "reviewers.webComponentGlobs — unset; resolved default"
 cfg "$R/moved.json" <<EOF
 { $STD_HEAD, "commands": {"app":{}},
-  "reviewers": {"webComponentGlobs": ["src/**/*.tsx"]} }
+  "reviewers": {"webComponentGlobs": ["src/app/**/*.html"]} }
 EOF
 run_grill "$R" "$R/moved.json"
 expect_no_finding "t2 webComponentGlobs: reviewers.webComponentGlobs matching → silent" T2.webComponentGlobs
+
+# An explicit [] is a declaration, not an omission (#1076 follow-up D-22): the repo says it has
+# no web-component surface, review-lead routes neither reviewer on an unarmed diff, and the grill
+# has nothing to propose. It lands in notEvaluated[] whether or not the tree holds a UI file —
+# the UI-present shape is the one that used to read as "unset" and silently take the default.
+RE="$(mkrepo t2-empty-ui src/App.tsx README.md)"
+cfg "$RE/c.json" <<EOF
+{ $STD_HEAD, "commands": {"app":{}},
+  "reviewers": {"webComponentGlobs": []} }
+EOF
+run_grill "$RE" "$RE/c.json"
+expect_no_finding "t2 webComponentGlobs: explicit [] is a declared no-surface, not a finding" T2.webComponentGlobs
+expect_noteval "t2 webComponentGlobs: explicit [] with a UI file lands in notEvaluated" T2.webComponentGlobs "set to []"
+RE2="$(mkrepo t2-empty-noui README.md)"
+cfg "$RE2/c.json" <<EOF
+{ $STD_HEAD, "commands": {"app":{}},
+  "reviewers": {"webComponentGlobs": []} }
+EOF
+run_grill "$RE2" "$RE2/c.json"
+expect_noteval "t2 webComponentGlobs: explicit [] with no UI file lands in notEvaluated as declared" T2.webComponentGlobs "set to []"
 
 # The negative half. Without it the check could be a constant-true and still pass everything
 # above.
@@ -118,9 +158,9 @@ expect_no_finding "t2 webComponentGlobs: default matches → silent" T2.webCompo
 
 # No candidate matches either → the finding STILL fires and says so, rather than going quiet
 # because the tool could not think of a value. The tree has to carry a real component somewhere
-# no candidate reaches: this is the arm the applicability probe sits next to, so a probe that
-# over-reached would silence exactly this case.
-R3B="$(mkrepo t2-web-nocand pkg/ui/Widget.tsx docs/guide.md)"
+# no candidate reaches, with an extension the default does not list: this is the arm the
+# applicability probe sits next to, so a probe that over-reached would silence exactly this case.
+R3B="$(mkrepo t2-web-nocand pkg/ui/Widget.astro docs/guide.md)"
 cfg "$R3B/c.json" <<EOF
 { $STD_HEAD, "commands": {"app":{}} }
 EOF
@@ -156,12 +196,15 @@ check "probe: exits 0 (rc=$RC)" "$([[ "$RC" -eq 0 ]] && echo 0 || echo 1)"
 # The probe list is an allowlist, and an allowlist reviewed as prose reads as a single rule — a
 # member nothing exercises can be dropped in a later edit with every case still green. One repo
 # PER member, so removing any one extension fails exactly its own case. Each file sits at the
-# root, where neither the resolved default nor any shipped candidate reaches it: the finding
-# that fires is therefore the probe holding the check open, not a candidate rescuing it.
+# root, where neither the configured value nor any shipped candidate reaches it: the finding
+# that fires is therefore the probe holding the check open, not a candidate rescuing it. The key
+# is SET because the repo-wide default already covers most members, and a glob that matches is
+# applicable by demonstration — it never consults the probe.
 for ext in tsx jsx vue svelte astro html css scss sass less; do
   RPB="$(mkrepo "probe-$ext" "widget.$ext")"
   cfg "$RPB/c.json" <<EOF
-{ $STD_HEAD, "commands": {"app":{}} }
+{ $STD_HEAD, "commands": {"app":{}},
+  "reviewers": {"webComponentGlobs": ["packages/ui/**/*.vue"]} }
 EOF
   run_grill "$RPB" "$RPB/c.json"
   expect_finding "probe member .$ext holds the web checks open" \

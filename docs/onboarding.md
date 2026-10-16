@@ -177,10 +177,13 @@ pass reads it. Put the API contract in the frontend ticket's body (the merged ba
 `docs/plans/` is the written source). Run and merge the backend, then intake and run the frontend
 ticket.
 
-Give design support to the frontend only, and make sure its config carries
-`reviewers.webComponentGlobs` (onboard drafts it only when it detects your component files): the
-default, `apps/web/**/*.{tsx,jsx}`, matches nothing in a standalone UI repo, and then the
-accessibility and design reviews never run. For example `["src/**/*.tsx"]`.
+Give design support to the frontend only. When `reviewers.webComponentGlobs` is absent, the
+default, `**/*.{tsx,jsx,vue,svelte,css,scss,less}`, matches a component or stylesheet at any
+depth, so the accessibility and design reviews run on the frontend's UI files. Set the key when
+your components use another extension (for example `["src/app/**/*.{html,ts}"]` for Angular) or
+when you want a narrower surface. A configured key always wins.
+Set it to `[]` when the repo has no UI surface at all; then on an unarmed diff neither review is
+routed, and config-grill reports the key as declared.
 
 ### Manual install
 

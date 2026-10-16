@@ -128,7 +128,7 @@ DEFAULT_CAP=15
 # whole evidence base, and it is the predicate this list asks for.
 #
 # WHY ONLY THIS ONE. design-faithful-reviewer is the same shape — sibling provider of the same
-# dimension, same cap, same missing deadline — and a11y, db and pipeline are named in
+# dimension, same cap; it carries a body deadline since #1076 but is not enrolled — and a11y, db and pipeline are named in
 # code-review.mjs's ROOT CAUSE block as the same vulnerable population. None of them has a
 # demonstrated death, so none is enrolled: the header's rule is deliberate, and enrolling the
 # default-cap panel on a sibling's evidence is the larger decision it forbids. They are covered in

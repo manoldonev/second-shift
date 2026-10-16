@@ -31,4 +31,6 @@ export const componentOverrides = {
       margin: 0,
     },
   },
+  // Applied by Button only when size='small'.
+  ButtonSmall: { root: { paddingInline: 2, minBlockSize: '28px' } },
 } as const;

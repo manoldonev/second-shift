@@ -22,11 +22,13 @@ v2 (#1077) adds the library-conformance fixtures 05-11 on the fictional `acme-ui
 teaches the judge to grade a citation into the installed source and a comment flagged false. The
 v1 baseline in CLOSEOUT-BASELINE.md is superseded; the v2 baseline is the operator's first run.
 
+v3 (#1076 follow-up) adds fixture 12, a condition-keyed theme value that must not flag.
+
 Total: 10.
 """
 
 RUBRIC_VERSION = 2
-FIXTURE_VERSION = 2
+FIXTURE_VERSION = 3
 
 MAX_POINTS = {
     "d1_verdict_correctness": 6,

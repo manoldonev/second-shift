@@ -69,15 +69,17 @@ If the config is absent or has no `reviewers` block, the effective registry is e
 Two further keys are read from the same file at the start of Routing, both feeding the design-fidelity dimension (see Reviewer Routing):
 
 - `design.provider` — `figma` | `claude-design`. Selects which fidelity reviewer the web-component trigger routes to. **Key absent is a supported state**, not a misconfiguration.
-- `reviewers.webComponentGlobs` — the repo's web-component surface, e.g. `["src/app/**/*.{html,ts}"]` (Angular), `["src/**/*.vue"]` (Vue), `["app/**/*.tsx"]` (React Router v7). Absent resolves to `["apps/web/**/*.{tsx,jsx}"]`. It gates both `a11y-reviewer` and the design-fidelity dimension.
+- `reviewers.webComponentGlobs` — the repo's web-component surface, e.g. `["src/app/**/*.{html,ts}"]` (Angular), `["src/**/*.vue"]` (Vue), `["app/**/*.tsx"]` (React Router v7). Absent resolves to the repo-wide `["**/*.{tsx,jsx,vue,svelte,css,scss,less}"]`. It gates both `a11y-reviewer` and the design-fidelity dimension. An explicit empty array declares that the repo has no web-component surface: on an unarmed diff neither reviewer is routed. An armed decision record still spawns the fidelity seat (the always-spawn row under Reviewer Routing), whatever the key says.
 
 Resolve the path **once**, from the same file and the same override the `reviewers` read above uses, anchored on `worktree` (the absolute repo-under-review path from Pre-flight) — never a cwd-relative literal. This session's cwd is not reliably the reviewed repo's root, and both keys fail *open* on an unreadable path: an unread `design.provider` silently takes the _key absent_ row (the wrong reviewer, with no not-selected note, because absence is a legitimate state), and an unread `reviewers.webComponentGlobs` silently reverts to the shipped default.
 
 ```bash
 CONFIG="${SECOND_SHIFT_CONFIG:-$WORKTREE/.claude/second-shift.config.json}"
 DESIGN_PROVIDER=$(jq -r '.design.provider // empty' "$CONFIG" 2>/dev/null)
-WEB_COMPONENT_GLOBS=$(jq -r '(.reviewers.webComponentGlobs // ["apps/web/**/*.{tsx,jsx}"]) | .[]' "$CONFIG" 2>/dev/null || echo 'apps/web/**/*.{tsx,jsx}')
+WEB_COMPONENT_GLOBS=$(jq -r '(.reviewers.webComponentGlobs // ["**/*.{tsx,jsx,vue,svelte,css,scss,less}"]) | .[]' "$CONFIG" 2>/dev/null || echo '**/*.{tsx,jsx,vue,svelte,css,scss,less}')
 ```
+
+(`[]` is neither `null` nor `false`, so `//` does not replace it: an explicit empty array resolves to no globs.)
 
 ## Sub-Agent Trust Model
 
@@ -244,7 +246,7 @@ pass), and its Verdicts row reads `Pass / Fail`. With no opt-in, nothing about i
 | **pipeline-reviewer**           | Async worker / queue-processor / job-producer files changed (e.g. `*processor*`, `*queue*`, a workers dir).                                                                                                                                                                 |
 | **unit-test-mutation-reviewer** | A production file within the repo's mutation-review target surface changed AND a co-located spec is in the diff; OR the pipeline ran with `unitTestSurface.action == strengthen`. Advisory mode (LLM-predicted, no execution — the propose-mode orchestrator owns execution-verified blocking).    |
 | **scope-completeness-reviewer** | Invocation references a tracker issue number (e.g., `Closes #758`, `Part of #758`, an explicit `--issue 758` flag, or PR body contains `#<number>`). Spawn unconditionally — depth routing does not apply. If no issue is referenced, do not spawn.                          |
-| **a11y-reviewer**               | Diff touches the repo's web-component surface — `$WEB_COMPONENT_GLOBS` (config `reviewers.webComponentGlobs`, default `apps/web/**/*.{tsx,jsx}`). WCAG/ARIA/keyboard/contrast/reduced-motion, primitives-library-aware.                                                    |
+| **a11y-reviewer**               | Diff touches the repo's web-component surface — `$WEB_COMPONENT_GLOBS` (config `reviewers.webComponentGlobs`, default `**/*.{tsx,jsx,vue,svelte,css,scss,less}`). WCAG/ARIA/keyboard/contrast/reduced-motion, primitives-library-aware.                                                    |
 | **design-fidelity dimension**   | **ALWAYS on an armed decision record** — a `## Design frames` (or `## Design`) section carrying `RS-n` render-state rows — where the reviewer is fixed by the handoff host and the diff does not enter into it. On an unarmed diff, the same `$WEB_COMPONENT_GLOBS` trigger as `a11y-reviewer`, spawned alongside it, selecting exactly one of **design-faithful-reviewer** / **figma-faithful-reviewer** by config `design.provider` — see "Design-fidelity dimension" below. |
 | **repo-local domain reviewers** | Registered via config `reviewers.add`; spawn per the `dimensions[]` each declares (e.g. an `orders-reviewer` on orders-domain paths). Never suppressed by depth routing.                                                                                                     |
 
@@ -386,7 +388,7 @@ the lead pass covered them.
 
 WHICH reviewer: when the section carries a handoff URL, its host decides — `figma.com` (or a subdomain of it) → **figma-faithful-reviewer**; `claude.ai` under `/design` → **design-faithful-reviewer**. With no recognized URL, the provider map below decides, as it does for an unarmed diff.
 
-**Trigger (unarmed diffs).** The same web-component surface that routes `a11y-reviewer`: the globs resolved into `$WEB_COMPONENT_GLOBS` from config `reviewers.webComponentGlobs` (default `apps/web/**/*.{tsx,jsx}`), **never a hardcoded path** — a consumer whose FE is not React-under-`apps/web` still gets this reviewer class. Never depth-suppressed.
+**Trigger (unarmed diffs).** The same web-component surface that routes `a11y-reviewer`: the globs resolved into `$WEB_COMPONENT_GLOBS` from config `reviewers.webComponentGlobs` (default `**/*.{tsx,jsx,vue,svelte,css,scss,less}`, repo-wide), **never a hardcoded path** — a consumer that never set the key still gets this reviewer class on its UI files; a consumer that set the key to `[]` declared no web-component surface, and on an unarmed diff the dimension is not routed. Never depth-suppressed.
 
 **Matching is model judgment over the configured patterns**, not a mechanical pathspec match: read the `git diff --stat` path list from Process step 1, read `$WEB_COMPONENT_GLOBS` as the intended surface, and decide whether a changed path belongs to it. A brace/`**` pattern that no shell expanded is still a clear statement of intent.
 
@@ -400,7 +402,7 @@ WHICH reviewer: when the section carries a handoff URL, its host decides — `fi
 
 The no-provider row is a **default, not a fallback to nothing**: a repo with no design axis configured still gets design-system-discipline review on its web components.
 
-**What this dimension asserts.** Both reviewers are design-blind by contract — they verify *the abstraction is right*, not that it matches an unseen design. This dimension covers design-token discipline, logical-vs-physical style props, real-component reuse over hand-rolled primitives, and copy drift against a discoverable spec. **It is not a pixel check** — the pixel loop belongs to the implementing session's self-verify artifact, to the pipeline's REVIEW session on a design-armed run (which renders every screen at the head and compares it with its frame, and cannot approve without that render), and to the human reviewer.
+**What this dimension asserts.** Both reviewers are design-blind by contract — they verify *the abstraction is right*, not that it matches an unseen design. This dimension covers design-token discipline, logical-vs-physical style props, real-component reuse over hand-rolled primitives, copy drift against a discoverable spec, and library conformance: each override, wrapper prop and justification comment checked against the installed UI library's source, with the installed line cited, every conformance finding a Warning. **It is not a pixel check** — the pixel loop belongs to the implementing session's self-verify artifact, to the pipeline's REVIEW session on a design-armed run (which renders every screen at the head and compares it with its frame, and cannot approve without that render), and to the human reviewer.
 
 **Toolkit-absent on an ARMED spec is a VOID, not a note.** The always-spawn row above is not a preference that degrades — the reviewer cannot be dispatched, so the round cannot be certified. Do not select a substitute, do not proceed with the rest of the panel, and do not answer "Ready to merge?". Emit the Step 4b-void "review did not run" report instead, naming the reviewer the handoff host required and stating that `design-toolkit` is not installed in this session. The pipeline's REVIEW session cannot approve on this shape. **Toolkit-absent is the pre-dispatch way in, not the only one**: a fidelity reviewer that IS dispatched on an armed spec and is still dark after Step 4b's re-dispatch voids the round on the same ground — see Step 4b-void case 2.
 
@@ -530,6 +532,10 @@ Before triaging, merge duplicate findings:
 - Findings with confidence <80: omit from main report sections (reviewers filter at source, but double-check). Collect all suppressed findings from reviewers into the "Suppressed" report section.
 - `[Pre-existing]` findings: always include regardless of confidence — route to "Pre-existing gaps" section
 
+### Step 2b: Fidelity seat summary lines
+
+When `design-faithful-reviewer` or `figma-faithful-reviewer` ran, carry its `summary` into the Review Summary as one line per seat holding, verbatim and compacted, the source-absent line (`Installed source not present; library conformance not checked.`), each `unable to verify — pointer needed` gap, and the per-override disposition lines. They are not findings and change no verdict; they are what tells the reader the conformance check ran and what it could not reach. A seat whose `summary` carries none of them gets no line.
+
 ### Step 3: Triage (BEFORE writing the report)
 
 For every finding from a sub-reviewer, classify it:
@@ -625,7 +631,7 @@ This deliberately overrides the "Always give a clear verdict" rule under Rules, 
 
 A reviewer that was **never selected** is a different case from a dark reviewer: nothing failed, the trigger simply did not fire, so it is **not** a `[Coverage gap]` and its Verdicts row is omitted, not `Dark (no output)`. Reserve that rendering for reviewers that were selected and produced no usable result. Three not-selected cases still must not be invisible, because in each one a whole dimension is silently absent while the round looks green:
 
-- **Unmatched web-component surface.** No changed path matched `$WEB_COMPONENT_GLOBS`, so neither `a11y-reviewer` nor the design-fidelity dimension was routed. Note once in the Review Summary, **including the resolved globs** so a mis-scoped config is diagnosable from the line itself — e.g. "a11y + design-fidelity not routed: no changed path matched `reviewers.webComponentGlobs` (`apps/web/**/*.{tsx,jsx}`)". A genuinely non-FE diff is the overwhelmingly common case; escalating it would make every backend PR noisy.
+- **Unmatched web-component surface.** No changed path matched `$WEB_COMPONENT_GLOBS`, so neither `a11y-reviewer` nor the design-fidelity dimension was routed. Note once in the Review Summary, **including the resolved globs** so a mis-scoped config is diagnosable from the line itself — e.g. "a11y + design-fidelity not routed: no changed path matched `reviewers.webComponentGlobs` (`**/*.{tsx,jsx,vue,svelte,css,scss,less}`)". When the key is an explicit `[]`, the note reads "a11y + design-fidelity not routed: `reviewers.webComponentGlobs` is `[]` (declared: no web-component surface)" instead of printing an empty list. A genuinely non-FE diff is the overwhelmingly common case; escalating it would make every backend PR noisy.
 - **Security conditional did not fire.** No auth / tenancy / session / upload / query-construction surface in the diff and no `review-context/security-reviewer.md` in the repo, so `security-reviewer` was not selected. Note once in the Review Summary, naming what carried the dimension instead — e.g. "security-reviewer not selected: no security surface in the diff; security dimension covered by the lead pass". Never silent: the reader has to be able to tell "no security surface" from "nobody looked".
 - **Design-toolkit not installed.** A changed path *did* match and the provider map selected a fidelity reviewer — by any row, **the no-provider default included** — but the design-toolkit agent type is not available to dispatch (Routing detected this pre-dispatch). Note once: "design-fidelity dimension not run — design-toolkit not installed". `a11y-reviewer` is unaffected and still spawns. The trigger is selection, not a declared `design.provider`: on the default row no provider is declared and the dimension is still selected, so a provider-keyed condition would make this note unreachable for the commonest consumer.
 

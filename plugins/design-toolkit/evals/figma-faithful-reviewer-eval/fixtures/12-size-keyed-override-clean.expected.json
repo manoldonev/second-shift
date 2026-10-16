@@ -1,0 +1,24 @@
+{
+  "expected_verdict": "approve",
+  "surface": "console (fixed theme)",
+  "expected_findings": [],
+  "must_not_flag": [
+    "sx={{ paddingInline: 2 }} on a default-size <Button> \u2014 componentOverrides.ButtonSmall.root sets paddingInline: 2 only when size='small' (Button.tsx applies it on that condition) and also sets minBlockSize, so on the default size the value is neither redundant nor a prop-exists case; it is a necessary override",
+    "gap={3} / gap={2} \u2014 theme unit numbers on the 4px base",
+    "alignItems on the <Stack> \u2014 layout, not a token",
+    "<Typography variant='fieldLabel'> \u2014 a ramp variant",
+    "<Button>, <Stack>, <Typography> \u2014 real catalog components"
+  ],
+  "disproving": [
+    {
+      "path": "fixtures/app/packages/acme-ui/src/theme/overrides.ts",
+      "line": 35
+    },
+    {
+      "path": "fixtures/app/packages/acme-ui/src/components/Button.tsx",
+      "line": 23
+    }
+  ],
+  "layer": "library conformance \u2014 condition-keyed theme value",
+  "notes": "The false-positive control for the condition rule. A grep for `paddingInline: 2` finds it in the installed theme, but only under ButtonSmall, which Button applies when size='small'; the diff renders the default size. A reviewer that flags the sx as redundant cited a line that does not apply under the diff's size condition. Zero Criticals and zero Warnings is the pass."
+}

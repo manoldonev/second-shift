@@ -12,7 +12,7 @@
   ],
   "disproving": [
     { "path": "fixtures/app/packages/acme-ui/src/theme/overrides.ts", "line": 10 },
-    { "path": "fixtures/app/packages/acme-ui/src/components/Button.tsx", "line": 22 }
+    { "path": "fixtures/app/packages/acme-ui/src/components/Button.tsx", "line": 23 }
   ],
   "layer": "library conformance — false justification comment",
   "notes": "The comment states a fact about the installed library that the library's source contradicts. Full credit needs the reviewer to say the comment's claim is false, not only that the sx is redundant: a false comment misleads the next reader even after the sx is gone."
