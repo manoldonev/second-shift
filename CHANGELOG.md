@@ -4,6 +4,132 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v17.6.0
+
+### `design-toolkit` 8.2.0 → 8.3.0
+
+- **feat(design-toolkit): the design-fidelity seats check overrides and justification comments against the installed library (#1082)** (#1082)
+  figma-faithful-reviewer and design-faithful-reviewer check each
+  sx/style override, nested library selector, style-only wrapper, wrapper
+  prop and justification comment against the installed UI library source and
+  cite the installed path:line. A redundant override or a false comment is a
+  Warning; a dropped or misrouted wrapper prop is Critical. A named, commented
+  constant no longer waives a value the library already applies. With
+  reviewers.webComponentGlobs absent, the default is now
+  **/*.{tsx,jsx,vue,svelte,css,scss,less} (was apps/web/**/*.{tsx,jsx}), so
+  a11y-reviewer and the design-fidelity dimension route on UI files at any
+  depth. The lane's build prompt and the figma-faithful and design-faithful
+  skills ask a build to open the installed source before it writes a comment
+  about what a UI library does.
+  Migration: a repo that relied on the old default to keep the web reviewers
+  off its UI files sets reviewers.webComponentGlobs explicitly.
+  design-faithful-reviewer ends with a REVIEW_RESULT block that
+  carries summary, so its library-conformance lines reach review-lead.
+  Migration: none.
+  the Review Summary now shows a fidelity seat's source-absent, gap and per-override
+  lines; an explicit empty reviewers.webComponentGlobs is documented as "no web-component
+  surface" on an unarmed diff. Migration: none.
+  reviewers.webComponentGlobs set to [] declares that a repo has no web-component
+  surface; config-grill reports it as declared instead of proposing a glob. Migration: none.
+  library conformance is one shared skill both fidelity reviewers load; a dropped
+  or misrouted wrapper prop is now a Warning, not a Critical; design-faithful-reviewer
+  carries a turn-10 deadline. Migration: none.
+  the figma-faithful-reviewer eval adds a must-not-flag fixture for a size-keyed
+  theme value, and every eval changelog row records max/mean turns. Migration: none.
+
+### `dev-pipeline` 17.5.1 → 17.6.0
+
+- **feat(design-toolkit): the design-fidelity seats check overrides and justification comments against the installed library (#1082)** (#1082)
+  figma-faithful-reviewer and design-faithful-reviewer check each
+  sx/style override, nested library selector, style-only wrapper, wrapper
+  prop and justification comment against the installed UI library source and
+  cite the installed path:line. A redundant override or a false comment is a
+  Warning; a dropped or misrouted wrapper prop is Critical. A named, commented
+  constant no longer waives a value the library already applies. With
+  reviewers.webComponentGlobs absent, the default is now
+  **/*.{tsx,jsx,vue,svelte,css,scss,less} (was apps/web/**/*.{tsx,jsx}), so
+  a11y-reviewer and the design-fidelity dimension route on UI files at any
+  depth. The lane's build prompt and the figma-faithful and design-faithful
+  skills ask a build to open the installed source before it writes a comment
+  about what a UI library does.
+  Migration: a repo that relied on the old default to keep the web reviewers
+  off its UI files sets reviewers.webComponentGlobs explicitly.
+  design-faithful-reviewer ends with a REVIEW_RESULT block that
+  carries summary, so its library-conformance lines reach review-lead.
+  Migration: none.
+  the Review Summary now shows a fidelity seat's source-absent, gap and per-override
+  lines; an explicit empty reviewers.webComponentGlobs is documented as "no web-component
+  surface" on an unarmed diff. Migration: none.
+  reviewers.webComponentGlobs set to [] declares that a repo has no web-component
+  surface; config-grill reports it as declared instead of proposing a glob. Migration: none.
+  library conformance is one shared skill both fidelity reviewers load; a dropped
+  or misrouted wrapper prop is now a Warning, not a Critical; design-faithful-reviewer
+  carries a turn-10 deadline. Migration: none.
+  the figma-faithful-reviewer eval adds a must-not-flag fixture for a size-keyed
+  theme value, and every eval changelog row records max/mean turns. Migration: none.
+
+### `review-toolkit` 11.1.0 → 11.2.0
+
+- **feat(design-toolkit): the design-fidelity seats check overrides and justification comments against the installed library (#1082)** (#1082)
+  figma-faithful-reviewer and design-faithful-reviewer check each
+  sx/style override, nested library selector, style-only wrapper, wrapper
+  prop and justification comment against the installed UI library source and
+  cite the installed path:line. A redundant override or a false comment is a
+  Warning; a dropped or misrouted wrapper prop is Critical. A named, commented
+  constant no longer waives a value the library already applies. With
+  reviewers.webComponentGlobs absent, the default is now
+  **/*.{tsx,jsx,vue,svelte,css,scss,less} (was apps/web/**/*.{tsx,jsx}), so
+  a11y-reviewer and the design-fidelity dimension route on UI files at any
+  depth. The lane's build prompt and the figma-faithful and design-faithful
+  skills ask a build to open the installed source before it writes a comment
+  about what a UI library does.
+  Migration: a repo that relied on the old default to keep the web reviewers
+  off its UI files sets reviewers.webComponentGlobs explicitly.
+  design-faithful-reviewer ends with a REVIEW_RESULT block that
+  carries summary, so its library-conformance lines reach review-lead.
+  Migration: none.
+  the Review Summary now shows a fidelity seat's source-absent, gap and per-override
+  lines; an explicit empty reviewers.webComponentGlobs is documented as "no web-component
+  surface" on an unarmed diff. Migration: none.
+  reviewers.webComponentGlobs set to [] declares that a repo has no web-component
+  surface; config-grill reports it as declared instead of proposing a glob. Migration: none.
+  library conformance is one shared skill both fidelity reviewers load; a dropped
+  or misrouted wrapper prop is now a Warning, not a Critical; design-faithful-reviewer
+  carries a turn-10 deadline. Migration: none.
+  the figma-faithful-reviewer eval adds a must-not-flag fixture for a size-keyed
+  theme value, and every eval changelog row records max/mean turns. Migration: none.
+
+### `second-shift` 13.2.1 → 13.3.0
+
+- **feat(design-toolkit): the design-fidelity seats check overrides and justification comments against the installed library (#1082)** (#1082)
+  figma-faithful-reviewer and design-faithful-reviewer check each
+  sx/style override, nested library selector, style-only wrapper, wrapper
+  prop and justification comment against the installed UI library source and
+  cite the installed path:line. A redundant override or a false comment is a
+  Warning; a dropped or misrouted wrapper prop is Critical. A named, commented
+  constant no longer waives a value the library already applies. With
+  reviewers.webComponentGlobs absent, the default is now
+  **/*.{tsx,jsx,vue,svelte,css,scss,less} (was apps/web/**/*.{tsx,jsx}), so
+  a11y-reviewer and the design-fidelity dimension route on UI files at any
+  depth. The lane's build prompt and the figma-faithful and design-faithful
+  skills ask a build to open the installed source before it writes a comment
+  about what a UI library does.
+  Migration: a repo that relied on the old default to keep the web reviewers
+  off its UI files sets reviewers.webComponentGlobs explicitly.
+  design-faithful-reviewer ends with a REVIEW_RESULT block that
+  carries summary, so its library-conformance lines reach review-lead.
+  Migration: none.
+  the Review Summary now shows a fidelity seat's source-absent, gap and per-override
+  lines; an explicit empty reviewers.webComponentGlobs is documented as "no web-component
+  surface" on an unarmed diff. Migration: none.
+  reviewers.webComponentGlobs set to [] declares that a repo has no web-component
+  surface; config-grill reports it as declared instead of proposing a glob. Migration: none.
+  library conformance is one shared skill both fidelity reviewers load; a dropped
+  or misrouted wrapper prop is now a Warning, not a Critical; design-faithful-reviewer
+  carries a turn-10 deadline. Migration: none.
+  the figma-faithful-reviewer eval adds a must-not-flag fixture for a size-keyed
+  theme value, and every eval changelog row records max/mean turns. Migration: none.
+
 ## v17.5.2
 
 ### `dev-pipeline` 17.5.0 → 17.5.1
