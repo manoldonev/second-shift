@@ -7,6 +7,7 @@ import { componentOverrides } from '../theme/overrides';
 
 export interface ButtonProps {
   variant?: 'primary' | 'secondary' | 'quiet';
+  size?: 'small' | 'medium';
   type?: 'button' | 'submit' | 'reset';
   disabled?: boolean;
   onClick?: (event: MouseEvent<HTMLButtonElement>) => void;
@@ -14,12 +15,12 @@ export interface ButtonProps {
   children?: ReactNode;
 }
 
-export const Button = ({ variant = 'primary', type = 'button', sx, ...rest }: ButtonProps) => (
+export const Button = ({ variant = 'primary', size = 'medium', type = 'button', sx, ...rest }: ButtonProps) => (
   <Box
     as='button'
     type={type}
     data-variant={variant}
-    sx={[componentOverrides.Button.root, sx]}
+    sx={[componentOverrides.Button.root, size === 'small' && componentOverrides.ButtonSmall.root, sx]}
     {...rest}
   />
 );

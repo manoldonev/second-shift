@@ -1,6 +1,6 @@
 # `figma-faithful-reviewer` eval
 
-Scores `design-toolkit:figma-faithful-reviewer` against eleven labeled diffs.
+Scores `design-toolkit:figma-faithful-reviewer` against twelve labeled diffs.
 See [`../README.md`](../README.md) for the shared conventions, the quota warning, and why these
 evals exist.
 
@@ -19,6 +19,7 @@ evals exist.
 | `09-ellipsis-defeated-by-sx` | a caller `whiteSpace` in `sx` overrides `Typography`'s `ellipsis` | fixed-theme | `revise` |
 | `10-aria-label-misrouted` | `aria-label` on `TextField` lands on the FormControl root, not the `<input>` | fixed-theme | `revise` |
 | `11-conformance-control-clean` | none — each wrapper used as designed, and a true comment | fixed-theme | `approve` |
+| `12-size-keyed-override-clean` | none — a theme value keyed on `size='small'`, with the diff on the default size | fixed-theme | `approve` |
 
 Fixtures 01-03 come from the agent's own checklist (#704 pre-flight D-5), one per rule family,
 split deliberately across the two surfaces so the fixed-theme-vs-branded distinction the
@@ -32,6 +33,9 @@ fixtures per class: a theme-redundant `sx`, a false justification comment, and w
 misuse. On the control, `disproving` names the lines that disprove each near-miss. The judge
 gives full grounding credit only to a finding that cites the installed source, and, on 07 and 08,
 says the comment is false.
+Fixture 12 (the #1076 follow-up) is the condition-rule control: the installed theme sets the
+value the diff writes, but only under `size='small'`, so a reviewer that flags it cited a line
+that does not apply under the diff's size.
 
 ## The synthetic design-system reference
 

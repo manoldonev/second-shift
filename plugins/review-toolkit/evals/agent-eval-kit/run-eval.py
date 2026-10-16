@@ -445,6 +445,7 @@ async def invoke_reviewer(cfg, fixture, run_id, sem):
         "elapsed_s": elapsed,
         "output_text": text,
         "cost_usd": envelope.get("total_cost_usd"),
+        "num_turns": envelope.get("num_turns"),
         "tokens_in": envelope.get("input_tokens"),
         "tokens_out": envelope.get("output_tokens"),
         "stderr": stderr.decode(errors="replace")[-2000:] if rc != 0 else "",
@@ -747,11 +748,16 @@ async def main():
     dim_fmt = " ".join(
         f"{k.split('_')[0]}={_pct(per_dim[k]['pct'])}" for k in max_points
     )
+    turns = [r["reviewer"].get("num_turns") for r in all_runs
+             if r["reviewer"].get("num_turns") is not None]
+    max_turns = max(turns) if turns else 0
+    mean_turns = (sum(turns) / len(turns)) if turns else 0.0
     line = (
         f"{started_at.isoformat()} | agent={args.agent_name} | sha={agent_sha} | "
         f"model={reviewer_model} | "
         f"score={overall_pct:.1f}% | {dim_fmt} | "
-        f"runs={len(all_runs)} | cost=${total_cost:.2f} | note=\"{args.note}\"\n"
+        f"runs={len(all_runs)} | turns={max_turns}/{mean_turns:.1f} | "
+        f"cost=${total_cost:.2f} | note=\"{args.note}\"\n"
     )
     with changelog.open("a") as f:
         f.write(line)

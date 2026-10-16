@@ -16,6 +16,7 @@ Built during the `plan-reviewer` autoresearch campaign (see
 - Scores each run on an arbitrary weighted rubric (dict of `dim_name -> max_points`)
 - Writes a per-run / per-fixture / per-dimension JSON to your eval directory
 - Appends a one-line summary to `changelog.md` in your eval directory
+  (`turns=` in that row is max/mean `num_turns` over the reviewer runs)
 - Aborts immediately on rate-limit detection (scans for "hit your limit" / "resets at")
 
 ## What's generic vs per-eval
