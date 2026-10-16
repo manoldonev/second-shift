@@ -275,6 +275,11 @@ fixture_v4 pc7b; printf '%s\n' "$PLAN_OK" '- [ ] 1.3 the guard (src/guard.spec.t
 RUN_CHECKS_RED_MAX=1 run_case "$d"; expect checks-red-spent "(pc7) [#1085] an AC only the head defines, with no operator row"
 grep -q 'plan-coverage: RED: task 1.3 tags AC-9, which only the record at the head defines' "$(SD)/plan-coverage-1.1.log" \
   && ok "(pc7) the red names the head-only AC and the missing operator row" || bad "(pc7b) log=$(cat "$(SD)/plan-coverage-1.1.log" 2>/dev/null | tr '\n' '|')"
+# a head record whose Test intent no longer parses is the build's to fix: a red attempt naming it, never a stop for a human
+fixture_v4 pc7c; printf '%s\n' "$PLAN_OK" > "$FAKE_GH/plan-1.md"; printf 'build-pr-two-acs\n' > "$FAKE_CLAUDE_PLAN"
+RUN_CHECKS_RED_MAX=1 run_case "$d"; expect checks-red-spent "(pc7) [#1085] a head record with two 'ACs:' lines"
+grep -q "plan-coverage: RED: the head record's Test intent carries 2 'ACs:' lines" "$(SD)/plan-coverage-1.1.log" \
+  && ok "(pc7) an unparseable Test intent at the head is a red attempt, named" || bad "(pc7c) $(grep -E 'plan |terminal' <<<"$OUT" | tr '\n' '|') log=$(cat "$(SD)/plan-coverage-1.1.log" 2>/dev/null | tr '\n' '|')"
 
 # (fw) #1040: after the checks and the coverage pass, the scheduler applies the head's tagged test files onto the record
 # commit's tree and runs each through its configured runner — every one must fail there. The record's four forms: AC-1 a
@@ -390,6 +395,14 @@ expect env-worktree "(fw8) a red tree whose checkout back would overwrite a chan
 grep -q 'left on the record commit.s tree by an interrupted fails-without-the-change check' <<<"$OUT" && grep -qx 'a local edit' "$d/wt/42/src/a.ts" \
   && [ -e "$d/main/.claude/pipeline-state/run-42/red-tree" ] && [ ! -s "$FAKE_GH/calls" ] \
   && ok "(fw8) D-20: the launch refuses before any build, keeping the change and the mark" || bad "(fw8) $(grep -E 'red tree|terminal' <<<"$OUT" | tr '\n' '|') calls=$(cat "$FAKE_GH/calls")"
+# (fw9) #1085: an AC the operator added at the head under a user-answered row reaches the fails-without-the-change leg — the
+# map is read with the head's record too, so AC-9's test is run there like any behavior, not a stop for a human
+FIXTURE_CONFIG="$FW_CONFIG" fixture_v4 fw9 "$FW_TI"; fw_plan 1; printf -- '- [ ] 1.4 the guard (src/g.check.sh) [AC-9]\n' >> "$FAKE_GH/plan-1.md"
+fw_tree 1 'grep -qx fixed src/a.ts'; echo 'grep -qx fixed src/a.ts' > "$FAKE_GH/tree-1/src/g.check.sh"
+printf 'build-pr-operator-departure\nreview-approve-d2\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"
+expect approved "(fw9) [#1085] a head-added AC's tagged test fails on the record commit's tree"
+grep -q "ok: AC-9 — src/g.check.sh fails on the record commit's tree" "$(SD)/fails-without-1.1.log" \
+  && ok "(fw9) the head-added AC's test is run on the record commit's tree" || bad "(fw9) $(grep -E 'fails without|terminal' <<<"$OUT" | tr '\n' '|') log=$(tr '\n' '|' < "$(SD)/fails-without-1.1.log" 2>/dev/null)"
 
 echo "[self-test] $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

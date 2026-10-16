@@ -61,7 +61,8 @@
 #     fails-without-the-change leg detaches only a tree with no tracked change, and goes back by an unforced
 #     checkout); the one history rewrite is rebase_onto_base's clean rebase onto a moved base, pushed under a lease;
 #   - the record's sections, the checks and the frames are read from its FIRST commit, never the head —
-#     one exception: the verdict check reads the record at the head too, so a row the build added is scored (#991);
+#     two exceptions: the verdict check reads the record at the head too, so a row the build added is scored (#991),
+#     and the plan's AC coverage reads it for an AC added under a recorded departure, and nothing else (#1085);
 #   - every session is a fresh process with a wall-clock bound; every attempt keeps its own files;
 #   - a regex or record form is stated exactly, never paraphrased.
 #

@@ -161,11 +161,13 @@ case "$plan" in
   build-pr-rm-record) git rm -q "$(git ls-files 'docs/plans/*-decisions.md')"; push; openpr ;;   # #991: no record at the head to check a verdict against
   build-pr-operator-departure) # #1085: the operator restored a guard mid-build — the head's record carries the decision as a
                    # user-answered D-2 row and its AC-9 under Test intent; the record at FIRST is untouched, and the plan tags AC-9
-                   awk '{ print } $0 == "| D-1 | a | b | user-answered | intent |" { print "| D-2 | the guard | restored by the operator | user-answered | intent |" } $0 == "AC-8: the scheduler runs the coverage check" { print "AC-9: the restored guard refuses an over-size layout" }' "$rec" \
-                     | sed 's/^ACs: AC-1 AC-2 AC-8$/ACs: AC-1 AC-2 AC-8 AC-9/' > r.tmp && mv r.tmp "$rec"; push; openpr ;;
+                   awk '$0 == "| D-1 | a | b | user-answered | intent |" { print; print "| D-2 | the guard | restored by the operator | user-answered | intent |"; next }
+                        /^ACs: / { print $0 " AC-9"; print "AC-9: the restored guard refuses an over-size layout"; next } { print }' "$rec" > r.tmp && mv r.tmp "$rec"; push; openpr ;;
   build-pr-add-ac-no-row) # #1085: the same AC-9 added at the head with no ledger row to decide it — a build inventing an AC
                    awk '{ print } $0 == "AC-8: the scheduler runs the coverage check" { print "AC-9: the restored guard refuses an over-size layout" }' "$rec" \
                      | sed 's/^ACs: AC-1 AC-2 AC-8$/ACs: AC-1 AC-2 AC-8 AC-9/' > r.tmp && mv r.tmp "$rec"; push; openpr ;;
+  build-pr-two-acs) # #1085: a build slip in the head's record — a second 'ACs:' line under Test intent; the record at FIRST is untouched
+                   awk '{ print } /^ACs: / { print }' "$rec" > r.tmp && mv r.tmp "$rec"; push; openpr ;;
   build-pr-mark-covered) # #1039 AC-5: a build that tries to mark the coverage check passed — it exempts AC-8 in the head's
                    # record and commits a coverage script that always passes where the plugin's sits in this repo
                    sed 's/^AC-8: .*/AC-8: exempt — the build says so/' "$rec" > r.tmp && mv r.tmp "$rec"

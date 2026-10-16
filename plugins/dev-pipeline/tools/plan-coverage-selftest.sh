@@ -266,8 +266,18 @@ run --head "$T/head-noti.md" "$T/rec.md" "$T/plan.md"
 [ "$RC" -eq 1 ] && has 'tags AC-9, which the record'"'"'s Test intent does not define' && ok "(pc15) a head with no Test intent adds nothing → 1" || bad "(pc15) noti: rc=$RC out=$OUT"
 run --head "$T/no-such-head.md" "$T/rec.md" "$T/plan.md"
 [ "$RC" -eq 2 ] && grep -qF 'cannot read the record at the head' <<< "$ERR" && ok "(pc15) an unreadable head record → 2" || bad "(pc15) unreadable: rc=$RC err=$ERR"
-run --head "$T/rec.md"
-[ "$RC" -eq 2 ] && ok "(pc15) --head with no record and plan is usage → 2" || bad "(pc15) usage: rc=$RC"
+run --head "$T/rec.md" "$T/plan.md"
+[ "$RC" -eq 2 ] && grep -qF 'usage:' <<< "$ERR" && ok "(pc15) --head with no record and plan is usage → 2" || bad "(pc15) usage: rc=$RC err=$ERR"
+# two admitting rows are both named; an AC the head adds as exempt is exempt, its origin named
+head_rec "$T/head-two.md" $'| D-2 | x | y | user-answered | intent |\n| D-3 | p | q | user-delegated | intent |\n' "${HEAD_TI/AC-9: the restored guard refuses an over-size layout/AC-9: exempt — docs only}"
+plan '- [ ] 1.1 a (a.spec.ts) [AC-1] [AC-2] [AC-8]'
+run --head "$T/head-two.md" "$T/rec.md" "$T/plan.md"
+[ "$RC" -eq 0 ] && has 'plan-coverage: AC-9 exempt — added at the head under a recorded departure (D-2 user-answered, D-3 user-delegated)' \
+  && ok "(pc15) a head-added exempt AC is exempt, naming both admitting rows → 0" || bad "(pc15) two: rc=$RC out=$OUT"
+# a head whose Test intent no longer parses is red, naming it — the head can be fixed, unlike the baseline (→ 2)
+head_rec "$T/head-bad.md" '' $'ACs: AC-1 AC-2 AC-3 AC-8\nACs: AC-9\n\nAC-1: x'
+run --head "$T/head-bad.md" "$T/rec.md" "$T/plan.md"
+[ "$RC" -eq 1 ] && has "RED: the head record's Test intent carries 2 'ACs:' lines" && ok "(pc15) an unparseable head Test intent is red → 1" || bad "(pc15) bad head: rc=$RC out=$OUT err=$ERR"
 
 echo "plan-coverage-selftest: $PASS passed, $FAIL failed"
 exit "$FAIL"
