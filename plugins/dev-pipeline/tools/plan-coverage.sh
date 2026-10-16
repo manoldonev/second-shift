@@ -45,51 +45,102 @@
 # `unchecked` (noted, not run); an exempt AC's files are not listed. A red prints its RED lines as the
 # report mode does; exits 2 and 3 are the report mode's.
 #
+# --head <record-at-head> (#1085): the record as it stands at the head, read for ONE thing — an AC the
+# operator added after the baseline. An id the plan tags that the baseline does not define but the
+# head's Test intent lists is accepted, in the head's form, when the head's Decision Ledger carries at
+# least one `| D-n |` row that is new or changed since the baseline with `user-answered` or
+# `user-delegated` provenance: a departure the operator decided and recorded, which the review scores
+# row by row. Its covered line ends `— added at the head under an operator departure (D-n, …)`. With
+# no such row the tag stays red, saying so. Everything else stays the baseline's: an AC the head
+# drops, exempts or re-forms is still read from the baseline (#1039 D-10 — a build cannot mark the
+# check passed at the head), and a head with no Test intent adds nothing. Without --head the check
+# reads the baseline alone, as before.
+#
 # Exit: 0 pass · 1 red (stdout names every uncovered id, undefined tag and unparseable line, or the
 # missing plan) · 2 an input that cannot be read, or a record whose Test intent has no readable
 # `ACs:` line · 3 not-applicable (stdout says why: the record carries no Test intent, or the ticket
 # has no AC block) — distinct from a pass.
 set -uo pipefail
 
-usage() { echo "usage: plan-coverage.sh [--files] <record-at-first> <plan-file>" >&2; exit 2; }
-FILES_MODE=0; [ "${1:-}" != --files ] || { FILES_MODE=1; shift; }
+usage() { echo "usage: plan-coverage.sh [--files] [--head <record-at-head>] <record-at-first> <plan-file>" >&2; exit 2; }
+FILES_MODE=0; HEAD_RECORD=""
+while [ $# -gt 2 ]; do
+  case "$1" in
+    --files) FILES_MODE=1; shift ;;
+    --head) [ $# -gt 3 ] || usage; HEAD_RECORD="$2"; shift 2 ;;
+    *) usage ;;
+  esac
+done
 [ $# -eq 2 ] || usage
 RECORD="$1"; PLAN="$2"
 # -r, never -f: a caller may hand a process substitution, which is readable but not a regular file
 [ -r "$RECORD" ] && [ ! -d "$RECORD" ] || { echo "plan-coverage: cannot read the record: $RECORD" >&2; exit 2; }
 rec="$(cat "$RECORD")" || { echo "plan-coverage: cannot read the record: $RECORD" >&2; exit 2; }
+head_rec=""
+if [ -n "$HEAD_RECORD" ]; then
+  [ -r "$HEAD_RECORD" ] && [ ! -d "$HEAD_RECORD" ] || { echo "plan-coverage: cannot read the record at the head: $HEAD_RECORD" >&2; exit 2; }
+  head_rec="$(cat "$HEAD_RECORD")" || { echo "plan-coverage: cannot read the record at the head: $HEAD_RECORD" >&2; exit 2; }
+fi
 
 # the scheduler's section reader (run.sh `section_of`): exact title at any depth, case-folded, ANY heading
 # closes it, the FIRST such section decides
 section_of() { awk -v h="$1" 'on && /^#+[[:space:]]/ {on=0; done=1} !done && tolower($0) ~ ("^#+[[:space:]]+" h "[[:space:]]*$") {on=1; next} on'; }
+has_test_intent() { grep -qiE '^#+[[:space:]]+test intent[[:space:]]*$' <<< "$1"; }
 
-if ! grep -qiE '^#+[[:space:]]+test intent[[:space:]]*$' <<< "$rec"; then
+if ! has_test_intent "$rec"; then
   v="$(sed -n 's/^Receipt:[[:space:]]*v\([0-9][0-9]*\)[[:space:]]*$/\1/p' <<< "$rec" | head -n 1)"
   echo "plan-coverage: not-applicable — record v${v:-1} carries no Test intent"; exit 3
 fi
 
-ACS=" "; EXEMPT=" "; HOLDS=" "; UNCHECKED=" "; n_acs=0; none=0
-while IFS= read -r line; do
-  line="${line%$'\r'}"
-  if [[ "$line" =~ ^ACs:(.*)$ ]]; then
-    n_acs=$((n_acs + 1)); body="${BASH_REMATCH[1]}"
-    if [[ "$body" =~ ^[[:space:]]*none([^[:alnum:]_]|$) ]]; then none=1; continue; fi
-    read -r -a toks <<< "$body"
-    for t in "${toks[@]}"; do
-      [[ "$t" =~ ^AC-[0-9]+$ ]] || { echo "plan-coverage: the record's Test intent 'ACs:' line carries '$t', which is not an AC id: $line" >&2; exit 2; }
-      [[ "$ACS" == *" $t "* ]] || ACS="$ACS$t "
-    done
-  elif [[ "$line" =~ ^(AC-[0-9]+):[[:space:]]*[Ee]xempt([^[:alnum:]_]|$) ]]; then
-    EXEMPT="$EXEMPT${BASH_REMATCH[1]} "
-  elif [[ "$line" =~ ^(AC-[0-9]+):[[:space:]]*[Hh]olds([^[:alnum:]_]|$) ]]; then
-    HOLDS="$HOLDS${BASH_REMATCH[1]} "
-  elif [[ "$line" =~ ^(AC-[0-9]+):[[:space:]]*[Uu]nchecked([^[:alnum:]_]|$) ]]; then
-    UNCHECKED="$UNCHECKED${BASH_REMATCH[1]} "
-  fi
-done <<< "$(section_of 'test intent' <<< "$rec")"
-[ "$n_acs" -eq 1 ] || { echo "plan-coverage: the record's Test intent carries $n_acs 'ACs:' lines — one names the AC set" >&2; exit 2; }
-if [ "$none" -eq 1 ]; then echo "plan-coverage: not-applicable — the ticket has no AC block"; exit 3; fi
+# read_intent <record text> <which> -> P_ACS P_EXEMPT P_HOLDS P_UNCHECKED (space-delimited, space-padded), P_NONE; exit 2 on
+# an 'ACs:' line that is not an AC set, naming <which> record
+read_intent() {
+  local text="$1" which="$2" line body t toks n_acs=0
+  P_ACS=" "; P_EXEMPT=" "; P_HOLDS=" "; P_UNCHECKED=" "; P_NONE=0
+  while IFS= read -r line; do
+    line="${line%$'\r'}"
+    if [[ "$line" =~ ^ACs:(.*)$ ]]; then
+      n_acs=$((n_acs + 1)); body="${BASH_REMATCH[1]}"
+      if [[ "$body" =~ ^[[:space:]]*none([^[:alnum:]_]|$) ]]; then P_NONE=1; continue; fi
+      read -r -a toks <<< "$body"
+      for t in "${toks[@]}"; do
+        [[ "$t" =~ ^AC-[0-9]+$ ]] || { echo "plan-coverage: the $which Test intent 'ACs:' line carries '$t', which is not an AC id: $line" >&2; exit 2; }
+        [[ "$P_ACS" == *" $t "* ]] || P_ACS="$P_ACS$t "
+      done
+    elif [[ "$line" =~ ^(AC-[0-9]+):[[:space:]]*[Ee]xempt([^[:alnum:]_]|$) ]]; then
+      P_EXEMPT="$P_EXEMPT${BASH_REMATCH[1]} "
+    elif [[ "$line" =~ ^(AC-[0-9]+):[[:space:]]*[Hh]olds([^[:alnum:]_]|$) ]]; then
+      P_HOLDS="$P_HOLDS${BASH_REMATCH[1]} "
+    elif [[ "$line" =~ ^(AC-[0-9]+):[[:space:]]*[Uu]nchecked([^[:alnum:]_]|$) ]]; then
+      P_UNCHECKED="$P_UNCHECKED${BASH_REMATCH[1]} "
+    fi
+  done <<< "$(section_of 'test intent' <<< "$text")"
+  [ "$n_acs" -eq 1 ] || { echo "plan-coverage: the $which Test intent carries $n_acs 'ACs:' lines — one names the AC set" >&2; exit 2; }
+}
+read_intent "$rec" "record's"
+ACS="$P_ACS"; EXEMPT="$P_EXEMPT"; HOLDS="$P_HOLDS"; UNCHECKED="$P_UNCHECKED"
+if [ "$P_NONE" -eq 1 ]; then echo "plan-coverage: not-applicable — the ticket has no AC block"; exit 3; fi
 [ "$ACS" != " " ] || { echo "plan-coverage: the record's Test intent 'ACs:' line lists no id" >&2; exit 2; }
+
+# #1085: the ids only the head defines, and the operator-provenance ledger rows new or changed since the baseline that admit them
+HEAD_ACS=" "; HEAD_EXEMPT=" "; HEAD_HOLDS=" "; HEAD_UNCHECKED=" "; ADDED=" "; DEPARTURE=""
+ledger_rows() { grep -E '^\|[[:space:]]*D-[0-9]+[[:space:]]*\|' <<< "$1" | sed 's/[[:space:]]*$//'; }
+if [ -n "$HEAD_RECORD" ] && has_test_intent "$head_rec"; then
+  read_intent "$head_rec" "head record's"
+  HEAD_ACS="$P_ACS"; HEAD_EXEMPT="$P_EXEMPT"; HEAD_HOLDS="$P_HOLDS"; HEAD_UNCHECKED="$P_UNCHECKED"
+  for id in $HEAD_ACS; do [[ "$ACS" == *" $id "* ]] || ADDED="$ADDED$id "; done
+  if [ "$ADDED" != " " ]; then
+    base_rows="$(ledger_rows "$rec")"
+    while IFS= read -r row; do
+      [ -n "$row" ] || continue
+      grep -qxF -- "$row" <<< "$base_rows" && continue   # byte-identical to a baseline row: not a departure
+      prov="$(awk -F'|' '{ gsub(/^[[:space:]]+|[[:space:]]+$/, "", $5); print $5 }' <<< "$row")"
+      case "$prov" in
+        user-answered|user-delegated) DEPARTURE="$DEPARTURE${DEPARTURE:+, }$(awk -F'|' '{ gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2 }' <<< "$row")" ;;
+      esac
+    done <<< "$(ledger_rows "$head_rec")"
+  fi
+fi
 
 if [ ! -e "$PLAN" ]; then
   echo "plan-coverage: RED: no plan — $PLAN does not exist; commit the task plan, every AC the record does not exempt tagged on a test task"
@@ -194,36 +245,53 @@ while IFS= read -r line; do
 done <<< "$plan"
 
 tasks_of() { awk -v id="$1" '$1 == id { printf "%s%s", (n++ ? ", " : ""), $2 }' <<< "$TAGS"; }
-covered=0; exempt=0; holds=0; unchecked=0
-for id in $ACS; do
-  t="$(tasks_of "$id")"; form=""
-  if [[ "$HOLDS" == *" $id "* ]]; then form=" — holds"; elif [[ "$UNCHECKED" == *" $id "* ]]; then form=" — unchecked"; fi
-  if [[ "$EXEMPT" == *" $id "* ]]; then
+# the AC set the check scores: the baseline's, plus the head-added ids an operator departure admits (#1085); each id's
+# form (exempt, holds, unchecked) is read from the record that defines it, so the baseline still governs its own ids
+SCORED="$ACS"; [ -z "$DEPARTURE" ] || SCORED="$SCORED${ADDED# }"
+form_of() { # form_of <id> -> exempt | holds | unchecked | '' from the defining record
+  local ex="$EXEMPT" ho="$HOLDS" un="$UNCHECKED"
+  if [[ "$ACS" != *" $1 "* ]]; then ex="$HEAD_EXEMPT"; ho="$HEAD_HOLDS"; un="$HEAD_UNCHECKED"; fi
+  if [[ "$ex" == *" $1 "* ]]; then echo exempt; elif [[ "$ho" == *" $1 "* ]]; then echo holds; elif [[ "$un" == *" $1 "* ]]; then echo unchecked; fi
+}
+covered=0; exempt=0; holds=0; unchecked=0; added=0
+for id in $SCORED; do
+  t="$(tasks_of "$id")"; form=""; origin=""
+  [[ "$ACS" == *" $id "* ]] || origin=" — added at the head under an operator departure ($DEPARTURE)"
+  case "$(form_of "$id")" in holds) form=" — holds" ;; unchecked) form=" — unchecked" ;; esac
+  if [ "$(form_of "$id")" = exempt ]; then
     exempt=$((exempt + 1))
-    [ "$FILES_MODE" -eq 1 ] || if [ -n "$t" ]; then echo "plan-coverage: $id exempt (tagged: task $t)"; else echo "plan-coverage: $id exempt"; fi
+    [ "$FILES_MODE" -eq 1 ] || if [ -n "$t" ]; then echo "plan-coverage: $id exempt (tagged: task $t)$origin"; else echo "plan-coverage: $id exempt$origin"; fi
   elif [ -n "$t" ]; then
-    covered=$((covered + 1)); [ "$FILES_MODE" -eq 1 ] || echo "plan-coverage: $id covered (task $t)$form"
+    covered=$((covered + 1)); [ "$FILES_MODE" -eq 1 ] || echo "plan-coverage: $id covered (task $t)$form$origin"
     case "$form" in *holds) holds=$((holds + 1)) ;; *unchecked) unchecked=$((unchecked + 1)) ;; esac
+    [ -z "$origin" ] || added=$((added + 1))
   else
     echo "plan-coverage: RED: $id has no test task — tag it on the task whose test proves its Test intent line"; RED=$((RED + 1))
   fi
 done
 while read -r id task; do
   [ -n "$id" ] || continue
-  [[ "$ACS" == *" $id "* ]] && continue
-  echo "plan-coverage: RED: task $task tags $id, which the record's Test intent does not define (ACs:$ACS)"; RED=$((RED + 1))
+  [[ "$SCORED" == *" $id "* ]] && continue
+  if [[ "$ADDED" == *" $id "* ]]; then
+    echo "plan-coverage: RED: task $task tags $id, which only the record at the head defines — the baseline's Test intent does not (ACs:$ACS), and no Decision Ledger row was added or changed since the baseline with user-answered or user-delegated provenance to admit it"
+  else
+    echo "plan-coverage: RED: task $task tags $id, which the record's Test intent does not define (ACs:$ACS)"
+  fi
+  RED=$((RED + 1))
 done <<< "$TAGS"
 
 if [ "$RED" -gt 0 ]; then echo "plan-coverage: RED — $RED problem(s)"; exit 1; fi
 if [ "$FILES_MODE" -eq 1 ]; then # each tagged AC's files, once per AC and file, in plan order; an exempt AC's are not listed
   while read -r id task; do
     [ -n "$id" ] || continue
-    [[ "$EXEMPT" == *" $id "* ]] && continue
-    kind=run; if [[ "$HOLDS" == *" $id "* ]]; then kind=holds; elif [[ "$UNCHECKED" == *" $id "* ]]; then kind=unchecked; fi
+    kind="$(form_of "$id")"; [ "$kind" != exempt ] || continue; [ -n "$kind" ] || kind=run
     awk -F'\t' -v t="$task" -v k="$kind" -v id="$id" '$1 == t { print k "\t" id "\t" $2 "\t" $3 }' <<< "$TASK_FILES"
   done <<< "$TAGS" | awk '!seen[$0]++'
   exit 0
 fi
-forms=""; [ $((holds + unchecked)) -eq 0 ] || forms=" (of the covered: $holds holds, $unchecked unchecked)"
+forms=""
+[ $((holds + unchecked)) -eq 0 ] || forms="$holds holds, $unchecked unchecked"
+[ "$added" -eq 0 ] || forms="$forms${forms:+, }$added added at the head"
+[ -z "$forms" ] || forms=" (of the covered: $forms)"
 echo "plan-coverage: pass — $covered covered, $exempt exempt$forms"
 exit 0

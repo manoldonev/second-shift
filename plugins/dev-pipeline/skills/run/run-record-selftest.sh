@@ -263,6 +263,19 @@ fixture_v4 pc6 $'\n## Test intent\n\nAC-1: a duplicate import answers 409\n'; co
 expect plan-coverage-uncheckable "(pc6) a record whose Test intent carries no AC set"
 [ "$RC" -eq 1 ] && grep -q "carries 0 'ACs:' lines" <<<"$OUT" && ok "(pc6) exits 1, naming why" || bad "(pc6) rc=$RC $(grep 'terminal:' <<<"$OUT")"
 
+# (pc7) #1085: an AC the operator added after the baseline — the head's record carries a user-answered D-2 row the first
+# commit lacks and lists AC-9 — is covered when the plan tags it; the run goes on to its review, the log names the origin
+fixture_v4 pc7; printf '%s\n' "$PLAN_OK" '- [ ] 1.3 the guard (src/guard.spec.ts) [AC-9]' > "$FAKE_GH/plan-1.md"; printf 'build-pr-operator-departure\nreview-approve-d2\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"
+expect approved "(pc7) [#1085] a plan tagging an AC the operator added at the head under a user-answered row"
+grep -q 'plan coverage: exit 0 — pass — 3 covered, 1 exempt (of the covered: 1 added at the head)' <<<"$OUT" \
+  && grep -q 'plan-coverage: AC-9 covered (task 1.3) — added at the head under an operator departure (D-2)' "$(SD)/plan-coverage-1.1.log" \
+  && ok "(pc7) the coverage reads the head's record for the added AC and names the row that admits it" || bad "(pc7) $(grep -E 'plan |terminal' <<<"$OUT" | tr '\n' '|') log=$(cat "$(SD)/plan-coverage-1.1.log" 2>/dev/null | tr '\n' '|')"
+# the same AC-9 with no ledger row to decide it is a build inventing an AC: red, naming why, the baseline still deciding
+fixture_v4 pc7b; printf '%s\n' "$PLAN_OK" '- [ ] 1.3 the guard (src/guard.spec.ts) [AC-9]' > "$FAKE_GH/plan-1.md"; printf 'build-pr-add-ac-no-row\n' > "$FAKE_CLAUDE_PLAN"
+RUN_CHECKS_RED_MAX=1 run_case "$d"; expect checks-red-spent "(pc7) [#1085] an AC only the head defines, with no operator row"
+grep -q 'plan-coverage: RED: task 1.3 tags AC-9, which only the record at the head defines' "$(SD)/plan-coverage-1.1.log" \
+  && ok "(pc7) the red names the head-only AC and the missing operator row" || bad "(pc7b) log=$(cat "$(SD)/plan-coverage-1.1.log" 2>/dev/null | tr '\n' '|')"
+
 # (fw) #1040: after the checks and the coverage pass, the scheduler applies the head's tagged test files onto the record
 # commit's tree and runs each through its configured runner — every one must fail there. The record's four forms: AC-1 a
 # behavior (its file is run), AC-2 holds (kept off), AC-3 unchecked (noted, not run), AC-4 exempt. The fixture's worker

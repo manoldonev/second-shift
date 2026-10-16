@@ -14,10 +14,11 @@
 #
 # An approve is also held to the plan's AC coverage (#1039 D-10): plan-coverage.sh beside this script runs
 # on <record-at-first> and the plan beside <record-at-head> (`<x>-decisions.md` → `<x>-plan.md`, the
-# checked-out head's), and a red one posts nothing, as a body that breaks a rule does. Not-applicable (a
-# record with no Test intent, a ticket with no AC block) posts as before. A needs-work posts `failure`
-# whatever the coverage. On this path a session runs it, not the scheduler: it binds a merge only where
-# branch protection requires `second-shift/review`.
+# checked-out head's), with <record-at-head> as its `--head` so an AC the operator added after the
+# baseline under a recorded departure counts (#1085), and a red one posts nothing, as a body that breaks
+# a rule does. Not-applicable (a record with no Test intent, a ticket with no AC block) posts as before. A
+# needs-work posts `failure` whatever the coverage. On this path a session runs it, not the scheduler: it
+# binds a merge only where branch protection requires `second-shift/review`.
 #
 # Writes go through $GH only (default: gh); a failure is reported, never retried as another identity.
 #
@@ -51,10 +52,10 @@ case "$(head -n 1 "$BODY" | tr -d '\r')" in
 esac
 if [ "$state" = success ]; then
   plan="${4%-decisions.md}-plan.md"   # beside the record, as run.sh places it (D-4)
-  cov="$(bash "$HERE/plan-coverage.sh" "$5" "$plan" 2>&1)"; rc=$?
+  cov="$(bash "$HERE/plan-coverage.sh" --head "$4" "$5" "$plan" 2>&1)"; rc=$?
   case "$rc" in
     0|3) : ;;
-    1) echo "second-shift/review NOT posted on $SHA: the approve's plan coverage is red (plan-coverage.sh, the record at its first commit and $plan):"; printf '%s\n' "$cov" | sed 's/^/- /'; exit 1 ;;
+    1) echo "second-shift/review NOT posted on $SHA: the approve's plan coverage is red (plan-coverage.sh, the record at its first commit, the record at the head and $plan):"; printf '%s\n' "$cov" | sed 's/^/- /'; exit 1 ;;
     *) echo "second-shift/review NOT posted on $SHA: the plan coverage could not be checked (plan-coverage.sh exit $rc): $(printf '%s' "$cov" | tr '\n' ' ' | cut -c1-300)" >&2; exit 2 ;;
   esac
 fi

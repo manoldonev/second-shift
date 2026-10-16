@@ -159,6 +159,13 @@ case "$plan" in
                    git add -f .claude/second-shift .claude/second-shift.config.json .claude/agents; push; openpr ;;   # forced: the fixture gitignores .claude/
   build-pr-add-row) printf '| D-2 | added by the build | x | user-delegated |\n' >> "$(git ls-files 'docs/plans/*-decisions.md')"; push; openpr ;;   # #991: a row only the head carries
   build-pr-rm-record) git rm -q "$(git ls-files 'docs/plans/*-decisions.md')"; push; openpr ;;   # #991: no record at the head to check a verdict against
+  build-pr-operator-departure) # #1085: the operator restored a guard mid-build — the head's record carries the decision as a
+                   # user-answered D-2 row and its AC-9 under Test intent; the record at FIRST is untouched, and the plan tags AC-9
+                   awk '{ print } $0 == "| D-1 | a | b | user-answered | intent |" { print "| D-2 | the guard | restored by the operator | user-answered | intent |" } $0 == "AC-8: the scheduler runs the coverage check" { print "AC-9: the restored guard refuses an over-size layout" }' "$rec" \
+                     | sed 's/^ACs: AC-1 AC-2 AC-8$/ACs: AC-1 AC-2 AC-8 AC-9/' > r.tmp && mv r.tmp "$rec"; push; openpr ;;
+  build-pr-add-ac-no-row) # #1085: the same AC-9 added at the head with no ledger row to decide it — a build inventing an AC
+                   awk '{ print } $0 == "AC-8: the scheduler runs the coverage check" { print "AC-9: the restored guard refuses an over-size layout" }' "$rec" \
+                     | sed 's/^ACs: AC-1 AC-2 AC-8$/ACs: AC-1 AC-2 AC-8 AC-9/' > r.tmp && mv r.tmp "$rec"; push; openpr ;;
   build-pr-mark-covered) # #1039 AC-5: a build that tries to mark the coverage check passed — it exempts AC-8 in the head's
                    # record and commits a coverage script that always passes where the plugin's sits in this repo
                    sed 's/^AC-8: .*/AC-8: exempt — the build says so/' "$rec" > r.tmp && mv r.tmp "$rec"
@@ -184,6 +191,7 @@ case "$plan" in
                                    sed '1s/.*/moved/' "$b/work.txt" > "$b/w" && mv "$b/w" "$b/work.txt" && git -C "$b" commit -qam "base moves into the branch's file" && git -C "$b" push -q origin main; rm -rf "$b" ;;
     esac ;;
   # #991 AC-2: verdicts whose own comment does not back their verdict line
+  review-approve-d2) post "$(ROWS=$'| D-1 | honored | fake |\n| D-2 | honored | Added by the build, user-answered. |' vbody approve "$(git rev-parse "origin/$branch")")" ;;   # #1085: the head's added row scored
   review-bad-approve-blocker)  post "$(ROWS='| D-1 | honored | fake |' FINDINGS='- [blocker] B1 must change before merge' vbody approve "$(git rev-parse "origin/$branch")")" ;;
   review-bad-approve-violated) post "$(ROWS='| D-1 | violated | fake |' vbody approve "$(git rev-parse "origin/$branch")")" ;;
   review-bad-needs-work-noblocker) post "$(FINDINGS='- [note] N1 nothing required' vbody needs-work "$(git rev-parse "origin/$branch")")" ;;
