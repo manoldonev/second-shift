@@ -215,7 +215,7 @@ HEAD_TI=$'ACs: AC-1 AC-2 AC-3 AC-8 AC-9\n\nAC-1: a duplicate import answers 409\
 head_rec "$T/head-dep.md" $'| D-2 | the guard | restored by the operator | user-answered | intent |\n' "$HEAD_TI"
 plan '- [ ] 1.1 a (a.spec.ts) [AC-1] [AC-2] [AC-8]' '- [ ] 1.3 the guard (guard.spec.ts) [AC-9]'
 run --head "$T/head-dep.md" "$T/rec.md" "$T/plan.md"
-[ "$RC" -eq 0 ] && has 'plan-coverage: AC-9 covered (task 1.3) — added at the head under an operator departure (D-2)' \
+[ "$RC" -eq 0 ] && has 'plan-coverage: AC-9 covered (task 1.3) — added at the head under a recorded departure (D-2 user-answered)' \
   && has 'plan-coverage: pass — 4 covered, 1 exempt (of the covered: 1 added at the head)' \
   && ok "(pc15) #1085: an AC the head adds under a user-answered row is covered, its origin named → 0" || bad "(pc15) rc=$RC out=$OUT err=$ERR"
 run --files --head "$T/head-dep.md" "$T/rec.md" "$T/plan.md"
@@ -227,13 +227,13 @@ run --head "$T/head-dep.md" --files "$T/rec.md" "$T/plan.md"
 head_rec "$T/head-edit.md" '' "${HEAD_TI/AC-9: the restored guard/AC-9: holds — the guard}"
 sed 's/^| D-1 | a | b | user-answered | intent |$/| D-1 | a | c, revised by the operator | user-answered | intent |/' "$T/head-edit.md" > "$T/h.tmp" && mv "$T/h.tmp" "$T/head-edit.md"
 run --head "$T/head-edit.md" "$T/rec.md" "$T/plan.md"
-[ "$RC" -eq 0 ] && has 'plan-coverage: AC-9 covered (task 1.3) — holds — added at the head under an operator departure (D-1)' \
+[ "$RC" -eq 0 ] && has 'plan-coverage: AC-9 covered (task 1.3) — holds — added at the head under a recorded departure (D-1 user-answered)' \
   && ok "(pc15) an edited user-answered row admits it; the head's form applies" || bad "(pc15) edit: rc=$RC out=$OUT"
 # an admitted AC left untagged is uncovered, like any other
 plan '- [ ] 1.1 a (a.spec.ts) [AC-1] [AC-2] [AC-8]'
 run --head "$T/head-dep.md" "$T/rec.md" "$T/plan.md"
 [ "$RC" -eq 1 ] && has 'RED: AC-9 has no test task' && ok "(pc15) an admitted but untagged AC is red → 1" || bad "(pc15) untagged: rc=$RC out=$OUT"
-# no operator-provenance ledger change: the head alone defines AC-9, and the tag stays red, saying so
+# no user-answered or user-delegated ledger change: the head alone defines AC-9, and the tag stays red, saying so
 head_rec "$T/head-norow.md" '' "$HEAD_TI"
 plan '- [ ] 1.1 a (a.spec.ts) [AC-1] [AC-2] [AC-8]' '- [ ] 1.3 the guard (guard.spec.ts) [AC-9]'
 run --head "$T/head-norow.md" "$T/rec.md" "$T/plan.md"
@@ -242,6 +242,17 @@ run --head "$T/head-norow.md" "$T/rec.md" "$T/plan.md"
 head_rec "$T/head-derived.md" $'| D-2 | the guard | a fact | codebase-derived | fact |\n' "$HEAD_TI"
 run --head "$T/head-derived.md" "$T/rec.md" "$T/plan.md"
 [ "$RC" -eq 1 ] && has 'which only the record at the head defines' && ok "(pc15) a codebase-derived row admits nothing → 1" || bad "(pc15) derived: rc=$RC out=$OUT"
+# the lane's build records its own changes as user-delegated: such a row admits too, and the line names its provenance,
+# never a decider
+head_rec "$T/head-deleg.md" $'| D-2 | helper name | Foo. Added in build: naming. | user-delegated | fact |\n' "$HEAD_TI"
+run --head "$T/head-deleg.md" "$T/rec.md" "$T/plan.md"
+[ "$RC" -eq 0 ] && has 'AC-9 covered (task 1.3) — added at the head under a recorded departure (D-2 user-delegated)' && ! has 'operator' \
+  && ok "(pc15) a user-delegated row admits it, named by its provenance → 0" || bad "(pc15) deleg: rc=$RC out=$OUT"
+# a baseline row only re-padded at the head (a table formatter) keeps its cells: not a departure
+head_rec "$T/head-pad.md" '' "$HEAD_TI"
+sed 's/^| D-1 | a | b | user-answered | intent |$/|  D-1  |  a  |  b  |  user-answered  |  intent  |/' "$T/head-pad.md" > "$T/h.tmp" && mv "$T/h.tmp" "$T/head-pad.md"
+run --head "$T/head-pad.md" "$T/rec.md" "$T/plan.md"
+[ "$RC" -eq 1 ] && has 'which only the record at the head defines' && ok "(pc15) a re-padded baseline row admits nothing → 1" || bad "(pc15) pad: rc=$RC out=$OUT"
 # #1039 D-10 holds: the baseline governs its own ids — a head that exempts AC-8, drops AC-2 or re-forms AC-1 changes nothing
 head_rec "$T/head-tamper.md" $'| D-2 | x | y | user-answered | intent |\n' $'ACs: AC-1 AC-3 AC-8 AC-9\n\nAC-1: holds — now\nAC-3: exempt — docs only\nAC-8: exempt — the build says so\nAC-9: the guard'
 plan '- [ ] 1.1 a (a.spec.ts) [AC-1]' '- [ ] 1.3 the guard (guard.spec.ts) [AC-9]'

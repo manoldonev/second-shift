@@ -40,7 +40,7 @@
 #   6 rounds     (premise; worktree at the pushed head; BUILD; in-flight check; one PR;
 #                 conventions; checks from the first commit; the plan's AC coverage
 #                 (tools/plan-coverage.sh: the record at the first commit, the plan at the head, and
-#                 the record at the head for an AC the operator added under a recorded departure);
+#                 the record at the head for an AC added under a recorded departure);
 #                 fails without the change (the head's tagged test files on the record commit's
 #                 tree, run through commands.<id>.testRunners — per file, or one batch per
 #                 reporting runner — each named test must fail there; a pending one, and each
@@ -552,8 +552,8 @@ EOF
   return $rc
 }
 # -- the plan's AC coverage (#1039 D-6 D-7 D-9): tools/plan-coverage.sh from $TOOLS (the installed plugin, outside every dir
-# the build is granted), handed the record at FIRST, the record at the pushed head (#1085: read for an AC the operator added
-# under a recorded departure, nothing else) and the plan at the pushed head as git objects through pipes — never the
+# the build is granted), handed the record at FIRST, the record at the pushed head (#1085: read for an AC added under a
+# recorded departure, nothing else) and the plan at the pushed head as git objects through pipes — never the
 # worktree, $STATE or the config, all of which the build can write. Not a configured lane: its exit code is the result.
 # PLAN_NOTES is the latest check's run-block lines; the plan's position is noted, never gating: no commit order proves a
 # test came first, so #1040 D-1 proves "fails without the change" instead (fails_without_change below) --

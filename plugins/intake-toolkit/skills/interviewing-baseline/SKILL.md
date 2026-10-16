@@ -489,7 +489,7 @@ section from the record's first commit and runs `plan-coverage.sh` (dev-pipeline
 plan at the head: every AC not exempt must be tagged on a test task that names its test files,
 and no tag may name an id `ACs:` does not list — except an id the record at the head adds under
 a `D-n` row that is new or changed since the first commit with `user-answered` or `user-delegated`
-provenance, which is an operator's recorded departure and counts. Where the config maps test runners
+provenance, which is a recorded departure and counts. Where the config maps test runners
 (`commands.<id>.testRunners`), it then applies the head's tagged test files onto the record
 commit's tree and runs them: every named test of a behavior AC must fail there. Under a runner
 whose format reports per test (`cases`, `vitest-json`, `jest-json`), the plan names each test as

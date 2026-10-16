@@ -14,8 +14,8 @@
 #
 # An approve is also held to the plan's AC coverage (#1039 D-10): plan-coverage.sh beside this script runs
 # on <record-at-first> and the plan beside <record-at-head> (`<x>-decisions.md` → `<x>-plan.md`, the
-# checked-out head's), with <record-at-head> as its `--head` so an AC the operator added after the
-# baseline under a recorded departure counts (#1085), and a red one posts nothing, as a body that breaks
+# checked-out head's), with <record-at-head> as its `--head` so an AC added after the baseline
+# under a recorded departure counts (#1085), and a red one posts nothing, as a body that breaks
 # a rule does. Not-applicable (a record with no Test intent, a ticket with no AC block) posts as before. A
 # needs-work posts `failure` whatever the coverage. On this path a session runs it, not the scheduler: it
 # binds a merge only where branch protection requires `second-shift/review`.

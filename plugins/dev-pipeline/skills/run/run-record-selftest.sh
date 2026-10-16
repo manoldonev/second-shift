@@ -268,7 +268,7 @@ expect plan-coverage-uncheckable "(pc6) a record whose Test intent carries no AC
 fixture_v4 pc7; printf '%s\n' "$PLAN_OK" '- [ ] 1.3 the guard (src/guard.spec.ts) [AC-9]' > "$FAKE_GH/plan-1.md"; printf 'build-pr-operator-departure\nreview-approve-d2\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"
 expect approved "(pc7) [#1085] a plan tagging an AC the operator added at the head under a user-answered row"
 grep -q 'plan coverage: exit 0 — pass — 3 covered, 1 exempt (of the covered: 1 added at the head)' <<<"$OUT" \
-  && grep -q 'plan-coverage: AC-9 covered (task 1.3) — added at the head under an operator departure (D-2)' "$(SD)/plan-coverage-1.1.log" \
+  && grep -q 'plan-coverage: AC-9 covered (task 1.3) — added at the head under a recorded departure (D-2 user-answered)' "$(SD)/plan-coverage-1.1.log" \
   && ok "(pc7) the coverage reads the head's record for the added AC and names the row that admits it" || bad "(pc7) $(grep -E 'plan |terminal' <<<"$OUT" | tr '\n' '|') log=$(cat "$(SD)/plan-coverage-1.1.log" 2>/dev/null | tr '\n' '|')"
 # the same AC-9 with no ledger row to decide it is a build inventing an AC: red, naming why, the baseline still deciding
 fixture_v4 pc7b; printf '%s\n' "$PLAN_OK" '- [ ] 1.3 the guard (src/guard.spec.ts) [AC-9]' > "$FAKE_GH/plan-1.md"; printf 'build-pr-add-ac-no-row\n' > "$FAKE_CLAUDE_PLAN"

@@ -45,13 +45,16 @@
 # `unchecked` (noted, not run); an exempt AC's files are not listed. A red prints its RED lines as the
 # report mode does; exits 2 and 3 are the report mode's.
 #
-# --head <record-at-head> (#1085): the record as it stands at the head, read for ONE thing — an AC the
-# operator added after the baseline. An id the plan tags that the baseline does not define but the
+# --head <record-at-head> (#1085): the record as it stands at the head, read for ONE thing — an AC
+# added after the baseline. An id the plan tags that the baseline does not define but the
 # head's Test intent lists is accepted, in the head's form, when the head's Decision Ledger carries at
 # least one `| D-n |` row that is new or changed since the baseline with `user-answered` or
-# `user-delegated` provenance: a departure the operator decided and recorded, which the review scores
-# row by row. Its covered line ends `— added at the head under an operator departure (D-n, …)`. With
-# no such row the tag stays red, saying so. Everything else stays the baseline's: an AC the head
+# `user-delegated` provenance: a recorded departure, which the review scores row by row. The script
+# cannot tell who wrote a row — the lane's build records its own changes as `user-delegated` — so the
+# covered line names each admitting row with its provenance, never a decider:
+# `— added at the head under a recorded departure (D-n <provenance>, …)`. Rows are compared cell by
+# cell with each cell trimmed, so a re-padded table is not a departure. With no such row the tag stays
+# red, saying so. Everything else stays the baseline's: an AC the head
 # drops, exempts or re-forms is still read from the baseline (#1039 D-10 — a build cannot mark the
 # check passed at the head), and a head with no Test intent adds nothing. Without --head the check
 # reads the baseline alone, as before.
@@ -122,9 +125,11 @@ ACS="$P_ACS"; EXEMPT="$P_EXEMPT"; HOLDS="$P_HOLDS"; UNCHECKED="$P_UNCHECKED"
 if [ "$P_NONE" -eq 1 ]; then echo "plan-coverage: not-applicable — the ticket has no AC block"; exit 3; fi
 [ "$ACS" != " " ] || { echo "plan-coverage: the record's Test intent 'ACs:' line lists no id" >&2; exit 2; }
 
-# #1085: the ids only the head defines, and the operator-provenance ledger rows new or changed since the baseline that admit them
+# #1085: the ids only the head defines, and the user-answered / user-delegated ledger rows new or changed since the baseline that admit them
 HEAD_ACS=" "; HEAD_EXEMPT=" "; HEAD_HOLDS=" "; HEAD_UNCHECKED=" "; ADDED=" "; DEPARTURE=""
-ledger_rows() { grep -E '^\|[[:space:]]*D-[0-9]+[[:space:]]*\|' <<< "$1" | sed 's/[[:space:]]*$//'; }
+ledger_rows() { # each `| D-n |` row with every cell trimmed: a re-padded row is the same row
+  grep -E '^\|[[:space:]]*D-[0-9]+[[:space:]]*\|' <<< "$1" | awk -F'|' -v OFS='|' '{ for (i = 1; i <= NF; i++) gsub(/^[[:space:]]+|[[:space:]]+$/, "", $i); print }'
+}
 if [ -n "$HEAD_RECORD" ] && has_test_intent "$head_rec"; then
   read_intent "$head_rec" "head record's"
   HEAD_ACS="$P_ACS"; HEAD_EXEMPT="$P_EXEMPT"; HEAD_HOLDS="$P_HOLDS"; HEAD_UNCHECKED="$P_UNCHECKED"
@@ -133,10 +138,10 @@ if [ -n "$HEAD_RECORD" ] && has_test_intent "$head_rec"; then
     base_rows="$(ledger_rows "$rec")"
     while IFS= read -r row; do
       [ -n "$row" ] || continue
-      grep -qxF -- "$row" <<< "$base_rows" && continue   # byte-identical to a baseline row: not a departure
-      prov="$(awk -F'|' '{ gsub(/^[[:space:]]+|[[:space:]]+$/, "", $5); print $5 }' <<< "$row")"
+      grep -qxF -- "$row" <<< "$base_rows" && continue   # the same cells as a baseline row: not a departure
+      prov="$(cut -d'|' -f5 <<< "$row")"
       case "$prov" in
-        user-answered|user-delegated) DEPARTURE="$DEPARTURE${DEPARTURE:+, }$(awk -F'|' '{ gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2 }' <<< "$row")" ;;
+        user-answered|user-delegated) DEPARTURE="$DEPARTURE${DEPARTURE:+, }$(cut -d'|' -f2 <<< "$row") $prov" ;;
       esac
     done <<< "$(ledger_rows "$head_rec")"
   fi
@@ -245,7 +250,7 @@ while IFS= read -r line; do
 done <<< "$plan"
 
 tasks_of() { awk -v id="$1" '$1 == id { printf "%s%s", (n++ ? ", " : ""), $2 }' <<< "$TAGS"; }
-# the AC set the check scores: the baseline's, plus the head-added ids an operator departure admits (#1085); each id's
+# the AC set the check scores: the baseline's, plus the head-added ids a recorded departure admits (#1085); each id's
 # form (exempt, holds, unchecked) is read from the record that defines it, so the baseline still governs its own ids
 SCORED="$ACS"; [ -z "$DEPARTURE" ] || SCORED="$SCORED${ADDED# }"
 form_of() { # form_of <id> -> exempt | holds | unchecked | '' from the defining record
@@ -256,7 +261,7 @@ form_of() { # form_of <id> -> exempt | holds | unchecked | '' from the defining 
 covered=0; exempt=0; holds=0; unchecked=0; added=0
 for id in $SCORED; do
   t="$(tasks_of "$id")"; form=""; origin=""
-  [[ "$ACS" == *" $id "* ]] || origin=" — added at the head under an operator departure ($DEPARTURE)"
+  [[ "$ACS" == *" $id "* ]] || origin=" — added at the head under a recorded departure ($DEPARTURE)"
   case "$(form_of "$id")" in holds) form=" — holds" ;; unchecked) form=" — unchecked" ;; esac
   if [ "$(form_of "$id")" = exempt ]; then
     exempt=$((exempt + 1))
