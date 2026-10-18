@@ -80,6 +80,10 @@ Names and tests carry the *what*. Keep a comment only when it holds something th
 show: why, a constraint, a spec quirk, a workaround, a known ceiling. This binds the prompt and
 shell files too, where restating the next line in prose is the usual drift.
 
+No ticket archeology: no issue numbers, ticket keys, AC-n or decision ids, or origin stories in
+code, comments, test titles or docs. The ledger links the record to the change; the code does not
+link back. The exception is a reference the reader cannot do without, and it is rare.
+
 ## Verification
 
 ```bash
