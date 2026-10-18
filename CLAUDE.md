@@ -74,6 +74,12 @@ When a spawned session cannot run as launched (a prompt it cannot answer, a miss
 flag), the fix lands in `plugins/dev-pipeline/skills/run/run.sh`, with a `run*-selftest.sh` case
 that fails without it — never only in a wrapper or a one-off launch.
 
+## Comments: default to none
+
+Names and tests carry the *what*. Keep a comment only when it holds something the code cannot
+show: why, a constraint, a spec quirk, a workaround, a known ceiling. This binds the prompt and
+shell files too, where restating the next line in prose is the usual drift.
+
 ## Verification
 
 ```bash
