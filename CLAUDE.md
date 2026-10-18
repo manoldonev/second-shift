@@ -74,6 +74,18 @@ When a spawned session cannot run as launched (a prompt it cannot answer, a miss
 flag), the fix lands in `plugins/dev-pipeline/skills/run/run.sh`, with a `run*-selftest.sh` case
 that fails without it — never only in a wrapper or a one-off launch.
 
+## Comments: default to none
+
+Names and tests carry the *what*. Keep a comment only when it holds something the code cannot
+show: why, a constraint, a spec quirk, a workaround, a known ceiling. This binds the prompt and
+shell files too, where restating the next line in prose is the usual drift.
+
+No ticket archeology: no issue numbers, ticket keys, AC-n or decision ids, or origin stories in
+code, comments, test titles, docs or commit messages. A conventional commit says what changed,
+not which ticket asked for it. The PR body is the ledger's one link: its `Closes` line and its
+record-row citations stay. Anywhere else, the exception is a reference the reader cannot do
+without, and it is rare.
+
 ## Verification
 
 ```bash
