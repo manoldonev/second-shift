@@ -81,8 +81,10 @@ show: why, a constraint, a spec quirk, a workaround, a known ceiling. This binds
 shell files too, where restating the next line in prose is the usual drift.
 
 No ticket archeology: no issue numbers, ticket keys, AC-n or decision ids, or origin stories in
-code, comments, test titles or docs. The ledger links the record to the change; the code does not
-link back. The exception is a reference the reader cannot do without, and it is rare.
+code, comments, test titles, docs or commit messages. A conventional commit says what changed,
+not which ticket asked for it. The PR body is the ledger's one link: its `Closes` line and its
+record-row citations stay. Anywhere else, the exception is a reference the reader cannot do
+without, and it is rare.
 
 ## Verification
 
