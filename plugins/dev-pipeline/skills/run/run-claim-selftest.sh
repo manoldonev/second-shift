@@ -211,7 +211,7 @@ fixture x1; printf 'build-sleep\n' > "$FAKE_CLAUDE_PLAN"
 until grep -q 'round 1 of' "$d/x1.log" 2>/dev/null; do sleep 0.5; done; sleep 1.5
 kill -TERM "$rp"; wait "$rp"; xrc=$?
 [ "$xrc" -eq 143 ] && ok "(x1) TERM exits 143" || bad "(x1) TERM exit $xrc"
-sleep 1; if pgrep -f "$T/bin/claude" >/dev/null 2>&1 || pgrep -f 'sleep 60' >/dev/null 2>&1; then bad "(x1) the session outlived the scheduler"; pkill -f "$T/bin/claude" 2>/dev/null; pkill -f 'sleep 60' 2>/dev/null; else ok "(x1) the session and its children were killed with the scheduler"; fi
+sleep 1; if pgrep -f "$T/bin/claude" >/dev/null 2>&1 || session_sleep_alive; then bad "(x1) the session outlived the scheduler"; pkill -f "$T/bin/claude" 2>/dev/null; session_sleep_reap; else ok "(x1) the session and its children were killed with the scheduler"; fi
 grep -q 'claim left in place' "$d/x1.log" && grep -qx in-progress "$FAKE_GH/labels" && ok "(x1) the claim is left in place on TERM" || bad "(x1) claim state wrong after TERM"
 scr="$(sed -n 's/^.* \[run\] scratch: \(.*\) (both sessions.*$/\1/p' "$d/x1.log")"; toc="$(tar -tf "$(SD)/scratch.tar" 2>&1)"
 [ -n "$scr" ] && [ ! -e "$scr" ] && grep -qx './probe-1.txt' <<<"$toc" \
@@ -221,7 +221,7 @@ fixture x1b; printf 'build-sleep\n' > "$FAKE_CLAUDE_PLAN"
 until grep -q 'round 1 of' "$d/x1b.log" 2>/dev/null; do sleep 0.5; done; sleep 1.5
 kill -INT "$rp"; wait "$rp"; xrc=$?
 [ "$xrc" -eq 130 ] && grep -q 'interrupted; claim left in place' "$d/x1b.log" && ok "(x1b) [B18] INT exits 130" || bad "(x1b) INT exit $xrc"
-sleep 1; if pgrep -f 'sleep 60' >/dev/null 2>&1; then bad "(x1b) [B18] the session outlived the scheduler on INT"; pkill -f 'sleep 60' 2>/dev/null; else ok "(x1b) [B18] the session was reaped on INT"; fi
+sleep 1; if session_sleep_alive; then bad "(x1b) [B18] the session outlived the scheduler on INT"; session_sleep_reap; else ok "(x1b) [B18] the session was reaped on INT"; fi
 FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"design":{"provider":"figma","liveRender":{"command":"true","readyProbe":"http://127.0.0.1:9/"}}}' fixture x2 "- true" $'\n## Design\n\nDesign: none — a wording change, nothing renders\n'
 printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(x2) a readyProbe gates nothing on a ticket declared Design: none"
 FIXTURE_CONFIG="{\"tracker\":{\"type\":\"github\",\"branchPrefix\":\"second-shift/\"},\"paths\":{\"plansDir\":\"docs/plans\"},\"design\":{\"provider\":\"figma\",\"liveRender\":{\"command\":\"cp $T/px.png {out}\",\"smokeCommand\":\"true\",\"readyProbe\":\"http://127.0.0.1:9/\"}}}" fixture x3 "- true" $'\n## Design frames\n\n| RS | route | state | frame | must-show |\n| --- | --- | --- | --- | --- |\n| RS-1 | a | default | 1:2 | ok |\n'
@@ -250,7 +250,7 @@ FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"pat
 run_case "$d"; expect env-design-undeclared "(y1) on a design-provider repo a record with neither frames nor 'Design: none' is refused (#705's rule)"
 [ ! -f "$FAKE_GH/calls" ] && ok "(y1) refused before any build" || bad "(y1) a build ran"
 fixture y2; printf 'build-sleep\n' > "$FAKE_CLAUDE_PLAN"; RUN_BUILD_TIMEOUT=2 run_case "$d"; expect build-blocked "(y2) a build past its ceiling is stopped"
-sleep 1; if pgrep -f 'sleep 60' >/dev/null 2>&1; then bad "(y2) the timed-out session's children outlived it"; pkill -f 'sleep 60' 2>/dev/null; else ok "(y2) the timed-out session and its children were reaped"; fi
+sleep 1; if session_sleep_alive; then bad "(y2) the timed-out session's children outlived it"; session_sleep_reap; else ok "(y2) the timed-out session and its children were reaped"; fi
 grep -qx 'BASH_DEFAULT_TIMEOUT_MS=120000' "$FAKE_GH/env-1.txt" && grep -qx 'BASH_MAX_TIMEOUT_MS=120000' "$FAKE_GH/env-1.txt" && ok "(y2) [F-env] a bound under 420 s floors the BUILD's Bash timeouts at the harness's own 120 s" || bad "(y2) [F-env] BUILD spawn env: $(tr '\n' ' ' < "$FAKE_GH/env-1.txt")"
 # F-env: the bounds feed bash arithmetic, so a fraction is refused before the claim — it must never abandon the round loop into close-out
 for v in 600.5 1.5 .; do

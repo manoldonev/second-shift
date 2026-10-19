@@ -54,6 +54,9 @@ unset CLAUDE_CODE_DISABLE_BACKGROUND_TASKS BASH_DEFAULT_TIMEOUT_MS BASH_MAX_TIME
 for _v in $(compgen -e HERDR_) RUN_WATCH_CMD RUN_WATCH_EDITOR RUN_DETACHED_LOG; do unset "$_v"; done
 
 # ---- fakes ----
+# build-sleep's child names its fixture: the sweep runs suites concurrently, and a bare 'sleep 60' matches a sibling's
+session_sleep_alive() { pgrep -f "sleep 60 -- $FAKE_GH\$" >/dev/null 2>&1; }
+session_sleep_reap() { pkill -f "sleep 60 -- $FAKE_GH\$" 2>/dev/null; }
 mkdir -p "$T/bin"
 cat > "$T/bin/gh" <<'EOF'
 #!/usr/bin/env bash
@@ -134,7 +137,7 @@ case "$plan" in
   build-push-only) push ;;
   build-delete-test) git rm -q src/a.spec.ts; push; openpr ;;
   build-nothing)   : ;;
-  build-sleep)     sleep 60; exit 143 ;;   # killed at its bound: a real session leaves no result JSON
+  build-sleep)     perl -e 'sleep 60' -- "$S"; exit 143 ;;   # killed at its bound: a real session leaves no result JSON
   build-stubborn)  trap '' TERM; while :; do sleep 1; done ;;
   build-kill-remote) push; openpr; git remote set-url origin /nonexistent-remote ;;
   build-pr-fixbody) openpr ;;   # a PR-only fix: the body is rewritten, nothing is pushed
