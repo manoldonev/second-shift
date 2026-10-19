@@ -178,6 +178,16 @@ grep -q 'render failed' "$(SD)/smoke-1.1.log" && ok "[H8] the log names the exit
 FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"commands":{"main":{"lanes":[{"name":"setup","cwd":"src","commands":["test -f a.ts"]}],"lint":"true"}}}' fixture as2 ""
 printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "[C18] the setup lane's command ran in src/ (a.ts exists only there)"
 
+# the setup lanes run before the first build, so the build starts on an installed tree; a red one is told to the build
+FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"commands":{"main":{"lanes":[{"name":"install","commands":["touch deps-installed"]}],"lint":"true"}}}' fixture as2b ""
+printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "a green setup lane before the build"
+grep -qx deps-installed "$FAKE_GH/tree-seen-1.txt" && ok "the first build starts with the setup lane's output in its worktree" || bad "the first build started before the setup lanes ran: $(tr '\n' ' ' < "$FAKE_GH/tree-seen-1.txt")"
+! grep -q '## Setup lanes red' "$FAKE_GH/prompt-1.txt" && ok "a green setup adds nothing to the build prompt" || bad "a green setup was reported red to the build"
+FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"commands":{"main":{"lanes":[{"name":"install","commands":["echo NO-REGISTRY; false"]}],"lint":"true"}}}' fixture as2c ""
+printf 'build-pr\nbuild-pr\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=2 run_case "$d"; expect checks-red-spent "a red setup lane before the build still spawns the build, and the checks still gate"
+grep -q '## Setup lanes red before this build' "$FAKE_GH/prompt-1.txt" && grep -q 'NO-REGISTRY' "$FAKE_GH/prompt-1.txt" && ok "the first build is told the setup lanes failed, with the log" || bad "the first build prompt does not report the red setup"
+! grep -q '## Setup lanes red' "$FAKE_GH/prompt-2.txt" && ok "only the first build gets the pre-build setup report" || bad "a later build was handed the stale pre-build setup report"
+
 # a lane past its bound is red, and the bound reaches what the lane started
 FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"commands":{"main":{"lint":"sleep 20 & echo $! > '"$T"'/lane-child.pid; sleep 20"}}}' fixture as2t ""
 printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; RUN_LANE_TIMEOUT=2 RUN_CHECKS_RED_MAX=1 run_case "$d"; expect checks-red-spent "a check that outlives the lane bound is red"

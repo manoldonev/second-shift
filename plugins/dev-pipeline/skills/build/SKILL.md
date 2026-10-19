@@ -25,13 +25,17 @@ This path does not do the steps that the scheduler does after its build:
 
 ## Checklist
 
-1. **Launch** from a checkout of the ticket's repo: `bash R <issue> --handoff`. It runs in seconds,
-   so do not add `--detach`. A `terminal:` slug other than `build-handoff` is a refusal. Find the
-   slug in the exit table of `/dev-pipeline:run`, and fix what the detail line names, as for a run.
+1. **Launch** from a checkout of the ticket's repo, as a Bash call with `run_in_background`:
+   `nohup bash R <issue> --handoff > <log> 2>&1`, with `<log>` in your scratchpad. The launch runs
+   the setup lanes (`commands.<id>.lanes[]`) in the new worktree, and a cold install can outlast the
+   2 minutes a foreground Bash call gets before it is killed. `--detach` is refused with
+   `--handoff`. Do not poll the log: the background call re-invokes you when it exits. A
+   `terminal:` slug other than `build-handoff` is a refusal. Find the slug in the exit table of
+   `/dev-pipeline:run`, and fix what the detail line names, as for a run.
    If the lane already claimed the ticket, a new launch re-enters that claim. If the config and the
    record name no checks, the launch is refused with `env-no-checks`, as a run is.
-2. **Read the `worktree:`, `baseline:` and `prompt:` lines** that the script prints before the
-   `terminal:` line. Then run `printenv SS_WT SS_ADAPTER` in the Bash tool. If `SS_WT` is set, the
+2. **Read the `worktree:`, `baseline:` and `prompt:` lines** that the script writes to the log
+   before the `terminal:` line. Then run `printenv SS_WT SS_ADAPTER` in the Bash tool. If `SS_WT` is set, the
    herdr launcher (`herdr-adapter.sh build`) started this session, and the worktree is already
    added. Use `/add-dir <worktree>` only if an edit there shows a permission prompt. If `SS_WT` is
    not set, the operator types `/add-dir <worktree>` now, so that edits there do not prompt. Read

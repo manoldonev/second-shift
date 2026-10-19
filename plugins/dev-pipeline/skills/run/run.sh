@@ -539,14 +539,26 @@ EOF
 allow_unverified() { local key; key="$(commands_key)"; [ -n "$key" ] && [ "$(jq -r --arg k "$key" '.commands[$k].allowUnverified // false' <<<"$CONFIG_JSON" 2>/dev/null)" = true ]; }
 checks_list() { { config_checks "${1:-}"; record_checks; } | awk 'NF && !seen[$0]++'; }
 CHANGED=""   # the files this branch touches since the record commit; read fail-closed by the caller before the checks (C20)
-run_checks() { # run_checks <attempt> -> 0 green, 1 red; the log is the next build's findings
-  local log="$STATE/checks-$1.log" cmd rc=0 n=0; : > "$log"
-  while IFS= read -r cmd; do # setup lanes first, fail-fast: a failed install makes every later red bogus
+run_setup() { # run_setup <log> -> 0 every setup lane green, 1 at the first red one (fail-fast: a failed install makes every later red bogus)
+  local cmd
+  while IFS= read -r cmd; do
     [ -n "$cmd" ] || continue; say "setup: $cmd"
-    if lane "$cmd" >> "$log" 2>&1; then echo "ok (setup): $cmd" >> "$log"; else echo "RED (setup, aborting the rest): $cmd" >> "$log"; return 1; fi
+    if lane "$cmd" >> "$1" 2>&1; then echo "ok (setup): $cmd" >> "$1"; else echo "RED (setup, aborting the rest): $cmd" >> "$1"; return 1; fi
   done <<EOF
 $(setup_lanes)
 EOF
+}
+SETUP_RAN=0; SETUP_RED=""
+setup_before_build() { # setup_before_build <attempt>: once per launch, so the first build can run its checks and read installed sources
+  # a red install is told to the build, not made terminal: a ticket may be the fix for it, and run_checks still gates the head
+  [ "$SETUP_RAN" -eq 0 ] || return 0; SETUP_RAN=1
+  local log="$STATE/setup-$1.log"; : > "$log"
+  run_setup "$log" && return 0
+  SETUP_RED="$log"; say "setup: RED before the build ($log) — the build is told; the checks run the setup lanes again at the pushed head"
+}
+run_checks() { # run_checks <attempt> -> 0 green, 1 red; the log is the next build's findings
+  local log="$STATE/checks-$1.log" cmd rc=0 n=0; : > "$log"
+  run_setup "$log" || return 1
   while IFS= read -r cmd; do
     [ -n "$cmd" ] || continue; n=$((n+1)); say "check: $cmd"
     if lane "$cmd" >> "$log" 2>&1; then echo "ok: $cmd" >> "$log"; else echo "RED: $cmd" >> "$log"; rc=1; fi
@@ -1074,6 +1086,7 @@ build_prompt() { # build_prompt <round> <review-findings-file-or-empty> <red-che
   # #1048 D-4 D-20: a repo's CLAUDE.md or docs may list more; those commands are not granted
   echo "Run the checks listed below and the tests your change touches, never a verification list from the repo's CLAUDE.md or docs."
   echo "Before you push, run the checks below that cover what you changed and make them green; running the whole list is not required. The scheduler runs every command below at the pushed head before a review starts. A lane with changed-file globs runs only when a changed file matches its globs. Of these commands, a red one comes back to you as findings and spends a checks-red attempt."; checks_list all | sed 's/^/- /'
+  [ -n "$SETUP_RED" ] && { echo; echo "## Setup lanes red before this build"; echo "The scheduler ran the setup lanes in $WT before this build and one failed, so dependencies may be missing. A check that cannot start is skipped: name it in the PR body. The scheduler runs the setup lanes again before its checks at the pushed head. The end of the setup log:"; tail -n 80 "$SETUP_RED"; }
   [ -n "$2" ] && { echo; echo "## Review findings"; cat "$2"; }
   [ -n "${3:-}" ] && { echo; echo "## Red check output"; echo "A red check cannot be rebutted. Reproduce it with its command, then fix the cause. If the check itself is wrong, say so in the PR."; cat "$3"; }
 }
@@ -1765,7 +1778,8 @@ while :; do
       watch_once   # guarded: a later attempt or round makes the worktree ready again, and the launch is watched once
       ATTEMPT=$((ATTEMPT+1)); A="$ROUND.$ATTEMPT"
       record_at_first >/dev/null || terminal env-worktree "cannot read the record at $FIRST:$RECORD_REL — a build must not be handed an empty record as binding"
-      build_prompt "$ROUND" "$FINDINGS" "$RED_LOG" > "$STATE/build-$A.prompt"
+      setup_before_build "$A"
+      build_prompt "$ROUND" "$FINDINGS" "$RED_LOG" > "$STATE/build-$A.prompt"; SETUP_RED=""
       if [ "$HANDOFF" -eq 1 ]; then # the calling session builds; nothing after this is the scheduler's
         echo "worktree: $WT"; echo "baseline: $FIRST"; echo "prompt: $STATE/build-$A.prompt"
         UNPRICED="build-in-calling-session"
