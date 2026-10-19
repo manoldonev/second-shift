@@ -243,6 +243,7 @@
         "checksRedMax": { "type": "integer", "minimum": 1, "description": "Red check or smoke attempts before checks-red-spent, on their own counter (default 3)." },
         "buildTimeoutSeconds": { "type": "integer", "minimum": 60, "description": "Build session ceiling (default 7200)." },
         "reviewTimeoutSeconds": { "type": "integer", "minimum": 60, "description": "Review session ceiling (default 3600)." },
+        "laneTimeoutSeconds": { "type": "integer", "minimum": 60, "description": "Bound on each setup lane, check and smoke command; past it the command is killed with every process it started and counts as red (default 1800)." },
         "costCeilingUsd": { "type": "number", "exclusiveMinimum": 0, "description": "Sum of the sessions' total_cost_usd before cost-spent (default 100)." }
       }
     }

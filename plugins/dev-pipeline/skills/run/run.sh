@@ -20,6 +20,7 @@
 #                             own waits, 300 s inside the bound: BUILD runs with background tasks off and its Bash
 #                             timeouts at that value (floor 120 s); REVIEW's background-task wait (floor 600 s)
 #       RUN_COST_CEILING      USD (100); RUN_CHECKS_RED_MAX (3)
+#       RUN_LANE_TIMEOUT      seconds (1800), a positive integer: the bound on each setup lane, check and smoke command
 #       SECOND_SHIFT_INTAKE_TOOLKIT_ROOT   the intake-toolkit whose ledger-lint.sh lints the receipt (default: the
 #                             installPath of the enabled intake-toolkit record in `claude plugin list --json`)
 #       Env beats config `run.*` beats these defaults; an explicit --max-rounds beats config.
@@ -74,7 +75,7 @@
 #         the PR body's 'Record baseline:' line could not be moved to the new record commit)
 #       2 usage-* (the argv), env-* (the environment; most fire before anything is spawned, but
 #         env-not-ready, env-worktree*, env-remote-unreadable, env-tracker-unreadable,
-#         env-smoke-unconfigured, env-perl and env-state-dir can fire after a paid session; env-receipt-lint-unavailable: no
+#         env-smoke-unconfigured and env-state-dir can fire after a paid session; env-receipt-lint-unavailable: no
 #         trusted lint for the receipt), claimed-elsewhere
 #       3 RESUMABLE — not-queued, env-no-record, env-receipt-invalid: pay off intake and re-launch the same command
 #       4 budget spent — rounds-spent, checks-red-spent, cost-spent
@@ -285,6 +286,7 @@ cap BUILD_TO "${RUN_BUILD_TIMEOUT:-}" .run.buildTimeoutSeconds 7200 int
 cap REVIEW_TO "${RUN_REVIEW_TIMEOUT:-}" .run.reviewTimeoutSeconds 3600 int
 cap COST_CEIL "${RUN_COST_CEILING:-}" .run.costCeilingUsd 100
 cap CHECKS_RED_MAX "${RUN_CHECKS_RED_MAX:-}" .run.checksRedMax 3 int
+cap LANE_TO "${RUN_LANE_TIMEOUT:-}" .run.laneTimeoutSeconds 1800 int
 # F-env: a session's own waits end 5 minutes inside its bound, never below the harness's own 120 s / 600 s, so a hung
 # command or dispatch fails inside the session while it can still commit and report; capped at the JS timer maximum
 inner_ms() { local s=$(($1-300)); [ "$s" -ge "$2" ] || s="$2"; s=$((s*1000)); [ "$s" -le 2147483647 ] || s=2147483647; printf '%s' "$s"; }
@@ -312,6 +314,8 @@ if [ "$DETACH" -eq 1 ]; then
   say "detached: pid $! · log $DETACH_LOG · its last line will be 'detached run exited rc=<n>'"
   exit 0
 fi
+# a lane's bound reaches every process it starts only through setsid, so it is asked for before anything runs
+command -v perl >/dev/null 2>&1 || terminal env-perl "the lanes need perl for setsid, so their time bound reaches every process a lane starts"
 
 # ============================ library ============================
 # -- processes (rows B18, F11-F13) --
@@ -349,7 +353,13 @@ for _t in $(compgen -e HERDR_) $(compgen -e RUN_WATCH) $(compgen -e RUN_DETACHED
   case "$_t" in HERDR_*|RUN_WATCH*|RUN_DETACHED_LOG) WATCH_UNSET+=(-u "$_t") ;; esac
 done; unset _t
 SCRUB_ENV+=(${WATCH_UNSET[@]+"${WATCH_UNSET[@]}"})
-lane() { ( cd "$WT" && env "${SCRUB_ENV[@]}" bash -c "$1" ); }
+lane() { # lane <command>: its output on stdout; a lane past its bound is red
+  local out="$STATE/lane.out" rc
+  bounded_group "$LANE_TO" "$out" "$1" keep; rc=$?
+  cat "$out" 2>/dev/null
+  [ "$FWC_TIMED_OUT" -eq 0 ] || { echo "TIMED OUT after ${LANE_TO}s (run.laneTimeoutSeconds)"; return 124; }
+  return "$rc"
+}
 first_word() { local w; for w in $1; do case "$w" in *=*) continue ;; *) printf '%s' "$w"; return ;; esac; done; printf '%s' "${1%% *}"; }
 xargs_runs() { # xargs_runs <segment>: the command an xargs segment runs — its options skipped, and the value -n -P -L -I -d -s -E -a
   # take when it is the next word (#1048 OR-1) — or nothing when the segment is no xargs
@@ -601,9 +611,10 @@ FWC_NOTES=""
 FWC_TIMEOUT_DEFAULT=600
 FWC_GRACE=10
 FWC_TIMED_OUT=0
-bounded_group() { # bounded_group <secs> <out> <command> — the command in $WT, scrubbed, as the leader of its own session, so
+bounded_group() { # bounded_group <secs> <out> <command> [keep] — the command in $WT, scrubbed, as the leader of its own session, so
   # the bound reaches every descendant (bounded() reaps one level down): TERM the group, KILL it after FWC_GRACE. What is left
-  # of the group after a clean exit is killed too, so nothing it backgrounded writes on the red tree during the restore.
+  # of the group after a clean exit is killed too, so nothing it backgrounded writes on the red tree during the restore; `keep`
+  # leaves it running, as a lane may start a service a later lane uses.
   # Deadlines are wall-clock ($SECONDS), not counted polls: on a loaded machine a poll takes longer than its sleep
   local secs="$1" out="$2" end rc
   FWC_TIMED_OUT=0
@@ -614,7 +625,7 @@ bounded_group() { # bounded_group <secs> <out> <command> — the command in $WT,
     end=$((SECONDS + FWC_GRACE)); while { kill -0 -- "-$CHILD" || kill -0 "$CHILD"; } 2>/dev/null && [ "$SECONDS" -lt "$end" ]; do sleep 0.2; done
     kill -KILL -- "-$CHILD" 2>/dev/null; kill -KILL "$CHILD" 2>/dev/null; wait "$CHILD" 2>/dev/null; CHILD=""; CHILD_GROUP=0; return 1
   fi
-  wait "$CHILD"; rc=$?; kill -KILL -- "-$CHILD" 2>/dev/null; CHILD=""; CHILD_GROUP=0; return "$rc"
+  wait "$CHILD"; rc=$?; [ "${4:-}" = keep ] || kill -KILL -- "-$CHILD" 2>/dev/null; CHILD=""; CHILD_GROUP=0; return "$rc"
 }
 RED_TREE_MARK="$LOG_DIR/run-$ISSUE/red-tree"
 test_runners() { local key; key="$(commands_key)"; [ -n "$key" ] || return 0; jq -c --arg k "$key" '.commands[$k].testRunners[]? | objects' <<<"$CONFIG_JSON" 2>/dev/null; }
@@ -849,7 +860,6 @@ fails_without_change() { # fails_without_change <attempt> -> 0 pass · 1 red (th
   if [ -n "$tests" ]; then
     dirty="$(git -C "$WT" status --porcelain --untracked-files=no 2>/dev/null)" || terminal env-worktree "cannot read the status of $WT before the fails-without-the-change check"
     [ -z "$dirty" ] || terminal env-worktree "the checks left tracked changes in $WT ($(printf '%s' "$dirty" | head -n 3 | tr '\n' ' ')) — the record commit's tree cannot be built over them, and nothing here discards them"
-    command -v perl >/dev/null 2>&1 || terminal env-perl "the fails-without-the-change check needs perl for setsid, so its time bound reaches every process a test starts"
     FWC_TMP="$(mktemp -d "${TMPDIR:-/tmp}/fails-without.XXXXXX")" || terminal env-state-dir "cannot make a directory for the runners' reports"
     support="$(support_files)"; apply="$(printf '%s\n%s\n' "$(cut -f2 <<<"$tests")" "$support" | awk 'NF && !seen[$0]++')"
     [ -z "$support" ] || echo "testSupport (commands.$key.testSupport), from the head, never run: $(printf '%s' "$support" | paste -sd ',' - | sed 's/,/, /g')" >> "$log"

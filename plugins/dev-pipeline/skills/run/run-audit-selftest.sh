@@ -178,6 +178,12 @@ grep -q 'render failed' "$(SD)/smoke-1.1.log" && ok "[H8] the log names the exit
 FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"commands":{"main":{"lanes":[{"name":"setup","cwd":"src","commands":["test -f a.ts"]}],"lint":"true"}}}' fixture as2 ""
 printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "[C18] the setup lane's command ran in src/ (a.ts exists only there)"
 
+# a lane past its bound is red, and the bound reaches what the lane started
+FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"commands":{"main":{"lint":"sleep 20 & echo $! > '"$T"'/lane-child.pid; sleep 20"}}}' fixture as2t ""
+printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; RUN_LANE_TIMEOUT=2 RUN_CHECKS_RED_MAX=1 run_case "$d"; expect checks-red-spent "a check that outlives the lane bound is red"
+grep -q 'TIMED OUT after 2s' "$(SD)/checks-1.1.log" && ok "the checks log names the timeout" || bad "the checks log does not name the timeout: $(tail -n 3 "$(SD)/checks-1.1.log" | tr '\n' ' ')"
+! kill -0 "$(cat "$T/lane-child.pid" 2>/dev/null || echo 0)" 2>/dev/null && ok "a process the timed-out lane started is stopped with it" || bad "a timed-out lane's background child survived"
+
 # C20: an extraLanes entry with no `when` always runs
 FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"commands":{"main":{"extraLanes":[{"name":"always","commands":["false"]}]}}}' fixture as3 ""
 printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=1 run_case "$d"; expect checks-red-spent "[C20] a lane with no when globs runs on every diff"
