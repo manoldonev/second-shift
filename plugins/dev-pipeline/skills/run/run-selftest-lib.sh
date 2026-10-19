@@ -101,6 +101,7 @@ printf '%s\n' "${SECOND_SHIFT_CONFIG:-}" > "$S/config-path-$n.txt"; [ -f "${SECO
 # the session's env as claude would apply it: what it inherited, overlaid by any --settings env; the watch's own
 # variables are captured too, so a leak of one into a session is visible (#939 D-29)
 { env | grep -E '^(CLAUDE_CODE_DISABLE_BACKGROUND_TASKS|CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS|BASH_(DEFAULT|MAX)_TIMEOUT_MS|HERDR_[A-Za-z0-9_]*|RUN_WATCH[A-Za-z0-9_]*|RUN_DETACHED_LOG)='; prev=""; for a in "$@"; do [ "$prev" = --settings ] && printf '%s' "$a" | jq -r '.env // {} | to_entries[] | "\(.key)=\(.value)"'; prev="$a"; done; } | awk -F= '{ v[$1] = $0 } END { for (k in v) print v[k] }' | sort > "$S/env-$n.txt"
+ls -A > "$S/tree-seen-$n.txt"   # the worktree's top level as the session starts
 branch=$(git rev-parse --abbrev-ref HEAD); cost="${FAKE_COST:-1}"
 # #1039: a session whose call number has a $FAKE_GH/plan-<n>.md writes it as the test-first plan, beside the record
 rec=$(git ls-files 'docs/plans/*-decisions.md' 2>/dev/null | head -n 1)

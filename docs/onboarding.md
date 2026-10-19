@@ -44,8 +44,8 @@ is red, not green. If verifying nothing is genuinely intended, for example in a 
 Then add a setup step, on every stack: onboard never writes one, it only shows a commented-out
 line on the review screen. Each run works in a fresh `git worktree` with no `node_modules` and no
 `.venv`, so checks that need dependencies fail unless an install runs first. That is
-`commands.<id>.lanes[]`: steps that run in order before the checks, stopping at the first
-failure. A Python service, for example:
+`commands.<id>.lanes[]`: steps that run in order before the first build and again before the
+checks, stopping at the first failure. A Python service, for example:
 
 ```json
 {
