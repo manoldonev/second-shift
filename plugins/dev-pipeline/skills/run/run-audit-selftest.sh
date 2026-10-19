@@ -38,7 +38,7 @@ grep -qF '| review-1.1 | ? | unpriced (no total_cost_usd) |' "$FAKE_GH/pr-body.m
 # shellcheck disable=SC2016  # the run block's literal dollar costs
 grep -qxF '| review-1.1 | ? | unpriced (no total_cost_usd) | ? |' "$FAKE_GH/pr-body.md" && grep -qxF '| review-1.1-retry1 | 3 | $1.00 | 1 |' "$FAKE_GH/pr-body.md" && [ ! -e "$(SD)/denials-review-1.1.txt" ] \
   && ok "[K12] the killed review's denials are unread (?), not 0" || bad "[K12] denials cells: $(grep -E '^[|] review' "$FAKE_GH/pr-body.md" | tr '\n' '|')"
-sleep 1; pkill -f 'sleep 60' 2>/dev/null
+sleep 1; session_sleep_reap
 
 # C13: the docs/plans default is where the record lands when no config says otherwise
 fixture au6; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; rm "$d/main/.claude/second-shift.config.json"
