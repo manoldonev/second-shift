@@ -292,11 +292,12 @@ ERRORS=$(jq -r --argjson shippedTiers "$SHIPPED_TIERS_JSON" --argjson tierDocFou
     )
   + ((.run // {}) |
       err((type) != "object"; "run: must be object")
-      + err(((keys) - ["maxRounds","checksRedMax","buildTimeoutSeconds","reviewTimeoutSeconds","costCeilingUsd"]) != []; "run: unknown keys")
+      + err(((keys) - ["maxRounds","checksRedMax","buildTimeoutSeconds","reviewTimeoutSeconds","laneTimeoutSeconds","costCeilingUsd"]) != []; "run: unknown keys")
       + err((.maxRounds? != null) and (((.maxRounds | type) != "number") or (.maxRounds != (.maxRounds | floor)) or (.maxRounds < 1)); "run.maxRounds: must be an integer >= 1")
       + err((.checksRedMax? != null) and (((.checksRedMax | type) != "number") or (.checksRedMax != (.checksRedMax | floor)) or (.checksRedMax < 1)); "run.checksRedMax: must be an integer >= 1")
       + err((.buildTimeoutSeconds? != null) and (((.buildTimeoutSeconds | type) != "number") or (.buildTimeoutSeconds != (.buildTimeoutSeconds | floor)) or (.buildTimeoutSeconds < 60)); "run.buildTimeoutSeconds: must be an integer >= 60")
       + err((.reviewTimeoutSeconds? != null) and (((.reviewTimeoutSeconds | type) != "number") or (.reviewTimeoutSeconds != (.reviewTimeoutSeconds | floor)) or (.reviewTimeoutSeconds < 60)); "run.reviewTimeoutSeconds: must be an integer >= 60")
+      + err((.laneTimeoutSeconds? != null) and (((.laneTimeoutSeconds | type) != "number") or (.laneTimeoutSeconds != (.laneTimeoutSeconds | floor)) or (.laneTimeoutSeconds < 60)); "run.laneTimeoutSeconds: must be an integer >= 60")
       + err((.costCeilingUsd? != null) and (((.costCeilingUsd | type) != "number") or (.costCeilingUsd <= 0)); "run.costCeilingUsd: must be a number > 0")
     )
   + (if (.design != null) then (.design |

@@ -15,6 +15,7 @@
     "checksRedMax": 2,
     "buildTimeoutSeconds": 600,
     "reviewTimeoutSeconds": 600,
+    "laneTimeoutSeconds": 1800,
     "costCeilingUsd": 40
   },
   "design": {

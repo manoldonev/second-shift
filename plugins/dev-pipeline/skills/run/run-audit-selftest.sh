@@ -188,6 +188,12 @@ printf 'build-pr\nbuild-pr\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=2 run_ca
 grep -q '## Setup lanes red before this build' "$FAKE_GH/prompt-1.txt" && grep -q 'NO-REGISTRY' "$FAKE_GH/prompt-1.txt" && ok "the first build is told the setup lanes failed, with the log" || bad "the first build prompt does not report the red setup"
 ! grep -q '## Setup lanes red' "$FAKE_GH/prompt-2.txt" && ok "only the first build gets the pre-build setup report" || bad "a later build was handed the stale pre-build setup report"
 
+# a lane past its bound is red, and the bound reaches what the lane started
+FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"commands":{"main":{"lint":"sleep 20 & echo $! > '"$T"'/lane-child.pid; sleep 20"}}}' fixture as2t ""
+printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; RUN_LANE_TIMEOUT=2 RUN_CHECKS_RED_MAX=1 run_case "$d"; expect checks-red-spent "a check that outlives the lane bound is red"
+grep -q 'TIMED OUT after 2s' "$(SD)/checks-1.1.log" && ok "the checks log names the timeout" || bad "the checks log does not name the timeout: $(tail -n 3 "$(SD)/checks-1.1.log" | tr '\n' ' ')"
+! kill -0 "$(cat "$T/lane-child.pid" 2>/dev/null || echo 0)" 2>/dev/null && ok "a process the timed-out lane started is stopped with it" || bad "a timed-out lane's background child survived"
+
 # C20: an extraLanes entry with no `when` always runs
 FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"commands":{"main":{"extraLanes":[{"name":"always","commands":["false"]}]}}}' fixture as3 ""
 printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=1 run_case "$d"; expect checks-red-spent "[C20] a lane with no when globs runs on every diff"
