@@ -234,6 +234,15 @@ OUT="$( cd "$d/main" && RUN_CHECKS_RED_MAX=2 bash "$RUN" GH-42 --build-model opu
 expect checks-red-spent "(x5) jira Closes outside its heading is a finding, as the old gate ruled"
 fixture x6; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; touch "$FAKE_GH/ci-red"; run_case "$d"; expect approved "(x6) CI is never waited on"
 grep -q '| red |' "$FAKE_GH/pr-body.md" && ok "(x6) a red CI is reported in the run block" || bad "(x6) CI red not reported"
+fixture x7; printf 'build-pr-keyed-title\nbuild-push-only\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=2 run_case "$d"; expect checks-red-spent "(x7) a PR title carrying the ticket key is sent back"
+grep -qF 'PR title must not carry #42' "$FAKE_GH/prompt-2.txt" && ok "(x7) the next build is told the title carries #42" || bad "(x7) prompt-2 lacks the title finding"
+fixture x8; printf 'build-pr-keyed-commit\nbuild-push-only\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=2 run_case "$d"; expect checks-red-spent "(x8) a commit message carrying the ticket key is sent back"
+grep -qF 'commit messages after the record commit must not carry #42' "$FAKE_GH/prompt-2.txt" && ok "(x8) the next build is told a commit carries #42" || bad "(x8) prompt-2 lacks the commit finding"
+FIXTURE_CONFIG='{"tracker":{"type":"jira","writes":false,"branchPrefix":"jdoe/","keyPattern":"[A-Z]+-[0-9]+"},"paths":{"plansDir":"docs/plans"}}' fixture x9
+printf 'build-pr-keyed-title\nbuild-push-only\n' > "$FAKE_CLAUDE_PLAN"; mv "$d/main/.claude/pipeline-state/42-ledger.md" "$d/main/.claude/pipeline-state/GH-42-ledger.md"
+OUT="$( cd "$d/main" && RUN_CHECKS_RED_MAX=2 bash "$RUN" GH-42 --build-model opus 2>&1 )"; RC=$?; TERM_SLUG="$(printf '%s\n' "$OUT" | sed -n 's/^terminal: //p' | tail -n 1)"
+expect checks-red-spent "(x9) a jira key in the PR title is sent back, while its Closes line under Jira Items passes"
+grep -qF 'PR title must not carry GH-42' "$FAKE_GH/prompt-2.txt" && ! grep -q "must carry 'Closes \[GH-42\]'" "$FAKE_GH/prompt-2.txt" && ok "(x9) only the title is a finding" || bad "(x9) prompt-2 findings: $(grep -o 'must[^.]*' "$FAKE_GH/prompt-2.txt" | head -n 3 | tr '\n' '|')"
 
 # (y) round-eleven parity: a provider repo's ticket declares its design state, the probe wants a 2xx/3xx,
 #     a timed-out session is reaped, -h prints the whole table

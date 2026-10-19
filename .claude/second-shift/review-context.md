@@ -47,5 +47,5 @@
 
 
 ## Naming & structure conventions
-- Record and PR forms are exact strings, never paraphrased: the claim marker `<!-- stage: lean-claimed -->` (not `stage: claimed`), PR body line 1 `built-by: second-shift run <id>`, the record commit subject `docs: decision record for #<n>`.
+- Record and PR forms are exact strings, never paraphrased: the claim marker `<!-- stage: lean-claimed -->` (not `stage: claimed`), PR body line 1 `built-by: second-shift run <id>`, the record commit subject `docs: add the decision record`.
 - Slug prefixes: `usage-*` is argv, `env-*` is the environment (exit 2); exit 3 is resumable. Full table: the `run.sh` header.

@@ -8,7 +8,7 @@
 # this helper owns the command + identity resolution (enforcement-ladder rung 2).
 #
 # Usage: bot-commit.sh [-C <dir>] <git commit args...>
-#   bot-commit.sh -C "$WT" -m "docs(dev-pipeline): plan for #42"
+#   bot-commit.sh -C "$WT" -m "docs(dev-pipeline): add the task plan"
 #
 # Identity: name  = "<appName>[bot]"
 #           email = "<botUserId>+<appName>[bot]@users.noreply.github.com"

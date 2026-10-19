@@ -36,7 +36,7 @@ grep -q "naming security, a11y, unit-test-mutation or performance" "$FAKE_GH/pro
 grep -q 'models: build opus (label), review opus (default)' <<<"$OUT" && ok "(a) [A4 A6] build model read from the opus label; tiers are passed to the CLI as aliases, never pinned ids" || bad "(a) model line: $(grep 'models:' <<<"$OUT")"
 ! grep -q 'claude-opus-[0-9]' "$FAKE_GH/args-1.txt" && grep -q '^opus$' "$FAKE_GH/args-1.txt" && ok "(a) [A6] the session is launched with --model opus" || bad "(a) [A6] a pinned model id reached the session: $(grep -A1 -- '--model' "$FAKE_GH/args-1.txt" | tr '\n' ' ')"
 first=$(git -C "$d/origin.git" log --format=%s --reverse main..second-shift/42 | head -n 1)
-[ "$first" = "docs: decision record for #42" ] && ok "(a) the record is the branch's first commit" || bad "(a) first commit is '$first'"
+[ "$first" = "docs: add the decision record" ] && ok "(a) the record is the branch's first commit" || bad "(a) first commit is '$first'"
 grep -q '<!-- pipeline-cost-block -->' "$FAKE_GH/pr-body.md" 2>/dev/null && grep -q 'built-by: fake' "$FAKE_GH/pr-body.md" && grep -q '| approved |' "$FAKE_GH/pr-body.md" && ok "(a) run block written into the PR body, original body kept" || bad "(a) no run block in the PR body"
 grep -qE '^[|] review-1[.]1 [|] 3 [|] [$]1[.]00 [|]' "$FAKE_GH/pr-body.md" 2>/dev/null && ok "(a) per-session cost rows in the block" || bad "(a) per-session rows missing"
 lnum() { grep -nE "$1" "$FAKE_GH/pr-body.md" 2>/dev/null | head -n 1 | cut -d: -f1; }
@@ -62,7 +62,7 @@ hp="$(sed -n 's/^prompt: //p' <<<"$OUT")"; hw="$(sed -n 's/^worktree: //p' <<<"$
 # The closing comment is public: the worktree path stays in the local log, never on the tracker.
 grep -q 'build-handoff' "$FAKE_GH/issue-comments" && ! grep -qF "$hw" "$FAKE_GH/issue-comments" && grep -q '<worktree>' "$FAKE_GH/issue-comments" \
   && ok "(ho) the handoff comment names <worktree>, never the local path" || bad "(ho) local path in the tracker comment: $(grep build-handoff "$FAKE_GH/issue-comments")"
-[ "$(git -C "$d/origin.git" log --format=%s main..second-shift/42 2>/dev/null)" = "docs: decision record for #42" ] && ok "(ho) the record is the pushed branch's only commit" || bad "(ho) branch: $(git -C "$d/origin.git" log --oneline main..second-shift/42 2>&1 | tr '\n' '|')"
+[ "$(git -C "$d/origin.git" log --format=%s main..second-shift/42 2>/dev/null)" = "docs: add the decision record" ] && ok "(ho) the record is the pushed branch's only commit" || bad "(ho) branch: $(git -C "$d/origin.git" log --oneline main..second-shift/42 2>&1 | tr '\n' '|')"
 grep -qx in-progress "$FAKE_GH/labels" && grep -q 'Claimed by .*/dev-pipeline:build' "$FAKE_GH/issue-comments" && ok "(ho) claimed, and the marker names /dev-pipeline:build" || bad "(ho) labels: $(tr '\n' ' ' < "$FAKE_GH/labels")"
 hb="$(sed -n 's/^baseline: //p' <<<"$OUT")"
 [ -n "$hb" ] && [ "$hb" = "$(git -C "$d/origin.git" rev-parse second-shift/42)" ] && grep -q "Record baseline: $hb" "$hp" && grep -q "never amend, rebase or force-push over it" "$hp" && ok "(ho) the record baseline is printed and pinned in the prompt" || bad "(ho) baseline '$hb'"
