@@ -186,7 +186,7 @@ fixture ae1; stale_record ae1; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAU
 ! grep -q 'already committed' <<<"$OUT" && grep -q 'record: origin has no second-shift/42 — deleted the stale tracking ref origin/second-shift/42' <<<"$OUT" \
   && ok "(ae1) [D-2] the stale tracking ref is deleted and the run log says so" || bad "(ae1) record lines: $(grep 'record:' <<<"$OUT" | tr '\n' '|')"
 ae1_rec="$(git -C "$d/origin.git" show second-shift/42:docs/plans/main-42-decisions.md 2>/dev/null)"
-[ "$(git -C "$d/origin.git" log --format=%s --reverse main..second-shift/42 | head -n 1)" = "docs: decision record for #42" ] && grep -qF '| D-1 | a | b | user-answered |' <<<"$ae1_rec" \
+[ "$(git -C "$d/origin.git" log --format=%s --reverse main..second-shift/42 | head -n 1)" = "docs: add the decision record" ] && grep -qF '| D-1 | a | b | user-answered |' <<<"$ae1_rec" \
   && ok "(ae1) the branch is cut fresh from the base and carries the receipt" || bad "(ae1) branch: $(git -C "$d/origin.git" log --oneline main..second-shift/42 2>&1 | tr '\n' '|')"
 # (ae2) AC-1: origin unreachable: refused before the claim, and the stale ref holding a record is not read
 fixture ae2; stale_record ae2; git -C "$d/main" remote set-url origin "$d/nonexistent.git"; run_case "$d"; expect env-remote-unreadable "(ae2) [AC-1] an unreachable origin refuses"

@@ -70,7 +70,7 @@ case "$sub" in
                  prev=""; for a in "$@"; do [ "$prev" = --body-file ] && { cat "$a"; echo '<!-- end of comment -->'; } >> "$S/pr-comment-bodies"; prev="$a"; done ;;
   "pr ready")    [ -f "$S/ready-fail" ] && { cat "$S/ready-fail" >&2; exit 1; }   # one line per flip, in order: who, which way
                  case "$*" in *--undo*) touch "$S/draft"; w=undo ;; *) rm -f "$S/draft"; w=ready ;; esac; echo "${FAKE_GH_AS:-operator} $w" >> "$S/ready-calls" ;;
-  "pr view")     case "$*" in *body*) jq -n --rawfile b "$S/pr-created-body.txt" --argjson d "$([ -f "$S/draft" ] && echo true || echo false)" '{body:$b, isDraft:$d}' ;; *) echo "https://x/pr/7" ;; esac ;;
+  "pr view")     case "$*" in *body*) jq -n --rawfile b "$S/pr-created-body.txt" --arg t "$(cat "$S/pr-created-title.txt" 2>/dev/null || echo 'fix: a change')" --argjson d "$([ -f "$S/draft" ] && echo true || echo false)" '{body:$b, title:$t, isDraft:$d}' ;; *) echo "https://x/pr/7" ;; esac ;;
   "repo view")   echo "o/r" ;;
   "api -X")      # PATCH repos/o/r/pulls/7 -F body=@<file> | POST .../labels --input - | DELETE .../labels/<name>
                  verb="$1"; p="$2"
@@ -140,6 +140,10 @@ case "$plan" in
   build-pr-fixbody) openpr ;;   # a PR-only fix: the body is rewritten, nothing is pushed
   build-pr-jira-outside) push; rid=$(grep -oE 'built-by: second-shift run [^ ]+' "$S/prompt-$n.txt" | head -n 1); rec=$(grep -oE 'The record is committed at [^;]+' "$S/prompt-$n.txt" | sed 's/^The record is committed at //')
                    printf '%s\n\nrecord: %s\n\nCloses [GH-42]\n\n### Jira Items\n(nothing)\n' "$rid" "$rec" > "$S/pr-created-body.txt"; echo 7 > "$S/prs" ;;
+  build-pr-keyed-title) push; openpr; k=$(grep -oE "Closes (#[0-9]+|\[[^]]+\])" "$S/prompt-$n.txt" | head -n 1 | sed -E 's/^Closes \[?//; s/\]$//')
+                   printf 'fix: a change (%s)\n' "$k" > "$S/pr-created-title.txt" ;;
+  build-pr-keyed-commit) k=$(grep -oE "Closes (#[0-9]+|\[[^]]+\])" "$S/prompt-$n.txt" | head -n 1 | sed -E 's/^Closes \[?//; s/\]$//')
+                   echo "$n" >> work.txt; git add -A >/dev/null; git commit -qm "fix: a change for $k"; git push -q origin "$branch"; openpr ;;
   build-pr-close)  push; openpr; echo CLOSED > "$S/state" ;;
   build-pr-dirty)  push; openpr; echo uncommitted >> work.txt ;;
   build-pr-untracked) push; openpr; printf 'it("probe", () => {});\n' > src/zz-probe.spec.ts; mkdir -p "src/probe dir"; echo scratch > "src/probe dir/notes.txt" ;;   # never committed: what a probing build leaves
@@ -253,7 +257,7 @@ fixture() { # fixture <case> [checks-line] [extra-record] — sets $d and the en
 commit_record() { # the receipt already committed as the lane branch's first commit, as an earlier run leaves it: never re-linted (#1022 D-8)
   git -C "$d/main" checkout -q -b second-shift/42 && mkdir -p "$d/main/docs/plans" \
     && cp "$d/main/.claude/pipeline-state/42-ledger.md" "$d/main/docs/plans/main-42-decisions.md" \
-    && git -C "$d/main" add docs/plans/main-42-decisions.md && git -C "$d/main" commit -qm "docs: decision record for #42" \
+    && git -C "$d/main" add docs/plans/main-42-decisions.md && git -C "$d/main" commit -qm "docs: add the decision record" \
     && git -C "$d/main" push -q origin second-shift/42 2>/dev/null && git -C "$d/main" checkout -q main && git -C "$d/main" branch -q -D second-shift/42
 }
 # shellcheck disable=SC2012  # run ids are plain ASCII; sorted ls is the simplest "latest"

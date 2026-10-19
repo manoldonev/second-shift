@@ -1021,6 +1021,7 @@ build_prompt() { # build_prompt <round> <review-findings-file-or-empty> <red-che
   echo "A test double of a dependency this repo does not own that returns an error or an empty result cites where that shape comes from. Cite the dependency's types, its docs or a recorded real response. A double that shows only what you expect proves nothing about the dependency."
   # #1076 D-10 D-11: unconditional, so a UI ticket with no design frames carries it too
   echo "Before you write a comment that claims a UI library does or does not do something, open the installed source of that library and check the claim. Cite the installed file in the comment when the claim is not obvious."
+  echo "The PR title and every commit message say what changed. Never put $([ "$TRACKER" = github ] && echo "#$ISSUE" || echo "$ISSUE") in them. The ticket's one link is the PR body's Closes line."
   [ "$BOT_OK" -eq 1 ] && echo "Commit through the repo's bot identity. Never use plain git commit. Run it exactly as '$TOOLS/bot-commit.sh -C $WT -F <a message file you wrote with Write>'. Start the command with the bare path. Do not put bash before it. Run each --amend through bot-commit.sh too. A plain --amend makes you the committer and gives no warning."
   if [ "$1" -eq 1 ]; then
     echo "When the checks you ran are green, commit and push branch $BRANCH to origin. If no PR is open for this branch, open a DRAFT PR against $BASE_NAME with 'gh pr create --draft --base $BASE_NAME'. Leave it a draft: the scheduler marks it ready for review only when a review approves its head."
@@ -1312,10 +1313,16 @@ baseline_follows() { # baseline_follows <old> <new>: the open PR's 'Record basel
 
 # -- the PR (rows E7-E13, E16) --
 pr_conventions() { # pr_conventions <pr> <attempt> -> 0, 1 unmet (reasons in $STATE/pr-conventions-<attempt>.txt), 2 unreadable (the caller refuses)
-  local out="$STATE/pr-conventions-$2.txt" info body first
-  info="$("$GH_READ" pr view "$1" --json body,isDraft 2>/dev/null)" || return 2
+  local out="$STATE/pr-conventions-$2.txt" info body first title msgs key re
+  info="$("$GH_READ" pr view "$1" --json body,isDraft,title 2>/dev/null)" || return 2
   body="$(printf '%s' "$info" | jq -r '.body // ""')"; PR_DRAFT="$(printf '%s' "$info" | jq -r '.isDraft // false')"
+  title="$(printf '%s' "$info" | jq -r '.title // ""')"
+  msgs="$(git -C "$WT" log --format=%B "$FIRST..HEAD" 2>/dev/null)" || return 2
   : > "$out"
+  # the body's Closes line is the ticket's one link; a key anywhere else outlives the ticket it names
+  if [ "$TRACKER" = github ]; then key="#$ISSUE"; re="#$ISSUE([^0-9]|$)"; else key="$ISSUE"; re="(^|[^a-z0-9])$ISSUE([^0-9]|$)"; fi
+  grep -qiE "$re" <<<"$title" && echo "PR title must not carry $key: say what changed; the ticket's one link is the body's Closes line" >> "$out"
+  grep -qiE "$re" <<<"$msgs" && echo "commit messages after the record commit must not carry $key: say what changed" >> "$out"
   first="$(printf '%s\n' "$body" | head -n 1)"
   grep -q "^built-by: second-shift run " <<<"$first" || echo "PR body line 1 must be 'built-by: second-shift run <id>'" >> "$out"
   grep -qF "$RECORD_REL" <<<"$body" || echo "PR body must link the decision record at $RECORD_REL" >> "$out"
@@ -1610,8 +1617,8 @@ BASE_START="$(git -C "$WT" merge-base "origin/$BASE_NAME" HEAD 2>/dev/null)" || 
 if ! git -C "$WT" cat-file -e "HEAD:$RECORD_REL" 2>/dev/null; then # the record is the branch's first commit, pushed before any build
   mkdir -p "$WT/$(dirname "$RECORD_REL")" && cp "$RECORD" "$WT/$RECORD_REL" || terminal env-record-commit "could not place the record at $RECORD_REL"
   git -C "$WT" add "$RECORD_REL" || terminal env-record-commit "could not stage the record"
-  if [ "$BOT_OK" -eq 1 ]; then SECOND_SHIFT_CONFIG="${CONFIG:-}" bash "$TOOLS/bot-commit.sh" -C "$WT" -q -m "docs: decision record for #$ISSUE" -- "$RECORD_REL" || terminal env-record-commit "bot-commit.sh could not commit the record"
-  else git -C "$WT" commit -q -m "docs: decision record for #$ISSUE" -- "$RECORD_REL" || terminal env-record-commit "could not commit the record"; fi
+  if [ "$BOT_OK" -eq 1 ]; then SECOND_SHIFT_CONFIG="${CONFIG:-}" bash "$TOOLS/bot-commit.sh" -C "$WT" -q -m "docs: add the decision record" -- "$RECORD_REL" || terminal env-record-commit "bot-commit.sh could not commit the record"
+  else git -C "$WT" commit -q -m "docs: add the decision record" -- "$RECORD_REL" || terminal env-record-commit "could not commit the record"; fi
   git -C "$WT" push -q -u origin "$BRANCH" || terminal env-push "could not push $BRANCH"
 fi
 FIRST="$(git -C "$WT" log --format=%H --diff-filter=A -- "$RECORD_REL" 2>/dev/null | tail -n 1)"
