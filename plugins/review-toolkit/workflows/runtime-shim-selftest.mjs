@@ -238,6 +238,46 @@ console.log('── Case C: code-review.mjs budget clean-skip')
 }
 
 // ---------------------------------------------------------------------------
+// Case OI — an opt-in seat never blocks: a `blocker` it emits is `major` in the result, while a
+// default seat's `blocker` is untouched. The cap is applied to the PARSED result, so it holds
+// whatever the seat wrote; a prompt-side instruction could not be guarded here.
+// ---------------------------------------------------------------------------
+console.log('── Case OI: optInSeats caps blocker to major')
+{
+  const blockerBlock = reviewBlock({
+    verdict: 'block',
+    findings: [{ severity: 'blocker', title: 'b', description: 'd', confidence: 95, file: 'f.ts', line: 1 }],
+  })
+  const optIn = await runCodeReview([blockerBlock], {
+    reviewers: ['review-toolkit:a11y-reviewer'],
+    optInSeats: ['review-toolkit:a11y-reviewer'],
+  })
+  eq('OI1 an opt-in seat\'s blocker reaches the result as major', optIn.result.reviewers[0].result.findings[0].severity, 'major')
+  const bareName = await runCodeReview([blockerBlock], {
+    reviewers: ['review-toolkit:a11y-reviewer'],
+    optInSeats: ['a11y-reviewer'],
+  })
+  eq('OI2 the cap matches on the bare name', bareName.result.reviewers[0].result.findings[0].severity, 'major')
+  const defaultSeat = await runCodeReview([blockerBlock], {
+    reviewers: ['review-toolkit:security-reviewer'],
+    optInSeats: ['review-toolkit:a11y-reviewer'],
+  })
+  eq('OI3 a default seat\'s blocker is untouched', defaultSeat.result.reviewers[0].result.findings[0].severity, 'blocker')
+  const recordArm = await runCodeReview([blockerBlock], {
+    reviewers: ['review-toolkit:performance-reviewer'],
+    optInSeats: [],
+  })
+  eq('OI4 performance dispatched on the record arm (not in optInSeats) keeps its blocker', recordArm.result.reviewers[0].result.findings[0].severity, 'blocker')
+  let threw = ''
+  try {
+    await runCodeReview([blockerBlock], { optInSeats: 'a11y-reviewer' })
+  } catch (e) {
+    threw = String(e.message)
+  }
+  ok('OI5 a non-array optInSeats is refused', /optInSeats must be an array/.test(threw))
+}
+
+// ---------------------------------------------------------------------------
 // Case H — args.config delivery path: the SUBSET the dispatch prose passes must carry
 // everything code-review.mjs actually reads (#77).
 //

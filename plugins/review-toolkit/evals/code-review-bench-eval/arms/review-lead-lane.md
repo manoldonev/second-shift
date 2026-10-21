@@ -6,9 +6,9 @@ plugin-dir: ../../..
 {rules}
 
 Invoke the `review-toolkit:review-lead` skill to review this change: worktree `{checkout}`, base
-`{base}`, head `{head}` (`git -C {checkout} diff {base} {head}`). DECLARE THE PIPELINE DEFAULT
-PANEL when you invoke it, as the pipeline's review session does. There is no ticket and no decision
-record, so no seat is opted in: this is the lane's review of a diff with no record rows. Let the
+`{base}`, head `{head}` (`git -C {checkout} diff {base} {head}`). DECLARE THE LANE'S OPT-INS when
+you invoke it, as the pipeline's review session does. There is no ticket and no decision record,
+so no seat is opted in: this is the lane's review of a diff with no record rows. Let the
 skill run exactly as it is written; stage its workflow script under `{scratch}`.
 
 When it has produced its consolidated report, write to `{out}` every finding the report presents

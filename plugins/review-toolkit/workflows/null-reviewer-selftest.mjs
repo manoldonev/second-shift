@@ -19,10 +19,9 @@
 //   strips the meta block and executes the ACTUAL code-review.mjs body with injected fakes.
 //
 //   What remains here is Case F alone — the structural drift-guard reading code-review.mjs
-//   as TEXT. Its load-bearing half is the WIRING COUNTS (PROGRESSIVE_EMIT appended to
-//   exactly 2 exhaustive branches, BOUNDED_EXPLORATION to exactly 1): check-bounded-
-//   exploration.sh greps only `^const BOUNDED_[A-Z_]+`, so PROGRESSIVE_EMIT wiring is
-//   invisible to it and this is the only guard on it in the tree.
+//   as TEXT. Its load-bearing half is the WIRING COUNTS (PROGRESSIVE_EMIT appended to all 3
+//   prompt branches, GENERIC_READ ahead of it on the generic one, and no bounding constant on
+//   any): nothing else in the tree reads the wiring, so this is the only guard on it.
 //
 // Mirrors the conventions of a since-deleted suite (removed in #348;
 // the same conventions survive in every `*-selftest.sh` here): numbered cases, pass/fail
@@ -103,17 +102,22 @@ async function main() {
     // explanatory comments also contain the bare name, so a mention count cannot tell a
     // wired constant from a dead one.
     const appends = (src.match(/\+\s*\n\s*PROGRESSIVE_EMIT\b/g) || []).length
-    appends === 2
-      ? pass('F wiring: PROGRESSIVE_EMIT is appended to exactly the 2 exhaustive prompt branches')
-      : fail(`F wiring: PROGRESSIVE_EMIT is appended to ${appends} prompt branch(es), expected 2 (scope-completeness + unit-test-mutation)`)
+    appends === 3
+      ? pass('F wiring: PROGRESSIVE_EMIT is appended to exactly the 3 prompt branches')
+      : fail(`F wiring: PROGRESSIVE_EMIT is appended to ${appends} prompt branch(es), expected 3 (scope-completeness + unit-test-mutation + generic)`)
 
-    // The bounded/progressive split must stay disjoint: an exhaustive reviewer that also
-    // got BOUNDED_EXPLORATION would be told to skip the exhaustive enumeration that IS
-    // its deliverable — the failure mode the exemption exists to prevent.
+    // The bounding nudge was retired: it was measured to lose the callers of a changed unit, where
+    // the bugs that reached production sat. The generic branch carries GENERIC_READ (the numbered
+    // deadline without the "read less" half) ahead of PROGRESSIVE_EMIT; a reappearance of a
+    // bounding constant on any branch is the regression this count exists to catch.
     const boundedAppends = (src.match(/\+\s*\n\s*BOUNDED_EXPLORATION\b/g) || []).length
-    boundedAppends === 1
-      ? pass('F wiring: BOUNDED_EXPLORATION stays on exactly the 1 generic branch')
-      : fail(`F wiring: BOUNDED_EXPLORATION is appended to ${boundedAppends} branch(es), expected 1 (generic only)`)
+    boundedAppends === 0
+      ? pass('F wiring: no branch carries BOUNDED_EXPLORATION')
+      : fail(`F wiring: BOUNDED_EXPLORATION is appended to ${boundedAppends} branch(es), expected 0 (retired)`)
+    const genericRead = /\+\s*\n\s*GENERIC_READ\s*\+\s*\n\s*PROGRESSIVE_EMIT\b/.test(src)
+    genericRead
+      ? pass('F wiring: the generic branch appends GENERIC_READ then PROGRESSIVE_EMIT')
+      : fail('F wiring: the generic branch does not append GENERIC_READ followed by PROGRESSIVE_EMIT')
 
     // ESCALATED_EMIT is wired at the DISPATCH, not at a prompt branch: it applies to whichever
     // reviewer died, so it cannot be counted the way the two branch nudges are. What must hold is

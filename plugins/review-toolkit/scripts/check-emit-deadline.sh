@@ -43,9 +43,9 @@
 # reason must be non-empty.
 #
 # Agents AT or BELOW the default cap are USUALLY not required to carry a deadline: they are
-# meant to be held by the dispatch-time bounding nudge ("explore less") instead. This lint
-# polices "write sooner" for the exhaustive ones that cannot take a bounding nudge without
-# losing the coverage that is their deliverable.
+# meant to be held by the dispatch-time nudge (a numbered first-emit deadline) instead. This lint
+# polices "write sooner" for the ones whose own doc must carry the deadline because the dispatch
+# nudge alone was measured not to hold them.
 #
 # THE GAP. That division assumes every default-cap agent's dispatch site
 # actually appends a nudge. plan-reviewer's does not — its dispatch declares the nudge
@@ -105,8 +105,8 @@ DEFAULT_CAP=15
 # them is enrolled here — the dark column IS the enrollment predicate, and a zero in it is a
 # refusal.
 #
-# THEIR DISPATCH ALREADY CARRIES A BOUNDING NUDGE, AND IT DID NOT HOLD. code-review.mjs appends
-# BOUNDED_EXPLORATION to both and records it as the primary, measured fix for this stall class
+# THEIR DISPATCH ALREADY CARRIES A DEADLINE NUDGE, AND IT DID NOT HOLD. code-review.mjs appends
+# its dispatch-time nudge to both and records it as the primary, measured fix for this stall class
 # ("took maintainability-reviewer from ~50% to 0/12"). That is the spec-reviewer shape from the
 # header above — a nudge in place, a death anyway — and it earns the same conclusion: the
 # dispatch-time nudge and the agent-doc deadline are independent mitigations, and a demonstrated
@@ -117,7 +117,7 @@ DEFAULT_CAP=15
 # calls each against maxTurns 15, empty final text, agents_error 0 — the cap signature exactly. The
 # session then re-dispatched it by hand at the SAME cap, SAME tier, SAME agent, adding nothing but a
 # turn-numbered deadline and a narrowed file list, and it returned a grounded verdict in 20 tool
-# calls. Its dispatch already carried BOUNDED_EXPLORATION, whose own numbered deadline ("by your 8th
+# calls. Its dispatch already carried the dispatch nudge, whose own numbered deadline ("by your 8th
 # tool call") is sized for the smallest domain in the panel — and this agent must load the repo's
 # design-token reference before it can assert anything, so it blows past 8 with nothing written and
 # then has no second anchor.
@@ -140,7 +140,7 @@ DEFAULT_CAP=15
 # enrolled because #992's substantial panel makes them required seats running on opus, a
 # population nobody has measured, where one unbounded seat leaves the whole panel short of a
 # domain. Their docs carry maintainability-reviewer's line verbatim. Their dispatch already appends
-# BOUNDED_EXPLORATION, so, like the three panel reviewers above, they hold both mitigations.
+# the deadline nudge, so, like the three panel reviewers above, they hold both mitigations.
 DEADLINE_AT_DEFAULT="${DEADLINE_AT_DEFAULT:-plan-reviewer spec-reviewer test-coverage-reviewer maintainability-reviewer figma-faithful-reviewer performance-reviewer complexity-reviewer}"
 
 # The jq binary. A seam, not a configuration knob — see the Env note above.

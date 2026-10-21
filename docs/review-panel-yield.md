@@ -155,9 +155,10 @@ they carried 10 non-blocker findings between them — but their blocker column i
 non-blocker finding does not gate a merge.
 
 **Darkness is concentrated in one panelist.** `test-coverage-reviewer` accounts for 10 of 12 dark
-events. Its dispatch already carries `BOUNDED_EXPLORATION`, the nudge `code-review.mjs` records as
-the primary and measured fix for this stall class ("took maintainability-reviewer from ~50% to
-0/12"), and it still went dark on roughly one dispatch in four.
+events. At the time its dispatch carried the bounding nudge `code-review.mjs` then recorded as the
+primary and measured fix for this stall class ("took maintainability-reviewer from ~50% to 0/12"),
+and it still went dark on roughly one dispatch in four. That nudge was since retired for the
+generic seats in favor of the numbered emit deadline alone.
 
 ## Cost
 

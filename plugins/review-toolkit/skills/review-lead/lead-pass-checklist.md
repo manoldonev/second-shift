@@ -1,11 +1,18 @@
 # Lead-pass checklist
 
 The calibration content for the review dimensions `review-lead` reviews **in-session** rather than
-dispatching: performance, maintainability, complexity, test coverage, and — on the rounds its
-conditional did not fire — security. Read this before the pass; apply it dimension by dimension.
+dispatching. **Correctness runs on every round.** Security runs on the rounds its conditional did
+not fire. Performance, maintainability, complexity and test coverage run only when an opt-in
+carrier names the dimension (SKILL, "Opting one in"); their findings are notes to the human,
+never blockers, except a performance finding that answers a record-named cost row. Read this before
+the pass; apply it dimension by dimension.
 
-It is folded from the five agent contracts of the same names, which still ship and are still
-dispatchable. Where a rule below is thinner than you need, the agent file is the long form.
+The four opt-in sections are folded from the agent contracts of the same names, which still ship
+and are still dispatchable. Where a rule below is thinner than you need, the agent file is the long
+form. Correctness has no agent: it is the one question a reviewer is for, and it was measured
+missing — on a public set of PRs with known bugs, this pass found fewer than a plain prompt did,
+and the bugs humans later found in approved PRs were all of one class: an existing caller, or
+existing data, meeting the new rule.
 
 ## How to run the pass
 
@@ -34,6 +41,11 @@ row or an `OR-n` Open Region recording a deferred, unmeasured or inherited cost 
 record-named cost risk" under Performance). Trace the new entry point that reaches it through the
 unchanged code that does the work, as far as the worst-case bound needs: the operator wrote the
 concern down, so checking it is not proving a negative.
+
+It also **always includes** the callers and consumers of every unit the diff changes, in unchanged
+files, and the existing data a new or tightened check now rejects (see Correctness below). Reading
+them is not proving a negative: it is where the bug is when the diff itself reads fine, and the
+exploration bound never meant the changed unit's own callers.
 
 **Findings out are ordinary findings.** They go into Synthesis Step 1 with the subagents' and are
 deduplicated, confidence-filtered and triaged identically. Being found in-session buys a finding
@@ -261,6 +273,42 @@ a TODO counts as **absent** — infer conservatively from the diff and say that 
 an empty section back as an exemption.
 
 ---
+
+## Correctness
+
+The one dimension that runs on every round. Its question: **what existing behavior does this
+change break, or fail to deliver?** Style, naming and test count are out of scope here unless they
+cause a wrong result.
+
+1. **Inventory the changed units.** Every function, method, class, component, endpoint, query,
+   schema or config key, and message whose behavior the diff changes, not just its text.
+2. **Callers and consumers.** For each unit, find every call site and consumer in the repo: search
+   the name, its string, route and key forms, and dynamic dispatch (registries, decorators,
+   injection, events, templates). For each one, write down what it passes or expects **at
+   runtime**, and check the new behavior against that. The broken caller is usually the one the
+   author did not open: a cancel path that passes the whole entity as the "update", a consumer that
+   always passes an element where the new guard tests for a value.
+3. **Existing state against the new rule.** For each new or tightened check, default, invariant or
+   format: which data, records, configuration, URLs or clients that already exist violate it, and
+   which existing operations on them (read, update, cancel, delete, migrate, retry, re-render) does
+   it now refuse, change or crash? A rule that is right for new data and wrong for stored data is a
+   Critical.
+4. **Every path through the change.** Each branch, error and empty, null or zero case; each state of
+   a UI (collapsed, loading, error, no data, restored from a URL or storage); each repeated or
+   concurrent invocation.
+5. **Contract parity.** Where the change mirrors a rule that lives elsewhere (another module,
+   service, client, server, migration), read the other side and compare semantics, not names.
+6. **Verify before you write.** For each candidate, open the line that proves it and state the
+   concrete input and the wrong outcome. Drop a candidate only after looking. Never drop one on
+   "no caller does this" without having listed the callers.
+
+**Severity.** A caller or existing record the new behavior breaks is **Critical**: it fails in
+production on the first such input. A path the change handles wrongly for an input the code can
+receive is Critical; for an input nothing produces, Warning with the reason it is unreachable.
+A parity gap is Warning unless one side refuses what the other accepts on a live path.
+
+**Do NOT flag:** a behavior change the diff announces as intended, when every caller the step-2
+inventory lists is updated or unaffected; a caller in test code only; a hypothetical caller.
 
 ## Performance
 

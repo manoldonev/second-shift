@@ -236,8 +236,8 @@ grep -q "spec-reviewer" "$TMP/.live" \
 # B13: THE DARK-REVIEWER SHAPE. B4/B5 cover the two intake-side agents; the panel side is the
 # class the enrollment rule was written for and the one that has actually been dying —
 # docs/review-panel-yield.md measures test-coverage-reviewer dark in 10 of 41 dispatches and
-# maintainability-reviewer in 1 of 47, over a pinned 47-round corpus, with their dispatch-time
-# BOUNDED_EXPLORATION nudge already in place.
+# maintainability-reviewer in 1 of 47, over a pinned 47-round corpus, with the dispatch-time
+# bounding nudge of that era already in place (since retired for the generic seats).
 #
 # Anchored on the per-agent `ok:` LINE, not on the bare name B4/B5 grep for, so it has two
 # independent kill criteria rather than one: drop either name from DEADLINE_AT_DEFAULT and the

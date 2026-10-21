@@ -101,16 +101,20 @@ review.
    out-of-diff reads that check the bound. The row can name a file that the diff does not touch.
    That fact scores the row. It does not bound the risk.
 6. **Run `review-toolkit:review-lead` over the PR diff.** Pass it the ticket from step 1 yourself.
-   **Declare the pipeline default panel** when you invoke it. Under that panel the fan-out
-   defaults to `scope-completeness-reviewer`. The other four reviewers (`security-reviewer`,
-   `a11y-reviewer`, `unit-test-mutation-reviewer` and `performance-reviewer`) run only on an
-   opt-in. An opt-in comes from one of two sources. The first is a `review panel` row in the
-   record with `user-answered` or `user-delegated` provenance, naming `security`, `a11y`,
-   `unit-test-mutation` or `performance`. The second is the config's `reviewers.default[]`.
-   `review-lead` never infers this. An undeclared panel leaves the surface triggers in force.
+   **Declare the lane's opt-ins** when you invoke it. The fan-out dispatches the defect seats on
+   their triggers (`scope-completeness-reviewer` for the ticket, `db-reviewer`, `pipeline-reviewer`,
+   the repo-local and design seats), and the lead pass runs its Correctness dimension on every
+   round. Everything else is an opt-in: `security-reviewer` on the lane, `a11y-reviewer`,
+   `unit-test-mutation-reviewer`, `performance-reviewer`, and the lead pass's maintainability,
+   complexity and test-coverage dimensions. An opt-in comes from one of two sources. The first is a
+   `review panel` row in the record with `user-answered` or `user-delegated` provenance, naming
+   `security`, `a11y`, `unit-test-mutation`, `performance`, `maintainability`, `complexity` or
+   `test-coverage`. The second is the config's `reviewers.default[]`. `review-lead` never infers
+   this. An opt-in's findings are `[note]`s, except a performance finding that answers a
+   record-named cost row.
 
-   You can opt one of the four back in. **That is the expected call whenever the diff introduces
-   a surface.** It is not expected when the diff only edits an existing surface.
+   You can opt one in yourself. **That is the expected call whenever the diff introduces a
+   surface.** It is not expected when the diff only edits an existing surface.
    - Opt in `security` for a new authentication, session, tenancy or ownership-scoping path, or
      for a new query built from external input.
    - Opt in `a11y` for new form controls or a new interactive component.
@@ -121,8 +125,8 @@ review.
    For a change to a file that already sits on one of those surfaces, you decide either way. Pass
    each short name to `review-lead` with a one-line reason.
 
-   Do not stand in for a specialist on a surface the diff introduces. Your lead pass is one reader
-   over the whole diff. It is not that reviewer's checklist. The trimmed panel stays the default
+   Do not stand in for an opt-in seat on a surface the diff introduces. Your lead pass is one
+   reader over the whole diff. It is not that reviewer's checklist. The opt-in default stays
    because it was measured. You judge a diff that it was never measured on.
 
    Declining a reviewer whose surface the diff introduces is itself a decision. When you decline
@@ -151,7 +155,7 @@ review.
    <!-- LOCKSTEP-BEGIN verdict-grammar -->
    The verdict comment has these parts, in this order and nothing else:
    - Line 1 is exactly `verdict: approve` or `verdict: needs-work`. Line 2 is exactly `reviewed: <the full sha of the head you reviewed>`. An optional line 3 is exactly `reason: render-unavailable`.
-   - `## Summary`, right after line 2, or line 3 when it is present. Its first line is exactly `Mergeable as it is.` on an approve, or `Not mergeable yet.` on a needs-work. Then name each row scored `departed`, `violated` or `undeterminable`, with its score. Then write each action the human must take, one per line, or `Nothing to do.` Write no table. Use at most eight lines.
+   - `## Summary`, right after line 2, or line 3 when it is present. Its first line is exactly `Mergeable as it is.` on an approve, or `Not mergeable yet.` on a needs-work. Its second line is exactly `Code: no blockers.`, or `Code: <n> blocker(s).` where `<n>` is the count of `[blocker]` lines in `## Findings`. Its third line is exactly `Record: all rows honored.`, or `Record: ` followed by every row not scored `honored`, each as `D-n <score>`, separated by `, ` and ending with `.`. Then write each action the human must take, one per line, or `Nothing to do.` Write no table. Use at most ten lines.
    - `## Decision record rows`, then a table headed `| Row | Score | Evidence |` and its `| --- | --- | --- |` line, with one row for every `D-n` row of the record at its first commit and at the head: a row the build deleted and a row it added are both scored. The Row cell's first token is the row's `D-n` id, and the Score cell's first word is one of `honored`, `violated`, `departed`, `undeterminable`. The section holds the table and blank lines only: per-row detail goes in the Evidence cell, anything else in `## Notes`. Other row kinds, such as `RS-n`, are not scored in this table.
    - `## Findings`, which runs to the next `## ` heading. Each finding starts with `- [blocker] B<n> ` or `- [note] N<n> `, and its continuation lines are indented two or more spaces. Suppressed findings are `[note]`s. A section with no findings holds the single line `None.`.
    - After its id and one space, a finding from review-lead's report carries that report's reviewer, file:line and confidence in its form: `- [blocker] B1 [Reviewer] file:line (confidence: N) — <text>`, file:line only where the finding has one. A finding you raise from a rule (a violated or undeterminable row, an untraced test-expectation change) or as a process note names its rule and carries no number: never invent a score.
@@ -160,7 +164,7 @@ review.
 
    `Ready to merge?` is never written anywhere in the body.
 
-   A `[blocker]` is something in the diff that must change before merge. The PR title and description are not the diff: a stale or wrong one is at most a `[note]`, never a `[blocker]`, and never makes a verdict `needs-work`. A `[note]` requires nothing. review-lead's findings translate one way: a Critical is a `[blocker]`; a Warning you would hold the merge for is a `[blocker]`, and any other Warning is a `[note]`; its "Ready to merge?" and "With fixes" are never written on this comment.
+   A `[blocker]` is something in the diff that must change before merge. The PR title and description are not the diff: a stale or wrong one is at most a `[note]`, never a `[blocker]`, and never makes a verdict `needs-work`. A `[note]` requires nothing. review-lead's findings translate one way: a Critical from a default seat or the Correctness dimension is a `[blocker]`; a Warning from one of them that you would hold the merge for is a `[blocker]`, and any other Warning is a `[note]`; a finding from an opt-in seat or dimension is a `[note]`, except a performance finding that answers a record-named cost row, which keeps its severity; its "Ready to merge?" and "With fixes" are never written on this comment.
 
    `verdict: approve` means mergeable as-is: every record row is scored, none is `violated` or `undeterminable`, and there is no `[blocker]` and no `reason: render-unavailable` line. `verdict: needs-work` carries at least one `[blocker]`, a `violated` or `undeterminable` row, or the `reason: render-unavailable` line; under that line the rows need not be scored, and the findings may be `None.`.
    <!-- LOCKSTEP-END verdict-grammar -->

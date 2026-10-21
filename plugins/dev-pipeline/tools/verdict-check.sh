@@ -11,8 +11,10 @@
 #   line 1 `verdict: approve|needs-work`, line 2 `reviewed: <40-hex sha>`, an optional line 3
 #   `reason: render-unavailable`;
 #   `## Summary` (optional, first): its first line is `Mergeable as it is.` on an approve or `Not mergeable
-#   yet.` on a needs-work, it names every row scored departed, violated or undeterminable, and it
-#   holds no table;
+#   yet.` on a needs-work; its second line is `Code: no blockers.` or `Code: <n> blocker(s).` with the
+#   count of [blocker] lines in Findings; its third line is `Record: all rows honored.` or `Record: `
+#   naming every row scored departed, violated or undeterminable as `D-n <score>`, comma-separated,
+#   and no honored row; it holds no table;
 #   `## Decision record rows`: only the `| Row | Score | Evidence |` table and blank lines. The Row
 #   cell's first token is a record `D-n` id, the Score cell's first word one of
 #   honored|violated|departed|undeterminable;
@@ -64,9 +66,12 @@ NR == 3 && $0 == "reason: render-unavailable" { render = 1; next }
 sec == 0 { if ($0 !~ /^[ \t]*$/) fail("text outside a section", "line " NR ": " cut($0)); next }
 sec == 1 {
   if ($0 ~ /^[ \t]*$/) next
-  if (sfirst == "") sfirst = trim($0)
+  sn++
+  if (sn == 1) sfirst = trim($0)
+  if (sn == 2) scode = trim($0)
+  if (sn == 3) srec = trim($0)
   if ($0 ~ /^[ \t]*\|/) fail("Summary not in the grammar", "line " NR ": a Summary holds no table")
-  stext = stext " " $0; next
+  next
 }
 sec == 2 {
   if ($0 ~ /^[ \t]*$/) { if (ts == 2) ts = 3; next }
@@ -81,6 +86,7 @@ sec == 2 {
   scored[id] = 1
   split(trim(cell[2]), w, /[ \t]+/)
   if (!(w[1] in score)) { fail("score not in the grammar", id ": " cut(trim(cell[2]))); next }
+  rowscore[id] = w[1]
   if (w[1] == "violated" || w[1] == "undeterminable") badrows = badrows (badrows == "" ? "" : ", ") id " " w[1]
   if (w[1] != "honored") { nn++; notable[nn] = id }
   next
@@ -109,7 +115,14 @@ END {
   if ("## Summary" in seen) {
     want = (v == "approve") ? "Mergeable as it is." : "Not mergeable yet."
     if (sfirst != want) fail("Summary line 1 does not match the verdict", "want " want)
-    for (i = 1; i <= nn; i++) if (!((" " stext " ") ~ ("[^-0-9A-Za-z]" notable[i] "[^0-9]"))) fail("Summary does not name a row that is not honored", notable[i])
+    if (scode !~ /^Code: (no blockers\.|[0-9]+ blocker\(s\)\.)$/) fail("Summary line 2 is not a Code line", "want Code: no blockers. or Code: <n> blocker(s).")
+    else { cn = scode; sub(/^Code: /, "", cn); cn = cn + 0; if (cn != blockers + 0) fail("Summary Code count does not match the Findings", "Code says " cn ", Findings hold " blockers + 0) }
+    if (srec !~ /^Record: (all rows honored|D-[0-9]+ (violated|departed|undeterminable)(, D-[0-9]+ (violated|departed|undeterminable))*)\.$/) fail("Summary line 3 is not a Record line", "want Record: all rows honored. or Record: D-n <score>, ... ending with a period")
+    else {
+      for (i = 1; i <= nn; i++) if (!((" " srec " ") ~ ("[^-0-9A-Za-z]" notable[i] "[^0-9]"))) fail("Summary does not name a row that is not honored", notable[i])
+      rs = srec; sub(/^Record: /, "", rs); sub(/\.$/, "", rs); rn = split(rs, rtok, /, /)
+      for (i = 1; i <= rn; i++) { split(rtok[i], rp, / /); if (rp[1] in rowscore && rowscore[rp[1]] == "honored") fail("Summary names an honored row", rp[1]) }
+    }
   }
   if (!render) for (i = 1; i <= n; i++) if (idl[i] != "" && !(idl[i] in scored)) fail("record row not scored", idl[i])
   exit bad

@@ -171,13 +171,16 @@ const FINDINGS_SCHEMA = {
 //   prContext    — optional free-text branch/PR context
 //   requiredSeats — optional array of agentType strings dispatched IN ADDITION to `reviewers`
 //                  (#992). Never trims either list; the union is deduped on the resolved name.
+//   optInSeats   — optional array of agentType strings whose findings never block: a `blocker`
+//                  severity from one of them is rewritten to `major` after the result parses, so
+//                  an opt-in seat reaches the verdict as a note. Matched on the bare name.
 //   panel        — optional; 'substantial' runs the seats at SUBSTANTIAL_MODEL's tiers and returns
 //                  `seats[]` in place of `reviewers[]`. Absent, the dispatch and the return are
 //                  exactly what they were before #992.
 // `args` arrives as the value passed to Workflow's `args` input. Defensive: it may
 // be an object, or (per the Workflow contract's stringified-args caveat) a JSON string.
 const a = typeof args === 'string' ? JSON.parse(args) : args || {}
-const { worktree, base, head, issue, spec, reviewers = [], requiredSeats = [], panel, changedFiles = [], prContext = '', config = {} } = a
+const { worktree, base, head, issue, spec, reviewers = [], requiredSeats = [], optInSeats = [], panel, changedFiles = [], prContext = '', config = {} } = a
 const substantial = panel === 'substantial'
 // Per-reviewer model-tier overrides from the consumer config (bare-keyed).
 const modelOverrides = (config && config.reviewers && config.reviewers.modelOverrides) || {}
@@ -202,6 +205,16 @@ if (panel !== undefined && !substantial) {
 if (!Array.isArray(requiredSeats)) {
   throw new Error('code-review workflow: args.requiredSeats must be an array of agentType strings')
 }
+if (!Array.isArray(optInSeats)) {
+  throw new Error('code-review workflow: args.optInSeats must be an array of agentType strings')
+}
+const optInSet = new Set(optInSeats.map((r) => bare(r)))
+// An opt-in seat's result reaches synthesis with no `blocker`: the cap is applied to the parsed
+// result, never to the prompt, so it holds whatever the seat wrote.
+const capOptIn = (requested, result) =>
+  optInSet.has(bare(requested)) && result && Array.isArray(result.findings)
+    ? { ...result, findings: result.findings.map((f) => (f && f.severity === 'blocker' ? { ...f, severity: 'major' } : f)) }
+    : result
 // Relaxed only for a non-empty requiredSeats (#992 D-10): a call with
 // neither still needs a non-empty reviewers[], which is what standalone review-lead relies on.
 if ((!Array.isArray(reviewers) || (reviewers.length === 0 && requiredSeats.length === 0))) {
@@ -252,13 +265,15 @@ const fileList = changedFiles.length ? changedFiles.join(', ') : '(see diff)'
 //     NOT move the rate (2/8 -> 2/8). Relocating grounding into schema fields (a reviewer-baseline
 //     rewrite) did NOT move it either.
 //   - More budget only half-helps at ~2x cost: opus dropped it to ~25% but still stalled.
-//   - BOUNDING THE EXPLORATION fixes it: the dispatch-time triage nudge (BOUNDED_EXPLORATION below)
-//     took maintainability-reviewer from ~50% to 0/12 AND cut tokens ~45% — the wasted exhaustive
-//     exploration WAS the problem. Placement is load-bearing: the identical instruction sitting in
-//     the inherited reviewer-baseline doc did NOT work (4/6 uncured); only the dispatch-time nudge did.
+//   - A DISPATCH-TIME NUDGE fixes it: a triage nudge at the dispatch took maintainability-reviewer
+//     from ~50% to 0/12 AND cut tokens ~45% — the wasted exhaustive exploration WAS the problem.
+//     Placement is load-bearing: the identical instruction sitting in the inherited reviewer-baseline
+//     doc did NOT work (4/6 uncured); only the dispatch-time nudge did. That nudge's "read less"
+//     half was later measured against a public set of PRs with known bugs and retired (see
+//     GENERIC_READ below); its numbered emit deadline is the half that stays.
 //
-// Mitigations, in order: (1) BOUNDED_EXPLORATION below — the PRIMARY fix; caps the absence-grounding
-// exploration so the reviewer emits instead of stalling. (2) STRUCTURED_OUTPUT_FIRST — emit the
+// Mitigations, in order: (1) GENERIC_READ + PROGRESSIVE_EMIT below — the PRIMARY fix; a numbered
+// first-emit deadline so the reviewer emits instead of stalling. (2) STRUCTURED_OUTPUT_FIRST — emit the
 // structured verdict first; kept (cheap, right on principle) though it is not the stall cure. (3) the
 // one-shot retry in dispatchReviewer() recovers residual stochastic deaths, and since #855 it
 // ESCALATES against the deterministic one: an attempt that returns EMPTY text is retried with
@@ -338,48 +353,23 @@ const FINDINGS_EPILOGUE =
   ' "findings": [ { "severity": "blocker|major|minor|nit", "file": "...", "line": 0, "title": "...",' +
   ' "description": "...", "confidence": 0 } ], "suppressed": [] }\n```'
 
-// Bounded exploration / triage — the PRIMARY stall fix (see ROOT CAUSE above for the evidence).
-// Caps the absence-grounding exploration that exhausts a reviewer's turn budget on a large diff.
-// NOT appended to scope-completeness-reviewer, whose job is to exhaustively verify every scope item.
-//
-// THE DEADLINE IS NUMBERED, and that is the half this constant was missing until #768. Bounding
-// the exploration is necessary and was never sufficient: the closing sentence used to read "emit
-// your final result before your budget runs low", which is not a deadline an agent can act on —
-// it has no view of its remaining turns, so the instruction stays unfalsifiable right up to the
-// cap that kills it. Measured: a generic-branch reviewer died on BOTH fan-out attempts with the
-// `turn-budget:` error and no text at all, then returned a grounded verdict in 87s / 17 tool
-// calls when re-dispatched at the SAME tier with nothing added but the numbered deadline below.
-//
-// This is the same finding the PROGRESSIVE_EMIT block records one screen down — "the variable is
-// the deadline, not the budget", evidenced there by security-reviewer surviving at HALF the cap
-// because its agent doc carries an explicit turn-numbered deadline ("By turn 10 of your 15 you
-// MUST be writing the report"). That cure simply never reached this branch, and the agents with a
-// deadline in neither their doc nor this string — figma-faithful, design-faithful, a11y, db,
-// performance, complexity, pipeline — are exactly the population that dies this way.
-//
-// 8 is chosen to be safe at the smallest cap in the panel (security-reviewer's 15, where the
-// proven precedent emits at 10) rather than tuned per reviewer; a per-agent number belongs in the
-// agent doc, which is free to be later than this floor. The re-emit escape is what makes an early
-// number cost nothing — it is PROGRESSIVE_EMIT's last-block-wins property, and parseReviewResult()
-// is already last-match-wins, so re-emission is free here for the same reason it is free there.
-const BOUNDED_EXPLORATION =
-  ' TRIAGE FIRST: skim the diff to judge whether it touches your domain at all. If it is' +
-  ' docs/config/reformatting — or otherwise has nothing in your domain — emit StructuredOutput' +
-  ' immediately (approve, no findings) WITHOUT opening every file. Open files only to ground a' +
-  ' SPECIFIC finding you intend to raise; you do NOT have to exhaustively read the whole diff to' +
-  ' assert the ABSENCE of findings.' +
-  ' HARD EMIT DEADLINE: by your 8th tool call at the latest, STOP exploring and write a COMPLETE' +
-  ' result reflecting what you know so far — even if that is approve with no findings, and even if' +
-  ' you feel under-grounded. You may then keep working and re-emit the whole result whenever you' +
-  ' learn something; the LAST complete result wins, so an early one costs you nothing. A review you' +
-  ' never emit is scored exactly like a review that never ran, and your entire domain is then' +
-  ' recorded as unverified — an under-grounded emitted review is strictly more useful than a' +
-  ' perfect unemitted one.'
+// The generic branch's own nudge. It replaced a bounding nudge that told the seat to open files
+// only to ground a finding it already intended and to stop exploring by its 8th tool call: that
+// nudge cured the turn-cap deaths it was written for and was then measured against a public set
+// of PRs with known bugs, where the seats it bound found less than a plain prompt did, and every
+// bug humans later found in an approved PR sat in an unchanged file — a caller of the changed
+// unit. The numbered deadline stays, because the deadline was the half that cured the deaths (see
+// the PROGRESSIVE_EMIT block below for the evidence); the "read less" half goes.
+const GENERIC_READ =
+  ' Read the callers and consumers of each changed unit in unchanged files; the bug is usually' +
+  ' there when the diff itself reads fine. Write your first complete REVIEW_RESULT block by your' +
+  ' 8th tool call, then keep reading and re-emit the whole block each time you learn something.'
 
-// The counterpart nudge for the two EXHAUSTIVE reviewers, which cannot take BOUNDED_EXPLORATION
-// without losing the coverage that IS their deliverable (#183). Their death mode is the same
-// turn-budget wall, but the cure is inverted: not "explore less", but "write down what you have
-// as you go", so the wall truncates a result instead of erasing one.
+// The nudge for every dispatched seat: the exhaustive two (scope-completeness, unit-test-mutation)
+// cannot take a bounding nudge without losing the coverage that IS their deliverable (#183), and
+// the generic seats now take the same cure for the same death mode — the turn-budget wall — so the
+// wall truncates a result instead of erasing one. Not "explore less", but "write down what you
+// have as you go".
 //
 // Raising the cap does NOT fix this and has now been measured twice. #175 raised both agents
 // 15 -> 30; at the new cap scope-completeness-reviewer still died on BOTH attempts of a
@@ -389,12 +379,16 @@ const BOUNDED_EXPLORATION =
 // explicit turn-numbered emit deadline. The variable is the deadline, not the budget: an agent
 // told to enumerate exhaustively and never told when to stop will spend any finite budget.
 //
-// Safe for exactly these two because a truncated result can only under-claim:
+// A truncated result can only under-claim, which is what makes early emission safe:
 //   - scope-completeness-reviewer is fail-closed by contract ("Default to FAIL when the evidence
 //     is ambiguous"), so its honest early skeleton is every item [unsatisfied], refined upward
 //     only as evidence lands. A cut-short result over-reports FAIL, never a false PASS.
 //   - unit-test-mutation-reviewer's unreached mutants are simply absent, and an absent mutant
 //     never blocks (execution-verified blocking is the propose-mode orchestrator's, not this fan-out's).
+//   - a generic seat's early block is the findings it has so far; a death after it loses the
+//     findings it had not reached, never the ones it had. The seat that is still exploring at the
+//     wall with nothing written is the one shape that loses everything, and it is the shape this
+//     nudge forbids.
 // This does NOT weaken the dark path (#175's stated non-fix): nothing transcribes partial text
 // and no parser changes — the AGENT emits a well-formed block, and a missing sentinel is still
 // dark. parseReviewResult() is already last-match-wins, which is what makes re-emission free.
@@ -431,8 +425,8 @@ const PROGRESSIVE_EMIT =
 // already owns; an agent that wrote nothing needs permission to stop reading. Telling a
 // parse-miss agent to cut its exploration short would trade a recoverable result for a thinner one.
 //
-// The number restates BOUNDED_EXPLORATION's 8 as an absolute, because this attempt has evidence
-// the first one blew past it: the agent already demonstrated that its own reading of "by your 8th
+// The number restates GENERIC_READ's 8 as an absolute, because this attempt has evidence the
+// first one blew past it: the agent already demonstrated that its own reading of "by your 8th
 // tool call" did not bind. Measured on the run that motivated this (#855): the same agent, same
 // tier, same cap, died twice at 18 tool calls with empty text, then returned a grounded verdict in
 // 20 when re-dispatched with a numbered deadline and a narrowed ask.
@@ -560,14 +554,14 @@ const dispatchReviewer = async (requested) => {
       (prContext ? ` Context: ${prContext}.` : '') +
       ` Return your verdict and a deduplicated list of findings (severity blocker/major/minor/nit, ` +
       `file, line, confidence 0-100). Ignore stylistic issues handled by formatter/linter.` +
-      BOUNDED_EXPLORATION
+      GENERIC_READ +
+      PROGRESSIVE_EMIT
   }
-  // Prompt-branch dispositions (doc, transport-independent): scope-completeness-reviewer and
-  // unit-test-mutation-reviewer deliberately carry no bounding nudge (exhaustive enumeration IS
-  // the deliverable); the generic branch keeps BOUNDED_EXPLORATION as its measured cost control.
-  // The two exhaustive branches instead carry PROGRESSIVE_EMIT — same turn-budget death, opposite
-  // cure ("write as you go" rather than "explore less"), so neither loses coverage (#183). Every
-  // branch now carries exactly one of the two; null-reviewer-selftest Case F pins this pair.
+  // Prompt-branch dispositions (doc, transport-independent): every branch carries PROGRESSIVE_EMIT,
+  // the "write as you go" cure for the turn-budget death; the generic branch carries GENERIC_READ
+  // ahead of it (read the changed unit's callers, first block by the 8th tool call). No branch
+  // carries a bounding nudge any more: "read less" was measured to lose the callers where the bugs
+  // that reached production sat. null-reviewer-selftest Case F pins the wiring.
   //
   // Explorer/emitter ladder. Dark-marker shapes are UNCHANGED from the schema era — review-lead
   // synthesis keys on { result: null } + { retried: true, failed: true } and must keep doing so.
@@ -593,7 +587,7 @@ const dispatchReviewer = async (requested) => {
         : { agentType: requested, result: null, error: `retry failed: ${err}`, retried: true, failed: true }
     }
     const parsed = parseReviewResult(text)
-    if (parsed && validateShape(parsed, FINDINGS_SCHEMA)) return { agentType: requested, result: parsed }
+    if (parsed && validateShape(parsed, FINDINGS_SCHEMA)) return { agentType: requested, result: capOptIn(requested, parsed) }
     lastText = text
     const emptyText = !String(text ?? '').trim()
     log(
@@ -605,7 +599,7 @@ const dispatchReviewer = async (requested) => {
       // bounded-exploration-optout: validator-reference -- this schema: key parameterizes the
       //   emitter helper (whose own dispatch site carries the structured-emitter marker).
       const emitted = await emitStructured(lastText, { label: dispatched, schema: FINDINGS_SCHEMA })
-      if (emitted && validateShape(emitted, FINDINGS_SCHEMA)) return { agentType: requested, result: emitted }
+      if (emitted && validateShape(emitted, FINDINGS_SCHEMA)) return { agentType: requested, result: capOptIn(requested, emitted) }
     } catch (emitErr) {
       return { agentType: requested, result: null, error: `emit failed: ${emitErr}`, retried: true, failed: true }
     }

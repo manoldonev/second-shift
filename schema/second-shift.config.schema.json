@@ -171,7 +171,7 @@
         "default": {
           "type": "array",
           "items": { "type": "string" },
-          "description": "Plugin-shipped reviewers this repo dispatches UNCONDITIONALLY on the pipeline path, on top of the default panel (/dev-pipeline:review's fan-out defaults to scope-completeness-reviewer; security-reviewer, a11y-reviewer and unit-test-mutation-reviewer are opt-in). Purely ADDITIVE — dropping a shipped reviewer stays reviewers.remove's job. Names are the plugin-shipped bare names; config-lint.sh types the array and check-reviewer-references.sh validates the names against the review-lead registry."
+          "description": "Plugin-shipped reviewers this repo opts in UNCONDITIONALLY on the pipeline path, on top of the default seats (/dev-pipeline:review's fan-out dispatches the defect seats on their triggers; security-reviewer, a11y-reviewer, unit-test-mutation-reviewer, performance-reviewer and the lead pass's maintainability, complexity and test-coverage dimensions are opt-in, and an opt-in's findings reach the verdict as notes). Purely ADDITIVE — dropping a shipped reviewer stays reviewers.remove's job. Names are the plugin-shipped bare names; config-lint.sh types the array and check-reviewer-references.sh validates the names against the review-lead registry."
         },
         "modelOverrides": {
           "type": "object",
