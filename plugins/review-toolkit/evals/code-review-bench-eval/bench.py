@@ -142,7 +142,14 @@ def find_transcripts(session_id: str) -> list[Path]:
     return out
 
 
-def blindness_violations(session_id: str, data_dir: Path) -> list[str]:
+WRITE_TOOLS = ("Write", "Edit", "MultiEdit", "NotebookEdit")
+
+
+def blindness_violations(session_id: str, data_dir: Path, scratch: Path | None = None) -> list[str]:
+    """Scan the session's transcript (and its subagents') for a read of the answer key or a
+    network reach. Only a tool's OPERATIVE field is read — a shell command, a path — never the
+    content a Write carries: review-lead stages a script whose text names `gh issue view`, and a
+    scan of that text would void every one of its runs."""
     hits = []
     for t in find_transcripts(session_id):
         for line in t.open(errors="replace"):
@@ -155,9 +162,24 @@ def blindness_violations(session_id: str, data_dir: Path) -> list[str]:
             for c in (o.get("message") or {}).get("content") or []:
                 if c.get("type") != "tool_use":
                     continue
-                s = json.dumps(c.get("input"))
-                if c.get("name") in ("WebFetch", "WebSearch") or BLIND_RE.search(s) or str(data_dir) in s:
-                    hits.append(f"{t.name}: {c.get('name')} {s[:160]}")
+                name, inp = c.get("name"), c.get("input") or {}
+                what = None
+                if name in ("WebFetch", "WebSearch"):
+                    what = f"{name} {json.dumps(inp)[:120]}"
+                elif name == "Bash":
+                    cmd = str(inp.get("command", ""))
+                    if BLIND_RE.search(cmd) or str(data_dir) in cmd:
+                        what = f"Bash {cmd[:160]}"
+                elif name in WRITE_TOOLS:
+                    fp = str(inp.get("file_path", ""))
+                    if str(data_dir) in fp or (scratch and not fp.startswith(str(scratch)) and not fp.startswith("/tmp")):
+                        what = f"{name} {fp}"
+                elif name in ("Read", "Grep", "Glob"):
+                    where = " ".join(str(inp.get(k, "")) for k in ("file_path", "path", "pattern"))
+                    if str(data_dir) in where:
+                        what = f"{name} {where[:160]}"
+                if what:
+                    hits.append(f"{t.name}: {what}")
     return hits
 
 
@@ -210,11 +232,11 @@ async def review_once(cfg, arm, pr, run_no, sem) -> dict:
             sh(["git", "clean", "-qfd"], cwd=wt)
         # the CLI writes its own project state into its cwd; that is not the reviewer touching the code
         dirt = "\n".join(l for l in status_lines if l.strip() != "?? .claude/")
-        viol = blindness_violations(sid, cfg["data"])
+        viol = blindness_violations(sid, cfg["data"], scratch)
         cands = parse_findings(out.read_text()) if out.exists() else []
         status = "modified-checkout" if dirt else "voided-blindness" if viol else "ok" if out.exists() else "no-output"
         return {
-            "pr": pr["id"], "run": run_no, "session": sid, "wall_s": round(wall), "status": status,
+            "pr": pr["id"], "run": run_no, "session": sid, "scratch": str(scratch), "wall_s": round(wall), "status": status,
             "dirt": dirt.splitlines()[:20], "violations": viol, "candidates": cands,
             "num_turns": envelope.get("num_turns"), "cost_usd": envelope.get("total_cost_usd"),
             "resolved_model": resolved_model(envelope, cfg["reviewer_model"]),
@@ -347,7 +369,7 @@ async def main_async(args):
             print("  " + d)
         sys.exit(f"[bench] judge agreement below {args.min_agreement:.0%}; no arm is reported")
     judge_fams = {family(j) for j in cal["judge_resolved"]}
-    if args.calibration_only or not args.arm:
+    if args.calibration_only or (not args.arm and not args.rescore):
         return
 
     print(f"[bench] building {len(prs)} checkouts under {cache}", flush=True)
@@ -358,6 +380,24 @@ async def main_async(args):
     results_doc = {"started_at": started.isoformat(), "set": args.set, "prs": [p["id"] for p in prs],
                    "reviewer_model_requested": cfg["reviewer_model"], "judge_model_requested": cfg["judge_model"],
                    "calibration": cal, "arms": {}}
+    if args.rescore:
+        prior = json.loads(Path(args.rescore).read_text())
+        if prior["set"] != args.set:
+            sys.exit(f"[bench] --rescore: the results file is for the {prior['set']} set, not {args.set}")
+        for arm_name, prior_arm in prior["arms"].items():
+            arm = parse_arm(HERE / "arms" / f"{arm_name}.md")
+            runs = []
+            for r in prior_arm["runs"]:
+                r = {k: v for k, v in r.items() if k not in ("judged", "score")}
+                if r.get("session") and r["status"] in ("ok", "voided-blindness"):
+                    viol = blindness_violations(r["session"], cfg["data"], Path(r["scratch"]) if r.get("scratch") else None)
+                    r["violations"] = viol
+                    r["status"] = "voided-blindness" if viol else "ok"
+                runs.append(r)
+            print(f"\n=== arm {arm_name}: rescored from {Path(args.rescore).name} ===", flush=True)
+            # the prior run's source is what was measured, whatever the arm file says now
+            results_doc["arms"][arm_name] = await report_arm(cfg, args, arm_name, arm, runs, prs, cal, judge_fams, judge_sem, started, sha,
+                                                             src=prior_arm.get("src", "installed"))
     for arm_name in args.arm:
         arm = parse_arm(HERE / "arms" / f"{arm_name}.md")
         if arm.get("spawn") != "claude":
@@ -365,44 +405,48 @@ async def main_async(args):
             continue
         print(f"\n=== arm {arm_name}: {len(prs)} PRs x {args.runs} runs ===", flush=True)
         runs = await asyncio.gather(*(review_once(cfg, arm, pr, n, rev_sem) for pr in prs for n in range(1, args.runs + 1)))
-        resolved = {r.get("resolved_model") for r in runs if r.get("resolved_model")}
-        rev_fams = {family(m) for m in resolved}
-        if rev_fams & judge_fams and not args.allow_same_family:
-            sys.exit(f"[bench] judge family {judge_fams} equals reviewer family {rev_fams}; set JUDGE_MODEL to the other family")
-        per_run = []
-        for r in runs:
-            pr = next(p for p in prs if p["id"] == r["pr"])
-            if r["status"] == "ok":
-                judged = await judge_review(cfg, pr["golden"], r["candidates"], judge_sem)
-                r["judged"] = judged
-                r["score"] = score(pr["golden"], judged)
-            per_run.append(r)
-        ok = [r for r in per_run if r["status"] == "ok"]
-        agg = {k: sum(r["score"][k] for r in ok) / max(args.runs, 1) for k in ("tp", "fp", "fn", "hc_tp", "hc_tot")}
-        p, rc, f1 = prf(agg["tp"], agg["fp"], agg["fn"])
-        turns = [r["num_turns"] for r in ok if r.get("num_turns") is not None]
-        walls = [r["wall_s"] for r in ok if r.get("wall_s") is not None]
-        cost = sum(r.get("cost_usd") or 0 for r in ok)
-        voided = [r for r in per_run if r["status"] != "ok"]
-        line = kit.changelog_row(started, [
-            f"agent={arm_name}", f"sha={sha}", f"src={'checkout' if arm.get('plugin-dir') else 'installed'}",
-            f"model={'+'.join(sorted(resolved)) or cfg['reviewer_model']}",
-            f"judge={'+'.join(cal['judge_resolved']) or cfg['judge_model']}", f"set={args.set}", f"prs={len(prs)}", f"runs={args.runs}",
-            f"prec={p:.2f}", f"recall={rc:.2f}", f"f1={f1:.2f}", f"hc={agg['hc_tp']:.0f}/{agg['hc_tot']:.0f}",
-            f"tp={agg['tp']:.1f}", f"fp={agg['fp']:.1f}", f"fn={agg['fn']:.1f}", f"calib={cal['agreement']:.0%}",
-            f"voided={len(voided)}", f"turns={max(turns) if turns else 0}/{(sum(turns)/len(turns)) if turns else 0:.1f}",
-            f"wall={max(walls) if walls else 0}s", f"cost=${cost:.2f}", f"note=\"{args.note}\"",
-        ])
-        if not args.smoke and not args.no_record:
-            kit.append_changelog(HERE / "changelog.md", line)
-        print(line.strip(), flush=True)
-        for r in voided:
-            print(f"  voided: {r['pr']} run {r['run']}: {r['status']} {r.get('violations', [])[:2]}")
-        results_doc["arms"][arm_name] = {"runs": per_run, "aggregate": agg, "precision": p, "recall": rc, "f1": f1, "row": line.strip()}
+        results_doc["arms"][arm_name] = await report_arm(cfg, args, arm_name, arm, list(runs), prs, cal, judge_fams, judge_sem, started, sha)
 
     out = HERE / f"results-{started.strftime('%Y%m%dT%H%M%SZ')}.json"
     out.write_text(json.dumps(results_doc, indent=1, default=str))
     print(f"\n[bench] wrote {out}")
+
+
+async def report_arm(cfg, args, arm_name, arm, runs, prs, cal, judge_fams, judge_sem, started, sha, src=None):
+    src = src or ("checkout" if arm.get("plugin-dir") else "installed")
+    resolved = {r.get("resolved_model") for r in runs if r.get("resolved_model")}
+    rev_fams = {family(m) for m in resolved}
+    if rev_fams & judge_fams and not args.allow_same_family:
+        sys.exit(f"[bench] judge family {judge_fams} equals reviewer family {rev_fams}; set JUDGE_MODEL to the other family")
+    for r in runs:
+        pr = next(p for p in prs if p["id"] == r["pr"])
+        if r["status"] == "ok":
+            judged = await judge_review(cfg, pr["golden"], r["candidates"], judge_sem)
+            r["judged"] = judged
+            r["score"] = score(pr["golden"], judged)
+    ok = [r for r in runs if r["status"] == "ok"]
+    n_runs = max(1, len({r["run"] for r in runs}))
+    agg = {k: sum(r["score"][k] for r in ok) / n_runs for k in ("tp", "fp", "fn", "hc_tp", "hc_tot")}
+    p, rc, f1 = prf(agg["tp"], agg["fp"], agg["fn"])
+    turns = [r["num_turns"] for r in ok if r.get("num_turns") is not None]
+    walls = [r["wall_s"] for r in ok if r.get("wall_s") is not None]
+    cost = sum(r.get("cost_usd") or 0 for r in runs)
+    voided = [r for r in runs if r["status"] != "ok"]
+    line = kit.changelog_row(started, [
+        f"agent={arm_name}", f"sha={sha}", f"src={src}",
+        f"model={'+'.join(sorted(resolved)) or cfg['reviewer_model']}",
+        f"judge={'+'.join(cal['judge_resolved']) or cfg['judge_model']}", f"set={args.set}", f"prs={len(prs)}", f"runs={n_runs}",
+        f"prec={p:.2f}", f"recall={rc:.2f}", f"f1={f1:.2f}", f"hc={agg['hc_tp']:.0f}/{agg['hc_tot']:.0f}",
+        f"tp={agg['tp']:.1f}", f"fp={agg['fp']:.1f}", f"fn={agg['fn']:.1f}", f"calib={cal['agreement']:.0%}",
+        f"voided={len(voided)}", f"turns={max(turns) if turns else 0}/{(sum(turns)/len(turns)) if turns else 0:.1f}",
+        f"wall={max(walls) if walls else 0}s", f"cost=${cost:.2f}", f"note=\"{args.note}\"",
+    ])
+    if not args.smoke and not args.no_record:
+        kit.append_changelog(HERE / "changelog.md", line)
+    print(line.strip(), flush=True)
+    for r in voided:
+        print(f"  voided: {r['pr']} run {r['run']}: {r['status']} {r.get('violations', [])[:2]}")
+    return {"runs": runs, "src": src, "aggregate": agg, "precision": p, "recall": rc, "f1": f1, "row": line.strip()}
 
 
 def main():
@@ -416,6 +460,7 @@ def main():
     ap.add_argument("--smoke", action="store_true", help="one PR, one run, nothing recorded")
     ap.add_argument("--calibration-only", action="store_true")
     ap.add_argument("--no-record", action="store_true", help="print the row, do not append it")
+    ap.add_argument("--rescore", help="a results-*.json: re-run the blindness scan on its sessions' transcripts and re-judge its stored candidates; no review is spawned")
     ap.add_argument("--note", default="baseline")
     ap.add_argument("--reviewer-model", default=os.environ.get("REVIEWER_MODEL"))
     ap.add_argument("--judge-model", default=os.environ.get("JUDGE_MODEL"))
