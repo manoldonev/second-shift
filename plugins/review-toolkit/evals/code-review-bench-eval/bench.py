@@ -102,8 +102,14 @@ def ensure_checkout(pr: dict, cache: Path) -> Path:
     if not wt.exists():
         wt.parent.mkdir(parents=True, exist_ok=True)
         sh(["git", "worktree", "add", "-q", "--detach", str(wt), pr["head"]], cwd=clone)
-    if sh(["git", "merge-base", pr["base"], pr["head"]], cwd=clone) != pr["base"]:
-        raise RuntimeError(f"{pr['id']}: base is not the merge-base of head")
+    # the fork's default branch may have moved after the PR opened, so the recorded base is not
+    # always the merge-base; the PR's diff is the merge-base diff, and that is what is reviewed
+    mb = sh(["git", "merge-base", pr["base"], pr["head"]], cwd=clone, check=False)
+    if not mb:
+        raise RuntimeError(f"{pr['id']}: base and head share no history")
+    if mb != pr["base"]:
+        print(f"[bench] {pr['id']}: recorded base is not the merge-base; reviewing {mb[:10]}..{pr['head'][:10]}", flush=True)
+        pr["base_recorded"], pr["base"] = pr["base"], mb
     if sh(["git", "status", "--porcelain"], cwd=wt):
         raise RuntimeError(f"{pr['id']}: checkout is dirty; remove {wt} and rerun")
     return wt
