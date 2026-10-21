@@ -1,6 +1,7 @@
 spawn: claude
 allow: Read,Grep,Glob,Agent,Skill,Workflow,Write,Bash(git *),Bash(find *),Bash(cp *),Bash(jq *),Bash(shasum *),Bash(bash *check-review-context.sh*)
 bgwait: 1
+plugin-dir: ../../..
 ---
 {rules}
 

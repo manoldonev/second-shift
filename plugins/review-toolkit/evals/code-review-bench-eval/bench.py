@@ -181,6 +181,10 @@ async def review_once(cfg, arm, pr, run_no, sem) -> dict:
             "--allowedTools", allow, "--max-turns", str(cfg["max_turns"]),
             "--output-format", "json",
         ]
+        if arm.get("plugin-dir"):
+            # the arm measures this checkout's plugin, not the installed copy: --plugin-dir wins for a
+            # namespaced skill of the same name (probed 2026-10-21)
+            args += ["--plugin-dir", str((HERE / arm["plugin-dir"]).resolve())]
         env = {}
         if arm.get("bgwait"):
             args += ["--settings", json.dumps({"env": {"CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS": str(cfg["reviewer_timeout_s"] * 1000)}})]
@@ -381,7 +385,8 @@ async def main_async(args):
         cost = sum(r.get("cost_usd") or 0 for r in ok)
         voided = [r for r in per_run if r["status"] != "ok"]
         line = kit.changelog_row(started, [
-            f"agent={arm_name}", f"sha={sha}", f"model={'+'.join(sorted(resolved)) or cfg['reviewer_model']}",
+            f"agent={arm_name}", f"sha={sha}", f"src={'checkout' if arm.get('plugin-dir') else 'installed'}",
+            f"model={'+'.join(sorted(resolved)) or cfg['reviewer_model']}",
             f"judge={'+'.join(cal['judge_resolved']) or cfg['judge_model']}", f"set={args.set}", f"prs={len(prs)}", f"runs={args.runs}",
             f"prec={p:.2f}", f"recall={rc:.2f}", f"f1={f1:.2f}", f"hc={agg['hc_tp']:.0f}/{agg['hc_tot']:.0f}",
             f"tp={agg['tp']:.1f}", f"fp={agg['fp']:.1f}", f"fn={agg['fn']:.1f}", f"calib={cal['agreement']:.0%}",

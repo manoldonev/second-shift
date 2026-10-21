@@ -52,7 +52,10 @@ the row counts under `voided=`. A run that modifies the checkout is voided and t
 
 One file per arm under `arms/`: a short header, `---`, then the prompt. Header keys: `spawn`
 (`claude`), `allow` (the `--allowedTools` list), `bgwait` (set when the arm runs a Workflow, so
-`-p` waits for it), `requires-plugin`, `upstream`. The prompt may use `{rules}` (the shared
+`-p` waits for it), `plugin-dir` (a path relative to this directory, passed as `--plugin-dir`, so
+the arm runs **this checkout's** plugin rather than the installed copy; the row then says
+`src=checkout`), `requires-plugin`, `upstream`. The two review-lead arms carry `plugin-dir`, which
+is what lets a PR to review-lead measure itself before merge. The prompt may use `{rules}` (the shared
 blindness and output contract in `rules.md`), `{checkout}`, `{base}`, `{head}`, `{scratch}` and
 `{out}`. The arm writes its comments to `{out}` as a numbered list; every item is scored.
 
