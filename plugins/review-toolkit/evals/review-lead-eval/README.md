@@ -1,5 +1,9 @@
 # review-lead synthesis eval
 
+> Synthesis only. The reviewer's end-to-end bug-finding is measured by
+> [`../code-review-bench-eval/`](../code-review-bench-eval/README.md) against a public PR set with
+> known bugs; its `review-lead-lane` and `review-lead-standalone` arms run the real skill.
+
 Eval campaign for the **highest-stakes synthesis in the pipeline** (dev-pipeline
 Stage 8): review-lead consolidating a set of reviewer findings into one verdict —
 deduplication, the confidence filter, triage, the Scope Completeness hard gate, and

@@ -357,6 +357,17 @@ def extract_result_text(stdout: bytes):
     return text, envelope
 
 
+def changelog_row(started_at: dt.datetime, segments: list[str]) -> str:
+    """One append-only changelog line: the ISO start time, then `k=v` segments joined by ` | `.
+    Shared with the benchmark harness so every eval's rows read the same way."""
+    return f"{started_at.isoformat()} | " + " | ".join(segments) + "\n"
+
+
+def append_changelog(changelog: Path, line: str) -> None:
+    with changelog.open("a") as f:
+        f.write(line)
+
+
 def check_rate_limit(text: str, where: str):
     for marker in RATE_LIMIT_MARKERS:
         if marker in text:
@@ -752,15 +763,13 @@ async def main():
              if r["reviewer"].get("num_turns") is not None]
     max_turns = max(turns) if turns else 0
     mean_turns = (sum(turns) / len(turns)) if turns else 0.0
-    line = (
-        f"{started_at.isoformat()} | agent={args.agent_name} | sha={agent_sha} | "
-        f"model={reviewer_model} | "
-        f"score={overall_pct:.1f}% | {dim_fmt} | "
-        f"runs={len(all_runs)} | turns={max_turns}/{mean_turns:.1f} | "
-        f"cost=${total_cost:.2f} | note=\"{args.note}\"\n"
-    )
-    with changelog.open("a") as f:
-        f.write(line)
+    line = changelog_row(started_at, [
+        f"agent={args.agent_name}", f"sha={agent_sha}", f"model={reviewer_model}",
+        f"score={overall_pct:.1f}%", dim_fmt,
+        f"runs={len(all_runs)}", f"turns={max_turns}/{mean_turns:.1f}",
+        f"cost=${total_cost:.2f}", f"note=\"{args.note}\"",
+    ])
+    append_changelog(changelog, line)
     print(line.strip(), flush=True)
 
     print("\n=== SUMMARY ===")
