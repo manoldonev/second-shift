@@ -9,7 +9,7 @@ fail() { echo "check-data: $*" >&2; rc=1; }
 [ -s "$D/UPSTREAM" ] || fail "data/UPSTREAM missing"
 grep -Eq '^commit: [0-9a-f]{40}$' "$D/UPSTREAM" || fail "data/UPSTREAM has no 40-hex commit line"
 
-head -1 "$D/prs.tsv" | grep -qx $'id\tproject\toriginal_url\tclone_url\tbase\thead\tset' || fail "prs.tsv header"
+[ "$(head -1 "$D/prs.tsv")" = $'id\tproject\toriginal_url\tclone_url\tbase\thead\tset' ] || fail "prs.tsv header"
 tail -n +2 "$D/prs.tsv" | awk -F'\t' -v OFS='\t' '
   NF != 7 { print "row " NR+1 ": " NF " columns"; bad=1 }
   seen[$1]++ { print "duplicate id " $1; bad=1 }
