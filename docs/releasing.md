@@ -94,8 +94,13 @@ bash plugins/second-shift/skills/onboard/tools/pin-resolve.sh manoldonev/second-
   (supported since Claude Code v2.1.193; append-only — `"old-name": "new-name"`, or `null`
   for a retirement) AND disclose the rename in the Release notes; consumer repos migrate in
   their own PR.
+- **A new Claude model, or a model default change, is measured first.** Before `REVIEW_MODEL_DEFAULT`
+  (`plugins/dev-pipeline/skills/run/run.sh`) or the tier table (`plugins/review-toolkit/model-tiering.md`)
+  moves, run `plugins/review-toolkit/evals/code-review-bench-eval/run.sh` for the `review-lead-lane`
+  and `plain` arms on the `dev` set with the new model and append the rows. A release that changes a
+  default without a row is a release nobody measured.
 
-Both are rendered as checklist items in the release PR body; resolve them there before merge.
+All three are rendered as checklist items in the release PR body; resolve them there before merge.
 
 ## Consumers tracking `main`
 

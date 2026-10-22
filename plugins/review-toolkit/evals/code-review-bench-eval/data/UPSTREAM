@@ -1,0 +1,9 @@
+repo: https://github.com/withmartian/code-review-benchmark
+commit: e616e849755441da38f18bf3adba2c9583b03803
+license: MIT
+vendored: 2026-10-21 — offline/golden_comments/*.json (golden/), the judge prompt of
+offline/code_review_benchmark/step3_judge_comments.py (judge-prompt.md), and one tool's candidates
+and golden-level verdicts (calibration/augment.json) taken from the upstream results directory of
+its first-listed judge model: offline/results/<judge>/{candidates,evaluations}.json. prs.tsv maps
+each benchmark PR to the fork the upstream harness reviewed, with base and head as that fork's PR
+reports them.

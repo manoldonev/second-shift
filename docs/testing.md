@@ -298,6 +298,7 @@ pyramid, plus one tier that is honest about being outside CI.
 | Runtime | `plugins/review-toolkit/workflows/runtime-shim-selftest.mjs` — executes real Workflow `.mjs` bodies with injected fakes | Established |
 | Install topology | `tools/install-topology-selftest.sh` — every shipped suite re-run from a version-keyed install cache | Established |
 | Adversarial | Model-tier audit workflows — **operator-run, never CI** | This document |
+| Benchmark | `plugins/review-toolkit/evals/code-review-bench-eval/` — a reviewer scored on a public PR set with known bugs — **operator-run, never CI** | This document |
 
 ### The lane's scenario: `run*-selftest.sh`
 
@@ -723,3 +724,21 @@ schedule turns it into noise.
 a periodic audit whose output is *prunes and hand fixes*, executed by the tiers above.
 
 **Cost is real.** The first audit ran ~40 agents over ~2.6M tokens. Budget for it deliberately.
+
+## Benchmark tier (operator-run, never CI)
+
+`plugins/review-toolkit/evals/code-review-bench-eval/` scores a reviewer the way the field is
+scored: a vendored set of 50 public PRs from the Martian Code Review Bench, each with a list of
+known bugs; the reviewer reviews a blind, offline checkout; a judge on the other model family
+matches its comments to the known bugs with the benchmark's own rule; the result is
+precision/recall/F1 per arm, appended to the eval's `changelog.md`.
+
+Two rules make the rows comparable over time. **Two sets:** the 10 `dev` PRs are for tuning and
+for the cheap check a PR runs; the 40 `heldout` PRs are for a claim, and no prompt is tuned on
+them. **A calibration gate:** before any arm is reported, the judge re-scores one published tool's
+comments and must agree with that tool's published verdicts on at least 90% of the known bugs, so a
+judge drift never reads as a reviewer change.
+
+Run it after a change to review-lead, a reviewer prompt or the lead-pass checklist, and when a new
+model becomes available (the release checklist asks). `README.md` there has the quota arithmetic:
+a full 10-PR arm is about 45 session-minutes on the seat the checkouts' remote resolves to.

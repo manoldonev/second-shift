@@ -437,5 +437,6 @@ cat <<'EOF'
 - [ ] Migration prose reviewed/edited in the CHANGELOG section (edit AFTER the last feature merge — re-derives force-push this branch).
 - [ ] Section catalog (`plugins/review-toolkit/scripts/section-catalog.txt`): if this release changes it, check known-consumer `review-context.md` headings and list any newly-flagging heading in the What-breaks body (rename = `deprecated-alias-of:` row, never a bare deletion).
 - [ ] Plugin renames: if any, recorded in the marketplace.json `renames` map and disclosed in the Release notes.
+- [ ] Model default or new model: if `REVIEW_MODEL_DEFAULT` or the tier table changes, `plugins/review-toolkit/evals/code-review-bench-eval/changelog.md` carries a `dev`-set row for `review-lead-lane` and `plain` on that model.
 - [ ] Major bump with a schema change: `docs/migrations/vN-to-vN+1.md` exists (CI gates this).
 EOF
