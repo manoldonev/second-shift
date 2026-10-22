@@ -110,8 +110,10 @@ def ensure_checkout(pr: dict, cache: Path) -> Path:
     if mb != pr["base"]:
         print(f"[bench] {pr['id']}: recorded base is not the merge-base; reviewing {mb[:10]}..{pr['head'][:10]}", flush=True)
         pr["base_recorded"], pr["base"] = pr["base"], mb
-    if sh(["git", "status", "--porcelain"], cwd=wt):
-        raise RuntimeError(f"{pr['id']}: checkout is dirty; remove {wt} and rerun")
+    # a run the limit killed mid-review leaves the CLI's own `.claude/` behind; that is not dirt
+    dirt = [l for l in sh(["git", "status", "--porcelain", "--ignored=no"], cwd=wt).splitlines() if l.strip() != "?? .claude/"]
+    if dirt:
+        raise RuntimeError(f"{pr['id']}: checkout is dirty ({dirt[:3]}); remove {wt} and rerun")
     return wt
 
 
@@ -380,9 +382,10 @@ async def main_async(args):
     if args.calibration_only or (not args.arm and not args.rescore):
         return
 
-    print(f"[bench] building {len(prs)} checkouts under {cache}", flush=True)
-    for pr in prs:
-        cfg["checkouts"][pr["id"]] = ensure_checkout(pr, cache)
+    if args.arm:
+        print(f"[bench] building {len(prs)} checkouts under {cache}", flush=True)
+        for pr in prs:
+            cfg["checkouts"][pr["id"]] = ensure_checkout(pr, cache)
 
     rev_sem = asyncio.Semaphore(args.concurrency)
     results_doc = {"started_at": started.isoformat(), "set": args.set, "prs": [p["id"] for p in prs],
