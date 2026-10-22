@@ -416,11 +416,20 @@ async def main_async(args):
             continue
         print(f"\n=== arm {arm_name}: {len(prs)} PRs x {args.runs} runs ===", flush=True)
         runs = await asyncio.gather(*(review_once(cfg, arm, pr, n, rev_sem) for pr in prs for n in range(1, args.runs + 1)))
+        # the reviews are paid for before the judge runs: keep their detail even if judging aborts
+        results_doc["arms"][arm_name] = {"runs": list(runs), "unjudged": True}
+        write_results(results_doc, started)
         results_doc["arms"][arm_name] = await report_arm(cfg, args, arm_name, arm, list(runs), prs, cal, judge_fams, judge_sem, started, sha)
+        write_results(results_doc, started)
 
+    out = write_results(results_doc, started)
+    print(f"\n[bench] wrote {out}")
+
+
+def write_results(results_doc, started) -> Path:
     out = HERE / f"results-{started.strftime('%Y%m%dT%H%M%SZ')}.json"
     out.write_text(json.dumps(results_doc, indent=1, default=str))
-    print(f"\n[bench] wrote {out}")
+    return out
 
 
 async def report_arm(cfg, args, arm_name, arm, runs, prs, cal, judge_fams, judge_sem, started, sha, src=None):
