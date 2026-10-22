@@ -62,8 +62,9 @@ blindness and output contract in `rules.md`), `{checkout}`, `{base}`, `{head}`, 
 `{out}`. The arm writes its comments to `{out}` as a numbered list; every item is scored.
 
 Shipped arms: `plain` (a one-paragraph senior-engineer prompt), `review-lead-standalone` (the
-skill with its full routing), `review-lead-lane` (the skill with the lane's opt-ins
-declared, as the lane runs it), `tob-differential-review` (Trail of Bits' skill; needs
+skill with its full routing), `review-lead-lane` (the skill invoked the way the pipeline's
+review session invokes it; routing is the same on both paths now, and the arm is kept so the lane's
+own invocation shape stays measured), `tob-differential-review` (Trail of Bits' skill; needs
 `differential-review@trailofbits` enabled, and the harness cannot verify the installed version
 against the commit the arm file names).
 

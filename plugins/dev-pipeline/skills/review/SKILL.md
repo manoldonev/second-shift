@@ -101,38 +101,20 @@ review.
    out-of-diff reads that check the bound. The row can name a file that the diff does not touch.
    That fact scores the row. It does not bound the risk.
 6. **Run `review-toolkit:review-lead` over the PR diff.** Pass it the ticket from step 1 yourself.
-   **Declare the lane's opt-ins** when you invoke it. The fan-out dispatches the defect seats on
-   their triggers (`scope-completeness-reviewer` for the ticket, `db-reviewer`, `pipeline-reviewer`,
-   the repo-local and design seats), and the lead pass runs its Correctness dimension on every
-   round. Everything else is an opt-in: `security-reviewer` on the lane, `a11y-reviewer`,
-   `unit-test-mutation-reviewer`, `performance-reviewer`, and the lead pass's maintainability,
-   complexity and test-coverage dimensions. An opt-in comes from one of two sources. The first is a
-   `review panel` row in the record with `user-answered` or `user-delegated` provenance, naming
-   `security`, `a11y`, `unit-test-mutation`, `performance`, `maintainability`, `complexity` or
-   `test-coverage`. The second is the config's `reviewers.default[]`. `review-lead` never infers
-   this. An opt-in's findings are `[note]`s, except a performance finding that answers a
-   record-named cost row.
+   EVERY REVIEWER WHOSE SURFACE THE DIFF TOUCHES IS DISPATCHED, on this path as on the standalone
+   one. `review-lead`'s trigger table decides; a reviewer with no surface in the diff is not
+   dispatched, and the panel line says so. The lead pass runs all five of its dimensions on every
+   round. WHAT GATES THE VERDICT IS THE FINDING'S PILLAR, not the seat: a Critical from
+   Correctness, scope completeness, security, db, pipeline, a11y or a repo-local domain seat is a
+   `[blocker]`; a finding from maintainability, complexity, test coverage, unit-test-mutation or
+   performance is a `[note]`, except a test-coverage finding that names a changed behavior with no
+   test on its critical path and a performance finding that answers a record-named cost row.
 
-   You can opt one in yourself. **That is the expected call whenever the diff introduces a
-   surface.** It is not expected when the diff only edits an existing surface.
-   - Opt in `security` for a new authentication, session, tenancy or ownership-scoping path, or
-     for a new query built from external input.
-   - Opt in `a11y` for new form controls or a new interactive component.
-   - Opt in `unit-test-mutation` for new logic with a co-located spec.
-   - Opt in `performance` for a new entry point that reaches a data read or existing heavy work.
-     An entry point is a route, handler, consumer or SDK method.
-
-   For a change to a file that already sits on one of those surfaces, you decide either way. Pass
-   each short name to `review-lead` with a one-line reason.
-
-   Do not stand in for an opt-in seat on a surface the diff introduces. Your lead pass is one
-   reader over the whole diff. It is not that reviewer's checklist. The opt-in default stays
-   because it was measured. You judge a diff that it was never measured on.
-
-   Declining a reviewer whose surface the diff introduces is itself a decision. When you decline
-   one, pass the decline to `review-lead` with a one-line reason. `review-lead` writes the decline
-   into the panel line of the review. The human who reads the verdict reads that line. An
-   introduced surface with neither a reviewer nor a reason is a silent decision.
+   TWO CARRIERS FORCE A REVIEWER ON when its trigger did not fire: a `review panel` row in the
+   record with `user-answered` or `user-delegated` provenance, naming `security`, `a11y`,
+   `unit-test-mutation` or `performance`; and the config's `reviewers.default[]`. `review-lead`
+   never infers either. Do not stand in for a dispatched seat: your lead pass is one reader over the
+   whole diff, not that reviewer's checklist.
 
    **A record-named cost risk makes performance a required decision.** A `D-n` row or an `OR-n`
    Open Region of the record can name a cost, load or performance risk. When one does, opt
@@ -164,7 +146,7 @@ review.
 
    `Ready to merge?` is never written anywhere in the body.
 
-   A `[blocker]` is something in the diff that must change before merge. The PR title and description are not the diff: a stale or wrong one is at most a `[note]`, never a `[blocker]`, and never makes a verdict `needs-work`. A `[note]` requires nothing. review-lead's findings translate one way: a Critical from a default seat or the Correctness dimension is a `[blocker]`; a Warning from one of them that you would hold the merge for is a `[blocker]`, and any other Warning is a `[note]`; a finding from an opt-in seat or dimension is a `[note]`, except a performance finding that answers a record-named cost row, which keeps its severity; its "Ready to merge?" and "With fixes" are never written on this comment.
+   A `[blocker]` is something in the diff that must change before merge. The PR title and description are not the diff: a stale or wrong one is at most a `[note]`, never a `[blocker]`, and never makes a verdict `needs-work`. A `[note]` requires nothing. review-lead's findings translate one way: a Critical from a defect pillar (Correctness, scope completeness, security, db, pipeline, a11y, a repo-local domain seat) is a `[blocker]`; a Warning from one of them that you would hold the merge for is a `[blocker]`, and any other Warning is a `[note]`; a finding from an advisory pillar (maintainability, complexity, test coverage, unit-test-mutation, performance) is a `[note]`, except a test-coverage finding that names a changed behavior with no test on its critical path and a performance finding that answers a record-named cost row, which keep their severity; its "Ready to merge?" and "With fixes" are never written on this comment.
 
    `verdict: approve` means mergeable as-is: every record row is scored, none is `violated` or `undeterminable`, and there is no `[blocker]` and no `reason: render-unavailable` line. `verdict: needs-work` carries at least one `[blocker]`, a `violated` or `undeterminable` row, or the `reason: render-unavailable` line; under that line the rows need not be scored, and the findings may be `None.`.
    <!-- LOCKSTEP-END verdict-grammar -->

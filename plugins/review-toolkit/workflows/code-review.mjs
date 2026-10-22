@@ -171,16 +171,16 @@ const FINDINGS_SCHEMA = {
 //   prContext    — optional free-text branch/PR context
 //   requiredSeats — optional array of agentType strings dispatched IN ADDITION to `reviewers`
 //                  (#992). Never trims either list; the union is deduped on the resolved name.
-//   optInSeats   — optional array of agentType strings whose findings never block: a `blocker`
-//                  severity from one of them is rewritten to `major` after the result parses, so
-//                  an opt-in seat reaches the verdict as a note. Matched on the bare name.
+//   advisorySeats — optional array of agentType strings whose findings advise and never block: a
+//                  `blocker` severity from one of them is rewritten to `major` after the result
+//                  parses, so the seat reaches the verdict as a note. Matched on the bare name.
 //   panel        — optional; 'substantial' runs the seats at SUBSTANTIAL_MODEL's tiers and returns
 //                  `seats[]` in place of `reviewers[]`. Absent, the dispatch and the return are
 //                  exactly what they were before #992.
 // `args` arrives as the value passed to Workflow's `args` input. Defensive: it may
 // be an object, or (per the Workflow contract's stringified-args caveat) a JSON string.
 const a = typeof args === 'string' ? JSON.parse(args) : args || {}
-const { worktree, base, head, issue, spec, reviewers = [], requiredSeats = [], optInSeats = [], panel, changedFiles = [], prContext = '', config = {} } = a
+const { worktree, base, head, issue, spec, reviewers = [], requiredSeats = [], advisorySeats = [], panel, changedFiles = [], prContext = '', config = {} } = a
 const substantial = panel === 'substantial'
 // Per-reviewer model-tier overrides from the consumer config (bare-keyed).
 const modelOverrides = (config && config.reviewers && config.reviewers.modelOverrides) || {}
@@ -205,14 +205,14 @@ if (panel !== undefined && !substantial) {
 if (!Array.isArray(requiredSeats)) {
   throw new Error('code-review workflow: args.requiredSeats must be an array of agentType strings')
 }
-if (!Array.isArray(optInSeats)) {
-  throw new Error('code-review workflow: args.optInSeats must be an array of agentType strings')
+if (!Array.isArray(advisorySeats)) {
+  throw new Error('code-review workflow: args.advisorySeats must be an array of agentType strings')
 }
-const optInSet = new Set(optInSeats.map((r) => bare(r)))
-// An opt-in seat's result reaches synthesis with no `blocker`: the cap is applied to the parsed
+const advisorySet = new Set(advisorySeats.map((r) => bare(r)))
+// An advisory seat's result reaches synthesis with no `blocker`: the cap is applied to the parsed
 // result, never to the prompt, so it holds whatever the seat wrote.
-const capOptIn = (requested, result) =>
-  optInSet.has(bare(requested)) && result && Array.isArray(result.findings)
+const capAdvisory = (requested, result) =>
+  advisorySet.has(bare(requested)) && result && Array.isArray(result.findings)
     ? { ...result, findings: result.findings.map((f) => (f && f.severity === 'blocker' ? { ...f, severity: 'major' } : f)) }
     : result
 // Relaxed only for a non-empty requiredSeats (#992 D-10): a call with
@@ -587,7 +587,7 @@ const dispatchReviewer = async (requested) => {
         : { agentType: requested, result: null, error: `retry failed: ${err}`, retried: true, failed: true }
     }
     const parsed = parseReviewResult(text)
-    if (parsed && validateShape(parsed, FINDINGS_SCHEMA)) return { agentType: requested, result: capOptIn(requested, parsed) }
+    if (parsed && validateShape(parsed, FINDINGS_SCHEMA)) return { agentType: requested, result: capAdvisory(requested, parsed) }
     lastText = text
     const emptyText = !String(text ?? '').trim()
     log(
@@ -599,7 +599,7 @@ const dispatchReviewer = async (requested) => {
       // bounded-exploration-optout: validator-reference -- this schema: key parameterizes the
       //   emitter helper (whose own dispatch site carries the structured-emitter marker).
       const emitted = await emitStructured(lastText, { label: dispatched, schema: FINDINGS_SCHEMA })
-      if (emitted && validateShape(emitted, FINDINGS_SCHEMA)) return { agentType: requested, result: capOptIn(requested, emitted) }
+      if (emitted && validateShape(emitted, FINDINGS_SCHEMA)) return { agentType: requested, result: capAdvisory(requested, emitted) }
     } catch (emitErr) {
       return { agentType: requested, result: null, error: `emit failed: ${emitErr}`, retried: true, failed: true }
     }

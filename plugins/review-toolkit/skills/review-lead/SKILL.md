@@ -61,7 +61,7 @@ The panel named throughout this skill is the **plugin-shipped generic registry**
 
 - `reviewers.add[]` — repo-local reviewer agents living in the repo's `.claude/agents/` (referenced **bare**, e.g. `orders-reviewer`). Each entry declares `dimensions[]` (a routing/dedup hint — treat those dimensions as the reviewer's domain when deciding whether to spawn it and when merging its findings). Register these alongside the plugin panel; spawn them per their declared domain the same way the conditional reviewers below are spawned.
 - `reviewers.remove[]` — plugin-shipped reviewers disabled in this repo (e.g. `db-reviewer` in a pure-FE repo). Never spawn a removed reviewer; omit its Verdicts row.
-- `reviewers.default[]` — plugin-shipped reviewers this repo opts in **unconditionally on the pipeline path** (see "Default seats and opt-ins" under Reviewer Routing), named the way `reviewers.remove[]` names them. Purely additive: it can opt a reviewer or a lead-pass dimension IN and can never take a default seat out — subtraction stays `reviewers.remove[]`'s, which this key does not override. Read when the lane's opt-ins are declared; standalone, a name in it is an opt-in too, and a default seat already has its surface trigger.
+- `reviewers.default[]` — plugin-shipped reviewers this repo dispatches **unconditionally on both paths**, whether or not their trigger fires (see "Every triggered seat runs; what gates is the finding" under Reviewer Routing), named the way `reviewers.remove[]` names them. Purely additive: it can force a seat ON and can never take one out — subtraction stays `reviewers.remove[]`'s, which this key does not override. It changes who is dispatched, never what gates: a forced advisory seat still advises.
 - `reviewers.modelOverrides{}` — per-reviewer model-tier override applied when dispatching (e.g. `security-reviewer: opus` in one repo, `sonnet` in another). The `code-review.mjs` fan-out reads these; pass the overridden tier, not the agent-frontmatter default.
 
 If the config is absent or has no `reviewers` block, the effective registry is exactly the plugin panel. Repo-local `add` reviewers are referenced **bare**, and plugin-shipped reviewers **qualified** (`docs/namespaces.md` rule 2) — that asymmetry is the disambiguation between roots, and it is what the panel above is spelled to satisfy. The names in the panel are dispatch names: they reach `agent({ agentType })` through `code-review.mjs`, so a bare plugin name there is not a stylistic choice but an agent type that does not resolve. `check-reviewer-references.sh` enforces both halves.
@@ -219,31 +219,29 @@ subagent dispatch; the four dimensions below it are reviewed in-session instead.
 ### Lead-pass dimensions (never spawned by routing)
 
 The lead pass reviews the diff in-session against the checklist in
-[`lead-pass-checklist.md`](lead-pass-checklist.md) — see "Lead pass" below. **Its Correctness
-dimension runs on every round**: the callers and consumers of each changed unit, the existing
-data a new rule now rejects, every path and state through the change. It has no agent, and it is
-the dimension a review is for.
+[`lead-pass-checklist.md`](lead-pass-checklist.md) — see "Lead pass" below. Five dimensions, on
+every round, in this order:
 
-Four more dimensions are **opt-in**. They run only when an opt-in carrier names them (see "Opting
-one in" below), and their findings reach the verdict as notes, never blockers:
+- **Correctness** — the callers and consumers of each changed unit, the existing data a new rule
+  now rejects, every path and state through the change. No agent carries it; it is the dimension a
+  review is for, and its findings gate the verdict.
+- **performance-reviewer** — the performance dimension. Advisory, except a finding that answers a
+  record-named cost row ("The record arm" below), which keeps its severity.
+- **maintainability-reviewer** — the readability-and-maintainability dimension. Advisory.
+- **complexity-reviewer** — the over-engineering / accidental-complexity dimension. Advisory.
+- **test-coverage-reviewer** — the test-adequacy dimension. Advisory, except a changed behavior
+  with no test on its critical path, which is Critical and gates.
 
-- **performance-reviewer** — the performance dimension; an opt-in dispatches the agent
-- **maintainability-reviewer** — the readability-and-maintainability dimension; an opt-in runs its section in-session
-- **complexity-reviewer** — the over-engineering / accidental-complexity dimension; an opt-in runs its section in-session
-- **test-coverage-reviewer** — the test-adequacy dimension; an opt-in runs its section in-session
+Each name stays in the effective registry and stays dispatchable by config
+(`reviewers.default[]`) or a `review panel` row; dispatched, the agent owns the dimension and the
+lead pass skips its section. Their Verdicts rows read `Lead pass — ✅/❌` (see Verdict rules).
 
-Each name stays in the effective registry and stays dispatchable on demand or by config. Their
-Verdicts rows read `Lead pass — ✅/❌` when the dimension ran, `Opt-in — not selected` when it did
-not (see Verdict rules). This was measured: on a public set of PRs with known bugs these four
-produced about half of the review's comments that matched no known bug and found no bug the
-Correctness read did not, while the review as a whole found fewer known bugs than a plain prompt.
-
-**Performance has a record arm.** When the decision record names a cost, load or performance risk,
-performance is a required decision whatever the diff looks like ("The record arm" below). When an
-opt-in selects it, `performance-reviewer` is dispatched, the lead pass's performance section is not
-run ("Performance defers when it is spawned", under Lead pass), its Verdicts row reads
-`Pass / Fail`, and a finding that answers the record row keeps its severity: it is the one opt-in
-finding that can block, because the operator wrote the concern down.
+**Advisory means reported, never gating.** An advisory finding is a Warning at most in triage and a
+`[note]` on the verdict; it still appears under its own label, because a review that skips a pillar
+is not a full review. The weighting was measured: on a public set of PRs with known bugs, these
+four dimensions produced about half of the review's comments that matched no known bug and found
+no bug the Correctness read did not. So they review every round and advise the human, and the
+verdict is decided by the pillars whose findings fail in use.
 
 ### Conditionally spawn (never suppressed by depth routing)
 
@@ -252,54 +250,53 @@ finding that can block, because the operator wrote the concern down.
 | **security-reviewer**           | The diff carries a security surface — authentication / session handling, tenancy or ownership scoping, file upload, or query construction from external input; OR the repo under review carries `.claude/second-shift/review-context/security-reviewer.md` (a repo that authored security calibration has a security surface to calibrate). Matching is **model judgment over the diff**, the same posture the design-fidelity dimension below uses: read the changed paths and the hunks and decide, rather than pattern-matching filenames. When it does not fire, that is a Step 4c not-selected note and the lead pass owns the security dimension for the round. |
 | **db-reviewer**                 | The repo's DB layer changed — schema definitions, migrations, or query code (e.g. `*.schema.*`, a migrations dir); OR the diff **newly reads a persisted field it does not write** — a field of an entity whose schema, model, DDL or mapping lives in this repo, which the diff dereferences, sends across a service boundary or branches on, where no prior production code read it, and which is feature-critical or crosses a service boundary (third-party API payloads and in-memory JSON are not persisted fields); OR the diff **adds a lookup or upsert keyed on a non-primary-key field on an identity path** — auth, dedup, restore/upsert, or cross-tenant admin — through a lookup or upsert verb or wrapper the repo's review-context `## Database stack` names, or the engine's native verbs when it names none. All three arms fire on both paths. Skip/remove in repos with no DB (config `reviewers.remove`). |
 | **pipeline-reviewer**           | Async worker / queue-processor / job-producer files changed (e.g. `*processor*`, `*queue*`, a workers dir).                                                                                                                                                                 |
-| **unit-test-mutation-reviewer** | **Opt-in only.** Never selected by its surface (a production file within the repo's mutation-review target surface changed AND a co-located spec is in the diff) or by `unitTestSurface.action == strengthen`; those name the surface an opt-in is for. Advisory mode (LLM-predicted, no execution — the propose-mode orchestrator owns execution-verified blocking); its findings reach the verdict as notes.    |
+| **unit-test-mutation-reviewer** | A production file within the repo's mutation-review target surface changed AND a co-located spec is in the diff; OR the pipeline ran with `unitTestSurface.action == strengthen`. Advisory mode (LLM-predicted, no execution — the propose-mode orchestrator owns execution-verified blocking): its findings reach the verdict as notes.    |
 | **scope-completeness-reviewer** | Invocation references a tracker issue number (e.g., `Closes #758`, `Part of #758`, an explicit `--issue 758` flag, or PR body contains `#<number>`). Spawn unconditionally — depth routing does not apply. If no issue is referenced, do not spawn.                          |
-| **a11y-reviewer**               | **Opt-in only.** Never selected by `$WEB_COMPONENT_GLOBS` (config `reviewers.webComponentGlobs`, default `**/*.{tsx,jsx,vue,svelte,css,scss,less}`), which still names the surface an opt-in is for. WCAG/ARIA/keyboard/contrast/reduced-motion, primitives-library-aware; its findings reach the verdict as notes.                                                    |
+| **a11y-reviewer**               | Diff touches the repo's web-component surface — `$WEB_COMPONENT_GLOBS` (config `reviewers.webComponentGlobs`, default `**/*.{tsx,jsx,vue,svelte,css,scss,less}`). WCAG/ARIA/keyboard/contrast/reduced-motion, primitives-library-aware. A Critical here fails in use, so it gates.                                                    |
 | **design-fidelity dimension**   | **ALWAYS on an armed decision record** — a `## Design frames` (or `## Design`) section carrying `RS-n` render-state rows — where the reviewer is fixed by the handoff host and the diff does not enter into it. On an unarmed diff, the same `$WEB_COMPONENT_GLOBS` trigger as `a11y-reviewer`, spawned alongside it, selecting exactly one of **design-faithful-reviewer** / **figma-faithful-reviewer** by config `design.provider` — see "Design-fidelity dimension" below. |
 | **repo-local domain reviewers** | Registered via config `reviewers.add`; spawn per the `dimensions[]` each declares (e.g. an `orders-reviewer` on orders-domain paths). Never suppressed by depth routing.                                                                                                     |
 
 When in doubt about whether a domain reviewer is relevant, spawn it — a "no issues found" response is cheap.
 
-### Default seats and opt-ins
+### Every triggered seat runs; what gates is the finding
 
-One routing contract on both paths. **Default seats** dispatch on their triggers, as the table
-above states: `scope-completeness-reviewer` whenever a tracker issue is referenced, `db-reviewer`
-(all three arms) and `pipeline-reviewer` on their surfaces, repo-local `reviewers.add` reviewers on
-theirs, and the design-fidelity dimension in both its armed-spec and unarmed-diff forms. The lead
-pass runs its Correctness dimension on every round. **Opt-ins** never dispatch on a surface
-trigger: `a11y-reviewer`, `unit-test-mutation-reviewer`, `performance-reviewer`, and the lead
-pass's maintainability, complexity and test-coverage dimensions. Their findings reach the verdict
-as notes, never blockers, with one exception: a performance finding that answers a record-named
-cost row keeps its severity.
+One routing contract on both paths. Every reviewer whose trigger the diff meets is dispatched,
+lane and standalone alike, and a reviewer whose trigger it does not meet is not: an accessibility
+seat on a backend-only diff reviews nothing. There is no path-dependent trim. A pillar that is
+relevant and not reviewed is a review that skipped a pillar, whatever its verdict says.
 
-**The one path difference is security.** Standalone, `security-reviewer` fires on its surface
-trigger as the table states. On the pipeline path the review session declares the lane's opt-ins
-(its step 6), and under that declaration `security-reviewer` is an opt-in too: not selected by its
-trigger, the dimension carried by the lead pass ("Security defers when it is spawned" runs in the
-other direction, so nothing is uncovered). This skill never infers the path: a caller that
-declares the lane's opt-ins gets that treatment, and a caller that says nothing gets the table.
+**What binds the verdict is the finding's pillar, not the seat that found it.** A Critical from a
+defect pillar — Correctness, scope completeness, security, db, pipeline, a11y, a repo-local domain
+seat — is a blocker, and a Warning from one of them that the lead would hold the merge for is a
+blocker. A finding from an advisory pillar — maintainability, complexity, test coverage,
+unit-test-mutation, performance — is a note, with two exceptions that keep their severity: a
+test-coverage finding naming a changed behavior with no test on its critical path, and a
+performance finding answering a record-named cost row. `code-review.mjs` applies this to dispatched
+seats through `advisorySeats` (a `blocker` from one is `major` once its result parses); the lead
+pass applies it in triage.
 
 **Why.** Two measurements. Over 25 pipeline fan-outs, security, a11y and unit-test-mutation were
 selected on 12, 20 and 24 of them, produced 35 findings between them, and moved zero hidden tests
 and zero seeded-defect detectors; `scope-completeness-reviewer` was the only panel member that
-ever blocked. Then, on a public set of PRs with known bugs, this review found fewer known bugs
+ever blocked. Then, on a public set of PRs with known bugs, this review found no more known bugs
 than a plain prompt on the same model, and about half of its comments that matched no known bug
 came from a11y, unit-test-mutation and the lead pass's maintainability, complexity and
-test-coverage dimensions, which found no bug the Correctness read did not. A seat that adds
-comments and no bugs is a note to the human when asked for, not a default and never a blocker.
+test-coverage dimensions, which found no bug the Correctness read did not. The conclusion is not
+that those pillars go unreviewed; it is that their findings advise, and the verdict is decided by
+the pillars whose findings fail in use.
 
-**Opting one in.** Any carrier selects; all are read at Routing, and their effects union.
+**Forcing a seat on.** Two carriers select a reviewer whose trigger did not fire; both are read
+at Routing, and their effects union.
 
 1. **Per ticket — a Decision Ledger row in the committed spec.** The spec found by Process step 4
-   (Plan/Spec Awareness) carries a `## Decision Ledger` table. A row selects opt-ins when its
+   (Plan/Spec Awareness) carries a `## Decision Ledger` table. A row selects reviewers when its
    Decision cell is exactly `review panel`, its Resolution cell is a comma-separated list of the
-   **short** names `security`, `a11y`, `unit-test-mutation`, `performance`, `maintainability`,
-   `complexity`, `test-coverage`, and its Provenance is `user-answered`
-   or `user-delegated` — the two `intent`-kind values of the ledger's closed provenance enum. Any
-   other provenance selects nothing: an opt-in is an operator's intent, and `codebase-derived` /
-   `deferred` are not that. `ticket-sourced` is excluded too, though it is operator-originated:
-   the two carriers are already enough surface, and widening them is a change to the ledger
-   contract rather than to this routing rule.
+   **short** names `security`, `a11y`, `unit-test-mutation`, `performance`, and its Provenance is
+   `user-answered` or `user-delegated` — the two `intent`-kind values of the ledger's closed
+   provenance enum. Any other provenance selects nothing: forcing a seat is an operator's intent,
+   and `codebase-derived` / `deferred` are not that. `ticket-sourced` is excluded too, though it is
+   operator-originated: the two carriers are already enough surface, and widening them is a change
+   to the ledger contract rather than to this routing rule.
 
    ```
    | D-4 | review panel | security, a11y | user-answered |
@@ -307,88 +304,54 @@ comments and no bugs is a note to the human when asked for, not a default and ne
 
 2. **Per repo — config `reviewers.default[]`.** An array of plugin-shipped reviewer names spelled
    the way `reviewers.remove[]` spells them (`security-reviewer`, not `security`). Every name in
-   it is opted in unconditionally on the pipeline path; a lead-pass dimension's name
-   (`maintainability-reviewer`, `complexity-reviewer`, `test-coverage-reviewer`) runs that section
-   in-session rather than dispatching the agent. The two carriers use two spellings
-   because the config key sits beside `remove[]` and is validated against the shipped registry by
-   the same string compare (`check-reviewer-references.sh`, `DEFAULT-UNKNOWN`), while the ledger
-   row is prose an operator types. Read both; do not translate one into the other silently.
-
-3. **Per round — the caller's own judgment, with a reason.** The caller that declares the lane's
-   opt-ins may name opt-ins itself when the diff touches their surface — `security` for
-   authentication, sessions, tenancy or ownership scoping, or queries built from external input;
-   `a11y` for the web-component surface; `unit-test-mutation` for new logic with a co-located spec;
-   `performance` for a new entry point (a route, handler, consumer or SDK method) that reaches a
-   data read or existing heavy work; `maintainability`, `complexity` or `test-coverage` when the
-   human asked for that read. It passes each
-   short name in the invocation with a one-line reason, and it selects exactly as a ledger row
-   would. The trim stays the default because it was measured; this carrier exists so a diff the
-   measurement never saw is not reviewed blind on a rule's say-so.
-
-   **The same carrier carries the decline.** Whether the diff *introduces* one of the four
-   surfaces — a new authentication, session, tenancy or ownership-scoping path or a new query
-   built from external input; new form controls or a new interactive component; new logic with
-   a co-located spec; a new entry point that reaches a data read or existing heavy work — is
-   model judgment over the diff, as the Conditionally-spawn table judges
-   its triggers; the trim changes who is selected, not whether the surface is read. When a
-   surface is introduced and no carrier selects its reviewer, the caller passes the decline with
-   a one-line reason, and the panel line records it. An introduced surface with no selection and
-   no reason is recorded as such. It is never a blocker and never a `[Coverage gap]`, since the
-   lead pass still ran over the diff; it is a decision the verdict's reader can see was made
-   without a stated reason. A change to a file that already sits on a surface needs no decline:
-   that is the measured case, and the trim is its answer. The lead pass is one reader over the
-   whole diff, not the specialist's checklist, so it does not stand in for a declined reviewer
-   in the record.
+   it is dispatched unconditionally, on both paths. The two carriers use two spellings because the
+   config key sits beside `remove[]` and is validated against the shipped registry by the same
+   string compare (`check-reviewer-references.sh`, `DEFAULT-UNKNOWN`), while the ledger row is
+   prose an operator types. Read both; do not translate one into the other silently.
 
 **The record arm: a named cost risk is a required performance decision.** When the decision
 record carries a `D-n` row or an `OR-n` Open Region that names a cost, load or performance risk —
 deferred, unmeasured or inherited, such as "the route inherits the manager's quadratic expansion,
 not measured" — performance is a decision the caller must make this round, whatever the diff
-looks like. Whether a row names such a risk is model judgment, as the introduced-surface clause
-above is. The caller either selects `performance` (by any carrier) or passes a decline whose
-one-line reason answers that row — names the row and says why its risk does not need the seat —
-and the panel line records which. A record-named risk with neither a dispatch nor a decline is a
-process `[blocker]` on the verdict; whether a decline answers the row is the caller's judgment,
-and the reason is on the panel line for the reader to weigh. This is stricter than the
-introduced-surface clause on purpose: there the trim is the measured default and a missing reason
-is only recorded, while here the operator has already written the concern down. Never all-seats:
-the arm reaches performance and nothing else.
+looks like. Whether a row names such a risk is model judgment, as the Conditionally-spawn table
+judges its triggers. The caller either selects `performance` (by any carrier) or passes a decline
+whose one-line reason answers that row — names the row and says why its risk does not need the
+seat — and the panel line records which. A record-named risk with neither a dispatch nor a decline
+is a process `[blocker]` on the verdict; whether a decline answers the row is the caller's
+judgment, and the reason is on the panel line for the reader to weigh. The operator wrote the
+concern down, which is why a missing decision here blocks where an advisory finding does not.
+Never all-seats: the arm reaches performance and nothing else.
 
 **An unrecognized name selects nothing and is never silent.** The ledger row and the caller use
 the short names, which resolve to `security-reviewer`, `a11y-reviewer`,
-`unit-test-mutation-reviewer`, `performance-reviewer`, `maintainability-reviewer`,
-`complexity-reviewer` and `test-coverage-reviewer`; the config spells reviewers in full. A
+`unit-test-mutation-reviewer` and `performance-reviewer`; the config spells reviewers in full. A
 name in any carrier that does not resolve that way to a reviewer in the effective registry — a
 typo, a short name in the config, a full name in the ledger row, a reviewer this repo `remove`d —
-selects nobody. Name it once in the Review Summary
-(e.g. "opt-in `sekurity` not recognized; no reviewer selected for it"). It is never a blocker and
-never a `[Coverage gap]`: nothing was selected, so nothing went dark. Under a trimmed default a
-silently-dropped opt-in is indistinguishable from a green round, which is the one failure this
-rule exists to prevent.
+selects nobody. Name it once in the Review Summary (e.g. "`sekurity` not recognized; no reviewer
+selected for it"). It is never a blocker and never a `[Coverage gap]`: nothing was selected, so
+nothing went dark. A silently-dropped name is indistinguishable from a green round, which is the
+one failure this rule exists to prevent.
 
-**Say which panel ran.** When the caller declared the lane's opt-ins, end the Review Summary with
-a panel block. Write the lines below in this order. Give each name one reason in parentheses, at
-most 15 words. Start each reason with its source: `record D-n:`, `config:` or `caller:`.
+**Say which panel ran.** End the Review Summary with a panel block, every round. Write the lines
+below in this order. Give each name one reason in parentheses, at most 15 words. Start each reason
+with its source: `trigger:`, `record D-n:`, `config:` or `caller:`.
 
-- `- Default: defect seats on their triggers; dispatched: <names, or none>.` Always write this
-  line, naming the default seats that fired this round.
-- `- Opted in: <name> (<source>: <reason>), …` Write `- Opted in: none.` when no reviewer was
-  opted in.
-- `- Declined: <name> (<source>: <reason>), …` Write this line when a reviewer of an introduced
-  surface was declined with a reason.
-- `- Not selected, no reason given: <name>, …` Write this line when an introduced surface has no
-  reviewer and no reason.
+- `- Dispatched: <name> (trigger: <the surface, ≤ 8 words>), …` or `- Dispatched: none.` Always
+  write this line.
+- `- No surface, not dispatched: <names>.` The registry reviewers whose trigger did not fire.
+  Always write this line; `none` when every seat fired.
+- `- Forced on: <name> (<source>: <reason>), …` Write this line when a carrier selected a
+  reviewer whose trigger did not fire.
+- `- Advisory this round: <names>.` The dispatched seats and lead-pass dimensions whose findings
+  are notes, so the reader can tell a note from a blocker before reading either.
 - `- Record-named risk, no performance decision: D-n.` Write this line when a record row names a
-  cost risk and performance was neither opted in nor declined. This line is the `[blocker]` above.
+  cost risk and performance was neither dispatched nor declined. This line is the `[blocker]` above.
 
 A performance decline must answer the record row. Example: `performance (caller: answers record
-D-3, a fixed one-day window bounds the expansion)`. The reader must see two differences. The first
-is a trimmed panel against a full panel that matched no trigger. The second is a considered decline
-against a surface that nobody read.
-The not-selected opt-in reviewers get no separate Step 4c note in this case — this block is that
-note, and the two would say the same thing twice. Their Verdicts rows follow Step 4c: omitted,
-except `security-reviewer` and `performance-reviewer`, whose rows read `Lead pass — ✅/❌` because
-the lead pass covered them.
+D-3, a fixed one-day window bounds the expansion)`. The not-dispatched reviewers get no separate
+Step 4c note — this block is that note. Their Verdicts rows follow Step 4c: omitted, except the
+lead-pass rows and `security-reviewer`'s, which reads `Lead pass — ✅/❌` when the lead pass
+covered the dimension.
 
 ### Design-fidelity dimension
 
@@ -420,9 +383,9 @@ Keying this on the *dimension being selected* rather than on `design.provider` b
 
 ## Lead pass
 
-**Correctness on every round**, the opt-in dimensions a carrier selected (performance only when no
-opt-in dispatched its reviewer), plus **security whenever its conditional did not fire**, are
-reviewed by this session in a single pass over the diff. The calibration content — the Pre-Emit Gate, the
+All five dimensions — **Correctness first**, then performance (unless a carrier dispatched its
+reviewer), maintainability, complexity and test coverage — plus **security whenever its
+conditional did not fire**, are reviewed by this session in a single pass over the diff. The calibration content — the Pre-Emit Gate, the
 Critical triggers, each dimension's What-NOT-to-flag block, the new-vs-pre-existing rule, and the
 confidence threshold — lives in [`lead-pass-checklist.md`](lead-pass-checklist.md); read it before
 the pass and apply it dimension by dimension. Depth per change size comes from Review Depth
@@ -447,9 +410,9 @@ security section is not run — the spawned reviewer owns the dimension, and run
 manufacture the duplicate findings Step 1 then has to merge. When it does not fire, the lead pass
 owns it and its Verdicts row reads `Lead pass — ✅/❌` like the other four.
 
-**Performance defers when it is spawned**, by the same reasoning. When an opt-in dispatches
+**Performance defers when it is spawned**, by the same reasoning. When a carrier dispatches
 `performance-reviewer`, the lead pass's performance section is not run and the seat owns the
-dimension — the record-named risks included. Its Verdicts row reads `Pass / Fail`. With no opt-in
+dimension — the record-named risks included. Its Verdicts row reads `Pass / Fail`. With no dispatch
 the lead pass owns it, the record-named risks included (`lead-pass-checklist.md`, "Performance"),
 and the row reads `Lead pass — ✅/❌`.
 
@@ -457,15 +420,17 @@ and the row reads `Lead pass — ✅/❌`.
 are deduplicated, confidence-filtered and triaged by the same rules — no privilege for having been
 found in-session. Label them by dimension in the report exactly as a spawned reviewer's would be
 (`[Correctness]`, `[Performance]`, `[Maintainability]`, `[Complexity]`, `[Test Coverage]`,
-`[Security]`). A finding from an opt-in dimension is triaged as a Warning at most: it reaches the
-report, never the blocker count. The exception is a performance finding that answers a
-record-named cost row, which keeps the severity the performance rules give it.
+`[Security]`). A finding from an advisory dimension — maintainability, complexity, test coverage,
+and performance outside the record arm — is triaged as a Warning at most: it reaches the report
+under its label, never the blocker count. Two exceptions keep the severity their rules give them:
+a performance finding that answers a record-named cost row, and a test-coverage finding naming a
+changed behavior with no test on its critical path.
 
 ## Spawning Reviewers
 
 One dispatch substrate — the `code-review.mjs` Workflow — across both entry modes:
 
-- **Dispatch mode (standalone `/review-lead`):** this session invokes `workflows/code-review.mjs` via the `Workflow` tool, passing the selected `reviewers` plus `worktree`/`base`/`head`/`changedFiles`/`prContext` (see Pre-flight), and the opt-in seats it dispatched as `optInSeats` — the script rewrites a `blocker` from one of them to `major`, so an opt-in reaches synthesis as a note. `performance-reviewer` dispatched on the record arm is left out of `optInSeats`. The script issues one `agent({ agentType, model, schema })` per selected reviewer, via `parallel()`, each at the model tier declared in its agent frontmatter, and returns structured findings.
+- **Dispatch mode (standalone `/review-lead`):** this session invokes `workflows/code-review.mjs` via the `Workflow` tool, passing the selected `reviewers` plus `worktree`/`base`/`head`/`changedFiles`/`prContext` (see Pre-flight), and the advisory seats it dispatched as `advisorySeats` — `unit-test-mutation-reviewer`, and `performance-reviewer` unless the record arm dispatched it — so the script rewrites a `blocker` from one of them to `major` and the seat reaches synthesis as a note. A defect seat is never in `advisorySeats`. The script issues one `agent({ agentType, model, schema })` per selected reviewer, via `parallel()`, each at the model tier declared in its agent frontmatter, and returns structured findings.
 - **Pipeline-driven review:** the caller invokes the same `code-review.mjs` script itself and hands this session the findings (synthesis-only mode — see Pre-flight).
 
 In both modes the script returns structured findings and this session runs the Synthesis Rules over them. The args the script forwards to each reviewer:
@@ -611,7 +576,7 @@ For each reviewer **still dark after** the re-dispatch (and for every reviewer d
 | --- | --- |
 | `scope-completeness-reviewer` | **"Ready to merge? = No"** — Step 4's rule, unchanged and never converted into a void. |
 | `security-reviewer` | **"Ready to merge? = No"**. This one is not a judgment call: "Security defers when it is spawned" means the lead pass **did not run** its own security section precisely because this reviewer was spawned. Its death therefore leaves the dimension covered by nobody, which is not the shape the visibility calibration was written for. |
-| `performance-reviewer`, when the record arm dispatched it | **"Ready to merge? = No"**, on the same ground: "Performance defers when it is spawned", so its death leaves the record-named cost risk it was sent to trace covered by nobody. Dispatched by any other carrier, it is an opt-in and takes the visibility row below. |
+| `performance-reviewer`, when the record arm dispatched it | **"Ready to merge? = No"**, on the same ground: "Performance defers when it is spawned", so its death leaves the record-named cost risk it was sent to trace covered by nobody. Dispatched on its surface alone, it is advisory and takes the visibility row below. |
 | the design-fidelity reviewer on an **armed** spec | **Void the round** — see Step 4b-void case 2. |
 | `db-reviewer`, `pipeline-reviewer`, `a11y-reviewer`, `unit-test-mutation-reviewer`, any repo-local `reviewers.add` reviewer | **Visibility**, as above: the `[Coverage gap]` line and the "Ready to merge?" acknowledgement, no forced answer. |
 
@@ -648,11 +613,6 @@ A reviewer that was **never selected** is a different case from a dark reviewer:
 
 All three are **a note, never a blocker, and never silent** — and none is a red.
 
-When **the lane's opt-ins are declared** the first two bullets are superseded for the opt-in
-reviewers: they were not selected because the contract does not select them, not because a
-trigger failed to fire, and the panel line under "Default seats and opt-ins" is their single
-note. The unmatched-globs bullet still applies to the design-fidelity dimension, which the trim
-does not touch.
 
 ### Step 5: Cross-Reviewer Self-Check
 
@@ -724,9 +684,9 @@ One-line bullets from all reviewers for findings with confidence < 80, so they a
 | Performance     | Pass / Fail — or Lead pass — ✅/❌ | N | N-N |
 | Database        | Pass / Fail   | N        | N-N              |
 | Correctness     | Lead pass — ✅/❌ | N     | N-N              |
-| Complexity      | Lead pass — ✅/❌ — or Opt-in — not selected | N     | N-N              |
-| Maintainability | Lead pass — ✅/❌ — or Opt-in — not selected | N     | N-N              |
-| Test Coverage   | Lead pass — ✅/❌ — or Opt-in — not selected | N     | N-N              |
+| Complexity      | Lead pass — ✅/❌ (advisory) | N     | N-N              |
+| Maintainability | Lead pass — ✅/❌ (advisory) | N     | N-N              |
+| Test Coverage   | Lead pass — ✅/❌ (advisory) | N     | N-N              |
 | Pipeline        | Pass / Fail   | N        | N-N              |
 | Unit Test Mutation | Pass / Fail | N      | N-N              |
 | Accessibility   | Pass / Fail   | N        | N-N              |
@@ -757,7 +717,7 @@ elsewhere in the report that uses "verify" in the checking sense is untouched.
 
 - A reviewer's verdict should be ✅ PASS if its only findings are pre-existing gaps. ❌ FAIL only if the PR introduces new issues with confidence ≥ 80. The same rule decides the ✅/❌ on a `Lead pass` row.
 - Only include rows for reviewers that were spawned. If a domain reviewer wasn't triggered, omit it from the table. **A reviewer that was spawned but went dark (Step 4b) is NOT omitted — its row reads `Dark (no output)`.**
-- **Exception — the lead-pass rows.** Correctness runs every round and always carries `Lead pass — ✅/❌`. Performance, Complexity, Maintainability and Test Coverage are never spawned by routing and are never omitted: each carries `Lead pass — ✅/❌` when an opt-in ran it, or `Opt-in — not selected` when none did, so a reader can tell a dimension that was reviewed from one that was not asked for. Security takes `Lead pass — ✅/❌` on the rounds its conditional did not fire, and the ordinary `Pass / Fail` when it did. Performance reads `Pass / Fail` on the rounds an opt-in dispatched it (see "Default seats and opt-ins"). A single `Lead pass` summary row may be added **in addition to** those rows, never instead of them.
+- **Exception — the lead-pass rows.** Correctness, Performance, Complexity, Maintainability and Test Coverage run every round, are never spawned by routing and are never omitted: each carries `Lead pass — ✅/❌`, so a reader can tell a dimension that was reviewed in-session from one that was skipped. The advisory rows say so: a ❌ on an advisory row is advice to the human, and never decides "Ready to merge?" (except the two gating exceptions under "Every triggered seat runs"). Security takes `Lead pass — ✅/❌` on the rounds its conditional did not fire, and the ordinary `Pass / Fail` when it did. Performance reads `Pass / Fail` on the rounds a carrier dispatched it. A single `Lead pass` summary row may be added **in addition to** those rows, never instead of them.
 - The two design-fidelity rows are **mutually exclusive at runtime** — the provider map selects exactly one, so a real report carries at most one of them. Both are listed above because the table is the registry template, not a claim about any single round.
 - **Confidence Range column**: Scan each reviewer's findings for `(confidence: N)` values; report `min–max`. If a reviewer had no findings, write `—`.
 - **Scope Completeness gate**: if it FAILed or BLOCKED, "Ready to merge?" is **No** regardless of every other row.

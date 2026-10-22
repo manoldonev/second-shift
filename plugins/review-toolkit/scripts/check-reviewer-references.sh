@@ -38,7 +38,7 @@
 #   (c2) DEFAULT-UNKNOWN — reviewers.default names a reviewer the plugin registry never
 #                      shipped. Same class as (c) and the same reason it is checked HERE
 #                      rather than in config-lint.sh: only this script parses the panel.
-#                      default[] is the per-repo unconditional opt-in on the pipeline path
+#                      default[] forces a reviewer on, both paths, whether or not its trigger fires
 #                      (#838); a typo there silently un-selects a reviewer the repo asked
 #                      for, and a silent un-selection is exactly what the trimmed default
 #                      makes expensive to notice. default[] does NOT enter the effective

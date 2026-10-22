@@ -1,16 +1,18 @@
 # Lead-pass checklist
 
 The calibration content for the review dimensions `review-lead` reviews **in-session** rather than
-dispatching. **Correctness runs on every round.** Security runs on the rounds its conditional did
-not fire. Performance, maintainability, complexity and test coverage run only when an opt-in
-carrier names the dimension (SKILL, "Opting one in"); their findings are notes to the human,
-never blockers, except a performance finding that answers a record-named cost row. Read this before
-the pass; apply it dimension by dimension.
+dispatching. **All five run on every round, in this order: Correctness, performance,
+maintainability, complexity, test coverage**, plus security on the rounds its conditional did not
+fire. A full review covers every pillar; what differs is the weight. Correctness and security
+findings gate the verdict. Performance, maintainability, complexity and test-coverage findings are
+notes to the human, never blockers, with two exceptions that keep their severity: a performance
+finding that answers a record-named cost row, and a changed behavior with no test on its critical
+path. Read this before the pass; apply it dimension by dimension.
 
-The four opt-in sections are folded from the agent contracts of the same names, which still ship
+The four advisory sections are folded from the agent contracts of the same names, which still ship
 and are still dispatchable. Where a rule below is thinner than you need, the agent file is the long
 form. Correctness has no agent: it is the one question a reviewer is for, and it was measured
-missing — on a public set of PRs with known bugs, this pass found fewer than a plain prompt did,
+missing — on a public set of PRs with known bugs, this pass found no more than a plain prompt did,
 and the bugs humans later found in approved PRs were all of one class: an existing caller, or
 existing data, meeting the new rule.
 
@@ -473,6 +475,11 @@ premature abstraction. Never flag structure the repo's framework, runtime, or co
 ---
 
 ## Test coverage
+
+**Advisory, with one gate.** Findings here are notes to the human, except a changed behavior with
+no test on its critical path — the path a user or a caller exercises in normal use — which is
+Critical and gates. Name the path and why it is critical; a missing test on an edge the code can
+reach but nothing exercises is a Warning, reported and never blocking.
 
 **Check for test infrastructure first.** If the affected workspace has no test runner configured
 and no existing tests, missing tests are `[Pre-existing]` — "workspace has no test infrastructure;
