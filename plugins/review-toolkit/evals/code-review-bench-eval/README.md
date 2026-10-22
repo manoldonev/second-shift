@@ -16,7 +16,7 @@ subscription; there is no API key and no CI lane, and none should be added.
 
 ```
 REVIEWER_MODEL=<id|alias> JUDGE_MODEL=<id|alias> ./run.sh --arm plain --smoke
-REVIEWER_MODEL=<id|alias> JUDGE_MODEL=<id|alias> ./run.sh --arm plain --arm review-lead-lane --set dev --runs 2 --note "why"
+REVIEWER_MODEL=<id|alias> JUDGE_MODEL=<id|alias> ./run.sh --arm plain --arm lane-review --set dev --runs 2 --note "why"
 REVIEWER_MODEL=<id|alias> JUDGE_MODEL=<id|alias> ./run.sh --calibration-only --set dev
 ```
 
@@ -60,11 +60,18 @@ run, so the same arm measures the installed plugin — the before side of that c
 blindness and output contract in `rules.md`), `{checkout}`, `{base}`, `{head}`, `{scratch}` and
 `{out}`. The arm writes its comments to `{out}` as a numbered list; every item is scored.
 
-Shipped arms: `plain` (a one-paragraph senior-engineer prompt), `review-lead-standalone` (the
-skill with its full routing), `review-lead-lane` (the skill with the pipeline default panel
-declared, as the lane runs it), `tob-differential-review` (Trail of Bits' skill; needs
-`differential-review@trailofbits` enabled, and the harness cannot verify the installed version
-against the commit the arm file names).
+Shipped arms: `plain` (a one-paragraph senior-engineer prompt), `lane-review` (the lane's review
+session as it runs: one session, no reviewer dispatched; its correctness instruction is a
+`LOCKSTEP-BEGIN review-correctness` block that `scripts/check-lockstep-pairs.sh` holds to
+`review_prompt()` in `run.sh`. The bench has no ticket or record, so it measures the correctness half
+only), `review-lead-standalone` (the skill with its full routing), `review-lead-lane` (the skill with
+the pipeline default panel declared, as the lane ran it before `lane-review`),
+`tob-differential-review` (Trail of Bits' skill; needs `differential-review@trailofbits` enabled,
+and the harness cannot verify the installed version against the commit the arm file names).
+
+`bench-arms-selftest.sh` loads every arm through `bench.py`'s own `parse_arm` and `str.format`, so
+a literal `{` or `}` in an arm fails in CI and not after a run's checkouts are built. Write a literal
+brace as `{{` or `}}`.
 
 ## Quota and seats
 
@@ -91,8 +98,7 @@ question nobody pays for. Use `REVIEWER_MODEL=opus` with a Sonnet or Fable judge
   scan, resolved models, cost.
 - `${XDG_CACHE_HOME:-~/.cache}/second-shift/code-review-bench/`: clones, worktrees, the judge
   cache and the per-run scratch dirs. Outside the repo on purpose: anything under `evals/` is
-  scanned by `scripts/check-eval-model-identity.sh`, and any `*-selftest.sh` under it would run in
-  CI.
+  scanned by `scripts/check-eval-model-identity.sh`, and any `*-selftest.sh` under it runs in CI.
 
 ## Refreshing the data
 

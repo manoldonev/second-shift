@@ -67,16 +67,23 @@ printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect
 grep -q 'mcp__figma' "$FAKE_GH/args-1.txt" && grep -q 'mcp__figma' "$FAKE_GH/args-2.txt" && ok "[F7] Figma servers allowed in both sessions on a frames ticket" || bad "[F7] Figma servers missing"
 grep -q 'figma-faithful' "$FAKE_GH/prompt-1.txt" && grep -q 'three rounds per screen' "$FAKE_GH/prompt-1.txt" && ok "[F18] the build prompt carries the figma-faithful sequence" || bad "[F18] sequence missing"
 grep -q 'render-unavailable' "$FAKE_GH/prompt-2.txt" && ok "[H13] the review prompt carries the render-unavailable rule" || bad "[H13] rule missing"
-# F20: the review session can run review-lead's panel — the fan-out is a Workflow whose agents inherit
-# the session's tools, staged into the run's state dir (outside the worktree), after review-toolkit's lint
-fixture rpanel; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "[F20] panel tools"
+grep -qF "The record has RS-n rows, so dispatch one design-fidelity reviewer with the Agent tool." "$FAKE_GH/prompt-2.txt" && grep -qF "It is 'figma' here: figma picks figma-faithful-reviewer" "$FAKE_GH/prompt-2.txt" \
+  && grep -qF "post 'verdict: needs-work' with line 3 'reason: seat-unavailable'." "$FAKE_GH/prompt-2.txt" && grep -qx 'Dispatch no other reviewer.' "$FAKE_GH/prompt-2.txt" \
+  && ok "[F7] a frames record has the review dispatch its one design-fidelity reviewer by design.provider, and stop on seat-unavailable" || bad "[F7] the design-fidelity dispatch is missing from the frames review prompt"
+# F20: the review session reviews the diff itself — no Skill, no Workflow, no staging or review-context lint; Agent stays
+# for the design-fidelity reviewer, and the session runs in the foreground
+fixture rpanel; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "[F20] review tools"
 ral=$(grep -A1 -x -- '--allowedTools' "$FAKE_GH/args-2.txt" | tail -n 1); bal=$(grep -A1 -x -- '--allowedTools' "$FAKE_GH/args-1.txt" | tail -n 1)
-miss=""; for t in Skill Workflow Grep Glob 'Bash(find *)' 'Bash(cp *)' 'Bash(bash *check-review-context.sh*)' 'Bash(gh issue view*)'; do case ",$ral," in *",$t,"*) ;; *) miss="$miss $t" ;; esac; done
-[ -z "$miss" ] && ok "[F20] the review allowlist carries every tool the panel dispatch uses" || bad "[F20] review allowlist lacks:$miss"
+extra=""; for t in Skill Workflow 'Bash(find *)' 'Bash(cp *)' 'Bash(shasum *)' 'Bash(bash *check-review-context.sh*)'; do case ",$ral," in *",$t,"*) extra="$extra $t" ;; esac; done
+[ -z "$extra" ] && ok "[F20] the review allowlist drops every grant the review-lead panel used" || bad "[F20] review allowlist still grants:$extra"
+miss=""; for t in Read Grep Glob Agent 'Bash(git *)' 'Bash(gh issue view*)' 'Bash(bash *verdict-check.sh*)'; do case ",$ral," in *",$t,"*) ;; *) miss="$miss $t" ;; esac; done
+[ -z "$miss" ] && ok "[F20] the review keeps its reads, the ticket read, the checker and Agent for the design-fidelity reviewer" || bad "[F20] review allowlist lacks:$miss"
+grep -qx 'CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1' "$FAKE_GH/env-2.txt" && ! grep -q 'CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS' "$FAKE_GH/env-2.txt" \
+  && ok "[F20] the review spawn turns background tasks off and sets no background wait" || bad "[F20] review env: $(tr '\n' ' ' < "$FAKE_GH/env-2.txt")"
 case ",$bal," in *,Workflow,*) bad "[F20] the build session was given Workflow" ;; *) ok "[F20] the build allowlist is unchanged" ;; esac
 sdir=$(grep -A1 -x -- '--add-dir' "$FAKE_GH/args-2.txt" | grep -- '-scratch\.' | head -n 1)
-[ -n "$sdir" ] && grep -qF "writing it with Write into $sdir," "$FAKE_GH/prompt-2.txt" && grep -q 'code-review.mjs' "$FAKE_GH/prompt-2.txt" \
-  && ok "[F20] #964 D-3: the review's prompt stages code-review.mjs in the run's scratch dir, which it is handed" || bad "[F20] scratch dir '${sdir:-none}' not added to the review, or not named as the staging dir"
+[ -n "$sdir" ] && grep -qF "Your scratch directory is $sdir (already added to this session)." "$FAKE_GH/prompt-2.txt" \
+  && ok "[F20] the review is handed the run's scratch dir, and its prompt names it" || bad "[F20] scratch dir '${sdir:-none}' not added to the review, or not named in its prompt"
 case ",$ral," in *",Bash(gh api"*) bad "[F20] the review session may call gh api (it can DELETE)" ;; *) ok "[F20] the review session gets no gh api" ;; esac
 
 # B10: a verdict binds only from a Bot or the account the scheduler writes with — on a public repo anyone can
@@ -159,15 +166,15 @@ rsec() { awk -v h="### $1" 'index($0, h) == 1 {on=1; next} /^###/{on=0} on && NF
 [ "$(rsec 'Review policy edited')" = "(none)" ] && ok "[I10] #1009: a diff that edits no review policy says (none)" || bad "[I10] #1009: policy section: [$(rsec 'Review policy edited')]"
 
 # I10 #1009: head-side edits to the review policy reach the review input: both sides of a rename out of the policy dir,
-# the config and context files, and the repo-local agent of a bare reviewers.add[] name only
+# and the config and context files. No lane reader loads a reviewers.add[] agent file, so none is listed
 FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"reviewers":{"add":[{"name":"orders-reviewer"},{"name":"pack:billing-reviewer"}]}}' fixture rpol
 mkdir -p "$d/main/.claude/second-shift"; echo 'never raw SQL' > "$d/main/.claude/second-shift/security-rules.md"
 git -C "$d/main" add -f .claude/second-shift/security-rules.md && git -C "$d/main" commit -qm policy && git -C "$d/main" push -q origin main
 printf 'build-edit-policy\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "[I10] #1009 run"
 s="$(rsec 'Review policy edited')"
 grep -qxE $'R[0-9]+\t\\.claude/second-shift/security-rules\\.md\tdocs/security-rules\\.md' <<<"$s" && grep -qxF $'A\t.claude/second-shift/review-context.md' <<<"$s" \
-  && grep -qxF $'A\t.claude/second-shift.config.json' <<<"$s" && grep -qxF $'A\t.claude/agents/orders-reviewer.md' <<<"$s" && [ "$(grep -c '' <<<"$s")" -eq 4 ] \
-  && ok "[I10] #1009: the rename out of the policy dir, the context and config files and the bare reviewers.add[] agent are listed; the pack and unlisted agents are not" || bad "[I10] #1009: policy section: $(tr '\n\t' '| ' <<<"$s")"
+  && grep -qxF $'A\t.claude/second-shift.config.json' <<<"$s" && ! grep -q '\.claude/agents/' <<<"$s" && [ "$(grep -c '' <<<"$s")" -eq 3 ] \
+  && ok "[I10] #1009: the rename out of the policy dir and the context and config files are listed; no agent file is" || bad "[I10] #1009: policy section: $(tr '\n\t' '| ' <<<"$s")"
 grep -q '^### Review policy edited' "$(SD)/review-1.1.prompt" && grep -q "For every file under 'Review policy edited' in the scheduler input below, trace the edit" "$(SD)/review-1.1.prompt" \
   && ok "[I10] #1009: the section and its trace instruction reach the review prompt" || bad "[I10] #1009: not in the review prompt"
 

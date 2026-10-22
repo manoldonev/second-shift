@@ -17,8 +17,8 @@
 #       RUN_CLAUDE, RUN_GH (alias GH)   the binaries (tests inject fakes)
 #       RUN_WORKTREE_ROOT     default <parent of main>/<repo>-worktrees
 #       RUN_BUILD_TIMEOUT / RUN_REVIEW_TIMEOUT   seconds (7200 / 3600), positive integers. Each also sets the session's
-#                             own waits, 300 s inside the bound: BUILD runs with background tasks off and its Bash
-#                             timeouts at that value (floor 120 s); REVIEW's background-task wait (floor 600 s)
+#                             own waits, 300 s inside the bound: both sessions run with background tasks off and
+#                             their Bash timeouts at that value (floor 120 s)
 #       RUN_COST_CEILING      USD (100); RUN_CHECKS_RED_MAX (3)
 #       RUN_LANE_TIMEOUT      seconds (1800), a positive integer: the bound on each setup lane, check and smoke command
 #       SECOND_SHIFT_INTAKE_TOOLKIT_ROOT   the intake-toolkit whose ledger-lint.sh lints the receipt (default: the
@@ -290,7 +290,7 @@ cap LANE_TO "${RUN_LANE_TIMEOUT:-}" .run.laneTimeoutSeconds 1800 int
 # F-env: a session's own waits end 5 minutes inside its bound, never below the harness's own 120 s / 600 s, so a hung
 # command or dispatch fails inside the session while it can still commit and report; capped at the JS timer maximum
 inner_ms() { local s=$(($1-300)); [ "$s" -ge "$2" ] || s="$2"; s=$((s*1000)); [ "$s" -le 2147483647 ] || s=2147483647; printf '%s' "$s"; }
-BUILD_BASH_MS="$(inner_ms "$BUILD_TO" 120)"; REVIEW_BG_WAIT_MS="$(inner_ms "$REVIEW_TO" 600)"
+BUILD_BASH_MS="$(inner_ms "$BUILD_TO" 120)"; REVIEW_BASH_MS="$(inner_ms "$REVIEW_TO" 120)"
 MAX_REVIEW_RETRIES=1                                                                                    # K12
 LOG_DIR="$MAIN_ROOT/$STATE_DIR"; STATE="$LOG_DIR/run-$ISSUE/$RUN_ID"
 
@@ -992,10 +992,8 @@ expectations_changed() { # expectations_changed <name-status> -> each modified e
   [ "$listed" -eq 1 ] || echo "(none)"
 }
 policy_edited() { # policy_edited <name-status> -> each row that adds, edits, deletes or renames a review-policy file, either side of a rename (#1009)
-  # the reviewers load these from the head, so a PR is reviewed against policy it can edit; a qualified reviewers.add[] name is a plugin pack, not a repo file
-  local agents; agents="$(cfg '[.reviewers.add[]?.name | strings | select(test("[:/]") | not) | ".claude/agents/" + . + ".md"] | join("\n")')"
-  AGENTS="$agents" awk -F'\t' 'BEGIN { n = split(ENVIRON["AGENTS"], a, "\n"); for (i = 1; i <= n; i++) if (a[i] != "") ag[a[i]] = 1 }
-    function policy(f) { return f == ".claude/second-shift.config.json" || index(f, ".claude/second-shift/") == 1 || (f in ag) }
+  # the review session loads these from the head, so a PR is reviewed against policy it can edit
+  awk -F'\t' 'function policy(f) { return f == ".claude/second-shift.config.json" || index(f, ".claude/second-shift/") == 1 }
     policy($2) || ($3 != "" && policy($3)) { print; k++ } END { if (!k) print "(none)" }' <<<"$1"
 }
 review_input() { # review_input <attempt> -> writes $STATE/review-input-<attempt>.md; 1 when a diff cannot be read (the caller refuses)
@@ -1013,7 +1011,7 @@ review_input() { # review_input <attempt> -> writes $STATE/review-input-<attempt
     grep -nE '^\+.*(\.skip\(|\.only\(|\|\| *true|xit\(|xdescribe\(|(^|[^[:alnum:]_.])fit\(|test\.todo\(|@pytest\.mark\.(skip|skipif|xfail)|t\.Skipf?\(|@Disabled|#\[ignore)' <<<"$full" || echo "(none)"; echo
     echo "### CI or check configuration edited"
     grep -E '^\.github/|^\.gitlab|\.ya?ml$|(^|/)package\.json$|vitest\.config|jest\.config|\.eslintrc|eslint\.config\.|tsconfig|(^|/)(pyproject\.toml|pytest\.ini|setup\.cfg|\.coveragerc|Makefile)$' <<<"$names" || echo "(none)"; echo
-    echo "### Review policy edited (the config, review context and repo-local reviewers the reviewers load from this head)"
+    echo "### Review policy edited (the config and review context the review loads from this head)"
     policy_edited "$ns"; echo
     echo "### Configured lanes not run on this diff (when-scoped; no changed file matched their globs)"
     lanes="$(skipped_lanes)"; [ -n "$lanes" ] && printf '%s\n' "$lanes" || echo "(none)"; echo
@@ -1092,50 +1090,60 @@ build_prompt() { # build_prompt <round> <review-findings-file-or-empty> <red-che
 }
 review_prompt() { # review_prompt <pr> <review-input-file> [<the previous verdict's failed rules, on a re-spawn>]
   echo "You review PR #$1 of this repository at its current head. Your session is separate from the session that built it. Check out the PR head. Read the decision record at $RECORD_REL twice. First read it as it stood at commit $FIRST (git show $FIRST:$RECORD_REL). Then read it as it stands at the head."
+  echo "Read ticket $ISSUE yourself from the tracker (${TRACKER}). Never read the PR body to find the ticket."
+  if [ "$TRACKER" = github ]; then echo "Read it with exactly 'gh issue view $ISSUE --json title,body,comments', as written."
+  else echo "Read it with the getJiraIssue MCP tool, under whichever Atlassian namespace this session exposes."; fi
+  echo "If you cannot read the ticket, you cannot review the PR: post 'verdict: needs-work' with line 3 'reason: ticket-unreadable'."
   echo "Score EVERY row of the record against the code. The scores are: honored, violated, departed, or undeterminable. A departed row was edited: name who decided, per its provenance. For an undeterminable row, say what you could not read. A violated or undeterminable row is a blocker. Do not approve when a row has either score."
-  echo "A row can name a deferred, unmeasured or inherited cost, load or performance risk. Still score that row on whether the code matches it. The row is the operator's decision. A score never overrides it. Its risk is also required performance work: the review states the worst-case bound as a finding, at the severity the performance rules give it. The row permits the out-of-diff reads that check the bound. The row can name a file that the diff does not touch. That fact scores the row. It does not bound the risk."
-  echo "The PR's base branch is $BASE_NAME. Pass it to review-lead as the base. Then the diff is origin/$BASE_NAME...HEAD and not the remote default branch."
-  echo "Then run review-toolkit:review-lead over the PR diff. Pass it the ticket $ISSUE yourself, so it never reads the PR body to find one. DECLARE THE PIPELINE DEFAULT PANEL when you invoke it. Under that panel the fan-out defaults to scope-completeness-reviewer. The other four reviewers (security-reviewer, a11y-reviewer, unit-test-mutation-reviewer and performance-reviewer) run only on an opt-in. An opt-in comes from one of two sources. The first is a 'review panel' row in the record with user-answered or user-delegated provenance, naming security, a11y, unit-test-mutation or performance. The second is the config's reviewers.default[]. review-lead never infers this. An undeclared panel leaves the surface triggers in force."
-  echo "You can opt one of the four back in. That is the expected call whenever the diff introduces a surface. It is not expected when the diff only edits an existing surface. Opt in security for a new authentication, session, tenancy or ownership-scoping path. Also opt it in for a new query built from external input. Opt in a11y for new form controls or a new interactive component. Opt in unit-test-mutation for new logic with a co-located spec. Opt in performance for a new entry point that reaches a data read or existing heavy work. An entry point is a route, handler, consumer or SDK method. For a change to a file that already sits on one of those surfaces, you decide either way. Pass each short name to review-lead with a one-line reason."
-  echo "Do not stand in for a specialist on a surface the diff introduces. Your lead pass is one reader over the whole diff. It is not that reviewer's checklist. The trimmed panel stays the default because it was measured. You judge a diff that it was never measured on."
-  echo "Declining a reviewer whose surface the diff introduces is itself a decision. When you decline one, pass the decline to review-lead with a one-line reason. review-lead writes the decline into the panel line of the review. The human who reads the verdict reads that line. An introduced surface with neither a reviewer nor a reason is a silent decision."
-  echo "A record-named cost risk makes performance a required decision. A D-n row or an OR-n Open Region of the record can name a cost, load or performance risk. When one does, opt performance in, or pass its decline with a reason that answers that row. When you opt in, pass review-lead that row and the new entry point's path:line. Then performance-reviewer traces the risk and not the whole diff. A record-named risk with neither a dispatch nor a decline is a process [blocker] on your verdict. The blocker is for the missing decision, not for the code. Whether a decline answers the row is your judgment. The panel line shows it."
+  echo "A row can name a deferred, unmeasured or inherited cost, load or performance risk. Still score that row on whether the code matches it. The row is the operator's decision. A score never overrides it. Its risk is also required performance work: the review states the worst-case bound as a finding. The finding is a [blocker] when the bound breaks what the row decided, and a [note] otherwise. The row permits the out-of-diff reads that check the bound. The row can name a file that the diff does not touch. That fact scores the row. It does not bound the risk."
+  echo "The PR's base branch is $BASE_NAME. The diff is origin/$BASE_NAME...HEAD, not the remote default branch. Review that diff yourself, in this session, against the ticket and the record."
+  echo "Read .claude/second-shift/review-context.md at the head when it exists. It is the repo's context for this review."
+  grep -v 'LOCKSTEP-' <<'REVIEW'
+# LOCKSTEP-BEGIN review-completeness
+Review the diff for completeness. Check every acceptance criterion of the ticket and every row of the record against the diff. An acceptance criterion that the diff does not implement is a finding. An acceptance criterion with no test that proves it is a finding, unless the record's test intent exempts it.
+# LOCKSTEP-END review-completeness
+# LOCKSTEP-BEGIN review-correctness
+Review the diff for correctness. For each unit that the diff changes, read its callers and its consumers. Check that each of them still works with the change. When the change adds a rule over stored data, read the data that the rule meets. Check the rule against the data that already exists. Walk every path through the change: each branch, each early return, each error and each empty input. Report each problem as a finding with its file:line and a concrete scenario: the input or state, and the wrong outcome it produces. A problem with no scenario is not a finding.
+A completeness or correctness problem is a `[blocker]` when it must change before merge. A maintainability, test-coverage or repo-convention problem is a `[note]` only, never a `[blocker]`.
+# LOCKSTEP-END review-correctness
+REVIEW
+  if [ -n "$(frames_rows)" ]; then
+    echo "The record has RS-n rows, so dispatch one design-fidelity reviewer with the Agent tool. A handoff URL in the record's design section picks it: a figma.com host picks design-toolkit:figma-faithful-reviewer, and a claude.ai URL under /design picks design-toolkit:design-faithful-reviewer. With no such URL, the config's design.provider picks it. It is '${DESIGN_PROVIDER:-not set}' here: figma picks figma-faithful-reviewer, and any other value picks design-faithful-reviewer. Give it the diff and the record. If you cannot dispatch it, or it returns no report, you cannot approve: post 'verdict: needs-work' with line 3 'reason: seat-unavailable'."
+  fi
+  echo "Dispatch no other reviewer."
   echo "Your scratch directory is $SCRATCH (already added to this session). It is the only place for logs, probes, and your verdict and comment drafts. Never use the worktree or /tmp for them. Put scratch files there; the scheduler removes it at the end of the run."
-  echo "review-lead dispatches its reviewers through the code-review.mjs Workflow. Stage that script by reading it and writing it with Write into $SCRATCH, never into the worktree. A cp out of the plugin cache is denied here. Run the Workflow from $SCRATCH."
   echo "Do not run the repo's test suites or checks: the scheduler ran them at this head before spawning you, and CI runs them on the PR. Run each shell command on its own, with absolute paths: no cd (use git -C <dir>), no shell variables, no ; or && chains, no | pipes, no \$( ) substitution, no nohup or trailing &. Write files only with the Write tool, never through a shell (no python, heredoc or > redirect)."
   echo "Read an issue or PR comment with gh issue view or gh pr view --json comments, never gh api."
-  echo "Read the build's own account last. First write the row scores and your findings, review-lead's included, from the record, the diff and the code. Only then read the PR description and the build's PR comments. Use them to reconcile the departures and rebuttals they state. Measurements show that an author's framing lowers what a reviewer finds. If that reading changes a score or a finding, say so in the verdict's '## Notes' with a line 'revised after reading the build's account: <what changed>'."
+  echo "Read the build's own account last. First write the row scores and your findings from the record, the diff and the code. Only then read the PR description and the build's PR comments. Use them to reconcile the departures and rebuttals they state. Measurements show that an author's framing lowers what a reviewer finds. If that reading changes a score or a finding, say so in the verdict's '## Notes' with a line 'revised after reading the build's account: <what changed>'."
   echo "If the ticket has design frames, render every screen at the head with the repo's render command. Compare each screen with its frame. If you cannot render, you cannot approve: post 'verdict: needs-work' with line 3 'reason: render-unavailable'."
   local via=""; [ "$BOT_OK" -eq 1 ] && via=" through $GH (the bot identity)"
   echo; echo "Post ONE PR comment$via, its body passed with --body-file <a file in $SCRATCH>, never inline with --body. Its body follows the verdict grammar below exactly. Never edit that comment afterwards."
   echo "Before you post, check your draft: run 'bash $TOOLS/verdict-check.sh <your draft in $SCRATCH> $WT/$RECORD_REL $SCRATCH/record-at-first.md' (the record at the head, then at $FIRST). It prints every rule the draft breaks. Fix the draft until it exits 0. The scheduler runs the same check on the comment you post. A comment that fails the check does not count: the scheduler posts no status and starts a new review."
   echo "For every file under 'Existing test or snapshot expectations changed' in the scheduler input below, trace its removed expectation to an acceptance criterion of the ticket or a row of the decision record. An entry you cannot trace is a [blocker]. Name the file and the expectation. Require the build to cite the criterion or row that authorized the change."
-  echo "For every file under 'Review policy edited' in the scheduler input below, trace the edit to an acceptance criterion of the ticket or a row of the decision record. The reviewers load these files from the head, so this PR is reviewed against the policy it edits. An entry you cannot trace is a [blocker]. Name the file. Require the build to cite the criterion or row that authorized the edit. The edit itself is never the blocker. The blocker is a merge that does not name who decided the edit."
+  echo "For every file under 'Review policy edited' in the scheduler input below, trace the edit to an acceptance criterion of the ticket or a row of the decision record. You load these files from the head, so this PR is reviewed against the policy it edits. An entry you cannot trace is a [blocker]. Name the file. Require the build to cite the criterion or row that authorized the edit. The edit itself is never the blocker. The blocker is a merge that does not name who decided the edit."
   echo
   # #991: the verdict grammar, stated once here and once in review/SKILL.md step 8; tools/verdict-check.sh enforces it
   grep -v 'LOCKSTEP-' <<'GRAMMAR'
 # LOCKSTEP-BEGIN verdict-grammar
 The verdict comment has these parts, in this order and nothing else:
-- Line 1 is exactly `verdict: approve` or `verdict: needs-work`. Line 2 is exactly `reviewed: <the full sha of the head you reviewed>`. An optional line 3 is exactly `reason: render-unavailable`.
+- Line 1 is exactly `verdict: approve` or `verdict: needs-work`. Line 2 is exactly `reviewed: <the full sha of the head you reviewed>`. An optional line 3 is exactly `reason: render-unavailable`, `reason: ticket-unreadable` or `reason: seat-unavailable`.
 - `## Summary`, right after line 2, or line 3 when it is present. Its first line is exactly `Mergeable as it is.` on an approve, or `Not mergeable yet.` on a needs-work. Then name each row scored `departed`, `violated` or `undeterminable`, with its score. Then write each action the human must take, one per line, or `Nothing to do.` Write no table. Use at most eight lines.
 - `## Decision record rows`, then a table headed `| Row | Score | Evidence |` and its `| --- | --- | --- |` line, with one row for every `D-n` row of the record at its first commit and at the head: a row the build deleted and a row it added are both scored. The Row cell's first token is the row's `D-n` id, and the Score cell's first word is one of `honored`, `violated`, `departed`, `undeterminable`. The section holds the table and blank lines only: per-row detail goes in the Evidence cell, anything else in `## Notes`. Other row kinds, such as `RS-n`, are not scored in this table.
 - `## Findings`, which runs to the next `## ` heading. Each finding starts with `- [blocker] B<n> ` or `- [note] N<n> `, and its continuation lines are indented two or more spaces. Suppressed findings are `[note]`s. A section with no findings holds the single line `None.`.
-- After its id and one space, a finding from review-lead's report carries that report's reviewer, file:line and confidence in its form: `- [blocker] B1 [Reviewer] file:line (confidence: N) — <text>`, file:line only where the finding has one. A finding you raise from a rule (a violated or undeterminable row, an untraced test-expectation change) or as a process note names its rule and carries no number: never invent a score.
-- `## Panel` (optional): the panel lines review-lead writes.
+- After its id and one space, a finding names its file:line and its defect: `- [blocker] B1 path:line — <defect>`. Its first continuation line is `Scenario: <input or state> → <wrong outcome>`. A finding that a dispatched reviewer raised names that reviewer in brackets before its file:line: `- [blocker] B1 [Reviewer] path:line — <defect>`. A finding you raise from a rule (a violated or undeterminable row, an untraced test-expectation change) or as a process note names its rule, and its file:line only where it has one. No finding carries a confidence number.
 - `## Notes` (optional): free prose for the human, such as process notes or `revised after reading the build's account: <what changed>`. Nothing in it counts toward the verdict.
 
 `Ready to merge?` is never written anywhere in the body.
 
-A `[blocker]` is something in the diff that must change before merge. The PR title and description are not the diff: a stale or wrong one is at most a `[note]`, never a `[blocker]`, and never makes a verdict `needs-work`. A `[note]` requires nothing. review-lead's findings translate one way: a Critical is a `[blocker]`; a Warning you would hold the merge for is a `[blocker]`, and any other Warning is a `[note]`; its "Ready to merge?" and "With fixes" are never written on this comment.
+A `[blocker]` is something in the diff that must change before merge. The PR title and description are not the diff: a stale or wrong one is at most a `[note]`, never a `[blocker]`, and never makes a verdict `needs-work`. A `[note]` requires nothing.
 
-`verdict: approve` means mergeable as-is: every record row is scored, none is `violated` or `undeterminable`, and there is no `[blocker]` and no `reason: render-unavailable` line. `verdict: needs-work` carries at least one `[blocker]`, a `violated` or `undeterminable` row, or the `reason: render-unavailable` line; under that line the rows need not be scored, and the findings may be `None.`.
+`verdict: approve` means mergeable as-is: every record row is scored, none is `violated` or `undeterminable`, and there is no `[blocker]` and no `reason:` line. `verdict: needs-work` carries at least one `[blocker]`, a `violated` or `undeterminable` row, or a `reason:` line; under that line the rows need not be scored, and the findings may be `None.`.
 # LOCKSTEP-END verdict-grammar
 GRAMMAR
-  # #1033 D-1 D-3: review-lead applies the repo's inclusion test; the verdict carries its block whole. Stated once here and
-  # once in review/SKILL.md step 8
+  # stated once here and once in review/SKILL.md step 8
   echo; grep -v 'LOCKSTEP-' <<'KB'
 # LOCKSTEP-BEGIN kb-contributions
-Knowledge-base contributions: when review-lead's report has a `### Knowledge-base contributions` block, carry it into the verdict's `## Notes` as review-lead wrote it — the lead line `Knowledge-base contributions:` with one proposal per line under it, or the single line `Knowledge-base contributions: none`. review-lead applied the inclusion test the repo's review-context.md declares: do not apply it again, and add, drop or reword no proposal. Carry the whole list on every verdict, never only what changed since an earlier one: the earlier verdicts are collapsed once one binds. When the report has no such block, the verdict carries no contributions line. A proposal is a draft the operator files in the knowledge base: never a finding, and it never makes a verdict `needs-work`.
+Knowledge-base contributions: when the repo's review-context.md has a `## Knowledge-base contributions` section, write a contributions block last in the verdict's `## Notes`. The candidates are what the record's `## Knowledge source` answer says the knowledge base does not cover (lookup gap), the page a `D-n` row names in `kb-conflict: <kb-page> (kb stale)` or `(kb ahead)`, and what this diff makes true that the knowledge base should state (change gap). Apply the inclusion test that the section declares, as written, to every candidate, and list only the candidates that pass. Write the lead line `Knowledge-base contributions:` with one proposal per line under it, in the format the section declares or as `- <kb-page> — <what to add or correct> (<gap kind>)`. When no candidate passes, write the single line `Knowledge-base contributions: none`. Carry the whole list on every verdict, never only what changed since an earlier one: the earlier verdicts are collapsed once one binds. When review-context.md has no such section, the verdict carries no contributions line. A proposal is a draft the operator files in the knowledge base: never a finding, and it never makes a verdict `needs-work`.
 # LOCKSTEP-END kb-contributions
 KB
   # the verdict's style, stated once here and once in review/SKILL.md step 8
@@ -1163,9 +1171,6 @@ In `## Findings`:
 - End each blocker with the continuation line `Fix: <one instruction>`.
 - Do not give a note a Fix line. A note requires nothing.
 - Write a note in at most three lines. Write a dismissed or suppressed note in one line.
-In `## Panel`:
-- Copy the panel lines that review-lead writes. Do not merge, drop or reword a line.
-- Do not repeat the panel reasons in `## Notes`.
 In `## Notes`:
 - Use one `###` sub-heading for each topic. Write at most six sentences under it.
 - Write an inventory, such as the mutation run, as a list.
@@ -1173,7 +1178,7 @@ In `## Notes`:
 - Do not write a sub-heading that has nothing under it.
 - Write a topic that changed no score or finding in one sentence, or leave it out.
 - Keep `## Notes` under 150 words, not counting the knowledge-base block.
-A limit never removes a row, a finding, a panel line or a knowledge-base proposal. If they do not fit, shorten the wording.
+A limit never removes a row, a finding or a knowledge-base proposal. If they do not fit, shorten the wording.
 # LOCKSTEP-END verdict-style
 STYLE
   if [ -n "${3:-}" ]; then
@@ -1195,8 +1200,8 @@ EOF
   [ -n "$RENDER_CMD" ] && allow="$allow$(cmd_grants "$RENDER_CMD" xargs)"
   printf '%s' "$allow"
 }
-review_allowlist() { # row F20: review-lead's panel is a Workflow whose agents inherit these tools
-  local allow="Read,Grep,Glob,Agent,Skill,Workflow,Bash(find *),Bash(cp *),Bash(jq *),Bash(shasum *),Bash(bash *check-review-context.sh*),Bash(bash *verdict-check.sh*),Bash(git *),Bash(gh pr view*),Bash(gh pr comment*),Bash(gh pr diff*),Bash(gh issue view*)$MCP_ALLOW"
+review_allowlist() { # row F20: Agent is for the design-fidelity reviewer alone
+  local allow="Read,Grep,Glob,Agent,Bash(jq *),Bash(bash *verdict-check.sh*),Bash(git *),Bash(gh pr view*),Bash(gh pr comment*),Bash(gh pr diff*),Bash(gh issue view*)$MCP_ALLOW"
   [ -n "$RENDER_CMD" ] && allow="$allow$(cmd_grants "$RENDER_CMD")"
   [ -n "$(frames_rows)" ] && allow="$allow,mcp__figma,mcp__plugin_figma_figma"
   [ "$BOT_OK" -eq 1 ] && allow="$allow,Bash($GH pr comment*),Bash($GH pr view*)"   # never the wrapper whole: it takes api -X DELETE
@@ -1732,14 +1737,11 @@ watch_once() {
 }
 spawn() { # spawn <role> <model> <id> <allowlist> <max-turns> <prompt-file> -> rc (124 past the bound); the result JSON is $STATE/<role>-<id>.json
   local secs="$REVIEW_TO" extra=(); [ "$1" = build ] && secs="$BUILD_TO"
-  # #964 D-1 D-3: both sessions get the run's scratch dir (the review stages review-lead's Workflow script there);
-  # neither gets $STATE, which the scheduler alone writes
+  # both sessions get the run's scratch dir for their drafts and probes; neither gets $STATE, which the scheduler alone writes
   [ -n "$SCRATCH" ] && extra=(--add-dir "$SCRATCH")
   # F-env: under -p a turn that ends waiting on a background task ends the process, and a background shell dies with it.
-  # BUILD runs every command in the foreground, inside its bound. REVIEW keeps background tasks (review-lead's panel is a
-  # Workflow), and -p waits on a running one only 600 s idle by default: its wait is raised to inside its own bound.
-  # Passed as --settings env, which sits above the user, project and local files, so a repo's own settings.json env
-  # cannot quietly put a BUILD back on the 120 s default; REVIEW drops a switch it would only inherit from this shell
+  # Both sessions run every command in the foreground, inside their own bound. Passed as --settings env, which sits above
+  # the user, project and local files, so a repo's own settings.json env cannot quietly put a session back on the 120 s default
   local sets envv=(env ${WATCH_UNSET[@]+"${WATCH_UNSET[@]}"})
   # #1048 D-6 D-8 D-18: the BUILD alone gets the PermissionRequest hook, which fires only on a call its allowlist denies
   # and answers it with a reason; here, never in the plugin's hooks.json, which every session with the plugin loads.
@@ -1748,7 +1750,8 @@ spawn() { # spawn <role> <model> <id> <allowlist> <max-turns> <prompt-file> -> r
     sets="$(jq -cn --arg ms "$BUILD_BASH_MS" --arg hook "bash $(shquote "$TOOLS/lane-permission-hook.sh") $(shquote "$WT") $(shquote "$SCRATCH") $(shquote "$WT/$RECORD_REL") $(shquote "$WT/$PLAN_REL")" \
       '{env:{CLAUDE_CODE_DISABLE_BACKGROUND_TASKS:"1",BASH_DEFAULT_TIMEOUT_MS:$ms,BASH_MAX_TIMEOUT_MS:$ms},hooks:{PermissionRequest:[{hooks:[{type:"command",command:$hook}]}]}}')" \
       || terminal env-session-settings "cannot write the build session's --settings JSON"
-  else sets="$(printf '{"env":{"CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS":"%s"}}' "$REVIEW_BG_WAIT_MS")"; envv+=(-u CLAUDE_CODE_DISABLE_BACKGROUND_TASKS); fi
+  else sets="$(jq -cn --arg ms "$REVIEW_BASH_MS" '{env:{CLAUDE_CODE_DISABLE_BACKGROUND_TASKS:"1",BASH_DEFAULT_TIMEOUT_MS:$ms,BASH_MAX_TIMEOUT_MS:$ms}}')" \
+      || terminal env-session-settings "cannot write the review session's --settings JSON"; fi
   # the session reads a copy of the config, written afresh from the launch-time read before every spawn: the sessions
   # share the scratch dir, so a build's edit to its copy must not reach the review that follows it. After every -u:
   # env reads its first assignment as the end of its options
@@ -1887,10 +1890,13 @@ while :; do
   review_status
   minimize_earlier_verdicts
   [ "$VERDICT" = approve ] && break
-  # row H13: a review that could not render is the environment's failure, not the build's — no round is spent. The
-  # grammar puts the reason on line 3 (#991); the same words in the body's ## Notes are prose, not the reason
-  awk '{ sub(/\r$/, "") } NR == 3 && $0 == "reason: render-unavailable" { f = 1 } END { exit !f }' "$STATE/verdict-body.md" \
-    && terminal env-not-ready "the review could not render the design frames at $HEAD_SHA (reason: render-unavailable) — fix the render environment and re-launch"
+  # row H13: a review that could not render, read the ticket or dispatch its seat is the environment's failure, not the
+  # build's — no round is spent. The grammar puts the reason on line 3 (#991); the same words in ## Notes are prose
+  case "$(awk '{ sub(/\r$/, "") } NR == 3 { print; exit }' "$STATE/verdict-body.md")" in
+    "reason: render-unavailable") terminal env-not-ready "the review could not render the design frames at $HEAD_SHA (reason: render-unavailable) — fix the render environment and re-launch" ;;
+    "reason: ticket-unreadable") terminal env-not-ready "the review could not read ticket $ISSUE at $HEAD_SHA (reason: ticket-unreadable) — fix the tracker access and re-launch" ;;
+    "reason: seat-unavailable") terminal env-not-ready "the review could not dispatch its design-fidelity reviewer at $HEAD_SHA (reason: seat-unavailable) — install or enable design-toolkit and re-launch" ;;
+  esac
   FINDINGS="$STATE/verdict-body.md"; RED_LOG=""; NEED_BUILD=1
   over_ceiling && terminal cost-spent "\$$(usd_up "$COST") exceeds the \$$COST_CEIL ceiling"
 done

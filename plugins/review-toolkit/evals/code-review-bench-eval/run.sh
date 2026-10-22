@@ -14,7 +14,7 @@
 #
 # Usage (every form needs both variables):
 #   REVIEWER_MODEL=<id|alias> JUDGE_MODEL=<id|alias> ./run.sh --arm plain --smoke
-#   ... ./run.sh --arm plain --arm review-lead-lane --set dev --runs 2 --note "baseline"
+#   ... ./run.sh --arm plain --arm lane-review --set dev --runs 2 --note "baseline"
 #   ... ./run.sh --calibration-only --set dev          # the judge gate alone
 #   ... ./run.sh --arm plain --set heldout --runs 2    # the held-out set: never used to tune a prompt
 #

@@ -96,7 +96,7 @@ bash plugins/second-shift/skills/onboard/tools/pin-resolve.sh manoldonev/second-
   their own PR.
 - **A new Claude model, or a model default change, is measured first.** Before `REVIEW_MODEL_DEFAULT`
   (`plugins/dev-pipeline/skills/run/run.sh`) or the tier table (`plugins/review-toolkit/model-tiering.md`)
-  moves, run `plugins/review-toolkit/evals/code-review-bench-eval/run.sh` for the `review-lead-lane`
+  moves, run `plugins/review-toolkit/evals/code-review-bench-eval/run.sh` for the `lane-review`
   and `plain` arms on the `dev` set with the new model and append the rows. A release that changes a
   default without a row is a release nobody measured.
 

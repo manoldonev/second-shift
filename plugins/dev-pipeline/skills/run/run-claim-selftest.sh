@@ -97,13 +97,14 @@ granted() { # granted <command> [<allowlist>, default $bal]: a 'Bash(x)' rule ma
 [ -n "$bcall" ] && granted "$bcall" && granted "bash $bcall" && ok "(v1) the prompt's bot-commit call and its bash form are both granted" || bad "(v1) bot-commit call '${bcall:-none}' not granted, bare or through bash"
 [ "$(git -C "$d/origin.git" log --format=%an --reverse main..second-shift/42 | head -n 1)" = 'second-shift-bot[bot]' ] && ok "(v1) [E3] the record commit carries the bot's identity" || bad "(v1) [E3] record commit author: $(git -C "$d/origin.git" log --format=%an --reverse main..second-shift/42 | head -n 1)"
 # every command of a piped or chained check is granted (each is checked on its own), a later one by its own text only,
-# never one led by rm; the build may run its worktree's scripts, the review jq and shasum
+# never one led by rm; the build may run its worktree's scripts, the review jq but not shasum
 fixture vg $'- printf x | xargs -0 echo -e a,b\n- true && cat /dev/null\n- true && rm -rf a,b'; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(vg) piped and chained checks"
 bal=$(grep -A1 -x -- '--allowedTools' "$FAKE_GH/args-1.txt" | tail -n 1); ral=$(grep -A1 -x -- '--allowedTools' "$FAKE_GH/args-2.txt" | tail -n 1); wt=$(grep -A1 -x -- '--add-dir' "$FAKE_GH/args-1.txt" | sed -n 2p)
 miss=""; for c in 'printf x' 'xargs -0 echo -e a,b' 'true' 'cat /dev/null' "bash $wt/t.sh"; do granted "$c" || miss="$miss [$c]"; done
-for c in 'jq -n 1' 'shasum x'; do granted "$c" "$ral" || miss="$miss [review: $c]"; done
+granted 'jq -n 1' "$ral" || miss="$miss [review: jq -n 1]"
+granted 'shasum x' "$ral" && miss="$miss [review granted: shasum x]"
 for c in 'xargs rm x' 'cat /etc/passwd' 'cat /dev/null /etc/passwd' 'rm -rf x'; do granted "$c" && miss="$miss [granted: $c]"; done
-[ -n "$wt" ] && [ -z "$miss" ] && ok "(vg) each command of a piped or chained check is granted by its own text, rm never; worktree scripts, jq and shasum are" || bad "(vg) allowlist wrong:$miss"
+[ -n "$wt" ] && [ -z "$miss" ] && ok "(vg) each command of a piped or chained check is granted by its own text, rm never; worktree scripts and the review's jq are, its shasum is not" || bad "(vg) allowlist wrong:$miss"
 FIXTURE_CONFIG='{"tracker":{"type":"jira","writes":false,"branchPrefix":"jdoe/","keyPattern":"[A-Z]+-[0-9]+"},"paths":{"plansDir":"docs/plans"}}' fixture v2
 printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; mv "$d/main/.claude/pipeline-state/42-ledger.md" "$d/main/.claude/pipeline-state/GH-42-ledger.md"
 OUT="$( cd "$d/main" && bash "$RUN" GH-42 --build-model opus 2>&1 )"; RC=$?; TERM_SLUG="$(printf '%s\n' "$OUT" | sed -n 's/^terminal: //p' | tail -n 1)"
@@ -258,10 +259,10 @@ for v in 600.5 1.5 .; do
   [ "$RC" -eq 2 ] && [ ! -f "$FAKE_GH/calls" ] && ok "(fe1) $v: exit 2, no session spawned" || bad "(fe1) $v: rc=$RC calls=$(cat "$FAKE_GH/calls" 2>/dev/null)"
 done
 fixture fe2; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; RUN_BUILD_TIMEOUT=7200.0 RUN_REVIEW_TIMEOUT=0900 run_case "$d"; expect approved "(fe2) a whole-number 7200.0 and a zero-padded 0900 are read as integers"
-grep -qx 'BASH_MAX_TIMEOUT_MS=6900000' "$FAKE_GH/env-1.txt" && grep -qx 'CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=600000' "$FAKE_GH/env-2.txt" && ok "(fe2) 7200.0 -> 6900 s; 0900 -> 900 s, its wait floored at the harness's own 600 s" || bad "(fe2) env: $(cat "$FAKE_GH/env-1.txt" "$FAKE_GH/env-2.txt" | tr '\n' ' ')"
-fixture fe3; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1 RUN_BUILD_TIMEOUT=9999999 run_case "$d"; expect approved "(fe3) an inherited background-tasks switch and a huge bound"
-! grep -q 'CLAUDE_CODE_DISABLE_BACKGROUND_TASKS' "$FAKE_GH/env-2.txt" && ok "(fe3) REVIEW never inherits the BUILD's background-tasks switch" || bad "(fe3) REVIEW env: $(tr '\n' ' ' < "$FAKE_GH/env-2.txt")"
-grep -qx 'BASH_MAX_TIMEOUT_MS=2147483647' "$FAKE_GH/env-1.txt" && ok "(fe3) the BUILD's Bash timeout is capped at the JS timer maximum" || bad "(fe3) BUILD env: $(tr '\n' ' ' < "$FAKE_GH/env-1.txt")"
+grep -qx 'BASH_MAX_TIMEOUT_MS=6900000' "$FAKE_GH/env-1.txt" && grep -qx 'BASH_MAX_TIMEOUT_MS=600000' "$FAKE_GH/env-2.txt" && ok "(fe2) 7200.0 -> 6900 s; 0900 -> 900 s, the REVIEW's Bash timeouts 300 s inside it" || bad "(fe2) env: $(cat "$FAKE_GH/env-1.txt" "$FAKE_GH/env-2.txt" | tr '\n' ' ')"
+fixture fe3; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=0 RUN_BUILD_TIMEOUT=9999999 RUN_REVIEW_TIMEOUT=9999999 run_case "$d"; expect approved "(fe3) an inherited background-tasks switch and huge bounds"
+grep -qx 'CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1' "$FAKE_GH/env-2.txt" && ok "(fe3) REVIEW turns background tasks off over the switch it inherits" || bad "(fe3) REVIEW env: $(tr '\n' ' ' < "$FAKE_GH/env-2.txt")"
+grep -qx 'BASH_MAX_TIMEOUT_MS=2147483647' "$FAKE_GH/env-1.txt" && grep -qx 'BASH_MAX_TIMEOUT_MS=2147483647' "$FAKE_GH/env-2.txt" && ok "(fe3) both sessions' Bash timeouts are capped at the JS timer maximum" || bad "(fe3) env: $(cat "$FAKE_GH/env-1.txt" "$FAKE_GH/env-2.txt" | tr '\n' ' ')"
 port=$(( 20000 + RANDOM % 20000 )); ( cd "$T" && python3 -m http.server "$port" --bind 127.0.0.1 >/dev/null 2>&1 ) & hs=$!
 until curl -s -o /dev/null "http://127.0.0.1:$port/" 2>/dev/null; do sleep 0.2; done
 FIXTURE_CONFIG="{\"tracker\":{\"type\":\"github\",\"branchPrefix\":\"second-shift/\"},\"paths\":{\"plansDir\":\"docs/plans\"},\"design\":{\"provider\":\"figma\",\"liveRender\":{\"command\":\"cp $T/px.png {out}\",\"smokeCommand\":\"true\",\"readyProbe\":\"http://127.0.0.1:$port/missing\"}}}" fixture y3 "- true" $'\n## Design frames\n\n| RS | route | state | frame | must-show |\n| --- | --- | --- | --- | --- |\n| RS-1 | a | default | 1:2 | ok |\n'

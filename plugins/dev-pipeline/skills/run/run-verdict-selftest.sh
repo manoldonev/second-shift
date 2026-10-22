@@ -43,6 +43,13 @@ expect approved "(cs5) [D-5] a failed status post leaves the terminal unchanged"
 grep -q "^status: NOT posted (second-shift/review=success on $(git -C "$d/origin.git" rev-parse second-shift/42)) — gh: Validation Failed (HTTP 422)$" "$FAKE_GH/pr-body.md" && ok "(cs5) [D-5] the failed post is reported in the run block" || bad "(cs5) run block: $(grep status "$FAKE_GH/pr-body.md")"
 fixture cs6; printf 'build-pr\nreview-render-unavailable\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect env-not-ready "(cs6) render-unavailable"
 grep -q 'state=failure' "$FAKE_GH/statuses" 2>/dev/null && ok "(cs6) [D-3] a render-unavailable needs-work posts failure" || bad "(cs6) statuses: $(cat "$FAKE_GH/statuses" 2>/dev/null)"
+# (er) a review that cannot read the ticket or dispatch its design-fidelity reviewer stops the run like one that cannot
+# render: env-not-ready, no round spent, no BUILD spawned
+for r in ticket-unreadable seat-unavailable; do
+  fixture "er-$r"; printf 'build-pr\nreview-%s\nbuild-push-only\nreview-approve\n' "$r" > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect env-not-ready "(er) verdict: needs-work with reason: $r"
+  [ ! -f "$FAKE_GH/prompt-3.txt" ] && grep -q "(reason: $r)" <<<"$OUT" && grep -q 'state=failure' "$FAKE_GH/statuses" 2>/dev/null \
+    && ok "(er) $r: no second BUILD, the terminal names the reason, the needs-work posts failure" || bad "(er) $r: prompt-3 $([ -f "$FAKE_GH/prompt-3.txt" ] && echo spawned || echo absent), terminal: $(grep '^terminal' <<<"$OUT")"
+done
 # through the bot when one is configured; a bot the App denies statuses is named, never retried as the operator
 printf '#!/usr/bin/env bash\nFAKE_GH_AS=bot exec %s "$@"\n' "$T/bin/gh" > "$T/bin/gh-asbot"; chmod +x "$T/bin/gh-asbot"
 cs_bot() { OUT="$( cd "$d/main" && PATH="$T/bin:$PATH" FAKE_BOT="$T/bin/gh-asbot" env -u RUN_GH bash "$RUN" 42 2>&1 )"; RC=$?; TERM_SLUG="$(printf '%s\n' "$OUT" | sed -n 's/^terminal: //p' | tail -n 1)"; }
@@ -103,12 +110,13 @@ fixture vc6; printf 'build-pr-rm-record\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"
 fixture vc7; printf 'build-pr\nreview-needs-work-notes-reason\nbuild-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"
 expect approved "(vc7) 'reason: render-unavailable' as prose under ## Notes is not the render reason: the needs-work goes to a BUILD"
 
-# (kb) #1033: review-lead writes the knowledge-base contributions; the verdict session is told to carry them into ## Notes,
+# (kb) the review session writes the knowledge-base contributions itself, by the inclusion test review-context.md declares,
 # and a verdict carrying them binds against the v3 record (its '## Knowledge source' answer included) the launch linted
 fixture kb; printf 'build-pr\nreview-approve-kb\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(kb) an approve carrying the contributions block"
-grep -qF "Knowledge-base contributions: when review-lead's report has a \`### Knowledge-base contributions\` block, carry it into the verdict's \`## Notes\` as review-lead wrote it" "$FAKE_GH/prompt-2.txt" \
-  && grep -qF 'do not apply it again, and add, drop or reword no proposal' "$FAKE_GH/prompt-2.txt" && grep -qF 'Carry the whole list on every verdict' "$FAKE_GH/prompt-2.txt" && ! grep -q 'LOCKSTEP-' "$FAKE_GH/prompt-2.txt" \
-  && ok "(kb) D-1 D-3: the review prompt tells the verdict session to carry review-lead's block whole, on every verdict, without re-applying the test" || bad "(kb) D-1: the carry instruction is missing from the review prompt"
+grep -qF "Knowledge-base contributions: when the repo's review-context.md has a \`## Knowledge-base contributions\` section, write a contributions block last in the verdict's \`## Notes\`." "$FAKE_GH/prompt-2.txt" \
+  && grep -qF 'Apply the inclusion test that the section declares, as written, to every candidate, and list only the candidates that pass.' "$FAKE_GH/prompt-2.txt" && grep -qF 'Carry the whole list on every verdict' "$FAKE_GH/prompt-2.txt" \
+  && ! grep -q "review-lead's report" "$FAKE_GH/prompt-2.txt" && ! grep -q 'LOCKSTEP-' "$FAKE_GH/prompt-2.txt" \
+  && ok "(kb) the review prompt has the session apply the inclusion test itself and carry the whole list on every verdict" || bad "(kb) the contributions instruction is missing from the review prompt, or still reads review-lead's report"
 [ "$(wc -l < "$FAKE_GH/statuses" 2>/dev/null)" -eq 1 ] && grep -q 'state=success' "$FAKE_GH/statuses" && jq -e '.[0].body | split("\n") | any(. == "Knowledge-base contributions:")' "$FAKE_GH/comments.json" >/dev/null \
   && ok "(kb) AC-10: verdict-check binds the verdict with its contributions lines: one success status" || bad "(kb) AC-10: statuses=$(tr '\n' '|' < "$FAKE_GH/statuses" 2>/dev/null)"
 
