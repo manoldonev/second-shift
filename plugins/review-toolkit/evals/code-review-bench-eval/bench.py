@@ -254,7 +254,9 @@ def judge_cache_path(cache: Path, judge_model: str, golden: str, cand: str) -> P
 async def judge_pair(cfg, golden: str, cand: str, sem) -> dict:
     p = judge_cache_path(cfg["cache"], cfg["judge_model"], golden, cand)
     if p.exists():
-        return json.loads(p.read_text())
+        cached = json.loads(p.read_text())
+        if not cached.get("error"):
+            return cached
     async with sem:
         prompt = cfg["judge_prompt"].replace("{golden_comment}", golden).replace("{candidate}", cand)
         args = ["claude", "-p", "--model", cfg["judge_model"], "--tools", "", "--permission-mode", "bypassPermissions",
@@ -264,6 +266,8 @@ async def judge_pair(cfg, golden: str, cand: str, sem) -> dict:
             rc, stdout, _err = await kit.run_claude(args, cfg["judge_timeout_s"], cwd=HERE)
             text, envelope = kit.extract_result_text(stdout)
             kit.check_rate_limit(text, "judge")
+            if "session limit" in text or "usage limit" in text:
+                raise kit.RateLimitedError(f"session limit in the judge: {text[:120]!r}")
             m = re.search(r"\{.*\}", text, re.S)
             if m:
                 try:
@@ -275,7 +279,8 @@ async def judge_pair(cfg, golden: str, cand: str, sem) -> dict:
                 except (ValueError, TypeError):
                     continue
         if verdict is None:
-            verdict = {"match": False, "confidence": 0.0, "reasoning": "judge output unparseable", "error": True}
+            # never cached: an unparseable answer is the judge failing, not the pair not matching
+            return {"match": False, "confidence": 0.0, "reasoning": "judge output unparseable", "error": True}
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(json.dumps(verdict))
         return verdict
@@ -295,6 +300,9 @@ async def judge_review(cfg, golden: list[dict], cands: list[str], sem) -> dict:
         if r["match"]:
             cand_matched[ci] = True
     judge_ids = {r.get("judge_resolved") for r in results if r.get("judge_resolved")}
+    errors = sum(1 for r in results if r.get("error"))
+    if errors:
+        raise kit.RateLimitedError(f"{errors} of {len(results)} judge calls returned no verdict; the run is not scorable")
     return {"golden_matched": best, "candidate_matched": cand_matched, "judge_resolved": sorted(judge_ids)}
 
 

@@ -26,7 +26,9 @@ reviewer: the harness reads the family from the resolved ids and refuses otherwi
 (`--allow-same-family` overrides, and the row then says so in `judge=`).
 
 `--reviewer` is an alias of `--arm`. `--smoke` runs one PR once and records nothing. `--no-record`
-prints the row without appending it.
+prints the row without appending it. `--rescore <results-*.json>` re-runs the blindness scan on a
+prior run's transcripts and re-judges its stored candidates without spawning a review, so a fix to
+the scan or the judge never costs the reviews again; the row's `src=` is what that run measured.
 
 ## The two sets
 
@@ -70,7 +72,8 @@ against the commit the arm file names).
 A reviewer session bills the Claude seat the checkout's git remote resolves to (the benchmark
 forks are public repos, so the catch-all seat). A full 10-PR arm is roughly 45 session-minutes of
 reviewer time — the `plain` arm's smoke on a 22-file PR took 21 turns, 191 s and about $2.50 by the
-CLI's own accounting — plus the judge's calls: one short call per (known bug, comment) pair, cached
+CLI's own accounting; a `review-lead` arm's run is about $4 and 5–13 minutes per PR, so the two
+review-lead arms on the dev set are roughly $80 — plus the judge's calls: one short call per (known bug, comment) pair, cached
 under the cache dir so a re-judge is free. `--concurrency` (default 3) bounds parallel reviewer sessions;
 a session limit mid-run shows up as `voided` runs with the limit message in `results-*.json`.
 Smoke first.
