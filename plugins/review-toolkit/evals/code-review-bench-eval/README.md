@@ -72,8 +72,9 @@ against the commit the arm file names).
 A reviewer session bills the Claude seat the checkout's git remote resolves to (the benchmark
 forks are public repos, so the catch-all seat). A full 10-PR arm is roughly 45 session-minutes of
 reviewer time — the `plain` arm's smoke on a 22-file PR took 21 turns, 191 s and about $2.50 by the
-CLI's own accounting; a `review-lead` arm's run is about $4 and 5–13 minutes per PR, so the two
-review-lead arms on the dev set are roughly $80 — plus the judge's calls: one short call per (known bug, comment) pair, cached
+CLI's own accounting; a `review-lead` arm's run is $6–6.50 and 5–13 minutes per PR (the panel's
+seats and the lead pass each bill), so one review-lead arm on the dev set is about $60–65 and the
+two together about $125 — plus the judge's calls: one short call per (known bug, comment) pair, cached
 under the cache dir so a re-judge is free. `--concurrency` (default 3) bounds parallel reviewer sessions;
 a session limit mid-run shows up as `voided` runs with the limit message in `results-*.json`.
 Smoke first.
