@@ -205,7 +205,7 @@ async def review_once(cfg, arm, pr, run_no, sem) -> dict:
             "--allowedTools", allow, "--max-turns", str(cfg["max_turns"]),
             "--output-format", "json",
         ]
-        if arm.get("plugin-dir"):
+        if arm.get("plugin-dir") and not cfg["installed"]:
             # the arm measures this checkout's plugin, not the installed copy: --plugin-dir wins for a
             # namespaced skill of the same name (probed 2026-10-21)
             args += ["--plugin-dir", str((HERE / arm["plugin-dir"]).resolve())]
@@ -365,7 +365,7 @@ async def main_async(args):
         "rules": (HERE / "rules.md").read_text(), "judge_prompt": (data / "judge-prompt.md").read_text(),
         "reviewer_model": args.reviewer_model.strip(), "judge_model": args.judge_model.strip(),
         "reviewer_timeout_s": args.reviewer_timeout_s, "judge_timeout_s": args.judge_timeout_s,
-        "max_turns": args.max_turns, "checkouts": {},
+        "max_turns": args.max_turns, "checkouts": {}, "installed": args.installed,
     }
     judge_sem = asyncio.Semaphore(args.judge_concurrency)
     started = dt.datetime.now(dt.timezone.utc)
@@ -433,7 +433,7 @@ def write_results(results_doc, started) -> Path:
 
 
 async def report_arm(cfg, args, arm_name, arm, runs, prs, cal, judge_fams, judge_sem, started, sha, src=None):
-    src = src or ("checkout" if arm.get("plugin-dir") else "installed")
+    src = src or ("checkout" if arm.get("plugin-dir") and not cfg["installed"] else "installed")
     resolved = {r.get("resolved_model") for r in runs if r.get("resolved_model")}
     rev_fams = {family(m) for m in resolved}
     if rev_fams & judge_fams and not args.allow_same_family:
@@ -480,7 +480,8 @@ def main():
     ap.add_argument("--smoke", action="store_true", help="one PR, one run, nothing recorded")
     ap.add_argument("--calibration-only", action="store_true")
     ap.add_argument("--no-record", action="store_true", help="print the row, do not append it")
-    ap.add_argument("--rescore", help="a results-*.json: re-run the blindness scan on its sessions' transcripts and re-judge its stored candidates; no review is spawned")
+    ap.add_argument("--installed", action="store_true", help="ignore every arm's plugin-dir: run the installed plugin, which is the before side of a change measured from its checkout")
+    ap.add_argument("--rescore",help="a results-*.json: re-run the blindness scan on its sessions' transcripts and re-judge its stored candidates; no review is spawned")
     ap.add_argument("--note", default="baseline")
     ap.add_argument("--reviewer-model", default=os.environ.get("REVIEWER_MODEL"))
     ap.add_argument("--judge-model", default=os.environ.get("JUDGE_MODEL"))

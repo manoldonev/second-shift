@@ -57,7 +57,13 @@ One file per arm under `arms/`: a short header, `---`, then the prompt. Header k
 `-p` waits for it), `plugin-dir` (a path relative to this directory, passed as `--plugin-dir`, so
 the arm runs **this checkout's** plugin rather than the installed copy; the row then says
 `src=checkout`), `requires-plugin`, `upstream`. The two review-lead arms carry `plugin-dir`, which
-is what lets a PR to review-lead measure itself before merge. The prompt may use `{rules}` (the shared
+is what lets a PR to review-lead measure itself before merge; `--installed` ignores it for the whole
+run, so the same arm measures the installed plugin — the before side of that comparison.
+
+**Measure on the model production runs.** The lane's review session runs on Opus
+(`REVIEW_MODEL_DEFAULT` in `run.sh`) and an ad hoc `review-lead` runs on the session's model; the
+specialist seats run at their own tiers either way. A row on a more expensive lead model answers a
+question nobody pays for. Use `REVIEWER_MODEL=opus` with a Sonnet or Fable judge for a decision row. The prompt may use `{rules}` (the shared
 blindness and output contract in `rules.md`), `{checkout}`, `{base}`, `{head}`, `{scratch}` and
 `{out}`. The arm writes its comments to `{out}` as a numbered list; every item is scored.
 
