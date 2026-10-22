@@ -55,7 +55,8 @@ One file per arm under `arms/`: a short header, `---`, then the prompt. Header k
 `-p` waits for it), `plugin-dir` (a path relative to this directory, passed as `--plugin-dir`, so
 the arm runs **this checkout's** plugin rather than the installed copy; the row then says
 `src=checkout`), `requires-plugin`, `upstream`. The two review-lead arms carry `plugin-dir`, which
-is what lets a PR to review-lead measure itself before merge. The prompt may use `{rules}` (the shared
+is what lets a PR to review-lead measure itself before merge; `--installed` ignores it for the whole
+run, so the same arm measures the installed plugin — the before side of that comparison. The prompt may use `{rules}` (the shared
 blindness and output contract in `rules.md`), `{checkout}`, `{base}`, `{head}`, `{scratch}` and
 `{out}`. The arm writes its comments to `{out}` as a numbered list; every item is scored.
 
@@ -70,10 +71,18 @@ against the commit the arm file names).
 A reviewer session bills the Claude seat the checkout's git remote resolves to (the benchmark
 forks are public repos, so the catch-all seat). A full 10-PR arm is roughly 45 session-minutes of
 reviewer time — the `plain` arm's smoke on a 22-file PR took 21 turns, 191 s and about $2.50 by the
-CLI's own accounting — plus the judge's calls: one short call per (known bug, comment) pair, cached
-under the cache dir so a re-judge is free. `--concurrency` (default 3) bounds parallel reviewer sessions;
-a session limit mid-run shows up as `voided` runs with the limit message in `results-*.json`.
+CLI's own accounting; a `review-lead` arm's run is $6–6.50 and 5–13 minutes per PR on a Fable lead,
+about $60–65 per arm on the dev set — plus the judge's calls: one short call per (known bug, comment)
+pair, cached under the cache dir so a re-judge is free. `--concurrency` (default 3) bounds parallel
+reviewer sessions. A session limit aborts the run; each arm's reviews are written to
+`results-*.json` before judging, so `--rescore <results-*.json>` judges them later without paying
+for the reviews again. A judge call with no verdict is never cached and makes the run unscorable.
 Smoke first.
+
+**Measure on the model production runs.** The lane's review session runs on Opus
+(`REVIEW_MODEL_DEFAULT` in `run.sh`) and an ad hoc `review-lead` runs on the session's model; the
+specialist seats run at their own tiers either way. A row on a more expensive lead model answers a
+question nobody pays for. Use `REVIEWER_MODEL=opus` with a Sonnet or Fable judge for a decision row.
 
 ## Where things land
 
