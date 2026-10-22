@@ -110,8 +110,10 @@ def ensure_checkout(pr: dict, cache: Path) -> Path:
     if mb != pr["base"]:
         print(f"[bench] {pr['id']}: recorded base is not the merge-base; reviewing {mb[:10]}..{pr['head'][:10]}", flush=True)
         pr["base_recorded"], pr["base"] = pr["base"], mb
-    if sh(["git", "status", "--porcelain"], cwd=wt):
-        raise RuntimeError(f"{pr['id']}: checkout is dirty; remove {wt} and rerun")
+    # a run the limit killed mid-review leaves the CLI's own `.claude/` behind; that is not dirt
+    dirt = [l for l in sh(["git", "status", "--porcelain", "--ignored=no"], cwd=wt).splitlines() if l.strip() != "?? .claude/"]
+    if dirt:
+        raise RuntimeError(f"{pr['id']}: checkout is dirty ({dirt[:3]}); remove {wt} and rerun")
     return wt
 
 
@@ -254,7 +256,9 @@ def judge_cache_path(cache: Path, judge_model: str, golden: str, cand: str) -> P
 async def judge_pair(cfg, golden: str, cand: str, sem) -> dict:
     p = judge_cache_path(cfg["cache"], cfg["judge_model"], golden, cand)
     if p.exists():
-        return json.loads(p.read_text())
+        cached = json.loads(p.read_text())
+        if not cached.get("error"):
+            return cached
     async with sem:
         prompt = cfg["judge_prompt"].replace("{golden_comment}", golden).replace("{candidate}", cand)
         args = ["claude", "-p", "--model", cfg["judge_model"], "--tools", "", "--permission-mode", "bypassPermissions",
@@ -264,6 +268,8 @@ async def judge_pair(cfg, golden: str, cand: str, sem) -> dict:
             rc, stdout, _err = await kit.run_claude(args, cfg["judge_timeout_s"], cwd=HERE)
             text, envelope = kit.extract_result_text(stdout)
             kit.check_rate_limit(text, "judge")
+            if "session limit" in text or "usage limit" in text:
+                raise kit.RateLimitedError(f"session limit in the judge: {text[:120]!r}")
             m = re.search(r"\{.*\}", text, re.S)
             if m:
                 try:
@@ -275,7 +281,8 @@ async def judge_pair(cfg, golden: str, cand: str, sem) -> dict:
                 except (ValueError, TypeError):
                     continue
         if verdict is None:
-            verdict = {"match": False, "confidence": 0.0, "reasoning": "judge output unparseable", "error": True}
+            # never cached: an unparseable answer is the judge failing, not the pair not matching
+            return {"match": False, "confidence": 0.0, "reasoning": "judge output unparseable", "error": True}
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(json.dumps(verdict))
         return verdict
@@ -295,6 +302,9 @@ async def judge_review(cfg, golden: list[dict], cands: list[str], sem) -> dict:
         if r["match"]:
             cand_matched[ci] = True
     judge_ids = {r.get("judge_resolved") for r in results if r.get("judge_resolved")}
+    errors = sum(1 for r in results if r.get("error"))
+    if errors:
+        raise kit.RateLimitedError(f"{errors} of {len(results)} judge calls returned no verdict; the run is not scorable")
     return {"golden_matched": best, "candidate_matched": cand_matched, "judge_resolved": sorted(judge_ids)}
 
 
@@ -372,9 +382,10 @@ async def main_async(args):
     if args.calibration_only or (not args.arm and not args.rescore):
         return
 
-    print(f"[bench] building {len(prs)} checkouts under {cache}", flush=True)
-    for pr in prs:
-        cfg["checkouts"][pr["id"]] = ensure_checkout(pr, cache)
+    if args.arm:
+        print(f"[bench] building {len(prs)} checkouts under {cache}", flush=True)
+        for pr in prs:
+            cfg["checkouts"][pr["id"]] = ensure_checkout(pr, cache)
 
     rev_sem = asyncio.Semaphore(args.concurrency)
     results_doc = {"started_at": started.isoformat(), "set": args.set, "prs": [p["id"] for p in prs],
@@ -405,11 +416,20 @@ async def main_async(args):
             continue
         print(f"\n=== arm {arm_name}: {len(prs)} PRs x {args.runs} runs ===", flush=True)
         runs = await asyncio.gather(*(review_once(cfg, arm, pr, n, rev_sem) for pr in prs for n in range(1, args.runs + 1)))
+        # the reviews are paid for before the judge runs: keep their detail even if judging aborts
+        results_doc["arms"][arm_name] = {"runs": list(runs), "unjudged": True}
+        write_results(results_doc, started)
         results_doc["arms"][arm_name] = await report_arm(cfg, args, arm_name, arm, list(runs), prs, cal, judge_fams, judge_sem, started, sha)
+        write_results(results_doc, started)
 
+    out = write_results(results_doc, started)
+    print(f"\n[bench] wrote {out}")
+
+
+def write_results(results_doc, started) -> Path:
     out = HERE / f"results-{started.strftime('%Y%m%dT%H%M%SZ')}.json"
     out.write_text(json.dumps(results_doc, indent=1, default=str))
-    print(f"\n[bench] wrote {out}")
+    return out
 
 
 async def report_arm(cfg, args, arm_name, arm, runs, prs, cal, judge_fams, judge_sem, started, sha, src=None):
