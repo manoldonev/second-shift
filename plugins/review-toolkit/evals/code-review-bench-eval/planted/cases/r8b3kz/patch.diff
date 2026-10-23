@@ -1,0 +1,81 @@
+diff --git a/docs/plans/github-readme-stats-96-plan.md b/docs/plans/github-readme-stats-96-plan.md
+new file mode 100644
+index 0000000..0f17fc1
+--- /dev/null
++++ b/docs/plans/github-readme-stats-96-plan.md
+@@ -0,0 +1,9 @@
++# Plan
++
++## 1. Tests
++
++- [ ] 1.1 The repo card of an archived repository shows the Archived badge (tests/renderRepoCard.test.js) [AC-1]
++
++## 2. Fix
++
++- [ ] 2.1 Render an Archived badge beside the title when the repository is archived (src/renderRepoCard.js)
+diff --git a/src/renderRepoCard.js b/src/renderRepoCard.js
+index 383d357..56fb7cd 100644
+--- a/src/renderRepoCard.js
++++ b/src/renderRepoCard.js
+@@ -8,6 +8,7 @@ const renderRepoCard = (repo, options = {}) => {
+     description,
+     primaryLanguage,
+     stargazers,
++    isArchived,
+     forkCount,
+   } = repo;
+   const { title_color, icon_color, text_color, bg_color, show_owner } = options;
+@@ -31,18 +32,32 @@ const renderRepoCard = (repo, options = {}) => {
+
+   const totalStars = kFormatter(stargazers.totalCount);
+   const totalForks = kFormatter(forkCount);
++
++  const archiveBadge = isArchived
++    ? `
++    <g data-testid="archive-badge" class="archive-badge" transform="translate(320, 38)">
++      <rect stroke="${textColor}" stroke-width="1" width="70" height="20" x="-12" y="-14" ry="10" rx="10"></rect>
++      <text fill="${textColor}">Archived</text>
++    </g>
++    `
++    : "";
++
+   return `
+-    <svg width="400" height="${height}" viewBox="0 0 400 ${height}" fill="none" xmlns="http://www.w3.org/2000/svg">
++    <svg version="1.1" width="400" height="${height}" viewBox="0 0 400 ${height}" fill="none" xmlns="http://www.w3.org/2000/svg">
+       <style>
+       .header { font: 600 18px 'Segoe UI', Ubuntu, Sans-Serif; fill: ${titleColor} }
+       .description { font: 400 13px 'Segoe UI', Ubuntu, Sans-Serif; fill: ${textColor} }
+       .gray { font: 400 12px 'Segoe UI', Ubuntu, Sans-Serif; fill: ${textColor} }
+       .icon { fill: ${iconColor} }
++      .archive-badge { font: 600 12px 'Segoe UI', Ubuntu, Sans-Serif; }
++      .archive-badge rect { opacity: 0.2 }
+       </style>
+       <rect data-testid="card-border" x="0.5" y="0.5" width="399" height="99%" rx="4.5" fill="${bgColor}" stroke="#E4E2E2"/>
+       <svg class="icon" x="25" y="25" viewBox="0 0 16 16" version="1.1" width="16" height="16">
+         ${icons.contribs}
+       </svg>
+
++      ${archiveBadge}
++
+       <text x="50" y="38" class="header">${header}</text>
+       <text class="description" x="25" y="70">${encodeHTML(desc)}</text>
+diff --git a/tests/renderRepoCard.test.js b/tests/renderRepoCard.test.js
+index 5fa84ef..27ca23b 100644
+--- a/tests/renderRepoCard.test.js
++++ b/tests/renderRepoCard.test.js
+@@ -147,4 +147,15 @@ describe("Test renderRepoCard", () => {
+       "#252525"
+     );
+   });
++
++  it("should render archive badge if repo is archived", () => {
++    document.body.innerHTML = renderRepoCard({
++      ...data_repo.repository,
++      isArchived: true,
++    });
++
++    expect(queryByTestId(document.body, "archive-badge")).toHaveTextContent(
++      "Archived"
++    );
++  });
+ });

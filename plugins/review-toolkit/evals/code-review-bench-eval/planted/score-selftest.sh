@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # score-selftest.sh — the scorer on canned reviews with a canned judge, no model: right, wrong, harm and noise
-# per class and arm; the three-line window; the judge asked only about findings inside a planted range; a P2 row
+# per class and arm; the three-line window; the judge asked only about findings inside a planted range, on a
+# path-level location's file, or with no path on a case that has one; a path parsed with no line; a P2 row
 # by its id; a P5 [note]; a gate stop; an unscorable verdict counted apart and never as an approve; and the gate,
 # which reads every class but P2.
 set -uo pipefail
@@ -25,6 +26,7 @@ mkcase p3case '{"class": "P3", "description": "An existing expectation on the em
 mkcase p4case '{"class": "P4", "description": "The renamed export breaks the existing caller in src/e.js.", "locations": [{"file": "src/d.js", "start": 30, "end": 31, "side": "head"}]}'
 mkcase p5case '{"class": "P5", "description": "The new helper uses a string literal where the repo uses the unit constants.", "locations": [{"file": "src/e.js", "start": 7, "end": 7, "side": "head"}]}'
 mkcase ctcase '{"class": "control"}'
+mkcase ptcase '{"class": "P1", "description": "The test that proves AC-1 is not in the change.", "locations": [{"file": "test/t.test.js", "side": "head"}, {"file": "src/t.js", "start": 10, "end": 12, "side": "head"}]}'
 
 V="$T/v"; mkdir -p "$V"
 rows() { printf '## Decision record rows\n\n| Row | Score | Evidence |\n| --- | --- | --- |\n| D-1 | %s | src/a.js:1 splits. |\n| D-2 | %s | src/b.js:5 throws. |\n\n' "$1" "$2"; }
@@ -111,6 +113,26 @@ score false
 [ "$(jq -c '.gate | [.pass, .lane_worst, .plain_best, .lane_worst_p1, .plain_best_p1]' "$T/out-false.json")" = '[true,1,0,1,0]' ] \
   && ok "the gate passes when the lane's worst run beats plain's best, overall without P2 and on P1" || bad "gate 3: $(jq -c '.gate' "$T/out-false.json")"
 grep -q '^gate: pass' "$T/err-false.txt" && ok "the report prints the gate" || bad "report: $(tail -n 2 "$T/err-false.txt")"
+
+echo "== a path-level location =="
+printf 'verdict: needs-work\n## Findings\n- [blocker] B1 test/t.test.js — no test proves AC-1.\n- [blocker] B2 test/t.test.js:90 — the AC-1 test is missing.\n- [blocker] B3 no test proves AC-1 at all.\n- [blocker] B4 src/t.js:40 — an unrelated worry.\n- [note] N1 a note that names no file.\n' > "$V/plain-pt.md"
+printf 'verdict: needs-work\n## Findings\n- [blocker] B1 the third token is dropped.\n' > "$V/plain-p1-pathless.md"
+# shellcheck disable=SC2016  # the backticks are markdown in a reviewer's finding, written literally
+printf 'verdict: needs-work\n## Findings\n- [blocker] B1 test/plugin/x.test.js — the test is missing.\n- [blocker] B2 `src/p.js`, at no line — a worry.\n- [blocker] B3 an and/or worry about test/ code.\n- [blocker] B4 src/a.js calls it, and src/i.js:9 — breaks.\n' > "$V/plain-parse.md"
+{ echo "["
+  r plain ptcase 1 ok plain-pt.md; echo ","; r plain p1case 1 ok plain-p1-pathless.md; echo ","; r plain p1case 2 ok plain-parse.md
+  echo "]"; } > "$T/reviews-pt.json"
+{ echo "["; j "The test that proves AC-1 is not in the change." "test/t.test.js — no test proves AC-1." true; echo "]"; } > "$T/judge-pt.json"
+python3 "$HERE/planted.py" --root "$R" score --reviews "$T/reviews-pt.json" --judge "$T/judge-pt.json" > "$T/out-pt.json" 2> "$T/err-pt.txt"; rc=$?
+[ "$rc" -eq 0 ] && ok "score exits 0 on a path-level case" || bad "score rc=$rc: $(tail -n 5 "$T/err-pt.txt")"
+[ "$(jq -c '[.judge_calls[] | select(.[0] == "The test that proves AC-1 is not in the change.") | .[1]] | sort' "$T/out-pt.json")" = '["no test proves AC-1 at all.","test/t.test.js — no test proves AC-1.","test/t.test.js:90 — the AC-1 test is missing."]' ] \
+  && ok "the judge sees a path-only blocker, a blocker on that file outside every range and a pathless blocker, and no note or blocker on another file" || bad "path-level judge calls: $(jq -c '.judge_calls' "$T/out-pt.json")"
+[ "$(jq -c '[.judge_calls[] | select(.[0] == "The parser drops the third token.")] | length' "$T/out-pt.json")" = 0 ] \
+  && ok "a case with only ranged locations judges no pathless blocker" || bad "ranged-only judge calls: $(jq -c '.judge_calls' "$T/out-pt.json")"
+[ "$(jq -c '.records[] | select(.case == "ptcase" and .run == 1) | .score | [.right, .noise, .how]' "$T/out-pt.json")" = '[1,3,"blocker"]' ] \
+  && ok "a path-only blocker the judge matches is right" || bad "path-level score: $(jq -c '.records[] | select(.case == "ptcase" and .run == 1) | .score' "$T/out-pt.json")"
+[ "$(jq -c '.records[] | select(.case == "p1case" and .run == 2) | [.findings[] | [.id, .path, .line]]' "$T/out-pt.json")" = '[["B1","test/plugin/x.test.js",null],["B2","src/p.js",null],["B3",null,null],["B4","src/i.js",9]]' ] \
+  && ok "a path with no line parses, a backticked path drops its comma, and/or parses no path, and a later path:line wins" || bad "parsed paths: $(jq -c '.records[] | select(.case == "p1case" and .run == 2) | .findings' "$T/out-pt.json")"
 
 echo "score-selftest: $PASS passed, $FAIL failed"
 exit "$FAIL"

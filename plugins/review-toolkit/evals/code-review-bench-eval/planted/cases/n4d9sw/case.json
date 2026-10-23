@@ -1,0 +1,21 @@
+{
+  "upstream": "https://github.com/anuraghazra/github-readme-stats.git",
+  "instance": "anuraghazra__github-readme-stats-293",
+  "license": "MIT",
+  "base": "e1932fdf7479fd48051de5ec788fcb76d4e783f0",
+  "base_branch": "master",
+  "overlay": "anuraghazra__github-readme-stats",
+  "issue": 229,
+  "pr": 293,
+  "commit": "feat: custom_title sets the title of a card",
+  "truth": {
+    "class": "P1",
+    "description": "The unchanged top-langs endpoint never reads custom_title from the query or hands it to renderTopLanguages, so the top languages card keeps its default title and AC-2 is unmet.",
+    "locations": [
+      {"file": "src/cards/top-languages-card.js", "start": 72, "end": 72, "side": "head"},
+      {"file": "src/cards/top-languages-card.js", "start": 173, "end": 175, "side": "head"},
+      {"file": "api/top-langs.js", "side": "head"},
+      {"file": "docs/plans/github-readme-stats-229-plan.md", "start": 11, "end": 11, "side": "head"}
+    ]
+  }
+}

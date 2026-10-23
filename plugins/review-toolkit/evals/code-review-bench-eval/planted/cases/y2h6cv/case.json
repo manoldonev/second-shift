@@ -1,0 +1,19 @@
+{
+  "upstream": "https://github.com/anuraghazra/github-readme-stats.git",
+  "instance": "anuraghazra__github-readme-stats-2491",
+  "license": "MIT",
+  "base": "112000667c01f18fd161f204ae3ee796ec2e3011",
+  "base_branch": "master",
+  "overlay": "anuraghazra__github-readme-stats",
+  "issue": 1548,
+  "pr": 2491,
+  "commit": "feat: merge_others folds the languages past langs_count into Others",
+  "truth": {
+    "class": "P1",
+    "description": "The unchanged top-langs endpoint never reads merge_others from the query or hands it to renderTopLanguages, so the served card never folds the rest into Others and AC-1 is unmet.",
+    "locations": [
+      {"file": "src/cards/top-languages-card.js", "start": 299, "end": 302, "side": "head"},
+      {"file": "api/top-langs.js", "side": "head"}
+    ]
+  }
+}

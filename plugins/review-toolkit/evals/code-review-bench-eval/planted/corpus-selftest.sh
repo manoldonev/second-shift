@@ -24,40 +24,41 @@ edit_case() { # edit_case <root> <id> <jq filter>
 
 echo "== the shipped corpus =="
 out="$(check "$HERE")"; rc=$?
-[ "$rc" -eq 0 ] && [ "$out" = "check: ok (P1 4, P2 4, P3 4, P4 4, P5 4, control 5)" ] \
-  && ok "the shipped corpus passes, with four cases per class and five clean controls" || bad "shipped corpus: rc=$rc $out"
+[ "$rc" -eq 0 ] && [ "$out" = "check: ok (P1 8, P2 4, P3 4, P4 4, P5 4, control 5)" ] \
+  && ok "the shipped corpus passes, with eight P1 cases, four cases in each other class and five clean controls" || bad "shipped corpus: rc=$rc $out"
+[ ! -e "$HERE/cases/d4p7sx" ] && ok "the control whose fix pads a negative year wrongly is gone, and five controls remain" || bad "d4p7sx is still in the corpus"
 n_up="$(jq -r .upstream "$HERE"/cases/*/case.json | sort -u | grep -c .)"
 [ "$n_up" -ge 2 ] && ok "the cases come from $n_up upstreams" || bad "upstreams: $n_up"
 
 echo "== a missing part fails, naming the case =="
-R="$(copy no-ticket)"; rm "$R/cases/d4p7sx/ticket.md"
-expect_red "$R" "a case with no ticket" "d4p7sx: no ticket.md"
-R="$(copy no-ac)"; printf '# A title\n\nSome text.\n' > "$R/cases/d4p7sx/ticket.md"
-expect_red "$R" "a ticket with no AC block" "d4p7sx: ticket.md has no '## Acceptance criteria' block"
-R="$(copy no-intent)"; printf '# Record\n\n| D-1 | a | b | user-answered | intent |\n' > "$R/cases/d4p7sx/record.md"
-expect_red "$R" "a record with no Test intent line" "d4p7sx: record.md has no '## Test intent' section"
-R="$(copy no-rows)"; printf '# Record\n\n## Test intent\n\nACs: AC-1\n' > "$R/cases/d4p7sx/record.md"
-expect_red "$R" "a record with no decision row" "d4p7sx: record.md has no '| D-n |' row"
-R="$(copy bad-intent)"; sed 's/^ACs: AC-1 AC-2$/ACs: AC-1 AC-9/' "$HERE/cases/d4p7sx/record.md" > "$R/cases/d4p7sx/record.md"
+R="$(copy no-ticket)"; rm "$R/cases/w9e4ra/ticket.md"
+expect_red "$R" "a case with no ticket" "w9e4ra: no ticket.md"
+R="$(copy no-ac)"; printf '# A title\n\nSome text.\n' > "$R/cases/w9e4ra/ticket.md"
+expect_red "$R" "a ticket with no AC block" "w9e4ra: ticket.md has no '## Acceptance criteria' block"
+R="$(copy no-intent)"; printf '# Record\n\n| D-1 | a | b | user-answered | intent |\n' > "$R/cases/w9e4ra/record.md"
+expect_red "$R" "a record with no Test intent line" "w9e4ra: record.md has no '## Test intent' section"
+R="$(copy no-rows)"; printf '# Record\n\n## Test intent\n\nACs: AC-1\n' > "$R/cases/w9e4ra/record.md"
+expect_red "$R" "a record with no decision row" "w9e4ra: record.md has no '| D-n |' row"
+R="$(copy bad-intent)"; sed 's/^ACs: AC-1 AC-2$/ACs: AC-1 AC-9/' "$HERE/cases/w9e4ra/record.md" > "$R/cases/w9e4ra/record.md"
 expect_red "$R" "a Test intent that lists an AC the ticket does not define" "the Test intent lists ['AC-9']"
-R="$(copy no-patch)"; rm "$R/cases/d4p7sx/patch.diff"
-expect_red "$R" "a case with no patch" "d4p7sx: no patch.diff"
-R="$(copy no-plan)"; awk '/^diff --git a\/src\/index.js/{on=1} on' "$HERE/cases/d4p7sx/patch.diff" > "$R/cases/d4p7sx/patch.diff"
-expect_red "$R" "a patch that carries no plan" "d4p7sx: the patch does not add the plan at docs/plans/dayjs-1745-plan.md"
-R="$(copy untagged-plan)"; sed 's/ \[AC-[0-9]*\]$//' "$HERE/cases/d4p7sx/patch.diff" > "$R/cases/d4p7sx/patch.diff"
-expect_red "$R" "a plan with no test task tagged to an AC" "d4p7sx: the plan in the patch has no test task tagged to an AC"
+R="$(copy no-patch)"; rm "$R/cases/w9e4ra/patch.diff"
+expect_red "$R" "a case with no patch" "w9e4ra: no patch.diff"
+R="$(copy no-plan)"; awk '/^diff --git a\/src\/plugin\/customParseFormat\/index.js/{on=1} on' "$HERE/cases/w9e4ra/patch.diff" > "$R/cases/w9e4ra/patch.diff"
+expect_red "$R" "a patch that carries no plan" "w9e4ra: the patch does not add the plan at docs/plans/dayjs-915-plan.md"
+R="$(copy untagged-plan)"; sed 's/ \[AC-[0-9]*\]$//' "$HERE/cases/w9e4ra/patch.diff" > "$R/cases/w9e4ra/patch.diff"
+expect_red "$R" "a plan with no test task tagged to an AC" "w9e4ra: the plan in the patch has no test task tagged to an AC"
 R="$(copy no-overlay)"; rm "$R/overlays/iamkun__dayjs/review-context.md"
 expect_red "$R" "an overlay with no review-context.md" "overlay iamkun__dayjs has no review-context.md"
 R="$(copy no-config)"; rm "$R/overlays/iamkun__dayjs/config.json"
 expect_red "$R" "an overlay with no config" "overlay iamkun__dayjs has no readable config.json"
 
 echo "== case.json and the ground truth =="
-R="$(copy no-base)"; edit_case "$R" d4p7sx 'del(.base)'
-expect_red "$R" "a case with no base sha" "d4p7sx: base is not a 40-hex sha"
-R="$(copy bad-license)"; edit_case "$R" d4p7sx '.license = "GPL-3.0"'
-expect_red "$R" "an upstream under a license outside the allowed set" "d4p7sx: license 'GPL-3.0' is not one of"
-R="$(copy bad-upstream)"; edit_case "$R" d4p7sx '.upstream = "git@github.com:iamkun/dayjs.git"'
-expect_red "$R" "an upstream that is not a GitHub https URL" "d4p7sx: upstream is not an https://github.com/<owner>/<repo>.git URL"
+R="$(copy no-base)"; edit_case "$R" w9e4ra 'del(.base)'
+expect_red "$R" "a case with no base sha" "w9e4ra: base is not a 40-hex sha"
+R="$(copy bad-license)"; edit_case "$R" w9e4ra '.license = "GPL-3.0"'
+expect_red "$R" "an upstream under a license outside the allowed set" "w9e4ra: license 'GPL-3.0' is not one of"
+R="$(copy bad-upstream)"; edit_case "$R" w9e4ra '.upstream = "git@github.com:iamkun/dayjs.git"'
+expect_red "$R" "an upstream that is not a GitHub https URL" "w9e4ra: upstream is not an https://github.com/<owner>/<repo>.git URL"
 R="$(copy no-class)"; edit_case "$R" a7t4yp '.truth.class = "P9"'
 expect_red "$R" "a ground truth with an unknown class" "a7t4yp: truth.class 'P9' is not one of"
 R="$(copy two-sentences)"; edit_case "$R" a7t4yp '.truth.description = "One. Two."'
@@ -65,24 +66,31 @@ expect_red "$R" "a description of more than one sentence" "a7t4yp: truth.descrip
 R="$(copy no-locations)"; edit_case "$R" a7t4yp '.truth.locations = []'
 expect_red "$R" "a planted case with no location" "a7t4yp: truth has no locations"
 R="$(copy outside)"; edit_case "$R" a7t4yp '.truth.locations = [{"file": "lib/core/AxiosHeaders.js", "start": 1, "end": 2, "side": "head"}]'
-expect_red "$R" "a planted range outside every hunk of the patch" "a7t4yp: no truth location falls inside a hunk of the patch"
+expect_red "$R" "a planted range outside every hunk of the patch" "a7t4yp: no ranged truth location falls inside a hunk of the patch"
+R="$(copy path-level)"; edit_case "$R" a7t4yp '.truth.locations += [{"file": "lib/defaults/index.js", "side": "head"}]'
+out="$(check "$R")"; rc=$?
+[ "$rc" -eq 0 ] && grep -q '^check: ok' <<<"$out" && ok "a path-level location on a file outside every hunk is accepted" || bad "path-level: rc=$rc $(head -n 3 <<<"$out" | tr '\n' '|')"
+R="$(copy path-no-file)"; edit_case "$R" a7t4yp '.truth.locations += [{"side": "head"}]'
+expect_red "$R" "a path-level location with no file" "a7t4yp: truth location {'side': 'head'} is not {file, side: head|base}"
+R="$(copy path-only)"; edit_case "$R" a7t4yp '.truth.locations = [{"file": "lib/core/AxiosHeaders.js", "side": "head"}]'
+expect_red "$R" "a truth with only a path-level location, which no hunk holds" "a7t4yp: no ranged truth location falls inside a hunk of the patch"
 R="$(copy no-row)"; edit_case "$R" a7t4yp '.truth.row = "D-9"'
 expect_red "$R" "a P2 case whose row is not in the record" "a7t4yp: truth.row 'D-9' is not a D-n row of the record"
 
 echo "== no marker =="
-R="$(copy marker)"; printf '\nThis change was planted for the bench.\n' >> "$R/cases/d4p7sx/ticket.md"
-expect_red "$R" "a ticket that says it is planted" "d4p7sx: ticket.md carries a marker: planted"
+R="$(copy marker)"; printf '\nThis change was planted for the bench.\n' >> "$R/cases/w9e4ra/ticket.md"
+expect_red "$R" "a ticket that says it is planted" "w9e4ra: ticket.md carries a marker: planted"
 R="$(copy leaked)"; jq -r .truth.description "$HERE/cases/a7t4yp/case.json" >> "$R/cases/a7t4yp/record.md"
 expect_red "$R" "a record that carries the ground-truth description" "a7t4yp: record.md carries a marker: the ground-truth description"
-R="$(copy class-id)"; mv "$R/cases/d4p7sx" "$R/cases/p1case"
+R="$(copy class-id)"; mv "$R/cases/w9e4ra" "$R/cases/p1case"
 expect_red "$R" "a case id that names a class" "p1case: the case id reads as a class name"
-R="$(copy long-id)"; mv "$R/cases/d4p7sx" "$R/cases/dayjs-1953"
-expect_red "$R" "a case id that names its upstream" "dayjs-1953: the case id is not six lowercase letters or digits"
+R="$(copy long-id)"; mv "$R/cases/w9e4ra" "$R/cases/dayjs-918"
+expect_red "$R" "a case id that names its upstream" "dayjs-918: the case id is not six lowercase letters or digits"
 
 echo "== the corpus as a whole =="
-R="$(copy short)"; rm -r "$R/cases/q4m8zt"
-expect_red "$R" "three P1 cases" "corpus: class P1 has 3 cases, fewer than 4"
-R="$(copy few-controls)"; rm -r "$R/cases/d4p7sx"
+R="$(copy short)"; rm -r "$R/cases/a7t4yp"
+expect_red "$R" "three P2 cases" "corpus: class P2 has 3 cases, fewer than 4"
+R="$(copy few-controls)"; rm -r "$R/cases/w9e4ra"
 expect_red "$R" "four clean controls" "corpus: 4 clean controls, fewer than 5"
 R="$(copy notice)"; grep -v 'github.com/axios/axios' "$HERE/NOTICE" > "$R/NOTICE"
 expect_red "$R" "a NOTICE that omits an upstream" "corpus: NOTICE does not name https://github.com/axios/axios"

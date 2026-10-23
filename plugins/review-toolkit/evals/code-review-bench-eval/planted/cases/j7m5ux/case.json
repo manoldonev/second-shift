@@ -1,0 +1,20 @@
+{
+  "upstream": "https://github.com/iamkun/dayjs.git",
+  "instance": "iamkun__dayjs-1010",
+  "license": "MIT",
+  "base": "5a465cc90c0ace55268b2640512d0a4c6544ac7f",
+  "base_branch": "dev",
+  "overlay": "iamkun__dayjs",
+  "issue": 544,
+  "pr": 1010,
+  "commit": "fix: parse a string with more than three fraction digits",
+  "truth": {
+    "class": "P1",
+    "description": "The fraction is cut to three digits only on the local branch of parseDate, so the unchanged UTC branch that dayjs.utc reaches still passes 654321 milliseconds to Date.UTC for '2019-03-25T06:41:00.654321' and AC-1 is unmet.",
+    "locations": [
+      {"file": "src/index.js", "start": 64, "end": 66, "side": "head"},
+      {"file": "src/plugin/utc/index.js", "side": "head"},
+      {"file": "docs/plans/dayjs-544-plan.md", "start": 5, "end": 5, "side": "head"}
+    ]
+  }
+}

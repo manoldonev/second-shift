@@ -1,0 +1,14 @@
+{
+  "upstream": "https://github.com/iamkun/dayjs.git",
+  "instance": "iamkun__dayjs-1209",
+  "license": "MIT",
+  "base": "9544ed2a6c466b8308d26b33a388a6737435a1f4",
+  "base_branch": "dev",
+  "overlay": "iamkun__dayjs",
+  "issue": 1205,
+  "pr": 1209,
+  "commit": "fix: customParseFormat parses a two-digit zone offset",
+  "truth": {
+    "class": "control"
+  }
+}

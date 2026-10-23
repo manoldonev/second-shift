@@ -1,0 +1,21 @@
+{
+  "upstream": "https://github.com/anuraghazra/github-readme-stats.git",
+  "instance": "anuraghazra__github-readme-stats-99",
+  "license": "MIT",
+  "base": "b039fa16afedf91cc9044f790ec63f23dbfa0299",
+  "base_branch": "master",
+  "overlay": "anuraghazra__github-readme-stats",
+  "issue": 96,
+  "pr": 99,
+  "commit": "feat: show an Archived badge on the repo card of an archived repository",
+  "truth": {
+    "class": "P1",
+    "description": "The GraphQL query of the unchanged fetchRepo never asks for isArchived, so the repository that the pin endpoint hands to renderRepoCard never carries it and AC-1 is unmet.",
+    "locations": [
+      {"file": "src/renderRepoCard.js", "start": 11, "end": 11, "side": "head"},
+      {"file": "src/renderRepoCard.js", "start": 36, "end": 43, "side": "head"},
+      {"file": "src/fetchRepo.js", "side": "head"},
+      {"file": "api/pin.js", "side": "head"}
+    ]
+  }
+}

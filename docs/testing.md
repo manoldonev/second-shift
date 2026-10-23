@@ -746,7 +746,7 @@ a full 10-PR arm is about 45 session-minutes on the seat the checkouts' remote r
 ### The planted mode: does the lane review beat a plain review with the ticket?
 
 The known-bug set has no ticket, no record and no repo context, so it cannot measure what the lane
-adds. `code-review-bench-eval/planted/` can. Each of its 25 cases is a real TypeScript or JavaScript
+adds. `code-review-bench-eval/planted/` can. Each of its 29 cases is a real TypeScript or JavaScript
 issue and fix from Multi-SWE-bench, pinned by upstream and base sha, with one planted defect or none:
 
 | Class | Pillar | What is planted |
@@ -757,11 +757,13 @@ issue and fix from Multi-SWE-bench, pinned by upstream and base sha, with one pl
 | P4 | correctness | The change breaks an existing caller, or existing stored data. No upstream in the corpus stores data, so every P4 case breaks a caller. |
 | P5 | prior art | The change breaks a convention that the case's `review-context.md` declares. |
 
-There are four cases per class and five clean controls. A case carries its ticket (the upstream
-issue text and an `## Acceptance criteria` block), its decision record, the patch (the edited fix,
-its tests, and the plan a build would commit), and its ground truth: the class, the planted
-ranges and a one-sentence description. `overlays/` holds each upstream's `review-context.md` and
-config.
+There are eight P1 cases, four cases in each other class and five clean controls. Four of the P1
+cases break an AC only where an unchanged caller meets the new code, so the change's own tests
+pass. A P1 truth names the AC it leaves unmet; a broken caller outside every AC is P4. A case
+carries its ticket (the upstream issue text and an `## Acceptance criteria` block), its decision
+record, the patch (the edited fix, its tests, and the plan a build would commit), and its ground
+truth: the class, the planted locations and a one-sentence description. `overlays/` holds each
+upstream's `review-context.md` and config.
 
 The recipe clones each upstream at depth 1 and builds the case outside the repo, with no remote:
 the base, the overlay commit (which `origin/<base branch>` names), the record as its own commit,
@@ -770,11 +772,17 @@ prompt, and the lane's verdict contract with none of its other rules. The **lane
 lane's gates and renders its review prompt and scheduler input from `run.sh` itself: `planted.py`
 extracts the functions as text and `lane-render.sh` calls them in `run.sh`'s order. A `gh` on the
 session's PATH serves the ticket and an empty PR and saves the posted verdict. A gate that stops a
-case stops it before any review.
+case stops it before any review. Each review session writes its stdout and stderr to
+`state/session.stdout` and `state/session.stderr` under its work directory, a timed-out session
+included, and its record names both files.
 
-A finding matches the plant when its path:line falls inside a planted range, within three lines,
-and the bench's judge agrees that it describes the plant. The judge's calibration on the
-known-bug dev set runs first. **Right** is a matching `[blocker]`, the planted row scored
+A finding's path is the first `path:line` on its first line, else the first token there that holds
+a `/` and a file extension. A finding goes to the bench's judge when its path:line falls inside a
+planted range, within three lines, or its path names the file of a path-level location (a `{file,
+side}` with no range, such as the file where a dropped test belongs). On a case with a path-level
+location, a `[blocker]` that names no path goes to the judge too. It matches the plant when the
+judge agrees that it describes the plant. The judge's calibration on the known-bug dev set runs
+first. **Right** is a matching `[blocker]`, the planted row scored
 `violated` or `undeterminable` (P2), or a gate stop; on P5 a matching `[note]` is right too.
 **Wrong** is a planted case approved, except on P5. **Harm** is a control the arm sends back, once
 per control. **Noise** is an unmatched `[blocker]` on a planted case. A verdict that breaks its

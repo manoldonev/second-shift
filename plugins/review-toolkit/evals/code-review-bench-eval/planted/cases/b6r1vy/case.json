@@ -13,6 +13,7 @@
     "description": "The updateLocale test that the plan names for AC-1 is not in the change, so the invalidDate override has no test.",
     "locations": [
       {"file": "docs/plans/dayjs-1465-plan.md", "start": 5, "end": 5, "side": "head"},
+      {"file": "test/plugin/updateLocale.test.js", "side": "head"},
       {"file": "src/index.js", "start": 254, "end": 256, "side": "head"}
     ]
   }
