@@ -100,11 +100,12 @@ if [[ "$unsq" == *'$('* || "$unsq" == *'`'* || "$unq" == *'|'* || "$unq" == *';'
   decide deny "Run each shell command on its own, with absolute paths: no \$( ) or backtick substitution, no | pipe, no ; && or || chain, no cd (use git -C <dir>). Run the commands of this call one at a time, each in its own Bash call; one that is still not granted is skipped and named in the PR body as skipped."
 fi
 # the one Bash allow. An operand must be a word the shell passes through unchanged (no quote, $, ~, glob, brace,
-# backslash, redirect or &), so the path resolved here is the path chmod opens
+# backslash, redirect or &, and no leading =, which zsh expands to a command's path), so the path resolved here is
+# the path chmod opens
 if [ "${cw[0]:-}" = chmod ] && [ "${cw[1]:-}" = +x ] && [ "${#cw[@]}" -gt 2 ]; then
   plain='^[[:alnum:]._/@%+,:=-]+$'
   for w in "${cw[@]:2}"; do
-    case "$w" in -*) not_granted "Bash: $CMD" ;; esac
+    case "$w" in -*|=*) not_granted "Bash: $CMD" ;; esac
     [[ "$w" =~ $plain ]] || not_granted "Bash: $CMD"
     case "$w" in /*) p="$w" ;; *) p="$CWD/$w" ;; esac
     r="$(resolve "$p")" || withheld "$w" "an unresolvable path"

@@ -116,11 +116,13 @@ expect_deny "(h8j) a .claude/ subdirectory named in another case" "$NOTGRANTED" 
 expect_deny "(h8k) a symlink into a .claude/ subdirectory" "$NOTGRANTED" Bash "$(bash_in "chmod +x sub/agents-link/x.sh")"
 expect_deny "(h8l) the scratch dir" "$NOTGRANTED" Bash "$(bash_in "chmod +x $SCR/x.sh")"
 for c in 'chmod +x' 'chmod 755 sub/a.sh' 'chmod u+x sub/a.sh' 'chmod -R +x sub' 'chmod +x -R sub' 'chmod +x -- sub/a.sh' "chmod +x 'sub/a.sh'" \
-  'chmod +x l*nk/x.sh' 'chmod +x {link,sub}/x.sh' 'chmod +x ~/x.sh' 'chmod +x $HOME/x.sh' 'chmod +x li\nk/x.sh' 'chmod +x sub/a.sh > sub/out' 'chmod +x sub/a.sh & sleep 1' \
+  'chmod +x l*nk/x.sh' 'chmod +x l?nk/x.sh' 'chmod +x l[i]nk/x.sh' 'chmod +x {link,sub}/x.sh' 'chmod +x ~/x.sh' 'chmod +x $HOME/x.sh' 'chmod +x li\nk/x.sh' 'chmod +x sub/a.sh > sub/out' 'chmod +x sub/a.sh & sleep 1' \
   'X=1 chmod +x sub/a.sh' 'sudo chmod +x sub/a.sh'; do
   expect_deny "(h8m) another form: $c" "$NOTGRANTED" Bash "$(bash_in "$c")"
 done
 expect_deny "(h8n) chained with git add, the compound reason" "$SINGLE" Bash "$(bash_in "chmod +x sub/a.sh && git add sub/a.sh")"
+expect_deny "(h8o) a leading =, which zsh expands to a command's path" "$NOTGRANTED" Bash "$(bash_in "chmod +x =git")"
+expect_deny "(h8p) a sibling that shares the worktree's prefix" "$WITHHELD" Bash "$(bash_in "chmod +x ../wt-other/x.sh")" "$P/wt-other/x.sh"
 
 echo "== (h6) no worktree or unreadable input: the hook says nothing, the flow proceeds unchanged =="
 [ -z "$(printf '{}' | bash "$HOOK")" ] && [ -z "$(printf 'not json' | bash "$HOOK" "$WT")" ] && ok "(h6) silent" || bad "(h6) the hook decided without a worktree or on unreadable input"
