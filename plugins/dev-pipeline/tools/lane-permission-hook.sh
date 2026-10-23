@@ -19,6 +19,10 @@
 # commands/, hooks/, rules/ …), which a session loads, are denied by name. The lane files are the one exception (#1080):
 # Edit or Write to exactly a named <lane-file>, after the same resolution, is allowed wherever it sits in the worktree,
 # so a plansDir under .claude/ (say .claude/plans) can take the plan the scheduler requires and the record's row edits.
+# Its one Bash allow, once the withheld and compound checks pass: exactly `chmod +x <operand>...`, every operand a plain
+# word that resolves, against the input's cwd, inside the worktree and outside its .claude/ subdirectories. The bit
+# then sits on disk, so `git add` commits 100755 and the tree stays clean; `git update-index --chmod=+x` leaves a
+# mode-only difference that the scheduler reads as uncommitted work. Any other chmod is denied as above.
 #
 # Output: one hookSpecificOutput JSON object on stdout, exit 0. With no worktree argument or unreadable input it prints
 # nothing and the permission flow proceeds as it would without the hook (a denial, under --permission-prompts none).
@@ -94,6 +98,21 @@ read -r -a cw <<<"$CMD"; first=""
 for w in ${cw[@]+"${cw[@]}"}; do case "$w" in *=*) continue ;; *) first="$w"; break ;; esac; done
 if [[ "$unsq" == *'$('* || "$unsq" == *'`'* || "$unq" == *'|'* || "$unq" == *';'* || "$unq" == *'&&'* || "$CMD" == *$'\n'* || "$first" = cd ]]; then
   decide deny "Run each shell command on its own, with absolute paths: no \$( ) or backtick substitution, no | pipe, no ; && or || chain, no cd (use git -C <dir>). Run the commands of this call one at a time, each in its own Bash call; one that is still not granted is skipped and named in the PR body as skipped."
+fi
+# the one Bash allow. An operand must be a word the shell passes through unchanged (no quote, $, ~, glob, brace,
+# backslash, redirect or &, and no leading =, which zsh expands to a command's path), so the path resolved here is
+# the path chmod opens
+if [ "${cw[0]:-}" = chmod ] && [ "${cw[1]:-}" = +x ] && [ "${#cw[@]}" -gt 2 ]; then
+  plain='^[[:alnum:]._/@%+,:=-]+$'
+  for w in "${cw[@]:2}"; do
+    case "$w" in -*|=*) not_granted "Bash: $CMD" ;; esac
+    [[ "$w" =~ $plain ]] || not_granted "Bash: $CMD"
+    case "$w" in /*) p="$w" ;; *) p="$CWD/$w" ;; esac
+    r="$(resolve "$p")" || withheld "$w" "an unresolvable path"
+    case "$r" in "$WT"/*) ;; *) inside "$r" && not_granted "Bash: $CMD"; withheld "$w" "$r" ;; esac
+    case "$(tr '[:upper:]' '[:lower:]' <<<"${r#"$WT"/}")" in .claude/*/*) not_granted "Bash: $CMD" ;; esac
+  done
+  decide allow
 fi
 # 3. the read helpers have tools of their own
 case "$first" in grep|find|ls|wc|head|cat|tail)

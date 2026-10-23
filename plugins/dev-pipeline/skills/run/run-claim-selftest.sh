@@ -167,6 +167,17 @@ hook_says() { # hook_says <tool> <file_path-or-command>: what the build's hook c
   && jq -e 'has("hooks") | not' <<<"$rset" >/dev/null 2>&1 \
   && ok "(zh) AC-6: the build's --settings runs the dev-pipeline tools hook on PermissionRequest, given its worktree and scratch dir; the review's has no hooks" \
   || bad "(zh) AC-6 build settings: $bset · review settings: $rset"
+[ "$(hook_says Bash "chmod +x $wt/scripts/new-selftest.sh")" = 'allow ' ] && [[ "$(hook_says Bash "chmod +x $wt/.claude/hooks/x.sh")" == deny* ]] \
+  && ok "(zh) the build's hook allows chmod +x on a worktree file and denies it in a .claude/ subdirectory" \
+  || bad "(zh) build hook on chmod +x: $(hook_says Bash "chmod +x $wt/scripts/new-selftest.sh")"
+
+# (zj) a build that makes a new script executable on disk commits 100755 and reaches the review with a clean tree;
+#      the same bit set only in the index leaves a mode-only difference, which stays in-flight work
+fixture zj; printf 'build-pr-chmod\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(zj) chmod +x on disk, then git add and commit"
+[ "$(git -C "$d/origin.git" ls-tree second-shift/42 -- new-selftest.sh | cut -d' ' -f1)" = 100755 ] && [ -z "$(git -C "$d/wt/42" status --porcelain 2>/dev/null)" ] \
+  && ok "(zj) the branch carries new-selftest.sh as 100755 and the worktree is clean" \
+  || bad "(zj) branch entry: $(git -C "$d/origin.git" ls-tree second-shift/42 -- new-selftest.sh) · status: $(git -C "$d/wt/42" status --porcelain 2>&1 | tr '\n' '|')"
+fixture zk; printf 'build-pr-update-index\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect build-inflight "(zk) git update-index --chmod=+x alone leaves a mode-only difference in flight"
 
 # (zi) #1080: a plansDir under .claude/ — the build's hook is given the record and the plan, so the build can write the plan
 #      the plan coverage requires and edit the record's rows there; any other file in that dir is still denied

@@ -24,6 +24,7 @@ mkdir -p "$WT/.claude/agents" "$WT/sub" "$MAIN/.claude" "$SCR"
 ln -s "$MAIN" "$WT/link"                                  # a worktree path that is the main checkout
 ln -s "$MAIN/.claude/NOTES.md" "$WT/.claude/escape.md"    # a .claude/ file that is the main checkout's
 ln -s settings.json "$WT/.claude/alias.md"                # a .claude/ file that is the settings file
+ln -s "$WT/.claude/agents" "$WT/sub/agents-link"          # a worktree path that is a .claude/ subdirectory
 P="$(cd "$T" && pwd -P)"   # the physical temp root: on macOS $TMPDIR sits under the /var -> /private/var link
 
 hook() { # hook <tool> <tool_input-json>: the decision object, or nothing
@@ -100,6 +101,28 @@ hook_lane() { # hook_lane <tool> <tool_input-json>: the decision behavior, the h
 expect_deny "(h7f) without the lane files named, the plan in .claude/plans/ is denied as before" "sessions load" Write "$(file_in "$LANE_PLAN")" ".claude/plans/"
 [ "$(jq -cn --arg cwd "$WT" --arg p "$LANE_PLAN" '{cwd:$cwd,tool_name:"Write",tool_input:{file_path:$p}}' | bash "$HOOK" "$WT" "" "$LANE_PLAN" | jq -r '.hookSpecificOutput.decision.behavior')" = allow ] \
   && ok "(h7g) an empty scratch dir argument still reads the lane files after it" || bad "(h7g) empty scratch arg broke the lane files"
+
+echo "== (h8) chmod +x on files in the worktree =="
+expect_allow "(h8a) a relative path, against the input's cwd" Bash "$(bash_in "chmod +x sub/new-selftest.sh")"
+expect_allow "(h8b) absolute paths, more than one" Bash "$(bash_in "chmod +x $WT/sub/a.sh $WT/b.sh")"
+expect_allow "(h8c) a \`..\` that stays in the worktree" Bash "$(bash_in "chmod +x sub/../c.sh")"
+expect_allow "(h8d) a file directly in .claude/" Bash "$(bash_in "chmod +x .claude/x.sh")"
+expect_deny "(h8e) an absolute path outside the worktree" "$WITHHELD" Bash "$(bash_in "chmod +x $MAIN/x.sh")" "$MAIN/x.sh"
+expect_deny "(h8f) a relative \`..\` out of the worktree" "$WITHHELD" Bash "$(bash_in "chmod +x sub/a.sh ../main/x.sh")" "$P/main/x.sh"
+expect_deny "(h8g) a relative path through a symlink out of the worktree" "$WITHHELD" Bash "$(bash_in "chmod +x link/x.sh")" "$P/main/x.sh"
+expect_deny "(h8h) an absolute path through a symlink out of the worktree" "$WITHHELD" Bash "$(bash_in "chmod +x $WT/link/x.sh")" "$P/main/x.sh"
+expect_deny "(h8i) a file in a .claude/ subdirectory" "$NOTGRANTED" Bash "$(bash_in "chmod +x .claude/agents/x.sh")"
+expect_deny "(h8j) a .claude/ subdirectory named in another case" "$NOTGRANTED" Bash "$(bash_in "chmod +x $WT/.CLAUDE/hooks/x.sh")"
+expect_deny "(h8k) a symlink into a .claude/ subdirectory" "$NOTGRANTED" Bash "$(bash_in "chmod +x sub/agents-link/x.sh")"
+expect_deny "(h8l) the scratch dir" "$NOTGRANTED" Bash "$(bash_in "chmod +x $SCR/x.sh")"
+for c in 'chmod +x' 'chmod 755 sub/a.sh' 'chmod u+x sub/a.sh' 'chmod -R +x sub' 'chmod +x -R sub' 'chmod +x -- sub/a.sh' "chmod +x 'sub/a.sh'" \
+  'chmod +x l*nk/x.sh' 'chmod +x l?nk/x.sh' 'chmod +x l[i]nk/x.sh' 'chmod +x {link,sub}/x.sh' 'chmod +x ~/x.sh' 'chmod +x $HOME/x.sh' 'chmod +x li\nk/x.sh' 'chmod +x sub/a.sh > sub/out' 'chmod +x sub/a.sh & sleep 1' \
+  'X=1 chmod +x sub/a.sh' 'sudo chmod +x sub/a.sh'; do
+  expect_deny "(h8m) another form: $c" "$NOTGRANTED" Bash "$(bash_in "$c")"
+done
+expect_deny "(h8n) chained with git add, the compound reason" "$SINGLE" Bash "$(bash_in "chmod +x sub/a.sh && git add sub/a.sh")"
+expect_deny "(h8o) a leading =, which zsh expands to a command's path" "$NOTGRANTED" Bash "$(bash_in "chmod +x =git")"
+expect_deny "(h8p) a sibling that shares the worktree's prefix" "$WITHHELD" Bash "$(bash_in "chmod +x ../wt-other/x.sh")" "$P/wt-other/x.sh"
 
 echo "== (h6) no worktree or unreadable input: the hook says nothing, the flow proceeds unchanged =="
 [ -z "$(printf '{}' | bash "$HOOK")" ] && [ -z "$(printf 'not json' | bash "$HOOK" "$WT")" ] && ok "(h6) silent" || bad "(h6) the hook decided without a worktree or on unreadable input"
